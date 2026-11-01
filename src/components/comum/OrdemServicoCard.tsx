@@ -11,13 +11,22 @@ import ConfirmarExclusaoOS from '@/components/comum/ConfirmarExclusaoOS'
 import NovaReceitaModal from '@/components/financeiro/NovaReceitaModal'   // chamado #20 §2.4 · "Gerar financeiro"
 import EmitirNFSeOSButton from '@/components/comum/EmitirNFSeOSButton'   // chamado #20 Fase 2 · NFS-e (serviços) da OS
 import EmitirNFeOSButton from '@/components/comum/EmitirNFeOSButton'   // chamado #20 Fase 3 · NF-e (peças) da OS
+import OSNotasFiscaisSelo from '@/components/comum/OSNotasFiscaisSelo'   // chamado #3242 · indicador de NF emitida na ficha
+import OSNFForaDaOS from '@/components/comum/OSNFForaDaOS'   // chamado #2167 · marcação "NF fora da OS"
 import { orFiltroClienteBusca } from '@/lib/clienteBusca'
 import { fmtData } from '@/lib/psgc-tokens'   // formata date puro em LOCAL (sem drift −1 dia de UTC)
+import { useOficinaRamo } from '@/lib/oficina/ramo'   // HB0 item 6 · campos de oficina só no ramo automotivo
+import { useOficinaModelo } from '@/lib/oficina/modelo'   // #135 · atendimento centralizado (sem tablet)
+import { itensPendentesOS, podeAprovarNaOS } from '@/lib/oficina/aprovarNaOS'
+import { edicaoInicialOS, itemEditavelNaOS, montarDadosDiagnosticoOS, podeEditarItensNaOS, validarEdicaoOS, type EdicaoItemOS } from '@/lib/oficina/itensNaOS'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import { Package, PencilLine, Search, Wrench } from 'lucide-react'
 
 interface OS {
   id: string
   numero: string | null
   status: string
+  nasceu_orcamento?: boolean | null  // #2867 · OS criada como orçamento
   total: number | null
   company_id: string
   pedido_id: string | null
@@ -90,6 +99,7 @@ const fmtQuando = (iso: string) => {
 }
 
 const STATUS: Array<{ value: string; label: string; cor: string; bg: string }> = [
+  { value: 'orcamento',              label: 'Orçamento',               cor: C.amber,    bg: C.amberBg },   // #2867 · OS criada como orçamento
   { value: 'aberta',                 label: 'Aberta',                  cor: C.espresso, bg: C.neutralBg },
   { value: 'em_execucao',            label: 'Em execução',             cor: C.goldD,    bg: C.goldBg },
   { value: 'aguardando_peca',        label: 'Aguardando peça/material', cor: C.amber,    bg: C.amberBg },
@@ -157,6 +167,9 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const [substTermo, setSubstTermo] = useState('')
   const [substResult, setSubstResult] = useState<Array<{ id: string; nome: string; codigo: string | null; estoque_atual: number | null }>>([])
   const [substindo, setSubstindo] = useState(false)
+  // #135 (Triches) · etapa 2: incluir/editar itens, quantidade e preço na própria OS (atendimento centralizado)
+  const [edItens, setEdItens] = useState<EdicaoItemOS[] | null>(null)
+  const [salvandoItens, setSalvandoItens] = useState(false)
   // OS avulsa · banco da cobrança escolhido no faturamento (OS via pedido usa a conta das parcelas, #1211)
   const [receitaAberta, setReceitaAberta] = useState(false)   // #20 §2.4 · form de receita a partir da OS
   // #108 · desconto na OS (ponto único, antes de faturar): entrada em R$ OU %, grava sempre em valor.
@@ -164,6 +177,8 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const [descModo, setDescModo] = useState<'valor' | 'pct'>('valor')
   const [aplicandoDesc, setAplicandoDesc] = useState(false)
   const [descPrecisaAprovacao, setDescPrecisaAprovacao] = useState(false)
+  // #135 (Triches) · atendimento centralizado: aprovar o orçamento na própria OS (sem a tela de Aprovação)
+  const [aprovandoOrc, setAprovandoOrc] = useState(false)
 
   const faturada = Boolean(os?.titulos_gerados) || os?.lancamento_id != null
   const podeFaturar = !faturada && ['pronta', 'entregue', 'concluida', 'concluída', 'finalizada'].includes(String(os?.status ?? ''))
@@ -173,6 +188,9 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const podeAjustarEntregue = isMaster || isBpo             // BUG #16b: Master OU BPO ajustam pós-entrega
   const bloqueadoEntrega = Boolean(entregue && !podeAjustarEntregue)
   const roEntrega = bloqueadoEntrega                         // readOnly nos campos quando bloqueado
+  const { config: ramoCfg, carregado: ramoCarregado } = useOficinaRamo(os?.company_id ?? null)
+  const mostraPlaca = !ramoCarregado || ramoCfg.automotivo   // desconhecido/carregando = automotiva (regressão zero)
+  const oficina = useOficinaModelo(os?.company_id ?? null)   // #135 · modelo de atendimento da empresa da OS
   const tipEntrega = 'OS entregue — ajustes só por Master ou BPO.'
 
   async function faturar() {
@@ -228,6 +246,56 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
     setDescInput(''); setDescPrecisaAprovacao(false)
     flash(valor > 0 ? `Desconto aplicado ✓ ${fmtBRL(valor)}` : 'Desconto removido ✓')
     void carregar()
+  }
+
+  // #135 (Triches) · no atendimento centralizado a oficina aprova o orçamento na própria OS, depois de mandar o PDF ao
+  // cliente. Mesma RPC da tela de Aprovação (fn_oficina_orcamento_registrar): marca os itens PENDENTES como aprovados,
+  // grava erp_os_aprovacao (canal "presencial") e o gatilho do #134 passa a OS para "Aprovada". Item já recusado não muda.
+  const itensPendentes = itensPendentesOS(itensDiag)
+  async function aprovarOrcamento() {
+    if (!os || itensPendentes.length === 0) return
+    const semPreco = itensPendentes.filter((it) => (it.subtotal ?? it.preco) == null || Number(it.subtotal ?? it.preco) <= 0).length
+    const aviso = semPreco > 0 ? `\n\nAtenção: ${semPreco === 1 ? '1 item está' : `${semPreco} itens estão`} sem preço e entra${semPreco === 1 ? '' : 'm'} com R$ 0,00.` : ''
+    if (!window.confirm(`Aprovar o orçamento da OS ${os.numero ?? ''} (${itensPendentes.length} ${itensPendentes.length === 1 ? 'item' : 'itens'})? A OS passa para "Aprovada".${aviso}`)) return
+    setAprovandoOrc(true); setErro(null)
+    const { data, error } = await supabase.rpc('fn_oficina_orcamento_registrar', {
+      p_company_id: os.company_id, p_os_id: os.id,
+      p_dados: { aprovador_nome: clienteNome || os.cliente_nome || null, canal: 'presencial', observacao: 'Aprovado na Ordem de Serviço (atendimento centralizado)',
+        itens: itensPendentes.map((it) => ({ item_id: it.id, aprovado: true })) },
+    })
+    setAprovandoOrc(false)
+    const r = data as { ok?: boolean; erro?: string; itens_aprovados?: number; itens_total?: number; valor_total?: number } | null
+    if (error || r?.ok === false) { setErro(error?.message ?? (r?.erro === 'sem_permissao_valor' ? 'Seu perfil não pode aprovar orçamento (valor).' : r?.erro ?? 'Falha ao aprovar o orçamento')); return }
+    flash(`Orçamento APROVADO · ${r?.itens_aprovados ?? 0}/${r?.itens_total ?? 0} itens · ${fmtBRL(Number(r?.valor_total ?? 0))}.`)
+    await carregar()
+  }
+
+  // #135 (Triches) · etapa 2: grava pela MESMA RPC do Diagnóstico (fn_oficina_diagnostico_salvar). Relê o diagnóstico
+  // na hora de salvar e devolve TODOS os itens atuais (a RPC apaga o que não vier) + texto e km como estão.
+  const editarItens = podeEditarItensNaOS(oficina.modelo, oficina.podePreco, String(os?.status ?? ''))
+  function addItemOS(tipo: 'peca' | 'servico') {
+    setEdItens((p) => [...(p ?? []), { id: null, chave: `novo-${Date.now()}-${(p ?? []).length}`, tipo, descricao: '', quantidade: '1', preco: '' }])
+  }
+  function mudarItemOS(chave: string, campo: 'descricao' | 'quantidade' | 'preco', valor: string) {
+    setEdItens((p) => (p ?? []).map((e) => (e.chave === chave ? { ...e, [campo]: valor } : e)))
+  }
+  async function salvarItensOS() {
+    if (!os || !edItens) return
+    const inval = validarEdicaoOS(edItens)
+    if (inval) { setErro(inval); return }
+    setSalvandoItens(true); setErro(null)
+    const { data: diag, error: e1 } = await supabase.rpc('fn_oficina_diagnostico_obter', { p_company_id: os.company_id, p_os_id: os.id })
+    const dd = diag as { os?: { diagnostico?: string | null; km?: number | null } | null; itens?: typeof itensDiag } | null
+    if (e1 || !dd?.os) { setSalvandoItens(false); setErro(e1?.message ?? 'Não foi possível ler os itens da OS. Tente de novo.'); return }
+    const p_dados = montarDadosDiagnosticoOS({ diagnostico: dd.os.diagnostico, km: dd.os.km, itens: Array.isArray(dd.itens) ? dd.itens : [] }, edItens)
+    const { data, error } = await supabase.rpc('fn_oficina_diagnostico_salvar', { p_company_id: os.company_id, p_os_id: os.id, p_dados })
+    setSalvandoItens(false)
+    const r = data as { ok?: boolean; erro?: string; itens?: number } | null
+    if (error || r?.ok === false) { setErro(error?.message ?? r?.erro ?? 'Falha ao salvar os itens'); return }
+    setEdItens(null)
+    const n = r?.itens ?? p_dados.itens.length
+    flash(`Itens da OS salvos ✓ ${n} ${n === 1 ? 'item' : 'itens'}.`)
+    await carregar()
   }
 
   function flash(msg: string) {
@@ -289,7 +357,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const carregar = useCallback(async () => {
     setLoading(true)
     // ONDA-OS-MECANICO-MOBILE-v1 · osId tem prioridade · permite OS avulsa
-    const cols = 'id,numero,status,total,company_id,pedido_id,cliente_id,cliente_nome,cliente_cnpj,placa,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,desconto_valor,desconto_percentual,desconto_concedido_em,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao'
+    const cols = 'id,numero,status,nasceu_orcamento,total,company_id,pedido_id,cliente_id,cliente_nome,cliente_cnpj,placa,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,desconto_valor,desconto_percentual,desconto_concedido_em,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao'
     const q = supabase.from('erp_os').select(cols)
     const { data, error } = osId
       ? await q.eq('id', osId).maybeSingle()
@@ -407,7 +475,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
     if (resp?.os_id) {
       const { data: row } = await supabase
         .from('erp_os')
-        .select('id,numero,status,total,company_id,pedido_id,cliente_id,cliente_nome,cliente_cnpj,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,desconto_valor,desconto_percentual,desconto_concedido_em,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao')
+        .select('id,numero,status,nasceu_orcamento,total,company_id,pedido_id,cliente_id,cliente_nome,cliente_cnpj,titulos_gerados,lancamento_id,equipamento,defeito_relatado,descricao_servico,endereco_servico,observacoes_cliente,observacoes_internas,tecnico_nome,horas_previstas,horas_executadas,valor_hora,desconto_valor,desconto_percentual,desconto_concedido_em,assinatura_cliente,assinatura_data,data_abertura,data_execucao,data_conclusao')
         .eq('id', resp.os_id)
         .maybeSingle()
       if (row) {
@@ -437,6 +505,10 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
     // BUG #16a · não deixar "entregar" com os valores zerados sem avisar (não passa silencioso).
     if (novoStatus === 'entregue' && Number(os.total ?? 0) === 0) {
       if (!window.confirm('Esta OS está com total R$ 0,00 (sem peças/mão de obra fechados). Entregar assim mesmo? O custo/lucro sairá zerado nos relatórios.')) return
+    }
+    // #2867 · OS nascida de orçamento: o orçamento pode ter sido feito só com o relato do cliente; avisa para conferir o diagnóstico.
+    if (os.nasceu_orcamento && novoStatus !== os.status) {
+      if (!window.confirm('Ordem de serviço gerada através de um orçamento, verifique o diagnóstico.\n\nO orçamento pode ter sido feito só com as informações do cliente; confira se o serviço é realmente o solicitado. Continuar e alterar o status?')) return
     }
     setErro(null)
     const { data, error } = await supabase.rpc('fn_os_salvar', {
@@ -587,10 +659,35 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
         </select>
       </label>
 
+      {/* #2867 etapa 3 · OS-orçamento: agenda o serviço direto daqui (a agenda abre já preenchida; na chegada do veículo faz-se a recepção/checklist). */}
+      {os.status === 'orcamento' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <a
+            href={`/dashboard/oficina/agenda?${new URLSearchParams({ os: os.id, osn: os.numero ?? '', cliente: os.cliente_nome ?? '', clienteId: os.cliente_id ?? '', placa: os.placa ?? '' }).toString()}`}
+            data-testid="os-agendar-orcamento"
+            style={{ ...btnPri, minHeight: 44, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}
+          >
+            Agendar serviço
+          </a>
+          <AjudaCampo chave="os.orcamento.agendar" rota="/dashboard/os" />
+        </div>
+      )}
+
+      {/* #135 (Triches) · atendimento centralizado: aprovar o orçamento aqui mesmo (a tela de Aprovação fica opcional) */}
+      {podeAprovarNaOS(oficina.modelo, oficina.podePreco, os.status, itensPendentes.length) && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button type="button" onClick={() => void aprovarOrcamento()} disabled={aprovandoOrc} data-testid="os-aprovar-orcamento"
+            style={{ ...btnPri, minHeight: 44, flex: 1 }}>
+            {aprovandoOrc ? 'Aprovando…' : `✓ Aprovar orçamento (${itensPendentes.length} ${itensPendentes.length === 1 ? 'item' : 'itens'})`}
+          </button>
+          <AjudaCampo chave="oficina.os.aprovar_orcamento" rota="/dashboard/os" />
+        </div>
+      )}
+
       {/* #121 · placa editável (erro de digitação ao abrir a OS). Mesma RPC do pátio (fn_oficina_os_set_placa):
           normaliza (maiúsculas, sem traço) e exige ≥ 5 caracteres. Salva na hora, separado do "Salvar" da ficha. */}
-      <div style={{ display: 'block' }}>
-        <span style={lbl}>Placa</span>
+      {mostraPlaca && <div style={{ display: 'block' }}>
+        <span style={lbl}>Placa <AjudaCampo chave="os.ficha.placa" rota="/dashboard/os" /></span>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <input
             value={placaEdit}
@@ -623,7 +720,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           )}
         </div>
         {msgPlaca && <div data-testid="os-placa-msg" style={{ fontSize: 12, marginTop: 4, color: msgPlaca.startsWith('Placa SALVA') ? C.green : C.red }}>{msgPlaca}</div>}
-      </div>
+      </div>}
 
       {/* FIX 1 · cliente editável em qualquer status + re-vínculo a outro cadastro */}
       <div style={{ display: 'block' }}>
@@ -816,10 +913,62 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
       {msgOk && <p style={{ fontSize: 12, color: C.green, fontWeight: 600, margin: 0 }}>✓ {msgOk}</p>}
 
       {/* RD-41 · Itens da OS (peças + serviços). Vinham vazios ao reabrir OS entregue → impresso zerado. */}
-      {itensDiag.length > 0 && (
+      {(itensDiag.length > 0 || editarItens) && (
         <div data-testid="os-itens" style={{ border: '1px solid rgba(61,35,20,0.12)', borderRadius: 10, padding: 12, background: C.white }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: C.espresso, marginBottom: 8 }}>Itens da OS ({itensDiag.length})</div>
-          {itensDiag.map((it, i) => {
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.espresso, flex: 1 }}>Itens da OS ({itensDiag.length})</div>
+            {editarItens && edItens === null && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <button type="button" data-testid="os-editar-itens" onClick={() => { setErro(null); setEdItens(edicaoInicialOS(itensDiag)) }}
+                  style={{ fontSize: 12, fontWeight: 700, color: C.gold, background: 'none', border: `1px solid ${C.gold}`, borderRadius: 8, padding: '6px 12px', minHeight: 36, cursor: 'pointer' }}>
+                  <PencilLine size={14} strokeWidth={1.5} style={{ verticalAlign: '-2px', marginRight: 4 }} />{itensDiag.length > 0 ? 'Editar itens e preços' : 'Incluir itens'}
+                </button>
+                <AjudaCampo chave="oficina.os.editar_itens" />
+              </span>
+            )}
+          </div>
+          {edItens !== null && (
+            <div data-testid="os-itens-edicao" style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
+              {itensDiag.some((it) => !itemEditavelNaOS(it)) && (
+                <div style={{ fontSize: 11, color: C.espressoL }}>Itens já aprovados ou recusados pelo cliente não mudam aqui.</div>
+              )}
+              {edItens.length > 0 && (
+                <div style={{ display: 'flex', gap: 6, fontSize: 10.5, fontWeight: 700, color: C.espressoL, alignItems: 'center', paddingLeft: 22 }}>
+                  <span style={{ flex: 1, minWidth: 0 }}>Descrição <AjudaCampo chave="oficina.os.item_descricao" /></span>
+                  <span style={{ width: 64 }}>Qtd <AjudaCampo chave="oficina.os.item_quantidade" /></span>
+                  <span style={{ width: 96 }}>Preço un. <AjudaCampo chave="oficina.os.item_preco" /></span>
+                </div>
+              )}
+              {edItens.map((e, i) => (
+                // RD-95: o "?" de cada coluna (descrição, qtd, preço) fica no cabeçalho logo acima
+                <div key={e.chave} data-ajuda="oficina.os.item_descricao oficina.os.item_quantidade oficina.os.item_preco" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <span title={e.tipo === 'servico' ? 'Serviço' : 'Peça'} style={{ width: 16, display: 'inline-flex', color: C.espressoL }}>{e.tipo === 'servico' ? <Wrench size={14} strokeWidth={1.5} /> : <Package size={14} strokeWidth={1.5} />}</span>
+                  <input data-testid={`os-item-ed-descricao-${i}`} value={e.descricao} onChange={(ev) => mudarItemOS(e.chave, 'descricao', ev.target.value)}
+                    placeholder={e.tipo === 'servico' ? 'Ex.: Troca de embreagem' : 'Ex.: Filtro de óleo'}
+                    style={{ flex: 1, minWidth: 0, minHeight: 36, padding: '6px 8px', fontSize: 12.5, border: '1px solid rgba(61,35,20,0.2)', borderRadius: 6, boxSizing: 'border-box' }} />
+                  <input data-testid={`os-item-ed-qtd-${i}`} value={e.quantidade} inputMode="decimal" onChange={(ev) => mudarItemOS(e.chave, 'quantidade', ev.target.value)}
+                    style={{ width: 64, minHeight: 36, padding: '6px 8px', fontSize: 12.5, border: '1px solid rgba(61,35,20,0.2)', borderRadius: 6, boxSizing: 'border-box' }} />
+                  <input data-testid={`os-item-ed-preco-${i}`} value={e.preco} inputMode="decimal" placeholder="0,00" onChange={(ev) => mudarItemOS(e.chave, 'preco', ev.target.value)}
+                    style={{ width: 96, minHeight: 36, padding: '6px 8px', fontSize: 12.5, border: '1px solid rgba(61,35,20,0.2)', borderRadius: 6, boxSizing: 'border-box' }} />
+                </div>
+              ))}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button type="button" data-testid="os-item-add-peca" onClick={() => addItemOS('peca')}
+                  style={{ fontSize: 12, fontWeight: 700, color: C.espresso, background: 'none', border: '1px dashed rgba(61,35,20,0.3)', borderRadius: 8, padding: '6px 12px', minHeight: 36, cursor: 'pointer' }}>+ Peça</button>
+                <button type="button" data-testid="os-item-add-servico" onClick={() => addItemOS('servico')}
+                  style={{ fontSize: 12, fontWeight: 700, color: C.espresso, background: 'none', border: '1px dashed rgba(61,35,20,0.3)', borderRadius: 8, padding: '6px 12px', minHeight: 36, cursor: 'pointer' }}>+ Serviço</button>
+                <span style={{ flex: 1 }} />
+                <button type="button" onClick={() => setEdItens(null)} disabled={salvandoItens}
+                  style={{ fontSize: 12, fontWeight: 600, color: C.espressoL, background: 'none', border: 'none', padding: '6px 10px', minHeight: 36, cursor: 'pointer' }}>Cancelar</button>
+                <button type="button" data-testid="os-itens-salvar" onClick={() => void salvarItensOS()} disabled={salvandoItens}
+                  style={{ fontSize: 12, fontWeight: 700, color: C.white, background: C.green, border: 'none', borderRadius: 8, padding: '8px 14px', minHeight: 36, cursor: salvandoItens ? 'wait' : 'pointer' }}>
+                  {salvandoItens ? 'Salvando…' : 'Salvar itens'}
+                </button>
+              </div>
+              <div style={{ fontSize: 10.5, color: C.espressoL }}>Peça do estoque: inclua como texto e ligue depois no botão <Search size={11} strokeWidth={1.5} style={{ verticalAlign: '-1px' }} /> estoque. Para remover um item, use a tela de Diagnóstico.</div>
+            </div>
+          )}
+          {edItens === null && itensDiag.map((it, i) => {
             const qtd = it.quantidade != null && String(it.quantidade) !== '' ? Number(it.quantidade) : 1
             const val = it.subtotal ?? it.preco
             const ehPeca = it.tipo === 'peca' || it.tipo === 'peça'
@@ -966,7 +1115,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
         {faturada ? (
           // §2.5 · mostra o estado e LEVA à GE (alterar o título é ação da GE, não da OS — fronteira [→GE])
           <>
-            <a href="/dashboard/financeiro/receber" data-testid="os-faturada" title="Ver ou alterar o título financeiro na Gestão Empresarial (Contas a Receber)"
+            <a href={os.numero ? `/dashboard/financeiro/receber?busca=${encodeURIComponent(os.numero)}` : '/dashboard/financeiro/receber'} data-testid="os-faturada" title="Ver ou alterar o título financeiro na Gestão Empresarial (Contas a Receber)"
               style={{ fontSize: 12, fontWeight: 700, color: C.green, background: C.greenBg, borderRadius: 8, padding: '10px 14px', minHeight: 44, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}>
               ✓ Faturada · ver na GE →
             </a>
@@ -974,6 +1123,8 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
                 OS via pedido emite pelo fluxo do pedido (DrawerPedido), não aqui. */}
             {!os.pedido_id && (
               <>
+                <OSNotasFiscaisSelo osId={os.id} companyId={os.company_id} />
+                <OSNFForaDaOS osId={os.id} companyId={os.company_id} />
                 <EmitirNFSeOSButton
                   osId={os.id}
                   companyId={os.company_id}
@@ -994,15 +1145,23 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           !os.pedido_id ? (
             // OS avulsa (oficina): abre o lançamento de receita COMPLETO (forma de pagamento, parcelas),
             // pré-preenchido com cliente e valor da OS — chamado #20 §2.4. Não emite NF.
-            <button
-              type="button"
-              onClick={() => setReceitaAberta(true)}
-              data-testid="os-faturar"
-              title="Abre o lançamento de receita (forma de pagamento, parcelas) já preenchido com o cliente e o valor da OS. Não emite NF."
-              style={{ ...btnPri, background: C.gold, color: '#3D2314' }}
-            >
-              💰 Gerar Financeiro
-            </button>
+            // Chamado #5435 (Gean): a marcação "NF fora da OS" tira a OS da pendência de NF (nfPendente não
+            // exige faturamento). Antes só aparecia na OS já faturada; agora a OS pronta/entregue também pode
+            // ser marcada — quando a nota foi emitida por fora, sem precisar gerar financeiro nem informar
+            // os códigos de estoque dos itens. O selo mostra a situação atual da NF.
+            <>
+              <OSNotasFiscaisSelo osId={os.id} companyId={os.company_id} />
+              <OSNFForaDaOS osId={os.id} companyId={os.company_id} />
+              <button
+                type="button"
+                onClick={() => setReceitaAberta(true)}
+                data-testid="os-faturar"
+                title="Abre o lançamento de receita (forma de pagamento, parcelas) já preenchido com o cliente e o valor da OS. Não emite NF."
+                style={{ ...btnPri, background: C.gold, color: '#3D2314' }}
+              >
+                💰 Gerar Financeiro
+              </button>
+            </>
           ) : (
             // OS via pedido: o financeiro vem das parcelas do pedido (fn_os_faturar → fn_faturar)
             <button

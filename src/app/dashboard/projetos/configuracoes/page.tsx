@@ -18,6 +18,7 @@ import {
   Gauge,
 } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { comPrazo } from "@/lib/comPrazo";
 import { BdiSlider } from "@/components/projetos/BdiSlider";
@@ -32,10 +33,10 @@ import {
 interface Config {
   company_id: string;
   // BDI componentes (em %)
-  bdi_administracao_central_pct: number;
+  bdi_admin_central_pct: number;
   bdi_seguros_pct: number;
   bdi_riscos_pct: number;
-  bdi_garantia_pct: number;
+  bdi_garantias_pct: number;
   bdi_despesas_financeiras_pct: number;
   bdi_lucro_pct: number;
   bdi_impostos_pct: number;
@@ -57,6 +58,13 @@ interface Config {
   sincroniza_omie_estoque: boolean | null;
   sincroniza_omie_pagar: boolean | null;
 }
+
+// Recursos planejados (não ativos): ficam numa seção "No roadmap", fora do caminho principal de configuração.
+const ROADMAP: Array<{ label: string; ajuda: string; hint: string }> = [
+  { label: "Exige aprovação do engenheiro", ajuda: "projetos.config.exige_engenheiro", hint: "O fluxo de aprovação por engenheiro não bloqueia a proposta por enquanto." },
+  { label: "Sincronizar estoque com sistema externo", ajuda: "projetos.config.omie_estoque", hint: "A saída de material da obra já movimenta o estoque do PS; o envio a um sistema externo virá com a integração." },
+  { label: "Sincronizar contas a pagar com sistema externo", ajuda: "projetos.config.omie_pagar", hint: "Os títulos a pagar da obra ficam no financeiro do PS; o envio a um sistema externo virá com a integração." },
+];
 
 const PRESETS: Array<{ id: string; label: string; descricao: string }> = [
   {
@@ -85,10 +93,10 @@ function n(v: unknown, fallback = 0): number {
 
 function cargaInicial(): Partial<Config> {
   return {
-    bdi_administracao_central_pct: 5,
+    bdi_admin_central_pct: 5,
     bdi_seguros_pct: 1,
     bdi_riscos_pct: 1.5,
-    bdi_garantia_pct: 1,
+    bdi_garantias_pct: 1,
     bdi_despesas_financeiras_pct: 2,
     bdi_lucro_pct: 12,
     bdi_impostos_pct: 9.25,
@@ -115,6 +123,7 @@ export default function ConfiguracoesPage() {
 
   const [aba, setAba] = useState<"projetos" | "precificacao" | "produtividade">("projetos");
   const [config, setConfig] = useState<Config | null>(null);
+  const [salvo, setSalvo] = useState(false); // empresa já tem linha de config gravada
   const [impactos, setImpactos] = useState<ImpactoServico[]>([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
@@ -169,13 +178,14 @@ export default function ConfiguracoesPage() {
         }));
       }
       const dados = (cfgR.data as Partial<Config>) || {};
+      setSalvo(!!cfgR.data);
       ignoreNextEffectRef.current = true;
       setConfig({
         company_id: companyId,
-        bdi_administracao_central_pct: n(dados.bdi_administracao_central_pct, 5),
+        bdi_admin_central_pct: n(dados.bdi_admin_central_pct, 5),
         bdi_seguros_pct: n(dados.bdi_seguros_pct, 1),
         bdi_riscos_pct: n(dados.bdi_riscos_pct, 1.5),
-        bdi_garantia_pct: n(dados.bdi_garantia_pct, 1),
+        bdi_garantias_pct: n(dados.bdi_garantias_pct, 1),
         bdi_despesas_financeiras_pct: n(dados.bdi_despesas_financeiras_pct, 2),
         bdi_lucro_pct: n(dados.bdi_lucro_pct, 12),
         bdi_impostos_pct: n(dados.bdi_impostos_pct, 9.25),
@@ -228,10 +238,10 @@ export default function ConfiguracoesPage() {
       try {
         const supabase = supabaseBrowser();
         const payload = {
-          bdi_administracao_central_pct: atual.bdi_administracao_central_pct,
+          bdi_admin_central_pct: atual.bdi_admin_central_pct,
           bdi_seguros_pct: atual.bdi_seguros_pct,
           bdi_riscos_pct: atual.bdi_riscos_pct,
-          bdi_garantia_pct: atual.bdi_garantia_pct,
+          bdi_garantias_pct: atual.bdi_garantias_pct,
           bdi_despesas_financeiras_pct: atual.bdi_despesas_financeiras_pct,
           bdi_lucro_pct: atual.bdi_lucro_pct,
           bdi_impostos_pct: atual.bdi_impostos_pct,
@@ -244,19 +254,17 @@ export default function ConfiguracoesPage() {
           prefixo_proposta: atual.prefixo_proposta,
           vendedor_pode_alterar_preco: !!atual.vendedor_pode_alterar_preco,
           vendedor_pode_aprovar_proposta: !!atual.vendedor_pode_aprovar_proposta,
-          exige_aprovacao_engenheiro: !!atual.exige_aprovacao_engenheiro,
-          sincroniza_omie_estoque: !!atual.sincroniza_omie_estoque,
-          sincroniza_omie_pagar: !!atual.sincroniza_omie_pagar,
         };
-        const { data, error } = await supabase
-          .from("projetos_modulo_config")
-          .update(payload)
-          .eq("company_id", companyId)
-          .select("bdi_total_pct")
-          .single();
+        // A tabela só tem policy de leitura: grava pela RPC guardada (empresa do usuário). Integrações Omie e
+        // aprovação do engenheiro ainda não têm consumidor e não são gravadas (aparecem como "Em breve").
+        const { data, error } = await supabase.rpc("fn_projetos_config_salvar", {
+          p_company_id: companyId,
+          p_dados: payload,
+        });
         if (error) throw error;
         setSavingState("saved");
         setSavedAt(new Date());
+        setSalvo(true);
         if (data && Number.isFinite((data as any).bdi_total_pct)) {
           ignoreNextEffectRef.current = true;
           setConfig((prev) =>
@@ -290,10 +298,10 @@ export default function ConfiguracoesPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    config?.bdi_administracao_central_pct,
+    config?.bdi_admin_central_pct,
     config?.bdi_seguros_pct,
     config?.bdi_riscos_pct,
-    config?.bdi_garantia_pct,
+    config?.bdi_garantias_pct,
     config?.bdi_despesas_financeiras_pct,
     config?.bdi_lucro_pct,
     config?.bdi_impostos_pct,
@@ -306,9 +314,6 @@ export default function ConfiguracoesPage() {
     config?.prefixo_proposta,
     config?.vendedor_pode_alterar_preco,
     config?.vendedor_pode_aprovar_proposta,
-    config?.exige_aprovacao_engenheiro,
-    config?.sincroniza_omie_estoque,
-    config?.sincroniza_omie_pagar,
   ]);
 
   function setField<K extends keyof Config>(k: K, v: Config[K]) {
@@ -343,10 +348,10 @@ export default function ConfiguracoesPage() {
 
   const componentes: BdiComponentes = useMemo(
     () => ({
-      ac: n(config?.bdi_administracao_central_pct),
+      ac: n(config?.bdi_admin_central_pct),
       sg: n(config?.bdi_seguros_pct),
       ri: n(config?.bdi_riscos_pct),
-      ga: n(config?.bdi_garantia_pct),
+      ga: n(config?.bdi_garantias_pct),
       df: n(config?.bdi_despesas_financeiras_pct),
       lu: n(config?.bdi_lucro_pct),
       im: n(config?.bdi_impostos_pct),
@@ -444,8 +449,9 @@ export default function ConfiguracoesPage() {
 
         {/* Presets */}
         <div className="mb-4 flex flex-wrap gap-2">
-          <span className="text-xs uppercase tracking-wider text-[#3D2314]/50">
+          <span className="flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/50">
             Presets:
+            <AjudaCampo chave="projetos.bdi.preset" rota="/dashboard/projetos/configuracoes" />
           </span>
           {PRESETS.map((p) => (
             <button
@@ -463,14 +469,14 @@ export default function ConfiguracoesPage() {
           <div className="space-y-2.5">
             <BdiSlider
               label="Administração Central (AC)"
-              hint="Custos da estrutura administrativa rateados sobre a obra (escritório, gestão, RH)."
-              valor={config.bdi_administracao_central_pct}
-              onChange={(v) => setField("bdi_administracao_central_pct", v)}
+              ajuda="projetos.bdi.administracao_central"
+              valor={config.bdi_admin_central_pct}
+              onChange={(v) => setField("bdi_admin_central_pct", v)}
               cor="gray"
             />
             <BdiSlider
               label="Seguros (SG)"
-              hint="Seguro garantia, seguro de obras civis e responsabilidade civil."
+              ajuda="projetos.bdi.seguros"
               valor={config.bdi_seguros_pct}
               onChange={(v) => setField("bdi_seguros_pct", v)}
               cor="gray"
@@ -478,7 +484,7 @@ export default function ConfiguracoesPage() {
             />
             <BdiSlider
               label="Riscos (RI)"
-              hint="Provisão para imprevistos, retrabalhos, variação cambial."
+              ajuda="projetos.bdi.riscos"
               valor={config.bdi_riscos_pct}
               onChange={(v) => setField("bdi_riscos_pct", v)}
               cor="gray"
@@ -486,15 +492,15 @@ export default function ConfiguracoesPage() {
             />
             <BdiSlider
               label="Garantias (GA)"
-              hint="Garantia técnica de obra (NBR 15575), retenção contratual."
-              valor={config.bdi_garantia_pct}
-              onChange={(v) => setField("bdi_garantia_pct", v)}
+              ajuda="projetos.bdi.garantia"
+              valor={config.bdi_garantias_pct}
+              onChange={(v) => setField("bdi_garantias_pct", v)}
               cor="gray"
               max={10}
             />
             <BdiSlider
               label="Despesas Financeiras (DF)"
-              hint="Custo do capital de giro durante a execução da obra."
+              ajuda="projetos.bdi.despesas_financeiras"
               valor={config.bdi_despesas_financeiras_pct}
               onChange={(v) => setField("bdi_despesas_financeiras_pct", v)}
               cor="gray"
@@ -502,7 +508,7 @@ export default function ConfiguracoesPage() {
             />
             <BdiSlider
               label="Lucro (LU)"
-              hint="Margem de lucro líquido sobre o custo direto + benefícios indiretos."
+              ajuda="projetos.bdi.lucro"
               valor={config.bdi_lucro_pct}
               onChange={(v) => setField("bdi_lucro_pct", v)}
               cor="gold"
@@ -510,7 +516,7 @@ export default function ConfiguracoesPage() {
             />
             <BdiSlider
               label="Impostos (IM)"
-              hint="ISS + PIS + COFINS sobre faturamento. Varia conforme regime tributário."
+              ajuda="projetos.bdi.impostos"
               valor={config.bdi_impostos_pct}
               onChange={(v) => setField("bdi_impostos_pct", v)}
               cor="brown"
@@ -522,6 +528,7 @@ export default function ConfiguracoesPage() {
           <BdiPreview
             componentes={componentes}
             bdiTotalPct={config.bdi_total_pct}
+            salvo={salvo}
             impactos={impactos}
             margemAlvoPct={config.margem_alvo_pct}
             margemMinimaPct={config.margem_minima_pct}
@@ -543,12 +550,14 @@ export default function ConfiguracoesPage() {
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <CampoNumero
             label="Margem alvo (%)"
+            ajuda="projetos.config.margem_alvo"
             hint="Meta de margem aparente que serviços devem atingir"
             valor={config.margem_alvo_pct}
             onChange={(v) => setField("margem_alvo_pct", v)}
           />
           <CampoNumero
             label="Margem mínima (%)"
+            ajuda="projetos.config.margem_minima"
             hint="Abaixo deste valor, o serviço é destacado em vermelho e bloqueia propostas"
             valor={config.margem_minima_pct}
             onChange={(v) => setField("margem_minima_pct", v)}
@@ -575,6 +584,7 @@ export default function ConfiguracoesPage() {
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <CampoNumero
             label="Validade da proposta (dias)"
+            ajuda="projetos.config.validade_proposta"
             hint="Prazo padrão antes da proposta expirar"
             valor={config.validade_proposta_dias}
             onChange={(v) => setField("validade_proposta_dias", v)}
@@ -582,6 +592,7 @@ export default function ConfiguracoesPage() {
           />
           <CampoNumero
             label="Prazo de pagamento padrão (dias)"
+            ajuda="projetos.config.prazo_pagamento"
             hint="Prazo entre emissão da fatura e vencimento"
             valor={config.prazo_pagamento_padrao_dias}
             onChange={(v) => setField("prazo_pagamento_padrao_dias", v)}
@@ -592,18 +603,21 @@ export default function ConfiguracoesPage() {
         <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
           <CampoTexto
             label="Prefixo de orçamento"
+            ajuda="projetos.config.prefixo_orcamento"
             valor={config.prefixo_orcamento}
             onChange={(v) => setField("prefixo_orcamento", v)}
             placeholder="ORC"
           />
           <CampoTexto
             label="Prefixo de obra"
+            ajuda="projetos.config.prefixo_obra"
             valor={config.prefixo_obra}
             onChange={(v) => setField("prefixo_obra", v)}
             placeholder="OBR"
           />
           <CampoTexto
             label="Prefixo de proposta"
+            ajuda="projetos.config.prefixo_proposta"
             valor={config.prefixo_proposta}
             onChange={(v) => setField("prefixo_proposta", v)}
             placeholder="PROP"
@@ -624,49 +638,51 @@ export default function ConfiguracoesPage() {
           <div className="space-y-2">
             <Toggle
               label="Vendedor pode alterar preço final"
+            ajuda="projetos.config.vendedor_altera_preco"
               hint="Permite ajustar preço final fora do CPU"
               valor={!!config.vendedor_pode_alterar_preco}
               onChange={(v) => setField("vendedor_pode_alterar_preco", v)}
             />
             <Toggle
               label="Vendedor pode aprovar proposta"
+            ajuda="projetos.config.vendedor_aprova_proposta"
               hint="Sem precisar de revisão de supervisor"
               valor={!!config.vendedor_pode_aprovar_proposta}
               onChange={(v) => setField("vendedor_pode_aprovar_proposta", v)}
             />
-            <Toggle
-              label="Exige aprovação do engenheiro"
-              badge="Em breve"
-              hint="Ainda não ativo — o fluxo de aprovação por engenheiro não bloqueia a proposta por enquanto."
-              valor={!!config.exige_aprovacao_engenheiro}
-              onChange={(v) => setField("exige_aprovacao_engenheiro", v)}
-              disabled
-            />
           </div>
         </div>
 
-        {/* Integracoes */}
+        {/* No roadmap — recursos planejados, fora do caminho principal (não são toggles: ainda não fazem nada) */}
         <div className="mt-6 border-t border-[#3D2314]/8 pt-5">
-          <div className="mb-3 flex items-center gap-2">
-            <Repeat size={14} className="text-[#3D2314]/60" />
-            <h3 className="text-sm font-medium uppercase tracking-wider text-[#3D2314]/60">
-              Integrações
+          <div className="mb-1 flex items-center gap-2">
+            <Repeat size={14} className="text-[#3D2314]/40" />
+            <h3 className="text-sm font-medium uppercase tracking-wider text-[#3D2314]/50">
+              No roadmap · em breve
             </h3>
           </div>
-          <div className="space-y-2">
-            <Toggle
-              label="Sincronizar estoque com Omie"
-              hint="Movimenta estoque no Omie a cada saída de material"
-              valor={!!config.sincroniza_omie_estoque}
-              onChange={(v) => setField("sincroniza_omie_estoque", v)}
-            />
-            <Toggle
-              label="Sincronizar contas a pagar com Omie"
-              hint="Cria títulos a pagar no Omie ao confirmar fornecedor"
-              valor={!!config.sincroniza_omie_pagar}
-              onChange={(v) => setField("sincroniza_omie_pagar", v)}
-            />
-          </div>
+          <p className="mb-3 text-xs text-[#3D2314]/50">
+            Recursos planejados. Ainda não estão ativos e não mudam nada hoje — ficam aqui só para você saber o que vem.
+          </p>
+          <ul className="space-y-2" data-testid="config-roadmap">
+            {ROADMAP.map((r) => (
+              <li
+                key={r.ajuda}
+                className="flex items-start justify-between gap-3 rounded-xl border border-dashed border-[#3D2314]/12 bg-[#FAF7F2]/50 p-3"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 text-sm text-[#3D2314]/70">
+                    {r.label}
+                    <AjudaCampo chave={r.ajuda} rota="/dashboard/projetos/configuracoes" />
+                  </div>
+                  <p className="mt-0.5 text-xs text-[#3D2314]/50">{r.hint}</p>
+                </div>
+                <span className="shrink-0 rounded-full bg-[#3D2314]/8 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[#3D2314]/50">
+                  Em breve
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
       </section>
 
@@ -770,23 +786,26 @@ function SaveIndicator({
 function CampoNumero({
   label,
   hint,
+  ajuda,
   valor,
   onChange,
   inteiro = false,
 }: {
   label: string;
   hint?: string;
+  ajuda?: string;
   valor: number | null;
   onChange: (v: number | null) => void;
   inteiro?: boolean;
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
-        {label}
+      <span className="mb-1 flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">
+        {label} {ajuda && <AjudaCampo chave={ajuda} rota="/dashboard/projetos/configuracoes" />}
       </span>
       <input
         type="number"
+        data-testid={ajuda ? `campo-${ajuda}` : undefined}
         step={inteiro ? 1 : 0.01}
         value={valor ?? ""}
         onChange={(e) => {
@@ -804,19 +823,21 @@ function CampoNumero({
 
 function CampoTexto({
   label,
+  ajuda,
   valor,
   onChange,
   placeholder,
 }: {
   label: string;
+  ajuda?: string;
   valor: string | null;
   onChange: (v: string) => void;
   placeholder?: string;
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">
-        {label}
+      <span className="mb-1 flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">
+        {label} {ajuda && <AjudaCampo chave={ajuda} rota="/dashboard/projetos/configuracoes" />}
       </span>
       <input
         type="text"
@@ -832,6 +853,7 @@ function CampoTexto({
 
 function Toggle({
   label,
+  ajuda,
   hint,
   valor,
   onChange,
@@ -839,6 +861,7 @@ function Toggle({
   badge,
 }: {
   label: string;
+  ajuda?: string;
   hint: string;
   valor: boolean;
   onChange: (v: boolean) => void;
@@ -850,6 +873,11 @@ function Toggle({
       <div className="flex-1">
         <div className="text-sm font-medium text-[#3D2314]">
           {label}
+          {ajuda && (
+            <span className="ml-1 inline-flex align-middle" onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}>
+              <AjudaCampo chave={ajuda} rota="/dashboard/projetos/configuracoes" />
+            </span>
+          )}
           {badge && (
             <span className="ml-2 rounded-full bg-[#3D2314]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#3D2314]/60">{badge}</span>
           )}

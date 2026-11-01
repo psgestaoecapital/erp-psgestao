@@ -23,7 +23,7 @@ const C = {
 }
 
 interface Pausa { de: string | null; ate: string | null; min: number | null; classe: string | null; fim_origem: string | null; origem_label?: string | null; fim_original?: string | null; sem_saida?: boolean | null }
-interface Dia { data: string; status: string; jornada?: { inicio?: string; fim?: string } | null; pausas: Pausa[]; ajuste?: AjusteDia | null }
+interface Dia { data: string; status: string; jornada?: { inicio?: string; fim?: string } | null; almoco?: { inicio?: string; fim?: string; min?: number } | null; pausas: Pausa[]; ajuste?: AjusteDia | null }
 interface Viz {
   token_id: string; company_id: string
   colaborador: { nome?: string; cpf?: string; matricula?: string; pis?: string; funcao?: string; setor?: string } | null
@@ -149,21 +149,21 @@ export default function SignNr36Page() {
 
       <div style={{ fontSize: 11, fontWeight: 700, color: C.gold, letterSpacing: 1, textTransform: 'uppercase', margin: '4px 2px 8px' }}>Detalhamento diário</div>
       {dias.map((d, i) => (
-        <div key={i} style={{ ...card, padding: 12 }}>
+        <div key={i} style={{ ...card, padding: 12, breakInside: 'avoid' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
             <strong style={{ color: C.espresso, fontSize: 13 }}>{fmtData(d.data)}</strong>
-            <span style={{ fontSize: 11, color: C.muted }}>{d.jornada?.inicio && d.jornada?.fim ? `jornada ${d.jornada.inicio}–${d.jornada.fim}` : ''}</span>
+            <span style={{ fontSize: 11, color: C.muted }}>{d.jornada?.inicio && d.jornada?.fim ? `jornada ${d.jornada.inicio}–${d.jornada.fim}` : ''}{d.almoco ? `${d.jornada?.inicio ? ' · ' : ''}almoço ${d.almoco.inicio && d.almoco.fim ? `${d.almoco.inicio}–${d.almoco.fim}` : ''}` : ''}</span>
           </div>
           {notaDiaDoc(d.ajuste) && <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>{notaDiaDoc(d.ajuste)}</div>}
           {(d.pausas || []).length === 0 ? <div style={{ fontSize: 12, color: C.muted, fontStyle: 'italic' }}>Nenhuma pausa registrada neste dia.</div> :
-            (d.pausas || []).map((p, j) => { const f = renderPausaFim(p, d.ajuste); return (
-              <div key={j} style={{ fontSize: 13, color: C.espresso, lineHeight: 1.7 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', columnGap: 28 }} data-testid="pausas-dia">{(d.pausas || []).map((p, j) => { const f = renderPausaFim(p, d.ajuste); return (
+              <div key={j} style={{ fontSize: 13, color: C.espresso, lineHeight: 1.7, flex: '1 1 230px' }}>
                 <span style={{ fontFamily: 'monospace', color: f.cor === C.red ? C.red : undefined }}>{f.texto}</span>
                 <span style={{ color: f.cor, fontWeight: 600 }}>{f.sufixo}</span>
                 {p.min != null && <span style={{ color: C.muted, fontSize: 11 }}> · {p.min} min</span>}
                 {f.notas.map((n, k) => <span key={k} style={{ display: 'block', fontSize: 11, color: C.muted, paddingLeft: 12 }}>{n}</span>)}
               </div>
-            ) })}
+            ) })}</div>}
         </div>
       ))}
 

@@ -23,6 +23,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { withAuth } from '@/lib/withAuth'
 import { empresaPermitidaParaRobo, MSG_ROBO_SO_DEMO } from '@/lib/gold/roboEmpresaPermitida'
+import { watcherSecretValido } from '@/lib/watcherSecret'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -145,9 +146,7 @@ async function handlerCore(req: NextRequest, ctx: { userId: string | null; viaSe
 // Dois caminhos de auth: x-watcher-secret (Eng. Chefe/robô, sem sessão) OU sessão PS_ADMIN (withAuth).
 // Em ambos, a Guarda 2 (is_demo) recusa empresa real com 403.
 export async function POST(req: NextRequest, routeCtx: unknown) {
-  const secret = req.headers.get('x-watcher-secret')
-  const expected = process.env.WATCHER_SECRET
-  if (expected && secret === expected) {
+  if (watcherSecretValido(req.headers.get('x-watcher-secret'))) {
     return handlerCore(req, { userId: null, viaSecret: true })
   }
   return withAuth((r, c) => handlerCore(r, { userId: c.userId, viaSecret: false }))(req, routeCtx)

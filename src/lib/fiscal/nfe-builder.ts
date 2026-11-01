@@ -1,6 +1,8 @@
 import type { NFeRequest, NFeProdutoItem } from './types'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { FiscalError } from './errors'
+import { enderecoComMunicipioOficial } from './municipioDestinatario'
+import { type CondicaoCreditoSN, aliquotaCreditoValida, csosnDoItem, observacoesComSimples, valorCreditoSN } from './creditoIcmsSimples'
 
 // UFs válidas (27). Fora desta lista não é UF nacional confiável (exterior, texto sujo) → não deriva CFOP.
 const UFS_BR = new Set([
@@ -50,6 +52,8 @@ export interface NFeBuilderInput {
   erpReceberId?: string
   // FEAT-NFE-PRODUTO-2-CARD-PEDIDO-v1 · terceiro modo: monta a partir do pedido
   pedidoId?: string
+  // NF-e de peças da OS (modo manual): a OS de origem dá as "Observações para o cliente" das Informações Complementares
+  osId?: string
   manual?: {
     destinatario: {
       razaoSocial: string
@@ -85,7 +89,7 @@ export interface NFeBuilderInput {
 export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeRequest> {
   const { data: emp, error: empErr } = await supabaseAdmin
     .from('companies')
-    .select('cnpj, razao_social, inscricao_estadual, inscricao_municipal, regime_tributario, uf_fiscal, pais')
+    .select('cnpj, razao_social, inscricao_estadual, ie_isento, inscricao_municipal, regime_tributario, uf_fiscal, pais')
     .eq('id', input.companyId)
     .maybeSingle()
   if (empErr || !emp) {
@@ -112,9 +116,12 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     )
   }
   if (!emp.inscricao_estadual) {
+    // empresa declarada isenta (companies.ie_isento, chamado #776): NF-e de produto exige IE do emitente — o aviso diz isso
     throw new FiscalError(
       'PAYLOAD_INVALIDO',
-      'Inscricao Estadual obrigatoria pra NFe · cadastre em Configuracoes da empresa'
+      (emp as { ie_isento?: boolean }).ie_isento
+        ? 'Empresa isenta de Inscricao Estadual nao emite NFe de produto · emita NFS-e ou desmarque a isencao em Configuracoes da empresa'
+        : 'Inscricao Estadual obrigatoria pra NFe · cadastre em Configuracoes da empresa'
     )
   }
 
@@ -122,6 +129,9 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
   let itensInput: NFeBuilderItemInput[] = []
   let naturezaOp = 'Venda de mercadoria'
   let finalidade: 'normal' | 'complementar' | 'ajuste' | 'devolucao' = 'normal'
+  // Informações Complementares (infCpl) que vêm da origem da nota. Pedido: o campo "Observações" do pedido (o
+  // que veio do orçamento, ex.: nº da ordem de compra do cliente) — nunca as observações internas.
+  let observacoesOrigem: string | undefined
 
   if (input.pedidoId) {
     // FEAT-NFE-PRODUTO-2-CARD-PEDIDO-v1
@@ -170,6 +180,13 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     }))
     naturezaOp = 'Venda de mercadoria'
     finalidade = 'normal'
+    const { data: ped } = await supabaseAdmin
+      .from('erp_pedidos')
+      .select('observacoes')
+      .eq('id', input.pedidoId)
+      .eq('company_id', input.companyId)
+      .maybeSingle()
+    observacoesOrigem = (ped?.observacoes ?? '').trim() || undefined
   } else if (input.erpReceberId) {
     const { data: rec } = await supabaseAdmin
       .from('erp_receber')
@@ -274,6 +291,15 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     )
   }
 
+  // #1679: município do destinatário pelo nome OFICIAL do IBGE (vale para os 3 caminhos — pedido, financeiro, manual).
+  destinatario = {
+    ...destinatario,
+    endereco: await enderecoComMunicipioOficial(destinatario.endereco, async (nome, uf) => {
+      const { data } = await supabaseAdmin.rpc('fn_municipio_por_nome_uf', { p_nome: nome, p_uf: uf })
+      return (Array.isArray(data) ? data[0] : data) ?? null
+    }),
+  }
+
   // #jordana 26/09 · OS-2026-0179: o mesmo produto pode aparecer em 2+ itens (2 linhas de OLEO 80). A busca por id
   // devolve distintos; comparar com a lista COM repetição recusava a nota ("encontrei 10 · esperado 11").
   const produtoIds = Array.from(new Set(itensInput.map((i) => i.produtoId)))
@@ -291,6 +317,25 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
       `Encontrei ${produtos?.length ?? 0} produtos · esperado ${produtoIds.length}`
     )
   }
+
+  const { data: cfg } = await supabaseAdmin
+    .from('erp_fiscal_provider_config')
+    .select('serie_nfe_padrao, aliquota_credito_icms_sn')
+    .eq('company_id', input.companyId)
+    .eq('provider', 'focusnfe')
+    .eq('ativo', true)
+    .maybeSingle()
+
+  // indFinal (consumidor final) — escolhido na venda; default derivado do indIEDest do destinatário
+  // (contribuinte com IE = revenda B2B → false; não-contribuinte/isento → true). O operador pode
+  // sobrescrever via input.consumidorFinal (pedido/OTC/modal de emissão).
+  const indDestFinal = destinatario.indicadorIE ?? (destinatario.inscricaoEstadual ? 1 : 9)
+  const consumidorFinal = input.consumidorFinal ?? (indDestFinal !== 1)
+
+  // #2876 · crédito de ICMS do Simples (CSOSN 101): só para a empresa do Simples com a alíquota cadastrada pelo
+  // contador, vendendo a contribuinte que não é consumidor final. Sem alíquota cadastrada, nada muda.
+  const aliqCreditoSN = cfg?.aliquota_credito_icms_sn != null ? Number(cfg.aliquota_credito_icms_sn) : null
+  const condCreditoSN: CondicaoCreditoSN = { ehSimples, aliquota: aliqCreditoSN, indIEDest: indDestFinal, consumidorFinal, finalidade }
 
   const itensNFe: NFeProdutoItem[] = itensInput.map((it) => {
     const prod = produtos.find((p) => p.id === it.produtoId)
@@ -333,14 +378,13 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
         }
       : undefined
 
-    // Grupo comb (NT 2016/002): item cujo NCM é de combustível/lubrificante (começa com 2710) exige
-    // cProdANP + descANP (do cadastro do produto) e UFCons (UF do destinatário na emissão). Sem eles a
-    // SEFAZ rejeita o grupo comb; o nfe-validator barra antes, no padrão do 232/938. Só monta quando é 2710.
-    const ncmDigits = (prod.ncm ?? '').replace(/\D/g, '')
-    const ehCombustivel = ncmDigits.startsWith('2710')
-    const comb = ehCombustivel
+    // Grupo comb (NT 2016/002 · #1755): só monta quando o produto tem código ANP (cProdANP) no cadastro —
+    // o NCM 2710 sozinho não obriga (aditivo/lubrificante fora da tabela SIMP sai sem o grupo, como a NF
+    // 394.102 da Black Prime autorizada pela SEFAZ). Com código: cProdANP + descANP (cadastro) e UFCons (UF
+    // do destinatário na emissão); o nfe-validator barra antes se faltar a descANP.
+    const comb = prod.combustivel_codigo_anp != null
       ? {
-          cProdANP: prod.combustivel_codigo_anp != null ? Number(prod.combustivel_codigo_anp) : undefined,
+          cProdANP: Number(prod.combustivel_codigo_anp),
           descANP: prod.combustivel_descricao_anp || undefined,
           // UFCons = UF do consumo (destinatário). "EX" quando exterior (sem UF nacional).
           ufCons: destinatario.endereco?.uf ? destinatario.endereco.uf.toUpperCase() : undefined,
@@ -374,11 +418,17 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
             valor: it.icmsOverride.valor,
             modBc: it.icmsOverride.modBc ?? '1',
           }
-        : {
-            cst: cstIcmsProd,
-            aliquota: prod.aliquota_icms ?? undefined,
-            ...(stRet ? { stRet } : {}),
-          },
+        : (() => {
+            const cst = csosnDoItem(cstIcmsProd, condCreditoSN)
+            return {
+              cst,
+              aliquota: prod.aliquota_icms ?? undefined,
+              ...(stRet ? { stRet } : {}),
+              ...(cst === '101' && aliquotaCreditoValida(aliqCreditoSN)
+                ? { creditoSN: { aliquota: aliqCreditoSN, valor: valorCreditoSN(valorTotal, aliqCreditoSN) } }
+                : {}),
+            }
+          })(),
       ipi: undefined, // Simples Nacional / revenda: sem grupo IPI
       pis: {
         cst: prod.cst_pis?.trim() || undefined,
@@ -392,19 +442,17 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     }
   })
 
-  const { data: cfg } = await supabaseAdmin
-    .from('erp_fiscal_provider_config')
-    .select('serie_nfe_padrao')
-    .eq('company_id', input.companyId)
-    .eq('provider', 'focusnfe')
-    .eq('ativo', true)
-    .maybeSingle()
-
-  // indFinal (consumidor final) — escolhido na venda; default derivado do indIEDest do destinatário
-  // (contribuinte com IE = revenda B2B → false; não-contribuinte/isento → true). O operador pode
-  // sobrescrever via input.consumidorFinal (pedido/OTC/modal de emissão).
-  const indDestFinal = destinatario.indicadorIE ?? (destinatario.inscricaoEstadual ? 1 : 9)
-  const consumidorFinal = input.consumidorFinal ?? (indDestFinal !== 1)
+  // NF-e de peças da OS (pedido Jordana 20/10, item 5): as "Observações para o cliente" da OS vão para as Informações
+  // Complementares, como as Observações do pedido — nunca as observações internas.
+  if (input.osId && observacoesOrigem === undefined) {
+    const { data: os } = await supabaseAdmin
+      .from('erp_os')
+      .select('observacoes_cliente')
+      .eq('id', input.osId)
+      .eq('company_id', input.companyId)
+      .maybeSingle()
+    observacoesOrigem = (os?.observacoes_cliente ?? '').trim() || undefined
+  }
 
   return {
     serie: cfg?.serie_nfe_padrao ?? '1',
@@ -420,7 +468,16 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     destinatario,
     itens: itensNFe,
     chaveReferenciada: input.manual?.chaveReferenciada,
-    observacoes: input.manual?.observacoes,
+    // #2876 (ajuste Jordana 20/10): a frase do Simples ("DOCUMENTO EMITIDO POR ME OU EPP…") sai em TODA nota de
+    // emitente do Simples, com ou sem alíquota de crédito cadastrada (a NF-e nº 2 da FCR saiu sem nenhum texto e as
+    // da Gean também). A frase do crédito (art. 23) só entra quando algum item saiu 101 com vCredICMSSN.
+    observacoes: ehSimples
+      ? observacoesComSimples(
+          input.manual?.observacoes ?? observacoesOrigem,
+          itensNFe.reduce((a, i) => a + (i.icms?.creditoSN?.valor ?? 0), 0) || null,
+          aliqCreditoSN ?? 0,
+        )
+      : (input.manual?.observacoes ?? observacoesOrigem),
     totais: input.manual?.totais,
   }
 }

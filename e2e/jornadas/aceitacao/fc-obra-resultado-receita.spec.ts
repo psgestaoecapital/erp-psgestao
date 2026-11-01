@@ -70,7 +70,7 @@ test.describe('Resultado por obra — receita (FC)', () => {
     expect(alheia.corpo, 'empresa que não é do usuário: nada').toEqual([])
   })
 
-  test('tela: cartão "Resultado da obra" na ficha da obra, com custo "a partir de novembro"', { tag: '@pos-migration' }, async ({ page }) => {
+  test('tela: cartão "Resultado da obra" na ficha da obra, com custo real (sem placeholder)', { tag: '@pos-migration' }, async ({ page }) => {
     const [emp] = await dbSelect<{ is_demo: boolean }>('companies', `id=eq.${DEMO}&select=is_demo`)
     expect(emp?.is_demo, 'só na demonstração').toBe(true)
     const o = await dbInsert<{ id: string }>('projetos_obras', {
@@ -89,7 +89,8 @@ test.describe('Resultado por obra — receita (FC)', () => {
     await expect(res.getByTestId('obra-faturado')).toHaveText(/^R\$\s?0,00$/)
     await expect(res.getByTestId('obra-recebido')).toHaveText(/^R\$\s?0,00$/)
     await expect(res.getByTestId('obra-a-receber')).toHaveText(/^R\$\s?0,00$/)
-    await expect(res.getByTestId('obra-custo')).toHaveText('a partir de novembro')
-    await expect(res.getByTestId('obra-notas')).toHaveText('Nenhuma NFS-e autorizada ligada a esta obra')
+    // #3262: custo real no cartão (sem placeholder); obra recém-criada sem lançamento mostra 'Sem custo lançado' (#3396; antes '—' ou R$ 0,00)
+    await expect(res.getByTestId('obra-custo')).toHaveText(/^(—|R\$\s?0,00|Sem custo lançado)$/)
+    await expect(res.getByTestId('obra-notas')).toHaveText('Nada faturado ainda: o resultado se preenche quando a primeira NFS-e desta obra for autorizada.')
   })
 })

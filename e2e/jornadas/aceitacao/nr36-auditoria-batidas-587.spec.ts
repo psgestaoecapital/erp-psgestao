@@ -19,11 +19,25 @@ const DIA = '2026-09-01'
 let token = ''
 
 async function rpc(fn: string, args: Record<string, unknown>) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
-    method: 'POST', headers: { apikey: ANON_KEY, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(args),
-  })
-  return { status: r.status, corpo: (await r.json().catch(() => null)) as Record<string, unknown> }
+  // #587: a main ficou vermelha 2x (30/10, 31/10) por TypeError ao ler r.corpo.dias/.ajustados quando o corpo vinha
+  // vazio/não-JSON (blip de rede/gateway) e r.json().catch devolvia null. Medido no dado (RD-38): a RPC é rápida
+  // (~185ms na FRIOESTE, 2 meses, 194 dias relidos) e SEMPRE devolve jsonb — logo o corpo vazio é transitório, não
+  // é desempenho nem retorno vazio da função. Remédio autorizado (Eng. Chefe): UMA nova tentativa EXPLÍCITA só quando
+  // o corpo não é JSON; nenhum expect é afrouxado — um erro JSON legítimo (ex.: {erro:'sem_justificativa'}) tem corpo
+  // e NÃO é re-tentado.
+  const chamar = async () => {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+      method: 'POST', headers: { apikey: ANON_KEY, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(args),
+    })
+    const txt = await r.text().catch(() => '')
+    let corpo: Record<string, unknown> | null = null
+    try { corpo = txt ? (JSON.parse(txt) as Record<string, unknown>) : null } catch { corpo = null }
+    return { status: r.status, corpo }
+  }
+  let res = await chamar()
+  if (res.corpo === null) { await new Promise((ok) => setTimeout(ok, 500)); res = await chamar() }
+  return { status: res.status, corpo: res.corpo as Record<string, unknown> }
 }
 const ts = (h: string) => `${DIA}T${h}:00-03:00`
 

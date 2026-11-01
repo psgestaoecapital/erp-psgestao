@@ -87,15 +87,17 @@ test.describe('fn_atak_status pelo resumo · agency_equipe com RLS e custo/hora 
   })
 
   test('custo/hora pela função (quem vê salário), com registro do acesso', { tag: '@pos-migration' }, async () => {
-    const antes = await dbSelect<{ id: number }>('pm_equipe_custo_acesso_log', `company_id=eq.${DEMO_PM}&user_id=eq.${roboId}&select=id`)
+    // o select do log é limitado a 1000 linhas: marca o maior id de antes e conta só o que este teste gerou
+    const [ult] = await dbSelect<{ id: number }>('pm_equipe_custo_acesso_log', `company_id=eq.${DEMO_PM}&user_id=eq.${roboId}&select=id&order=id.desc&limit=1`)
+    const idAntes = ult?.id ?? 0
     const r = await comoRobo('rpc/fn_pm_equipe_custos', { method: 'POST', body: JSON.stringify({ p_company_id: DEMO_PM }) })
     expect(r.ok, `fn_pm_equipe_custos: ${r.status}`).toBe(true)
     const custos = (await r.json()) as { id: string; custo_hora: number | null }[]
     const servico = await dbSelect<{ id: string }>('agency_equipe', `company_id=eq.${DEMO_PM}&select=id`)
     expect(custos.map((c) => c.id).sort(), 'um custo por pessoa da equipe').toEqual(servico.map((s) => s.id).sort())
     expect(custos.every((c) => 'custo_hora' in c)).toBe(true)
-    const depois = await dbSelect<{ id: number }>('pm_equipe_custo_acesso_log', `company_id=eq.${DEMO_PM}&user_id=eq.${roboId}&select=id`)
-    expect(depois.length, 'o acesso ao custo por pessoa ficou registrado').toBeGreaterThanOrEqual(antes.length + 1)
+    const depois = await dbSelect<{ id: number }>('pm_equipe_custo_acesso_log', `company_id=eq.${DEMO_PM}&user_id=eq.${roboId}&id=gt.${idAntes}&select=id`)
+    expect(depois.length, 'o acesso ao custo por pessoa ficou registrado').toBeGreaterThanOrEqual(1)
   })
 
   test('tela Equipe: o robô (adm) inclui e altera o custo/hora de um membro', { tag: '@pos-migration' }, async () => {

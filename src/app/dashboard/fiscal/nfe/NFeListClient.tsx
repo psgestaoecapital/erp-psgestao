@@ -9,6 +9,9 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { nomeArquivoNota } from '@/lib/download/nomeArquivo'
+import { baixarUrlComNome } from '@/lib/download/baixarArquivo'
+import { fantasiaClientePorDoc } from '@/lib/download/fantasiaCliente'
 import FiscalStatusBadge from '@/components/fiscal/FiscalStatusBadge'
 import {
   ArrowLeft, Search, Loader2, AlertCircle, ChevronDown, ChevronRight,
@@ -16,6 +19,8 @@ import {
   History, CheckCircle2, Ban, Clock, FileSignature, AlertTriangle,
 } from 'lucide-react'
 import { authFetch } from '@/lib/authFetch'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { AVISO_PROCESSANDO, resumoConsulta } from '@/lib/fiscal/consultaRetorno'
 
 interface Documento {
   grupo_chave: string
@@ -29,6 +34,8 @@ interface Documento {
   valor: number | null
   origem_rotulo: string | null
   finalidade: string | null
+  chave_referenciada: string | null
+  nf_referencia: string | null
   motivo_rejeicao: string | null
   tentativas_recusadas: number
   ultima_recusa: string | null
@@ -88,6 +95,7 @@ const RESULTADO_ROTULO: Record<string, { t: string; cor: string }> = {
 export default function NFeListClient() {
   const router = useRouter()
   const [reabrindo, setReabrindo] = useState<string | null>(null)
+  const [consultando, setConsultando] = useState<string | null>(null)
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [erroEmpresa, setErroEmpresa] = useState<string | null>(null)
   const [documentos, setDocumentos] = useState<Documento[]>([])
@@ -223,18 +231,22 @@ export default function NFeListClient() {
     }
   }
 
-  async function baixarNota(notaId: string, tipo: 'xml' | 'pdf', urlDireta?: string | null) {
+  async function baixarNota(notaId: string, tipo: 'xml' | 'pdf', urlDireta: string | null | undefined, doc: Documento) {
     setBaixando(`${notaId}-${tipo}`)
     try {
-      if (urlDireta) { window.open(urlDireta, '_blank', 'noopener,noreferrer'); return }
+      // #2957: Cliente_NF<número>_DDMMAAAA.pdf/.xml (fantasia do cadastro; sem ele, a razão social da nota)
+      const fantasia = await fantasiaClientePorDoc((() => { const r = resolveCompanyId(); return r.kind === 'ok' ? r.id : null })(), doc.contraparte_doc)
+      const nome = nomeArquivoNota({ fantasia, razao: doc.contraparte_nome, numero: doc.numero, emissao: doc.data, ext: tipo })
+      if (urlDireta) { await baixarUrlComNome(urlDireta, nome); return }
       const { data, error } = await supabase.rpc('fn_fiscal_get_storage_url', { p_tabela: 'nfe', p_doc_id: notaId, p_tipo: tipo })
       if (error) throw error
       const payload = (data ?? {}) as { ok?: boolean; erro?: string; storage_path?: string; bucket?: string }
       if (!payload.ok || !payload.storage_path) throw new Error(payload.erro ?? 'Arquivo não disponível')
       const bucket = payload.bucket ?? 'fiscal-xmls'
-      const signed = await supabase.storage.from(bucket).createSignedUrl(payload.storage_path, 3600)
+      // download=<nome>: o storage responde como anexo com esse nome
+      const signed = await supabase.storage.from(bucket).createSignedUrl(payload.storage_path, 3600, { download: nome })
       if (signed.error || !signed.data?.signedUrl) throw new Error(signed.error?.message ?? 'Erro ao gerar URL assinada')
-      window.open(signed.data.signedUrl, '_blank', 'noopener,noreferrer')
+      await baixarUrlComNome(signed.data.signedUrl, nome)
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Erro ao baixar')
     } finally {
@@ -244,18 +256,39 @@ export default function NFeListClient() {
 
   function aplicarBusca() { setBuscaSubmit(busca.trim()); setPagina(1) }
 
-  // "Corrigir e reenviar" documento não emitido — só devolução (reabre a tela de devolução pré-preenchida
-  // pela nota de compra referenciada). Busca a finalidade/chave_referenciada no registro principal.
+  // #2946 · nota presa em "processando": consulta a Focus na hora (mesma rota do modal) em vez de esperar a rotina.
+  async function consultarAgora(doc: Documento) {
+    setConsultando(doc.principal_id)
+    try {
+      const r = await authFetch(`/api/fiscal/nfe/consultar/${doc.principal_id}`)
+      const json = (await r.json().catch(() => ({}))) as { status?: string; numero?: string | number | null; motivoRejeicao?: string | null; mensagem?: string }
+      alert(resumoConsulta(r.ok ? json : { status: 'erro', mensagem: json.mensagem }))
+      await carregar()
+    } finally {
+      setConsultando(null)
+    }
+  }
+
+  // "Corrigir e reenviar" documento não emitido — devolução (reabre a tela de devolução pré-preenchida
+  // pela nota de compra referenciada), nota de OS (#2167: abre a própria OS, onde o botão vira "Reenviar NF-e")
+  // ou qualquer outra (#3861: "Emitir NF-e" pré-preenchida pela nota recusada).
+  // Busca a finalidade/chave_referenciada/os_id no registro principal.
   async function corrigirEReenviar(doc: Documento) {
     setReabrindo(doc.grupo_chave)
     try {
       const { data } = await supabase
         .from('erp_nfe_emitidas')
-        .select('finalidade, chave_referenciada')
+        .select('finalidade, chave_referenciada, os_id')
         .eq('id', doc.principal_id).maybeSingle()
-      const nota = (data ?? {}) as { finalidade?: string | null; chave_referenciada?: string | null }
+      const nota = (data ?? {}) as { finalidade?: string | null; chave_referenciada?: string | null; os_id?: string | null }
+      if (nota.finalidade !== 'devolucao' && nota.os_id) {
+        router.push(`/dashboard/os?os=${nota.os_id}`)
+        return
+      }
       if (nota.finalidade !== 'devolucao' || !nota.chave_referenciada) {
-        alert('Só a devolução tem reenvio pré-preenchido. Reemita esta nota pela tela de origem (venda/pedido).')
+        // #3861 · qualquer outra nota recusada (avulsa, venda, pedido): abre "Emitir NF-e" com os dados dela,
+        // relendo o cadastro atual do destinatário; a nova nota herda o vínculo com o pedido/título.
+        router.push(`/dashboard/fiscal/nfe/remessa?reenviar=${doc.principal_id}`)
         return
       }
       const { data: rec } = await supabase
@@ -294,11 +327,21 @@ export default function NFeListClient() {
         <Link href="/dashboard/fiscal" className="inline-flex items-center gap-1.5 text-[12px] text-[#BA7517] hover:text-[#8B5612] mb-3">
           <ArrowLeft size={13} /> Voltar pro Hub Fiscal
         </Link>
-        <header className="mb-5">
-          <h1 className="text-[24px] sm:text-[28px] font-medium text-[#3D2314] leading-tight">NFes Emitidas</h1>
-          <p className="text-[13px] text-[#3D2314]/70 mt-1">
-            {mostrarRecusadas ? 'Todas as tentativas' : 'Uma linha por documento'} (modelo 55) · {total} {total === 1 ? (mostrarRecusadas ? 'registro' : 'documento') : (mostrarRecusadas ? 'registros' : 'documentos')}
-          </p>
+        <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-[24px] sm:text-[28px] font-medium text-[#3D2314] leading-tight">NFes Emitidas</h1>
+            <p className="text-[13px] text-[#3D2314]/70 mt-1">
+              {mostrarRecusadas ? 'Todas as tentativas' : 'Uma linha por documento'} (modelo 55) · {total} {total === 1 ? (mostrarRecusadas ? 'registro' : 'documento') : (mostrarRecusadas ? 'registros' : 'documentos')}
+            </p>
+          </div>
+          {/* #3861 · NF-e avulsa (remessas e outras operações, CFOP escolhido) */}
+          <div className="flex items-center gap-1.5">
+            <Link href="/dashboard/fiscal/nfe/remessa" data-testid="nfe-emitir-avulsa"
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-[12.5px] font-semibold rounded-lg bg-[#C8941A] text-white hover:bg-[#A77A12]">
+              <FileText size={13} /> Emitir NF-e
+            </Link>
+            <AjudaCampo chave="fiscal.nfe.emitir_avulsa" />
+          </div>
         </header>
 
         <div className="bg-white border border-[#3D2314]/10 rounded-xl p-4 mb-4">
@@ -383,6 +426,7 @@ export default function NFeListClient() {
                   <tr>
                     <th className="px-3 py-2.5 w-8"></th>
                     <th className="text-left px-3 py-2.5 font-medium">Documento</th>
+                    <th className="text-left px-3 py-2.5 font-medium">NF ref.</th>
                     <th className="text-left px-3 py-2.5 font-medium">Data</th>
                     <th className="text-left px-3 py-2.5 font-medium">Destinatário</th>
                     <th className="text-right px-3 py-2.5 font-medium">Valor</th>
@@ -400,10 +444,12 @@ export default function NFeListClient() {
                       historicoCC={chaveAberta === doc.grupo_chave ? historicoCC : []}
                       reabrindo={reabrindo}
                       baixando={baixando}
+                      consultando={consultando}
+                      onConsultar={() => consultarAgora(doc)}
                       onReenviar={() => corrigirEReenviar(doc)}
                       onCancelar={() => { setJustifCancel(''); setErroCancel(null); setCancelando({ id: doc.principal_id, numero: doc.numero }) }}
                       onCartaCorrecao={() => { setCcCorrecao(''); setErroCC(null); setCcAberta({ id: doc.principal_id, numero: doc.numero }) }}
-                      onBaixar={(notaId, tipo, url) => baixarNota(notaId, tipo, url)}
+                      onBaixar={(notaId, tipo, url) => baixarNota(notaId, tipo, url, doc)}
                     />
                   ))}
                 </tbody>
@@ -511,11 +557,12 @@ function DocumentoLinhas(props: {
   doc: Documento; aberto: boolean; onToggle: () => void
   timeline: TimelineEvento[] | null
   historicoCC: { id: string; sequencia: number; correcao: string | null; status: string; protocolo: string | null; motivo_rejeicao: string | null; criado_em: string }[]
-  reabrindo: string | null; baixando: string | null
+  reabrindo: string | null; baixando: string | null; consultando: string | null
+  onConsultar: () => void
   onReenviar: () => void; onCancelar: () => void; onCartaCorrecao: () => void
   onBaixar: (notaId: string, tipo: 'xml' | 'pdf', url?: string | null) => void
 }) {
-  const { doc, aberto, onToggle, timeline, historicoCC, reabrindo, baixando, onReenviar, onCancelar, onCartaCorrecao, onBaixar } = props
+  const { doc, aberto, onToggle, timeline, historicoCC, reabrindo, baixando, consultando, onConsultar, onReenviar, onCancelar, onCartaCorrecao, onBaixar } = props
   const finBadge = doc.finalidade && doc.finalidade !== 'normal' ? (FINALIDADE_BADGE[doc.finalidade] ?? doc.finalidade.toUpperCase()) : null
 
   return (
@@ -529,12 +576,16 @@ function DocumentoLinhas(props: {
           </div>
           {doc.origem_rotulo && <div className="text-[11.5px] text-[#3D2314]/80 normal-case line-clamp-2" title={doc.origem_rotulo}>{doc.origem_rotulo}</div>}
         </td>
-        <td className="px-3 py-2.5 text-[12.5px]">{fmtData(doc.data)}</td>
+        <td className="px-3 py-2.5 font-mono text-[12px] text-[#3D2314]" data-testid="nfe-list-nf-ref"
+          title={doc.chave_referenciada ? `Chave referenciada: ${doc.chave_referenciada}` : undefined}>
+          {doc.nf_referencia ?? '—'}
+        </td>
+        <td className="px-3 py-2.5 text-[12.5px] text-[#3D2314]">{fmtData(doc.data)}</td>
         <td className="px-3 py-2.5">
           <div className="text-[12.5px] text-[#3D2314]">{doc.contraparte_nome ?? '—'}</div>
           <div className="text-[10.5px] text-[#3D2314]/75 font-mono">{fmtDoc(doc.contraparte_doc, null)}</div>
         </td>
-        <td className="px-3 py-2.5 text-right tabular-nums font-medium">{fmtBRL(doc.valor)}</td>
+        <td className="px-3 py-2.5 text-right tabular-nums font-medium text-[#3D2314]">{fmtBRL(doc.valor)}</td>
         <td className="px-3 py-2.5">
           <div className="flex items-center gap-2 flex-wrap">
             {doc.nao_emitida ? (
@@ -555,8 +606,18 @@ function DocumentoLinhas(props: {
       </tr>
       {aberto && (
         <tr className="bg-[#FAF7F2]/60 border-t border-[#3D2314]/8">
-          <td colSpan={6} className="px-5 py-4">
+          <td colSpan={7} className="px-5 py-4">
+            {doc.status_principal === 'processando' && (
+              <p className="mb-2 text-[11.5px] text-[#8A4B08]" data-testid="nfe-aviso-processando">{AVISO_PROCESSANDO}</p>
+            )}
             <div className="flex gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
+              {doc.status_principal === 'processando' && (
+                <button type="button" onClick={onConsultar} disabled={consultando === doc.principal_id}
+                  data-testid="nfe-consultar-agora"
+                  className="px-3 py-1.5 text-[11.5px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] flex items-center gap-1.5 disabled:opacity-50">
+                  {consultando === doc.principal_id ? <Loader2 size={12} className="animate-spin" /> : <Clock size={12} />} Consultar agora
+                </button>
+              )}
               {doc.pode_reenviar && (
                 <button type="button" onClick={onReenviar} disabled={reabrindo === doc.grupo_chave}
                   data-testid="nfe-corrigir-reenviar"

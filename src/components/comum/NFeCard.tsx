@@ -5,10 +5,13 @@
 // 4 estados (sem nota · processando · autorizada · rejeitada) ·
 // emissao via POST /api/fiscal/nfe/emitir com ambiente='homologacao' ·
 // vincula pedido<->NF-e via fn_pedido_nfe_marcar_emitida apos sucesso.
+// Pedido Jordana 20/10 (FCR): antes de emitir, mostra o texto FINAL das Informações Complementares (observação do
+// pedido + textos legais), editável, com o contador do limite do campo (a nota não sai acima do limite).
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 interface Props {
   companyId: string
@@ -35,6 +38,11 @@ interface NFeUltima {
   xml_url: string | null
   motivo_rejeicao: string | null
   provider_reference: string | null
+}
+
+interface PreviaInfCpl {
+  original: string
+  limite: number
 }
 
 const C = {
@@ -65,6 +73,11 @@ export default function NFeCard({ companyId, pedidoId, forcarHomologacao = false
   const [emitindo, setEmitindo] = useState(false)
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  // Informações Complementares: prévia (texto composto pelo servidor) + texto editado na tela
+  const [previa, setPrevia] = useState<PreviaInfCpl | null>(null)
+  const [textoInfCpl, setTextoInfCpl] = useState('')
+  const [previaErro, setPreviaErro] = useState<string | null>(null)
+  const previaPedida = useRef(false)
 
   const carregar = useCallback(async () => {
     setCarregando(true)
@@ -98,7 +111,40 @@ export default function NFeCard({ companyId, pedidoId, forcarHomologacao = false
     await carregar()
   }, [ultima?.id, carregar])
 
+  const carregarPrevia = useCallback(async () => {
+    try {
+      const res = await authFetch('/api/fiscal/nfe/emitir', {
+        method: 'POST',
+        body: JSON.stringify({ companyId, pedidoId, apenasPrevia: true }),
+      })
+      const json = await res.json()
+      if (!res.ok || json?.ok === false || !json?.previa) {
+        setPreviaErro(json?.mensagem ?? json?.message ?? `HTTP ${res.status}`)
+      } else {
+        const texto = String(json.previa.informacoesComplementares ?? '')
+        setPrevia({ original: texto, limite: Number(json.previa.limite) || 5000 })
+        setTextoInfCpl(texto)
+      }
+    } catch (e) {
+      setPreviaErro(e instanceof Error ? e.message : 'Falha ao montar o texto da nota')
+    }
+  }, [companyId, pedidoId])
+
+  const podeEmitir = !!dados?.tem_produto && (!ultima || ['rejeitada', 'erro', 'cancelada', 'denegada'].includes(ultima.status))
+  useEffect(() => {
+    if (!podeEmitir || previaPedida.current) return
+    previaPedida.current = true
+    void carregarPrevia()
+  }, [podeEmitir, carregarPrevia])
+  const carregandoPrevia = podeEmitir && !previa && !previaErro
+
+  const excedeInfCpl = !!previa && textoInfCpl.trim().length > previa.limite
+
   async function emitir() {
+    if (excedeInfCpl) {
+      setErro(`As informações complementares passam do limite de ${previa?.limite} caracteres. Encurte o texto antes de emitir.`)
+      return
+    }
     // FEAT-NFE-PRODUTO-3-PRODUCAO-v1
     // Trava de confirmacao (Pilar 1) quando NAO e homologacao · evita
     // emissao acidental com valor fiscal real
@@ -114,10 +160,12 @@ export default function NFeCard({ companyId, pedidoId, forcarHomologacao = false
     try {
       // body so envia ambiente quando forcarHomologacao=true · NF-3 default:
       // sem campo ambiente → motor usa config (producao em KGF)
-      const payload: { companyId: string; pedidoId: string; ambiente?: 'homologacao' } = {
+      const payload: { companyId: string; pedidoId: string; ambiente?: 'homologacao'; informacoesComplementares?: string } = {
         companyId, pedidoId,
       }
       if (forcarHomologacao) payload.ambiente = 'homologacao'
+      // só manda o texto quando a prévia carregou: sem prévia, o servidor compõe como sempre
+      if (previa) payload.informacoesComplementares = textoInfCpl
       const res = await authFetch('/api/fiscal/nfe/emitir', {
         method: 'POST',
         body: JSON.stringify(payload),
@@ -177,6 +225,63 @@ export default function NFeCard({ companyId, pedidoId, forcarHomologacao = false
     >
       {carregando ? 'Atualizando…' : '↻ Atualizar status'}
     </button>
+  )
+
+  const secaoInfCpl = (
+    <div data-testid="nfe-pedido-infcpl" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: C.espresso }}>
+          Informações complementares da nota
+          <AjudaCampo chave="otc.nfe.informacoes_complementares" rota="/dashboard/commerce/otc" />
+        </span>
+        <textarea
+          data-testid="nfe-pedido-infcpl-texto"
+          value={textoInfCpl}
+          onChange={(e) => setTextoInfCpl(e.target.value)}
+          disabled={!previa || emitindo}
+          rows={4}
+          placeholder={carregandoPrevia ? 'Montando o texto da nota…' : 'Sem informações complementares'}
+          style={{
+            width: '100%', boxSizing: 'border-box', padding: 10, borderRadius: 8, fontSize: 12, lineHeight: 1.5,
+            border: `1px solid ${excedeInfCpl ? C.red : C.border}`, color: C.espresso, background: C.white, resize: 'vertical',
+          }}
+        />
+      </label>
+      {previa && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span data-testid="nfe-pedido-infcpl-contador" style={{ fontSize: 11, fontWeight: excedeInfCpl ? 700 : 400, color: excedeInfCpl ? C.red : C.espressoM }}>
+            {textoInfCpl.trim().length} / {previa.limite} caracteres{excedeInfCpl ? ' — acima do limite da NF-e, encurte para emitir' : ''}
+          </span>
+          {textoInfCpl !== previa.original && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <button
+                type="button"
+                onClick={() => setTextoInfCpl(previa.original)}
+                data-testid="nfe-pedido-infcpl-restaurar"
+                style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, border: `1px solid ${C.border}`, background: 'transparent', color: C.espressoM, cursor: 'pointer' }}
+              >
+                Voltar ao texto automático
+              </button>
+              <AjudaCampo chave="otc.nfe.informacoes_complementares_restaurar" rota="/dashboard/commerce/otc" />
+            </span>
+          )}
+        </div>
+      )}
+      {previaErro && (
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: C.espressoM }}>
+          Não foi possível montar o texto agora ({previaErro}). A nota sai com o texto automático.
+          <button
+            type="button"
+            onClick={() => { setPreviaErro(null); void carregarPrevia() }}
+            data-testid="nfe-pedido-infcpl-tentar"
+            style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, border: `1px solid ${C.border}`, background: 'transparent', color: C.espressoM, cursor: 'pointer' }}
+          >
+            Tentar de novo
+          </button>
+          <AjudaCampo chave="otc.nfe.informacoes_complementares_tentar" rota="/dashboard/commerce/otc" />
+        </span>
+      )}
+    </div>
   )
 
   const linkArq = (href: string, rotulo: string, tid: string) => (
@@ -262,10 +367,11 @@ export default function NFeCard({ companyId, pedidoId, forcarHomologacao = false
               {ultima.motivo_rejeicao}
             </p>
           )}
+          {secaoInfCpl}
           <button
             type="button"
             onClick={emitir}
-            disabled={emitindo}
+            disabled={emitindo || excedeInfCpl}
             data-testid="nfe-pedido-reemitir"
             style={{
               minHeight: 44, padding: '10px 16px', borderRadius: 8,
@@ -284,10 +390,11 @@ export default function NFeCard({ companyId, pedidoId, forcarHomologacao = false
           <p style={{ fontSize: 12, color: C.espressoM, margin: 0 }}>
             Valor: <strong style={{ color: C.gold }}>{fmtBRL(dados.valor_produtos)}</strong>
           </p>
+          {secaoInfCpl}
           <button
             type="button"
             onClick={emitir}
-            disabled={emitindo}
+            disabled={emitindo || excedeInfCpl}
             data-testid="nfe-pedido-emitir"
             style={{
               minHeight: 44, padding: '10px 16px', borderRadius: 8,

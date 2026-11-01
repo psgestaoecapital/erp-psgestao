@@ -1,0 +1,18 @@
+-- Hub · Cockpit da obra: "?" (RD-95) das linhas de receita/custo e dos indicadores novos (IDC, IDP, gasto por dia, Curva S).
+-- Aditiva: só texto de ajuda (erp_ajuda_campo); sem dado de cliente. Idempotente: ON CONFLICT (chave) DO NOTHING.
+INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
+SELECT v.chave, v.grupo, v.rotulo, v.o_que, v.para_que, v.exemplo, v.erro, v.ordem, '/dashboard/projetos/obras/[id]/cockpit', 'hub_projetos', 'publicado'
+FROM (VALUES
+ ('projetos.cockpit.receita_servico','Receita','Serviço medido','Nada a preencher: soma das medições de serviço lançadas na obra.','Mostra quanto do serviço já foi medido e pode ser faturado.','Medição de R$ 20.000 no mês = R$ 20.000 aqui.','Achar que valor contratado já é receita: só conta o que foi medido.',30),
+ ('projetos.cockpit.receita_material','Receita','Material vendido','Nada a preencher: soma do material vendido à obra.','Complementa a receita do serviço no resultado da obra.','Venda de R$ 5.000 em material = R$ 5.000 aqui.','Esquecer de vincular a venda à obra: ela não aparece.',31),
+ ('projetos.cockpit.custo_material','Custo','Material','Nada a preencher: compras e saídas de estoque ligadas à obra.','Parte do custo realizado que compõe a margem.','Compra de R$ 8.000 de piso para a obra.','Lançar a compra sem informar a obra.',32),
+ ('projetos.cockpit.custo_viagens','Custo','Viagens','Nada a preencher: despesas das viagens da equipe vinculadas à obra.','Parte do custo realizado que compõe a margem.','Hospedagem e deslocamento da equipe.','Viagem sem obra vinculada fica fora do custo.',33),
+ ('projetos.cockpit.custo_mao_obra','Custo','Mão de obra','Nada a preencher: horas apontadas × custo-hora de cada colaborador.','Parte do custo realizado que compõe a margem.','40 h a R$ 50/h = R$ 2.000.','Esquecer de lançar as horas da obra.',34),
+ ('projetos.cockpit.custo_rateio','Custo','Rateio','Nada a preencher: parcela de custos gerais rateada para a obra.','Mostra o custo indireto que a obra absorve.','Custo administrativo dividido entre as obras do mês.','Confundir rateio com custo direto da obra.',35),
+ ('projetos.cockpit.idc','Indicadores','IDC · custo','Nada a preencher: (avanço físico × custo previsto) ÷ custo realizado.','Acima de 1,00 a obra rende mais do que gasta; abaixo, gasta mais do que executou.','Físico 50% de R$ 100 mil previsto, custo R$ 40 mil = 1,25.','Ler sem avanço físico lançado: o indicador fica em branco.',36),
+ ('projetos.cockpit.idp','Indicadores','IDP · prazo','Nada a preencher: avanço físico ÷ % do prazo já decorrido (cronograma linear entre início e data prevista).','Acima de 1,00 a obra está no ritmo ou adiantada; abaixo, atrasada.','Físico 50% com 40% do prazo decorrido = 1,25.','Esquecer a data de início ou a data prevista: sem elas não calcula.',37),
+ ('projetos.cockpit.burn_rate','Indicadores','Gasto por dia','Nada a preencher: custo realizado ÷ dias desde o início da obra.','Mostra o ritmo de consumo de caixa da obra.','R$ 30.000 em 30 dias = R$ 1.000/dia.','Data de início errada distorce o valor.',38),
+ ('projetos.cockpit.curva_s','Indicadores','Curva S','Nada a preencher.','Vai comparar o previsto e o realizado acumulados ao longo do tempo.','Entra quando houver medições mensais no cronograma.','Esperar valores agora: o painel está marcado como em construção.',39)
+) AS v(chave, grupo, rotulo, o_que, para_que, exemplo, erro, ordem)
+WHERE EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'erp_ajuda_campo')
+ON CONFLICT (chave) DO NOTHING;

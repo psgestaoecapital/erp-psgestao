@@ -164,9 +164,10 @@ export default function CalendarioPage() {
           <div className="text-right text-[14px] font-medium capitalize" data-testid="calendario-titulo">{titulo}</div>
         </div>
 
-        <div className="mb-3 flex flex-wrap gap-3 text-[11px] text-[#3D2314]/60">
+        <div className="mb-3 flex flex-wrap items-center gap-3 text-[11px] text-[#3D2314]/60">
+          <span className="inline-flex items-center font-semibold uppercase tracking-wide text-[#3D2314]/50">Legenda<AjudaCampo chave="pm.calendario.legenda" /></span>
           {STATUS_POST.map((s) => <span key={s.v} className="inline-flex items-center gap-1"><span className={`h-2 w-2 rounded-full ${PONTO[s.v]}`} /> {s.l}</span>)}
-          <span className="ml-auto">{loading ? "carregando…" : `${posts.length} post(s)`}</span>
+          <span className="ml-auto inline-flex items-center">{loading ? "carregando…" : `${posts.length} post(s)`}<AjudaCampo chave="pm.calendario.total_posts" /></span>
         </div>
 
         {visao === "semana" ? (

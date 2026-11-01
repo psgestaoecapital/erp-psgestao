@@ -148,7 +148,9 @@ export interface NFeProdutoItem {
   icms?: { cst?: string; aliquota?: number; base?: number; valor?: number; modBc?: string
     // CST 60 / CST 500 · ICMS cobrado anteriormente por ST. vBCSTRet/vICMSSubstituto/vICMSSTRet são
     // VALORES (já multiplicados pela quantidade no builder); pst é ALÍQUOTA (não multiplica). NT 2018.005.
-    stRet?: { vBcstRet?: number; pst?: number; vIcmsSubstituto?: number; vIcmsStRet?: number } }
+    stRet?: { vBcstRet?: number; pst?: number; vIcmsSubstituto?: number; vIcmsStRet?: number }
+    // #2876 · CSOSN 101: crédito de ICMS do Simples (pCredSN = aliquota, vCredICMSSN = valor do item).
+    creditoSN?: { aliquota: number; valor: number } }
   ipi?: { cst?: string; aliquota?: number; valor?: number }
   pis?: { cst?: string; aliquota?: number; valor?: number }
   cofins?: { cst?: string; aliquota?: number; valor?: number }

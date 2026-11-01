@@ -12,7 +12,11 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import Modal from '@/components/ui/Modal'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 import { fmtMoedaDre, valorComSinalDre, ehNegativoDre, COR_VALOR_NEGATIVO } from '@/lib/formatoMoedaDre'
+
+const ROTA_DRE = '/dashboard/financeiro/dre-consolidado'
+const fmtData = (d: string | null) => (d ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : '—')
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -55,6 +59,7 @@ export default function DREHorizontal() {
   const now = useMemo(() => new Date(), [])
   const anoAtual = now.getFullYear()
 
+  const [visao, setVisao] = useState<'consolidado' | 'ln'>('consolidado') // CEO 14/10: abrir por linha de negócio
   const [regime, setRegime] = useState<'competencia' | 'caixa' | 'previsto'>('competencia')
   const [diaDrill, setDiaDrill] = useState<string | null>(null) // previsto: ymd do dia clicado → títulos a vencer
   const [ano, setAno] = useState<number>(anoAtual)
@@ -91,6 +96,8 @@ export default function DREHorizontal() {
 
   const carregar = useCallback(async () => {
     if (!membros.length) return
+    // Visão "por linha de negócio" tem carregamento próprio (componente DREPorLN).
+    if (visao === 'ln') { setLoading(false); return }
     setLoading(true); setErro(null)
     // Previsto (fluxo por vencimento) é sempre por DIA — mesmo se um intervalo estiver selecionado, usa o 1º mês.
     if (selIni === selFim || regime === 'previsto') {
@@ -122,9 +129,14 @@ export default function DREHorizontal() {
       })
     }
     setLoading(false)
-  }, [membros, ano, selIni, selFim, regime])
+  }, [membros, ano, selIni, selFim, regime, visao])
 
   useEffect(() => { void carregar() }, [carregar])
+
+  // "Previsto" é fluxo de caixa — não se abre por linha de negócio; ao entrar na visão LN, cai para competência.
+  useEffect(() => {
+    if (visao === 'ln' && regime === 'previsto') setRegime('competencia')
+  }, [visao, regime])
 
   useEffect(() => {
     if (!data) return
@@ -153,36 +165,68 @@ export default function DREHorizontal() {
   }, [data, colapsados])
   const totalLinha = useCallback((l: Linha) => colunas.reduce((s, c) => s + (l.valores[c.key] ?? 0), 0), [colunas])
 
+  // Muitos meses no cabeçalho → modo compacto (fonte/espaçamento menores; valor SEMPRE completo — RD do formato de moeda).
+  const compacto = data?.modo === 'mes' && colunas.length >= 8
+  const fsTabela = compacto ? 11 : 12.5
+  const padMes: React.CSSProperties = compacto ? { padding: '6px 7px' } : {}
+  const minColMes = compacto ? 64 : 78
+
   return (
     <div style={{ background: BG, minHeight: '100vh', padding: '24px 16px' }}>
-      <div style={{ maxWidth: 1280, margin: '0 auto' }}>
+      {/* Exportar PDF: imprime em PAISAGEM, com TODAS as colunas (sem sticky/scroll travando) e sem cortar. */}
+      <style>{`
+        .dre-printonly { display: none; }
+        @media print {
+          @page { size: A4 landscape; margin: 8mm; }
+          body { background: #fff !important; }
+          .dre-noprint { display: none !important; }
+          .dre-printonly { display: block !important; }
+          #dre-tabela { max-height: none !important; overflow: visible !important; border: none !important; border-radius: 0 !important; }
+          #dre-tabela table { font-size: 8px !important; width: 100% !important; min-width: 0 !important; }
+          #dre-tabela th, #dre-tabela td { padding: 2px 4px !important; position: static !important; box-shadow: none !important; white-space: nowrap; }
+        }
+      `}</style>
+      <div style={{ maxWidth: 'none', margin: '0 auto' }}>
         <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: GOLD, margin: 0 }}>Financeiro · Grupo</p>
         <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 28, fontWeight: 400, color: ESP, margin: '4px 0 4px' }}>DRE Consolidado</h1>
-        <p style={{ fontSize: 12, color: MUT, margin: '0 0 18px' }}>
+        <p className="dre-printonly" style={{ fontSize: 12, color: ESP, margin: '0 0 10px' }}>
+          {grupoNome || '—'}{membros.length > 1 ? ` · ${membros.length} CNPJs` : ''} · {data?.modo === 'dia' ? `${MESES_LBL[selIni - 1]}/${ano} (dias)` : `${MESES_LBL[selIni - 1]}–${MESES_LBL[selFim - 1]}/${ano}`} · {regime}
+        </p>
+        <p className="dre-noprint" style={{ fontSize: 12, color: MUT, margin: '0 0 18px' }}>
           Escolha 1 mês (dias no cabeçalho) ou um intervalo (meses no cabeçalho), consolidando os CNPJs do grupo. Competência × Caixa.
         </p>
 
         {/* Controles: grupo + regime + seletor de meses */}
-        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 10 }}>
+        <div className="dre-noprint" style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 10 }}>
           <div>
             <label style={lbl}>{membros.length > 1 ? 'Grupo' : 'Empresa'}</label>
             <div style={{ ...inp, minWidth: 190, display: 'flex', alignItems: 'center', gap: 6, background: CREAM, fontWeight: 700 }}>
               {grupoNome || '—'}{membros.length > 1 && <span style={{ fontWeight: 500, color: MUT }}>· {membros.length} CNPJs</span>}
             </div>
           </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ display: 'flex', border: `1px solid ${LINE}`, borderRadius: 8, overflow: 'hidden' }}>
+              <button type="button" onClick={() => setVisao('consolidado')} style={visao === 'consolidado' ? segOn : segOff}>Consolidado</button>
+              <button type="button" onClick={() => setVisao('ln')} style={visao === 'ln' ? segOn : segOff} title="Abrir o DRE por linha de negócio (colunas = linhas)">Por linha de negócio</button>
+            </div>
+            <AjudaCampo chave="financeiro.dre_consolidado.ln_visao" rota={ROTA_DRE} />
+          </div>
           <div style={{ display: 'flex', border: `1px solid ${LINE}`, borderRadius: 8, overflow: 'hidden' }}>
             <button type="button" onClick={() => setRegime('competencia')} style={regime === 'competencia' ? segOn : segOff}>Competência</button>
             <button type="button" onClick={() => setRegime('caixa')} style={regime === 'caixa' ? segOn : segOff}>Caixa</button>
-            <button type="button" onClick={() => { setRegime('previsto'); setSelFim(selIni) }} style={regime === 'previsto' ? segOn : segOff} title="Fluxo de caixa por vencimento (previsão)">Previsto</button>
+            {visao === 'consolidado' && (
+              <button type="button" onClick={() => { setRegime('previsto'); setSelFim(selIni) }} style={regime === 'previsto' ? segOn : segOff} title="Fluxo de caixa por vencimento (previsão)">Previsto</button>
+            )}
           </div>
           <button type="button" onClick={() => setTudoAberto((v) => !v)} style={btnSec}>
             {tudoAberto ? '▾ Recolher tudo' : '▸ Expandir tudo'}
           </button>
+          <button type="button" onClick={() => window.print()} style={btnSec} title="Exportar em PDF (paisagem, com todos os meses e o total)">⤓ Exportar PDF</button>
           {data && <span style={{ fontSize: 11, color: MUT, marginLeft: 'auto' }}>{data.empresas} empresa(s) · {data.modo === 'dia' ? 'diário' : 'mensal'} · {data.regime}</span>}
         </div>
 
         {/* Seletor de ano + meses clicável */}
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14, background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: 10 }}>
+        <div className="dre-noprint" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14, background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <button type="button" onClick={() => setAno((a) => Math.max(2024, a - 1))} style={navBtn} aria-label="Ano anterior">◂</button>
             <span style={{ fontSize: 15, fontWeight: 800, color: ESP, minWidth: 52, textAlign: 'center' }}>{ano}</span>
@@ -227,19 +271,23 @@ export default function DREHorizontal() {
           </div>
         )}
 
-        {loading || loadingSel ? (
+        {visao === 'ln' ? (
+          <DREPorLN membros={membros} ano={ano} selIni={selIni} selFim={selFim}
+            regime={regime === 'previsto' ? 'competencia' : regime} grupoNome={grupoNome} />
+        ) : loading || loadingSel ? (
           <div style={{ padding: 40, textAlign: 'center', fontSize: 13, color: MUT }}>Carregando DRE…</div>
         ) : !data || data.linhas.length === 0 ? (
           <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: '32px 20px', textAlign: 'center', color: MUT, fontSize: 13 }}>
             Sem DRE para o grupo/período. Ajuste o período ou verifique se o grupo tem empresas com dados (2024+).
           </div>
         ) : (
-          <div style={{ overflowX: 'auto', border: `0.5px solid ${LINE}`, borderRadius: 10, background: '#FFF' }}>
-            {/* w-full: ocupa a largura toda (sem faixa vazia à direita); minWidth garante scroll só quando não couber (RD-41) */}
-            <table style={{ borderCollapse: 'collapse', fontSize: 12.5, width: '100%', minWidth: 720 }}>
+          <div id="dre-tabela" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 230px)', border: `0.5px solid ${LINE}`, borderRadius: 10, background: '#FFF' }}>
+            {/* w-full: ocupa a largura toda (sem faixa vazia à direita); minWidth garante scroll só quando não couber (RD-41).
+                maxHeight + overflowY → cabeçalho dos meses (sticky top) e coluna CONTA/TOTAL (sticky left/right) congelam ao rolar. */}
+            <table style={{ borderCollapse: 'collapse', fontSize: fsTabela, width: '100%', minWidth: 720 }}>
               <thead>
                 <tr>
-                  <th style={{ ...thConta, position: 'sticky', left: 0, zIndex: 3, background: CREAM }}>
+                  <th style={{ ...thConta, position: 'sticky', left: 0, zIndex: 4, background: CREAM, boxShadow: '7px 0 7px -7px rgba(61,35,20,0.18)' }}>
                     {data.modo === 'dia' ? `Conta · ${MESES_LBL[selIni - 1]}/${ano} (dias)` : 'Conta'}
                   </th>
                   {colunas.map((c) => {
@@ -248,13 +296,13 @@ export default function DREHorizontal() {
                       <th key={c.key}
                         onClick={drillDia ? () => setDiaDrill(c.key) : undefined}
                         title={drillDia ? 'Ver títulos a vencer neste dia' : undefined}
-                        style={{ ...thMes, ...(c.projecao ? projStyle : null), ...(data.modo === 'dia' ? thDiaCol : null), ...(drillDia ? { cursor: 'pointer', textDecoration: 'underline', textDecorationColor: MUT } : null) }}>
+                        style={{ ...thMes, zIndex: 2, ...(c.projecao ? projStyle : null), ...(data.modo === 'dia' ? thDiaCol : null), ...(compacto ? { ...padMes, minWidth: minColMes } : null), ...(drillDia ? { cursor: 'pointer', textDecoration: 'underline', textDecorationColor: MUT } : null) }}>
                         {c.label}
                         {c.projecao && <div style={{ fontSize: 8, fontWeight: 700, color: GOLD, letterSpacing: 0.5 }}>PROJ.</div>}
                       </th>
                     )
                   })}
-                  <th style={{ ...thMes, borderLeft: `2px solid ${LINE}`, background: CREAM }}>Total</th>
+                  <th style={{ ...thMes, position: 'sticky', top: 0, right: 0, zIndex: 4, borderLeft: `2px solid ${LINE}`, background: CREAM, boxShadow: '-7px 0 7px -7px rgba(61,35,20,0.18)' }}>Total</th>
                 </tr>
               </thead>
               <tbody>
@@ -278,7 +326,8 @@ export default function DREHorizontal() {
                     : prevSai ? (totalDisplay > 0 ? RED : MUT)
                     : isRes ? (totalDisplay < 0 ? RED : totalDisplay > 0 ? GREEN : MUT)
                     : ESP
-                  const contaDrillavel = isConta && umMes            // folha + 1 mês → drill por pessoa
+                  // conta é drillável em qualquer modo: 1 mês → pessoa × dia (#813); intervalo → LANÇAMENTOS (CEO 14/10)
+                  const contaDrillavel = isConta
                   const aberta = contaDrillavel && contaAberta === l.codigo
                   return (
                     <Fragment key={`${l.kind}-${l.codigo}-${l.ordem}`}>
@@ -286,6 +335,7 @@ export default function DREHorizontal() {
                       <td style={{
                         ...tdConta, position: 'sticky', left: 0, zIndex: 2,
                         background: isRes || aberta ? '#FBF7EF' : '#FFF',
+                        boxShadow: '7px 0 7px -7px rgba(61,35,20,0.18)',
                         paddingLeft: 12 + l.nivel * 18, fontWeight: bold ? 700 : 500, color: ESP,
                         cursor: contaDrillavel ? 'pointer' : 'default',
                       }} onClick={contaDrillavel ? () => setContaAberta(aberta ? null : l.codigo) : undefined}>
@@ -310,7 +360,7 @@ export default function DREHorizontal() {
                         const saldoNeg = isPrevisto && l.codigo === 'SALDO' && v != null && v < 0
                         return (
                           <td key={c.key} title={v != null ? cheio(valorComSinalDre(v, l.sinal)) : ''} style={{
-                            ...tdVal, ...(data.modo === 'dia' ? tdDiaCol : null),
+                            ...tdVal, ...(data.modo === 'dia' ? tdDiaCol : null), ...(compacto ? padMes : null),
                             ...(c.projecao ? { background: isRes ? '#FBF4E6' : '#FDFAF3' } : null),
                             ...(saldoNeg ? { background: '#FCEBEB' } : null),
                             fontWeight: bold ? 700 : 400,
@@ -321,15 +371,21 @@ export default function DREHorizontal() {
                         )
                       })}
                       <td title={cheio(valorComSinalDre(totalDisplay, l.sinal))} style={{
-                        ...tdVal, borderLeft: `2px solid ${LINE}`, background: isRes ? '#FBF4E6' : CREAM,
+                        ...tdVal, position: 'sticky', right: 0, zIndex: 1, borderLeft: `2px solid ${LINE}`, background: isRes ? '#FBF4E6' : CREAM,
+                        boxShadow: '-7px 0 7px -7px rgba(61,35,20,0.18)',
                         fontWeight: 700, color: ehNegativoDre(valorComSinalDre(totalDisplay, l.sinal)) ? COR_VALOR_NEGATIVO : corTotal,
                       }}>
                         {fmtMoedaDre(valorComSinalDre(totalDisplay, l.sinal))}
                       </td>
                     </tr>
-                    {/* Drill como LINHAS da MESMA tabela (mesmas colunas do topo) → dia N sempre sob dia N. */}
-                    {aberta && (
+                    {/* Drill: 1 mês → pessoa × dia (mesmas colunas do topo); intervalo → LANÇAMENTOS da conta (3º nível). */}
+                    {aberta && umMes && (
                       <DrillDiario membros={membros} codigo={l.codigo} nome={l.nome} ano={ano} mes={selIni} regime={regime} colunas={colunas} />
+                    )}
+                    {aberta && !umMes && (
+                      <DrillLancamentos membros={membros} nome={l.nome}
+                        codigo={l.codigo} mesIni={`${ano}-${pad2(selIni)}-01`} mesFim={`${ano}-${pad2(selFim)}-01`}
+                        regime={regime} colSpan={colunas.length + 2} />
                     )}
                     </Fragment>
                   )
@@ -339,14 +395,14 @@ export default function DREHorizontal() {
           </div>
         )}
 
-        <p style={{ fontSize: 11, color: MUT, margin: '12px 2px 0', fontStyle: 'italic' }}>
+        {visao === 'consolidado' && <p className="dre-noprint" style={{ fontSize: 11, color: MUT, margin: '12px 2px 0', fontStyle: 'italic' }}>
           Valores em reais completos; despesas e resultados negativos aparecem com “-” em vermelho.
           {data?.regime === 'previsto'
             ? <> <b>Previsto</b> = fluxo de caixa por <b>vencimento</b> (entradas − saídas → saldo acumulado). Não é DRE: previsão não tem lucro/EBITDA, tem <b>quanto vou ter em caixa</b>. Clique num <b>dia</b> (cabeçalho) pra ver os títulos a vencer.</>
             : umMes
             ? <> Sinais já aplicados: receitas somam, deduções/custos/despesas subtraem. Mostrando <b>{MESES_LBL[selIni - 1]}/{ano} por dia</b> — clique numa conta pra ver <b>clientes/fornecedores × dia</b>. A soma dos dias = o total da conta no mês.</>
             : <> Sinais já aplicados: receitas somam, deduções/custos/despesas subtraem. Intervalo com <b>meses</b> no cabeçalho. Clique <b>1 mês só</b> (ou use “Mês atual”) pra ver o diário.</>}
-        </p>
+        </p>}
 
         {/* PREVISTO · drill por dia: quem vou receber / quem vou pagar naquele vencimento (Parte B.3) */}
         <Modal open={!!diaDrill} onClose={() => setDiaDrill(null)}
@@ -357,6 +413,204 @@ export default function DREHorizontal() {
         </Modal>
       </div>
     </div>
+  )
+}
+
+// ── Visão "Por linha de negócio" (CEO 14/10): colunas = linhas de negócio, no período escolhido ──
+// Mesma árvore do consolidado (fn_psgc_dre_horizontal_por_ln), mas abrindo por LN. Despesa sem linha → coluna
+// "Comum / não alocado" (nunca some). "Rateio NBC TG 16" (mesma base do DRE Divisional) mostra o EBITDA real
+// por linha (depois de absorver o comum). Seletor filtra para uma linha só. Valor sempre cheio (RD do formato).
+type LNCol = { key: string; nome: string; is_comum: boolean }
+type LNLinha = {
+  ordem: number; kind: 'grupo' | 'conta' | 'resultado'; codigo: string; nome: string
+  grupo_ref?: string; sinal: '+' | '-' | '±' | '='; nivel: number; colapsavel: boolean
+  valores: Record<string, number>
+}
+type LNRateioLinha = { rob: number; ebitda_pre_rateio: number; rateio_sede_recebido: number; ebitda_pos_rateio: number; ebitda_pct_pos_rateio: number }
+type LNRateio = { tem_rateio: boolean; por_ln: Record<string, LNRateioLinha>; rateio_total: number; ebitda_pos_total: number }
+type LNData = {
+  ok: boolean; erro?: string; regime: string; empresas: number
+  colunas: LNCol[]; linhas: LNLinha[]; tem_rateio: boolean; rateio: LNRateio | null
+}
+
+function DREPorLN({ membros, ano, selIni, selFim, regime, grupoNome }: {
+  membros: string[]; ano: number; selIni: number; selFim: number; regime: string; grupoNome: string
+}) {
+  const [d, setD] = useState<LNData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [erro, setErro] = useState<string | null>(null)
+  const [lnSel, setLnSel] = useState<string>('todas')      // 'todas' ou uma col.key
+  const [comRateio, setComRateio] = useState(false)         // antes × depois do rateio
+  const [colapsados, setColapsados] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    let alive = true
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- loading inicial da visão (padrão dos drills desta tela)
+    setLoading(true); setErro(null)
+    void supabase.rpc('fn_psgc_dre_horizontal_por_ln', {
+      p_company_ids: membros, p_mes_ini: `${ano}-${pad2(selIni)}-01`, p_mes_fim: `${ano}-${pad2(selFim)}-01`, p_regime: regime,
+    }).then(({ data, error }) => {
+      if (!alive) return
+      const r = data as LNData | null
+      if (error) { setErro(error.message); setD(null) }
+      else if (!r || r.ok === false) { setErro(r?.erro || 'Sem acesso'); setD(null) }
+      else { setD(r); setColapsados(new Set(r.linhas.filter((l) => l.kind === 'grupo').map((l) => l.codigo))) }
+      setLoading(false)
+    })
+    return () => { alive = false }
+  }, [membros, ano, selIni, selFim, regime])
+
+  const colsVisiveis = useMemo<LNCol[]>(() => {
+    if (!d) return []
+    if (lnSel === 'todas') return d.colunas
+    return d.colunas.filter((c) => c.key === lnSel)
+  }, [d, lnSel])
+
+  function toggleGrupo(codigo: string) {
+    setColapsados((prev) => { const n = new Set(prev); if (n.has(codigo)) n.delete(codigo); else n.add(codigo); return n })
+  }
+
+  if (loading) return <div style={{ padding: 40, textAlign: 'center', fontSize: 13, color: MUT }}>Carregando DRE por linha…</div>
+  if (erro) return <div style={{ background: '#FCEBEB', color: RED, padding: '10px 14px', borderRadius: 8, fontSize: 13 }}>{erro}</div>
+  if (!d || d.colunas.length === 0 || d.linhas.length === 0) {
+    return (
+      <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: '32px 20px', textAlign: 'center', color: MUT, fontSize: 13 }}>
+        Sem DRE por linha de negócio no período. Verifique se os lançamentos estão classificados em linhas de negócio (2024+).
+      </div>
+    )
+  }
+
+  const linhasVisiveis = d.linhas.filter((l) => l.kind !== 'conta' || !colapsados.has(l.grupo_ref ?? ''))
+  const somaCols = (l: LNLinha) => colsVisiveis.reduce((s, c) => s + (l.valores[c.key] ?? 0), 0)
+  const robPorCol = (key: string) => d.linhas.find((l) => l.kind === 'grupo' && l.codigo === 'ROB')?.valores[key] ?? 0
+  const ebitdaPorCol = (key: string) => d.linhas.find((l) => l.kind === 'resultado' && l.codigo === 'EBITDA')?.valores[key] ?? 0
+  const margemCol = (key: string) => { const r = robPorCol(key); return r !== 0 ? (ebitdaPorCol(key) / r) * 100 : null }
+  const robTotal = colsVisiveis.reduce((s, c) => s + robPorCol(c.key), 0)
+  const ebitdaTotal = colsVisiveis.reduce((s, c) => s + ebitdaPorCol(c.key), 0)
+  const fmtPctLN = (p: number | null) => (p == null ? '—' : `${p.toFixed(1).replace('.', ',')}%`)
+  const nColsTot = colsVisiveis.length + 2
+
+  return (
+    <>
+      {/* Controles da visão LN: seletor de linha + rateio (antes/depois) */}
+      <div className="dre-noprint" style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <label style={lbl}>Linha de negócio</label>
+          <select value={lnSel} onChange={(e) => setLnSel(e.target.value)} style={{ ...inp, minWidth: 180, cursor: 'pointer' }}>
+            <option value="todas">Todas (comparar)</option>
+            {d.colunas.map((c) => <option key={c.key} value={c.key}>{c.nome}</option>)}
+          </select>
+          <AjudaCampo chave="financeiro.dre_consolidado.ln_seletor" rota={ROTA_DRE} />
+        </div>
+        {d.tem_rateio && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ display: 'flex', border: `1px solid ${LINE}`, borderRadius: 8, overflow: 'hidden' }}>
+              <button type="button" onClick={() => setComRateio(false)} style={!comRateio ? segOn : segOff} title="Despesa comum fica numa coluna à parte">Sem rateio</button>
+              <button type="button" onClick={() => setComRateio(true)} style={comRateio ? segOn : segOff} title="EBITDA real: distribui o comum entre as linhas (NBC TG 16)">EBITDA real (c/ rateio)</button>
+            </div>
+            <AjudaCampo chave="financeiro.dre_consolidado.ln_rateio" rota={ROTA_DRE} />
+          </div>
+        )}
+        <span style={{ fontSize: 11, color: MUT, marginLeft: 'auto' }}>{d.empresas} empresa(s) · {d.regime} · colunas = linhas de negócio</span>
+      </div>
+
+      <div id="dre-tabela" style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 250px)', border: `0.5px solid ${LINE}`, borderRadius: 10, background: '#FFF' }}>
+        <table style={{ borderCollapse: 'collapse', fontSize: 12.5, width: '100%', minWidth: 720 }}>
+          <thead>
+            <tr>
+              <th style={{ ...thConta, position: 'sticky', left: 0, zIndex: 4, background: CREAM, boxShadow: '7px 0 7px -7px rgba(61,35,20,0.18)' }}>Conta</th>
+              {colsVisiveis.map((c) => (
+                <th key={c.key} style={{ ...thMes, zIndex: 2, ...(c.is_comum ? { fontStyle: 'italic', color: '#8A6A1E' } : null) }}>
+                  {c.nome}
+                  {c.is_comum && <AjudaCampo chave="financeiro.dre_consolidado.ln_comum" rota={ROTA_DRE} />}
+                </th>
+              ))}
+              <th style={{ ...thMes, position: 'sticky', top: 0, right: 0, zIndex: 4, borderLeft: `2px solid ${LINE}`, background: CREAM, boxShadow: '-7px 0 7px -7px rgba(61,35,20,0.18)' }}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {linhasVisiveis.map((l) => {
+              const isRes = l.kind === 'resultado'; const isGrp = l.kind === 'grupo'; const bold = isRes || isGrp
+              const total = somaCols(l)
+              return (
+                <tr key={`${l.kind}-${l.codigo}-${l.ordem}`} style={{ borderTop: `0.5px solid ${LINE}`, background: isRes ? '#FBF7EF' : '#FFF' }}>
+                  <td style={{ ...tdConta, position: 'sticky', left: 0, zIndex: 2, background: isRes ? '#FBF7EF' : '#FFF', boxShadow: '7px 0 7px -7px rgba(61,35,20,0.18)', paddingLeft: 12 + l.nivel * 18, fontWeight: bold ? 700 : 500, color: ESP }}>
+                    {l.colapsavel ? (
+                      <button type="button" onClick={() => toggleGrupo(l.codigo)} style={caret} aria-label="expandir/recolher">{colapsados.has(l.codigo) ? '▸' : '▾'}</button>
+                    ) : <span style={{ display: 'inline-block', width: 16 }} />}
+                    {l.nome}
+                  </td>
+                  {colsVisiveis.map((c) => {
+                    const v = l.valores[c.key]
+                    const disp = v != null ? valorComSinalDre(v, l.sinal) : null
+                    return (
+                      <td key={c.key} title={disp != null ? cheio(disp) : ''} style={{ ...tdVal, ...(c.is_comum ? { background: '#FDFAF3' } : null), fontWeight: bold ? 700 : 400, color: disp != null && ehNegativoDre(disp) ? COR_VALOR_NEGATIVO : ESP }}>
+                        {disp != null ? fmtMoedaDre(disp) : ''}
+                      </td>
+                    )
+                  })}
+                  <td title={cheio(valorComSinalDre(total, l.sinal))} style={{ ...tdVal, position: 'sticky', right: 0, zIndex: 1, borderLeft: `2px solid ${LINE}`, background: isRes ? '#FBF4E6' : CREAM, boxShadow: '-7px 0 7px -7px rgba(61,35,20,0.18)', fontWeight: 700, color: ehNegativoDre(valorComSinalDre(total, l.sinal)) ? COR_VALOR_NEGATIVO : ESP }}>
+                    {fmtMoedaDre(valorComSinalDre(total, l.sinal))}
+                  </td>
+                </tr>
+              )
+            })}
+            {/* Margem EBITDA por linha (%) — a eficiência de cada linha */}
+            <tr style={{ borderTop: `1.5px solid ${LINE}`, background: '#F6EFE2' }}>
+              <td style={{ ...tdConta, position: 'sticky', left: 0, zIndex: 2, background: '#F6EFE2', boxShadow: '7px 0 7px -7px rgba(61,35,20,0.18)', fontWeight: 700, color: ESP }}>
+                Margem EBITDA (%)<AjudaCampo chave="financeiro.dre_consolidado.ln_margem" rota={ROTA_DRE} />
+              </td>
+              {colsVisiveis.map((c) => { const m = margemCol(c.key); return (
+                <td key={c.key} style={{ ...tdVal, fontWeight: 700, color: m == null ? MUT : m < 0 ? COR_VALOR_NEGATIVO : GREEN }}>{fmtPctLN(m)}</td>
+              )})}
+              <td style={{ ...tdVal, position: 'sticky', right: 0, zIndex: 1, borderLeft: `2px solid ${LINE}`, background: '#F6EFE2', boxShadow: '-7px 0 7px -7px rgba(61,35,20,0.18)', fontWeight: 800, color: robTotal !== 0 && ebitdaTotal / robTotal < 0 ? COR_VALOR_NEGATIVO : GREEN }}>
+                {fmtPctLN(robTotal !== 0 ? (ebitdaTotal / robTotal) * 100 : null)}
+              </td>
+            </tr>
+            {/* DEPOIS DO RATEIO (EBITDA real) — base do DRE Divisional (NBC TG 16). Comum distribuído → '—'. */}
+            {comRateio && d.rateio && (
+              <>
+                <tr style={{ borderTop: `1.5px solid ${GOLD}`, background: '#FBF4E6' }}>
+                  <td colSpan={nColsTot} style={{ padding: '6px 12px', fontSize: 11, fontWeight: 700, color: '#8A6A1E', position: 'sticky', left: 0 }}>
+                    EBITDA real após rateio NBC TG 16 — o comum é distribuído entre as linhas (mesma base do DRE Divisional)
+                  </td>
+                </tr>
+                <tr style={{ background: '#FBF4E6' }}>
+                  <td style={{ ...tdConta, position: 'sticky', left: 0, zIndex: 2, background: '#FBF4E6', boxShadow: '7px 0 7px -7px rgba(61,35,20,0.18)', fontWeight: 700, color: ESP }}>
+                    = EBITDA real (c/ rateio)<AjudaCampo chave="financeiro.dre_consolidado.ln_rateio" rota={ROTA_DRE} />
+                  </td>
+                  {colsVisiveis.map((c) => {
+                    const rr = d.rateio!.por_ln[c.key]
+                    if (c.is_comum || !rr) return <td key={c.key} style={{ ...tdVal, color: MUT }}>—</td>
+                    return <td key={c.key} title={cheio(rr.ebitda_pos_rateio)} style={{ ...tdVal, fontWeight: 700, color: ehNegativoDre(rr.ebitda_pos_rateio) ? COR_VALOR_NEGATIVO : GREEN }}>{fmtMoedaDre(rr.ebitda_pos_rateio)}</td>
+                  })}
+                  <td title={cheio(d.rateio.ebitda_pos_total)} style={{ ...tdVal, position: 'sticky', right: 0, zIndex: 1, borderLeft: `2px solid ${LINE}`, background: '#FBF4E6', boxShadow: '-7px 0 7px -7px rgba(61,35,20,0.18)', fontWeight: 800, color: ehNegativoDre(d.rateio.ebitda_pos_total) ? COR_VALOR_NEGATIVO : GREEN }}>
+                    {fmtMoedaDre(d.rateio.ebitda_pos_total)}
+                  </td>
+                </tr>
+                <tr style={{ background: '#FBF4E6' }}>
+                  <td style={{ ...tdConta, position: 'sticky', left: 0, zIndex: 2, background: '#FBF4E6', boxShadow: '7px 0 7px -7px rgba(61,35,20,0.18)', color: MUT }}>Margem real (%)</td>
+                  {colsVisiveis.map((c) => { const rr = d.rateio!.por_ln[c.key]; return (
+                    <td key={c.key} style={{ ...tdVal, color: c.is_comum || !rr ? MUT : rr.ebitda_pct_pos_rateio < 0 ? COR_VALOR_NEGATIVO : GREEN }}>{c.is_comum || !rr ? '—' : fmtPctLN(rr.ebitda_pct_pos_rateio)}</td>
+                  )})}
+                  <td style={{ ...tdVal, position: 'sticky', right: 0, zIndex: 1, borderLeft: `2px solid ${LINE}`, background: '#FBF4E6', boxShadow: '-7px 0 7px -7px rgba(61,35,20,0.18)', color: MUT }}>
+                    {fmtPctLN(robTotal !== 0 ? (d.rateio.ebitda_pos_total / robTotal) * 100 : null)}
+                  </td>
+                </tr>
+              </>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <p className="dre-noprint" style={{ fontSize: 11, color: MUT, margin: '12px 2px 0', fontStyle: 'italic' }}>
+        Colunas = linhas de negócio em {MESES_LBL[selIni - 1]}{selIni !== selFim ? `–${MESES_LBL[selFim - 1]}` : ''}/{ano}, consolidando {grupoNome}. Valores em reais completos.
+        A despesa/receita sem linha fica em <b>Comum / não alocado</b> e nunca some; a soma das colunas fecha com o Total do grupo.
+        {d.tem_rateio
+          ? <> <b>EBITDA real (c/ rateio)</b> distribui o comum entre as linhas pela base do DRE Divisional (NBC TG 16).</>
+          : <> Cadastre o rateio da empresa (DRE Divisional) para ver o EBITDA real por linha.</>}
+      </p>
+    </>
   )
 }
 
@@ -420,23 +674,138 @@ function DrillDiario({ membros, codigo, nome, ano, mes, regime, colunas }: {
       {/* cliente/fornecedor × dia — MESMAS colunas do topo */}
       {d.pessoas.map((p, i) => (
         <tr key={p.pessoa_id ?? `x${i}`} style={{ borderTop: `0.5px solid ${LINE}`, background: '#FCFAF5' }}>
-          <td style={{ ...tdConta, position: 'sticky', left: 0, zIndex: 2, background: '#FCFAF5', paddingLeft: labelPad, color: ESP, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 260 }} title={p.pessoa_nome}>
+          <td style={{ ...tdConta, position: 'sticky', left: 0, zIndex: 2, background: '#FCFAF5', boxShadow: '7px 0 7px -7px rgba(61,35,20,0.18)', paddingLeft: labelPad, color: ESP, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 260 }} title={p.pessoa_nome}>
             {p.pessoa_nome}
           </td>
           {colunas.map((c) => {
             const v = p.valores_dia[c.key]
             return <td key={c.key} title={v != null ? cheio(v) : ''} style={{ ...tdVal, ...tdDiaCol, color: ESP }}>{v != null ? abrev(v) : ''}</td>
           })}
-          <td title={cheio(p.total)} style={{ ...tdVal, borderLeft: `2px solid ${LINE}`, background: CREAM, fontWeight: 700 }}>{abrev(p.total)}</td>
+          <td title={cheio(p.total)} style={{ ...tdVal, position: 'sticky', right: 0, zIndex: 1, borderLeft: `2px solid ${LINE}`, background: CREAM, boxShadow: '-7px 0 7px -7px rgba(61,35,20,0.18)', fontWeight: 700 }}>{abrev(p.total)}</td>
         </tr>
       ))}
       {/* subtotal do dia — também dia-alinhado */}
       <tr style={{ borderTop: `1.5px solid ${LINE}`, background: '#FBF7EF' }}>
-        <td style={{ ...tdConta, position: 'sticky', left: 0, zIndex: 2, background: '#FBF7EF', paddingLeft: labelPad, fontWeight: 700, color: ESP }}>Subtotal do dia</td>
+        <td style={{ ...tdConta, position: 'sticky', left: 0, zIndex: 2, background: '#FBF7EF', boxShadow: '7px 0 7px -7px rgba(61,35,20,0.18)', paddingLeft: labelPad, fontWeight: 700, color: ESP }}>Subtotal do dia</td>
         {colunas.map((c) => { const s = subtotalDia(c.key); return <td key={c.key} title={s ? cheio(s) : ''} style={{ ...tdVal, ...tdDiaCol, fontWeight: 700, color: ESP }}>{s ? abrev(s) : ''}</td> })}
-        <td style={{ ...tdVal, borderLeft: `2px solid ${LINE}`, background: CREAM, fontWeight: 800, color: ESP }}>{abrev(d.total)}</td>
+        <td style={{ ...tdVal, position: 'sticky', right: 0, zIndex: 1, borderLeft: `2px solid ${LINE}`, background: CREAM, boxShadow: '-7px 0 7px -7px rgba(61,35,20,0.18)', fontWeight: 800, color: ESP }}>{abrev(d.total)}</td>
       </tr>
     </>
+  )
+}
+
+// ── 3º nível (CEO 14/10): LANÇAMENTOS de uma conta no período (só leitura), em qualquer intervalo de meses.
+// Soma dos lançamentos fecha com a linha do DRE (reconciliação); três datas lado a lado; SEM competência em vermelho.
+type LancItem = {
+  id: string; origem?: string; pessoa: string; descricao: string | null; documento: string | null;
+  data_competencia: string | null; data_vencimento: string | null; data_pagamento: string | null;
+  valor: number; valor_exibido?: number; status: string | null; sem_competencia: boolean
+}
+type LancResult = {
+  ok: boolean; erro?: string; conta_nome: string; is_receita: boolean; fonte: string; regime: string;
+  total: number; dre_periodo: number | null; lancamentos: LancItem[]; orfaos: LancItem[]
+}
+
+function DrillLancamentos({ membros, codigo, nome, mesIni, mesFim, regime, colSpan }: {
+  membros: string[]; codigo: string; nome: string; mesIni: string; mesFim: string; regime: string; colSpan: number
+}) {
+  const [d, setD] = useState<LancResult | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [erro, setErro] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- loading inicial ao abrir o drill (padrão dos demais drills da tela)
+    setLoading(true); setErro(null)
+    void supabase.rpc('fn_psgc_dre_lancamentos', {
+      p_company_ids: membros, p_psgc_codigo: codigo, p_mes_ini: mesIni, p_mes_fim: mesFim, p_regime: regime,
+    }).then(({ data, error }) => {
+      if (!alive) return
+      const r = data as LancResult | null
+      if (error) setErro(error.message)
+      else if (r && r.ok === false) setErro(r.erro || 'erro')
+      else setD(r)
+      setLoading(false)
+    })
+    return () => { alive = false }
+  }, [membros, codigo, mesIni, mesFim, regime])
+
+  const linhaMsg = (texto: string, cor: string) => (
+    <tr><td colSpan={colSpan} style={{ padding: '10px 12px', fontSize: 12, color: cor, background: '#FCFAF5' }}>{texto}</td></tr>
+  )
+  if (loading) return linhaMsg('Carregando lançamentos…', MUT)
+  if (erro) return linhaMsg(erro, RED)
+  if (!d) return linhaMsg('Sem dados.', MUT)
+
+  const diff = Math.round((d.total - (d.dre_periodo ?? 0)) * 100) / 100
+  const cel = (x: LancItem) => x.sem_competencia ? '#FCEBEB' : '#FFF'
+  const valExib = (x: LancItem) => x.valor_exibido ?? x.valor
+
+  const tabela = (itens: LancItem[], vazio: string) => (
+    <div style={{ overflowX: 'auto', border: `0.5px solid ${LINE}`, borderRadius: 8, background: '#FFF' }}>
+      <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12, minWidth: 820 }}>
+        <thead>
+          <tr style={{ background: CREAM }}>
+            <th style={lthL}>Origem<AjudaCampo chave="financeiro.dre_consolidado.origem_titulo" rota={ROTA_DRE} /></th>
+            <th style={lthL}>Fornecedor / Cliente</th>
+            <th style={lthL}>Descrição</th>
+            <th style={lthL}>Documento</th>
+            <th style={lthC}>Competência<AjudaCampo chave="financeiro.dre_consolidado.data_competencia" rota={ROTA_DRE} /></th>
+            <th style={lthC}>Vencimento<AjudaCampo chave="financeiro.dre_consolidado.data_vencimento" rota={ROTA_DRE} /></th>
+            <th style={lthC}>Pagamento<AjudaCampo chave="financeiro.dre_consolidado.data_pagamento" rota={ROTA_DRE} /></th>
+            <th style={lthR}>Valor</th>
+            <th style={lthL}>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {itens.length === 0 ? (
+            <tr><td colSpan={9} style={{ padding: '10px 12px', color: MUT }}>{vazio}</td></tr>
+          ) : itens.map((x) => (
+            <tr key={x.id} style={{ borderTop: `0.5px solid ${LINE}`, background: cel(x) }}>
+              <td style={ltd}>{x.origem === 'a receber' ? 'A receber' : x.origem === 'a pagar' ? 'A pagar' : '—'}</td>
+              <td style={ltd} title={x.pessoa}>{x.pessoa}</td>
+              <td style={ltd} title={x.descricao ?? ''}>{x.descricao ?? '—'}</td>
+              <td style={ltd}>{x.documento ?? '—'}</td>
+              <td style={ltdC}>
+                {x.sem_competencia
+                  ? <span style={{ color: RED, fontWeight: 700 }} title="Lançamento sem data de competência — distorce o resultado do período">sem competência</span>
+                  : fmtData(x.data_competencia)}
+              </td>
+              <td style={ltdC}>{fmtData(x.data_vencimento)}</td>
+              <td style={ltdC}>{fmtData(x.data_pagamento)}</td>
+              <td style={{ ...ltd, textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', fontWeight: 600, color: valExib(x) < 0 ? COR_VALOR_NEGATIVO : ESP }}>{cheio(valExib(x))}</td>
+              <td style={ltd}>{x.status ?? '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+
+  return (
+    <tr>
+      <td colSpan={colSpan} style={{ padding: 0, background: '#FCFAF5', borderTop: `0.5px solid ${LINE}` }}>
+        <div style={{ padding: '10px 14px' }}>
+          <div style={{ fontSize: 12, color: MUT, marginBottom: 8 }}>
+            Lançamentos de <b style={{ color: ESP }}>{nome}</b> · {d.lancamentos.length} título(s) · total <b style={{ color: ESP }}>{cheio(d.total)}</b>
+            <AjudaCampo chave="financeiro.dre_consolidado.drill_lancamentos" rota={ROTA_DRE} />
+            {Math.abs(diff) < 0.01
+              ? <span style={{ color: GREEN, marginLeft: 6, fontWeight: 700 }}>✓ fecha com o DRE</span>
+              : <span style={{ color: RED, marginLeft: 6, fontWeight: 700 }}>⚠ não bate com o DRE ({cheio(d.dre_periodo ?? 0)}): diferença de {cheio(diff)}. Revise títulos sem categoria ou sem a data do regime, ou recalcule o DRE.</span>}
+          </div>
+          {tabela(d.lancamentos, 'Nenhum lançamento desta conta no período.')}
+          {d.orfaos.length > 0 && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: RED, marginBottom: 4 }}>
+                ⚠ {d.orfaos.length} lançamento(s) SEM data de competência e sem emissão (não entram em nenhum mês — revise)
+                <AjudaCampo chave="financeiro.dre_consolidado.sem_competencia" rota={ROTA_DRE} />
+              </div>
+              {tabela(d.orfaos, '')}
+            </div>
+          )}
+        </div>
+      </td>
+    </tr>
   )
 }
 
@@ -532,5 +901,11 @@ const tdConta: React.CSSProperties = { padding: '8px 12px', whiteSpace: 'nowrap'
 const tdVal: React.CSSProperties = { padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }
 const tdDiaCol: React.CSSProperties = { padding: '8px 7px', minWidth: 46 }
 const caret: React.CSSProperties = { width: 16, marginRight: 2, background: 'transparent', border: 'none', cursor: 'pointer', color: GOLD, fontSize: 11, padding: 0 }
+// 3º nível (lançamentos): tabela própria dentro do colSpan — rola no celular; não usa as colunas de mês do topo.
+const lthL: React.CSSProperties = { textAlign: 'left', padding: '7px 10px', fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: MUT, whiteSpace: 'nowrap' }
+const lthC: React.CSSProperties = { ...lthL, textAlign: 'center' }
+const lthR: React.CSSProperties = { ...lthL, textAlign: 'right' }
+const ltd: React.CSSProperties = { padding: '7px 10px', color: ESP, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+const ltdC: React.CSSProperties = { padding: '7px 10px', color: ESP, textAlign: 'center', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }
 // Parte C (#867) + alinhamento do drill: o detalhe (cliente/fornecedor × dia) usa as MESMAS colunas
 // da tabela do topo (tdConta/tdVal/tdDiaCol) — régua de dias só no topo, e cada dia N sob o dia N.

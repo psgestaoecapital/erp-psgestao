@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { authFetch } from '@/lib/authFetch'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -50,6 +51,7 @@ export default function FuncionariosPage() {
   const [fSetor, setFSetor] = useState('')
   const [fEmp, setFEmp] = useState('')
   const [fVinculo, setFVinculo] = useState<'' | 'direto' | 'terceirizado'>('')
+  const [mostrarDesligados, setMostrarDesligados] = useState(false)
   const [fStatus, setFStatus] = useState<'' | 'ok' | 'pendente' | 'critico'>('')
   const [modalAberto, setModalAberto] = useState(false)
   const [importando, setImportando] = useState(false)
@@ -81,7 +83,8 @@ export default function FuncionariosPage() {
     setLoading(true)
     setErro(null)
     try {
-      const params = new URLSearchParams({ company_ids: companyIdsKey, ativo: 'true' })
+      const params = new URLSearchParams({ company_ids: companyIdsKey })
+      if (!mostrarDesligados) params.set('ativo', 'true')
       if (busca) params.set('q', busca)
       if (fCargo) params.set('cargo', fCargo)
       if (fSetor) params.set('setor', fSetor)
@@ -96,7 +99,7 @@ export default function FuncionariosPage() {
     } finally {
       setLoading(false)
     }
-  }, [companyIdsKey, busca, fCargo, fSetor, fEmp, fVinculo])
+  }, [companyIdsKey, busca, fCargo, fSetor, fEmp, fVinculo, mostrarDesligados])
 
   useEffect(() => {
     carregar()
@@ -190,6 +193,11 @@ export default function FuncionariosPage() {
             <option value="">Todas as tomadoras</option>
             {empresas.map((s: string) => (<option key={s} value={s}>{s}</option>))}
           </select>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: C.muted }}>
+            <input type="checkbox" checked={mostrarDesligados} onChange={(e: any) => setMostrarDesligados(e.target.checked)} />
+            Mostrar desligados
+            <AjudaCampo chave="compliance.funcionarios.mostrar_desligados" />
+          </label>
           <select value={fVinculo} onChange={(e: any) => setFVinculo(e.target.value as any)} style={selectStyle()}>
             <option value="">Todos os vínculos</option>
             <option value="direto">Diretos</option>

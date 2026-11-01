@@ -2,8 +2,24 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { UploadCloud, Sparkles, Check, AlertTriangle, Archive } from 'lucide-react'
+import { UploadCloud, Sparkles, Check, AlertTriangle, Archive, Link2, Info, Pencil, Trash2, RefreshCw, FileText } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { codigoAmigavel, erroAmigavel } from '@/lib/erroAmigavel'
+import { contarAmbientes, etapaAtual, etapasTakeoff, progressoPlanta, situacaoPlanta, type ContagemAmbientes } from '@/lib/hub/takeoff'
+
+const ROTA = '/dashboard/projetos/takeoff'
+
+// HB0 (auditor F20): aviso escrito por nós (já em português) passa como está; erro do banco/rede/IA passa por
+// erroAmigavel — a tela nunca mostra mensagem crua do Postgres.
+class AvisoTela extends Error {}
+const falhaTela = (e: unknown) => (e instanceof AvisoTela ? e.message : erroAmigavel(e, 'Não foi possível concluir o take-off. Tente de novo.'))
+
+type PlantaRecente = {
+  id: string; nome: string; status: string; arquivo_tipo: string | null; aps_status: string | null
+  orcamento_id: string | null; created_at: string; contagem: ContagemAmbientes
+  ambientes: { confirmado: boolean; servico_id: string | null }[]
+}
 
 // padrao ps_empresa_sel com polling (mesmo das outras telas verticais)
 function useEmpresaSelecionada(): { companyId: string | null } {
@@ -141,7 +157,7 @@ async function pdfPagina1ParaPng(pdfBytes: Uint8Array): Promise<{ blob: Blob; pa
   canvas.width = Math.floor(viewport.width)
   canvas.height = Math.floor(viewport.height)
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('Canvas 2D nao disponivel.')
+  if (!ctx) throw new AvisoTela('Canvas 2D nao disponivel.')
   await page.render({
     canvasContext: ctx,
     viewport,
@@ -169,21 +185,53 @@ export default function TakeoffPage() {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
+  const [orcGerado, setOrcGerado] = useState(false)
+  const [carregado, setCarregado] = useState(false)
+  const [recentes, setRecentes] = useState<PlantaRecente[]>([])
+
+  // Plantas enviadas (as 10 mais recentes) com a situação de cada uma — o usuário retoma de onde parou.
+  const recarregarRecentes = useCallback(async (cid: string) => {
+    const { data: ps, error } = await supabase.from('erp_obra_planta')
+      .select('id,nome,status,arquivo_tipo,aps_status,orcamento_id,created_at')
+      .eq('company_id', cid).is('deleted_at', null).order('created_at', { ascending: false }).limit(10)
+    if (error) { setErro(falhaTela(error)); return }
+    const lista = (ps ?? []) as Omit<PlantaRecente, 'contagem' | 'ambientes'>[]
+    const ids = lista.map((p) => p.id)
+    const { data: amb } = ids.length
+      ? await supabase.from('erp_obra_planta_ambiente').select('planta_id,confirmado,servico_id').in('planta_id', ids)
+      : { data: [] }
+    const porPlanta = new Map<string, { confirmado: boolean; servico_id: string | null }[]>()
+    for (const a of (amb ?? []) as { planta_id: string; confirmado: boolean; servico_id: string | null }[]) {
+      porPlanta.set(a.planta_id, [...(porPlanta.get(a.planta_id) ?? []), a])
+    }
+    setRecentes(lista.map((p) => ({ ...p, ambientes: porPlanta.get(p.id) ?? [], contagem: contarAmbientes(porPlanta.get(p.id) ?? []) })))
+  }, [])
 
   useEffect(() => {
     if (!companyId) return
     let alive = true
     ;(async () => {
-      const { data: o } = await supabase.from('erp_orcamentos').select('id,numero,cliente_nome,status')
+      const { data: o, error: eo } = await supabase.from('erp_orcamentos').select('id,numero,cliente_nome,status')
         .eq('company_id', companyId).in('status', ['rascunho', 'enviado', 'aprovado']).order('created_at', { ascending: false }).limit(50)
-      const { data: s } = await supabase.from('projetos_servicos').select('id,codigo,nome,unidade,custo_unitario_total')
+      const { data: s, error: es } = await supabase.from('projetos_servicos').select('id,codigo,nome,unidade,custo_unitario_total')
         .eq('company_id', companyId).eq('ativo', true).order('nome').limit(500)
       if (!alive) return
+      if (eo || es) setErro(falhaTela(eo ?? es))
       setOrcamentos((o as Orc[]) ?? [])
+      // 1 só orçamento em aberto: já vem escolhido (destino claro, sem o campo parado em "— selecione —").
+      if (((o as Orc[]) ?? []).length === 1) setOrcId((prev) => prev || (o as Orc[])[0].id)
       setServicos((s as Servico[]) ?? [])
+      await recarregarRecentes(companyId)
+      if (alive) setCarregado(true)
     })()
     return () => { alive = false }
-  }, [companyId])
+  }, [companyId, recarregarRecentes])
+
+  const abrirPlanta = async (id: string) => {
+    setErro(null); setMsg(null); setOrcGerado(false)
+    await recarregarPlanta(id)
+    await recarregarAmbientes(id)
+  }
 
   // Se veio ?planta_id=... (vindo do acervo), carrega essa planta direto.
   useEffect(() => {
@@ -239,6 +287,7 @@ export default function TakeoffPage() {
       .select('id,nome,status,area_total_m2,ia_erro,arquivo_path,arquivo_tipo,arquivo_dwg_path,aps_status,aps_diagnostico,aps_traduzido_em,analisado_em,analisado_por')
       .eq('id', plantaId).single()
     setPlanta(data as Planta)
+    return data as Planta
   }, [])
 
   const enviarPlanta = async (file: File, forcarNovaVersao = false) => {
@@ -248,12 +297,12 @@ export default function TakeoffPage() {
       const lower = file.name.toLowerCase()
       const ehDwg = /\.dwg$/i.test(lower)
       if (!ehDwg && !/\.(pdf|png|jpe?g)$/i.test(lower)) {
-        throw new Error('Formato nao suportado. Envie DWG (CAD), PDF, PNG ou JPG.')
+        throw new AvisoTela('Formato nao suportado. Envie DWG (CAD), PDF, PNG ou JPG.')
       }
       const limite = ehDwg ? MAX_UPLOAD_DWG_BYTES : MAX_UPLOAD_BYTES
       if (file.size > limite) {
         const mb = (file.size / (1024 * 1024)).toFixed(1)
-        throw new Error(`Arquivo grande demais (${mb} MB). Limite: ${(limite / (1024 * 1024)).toFixed(0)} MB.`)
+        throw new AvisoTela(`Arquivo grande demais (${mb} MB). Limite: ${(limite / (1024 * 1024)).toFixed(0)} MB.`)
       }
       const tipo = ehDwg ? 'dwg'
         : /\.pdf$/i.test(lower) ? 'pdf'
@@ -334,8 +383,8 @@ export default function TakeoffPage() {
       if (up.error) {
         const m = /invalid key|key/i.test(up.error.message)
           ? 'Nao foi possivel enviar o arquivo (nome com caracteres invalidos). Tente renomear sem acentos/espacos.'
-          : `Falha no envio: ${up.error.message}`
-        throw new Error(m)
+          : 'Não foi possível enviar o arquivo. Confira a conexão e tente de novo.'
+        throw new AvisoTela(m)
       }
       const { data: pid, error } = await supabase.rpc('fn_takeoff_planta_salvar', {
         p_company_id: companyId, p_nome: file.name, p_arquivo_path: path, p_arquivo_tipo: tipo,
@@ -349,24 +398,25 @@ export default function TakeoffPage() {
         await supabase.from('erp_obra_planta').update({ arquivo_dwg_path: path }).eq('id', idFinal)
       }
       await recarregarPlanta(idFinal)
+      await recarregarRecentes(companyId)
       setMsg(ehDwg
         ? 'DWG enviado e arquivado. Clique em "Processar DWG (precisao CAD)" para radiografar.'
         : 'Planta enviada. Clique em Analisar para extrair os ambientes.')
     } catch (e) {
-      setErro((e as Error).message || String(e))
+      setErro(falhaTela(e))
     } finally {
       setBusy(false)
     }
   }
 
-  const analisar = async () => {
-    if (!planta || !companyId) return
-    const arquivoPath = planta.arquivo_path
+  const analisar = async (alvo: Planta | null = planta) => {
+    if (!alvo || !companyId) return
+    const arquivoPath = alvo.arquivo_path
     if (!arquivoPath) {
       setErro('Caminho do arquivo nao encontrado. Reenvie a planta.')
       return
     }
-    const ehPdf = planta.arquivo_tipo === 'pdf' || arquivoPath.toLowerCase().endsWith('.pdf')
+    const ehPdf = alvo.arquivo_tipo === 'pdf' || arquivoPath.toLowerCase().endsWith('.pdf')
 
     setBusy(true); setErro(null); setMsg(ehPdf ? 'Convertendo PDF para imagem…' : 'Analisando com IA…')
     try {
@@ -389,12 +439,12 @@ export default function TakeoffPage() {
         const up = await supabase.storage.from('projetos-plantas').upload(pngPath, pngBytes, {
           upsert: true, contentType: 'image/png',
         })
-        if (up.error) throw new Error(`Falha ao salvar imagem convertida: ${up.error.message}`)
+        if (up.error) throw new AvisoTela('Não foi possível preparar a imagem do PDF para a análise. Tente de novo.')
         imagemPath = pngPath
         media = 'image/png'
         setMsg(pages > 1 ? `PDF de ${pages} paginas — analisando a pagina 1…` : 'Analisando com IA…')
       } else {
-        media = /\.jpe?g$/i.test(arquivoPath) || planta.arquivo_tipo === 'jpg' ? 'image/jpeg' : 'image/png'
+        media = /\.jpe?g$/i.test(arquivoPath) || alvo.arquivo_tipo === 'jpg' ? 'image/jpeg' : 'image/png'
       }
 
       // 2) Chama a edge mandando apenas o path (payload pequeno, sem base64
@@ -402,7 +452,7 @@ export default function TakeoffPage() {
       //    A edge baixa do bucket via service role e manda pra IA.
       const { data, error } = await supabase.functions.invoke('takeoff-planta-ia', {
         body: {
-          planta_id: planta.id,
+          planta_id: alvo.id,
           company_id: companyId,
           arquivo_path: imagemPath,
           media_type: media,
@@ -411,21 +461,22 @@ export default function TakeoffPage() {
       })
       if (error) throw error
       const r = data as { ok: boolean; erro?: string }
-      if (!r.ok) throw new Error(r.erro || 'Erro IA')
-      await recarregarPlanta(planta.id)
-      await recarregarAmbientes(planta.id)
+      if (!r.ok) throw new AvisoTela(r.erro || 'Erro IA')
+      await recarregarPlanta(alvo.id)
+      await recarregarAmbientes(alvo.id)
+      await recarregarRecentes(companyId)
       setMsg(ehPdf && pages > 1
         ? `Ambientes extraidos da pagina 1 (PDF tem ${pages} paginas). Revise, vincule um servico e confirme.`
         : 'Ambientes extraidos. Revise, vincule um servico e confirme.')
     } catch (e) {
-      setErro((e as Error).message || String(e))
+      setErro(falhaTela(e))
     } finally {
       setBusy(false)
     }
   }
 
-  const processarDwg = async (forcar = false) => {
-    if (!planta) return
+  const processarDwg = async (forcar = false, alvo: Planta | null = planta) => {
+    if (!alvo) return
     if (forcar) {
       const ok = confirm('Reanalisar consome 1 credito APS e conta como analise paga. Continuar?')
       if (!ok) return
@@ -440,11 +491,11 @@ export default function TakeoffPage() {
           'content-type': 'application/json',
           authorization: session ? `Bearer ${session.access_token}` : '',
         },
-        body: JSON.stringify({ planta_id: planta.id, forcar }),
+        body: JSON.stringify({ planta_id: alvo.id, forcar }),
       })
       const j = await r.json()
-      if (!j.ok) throw new Error(j.erro || j.detalhe || 'Falha ao processar DWG')
-      await recarregarPlanta(planta.id)
+      if (!j.ok) throw new AvisoTela(j.erro || 'Falha ao processar DWG')
+      await recarregarPlanta(alvo.id)
       if (j.status === 'traduzindo') {
         setMsg('DWG em traducao no APS — clique em "Processar DWG" de novo em ~1 minuto para concluir.')
       } else if (j.status === 'radiografado') {
@@ -453,7 +504,7 @@ export default function TakeoffPage() {
           : 'DWG radiografado. Ficha do projeto e diagnostico abaixo.')
       }
     } catch (e) {
-      setErro((e as Error).message || String(e))
+      setErro(falhaTela(e))
     } finally {
       setBusy(false)
     }
@@ -463,11 +514,12 @@ export default function TakeoffPage() {
     const next = { ...a, ...patch }
     setAmbientes((prev) => prev.map((x) => (x.id === a.id ? next : x)))
     if (!companyId) return
-    await supabase.rpc('fn_takeoff_ambiente_atualizar', {
+    const { error } = await supabase.rpc('fn_takeoff_ambiente_atualizar', {
       p_company_id: companyId, p_id: a.id,
       p_nome: next.nome, p_area_m2: next.area_m2, p_perimetro_ml: next.perimetro_ml, p_pe_direito_m: next.pe_direito_m,
       p_servico_id: next.servico_id, p_base_calculo: next.base_calculo, p_confirmado: next.confirmado,
     })
+    if (error) setErro(falhaTela(error))
   }
 
   // FEATURE-TAKEOFF-AMBIENTE-MANUAL (07/07 · Saneamento V1 Fase 3 · destrava
@@ -500,7 +552,7 @@ export default function TakeoffPage() {
       await recarregarAmbientes(planta.id)
       await recarregarPlanta(planta.id)
     } catch (e) {
-      setErro((e as Error).message || String(e))
+      setErro(falhaTela(e))
     } finally {
       setBusy(false)
     }
@@ -516,9 +568,11 @@ export default function TakeoffPage() {
         p_company_id: companyId, p_planta_id: planta.id, p_orcamento_id: orcId,
       })
       if (error) throw error
-      setMsg(`Orcamento atualizado: ${data} itens criados.`)
+      setOrcGerado(true)
+      setMsg(`Orçamento atualizado: ${data} item(ns) criado(s).`)
+      await recarregarRecentes(companyId)
     } catch (e) {
-      setErro((e as Error).message || String(e))
+      setErro(falhaTela(e))
     } finally {
       setBusy(false)
     }
@@ -537,16 +591,57 @@ export default function TakeoffPage() {
       if (error) throw error
       const j = data as { ok?: boolean; erro?: string; mensagem?: string; orcamento_id?: string; numero?: string; itens?: number } | null
       if (!j?.ok) {
-        setErro(j?.mensagem ?? (j?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : (j?.erro ?? 'Não foi possível criar o orçamento.')))
+        setErro(j?.mensagem ?? (j?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : codigoAmigavel(j?.erro, 'Não foi possível criar o orçamento.')))
         return
       }
       setMsg(`Orçamento ${j.numero ?? ''} criado com ${j.itens ?? 0} item(ns). Abrindo…`)
       router.push(j.orcamento_id ? `/dashboard/orcamentos?id=${j.orcamento_id}` : '/dashboard/orcamentos')
     } catch (e) {
-      setErro((e as Error).message || String(e))
+      setErro(falhaTela(e))
     } finally {
       setBusy(false)
     }
+  }
+
+  // RD-98: ações por planta da lista (editar, re-analisar, excluir rastreável).
+  const [editando, setEditando] = useState<PlantaRecente | null>(null)
+  const [excluindo, setExcluindo] = useState<PlantaRecente | null>(null)
+
+  const salvarEdicao = async (nome: string, orcamentoId: string) => {
+    if (!editando || !companyId) return
+    setBusy(true); setErro(null)
+    try {
+      const { error } = await supabase.rpc('fn_takeoff_planta_editar', {
+        p_planta_id: editando.id, p_nome: nome, p_orcamento_id: orcamentoId || null,
+      })
+      if (error) throw error
+      if (planta?.id === editando.id) await recarregarPlanta(editando.id)
+      await recarregarRecentes(companyId)
+      setEditando(null); setMsg('Planta atualizada.')
+    } catch (e) { setErro(falhaTela(e)) } finally { setBusy(false) }
+  }
+
+  const excluirPlanta = async (motivo: string) => {
+    if (!excluindo || !companyId) return
+    setBusy(true); setErro(null)
+    try {
+      const { error } = await supabase.rpc('fn_takeoff_planta_excluir', { p_planta_id: excluindo.id, p_motivo: motivo })
+      if (error) throw error
+      if (planta?.id === excluindo.id) { setPlanta(null); setAmbientes([]); setOrcGerado(false) }
+      await recarregarRecentes(companyId)
+      setExcluindo(null); setMsg('Planta excluída (fica registrada na auditoria).')
+    } catch (e) { setErro(falhaTela(e)) } finally { setBusy(false) }
+  }
+
+  const reanalisar = async (p: PlantaRecente) => {
+    if (!companyId) return
+    setErro(null); setMsg(null); setOrcGerado(false)
+    const alvo = await recarregarPlanta(p.id)
+    await recarregarAmbientes(p.id)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+    if (alvo.arquivo_tipo === 'dwg') { await processarDwg(true, alvo); return }
+    if (!window.confirm('Re-analisar substitui os ambientes sugeridos pela IA (os que você adicionou na mão ficam). Continuar?')) return
+    await analisar(alvo)
   }
 
   const totalEstimado = ambientes.reduce((s, a) => {
@@ -559,6 +654,10 @@ export default function TakeoffPage() {
     return s + qtd * (sv.custo_unitario_total ?? 0)
   }, 0)
 
+  const contagem = contarAmbientes(ambientes)
+  const etapas = etapasTakeoff({ planta, ambientes, orcamentoEscolhido: !!orcId, orcamentoGerado: orcGerado })
+  const atual = etapaAtual(etapas)
+
   if (!companyId) return (
     <div className="min-h-screen bg-[#FAF7F2] p-6 text-sm text-[#3D2314]/60">
       Selecione uma empresa especifica no topo do menu para abrir o takeoff.
@@ -566,13 +665,15 @@ export default function TakeoffPage() {
   )
 
   const inp = 'w-full rounded-xl border border-[#E7DECF] bg-white p-2 text-sm text-[#3D2314]'
+  const btnAcao = 'inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold'
+  const estiloAcao = { background: '#FFFFFF', color: ESP, border: `1px solid ${LINE}` }
   return (
     <div className="min-h-screen bg-[#FAF7F2] p-4 space-y-4 max-w-4xl mx-auto">
       <header className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <div className="text-xs font-semibold tracking-widest uppercase" style={{ color: GOLD }}>Construção · diferencial IA</div>
           <h1 className="text-2xl sm:text-3xl mt-1 text-[#3D2314]" style={{ fontFamily: 'ui-serif,Georgia,serif', fontWeight: 600 }}>Takeoff por IA da planta</h1>
-          <p className="text-sm mt-1" style={{ color: ESP60 }}>Suba a planta → a IA extrai ambientes e medidas → você revisa, vincula serviços e gera o orçamento.</p>
+          <p className="text-sm mt-1" style={{ color: ESP60 }}>Envie a planta. A IA extrai os ambientes e as medidas. Você revisa, vincula os serviços e gera o orçamento.</p>
         </div>
         <Link
           href="/dashboard/projetos/takeoff/acervo"
@@ -583,31 +684,77 @@ export default function TakeoffPage() {
         </Link>
       </header>
 
+      <section data-testid="takeoff-etapas" aria-label="Etapas do take-off" className="rounded-2xl bg-white p-3 border border-[#E7DECF]">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <span className="text-xs font-semibold" style={{ color: ESP }}>
+            {atual >= etapas.length ? 'Take-off concluído' : `Etapa ${atual + 1} de ${etapas.length}: ${etapas[atual].rotulo}`}
+          </span>
+          <AjudaCampo chave="projetos.takeoff.etapas" rota={ROTA} />
+        </div>
+        <ol className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+          {etapas.map((e, i) => {
+            const corrente = i === atual
+            return (
+              <li key={e.chave} data-testid="takeoff-etapa" data-feita={e.feita ? '1' : '0'} aria-current={corrente ? 'step' : undefined}
+                className="rounded-lg px-2 py-1.5 text-[11px] leading-tight flex items-center gap-1.5"
+                style={{
+                  background: e.feita ? '#EEF4E8' : corrente ? '#FBF4E4' : BG,
+                  border: `1px solid ${e.feita ? GREEN : corrente ? GOLD : LINE}`,
+                  color: e.feita ? '#3F6A27' : ESP,
+                  fontWeight: corrente ? 600 : 400,
+                }}>
+                <span className="shrink-0 inline-flex items-center justify-center rounded-full text-[10px] w-4 h-4"
+                  style={{ background: e.feita ? GREEN : corrente ? GOLD : LINE, color: '#fff' }}>
+                  {e.feita ? <Check size={10} /> : i + 1}
+                </span>
+                <span>{e.rotulo}</span>
+              </li>
+            )
+          })}
+        </ol>
+      </section>
+
       <section className="rounded-2xl bg-white p-4 border border-[#E7DECF] space-y-2">
         {oportunidadeIdParam && (
           <div className="text-[11px] rounded-lg px-3 py-1.5 mb-1" style={{ background: '#FBF4E4', border: `1px solid ${GOLD}`, color: '#7A5A0F' }}>
-            🔗 Este take-off veio de uma oportunidade — o orçamento criado será vinculado a ela.
+            <Link2 size={12} className="inline mr-1" aria-hidden /> Este take-off veio de uma oportunidade: o orçamento criado será vinculado a ela.
           </div>
         )}
-        <label className="block text-xs font-medium" style={{ color: ESP }}>Orçamento de destino</label>
+        <div data-ajuda="1">
+        <label className="block text-xs font-medium" style={{ color: ESP }}>Orçamento de destino <AjudaCampo chave="projetos.takeoff.orcamento_destino" rota={ROTA} /></label>
         <select className={inp} value={orcId} onChange={(e) => {
           const v = e.target.value
           if (v === '__novo__') { void criarOrcamentoDoTakeoff() } // não seta orcId no sentinela
           else setOrcId(v)
         }}>
           <option value="">— selecione —</option>
-          <option value="__novo__">➕ Criar novo orçamento a partir deste take-off</option>
+          <option value="__novo__">+ Criar novo orçamento a partir deste take-off</option>
           {orcamentos.map((o) => (
             <option key={o.id} value={o.id}>{o.numero ?? o.id.slice(0, 8)} · {o.cliente_nome ?? 'sem cliente'} · {o.status}</option>
           ))}
         </select>
-        <p className="text-[11px]" style={{ color: ESP60 }}>Confirme os ambientes com serviço e escolha <b>“Criar novo orçamento”</b> — não precisa ter orçamento antes.</p>
+        </div>
+        {!orcId && (
+          <p data-testid="takeoff-destino-aviso" className="text-[11px] rounded-lg px-3 py-1.5" style={{ background: '#FBF4E4', border: `1px solid ${GOLD}`, color: '#7A5A0F' }}>
+            Destino ainda não escolhido: a planta fica salva, mas os itens só entram em um orçamento depois que você escolher o destino acima (ou criar um novo a partir do take-off).
+          </p>
+        )}
+        <p data-testid="takeoff-orcamentos-contagem" className="text-[11px]" style={{ color: ESP60 }}>
+          {orcamentos.length > 0
+            ? <>{orcamentos.length} orçamento(s) em rascunho, enviado ou aprovado nesta empresa. </>
+            : <>Nenhum orçamento em aberto nesta empresa. </>}
+          Também dá para escolher <b>“Criar novo orçamento”</b> depois de confirmar os ambientes.
+        </p>
 
         <div className="grid grid-cols-2 gap-2 pt-1">
-          <input className={inp} placeholder="Escala (ex.: 1:50) — opcional" value={escala} onChange={(e) => setEscala(e.target.value)} />
+          <label className="flex items-center gap-1">
+            <input className={inp} placeholder="Escala (ex.: 1:50) — opcional" value={escala} onChange={(e) => setEscala(e.target.value)} />
+            <AjudaCampo chave="projetos.takeoff.escala" rota={ROTA} />
+          </label>
           <label className="rounded-xl border border-dashed border-[#E7DECF] bg-[#FAF7F2] p-2 text-sm text-center cursor-pointer text-[#3D2314] flex items-center justify-center gap-2">
             <UploadCloud size={15} />
             <span>{planta?.nome ?? 'Enviar planta (DWG/PNG/JPG/PDF)'}</span>
+            <AjudaCampo chave="projetos.takeoff.planta" rota={ROTA} />
             <input type="file" accept=".dwg,.png,.jpg,.jpeg,.pdf" className="hidden" onChange={(e) => e.target.files && enviarPlanta(e.target.files[0])} />
           </label>
         </div>
@@ -636,7 +783,7 @@ export default function TakeoffPage() {
               </span>
             )}
             {planta.arquivo_tipo !== 'dwg' && (
-              <button onClick={analisar} disabled={busy || planta.status === 'processando'} className="ml-auto inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold" style={{ background: GOLD, color: '#fff', opacity: busy ? 0.6 : 1 }}>
+              <button onClick={() => void analisar()} disabled={busy || planta.status === 'processando'} className="ml-auto inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold" style={{ background: GOLD, color: '#fff', opacity: busy ? 0.6 : 1 }}>
                 <Sparkles size={15} /> Analisar com IA
               </button>
             )}
@@ -658,11 +805,36 @@ export default function TakeoffPage() {
       </section>
 
       <div className="rounded-xl p-3 text-xs border" style={{ background: '#FFFBEF', borderColor: '#F0E1B8', color: '#7A5A0B' }}>
-        ⚠️ A IA sugere as medições. <b>Confira antes de gerar o orçamento.</b>
+        <Info size={13} className="inline mr-1 -mt-0.5" aria-hidden /> A IA sugere as medições. <b>Confira antes de gerar o orçamento.</b>
       </div>
 
       {msg && <div className="rounded-xl p-3 text-sm" style={{ background: '#fff', border: `1px solid ${LINE}`, color: ESP }}>{msg}</div>}
       {erro && <div className="rounded-xl p-3 text-sm flex items-start gap-2" style={{ background: '#FEE', border: '1px solid #FBB', color: '#A65A3A' }}><AlertTriangle size={14} className="mt-0.5" /> {erro}</div>}
+
+      {carregado && servicos.length === 0 && (
+        <div data-testid="takeoff-catalogo-vazio" className="rounded-xl p-3 text-sm" style={{ background: '#FFFBEF', border: '1px solid #F0E1B8', color: '#7A5A0B' }}>
+          O catálogo de serviços desta empresa está vazio: sem serviço não dá para orçar os ambientes.{' '}
+          <Link href="/dashboard/projetos/catalogo" className="underline font-semibold">Cadastrar serviços</Link>
+        </div>
+      )}
+
+      {planta && ambientes.length > 0 && (
+        <div data-testid="takeoff-contadores" className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {[
+            { k: 'extraidos', chave: 'projetos.takeoff.cont_extraidos', rotulo: 'Ambientes', v: contagem.total },
+            { k: 'confirmados', chave: 'projetos.takeoff.cont_confirmados', rotulo: 'Confirmados', v: contagem.confirmados },
+            { k: 'com_servico', chave: 'projetos.takeoff.cont_com_servico', rotulo: 'Com serviço', v: contagem.comServico },
+            { k: 'prontos', chave: 'projetos.takeoff.cont_prontos', rotulo: 'Prontos para orçar', v: contagem.prontos },
+          ].map((c) => (
+            <div key={c.k} data-testid={`takeoff-contador-${c.k}`} className="rounded-xl bg-white p-3 border border-[#E7DECF]">
+              <div className="text-[10px] uppercase tracking-widest flex items-center gap-1" style={{ color: ESP60 }}>
+                {c.rotulo} <AjudaCampo chave={c.chave} rota={ROTA} />
+              </div>
+              <div className="text-xl font-semibold tabular-nums mt-0.5" style={{ color: c.k === 'prontos' && c.v > 0 ? GREEN : ESP }}>{c.v}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {planta && (
         <section className="rounded-2xl bg-white border border-[#E7DECF] overflow-hidden">
@@ -684,18 +856,18 @@ export default function TakeoffPage() {
               (ex.: DWG sem unidade ou tudo em blocos), <b>adicione os ambientes na mão</b> pelo botão acima.
             </div>
           ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div style={{ overflowX: 'auto' }}>
+            <table className="w-full text-sm" style={{ minWidth: 760 }}>
               <thead className="text-xs" style={{ color: ESP60, background: BG }}>
                 <tr>
-                  <th className="text-left p-2">Nome</th>
-                  <th className="text-right p-2">m²</th>
-                  <th className="text-right p-2">ml</th>
-                  <th className="text-right p-2">pé-dir.</th>
-                  <th className="p-2">Confiança</th>
-                  <th className="p-2">Serviço</th>
-                  <th className="p-2">Base</th>
-                  <th className="p-2">OK</th>
+                  <th className="text-left p-2">Nome <AjudaCampo chave="projetos.takeoff.tab_nome" rota={ROTA} /></th>
+                  <th className="text-right p-2">m² <AjudaCampo chave="projetos.takeoff.tab_area" rota={ROTA} /></th>
+                  <th className="text-right p-2">ml <AjudaCampo chave="projetos.takeoff.tab_perimetro" rota={ROTA} /></th>
+                  <th className="text-right p-2">pé-dir. <AjudaCampo chave="projetos.takeoff.tab_pe_direito" rota={ROTA} /></th>
+                  <th className="p-2">Confiança <AjudaCampo chave="projetos.takeoff.tab_confianca" rota={ROTA} /></th>
+                  <th className="p-2">Serviço <AjudaCampo chave="projetos.takeoff.tab_servico" rota={ROTA} /></th>
+                  <th className="p-2">Base <AjudaCampo chave="projetos.takeoff.tab_base" rota={ROTA} /></th>
+                  <th className="p-2">OK <AjudaCampo chave="projetos.takeoff.tab_ok" rota={ROTA} /></th>
                 </tr>
               </thead>
               <tbody>
@@ -742,6 +914,77 @@ export default function TakeoffPage() {
         </section>
       )}
 
+      <section data-testid="takeoff-plantas-recentes" className="rounded-2xl bg-white border border-[#E7DECF] overflow-hidden">
+        <div className="p-3 flex items-center justify-between gap-2 border-b border-[#E7DECF]">
+          <span className="text-sm font-semibold text-[#3D2314] flex items-center gap-1">
+            Plantas enviadas ({recentes.length}) <AjudaCampo chave="projetos.takeoff.plantas_enviadas" rota={ROTA} />
+          </span>
+          <Link href="/dashboard/projetos/takeoff/acervo" className="text-xs underline" style={{ color: ESP60 }}>Ver todas</Link>
+        </div>
+        {recentes.length === 0 ? (
+          <div className="p-4 text-sm text-center" style={{ color: ESP60 }}>
+            {carregado ? 'Nenhuma planta enviada ainda. Comece pelo botão "Enviar planta" acima.' : 'Carregando…'}
+          </div>
+        ) : (
+          <ul className="divide-y divide-[#E7DECF]">
+            {recentes.map((p) => {
+              const sit = situacaoPlanta(p, p.contagem)
+              const cor = sit.tom === 'ok' ? GREEN : sit.tom === 'erro' ? RED : sit.tom === 'atencao' ? YELLOW : ESP60
+              const aberta = planta?.id === p.id
+              const prog = progressoPlanta(p, p.ambientes)
+              return (
+                <li key={p.id} style={{ background: aberta ? '#FBF4E4' : 'transparent' }}>
+                  <button type="button" data-testid="takeoff-planta-recente" onClick={() => void abrirPlanta(p.id)} disabled={busy}
+                    className="w-full text-left p-3 pb-1 flex items-center gap-3 flex-wrap">
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm truncate" style={{ color: ESP, fontWeight: aberta ? 600 : 400 }}>{p.nome}</span>
+                      <span className="block text-[11px]" style={{ color: ESP60 }}>
+                        {new Date(p.created_at).toLocaleDateString('pt-BR')} · {(p.arquivo_tipo ?? '').toUpperCase() || 'arquivo'} · {p.contagem.total} ambiente(s)
+                      </span>
+                      <span data-testid="takeoff-planta-progresso" className="block text-[11px] mt-0.5" style={{ color: ESP }}>
+                        Etapa {prog.atual} de {prog.total}: {prog.rotulo} <AjudaCampo chave="projetos.takeoff.planta_progresso" rota={ROTA} />
+                      </span>
+                    </span>
+                    <span data-testid="takeoff-planta-situacao" className="text-[11px] px-2 py-0.5 rounded-full font-semibold shrink-0"
+                      style={{ color: cor, border: `1px solid ${cor}` }}>{sit.rotulo}</span>
+                  </button>
+                  <div data-testid="takeoff-planta-acoes" className="px-3 pb-3 flex flex-wrap items-center gap-1.5">
+                    {p.orcamento_id ? (
+                      <Link href={`/dashboard/orcamentos?id=${p.orcamento_id}`} data-testid="takeoff-acao-ver-orcamento" className={btnAcao} style={estiloAcao}>
+                        <FileText size={12} /> Ver orçamento
+                      </Link>
+                    ) : (
+                      <span data-testid="takeoff-acao-ver-orcamento" className={btnAcao} style={{ ...estiloAcao, opacity: 0.45 }} title="Esta planta ainda não tem orçamento de destino.">
+                        <FileText size={12} /> Sem orçamento
+                      </span>
+                    )}
+                    <button type="button" data-testid="takeoff-acao-reanalisar" disabled={busy} onClick={() => void reanalisar(p)} className={btnAcao} style={estiloAcao}>
+                      <RefreshCw size={12} /> Re-analisar
+                    </button>
+                    <button type="button" data-testid="takeoff-acao-editar" disabled={busy} onClick={() => setEditando(p)} className={btnAcao} style={estiloAcao}>
+                      <Pencil size={12} /> Editar
+                    </button>
+                    <button type="button" data-testid="takeoff-acao-excluir" disabled={busy || p.status === 'confirmada'} onClick={() => setExcluindo(p)}
+                      title={p.status === 'confirmada' ? 'Planta que já gerou itens de orçamento não pode ser excluída.' : undefined}
+                      className={btnAcao} style={{ ...estiloAcao, color: RED, borderColor: RED, opacity: p.status === 'confirmada' ? 0.45 : 1 }}>
+                      <Trash2 size={12} /> Excluir
+                    </button>
+                    <AjudaCampo chave="projetos.takeoff.acoes" rota={ROTA} />
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </section>
+
+      {editando && (
+        <EditarPlantaModal planta={editando} orcamentos={orcamentos} busy={busy} onFechar={() => setEditando(null)} onSalvar={salvarEdicao} />
+      )}
+      {excluindo && (
+        <ExcluirPlantaModal planta={excluindo} busy={busy} onFechar={() => setExcluindo(null)} onConfirmar={excluirPlanta} />
+      )}
+
       {addAberto && (
         <AmbienteManualModal
           onFechar={() => setAddAberto(false)}
@@ -783,30 +1026,30 @@ function AmbienteManualModal({
           Informe a área direto, ou largura × comprimento que a gente calcula.
         </p>
 
-        <div className="mb-3">
-          <label className={lbl} style={{ color: ESP60 }}>Nome do ambiente *</label>
+        <div className="mb-3" data-ajuda="1">
+          <label className={lbl} style={{ color: ESP60 }}>Nome do ambiente * <AjudaCampo chave="projetos.takeoff.amb_nome" rota={ROTA} /></label>
           <input autoFocus className={inp} value={nome} onChange={(e) => setNome(e.target.value)} placeholder='ex: "Sala 01", "Banheiro"' />
         </div>
 
         <div className="grid grid-cols-2 gap-3 mb-3">
-          <div>
-            <label className={lbl} style={{ color: ESP60 }}>Área (m²)</label>
+          <div data-ajuda="1">
+            <label className={lbl} style={{ color: ESP60 }}>Área (m²) <AjudaCampo chave="projetos.takeoff.amb_area" rota={ROTA} /></label>
             <input className={inp + ' text-right'} inputMode="decimal" value={areaM2} onChange={(e) => setAreaM2(e.target.value)} placeholder={areaCalc != null ? areaCalc.toFixed(2) : '0,00'} />
           </div>
-          <div>
-            <label className={lbl} style={{ color: ESP60 }}>Pé-direito (m)</label>
+          <div data-ajuda="1">
+            <label className={lbl} style={{ color: ESP60 }}>Pé-direito (m) <AjudaCampo chave="projetos.takeoff.amb_pe_direito" rota={ROTA} /></label>
             <input className={inp + ' text-right'} inputMode="decimal" value={peDireito} onChange={(e) => setPeDireito(e.target.value)} placeholder="2,80" />
           </div>
-          <div>
-            <label className={lbl} style={{ color: ESP60 }}>Largura (m)</label>
+          <div data-ajuda="1">
+            <label className={lbl} style={{ color: ESP60 }}>Largura (m) <AjudaCampo chave="projetos.takeoff.amb_largura" rota={ROTA} /></label>
             <input className={inp + ' text-right'} inputMode="decimal" value={largura} onChange={(e) => setLargura(e.target.value)} />
           </div>
-          <div>
-            <label className={lbl} style={{ color: ESP60 }}>Comprimento (m)</label>
+          <div data-ajuda="1">
+            <label className={lbl} style={{ color: ESP60 }}>Comprimento (m) <AjudaCampo chave="projetos.takeoff.amb_comprimento" rota={ROTA} /></label>
             <input className={inp + ' text-right'} inputMode="decimal" value={comprimento} onChange={(e) => setComprimento(e.target.value)} />
           </div>
-          <div className="col-span-2">
-            <label className={lbl} style={{ color: ESP60 }}>Perímetro (ml)</label>
+          <div className="col-span-2" data-ajuda="1">
+            <label className={lbl} style={{ color: ESP60 }}>Perímetro (ml) <AjudaCampo chave="projetos.takeoff.amb_perimetro" rota={ROTA} /></label>
             <input className={inp + ' text-right'} inputMode="decimal" value={perimetro} onChange={(e) => setPerimetro(e.target.value)} placeholder={perimCalc != null ? perimCalc.toFixed(2) : '0,00'} />
           </div>
         </div>
@@ -826,6 +1069,69 @@ function AmbienteManualModal({
             style={{ background: GOLD, opacity: (busy || !nome.trim()) ? 0.6 : 1 }}
           >
             {busy ? 'Salvando…' : 'Adicionar'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// RD-98: editar nome e orçamento de destino da planta.
+function EditarPlantaModal({ planta, orcamentos, busy, onFechar, onSalvar }: {
+  planta: PlantaRecente; orcamentos: Orc[]; busy: boolean; onFechar: () => void; onSalvar: (nome: string, orcamentoId: string) => void
+}) {
+  const [nome, setNome] = useState(planta.nome)
+  const [orc, setOrc] = useState(planta.orcamento_id ?? '')
+  const inp = 'w-full rounded-xl border border-[#E7DECF] bg-white p-2 text-sm text-[#3D2314]'
+  const lbl = 'block text-[11px] font-medium mb-1'
+  const invalido = nome.trim().length < 2
+  return (
+    <div onClick={onFechar} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div role="dialog" aria-label="Editar planta" data-testid="takeoff-editar-modal" onClick={(e) => e.stopPropagation()} className="bg-[#FAF7F2] rounded-2xl border border-[#E7DECF] w-full max-w-md p-5" style={{ boxShadow: '0 16px 48px rgba(0,0,0,0.25)' }}>
+        <h3 className="text-lg font-semibold text-[#3D2314] mb-3">Editar planta <AjudaCampo chave="projetos.takeoff.planta_editar" rota={ROTA} /></h3>
+        <div className="mb-3" data-ajuda="1">
+          <label className={lbl} style={{ color: ESP60 }}>Nome da planta * <AjudaCampo chave="projetos.takeoff.planta_nome" rota={ROTA} /></label>
+          <input autoFocus className={inp} value={nome} onChange={(e) => setNome(e.target.value)} />
+        </div>
+        <div className="mb-3" data-ajuda="1">
+          <label className={lbl} style={{ color: ESP60 }}>Orçamento de destino <AjudaCampo chave="projetos.takeoff.orcamento_destino" rota={ROTA} /></label>
+          <select className={inp} value={orc} onChange={(e) => setOrc(e.target.value)}>
+            <option value="">— sem destino —</option>
+            {orcamentos.map((o) => <option key={o.id} value={o.id}>{o.numero ?? o.id.slice(0, 8)} · {o.cliente_nome ?? 'sem cliente'} · {o.status}</option>)}
+          </select>
+        </div>
+        <div className="flex justify-end gap-2 mt-2">
+          <button onClick={onFechar} disabled={busy} className="px-4 py-2 rounded-xl text-sm border border-[#E7DECF] text-[#3D2314]">Cancelar</button>
+          <button data-testid="takeoff-editar-salvar" onClick={() => onSalvar(nome.trim(), orc)} disabled={busy || invalido} className="px-4 py-2 rounded-xl text-sm font-semibold text-white" style={{ background: GOLD, opacity: (busy || invalido) ? 0.6 : 1 }}>
+            {busy ? 'Salvando…' : 'Salvar'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// RD-98: excluir planta = soft-delete com motivo (quem, quando e por quê ficam no banco e na auditoria).
+function ExcluirPlantaModal({ planta, busy, onFechar, onConfirmar }: {
+  planta: PlantaRecente; busy: boolean; onFechar: () => void; onConfirmar: (motivo: string) => void
+}) {
+  const [motivo, setMotivo] = useState('')
+  const invalido = motivo.trim().length < 3
+  return (
+    <div onClick={onFechar} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div role="dialog" aria-label="Excluir planta" data-testid="takeoff-excluir-modal" onClick={(e) => e.stopPropagation()} className="bg-[#FAF7F2] rounded-2xl border border-[#E7DECF] w-full max-w-md p-5" style={{ boxShadow: '0 16px 48px rgba(0,0,0,0.25)' }}>
+        <h3 className="text-lg font-semibold text-[#3D2314] mb-1">Excluir planta <AjudaCampo chave="projetos.takeoff.planta_excluir" rota={ROTA} /></h3>
+        <p className="text-[12px] mb-3" style={{ color: ESP60 }}>
+          “{planta.nome}” sai da lista. Nada é apagado: ficam registrados quem excluiu, quando e o motivo.
+        </p>
+        <div className="mb-3" data-ajuda="1">
+          <label className="block text-[11px] font-medium mb-1" style={{ color: ESP60 }}>Motivo * <AjudaCampo chave="projetos.takeoff.motivo_exclusao" rota={ROTA} /></label>
+          <input autoFocus className="w-full rounded-xl border border-[#E7DECF] bg-white p-2 text-sm text-[#3D2314]" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="ex.: planta duplicada" />
+        </div>
+        <div className="flex justify-end gap-2 mt-2">
+          <button onClick={onFechar} disabled={busy} className="px-4 py-2 rounded-xl text-sm border border-[#E7DECF] text-[#3D2314]">Cancelar</button>
+          <button data-testid="takeoff-excluir-confirmar" onClick={() => onConfirmar(motivo.trim())} disabled={busy || invalido} className="px-4 py-2 rounded-xl text-sm font-semibold text-white" style={{ background: RED, opacity: (busy || invalido) ? 0.6 : 1 }}>
+            {busy ? 'Excluindo…' : 'Excluir'}
           </button>
         </div>
       </div>

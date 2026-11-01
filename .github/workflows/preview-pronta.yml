@@ -17,8 +17,11 @@ on:
     types: [opened, reopened, ready_for_review, synchronize]
 
 concurrency:
+  # CEO 12/10: sem cancelar run em andamento (o commit vazio pode estar a meio); eventos da mesma PR entram em fila e o
+  # anti-laço (head já é o commit vazio) os torna no-op.
   group: preview-pronta-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: read
@@ -44,19 +47,22 @@ jobs:
         run: |
           set -euo pipefail
           [ -n "$GH_TOKEN" ] || { echo "::error::segredo FILA_MERGE_TOKEN ausente — não dá para disparar o preview"; exit 1; }
+          # Leitura (GET, sem -X) tenta até 3x: resposta vazia/transitória da API ("unexpected end of JSON input") derrubava
+          # o job e deixava o check "preview" vermelho no head, travando a fila (#2529, 14/10). Mesmo padrão da fila (#2531).
+          gh_get() { local i out; for i in 1 2 3; do if out=$(gh api "$@" 2>/dev/null) && [ -n "$out" ]; then printf '%s\n' "$out"; return 0; fi; sleep $((i * 3)); done; gh api "$@"; }
           # mesma regra do scripts/vercel-ignore.mjs (SO_DOCS)
-          outros=$(gh api "repos/$REPO/pulls/$N/files" --paginate --jq '.[].filename' | grep -vE '(\.md$|^docs/|^\.github/)' || true)
+          outros=$(gh_get "repos/$REPO/pulls/$N/files" --paginate --jq '.[].filename' | grep -vE '(\.md$|^docs/|^\.github/)' || true)
           [ -n "$outros" ] || { echo "PR #$N só muda .md/docs/.github: sem preview (a fila não exige)"; exit 0; }
           # anti-laço: o head já é o commit vazio deste workflow (a Vercel pulou de novo): não empurra outro
-          msg=$(gh api "repos/$REPO/git/commits/$SHA" --jq '.message')
+          msg=$(gh_get "repos/$REPO/git/commits/$SHA" --jq '.message')
           if grep -q '^ci: preview da PR #' <<< "$msg"; then echo "head já é o commit vazio de preview: não repito"; exit 0; fi
           # PR que acabou de nascer: dá tempo do build do push aparecer
           [ "$ACAO" = ready_for_review ] || sleep 90
           for i in $(seq 1 24); do
             # se o ramo andou (push novo), o build desse push decide sozinho
-            atual=$(gh api "repos/$REPO/pulls/$N" --jq '.head.sha')
+            atual=$(gh_get "repos/$REPO/pulls/$N" --jq '.head.sha')
             [ "$atual" = "$SHA" ] || { echo "head mudou ($SHA → $atual): o push novo já gera o preview"; exit 0; }
-            st=$(gh api "repos/$REPO/commits/$SHA/statuses?per_page=100" \
+            st=$(gh_get "repos/$REPO/commits/$SHA/statuses?per_page=100" \
               --jq '[.[] | select(.context | startswith("Vercel"))][0] | "\(.state)|\(.description // "")"' || true)
             estado=${st%%|*}; desc=${st#*|}
             echo "tentativa $i: status Vercel do head = ${estado:-<nenhum>} ${desc:+($desc)}"
@@ -70,7 +76,7 @@ jobs:
             esac
           done
           # commit vazio por cima do head (mesma árvore), avanço sem force
-          arvore=$(gh api "repos/$REPO/git/commits/$SHA" --jq '.tree.sha')
+          arvore=$(gh_get "repos/$REPO/git/commits/$SHA" --jq '.tree.sha')
           novo=$(gh api -X POST "repos/$REPO/git/commits" -f message="ci: preview da PR #$N pronta (commit vazio; o Ignored Build Step tinha pulado o head)" \
             -f tree="$arvore" -f "parents[]=$SHA" --jq '.sha')
           gh api -X PATCH "repos/$REPO/git/refs/heads/$REF" -f sha="$novo" -F force=false > /dev/null

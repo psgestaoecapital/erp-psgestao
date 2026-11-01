@@ -12,7 +12,7 @@ export interface JobPainel {
   rodada_ajuste: number | null; horas_estimadas: number | null; horas_realizadas: number | null
 }
 export interface Rodada { job_id: string; motivo: string | null }
-export interface Hora { user_id: string | null; cliente_id: string | null; horas: number | null }
+export interface Hora { user_id: string | null; cliente_id: string | null; horas: number | null; job_id?: string | null }
 export interface Nomes { clientes: Record<string, string>; responsaveis: Record<string, string>; servicos: Record<string, string>; grupoDoCliente: Record<string, string | null> }
 
 // 13 campos do filtro (SIGA tela 15)
@@ -96,10 +96,21 @@ export interface Indicadores {
 const media = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null)
 const r1 = (n: number) => Math.round(n * 10) / 10
 
-export function indicadores(jobs: JobPainel[], rodadas: Rodada[], hoje = hojeISO()): Indicadores {
+// Horas realizadas por job vêm do APONTAMENTO (agency_timesheet.job_id), que é a fonte da verdade — a coluna
+// agency_jobs.horas_realizadas fica zerada (RD-38: verificado no dado, 60 jobs com 0h na coluna × 969 apontamentos).
+// Antes o KPI "Realizado / estimado" somava a coluna e dava sempre 0%, mesmo com horas lançadas.
+export function horasRealizadasPorJob(horas: Hora[]): Map<string, number> {
+  const m = new Map<string, number>()
+  for (const h of horas) { const k = h.job_id; if (!k) continue; m.set(k, (m.get(k) ?? 0) + Number(h.horas ?? 0)) }
+  return m
+}
+
+export function indicadores(jobs: JobPainel[], rodadas: Rodada[], horas: Hora[] = [], hoje = hojeISO()): Indicadores {
   const ids = new Set(jobs.map((j) => j.id))
   const alteracoes = rodadas.filter((r) => ids.has(r.job_id)).length
-  const realizado = jobs.reduce((a, j) => a + Number(j.horas_realizadas ?? 0), 0)
+  const tsJob = horasRealizadasPorJob(horas)
+  // realizado = apontamento do job; fallback para a coluna do job quando não há apontamento
+  const realizado = jobs.reduce((a, j) => a + (tsJob.get(j.id) ?? Number(j.horas_realizadas ?? 0)), 0)
   const estimado = jobs.reduce((a, j) => a + Number(j.horas_estimadas ?? 0), 0)
   // dias da conclusão: da criação (ou início) até a entrega, só dos concluídos
   const conc = jobs.filter((j) => concluido(j) && (j.data_entrega || j.updated_at))
@@ -141,7 +152,11 @@ export function graficos(jobs: JobPainel[], rodadas: Rodada[], horas: Hora[], no
   const alteracoesPorCli = new Map<string, number>(); const jobsPorCli = new Map<string, number>()
   for (const j of jobs) { const k = nCli(j.cliente_id) ?? 'Sem informação'; jobsPorCli.set(k, (jobsPorCli.get(k) ?? 0) + 1) }
   for (const r of rs) { const k = nCli(porId.get(r.job_id)?.cliente_id ?? null) ?? 'Sem informação'; alteracoesPorCli.set(k, (alteracoesPorCli.get(k) ?? 0) + 1) }
-  const hs = horas.filter((h) => !h.cliente_id || cliHoras.has(h.cliente_id))
+  // apontamento ligado a job (agency_timesheet.job_id) → fica só o dos jobs visíveis; sem job_id, mantém o filtro
+  // antigo por cliente. O cliente da hora vem do próprio job quando o apontamento não traz cliente_id (antes caía
+  // tudo em "Sem informação").
+  const hs = horas.filter((h) => (h.job_id ? porId.has(h.job_id) : (!h.cliente_id || cliHoras.has(h.cliente_id))))
+  const cliDaHora = (h: Hora) => h.cliente_id ?? (h.job_id ? porId.get(h.job_id)?.cliente_id ?? null : null)
   return {
     pecas: contar(jobs.map((j) => (j.servico_id ? nomes.servicos[j.servico_id] : null) ?? j.tipo)),
     classificacao: contar(jobs.map((j) => rotuloSituacao(j.status)), 6),
@@ -150,7 +165,7 @@ export function graficos(jobs: JobPainel[], rodadas: Rodada[], horas: Hora[], no
     dispersao: [...jobsPorCli.entries()].map(([cliente, n]) => ({ cliente, jobs: n, alteracoes: alteracoesPorCli.get(cliente) ?? 0 })),
     porResponsavel: contar(jobs.map((j) => (j.responsavel_id ? nomes.responsaveis[j.responsavel_id] : null))),
     horasColaborador: somar(hs.map((h) => [h.user_id ? nomes.responsaveis[h.user_id] : null, Number(h.horas ?? 0)])),
-    horasCliente: somar(hs.map((h) => [nCli(h.cliente_id), Number(h.horas ?? 0)])),
+    horasCliente: somar(hs.map((h) => [nCli(cliDaHora(h)), Number(h.horas ?? 0)])),
   }
 }
 
@@ -159,14 +174,15 @@ export interface LinhaFluxo {
   codigo: string; titulo: string; cliente: string; responsavel: string; situacao: string
   prazo: string; atraso: number; alteracoes: number; horas: string
 }
-export function linhasFluxo(jobs: JobPainel[], rodadas: Rodada[], nomes: Nomes, hoje = hojeISO()): LinhaFluxo[] {
+export function linhasFluxo(jobs: JobPainel[], rodadas: Rodada[], nomes: Nomes, horas: Hora[] = [], hoje = hojeISO()): LinhaFluxo[] {
   const alt = new Map<string, number>()
   for (const r of rodadas) alt.set(r.job_id, (alt.get(r.job_id) ?? 0) + 1)
+  const tsJob = horasRealizadasPorJob(horas)
   return [...jobs].sort((a, b) => (a.data_prazo ?? '9999').localeCompare(b.data_prazo ?? '9999')).map((j) => ({
     codigo: codigoPainel(j), titulo: j.titulo ?? '', cliente: (j.cliente_id && nomes.clientes[j.cliente_id]) || '',
     responsavel: (j.responsavel_id && nomes.responsaveis[j.responsavel_id]) || '', situacao: rotuloSituacao(j.status),
     prazo: j.data_prazo ?? '', atraso: atrasado(j, hoje) ? diasEntre(j.data_prazo as string, hoje) : 0, alteracoes: alt.get(j.id) ?? 0,
-    horas: `${r1(Number(j.horas_realizadas ?? 0))}/${r1(Number(j.horas_estimadas ?? 0))}`,
+    horas: `${r1(tsJob.get(j.id) ?? Number(j.horas_realizadas ?? 0))}/${r1(Number(j.horas_estimadas ?? 0))}`,
   }))
 }
 export const CABECALHO_FLUXO = ['Código', 'Título', 'Cliente', 'Responsável', 'Situação', 'Prazo', 'Dias de atraso', 'Alterações', 'Horas real/estim.']

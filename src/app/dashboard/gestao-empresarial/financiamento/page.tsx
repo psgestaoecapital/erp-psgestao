@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import FinanciamentoFormModal from '@/components/financiamento/FinanciamentoFormModal'
 import FinanciamentoDetalhe from '@/components/financiamento/FinanciamentoDetalhe'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 type Financiamento = Record<string, unknown> & {
   id: string
@@ -20,7 +21,38 @@ type Financiamento = Record<string, unknown> & {
   vencimento: string | null
   situacao: string | null
   em_carencia: boolean | null
+  status: string | null
+  arquivado_em?: string | null
+  excluido_em?: string | null
+  excluido_motivo?: string | null
+  quitado_em?: string | null
 }
+
+// Situação do contrato na tela (Tryo Gesso via CEO 28/10): em andamento · vencido · quitado · arquivado · excluído.
+type Filtro = 'andamento' | 'vencidos' | 'quitados' | 'arquivados' | 'excluidos'
+const hojeISO = () => new Date().toISOString().slice(0, 10)
+// vencimento vem como texto DD/MM/AAAA (ou AAAA-MM-DD); devolve AAAA-MM-DD ou null
+function vencFinal(v: string | null): string | null {
+  if (!v) return null
+  const t = v.trim()
+  const br = t.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  if (br) return `${br[3]}-${br[2]}-${br[1]}`
+  return /^\d{4}-\d{2}-\d{2}/.test(t) ? t.slice(0, 10) : null
+}
+function situacaoDe(r: Financiamento): Filtro {
+  const st = (r.status ?? 'ativo').toLowerCase()
+  if (r.excluido_em || st === 'cancelado') return 'excluidos'
+  if (st === 'encerrado') return 'arquivados'
+  if (st === 'quitado' || st === 'liquidado') return 'quitados'
+  const vf = vencFinal(r.vencimento)
+  if ((vf && vf < hojeISO()) || r.parcelas_restantes === 0) return 'vencidos'
+  return 'andamento'
+}
+const FILTROS: { k: Filtro; l: string }[] = [
+  { k: 'andamento', l: 'Em andamento' }, { k: 'vencidos', l: 'Vencidos' }, { k: 'quitados', l: 'Quitados' },
+  { k: 'arquivados', l: 'Arquivados' }, { k: 'excluidos', l: 'Excluídos' },
+]
+type Acao = { tipo: 'arquivar' | 'quitar' | 'excluir'; alvos: Financiamento[] }
 
 type Kpis = {
   contratos_ativos: number
@@ -78,6 +110,8 @@ export default function FinanciamentoPage() {
   const [parcelasLoading, setParcelasLoading] = useState(false)
   const [contratoFiltro, setContratoFiltro] = useState<string>('todos')
   const [statusFiltro, setStatusFiltro] = useState<'todas' | 'pagas' | 'a_vencer'>('todas')
+  const [filtro, setFiltro] = useState<Filtro>('andamento')
+  const [acao, setAcao] = useState<Acao | null>(null)
 
   const reload = useCallback(async () => {
     if (!empresaUnica) {
@@ -129,16 +163,18 @@ export default function FinanciamentoPage() {
     reload(); reloadParcelas()
   }
 
-  async function excluir(r: Financiamento) {
-    if (!confirm(`Excluir o contrato "${r.banco ?? ''} ${r.contrato ?? ''}"?\n\nEsta ação não pode ser desfeita.`)) return
-    const { error } = await supabase.from('financiamentos').delete().eq('id', r.id)
-    if (error) {
-      setToast(`Erro ao excluir: ${error.message}`)
-      return
+  // Arquivar · quitar · excluir (com rastro) · desfazer — tudo pela fn_financiamento_situacao (nada é apagado de vez).
+  async function aplicar(alvos: Financiamento[], tipo: string, motivo?: string, data?: string) {
+    let ok = 0; let abertas = 0; let erro: string | null = null
+    for (const r of alvos) {
+      const { data: res, error } = await supabase.rpc('fn_financiamento_situacao', { p_id: r.id, p_acao: tipo, p_motivo: motivo ?? null, p_data: data ?? null })
+      const j = res as { ok?: boolean; erro?: string; contas_pagar_abertas?: number } | null
+      if (error || !j?.ok) { erro = error?.message ?? (j?.erro === 'motivo_obrigatorio' ? 'informe o motivo' : j?.erro ?? 'falhou'); continue }
+      ok++; abertas += j.contas_pagar_abertas ?? 0
     }
-    setToast('Contrato excluído.')
-    setViewing(null)
-    reload()
+    const rot: Record<string, string> = { arquivar: 'arquivado(s)', desarquivar: 'desarquivado(s)', quitar: 'marcado(s) como quitado(s)', reabrir: 'reaberto(s)', excluir: 'excluído(s) — dá para restaurar em Excluídos', restaurar: 'restaurado(s)' }
+    setToast(erro && ok === 0 ? `Erro: ${erro}` : `${ok} contrato(s) ${rot[tipo] ?? tipo}.${abertas > 0 ? ` Atenção: ${abertas} conta(s) a pagar em aberto deste(s) contrato(s) continuam no financeiro.` : ''}${erro ? ` (${erro})` : ''}`)
+    setAcao(null); setViewing(null); reload()
   }
 
   async function gerarPagar(r: Financiamento) {
@@ -200,6 +236,7 @@ export default function FinanciamentoPage() {
 
       {aba === 'contratos' && (
         <>
+          <div className="text-[11px] uppercase opacity-60 mb-1 flex items-center">Indicadores (só contratos em andamento)<AjudaCampo chave="ge.financiamento.kpis" /></div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mb-5">
             <KpiCard titulo="Contratos ativos" valor={String(kpis?.contratos_ativos ?? 0)} />
             <KpiCard titulo="Saldo de quitação" valor={brl(kpis?.saldo_quitacao)} destaque />
@@ -211,6 +248,26 @@ export default function FinanciamentoPage() {
 
           {loading && <p className="opacity-60">Carregando…</p>}
 
+          {(() => {
+            const cont = Object.fromEntries(FILTROS.map((f) => [f.k, rows.filter((r) => situacaoDe(r) === f.k).length])) as Record<Filtro, number>
+            const vencidos = rows.filter((r) => situacaoDe(r) === 'vencidos')
+            return (
+              <div className="flex gap-2 flex-wrap items-center mb-3" data-testid="fin-filtros">
+                {FILTROS.map((f) => (
+                  <button key={f.k} onClick={() => setFiltro(f.k)} style={chipSt(filtro === f.k)} data-testid={`fin-filtro-${f.k}`}>
+                    {f.l} · {cont[f.k] ?? 0}
+                  </button>
+                ))}
+                <AjudaCampo chave="ge.financiamento.filtro" />
+                {filtro === 'vencidos' && vencidos.length > 0 && (
+                  <button onClick={() => setAcao({ tipo: 'arquivar', alvos: vencidos })} style={{ ...btnSec, marginLeft: 'auto' }} data-testid="fin-arquivar-vencidos">
+                    Arquivar os {vencidos.length} vencidos
+                  </button>
+                )}
+              </div>
+            )
+          })()}
+
           {!loading && rows.length === 0 && (
             <div className="rounded-xl p-6 text-center" style={{ background: OFFWHITE }}>
               <p className="font-medium">Nenhum financiamento cadastrado</p>
@@ -219,7 +276,11 @@ export default function FinanciamentoPage() {
           )}
 
           <div className="space-y-3">
-            {rows.map((r) => {
+            {!loading && rows.length > 0 && rows.filter((r) => situacaoDe(r) === filtro).length === 0 && (
+              <div className="rounded-xl p-5 text-center text-sm opacity-70" style={{ background: OFFWHITE }}>Nenhum contrato nesta situação.</div>
+            )}
+            {rows.filter((r) => situacaoDe(r) === filtro).map((r) => {
+              const sit = situacaoDe(r)
               const restantes = r.parcelas_restantes ?? '—'
               const total = r.parcelas ?? '—'
               const taxa = r.taxa_anual != null ? `${r.taxa_anual}% a.a.` :
@@ -248,9 +309,17 @@ export default function FinanciamentoPage() {
                         <span className="text-[11px] px-2 py-0.5 rounded-full"
                               style={{ background: '#FFF3D6', color: '#7A5A0F' }}>em carência</span>
                       )}
-                      {r.situacao && (
+                      {sit === 'vencidos' ? (
+                        <span className="text-[11px] px-2 py-0.5 rounded-full inline-flex items-center" style={{ background: '#FBE3E0', color: '#9A1F1F', fontWeight: 600 }}>vencido<AjudaCampo chave="ge.financiamento.vencido" /></span>
+                      ) : sit === 'quitados' ? (
+                        <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: '#DCEFD7', color: '#2F5A1F', fontWeight: 600 }}>quitado{r.quitado_em ? ` em ${r.quitado_em.split('-').reverse().join('/')}` : ''}</span>
+                      ) : sit === 'arquivados' ? (
+                        <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: '#EEE9E2' }}>arquivado</span>
+                      ) : sit === 'excluidos' ? (
+                        <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: '#F4D6D6', color: '#7A1F1F' }} title={r.excluido_motivo ?? ''}>excluído{r.excluido_motivo ? ` · ${r.excluido_motivo}` : ''}</span>
+                      ) : r.situacao ? (
                         <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: OFFWHITE }}>{r.situacao}</span>
-                      )}
+                      ) : null}
                     </div>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-2">
@@ -273,11 +342,27 @@ export default function FinanciamentoPage() {
                     className="flex gap-2 mt-3 flex-wrap"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <button onClick={() => setEditing(r)} style={btnSec}>Editar</button>
-                    <button onClick={() => recalcular(r)} style={btnSec}>Recalcular</button>
-                    <button onClick={() => gerarCronograma(r)} style={btnSec}>Gerar cronograma</button>
-                    <button onClick={() => gerarPagar(r)} style={btnSec}>Gerar contas a pagar</button>
-                    <button onClick={() => excluir(r)} style={btnDanger}>Excluir</button>
+                    {sit === 'excluidos' ? (
+                      <button onClick={() => void aplicar([r], 'restaurar')} style={btnSec} data-testid="fin-restaurar">Restaurar</button>
+                    ) : (
+                      <>
+                        <button onClick={() => setEditing(r)} style={btnSec} data-testid="fin-editar">Editar</button>
+                        {(sit === 'andamento' || sit === 'vencidos') && (
+                          <>
+                            <button onClick={() => recalcular(r)} style={btnSec}>Recalcular</button>
+                            <button onClick={() => gerarCronograma(r)} style={btnSec}>Gerar cronograma</button>
+                            <button onClick={() => gerarPagar(r)} style={btnSec}>Gerar contas a pagar</button>
+                            <button onClick={() => setAcao({ tipo: 'quitar', alvos: [r] })} style={btnSec} data-testid="fin-quitar">Marcar como quitado</button>
+                          </>
+                        )}
+                        {sit === 'quitados' && <button onClick={() => void aplicar([r], 'reabrir')} style={btnSec}>Reabrir</button>}
+                        {sit === 'arquivados'
+                          ? <button onClick={() => void aplicar([r], 'desarquivar')} style={btnSec} data-testid="fin-desarquivar">Desarquivar</button>
+                          : <button onClick={() => setAcao({ tipo: 'arquivar', alvos: [r] })} style={btnSec} data-testid="fin-arquivar">Arquivar</button>}
+                        <button onClick={() => setAcao({ tipo: 'excluir', alvos: [r] })} style={btnDanger} data-testid="fin-excluir">Excluir</button>
+                      </>
+                    )}
+                    <AjudaCampo chave="ge.financiamento.acoes" />
                   </div>
                 </div>
               )
@@ -305,6 +390,8 @@ export default function FinanciamentoPage() {
       {toast && (
         <div style={toastStyle}>{toast}</div>
       )}
+
+      {acao && <AcaoModal acao={acao} onClose={() => setAcao(null)} onConfirmar={(motivo, data) => void aplicar(acao.alvos, acao.tipo, motivo, data)} />}
 
       {viewing && (
         <FinanciamentoDetalhe
@@ -559,4 +646,46 @@ function chipSt(active: boolean): CSSProperties {
     color: active ? '#fff' : ESPRESSO,
     borderRadius: 999, padding: '4px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer',
   }
+}
+
+// ─── Confirmar arquivar · quitar · excluir ───────────────────
+function AcaoModal({ acao, onClose, onConfirmar }: { acao: Acao; onClose: () => void; onConfirmar: (motivo?: string, data?: string) => void }) {
+  const [motivo, setMotivo] = useState('')
+  const [data, setData] = useState(hojeISO())
+  const [busy, setBusy] = useState(false)
+  const n = acao.alvos.length
+  const nome = n === 1 ? `${acao.alvos[0].banco ?? ''} ${acao.alvos[0].contrato ? '· ' + acao.alvos[0].contrato : ''}`.trim() : `${n} contratos`
+  const titulo = acao.tipo === 'arquivar' ? `Arquivar ${nome}` : acao.tipo === 'quitar' ? `Marcar ${nome} como quitado` : `Excluir ${nome}`
+  const texto = acao.tipo === 'arquivar'
+    ? 'O contrato sai dos indicadores e da lista principal e vai para Arquivados. O cronograma e o histórico ficam guardados; dá para desarquivar quando quiser.'
+    : acao.tipo === 'quitar'
+      ? 'O contrato vai para Quitados e sai do saldo devedor e do compromisso mensal. Dá para reabrir.'
+      : 'O contrato vai para Excluídos com o motivo, quem excluiu e quando. Nada é apagado de vez: dá para restaurar.'
+  const exigeMotivo = acao.tipo === 'excluir'
+  const pronto = !busy && (!exigeMotivo || motivo.trim().length > 0) && (acao.tipo !== 'quitar' || !!data)
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 70, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={onClose}>
+      <div style={{ background: '#fff', borderRadius: 14, padding: 20, width: '100%', maxWidth: 460, color: ESPRESSO }} onClick={(e) => e.stopPropagation()} data-testid="fin-acao-modal">
+        <h2 className="text-lg font-bold mb-2 flex items-center">{titulo}<AjudaCampo chave={`ge.financiamento.${acao.tipo}`} /></h2>
+        <p className="text-sm opacity-80 mb-3">{texto}</p>
+        {acao.tipo === 'quitar' && (
+          <label className="block mb-3 text-sm"><span className="font-semibold flex items-center">Data da quitação<AjudaCampo chave="ge.financiamento.quitar" /></span>
+            <input type="date" value={data} onChange={(e) => setData(e.target.value)} style={{ ...selSt, width: '100%', marginTop: 4, padding: '8px 10px' }} data-testid="fin-quitar-data" />
+          </label>
+        )}
+        {acao.tipo !== 'quitar' && (
+          <label className="block mb-3 text-sm"><span className="font-semibold flex items-center">Motivo{exigeMotivo ? ' *' : ' (opcional)'}<AjudaCampo chave={`ge.financiamento.${acao.tipo}`} /></span>
+            <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder={exigeMotivo ? 'Ex.: lançado em duplicidade' : 'Ex.: contrato terminou em julho'} style={{ ...selSt, width: '100%', marginTop: 4, padding: '8px 10px' }} data-testid="fin-acao-motivo" />
+          </label>
+        )}
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} style={btnSec}>Cancelar</button>
+          <button disabled={!pronto} onClick={() => { setBusy(true); onConfirmar(motivo.trim() || undefined, acao.tipo === 'quitar' ? data : undefined) }}
+            style={{ ...(acao.tipo === 'excluir' ? btnDanger : btnNovo), opacity: pronto ? 1 : 0.5, minHeight: 40 }} data-testid="fin-acao-confirmar">
+            {busy ? 'Salvando…' : acao.tipo === 'arquivar' ? 'Arquivar' : acao.tipo === 'quitar' ? 'Marcar como quitado' : 'Excluir'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }

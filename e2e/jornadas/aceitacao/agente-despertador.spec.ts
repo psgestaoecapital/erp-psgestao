@@ -4,7 +4,7 @@
 
 import { test, expect } from '../../support/fixtures'
 import { rpc, dbInsert, dbPatch, dbSelect, registrarJornada } from '../../support/api'
-import { liberarLease } from '../../support/lease'
+import { AGENTE_TESTE, ligarAgenteTeste } from '../../support/agente-teste'
 
 const RUN = `${process.env.GITHUB_RUN_ID ?? 'local'}-${Date.now().toString(36)}`
 const MIN = 60_000
@@ -17,8 +17,8 @@ test.describe('Despertador dos agentes', () => {
   const criadas: string[] = []
   let devolverLease: () => Promise<void> = async () => {}
 
-  // o lease real do agente (sessão de produção ativa) não pode mascarar o que o teste prova
-  test.beforeAll(async () => { devolverLease = await liberarLease('gilberto-chamados') })
+  // agente de TESTE dedicado: a lógica do despertador não depende do congelamento dos agentes reais
+  test.beforeAll(async () => { devolverLease = await ligarAgenteTeste() })
   test.afterEach(async ({}, testInfo) => {
     await registrarJornada('aceitacao-agente-despertador', testInfo.status === testInfo.expectedStatus ? 'verde' : 'vermelho', testInfo.title)
   })
@@ -29,7 +29,7 @@ test.describe('Despertador dos agentes', () => {
 
   const criar = async (requerOk: boolean, parada = 30) => {
     const m = await dbInsert<{ id: string }>('erp_agente_mensagem', {
-      para: 'gilberto-chamados', de: 'eng_chefe', tipo: 'tarefa', assunto: `[TESTE ${RUN}] despertador, não executar`,
+      para: AGENTE_TESTE, de: 'eng_chefe', tipo: 'tarefa', assunto: `[TESTE ${RUN}] despertador, não executar`,
       corpo: 'Teste da aceitação. Não executar.', requer_ok_ceo: requerOk, status: 'recebida',
       enviado_por: `aceitacao-e2e ${RUN}`, arquivada: true, atualizado_em: ha(parada),
     })

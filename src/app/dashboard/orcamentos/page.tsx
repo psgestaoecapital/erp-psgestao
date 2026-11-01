@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { APP_URL } from "@/lib/appUrl";
 import { orFiltroClienteBusca } from "@/lib/clienteBusca";
 import { useCompanyIds } from "@/lib/useCompanyIds";
@@ -53,6 +54,8 @@ type Orcamento = {
   observacoes:string; observacoes_internas:string; texto_proposta:string;
   hash_publico:string; visualizado_em:string; qtd_visualizacoes:number;
   pedido_id:string; convertido_em:string;
+  orcamentista_id?:string|null; orcamentista_nome?:string|null; // #3270/#3271 · quem elabora o orçamento
+  eh_permuta?:boolean|null; permuta_percentual?:number|null; // #5165 · condição de permuta
   eh_obra?:boolean|null; // #82③ · este orçamento é de obra? controla criação automática da obra no Hub
   created_at:string; updated_at:string;
   itens?:ItemOrc[];
@@ -64,6 +67,9 @@ const FRETES = ['CIF (por conta do fornecedor)','FOB (por conta do cliente)','Re
 
 const STATUS_CFG:Record<string,{cor:string;icon:string;label:string}> = {
   rascunho:    {cor:TXD,icon:"📝",label:"Rascunho"},
+  aguardando:  {cor:Y,  icon:"⏳",label:"Aguardando"},
+  em_andamento:{cor:B,  icon:"🛠️",label:"Em andamento"},
+  enviado_aprovacao:{cor:P,icon:"📤",label:"Enviado para aprovação"},
   enviado:     {cor:B,  icon:"📨",label:"Enviado"},
   visualizado: {cor:P,  icon:"👁️",label:"Visualizado"},
   aprovado:    {cor:G,  icon:"✅",label:"Aprovado"},
@@ -76,6 +82,12 @@ const fmtR=(v:number)=>`R$ ${(v||0).toLocaleString("pt-BR",{minimumFractionDigit
 const fmtQ=(v:number)=>(v||0).toLocaleString("pt-BR",{maximumFractionDigits:3});
 const fmtD=(v:string)=>v?new Date(v+'T00:00:00').toLocaleDateString("pt-BR"):'—';
 const addDias=(d:number)=>{const x=new Date();x.setDate(x.getDate()+d);return x.toISOString().slice(0,10);};
+// Validade padrão por empresa (orcamento_config_empresa); sem configuração mantém os 15 dias de sempre.
+const VALIDADE_PADRAO_DIAS=15;
+const getValidadeDias=async(companyId:string)=>{
+  const{data}=await supabase.from('orcamento_config_empresa').select('validade_dias').eq('company_id',companyId).maybeSingle();
+  return data?.validade_dias||VALIDADE_PADRAO_DIAS;
+};
 
 // Modelo padrão da observação (demanda #3 Jordana): pré-preenche o campo em orçamento
 // novo; a vendedora edita os valores antes de enviar. Sai na proposta pública (PDF).
@@ -93,6 +105,12 @@ export default function OrcamentosPage(){
   const [filtroStatus,setFiltroStatus]=useState("todos");
   // F2.7 · vínculo com oportunidade: filtro "Sem oportunidade" + recorte por ?oportunidades= (link da coluna do Kanban).
   const [filtroVinculo,setFiltroVinculo]=useState<'todos'|'sem_oport'>('todos');
+  // #3270/#3271 · orçamentista: lista de usuários por empresa, usuário logado e filtro "Meus".
+  const [usuariosPorEmpresa,setUsuariosPorEmpresa]=useState<Record<string,{id:string;full_name:string|null;email:string|null}[]>>({});
+  const [meuId,setMeuId]=useState<string|null>(null);
+  const [filtroMeus,setFiltroMeus]=useState(false);
+  // #3272 · oportunidade de origem do orçamento aberto em edição.
+  const [infoOport,setInfoOport]=useState<{titulo:string|null;obra_endereco:string|null;obra_cidade:string|null;obra_bairro:string|null;responsavel_nome:string|null;observacoes:string|null;cliente:string|null;visita:string|null}|null>(null);
   const [linkedOrcIds,setLinkedOrcIds]=useState<Set<string>>(new Set());
   const [oportFiltroOrcIds,setOportFiltroOrcIds]=useState<string[]|null>(null);
   const [oportFiltroAtivo,setOportFiltroAtivo]=useState(false);
@@ -128,6 +146,54 @@ export default function OrcamentosPage(){
     if(sel && !sel.startsWith("group_") && sel!=="consolidado") return sel;
     return companyIds[0] || "";
   },[sel, companyIds]);
+
+  // Validade padrão da empresa (config opcional; vazio = 15 dias de sempre)
+  const [validadePadraoDias,setValidadePadraoDias]=useState<number|null>(null);
+  useEffect(()=>{
+    const cid=editing?.company_id||companyIdParaCadastro;
+    if(!showForm||!cid){return;}
+    supabase.from('orcamento_config_empresa').select('validade_dias').eq('company_id',cid).maybeSingle()
+      .then(({data})=>setValidadePadraoDias(data?.validade_dias??null));
+  },[showForm,editing?.company_id,companyIdParaCadastro]);
+  // #3268 · flag "visita feita vai para Orçando" (opt-in por empresa).
+  const [visitaVaiOrcar,setVisitaVaiOrcar]=useState(false);
+  useEffect(()=>{
+    const cid=editing?.company_id||companyIdParaCadastro;
+    if(!showForm||!cid){return;}
+    supabase.from('orcamento_config_empresa').select('visita_feita_vai_orcar').eq('company_id',cid).maybeSingle()
+      .then(({data})=>setVisitaVaiOrcar(!!data?.visita_feita_vai_orcar));
+  },[showForm,editing?.company_id,companyIdParaCadastro]);
+  const salvarVisitaVaiOrcar=async(v:boolean)=>{
+    const cid=editing?.company_id||companyIdParaCadastro;
+    if(!cid)return;
+    const{error}=await supabase.from('orcamento_config_empresa').upsert({company_id:cid,visita_feita_vai_orcar:v,updated_at:new Date().toISOString()});
+    if(error){setMsg("Não foi possível salvar a opção da visita");return;}
+    setVisitaVaiOrcar(v);setMsg(v?"Visita feita agora leva a oportunidade para Orçando":"Visita feita volta ao comportamento anterior");
+  };
+  // #3272 · "Informações da oportunidade" dentro de Editar orçamento (somente leitura).
+  useEffect(()=>{
+    setInfoOport(null);
+    const oid=editing?.id;
+    if(!showForm||!oid){return;}
+    let vivo=true;
+    (async()=>{
+      const{data:op}=await supabase.from('erp_crm_oportunidade').select('id,titulo,obra_endereco,obra_cidade,obra_bairro,responsavel_nome,observacoes,erp_clientes(nome_fantasia,razao_social)').eq('orcamento_id',oid).is('deleted_at',null).limit(1).maybeSingle();
+      if(!op||!vivo)return;
+      const{data:vis}=await supabase.from('erp_crm_visita').select('anotacoes').eq('oportunidade_id',op.id).eq('status','realizada').order('data_visita',{ascending:false}).limit(1).maybeSingle();
+      const cli=(op as any).erp_clientes;
+      if(vivo)setInfoOport({titulo:op.titulo,obra_endereco:op.obra_endereco,obra_cidade:op.obra_cidade,obra_bairro:op.obra_bairro,responsavel_nome:op.responsavel_nome,observacoes:op.observacoes,cliente:cli?(cli.nome_fantasia||cli.razao_social):null,visita:vis?.anotacoes??null});
+    })();
+    return()=>{vivo=false;};
+  },[showForm,editing?.id]);
+  const salvarValidadePadrao=async(v:string)=>{
+    const cid=editing?.company_id||companyIdParaCadastro;
+    const n=parseInt(v,10);
+    if(!cid||!n||n<1||n>365||n===validadePadraoDias)return;
+    const{error}=await supabase.from('orcamento_config_empresa').upsert({company_id:cid,validade_dias:n,updated_at:new Date().toISOString()});
+    if(error){setMsg("Não foi possível salvar a validade padrão");return;}
+    setValidadePadraoDias(n);setMsg(`Validade padrão: ${n} dias para os próximos orçamentos`);
+  };
+
 
   useEffect(()=>{
     if(companyIds.length>0){loadOrcamentos();loadProdutos();}
@@ -192,6 +258,25 @@ export default function OrcamentosPage(){
     setLoading(false);
   };
 
+  useEffect(()=>{
+    supabase.auth.getUser().then(({data})=>setMeuId(data.user?.id??null));
+    if(companyIds.length===0)return;
+    let vivo=true;
+    Promise.all(companyIds.map(async cid=>{
+      const{data}=await supabase.rpc('fn_usuarios_da_empresa',{p_company_id:cid});
+      return [cid,((data||[]) as {id:string;full_name:string|null;email:string|null;is_active?:boolean}[]).filter(u=>u.is_active!==false)] as const;
+    })).then(r=>{if(vivo)setUsuariosPorEmpresa(Object.fromEntries(r));});
+    return()=>{vivo=false;};
+  },[companyIds.join(',')]);
+  const atribuirOrcamentista=async(o:Orcamento,uid:string)=>{
+    const u=(usuariosPorEmpresa[o.company_id]||[]).find(x=>x.id===uid);
+    const nome=u?(u.full_name||u.email||null):null;
+    const{error}=await supabase.from("erp_orcamentos").update({orcamentista_id:uid||null,orcamentista_nome:uid?nome:null}).eq("id",o.id);
+    if(error){setMsg("Não foi possível atribuir o orçamentista");return;}
+    setOrcamentos(l=>l.map(x=>x.id===o.id?{...x,orcamentista_id:uid||null,orcamentista_nome:uid?nome:null}:x));
+    setMsg(uid?`${nome} é o orçamentista de ${o.numero}`:`Orçamentista removido de ${o.numero}`);setTimeout(()=>setMsg(""),3000);
+  };
+
   const loadProdutos=async()=>{
     if(companyIds.length===0)return;
     const{data}=await supabase.from("erp_produtos").select("id,codigo,nome,unidade,preco_venda,preco_custo,company_id").in("company_id",companyIds).eq("ativo",true).limit(1000);
@@ -245,8 +330,9 @@ export default function OrcamentosPage(){
     // Gera número automático
     const{data}=await supabase.rpc('next_orcamento_numero',{p_company_id:companyIdParaCadastro});
     const numero=data||`ORC-${new Date().getFullYear()}-0001`;
+    const validadeDias=await getValidadeDias(companyIdParaCadastro);
     setForm({
-      numero,data_emissao:new Date().toISOString().slice(0,10),data_validade:addDias(15),
+      numero,data_emissao:new Date().toISOString().slice(0,10),data_validade:addDias(validadeDias),
       status:'rascunho',versao:1,
       condicao_pagamento:'30 dias',prazo_entrega_dias:10,
       subtotal:0,desconto_percentual:0,desconto_valor:0,acrescimo_valor:0,frete_valor:0,total:0,
@@ -449,6 +535,9 @@ export default function OrcamentosPage(){
       observacoes:form.observacoes,texto_proposta:form.texto_proposta,
       // #82③ · este orçamento é de obra? controla a criação automática da obra no Hub (trigger condicional)
       eh_obra:form.eh_obra??null,
+      // #5165 · condição de permuta (percentual só vale quando marcada)
+      eh_permuta:!!form.eh_permuta,
+      permuta_percentual:form.eh_permuta?(form.permuta_percentual===null||form.permuta_percentual===undefined||(form.permuta_percentual as unknown)===''?null:Math.min(100,Math.max(0,Number(form.permuta_percentual)||0))):null,
     };
 
     let orcId=editing?.id;
@@ -600,11 +689,12 @@ export default function OrcamentosPage(){
     }
     if(oportFiltroOrcIds!==null)r=r.filter(o=>oportFiltroOrcIds.includes(o.id)); // F2.7 · recorte por oportunidades da coluna
     if(filtroVinculo==='sem_oport')r=r.filter(o=>!linkedOrcIds.has(o.id));       // F2.7 · só os sem oportunidade
+    if(filtroMeus)r=r.filter(o=>!!meuId&&o.orcamentista_id===meuId);              // #3270 · só os meus
     return r;
-  },[orcamentos,filtroStatus,busca,oportFiltroOrcIds,filtroVinculo,linkedOrcIds]);
+  },[orcamentos,filtroStatus,busca,oportFiltroOrcIds,filtroVinculo,linkedOrcIds,filtroMeus,meuId]);
 
   // F2.7 · "Total ativos" deixa de contar rascunho: Ativos e Rascunhos separados (achado P2).
-  const kpiAtivos=orcamentos.filter(o=>!['recusado','expirado','rascunho'].includes(o.status)).length;
+  const kpiAtivos=orcamentos.filter(o=>!['recusado','expirado','rascunho','aguardando','em_andamento'].includes(o.status)).length;
   const kpiRascunhos=orcamentos.filter(o=>o.status==='rascunho').length;
   const kpiBaseConversao=orcamentos.filter(o=>o.status!=='recusado'&&o.status!=='expirado').length;
   const kpiAprovados=orcamentos.filter(o=>o.status==='aprovado').length;
@@ -686,6 +776,10 @@ export default function OrcamentosPage(){
           {/* F2.7 · filtrar os órfãos (sem oportunidade vinculada) */}
           <button onClick={()=>setFiltroVinculo(v=>v==='sem_oport'?'todos':'sem_oport')} title="Orçamentos que não estão vinculados a nenhuma oportunidade"
             style={{padding:"6px 10px",borderRadius:6,fontSize:10,border:`1px solid ${filtroVinculo==='sem_oport'?GO:BD}`,background:filtroVinculo==='sem_oport'?GO+"12":"transparent",color:filtroVinculo==='sem_oport'?GO:TXM,cursor:"pointer",fontWeight:filtroVinculo==='sem_oport'?600:400}}>🔗 Sem oportunidade</button>
+          {/* #3270 · filtro "Meus" (orçamentista = eu) */}
+          <button onClick={()=>setFiltroMeus(v=>!v)} title="Só os orçamentos em que você é o orçamentista"
+            style={{padding:"6px 10px",borderRadius:6,fontSize:10,border:`1px solid ${filtroMeus?GO:BD}`,background:filtroMeus?GO+"12":"transparent",color:filtroMeus?GO:TXM,cursor:"pointer",fontWeight:filtroMeus?700:500}}>Meus</button>
+          <AjudaCampo chave="orcamentos.filtro.meus" rota="/dashboard/orcamentos"/>
         </div>
       </div>
 
@@ -704,6 +798,20 @@ export default function OrcamentosPage(){
             </div>
             <button onClick={()=>{setShowForm(false);setEditing(null);setPermEdit(null);}} style={{background:"none",border:"none",color:TXD,fontSize:18,cursor:"pointer"}}>✕</button>
           </div>
+
+          {editing&&infoOport&&(
+            <div style={{background:BG3,border:`1px solid ${BD}`,borderRadius:8,padding:"10px 12px",marginBottom:12,fontSize:11,color:TX}}>
+              <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:6}}>Informações da oportunidade</div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:6}}>
+                <div><span style={{color:TXD}}>Oportunidade: </span>{infoOport.titulo||'—'}</div>
+                <div><span style={{color:TXD}}>Cliente: </span>{infoOport.cliente||'—'}</div>
+                <div><span style={{color:TXD}}>Responsável: </span>{infoOport.responsavel_nome||'—'}</div>
+                <div><span style={{color:TXD}}>Obra: </span>{[infoOport.obra_endereco,infoOport.obra_bairro,infoOport.obra_cidade].filter(Boolean).join(' · ')||'—'}</div>
+              </div>
+              {infoOport.visita&&<div style={{marginTop:6,whiteSpace:"pre-wrap"}}><span style={{color:TXD}}>Anotações da visita: </span>{infoOport.visita}</div>}
+              {infoOport.observacoes&&<div style={{marginTop:6,whiteSpace:"pre-wrap"}}><span style={{color:TXD}}>Observações: </span>{infoOport.observacoes}</div>}
+            </div>
+          )}
 
           {/* Cliente */}
           <div style={{fontSize:11,fontWeight:600,color:B,marginBottom:8}}>👥 Cliente</div>
@@ -726,6 +834,14 @@ export default function OrcamentosPage(){
               <input type="date" value={form.data_emissao} onChange={e=>setForm({...form,data_emissao:e.target.value})} style={inp}/></div>
             <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Validade</div>
               <input type="date" value={form.data_validade} onChange={e=>setForm({...form,data_validade:e.target.value})} style={inp}/></div>
+            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Validade padrão (dias)</div>
+              <AjudaCampo chave="orcamentos.config.validade_dias" rota="/dashboard/orcamentos"/>
+              <input type="number" min={1} max={365} placeholder={String(VALIDADE_PADRAO_DIAS)} defaultValue={validadePadraoDias??''} key={`vp-${editing?.company_id||companyIdParaCadastro}-${validadePadraoDias??''}`}
+                onBlur={e=>salvarValidadePadrao(e.target.value)} style={inp}/></div>
+            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Visita feita vai para Orçando</div>
+              <label style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:TX}}>
+                <AjudaCampo chave="orcamentos.config.visita_vai_orcar" rota="/dashboard/orcamentos"/>
+                <input type="checkbox" checked={visitaVaiOrcar} onChange={e=>salvarVisitaVaiOrcar(e.target.checked)}/> Ligado nesta empresa</label></div>
             <div><div style={{fontSize:10,color:TXD,marginBottom:3}} title="Quando se espera faturar — alimenta a previsão de receita">Previsão de Faturamento</div>
               <input type="date" value={form.data_previsao_faturamento??''} onChange={e=>setForm({...form,data_previsao_faturamento:e.target.value||null})} style={inp}/></div>
           </div>
@@ -739,6 +855,22 @@ export default function OrcamentosPage(){
               </label>
             </div>
           )}
+
+          {/* #5165 · condição de permuta */}
+          <div style={{background:BG3,borderRadius:8,padding:"8px 12px",marginBottom:12,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+            <label htmlFor="orc-eh-permuta" style={{fontSize:11.5,cursor:"pointer",display:"flex",alignItems:"center",gap:6}}>
+              <input type="checkbox" id="orc-eh-permuta" data-testid="orc-eh-permuta" checked={!!form.eh_permuta} onChange={e=>setForm({...form,eh_permuta:e.target.checked,permuta_percentual:e.target.checked?form.permuta_percentual:null})}/>
+              <b>Condição de permuta</b>
+            </label>
+            <AjudaCampo chave="orcamentos.campo.eh_permuta" rota="/dashboard/orcamentos"/>
+            {form.eh_permuta && (
+              <label style={{fontSize:11.5,display:"flex",alignItems:"center",gap:6}}>
+                Percentual de permuta (%)
+                <input type="number" min={0} max={100} step="0.01" data-testid="orc-permuta-pct" value={form.permuta_percentual??''} onChange={e=>setForm({...form,permuta_percentual:e.target.value===''?null:Number(e.target.value)})} style={{...inp,width:90}}/>
+                <AjudaCampo chave="orcamentos.campo.permuta_percentual" rota="/dashboard/orcamentos"/>
+              </label>
+            )}
+          </div>
 
           {/* Itens */}
           <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -927,7 +1059,7 @@ export default function OrcamentosPage(){
           {/* CRM ② (Wesley) · anexar o PDF do orçamento feito FORA do sistema + informar o valor.
               Só em orçamento já salvo (precisa do id para o caminho no storage). */}
           {editing?.id ? (
-            <OrcamentoPdfAnexo orcamentoId={editing.id} companyId={editing.company_id} onSaved={loadOrcamentos} />
+            <OrcamentoPdfAnexo orcamentoId={editing.id} companyId={editing.company_id} onSaved={(novoPath)=>{ setEditing(e=>e?{...e,pdf_anexo_path:novoPath}:e); loadOrcamentos(); }} />
           ) : (
             /* Tryo #264 · no orçamento novo o PDF já pode ser escolhido; sobe ao clicar em "Criar Orçamento" */
             <div style={{marginBottom:16,background:BG3,borderRadius:8,padding:14,border:`1px solid ${GO}40`}} data-testid="orc-pdf-novo">
@@ -973,6 +1105,7 @@ export default function OrcamentosPage(){
                 <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Cliente</th>
                 <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Emissão</th>
                 <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Validade</th>
+                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Orçamentista <AjudaCampo chave="orcamentos.campo.orcamentista" rota="/dashboard/orcamentos"/></th>
                 <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Status</th>
                 <th style={{padding:"8px",textAlign:"right",color:TXD,fontSize:10}}>Total</th>
                 <th style={{padding:"8px",textAlign:"right",color:TXD,fontSize:10}}>Ações</th>
@@ -993,8 +1126,15 @@ export default function OrcamentosPage(){
                       </td>
                       <td style={{padding:"8px",textAlign:"center",color:TXM,fontSize:10}}>{fmtD(o.data_emissao)}</td>
                       <td style={{padding:"8px",textAlign:"center",fontSize:10,color:expirado?R:TXM,fontWeight:expirado?600:400}}>{fmtD(o.data_validade)}{expirado&&" ⚠️"}</td>
+                      <td style={{padding:"8px"}}>
+                        <select aria-label="Orçamentista" value={o.orcamentista_id||''} onChange={e=>atribuirOrcamentista(o,e.target.value)}
+                          style={{fontSize:10,padding:"3px 4px",borderRadius:4,border:`1px solid ${BD}`,background:BG3,color:o.orcamentista_id?TX:TXD,maxWidth:130}}>
+                          <option value="">— sem orçamentista —</option>
+                          {(usuariosPorEmpresa[o.company_id]||[]).map(u=><option key={u.id} value={u.id}>{u.full_name||u.email}</option>)}
+                        </select>
+                      </td>
                       <td style={{padding:"8px",textAlign:"center"}}>
-                        <span style={{fontSize:9,padding:"3px 10px",borderRadius:6,background:cfg.cor+"15",color:cfg.cor,fontWeight:600,whiteSpace:"nowrap"}}>{cfg.icon} {cfg.label}</span>
+                        <span style={{fontSize:9,padding:"3px 10px",borderRadius:6,background:cfg.cor+"15",color:cfg.cor,fontWeight:600,whiteSpace:"nowrap"}}>{o.status==='rascunho'&&o.orcamentista_id?"Em elaboração":`${cfg.icon} ${cfg.label}`}</span>
                         {o.qtd_visualizacoes>0&&<div style={{fontSize:8,color:TXD,marginTop:2}}>👁 {o.qtd_visualizacoes} visualiz.</div>}
                       </td>
                       <td style={{padding:"8px",textAlign:"right",color:G,fontWeight:600}}>{fmtR(Number(o.total))}</td>
@@ -1004,7 +1144,10 @@ export default function OrcamentosPage(){
                           {/* Tryo #264 · abre o PDF anexado direto da lista */}
                           {o.pdf_anexo_path&&<button onClick={async()=>{const{data}=await supabase.storage.from("crm-anexos").createSignedUrl(o.pdf_anexo_path as string,3600);if(data?.signedUrl)window.open(data.signedUrl,"_blank");}} data-testid="orc-lista-pdf" title="Abrir o PDF do orçamento" style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>📎 PDF</button>}
                           {o.status==='convertido'&&o.pedido_id&&<button onClick={()=>router.push(`/dashboard/pedidos?abrir=${o.pedido_id}`)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}} title="Abrir o pedido para editar (demandas extras)">🎯 Abrir Pedido →</button>}
-                          {o.status==='rascunho'&&<button onClick={()=>mudarStatus(o,'enviado')} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:B+"12",color:B,border:`1px solid ${B}25`,cursor:"pointer"}}>📨 Enviar</button>}
+                          {['rascunho','aguardando'].includes(o.status)&&<button onClick={()=>mudarStatus(o,'em_andamento')} title="Marca que o orçamento está sendo elaborado" style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:B+"12",color:B,border:`1px solid ${B}25`,cursor:"pointer"}}>🛠️ Em andamento</button>}
+                          {o.status==='rascunho'&&<button onClick={()=>mudarStatus(o,'aguardando')} title="Marca que está aguardando informações" style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:Y+"12",color:Y,border:`1px solid ${Y}25`,cursor:"pointer"}}>⏳ Aguardando</button>}
+                          {o.status==='em_andamento'&&<button onClick={()=>mudarStatus(o,'enviado_aprovacao')} title="Envia para a aprovação interna antes de ir ao cliente" style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:P+"12",color:P,border:`1px solid ${P}25`,cursor:"pointer"}}>📤 Enviar p/ aprovação</button>}
+                          {['rascunho','enviado_aprovacao'].includes(o.status)&&<button onClick={()=>mudarStatus(o,'enviado')} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:B+"12",color:B,border:`1px solid ${B}25`,cursor:"pointer"}}>📨 Enviar</button>}
                           {['enviado','visualizado'].includes(o.status)&&<button onClick={()=>mudarStatus(o,'aprovado')} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:G+"12",color:G,border:`1px solid ${G}25`,cursor:"pointer"}}>✅ Aprovar</button>}
                           {['enviado','visualizado'].includes(o.status)&&<button onClick={()=>mudarStatus(o,'recusado')} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:R+"12",color:R,border:`1px solid ${R}25`,cursor:"pointer"}}>❌ Recusar</button>}
                           {o.status==='aprovado'&&<button onClick={async()=>{const{data:{user}}=await supabase.auth.getUser();const{data,error}=await supabase.rpc('converter_orcamento_pedido',{p_orcamento_id:o.id,p_user_id:user?.id});if(error){setMsg("❌ "+error.message);return;}setMsg("✅ Convertido em pedido!");loadOrcamentos();setTimeout(()=>setMsg(""),3000);}} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>🎯 → Pedido</button>}
@@ -1032,7 +1175,7 @@ export default function OrcamentosPage(){
 // CRM ② (Wesley/Tryo) — anexo do PDF do orçamento (feito FORA) + valor manual.
 // O arquivo vai no bucket crm-anexos (privado) sob {company_id}/orcamentos/{id}/... (RLS por empresa).
 // A gravação (path + valor) passa pela RPC fn_orcamento_anexar_pdf (com guarda de empresa).
-function OrcamentoPdfAnexo({ orcamentoId, companyId, onSaved }: { orcamentoId: string; companyId: string; onSaved: () => void }) {
+function OrcamentoPdfAnexo({ orcamentoId, companyId, onSaved }: { orcamentoId: string; companyId: string; onSaved: (pdfPath: string | null) => void }) {
   const [path, setPath] = useState<string | null>(null);
   const [em, setEm] = useState<string | null>(null);
   const [valor, setValor] = useState<string>("");
@@ -1072,7 +1215,7 @@ function OrcamentoPdfAnexo({ orcamentoId, companyId, onSaved }: { orcamentoId: s
       if (up.error) throw new Error(up.error.message);
       await gravar(novoPath);
       setPath(novoPath); setEm(new Date().toISOString());
-      onSaved();
+      onSaved(novoPath);
     } catch (e2) { setErr((e2 as Error).message); }
     finally { setBusy(false); if (fileRef.current) fileRef.current.value = ""; }
   }
@@ -1086,14 +1229,14 @@ function OrcamentoPdfAnexo({ orcamentoId, companyId, onSaved }: { orcamentoId: s
   async function remover() {
     if (!window.confirm("Remover o PDF anexado deste orçamento?")) return;
     setBusy(true); setErr(null);
-    try { await gravar(null); setPath(null); setEm(null); onSaved(); }
+    try { await gravar(null); setPath(null); setEm(null); onSaved(null); }
     catch (e2) { setErr((e2 as Error).message); }
     finally { setBusy(false); }
   }
 
   async function salvarValor() {
     setBusy(true); setErr(null);
-    try { await gravar(path); onSaved(); }
+    try { await gravar(path); onSaved(path); }
     catch (e2) { setErr((e2 as Error).message); }
     finally { setBusy(false); }
   }

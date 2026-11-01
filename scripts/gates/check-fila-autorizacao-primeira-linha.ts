@@ -9,7 +9,7 @@ const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.erro
 
 const sh = readFileSync('scripts/merge/fila-merge.sh', 'utf8')
 const bloco = sh.slice(sh.indexOf('autorizacao() {'), sh.indexOf('echo ok', sh.indexOf('autorizacao() {')))
-ok(/\^MERGE AUTORIZADO #\$n — gilberto-revisor · patch-id \[0-9a-f\]\{40\}/.test(bloco), 'autorizacao(): regex ancorada na primeira linha com patch-id de 40 hex')
+ok(/\^MERGE AUTORIZADO #\$n — gilberto-revisor · patch-id \[0-9a-f\]\{8,40\}/.test(bloco), 'autorizacao(): regex ancorada na primeira linha com patch-id de 8 a 40 hex (prefixo aceito, CEO 16/10)')
 ok(/split\("\\n"\)\[0\] \| test\(\$re\)/.test(bloco), 'autorizacao(): testa só a primeira linha do comentário')
 ok(/contains\("<!-- fila:"\) \| not/.test(bloco) && /startswith\("Fila de merge:"\) \| not/.test(bloco), 'autorizacao(): ignora comentário com a marca da fila ou "Fila de merge:"')
 

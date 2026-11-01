@@ -144,25 +144,27 @@ async function main() {
 
   const ent = (id: number, pr: number, evento: Entrega['evento'], m: number, code = 'gilberto-desenv'): Entrega =>
     ({ id, pr_numero: pr, titulo: `PR ${pr}`, code, evento, via: 'rapida', sha: `s${id}`, url: null, ocorrido_em: min(m) })
-  const ents = [ent(1, 10, 'aberta', 300), ent(2, 10, 'pronta', 200), ent(3, 11, 'aberta', 100), ent(4, 12, 'aberta', 90), ent(5, 12, 'publicada', 30)]
+  const ents = [ent(1, 10, 'aberta', 300), ent(2, 10, 'pronta', 200), ent(3, 11, 'aberta', 100), ent(4, 12, 'aberta', 90), ent(5, 12, 'publicada', 20)]
   const et = emTeste(ents, 'gilberto-desenv')
   ok(et.map((p) => `${p.pr_numero}:${p.pronta}`).join(',') === '10:true,11:false', 'em teste: abertas sem publicada/fechada (pronta x rascunho)')
 
   const leases = [lease('gilberto-desenv', 30, 2)]
   const verde = faixa({ entregas: ents, msgs: [], leases, agora })
-  ok(verde.cor === 'verde', `faixa VERDE: publicou na última hora e ninguém parado com fila (${verde.frase})`)
+  ok(verde.cor === 'verde', `faixa VERDE: publicou nos últimos 30 min e ninguém parado com fila (${verde.frase})`)
   const semPub = faixa({ entregas: ents.filter((e) => e.evento !== 'publicada'), msgs: [], leases, agora })
   ok(semPub.cor === 'vermelha' && /^Nada publicado nos últimos 7 dias com 1 PR pronta$/.test(semPub.frase), `faixa VERMELHA sem publicação (${semPub.frase})`)
   const velha = faixa({ entregas: [ent(6, 13, 'publicada', 125), ent(7, 14, 'pronta', 10), ent(8, 15, 'pronta', 10)], msgs: [], leases, agora })
   ok(velha.cor === 'vermelha' && velha.frase === 'Nada publicado há 2 h com 2 PRs prontas', `faixa: "nada publicado há 2 h com 2 PRs prontas" (${velha.frase})`)
+  const trinta = faixa({ entregas: [ent(9, 16, 'publicada', 45), ent(10, 17, 'pronta', 10)], msgs: [], leases, agora })
+  ok(trinta.cor === 'vermelha' && /^Nada publicado há 45 min/.test(trinta.frase), `faixa: 45 min sem publicar já é vermelha (${trinta.frase})`)
   const parado = faixa({ entregas: ents, msgs, leases, agora })
   ok(parado.cor === 'vermelha' && /^jordana-code parado com 3 tarefas na fila$/.test(parado.frase), `faixa VERMELHA: Code parado com fila (${parado.frase})`)
   const ativo = faixa({ entregas: ents, msgs, leases: [...leases, lease('jordana-code', 40, 1)], agora })
   ok(ativo.cor === 'verde', 'Code com fila mas com sessão ativa não trava a faixa')
   ok(intervaloDia('2026-10-07').de === '2026-10-07T03:00:00.000Z' && intervaloDia('2026-10-07').ate === '2026-10-08T03:00:00.000Z',
     'filtro por data: o dia de São Paulo (00:00−03:00 a 24:00−03:00)')
-  ok(CODES_PRINCIPAIS.join(',') === 'gilberto-desenv,gilberto-chamados,gilberto-produto,jordana-code,rodrigo-code'
-    && CODES_LINHA_FINAL.join(',') === 'gilberto-revisor,eng-chefe-auto', 'cartões: os 5 Codes + linha final (revisor e eng-chefe-auto)')
+  ok(CODES_PRINCIPAIS.join(',') === 'gilberto-esteira,dev7claudeps,desenvolvedor_4_g,aud8claudeps,auditor_pdca_g,gilberto-revisor,rodrigo-code,jordana-code'
+    && CODES_LINHA_FINAL.length === 0, 'cartões: só os 8 Codes vivos (esteira, devs, auditor, revisor, sócios); os inativos ficam ocultos, não apagados')
 
   // ── (5) tela e AGENTS.md ────────────────────────────────────────────────────────────────────────────────────────
   const painel = ler('src/components/dev/PainelCodes.tsx')
@@ -194,14 +196,39 @@ async function main() {
     ok(r('jordana-code', [msg('a', 'jordana-code', 'nova', 20)], []).status === 'travado', 'RD-83: nova não lida há 20 min → Travado')
     const antiga = r('rodrigo-code', [msg('b', 'rodrigo-code', 'recebida', 30 * 60)], [])
     ok(antiga.status === 'dormindo' && antiga.filaAntiga === 1 && antiga.fila === 0, 'RD-83: recebida > 24 h vira fila antiga, nunca Travado')
-    ok(r('gilberto-produto', [msg('c', 'gilberto-produto', 'nova', 5)], []).status === 'dormindo', 'nova há 5 min ainda não é Travado')
+    ok(r('gilberto-produto', [msg('c', 'gilberto-produto', 'nova', 5)], []).status === 'na_fila', 'nova há 5 min: Na fila, não Travado')
+    // CEO 15/10: plantão permanente fora da fila; sessão recente sem nova = Dormindo; nova antiga com sessão < 30 min não trava
+    const plantao = { ...msg('p', 'rodrigo-code', 'recebida', 600), assunto: 'PLANTÃO PERMANENTE — rodrigo-code' }
+    const rp = r('rodrigo-code', [plantao], [lease('rodrigo-code', 20)])
+    ok(rp.status === 'dormindo' && rp.fila === 0 && rp.naoLidas === 0, 'plantão permanente não conta na fila nem trava')
+    ok(r('gilberto-chamados', [msg('n', 'gilberto-chamados', 'nova', 20)], [lease('gilberto-chamados', 20)]).status === 'na_fila', 'nova > 15 min com sessão há 20 min: não é Travado')
+    ok(r('gilberto-chamados', [msg('n', 'gilberto-chamados', 'nova', 40)], [lease('gilberto-chamados', 40)]).status === 'travado', 'nova > 15 min sem sessão há 30 min: Travado')
+    ok(r('gilberto-chamados', [], [lease('gilberto-chamados', 20)]).ultimaSessaoMin === 20, 'mostra a última sessão em minutos')
     ok(esteira({ ...base, entregas: [{ id: 1, pr_numero: 1, titulo: 't', code: 'x', evento: 'publicada', via: 'rapida', sha: 'a', url: null, ocorrido_em: min(10) }] }).cor === 'verde', 'esteira verde: publicou na última hora')
     ok(esteira({ ...base }).cor === 'amarela', 'esteira amarela: sem publicação há mais de 1 h')
     ok(esteira({ ...base, mainVerde: false }).cor === 'vermelha' && esteira({ ...base, testeParadoMin: 100 }).cor === 'vermelha', 'esteira vermelha: main vermelha ou teste parado > 90 min')
   }
 
+  await esteiraChecks()
   if (falhas) { console.error(`\ncheck-aba-codes: ${falhas} falha(s)`); process.exit(1) }
   console.log('\nAba Codes: ok')
 }
 
 main().catch((e) => { console.error(e); process.exit(1) })
+
+// ── (6) esteira: teste da main e fila de testes (CEO 08/10) ──────────────────────────────────────────────────────────
+async function esteiraChecks() {
+  const mig = readdirSync('supabase/migrations').find((f) => f.endsWith('_dev_esteira_status.sql'))
+  const q = (mig ? ler(join('supabase/migrations', mig)) : '').replace(/--[^\n]*/g, '')
+  ok(!!mig && /^\d{12}05_/.test(mig), 'esteira: migration na faixa 05')
+  ok(/ENABLE ROW LEVEL SECURITY/.test(q) && /REVOKE ALL ON TABLE public\.erp_dev_esteira_status FROM PUBLIC, anon, authenticated/.test(q)
+    && /FOR SELECT TO authenticated USING \(public\.fn_dev_painel_pode_ver\(\)\)/.test(q) && !/TO anon/.test(q), 'esteira: RLS, sem anon, leitura só equipe PS')
+  const wf = existsSync('.github/workflows/registrar-esteira.yml') ? ler('.github/workflows/registrar-esteira.yml') : ''
+  ok(/workflow_run:/.test(wf) && !/pull_request_target/.test(wf) && !/ref: \$\{\{ github\.event\.workflow_run/.test(wf), 'esteira: workflow_run, checkout só da main')
+  const { veredito } = await import('../dev/registrar-esteira.mjs')
+  ok(veredito([{ status: 'completed', conclusion: 'cancelled' }, { status: 'completed', conclusion: 'failure', html_url: 'u' }])?.verde === false, 'esteira: cancelado é ignorado, failure = vermelho')
+  ok(veredito([{ status: 'completed', conclusion: 'success' }])?.verde === true && veredito([]) === null, 'esteira: success = verde; sem run = sem dado')
+  ok(esteira({ entregas: [], agora: new Date(), mainVerde: false, filaTestes: 3 }).cor === 'vermelha', 'esteira: main vermelha deixa a faixa vermelha')
+  const pt = ler('src/components/dev/PainelCodes.tsx')
+  ok(pt.indexOf('<LinhaDoTempo') < pt.indexOf('<CartaoCode ') && /erp_dev_esteira_status/.test(pt) && /ver todas/.test(pt), 'tela: publicações do dia acima dos cartões, assina a esteira, "ver todas" no celular')
+}

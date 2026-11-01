@@ -6,14 +6,20 @@
 //   • EM TESTE = PR com evento aberta/pronta e sem publicada/fechada.
 //   • faixa VERDE = houve publicação na última hora E nenhum Code parado com tarefa na fila; senão VERMELHA com a trava.
 
-export const CODES_PRINCIPAIS = ['gilberto-desenv', 'gilberto-chamados', 'gilberto-produto', 'jordana-code', 'rodrigo-code'] as const
-export const CODES_LINHA_FINAL = ['gilberto-revisor', 'eng-chefe-auto'] as const
+// CEO 24/10: o painel mostra SÓ os Codes que existem (tarefa agendada ligada: desenvolvedores, esteira, revisor, auditor PDCA)
+// mais os dos sócios (Rodrigo e Jordana). gilberto-produto, gilberto-chamados, stephany-code, andre-code e eng-chefe-auto saíram.
+// CEO 27/10 (limpeza dos Codes): o painel mostra só os vivos. Ocultos (não apagados): gilberto-desenv, code-desenvolvedor-3,
+// desenvolvedor_5_g, desenvolvedor_6_g, gilberto-chamados, gilberto-produto, gilberto-automotivo, gilberto-industria,
+// andre-code, stephany-code, eng-chefe-auto. gilberto-revisor fica visível (autoriza PR sensível).
+export const CODES_PRINCIPAIS = ['gilberto-esteira', 'dev7claudeps', 'desenvolvedor_4_g', 'aud8claudeps', 'auditor_pdca_g', 'gilberto-revisor', 'rodrigo-code', 'jordana-code'] as const
+export const CODES_LINHA_FINAL: readonly string[] = []
 export const CODES_PAINEL: readonly string[] = [...CODES_PRINCIPAIS, ...CODES_LINHA_FINAL]
 
 export const LEASE_MIN = 12
 export const STATUS_FILA = ['nova', 'recebida'] as const
 const MIN = 60_000
 const HORA = 60 * MIN
+export const LIMITE_SEM_PUBLICAR_MIN = 30 // CEO 12/10: alerta da esteira dispara com 30 min sem publicar
 const DIA = 24 * HORA
 
 export type Entrega = {
@@ -44,9 +50,12 @@ export function estadoSessao(lease: Lease | undefined, agora: Date): EstadoSessa
 
 const t = (s: string | null | undefined) => (s ? new Date(s).getTime() : 0)
 
+/** Plantão permanente (CEO 15/10): tarefa que nunca é concluída por desenho — não conta como fila, mais antiga nem backlog. */
+export const ehPlantao = (m: Mensagem) => /^\s*plant[ãa]o\s+permanente/i.test(m.assunto ?? '')
+
 export function fila(msgs: Mensagem[], code: string): Mensagem[] {
   return msgs
-    .filter((m) => m.para === code && !m.arquivada && (STATUS_FILA as readonly string[]).includes(m.status))
+    .filter((m) => m.para === code && !m.arquivada && !ehPlantao(m) && (STATUS_FILA as readonly string[]).includes(m.status))
     .sort((a, b) => t(a.criado_em) - t(b.criado_em))
 }
 
@@ -120,11 +129,12 @@ export function faixa(p: { entregas: Entrega[]; msgs: Mensagem[]; leases: Lease[
   const agora = p.agora.getTime()
   const pubs = p.entregas.filter((e) => e.evento === 'publicada' && t(e.ocorrido_em) <= agora + MIN)
   const ultimaPub = pubs.reduce((m, e) => Math.max(m, t(e.ocorrido_em)), 0)
-  const publicouNaHora = ultimaPub > agora - HORA
+  const publicouNaHora = ultimaPub > agora - LIMITE_SEM_PUBLICAR_MIN * MIN
   const prontas = emTeste(p.entregas, null).filter((x) => x.pronta).length
   const parados = codes
-    .map((c) => ({ code: c, sessao: estadoSessao(p.leases.find((l) => l.agente === c), p.agora), fila: fila(p.msgs, c).length }))
-    .filter((x) => !x.sessao.ativa && x.fila > 0)
+    .map((c) => ({ code: c, sessao: estadoSessao(p.leases.find((l) => l.agente === c), p.agora), fila: fila(p.msgs, c).length,
+      travado: resumoCode({ code: c, entregas: p.entregas, msgs: p.msgs, leases: p.leases, agora: p.agora }).status === 'travado' }))
+    .filter((x) => x.travado && x.fila > 0)
     .sort((a, b) => b.fila - a.fila)
 
   if (publicouNaHora && parados.length === 0) {
@@ -146,6 +156,7 @@ export function faixa(p: { entregas: Entrega[]; msgs: Mensagem[]; leases: Lease[
 
 // ── Topo da aba (CEO 08/10): faixa da esteira + resumo por Code ─────────────────────────────────────────────────────
 export const TRAVADO_MIN = 15
+export const SESSAO_RECENTE_MIN = 30
 export const FILA_ANTIGA_H = 24
 
 export type Esteira = { cor: 'verde' | 'amarela' | 'vermelha'; ultimaPub: Date | null; prontas: number; mainVerde: boolean | null; filaTestes: number | null; mainDesde: Date | null; specFalha: string | null }
@@ -162,9 +173,10 @@ export function esteira(p: { entregas: Entrega[]; agora: Date; mainVerde?: boole
   return { cor, ultimaPub: ult ? new Date(ult) : null, prontas: emTeste(p.entregas, null).filter((x) => x.pronta).length, mainVerde, filaTestes: p.filaTestes ?? null, mainDesde: p.mainDesde ?? null, specFalha: p.specFalha ?? null }
 }
 
-export type StatusCode = 'trabalhando' | 'travado' | 'esperando' | 'dormindo'
+export type StatusCode = 'trabalhando' | 'travado' | 'na_fila' | 'esperando' | 'agendado' | 'dormindo'
 export type ResumoCode = {
   code: string; status: StatusCode; desde: Date | null; fazendo: string
+  ultimaSessaoMin: number | null; naoLidas: number
   fila: number; filaAntiga: number; emTeste: number; entreguesHoje: number; rotinaLigada: boolean | null
 }
 
@@ -174,19 +186,58 @@ export function resumoCode(p: { code: string; entregas: Entrega[]; msgs: Mensage
   const sessao = estadoSessao(p.leases.find((l) => l.agente === code), agora)
   const todas = fila(p.msgs, code)
   const filaAntiga = todas.filter((m) => t(m.criado_em) < ag - FILA_ANTIGA_H * HORA).length
-  // Travado = mensagem NOVA (não lida) há mais de 15 min; "recebida" antiga é fila antiga, nunca Travado
-  const travada = todas.some((m) => m.status === 'nova' && t(m.criado_em) < ag - TRAVADO_MIN * MIN)
+  // CEO 15/10: TRAVADO = tarefa "nova" sem leitura há > 15 min E nenhuma sessão nos últimos 30 min (o acionamento com
+  // HTTP ≠ 200 não chega ao painel — a caixa não expõe a coluna). Nova < 15 min (ou com sessão recente) = NA FILA.
+  const ultSessao = sessao.ativa ? agora : sessao.paradoDesde
+  const ultimaSessaoMin = ultSessao ? Math.max(0, Math.floor((ag - ultSessao.getTime()) / MIN)) : null
+  const sessaoRecente = ultimaSessaoMin !== null && ultimaSessaoMin < SESSAO_RECENTE_MIN
+  const novas = todas.filter((m) => m.status === 'nova')
+  const travada = !sessaoRecente && novas.some((m) => t(m.criado_em) < ag - TRAVADO_MIN * MIN)
+  const naFila = novas.length > 0
   const teste = emTeste(p.entregas, code)
   const andando = emAndamento(p.msgs, code)[0]
-  const status: StatusCode = sessao.ativa ? 'trabalhando' : travada ? 'travado' : teste.length > 0 ? 'esperando' : 'dormindo'
+  // Rotina LIGADA (tarefa agendada ativa) sem sessão/fila/teste ≠ "dormindo": o Code roda sozinho a cada hora
+  // (CEO 23/10 — revisor e esteira aparecem "dormindo" mesmo rodando no plantão). "Dormindo" = sem rotina E sem nada.
+  const rotinaLigada = p.rotinas?.find((r) => r.agente === code)?.aciona ?? null
+  const status: StatusCode = sessao.ativa ? 'trabalhando' : travada ? 'travado' : naFila ? 'na_fila' : teste.length > 0 ? 'esperando' : rotinaLigada ? 'agendado' : 'dormindo'
   const ultEntrega = entregues(p.entregas, code, agora, 30 * DIA)[0]
   const fazendo = andando?.assunto
     || (teste[0] ? `PR #${teste[0].pr_numero} · ${teste[0].titulo}` : ultEntrega ? `entregou #${ultEntrega.pr_numero} · ${ultEntrega.titulo}` : 'sem atividade recente')
   const hoje = diaSP(agora)
   return {
-    code, status, desde: sessao.ativa ? sessao.desde : null, fazendo,
+    code, status, desde: sessao.ativa ? sessao.desde : null, fazendo, ultimaSessaoMin, naoLidas: novas.length,
     fila: todas.length - filaAntiga, filaAntiga, emTeste: teste.length,
     entreguesHoje: p.entregas.filter((e) => e.evento === 'publicada' && e.code === code && diaSP(new Date(e.ocorrido_em)) === hoje).length,
-    rotinaLigada: p.rotinas?.find((r) => r.agente === code)?.aciona ?? null,
+    rotinaLigada,
+  }
+}
+
+// ── Code-Auditor (CEO 16/10): o cartão do eng-chefe-auto mostra a atividade de auditoria, não fila/teste ─────────────
+export const AUDITOR_CODE = 'eng-chefe-auto'
+export const AUDITOR_NOME = 'Code-Auditor'
+export const AUDITOR_LEGENDA = 'Auditor de plantão · guardião da RD-97'
+/** Estado "Dormindo" só se não houve sessão nas últimas 24 h; senão ativo (sessão corrente) ou "Em plantão". */
+export function estadoAuditor(lease: Lease | undefined, agora: Date): { estado: 'trabalhando' | 'plantao' | 'dormindo'; ultima: Date | null } {
+  const s = estadoSessao(lease, agora)
+  if (s.ativa) return { estado: 'trabalhando', ultima: agora }
+  const ultima = s.paradoDesde
+  if (ultima && agora.getTime() - ultima.getTime() < DIA) return { estado: 'plantao', ultima }
+  return { estado: 'dormindo', ultima }
+}
+export type AuditorResumo = {
+  prs_hoje: number; telas_hoje: number; vereditos: Record<string, number>
+  ultimo: { quando: string; rota: string | null; screen_id: string | null } | null
+}
+/** Dado do banco nunca derruba a tela: qualquer formato inesperado vira zeros. */
+export function lerAuditor(raw: unknown): AuditorResumo | null {
+  const r = raw as Record<string, unknown> | null
+  if (!r || r.ok !== true) return null
+  const num = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) ? x : 0)
+  const vs: Record<string, number> = {}
+  if (r.vereditos && typeof r.vereditos === 'object') for (const [k, v] of Object.entries(r.vereditos as object)) vs[k] = num(v)
+  const u = r.ultimo as Record<string, unknown> | null
+  return {
+    prs_hoje: num(r.prs_hoje), telas_hoje: num(r.telas_hoje), vereditos: vs,
+    ultimo: u && typeof u.quando === 'string' ? { quando: u.quando, rota: typeof u.rota === 'string' ? u.rota : null, screen_id: typeof u.screen_id === 'string' ? u.screen_id : null } : null,
   }
 }

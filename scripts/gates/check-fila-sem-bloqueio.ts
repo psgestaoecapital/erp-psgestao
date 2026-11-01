@@ -1,7 +1,8 @@
-// Gate (CEO 07/10; LOTE CEO 09/10) — fila de merge SEM BLOQUEIO PELA CABEÇA. A PR atrás da main é atualizada e a PR com
-// checks rodando fica esperando, mas a rodada SEGUE para as próximas. LOTE: PR SEM migration publica em lote (até
-// LOTE_MAX) na mesma rodada; PR COM migration é UMA por rodada e encerra a rodada. Ordem das migrations preservada;
-// vermelhos de verdade saem da fila.
+// Gate (CEO 07/10; LOTE CEO 09/10; VAZÃO CEO 22/10) — fila de merge SEM BLOQUEIO PELA CABEÇA. A PR atrás da main mas
+// comprovadamente limpa (mergeable=true) mergeia direto (3-way, sem update-first — "lote sem moer"); a atrás e NÃO limpa
+// (mergeable=false/null) é atualizada; a PR com checks rodando fica esperando — a rodada SEGUE para as próximas. LOTE:
+// PR SEM migration publica em lote (até LOTE_MAX) na mesma rodada; migrations independentes batelam (até LOTE_MIG_MAX).
+// Ordem das migrations preservada; vermelhos de verdade saem da fila.
 //
 // Parte 1 (sempre): leitura do script. Parte 2 (se houver jq e git, como no Actions e na máquina do Code): roda o
 // scripts/merge/fila-merge.sh de verdade contra um `gh` simulado, num repositório git temporário, nos cenários do CEO.
@@ -30,9 +31,10 @@ ok(/MAIN0=\$\(git rev-parse origin\/main\)/.test(sh) && /compare\/\$MAIN0\.\.\.\
 // incidente 07/10: a #2118 (migration, via revisada esperando a aceitação) travou a #2133 e todas as PRs com migration.
 // Só a PR com migration que espera a MAIN (estado_main) segura as outras com migration; esperar os próprios checks ou
 // ser atualizada não segura ninguém.
-ok(!/\[ "\$com_migration" = 1 \] && so_sem_migration=1/.test(laco) && (laco.match(/so_sem_migration=1/g) ?? []).length === 1
-  && /m=\$\(estado_main\)[\s\S]*?so_sem_migration=1; continue/.test(laco),
-  'só a PR com migration que espera a MAIN (estado_main) segura as outras com migration')
+// CEO 23/10: os flags de hold (deploy_travado / critica_na_main) são setados SÓ depois do estado_main.
+ok((laco.match(/deploy_travado=1/g) ?? []).length >= 1 && (laco.match(/critica_na_main=1/g) ?? []).length >= 1
+  && /m=\$\(estado_main( "\$(?:mig_)?via")?\)[\s\S]*?case "\$m" in[\s\S]*?deploy_travado=1/.test(laco),
+  'só a PR com migration que espera a MAIN (estado_main) segura as outras — deploy_travado (todas) / critica_na_main (só críticas)')
 
 // ── Parte 2: cenários de verdade contra um gh simulado (scripts/merge/fila-simulada.ts) ───────────────────────────
 if (!temFerramentas()) {
@@ -41,10 +43,14 @@ if (!temFerramentas()) {
   comFilaSimulada((rodar) => {
     let x = rodar([{ n: 1, checksRodando: true }, { n: 2 }])
     ok(merges(x.escritas).join() === '2', 'cenário: PR 1 esperando + PR 2 pronta → PR 2 mergeada no mesmo run')
+    // VAZÃO / LOTE SEM MOER (CEO 22/10): PR atrás da main mas mergeable=true mergeia direto (3-way), sem update-first.
     x = rodar([{ n: 1, atras: 2 }, { n: 2 }])
-    ok(updates(x.escritas).join() === '1' && merges(x.escritas).join() === '2', 'cenário: PR 1 atrás da main + PR 2 pronta → PR 1 atualizada e PR 2 mergeada')
+    ok(updates(x.escritas).length === 0 && merges(x.escritas).join() === '1,2', 'cenário: PR 1 atrás-mas-limpa (mergeable=true) + PR 2 pronta → AMBAS mergeadas no mesmo run (sem update-first)')
     x = rodar([{ n: 1, atras: 1 }, { n: 2, atras: 3 }, { n: 3 }])
-    ok(updates(x.escritas).join() === '1,2' && merges(x.escritas).join() === '3', 'cenário: duas atrás da main + uma pronta → duas atualizadas no mesmo run e a 3ª mergeada')
+    ok(updates(x.escritas).length === 0 && merges(x.escritas).join() === '1,2,3', 'cenário: três atrás-mas-limpas → as três mergeadas no mesmo run (lote sem moer)')
+    // fallback seguro: PR atrás E NÃO comprovadamente limpa (mergeable=false) → update-first como antes (não mergeia)
+    x = rodar([{ n: 1, atras: 2, mergeavel: false }, { n: 2 }])
+    ok(updates(x.escritas).join() === '1' && merges(x.escritas).join() === '2', 'cenário: PR 1 atrás e mergeable=false → ATUALIZADA (update-first seguro) e PR 2 mergeada')
     x = rodar([{ n: 1 }, { n: 2 }])
     ok(merges(x.escritas).join() === '1,2', 'cenário LOTE: duas prontas SEM migration → ambas mergeadas no mesmo run')
     x = rodar([{ n: 1 }, { n: 2 }, { n: 3 }], false, 5000, { LOTE_MAX: '2' })
@@ -55,13 +61,18 @@ if (!temFerramentas()) {
     x = rodar([{ n: 1, migration: true }, { n: 2 }])
     ok(merges(x.escritas).join() === '1', 'cenário: migration mergeada primeiro → encerra a rodada (1 migration/rodada; a comum vai na próxima)')
     x = rodar([{ n: 1, atras: 1, migration: true }, { n: 2, migration: true }, { n: 3 }])
-    ok(updates(x.escritas).join() === '1' && merges(x.escritas).join() === '2',
-      'cenário: migration atrás da main é atualizada e não segura a outra COM migration (main livre → mergeada)')
+    ok(updates(x.escritas).length === 0 && merges(x.escritas).join() === '1',
+      'cenário: migration atrás-mas-limpa mergeia direto (vazão); a 2ª migration não comprovadamente independente espera a próxima rodada')
     x = rodar([{ n: 1, checksRodando: true, migration: true }, { n: 2, migration: true }])
     ok(merges(x.escritas).join() === '2', 'cenário #2118/#2133: migration esperando os próprios checks → a outra COM migration é mergeada')
     x = rodar([{ n: 1, migration: true }, { n: 2, migration: true }, { n: 3 }], true)
-    ok(merges(x.escritas).join() === '3' && /#2 tem migration: espera a main/.test(x.log),
+    ok(merges(x.escritas).join() === '3' && /#2 tem migration: deploy-migrations da main não está verde/.test(x.log),
       'cenário: main ocupada (deploy-migrations rodando) → PRs com migration esperam; a SEM migration é mergeada')
+    x = rodar([{ n: 1, migration: true }, { n: 2, migration: true, migrationCorrige: true }])
+    ok(merges(x.escritas).join() === '2' && /não espera a main/.test(x.log),
+      'cenário 14/10 (#2542): deploy da main vermelho + PR que só MODIFICA a migration que o quebrou → mergeada; outra migration (adicionada) continua esperando')
+    x = rodar([{ n: 1, migration: true }], true)
+    ok(merges(x.escritas).length === 0, 'cenário 14/10: sem deploy vermelho a regra segue (migration adicionada espera a main)')
     x = rodar([{ n: 1, migration: true, migrationBaixa: true }, { n: 2, migration: true }])
     ok(merges(x.escritas).join() === '2' && /renumerada\(s\) pela fila/.test(x.log)
       && x.escritas.some((l) => /^PUT repos\/o\/r\/contents\/supabase\/migrations\/\d{14}_m\.sql .*branch=pr1/.test(l))

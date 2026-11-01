@@ -282,7 +282,7 @@ export default function PreVooFiscalCard({ companyId }: { companyId: string }) {
                   {(dados.produtos.sem_tributacao ?? 0) > 0 && <span data-testid="previo-sem-tributacao">Sem CSOSN/CST, PIS ou COFINS: {dados.produtos.sem_tributacao}</span>}
                   {(dados.produtos.fiscal_provisorio ?? 0) > 0 && <span data-testid="previo-fiscal-provisorio">Tributação provisória (confirmar com o contador): {dados.produtos.fiscal_provisorio}</span>}
                   {dados.produtos.cst_st_incompleto > 0 && <span>CST ST sem retido: {dados.produtos.cst_st_incompleto}</span>}
-                  {dados.produtos.ncm2710_sem_anp > 0 && <span>NCM 2710 sem ANP: {dados.produtos.ncm2710_sem_anp}</span>}
+                  {dados.produtos.ncm2710_sem_anp > 0 && <span data-testid="previo-ncm2710-sem-anp" title="Aviso: o grupo ANP só é obrigatório quando o produto tem código ANP (combustível da tabela SIMP). Aditivo/lubrificante sem código ANP emite normalmente.">NCM 2710 sem código ANP (aviso, não trava): {dados.produtos.ncm2710_sem_anp}</span>}
                   {dados.produtos.sem_tipo_item_sped > 0 && <span>Sem tipo do item (SPED): {dados.produtos.sem_tipo_item_sped}</span>}
                   {(dados.produtos.simples_cst_regime_normal ?? 0) > 0 && <span>CST de regime normal (Simples usa CSOSN): {dados.produtos.simples_cst_regime_normal}</span>}
                 </div>

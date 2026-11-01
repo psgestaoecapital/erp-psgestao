@@ -102,3 +102,44 @@ export function vazaoPorDia(entregas: Entrega[], agora: Date, dias: number): Vaz
 }
 
 export const totalPeriodo = (pts: Ponto[]) => pts.reduce((s, p) => s + p.total, 0)
+
+export type PrLista = { pr: number; titulo: string; url: string | null }
+export type PontoProducao = {
+  chave: string; rotulo: string; produzidas: number; publicadas: number; fila: number
+  prsProduzidas: PrLista[]; prsPublicadas: PrLista[]
+}
+export type Semaforo = 'verde' | 'amarelo' | 'vermelho'
+export type ResumoProducao = { produzidas: number; publicadas: number; saldo: number; semaforo: Semaforo }
+
+/** CEO 16/10: PRs PRODUZIDAS (evento 'aberta', PR distinta) × PUBLICADAS por hora (24 h) ou por dia, com a fila acumulada
+ *  (produzidas − publicadas somadas ponto a ponto, partindo de 0 no início do período). `code` filtra as duas séries. */
+export function producaoPublicacao(entregas: Entrega[], agora: Date, periodo: Periodo, code: string | null = null): PontoProducao[] {
+  const porHora = periodo === 'hoje'
+  const base = porHora ? publicacoesPorHora([], agora, 24) : publicacoesPorDia([], agora, PERIODO_DIAS[periodo])
+  const pontos: PontoProducao[] = base.map((p) => ({ chave: p.chave, rotulo: p.rotulo, produzidas: 0, publicadas: 0, fila: 0, prsProduzidas: [], prsPublicadas: [] }))
+  const chaveDe = (iso: string) => (porHora ? String(Math.floor(ms(iso) / H) * H) : diaSP(new Date(iso)))
+  const vistos = { aberta: new Set<number>(), publicada: new Set<number>() }
+  const ordenadas = [...entregas].sort((a, b) => ms(a.ocorrido_em) - ms(b.ocorrido_em))
+  for (const e of ordenadas) {
+    if (e.evento !== 'aberta' && e.evento !== 'publicada') continue
+    if (code && e.code !== code) continue
+    if (vistos[e.evento].has(e.pr_numero)) continue
+    vistos[e.evento].add(e.pr_numero)
+    const p = pontos.find((x) => x.chave === chaveDe(e.ocorrido_em))
+    if (!p) continue
+    const item = { pr: e.pr_numero, titulo: e.titulo, url: e.url }
+    if (e.evento === 'aberta') { p.produzidas++; p.prsProduzidas.push(item) } else { p.publicadas++; p.prsPublicadas.push(item) }
+  }
+  let acc = 0
+  for (const p of pontos) { acc += p.produzidas - p.publicadas; p.fila = acc }
+  return pontos
+}
+
+/** Três números do período e o semáforo: verde se publicadas ≥ produzidas; amarelo se o saldo cresce até 3 por dia; vermelho acima. */
+export function resumoProducao(pontos: PontoProducao[], periodo: Periodo): ResumoProducao {
+  const produzidas = pontos.reduce((s, p) => s + p.produzidas, 0)
+  const publicadas = pontos.reduce((s, p) => s + p.publicadas, 0)
+  const saldo = produzidas - publicadas
+  const limite = 3 * PERIODO_DIAS[periodo]
+  return { produzidas, publicadas, saldo, semaforo: saldo <= 0 ? 'verde' : saldo <= limite ? 'amarelo' : 'vermelho' }
+}

@@ -10,6 +10,8 @@
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { parseSync } from 'ofx-js'
+import { parseValorOFX } from '@/lib/ofx-parser'
+import { periodoPorMovimentos } from '@/lib/financeiro/saldoPorConta'
 import { supabase } from '@/lib/supabase'
 
 type Estado = 'idle' | 'lendo' | 'parseando' | 'enviando' | 'sucesso' | 'erro'
@@ -57,14 +59,11 @@ function extrairMovimentos(parsed: { OFX: Record<string, unknown> }): {
   const conta = acctFrom?.ACCTID ?? ''
 
   const tranList = stmtRs?.BANKTRANLIST as Record<string, unknown> | undefined
-  const periodo_inicio = tranList?.DTSTART ? parseDataOfx(tranList.DTSTART as string) : null
-  const periodo_fim = tranList?.DTEND ? parseDataOfx(tranList.DTEND as string) : null
-
   const trns = tranList?.STMTTRN
   const trnsArr = Array.isArray(trns) ? trns : trns ? [trns] : []
 
   const movimentos: MovimentoOfx[] = trnsArr.map((t: Record<string, string>) => {
-    const valorRaw = parseFloat((t.TRNAMT ?? '0').replace(',', '.'))
+    const valorRaw = (parseValorOFX(t.TRNAMT ?? '0') ?? 0)
     return {
       data_transacao: parseDataOfx(t.DTPOSTED ?? ''),
       valor: Math.abs(valorRaw),
@@ -76,7 +75,9 @@ function extrairMovimentos(parsed: { OFX: Record<string, unknown> }): {
     }
   })
 
-  return { movimentos, banco, conta, periodo_inicio, periodo_fim }
+  // #4969: período pelos movimentos — o Bradesco manda DTSTART/DTEND = dia da geração do arquivo.
+  const periodo = periodoPorMovimentos(movimentos.map((m) => m.data_transacao))
+  return { movimentos, banco, conta, periodo_inicio: periodo.inicio, periodo_fim: periodo.fim }
 }
 
 export default function UploadOfxArea({ companyId }: { companyId: string }) {

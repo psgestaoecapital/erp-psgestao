@@ -1,0 +1,16 @@
+name: Dispatch ping (diagnóstico)
+
+# Workflow INOFENSIVO da lista fechada de fn_github_disparar_workflow (migration 20261017230035): só imprime uma linha.
+# Serve para provar, com a chave real do cofre, que o banco consegue disparar um workflow (log + status + run id).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: echo "dispatch ok — disparado pelo banco em $(date -u +%FT%TZ)"

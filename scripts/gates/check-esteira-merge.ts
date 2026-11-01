@@ -30,28 +30,33 @@ for (const [f, step] of [['aceitacao-pr.yml', 'Jornadas de aceitação contra o 
   const i = wf.indexOf(`- name: ${step}`)
   ok(i > 0 && /^\s+timeout-minutes: \d+\s*$/m.test(wf.slice(i, i + 200)), `${f}: step longo "${step}" com timeout-minutes próprio`)
 }
-ok(/^    timeout-minutes: 60\s*$/m.test(ler('.github/workflows/aceitacao-main.yml')), 'aceitacao-main.yml: job com timeout-minutes explícito')
+ok(/^    timeout-minutes: 75\s*$/m.test(ler('.github/workflows/aceitacao-main.yml')), 'aceitacao-main.yml: job com timeout-minutes explícito (75)')
+ok(/LIMITE_MAIN_MIN: '70'/.test(vigia) && /\[ "\$wf" = "aceitacao-main\.yml" \] && limite=\$LIMITE_MAIN_MIN/.test(vigia), 'vigia: aceitacao-main tem teto próprio de 70 min (< job 75 < zumbi 90); as demais seguem em 45')
 
 // (a)–(d) fila de merge
 const fila = ler('.github/workflows/fila-merge.yml')
 const sh = ler('scripts/merge/fila-merge.sh')
 ok(/GH_TOKEN: \$\{\{ secrets\.FILA_MERGE_TOKEN \}\}/.test(fila) && !/GH_TOKEN: \$\{\{ github\.token \}\}/.test(fila),
   'fila: merge com PAT (FILA_MERGE_TOKEN), nunca com o GITHUB_TOKEN')
-ok(!/cron:/.test(fila), 'fila: sem polling (só eventos)')
+// CEO 10/10: a fila ganhou um tick periódico (rede de segurança) ALÉM dos eventos — event-driven fica quieto entre
+// eventos e o backlog parava. Mantém todos os gatilhos de evento e adiciona um cron de 15 min que varre o backlog.
+ok(/cron: '\*\/15 \* \* \* \*'/.test(fila) && /pull_request_target:/.test(fila) && /workflow_run:/.test(fila) && /workflow_dispatch:/.test(fila),
+  'fila: tick periódico (cron 15 min) + todos os gatilhos de evento mantidos')
 ok(/group: fila-merge/.test(fila) && /cancel-in-progress: false/.test(fila), 'fila: uma rodada por vez')
 ok(/ref: main/.test(fila), 'fila: roda o código da main (o da PR nunca é executado)')
 ok(/merge_method=squash -f sha="\$sha"/.test(sh), 'fila: merge squash travado no SHA conferido')
 ok(/update-branch" -f expected_head_sha/.test(sh), 'fila: atualiza com a main (merge, sem reescrever histórico)')
-ok(/git patch-id --stable/.test(sh) && /revisao-eng-chefe/.test(sh), '(c) PR sensível: autorização pelo patch-id do conteúdo')
+ok(/patch_id_estavel/.test(sh) && /git patch-id --stable/.test(readFileSync("scripts/merge/patch-id-lib.sh", "utf8")) && /revisao-eng-chefe/.test(sh), '(c) PR sensível: autorização pelo patch-id do conteúdo')
 ok(/aceitacao-pos-migration\.yml\/runs\?branch=main&status=success/.test(sh) && /rerodar "\$id"/.test(sh),
   '(a) @pos-migration cancelado: libera se a última migration já teve verde, senão re-roda')
-ok(/if \[ "\$com_migration" = 1 \]; then\s*\n\s*m=\$\(estado_main\)/.test(sh), '(b) só PR com migration espera a main')
+ok(/if \[ "\$com_migration" = 1 \](?: && \[ "\$corrige_deploy" = 0 \])?(?: && \[ "\$lote_mig_n" = 0 \])?; then[\s\S]*?m=\$\(estado_main( "\$(?:mig_)?via")?\)/.test(sh), '(b) só PR com migration espera a main (salvo o conserto do deploy vermelho)')
 
 // re-run pelo próprio GitHub (Eng. Chefe 07/10): a rede das sessões do Code não consegue POST /rerun
 ok(/Re-rodar aceitação cancelada/.test(vigia) && /FILA_MERGE_TOKEN/.test(vigia) && /\$tent" -gt 2/.test(vigia), 'vigia: re-roda aceitação cancelada com PAT, no máximo 2 vezes por SHA')
 ok(/head\.sha == /.test(vigia), 'vigia: só re-roda SHA ainda vigente (head de PR aberta ou main)')
 const cmd = ler('.github/workflows/comando-pr.yml')
-ok(/comment\.body == '\/re-rodar'/.test(cmd), 'comando-pr: só o comentário exato /re-rodar')
+ok(/startsWith\(github\.event\.comment\.body, '\/re-rodar'\)/.test(cmd), 'comando-pr: comentário que começa com /re-rodar (rodapé de atribuição não impede)')
+ok(!/responder "\/re-rodar/.test(cmd), 'comando-pr: respostas do workflow não começam com /re-rodar (laço infinito 13/10)')
 ok(/admin\|maintain\|write/.test(cmd) && /collaborators\/\$AUTOR\/permission/.test(cmd), 'comando-pr: exige permissão write do autor')
 ok(!/actions\/checkout/.test(cmd) && !/\$\{\{ github\.event\.comment\.body \}\}/.test(cmd.replace(/if: >-[\s\S]*?runs-on/, '')), 'comando-pr: sem checkout e sem interpolar o comentário no shell')
 
@@ -63,7 +68,8 @@ ok(iCat > 0 && iReset > iCat, 'montar-banco-testes: cópia dos catálogos ANTES 
 ok(mbt.indexOf('Trava de segurança') < iCat, 'montar-banco-testes: a trava contra a produção vem antes da cópia')
 const cat = ler('scripts/banco-testes/catalogos.sh')
 ok(/\*"\$PROD_REF"\*\) erro "TEST_DATABASE_URL aponta para a PRODUÇÃO/.test(cat), 'catalogos.sh: recusa a produção como destino')
-ok(/--data-only/.test(cat) && /-t "public\.\$t"/.test(cat), 'catalogos.sh: pg_dump --data-only -t de cada tabela')
+ok(/ACEITACAO_VAGA:-0\}" = 0/.test(cat) && /\*pooler\.supabase\.com\*\) ;;/.test(cat) && /\*"\$TEST_REF"\*\) ;;/.test(cat), 'catalogos.sh: vaga 0 exige o banco de testes conhecido; vaga > 0 aceita Session pooler (nunca a produção)')
+ok(/\\copy \(SELECT \$cols FROM public\.\$t\) TO/.test(cat) && /AUDITORIA=/.test(cat), 'catalogos.sh: \copy (SELECT colunas sem auditoria) de cada tabela')
 const tabelas = ler('scripts/banco-testes/catalogos.txt').split('\n').map((l) => l.replace(/#.*/, '').trim()).filter(Boolean)
 ok(tabelas.includes('plan_catalog'), 'whitelist: plan_catalog (o fn_demo_reset precisa do v15_revenda)')
 const proibida = /(^auth|^storage|^vault|^cron|^_|(^|_)logs?(_|$)|mensagem|contexto|handoff|bkp|backup|history|historico|sessao|usuario|users?(_|$)|^companies$|^organizations$|fiscal_ibpt_aliquota)/

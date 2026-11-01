@@ -65,7 +65,11 @@ test.describe('NFS-e · o tomador é o cliente da OS, nunca o cadastro duplicado
   })
 
   test('dois cadastros ATIVOS com o mesmo CNPJ → pede a escolha; escolhido, usa o escolhido', async () => {
-    const outro = await dbInsert<{ id: string }>('erp_clientes', { company_id: DEMO_GE, nome_fantasia: `E2E FC outro ativo ${RUN}`, cpf_cnpj: CNPJ_FMT })
+    // desde a trava de CNPJ duplicado (trg_clientes_cnpj_duplicado_guarda) o cadastro manual recusa o 2º ativo; o par
+    // de ativos que ainda existe vem da sincronização/importação (ref_externa_sistema), que a trava deixa passar
+    const outro = await dbInsert<{ id: string }>('erp_clientes', {
+      company_id: DEMO_GE, nome_fantasia: `E2E FC outro ativo ${RUN}`, cpf_cnpj: CNPJ_FMT, ref_externa_sistema: 'e2e', ref_externa_id: `e2e-${RUN}`,
+    })
     ids.outroAtivo = outro.id
     const amb = await comoARota(CNPJ, null)
     expect(amb.tipo, 'não chuta entre dois ativos').toBe('ambiguo')

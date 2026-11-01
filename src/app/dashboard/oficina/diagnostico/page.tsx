@@ -14,6 +14,8 @@ import AnotarModal from '@/components/oficina/AnotarModal'
 import AnotacaoOverlay from '@/components/oficina/AnotacaoOverlay'
 import { temAnotacao } from '@/components/oficina/anotacao'
 import { useOficinaRamo } from '@/lib/oficina/ramo'
+import { filtrarOS } from '@/lib/oficina/buscaOS'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { useOficinaModelo } from '@/lib/oficina/modelo'
 import { decimalBanco } from '@/lib/decimalBanco'
 
@@ -86,6 +88,7 @@ export default function DiagnosticoPage() {
   const { podePreco } = useOficinaModelo(companyId)     // #135 · atendimento centralizado: preço já no Diagnóstico
   const router = useRouter()
   const [lista, setLista] = useState<OSLinha[]>([])
+  const [buscaOS, setBuscaOS] = useState('') // #2861 · busca igual à da tela de OS
   const [osSel, setOsSel] = useState<OSLinha | null>(null)
   const [diagnostico, setDiagnostico] = useState('')
   const [km, setKm] = useState('')
@@ -381,8 +384,17 @@ export default function DiagnosticoPage() {
         <button onClick={() => router.push('/dashboard/oficina/patio')} style={linkBtn}><ChevronLeft size={16} /> Pátio</button>
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginTop: 6 }}>🔧 Oficina · Diagnóstico</div>
         <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}><Stethoscope size={22} /> Qual {ramo.objetoLabelCurto} diagnosticar?</h1>
+        {lista.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ display: 'block' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: ESP60, marginBottom: 4 }}>Buscar<AjudaCampo chave="oficina.diagnostico.busca" rota="/dashboard/oficina/diagnostico" /></span>
+              <input data-testid="oficina-busca-os" value={buscaOS} onChange={(e) => setBuscaOS(e.target.value)} placeholder="Buscar por placa, número, cliente ou veículo…" style={inp} />
+            </label>
+          </div>
+        )}
         {lista.length === 0 && <div style={{ color: ESP60, fontSize: 14, padding: '20px 0' }}>{ramo.automotivo ? 'Nenhum veículo ativo no pátio.' : 'Nada ativo no pátio.'} Faça a recepção primeiro.</div>}
-        {lista.map((os) => (
+        {lista.length > 0 && buscaOS.trim() && filtrarOS(lista, buscaOS).length === 0 && <div style={{ color: ESP60, fontSize: 14, padding: '12px 0' }}>Nenhuma OS encontrada para “{buscaOS.trim()}”.</div>}
+        {filtrarOS(lista, buscaOS).map((os) => (
           <div key={os.id} onClick={() => void abrirOS(os)} style={{ width: '100%', textAlign: 'left', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 10, cursor: 'pointer' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
               <PlacaInline companyId={companyId} osId={os.id} placa={os.placa} onSaved={(p) => setPlacaLocal(os.id, p)} />

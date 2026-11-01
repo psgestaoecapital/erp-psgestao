@@ -1,5 +1,9 @@
 name: Deploy Migrations (Production)
 
+permissions:
+  contents: read
+  issues: write
+
 on:
   push:
     branches: [main]
@@ -33,10 +37,51 @@ jobs:
       - uses: supabase/setup-cli@v1
         with:
           version: 2.118.0
-      - run: supabase link --project-ref $SUPABASE_PROJECT_ID
+      # Retry no link (falha transitória de rede/API, ex.: #1873): 4 tentativas com recuo 5/10/20 s.
+      - name: supabase link (com retry)
+        run: |
+          for i in 1 2 3 4; do
+            supabase link --project-ref $SUPABASE_PROJECT_ID && exit 0
+            [ "$i" -lt 4 ] && { echo "::warning::supabase link falhou (tentativa $i/4); aguardando"; sleep $((5 * 2 ** (i - 1))); }
+          done
+          exit 1
       # --include-all: aplica migrations pendentes mesmo quando uma nova entra com timestamp
       # ANTERIOR à última já aplicada (ex.: PRs mergeados fora da ordem do nome do arquivo).
       # Só aplica versões NÃO rastreadas; nunca re-roda migrations já no schema_migrations.
       # Auditado em 2026-08-14: histórico consistente (0 órfãs), então o efeito é aplicar apenas
       # as pendentes reais, sem risco de re-executar migrations antigas não-idempotentes.
       - run: supabase db push --include-all
+
+      # Nunca falhar em silêncio: o job vermelho deixa a main vermelha; aqui também abre/atualiza UMA issue de aviso.
+      - name: Avisar (issue) se o deploy falhou
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          corpo="deploy-migrations falhou no commit ${GITHUB_SHA}: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} — migrations podem estar fora da produção. Corrigir e re-rodar (workflow_dispatch)."
+          n=$(gh issue list --repo "$GITHUB_REPOSITORY" --label deploy-migrations-vermelho --state open --json number --jq '.[0].number // empty')
+          if [ -n "$n" ]; then gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "$corpo"
+          else gh issue create --repo "$GITHUB_REPOSITORY" --title "deploy-migrations vermelho na main" --label deploy-migrations-vermelho --body "$corpo" || gh issue create --repo "$GITHUB_REPOSITORY" --title "deploy-migrations vermelho na main" --body "$corpo"; fi
+
+      # GATILHO POR EVENTO (CEO 22/10): o deploy vermelho travou a esteira 1h45 EM SILÊNCIO (ninguém foi avisado). Além
+      # da issue, aciona o GUARDIÃO gilberto-esteira NA HORA — posta uma tarefa P0 na caixa, que desperta a rotina dele
+      # (mesmo mecanismo do @pos que a fila usa para acionar o autor). Reusa SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (os
+      # mesmos secrets da fila); no-op se ausentes (nunca quebra). Dedup por assunto: só uma tarefa P0 aberta por vez.
+      - name: Acionar o guardião da esteira (deploy vermelho)
+        if: failure()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          [ -n "${SUPABASE_URL:-}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ] || { echo "::warning::sem SUPABASE_URL/SERVICE_KEY — não acionei o guardião"; exit 0; }
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          assunto="P0: deploy-migrations VERMELHO na main"
+          aberta=$(curl -fsS "$SUPABASE_URL/rest/v1/erp_agente_mensagem?para=eq.gilberto-esteira&assunto=eq.$(jq -rn --arg a "$assunto" '$a|@uri')&status=neq.concluida&select=id&limit=1" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" 2>/dev/null | jq -r '.[0].id // empty' 2>/dev/null)
+          [ -z "$aberta" ] || { echo "já há tarefa P0 aberta ($aberta) — não duplico"; exit 0; }
+          corpo="O deploy-migrations falhou no commit ${GITHUB_SHA} ($run_url). Com o deploy VERMELHO nenhuma migration publica — a esteira está travada. Playbook: ache a migration pendente (ledger x repo), reproduza o erro em BEGIN...ROLLBACK (statement_timeout curto), conserte (reconciliar ledger de duplicata / hotfix RD-52 / reverter a PR culpada) e re-rode o deploy (workflow_dispatch). Decisão de dado de cliente real, fiscal, financeiro ou RLS → alerte o CEO, não decida sozinho."
+          if curl -fsS -X POST "$SUPABASE_URL/rest/v1/rpc/fn_agente_mensagem_enviar" \
+               -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" -H 'Content-Type: application/json' \
+               -d "$(jq -nc --arg assunto "$assunto" --arg corpo "$corpo" --arg ep "deploy-migrations · acionamento automático" \
+                     '{p_para:"gilberto-esteira", p_de:"eng_chefe", p_tipo:"tarefa", p_assunto:$assunto, p_corpo:$corpo, p_requer_ok_ceo:false, p_enviado_por:$ep}')" \
+               >/dev/null 2>&1; then echo "guardião gilberto-esteira acionado (tarefa P0 na caixa)"; else echo "::warning::não consegui acionar o guardião (fn_agente_mensagem_enviar falhou)"; fi

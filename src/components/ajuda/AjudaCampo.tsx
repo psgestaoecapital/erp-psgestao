@@ -29,7 +29,7 @@ function carregar(rota: string): Promise<Dados> {
   return p;
 }
 
-export function AjudaCampo({ chave, rota }: { chave: string; rota?: string }) {
+export function AjudaCampo({ chave, rota, alinhar }: { chave: string; rota?: string; alinhar?: "fim" }) {
   const pathname = usePathname();
   const tela = rota ?? pathname ?? "";
   const { sel } = useCompanyIds();
@@ -62,7 +62,11 @@ export function AjudaCampo({ chave, rota }: { chave: string; rota?: string }) {
     const larg = Math.min(340, window.innerWidth - 24);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- posição medida no DOM ao abrir
     setCelular(window.innerWidth < 640);
-    setPos({ top: Math.min(r.bottom + 6, window.innerHeight - 40), left: Math.max(12, Math.min(r.left - 8, window.innerWidth - larg - 12)) });
+    // alinhar="fim" (cabeçalho, "?" na ponta direita): a borda direita do cartão acompanha o "?" e, sem espaço embaixo, ele abre para cima
+    const esq = alinhar === "fim" ? r.right - larg + 8 : r.left - 8;
+    const abaixo = window.innerHeight - r.bottom;
+    const sobe = alinhar === "fim" && abaixo < 320 && r.top > abaixo;
+    setPos({ top: sobe ? Math.max(12, r.top - 6 - 320) : Math.min(r.bottom + 6, window.innerHeight - 40), left: Math.max(12, Math.min(esq, window.innerWidth - larg - 12)) });
   }, [aberto]);
 
   useEffect(() => {

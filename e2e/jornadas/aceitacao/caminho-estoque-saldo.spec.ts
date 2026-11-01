@@ -19,7 +19,7 @@ test.describe('Caminho principal — Estoque: consultar o saldo de um produto', 
     await aguardarConteudo(page)
     const primeira = page.getByTestId('saldo-row').first()
     await expect(primeira, 'a demo tem estoque').toBeVisible({ timeout: 20000 })
-    const nome = ((await primeira.locator('td').first().locator('div').first().textContent()) ?? '').trim()
+    const nome = ((await primeira.locator('td').nth(1).locator('div').first().textContent()) ?? '').trim()
     expect(nome).not.toBe('')
 
     await page.getByTestId('saldo-filtro-produto').fill(nome)

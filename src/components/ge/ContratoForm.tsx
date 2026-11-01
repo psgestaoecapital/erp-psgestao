@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import ContratoArquivos from './ContratoArquivos'
+import ContratoAssinatura from './ContratoAssinatura'
 
 interface Cliente {
   id: string
@@ -281,7 +282,12 @@ export default function ContratoForm({ companyId, contrato, onClose, onSaved }: 
 
           <div style={{ marginTop: 18, paddingTop: 16, borderTop: '0.5px solid rgba(61,35,20,0.12)' }}>
             {contrato?.id ? (
-              <ContratoArquivos companyId={companyId} contratoId={contrato.id} />
+              <>
+                <ContratoArquivos companyId={companyId} contratoId={contrato.id} />
+                <ContratoAssinatura contratoId={contrato.id} cliente={{
+                  nome: contrato.cliente_nome, documento: contrato.cliente_cnpj, email: contrato.cliente_email, telefone: contrato.cliente_telefone,
+                }} />
+              </>
             ) : (
               <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.6)', fontStyle: 'italic', padding: '4px 0' }}>
                 Salve a cobrança primeiro pra anexar o contrato assinado (PDF/imagem).

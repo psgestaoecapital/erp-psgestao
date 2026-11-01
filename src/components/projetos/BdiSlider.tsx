@@ -1,17 +1,18 @@
 // src/components/projetos/BdiSlider.tsx
 // Slider + input numerico vinculado para um componente do BDI
 // Cor por categoria (admin=cinza, lucro=dourado, impostos=marrom)
+// RD-95: o "?" é o AjudaCampo padrão (texto em erp_ajuda_campo, chave em `ajuda`)
 
 "use client";
 
-import { useState } from "react";
-import { HelpCircle } from "lucide-react";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
 export type BdiSliderCor = "espresso" | "gold" | "brown" | "gray";
 
 interface Props {
   label: string;
-  hint: string;
+  /** chave do "?" em erp_ajuda_campo */
+  ajuda: string;
   valor: number;
   onChange: (v: number) => void;
   cor?: BdiSliderCor;
@@ -29,7 +30,7 @@ const CORES: Record<BdiSliderCor, { accent: string; chip: string }> = {
 
 export function BdiSlider({
   label,
-  hint,
+  ajuda,
   valor,
   onChange,
   cor = "gray",
@@ -37,13 +38,13 @@ export function BdiSlider({
   step = 0.1,
   destaque = false,
 }: Props) {
-  const [showHint, setShowHint] = useState(false);
   const c = CORES[cor];
   const safe = Number.isFinite(valor) ? valor : 0;
   const pctBar = Math.min(100, Math.max(0, (safe / max) * 100));
 
   return (
     <div
+      data-ajuda={ajuda}
       className={`rounded-xl border p-3 transition-colors ${
         destaque
           ? "border-[#C8941A]/40 bg-[#C8941A]/5"
@@ -53,21 +54,7 @@ export function BdiSlider({
       <div className="mb-2 flex items-start justify-between gap-2">
         <div className="flex items-center gap-1.5">
           <label className="text-sm font-medium text-[#3D2314]">{label}</label>
-          <button
-            type="button"
-            onMouseEnter={() => setShowHint(true)}
-            onMouseLeave={() => setShowHint(false)}
-            onClick={() => setShowHint((v) => !v)}
-            className="relative text-[#3D2314]/40 hover:text-[#3D2314]/70"
-            aria-label="Ajuda"
-          >
-            <HelpCircle size={13} />
-            {showHint && (
-              <span className="absolute left-1/2 top-full z-20 mt-1 w-56 -translate-x-1/2 rounded-lg bg-[#3D2314] px-3 py-2 text-left text-[11px] font-normal text-[#FAF7F2] shadow-lg">
-                {hint}
-              </span>
-            )}
-          </button>
+          <AjudaCampo chave={ajuda} />
         </div>
         <div
           className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-mono font-medium ${c.chip}`}
@@ -106,6 +93,7 @@ export function BdiSlider({
             max={100}
             step={step}
             value={safe}
+            aria-label={`${label} (%)`}
             onChange={(e) => {
               const v = parseFloat(e.target.value);
               onChange(Number.isFinite(v) ? v : 0);

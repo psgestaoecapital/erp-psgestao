@@ -625,6 +625,9 @@ export class FocusNFeProvider implements FiscalProvider {
         ...(item.icms?.base != null ? { icms_base_calculo: item.icms.base } : {}),
         ...(item.icms?.valor != null ? { icms_valor: item.icms.valor } : {}),
         ...(item.icms?.modBc != null ? { icms_modalidade_base_calculo: item.icms.modBc } : {}),
+        // #2876 · CSOSN 101 (Simples com crédito): pCredSN=icms_aliquota_credito_simples ·
+        // vCredICMSSN=icms_valor_credito_simples (doc Focus ItemNotaFiscalXML). Só sai quando o builder montou o crédito.
+        ...(item.icms?.creditoSN ? { icms_aliquota_credito_simples: item.icms.creditoSN.aliquota, icms_valor_credito_simples: item.icms.creditoSN.valor } : {}),
         ...(item.ipi?.cst ? { ipi_situacao_tributaria: item.ipi.cst, ipi_aliquota: item.ipi.aliquota } : {}),
         pis_situacao_tributaria: item.pis?.cst,
         pis_aliquota_porcentual: item.pis?.aliquota,

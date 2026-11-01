@@ -1,0 +1,48 @@
+name: PDCA noturno (jornadas nas DEMOs)
+
+# PDCA automático (CEO 09/10), fatia D: toda noite roda o executor de jornadas (fn_pdca_jornadas_executar) nas
+# empresas DEMO de cada vertical (Hub, GE...), grava o resultado em pdca_jornada_resultado e publica o placar.
+# Só lê as DEMOs (is_demo); nunca toca empresa de cliente. Entra na fila única da demo (grupo demo-e2e).
+# Code: gilberto-chamados
+on:
+  workflow_dispatch:
+    inputs:
+      vertical:
+        description: 'Vertical (vazio = todas)'
+        required: false
+        default: ''
+  schedule:
+    - cron: '0 6 * * *' # 03h BRT
+
+jobs:
+  jornadas:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: demo-e2e
+      cancel-in-progress: false
+      queue: max
+    timeout-minutes: 15
+    steps:
+      - name: Executar jornadas nas DEMOs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VERTICAL: ${{ github.event.inputs.vertical }}
+        run: |
+          set -euo pipefail
+          corpo=$(jq -nc --arg v "$VERTICAL" 'if $v == "" then {} else {p_vertical: $v} end')
+          curl -fsS -X POST "$SUPABASE_URL/rest/v1/rpc/fn_pdca_jornadas_executar" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" -d "$corpo" | tee resultado.json
+          echo "### PDCA noturno" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"; cat resultado.json >> "$GITHUB_STEP_SUMMARY"; echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - name: Placar por vertical
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          curl -fsS "$SUPABASE_URL/rest/v1/vw_pdca_jornada_placar?select=*" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            | jq -r '.[] | "\(.vertical): \(.verdes)/\(.passos) verdes, \(.vermelhos) vermelhos, \(.sem_prova) sem prova (\(.pct_verde)%)"' \
+            | tee -a "$GITHUB_STEP_SUMMARY"

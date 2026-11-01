@@ -13,6 +13,7 @@ ok(/'v15_ecommerce'[\s\S]*'v15_gestao_empresarial_pro'/.test(sql) && /'active', 
 ok(/\('ecommerce', 'b0700000-0000-4000-a000-000000000007'\)/.test(sql) && /ON CONFLICT \(area\) DO UPDATE/.test(sql), 'demo_por_area ecommerce → Loja Modelo')
 ok(/INSERT INTO public\.area_menu_config[\s\S]*'ecommerce','ecommerce'/.test(sql) && sql.includes("'ecommerce']::text[]"), 'área e grupo ecommerce')
 ok(/'ecommerce_inicio'/.test(sql) && (sql.match(/\/dashboard\/em-construcao\/ecommerce_/g) ?? []).length >= 5, 'telas futuras apontam para o placeholder (sem rota quebrada)')
+ok(/INSERT INTO public\.module_subgrupos[\s\S]*'ecommerce'[\s\S]*ON CONFLICT \(id\) DO NOTHING/.test(sql) && sql.indexOf('INSERT INTO public.module_subgrupos') < sql.indexOf('INSERT INTO public.module_catalog'), 'subgrupo ecommerce criado ANTES do module_catalog (FK module_catalog_subgrupo_fkey)')
 ok(!/\bDELETE\b|\bTRUNCATE\b|\bUPDATE\s+public\./i.test(sql), 'não apaga nem altera dado existente')
 const chaves = [...sql.matchAll(/\('(ecommerce\.inicio\.[a-z_]+)'/g)].map(m => m[1])
 ok(chaves.length === 5 && chaves.every(c => pagina.includes(`'${c}'`)), 'os 5 indicadores da página têm "?" com texto no banco (RD-95)')

@@ -15,11 +15,16 @@
 //
 // Emite pelo modo `manual` do /api/fiscal/nfe/emitir (o caminho que já emitiu as NF-e de produto),
 // passando osId + a justificativa, que ficam no registro da nota (recuperável depois).
+// Pedido Jordana 20/10 (item 5): antes de emitir, mostra o texto FINAL das Informações Complementares (Observações para
+// o cliente da OS + textos legais do Simples e da Lei 12.741), editável, com o contador do limite do campo.
 
-import { useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { FileText } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
 import { carregarProducaoDisponivel } from '@/lib/fiscal/producaoDisponivel'
+import { NotaDaOSStatus, notaJaEmitida, useNotaDaOS } from '@/components/comum/NotaFiscalDaOS'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 
 type ItemEmitivel = {
   item_id: string; produto_id: string; descricao: string; quantidade: number
@@ -57,6 +62,14 @@ export default function EmitirNFeOSButton({
   const [producao, setProducao] = useState(false)
   const [fase, setFase] = useState<'form' | 'enviando' | 'resultado'>('form')
   const [resultado, setResultado] = useState<{ ok?: boolean; status?: string; numero?: string | null; mensagem?: string; motivoRejeicao?: string } | null>(null)
+  // Informações Complementares: prévia (texto composto pelo servidor para as peças marcadas) + texto editado na tela
+  const [previa, setPrevia] = useState<{ original: string; limite: number } | null>(null)
+  const [textoInfCpl, setTextoInfCpl] = useState('')
+  const editouInfCpl = useRef(false)
+  const [previaErro, setPreviaErro] = useState<string | null>(null)
+  // #2167 · nota já emitida para a OS → botão verde que abre o DANFE
+  const { nota, recarregar } = useNotaDaOS('nfe', osId, companyId)
+  const notaEmitida = notaJaEmitida(nota)
 
   async function preparar() {
     setErro(null); setCarregando(true)
@@ -71,6 +84,7 @@ export default function EmitirNFeOSButton({
       const s: Record<string, boolean> = {}
       ;(p.itens_emitiveis ?? []).forEach((it) => { s[it.item_id] = true })
       setPrep(p); setProducao(prod); setSel(s); setJustificativa(''); setFase('form'); setResultado(null); setAberto(true)
+      setPrevia(null); setTextoInfCpl(''); editouInfCpl.current = false; setPreviaErro(null)
     } finally { setCarregando(false) }
   }
 
@@ -85,16 +99,12 @@ export default function EmitirNFeOSButton({
   const diverge = Math.abs(diff) >= 0.01
   const justOk = !diverge || justificativa.trim().length >= MIN_JUST
   const destOk = !!dest?.ok
-  const podeEmitir = selecionados.length > 0 && justOk && destOk && fase === 'form'
+  const podeEmitir = selecionados.length > 0 && justOk && destOk && fase === 'form' && !(!!previa && textoInfCpl.trim().length > previa.limite)
 
-  async function emitir() {
-    if (!prep || !dest || selecionados.length === 0) return
-    if (producao) {
-      const ok = window.confirm('Esta NF-e tem VALOR FISCAL REAL e será transmitida à SEFAZ em nome da empresa.\n\nConfirmar emissão?')
-      if (!ok) return
-    }
-    setFase('enviando')
-    const body: Record<string, unknown> = {
+  // Corpo da emissão (o mesmo vai na prévia, com apenasPrevia) — o texto da prévia é o da nota que sairia.
+  function montarBody(): Record<string, unknown> | null {
+    if (!dest || selecionados.length === 0) return null
+    return {
       companyId,
       ...(producao ? {} : { ambiente: 'homologacao' }),
       manual: {
@@ -113,6 +123,46 @@ export default function EmitirNFeOSButton({
       osId,
       ...(diverge ? { justificativaDivergencia: justificativa.trim(), valorEsperadoOs: esperado } : {}),
     }
+  }
+
+  // A prévia muda com as peças marcadas (valor aproximado dos tributos); o texto editado pela pessoa não é trocado.
+  const chaveSel = selecionados.map((it) => it.item_id).join(',')
+  useEffect(() => {
+    if (!aberto || !destOk || !chaveSel || fase !== 'form') return
+    const corpo = montarBody()
+    if (!corpo) return
+    let vivo = true
+    setPreviaErro(null)
+    void (async () => {
+      try {
+        const res = await authFetch('/api/fiscal/nfe/emitir', { method: 'POST', body: JSON.stringify({ ...corpo, apenasPrevia: true }) })
+        const json = await res.json()
+        if (!vivo) return
+        if (!res.ok || json?.ok === false || !json?.previa) { setPreviaErro(json?.mensagem ?? json?.message ?? `HTTP ${res.status}`); return }
+        const texto = String(json.previa.informacoesComplementares ?? '')
+        setPrevia({ original: texto, limite: Number(json.previa.limite) || 5000 })
+        setTextoInfCpl((atual) => (editouInfCpl.current ? atual : texto))
+      } catch (e) {
+        if (vivo) setPreviaErro(e instanceof Error ? e.message : 'Falha ao montar o texto da nota')
+      }
+    })()
+    return () => { vivo = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aberto, destOk, chaveSel])
+
+  const excedeInfCpl = !!previa && textoInfCpl.trim().length > previa.limite
+
+  async function emitir() {
+    if (!prep || !dest || selecionados.length === 0 || excedeInfCpl) return
+    if (producao) {
+      const ok = window.confirm('Esta NF-e tem VALOR FISCAL REAL e será transmitida à SEFAZ em nome da empresa.\n\nConfirmar emissão?')
+      if (!ok) return
+    }
+    setFase('enviando')
+    const body = montarBody()
+    if (!body) return
+    // só manda o texto quando a prévia carregou: sem prévia, o servidor compõe como sempre
+    if (previa) body.informacoesComplementares = textoInfCpl
     try {
       const res = await authFetch('/api/fiscal/nfe/emitir', { method: 'POST', body: JSON.stringify(body) })
       const json = await res.json()
@@ -120,7 +170,7 @@ export default function EmitirNFeOSButton({
     } catch (e) {
       setResultado({ ok: false, mensagem: e instanceof Error ? e.message : 'Falha na emissão' })
     } finally {
-      setFase('resultado'); onEmitida?.()
+      setFase('resultado'); onEmitida?.(); void recarregar()
     }
   }
 
@@ -130,12 +180,19 @@ export default function EmitirNFeOSButton({
 
   return (
     <>
-      <button type="button" onClick={() => void preparar()} disabled={carregando}
-        data-testid="os-nfe-emitir"
-        title="Emite a NF-e de produto (peças) da OS. Só peças com produto de catálogo e NCM entram — texto livre fica de fora."
-        style={{ ...defBtn, ...buttonStyle, opacity: carregando ? 0.6 : 1 }}>
-        {carregando ? 'Preparando…' : '📄 Emitir NF-e (peças)'}
-      </button>
+      {notaEmitida ? (
+        <NotaDaOSStatus tipo="nfe" nota={nota} companyId={companyId}
+          onAtualizar={() => void recarregar()} onEmitirOutra={() => void preparar()} />
+      ) : (
+        <button type="button" onClick={() => void preparar()} disabled={carregando}
+          data-testid="os-nfe-emitir"
+          title={nota?.status === 'rejeitada'
+            ? `A última NF-e desta OS foi rejeitada${nota.motivo_rejeicao ? `: ${nota.motivo_rejeicao}` : ''}. Corrija e emita de novo.`
+            : 'Emite a NF-e de produto (peças) da OS. Só peças com produto de catálogo e NCM entram — texto livre fica de fora.'}
+          style={{ ...defBtn, ...buttonStyle, opacity: carregando ? 0.6 : 1 }}>
+          {carregando ? 'Preparando…' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><FileText size={14} aria-hidden />{nota?.status === 'rejeitada' ? 'Reenviar NF-e (peças)' : 'Emitir NF-e (peças)'}</span>}
+        </button>
+      )}
 
       {erro && !aberto && (
         <div role="alert" style={{ flexBasis: '100%', marginTop: 8, ...box(C.redBg, '#791F1F'), borderLeft: `4px solid ${C.red}` }}>
@@ -215,6 +272,44 @@ export default function EmitirNFeOSButton({
                       style={{ width: '100%', border: `1px solid ${justOk ? C.line : C.red}`, borderRadius: 6, padding: '8px 10px', fontSize: 13, color: C.espresso }} />
                     {!justOk && <span style={{ fontSize: 11, color: C.red }}>Escreva uma justificativa de verdade (mín. {MIN_JUST} caracteres).</span>}
                   </label>
+                )}
+
+                {destOk && selecionados.length > 0 && (
+                  <div data-testid="os-nfe-infcpl" style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: C.espresso }}>
+                        Informações complementares da nota
+                        <AjudaCampo chave="oficina.os.nfe_informacoes_complementares" rota="/dashboard/os" />
+                      </span>
+                      <textarea data-testid="os-nfe-infcpl-texto" value={textoInfCpl}
+                        onChange={(e) => { setTextoInfCpl(e.target.value); editouInfCpl.current = true }}
+                        disabled={!previa || fase === 'enviando'} rows={4}
+                        placeholder={!previa && !previaErro ? 'Montando o texto da nota…' : 'Sem informações complementares'}
+                        style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${excedeInfCpl ? C.red : C.line}`, borderRadius: 6, padding: '8px 10px', fontSize: 12, lineHeight: 1.5, color: C.espresso, resize: 'vertical' }} />
+                    </label>
+                    {previa && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                        <span data-testid="os-nfe-infcpl-contador" style={{ fontSize: 11, fontWeight: excedeInfCpl ? 700 : 400, color: excedeInfCpl ? C.red : C.espressoM }}>
+                          {textoInfCpl.trim().length} / {previa.limite} caracteres{excedeInfCpl ? ' — acima do limite da NF-e, encurte para emitir' : ''}
+                        </span>
+                        {textoInfCpl !== previa.original && (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <button type="button" data-testid="os-nfe-infcpl-restaurar"
+                              onClick={() => { setTextoInfCpl(previa.original); editouInfCpl.current = false }}
+                              style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, border: `1px solid ${C.line}`, background: 'transparent', color: C.espressoM, cursor: 'pointer' }}>
+                              Voltar ao texto automático
+                            </button>
+                            <AjudaCampo chave="oficina.os.nfe_informacoes_complementares_restaurar" rota="/dashboard/os" />
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {previaErro && (
+                      <span style={{ fontSize: 11, color: C.espressoM }}>
+                        Não foi possível montar o texto agora ({previaErro}). A nota sai com o texto automático.
+                      </span>
+                    )}
+                  </div>
                 )}
 
                 {selecionados.length === 0 && (

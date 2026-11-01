@@ -26,7 +26,7 @@ import { type EstadoFeedback } from './FeedbackSalvar'
 //   // <Campo erro={erroCampo === 'valor' ? mensagemDeResultado(...) : null}> no input
 // ═══════════════════════════════════════════════════════════════════════════
 
-type RespostaSupabase = { data: unknown; error: { message: string } | null }
+type RespostaSupabase = { data: unknown; error: { message: string; code?: string } | null }
 
 export function useSalvar() {
   const [salvando, setSalvando] = useState(false)
@@ -41,7 +41,7 @@ export function useSalvar() {
   const salvar = useCallback(
     async (
       chamada: () => Promise<RespostaSupabase>,
-      opts: { acao: AcaoSalvar; label?: string },
+      opts: { acao: AcaoSalvar; label?: string; onDuplicado?: () => void },
     ): Promise<ResultadoSalvar> => {
       setSalvando(true)
       setFeedback(null)
@@ -51,6 +51,9 @@ export function useSalvar() {
 
         // Erro de transporte (rede/PostgREST): mensagem amigável, nunca crua.
         if (error) {
+          // Trava antiduplicidade (23505 de fn_titulo_antidup): o chamador pode oferecer "lançar mesmo assim".
+          const dup = error.code === '23505' || /idêntico|identico/i.test(error.message || '')
+          if (dup && opts.onDuplicado) { opts.onDuplicado(); return { sucesso: false, erro: 'duplicado' } }
           setFeedback({ tipo: 'erro', texto: mensagemDeResultado(null) })
           return { sucesso: false, erro: 'transporte' }
         }

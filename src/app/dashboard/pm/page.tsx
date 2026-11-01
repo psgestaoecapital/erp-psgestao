@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { PSGC_COLORS as C, PSGC_RADIUS as R, fmtR } from '@/lib/psgc-tokens'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const SEM: Record<string, string> = { verde: '#16a34a', amarelo: '#eab308', vermelho: '#dc2626', em_calculo: '#9C8E80' }
 const nf = (n: number) => Number(n).toLocaleString('pt-BR', { maximumFractionDigits: 1 })
@@ -75,12 +76,12 @@ export default function PmBiPage() {
             <>
               {/* Faixa 1 — KPIs operacionais */}
               <section style={grid(200)}>
-                <Kpi l="MRR (receita recorrente)" v={fmtR(kpis!.mrr ?? 0)} destaque />
-                <Kpi l="Clientes ativos" v={String(kpis!.clientes_ativos ?? 0)} />
-                <Kpi l="Jobs em andamento" v={String(kpis!.jobs_andamento ?? 0)} />
-                <Kpi l="Horas no mês" v={nf(kpis!.horas_mes ?? 0)} />
-                <Kpi l="Comissão a pagar" v={fmtR(kpis!.comissao_pagar ?? 0)} />
-                <Kpi l="A receber vencido" v={fmtR(kpis!.receber_vencido ?? 0)} cor={(kpis!.receber_vencido ?? 0) > 0 ? '#dc2626' : undefined} />
+                <Kpi l="MRR (receita recorrente)" v={fmtR(kpis!.mrr ?? 0)} destaque ajuda="pm.painel.kpi_mrr" />
+                <Kpi l="Clientes ativos" v={String(kpis!.clientes_ativos ?? 0)} ajuda="pm.painel.kpi_clientes_ativos" />
+                <Kpi l="Jobs em andamento" v={String(kpis!.jobs_andamento ?? 0)} ajuda="pm.painel.kpi_jobs_andamento" />
+                <Kpi l="Horas no mês" v={nf(kpis!.horas_mes ?? 0)} ajuda="pm.painel.kpi_horas_mes" />
+                <Kpi l="Comissão a pagar" v={fmtR(kpis!.comissao_pagar ?? 0)} ajuda="pm.painel.kpi_comissao_pagar" />
+                <Kpi l="A receber vencido" v={fmtR(kpis!.receber_vencido ?? 0)} cor={(kpis!.receber_vencido ?? 0) > 0 ? '#dc2626' : undefined} ajuda="pm.painel.kpi_receber_vencido" />
               </section>
 
               {/* Faixa 2 — Indicadores do moat */}
@@ -131,9 +132,9 @@ export default function PmBiPage() {
               {/* Faixa 4 — Alertas */}
               <SecTitle>Alertas</SecTitle>
               <section style={grid(220)}>
-                <Alerta n={al?.jobs_atrasados ?? 0} l="Jobs atrasados" bom={0} />
-                <Alerta n={al?.titulos_vencidos ?? 0} l="Títulos vencidos (a receber)" bom={0} />
-                <Alerta n={al?.contratos_renovar_60d ?? 0} l="Contratos a renovar (60d)" bom={0} neutro />
+                <Alerta n={al?.jobs_atrasados ?? 0} l="Jobs atrasados" bom={0} ajuda="pm.painel.alerta_jobs_atrasados" />
+                <Alerta n={al?.titulos_vencidos ?? 0} l="Títulos vencidos (a receber)" bom={0} ajuda="pm.painel.alerta_titulos_vencidos" />
+                <Alerta n={al?.contratos_renovar_60d ?? 0} l="Contratos a renovar (60d)" bom={0} neutro ajuda="pm.painel.alerta_contratos_renovar" />
               </section>
             </>
           )}
@@ -142,21 +143,21 @@ export default function PmBiPage() {
   )
 }
 
-function Kpi({ l, v, cor, destaque }: { l: string; v: string; cor?: string; destaque?: boolean }) {
+function Kpi({ l, v, cor, destaque, ajuda }: { l: string; v: string; cor?: string; destaque?: boolean; ajuda?: string }) {
   return (
     <div style={{ background: '#fff', border: `1px solid ${C.offWhiteDarker}`, borderRadius: R.xl, padding: 14, boxShadow: destaque ? `0 0 0 2px ${C.dourado}22` : undefined }}>
-      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: C.espressoLight, fontWeight: 700 }}>{l}</div>
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: C.espressoLight, fontWeight: 700 }}>{l}{ajuda && <AjudaCampo chave={ajuda} />}</div>
       <div style={{ fontSize: 22, fontWeight: 700, color: cor ?? (destaque ? C.dourado : C.espresso), marginTop: 4 }}>{v}</div>
     </div>
   )
 }
-function Alerta({ n, l, bom, neutro }: { n: number; l: string; bom: number; neutro?: boolean }) {
+function Alerta({ n, l, bom, neutro, ajuda }: { n: number; l: string; bom: number; neutro?: boolean; ajuda?: string }) {
   const ruim = n > bom
   const cor = neutro ? C.dourado : ruim ? '#dc2626' : '#16a34a'
   return (
     <div style={{ background: '#fff', border: `1px solid ${C.offWhiteDarker}`, borderRadius: R.xl, padding: 14, borderLeft: `4px solid ${cor}` }}>
       <div style={{ fontSize: 22, fontWeight: 700, color: cor }}>{n}</div>
-      <div style={{ fontSize: 12, color: C.espressoLight, marginTop: 2 }}>{l}</div>
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 12, color: C.espressoLight, marginTop: 2 }}>{l}{ajuda && <AjudaCampo chave={ajuda} />}</div>
     </div>
   )
 }

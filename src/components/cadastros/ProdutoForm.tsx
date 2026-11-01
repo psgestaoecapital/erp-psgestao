@@ -1,8 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { authFetch } from '@/lib/authFetch'
 import { X, Save, Loader2, Copy } from 'lucide-react'
+import MarkupProdutoCampo from '@/components/precificacao/MarkupProdutoCampo'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { supabase } from '@/lib/supabase'
+import { sugerirProximoCodigo, validarProdutoNovo } from '@/lib/produtos/proximoCodigo'
 
 export interface Produto {
   id: string
@@ -36,6 +40,15 @@ export interface Produto {
   // Local de armazenagem (sai na etiqueta A4) e código de barras (EAN) do produto
   localizacao?: string | null
   codigo_barras?: string | null
+  // Estoque e reposição (#3255): mínimo/máximo, compra e controle de lote/validade
+  estoque_minimo?: number | null
+  estoque_maximo?: number | null
+  prazo_entrega_dias?: number | null
+  fornecedor_padrao_nome?: string | null
+  unidade_compra?: string | null
+  fator_conversao?: number | null
+  controla_lote?: boolean | null
+  controla_validade?: boolean | null
   // marca da edição fiscal em massa (ex.: "regra provisória 30/09 — confirmar com o contador")
   fiscal_observacao?: string | null
 }
@@ -47,7 +60,7 @@ interface Props {
   // `produto` é null; o save segue o caminho de insert (POST), nunca de update (PATCH).
   clonarDe?: Produto | null
   onClose: () => void
-  onSalvo: () => void
+  onSalvo: (cadastrarOutro?: boolean) => void
   // Botão "Clonar" na ficha (modo edição): devolve o produto aberto pra a página reabrir em modo clone.
   onClonar?: (produto: Produto) => void
 }
@@ -77,6 +90,29 @@ export default function ProdutoForm({ companyId, produto, clonarDe = null, onClo
   const [unidade, setUnidade] = useState(base?.unidade ?? 'UN')
   const [localizacao, setLocalizacao] = useState(base?.localizacao ?? '')
   const [codigoBarras, setCodigoBarras] = useState(base?.codigo_barras ?? '')
+  const [estMin, setEstMin] = useState(base?.estoque_minimo != null ? String(base.estoque_minimo) : '')
+  const [estMax, setEstMax] = useState(base?.estoque_maximo != null ? String(base.estoque_maximo) : '')
+  const [prazoEntrega, setPrazoEntrega] = useState(base?.prazo_entrega_dias != null ? String(base.prazo_entrega_dias) : '')
+  const [fornecedorPadrao, setFornecedorPadrao] = useState(base?.fornecedor_padrao_nome ?? '')
+  const [unidadeCompra, setUnidadeCompra] = useState(base?.unidade_compra ?? '')
+  const [fatorConv, setFatorConv] = useState(base?.fator_conversao != null ? String(base.fator_conversao) : '')
+  const [controlaLote, setControlaLote] = useState(!!base?.controla_lote)
+  const [controlaValidade, setControlaValidade] = useState(!!base?.controla_validade)
+  const ehNovo = !produto
+
+  // Produto novo (#3255): sugere o próximo código a partir dos últimos cadastrados da empresa (o usuário pode trocar).
+  useEffect(() => {
+    if (produto || !companyId) return
+    let vivo = true
+    supabase.from('erp_produtos').select('codigo').eq('company_id', companyId)
+      .order('created_at', { ascending: false }).limit(200)
+      .then(({ data }) => {
+        if (!vivo || !data) return
+        const sugestao = sugerirProximoCodigo((data as { codigo: string }[]).map((r) => r.codigo))
+        if (sugestao) setCodigo((atual) => atual || sugestao)
+      })
+    return () => { vivo = false }
+  }, [produto, companyId])
   const [precoVenda, setPrecoVenda] = useState(String(base?.preco_venda ?? '0'))
   const [precoCusto, setPrecoCusto] = useState(String(base?.preco_custo ?? '0'))
   const [ncm, setNcm] = useState(base?.ncm ?? '')
@@ -105,13 +141,20 @@ export default function ProdutoForm({ companyId, produto, clonarDe = null, onClo
   const [combAnpDescricao, setCombAnpDescricao] = useState(base?.combustivel_descricao_anp ?? '')
   const ncmEhCombustivel = ncm.replace(/\D/g, '').startsWith('2710')
 
-  async function salvar() {
+  async function salvar(cadastrarOutro = false) {
     setSalvando(true)
     setErro(null)
     try {
       const ncmLimpo = ncm.replace(/\D/g, '')
       if (!nome.trim()) throw new Error('Nome obrigatorio')
       if (!codigo.trim()) throw new Error('Codigo obrigatorio')
+      if (estMin.trim() && estMax.trim() && numOuNulo(estMax)! < numOuNulo(estMin)!) {
+        throw new Error('O estoque máximo não pode ser menor que o mínimo.')
+      }
+      if (ehNovo) {
+        const aviso = validarProdutoNovo({ codigo, nome, ncm, precoVenda })
+        if (aviso) throw new Error(aviso)
+      }
 
       const payload = {
         company_id: companyId,
@@ -121,8 +164,16 @@ export default function ProdutoForm({ companyId, produto, clonarDe = null, onClo
         unidade: unidade || 'UN',
         localizacao: localizacao.trim() || null,
         codigo_barras: codigoBarras.trim() || null,
-        preco_venda: parseFloat(precoVenda) || 0,
-        preco_custo: parseFloat(precoCusto) || 0,
+        estoque_minimo: numOuNulo(estMin),
+        estoque_maximo: numOuNulo(estMax),
+        prazo_entrega_dias: prazoEntrega.trim() === '' ? null : parseInt(prazoEntrega.replace(/\D/g, ''), 10) || 0,
+        fornecedor_padrao_nome: fornecedorPadrao.trim() || null,
+        unidade_compra: unidadeCompra.trim() || null,
+        fator_conversao: numOuNulo(fatorConv),
+        controla_lote: controlaLote,
+        controla_validade: controlaValidade,
+        preco_venda: parseFloat(precoVenda.replace(',', '.')) || 0,
+        preco_custo: parseFloat(precoCusto.replace(',', '.')) || 0,
         ncm: ncmLimpo || null,
         cest: cest || null,
         cfop_venda: cfopVenda.trim() || null,
@@ -150,7 +201,7 @@ export default function ProdutoForm({ companyId, produto, clonarDe = null, onClo
       const enviado: Record<string, unknown> = { ...payload }
       if (produto) {
         for (const k of Object.keys(enviado)) {
-          if (!(k in produto) && (enviado[k] === null || enviado[k] === '')) delete enviado[k]
+          if (!(k in produto) && (enviado[k] === null || enviado[k] === '' || enviado[k] === false)) delete enviado[k]
         }
       }
       const body = produto ? { ...enviado, id: produto.id } : payload
@@ -161,7 +212,7 @@ export default function ProdutoForm({ companyId, produto, clonarDe = null, onClo
       })
       const json = await r.json()
       if (!r.ok || !json.ok) throw new Error(json.mensagem ?? 'Erro ao salvar')
-      onSalvo()
+      onSalvo(cadastrarOutro)
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro')
     } finally {
@@ -236,6 +287,36 @@ export default function ProdutoForm({ companyId, produto, clonarDe = null, onClo
               <div className="grid grid-cols-2 gap-3">
                 <Campo label="Local de armazenagem" value={localizacao} onChange={setLocalizacao} placeholder="ex: Galpão B · Prat. 3" testId="produto-localizacao" />
                 <Campo label="Codigo de barras (EAN)" value={codigoBarras} onChange={setCodigoBarras} placeholder="vazio = etiqueta usa o codigo interno" mono />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Campo label="Estoque mínimo" value={estMin} onChange={setEstMin} placeholder="avisa quando chegar aqui" testId="produto-estoque-minimo" />
+                  <AjudaCampo chave="cadastros.produtos.estoque_minimo" />
+                </div>
+                <div>
+                  <Campo label="Estoque máximo" value={estMax} onChange={setEstMax} placeholder="teto para comprar" testId="produto-estoque-maximo" />
+                  <AjudaCampo chave="cadastros.produtos.estoque_maximo" />
+                </div>
+                <div>
+                  <Campo label="Fornecedor padrão" value={fornecedorPadrao} onChange={setFornecedorPadrao} placeholder="quem costuma vender este item" testId="produto-fornecedor-padrao" />
+                  <AjudaCampo chave="cadastros.produtos.fornecedor_padrao" />
+                </div>
+                <div>
+                  <Campo label="Unidade de compra" value={unidadeCompra} onChange={setUnidadeCompra} placeholder="ex: CX · FD" testId="produto-unidade-compra" />
+                  <AjudaCampo chave="cadastros.produtos.unidade_compra" />
+                </div>
+                <div>
+                  <Campo label="Fator de conversão" value={fatorConv} onChange={setFatorConv} placeholder="ex: 12 (1 CX = 12 UN)" testId="produto-fator-conversao" />
+                  <AjudaCampo chave="cadastros.produtos.fator_conversao" />
+                </div>
+                <div>
+                  <Campo label="Prazo de entrega (dias)" value={prazoEntrega} onChange={setPrazoEntrega} placeholder="ex: 7" testId="produto-prazo-entrega" />
+                  <AjudaCampo chave="cadastros.produtos.prazo_entrega" />
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-4 text-[12px] text-[#3D2314]">
+                <label className="flex items-center gap-2"><input type="checkbox" checked={controlaLote} onChange={(e) => setControlaLote(e.target.checked)} data-testid="produto-controla-lote" /> Controla lote <AjudaCampo chave="cadastros.produtos.controla_lote" /></label>
+                <label className="flex items-center gap-2"><input type="checkbox" checked={controlaValidade} onChange={(e) => setControlaValidade(e.target.checked)} data-testid="produto-controla-validade" /> Controla validade <AjudaCampo chave="cadastros.produtos.controla_validade" /></label>
               </div>
             </>
           )}
@@ -317,6 +398,8 @@ export default function ProdutoForm({ companyId, produto, clonarDe = null, onClo
                   ? (((parseFloat(precoVenda) - parseFloat(precoCusto)) / parseFloat(precoVenda)) * 100).toFixed(1) + '%'
                   : '—'}
               </p>
+              {/* markup próprio do produto (sem ele, vale o geral da empresa) — só para produto já cadastrado (#2710) */}
+              {produto?.id && <MarkupProdutoCampo companyId={companyId} produtoId={produto.id} custo={parseFloat(precoCusto) || null} />}
             </>
           )}
 
@@ -330,9 +413,23 @@ export default function ProdutoForm({ companyId, produto, clonarDe = null, onClo
             >
               Cancelar
             </button>
+            {ehNovo && !ehClone && (
+              <span className="flex-1 inline-flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => salvar(true)}
+                  disabled={!nome || !codigo || salvando}
+                  data-testid="produto-salvar-outro"
+                  className="flex-1 px-4 py-2.5 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] disabled:opacity-40"
+                >
+                  Salvar e cadastrar outro
+                </button>
+                <AjudaCampo chave="cadastros.produtos.salvar_outro" />
+              </span>
+            )}
             <button
               type="button"
-              onClick={salvar}
+              onClick={() => salvar()}
               disabled={!nome || !codigo || salvando}
               data-testid="produto-salvar"
               className="flex-1 px-4 py-2.5 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] disabled:opacity-40 flex items-center justify-center gap-2"

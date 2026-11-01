@@ -126,6 +126,7 @@ const SECAO_LABEL_OVERRIDE: Record<string, string> = {
   OFICINA_INTELIGENCIA_IA: 'Inteligência IA',
   // Industrial: acentos + Title Case (o menu segue o dia de quem usa)
   ABASTECIMENTO: 'Abastecimento',
+  LOGISTICA: 'Logística',
   VISAO_EXECUTIVA: 'Visão Executiva',
   INTELIGENCIA_PROTECAO: 'Inteligência & Proteção',
   INTELIGENCIA_BI: 'Inteligência (BI)',

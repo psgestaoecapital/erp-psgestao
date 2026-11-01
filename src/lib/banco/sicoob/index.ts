@@ -25,6 +25,7 @@ const API_HOST: Record<SicoobAmbiente, string> = {
 // conforme a operacao. Cada token (e cada entrada de cache) e por scope.
 export const SICOOB_SCOPE_INCLUIR_BOLETO = 'boletos_inclusao'
 export const SICOOB_SCOPE_CONSULTAR_BOLETO = 'boletos_consulta'
+export const SICOOB_SCOPE_ALTERAR_BOLETO = 'boletos_alteracao'
 
 export type Credencial = {
   client_id: string
@@ -43,7 +44,7 @@ const tokenCache = new Map<string, TokenCacheEntry>()
 type HttpResult<T> = { status: number; body: T; raw: string }
 
 function request<T = unknown>(opts: {
-  host: string; path: string; method: 'GET' | 'POST'
+  host: string; path: string; method: 'GET' | 'POST' | 'PATCH'
   headers?: Record<string, string>; body?: string
   pfx: Buffer; passphrase: string
 }): Promise<HttpResult<T>> {
@@ -329,4 +330,36 @@ export async function consultarBoleto(
   const valorPago = typeof valorPagoRaw === 'number' ? valorPagoRaw
     : typeof valorPagoRaw === 'string' ? Number(valorPagoRaw) : null
   return { status: res.status, situacao, dataLiquidacao, valorPago, raw: res.body }
+}
+
+export type BaixaBoletoResult = {
+  status: number
+  raw: unknown
+}
+
+// PATCH baixa (cancelamento) do boleto no banco — o boleto deixa de poder ser pago. Token com scope
+// 'boletos_alteracao'. Nao mexe no titulo do ERP: quem chama decide o que fazer com o registro local.
+export async function baixarBoleto(
+  c: Credencial,
+  nossoNumero: string | number,
+  codigoModalidade = 1,
+): Promise<BaixaBoletoResult> {
+  const token = await obterToken(c, SICOOB_SCOPE_ALTERAR_BOLETO)
+  const body = JSON.stringify({
+    numeroCliente: Number(c.codigo_beneficiario),
+    codigoModalidade,
+  })
+  const res = await request<unknown>({
+    host: API_HOST[c.ambiente],
+    path: `/cobranca-bancaria/v3/boletos/${encodeURIComponent(String(nossoNumero))}/baixar`,
+    method: 'PATCH',
+    headers: {
+      'authorization': `Bearer ${token}`,
+      'client_id': c.client_id,
+      'content-type': 'application/json',
+      'content-length': String(Buffer.byteLength(body)),
+    },
+    body, pfx: c.pfx, passphrase: c.passphrase,
+  })
+  return { status: res.status, raw: res.body }
 }

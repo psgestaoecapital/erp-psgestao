@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Loader2, FileCheck, AlertTriangle, X, ExternalLink } from 'lucide-react'
 import { authFetch } from '@/lib/authFetch'
 import { supabase } from '@/lib/supabase'
 import CepEndereco from '@/components/comum/CepEndereco'
+import { esperaConsulta, AVISO_PROCESSANDO } from '@/lib/fiscal/consultaRetorno'
 
 interface Props {
   open: boolean
@@ -16,7 +17,7 @@ interface Props {
   onSucesso?: (nfseId: string) => void
 }
 
-type Status = 'preview' | 'enviando' | 'consultando' | 'autorizada' | 'rejeitada'
+type Status = 'preview' | 'enviando' | 'consultando' | 'processando' | 'autorizada' | 'rejeitada'
 
 interface RespostaEmissao {
   ok?: boolean
@@ -181,15 +182,27 @@ export default function NFSePreviewModal(props: Props) {
     }
   }
 
+  // Hook ANTES do retorno antecipado: com o modal montado fechado (EmitirNFSeButton), um hook depois do
+  // `return null` muda a contagem de hooks ao abrir e o React derruba a tela ("This page couldn't load").
+  const nfseIdConsulta = useRef<string | null>(null)
+
   if (!props.open) return null
 
+  function consultarAgora() {
+    if (!nfseIdConsulta.current) return
+    setStatus('consultando')
+    void pollStatus(nfseIdConsulta.current, 0)
+  }
+
   async function pollStatus(nfseId: string, attempt: number) {
-    if (attempt > 10) {
-      setErro('Tempo esgotado · consulte depois no Hub Fiscal')
-      setStatus('rejeitada')
+    nfseIdConsulta.current = nfseId
+    const espera = esperaConsulta(attempt)
+    if (espera === null) {
+      // #2946 / RD-51: ainda processando NÃO é rejeição — mostrar "Tentar novamente" aqui gerava NFS-e em duplicidade.
+      setStatus('processando')
       return
     }
-    await new Promise((res) => setTimeout(res, 3000))
+    await new Promise((res) => setTimeout(res, espera))
     try {
       const r = await authFetch(`/api/fiscal/nfse/consultar/${nfseId}`)
       const json = (await r.json()) as RespostaEmissao
@@ -507,7 +520,23 @@ export default function NFSePreviewModal(props: Props) {
               <p className="mt-3 text-[13px] text-[#3D2314]">
                 {status === 'enviando' ? 'Enviando ao Focus NFe...' : 'Aguardando autorizacao SEFAZ...'}
               </p>
-              <p className="mt-1 text-[11px] text-[#3D2314]/60">Pode levar ate 30s</p>
+              <p className="mt-1 text-[11px] text-[#3D2314]/60">Normalmente em segundos; pode levar ate 2 min</p>
+            </div>
+          )}
+
+          {status === 'processando' && (
+            <div className="space-y-3" data-testid="nfse-processando">
+              <div className="bg-[#FFF6E5] border border-[#BA7517]/40 rounded-lg p-3.5 text-[12.5px] text-[#8A4B08]">{AVISO_PROCESSANDO}</div>
+              <div className="flex gap-2">
+                <button type="button" onClick={consultarAgora} data-testid="nfse-consultar-agora"
+                  className="flex-1 px-4 py-2.5 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white">
+                  Consultar agora
+                </button>
+                <button type="button" onClick={props.onClose}
+                  className="flex-1 px-4 py-2.5 text-[13px] font-medium rounded-lg border border-[#3D2314]/15 text-[#3D2314]">
+                  Fechar
+                </button>
+              </div>
             </div>
           )}
 

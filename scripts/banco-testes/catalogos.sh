@@ -6,8 +6,8 @@
 # Uso (o workflow montar-banco-testes monta as URLs):
 #   PROD_DATABASE_URL=... TEST_DATABASE_URL=... [PG_DUMP=pg_dump] [PSQL=psql] scripts/banco-testes/catalogos.sh
 #
-# Produção: só leitura — consulta ao catálogo do Postgres (trava de colunas) + pg_dump --data-only -t de cada tabela
-# (pg_dump abre transação READ ONLY; --lock-wait-timeout não deixa esperar trava). Nada é gravado na produção.
+# Produção: só leitura — consulta ao catálogo do Postgres (trava de colunas) + \\copy (SELECT colunas sem auditoria) de cada tabela
+# (consulta só leitura, com lock_timeout). Nada é gravado na produção.
 # Testes: numa transação só, com session_replication_role=replica (triggers e FKs não disparam — ex.: o alerta de
 # tela órfã de system_screens e o vínculo automático de module_catalog), apaga e recarrega cada tabela da lista.
 set -euo pipefail
@@ -16,12 +16,25 @@ PG_DUMP="${PG_DUMP:-pg_dump}"
 PSQL="${PSQL:-psql}"
 LISTA="${LISTA:-scripts/banco-testes/catalogos.txt}"
 PROD_REF=horsymhsinqcimflrtjo
-TEST_REF=hqjzqwsxrkewjjuyqeij
+TEST_REF=xjzqndnvjkdjyisuklpy
+# Colunas de AUDITORIA (quem criou/alterou/auditou): não são dado de negócio — ficam FORA da cópia (não abortam a montagem).
+# Qualquer outra coluna de dono/autoria/dado pessoal continua recusada pela trava abaixo.
+# auditada_ok_por (system_screens, migration 20261030210000_tela_auditada_ok): registra QUEM marcou a tela auditada-OK
+# (identificador de agente/robô, ex.: auditor_pdca_2) — metadado de auditoria, não dado de cliente. Sem ele, o montar
+# abortava em TODA execução ("whitelist recusada: system_screens: coluna proibida (auditada_ok_por)") e nenhuma vaga
+# conseguia ser remontada (VAGA DOENTE recorrente).
+AUDITORIA='^(atualizado_por|updated_by|criado_por|created_by|deleted_by|excluido_por|auditada_ok_por)$'
 erro() { echo "::error::$*"; exit 1; }
 
 # Trava de destino/origem: o destino NUNCA é a produção; a origem só pode ser a produção.
 case "$TEST_DATABASE_URL" in *"$PROD_REF"*) erro "TEST_DATABASE_URL aponta para a PRODUÇÃO — abortado";; esac
-case "$TEST_DATABASE_URL" in *"$TEST_REF"*) ;; *) erro "TEST_DATABASE_URL não é o projeto erp-psgestao-testes";; esac
+# vaga 0 = o projeto erp-psgestao-testes conhecido; vaga > 0 = qualquer Session pooler que NÃO seja a produção (mesma regra do
+# passo "Trava de segurança" do montar-banco-testes.yml; ACEITACAO_VAGA vem do GITHUB_ENV desse workflow).
+if [ "${ACEITACAO_VAGA:-0}" = 0 ]; then
+  case "$TEST_DATABASE_URL" in *"$TEST_REF"*) ;; *) erro "TEST_DATABASE_URL não é o projeto erp-psgestao-testes";; esac
+else
+  case "$TEST_DATABASE_URL" in *pooler.supabase.com*) ;; *) erro "vaga ${ACEITACAO_VAGA}: TEST_DATABASE_URL precisa ser Session pooler (*.pooler.supabase.com)";; esac
+fi
 case "$PROD_DATABASE_URL" in *"$PROD_REF"*) ;; *) erro "PROD_DATABASE_URL não é o projeto de produção";; esac
 case "$PROD_DATABASE_URL" in *"$TEST_REF"*) erro "PROD_DATABASE_URL aponta para o banco de testes";; esac
 
@@ -38,7 +51,7 @@ echo "whitelist: ${#TABELAS[@]} tabela(s): ${TABELAS[*]}"
 # Trava de conteúdo (na produção, só o catálogo do Postgres): toda tabela existe em public e nenhuma tem coluna de
 # dono, de autoria (*_por, created_by…) ou de dado pessoal. Qualquer achado aborta ANTES de copiar.
 lista_csv=$(IFS=,; echo "${TABELAS[*]}")
-achados=$("$PSQL" "$PROD_DATABASE_URL" -v ON_ERROR_STOP=1 -q -At -v lista="$lista_csv" <<'SQL'
+achados=$("$PSQL" "$PROD_DATABASE_URL" -v ON_ERROR_STOP=1 -q -At -v lista="$lista_csv" -v auditoria="$AUDITORIA" <<'SQL'
 SET statement_timeout = '15s';
 WITH t(n) AS (SELECT unnest(string_to_array(:'lista', ',')))
 SELECT t.n || ': ' || CASE WHEN c.oid IS NULL THEN 'não existe em public na produção'
@@ -46,6 +59,7 @@ SELECT t.n || ': ' || CASE WHEN c.oid IS NULL THEN 'não existe em public na pro
 FROM t
 LEFT JOIN pg_class c ON c.relname = t.n AND c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p')
 LEFT JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+  AND a.attname !~ :'auditoria'
   AND (a.attname ~ '^(company_id|org_id|user_id|organization_id|tenant_id|empresa_id|cliente_id|profile_id|owner_id|auth_user_id)$'
     OR a.attname ~ '(_por$|_by$|email|cpf|cnpj|telefone|phone|celular|senha|password|token)')
 GROUP BY t.n, c.oid
@@ -55,18 +69,72 @@ SQL
 [ -z "$achados" ] || erro "whitelist recusada: $(echo "$achados" | tr '\n' ';')"
 echo "trava de colunas: ok (nenhuma coluna de dono/autoria/dado pessoal)"
 
-# Dump: um pg_dump --data-only -t por tabela, na ordem da whitelist (pai antes do filho).
+# Dump: um \copy (SELECT colunas sem auditoria) por tabela, na ordem da whitelist (pai antes do filho). Só leitura na produção.
 dir=$(mktemp -d)
 trap 'rm -rf "$dir"' EXIT
 i=0
 for t in "${TABELAS[@]}"; do
-  i=$((i + 1)); f=$(printf '%s/%02d_%s.sql' "$dir" "$i" "$t")
-  "$PG_DUMP" "$PROD_DATABASE_URL" --data-only --no-owner --no-privileges --lock-wait-timeout=5000 -t "public.$t" -f "$f"
-  # linhas = conteúdo do bloco COPY (até a linha "\.")
-  n=$(awk '/^COPY public\./{d=1; next} /^\\\.$/{d=0} d' "$f" | wc -l)
+  i=$((i + 1)); f=$(printf '%s/%02d_%s.copy' "$dir" "$i" "$t")
+  cols=$("$PSQL" "$PROD_DATABASE_URL" -v ON_ERROR_STOP=1 -q -At -v t="$t" -v auditoria="$AUDITORIA" <<'SQL'
+SET statement_timeout = '15s';
+SELECT string_agg(quote_ident(a.attname), ',' ORDER BY a.attnum)
+FROM pg_attribute a
+WHERE a.attrelid = ('public.' || quote_ident(:'t'))::regclass AND a.attnum > 0 AND NOT a.attisdropped
+  AND a.attgenerated = '' AND a.attname !~ :'auditoria';
+SQL
+)
+  [ -n "$cols" ] || erro "$t: sem colunas para copiar"
+  # Causa 2 (CEO 21/10): com SEED_INTERSECAO=1 (montar do_zero, schema das migrations do zero), copia só as colunas em
+  # COMUM entre produção e banco de testes — colunas que só existem na prod (drift) são ignoradas, sem quebrar o COPY.
+  # No montar atual (schemas iguais) a interseção == colunas da prod: no-op.
+  if [ "${SEED_INTERSECAO:-}" = "1" ]; then
+    # to_regclass → NULL (sem erro) se a tabela não existe no schema das migrations; aí a interseção fica vazia e PULAMOS
+    tcols=$("$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -At -v t="$t" -v auditoria="$AUDITORIA" <<'SQL'
+SET statement_timeout = '15s';
+SELECT string_agg(quote_ident(a.attname), ',') FROM pg_attribute a
+WHERE a.attrelid = to_regclass('public.' || quote_ident(:'t')) AND a.attnum > 0 AND NOT a.attisdropped
+  AND a.attgenerated = '' AND a.attname !~ :'auditoria';
+SQL
+)
+    inter=""; IFS=',' read -ra PA <<< "$cols"
+    for c in "${PA[@]}"; do case ",$tcols," in *",$c,"*) inter="${inter:+$inter,}$c";; esac; done
+    if [ -z "$inter" ]; then
+      echo "::warning::catálogo $t: tabela ausente ou sem coluna em comum no schema das migrations — PULADA (drift prod×migrations)"
+      continue
+    fi
+    [ "$inter" = "$cols" ] || echo "::notice::$t: seed por interseção (colunas só-da-prod ignoradas)"
+    cols="$inter"
+  fi
+  echo "$cols" > "$dir/$(printf '%02d' "$i").cols"
+  PGOPTIONS='-c statement_timeout=120s -c lock_timeout=5s' "$PSQL" "$PROD_DATABASE_URL" -v ON_ERROR_STOP=1 -q \
+    -c "\\copy (SELECT $cols FROM public.$t) TO '$f'"
+  n=$(wc -l < "$f")
   echo "$t $n" >> "$dir/esperado.txt"
   echo "dump $t: $n linha(s)"
 done
+
+# Causa 2 (CEO 21/10): no montar do_zero carrega TABELA A TABELA, tolerante — a tabela cujo dado da prod não encaixa no
+# schema das migrations (drift da prod) é PULADA com aviso e o montar segue verde. A lista de puladas é o mapa exato de
+# onde a produção divergiu das migrations (pra reconciliar depois). O fluxo atual (schemas iguais) segue abaixo, intacto.
+if [ "${SEED_INTERSECAO:-}" = "1" ]; then
+  puladas=""; carregadas=0; i=0
+  for t in "${TABELAS[@]}"; do
+    i=$((i + 1)); f=$(printf '%s/%02d_%s.copy' "$dir" "$i" "$t"); cf="$dir/$(printf '%02d' "$i").cols"
+    [ -f "$cf" ] && [ -f "$f" ] || { puladas="$puladas $t"; echo "::warning::catálogo $t: ausente no schema das migrations — PULADA"; continue; }
+    if "$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q 2> "$dir/err.log" \
+         -c "SET session_replication_role = replica;" -c "DELETE FROM public.$t;" \
+         -c "\\copy public.$t ($(cat "$cf")) FROM '$f'"; then
+      carregadas=$((carregadas + 1))
+    else
+      puladas="$puladas $t"
+      echo "::warning::catálogo $t não encaixou no schema das migrations (drift prod×migrations) — PULADA: $(tr '\n' ' ' < "$dir/err.log" | sed 's/^ *//' | cut -c1-160)"
+    fi
+  done
+  PSQL="$PSQL" "$(dirname "$0")/acertar-sequences.sh" || true
+  echo "### Catálogos do_zero (tolerante): $carregadas carregada(s) · puladas:${puladas:-nenhuma}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+  echo "catálogos (do_zero, tolerante): ok · carregadas=$carregadas · puladas:${puladas:-nenhuma}"
+  exit 0
+fi
 
 # Carga no banco de TESTES: transação única (ou entra tudo ou nada).
 {
@@ -75,10 +143,16 @@ done
   echo "SET LOCAL statement_timeout = '10min';"
   echo 'SET LOCAL session_replication_role = replica;'
   for t in "${TABELAS[@]}"; do echo "DELETE FROM public.$t;"; done
-  for f in "$dir"/[0-9][0-9]_*.sql; do echo "\\i $f"; done
+  i=0
+  for t in "${TABELAS[@]}"; do
+    i=$((i + 1)); f=$(printf '%s/%02d_%s.copy' "$dir" "$i" "$t")
+    echo "\\copy public.$t ($(cat "$dir/$(printf '%02d' "$i").cols")) FROM '$f'"
+  done
   echo 'COMMIT;'
 } > "$dir/carga.sql"
 "$PSQL" "$TEST_DATABASE_URL" -q -f "$dir/carga.sql"
+# Contadores: o \copy trouxe os ids da produção sem avançar as sequences (duplicate key na próxima inserção).
+PSQL="$PSQL" "$(dirname "$0")/acertar-sequences.sh"
 
 # Conferência (RD-38): contagem no banco de testes = linhas do dump, tabela a tabela.
 echo "### Catálogos globais copiados da produção (whitelist, só dados)" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"

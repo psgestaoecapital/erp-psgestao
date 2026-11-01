@@ -26,6 +26,17 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       REPO: ${{ github.repository }}
       LIMITE_MIN: '45'
+      # aceitacao-main (CEO 11/10): build + suíte completa levam ~45-55 min; o teto de 45 a matava antes de fechar o verde.
+      # Teto próprio de 70 min só para ela (job com timeout de 75); o zumbi de 90 min continua valendo para todos.
+      LIMITE_MAIN_MIN: '70'
+      # Montar banco de testes (CEO 21/10): recria/repovoa a vaga em ~10-15 min; um Montar EXECUTANDO > 25 min está
+      # travado. Como ele COMPARTILHA o grupo de concorrência da aceitação (aceitacao-testes-<vaga>), um Montar preso
+      # segura TODA a fila daquela vaga → deadlock: a vaga nunca é recriada, as PRs falham na vaga suja, re-rodam e
+      # reocupam o grupo (incidente 21/10: Montar preso 1h15 travou ~1h30 de publicação). Teto curto PRÓPRIO (25 min)
+      # para matá-lo rápido — o timeout-minutes do job (40) não pegou no incidente. Libera o grupo para a próxima
+      # recriação. NÃO mudar a concorrência do Montar: o grupo compartilhado é de propósito (grupo próprio o fazia
+      # rodar no MEIO da aceitação e apagar companies/plano_contas → specs vermelhos).
+      LIMITE_MONTAR_MIN: '25'
       # workflows de e2e da demo (os que entram na fila demo-e2e) e a montagem do banco de testes
       VIGIADOS: aceitacao-pr.yml aceitacao-pos-migration.yml aceitacao-main.yml jornadas-revenda.yml juiz-revenda.yml montar-banco-testes.yml
       # zumbi (Eng. Chefe 08/10): run de aceitação EM ANDAMENTO há mais de 90 min (idade do run, não do job) é cancelado
@@ -46,8 +57,11 @@ jobs:
                 --jq '[.jobs[] | select(.status == "in_progress") | .started_at] | min // empty')
               [ -n "$ini" ] || continue
               min=$(( (agora - $(date -u -d "$ini" +%s)) / 60 ))
-              [ "$min" -gt "$LIMITE_MIN" ] || continue
-              echo "::warning title=run preso cancelado::$wf run $id com job executando há $min min (> $LIMITE_MIN)"
+              limite=$LIMITE_MIN
+              [ "$wf" = "aceitacao-main.yml" ] && limite=$LIMITE_MAIN_MIN
+              [ "$wf" = "montar-banco-testes.yml" ] && limite=$LIMITE_MONTAR_MIN
+              [ "$min" -gt "$limite" ] || continue
+              echo "::warning title=run preso cancelado::$wf run $id com job executando há $min min (> $limite)"
               echo "- $wf · run $id · $min min executando → cancelado" >> "$GITHUB_STEP_SUMMARY"
               gh api -X POST "repos/$REPO/actions/runs/$id/cancel" > /dev/null \
                 || gh api -X POST "repos/$REPO/actions/runs/$id/force-cancel" > /dev/null || true
@@ -94,12 +108,53 @@ jobs:
           done
           echo "aceitação da main superada cancelada: $n"
 
+      # Drenagem travada 23/10: 7 runs do @pos-migration de SHAs antigos na fila demo-e2e (desde 19:16) e a fila de merge
+      # olha só o MAIS NOVO — as migrations críticas esperavam a pilha inteira. Run ESPERANDO que não é o mais novo é
+      # superado (o mais novo julga a mesma produção): cancela. Run executando nunca é tocado aqui.
+      - name: Cancelar @pos-migration superado (esperando a fila, não é o run mais novo)
+        run: scripts/merge/pos-superado-cancelar.sh || true
+
       # Esteira travada 08/10 (Eng. Chefe) + 2h na fila 10/10 (CEO): run de aceitação de PR que ocupa a vaga única à toa —
       # PR mergeada/fechada, ou SHA superado/órfão (não é head de PR aberta nem a ponta da main) — é cancelado. AGORA
       # inclui os runs status=in_progress presos na fila de concorrência (job sem step): era onde eles ficavam 2h até o
       # zumbi matar aos 90 min. A versão VIVA de PR aberta e o run da main nunca são tocados (scripts/merge/aceitacao-prune.sh).
       - name: Liberar vaga (cancela aceitação de PR morta / SHA superado — inclui presos na fila)
         run: scripts/merge/aceitacao-prune.sh || true
+
+      # 19/10 (gilberto-desenv) — RECONCILIAÇÃO das reservas de vaga no banco contra o run real. O prune acima CANCELA o
+      # run morto, mas não libera a reserva (erp_esteira_vaga_reserva): o job liberar-reserva tem `needs: aceitacao` e o
+      # GitHub o cancela junto quando o run é cancelado, então a reserva vaza e só expira em 2 h (dentro da janela, as
+      # reservas acumulam e serializam as vagas → cadência ~1/h). Aqui, para cada reserva ATIVA: se o run terminou,
+      # cancelou ou sumiu → libera (fn_esteira_liberar_vaga); se ainda roda mas está aberta > 90 min (2× a média) → alerta.
+      - name: Reconciliar reservas de vaga (libera run morto; alerta preso > 90 min)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -uo pipefail
+          [ -n "${SUPABASE_URL:-}" ] && [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ] || { echo "sem segredo Supabase — reconciliação pulada (reservas expiram em 2 h)"; exit 0; }
+          sb() { curl -fsS -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" "$@"; }
+          ativas=$(sb "$SUPABASE_URL/rest/v1/erp_esteira_vaga_reserva?liberada_em=is.null&select=pr_numero,vaga,run_id,run_attempt,criada_em" 2>/dev/null || echo '[]')
+          echo "$ativas" | jq -c '.[]?' | while read -r row; do
+            rid=$(jq -r '.run_id' <<< "$row"); att=$(jq -r '.run_attempt' <<< "$row")
+            pr=$(jq -r '.pr_numero' <<< "$row"); vg=$(jq -r '.vaga' <<< "$row"); cri=$(jq -r '.criada_em' <<< "$row")
+            st=$(gh api "repos/$REPO/actions/runs/$rid" --jq '.status' 2>/dev/null || echo "nao_existe")
+            idade=$(( ( $(date -u +%s) - $(date -u -d "$cri" +%s) ) / 60 ))
+            case "$st" in
+              in_progress|queued|waiting|pending|requested)
+                if [ "$idade" -ge 90 ]; then
+                  echo "::warning title=Reserva de vaga presa::#$pr vaga $vg run $rid ($st há ${idade} min > 90)"
+                  echo "- ⚠️ reserva presa: #$pr vaga $vg · run $rid · $st há ${idade} min (> 90)" >> "$GITHUB_STEP_SUMMARY"
+                fi ;;
+              *)
+                sb -X POST "$SUPABASE_URL/rest/v1/rpc/fn_esteira_liberar_vaga" -H 'Content-Type: application/json' \
+                   -d "{\"p_run_id\":$rid,\"p_run_attempt\":$att}" > /dev/null 2>&1 \
+                   && echo "reconciliada: #$pr vaga $vg · run $rid ($st) → liberada" \
+                   || echo "::notice::não liberou a reserva do run $rid (tenta na próxima rodada)"
+                echo "- ✅ reserva de run morto liberada: #$pr vaga $vg · run $rid · $st" >> "$GITHUB_STEP_SUMMARY" ;;
+            esac
+          done
+          echo "reconciliação de reservas de vaga concluída"
 
       - name: Re-rodar aceitação cancelada (máx. 2 vezes por SHA)
         env:

@@ -8,6 +8,8 @@ import { fmtData, fmtDataHora } from '@/lib/psgc-tokens'
 import { UploadDocumentoModal, type UploadContext } from '../../_components/UploadDocumentoModal'
 import { C, StatusBadge, baixarDocumento } from '../../_components/ui'
 import MarcarDocsPessoa from './MarcarDocsPessoa'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { supabase } from '@/lib/supabase'
 
 type Matriz = {
   tipo_documento_id: string | null
@@ -40,6 +42,8 @@ type Documento = {
 }
 
 type Funcionario = Record<string, any>
+// LGPD (20261005180000): salário individual só para quem vê salário; os demais veem a média da função (grupo de 3+)
+type SalarioInfo = { pode_ver: boolean; cargo?: string | null; pessoas_no_cargo?: number; media_funcao?: number | null }
 
 export default function FuncionarioDetalhePage() {
   const params = useParams()
@@ -48,6 +52,7 @@ export default function FuncionarioDetalhePage() {
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [funcionario, setFuncionario] = useState<Funcionario | null>(null)
+  const [salario, setSalario] = useState<SalarioInfo | null>(null)
   const [matriz, setMatriz] = useState<Matriz[]>([])
   const [historico, setHistorico] = useState<Documento[]>([])
   const [uploadCtx, setUploadCtx] = useState<UploadContext | null>(null)
@@ -61,6 +66,7 @@ export default function FuncionarioDetalhePage() {
       const j = await res.json()
       if (!j.ok) throw new Error(j.error || 'falha')
       setFuncionario(j.funcionario)
+      setSalario(j.salario ?? null)
       setMatriz(j.matriz || [])
       setHistorico(j.historico || [])
     } catch (e: any) {
@@ -75,6 +81,31 @@ export default function FuncionarioDetalhePage() {
   // #47 · a lista de documentos mostra só o que se aplica à pessoa: o marcado "não se aplica" sai da lista
   // (continua visível — e reversível — em "Quais documentos esta pessoa precisa").
   const matrizAplicavel = matriz.filter((m) => m.status_final !== 'nao_se_aplica')
+
+  // #4037 (Frioeste): botão "Não se aplica" ao lado de cada item, direto na lista de documentos.
+  // Reutiliza a RPC provada do painel "Quais documentos esta pessoa precisa" (fn_compliance_pessoa_dispensar):
+  // marca o treinamento como não aplicável SÓ para este colaborador (ex.: auxiliar mecânico sem NR12/NR10).
+  // Reversível em "Voltar a exigir" no mesmo painel. Um clique, sem justificativa obrigatória (pedido da cliente #47).
+  async function marcarNaoSeAplica(m: Matriz) {
+    if (!funcionario || !m.tipo_documento_id) return
+    if (!confirm(`Marcar "${m.tipo_nome}" como NÃO aplicável para ${funcionario.nome_completo}? Ele sai da lista de documentos desta pessoa. Dá para voltar a exigir em "Quais documentos esta pessoa precisa".`)) return
+    setErro(null)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      const { error } = await supabase.rpc('fn_compliance_pessoa_dispensar', {
+        p_company_id: funcionario.company_id,
+        p_funcionario_id: funcionario.id,
+        p_tipo_documento_id: m.tipo_documento_id,
+        p_on: true,
+        p_motivo: null,
+        p_user: user?.id ?? null,
+      })
+      if (error) throw error
+      await carregar()
+    } catch (e: any) {
+      setErro(e?.message || 'Falha ao marcar não aplicável')
+    }
+  }
 
   return (
     <div style={{ backgroundColor: C.offwhite, minHeight: '100vh', color: C.ink }}>
@@ -124,7 +155,7 @@ export default function FuncionarioDetalhePage() {
         </div>
 
         {tab === 'dados' && funcionario && (
-          <AbaDados funcionario={funcionario} onSaved={carregar} />
+          <AbaDados funcionario={funcionario} salario={salario} onSaved={carregar} />
         )}
         {tab === 'documentos' && funcionario && (
           <MarcarDocsPessoa companyId={funcionario.company_id} funcionarioId={funcionario.id} onChanged={carregar} />
@@ -145,6 +176,7 @@ export default function FuncionarioDetalhePage() {
               })
             }}
             onBaixar={(docId) => baixarDocumento(docId)}
+            onNaoSeAplica={marcarNaoSeAplica}
           />
         )}
         {tab === 'historico' && (
@@ -166,7 +198,8 @@ export default function FuncionarioDetalhePage() {
   )
 }
 
-function AbaDados({ funcionario, onSaved }: { funcionario: Funcionario; onSaved: () => void }) {
+function AbaDados({ funcionario, salario, onSaved }: { funcionario: Funcionario; salario: SalarioInfo | null; onSaved: () => void }) {
+  const podeVerSalario = salario?.pode_ver === true
   const [form, setForm] = useState<Funcionario>(funcionario)
   const [salvando, setSalvando] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
@@ -183,6 +216,8 @@ function AbaDados({ funcionario, onSaved }: { funcionario: Funcionario; onSaved:
       delete payload.company_id
       delete payload.created_at
       delete payload.updated_at
+      // salário só vai quando quem vê salário alterou (cada gravação fica registrada); os demais nunca enviam
+      if (!podeVerSalario || (payload.salario_base ?? null) === (funcionario.salario_base ?? null)) delete payload.salario_base
       const res = await authFetch(`/api/compliance/funcionarios/${funcionario.id}`, {
         method: 'PATCH',
         body: JSON.stringify(payload),
@@ -232,7 +267,16 @@ function AbaDados({ funcionario, onSaved }: { funcionario: Funcionario; onSaved:
         <F label="Data admissão" v={form.data_admissao || ''} onChange={(v) => set('data_admissao', v)} type="date" />
         <F label="Data demissão" v={form.data_demissao || ''} onChange={(v) => set('data_demissao', v)} type="date" />
         <F label="Tipo contrato" v={form.tipo_contrato || ''} onChange={(v) => set('tipo_contrato', v)} />
-        <F label="Salário base (R$)" v={form.salario_base ?? ''} onChange={(v) => set('salario_base', v === '' ? null : Number(v))} type="number" />
+        {podeVerSalario
+          ? <F label="Salário base (R$)" v={form.salario_base ?? ''} onChange={(v) => set('salario_base', v === '' ? null : Number(v))} type="number" />
+          : (
+            <div data-testid="salario-media-funcao" style={{ fontSize: 13, color: C.espresso }}>
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Salário da função</div>
+              {salario?.media_funcao != null
+                ? <>Média da função{salario.cargo ? ` (${salario.cargo})` : ''}: <b>{Number(salario.media_funcao).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</b> · {salario.pessoas_no_cargo} pessoas</>
+                : <>Média da função indisponível (menos de 3 pessoas no cargo). O salário individual só aparece para quem tem permissão.</>}
+            </div>
+          )}
       </div>
 
       <h3 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, fontWeight: 500, margin: '20px 0 12px' }}>Alocação</h3>
@@ -259,12 +303,13 @@ function AbaDados({ funcionario, onSaved }: { funcionario: Funcionario; onSaved:
 }
 
 function AbaDocumentos({
-  loading, matriz, onUpload, onBaixar,
+  loading, matriz, onUpload, onBaixar, onNaoSeAplica,
 }: {
   loading: boolean
   matriz: Matriz[]
   onUpload: (m: Matriz, modo: 'upload' | 'substituir') => void
   onBaixar: (documentoId: string) => void
+  onNaoSeAplica: (m: Matriz) => void
 }) {
   return (
     <section style={{ background: 'white', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)' }}>
@@ -276,7 +321,7 @@ function AbaDocumentos({
               <Th>Grupo</Th>
               <Th>Status</Th>
               <Th>Validade</Th>
-              <Th>Ações</Th>
+              <Th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Ações <AjudaCampo chave="compliance.funcionario.doc_nao_se_aplica" rota="/dashboard/compliance/funcionarios/[id]" /></span></Th>
             </tr>
           </thead>
           <tbody>
@@ -307,6 +352,9 @@ function AbaDocumentos({
                           <button onClick={() => onUpload(m, 'substituir')} style={btnPrim()}>Substituir</button>
                           <button onClick={() => onBaixar(m.documento_id!)} style={btnSec()}>Baixar</button>
                         </>
+                      )}
+                      {m.tipo_documento_id && (
+                        <button onClick={() => onNaoSeAplica(m)} style={btnNaoAplica()} title="Marcar este treinamento/documento como não aplicável a esta pessoa">Não se aplica</button>
                       )}
                     </div>
                   </Td>
@@ -382,5 +430,6 @@ function inputStyle() {
 }
 function btnPrim() { return { padding: '6px 12px', borderRadius: 6, border: 'none', backgroundColor: C.espresso, color: 'white', fontSize: 12, fontWeight: 600, cursor: 'pointer' } as any }
 function btnSec() { return { padding: '6px 12px', borderRadius: 6, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 12, fontWeight: 600, cursor: 'pointer' } as any }
+function btnNaoAplica() { return { padding: '6px 12px', borderRadius: 6, border: `1px solid ${C.red}`, backgroundColor: 'white', color: C.red, fontSize: 12, fontWeight: 600, cursor: 'pointer' } as any }
 function Th({ children }: { children: any }) { return (<th style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'rgba(61, 35, 20, 0.65)' }}>{children}</th>) }
 function Td({ children, mono }: { children: any; mono?: boolean }) { return (<td style={{ padding: '10px 16px', verticalAlign: 'top', fontFamily: mono ? 'ui-monospace, SFMono-Regular, Menlo, monospace' : undefined }}>{children}</td>) }

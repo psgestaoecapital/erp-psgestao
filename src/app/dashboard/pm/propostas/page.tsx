@@ -10,7 +10,8 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import AnexosCard, { type AnexosCardHandle } from '@/components/crm/AnexosCard'
-import SolicitarContratoModal from '@/components/ge/SolicitarContratoModal'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { Receipt } from 'lucide-react'
 
 const ESPRESSO = '#3D2314'
 const OFFWHITE = '#FAF7F2'
@@ -30,6 +31,12 @@ const STATUS: Record<string, { l: string; cor: string }> = {
   recusada: { l: 'Recusada', cor: '#F4D6D6' },
 }
 const stCfg = (v: string) => STATUS[v] ?? { l: v, cor: OFFWHITE }
+// etapa do PEDIDO de contrato (erp_contratos.status) para o botão "Ver pedido de contrato"
+const ETAPA_CONTRATO: Record<string, string> = {
+  solicitado: 'solicitado', em_elaboracao: 'em elaboração', aguardando_info: 'aguardando info',
+  em_revisao: 'em revisão', aguardando_aprovacao: 'aguardando aprovação', ativo: 'ativo',
+}
+const etapaContrato = (s: string | null) => (s ? ETAPA_CONTRATO[s] ?? s : 'pedido')
 
 // PM-1 PR-D · id = linha estável em agency_proposta_itens (a fonte); preco_catalogo p/ o selo "preço ajustado"
 type Item = { id?: string | null; tipo_servico: string; descricao: string; quantidade: number; unidade: string; valor_unitario: number; valor_total: number; servico_id?: string | null; entregaveis?: string[]; periodicidade?: string | null; preco_catalogo?: number | null }
@@ -40,6 +47,7 @@ type Proposta = {
   desconto: number | null; valor_final: number | null; condicao_pagamento: string | null; status: string
   data_envio: string | null; data_aprovacao: string | null; contrato_id: string | null; created_at: string
   erp_cliente_id: string | null; observacoes: string | null   // PM-QW #15 · usados na edição (select '*' já traz)
+  lead_id: string | null   // PM-2 · proposta criada a partir do lead (CRM)
 }
 type ClienteOpt = { id: string; nome: string; nome_fantasia: string | null; telefone: string | null }
 
@@ -69,6 +77,9 @@ export default function PropostasPage() {
 
   // formulário da nova proposta (com editor de itens)
   const [fCliente, setFCliente] = useState('')       // erp_cliente_id (base mestre)
+  // #2915 Pdois: lead sem cliente da GE vinculado → a proposta nasce sem cliente. Mostra o nome do lead no campo
+  // Cliente, com busca e cadastro em 1 toque (antes o campo vinha vazio, como se o cliente não existisse).
+  const [fLeadNome, setFLeadNome] = useState('')
   const [fTitulo, setFTitulo] = useState('')
   const [fCondicao, setFCondicao] = useState('Mensal')
   const [fDesconto, setFDesconto] = useState('')
@@ -77,9 +88,8 @@ export default function PropostasPage() {
 
   // destaque de uma proposta vinda do card do lead (?proposta=<id>)
   const [destaque, setDestaque] = useState<string | null>(null)
-  // #59 PDOIS parte 2: solicitar elaboração de contrato a partir de uma proposta
-  const [solicitarProp, setSolicitarProp] = useState<{ id: string; label: string } | null>(null)
-  const [feeMap, setFeeMap] = useState<Record<string, { id: string; numero: string | null }>>({}) // #59 · contrato de fee por proposta_id
+  // CEO 14/10 (Pdois) · pedido de contrato por proposta (criado na aprovação). O botão vira "Ver pedido de contrato".
+  const [feeMap, setFeeMap] = useState<Record<string, { id: string; numero: string | null; status: string | null }>>({})
   // PM-2 · veio do CRM (?from=leads): abre a proposta DIRETO no editor e, ao salvar, volta ao kanban
   const [voltarCrm, setVoltarCrm] = useState(false)
   const abriuDestaque = useRef(false)
@@ -100,15 +110,15 @@ export default function PropostasPage() {
     // #59 PDOIS · contrato de fee ligado à proposta (erp_contratos.proposta_id). Se existe, o botão vira
     // "Ver contrato" (abre a aba Fee no contrato). Mapa por proposta_id (1º = mais recente).
     const pIds = propRows.map((x) => x.id)
-    const fm: Record<string, { id: string; numero: string | null }> = {}
+    const fm: Record<string, { id: string; numero: string | null; status: string | null }> = {}
     if (pIds.length) {
       const { data: cts } = await supabase.from('erp_contratos')
         .select('id, numero, status, proposta_id, created_at')
         .eq('company_id', empresa).in('proposta_id', pIds)
         .in('status', ['solicitado', 'em_elaboracao', 'aguardando_info', 'em_revisao', 'aguardando_aprovacao', 'ativo'])
         .order('created_at', { ascending: false })
-      for (const ct of (cts ?? []) as { id: string; numero: string | null; proposta_id: string | null }[]) {
-        if (ct.proposta_id && !fm[ct.proposta_id]) fm[ct.proposta_id] = { id: ct.id, numero: ct.numero }
+      for (const ct of (cts ?? []) as { id: string; numero: string | null; proposta_id: string | null; status: string | null }[]) {
+        if (ct.proposta_id && !fm[ct.proposta_id]) fm[ct.proposta_id] = { id: ct.id, numero: ct.numero, status: ct.status }
       }
     }
     setFeeMap(fm)
@@ -125,6 +135,7 @@ export default function PropostasPage() {
   function abrirNovo(cliId?: string, tit?: string) {
     setEditId(null)
     setFCliente(cliId ?? '')
+    setFLeadNome('')
     setFTitulo(tit ?? '')
     setFCondicao(propCfg?.condicao_padrao || 'Mensal'); setFDesconto(''); setFObs('')  // PM-1 · condição padrão da config
     setItens([itemVazio()])
@@ -135,6 +146,13 @@ export default function PropostasPage() {
   async function abrirEditar(p: Proposta) {
     setEditId(p.id)
     setFCliente(p.erp_cliente_id ?? p.cliente_id ?? '')
+    setFLeadNome('')
+    if (!(p.erp_cliente_id ?? p.cliente_id) && p.lead_id) {
+      void supabase.from('agency_leads').select('empresa, nome').eq('id', p.lead_id).maybeSingle().then(({ data }) => {
+        const l = (data ?? {}) as { empresa?: string | null; nome?: string | null }
+        setFLeadNome((l.empresa ?? '').trim() || (l.nome ?? '').trim())
+      })
+    }
     setFTitulo(p.titulo ?? '')
     setFCondicao(p.condicao_pagamento ?? 'Mensal')
     setFDesconto(p.desconto ? String(p.desconto) : '')
@@ -344,7 +362,7 @@ export default function PropostasPage() {
     const j = data as { ok?: boolean; erro?: string; contrato_numero?: string } | null
     if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
     setApr(null)
-    setToast(j.contrato_numero ? `APROVADA · contrato ${j.contrato_numero} criado na GE` : 'Proposta APROVADA.')
+    setToast(j.contrato_numero ? `APROVADA · pedido de contrato ${j.contrato_numero} criado — o financeiro vai elaborar.` : 'Proposta APROVADA.')
     void carregar()
   }
 
@@ -359,14 +377,17 @@ export default function PropostasPage() {
             <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Propostas · Orçamentos</h1>
             <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>Itens → totais ao vivo → envio → aprovação vira contrato. Escopo por empresa.</p>
           </div>
-          <button onClick={() => abrirNovo()} style={btnPri}>+ Nova proposta</button>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+            <button onClick={() => abrirNovo()} style={btnPri}>+ Nova proposta</button>
+            <AjudaCampo chave="pm.propostas.nova" />
+          </span>
         </header>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px,1fr))', gap: 10, marginBottom: 14 }}>
-          <Kpi l="Propostas" v={String(kpis.total)} />
-          <Kpi l="Pendentes" v={String(kpis.pendentes)} />
-          <Kpi l="Aprovadas" v={String(kpis.aprovadas)} />
-          <Kpi l="Valor aprovado" v={brl(kpis.valorAprovado)} />
+          <Kpi l="Propostas" v={String(kpis.total)} chave="pm.propostas.kpi_total" />
+          <Kpi l="Pendentes" v={String(kpis.pendentes)} chave="pm.propostas.kpi_pendentes" />
+          <Kpi l="Aprovadas" v={String(kpis.aprovadas)} chave="pm.propostas.kpi_aprovadas" />
+          <Kpi l="Valor aprovado" v={brl(kpis.valorAprovado)} chave="pm.propostas.kpi_valor_aprovado" />
         </div>
 
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM }}>Carregando…</div>
@@ -376,6 +397,10 @@ export default function PropostasPage() {
             </div>
           ) : (
             <div style={{ display: 'grid', gap: 8 }}>
+              <div style={{ fontSize: 12, color: TEXTM, display: 'flex', alignItems: 'center', gap: 4, padding: '0 2px' }}>
+                {propostas.length} {propostas.length === 1 ? 'proposta' : 'propostas'}
+                <AjudaCampo chave="pm.propostas.lista" />
+              </div>
               {propostas.map((p) => {
                 const cfg = stCfg(p.status)
                 const nItens = Array.isArray(p.itens) ? p.itens.length : 0
@@ -395,11 +420,11 @@ export default function PropostasPage() {
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       <button onClick={() => abrirEditar(p)} style={btnSec}>✏️ Editar</button>
                       <button onClick={() => void excluir(p)} style={{ ...btnSec, borderColor: RED, color: RED }}>🗑️ Excluir</button>
-                      {/* #59 PDOIS · contrato de fee: se já existe (por proposta) vira "Ver contrato"; senão
-                          "Solicitar contrato" — em DESTAQUE quando a proposta está aprovada. */}
-                      {feeMap[p.id]
-                        ? <button onClick={() => router.push(`/dashboard/contratos?tab=fee&c=${feeMap[p.id]!.id}`)} style={btnGanhar}>🧾 Ver contrato</button>
-                        : <button onClick={() => setSolicitarProp({ id: p.id, label: p.numero ? `nº ${p.numero}` : p.titulo })} style={p.status === 'aprovada' ? btnGanhar : btnSec}>🧾 Solicitar contrato</button>}
+                      {/* CEO 14/10 (Pdois) · UM caminho só: a aprovação cria o PEDIDO de contrato. Se já existe,
+                          o botão mostra "Ver pedido de contrato" com a etapa atual. Não há mais "Solicitar contrato" aqui. */}
+                      {feeMap[p.id] && (
+                        <button onClick={() => router.push(`/dashboard/contratos?tab=fee&c=${feeMap[p.id]!.id}`)} style={btnGanhar}><Receipt size={14} strokeWidth={1.5} style={{ verticalAlign: 'middle', marginRight: 4 }} />Ver pedido de contrato · {etapaContrato(feeMap[p.id]!.status)}</button>
+                      )}
                       {p.status === 'aprovada' && p.contrato_id && (
                         <a href="/dashboard/pm/contratos" style={{ ...btnSec, textDecoration: 'none' }}>→ Contrato recorrente</a>
                       )}
@@ -431,16 +456,16 @@ export default function PropostasPage() {
                 {['rascunho', 'enviada'].includes(propEdit.status) && <button onClick={() => compartilhar(propEdit)} style={btnSec}>🟢 WhatsApp</button>}
                 {['rascunho', 'enviada'].includes(propEdit.status) && <button disabled={busy} onClick={() => { setNovo(false); abrirAprovar(propEdit) }} style={btnGanhar}>✓ Aprovar</button>}
                 {['rascunho', 'enviada'].includes(propEdit.status) && <button onClick={() => { void mudarStatus(propEdit, 'recusada'); setNovo(false) }} style={btnPerder}>✕ Recusar</button>}
-                {propEdit.status === 'aprovada' && propEdit.contrato_id && <a href="/dashboard/pm/contratos" style={{ ...btnGanhar, textDecoration: 'none' }}>→ Ver contrato</a>}
+                {propEdit.status === 'aprovada' && propEdit.contrato_id && <a href="/dashboard/pm/contratos" style={{ ...btnGanhar, textDecoration: 'none' }}>→ Ver pedido de contrato</a>}
               </div>
             )}
 
-            <ClienteField value={fCliente} onChange={(id) => setFCliente(id)} empresa={empresa} setToast={setToast} />
+            <ClienteField value={fCliente} onChange={(id) => setFCliente(id)} empresa={empresa} setToast={setToast} nomeLead={fLeadNome} />
 
-            <label style={lbl}>Título *<input style={inp} value={fTitulo} onChange={(e) => setFTitulo(e.target.value)} placeholder="Ex.: Gestão de redes + tráfego" /></label>
+            <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Título *<AjudaCampo chave="pm.propostas.titulo" /></span><input style={inp} value={fTitulo} onChange={(e) => setFTitulo(e.target.value)} placeholder="Ex.: Gestão de redes + tráfego" /></label>
 
             <div style={{ fontSize: 11, fontWeight: 700, color: DOURADO, textTransform: 'uppercase', letterSpacing: 0.5, margin: '14px 0 6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>Itens do orçamento</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Itens do orçamento<AjudaCampo chave="pm.propostas.itens" /></span>
               <div style={{ display: 'flex', gap: 6 }}>
                 {catalogo.length > 0 && <button onClick={() => { setCatSel(new Set()); setCatBusca(''); setCatOpen(true) }} style={btnGanhar}>+ Do catálogo</button>}
                 <button onClick={addItem} style={btnSec}>+ Item avulso</button>
@@ -537,8 +562,8 @@ export default function PropostasPage() {
             })()}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
-              <label style={lbl}>Desconto (R$)<input style={inp} type="number" min={0} step="0.01" value={fDesconto} onChange={(e) => setFDesconto(e.target.value)} placeholder="0" /></label>
-              <label style={lbl}>Condição
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Desconto (R$)<AjudaCampo chave="pm.propostas.desconto" /></span><input style={inp} type="number" min={0} step="0.01" value={fDesconto} onChange={(e) => setFDesconto(e.target.value)} placeholder="0" /></label>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Condição<AjudaCampo chave="pm.propostas.condicao" /></span>
                 <select style={inp} value={fCondicao} onChange={(e) => setFCondicao(e.target.value)}>
                   <option>Mensal</option><option>Projeto (à vista)</option><option>Projeto (parcelado)</option>
                 </select>
@@ -552,7 +577,7 @@ export default function PropostasPage() {
               <Row l="Valor final" v={brl(valorFinal)} big />
             </div>
 
-            <label style={lbl}>Observações<textarea style={{ ...inp, minHeight: 60, resize: 'vertical' }} value={fObs} onChange={(e) => setFObs(e.target.value)} /></label>
+            <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Observações<AjudaCampo chave="pm.propostas.observacoes" /></span><textarea style={{ ...inp, minHeight: 60, resize: 'vertical' }} value={fObs} onChange={(e) => setFObs(e.target.value)} /></label>
 
             {/* ANEXO-1/2 · anexos com descrição. Proposta nova (editId null) → modo staging (anexa antes de salvar). */}
             {empresa && <AnexosCard ref={anexosRef} companyId={empresa} vinculoTipo="proposta" vinculoId={editId} />}
@@ -575,9 +600,9 @@ export default function PropostasPage() {
             </div>
             <div style={{ fontSize: 11, fontWeight: 700, color: DOURADO, textTransform: 'uppercase', letterSpacing: 0.5, margin: '4px 0' }}>Contrato (fee recorrente)</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-              <label style={lbl}>Fee mensal (R$)<input style={inp} type="number" value={aprForm.fee} onChange={(e) => setAprForm({ ...aprForm, fee: e.target.value })} placeholder="0 = sem contrato" /></label>
-              <label style={lbl}>Dia venc.<input style={inp} type="number" min={1} max={28} value={aprForm.dia} onChange={(e) => setAprForm({ ...aprForm, dia: e.target.value })} /></label>
-              <label style={lbl}>Periodicidade
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Fee mensal (R$)<AjudaCampo chave="pm.propostas.fee" /></span><input style={inp} type="number" value={aprForm.fee} onChange={(e) => setAprForm({ ...aprForm, fee: e.target.value })} placeholder="0 = sem contrato" /></label>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Dia venc.<AjudaCampo chave="pm.propostas.dia_venc" /></span><input style={inp} type="number" min={1} max={28} value={aprForm.dia} onChange={(e) => setAprForm({ ...aprForm, dia: e.target.value })} /></label>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Periodicidade<AjudaCampo chave="pm.propostas.periodicidade" /></span>
                 <select style={inp} value={aprForm.periodicidade} onChange={(e) => setAprForm({ ...aprForm, periodicidade: e.target.value })}>
                   <option value="mensal">Mensal</option><option value="trimestral">Trimestral</option><option value="anual">Anual</option>
                 </select>
@@ -586,13 +611,13 @@ export default function PropostasPage() {
             <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 2 }}>Fee 0 → aprova sem contrato recorrente (ex.: projeto avulso). A comissão ainda é gerada.</div>
             <div style={{ fontSize: 11, fontWeight: 700, color: DOURADO, textTransform: 'uppercase', letterSpacing: 0.5, margin: '12px 0 4px' }}>Comissão do comercial</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-              <label style={lbl}>Percentual (%)<input style={inp} type="number" value={aprForm.comPct} onChange={(e) => setAprForm({ ...aprForm, comPct: e.target.value })} placeholder="0" /></label>
-              <label style={lbl}>Base
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Percentual (%)<AjudaCampo chave="pm.propostas.comissao_pct" /></span><input style={inp} type="number" value={aprForm.comPct} onChange={(e) => setAprForm({ ...aprForm, comPct: e.target.value })} placeholder="0" /></label>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Base<AjudaCampo chave="pm.propostas.comissao_base" /></span>
                 <select style={inp} value={aprForm.comBase} onChange={(e) => setAprForm({ ...aprForm, comBase: e.target.value })}>
                   <option value="fee">Fee mensal</option><option value="contrato">Valor da proposta</option>
                 </select>
               </label>
-              <label style={lbl}>Tipo
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Tipo<AjudaCampo chave="pm.propostas.comissao_tipo" /></span>
                 <select style={inp} value={aprForm.comTipo} onChange={(e) => setAprForm({ ...aprForm, comTipo: e.target.value })}>
                   <option value="unica">Única</option><option value="recorrente">Recorrente</option>
                 </select>
@@ -606,11 +631,6 @@ export default function PropostasPage() {
         </div>
       )}
 
-      {solicitarProp && empresa && (
-        <SolicitarContratoModal companyId={empresa} propostaId={solicitarProp.id} propostaLabel={solicitarProp.label}
-          onClose={() => setSolicitarProp(null)}
-          onSolicitado={(r) => { setSolicitarProp(null); setToast(`Contrato solicitado${r.numero ? ` (nº ${r.numero})` : ''}. Veja em Contratos → Solicitações & Fee.${r.aviso ? ' ' + r.aviso : ''}`); void carregar() /* #59 · recarrega p/ o botão virar "Ver contrato" */ }} />
-      )}
 
       {toast && <div style={toastStyle}>{toast}</div>}
     </div>
@@ -619,8 +639,9 @@ export default function PropostasPage() {
 
 // Autocomplete sobre erp_clientes (base mestre, via fn_cliente_buscar) + cadastro rápido inline
 // (fn_cliente_criar_inline). Igual ao picker dos Leads (regra-mãe b9333675). value = erp_cliente_id.
-function ClienteField({ value, onChange, empresa, setToast }: {
+function ClienteField({ value, onChange, empresa, setToast, nomeLead }: {
   value: string; onChange: (erpId: string) => void; empresa: string; setToast: (s: string) => void
+  nomeLead?: string   // #2915 · nome do lead quando ele ainda não tem cliente da GE vinculado
 }) {
   const [q, setQ] = useState('')
   const [nomeSel, setNomeSel] = useState('')
@@ -659,8 +680,8 @@ function ClienteField({ value, onChange, empresa, setToast }: {
     }, 250)
   }
   function escolher(c: { id: string; nome: string }) { onChange(c.id); setNomeSel(c.nome); setOpen(false); setSug([]); setQ('') }
-  async function criarInline() {
-    const nome = (novoNome || q).trim()
+  async function criarInline(nomeDireto?: string) {
+    const nome = (nomeDireto ?? (novoNome || q)).trim()
     if (!nome) { setToast('Digite o nome/empresa do cliente.'); return }
     const { data, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: empresa, p_nome: nome, p_cpf_cnpj: null, p_extra: {} })
     if (error) { setToast(`Erro ao criar cliente: ${error.message}`); return }
@@ -672,7 +693,7 @@ function ClienteField({ value, onChange, empresa, setToast }: {
 
   return (
     <div style={{ position: 'relative' }}>
-      <label style={lbl}>Cliente (cadastro GE)
+      <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Cliente (cadastro GE)<AjudaCampo chave="pm.propostas.cliente" /></span>
         {value ? (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <div style={{ ...inp, flex: 1, display: 'flex', alignItems: 'center' }}>{nomeSel || 'Cliente selecionado'}</div>
@@ -684,6 +705,13 @@ function ClienteField({ value, onChange, empresa, setToast }: {
             placeholder="Buscar cliente da GE…" />
         )}
       </label>
+      {!value && nomeLead && !q && (
+        <div data-testid="proposta-cliente-do-lead" style={{ marginTop: 6, padding: '8px 10px', border: `1px dashed ${DOURADO}`, borderRadius: 8, fontSize: 12.5, color: ESPRESSO, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ flex: 1, minWidth: 160 }}>Cliente do lead: <b>{nomeLead}</b> — ainda sem cadastro na GE.</span>
+          <button onMouseDown={(e) => { e.preventDefault(); buscar(nomeLead) }} style={btnSec}>Buscar</button>
+          <button onMouseDown={(e) => { e.preventDefault(); void criarInline(nomeLead) }} style={btnSec}>+ Cadastrar na GE</button>
+        </div>
+      )}
       {!value && open && (q.trim().length >= 2 || criando) && (
         <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 8, marginTop: 2, boxShadow: '0 6px 20px rgba(0,0,0,.10)', maxHeight: 240, overflowY: 'auto' }}>
           {buscando && <div style={{ padding: '8px 10px', fontSize: 12, color: TEXTM }}>Buscando…</div>}
@@ -718,10 +746,12 @@ function Row({ l, v, big }: { l: string; v: string; big?: boolean }) {
   )
 }
 
-function Kpi({ l, v }: { l: string; v: string }) {
+function Kpi({ l, v, chave }: { l: string; v: string; chave?: string }) {
   return (
     <div style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: '12px 14px' }}>
-      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700 }}>{l}</div>
+      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
+        {l}{chave ? <AjudaCampo chave={chave} /> : null}
+      </div>
       <div style={{ fontSize: 22, fontWeight: 700, color: ESPRESSO, marginTop: 2 }}>{v}</div>
     </div>
   )

@@ -1,10 +1,12 @@
 'use client'
-import { useEffect, useState, type CSSProperties, type DragEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react'
+import { AlertTriangle, ChevronLeft, ChevronRight, Clock, FileText, Link2, Paperclip, Pencil, Phone, Trash2, User } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { comPrazo } from '@/lib/comPrazo'
 import { labelUsuario } from '@/lib/usuarioLabel'
 import { linkTelefone } from '@/lib/crm/oportunidadeCliente'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 type UsuarioOpt = { id: string; email: string | null; full_name?: string | null }
 type Fechada = {
@@ -61,8 +63,10 @@ type Card = {
   valor_estimado: number | null
   probabilidade: number | null
   responsavel_id: string | null
+  responsavel_nome?: string | null  // DELTA FC · fallback do texto legado (forward-compatible; usado se o RPC passar a enviá-lo)
   ordem: number | null
   data_prevista: string | null
+  anexos?: number  // contagem de anexos (fn_crm_pipeline) — badge no card
 }
 type Etapa = {
   etapa: string
@@ -89,11 +93,13 @@ interface Props {
   onEdit: (id: string) => void
   onExcluir: (id: string) => void
   excluindoId?: string | null
+  // DELTA FC · coluna vazia ganha CTA "+ nova oportunidade" já na etapa da coluna (estado vazio M.8).
+  onNova: (etapa: string) => void
 }
 
 export default function OportunidadesKanban({
   companyId, usuarios, refreshKey, onMoved, onError,
-  filtroEtapa, filtroResp, busca, onCount, onEdit, onExcluir, excluindoId,
+  filtroEtapa, filtroResp, busca, onCount, onEdit, onExcluir, excluindoId, onNova,
 }: Props) {
   const router = useRouter()
   // FIX 3 · responsável exibido pelo NOME do usuário (via responsavel_id), não pelo texto legado.
@@ -102,6 +108,8 @@ export default function OportunidadesKanban({
     const u = usuarios.find((x) => x.id === id)
     return u ? labelUsuario(u, usuarios) : null
   }
+  // DELTA FC · nome do responsável do card: usuário resolvido por id OU texto legado (responsavel_nome).
+  const respCard = (c: Card): string | null => nomeResp(c.responsavel_id) ?? (c.responsavel_nome?.trim() || null)
   const [pipe, setPipe] = useState<Pipeline | null>(null)
   const [loading, setLoading] = useState(true)
   const [dragId, setDragId] = useState<string | null>(null)
@@ -113,12 +121,27 @@ export default function OportunidadesKanban({
   // FIX (Angélica): clicar em Ganhas/Perdidas → lista das fechadas (cliente + orçamento).
   const [fechadas, setFechadas] = useState<null | { etapa: 'ganho' | 'perdido'; loading: boolean; itens: Fechada[] }>(null)
   const [nomesCliente, setNomesCliente] = useState<Record<string, string>>({})
+  // DELTA FC · obra criada ao ganhar (oportunidade_id → obra): prova na lista de Ganhas que todo ganho tem obra.
+  const [obrasGanhas, setObrasGanhas] = useState<Record<string, { id: string; numero: string }>>({})
   // F2.6 · tempo na etapa (semáforo) e quem moveu por último, por oportunidade_id.
   const [tempoMap, setTempoMap] = useState<Record<string, TempoRow>>({})
   const [quemMap, setQuemMap] = useState<Record<string, QuemRow>>({})
   // F2.7 · orçamento vinculado por oportunidade_id.
   const [orcMap, setOrcMap] = useState<Record<string, OrcRow>>({})
   const [gerandoId, setGerandoId] = useState<string | null>(null)
+  // Affordance de rolagem horizontal (auditor PDCA: "coluna cortada / scroll não óbvio"): quando o board
+  // tem mais etapas do que cabem, aparece um degradê + seta de cada lado com conteúdo oculto; clicar rola.
+  const boardRef = useRef<HTMLDivElement>(null)
+  const [rolagem, setRolagem] = useState<{ esq: boolean; dir: boolean }>({ esq: false, dir: false })
+  const medirRolagem = useCallback(() => {
+    const el = boardRef.current
+    if (!el) return
+    setRolagem({ esq: el.scrollLeft > 2, dir: el.scrollWidth - el.clientWidth - el.scrollLeft > 2 })
+  }, [])
+  function rolar(dir: 1 | -1) {
+    const el = boardRef.current
+    if (el) el.scrollBy({ left: dir * Math.max(220, el.clientWidth * 0.8), behavior: 'smooth' })
+  }
 
   async function abrirFechadas(etapa: 'ganho' | 'perdido') {
     setFechadas({ etapa, loading: true, itens: [] })
@@ -133,6 +156,14 @@ export default function OportunidadesKanban({
       for (const c of (cs ?? []) as { id: string; razao_social: string | null; nome_fantasia: string | null }[])
         map[c.id] = c.razao_social || c.nome_fantasia || ''
       setNomesCliente((prev) => ({ ...prev, ...map }))
+    }
+    // DELTA FC · toda oportunidade ganha tem obra vinculada: busca a obra por oportunidade_id p/ o link "Ver obra".
+    if (etapa === 'ganho' && itens.length) {
+      const opIds = itens.map((i) => i.id)
+      const { data: obs } = await supabase.from('projetos_obras').select('id, numero, oportunidade_id').in('oportunidade_id', opIds)
+      const om: Record<string, { id: string; numero: string }> = {}
+      for (const o of (obs ?? []) as { id: string; numero: string; oportunidade_id: string }[]) om[o.oportunidade_id] = { id: o.id, numero: o.numero }
+      setObrasGanhas(om)
     }
   }
   // FIX B · modal de motivo da perda (obrigatório)
@@ -211,6 +242,25 @@ export default function OportunidadesKanban({
   const cardsPorEtapa = (etapa: string): Card[] =>
     (pipe?.etapas?.find((e) => e.etapa === etapa)?.cards ?? []).filter(cardVisivel)
 
+  // Alerta de card suspeito (caso Tryo R$ 3,5 mi): outlier = valor > 5× a mediana das abertas; duplicata = mesmo
+  // cliente com outro card de mesmo título ou mesmo valor. Calculado na tela (não grava nada), por id do card.
+  const alertas = useMemo(() => {
+    const todos = (pipe?.etapas ?? []).flatMap((e) => e.cards)
+    const valores = todos.map((c) => Number(c.valor_estimado ?? 0)).filter((v) => v > 0).sort((a, b) => a - b)
+    let mediana = 0
+    if (valores.length) { const m = Math.floor(valores.length / 2); mediana = valores.length % 2 ? valores[m] : (valores[m - 1] + valores[m]) / 2 }
+    const chNome = (c: Card) => (c.cliente || c.titulo || '').trim().toUpperCase()
+    const m = new Map<string, { outlier: boolean; duplicata: boolean }>()
+    for (const c of todos) {
+      const outlier = valores.length >= 4 && mediana > 0 && c.valor_estimado != null && c.valor_estimado > mediana * 5
+      const duplicata = todos.some((o) => o.id !== c.id && chNome(o) === chNome(c) && chNome(c) !== ''
+        && (((o.titulo ?? '').toUpperCase() === (c.titulo ?? '').toUpperCase() && (c.titulo ?? '') !== '')
+          || (c.valor_estimado != null && Number(o.valor_estimado) === c.valor_estimado)))
+      if (outlier || duplicata) m.set(c.id, { outlier, duplicata })
+    }
+    return m
+  }, [pipe])
+
   // Filtro de etapa vira "foco": mostra só a coluna escolhida (equivalência com o filtro da lista).
   const colunasVisiveis = ETAPAS_OPS.filter((e) => filtroEtapa === 'todas' || e.v === filtroEtapa)
 
@@ -226,10 +276,23 @@ export default function OportunidadesKanban({
     onCount(n)
   }, [pipe, filtroEtapa, filtroResp, busca]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Recalcula o indicador de rolagem sempre que o conteúdo ou a largura mudam (dados carregados, filtro de etapa).
+  useEffect(() => {
+    medirRolagem()
+    const el = boardRef.current
+    if (!el) return
+    el.addEventListener('scroll', medirRolagem, { passive: true })
+    window.addEventListener('resize', medirRolagem)
+    return () => { el.removeEventListener('scroll', medirRolagem); window.removeEventListener('resize', medirRolagem) }
+  }, [medirRolagem, pipe, filtroEtapa])
+
   async function moverPara(cardId: string, novaEtapa: string, etapaAtual: string | null) {
     if (etapaAtual === novaEtapa) return
     // Perdido EXIGE motivo (FIX B) — abre o modal com a lista; a baixa só ocorre ao confirmar.
     if (novaEtapa === 'perdido') { setPerda({ cardId, etapaAtual }); setPerdaMotivo(''); setPerdaObs(''); return }
+    // DELTA FC (blueprint — defeito mais grave "ganho sem obra"): ganhar CRIA a obra vinculada
+    // automaticamente, via fn_crm_oportunidade_ganhar (idempotente). Não passa pelo move genérico.
+    if (novaEtapa === 'ganho') { await ganharCard(cardId); return }
     // ① (CEO 17/09) · arrastar para "Orçando" CRIA a linha de orçamento (envelope do PDF), com
     // confirmação e guarda se já existir. A RPC é idempotente: se a oportunidade já tem orçamento,
     // devolve o mesmo (ja_existia) em vez de criar um segundo. Abre o orçamento para anexar o PDF.
@@ -304,6 +367,40 @@ export default function OportunidadesKanban({
     carregar()
   }
 
+  // DELTA FC · GANHAR = marca 'ganho' E abre a obra vinculada numa transação (fn_crm_oportunidade_ganhar).
+  // Otimista: tira o card da coluna e soma no tile "Ganhas"; o toast nomeia a obra criada (ou a que já existia).
+  async function ganharCard(cardId: string) {
+    setMovendoId(cardId)
+    let valorCard = 0
+    setPipe((prev) => {
+      if (!prev?.etapas) return prev
+      const etapas = prev.etapas.map((e) => ({ ...e, cards: [...e.cards] }))
+      for (const e of etapas) {
+        const idx = e.cards.findIndex((c) => c.id === cardId)
+        if (idx >= 0) {
+          valorCard = Number(e.cards[idx].valor_estimado ?? 0)
+          e.cards.splice(idx, 1)
+          e.qtd = Math.max(0, e.qtd - 1)
+          e.valor_total = Math.max(0, e.valor_total - valorCard)
+        }
+      }
+      return { etapas }
+    })
+    setGanhos((g) => ({ qtd: g.qtd + 1, total: g.total + valorCard }))
+    const { data, error } = await supabase.rpc('fn_crm_oportunidade_ganhar', { p_id: cardId })
+    setMovendoId(null)
+    const j = data as { ok?: boolean; erro?: string; numero?: string; ja_existia?: boolean } | null
+    if (error || !j?.ok) {
+      onError(`Erro ao marcar como ganho: ${error?.message ?? j?.erro ?? 'falha'}`)
+      carregar() // desfaz o otimista pela verdade do banco
+      return
+    }
+    onMoved(j.ja_existia
+      ? `Oportunidade ganha — a obra ${j.numero} já estava aberta.`
+      : `Oportunidade GANHA · obra ${j.numero} criada e vinculada automaticamente.`)
+    carregar()
+  }
+
   function onDragStart(e: DragEvent<HTMLDivElement>, cardId: string) {
     e.dataTransfer.setData('text/plain', cardId)
     e.dataTransfer.effectAllowed = 'move'
@@ -339,13 +436,26 @@ export default function OportunidadesKanban({
     <div>
       {/* Resumo lateral ganho/perdido (V1 — colunas terminais como tiles) */}
       <div className="flex gap-2 mb-3 flex-wrap">
-        <ResumoTile titulo="Ganhas" qtd={ganhos.qtd} valor={ganhos.total} variante="ganho" onClick={() => void abrirFechadas('ganho')} />
-        <ResumoTile titulo="Perdidas" qtd={perdidos.qtd} valor={perdidos.total} variante="perdido" onClick={() => void abrirFechadas('perdido')} />
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><ResumoTile titulo="Ganhas" qtd={ganhos.qtd} valor={ganhos.total} variante="ganho" onClick={() => void abrirFechadas('ganho')} /><AjudaCampo chave="projetos.oportunidades.resumo_ganhas" /></span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><ResumoTile titulo="Perdidas" qtd={perdidos.qtd} valor={perdidos.total} variante="perdido" onClick={() => void abrirFechadas('perdido')} /><AjudaCampo chave="projetos.oportunidades.resumo_perdidas" /></span>
         {loading && <span className="text-xs opacity-60 self-center">Carregando…</span>}
       </div>
 
-      {/* Board com scroll horizontal mobile-first */}
-      <div style={boardWrap}>
+      {/* Board com scroll horizontal mobile-first. Degradê + seta nas bordas quando há etapa oculta (clicar rola). */}
+      <div style={{ position: 'relative' }}>
+        {rolagem.esq && (
+          <button type="button" onClick={() => rolar(-1)} aria-label="Ver etapas anteriores" style={{ ...setaRolar, left: 0 }}>
+            <ChevronLeft size={18} aria-hidden />
+          </button>
+        )}
+        {rolagem.dir && (
+          <button type="button" onClick={() => rolar(1)} aria-label="Ver mais etapas" style={{ ...setaRolar, right: 0 }}>
+            <ChevronRight size={18} aria-hidden />
+          </button>
+        )}
+        {rolagem.esq && <div aria-hidden style={{ ...fadeBorda, left: 0, background: 'linear-gradient(to right, #F4EFE7, rgba(244,239,231,0))' }} />}
+        {rolagem.dir && <div aria-hidden style={{ ...fadeBorda, right: 0, background: 'linear-gradient(to left, #F4EFE7, rgba(244,239,231,0))' }} />}
+      <div ref={boardRef} style={boardWrap}>
         <div style={board}>
           {colunasVisiveis.map((et) => {
             const cards = cardsPorEtapa(et.v)
@@ -367,22 +477,25 @@ export default function OportunidadesKanban({
                 onDrop={(e) => onDrop(e, et.v)}
               >
                 <div style={colHead}>
-                  <span style={{ ...etapaChip, background: et.bg, color: et.fg }}>{et.l}</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><span style={{ ...etapaChip, background: et.bg, color: et.fg }}>{et.l}</span><AjudaCampo chave="projetos.oportunidades.coluna_etapa" /></span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     {_link && linkHref && (
                       <button type="button" onClick={() => router.push(linkHref)} title={_link.tip}
                         aria-label={_link.tip}
-                        style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 12, lineHeight: 1, padding: 0, color: DOURADO }}>🔗</button>
+                        style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 12, lineHeight: 1, padding: 0, color: DOURADO }}><Link2 size={14} aria-hidden /></button>
                     )}
                     <span style={{ fontSize: 11, color: TEXTM }}>{tot.qtd}</span>
                   </div>
                 </div>
                 <div style={colSubHead}>
-                  <span>{brl(tot.valor)}</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{brl(tot.valor)}<AjudaCampo chave="projetos.oportunidades.coluna_total" /></span>
                 </div>
                 <div style={colList}>
                   {cards.length === 0 ? (
-                    <div style={emptyHint}>—</div>
+                    // DELTA FC · coluna vazia: CTA de estado vazio (padrão M.8) em vez de só "—" com muito branco.
+                    <button type="button" onClick={() => onNova(et.v)} style={emptyCta} title={`Nova oportunidade em ${et.l}`}>
+                      + nova oportunidade
+                    </button>
                   ) : cards.map((c) => (
                     <div
                       key={c.id}
@@ -412,35 +525,54 @@ export default function OportunidadesKanban({
                       {linkTelefone(c.cliente_telefone) && (
                         <a href={linkTelefone(c.cliente_telefone)} onClick={(e) => e.stopPropagation()} data-testid="card-oport-telefone"
                           style={{ display: 'inline-block', fontSize: 12, color: DOURADO, marginTop: 3, textDecoration: 'none' }}>
-                          <span aria-hidden>📞</span> {c.cliente_telefone}
+                          <Phone size={12} aria-hidden style={{ display: 'inline', verticalAlign: '-2px' }} /> {c.cliente_telefone}
                         </a>
                       )}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, gap: 6 }}>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: DOURADO }}>{brl(c.valor_estimado)}</span>
-                        {c.probabilidade != null && (
-                          <span style={probBadge}>{c.probabilidade}%</span>
+                      {/* #3423 · em coluna estreita (390px) o valor + badge de probabilidade cortavam; flexWrap deixa o
+                          badge descer em vez de truncar. */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, gap: 6, flexWrap: 'wrap', rowGap: 4 }}>
+                        {/* DELTA FC · valor DENTRO do card; nulo → estado claro ("sem valor estimado"), nunca "R$ 0,00" (parecia bug) */}
+                        {c.valor_estimado == null ? (
+                          <span style={{ fontSize: 11.5, color: TEXTM, fontStyle: 'italic' }}>sem valor estimado</span>
+                        ) : (
+                          <span style={{ fontSize: 13, fontWeight: 700, color: DOURADO, fontVariantNumeric: 'tabular-nums' }}>{brl(c.valor_estimado)}</span>
                         )}
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          {/* badge de anexo no card (antes só na ficha/detalhe): nº de anexos da oportunidade (fn_crm_pipeline) */}
+                          {(c.anexos ?? 0) > 0 && <span data-testid="card-oport-anexos" title={`${c.anexos} anexo(s)`} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 11.5, color: TEXTM, fontWeight: 600 }}><Paperclip size={11} aria-hidden />{c.anexos}<span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}><AjudaCampo chave="projetos.oportunidades.card_anexos" /></span></span>}
+                          {c.probabilidade != null && <span style={probBadge}>{c.probabilidade}%<span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}><AjudaCampo chave="projetos.oportunidades.card_probabilidade" /></span></span>}
+                          {/* o "?" fica fora do clique/Enter do card (senão abriria a ficha) */}
+                          <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}><AjudaCampo chave="projetos.oportunidades.card" /></span>
+                        </span>
                       </div>
-                      {nomeResp(c.responsavel_id) && (
-                        <div style={{ fontSize: 11, color: TEXTM, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <span aria-hidden>👤</span>{nomeResp(c.responsavel_id)}
+                      {/* alerta de card suspeito (outlier/duplicata) — não bloqueia, só sinaliza para conferência (caso Tryo) */}
+                      {alertas.get(c.id) && (
+                        <div data-testid="card-oport-alerta" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 6, padding: '2px 8px', borderRadius: 999, background: '#FBF3E0', border: '1px solid #E6CE97', color: '#8A5A00', fontSize: 11, fontWeight: 700 }}>
+                          <AlertTriangle size={11} aria-hidden />
+                          {alertas.get(c.id)!.duplicata && alertas.get(c.id)!.outlier ? 'Conferir: duplicata e valor atípico' : alertas.get(c.id)!.duplicata ? 'Possível duplicata' : 'Valor atípico'}
+                          <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}><AjudaCampo chave="projetos.oportunidades.card_alerta" /></span>
                         </div>
                       )}
+                      {/* DELTA FC · responsável em TODO card: nomeResp(id) → texto legado → "Sem responsável" (nunca ocultar) */}
+                      <div style={{ fontSize: 11, color: TEXTM, marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <User size={12} aria-hidden />
+                        {respCard(c) ?? <span style={{ fontStyle: 'italic', opacity: 0.8 }}>Sem responsável</span>}
+                      </div>
                       {/* F2.6 · quem moveu por último (autor · ação · data) */}
                       {quemMap[c.id] && (
                         <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 2 }}>
-                          <span aria-hidden>👤</span> {quemMap[c.id].autor_nome} · {ACAO_LBL[quemMap[c.id].acao] ?? quemMap[c.id].acao} em {fmtDiaMes(quemMap[c.id].quando)}
+                          <User size={11} aria-hidden style={{ display: 'inline', verticalAlign: '-2px' }} /> {quemMap[c.id].autor_nome} · {ACAO_LBL[quemMap[c.id].acao] ?? quemMap[c.id].acao} em {fmtDiaMes(quemMap[c.id].quando)}
                         </div>
                       )}
                       {/* F2.6 · tempo parado na etapa com semáforo (RD-51: "desde a criação" quando não há histórico) */}
                       {tempoMap[c.id] && (
                         <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 3, display: 'flex', alignItems: 'center', gap: 5 }}>
                           <span style={{ width: 8, height: 8, borderRadius: 999, background: semColor(tempoMap[c.id].semaforo), display: 'inline-block', flexShrink: 0 }} aria-hidden />
-                          ⏱️ {tempoMap[c.id].dias_na_etapa} {tempoMap[c.id].dias_na_etapa === 1 ? 'dia' : 'dias'} {tempoMap[c.id].origem === 'created_at' ? '(desde a criação)' : 'nesta etapa'}
+                          <Clock size={11} aria-hidden /> {tempoMap[c.id].dias_na_etapa} {tempoMap[c.id].dias_na_etapa === 1 ? 'dia' : 'dias'} {tempoMap[c.id].origem === 'created_at' ? '(desde a criação)' : 'nesta etapa'}
                         </div>
                       )}
                       {/* F2.7 · orçamento vinculado (chip clicável) ou botão de gerar */}
-                      <div style={{ marginTop: 6 }} onClick={(e) => e.stopPropagation()}>
+                      <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }} onClick={(e) => e.stopPropagation()}>
                         {orcMap[c.id] ? (
                           <button
                             onClick={() => router.push(`/dashboard/orcamentos?id=${orcMap[c.id].orcamento_id}`)}
@@ -452,9 +584,9 @@ export default function OportunidadesKanban({
                               background: orcMap[c.id].itens === 0 ? '#FBF0D8' : '#F6F1E8',
                               color: orcMap[c.id].itens === 0 ? '#7A5A0F' : ESPRESSO,
                             }}>
-                            📄 {orcMap[c.id].numero} · {orcMap[c.id].itens > 0
+                            <FileText size={12} aria-hidden style={{ display: 'inline', verticalAlign: '-2px' }} /> {orcMap[c.id].numero} · {orcMap[c.id].itens > 0
                               ? `${brl(orcMap[c.id].total)} · ${orcMap[c.id].itens} ${orcMap[c.id].itens === 1 ? 'item' : 'itens'}`
-                              : (Number(orcMap[c.id].total) > 0 ? `📎 PDF · ${brl(orcMap[c.id].total)}` : 'aguardando o PDF do orçamento')}
+                              : (Number(orcMap[c.id].total) > 0 ? `PDF · ${brl(orcMap[c.id].total)}` : 'aguardando o PDF do orçamento')}
                           </button>
                         ) : (
                           <button
@@ -464,9 +596,10 @@ export default function OportunidadesKanban({
                             {gerandoId === c.id ? 'Gerando…' : '+ Gerar orçamento'}
                           </button>
                         )}
+                        <AjudaCampo chave="projetos.oportunidades.card_orcamento" />
                       </div>
                       {/* Fallback touch: select de etapa */}
-                      <div style={{ marginTop: 6 }} onClick={(e) => e.stopPropagation()}>
+                      <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }} onClick={(e) => e.stopPropagation()}>
                         <select
                           value={et.v}
                           onChange={(e) => moverPara(c.id, e.target.value, et.v)}
@@ -480,17 +613,19 @@ export default function OportunidadesKanban({
                             </option>
                           ))}
                         </select>
+                        <AjudaCampo chave="projetos.oportunidades.kanban.mover_etapa" />
                       </div>
                       {/* Ações herdadas da lista: Editar · Orçamento/ficha · Excluir */}
-                      <div style={cardActions} onClick={(e) => e.stopPropagation()}>
-                        <button style={cardActBtn} onClick={() => onEdit(c.id)} title="Editar" aria-label="Editar">✏️</button>
-                        <button style={cardActBtn} onClick={() => router.push(`/dashboard/projetos/oportunidades/${c.id}`)} title="Orçamento / ficha" aria-label="Orçamento">📄</button>
+                      <div style={cardActions} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+                        <AjudaCampo chave="projetos.oportunidades.card_acoes" />
+                        <button style={cardActBtn} onClick={() => onEdit(c.id)} title="Editar" aria-label="Editar"><Pencil size={14} aria-hidden /></button>
+                        <button style={cardActBtn} onClick={() => router.push(`/dashboard/projetos/oportunidades/${c.id}`)} title="Orçamento / ficha" aria-label="Orçamento"><FileText size={14} aria-hidden /></button>
                         <button
                           style={{ ...cardActBtn, color: '#9A1F1F' }}
                           onClick={() => onExcluir(c.id)}
                           disabled={excluindoId === c.id}
                           title="Excluir" aria-label="Excluir"
-                        >🗑️</button>
+                        ><Trash2 size={14} aria-hidden /></button>
                       </div>
                     </div>
                   ))}
@@ -499,6 +634,7 @@ export default function OportunidadesKanban({
             )
           })}
         </div>
+      </div>
       </div>
 
       {perda && (
@@ -511,8 +647,11 @@ export default function OportunidadesKanban({
                 <button key={m} onClick={() => setPerdaMotivo(m)} style={{ padding: '6px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer', textTransform: 'capitalize', border: `1px solid ${perdaMotivo === m ? '#7A1F1F' : BORDA}`, background: perdaMotivo === m ? '#F4D6D6' : '#fff', color: perdaMotivo === m ? '#7A1F1F' : TEXTM }}>{m}</button>
               ))}
             </div>
-            <textarea value={perdaObs} onChange={(e) => setPerdaObs(e.target.value)} placeholder="Observação (opcional)" rows={2}
-              style={{ width: '100%', border: `1px solid ${BORDA}`, borderRadius: 8, padding: '8px 10px', fontSize: 12.5, color: ESPRESSO, boxSizing: 'border-box', resize: 'vertical' }} />
+            <label style={{ display: 'block', fontSize: 12, color: TEXTM }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>Observação (opcional) <AjudaCampo chave="projetos.oportunidades.perda.observacao" /></span>
+              <textarea value={perdaObs} onChange={(e) => setPerdaObs(e.target.value)} placeholder="Ex.: fechou com outro fornecedor 12% mais barato" rows={2}
+                style={{ width: '100%', border: `1px solid ${BORDA}`, borderRadius: 8, padding: '8px 10px', fontSize: 12.5, color: ESPRESSO, boxSizing: 'border-box', resize: 'vertical' }} />
+            </label>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
               <button onClick={() => setPerda(null)} style={{ ...cardActBtn, padding: '7px 14px' }}>Cancelar</button>
               <button onClick={() => { void confirmarPerda() }} disabled={!perdaMotivo}
@@ -561,13 +700,18 @@ export default function OportunidadesKanban({
                         {fechadas.etapa === 'perdido' && it.motivo_perda && (
                           <div style={{ marginTop: 6, fontSize: 12, color: '#7A1F1F' }}>Motivo: <b>{it.motivo_perda}</b></div>
                         )}
-                        <div style={{ marginTop: 8 }}>
+                        <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                           {it.orcamento_id ? (
                             <button onClick={() => router.push(`/dashboard/orcamentos?id=${it.orcamento_id}`)}
                               style={{ ...cardActBtn, padding: '5px 12px', fontSize: 12 }}>Ver orçamento →</button>
                           ) : (
                             <span style={{ fontSize: 11.5, color: TEXTM, fontStyle: 'italic' }}>sem orçamento vinculado</span>
                           )}
+                          {/* DELTA FC · ganho sempre abre obra: link direto para o cockpit da obra vinculada. */}
+                          {fechadas.etapa === 'ganho' && (obrasGanhas[it.id]
+                            ? <button onClick={() => router.push(`/dashboard/projetos/obras/${obrasGanhas[it.id].id}/cockpit`)}
+                                style={{ ...cardActBtn, padding: '5px 12px', fontSize: 12, borderColor: '#1F5A1F', color: '#1F5A1F' }}>Ver obra {obrasGanhas[it.id].numero} →</button>
+                            : <span style={{ fontSize: 11.5, color: TEXTM, fontStyle: 'italic' }}>obra em abertura…</span>)}
                         </div>
                       </div>
                     )
@@ -605,16 +749,28 @@ const tileSt: CSSProperties = {
 const boardWrap: CSSProperties = {
   overflowX: 'auto',
   paddingBottom: 8,
+  // folga à direita para a ÚLTIMA coluna nunca encostar/cortar na borda ao rolar (auditor PDCA: "coluna cortada").
+  paddingRight: 6,
   WebkitOverflowScrolling: 'touch',
   scrollSnapType: 'x mandatory', // mobile: cada coluna "encaixa" ao rolar
 }
 const board: CSSProperties = {
   // Desktop: colunas flex ocupam a largura toda e cabem SEM scroll horizontal.
   // Mobile/estreito: minWidth por coluna força overflow → boardWrap rola (com snap).
-  display: 'flex', gap: 10, alignItems: 'stretch', width: '100%',
+  // paddingRight garante respiro depois da última coluna quando há overflow.
+  display: 'flex', gap: 10, alignItems: 'stretch', width: '100%', paddingRight: 2,
+}
+const fadeBorda: CSSProperties = {
+  position: 'absolute', top: 0, bottom: 10, width: 36, pointerEvents: 'none', zIndex: 3,
+}
+const setaRolar: CSSProperties = {
+  position: 'absolute', top: '50%', transform: 'translateY(-50%)', zIndex: 4,
+  width: 34, height: 34, borderRadius: 999, border: `1px solid ${BORDA}`, background: '#fff',
+  color: ESPRESSO, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+  boxShadow: '0 1px 4px rgba(61,35,20,0.18)',
 }
 const col: CSSProperties = {
-  flex: '1 1 0', minWidth: 190,
+  flex: '1 1 0', minWidth: 176,
   scrollSnapAlign: 'start',
   background: OFFWHITE,
   border: `1px solid ${BORDA}`,
@@ -644,7 +800,7 @@ const cardSt: CSSProperties = {
   padding: 8, userSelect: 'none', transition: 'opacity .15s',
 }
 const cardActions: CSSProperties = {
-  display: 'flex', gap: 4, marginTop: 6, justifyContent: 'flex-end',
+  display: 'flex', gap: 4, marginTop: 6, justifyContent: 'flex-end', alignItems: 'center',
 }
 const cardActBtn: CSSProperties = {
   border: `1px solid ${BORDA}`, background: '#fff', borderRadius: 6,
@@ -654,8 +810,12 @@ const probBadge: CSSProperties = {
   fontSize: 10, fontWeight: 600, color: TEXTM,
   background: '#FAF7F2', padding: '2px 8px', borderRadius: 999, border: `1px solid ${BORDA}`,
 }
-const emptyHint: CSSProperties = {
-  textAlign: 'center', color: TEXTM, fontSize: 12, opacity: 0.6, padding: '12px 0',
+// DELTA FC · CTA de estado vazio da coluna (M.8): convida a criar na própria etapa, sem o "muito branco".
+const emptyCta: CSSProperties = {
+  width: '100%', textAlign: 'center', cursor: 'pointer',
+  color: '#A57A15', fontSize: 12, fontWeight: 600,
+  background: 'transparent', border: `1px dashed ${DOURADO}`, borderRadius: 8,
+  padding: '12px 8px', marginTop: 4,
 }
 const moverSel: CSSProperties = {
   width: '100%', border: `1px solid ${BORDA}`, borderRadius: 6,

@@ -7,6 +7,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import AnexosCard from '@/components/crm/AnexosCard'
 import { UNIDADES_ESTOQUE } from '@/lib/produtos/unidades'
+import PrecoVendaEntradaNota from '@/components/precificacao/PrecoVendaEntradaNota'
+import { custoProdutoDaNota } from '@/lib/precificacao/entradaNota'
 
 type Sugestao = {
   produto_id: string
@@ -72,7 +74,7 @@ type OSLite = {
 }
 
 // Bloco A Path 1 · peça DIGITADA (texto-livre, sem produto) da OS que a NF pode "ensinar"
-type DiagLite = { id: string; descricao: string; quantidade: number | null }
+type DiagLite = { id: string; descricao: string; quantidade: number | null; saldo?: number | null }
 
 interface SugerirResp {
   ok: boolean
@@ -399,13 +401,29 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange, onConcluida }: Pr
     if (!it.produto_id) { await vincularOS(it.item_id, o.id, null); return }
     const { data } = await supabase
       .from('erp_os_diagnostico_item')
-      .select('id, descricao, quantidade')
+      .select('id, descricao, quantidade, produto_id')
       .eq('os_id', o.id)
       .eq('company_id', companyId)
       .in('tipo', ['peca', 'peça'])
-      .is('produto_id', null)
+      .or(`produto_id.is.null,produto_id.eq.${it.produto_id}`)
       .order('descricao')
-    const livres = (data as DiagLite[]) ?? []
+    const todos = (data as (DiagLite & { produto_id: string | null })[]) ?? []
+    // #5933 · peça da OS com 2 un. comprada em 2 NF-e: a peça já ligada a ESTE produto continua na lista
+    // enquanto a soma das notas vinculadas a ela for menor que a quantidade da OS (vínculo parcial).
+    const jaLigados = todos.filter((d) => d.produto_id)
+    const usado: Record<string, number> = {}
+    if (jaLigados.length > 0) {
+      const { data: vs } = await supabase.from('erp_nfe_recebidas_itens')
+        .select('id, quantidade, vinculo_origem').like('vinculo_origem', `os:${o.id}:diag:%`)
+      for (const v of (vs ?? []) as { id: string; quantidade: number | null; vinculo_origem: string | null }[]) {
+        if (v.id === it.item_id) continue
+        const did = String(v.vinculo_origem ?? '').split(':diag:')[1]
+        if (did) usado[did] = (usado[did] ?? 0) + Number(v.quantidade ?? 0)
+      }
+    }
+    const livres = todos
+      .map((d) => d.produto_id ? { ...d, saldo: Number(d.quantidade ?? 0) - (usado[d.id] ?? 0) } : d)
+      .filter((d) => !d.produto_id || (d.saldo ?? 0) > 0)
     if (livres.length === 0) { await vincularOS(it.item_id, o.id, null); return }
     setOsSel({ itemId: it.item_id, os: o }); setDiagLivres(livres)
   }
@@ -614,6 +632,12 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange, onConcluida }: Pr
                   </div>
                 )
               })()}
+              {/* #2710 · preço de venda sugerido pelo markup padrão do produto (ou o geral), editável antes de gravar */}
+              {it.produto_id && it.entra_estoque !== false && (
+                <PrecoVendaEntradaNota companyId={companyId} produtoId={it.produto_id}
+                  custo={custoProdutoDaNota(extras[it.item_id]?.custo_unitario_real, it.valor_unitario, fatorSalvo[it.produto_id])}
+                  motivo="Entrada da nota de compra (markup padrão)" />
+              )}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-1.5 mt-2">
@@ -825,6 +849,7 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange, onConcluida }: Pr
                       >
                         🔧 {d.descricao}
                         {d.quantidade ? <span className="text-[10.5px] text-[#3D2314]/50"> · {Number(d.quantidade).toLocaleString('pt-BR')}×</span> : null}
+                        {d.saldo != null ? <span className="text-[10.5px] text-[#2F5AA8]"> · já ligada ao estoque · falta {Number(d.saldo).toLocaleString('pt-BR')}</span> : null}
                       </button>
                     ))}
                   </div>

@@ -8,6 +8,7 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const C = {
   espresso: '#3D2314',
@@ -80,6 +81,9 @@ export default function CatalogoEpiPage() {
   const [editarCaEpi, setEditarCaEpi] = useState<EpiItem | null>(null)
   const [mostrarInativos, setMostrarInativos] = useState(false)
   const [aviso, setAviso] = useState<string | null>(null)
+  // Varredura em lote (chamado #2137 Frioeste): selecionar vários EPIs próprios ativos e inativar de uma vez.
+  const [modoSelecao, setModoSelecao] = useState(false)
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -132,6 +136,32 @@ export default function CatalogoEpiPage() {
     carregar()
   }
 
+  function toggleSelecionado(id: string) {
+    setSelecionados((prev) => {
+      const n = new Set(prev)
+      if (n.has(id)) n.delete(id); else n.add(id)
+      return n
+    })
+  }
+
+  function sairSelecao() {
+    setModoSelecao(false)
+    setSelecionados(new Set())
+  }
+
+  async function inativarSelecionados() {
+    const ids = [...selecionados].filter((id) => selecionaveis.some((e) => e.id === id))
+    if (ids.length === 0) return
+    if (!confirm(`Inativar ${ids.length} EPI(s) selecionado(s)? Eles saem da lista de ativos (o histórico é preservado) e podem ser reativados depois em "Mostrar inativos".`)) return
+    setErro(null); setAviso(null)
+    // Mesmo caminho do botão "Reativar" (update direto protegido por RLS da empresa): nunca apaga, só marca ativo=false.
+    const { error } = await supabase.from('epi_catalogo').update({ ativo: false }).in('id', ids)
+    if (error) { setErro(error.message); return }
+    setAviso(`INATIVOU ${ids.length} EPI(s). Marque "Mostrar inativos" para vê-los ou reativá-los.`)
+    sairSelecao()
+    carregar()
+  }
+
   useEffect(() => { carregar() }, [carregar])
 
   const episFiltrados = useMemo(() => {
@@ -147,6 +177,13 @@ export default function CatalogoEpiPage() {
       return true
     })
   }, [epis, aba, busca, filtroCategoria])
+
+  // EPIs próprios ativos no recorte atual: os únicos que a varredura em lote pode inativar.
+  const selecionaveis = useMemo(
+    () => episFiltrados.filter((e) => !e.is_global && e.ativo !== false),
+    [episFiltrados],
+  )
+  const todosSelecionados = selecionaveis.length > 0 && selecionaveis.every((e) => selecionados.has(e.id))
 
   function statusCa(ca_validade: string): { cor: string; label: string } {
     if (!ca_validade) return { cor: C.muted, label: 'CA a definir' }
@@ -218,6 +255,42 @@ export default function CatalogoEpiPage() {
           )}
         </section>
 
+        {/* Varredura em lote: inativar vários EPIs próprios de uma vez (chamado #2137) */}
+        {aba === 'meus' && !mostrarInativos && selecionaveis.length > 0 && (
+          <section style={{ background: '#FFFFFF', borderRadius: 12, padding: '12px 16px', boxShadow: '0 1px 3px rgba(61,35,20,0.06)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            {!modoSelecao ? (
+              <>
+                <button onClick={() => setModoSelecao(true)} style={btnSec}>☑️ Selecionar vários</button>
+                <span style={{ fontSize: 12.5, color: C.muted, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  Marque os EPIs que não estão mais em uso e inative todos de uma vez.
+                  <AjudaCampo chave="epi.catalogo.inativar_lote" />
+                </span>
+              </>
+            ) : (
+              <>
+                <strong style={{ fontSize: 13, color: C.espresso, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  {selecionados.size} selecionado(s)
+                  <AjudaCampo chave="epi.catalogo.inativar_lote" />
+                </strong>
+                <button
+                  onClick={() => setSelecionados(todosSelecionados ? new Set() : new Set(selecionaveis.map((e) => e.id)))}
+                  style={{ ...btnSec, fontSize: 12 }}
+                >
+                  {todosSelecionados ? 'Limpar seleção' : `Selecionar todos (${selecionaveis.length})`}
+                </button>
+                <button
+                  onClick={inativarSelecionados}
+                  disabled={selecionados.size === 0}
+                  style={{ ...btnPrim, fontSize: 12, opacity: selecionados.size === 0 ? 0.5 : 1, cursor: selecionados.size === 0 ? 'not-allowed' : 'pointer' }}
+                >
+                  Inativar selecionados
+                </button>
+                <button onClick={sairSelecao} style={{ ...btnSec, fontSize: 12 }}>Cancelar</button>
+              </>
+            )}
+          </section>
+        )}
+
         {/* Grid de cards */}
         {loading ? (
           <p style={{ textAlign: 'center', color: C.muted, padding: 40 }}>Carregando…</p>
@@ -229,8 +302,17 @@ export default function CatalogoEpiPage() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
             {episFiltrados.map((e) => {
               const ca = statusCa(e.ca_validade)
+              const selecionavel = modoSelecao && !e.is_global && e.ativo !== false
+              const marcado = selecionavel && selecionados.has(e.id)
               return (
-                <div key={e.id} style={{ background: '#FFFFFF', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61,35,20,0.06)', borderTop: `3px solid ${ca.cor}`, opacity: e.ativo === false ? 0.6 : 1 }}>
+                <div
+                  key={e.id}
+                  onClick={selecionavel ? () => toggleSelecionado(e.id) : undefined}
+                  style={{ background: marcado ? C.beigeLt : '#FFFFFF', borderRadius: 12, padding: 16, boxShadow: marcado ? `0 0 0 2px ${C.gold}` : '0 1px 3px rgba(61,35,20,0.06)', borderTop: `3px solid ${ca.cor}`, opacity: e.ativo === false ? 0.6 : 1, cursor: selecionavel ? 'pointer' : 'default', position: 'relative' }}
+                >
+                  {selecionavel && (
+                    <span aria-hidden style={{ position: 'absolute', top: 10, right: 10, width: 20, height: 20, borderRadius: 5, border: `2px solid ${marcado ? C.gold : C.borderLt}`, background: marcado ? C.gold : '#FFFFFF', color: '#FFFFFF', fontSize: 13, lineHeight: '16px', textAlign: 'center', fontWeight: 700 }}>{marcado ? '✓' : ''}</span>
+                  )}
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <h3 style={{ fontSize: 15, fontWeight: 600, color: C.espresso, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.nome}</h3>
@@ -262,7 +344,7 @@ export default function CatalogoEpiPage() {
                       📋 Importar para minha empresa
                     </button>
                   )}
-                  {aba === 'meus' && !e.is_global && (
+                  {aba === 'meus' && !e.is_global && !modoSelecao && (
                     <div style={{ display: 'flex', gap: 6, marginTop: 12, flexWrap: 'wrap' }}>
                       {e.ativo === false ? (
                         <button onClick={() => reativarEpi(e)} style={{ ...btnSec, fontSize: 12, flex: 1 }}>↩ Reativar</button>

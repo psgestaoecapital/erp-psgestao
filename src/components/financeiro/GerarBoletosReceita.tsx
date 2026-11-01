@@ -10,9 +10,13 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { listarProvidersBoleto, escolherProviderBoleto, lembrarProviderBoleto, NOME_BANCO, type BoletoProvider } from '@/lib/banco/providersBoleto'
+import { baixarBlob } from '@/lib/download/baixarArquivo'
+import { nomeDoContentDisposition, nomesUnicos } from '@/lib/download/nomeArquivo'
+import { resolverProviderDaConta, type ResolucaoBoleto } from '@/lib/banco/boletoPorConta'
+import { carregarRoteamentoBoleto, listarProvidersBoleto, escolherProviderBoleto, lembrarProviderBoleto, NOME_BANCO, type BoletoProvider } from '@/lib/banco/providersBoleto'
 
-type Provider = 'sicoob' | 'sicredi' | 'bradesco'
+type Provider = 'sicoob' | 'sicredi' | 'bradesco' | 'bb'
+const EMISSORES = ['sicoob', 'sicredi', 'bradesco', 'bb']
 type EstadoItem = { id: string; status: 'pendente' | 'gerando' | 'ok' | 'erro'; msg?: string }
 
 const C = {
@@ -30,6 +34,8 @@ export default function GerarBoletosReceita({
 }) {
   const [provider, setProvider] = useState<Provider | null>(null)
   const [providers, setProviders] = useState<BoletoProvider[]>([])
+  // #5404: o banco de cada parcela vem da CONTA BANCÁRIA do título (null = título sem conta: vale o seletor)
+  const [porId, setPorId] = useState<Record<string, ResolucaoBoleto | null>>({})
   const [faltantes, setFaltantes] = useState<string[]>([])
   const [carregando, setCarregando] = useState(true)
   const [itens, setItens] = useState<EstadoItem[]>(() => ids.map((id) => ({ id, status: 'pendente' })))
@@ -51,11 +57,23 @@ export default function GerarBoletosReceita({
       const prov = escolherProviderBoleto(companyId, lista)
       if (!vivo) return
       setProviders(lista)
-      if (!prov) { setProvider(null); setCarregando(false); return }
-      setProvider(prov)
+      // #5404: roteia cada parcela pela conta do título; o cadastro conferido é o do banco da 1ª parcela
+      const [rot, { data: ts }] = await Promise.all([
+        carregarRoteamentoBoleto(companyId),
+        supabase.from('erp_receber').select('id, conta_bancaria_id').in('id', ids),
+      ])
+      const mapa: Record<string, ResolucaoBoleto | null> = {}
+      for (const t of (ts ?? []) as { id: string; conta_bancaria_id: string | null }[]) mapa[t.id] = resolverProviderDaConta(rot, t.conta_bancaria_id)
+      if (!vivo) return
+      setPorId(mapa)
+      const primeira = mapa[ids[0]]
+      const doTitulo = primeira?.ok && EMISSORES.includes(primeira.provider) ? (primeira.provider as Provider) : null
+      if (!prov && !doTitulo) { setProvider(null); setCarregando(false); return }
+      setProvider(doTitulo ?? prov)
     })()
     return () => { vivo = false }
-  }, [companyId])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId, ids.join(',')])
 
   // o que falta no cadastro do banco ESCOLHIDO (recalcula ao trocar de banco)
   useEffect(() => {
@@ -73,10 +91,19 @@ export default function GerarBoletosReceita({
 
   async function gerarUm(id: string): Promise<boolean> {
     if (!provider) return false
+    // #5404: banco da conta do título; sem boleto na conta → mensagem clara, nunca outro banco
+    const res = porId[id]
+    const prov: string = res ? (res.ok ? res.provider : '') : provider
+    const falha = res && !res.ok ? res.motivo
+      : !EMISSORES.includes(prov) ? 'Este banco ainda não emite boleto pelo ERP.' : null
+    if (falha) {
+      setItens((prev) => prev.map((it) => it.id === id ? { ...it, status: 'erro', msg: falha } : it))
+      return false
+    }
     setItens((prev) => prev.map((it) => it.id === id ? { ...it, status: 'gerando', msg: undefined } : it))
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      const r = await fetch(`/api/banco/${provider}/registrar-boleto`, {
+      const r = await fetch(`/api/banco/${prov}/registrar-boleto`, {
         method: 'POST', credentials: 'include',
         headers: { 'content-type': 'application/json', authorization: session ? `Bearer ${session.access_token}` : '' },
         body: JSON.stringify({ receber_id: id }),
@@ -111,6 +138,7 @@ export default function GerarBoletosReceita({
     setBaixando(true)
     try {
       const { data: { session } } = await supabase.auth.getSession()
+      const usados: string[] = [] // #2957: dois boletos do mesmo cliente e vencimento ganham sufixo _2, _3…
       for (const it of itens) {
         if (it.status !== 'ok') continue
         try {
@@ -120,11 +148,9 @@ export default function GerarBoletosReceita({
           })
           if (!r.ok) continue
           const blob = await r.blob()
-          const url = URL.createObjectURL(blob)
-          const a = document.createElement('a')
-          a.href = url; a.download = `boleto-${it.id.slice(0, 8)}.pdf`
-          document.body.appendChild(a); a.click(); a.remove()
-          setTimeout(() => URL.revokeObjectURL(url), 60_000)
+          const nome = nomeDoContentDisposition(r.headers.get('content-disposition')) ?? `boleto-${it.id.slice(0, 8)}.pdf`
+          usados.push(nome)
+          baixarBlob(blob, nomesUnicos(usados)[usados.length - 1])
         } catch { /* pula o que falhar; os demais seguem */ }
       }
     } finally {

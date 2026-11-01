@@ -35,7 +35,7 @@ async function comoRobo<T>(fn: string, args: Record<string, unknown>): Promise<T
   return (txt ? JSON.parse(txt) : null) as T
 }
 
-type Ap = { status: string; detalhe: { pausas_devidas: number; pausas_realizadas: number; sem_dado_motivo: string | null; almoco_min?: number } }
+type Ap = { status: string; detalhe: { pausas_devidas: number; pausas_realizadas: number; sem_dado_motivo: string | null; almoco_min?: number; nao_realizada_estimado?: { faltantes: number; estimado: boolean } } }
 const apurado = async () => (await dbSelect<Ap>('nr36_pausa_apurada', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=eq.${DIA}&tipo=eq.termica_253&select=status,detalhe`))[0]
 
 async function importar(batidas: string[], pausas: Array<[string, string, number]>, shift: string) {
@@ -71,7 +71,7 @@ const D16 = { batidas: ['05:28', '10:58', '12:12', '15:27'], shift: '05:30-11:00
 const D30 = { batidas: ['07:19', '12:00', '12:59', '17:23'], shift: '07:30-12:00 13:10-17:28',
   pausas: [['08:47', '09:13', 1560], ['11:39', '11:59', 1200], ['14:49', '15:11', 1320], ['16:40', '17:00', 1200]] as Array<[string, string, number]> }
 
-test.describe('NR-36: almoço desconta da exposição e pausa faltante é pendente (#587)', () => {
+test.describe('NR-36: almoço desconta da exposição; pausa faltante estimada é conforme + sinal (#587 · #2119)', () => {
   // limpeza do próprio fixture (só 2022, só a colaboradora da demo, só a matrícula do spec)
   async function limparFixture() {
     const janela = `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=gte.2022-01-01&data=lte.2022-12-31`
@@ -115,22 +115,30 @@ test.describe('NR-36: almoço desconta da exposição e pausa faltante é penden
     if (criouRegra) await dbDelete('nr36_pausa_regra', `company_id=eq.${DEMO_SST}`).catch(() => {})
   })
 
-  test('com almoco_interrompe_exposicao: 16/09 do Leonel (3 de 4 pausas) vira PENDENTE · pausas_faltantes', { tag: '@pos-migration' }, async () => {
+  // #2119 (CEO 31/10, supera #587 04/10): dia com TODAS as pausas realizadas conformes e fechadas, em que a
+  // única falta é uma pausa DEVIDA-por-exposição NÃO realizada (estimativa), é CONFORME no veredito legal — a
+  // falta estimada fica SINALIZADA à parte (fn_nr36_reconciliacao), nunca como "aguardando conferência" (não há
+  // o que conferir). O desconto do almoço da exposição (#587) continua: devido=4, realizado=3.
+  test('com almoco_interrompe_exposicao: 16/09 do Leonel (3 de 4, todas conformes) é CONFORME com a falta SINALIZADA à parte (#2119)', { tag: '@pos-migration' }, async () => {
     await dbPatch('nr36_pausa_regra', `company_id=eq.${DEMO_SST}&tipo=eq.termica_253`, { parametros: { ...(regraOriginal ?? {}), almoco_interrompe_exposicao: true } })
     await importar(D16.batidas, D16.pausas, D16.shift)
     const ap = await apurado()
-    expect(ap.detalhe.almoco_min, 'almoço de 74 min descontado').toBe(74)
+    expect(ap.detalhe.almoco_min, 'almoço de 74 min descontado (#587 intacto)').toBe(74)
     expect(ap.detalhe.pausas_devidas).toBe(4)
     expect(ap.detalhe.pausas_realizadas).toBe(3)
-    expect(ap.status, 'nunca conforme (RD-51) nem desvio por estimativa (RD-38)').toBe('pendente_confirmacao')
-    expect(ap.detalhe.sem_dado_motivo).toBe('pausas_faltantes')
+    expect(ap.status, 'todas as realizadas conformes; falta só estimada → conforme (#2119)').toBe('conforme')
+    expect(ap.detalhe.sem_dado_motivo, 'conforme não carrega motivo de pendência').toBeNull()
+    // a falta estimada continua gravada no detalhe (base do sinal)
+    expect(ap.detalhe.nao_realizada_estimado?.estimado).toBe(true)
+    expect(ap.detalhe.nao_realizada_estimado?.faltantes).toBe(1)
 
-    // Supervisão: o pendente chega com o motivo e os números que a tela explica
-    const sup = await comoRobo<{ pendentes: Array<{ cpf: string; data: string; motivo: string; pausas_devidas: number; pausas_realizadas: number }> }>(
-      'fn_nr36_supervisao_pendentes', { p_company_id: DEMO_SST, p_dt_ini: DIA, p_dt_fim: DIA })
-    const p = sup.pendentes.find(x => x.cpf === cpf && x.data === DIA)
-    expect(p?.motivo).toBe('pausas_faltantes')
-    expect([p?.pausas_devidas, p?.pausas_realizadas]).toEqual([4, 3])
+    // Reconciliação: a falta aparece SINALIZADA à parte (fora do veredito legal), nunca somada ao desvio
+    const rec = await comoRobo<{ ok: boolean; dias: { conforme: number; pendente_confirmacao: number }; sinalizado: { dias_com_estimativa: number; pausas_nao_realizadas_estimadas: number } }>(
+      'fn_nr36_reconciliacao', { p_company_id: DEMO_SST, p_dt_ini: DIA, p_dt_fim: DIA })
+    expect(rec.ok).toBe(true)
+    expect(rec.dias.conforme, 'o dia entra como conforme no veredito').toBeGreaterThanOrEqual(1)
+    expect(rec.sinalizado.dias_com_estimativa, 'e aparece sinalizado à parte').toBeGreaterThanOrEqual(1)
+    expect(rec.sinalizado.pausas_nao_realizadas_estimadas).toBeGreaterThanOrEqual(1)
   })
 
   test('com o parâmetro: 30/09 do Leonel (4 de 4 pausas) é CONFORME', { tag: '@pos-migration' }, async () => {

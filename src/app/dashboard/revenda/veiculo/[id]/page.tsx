@@ -10,6 +10,9 @@ import { SortableContext, arrayMove, sortableKeyboardCoordinates, rectSortingStr
 import { CSS } from '@dnd-kit/utilities'
 import { supabase } from '@/lib/supabase'
 import { mensagemDeResultado, estiloBordaInput } from '@/components/ui/feedback/contratoSalvar'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { buscarClientesErp, nomeErp, type ErpCliente } from '@/components/pm/ClienteBusca'
+import { parseNumBR } from '@/lib/num'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -127,6 +130,9 @@ function Inner() {
   async function userId() { const { data: { session } } = await supabase.auth.getSession(); return session?.user?.id ?? null }
 
   async function mudarSituacao(nova: string) {
+    // Alliance #3725: 'vendido' sem venda registrada não pode passar por aqui (ficaria sem valor de venda e sem lucro real).
+    // Abre a janela de registrar venda, que exige o valor; a situação muda junto com a venda.
+    if (nova === 'vendido' && !venda) { setModal('venda'); return }
     const { data, error } = await supabase.rpc('fn_veic_mudar_situacao', { p_veiculo_id: id, p_nova: nova, p_user: await userId(), p_obs: null })
     const r = data as { ok?: boolean; erro?: string } | null
     if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha'); return }
@@ -343,9 +349,9 @@ function Inner() {
   )
 }
 
-function Modal({ titulo, children, onClose }: { titulo: string; children: React.ReactNode; onClose: () => void }) {
+function Modal({ titulo, children, onClose, fecharFora = true }: { titulo: string; children: React.ReactNode; onClose: () => void; fecharFora?: boolean }) {
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, overflowY: 'auto' }}>
+    <div onClick={fecharFora ? onClose : undefined} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, overflowY: 'auto' }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, borderRadius: 12, padding: 18, width: 'min(560px,100%)', maxHeight: '92vh', overflowY: 'auto' }}>
         <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>{titulo}</div>
         {children}
@@ -403,7 +409,54 @@ function ReservaModal({ companyId, veiculoId, onClose, onSaved, onErro }: { comp
   )
 }
 
+// #5678 — dinheiro digitado: mostra "R$ 100.000,00" enquanto digita; guarda só o número (parseNumBR aceita vírgula e ponto).
+const moedaMascara = (s: string): string => {
+  const d = s.replace(/\D/g, '')
+  if (!d) return ''
+  return (Number(d) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+const moedaNum = (s: string): number | null => parseNumBR(String(s).replace(/[R$\s.]/g, '').replace(',', '.'))
+function InputMoeda({ value, onChange, placeholder, style, ajuda }: { value: string; onChange: (v: string) => void; placeholder: string; style?: React.CSSProperties; ajuda: string }) {
+  const { gridColumn, ...resto } = style ?? {}
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, gridColumn }}>
+      <input value={value} onChange={(e) => onChange(moedaMascara(e.target.value))} placeholder={placeholder} inputMode="numeric" style={{ ...resto, flex: 1, minWidth: 0 }} />
+      <AjudaCampo chave={ajuda} rota="/dashboard/revenda/veiculo" />
+    </div>
+  )
+}
+
+// #5678 — cliente da venda vem do cadastro do GE (erp_clientes): nome ou CPF/CNPJ.
+function ClienteVendaBusca({ companyId, nome, onNome, onEscolher, invalido }: { companyId: string; nome: string; onNome: (v: string) => void; onEscolher: (c: ErpCliente | null) => void; invalido: boolean }) {
+  const [lista, setLista] = useState<ErpCliente[]>([])
+  const [aberto, setAberto] = useState(false)
+  useEffect(() => {
+    if (!aberto || nome.trim().length < 2) { setLista([]); return }
+    const t = setTimeout(() => { void buscarClientesErp(companyId, nome).then(setLista) }, 220)
+    return () => clearTimeout(t)
+  }, [nome, aberto, companyId])
+  return (
+    <div style={{ position: 'relative' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <input value={nome} onChange={(e) => { onNome(e.target.value); onEscolher(null); setAberto(true) }} onFocus={() => setAberto(true)} placeholder="cliente * (nome ou CPF/CNPJ)" data-testid="venda-cliente" style={{ ...inp, flex: 1, minWidth: 0, ...estiloBordaInput(invalido ? 'x' : null) }} />
+        <AjudaCampo chave="revenda.venda.cliente" rota="/dashboard/revenda/veiculo" />
+      </div>
+      {aberto && lista.length > 0 && (
+        <div style={{ position: 'absolute', left: 0, right: 0, zIndex: 5, background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, maxHeight: 220, overflowY: 'auto', boxShadow: '0 6px 18px rgba(0,0,0,0.15)' }}>
+          {lista.map((c) => (
+            <button key={c.id} type="button" data-testid="venda-cliente-opcao" onClick={() => { onEscolher(c); onNome(nomeErp(c)); setAberto(false) }} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 13 }}>
+              <b>{nomeErp(c)}</b>
+              <span style={{ display: 'block', fontSize: 11.5, color: C.espL }}>{[c.cpf_cnpj || c.cnpj_cpf, c.cidade].filter(Boolean).join(' · ')}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onSaved, onErro }: { companyId: string; veiculoId: string; custoTotal: number; margemAlvo: number; onClose: () => void; onSaved: () => void; onErro: (m: string) => void }) {
+  const [clienteSel, setClienteSel] = useState<ErpCliente | null>(null)
   const [f, setF] = useState({ cliente_nome: '', vendedor_nome: '', valor_venda: '', valor_entrada: '', valor_financiado: '', banco_nome: '', retorno_banco: '' })
   const [troca, setTroca] = useState({ on: false, chassi: '', modelo: '', valor_troca: '', valor_avaliacao: '' })
   const [busy, setBusy] = useState(false)
@@ -411,7 +464,7 @@ function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onS
   const [campo, setCampo] = useState<string | null>(null)
   // Simulador ao vivo (§3.2): o vendedor vê as duas margens recalcularem ANTES de fechar — o momento
   // em que a decisão ainda pode mudar. Mesma conta da fn_veic_venda_composicao, só que client-side.
-  const n = (s: string): number => Number(String(s).replace(',', '.')) || 0
+  const n = (s: string): number => moedaNum(s) ?? 0
   const vendaN = n(f.valor_venda)
   const retornoN = n(f.retorno_banco)
   const trocaValPreenchido = troca.on && troca.valor_troca.trim() !== ''
@@ -424,8 +477,8 @@ function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onS
   const pct = (m: number): number | null => custoTotal > 0 ? Math.round((m / custoTotal * 100) * 100) / 100 : null
   const realPct = pct(margemReal)
   const abaixoMeta = realPct != null && realPct < margemAlvo
-  const descontoEmbutido = (Number(troca.valor_troca) || 0) - (Number(troca.valor_avaliacao) || 0)
-  const vvNum = Number(String(f.valor_venda).replace(',', '.'))
+  const descontoEmbutido = (n(troca.valor_troca)) - (n(troca.valor_avaliacao))
+  const vvNum = moedaNum(f.valor_venda) ?? NaN
   const vvOk = f.valor_venda.trim() !== '' && Number.isFinite(vvNum) && vvNum > 0
   const podeEnviar = !!f.cliente_nome.trim() && vvOk && !busy
   async function salvar() {
@@ -435,16 +488,16 @@ function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onS
     setBusy(true)
     const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const recebimentos: { tipo: string; devedor: string; valor: number }[] = []
-    if (Number(f.valor_entrada) > 0) recebimentos.push({ tipo: 'entrada', devedor: 'cliente', valor: Number(f.valor_entrada) })
-    if (Number(f.valor_financiado) > 0) recebimentos.push({ tipo: 'financiamento', devedor: 'banco', valor: Number(f.valor_financiado) })
-    if (Number(f.retorno_banco) > 0) recebimentos.push({ tipo: 'retorno_banco', devedor: 'banco', valor: Number(f.retorno_banco) })
+    if (n(f.valor_entrada) > 0) recebimentos.push({ tipo: 'entrada', devedor: 'cliente', valor: n(f.valor_entrada) })
+    if (n(f.valor_financiado) > 0) recebimentos.push({ tipo: 'financiamento', devedor: 'banco', valor: n(f.valor_financiado) })
+    if (n(f.retorno_banco) > 0) recebimentos.push({ tipo: 'retorno_banco', devedor: 'banco', valor: n(f.retorno_banco) })
     // sem entrada/financiamento explícitos: à vista, o cliente deve o valor da venda
-    if (recebimentos.length === 0 && Number(f.valor_venda) > 0) recebimentos.push({ tipo: 'parcela', devedor: 'cliente', valor: Number(f.valor_venda) })
+    if (recebimentos.length === 0 && n(f.valor_venda) > 0) recebimentos.push({ tipo: 'parcela', devedor: 'cliente', valor: n(f.valor_venda) })
     const { data, error } = await supabase.rpc('fn_veic_venda_registrar', {
       p_company_id: companyId, p_veiculo_id: veiculoId,
-      p_venda: { cliente_nome: f.cliente_nome.trim() || null, vendedor_nome: f.vendedor_nome.trim() || null, valor_venda: f.valor_venda ? Number(f.valor_venda) : null, valor_entrada: f.valor_entrada ? Number(f.valor_entrada) : null, valor_financiado: f.valor_financiado ? Number(f.valor_financiado) : null, banco_nome: f.banco_nome.trim() || null, retorno_banco: f.retorno_banco ? Number(f.retorno_banco) : null },
+      p_venda: { cliente_nome: f.cliente_nome.trim() || null, cliente_id: clienteSel?.id ?? null, cliente_doc: clienteSel ? (clienteSel.cpf_cnpj || clienteSel.cnpj_cpf || null) : null, vendedor_nome: f.vendedor_nome.trim() || null, valor_venda: f.valor_venda ? n(f.valor_venda) : null, valor_entrada: f.valor_entrada ? n(f.valor_entrada) : null, valor_financiado: f.valor_financiado ? n(f.valor_financiado) : null, banco_nome: f.banco_nome.trim() || null, retorno_banco: f.retorno_banco ? n(f.retorno_banco) : null },
       p_recebimentos: recebimentos,
-      p_troca: troca.on ? { chassi: troca.chassi.trim() || null, modelo: troca.modelo.trim() || null, valor_troca: troca.valor_troca ? Number(troca.valor_troca) : null, valor_avaliacao: troca.valor_avaliacao ? Number(troca.valor_avaliacao) : null } : null,
+      p_troca: troca.on ? { chassi: troca.chassi.trim() || null, modelo: troca.modelo.trim() || null, valor_troca: troca.valor_troca ? n(troca.valor_troca) : null, valor_avaliacao: troca.valor_avaliacao ? n(troca.valor_avaliacao) : null } : null,
       p_user: user?.id ?? null,
     })
     setBusy(false)
@@ -456,20 +509,20 @@ function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onS
     onSaved()
   }
   return (
-    <Modal titulo="Registrar venda" onClose={onClose}>
+    <Modal titulo="Registrar venda" onClose={onClose} fecharFora={false}>
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '8px 12px', borderRadius: 8, fontSize: 12.5, marginBottom: 10 }}>{erro}</div>}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-        <input value={f.cliente_nome} onChange={(e) => setF({ ...f, cliente_nome: e.target.value })} placeholder="cliente *" style={{ ...inp, ...estiloBordaInput(campo === 'cliente_nome' ? 'x' : null) }} />
+        <ClienteVendaBusca companyId={companyId} nome={f.cliente_nome} onNome={(v) => setF((x) => ({ ...x, cliente_nome: v }))} onEscolher={setClienteSel} invalido={campo === 'cliente_nome'} />
         <input value={f.vendedor_nome} onChange={(e) => setF({ ...f, vendedor_nome: e.target.value })} placeholder="vendedor" style={inp} />
-        <input value={f.valor_venda} onChange={(e) => setF({ ...f, valor_venda: e.target.value })} placeholder="valor da venda *" inputMode="decimal" style={{ ...inp, gridColumn: '1 / -1', ...estiloBordaInput(campo === 'valor_venda' ? 'x' : null) }} />
+        <InputMoeda value={f.valor_venda} onChange={(v) => setF({ ...f, valor_venda: v })} placeholder="valor da venda *" ajuda="revenda.venda.valor_venda" style={{ ...inp, gridColumn: '1 / -1', ...estiloBordaInput(campo === 'valor_venda' ? 'x' : null) }} />
       </div>
 
       <div style={{ fontSize: 12, fontWeight: 700, color: C.espM, margin: '12px 0 4px' }}>Pagamento</div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-        <input value={f.valor_entrada} onChange={(e) => setF({ ...f, valor_entrada: e.target.value })} placeholder="entrada (cliente)" style={inp} />
-        <input value={f.valor_financiado} onChange={(e) => setF({ ...f, valor_financiado: e.target.value })} placeholder="financiado (banco)" style={inp} />
+        <InputMoeda value={f.valor_entrada} onChange={(v) => setF({ ...f, valor_entrada: v })} placeholder="entrada (cliente)" ajuda="revenda.venda.entrada" style={inp} />
+        <InputMoeda value={f.valor_financiado} onChange={(v) => setF({ ...f, valor_financiado: v })} placeholder="financiado (banco)" ajuda="revenda.venda.financiado" style={inp} />
         <input value={f.banco_nome} onChange={(e) => setF({ ...f, banco_nome: e.target.value })} placeholder="banco" style={inp} />
-        <input value={f.retorno_banco} onChange={(e) => setF({ ...f, retorno_banco: e.target.value })} placeholder="retorno do banco (receita)" style={inp} />
+        <InputMoeda value={f.retorno_banco} onChange={(v) => setF({ ...f, retorno_banco: v })} placeholder="retorno do banco (receita)" ajuda="revenda.venda.retorno_banco" style={inp} />
       </div>
       <div style={{ fontSize: 11, color: C.espL, marginTop: 4 }}>O financiado é cobrado do banco; a entrada, do cliente. Cada um vira um título em contas a receber com o devedor certo.</div>
 
@@ -481,12 +534,12 @@ function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onS
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <input value={troca.chassi} onChange={(e) => setTroca({ ...troca, chassi: e.target.value })} placeholder="chassi do usado (p/ entrar no estoque)" style={{ ...inp, gridColumn: '1 / -1', ...estiloBordaInput(campo === 'troca_chassi' ? 'x' : null) }} />
             <input value={troca.modelo} onChange={(e) => setTroca({ ...troca, modelo: e.target.value })} placeholder="modelo" style={{ ...inp, gridColumn: '1 / -1' }} />
-            <input value={troca.valor_troca} onChange={(e) => setTroca({ ...troca, valor_troca: e.target.value })} placeholder="valor dado na troca" style={inp} />
-            <input value={troca.valor_avaliacao} onChange={(e) => setTroca({ ...troca, valor_avaliacao: e.target.value })} placeholder="valor de avaliação (quanto vale)" style={inp} />
+            <InputMoeda value={troca.valor_troca} onChange={(x) => setTroca({ ...troca, valor_troca: x })} placeholder="valor dado na troca" ajuda="revenda.venda.valor_troca" style={inp} />
+            <InputMoeda value={troca.valor_avaliacao} onChange={(x) => setTroca({ ...troca, valor_avaliacao: x })} placeholder="valor de avaliação (quanto vale)" ajuda="revenda.venda.valor_avaliacao" style={inp} />
           </div>
           <div style={{ fontSize: 11.5, color: descontoEmbutido > 0 ? C.amber : C.espL, marginTop: 6 }}>
             {descontoEmbutido > 0
-              ? `Desconto embutido na venda: ${brl(descontoEmbutido)}. O usado entra no estoque pelo valor de avaliação (${brl(Number(troca.valor_avaliacao) || 0)}), não pelo valor dado — assim as duas margens ficam certas.`
+              ? `Desconto embutido na venda: ${brl(descontoEmbutido)}. O usado entra no estoque pelo valor de avaliação (${brl(n(troca.valor_avaliacao))}), não pelo valor dado — assim as duas margens ficam certas.`
               : 'O usado entra no estoque pelo valor de avaliação. Se o valor dado for maior, a diferença vira desconto embutido na venda.'}
           </div>
         </div>
@@ -984,7 +1037,6 @@ function PreparacaoModal({ veiculoId, onClose, onSaved, onErro }: { veiculoId: s
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
         <button onClick={onClose} style={{ padding: '8px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.espM, cursor: 'pointer' }}>Cancelar</button>
-        <button disabled={busy} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: busy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>{busy ? 'Abrindo…' : 'Abrir OS'}</button>
       </div>
     </Modal>
   )
@@ -1249,15 +1301,40 @@ const COMBS = ['gasolina', 'etanol', 'flex', 'diesel', 'gnv', 'elétrico', 'híb
 const simNao = (b: boolean | null | undefined) => (b == null ? '' : b ? 'sim' : 'nao')
 // #101 (Fábio): 3 veículos da Alliance com modelo = "2009"/"2021"/"2025" — o ano foi digitado no modelo.
 const pareceAno = (m: string) => /^(19|20)\d{2}$/.test(m.trim())
-function SimNao({ id, rotulo, valor, onC }: { id: string; rotulo: string; valor: string; onC: (v: string) => void }) {
+function SimNao({ id, rotulo, valor, onC, ajuda }: { id: string; rotulo: string; valor: string; onC: (v: string) => void; ajuda: string }) {
   return (
     <label htmlFor={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: C.espM }}>
       {rotulo}
       <select id={id} value={valor} onChange={(e) => onC(e.target.value)} style={{ ...inp, width: 72 }}>
         <option value="">—</option><option value="sim">sim</option><option value="nao">não</option>
       </select>
+      <AjudaCampo chave={ajuda} rota="/dashboard/revenda/veiculo" />
     </label>
   )
+}
+// #5662: rótulo FIXO acima do campo (o placeholder some quando preenchido) + dica curta + aviso opcional (não bloqueia).
+function CampoRot({ id, rotulo, dica, aviso, ajuda, children }: { id: string; rotulo: string; dica?: string; aviso?: string | null; ajuda: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxWidth: 230 }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 700, color: C.espM }}>
+        <label htmlFor={id}>{rotulo}</label>
+        <AjudaCampo chave={ajuda} rota="/dashboard/revenda/veiculo" />
+      </span>
+      {children}
+      {dica && <span style={{ fontSize: 11, color: C.espL }}>{dica}</span>}
+      {aviso && <span style={{ fontSize: 11.5, color: '#8A4B08', background: C.amberBg, borderRadius: 6, padding: '3px 7px' }}>Atenção: {aviso}</span>}
+    </div>
+  )
+}
+// número digitado em formato BR ("72.956,00") ou simples ("72956") → number | null
+const numBR = (t: string) => { const b = t.trim(); if (!b) return null; const n = Number(b.includes(',') ? b.replace(/\./g, '').replace(',', '.') : b); return Number.isFinite(n) ? n : null }
+const DICAS: Record<string, { r: string; d: string }> = {
+  marca: { r: 'Marca', d: 'Fabricante, ex.: Chevrolet' }, modelo: { r: 'Modelo', d: 'Só o nome, sem o ano, ex.: Onix' },
+  versao: { r: 'Versão', d: 'Acabamento, ex.: Premier 1.8 AT' }, cor: { r: 'Cor', d: 'Como no documento, ex.: Prata' },
+  portas: { r: 'Portas', d: 'ex.: 4' }, cambio: { r: 'Câmbio', d: 'manual ou automático' },
+  ano_fabricacao: { r: 'Ano de fabricação', d: '4 dígitos, ex.: 2020' }, ano_modelo: { r: 'Ano do modelo', d: '4 dígitos, ex.: 2021' },
+  renavam: { r: 'RENAVAM', d: 'Número do documento (CRLV)' }, potencia_cv: { r: 'Potência (cv)', d: 'Em cavalos, ex.: 110' },
+  lugares: { r: 'Lugares', d: 'Capacidade de passageiros, ex.: 5' },
 }
 function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic; faltantes: string[] | null; sugestaoAno: number | null; onSaved: () => void; onErro: (m: string) => void }) {
   const num = (n: number | null) => (n == null ? '' : String(n))
@@ -1272,11 +1349,42 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
     observacao: v.observacao ?? '',
     // R7b (Tela 5): tipo do veículo — também alimenta a sugestão de NCM
     tipo: v.tipo ?? '',
+    // #5671: valor de aquisição editável (custo da compra)
+    valor_aquisicao: v.valor_aquisicao == null ? '' : String(v.valor_aquisicao),
     // item 2c-c: fiscal do veículo
     valor_fipe: vf.valor_fipe == null ? '' : String(vf.valor_fipe), ncm: vf.ncm ?? '', lugares: vf.lugares == null ? '' : String(vf.lugares),
   })
+  // Chamado #34 (Alliance): veículo consignado — dono e valor combinado (comissão da loja NÃO entra: é do acerto na venda)
+  const vc = v as unknown as { consignado?: boolean | null; consignante_nome?: string | null; consignante_documento?: string | null; consignante_valor_combinado?: number | null }
+  const [cons, setCons] = useState({
+    consignado: !!vc.consignado, nome: vc.consignante_nome ?? '', documento: vc.consignante_documento ?? '',
+    valor: vc.consignante_valor_combinado == null ? '' : String(vc.consignante_valor_combinado).replace('.', ','),
+  })
+  const [consBusy, setConsBusy] = useState(false)
+  const [consMsg, setConsMsg] = useState<{ ok: boolean; t: string } | null>(null)
+  async function salvarConsignacao() {
+    setConsMsg(null)
+    const doc = cons.documento.replace(/\D/g, '')
+    if (cons.consignado && !cons.nome.trim()) { setConsMsg({ ok: false, t: 'Informe o nome do consignante.' }); return }
+    if (cons.documento.trim() && doc.length !== 11 && doc.length !== 14) { setConsMsg({ ok: false, t: 'CPF/CNPJ inválido — use 11 ou 14 dígitos.' }); return }
+    let valor: number | null = null
+    if (cons.valor.trim()) {
+      const bruto = cons.valor.trim()
+      const n = Number(bruto.includes(',') ? bruto.replace(/\./g, '').replace(',', '.') : bruto)
+      if (!Number.isFinite(n) || n < 0) { setConsMsg({ ok: false, t: 'Valor combinado inválido — ex.: 58000 ou 58.000,00.' }); return }
+      valor = n
+    }
+    setConsBusy(true)
+    const { error } = await supabase.from('veic_veiculo').update(cons.consignado
+      ? { consignado: true, consignante_nome: cons.nome.trim(), consignante_documento: doc || null, consignante_valor_combinado: valor }
+      : { consignado: false, consignante_nome: null, consignante_documento: null, consignante_valor_combinado: null }).eq('id', v.id)
+    setConsBusy(false)
+    if (error) { setConsMsg({ ok: false, t: 'Não foi possível salvar a consignação agora. Tente de novo em instantes.' }); return }
+    setConsMsg({ ok: true, t: 'Consignação salva.' }); onSaved()
+  }
   const [busy, setBusy] = useState(false)
   const [ncmMsg, setNcmMsg] = useState<string | null>(null)
+  const [ncmPend, setNcmPend] = useState<string | null>(null) // #5662: NCM sugerido aguardando confirmação de troca
   // #140/#141 (Fábio): o salvar falhava em silêncio (HTTP 400 com "72.956,00") e o aviso ia pro topo da ficha.
   // Agora o erro aparece AQUI, ao lado do botão, com o campo marcado.
   const [erroLocal, setErroLocal] = useState<string | null>(null)
@@ -1287,7 +1395,9 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
     const { data } = await supabase.rpc('fn_veic_veiculo_fiscal', { p_veiculo_id: v.id, p_tipo: tp })
     const r = data as { ok?: boolean; ncm_sugerido?: string | null; ncm_padrao?: string | null } | null
     const sug = r?.ncm_sugerido ?? r?.ncm_padrao ?? null
-    if (sug) { setF((p) => ({ ...p, ncm: sug })); setNcmMsg(`NCM ${r?.ncm_sugerido ? 'sugerido pela tabela' : 'do padrão da empresa'}: ${sug}`) }
+    if (sug && f.ncm.trim() && f.ncm.trim() !== sug) { setNcmPend(sug); setNcmMsg(null) }
+    else if (sug && f.ncm.trim() === sug) setNcmMsg(`O NCM ${sug} já é o sugerido.`)
+    else if (sug) { setF((p) => ({ ...p, ncm: sug })); setNcmMsg(`NCM ${r?.ncm_sugerido ? 'sugerido pela tabela' : 'do padrão da empresa'}: ${sug}`) }
     else setNcmMsg('Sem sugestão para este veículo — informe o NCM com o seu contador.')
   }
   const anoSugerido = sugestaoAno != null && (!f.ano_modelo || !f.ano_fabricacao)
@@ -1307,11 +1417,27 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
         : 'Não foi possível salvar agora. Tente de novo em instantes.'
       setErroLocal(m); setCampo(r?.campo ?? null); onErro(m); return
     }
-    onSaved()
+    setInicial(JSON.stringify(f)); onSaved()
   }
-  const F = (k: keyof typeof f, ph: string, w?: number) => (
-    <input id={`campo-${String(k)}`} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} placeholder={ph} style={{ ...inp, width: w, ...estiloBordaInput(campo === String(k) ? 'x' : null) }} />
+  const F = (k: keyof typeof f, ph: string, w?: number, extra?: { dica?: string; aviso?: string | null }) => (
+    <CampoRot id={`campo-${String(k)}`} ajuda={`revenda.veiculo.${String(k)}`} rotulo={DICAS[String(k)]?.r ?? ph} dica={extra?.dica ?? DICAS[String(k)]?.d} aviso={extra?.aviso}>
+      <input id={`campo-${String(k)}`} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} placeholder={ph} style={{ ...inp, width: w, ...estiloBordaInput(campo === String(k) ? 'x' : null) }} />
+    </CampoRot>
   )
+  // #5662: avisos (não bloqueiam) para valores implausíveis
+  const nCil = numBR(f.cilindradas), nAq = numBR(f.valor_aquisicao)
+  const avisoCil = nCil != null && nCil > 0 && nCil < 50 ? `Parece pouco: cilindradas se informa em cc (ex.: 1800), não em litros nem em número de cilindros.` : null
+  const avisoAq = nAq != null && nAq > 0 && v.preco_venda != null && v.preco_venda > 0 && nAq < v.preco_venda * 0.25
+    ? `Aquisição muito abaixo do preço de venda (${brl(v.preco_venda)}). Confira se não falta um zero.` : null
+  // #5662: alterações não salvas — marca o que foi carregado e avisa ao sair da tela
+  const [inicial, setInicial] = useState(() => JSON.stringify(f))
+  const sujo = JSON.stringify(f) !== inicial
+  useEffect(() => {
+    if (!sujo) return
+    const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', h)
+    return () => window.removeEventListener('beforeunload', h)
+  }, [sujo])
   return (
     <div>
       {(faltantes?.length ?? 0) > 0 && (
@@ -1328,20 +1454,29 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
         </div>
       )}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-        <select id="campo-tipo" value={f.tipo} onChange={(e) => setF({ ...f, tipo: e.target.value })} style={inp} title="tipo do veículo — usado na sugestão de NCM">
-          <option value="">tipo…</option>{TIPOS.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}
-        </select>
+        <CampoRot id="campo-tipo" ajuda="revenda.veiculo.tipo" rotulo="Tipo do veículo" dica="Define a sugestão de NCM">
+          <select id="campo-tipo" value={f.tipo} onChange={(e) => setF({ ...f, tipo: e.target.value })} style={inp} title="tipo do veículo — usado na sugestão de NCM">
+            <option value="">tipo…</option>{TIPOS.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}
+          </select>
+        </CampoRot>
         {F('marca', 'marca', 130)}{F('modelo', 'modelo (ex.: Onix)', 150)}{F('versao', 'versão', 130)}{F('cor', 'cor', 100)}
-        <select id="campo-combustivel" value={f.combustivel} onChange={(e) => setF({ ...f, combustivel: e.target.value })} style={inp}>
-          <option value="">combustível…</option>{COMBS.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <input id="campo-km_atual" value={f.km_atual} onChange={(e) => setF({ ...f, km_atual: e.target.value })} inputMode="numeric"
-          placeholder={v.km_entrada != null ? `KM (entrada ${Number(v.km_entrada).toLocaleString('pt-BR')})` : 'KM'} title="quilometragem atual"
-          style={{ ...inp, width: 130, ...estiloBordaInput(campo === 'km_atual' ? 'x' : null) }} />
-        <SimNao id="campo-tem_manual" rotulo="manual" valor={f.tem_manual} onC={(x) => setF({ ...f, tem_manual: x })} />
-        <SimNao id="campo-tem_chave_reserva" rotulo="chave reserva" valor={f.tem_chave_reserva} onC={(x) => setF({ ...f, tem_chave_reserva: x })} />
+        <CampoRot id="campo-combustivel" ajuda="revenda.veiculo.combustivel" rotulo="Combustível" dica="ex.: flex">
+          <select id="campo-combustivel" value={f.combustivel} onChange={(e) => setF({ ...f, combustivel: e.target.value })} style={inp}>
+            <option value="">combustível…</option>{COMBS.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </CampoRot>
+        <CampoRot id="campo-km_atual" ajuda="revenda.veiculo.km_atual" rotulo="KM atual" dica="Lida no painel, só números">
+          <input id="campo-km_atual" value={f.km_atual} onChange={(e) => setF({ ...f, km_atual: e.target.value })} inputMode="numeric"
+            placeholder={v.km_entrada != null ? `KM (entrada ${Number(v.km_entrada).toLocaleString('pt-BR')})` : 'KM'} title="quilometragem atual"
+            style={{ ...inp, width: 130, ...estiloBordaInput(campo === 'km_atual' ? 'x' : null) }} />
+        </CampoRot>
+        <SimNao id="campo-tem_manual" rotulo="manual" ajuda="revenda.veiculo.tem_manual" valor={f.tem_manual} onC={(x) => setF({ ...f, tem_manual: x })} />
+        <SimNao id="campo-tem_chave_reserva" rotulo="chave reserva" ajuda="revenda.veiculo.tem_chave_reserva" valor={f.tem_chave_reserva} onC={(x) => setF({ ...f, tem_chave_reserva: x })} />
         {F('portas', 'portas', 70)}{F('cambio', 'câmbio', 100)}
         {F('ano_fabricacao', 'ano fab.', 80)}{F('ano_modelo', 'ano mod.', 80)}{F('renavam', 'renavam', 120)}
+        <CampoRot id="campo-valor_aquisicao" ajuda="revenda.veiculo.valor_aquisicao" rotulo="Valor de aquisição (R$)" dica="Pago na compra, ex.: 72.956,00" aviso={avisoAq}>
+          <input id="campo-valor_aquisicao" value={f.valor_aquisicao} onChange={(e) => setF({ ...f, valor_aquisicao: e.target.value })} inputMode="decimal" placeholder="aquisição (R$)" style={{ ...inp, width: 130, ...estiloBordaInput(campo === 'valor_aquisicao' ? 'x' : null) }} />
+        </CampoRot>
         <button disabled={busy} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: busy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer' }}>{busy ? 'Salvando…' : 'Salvar dados'}</button>
       </div>
       {pareceAno(f.modelo) && (
@@ -1352,18 +1487,60 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
       <textarea id="campo-observacao" value={f.observacao} onChange={(e) => setF({ ...f, observacao: e.target.value })} rows={2} maxLength={2000}
         placeholder="especificação (opcionais, estado, detalhes — entra no texto do anúncio)"
         style={{ ...inp, width: '100%', marginTop: 8, resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }} />
-      {erroLocal && <div style={{ background: C.redBg, color: C.red, padding: '6px 10px', borderRadius: 7, fontSize: 12, marginTop: 6, display: 'inline-block' }}>{erroLocal}</div>}
       {/* item 2c-c: Fiscal do veículo — FIPE (comissão/frescor) e NCM (nota; 8 dígitos) */}
       <div style={{ borderTop: `1px solid ${C.cream}`, marginTop: 10, paddingTop: 10 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: C.esp, marginBottom: 6 }}>Fiscal do veículo <span style={{ fontWeight: 400, color: C.espL }}>· FIPE, NCM, potência e cilindradas (dados da nota)</span></div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-          {F('potencia_cv', 'potência (cv)', 110)}{F('cilindradas', f.tipo === 'moto' ? 'cilindradas (moto: define o NCM)' : 'cilindradas', f.tipo === 'moto' ? 210 : 110)}
-          <input id="campo-valor_fipe" value={f.valor_fipe} onChange={(e) => setF({ ...f, valor_fipe: e.target.value })} inputMode="decimal" placeholder="valor FIPE (R$)" style={{ ...inp, width: 130, ...estiloBordaInput(campo === 'valor_fipe' ? 'x' : null) }} />
-          <input id="campo-ncm" value={f.ncm} onChange={(e) => setF({ ...f, ncm: e.target.value })} inputMode="numeric" placeholder="NCM (8 dígitos)" style={{ ...inp, width: 130, fontFamily: 'monospace', ...estiloBordaInput(campo === 'ncm' ? 'x' : null) }} />
+          {F('potencia_cv', 'potência (cv)', 110)}{F('cilindradas', f.tipo === 'moto' ? 'cilindradas (moto: define o NCM)' : 'cilindradas', f.tipo === 'moto' ? 210 : 110, { dica: 'Em cc, ex.: 1800. Define o NCM sugerido', aviso: avisoCil })}
+          <CampoRot id="campo-valor_fipe" ajuda="revenda.veiculo.valor_fipe" rotulo="Valor FIPE (R$)" dica="Tabela FIPE, ex.: 72.956,00">
+            <input id="campo-valor_fipe" value={f.valor_fipe} onChange={(e) => setF({ ...f, valor_fipe: e.target.value })} inputMode="decimal" placeholder="valor FIPE (R$)" style={{ ...inp, width: 130, ...estiloBordaInput(campo === 'valor_fipe' ? 'x' : null) }} />
+          </CampoRot>
+          <CampoRot id="campo-ncm" ajuda="revenda.veiculo.ncm" rotulo="NCM" dica="8 dígitos, ex.: 87032310">
+            <input id="campo-ncm" value={f.ncm} onChange={(e) => setF({ ...f, ncm: e.target.value })} inputMode="numeric" placeholder="NCM (8 dígitos)" style={{ ...inp, width: 130, fontFamily: 'monospace', ...estiloBordaInput(campo === 'ncm' ? 'x' : null) }} />
+          </CampoRot>
           {F('lugares', 'lugares', 80)}
           <button type="button" onClick={() => void sugerirNcm()} title={f.tipo ? `sugere pelo tipo: ${f.tipo}` : 'defina o tipo acima para uma sugestão melhor'} style={{ border: `1px solid ${C.gold}`, background: C.white, color: C.gold, borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 12.5, fontWeight: 700 }}>sugerir NCM</button>
         </div>
         {ncmMsg && <div style={{ fontSize: 11.5, color: C.espM, marginTop: 6 }}>{ncmMsg}</div>}
+        {ncmPend && (
+          <div style={{ marginTop: 6, background: C.amberBg, color: '#8A4B08', borderRadius: 8, padding: '8px 10px', fontSize: 12.5 }}>
+            Já existe NCM preenchido (<b>{f.ncm}</b>). Deseja substituir por <b>{ncmPend}</b>?{' '}
+            <button type="button" onClick={() => { setF((p) => ({ ...p, ncm: ncmPend })); setNcmPend(null); setNcmMsg(`NCM substituído por ${ncmPend} — falta salvar.`) }} style={{ border: `1px solid ${C.gold}`, background: C.white, color: C.gold, borderRadius: 6, padding: '2px 10px', cursor: 'pointer', fontWeight: 700 }}>Substituir</button>{' '}
+            <button type="button" onClick={() => { setNcmPend(null); setNcmMsg('NCM mantido.') }} style={{ border: `1px solid ${C.espL}`, background: C.white, color: C.espM, borderRadius: 6, padding: '2px 10px', cursor: 'pointer' }}>Manter o atual</button>
+          </div>
+        )}
+      </div>
+      {/* Chamado #34: consignação — dono do veículo e valor combinado */}
+      <div style={{ borderTop: `1px solid ${C.cream}`, marginTop: 10, paddingTop: 10 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: C.esp, marginBottom: 6 }}>Consignação <span style={{ fontWeight: 400, color: C.espL }}>· veículo de terceiro deixado para venda</span></div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: C.esp }}>
+            <input id="campo-consignado" type="checkbox" checked={cons.consignado} onChange={(e) => setCons({ ...cons, consignado: e.target.checked })} />
+            Veículo consignado <AjudaCampo chave="revenda.veiculo.consignado" rota="/dashboard/revenda/veiculo" />
+          </label>
+          {cons.consignado && (<>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <input id="campo-consignante_nome" value={cons.nome} onChange={(e) => setCons({ ...cons, nome: e.target.value })} placeholder="nome do consignante" style={{ ...inp, width: 200 }} />
+              <AjudaCampo chave="revenda.veiculo.consignante_nome" rota="/dashboard/revenda/veiculo" />
+            </label>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <input id="campo-consignante_documento" value={cons.documento} onChange={(e) => setCons({ ...cons, documento: e.target.value })} inputMode="numeric" placeholder="CPF/CNPJ" style={{ ...inp, width: 160 }} />
+              <AjudaCampo chave="revenda.veiculo.consignante_documento" rota="/dashboard/revenda/veiculo" />
+            </label>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <input id="campo-consignante_valor_combinado" value={cons.valor} onChange={(e) => setCons({ ...cons, valor: e.target.value })} inputMode="decimal" placeholder="valor combinado (R$)" style={{ ...inp, width: 160 }} />
+              <AjudaCampo chave="revenda.veiculo.consignante_valor_combinado" rota="/dashboard/revenda/veiculo" />
+            </label>
+          </>)}
+          <button type="button" disabled={consBusy} onClick={() => void salvarConsignacao()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: consBusy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: consBusy ? 'not-allowed' : 'pointer' }}>{consBusy ? 'Salvando…' : 'Salvar consignação'}</button>
+        </div>
+        {consMsg && <div style={{ fontSize: 12, marginTop: 6, color: consMsg.ok ? C.espM : C.red }}>{consMsg.t}</div>}
+      </div>
+      {/* #5662: um único Salvar no fim do card — grava dados do veículo e campos fiscais */}
+      <div style={{ borderTop: `1px solid ${C.cream}`, marginTop: 10, paddingTop: 10, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button disabled={busy} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: busy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>{busy ? 'Abrindo…' : 'Abrir OS'}</button>
+        {sujo && <span style={{ fontSize: 12, color: '#8A4B08' }}>Há alterações não salvas.</span>}
+        {erroLocal && <div style={{ background: C.redBg, color: C.red, padding: '6px 10px', borderRadius: 7, fontSize: 12 }}>{erroLocal}</div>}
       </div>
       <div style={{ fontSize: 11, color: C.espL, marginTop: 6 }}>Campos vazios não apagam o que já existe — só completam. Manual e chave reserva: &ldquo;—&rdquo; é não informado. Combustível, potência, cilindradas e ano podem vir do catálogo de modelos (tela Completar). O NCM sugerido vem da tabela TIPI por faixa (item 2c) — confirme com o seu contador.</div>
     </div>
@@ -1373,6 +1550,21 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
 // Fotos do veículo · reusa o padrão da Central de Melhorias (bucket privado + anexo + ordem).
 // Várias fotos, uma principal (aparece no cartão do Pátio), ordem editável. Mobile: capture=environment
 // abre a câmera — o vendedor fotografa no pátio pelo celular. Bucket PRIVADO → URLs assinadas.
+// #33 (Alliance): o atributo `download` é ignorado em URL assinada de outro domínio (o navegador só abre a
+// imagem numa aba e, no celular, nada é baixado). Busca o arquivo e salva como blob; se falhar, abre a URL.
+async function baixarFoto(url: string, path: string) {
+  try {
+    const r = await fetch(url)
+    if (!r.ok) throw new Error(String(r.status))
+    const blob = await r.blob()
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = path.split('/').pop() || 'foto.jpg'
+    document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000)
+  } catch { window.open(url, '_blank', 'noopener') }
+}
+
 type Foto = { id: string; storage_path: string; principal: boolean; ordem: number }
 function FotosVeiculo({ veiculoId, companyId, onErro, onMsg }: { veiculoId: string; companyId: string; onErro: (m: string) => void; onMsg: (m: string) => void }) {
   const [fotos, setFotos] = useState<Foto[]>([])
@@ -1520,7 +1712,7 @@ function FotosVeiculo({ veiculoId, companyId, onErro, onMsg }: { veiculoId: stri
             <div style={{ fontSize: 11.5, color: C.espM, marginBottom: 6 }}>Ainda não há fotos na galeria. Mostrando as <b>{fotosVist.length} foto(s) da vistoria</b> deste veículo — clique para abrir/baixar. Para usá-las no anúncio ou no cartão do Pátio, reenvie em “Adicionar fotos”.</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
               {fotosVist.map((fv) => (
-                <a key={fv.path} href={fv.url} target="_blank" rel="noreferrer" download style={{ display: 'block', border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', background: C.cream, textDecoration: 'none' }}>
+                <a key={fv.path} href={fv.url} target="_blank" rel="noreferrer" download onClick={(e) => { e.preventDefault(); void baixarFoto(fv.url, fv.path) }} style={{ display: 'block', border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden', background: C.cream, textDecoration: 'none' }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={fv.url} alt={fv.legenda ?? 'Foto da vistoria'} style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }} />
                   {fv.legenda ? <div style={{ fontSize: 10.5, color: C.espM, padding: '4px 6px' }}>{fv.legenda}</div> : null}

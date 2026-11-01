@@ -93,6 +93,12 @@ async function main() {
   const semAba = await lerPlanilhaContagem(new Uint8Array(await outro.xlsx.writeBuffer() as ArrayBuffer))
   ok(semAba.linhas.length === 0 && semAba.erros.length === 1 && /Contagem/.test(semAba.erros[0].mensagem), 'arquivo sem a aba Contagem é recusado com mensagem')
 
+  // ── id desalinhado (ordenar só as colunas visíveis): chave = código, divergência recusa a linha
+  const lin = (linha: number, id: string | null, codigo: string, q: number) => ({ linha, id, codigo, descricao: codigo, quantidade: q, observacao: '' })
+  const desal = montarPrevia({ linhas: [lin(9, P[1].id, 'A-100', 5), lin(10, P[0].id, 'B-200', 6), lin(11, P[2].id, 'C-300', 7), lin(12, null, 'B-200', 8)], erros: [], emBranco: 0 }, atuais)
+  ok(desal.itens.length === 2 && desal.itens.some((i) => i.codigo === 'C-300') && desal.itens.some((i) => i.codigo === 'B-200' && i.contado === 8), 'id que não bate com o código: linha recusada; sem id casa pelo código')
+  ok(desal.erros.length === 2 && desal.erros.every((e) => /recusada/.test(e.mensagem)), 'divergência listada no relatório (nunca ajusta)')
+
   // ── tela: nada ajusta sem confirmação
   const modal = readFileSync('src/components/estoque/PlanilhaContagemInventario.tsx', 'utf8')
   ok(!/fechar_inventario|fn_movimentar_estoque|registrar_movimento_estoque|erp_estoque_movimentacoes/.test(modal), 'subida da planilha não ajusta estoque (sem fechar_inventario / movimentação)')

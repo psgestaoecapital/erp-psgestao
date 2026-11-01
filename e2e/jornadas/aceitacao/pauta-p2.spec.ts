@@ -49,8 +49,8 @@ test.describe('Pauta P2 — lista, abas, ações em massa com desfazer, lixeira,
   })
 
   test('edição em massa desfeita volta igual; lixeira restaura', { tag: '@pos-migration' }, async () => {
-    const jobs = await dbSelect<{ id: string; prioridade: string | null; data_prazo: string | null }>('agency_jobs',
-      `company_id=eq.${DEMO_PM}&excluido_em=is.null&select=id,prioridade,data_prazo&order=numero&limit=2`)
+    const jobs = await dbSelect<{ id: string; numero: string; cliente_id: string | null; prioridade: string | null; data_prazo: string | null }>('agency_jobs',
+      `company_id=eq.${DEMO_PM}&excluido_em=is.null&select=id,numero,cliente_id,prioridade,data_prazo&order=numero&limit=2`)
     expect(jobs.length, 'a demo tem jobs').toBe(2)
     const ids = jobs.map((j) => j.id)
     const ed = (await rpc<{ ok: boolean; lote_id: string; alterados: number }>('fn_pauta_editar_em_massa',
@@ -71,7 +71,9 @@ test.describe('Pauta P2 — lista, abas, ações em massa com desfazer, lixeira,
 
     const ex = (await rpc<{ ok: boolean; lote_id: string }>('fn_pauta_excluir', { p_company_id: DEMO_PM, p_ids: [ids[0]] })).corpo
     expect(ex.ok).toBe(true)
-    const lix = (await rpc<Lista>('fn_pauta_listar', { p_company_id: DEMO_PM, p_filtros: { lixeira: true }, p_por_pagina: 500 })).corpo
+    // a lixeira da demo passa de 500 itens (ordenados por prazo): procura o excluído pelo código e cliente, como na tela
+    const doJob = { codigo: jobs[0].numero, ...(jobs[0].cliente_id ? { clientes: [jobs[0].cliente_id] } : {}) }
+    const lix = (await rpc<Lista>('fn_pauta_listar', { p_company_id: DEMO_PM, p_filtros: { lixeira: true, ...doJob }, p_por_pagina: 500 })).corpo
     expect(lix.itens.some((i) => i.id === ids[0]), 'excluído aparece na lixeira').toBe(true)
     const ativos = (await rpc<Lista>('fn_pauta_listar', { p_company_id: DEMO_PM, p_filtros: {}, p_por_pagina: 500 })).corpo
     expect(ativos.itens.some((i) => i.id === ids[0]), 'e some da pauta').toBe(false)

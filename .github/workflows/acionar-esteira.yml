@@ -1,0 +1,55 @@
+name: Acionar esteira
+
+# CEO 23/10: "coloca o esteira e revisor acompanhar as PRs para não travar mais a esteira." O revisor já tem a varredura
+# de 15 min (acionar-revisor.yml). Este é o ESPELHO para a rotina do gilberto-esteira: a fila-merge.yml publica o que está
+# PRONTO, mas quem CONSERTA uma PR presa (conflito com a main, aceitação vermelha de re-rodar, versão de migration abaixo
+# da main, rascunho autorizado por marcar Ready) é o Code esteira — e ele só era acordado pelo despertador (quando já tinha
+# tarefa na caixa) ou pelo guardião (@pos/deploy vermelho). Sem uma varredura própria, PR presa num defeito ficava parada
+# até alguém clicar. Agora, a cada 15 min, se houver PR Ready aberta, a rotina do esteira é acordada para varrer o backlog
+# e destravar o que der — e para até ser acordada de novo. NÃO publica nada por si: só acorda o Code, que segue as regras
+# de merge de sempre (fila, patch-id, MERGE AUTORIZADO, @pos). Segredos ausentes = ::warning, nunca falha nada.
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+# grupo próprio: não cancela nem é cancelado por outra coisa; run anterior ainda em curso → o novo espera (não se auto-cancela)
+concurrency:
+  group: acionar-esteira
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+jobs:
+  varredura:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      ESTEIRA_ROTINA_URL: ${{ secrets.ESTEIRA_ROTINA_URL }}
+      ESTEIRA_ROTINA_TOKEN: ${{ secrets.ESTEIRA_ROTINA_TOKEN }}
+    steps:
+      - name: Acionar a esteira se houver PR aberta
+        run: |
+          set -uo pipefail
+          if [ -z "${ESTEIRA_ROTINA_URL:-}" ] || [ -z "${ESTEIRA_ROTINA_TOKEN:-}" ]; then
+            echo "::warning title=Esteira sem rotina configurada::Faltam os segredos ESTEIRA_ROTINA_URL e/ou ESTEIRA_ROTINA_TOKEN. Passo a passo: (1) em claude.ai/code/routines abra a rotina do gilberto-esteira e gere o gatilho de API (URL + token); (2) no GitHub: Settings > Secrets and variables > Actions > New repository secret, crie ESTEIRA_ROTINA_URL (a URL do disparo) e ESTEIRA_ROTINA_TOKEN (o token); (3) re-rode este workflow. Sem eles a esteira segue só pelo despertador e pelo guardião."
+            exit 0
+          fi
+          # sem nada pendente: sai rápido (não gasta sessão da esteira). Pendente = PR Ready (não-draft) na main sem a label nao-publicar.
+          pend=$(gh api "repos/$REPO/pulls?state=open&base=main&per_page=100" --paginate \
+            --jq '[.[] | select(.draft==false and ([.labels[].name] | index("nao-publicar") == null))] | length' 2>/dev/null | awk '{s+=$1} END{print s+0}')
+          if [ "${pend:-0}" = "0" ]; then echo "Varredura: nenhuma PR Ready na main — nada a acionar"; exit 0; fi
+          corpo_json=$(jq -cn --arg t "Varredura de 15 min: $pend PR(s) Ready na fila — varrer o backlog e destravar (conflito com a main, aceitação vermelha, versão de migration, rascunho autorizado). Seguir as regras de merge de sempre; parar quando não houver mais o que destravar." '{text: $t}')
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 -X POST "$ESTEIRA_ROTINA_URL" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $ESTEIRA_ROTINA_TOKEN" \
+            -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
+            -H "anthropic-version: 2023-06-01" \
+            -d "$corpo_json" || echo 000)
+          if [ "${code:0:1}" = "2" ]; then echo "esteira acionada pela varredura (HTTP $code, $pend PR)"
+          else echo "::warning title=Varredura da esteira falhou::HTTP $code ao acionar a rotina do esteira; o despertador e o guardião cobrem."; fi

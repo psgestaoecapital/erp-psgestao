@@ -156,9 +156,9 @@ function ProducaoPageInner() {
 
   async function loadAll() {
     const [cl, jb, ts, us, ct, sv] = await Promise.all([
-      supabase.from('agency_clientes').select('*').eq('company_id', sel).order('nome'),
-      supabase.from('agency_jobs').select('*').eq('company_id', sel).order('created_at', { ascending: false }),
-      supabase.from('agency_timesheet').select('*').eq('company_id', sel).order('data', { ascending: false }),
+      supabase.from('agency_clientes').select('*').eq('company_id', sel).is('excluido_em', null).order('nome'),
+      supabase.from('agency_jobs').select('*').eq('company_id', sel).is('excluido_em', null).order('created_at', { ascending: false }),
+      supabase.from('agency_timesheet').select('id, company_id, job_id, tarefa_id, user_id, data, horas, descricao, tipo_atividade, aprovado, aprovado_por, created_at, inicio_em, fim_em, etapa_tipo, cliente_id').eq('company_id', sel).is('excluido_em', null).order('data', { ascending: false }),
       supabase.rpc('fn_usuarios_da_empresa', { p_company_id: sel }),
       supabase.from('erp_contratos').select('id,numero,nome,valor_mensal,status').eq('company_id', sel).order('numero', { ascending: false }),
       supabase.rpc('fn_agency_servico_listar_proposta', { p_company_id: sel }),
@@ -223,15 +223,23 @@ function ProducaoPageInner() {
   }
   async function saveTimesheet() {
     const { data: { user } } = await supabase.auth.getUser()
-    const data = { ...form, company_id: sel, user_id: user?.id }
-    const res = await supabase.from('agency_timesheet').insert(data)
+    // RD-98 p2: Timesheet tem Incluir/Editar/Excluir — edição altera só os campos do form (RLS por empresa),
+    // preservando autor (user_id) e empresa do registro original.
+    const res = editId
+      ? await supabase.from('agency_timesheet').update(form).eq('id', editId)
+      : await supabase.from('agency_timesheet').insert({ ...form, company_id: sel, user_id: user?.id })
     if (res.error) { setToast(`Erro: ${res.error.message}`); return }
-    setToast('Horas REGISTRADAS.')
-    setShowForm(null); setForm({}); loadAll()
+    setToast(editId ? 'Horas ALTERADAS.' : 'Horas REGISTRADAS.')
+    setShowForm(null); setEditId(null); setForm({}); loadAll()
+  }
+  function abrirEdicaoTimesheet(t: Timesheet) {
+    setForm({ job_id: t.job_id, data: t.data, horas: t.horas, tipo_atividade: t.tipo_atividade, descricao: t.descricao })
+    setEditId(t.id); setShowForm('timesheet')
   }
   async function excluir(table: string, id: string) {
     if (!confirm('EXCLUIR este registro?')) return
-    const { error } = await supabase.from(table).delete().eq('id', id)
+    // RD-98 p4: exclusão rastreável (soft-delete + audit_log) — nunca DELETE físico de dado de cliente.
+    const { error } = await supabase.rpc('fn_pm_registro_excluir', { p_tabela: table, p_id: id })
     if (error) { setToast(`Erro: ${error.message}`); return }
     setToast('Registro EXCLUIDO.')
     loadAll()
@@ -248,7 +256,7 @@ function ProducaoPageInner() {
     const { data } = await supabase
       .from('agency_tarefas')
       .select('id, job_id, titulo, descricao, responsavel_id, status, prioridade, ordem, data_prazo, data_conclusao, horas_estimadas, horas_realizadas')
-      .eq('company_id', sel).eq('job_id', jobId)
+      .eq('company_id', sel).eq('job_id', jobId).is('excluido_em', null)
       .order('ordem', { ascending: true }).order('created_at', { ascending: true })
     setEtapas((data ?? []) as Tarefa[])
     setEtapasLoading(false)
@@ -312,7 +320,8 @@ function ProducaoPageInner() {
   async function excluirEtapa(t: Tarefa) {
     if (!jobEtapas) return
     if (!confirm('Excluir esta etapa?')) return
-    const { error } = await supabase.from('agency_tarefas').delete().eq('id', t.id)
+    // RD-98 p4: exclusão rastreável (soft-delete + audit_log) — nunca DELETE físico.
+    const { error } = await supabase.rpc('fn_pm_registro_excluir', { p_tabela: 'agency_tarefas', p_id: t.id })
     if (error) { setToast(`Erro: ${error.message}`); return }
     await carregarEtapas(jobEtapas.id)
   }
@@ -381,10 +390,10 @@ function ProducaoPageInner() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
-        <Kpi titulo="Clientes ativos" valor={String(metrics.clientes)} />
-        <Kpi titulo="Jobs em andamento" valor={String(metrics.jobs_ativos)} />
-        <Kpi titulo="Horas no mês" valor={`${metrics.horas_mes.toFixed(1)}h`} />
-        <Kpi titulo="Receita recorrente (fees)" valor={brl(metrics.receita_mes)} destaque />
+        <Kpi titulo="Clientes ativos" valor={String(metrics.clientes)} ajuda="pm.jobs.kpi_clientes_ativos" />
+        <Kpi titulo="Jobs em andamento" valor={String(metrics.jobs_ativos)} ajuda="pm.jobs.kpi_jobs_andamento" />
+        <Kpi titulo="Horas no mês" valor={`${metrics.horas_mes.toFixed(1)}h`} ajuda="pm.jobs.kpi_horas_mes" />
+        <Kpi titulo="Receita recorrente (fees)" valor={brl(metrics.receita_mes)} destaque ajuda="pm.jobs.kpi_receita_fees" />
       </div>
 
       {/* TABS */}
@@ -410,6 +419,8 @@ function ProducaoPageInner() {
           onDrop={onDrop}
           onMover={moverEstagio}
           onEtapas={abrirEtapas}
+          onEditar={abrirEdicaoJob}
+          onExcluir={(j) => excluir('agency_jobs', j.id)}
           onAdd={() => { setForm({ status: 'nao_iniciada', prioridade: 'normal' }); setEditId(null); setShowForm('job') }}
         />
       )}
@@ -451,7 +462,8 @@ function ProducaoPageInner() {
         <TimesheetTabela
           timesheets={timesheets}
           jobs={jobs}
-          onNovo={() => { setForm({ data: new Date().toISOString().slice(0, 10) }); setShowForm('timesheet') }}
+          onNovo={() => { setEditId(null); setForm({ data: new Date().toISOString().slice(0, 10) }); setShowForm('timesheet') }}
+          onEditar={abrirEdicaoTimesheet}
           onExcluir={(t) => excluir('agency_timesheet', t.id)}
         />
       )}
@@ -581,23 +593,23 @@ function ProducaoPageInner() {
 
       {/* ─── FORM modal: timesheet ─── */}
       {showForm === 'timesheet' && (
-        <Modal titulo="Registrar horas" onClose={() => { setShowForm(null); setForm({}) }}>
+        <Modal titulo={editId ? 'Editar horas' : 'Registrar horas'} onClose={() => { setShowForm(null); setEditId(null); setForm({}) }}>
           <div style={grid2}>
-            <Select label="Job *" v={(form.job_id as string) ?? ''} on={(v) => setForm({ ...form, job_id: v || null })}
+            <Select label="Job *" ajuda="pm.timesheet.job" v={(form.job_id as string) ?? ''} on={(v) => setForm({ ...form, job_id: v || null })}
               opts={[['', '— selecionar —'], ...jobs
                 .filter((j) => !['concluida', 'publicado', 'cancelado'].includes(j.status))
                 .map((j) => [j.id, j.titulo] as [string, string])]} />
-            <Field label="Data *" type="date" v={form.data} on={(v) => setForm({ ...form, data: v })} />
-            <Field label="Horas *" type="number" v={form.horas} on={(v) => setForm({ ...form, horas: parseFloat(v) || 0 })} />
-            <Select label="Atividade" v={(form.tipo_atividade as string) ?? ''} on={(v) => setForm({ ...form, tipo_atividade: v || null })}
+            <Field label="Data *" ajuda="pm.timesheet.data" type="date" v={form.data} on={(v) => setForm({ ...form, data: v })} />
+            <Field label="Horas *" ajuda="pm.timesheet.horas" type="number" v={form.horas} on={(v) => setForm({ ...form, horas: parseFloat(v) || 0 })} />
+            <Select label="Atividade" ajuda="pm.timesheet.atividade" v={(form.tipo_atividade as string) ?? ''} on={(v) => setForm({ ...form, tipo_atividade: v || null })}
               opts={[['', '— tipo —'], ['criacao', 'Criação'], ['atendimento', 'Atendimento'],
                 ['producao', 'Produção'], ['edicao', 'Edição'], ['revisao', 'Revisão'],
                 ['reuniao', 'Reunião'], ['planejamento', 'Planejamento']]} />
           </div>
-          <Field label="Descrição" v={form.descricao} on={(v) => setForm({ ...form, descricao: v })} />
+          <Field label="Descrição" ajuda="pm.timesheet.descricao" v={form.descricao} on={(v) => setForm({ ...form, descricao: v })} />
           <div style={actions}>
-            <button onClick={() => { setShowForm(null); setForm({}) }} style={btnGhost}>Cancelar</button>
-            <button onClick={saveTimesheet} style={btnPrimary}>REGISTRAR</button>
+            <button onClick={() => { setShowForm(null); setEditId(null); setForm({}) }} style={btnGhost}>Cancelar</button>
+            <button onClick={saveTimesheet} style={btnPrimary}>{editId ? 'SALVAR' : 'REGISTRAR'}</button>
           </div>
         </Modal>
       )}
@@ -680,7 +692,7 @@ function ProducaoPageInner() {
 // ─────────────────────────────────────────────────────────────
 function KanbanBoard({
   jobs, clientes, dragId, hoverCol, movendoId,
-  onDragStart, onDragOver, onDragLeave, onDrop, onMover, onEtapas, onAdd,
+  onDragStart, onDragOver, onDragLeave, onDrop, onMover, onEtapas, onAdd, onEditar, onExcluir,
 }: {
   jobs: Job[]; clientes: Cliente[]; dragId: string | null; hoverCol: string | null; movendoId: string | null
   onDragStart: (e: DragEvent<HTMLDivElement>, id: string) => void
@@ -690,6 +702,8 @@ function KanbanBoard({
   onMover: (id: string, novo: string, atual: string | null) => void
   onEtapas: (job: Job) => void
   onAdd: () => void
+  onEditar: (job: Job) => void
+  onExcluir: (job: Job) => void
 }) {
   const cliNome = (id: string) => {
     const c = clientes.find((x) => x.id === id)
@@ -698,7 +712,7 @@ function KanbanBoard({
   return (
     <div>
       <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
-        <span className="text-sm" style={{ color: TEXTM }}>Arraste o card entre colunas pra mudar o estágio.</span>
+        <span className="text-sm" style={{ color: TEXTM, display: 'inline-flex', alignItems: 'center', gap: 4 }}>Arraste o card entre colunas pra mudar o estágio.<AjudaCampo chave="pm.jobs.kanban_estagios" /></span>
         <button onClick={onAdd} style={btnPrimary}>+ Novo job</button>
       </div>
       <div style={boardWrap}>
@@ -779,7 +793,11 @@ function KanbanBoard({
                               </option>
                             ))}
                           </select>
-                          <button onClick={() => onEtapas(j)} style={etapasBtn}>📋 Etapas</button>
+                          <button onClick={() => onEtapas(j)} style={etapasBtn}>Etapas do job</button>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button onClick={() => onEditar(j)} style={{ ...btnSec, flex: 1, minHeight: 36 }}>Editar</button>
+                            <button onClick={() => onExcluir(j)} style={{ ...btnDanger, minHeight: 36 }} aria-label={`Excluir job ${j.titulo}`}>Excluir</button>
+                          </div>
                         </div>
                       </div>
                     )
@@ -906,8 +924,8 @@ function ClientesTabela({
 }
 
 function TimesheetTabela({
-  timesheets, jobs, onNovo, onExcluir,
-}: { timesheets: Timesheet[]; jobs: Job[]; onNovo: () => void; onExcluir: (t: Timesheet) => void }) {
+  timesheets, jobs, onNovo, onEditar, onExcluir,
+}: { timesheets: Timesheet[]; jobs: Job[]; onNovo: () => void; onEditar: (t: Timesheet) => void; onExcluir: (t: Timesheet) => void }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
@@ -935,7 +953,10 @@ function TimesheetTabela({
                     <Td>{t.tipo_atividade || '—'}</Td>
                     <Td>{t.descricao || '—'}</Td>
                     <Td align="right"><b style={{ color: DOURADO }}>{t.horas}h</b></Td>
-                    <Td align="center"><button onClick={() => onExcluir(t)} style={btnDanger}>X</button></Td>
+                    <Td align="center">
+                      <button onClick={() => onEditar(t)} style={btnSec}>Editar</button>
+                      <button onClick={() => onExcluir(t)} style={{ ...btnDanger, marginLeft: 4 }} aria-label="Excluir registro de horas">X</button>
+                    </Td>
                   </tr>
                 )
               })}
@@ -959,10 +980,10 @@ const TIPOS_PECA: Array<[string, string]> = [
 ]
 
 // ─── helpers de UI ───────────────────────────────────────────
-function Kpi({ titulo, valor, destaque }: { titulo: string; valor: string; destaque?: boolean }) {
+function Kpi({ titulo, valor, destaque, ajuda }: { titulo: string; valor: string; destaque?: boolean; ajuda?: string }) {
   return (
     <div style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: 12 }}>
-      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM }}>{titulo}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM }}>{titulo}{ajuda && <AjudaCampo chave={ajuda} />}</div>
       <div style={{ fontSize: 18, fontWeight: 700, color: destaque ? DOURADO : ESPRESSO, marginTop: 4 }}>{valor}</div>
     </div>
   )
@@ -980,10 +1001,10 @@ function Modal({ titulo, children, onClose }: { titulo: string; children: React.
     </div>
   )
 }
-function Field({ label, v, on, type = 'text', multiline, testId }: { label: string; v: unknown; on: (v: string) => void; type?: string; multiline?: boolean; testId?: string }) {
+function Field({ label, v, on, type = 'text', multiline, testId, ajuda }: { label: string; v: unknown; on: (v: string) => void; type?: string; multiline?: boolean; testId?: string; ajuda?: string }) {
   return (
     <label style={lbl}>
-      {label}
+      <span style={{ display: 'flex', alignItems: 'center' }}>{label}{ajuda && <AjudaCampo chave={ajuda} />}</span>
       {multiline ? (
         <textarea rows={3} value={(v as string) ?? ''} onChange={(e) => on(e.target.value)} data-testid={testId} style={{ ...inp, resize: 'vertical' }} />
       ) : (

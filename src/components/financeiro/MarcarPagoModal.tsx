@@ -6,6 +6,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import CartaoRecebimentoModal from './CartaoRecebimentoModal'
 
 interface ContaBancaria {
   id: string
@@ -46,12 +47,19 @@ export default function MarcarPagoModal({
   // o saldo chega do banco de forma assíncrona; se o usuário já digitou o valor, ele NÃO é sobrescrito
   // (antes: digitar 300 antes da busca voltar virava o saldo cheio e o título era baixado inteiro)
   const editouValor = useRef(false)
+  // chamado #2688: sem conta o Confirmar ficava travado sem explicar; agora avisa e deixa tentar de novo
+  const [contasMsg, setContasMsg] = useState<string | null>(null)
+  const [tentativa, setTentativa] = useState(0)
+  // #3740: recebimento em cartão não é dinheiro na conta hoje — vai para a tela do cartão (bandeira/modalidade/parcelas)
+  // e vira títulos da operadora por parcela
+  const cartao = tipo === 'receber' && forma === 'Cartão'
 
   useEffect(() => {
     if (!open || !companyId) return
     let ignore = false
+    setContasMsg(null)
     ;(async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('erp_banco_contas')
         .select('id, nome')
         .eq('company_id', companyId)
@@ -61,10 +69,12 @@ export default function MarcarPagoModal({
       const lista = (data ?? []) as ContaBancaria[]
       setContas(lista)
       if (lista.length > 0 && !contaId) setContaId(lista[0].id)
+      if (error) setContasMsg('Não conseguimos carregar as contas bancárias agora. Toque em "Tentar de novo".')
+      else if (lista.length === 0) setContasMsg('Nenhuma conta bancária ativa encontrada para esta empresa. Cadastre uma em Financeiro › Contas bancárias ou toque em "Tentar de novo".')
     })()
     return () => { ignore = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, companyId])
+  }, [open, companyId, tentativa])
 
   useEffect(() => {
     if (!open) return
@@ -102,6 +112,18 @@ export default function MarcarPagoModal({
 
   if (!open) return null
 
+  if (cartao) {
+    return (
+      <CartaoRecebimentoModal
+        companyId={companyId}
+        receber={{ id: itemId, descricao, valor: valorTotal }}
+        dataVenda={dataPag}
+        onClose={() => setForma('PIX')}
+        onSucesso={() => { setForma('PIX'); onSucesso(); onClose() }}
+      />
+    )
+  }
+
   return (
     <div
       onClick={onClose}
@@ -138,6 +160,14 @@ export default function MarcarPagoModal({
               {contas.length === 0 && <option value="">Sem contas cadastradas</option>}
               {contas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
             </select>
+            {contasMsg && (
+              <div style={{ fontSize: 12, color: '#A32D2D', marginTop: 6 }}>
+                {contasMsg}{' '}
+                <button type="button" onClick={() => setTentativa((n) => n + 1)} style={{ textDecoration: 'underline', background: 'none', border: 'none', color: '#A32D2D', cursor: 'pointer', fontSize: 12 }}>
+                  Tentar de novo
+                </button>
+              </div>
+            )}
           </Field>
 
           <Field label="Forma de pagamento">

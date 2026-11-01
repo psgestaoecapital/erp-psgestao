@@ -15,9 +15,12 @@
 // devolve ok:false com o motivo — e a tela explica por quê a nota não sai (lock #2).
 
 import { useState, type CSSProperties } from 'react'
+import { Receipt } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { carregarProducaoDisponivel } from '@/lib/fiscal/producaoDisponivel'
+import { NotaDaOSStatus, notaJaEmitida, useNotaDaOS } from '@/components/comum/NotaFiscalDaOS'
 import NFSeEmitirGovModal from '@/components/fiscal/NFSeEmitirGovModal'
+import { buscarVeiculoLigado, montarObservacoesNfseOS, type DadosOSNfse } from '@/lib/oficina/observacoesNfseOS'
 
 type ServicoFiscal = {
   id: string
@@ -67,6 +70,11 @@ export default function EmitirNFSeOSButton({
   // cliente da OS = tomador da nota (caixa jordana-code 3352399e: a OS-2026-0198 da Gean pegava o cadastro DUPLICADO
   // da FC Pisos, inativo e sem endereço, porque a emissão procurava só pelo CNPJ)
   const [clienteId, setClienteId] = useState<string | null>(null)
+  // #3774 · OS, modelo e placa do veículo vão prontos nas informações complementares da nota (editável)
+  const [obsOS, setObsOS] = useState('')
+  // #2167 · nota já emitida para a OS → botão verde que abre o PDF da NFS-e
+  const { nota, recarregar } = useNotaDaOS('nfse', osId, companyId)
+  const notaEmitida = notaJaEmitida(nota)
 
   async function preparar() {
     setErro(null)
@@ -75,13 +83,18 @@ export default function EmitirNFSeOSButton({
       const [rpc, prod, os] = await Promise.all([
         supabase.rpc('fn_os_nfse_preparar', { p_os_id: osId }),
         carregarProducaoDisponivel(companyId),
-        supabase.from('erp_os').select('cliente_id').eq('id', osId).eq('company_id', companyId).maybeSingle(),
+        // consulta da OS SEM embed: o tomador (cliente_id) nunca depende da busca do veículo
+        supabase.from('erp_os').select('cliente_id, numero, marca, modelo, placa, veic_veiculo_id')
+          .eq('id', osId).eq('company_id', companyId).maybeSingle(),
       ])
       if (rpc.error) { setErro(rpc.error.message); return }
       const p = rpc.data as Prep | null
       if (!p?.ok) { setErro(p?.erro ?? 'Não foi possível preparar a NFS-e.'); return }
       setPrep(p)
-      setClienteId((os.data as { cliente_id?: string | null } | null)?.cliente_id ?? null)
+      const osDados = os.data as (DadosOSNfse & { cliente_id?: string | null; veic_veiculo_id?: string | null }) | null
+      setClienteId(osDados?.cliente_id ?? null)
+      setObsOS(montarObservacoesNfseOS(osDados ? { ...osDados, veiculo: await buscarVeiculoLigado(osDados.veic_veiculo_id,
+        (id) => supabase.from('veic_veiculo').select('marca, modelo, placa').eq('id', id).maybeSingle()) } : null))
       setProducao(prod)
       setServSel(p.servico_fiscal_id_default ?? p.servicos_fiscais?.[0]?.id ?? '')
       setConfirmAberto(true)
@@ -100,16 +113,23 @@ export default function EmitirNFSeOSButton({
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => void preparar()}
-        disabled={carregando}
-        data-testid="os-nfse-emitir"
-        title="Emite a NFS-e (nota de SERVIÇO) da OS. Só o valor de serviços entra — peças saem na NF-e de produto."
-        style={{ ...defBtn, ...buttonStyle, opacity: carregando ? 0.6 : 1 }}
-      >
-        {carregando ? 'Preparando…' : '🧾 Emitir NFS-e'}
-      </button>
+      {notaEmitida ? (
+        <NotaDaOSStatus tipo="nfse" nota={nota} companyId={companyId}
+          onAtualizar={() => void recarregar()} onEmitirOutra={() => void preparar()} />
+      ) : (
+        <button
+          type="button"
+          onClick={() => void preparar()}
+          disabled={carregando}
+          data-testid="os-nfse-emitir"
+          title={nota?.status === 'rejeitada'
+            ? `A última NFS-e desta OS foi rejeitada${nota.motivo_rejeicao ? `: ${nota.motivo_rejeicao}` : ''}. Corrija e emita de novo.`
+            : 'Emite a NFS-e (nota de SERVIÇO) da OS. Só o valor de serviços entra — peças saem na NF-e de produto.'}
+          style={{ ...defBtn, ...buttonStyle, opacity: carregando ? 0.6 : 1 }}
+        >
+          {carregando ? 'Preparando…' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Receipt size={14} aria-hidden />{nota?.status === 'rejeitada' ? 'Reenviar NFS-e' : 'Emitir NFS-e'}</span>}
+        </button>
+      )}
 
       {/* motivo pra nota NÃO sair (sem serviço / sem preço / sem serviço fiscal) — lock #2 */}
       {erro && !confirmAberto && (
@@ -205,7 +225,7 @@ export default function EmitirNFSeOSButton({
         onEmitida={(providerReference) => {
           // #20 Fase 3b · liga a NFS-e recém-emitida à OS (por provider_reference), pós-emissão e sem
           // tocar a edge — é o que tira a OS da fila "entregue sem nota".
-          if (providerReference) void supabase.rpc('fn_os_nfse_vincular', { p_os_id: osId, p_provider_reference: providerReference }).then(() => undefined)
+          if (providerReference) void supabase.rpc('fn_os_nfse_vincular', { p_os_id: osId, p_provider_reference: providerReference }).then(() => recarregar())
           setModalAberto(false); setPrep(null); onEmitida?.()
         }}
         producaoDisponivel={producao}
@@ -220,6 +240,7 @@ export default function EmitirNFSeOSButton({
         aliquotaIss={servico?.aliquota_iss ?? undefined}
         valorServicos={prep?.valor_servicos}
         servicoId={servico?.id}
+        observacoesIniciais={obsOS}
       />
     </>
   )

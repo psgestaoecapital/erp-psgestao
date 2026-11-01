@@ -1,6 +1,7 @@
 'use client'
 
 import NovaDespesaForm from './NovaDespesaForm'
+import FichaTituloAbas from './FichaTituloAbas'
 
 interface NovaDespesaModalProps {
   companyId: string
@@ -46,15 +47,17 @@ export default function NovaDespesaModal({
           overflowY: 'auto',
         }}
       >
-        <NovaDespesaForm
-          companyId={companyId}
-          editarId={editarId}
-          onSucesso={(id) => {
-            onSucesso?.(id)
-            onFechar()
-          }}
-          onCancelar={onFechar}
-        />
+        <FichaTituloAbas tipo="pagar" editarId={editarId}>
+          <NovaDespesaForm
+            companyId={companyId}
+            editarId={editarId}
+            onSucesso={(id) => {
+              onSucesso?.(id)
+              onFechar()
+            }}
+            onCancelar={onFechar}
+          />
+        </FichaTituloAbas>
       </div>
     </div>
   )

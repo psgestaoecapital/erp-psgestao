@@ -10,11 +10,17 @@ name: Acionar revisor
 on:
   pull_request_target:
     types: [labeled, synchronize, ready_for_review]
+  # CEO 23/10: varredura a cada 15 min — o revisor acorda, passa por TODAS as PRs pendentes da alçada dele num run só,
+  # e para até ser acordado de novo (sessão curta, sem loop). (Era */5; 15 min reduz 3× os despertares e basta.)
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
 
-# um grupo por PR: PR diferente não cancela o acionamento da outra
+# um grupo por PR: PR diferente não cancela o acionamento da outra; a varredura tem grupo próprio
+# (nunca cancela nem é cancelada por evento de PR; run anterior ainda em curso: o novo espera, não se auto-cancela)
 concurrency:
-  group: acionar-revisor-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: acionar-revisor-${{ github.event.pull_request.number || 'varredura' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
 
 permissions:
   contents: read
@@ -80,3 +86,34 @@ jobs:
           else
             echo "::warning title=Acionamento do revisor falhou::HTTP $code ao acionar o revisor para a PR #$N; a rotina horária cobre."
           fi
+
+  varredura:
+    if: github.event_name != 'pull_request_target'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      REVISOR_ROTINA_URL: ${{ secrets.REVISOR_ROTINA_URL }}
+      REVISOR_ROTINA_TOKEN: ${{ secrets.REVISOR_ROTINA_TOKEN }}
+    steps:
+      - name: Acionar o revisor se houver PR pendente
+        run: |
+          set -uo pipefail
+          if [ -z "${REVISOR_ROTINA_URL:-}" ] || [ -z "${REVISOR_ROTINA_TOKEN:-}" ]; then
+            echo "::warning title=Revisor sem rotina configurada::Faltam REVISOR_ROTINA_URL e/ou REVISOR_ROTINA_TOKEN (ver o passo a passo no job acionar)."
+            exit 0
+          fi
+          # sem nada pendente: sai rápido (não gasta sessão do revisor). Pendente = PR Ready com revisao-eng-chefe.
+          pend=$(gh api "repos/$REPO/pulls?state=open&per_page=100" --paginate \
+            --jq '[.[] | select(.draft==false and ([.labels[].name] | index("revisao-eng-chefe") != null))] | length' 2>/dev/null | awk '{s+=$1} END{print s+0}')
+          if [ "${pend:-0}" = "0" ]; then echo "Varredura: nenhuma PR Ready com revisao-eng-chefe — nada a acionar"; exit 0; fi
+          corpo_json=$(jq -cn --arg t "Varredura de 5 min: $pend PR(s) com revisao-eng-chefe — revisar todas as da alçada e concluir no mesmo run." '{text: $t}')
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 -X POST "$REVISOR_ROTINA_URL" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $REVISOR_ROTINA_TOKEN" \
+            -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
+            -H "anthropic-version: 2023-06-01" \
+            -d "$corpo_json" || echo 000)
+          if [ "${code:0:1}" = "2" ]; then echo "revisor acionado pela varredura (HTTP $code, $pend PR)"
+          else echo "::warning title=Varredura do revisor falhou::HTTP $code"; fi

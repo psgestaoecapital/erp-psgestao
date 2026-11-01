@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { parseValorOFX } from '@/lib/ofx-parser';
 
 function getSupabase(req: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -40,8 +41,8 @@ function parseOFX(content: string) {
     const m = dataStr.slice(4, 6);
     const d = dataStr.slice(6, 8);
     const dataISO = `${y}-${m}-${d}`;
-    const valor = parseFloat(valorStr.replace(',', '.'));
-    if (isNaN(valor)) continue;
+    const valor = parseValorOFX(valorStr);
+    if (valor === null) continue;
     
     transacoes.push({
       data_transacao: dataISO,

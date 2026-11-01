@@ -9,6 +9,7 @@ import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer,
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import EmpresaNaoResolvida from "@/components/pm/EmpresaNaoResolvida";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { exportarPDF, type Coluna } from "@/lib/export/relatorioLista";
 import {
   CABECALHO_FLUXO, SITUACOES, contarFiltroPainel, filtrarJobs, graficos, indicadores, legado, limparFiltroPainel, linhaParaArray, linhasFluxo, resumoParaIA,
@@ -29,17 +30,22 @@ const COLUNAS_PDF: Coluna<LinhaFluxo>[] = CABECALHO_FLUXO.map((header, i) => ({
 const fmt = (n: number | null, suf = "") => (n === null ? "—" : `${n.toLocaleString("pt-BR")}${suf}`);
 
 function Multi({ valor, opcoes, onChange }: { valor?: string[]; opcoes: Nome[]; onChange: (v: string[]) => void }) {
+  // RD-95: a ajuda ("?") deste controle vem do rótulo ao lado — cada uso traz <AjudaCampo> no <label> do filtro.
+  // data-ajuda marca essa cobertura pelo rótulo para a varredura de "?" sem renderar um segundo ícone; `contents`
+  // não gera caixa, então o layout do <select> não muda.
   return (
-    <select multiple className={campo + " h-[84px]"} value={valor ?? []} onChange={(e) => onChange([...e.target.selectedOptions].map((o) => o.value))}>
-      {opcoes.map((o) => <option key={o.id} value={o.id}>{o.nome}</option>)}
-    </select>
+    <span data-ajuda="rotulo" className="contents">
+      <select multiple className={campo + " h-[84px]"} value={valor ?? []} onChange={(e) => onChange([...e.target.selectedOptions].map((o) => o.value))}>
+        {opcoes.map((o) => <option key={o.id} value={o.id}>{o.nome}</option>)}
+      </select>
+    </span>
   );
 }
 
-function GraficoBarras({ titulo, dados, cor = "#3D2314" }: { titulo: string; dados: Barra[]; cor?: string }) {
+function GraficoBarras({ titulo, dados, cor = "#3D2314", ajuda }: { titulo: string; dados: Barra[]; cor?: string; ajuda?: string }) {
   return (
     <div className={cartao}>
-      <h3 className="mb-2 text-[13px] font-semibold text-[#3D2314]">{titulo}</h3>
+      <h3 className="mb-2 flex items-center gap-1 text-[13px] font-semibold text-[#3D2314]">{titulo}{ajuda && <AjudaCampo chave={ajuda} />}</h3>
       {dados.length === 0 ? <p className="py-8 text-center text-[12px] text-[#6b5444]">Sem dados no filtro.</p> : (
         <div style={{ height: Math.max(160, dados.length * 28 + 30) }}>
           <ResponsiveContainer width="100%" height="100%">
@@ -91,7 +97,7 @@ export default function PainelJobsPage() {
       const [j, r, h, cl, gr, ca, sv, eq] = await Promise.all([
         supabase.from("agency_jobs").select("id, numero, titulo, status, prioridade, cliente_id, campanha_id, responsavel_id, servico_id, tipo, data_inicio, data_prazo, data_entrega, created_at, updated_at, rodada_ajuste, horas_estimadas, horas_realizadas").eq("company_id", empresa).is("excluido_em", null).limit(5000),
         supabase.from("agency_job_rodadas").select("job_id, motivo").eq("company_id", empresa).limit(20000),
-        supabase.from("agency_timesheet").select("user_id, cliente_id, horas").eq("company_id", empresa).limit(50000),
+        supabase.from("agency_timesheet").select("user_id, cliente_id, horas, job_id").eq("company_id", empresa).limit(50000),
         supabase.from("agency_clientes").select("id, nome, nome_fantasia, grupo_id").eq("company_id", empresa).limit(2000),
         supabase.from("agency_grupos_clientes").select("id, nome").eq("company_id", empresa),
         supabase.from("agency_campanhas").select("id, nome").eq("company_id", empresa).is("excluido_em", null),
@@ -122,9 +128,9 @@ export default function PainelJobsPage() {
   const visiveis = useMemo(() => filtrarJobs(jobs, filtro, nomes), [jobs, filtro, nomes]);
   const ids = useMemo(() => new Set(visiveis.map((j) => j.id)), [visiveis]);
   const rodadasVis = useMemo(() => rodadas.filter((r) => ids.has(r.job_id)), [rodadas, ids]);
-  const ind = useMemo(() => indicadores(visiveis, rodadasVis), [visiveis, rodadasVis]);
+  const ind = useMemo(() => indicadores(visiveis, rodadasVis, horas), [visiveis, rodadasVis, horas]);
   const gr = useMemo(() => graficos(visiveis, rodadasVis, horas, nomes), [visiveis, rodadasVis, horas, nomes]);
-  const fluxo = useMemo(() => linhasFluxo(visiveis, rodadasVis, nomes), [visiveis, rodadasVis, nomes]);
+  const fluxo = useMemo(() => linhasFluxo(visiveis, rodadasVis, nomes, horas), [visiveis, rodadasVis, nomes, horas]);
   const nLegado = useMemo(() => jobs.filter((j) => legado(j)).length, [jobs]);
   const nFiltros = contarFiltroPainel(filtro);
 
@@ -181,13 +187,13 @@ export default function PainelJobsPage() {
 
   if (!empresa) return <EmpresaNaoResolvida carregando={carregandoEmpresa} temEmpresa={companies.length > 0} tela="o Painel de Jobs" />;
 
-  const cartoes: { r: string; v: string; d?: string }[] = [
-    { r: "Total de jobs", v: fmt(ind.total) },
-    { r: "Alterações", v: fmt(ind.alteracoes), d: `média ${fmt(ind.mediaAlteracoes)} por job` },
-    { r: "Realizado / estimado", v: ind.realizadoSobreEstimado === null ? "—" : `${fmt(ind.realizadoSobreEstimado)}%`, d: `${fmt(ind.realizado)} h de ${fmt(ind.estimado)} h` },
-    { r: "Dias da conclusão", v: fmt(ind.diasConclusao), d: "média dos concluídos" },
-    { r: "Dias de atraso", v: fmt(ind.diasAtraso), d: "média dos abertos vencidos" },
-    { r: "Média de alterações", v: fmt(ind.mediaAlteracoes), d: "por job" },
+  const cartoes: { r: string; v: string; d?: string; a: string }[] = [
+    { r: "Total de jobs", v: fmt(ind.total), a: "pm.painel_jobs.ind_total" },
+    { r: "Alterações", v: fmt(ind.alteracoes), d: `média ${fmt(ind.mediaAlteracoes)} por job`, a: "pm.painel_jobs.ind_alteracoes" },
+    { r: "Realizado / estimado", v: ind.realizadoSobreEstimado === null ? "—" : `${fmt(ind.realizadoSobreEstimado)}%`, d: `${fmt(ind.realizado)} h de ${fmt(ind.estimado)} h`, a: "pm.painel_jobs.ind_realizado_estimado" },
+    { r: "Dias da conclusão", v: fmt(ind.diasConclusao), d: "média dos concluídos", a: "pm.painel_jobs.ind_dias_conclusao" },
+    { r: "Dias de atraso", v: fmt(ind.diasAtraso), d: "média dos abertos vencidos", a: "pm.painel_jobs.ind_dias_atraso" },
+    { r: "Média de alterações", v: fmt(ind.mediaAlteracoes), d: "por job", a: "pm.painel_jobs.ind_media_alteracoes" },
   ];
 
   return (
@@ -199,11 +205,15 @@ export default function PainelJobsPage() {
             <h1 className="flex items-center gap-2 text-[26px] font-bold"><BarChart3 size={24} /> Painel de Jobs</h1>
             <p className="text-[13px] text-[#6b5444]">{ind.total} jobs no filtro{nLegado > 0 && !filtro.incluir_legado ? ` · ${nLegado} encerrados (legado) fora dos números` : ""}</p>
           </div>
-          <div className="flex flex-wrap gap-2 print:hidden">
+          <div className="flex flex-wrap items-center gap-2 print:hidden">
             <button onClick={() => setFiltroAberto((v) => !v)} className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-[#E7DED3] bg-white px-3 text-[13px]"><Filter size={14} /> Filtro{nFiltros ? ` (${nFiltros})` : ""}</button>
+            <AjudaCampo chave="pm.painel_jobs.acao_filtro" />
             <button onClick={excel} className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-[#E7DED3] bg-white px-3 text-[13px]"><FileSpreadsheet size={14} /> Excel</button>
+            <AjudaCampo chave="pm.painel_jobs.acao_excel" />
             <button onClick={pdf} disabled={gerandoPdf} data-testid="painel-pdf" className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-[#E7DED3] bg-white px-3 text-[13px] disabled:opacity-50"><FileDown size={14} /> {gerandoPdf ? "Gerando…" : "PDF"}</button>
+            <AjudaCampo chave="pm.painel_jobs.acao_pdf" />
             <button onClick={gerarInsights} disabled={gerando || ind.total === 0} className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg bg-[#3D2314] px-3 text-[13px] text-white disabled:opacity-50"><Sparkles size={14} /> {gerando ? "Analisando…" : "Insights com IA"}</button>
+            <AjudaCampo chave="pm.painel_jobs.acao_insights" />
           </div>
         </header>
 
@@ -237,31 +247,32 @@ export default function PainelJobsPage() {
               ))}
             </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <div><label className={rotulo}>Cliente</label><Multi valor={rascunho.clientes} opcoes={listas.clientes} onChange={(v) => set("clientes", v)} /></div>
-              <div><label className={rotulo}>Grupo de clientes</label><Multi valor={rascunho.grupos} opcoes={listas.grupos} onChange={(v) => set("grupos", v)} /></div>
-              <div><label className={rotulo}>Campanha</label><Multi valor={rascunho.campanhas} opcoes={listas.campanhas} onChange={(v) => set("campanhas", v)} /></div>
-              <div><label className={rotulo}>Responsável</label><Multi valor={rascunho.responsaveis} opcoes={listas.responsaveis} onChange={(v) => set("responsaveis", v)} /></div>
-              <div><label className={rotulo}>Peça / serviço</label><Multi valor={rascunho.servicos} opcoes={listas.servicos} onChange={(v) => set("servicos", v)} /></div>
-              <div><label className={rotulo}>Situação</label><Multi valor={rascunho.status} opcoes={SITUACOES.map((s) => ({ id: s.v, nome: s.l }))} onChange={(v) => set("status", v)} /></div>
-              <div><label className={rotulo}>Prioridade</label><Multi valor={rascunho.prioridades} opcoes={["baixa", "media", "alta", "urgente"].map((p) => ({ id: p, nome: p }))} onChange={(v) => set("prioridades", v)} /></div>
-              <div><label className={rotulo}>Título contém</label><input className={campo} value={rascunho.titulo ?? ""} onChange={(e) => set("titulo", e.target.value)} /></div>
-              <div><label className={rotulo}>Código do job</label><input className={campo} value={rascunho.codigo ?? ""} onChange={(e) => set("codigo", e.target.value)} /></div>
-              <div><label className={rotulo}>Data de</label>
+              <div><label className={rotulo}>Cliente<AjudaCampo chave="pm.painel_jobs.filtro_cliente" /></label><Multi valor={rascunho.clientes} opcoes={listas.clientes} onChange={(v) => set("clientes", v)} /></div>
+              <div><label className={rotulo}>Grupo de clientes<AjudaCampo chave="pm.painel_jobs.filtro_grupo" /></label><Multi valor={rascunho.grupos} opcoes={listas.grupos} onChange={(v) => set("grupos", v)} /></div>
+              <div><label className={rotulo}>Campanha<AjudaCampo chave="pm.painel_jobs.filtro_campanha" /></label><Multi valor={rascunho.campanhas} opcoes={listas.campanhas} onChange={(v) => set("campanhas", v)} /></div>
+              <div><label className={rotulo}>Responsável<AjudaCampo chave="pm.painel_jobs.filtro_responsavel" /></label><Multi valor={rascunho.responsaveis} opcoes={listas.responsaveis} onChange={(v) => set("responsaveis", v)} /></div>
+              <div><label className={rotulo}>Peça / serviço<AjudaCampo chave="pm.painel_jobs.filtro_servico" /></label><Multi valor={rascunho.servicos} opcoes={listas.servicos} onChange={(v) => set("servicos", v)} /></div>
+              <div><label className={rotulo}>Situação<AjudaCampo chave="pm.painel_jobs.filtro_situacao" /></label><Multi valor={rascunho.status} opcoes={SITUACOES.map((s) => ({ id: s.v, nome: s.l }))} onChange={(v) => set("status", v)} /></div>
+              <div><label className={rotulo}>Prioridade<AjudaCampo chave="pm.painel_jobs.filtro_prioridade" /></label><Multi valor={rascunho.prioridades} opcoes={["baixa", "media", "alta", "urgente"].map((p) => ({ id: p, nome: p }))} onChange={(v) => set("prioridades", v)} /></div>
+              <div><label className={rotulo}>Título contém<AjudaCampo chave="pm.painel_jobs.filtro_titulo" /><input className={campo} value={rascunho.titulo ?? ""} onChange={(e) => set("titulo", e.target.value)} /></label></div>
+              <div><label className={rotulo}>Código do job<AjudaCampo chave="pm.painel_jobs.filtro_codigo" /><input className={campo} value={rascunho.codigo ?? ""} onChange={(e) => set("codigo", e.target.value)} /></label></div>
+              <div><label className={rotulo}>Data de<AjudaCampo chave="pm.painel_jobs.filtro_data_tipo" />
                 <select className={campo} value={rascunho.data_tipo ?? "prazo"} onChange={(e) => set("data_tipo", e.target.value as FiltroPainel["data_tipo"])}>
                   <option value="prazo">Prazo</option><option value="criacao">Criação</option><option value="entrega">Entrega</option>
-                </select></div>
-              <div><label className={rotulo}>De</label><input type="date" className={campo} value={rascunho.data_de ?? ""} onChange={(e) => set("data_de", e.target.value)} /></div>
-              <div><label className={rotulo}>Até</label><input type="date" className={campo} value={rascunho.data_ate ?? ""} onChange={(e) => set("data_ate", e.target.value)} /></div>
-              <div><label className={rotulo}>Atrasados</label>
+                </select></label></div>
+              <div><label className={rotulo}>De<AjudaCampo chave="pm.painel_jobs.filtro_data_de" /><input type="date" className={campo} value={rascunho.data_de ?? ""} onChange={(e) => set("data_de", e.target.value)} /></label></div>
+              <div><label className={rotulo}>Até<AjudaCampo chave="pm.painel_jobs.filtro_data_ate" /><input type="date" className={campo} value={rascunho.data_ate ?? ""} onChange={(e) => set("data_ate", e.target.value)} /></label></div>
+              <div><label className={rotulo}>Atrasados<AjudaCampo chave="pm.painel_jobs.filtro_atrasados" />
                 <select className={campo} value={rascunho.atrasados ?? ""} onChange={(e) => set("atrasados", (e.target.value || undefined) as FiltroPainel["atrasados"])}>
                   <option value="">Todos</option><option value="sim">Só atrasados</option><option value="nao">Sem atraso</option>
-                </select></div>
+                </select></label></div>
             </div>
-            <label className="mt-3 flex items-center gap-2 text-[12px] text-[#6b5444]"><input type="checkbox" checked={!!rascunho.incluir_legado} onChange={(e) => set("incluir_legado", e.target.checked)} /> Incluir encerrados (legado: parados há mais de 180 dias)</label>
+            <label className="mt-3 flex items-center gap-2 text-[12px] text-[#6b5444]"><input type="checkbox" checked={!!rascunho.incluir_legado} onChange={(e) => set("incluir_legado", e.target.checked)} /> Incluir encerrados (legado: parados há mais de 180 dias)<AjudaCampo chave="pm.painel_jobs.filtro_incluir_legado" /></label>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button onClick={aplicar} className="min-h-[40px] rounded-lg bg-[#3D2314] px-4 text-[13px] text-white">Aplicar</button>
               <button onClick={limpar} className="min-h-[40px] rounded-lg border border-[#E7DED3] px-4 text-[13px]">Limpar</button>
               <input className={campo + " !w-48"} placeholder="Nome da opção" value={nomeOpcao} onChange={(e) => setNomeOpcao(e.target.value)} />
+              <AjudaCampo chave="pm.painel_jobs.nova_opcao" />
               <button onClick={salvarOpcao} disabled={!nomeOpcao.trim()} className="inline-flex min-h-[40px] items-center gap-1 rounded-lg border border-[#E7DED3] px-3 text-[13px] disabled:opacity-50"><Save size={14} /> Salvar opção</button>
             </div>
           </section>
@@ -272,7 +283,7 @@ export default function PainelJobsPage() {
             <section className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-6">
               {cartoes.map((c) => (
                 <div key={c.r} className={cartao}>
-                  <div className="text-[11px] font-semibold uppercase tracking-wider text-[#3D2314]/60">{c.r}</div>
+                  <div className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-[#3D2314]/60">{c.r}<AjudaCampo chave={c.a} /></div>
                   <div className="mt-1 text-[24px] font-bold">{c.v}</div>
                   {c.d && <div className="text-[11px] text-[#6b5444]">{c.d}</div>}
                 </div>
@@ -289,9 +300,9 @@ export default function PainelJobsPage() {
             )}
 
             <section className="grid gap-3 lg:grid-cols-2">
-              <GraficoBarras titulo="Peças (por serviço)" dados={gr.pecas} />
+              <GraficoBarras titulo="Peças (por serviço)" dados={gr.pecas} ajuda="pm.painel_jobs.graf_pecas" />
               <div className={cartao}>
-                <h3 className="mb-2 text-[13px] font-semibold">Classificação (situação dos jobs)</h3>
+                <h3 className="mb-2 flex items-center gap-1 text-[13px] font-semibold">Classificação (situação dos jobs)<AjudaCampo chave="pm.painel_jobs.graf_classificacao" /></h3>
                 {gr.classificacao.length === 0 ? <p className="py-8 text-center text-[12px] text-[#6b5444]">Sem dados no filtro.</p> : (
                   <div style={{ height: 220 }}>
                     <ResponsiveContainer width="100%" height="100%">
@@ -301,10 +312,10 @@ export default function PainelJobsPage() {
                   </div>
                 )}
               </div>
-              <GraficoBarras titulo="Motivos de alteração" dados={gr.motivos} cor="#C8941A" />
-              <GraficoBarras titulo="Clientes com mais alterações" dados={gr.clientesAlteracoes} cor="#a35a4b" />
+              <GraficoBarras titulo="Motivos de alteração" dados={gr.motivos} cor="#C8941A" ajuda="pm.painel_jobs.graf_motivos" />
+              <GraficoBarras titulo="Clientes com mais alterações" dados={gr.clientesAlteracoes} cor="#a35a4b" ajuda="pm.painel_jobs.graf_clientes_alteracoes" />
               <div className={cartao}>
-                <h3 className="mb-2 text-[13px] font-semibold">Jobs × alterações por cliente</h3>
+                <h3 className="mb-2 flex items-center gap-1 text-[13px] font-semibold">Jobs × alterações por cliente<AjudaCampo chave="pm.painel_jobs.graf_dispersao" /></h3>
                 {gr.dispersao.length === 0 ? <p className="py-8 text-center text-[12px] text-[#6b5444]">Sem dados no filtro.</p> : (
                   <div style={{ height: 240 }}>
                     <ResponsiveContainer width="100%" height="100%">
@@ -320,13 +331,13 @@ export default function PainelJobsPage() {
                   </div>
                 )}
               </div>
-              <GraficoBarras titulo="Jobs por responsável" dados={gr.porResponsavel} />
-              <GraficoBarras titulo="Horas por colaborador" dados={gr.horasColaborador} cor="#5b7a6a" />
-              <GraficoBarras titulo="Horas por cliente" dados={gr.horasCliente} cor="#4f6d8a" />
+              <GraficoBarras titulo="Jobs por responsável" dados={gr.porResponsavel} ajuda="pm.painel_jobs.graf_por_responsavel" />
+              <GraficoBarras titulo="Horas por colaborador" dados={gr.horasColaborador} cor="#5b7a6a" ajuda="pm.painel_jobs.graf_horas_colaborador" />
+              <GraficoBarras titulo="Horas por cliente" dados={gr.horasCliente} cor="#4f6d8a" ajuda="pm.painel_jobs.graf_horas_cliente" />
             </section>
 
             <section className={cartao + " mt-4 overflow-x-auto"}>
-              <h3 className="mb-2 text-[13px] font-semibold">Fluxo de trabalho</h3>
+              <h3 className="mb-2 flex items-center gap-1 text-[13px] font-semibold">Fluxo de trabalho<AjudaCampo chave="pm.painel_jobs.tabela_fluxo" /></h3>
               {fluxo.length === 0 ? <p className="py-6 text-center text-[12px] text-[#6b5444]">Nenhum job no filtro.</p> : (
                 <table className="w-full text-left text-[12px]">
                   <thead><tr className="text-[#6b5444]">{CABECALHO_FLUXO.map((h) => <th key={h} className="px-2 py-1 font-semibold">{h}</th>)}</tr></thead>

@@ -17,6 +17,7 @@ import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import {
   Plus, Search, ShoppingCart, BarChart3,
   X, Info, Send, CheckCircle2, ArrowRight,
@@ -223,6 +224,7 @@ function OTCPageInner() {
   // ⑨ #90 · confirmação ao arrastar Orçamento → Pedido no Kanban (cria documento fiscal → nunca direto)
   const [confirmConv, setConfirmConv] = useState<Orcamento | null>(null)
   const [convertendo, setConvertendo] = useState(false)
+  const [erroConv, setErroConv] = useState<string | null>(null)
   // #90 · arrastar para Faturado: faturar (pedido) ou converter+faturar (orçamento), com confirmação.
   const [confirmFatura, setConfirmFatura] = useState<{ tipo: 'orcamento'; orc: Orcamento } | { tipo: 'pedido'; ped: Pedido } | null>(null)
   const [faturandoKanban, setFaturandoKanban] = useState(false)
@@ -325,9 +327,10 @@ function OTCPageInner() {
     flash('Orcamento aprovado!')
   }
 
-  async function converterEmPedido(id: string) {
+  // #3858 · devolve a mensagem de erro (em linguagem simples) para o diálogo continuar aberto e mostrá-la
+  async function converterEmPedido(id: string): Promise<string | null> {
     const { data, error } = await supabase.rpc('fn_converter_orcamento_em_pedido', { p_orcamento_id: id })
-    if (error) { flash('Erro: ' + error.message); return }
+    if (error) return erroConversao(error.message)
     const pedidoId = data as string
     flash('Pedido criado com sucesso!')
     setOrcSel(null)
@@ -335,6 +338,7 @@ function OTCPageInner() {
     // #90 · abas removidas — abre o pedido recém-criado no drawer (não troca de aba).
     const { data: ped } = await supabase.from('erp_pedidos').select('*').eq('id', pedidoId).single()
     if (ped) setPedSel(ped as Pedido)
+    return null
   }
 
   // #90 · arrastar para Faturado. Orçamento: converte e fatura (dois passos, na ordem). Pedido: fatura.
@@ -496,11 +500,14 @@ function OTCPageInner() {
         <ConfirmConverterModal
           orc={confirmConv}
           loading={convertendo}
-          onCancel={() => { if (!convertendo) setConfirmConv(null) }}
+          erro={erroConv}
+          onCancel={() => { if (!convertendo) { setConfirmConv(null); setErroConv(null) } }}
           onConfirm={async () => {
             setConvertendo(true)
-            await converterEmPedido(confirmConv.id)
+            setErroConv(null)
+            const erro = await converterEmPedido(confirmConv.id)
             setConvertendo(false)
+            if (erro) { setErroConv(erro); return }
             setConfirmConv(null)
           }}
         />
@@ -821,8 +828,15 @@ function KanbanVazio({ texto }: { texto: string }) {
   return <div style={{ fontSize: 11, color: C.espressoL, fontStyle: 'italic', padding: '10px 4px', textAlign: 'center' }}>{texto}</div>
 }
 
-function ConfirmConverterModal({ orc, loading, onCancel, onConfirm }: {
-  orc: Orcamento; loading: boolean; onCancel: () => void; onConfirm: () => void
+// #3858 · erro do banco em linguagem simples (as mensagens da função já vêm prontas; o resto ganha um texto padrão)
+function erroConversao(msg: string): string {
+  if (/duplicate key|erp_pedidos_company_id_numero_key/i.test(msg)) return 'Já existe um pedido com este número. Recarregue a tela e tente de novo.'
+  if (/permission denied|42501/i.test(msg)) return 'Você não tem acesso a esta empresa.'
+  return msg || 'Não foi possível converter o orçamento em pedido.'
+}
+
+function ConfirmConverterModal({ orc, loading, erro, onCancel, onConfirm }: {
+  orc: Orcamento; loading: boolean; erro: string | null; onCancel: () => void; onConfirm: () => void
 }) {
   return (
     <div onClick={onCancel} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 95, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
@@ -839,6 +853,12 @@ function ConfirmConverterModal({ orc, loading, onCancel, onConfirm }: {
             <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
             <span>Esta ação cria um documento e não é desfeita por arrastar de volta. Confirme para prosseguir.</span>
           </div>
+          {erro && (
+            <div role="alert" data-testid="erro-converter-pedido" style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: C.redBg, border: `1px solid ${C.red}55`, borderRadius: 8, padding: 10, fontSize: 12, color: C.red }}>
+              <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+              <span>Não foi possível converter: {erro}</span>
+            </div>
+          )}
         </div>
         <div style={{ padding: '14px 20px', borderTop: `1px solid ${C.border}`, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <button onClick={onCancel} disabled={loading} style={{ ...btnSec, opacity: loading ? 0.6 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}>Cancelar</button>
@@ -1713,6 +1733,47 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
   const [clientes, setClientes] = useState<Cliente[]>([])
   const [clienteSel, setClienteSel] = useState<Cliente | null>(null)
   const [searchingClientes, setSearchingClientes] = useState(false)
+  // cadastro inline (#2910): mesmo fluxo da Nova OS (#2260) — fn_cliente_criar_inline + /api/cnpj-lookup
+  const [cadAberto, setCadAberto] = useState(false)
+  const [cadNome, setCadNome] = useState('')
+  const [cadDoc, setCadDoc] = useState('')
+  const [cadTel, setCadTel] = useState('')
+  const [cadSalvando, setCadSalvando] = useState(false)
+  const [cadMsg, setCadMsg] = useState<string | null>(null)
+
+  function abrirCadastroCliente() {
+    const t = clienteBusca.trim()
+    const soDig = t.replace(/\D/g, '')
+    if (soDig.length === 11 || soDig.length === 14) { setCadDoc(soDig); setCadNome('') } else { setCadNome(t); setCadDoc('') }
+    setCadTel(''); setCadMsg(null); setCadAberto(true)
+  }
+
+  async function buscarCnpjCadastro(doc: string) {
+    if (doc.length !== 14) return
+    try {
+      const r = await fetch(`/api/cnpj-lookup?cnpj=${doc}`)
+      if (!r.ok) { setCadMsg(r.status === 404 ? 'CNPJ não encontrado — preencha o nome à mão.' : 'Consulta externa indisponível — preencha o nome à mão.'); return }
+      const d = await r.json() as { razao_social?: string }
+      if (d.razao_social && !cadNome.trim()) setCadNome(d.razao_social)
+    } catch { setCadMsg('Consulta externa indisponível — preencha o nome à mão.') }
+  }
+
+  async function salvarCadastroCliente() {
+    if (!cadNome.trim()) { setCadMsg('Informe o nome do cliente.'); return }
+    setCadSalvando(true); setCadMsg(null)
+    const extra: Record<string, string> = {}
+    if (cadTel.trim()) extra.telefone = cadTel.trim()
+    const doc = cadDoc.replace(/\D/g, '')
+    const { data, error } = await supabase.rpc('fn_cliente_criar_inline', {
+      p_company_id: companyId, p_nome: cadNome.trim(), p_cpf_cnpj: doc || null,
+      p_extra: Object.keys(extra).length ? extra : null,
+    })
+    setCadSalvando(false)
+    if (error) { setCadMsg('❌ ' + error.message); return }
+    setClienteSel({ id: data as string, razao_social: cadNome.trim(), nome_fantasia: null, cnpj_cpf: doc || null, email: null, telefone: cadTel.trim() || null })
+    setCadAberto(false)
+    setStep('itens')
+  }
   // FEAT-OS-ONDA1B-EDITOR-NO-OTC-v1 · itens polimorficos via shared editor
   const [itens, setItens] = useState<EditorItem[]>([])
   const [observacoes, setObservacoes] = useState('')
@@ -1885,6 +1946,36 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
             )}
             {clienteBusca.trim().length >= 2 && !searchingClientes && clientes.length === 0 && (
               <p style={{ fontSize: 11, color: C.espressoM, margin: 0 }}>Nenhum cliente encontrado. Verifique o termo de busca.</p>
+            )}
+            {!cadAberto && clienteBusca.trim().length >= 2 && !searchingClientes && clientes.length === 0 && (
+              <button type="button" onClick={abrirCadastroCliente} data-testid="otc-novo-cadastrar-cliente"
+                style={{ width: '100%', textAlign: 'left', background: C.cream, border: `1px dashed ${C.border}`, borderRadius: 8, padding: 10, cursor: 'pointer', minHeight: 44, fontSize: 13, color: C.espresso }}>
+                + Cadastrar novo cliente “{clienteBusca.trim()}”
+              </button>
+            )}
+            {cadAberto && (
+              <div style={{ padding: 10, background: C.cream, borderRadius: 8, display: 'grid', gap: 8 }} data-testid="otc-novo-cliente-inline">
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Nome / razão social</label><AjudaCampo chave="otc.novo.cliente_novo_nome" rota="/dashboard/commerce/otc" />
+                  <input value={cadNome} onChange={(e) => setCadNome(e.target.value)} style={inp} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>CPF / CNPJ</label><AjudaCampo chave="otc.novo.cliente_novo_doc" rota="/dashboard/commerce/otc" />
+                  <input value={cadDoc} onChange={(e) => setCadDoc(e.target.value)} onBlur={() => void buscarCnpjCadastro(cadDoc.replace(/\D/g, ''))} inputMode="numeric" style={inp} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Telefone</label><AjudaCampo chave="otc.novo.cliente_novo_tel" rota="/dashboard/commerce/otc" />
+                  <input value={cadTel} onChange={(e) => setCadTel(e.target.value)} inputMode="tel" style={inp} />
+                </div>
+                {cadMsg && <div style={{ fontSize: 12, color: C.espressoM }}>{cadMsg}</div>}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button type="button" onClick={() => void salvarCadastroCliente()} disabled={cadSalvando} data-testid="otc-novo-cliente-salvar"
+                    style={{ flex: 1, minHeight: 44, borderRadius: 8, border: 'none', background: C.espresso, color: C.white, cursor: 'pointer', fontWeight: 600 }}>
+                    {cadSalvando ? 'Salvando…' : 'Cadastrar e vincular'}
+                  </button>
+                  <button type="button" onClick={() => setCadAberto(false)} style={{ minHeight: 44, borderRadius: 8, border: `1px solid ${C.border}`, background: 'transparent', cursor: 'pointer', padding: '0 14px' }}>Cancelar</button>
+                </div>
+              </div>
             )}
           </div>
         ) : (

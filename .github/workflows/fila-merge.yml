@@ -23,20 +23,38 @@ on:
       - 'Régua de menu (rota × página)'
       - 'Régua de migrations (versão única · sem colisão com o ledger)'
     types: [completed]
-  status:
+  # CEO 22/10 (esteira contínua): o gatilho `status:` (cada atualização de status de commit de TODAS as PRs — Vercel,
+  # cada check) disparava a fila dezenas de vezes por minuto; com a concorrência, as rodadas se cancelavam antes de
+  # completar e NADA publicava (0 passadas completas em 25 runs). Removido: os eventos úteis já chegam por
+  # workflow_run (fim de CI/aceitação/deploy), pull_request_target (mudança na PR), issue_comment (autorização),
+  # push na main e o schedule a cada 15 min. Menos gatilho = a rodada completa e publica.
   push:
     branches: [main]
   workflow_dispatch:
-
-concurrency:
-  group: fila-merge
-  cancel-in-progress: false
+  # Rede de segurança (CEO 10/10): a fila é event-driven e fica QUIETA entre eventos (ninguém clicando → backlog parado).
+  # Um tick periódico a cada 15 min varre o backlog e drena sozinho. Mantém TODOS os gatilhos de evento acima; no tick
+  # por schedule não há github.event.pull_request — o job varre a lista de PRs, não uma PR específica, então roda igual.
+  schedule:
+    - cron: '*/15 * * * *'
 
 permissions:
   contents: read
+  # CEO 15/10 17:50: a fila lê os specs falhos do @pos pelas ANOTAÇÕES do check-run (check-runs/<id>/annotations),
+  # em vez de baixar o log do job (que dava 404). Leitura de checks + actions cobre esse caminho.
+  checks: read
+  actions: read
 
 jobs:
   fila:
+    # Concorrência no JOB (não no workflow): evento filtrado pelo `if` abaixo é job pulado e NÃO entra na fila serial.
+    # CEO 12/10 (deadlock): com `queue: max` cada evento virava uma rodada pendente (18+ atrás de uma cabeça lenta, ~30 min
+    # de espera cada). Cada rodada varre a lista de PRs do zero (idempotente), então basta UMA pendente: a mais nova
+    # substitui a pendente anterior (nada se perde — a rodada seguinte enxerga o estado atual). `cancel-in-progress: false`
+    # preserva a rodada que está mergeando (nunca interrompe um merge/update-branch no meio). A cabeça travada cai pelo
+    # `timeout-minutes` do job e do passo.
+    concurrency:
+      group: fila-merge
+      cancel-in-progress: false
     # filtros baratos: só acorda quando o evento pode mudar o estado da fila
     if: >-
       (github.event_name != 'pull_request_target' || (!github.event.pull_request.draft && github.event.pull_request.base.ref == 'main')) &&
@@ -56,6 +74,7 @@ jobs:
         run: |
           [ -n "$FILA_MERGE_TOKEN" ] || { echo "::error::segredo FILA_MERGE_TOKEN ausente — sem ele o merge não dispara o deploy-migrations. Peça ao CEO."; exit 1; }
       - name: Processar a fila (uma PR por vez)
+        timeout-minutes: 8
         env:
           GH_TOKEN: ${{ secrets.FILA_MERGE_TOKEN }}
           REPO: ${{ github.repository }}

@@ -48,7 +48,12 @@
       "Bash(git remote:*)",
       "Bash(npx tsc:*)",
       "Bash(npx eslint:*)",
-      "Bash(npm run lint:*)"
+      "Bash(npm run lint:*)",
+
+      "mcp__claude-code-remote__unsubscribe_pr_activity"
+    ],
+    "deny": [
+      "mcp__claude-code-remote__subscribe_pr_activity"
     ],
     "ask": [
       "mcp__github__enable_pr_auto_merge"

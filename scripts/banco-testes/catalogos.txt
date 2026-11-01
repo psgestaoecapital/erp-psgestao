@@ -15,6 +15,16 @@ feature_catalog
 system_screens
 screen_route_features
 
+# EPI: catálogo global de categorias (sem coluna de dono). O fn_demo_reset popula epi_catalogo (por empresa), que
+# referencia categoria_id → epi_categoria tem de existir ANTES do fn_demo_reset, senão a semente da DEMO falha.
+epi_categoria
+
+# Passada de semente (CEO 11/10): globais de produção que a UI das specs lê e o banco de testes não tinha. Sem coluna de dono.
+area_menu_config            # menu por área (FK plan_catalog)
+area_indicadores_mestres    # indicadores-mestre por área
+role_permissions            # permissão por papel/módulo (FK module_catalog)
+permissoes_nivel            # permissão por nível/módulo (FK module_catalog)
+
 # Papéis de acesso (RBAC) globais
 rbac_subgrupo_catalogo
 rbac_papel
@@ -32,3 +42,32 @@ erp_gov_nfse_municipios     # municípios IBGE (adesão à NFS-e nacional)
 # importou (dado pessoal) — pg_dump -t copia a tabela inteira, então ela NÃO entra. Nenhuma spec lê o conteúdo dela
 # (ibpt-empresa-token só a cita). Se o CEO quiser o IBPT no banco de testes, a cópia tem de ser por SELECT com essa
 # coluna em branco, não por pg_dump. erp_ibpt_item depende de erp_ibpt_tabela (que tem company_id): também fora.
+
+# Passada completa de semente (11/10, msg c3497781): auditoria das 209 specs de e2e contra o banco de testes. Funções (rpc)
+# usadas pelas specs: todas existem no teste. Tabelas lidas direto: só dominio_bi estava vazia e é global (id/slug/nome/ordem/
+# ativo/icone, sem dono nem dado pessoal). As demais vazias (invites, user_scope, lgpd_consentimentos) são criadas pelas
+# próprias specs ou por empresa DEMO — não entram aqui.
+dominio_bi
+
+# Segunda passada (12/10, msg c3497781): auditoria estática das specs. Globais de referência SEM coluna de dono (conferido na
+# produção: nenhuma coluna company/user/owner/email) que as specs leem e que só nasciam por INSERT dentro de migration
+# (não chegam ao banco de testes, que parte de dump só de estrutura).
+compliance_tipos_documento  # tryo-documentos-so-aplicaveis-47, seguranca-rls-conteudo-pr2, fn_demo_reset da Indústria SST (slugs aso/nr06)
+erp_banco_manifesto         # seguranca-rls-conteudo-pr2
+erp_banco_erro_catalogo     # seguranca-rls-conteudo-pr2
+erp_ajuda_campo             # ajuda-campo-mao-obra, produtividade-cadastro-editavel (textos do "?", RD-95)
+
+# Plano de contas PSGC (19/10): global (codigo/nome/nivel/pai_codigo/dre_*, sem dono nem dado pessoal). A semente da DEMO
+# P&M (fn_demo_seed_pm_jornada, via fn_gold_pm_seed_reparar no fn_demo_reset) grava psgc_depara com psgc_codigo '1.3' (FK
+# psgc_depara_psgc_codigo_fkey); sem o catálogo o Montar 473-477 abortou na Semente.
+psgc_contas
+
+# erp_agente_rotina (rotinas dos agentes) NÃO entra (25/10, gilberto-desenv): a #3181 a pôs aqui e o Montar 788-795
+# quebrou — o CHECK erp_agente_rotina_agente_check da produção ganhou agentes (code-desenvolvedor-3, desenvolvedor_4/5/6_g,
+# auditor_pdca_g) FORA de migration, e o banco de testes (só migrations) recusa essas linhas. Volta quando uma migration
+# alinhar o CHECK à produção (via revisada). Até lá canal-ps e agente-chamado-responder seguem com 23503 na aceitação.
+
+# Modelo de produtividade (PR A · CEO 28/10): template "Abate de bovinos" como DADO global, sem coluna de dono.
+# "Começar pelo modelo" (fn_prod_modelo_aplicar) copia estas linhas para as raias/atividades da empresa.
+prod_modelo_fluxo          # pai de prod_modelo_etapa (FK)
+prod_modelo_etapa

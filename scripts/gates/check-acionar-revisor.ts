@@ -10,7 +10,7 @@ ok(/on:\s*\n\s*pull_request_target:\s*\n\s*types:\s*\[labeled, synchronize, read
 ok(!/\n\s+pull_request:/.test(semComentario), 'não usa pull_request (roda o código da main)')
 ok(/!github\.event\.pull_request\.draft/.test(semComentario) && /head\.repo\.full_name == github\.repository/.test(semComentario)
   && /contains\(github\.event\.pull_request\.labels\.\*\.name, 'revisao-eng-chefe'\)/.test(semComentario), 'só PR não draft, do próprio repo, com revisao-eng-chefe')
-ok(/cancel-in-progress: true/.test(semComentario) && /group: acionar-revisor/.test(semComentario) && /sleep 120/.test(semComentario), 'concurrency cancel-in-progress + sleep 120')
+ok(/cancel-in-progress: \$\{\{ github\.event_name == 'pull_request_target' \}\}/.test(semComentario) && /group: acionar-revisor/.test(semComentario) && /sleep 120/.test(semComentario), 'concurrency cancel-in-progress + sleep 120')
 const checkouts = [...semComentario.matchAll(/uses: actions\/checkout@[^\n]*\n((?:\s+with:\n(?:\s+[^\n]*\n)*)?)/g)]
 ok(checkouts.length === 1 && /ref: \$\{\{ github\.event\.pull_request\.base\.ref \}\}/.test(checkouts[0][1])
   && !/head\.(sha|ref)/.test(checkouts[0][1]), 'o único checkout é o da BASE (nunca o head da PR)')
@@ -20,6 +20,7 @@ ok(/Authorization: Bearer \$REVISOR_ROTINA_TOKEN/.test(semComentario) && /anthro
   && /anthropic-version: 2023-06-01/.test(semComentario) && /aguardando revisão \(evento \$EVENTO\)/.test(semComentario), 'POST no formato do fn_agente_acionar')
 ok(/secrets\.REVISOR_ROTINA_URL/.test(semComentario) && /secrets\.REVISOR_ROTINA_TOKEN/.test(semComentario), 'segredos REVISOR_ROTINA_URL / REVISOR_ROTINA_TOKEN')
 ok(/::warning[^\n]*\n?[^\n]*REVISOR_ROTINA/.test(semComentario) && /exit 0/.test(semComentario) && !/\bexit 1\b/.test(semComentario), 'segredo ausente = warning, nunca falha a PR')
+ok(/cron: '\*\/15 \* \* \* \*'/.test(semComentario) && /varredura:/.test(semComentario) && /'varredura'/.test(semComentario) && /cancel-in-progress: \$\{\{ github\.event_name == 'pull_request_target' \}\}/.test(semComentario), 'varredura a cada 15 min, grupo próprio, sem auto-cancelamento')
 ok(/acionar-revisor\.yml/.test(readFileSync('AGENTS.md', 'utf8')), 'AGENTS.md documenta o acionar-revisor.yml')
 
 if (falhas) { console.error(`\n${falhas} falha(s) em acionar-revisor`); process.exit(1) }

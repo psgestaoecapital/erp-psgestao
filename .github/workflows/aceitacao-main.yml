@@ -7,7 +7,8 @@ name: Aceitação da main (banco de testes)
 #
 # Onde roda: build da main (next build + next start) NO PRÓPRIO RUNNER, apontado para o BANCO DE TESTES (segredos
 # TEST_*), NUNCA para a produção (trava abaixo). Sem custo recorrente (repo público, Actions grátis) e sem segredo novo.
-# Mesma fila da aceitação no banco de testes (group aceitacao-testes, FIFO, sem cancelar): não disputa a demo.
+# CEO 18/10: roda SÓ na VAGA 1 (banco de referência), no grupo existente da vaga 1 (aceitacao-testes-1): não disputa
+# vaga com as PRs (que usam só as vagas 0 e 2), e divide a exclusão do banco com o montar/reconciliar da vaga 1.
 #
 # Disparo (07/10): a agenda do GitHub atrasa e DESCARTA runs em horário de carga — este workflow ficou ~7 h sem nenhum
 # run e o vigia de 10 min rodou 3 vezes em 13 h. Por isso ele roda também ao fim de cada "Montar banco de testes" na
@@ -23,8 +24,9 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write        # revert automático (esteira contínua): cria o ramo de revert quando ligado
   issues: write
+  pull-requests: write   # revert automático: abre a PR de revert
   actions: read
 
 jobs:
@@ -32,7 +34,7 @@ jobs:
   # novo — vale para a agenda e para o disparo pós-montagem (merges seguidos não enfileiram runs repetidos).
   # workflow_dispatch roda sempre.
   decide:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # Playwright 1.59 não suporta ubuntu-26.04 (latest)
     timeout-minutes: 3
     outputs:
       rodar: ${{ steps.d.outputs.rodar }}
@@ -62,18 +64,22 @@ jobs:
   aceitacao-main:
     needs: decide
     if: needs.decide.outputs.rodar == 'true'
-    runs-on: ubuntu-latest
-    # mesma fila FIFO da aceitação no banco de testes (aceitacao-pr.yml com ACEITACAO_BANCO=testes)
+    runs-on: ubuntu-24.04 # Playwright 1.59 não suporta ubuntu-26.04 (latest)
+    # CEO 18/10: a aceitação da main roda SÓ na VAGA 1 (banco de referência), no grupo JÁ EXISTENTE da vaga 1
+    # (aceitacao-testes-1) — a MESMA exclusão mútua do banco usada pelo montar/reconciliar da vaga 1 e por qualquer
+    # aceitação de PR em transição nela. Como a vaga 1 sai do sorteio das PRs, esse grupo vira, na prática, só da main.
+    # Antes a main dividia o grupo aceitacao-testes (vaga 0) com as PRs.
     concurrency:
-      group: aceitacao-testes
+      group: aceitacao-testes-1
       cancel-in-progress: false
       queue: max
-    # build (~5 min) + suíte inteira (~30 min); fora do vigia de 45 min de propósito
-    timeout-minutes: 60
+    # build (~5 min) + suíte inteira (~45 min); teto próprio no vigia (LIMITE_MAIN_MIN 70), não o de 45
+    timeout-minutes: 75
+    # CEO 18/10: a main roda na VAGA 1 (banco de referência) — segredos *_1.
     env:
-      TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
-      TEST_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
-      TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+      TEST_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL_1 }}
+      TEST_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY_1 }}
+      TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY_1 }}
     steps:
       # 1º passo, JÁ DENTRO da fila (CEO 07/10): a espera na fila aceitacao-testes pode levar horas e a main anda nesse
       # meio-tempo. Se a ponta ATUAL da main já tem run concluído (verde/vermelho) ou outro run em andamento, encerra com
@@ -84,10 +90,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
+          EVENTO: ${{ github.event_name }}
         run: |
           set -euo pipefail
           sha=$(gh api "repos/$REPO/commits/main" --jq .sha)
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          # disparo manual FORÇA o re-teste (ex.: banco de testes consertado, mesmo SHA): nunca pula por "já julgada"
+          if [ "$EVENTO" = workflow_dispatch ]; then
+            echo "::notice::disparo manual: julgando ${sha:0:7} de novo mesmo já julgada"
+            echo "pular=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
           outros=$(gh api "repos/$REPO/actions/workflows/aceitacao-main.yml/runs?branch=main&per_page=30" --jq \
             "[.workflow_runs[] | select(.id != $RUN_ID and .head_sha == \"$sha\" and
               ((.status == \"completed\" and (.conclusion == \"success\" or .conclusion == \"failure\")) or .status == \"in_progress\"))] | length")
@@ -98,18 +110,75 @@ jobs:
             echo "julgando a ponta da main ${sha:0:7}"
             echo "pular=false" >> "$GITHUB_OUTPUT"
           fi
-      - name: Trava de segurança (nunca a produção)
-        if: steps.ja.outputs.pular == 'false'
-        run: |
-          [ -n "$TEST_SUPABASE_URL" ] && [ -n "$TEST_SUPABASE_ANON_KEY" ] && [ -n "$TEST_SUPABASE_SERVICE_ROLE_KEY" ] \
-            || { echo "::error::segredos TEST_SUPABASE_* ausentes"; exit 1; }
-          case "$TEST_SUPABASE_URL" in *horsymhsinqcimflrtjo*) echo "::error::TEST_SUPABASE_URL aponta para a PRODUÇÃO — abortado"; exit 1;; esac
-          case "$TEST_SUPABASE_URL" in *hqjzqwsxrkewjjuyqeij*) echo "banco de testes confirmado";; *) echo "::error::TEST_SUPABASE_URL não é o projeto erp-psgestao-testes"; exit 1;; esac
+      # CEO 18/10: 3 travas do banco da VAGA 1 (referência) em scripts/merge/aceitacao-main-trava-banco.sh —
+      #  (1) allowlist positivo do projeto da vaga 1 (mgyxiamybepkphtfhway) na URL da API e na do Postgres;
+      #  (2) anti-produção (horsymhsinqcimflrtjo em qualquer URL → aborta); (3) Session pooler (*.pooler.supabase.com).
+      # 19/10 (gilberto-desenv): o checkout vem ANTES da trava — a trava é um script do repo e, sem o checkout, saía com
+      # 127 (comando não encontrado) em ~13 s desde a #2849: toda aceitação da main falhava, a main nunca ficava verde e
+      # o regime de construção ficava desligado. O checkout não toca banco; a trava continua antes de qualquer acesso a ele.
       - uses: actions/checkout@v4
         if: steps.ja.outputs.pular == 'false'
         with:
           ref: ${{ steps.ja.outputs.sha }}
           fetch-depth: 0
+      - name: Trava de segurança (vaga 1 de referência, nunca a produção)
+        if: steps.ja.outputs.pular == 'false'
+        env:
+          URL: ${{ secrets.TEST_SUPABASE_URL_1 }}
+          DBURL: ${{ secrets.TEST_DATABASE_URL_1 }}
+          ESPERADO: mgyxiamybepkphtfhway
+        run: |
+          [ -n "$TEST_SUPABASE_ANON_KEY" ] && [ -n "$TEST_SUPABASE_SERVICE_ROLE_KEY" ] \
+            || { echo "::error::segredos TEST_SUPABASE_*_1 (vaga 1) ausentes"; exit 1; }
+          scripts/merge/aceitacao-main-trava-banco.sh
+      # CEO 13/10 19:58 (CEO 18/10: vaga 1): barra o banco da VAGA 1 (referência) CONTAMINADO por PR antes de testar a
+      # main. O checkout acima é a própria main (steps.ja.outputs.sha), então supabase/migrations do working tree É o
+      # alvo. Contaminado (ledger com versão > a da main) → falha "vaga 1 precisa de recriar"; o Montar recriar limpa.
+      - name: Guarda de contaminação (banco da vaga 1 alinhado à main)
+        if: steps.ja.outputs.pular == 'false'
+        env:
+          TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL_1 }}
+        run: VAGA=1 MAIN_MIGR_DIR=supabase/migrations scripts/banco-testes/reconciliar-vaga.sh
+      # CEO 13/10 (CEO 18/10: vaga 1): sincroniza o banco da VAGA 1 (referência) com a produção ANTES de montar/testar a
+      # main, senão a suíte roda num schema atrás da produção e gera vermelho FALSO. `supabase db push` é idempotente
+      # (compara o ledger). Roda no grupo aceitacao-testes-1 (cancel-in-progress:false). Falhou = aborta com mensagem clara.
+      - uses: supabase/setup-cli@v1
+        if: steps.ja.outputs.pular == 'false'
+        with:
+          version: 2.118.0
+      - name: Sincronizar o banco da vaga 1 (referência) com a produção (migrations pendentes)
+        if: steps.ja.outputs.pular == 'false'
+        env:
+          TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL_1 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TEST_DATABASE_URL:-}" ]; then
+            echo "::error::banco da vaga 1 não sincronizou — segredo TEST_DATABASE_URL_1 ausente"; exit 1
+          fi
+          case "$TEST_DATABASE_URL" in *horsymhsinqcimflrtjo*) echo "::error::TEST_DATABASE_URL_1 aponta para a PRODUÇÃO — abortado"; exit 1;; esac
+          led() { psql "$1" -tAc "select count(*)||' · até '||coalesce(max(version),'—') from supabase_migrations.schema_migrations" 2>/dev/null || echo 'indisponível'; }
+          alvo=$(ls supabase/migrations/*.sql 2>/dev/null | wc -l | tr -d ' ')
+          alvo_v=$(ls supabase/migrations/*.sql 2>/dev/null | sed -E 's#.*/([0-9]+)_.*#\1#' | sort | tail -1)
+          antes=$(led "$TEST_DATABASE_URL")
+          # 24/10: organização FIXA das DEMOs (as migrations 0001…0009 gravam nela) — sem ela o db push parava na vaga 1
+          scripts/banco-testes/garantir-org-demo.sh
+          if ! supabase db push --include-all --db-url "$TEST_DATABASE_URL"; then
+            echo "::error::banco da vaga 1 não sincronizou (supabase db push falhou) — aceitação da main abortada para não gerar vermelho FALSO"; exit 1
+          fi
+          # 19/10: dados fiscais das DEMOs espelho da produção (uf_fiscal 'SC', IE da GE) — o checkout aqui é a própria main
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/banco-testes/semente-fiscal-demo.sql \
+            || { echo "::error::semente fiscal das DEMOs falhou na vaga 1 — aceitação da main abortada"; exit 1; }
+          depois=$(led "$TEST_DATABASE_URL")
+          {
+            echo "### Sincronização do banco da vaga 1 (referência) com a produção"
+            echo ""
+            echo "| ledger | valor |"
+            echo "| --- | --- |"
+            echo "| vaga ANTES | $antes |"
+            echo "| vaga DEPOIS | $depois |"
+            echo "| alvo (migrations no repo = produção após deploy) | $alvo · até ${alvo_v:-—} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "vaga 1: ledger antes=[$antes] depois=[$depois] alvo=[$alvo · até ${alvo_v:-—}]"
       - uses: actions/setup-node@v4
         if: steps.ja.outputs.pular == 'false'
         with:
@@ -120,19 +189,19 @@ jobs:
       - name: Build da main apontado para o banco de testes
         if: steps.ja.outputs.pular == 'false'
         env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
-          SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL_1 }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY_1 }}
+          SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL_1 }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY_1 }}
           VERCEL_GIT_COMMIT_SHA: ${{ steps.ja.outputs.sha }}
         run: npx next build
       - name: Sobe a main no runner (next start, porta 3000)
         if: steps.ja.outputs.pular == 'false'
         env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
-          SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL_1 }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY_1 }}
+          SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL_1 }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY_1 }}
           VERCEL_GIT_COMMIT_SHA: ${{ steps.ja.outputs.sha }}
         run: |
           nohup npx next start -p 3000 > next-start.log 2>&1 &
@@ -144,25 +213,29 @@ jobs:
       - if: steps.ja.outputs.pular == 'false'
         run: npx playwright install --with-deps chromium
       - name: Suíte de aceitação contra a main (banco de testes)
-        timeout-minutes: 45
+        timeout-minutes: 75
         if: steps.ja.outputs.pular == 'false'
         id: suite
         env:
           PROD_BASE_URL: http://localhost:3000
-          SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+          SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL_1 }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY_1 }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY_1 }}
           PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
           PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
-          TRAVA_DEMO_ESPERA_MIN: '15'
+          # 12/10: com 15 min a main desistia da trava (run 195: demo presa por aceitação de PR) e ficava VERMELHA sem
+          # rodar spec nenhum, derrubando o portão. 40 min cobre 1-2 suítes de PR na frente; suíte da main leva ~15.
+          TRAVA_DEMO_ESPERA_MIN: '40'
         # suíte inteira (inclui @pos-migration: o banco de testes recebe as migrations da main pelo montar-banco-testes)
-        run: npx playwright test e2e/jornadas/aceitacao --project=celular --pass-with-no-tests
+        # CEO 18/10: a MAIN roda OS DOIS projetos ([computador] E [celular]) para detectar regressão de verdade, mesmo
+        # enquanto a aceitação de PR roda só [computador] no destrave temporário.
+        run: npx playwright test e2e/jornadas/aceitacao --project=computador --project=celular --pass-with-no-tests
       - name: Soltar a trava da demo (sempre)
         if: steps.ja.outputs.pular == 'false' && (always())
         continue-on-error: true
         env:
-          SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL_1 }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY_1 }}
         run: npx tsx scripts/e2e-trava-soltar.ts
       # Vermelho → abre/atualiza UMA issue main-vermelha (PRs desde o último verde + run). Verde → fecha a issue aberta.
       # Só API REST (gh api), nada de GraphQL. Run cancelado não mexe na issue.
@@ -175,6 +248,18 @@ jobs:
           RESULTADO: ${{ steps.suite.outcome }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: scripts/merge/main-vermelha.sh
+      # Esteira contínua (CEO 22/10): no vermelho, a fila tenta RESTAURAR a main sozinha (revert automático) em vez de
+      # travar. OBSERVAÇÃO por padrão (só diz o que FARIA); liga com a variável de repo REVERT_AUTO_LIGADO=1 depois do OK
+      # do CEO. Travas (todas): 2 reds seguidos (não-flaky), 1 só PR culpada, sem migration. Ver reverter-automatico.sh.
+      - name: Revert automático (restaura a main no vermelho)
+        if: steps.ja.outputs.pular == 'false' && failure()
+        env:
+          GH_TOKEN: ${{ secrets.FILA_MERGE_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ steps.ja.outputs.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REVERT_AUTO: ${{ vars.REVERT_AUTO_LIGADO || '0' }}
+        run: scripts/merge/reverter-automatico.sh
       - name: Upload relatório (em caso de falha)
         if: steps.ja.outputs.pular == 'false' && (failure())
         uses: actions/upload-artifact@v4

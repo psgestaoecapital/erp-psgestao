@@ -6,11 +6,15 @@ import ProdutoForm, { type Produto } from '@/components/cadastros/ProdutoForm'
 import ImportProdutosFiscalModal from '@/components/importar/ImportProdutosFiscalModal'
 import AutoclassificarProdutosModal from '@/components/importar/AutoclassificarProdutosModal'
 import EdicaoFiscalMassaModal from '@/components/cadastros/EdicaoFiscalMassaModal'
+import ConfirmarClonar from '@/components/cadastros/ConfirmarClonar'
 import EtiquetasProdutosModal from '@/components/cadastros/EtiquetasProdutosModal'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import {
   Package, Plus, Search, Edit, Loader2, Filter, ChevronDown, ChevronUp,
-  ArrowUp, ArrowDown, X, Upload, Sparkles, ListChecks, Printer, Copy,
+  ArrowUp, ArrowDown, X, Upload, Sparkles, ListChecks, Printer, Copy, Download, Tags, AlertTriangle, Trash2,
 } from 'lucide-react'
+import ExcluirProdutoModal from '@/components/cadastros/ExcluirProdutoModal'
+import { exportarProdutosXlsx, type ExportProdutosResult } from '@/lib/produtos/exportarProdutos'
 
 export const dynamic = 'force-dynamic'
 
@@ -36,6 +40,7 @@ const fmtBRL = (v: number | null | undefined) =>
 
 export default function ProdutosPage() {
   const [produtos, setProdutos] = useState<Produto[]>([])
+  const [semPrecoCount, setSemPrecoCount] = useState(0) // ativos sem preço de venda (banner → Precificação)
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -68,6 +73,7 @@ export default function ProdutosPage() {
 
   // Modal edicao
   const [editando, setEditando] = useState<Produto | null>(null)
+  const [formSeq, setFormSeq] = useState(0)
   const [novoAberto, setNovoAberto] = useState(false)
   // Clonar: pré-preenche um NOVO produto a partir de um existente. Como a lista só traz colunas parciais (SELECT_COLS
   // da view), precisa buscar a linha INTEIRA (select '*') antes — senão o clone perderia os campos fiscais.
@@ -83,6 +89,31 @@ export default function ProdutosPage() {
   const [etiquetasAberto, setEtiquetasAberto] = useState(false)
   const alternarSel = (id: string) =>
     setSelecionados((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
+
+  // Baixar produtos (.xlsx): a RPC fn_produtos_exportar serve os dados (custo/valor só com permissão + auditoria no
+  // banco), respeitando os filtros da tela; o arquivo re-importa pela "Importar estoque (planilha)".
+  const [exportando, setExportando] = useState(false)
+  const exportarProdutos = useCallback(async () => {
+    if (!companyId || exportando) return
+    setExportando(true)
+    setErro(null)
+    try {
+      const { data, error } = await supabase.rpc('fn_produtos_exportar', {
+        p_company_id: companyId,
+        p_situacao: situacao,
+        p_busca: buscaDebounced || null,
+        p_grupo: grupo || null,
+        p_unidade: unidade || null,
+      })
+      const res = data as ExportProdutosResult | null
+      if (error || !res?.ok) { setErro(error?.message ?? 'Não consegui baixar os produtos agora.'); return }
+      await exportarProdutosXlsx(res)
+    } catch (e) {
+      setErro((e as Error)?.message ?? 'Não consegui baixar os produtos agora.')
+    } finally {
+      setExportando(false)
+    }
+  }, [companyId, exportando, situacao, buscaDebounced, grupo, unidade])
 
   const offsetRef = useRef(0)
 
@@ -124,6 +155,19 @@ export default function ProdutosPage() {
         if (!alive || error) return
         setPendencias((data ?? []) as { id: string; codigo: string; nome: string; tipo_item_sped: string | null; motivo: string }[])
       })
+    return () => { alive = false }
+  }, [companyId])
+
+  // Conta os produtos ativos sem preço de venda (banner que leva para Formar preços na Precificação).
+  useEffect(() => {
+    if (!companyId) { setSemPrecoCount(0); return }
+    let alive = true
+    supabase
+      .from('erp_produtos')
+      .select('id', { count: 'exact', head: true })
+      .eq('company_id', companyId).eq('ativo', true)
+      .or('preco_venda.is.null,preco_venda.eq.0')
+      .then(({ count, error }) => { if (alive && !error) setSemPrecoCount(count ?? 0) })
     return () => { alive = false }
   }, [companyId])
 
@@ -238,6 +282,8 @@ export default function ProdutosPage() {
   }
 
   // Clonar: busca a linha completa (igual abrirEdicao) e abre o form em modo NOVO pré-preenchido (clonarDe).
+  const [confirmarCloneId, setConfirmarCloneId] = useState<string | null>(null)
+  const [excluindoId, setExcluindoId] = useState<string | null>(null) // chamado #3856: exclusão lógica com checagem de vínculos
   async function clonarProduto(id: string) {
     if (!companyId) return
     const { data, error } = await supabase.from('erp_produtos').select('*').eq('company_id', companyId).eq('id', id).maybeSingle()
@@ -303,7 +349,8 @@ export default function ProdutosPage() {
   return (
     <div className="min-h-screen bg-[#FAF7F2] text-[#3D2314]">
       <div className="max-w-6xl mx-auto px-4 py-6">
-        <header className="mb-6 flex items-start justify-between gap-4">
+        {/* #3255: a barra quebra linha (antes o "Novo produto", último de 7 botões sem quebra, saía da tela) */}
+        <header className="mb-6 flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
           <div>
             <div className="text-[11px] text-[#3D2314]/60 tracking-[1px] uppercase font-medium mb-1">
               Cadastros · Gestao Empresarial
@@ -315,7 +362,18 @@ export default function ProdutosPage() {
               Catalogo pra emissao de NFe · vendas de produto fisico
             </p>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap lg:justify-end min-w-0">
+            <span className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setNovoAberto(true)}
+                data-testid="produto-novo"
+                className="px-4 py-2 text-[13px] font-semibold rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] flex items-center gap-2"
+              >
+                <Plus size={15} /> Novo produto
+              </button>
+              <AjudaCampo chave="cadastros.produtos.novo" />
+            </span>
             <button
               type="button"
               onClick={() => setEtiquetasAberto(true)}
@@ -357,16 +415,39 @@ export default function ProdutosPage() {
             >
               <Upload size={15} /> Importar estoque (planilha)
             </a>
-            <button
-              type="button"
-              onClick={() => setNovoAberto(true)}
-              data-testid="produto-novo"
-              className="px-4 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] flex items-center gap-2"
+            <span className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => void exportarProdutos()}
+                disabled={!companyId || exportando}
+                data-testid="produto-exportar"
+                className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] disabled:opacity-45 disabled:hover:bg-transparent flex items-center gap-2"
+              >
+                {exportando ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />} Baixar produtos (.xlsx)
+              </button>
+              <AjudaCampo chave="cadastros.produtos.exportar" />
+            </span>
+            <a
+              href="/dashboard/compras/precificacao"
+              data-testid="produto-formar-precos"
+              className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
             >
-              <Plus size={15} /> Novo Produto
-            </button>
+              <Tags size={15} /> Formar preços
+            </a>
           </div>
         </header>
+
+        {/* Banner: produtos sem preço travam a venda → leva para Formar preços na Precificação */}
+        {semPrecoCount > 0 && (
+          <a href="/dashboard/compras/precificacao" data-testid="produto-sem-preco-banner"
+             className="mb-4 flex items-start gap-2.5 bg-[#FBEDD6] border border-[#C8941A]/35 rounded-xl px-4 py-3 hover:bg-[#F9E6C8] transition-colors">
+            <AlertTriangle size={18} className="text-[#B06A00] shrink-0 mt-0.5" />
+            <div className="text-[13px] text-[#5A3A12]">
+              <strong>{semPrecoCount} produto(s) ativo(s) sem preço de venda</strong> — eles travam a venda.
+              {' '}<span className="underline text-[#A2600B] font-medium">Formar preços agora →</span>
+            </div>
+          </a>
+        )}
 
         {/* Pendências fiscais (SPED 0200) — pro contador completar (tipo do item / NCM) */}
         {pendencias.length > 0 && (
@@ -696,7 +777,7 @@ export default function ProdutosPage() {
                         <td className="px-4 py-2.5 text-right whitespace-nowrap">
                           <button
                             type="button"
-                            onClick={() => clonarProduto(p.id)}
+                            onClick={() => setConfirmarCloneId(p.id)}
                             data-testid="produto-clonar"
                             className="text-[#C8941A] hover:text-[#A87810] mr-3"
                             title="Clonar (criar novo a partir deste)"
@@ -711,6 +792,15 @@ export default function ProdutosPage() {
                             title="Editar"
                           >
                             <Edit size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setExcluindoId(p.id)}
+                            data-testid="produto-excluir"
+                            className="text-red-700 hover:text-red-900"
+                            title="Excluir"
+                          >
+                            <Trash2 size={14} />
                           </button>
                         </td>
                       </tr>
@@ -756,7 +846,7 @@ export default function ProdutosPage() {
                       <div className="flex items-center gap-3">
                         <button
                           type="button"
-                          onClick={() => clonarProduto(p.id)}
+                          onClick={() => setConfirmarCloneId(p.id)}
                           data-testid="produto-clonar-mobile"
                           className="text-[#C8941A] hover:text-[#A87810]"
                           title="Clonar"
@@ -771,6 +861,15 @@ export default function ProdutosPage() {
                           title="Editar"
                         >
                           <Edit size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setExcluindoId(p.id)}
+                          data-testid="produto-excluir-mobile"
+                          className="text-red-700 hover:text-red-900"
+                          title="Excluir"
+                        >
+                          <Trash2 size={14} />
                         </button>
                       </div>
                     </div>
@@ -800,19 +899,34 @@ export default function ProdutosPage() {
           )}
         </div>
 
+        <ExcluirProdutoModal
+          produtoId={excluindoId}
+          companyId={companyId}
+          onFechar={() => setExcluindoId(null)}
+          onExcluido={() => { setExcluindoId(null); carregar(true) }}
+        />
+
+        <ConfirmarClonar
+          aberto={!!confirmarCloneId}
+          onConfirmar={() => { const id = confirmarCloneId; setConfirmarCloneId(null); if (id) clonarProduto(id) }}
+          onCancelar={() => setConfirmarCloneId(null)}
+        />
+
         {(novoAberto || editando || clonando) && (
           <ProdutoForm
-            key={editando ? `edit-${editando.id}` : clonando ? `clone-${clonando.id}` : 'novo'}
+            key={editando ? `edit-${editando.id}` : clonando ? `clone-${clonando.id}` : `novo-${formSeq}`}
             companyId={companyId}
             produto={editando}
             clonarDe={clonando}
-            onClonar={(p) => { setEditando(null); setNovoAberto(false); setClonando(p) }}
+            onClonar={(p) => setConfirmarCloneId(p.id)}
             onClose={() => {
               setNovoAberto(false)
               setEditando(null)
               setClonando(null)
             }}
-            onSalvo={() => {
+            onSalvo={(cadastrarOutro) => {
+              // "Salvar e cadastrar outro" (#3255): recarrega a lista e reabre o formulário limpo
+              if (cadastrarOutro) { setFormSeq((n) => n + 1); carregar(true); return }
               setNovoAberto(false)
               setEditando(null)
               setClonando(null)

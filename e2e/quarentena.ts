@@ -36,6 +36,230 @@ export type SpecQuarentenado = {
 // a remoção é feita pela PR do Code dono que conserta o spec. Nunca apaga o arquivo do spec, só o tira da execução.
 export const QUARENTENA: SpecQuarentenado[] = [
   /* quarentena:inicio */
+  {
+    spec: 'e2e/jornadas/aceitacao/agency-origens-semente.spec.ts',
+    area: 'agency-origens',
+    motivo: 'asserção da linha 31 falha no banco de testes novo (DEMO da agência sem algum dado da semente); trava o teste da main e ~32 PRs. Conserto: Eng. Chefe msg 8787bb9d, ação 2',
+    desde: '2026-10-11T09:00:00Z',
+    runs: [0, 0], // run da aceitacao-main 01:09 e o seguinte (CEO destrava manual, 11/10)
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/agente-caixa-mensagens.spec.ts',
+    area: 'agentes-caixa',
+    motivo: 'QUARENTENA TEMPORÁRIA seed-gap banco de testes — restaurar após semear (semente-demo). Eng. Chefe msg 00149d0d, ação 2',
+    desde: '2026-10-11T13:00:00Z',
+    runs: [0, 0], // aceitacao-main/@pos 11/10 12:23 (run 38137150574) e anterior — CEO destrava manual
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/agente-despertador.spec.ts',
+    area: 'agentes-despertador',
+    motivo: 'QUARENTENA TEMPORÁRIA seed-gap banco de testes — restaurar após semear (semente-demo). Eng. Chefe msg 00149d0d, ação 2',
+    desde: '2026-10-11T13:00:00Z',
+    runs: [0, 0], // aceitacao-main/@pos 11/10 12:23 (run 38137150574) e anterior — CEO destrava manual
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/agente-encerrar-despertador5.spec.ts',
+    area: 'agentes-despertador',
+    motivo: 'QUARENTENA TEMPORÁRIA seed-gap banco de testes — restaurar após semear (semente-demo). Eng. Chefe msg 00149d0d, ação 2',
+    desde: '2026-10-11T13:00:00Z',
+    runs: [0, 0], // aceitacao-main/@pos 11/10 12:23 (run 38137150574) e anterior — CEO destrava manual
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/agente-lease.spec.ts',
+    area: 'agentes-lease',
+    motivo: 'QUARENTENA TEMPORÁRIA seed-gap banco de testes — restaurar após semear (semente-demo). Eng. Chefe msg 00149d0d, ação 2',
+    desde: '2026-10-11T13:00:00Z',
+    runs: [0, 0], // aceitacao-main/@pos 11/10 12:23 (run 38137150574) e anterior — CEO destrava manual
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/caminho-atendimento-fila.spec.ts',
+    area: 'atendimento-fila',
+    motivo: 'QUARENTENA TEMPORÁRIA seed-gap banco de testes — restaurar após semear (semente-demo). Eng. Chefe msg 00149d0d, ação 2',
+    desde: '2026-10-11T13:00:00Z',
+    runs: [0, 0], // aceitacao-main/@pos 11/10 12:23 (run 38137150574) e anterior — CEO destrava manual
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/caminho-clonar-produto.spec.ts',
+    area: 'clonar-produto',
+    motivo: 'QUARENTENA TEMPORÁRIA seed-gap banco de testes — restaurar após semear (semente-demo). Eng. Chefe msg 00149d0d, ação 2',
+    desde: '2026-10-11T13:00:00Z',
+    runs: [0, 0], // aceitacao-main/@pos 11/10 12:23 (run 38137150574) e anterior — CEO destrava manual
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/caminho-clonar-servico.spec.ts',
+    area: 'clonar-servico',
+    motivo: 'QUARENTENA TEMPORÁRIA seed-gap banco de testes — restaurar após semear (semente-demo). Eng. Chefe msg 00149d0d, ação 2',
+    desde: '2026-10-11T13:00:00Z',
+    runs: [0, 0], // aceitacao-main/@pos 11/10 12:23 (run 38137150574) e anterior — CEO destrava manual
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/caminho-conexoes-bancarias.spec.ts',
+    area: 'caminho-conexoes',
+    motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
+    desde: '2026-10-18T20:30:00Z',
+    runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/caminho-oficina-os-impressao.spec.ts',
+    area: 'caminho-oficina',
+    motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
+    desde: '2026-10-18T20:30:00Z',
+    runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/coletor-antigo-fora-do-ar.spec.ts',
+    area: 'coletor-antigo',
+    motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
+    desde: '2026-10-18T20:30:00Z',
+    runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/fila-rascunho-precisa-de-mim.spec.ts',
+    area: 'fila-rascunho',
+    motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
+    desde: '2026-10-18T20:30:00Z',
+    runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/gean-cnpj-duplicado-editar-130.spec.ts',
+    area: 'gean-cnpj',
+    motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
+    desde: '2026-10-18T20:30:00Z',
+    runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/hidratacao-empresa-sel.spec.ts',
+    area: 'hidratacao-empresa',
+    motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
+    desde: '2026-10-18T20:30:00Z',
+    runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/ibpt-empresa-token.spec.ts',
+    area: 'ibpt-empresa',
+    motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
+    desde: '2026-10-18T20:30:00Z',
+    runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/kgf-devolucao-compra-obs-94.spec.ts',
+    area: 'kgf-devolucao',
+    motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
+    desde: '2026-10-18T20:30:00Z',
+    runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/kgf-os-impressao-cnpj-foto-89-80.spec.ts',
+    area: 'kgf-os',
+    motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
+    desde: '2026-10-18T20:30:00Z',
+    runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/plano-contas-relatorio-arvore.spec.ts',
+    area: 'plano-contas',
+    motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
+    desde: '2026-10-18T20:30:00Z',
+    runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/plano-contas-relatorio-kpi.spec.ts',
+    area: 'plano-contas',
+    motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
+    desde: '2026-10-18T20:30:00Z',
+    runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/pm-selos-margem.spec.ts',
+    area: 'pm-selos',
+    motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
+    desde: '2026-10-18T20:30:00Z',
+    runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/produtividade-cadastro-editavel.spec.ts',
+    area: 'produtividade-cadastro',
+    motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
+    desde: '2026-10-18T20:30:00Z',
+    runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/revenda-foto-upload.spec.ts',
+    area: 'revenda-foto',
+    motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
+    desde: '2026-10-18T20:30:00Z',
+    runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/revenda-vistoria-rapida-foto-reparo.spec.ts',
+    area: 'revenda-vistoria',
+    motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
+    desde: '2026-10-18T20:30:00Z',
+    runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/sicredi-erro-claro-88.spec.ts',
+    area: 'sicredi-erro',
+    motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
+    desde: '2026-10-18T20:30:00Z',
+    runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/tryo-anexos-264-266.spec.ts',
+    area: 'tryo-anexos',
+    motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
+    desde: '2026-10-18T20:30:00Z',
+    runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/xml-compra-lote.spec.ts',
+    area: 'xml-compra',
+    motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
+    desde: '2026-10-18T20:30:00Z',
+    runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    code: 'gilberto-desenv',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/kgf-quantidade-fracionada-102.spec.ts',
+    area: 'kgf-quantidade',
+    motivo: 'falha igual em todas as PRs (#2563, #2839, #2827): a DEMO Oficina das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
+    desde: '2026-10-18T22:30:00Z',
+    runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    code: 'gilberto-esteira',
+  },
+  {
+    spec: 'e2e/jornadas/aceitacao/caminho-oficina-diagnostico.spec.ts',
+    area: 'caminho-oficina-diagnostico',
+    motivo: 'falha de ambiente em 4 PRs diferentes (#2114, #2856, #2118, #2845) — DEMO das vagas ≠ produção; não crítico',
+    desde: '2026-10-19T10:00:00Z',
+    runs: [0, 0], // falha de ambiente nas vagas (não é regressão de PR), 19/10
+    code: 'gilberto-esteira',
+  },
   /* quarentena:fim */
 ]
 

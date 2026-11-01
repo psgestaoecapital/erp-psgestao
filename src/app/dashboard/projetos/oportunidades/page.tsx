@@ -1,10 +1,13 @@
 'use client'
 import { useCallback, useEffect, useState, type CSSProperties } from 'react'
+import { Target } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { comPrazo } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { labelUsuario } from '@/lib/usuarioLabel'
-import OportunidadeFormModal, { type OportunidadeRow } from './OportunidadeFormModal'
+import OportunidadeFormModal, { empty as oportunidadeVazia, type OportunidadeRow } from './OportunidadeFormModal'
+import { clienteDaUrl } from '../clientes/clientes-regras'
 import OportunidadesKanban from './OportunidadesKanban'
 
 type Row = {
@@ -99,6 +102,18 @@ export default function OportunidadesPage() {
     return () => clearTimeout(t)
   }, [toast])
 
+  // Vindo de Clientes de obra ("Nova oportunidade" no cliente): abre o formulário com o cliente escolhido
+  // e limpa o ?cliente= da URL para não reabrir ao recarregar.
+  useEffect(() => {
+    if (!empresaUnica) return
+    const clienteId = clienteDaUrl(window.location.search)
+    if (!clienteId) return
+    setEditing({ ...oportunidadeVazia(), cliente_id: clienteId })
+    const url = new URL(window.location.href)
+    url.searchParams.delete('cliente')
+    window.history.replaceState(null, '', url.pathname + url.search)
+  }, [empresaUnica])
+
   function rowParaForm(r: Row): OportunidadeRow {
     return {
       id: r.id,
@@ -157,7 +172,7 @@ export default function OportunidadesPage() {
     return (
       <div className="p-4 max-w-3xl mx-auto" style={{ color: ESPRESSO }}>
         <header className="mb-4">
-          <h1 className="text-xl font-bold">🎯 Oportunidades · Funil</h1>
+          <h1 className="text-xl font-bold"><Target className="inline-block align-[-3px] mr-1.5" size={20} aria-hidden /> Oportunidades · Funil</h1>
         </header>
         <div className="rounded-xl p-6 text-center" style={{ background: OFFWHITE }}>
           <p className="font-medium">Selecione uma empresa específica</p>
@@ -175,27 +190,43 @@ export default function OportunidadesPage() {
   const nPerdidas = rows.filter((r) => r.etapa === 'perdido').length
   const nAberto   = totalOps - nGanhas - nPerdidas
   const mesAtual  = new Date().toLocaleDateString('pt-BR', { month: 'long' })
+  // Dinheiro vindo da MESMA lista que alimenta o funil (rows): garante, por construção, que a soma dos cards
+  // visíveis = os números do topo (RD-38). O pipeline da RPC (resumo.valor_pipeline) é só conferência.
+  const ehTerminal   = (r: Row) => r.etapa === 'ganho' || r.etapa === 'perdido'
+  const somaValor    = (f: (r: Row) => boolean) => rows.filter(f).reduce((s, r) => s + Number(r.valor_estimado ?? 0), 0)
+  const valorAberto  = somaValor((r) => !ehTerminal(r))
+  const valorGanho   = somaValor((r) => r.etapa === 'ganho')
+  const valorPerdido = somaValor((r) => r.etapa === 'perdido')
+  const valorTotal   = valorAberto + valorGanho + valorPerdido
 
   return (
     <div className="px-4 py-4 w-full" style={{ color: ESPRESSO }}>
       <header className="mb-4 flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold">🎯 Oportunidades · Funil</h1>
+          <h1 className="text-xl font-bold"><Target className="inline-block align-[-3px] mr-1.5" size={20} aria-hidden /> Oportunidades · Funil</h1>
           <p className="text-sm opacity-70">CRM de obra: leads, propostas e negociação.</p>
           {/* Contador honesto: nada some — as terminais (ganhas/perdidas) contam junto com o funil ativo. */}
           <p className="text-sm font-medium mt-1">
             {totalOps} oportunidade{totalOps === 1 ? '' : 's'} · {nAberto} em aberto · {nGanhas} ganha{nGanhas === 1 ? '' : 's'} · {nPerdidas} perdida{nPerdidas === 1 ? '' : 's'}
+            <AjudaCampo chave="projetos.oportunidades.contador" />
           </p>
         </div>
-        <button onClick={() => setEditing(null)} style={btnNovo}>+ Nova oportunidade</button>
+        <span className="inline-flex items-center gap-1"><button onClick={() => setEditing(null)} style={btnNovo}>+ Nova oportunidade</button><AjudaCampo chave="projetos.oportunidades.nova" /></span>
       </header>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4" style={{ maxWidth: 640 }}>
-        <Kpi titulo="Em aberto"     valor={String(nAberto)} />
-        {/* rótulo nomeia o mês — "Ganhas no mês 0" parecia erro; as ganhas da Tryo são de agosto */}
-        <Kpi titulo={`Ganhas em ${mesAtual}`} valor={String(resumo?.ganhas_mes ?? 0)} />
-        <Kpi titulo="Pipeline (R$)" valor={brl(resumo?.valor_pipeline)} destaque />
+      {/* KPIs que se CRUZAM e PROVAM a conta (RD-38, auditor PDCA 27/10 cons 45: "3 ganhas" × "ganhas em outubro 1"
+          × "pipeline 194k" × "ganhas 690k" pareciam se contradizer). Agora tudo sai da MESMA lista (rows), então a
+          soma dos cards do funil = os números do topo: em aberto (pipeline) + ganhas + perdidas = total. O mês é
+          rodapé das ganhas — "1 em outubro" é recorte de "3 no total", não um número que briga com os outros. */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-2" style={{ maxWidth: 760 }}>
+        <Kpi titulo="Em aberto"     valor={String(nAberto)}  sub={`pipeline ${brl(valorAberto)}`} destaque ajuda="projetos.oportunidades.kpi_aberto" />
+        <Kpi titulo="Ganhas"        valor={String(nGanhas)}  sub={`${brl(valorGanho)} · ${resumo?.ganhas_mes ?? 0} em ${mesAtual}`} ajuda="projetos.oportunidades.kpi_ganhas" />
+        <Kpi titulo="Perdidas"      valor={String(nPerdidas)} sub={brl(valorPerdido)} ajuda="projetos.oportunidades.kpi_perdidas" />
+        <Kpi titulo="Total no funil" valor={String(totalOps)} sub={brl(valorTotal)} ajuda="projetos.oportunidades.kpi_total" />
       </div>
+      <p className="text-[11px] opacity-55 mb-4" style={{ maxWidth: 760 }}>
+        Pipeline conta só as em aberto; <b>em aberto + ganhas + perdidas = total</b>. A soma das colunas do funil bate com o pipeline.
+      </p>
 
       {/* Filtros herdados da antiga Lista — agora sempre visíveis (Kanban é a única visão) */}
       <div className="flex flex-wrap gap-2 mb-3 items-center">
@@ -203,18 +234,23 @@ export default function OportunidadesPage() {
           <option value="todas">Todas as etapas</option>
           {ETAPAS.map((e) => <option key={e.v} value={e.v}>{e.l}</option>)}
         </select>
+        <AjudaCampo chave="projetos.oportunidades.filtro_etapa" />
         <select value={filtroResp} onChange={(e) => setFiltroResp(e.target.value)} style={selSt}>
           <option value="todos">Todos os responsáveis</option>
           {responsaveis.map((u) => <option key={u.id} value={u.id}>{labelUsuario(u, responsaveis)}</option>)}
         </select>
+        <AjudaCampo chave="projetos.oportunidades.filtro_responsavel" />
         <input
           placeholder="Buscar por título ou cliente…"
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
           style={{ ...selSt, minWidth: 200, flex: 1 }}
         />
+        <AjudaCampo chave="projetos.oportunidades.busca" />
         {loading && <span className="text-xs opacity-60">Carregando…</span>}
-        <span className="text-xs opacity-60 ml-auto">{countKanban} oportunidade(s)</span>
+        {/* #3423 · "mostrando N" (o que o funil exibe agora), nunca "N oportunidade(s)": com filtro/colunas
+            operacionais o número do board é menor que o total do topo — dizer "mostrando" tira a falsa contradição (RD-97). */}
+        <span className="text-xs opacity-60 ml-auto inline-flex items-center gap-1">mostrando {countKanban}{(filtroEtapa !== 'todas' || filtroResp !== 'todos' || busca.trim() !== '') ? ` de ${totalOps}` : ''}<AjudaCampo chave="projetos.oportunidades.contagem_filtro" /></span>
       </div>
 
       <OportunidadesKanban
@@ -227,6 +263,7 @@ export default function OportunidadesPage() {
         onCount={setCountKanban}
         onEdit={(id) => { const r = rows.find((x) => x.id === id); if (r) setEditing(rowParaForm(r)) }}
         onExcluir={(id) => { const r = rows.find((x) => x.id === id); if (r) excluir(r) }}
+        onNova={(etapa) => setEditing({ ...oportunidadeVazia(), etapa })}
         excluindoId={excluindoId}
         onMoved={(m) => { setToast(m); reload(); setKanbanKey((k) => k + 1) }}
         onError={(m) => setToast(m)}
@@ -251,11 +288,12 @@ export default function OportunidadesPage() {
   )
 }
 
-function Kpi({ titulo, valor, destaque }: { titulo: string; valor: string; destaque?: boolean }) {
+function Kpi({ titulo, valor, sub, destaque, ajuda }: { titulo: string; valor: string; sub?: string; destaque?: boolean; ajuda: string }) {
   return (
     <div className="rounded-xl p-3" style={{ background: OFFWHITE, minHeight: 76 }}>
-      <div className="text-[11px] uppercase opacity-60 leading-tight">{titulo}</div>
+      <div className="text-[11px] uppercase leading-tight flex items-center gap-1"><span className="opacity-60">{titulo}</span><AjudaCampo chave={ajuda} /></div>
       <div className="font-bold leading-tight" style={{ color: destaque ? DOURADO : ESPRESSO, fontSize: 18 }}>{valor}</div>
+      {sub && <div className="text-[10.5px] opacity-55 leading-tight mt-0.5">{sub}</div>}
     </div>
   )
 }

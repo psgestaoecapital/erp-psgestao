@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { FileText, Download, FileCode, XCircle } from 'lucide-react'
 import NFSePreviewModal from '@/components/fiscal/NFSePreviewModal'
 import { supabase } from '@/lib/supabase'
+import { baixarUrlComNome } from '@/lib/download/baixarArquivo'
+import { nomeArquivoNota } from '@/lib/download/nomeArquivo'
 
 interface Props {
   companyId: string
@@ -25,6 +27,20 @@ export default function EmitirNFSeButton(props: Props) {
   const [justificativa, setJustificativa] = useState('')
   const [cancelBusy, setCancelBusy] = useState(false)
   const [cancelErro, setCancelErro] = useState<string | null>(null)
+
+  // #2957: PDF/XML da NFS-e saem como Cliente_NF<número>_DDMMAAAA (não com o nome aleatório do provedor).
+  async function baixarNota(url: string, ext: 'pdf' | 'xml') {
+    let nome = `nfse.${ext}`
+    try {
+      if (props.notaId) {
+        const { data } = await supabase.from('erp_nfse_emitidas')
+          .select('numero, data_emissao, criado_em, tomador_razao_social')
+          .eq('id', props.notaId).eq('company_id', props.companyId).maybeSingle()
+        if (data) nome = nomeArquivoNota({ razao: data.tomador_razao_social, numero: data.numero, emissao: data.data_emissao ?? data.criado_em, ext })
+      }
+    } catch { /* sem dados: usa nome genérico, o download segue */ }
+    await baixarUrlComNome(url, nome)
+  }
 
   async function confirmarCancelamento() {
     if (!props.notaId) return
@@ -72,6 +88,7 @@ export default function EmitirNFSeButton(props: Props) {
         </span>
         {props.pdfUrl && (
           <a href={props.pdfUrl} target="_blank" rel="noopener noreferrer"
+            onClick={(e) => { e.preventDefault(); void baixarNota(props.pdfUrl!, 'pdf') }}
             className="inline-flex items-center gap-1 text-[10.5px] font-medium px-2 py-0.5 rounded-md border border-[#C8941A]/40 text-[#633806] bg-[#C8941A]/8 hover:bg-[#C8941A]/15 transition-colors"
             title="Baixar PDF da NFSe">
             <Download size={10} /> PDF
@@ -79,6 +96,7 @@ export default function EmitirNFSeButton(props: Props) {
         )}
         {props.xmlUrl && (
           <a href={props.xmlUrl} target="_blank" rel="noopener noreferrer"
+            onClick={(e) => { e.preventDefault(); void baixarNota(props.xmlUrl!, 'xml') }}
             className="inline-flex items-center gap-1 text-[10.5px] font-medium px-2 py-0.5 rounded-md border border-[#3D2314]/20 text-[#3D2314]/70 hover:bg-[#3D2314]/5 transition-colors"
             title="Baixar XML da NFSe">
             <FileCode size={10} /> XML

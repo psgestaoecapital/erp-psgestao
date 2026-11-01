@@ -16,14 +16,30 @@ on:
         description: 'Recriar do zero (apaga o schema public do BANCO DE TESTES e restaura o dump)'
         type: boolean
         default: true
+      vaga:
+        description: 'Banco do pool a montar (0 = erp-psgestao-testes atual; 1/2 = bancos extras, se provisionados)'
+        type: choice
+        options: ['0', '1', '2']
+        default: '0'
+      do_zero:
+        description: 'Causa 2 — montar DETERMINÍSTICO: aplica as migrations do zero (schema+ledger batem com a main), em vez do dump da produção. Opt-in, paralelo.'
+        type: boolean
+        default: false
   workflow_run:
     workflows: ['Deploy Migrations (Production)']
     types: [completed]
     branches: [main]
 
+# 12/10 (CEO: banco de testes sem minas): o montar RECRIA/repovoa o banco da vaga 0 (dump + fn_demo_reset + semente).
+# Antes ele tinha grupo próprio e rodava no MEIO da aceitação da main/PR (mesmo banco): companies/plano_contas sumiam
+# no meio do run → dezenas de specs vermelhos por dado ausente (run 196: 84 falhas, 298 passaram; montar 204 rodou
+# 06:06–06:11 dentro do run 05:31–06:22). Agora entra na MESMA fila FIFO do banco (aceitacao-testes-0 = vaga 0 do
+# aceitacao-pr.yml; CEO 18/10: a aceitacao-main passou a usar o grupo da vaga 1, 'aceitacao-testes-1'), e espera a vez.
+# Vagas extras (1/2) têm banco próprio → grupo próprio da vaga.
 concurrency:
-  group: montar-banco-testes
+  group: ${{ (github.event_name == 'workflow_dispatch' && inputs.vaga != '0') && format('aceitacao-testes-{0}', inputs.vaga) || 'aceitacao-testes' }}
   cancel-in-progress: false
+  queue: max
 
 jobs:
   montar:
@@ -40,11 +56,52 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+      # Pool de bancos (CEO 10/10): a vaga > 0 usa os segredos TEST_*_1 / TEST_*_2 (bancos extras). Vaga 0 = banco atual
+      # (segredos TEST_* base). Sem input (ex.: disparo por deploy-migrations) → vaga 0, como antes.
+      - name: Selecionar o banco da vaga
+        env:
+          VAGA: ${{ github.event.inputs.vaga || '0' }}
+          DBURL1: ${{ secrets.TEST_DATABASE_URL_1 }}
+          URL1: ${{ secrets.TEST_SUPABASE_URL_1 }}
+          SRK1: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY_1 }}
+          DBURL2: ${{ secrets.TEST_DATABASE_URL_2 }}
+          URL2: ${{ secrets.TEST_SUPABASE_URL_2 }}
+          SRK2: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY_2 }}
+        run: |
+          set -u
+          case "$VAGA" in
+            1) DB="$DBURL1"; U="$URL1"; S="$SRK1";;
+            2) DB="$DBURL2"; U="$URL2"; S="$SRK2";;
+            *) echo "VAGA=0 (banco de testes atual)"; echo "ACEITACAO_VAGA=0" >> "$GITHUB_ENV"; exit 0;;
+          esac
+          [ -n "$DB" ] && [ -n "$U" ] && [ -n "$S" ] || { echo "::error::vaga $VAGA sem segredos TEST_*_$VAGA provisionados"; exit 1; }
+          # Normaliza a REST URL (TEST_SUPABASE_URL) só com expansão do bash (sem sed frágil — o sed anterior expandia
+          # "$##" como $# e quebrava o passo, #2496). Tira TAB/CR/LF/espaço de qualquer posição, aspas ao redor e a barra
+          # final. Sem https:// (ou com espaço) o curl do Auth admin dava "exit 3 (URL malformed)" e a semente morria SEM
+          # log (vaga 1, 13/10). Exige https://<ref>.supabase.co e barra a produção. A REST URL é pública (não mascara).
+          u="${U//[$'\t\r\n ']/}"; u="${u%\"}"; u="${u#\"}"; u="${u%/}"
+          if [[ "$u" == *horsymhsinqcimflrtjo* ]]; then echo "::error::vaga $VAGA: TEST_SUPABASE_URL aponta para a PRODUÇÃO — abortado"; exit 1; fi
+          if [[ ! "$u" =~ ^https://[a-z0-9]+\.supabase\.co$ ]]; then echo "::error::vaga $VAGA: TEST_SUPABASE_URL_$VAGA inválida (veio '${U:0:24}…'). Corrija o segredo para a API URL do projeto da vaga: https://<ref>.supabase.co"; exit 1; fi
+          U="$u"
+          echo "::add-mask::$DB"; echo "::add-mask::$S"
+          { echo "TEST_DATABASE_URL=$DB"; echo "TEST_SUPABASE_URL=$U"; echo "TEST_SUPABASE_SERVICE_ROLE_KEY=$S"; echo "ACEITACAO_VAGA=$VAGA"; } >> "$GITHUB_ENV"
+          echo "VAGA=$VAGA · REST URL: $U"
       - name: Trava de segurança (nunca aponta para a produção)
         run: |
           [ -n "$TEST_DATABASE_URL" ] || { echo "::error::TEST_DATABASE_URL ausente"; exit 1; }
+          # normaliza o segredo (espaço/CR/aspas coladas) e deixa a forma na tela, sem a senha
+          url=$(printf '%s' "$TEST_DATABASE_URL" | tr -d '\r\n' | sed -e 's/^[[:space:]"'"'"']*//' -e 's/[[:space:]"'"'"']*$//')
+          echo "TEST_DATABASE_URL=$url" >> "$GITHUB_ENV"
+          echo "forma do segredo: $(printf '%s' "$url" | sed -E 's#(://[^:/@]*):[^@]*@#\1:***@#')"
+          case "$url" in postgres://*|postgresql://*) ;; *) echo "::error::TEST_DATABASE_URL não começa com postgresql:// (começa com '${url:0:12}')"; exit 1;; esac
+          case "$url" in *"[YOUR-PASSWORD]"*|*"[PASSWORD]"*) echo "::error::TEST_DATABASE_URL ainda tem o placeholder de senha"; exit 1;; esac
           case "$TEST_DATABASE_URL" in *horsymhsinqcimflrtjo*) echo "::error::TEST_DATABASE_URL aponta para a PRODUÇÃO — abortado"; exit 1;; esac
-          case "$TEST_DATABASE_URL" in *hqjzqwsxrkewjjuyqeij*) echo "banco de testes confirmado";; *) echo "::error::TEST_DATABASE_URL não é o projeto erp-psgestao-testes"; exit 1;; esac
+          # vaga 0 = o projeto erp-psgestao-testes conhecido; vaga > 0 = qualquer banco do Session pooler que NÃO seja a produção
+          if [ "${ACEITACAO_VAGA:-0}" = 0 ]; then
+            case "$TEST_DATABASE_URL" in *xjzqndnvjkdjyisuklpy*) echo "banco de testes confirmado (vaga 0)";; *) echo "::error::TEST_DATABASE_URL não é o projeto erp-psgestao-testes"; exit 1;; esac
+          else
+            case "$TEST_DATABASE_URL" in *pooler.supabase.com*) echo "banco de testes extra confirmado (vaga ${ACEITACAO_VAGA}, pooler não-produção)";; *) echo "::error::vaga ${ACEITACAO_VAGA}: TEST_DATABASE_URL precisa ser Session pooler (*.pooler.supabase.com)"; exit 1;; esac
+          fi
       - name: Normaliza TEST_DATABASE_URL (psql lê string fora do formato URI como NOME DE BANCO e tenta o socket local)
         run: |
           u="$TEST_DATABASE_URL"
@@ -60,7 +117,7 @@ jobs:
         with:
           version: 2.118.0
       - name: Montagem completa (dump da estrutura → restore → ledger → semente)
-        if: github.event_name == 'workflow_dispatch' && inputs.recriar
+        if: github.event_name == 'workflow_dispatch' && inputs.recriar && !inputs.do_zero
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
@@ -71,26 +128,85 @@ jobs:
           # só ESTRUTURA do schema public (sem dados; Vault/cron/auth/storage não vão)
           supabase db dump --linked --schema public -f estrutura.sql
           wc -l estrutura.sql
-          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "drop schema if exists public cascade; create schema public; grant usage on schema public to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on tables to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on functions to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on sequences to postgres, anon, authenticated, service_role;"
+          # apaga o schema public em LOTES (cada lote = transação própria): um DROP SCHEMA CASCADE único estoura
+          # max_locks_per_transaction ("out of shared memory") num banco já montado (13/10, vaga 1). Banco vazio passa direto.
+          scripts/banco-testes/limpar-public.sh
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "create schema if not exists public; grant usage on schema public to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on tables to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on functions to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on sequences to postgres, anon, authenticated, service_role;"
           # restore sem parar no 1º erro: o que depender de extensão/dado só da produção vai para o relatório
           psql "$TEST_DATABASE_URL" -q -f estrutura.sql 2> restore-erros.log || true
           echo "erros no restore: $(grep -c 'ERROR' restore-erros.log || true)"
           grep 'ERROR' restore-erros.log | sort | uniq -c | sort -rn | head -40 || true
           echo "### Montagem do banco de testes: $(( $(date +%s) - t0 )) s · erros no restore: $(grep -c 'ERROR' restore-erros.log || true)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Montagem do ZERO — determinística (migrations · Causa 2)
+        if: github.event_name == 'workflow_dispatch' && inputs.recriar && inputs.do_zero
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: scripts/banco-testes/montar-do-zero.sh
       - name: Ledger (migrations do repo marcadas como aplicadas)
-        if: github.event_name == 'workflow_dispatch' && inputs.recriar
+        if: github.event_name == 'workflow_dispatch' && inputs.recriar && !inputs.do_zero
         run: scripts/banco-testes/ledger.sh
-      - name: Migrations novas da main (aplica só as pendentes no banco de testes)
-        if: github.event_name == 'workflow_run'
+      # 13/10: sem "recriar", o disparo manual também aplica as migrations pendentes na vaga escolhida (compara com o ledger).
+      - name: Migrations novas (aplica só as pendentes no banco da vaga)
+        if: github.event_name == 'workflow_run' || !inputs.recriar
         env:
           SUPABASE_DB_URL: ${{ secrets.TEST_DATABASE_URL }}
-        run: supabase db push --include-all --db-url "$TEST_DATABASE_URL"
+        run: |
+          # 20/10: ~50% dos Montar (todos em workflow_run) morriam em segundos aqui por órfão apply-time no ledger da vaga
+          # ("Remote migration versions not found", 20261019122120). Poda só o ledger do banco de TESTES antes do push.
+          scripts/banco-testes/podar-orfas-ledger.sh
+          # 24/10: organização FIXA das DEMOs (as migrations 0001…0009 gravam nela) antes do push
+          scripts/banco-testes/garantir-org-demo.sh
+          supabase db push --include-all --db-url "$TEST_DATABASE_URL"
+      # 13/10: após o deploy de migration, as vagas extras provisionadas (1/2) recebem as mesmas migrations; vaga sem
+      # segredos é pulada com aviso (nunca falha). Vale só no workflow_run; no disparo manual a vaga é a escolhida.
+      # 19/10 (gilberto-desenv): este passo roda sob a trava da vaga 0 (aceitacao-testes), NÃO sob a das vagas 1/2. Com uma
+      # aceitação de PR no meio da vaga 2 (migrations da PR aplicadas até o "Desfazer"), o db push aqui via a versão da PR
+      # ("Remote migration versions not found" — 20261018234130 da #2845 às 11:43, 20261019122420 da #2799 às 12:50) e
+      # ABORTAVA o Montar inteiro: catálogos, semente e fn_demo_reset da vaga 0 não rodavam, a aceitação da main era pulada
+      # e o regime de construção desligava. Falha numa vaga extra agora é AVISO e o Montar da vaga 0 segue: cada vaga se
+      # sincroniza com a main sob a PRÓPRIA trava antes de testar (aceitacao-pr "Sincronizar só-com-a-main"; vaga 1 na
+      # aceitacao-main). As travas de produção/pooler continuam abortando.
+      - name: Migrations novas nas vagas extras provisionadas
+        if: github.event_name == 'workflow_run'
+        env:
+          DBURL1: ${{ secrets.TEST_DATABASE_URL_1 }}
+          DBURL2: ${{ secrets.TEST_DATABASE_URL_2 }}
+        run: |
+          set -u
+          for v in 1 2; do
+            eval "u=\$DBURL$v"
+            if [ -z "$u" ]; then echo "::notice::vaga $v não provisionada — pulada"; continue; fi
+            u="$(printf '%s' "$u" | tr -d '[:space:]' | sed -E "s/^['\"]//; s/['\"]$//")"
+            echo "::add-mask::$u"
+            case "$u" in *horsymhsinqcimflrtjo*) echo "::error::vaga $v aponta para a PRODUÇÃO — abortado"; exit 1;; esac
+            case "$u" in *pooler.supabase.com*) ;; *) echo "::error::vaga $v: precisa ser Session pooler"; exit 1;; esac
+            echo "== vaga $v =="
+            TEST_DATABASE_URL="$u" scripts/banco-testes/garantir-org-demo.sh \
+              || echo "::warning title=Vaga $v::não garanti a organização das DEMOs (c830f980-…) — o db push pode parar numa migration de DEMO"
+            if ! supabase db push --include-all --db-url "$u"; then
+              echo "::warning title=Vaga $v::db push falhou (vaga em uso por uma aceitação ou com sobra de PR) — a vaga $v se sincroniza com a main sob a própria trava na próxima aceitação; o Montar da vaga 0 segue"
+              echo "### Vaga $v: db push falhou aqui (vaga em uso) — sincroniza na próxima aceitação dela" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+      # 13/10 (CEO): o dump --schema public NÃO traz as extensões. Uma vaga NOVA (ex.: a vaga 1) pode não ter o
+      # `unaccent`, que o f_unaccent e o índice de erp_gov_nfse_municipios usam como public.unaccent — sem ele a carga
+      # dos catálogos morre ("function public.unaccent(unknown, text) does not exist", COPY erp_gov_nfse_municipios).
+      # A vaga 0 tem unaccent em public; aqui garantimos o mesmo na vaga atual (idempotente; em recriar roda após o
+      # restore, pois o DROP SCHEMA public tinha levado o public.unaccent junto).
+      - name: Garantir extensões da vaga (unaccent em public)
+        run: |
+          set -euo pipefail
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS unaccent WITH SCHEMA public;"
+          echo "unaccent: $(psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -tAc "SELECT public.unaccent('Ãçéõ')")"
       # Autorizado pelo CEO em 06/10/2026 17:38. Produção só leitura (catálogo do Postgres + pg_dump --data-only -t);
       # o script repete as travas (destino nunca é a produção) e recusa tabela da lista com coluna de dono/dado pessoal.
       - name: Catálogos globais da produção → banco de testes (whitelist, só dados)
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          # Causa 2: no montar do_zero (schema das migrations), carrega os catálogos por interseção de colunas (tolera drift da prod)
+          SEED_INTERSECAO: ${{ (github.event_name == 'workflow_dispatch' && inputs.do_zero) && '1' || '' }}
         run: |
           set -euo pipefail
           # produção é Postgres 17 e o pg_dump precisa ser >= servidor (o runner traz o 16)
@@ -110,28 +226,92 @@ jobs:
           echo "::add-mask::$senha"
           echo "::add-mask::$PROD_DATABASE_URL"
           PROD_DATABASE_URL="$PROD_DATABASE_URL" scripts/banco-testes/catalogos.sh
+          # reaproveitado pelo passo "Semente demo" (depois do fn_demo_reset); cliente pg17 já instalado acima
+          echo "PROD_DATABASE_URL=$PROD_DATABASE_URL" >> "$GITHUB_ENV"
       - name: Semente (usuário do Playwright no Auth + empresa DEMO)
         run: |
           set -euo pipefail
-          # usuário do bot via Auth admin (service role do banco de testes); 422 = já existe
-          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$TEST_SUPABASE_URL/auth/v1/admin/users" \
-            -H "apikey: $TEST_SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $TEST_SUPABASE_SERVICE_ROLE_KEY" \
-            -H 'Content-Type: application/json' \
-            -d "$(jq -n --arg e "$PLAYWRIGHT_USER_EMAIL" --arg p "$PLAYWRIGHT_USER_PASSWORD" '{email:$e,password:$p,email_confirm:true}')")
-          echo "criar usuário: HTTP $code (200/201 criado · 422 já existe)"
-          [ "$code" = 200 ] || [ "$code" = 201 ] || [ "$code" = 422 ] || exit 1
+          # usuário do bot via Auth admin (service role do banco de testes) SEMPRE com id fixo.
+          # 13 funções de semente da DEMO (fn_demo_seed_*/fn_gold_*) ancoram o robô em
+          # 74cf7dfa-4af5-4ef5-bd58-6a2166ea4cfa; banco novo (ex.: vaga 1) ganhava id aleatório e as DEMOs P&M/SST
+          # falhavam. Se o e-mail já existe com OUTRO id, apaga esse usuário (auth admin → cascata ON DELETE em
+          # public.users/user_companies/tenant_user_roles) e recria com o id fixo. Converge ou falha alto.
+          ROBO_ID=74cf7dfa-4af5-4ef5-bd58-6a2166ea4cfa
+          cur=$(psql "$TEST_DATABASE_URL" -At -c "select id from auth.users where email = '$PLAYWRIGHT_USER_EMAIL'" | head -n1 || true)
+          echo "robô atual: id='${cur:-<nenhum>}' · esperado=$ROBO_ID"
+          if [ -n "${cur:-}" ] && [ "$cur" != "$ROBO_ID" ]; then
+            echo "robô com id divergente — apagando e recriando com o id fixo"
+            del=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "$TEST_SUPABASE_URL/auth/v1/admin/users/$cur" \
+              -H "apikey: $TEST_SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $TEST_SUPABASE_SERVICE_ROLE_KEY")
+            echo "apagar robô divergente: HTTP $del"
+            cur=$(psql "$TEST_DATABASE_URL" -At -c "select id from auth.users where email = '$PLAYWRIGHT_USER_EMAIL'" | head -n1 || true)
+          fi
+          # id fixo ocupado por OUTRO e-mail (ex.: sintético "robo-demo@testes.local" na vaga 0, Montar #329): apaga o ocupante
+          # antes de criar o robô, em vez de deixar o POST falhar com HTTP 500.
+          ocup=$(psql "$TEST_DATABASE_URL" -At -c "select id from auth.users where id = '$ROBO_ID' and lower(email) <> lower('$PLAYWRIGHT_USER_EMAIL')" | head -n1 || true)
+          if [ -n "${ocup:-}" ]; then
+            outro=$(psql "$TEST_DATABASE_URL" -At -c "select email from auth.users where id = '$ROBO_ID'" | head -n1 || true)
+            echo "id fixo do robô ocupado por outro e-mail ('${outro:-?}') — apagando o ocupante"
+            del=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "$TEST_SUPABASE_URL/auth/v1/admin/users/$ROBO_ID" \
+              -H "apikey: $TEST_SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $TEST_SUPABASE_SERVICE_ROLE_KEY")
+            echo "apagar ocupante do id fixo: HTTP $del"
+            cur=$(psql "$TEST_DATABASE_URL" -At -c "select id from auth.users where email = '$PLAYWRIGHT_USER_EMAIL'" | head -n1 || true)
+          fi
+          if [ "${cur:-}" != "$ROBO_ID" ]; then
+            code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$TEST_SUPABASE_URL/auth/v1/admin/users" \
+              -H "apikey: $TEST_SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $TEST_SUPABASE_SERVICE_ROLE_KEY" \
+              -H 'Content-Type: application/json' \
+              -d "$(jq -n --arg id "$ROBO_ID" --arg e "$PLAYWRIGHT_USER_EMAIL" --arg p "$PLAYWRIGHT_USER_PASSWORD" '{id:$id,email:$e,password:$p,email_confirm:true}')")
+            echo "criar robô (id fixo): HTTP $code (200/201 criado)"
+            [ "$code" = 200 ] || [ "$code" = 201 ] || exit 1
+          else
+            echo "robô já está com o id fixo — nada a fazer"
+          fi
+          # trava de convergência: o id DEVE ser o fixo, senão as DEMOs P&M/SST quebram de novo (banco não sobe meio-montado)
+          fim=$(psql "$TEST_DATABASE_URL" -At -c "select id from auth.users where email = '$PLAYWRIGHT_USER_EMAIL'" | head -n1 || true)
+          echo "robô final: id='${fim:-<nenhum>}'"
+          [ "$fim" = "$ROBO_ID" ] || { echo "::error::robô não convergiu para o id fixo ($ROBO_ID): está '${fim:-<nenhum>}'"; exit 1; }
           psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -v bot_email="$PLAYWRIGHT_USER_EMAIL" -f scripts/banco-testes/semente.sql
           # a demo da produção é povoada por fn_demo_reset (se existir na cópia)
           # diagnóstico: mostra o erro REAL (mensagem, detalhe, contexto) como anotação, em vez de só "falhou"
           : > demo-reset-erro.log
+          reset_falhou=0
           for emp in b0700000-0000-4000-a000-000000000001 b0700000-0000-4000-a000-000000000002 b0700000-0000-4000-a000-000000000003 b0700000-0000-4000-a000-000000000004 b0700000-0000-4000-a000-000000000005 ded00000-0000-4000-a000-000000000001; do
             if ! psql "$TEST_DATABASE_URL" -v VERBOSITY=verbose -c "select public.fn_demo_reset('$emp')" 2> "demo-reset-$emp.log"; then
               cat "demo-reset-$emp.log" | tee -a demo-reset-erro.log
-              echo "::warning title=fn_demo_reset falhou ($emp)::$(tr '\n' ' ' < "demo-reset-$emp.log" | cut -c1-900)"
+              echo "::error title=fn_demo_reset falhou ($emp)::$(tr '\n' ' ' < "demo-reset-$emp.log" | cut -c1-900)"
+              reset_falhou=1
             fi
           done
+          # 23/10 (gilberto-desenv): Construtora Modelo - DEMO (Hub) irrigada pelo fn_demo_seed_construtora. Entra como
+          # AVISO (::warning, anotação com o erro real) nas primeiras montagens — não derruba a montagem das outras DEMOs
+          # por um ramo novo; promover a erro (reset_falhou=1) depois de montagens verdes.
+          emp=b0700000-0000-4000-a000-000000000006
+          if ! psql "$TEST_DATABASE_URL" -v VERBOSITY=verbose -c "select public.fn_demo_reset('$emp')" 2> "demo-reset-$emp.log"; then
+            echo "::warning title=fn_demo_reset falhou ($emp · Construtora DEMO)::$(tr '\n' ' ' < "demo-reset-$emp.log" | cut -c1-900)"
+          fi
           # trava-demo liberada ao final da montagem (lease de run que falhou/cancelou não pode travar a próxima)
           psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -c "delete from public.e2e_trava" || true
+          # Ação 3 (CEO 11/10): o job NÃO pode ficar verde com a DEMO incompleta (foi a causa do apagão). epi_catalogo
+          # é povoado pelo fn_demo_reset (referencia epi_categoria, agora na whitelist) → vazio = semente quebrada.
+          epi=$(psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -At -c "select count(*) from public.epi_catalogo")
+          echo "epi_catalogo: ${epi:-0}"
+          [ "${epi:-0}" -gt 0 ] || { echo "::error::epi_catalogo vazio após fn_demo_reset — DEMO incompleta"; reset_falhou=1; }
+          [ "$reset_falhou" = 0 ] || { echo "::error::montagem incompleta (fn_demo_reset com erro ou semente-chave vazia) — abortado"; exit 1; }
+      # Eng. Chefe 12/10 (passada completa de semente): o teste nasce com "grant all" para anon e o dump não traz os direitos
+      # da produção → ~40 specs de segurança/LGPD @pos-migration vermelhos por esquema, não por regressão. Espelha só os
+      # GRANTs/REVOKEs do catálogo da produção (sem dado de tabela). Idempotente.
+      - name: Direitos (GRANT/REVOKE) espelhados da produção → banco de testes
+        run: |
+          set -euo pipefail
+          export PSQL=/usr/lib/postgresql/17/bin/psql
+          scripts/banco-testes/espelhar-grants.sh
+      - name: Semente demo (globais/indicadores — filtrado, autor nulo, sintético)
+        run: |
+          set -euo pipefail
+          # cliente pg17 (instalado no passo dos catálogos) p/ ler a produção (Postgres 17); PROD_DATABASE_URL vem do GITHUB_ENV
+          export PSQL=/usr/lib/postgresql/17/bin/psql
+          scripts/banco-testes/semente-demo.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:

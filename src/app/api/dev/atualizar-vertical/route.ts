@@ -27,7 +27,7 @@ function areasDoVertical(vertical: string): string[] {
 export async function POST(req: NextRequest) {
   const URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const WATCHER_SECRET = process.env.WATCHER_SECRET;
+  const WATCHER_SECRET = process.env.WATCHER_SECRET || process.env.WATCHER_SECRET_NOVO;
   if (!URL || !SERVICE) return NextResponse.json({ error: 'env faltando' }, { status: 500 });
 
   const admin = createClient(URL, SERVICE, { auth: { autoRefreshToken: false, persistSession: false } });

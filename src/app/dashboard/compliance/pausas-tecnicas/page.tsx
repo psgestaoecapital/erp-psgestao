@@ -15,9 +15,11 @@ import { reguaDe, textoRegua, mmss, motivoRegua, type Regua } from '@/lib/ponto/
 import { rotuloPendente, explicaPendente } from '@/lib/ponto/motivoPendente'
 import { rpc } from '@/lib/authFetch'
 import { supabase } from '@/lib/supabase'
+import { cpfValido } from '@/lib/documentos/cpf'
 import { marcasDasPausas, parearMarcas, validarMarcas, normalizarHora, sugerirPapeis, diaSuspeito, type Marca, type PapelMarca, type LinhaPausaDia, type PausaRelida } from '@/lib/ponto/pausasMarcas'
 import { ORIGENS_AJUSTE, ajusteDe, rotuloAjuste, rotuloOrigemAjuste, pendenciasDaPrevia, textoPendencia, linhaPausaDoc, notaDiaDoc, type AjusteDia, type OrigemAjuste, type PausaDoc } from '@/lib/ponto/ajusteBatida'
-import { Timer, Snowflake, ClipboardList, FileText, AlertTriangle, Save, Upload, History, Download, RefreshCw, ShieldAlert, CheckCircle2, Users, Copy, Printer, BarChart3, FileSignature } from 'lucide-react'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { Timer, Snowflake, ClipboardList, ClipboardCheck, FileText, AlertTriangle, Save, Upload, History, Download, RefreshCw, ShieldAlert, CheckCircle2, Users, Copy, Printer, BarChart3, FileSignature, Paperclip, X } from 'lucide-react'
 
 const C = {
   espresso: '#3D2314', offwhite: '#FAF7F2', gold: '#C8941A', beigeLt: '#f5f0e8', borderLt: '#ece3d2',
@@ -246,6 +248,9 @@ function Kpi({ label, n, cor, bg }: { label: string; n: number; cor: string; bg:
 }
 
 // ─────────────────────── CIÊNCIA MENSAL (#74) ───────────────────────
+// #2369: almoço do dia junto da jornada (janela da escala + minutos apurados)
+const textoAlmoco = (a?: { inicio?: string; fim?: string; min?: number } | null) => !a ? '' : `almoço ${a.inicio && a.fim ? `${a.inicio}–${a.fim}` : ''}`.trim()
+
 // Gera o relatório mensal por colaborador, coleta a assinatura via link público (mesmo fluxo do
 // EPI) e acompanha quem falta. O documento declara a origem de cada horário (RD-38).
 // #74 (CEO 02/10): a lista é de TODOS os elegíveis à pausa térmica do mês (fn_nr36_ciencia_painel), não só de quem já
@@ -436,7 +441,7 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
     } catch (e) { alert('Falha ao anexar: ' + (e as Error).message) } finally { setSubindo(false) }
   }
   const snap = (doc?.colaborador_snapshot || {}) as Record<string, string>
-  const detalhe = (doc?.detalhe || []) as Array<{ data: string; status: string; jornada?: { inicio?: string; fim?: string }; pausas?: PausaDoc[]; ajuste?: AjusteDia | null }>
+  const detalhe = (doc?.detalhe || []) as Array<{ data: string; status: string; jornada?: { inicio?: string; fim?: string }; almoco?: { inicio?: string; fim?: string; min?: number } | null; pausas?: PausaDoc[]; ajuste?: AjusteDia | null }>
   const nEst = detalhe.reduce((a, d) => a + (d.pausas || []).filter(p => p.fim_origem === 'estimado').length, 0)
   // #587: mesma leitura da página de assinatura (lib/ponto/ajusteBatida) — retorno sem saída não sai invertido e o
   // horário ajustado aparece junto do original, com origem, quem e quando
@@ -475,11 +480,11 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
               <div><b>Função:</b> {snap.funcao || '—'}</div><div><b>Setor:</b> {snap.setor || '—'}</div>
             </div>
             {detalhe.map((d, i) => (
-              <div key={i} style={{ borderBottom: `1px solid ${C.beigeLt}`, padding: '6px 0' }}>
-                <div style={{ fontSize: 12.5, fontWeight: 600, color: C.espresso }}>{fmtData(d.data)} <span style={{ fontSize: 11, color: C.gray, fontWeight: 400 }}>{d.jornada?.inicio && d.jornada?.fim ? `· jornada ${d.jornada.inicio}–${d.jornada.fim}` : ''}</span></div>
+              <div key={i} style={{ borderBottom: `1px solid ${C.beigeLt}`, padding: '6px 0', breakInside: 'avoid' }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: C.espresso }}>{fmtData(d.data)} <span style={{ fontSize: 11, color: C.gray, fontWeight: 400 }}>{d.jornada?.inicio && d.jornada?.fim ? `· jornada ${d.jornada.inicio}–${d.jornada.fim}` : ''}</span>{textoAlmoco(d.almoco) && <span style={{ fontSize: 11, color: C.gray, fontWeight: 400 }} data-testid="ciencia-almoco"> · {textoAlmoco(d.almoco)}</span>}</div>
                 {notaDiaDoc(d.ajuste) && <div style={{ fontSize: 11, color: C.gray }} data-testid="ciencia-originais">{notaDiaDoc(d.ajuste)}</div>}
                 {(d.pausas || []).length === 0 ? <div style={{ fontSize: 11.5, color: C.gray, fontStyle: 'italic' }}>Sem pausa registrada.</div> :
-                  (d.pausas || []).map((p, j) => <div key={j} style={{ fontSize: 12.5, lineHeight: 1.7 }}>{fim(p, d.ajuste)}{p.min != null && <span style={{ color: C.gray, fontSize: 11 }}> · {p.min} min</span>}</div>)}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', columnGap: 28 }} data-testid="ciencia-pausas-dia">{(d.pausas || []).map((p, j) => <div key={j} style={{ fontSize: 12.5, lineHeight: 1.7, flex: '1 1 230px' }}>{fim(p, d.ajuste)}{p.min != null && <span style={{ color: C.gray, fontSize: 11 }}> · {p.min} min</span>}</div>)}</div>}
               </div>
             ))}
             {nEst > 0 && (
@@ -487,13 +492,17 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
                 {nEst} pausa(s) deste período tiveram o horário de término estimado por falta de registro de saída. A estimativa considera a duração padrão de 20 minutos e não substitui o registro.
               </div>
             )}
+            <div data-testid="ciencia-compromisso" style={{ marginTop: 16, fontSize: 11.5, color: C.espresso, lineHeight: 1.5 }}>
+              O colaborador declara que se compromete a usufruir das pausas térmicas no local adequado, e o supervisor fiscalizará o cumprimento.
+            </div>
             <div className="ps-print-assinatura" data-testid="ciencia-assinatura" style={{ marginTop: 24, borderTop: `1px solid ${C.borderLt}`, paddingTop: 16, fontSize: 12 }}>
               {doc.status === 'assinado' ? (
                 <div style={{ color: C.green }}><b>✓ Assinado em {doc.assinado_em ? fmtDT(String(doc.assinado_em)) : ''}</b> · método {String(doc.metodo || '')} · hash {String(doc.hash_integridade || '').slice(0, 24)}…</div>
               ) : (
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20 }}>
-                  <div style={{ flex: 1, borderTop: `1px solid ${C.espresso}`, paddingTop: 4, textAlign: 'center', color: C.gray }}>Assinatura do colaborador</div>
-                  <div style={{ flex: 1, borderTop: `1px solid ${C.espresso}`, paddingTop: 4, textAlign: 'center', color: C.gray }}>Data</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap' }} data-testid="ciencia-linhas-assinatura">
+                  {['Assinatura do colaborador', 'Assinatura do supervisor', 'Assinatura do técnico de segurança do trabalho', 'Data'].map(t => (
+                    <div key={t} style={{ flex: '1 1 140px', borderTop: `1px solid ${C.espresso}`, paddingTop: 4, textAlign: 'center', color: C.gray }}>{t}</div>
+                  ))}
                 </div>
               )}
             </div>
@@ -626,7 +635,7 @@ function AbaImportar({ companyId }: { companyId: string }) {
   const [alertaEleg, setAlertaEleg] = useState<{ matched: number; naoEleg: number } | null>(null)
   const [parseErro, setParseErro] = useState('')
   const [busy, setBusy] = useState(false)
-  const [resultado, setResultado] = useState<{ lidas: number; aceitas: number; rejeitadas: number; rejeitadas_detalhe: Rejeitada[] } | null>(null)
+  const [resultado, setResultado] = useState<{ lidas: number; aceitas: number; rejeitadas: number; duplicadas: number; rejeitadas_detalhe: Rejeitada[] } | null>(null)
   const [erro, setErro] = useState('')
 
   useEffect(() => { (async () => {
@@ -693,10 +702,10 @@ function AbaImportar({ companyId }: { companyId: string }) {
         p_bytes: file.size, p_mime: file.type || null, p_periodo_ini: datas[0] || null, p_periodo_fim: datas[datas.length - 1] || null,
       })
       if (!reg.ok || !reg.upload_id) throw new Error(reg.mensagem || reg.erro || 'Falha ao registrar o upload.')
-      const proc = await rpc<{ ok: boolean; lidas: number; aceitas: number; rejeitadas: number; rejeitadas_detalhe: Rejeitada[]; erro?: string; mensagem?: string }>('fn_nr36_upload_processar', { p_upload_id: reg.upload_id, p_linhas: payload })
+      const proc = await rpc<{ ok: boolean; lidas: number; aceitas: number; rejeitadas: number; duplicadas?: number; rejeitadas_detalhe: Rejeitada[]; erro?: string; mensagem?: string }>('fn_nr36_upload_processar', { p_upload_id: reg.upload_id, p_linhas: payload })
       // #107: zero linha aceita = importação FALHOU (nunca "processado" calado) — mensagem clara para quem enviou
       if (!proc.ok) throw new Error(proc.mensagem || proc.erro || 'Falha ao processar as linhas.')
-      setResultado({ lidas: proc.lidas, aceitas: proc.aceitas, rejeitadas: proc.rejeitadas, rejeitadas_detalhe: proc.rejeitadas_detalhe || [] })
+      setResultado({ lidas: proc.lidas, aceitas: proc.aceitas, rejeitadas: proc.rejeitadas, duplicadas: proc.duplicadas ?? 0, rejeitadas_detalhe: proc.rejeitadas_detalhe || [] })
       setFile(null); setLinhas([])
     } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
   }
@@ -771,9 +780,13 @@ function AbaImportar({ companyId }: { companyId: string }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><CheckCircle2 size={18} style={{ color: C.green }} /><b style={{ color: C.espresso }}>Importação concluída</b></div>
           <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 13 }}>Lidas: <b>{resultado.lidas}</b></span>
-            <span style={{ fontSize: 13, color: C.green }}>Aceitas: <b>{resultado.aceitas}</b></span>
+            <span style={{ fontSize: 13, color: C.green }}>Novas: <b>{resultado.aceitas}</b></span>
+            {resultado.duplicadas > 0 && <span style={{ fontSize: 13, color: C.gray }}>Já no sistema: <b>{resultado.duplicadas}</b></span>}
             <span style={{ fontSize: 13, color: resultado.rejeitadas > 0 ? C.red : C.gray }}>Rejeitadas: <b>{resultado.rejeitadas}</b></span>
           </div>
+          {resultado.duplicadas > 0 && (
+            <div style={{ fontSize: 12.5, color: C.gray }}>Reimportação: as <b>{resultado.duplicadas}</b> pausa(s) que já estavam no sistema foram mantidas (nada duplicou); só as faltantes entraram.</div>
+          )}
           {resultado.rejeitadas_detalhe.length > 0 && (
             <div style={{ overflowX: 'auto', border: `1px solid ${C.borderLt}`, borderRadius: 8 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -1100,21 +1113,37 @@ const parseDataH = (s: string): string | null => { const b = txt(s).split(' - ')
 const parseDataHoraH = (s: string): string | null => { const m = /^(\d{2})\/(\d{2})\/(\d{4})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/.exec(txt(s)); return m ? `${m[3]}-${m[2]}-${m[1]}T${m[4]}:${m[5]}:${m[6] ?? '00'}-03:00` : null }
 const parseDurH = (s: string): number | null => { const m = /^(\d+):(\d{2}):(\d{2})$/.exec(txt(s)); return m ? (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]) : null }
 
+// #3931 · a IOPoint passou a emitir o nome do colaborador com o CPF ao lado (ex.: "ANDERSON SOUZA 123.456.789-00"
+// ou "123.456.789-00 - ANDERSON SOUZA"). Extrai o CPF — só quando os 11 dígitos formam um CPF VÁLIDO, para não
+// confundir com matrícula/PIS — e devolve o nome limpo. Assim o colaborador casa pelo CPF (não só pelo nome) e o
+// relatório, que antes rejeitava essas linhas (nome não casava), passa a ser aceito.
+const CPF_EMBUTIDO = /(\d{3}\.?\d{3}\.?\d{3}-?\d{2})/
+function extrairCpfNome(raw: string): { cpf: string; nome: string } {
+  const s = txt(raw)
+  const m = s.match(CPF_EMBUTIDO)
+  if (m && cpfValido(m[1])) {
+    const nome = s.replace(m[1], '').replace(/[·,\-–—]+/g, ' ').replace(/\s+/g, ' ').trim()
+    return { cpf: m[1].replace(/\D/g, ''), nome: nome || s }
+  }
+  return { cpf: '', nome: s }
+}
+
 function parseHierarquico(rows: string[][]): { linhas: LinhaImport[]; descartadas: number } {
   let pessoa: string | null = null
+  let pessoaCpf = ''
   const linhas: LinhaImport[] = []
   let descartadas = 0
   for (const raw of rows) {
     const r = [...raw, '', '', '', '', '', ''].slice(0, 6)
     const c0 = txt(r[0]), c1 = txt(r[1])
-    if (c0 && c1.toLowerCase() === 'data') { pessoa = c0; continue }          // cabeçalho de bloco
+    if (c0 && c1.toLowerCase() === 'data') { const e = extrairCpfNome(c0); pessoa = e.nome; pessoaCpf = e.cpf; continue } // cabeçalho de bloco
     if (IGNORAR_H.some(p => c0.toLowerCase().startsWith(p))) continue          // ruído
     const data = parseDataH(c1)
     if (!c0 && data) {                                                        // evento
       const inicio = parseDataHoraH(r[3])
       const fim = ABERTO_H.has(txt(r[4])) ? null : parseDataHoraH(r[4])       // pausa em aberto → null (nunca zerar)
       if (!pessoa || !inicio) { descartadas++; continue }
-      linhas.push({ cpf: '', data, inicio, fim, duracao_seg: parseDurH(r[5]), tipo: 'termica_253', _nome: pessoa })
+      linhas.push({ cpf: pessoaCpf, data, inicio, fim, duracao_seg: parseDurH(r[5]), tipo: 'termica_253', _nome: pessoa })
       continue
     }
     if (c0 || c1) descartadas++
@@ -1143,8 +1172,10 @@ function parseTabular(rows: string[][]): LinhaImport[] {
   const headers = rows[0].map(norm)
   const objs = rows.slice(1).map(vals => { const o: Record<string, string> = {}; headers.forEach((h, i) => { if (h) o[h] = vals[i] ?? '' }); return o }).filter(o => Object.values(o).some(v => v))
   return objs.map(o => {
-    const cpf = pick(o, ['cpf']).replace(/\D/g, '')
-    const nome = pick(o, ['nome', 'colaborador', 'funcionario', 'func', 'nome_colaborador'])
+    // #3931 · o nome pode vir com o CPF ao lado; extrai e limpa (vale também sem coluna de CPF própria)
+    const ex = extrairCpfNome(pick(o, ['nome', 'colaborador', 'funcionario', 'func', 'nome_colaborador']))
+    const cpf = pick(o, ['cpf']).replace(/\D/g, '') || ex.cpf
+    const nome = ex.nome
     const data = toISODate(pick(o, ['data', 'dia', 'data_pausa', 'data_movto', 'competencia']))
     const inicio = toTS(data, pick(o, ['inicio', 'entrada', 'hora_inicio', 'inicio_pausa', 'ini', 'hora_entrada']))
     const fimRaw = pick(o, ['fim', 'saida', 'hora_fim', 'fim_pausa', 'hora_saida'])
@@ -1194,13 +1225,26 @@ function AbaConferencia({ companyId }: { companyId: string }) {
   const fortes = useMemo(() => rows.filter(r => r.fim_sugerido_tipo === 'batida_forte'), [rows])
   const fracas = useMemo(() => rows.filter(r => r.fim_sugerido_tipo === 'inferencia_fraca'), [rows])
 
-  async function confirmarUm(id: string, acao: string, fimManual?: string) {
+  // #2119/#4032 (Karol) · confirmar/corrigir/desfazer NÃO reapurava — o fn_nr36_confirmar_fim_pausa só grava
+  // fim_confirmado em ind_ponto_pausa e retorna. Como o Painel (fn_nr36_apuracao_listar) e a Supervisão
+  // (fn_nr36_supervisao_casos) leem a apuração GRAVADA (nr36_pausa_apurada), o dia conferido seguia marcado como
+  // "aguardando conferência" até alguém clicar "Reapurar período" na aba Painel. Agora cada conferência reapura
+  // sozinha o(s) dia(s) tocado(s) — a mesma fn que o botão Reapurar usa, UMA chamada por ação (nunca por linha, p/
+  // não repetir o incidente 03/10 de função pesada em loop). Falha ao reapurar não derruba a conferência já gravada.
+  async function reapurar(dtIni?: string, dtFim?: string) {
+    const di = dtIni, df = dtFim ?? dtIni
+    if (!di || !df) return
+    try { await supabase.rpc('fn_nr36_apurar', { p_company_id: companyId, p_dt_ini: di, p_dt_fim: df }) }
+    catch (e) { setOkMsg('Conferência gravada. A apuração do Painel pode estar defasada — use "Reapurar período" na aba Painel.'); console.warn('reapurar pós-conferência falhou', e) }
+  }
+  async function confirmarUm(id: string, acao: string, fimManual?: string, dia?: string) {
     setBusy(true); setErro(''); setOkMsg('')
     try {
       const { data, error } = await supabase.rpc('fn_nr36_confirmar_fim_pausa', { p_pausa_id: id, p_acao: acao, p_fim_manual: fimManual ?? null })
       if (error) throw error
       const r = data as { ok?: boolean; erro?: string } | null
       if (!r?.ok) throw new Error(r?.erro ?? 'falha ao confirmar')
+      await reapurar(dia)
       await carregar()
     } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
   }
@@ -1214,6 +1258,9 @@ function AbaConferencia({ companyId }: { companyId: string }) {
       if (error) throw error
       const r = data as { ok?: boolean; confirmados?: number; erro?: string } | null
       if (!r?.ok) throw new Error(r?.erro ?? 'falha no lote')
+      // reapura uma vez o intervalo de dias das pausas confirmadas (min..max), nunca por linha
+      const dias = rows.filter(x => ids.includes(x.pausa_id)).map(x => x.data).filter(Boolean).sort()
+      if (dias.length) await reapurar(dias[0], dias[dias.length - 1])
       setOkMsg(`${r.confirmados} confirmada(s).`); await carregar()
     } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
   }
@@ -1221,7 +1268,7 @@ function AbaConferencia({ companyId }: { companyId: string }) {
     const hhmm = window.prompt('Horário real do fim da pausa (HH:MM):')
     if (!hhmm) return
     if (!/^\d{1,2}:\d{2}$/.test(hhmm.trim())) { setErro('Horário inválido — use HH:MM.'); return }
-    await confirmarUm(id, 'corrigir', `${dataDia}T${hhmm.trim().padStart(5, '0')}:00-03:00`)
+    await confirmarUm(id, 'corrigir', `${dataDia}T${hhmm.trim().padStart(5, '0')}:00-03:00`, dataDia)
   }
   async function desfazerPeriodo() {
     const ini = window.prompt('Desfazer confirmações a partir de (AAAA-MM-DD):'); if (!ini) return
@@ -1233,6 +1280,7 @@ function AbaConferencia({ companyId }: { companyId: string }) {
       if (error) throw error
       const r = data as { ok?: boolean; desfeitas?: number; erro?: string } | null
       if (!r?.ok) throw new Error(r?.erro ?? 'falha ao desfazer')
+      await reapurar(ini, fim)
       setOkMsg(`${r.desfeitas} confirmação(ões) desfeita(s).`); await carregar()
     } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
   }
@@ -1243,8 +1291,12 @@ function AbaConferencia({ companyId }: { companyId: string }) {
   return (
     <div>
       <div style={{ marginBottom: 12 }}>
-        <div style={secTitle()}>Conferência — pausas sem hora de saída</div>
-        <div style={{ fontSize: 13, color: C.gray }}>O sistema <b>sugere</b> o fim pela batida do ponto; <b>você confirma</b>. Cada horário guarda a origem — o relatório declara o que foi confirmado pelo ponto e o que é estimativa.</div>
+        <div style={secTitle()}>Conferência do mês</div>
+        {/* #3843 (Karol) · a responsável via duas listas soltas — "revisar" (batida faltando) e "confirmar/correção"
+            (pausa sem saída) — e ao auditar o período apareciam horários/pendências que não estavam antes. As duas têm a
+            mesma finalidade (deixar o mês conferido antes de fechar), então agora ficam JUNTAS, numa ordem só: primeiro os
+            dias com batida faltando, depois as pausas sem hora de saída. Só a apresentação muda — o cálculo do dia é o mesmo. */}
+        <div style={{ fontSize: 13, color: C.gray }}>Dois tipos de item para resolver antes de fechar o mês, na mesma ordem em que aparecem abaixo: <b>1 · dias com batida faltando</b> (revisar o horário que ficou trocado) e <b>2 · pausas sem hora de saída</b> (confirmar ou corrigir o fim). O sistema <b>sugere</b> pela batida do ponto; <b>você confirma</b>, e cada horário guarda a origem — ponto ou estimativa.</div>
         {/* #256 · quando falta uma batida, os pares do relatório deslizam (retorno lido como saída) */}
         <div style={{ fontSize: 12.5, color: C.espresso, marginTop: 6 }}>Pausa de 1h ou mais, com intervalos de ~20 min entre elas? Provavelmente faltou uma batida e os horários ficaram trocados. Use <b>Saída/retorno</b> na linha para dizer o que cada horário do dia é.</div>
       </div>
@@ -1253,8 +1305,12 @@ function AbaConferencia({ companyId }: { companyId: string }) {
       {okMsg && <div style={{ background: C.greenBg, color: C.green, borderRadius: 8, padding: '9px 12px', fontSize: 12.5, marginBottom: 10 }}><CheckCircle2 size={13} style={{ verticalAlign: 'middle', marginRight: 5 }} />{okMsg}</div>}
 
       {/* #587 · auditoria de batidas: o sistema sugere, a responsável confirma com justificativa */}
+      {/* #3843 · passo 1 do fluxo único de conferência (antes era uma lista solta no topo) */}
+      <div style={subTituloConf}>1 · Dias com batida faltando <span style={subTituloConfLeve}>revisar o horário que ficou trocado</span></div>
       <AuditoriaBatidas companyId={companyId} onRevisar={(d) => setEditor(d)} />
 
+      {/* #3843 · passo 2 do mesmo fluxo — antes vinha sem título, dando a impressão de ser outra tela */}
+      <div style={subTituloConf}>2 · Pausas sem hora de saída <span style={subTituloConfLeve}>confirmar ou corrigir o fim</span></div>
       {/* Prévia + lote separado por confiabilidade */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', background: C.blueBg, border: `1px solid ${C.blue}22`, borderRadius: 12, padding: 12, marginBottom: 14 }}>
         <div style={{ fontSize: 13, color: C.espresso, flex: '1 1 260px' }}>
@@ -1298,12 +1354,12 @@ function AbaConferencia({ companyId }: { companyId: string }) {
                     </td>
                     <td style={{ padding: '8px', whiteSpace: 'nowrap' }}>
                       {!r.sem_saida && <>
-                      <button style={{ ...btnGhost, color: forte ? C.green : C.amber, borderColor: (forte ? C.green : C.amber) + '55', marginRight: 4 }} onClick={() => confirmarUm(r.pausa_id, forte ? 'confirmar_ponto' : 'confirmar_estimativa')}>Confirmar</button>
+                      <button style={{ ...btnGhost, color: forte ? C.green : C.amber, borderColor: (forte ? C.green : C.amber) + '55', marginRight: 4 }} onClick={() => confirmarUm(r.pausa_id, forte ? 'confirmar_ponto' : 'confirmar_estimativa', undefined, r.data)}>Confirmar</button>
                       <button style={{ ...btnGhost, marginRight: 4 }} onClick={() => corrigir(r.pausa_id, r.data)}>Corrigir</button>
                       </>}
                       <button style={{ ...btnGhost, marginRight: 4 }} data-testid={`conf-marcas-${r.pausa_id}`} title="Dizer se cada horário do dia é saída ou retorno da pausa"
                         onClick={() => setEditor({ cpf: r.cpf, data: r.data, colaborador: r.colaborador })}>Saída/retorno</button>
-                      <button style={btnGhost} onClick={() => confirmarUm(r.pausa_id, 'indeterminado')}>Não sei</button>
+                      <button style={btnGhost} onClick={() => confirmarUm(r.pausa_id, 'indeterminado', undefined, r.data)}>Não sei</button>
                     </td>
                   </tr>
                 )
@@ -1339,6 +1395,9 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
   const [novaOrigem, setNovaOrigem] = useState<OrigemAjuste | ''>('')
   const [ajusteDia, setAjusteDia] = useState<AjusteDia | null>(null)
   const [pendCiente, setPendCiente] = useState(false)
+  // #3842 (Karol) · documento assinado que comprova a ciência do colaborador sobre o ajuste deste dia
+  const [anexos, setAnexos] = useState<{ id: string; arquivo_path: string; arquivo_nome: string; enviado_em: string }[]>([])
+  const [subindoAnexo, setSubindoAnexo] = useState(false)
 
   useEffect(() => {
     let vivo = true
@@ -1360,6 +1419,48 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
     })()
     return () => { vivo = false }
   }, [companyId, cpf, data, marcasIniciais])
+
+  // #3842 · anexos (documento assinado) deste dia conferido
+  const carregarAnexos = useCallback(async () => {
+    try {
+      const r = await rpc<{ ok: boolean; anexos?: typeof anexos }>('fn_nr36_conferencia_anexo_listar', { p_company_id: companyId, p_cpf: cpf, p_data: data })
+      setAnexos(r?.anexos ?? [])
+    } catch { /* lista some sem travar o editor */ }
+  }, [companyId, cpf, data])
+  useEffect(() => { void carregarAnexos() }, [carregarAnexos])
+
+  async function subirAnexo(f: File | null) {
+    if (!f) return
+    setSubindoAnexo(true); setErro('')
+    try {
+      // papel conferido ANTES do upload (sem papel não sobe arquivo nenhum); o nome leva UUID — CPF é dado pessoal e fica só na tabela
+      const pode = await rpc<boolean>('fn_nr36_pode_subir', { p_company_id: companyId })
+      if (!pode) throw new Error('Só o Técnico de Segurança do Trabalho ou o responsável pelo Compliance pode anexar o documento da conferência.')
+      const ext = (f.name.split('.').pop() || 'pdf').toLowerCase().replace(/[^a-z0-9]/g, '')
+      const path = `${companyId}/conferencia/${crypto.randomUUID()}.${ext}`
+      const up = await supabase.storage.from('compliance-pausas').upload(path, f, { upsert: false, contentType: f.type || 'application/octet-stream' })
+      if (up.error) throw new Error('Falha no upload: ' + up.error.message)
+      const r = await rpc<{ ok: boolean; erro?: string; mensagem?: string }>('fn_nr36_conferencia_anexo_salvar', { p_company_id: companyId, p_cpf: cpf, p_data: data, p_arquivo_path: path, p_arquivo_nome: f.name })
+      if (!r?.ok) {
+        await supabase.storage.from('compliance-pausas').remove([path]).catch(() => {}) // órfão: tenta limpar (o bucket não tem DELETE; se negado, fica sem registro)
+        throw new Error(r?.mensagem || r?.erro || 'Falha ao registrar o anexo.')
+      }
+      await carregarAnexos()
+    } catch (e) { setErro((e as Error).message) } finally { setSubindoAnexo(false) }
+  }
+  async function verAnexo(path: string) {
+    const { data: s } = await supabase.storage.from('compliance-pausas').createSignedUrl(path, 60)
+    if (s?.signedUrl) window.open(s.signedUrl, '_blank', 'noopener,noreferrer')
+  }
+  async function removerAnexo(id: string) {
+    if (!window.confirm('Remover este documento anexado? O registro fica no histórico (soft-delete).')) return
+    setSubindoAnexo(true); setErro('')
+    try {
+      const r = await rpc<{ ok: boolean; erro?: string; mensagem?: string }>('fn_nr36_conferencia_anexo_remover', { p_id: id })
+      if (!r?.ok) throw new Error(r?.mensagem || r?.erro || 'Falha ao remover.')
+      await carregarAnexos()
+    } catch (e) { setErro((e as Error).message) } finally { setSubindoAnexo(false) }
+  }
 
   const previa = useMemo(() => parearMarcas(marcas), [marcas])
   const invalido = useMemo(() => (marcas.length ? validarMarcas(marcas) : 'Nenhuma marcação neste dia.'), [marcas])
@@ -1473,6 +1574,32 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
             <textarea value={justificativa} onChange={e => setJustificativa(e.target.value)} data-testid="marcas-justificativa" rows={2}
               placeholder="Ex.: conferido com o colaborador — esqueceu de bater a saída da 1ª pausa"
               style={{ ...inp(), width: '100%', marginTop: 4, resize: 'vertical' }} />
+          </div>
+        )}
+        {!carregando && (
+          <div style={{ marginTop: 12, background: '#fff', border: `1px solid ${C.borderLt}`, borderRadius: 10, padding: 10 }} data-testid="conf-anexo">
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 700, color: C.gray }}>
+              <Paperclip size={13} /> Documento assinado da conferência
+              <AjudaCampo chave="compliance.pausas.conferencia.anexo" rota="/dashboard/compliance/pausas-tecnicas" />
+              <span data-testid="conf-anexo-botao" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: C.espresso, border: `1px solid ${C.gold}`, borderRadius: 7, padding: '4px 9px', cursor: subindoAnexo ? 'wait' : 'pointer', opacity: subindoAnexo ? 0.6 : 1 }}>
+                <Upload size={13} /> {subindoAnexo ? 'Enviando…' : 'Anexar documento'}
+                <input type="file" accept="application/pdf,image/*" style={{ display: 'none' }} disabled={subindoAnexo}
+                  onChange={e => { void subirAnexo(e.target.files?.[0] || null); e.target.value = '' }} />
+              </span>
+            </label>
+            <div style={{ fontSize: 11.5, color: C.gray, marginTop: 6 }}>Quando o horário foi conferido com o colaborador (ele assinou o papel), anexe aqui a prova da ciência (PDF ou foto). Fica preso a este dia.</div>
+            {anexos.length > 0 && (
+              <ul style={{ listStyle: 'none', padding: 0, margin: '8px 0 0' }}>
+                {anexos.map(a => (
+                  <li key={a.id} data-testid={`conf-anexo-item-${a.id}`} style={{ display: 'flex', alignItems: 'center', gap: 8, borderTop: `1px solid ${C.beigeLt}`, padding: '6px 0' }}>
+                    <FileText size={13} style={{ color: C.gray, flexShrink: 0 }} />
+                    <button type="button" onClick={() => verAnexo(a.arquivo_path)} style={{ background: 'none', border: 'none', padding: 0, color: C.blue, cursor: 'pointer', fontSize: 12.5, textAlign: 'left', flex: 1, textDecoration: 'underline' }}>{a.arquivo_nome}</button>
+                    <span style={{ fontSize: 11, color: C.gray }}>{new Date(a.enviado_em).toLocaleDateString('pt-BR')}</span>
+                    <button type="button" aria-label="Remover anexo" disabled={subindoAnexo} onClick={() => removerAnexo(a.id)} style={{ background: 'none', border: 'none', padding: 2, color: C.red, cursor: 'pointer' }}><X size={14} /></button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap', marginTop: 14 }}>
@@ -1603,6 +1730,9 @@ function Header() {
 function Vazio({ titulo, texto, acao }: { titulo: string; texto: string; acao?: React.ReactNode }) { return <div style={{ background: '#fff', border: `1px dashed ${C.borderLt}`, borderRadius: 14, padding: '32px 20px', textAlign: 'center' }}><div style={{ fontSize: 15, fontWeight: 600, color: C.espresso }}>{titulo}</div><div style={{ fontSize: 13, color: C.gray, marginTop: 5, maxWidth: 460, marginInline: 'auto' }}>{texto}</div>{acao && <div style={{ marginTop: 14 }}>{acao}</div>}</div> }
 function Load() { return <div style={{ color: C.gray, padding: 30, textAlign: 'center', fontSize: 13 }}>Carregando…</div> }
 function secTitle(): React.CSSProperties { return { fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, fontWeight: 500, color: C.espresso, margin: '0 0 8px' } }
+// #3843 · subtítulo dos dois passos do fluxo único de conferência (revisar · confirmar/corrigir)
+const subTituloConf: React.CSSProperties = { fontFamily: 'Fraunces, Georgia, serif', fontSize: 15, fontWeight: 500, color: C.espresso, margin: '16px 0 8px' }
+const subTituloConfLeve: React.CSSProperties = { fontFamily: 'inherit', fontSize: 12, fontWeight: 400, color: C.gray }
 function card(): React.CSSProperties { return { display: 'flex', gap: 12, alignItems: 'center', background: '#fff', border: `1px solid ${C.borderLt}`, borderRadius: 12, padding: '12px 14px', marginBottom: 10 } }
 function th(): React.CSSProperties { return { padding: '8px 10px', fontWeight: 600, fontSize: 12 } }
 // corpo da tabela SEMPRE com cor de texto explícita (Espresso #3D2314) — sem cor, herdava um
@@ -1818,7 +1948,7 @@ type SupCaso = { data: string; cpf: string; nome: string; funcao: string | null;
 // #92 · dia aguardando confirmação (pausa sem hora de saída). Natureza DIFERENTE do desvio: não
 // está provado — o supervisor pergunta ao colaborador o que houve; a responsável fecha na aba
 // Conferência. NUNCA é desvio no escuro (RD-38).
-type SupPendente = { data: string; cpf: string; nome: string; funcao: string | null; setor: string | null; tipo: string; shift: string | null; motivo?: string | null; sem_registro_pausa?: boolean; pausas_devidas?: number | null; pausas_realizadas?: number | null; almoco_min?: number | null; jornada: { entrada: string | null; saida: string | null } | null }
+type SupPendente = { data: string; cpf: string; nome: string; funcao: string | null; setor: string | null; tipo: string; shift: string | null; motivo?: string | null; sem_registro_pausa?: boolean; pausas_devidas?: number | null; pausas_realizadas?: number | null; almoco_min?: number | null; jornada: { entrada: string | null; saida: string | null } | null; pausas?: Array<{ inicio: string; fim: string | null; min: number | null }> | null }
 
 const hmm = (min: number) => `${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')}`
 // FATO, não julgamento (RH). Descreve o que aconteceu; a causa é a conversa.
@@ -1870,6 +2000,9 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
   const [erro, setErro] = useState('')
   const [aberto, setAberto] = useState<string | null>(null)
   const [copiado, setCopiado] = useState<string | null>(null)
+  // #3841 · tratar o dia aqui mesmo: abre o editor da Conferência (mostra os horários da pausa e permite o ajuste),
+  // sem precisar caçar o colaborador na aba Conferência (onde às vezes o dia nem aparece).
+  const [tratarDia, setTratarDia] = useState<{ cpf: string; data: string; nome: string } | null>(null)
   // #273 · filtrar por colaborador
   const [colab, setColab] = useState('')
   const [sinais, setSinais] = useState<SupSinal[]>([])
@@ -1998,13 +2131,13 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
             <div style={{ display: 'flex', gap: 10, background: C.amberBg, border: `1px solid ${C.amber}33`, borderRadius: 12, padding: 12, marginBottom: 12 }} data-no-print="true">
               <AlertTriangle size={18} style={{ color: C.amber, flexShrink: 0, marginTop: 1 }} />
               <div style={{ fontSize: 12.5, color: C.espresso, lineHeight: 1.5 }}>
-                <b>{pendentesF.length} dia(s) aguardando confirmação.</b> Ainda <b>não são desvio</b> — o sistema não julga no escuro. Três naturezas: <b>pausa sem hora de saída</b> (fim não confirmado) e <b>sem registro de pausa</b> (a jornada exigia pausa e nenhuma foi marcada — o horário correu até o próximo registro) e <b>pausas faltantes</b> (há menos pausas registradas do que a jornada pedia, e nenhuma está abaixo do mínimo). Nenhuma delas é &ldquo;conforme&rdquo;. São a <b>conversa do supervisor com o colaborador</b> (&ldquo;o que houve neste dia?&rdquo;) e se fecham na aba <b>Conferência</b>.
+                <b>{pendentesF.length} dia(s) aguardando confirmação.</b> Ainda <b>não são desvio</b> — o sistema não julga no escuro. Três naturezas: <b>pausa sem hora de saída</b> (fim não confirmado) e <b>sem registro de pausa</b> (a jornada exigia pausa e nenhuma foi marcada — o horário correu até o próximo registro) e <b>pausas faltantes</b> (há menos pausas registradas do que a jornada pedia, e nenhuma está abaixo do mínimo). Nenhuma delas é &ldquo;conforme&rdquo;. São a <b>conversa do supervisor com o colaborador</b> (&ldquo;o que houve neste dia?&rdquo;). Clique em <b>Tratar</b> na linha para ver os horários do dia e fechar a pausa ou lançar o ajuste aqui mesmo (abre o editor da Conferência).
               </div>
             </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead><tr style={{ textAlign: 'left', color: C.gray, borderBottom: `1px solid ${C.borderLt}` }}>
-                  <th style={th()}>Colaborador</th><th style={th()}>Dia</th><th style={th()}>Motivo</th><th style={th()}>Setor</th><th style={th()}>Jornada</th>
+                  <th style={th()}>Colaborador</th><th style={th()}>Dia</th><th style={th()}>Motivo</th><th style={th()}>Setor</th><th style={th()}>Jornada</th><th style={th()} data-no-print="true"></th>
                 </tr></thead>
                 <tbody>
                   {pendentesF.map((p, i) => {
@@ -2020,7 +2153,22 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
                         {explica && <div data-testid="pendente-explica" style={{ fontSize: 11, color: C.gray, marginTop: 4, maxWidth: 320, lineHeight: 1.4 }}>{explica}</div>}
                       </td>
                       <td style={td()}>{p.setor || '—'}</td>
-                      <td style={td()}>{p.jornada?.entrada ?? '—'}–{p.jornada?.saida ?? '—'}{p.shift ? ` · ${p.shift}` : ''}</td>
+                      <td style={td()}>
+                        {p.jornada?.entrada ?? '—'}–{p.jornada?.saida ?? '—'}{p.shift ? ` · ${p.shift}` : ''}
+                        {/* #3841 · mostra os horários das pausas que o colaborador realmente fez no dia */}
+                        {p.pausas && p.pausas.length > 0
+                          ? <div style={{ fontSize: 11, color: C.gray, marginTop: 4 }} data-testid="sup-pendente-pausas">Pausas feitas: {p.pausas.map((x) => `${x.inicio}${x.fim ? `–${x.fim}` : '–?'}${x.min != null ? ` (${x.min} min)` : ''}`).join(' · ')}</div>
+                          : <div style={{ fontSize: 11, color: C.gray, marginTop: 4 }} data-testid="sup-pendente-pausas">Pausas feitas: nenhuma registrada no dia</div>}
+                      </td>
+                      <td style={td()} data-no-print="true">
+                        <button
+                          data-testid={`sup-tratar-${p.cpf}-${p.data}`}
+                          title="Ver os horários deste dia e tratar na Conferência (fechar a pausa ou ajustar o registro)"
+                          onClick={() => setTratarDia({ cpf: p.cpf, data: p.data, nome: p.nome })}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: `1px solid ${C.gold}55`, background: '#fff', color: C.espresso, borderRadius: 7, padding: '5px 10px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                          <ClipboardCheck size={13} style={{ color: C.gold }} /> Tratar
+                        </button>
+                      </td>
                     </tr>
                     )
                   })}
@@ -2031,6 +2179,9 @@ function AbaSupervisao({ companyId }: { companyId: string }) {
           )}
         </>
       )}
+      {tratarDia && <EditorMarcasDia companyId={companyId} cpf={tratarDia.cpf} data={tratarDia.data} colaborador={tratarDia.nome}
+        onFechar={() => setTratarDia(null)}
+        onSalvo={async () => { setTratarDia(null); await carregar() }} />}
     </div>
   )
 }

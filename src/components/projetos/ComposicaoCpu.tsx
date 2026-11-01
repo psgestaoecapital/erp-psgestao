@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Package, HardHat, Wrench, ChevronDown, ChevronRight, Loader2, Info } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
 type Tipo = "material" | "mao_obra" | "equipamento";
 interface CpuItem {
@@ -83,10 +84,12 @@ export function ComposicaoCpu({
   servicoId,
   companyId,
   reloadKey = 0,
+  rotaAjuda,
 }: {
   servicoId: string;
   companyId: string;
   reloadKey?: number;
+  rotaAjuda?: string;
 }) {
   const [data, setData] = useState<CpuResp | null>(null);
   const [loading, setLoading] = useState(true);
@@ -230,11 +233,11 @@ export function ComposicaoCpu({
           {/* Rodapé — custo direto por categoria + preço de venda */}
           <div className="mt-4 grid grid-cols-1 gap-4 border-t border-[#3D2314]/8 pt-4 md:grid-cols-2">
             <div className="space-y-1.5 text-sm">
-              <Rodape label="Custo material" valor={data.header.custo_material} />
-              <Rodape label="Custo mão de obra" valor={data.header.custo_mao_obra} />
-              <Rodape label="Custo equipamento" valor={data.header.custo_equipamento} />
+              <Rodape label="Custo material" valor={data.header.custo_material} chave="projetos.catalogo.cpu.custo_material" rota={rotaAjuda} />
+              <Rodape label="Custo mão de obra" valor={data.header.custo_mao_obra} chave="projetos.catalogo.cpu.custo_mao_obra" rota={rotaAjuda} />
+              <Rodape label="Custo equipamento" valor={data.header.custo_equipamento} chave="projetos.catalogo.cpu.custo_equipamento" rota={rotaAjuda} />
               <div className="flex items-center justify-between border-t border-[#3D2314]/8 pt-1.5">
-                <span className="text-sm font-medium text-[#3D2314]">Custo total (direto)</span>
+                <span className="inline-flex items-center gap-1 text-sm font-medium text-[#3D2314]">Custo total (direto) <AjudaCampo chave="projetos.catalogo.cpu.custo_total" rota={rotaAjuda} /></span>
                 <span className="font-mono text-base font-medium text-[#3D2314]">{brl(data.header.custo_total)}</span>
               </div>
             </div>
@@ -250,15 +253,15 @@ export function ComposicaoCpu({
               ) : (
                 <>
                   <div className="flex items-center justify-between text-sm text-[#3D2314]/70">
-                    <span>BDI (markup s/ custo)</span>
+                    <span className="inline-flex items-center gap-1">BDI (markup s/ custo) <AjudaCampo chave="projetos.catalogo.cpu.bdi" rota={rotaAjuda} /></span>
                     <span className="font-mono">{pct(data.header.bdi_pct)}</span>
                   </div>
                   <div className="mt-1 flex items-center justify-between text-sm text-[#3D2314]/70">
-                    <span>Margem</span>
+                    <span className="inline-flex items-center gap-1">Margem <AjudaCampo chave="projetos.catalogo.cpu.margem" rota={rotaAjuda} /></span>
                     <span className="font-mono">{brl(data.header.margem_rs)} · {pct(data.header.margem_pct)}</span>
                   </div>
                   <div className="mt-2 flex items-baseline justify-between border-t border-[#C8941A]/20 pt-2">
-                    <span className="text-sm font-medium text-[#3D2314]">Preço de venda</span>
+                    <span className="inline-flex items-center gap-1 text-sm font-medium text-[#3D2314]">Preço de venda <AjudaCampo chave="projetos.catalogo.cpu.preco_venda" rota={rotaAjuda} /></span>
                     <span
                       className="font-mono text-2xl font-medium text-[#3D2314]"
                       style={{ fontFamily: "var(--ps-font-body)", fontStyle: "normal" }}
@@ -283,10 +286,10 @@ export function ComposicaoCpu({
   );
 }
 
-function Rodape({ label, valor }: { label: string; valor: number }) {
+function Rodape({ label, valor, chave, rota }: { label: string; valor: number; chave?: string; rota?: string }) {
   return (
     <div className="flex items-center justify-between text-[#3D2314]/75">
-      <span>{label}</span>
+      <span className="inline-flex items-center gap-1">{label}{chave ? <AjudaCampo chave={chave} rota={rota} /> : null}</span>
       <span className="font-mono">{brl(valor)}</span>
     </div>
   );

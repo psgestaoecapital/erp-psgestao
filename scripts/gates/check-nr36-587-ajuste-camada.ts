@@ -24,8 +24,10 @@ const aj: AjusteDia = { originais: ['07:30', '09:10', '09:31', '13:42', '14:00']
   ajustes: [{ hora: '07:10', papel: 'saida', origem: 'catraca', por: 'segurancadotrabalho', em: '2026-10-02T17:53:31Z' }] }
 const ajustada = linhaPausaDoc({ de: '07:10', ate: '07:30', min: 20 }, aj)
 ok(ajustada.texto === '07:10 → 07:30', 'pausa ajustada: 07:10 → 07:30')
-ok(ajustada.notas.some(n => n === 'saída 07:10 ajustada · catraca · por segurancadotrabalho em 02/10'), 'nota: saída ajustada · catraca · por quem em dd/mm')
-ok(ajustada.notas.some(n => n === 'original do relógio: 07:30'), 'nota: o original do relógio aparece junto')
+// #5712/#5686 (Frioeste/NR-36 · Karol): no relatório de ciência a pausa ajustada mostra SÓ que houve ajuste na
+// conferência — sem o dia/hora do ajuste, sem quem fez e sem o horário original do relógio (isso fica na Auditoria).
+ok(ajustada.notas.some(n => n === 'horário ajustado na conferência'), 'nota: só diz que houve ajuste na conferência')
+ok(!ajustada.notas.some(n => /catraca|segurancadotrabalho|original do relógio|07:30|07:10/.test(n)), 'nota NÃO expõe horário descartado/original, origem nem autor no relatório de ciência')
 ok(rotuloAjuste({ hora: '08:00', papel: 'retorno', origem: 'conferido_colaborador' }) === 'ajustada · conferido com o colaborador', 'origem "conferido com o colaborador"')
 ok((notaDiaDoc(aj) || '').startsWith('Batidas originais do relógio: 07:30, 09:10, 09:31, 13:42, 14:00'), 'o dia ajustado lista as batidas originais')
 

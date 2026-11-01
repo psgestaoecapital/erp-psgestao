@@ -17,7 +17,8 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { modeloPara, registrarFalhaIA } from "../_shared/aiModel.ts";
+import { modeloPara, registrarFalhaIA, iaBudgetStatus } from "../_shared/aiModel.ts";
+import { capturaFresca, ESPERA_CAPTURA_MS, INTERVALO_CAPTURA_MS } from "../_shared/capturaFresca.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -53,10 +54,21 @@ Deno.serve(async (req: Request) => {
 
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
+  // P0 CUSTO (CEO 01/11): porteiro do bloqueio global (sub-teto Gold incluso) ANTES de capturar a tela
+  // e chamar a IA. Fail-closed → 503 sem gastar; o auditor não roda com o orçamento pausado.
+  {
+    const _b = await iaBudgetStatus({ gold: true });
+    if (_b.bloqueado) return new Response(JSON.stringify({ error: _b.motivo, ia_bloqueada: true }), { status: 503, headers: { "Content-Type": "application/json" } });
+  }
+
   let body: any = {};
+  const inicioPedidoMs = Date.now();
   try { body = await req.json(); } catch { body = {}; }
 
   const rotaEspecifica = body.rota || null;
+  // 23/10 (msg 6fd7cc9d): rota pedida = espera a captura da MESMA rodada (o disparo fotografa em paralelo).
+  // Sem foto nova no prazo, não julga a foto velha (falso-negativo) nem gasta chamada à IA.
+  const aceitarCapturaAntiga = body.aceitar_captura_antiga === true;
   const limit = body.limit || 3;
   const modo = body.modo || "baseline"; // baseline = so nao analisadas
   // cf980ce1 (item 4) — empresa fotografada: usada p/ montar o bloco "DADOS REAIS" (nº produtos,
@@ -99,7 +111,29 @@ Deno.serve(async (req: Request) => {
       .limit(limit);
   }
 
-  const { data: screens, error: screensError } = await queryBuilder;
+  let { data: screens, error: screensError } = await queryBuilder;
+  if (rotaEspecifica && !aceitarCapturaAntiga && !screensError) {
+    const fresca = (s: any) => capturaFresca(s?.screenshot_atualizado_em, inicioPedidoMs);
+    while (!(screens || []).some(fresca) && Date.now() - inicioPedidoMs < ESPERA_CAPTURA_MS) {
+      await new Promise((r) => setTimeout(r, INTERVALO_CAPTURA_MS));
+      ({ data: screens, error: screensError } = await supabase
+        .from("system_screens")
+        .select("id, rota, area, titulo, screenshot_url, screenshot_atualizado_em")
+        .eq("rota", rotaEspecifica)
+        .not("screenshot_url", "is", null));
+      if (screensError) break;
+    }
+    if (!screensError && !(screens || []).some(fresca)) {
+      return new Response(
+        JSON.stringify({
+          message: "Sem captura nova da rota nesta rodada — foto antiga não é julgada (evita falso-negativo)",
+          rota: rotaEspecifica, count: 0, sem_captura_nova: true,
+        }),
+        { headers: { "Content-Type": "application/json" } }
+      );
+    }
+    screens = (screens || []).filter(fresca);
+  }
   if (screensError) {
     return new Response(JSON.stringify({ error: screensError.message }), {
       status: 500,

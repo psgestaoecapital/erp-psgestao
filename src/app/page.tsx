@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
+import { mensagemErroLogin } from "@/lib/erroLogin";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -34,8 +35,10 @@ export default function LoginPage() {
     }
 
     if (mode === "login") {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) { setError("E-mail ou senha incorretos"); setLoading(false); return; }
+      // Falha de rede não é senha errada (auditor 24/10): cada causa tem a sua frase.
+      let error: unknown = null;
+      try { ({ error } = await supabase.auth.signInWithPassword({ email, password })); } catch (e) { error = e; }
+      if (error) { setError(mensagemErroLogin(error)); setLoading(false); return; }
     } else {
       const { error } = await supabase.auth.signUp({ email, password });
       if (error) { setError(error.message); setLoading(false); return; }
@@ -48,6 +51,11 @@ export default function LoginPage() {
       const { data: up } = await supabase.from("users").select("role").eq("id", user.id).single();
       if (up?.role === "operador_bpo") dest = "/dashboard/bpo/inbox";
     }
+    // Volta para a página de origem (sessão expirada), só rota interna.
+    try {
+      const rt = new URLSearchParams(window.location.search).get("returnTo");
+      if (rt && rt.startsWith("/") && !rt.startsWith("//") && !rt.startsWith("/\\")) dest = rt;
+    } catch { /* mantém dest */ }
     router.push(dest);
   };
 
@@ -134,7 +142,7 @@ export default function LoginPage() {
               {mode !== "login" && mode !== "reset" && <div style={{ marginBottom: 12 }} />}
 
               {error && (
-                <div style={{ background: "#EF444420", border: "1px solid #EF444440", borderRadius: 8,
+                <div role="alert" data-testid="login-erro" style={{ background: "#EF444420", border: "1px solid #EF444440", borderRadius: 8,
                   padding: "8px 12px", marginBottom: 16, fontSize: 12, color: "#EF4444" }}>
                   {error}
                 </div>

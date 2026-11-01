@@ -13,7 +13,7 @@ import { aliquotaIbptEmpresa } from '@/lib/fiscal/ibptEmpresa'
 import { SELECT_CONFIG_EMISSOR, dadosEmissorDaConfig } from '@/lib/fiscal/emissorConfig'
 import { dataBrasil } from '@/lib/fiscal/dataBrasil'
 import { CAMPOS_CADASTRO_TOMADOR, enderecoFiscalDoCliente, escolherCadastroTomador, filtroCadastroTomador, nomeCadastro, type CadastroTomador } from '@/lib/fiscal/tomadorEndereco'
-import { aplicarRetencoesNota, calcularRetencoesFederais, issRetidoNfse, lerRetencoesNota, reformaIbsCbsDoServico, retencoesNotaDoCadastro, retencoesNotaIguais, travaEmissaoNfse, validarIbsCbsObrigatorio, type RetencoesFederaisNfse, type RetencoesNota, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
+import { aplicarRetencoesNota, calcularRetencoesFederais, issRetidoNfse, lerRetencoesNota, reformaIbsCbsDoServico, retencoesNotaDoCadastro, retencoesNotaIguais, totaisLiquidosNfse, travaEmissaoNfse, validarIbsCbsObrigatorio, type RetencoesFederaisNfse, type RetencoesNota, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -921,6 +921,13 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       }
     }
 
+    // Competência da nota (a mesma data_competencia enviada ao provedor, dia de Brasília): fn_registrar_nfse_emitida
+    // não a grava — a NFS-e 603 da Pdois (08/10) ficou com data_competencia vazia. Só preenche se estiver vazia.
+    if (registroId) {
+      await supabaseAdmin.from('erp_nfse_emitidas').update({ data_competencia: dataBrasil() })
+        .eq('id', registroId).is('data_competencia', null)
+    }
+
     // IBPT por empresa · grava a fonte dos tributos aproximados que foi na nota
     if (registroId && ibptFonte) {
       await supabaseAdmin.from('erp_nfse_emitidas').update({ ibpt_fonte: ibptFonte }).eq('id', registroId)
@@ -957,6 +964,12 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     )
     if (registroId && issRetido > 0 && resposta.status !== 'rejeitada') {
       await supabaseAdmin.from('erp_nfse_emitidas').update({ valor_iss_retido: issRetido }).eq('id', registroId)
+    }
+
+    // #3862 · total retido e líquido na nota (antes ficavam 0/NULL mesmo com INSS e ISS gravados)
+    if (registroId && resposta.status !== 'rejeitada' && (issRetido > 0 || (retencoesCalculadas?.totalRetido ?? 0) > 0)) {
+      const t = totaisLiquidosNfse(Number(nfseReq.valorServicos), retencoesCalculadas, issRetido)
+      await supabaseAdmin.from('erp_nfse_emitidas').update({ valor_retencoes: t.valorRetencoes, valor_liquido: t.valorLiquido }).eq('id', registroId)
     }
 
     // #82① · liga a nota emitida à obra (para rastreio e para a próxima nota já achar a obra)

@@ -44,6 +44,7 @@ test.describe('Caminho — Clonar Produto', () => {
     await page.getByPlaceholder('Buscar por nome, codigo ou NCM...').fill(COD)
     await expect.poll(async () => page.getByTestId('produto-clonar').count(), { timeout: 10000 }).toBeGreaterThan(0)
     await page.getByTestId('produto-clonar').first().click()
+    await page.getByTestId('confirmar-clonar-ok').click()
 
     // 3) form pré-preenchido: nome com "(cópia)" e código VAZIO (precisa informar um novo)
     await expect(page.getByTestId('produto-clone-aviso')).toBeVisible()

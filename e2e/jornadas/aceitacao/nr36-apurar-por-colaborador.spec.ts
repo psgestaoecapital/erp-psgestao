@@ -5,7 +5,7 @@
 // removido no fim (régua e elegibilidade voltam ao que eram).
 
 import { test, expect } from '../../support/fixtures'
-import { dbSelect, dbInsert, dbDelete, obterSessionPayload, registrarJornada } from '../../support/api'
+import { dbSelect, dbInsert, dbDelete, dbPatch, obterSessionPayload, registrarJornada } from '../../support/api'
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
@@ -47,12 +47,16 @@ test.describe('Apuração por colaborador — reapurar um não reapura os outros
     for (const c of colabs) {
       await comoRobo('fn_nr36_elegivel_set', { p_company_id: DEMO_SST, p_colaborador_id: c.id, p_tipo: 'termica_253', p_ativo: true })
       // resto de execução cancelada/estourada no mesmo dia-do-ciclo (só demo, já conferida acima) não pode travar a main
-      for (const t of ['nr36_pausa_apurada', 'ind_ponto_pausa', 'ind_ponto_dia'])
+      // ind_ponto_dia não aceita DELETE físico (RD-30, trg_bloqueia_delete_fisico): o dia de teste é gravado por upsert
+      for (const t of ['nr36_pausa_apurada', 'ind_ponto_pausa'])
         await dbDelete(t, `company_id=eq.${DEMO_SST}&cpf=eq.${c.cpf}&data=eq.${DIA}`).catch(() => {})
-      await dbInsert('ind_ponto_dia', {
+      const diaRow = {
         company_id: DEMO_SST, cpf: c.cpf, data: DIA, shift: '04:00-09:00 10:10-13:50', worked_seconds: 31200, total_pontos: 4, tem_ajuste: false,
         raw: { points: ['04:00', '09:00', '10:10', '13:47'].map(h => ({ datetime: `${DIA}T${h}:00` })), origem: 'e2e-apurar-cpf' },
-      })
+      }
+      const jaExiste = await dbSelect<{ id: string }>('ind_ponto_dia', `company_id=eq.${DEMO_SST}&cpf=eq.${c.cpf}&data=eq.${DIA}&select=id`)
+      if (jaExiste.length > 0) await dbPatch('ind_ponto_dia', `id=eq.${jaExiste[0].id}`, diaRow)
+      else await dbInsert('ind_ponto_dia', diaRow)
     }
   })
 
@@ -64,7 +68,6 @@ test.describe('Apuração por colaborador — reapurar um não reapura os outros
     for (const c of colabs) {
       await dbDelete('nr36_pausa_apurada', `company_id=eq.${DEMO_SST}&cpf=eq.${c.cpf}&data=eq.${DIA}`).catch(() => {})
       await dbDelete('ind_ponto_pausa', `company_id=eq.${DEMO_SST}&cpf=eq.${c.cpf}&data=eq.${DIA}`).catch(() => {})
-      await dbDelete('ind_ponto_dia', `company_id=eq.${DEMO_SST}&cpf=eq.${c.cpf}&data=eq.${DIA}`).catch(() => {})
       if (!c.eraElegivel) await comoRobo('fn_nr36_elegivel_set', { p_company_id: DEMO_SST, p_colaborador_id: c.id, p_tipo: 'termica_253', p_ativo: false }).catch(() => {})
     }
     if (uploadId) await dbDelete('nr36_upload', `id=eq.${uploadId}`).catch(() => {})

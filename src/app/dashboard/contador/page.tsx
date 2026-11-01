@@ -280,7 +280,7 @@ function ContadorPageInner(){
       {/* HEADER */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
         <div>
-          <div style={{fontSize:22,fontWeight:700,color:TX}}>📒 Módulo Contador</div>
+          <h1 style={{margin:0,fontSize:22,fontWeight:700,color:TX}}>Módulo Contador</h1>
           <div style={{fontSize:11,color:TXD}}>Portal contábil completo — DRE, Balancete, Razão, Impostos, SPED ECD, Reforma Tributária</div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>

@@ -1,19 +1,23 @@
 name: Gates do build
 
 # CEO 07/10 (custo da Vercel): os ~94 gates de scripts/gates/ saíram do build da Vercel (vercel.json › buildCommand =
-# "next build") e rodam AQUI, de graça (repositório público), em toda PR e na main. Mesmo efeito de antes: um gate
-# vermelho deixa a PR vermelha (check "gates" — marcar como obrigatório na proteção da main). Os gates são checagens
-# estáticas (leem arquivos do repo, sem rede, banco ou variável de ambiente da Vercel): não precisam de segredo.
+# "next build") e rodam AQUI, de graça (repositório público). Os gates são checagens estáticas (leem arquivos do repo,
+# sem rede, banco ou variável de ambiente da Vercel): não precisam de segredo.
+# CEO 22/10 (capacidade do Actions): a suíte 'gates' virou INFORMATIVA (não bloqueia o merge — nem na fila nem na
+# proteção). Rodá-la em TODA atualização de PR (com dezenas de PRs na fila) saturava os runners e travava a própria
+# esteira. Agora roda SÓ na main (rede de segurança pós-merge: a aceitação da main cobre o veredito) e sob demanda
+# (workflow_dispatch). NÃO roda mais em pull_request.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
   workflow_dispatch:
 
 concurrency:
-  group: gates-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # CEO 12/10: nada de cancelar gates por concorrência. Grupo por PR + SHA do head: eventos duplicados do mesmo commit
+  # entram em fila (queue: max) e commits diferentes não se cancelam; o check do head vigente sempre completa.
+  group: gates-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: read
@@ -24,10 +28,15 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # RD-97: o gate check-migration-segura compara com origin/main
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: 'npm'
       - run: npm ci
       - name: Gates (scripts/gates/, todos — o mesmo que rodava dentro do build da Vercel)
+        env:
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: npm run gates
