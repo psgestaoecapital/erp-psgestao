@@ -399,10 +399,13 @@ export default function LeadsPage() {
   // Excluir lead = soft-delete (RD-54/55: não some do banco). Gate no servidor
   // (responsável/criador/admin) — mensagem clara se não puder.
   async function excluirLead(l: Lead) {
-    if (typeof window !== 'undefined' && !window.confirm(`Excluir o lead "${l.empresa || l.nome}"?\nEle sai do Kanban (pode ser recuperado depois).`)) return
+    if (typeof window === 'undefined') return
+    // RD-98 p4: a exclusão fica rastreável (quem/quando/motivo + audit_log). O motivo é opcional, mas registrado.
+    const motivo = window.prompt(`Excluir o lead "${l.empresa || l.nome}"?\nEle sai do Kanban (pode ser recuperado depois).\n\nMotivo da exclusão (opcional, fica registrado na auditoria):`, '')
+    if (motivo === null) return
     setBusy(true)
     try {
-      const { data, error } = await supabase.rpc('fn_crm_lead_excluir', { p_lead_id: l.id })
+      const { data, error } = await supabase.rpc('fn_crm_lead_excluir', { p_lead_id: l.id, p_motivo: motivo.trim() || null })
       const r = data as { ok?: boolean; erro?: string; orientacao?: string } | null
       if (error || !r?.ok) {
         setToast(r?.orientacao ?? (r?.erro === 'sem_permissao'
@@ -473,10 +476,13 @@ export default function LeadsPage() {
             </select>
             <AjudaCampo chave="pm.leads.filtro_periodo" />
           </span>
-          {fPeriodo === 'custom' && (<>
-            <input type="date" value={pIni} onChange={(e) => setPIni(e.target.value)} style={inp} aria-label="Início do período" />
-            <input type="date" value={pFim} onChange={(e) => setPFim(e.target.value)} style={inp} aria-label="Fim do período" />
-          </>)}
+          {fPeriodo === 'custom' && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+              <input type="date" value={pIni} onChange={(e) => setPIni(e.target.value)} style={inp} aria-label="Início do período" />
+              <input type="date" value={pFim} onChange={(e) => setPFim(e.target.value)} style={inp} aria-label="Fim do período" />
+              <AjudaCampo chave="pm.leads.filtro_periodo_custom" />
+            </span>
+          )}
         </div>
 
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM }}>Carregando…</div>
