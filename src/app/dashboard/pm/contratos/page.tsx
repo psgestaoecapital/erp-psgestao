@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { mensagemDeResultado, estiloBordaInput } from '@/components/ui/feedback/contratoSalvar'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
 const BORDA = '#E7DED3'; const TEXTM = '#6b5444'; const GREEN = '#1F5A1F'; const RED = '#7A1F1F'; const AMBER = '#8A5A08'
@@ -40,6 +41,7 @@ type RealItem = {
   criados: number; entregues: number; saldo: number | null; situacao: string
 }
 type RealState = { loading: boolean; itens: RealItem[]; jobs_sem_servico: { tipo: string; qtd: number }[]; ref: string; erro?: string }
+type Esteira = { briefings: number; planId: string | null; jobsMes: number }
 
 export default function ContratosPage() {
   const { selInfo, companyIds } = useCompanyIds()
@@ -51,6 +53,8 @@ export default function ContratosPage() {
   const [loading, setLoading] = useState(true); const [toast, setToast] = useState<string | null>(null)
   const [editEscopo, setEditEscopo] = useState<Contrato | null>(null)
   const [vincular, setVincular] = useState<Contrato | null>(null)
+  const [esteira, setEsteira] = useState<Record<string, Esteira>>({})
+  const [planejando, setPlanejando] = useState<string | null>(null)
 
   const carregar = async () => {
     if (!empresa) { setLoading(false); return }
@@ -60,10 +64,40 @@ export default function ContratosPage() {
       supabase.from('agency_servico').select('id, nome, unidade, periodicidade').eq('company_id', empresa).eq('ativo', true).order('ordem'),
       supabase.from('erp_contratos').select('id, numero, cliente_nome, valor_atual').eq('company_id', empresa).order('data_inicio', { ascending: false }),
     ])
-    setContratos((c.data ?? []) as Contrato[])
+    const lista = (c.data ?? []) as Contrato[]
+    setContratos(lista)
     setServicos((sv.data ?? []) as Servico[])
     setGeContratos((ge.data ?? []) as GeContrato[])
     setExpand({}); setLoading(false)
+    void carregarEsteira(lista.map((x) => x.contrato_id))
+  }
+
+  // Esteira do fee (CEO 28/10, V30 §00-F): Briefing → Planejamento do mês → Jobs.
+  async function carregarEsteira(ids: string[]) {
+    if (!empresa || ids.length === 0) { setEsteira({}); return }
+    const mes = ymNow(); const [y, mo] = mes.split('-').map(Number); const prox = new Date(y, mo, 1).toISOString().slice(0, 10)
+    const [br, pl, jb] = await Promise.all([
+      supabase.from('agency_briefings').select('fee_id').eq('company_id', empresa).in('fee_id', ids),
+      supabase.from('agency_planejamentos').select('id, fee_id').eq('company_id', empresa).in('fee_id', ids).eq('mes', mes).is('excluido_em', null),
+      supabase.from('agency_jobs').select('contrato_id').eq('company_id', empresa).in('contrato_id', ids).gte('created_at', mes).lt('created_at', prox).is('excluido_em', null),
+    ])
+    const e: Record<string, Esteira> = Object.fromEntries(ids.map((id) => [id, { briefings: 0, planId: null, jobsMes: 0 }]))
+    for (const r of (br.data ?? []) as { fee_id: string }[]) if (e[r.fee_id]) e[r.fee_id].briefings++
+    for (const r of (pl.data ?? []) as { id: string; fee_id: string }[]) if (e[r.fee_id]) e[r.fee_id].planId = r.id
+    for (const r of (jb.data ?? []) as { contrato_id: string }[]) if (e[r.contrato_id]) e[r.contrato_id].jobsMes++
+    setEsteira(e)
+  }
+
+  async function planejarMes(c: Contrato) {
+    setPlanejando(c.contrato_id)
+    const { data, error } = await supabase.rpc('fn_pm_planejamento_do_fee', { p_fee_id: c.contrato_id, p_mes: ymNow() })
+    setPlanejando(null)
+    const r = data as { ok?: boolean; erro?: string; planejamento_id?: string; itens?: number; ja_existia?: boolean } | null
+    if (error || !r?.ok || !r.planejamento_id) {
+      const motivo: Record<string, string> = { fee_sem_cliente: 'o fee não tem cliente da Gestão Empresarial', fee_nao_ativo: 'o fee não está ativo', planejamento_de_outro_fee: 'já existe um planejamento deste cliente no mês ligado a outro fee' }
+      setToast(`Não deu para planejar: ${motivo[r?.erro ?? ''] ?? error?.message ?? r?.erro ?? 'erro'}.`); return
+    }
+    window.location.href = `/dashboard/pm/planejamento?p=${r.planejamento_id}`
   }
   useEffect(() => { void carregar() }, [empresa]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3500); return () => clearTimeout(t) }, [toast])
@@ -104,9 +138,9 @@ export default function ContratosPage() {
     <div style={{ background: OFFWHITE, minHeight: '100vh', padding: '24px 18px', color: ESPRESSO }}>
       <div style={{ maxWidth: 1050, margin: '0 auto' }}>
         <header style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: DOURADO, fontWeight: 700 }}>💰 P&amp;M · Contratos</div>
-          <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Contratos</h1>
-          <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>O contrato oficial vive na Gestão Empresarial. Aqui você amarra o escopo à produção: contratado × realizado por serviço e por mês.</p>
+          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: DOURADO, fontWeight: 700 }}>💰 P&amp;M · Fees</div>
+          <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Fees</h1>
+          <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>Cada contrato ativo na Gestão Empresarial vira um fee: o resumo do que foi contratado. A produção de cada fee segue <b>Briefing → Planejamento do mês → Jobs</b>, e aqui você vê o contratado × realizado por serviço.</p>
           {/* #59 PDOIS parte 2: atalho para solicitar/elaborar contratos de fee (fluxo na GE) */}
           <a href="/dashboard/contratos?tab=fee" style={{ display: 'inline-block', marginTop: 10, background: DOURADO, color: '#fff', fontSize: 12, fontWeight: 700, textDecoration: 'none', padding: '8px 14px', borderRadius: 8 }}>
             🧾 Solicitar / elaborar contrato de fee →
@@ -120,7 +154,17 @@ export default function ContratosPage() {
         </div>
 
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM }}>Carregando…</div>
-          : contratos.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM, background: '#fff', border: `1px dashed ${BORDA}`, borderRadius: 12 }}>Nenhum contrato de agência ainda.</div>
+          : contratos.length === 0 ? (
+            <div style={{ padding: '32px 24px', textAlign: 'center', color: TEXTM, background: '#fff', border: `1px dashed ${BORDA}`, borderRadius: 12 }} data-testid="contratos-vazio">
+              <div style={{ fontSize: 15, fontWeight: 700, color: ESPRESSO, marginBottom: 6 }}>Nenhum contrato de agência ainda</div>
+              <p style={{ fontSize: 13, maxWidth: 520, margin: '0 auto 14px', lineHeight: 1.5 }}>
+                O contrato de fee nasce na <b>Gestão Empresarial</b>. Depois de criado, ele aparece aqui para você amarrar o <b>escopo à produção</b> — é a raiz da cadeia <b>contrato → job → fee</b>, que alimenta o MRR e a margem por job.
+              </p>
+              <a href="/dashboard/contratos?tab=fee" style={{ display: 'inline-block', background: DOURADO, color: '#fff', fontSize: 12.5, fontWeight: 700, textDecoration: 'none', padding: '9px 16px', borderRadius: 8 }}>
+                🧾 Criar o primeiro contrato de fee →
+              </a>
+            </div>
+          )
           : (
             <div style={{ display: 'grid', gap: 8 }}>
               {contratos.map((c) => {
@@ -151,6 +195,32 @@ export default function ContratosPage() {
                         : c.status === 'suspenso' ? <button onClick={() => mudarStatus(c, 'ativo')} style={btnOk}>Reativar</button>
                         : c.status === 'rascunho' ? <button onClick={() => mudarStatus(c, 'ativo')} style={btnOk}>Ativar</button> : null}
                     </div>
+
+                    {c.status === 'ativo' && (() => {
+                      const es = esteira[c.contrato_id] ?? { briefings: 0, planId: null, jobsMes: 0 }
+                      const passo: CSSProperties = { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '6px 10px', borderRadius: 10, border: `1px solid ${BORDA}`, background: OFFWHITE }
+                      const feito = (v: boolean) => <span style={{ fontWeight: 700, color: v ? GREEN : TEXTM }}>{v ? '✓' : '○'}</span>
+                      return (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10, alignItems: 'center' }} data-testid="fee-esteira">
+                          <div style={passo}>
+                            {feito(es.briefings > 0)} <b>1 · Briefing</b><AjudaCampo chave="pm.fee.briefing" />
+                            <a href={`/dashboard/pm/briefings?fee=${c.contrato_id}`} style={{ color: DOURADO, fontWeight: 700, textDecoration: 'none', marginLeft: 4 }} data-testid="fee-fazer-briefing">{es.briefings > 0 ? `ver (${es.briefings})` : 'Fazer briefing →'}</a>
+                          </div>
+                          <span style={{ color: TEXTM }}>→</span>
+                          <div style={passo}>
+                            {feito(!!es.planId)} <b>2 · Planejamento de {rotuloMes(ymNow())}</b><AjudaCampo chave="pm.fee.planejamento" />
+                            {es.planId
+                              ? <a href={`/dashboard/pm/planejamento?p=${es.planId}`} style={{ color: DOURADO, fontWeight: 700, textDecoration: 'none', marginLeft: 4 }} data-testid="fee-abrir-planejamento">abrir →</a>
+                              : <button disabled={planejando === c.contrato_id} onClick={() => void planejarMes(c)} style={{ ...btnOk, marginLeft: 4, padding: '3px 10px', fontSize: 11.5 }} data-testid="fee-planejar">{planejando === c.contrato_id ? 'Planejando…' : 'Planejar o mês'}</button>}
+                          </div>
+                          <span style={{ color: TEXTM }}>→</span>
+                          <div style={passo}>
+                            {feito(es.jobsMes > 0)} <b>3 · Jobs do mês</b><AjudaCampo chave="pm.fee.jobs" />
+                            <button onClick={() => toggle(c.contrato_id)} style={{ border: 'none', background: 'none', color: DOURADO, fontWeight: 700, cursor: 'pointer', fontSize: 12, marginLeft: 4 }} data-testid="fee-jobs-mes">{es.jobsMes} {es.jobsMes === 1 ? 'job' : 'jobs'} · ver contratado × realizado</button>
+                          </div>
+                        </div>
+                      )
+                    })()}
 
                     {exp && (
                       <div style={{ marginTop: 10, borderTop: `1px solid ${BORDA}`, paddingTop: 10 }}>
@@ -261,16 +331,26 @@ function EscopoModal({ contrato, servicos, onClose, onChanged, onToast }: { cont
         <div style={{ fontSize: 11, fontWeight: 700, color: TEXTM, marginBottom: 6 }}>Adicionar item</div>
         {erro && <div style={{ background: '#F9E4E4', color: RED, padding: '6px 10px', borderRadius: 7, fontSize: 12, marginBottom: 8 }}>{erro}</div>}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          <select value={novo.servico_id} onChange={(e) => pickServico(e.target.value)} style={{ ...inp, gridColumn: '1 / -1' }}>
-            <option value="">— serviço do catálogo (de-para) —</option>
-            {servicos.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
-          </select>
-          <input value={novo.tipo_servico} onChange={(e) => setNovo({ ...novo, tipo_servico: e.target.value })} placeholder="nome do item (do contrato) *" style={{ ...inp, gridColumn: '1 / -1', ...estiloBordaInput(campo === 'tipo_servico' ? 'x' : null) }} />
-          <input value={novo.quantidade_contratada} onChange={(e) => setNovo({ ...novo, quantidade_contratada: e.target.value })} placeholder="quantidade (vazio = sem limite)" inputMode="numeric" style={{ ...inp, ...estiloBordaInput(campo === 'quantidade_contratada' ? 'x' : null) }} />
-          <input value={novo.unidade} onChange={(e) => setNovo({ ...novo, unidade: e.target.value })} placeholder="unidade (post, vídeo…)" style={inp} />
-          <select value={novo.periodicidade} onChange={(e) => setNovo({ ...novo, periodicidade: e.target.value })} style={{ ...inp, gridColumn: '1 / -1' }}>
-            {PERIODICIDADES.map((p) => <option key={p} value={p}>{p}</option>)}
-          </select>
+          <label style={{ ...campoLbl, gridColumn: '1 / -1' }}>
+            <select value={novo.servico_id} onChange={(e) => pickServico(e.target.value)} style={{ ...inp, flex: 1 }}>
+              <option value="">— serviço do catálogo (de-para) —</option>
+              {servicos.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
+            </select><AjudaCampo chave="pm.contratos.escopo_servico_catalogo" />
+          </label>
+          <label style={{ ...campoLbl, gridColumn: '1 / -1' }}>
+            <input value={novo.tipo_servico} onChange={(e) => setNovo({ ...novo, tipo_servico: e.target.value })} placeholder="nome do item (do contrato) *" style={{ ...inp, flex: 1, ...estiloBordaInput(campo === 'tipo_servico' ? 'x' : null) }} /><AjudaCampo chave="pm.contratos.escopo_nome_item" />
+          </label>
+          <label style={campoLbl}>
+            <input value={novo.quantidade_contratada} onChange={(e) => setNovo({ ...novo, quantidade_contratada: e.target.value })} placeholder="quantidade (vazio = sem limite)" inputMode="numeric" style={{ ...inp, flex: 1, ...estiloBordaInput(campo === 'quantidade_contratada' ? 'x' : null) }} /><AjudaCampo chave="pm.contratos.escopo_quantidade" />
+          </label>
+          <label style={campoLbl}>
+            <input value={novo.unidade} onChange={(e) => setNovo({ ...novo, unidade: e.target.value })} placeholder="unidade (post, vídeo…)" style={{ ...inp, flex: 1 }} /><AjudaCampo chave="pm.contratos.escopo_unidade" />
+          </label>
+          <label style={{ ...campoLbl, gridColumn: '1 / -1' }}>
+            <select value={novo.periodicidade} onChange={(e) => setNovo({ ...novo, periodicidade: e.target.value })} style={{ ...inp, flex: 1 }}>
+              {PERIODICIDADES.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select><AjudaCampo chave="pm.contratos.escopo_periodicidade" />
+          </label>
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
           <button disabled={busy || !novo.tipo_servico.trim()} onClick={() => void salvar()} style={{ ...btnOk, background: busy || !novo.tipo_servico.trim() ? '#ccc' : DOURADO, color: '#fff', border: 'none', fontWeight: 700 }}>{busy ? 'Salvando…' : '+ Adicionar item'}</button>
@@ -301,10 +381,12 @@ function VincularModal({ contrato, geContratos, onClose, onDone, onToast }: { co
         <div style={{ fontSize: 12.5, color: AMBER, background: '#FFF6E5', borderRadius: 8, padding: '10px 12px' }}>Não há contrato da GE para esta empresa ainda. Crie o contrato na Gestão Empresarial primeiro — é ele que carrega o PDF e o faturamento.</div>
       ) : (
         <>
-          <select value={sel} onChange={(e) => setSel(e.target.value)} style={{ ...inp, width: '100%' }}>
-            <option value="">— contrato da GE —</option>
-            {geContratos.map((g) => <option key={g.id} value={g.id}>{g.numero ? `${g.numero} · ` : ''}{g.cliente_nome ?? '—'}{g.valor_atual ? ` · ${brl(g.valor_atual)}/mês` : ''}</option>)}
-          </select>
+          <label style={campoLbl}>
+            <select value={sel} onChange={(e) => setSel(e.target.value)} style={{ ...inp, flex: 1 }}>
+              <option value="">— contrato da GE —</option>
+              {geContratos.map((g) => <option key={g.id} value={g.id}>{g.numero ? `${g.numero} · ` : ''}{g.cliente_nome ?? '—'}{g.valor_atual ? ` · ${brl(g.valor_atual)}/mês` : ''}</option>)}
+            </select><AjudaCampo chave="pm.contratos.vincular_contrato_ge" />
+          </label>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
             <button onClick={onClose} style={btnSec}>Cancelar</button>
             <button disabled={busy || !sel} onClick={() => void vincular()} style={{ ...btnOk, background: busy || !sel ? '#ccc' : DOURADO, color: '#fff', border: 'none' }}>{busy ? 'Vinculando…' : 'Vincular'}</button>
@@ -331,6 +413,7 @@ function Kpi({ l, v, cor }: { l: string; v: string; cor?: string }) {
     <div style={{ fontSize: 22, fontWeight: 700, color: cor ?? ESPRESSO, marginTop: 2 }}>{v}</div>
   </div>
 }
+const campoLbl: CSSProperties = { display: 'flex', alignItems: 'center', gap: 4 }
 const btnSec: CSSProperties = { border: `1px solid ${BORDA}`, color: ESPRESSO, background: '#fff', borderRadius: 8, padding: '6px 12px', fontSize: 12, cursor: 'pointer', minHeight: 40 }
 const btnOk: CSSProperties = { border: `1px solid ${GREEN}`, color: GREEN, background: '#fff', borderRadius: 8, padding: '6px 12px', fontSize: 12, cursor: 'pointer', fontWeight: 600, minHeight: 40 }
 const arrow: CSSProperties = { border: `1px solid ${BORDA}`, background: '#fff', color: ESPRESSO, borderRadius: 6, padding: '2px 8px', cursor: 'pointer', fontSize: 11 }

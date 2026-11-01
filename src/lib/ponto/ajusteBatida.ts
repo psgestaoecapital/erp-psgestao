@@ -42,12 +42,10 @@ export function linhaPausaDoc(p: PausaDoc, aj?: AjusteDia | null): LinhaDoc {
   }
   const de = p.de || '—'
   const as = ajusteDe(aj, p.de, 'saida'); const ar = ajusteDe(aj, p.ate, 'retorno')
-  if (as) notas.push(`saída ${p.de} ${rotuloAjuste(as)}`)
-  if (ar) notas.push(`retorno ${p.ate} ${rotuloAjuste(ar)}`)
-  if (aj && (as || ar)) {
-    const originais = [p.de, p.ate].filter((h): h is string => !!h && aj.originais.includes(h))
-    if (originais.length) notas.push(`original do relógio: ${originais.join(' e ')}`)
-  }
+  // #5712/#5686 (Frioeste/NR-36 · Karol): no relatório de ciência que o colaborador assina, a pausa ajustada
+  // mostra SÓ que houve ajuste na conferência — sem o dia/hora do ajuste, sem quem fez e sem o horário original
+  // do relógio. Esses detalhes continuam na Auditoria e no formulário de ajuste assinado que é anexado à parte.
+  if (as || ar) notas.push('horário ajustado na conferência')
   if (!p.ate) return { texto: `${de} → sem registro de retorno`, tom: 'alerta', sufixo: '', notas }
   switch (p.fim_origem) {
     case 'estimado': return { texto: `${de} → ~${p.ate}`, tom: 'estimado', sufixo: ' (estimado)', notas }
@@ -57,11 +55,13 @@ export function linhaPausaDoc(p: PausaDoc, aj?: AjusteDia | null): LinhaDoc {
   }
 }
 
-// Linha do dia no documento: as batidas originais do relógio e o que foi desconsiderado na releitura.
+// Linha do dia no documento: as batidas originais do relógio e, se houve horário desconsiderado na releitura, só o
+// aviso de que houve ajuste (chamado #5712: o horário ignorado não aparece no relatório; a lista fica no banco/auditoria).
 export function notaDiaDoc(aj?: AjusteDia | null): string | null {
   if (!aj || (!aj.ajustes.length && !aj.desconsideradas.length)) return null
-  const partes = [`Batidas originais do relógio: ${aj.originais.join(', ') || '—'}`]
-  if (aj.desconsideradas.length) partes.push(`desconsideradas na conferência: ${aj.desconsideradas.join(', ')}`)
+  const visiveis = aj.originais.filter(h => !aj.desconsideradas.includes(h))
+  const partes = [`Batidas originais do relógio: ${visiveis.join(', ') || '—'}`]
+  if (aj.desconsideradas.length) partes.push('ajuste realizado na conferência')
   return partes.join(' · ')
 }
 

@@ -24,8 +24,9 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write        # revert automático (esteira contínua): cria o ramo de revert quando ligado
   issues: write
+  pull-requests: write   # revert automático: abre a PR de revert
   actions: read
 
 jobs:
@@ -33,7 +34,7 @@ jobs:
   # novo — vale para a agenda e para o disparo pós-montagem (merges seguidos não enfileiram runs repetidos).
   # workflow_dispatch roda sempre.
   decide:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # Playwright 1.59 não suporta ubuntu-26.04 (latest)
     timeout-minutes: 3
     outputs:
       rodar: ${{ steps.d.outputs.rodar }}
@@ -63,7 +64,7 @@ jobs:
   aceitacao-main:
     needs: decide
     if: needs.decide.outputs.rodar == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # Playwright 1.59 não suporta ubuntu-26.04 (latest)
     # CEO 18/10: a aceitação da main roda SÓ na VAGA 1 (banco de referência), no grupo JÁ EXISTENTE da vaga 1
     # (aceitacao-testes-1) — a MESMA exclusão mútua do banco usada pelo montar/reconciliar da vaga 1 e por qualquer
     # aceitação de PR em transição nela. Como a vaga 1 sai do sorteio das PRs, esse grupo vira, na prática, só da main.
@@ -159,9 +160,14 @@ jobs:
           alvo=$(ls supabase/migrations/*.sql 2>/dev/null | wc -l | tr -d ' ')
           alvo_v=$(ls supabase/migrations/*.sql 2>/dev/null | sed -E 's#.*/([0-9]+)_.*#\1#' | sort | tail -1)
           antes=$(led "$TEST_DATABASE_URL")
+          # 24/10: organização FIXA das DEMOs (as migrations 0001…0009 gravam nela) — sem ela o db push parava na vaga 1
+          scripts/banco-testes/garantir-org-demo.sh
           if ! supabase db push --include-all --db-url "$TEST_DATABASE_URL"; then
             echo "::error::banco da vaga 1 não sincronizou (supabase db push falhou) — aceitação da main abortada para não gerar vermelho FALSO"; exit 1
           fi
+          # 19/10: dados fiscais das DEMOs espelho da produção (uf_fiscal 'SC', IE da GE) — o checkout aqui é a própria main
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/banco-testes/semente-fiscal-demo.sql \
+            || { echo "::error::semente fiscal das DEMOs falhou na vaga 1 — aceitação da main abortada"; exit 1; }
           depois=$(led "$TEST_DATABASE_URL")
           {
             echo "### Sincronização do banco da vaga 1 (referência) com a produção"
@@ -242,6 +248,18 @@ jobs:
           RESULTADO: ${{ steps.suite.outcome }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: scripts/merge/main-vermelha.sh
+      # Esteira contínua (CEO 22/10): no vermelho, a fila tenta RESTAURAR a main sozinha (revert automático) em vez de
+      # travar. OBSERVAÇÃO por padrão (só diz o que FARIA); liga com a variável de repo REVERT_AUTO_LIGADO=1 depois do OK
+      # do CEO. Travas (todas): 2 reds seguidos (não-flaky), 1 só PR culpada, sem migration. Ver reverter-automatico.sh.
+      - name: Revert automático (restaura a main no vermelho)
+        if: steps.ja.outputs.pular == 'false' && failure()
+        env:
+          GH_TOKEN: ${{ secrets.FILA_MERGE_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ steps.ja.outputs.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REVERT_AUTO: ${{ vars.REVERT_AUTO_LIGADO || '0' }}
+        run: scripts/merge/reverter-automatico.sh
       - name: Upload relatório (em caso de falha)
         if: steps.ja.outputs.pular == 'false' && (failure())
         uses: actions/upload-artifact@v4
