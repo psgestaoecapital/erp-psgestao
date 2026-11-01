@@ -9,9 +9,9 @@ import QRCode from 'qrcode'
 import { APP_URL as APP_BASE } from '@/lib/appUrl'
 import { BUNDLE_VERSION } from '@/lib/bundleVersion'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
-import { instaladoComoApp } from '@/lib/push/cliente'
+import { instaladoComoApp, ehIos } from '@/lib/push/cliente'
 import { supabase } from '@/lib/supabase'
-import { Download, Smartphone } from 'lucide-react'
+import { Download, Smartphone, CheckCircle2, Circle, ImageDown } from 'lucide-react'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -61,6 +61,7 @@ export default function InstalarApp({
   const [prompt, setPrompt] = useState<PromptInstalar | null>(null)
   const [instalado, setInstalado] = useState(false)
   const [instalacoes, setInstalacoes] = useState<{ total: number; meu: boolean } | null>(null)
+  const [iosDispositivo, setIosDispositivo] = useState(false)
 
   // URL canônica de produção (sem hash de preview) — o QR e o link levam pra cá.
   const APP_URL = `${APP_BASE}${destino.startsWith('/') ? destino : `/${destino}`}`
@@ -98,6 +99,8 @@ export default function InstalarApp({
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- só no navegador (o SSR não sabe se o app está instalado)
     if (instaladoComoApp()) { setInstalado(true); if (rastrear?.companyId) registrarInstalacao() }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- userAgent só existe no navegador
+    if (ehIos()) setIosDispositivo(true)
     const aoOferecer = (e: Event) => { e.preventDefault(); setPrompt(e as PromptInstalar) }
     const aoInstalar = () => { setInstalado(true); setPrompt(null); if (rastrear?.companyId) registrarInstalacao() }
     window.addEventListener('beforeinstallprompt', aoOferecer)
@@ -126,6 +129,17 @@ export default function InstalarApp({
 
   const copiar = async () => {
     try { await navigator.clipboard.writeText(APP_URL); setCopiado(true); setTimeout(() => setCopiado(false), 2000) } catch { /* noop */ }
+  }
+
+  // Baixa o QR como PNG para imprimir/colar no grupo. O QR é gerado do data-URL já pronto (sem rede).
+  const baixarQr = () => {
+    if (!qr) return
+    const a = document.createElement('a')
+    a.href = qr
+    a.download = 'ps-gestao-qrcode.png'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
   }
 
   const card: React.CSSProperties = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 16 }
@@ -158,20 +172,30 @@ export default function InstalarApp({
           </div>
         )}
 
+        {/* Status de instalação SEMPRE visível (o usuário sabe na hora se este aparelho já tem o app) */}
         {instalado ? (
-          <div className="text-sm rounded-xl p-3" style={{ background: '#EAF3DE', border: '1px solid #CBE0B0', color: '#3B5A1E' }}>
-            ✓ O app já está instalado neste aparelho. Para instalar em outro celular, use o QR ou o link abaixo.
+          <div className="text-sm rounded-xl p-3 flex items-start gap-2" style={{ background: '#EAF3DE', border: '1px solid #CBE0B0', color: '#3B5A1E' }} data-testid="instalar-app-status">
+            <CheckCircle2 size={18} strokeWidth={1.8} className="shrink-0 mt-0.5" />
+            <span>App instalado neste aparelho. Para instalar em outro celular, use o QR ou o link abaixo.</span>
           </div>
-        ) : prompt && (
-          <div className="flex items-center gap-2">
-            <button
-              onClick={instalar}
-              className="flex-1 px-4 py-3 rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-2"
-              style={{ background: ESP, color: '#fff' }}
-            >
-              <Download size={16} strokeWidth={1.5} /> Instalar agora neste aparelho
-            </button>
-            {ajuda && <AjudaCampo chave={ajuda.instalar} alinhar="fim" />}
+        ) : (
+          <div className="space-y-2" data-testid="instalar-app-status">
+            <div className="text-sm rounded-xl p-3 flex items-start gap-2" style={{ background: '#FFFBEF', border: `1px solid #F0E1B8`, color: '#7A5A0B' }}>
+              <Circle size={18} strokeWidth={1.8} className="shrink-0 mt-0.5" />
+              <span>Ainda <b>não instalado</b> neste aparelho. {prompt ? 'Toque em “Instalar agora” abaixo.' : `Siga os passos de ${iosDispositivo ? 'iPhone (Safari)' : 'Android (Chrome)'} abaixo.`}</span>
+            </div>
+            {prompt && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={instalar}
+                  className="flex-1 px-4 py-3 rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-2"
+                  style={{ background: ESP, color: '#fff' }}
+                >
+                  <Download size={16} strokeWidth={1.5} /> Instalar agora neste aparelho
+                </button>
+                {ajuda && <AjudaCampo chave={ajuda.instalar} alinhar="fim" />}
+              </div>
+            )}
           </div>
         )}
 
@@ -184,6 +208,15 @@ export default function InstalarApp({
             Aponte a câmera do celular{ajuda && <AjudaCampo chave={ajuda.qr} />}
           </div>
           <div className="text-xs mt-1" style={{ color: ESP60 }}>O celular abre o app; aí é só instalar (passos abaixo).</div>
+          {qr && (
+            <button
+              onClick={baixarQr}
+              className="mt-3 px-3 py-2 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5"
+              style={{ border: `1px solid ${LINE}`, color: ESP, background: 'transparent' }}
+            >
+              <ImageDown size={14} strokeWidth={1.6} /> Baixar QR (PNG) para imprimir
+            </button>
+          )}
         </section>
 
         {/* Ações rápidas */}
@@ -211,10 +244,14 @@ export default function InstalarApp({
           </div>
         </div>
 
-        {/* Instruções */}
+        {/* Instruções — a plataforma do aparelho atual fica destacada e aparece primeiro no celular */}
+        <div className="text-sm font-semibold -mb-1" style={{ color: ESP }}>Como instalar (passo a passo)</div>
         <div className="grid sm:grid-cols-2 gap-3">
-          <section style={card} className="p-4">
-            <div className="text-sm font-bold mb-2" style={{ color: ESP }}>🤖 Android (Chrome)</div>
+          <section style={{ ...card, ...(iosDispositivo ? {} : { borderColor: GOLD, boxShadow: `0 0 0 1px ${GOLD}` }) }} className={`p-4 ${iosDispositivo ? 'order-2' : 'order-1'}`}>
+            <div className="text-sm font-bold mb-2 flex items-center gap-2" style={{ color: ESP }}>
+              🤖 Android (Chrome)
+              {!iosDispositivo && <span className="text-[10px] font-semibold rounded-full px-2 py-0.5" style={{ background: '#FFF3D6', color: '#7A5A0B' }}>seu aparelho</span>}
+            </div>
             <ol className="text-sm space-y-1.5" style={{ color: ESP60 }}>
               <li>1. Abra o link no <b>Chrome</b>.</li>
               <li>2. Toque no menu <b>⋮</b> (3 pontinhos, canto superior).</li>
@@ -222,8 +259,11 @@ export default function InstalarApp({
               <li>4. Confirme. O ícone aparece na tela do celular.</li>
             </ol>
           </section>
-          <section style={card} className="p-4">
-            <div className="text-sm font-bold mb-2" style={{ color: ESP }}>🍎 iPhone (Safari)</div>
+          <section style={{ ...card, ...(iosDispositivo ? { borderColor: GOLD, boxShadow: `0 0 0 1px ${GOLD}` } : {}) }} className={`p-4 ${iosDispositivo ? 'order-1' : 'order-2'}`}>
+            <div className="text-sm font-bold mb-2 flex items-center gap-2" style={{ color: ESP }}>
+              🍎 iPhone (Safari)
+              {iosDispositivo && <span className="text-[10px] font-semibold rounded-full px-2 py-0.5" style={{ background: '#FFF3D6', color: '#7A5A0B' }}>seu aparelho</span>}
+            </div>
             <ol className="text-sm space-y-1.5" style={{ color: ESP60 }}>
               <li>1. Abra o link no <b>Safari</b>.</li>
               <li>2. Toque no botão <b>Compartilhar</b> (quadrado com seta ↑).</li>
@@ -234,6 +274,10 @@ export default function InstalarApp({
               No iPhone use o <b>Safari</b>. O Chrome no iPhone não instala o app corretamente.
             </div>
           </section>
+        </div>
+
+        <div className="text-xs rounded-lg p-3" style={{ background: '#F3EFE7', border: `1px solid ${LINE}`, color: ESP60 }}>
+          O PS Gestão instala direto pelo navegador (não precisa procurar na Play Store nem na App Store). É o mesmo app, sem ocupar espaço de loja e sempre na última versão.
         </div>
 
         {nota && (

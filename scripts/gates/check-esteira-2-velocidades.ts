@@ -31,7 +31,7 @@ ok(/if \[ "\$via" = revisada \]; then\s*\n\s*a=\$\(autorizacao "\$n"\)/.test(sh)
 ok(/c=\$\(estado_checks "\$sha" "\$via"( "\$so_docs")?( "\$n")?( "\$regime_disp")?\)/.test(sh), '(a) o laço passa a via para estado_checks')
 ok(/via rápida/.test(sh) && /via revisada/.test(sh) && /log "#\$n segue a /.test(sh), '(a) o log diz a via de cada PR')
 // CEO 23/10 (#3002): main não-livre segura migration em 2 níveis (deploy_travado = todas; critica_na_main = só as críticas).
-ok(/m=\$\(estado_main( "\$via")?\)/.test(sh) && /if \[ "\$m" != livre \]; then[\s\S]{0,400}?deploy_travado=1[\s\S]{0,60}?critica_na_main=1[\s\S]{0,40}?continue/.test(sh),
+ok(/m=\$\(estado_main( "\$(?:mig_)?via")?\)/.test(sh) && /if \[ "\$m" != livre \]; then[\s\S]{0,400}?deploy_travado=1[\s\S]{0,60}?critica_na_main=1[\s\S]{0,40}?continue/.test(sh),
   '(a) regra de migration intacta (espera o @pos-migration da anterior)')
 
 // (b) aceitação da main
