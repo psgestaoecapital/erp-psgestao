@@ -480,6 +480,26 @@ export default function CatalogoServicosPage() {
       render: (s) => <span className="text-[#3D2314]/70">{s.unidade || "—"}</span>,
     },
     {
+      key: "rup",
+      label: "Produtividade",
+      ajuda: "projetos.catalogo.col_rup",
+      align: "center",
+      hiddenOnMobile: true,
+      render: (s) =>
+        s.produtividade_unidade_dia !== null && s.produtividade_unidade_dia !== undefined ? (
+          <span
+            className="text-[#3D2314]/70"
+            title="RUP (coeficiente de produtividade): quanto a equipe produz por dia nesta unidade"
+          >
+            {s.produtividade_unidade_dia} {s.unidade || "un"}/dia
+          </span>
+        ) : (
+          <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-medium text-orange-800">
+            Sem RUP
+          </span>
+        ),
+    },
+    {
       key: "origem",
       label: "Origem",
       ajuda: "projetos.catalogo.col_origem",
