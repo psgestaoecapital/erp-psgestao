@@ -244,6 +244,12 @@ export default function EngenhariaPage() {
     return m
   }, [ambientes])
 
+  // Quantos ambientes estão prontos para o passo 3 (confirmados E com serviço vinculado) — orienta o usuário.
+  const ambientesProntos = useMemo(
+    () => ambientes.filter((a) => a.confirmado && a.servico_id).length,
+    [ambientes]
+  )
+
   const totalOrcamento = itensGerados.reduce((s, i) => s + (i.subtotal ?? 0), 0)
   // Materiais e mão-de-obra consolidados: BOM por unidade de serviço × quantidade explodida daquele serviço.
   const materiais = bom.filter((b) => b.tipo !== 'mao_obra')
@@ -340,7 +346,14 @@ export default function EngenhariaPage() {
       {planta && (
         <section className="rounded-2xl bg-white border border-[#E7DECF] overflow-hidden">
           <div className="p-3 flex items-center justify-between gap-2 border-b border-[#E7DECF] flex-wrap">
-            <span className="text-sm font-semibold text-[#3D2314]">{planta.nome} · Ambientes ({ambientes.length})</span>
+            <span className="text-sm font-semibold text-[#3D2314]">
+              {planta.nome} · Ambientes ({ambientes.length})
+              {ambientes.length > 0 && (
+                <span className="ml-1 font-normal" style={{ color: ambientesProntos > 0 ? '#16A34A' : ESP60 }}>
+                  · {ambientesProntos} pronto{ambientesProntos !== 1 ? 's' : ''} p/ gerar
+                </span>
+              )}
+            </span>
             <div className="flex items-center gap-2">
               <button onClick={sugerir} disabled={busy || ambientes.length === 0} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white" style={{ background: GOLD, opacity: (busy || ambientes.length === 0) ? 0.5 : 1 }} title="Sugere o serviço de cada ambiente por palavra-chave (você confirma depois)">
                 <Sparkles size={13} /> Sugerir serviços
@@ -399,8 +412,15 @@ export default function EngenhariaPage() {
               </table>
             </div>
           )}
-          <div className="p-3 flex flex-wrap items-center justify-end gap-2 border-t border-[#E7DECF]" style={{ background: BG }}>
-            <button onClick={gerar} disabled={busy || !orcId} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold" style={{ background: ESP, color: '#fff', opacity: (busy || !orcId) ? 0.6 : 1 }}>
+          <div className="p-3 flex flex-wrap items-center justify-between gap-2 border-t border-[#E7DECF]" style={{ background: BG }}>
+            <span className="text-xs" style={{ color: ESP60 }}>
+              {!orcId
+                ? 'Selecione um orçamento de destino no topo para gerar.'
+                : ambientesProntos === 0
+                  ? 'Confirme ao menos 1 ambiente com serviço vinculado para gerar.'
+                  : `${ambientesProntos} ambiente${ambientesProntos !== 1 ? 's' : ''} entrará${ambientesProntos !== 1 ? 'ão' : ''} no cálculo.`}
+            </span>
+            <button onClick={gerar} disabled={busy || !orcId || ambientesProntos === 0} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold" style={{ background: ESP, color: '#fff', opacity: (busy || !orcId || ambientesProntos === 0) ? 0.6 : 1 }}>
               <Sparkles size={15} /> Gerar orçamento (BOM + mão de obra)
             </button>
           </div>
