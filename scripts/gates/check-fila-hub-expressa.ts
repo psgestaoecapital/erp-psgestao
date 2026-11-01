@@ -33,9 +33,10 @@ else comFilaSimulada((rodar) => {
   // trava estrutural mantida: deploy da main não-verde segura o hub também
   x = rodar([{ n: 1, ...hub, sqlMigration: A }], true)   // mainOcupada = deploy-migrations rodando
   ok(merges(x.escritas).length === 0, 'hub: deploy-migrations não-verde segura o hub (trava estrutural fica)')
-  // crítica comum (financeiro) segue no teto de 1: a expressa é só do hub
-  x = rodar([{ n: 1, ...crit, sqlMigration: A }, { n: 2, ...crit, sqlMigration: B }])
-  ok(merges(x.escritas).join() === '1', 'crítica comum segue cautela (1/rodada); a expressa é exclusiva do hub')
+  // a expressa do hub é exclusiva do hub: com LOTE_MIG_CRIT_MAX=1, uma crítica comum segue 1/rodada (o lote de críticas
+  // da CEO 01/11 tem teto próprio, provado em check-fila-lote-criticas.ts; aqui fixamos 1 para isolar o contraste)
+  x = rodar([{ n: 1, ...crit, sqlMigration: A }, { n: 2, ...crit, sqlMigration: B }], false, 5000, { LOTE_MIG_CRIT_MAX: '1' })
+  ok(merges(x.escritas).join() === '1', 'crítica comum com teto 1 segue cautela (1/rodada); a expressa é exclusiva do hub')
 })
 
 if (falhas) { console.error(`\n${falhas} falha(s)`); process.exit(1) }

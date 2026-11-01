@@ -833,10 +833,14 @@ merges=0
 # INDEPENDENTES entre si (scripts/merge/migrations-independentes.ts; qualquer dúvida → 1 por rodada, como antes).
 # O @pos-migration da main roda uma vez para o lote. LOTE_MIG_MAX=1 desliga (comportamento antigo).
 # ESCALA NO ADITIVO, CAUTELA NO CRÍTICO (CEO 23/10): o teto geral do lote (LOTE_MIG_MAX) sobe para drenar o backlog de
-# migrations ADITIVAS mais rápido; mas a migration CRÍTICA (via revisada) tem um teto PRÓPRIO e baixo (LOTE_MIG_CRIT_MAX),
-# para nunca batelar muitas críticas num mesmo @pos. Assim o aditivo ganha vazão sem afrouxar a cautela no crítico.
+# migrations ADITIVAS mais rápido; mas a migration CRÍTICA (via revisada) tem um teto PRÓPRIO (LOTE_MIG_CRIT_MAX).
+# LOTE DE CRÍTICAS (CEO 01/11): com a fila crítica em 44 e vazão de 2-3/h (cada crítica esperava ~20 min de @pos
+# sozinha), o CEO aprovou batelar até 5 migrations CRÍTICAS independentes sob UM só @pos. EXCEÇÃO — publicam SOZINHAS
+# (fora do lote, @pos próprio): NR-36, fiscal, financeiro de cliente, RLS/permissão/LGPD (scripts/merge/
+# migracao-sempre-sozinha.ts) e qualquer conserto-main. Um erro numa dessas é inaceitável e o revert de migration não
+# desfaz o que rodou no banco (RD-52), então nunca batelá-las. LOTE_MIG_CRIT_MAX=1 volta ao comportamento antigo.
 LOTE_MIG_MAX=${LOTE_MIG_MAX:-6}
-LOTE_MIG_CRIT_MAX=${LOTE_MIG_CRIT_MAX:-1}
+LOTE_MIG_CRIT_MAX=${LOTE_MIG_CRIT_MAX:-5}
 lote_mig_n=0; lote_mig_crit_n=0; lote_mig_sqls=()
 mkdir -p "$TMPF/mig"
 # SQL das migrations da PR no SHA conferido → $TMPF/mig/<n>.sql (vazio/falha = dúvida na checagem de independência)
@@ -864,7 +868,7 @@ for n in $fila; do
   fi
   # conflito: a lista não traz o mergeable; aparece no update-branch (PR atrás da main) ou na recusa do merge
 
-  com_migration=0; so_docs=0; n_critica=0
+  com_migration=0; so_docs=0; n_critica=0; n_sozinha=0
   # VIA EXPRESSA DO HUB (CEO 23/10): label 'hub' = via rápida + lote aditivo, sem revisor nem serialização de crítica
   # ("sem trava nenhuma; reauditamos depois"). Só as travas estruturais ficam (deploy_travado, gates, build, independência).
   n_hub=0; jq -e '.labels | map(.name) | index("hub")' <<< "$pj" > /dev/null 2>&1 && n_hub=1
@@ -896,6 +900,20 @@ for n in $fila; do
         log "#$n: etiqueta $SENSIVEL (tela), mas a migration só grava catálogo de ajuda/metadado — ADITIVA p/ serialização do @pos (segue via revisada p/ a tela)"
       fi
     fi
+    # SEMPRE SOZINHA (CEO 01/11): o conserto-main (pela label) e as CRÍTICAS de núcleo ULTRA-sensível (NR-36, fiscal,
+    # financeiro de cliente, RLS/permissão/LGPD — migracao-sempre-sozinha.ts) NÃO batelam: publicam SOZINHAS, com @pos
+    # próprio. Erro numa dessas é inaceitável e o revert de migration não desfaz o que rodou no banco (RD-52).
+    if jq -e '.labels | map(.name) | index("conserto-main")' <<< "$pj" > /dev/null 2>&1; then
+      n_sozinha=1; log "#$n é conserto-main: publica SOZINHA (fora do lote, @pos próprio)"
+    elif [ "$n_critica" = 1 ]; then
+      [ -s "$TMPF/mig/$n.sql" ] || baixar_sql_migrations "$n" "$sha" || true
+      # viés de segurança: SÓ "false" explícito NÃO é sozinha; qualquer outra coisa (true, erro, vazio) → sozinha
+      if [ "$(grep '^supabase/migrations/' <<< "$arquivos" | npx --yes tsx "$(dirname "${BASH_SOURCE[0]}")/migracao-sempre-sozinha.ts" "$TMPF/mig/$n.sql" 2> /dev/null | jq -r '.sozinha' 2> /dev/null)" != false ]; then
+        n_sozinha=1; log "#$n tem migration crítica de núcleo ultra-sensível (ou ilegível): publica SOZINHA (fora do lote, @pos próprio)"
+      fi
+    fi
+    # a sozinha tem de ser a ÚNICA migration da rodada: não entra em lote já aberto nem abre lote atrás de outro merge
+    if [ "$n_sozinha" = 1 ] && { [ "$lote_mig_n" -gt 0 ] || [ "$merges" -gt 0 ]; }; then log "#$n (migration sozinha): já houve migration/merge nesta rodada — espera a próxima"; continue; fi
     if [ "$deploy_travado" = 1 ]; then log "#$n tem migration: deploy-migrations da main não está verde — espera (todas as migrations)"; continue; fi
     if [ "$critica_na_main" = 1 ] && [ "$n_critica" = 1 ]; then log "#$n tem migration CRÍTICA: espera o @pos da crítica anterior (aditivas seguem)"; continue; fi
     # cautela no crítico (CEO 23/10): no MESMO lote, no máximo LOTE_MIG_CRIT_MAX migration(s) crítica(s). O aditivo bate até
@@ -1044,9 +1062,10 @@ for n in $fila; do
       [ "$n_critica" = 1 ] && lote_mig_crit_n=$((lote_mig_crit_n + 1))   # cautela no crítico: conta as críticas do lote (teto LOTE_MIG_CRIT_MAX)
       [ -s "$TMPF/mig/$n.sql" ] || baixar_sql_migrations "$n" "$sha" || true
       lote_mig_sqls+=("$TMPF/mig/$n.sql")
-      log "#$n MERGEADA (squash, ${sha:0:7}) pela via $([ "$via" = rapida ] && echo rápida || echo revisada) — tem migration: lote de migrations $lote_mig_n/$LOTE_MIG_MAX"
-      comentar "$n" "✅ **Fila de merge:** mergeada (squash) no commit conferido \`${sha:0:7}\` pela **via $([ "$via" = rapida ] && echo 'rápida**' || echo 'revisada**'). Tem migration (lote $lote_mig_n/$LOTE_MIG_MAX de migrations independentes): veredito no @pos-migration da main (vermelho = reverter a PR que quebrou)."
-      if [ "$lote_mig_n" -ge "$LOTE_MIG_MAX" ] || [ "$merges" -ge "$LOTE_MAX" ]; then exit 0; fi
+      log "#$n MERGEADA (squash, ${sha:0:7}) pela via $([ "$via" = rapida ] && echo rápida || echo revisada) — tem migration: lote $lote_mig_n/$LOTE_MIG_MAX$([ "$n_critica" = 1 ] && echo " (crítica $lote_mig_crit_n/$LOTE_MIG_CRIT_MAX)")$([ "$n_sozinha" = 1 ] && echo ' — SOZINHA (núcleo ultra-sensível/conserto-main)')"
+      comentar "$n" "✅ **Fila de merge:** mergeada (squash) no commit conferido \`${sha:0:7}\` pela **via $([ "$via" = rapida ] && echo 'rápida**' || echo 'revisada**'). Tem migration (lote $lote_mig_n/$LOTE_MIG_MAX$([ "$n_critica" = 1 ] && echo "; crítica $lote_mig_crit_n/$LOTE_MIG_CRIT_MAX")$([ "$n_sozinha" = 1 ] && echo '; SOZINHA — @pos próprio')): veredito no @pos-migration da main (vermelho = reverter a PR que quebrou)."
+      # sozinha (CEO 01/11): encerra a rodada para ter o @pos só dela (atribuição inequívoca; não bisseccionar lote)
+      if [ "$n_sozinha" = 1 ] || [ "$lote_mig_n" -ge "$LOTE_MIG_MAX" ] || [ "$merges" -ge "$LOTE_MAX" ]; then exit 0; fi
       continue
     fi
     # LOTE (CEO 09/10): PR SEM migration publica em lote na mesma rodada. A aceitação da via rápida é informativa e a
