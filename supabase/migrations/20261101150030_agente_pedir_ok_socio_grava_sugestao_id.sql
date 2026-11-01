@@ -28,3 +28,7 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'id', p_mensagem_id);
 END;
 $function$;
+
+REVOKE ALL ON FUNCTION public.fn_agente_pedir_ok_socio(uuid, text, text) FROM anon;
+REVOKE ALL ON FUNCTION public.fn_agente_pedir_ok_socio(uuid, text, text) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_agente_pedir_ok_socio(uuid, text, text) TO service_role;
