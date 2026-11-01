@@ -587,18 +587,18 @@ function ProducaoPageInner() {
       {showForm === 'timesheet' && (
         <Modal titulo="Registrar horas" onClose={() => { setShowForm(null); setForm({}) }}>
           <div style={grid2}>
-            <Select label="Job *" v={(form.job_id as string) ?? ''} on={(v) => setForm({ ...form, job_id: v || null })}
+            <Select label="Job *" ajuda="pm.timesheet.job" v={(form.job_id as string) ?? ''} on={(v) => setForm({ ...form, job_id: v || null })}
               opts={[['', '— selecionar —'], ...jobs
                 .filter((j) => !['concluida', 'publicado', 'cancelado'].includes(j.status))
                 .map((j) => [j.id, j.titulo] as [string, string])]} />
-            <Field label="Data *" type="date" v={form.data} on={(v) => setForm({ ...form, data: v })} />
-            <Field label="Horas *" type="number" v={form.horas} on={(v) => setForm({ ...form, horas: parseFloat(v) || 0 })} />
-            <Select label="Atividade" v={(form.tipo_atividade as string) ?? ''} on={(v) => setForm({ ...form, tipo_atividade: v || null })}
+            <Field label="Data *" ajuda="pm.timesheet.data" type="date" v={form.data} on={(v) => setForm({ ...form, data: v })} />
+            <Field label="Horas *" ajuda="pm.timesheet.horas" type="number" v={form.horas} on={(v) => setForm({ ...form, horas: parseFloat(v) || 0 })} />
+            <Select label="Atividade" ajuda="pm.timesheet.atividade" v={(form.tipo_atividade as string) ?? ''} on={(v) => setForm({ ...form, tipo_atividade: v || null })}
               opts={[['', '— tipo —'], ['criacao', 'Criação'], ['atendimento', 'Atendimento'],
                 ['producao', 'Produção'], ['edicao', 'Edição'], ['revisao', 'Revisão'],
                 ['reuniao', 'Reunião'], ['planejamento', 'Planejamento']]} />
           </div>
-          <Field label="Descrição" v={form.descricao} on={(v) => setForm({ ...form, descricao: v })} />
+          <Field label="Descrição" ajuda="pm.timesheet.descricao" v={form.descricao} on={(v) => setForm({ ...form, descricao: v })} />
           <div style={actions}>
             <button onClick={() => { setShowForm(null); setForm({}) }} style={btnGhost}>Cancelar</button>
             <button onClick={saveTimesheet} style={btnPrimary}>REGISTRAR</button>
@@ -990,10 +990,10 @@ function Modal({ titulo, children, onClose }: { titulo: string; children: React.
     </div>
   )
 }
-function Field({ label, v, on, type = 'text', multiline, testId }: { label: string; v: unknown; on: (v: string) => void; type?: string; multiline?: boolean; testId?: string }) {
+function Field({ label, v, on, type = 'text', multiline, testId, ajuda }: { label: string; v: unknown; on: (v: string) => void; type?: string; multiline?: boolean; testId?: string; ajuda?: string }) {
   return (
     <label style={lbl}>
-      {label}
+      <span style={{ display: 'flex', alignItems: 'center' }}>{label}{ajuda && <AjudaCampo chave={ajuda} />}</span>
       {multiline ? (
         <textarea rows={3} value={(v as string) ?? ''} onChange={(e) => on(e.target.value)} data-testid={testId} style={{ ...inp, resize: 'vertical' }} />
       ) : (
