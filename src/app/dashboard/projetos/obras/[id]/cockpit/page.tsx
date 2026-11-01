@@ -195,6 +195,7 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
               <Link href={`/dashboard/projetos/obras/${id}/cronograma?area=hub`} style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', marginLeft: 14 }}>Ver cronograma →</Link><AjudaCampo chave="projetos.cockpit.cronograma" rota={ROTA} />
               <Link href={`/dashboard/projetos/viagens?obra=${id}&area=hub`} data-testid="link-nova-viagem" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', marginLeft: 14 }}>Nova viagem desta obra →</Link><AjudaCampo chave="projetos.cockpit.nova_viagem" rota={ROTA} />
               <Link href={`/dashboard/projetos/obras/${id}/encerramento?area=hub`} data-testid="link-encerramento-obra" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', marginLeft: 14 }}>Encerramento da obra →</Link><AjudaCampo chave="projetos.cockpit.encerramento" rota={ROTA} />
+              <Link href={`/dashboard/projetos/obras/${id}/materiais?area=hub`} data-testid="link-materiais-obra" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', marginLeft: 14 }}>Materiais da obra →</Link><AjudaCampo chave="projetos.cockpit.materiais" rota={ROTA} />
             </>
           )}
       </div>
