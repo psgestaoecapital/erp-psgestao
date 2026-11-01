@@ -96,6 +96,8 @@ export default function AcervoTakeoffPage() {
   const [erro, setErro] = useState<string | null>(null)
   const [busca, setBusca] = useState('')
   const [filtro, setFiltro] = useState<'todas' | Estado>('todas')
+  const [filtroProjeto, setFiltroProjeto] = useState<string>('todos')
+  const [filtroCliente, setFiltroCliente] = useState<string>('todos')
   const [ordem, setOrdem] = useState<Ordem>('recente')
   const [pagina, setPagina] = useState(1)
   const [excluindo, setExcluindo] = useState<string | null>(null)
@@ -167,12 +169,24 @@ export default function AcervoTakeoffPage() {
     return () => { alive = false }
   }, [companyId])
 
-  useEffect(() => { setPagina(1) }, [busca, filtro, ordem])
+  useEffect(() => { setPagina(1) }, [busca, filtro, filtroProjeto, filtroCliente, ordem])
+
+  // Opções dos filtros por Projeto e por Cliente, derivadas do que o acervo realmente tem.
+  const projetos = useMemo(
+    () => Array.from(new Set(plantas.map((p) => p.projeto_nome).filter((x): x is string => !!x))).sort((a, b) => a.localeCompare(b, 'pt-BR')),
+    [plantas],
+  )
+  const clientes = useMemo(
+    () => Array.from(new Set(plantas.map((p) => p.cliente_nome).filter((x): x is string => !!x))).sort((a, b) => a.localeCompare(b, 'pt-BR')),
+    [plantas],
+  )
 
   const filtradas = useMemo(() => {
     const q = busca.trim().toLowerCase()
     const lista = plantas.filter((p) => {
       if (filtro !== 'todas' && estadoDe(p) !== filtro) return false
+      if (filtroProjeto !== 'todos' && p.projeto_nome !== filtroProjeto) return false
+      if (filtroCliente !== 'todos' && p.cliente_nome !== filtroCliente) return false
       if (!q) return true
       return [p.nome, p.projeto_nome, p.cliente_nome].some((v) => (v ?? '').toLowerCase().includes(q))
     })
@@ -182,7 +196,7 @@ export default function AcervoTakeoffPage() {
     else if (ordem === 'status') ord.sort((a, b) => RANK_STATUS[estadoDe(a)] - RANK_STATUS[estadoDe(b)] || quando(b) - quando(a))
     else ord.sort((a, b) => quando(b) - quando(a))
     return ord
-  }, [plantas, busca, filtro, ordem])
+  }, [plantas, busca, filtro, filtroProjeto, filtroCliente, ordem])
 
   const totalPaginas = Math.max(1, Math.ceil(filtradas.length / PAGINA))
   const visiveis = filtradas.slice(0, pagina * PAGINA)
@@ -271,6 +285,36 @@ export default function AcervoTakeoffPage() {
             </select>
             <AjudaCampo chave="hub.takeoff.acervo.filtro_status" />
           </label>
+          {projetos.length > 0 && (
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <select
+                value={filtroProjeto}
+                onChange={(e) => setFiltroProjeto(e.target.value)}
+                aria-label="Filtrar por projeto"
+                data-testid="acervo-filtro-projeto"
+                style={{ border: `0.5px solid ${LINE}`, background: '#FFFFFF', borderRadius: 8, padding: '7px 10px', fontSize: 13, color: ESP, minHeight: 36, maxWidth: 180 }}
+              >
+                <option value="todos">Todos os projetos</option>
+                {projetos.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+              <AjudaCampo chave="hub.takeoff.acervo.filtro_projeto" />
+            </label>
+          )}
+          {clientes.length > 0 && (
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <select
+                value={filtroCliente}
+                onChange={(e) => setFiltroCliente(e.target.value)}
+                aria-label="Filtrar por cliente"
+                data-testid="acervo-filtro-cliente"
+                style={{ border: `0.5px solid ${LINE}`, background: '#FFFFFF', borderRadius: 8, padding: '7px 10px', fontSize: 13, color: ESP, minHeight: 36, maxWidth: 180 }}
+              >
+                <option value="todos">Todos os clientes</option>
+                {clientes.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <AjudaCampo chave="hub.takeoff.acervo.filtro_cliente" />
+            </label>
+          )}
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
             <ArrowDownUp size={14} color={ESP60} />
             <select
@@ -327,7 +371,7 @@ export default function AcervoTakeoffPage() {
                     width: 36, height: 36, borderRadius: 8, background: cor.bg,
                     display: 'flex', alignItems: 'center', justifyContent: 'center', color: cor.fg, flexShrink: 0,
                   }}>
-                    {feito ? <CheckCircle2 size={18} /> : est === 'processando' ? <Loader2 size={18} /> : <FileText size={18} />}
+                    {feito ? <CheckCircle2 size={18} /> : est === 'processando' ? <Loader2 size={18} className="animate-spin" /> : <FileText size={18} />}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 14, color: ESP, fontWeight: 600 }}>
@@ -409,11 +453,16 @@ export default function AcervoTakeoffPage() {
           })}
         </div>
 
-        {!loading && visiveis.length < filtradas.length && (
+        {!loading && filtradas.length > 0 && (
           <div style={{ textAlign: 'center', marginTop: 14 }}>
-            <button onClick={() => setPagina((n) => Math.min(n + 1, totalPaginas))} style={btnMais}>
-              Mostrar mais ({filtradas.length - visiveis.length})
-            </button>
+            <div style={{ fontSize: 11, color: ESP60, marginBottom: visiveis.length < filtradas.length ? 8 : 0 }}>
+              Mostrando {visiveis.length} de {filtradas.length} planta(s)
+            </div>
+            {visiveis.length < filtradas.length && (
+              <button onClick={() => setPagina((n) => Math.min(n + 1, totalPaginas))} style={btnMais}>
+                Mostrar mais ({filtradas.length - visiveis.length})
+              </button>
+            )}
           </div>
         )}
       </div>
