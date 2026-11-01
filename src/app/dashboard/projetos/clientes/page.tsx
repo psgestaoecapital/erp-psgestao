@@ -310,7 +310,7 @@ export default function ClientesPage() {
         <Indicador rotulo="Clientes ativos" valor={loading ? '…' : String(resumo.total)} ajuda="projetos.clientes.kpi.total" />
         <Indicador rotulo="Com obra" valor={loading ? '…' : String(resumo.comObra)} ajuda="projetos.clientes.kpi.com_obra" dica={!loading && resumo.total > 0 && resumo.comObra === 0 ? 'Nenhum cliente com obra vinculada — abra um cliente e crie a obra' : undefined} />
         <Indicador rotulo="Cadastro incompleto" valor={loading ? '…' : String(resumo.incompletos)} ajuda="projetos.clientes.kpi.incompletos" alerta={!loading && resumo.incompletos > 0} />
-        <Indicador rotulo="Em negociação" valor={loading ? '…' : brlCurto(resumo.emAberto)} ajuda="projetos.clientes.kpi.em_aberto" dica={!loading && resumo.emAberto === 0 ? 'Sem proposta ou oportunidade em aberto neste recorte' : 'Propostas e oportunidades em aberto'} />
+        <Indicador rotulo="Em negociação" valor={loading ? '…' : brlCurto(resumo.emAberto)} ajuda="projetos.clientes.kpi.em_aberto" dica={!loading && resumo.emAberto === 0 ? 'Sem proposta ou oportunidade em aberto neste recorte' : undefined} />
       </div>
 
       {/* Toolbar */}
