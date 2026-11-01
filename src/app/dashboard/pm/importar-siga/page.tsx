@@ -1,5 +1,5 @@
 "use client";
-// P&M · Importar jobs do SIGA (PM-J, CEO 02/10). 1) escolher a planilha; 2) conferir o mapa das colunas (o sistema
+// P&M · Importar jobs do sistema anterior (PM-J, CEO 02/10). 1) escolher a planilha; 2) conferir o mapa das colunas (o sistema
 // sugere pelo cabeçalho); 3) prévia: quantos entram pela regra do CEO (últimos 60 dias + em aberto, sem os "em aprovação"
 // antigos), quantos ficam de fora e por quê; o banco confere de novo (já existe, cliente e responsável não achados);
 // 4) importar. Nada é gravado sem a prévia; rodar de novo não duplica. Todo campo tem o "?".
@@ -75,13 +75,13 @@ export default function ImportarSigaPage() {
         <Link href="/dashboard/pm/pauta" className="inline-flex items-center gap-1 text-[12.5px] text-[#3D2314]/60 hover:underline"><ArrowLeft size={13} /> Pauta</Link>
         <header>
           <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#C8941A]"><FileSpreadsheet size={13} /> P&amp;M · Implantação</div>
-          <h1 className="text-[26px] font-medium leading-tight">Importar jobs do SIGA</h1>
+          <h1 className="text-[26px] font-medium leading-tight">Importar jobs do sistema anterior</h1>
           <p className="text-[13px] text-[#3D2314]/60">Entram os jobs dos últimos 60 dias e todos os que estão em aberto. Os &ldquo;em aprovação&rdquo; parados há mais de 60 dias ficam de fora. Nada é gravado antes da prévia.</p>
         </header>
 
         <section className={card}>
           <label className="block">
-            <span className="mb-1 flex items-center text-[12px] font-semibold">1 · Planilha do SIGA<AjudaCampo chave="pm.siga.arquivo" /></span>
+            <span className="mb-1 flex items-center text-[12px] font-semibold">1 · Planilha do sistema anterior<AjudaCampo chave="pm.siga.arquivo" /></span>
             <span className="flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-[#C8941A]/60 bg-[#FAEEDA]/40 px-4 py-4 text-[13.5px] hover:bg-[#FAEEDA]">
               <Upload size={16} /> {arquivo ? `${arquivo} · ${linhas.length} linha(s)` : "Escolher arquivo (.xlsx, .xls ou .csv)"}
               <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void ler(f); }} data-testid="siga-arquivo" />
@@ -165,7 +165,7 @@ export default function ImportarSigaPage() {
         {erro && <div className="rounded-xl bg-[#F7E1E1] px-3 py-2 text-[12.5px] text-[#791F1F]" data-testid="siga-erro">{erro}</div>}
         {feito != null && (
           <div className="flex items-center justify-between gap-2 rounded-xl bg-[#E5F2E1] px-4 py-3 text-[13.5px] text-[#2F5A1F]" data-testid="siga-feito">
-            <span className="flex items-center gap-1.5"><CheckCircle2 size={16} /> {feito} job(s) importado(s) do SIGA.</span>
+            <span className="flex items-center gap-1.5"><CheckCircle2 size={16} /> {feito} job(s) importado(s) do sistema anterior.</span>
             <Link href="/dashboard/pm/pauta" className="font-semibold underline">Abrir a Pauta</Link>
           </div>
         )}
