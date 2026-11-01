@@ -21,7 +21,7 @@ ok(/esperar:\*\)[^\n]*continue;;/.test(laco), '"esperar:*" do estado_checks → 
 ok(/LOTE_MAX=\$\{LOTE_MAX:-\d+\}/.test(sh) && /merges=\$\(\(merges \+ 1\)\)/.test(laco),
   'lote: PR sem migration incrementa o contador (merges) até o teto LOTE_MAX')
 const exits = laco.match(/exit 0/g) ?? []
-ok(exits.length === 2, 'no laço há 2 exit 0: o merge de migration (1/rodada) e o teto LOTE_MAX do lote')
+ok(exits.length === 3, 'no laço há 3 exit 0: o fecho do lote de migrations, o teto LOTE_MAX do lote e a crítica sempre-sozinha (CEO 01/11)')
 ok(/MERGEADA[^\n]*tem migration[\s\S]*?exit 0/.test(laco), 'migration: merge seguido de exit 0 (uma por rodada e encerra a rodada)')
 ok(/merges" -ge "\$LOTE_MAX" \][\s\S]*?exit 0/.test(laco) && /MERGEADA[^\n]*lote[\s\S]*?continue/.test(laco),
   'lote: merge sem migration faz continue (segue o lote); o 2º exit 0 é só no teto LOTE_MAX')

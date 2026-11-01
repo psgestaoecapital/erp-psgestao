@@ -207,9 +207,19 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   **LOTE (CEO 09/10):** numa mesma rodada a fila publica **VÁRIAS PRs SEM migration** (até o teto `LOTE_MAX`, padrão 6).
   **LOTE DE MIGRATIONS (CEO 16/10, tetos revistos 23/10):** numa rodada a fila publica migrations **INDEPENDENTES** entre si
   (`scripts/merge/migrations-independentes.ts`; qualquer dúvida → 1), com DOIS tetos — **`LOTE_MIG_MAX` (padrão 6)** para o
-  conjunto e **`LOTE_MIG_CRIT_MAX` (padrão 1)** só para as **CRÍTICAS** (etiqueta `revisao-eng-chefe`). Ou seja: as **ADITIVAS**
-  escalam (até 6/rodada), a **CRÍTICA** fica em **1 por rodada** (cada uma com seu veredito de `@pos`, sem se misturar). O
-  `@pos-migration` da main roda uma vez para o lote; `LOTE_MIG_MAX=1` desliga (comportamento antigo, 1 migration/rodada).
+  conjunto e **`LOTE_MIG_CRIT_MAX`** só para as **CRÍTICAS** (etiqueta `revisao-eng-chefe`). As **ADITIVAS** escalam (até
+  6/rodada). O `@pos-migration` da main roda uma vez para o lote; `LOTE_MIG_MAX=1` desliga (comportamento antigo).
+  **LOTE DE CRÍTICAS (CEO 01/11 — fila crítica em ~44, vazão 2-3/h):** o teto de críticas sobe para **`LOTE_MIG_CRIT_MAX`
+  (padrão 5)** — a fila batela até 5 críticas INDEPENDENTES numa rodada, com UM `@pos` para o lote. A cautela fica nas
+  migrations de **MAIOR risco, que publicam SOZINHAS** (nunca batelam, encerram a rodada): **NR-36, fiscal, financeiro de
+  cliente, RLS/permissão, LGPD, Wealth/CVM** (classificador `scripts/merge/migracao-sempre-sozinha.ts`, mesmas áreas de
+  `QUARENTENA_CRITICOS`) **e qualquer PR `conserto-main`** — para o veredito único do `@pos` do lote nunca misturar o risco
+  delas com o de uma crítica comum. `LOTE_MIG_CRIT_MAX=1` volta ao comportamento antigo (1 crítica/rodada). Gate:
+  `scripts/gates/check-fila-lote-criticas.ts`. **Recuperação do `@pos` vermelho de um lote crítico (bissecção automática
+  — proposta, pendente de decisão do Eng. Chefe):** reverter migration crítica automaticamente conflita com a regra vigente (`reverter-automatico.sh`
+  trava 3: revert de migration = down-migration humana; RD-52: reverter o arquivo não desfaz o que rodou no banco), então a
+  isolação-e-revert fica com a decisão humana/`main-vermelha` até o Eng. Chefe aprovar o desenho seguro (isolar e alertar,
+  sem auto-revert de migration).
   **VIA EXPRESSA DO HUB (CEO 23/10 — "Hub inteiro no dev, sem parar; publicação direta e prioritária, sem trava nenhuma;
   reauditamos depois"):** PR com a label **`hub`** é tratada pela fila como **via rápida** (SEM revisor, mesmo com
   `revisao-eng-chefe`) e como **ADITIVA** (batela até `LOTE_MIG_MAX`, NÃO entra no teto `LOTE_MIG_CRIT_MAX`), e vai na
