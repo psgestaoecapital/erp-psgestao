@@ -444,23 +444,35 @@ export default function LeadsPage() {
         </div>
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
-          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar contato/empresa/email…" style={{ ...inp, minWidth: 220 }} />
-          <select value={fOrigem} onChange={(e) => setFOrigem(e.target.value)} style={inp} aria-label="Origem">
-            <option value="todas">Origem: todas</option>
-            {origens.map((o) => <option key={o.chave} value={o.chave}>{o.nome}</option>)}
-          </select>
-          <select value={fResp} onChange={(e) => setFResp(e.target.value)} style={inp} aria-label="Responsável">
-            <option value="todos">Responsável: todos</option>
-            {uid && <option value={uid}>Meus leads</option>}
-            {Object.entries(respMap).sort((a, b) => a[1].localeCompare(b[1])).map(([id, nome]) => <option key={id} value={id}>{nome}</option>)}
-          </select>
-          <select value={fPeriodo} onChange={(e) => setFPeriodo(e.target.value as typeof fPeriodo)} style={inp} aria-label="Período">
-            <option value="todos">Período: todos</option>
-            <option value="mes">Mês atual</option>
-            <option value="trimestre">Trimestre atual</option>
-            <option value="ano">Ano atual</option>
-            <option value="custom">Personalizado…</option>
-          </select>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+            <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar contato/empresa/email…" style={{ ...inp, minWidth: 220 }} />
+            <AjudaCampo chave="pm.leads.filtro_busca" />
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+            <select value={fOrigem} onChange={(e) => setFOrigem(e.target.value)} style={inp} aria-label="Origem">
+              <option value="todas">Origem: todas</option>
+              {origens.map((o) => <option key={o.chave} value={o.chave}>{o.nome}</option>)}
+            </select>
+            <AjudaCampo chave="pm.leads.filtro_origem" />
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+            <select value={fResp} onChange={(e) => setFResp(e.target.value)} style={inp} aria-label="Responsável">
+              <option value="todos">Responsável: todos</option>
+              {uid && <option value={uid}>Meus leads</option>}
+              {Object.entries(respMap).sort((a, b) => a[1].localeCompare(b[1])).map(([id, nome]) => <option key={id} value={id}>{nome}</option>)}
+            </select>
+            <AjudaCampo chave="pm.leads.filtro_responsavel" />
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+            <select value={fPeriodo} onChange={(e) => setFPeriodo(e.target.value as typeof fPeriodo)} style={inp} aria-label="Período">
+              <option value="todos">Período: todos</option>
+              <option value="mes">Mês atual</option>
+              <option value="trimestre">Trimestre atual</option>
+              <option value="ano">Ano atual</option>
+              <option value="custom">Personalizado…</option>
+            </select>
+            <AjudaCampo chave="pm.leads.filtro_periodo" />
+          </span>
           {fPeriodo === 'custom' && (<>
             <input type="date" value={pIni} onChange={(e) => setPIni(e.target.value)} style={inp} aria-label="Início do período" />
             <input type="date" value={pFim} onChange={(e) => setPFim(e.target.value)} style={inp} aria-label="Fim do período" />
@@ -473,6 +485,13 @@ export default function LeadsPage() {
               Nenhuma etapa configurada. <button onClick={() => setCfgOpen(true)} style={{ ...btnSec, display: 'inline-block', marginLeft: 6 }}>Configurar funil</button>
             </div>
           ) : (
+          <>
+          {/* RD-95: o quadro é dinâmico (colunas = etapas do funil) e os cards repetem as mesmas ações — o "?"
+              fica no cabeçalho do quadro (explica colunas e ações uma vez), em vez de poluir cada card (RD-99). */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '0 2px 8px', fontSize: 11.5, color: TEXTM }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>Colunas = etapas do funil<AjudaCampo chave="pm.leads.kanban_colunas" /></span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>Ações do card<AjudaCampo chave="pm.leads.kanban_acoes" /></span>
+          </div>
           <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 8, alignItems: 'flex-start' }}>
             {etapas.map((col) => {
               const items = filtrados.filter((l) => l.etapa === col.chave)
@@ -602,6 +621,7 @@ export default function LeadsPage() {
               )
             })}
           </div>
+          </>
         )}
       </div>
 

@@ -885,6 +885,17 @@ for n in $fila; do
     # etiqueta é rotulada + pulada antes de mergear). Só o crítico é segurado pelo @pos de outra crítica; aditivo segue.
     # hub = tratado como ADITIVO (batela até LOTE_MIG_MAX, não conta no teto de crítica); o resto, SENSIVEL = crítica.
     [ "$n_hub" = 0 ] && jq -e --arg l "$SENSIVEL" '.labels | map(.name) | index($l)' <<< "$pj" > /dev/null 2>&1 && n_critica=1
+    # SÓ CATÁLOGO não serializa (CEO 31/10 · Eng. Chefe): a etiqueta SENSIVEL pode vir de uma TELA (RD-95 "?", RD-98 p3)
+    # enquanto a migration só grava texto de ajuda/metadado (INSERT em erp_ajuda_*/system_screens). Nesse caso a PR SEGUE
+    # via REVISADA (a tela ainda precisa de MERGE AUTORIZADO), mas a migration batela como ADITIVA — não serializa o @pos.
+    # Classificador puro e testado (migracao-catalogo.ts), viés de SEGURANÇA: qualquer dúvida → crítica (n_critica=1).
+    if [ "$n_critica" = 1 ]; then
+      baixar_sql_migrations "$n" "$sha" || true
+      if [ -s "$TMPF/mig/$n.sql" ] && [ "$(npx --yes tsx "$(dirname "${BASH_SOURCE[0]}")/migracao-catalogo.ts" "$TMPF/mig/$n.sql" 2> /dev/null | jq -r '.catalogo // false' 2> /dev/null)" = true ]; then
+        n_critica=0
+        log "#$n: etiqueta $SENSIVEL (tela), mas a migration só grava catálogo de ajuda/metadado — ADITIVA p/ serialização do @pos (segue via revisada p/ a tela)"
+      fi
+    fi
     if [ "$deploy_travado" = 1 ]; then log "#$n tem migration: deploy-migrations da main não está verde — espera (todas as migrations)"; continue; fi
     if [ "$critica_na_main" = 1 ] && [ "$n_critica" = 1 ]; then log "#$n tem migration CRÍTICA: espera o @pos da crítica anterior (aditivas seguem)"; continue; fi
     # cautela no crítico (CEO 23/10): no MESMO lote, no máximo LOTE_MIG_CRIT_MAX migration(s) crítica(s). O aditivo bate até
@@ -995,7 +1006,11 @@ for n in $fila; do
 
   # (b) só PR COM migration depende da main (deploy + @pos-migration)
   if [ "$com_migration" = 1 ] && [ "$corrige_deploy" = 0 ] && [ "$lote_mig_n" = 0 ]; then
-    m=$(estado_main "$via")
+    # o ESTADO DA MAIN depende da criticidade da MIGRATION (n_critica), não da via de AUTORIZAÇÃO: uma migration só de
+    # catálogo (n_critica=0) segue Mundo 1 (deploy-migrations verde basta, não espera o @pos) mesmo quando a PR é revisada
+    # por causa da TELA. Só a migration crítica (n_critica=1) espera o @pos (Mundo 2). CEO 31/10 · Eng. Chefe.
+    mig_via=$([ "$n_critica" = 1 ] && echo revisada || echo rapida)
+    m=$(estado_main "$mig_via")
     if [ "$m" != livre ]; then
       log "#$n (com migration) aguardando a main: ${m#esperar:} — PRs sem migration atrás dela podem seguir"
       # deploy-migrations não-verde segura TODAS as migrations; @pos (só a via revisada chega nele) segura só as CRÍTICAS.
