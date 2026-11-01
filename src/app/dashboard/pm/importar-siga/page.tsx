@@ -118,9 +118,22 @@ export default function ImportarSigaPage() {
               {conf && <div className="rounded-xl bg-[#FAEEDA] p-3"><div className="text-[11px] text-[#6B4A0E]">novos de verdade</div><div className="text-[22px] font-medium" data-testid="siga-n-novos">{conf.novos}</div></div>}
             </div>
             {!!sel.fora.length && (
-              <ul className="mt-2 text-[12.5px] text-[#3D2314]/70">
-                {(Object.entries(porMotivo) as [Motivo, number][]).map(([m, n]) => <li key={m}>· {n} {MOTIVO_TEXTO[m]}</li>)}
-              </ul>
+              <div className="mt-2" data-testid="siga-fora-detalhe">
+                <ul className="text-[12.5px] text-[#3D2314]/70">
+                  {(Object.entries(porMotivo) as [Motivo, number][]).map(([m, n]) => <li key={m}>· {n} {MOTIVO_TEXTO[m]}</li>)}
+                </ul>
+                <div className="mt-2 overflow-x-auto rounded-xl border border-[#3D2314]/10">
+                  <table className="w-full text-[12.5px]">
+                    <thead className="bg-[#FAF7F2] text-left text-[11px] uppercase tracking-wider text-[#3D2314]/55"><tr><th className="px-2 py-1.5">Linha</th><th className="px-2">Nº do job</th><th className="px-2">Por que ficou de fora</th></tr></thead>
+                    <tbody>
+                      {sel.fora.slice(0, 12).map((f) => (
+                        <tr key={f.linha} className="border-t border-[#3D2314]/6 text-[#6B4A0E]"><td className="px-2 py-1">{f.linha}</td><td className="px-2">{f.numero ?? "—"}</td><td className="px-2">{MOTIVO_TEXTO[f.motivo]}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {sel.fora.length > 12 && <div className="px-2 py-1 text-[11.5px] text-[#3D2314]/55">… e mais {sel.fora.length - 12} linha(s) fora</div>}
+                </div>
+              </div>
             )}
             <div className="mt-3 overflow-x-auto rounded-xl border border-[#3D2314]/10">
               <table className="w-full text-[12.5px]">
