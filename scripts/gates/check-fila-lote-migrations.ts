@@ -1,9 +1,10 @@
 // Gate (CEO 16/10; escala no aditivo / cautela no crítico CEO 23/10) — LOTE DE MIGRATIONS INDEPENDENTES por rodada.
 // A fila publica até LOTE_MIG_MAX (6) PRs COM migration ADITIVA na mesma rodada, desde que INDEPENDENTES
 // (scripts/merge/migrations-independentes.ts); qualquer dúvida → 1 por rodada. A migration CRÍTICA (via revisada) tem
-// teto PRÓPRIO e baixo: LOTE_MIG_CRIT_MAX (1) por rodada — cautela no crítico, cada uma com seu veredito de @pos.
-// Casos: aditivas independentes publicam juntas; mesma tabela não entra junto; dependência impede o lote; crítica
-// excedente cai para 1; sensível sem autorização fica fora; dúvida (SQL ilegível/dinâmico) cai para 1.
+// teto PRÓPRIO: LOTE_MIG_CRIT_MAX (padrão 5, CEO 01/11) por rodada. As críticas de núcleo ULTRA-sensível publicam
+// SOZINHAS (check-fila-lote-criticas.ts). Casos aqui: aditivas independentes publicam juntas; mesma tabela não entra
+// junto; dependência impede o lote; crítica excedente ao teto espera; sensível sem autorização fica fora; dúvida (SQL
+// ilegível/dinâmico) cai para 1.
 import { readFileSync } from 'node:fs'
 import { independentes } from '../merge/migrations-independentes'
 import { SCRIPT_FILA, comFilaSimulada, merges, temFerramentas } from '../merge/fila-simulada'
@@ -14,7 +15,7 @@ const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.erro
 // ── leitura do script ──
 const sh = readFileSync(SCRIPT_FILA, 'utf8')
 ok(/LOTE_MIG_MAX=\$\{LOTE_MIG_MAX:-6\}/.test(sh), 'LOTE_MIG_MAX padrão 6 (escala no aditivo; LOTE_MIG_MAX=1 volta ao comportamento antigo)')
-ok(/LOTE_MIG_CRIT_MAX=\$\{LOTE_MIG_CRIT_MAX:-1\}/.test(sh), 'LOTE_MIG_CRIT_MAX padrão 1 (cautela no crítico)')
+ok(/LOTE_MIG_CRIT_MAX=\$\{LOTE_MIG_CRIT_MAX:-5\}/.test(sh), 'LOTE_MIG_CRIT_MAX padrão 5 (lote de críticas, CEO 01/11; ultra-sensível publica sozinha)')
 ok(/n_critica" = 1 \] && \[ "\$lote_mig_crit_n" -ge "\$LOTE_MIG_CRIT_MAX"/.test(sh), 'migration crítica excedente ao teto LOTE_MIG_CRIT_MAX espera a próxima rodada')
 ok(/n_critica" = 1 \] && lote_mig_crit_n=\$\(\(lote_mig_crit_n \+ 1\)\)/.test(sh), 'o merge de migration crítica incrementa o contador de críticas do lote')
 ok(/migrations-independentes\.ts/.test(sh) && /duvida:checagem falhou/.test(sh), 'a fila consulta o analisador de independência e, se ele falha, é dúvida')
@@ -50,9 +51,9 @@ else comFilaSimulada((rodar) => {
   // ESCALA NO ADITIVO: aditivas independentes batelam além do antigo teto 3 (default agora 6).
   let x = rodar([{ n: 1, ...add, sqlMigration: A }, { n: 2, ...add, sqlMigration: B }, { n: 3, ...add, sqlMigration: C }, { n: 4, ...add, sqlMigration: t_e }])
   ok(merges(x.escritas).join() === '1,2,3,4', 'fila: 4 migrations ADITIVAS independentes publicam juntas (escala no aditivo, teto 6)')
-  // CAUTELA NO CRÍTICO: críticas independentes NÃO batelam — só 1 por rodada (LOTE_MIG_CRIT_MAX=1).
+  // LOTE DE CRÍTICAS (CEO 01/11): críticas comuns (não ultra-sensíveis) independentes batelam até LOTE_MIG_CRIT_MAX (5).
   x = rodar([{ n: 1, ...rev, sqlMigration: A }, { n: 2, ...rev, sqlMigration: B }, { n: 3, ...rev, sqlMigration: C }])
-  ok(merges(x.escritas).join() === '1', 'fila: migrations CRÍTICAS independentes NÃO batelam — 1 por rodada (cautela no crítico)')
+  ok(merges(x.escritas).join() === '1,2,3', 'fila: 3 migrations CRÍTICAS comuns independentes batelam (teto 5, CEO 01/11)')
   // MISTO: 1 crítica entra, as aditivas independentes seguem no mesmo lote.
   x = rodar([{ n: 1, ...rev, sqlMigration: A }, { n: 2, ...add, sqlMigration: B }, { n: 3, ...add, sqlMigration: C }])
   ok(merges(x.escritas).join() === '1,2,3', 'fila: 1 crítica + aditivas independentes publicam no mesmo lote')

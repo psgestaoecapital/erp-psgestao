@@ -205,11 +205,21 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   **toda PR Ready** (não-draft) na `main` em ordem de entrada: atualiza com a `main` (merge, sem reescrever histórico),
   espera os checks, confere a autorização (PR com `revisao-eng-chefe`) e mergeia (squash, travado no SHA conferido).
   **LOTE (CEO 09/10):** numa mesma rodada a fila publica **VÁRIAS PRs SEM migration** (até o teto `LOTE_MAX`, padrão 6).
-  **LOTE DE MIGRATIONS (CEO 16/10, tetos revistos 23/10):** numa rodada a fila publica migrations **INDEPENDENTES** entre si
-  (`scripts/merge/migrations-independentes.ts`; qualquer dúvida → 1), com DOIS tetos — **`LOTE_MIG_MAX` (padrão 6)** para o
-  conjunto e **`LOTE_MIG_CRIT_MAX` (padrão 1)** só para as **CRÍTICAS** (etiqueta `revisao-eng-chefe`). Ou seja: as **ADITIVAS**
-  escalam (até 6/rodada), a **CRÍTICA** fica em **1 por rodada** (cada uma com seu veredito de `@pos`, sem se misturar). O
+  **LOTE DE MIGRATIONS (CEO 16/10, tetos revistos 23/10 e 01/11):** numa rodada a fila publica migrations **INDEPENDENTES**
+  entre si (`scripts/merge/migrations-independentes.ts`; qualquer dúvida → 1), com DOIS tetos — **`LOTE_MIG_MAX` (padrão 6)**
+  para o conjunto e **`LOTE_MIG_CRIT_MAX` (padrão 5, CEO 01/11)** só para as **CRÍTICAS** (etiqueta `revisao-eng-chefe`). O
   `@pos-migration` da main roda uma vez para o lote; `LOTE_MIG_MAX=1` desliga (comportamento antigo, 1 migration/rodada).
+  **LOTE DE CRÍTICAS (CEO 01/11 — fila crítica em 44, vazão de 2-3/h):** o CEO aprovou batelar até **5 migrations CRÍTICAS
+  independentes** sob UM só `@pos` (antes era 1/rodada). **EXCEÇÃO — publicam SOZINHAS** (fora do lote, com `@pos` próprio,
+  como antes): **NR-36 · fiscal · financeiro de cliente · RLS/permissão/LGPD** (classificador puro
+  `scripts/merge/migracao-sempre-sozinha.ts`, viés de segurança: SQL ilegível → sozinha) **e qualquer `conserto-main`** (pela
+  label). Motivo: um erro numa dessas é inaceitável e o `git revert` da migration NÃO desfaz o que já rodou no banco
+  (RD-52 / `reverter-automatico.sh` trava 3 — down-migration é decisão humana); isoladas, a atribuição da falha é inequívoca
+  (1 PR = 1 `@pos`), sem precisar bissectar um lote. Gate: `scripts/gates/check-fila-lote-criticas.ts`.
+  **@pos do lote de críticas VERMELHO → isolate-and-alert (NÃO auto-reverter migration):** a fila **não** bisecciona nem
+  reverte sozinha um lote de migrations críticas (o revert de migration precisa de down-migration humana). Vermelho segura
+  as demais críticas (como hoje) e alerta Eng. Chefe/CEO para a reversão manual (código + down-migration). Como as do lote
+  são INDEPENDENTES, a culpada é revertida PR-a-PR sem desfazer as inocentes.
   **VIA EXPRESSA DO HUB (CEO 23/10 — "Hub inteiro no dev, sem parar; publicação direta e prioritária, sem trava nenhuma;
   reauditamos depois"):** PR com a label **`hub`** é tratada pela fila como **via rápida** (SEM revisor, mesmo com
   `revisao-eng-chefe`) e como **ADITIVA** (batela até `LOTE_MIG_MAX`, NÃO entra no teto `LOTE_MIG_CRIT_MAX`), e vai na
