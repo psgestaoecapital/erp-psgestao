@@ -63,6 +63,7 @@ export default function EngenhariaPage() {
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
+  const [carregando, setCarregando] = useState(true)
 
   // Catálogo (dropdowns) + orçamentos de destino + take-offs existentes p/ retomar.
   const recarregarPlantas = useCallback(async () => {
@@ -84,6 +85,7 @@ export default function EngenhariaPage() {
       if (!alive) return
       setOrcamentos((o as Orc[]) ?? [])
       setServicos((s as Servico[]) ?? [])
+      setCarregando(false)
     })()
     void recarregarPlantas()
     return () => { alive = false }
@@ -217,6 +219,12 @@ export default function EngenhariaPage() {
   const totalHoras = maoObra.reduce((s, b) => s + (b.quantidade ?? 0) * (qtdPorServico.get(b.servico_id) ?? 0), 0)
   const totalMaoObra = maoObra.reduce((s, b) => s + (b.custo_total ?? 0) * (qtdPorServico.get(b.servico_id) ?? 0), 0)
 
+  // Estado-vazio honesto (RD-98): distinguir "carregando" de "sem dado" e orientar o próximo passo (take-off não
+  // percorre até o fim quando falta catálogo ou orçamento de destino). Tudo lido do banco desta empresa (RD-38).
+  const semCatalogo = !carregando && servicos.length === 0
+  const semOrcamentos = !carregando && orcamentos.length === 0
+  const passo = itensGerados.length > 0 ? 3 : planta ? 2 : 1
+
   if (!companyId) return (
     <div className="min-h-screen bg-[#FAF7F2] p-6 text-sm text-[#3D2314]/60">
       Selecione uma empresa específica no topo do menu para abrir a Engenharia / Take-off.
@@ -235,6 +243,31 @@ export default function EngenhariaPage() {
         <p className="text-xs mt-1" style={{ color: ESP60 }}>Passo 2 do fluxo de obra · vem depois do <a href="/dashboard/projetos/takeoff" className="underline" style={{ color: GOLD }}>Take-off por IA</a> (upload de planta). Mesmo motor, entrada diferente.</p>
       </header>
 
+      {/* Jornada guiada (RD-98 p1): mostra em que passo o usuário está e o que falta para fechar o take-off. */}
+      <ol className="flex flex-wrap items-center gap-2 text-xs" aria-label="Etapas do take-off" data-testid="engenharia-passos">
+        {([['1', 'Orçamento + take-off'], ['2', 'Ambientes e serviços'], ['3', 'Gerar orçamento (BOM + mão de obra)']] as const).map(([n, l]) => {
+          const ativo = Number(n) === passo; const feito = Number(n) < passo
+          return (
+            <li key={n} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full" style={{ background: ativo ? GOLD : feito ? '#EFE7D6' : '#fff', color: ativo ? '#fff' : ESP, border: `1px solid ${ativo ? GOLD : LINE}` }}>
+              <span className="inline-flex items-center justify-center rounded-full font-bold" style={{ width: 16, height: 16, fontSize: 10, background: ativo ? '#fff' : feito ? GOLD : LINE, color: ativo ? GOLD : '#fff' }}>{feito ? '✓' : n}</span>
+              {l}
+            </li>
+          )
+        })}
+      </ol>
+
+      {carregando && (
+        <div className="rounded-xl p-3 text-sm" style={{ background: '#fff', border: `1px solid ${LINE}`, color: ESP60 }} data-testid="engenharia-carregando" role="status">
+          Carregando orçamentos, catálogo de serviços e take-offs desta empresa…
+        </div>
+      )}
+      {semCatalogo && (
+        <div className="rounded-xl p-3 text-sm flex items-start gap-2" style={{ background: '#FDF7E8', border: '1px solid #EBD9A8', color: '#7A5A0B' }} data-testid="engenharia-sem-catalogo">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <span>Nenhum serviço no catálogo desta empresa ainda. Sem catálogo, os ambientes não têm o que vincular e o orçamento não explode custo — cadastre em <a href="/dashboard/projetos/catalogo" className="underline font-semibold" style={{ color: '#7A5A0B' }}>Catálogo de Serviços</a> antes de confirmar os ambientes.</span>
+        </div>
+      )}
+
       {/* Passo 1 · take-off + orçamento de destino */}
       <section className="rounded-2xl bg-white p-4 border border-[#E7DECF] space-y-3">
         <div className="grid sm:grid-cols-2 gap-3">
@@ -244,6 +277,7 @@ export default function EngenhariaPage() {
               <option value="">— selecione (crie em Projetos › Propostas) —</option>
               {orcamentos.map((o) => <option key={o.id} value={o.id}>{o.numero ?? o.id.slice(0, 8)} · {o.cliente_nome ?? 'sem cliente'} · {o.status}</option>)}
             </select>
+            {semOrcamentos && <p className="text-[11px] mt-1" style={{ color: ESP60 }} data-testid="engenharia-sem-orcamento">Nenhum orçamento aberto nesta empresa. Crie um em <a href="/dashboard/projetos/propostas" className="underline" style={{ color: GOLD }}>Propostas</a> para o take-off ter onde lançar os itens.</p>}
           </div>
           <div data-ajuda="1">
             <label className="block text-xs font-medium mb-1" style={{ color: ESP }}><span className="inline-flex items-center gap-1">Take-off <AjudaCampo chave="projetos.engenharia.takeoff" rota="/dashboard/projetos/engenharia" /></span></label>

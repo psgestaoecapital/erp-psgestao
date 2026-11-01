@@ -40,5 +40,14 @@ ok(!!migArq, 'migration das chaves do "?" presente')
 const mig = migArq ? readFileSync(`supabase/migrations/${migArq}`, 'utf8') : ''
 ok(/'cadastros\.produtos\.novo'/.test(mig) && /'cadastros\.produtos\.salvar_outro'/.test(mig) && /ON CONFLICT \(chave\) DO NOTHING/.test(mig), 'chaves do "?" cadastradas (aditivo)')
 
-if (falhas) { console.error(`check-produto-novo: ${falhas} falha(s)`); process.exit(1) }
 console.log('check-produto-novo: ok')
+
+// #3255 (etapa estoque): o formulário tem mínimo/máximo, unidade de compra, fator, prazo, lote e validade, cada um com "?".
+const formEst = readFileSync('src/components/cadastros/ProdutoForm.tsx', 'utf8')
+for (const c of ['estoque_minimo','estoque_maximo','unidade_compra','fator_conversao','prazo_entrega','fornecedor_padrao','controla_lote','controla_validade']) {
+  ok(formEst.includes(`chave="cadastros.produtos.${c}"`), `campo ${c} tem o "?"`)
+  const mig = readdirSync('supabase/migrations').filter((f) => (f.endsWith('_produto_estoque_ajuda.sql') || f.endsWith('_produto_fornecedor_padrao_ajuda.sql'))).map((f) => readFileSync('supabase/migrations/' + f, 'utf8')).join('')
+  ok(mig.includes(`'cadastros.produtos.${c}'`), `chave ${c} existe na migration de ajuda`)
+}
+ok(/estoque máximo não pode ser menor/.test(formEst), 'máximo menor que o mínimo não grava')
+if (falhas) { console.error(`check-produto-novo: ${falhas} falha(s)`); process.exit(1) }
