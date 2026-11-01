@@ -94,6 +94,17 @@ BEGIN
   RETURN v_id;
 END; $function$;
 
+-- Isolamento multi-tenant: função recém-(re)criada recebe EXECUTE para PUBLIC (inclui anon)
+-- por padrão. A guarda interna é ignorada quando não há usuário (auth.uid() IS NULL = serviço/cron),
+-- então um chamador anon poderia criar obra em qualquer company_id. Reaplicamos a ACL viva
+-- ({authenticated, service_role, postgres}) na assinatura NOVA (15 args) logo após o CREATE.
+REVOKE ALL ON FUNCTION public.fn_hub_criar_obra_rapida(
+  uuid, uuid, text, text, text, text, text, text, text, text, text, text, numeric, date, date
+) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_hub_criar_obra_rapida(
+  uuid, uuid, text, text, text, text, text, text, text, text, text, text, numeric, date, date
+) TO authenticated, service_role;
+
 -- RD-95 · "?" dos 3 campos novos da Obra rápida (texto em linguagem do usuário).
 INSERT INTO public.erp_ajuda_campo
   (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, versao, status)
