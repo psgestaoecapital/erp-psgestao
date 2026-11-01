@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { DollarSign, Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
 type Linha = { id: string; nome: string };
 type Cfg = Record<string, number | string | null> & { business_line_id: string | null };
@@ -18,29 +19,30 @@ const CAMPO_KEYS = [
   "comissao_pct", "meta_producao_m2", "custo_fixo_m2", "custo_fixo_mensal", "realizado_producao_m2",
 ] as const;
 
-const GRUPOS: { grupo: string; campos: { k: string; l: string; suf: string }[] }[] = [
+// RD-95: cada premissa tem o "?" (a = chave em erp_ajuda_campo)
+const GRUPOS: { grupo: string; campos: { k: string; l: string; suf: string; a: string }[] }[] = [
   { grupo: "Tributário", campos: [
-    { k: "creditos_pct", l: "Créditos", suf: "%" },
-    { k: "icms_pct", l: "ICMS", suf: "%" },
-    { k: "pis_cofins_pct", l: "PIS/COFINS", suf: "%" },
+    { k: "creditos_pct", l: "Créditos", suf: "%", a: "projetos.precificacao.creditos_pct" },
+    { k: "icms_pct", l: "ICMS", suf: "%", a: "projetos.precificacao.icms_pct" },
+    { k: "pis_cofins_pct", l: "PIS/COFINS", suf: "%", a: "projetos.precificacao.pis_cofins_pct" },
   ] },
   { grupo: "Material", campos: [
-    { k: "margem_material_pct", l: "Margem Material", suf: "%" },
+    { k: "margem_material_pct", l: "Margem Material", suf: "%", a: "projetos.precificacao.margem_material_pct" },
   ] },
   { grupo: "Mão de obra", campos: [
-    { k: "custo_folha_hora", l: "Custo Folha/Hora", suf: "R$" },
-    { k: "tempo_m2_min", l: "Tempo por m²", suf: "min" },
-    { k: "imposto_mo_pct", l: "Imposto MO", suf: "%" },
-    { k: "margem_mo_pct", l: "Margem MO", suf: "%" },
+    { k: "custo_folha_hora", l: "Custo Folha/Hora", suf: "R$", a: "projetos.precificacao.custo_folha_hora" },
+    { k: "tempo_m2_min", l: "Tempo por m²", suf: "min", a: "projetos.precificacao.tempo_m2_min" },
+    { k: "imposto_mo_pct", l: "Imposto MO", suf: "%", a: "projetos.precificacao.imposto_mo_pct" },
+    { k: "margem_mo_pct", l: "Margem MO", suf: "%", a: "projetos.precificacao.margem_mo_pct" },
   ] },
   { grupo: "Comercial", campos: [
-    { k: "comissao_pct", l: "Comissão", suf: "%" },
-    { k: "meta_producao_m2", l: "Meta Produção", suf: "m²/mês" },
+    { k: "comissao_pct", l: "Comissão", suf: "%", a: "projetos.precificacao.comissao_pct" },
+    { k: "meta_producao_m2", l: "Meta Produção", suf: "m²/mês", a: "projetos.precificacao.meta_producao_m2" },
   ] },
   { grupo: "Custo fixo", campos: [
-    { k: "custo_fixo_m2", l: "Custo Fixo (R$/m²) — digitado", suf: "R$/m²" },
-    { k: "custo_fixo_mensal", l: "Custo Fixo Mensal (futuro rateio)", suf: "R$" },
-    { k: "realizado_producao_m2", l: "Produção realizada", suf: "m²/mês" },
+    { k: "custo_fixo_m2", l: "Custo Fixo (R$/m²) — digitado", suf: "R$/m²", a: "projetos.precificacao.custo_fixo_m2" },
+    { k: "custo_fixo_mensal", l: "Custo Fixo Mensal (futuro rateio)", suf: "R$", a: "projetos.precificacao.custo_fixo_mensal" },
+    { k: "realizado_producao_m2", l: "Produção realizada", suf: "m²/mês", a: "projetos.precificacao.realizado_producao_m2" },
   ] },
 ];
 
@@ -149,7 +151,7 @@ export default function PrecificacaoConfigPanel({ companyId }: { companyId: stri
 
       {/* Seletor de escopo */}
       <label className="mb-4 block max-w-sm">
-        <span className="mb-1 block text-xs uppercase tracking-wider text-[#3D2314]/60">Escopo</span>
+        <span className="mb-1 flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">Escopo <AjudaCampo chave="projetos.precificacao.escopo" /></span>
         <select
           value={escopo}
           onChange={(e) => setEscopo(e.target.value)}
@@ -173,9 +175,13 @@ export default function PrecificacaoConfigPanel({ companyId }: { companyId: stri
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {g.campos.map((c) => (
                 <label key={c.k} className="block">
-                  <span className="mb-1 block text-[11px] uppercase tracking-wider text-[#3D2314]/55">{c.l} <span className="text-[#3D2314]/35">({c.suf})</span></span>
+                  <span className="mb-1 flex items-center gap-1 text-[11px] uppercase tracking-wider text-[#3D2314]/55">
+                    <span>{c.l} <span className="text-[#3D2314]/35">({c.suf})</span></span>
+                    <AjudaCampo chave={c.a} />
+                  </span>
                   <input
                     inputMode="decimal"
+                    aria-label={c.l}
                     value={form[c.k] ?? ""}
                     onChange={(e) => setCampo(c.k, e.target.value)}
                     placeholder="—"
@@ -185,7 +191,7 @@ export default function PrecificacaoConfigPanel({ companyId }: { companyId: stri
               ))}
               {g.grupo === "Comercial" && (
                 <label className="block">
-                  <span className="mb-1 block text-[11px] uppercase tracking-wider text-[#3D2314]/55">Base do custo fixo</span>
+                  <span className="mb-1 flex items-center gap-1 text-[11px] uppercase tracking-wider text-[#3D2314]/55">Base do custo fixo <AjudaCampo chave="projetos.precificacao.base_custo_fixo" /></span>
                   <select
                     value={base}
                     onChange={(e) => setBase(e.target.value as "meta" | "realizado")}

@@ -15,6 +15,7 @@ import OSNotasFiscaisSelo from '@/components/comum/OSNotasFiscaisSelo'   // cham
 import OSNFForaDaOS from '@/components/comum/OSNFForaDaOS'   // chamado #2167 · marcação "NF fora da OS"
 import { orFiltroClienteBusca } from '@/lib/clienteBusca'
 import { fmtData } from '@/lib/psgc-tokens'   // formata date puro em LOCAL (sem drift −1 dia de UTC)
+import { useOficinaRamo } from '@/lib/oficina/ramo'   // HB0 item 6 · campos de oficina só no ramo automotivo
 import { useOficinaModelo } from '@/lib/oficina/modelo'   // #135 · atendimento centralizado (sem tablet)
 import { itensPendentesOS, podeAprovarNaOS } from '@/lib/oficina/aprovarNaOS'
 import { edicaoInicialOS, itemEditavelNaOS, montarDadosDiagnosticoOS, podeEditarItensNaOS, validarEdicaoOS, type EdicaoItemOS } from '@/lib/oficina/itensNaOS'
@@ -187,6 +188,8 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const podeAjustarEntregue = isMaster || isBpo             // BUG #16b: Master OU BPO ajustam pós-entrega
   const bloqueadoEntrega = Boolean(entregue && !podeAjustarEntregue)
   const roEntrega = bloqueadoEntrega                         // readOnly nos campos quando bloqueado
+  const { config: ramoCfg, carregado: ramoCarregado } = useOficinaRamo(os?.company_id ?? null)
+  const mostraPlaca = !ramoCarregado || ramoCfg.automotivo   // desconhecido/carregando = automotiva (regressão zero)
   const oficina = useOficinaModelo(os?.company_id ?? null)   // #135 · modelo de atendimento da empresa da OS
   const tipEntrega = 'OS entregue — ajustes só por Master ou BPO.'
 
@@ -656,6 +659,20 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
         </select>
       </label>
 
+      {/* #2867 etapa 3 · OS-orçamento: agenda o serviço direto daqui (a agenda abre já preenchida; na chegada do veículo faz-se a recepção/checklist). */}
+      {os.status === 'orcamento' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <a
+            href={`/dashboard/oficina/agenda?${new URLSearchParams({ os: os.id, osn: os.numero ?? '', cliente: os.cliente_nome ?? '', clienteId: os.cliente_id ?? '', placa: os.placa ?? '' }).toString()}`}
+            data-testid="os-agendar-orcamento"
+            style={{ ...btnPri, minHeight: 44, flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}
+          >
+            Agendar serviço
+          </a>
+          <AjudaCampo chave="os.orcamento.agendar" rota="/dashboard/os" />
+        </div>
+      )}
+
       {/* #135 (Triches) · atendimento centralizado: aprovar o orçamento aqui mesmo (a tela de Aprovação fica opcional) */}
       {podeAprovarNaOS(oficina.modelo, oficina.podePreco, os.status, itensPendentes.length) && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -669,8 +686,8 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
 
       {/* #121 · placa editável (erro de digitação ao abrir a OS). Mesma RPC do pátio (fn_oficina_os_set_placa):
           normaliza (maiúsculas, sem traço) e exige ≥ 5 caracteres. Salva na hora, separado do "Salvar" da ficha. */}
-      <div style={{ display: 'block' }}>
-        <span style={lbl}>Placa</span>
+      {mostraPlaca && <div style={{ display: 'block' }}>
+        <span style={lbl}>Placa <AjudaCampo chave="os.ficha.placa" rota="/dashboard/os" /></span>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <input
             value={placaEdit}
@@ -703,7 +720,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           )}
         </div>
         {msgPlaca && <div data-testid="os-placa-msg" style={{ fontSize: 12, marginTop: 4, color: msgPlaca.startsWith('Placa SALVA') ? C.green : C.red }}>{msgPlaca}</div>}
-      </div>
+      </div>}
 
       {/* FIX 1 · cliente editável em qualquer status + re-vínculo a outro cadastro */}
       <div style={{ display: 'block' }}>
@@ -1098,7 +1115,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
         {faturada ? (
           // §2.5 · mostra o estado e LEVA à GE (alterar o título é ação da GE, não da OS — fronteira [→GE])
           <>
-            <a href="/dashboard/financeiro/receber" data-testid="os-faturada" title="Ver ou alterar o título financeiro na Gestão Empresarial (Contas a Receber)"
+            <a href={os.numero ? `/dashboard/financeiro/receber?busca=${encodeURIComponent(os.numero)}` : '/dashboard/financeiro/receber'} data-testid="os-faturada" title="Ver ou alterar o título financeiro na Gestão Empresarial (Contas a Receber)"
               style={{ fontSize: 12, fontWeight: 700, color: C.green, background: C.greenBg, borderRadius: 8, padding: '10px 14px', minHeight: 44, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}>
               ✓ Faturada · ver na GE →
             </a>
@@ -1128,15 +1145,23 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           !os.pedido_id ? (
             // OS avulsa (oficina): abre o lançamento de receita COMPLETO (forma de pagamento, parcelas),
             // pré-preenchido com cliente e valor da OS — chamado #20 §2.4. Não emite NF.
-            <button
-              type="button"
-              onClick={() => setReceitaAberta(true)}
-              data-testid="os-faturar"
-              title="Abre o lançamento de receita (forma de pagamento, parcelas) já preenchido com o cliente e o valor da OS. Não emite NF."
-              style={{ ...btnPri, background: C.gold, color: '#3D2314' }}
-            >
-              💰 Gerar Financeiro
-            </button>
+            // Chamado #5435 (Gean): a marcação "NF fora da OS" tira a OS da pendência de NF (nfPendente não
+            // exige faturamento). Antes só aparecia na OS já faturada; agora a OS pronta/entregue também pode
+            // ser marcada — quando a nota foi emitida por fora, sem precisar gerar financeiro nem informar
+            // os códigos de estoque dos itens. O selo mostra a situação atual da NF.
+            <>
+              <OSNotasFiscaisSelo osId={os.id} companyId={os.company_id} />
+              <OSNFForaDaOS osId={os.id} companyId={os.company_id} />
+              <button
+                type="button"
+                onClick={() => setReceitaAberta(true)}
+                data-testid="os-faturar"
+                title="Abre o lançamento de receita (forma de pagamento, parcelas) já preenchido com o cliente e o valor da OS. Não emite NF."
+                style={{ ...btnPri, background: C.gold, color: '#3D2314' }}
+              >
+                💰 Gerar Financeiro
+              </button>
+            </>
           ) : (
             // OS via pedido: o financeiro vem das parcelas do pedido (fn_os_faturar → fn_faturar)
             <button

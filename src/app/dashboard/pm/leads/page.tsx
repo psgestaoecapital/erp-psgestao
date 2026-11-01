@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { nomeUsuario } from '@/lib/usuarioLabel'
 import SolicitarContratoModal from '@/components/ge/SolicitarContratoModal'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { TarefasLeadModal, MinhasTarefasModal, SELECT_TAREFA, tipoTarefa, quando, atrasada, whatsappHref, type Tarefa } from '@/components/pm/TarefasLead'
 
 const ESPRESSO = '#3D2314'
@@ -254,8 +255,14 @@ export default function LeadsPage() {
     total: filtrados.length,
     emAberto: filtrados.filter((l) => !fechadas.has(l.etapa)).length,
     ganhos: filtrados.filter((l) => ganhoChaves.has(l.etapa)).length,
-    pipeline: filtrados.filter((l) => !fechadas.has(l.etapa)).reduce((s, l) => s + Number(l.valor_estimado ?? 0), 0),
-  }), [filtrados, fechadas, ganhoChaves])
+    // Valor do lead = estimado; sem estimado, cai no maior valor de proposta viva (não recusada) ligada a ele.
+    pipeline: filtrados.filter((l) => !fechadas.has(l.etapa)).reduce((s, l) => {
+      const est = Number(l.valor_estimado ?? 0)
+      if (est > 0) return s + est
+      const props = (propMap[l.id] ?? []).filter((p) => p.status !== 'recusada' && p.status !== 'rejeitada' && p.status !== 'cancelada')
+      return s + props.reduce((m, p) => Math.max(m, Number(p.valor_total ?? 0)), 0)
+    }, 0),
+  }), [filtrados, fechadas, ganhoChaves, propMap])
 
   // ── autocomplete de cliente (GE) ────────────────────────────────────────────
   const buscarClientes = useCallback(async (t: string) => {
@@ -322,13 +329,13 @@ export default function LeadsPage() {
     setToast(`Movido para ${etapaCfg(etapa).rotulo}.`)
   }
   async function ganhar(l: Lead) {
-    if (!confirm(`Marcar "${l.nome}" como GANHO?\nCria o cliente na agência e GERA uma proposta.`)) return
+    if (!confirm(`Marcar "${l.nome}" como GANHO?\nCria o cliente na agência e usa a proposta já feita no lead (ou GERA uma, se não houver).`)) return
     setBusy(true)
     const { data, error } = await supabase.rpc('fn_agency_lead_ganhar', { p_lead_id: l.id })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
     if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
-    setToast('GANHOU → proposta gerada.'); void carregar()
+    setToast('GANHOU → proposta pronta.'); void carregar()
     setTimeout(() => router.push('/dashboard/pm/propostas'), 700)
   }
   async function perder(l: Lead) {
@@ -430,30 +437,42 @@ export default function LeadsPage() {
         </header>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px,1fr))', gap: 10, marginBottom: 14 }}>
-          <Kpi l="Leads" v={String(kpis.total)} />
-          <Kpi l="Em aberto" v={String(kpis.emAberto)} />
-          <Kpi l="Ganhos" v={String(kpis.ganhos)} />
-          <Kpi l="Pipeline" v={brl(kpis.pipeline)} />
+          <Kpi l="Leads" v={String(kpis.total)} ajuda="pm.leads.kpi_total" />
+          <Kpi l="Em aberto" v={String(kpis.emAberto)} ajuda="pm.leads.kpi_em_aberto" />
+          <Kpi l="Ganhos" v={String(kpis.ganhos)} ajuda="pm.leads.kpi_ganhos" />
+          <Kpi l="Pipeline" v={brl(kpis.pipeline)} ajuda="pm.leads.kpi_pipeline" />
         </div>
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
-          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar contato/empresa/email…" style={{ ...inp, minWidth: 220 }} />
-          <select value={fOrigem} onChange={(e) => setFOrigem(e.target.value)} style={inp} aria-label="Origem">
-            <option value="todas">Origem: todas</option>
-            {origens.map((o) => <option key={o.chave} value={o.chave}>{o.nome}</option>)}
-          </select>
-          <select value={fResp} onChange={(e) => setFResp(e.target.value)} style={inp} aria-label="Responsável">
-            <option value="todos">Responsável: todos</option>
-            {uid && <option value={uid}>Meus leads</option>}
-            {Object.entries(respMap).sort((a, b) => a[1].localeCompare(b[1])).map(([id, nome]) => <option key={id} value={id}>{nome}</option>)}
-          </select>
-          <select value={fPeriodo} onChange={(e) => setFPeriodo(e.target.value as typeof fPeriodo)} style={inp} aria-label="Período">
-            <option value="todos">Período: todos</option>
-            <option value="mes">Mês atual</option>
-            <option value="trimestre">Trimestre atual</option>
-            <option value="ano">Ano atual</option>
-            <option value="custom">Personalizado…</option>
-          </select>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+            <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar contato/empresa/email…" style={{ ...inp, minWidth: 220 }} />
+            <AjudaCampo chave="pm.leads.filtro_busca" />
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+            <select value={fOrigem} onChange={(e) => setFOrigem(e.target.value)} style={inp} aria-label="Origem">
+              <option value="todas">Origem: todas</option>
+              {origens.map((o) => <option key={o.chave} value={o.chave}>{o.nome}</option>)}
+            </select>
+            <AjudaCampo chave="pm.leads.filtro_origem" />
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+            <select value={fResp} onChange={(e) => setFResp(e.target.value)} style={inp} aria-label="Responsável">
+              <option value="todos">Responsável: todos</option>
+              {uid && <option value={uid}>Meus leads</option>}
+              {Object.entries(respMap).sort((a, b) => a[1].localeCompare(b[1])).map(([id, nome]) => <option key={id} value={id}>{nome}</option>)}
+            </select>
+            <AjudaCampo chave="pm.leads.filtro_responsavel" />
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+            <select value={fPeriodo} onChange={(e) => setFPeriodo(e.target.value as typeof fPeriodo)} style={inp} aria-label="Período">
+              <option value="todos">Período: todos</option>
+              <option value="mes">Mês atual</option>
+              <option value="trimestre">Trimestre atual</option>
+              <option value="ano">Ano atual</option>
+              <option value="custom">Personalizado…</option>
+            </select>
+            <AjudaCampo chave="pm.leads.filtro_periodo" />
+          </span>
           {fPeriodo === 'custom' && (<>
             <input type="date" value={pIni} onChange={(e) => setPIni(e.target.value)} style={inp} aria-label="Início do período" />
             <input type="date" value={pFim} onChange={(e) => setPFim(e.target.value)} style={inp} aria-label="Fim do período" />
@@ -466,6 +485,13 @@ export default function LeadsPage() {
               Nenhuma etapa configurada. <button onClick={() => setCfgOpen(true)} style={{ ...btnSec, display: 'inline-block', marginLeft: 6 }}>Configurar funil</button>
             </div>
           ) : (
+          <>
+          {/* RD-95: o quadro é dinâmico (colunas = etapas do funil) e os cards repetem as mesmas ações — o "?"
+              fica no cabeçalho do quadro (explica colunas e ações uma vez), em vez de poluir cada card (RD-99). */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '0 2px 8px', fontSize: 11.5, color: TEXTM }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>Colunas = etapas do funil<AjudaCampo chave="pm.leads.kanban_colunas" /></span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>Ações do card<AjudaCampo chave="pm.leads.kanban_acoes" /></span>
+          </div>
           <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 8, alignItems: 'flex-start' }}>
             {etapas.map((col) => {
               const items = filtrados.filter((l) => l.etapa === col.chave)
@@ -595,6 +621,7 @@ export default function LeadsPage() {
               )
             })}
           </div>
+          </>
         )}
       </div>
 
@@ -1109,10 +1136,12 @@ function EditarLeadModal({ lead, empresa, origens, onClose, onSaved }: {
   )
 }
 
-function Kpi({ l, v }: { l: string; v: string }) {
+function Kpi({ l, v, ajuda }: { l: string; v: string; ajuda?: string }) {
   return (
     <div style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: '12px 14px' }}>
-      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700 }}>{l}</div>
+      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
+        {l}{ajuda && <AjudaCampo chave={ajuda} />}
+      </div>
       <div style={{ fontSize: 22, fontWeight: 700, color: ESPRESSO, marginTop: 2 }}>{v}</div>
     </div>
   )

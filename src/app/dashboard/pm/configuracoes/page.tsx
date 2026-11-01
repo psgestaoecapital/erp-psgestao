@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)'
 const VERDE = '#16A34A', VERM = '#B91C1C'
@@ -101,8 +102,8 @@ function AbaAlertas({ empresa }: { empresa: string | null }) {
       <div style={{ fontSize: 12, color: MUT, marginBottom: 14 }}>Dias que um lead pode ficar parado numa etapa antes de virar âmbar (atenção) e vermelho (atrasado). Vale para todas as etapas.</div>
       {!salvo && <div style={{ fontSize: 11.5, color: ESP, background: '#FFF8E7', border: `0.5px solid ${GOLD}`, borderRadius: 8, padding: '8px 10px', marginBottom: 12 }}>Ainda usando o padrão do sistema (amarelo 3 · vermelho 7). Salve para aplicar a sua régua.</div>}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-        <label><span style={lblS}>Dias para âmbar</span><input type="number" min={1} value={amarelo} onChange={(e) => setAmarelo(Math.max(1, Number(e.target.value) || 1))} style={inp} /></label>
-        <label><span style={lblS}>Dias para vermelho</span><input type="number" min={1} value={vermelho} onChange={(e) => setVermelho(Math.max(1, Number(e.target.value) || 1))} style={inp} /></label>
+        <label><span style={lblS}>Dias para âmbar<AjudaCampo chave="pm.config.alertas_ambar" /></span><input type="number" min={1} value={amarelo} onChange={(e) => setAmarelo(Math.max(1, Number(e.target.value) || 1))} style={inp} /></label>
+        <label><span style={lblS}>Dias para vermelho<AjudaCampo chave="pm.config.alertas_vermelho" /></span><input type="number" min={1} value={vermelho} onChange={(e) => setVermelho(Math.max(1, Number(e.target.value) || 1))} style={inp} /></label>
       </div>
       <Msg m={msg} />
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
@@ -141,6 +142,14 @@ function AbaFunil({ empresa }: { empresa: string | null }) {
     <Card>
       <div style={{ fontSize: 13, color: ESP, fontWeight: 700, marginBottom: 4 }}>Etapas do funil de leads</div>
       <div style={{ fontSize: 12, color: MUT, marginBottom: 6 }}>Renomeie e ajuste cor/ordem. <strong>A chave interna não muda</strong> — é o que garante que nenhum lead se perca ao renomear.</div>
+      {etapas.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 70px auto auto', gap: 8, padding: '0 10px', marginBottom: 2, alignItems: 'center' }}>
+          <span style={{ fontSize: 10, color: MUT, fontFamily: 'monospace' }}>chave</span>
+          <span style={lblS}>Nome da etapa<AjudaCampo chave="pm.config.funil_rotulo" /></span>
+          <span style={lblS}>Cor<AjudaCampo chave="pm.config.funil_cor" /></span>
+          <span style={{ ...lblS, gridColumn: '4 / 6' }}>Situação / salvar<AjudaCampo chave="pm.config.funil_situacao" /></span>
+        </div>
+      )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {etapas.map((e) => (
           <div key={e.id} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr 70px auto auto', gap: 8, alignItems: 'center', border: `1px solid ${LINE}`, borderRadius: 8, padding: '8px 10px' }}>
@@ -208,11 +217,13 @@ function AbaListas({ empresa }: { empresa: string | null }) {
 
   return (
     <Card>
+      <span style={{ ...lblS, marginBottom: 6 }}>Tipo de lista<AjudaCampo chave="pm.config.listas_tipo" /></span>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
         {LISTAS.map((l) => (
           <button key={l.id} type="button" onClick={() => setLista(l.id)} style={{ fontSize: 12, fontWeight: 600, padding: '5px 10px', borderRadius: 8, cursor: 'pointer', border: `1px solid ${lista === l.id ? GOLD : LINE}`, background: lista === l.id ? '#FFF8E7' : '#FFF', color: ESP }}>{l.label}</button>
         ))}
       </div>
+      {rows.length > 0 && <span style={{ ...lblS, marginBottom: 6 }}>Opção (texto · ativa/oculta · remover)<AjudaCampo chave="pm.config.listas_rotulo" /></span>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {rows.map((o) => (
           <div key={o.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, alignItems: 'center', border: `1px solid ${LINE}`, borderRadius: 8, padding: '7px 10px' }}>
@@ -223,8 +234,11 @@ function AbaListas({ empresa }: { empresa: string | null }) {
         ))}
         {rows.length === 0 && <div style={{ fontSize: 12.5, color: MUT }}>Nenhuma opção nesta lista ainda.</div>}
       </div>
-      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-        <input value={novoRot} onChange={(e) => setNovoRot(e.target.value)} placeholder="Nova opção…" style={inp} onKeyDown={(e) => { if (e.key === 'Enter') void adicionar() }} />
+      <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}>
+        <label style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <input value={novoRot} onChange={(e) => setNovoRot(e.target.value)} placeholder="Nova opção…" style={inp} onKeyDown={(e) => { if (e.key === 'Enter') void adicionar() }} />
+          <AjudaCampo chave="pm.config.listas_nova" />
+        </label>
         <button type="button" disabled={busy || !novoRot.trim()} onClick={() => void adicionar()} style={btnPrim(busy || !novoRot.trim())}>Adicionar</button>
       </div>
       <Msg m={msg} />
@@ -267,11 +281,11 @@ function AbaProposta({ empresa }: { empresa: string | null }) {
       <div style={{ fontSize: 13, color: ESP, fontWeight: 700, marginBottom: 10 }}>Regras da proposta</div>
       <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: ESP, marginBottom: 12, cursor: 'pointer' }}>
         <input type="checkbox" checked={exigir} onChange={(e) => setExigir(e.target.checked)} />
-        Exigir que todo item venha do catálogo (bloqueia itens avulsos)
+        Exigir que todo item venha do catálogo (bloqueia itens avulsos)<AjudaCampo chave="pm.config.proposta_exigir_catalogo" />
       </label>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-        <label><span style={lblS}>Condição de pagamento padrão</span><input value={condicao} onChange={(e) => setCondicao(e.target.value)} placeholder="ex.: Mensal" style={inp} /></label>
-        <label><span style={lblS}>Desconto máximo (%) — vazio = sem limite</span><input type="number" min={0} max={100} step="0.5" value={descMax} onChange={(e) => setDescMax(e.target.value)} placeholder="sem limite" style={inp} /></label>
+        <label><span style={lblS}>Condição de pagamento padrão<AjudaCampo chave="pm.config.proposta_condicao" /></span><input value={condicao} onChange={(e) => setCondicao(e.target.value)} placeholder="ex.: Mensal" style={inp} /></label>
+        <label><span style={lblS}>Desconto máximo (%) — vazio = sem limite<AjudaCampo chave="pm.config.proposta_desconto_max" /></span><input type="number" min={0} max={100} step="0.5" value={descMax} onChange={(e) => setDescMax(e.target.value)} placeholder="sem limite" style={inp} /></label>
       </div>
       <div style={{ fontSize: 11, color: MUT, marginTop: 10 }}>Numeração (prefixo/contador) e validade padrão ficam para um próximo ajuste — dependem de mudança na função de criação da proposta, e não entram aqui como campo que não faz nada.</div>
       <Msg m={msg} />
@@ -300,6 +314,7 @@ function AbaComissao({ empresa }: { empresa: string | null }) {
     <Card>
       <div style={{ fontSize: 13, color: ESP, fontWeight: 700, marginBottom: 4 }}>Comissões geradas</div>
       <div style={{ fontSize: 12, color: MUT, marginBottom: 12 }}>Comissões que já foram lançadas nas propostas aprovadas. O modelo de regra de comissão (sobre valor × margem, por vendedor × serviço) ainda não está definido — quando estiver, vira cadastro aqui.</div>
+      {rows.length > 0 && <span style={{ ...lblS, marginBottom: 8 }}>Comissão gerada<AjudaCampo chave="pm.config.comissao_item" /></span>}
       {carregou && rows.length === 0 && <div style={{ fontSize: 12.5, color: MUT }}>Nenhuma comissão gerada ainda.</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {rows.map((c) => (

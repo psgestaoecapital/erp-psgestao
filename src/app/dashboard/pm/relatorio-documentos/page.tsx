@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import EmpresaNaoResolvida from "@/components/pm/EmpresaNaoResolvida";
+import { exportarPDF, type Coluna } from "@/lib/export/relatorioLista";
 import { COLUNAS, MAX_COLUNAS, colunasValidas, deContrato, dePropostas, filtrarDocs, linhasCsv, totais, type Documento, type FiltroDoc } from "@/lib/pm/relatorioDocumentos";
 
 const CHAVE = "pm-relatorio-documentos-colunas";
@@ -15,8 +16,9 @@ const brl = (n: number | null) => (n === null ? "—" : n.toLocaleString("pt-BR"
 const campo = "rounded-lg border border-[#E7DED3] bg-white px-2 py-2 text-[13px] text-[#3D2314] min-h-[40px]";
 
 export default function RelatorioDocumentosPage() {
-  const { companyIds, loading: carregandoEmpresa } = useCompanyIds();
+  const { companyIds, companies, loading: carregandoEmpresa } = useCompanyIds();
   const empresa = companyIds[0] ?? null;
+  const [gerandoPdf, setGerandoPdf] = useState(false);
   const [docs, setDocs] = useState<Documento[]>([]);
   const [clientes, setClientes] = useState<Record<string, string>>({});
   const [responsaveis, setResponsaveis] = useState<Record<string, string>>({});
@@ -69,6 +71,27 @@ export default function RelatorioDocumentosPage() {
     const blob = new Blob(["﻿" + linhasCsv(vis, colunas, { clientes, responsaveis })], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "relatorio-documentos.csv"; a.click(); URL.revokeObjectURL(a.href);
   };
+  // PDF = arquivo gerado (pdf-lib), nunca a impressão do navegador (window.print): o diálogo de impressão é modal e PARA
+  // a aba inteira até ser fechado (mesmo problema mapeado na P&M 10/10). Leva as colunas escolhidas e as linhas do filtro.
+  const baixarPdf = async () => {
+    if (gerandoPdf) return;
+    setGerandoPdf(true);
+    try {
+      const emp = (companies as { id: string; nome_fantasia?: string | null; razao_social?: string | null; nome?: string | null }[]).find((x) => x.id === empresa);
+      const colunasPdf: Coluna<Documento>[] = cols.map((c) => ({
+        header: c.rotulo,
+        get: (d: Documento) => celula(d, c.chave as string),
+        align: (c.chave === "valor" || c.chave === "desconto" || c.chave === "valor_a_faturar" ? "right" : "left") as "left" | "right",
+      }));
+      await exportarPDF({
+        titulo: "Relatório de Documentos",
+        empresa: emp?.nome_fantasia || emp?.razao_social || emp?.nome || "Empresa",
+        filtros: `${t.quantidade} documento(s) · valor ${brl(t.valor)} · a faturar ${brl(t.aFaturar)}`,
+        emitidoEmISO: new Date().toISOString(),
+      }, colunasPdf, vis);
+    } catch { setErro("Não foi possível gerar o PDF agora. Tente de novo ou use o Excel."); }
+    setGerandoPdf(false);
+  };
 
   if (carregandoEmpresa || !empresa) return <EmpresaNaoResolvida carregando={carregandoEmpresa} temEmpresa={companyIds.length > 0} tela="o Relatório de Documentos" />;
   return (
@@ -78,10 +101,13 @@ export default function RelatorioDocumentosPage() {
           <h1 className="text-[20px] font-semibold text-[#3D2314]">Relatório de Documentos</h1>
           <p className="text-[12px] text-[#6b5444]">Fees e orçamentos. Valores do documento comercial; o realizado financeiro fica no Financeiro.</p>
         </div>
-        <div className="flex gap-2 print:hidden">
+        <div className="flex items-center gap-2 print:hidden">
           <button onClick={() => setConfig((v) => !v)} className={campo + " inline-flex items-center gap-1"}><Settings2 size={14} /> Colunas</button>
+          <AjudaCampo chave="pm.relatorio_documentos.acao_colunas" />
           <button onClick={baixarExcel} className={campo + " inline-flex items-center gap-1"}><FileSpreadsheet size={14} /> Excel</button>
-          <button onClick={() => window.print()} className={campo + " inline-flex items-center gap-1"}><FileDown size={14} /> PDF</button>
+          <AjudaCampo chave="pm.relatorio_documentos.acao_excel" />
+          <button onClick={baixarPdf} disabled={gerandoPdf} className={campo + " inline-flex items-center gap-1 disabled:opacity-50"}><FileDown size={14} /> {gerandoPdf ? "Gerando…" : "PDF"}</button>
+          <AjudaCampo chave="pm.relatorio_documentos.acao_pdf" />
         </div>
       </header>
 
@@ -112,8 +138,8 @@ export default function RelatorioDocumentosPage() {
       </div>
 
       <div className="grid grid-cols-3 gap-2 text-[13px]">
-        {[["Documentos", String(t.quantidade)], ["Valor", brl(t.valor)], ["A faturar", brl(t.aFaturar)]].map(([r, v]) => (
-          <div key={r} className="rounded-2xl border border-[#3D2314]/10 bg-white p-3"><div className="text-[11px] uppercase tracking-wider text-[#3D2314]/60">{r}</div><div className="font-semibold text-[#3D2314]">{v}</div></div>
+        {([["Documentos", String(t.quantidade), "pm.relatorio_documentos.ind_documentos"], ["Valor", brl(t.valor), "pm.relatorio_documentos.ind_valor"], ["A faturar", brl(t.aFaturar), "pm.relatorio_documentos.ind_a_faturar"]] as const).map(([r, v, a]) => (
+          <div key={r} className="rounded-2xl border border-[#3D2314]/10 bg-white p-3"><div className="flex items-center gap-1 text-[11px] uppercase tracking-wider text-[#3D2314]/60">{r}<AjudaCampo chave={a} /></div><div className="font-semibold text-[#3D2314]">{v}</div></div>
         ))}
       </div>
 

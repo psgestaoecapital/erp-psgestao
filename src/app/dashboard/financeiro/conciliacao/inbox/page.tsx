@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { dataReferenciaSaldoOFX, rotuloDataSaldo, dtendDoOFX, saldoOFXValido, AVISO_SALDO_INVALIDO } from '@/lib/financeiro/saldoPorConta'
 import { parseSaldoFechamento, ehLinhaSaldoOFX, parseValorOFX, decodificarOFX, mensagemErroOFX } from '@/lib/ofx-parser'
 import { temConectorExtrato } from '@/lib/banco/extratoConector'
 import ArquivarMovimentoModal from '@/components/conciliacao/ArquivarMovimentoModal'
@@ -18,6 +19,7 @@ import TransferenciaContaModal from '@/components/conciliacao/TransferenciaConta
 import PickerTituloExistenteModal from '@/components/conciliacao/PickerTituloExistenteModal'
 import PagamentosDoTitulo from '@/components/conciliacao/PagamentosDoTitulo'
 import { valorReferencia, type BaixaTitulo, type TituloReceber } from '@/lib/conciliacao/baixasTitulo'
+import { extrairContaOFX, contaOFXConfere, mensagemContaErrada, movimentosJaNoGrupo, type ContaOFX, type MovimentoExistente } from '@/lib/conciliacao/ofxContaConfere'
 // #71 · Editar abre a MESMA tela da inclusão (NovaDespesaForm/NovaReceitaForm em modo edição)
 import NovaDespesaModal from '@/components/financeiro/NovaDespesaModal'
 import NovaReceitaModal from '@/components/financeiro/NovaReceitaModal'
@@ -283,7 +285,7 @@ export default function InboxPage() {
   const [sincExtratoBusy, setSincExtratoBusy] = useState(false)
   // #88: o botão só aparece se a empresa tem conexão ativa de um banco COM conector de extrato (hoje só Sicoob)
   const [temExtratoApi, setTemExtratoApi] = useState(false)
-  const [contas, setContas] = useState<{ id: string; nome: string | null; banco: string | null }[]>([])
+  const [contas, setContas] = useState<{ id: string; nome: string | null; banco: string | null; banco_codigo: string | null; agencia: string | null; conta: string | null }[]>([])
   const [contaImportId, setContaImportId] = useState<string>('')
   const [arquivoOFX, setArquivoOFX] = useState<File | null>(null)
   const [importando, setImportando] = useState(false)
@@ -404,7 +406,7 @@ export default function InboxPage() {
     if (!empresaUnica) return
     const { data } = await supabase
       .from('erp_banco_contas')
-      .select('id,nome,banco')
+      .select('id,nome,banco,banco_codigo,agencia,conta')
       .eq('company_id', empresaUnica)
       .eq('ativo', true)
       .order('nome')
@@ -447,6 +449,53 @@ export default function InboxPage() {
     }
   }
 
+  // Trava do OFX (Jordana 20/10): de quem é a conta do arquivo, entre as contas que o usuário enxerga (RLS).
+  async function acharContaDoOFX(ofx: ContaOFX): Promise<{ nome: string | null; empresa: string | null } | null> {
+    const { data } = await supabase
+      .from('erp_banco_contas')
+      .select('nome,banco,banco_codigo,agencia,conta,company_id')
+      .eq('ativo', true)
+      .not('conta', 'is', null)
+      .limit(1000)
+    const achada = (data ?? []).find((c) => contaOFXConfere(ofx, c).confere === true)
+    if (!achada) return null
+    const { data: emp } = await supabase
+      .from('companies')
+      .select('nome_fantasia,razao_social')
+      .eq('id', achada.company_id)
+      .maybeSingle()
+    return { nome: achada.nome, empresa: emp?.nome_fantasia || emp?.razao_social || null }
+  }
+
+  // Aviso (Jordana 20/10): movimentos do arquivo já importados em outra empresa do MESMO grupo
+  // (mesmo FITID, ou mesma data + valor + descrição). Devolve o texto do aviso ou null.
+  async function avisoMovimentosNoGrupo(movs: MovimentoOFX[]): Promise<string | null> {
+    if (!empresaUnica || movs.length === 0) return null
+    const { data: emp } = await supabase.from('companies').select('group_id').eq('id', empresaUnica).maybeSingle()
+    if (!emp?.group_id) return null
+    const { data: irmas } = await supabase
+      .from('companies')
+      .select('id,nome_fantasia,razao_social')
+      .eq('group_id', emp.group_id)
+      .neq('id', empresaUnica)
+    if (!irmas || irmas.length === 0) return null
+    const datas = movs.map((m) => m.data_transacao).sort()
+    const { data: existentes } = await supabase
+      .from('conciliacao_movimento')
+      .select('company_id,id_externo,data_transacao,valor,natureza,descricao')
+      .in('company_id', irmas.map((i) => i.id))
+      .gte('data_transacao', datas[0])
+      .lte('data_transacao', datas[datas.length - 1])
+      .limit(5000)
+    const contagem = movimentosJaNoGrupo(movs, (existentes ?? []) as MovimentoExistente[])
+    const partes = irmas
+      .filter((i) => contagem[i.id])
+      .map((i) => `${contagem[i.id]} na empresa ${i.nome_fantasia || i.razao_social || i.id}`)
+    if (partes.length === 0) return null
+    return `Atenção: movimentos deste arquivo já foram importados em outra empresa do grupo (${partes.join('; ')}). ` +
+      'Confira se o extrato é mesmo desta empresa e desta conta.\n\nImportar mesmo assim?'
+  }
+
   async function importarOFX() {
     if (!empresaUnica || !contaImportId || !arquivoOFX) {
       alert('Escolha a conta e o arquivo OFX.')
@@ -467,10 +516,23 @@ export default function InboxPage() {
         setImportando(false)
         return
       }
+      // Trava: o banco/conta do arquivo tem de ser a conta escolhida (extrato de outra empresa não entra).
+      const contaArquivo = extrairContaOFX(text)
+      const contaEscolhida = contas.find((c) => c.id === contaImportId)
+      if (contaArquivo && contaEscolhida && contaOFXConfere(contaArquivo, contaEscolhida).confere === false) {
+        alert(mensagemContaErrada(contaArquivo, contaEscolhida, await acharContaDoOFX(contaArquivo)))
+        return
+      }
+      const avisoGrupo = await avisoMovimentosNoGrupo(movimentos)
+      if (avisoGrupo && !window.confirm(avisoGrupo)) return
       const hash = `${text.length}-${movimentos[0]?.id_externo ?? ''}-${movimentos[movimentos.length - 1]?.id_externo ?? ''}`
       // Saldo Bancário: extrai o saldo de fechamento (LEDGERBAL) do OFX e deixa o backend gravá-lo
       // na MESMA transação do lote (ponto único de escrita, RD-65). Sem LEDGERBAL → segue sem saldo.
+      // #3952: a data do saldo é o FIM do dia a que ele se refere (nunca antes do último movimento do arquivo).
       const saldo = parseSaldoFechamento(text)
+      // #4969: DTASOF zerado (Bradesco "00000000") → último movimento ou DTEND; sem valor/data válidos → aviso, não grava.
+      const saldoDataRef = saldo.presente ? dataReferenciaSaldoOFX(saldo.dtasof_bruto, movimentos.map((m) => m.data_transacao), dtendDoOFX(text)) : null
+      const saldoLedgerOk = saldo.presente && saldoOFXValido(saldo.valor, saldoDataRef)
       // Fallback do saldo pela linha "SALDO ANTERIOR/DO DIA": só quando NÃO há LEDGERBAL (este tem
       // prioridade). Pega a linha de saldo mais recente do arquivo (>= mantém a última em empate de
       // data). O valor volta ao sinal contábil (débito → negativo). origem 'ofx_saldo_linha'.
@@ -492,8 +554,8 @@ export default function InboxPage() {
         p_storage_path: null,
         p_movimentos: movimentos,
         p_conta_bancaria_id: contaImportId,
-        p_saldo_fechamento: saldo.presente ? saldo.valor : (saldoLinha ? saldoLinha.valor : null),
-        p_saldo_data: saldo.presente ? saldo.dataISO : (saldoLinha ? saldoLinha.dataISO : null),
+        p_saldo_fechamento: saldo.presente ? (saldoLedgerOk ? saldo.valor : null) : (saldoLinha ? saldoLinha.valor : null),
+        p_saldo_data: saldo.presente ? (saldoLedgerOk ? saldoDataRef : null) : (saldoLinha ? saldoLinha.dataISO : null),
         p_saldo_bruto: saldo.presente
           ? { balamt_bruto: saldo.balamt_bruto, dtasof_bruto: saldo.dtasof_bruto, origem: 'ofx' }
           : (saldoLinha ? { origem: 'ofx_saldo_linha', descricao_linha: saldoLinha.descricao } : null),
@@ -509,17 +571,19 @@ export default function InboxPage() {
       // Linha de saldo do banco: gravado, mantido (leitura mais antiga) ou não veio no arquivo.
       // Valor/data efetivos: LEDGERBAL quando presente, senão a linha "SALDO ANTERIOR/DO DIA".
       const saldoValor = saldo.presente ? saldo.valor : (saldoLinha ? saldoLinha.valor : null)
-      const saldoDataISO = saldo.presente ? saldo.dataISO : (saldoLinha ? saldoLinha.dataISO : null)
+      const saldoDataISO = saldo.presente ? saldoDataRef : (saldoLinha ? saldoLinha.dataISO : null)
       let linhaSaldo = ''
       if (!temSaldo) {
         linhaSaldo = '\nEste arquivo não trouxe o saldo do banco.'
+      } else if (saldo.presente && !saldoLedgerOk) {
+        linhaSaldo = `\n${AVISO_SALDO_INVALIDO}`
       } else if (r.saldo?.gravado === false && r.saldo?.motivo === 'leitura_mais_antiga') {
         linhaSaldo = '\nSaldo mais antigo que o já registrado — mantido.'
       } else if (r.saldo?.ok && saldoValor != null) {
-        const dia = saldoDataISO ? new Date(saldoDataISO).toLocaleDateString('pt-BR') : '—'
+        const dia = saldoDataISO ? rotuloDataSaldo(saldoDataISO) : '—'
         const val = saldoValor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
         const fonte = saldo.presente ? '' : ' (linha de saldo do extrato)'
-        linhaSaldo = `\nSaldo do banco em ${dia}: ${val}${fonte}`
+        linhaSaldo = `\nSaldo do banco (${dia}): ${val}${fonte}`
       }
       alert((r.mensagem ?? (novos === 0
         ? `Nenhum lançamento novo — todos os ${r.total_recebidos ?? movimentos.length} já estavam no sistema.`
@@ -820,6 +884,8 @@ export default function InboxPage() {
   }
 
   async function desvincularConciliado(c: Conciliado) {
+    // #3963: a caixa de erro fica no topo da página, longe do botão — a recusa também abre um aviso na hora.
+    const falhou = (msg: string) => { setErro(msg); alert(msg) }
     // Fatura AGRUPADA (lancamento_id NULL): os vínculos ficam em conciliacao_vinculo, não no 1:1.
     // Antes o botão virava um aviso inerte ("use Ignorar") — não desfazia nada. Agora chama a RPC
     // de movimento, que estorna a baixa dos N títulos + limpa vínculos + volta o movimento p/ Pendentes.
@@ -828,9 +894,9 @@ export default function InboxPage() {
       const { data, error } = await supabase.rpc('fn_conciliacao_desvincular_movimento', {
         p_movimento_id: c.movimento_id,
       })
-      if (error) { setErro('Erro ao desvincular: ' + error.message); return }
+      if (error) { falhou('Erro ao desvincular: ' + error.message); return }
       const r = (data ?? {}) as { sucesso?: boolean; erro?: string; msg?: string; aviso?: string }
-      if (r.sucesso === false) { setErro('Não desvinculou: ' + (r.msg ?? r.erro ?? 'erro desconhecido')); return }
+      if (r.sucesso === false) { falhou('Não desvinculou: ' + (r.msg ?? r.erro ?? 'erro desconhecido')); return }
       await carregarConciliados()
       await carregar()
       if (r.aviso) setErro(r.aviso) // aviso não-bloqueante: título(s) com ajuste — confira o valor manualmente
@@ -844,10 +910,10 @@ export default function InboxPage() {
       p_lancamento_id: c.lancamento_id,
       p_tipo: c.lancamento_tabela.replace(/^erp_/, ''),
     })
-    if (error) { setErro('Erro ao desvincular: ' + error.message); return }
+    if (error) { falhou('Erro ao desvincular: ' + error.message); return }
     // a RPC retorna {sucesso:false, erro} sem erro SQL — antes era engolido
     const r = (data ?? {}) as { sucesso?: boolean; erro?: string }
-    if (r.sucesso === false) { setErro('Não desvinculou: ' + (r.erro ?? 'erro desconhecido')); return }
+    if (r.sucesso === false) { falhou('Não desvinculou: ' + (r.erro ?? 'erro desconhecido')); return }
     await carregarConciliados()
     await carregar()
   }

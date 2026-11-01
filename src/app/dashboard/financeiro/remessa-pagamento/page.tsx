@@ -7,6 +7,7 @@
 // Cada remessa fica registrada em erp_remessa_pagamento (ambiente + quem gerou + quando · RD-55).
 // Anti-duplicação garantida pelo trigger no banco; a tela ainda pré-filtra títulos em remessa ativa.
 import { linhaTituloRetorno } from '@/lib/financeiro/retornoTitulo'
+import { fatiarRetorno, somarRespostasRetorno, mensagemErroRetorno } from '@/lib/financeiro/retornoLotes'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -94,6 +95,7 @@ export default function RemessaPagamentoPage() {
   const [impRet, setImpRet] = useState<{ nsa: number; itens: ItemRetornoSicredi[] } | null>(null) // arquivo parseado
   const [impResumo, setImpResumo] = useState<RetAutoResp | null>(null)
   const [impConfirmado, setImpConfirmado] = useState(false)
+  const [impProgresso, setImpProgresso] = useState('')   // #4909: "6 de 10" durante a baixa em lotes
   // Gestão da remessa: lista + extrato (ver/imprimir/cancelar/remover item)
   const [remessas, setRemessas] = useState<RemessaLista[]>([])
   const [naoRec, setNaoRec] = useState<FilaNaoRec[]>([])   // #29: fila de itens não reconhecidos (revisão)
@@ -413,19 +415,58 @@ export default function RemessaPagamentoPage() {
 
   // Confirma: roda a RPC gravando (baixa os casados via fn_pagar_baixar_pagamento). Idempotente:
   // reimportar não baixa de novo (título/item já pago vira "já baixado").
+  // #4909: em LOTES pequenos (cada um é uma transação) — tudo numa chamada estourava os 8 s do banco e não
+  // baixava nada. Lote que falha é refeito pagamento a pagamento; o que ainda falhar vira "c/ erro" com
+  // mensagem clara, e os demais seguem baixando.
   async function confirmarImportar() {
     if (!companyId || !impRet) return
     setImpBusy(true)
-    try {
+    const itens = itensDoRet(impRet)
+    const resps: RetAutoResp[] = []
+    let feitos = 0
+    const rodar = async (lote: RetAutoItem[]): Promise<RetAutoResp> => {
       const { data, error } = await supabase.rpc('fn_remessa_retorno_conciliar_auto', {
-        p_company_id: companyId, p_itens: itensDoRet(impRet), p_confirmar: true,
+        p_company_id: companyId, p_itens: lote, p_confirmar: true,
       })
       if (error) throw error
-      setImpResumo(data as RetAutoResp); setImpConfirmado(true); void carregarTitulosDoRetorno(data as RetAutoResp)
+      return data as RetAutoResp
+    }
+    try {
+      setImpProgresso(`0 de ${itens.length}`)
+      for (const lote of fatiarRetorno(itens)) {
+        try {
+          const r = await rodar(lote)
+          if (!r.ok) throw new Error(r.erro || 'falha na baixa')
+          resps.push(r)
+        } catch (e) {
+          if ((e as Error).message === 'sem_acesso') throw e
+          // lote inteiro voltou atrás no banco: refaz um a um (o que já baixou volta como "já baixado")
+          for (const item of lote) {
+            try {
+              const r = await rodar([item])
+              if (!r.ok) throw new Error(r.erro || 'falha na baixa')
+              resps.push(r)
+            } catch (e1) {
+              resps.push({ ok: true, confirmado: true, erro: mensagemErroRetorno((e1 as Error).message),
+                resumo: { total: 1, pagos: 0, agendados: 0, rejeitados: 0, ja_pagos: 0, erros: 1, nao_casados: 0, nao_reconhecidos: 0 } })
+            }
+          }
+        }
+        feitos += lote.length
+        setImpProgresso(`${feitos} de ${itens.length}`)
+      }
+      const total = somarRespostasRetorno(resps)
+      // #4909: marca a(s) remessa(s) do arquivo como "retorno importado" (a RPC de conciliação só baixa os títulos)
+      const listas: Array<Array<{ item_id?: string }> | undefined> = [total.casados, total.agendados, total.rejeitados, total.ja_pagos, total.nao_reconhecidos]
+      const itemIds = listas
+        .flatMap((l) => (l ?? []).map((d) => d.item_id)).filter((x): x is string => !!x)
+      if (itemIds.length) await supabase.rpc('fn_remessa_retorno_marcar', { p_company_id: companyId, p_item_ids: itemIds, p_arquivo_nome: impArquivo || null })
+      setImpResumo(total); setImpConfirmado(true); void carregarTitulosDoRetorno(total)
       void carregar()
     } catch (e) {
-      setImpResumo({ ok: false, erro: (e as Error).message })
-    } finally { setImpBusy(false) }
+      const m = (e as Error).message
+      setImpResumo({ ok: false, erro: m === 'sem_acesso' ? m : mensagemErroRetorno(m) })
+    } finally { setImpBusy(false); setImpProgresso('') }
   }
 
   // ── Gestão da remessa: extrato / cancelar / remover item ─────────────────────────────────────────
@@ -824,6 +865,11 @@ export default function RemessaPagamentoPage() {
               </div>
             )}
 
+            {impResumo?.ok && impResumo.erro && (
+              <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, background: '#FBEAEA', color: VERM, fontSize: 12.5, lineHeight: 1.45 }}>
+                ⚠ {impResumo.erro}
+              </div>
+            )}
             {impResumo?.ok && impResumo.resumo && (
               <div style={{ marginTop: 14 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: ESP, marginBottom: 6 }}>
@@ -929,7 +975,7 @@ export default function RemessaPagamentoPage() {
               <button onClick={() => setImpOpen(false)} disabled={impBusy} style={btnGhost}>{impConfirmado ? 'Fechar' : 'Cancelar'}</button>
               {impResumo?.ok && !impConfirmado && ((impResumo.resumo?.pagos ?? 0) + (impResumo.resumo?.agendados ?? 0) + (impResumo.resumo?.rejeitados ?? 0) + (impResumo.resumo?.nao_reconhecidos ?? 0)) > 0 && (
                 <button onClick={confirmarImportar} disabled={impBusy} style={btnPrimary}>
-                  {impBusy ? 'Aplicando…' : `Confirmar (${[
+                  {impBusy ? `Aplicando…${impProgresso ? ` ${impProgresso}` : ''}` : `Confirmar (${[
                     (impResumo.resumo?.pagos ?? 0) > 0 ? `${impResumo.resumo?.pagos} baixar` : '',
                     (impResumo.resumo?.agendados ?? 0) > 0 ? `${impResumo.resumo?.agendados} agendar` : '',
                     (impResumo.resumo?.rejeitados ?? 0) > 0 ? `${impResumo.resumo?.rejeitados} rejeitar` : '',

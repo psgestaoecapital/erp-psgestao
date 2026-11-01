@@ -381,10 +381,10 @@ function ProducaoPageInner() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
-        <Kpi titulo="Clientes ativos" valor={String(metrics.clientes)} />
-        <Kpi titulo="Jobs em andamento" valor={String(metrics.jobs_ativos)} />
-        <Kpi titulo="Horas no mês" valor={`${metrics.horas_mes.toFixed(1)}h`} />
-        <Kpi titulo="Receita recorrente (fees)" valor={brl(metrics.receita_mes)} destaque />
+        <Kpi titulo="Clientes ativos" valor={String(metrics.clientes)} ajuda="pm.jobs.kpi_clientes_ativos" />
+        <Kpi titulo="Jobs em andamento" valor={String(metrics.jobs_ativos)} ajuda="pm.jobs.kpi_jobs_andamento" />
+        <Kpi titulo="Horas no mês" valor={`${metrics.horas_mes.toFixed(1)}h`} ajuda="pm.jobs.kpi_horas_mes" />
+        <Kpi titulo="Receita recorrente (fees)" valor={brl(metrics.receita_mes)} destaque ajuda="pm.jobs.kpi_receita_fees" />
       </div>
 
       {/* TABS */}
@@ -698,7 +698,7 @@ function KanbanBoard({
   return (
     <div>
       <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
-        <span className="text-sm" style={{ color: TEXTM }}>Arraste o card entre colunas pra mudar o estágio.</span>
+        <span className="text-sm" style={{ color: TEXTM, display: 'inline-flex', alignItems: 'center', gap: 4 }}>Arraste o card entre colunas pra mudar o estágio.<AjudaCampo chave="pm.jobs.kanban_estagios" /></span>
         <button onClick={onAdd} style={btnPrimary}>+ Novo job</button>
       </div>
       <div style={boardWrap}>
@@ -779,7 +779,7 @@ function KanbanBoard({
                               </option>
                             ))}
                           </select>
-                          <button onClick={() => onEtapas(j)} style={etapasBtn}>📋 Etapas</button>
+                          <button onClick={() => onEtapas(j)} style={etapasBtn}>Etapas do job</button>
                         </div>
                       </div>
                     )
@@ -959,10 +959,10 @@ const TIPOS_PECA: Array<[string, string]> = [
 ]
 
 // ─── helpers de UI ───────────────────────────────────────────
-function Kpi({ titulo, valor, destaque }: { titulo: string; valor: string; destaque?: boolean }) {
+function Kpi({ titulo, valor, destaque, ajuda }: { titulo: string; valor: string; destaque?: boolean; ajuda?: string }) {
   return (
     <div style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: 12 }}>
-      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM }}>{titulo}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM }}>{titulo}{ajuda && <AjudaCampo chave={ajuda} />}</div>
       <div style={{ fontSize: 18, fontWeight: 700, color: destaque ? DOURADO : ESPRESSO, marginTop: 4 }}>{valor}</div>
     </div>
   )

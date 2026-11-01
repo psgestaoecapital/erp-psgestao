@@ -5,11 +5,12 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
-const WATCHER_SECRET = "ps-watcher-2026-9k2mxqp4nv8wzr7y6h3t";
+const SEGREDOS = [Deno.env.get("WATCHER_SECRET"), Deno.env.get("WATCHER_SECRET_NOVO")].filter((v): v is string => !!v);
+const WATCHER_SECRET = SEGREDOS[0] ?? "";
 const SAAS_BASE_URL = Deno.env.get("SAAS_BASE_URL") || "https://erp-psgestao.vercel.app";
 
 Deno.serve(async (req: Request) => {
-  if (req.headers.get("x-watcher-secret") !== WATCHER_SECRET) {
+  if (!SEGREDOS.includes(req.headers.get("x-watcher-secret") ?? "")) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
   }
 

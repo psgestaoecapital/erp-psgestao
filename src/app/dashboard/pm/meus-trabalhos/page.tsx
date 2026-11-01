@@ -45,7 +45,11 @@ export default function MeusTrabalhosPage() {
     const ids = itens.map((i) => i.id);
     const [ini, ta] = await Promise.all([
       ids.length ? supabase.from("agency_jobs").select("id, data_inicio").in("id", ids) : Promise.resolve({ data: [] as { id: string; data_inicio: string | null }[] }),
-      uid ? supabase.from("agency_tarefas").select("id, job_id, titulo, status, data_prazo, data_inicio").eq("company_id", empresa).eq("responsavel_id", uid).limit(500) : Promise.resolve({ data: [] }),
+      // #5440: antes carregava 500 linhas SEM ordem e de QUALQUER status, filtrando o "ativo" só no cliente — com
+      // muitas tarefas o corte de 500 engolia parte das ativas e os indicadores "destoavam" (ex.: 250 em vez do total
+      // real). Agora traz só as ATIVAS (as fechadas não entram em nenhum indicador nem na agenda), ordenadas por prazo,
+      // com teto folgado. O filtro continua batendo com o ativo() da lib no cliente.
+      uid ? supabase.from("agency_tarefas").select("id, job_id, titulo, status, data_prazo, data_inicio").eq("company_id", empresa).eq("responsavel_id", uid).not("status", "in", '("concluida","concluido","publicado","cancelado","cancelada")').order("data_prazo", { ascending: true, nullsFirst: false }).limit(5000) : Promise.resolve({ data: [] }),
     ]);
     const inicio = new Map(((ini.data ?? []) as { id: string; data_inicio: string | null }[]).map((r) => [r.id, r.data_inicio]));
     setJobs(itens.map((i) => ({ id: i.id, codigo: i.codigo, titulo: i.titulo, cliente: i.cliente, status: i.status, data_prazo: i.data_prazo, data_inicio: inicio.get(i.id) ?? null, atrasado: i.atrasado })));
@@ -61,10 +65,11 @@ export default function MeusTrabalhosPage() {
   const cods = useMemo(() => new Map(jobs.map((j) => [j.id, j.codigo])), [jobs]);
 
   if (!empresa) return <EmpresaNaoResolvida carregando={carregandoEmpresa} temEmpresa={companies.length > 0} tela="Meus trabalhos" />;
-  const cards: [string, number, string][] = [
-    ["Jobs ativos", ind.jobsAtivos, "jobs-ativos"], ["Jobs atrasados", ind.jobsAtrasados, "jobs-atrasados"],
-    ["Tarefas ativas", ind.tarefasAtivas, "tarefas-ativas"], ["Tarefas atrasadas", ind.tarefasAtrasadas, "tarefas-atrasadas"],
-    ["Início hoje", ind.inicioHoje, "inicio-hoje"], ["Prazo hoje", ind.prazoHoje, "prazo-hoje"],
+  // [rótulo, valor, id do testid, chave de ajuda RD-95]
+  const cards: [string, number, string, string][] = [
+    ["Jobs ativos", ind.jobsAtivos, "jobs-ativos", "pm.meus_trabalhos.ind_jobs_ativos"], ["Jobs atrasados", ind.jobsAtrasados, "jobs-atrasados", "pm.meus_trabalhos.ind_jobs_atrasados"],
+    ["Tarefas ativas", ind.tarefasAtivas, "tarefas-ativas", "pm.meus_trabalhos.ind_tarefas_ativas"], ["Tarefas atrasadas", ind.tarefasAtrasadas, "tarefas-atrasadas", "pm.meus_trabalhos.ind_tarefas_atrasadas"],
+    ["Início hoje", ind.inicioHoje, "inicio-hoje", "pm.meus_trabalhos.ind_inicio_hoje"], ["Prazo hoje", ind.prazoHoje, "prazo-hoje", "pm.meus_trabalhos.ind_prazo_hoje"],
   ];
 
   return (
@@ -80,9 +85,9 @@ export default function MeusTrabalhosPage() {
       {carregando && <div className="text-[12.5px] text-[#3D2314]/55">carregando…</div>}
 
       <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-6" data-testid="mt-indicadores">
-        {cards.map(([rot, n, id]) => (
+        {cards.map(([rot, n, id, ajuda]) => (
           <div key={id} className={`${cartao} ${n > 0 && id.includes("atrasad") ? "border-[#791F1F]/30" : ""}`} data-testid={`mt-ind-${id}`}>
-            <div className="text-[11px] text-[#3D2314]/60">{rot}</div><div className="text-[24px] font-medium">{n}</div>
+            <div className="flex items-center text-[11px] text-[#3D2314]/60">{rot}<AjudaCampo chave={ajuda} /></div><div className="text-[24px] font-medium">{n}</div>
           </div>))}
       </div>
 
@@ -92,6 +97,8 @@ export default function MeusTrabalhosPage() {
             {ABAS.map((a) => (
               <button key={a.id} role="tab" aria-selected={modo === a.id} onClick={() => setModo(a.id)} data-testid={`mt-aba-${a.id}`}
                 className={`rounded-lg px-3 py-1.5 text-[12.5px] ${modo === a.id ? "bg-[#3D2314] text-white" : "border border-[#3D2314]/15 bg-white"}`}>{a.rotulo}</button>))}
+            <AjudaCampo chave="pm.meus_trabalhos.agrupar" />
+            <span className="inline-flex items-center text-[11.5px] text-[#3D2314]/60">situação<AjudaCampo chave="pm.meus_trabalhos.situacao" /></span>
             <span className="ml-auto inline-flex items-center gap-1 text-[11.5px] text-[#3D2314]/60"><Play size={11} fill="currentColor" /> aponta horas <AjudaCampo chave="pm.meus_trabalhos.apontar" /></span>
           </div>
           {!grupos.length && !carregando && !erro && (
@@ -117,7 +124,7 @@ export default function MeusTrabalhosPage() {
         </section>
 
         <section className={cartao} data-testid="mt-agenda">
-          <div className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-[#3D2314]/60">Agenda da semana</div>
+          <div className="mb-2 flex items-center text-[12px] font-semibold uppercase tracking-wider text-[#3D2314]/60">Agenda da semana<AjudaCampo chave="pm.meus_trabalhos.agenda" /></div>
           <ul className="space-y-1.5">
             {agenda.map((d) => (
               <li key={d.data} className={`rounded-lg px-2.5 py-1.5 text-[12.5px] ${d.data === hoje ? "bg-[#FAEEDA]" : "bg-[#FAF7F2]"}`} data-testid="mt-agenda-dia">

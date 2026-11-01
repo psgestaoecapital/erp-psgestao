@@ -34,6 +34,6 @@ test.describe('HB0 — cockpit da obra', () => {
     await expect(tela.getByTestId('cockpit-pendencias')).toContainText('Obra sem itens contratados')
 
     await page.goto('/dashboard/projetos/obras/00000000-0000-4000-a000-00000000e2e0/cockpit')
-    await expect(page.getByTestId('hub-cockpit-obra')).toContainText('Obra não encontrada ou sem acesso', { timeout: 30000 })
+    await expect(page.getByRole('main').getByTestId('hub-cockpit-obra')).toContainText('Esta obra não existe', { timeout: 30000 })
   })
 })
