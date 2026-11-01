@@ -232,10 +232,13 @@ export default function ApontamentoHorasPage() {
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', marginBottom: 8 }}>
             <span style={{ fontSize: 12, color: TEXTM }}>A cadeia é <b>horas → job → margem</b>: só horas com um job vinculado entram na margem daquele job.</span>
             {ruidoCount > 0 && (
-              <button type="button" onClick={() => setOcultarRuido((v) => !v)} data-testid="apont-toggle-ruido"
-                style={{ ...btnSec, fontWeight: 700 }}>
-                {ocultarRuido ? `Mostrar ruído de cronômetro (${ruidoCount})` : `Ocultar ruído de cronômetro (${ruidoCount})`}
-              </button>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <button type="button" onClick={() => setOcultarRuido((v) => !v)} data-testid="apont-toggle-ruido"
+                  style={{ ...btnSec, fontWeight: 700 }}>
+                  {ocultarRuido ? `Mostrar ruído de cronômetro (${ruidoCount})` : `Ocultar ruído de cronômetro (${ruidoCount})`}
+                </button>
+                <AjudaCampo chave="pm.apontamento.ruido" />
+              </span>
             )}
           </div>
         )}
