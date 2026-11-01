@@ -8,6 +8,14 @@ import { Ruler, Plus, Check, Sparkles, AlertTriangle, Trash2 } from 'lucide-reac
 import { supabase } from '@/lib/supabase'
 import { comPrazo } from '@/lib/comPrazo'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
+
+// HB0 / RD-98 p2 (auditor F20): esta tela nunca mostra erro cru do Postgres (ex.: "null value in column
+// unidade"). Aviso que nós mesmos escrevemos (já em português) passa como está; erro de banco/rede/RPC passa
+// por erroAmigavel com uma mensagem de contexto. Mesma doutrina da tela gêmea (Take-off por IA).
+class AvisoTela extends Error {}
+const falhaTela = (e: unknown, contexto = 'Não foi possível concluir o take-off. Tente de novo.') =>
+  (e instanceof AvisoTela ? e.message : erroAmigavel(e, contexto))
 
 function useEmpresaSelecionada(): { companyId: string | null } {
   const [companyId, setCompanyId] = useState<string | null>(null)
@@ -116,7 +124,7 @@ export default function EngenhariaPage() {
       setMsg((j.sugeridos ?? 0) > 0
         ? `${j.sugeridos} ambiente(s) receberam serviço sugerido — a base de cálculo foi ajustada pela unidade. Confira e confirme (a IA sugere, você confirma).`
         : 'Nenhuma sugestão encontrada. Cadastre palavras-chave dos serviços no Catálogo (ex.: "sala" → Forro).')
-    } catch (e) { setErro((e as Error).message || String(e)) } finally { setBusy(false) }
+    } catch (e) { setErro(falhaTela(e, 'Não foi possível sugerir serviços. Tente de novo.')) } finally { setBusy(false) }
   }
 
   // Passo 1 · novo take-off manual (sem DWG). fn_takeoff_planta_salvar aceita arquivo 'manual'.
@@ -136,7 +144,7 @@ export default function EngenhariaPage() {
       await abrirPlanta({ id, nome, status: 'rascunho', created_at: new Date(0).toISOString() })
       setNovoAberto(false); setNovoNome('')
       setMsg('Take-off criado. Adicione ambientes e vincule serviços.')
-    } catch (e) { setErro((e as Error).message || String(e)) } finally { setBusy(false) }
+    } catch (e) { setErro(falhaTela(e, 'Não foi possível criar o take-off. Tente de novo.')) } finally { setBusy(false) }
   }
 
   // Passo 2 · atualizar ambiente (serviço, base, confirmar, medidas) — mesma RPC do takeoff IA.
@@ -144,16 +152,24 @@ export default function EngenhariaPage() {
     const next = { ...a, ...patch }
     setAmbientes((prev) => prev.map((x) => (x.id === a.id ? next : x)))
     if (!companyId) return
-    await supabase.rpc('fn_takeoff_ambiente_atualizar', {
-      p_company_id: companyId, p_id: a.id,
-      p_nome: next.nome, p_area_m2: next.area_m2, p_perimetro_ml: next.perimetro_ml, p_pe_direito_m: next.pe_direito_m,
-      p_servico_id: next.servico_id, p_base_calculo: next.base_calculo, p_confirmado: next.confirmado,
-    })
-    // Ao trocar o serviço, o trigger ajusta a base pela unidade — reflete o valor REAL do banco (RD-51).
-    if ('servico_id' in patch) {
-      const { data } = await supabase.from('erp_obra_planta_ambiente').select('base_calculo').eq('id', a.id).single()
-      const base = (data as { base_calculo?: BaseCalc } | null)?.base_calculo
-      if (base) setAmbientes((prev) => prev.map((x) => (x.id === a.id ? { ...x, base_calculo: base } : x)))
+    setErro(null)
+    try {
+      const { error } = await supabase.rpc('fn_takeoff_ambiente_atualizar', {
+        p_company_id: companyId, p_id: a.id,
+        p_nome: next.nome, p_area_m2: next.area_m2, p_perimetro_ml: next.perimetro_ml, p_pe_direito_m: next.pe_direito_m,
+        p_servico_id: next.servico_id, p_base_calculo: next.base_calculo, p_confirmado: next.confirmado,
+      })
+      if (error) throw error
+      // Ao trocar o serviço, o trigger ajusta a base pela unidade — reflete o valor REAL do banco (RD-51).
+      if ('servico_id' in patch) {
+        const { data } = await supabase.from('erp_obra_planta_ambiente').select('base_calculo').eq('id', a.id).single()
+        const base = (data as { base_calculo?: BaseCalc } | null)?.base_calculo
+        if (base) setAmbientes((prev) => prev.map((x) => (x.id === a.id ? { ...x, base_calculo: base } : x)))
+      }
+    } catch (e) {
+      // Falhou no servidor: desfaz a mudança otimista e avisa em linguagem de usuário (nunca erro cru).
+      setAmbientes((prev) => prev.map((x) => (x.id === a.id ? a : x)))
+      setErro(falhaTela(e, 'Não foi possível salvar a alteração do ambiente. Tente de novo.'))
     }
   }
 
@@ -170,7 +186,7 @@ export default function EngenhariaPage() {
       setAddAberto(false)
       await recarregarAmbientes(planta.id)
       setMsg('Ambiente adicionado. Vincule um serviço e confirme.')
-    } catch (e) { setErro((e as Error).message || String(e)) } finally { setBusy(false) }
+    } catch (e) { setErro(falhaTela(e, 'Não foi possível adicionar o ambiente. Tente de novo.')) } finally { setBusy(false) }
   }
 
   // Passo 2 · excluir ambiente (RD-98 p4: soft-delete rastreável via RPC guardada + audit_log).
@@ -185,7 +201,7 @@ export default function EngenhariaPage() {
       if (!j?.ok) { setErro(j?.erro === 'nao_encontrado' ? 'Ambiente não encontrado (talvez já excluído).' : (j?.erro ?? 'Falha ao excluir ambiente.')); return }
       await recarregarAmbientes(planta.id)
       setMsg(`Ambiente "${a.nome}" excluído.`)
-    } catch (e) { setErro((e as Error).message || String(e)) } finally { setBusy(false) }
+    } catch (e) { setErro(falhaTela(e, 'Não foi possível excluir o ambiente. Tente de novo.')) } finally { setBusy(false) }
   }
 
   // Passo 1 · excluir take-off (soft-delete rastreável com motivo — fn_takeoff_planta_excluir já existente).
@@ -203,7 +219,7 @@ export default function EngenhariaPage() {
       setPlanta(null); setAmbientes([]); setItensGerados([]); setBom([])
       await recarregarPlantas()
       setMsg('Take-off excluído.')
-    } catch (e) { setErro((e as Error).message || String(e)) } finally { setBusy(false) }
+    } catch (e) { setErro(falhaTela(e, 'Não foi possível excluir o take-off. Tente de novo.')) } finally { setBusy(false) }
   }
 
   // Passo 3 · o clímax: explode ambientes × serviços no orçamento, depois mostra o resultado + BOM.
@@ -231,7 +247,7 @@ export default function EngenhariaPage() {
       setItensGerados((itens as ItemGerado[]) ?? [])
       setBom((bomRows as BomRow[]) ?? [])
       setMsg(`Orçamento gerado: ${data} item(ns) de serviço explodidos.`)
-    } catch (e) { setErro((e as Error).message || String(e)) } finally { setBusy(false) }
+    } catch (e) { setErro(falhaTela(e, 'Não foi possível gerar o orçamento. Revise os ambientes e tente de novo.')) } finally { setBusy(false) }
   }
 
   // Total explodido por serviço (soma das quantidades dos ambientes confirmados que usam o serviço).
