@@ -8,7 +8,7 @@ import { BarraHorasHoje } from "@/components/pm/BarraHorasHoje";
 import { ResumoFimDia } from "@/components/pm/ResumoFimDia";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Sun, AtSign, History, StickyNote, Pin, PinOff, Archive, CalendarClock, ListChecks, AlertTriangle } from "lucide-react";
+import { Sun, AtSign, History, StickyNote, Pin, PinOff, Archive, CalendarClock, ListChecks, AlertTriangle, Pencil, Check, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
@@ -37,6 +37,8 @@ export default function MeuDiaPage() {
   const [acoes, setAcoes] = useState<Acao[]>([]);
   const [notas, setNotas] = useState<Nota[]>([]);
   const [novaNota, setNovaNota] = useState("");
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editTexto, setEditTexto] = useState("");
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
 
@@ -94,8 +96,23 @@ export default function MeuDiaPage() {
     if (error) { setErro(error.message); return; }
     setNovaNota(""); void carregar();
   }
-  async function mexerNota(n: Nota, campos: Partial<{ fixada: boolean; excluido_em: string }>) {
-    const { error } = await supabase.from("agency_anotacoes").update({ ...campos, atualizado_em: new Date().toISOString() }).eq("id", n.id);
+  async function fixarNota(n: Nota) {
+    // fixar/desafixar não é exclusão: update direto (RLS autor-only já garante a posse)
+    const { error } = await supabase.from("agency_anotacoes").update({ fixada: !n.fixada, atualizado_em: new Date().toISOString() }).eq("id", n.id);
+    if (error) { setErro(error.message); return; }
+    void carregar();
+  }
+  async function salvarEdicao(n: Nota) {
+    const t = editTexto.trim();
+    if (!t) return;
+    // editar o texto: update direto (RLS autor-only). CRUD completo (RD-98 p2).
+    const { error } = await supabase.from("agency_anotacoes").update({ texto: t, atualizado_em: new Date().toISOString() }).eq("id", n.id);
+    if (error) { setErro(error.message); return; }
+    setEditId(null); setEditTexto(""); void carregar();
+  }
+  async function arquivarNota(n: Nota) {
+    // RD-98 p4: exclusão rastreável — RPC grava excluido_por = auth.uid() + audit_log_global
+    const { error } = await supabase.rpc("fn_agency_anotacao_arquivar", { p_id: n.id });
     if (error) { setErro(error.message); return; }
     void carregar();
   }
@@ -191,9 +208,26 @@ export default function MeuDiaPage() {
             <ul className="mt-2 space-y-1.5">
               {notas.map((n) => (
                 <li key={n.id} className={`flex items-start gap-2 rounded-lg px-2.5 py-1.5 text-[12.5px] ${n.fixada ? "bg-[#FAEEDA]" : "bg-[#FAF7F2]"}`} data-testid="dia-nota">
-                  <span className="min-w-0 flex-1 whitespace-pre-wrap">{n.texto}<span className="block text-[11px] text-[#3D2314]/50">{quando(n.atualizado_em)}</span></span>
-                  <button onClick={() => void mexerNota(n, { fixada: !n.fixada })} aria-label={n.fixada ? "desafixar" : "fixar"} title={n.fixada ? "desafixar" : "fixar no topo"}>{n.fixada ? <PinOff size={14} /> : <Pin size={14} />}</button>
-                  <button onClick={() => void mexerNota(n, { excluido_em: new Date().toISOString() })} aria-label="arquivar" title="arquivar"><Archive size={14} /></button>
+                  {editId === n.id ? (
+                    <>
+                      <label className="block min-w-0 flex-1">
+                        <span className="mb-1 flex items-center text-[11px] font-medium text-[#3D2314]/60">Editar anotação<AjudaCampo chave="pm.dia.anotacao.editar" /></span>
+                        <textarea className="min-h-[52px] w-full rounded-lg border border-[#C8941A] px-2 py-1.5 text-[12.5px] focus:outline-none" value={editTexto} onChange={(e) => setEditTexto(e.target.value)} autoFocus data-testid="dia-nota-editar-texto" />
+                      </label>
+                      <button onClick={() => void salvarEdicao(n)} disabled={!editTexto.trim()} aria-label="salvar edição" title="salvar" className="disabled:opacity-40" data-testid="dia-nota-editar-salvar"><Check size={14} /></button>
+                      <button onClick={() => { setEditId(null); setEditTexto(""); }} aria-label="cancelar edição" title="cancelar"><X size={14} /></button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="min-w-0 flex-1 whitespace-pre-wrap">{n.texto}<span className="block text-[11px] text-[#3D2314]/50">{quando(n.atualizado_em)}</span></span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        <AjudaCampo chave="pm.dia.anotacao.editar" />
+                        <button onClick={() => { setEditId(n.id); setEditTexto(n.texto); }} aria-label="editar" title="editar o texto" data-testid="dia-nota-editar"><Pencil size={14} /></button>
+                        <button onClick={() => void fixarNota(n)} aria-label={n.fixada ? "desafixar" : "fixar"} title={n.fixada ? "desafixar" : "fixar no topo"}>{n.fixada ? <PinOff size={14} /> : <Pin size={14} />}</button>
+                        <button onClick={() => void arquivarNota(n)} aria-label="arquivar" title="arquivar" data-testid="dia-nota-arquivar"><Archive size={14} /></button>
+                      </span>
+                    </>
+                  )}
                 </li>
               ))}
             </ul>
