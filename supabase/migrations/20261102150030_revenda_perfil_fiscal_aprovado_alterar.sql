@@ -110,6 +110,9 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'perfil_id', v_id, 'copiado_de', v_apr.id);
 END $function$;
 
+REVOKE ALL ON FUNCTION public.fn_veic_perfil_fiscal_obter(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_veic_perfil_fiscal_obter(uuid) TO authenticated, service_role;
+
 REVOKE ALL ON FUNCTION public.fn_veic_perfil_fiscal_nova_versao(uuid,uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_veic_perfil_fiscal_nova_versao(uuid,uuid) TO authenticated, service_role;
 
