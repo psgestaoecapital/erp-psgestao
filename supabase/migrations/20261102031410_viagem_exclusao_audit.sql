@@ -47,3 +47,7 @@ BEGIN
             jsonb_build_object('viagem_id', v_l.viagem_id), jsonb_build_object('excluido_em', now()));
   RETURN jsonb_build_object('ok', true);
 END $function$;
+
+-- Guarda RD-52/segurança: ambas SECURITY DEFINER — fecha chamada direta por anon (check-fn-guards).
+REVOKE ALL ON FUNCTION public.fn_viagem_excluir(uuid) FROM anon;
+REVOKE ALL ON FUNCTION public.fn_viagem_lancamento_excluir(uuid) FROM anon;
