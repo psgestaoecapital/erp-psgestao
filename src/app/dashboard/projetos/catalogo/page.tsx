@@ -14,6 +14,7 @@ import {
   Plus,
   Search,
   Upload,
+  FileText,
 } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
@@ -145,6 +146,8 @@ export default function CatalogoServicosPage() {
 
   const [importando, setImportando] = useState(false);
   const [criando, setCriando] = useState(false);
+  // "Gerar orçamento a partir do serviço": encurta a cadeia FC (serviço → orçamento) para 1 clique.
+  const [gerandoOrc, setGerandoOrc] = useState<string | null>(null);
 
   // HB0 item 5 (CEO): clicar em "Novo serviço" NÃO grava mais em branco — abre o modal e só grava no "Criar serviço".
   // Detalhe da composição (material, mão de obra, equipamento, impostos e margem) aberto pelo selo de BOM, sem sair da tela.
@@ -627,6 +630,53 @@ export default function CatalogoServicosPage() {
     },
   ];
 
+  // RD-99 (cadeia FC): gera um orçamento rascunho já com este serviço dentro e abre a tela de Orçamentos.
+  // Reaproveita o mesmo caminho client-side da Calculadora (RLS por empresa, sem RPC nova); preço de venda
+  // do serviço vai como preço unitário (0 quando ainda sem BDI/precificação, para o usuário completar lá).
+  async function gerarOrcamento(s: Servico) {
+    if (!companyId || gerandoOrc) return;
+    setGerandoOrc(s.id);
+    setErro(null);
+    setAviso(null);
+    try {
+      const sb = supabaseBrowser();
+      const p = precos[s.id];
+      const precoVenda = Number(p?.preco_venda) || 0;
+      const custo = Number(p?.custo) || 0;
+      const { data: novo, error: e1 } = await sb
+        .from("erp_orcamentos")
+        .insert({ company_id: companyId, status: "rascunho", cliente_nome: `Orçamento — ${s.nome}` })
+        .select("id,numero")
+        .single();
+      if (e1 || !novo) {
+        setErro("Não consegui criar o orçamento: " + (e1?.message ?? "erro desconhecido"));
+        return;
+      }
+      const { error: e2 } = await sb.from("erp_orcamentos_itens").insert({
+        orcamento_id: novo.id,
+        company_id: companyId,
+        ordem: 1,
+        tipo_item: "servico",
+        servico_id: s.id,
+        servico_codigo: s.codigo,
+        servico_descricao: s.nome,
+        produto_nome: s.nome,
+        unidade: s.unidade || "UN",
+        quantidade: 1,
+        preco_unitario: precoVenda,
+        preco_custo: custo,
+        subtotal: precoVenda,
+      });
+      if (e2) {
+        setErro(`Orçamento ${novo.numero ?? ""} criado, mas não consegui incluir o serviço: ${e2.message}`);
+        return;
+      }
+      router.push("/dashboard/orcamento");
+    } finally {
+      setGerandoOrc(null);
+    }
+  }
+
   const acoes = (s: Servico) => (
     <div className="flex items-center justify-end gap-1">
       <button
@@ -645,6 +695,15 @@ export default function CatalogoServicosPage() {
         <Copy size={14} />
       </button>
       <AjudaCampo chave="projetos.catalogo.acao_duplicar" rota={ROTA} />
+      <button
+        onClick={() => gerarOrcamento(s)}
+        disabled={gerandoOrc === s.id}
+        className="rounded-lg p-1.5 text-[#3D2314]/60 hover:bg-[#3D2314]/5 hover:text-[#3D2314] disabled:opacity-40"
+        title="Gerar orçamento com este serviço"
+      >
+        <FileText size={14} />
+      </button>
+      <AjudaCampo chave="projetos.catalogo.acao_gerar_orcamento" rota={ROTA} />
       <button
         onClick={() => pedirExclusao(s)}
         className="rounded-lg p-1.5 text-red-600 hover:bg-red-50"
