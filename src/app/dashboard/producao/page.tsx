@@ -156,8 +156,8 @@ function ProducaoPageInner() {
 
   async function loadAll() {
     const [cl, jb, ts, us, ct, sv] = await Promise.all([
-      supabase.from('agency_clientes').select('*').eq('company_id', sel).order('nome'),
-      supabase.from('agency_jobs').select('*').eq('company_id', sel).order('created_at', { ascending: false }),
+      supabase.from('agency_clientes').select('*').eq('company_id', sel).is('excluido_em', null).order('nome'),
+      supabase.from('agency_jobs').select('*').eq('company_id', sel).is('excluido_em', null).order('created_at', { ascending: false }),
       supabase.from('agency_timesheet').select('id, company_id, job_id, tarefa_id, user_id, data, horas, descricao, tipo_atividade, aprovado, aprovado_por, created_at, inicio_em, fim_em, etapa_tipo, cliente_id').eq('company_id', sel).order('data', { ascending: false }),
       supabase.rpc('fn_usuarios_da_empresa', { p_company_id: sel }),
       supabase.from('erp_contratos').select('id,numero,nome,valor_mensal,status').eq('company_id', sel).order('numero', { ascending: false }),
@@ -231,7 +231,8 @@ function ProducaoPageInner() {
   }
   async function excluir(table: string, id: string) {
     if (!confirm('EXCLUIR este registro?')) return
-    const { error } = await supabase.from(table).delete().eq('id', id)
+    // RD-98 p4: exclusão rastreável (soft-delete + audit_log) — nunca DELETE físico de dado de cliente.
+    const { error } = await supabase.rpc('fn_pm_registro_excluir', { p_tabela: table, p_id: id })
     if (error) { setToast(`Erro: ${error.message}`); return }
     setToast('Registro EXCLUIDO.')
     loadAll()
@@ -248,7 +249,7 @@ function ProducaoPageInner() {
     const { data } = await supabase
       .from('agency_tarefas')
       .select('id, job_id, titulo, descricao, responsavel_id, status, prioridade, ordem, data_prazo, data_conclusao, horas_estimadas, horas_realizadas')
-      .eq('company_id', sel).eq('job_id', jobId)
+      .eq('company_id', sel).eq('job_id', jobId).is('excluido_em', null)
       .order('ordem', { ascending: true }).order('created_at', { ascending: true })
     setEtapas((data ?? []) as Tarefa[])
     setEtapasLoading(false)
@@ -312,7 +313,8 @@ function ProducaoPageInner() {
   async function excluirEtapa(t: Tarefa) {
     if (!jobEtapas) return
     if (!confirm('Excluir esta etapa?')) return
-    const { error } = await supabase.from('agency_tarefas').delete().eq('id', t.id)
+    // RD-98 p4: exclusão rastreável (soft-delete + audit_log) — nunca DELETE físico.
+    const { error } = await supabase.rpc('fn_pm_registro_excluir', { p_tabela: 'agency_tarefas', p_id: t.id })
     if (error) { setToast(`Erro: ${error.message}`); return }
     await carregarEtapas(jobEtapas.id)
   }

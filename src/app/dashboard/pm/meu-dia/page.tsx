@@ -116,7 +116,7 @@ export default function MeuDiaPage() {
         <div>
           <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#C8941A]"><Sun size={13} /> Meu dia</div>
           <h1 className="text-[26px] font-medium leading-tight">{saudacao()}{meuNome ? `, ${meuNome}` : ""}.</h1>
-          <p className="text-[13px] text-[#3D2314]/60">{new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" })} · {atrasados.length} atrasado(s) · {deHoje.length} para hoje · {mencoes.length} menção(ões)</p>
+          <p className="text-[13px] text-[#3D2314]/60">{new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" })} · {atrasados.length} atrasado(s) · {deHoje.length} para hoje · {mencoes.length} menção(ões)<AjudaCampo chave="pm.dia.resumo_topo" /></p>
         </div>
         <Link href="/dashboard/pm/pauta" className="inline-flex items-center gap-1.5 rounded-lg border border-[#3D2314]/15 bg-white px-3 py-2 text-[12.5px]"><ListChecks size={14} /> Abrir a Pauta</Link>
       </header>
@@ -130,7 +130,7 @@ export default function MeuDiaPage() {
           {userId && <Cronometro empresa={empresa} userId={userId} jobs={jobsCrono} onMudou={() => void carregar()} />}
 
           <section className={cartao} data-testid="dia-para-hoje">
-            <div className={titulo}><CalendarClock size={14} /> O que é meu</div>
+            <div className={titulo}><CalendarClock size={14} /> O que é meu<AjudaCampo chave="pm.dia.o_que_e_meu" /></div>
             {!!atrasados.length && <>
               <div className="mt-1 text-[12px] font-semibold text-[#791F1F]">Atrasados · {atrasados.length}</div>
               <ul className="divide-y divide-[#3D2314]/6" data-testid="dia-atrasados">{atrasados.map((it) => <Linha key={it.id} it={it} />)}</ul>
@@ -143,7 +143,7 @@ export default function MeuDiaPage() {
           </section>
 
           <section className={cartao} data-testid="dia-aprovacoes">
-            <div className={titulo}><AlertTriangle size={14} /> Aprovações dos meus jobs</div>
+            <div className={titulo}><AlertTriangle size={14} /> Aprovações dos meus jobs<AjudaCampo chave="pm.dia.aprovacoes" /></div>
             {!aprov.length && <div className="text-[12.5px] text-[#3D2314]/50">Nenhuma aprovação aberta.</div>}
             <ul className="space-y-1">
               {aprov.map((a) => { const p = prazoAprovacao(a.prazo_em); const j = porId.get(a.job_id); return (
@@ -154,7 +154,7 @@ export default function MeuDiaPage() {
           </section>
 
           <section className={cartao} data-testid="dia-acoes">
-            <div className={titulo}><History size={14} /> Minhas últimas ações</div>
+            <div className={titulo}><History size={14} /> Minhas últimas ações<AjudaCampo chave="pm.dia.acoes" /></div>
             {!acoes.length && <div className="text-[12.5px] text-[#3D2314]/50">Nada ainda hoje.</div>}
             <ol className="space-y-1.5">
               {acoes.map((a, i) => (
@@ -169,7 +169,7 @@ export default function MeuDiaPage() {
 
         <div className="space-y-3">
           <section className={cartao} data-testid="dia-mencoes">
-            <div className={titulo}><AtSign size={14} /> Menções para mim</div>
+            <div className={titulo}><AtSign size={14} /> Menções para mim<AjudaCampo chave="pm.dia.mencoes" /></div>
             {!mencoes.length && <div className="text-[12.5px] text-[#3D2314]/50">Ninguém te chamou nos últimos 7 dias.</div>}
             <ul className="space-y-2">
               {mencoes.map((m) => (
@@ -182,7 +182,7 @@ export default function MeuDiaPage() {
           </section>
 
           <section className={cartao} data-testid="dia-anotacoes">
-            <div className={titulo}><StickyNote size={14} /> Minhas anotações</div>
+            <div className={titulo}><StickyNote size={14} /> Minhas anotações<AjudaCampo chave="pm.dia.anotacoes" /></div>
             <label className="block">
               <span className="mb-1 flex items-center text-[11.5px] font-medium text-[#3D2314]/70">Nova anotação (só você vê)<AjudaCampo chave="pm.dia.anotacao.texto" /></span>
               <textarea className="min-h-[64px] w-full rounded-lg border border-[#3D2314]/15 px-2.5 py-2 text-[13px] focus:border-[#C8941A] focus:outline-none" value={novaNota} onChange={(e) => setNovaNota(e.target.value)} placeholder="Ex.: ligar para a Clínica Sorriso às 15h sobre o banner" data-testid="dia-nota-texto" />

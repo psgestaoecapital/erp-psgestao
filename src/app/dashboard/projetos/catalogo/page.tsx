@@ -480,6 +480,26 @@ export default function CatalogoServicosPage() {
       render: (s) => <span className="text-[#3D2314]/70">{s.unidade || "—"}</span>,
     },
     {
+      key: "rup",
+      label: "Produtividade",
+      ajuda: "projetos.catalogo.col_rup",
+      align: "center",
+      hiddenOnMobile: true,
+      render: (s) =>
+        s.produtividade_unidade_dia !== null && s.produtividade_unidade_dia !== undefined ? (
+          <span
+            className="text-[#3D2314]/70"
+            title="RUP (coeficiente de produtividade): quanto a equipe produz por dia nesta unidade"
+          >
+            {s.produtividade_unidade_dia} {s.unidade || "un"}/dia
+          </span>
+        ) : (
+          <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-medium text-orange-800">
+            Sem RUP
+          </span>
+        ),
+    },
+    {
       key: "origem",
       label: "Origem",
       ajuda: "projetos.catalogo.col_origem",
@@ -529,7 +549,7 @@ export default function CatalogoServicosPage() {
       ajuda: "projetos.catalogo.col_custo",
       align: "right",
       render: (s) => (
-        <span className="font-mono text-[#3D2314]/80">
+        <span className="whitespace-nowrap font-mono text-[#3D2314]/80">
           {fmtBRL(precos[s.id]?.custo ?? s.custo_unitario_total)}
         </span>
       ),
@@ -539,15 +559,21 @@ export default function CatalogoServicosPage() {
       label: "BDI aplicado",
       ajuda: "projetos.catalogo.col_bdi",
       align: "right",
+      // Largura mínima para o % e o rótulo da fonte ("Precificação da empresa"/"BDI padrão da empresa")
+      // caberem inteiros, sem truncar nem sobrepor (auditoria 01/11: valor "36"/"37" e "Precific...e" cortados).
+      className: "min-w-[160px]",
       render: (s) => {
         const p = precos[s.id];
         if (!p || p.bdi_pct === null) {
           return <span className="text-xs text-[#3D2314]/50" title={FONTE_BDI.sem_bdi}>Sem BDI</span>;
         }
+        // Valor em destaque (uma linha, nunca quebra) e a fonte como legenda legível logo abaixo.
         return (
-          <span title={`Fonte: ${FONTE_BDI[p.fonte]}`} className="font-mono text-[#3D2314]/80">
-            {p.bdi_pct.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
-            <span className="block font-sans text-[10px] text-[#3D2314]/50">{FONTE_BDI[p.fonte]}</span>
+          <span className="inline-flex flex-col items-end leading-tight" title={`Fonte: ${FONTE_BDI[p.fonte]}`}>
+            <span className="whitespace-nowrap font-mono font-medium text-[#3D2314]">
+              {p.bdi_pct.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
+            </span>
+            <span className="whitespace-nowrap font-sans text-[10px] text-[#3D2314]/55">{FONTE_BDI[p.fonte]}</span>
           </span>
         );
       },
@@ -558,7 +584,7 @@ export default function CatalogoServicosPage() {
       ajuda: "projetos.catalogo.col_venda",
       align: "right",
       render: (s) => (
-        <span className="font-mono font-medium text-[#3D2314]">{fmtBRL(precos[s.id]?.preco_venda ?? null)}</span>
+        <span className="whitespace-nowrap font-mono font-medium text-[#3D2314]">{fmtBRL(precos[s.id]?.preco_venda ?? null)}</span>
       ),
     },
     {

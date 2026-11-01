@@ -123,6 +123,7 @@ export default function ConfiguracoesPage() {
 
   const [aba, setAba] = useState<"projetos" | "precificacao" | "produtividade">("projetos");
   const [config, setConfig] = useState<Config | null>(null);
+  const [salvo, setSalvo] = useState(false); // empresa já tem linha de config gravada
   const [impactos, setImpactos] = useState<ImpactoServico[]>([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
@@ -177,6 +178,7 @@ export default function ConfiguracoesPage() {
         }));
       }
       const dados = (cfgR.data as Partial<Config>) || {};
+      setSalvo(!!cfgR.data);
       ignoreNextEffectRef.current = true;
       setConfig({
         company_id: companyId,
@@ -262,6 +264,7 @@ export default function ConfiguracoesPage() {
         if (error) throw error;
         setSavingState("saved");
         setSavedAt(new Date());
+        setSalvo(true);
         if (data && Number.isFinite((data as any).bdi_total_pct)) {
           ignoreNextEffectRef.current = true;
           setConfig((prev) =>
@@ -446,8 +449,9 @@ export default function ConfiguracoesPage() {
 
         {/* Presets */}
         <div className="mb-4 flex flex-wrap gap-2">
-          <span className="text-xs uppercase tracking-wider text-[#3D2314]/50">
+          <span className="flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/50">
             Presets:
+            <AjudaCampo chave="projetos.bdi.preset" rota="/dashboard/projetos/configuracoes" />
           </span>
           {PRESETS.map((p) => (
             <button
@@ -524,6 +528,7 @@ export default function ConfiguracoesPage() {
           <BdiPreview
             componentes={componentes}
             bdiTotalPct={config.bdi_total_pct}
+            salvo={salvo}
             impactos={impactos}
             margemAlvoPct={config.margem_alvo_pct}
             margemMinimaPct={config.margem_minima_pct}

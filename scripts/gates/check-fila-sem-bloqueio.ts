@@ -33,7 +33,7 @@ ok(/MAIN0=\$\(git rev-parse origin\/main\)/.test(sh) && /compare\/\$MAIN0\.\.\.\
 // ser atualizada não segura ninguém.
 // CEO 23/10: os flags de hold (deploy_travado / critica_na_main) são setados SÓ depois do estado_main.
 ok((laco.match(/deploy_travado=1/g) ?? []).length >= 1 && (laco.match(/critica_na_main=1/g) ?? []).length >= 1
-  && /m=\$\(estado_main( "\$via")?\)[\s\S]*?case "\$m" in[\s\S]*?deploy_travado=1/.test(laco),
+  && /m=\$\(estado_main( "\$(?:mig_)?via")?\)[\s\S]*?case "\$m" in[\s\S]*?deploy_travado=1/.test(laco),
   'só a PR com migration que espera a MAIN (estado_main) segura as outras — deploy_travado (todas) / critica_na_main (só críticas)')
 
 // ── Parte 2: cenários de verdade contra um gh simulado (scripts/merge/fila-simulada.ts) ───────────────────────────
