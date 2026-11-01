@@ -610,21 +610,9 @@ export default function CatalogoServicosPage() {
         );
       },
     },
-    {
-      key: "produtividade",
-      label: "Prod/dia",
-      ajuda: "projetos.catalogo.col_produtividade",
-      align: "right",
-      hiddenOnMobile: true,
-      render: (s) =>
-        s.produtividade_unidade_dia ? (
-          <span className="text-[#3D2314]/70">
-            {s.produtividade_unidade_dia.toLocaleString("pt-BR")} {s.unidade}
-          </span>
-        ) : (
-          <span className="text-[#3D2314]/40">—</span>
-        ),
-    },
+    // "Prod/dia" era redundante com a coluna "Produtividade" (RUP): as duas mostravam
+    // produtividade_unidade_dia. Mantida só a "Produtividade", que já traz a unidade/dia,
+    // o selo "Sem RUP" e a explicação do que é RUP (auditoria PDCA 01/11). 12 → 11 colunas.
   ];
 
   const acoes = (s: Servico) => (
