@@ -51,6 +51,8 @@ BEGIN
     'horas_mes', v_horas, 'comissao_pagar', v_com, 'receber_vencido', v_venc);
   RETURN v;
 END $function$;
+REVOKE ALL ON FUNCTION public.fn_pm_bi_kpis(uuid[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_pm_bi_kpis(uuid[]) TO authenticated, service_role;
 
 -- 2) Séries — alerta "Jobs atrasados" exclui os mesmos status terminais reais
 CREATE OR REPLACE FUNCTION public.fn_pm_bi_series(p_company_ids uuid[])
@@ -107,6 +109,8 @@ BEGIN
   RETURN jsonb_build_object('empty_state', false, 'receita_12m', v_12m,
     'margem_clientes', v_margem, 'top_clientes', v_top, 'alertas', v_alertas);
 END $function$;
+REVOKE ALL ON FUNCTION public.fn_pm_bi_series(uuid[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_pm_bi_series(uuid[]) TO authenticated, service_role;
 
 -- 3) RD-95 — "?" dos 6 indicadores do moat + 3 gráficos (idempotente por chave única)
 INSERT INTO public.erp_ajuda_campo (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, vertical, ordem) VALUES
