@@ -303,6 +303,9 @@ BEGIN
 END $function$;
 
 -- 5c) criação de obra a partir do orçamento (copia do escopo congelado)
+-- ci-sem-guarda: fn_obra_criar_de_orcamento — helper interno SEM GRANT a authenticated/anon,
+-- chamado só pelo trigger tg_orcamento_gera_obra, no mesmo txn do UPDATE do próprio orçamento do
+-- usuário (o company_id vem do orçamento que ele acabou de alterar). Não é RPC exposta → sem IDOR.
 CREATE OR REPLACE FUNCTION public.fn_obra_criar_de_orcamento(p_orcamento_id uuid)
  RETURNS projetos_obras
  LANGUAGE plpgsql
@@ -424,3 +427,12 @@ AS $function$
   JOIN public.erp_servicos s ON s.id = i.servico_id
   WHERE o.id = p_orcamento_id AND i.excluido_em IS NULL AND i.servico_id IS NOT NULL;
 $function$;
+
+-- check_fn_guards regra 1: fecha ao anon todas as funções SECURITY DEFINER recriadas aqui
+-- (idempotente; o CREATE OR REPLACE reabriria a régua). Nenhuma delas tinha GRANT a anon.
+REVOKE ALL ON FUNCTION public.fn_orcamento_item_listar(uuid) FROM anon;
+REVOKE ALL ON FUNCTION public.fn_orcamento_item_excluir(uuid) FROM anon;
+REVOKE ALL ON FUNCTION public.fn_converter_orcamento_em_pedido(uuid) FROM anon;
+REVOKE ALL ON FUNCTION public.fn_obra_criar_de_orcamento(uuid) FROM anon;
+REVOKE ALL ON FUNCTION public.fn_crm_orcamento_do_card(uuid) FROM anon;
+REVOKE ALL ON FUNCTION public.fn_orcamento_exige_obra(uuid) FROM anon;
