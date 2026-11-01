@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
 
-const sql = readFileSync('supabase/migrations/20261102150030_revenda_perfil_fiscal_aprovado_alterar.sql', 'utf8')
+const sql = readFileSync('supabase/migrations/20261103180030_revenda_perfil_fiscal_aprovado_alterar.sql', 'utf8')
 ok(sql.includes("'aprovado', CASE WHEN v_apr.id IS NULL"), 'obter devolve o bloco "aprovado" quando não há rascunho')
 ok(sql.includes('CREATE OR REPLACE FUNCTION public.fn_veic_perfil_fiscal_nova_versao'), 'existe a função de nova versão')
 ok(sql.includes('FROM veic_perfil_fiscal_operacao WHERE perfil_id = v_apr.id'), 'nova versão copia as operações')
