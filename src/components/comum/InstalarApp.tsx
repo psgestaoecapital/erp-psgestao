@@ -44,14 +44,17 @@ export default function InstalarApp({
   const [copiado, setCopiado] = useState(false)
   const [prompt, setPrompt] = useState<PromptInstalar | null>(null)
   const [instalado, setInstalado] = useState(false)
-  const [iosDispositivo, setIosDispositivo] = useState(false)
+  // Plataforma do aparelho atual: iPhone (Safari), Android (Chrome) ou Computador (Chrome/Edge).
+  // Cada uma tem passos próprios; a do aparelho fica em destaque e aparece primeiro.
+  const [plataforma, setPlataforma] = useState<'android' | 'ios' | 'desktop'>('android')
 
   // URL canônica de produção (sem hash de preview) — o QR e o link levam pra cá.
   const APP_URL = `${APP_BASE}${destino.startsWith('/') ? destino : `/${destino}`}`
   const WPP_MSG =
     `Instale o app PS Gestão no seu celular: ${APP_URL}\n\n` +
     `ANDROID: abra no Chrome → menu (3 pontos) → Instalar app.\n` +
-    `IPHONE: abra no Safari → Compartilhar → Adicionar à Tela de Início.`
+    `IPHONE: abra no Safari → Compartilhar → Adicionar à Tela de Início.\n` +
+    `COMPUTADOR: abra no Chrome/Edge → ícone instalar na barra de endereço.`
 
   useEffect(() => {
     QRCode.toDataURL(APP_URL, { margin: 1, scale: 8, color: { dark: ESP, light: '#FFFFFF' } })
@@ -63,8 +66,9 @@ export default function InstalarApp({
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- só no navegador (o SSR não sabe se o app está instalado)
     if (instaladoComoApp()) setInstalado(true)
+    // Detecção da plataforma: iPhone/iPad; senão Android (UA móvel); senão Computador.
     // eslint-disable-next-line react-hooks/set-state-in-effect -- userAgent só existe no navegador
-    if (ehIos()) setIosDispositivo(true)
+    setPlataforma(ehIos() ? 'ios' : /Android|Mobi/i.test(navigator.userAgent) ? 'android' : 'desktop')
     const aoOferecer = (e: Event) => { e.preventDefault(); setPrompt(e as PromptInstalar) }
     const aoInstalar = () => { setInstalado(true); setPrompt(null) }
     window.addEventListener('beforeinstallprompt', aoOferecer)
@@ -101,6 +105,9 @@ export default function InstalarApp({
   }
 
   const card: React.CSSProperties = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 16 }
+  // Realce "seu aparelho" no card da plataforma detectada.
+  const destaque: React.CSSProperties = { borderColor: GOLD, boxShadow: `0 0 0 1px ${GOLD}` }
+  const selo = <span className="text-[10px] font-semibold rounded-full px-2 py-0.5" style={{ background: '#FFF3D6', color: '#7A5A0B' }}>seu aparelho</span>
 
   return (
     <div style={{ background: BG, minHeight: '100%', color: ESP }} className="p-4 sm:p-6 pb-28 sm:pb-10" data-testid="instalar-app">
@@ -127,7 +134,7 @@ export default function InstalarApp({
           <div className="space-y-2" data-testid="instalar-app-status">
             <div className="text-sm rounded-xl p-3 flex items-start gap-2" style={{ background: '#FFFBEF', border: `1px solid #F0E1B8`, color: '#7A5A0B' }}>
               <Circle size={18} strokeWidth={1.8} className="shrink-0 mt-0.5" />
-              <span>Ainda <b>não instalado</b> neste aparelho. {prompt ? 'Toque em “Instalar agora” abaixo.' : `Siga os passos de ${iosDispositivo ? 'iPhone (Safari)' : 'Android (Chrome)'} abaixo.`}</span>
+              <span>Ainda <b>não instalado</b> neste aparelho. {prompt ? 'Toque em “Instalar agora” abaixo.' : `Siga os passos de ${plataforma === 'ios' ? 'iPhone (Safari)' : plataforma === 'desktop' ? 'Computador (Chrome/Edge)' : 'Android (Chrome)'} abaixo.`}</span>
             </div>
             {prompt && (
               <div className="flex items-center gap-2">
@@ -136,7 +143,7 @@ export default function InstalarApp({
                   className="flex-1 px-4 py-3 rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-2"
                   style={{ background: ESP, color: '#fff' }}
                 >
-                  <Download size={16} strokeWidth={1.5} /> Instalar agora neste aparelho
+                  <Download size={16} strokeWidth={1.5} /> {plataforma === 'desktop' ? 'Instalar agora neste computador' : 'Instalar agora neste aparelho'}
                 </button>
                 {ajuda && <AjudaCampo chave={ajuda.instalar} alinhar="fim" />}
               </div>
@@ -189,13 +196,14 @@ export default function InstalarApp({
           </div>
         </div>
 
-        {/* Instruções — a plataforma do aparelho atual fica destacada e aparece primeiro no celular */}
+        {/* Instruções — a plataforma do aparelho atual fica destacada e aparece primeiro */}
         <div className="text-sm font-semibold -mb-1" style={{ color: ESP }}>Como instalar (passo a passo)</div>
-        <div className="grid sm:grid-cols-2 gap-3">
-          <section style={{ ...card, ...(iosDispositivo ? {} : { borderColor: GOLD, boxShadow: `0 0 0 1px ${GOLD}` }) }} className={`p-4 ${iosDispositivo ? 'order-2' : 'order-1'}`}>
+        <div className="grid sm:grid-cols-3 gap-3">
+          {/* Android */}
+          <section style={{ ...card, ...(plataforma === 'android' ? destaque : {}) }} className={`p-4 ${plataforma === 'android' ? 'order-1' : 'order-2'}`}>
             <div className="text-sm font-bold mb-2 flex items-center gap-2" style={{ color: ESP }}>
               🤖 Android (Chrome)
-              {!iosDispositivo && <span className="text-[10px] font-semibold rounded-full px-2 py-0.5" style={{ background: '#FFF3D6', color: '#7A5A0B' }}>seu aparelho</span>}
+              {plataforma === 'android' && selo}
             </div>
             <ol className="text-sm space-y-1.5" style={{ color: ESP60 }}>
               <li>1. Abra o link no <b>Chrome</b>.</li>
@@ -204,10 +212,11 @@ export default function InstalarApp({
               <li>4. Confirme. O ícone aparece na tela do celular.</li>
             </ol>
           </section>
-          <section style={{ ...card, ...(iosDispositivo ? { borderColor: GOLD, boxShadow: `0 0 0 1px ${GOLD}` } : {}) }} className={`p-4 ${iosDispositivo ? 'order-1' : 'order-2'}`}>
+          {/* iPhone */}
+          <section style={{ ...card, ...(plataforma === 'ios' ? destaque : {}) }} className={`p-4 ${plataforma === 'ios' ? 'order-1' : 'order-2'}`}>
             <div className="text-sm font-bold mb-2 flex items-center gap-2" style={{ color: ESP }}>
               🍎 iPhone (Safari)
-              {iosDispositivo && <span className="text-[10px] font-semibold rounded-full px-2 py-0.5" style={{ background: '#FFF3D6', color: '#7A5A0B' }}>seu aparelho</span>}
+              {plataforma === 'ios' && selo}
             </div>
             <ol className="text-sm space-y-1.5" style={{ color: ESP60 }}>
               <li>1. Abra o link no <b>Safari</b>.</li>
@@ -217,6 +226,22 @@ export default function InstalarApp({
             </ol>
             <div className="text-xs mt-2 rounded-lg p-2" style={{ background: '#FFFBEF', border: '1px solid #F0E1B8', color: '#7A5A0B' }}>
               No iPhone use o <b>Safari</b>. O Chrome no iPhone não instala o app corretamente.
+            </div>
+          </section>
+          {/* Computador */}
+          <section style={{ ...card, ...(plataforma === 'desktop' ? destaque : {}) }} className={`p-4 ${plataforma === 'desktop' ? 'order-1' : 'order-3'}`}>
+            <div className="text-sm font-bold mb-2 flex items-center gap-2" style={{ color: ESP }}>
+              💻 Computador (Chrome/Edge)
+              {plataforma === 'desktop' && selo}
+            </div>
+            <ol className="text-sm space-y-1.5" style={{ color: ESP60 }}>
+              <li>1. Abra o link no <b>Chrome</b> ou <b>Edge</b>.</li>
+              <li>2. Clique no ícone <b>instalar</b> (⊕ ou monitor) no fim da barra de endereço.</li>
+              <li>3. Sem o ícone: menu <b>⋮</b> → <b>“Instalar PS Gestão…”</b>.</li>
+              <li>4. Confirme. O app abre em janela própria, como um programa.</li>
+            </ol>
+            <div className="text-xs mt-2 rounded-lg p-2" style={{ background: '#FFFBEF', border: '1px solid #F0E1B8', color: '#7A5A0B' }}>
+              No computador o botão <b>“Instalar agora”</b> acima também funciona (Chrome/Edge).
             </div>
           </section>
         </div>

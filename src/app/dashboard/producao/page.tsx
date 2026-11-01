@@ -158,7 +158,7 @@ function ProducaoPageInner() {
     const [cl, jb, ts, us, ct, sv] = await Promise.all([
       supabase.from('agency_clientes').select('*').eq('company_id', sel).is('excluido_em', null).order('nome'),
       supabase.from('agency_jobs').select('*').eq('company_id', sel).is('excluido_em', null).order('created_at', { ascending: false }),
-      supabase.from('agency_timesheet').select('id, company_id, job_id, tarefa_id, user_id, data, horas, descricao, tipo_atividade, aprovado, aprovado_por, created_at, inicio_em, fim_em, etapa_tipo, cliente_id').eq('company_id', sel).order('data', { ascending: false }),
+      supabase.from('agency_timesheet').select('id, company_id, job_id, tarefa_id, user_id, data, horas, descricao, tipo_atividade, aprovado, aprovado_por, created_at, inicio_em, fim_em, etapa_tipo, cliente_id').eq('company_id', sel).is('excluido_em', null).order('data', { ascending: false }),
       supabase.rpc('fn_usuarios_da_empresa', { p_company_id: sel }),
       supabase.from('erp_contratos').select('id,numero,nome,valor_mensal,status').eq('company_id', sel).order('numero', { ascending: false }),
       supabase.rpc('fn_agency_servico_listar_proposta', { p_company_id: sel }),
@@ -412,6 +412,8 @@ function ProducaoPageInner() {
           onDrop={onDrop}
           onMover={moverEstagio}
           onEtapas={abrirEtapas}
+          onEditar={abrirEdicaoJob}
+          onExcluir={(j) => excluir('agency_jobs', j.id)}
           onAdd={() => { setForm({ status: 'nao_iniciada', prioridade: 'normal' }); setEditId(null); setShowForm('job') }}
         />
       )}
@@ -682,7 +684,7 @@ function ProducaoPageInner() {
 // ─────────────────────────────────────────────────────────────
 function KanbanBoard({
   jobs, clientes, dragId, hoverCol, movendoId,
-  onDragStart, onDragOver, onDragLeave, onDrop, onMover, onEtapas, onAdd,
+  onDragStart, onDragOver, onDragLeave, onDrop, onMover, onEtapas, onAdd, onEditar, onExcluir,
 }: {
   jobs: Job[]; clientes: Cliente[]; dragId: string | null; hoverCol: string | null; movendoId: string | null
   onDragStart: (e: DragEvent<HTMLDivElement>, id: string) => void
@@ -692,6 +694,8 @@ function KanbanBoard({
   onMover: (id: string, novo: string, atual: string | null) => void
   onEtapas: (job: Job) => void
   onAdd: () => void
+  onEditar: (job: Job) => void
+  onExcluir: (job: Job) => void
 }) {
   const cliNome = (id: string) => {
     const c = clientes.find((x) => x.id === id)
@@ -782,6 +786,10 @@ function KanbanBoard({
                             ))}
                           </select>
                           <button onClick={() => onEtapas(j)} style={etapasBtn}>Etapas do job</button>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button onClick={() => onEditar(j)} style={{ ...btnSec, flex: 1, minHeight: 36 }}>Editar</button>
+                            <button onClick={() => onExcluir(j)} style={{ ...btnDanger, minHeight: 36 }} aria-label={`Excluir job ${j.titulo}`}>Excluir</button>
+                          </div>
                         </div>
                       </div>
                     )
