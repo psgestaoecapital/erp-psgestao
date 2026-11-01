@@ -315,6 +315,18 @@ export default function OportunidadesKanban({
       return
     }
     await aplicarMove(cardId, novaEtapa, etapaAtual, null)
+    // Chamado #3268 (Tryo): "Visita feita" segue sozinha para a fila do orçamento. A RPC é idempotente:
+    // se a oportunidade já tem orçamento, devolve o mesmo (ja_existia) e nada é duplicado. Sem cliente
+    // não cria — avisa; o card já está em "Visita feita" e o orçamento sai quando o cliente for informado.
+    if (novaEtapa === 'visita_feita') {
+      const { data, error } = await supabase.rpc('fn_oportunidade_gerar_orcamento', { p_oportunidade_id: cardId })
+      const j = data as { ok?: boolean; erro?: string; mensagem?: string; numero?: string; ja_existia?: boolean } | null
+      if (error || !j?.ok) {
+        onError(`Visita feita registrada, mas o orçamento não foi criado: ${j?.erro === 'sem_cliente' ? 'informe o cliente da oportunidade.' : (j?.mensagem ?? error?.message ?? 'falha')}`)
+        return
+      }
+      onMoved(j.ja_existia ? `Visita feita. O orçamento ${j.numero} já existia na fila.` : `Visita feita. Orçamento ${j.numero} criado em rascunho na fila.`)
+    }
   }
 
   async function aplicarMove(cardId: string, novaEtapa: string, etapaAtual: string | null, motivo: string | null) {
