@@ -412,6 +412,8 @@ function ProducaoPageInner() {
           onDrop={onDrop}
           onMover={moverEstagio}
           onEtapas={abrirEtapas}
+          onEditar={abrirEdicaoJob}
+          onExcluir={(j) => excluir('agency_jobs', j.id)}
           onAdd={() => { setForm({ status: 'nao_iniciada', prioridade: 'normal' }); setEditId(null); setShowForm('job') }}
         />
       )}
@@ -682,7 +684,7 @@ function ProducaoPageInner() {
 // ─────────────────────────────────────────────────────────────
 function KanbanBoard({
   jobs, clientes, dragId, hoverCol, movendoId,
-  onDragStart, onDragOver, onDragLeave, onDrop, onMover, onEtapas, onAdd,
+  onDragStart, onDragOver, onDragLeave, onDrop, onMover, onEtapas, onAdd, onEditar, onExcluir,
 }: {
   jobs: Job[]; clientes: Cliente[]; dragId: string | null; hoverCol: string | null; movendoId: string | null
   onDragStart: (e: DragEvent<HTMLDivElement>, id: string) => void
@@ -692,6 +694,8 @@ function KanbanBoard({
   onMover: (id: string, novo: string, atual: string | null) => void
   onEtapas: (job: Job) => void
   onAdd: () => void
+  onEditar: (job: Job) => void
+  onExcluir: (job: Job) => void
 }) {
   const cliNome = (id: string) => {
     const c = clientes.find((x) => x.id === id)
@@ -782,6 +786,10 @@ function KanbanBoard({
                             ))}
                           </select>
                           <button onClick={() => onEtapas(j)} style={etapasBtn}>Etapas do job</button>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button onClick={() => onEditar(j)} style={{ ...btnSec, flex: 1, minHeight: 36 }}>Editar</button>
+                            <button onClick={() => onExcluir(j)} style={{ ...btnDanger, minHeight: 36 }} aria-label={`Excluir job ${j.titulo}`}>Excluir</button>
+                          </div>
                         </div>
                       </div>
                     )
