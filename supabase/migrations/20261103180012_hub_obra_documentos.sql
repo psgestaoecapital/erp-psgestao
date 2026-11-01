@@ -52,3 +52,37 @@ CREATE POLICY obra_arquivos_upd ON public.erp_obra_arquivos FOR UPDATE
 -- Acesso: só usuário logado (sem anon). Sem DELETE (soft-delete por UPDATE).
 REVOKE ALL ON public.erp_obra_arquivos FROM anon;
 GRANT SELECT, INSERT, UPDATE ON public.erp_obra_arquivos TO authenticated;
+
+-- RD-98 p4 (exclusão rastreável): a aba exclui por UPDATE deleted_at direto (sem RPC). Para gravar QUEM
+-- excluiu e deixar trilha em audit_log_global sem depender do front, um trigger BEFORE UPDATE captura
+-- deleted_by = auth.uid() e registra a auditoria quando deleted_at passa de NULL -> preenchido.
+ALTER TABLE public.erp_obra_arquivos ADD COLUMN IF NOT EXISTS deleted_by uuid;
+COMMENT ON COLUMN public.erp_obra_arquivos.deleted_by IS
+  'Quem excluiu (soft-delete). Preenchido pelo trigger trg_obra_arquivos_soft_delete_audit.';
+
+CREATE OR REPLACE FUNCTION public.fn__obra_arquivos_soft_delete_audit()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+BEGIN
+  -- só na transição NULL -> excluído; restaurar (preenchido -> NULL) limpa o autor, sem auditar de novo.
+  IF NEW.deleted_at IS NOT NULL AND OLD.deleted_at IS NULL THEN
+    NEW.deleted_by := auth.uid();
+    INSERT INTO public.audit_log_global (company_id, user_id, tabela, registro_id, acao, valor_novo)
+      VALUES (NEW.company_id, auth.uid(), 'erp_obra_arquivos', NEW.id::text, 'excluir',
+              jsonb_build_object('nome_arquivo', NEW.nome_arquivo, 'tipo', NEW.tipo, 'storage_path', NEW.storage_path));
+  ELSIF NEW.deleted_at IS NULL AND OLD.deleted_at IS NOT NULL THEN
+    NEW.deleted_by := NULL;
+  END IF;
+  RETURN NEW;
+END
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn__obra_arquivos_soft_delete_audit() FROM PUBLIC, anon;
+
+DROP TRIGGER IF EXISTS trg_obra_arquivos_soft_delete_audit ON public.erp_obra_arquivos;
+CREATE TRIGGER trg_obra_arquivos_soft_delete_audit
+  BEFORE UPDATE ON public.erp_obra_arquivos
+  FOR EACH ROW EXECUTE FUNCTION public.fn__obra_arquivos_soft_delete_audit();
