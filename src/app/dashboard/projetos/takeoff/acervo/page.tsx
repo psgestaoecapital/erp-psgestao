@@ -4,12 +4,18 @@
 // RD-98 p1 (PDCA): antes filtrava aps_status IN ('radiografado','traduzindo') e ESCONDIA as plantas com
 // status null (DEMO Construtora tinha 4 plantas, todas null → acervo vazio apesar do dado existir).
 // Agora lista TODAS as plantas não excluídas da empresa e deriva o status do dado real; com busca,
-// filtro por status, contagem e paginação. Click numa planta reabre no /takeoff (bridge por query param).
-// Origem do dado (system_screens): erp_obra_planta. RD-95: "?" em busca, filtro, contagem e ação.
+// filtro por status, ORDENAÇÃO (recente/antiga/nome/status), contagem, paginação e EXPORTAÇÃO em CSV.
+// Cada card traz AÇÕES diretas: reabrir a análise no /takeoff, ver o orçamento vinculado (quando houver),
+// BAIXAR o arquivo original da planta (quando há arquivo salvo) e excluir (rastreável). Mostra também QUEM
+// enviou e QUEM analisou a planta.
+// Click numa planta reabre no /takeoff (bridge por query param).
+// Origem do dado (system_screens): erp_obra_planta (+ storage projetos-plantas para o download + public.users
+// só para o nome de quem enviou/analisou).
+// RD-95: "?" em busca, filtro, ordenação, exportar, contagem, autor, baixar e cada ação.
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, FileText, CheckCircle2, Loader2, UploadCloud, Search, Trash2 } from 'lucide-react'
+import { ArrowLeft, FileText, CheckCircle2, Loader2, UploadCloud, Search, Trash2, ArrowDownUp, FileDown, RotateCcw, Receipt, Download } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
@@ -31,11 +37,25 @@ type PlantaAcervo = {
   created_at: string | null
   updated_at: string
   arquivo_tipo: string | null
+  arquivo_path: string | null
   orcamento_id: string | null
   projeto_nome: string | null
   cliente_nome: string | null
+  criado_por: string | null
+  analisado_por: string | null
   aps_diagnostico: { n_objetos?: number; total_views?: number; layers?: unknown[] } | null
 }
+
+type Ordem = 'recente' | 'antiga' | 'nome' | 'status'
+const ORDENS: { v: Ordem; l: string }[] = [
+  { v: 'recente', l: 'Mais recentes' },
+  { v: 'antiga', l: 'Mais antigas' },
+  { v: 'nome', l: 'Nome (A–Z)' },
+  { v: 'status', l: 'Status' },
+]
+// prioridade da ordenação por status: o que precisa de atenção primeiro
+const RANK_STATUS: Record<Estado, number> = { processando: 0, enviada: 1, analisada: 2 }
+const quando = (p: PlantaAcervo) => new Date(p.analisado_em ?? p.aps_traduzido_em ?? p.created_at ?? p.updated_at ?? 0).getTime()
 
 // Estado real da planta, derivado do dado (não só do aps_status, que pode ser null em plantas legadas/seed).
 function estadoDe(p: PlantaAcervo): Estado {
@@ -76,8 +96,13 @@ export default function AcervoTakeoffPage() {
   const [erro, setErro] = useState<string | null>(null)
   const [busca, setBusca] = useState('')
   const [filtro, setFiltro] = useState<'todas' | Estado>('todas')
+  const [ordem, setOrdem] = useState<Ordem>('recente')
   const [pagina, setPagina] = useState(1)
   const [excluindo, setExcluindo] = useState<string | null>(null)
+  const [baixando, setBaixando] = useState<string | null>(null)
+  // nome de quem enviou/analisou (id → nome), resolvido em uma busca extra; vazio se o banco não liberar
+  const [autores, setAutores] = useState<Record<string, string>>({})
+  const nomeAutor = (id: string | null) => (id ? autores[id] ?? null : null)
 
   // Excluir planta do acervo: exclusão rastreável (soft-delete + quem + motivo + audit_log) pela RPC
   // fn_takeoff_planta_excluir, que também barra planta já confirmada (virou orçamento). A lista já filtra
@@ -93,13 +118,31 @@ export default function AcervoTakeoffPage() {
     setPlantas((prev) => prev.filter((x) => x.id !== p.id))
   }
 
+  // Baixar o arquivo ORIGINAL da planta (o que foi enviado) direto do acervo, sem reabrir a análise.
+  // Usa o mesmo bucket do Takeoff (projetos-plantas); o download respeita a RLS do storage por empresa.
+  // Só aparece quando a planta tem arquivo salvo (arquivo_path). Falha de rede/arquivo → mensagem clara, sem quebrar.
+  const baixar = async (p: PlantaAcervo) => {
+    if (!p.arquivo_path) return
+    setBaixando(p.id); setErro(null)
+    const { data, error } = await supabase.storage.from('projetos-plantas').download(p.arquivo_path)
+    setBaixando(null)
+    if (error || !data) { setErro(error?.message ?? 'Não foi possível baixar o arquivo desta planta.'); return }
+    const ext = (p.arquivo_path.split('.').pop() || p.arquivo_tipo || 'dat').toLowerCase()
+    const base = (p.nome || 'planta').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'planta'
+    const nomeArq = base.toLowerCase().endsWith('.' + ext) ? base : `${base}.${ext}`
+    const url = URL.createObjectURL(data)
+    const a = document.createElement('a')
+    a.href = url; a.download = nomeArq; a.click()
+    URL.revokeObjectURL(url)
+  }
+
   useEffect(() => {
     if (!companyId) return
     let alive = true
     setLoading(true); setErro(null)
     supabase
       .from('erp_obra_planta')
-      .select('id,nome,aps_status,analisado_em,aps_traduzido_em,created_at,updated_at,arquivo_tipo,orcamento_id,projeto_nome,cliente_nome,aps_diagnostico')
+      .select('id,nome,aps_status,analisado_em,aps_traduzido_em,created_at,updated_at,arquivo_tipo,arquivo_path,orcamento_id,projeto_nome,cliente_nome,criado_por,analisado_por,aps_diagnostico')
       .eq('company_id', companyId)
       .is('deleted_at', null)
       .order('analisado_em', { ascending: false, nullsFirst: false })
@@ -108,21 +151,38 @@ export default function AcervoTakeoffPage() {
         if (!alive) return
         setLoading(false)
         if (error) { setErro(error.message); return }
-        setPlantas((data as PlantaAcervo[]) ?? [])
+        const lista = (data as PlantaAcervo[]) ?? []
+        setPlantas(lista)
+        // resolve o nome de quem enviou/analisou numa busca à parte; erro/RLS → segue sem nome
+        const ids = Array.from(new Set(lista.flatMap((p) => [p.criado_por, p.analisado_por]).filter((x): x is string => !!x)))
+        if (ids.length) {
+          void supabase.from('users').select('id,full_name').in('id', ids).then(({ data: us }) => {
+            if (!alive || !us) return
+            const m: Record<string, string> = {}
+            for (const u of us as { id: string; full_name: string | null }[]) if (u.full_name) m[u.id] = u.full_name
+            setAutores(m)
+          })
+        }
       })
     return () => { alive = false }
   }, [companyId])
 
-  useEffect(() => { setPagina(1) }, [busca, filtro])
+  useEffect(() => { setPagina(1) }, [busca, filtro, ordem])
 
   const filtradas = useMemo(() => {
     const q = busca.trim().toLowerCase()
-    return plantas.filter((p) => {
+    const lista = plantas.filter((p) => {
       if (filtro !== 'todas' && estadoDe(p) !== filtro) return false
       if (!q) return true
       return [p.nome, p.projeto_nome, p.cliente_nome].some((v) => (v ?? '').toLowerCase().includes(q))
     })
-  }, [plantas, busca, filtro])
+    const ord = [...lista]
+    if (ordem === 'nome') ord.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }))
+    else if (ordem === 'antiga') ord.sort((a, b) => quando(a) - quando(b))
+    else if (ordem === 'status') ord.sort((a, b) => RANK_STATUS[estadoDe(a)] - RANK_STATUS[estadoDe(b)] || quando(b) - quando(a))
+    else ord.sort((a, b) => quando(b) - quando(a))
+    return ord
+  }, [plantas, busca, filtro, ordem])
 
   const totalPaginas = Math.max(1, Math.ceil(filtradas.length / PAGINA))
   const visiveis = filtradas.slice(0, pagina * PAGINA)
@@ -131,6 +191,27 @@ export default function AcervoTakeoffPage() {
     processando: plantas.filter((p) => estadoDe(p) === 'processando').length,
     enviada: plantas.filter((p) => estadoDe(p) === 'enviada').length,
   }), [plantas])
+
+  // Exporta a lista FILTRADA/ordenada (o que está na tela) em CSV — abre no Excel/Sheets, sem cobrança.
+  const exportarCsv = () => {
+    const linhas = filtradas
+    if (!linhas.length) { setErro('Nada para exportar com a busca/filtro atuais.'); return }
+    const cab = ['Planta', 'Status', 'Data', 'Tipo', 'Projeto', 'Cliente', 'Tem orçamento', 'Enviada por', 'Analisada por']
+    const esc = (v: string) => `"${v.replace(/"/g, '""')}"`
+    const corpo = linhas.map((p) => {
+      const dt = p.analisado_em ?? p.aps_traduzido_em ?? p.created_at ?? p.updated_at
+      return [
+        p.nome ?? '', ROTULO[estadoDe(p)], dt ? new Date(dt).toLocaleString('pt-BR') : '',
+        (p.arquivo_tipo ?? '').toUpperCase(), p.projeto_nome ?? '', p.cliente_nome ?? '',
+        p.orcamento_id ? 'Sim' : 'Não', nomeAutor(p.criado_por) ?? '', nomeAutor(p.analisado_por) ?? '',
+      ].map((c) => esc(String(c))).join(';')
+    })
+    const csv = '﻿' + [cab.map(esc).join(';'), ...corpo].join('\r\n')
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }))
+    const a = document.createElement('a')
+    a.href = url; a.download = `acervo-plantas-${new Date().toISOString().slice(0, 10)}.csv`; a.click()
+    URL.revokeObjectURL(url)
+  }
 
   if (!companyId) {
     return (
@@ -189,6 +270,25 @@ export default function AcervoTakeoffPage() {
               <option value="enviada">Enviada</option>
             </select>
             <AjudaCampo chave="hub.takeoff.acervo.filtro_status" />
+          </label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <ArrowDownUp size={14} color={ESP60} />
+            <select
+              value={ordem}
+              onChange={(e) => setOrdem(e.target.value as Ordem)}
+              aria-label="Ordenar o acervo"
+              data-testid="acervo-ordenar"
+              style={{ border: `0.5px solid ${LINE}`, background: '#FFFFFF', borderRadius: 8, padding: '7px 10px', fontSize: 13, color: ESP, minHeight: 36 }}
+            >
+              {ORDENS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+            </select>
+            <AjudaCampo chave="hub.takeoff.acervo.ordenar" />
+          </label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+            <button type="button" onClick={exportarCsv} data-testid="acervo-exportar" style={btnVoltar}>
+              <FileDown size={14} /> Exportar
+            </button>
+            <AjudaCampo chave="hub.takeoff.acervo.exportar" />
           </label>
           <Link href="/dashboard/projetos/takeoff" style={btnVoltar}>
             <ArrowLeft size={14} /> Voltar ao Takeoff
@@ -254,17 +354,55 @@ export default function AcervoTakeoffPage() {
                     {ROTULO[est]}
                   </div>
                 </Link>
-                <div style={{ borderTop: `0.5px solid ${LINE}`, padding: '7px 14px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 2 }}>
-                  <button
-                    type="button"
-                    disabled={excluindo === p.id}
-                    onClick={() => void excluir(p)}
-                    data-testid="acervo-excluir"
-                    style={{ background: 'transparent', border: 'none', color: '#B91C1C', fontSize: 12, fontWeight: 600, cursor: excluindo === p.id ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, minHeight: 32 }}
-                  >
-                    <Trash2 size={13} /> {excluindo === p.id ? 'Excluindo…' : 'Excluir'}
-                  </button>
-                  <AjudaCampo chave="hub.takeoff.acervo.excluir" />
+                <div style={{ borderTop: `0.5px solid ${LINE}`, padding: '7px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 11, color: ESP60, display: 'inline-flex', alignItems: 'center', gap: 4 }} data-testid="acervo-autor">
+                    {nomeAutor(p.criado_por) || nomeAutor(p.analisado_por) ? (
+                      <>
+                        {nomeAutor(p.criado_por) && <span>Enviada por {nomeAutor(p.criado_por)}</span>}
+                        {nomeAutor(p.criado_por) && nomeAutor(p.analisado_por) && <span>·</span>}
+                        {nomeAutor(p.analisado_por) && <span>Analisada por {nomeAutor(p.analisado_por)}</span>}
+                        <AjudaCampo chave="hub.takeoff.acervo.autor" />
+                      </>
+                    ) : <span style={{ visibility: 'hidden' }}>—<AjudaCampo chave="hub.takeoff.acervo.autor" /></span>}
+                  </span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                    <Link href={`/dashboard/projetos/takeoff?planta_id=${p.id}`} data-testid="acervo-reabrir" style={acaoLink}>
+                      <RotateCcw size={13} /> Reabrir análise
+                    </Link>
+                    <AjudaCampo chave="hub.takeoff.acervo.reabrir" />
+                    {p.orcamento_id && (
+                      <>
+                        <Link href={`/dashboard/orcamentos?id=${p.orcamento_id}`} data-testid="acervo-ver-orcamento" style={acaoLink}>
+                          <Receipt size={13} /> Ver orçamento
+                        </Link>
+                        <AjudaCampo chave="hub.takeoff.acervo.ver_orcamento" />
+                      </>
+                    )}
+                    {p.arquivo_path && (
+                      <>
+                        <button
+                          type="button"
+                          disabled={baixando === p.id}
+                          onClick={() => void baixar(p)}
+                          data-testid="acervo-baixar"
+                          style={{ ...acaoLink, border: 'none', background: 'transparent', cursor: baixando === p.id ? 'wait' : 'pointer' }}
+                        >
+                          <Download size={13} /> {baixando === p.id ? 'Baixando…' : 'Baixar planta'}
+                        </button>
+                        <AjudaCampo chave="hub.takeoff.acervo.baixar" />
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      disabled={excluindo === p.id}
+                      onClick={() => void excluir(p)}
+                      data-testid="acervo-excluir"
+                      style={{ background: 'transparent', border: 'none', color: '#B91C1C', fontSize: 12, fontWeight: 600, cursor: excluindo === p.id ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, minHeight: 32 }}
+                    >
+                      <Trash2 size={13} /> {excluindo === p.id ? 'Excluindo…' : 'Excluir'}
+                    </button>
+                    <AjudaCampo chave="hub.takeoff.acervo.excluir" />
+                  </span>
                 </div>
               </div>
             )
@@ -294,4 +432,8 @@ const btnVoltar: CSSProperties = {
 const btnMais: CSSProperties = {
   background: '#FFFFFF', color: ESP, border: `0.5px solid ${LINE}`, padding: '9px 18px', borderRadius: 8,
   fontSize: 13, cursor: 'pointer', fontWeight: 600,
+}
+const acaoLink: CSSProperties = {
+  background: 'transparent', color: ESP, textDecoration: 'none', fontSize: 12, fontWeight: 600,
+  display: 'inline-flex', alignItems: 'center', gap: 5, minHeight: 32, padding: '0 6px',
 }

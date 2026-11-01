@@ -142,11 +142,14 @@ export default function AgendaComercialPage() {
             {(['minha', 'equipe'] as const).map((k) => (
               <button key={k} onClick={() => setQuem(k)} data-testid={`agenda-${k}`} style={{ padding: '6px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1px solid ${quem === k ? ESP : LINE}`, background: quem === k ? ESP : '#fff', color: quem === k ? '#fff' : TEXTM }}>{k === 'minha' ? 'Minha agenda' : 'Equipe'}</button>
             ))}
+            <AjudaCampo chave="pm.agenda.filtro_quem" />
             <span style={{ width: 8 }} />
             {(['dia', 'semana', 'mes'] as Vis[]).map((v) => (
               <button key={v} onClick={() => setVis(v)} style={{ padding: '6px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1px solid ${vis === v ? GOLD : LINE}`, background: vis === v ? '#FBF3DE' : '#fff', color: vis === v ? '#8A5A0B' : TEXTM }}>{v === 'mes' ? 'mês' : v}</button>
             ))}
+            <AjudaCampo chave="pm.agenda.filtro_periodo" />
             <button onClick={() => abrirNovo(iso(vis === 'mes' ? new Date() : ref))} style={{ background: GOLD, color: '#fff', border: 'none', borderRadius: 8, padding: '7px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>+ Novo</button>
+            <AjudaCampo chave="pm.agenda.novo_evento" alinhar="fim" />
           </div>
         </header>
 
@@ -250,6 +253,7 @@ function EventoCard({ a, onEditar, onStatus }: { a: Ag; onEditar: (a: Ag) => voi
         {a.status !== 'confirmado' && a.status !== 'concluido' && a.status !== 'cancelado' && <button onClick={() => onStatus(a, 'confirmado')} style={miniBtn(GREEN)}>confirmar</button>}
         {a.status !== 'concluido' && a.status !== 'cancelado' && <button onClick={() => onStatus(a, 'concluido')} style={miniBtn('#166534')}>concluir</button>}
         {a.status !== 'cancelado' && <button onClick={() => onStatus(a, 'cancelado')} style={miniBtn(RED)}>cancelar</button>}
+        <AjudaCampo chave="pm.agenda.cartao_status" />
       </div>
     </div>
   )
