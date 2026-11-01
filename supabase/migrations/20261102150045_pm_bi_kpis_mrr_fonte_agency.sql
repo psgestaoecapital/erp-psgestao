@@ -52,3 +52,7 @@ BEGIN
     'horas_mes', v_horas, 'comissao_pagar', v_com, 'receber_vencido', v_venc);
   RETURN v;
 END $function$;
+
+-- Guarda check_fn_guards (regra 1 revoke_anon): REVOKE explícito idêntico à ACL viva (zero mudança funcional).
+REVOKE ALL ON FUNCTION public.fn_pm_bi_kpis(uuid[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_pm_bi_kpis(uuid[]) TO authenticated, service_role;
