@@ -36,3 +36,6 @@ BEGIN
             jsonb_build_object('excluido_em', now(), 'obra_id', v_obra, 'motivo', COALESCE(p_motivo,'sem motivo')));
   RETURN jsonb_build_object('ok', true);
 END $function$;
+
+-- check_fn_guards regra 1: fecha a função ao anon (idempotente; CREATE OR REPLACE reabriria a régua)
+REVOKE ALL ON FUNCTION public.fn_obra_item_excluir(uuid, text) FROM anon;
