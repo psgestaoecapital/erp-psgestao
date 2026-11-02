@@ -207,9 +207,18 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   **LOTE (CEO 09/10):** numa mesma rodada a fila publica **VÁRIAS PRs SEM migration** (até o teto `LOTE_MAX`, padrão 6).
   **LOTE DE MIGRATIONS (CEO 16/10, tetos revistos 23/10):** numa rodada a fila publica migrations **INDEPENDENTES** entre si
   (`scripts/merge/migrations-independentes.ts`; qualquer dúvida → 1), com DOIS tetos — **`LOTE_MIG_MAX` (padrão 6)** para o
-  conjunto e **`LOTE_MIG_CRIT_MAX` (padrão 1)** só para as **CRÍTICAS** (etiqueta `revisao-eng-chefe`). Ou seja: as **ADITIVAS**
-  escalam (até 6/rodada), a **CRÍTICA** fica em **1 por rodada** (cada uma com seu veredito de `@pos`, sem se misturar). O
-  `@pos-migration` da main roda uma vez para o lote; `LOTE_MIG_MAX=1` desliga (comportamento antigo, 1 migration/rodada).
+  conjunto e **`LOTE_MIG_CRIT_MAX` (padrão 5 desde CEO 01/11; era 1)** só para as **CRÍTICAS** (etiqueta `revisao-eng-chefe`).
+  O `@pos-migration` da main roda uma vez para o lote; `LOTE_MIG_MAX=1` desliga (comportamento antigo, 1 migration/rodada).
+  **LOTE DE CRÍTICAS (CEO 01/11):** a fila crítica chegou a **44** com vazão de **2-3/h** (cada crítica saía sozinha e
+  esperava ~20 min de `@pos`). O CEO aprovou batelar até **`LOTE_MIG_CRIT_MAX`=5** migrations **CRÍTICAS** num **mesmo
+  `@pos`**, desde que INDEPENDENTES. **CARVE-OUT — publicam SOZINHAS (1 por `@pos`, "como hoje"):** migrations de **NR-36,
+  fiscal, financeiro de cliente, RLS/permissão/LGPD** e **qualquer `conserto-main`**. O `conserto-main` é detectado pela
+  etiqueta; o resto pelo classificador puro e testado `scripts/merge/critica-solo.ts` (viés de SEGURANÇA: migration
+  ilegível/dúvida → SOLO). Prioridade segue valendo (`FILA_PRIORIDADE` / `MERGE AUTORIZADO` vão primeiro). No script:
+  `n_critica_solo`. **SE O `@pos` DO LOTE FALHAR, o guardião (`gilberto-esteira`) BISSECTA** (ver PROTOCOLO DE MAIN
+  VERMELHA do guardião): reverte metade do lote, roda o `@pos`, repete até ISOLAR a PR culpada, reverte só ela (PR com
+  `conserto-main`) e republica as inocentes. Gate: `scripts/gates/check-fila-lote-critico.ts` (teto 5, carve-out SOLO,
+  encerra a rodada no SOLO e o caminho de falha). Nunca afrouxe o crítico para drenar.
   **VIA EXPRESSA DO HUB (CEO 23/10 — "Hub inteiro no dev, sem parar; publicação direta e prioritária, sem trava nenhuma;
   reauditamos depois"):** PR com a label **`hub`** é tratada pela fila como **via rápida** (SEM revisor, mesmo com
   `revisao-eng-chefe`) e como **ADITIVA** (batela até `LOTE_MIG_MAX`, NÃO entra no teto `LOTE_MIG_CRIT_MAX`), e vai na
@@ -289,9 +298,13 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
 - **Renumeração automática de migration na fila (Eng. Chefe 09/10):** a fila, ao pegar PR com migration nova de versão NÃO
   maior que a última da `main` (recalculada na hora), **renomeia o arquivo** (commit no ramo da PR via API: versão nova =
   timestamp do momento, mantendo os 2 últimos dígitos = faixa do agente) e comenta o que mudou, em vez de recusar. O commit
-  novo roda os checks de novo. **PR revisada (`revisao-eng-chefe`): o patch-id muda, então o revisor precisa autorizar de
-  novo** — a fila tira e recoloca a etiqueta para acordá-lo. Se outro arquivo da PR cita a versão antiga (gate/spec que lê a
-  migration pelo nome), a fila NÃO renumera: recusa como antes e quem fez a PR corrige. Gate: `check-fila-sem-bloqueio.ts`.
+  novo roda os checks de novo. **PR revisada (`revisao-eng-chefe`): a autorização do revisor CONTINUA VALENDO** — a
+  renumeração só troca o NOME do arquivo (conteúdo idêntico) e o patch-id ESTÁVEL (normaliza `supabase/migrations/<14 díg>_`)
+  não muda, então a fila NÃO tira/recoloca a etiqueta nem pede nova revisão; comenta "autorização mantida: só renumeração"
+  (Eng. Chefe 02/11 — tirar/recolocar a etiqueta acordava o revisor à toa e devolvia a PR para a espera do revisor, o ciclo
+  que prendia dezenas de PRs). Mudança REAL de conteúdo muda o patch-id e `autorizacao` já exige nova revisão sozinha. Se
+  outro arquivo da PR cita a versão antiga (gate/spec que lê a migration pelo nome), a fila NÃO renumera: recusa como antes e
+  quem fez a PR corrige. Gates: `check-fila-sem-bloqueio.ts`, `check-fila-patchid-estavel.ts`.
 
 ## Esteira em 2 velocidades (CEO 07/10 08:05) — TEMPORÁRIA, até haver um banco de testes por vaga
 Palavras do CEO: "PR comum publica com checks rápidos + preview verde e a aceitação vira informativa; PR com etiqueta
@@ -389,6 +402,28 @@ Responda a cada rodada com ENTREGUE / EM TESTE / PRÓXIMO até zerar a lista.
 - **Checklist de revisão de PR de tela:** (1) todo campo/filtro/indicador/ação tem "?" com chave existente no banco; (2) tarefa principal
   em até 3 toques; (3) a tela aparece no menu do banco e em `system_screens` (entrega só conta se o usuário a enxerga); (4) nomes e
   fluxo próprios, nada decalcado de concorrente; (5) funciona no celular; (6) teste do caminho principal como usuário real.
+
+# RD-100 — nenhum nome de sistema de terceiros no produto (CEO 01/11, INEGOCIÁVEL) — vale para TODOS os Codes
+Nenhum nome de sistema de terceiros pode aparecer em NADA que o usuário veja: tela (strings de interface em `src/`),
+menu, catálogos (`module_catalog`, `feature_catalog`), ajuda (`erp_ajuda_campo`), blueprint vivo
+(`blueprint_tela_requisito`), rotas visíveis, PDFs e e-mails. Isto é marca própria — o produto não se posiciona pelo
+concorrente (complementa a RD-96).
+- **Lista do gate** (atualizável no próprio gate): SIGA, Conta Azul/ContaAzul, Omie, Olist, Bling, Sienge, Obra Prima,
+  Procore, Buildertrend, JobTread, CoConstruct, Knowify, Assembly, TOTVS, Protheus, Senior, Dotise, QuickBooks, Mobuss,
+  Prevision, Nibo, Aplix e similares.
+- **Termos genéricos** no lugar do nome: "sistema anterior", "seu ERP atual", "importar de outro sistema", "de mercado"
+  (ex.: "ref. Omie: …" → "ref. mercado: …"; "Paridade Sienge:" → "Paridade de mercado:"). Preserve TODO o resto do texto —
+  troque só o nome.
+- **Única exceção:** identificador técnico NÃO visível exigido pelo provedor (ex.: callback OAuth, nome de parâmetro de
+  API, slug de rota de integração real). Marque com comentário no código justificando. Cuidado com fronteira de palavra
+  (`\b`) e maiúsc./minúsc.: "Senior"/"SIGA" como marca ≠ "senior" (cargo) / "siga" (verbo).
+- **Rota visível com nome de terceiro** é renomeada com redirecionamento do caminho antigo (ex.:
+  `/dashboard/pm/importar-siga` → `/dashboard/pm/importar-sistema-anterior`).
+- **Migrations de limpeza** são aditivas e idempotentes, com cópia de segurança ANTES (ex.: `*_bkp_rd100`) e prova RD-38
+  (contagem antes/depois: 0 nomes depois, mesma contagem de linhas) no PR. Nunca altera dado de cliente (nome de cliente
+  que por acaso seja igual a um sistema NÃO é tocado).
+- **Gate:** `scripts/gates/check-sem-nome-de-terceiros.ts` reprova texto visível com nome de terceiro em `src/`, migrations/
+  seeds de ajuda e catálogos, e no blueprint vivo. Tela/texto novo com nome de terceiro não é entregue.
 
 # Sessões de rotina não prendem o CEO (Eng. Chefe 08/10) — vale para TODOS os Codes
 1. **Não use `subscribe_pr_activity` nem `unsubscribe_pr_activity`**: os eventos de PR já chegam pela fila de merge, pelo
