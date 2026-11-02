@@ -172,8 +172,8 @@ export default function OrcamentoItensPage() {
                 <div className="flex gap-2">
                   <button type="button" disabled={!lista.editavel} data-testid="item-editar" className="rounded-lg border border-[#E8E2D6] px-3 py-1 text-[14px] disabled:opacity-40"
                     onClick={() => setForm({ id: it.id, produto_nome: it.produto_nome, tipo_item: it.tipo_item, unidade: it.unidade, quantidade: String(it.quantidade),
-                      preco_unitario: String(it.preco_unitario), desconto_percentual: String(it.desconto_percentual ?? 0), desconto_valor: String(it.desconto_valor ?? 0), observacoes: it.observacoes ?? "" })}>Editar</button>
-                  <button type="button" disabled={!lista.editavel} data-testid="item-excluir" className="rounded-lg border border-[#E8E2D6] px-3 py-1 text-[14px] text-[#c0392b] disabled:opacity-40" onClick={() => void excluir(it)}>Excluir</button>
+                      preco_unitario: String(it.preco_unitario), desconto_percentual: String(it.desconto_percentual ?? 0), desconto_valor: String(it.desconto_valor ?? 0), observacoes: it.observacoes ?? "" })}>Editar <AjudaCampo chave="hub.orcamento_itens.acao_editar" rota={ROTA} /></button>
+                  <button type="button" disabled={!lista.editavel} data-testid="item-excluir" className="rounded-lg border border-[#E8E2D6] px-3 py-1 text-[14px] text-[#c0392b] disabled:opacity-40" onClick={() => void excluir(it)}>Excluir <AjudaCampo chave="hub.orcamento_itens.acao_excluir" rota={ROTA} /></button>
                 </div>
               </li>
             ))}
