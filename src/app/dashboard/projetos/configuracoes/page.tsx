@@ -62,8 +62,8 @@ interface Config {
 // Recursos planejados (não ativos): ficam numa seção "No roadmap", fora do caminho principal de configuração.
 const ROADMAP: Array<{ label: string; ajuda: string; hint: string }> = [
   { label: "Exige aprovação do engenheiro", ajuda: "projetos.config.exige_engenheiro", hint: "O fluxo de aprovação por engenheiro não bloqueia a proposta por enquanto." },
-  { label: "Sincronizar estoque com Omie", ajuda: "projetos.config.omie_estoque", hint: "A saída de material da obra já movimenta o estoque do PS; o envio ao Omie virá com a integração." },
-  { label: "Sincronizar contas a pagar com Omie", ajuda: "projetos.config.omie_pagar", hint: "Os títulos a pagar da obra ficam no financeiro do PS; o envio ao Omie virá com a integração." },
+  { label: "Sincronizar estoque com sistema externo", ajuda: "projetos.config.omie_estoque", hint: "A saída de material da obra já movimenta o estoque do PS; o envio a um sistema externo virá com a integração." },
+  { label: "Sincronizar contas a pagar com sistema externo", ajuda: "projetos.config.omie_pagar", hint: "Os títulos a pagar da obra ficam no financeiro do PS; o envio a um sistema externo virá com a integração." },
 ];
 
 const PRESETS: Array<{ id: string; label: string; descricao: string }> = [
@@ -123,6 +123,7 @@ export default function ConfiguracoesPage() {
 
   const [aba, setAba] = useState<"projetos" | "precificacao" | "produtividade">("projetos");
   const [config, setConfig] = useState<Config | null>(null);
+  const [salvo, setSalvo] = useState(false); // empresa já tem linha de config gravada
   const [impactos, setImpactos] = useState<ImpactoServico[]>([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
@@ -177,6 +178,7 @@ export default function ConfiguracoesPage() {
         }));
       }
       const dados = (cfgR.data as Partial<Config>) || {};
+      setSalvo(!!cfgR.data);
       ignoreNextEffectRef.current = true;
       setConfig({
         company_id: companyId,
@@ -262,6 +264,7 @@ export default function ConfiguracoesPage() {
         if (error) throw error;
         setSavingState("saved");
         setSavedAt(new Date());
+        setSalvo(true);
         if (data && Number.isFinite((data as any).bdi_total_pct)) {
           ignoreNextEffectRef.current = true;
           setConfig((prev) =>
@@ -446,8 +449,9 @@ export default function ConfiguracoesPage() {
 
         {/* Presets */}
         <div className="mb-4 flex flex-wrap gap-2">
-          <span className="text-xs uppercase tracking-wider text-[#3D2314]/50">
+          <span className="flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/50">
             Presets:
+            <AjudaCampo chave="projetos.bdi.preset" rota="/dashboard/projetos/configuracoes" />
           </span>
           {PRESETS.map((p) => (
             <button
@@ -524,6 +528,7 @@ export default function ConfiguracoesPage() {
           <BdiPreview
             componentes={componentes}
             bdiTotalPct={config.bdi_total_pct}
+            salvo={salvo}
             impactos={impactos}
             margemAlvoPct={config.margem_alvo_pct}
             margemMinimaPct={config.margem_minima_pct}

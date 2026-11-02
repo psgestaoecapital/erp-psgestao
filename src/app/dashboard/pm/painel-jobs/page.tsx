@@ -30,10 +30,15 @@ const COLUNAS_PDF: Coluna<LinhaFluxo>[] = CABECALHO_FLUXO.map((header, i) => ({
 const fmt = (n: number | null, suf = "") => (n === null ? "—" : `${n.toLocaleString("pt-BR")}${suf}`);
 
 function Multi({ valor, opcoes, onChange }: { valor?: string[]; opcoes: Nome[]; onChange: (v: string[]) => void }) {
+  // RD-95: a ajuda ("?") deste controle vem do rótulo ao lado — cada uso traz <AjudaCampo> no <label> do filtro.
+  // data-ajuda marca essa cobertura pelo rótulo para a varredura de "?" sem renderar um segundo ícone; `contents`
+  // não gera caixa, então o layout do <select> não muda.
   return (
-    <select multiple className={campo + " h-[84px]"} value={valor ?? []} onChange={(e) => onChange([...e.target.selectedOptions].map((o) => o.value))}>
-      {opcoes.map((o) => <option key={o.id} value={o.id}>{o.nome}</option>)}
-    </select>
+    <span data-ajuda="rotulo" className="contents">
+      <select multiple className={campo + " h-[84px]"} value={valor ?? []} onChange={(e) => onChange([...e.target.selectedOptions].map((o) => o.value))}>
+        {opcoes.map((o) => <option key={o.id} value={o.id}>{o.nome}</option>)}
+      </select>
+    </span>
   );
 }
 
@@ -267,6 +272,7 @@ export default function PainelJobsPage() {
               <button onClick={aplicar} className="min-h-[40px] rounded-lg bg-[#3D2314] px-4 text-[13px] text-white">Aplicar</button>
               <button onClick={limpar} className="min-h-[40px] rounded-lg border border-[#E7DED3] px-4 text-[13px]">Limpar</button>
               <input className={campo + " !w-48"} placeholder="Nome da opção" value={nomeOpcao} onChange={(e) => setNomeOpcao(e.target.value)} />
+              <AjudaCampo chave="pm.painel_jobs.nova_opcao" />
               <button onClick={salvarOpcao} disabled={!nomeOpcao.trim()} className="inline-flex min-h-[40px] items-center gap-1 rounded-lg border border-[#E7DED3] px-3 text-[13px] disabled:opacity-50"><Save size={14} /> Salvar opção</button>
             </div>
           </section>

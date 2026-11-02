@@ -427,6 +427,7 @@ export default function ViagensPage() {
               {!noGe[aberta.id] && <span className="flex items-center gap-1"><button disabled={busy} className="text-sm text-red-700 underline" onClick={excluirViagem}>Excluir viagem</button><AjudaCampo chave="projetos.viagem.excluir_viagem" /></span>}
             </div>}
           </div>
+          {aberta.obra_id && <MobilizacaoViagem empresa={empresa} obraId={aberta.obra_id} />}
           {editar && aberta.status === 'aberta' && podeGravar && (
             <div className="grid gap-2 rounded-xl border bg-white p-3 sm:grid-cols-3" style={{ borderColor: LINE }}>
               <Campo rotulo="Colaborador" ajuda="projetos.viagem.colaborador"><input className={campo} value={ef.colaborador_nome ?? ''} onChange={(e) => setEf({ ...ef, colaborador_nome: e.target.value })} /></Campo>
@@ -486,6 +487,60 @@ export default function ViagensPage() {
 // todo campo do Hub tem o "?" (AjudaCampo) ao lado do rótulo — CEO 01/10; o gate check-ajuda-campo reprova campo sem ajuda
 function Campo({ rotulo, ajuda, children }: { rotulo: string; ajuda: string; children: React.ReactNode }) {
   return <label className="flex flex-col gap-1 text-xs"><span>{rotulo}<AjudaCampo chave={ajuda} /></span>{children}</label>
+}
+
+// Mobilização: real × orçado (gap PDCA auditor_pdca_1 01/11). Dentro da viagem/ao fechar, mostra o custo REAL das viagens
+// da obra × o preço de mobilização PREVISTO no contrato do cliente, com o % e o alerta quando estoura — e o rastro para o
+// Resultado da obra (cockpit). Mesma fonte do Resultado da obra: fn_viagem_indicadores → v_obra_resultado (não recalcula
+// nada aqui). Sem verba de mobilização no contrato → estado vazio honesto, não inventa número (RD-38 / RD-96).
+function MobilizacaoViagem({ empresa, obraId }: { empresa: string; obraId: string | null }) {
+  const [o, setO] = useState<{ preco_mobilizacao: number | null; custo_viagens: number | null; mobilizacao_pct: number | null; mobilizacao_alerta: boolean | null; mobilizacao_tabela: string | null } | null>(null)
+  const [carregou, setCarregou] = useState(false)
+  useEffect(() => {
+    let vivo = true
+    setCarregou(false)
+    if (!obraId) { setO(null); setCarregou(true); return () => { vivo = false } }
+    void supabase.rpc('fn_viagem_indicadores', { p_company_id: empresa, p_obra_id: obraId, p_limite_pct: 0 }).then(({ data }) => {
+      if (!vivo) return
+      const row = ((data as { obras?: Array<Record<string, unknown>> } | null)?.obras ?? [])[0]
+      setO(row ? {
+        preco_mobilizacao: (row.preco_mobilizacao as number | null) ?? null,
+        custo_viagens: (row.custo_viagens as number | null) ?? null,
+        mobilizacao_pct: (row.mobilizacao_pct as number | null) ?? null,
+        mobilizacao_alerta: (row.mobilizacao_alerta as boolean | null) ?? null,
+        mobilizacao_tabela: (row.mobilizacao_tabela as string | null) ?? null,
+      } : null)
+      setCarregou(true)
+    })
+    return () => { vivo = false }
+  }, [empresa, obraId])
+  if (!obraId || !carregou) return null
+  const acima = o?.mobilizacao_alerta === true
+  return (
+    <div className="rounded-xl border bg-white p-3 text-sm" style={{ borderColor: acima ? '#B42318' : LINE, background: acima ? '#FEF2F2' : '#FFFFFF' }}>
+      <div className="mb-1 flex items-center text-xs font-medium opacity-70">Mobilização: real × orçado do contrato<AjudaCampo chave="projetos.viagem.ind_mobilizacao" /></div>
+      {o == null || o.preco_mobilizacao == null ? (
+        <div className="text-xs opacity-60">Sem verba de mobilização no contrato do cliente — cadastre na tabela de preços para comparar o custo real com o previsto.</div>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <span className="opacity-80">Previsto no contrato{o.mobilizacao_tabela ? ` · ${o.mobilizacao_tabela}` : ''}</span>
+            <b className="shrink-0 tabular-nums" style={{ color: ESP }}>{brl(o.preco_mobilizacao)}</b>
+          </div>
+          <div className="mt-0.5 flex flex-wrap items-baseline justify-between gap-2">
+            <span className="opacity-80">Custo real das viagens da obra</span>
+            <b className="shrink-0 tabular-nums" style={{ color: acima ? '#B42318' : ESP }}>{brl(o.custo_viagens)}</b>
+          </div>
+          {o.mobilizacao_pct != null && (
+            <div className="mt-1 flex items-center justify-between border-t pt-1 text-xs" style={{ borderColor: LINE }}>
+              <span className="inline-flex items-center font-medium" style={{ color: acima ? '#B42318' : GOLD }}>{acima ? '⚠ ' : ''}real {o.mobilizacao_pct.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}% do previsto{acima ? ' — o excesso sai da margem' : ''}<AjudaCampo chave="projetos.viagem.ind_mob_pct" /></span>
+            </div>
+          )}
+        </>
+      )}
+      <a href={`/dashboard/projetos/obras/${obraId}/cockpit`} className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium underline" style={{ color: GOLD }}><ExternalLink size={12} aria-hidden />Ver no Resultado da obra (GE)</a>
+    </div>
+  )
 }
 
 // tile da faixa de resumo: rótulo + "?" (RD-95) em cima, número grande embaixo; destaque realça as viagens abertas (pendentes)

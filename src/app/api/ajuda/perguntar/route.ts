@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createHash } from 'crypto'
+import { assertIAPermitida, IABloqueadaError } from '@/lib/aiModel'
 
 // Central de Ajuda · F0.2 — resposta conversacional grounded (RAG). Fluxo (RD-51/58 + RD-42):
 // 1) RETRIEVE: fn_ajuda_rag_contexto → top-K artigos (já filtrados por papel/tenant — Pilar 2). Vazio → escala
@@ -80,6 +81,11 @@ export async function POST(req: NextRequest) {
   }
 
   if (!apiKey) return NextResponse.json({ error: 'ANTHROPIC_API_KEY não configurada' }, { status: 500 })
+  // P0 CUSTO (CEO 01/11): porteiro do bloqueio global — só aqui, DEPOIS do cache/escala (custo zero não é bloqueado).
+  try { await assertIAPermitida() } catch (e) {
+    if (e instanceof IABloqueadaError) return NextResponse.json({ error: e.motivo, ia_bloqueada: true }, { status: 503 })
+    throw e
+  }
 
   // ── 3. AUGMENT — contexto SÓ com os artigos recuperados (grounding rígido) ─────────────────────
   const contexto = artigos.map((a, i) => [

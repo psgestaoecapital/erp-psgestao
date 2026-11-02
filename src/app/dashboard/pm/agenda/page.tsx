@@ -19,13 +19,18 @@ const fmtDiaLabel = (s: string) => { const [y, m, dd] = s.split('-'); return `${
 const DIAS = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
 const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
 const STATUS_COR: Record<string, string> = { agendado: GOLD, confirmado: GREEN, em_atendimento: '#2F5AA8', concluido: '#166534', cancelado: RED, nao_compareceu: '#8A5A00' }
+// Rótulo legível do status (RD-96): o cartão mostra um chip com o nome, não só a cor da borda.
+const STATUS_LABEL: Record<string, string> = { agendado: 'Agendado', confirmado: 'Confirmado', em_atendimento: 'Em atendimento', concluido: 'Concluído', cancelado: 'Cancelado', nao_compareceu: 'Não compareceu' }
+// fundo claro do chip derivado da cor do status (legível no design PS premium)
+const STATUS_BG: Record<string, string> = { agendado: '#FBF0D8', confirmado: '#DCEFD7', em_atendimento: '#E1E9F6', concluido: '#D7EBDC', cancelado: '#F7DCDC', nao_compareceu: '#F3E6CC' }
 
 type Ag = {
   id: string; titulo: string; data: string; hora_inicio: string | null; hora_fim: string | null
-  status: string; cliente_nome: string | null; responsavel_nome: string | null; observacao: string | null
+  status: string; cliente_nome: string | null; responsavel_id: string | null; responsavel_nome: string | null; observacao: string | null
   local: string | null; link_reuniao: string | null; dados: { lead_id?: string } | null
 }
 type LeadOpt = { id: string; nome: string; empresa: string | null; erp_cliente_id: string | null }
+type MembroOpt = { user_id: string; nome: string }
 type Vis = 'dia' | 'semana' | 'mes'
 
 export default function AgendaComercialPage() {
@@ -52,6 +57,7 @@ export default function AgendaComercialPage() {
   const [nomeUsuario, setNomeUsuario] = useState<string | null>(null)
   const [modal, setModal] = useState<{ data: string; ag: Ag | null } | null>(null)
   const [leads, setLeads] = useState<LeadOpt[]>([])
+  const [membros, setMembros] = useState<MembroOpt[]>([])
 
   const range = useMemo(() => {
     if (vis === 'dia') return { de: iso(ref), ate: iso(ref) }
@@ -66,7 +72,7 @@ export default function AgendaComercialPage() {
     setLoading(true); setErro(null)
     if (quem === 'minha' && !uid) return
     let q = supabase.from('erp_agendamento')
-      .select('id, titulo, data, hora_inicio, hora_fim, status, cliente_nome, responsavel_nome, observacao, local, link_reuniao, dados')
+      .select('id, titulo, data, hora_inicio, hora_fim, status, cliente_nome, responsavel_id, responsavel_nome, observacao, local, link_reuniao, dados')
       .eq('company_id', empresa).eq('origem_modulo', 'comercial')
       // defeito (Pdois · 01/10): evento excluído (soft delete) continuava aparecendo na agenda
       .is('excluido_em', null)
@@ -94,6 +100,10 @@ export default function AgendaComercialPage() {
     const { data } = await supabase.from('agency_leads').select('id, nome, empresa, erp_cliente_id')
       .eq('company_id', empresa).order('criado_em', { ascending: false }).limit(200)
     setLeads((data as LeadOpt[]) ?? [])
+    // equipe do P&M com login (user_id) — opções de responsável do evento (RD-98: responsável editável)
+    const { data: eq } = await supabase.from('agency_equipe').select('user_id, nome')
+      .eq('company_id', empresa).eq('ativo', true).not('user_id', 'is', null).order('nome')
+    setMembros(((eq as MembroOpt[]) ?? []).filter((m) => m.user_id))
   }, [empresa])
 
   const porDia = useMemo(() => {
@@ -132,11 +142,14 @@ export default function AgendaComercialPage() {
             {(['minha', 'equipe'] as const).map((k) => (
               <button key={k} onClick={() => setQuem(k)} data-testid={`agenda-${k}`} style={{ padding: '6px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1px solid ${quem === k ? ESP : LINE}`, background: quem === k ? ESP : '#fff', color: quem === k ? '#fff' : TEXTM }}>{k === 'minha' ? 'Minha agenda' : 'Equipe'}</button>
             ))}
+            <AjudaCampo chave="pm.agenda.filtro_quem" />
             <span style={{ width: 8 }} />
             {(['dia', 'semana', 'mes'] as Vis[]).map((v) => (
               <button key={v} onClick={() => setVis(v)} style={{ padding: '6px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: `1px solid ${vis === v ? GOLD : LINE}`, background: vis === v ? '#FBF3DE' : '#fff', color: vis === v ? '#8A5A0B' : TEXTM }}>{v === 'mes' ? 'mês' : v}</button>
             ))}
+            <AjudaCampo chave="pm.agenda.filtro_periodo" />
             <button onClick={() => abrirNovo(iso(vis === 'mes' ? new Date() : ref))} style={{ background: GOLD, color: '#fff', border: 'none', borderRadius: 8, padding: '7px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>+ Novo</button>
+            <AjudaCampo chave="pm.agenda.novo_evento" alinhar="fim" />
           </div>
         </header>
 
@@ -155,7 +168,7 @@ export default function AgendaComercialPage() {
 
             {/* SEMANA */}
             {vis === 'semana' && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(120px,1fr))', gap: 8, overflowX: 'auto' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(150px,1fr))', gap: 10, overflowX: 'auto' }}>
                 {Array.from({ length: 7 }, (_, i) => iso(addDias(segDaSemana(ref), i))).map((d, i) => (
                   <div key={d}>
                     <div style={{ fontSize: 11, color: TEXTM, fontWeight: 700, marginBottom: 4 }}>{DIAS[i]} · {d.slice(8)}/{d.slice(5, 7)}</div>
@@ -172,7 +185,7 @@ export default function AgendaComercialPage() {
       </div>
 
       {modal && empresa && (
-        <EventoModal empresa={empresa} uid={uid} nomeUsuario={nomeUsuario} dataInicial={modal.data} ag={modal.ag} leads={leads}
+        <EventoModal empresa={empresa} uid={uid} nomeUsuario={nomeUsuario} dataInicial={modal.data} ag={modal.ag} leads={leads} membros={membros}
           onClose={() => setModal(null)} onSaved={() => { setModal(null); void carregar() }} />
       )}
     </div>
@@ -181,39 +194,72 @@ export default function AgendaComercialPage() {
 
 const navBtn: React.CSSProperties = { width: 34, height: 34, borderRadius: 8, border: `1px solid ${LINE}`, background: '#fff', color: ESP, cursor: 'pointer', fontSize: 14, fontWeight: 700 }
 
+// agrupa os eventos do dia por horário de início (um cabeçalho por "slot"), para a semana não virar uma parede de
+// cartões quase iguais (auditoria RD-96 31/10). "Sem horário" vai por último.
+function agruparPorHora(ags: Ag[]): { hora: string; items: Ag[] }[] {
+  const m = new Map<string, Ag[]>()
+  for (const a of ags) { const h = a.hora_inicio ? a.hora_inicio.slice(0, 5) : 'Sem horário'; const arr = m.get(h) ?? []; arr.push(a); m.set(h, arr) }
+  return [...m.entries()]
+    .sort((x, y) => x[0] === 'Sem horário' ? 1 : y[0] === 'Sem horário' ? -1 : x[0].localeCompare(y[0]))
+    .map(([hora, items]) => ({ hora, items }))
+}
+
 function DiaCol({ data, ags, onNovo, onEditar, onStatus, destaque }: {
   data: string; ags: Ag[]; onNovo: (d: string) => void; onEditar: (a: Ag) => void; onStatus: (a: Ag, s: string) => void; destaque?: boolean
 }) {
+  const slots = agruparPorHora(ags)
   return (
-    <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10, padding: 8, minHeight: destaque ? 200 : 90 }}>
+    <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 10, minHeight: destaque ? 200 : 96, display: 'flex', flexDirection: 'column', gap: 12 }}>
       {ags.length === 0 ? (
-        <button onClick={() => onNovo(data)} style={{ width: '100%', background: 'transparent', border: `1px dashed ${LINE}`, borderRadius: 8, padding: destaque ? 20 : 8, color: TEXTM, fontSize: 11.5, cursor: 'pointer' }}>+ agendar</button>
+        <button onClick={() => onNovo(data)} style={{ width: '100%', background: 'transparent', border: `1px dashed ${LINE}`, borderRadius: 10, padding: destaque ? 24 : 12, color: TEXTM, fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>+ agendar</button>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {ags.map((a) => (
-            <div key={a.id} style={{ border: `1px solid ${LINE}`, borderLeft: `3px solid ${STATUS_COR[a.status] ?? GOLD}`, borderRadius: 6, padding: '6px 8px', background: a.status === 'cancelado' ? '#FBF1F1' : '#FFFDF8' }}>
-              <button onClick={() => onEditar(a)} style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left', cursor: 'pointer', width: '100%' }}>
-                <div style={{ fontSize: 11.5, fontWeight: 700, color: ESP, textDecoration: a.status === 'cancelado' ? 'line-through' : 'none' }}>
-                  {a.hora_inicio ? a.hora_inicio.slice(0, 5) + ' ' : ''}{a.titulo}
-                </div>
-                <div style={{ fontSize: 10.5, color: TEXTM }}>{a.cliente_nome ?? ''}{a.responsavel_nome ? ` · ${a.responsavel_nome}` : ''}</div>
-              </button>
-              <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
-                {a.dados?.lead_id && <Link href="/dashboard/pm/leads" style={{ fontSize: 9.5, color: '#2F5AA8', textDecoration: 'none', fontWeight: 700 }}>lead ↗</Link>}
-                {a.link_reuniao && <a href={a.link_reuniao} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ fontSize: 9.5, color: '#fff', background: '#2F5AA8', borderRadius: 5, padding: '1px 6px', textDecoration: 'none', fontWeight: 700 }}>▶ entrar</a>}
-                {a.status !== 'confirmado' && a.status !== 'concluido' && a.status !== 'cancelado' && <button onClick={() => onStatus(a, 'confirmado')} style={miniBtn(GREEN)}>confirmar</button>}
-                {a.status !== 'concluido' && a.status !== 'cancelado' && <button onClick={() => onStatus(a, 'concluido')} style={miniBtn('#166534')}>concluir</button>}
-                {a.status !== 'cancelado' && <button onClick={() => onStatus(a, 'cancelado')} style={miniBtn(RED)}>cancelar</button>}
+        <>
+          {slots.map((slot) => (
+            <div key={slot.hora} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 800, color: '#8A5A0B', letterSpacing: 0.4, textTransform: 'uppercase' }}>
+                {slot.hora}{slot.items.length > 1 && <span style={{ color: TEXTM, fontWeight: 600, textTransform: 'none' }}> · {slot.items.length} eventos</span>}
               </div>
+              {slot.items.map((a) => <EventoCard key={a.id} a={a} onEditar={onEditar} onStatus={onStatus} />)}
             </div>
           ))}
-          <button onClick={() => onNovo(data)} style={{ background: 'transparent', border: 'none', color: GOLD, fontSize: 11, fontWeight: 700, cursor: 'pointer', textAlign: 'left' }}>+ agendar</button>
-        </div>
+          <button onClick={() => onNovo(data)} style={{ background: 'transparent', border: `1px dashed ${LINE}`, color: '#8A5A0B', fontSize: 12, fontWeight: 700, cursor: 'pointer', textAlign: 'center', borderRadius: 10, padding: '8px 10px', minHeight: 40 }}>+ agendar</button>
+        </>
       )}
     </div>
   )
 }
-const miniBtn = (cor: string): React.CSSProperties => ({ fontSize: 9.5, fontWeight: 700, color: cor, background: 'transparent', border: `0.5px solid ${cor}`, borderRadius: 4, padding: '1px 5px', cursor: 'pointer' })
+
+function EventoCard({ a, onEditar, onStatus }: { a: Ag; onEditar: (a: Ag) => void; onStatus: (a: Ag, s: string) => void }) {
+  const cor = STATUS_COR[a.status] ?? GOLD
+  const cancel = a.status === 'cancelado'
+  return (
+    <div style={{ border: `1px solid ${LINE}`, borderLeft: `4px solid ${cor}`, borderRadius: 10, padding: '10px 12px', background: cancel ? '#FBF1F1' : '#fff', display: 'flex', flexDirection: 'column', gap: 7, boxShadow: '0 1px 2px rgba(61,35,20,0.04)' }}>
+      <button onClick={() => onEditar(a)} style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left', cursor: 'pointer', width: '100%', display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+          <span style={{ fontSize: 13.5, fontWeight: 700, color: ESP, lineHeight: 1.25, textDecoration: cancel ? 'line-through' : 'none' }}>{a.titulo}</span>
+          <span style={{ fontSize: 9.5, fontWeight: 800, padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap', textTransform: 'uppercase', letterSpacing: 0.3, background: STATUS_BG[a.status] ?? '#F0E9DE', color: cor }}>{STATUS_LABEL[a.status] ?? a.status}</span>
+        </div>
+        {(a.hora_inicio || a.hora_fim || a.local) && (
+          <div style={{ fontSize: 11.5, color: TEXTM }}>{a.hora_inicio ? a.hora_inicio.slice(0, 5) : ''}{a.hora_fim ? `–${a.hora_fim.slice(0, 5)}` : ''}{a.local ? `${a.hora_inicio || a.hora_fim ? ' · ' : ''}${a.local}` : ''}</div>
+        )}
+        <div style={{ fontSize: 12, color: TEXTM }}>
+          {a.cliente_nome ? <b style={{ color: ESP, fontWeight: 600 }}>{a.cliente_nome}</b> : <span style={{ fontStyle: 'italic' }}>Sem cliente</span>}
+          {a.responsavel_nome ? <> · {a.responsavel_nome}</> : null}
+        </div>
+      </button>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        {a.dados?.lead_id && <Link href="/dashboard/pm/leads" style={tagLink}>lead ↗</Link>}
+        {a.link_reuniao && <a href={a.link_reuniao} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ ...tagLink, color: '#fff', background: '#2F5AA8', borderColor: '#2F5AA8' }}>▶ entrar</a>}
+        {a.status !== 'confirmado' && a.status !== 'concluido' && a.status !== 'cancelado' && <button onClick={() => onStatus(a, 'confirmado')} style={miniBtn(GREEN)}>confirmar</button>}
+        {a.status !== 'concluido' && a.status !== 'cancelado' && <button onClick={() => onStatus(a, 'concluido')} style={miniBtn('#166534')}>concluir</button>}
+        {a.status !== 'cancelado' && <button onClick={() => onStatus(a, 'cancelado')} style={miniBtn(RED)}>cancelar</button>}
+        <AjudaCampo chave="pm.agenda.cartao_status" />
+      </div>
+    </div>
+  )
+}
+const miniBtn = (cor: string): React.CSSProperties => ({ fontSize: 11, fontWeight: 700, color: cor, background: 'transparent', border: `1px solid ${cor}`, borderRadius: 7, padding: '3px 9px', cursor: 'pointer', minHeight: 30 })
+const tagLink: React.CSSProperties = { fontSize: 10.5, fontWeight: 700, color: '#2F5AA8', textDecoration: 'none', borderRadius: 7, padding: '3px 8px', border: `1px solid ${LINE}` }
 
 function MesGrid({ ref_, porDia, onDia }: { ref_: Date; porDia: Map<string, Ag[]>; onDia: (d: string) => void }) {
   const ini = new Date(ref_.getFullYear(), ref_.getMonth(), 1)
@@ -244,8 +290,8 @@ function MesGrid({ ref_, porDia, onDia }: { ref_: Date; porDia: Map<string, Ag[]
   )
 }
 
-function EventoModal({ empresa, uid, nomeUsuario, dataInicial, ag, leads, onClose, onSaved }: {
-  empresa: string; uid: string | null; nomeUsuario: string | null; dataInicial: string; ag: Ag | null; leads: LeadOpt[]; onClose: () => void; onSaved: () => void
+function EventoModal({ empresa, uid, nomeUsuario, dataInicial, ag, leads, membros, onClose, onSaved }: {
+  empresa: string; uid: string | null; nomeUsuario: string | null; dataInicial: string; ag: Ag | null; leads: LeadOpt[]; membros: MembroOpt[]; onClose: () => void; onSaved: () => void
 }) {
   const [titulo, setTitulo] = useState(ag?.titulo ?? '')
   const [data, setData] = useState(ag?.data ?? dataInicial)
@@ -255,6 +301,16 @@ function EventoModal({ empresa, uid, nomeUsuario, dataInicial, ag, leads, onClos
   const [leadId, setLeadId] = useState(ag?.dados?.lead_id ?? '')
   const [local, setLocal] = useState(ag?.local ?? '')
   const [link, setLink] = useState(ag?.link_reuniao ?? '')
+  // responsável editável (RD-98): novo evento assume quem está logado; evento existente abre no responsável atual.
+  const [responsavelId, setResponsavelId] = useState(ag?.responsavel_id ?? uid ?? '')
+  // lista de opções: a equipe com login + (garante) o responsável atual e o próprio usuário, mesmo que não estejam na equipe
+  const opcoesResp: MembroOpt[] = (() => {
+    const map = new Map<string, MembroOpt>()
+    for (const m of membros) map.set(m.user_id, m)
+    if (uid && !map.has(uid)) map.set(uid, { user_id: uid, nome: nomeUsuario || 'Eu' })
+    if (ag?.responsavel_id && !map.has(ag.responsavel_id)) map.set(ag.responsavel_id, { user_id: ag.responsavel_id, nome: ag.responsavel_nome || 'Responsável atual' })
+    return [...map.values()].sort((a, b) => a.nome.localeCompare(b.nome))
+  })()
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const router = useRouter()
@@ -265,6 +321,8 @@ function EventoModal({ empresa, uid, nomeUsuario, dataInicial, ag, leads, onClos
     if (!linkOk) { setErro('O link deve começar com http:// ou https://'); return }
     setBusy(true); setErro(null)
     const lead = leads.find((l) => l.id === leadId)
+    const resp = opcoesResp.find((m) => m.user_id === responsavelId)
+    const respNome = resp?.nome ?? (responsavelId && responsavelId === uid ? nomeUsuario : null)
     // defeito (Pdois · 01/10): salvar um evento EXISTENTE criava outro (sempre chamava o criar). Agora atualiza o
     // próprio evento (RLS da agenda limita à empresa do usuário); o vínculo com o lead vai em dados.lead_id.
     if (ag) {
@@ -272,6 +330,7 @@ function EventoModal({ empresa, uid, nomeUsuario, dataInicial, ag, leads, onClos
       const { error } = await supabase.from('erp_agendamento').update({
         titulo: titulo.trim(), data, hora_inicio: hIni || null, hora_fim: hFim || null, observacao: obs.trim() || null,
         local: local.trim() || null, link_reuniao: link.trim() || null, dados,
+        responsavel_id: responsavelId || null, responsavel_nome: respNome,
         ...(lead ? { cliente_id: lead.erp_cliente_id ?? null, cliente_nome: lead.empresa || lead.nome } : {}),
       }).eq('id', ag.id).eq('company_id', empresa)
       setBusy(false)
@@ -281,7 +340,7 @@ function EventoModal({ empresa, uid, nomeUsuario, dataInicial, ag, leads, onClos
     const { error } = await supabase.rpc('fn_agendamento_criar', {
       p_company_id: empresa, p_origem: 'comercial', p_titulo: titulo.trim(),
       p_cliente_id: lead?.erp_cliente_id ?? null, p_cliente_nome: lead ? (lead.empresa || lead.nome) : null,
-      p_responsavel_id: uid, p_responsavel_nome: nomeUsuario,
+      p_responsavel_id: responsavelId || uid, p_responsavel_nome: respNome ?? nomeUsuario,
       p_data: data, p_hora_inicio: hIni || null, p_hora_fim: hFim || null,
       p_dados: { ...(leadId ? { lead_id: leadId } : {}), local: local.trim() || null, link_reuniao: link.trim() || null },
       p_observacao: obs.trim() || null,
@@ -341,12 +400,20 @@ function EventoModal({ empresa, uid, nomeUsuario, dataInicial, ag, leads, onClos
             <label style={lbl}><span style={rot}>Início<AjudaCampo chave="pm.agenda.evento_inicio" /></span><input type="time" value={hIni} onChange={(e) => setHIni(e.target.value)} style={inp} /></label>
             <label style={lbl}><span style={rot}>Fim<AjudaCampo chave="pm.agenda.evento_fim" /></span><input type="time" value={hFim} onChange={(e) => setHFim(e.target.value)} style={inp} /></label>
           </div>
-          <label style={lbl}><span style={rot}>Vincular lead (opcional)<AjudaCampo chave="pm.agenda.evento_lead" /></span>
-            <select value={leadId} onChange={(e) => setLeadId(e.target.value)} style={inp}>
-              <option value="">— sem lead —</option>
-              {leads.map((l) => <option key={l.id} value={l.id}>{l.empresa || l.nome}</option>)}
-            </select>
-          </label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <label style={lbl}><span style={rot}>Vincular lead (opcional)<AjudaCampo chave="pm.agenda.evento_lead" /></span>
+              <select value={leadId} onChange={(e) => setLeadId(e.target.value)} style={inp}>
+                <option value="">— sem lead —</option>
+                {leads.map((l) => <option key={l.id} value={l.id}>{l.empresa || l.nome}</option>)}
+              </select>
+            </label>
+            <label style={lbl}><span style={rot}>Responsável<AjudaCampo chave="pm.job.responsavel" /></span>
+              <select value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)} style={inp} data-testid="agenda-evento-responsavel">
+                <option value="">— sem responsável —</option>
+                {opcoesResp.map((m) => <option key={m.user_id} value={m.user_id}>{m.nome}</option>)}
+              </select>
+            </label>
+          </div>
           <label style={lbl}><span style={rot}>Local (endereço, sala ou &quot;Online&quot;)<AjudaCampo chave="pm.agenda.evento_local" /></span><input value={local} onChange={(e) => setLocal(e.target.value)} style={inp} placeholder="Online / Sala 2 / Rua X" /></label>
           <label style={lbl}><span style={rot}>Link da reunião (Meet/Zoom — opcional)<AjudaCampo chave="pm.agenda.evento_link" /></span><input value={link} onChange={(e) => setLink(e.target.value)} style={{ ...inp, borderColor: linkOk ? LINE : RED }} placeholder="https://meet.google.com/..." /></label>
           <label style={lbl}><span style={rot}>Observação<AjudaCampo chave="pm.agenda.evento_obs" /></span><input value={obs} onChange={(e) => setObs(e.target.value)} style={inp} /></label>

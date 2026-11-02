@@ -658,7 +658,7 @@ export async function POST(req: NextRequest) {
         status: r.status,
         listaErros: (r.lista_erros ?? []).slice(0, 50),
         message:
-          `Importação SIGA via dispatch: ${r.inseridos ?? 0} novos · ` +
+          `Importação via dispatch: ${r.inseridos ?? 0} novos · ` +
           `${r.duplicados ?? 0} duplicados · ${r.erros ?? 0} erros. ` +
           `${clientesNovos.size} cliente(s) e ${fornecNovos.size} fornecedor(es) novo(s).`,
       });

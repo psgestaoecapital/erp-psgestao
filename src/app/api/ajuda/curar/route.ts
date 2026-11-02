@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { modeloPara, registrarFalhaIA } from '@/lib/aiModel'
+import { modeloPara, registrarFalhaIA, assertIAPermitida, IABloqueadaError } from '@/lib/aiModel'
 
 // Confirma que o chamador é admin ANTES de gastar token de LLM (Pilar 2 + RD-42). Usa o token do
 // usuário e uma RPC admin-gated barata; se não for admin, a RPC devolve ok=false.
@@ -84,6 +84,11 @@ export async function POST(req: NextRequest) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) return NextResponse.json({ error: 'ANTHROPIC_API_KEY não configurada' }, { status: 500 })
   if (!(await ehAdmin(req))) return NextResponse.json({ error: 'Restrito à equipe PS (curadoria).' }, { status: 403 })
+  // P0 CUSTO (CEO 01/11): porteiro do bloqueio global de IA paga, antes de qualquer custo.
+  try { await assertIAPermitida() } catch (e) {
+    if (e instanceof IABloqueadaError) return NextResponse.json({ error: e.motivo, ia_bloqueada: true }, { status: 503 })
+    throw e
+  }
   let body: { itens?: Item[] }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'bad json' }, { status: 400 }) }
   const itens = Array.isArray(body?.itens) ? body.itens.slice(0, MAX_LOTE) : []
