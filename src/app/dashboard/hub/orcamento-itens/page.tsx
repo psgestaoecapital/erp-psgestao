@@ -9,7 +9,16 @@ import AjudaCampo from "@/components/ajuda/AjudaCampo";
 import { precedenciaPreco } from "@/lib/hub/precedenciaPreco";
 
 const ROTA = "/dashboard/hub/orcamento-itens";
-type Orc = { id: string; numero: string; cliente_nome: string | null; status: string };
+type Orc = { id: string; numero: string; cliente_nome: string | null; status: string; total: number | null; escopo_congelado_em: string | null };
+const EDITAVEIS = ["rascunho", "revisao", "enviado", "visualizado"];
+const orcEditavel = (o: Orc) => o.escopo_congelado_em == null && EDITAVEIS.includes(o.status);
+// Abre no orçamento mais útil para a jornada: editável COM itens > editável > com itens > o mais recente.
+// Evita abrir "morto" num orçamento vazio e congelado (ex.: aprovado sem itens) quando há outro com conteúdo.
+const escolherOrc = (l: Orc[]) =>
+  l.find((o) => orcEditavel(o) && (o.total ?? 0) > 0)?.id ||
+  l.find((o) => orcEditavel(o))?.id ||
+  l.find((o) => (o.total ?? 0) > 0)?.id ||
+  l[0]?.id || "";
 type Item = { id: string; ordem: number; produto_nome: string; unidade: string; quantidade: number; preco_unitario: number;
   desconto_percentual: number; desconto_valor: number; subtotal: number; tipo_item: string; observacoes: string | null };
 type Lista = { ok: boolean; erro?: string; itens: Item[]; subtotal: number; total: number; status: string; congelado: boolean; editavel: boolean };
@@ -34,13 +43,13 @@ export default function OrcamentoItensPage() {
   useEffect(() => {
     if (!empresa) { setOrcs([]); return; }
     setCarregandoOrcs(true);
-    void Promise.resolve(supabase.from("erp_orcamentos").select("id,numero,cliente_nome,status").eq("company_id", empresa)
+    void Promise.resolve(supabase.from("erp_orcamentos").select("id,numero,cliente_nome,status,total,escopo_congelado_em").eq("company_id", empresa)
       .order("created_at", { ascending: false }).limit(100))
       .then(({ data, error }) => {
         const l = (data as Orc[]) ?? [];
         setOrcs(l);
         if (error) setMsg({ tipo: "erro", texto: error.message });
-        else if (l.length > 0) setOrcId((atual) => atual || l[0].id);
+        else if (l.length > 0) setOrcId((atual) => atual || escolherOrc(l));
       }, () => setOrcs([]))
       .finally(() => setCarregandoOrcs(false));
   }, [empresa]);
@@ -154,7 +163,7 @@ export default function OrcamentoItensPage() {
             </label>
           )}
           <ul className="mt-3 divide-y divide-[#E8E2D6] rounded-xl border border-[#E8E2D6] bg-white">
-            {lista.itens.length === 0 && <li className="p-4 text-[14px] text-[#7A6A5E]">Nenhum item ainda. Toque em “Incluir item”.</li>}
+            {lista.itens.length === 0 && <li className="p-4 text-[14px] text-[#7A6A5E]" data-testid="orc-sem-itens">{lista.editavel ? "Nenhum item ainda. Toque em “Incluir item”." : `Este orçamento está ${lista.status} (somente leitura) e não tem itens. Para lançar itens, escolha um orçamento em aberto no seletor acima.`}</li>}
             {lista.itens.length > 0 && itensFiltrados.length === 0 && <li className="p-4 text-[14px] text-[#7A6A5E]" data-testid="orc-busca-vazia">Nenhum item corresponde a “{busca}”.</li>}
             {itensFiltrados.map((it) => (
               <li key={it.id} className="flex flex-wrap items-center justify-between gap-2 p-3" data-testid="item-linha">
