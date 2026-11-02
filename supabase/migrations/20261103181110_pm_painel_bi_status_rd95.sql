@@ -14,8 +14,17 @@
 --       atrasados é subconjunto de andamento).
 --   Correção: lista de status terminais cobrindo as variantes reais (masc/fem/sing/plural).
 --   Prova: andamento 66→55 e atrasados 24→15 (atrasados ≤ andamento, consistente).
+--
+-- CONSOLIDAÇÃO com #3729 (pedido do revisor 02/11 — evitar regressão silenciosa):
+--   O KPI headline "MRR" somava erp_contratos.valor_mensal (contratos ERP genéricos),
+--   mas o fee recorrente da agência vive em agency_contratos.fee_mensal e NÃO está
+--   vinculado ao ERP. fn_pm_bi_series já usa fee_mensal nos gráficos "Top clientes por
+--   MRR"/"Margem"; /contratos e /comercial também leem agency_contratos — só o KPI do
+--   topo divergia. Esta PR assume a versão ÚNICA de fn_pm_bi_kpis com AS DUAS correções
+--   (status terminais + origem do MRR) para que nenhuma delas seja revertida em produção.
+--   Prova (dado, DEMO -002): mrr_antigo=2198,00 → mrr_novo=13800,00 (5 fees ativos).
 
--- 1) KPIs — "Jobs em andamento" exclui status terminais reais
+-- 1) KPIs — "Jobs em andamento" exclui status terminais reais + MRR do fee recorrente
 CREATE OR REPLACE FUNCTION public.fn_pm_bi_kpis(p_company_ids uuid[])
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -30,8 +39,10 @@ BEGIN
   END IF;
   IF p_company_ids IS NULL OR array_length(p_company_ids,1) IS NULL THEN
     RETURN jsonb_build_object('empty_state', true); END IF;
-  SELECT COALESCE(sum(valor_mensal),0) INTO v_mrr FROM erp_contratos
-    WHERE company_id = ANY(p_company_ids) AND status='ativo' AND excluido_em IS NULL;
+  -- MRR = fee recorrente da agência (agency_contratos), fonte única alinhada ao
+  -- fn_pm_bi_series e às telas /contratos (Fees) e /comercial (consolidação #3729).
+  SELECT COALESCE(sum(fee_mensal),0) INTO v_mrr FROM agency_contratos
+    WHERE company_id = ANY(p_company_ids) AND status='ativo';
   SELECT count(*) INTO v_cli FROM agency_clientes
     WHERE company_id = ANY(p_company_ids) AND COALESCE(status,'ativo')='ativo';
   SELECT count(*) INTO v_jobs FROM agency_jobs
