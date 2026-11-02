@@ -59,3 +59,8 @@ BEGIN
     WHERE m.medir
     GROUP BY m.job_id, (COALESCE(m.custo_hora, 0) > 0);
 END $function$;
+
+-- Guarda de acesso (check_fn_guards): função SECURITY DEFINER não exposta a anônimo.
+-- Preserva o acesso atual (hoje: EXECUTE só para authenticated/service_role; sem anon).
+REVOKE ALL ON FUNCTION public.fn_pm_job_custos(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_pm_job_custos(uuid) TO authenticated, service_role;
