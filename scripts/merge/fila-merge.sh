@@ -835,10 +835,15 @@ merges=0
 # INDEPENDENTES entre si (scripts/merge/migrations-independentes.ts; qualquer dúvida → 1 por rodada, como antes).
 # O @pos-migration da main roda uma vez para o lote. LOTE_MIG_MAX=1 desliga (comportamento antigo).
 # ESCALA NO ADITIVO, CAUTELA NO CRÍTICO (CEO 23/10): o teto geral do lote (LOTE_MIG_MAX) sobe para drenar o backlog de
-# migrations ADITIVAS mais rápido; mas a migration CRÍTICA (via revisada) tem um teto PRÓPRIO e baixo (LOTE_MIG_CRIT_MAX),
-# para nunca batelar muitas críticas num mesmo @pos. Assim o aditivo ganha vazão sem afrouxar a cautela no crítico.
+# migrations ADITIVAS mais rápido; a migration CRÍTICA (via revisada) tem um teto PRÓPRIO (LOTE_MIG_CRIT_MAX).
+# LOTE DE CRÍTICAS (CEO 01/11): a fila crítica chegou a 44 com vazão de 2-3/h (cada crítica saía sozinha e esperava ~20 min
+# de @pos). O CEO aprovou batelar até LOTE_MIG_CRIT_MAX=5 migrations CRÍTICAS num MESMO @pos. CARVE-OUT: as categorias
+# perigosas demais (NR-36, fiscal, financeiro de cliente, RLS/permissão/LGPD) e qualquer conserto-main continuam SOZINHAS
+# (1 por @pos) — classificador critica-solo.ts, viés de segurança (dúvida → SOLO). Se o @pos do lote falhar, o guardião
+# (gilberto-esteira) BISSECTA: reverte metade, roda o @pos, repete até isolar a PR culpada, reverte só ela e republica as
+# inocentes (procedimento no AGENTS.md / PROTOCOLO DE MAIN VERMELHA). LOTE_MIG_CRIT_MAX=1 volta ao comportamento antigo.
 LOTE_MIG_MAX=${LOTE_MIG_MAX:-6}
-LOTE_MIG_CRIT_MAX=${LOTE_MIG_CRIT_MAX:-1}
+LOTE_MIG_CRIT_MAX=${LOTE_MIG_CRIT_MAX:-5}
 lote_mig_n=0; lote_mig_crit_n=0; lote_mig_sqls=()
 mkdir -p "$TMPF/mig"
 # SQL das migrations da PR no SHA conferido → $TMPF/mig/<n>.sql (vazio/falha = dúvida na checagem de independência)
@@ -898,11 +903,38 @@ for n in $fila; do
         log "#$n: etiqueta $SENSIVEL (tela), mas a migration só grava catálogo de ajuda/metadado — ADITIVA p/ serialização do @pos (segue via revisada p/ a tela)"
       fi
     fi
+    # CARVE-OUT do LOTE DE CRÍTICAS (CEO 01/11): migration crítica de categoria PERIGOSA (NR-36, fiscal, financeiro de
+    # cliente, RLS/permissão/LGPD) e qualquer conserto-main publicam SOZINHAS (1 por @pos), fora do lote. Classificador
+    # puro e testado (critica-solo.ts), viés de segurança: migration ilegível/dúvida → SOLO.
+    n_critica_solo=0
+    if [ "$n_critica" = 1 ]; then
+      if jq -e '.labels | map(.name) | index("conserto-main")' <<< "$pj" > /dev/null 2>&1; then
+        n_critica_solo=1
+      else
+        # alimenta o critica-solo.ts com: os caminhos NÃO-migration da PR (detecção por caminho: tela fiscal etc.) + o
+        # SQL concatenado da(s) migration(s) no SHA conferido (mesma fonte do baixar_sql_migrations). Não consegui ler o
+        # SQL → DÚVIDA → SOLO (viés de segurança, como o exige-via-revisada).
+        [ -s "$TMPF/mig/$n.sql" ] || baixar_sql_migrations "$n" "$sha" || true
+        if [ ! -s "$TMPF/mig/$n.sql" ]; then
+          n_critica_solo=1
+        else
+          solo_b64=$(base64 -w0 < "$TMPF/mig/$n.sql" 2> /dev/null || base64 < "$TMPF/mig/$n.sql" 2> /dev/null | tr -d '\n')
+          solo_json=$({ grep -vE '^supabase/migrations/.*\.sql$' <<< "$arquivos"; printf 'supabase/migrations/_lote_%s.sql\t%s\n' "$n" "$solo_b64"; } | npx --yes tsx "$(dirname "${BASH_SOURCE[0]}")/critica-solo.ts" 2> /dev/null)
+          # viés de segurança: SÓ é batelável (não-solo) quando o classificador diz .solo==false EXPLÍCITO. Ausente,
+          # saída vazia (crash) ou qualquer dúvida → SOLO. (Não use `.solo // true`: no jq, `false // true` vale true.)
+          [ "$(jq -r 'if .solo == false then "nao" else "sim" end' <<< "$solo_json" 2> /dev/null)" = nao ] || n_critica_solo=1
+        fi
+      fi
+      [ "$n_critica_solo" = 1 ] && log "#$n: migration CRÍTICA de categoria SOLO (NR-36/fiscal/financeiro/RLS/LGPD/conserto-main) — publica sozinha (1 por @pos), fora do lote de críticas"
+    fi
     if [ "$deploy_travado" = 1 ]; then log "#$n tem migration: deploy-migrations da main não está verde — espera (todas as migrations)"; continue; fi
     if [ "$critica_na_main" = 1 ] && [ "$n_critica" = 1 ]; then log "#$n tem migration CRÍTICA: espera o @pos da crítica anterior (aditivas seguem)"; continue; fi
-    # cautela no crítico (CEO 23/10): no MESMO lote, no máximo LOTE_MIG_CRIT_MAX migration(s) crítica(s). O aditivo bate até
-    # LOTE_MIG_MAX; a crítica excedente espera a próxima rodada (cada crítica tem o veredito do @pos sem se misturar com as outras).
-    if [ "$n_critica" = 1 ] && [ "$lote_mig_crit_n" -ge "$LOTE_MIG_CRIT_MAX" ]; then log "#$n tem migration CRÍTICA: já há $lote_mig_crit_n no lote (teto LOTE_MIG_CRIT_MAX=$LOTE_MIG_CRIT_MAX) — cautela no crítico, espera a próxima rodada"; continue; fi
+    # SOLO: só começa com o lote de migrations VAZIO (publica sozinha); ao publicar, ENCERRA a rodada (nada batela com ela).
+    if [ "$n_critica_solo" = 1 ] && [ "$lote_mig_n" -gt 0 ]; then log "#$n tem migration CRÍTICA SOLO: já há migration(s) no lote desta rodada — publica sozinha, espera a próxima rodada"; continue; fi
+    # cautela no crítico (CEO 23/10; lote de críticas CEO 01/11): no MESMO lote, no máximo LOTE_MIG_CRIT_MAX migration(s)
+    # CRÍTICA(s) BATELÁVEIS. O aditivo bate até LOTE_MIG_MAX; a crítica excedente espera a próxima rodada (cada lote de
+    # críticas tem o seu veredito de @pos; se falhar, o guardião bisseta para isolar a culpada — ver AGENTS.md).
+    if [ "$n_critica" = 1 ] && [ "$n_critica_solo" = 0 ] && [ "$lote_mig_crit_n" -ge "$LOTE_MIG_CRIT_MAX" ]; then log "#$n tem migration CRÍTICA: já há $lote_mig_crit_n crítica(s) no lote (teto LOTE_MIG_CRIT_MAX=$LOTE_MIG_CRIT_MAX) — espera a próxima rodada"; continue; fi
     if [ "$merges" -gt 0 ] && [ "$lote_mig_n" = 0 ]; then log "#$n tem migration: espera a main (atrás da anterior)"; continue; fi
     if [ "$lote_mig_n" -gt 0 ]; then
       baixar_sql_migrations "$n" "$sha" || true
@@ -1046,8 +1078,10 @@ for n in $fila; do
       [ "$n_critica" = 1 ] && lote_mig_crit_n=$((lote_mig_crit_n + 1))   # cautela no crítico: conta as críticas do lote (teto LOTE_MIG_CRIT_MAX)
       [ -s "$TMPF/mig/$n.sql" ] || baixar_sql_migrations "$n" "$sha" || true
       lote_mig_sqls+=("$TMPF/mig/$n.sql")
-      log "#$n MERGEADA (squash, ${sha:0:7}) pela via $([ "$via" = rapida ] && echo rápida || echo revisada) — tem migration: lote de migrations $lote_mig_n/$LOTE_MIG_MAX"
+      log "#$n MERGEADA (squash, ${sha:0:7}) pela via $([ "$via" = rapida ] && echo rápida || echo revisada) — tem migration: lote de migrations $lote_mig_n/$LOTE_MIG_MAX (críticas $lote_mig_crit_n/$LOTE_MIG_CRIT_MAX)"
       comentar "$n" "✅ **Fila de merge:** mergeada (squash) no commit conferido \`${sha:0:7}\` pela **via $([ "$via" = rapida ] && echo 'rápida**' || echo 'revisada**'). Tem migration (lote $lote_mig_n/$LOTE_MIG_MAX de migrations independentes): veredito no @pos-migration da main (vermelho = reverter a PR que quebrou)."
+      # CARVE-OUT (CEO 01/11): migration crítica SOLO publica sozinha — ENCERRA a rodada para nada batelar no @pos dela.
+      if [ "$n_critica_solo" = 1 ]; then log "#$n era migration CRÍTICA SOLO: encerra a rodada (publica sozinha, @pos só dela)"; exit 0; fi
       if [ "$lote_mig_n" -ge "$LOTE_MIG_MAX" ] || [ "$merges" -ge "$LOTE_MAX" ]; then exit 0; fi
       continue
     fi
