@@ -163,9 +163,9 @@ WHERE rota = '/dashboard/pm/importar-siga';
 
 -- 5) RD-95: "?" do bloco Histórico.
 INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
-SELECT 'pm.siga.historico', 'Importar do SIGA', 'Histórico de importações',
+SELECT 'pm.siga.historico', 'Importar do sistema anterior', 'Histórico de importações',
        'Lista as importações já feitas nesta empresa: data, quem importou e o resultado de cada rodada.',
-       'Serve para auditar: saber quando a Pauta foi alimentada pelo SIGA, por quem e quantos jobs entraram.',
+       'Serve para auditar: saber quando a Pauta foi alimentada pelo sistema anterior, por quem e quantos jobs entraram.',
        '01/11 14:20 · Ana · 312 novos · 58 já existiam.',
        'Achar que repetir a importação duplica jobs: número que já existe não entra de novo.',
        73, '/dashboard/pm/importar-siga', 'pm', 'publicado'
