@@ -62,3 +62,8 @@ UPDATE public.system_screens
        )
  WHERE rota = '/dashboard/producao'
    AND NOT ('fn_pm_registro_excluir' = ANY(COALESCE(rpcs_chamadas, '{}')));
+
+-- ACL (gate check_fn_guards / regra revoke_anon): função SECURITY DEFINER em migration nova
+-- reafirma a ACL viva no próprio arquivo (EXECUTE só authenticated + service_role; anon/PUBLIC fora).
+REVOKE ALL ON FUNCTION public.fn_pm_registro_excluir(text, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_pm_registro_excluir(text, uuid) TO authenticated, service_role;
