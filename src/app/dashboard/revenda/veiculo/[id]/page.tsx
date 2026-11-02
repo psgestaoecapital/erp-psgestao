@@ -498,6 +498,7 @@ function RecebimentosTabela({ companyId, linhas, onChange, totalVenda }: { compa
           <input type="date" value={l.data} onChange={(e) => set(i, { data: e.target.value })} style={inp} aria-label="vencimento" />
           <select value={l.forma} onChange={(e) => set(i, { forma: e.target.value })} style={inp} aria-label="forma de pagamento">{REC_FORMAS.map((f) => <option key={f} value={f}>{f}</option>)}</select>
           <select value={l.conta} onChange={(e) => set(i, { conta: e.target.value })} style={inp} aria-label="conta de destino"><option value="">conta de destino</option>{contas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select>
+          <AjudaCampo chave="revenda.venda.recebimentos" rota="/dashboard/revenda/veiculo" />
           <button type="button" style={btn} onClick={() => onChange(linhas.filter((_, k) => k !== i))} aria-label="remover linha">Remover</button>
         </div>
       ))}
