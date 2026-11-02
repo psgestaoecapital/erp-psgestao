@@ -66,7 +66,6 @@ function Msg({ m }: { m: string }) {
 
 // ── Alertas: régua do semáforo do funil de leads ────────────────────────────────
 function AbaAlertas({ empresa }: { empresa: string | null }) {
-  const [rowId, setRowId] = useState<string | null>(null)
   const [amarelo, setAmarelo] = useState(7)
   const [vermelho, setVermelho] = useState(10)
   const [salvo, setSalvo] = useState(false)
@@ -78,8 +77,8 @@ function AbaAlertas({ empresa }: { empresa: string | null }) {
     setMsg('')
     const { data } = await supabase.from('crm_alerta_config').select('id, dias_amarelo, dias_vermelho')
       .eq('company_id', empresa).eq('funil', 'leads').is('etapa', null).maybeSingle()
-    if (data) { setRowId(data.id as string); setAmarelo(data.dias_amarelo as number); setVermelho(data.dias_vermelho as number); setSalvo(true) }
-    else { setRowId(null); setAmarelo(7); setVermelho(10); setSalvo(false) }
+    if (data) { setAmarelo(data.dias_amarelo as number); setVermelho(data.dias_vermelho as number); setSalvo(true) }
+    else { setAmarelo(7); setVermelho(10); setSalvo(false) }
   }, [empresa])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
@@ -89,11 +88,12 @@ function AbaAlertas({ empresa }: { empresa: string | null }) {
     if (vermelho < amarelo) { setMsg('Erro: o vermelho deve ser maior ou igual ao amarelo.'); return }
     if (amarelo < 1 || vermelho < 1) { setMsg('Erro: os prazos precisam ser de pelo menos 1 dia.'); return }
     setBusy(true); setMsg('')
-    let error
-    if (salvo && rowId) { ({ error } = await supabase.from('crm_alerta_config').update({ dias_amarelo: amarelo, dias_vermelho: vermelho, atualizado_em: new Date().toISOString() }).eq('id', rowId)) }
-    else { ({ error } = await supabase.from('crm_alerta_config').insert({ company_id: empresa, funil: 'leads', etapa: null, dias_amarelo: amarelo, dias_vermelho: vermelho })) }
+    // RD-98 p4: salvar rastreável — RPC grava audit_log (quem/quando/antes/depois), em vez da escrita direta.
+    const { data, error } = await supabase.rpc('fn_pm_config_alertas_salvar', { p_company_id: empresa, p_dias_amarelo: amarelo, p_dias_vermelho: vermelho })
     setBusy(false)
     if (error) { setMsg('Erro: ' + error.message); return }
+    const r = data as { ok: boolean; erro?: string } | null
+    if (!r?.ok) { setMsg('Erro: ' + (r?.erro ?? 'não foi possível salvar a régua.')); return }
     setMsg('✅ Régua salva. O kanban de leads já reflete (sem recarregar).')
     void carregar()
   }
@@ -269,12 +269,15 @@ function AbaProposta({ empresa }: { empresa: string | null }) {
   async function salvar() {
     if (!empresa) return
     setBusy(true); setMsg('')
-    const { error } = await supabase.from('agency_proposta_config').upsert({
-      company_id: empresa, exigir_item_catalogo: exigir, condicao_padrao: condicao.trim() || null,
-      desconto_max_pct: descMax.trim() === '' ? null : Number(descMax), atualizado_em: new Date().toISOString(),
-    }, { onConflict: 'company_id' })
+    // RD-98 p4: salvar rastreável — RPC grava audit_log (quem/quando/antes/depois), em vez do upsert direto.
+    const { data, error } = await supabase.rpc('fn_pm_config_proposta_salvar', {
+      p_company_id: empresa, p_exigir: exigir, p_condicao: condicao.trim() || null,
+      p_desconto_max: descMax.trim() === '' ? null : Number(descMax),
+    })
     setBusy(false)
     if (error) { setMsg('Erro: ' + error.message); return }
+    const r = data as { ok: boolean; erro?: string } | null
+    if (!r?.ok) { setMsg('Erro: ' + (r?.erro ?? 'não foi possível salvar as regras da proposta.')); return }
     setMsg('✅ Configuração da proposta salva. Vale no editor de propostas.')
   }
 
