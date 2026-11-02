@@ -53,6 +53,13 @@ const situacaoObra = (l: Linha): { rot: string; cor: string } => {
   if (p == null || p < 0) return { rot: 'Margem negativa', cor: VERM }
   return p < 10 ? { rot: 'Margem baixa', cor: AMBAR } : { rot: 'Margem saudável', cor: VERDE }
 }
+// Mesmo critério de situacaoObra, mas como chave estável para contar/filtrar (alerta de desvio de margem).
+const bucketMargem = (l: Linha): 'saudavel' | 'baixa' | 'negativa' | 'sem' => {
+  if (semMedicao(l)) return 'sem'
+  const p = margemPct(receita(l), margem(l))
+  if (p == null || p < 0) return 'negativa'
+  return p < 10 ? 'baixa' : 'saudavel'
+}
 const POR_PAGINA = 20
 const cockpit = (obraId: string) => `/dashboard/projetos/obras/${obraId}/cockpit`
 
@@ -63,6 +70,7 @@ export default function ResultadoObrasPage() {
   const [erro, setErro] = useState('')
   const [busca, setBusca] = useState('')
   const [status, setStatus] = useState('')
+  const [sitFiltro, setSitFiltro] = useState<'' | 'saudavel' | 'baixa' | 'negativa' | 'sem'>('')
   const [pagina, setPagina] = useState(0)
   // Drilldown por item de escopo: quais obras estão abertas e o escopo já carregado (lazy, só ao expandir).
   const [aberta, setAberta] = useState<Set<string>>(new Set())
@@ -103,15 +111,29 @@ export default function ResultadoObrasPage() {
   useEffect(() => { carregar() }, [carregar])
 
   const statusLista = useMemo(() => Array.from(new Set(linhas.map(l => l.status).filter(Boolean))).sort(), [linhas])
-  const visiveis = useMemo(() => {
+  // filtradas = busca + situação da obra (status). O resumo e os alertas no topo somam SEMPRE sobre essas, para dar
+  // o panorama estável da seleção; o chip de margem (sitFiltro) só afunila a lista/consolidado logo abaixo.
+  const filtradas = useMemo(() => {
     const q = busca.trim().toLowerCase()
     return linhas.filter(l => (!status || l.status === status) && (!q || `${l.numero} ${l.nome}`.toLowerCase().includes(q)))
   }, [linhas, busca, status])
+  const visiveis = useMemo(() => (sitFiltro ? filtradas.filter(l => bucketMargem(l) === sitFiltro) : filtradas), [filtradas, sitFiltro])
   // Paginação da lista (20 por página): o Consolidado soma SEMPRE todas as obras do filtro, não só a página.
   const totalPaginas = Math.max(1, Math.ceil(visiveis.length / POR_PAGINA))
   const paginaAtual = Math.min(pagina, totalPaginas - 1)
   const daPagina = useMemo(() => visiveis.slice(paginaAtual * POR_PAGINA, (paginaAtual + 1) * POR_PAGINA), [visiveis, paginaAtual])
-  const semReceitaComCusto = visiveis.filter(l => semMedicao(l) && custo(l) > 0).length
+  const semReceitaComCusto = filtradas.filter(l => semMedicao(l) && custo(l) > 0).length
+
+  // Resumo consolidado do topo (sobre filtradas, independe do chip de margem).
+  const resumo = useMemo(() => filtradas.reduce((a, l) => ({
+    receita: a.receita + receita(l), custo: a.custo + custo(l), margem: a.margem + margem(l),
+    prevista: a.prevista + n(l.receita_prevista), custoPrev: a.custoPrev + n(l.custo_previsto),
+  }), { receita: 0, custo: 0, margem: 0, prevista: 0, custoPrev: 0 }), [filtradas])
+  // Contagem por situação de margem (alerta de desvio): quantas obras saudáveis / baixa / negativa / sem medição.
+  const contagem = useMemo(() => filtradas.reduce((a, l) => { a[bucketMargem(l)] += 1; return a },
+    { saudavel: 0, baixa: 0, negativa: 0, sem: 0 } as Record<'saudavel' | 'baixa' | 'negativa' | 'sem', number>), [filtradas])
+  const avancoReceita = resumo.prevista > 0 ? Math.min(100, (resumo.receita / resumo.prevista) * 100) : null
+  const avancoCusto = resumo.custoPrev > 0 ? (resumo.custo / resumo.custoPrev) * 100 : null
 
   const total = useMemo(() => visiveis.reduce((a, l) => ({
     receita: a.receita + receita(l), custo: a.custo + custo(l), margem: a.margem + margem(l),
@@ -145,6 +167,39 @@ export default function ResultadoObrasPage() {
         )}
         {!loading && !erro && linhas.length > 0 && (
           <>
+            {/* Resumo consolidado + alerta de desvio de margem (PDCA aud8 · profundidade HB1). Soma sobre o filtro de busca/situação. */}
+            <div data-testid="resultado-resumo" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 12 }}>
+              <Kpi rotulo="Receita realizada" chave="projetos.resultado_obra.kpi_receita" valor={fmtR(resumo.receita)} />
+              <Kpi rotulo="Custo realizado" chave="projetos.resultado_obra.kpi_custo" valor={fmtR(resumo.custo)} />
+              <Kpi rotulo="Margem consolidada" chave="projetos.resultado_obra.kpi_margem" valor={fmtR(resumo.margem)}
+                sub={fmtPct(margemPct(resumo.receita, resumo.margem))} subCor={resumo.margem < 0 ? VERM : VERDE} destaque />
+              <Kpi rotulo="Avanço financeiro" chave="projetos.resultado_obra.kpi_avanco"
+                valor={avancoReceita == null ? 'N/A' : `Receita ${avancoReceita.toFixed(0)}%`}
+                sub={avancoCusto == null ? 'Custo N/A' : `Custo ${avancoCusto.toFixed(0)}%`}
+                subCor={avancoCusto != null && avancoReceita != null && avancoCusto > avancoReceita ? AMBAR : MUT} />
+            </div>
+            <div data-testid="resultado-alerta-situacao" className="no-print" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+              <span style={{ fontSize: 12, color: MUT, display: 'flex', alignItems: 'center', gap: 2 }}>Situação das obras <AjudaCampo chave="projetos.resultado_obra.alerta_situacao" /></span>
+              {([
+                { k: 'saudavel', rot: 'Margem saudável', cor: VERDE, nn: contagem.saudavel },
+                { k: 'baixa', rot: 'Margem baixa', cor: AMBAR, nn: contagem.baixa },
+                { k: 'negativa', rot: 'Margem negativa', cor: VERM, nn: contagem.negativa },
+                { k: 'sem', rot: 'Sem medição', cor: MUT, nn: contagem.sem },
+              ] as const).map(c => {
+                const ativo = sitFiltro === c.k
+                return (
+                  <button key={c.k} data-testid={`resultado-chip-${c.k}`} disabled={c.nn === 0}
+                    onClick={() => { setSitFiltro(ativo ? '' : c.k); setPagina(0) }}
+                    aria-pressed={ativo} title={c.nn === 0 ? 'Nenhuma obra nesta situação' : `Ver obras com ${c.rot.toLowerCase()}`}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 999, cursor: c.nn === 0 ? 'default' : 'pointer',
+                      border: `1px solid ${ativo ? c.cor : LINE}`, background: ativo ? `${c.cor}14` : '#fff', opacity: c.nn === 0 ? 0.45 : 1, fontSize: 12.5, color: ESP }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 999, background: c.cor, display: 'inline-block' }} />
+                    <strong style={{ fontWeight: 700 }}>{c.nn}</strong> {c.rot}
+                  </button>
+                )
+              })}
+              {sitFiltro && <button data-testid="resultado-chip-limpar" onClick={() => { setSitFiltro(''); setPagina(0) }} style={{ border: 'none', background: 'none', color: GOLD, fontSize: 12.5, cursor: 'pointer', textDecoration: 'underline' }}>Limpar filtro de situação</button>}
+            </div>
             <div className="no-print" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
               <input data-testid="resultado-busca" value={busca} onChange={e => { setBusca(e.target.value); setPagina(0) }} placeholder="Buscar obra por número ou nome" aria-label="Buscar obra" style={{ padding: '6px 10px', border: `1px solid ${LINE}`, borderRadius: 8, minWidth: 220 }} />
               <AjudaCampo chave="projetos.resultado_obra.busca" />
@@ -386,6 +441,17 @@ function DrilldownEscopo({ estado, onRecarregar, mobile }: { estado?: EstadoEsco
           </tbody>
         </table>
       </div>
+    </div>
+  )
+}
+
+// Cartão de KPI do resumo consolidado (topo). Rótulo + "?" (RD-95), valor em destaque e um sub opcional (margem % / avanço).
+function Kpi({ rotulo, chave, valor, sub, subCor, destaque }: { rotulo: string; chave: string; valor: string; sub?: string; subCor?: string; destaque?: boolean }) {
+  return (
+    <div style={{ background: '#fff', border: `1px solid ${destaque ? GOLD : LINE}`, borderRadius: 12, padding: '12px 14px' }}>
+      <div style={{ fontSize: 11.5, color: MUT, display: 'flex', alignItems: 'center', gap: 2 }}>{rotulo} <AjudaCampo chave={chave} /></div>
+      <div style={{ fontSize: 19, fontWeight: 700, marginTop: 2, overflowWrap: 'anywhere' }}>{valor}</div>
+      {sub != null && <div style={{ fontSize: 12.5, fontWeight: 600, marginTop: 2, color: subCor ?? MUT }}>{sub}</div>}
     </div>
   )
 }
