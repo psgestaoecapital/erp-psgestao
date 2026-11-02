@@ -223,3 +223,14 @@ FROM (VALUES
   26)
 ) AS v(chave, grupo, rotulo, o, p, e, x, ordem)
 ON CONFLICT (chave) DO NOTHING;
+
+-- 7) check_fn_guards: REVOKE anon/GRANT nas 3 funções SECURITY DEFINER recriadas (ajuste revisor #3840) ────────
+-- ACL viva já é {authenticated,service_role} (sem anon); estas linhas apenas reafirmam o estado atual, não mudam acesso.
+REVOKE ALL ON FUNCTION public.fn_agency_contrato_item_excluir(uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_agency_contrato_item_excluir(uuid, uuid) TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.fn_agency_contrato_listar(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_agency_contrato_listar(uuid) TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.fn_agency_contrato_realizado(uuid, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_agency_contrato_realizado(uuid, date) TO authenticated, service_role;
