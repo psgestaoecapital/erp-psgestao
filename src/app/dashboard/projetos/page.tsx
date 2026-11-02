@@ -86,7 +86,7 @@ export default function PainelProjetos() {
           supabase.rpc("fn_obras_kpis", { p_company_ids: [companyId] }),
           supabase.from("erp_orcamentos").select("id", { count: "exact", head: true }).eq("company_id", companyId).in("status", ["rascunho", "enviado"]),
           supabase.from("v_obra_resultado").select("obra_id,numero,nome,status,receita_prevista,custo_previsto").eq("company_id", companyId).eq("status", "em_andamento"),
-          supabase.from("erp_crm_oportunidade").select("etapa,valor_estimado,valor_proposta").eq("company_id", companyId).is("deleted_at", null),
+          supabase.from("erp_crm_oportunidade").select("etapa,valor_estimado").eq("company_id", companyId).is("deleted_at", null),
         ]);
         if (ek || ep || eo || eop) throw new Error("indicadores");
         const kp = (k as { em_andamento?: number; concluidas?: number; pausada?: number; cancelada?: number; valor_em_andamento?: number } | null) ?? {};
@@ -105,10 +105,14 @@ export default function PainelProjetos() {
         }
         andamento.sort((a, b) => b.receita_prevista - a.receita_prevista);
         let abertas = 0, valorAberto = 0, ganhas = 0, perdidas = 0;
-        for (const o of (opps as { etapa: string; valor_estimado: number | null; valor_proposta: number | null }[] | null) ?? []) {
+        // #3335 · "Valor em aberto" sai de valor_estimado — a MESMA fonte do pipeline da tela de funil
+        // (/projetos/oportunidades, somaValor(valor_estimado)). Antes o painel somava valor_proposta ?? valor_estimado
+        // e divergia do funil para a mesma empresa (DEMO: painel R$ 931.748,80 × funil R$ 956.000,00), número errado
+        // entre telas (RD-97). Uma fonte só = os dois batem (RD-38).
+        for (const o of (opps as { etapa: string; valor_estimado: number | null }[] | null) ?? []) {
           if (o.etapa === "ganho") ganhas++;
           else if (o.etapa === "perdido") perdidas++;
-          else { abertas++; valorAberto += Number(o.valor_proposta ?? o.valor_estimado ?? 0); }
+          else { abertas++; valorAberto += Number(o.valor_estimado ?? 0); }
         }
         if (!cancel) {
           setResumo({
