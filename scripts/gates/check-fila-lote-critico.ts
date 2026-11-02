@@ -28,7 +28,7 @@ ok(/n_critica_solo=0/.test(sh), 'n_critica_solo declarado (carve-out das categor
 ok(/critica-solo\.ts/.test(sh), 'a fila chama o classificador critica-solo.ts')
 ok(/index\("conserto-main"\)/.test(sh) && /n_critica_solo=1/.test(sh), 'conserto-main é SOLO (pela etiqueta)')
 ok(/n_critica_solo" = 1 \] && \[ "\$lote_mig_n" -gt 0/.test(sh), 'SOLO não entra num lote já aberto (publica sozinha)')
-ok(/n_critica_solo" = 1 \].*encerra a rodada/s.test(sh) || /SOLO: encerra|encerra a rodada \(publica sozinha/.test(sh),
+ok(/n_critica_solo" = 1 \][\s\S]*encerra a rodada/.test(sh) || /SOLO: encerra|encerra a rodada \(publica sozinha/.test(sh),
   'SOLO encerra a rodada ao publicar (nada batela no @pos dela)')
 ok(/n_critica" = 1 \] && \[ "\$n_critica_solo" = 0 \] && \[ "\$lote_mig_crit_n" -ge "\$LOTE_MIG_CRIT_MAX"/.test(sh),
   'o teto de críticas vale só para as BATELÁVEIS (n_critica_solo=0)')
