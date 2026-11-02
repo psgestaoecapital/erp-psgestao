@@ -126,8 +126,8 @@ export default function EventosPage() {
               <option value="">Todos</option>{STATUS.map((s) => <option key={s.v} value={s.v}>{s.l}</option>)}
             </select>
           </Filtro>
-          <Filtro label="De" chave="pm.eventos.filtro_status"><input type="date" value={fDe} onChange={(e) => setFDe(e.target.value)} style={inp} data-testid="evento-filtro-de" /></Filtro>
-          <Filtro label="Até" chave="pm.eventos.filtro_status"><input type="date" value={fAte} onChange={(e) => setFAte(e.target.value)} style={inp} data-testid="evento-filtro-ate" /></Filtro>
+          <Filtro label="De" chave="pm.eventos.filtro_de"><input type="date" value={fDe} onChange={(e) => setFDe(e.target.value)} style={inp} data-testid="evento-filtro-de" /></Filtro>
+          <Filtro label="Até" chave="pm.eventos.filtro_ate"><input type="date" value={fAte} onChange={(e) => setFAte(e.target.value)} style={inp} data-testid="evento-filtro-ate" /></Filtro>
         </div>
 
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM }}>Carregando…</div>
