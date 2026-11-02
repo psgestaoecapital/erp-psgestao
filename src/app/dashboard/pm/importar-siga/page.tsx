@@ -167,10 +167,16 @@ export default function ImportarSigaPage() {
               </div>
             )}
             <div className="mt-3 flex flex-wrap gap-2">
-              <button className="rounded-xl border border-[#3D2314]/15 bg-white px-4 py-2 text-[13px] disabled:opacity-40" disabled={ocupado || !sel.entra.length} onClick={() => void chamar(false)} data-testid="siga-conferir">Conferir no sistema</button>
-              <button className="rounded-xl bg-[#3D2314] px-4 py-2 text-[13px] font-medium text-white disabled:opacity-40" disabled={ocupado || !conf || !conf.novos || feito != null} onClick={() => void chamar(true)} data-testid="siga-importar">
-                {conf ? `Importar ${conf.novos} job(s)` : "Importar"}
-              </button>
+              <span className="inline-flex items-center">
+                <button className="rounded-xl border border-[#3D2314]/15 bg-white px-4 py-2 text-[13px] disabled:opacity-40" disabled={ocupado || !sel.entra.length} onClick={() => void chamar(false)} data-testid="siga-conferir">Conferir no sistema</button>
+                <AjudaCampo chave="pm.siga.conferir" />
+              </span>
+              <span className="inline-flex items-center">
+                <button className="rounded-xl bg-[#3D2314] px-4 py-2 text-[13px] font-medium text-white disabled:opacity-40" disabled={ocupado || !conf || !conf.novos || feito != null} onClick={() => void chamar(true)} data-testid="siga-importar">
+                  {conf ? `Importar ${conf.novos} job(s)` : "Importar"}
+                </button>
+                <AjudaCampo chave="pm.siga.importar" />
+              </span>
             </div>
           </section>
         )}
