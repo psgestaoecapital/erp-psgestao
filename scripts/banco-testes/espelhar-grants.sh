@@ -69,8 +69,11 @@ SQL
 # dado): o guarda derrubava o montar ANTES da semente, a vaga ficava sem dado e os testes morriam em <5 min ("vaga
 # doente"). É UMA agregação no catálogo (pg_proc, ~1,9k linhas) com timeout curto — não é "função por linha em volume"
 # do incidente 03/10 (aquele chamava função auxiliar por linha de tabela grande, 365 mil vezes).
-anon_prod=$("$PSQL" "$PROD_DATABASE_URL" -v ON_ERROR_STOP=1 -At -c "set statement_timeout='30s'; select count(*) from pg_proc p where p.pronamespace='public'::regnamespace and p.prokind in ('f','p') and has_function_privilege('anon', p.oid, 'EXECUTE')")
-anon_teste=$("$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -At -c "select count(*) from pg_proc p where p.pronamespace='public'::regnamespace and p.prokind in ('f','p') and has_function_privilege('anon', p.oid, 'EXECUTE')")
+# -q (quiet): sem ele, o "SET statement_timeout" imprime o status tag "SET" no stdout ANTES do número e o $(...) captura
+# "SET\n61" → a aritmética da linha seguinte quebra com `set -u` ("SET: unbound variable") e o montar falha a cada deploy
+# (vaga sem rebuild → "vaga doente"). É o MESMO padrão -q da leitura da produção acima (linha do cat | psql -q).
+anon_prod=$("$PSQL" "$PROD_DATABASE_URL" -v ON_ERROR_STOP=1 -At -q -c "set statement_timeout='30s'; select count(*) from pg_proc p where p.pronamespace='public'::regnamespace and p.prokind in ('f','p') and has_function_privilege('anon', p.oid, 'EXECUTE')")
+anon_teste=$("$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -At -q -c "select count(*) from pg_proc p where p.pronamespace='public'::regnamespace and p.prokind in ('f','p') and has_function_privilege('anon', p.oid, 'EXECUTE')")
 echo "funções executáveis pelo anon — produção: $anon_prod · teste: $anon_teste"
 dif=$(( anon_teste > anon_prod ? anon_teste - anon_prod : anon_prod - anon_teste ))
 [ "$dif" -le 10 ] || erro "espelhar-grants: anon executa $anon_teste funções no teste × $anon_prod na produção — direitos não espelhados"

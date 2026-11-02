@@ -223,11 +223,18 @@ function ProducaoPageInner() {
   }
   async function saveTimesheet() {
     const { data: { user } } = await supabase.auth.getUser()
-    const data = { ...form, company_id: sel, user_id: user?.id }
-    const res = await supabase.from('agency_timesheet').insert(data)
+    // RD-98 p2: Timesheet tem Incluir/Editar/Excluir — edição altera só os campos do form (RLS por empresa),
+    // preservando autor (user_id) e empresa do registro original.
+    const res = editId
+      ? await supabase.from('agency_timesheet').update(form).eq('id', editId)
+      : await supabase.from('agency_timesheet').insert({ ...form, company_id: sel, user_id: user?.id })
     if (res.error) { setToast(`Erro: ${res.error.message}`); return }
-    setToast('Horas REGISTRADAS.')
-    setShowForm(null); setForm({}); loadAll()
+    setToast(editId ? 'Horas ALTERADAS.' : 'Horas REGISTRADAS.')
+    setShowForm(null); setEditId(null); setForm({}); loadAll()
+  }
+  function abrirEdicaoTimesheet(t: Timesheet) {
+    setForm({ job_id: t.job_id, data: t.data, horas: t.horas, tipo_atividade: t.tipo_atividade, descricao: t.descricao })
+    setEditId(t.id); setShowForm('timesheet')
   }
   async function excluir(table: string, id: string) {
     if (!confirm('EXCLUIR este registro?')) return
@@ -455,7 +462,8 @@ function ProducaoPageInner() {
         <TimesheetTabela
           timesheets={timesheets}
           jobs={jobs}
-          onNovo={() => { setForm({ data: new Date().toISOString().slice(0, 10) }); setShowForm('timesheet') }}
+          onNovo={() => { setEditId(null); setForm({ data: new Date().toISOString().slice(0, 10) }); setShowForm('timesheet') }}
+          onEditar={abrirEdicaoTimesheet}
           onExcluir={(t) => excluir('agency_timesheet', t.id)}
         />
       )}
@@ -585,23 +593,23 @@ function ProducaoPageInner() {
 
       {/* ─── FORM modal: timesheet ─── */}
       {showForm === 'timesheet' && (
-        <Modal titulo="Registrar horas" onClose={() => { setShowForm(null); setForm({}) }}>
+        <Modal titulo={editId ? 'Editar horas' : 'Registrar horas'} onClose={() => { setShowForm(null); setEditId(null); setForm({}) }}>
           <div style={grid2}>
-            <Select label="Job *" v={(form.job_id as string) ?? ''} on={(v) => setForm({ ...form, job_id: v || null })}
+            <Select label="Job *" ajuda="pm.timesheet.job" v={(form.job_id as string) ?? ''} on={(v) => setForm({ ...form, job_id: v || null })}
               opts={[['', '— selecionar —'], ...jobs
                 .filter((j) => !['concluida', 'publicado', 'cancelado'].includes(j.status))
                 .map((j) => [j.id, j.titulo] as [string, string])]} />
-            <Field label="Data *" type="date" v={form.data} on={(v) => setForm({ ...form, data: v })} />
-            <Field label="Horas *" type="number" v={form.horas} on={(v) => setForm({ ...form, horas: parseFloat(v) || 0 })} />
-            <Select label="Atividade" v={(form.tipo_atividade as string) ?? ''} on={(v) => setForm({ ...form, tipo_atividade: v || null })}
+            <Field label="Data *" ajuda="pm.timesheet.data" type="date" v={form.data} on={(v) => setForm({ ...form, data: v })} />
+            <Field label="Horas *" ajuda="pm.timesheet.horas" type="number" v={form.horas} on={(v) => setForm({ ...form, horas: parseFloat(v) || 0 })} />
+            <Select label="Atividade" ajuda="pm.timesheet.atividade" v={(form.tipo_atividade as string) ?? ''} on={(v) => setForm({ ...form, tipo_atividade: v || null })}
               opts={[['', '— tipo —'], ['criacao', 'Criação'], ['atendimento', 'Atendimento'],
                 ['producao', 'Produção'], ['edicao', 'Edição'], ['revisao', 'Revisão'],
                 ['reuniao', 'Reunião'], ['planejamento', 'Planejamento']]} />
           </div>
-          <Field label="Descrição" v={form.descricao} on={(v) => setForm({ ...form, descricao: v })} />
+          <Field label="Descrição" ajuda="pm.timesheet.descricao" v={form.descricao} on={(v) => setForm({ ...form, descricao: v })} />
           <div style={actions}>
-            <button onClick={() => { setShowForm(null); setForm({}) }} style={btnGhost}>Cancelar</button>
-            <button onClick={saveTimesheet} style={btnPrimary}>REGISTRAR</button>
+            <button onClick={() => { setShowForm(null); setEditId(null); setForm({}) }} style={btnGhost}>Cancelar</button>
+            <button onClick={saveTimesheet} style={btnPrimary}>{editId ? 'SALVAR' : 'REGISTRAR'}</button>
           </div>
         </Modal>
       )}
@@ -916,8 +924,8 @@ function ClientesTabela({
 }
 
 function TimesheetTabela({
-  timesheets, jobs, onNovo, onExcluir,
-}: { timesheets: Timesheet[]; jobs: Job[]; onNovo: () => void; onExcluir: (t: Timesheet) => void }) {
+  timesheets, jobs, onNovo, onEditar, onExcluir,
+}: { timesheets: Timesheet[]; jobs: Job[]; onNovo: () => void; onEditar: (t: Timesheet) => void; onExcluir: (t: Timesheet) => void }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
@@ -945,7 +953,10 @@ function TimesheetTabela({
                     <Td>{t.tipo_atividade || '—'}</Td>
                     <Td>{t.descricao || '—'}</Td>
                     <Td align="right"><b style={{ color: DOURADO }}>{t.horas}h</b></Td>
-                    <Td align="center"><button onClick={() => onExcluir(t)} style={btnDanger}>X</button></Td>
+                    <Td align="center">
+                      <button onClick={() => onEditar(t)} style={btnSec}>Editar</button>
+                      <button onClick={() => onExcluir(t)} style={{ ...btnDanger, marginLeft: 4 }} aria-label="Excluir registro de horas">X</button>
+                    </Td>
                   </tr>
                 )
               })}
@@ -990,10 +1001,10 @@ function Modal({ titulo, children, onClose }: { titulo: string; children: React.
     </div>
   )
 }
-function Field({ label, v, on, type = 'text', multiline, testId }: { label: string; v: unknown; on: (v: string) => void; type?: string; multiline?: boolean; testId?: string }) {
+function Field({ label, v, on, type = 'text', multiline, testId, ajuda }: { label: string; v: unknown; on: (v: string) => void; type?: string; multiline?: boolean; testId?: string; ajuda?: string }) {
   return (
     <label style={lbl}>
-      {label}
+      <span style={{ display: 'flex', alignItems: 'center' }}>{label}{ajuda && <AjudaCampo chave={ajuda} />}</span>
       {multiline ? (
         <textarea rows={3} value={(v as string) ?? ''} onChange={(e) => on(e.target.value)} data-testid={testId} style={{ ...inp, resize: 'vertical' }} />
       ) : (
