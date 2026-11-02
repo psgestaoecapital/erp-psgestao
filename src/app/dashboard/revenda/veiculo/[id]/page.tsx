@@ -455,10 +455,68 @@ function ClienteVendaBusca({ companyId, nome, onNome, onEscolher, invalido }: { 
   )
 }
 
+// #5680 — tabela de recebimentos da venda: cada linha vira um título em contas a receber (GE) com forma, vencimento e conta.
+type RecLinha = { tipo: string; devedor: 'cliente' | 'banco'; valor: string; data: string; forma: string; conta: string }
+const REC_TIPOS: { v: string; l: string }[] = [{ v: 'entrada', l: 'Entrada' }, { v: 'sinal', l: 'Sinal' }, { v: 'parcela', l: 'Parcela' }, { v: 'financiamento', l: 'Financiamento (banco)' }, { v: 'retorno_banco', l: 'Retorno do banco' }]
+const REC_FORMAS = ['PIX', 'Dinheiro', 'Cheque', 'Promissória', 'Boleto', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência']
+const hojeIso = () => new Date().toISOString().slice(0, 10)
+const maisDias = (iso: string, d: number) => { const x = new Date(iso + 'T12:00:00'); x.setDate(x.getDate() + d); return x.toISOString().slice(0, 10) }
+function RecebimentosTabela({ companyId, linhas, onChange, totalVenda }: { companyId: string; linhas: RecLinha[]; onChange: (l: RecLinha[]) => void; totalVenda: number }) {
+  const [contas, setContas] = useState<{ id: string; nome: string }[]>([])
+  const [nParc, setNParc] = useState('3')
+  const [intervalo, setIntervalo] = useState('30')
+  useEffect(() => {
+    void supabase.from('erp_banco_contas').select('id,nome').eq('company_id', companyId).eq('ativo', true).order('nome').then(({ data }) => setContas((data as { id: string; nome: string }[] | null) ?? []))
+  }, [companyId])
+  const soma = linhas.reduce((a, l) => a + (moedaNum(l.valor) ?? 0), 0)
+  const dif = Math.round((totalVenda - soma) * 100) / 100
+  const nova = (p: Partial<RecLinha> = {}): RecLinha => ({ tipo: 'parcela', devedor: 'cliente', valor: '', data: hojeIso(), forma: 'PIX', conta: '', ...p })
+  const set = (i: number, p: Partial<RecLinha>) => onChange(linhas.map((l, k) => k === i ? { ...l, ...p } : l))
+  const fmt = (v: number) => moedaMascara(String(Math.round(v * 100)))
+  const aVista = () => onChange([nova({ tipo: 'parcela', valor: fmt(totalVenda) })])
+  const gerar = () => {
+    const q = Math.max(1, Math.min(120, parseInt(nParc, 10) || 1)); const iv = Math.max(1, parseInt(intervalo, 10) || 30)
+    const base = Math.floor((totalVenda / q) * 100) / 100
+    onChange(Array.from({ length: q }, (_, k) => nova({ valor: fmt(k === q - 1 ? Math.round((totalVenda - base * (q - 1)) * 100) / 100 : base), data: maisDias(hojeIso(), iv * (k + 1)) })))
+  }
+  const btn: React.CSSProperties = { padding: '6px 10px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.espM, cursor: 'pointer', fontSize: 12 }
+  return (
+    <div data-testid="venda-recebimentos">
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 6 }}>
+        <button type="button" style={btn} data-testid="rec-avista" onClick={aVista} disabled={totalVenda <= 0}>À vista</button>
+        <button type="button" style={btn} onClick={gerar} disabled={totalVenda <= 0}>Gerar parcelas iguais</button>
+        <input value={nParc} onChange={(e) => setNParc(e.target.value.replace(/\D/g, ''))} inputMode="numeric" style={{ ...inp, width: 52, padding: '5px 8px' }} aria-label="número de parcelas" />
+        <span style={{ fontSize: 11.5, color: C.espL }}>parcelas a cada</span>
+        <input value={intervalo} onChange={(e) => setIntervalo(e.target.value.replace(/\D/g, ''))} inputMode="numeric" style={{ ...inp, width: 52, padding: '5px 8px' }} aria-label="intervalo em dias" />
+        <span style={{ fontSize: 11.5, color: C.espL }}>dias</span>
+        <AjudaCampo chave="revenda.venda.recebimentos" rota="/dashboard/revenda/veiculo" />
+      </div>
+      {linhas.map((l, i) => (
+        <div key={i} data-testid={`rec-linha-${i}`} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 6, marginBottom: 6, paddingBottom: 6, borderBottom: `1px dashed ${C.border}` }}>
+          <select value={l.tipo} onChange={(e) => set(i, { tipo: e.target.value, devedor: e.target.value === 'financiamento' || e.target.value === 'retorno_banco' ? 'banco' : 'cliente' })} style={inp} aria-label="tipo">{REC_TIPOS.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}</select>
+          <input value={l.valor} onChange={(e) => set(i, { valor: moedaMascara(e.target.value) })} placeholder="valor" inputMode="numeric" style={inp} aria-label="valor" data-testid={`rec-valor-${i}`} />
+          <input type="date" value={l.data} onChange={(e) => set(i, { data: e.target.value })} style={inp} aria-label="vencimento" />
+          <select value={l.forma} onChange={(e) => set(i, { forma: e.target.value })} style={inp} aria-label="forma de pagamento">{REC_FORMAS.map((f) => <option key={f} value={f}>{f}</option>)}</select>
+          <select value={l.conta} onChange={(e) => set(i, { conta: e.target.value })} style={inp} aria-label="conta de destino"><option value="">conta de destino</option>{contas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select>
+          <AjudaCampo chave="revenda.venda.recebimentos" rota="/dashboard/revenda/veiculo" />
+          <button type="button" style={btn} onClick={() => onChange(linhas.filter((_, k) => k !== i))} aria-label="remover linha">Remover</button>
+        </div>
+      ))}
+      <button type="button" style={btn} data-testid="rec-add" onClick={() => onChange([...linhas, nova()])}>+ Adicionar linha</button>
+      {linhas.length > 0 && (
+        <div style={{ fontSize: 12, marginTop: 6, color: Math.abs(dif) < 0.01 ? C.green : C.amber }}>
+          Soma dos recebimentos {brl(soma)} de {brl(totalVenda)}{Math.abs(dif) < 0.01 ? ' — confere.' : dif > 0 ? ` — faltam ${brl(dif)}.` : ` — passa ${brl(-dif)}.`}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onSaved, onErro }: { companyId: string; veiculoId: string; custoTotal: number; margemAlvo: number; onClose: () => void; onSaved: () => void; onErro: (m: string) => void }) {
   const [clienteSel, setClienteSel] = useState<ErpCliente | null>(null)
   const [f, setF] = useState({ cliente_nome: '', vendedor_nome: '', valor_venda: '', valor_entrada: '', valor_financiado: '', banco_nome: '', retorno_banco: '' })
   const [troca, setTroca] = useState({ on: false, chassi: '', modelo: '', valor_troca: '', valor_avaliacao: '' })
+  const [recs, setRecs] = useState<RecLinha[]>([])
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [campo, setCampo] = useState<string | null>(null)
@@ -487,15 +545,22 @@ function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onS
     if (!vvOk) { setErro('Informe o valor da venda (maior que zero).'); setCampo('valor_venda'); return }
     setBusy(true)
     const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
-    const recebimentos: { tipo: string; devedor: string; valor: number }[] = []
-    if (n(f.valor_entrada) > 0) recebimentos.push({ tipo: 'entrada', devedor: 'cliente', valor: n(f.valor_entrada) })
-    if (n(f.valor_financiado) > 0) recebimentos.push({ tipo: 'financiamento', devedor: 'banco', valor: n(f.valor_financiado) })
-    if (n(f.retorno_banco) > 0) recebimentos.push({ tipo: 'retorno_banco', devedor: 'banco', valor: n(f.retorno_banco) })
+    const recebimentos: { tipo: string; devedor: string; valor: number; data_prevista?: string; forma_pagamento?: string; conta_bancaria_id?: string }[] = []
+    const recsOk = recs.filter((r) => (moedaNum(r.valor) ?? 0) > 0)
+    for (const r of recsOk) recebimentos.push({ tipo: r.tipo, devedor: r.devedor, valor: n(r.valor), data_prevista: r.data || undefined, forma_pagamento: r.forma || undefined, conta_bancaria_id: r.conta || undefined })
+    const somaTipo = (t: string) => recsOk.filter((r) => r.tipo === t).reduce((a, r) => a + n(r.valor), 0)
+    const usaTabela = recsOk.length > 0
+    const vEntrada = usaTabela ? somaTipo('entrada') : n(f.valor_entrada)
+    const vFinanc = usaTabela ? somaTipo('financiamento') : n(f.valor_financiado)
+    const vRetorno = usaTabela ? somaTipo('retorno_banco') : n(f.retorno_banco)
+    if (!usaTabela && n(f.valor_entrada) > 0) recebimentos.push({ tipo: 'entrada', devedor: 'cliente', valor: n(f.valor_entrada) })
+    if (!usaTabela && n(f.valor_financiado) > 0) recebimentos.push({ tipo: 'financiamento', devedor: 'banco', valor: n(f.valor_financiado) })
+    if (!usaTabela && n(f.retorno_banco) > 0) recebimentos.push({ tipo: 'retorno_banco', devedor: 'banco', valor: n(f.retorno_banco) })
     // sem entrada/financiamento explícitos: à vista, o cliente deve o valor da venda
     if (recebimentos.length === 0 && n(f.valor_venda) > 0) recebimentos.push({ tipo: 'parcela', devedor: 'cliente', valor: n(f.valor_venda) })
     const { data, error } = await supabase.rpc('fn_veic_venda_registrar', {
       p_company_id: companyId, p_veiculo_id: veiculoId,
-      p_venda: { cliente_nome: f.cliente_nome.trim() || null, cliente_id: clienteSel?.id ?? null, cliente_doc: clienteSel ? (clienteSel.cpf_cnpj || clienteSel.cnpj_cpf || null) : null, vendedor_nome: f.vendedor_nome.trim() || null, valor_venda: f.valor_venda ? n(f.valor_venda) : null, valor_entrada: f.valor_entrada ? n(f.valor_entrada) : null, valor_financiado: f.valor_financiado ? n(f.valor_financiado) : null, banco_nome: f.banco_nome.trim() || null, retorno_banco: f.retorno_banco ? n(f.retorno_banco) : null },
+      p_venda: { cliente_nome: f.cliente_nome.trim() || null, cliente_id: clienteSel?.id ?? null, cliente_doc: clienteSel ? (clienteSel.cpf_cnpj || clienteSel.cnpj_cpf || null) : null, vendedor_nome: f.vendedor_nome.trim() || null, valor_venda: f.valor_venda ? n(f.valor_venda) : null, valor_entrada: vEntrada > 0 ? vEntrada : null, valor_financiado: vFinanc > 0 ? vFinanc : null, banco_nome: f.banco_nome.trim() || null, retorno_banco: vRetorno > 0 ? vRetorno : null },
       p_recebimentos: recebimentos,
       p_troca: troca.on ? { chassi: troca.chassi.trim() || null, modelo: troca.modelo.trim() || null, valor_troca: troca.valor_troca ? n(troca.valor_troca) : null, valor_avaliacao: troca.valor_avaliacao ? n(troca.valor_avaliacao) : null } : null,
       p_user: user?.id ?? null,
@@ -517,14 +582,16 @@ function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onS
         <InputMoeda value={f.valor_venda} onChange={(v) => setF({ ...f, valor_venda: v })} placeholder="valor da venda *" ajuda="revenda.venda.valor_venda" style={{ ...inp, gridColumn: '1 / -1', ...estiloBordaInput(campo === 'valor_venda' ? 'x' : null) }} />
       </div>
 
-      <div style={{ fontSize: 12, fontWeight: 700, color: C.espM, margin: '12px 0 4px' }}>Pagamento</div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: C.espM, margin: '12px 0 4px' }}>Recebimentos</div>
+      <RecebimentosTabela companyId={companyId} linhas={recs} onChange={setRecs} totalVenda={Math.max(0, vendaN - (troca.on ? n(troca.valor_troca) : 0))} />
+      <div style={{ fontSize: 12, fontWeight: 700, color: C.espM, margin: '12px 0 4px' }}>Ou resumo rápido (sem tabela)</div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         <InputMoeda value={f.valor_entrada} onChange={(v) => setF({ ...f, valor_entrada: v })} placeholder="entrada (cliente)" ajuda="revenda.venda.entrada" style={inp} />
         <InputMoeda value={f.valor_financiado} onChange={(v) => setF({ ...f, valor_financiado: v })} placeholder="financiado (banco)" ajuda="revenda.venda.financiado" style={inp} />
         <input value={f.banco_nome} onChange={(e) => setF({ ...f, banco_nome: e.target.value })} placeholder="banco" style={inp} />
         <InputMoeda value={f.retorno_banco} onChange={(v) => setF({ ...f, retorno_banco: v })} placeholder="retorno do banco (receita)" ajuda="revenda.venda.retorno_banco" style={inp} />
       </div>
-      <div style={{ fontSize: 11, color: C.espL, marginTop: 4 }}>O financiado é cobrado do banco; a entrada, do cliente. Cada um vira um título em contas a receber com o devedor certo.</div>
+      <div style={{ fontSize: 11, color: C.espL, marginTop: 4 }}>O financiado é cobrado do banco; a entrada, do cliente. Cada um vira um título em contas a receber com o devedor certo. Se a tabela acima tiver linhas, ela vale no lugar do resumo.</div>
 
       <label style={{ fontSize: 13, color: C.esp, display: 'inline-flex', alignItems: 'center', gap: 6, margin: '12px 0 4px', fontWeight: 700 }}>
         <input type="checkbox" checked={troca.on} onChange={(e) => setTroca({ ...troca, on: e.target.checked })} /> Tem veículo na troca
