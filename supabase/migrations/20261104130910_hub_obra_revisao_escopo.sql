@@ -116,7 +116,7 @@ BEGIN
     v_preco_novo := COALESCE(NULLIF(v_item->>'preco_unitario_novo','')::numeric, v_oi.preco_unitario);
     -- trava de piso também aqui (mensagem amigável antes do trigger)
     IF v_qtd_nova IS NOT NULL AND v_qtd_nova < COALESCE(v_oi.quantidade_medida,0) THEN
-      RAISE EXCEPTION 'Item %: quantidade revisada %% abaixo do medido %%', v_oi.descricao, v_qtd_nova, COALESCE(v_oi.quantidade_medida,0)
+      RAISE EXCEPTION 'Item %: quantidade revisada % abaixo do medido %', v_oi.descricao, v_qtd_nova, COALESCE(v_oi.quantidade_medida,0)
         USING ERRCODE='23514';
     END IF;
     INSERT INTO public.projetos_obra_revisao_item(
