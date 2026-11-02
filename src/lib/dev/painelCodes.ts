@@ -186,15 +186,20 @@ export function resumoCode(p: { code: string; entregas: Entrega[]; msgs: Mensage
   const sessao = estadoSessao(p.leases.find((l) => l.agente === code), agora)
   const todas = fila(p.msgs, code)
   const filaAntiga = todas.filter((m) => t(m.criado_em) < ag - FILA_ANTIGA_H * HORA).length
-  // CEO 15/10: TRAVADO = tarefa "nova" sem leitura há > 15 min E nenhuma sessão nos últimos 30 min (o acionamento com
-  // HTTP ≠ 200 não chega ao painel — a caixa não expõe a coluna). Nova < 15 min (ou com sessão recente) = NA FILA.
-  const ultSessao = sessao.ativa ? agora : sessao.paradoDesde
+  // CEO 17/10: a última sessão é iniciada_em (renovada_em = now() − 1 dia quando a sessão encerra normalmente — não é atividade).
+  // TRAVADO = há trabalho pendente (tarefa aberta ou PR do Code parada) E o plantão não é atualizado há > 30 min E não há sessão ativa.
+  const lease = p.leases.find((l) => l.agente === code)
+  const ultSessao = sessao.ativa ? agora : lease ? new Date(lease.iniciada_em) : null
   const ultimaSessaoMin = ultSessao ? Math.max(0, Math.floor((ag - ultSessao.getTime()) / MIN)) : null
-  const sessaoRecente = ultimaSessaoMin !== null && ultimaSessaoMin < SESSAO_RECENTE_MIN
   const novas = todas.filter((m) => m.status === 'nova')
-  const travada = !sessaoRecente && novas.some((m) => t(m.criado_em) < ag - TRAVADO_MIN * MIN)
-  const naFila = novas.length > 0
   const teste = emTeste(p.entregas, code)
+  const abertas = p.msgs.filter((m) => m.para === code && !m.arquivada && !ehPlantao(m) && ['nova', 'recebida', 'em_andamento'].includes(m.status)
+    && t(m.criado_em) < ag - SESSAO_RECENTE_MIN * MIN && !(m.status !== 'em_andamento' && t(m.criado_em) < ag - FILA_ANTIGA_H * HORA))
+  const plantao = p.msgs.filter((m) => m.para === code && !m.arquivada && ehPlantao(m))
+  const sinal = Math.max(...plantao.map((m) => t(m.atualizado_em ?? m.criado_em)), ultSessao ? ultSessao.getTime() : 0)
+  const pendente = abertas.length > 0 || teste.length > 0
+  const travada = !sessao.ativa && pendente && sinal < ag - SESSAO_RECENTE_MIN * MIN
+  const naFila = novas.length > 0
   const andando = emAndamento(p.msgs, code)[0]
   // Rotina LIGADA (tarefa agendada ativa) sem sessão/fila/teste ≠ "dormindo": o Code roda sozinho a cada hora
   // (CEO 23/10 — revisor e esteira aparecem "dormindo" mesmo rodando no plantão). "Dormindo" = sem rotina E sem nada.

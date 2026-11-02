@@ -207,7 +207,7 @@ const COR_ESTEIRA = {
 } as const
 const COR_STATUS: Record<StatusCode, { bg: string; fg: string; ico: string; nome: string; ajuda: string }> = {
   trabalhando: { bg: VERDE_BG, fg: VERDE, ico: '●', nome: 'Trabalhando', ajuda: 'Tem sessão ativa (renovada há menos de 12 min).' },
-  travado: { bg: VERM_BG, fg: VERM, ico: '■', nome: 'Travado', ajuda: 'Tem tarefa NOVA sem leitura há mais de 15 min e nenhuma sessão nos últimos 30 min (ou o acionamento está falhando).' },
+  travado: { bg: VERM_BG, fg: VERM, ico: '■', nome: 'Travado', ajuda: 'Há trabalho pendente (tarefa aberta ou PR parada) e o plantão não é atualizado há mais de 30 min, sem sessão ativa. Sessão encerrada normalmente não é Travado.' },
   na_fila: { bg: '#FEF3C7', fg: '#92400E', ico: '◔', nome: 'Na fila', ajuda: 'Tem tarefa NOVA esperando há menos de 15 min (ou há sessão recente que vai lê-la).' },
   esperando: { bg: '#FEF3C7', fg: '#92400E', ico: '◐', nome: 'Esperando', ajuda: 'Sem sessão, mas tem PR em teste ou aguardando autorização.' },
   agendado: { bg: '#E0ECFF', fg: '#1E40AF', ico: '◇', nome: 'Agendado', ajuda: 'Tarefa agendada LIGADA: roda sozinho a cada hora (plantão) e acorda ao receber mensagem. Sem sessão ativa neste instante — não é "dormindo".' },
