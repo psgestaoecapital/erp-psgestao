@@ -21,12 +21,20 @@ ON CONFLICT (chave) DO NOTHING;`
 ok(soCatalogo(INSERT_AJUDA).catalogo === true, 'INSERT em erp_ajuda_campo (com ; dentro do texto) = catálogo')
 ok(soCatalogo(`INSERT INTO system_screens (rota, auditada_ok) VALUES ('/x', true) ON CONFLICT (rota) DO UPDATE SET auditada_ok = excluded.auditada_ok;`).catalogo === true, 'UPSERT em system_screens = catálogo')
 ok(soCatalogo(`INSERT INTO public.erp_ajuda_campo (chave) VALUES ('a'); INSERT INTO erp_ajuda_artigo (slug) VALUES ('b');`).catalogo === true, 'vários INSERT só em tabelas de catálogo = catálogo')
+// UPDATE de texto de ajuda / metadado (CEO 31/10 pediu "insere/ATUALIZA"): também é aditivo em risco → não serializa.
+ok(soCatalogo(`UPDATE public.system_screens SET views_consumidas = ARRAY['erp_clientes']::text[], rpcs_chamadas = ARRAY['fn_x']::text[] WHERE rota = '/dashboard/x';`).catalogo === true, 'UPDATE em system_screens (origem do dado, RD-98 p3) = catálogo')
+ok(soCatalogo(`UPDATE erp_ajuda_campo SET o_que_preencher = 'novo texto' WHERE chave = 'pm.x';`).catalogo === true, 'UPDATE de texto de ajuda (erp_ajuda_campo) = catálogo')
+// Padrão REAL da #3614 (RD-95 + RD-98 p3): INSERT ajuda ON CONFLICT DO NOTHING + UPDATE system_screens da origem.
+ok(soCatalogo(`INSERT INTO public.erp_ajuda_campo (chave, rotulo) SELECT v.chave, v.rotulo FROM (VALUES ('a','x; y'),('b','z')) AS v(chave, rotulo) ON CONFLICT (chave) DO NOTHING;
+UPDATE public.system_screens SET views_consumidas = ARRAY['erp_clientes','erp_gov_nfse_municipios']::text[], rpcs_chamadas = ARRAY['fn_hub_criar_obra_rapida']::text[] WHERE rota = '/dashboard/projetos/obras/nova';`).catalogo === true, 'padrão #3614 (INSERT ajuda + UPDATE system_screens) = catálogo')
 
 // NÃO-catálogo (viés de segurança → serializa como crítica):
 ok(soCatalogo('select 1;').catalogo === false, 'select 1 não é catálogo')
 ok(soCatalogo('ALTER TABLE erp_clientes ADD COLUMN x int;').catalogo === false, 'ALTER em tabela existente não é catálogo')
 ok(soCatalogo(`CREATE TABLE nova (id int); INSERT INTO erp_ajuda_campo (chave) VALUES ('a');`).catalogo === false, 'CREATE TABLE (DDL aditivo) não é catálogo')
 ok(soCatalogo(`INSERT INTO erp_ajuda_campo (chave) VALUES ('a'); UPDATE titulos SET pago = true;`).catalogo === false, 'INSERT catálogo + UPDATE em dado de cliente não é catálogo')
+ok(soCatalogo(`UPDATE erp_clientes SET nome = 'x' WHERE id = 1;`).catalogo === false, 'UPDATE em tabela de cliente (fora do catálogo) não é catálogo')
+ok(soCatalogo(`DELETE FROM system_screens WHERE rota = '/x';`).catalogo === false, 'DELETE em tabela de catálogo não é catálogo (eng_chefe excluiu DELETE)')
 ok(soCatalogo(`INSERT INTO erp_contratos (valor) VALUES (10);`).catalogo === false, 'INSERT em tabela de cliente (não-catálogo) não é catálogo')
 ok(soCatalogo(`DELETE FROM erp_ajuda_campo WHERE chave = 'x';`).catalogo === false, 'DELETE não é catálogo')
 ok(soCatalogo(`GRANT SELECT ON erp_ajuda_campo TO authenticated;`).catalogo === false, 'GRANT não é catálogo')

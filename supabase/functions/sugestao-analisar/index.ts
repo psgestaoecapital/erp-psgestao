@@ -21,7 +21,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { modeloPara, registrarFalhaIA } from "../_shared/aiModel.ts";
+import { modeloPara, registrarFalhaIA, iaBudgetStatus } from "../_shared/aiModel.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -196,6 +196,9 @@ TAREFA: responda em JSON válido (apenas o JSON, sem markdown):
     },
   };
   async function chamarIA(maxTokens: number): Promise<{ analysis: any; custoUsd: number; raw: string } | { httpErro: string; status: number }> {
+    // P0 CUSTO (CEO 01/11): bloqueio global de IA paga antes da chamada (reusa o caminho de erro httpErro → 503).
+    const _b = await iaBudgetStatus();
+    if (_b.bloqueado) return { httpErro: _b.motivo, status: 503 };
     const claudeResponse = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },

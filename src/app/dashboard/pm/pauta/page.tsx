@@ -362,11 +362,11 @@ export default function PautaPage() {
             {visoes.map((v) => <option key={v.id} value={v.id}>{v.nome}{v.compartilhada ? " (equipe)" : ""}</option>)}
           </select>
           <AjudaCampo chave="pm.pauta.visao" />
-          <Link href="/dashboard/producao?novo=job" className="inline-flex items-center gap-1.5 rounded-md bg-[#3D2314] px-3 py-1.5 text-[12.5px] font-medium text-white hover:bg-[#3D2314]/90" data-testid="pauta-novo-job"><Plus size={14} /> Novo job</Link>
-          <button className={btn} onClick={() => { setRascunho(filtros); setPainel(true); }} data-testid="pauta-abrir-filtro"><Filter size={14} /> Filtro{nFiltros ? ` (${nFiltros})` : ""}</button>
-          <button className={btn} onClick={() => window.print()} data-testid="pauta-imprimir"><Printer size={14} /> Imprimir</button>
-          <button className={btn} onClick={() => void exportar()} data-testid="pauta-exportar"><Download size={14} /> Planilha</button>
-          <button className={`${btn} ${naLixeira ? "border-[#791F1F] text-[#791F1F]" : ""}`} onClick={() => aplicar({ ...filtros, lixeira: !naLixeira })} data-testid="pauta-lixeira"><Trash2 size={14} /> {naLixeira ? "Sair da lixeira" : "Lixeira"}</button>
+          <span className="inline-flex items-center"><Link href="/dashboard/producao?novo=job" className="inline-flex items-center gap-1.5 rounded-md bg-[#3D2314] px-3 py-1.5 text-[12.5px] font-medium text-white hover:bg-[#3D2314]/90" data-testid="pauta-novo-job"><Plus size={14} /> Novo job</Link><AjudaCampo chave="pm.pauta.novo_job" /></span>
+          <span className="inline-flex items-center"><button className={btn} onClick={() => { setRascunho(filtros); setPainel(true); }} data-testid="pauta-abrir-filtro"><Filter size={14} /> Filtro{nFiltros ? ` (${nFiltros})` : ""}</button><AjudaCampo chave="pm.pauta.abrir_filtro" /></span>
+          <span className="inline-flex items-center"><button className={btn} onClick={() => window.print()} data-testid="pauta-imprimir"><Printer size={14} /> Imprimir</button><AjudaCampo chave="pm.pauta.imprimir" /></span>
+          <span className="inline-flex items-center"><button className={btn} onClick={() => void exportar()} data-testid="pauta-exportar"><Download size={14} /> Planilha</button><AjudaCampo chave="pm.pauta.exportar" /></span>
+          <span className="inline-flex items-center"><button className={`${btn} ${naLixeira ? "border-[#791F1F] text-[#791F1F]" : ""}`} onClick={() => aplicar({ ...filtros, lixeira: !naLixeira })} data-testid="pauta-lixeira"><Trash2 size={14} /> {naLixeira ? "Sair da lixeira" : "Lixeira"}</button><AjudaCampo chave="pm.pauta.lixeira" /></span>
         </div>
       </header>
 
@@ -404,7 +404,8 @@ export default function PautaPage() {
       )}
 
       {/* atalhos de um toque (combinam com o filtro aberto) */}
-      <div className="flex flex-wrap gap-1.5 print:hidden" data-testid="pauta-atalhos">
+      <div className="flex flex-wrap items-center gap-1.5 print:hidden" data-testid="pauta-atalhos">
+        <span className="flex items-center text-[12px] text-[#3D2314]/55">Atalhos<AjudaCampo chave="pm.pauta.atalhos" /></span>
         {atalhosVisiveis(!!lista?.pode_ver_margem).map((a) => (
           <button key={a.id} onClick={() => trocarAtalho(a.id)} data-testid={`pauta-atalho-${a.id}`}
             className={`rounded-full border px-3 py-1 text-[12px] ${filtros.atalho === a.id ? "border-[#C8941A] bg-[#FAEEDA] font-medium" : "border-[#3D2314]/15 bg-white"}`}>{a.rotulo}</button>
@@ -429,7 +430,8 @@ export default function PautaPage() {
       )}
 
       {/* abas por situação com contador (o contador respeita o filtro) */}
-      <nav className="flex flex-wrap gap-1 border-b border-[#3D2314]/10 print:hidden" data-testid="pauta-abas">
+      <nav className="flex flex-wrap items-center gap-1 border-b border-[#3D2314]/10 print:hidden" data-testid="pauta-abas">
+        <span className="mr-1 flex items-center self-center text-[12px] text-[#3D2314]/55">Situação<AjudaCampo chave="pm.pauta.abas" /></span>
         {[{ valor: "todas", rotulo: "Todas" }, ...situacoes].map((s) => {
           const n = s.valor === "todas" ? contadores?.total ?? 0 : contadores?.por_situacao?.[s.valor] ?? 0;
           return (
@@ -447,7 +449,7 @@ export default function PautaPage() {
         <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-[#C8941A]/40 bg-[#FAEEDA] px-3 py-2 text-[12.5px] print:hidden" data-testid="pauta-filtro-ativo">
           <span className="font-medium">Filtro aplicado{daPreferencia ? " (guardado da sua última visita)" : ""}:</span>
           {filtroEmUso.map((t) => <span key={t} className="rounded-full bg-white px-2 py-0.5" data-testid="pauta-filtro-item">{t}</span>)}
-          <button className={`${btn} ml-auto`} onClick={mostrarTodos} data-testid="pauta-mostrar-todos">Mostrar todos</button>
+          <span className="ml-auto inline-flex items-center"><button className={btn} onClick={mostrarTodos} data-testid="pauta-mostrar-todos">Mostrar todos</button><AjudaCampo chave="pm.pauta.mostrar_todos" /></span>
         </div>
       )}
 
@@ -459,10 +461,10 @@ export default function PautaPage() {
         </label>
         <span className="text-[#3D2314]/60">{sel.size ? `${sel.size} selecionado(s)` : `${lista?.total ?? 0} job(s)${naLixeira ? " na lixeira" : ""}`}</span>
         {!!sel.size && !naLixeira && <>
-          <button className={btn} onClick={() => setMassa(true)} data-testid="pauta-editar-massa">Editar em massa</button>
-          <button className={btn} onClick={() => void acaoMassa("fn_pauta_excluir", { p_company_id: empresa, p_ids: [...sel] }, "Enviado para a lixeira")} data-testid="pauta-excluir"><Trash2 size={13} /> Excluir</button>
+          <span className="inline-flex items-center"><button className={btn} onClick={() => setMassa(true)} data-testid="pauta-editar-massa">Editar em massa</button><AjudaCampo chave="pm.pauta.editar_massa" /></span>
+          <span className="inline-flex items-center"><button className={btn} onClick={() => void acaoMassa("fn_pauta_excluir", { p_company_id: empresa, p_ids: [...sel] }, "Enviado para a lixeira")} data-testid="pauta-excluir"><Trash2 size={13} /> Excluir</button><AjudaCampo chave="pm.pauta.excluir" /></span>
         </>}
-        {!!sel.size && naLixeira && <button className={btn} onClick={() => void acaoMassa("fn_pauta_excluir", { p_company_id: empresa, p_ids: [...sel], p_restaurar: true }, "Restaurado")} data-testid="pauta-restaurar"><RotateCcw size={13} /> Restaurar</button>}
+        {!!sel.size && naLixeira && <span className="inline-flex items-center"><button className={btn} onClick={() => void acaoMassa("fn_pauta_excluir", { p_company_id: empresa, p_ids: [...sel], p_restaurar: true }, "Restaurado")} data-testid="pauta-restaurar"><RotateCcw size={13} /> Restaurar</button><AjudaCampo chave="pm.pauta.restaurar" /></span>}
         {carregando && <span className="text-[#3D2314]/50">carregando…</span>}
       </div>
 
@@ -471,10 +473,10 @@ export default function PautaPage() {
         {!itens.length && !carregando && temJob === false && !naLixeira && (
           <div className="rounded-2xl border border-[#C8941A]/40 bg-gradient-to-br from-white to-[#FAEEDA] p-8 text-center" data-testid="pauta-vazia">
             <div className="text-[18px] font-medium">A pauta ainda está vazia</div>
-            <p className="mx-auto mt-1 max-w-md text-[13.5px] text-[#3D2314]/70">Os jobs do SIGA ainda não foram trazidos — a importação entra assim que a exportação chegar. Enquanto isso, já dá para criar jobs novos aqui.</p>
+            <p className="mx-auto mt-1 max-w-md text-[13.5px] text-[#3D2314]/70">Os jobs do sistema anterior ainda não foram trazidos — a importação entra assim que a exportação chegar. Enquanto isso, já dá para criar jobs novos aqui.</p>
             <div className="mt-4 flex flex-wrap justify-center gap-2">
               <Link href="/dashboard/producao?novo=job" className="inline-flex items-center gap-2 rounded-xl bg-[#3D2314] px-5 py-3 text-[14px] font-medium text-white shadow-md hover:bg-[#3D2314]/90" data-testid="pauta-vazia-novo-job"><Plus size={16} /> Novo job</Link>
-              <Link href="/dashboard/pm/importar-siga" className="inline-flex items-center gap-2 rounded-xl border border-[#3D2314]/20 bg-white px-5 py-3 text-[14px] font-medium text-[#3D2314] hover:bg-[#FAF7F2]" data-testid="pauta-vazia-importar-siga">Importar jobs do SIGA</Link>
+              <Link href="/dashboard/pm/importar-siga" className="inline-flex items-center gap-2 rounded-xl border border-[#3D2314]/20 bg-white px-5 py-3 text-[14px] font-medium text-[#3D2314] hover:bg-[#FAF7F2]" data-testid="pauta-vazia-importar-siga">Importar jobs do sistema anterior</Link>
             </div>
             <div className="mt-2 flex items-center justify-center text-[12px] text-[#3D2314]/55">como funciona<AjudaCampo chave="pm.pauta.vazia" /></div>
           </div>
@@ -560,7 +562,7 @@ export default function PautaPage() {
                 <select className={inp} value={aba} onChange={(e) => trocarAba(e.target.value)} data-testid="pauta-f-situacao">
                   <option value="todas">Por abas</option>{situacoes.map((s) => <option key={s.valor} value={s.valor}>{s.rotulo}</option>)}
                 </select></Campo>
-              <button className="text-[12.5px] underline" onClick={() => setMaisFiltros((v) => !v)} data-testid="pauta-mais-filtros">{maisFiltros ? "Menos filtros" : "Mais filtros"}</button>
+              <span className="inline-flex items-center"><button className="text-[12.5px] underline" onClick={() => setMaisFiltros((v) => !v)} data-testid="pauta-mais-filtros">{maisFiltros ? "Menos filtros" : "Mais filtros"}</button><AjudaCampo chave="pm.pauta.mais_filtros" /></span>
               {maisFiltros && <>
                 <Campo texto="Data" ajuda="pm.pauta.filtro.data">
                   <div className="grid grid-cols-3 gap-1">
@@ -585,8 +587,8 @@ export default function PautaPage() {
               </>}
             </div>
             <div className="sticky bottom-0 mt-4 flex flex-wrap gap-2 bg-[#FAF7F2] py-2">
-              <button className="rounded-md bg-[#3D2314] px-3 py-1.5 text-[13px] text-white" onClick={() => aplicar(rascunho)} data-testid="pauta-filtrar">Filtrar</button>
-              <button className={btn} onClick={() => setRascunho({ lixeira: filtros.lixeira })} data-testid="pauta-limpar">Limpar</button>
+              <span className="inline-flex items-center"><button className="rounded-md bg-[#3D2314] px-3 py-1.5 text-[13px] text-white" onClick={() => aplicar(rascunho)} data-testid="pauta-filtrar">Filtrar</button><AjudaCampo chave="pm.pauta.filtrar" /></span>
+              <span className="inline-flex items-center"><button className={btn} onClick={() => setRascunho({ lixeira: filtros.lixeira })} data-testid="pauta-limpar">Limpar</button><AjudaCampo chave="pm.pauta.limpar" /></span>
               <span className="inline-flex items-center"><button className={btn} onClick={() => void salvarVisao()} data-testid="pauta-salvar-visao">Salvar como visão</button><AjudaCampo chave="pm.pauta.visao" /></span>
             </div>
           </div>

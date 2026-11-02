@@ -23,7 +23,7 @@ type Obra = {
 }
 type Kpis = { em_andamento: number; concluidas: number; valor_em_andamento: number; valor_concluido: number }
 // Resultado por obra — versão receita (CEO 30/09 · FC): fn_obras_receita. Custo real (material + viagens) vem da v_obra_resultado.
-type Receita = { obra_id: string; faturado: number; recebido: number; a_receber: number; notas: number; notas_sem_titulo: number; custo?: number }
+type Receita = { obra_id: string; faturado: number; recebido: number; a_receber: number; notas: number; notas_sem_titulo: number; custo?: number; margem_realizada?: number; receita_reconhecida?: number }
 
 const ST: Record<string, { label: string; cor: string }> = {
   em_andamento: { label: 'Em andamento', cor: GOLD },
@@ -69,13 +69,23 @@ export default function ObrasPage() {
       setKpis(k as Kpis); setObras((l as Obra[]) ?? [])
       // receita não derruba o board: se falhar, o cartão mostra "não deu para carregar"
       const { data: rc, error: er } = await supabase.rpc('fn_obras_receita', { p_company_ids: companyIds })
-      // custo real (material + viagens) vem da v_obra_resultado; se falhar, o cartão mostra só a receita
-      const { data: cr } = await supabase.from('v_obra_resultado').select('obra_id,custo_material,custo_viagens').in('company_id', companyIds)
-      const custos = Object.fromEntries(((cr ?? []) as { obra_id: string; custo_material: number; custo_viagens: number }[]).map((x) => [x.obra_id, Number(x.custo_material || 0) + Number(x.custo_viagens || 0)]))
+      // custo real (material + viagens) e resultado realizado vêm da v_obra_resultado (fonte do banco),
+      // keyed POR OBRA — custo/resultado aparecem mesmo sem NFS-e emitida (antes só grudavam nas linhas de faturamento).
+      const { data: cr, error: ecr } = await supabase.from('v_obra_resultado').select('obra_id,custo_material,custo_viagens,margem_realizada,receita_servico,receita_material').in('company_id', companyIds)
+      const voMap = Object.fromEntries(((cr ?? []) as { obra_id: string; custo_material: number; custo_viagens: number; margem_realizada: number; receita_servico: number; receita_material: number }[])
+        .map((x) => [x.obra_id, { custo: Number(x.custo_material || 0) + Number(x.custo_viagens || 0), margem_realizada: Number(x.margem_realizada || 0), receita_reconhecida: Number(x.receita_servico || 0) + Number(x.receita_material || 0) }]))
       const { data: fp } = await supabase.from('projetos_obras').select('id,cno,codigo_obra_municipal,endereco').in('company_id', companyIds)
       setFiscalPend(new Set(((fp ?? []) as { id: string; cno: string | null; codigo_obra_municipal: string | null; endereco: string | null }[])
         .filter((x) => !((x.cno ?? '').trim() || (x.codigo_obra_municipal ?? '').trim()) || !(x.endereco ?? '').trim()).map((x) => x.id)))
-      setReceita(er ? null : Object.fromEntries(((rc as Receita[]) ?? []).map((x) => [x.obra_id, { ...x, custo: custos[x.obra_id] }])))
+      // une faturamento (NFS-e) + custo/resultado (banco) por obra; se ambas as fontes falharem, mostra "não carregou"
+      const rcMap = Object.fromEntries(((rc as Receita[]) ?? []).map((x) => [x.obra_id, x]))
+      const ids = new Set<string>([...Object.keys(rcMap), ...Object.keys(voMap)])
+      const merged: Record<string, Receita> = {}
+      ids.forEach((id) => {
+        const base = rcMap[id] ?? { obra_id: id, faturado: 0, recebido: 0, a_receber: 0, notas: 0, notas_sem_titulo: 0 }
+        merged[id] = { ...base, custo: voMap[id]?.custo, margem_realizada: voMap[id]?.margem_realizada, receita_reconhecida: voMap[id]?.receita_reconhecida }
+      })
+      setReceita(er && ecr ? null : merged)
     } catch {
       setErro(MSG_CARREGAMENTO_FALHOU)
     } finally {
@@ -223,7 +233,7 @@ function ObraCard({ o, fiscalPend, receita, onStatus, busy, onAbrir, onFiscal, o
         <span style={{ fontSize: 11, fontWeight: 700, color: st.cor, fontFamily: 'monospace' }}>{o.numero}</span>
         <span style={{ fontSize: 13.5, fontWeight: 700, color: ESP }}>{fmtR(o.valor_previsto)}</span>
       </div>
-      <div style={{ fontSize: 13.5, color: ESP, fontWeight: 600, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.nome}</div>
+      <div title={o.nome} style={{ fontSize: 13.5, color: ESP, fontWeight: 600, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.nome}</div>
       <div style={{ fontSize: 11.5, color: MUT, marginTop: 1 }}>{o.cliente_nome || 'Cliente não informado'}{local ? ` · ${local}` : ''}</div>
 
       <div style={{ marginTop: 8 }}>
@@ -236,9 +246,11 @@ function ObraCard({ o, fiscalPend, receita, onStatus, busy, onAbrir, onFiscal, o
         </div>
       </div>
 
-      {fiscalPend && (
-        <button onClick={() => onFiscal(o)} data-testid="obra-fiscal-pendente" style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6, width: '100%', textAlign: 'left', fontSize: 11.5, color: AMBAR, background: '#FEF6E7', border: `0.5px solid ${LINE}`, borderRadius: 8, padding: '6px 8px', cursor: 'pointer' }}>
-          <AlertTriangle size={13} aria-hidden style={{ flexShrink: 0 }} /><span>Falta CNO/código municipal ou endereço — a NFS-e de construção não sai. Toque para completar.</span>
+      {/* Pendência fiscal só importa enquanto a obra ainda pode emitir NFS-e (em andamento ou pausada).
+          Obra concluída/cancelada não dispara mais nota — o alerta aqui era ruído (achado do auditor). */}
+      {fiscalPend && (o.status === 'em_andamento' || o.status === 'pausada') && (
+        <button onClick={() => onFiscal(o)} data-testid="obra-fiscal-pendente" style={{ marginTop: 8, display: 'flex', alignItems: 'flex-start', gap: 6, width: '100%', textAlign: 'left', fontSize: 11.5, color: AMBAR, background: '#FEF6E7', border: `0.5px solid ${LINE}`, borderRadius: 8, padding: '6px 8px', cursor: 'pointer', lineHeight: 1.35 }}>
+          <AlertTriangle size={13} aria-hidden style={{ flexShrink: 0, marginTop: 1 }} /><span style={{ flex: 1 }}>Falta CNO/código municipal ou endereço — a NFS-e de construção não sai. Toque para completar.</span>
           <AjudaCampo chave="projetos.obras.fiscal_pendente" />
         </button>
       )}
@@ -277,7 +289,8 @@ function ObraCard({ o, fiscalPend, receita, onStatus, busy, onAbrir, onFiscal, o
 }
 
 // Cartão "Resultado da obra" (receita): faturado = NFS-e autorizadas ligadas à obra; recebido = baixas dos títulos
-// dessas notas. undefined = não carregou (falha); null = obra sem nota autorizada.
+// dessas notas; receita reconhecida = serviço medido + material/pedido (v_obra_resultado), por competência, aparece
+// mesmo sem NFS-e. undefined = não carregou (falha); null = obra sem nota autorizada.
 const fmtRc = (v: number) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 function ResultadoObra({ r }: { r: Receita | null | undefined }) {
   const cel = (label: string, valor: string, cor: string, testId: string, ajuda: string) => (
@@ -297,10 +310,34 @@ function ResultadoObra({ r }: { r: Receita | null | undefined }) {
             {cel('Faturado', fmtRc(r?.faturado ?? 0), ESP, 'obra-faturado', 'projetos.obras.res_faturado')}
             {cel('Recebido', fmtRc(r?.recebido ?? 0), VERDE, 'obra-recebido', 'projetos.obras.res_recebido')}
             {cel('A receber', fmtRc(r?.a_receber ?? 0), GOLD, 'obra-a-receber', 'projetos.obras.res_a_receber')}
+            {cel('Receita reconhecida', fmtRc(r?.receita_reconhecida ?? 0), ESP, 'obra-receita-reconhecida', 'projetos.obras.res_receita_reconhecida')}
             {cel('Custo', r?.custo != null && r.custo > 0 ? fmtRc(r.custo) : 'Sem custo lançado', MUT, 'obra-custo', 'projetos.obras.res_custo')}
           </div>
+          {/* Resultado realizado ao vivo (v_obra_resultado.margem_realizada = receita reconhecida − custo):
+              verde = positivo, vermelho = negativo. Fonte do banco (RD-98 p3), não derivado só do Faturado
+              (que conta só NFS-e). "?" = RD-95. "—" honesto quando não há receita nem custo na obra. */}
+          {(() => {
+            const margem = Number(r?.margem_realizada ?? 0)
+            const cst = Number(r?.custo ?? 0)
+            const temBase = margem !== 0 || cst > 0 || Number(r?.faturado ?? 0) > 0
+            const cor = margem >= 0 ? VERDE : VERM
+            return (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, paddingTop: 6, borderTop: `0.5px solid ${LINE}` }}>
+                <span style={{ fontSize: 9.5, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                  Resultado realizado<AjudaCampo chave="projetos.obras.res_margem" />
+                </span>
+                <span data-testid="obra-margem" style={{ fontSize: 13, fontWeight: 800, color: temBase ? cor : MUT, fontVariantNumeric: 'tabular-nums' }}>
+                  {temBase ? fmtRc(margem) : '—'}
+                </span>
+              </div>
+            )
+          })()}
           <div style={{ fontSize: 10.5, color: MUT, marginTop: 4 }} data-testid="obra-notas">
-            {r && r.notas > 0 ? `${r.notas} NFS-e autorizada(s)` : 'Nada faturado ainda: o resultado se preenche quando a primeira NFS-e desta obra for autorizada.'}
+            {r && r.notas > 0
+              ? `${r.notas} NFS-e autorizada(s)`
+              : (Number(r?.receita_reconhecida ?? 0) > 0 || Number(r?.custo ?? 0) > 0)
+                ? 'Sem NFS-e emitida ainda — o Resultado acima é por competência (serviço medido e material/pedido já lançados). O Faturado se preenche quando a NFS-e for autorizada.'
+                : 'Nada faturado ainda: o resultado se preenche quando a primeira NFS-e desta obra for autorizada.'}
             {r && r.notas_sem_titulo > 0 ? ` · ${r.notas_sem_titulo} sem título no financeiro (não entram no recebido)` : ''}
           </div>
         </>

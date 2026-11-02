@@ -13,13 +13,14 @@ const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT =
 const VERDE = '#16A34A', VERM = '#B91C1C'
 const brl = (n: number) => `R$ ${Number(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
 
-type Aba = 'alertas' | 'funil' | 'listas' | 'proposta' | 'comissao'
+type Aba = 'alertas' | 'funil' | 'listas' | 'proposta' | 'comissao' | 'medicao'
 const ABAS: { id: Aba; label: string }[] = [
   { id: 'alertas', label: '🚦 Alertas e prazos' },
   { id: 'funil', label: '🔀 Funil' },
   { id: 'listas', label: '📋 Listas' },
   { id: 'proposta', label: '📄 Proposta' },
   { id: 'comissao', label: '💰 Comissões' },
+  { id: 'medicao', label: '⏱️ Medição por etapa' },
 ]
 
 export default function PMConfiguracoesPage() {
@@ -48,6 +49,7 @@ export default function PMConfiguracoesPage() {
         {aba === 'listas' && <AbaListas empresa={empresa} />}
         {aba === 'proposta' && <AbaProposta empresa={empresa} />}
         {aba === 'comissao' && <AbaComissao empresa={empresa} />}
+        {aba === 'medicao' && <AbaMedicao empresa={empresa} />}
       </div>
     </div>
   )
@@ -330,6 +332,85 @@ function AbaComissao({ empresa }: { empresa: string | null }) {
           </div>
         ))}
       </div>
+    </Card>
+  )
+}
+
+// ── Medição por etapa (Blueprint §3): quais etapas do apontamento contam como custo direto ──────────
+// Resolução: regra do cliente > padrão da agência > sistema (sem linha = conta). O cálculo de custo em si
+// passa a respeitar isso na PR3; aqui é a configuração (lê fn_agency_etapa_medicao_listar, grava via RPC guardada).
+type EtapaMed = { etapa_tipo: string; medir: boolean; origem: 'cliente' | 'agencia' | 'sistema' }
+type ClienteOpc = { id: string; nome: string | null; nome_fantasia: string | null }
+function AbaMedicao({ empresa }: { empresa: string | null }) {
+  const [clientes, setClientes] = useState<ClienteOpc[]>([])
+  const [escopo, setEscopo] = useState<string>('agencia') // 'agencia' = padrão; senão cliente_id
+  const [rows, setRows] = useState<EtapaMed[]>([])
+  const [busy, setBusy] = useState(false)
+  const [carregou, setCarregou] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  const carregarClientes = useCallback(async () => {
+    if (!empresa) return
+    const { data } = await supabase.from('agency_clientes').select('id, nome, nome_fantasia').eq('company_id', empresa).is('excluido_em', null).order('nome')
+    setClientes((data ?? []) as ClienteOpc[])
+  }, [empresa])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void carregarClientes() }, [carregarClientes])
+
+  const carregar = useCallback(async () => {
+    if (!empresa) return
+    const { data } = await supabase.rpc('fn_agency_etapa_medicao_listar', { p_company_id: empresa, p_cliente_id: escopo === 'agencia' ? null : escopo })
+    setRows((data ?? []) as EtapaMed[]); setCarregou(true)
+  }, [empresa, escopo])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void carregar() }, [carregar])
+
+  async function alternar(e: EtapaMed) {
+    if (!empresa || busy) return
+    setBusy(true); setMsg('')
+    const { data, error } = await supabase.rpc('fn_agency_etapa_medicao_salvar', {
+      p_company_id: empresa, p_etapa_tipo: e.etapa_tipo, p_medir: !e.medir, p_cliente_id: escopo === 'agencia' ? null : escopo,
+    })
+    setBusy(false)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || (j && j.ok === false)) { setMsg('Erro: ' + (error?.message ?? j?.erro ?? 'falhou')); return }
+    void carregar()
+  }
+
+  const selCliente = escopo !== 'agencia'
+  return (
+    <Card>
+      <div style={{ fontSize: 13, color: ESP, fontWeight: 700, marginBottom: 4 }}>Medição de tempo por etapa</div>
+      <div style={{ fontSize: 12, color: MUT, marginBottom: 12 }}>Escolha quais etapas do apontamento de horas contam como <strong>custo direto</strong> do cliente. A regra de um cliente tem prioridade sobre o padrão da agência.</div>
+
+      <label style={{ display: 'block', marginBottom: 14 }}>
+        <span style={lblS}>Escopo da regra<AjudaCampo chave="pm.config.medicao_cliente" /></span>
+        <select value={escopo} onChange={(ev) => setEscopo(ev.target.value)} style={inp}>
+          <option value="agencia">Padrão da agência (todos os clientes)</option>
+          {clientes.map((c) => (
+            <option key={c.id} value={c.id}>{c.nome || c.nome_fantasia || 'Cliente sem nome'}</option>
+          ))}
+        </select>
+      </label>
+
+      {rows.length > 0 && <span style={{ ...lblS, marginBottom: 8 }}>Etapa conta como custo?<AjudaCampo chave="pm.config.medicao_etapa" /></span>}
+      {carregou && rows.length === 0 && <div style={{ fontSize: 12.5, color: MUT }}>Nenhuma etapa no apontamento de horas ainda. As etapas aparecem aqui conforme a equipe aponta o tempo.</div>}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {rows.map((e) => (
+          <div key={e.etapa_tipo} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, alignItems: 'center', border: `1px solid ${LINE}`, borderRadius: 8, padding: '8px 10px' }}>
+            <div style={{ fontSize: 13, color: ESP, fontWeight: 600 }}>{e.etapa_tipo}</div>
+            <span style={{ fontSize: 10.5, color: MUT }}>
+              {e.origem === 'cliente' ? 'regra do cliente' : e.origem === 'agencia' ? 'padrão da agência' : selCliente ? 'herda o padrão' : 'padrão do sistema'}
+            </span>
+            <button type="button" disabled={busy} onClick={() => void alternar(e)}
+              title={e.medir ? 'Clique para a etapa NÃO contar como custo' : 'Clique para a etapa CONTAR como custo'}
+              style={{ fontSize: 11, fontWeight: 700, padding: '5px 10px', borderRadius: 6, cursor: busy ? 'default' : 'pointer', border: `1px solid ${e.medir ? VERDE : LINE}`, background: e.medir ? '#E8F4DC' : '#F3EDE3', color: e.medir ? '#3F7012' : MUT }}>
+              {e.medir ? 'conta' : 'não conta'}
+            </button>
+          </div>
+        ))}
+      </div>
+      <Msg m={msg} />
     </Card>
   )
 }

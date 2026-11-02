@@ -1,6 +1,9 @@
 #!/usr/bin/env tsx
 // "Migration só de CATÁLOGO" (CEO 31/10 · Eng. Chefe, "FILA CRÍTICA ENTUPIDA"): decide se uma migration GRAVA SOMENTE
-// texto de ajuda / metadado de tela — INSERT/UPSERT (ON CONFLICT) numa tabela de catálogo da whitelist — e NADA MAIS.
+// texto de ajuda / metadado de tela — INSERT/UPSERT (ON CONFLICT) ou UPDATE numa tabela de catálogo da whitelist — e
+// NADA MAIS. O eng_chefe pediu "só insere/ATUALIZA linhas de ajuda/metadado": o UPDATE de texto de ajuda
+// (erp_ajuda_*) e de metadado de tela (system_screens.views_consumidas/rpcs_chamadas — origem do dado, RD-98 p3) é
+// tão aditivo em risco quanto o INSERT (sem dado de cliente, sem fiscal/financeiro/RLS), então também não serializa.
 //
 // Serve SÓ para a SERIALIZAÇÃO do @pos na fila de merge. Uma PR de RD-95 ("?") / RD-98 p3 leva a etiqueta
 // `revisao-eng-chefe` por causa da TELA (.tsx) — e a fila, por ter a etiqueta, a tratava como migration CRÍTICA
@@ -11,8 +14,9 @@
 //
 // VIÉS DE SEGURANÇA (igual à doutrina do exige-via-revisada): QUALQUER dúvida → `catalogo:false` (serializa como
 // crítica). São dúvida: migration vazia/ilegível, SQL dinâmico (EXECUTE/DO), corpo de função ($$…$$), qualquer DDL
-// (CREATE/ALTER/DROP/TRUNCATE), GRANT/REVOKE, policy, DELETE, ou QUALQUER statement que não seja um INSERT numa tabela
-// de catálogo da whitelist. Só o que é comprovadamente "texto de catálogo" escapa da serialização.
+// (CREATE/ALTER/DROP/TRUNCATE), GRANT/REVOKE, policy, DELETE (inclusive numa tabela de catálogo — o eng_chefe excluiu
+// DELETE), ou QUALQUER statement que não seja um INSERT ou um UPDATE numa tabela de catálogo da whitelist. Só o que é
+// comprovadamente "texto/metadado de catálogo" escapa da serialização.
 import { existsSync, readFileSync } from 'node:fs'
 
 // Tabelas de CATÁLOGO = texto de ajuda e metadado de tela. SEM dado de cliente, SEM domínio financeiro/fiscal/RLS.
@@ -52,18 +56,24 @@ export function soCatalogo(sqlBruto: string): Catalogo {
   if (stmts.length === 0) return { catalogo: false, motivo: 'nenhum comando identificado' }
 
   for (const s of stmts) {
-    const m = s.match(/^INSERT\s+INTO\s+(?:public\.)?"?([a-z0-9_]+)"?/i)
+    // Só dois verbos escapam da serialização, e só numa tabela da whitelist: INSERT (semear texto/metadado) e
+    // UPDATE ... SET (ATUALIZAR texto de ajuda / metadado de origem do dado). DELETE/TRUNCATE/DDL/GRANT/policy e
+    // qualquer outro comando caem no ramo `!m` → crítica. O `SET` no UPDATE garante que é um UPDATE de verdade.
+    const ins = s.match(/^INSERT\s+INTO\s+(?:public\.)?"?([a-z0-9_]+)"?/i)
+    const upd = s.match(/^UPDATE\s+(?:ONLY\s+)?(?:public\.)?"?([a-z0-9_]+)"?\s+SET\b/i)
+    const m = ins ?? upd
     if (!m) {
       const amostra = s.slice(0, 28).replace(/\s+/g, ' ')
-      return { catalogo: false, motivo: `comando não-INSERT (${amostra}…)` }
+      return { catalogo: false, motivo: `comando não é INSERT/UPDATE de catálogo (${amostra}…)` }
     }
+    const verbo = ins ? 'INSERT' : 'UPDATE'
     const tab = norm(m[1])
-    if (!TABELAS_CATALOGO.has(tab)) return { catalogo: false, motivo: `INSERT em tabela fora do catálogo (${tab})` }
+    if (!TABELAS_CATALOGO.has(tab)) return { catalogo: false, motivo: `${verbo} em tabela fora do catálogo (${tab})` }
     // ON CONFLICT ... DO UPDATE no PRÓPRIO catálogo é upsert de texto — permitido. DO NOTHING idem. Nada mais pode
-    // aparecer no statement (CREATE/ALTER/DROP/GRANT/DELETE já foram barrados por não começar com INSERT, pois cada um
-    // seria um statement separado após o split por ';').
+    // aparecer no statement (CREATE/ALTER/DROP/GRANT/DELETE já foram barrados por não começar com INSERT/UPDATE, pois
+    // cada um seria um statement separado após o split por ';').
   }
-  return { catalogo: true, motivo: `só INSERT em catálogo de ajuda/metadado (${stmts.length} comando[s])` }
+  return { catalogo: true, motivo: `só INSERT/UPDATE em catálogo de ajuda/metadado (${stmts.length} comando[s])` }
 }
 
 if (process.argv[1] && /\/migracao-catalogo\.ts$/.test(process.argv[1])) {

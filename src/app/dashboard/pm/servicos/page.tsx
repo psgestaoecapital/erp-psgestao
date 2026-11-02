@@ -126,10 +126,11 @@ export default function ServicosPage() {
                 </div>
                 {s.entregaveis?.length > 0 && <div style={{ fontSize: 11.5, color: TEXTM, marginTop: 2 }}>Entregáveis: {s.entregaveis.join(' · ')}</div>}
               </div>
-              <div style={{ display: 'flex', gap: 6 }}>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                 <IconBtn title="Editar" onClick={() => setEdit({ ...s })}><Pencil size={15} /></IconBtn>
                 <IconBtn title="Duplicar" onClick={() => duplicar(s)}><Copy size={15} /></IconBtn>
                 <IconBtn title="Excluir" onClick={() => excluir(s)} danger><Trash2 size={15} /></IconBtn>
+                <AjudaCampo chave="pm.servico.acoes" />
               </div>
             </div>
           ))}
@@ -298,8 +299,19 @@ function ConfigOpcoesModal({ companyId, lista, servicos, onClose, onChange }: {
   function patch(id: string, p: Partial<Opcao>) { setRows(arr => arr.map(r => r.id === id ? { ...r, ...p } : r)) }
   return (
     <Modal titulo={`Opções · ${LISTA_ROTULO[lista] ?? lista}`} onClose={onClose}>
+      <div style={{ display: 'flex', alignItems: 'center', fontSize: 12, color: TEXTM, marginBottom: 8 }}>
+        Adicione, renomeie, ative ou exclua as opções desta lista.<AjudaCampo chave="pm.servico.opcoes" />
+      </div>
       {msg && <div style={{ background: '#FCEBEB', color: RED, padding: '7px 10px', borderRadius: 6, fontSize: 12, marginBottom: 8 }}>{msg}</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+        {rows.length > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 8, alignItems: 'center', fontSize: 11, color: TEXTM, fontWeight: 700 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>Nome<AjudaCampo chave="pm.servico.opcao_nome" /></span>
+            <span style={{ minWidth: 54, textAlign: 'right' }}>Uso</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>Status<AjudaCampo chave="pm.servico.opcao_ativa" /></span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>Excluir<AjudaCampo chave="pm.servico.opcao_excluir" /></span>
+          </div>
+        )}
         {rows.map(o => {
           const n = usoDe(o.valor)
           return (
@@ -313,9 +325,10 @@ function ConfigOpcoesModal({ companyId, lista, servicos, onClose, onChange }: {
         })}
         {rows.length === 0 && <div style={{ fontSize: 12.5, color: TEXTM }}>Sem opções — adicione a primeira.</div>}
       </div>
-      <div style={{ display: 'flex', gap: 6 }}>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
         <input value={novo} onChange={e => setNovo(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void adicionar() }} placeholder="Nova opção (ex.: carrossel)" style={{ ...inp, flex: 1 }} />
         <button disabled={busy} onClick={() => void adicionar()} style={{ ...btnSec, background: DOURADO, color: '#fff', borderColor: DOURADO }}>+ Add</button>
+        <AjudaCampo chave="pm.servico.opcao_nova" />
       </div>
     </Modal>
   )
