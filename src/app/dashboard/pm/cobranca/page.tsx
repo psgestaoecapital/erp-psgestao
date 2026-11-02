@@ -69,6 +69,8 @@ export default function CobrancaPage() {
   const estornar = (l: Lanc) => { const motivo = window.prompt('Motivo do estorno (fica no histórico):', ''); if (motivo === null) return; void chamar('fn_agency_cobranca_estornar', { p_id: l.id, p_motivo: motivo || null }, 'Cobrança estornada.', `es-${l.id}`) }
 
   const mrr = useMemo(() => contratos.reduce((s, c) => s + Number(c.fee_mensal ?? 0), 0), [contratos])
+  const recebidoMes = useMemo(() => lancs.filter((l) => l.competencia?.slice(0, 10) === comp && l.status === 'paga').reduce((s, l) => s + Number(l.valor ?? 0), 0), [lancs, comp])
+  const abertoMes = useMemo(() => lancs.filter((l) => l.competencia?.slice(0, 10) === comp && (l.status === 'lancada' || l.status === 'enviada')).reduce((s, l) => s + Number(l.valor ?? 0), 0), [lancs, comp])
   const mesL = useMemo(() => new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }), [])
 
   if (!empresa) return <div style={{ padding: 32, color: TEXTM, background: OFFWHITE, minHeight: '100vh' }}>Selecione uma empresa no topo.</div>
@@ -85,6 +87,8 @@ export default function CobrancaPage() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px,1fr))', gap: 10, marginBottom: 14 }}>
           <Kpi l="Contratos a cobrar" v={String(contratos.length)} chave="pm.cobranca.kpi_contratos" />
           <Kpi l="Total do mês (MRR)" v={brl(mrr)} cor={DOURADO} chave="pm.cobranca.kpi_mrr" />
+          <Kpi l="Recebido no mês" v={brl(recebidoMes)} cor={GREEN} chave="pm.cobranca.kpi_recebido" />
+          <Kpi l="Em aberto no mês" v={brl(abertoMes)} cor={AZUL} chave="pm.cobranca.kpi_aberto" />
         </div>
 
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM }}>Carregando…</div>
@@ -151,6 +155,10 @@ export default function CobrancaPage() {
 
         <p style={{ fontSize: 11, color: TEXTM, marginTop: 14, fontStyle: 'italic' }}>
           A emissão da cobrança na Gestão Empresarial (erp_receber / Asaas) é ligada após a régua de não-regressão financeira (RD-53).
+        </p>
+        <p style={{ fontSize: 10.5, color: TEXTM, marginTop: 6 }}>
+          Origem do dado: contratos recorrentes ativos (<code>agency_contratos</code>) e o histórico de lançamentos
+          (<code>agency_cobranca_lancamento</code>), por <code>fn_agency_cobranca_listar/lancar/status/estornar</code>. Escopo por empresa.
         </p>
       </div>
       {toast && <div style={toastStyle}>{toast}</div>}
