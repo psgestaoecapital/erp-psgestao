@@ -136,7 +136,7 @@ export default function HealthScorePage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ display: 'inline-flex', alignItems: 'center' }}>
                     <button onClick={restaurarPadrao} style={btnGhost(TEXTM)}>Restaurar padrão</button>
-                    <AjudaCampo chave="pm.health_score.restaurar_padrao" rota={ROTA} />
+                    <AjudaCampo chave="pm.health_score.restaurar" rota={ROTA} />
                   </span>
                   <span style={{ display: 'inline-flex', alignItems: 'center' }}>
                     <button onClick={() => void salvar()} disabled={!ok100 || saving} style={{ ...btn(ok100 ? DOURADO : '#C9BDB0'), cursor: ok100 && !saving ? 'pointer' : 'not-allowed' }}>{saving ? 'Salvando…' : 'Salvar pesos'}</button>
