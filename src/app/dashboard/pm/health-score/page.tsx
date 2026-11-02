@@ -1,8 +1,9 @@
 'use client'
 // HEALTH SCORE DO CLIENTE (P&M). Nota de saúde (0-100) de cada cliente, montada a partir de 4 componentes
-// com PESOS EDITÁVEIS por empresa (agency_score_pesos · fn_agency_score_pesos_get/_salvar). Esta tela entrega a
-// CONFIGURAÇÃO dos pesos (soma = 100%, padrão preenchido, rastreável). O ranking de clientes por score
-// (fn_agency_score_calcular) vem na PR seguinte. Escopo por company_id (RD-45). Tema Espresso. RD-95/96/99.
+// com PESOS EDITÁVEIS por empresa (agency_score_pesos · fn_agency_score_pesos_get/_salvar). A tela entrega a
+// CONFIGURAÇÃO dos pesos (soma = 100%, padrão preenchido, rastreável) E o RANKING de clientes por score, com o
+// detalhe de cada componente e "dados insuficientes" quando falta base (fn_agency_score_calcular, uma chamada
+// set-based que já devolve todos os clientes ativos ordenados). Escopo por company_id (RD-45). Tema Espresso. RD-95/96/99.
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -14,6 +15,17 @@ const BORDA = '#E7DED3'; const TEXTM = '#6b5444'; const GREEN = '#1F5A1F'; const
 
 type Pesos = { prazo: number; margem: number; pagamento: number; atividade: number }
 const PADRAO: Pesos = { prazo: 30, margem: 30, pagamento: 20, atividade: 20 }
+
+type RankCli = { cliente_id: string; nome: string; prazo: number | null; margem: number | null; pagamento: number | null; atividade: number | null; score: number | null; dados_insuficientes: boolean }
+const PERIODOS: { v: number; l: string }[] = [{ v: 90, l: '90 dias' }, { v: 180, l: '180 dias' }, { v: 365, l: '12 meses' }]
+// Faixas de saúde (cor do selo do score): verde ≥80, dourado ≥60, laranja ≥40, vermelho <40; cinza = sem dado.
+const banda = (s: number | null): { cor: string; rot: string } =>
+  s == null ? { cor: '#9A8C7D', rot: 'sem nota' }
+  : s >= 80 ? { cor: '#1F5A1F', rot: 'saudável' }
+  : s >= 60 ? { cor: '#C8941A', rot: 'atenção' }
+  : s >= 40 ? { cor: '#B36A00', rot: 'em risco' }
+  : { cor: '#B3261E', rot: 'crítico' }
+const n1 = (v: number | null) => v == null ? '—' : `${v.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}`
 
 const COMPONENTES: { k: keyof Pesos; rot: string; chave: string; desc: string }[] = [
   { k: 'prazo', rot: 'Entregas no prazo', chave: 'pm.health_score.peso_prazo', desc: 'Jobs entregues dentro do prazo combinado.' },
@@ -58,6 +70,25 @@ export default function HealthScorePage() {
   }
   const restaurarPadrao = () => setPesos(PADRAO)
 
+  // Ranking de clientes por score: uma chamada set-based (p_cliente_id = null) que já devolve todos os clientes
+  // ativos ordenados por score. Nada de laço por cliente (não chama a função por linha — doutrina 03/10).
+  const RANK_PAGINA = 25 // clientes renderizados por vez: a lista pode ter centenas; "mostrar mais" evita a parede de linhas
+  const [periodo, setPeriodo] = useState(90)
+  const [ranking, setRanking] = useState<RankCli[] | null>(null)
+  const [loadingRank, setLoadingRank] = useState(false)
+  const [aberto, setAberto] = useState<string | null>(null)
+  const [mostrar, setMostrar] = useState(RANK_PAGINA)
+  const carregarRanking = useCallback(async () => {
+    if (!empresa) { setRanking(null); return }
+    setLoadingRank(true)
+    const { data } = await supabase.rpc('fn_agency_score_calcular', { p_company_id: empresa, p_cliente_id: null, p_periodo_dias: periodo })
+    const r = (data ?? {}) as { ok?: boolean; clientes?: RankCli[] }
+    setRanking(r.ok ? (r.clientes ?? []) : [])
+    setMostrar(RANK_PAGINA); setAberto(null)
+    setLoadingRank(false)
+  }, [empresa, periodo])
+  useEffect(() => { void carregarRanking() }, [carregarRanking])
+
   if (!empresa) return <div style={{ padding: 32, color: TEXTM, background: OFFWHITE, minHeight: '100vh' }}>Selecione uma empresa no topo.</div>
 
   return (
@@ -68,7 +99,8 @@ export default function HealthScorePage() {
           <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Health Score do cliente<AjudaCampo chave="pm.health_score.tela" rota={ROTA} /></h1>
           <p style={{ fontSize: 13, color: TEXTM, margin: '6px 0 0', maxWidth: 620 }}>
             A nota de saúde de cada cliente (0 a 100) é a média ponderada de quatro componentes. Defina aqui o peso de
-            cada um — a soma precisa fechar em <b>100%</b>. O ranking dos clientes por score entra na próxima entrega.
+            cada um — a soma precisa fechar em <b>100%</b> — e veja abaixo o <b>ranking</b> dos clientes por score, com o
+            detalhe de cada componente.
           </p>
         </header>
 
@@ -102,7 +134,10 @@ export default function HealthScorePage() {
                   <span style={{ marginLeft: 8, color: ok100 ? GREEN : VERMELHO }}>{soma}% {ok100 ? '✓' : `(precisa ser 100%)`}</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <button onClick={restaurarPadrao} style={btnGhost(TEXTM)}>Restaurar padrão</button>
+                  <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                    <button onClick={restaurarPadrao} style={btnGhost(TEXTM)}>Restaurar padrão</button>
+                    <AjudaCampo chave="pm.health_score.restaurar" rota={ROTA} />
+                  </span>
                   <span style={{ display: 'inline-flex', alignItems: 'center' }}>
                     <button onClick={() => void salvar()} disabled={!ok100 || saving} style={{ ...btn(ok100 ? DOURADO : '#C9BDB0'), cursor: ok100 && !saving ? 'pointer' : 'not-allowed' }}>{saving ? 'Salvando…' : 'Salvar pesos'}</button>
                     <AjudaCampo chave="pm.health_score.salvar" rota={ROTA} />
@@ -111,6 +146,81 @@ export default function HealthScorePage() {
               </div>
             </>
           )}
+        </section>
+
+        <section style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 14, padding: '18px 18px 14px', marginTop: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 10 }}>
+            <h2 style={{ fontSize: 15, fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center' }}>Ranking de clientes por score<AjudaCampo chave="pm.health_score.ranking" rota={ROTA} /></h2>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: TEXTM, fontWeight: 700 }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center' }}>Período<AjudaCampo chave="pm.health_score.periodo" rota={ROTA} /></span>
+              <select value={periodo} onChange={(e) => setPeriodo(Number(e.target.value))} data-testid="health-periodo"
+                style={{ padding: '7px 10px', border: `1px solid ${BORDA}`, borderRadius: 8, fontSize: 13, color: ESPRESSO, background: '#fff', fontWeight: 700 }}>
+                {PERIODOS.map((p) => <option key={p.v} value={p.v}>{p.l}</option>)}
+              </select>
+            </label>
+          </div>
+
+          {loadingRank ? <div style={{ padding: 30, textAlign: 'center', color: TEXTM }}>Calculando…</div>
+            : !ranking || ranking.length === 0 ? (
+              <div style={{ padding: '26px 20px', textAlign: 'center', color: TEXTM, border: `1px dashed ${BORDA}`, borderRadius: 12 }} data-testid="health-ranking-vazio">
+                Nenhum cliente ativo com base suficiente para o score neste período. Cadastre clientes e registre jobs, horas e recebimentos para a nota aparecer.
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: 8 }} data-testid="health-ranking">
+                {ranking.slice(0, mostrar).map((c, i) => {
+                  const b = banda(c.score)
+                  const exp = aberto === c.cliente_id
+                  return (
+                    <div key={c.cliente_id} style={{ border: `1px solid ${BORDA}`, borderRadius: 12, overflow: 'hidden' }}>
+                      <button type="button" onClick={() => setAberto(exp ? null : c.cliente_id)} data-testid="health-cliente"
+                        style={{ width: '100%', display: 'flex', gap: 12, alignItems: 'center', background: '#fff', border: 'none', padding: '11px 14px', cursor: 'pointer', textAlign: 'left' }}>
+                        <span style={{ fontSize: 12, color: TEXTM, fontWeight: 700, minWidth: 22 }}>{i + 1}º</span>
+                        <span style={{ flex: 1, minWidth: 140, fontWeight: 700, color: ESPRESSO }}>{c.nome}</span>
+                        {c.dados_insuficientes
+                          ? <span style={{ fontSize: 11, color: TEXTM, border: `1px dashed ${BORDA}`, borderRadius: 8, padding: '2px 8px' }}>dados insuficientes</span>
+                          : (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ fontSize: 10.5, color: b.cor, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3 }}>{b.rot}</span>
+                              <span style={{ minWidth: 46, textAlign: 'center', background: b.cor, color: '#fff', fontWeight: 700, fontSize: 15, borderRadius: 8, padding: '4px 8px' }}>{n1(c.score)}</span>
+                            </span>
+                          )}
+                        <span style={{ color: TEXTM, fontSize: 12 }}>{exp ? '▾' : '▸'}</span>
+                      </button>
+                      {exp && (
+                        <div style={{ borderTop: `1px solid ${OFFWHITE}`, background: OFFWHITE, padding: '10px 14px' }} data-testid="health-detalhe">
+                          <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.4, color: TEXTM, fontWeight: 700, marginBottom: 6, display: 'flex', alignItems: 'center' }}>Por que esta nota<AjudaCampo chave="pm.health_score.detalhe" rota={ROTA} /></div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px,1fr))', gap: 8 }}>
+                            {COMPONENTES.map((comp) => {
+                              const val = c[comp.k] as number | null
+                              const semDado = val == null
+                              return (
+                                <div key={comp.k} style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 10, padding: '8px 10px', opacity: semDado ? 0.6 : 1 }}>
+                                  <div style={{ fontSize: 11, color: TEXTM, fontWeight: 700 }}>{comp.rot} · {pesos[comp.k]}%</div>
+                                  <div style={{ fontSize: 16, fontWeight: 700, color: semDado ? TEXTM : ESPRESSO, marginTop: 1 }}>{semDado ? 'sem dado' : `${n1(val)}`}</div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                          <p style={{ fontSize: 11, color: TEXTM, margin: '8px 0 0', fontStyle: 'italic' }}>
+                            {c.dados_insuficientes
+                              ? 'Ainda não há base (jobs com prazo, receita/custo, recebimentos ou atividade) para calcular a nota neste período.'
+                              : 'A nota é a média dos componentes COM dado, ponderada pelos pesos acima; componentes sem dado não entram e os pesos são renormalizados.'}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+                {ranking.length > mostrar && (
+                  <div style={{ textAlign: 'center', marginTop: 4 }}>
+                    <button type="button" onClick={() => setMostrar((m) => m + RANK_PAGINA)} data-testid="health-ranking-mais"
+                      style={{ background: '#fff', color: ESPRESSO, border: `1px solid ${BORDA}`, borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                      Mostrar mais ({ranking.length - mostrar} restante{ranking.length - mostrar > 1 ? 's' : ''})
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
         </section>
 
         <p style={{ fontSize: 11, color: TEXTM, marginTop: 14, fontStyle: 'italic' }}>

@@ -135,6 +135,12 @@ export default function FrotaPage() {
               </button>
             ))}
           </div>
+          {/* Rastreabilidade do km/consumo: a frota não digita km nem litros — eles vêm das viagens. */}
+          <div className="flex items-center gap-1">
+            <a href="/dashboard/projetos/viagens" className="rounded-lg border px-3 py-2 text-sm font-medium"
+              style={{ borderColor: BD, color: ESP }}>Ver viagens →</a>
+            <AjudaCampo chave="projetos.frota.ver_viagens" rota={ROTA} />
+          </div>
           {visao === "frota" && (
             <button data-testid="frota-novo-veiculo" onClick={() => setAberto("novo")}
               className="rounded-lg px-4 py-2 text-sm font-semibold text-white" style={{ background: ESP }}>
@@ -175,7 +181,8 @@ export default function FrotaPage() {
                 <div className="font-mono text-base font-bold">{v.placa}</div>
                 <div className="text-xs" style={{ color: TXM }}>{[v.marca, v.modelo].filter(Boolean).join(" ") || "sem modelo"}</div>
               </div>
-              <span className="rounded px-2 py-0.5 text-[11px] font-semibold" style={{ background: FUNDO[v.status_geral], color: COR[v.status_geral] }}>
+              <span className="flex flex-col items-end rounded px-2 py-0.5 text-[11px] font-semibold" style={{ background: FUNDO[v.status_geral], color: COR[v.status_geral] }}>
+                <span className="text-[9px] font-bold uppercase opacity-70">Manutenção</span>
                 {ROTULO[v.status_geral]}
               </span>
             </div>
@@ -201,6 +208,10 @@ export default function FrotaPage() {
                   <b style={{ color: COR[v.status_docs] }}>{ROTULO[v.status_docs]}</b>
                 </div>
               )}
+            </div>
+            {/* Sinaliza no 1º paint que o card abre o detalhe completo do veículo. */}
+            <div className="mt-3 border-t pt-2 text-[11px] font-medium" style={{ borderColor: BD, color: ESP }}>
+              Toque para custos, documentos e manutenções →
             </div>
           </button>
         ))}
