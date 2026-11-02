@@ -204,7 +204,10 @@ export default function MeuDiaPage() {
               <span className="mb-1 flex items-center text-[11.5px] font-medium text-[#3D2314]/70">Nova anotação (só você vê)<AjudaCampo chave="pm.dia.anotacao.texto" /></span>
               <textarea className="min-h-[64px] w-full rounded-lg border border-[#3D2314]/15 px-2.5 py-2 text-[13px] focus:border-[#C8941A] focus:outline-none" value={novaNota} onChange={(e) => setNovaNota(e.target.value)} placeholder="Ex.: ligar para a Clínica Sorriso às 15h sobre o banner" data-testid="dia-nota-texto" />
             </label>
-            <button className="mt-1 rounded-lg bg-[#3D2314] px-3 py-1.5 text-[12.5px] text-white disabled:opacity-40" disabled={!novaNota.trim()} onClick={() => void salvarNota()} data-testid="dia-nota-salvar">Guardar</button>
+            <div className="mt-1 flex items-center gap-1">
+              <button className="rounded-lg bg-[#3D2314] px-3 py-1.5 text-[12.5px] text-white disabled:opacity-40" disabled={!novaNota.trim()} onClick={() => void salvarNota()} data-testid="dia-nota-salvar">Guardar</button>
+              <AjudaCampo chave="pm.dia.anotacao.salvar" />
+            </div>
             <ul className="mt-2 space-y-1.5">
               {notas.map((n) => (
                 <li key={n.id} className={`flex items-start gap-2 rounded-lg px-2.5 py-1.5 text-[12.5px] ${n.fixada ? "bg-[#FAEEDA]" : "bg-[#FAF7F2]"}`} data-testid="dia-nota">
@@ -214,7 +217,9 @@ export default function MeuDiaPage() {
                         <span className="mb-1 flex items-center text-[11px] font-medium text-[#3D2314]/60">Editar anotação<AjudaCampo chave="pm.dia.anotacao.editar" /></span>
                         <textarea className="min-h-[52px] w-full rounded-lg border border-[#C8941A] px-2 py-1.5 text-[12.5px] focus:outline-none" value={editTexto} onChange={(e) => setEditTexto(e.target.value)} autoFocus data-testid="dia-nota-editar-texto" />
                       </label>
+                      <AjudaCampo chave="pm.dia.anotacao.editar.salvar" />
                       <button onClick={() => void salvarEdicao(n)} disabled={!editTexto.trim()} aria-label="salvar edição" title="salvar" className="disabled:opacity-40" data-testid="dia-nota-editar-salvar"><Check size={14} /></button>
+                      <AjudaCampo chave="pm.dia.anotacao.editar.cancelar" />
                       <button onClick={() => { setEditId(null); setEditTexto(""); }} aria-label="cancelar edição" title="cancelar"><X size={14} /></button>
                     </>
                   ) : (
@@ -223,7 +228,9 @@ export default function MeuDiaPage() {
                       <span className="flex shrink-0 items-center gap-2">
                         <AjudaCampo chave="pm.dia.anotacao.editar" />
                         <button onClick={() => { setEditId(n.id); setEditTexto(n.texto); }} aria-label="editar" title="editar o texto" data-testid="dia-nota-editar"><Pencil size={14} /></button>
+                        <AjudaCampo chave="pm.dia.anotacao.fixar" />
                         <button onClick={() => void fixarNota(n)} aria-label={n.fixada ? "desafixar" : "fixar"} title={n.fixada ? "desafixar" : "fixar no topo"}>{n.fixada ? <PinOff size={14} /> : <Pin size={14} />}</button>
+                        <AjudaCampo chave="pm.dia.anotacao.arquivar" />
                         <button onClick={() => void arquivarNota(n)} aria-label="arquivar" title="arquivar" data-testid="dia-nota-arquivar"><Archive size={14} /></button>
                       </span>
                     </>
