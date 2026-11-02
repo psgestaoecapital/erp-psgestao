@@ -1,8 +1,10 @@
 'use client'
 // P&M · Eventos & Produções (CEO 31/10). Lista + CRUD completo (incluir/editar/excluir rastreável) sobre
 // agency_eventos, por company_id (RD-45). Escrita só pelas RPCs fn_pm_evento_salvar/_excluir (guarda de empresa,
-// audit_log_global, soft-delete). "?" em todo campo/indicador/ação (RD-95). Orçamento previsto aqui; o realizado
-// virá do financeiro da GE (erp_pagar) numa próxima PR. Tema Espresso.
+// audit_log_global, soft-delete). Passo 3 (itens/fornecedores + checklist): painel por evento sobre
+// agency_evento_item/agency_evento_checklist (escrita só pelas RPCs fn_pm_evento_item_* / fn_pm_evento_checklist_*).
+// "?" em todo campo/indicador/ação (RD-95). Orçamento previsto aqui; o realizado virá do financeiro da GE (erp_pagar)
+// numa próxima PR. Tema Espresso.
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -19,12 +21,24 @@ const STATUS: { v: string; l: string; cor: string }[] = [
   { v: 'realizado', l: 'Realizado', cor: '#DCEFD7' }, { v: 'cancelado', l: 'Cancelado', cor: '#F4D6D6' },
 ]
 const stCfg = (v: string) => STATUS.find((s) => s.v === v) ?? { v, l: v, cor: OFFWHITE }
+const ITEM_STATUS: { v: string; l: string; cor: string }[] = [
+  { v: 'a_contratar', l: 'A contratar', cor: '#FFF3D6' }, { v: 'contratado', l: 'Contratado', cor: '#FCE9C2' },
+  { v: 'entregue', l: 'Entregue', cor: '#DCEFD7' }, { v: 'cancelado', l: 'Cancelado', cor: '#F4D6D6' },
+]
+const itCfg = (v: string) => ITEM_STATUS.find((s) => s.v === v) ?? { v, l: v, cor: OFFWHITE }
 
 type Evento = { id: string; cliente_id: string | null; nome: string; tipo: string | null; data_inicio: string | null; data_fim: string | null; local: string | null; status: string; orcamento_previsto: number | null; responsavel_id: string | null; observacoes: string | null }
 type Cli = { id: string; nome: string }
 type Pessoa = { id: string; nome: string }
 type FormState = { id: string | null; nome: string; cliente_id: string; tipo: string; data_inicio: string; data_fim: string; local: string; status: string; orcamento_previsto: string; responsavel_id: string; observacoes: string }
 const FORM_VAZIO: FormState = { id: null, nome: '', cliente_id: '', tipo: '', data_inicio: '', data_fim: '', local: '', status: 'planejado', orcamento_previsto: '', responsavel_id: '', observacoes: '' }
+
+type Item = { id: string; descricao: string; categoria: string | null; fornecedor: string | null; quantidade: number; valor_unitario: number; valor_total: number; status: string; observacao: string | null; ordem: number }
+type ItemForm = { id: string | null; descricao: string; categoria: string; fornecedor: string; quantidade: string; valor_unitario: string; status: string; observacao: string }
+const ITEM_VAZIO: ItemForm = { id: null, descricao: '', categoria: '', fornecedor: '', quantidade: '1', valor_unitario: '', status: 'a_contratar', observacao: '' }
+type Chk = { id: string; descricao: string; concluido: boolean; prazo: string | null; ordem: number }
+type ChkForm = { id: string | null; descricao: string; prazo: string }
+const CHK_VAZIO: ChkForm = { id: null, descricao: '', prazo: '' }
 
 export default function EventosPage() {
   const { selInfo, companyIds } = useCompanyIds()
@@ -33,6 +47,11 @@ export default function EventosPage() {
   const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [toast, setToast] = useState<string | null>(null)
   const [form, setForm] = useState<FormState | null>(null)
   const [fCliente, setFCliente] = useState(''); const [fStatus, setFStatus] = useState(''); const [fDe, setFDe] = useState(''); const [fAte, setFAte] = useState('')
+  // painel de detalhe (itens + checklist) do evento selecionado
+  const [detalhe, setDetalhe] = useState<Evento | null>(null)
+  const [itens, setItens] = useState<Item[]>([]); const [checklist, setChecklist] = useState<Chk[]>([])
+  const [carregandoDet, setCarregandoDet] = useState(false)
+  const [itemForm, setItemForm] = useState<ItemForm | null>(null); const [chkForm, setChkForm] = useState<ChkForm | null>(null)
 
   const carregar = async () => {
     if (!empresa) { setLoading(false); return }
@@ -50,7 +69,6 @@ export default function EventosPage() {
   useEffect(() => { void carregar() }, [empresa]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3500); return () => clearTimeout(t) }, [toast])
   const nomeCli = (id: string | null) => clientes.find((x) => x.id === id)?.nome ?? '—'
-  const nomePessoa = (id: string | null) => pessoas.find((x) => x.id === id)?.nome ?? '—'
 
   const filtrados = useMemo(() => eventos.filter((e) =>
     (!fCliente || e.cliente_id === fCliente) && (!fStatus || e.status === fStatus) &&
@@ -95,6 +113,81 @@ export default function EventosPage() {
     setToast('Evento excluído (registrado na auditoria).'); void carregar()
   }
 
+  // ---- Painel de detalhe (itens + checklist)
+  async function abrirDetalhe(e: Evento) {
+    setDetalhe(e); setItemForm(null); setChkForm(null); await carregarDetalhe(e.id)
+  }
+  async function carregarDetalhe(eventoId: string) {
+    setCarregandoDet(true)
+    const [i, c] = await Promise.all([
+      supabase.from('agency_evento_item').select('id, descricao, categoria, fornecedor, quantidade, valor_unitario, valor_total, status, observacao, ordem').eq('evento_id', eventoId).is('excluido_em', null).order('ordem', { ascending: true }).order('criado_em', { ascending: true }),
+      supabase.from('agency_evento_checklist').select('id, descricao, concluido, prazo, ordem').eq('evento_id', eventoId).is('excluido_em', null).order('ordem', { ascending: true }).order('criado_em', { ascending: true }),
+    ])
+    setItens(((i.data ?? []) as Item[]).map((x) => ({ ...x, quantidade: Number(x.quantidade), valor_unitario: Number(x.valor_unitario), valor_total: Number(x.valor_total) })))
+    setChecklist((c.data ?? []) as Chk[])
+    setCarregandoDet(false)
+  }
+  async function salvarItem() {
+    if (!detalhe || !itemForm) return
+    if (!itemForm.descricao.trim()) { setToast('Informe a descrição do item.'); return }
+    setBusy(true)
+    const dados = {
+      descricao: itemForm.descricao.trim(), categoria: itemForm.categoria || null, fornecedor: itemForm.fornecedor || null,
+      quantidade: itemForm.quantidade.replace(',', '.') || '1', valor_unitario: itemForm.valor_unitario.replace(',', '.') || '0',
+      status: itemForm.status, observacao: itemForm.observacao || null,
+    }
+    const { data, error } = await supabase.rpc('fn_pm_evento_item_salvar', { p_evento_id: detalhe.id, p_id: itemForm.id, p_dados: dados })
+    setBusy(false)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    setItemForm(null); setToast(itemForm.id ? 'Item atualizado.' : 'Item adicionado.'); await carregarDetalhe(detalhe.id)
+  }
+  async function excluirItem(it: Item) {
+    if (!detalhe) return
+    const motivo = prompt(`Excluir o item "${it.descricao}"? Informe o motivo (fica na auditoria):`)
+    if (motivo === null) return
+    setBusy(true)
+    const { data, error } = await supabase.rpc('fn_pm_evento_item_excluir', { p_id: it.id, p_motivo: motivo || null })
+    setBusy(false)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    setToast('Item excluído (registrado na auditoria).'); await carregarDetalhe(detalhe.id)
+  }
+  async function salvarChk() {
+    if (!detalhe || !chkForm) return
+    if (!chkForm.descricao.trim()) { setToast('Informe a tarefa.'); return }
+    setBusy(true)
+    const dados = { descricao: chkForm.descricao.trim(), prazo: chkForm.prazo || null }
+    const { data, error } = await supabase.rpc('fn_pm_evento_checklist_salvar', { p_evento_id: detalhe.id, p_id: chkForm.id, p_dados: dados })
+    setBusy(false)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    setChkForm(null); setToast(chkForm.id ? 'Tarefa atualizada.' : 'Tarefa adicionada.'); await carregarDetalhe(detalhe.id)
+  }
+  async function toggleChk(c: Chk) {
+    if (!detalhe) return
+    setBusy(true)
+    const { data, error } = await supabase.rpc('fn_pm_evento_checklist_toggle', { p_id: c.id, p_concluido: !c.concluido })
+    setBusy(false)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    await carregarDetalhe(detalhe.id)
+  }
+  async function excluirChk(c: Chk) {
+    if (!detalhe) return
+    const motivo = prompt(`Excluir a tarefa "${c.descricao}"? Informe o motivo (fica na auditoria):`)
+    if (motivo === null) return
+    setBusy(true)
+    const { data, error } = await supabase.rpc('fn_pm_evento_checklist_excluir', { p_id: c.id, p_motivo: motivo || null })
+    setBusy(false)
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    setToast('Tarefa excluída (registrada na auditoria).'); await carregarDetalhe(detalhe.id)
+  }
+
+  const itensTotal = useMemo(() => itens.reduce((s, i) => s + Number(i.valor_total ?? 0), 0), [itens])
+  const chkFeitos = useMemo(() => checklist.filter((c) => c.concluido).length, [checklist])
+
   if (!empresa) return <div style={{ padding: 32, color: TEXTM, background: OFFWHITE, minHeight: '100vh' }}>Selecione uma empresa no topo.</div>
 
   return (
@@ -104,7 +197,7 @@ export default function EventosPage() {
           <div>
             <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: DOURADO, fontWeight: 700 }}>🎬 P&amp;M · Produção</div>
             <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Eventos &amp; Produções<AjudaCampo chave="pm.eventos.tela" rota={ROTA} /></h1>
-            <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>A agenda das produções da agência: datas, local, cliente, status e orçamento.</p>
+            <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>A agenda das produções da agência: datas, local, cliente, status, orçamento, itens e checklist.</p>
           </div>
           <span style={{ display: 'inline-flex', alignItems: 'center' }}><button disabled={busy} onClick={abrirNovo} style={btnPri} data-testid="evento-novo">+ Novo evento</button><AjudaCampo chave="pm.eventos.acao_novo" rota={ROTA} /></span>
         </header>
@@ -134,7 +227,7 @@ export default function EventosPage() {
           : filtrados.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM, background: '#fff', border: `1px dashed ${BORDA}`, borderRadius: 12 }}>Nenhum evento no filtro. Use “+ Novo evento” para cadastrar.</div>
           : (
             <div style={{ overflowX: 'auto', border: `1px solid ${BORDA}`, borderRadius: 12, background: '#fff' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 760 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 820 }}>
                 <thead style={{ background: OFFWHITE }}><tr><Th chave="pm.eventos.campo_nome">Evento</Th><Th chave="pm.eventos.campo_cliente">Cliente</Th><Th chave="pm.eventos.campo_data_inicio">Início</Th><Th chave="pm.eventos.campo_local">Local</Th><Th chave="pm.eventos.campo_orcamento">Orçamento</Th><Th chave="pm.eventos.campo_status">Status</Th><Th chave="pm.eventos.col_acoes">Ações</Th></tr></thead>
                 <tbody>
                   {filtrados.map((e) => {
@@ -149,6 +242,7 @@ export default function EventosPage() {
                         <Td><span style={{ fontSize: 11, fontWeight: 700, background: cfg.cor, padding: '2px 8px', borderRadius: 999 }}>{cfg.l}</span></Td>
                         <Td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center' }}><button disabled={busy} onClick={() => void abrirDetalhe(e)} style={btnGhost} data-testid={`evento-detalhe-${e.id}`}>Itens e checklist</button><AjudaCampo chave="pm.eventos.acao_detalhe" rota={ROTA} /></span>
                             <span style={{ display: 'inline-flex', alignItems: 'center' }}><button disabled={busy} onClick={() => abrirEditar(e)} style={btnGhost} data-testid={`evento-editar-${e.id}`}>Editar</button><AjudaCampo chave="pm.eventos.acao_editar" rota={ROTA} /></span>
                             <span style={{ display: 'inline-flex', alignItems: 'center' }}><button disabled={busy} onClick={() => excluir(e)} style={btnDel} data-testid={`evento-excluir-${e.id}`}>Excluir</button><AjudaCampo chave="pm.eventos.acao_excluir" rota={ROTA} /></span>
                           </div>
@@ -162,6 +256,7 @@ export default function EventosPage() {
           )}
       </div>
 
+      {/* ---- Modal: novo/editar evento ---- */}
       {form && (
         <div role="dialog" aria-modal="true" style={modalWrap} onClick={() => !busy && setForm(null)}>
           <div style={modalBox} onClick={(ev) => ev.stopPropagation()} data-testid="evento-form">
@@ -201,6 +296,130 @@ export default function EventosPage() {
           </div>
         </div>
       )}
+
+      {/* ---- Modal: detalhe (itens + checklist) ---- */}
+      {detalhe && (
+        <div role="dialog" aria-modal="true" style={modalWrap} onClick={() => !busy && setDetalhe(null)}>
+          <div style={{ ...modalBox, maxWidth: 720 }} onClick={(ev) => ev.stopPropagation()} data-testid="evento-detalhe">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: DOURADO, fontWeight: 700 }}>Evento</div>
+                <h2 style={{ fontSize: 18, fontWeight: 700, margin: '2px 0 0' }}>{detalhe.nome}</h2>
+                <div style={{ fontSize: 12, color: TEXTM, marginTop: 2 }}>{nomeCli(detalhe.cliente_id)} · {dataBR(detalhe.data_inicio)} · {stCfg(detalhe.status).l}</div>
+              </div>
+              <button onClick={() => setDetalhe(null)} style={btnGhost} aria-label="Fechar">Fechar</button>
+            </div>
+
+            {/* Itens e fornecedores */}
+            <section style={{ marginTop: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <h3 style={{ fontSize: 14, fontWeight: 700, margin: 0, display: 'inline-flex', alignItems: 'center' }}>Itens e fornecedores<AjudaCampo chave="pm.eventos.item_novo" rota={ROTA} /></h3>
+                <span style={{ display: 'inline-flex', alignItems: 'center' }}><button disabled={busy} onClick={() => setItemForm({ ...ITEM_VAZIO })} style={btnGhost} data-testid="evento-item-novo">+ Adicionar item</button></span>
+              </div>
+              <div style={{ fontSize: 12, color: TEXTM, margin: '4px 0 8px', display: 'inline-flex', alignItems: 'center' }}>
+                Itens somam <b style={{ color: ESPRESSO, margin: '0 4px' }}>{brl(itensTotal)}</b>
+                {detalhe.orcamento_previsto != null && Number(detalhe.orcamento_previsto) > 0 && <> de {brl(Number(detalhe.orcamento_previsto))} previstos</>}
+                <AjudaCampo chave="pm.eventos.item_total" rota={ROTA} />
+              </div>
+              {carregandoDet ? <div style={{ color: TEXTM, fontSize: 13, padding: 12 }}>Carregando…</div>
+                : itens.length === 0 ? <div style={{ fontSize: 13, color: TEXTM, background: OFFWHITE, border: `1px dashed ${BORDA}`, borderRadius: 10, padding: 14 }}>Nenhum item ainda. Use “+ Adicionar item” para montar o orçamento do evento.</div>
+                : (
+                  <div style={{ overflowX: 'auto', border: `1px solid ${BORDA}`, borderRadius: 10 }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, minWidth: 560 }}>
+                      <thead style={{ background: OFFWHITE }}><tr>
+                        <Th chave="pm.eventos.item_descricao">Item</Th><Th chave="pm.eventos.item_fornecedor">Fornecedor</Th>
+                        <Th chave="pm.eventos.item_quantidade">Qtd.</Th><Th chave="pm.eventos.item_valor_unitario">Valor unit.</Th>
+                        <Th chave="pm.eventos.item_valor_total">Total</Th><Th chave="pm.eventos.item_status">Situação</Th><Th chave="pm.eventos.item_acao">Ações</Th>
+                      </tr></thead>
+                      <tbody>
+                        {itens.map((it) => (
+                          <tr key={it.id} style={{ borderTop: `1px solid ${BORDA}` }} data-testid={`evento-item-${it.id}`}>
+                            <Td><b>{it.descricao}</b>{it.categoria && <span style={{ color: TEXTM }}> · {it.categoria}</span>}</Td>
+                            <Td style={{ color: TEXTM }}>{it.fornecedor ?? '—'}</Td>
+                            <Td>{Number(it.quantidade).toLocaleString('pt-BR')}</Td>
+                            <Td>{brl(it.valor_unitario)}</Td>
+                            <Td><b>{brl(it.valor_total)}</b></Td>
+                            <Td><span style={{ fontSize: 10.5, fontWeight: 700, background: itCfg(it.status).cor, padding: '2px 7px', borderRadius: 999 }}>{itCfg(it.status).l}</span></Td>
+                            <Td>
+                              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                <button disabled={busy} onClick={() => setItemForm({ id: it.id, descricao: it.descricao, categoria: it.categoria ?? '', fornecedor: it.fornecedor ?? '', quantidade: String(it.quantidade), valor_unitario: String(it.valor_unitario), status: it.status, observacao: it.observacao ?? '' })} style={btnGhost} data-testid={`evento-item-editar-${it.id}`}>Editar</button>
+                                <button disabled={busy} onClick={() => void excluirItem(it)} style={btnDel} data-testid={`evento-item-excluir-${it.id}`}>Excluir</button>
+                              </div>
+                            </Td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+              {itemForm && (
+                <div style={{ border: `1px solid ${BORDA}`, borderRadius: 10, padding: 12, marginTop: 10, background: OFFWHITE }} data-testid="evento-item-form">
+                  <Campo label="Descrição" chave="pm.eventos.item_descricao"><input value={itemForm.descricao} onChange={(e) => setItemForm({ ...itemForm, descricao: e.target.value })} style={inp} data-testid="evento-item-f-descricao" /></Campo>
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    <Campo label="Categoria" chave="pm.eventos.item_categoria" flex><input value={itemForm.categoria} onChange={(e) => setItemForm({ ...itemForm, categoria: e.target.value })} placeholder="locação, equipe…" style={inp} data-testid="evento-item-f-categoria" /></Campo>
+                    <Campo label="Fornecedor" chave="pm.eventos.item_fornecedor" flex><input value={itemForm.fornecedor} onChange={(e) => setItemForm({ ...itemForm, fornecedor: e.target.value })} style={inp} data-testid="evento-item-f-fornecedor" /></Campo>
+                  </div>
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    <Campo label="Qtd." chave="pm.eventos.item_quantidade" flex><input type="number" min="0" step="0.01" value={itemForm.quantidade} onChange={(e) => setItemForm({ ...itemForm, quantidade: e.target.value })} style={inp} data-testid="evento-item-f-quantidade" /></Campo>
+                    <Campo label="Valor unit. (R$)" chave="pm.eventos.item_valor_unitario" flex><input type="number" min="0" step="0.01" value={itemForm.valor_unitario} onChange={(e) => setItemForm({ ...itemForm, valor_unitario: e.target.value })} style={inp} data-testid="evento-item-f-valor" /></Campo>
+                    <Campo label="Situação" chave="pm.eventos.item_status" flex>
+                      <select value={itemForm.status} onChange={(e) => setItemForm({ ...itemForm, status: e.target.value })} style={inp} data-testid="evento-item-f-status">
+                        {ITEM_STATUS.map((s) => <option key={s.v} value={s.v}>{s.l}</option>)}
+                      </select>
+                    </Campo>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+                    <button disabled={busy} onClick={() => setItemForm(null)} style={btnGhost}>Cancelar</button>
+                    <button disabled={busy} onClick={salvarItem} style={btnPri} data-testid="evento-item-f-salvar">{itemForm.id ? 'Salvar item' : 'Adicionar'}</button>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            {/* Checklist */}
+            <section style={{ marginTop: 18 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <h3 style={{ fontSize: 14, fontWeight: 700, margin: 0, display: 'inline-flex', alignItems: 'center' }}>Checklist de preparação<AjudaCampo chave="pm.eventos.chk_novo" rota={ROTA} /><span style={{ fontSize: 12, color: TEXTM, marginLeft: 6 }}>({chkFeitos}/{checklist.length})</span></h3>
+                <span style={{ display: 'inline-flex', alignItems: 'center' }}><button disabled={busy} onClick={() => setChkForm({ ...CHK_VAZIO })} style={btnGhost} data-testid="evento-chk-novo">+ Adicionar tarefa</button></span>
+              </div>
+              {carregandoDet ? <div style={{ color: TEXTM, fontSize: 13, padding: 12 }}>Carregando…</div>
+                : checklist.length === 0 ? <div style={{ fontSize: 13, color: TEXTM, background: OFFWHITE, border: `1px dashed ${BORDA}`, borderRadius: 10, padding: 14, marginTop: 6 }}>Nenhuma tarefa no checklist. Use “+ Adicionar tarefa” para montar a preparação.</div>
+                : (
+                  <div style={{ border: `1px solid ${BORDA}`, borderRadius: 10, marginTop: 6, overflow: 'hidden' }}>
+                    {checklist.map((c) => (
+                      <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderTop: `1px solid ${BORDA}`, background: c.concluido ? '#F6FAF4' : '#fff' }} data-testid={`evento-chk-${c.id}`}>
+                        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                          <input type="checkbox" checked={c.concluido} disabled={busy} onChange={() => void toggleChk(c)} aria-label={`Concluir ${c.descricao}`} data-testid={`evento-chk-toggle-${c.id}`} style={{ width: 18, height: 18, accentColor: GREEN, cursor: 'pointer' }} />
+                          <AjudaCampo chave="pm.eventos.chk_concluido" rota={ROTA} />
+                        </label>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, textDecoration: c.concluido ? 'line-through' : 'none', color: c.concluido ? TEXTM : ESPRESSO }}>{c.descricao}</div>
+                          {c.prazo && <div style={{ fontSize: 11, color: TEXTM }}>Prazo: {dataBR(c.prazo)}</div>}
+                        </div>
+                        <button disabled={busy} onClick={() => setChkForm({ id: c.id, descricao: c.descricao, prazo: c.prazo ?? '' })} style={btnGhost} data-testid={`evento-chk-editar-${c.id}`}>Editar</button>
+                        <button disabled={busy} onClick={() => void excluirChk(c)} style={btnDel} data-testid={`evento-chk-excluir-${c.id}`}>Excluir</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              {chkForm && (
+                <div style={{ border: `1px solid ${BORDA}`, borderRadius: 10, padding: 12, marginTop: 10, background: OFFWHITE }} data-testid="evento-chk-form">
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    <Campo label="Tarefa" chave="pm.eventos.chk_tarefa" flex><input value={chkForm.descricao} onChange={(e) => setChkForm({ ...chkForm, descricao: e.target.value })} style={inp} data-testid="evento-chk-f-descricao" /></Campo>
+                    <Campo label="Prazo" chave="pm.eventos.chk_prazo" flex><input type="date" value={chkForm.prazo} onChange={(e) => setChkForm({ ...chkForm, prazo: e.target.value })} style={inp} data-testid="evento-chk-f-prazo" /></Campo>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+                    <button disabled={busy} onClick={() => setChkForm(null)} style={btnGhost}>Cancelar</button>
+                    <button disabled={busy} onClick={salvarChk} style={btnPri} data-testid="evento-chk-f-salvar">{chkForm.id ? 'Salvar tarefa' : 'Adicionar'}</button>
+                  </div>
+                </div>
+              )}
+            </section>
+          </div>
+        </div>
+      )}
+
       {toast && <div style={toastStyle}>{toast}</div>}
     </div>
   )
