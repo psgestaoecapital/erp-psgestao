@@ -75,3 +75,7 @@ BEGIN
   RETURN jsonb_build_object('gestor', v_gestor, 'de', p_de, 'ate', p_ate, 'vendedor', v_vend,
     'resumo', v_resumo, 'funil', v_funil, 'ranking', v_ranking, 'perdas', v_perdas, 'velocidade_dias', v_veloc);
 END; $function$;
+
+-- Guarda RD (CI check-fn-guards · Regra 1): SECURITY DEFINER nunca exposta ao anon.
+-- CREATE OR REPLACE preserva os GRANTs existentes; este REVOKE é idempotente e reafirma o fechamento.
+REVOKE ALL ON FUNCTION public.fn_crm_desempenho(uuid[], date, date, uuid) FROM anon;
