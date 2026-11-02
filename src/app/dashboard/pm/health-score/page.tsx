@@ -134,7 +134,10 @@ export default function HealthScorePage() {
                   <span style={{ marginLeft: 8, color: ok100 ? GREEN : VERMELHO }}>{soma}% {ok100 ? '✓' : `(precisa ser 100%)`}</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <button onClick={restaurarPadrao} style={btnGhost(TEXTM)}>Restaurar padrão</button>
+                  <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                    <button onClick={restaurarPadrao} style={btnGhost(TEXTM)}>Restaurar padrão</button>
+                    <AjudaCampo chave="pm.health_score.restaurar" rota={ROTA} />
+                  </span>
                   <span style={{ display: 'inline-flex', alignItems: 'center' }}>
                     <button onClick={() => void salvar()} disabled={!ok100 || saving} style={{ ...btn(ok100 ? DOURADO : '#C9BDB0'), cursor: ok100 && !saving ? 'pointer' : 'not-allowed' }}>{saving ? 'Salvando…' : 'Salvar pesos'}</button>
                     <AjudaCampo chave="pm.health_score.salvar" rota={ROTA} />
