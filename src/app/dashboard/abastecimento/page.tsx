@@ -11,7 +11,7 @@ const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT =
 type Fonte = { icone: string; titulo: string; descricao: string; rota: string; badge: string; badgeCor: string; pronto: boolean }
 const FONTES: Fonte[] = [
   { icone: '📋', titulo: 'Folha de Pagamento (Domínio)', descricao: 'Sobe o "Encargos da Empresa" (.xls) e apura custo por verba/competência.', rota: '/dashboard/industrial/folha', badge: 'Pronto', badgeCor: '#16A34A', pronto: true },
-  { icone: '💰', titulo: 'Lançamentos Financeiros', descricao: 'Planilha de contas a pagar/receber (SIGA, Excel, CSV) → financeiro.', rota: '/dashboard/importar-universal', badge: 'Pronto', badgeCor: '#16A34A', pronto: true },
+  { icone: '💰', titulo: 'Lançamentos Financeiros', descricao: 'Planilha de contas a pagar/receber (sistema anterior, Excel, CSV) → financeiro.', rota: '/dashboard/importar-universal', badge: 'Pronto', badgeCor: '#16A34A', pronto: true },
   { icone: '📦', titulo: 'Produtos / Fiscal', descricao: 'Cadastro de produtos por planilha (NCM, preço, fiscal).', rota: '/dashboard/cadastros/produtos', badge: 'Pronto', badgeCor: '#16A34A', pronto: true },
   { icone: '🏭', titulo: 'Abate / Produção (ATAK)', descricao: 'Dados de abate do ATAK (SQL Server sem API pública) — via carga.', rota: '', badge: 'Em breve', badgeCor: '#2563EB', pronto: false },
   { icone: '🏦', titulo: 'Extrato Bancário (planilha)', descricao: 'Extrato em Excel/OFX quando não há Open Finance.', rota: '/dashboard/financeiro/conexoes-bancarias', badge: 'Parcial', badgeCor: '#C8941A', pronto: true },
