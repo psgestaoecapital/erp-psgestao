@@ -4,10 +4,10 @@
 // antigos), quantos ficam de fora e por quê; o banco confere de novo (já existe, cliente e responsável não achados);
 // 4) importar. Nada é gravado sem a prévia; rodar de novo não duplica. Todo campo tem o "?".
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import * as XLSX from "xlsx";
-import { Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, ArrowLeft } from "lucide-react";
+import { Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, ArrowLeft, History } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
@@ -15,7 +15,10 @@ import { CAMPOS, MOTIVO_TEXTO, adivinharMapa, ehCsv, selecionar, textoCsv, type 
 
 type Conferencia = { ok: boolean; erro?: string; mensagem?: string; total: number; novos: number; ja_existem: number; gravados: number;
   clientes_nao_encontrados: string[] | null; responsaveis_nao_encontrados: string[] | null; pecas_nao_encontradas: string[] | null };
+type ImportacaoHist = { id: string; importado_em: string; total: number; novos: number; ja_existem: number; gravados: number;
+  n_clientes_nao_encontrados: number; n_responsaveis_nao_encontrados: number; importado_por_nome: string | null };
 const card = "rounded-2xl border border-[#3D2314]/10 bg-white p-4";
+const dataHoraBR = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? "—" : d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }); };
 const hojeSP = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
 
 export default function ImportarSigaPage() {
@@ -29,6 +32,16 @@ export default function ImportarSigaPage() {
   const [ocupado, setOcupado] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [feito, setFeito] = useState<number | null>(null);
+  const [historico, setHistorico] = useState<ImportacaoHist[]>([]);
+
+  const carregarHistorico = useCallback(async () => {
+    if (!empresa) { setHistorico([]); return; }
+    const { data } = await supabase.rpc("fn_pm_siga_importacoes_listar", { p_company_id: empresa, p_limit: 20 });
+    const r = data as { ok?: boolean; itens?: ImportacaoHist[] } | null;
+    setHistorico(r?.ok && Array.isArray(r.itens) ? r.itens : []);
+  }, [empresa]);
+
+  useEffect(() => { void carregarHistorico(); }, [carregarHistorico]);
 
   async function ler(f: File) {
     setErro(null); setConf(null); setFeito(null);
@@ -64,7 +77,7 @@ export default function ImportarSigaPage() {
     const r = data as Conferencia | null;
     if (error || !r?.ok) { setErro(r?.mensagem || error?.message || r?.erro || "Não foi possível conferir."); return; }
     setConf(r);
-    if (gravar) setFeito(r.gravados);
+    if (gravar) { setFeito(r.gravados); void carregarHistorico(); }
   }
 
   if (!empresa) return <div className="p-6 text-[13px] text-[#3D2314]/70">Escolha uma empresa no seletor.</div>;
@@ -169,6 +182,39 @@ export default function ImportarSigaPage() {
             <Link href="/dashboard/pm/pauta" className="font-semibold underline">Abrir a Pauta</Link>
           </div>
         )}
+
+        <section className={card} data-testid="siga-historico">
+          <div className="mb-2 flex items-center text-[12px] font-semibold"><History size={13} className="mr-1.5 text-[#C8941A]" />Histórico de importações<AjudaCampo chave="pm.siga.historico" /></div>
+          {historico.length === 0 ? (
+            <div className="text-[12.5px] text-[#3D2314]/55">Nenhuma importação registrada nesta empresa ainda.</div>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-[#3D2314]/10">
+              <table className="w-full text-[12.5px]">
+                <thead className="bg-[#FAF7F2] text-left text-[11px] uppercase tracking-wider text-[#3D2314]/55">
+                  <tr><th className="px-2 py-1.5">Quando</th><th className="px-2">Quem</th><th className="px-2 text-right">Linhas</th><th className="px-2 text-right">Novos</th><th className="px-2 text-right">Já existiam</th><th className="px-2 text-right">Importados</th><th className="px-2">Pendências</th></tr>
+                </thead>
+                <tbody>
+                  {historico.map((h) => (
+                    <tr key={h.id} className="border-t border-[#3D2314]/6">
+                      <td className="px-2 py-1 whitespace-nowrap">{dataHoraBR(h.importado_em)}</td>
+                      <td className="px-2">{h.importado_por_nome ?? "—"}</td>
+                      <td className="px-2 text-right">{h.total}</td>
+                      <td className="px-2 text-right">{h.novos}</td>
+                      <td className="px-2 text-right text-[#3D2314]/60">{h.ja_existem}</td>
+                      <td className="px-2 text-right font-medium text-[#2F5A1F]">{h.gravados}</td>
+                      <td className="px-2 text-[#6B4A0E]">
+                        {h.n_clientes_nao_encontrados > 0 ? `${h.n_clientes_nao_encontrados} s/ cliente` : ""}
+                        {h.n_clientes_nao_encontrados > 0 && h.n_responsaveis_nao_encontrados > 0 ? " · " : ""}
+                        {h.n_responsaveis_nao_encontrados > 0 ? `${h.n_responsaveis_nao_encontrados} s/ resp.` : ""}
+                        {h.n_clientes_nao_encontrados === 0 && h.n_responsaveis_nao_encontrados === 0 ? "—" : ""}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );
