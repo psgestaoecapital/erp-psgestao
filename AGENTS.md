@@ -289,9 +289,13 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
 - **Renumeração automática de migration na fila (Eng. Chefe 09/10):** a fila, ao pegar PR com migration nova de versão NÃO
   maior que a última da `main` (recalculada na hora), **renomeia o arquivo** (commit no ramo da PR via API: versão nova =
   timestamp do momento, mantendo os 2 últimos dígitos = faixa do agente) e comenta o que mudou, em vez de recusar. O commit
-  novo roda os checks de novo. **PR revisada (`revisao-eng-chefe`): o patch-id muda, então o revisor precisa autorizar de
-  novo** — a fila tira e recoloca a etiqueta para acordá-lo. Se outro arquivo da PR cita a versão antiga (gate/spec que lê a
-  migration pelo nome), a fila NÃO renumera: recusa como antes e quem fez a PR corrige. Gate: `check-fila-sem-bloqueio.ts`.
+  novo roda os checks de novo. **PR revisada (`revisao-eng-chefe`): a autorização do revisor CONTINUA VALENDO** — a
+  renumeração só troca o NOME do arquivo (conteúdo idêntico) e o patch-id ESTÁVEL (normaliza `supabase/migrations/<14 díg>_`)
+  não muda, então a fila NÃO tira/recoloca a etiqueta nem pede nova revisão; comenta "autorização mantida: só renumeração"
+  (Eng. Chefe 02/11 — tirar/recolocar a etiqueta acordava o revisor à toa e devolvia a PR para a espera do revisor, o ciclo
+  que prendia dezenas de PRs). Mudança REAL de conteúdo muda o patch-id e `autorizacao` já exige nova revisão sozinha. Se
+  outro arquivo da PR cita a versão antiga (gate/spec que lê a migration pelo nome), a fila NÃO renumera: recusa como antes e
+  quem fez a PR corrige. Gates: `check-fila-sem-bloqueio.ts`, `check-fila-patchid-estavel.ts`.
 
 ## Esteira em 2 velocidades (CEO 07/10 08:05) — TEMPORÁRIA, até haver um banco de testes por vaga
 Palavras do CEO: "PR comum publica com checks rápidos + preview verde e a aceitação vira informativa; PR com etiqueta
