@@ -9,6 +9,7 @@ import { SelectedCompanyProvider } from '@/contexts/SelectedCompanyContext'
 import { AuthProvider } from '@/lib/AuthProvider'
 import AjudaWidget from '@/components/ajuda/AjudaWidget'
 import ChatWidget from '@/components/chat/ChatWidget'
+import ThemeApplier from '@/components/theme/ThemeApplier'
 
 // P0 · Camada 2 (16bc8561): AuthProvider lê a sessão UMA vez (getSession) e expõe useUsuario()
 // para todas as telas — fim do getUser() por tela disputando a trava de sessão do mobile.
@@ -16,6 +17,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <AuthProvider>
     <SelectedCompanyProvider>
+      {/* Tema por usuário (CEO 10/10): aplica a cor de destaque + claro/escuro da preferência do usuário */}
+      <ThemeApplier />
       <Suspense fallback={null}><AreaRedirectGuard /></Suspense>
       <Suspense fallback={null}><RecoveryGuard /></Suspense>
       {/* GATE LGPD (P0): restaura a chamada que sumiu no #126. Redireciona pra ROTA /aceite

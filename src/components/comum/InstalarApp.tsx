@@ -10,7 +10,8 @@ import { APP_URL as APP_BASE } from '@/lib/appUrl'
 import { BUNDLE_VERSION } from '@/lib/bundleVersion'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { instaladoComoApp, ehIos } from '@/lib/push/cliente'
-import { Download, CheckCircle2, Circle, ImageDown } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
+import { Download, Smartphone, CheckCircle2, Circle, ImageDown } from 'lucide-react'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -19,7 +20,20 @@ const LINE = '#E7DECF'
 const ESP60 = 'rgba(61,35,20,0.6)'
 
 // Chaves do "?" (RD-95) de cada ação. Opcional: a tela que passa as chaves precisa tê-las em erp_ajuda_campo (migration).
-export type AjudaInstalarApp = { instalar: string; qr: string; whatsapp: string; copiar: string; link: string; versao: string }
+// `instalacoes` é o "?" do indicador de adoção, só usado quando a tela opta por rastrear (prop `rastrear`).
+export type AjudaInstalarApp = { instalar: string; qr: string; whatsapp: string; copiar: string; link: string; versao: string; instalacoes?: string }
+
+// Opt-in de tracking de instalação (RD-98 pilar 3): a tela que passa `rastrear` registra a instalação por empresa e
+// mostra "pessoas que já instalaram". Telas que NÃO passam (ex.: Agro) seguem idênticas, sem consumir/gravar dado.
+export type RastrearInstalacao = { companyId: string; rota: string; area?: string }
+
+function plataformaAtual(): string {
+  if (typeof navigator === 'undefined') return 'desconhecida'
+  const ua = navigator.userAgent || ''
+  if (/android/i.test(ua)) return 'android'
+  if (/iphone|ipad|ipod/i.test(ua)) return 'ios'
+  return 'computador'
+}
 
 // Evento do Chrome/Edge (Android e computador) que permite abrir o "Instalar app" por um botão nosso.
 // O Safari (iPhone) não tem esse evento: lá o botão não aparece e valem os passos manuais.
@@ -32,6 +46,7 @@ export default function InstalarApp({
   offline = false,   // só true quando a fonte REALMENTE funciona offline (Agro cacheia o rebanho)
   nota,              // aviso honesto opcional (ex.: sobre o que o ícone abre)
   ajuda,             // chaves do "?" das ações (sem elas o "?" não aparece)
+  rastrear,          // opt-in: registra a instalação por empresa e mostra o indicador de adoção (RD-98 pilar 3)
 }: {
   destino: string
   titulo: string
@@ -39,11 +54,13 @@ export default function InstalarApp({
   offline?: boolean
   nota?: string
   ajuda?: AjudaInstalarApp
+  rastrear?: RastrearInstalacao
 }) {
   const [qr, setQr] = useState<string | null>(null)
   const [copiado, setCopiado] = useState(false)
   const [prompt, setPrompt] = useState<PromptInstalar | null>(null)
   const [instalado, setInstalado] = useState(false)
+  const [instalacoes, setInstalacoes] = useState<{ total: number; meu: boolean } | null>(null)
   // Plataforma do aparelho atual: iPhone (Safari), Android (Chrome) ou Computador (Chrome/Edge).
   // Cada uma tem passos próprios; a do aparelho fica em destaque e aparece primeiro.
   const [plataforma, setPlataforma] = useState<'android' | 'ios' | 'desktop'>('android')
@@ -62,29 +79,54 @@ export default function InstalarApp({
       .catch(() => setQr(null))
   }, [APP_URL])
 
+  // Registra a instalação desta empresa/rota (idempotente no banco) e atualiza o indicador. Só quando a tela opta.
+  const registrarInstalacao = async () => {
+    if (!rastrear?.companyId) return
+    try {
+      await supabase.rpc('fn_app_instalacao_registrar', {
+        p_company_id: rastrear.companyId, p_rota: rastrear.rota, p_area: rastrear.area ?? null, p_plataforma: plataformaAtual(),
+      })
+    } catch { /* tracking é acessório: falha nunca atrapalha a instalação */ }
+    carregarContagem()
+  }
+
+  const carregarContagem = async () => {
+    if (!rastrear?.companyId) return
+    try {
+      const { data } = await supabase.rpc('fn_app_instalacao_contagem', { p_company_id: rastrear.companyId, p_rota: rastrear.rota })
+      if (data) setInstalacoes({ total: Number((data as { total?: number }).total ?? 0), meu: Boolean((data as { meu?: boolean }).meu) })
+    } catch { /* sem indicador se a leitura falhar */ }
+  }
+
   // Já está aberto como app instalado? E o navegador oferece instalar por botão?
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- só no navegador (o SSR não sabe se o app está instalado)
-    if (instaladoComoApp()) setInstalado(true)
+    if (instaladoComoApp()) { setInstalado(true); if (rastrear?.companyId) registrarInstalacao() }
     // Detecção da plataforma: iPhone/iPad; senão Android (UA móvel); senão Computador.
     // eslint-disable-next-line react-hooks/set-state-in-effect -- userAgent só existe no navegador
     setPlataforma(ehIos() ? 'ios' : /Android|Mobi/i.test(navigator.userAgent) ? 'android' : 'desktop')
     const aoOferecer = (e: Event) => { e.preventDefault(); setPrompt(e as PromptInstalar) }
-    const aoInstalar = () => { setInstalado(true); setPrompt(null) }
+    const aoInstalar = () => { setInstalado(true); setPrompt(null); if (rastrear?.companyId) registrarInstalacao() }
     window.addEventListener('beforeinstallprompt', aoOferecer)
     window.addEventListener('appinstalled', aoInstalar)
     return () => {
       window.removeEventListener('beforeinstallprompt', aoOferecer)
       window.removeEventListener('appinstalled', aoInstalar)
     }
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- registrar/carregar usam só a prop `rastrear`, estável por tela
+  }, [rastrear?.companyId, rastrear?.rota])
+
+  // Carrega o indicador de adoção quando a empresa fica disponível (telas que optam por rastrear).
+  useEffect(() => { if (rastrear?.companyId) carregarContagem()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rastrear?.companyId, rastrear?.rota])
 
   const instalar = async () => {
     if (!prompt) return
     try {
       await prompt.prompt()
       const { outcome } = await prompt.userChoice
-      if (outcome === 'accepted') setInstalado(true)
+      if (outcome === 'accepted') { setInstalado(true); registrarInstalacao() }
     } catch { /* navegador recusou: seguem os passos manuais */ }
     setPrompt(null)   // o evento só vale uma vez
   }
@@ -123,6 +165,19 @@ export default function InstalarApp({
             </div>
           )}
         </header>
+
+        {/* Indicador de adoção (RD-98 pilar 3): só nas telas que optam por rastrear e quando há leitura do banco */}
+        {rastrear && instalacoes && (
+          <div className="flex items-center gap-2 text-sm rounded-xl p-3" style={{ background: '#FFFBEF', border: `1px solid #F0E1B8`, color: '#7A5A0B' }} data-testid="instalar-app-adocao">
+            <Smartphone size={16} strokeWidth={1.5} />
+            <span>
+              {instalacoes.total === 0
+                ? 'Ninguém da sua empresa instalou ainda — seja o primeiro.'
+                : <><b>{instalacoes.total}</b> {instalacoes.total === 1 ? 'pessoa já instalou' : 'pessoas já instalaram'} o app na sua empresa{instalacoes.meu ? ' (você incluído)' : ''}.</>}
+            </span>
+            {ajuda?.instalacoes && <AjudaCampo chave={ajuda.instalacoes} alinhar="fim" />}
+          </div>
+        )}
 
         {/* Status de instalação SEMPRE visível (o usuário sabe na hora se este aparelho já tem o app) */}
         {instalado ? (

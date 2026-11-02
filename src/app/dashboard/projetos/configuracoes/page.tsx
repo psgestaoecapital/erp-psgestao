@@ -62,8 +62,8 @@ interface Config {
 // Recursos planejados (não ativos): ficam numa seção "No roadmap", fora do caminho principal de configuração.
 const ROADMAP: Array<{ label: string; ajuda: string; hint: string }> = [
   { label: "Exige aprovação do engenheiro", ajuda: "projetos.config.exige_engenheiro", hint: "O fluxo de aprovação por engenheiro não bloqueia a proposta por enquanto." },
-  { label: "Sincronizar estoque com Omie", ajuda: "projetos.config.omie_estoque", hint: "A saída de material da obra já movimenta o estoque do PS; o envio ao Omie virá com a integração." },
-  { label: "Sincronizar contas a pagar com Omie", ajuda: "projetos.config.omie_pagar", hint: "Os títulos a pagar da obra ficam no financeiro do PS; o envio ao Omie virá com a integração." },
+  { label: "Sincronizar estoque com sistema externo", ajuda: "projetos.config.omie_estoque", hint: "A saída de material da obra já movimenta o estoque do PS; o envio a um sistema externo virá com a integração." },
+  { label: "Sincronizar contas a pagar com sistema externo", ajuda: "projetos.config.omie_pagar", hint: "Os títulos a pagar da obra ficam no financeiro do PS; o envio a um sistema externo virá com a integração." },
 ];
 
 const PRESETS: Array<{ id: string; label: string; descricao: string }> = [
