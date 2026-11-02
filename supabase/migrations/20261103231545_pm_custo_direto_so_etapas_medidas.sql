@@ -13,6 +13,10 @@
 --
 -- Mesma assinatura e contrato de retorno de fn_pm_job_custos(uuid) -> (job_id, horas, tem_custo, custo_total).
 -- Mantém SECURITY DEFINER + a guarda de empresa já existente; nenhuma tabela/coluna/dado de cliente é alterado.
+--
+-- Também passa a filtrar excluido_em IS NULL (consistência com a listagem de apontamentos, que já o faz):
+-- apontamento soft-deletado não deve pesar no custo. Hoje há 0 linhas excluídas (sem impacto imediato), mas
+-- a função não filtrava — correção latente feita aqui, na MESMA função, para não gerar migration conflitante depois.
 
 CREATE OR REPLACE FUNCTION public.fn_pm_job_custos(p_company_id uuid)
  RETURNS TABLE(job_id uuid, horas numeric, tem_custo boolean, custo_total numeric)
@@ -44,6 +48,7 @@ BEGIN
        AND cli.cliente_id = t.cliente_id
        AND cli.etapa_tipo = t.etapa_tipo
       WHERE t.company_id = p_company_id
+        AND t.excluido_em IS NULL  -- consistência com a listagem: apontamento soft-deletado não entra no custo
     )
     SELECT
       m.job_id,
