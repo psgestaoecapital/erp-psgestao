@@ -795,13 +795,15 @@ renumerar_migrations() {
 - \`${v}_$rest\` → \`${novo}_$rest\`"
   done <<< "$baixas"
   log "#$n: migration(s) renumerada(s) pela fila"
+  # Eng. Chefe 02/11: a renumeração só troca o NOME do arquivo (conteúdo idêntico — e esta função recusa acima se outro
+  # arquivo cita a versão). O patch-id ESTÁVEL (patch-id-lib.sh normaliza supabase/migrations/<14 díg>_) NÃO muda, então
+  # a autorização do revisor CONTINUA VALENDO (provado em check-fila-patchid-estavel). Por isso NÃO tiramos/recolocamos a
+  # etiqueta nem pedimos nova revisão: fazer isso acordava o revisor à toa e devolvia a PR para a espera do revisor
+  # (horário) — o ciclo que prendia dezenas de PRs com migration. Mudança REAL de conteúdo muda o patch-id e `autorizacao`
+  # já exige nova revisão sozinha.
   comentar "$n" "🔢 **Fila de merge:** a migration desta PR estava com versão NÃO maior que a última da main (\`$ult\`); renumerei sozinha (commit no ramo, conteúdo idêntico):$lista
 
-Os checks rodam de novo no commit novo.$([ "$via" = revisada ] && echo " **Via revisada: o patch-id mudou — o gilberto-revisor precisa autorizar de novo (a etiqueta \`$SENSIVEL\` é tirada e recolocada para acordá-lo).")"
-  if [ "$via" = revisada ]; then
-    api -X DELETE "repos/$REPO/issues/$n/labels/$SENSIVEL" > /dev/null 2>&1 || true
-    api -X POST "repos/$REPO/issues/$n/labels" -f "labels[]=$SENSIVEL" > /dev/null 2>&1 || true
-  fi
+Os checks rodam de novo no commit novo.$([ "$via" = revisada ] && echo " **Via revisada: autorização mantida — só renumeração; o patch-id do conteúdo é estável, não precisa de nova revisão.**")"
   return 0
 }
 
@@ -1028,7 +1030,7 @@ for n in $fila; do
     if [ -n "$baixas" ]; then
       # Renumeração AUTOMÁTICA (Eng. Chefe 09/10): em vez de recusar, a fila renomeia a(s) migration(s) da PR com um commit
       # no ramo dela (versão nova = timestamp do momento, mantendo os 2 últimos dígitos = faixa do agente). O commit roda
-      # os checks de novo; PR revisada precisa de NOVA autorização do revisor (o patch-id muda).
+      # os checks de novo; a PR revisada MANTÉM a autorização: só o nome muda, o patch-id ESTÁVEL do conteúdo não (Eng. Chefe 02/11).
       if renumerar_migrations "$n" "$pj" "$ult_main" "$baixas" "$via"; then continue; fi
       tirar_da_fila "$n" "migration com versão NÃO maior que a última da main ($ult_main): $(tr '\n' ' ' <<< "$baixas") — não consegui renumerar sozinha; renumere para uma versão acima e atualize com a main (o db push recusa versão abaixo da última aplicada)" "$sha"; continue
     fi

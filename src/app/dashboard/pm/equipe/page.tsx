@@ -39,7 +39,7 @@ export default function EquipePage() {
     if (!empresa) { setMembros([]); setLoading(false); return }
     setLoading(true)
     const [{ data }, c] = await Promise.all([
-      supabase.from('agency_equipe').select(COLUNAS_EQUIPE).eq('company_id', empresa).order('nome'),
+      supabase.from('agency_equipe').select(COLUNAS_EQUIPE).eq('company_id', empresa).is('excluido_em', null).order('nome'),
       carregarCustosEquipe(supabase, empresa),
     ])
     setPodeVer(c.podeVer)
@@ -87,6 +87,22 @@ export default function EquipePage() {
     setBusy(false)
     if (error) { setToast(`Erro: ${error.message}`); return }
     setEdit(null); setToast(edit.id ? 'Membro ALTERADO.' : 'Membro CRIADO.'); void carregar()
+  }
+
+  // RD-98 pilar 4 · exclusão RASTREÁVEL: soft-delete auditado por fn_agency_equipe_excluir (grava
+  // excluido_em/por/motivo + audit_log; a lista filtra excluido_em IS NULL). Reversível pela auditoria.
+  async function excluir() {
+    if (!edit?.id) return
+    if (!window.confirm(`Excluir ${edit.nome ?? 'este membro'} da equipe? Ele sai da lista e deixa de contar na margem (exclusão rastreável: guarda quem excluiu e quando, reversível pela auditoria). Para afastamento temporário, use "Ativo" em vez de excluir.`)) return
+    setBusy(true)
+    const { data, error } = await supabase.rpc('fn_agency_equipe_excluir', { p_id: edit.id, p_motivo: null })
+    setBusy(false)
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) {
+      setToast(`Erro: ${error?.message ?? (r?.erro === 'sem_acesso' ? 'Você não tem acesso a este membro.' : r?.erro === 'membro_nao_encontrado' ? 'Membro não encontrado (pode já ter sido excluído).' : r?.erro ?? 'Não foi possível excluir.')}`)
+      return
+    }
+    setEdit(null); setToast('Membro EXCLUÍDO.'); void carregar()
   }
 
   if (!empresa) return <div style={{ padding: 32, color: TEXTM, background: OFFWHITE, minHeight: '100vh' }}>Selecione uma empresa no topo.</div>
@@ -167,9 +183,17 @@ export default function EquipePage() {
                 {previa?.ok && <button disabled={busy} onClick={aplicarPapel} style={{ ...btnSec, marginTop: 8 }}>Aplicar papel</button>}
               </div>
             )}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
+            <div style={{ display: 'flex', justifyContent: edit.id ? 'space-between' : 'flex-end', gap: 8, marginTop: 14, alignItems: 'center' }}>
+              {edit.id && (
+                <span style={rot}>
+                  <button disabled={busy} onClick={() => void excluir()} data-testid="equipe-excluir" style={{ ...btnGhost, color: RED, borderColor: RED }}>🗑️ Excluir</button>
+                  <AjudaCampo chave="pm.equipe.excluir" />
+                </span>
+              )}
+              <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => setEdit(null)} style={btnGhost}>Cancelar</button>
               <button disabled={busy} onClick={salvar} style={btnPri}>{busy ? 'Salvando…' : (edit.id ? 'SALVAR' : 'CRIAR')}</button>
+              </div>
             </div>
           </div>
         </div>
