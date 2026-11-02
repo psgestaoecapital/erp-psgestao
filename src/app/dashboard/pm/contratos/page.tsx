@@ -122,7 +122,14 @@ export default function ContratosPage() {
   const rotuloMes = (ref: string) => { const [y, mo] = ref.split('-').map(Number); return `${MESES[mo - 1]}/${y}` }
 
   async function mudarStatus(c: Contrato, status: string) {
-    await supabase.from('agency_contratos').update({ status, atualizado_em: new Date().toISOString() }).eq('id', c.contrato_id)
+    // RD-98 (rastro): a mudança de status passa por RPC com audit_log_global (não grava direto na tabela).
+    const { data, error } = await supabase.rpc('fn_agency_contrato_mudar_status', { p_contrato_id: c.contrato_id, p_status: status })
+    if (error) {
+      setToast(/permission|rls|policy|acesso/i.test(error.message) ? 'Sem permissão para alterar o status deste contrato.' : `Erro ao alterar status: ${error.message}`)
+      return
+    }
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (j && j.ok === false) { setToast(`Erro ao alterar status: ${j.erro ?? 'falha'}`); return }
     setToast(`Contrato ALTERADO para ${stCfg(status).l}.`); void carregar()
   }
 
