@@ -152,3 +152,8 @@ BEGIN
   );
 END
 $function$;
+
+-- ACL reafirmada na própria migration (régua check_fn_guards / revoke_anon):
+-- função SECURITY DEFINER nunca executável por anon/PUBLIC; espelha a ACL viva.
+REVOKE ALL ON FUNCTION public.fn_hub_frota_indicadores(uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_hub_frota_indicadores(uuid, uuid) TO authenticated, service_role;
