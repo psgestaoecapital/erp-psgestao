@@ -153,7 +153,11 @@ export default function CobrancaPage() {
               </div>}
         </section>
 
-        <p style={{ fontSize: 11, color: TEXTM, marginTop: 14, fontStyle: 'italic' }}>
+        <p style={{ fontSize: 11.5, color: TEXTM, marginTop: 14, display: 'flex', alignItems: 'flex-start' }}>
+          <span>Para corrigir o valor ou a competência de uma cobrança já lançada, <b>estorne</b> e <b>lance novamente</b> — o livro é imutável, e o histórico e a trilha de auditoria ficam preservados (não há &ldquo;Editar&rdquo; de propósito).</span>
+          <AjudaCampo chave="pm.cobranca.correcao" rota={ROTA} />
+        </p>
+        <p style={{ fontSize: 11, color: TEXTM, marginTop: 8, fontStyle: 'italic' }}>
           A emissão da cobrança na Gestão Empresarial (erp_receber / Asaas) é ligada após a régua de não-regressão financeira (RD-53).
         </p>
         <p style={{ fontSize: 10.5, color: TEXTM, marginTop: 6 }}>
