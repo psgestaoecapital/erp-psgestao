@@ -139,3 +139,7 @@ BEGIN
     'clientes', COALESCE(v_rows, '[]'::jsonb)
   );
 END $function$;
+
+-- Harden a função SECURITY DEFINER (espelha a ACL viva: authenticated + service_role; sem anon)
+REVOKE ALL ON FUNCTION public.fn_agency_score_calcular(uuid, uuid, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_agency_score_calcular(uuid, uuid, integer) TO authenticated, service_role;
