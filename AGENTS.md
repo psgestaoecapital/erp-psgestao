@@ -289,9 +289,15 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
 - **Renumeração automática de migration na fila (Eng. Chefe 09/10):** a fila, ao pegar PR com migration nova de versão NÃO
   maior que a última da `main` (recalculada na hora), **renomeia o arquivo** (commit no ramo da PR via API: versão nova =
   timestamp do momento, mantendo os 2 últimos dígitos = faixa do agente) e comenta o que mudou, em vez de recusar. O commit
-  novo roda os checks de novo. **PR revisada (`revisao-eng-chefe`): o patch-id muda, então o revisor precisa autorizar de
-  novo** — a fila tira e recoloca a etiqueta para acordá-lo. Se outro arquivo da PR cita a versão antiga (gate/spec que lê a
-  migration pelo nome), a fila NÃO renumera: recusa como antes e quem fez a PR corrige. Gate: `check-fila-sem-bloqueio.ts`.
+  novo roda os checks de novo. **PR revisada (`revisao-eng-chefe`) — CORRIGIDO Eng. Chefe 02/11:** renumerar só muda o NOME
+  do arquivo; o **patch-id do CONTEÚDO é ESTÁVEL à renumeração** (`scripts/merge/patch-id-lib.sh`, gate
+  `check-fila-patchid-estavel`), então a **autorização do revisor CONTINUA VALENDO** — a fila **mantém a etiqueta** e
+  **NÃO pede nova revisão** por renumeração (registra "autorização mantida: só renumeração"). Antes a fila tirava/recolocava
+  a etiqueta e dizia "o patch-id mudou", um ciclo que fazia a PR voltar a esperar o revisor a cada vez que a `main` avançava
+  — era o que travava a fila crítica. Mudança REAL de conteúdo (SQL ou qualquer outro arquivo) continua mudando o patch-id e
+  exigindo nova autorização. Se outro arquivo da PR cita a versão antiga (gate/spec que lê a
+  migration pelo nome), a fila NÃO renumera: recusa como antes e quem fez a PR corrige. Gates: `check-fila-sem-bloqueio.ts`,
+  `check-fila-renumeracao-mantem-autorizacao.ts` (prova: só-renumeração mantém; mudança real exige nova).
 
 ## Esteira em 2 velocidades (CEO 07/10 08:05) — TEMPORÁRIA, até haver um banco de testes por vaga
 Palavras do CEO: "PR comum publica com checks rápidos + preview verde e a aceitação vira informativa; PR com etiqueta

@@ -795,13 +795,14 @@ renumerar_migrations() {
 - \`${v}_$rest\` → \`${novo}_$rest\`"
   done <<< "$baixas"
   log "#$n: migration(s) renumerada(s) pela fila"
+  # Eng. Chefe 02/11: renumeração só muda o NOME do arquivo; o patch-id do CONTEÚDO é ESTÁVEL à renumeração
+  # (scripts/merge/patch-id-lib.sh, gate check-fila-patchid-estavel), então a autorização do revisor CONTINUA VALENDO.
+  # NÃO tiramos/recolocamos a etiqueta nem pedimos nova revisão por renumeração — era o ciclo que travava a fila
+  # (PR voltava a esperar o revisor a cada vez que a main avançava e a fila re-renumerava). "autorização mantida".
+  [ "$via" = revisada ] && log "#$n: só renumeração (nome do arquivo) — patch-id do conteúdo estável; autorização do gilberto-revisor mantida"
   comentar "$n" "🔢 **Fila de merge:** a migration desta PR estava com versão NÃO maior que a última da main (\`$ult\`); renumerei sozinha (commit no ramo, conteúdo idêntico):$lista
 
-Os checks rodam de novo no commit novo.$([ "$via" = revisada ] && echo " **Via revisada: o patch-id mudou — o gilberto-revisor precisa autorizar de novo (a etiqueta \`$SENSIVEL\` é tirada e recolocada para acordá-lo).")"
-  if [ "$via" = revisada ]; then
-    api -X DELETE "repos/$REPO/issues/$n/labels/$SENSIVEL" > /dev/null 2>&1 || true
-    api -X POST "repos/$REPO/issues/$n/labels" -f "labels[]=$SENSIVEL" > /dev/null 2>&1 || true
-  fi
+Os checks rodam de novo no commit novo.$([ "$via" = revisada ] && echo " **Via revisada: só o NOME do arquivo mudou — o patch-id do CONTEÚDO é estável à renumeração (\`scripts/merge/patch-id-lib.sh\`), então a autorização do \`gilberto-revisor\` CONTINUA VALENDO. Autorização mantida: só renumeração; a etiqueta \`$SENSIVEL\` é preservada e NENHUMA nova revisão é necessária.")"
   return 0
 }
 
