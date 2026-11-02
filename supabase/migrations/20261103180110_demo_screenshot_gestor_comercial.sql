@@ -29,4 +29,12 @@ WHERE u.email = 'screenshot@psgestao.com'
     WHERE t.user_id = u.id
       AND t.company_id = c.id
       AND t.role = 'CLIENT_MANAGER'
-  );
+  )
+-- Idempotência real: a UNIQUE uq_tenant_user_roles_user_company é só (user_id,
+-- company_id) — não inclui role. O NOT EXISTS acima só filtra por CLIENT_MANAGER,
+-- então, num banco onde o viewer já tem OUTRO papel na empresa DEMO (ex.: o seed
+-- do fn_demo_reset na vaga do banco de testes dá CLIENT_OWNER), o INSERT batia na
+-- UNIQUE (SQLSTATE 23505) e quebrava o `supabase db push` da montar-banco-testes.
+-- ON CONFLICT DO NOTHING honra o que o comentário já promete ("não altera papéis
+-- existentes") — e CLIENT_OWNER também satisfaz o v_gestor da fn_crm_desempenho.
+ON CONFLICT (user_id, company_id) DO NOTHING;
