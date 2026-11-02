@@ -29,3 +29,8 @@ BEGIN
 
   RETURN jsonb_build_object('ok', true);
 END $function$;
+
+-- ACL (gate check_fn_guards / regra revoke_anon): função SECURITY DEFINER em migration nova
+-- reafirma a ACL viva no próprio arquivo (EXECUTE só authenticated + service_role; anon/PUBLIC fora).
+REVOKE ALL ON FUNCTION public.fn_calc_historico_restaurar(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_calc_historico_restaurar(uuid) TO authenticated, service_role;
