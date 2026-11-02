@@ -223,7 +223,9 @@ export default function MeuDiaPage() {
                       <span className="flex shrink-0 items-center gap-2">
                         <AjudaCampo chave="pm.dia.anotacao.editar" />
                         <button onClick={() => { setEditId(n.id); setEditTexto(n.texto); }} aria-label="editar" title="editar o texto" data-testid="dia-nota-editar"><Pencil size={14} /></button>
+                        <AjudaCampo chave="pm.dia.anotacao.fixar" />
                         <button onClick={() => void fixarNota(n)} aria-label={n.fixada ? "desafixar" : "fixar"} title={n.fixada ? "desafixar" : "fixar no topo"}>{n.fixada ? <PinOff size={14} /> : <Pin size={14} />}</button>
+                        <AjudaCampo chave="pm.dia.anotacao.arquivar" />
                         <button onClick={() => void arquivarNota(n)} aria-label="arquivar" title="arquivar" data-testid="dia-nota-arquivar"><Archive size={14} /></button>
                       </span>
                     </>
