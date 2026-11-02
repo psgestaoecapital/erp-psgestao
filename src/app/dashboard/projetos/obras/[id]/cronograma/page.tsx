@@ -389,22 +389,31 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
                   </div>
                   <LegendaGantt />
                   <div style={{ minWidth: 560 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: MUT, marginLeft: 160, marginBottom: 6 }}>
-                      <span>{janela && fmt(janela.ini)}</span>{hojeX !== null && <span style={{ color: ESP, fontWeight: 600 }}>hoje {fmt(hoje())}</span>}<span>{janela && fmt(janela.fim)}</span>
+                    {/* eixo do tempo: mesma grade das linhas (152px rótulo · 1fr tempo · auto ações) para a marca "hoje" e as datas baterem com as barras */}
+                    <div style={{ ...gridGantt, marginBottom: 6 }}>
+                      <div />
+                      <div style={{ position: 'relative', height: 14, fontSize: 11, color: MUT }}>
+                        <span style={{ position: 'absolute', left: 0 }}>{janela && fmt(janela.ini)}</span>
+                        {hojeX !== null && <span style={{ position: 'absolute', left: `${hojeX}%`, transform: 'translateX(-50%)', whiteSpace: 'nowrap', color: ESP, fontWeight: 600 }}>hoje {fmt(hoje())}</span>}
+                        <span style={{ position: 'absolute', right: 0 }}>{janela && fmt(janela.fim)}</span>
+                      </div>
+                      <div />
                     </div>
                     {visiveis.map((t) => {
                       const p = predDe(t.id)
                       const atras = !!t.fim_base && t.fim > t.fim_base
+                      const concluida = Number(t.percentual) >= 100
                       const pt = p ? tarefas.find((x) => x.id === p.predecessora_id) : undefined
                       const conflito = !!pt && t.inicio < pt.fim
                       const critica = cpm.criticas.has(t.id), folga = cpm.folga.get(t.id) ?? 0
                       return (
-                        <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderTop: `0.5px solid ${LINE}` }}>
-                          <div style={{ width: 152, flexShrink: 0 }}>
+                        <div key={t.id} style={{ ...gridGantt, padding: '6px 0', borderTop: `0.5px solid ${LINE}` }}>
+                          <div>
                             <div style={{ fontSize: 12.5, fontWeight: 600, color: ESP }}>{t.nome}{critica && <span style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 700, color: VERM, textTransform: 'uppercase', letterSpacing: 0.4 }}>crítica</span>}</div>
                             <div style={{ fontSize: 10.5, color: MUT }}>{fmt(t.inicio)} a {fmt(t.fim)} · {t.percentual}%{p ? ` · após ${nomePorId.get(p.predecessora_id) ?? '—'}` : ''}{!critica ? ` · folga ${folga} d` : ''}</div>
+                            {atras && t.fim_base && <div style={{ fontSize: 10.5, color: VERM, fontWeight: 600 }}>{concluida ? 'terminou' : 'termina'} depois da linha de base ({fmt(t.fim_base)})</div>}
                           </div>
-                          <div style={{ position: 'relative', flex: 1, height: 22 }}>
+                          <div style={{ position: 'relative', height: 22 }}>
                             {hojeX !== null && <div aria-hidden style={{ position: 'absolute', top: -6, bottom: -6, left: `${hojeX}%`, borderLeft: `1px dashed ${MUT}` }} />}
                             {t.inicio_base && t.fim_base && (
                               <div title="Linha de base" style={{ position: 'absolute', top: 15, height: 4, left: `${pos(t.inicio_base)}%`, width: `${larg(t.inicio_base, t.fim_base)}%`, background: LINE, borderRadius: 2 }} />
@@ -529,6 +538,8 @@ const lbl: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap
 const inp: React.CSSProperties = { padding: '9px 10px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 14, color: ESP, background: '#fff', fontWeight: 400 }
 const btn = (principal: boolean): React.CSSProperties => ({ padding: '9px 14px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer', border: `1px solid ${GOLD}`, background: principal ? GOLD : '#fff', color: principal ? '#fff' : '#A57A15' })
 const btnMini: React.CSSProperties = { padding: '5px 8px', borderRadius: 6, fontSize: 11.5, fontWeight: 600, cursor: 'pointer', border: `1px solid ${LINE}`, background: '#fff', color: ESP }
+// grade do Gantt: rótulo (152px) · faixa do tempo (1fr) · ações (auto) — compartilhada pelo eixo de datas e pelas linhas para a marca "hoje" alinhar com as barras
+const gridGantt: React.CSSProperties = { display: 'grid', gridTemplateColumns: '152px 1fr auto', alignItems: 'center', gap: 8 }
 
 function Mini({ label, valor, cor = ESP, ajuda }: { label: string; valor: string; cor?: string; ajuda: string }) {
   return (
