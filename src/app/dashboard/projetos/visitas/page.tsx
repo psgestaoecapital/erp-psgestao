@@ -113,6 +113,7 @@ export default function VisitasPage() {
   const [capturandoGps, setCapturandoGps] = useState<string | null>(null)
   const [desfazerVisita, setDesfazerVisita] = useState<string | null>(null)
   const [excluindoVisita, setExcluindoVisita] = useState<string | null>(null)
+  const [marcandoRealizada, setMarcandoRealizada] = useState<string | null>(null)
 
   // Quantos anexos (erp_crm_anexo, vínculo visita) cada visita tem. Falha aqui não esconde a lista: só não mostra o número.
   const contarAnexos = useCallback(async (ids: string[]) => {
@@ -253,6 +254,30 @@ export default function VisitasPage() {
     )
   }
 
+  // Marca a visita como REALIZADA sem abrir o formulário (ação rápida do "Passou da data" / próximo passo).
+  // Reusa a mesma RPC guardada do formulário, repetindo os dados atuais e trocando só o status.
+  async function marcarRealizada(r: Row) {
+    setMarcandoRealizada(r.id)
+    const { data, error } = await supabase.rpc('fn_crm_visita_salvar', {
+      p_id: r.id,
+      p_oportunidade_id: r.oportunidade_id,
+      p_data_visita: r.data_visita,
+      p_responsavel_id: r.responsavel_id,
+      p_responsavel_nome: r.responsavel_id ? null : r.responsavel_nome,
+      p_status: 'realizada',
+      p_endereco: r.endereco,
+      p_anotacoes: r.anotacoes,
+      p_gps_lat: r.gps_lat,
+      p_gps_lng: r.gps_lng,
+      p_fotos: r.fotos ?? [],
+    })
+    setMarcandoRealizada(null)
+    const res = data as { ok?: boolean } | null
+    if (error || !res?.ok) { setToast('Não foi possível marcar como realizada agora. Tente de novo em instantes.'); return }
+    setToast('Visita marcada como REALIZADA.')
+    reload()
+  }
+
   function abrirEdicao(r: Row) {
     setEditing({
       id: r.id,
@@ -321,7 +346,7 @@ export default function VisitasPage() {
         ))}
       </div>
 
-      <div className="flex flex-wrap gap-2 mb-4 items-center">
+      <div className="flex flex-wrap gap-2 mb-3 items-center">
         <label className="flex items-center gap-1 text-xs grow" style={{ minWidth: 220 }}>
           <input
             type="search"
@@ -411,9 +436,15 @@ export default function VisitasPage() {
                     {r.endereco && <> · {r.endereco}</>}
                   </div>
                 </div>
-                <span className="text-[11px] px-2 py-1 rounded-full font-medium" style={{ background: cfg.bg, color: cfg.fg }}>
-                  {cfg.l}
-                </span>
+                {atrasada(r, agora) ? (
+                  <span className="text-[11px] px-2 py-1 rounded-full font-medium" style={{ background: '#F4D6D6', color: '#7A1F1F' }} data-testid="visita-badge" title="Visita agendada cuja data já passou">
+                    Agendada · atrasada
+                  </span>
+                ) : (
+                  <span className="text-[11px] px-2 py-1 rounded-full font-medium" style={{ background: cfg.bg, color: cfg.fg }} data-testid="visita-badge">
+                    {cfg.l}
+                  </span>
+                )}
               </div>
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs" style={{ color: TEXTM }}>
                 <span data-testid="visita-responsavel">Responsável: {resp ?? 'sem responsável'}</span>
@@ -474,6 +505,21 @@ export default function VisitasPage() {
               )}
               <div className="mt-3 flex gap-2 flex-wrap items-center">
                 <button onClick={() => abrirEdicao(r)} style={btnSec}>Editar</button>
+                {r.status === 'agendada' && (
+                  <>
+                    <button
+                      onClick={() => marcarRealizada(r)}
+                      disabled={marcandoRealizada === r.id}
+                      style={btnPrim}
+                      data-testid="visita-marcar-realizada"
+                    >
+                      {marcandoRealizada === r.id ? 'Marcando…' : '✓ Marcar realizada'}
+                    </button>
+                    <button onClick={() => abrirEdicao(r)} style={btnSec} data-testid="visita-reagendar">
+                      {atrasada(r, agora) ? 'Reagendar' : 'Alterar data'}
+                    </button>
+                  </>
+                )}
                 {semOrcamento(r) && (
                   <button
                     onClick={() => gerarOrcamento(r)}

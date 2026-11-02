@@ -2,7 +2,7 @@
 
 // HB1 · Resultado por obra (fatia 2) — lê v_obra_resultado (receita serviço + material, custo material + viagens,
 // previsto × realizado). Só leitura. 3 estados: erro / vazio (ensina) / dados. Linha "Consolidado" no fim. Excel (CSV) e PDF (impressão do navegador).
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { fmtR, fmtPct as fmtPctBase } from '@/lib/psgc-tokens'
 import { supabase } from '@/lib/supabase'
@@ -19,6 +19,18 @@ type Linha = {
   custo_mao_obra?: number; custo_rateio?: number; margem_alocada?: number
   faturado?: number
 }
+
+// Drilldown por item de escopo (fn_obra_escopo): orçamento → contrato → medição → custo, item a item.
+type EscopoItem = {
+  id: string; ordem: number; descricao: string; unidade: string | null
+  quantidade_contratada: number; quantidade_medida: number; pct_medido: number
+  preco_unitario: number; valor_contratado: number; valor_medido: number; custo_unitario_previsto: number
+}
+type EscopoResp = {
+  ok: boolean; erro?: string; itens?: EscopoItem[]; total_itens?: number
+  valor_contratado?: number; valor_medido?: number; valor_a_medir?: number; custo_previsto?: number; pct_fisico?: number
+}
+type EstadoEscopo = { loading: boolean; erro: string; dados: EscopoResp | null }
 
 const n = (v: unknown) => Number(v ?? 0)
 // Receita realizada: medição + material da view; se a view ainda não tem nada, usa o faturado (NFS-e autorizada, fn_obras_receita).
@@ -52,6 +64,22 @@ export default function ResultadoObrasPage() {
   const [busca, setBusca] = useState('')
   const [status, setStatus] = useState('')
   const [pagina, setPagina] = useState(0)
+  // Drilldown por item de escopo: quais obras estão abertas e o escopo já carregado (lazy, só ao expandir).
+  const [aberta, setAberta] = useState<Set<string>>(new Set())
+  const [escopo, setEscopo] = useState<Record<string, EstadoEscopo>>({})
+
+  const alternarItens = useCallback(async (obraId: string) => {
+    const abrindo = !aberta.has(obraId)
+    setAberta(prev => { const s = new Set(prev); if (abrindo) s.add(obraId); else s.delete(obraId); return s })
+    if (!abrindo || escopo[obraId]?.dados || escopo[obraId]?.loading) return
+    setEscopo(prev => ({ ...prev, [obraId]: { loading: true, erro: '', dados: null } }))
+    try {
+      const r = await supabase.rpc('fn_obra_escopo', { p_obra_id: obraId })
+      if (r.error) { setEscopo(prev => ({ ...prev, [obraId]: { loading: false, erro: r.error!.message, dados: null } })); return }
+      const dados = (r.data ?? null) as EscopoResp | null
+      setEscopo(prev => ({ ...prev, [obraId]: { loading: false, erro: dados && dados.ok === false ? (dados.erro ?? 'sem_acesso') : '', dados } }))
+    } catch { setEscopo(prev => ({ ...prev, [obraId]: { loading: false, erro: MSG_CARREGAMENTO_FALHOU, dados: null } })) }
+  }, [aberta, escopo])
 
   const carregar = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
@@ -150,8 +178,12 @@ export default function ResultadoObrasPage() {
             {/* celular (< md): um cartão por obra + o consolidado, sem rolagem lateral (HB0 · correção 9). A impressão usa a tabela. */}
             <div className="md:hidden no-print" data-testid="resultado-cartoes" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {daPagina.map(l => (
-                <CartaoObra key={l.obra_id} obraId={l.obra_id} titulo={`${l.numero} · ${l.nome}`} receita={receita(l)} custo={custo(l)} material={n(l.custo_material)} viagens={n(l.custo_viagens)} maoObra={n(l.custo_mao_obra)} rateio={n(l.custo_rateio)}
-                  margem={margem(l)} prevista={n(l.receita_prevista)} custoPrev={n(l.custo_previsto)} sem={semMedicao(l)} pct={pctPrevisto(l)} sit={situacaoObra(l)} />
+                <div key={l.obra_id} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <CartaoObra obraId={l.obra_id} titulo={`${l.numero} · ${l.nome}`} receita={receita(l)} custo={custo(l)} material={n(l.custo_material)} viagens={n(l.custo_viagens)} maoObra={n(l.custo_mao_obra)} rateio={n(l.custo_rateio)}
+                    margem={margem(l)} prevista={n(l.receita_prevista)} custoPrev={n(l.custo_previsto)} sem={semMedicao(l)} pct={pctPrevisto(l)} sit={situacaoObra(l)}
+                    aberto={aberta.has(l.obra_id)} onVerItens={() => alternarItens(l.obra_id)} />
+                  {aberta.has(l.obra_id) && <DrilldownEscopo mobile estado={escopo[l.obra_id]} onRecarregar={() => alternarItens(l.obra_id)} />}
+                </div>
               ))}
               <CartaoObra destaque titulo="Consolidado" receita={total.receita} custo={total.custo} material={visiveis.reduce((a, l) => a + n(l.custo_material), 0)} viagens={visiveis.reduce((a, l) => a + n(l.custo_viagens), 0)} maoObra={visiveis.reduce((a, l) => a + n(l.custo_mao_obra), 0)} rateio={visiveis.reduce((a, l) => a + n(l.custo_rateio), 0)}
                 margem={total.margem} prevista={total.prevista} custoPrev={total.custoPrev} />
@@ -165,9 +197,14 @@ export default function ResultadoObrasPage() {
                   <th style={th}>Mão de obra <AjudaCampo chave="projetos.resultado_obra.mao_obra" /></th><th style={th}>Custo fixo rateado <AjudaCampo chave="projetos.resultado_obra.custo_rateio" /></th><th style={th}>Situação <AjudaCampo chave="projetos.resultado_obra.situacao" /></th><th style={th}>Margem <AjudaCampo chave="projetos.resultado_obra.margem" /></th><th style={th}>Margem % <AjudaCampo chave="projetos.resultado_obra.margem_pct" /></th><th style={th}>Receita prevista <AjudaCampo chave="projetos.resultado_obra.receita_prevista" /></th><th style={th}>Custo previsto <AjudaCampo chave="projetos.resultado_obra.custo_previsto" /></th>
                 </tr></thead>
                 <tbody>
-                  {daPagina.map(l => (
-                    <tr key={l.obra_id} style={{ borderBottom: `1px solid ${LINE}` }}>
+                  {daPagina.map(l => {
+                    const open = aberta.has(l.obra_id)
+                    return (
+                    <Fragment key={l.obra_id}>
+                    <tr style={{ borderBottom: `1px solid ${LINE}` }}>
                       <td style={{ ...td, ...fixa, textAlign: 'left' }}>
+                        <button data-testid="resultado-ver-itens" onClick={() => alternarItens(l.obra_id)} aria-expanded={open} title={open ? 'Ocultar itens do escopo' : 'Ver itens do escopo'}
+                          style={{ border: 'none', background: 'none', cursor: 'pointer', color: GOLD, fontSize: 12, padding: '0 6px 0 0', lineHeight: 1 }}>{open ? '▾' : '▸'}</button>
                         <Link href={cockpit(l.obra_id)} style={{ color: GOLD, textDecoration: 'none' }} title="Abrir o cockpit da obra">{l.numero} · {l.nome}</Link>
                       </td>
                       <td style={td}>{fmtR(receita(l))}</td><td style={td}>{fmtR(custo(l))}</td>
@@ -180,7 +217,16 @@ export default function ResultadoObrasPage() {
                           <td style={{ ...td, color: cor(margem(l)) }}>{fmtPct(margemPct(receita(l), margem(l)))}</td></>}
                       <td style={td}>{fmtR(n(l.receita_prevista))}<Barra pct={pctPrevisto(l)} /></td><td style={td}>{fmtR(n(l.custo_previsto))}</td>
                     </tr>
-                  ))}
+                    {open && (
+                      <tr data-testid="resultado-itens-linha">
+                        <td colSpan={12} style={{ padding: 0, background: '#FBF9F5', borderBottom: `1px solid ${LINE}` }}>
+                          <DrilldownEscopo estado={escopo[l.obra_id]} onRecarregar={() => alternarItens(l.obra_id)} />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
+                    )
+                  })}
                   <tr data-testid="resultado-consolidado" style={{ fontWeight: 700 }}>
                     <td style={{ ...td, ...fixa, textAlign: 'left' }}>Consolidado</td>
                     <td style={td}>{fmtR(total.receita)}</td><td style={td}>{fmtR(total.custo)}</td>
@@ -203,8 +249,8 @@ export default function ResultadoObrasPage() {
 
 // Cartão da obra no celular: margem em destaque (verde/vermelho), realizado × previsto em pares. O "?" de cada
 // número fica no cartão Consolidado (mesmas chaves da tabela), para não repetir em cada obra.
-function CartaoObra({ obraId, titulo, receita, custo, material, viagens, maoObra, rateio, margem, prevista, custoPrev, destaque, sem, pct: pctPrev, sit }: {
-  obraId?: string; titulo: string; receita: number; custo: number; material: number; viagens: number; maoObra: number; rateio: number; margem: number; prevista: number; custoPrev: number; destaque?: boolean; sem?: boolean; pct?: number | null; sit?: { rot: string; cor: string }
+function CartaoObra({ obraId, titulo, receita, custo, material, viagens, maoObra, rateio, margem, prevista, custoPrev, destaque, sem, pct: pctPrev, sit, aberto, onVerItens }: {
+  obraId?: string; titulo: string; receita: number; custo: number; material: number; viagens: number; maoObra: number; rateio: number; margem: number; prevista: number; custoPrev: number; destaque?: boolean; sem?: boolean; pct?: number | null; sit?: { rot: string; cor: string }; aberto?: boolean; onVerItens?: () => void
 }) {
   const pct = margemPct(receita, margem)
   const par = (rot: string, v: number, chave?: string) => (
@@ -234,6 +280,112 @@ function CartaoObra({ obraId, titulo, receita, custo, material, viagens, maoObra
       </div>
       {sit && <div data-testid="resultado-situacao-cartao" style={{ fontSize: 12, fontWeight: 600, color: sit.cor, marginTop: 8 }}>{sit.rot}</div>}
       {pctPrev != null && <Barra pct={pctPrev} />}
+      {obraId && onVerItens && (
+        <button data-testid="resultado-ver-itens-cartao" onClick={onVerItens} aria-expanded={!!aberto}
+          style={{ marginTop: 10, width: '100%', padding: '8px 10px', border: `1px solid ${LINE}`, background: '#fff', borderRadius: 8, color: GOLD, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+          {aberto ? '▾ Ocultar itens do escopo' : '▸ Ver itens do escopo'}
+        </button>
+      )}
+    </div>
+  )
+}
+
+// Drilldown por item de escopo da obra (fn_obra_escopo): contrato → medição → custo, item a item.
+// Sem nova tela (RD-99): abre embaixo da linha/cartão. Só leitura.
+const fmtQ = (v: number) => new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 2 }).format(n(v))
+function DrilldownEscopo({ estado, onRecarregar, mobile }: { estado?: EstadoEscopo; onRecarregar: () => void; mobile?: boolean }) {
+  const pad = mobile ? 10 : 14
+  if (!estado || estado.loading) return <div data-testid="resultado-itens-carregando" style={{ padding: pad, fontSize: 13, color: MUT }}>Carregando itens do escopo…</div>
+  if (estado.erro) return (
+    <div data-testid="resultado-itens-erro" role="alert" style={{ padding: pad, fontSize: 13, color: VERM }}>
+      Não deu para carregar os itens.{' '}
+      <button onClick={onRecarregar} style={{ color: GOLD, background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Tentar de novo</button>
+    </div>
+  )
+  const d = estado.dados
+  const itens = d?.itens ?? []
+  const titulo = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12.5, fontWeight: 700, marginBottom: 8 }}>
+      Itens do escopo <AjudaCampo chave="projetos.resultado_obra.itens" />
+      <span style={{ fontWeight: 400, color: MUT }}>· contrato → medição → custo</span>
+    </div>
+  )
+  if (!itens.length) return (
+    <div data-testid="resultado-itens-vazio" style={{ padding: pad }}>
+      {titulo}
+      <p style={{ fontSize: 13, color: MUT, margin: 0 }}>Esta obra ainda não tem itens de escopo contratados. Os itens nascem do orçamento aprovado que gera a obra.</p>
+    </div>
+  )
+  // celular: lista empilhada (sem rolagem lateral — HB0 correção 9).
+  if (mobile) return (
+    <div data-testid="resultado-itens-lista" style={{ background: '#FBF9F5', border: `1px solid ${LINE}`, borderRadius: 12, padding: pad }}>
+      {titulo}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: MUT, flexWrap: 'wrap', marginBottom: 6 }}>
+        <AjudaCampo chave="projetos.resultado_obra.item_qtd_contratada" /><AjudaCampo chave="projetos.resultado_obra.item_qtd_medida" />
+        <AjudaCampo chave="projetos.resultado_obra.item_pct_medido" /><AjudaCampo chave="projetos.resultado_obra.item_preco_unit" />
+        <AjudaCampo chave="projetos.resultado_obra.item_valor_contratado" /><AjudaCampo chave="projetos.resultado_obra.item_valor_medido" />
+        <AjudaCampo chave="projetos.resultado_obra.item_custo_previsto" />
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {itens.map(it => (
+          <div key={it.id} style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10, padding: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, overflowWrap: 'anywhere' }}>{it.descricao || 'Item'} {it.unidade ? <span style={{ color: MUT, fontWeight: 400 }}>({it.unidade})</span> : null}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 12px', marginTop: 8, fontSize: 12.5 }}>
+              <div><span style={{ color: MUT }}>Contratada</span><div>{fmtQ(it.quantidade_contratada)}</div></div>
+              <div><span style={{ color: MUT }}>Medida</span><div>{fmtQ(it.quantidade_medida)} <span style={{ color: n(it.pct_medido) >= 100 ? VERDE : MUT }}>({fmtQ(it.pct_medido)}%)</span></div></div>
+              <div><span style={{ color: MUT }}>Preço unit.</span><div>{fmtR(it.preco_unitario)}</div></div>
+              <div><span style={{ color: MUT }}>Contratado</span><div>{fmtR(it.valor_contratado)}</div></div>
+              <div><span style={{ color: MUT }}>Medido</span><div style={{ fontWeight: 600 }}>{fmtR(it.valor_medido)}</div></div>
+              <div><span style={{ color: MUT }}>Custo previsto</span><div>{fmtR(n(it.quantidade_contratada) * n(it.custo_unitario_previsto))}</div></div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ fontSize: 12.5, fontWeight: 700, marginTop: 8 }}>Total medido: {fmtR(n(d?.valor_medido))} de {fmtR(n(d?.valor_contratado))} contratados · {fmtQ(n(d?.pct_fisico))}% físico</div>
+    </div>
+  )
+  // desktop: tabela compacta.
+  const sth: React.CSSProperties = { textAlign: 'right', padding: '6px 8px', fontSize: 11.5, color: MUT, fontWeight: 600, whiteSpace: 'nowrap' }
+  const std: React.CSSProperties = { textAlign: 'right', padding: '6px 8px', fontSize: 12.5, whiteSpace: 'nowrap' }
+  return (
+    <div style={{ padding: 14 }}>
+      {titulo}
+      <div style={{ overflowX: 'auto', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10 }}>
+        <table data-testid="resultado-itens-tabela" style={{ width: '100%', minWidth: 760, borderCollapse: 'collapse' }}>
+          <thead><tr style={{ borderBottom: `1px solid ${LINE}` }}>
+            <th style={{ ...sth, textAlign: 'left' }}>Item</th>
+            <th style={{ ...sth, textAlign: 'left' }}>Un.</th>
+            <th style={sth}>Qtd contratada <AjudaCampo chave="projetos.resultado_obra.item_qtd_contratada" /></th>
+            <th style={sth}>Qtd medida <AjudaCampo chave="projetos.resultado_obra.item_qtd_medida" /></th>
+            <th style={sth}>% medido <AjudaCampo chave="projetos.resultado_obra.item_pct_medido" /></th>
+            <th style={sth}>Preço unit. <AjudaCampo chave="projetos.resultado_obra.item_preco_unit" /></th>
+            <th style={sth}>Valor contratado <AjudaCampo chave="projetos.resultado_obra.item_valor_contratado" /></th>
+            <th style={sth}>Valor medido <AjudaCampo chave="projetos.resultado_obra.item_valor_medido" /></th>
+            <th style={sth}>Custo previsto <AjudaCampo chave="projetos.resultado_obra.item_custo_previsto" /></th>
+          </tr></thead>
+          <tbody>
+            {itens.map(it => (
+              <tr key={it.id} style={{ borderBottom: `1px solid ${LINE}` }}>
+                <td style={{ ...std, textAlign: 'left', whiteSpace: 'normal' }}>{it.descricao || 'Item'}</td>
+                <td style={{ ...std, textAlign: 'left' }}>{it.unidade || '—'}</td>
+                <td style={std}>{fmtQ(it.quantidade_contratada)}</td>
+                <td style={std}>{fmtQ(it.quantidade_medida)}</td>
+                <td style={{ ...std, color: n(it.pct_medido) >= 100 ? VERDE : ESP }}>{fmtQ(it.pct_medido)}%</td>
+                <td style={std}>{fmtR(it.preco_unitario)}</td>
+                <td style={std}>{fmtR(it.valor_contratado)}</td>
+                <td style={{ ...std, fontWeight: 600 }}>{fmtR(it.valor_medido)}</td>
+                <td style={std}>{fmtR(n(it.quantidade_contratada) * n(it.custo_unitario_previsto))}</td>
+              </tr>
+            ))}
+            <tr data-testid="resultado-itens-total" style={{ fontWeight: 700 }}>
+              <td style={{ ...std, textAlign: 'left' }} colSpan={6}>Total ({d?.total_itens ?? itens.length} {(d?.total_itens ?? itens.length) === 1 ? 'item' : 'itens'}) · {fmtQ(n(d?.pct_fisico))}% físico</td>
+              <td style={std}>{fmtR(n(d?.valor_contratado))}</td>
+              <td style={std}>{fmtR(n(d?.valor_medido))}</td>
+              <td style={std}>{fmtR(n(d?.custo_previsto))}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

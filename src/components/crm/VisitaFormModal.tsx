@@ -227,7 +227,7 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
           <div style={{ ...lblTxt, marginBottom: 8 }}>Editando visita já registrada.</div>
         ) : (
           <label style={lbl}>
-            Cliente *
+            <span style={rotAjuda}>Cliente * <AjudaCampo chave="projetos.visitas.form.cliente" /></span>
             <Combobox
               value={clienteId}
               onChange={setClienteId}
@@ -241,11 +241,11 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
 
         <div style={grid}>
           <label style={lbl}>
-            Data / hora *
+            <span style={rotAjuda}>Data / hora * <AjudaCampo chave="projetos.visitas.form.data" /></span>
             <input type="datetime-local" value={data} onChange={(e) => setData(e.target.value)} style={inp} />
           </label>
           <label style={lbl}>
-            Status
+            <span style={rotAjuda}>Status <AjudaCampo chave="projetos.visitas.form.status" /></span>
             <select value={status} onChange={(e) => setStatus(e.target.value as typeof status)} style={inp}>
               <option value="agendada">agendada</option>
               <option value="realizada">realizada</option>
@@ -253,7 +253,7 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
             </select>
           </label>
           <label style={lbl}>
-            Responsável
+            <span style={rotAjuda}>Responsável <AjudaCampo chave="projetos.visitas.form.responsavel" /></span>
             <Combobox
               value={responsavelId}
               onChange={setResponsavelId}
@@ -263,7 +263,7 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
             />
           </label>
           <label style={lbl}>
-            ou nome (sem login)
+            <span style={rotAjuda}>ou nome (sem login) <AjudaCampo chave="projetos.visitas.form.responsavel_nome" /></span>
             <input
               value={responsavelNome}
               onChange={(e) => setResponsavelNome(e.target.value)}
@@ -275,12 +275,12 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
         </div>
 
         <label style={{ ...lbl, marginTop: 10 }}>
-          Endereço
+          <span style={rotAjuda}>Endereço <AjudaCampo chave="projetos.visitas.form.endereco" /></span>
           <input value={endereco} onChange={(e) => setEndereco(e.target.value)} style={inp} placeholder="rua, nº, bairro" />
         </label>
 
         <label style={{ ...lbl, marginTop: 10 }}>
-          Anotações
+          <span style={rotAjuda}>Anotações <AjudaCampo chave="projetos.visitas.form.anotacoes" /></span>
           <textarea
             rows={3}
             value={anotacoes}
@@ -459,6 +459,7 @@ const grid: CSSProperties = {
 }
 const lbl: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: TEXTM }
 const lblTxt: CSSProperties = { fontSize: 12, color: TEXTM, marginBottom: 4 }
+const rotAjuda: CSSProperties = { display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: TEXTM }
 const inp: CSSProperties = {
   border: `1px solid ${BORDA}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, minHeight: 40,
   background: '#fff', color: ESPRESSO,

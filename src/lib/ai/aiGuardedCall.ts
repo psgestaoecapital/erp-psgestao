@@ -6,6 +6,7 @@
 // toggle e o teto da clínica (fn_ia_empresa_pode_gastar) ANTES do teto global, e registra o gasto por
 // empresa (fn_ia_empresa_registrar_gasto) além do global. DEFAULT ON: ausência de linha = habilitado.
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { iaBudgetStatus } from '@/lib/aiModel'
 
 // desativado = a clínica DESLIGOU a feature (degradação honesta, não é erro nem limite de custo).
 // pausado   = algum teto de custo (da clínica OU global da PS) travou hoje.
@@ -18,6 +19,13 @@ export async function aiGuardedCall<T>(
   sb: SupabaseClient,
   opts: { origem: string; custoEstimado: number; companyId?: string; feature?: string; run: () => Promise<{ result: T; custoReal?: number }> },
 ): Promise<GuardaResultado<T>> {
+  // 0) P0 CUSTO (CEO 01/11): porteiro ÚNICO do controle GLOBAL anthropic_budget_control
+  //    (pausado / gold_pausado / limites de custo dia-mês). FAIL-CLOSED: se o controle não puder
+  //    ser lido, trata como bloqueado. Cobre toda feature que passa por este helper, independentemente
+  //    do teto RD-42/57 por clínica/robô abaixo — nenhuma chamada de IA paga escapa do bloqueio.
+  const p0 = await iaBudgetStatus()
+  if (p0.bloqueado) return { pausado: true, motivo: p0.motivo }
+
   // 1) toggle + teto da clínica (só quando temos companyId+feature). habilitado=false → desativado (honesto);
   //    pode=false → pausado (teto da clínica). Se a própria checagem falhar, NÃO trava a feature (best-effort).
   if (opts.companyId && opts.feature) {

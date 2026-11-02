@@ -92,6 +92,8 @@ interface Props {
   // #35 · MEDIÇÃO: parcelas do pedido que esta nota fatura. O valor da nota é a SOMA delas (travado) e o
   // financeiro dessas parcelas nasce na autorização — ou fica previsto, se a pessoa desmarcar.
   medicao?: { parcelaIds: string[]; valor: number; rotulo: string }
+  // #3774 · texto inicial das informações complementares (ex.: OS, modelo e placa do veículo da OS) — editável.
+  observacoesIniciais?: string
 }
 
 // RD-95: o modal abre em várias telas (OS, pedido, contas a receber, NFS-e) — os "?" usam uma rota própria de ajuda.
@@ -151,7 +153,7 @@ export default function NFSeEmitirGovModal({
   tomadorDocumento, tomadorTipo, tomadorNome, tomadorEmail, tomadorClienteId,
   descricaoServico, codigoServicoMunicipio, codigoLC116, aliquotaIss, valorServicos,
   servicoId, issNoLocalPrestacao = false, obraId, municipioPrestacaoIbge, municipioPrestacaoLabel,
-  permitirObra = false, pedidoId, pedidoNumero, medicao,
+  permitirObra = false, pedidoId, pedidoNumero, medicao, observacoesIniciais,
 }: Props) {
   // FIX-NFSE-AMBIENTE-SEM-ESCOLHA-v1 (chamado #16, sugestão do Rodrigo): o ambiente NÃO é escolha na
   // emissão — vem da configuração da empresa. "Pensando como leigo, essa opção de alterar de homologação
@@ -348,7 +350,7 @@ export default function NFSeEmitirGovModal({
     setValor(valorSeed)
     setCodigoTrib(codTribSeed)
     setAliquota(aliquotaSeed)
-    setObservacoes('')
+    setObservacoes(observacoesIniciais?.trim() || '')
     setGerarFinMedicao(true)
     setFase('form')
     setResultado(null)
@@ -363,7 +365,7 @@ export default function NFSeEmitirGovModal({
     setNfseIdGerado(null); setFinRet({ iss: '', irrf: '', pis: '', cofins: '', csll: '', inss: '', deducoes: '', desconto: '' })
     setFinVenc(''); setFinFase('idle'); setFinMsg(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aberto, producaoDisponivel, tomadorTipo, tomadorDocumento, tomadorNome, tomadorClienteId, descricaoServico, valorServicos, aliquotaIss, codigoServicoMunicipio, codigoLC116])
+  }, [aberto, producaoDisponivel, tomadorTipo, tomadorDocumento, tomadorNome, tomadorClienteId, descricaoServico, valorServicos, aliquotaIss, codigoServicoMunicipio, codigoLC116, observacoesIniciais])
 
   // Item 2 (print Rodrigo) · em PRODUÇÃO, se o tomador for um usuário da própria empresa (mesmo CPF),
   // avisa que a nota é REAL para si mesmo — não bloqueia, só alerta (best-effort; falha silenciosa = sem aviso).

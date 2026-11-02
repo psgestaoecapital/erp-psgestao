@@ -4,10 +4,18 @@
 // (sem upload de DWG/planta). Fluxo em 3 passos: (1) novo take-off → (2) ambientes+áreas+serviços →
 // (3) gerar orçamento e ver o BOM/mão-de-obra sair sozinho. Zero backend novo, zero migration.
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Ruler, Plus, Check, Sparkles, AlertTriangle } from 'lucide-react'
+import { Ruler, Plus, Check, Sparkles, AlertTriangle, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { comPrazo } from '@/lib/comPrazo'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
+
+// HB0 / RD-98 p2 (auditor F20): esta tela nunca mostra erro cru do Postgres (ex.: "null value in column
+// unidade"). Aviso que nós mesmos escrevemos (já em português) passa como está; erro de banco/rede/RPC passa
+// por erroAmigavel com uma mensagem de contexto. Mesma doutrina da tela gêmea (Take-off por IA).
+class AvisoTela extends Error {}
+const falhaTela = (e: unknown, contexto = 'Não foi possível concluir o take-off. Tente de novo.') =>
+  (e instanceof AvisoTela ? e.message : erroAmigavel(e, contexto))
 
 function useEmpresaSelecionada(): { companyId: string | null } {
   const [companyId, setCompanyId] = useState<string | null>(null)
@@ -94,7 +102,7 @@ export default function EngenhariaPage() {
   const recarregarAmbientes = useCallback(async (plantaId: string) => {
     const { data } = await supabase.from('erp_obra_planta_ambiente')
       .select('id,nome,area_m2,perimetro_ml,pe_direito_m,confirmado,servico_id,base_calculo')
-      .eq('planta_id', plantaId).order('nome')
+      .eq('planta_id', plantaId).is('deleted_at', null).order('nome')
     setAmbientes((data as Ambiente[]) ?? [])
   }, [])
 
@@ -116,7 +124,7 @@ export default function EngenhariaPage() {
       setMsg((j.sugeridos ?? 0) > 0
         ? `${j.sugeridos} ambiente(s) receberam serviço sugerido — a base de cálculo foi ajustada pela unidade. Confira e confirme (a IA sugere, você confirma).`
         : 'Nenhuma sugestão encontrada. Cadastre palavras-chave dos serviços no Catálogo (ex.: "sala" → Forro).')
-    } catch (e) { setErro((e as Error).message || String(e)) } finally { setBusy(false) }
+    } catch (e) { setErro(falhaTela(e, 'Não foi possível sugerir serviços. Tente de novo.')) } finally { setBusy(false) }
   }
 
   // Passo 1 · novo take-off manual (sem DWG). fn_takeoff_planta_salvar aceita arquivo 'manual'.
@@ -136,7 +144,7 @@ export default function EngenhariaPage() {
       await abrirPlanta({ id, nome, status: 'rascunho', created_at: new Date(0).toISOString() })
       setNovoAberto(false); setNovoNome('')
       setMsg('Take-off criado. Adicione ambientes e vincule serviços.')
-    } catch (e) { setErro((e as Error).message || String(e)) } finally { setBusy(false) }
+    } catch (e) { setErro(falhaTela(e, 'Não foi possível criar o take-off. Tente de novo.')) } finally { setBusy(false) }
   }
 
   // Passo 2 · atualizar ambiente (serviço, base, confirmar, medidas) — mesma RPC do takeoff IA.
@@ -144,16 +152,24 @@ export default function EngenhariaPage() {
     const next = { ...a, ...patch }
     setAmbientes((prev) => prev.map((x) => (x.id === a.id ? next : x)))
     if (!companyId) return
-    await supabase.rpc('fn_takeoff_ambiente_atualizar', {
-      p_company_id: companyId, p_id: a.id,
-      p_nome: next.nome, p_area_m2: next.area_m2, p_perimetro_ml: next.perimetro_ml, p_pe_direito_m: next.pe_direito_m,
-      p_servico_id: next.servico_id, p_base_calculo: next.base_calculo, p_confirmado: next.confirmado,
-    })
-    // Ao trocar o serviço, o trigger ajusta a base pela unidade — reflete o valor REAL do banco (RD-51).
-    if ('servico_id' in patch) {
-      const { data } = await supabase.from('erp_obra_planta_ambiente').select('base_calculo').eq('id', a.id).single()
-      const base = (data as { base_calculo?: BaseCalc } | null)?.base_calculo
-      if (base) setAmbientes((prev) => prev.map((x) => (x.id === a.id ? { ...x, base_calculo: base } : x)))
+    setErro(null)
+    try {
+      const { error } = await supabase.rpc('fn_takeoff_ambiente_atualizar', {
+        p_company_id: companyId, p_id: a.id,
+        p_nome: next.nome, p_area_m2: next.area_m2, p_perimetro_ml: next.perimetro_ml, p_pe_direito_m: next.pe_direito_m,
+        p_servico_id: next.servico_id, p_base_calculo: next.base_calculo, p_confirmado: next.confirmado,
+      })
+      if (error) throw error
+      // Ao trocar o serviço, o trigger ajusta a base pela unidade — reflete o valor REAL do banco (RD-51).
+      if ('servico_id' in patch) {
+        const { data } = await supabase.from('erp_obra_planta_ambiente').select('base_calculo').eq('id', a.id).single()
+        const base = (data as { base_calculo?: BaseCalc } | null)?.base_calculo
+        if (base) setAmbientes((prev) => prev.map((x) => (x.id === a.id ? { ...x, base_calculo: base } : x)))
+      }
+    } catch (e) {
+      // Falhou no servidor: desfaz a mudança otimista e avisa em linguagem de usuário (nunca erro cru).
+      setAmbientes((prev) => prev.map((x) => (x.id === a.id ? a : x)))
+      setErro(falhaTela(e, 'Não foi possível salvar a alteração do ambiente. Tente de novo.'))
     }
   }
 
@@ -170,7 +186,40 @@ export default function EngenhariaPage() {
       setAddAberto(false)
       await recarregarAmbientes(planta.id)
       setMsg('Ambiente adicionado. Vincule um serviço e confirme.')
-    } catch (e) { setErro((e as Error).message || String(e)) } finally { setBusy(false) }
+    } catch (e) { setErro(falhaTela(e, 'Não foi possível adicionar o ambiente. Tente de novo.')) } finally { setBusy(false) }
+  }
+
+  // Passo 2 · excluir ambiente (RD-98 p4: soft-delete rastreável via RPC guardada + audit_log).
+  const excluirAmbiente = async (a: Ambiente) => {
+    if (!companyId || !planta) return
+    if (!window.confirm(`Excluir o ambiente "${a.nome}"? Ele sai do cálculo do orçamento. A exclusão fica registrada e é reversível.`)) return
+    setBusy(true); setErro(null); setMsg(null)
+    try {
+      const { data, error } = await supabase.rpc('fn_takeoff_ambiente_excluir', { p_company_id: companyId, p_id: a.id })
+      if (error) throw error
+      const j = data as { ok?: boolean; erro?: string } | null
+      if (!j?.ok) { setErro(j?.erro === 'nao_encontrado' ? 'Ambiente não encontrado (talvez já excluído).' : (j?.erro ?? 'Falha ao excluir ambiente.')); return }
+      await recarregarAmbientes(planta.id)
+      setMsg(`Ambiente "${a.nome}" excluído.`)
+    } catch (e) { setErro(falhaTela(e, 'Não foi possível excluir o ambiente. Tente de novo.')) } finally { setBusy(false) }
+  }
+
+  // Passo 1 · excluir take-off (soft-delete rastreável com motivo — fn_takeoff_planta_excluir já existente).
+  const excluirTakeoff = async () => {
+    if (!companyId || !planta) return
+    const motivo = window.prompt(`Excluir o take-off "${planta.nome}"? Informe o motivo (fica registrado):`)?.trim()
+    if (!motivo) return
+    if (motivo.length < 3) { setErro('Informe um motivo com ao menos 3 caracteres.'); return }
+    setBusy(true); setErro(null); setMsg(null)
+    try {
+      const { data, error } = await supabase.rpc('fn_takeoff_planta_excluir', { p_planta_id: planta.id, p_motivo: motivo })
+      if (error) throw error
+      const j = data as { ok?: boolean } | null
+      if (!j?.ok) { setErro('Falha ao excluir o take-off.'); return }
+      setPlanta(null); setAmbientes([]); setItensGerados([]); setBom([])
+      await recarregarPlantas()
+      setMsg('Take-off excluído.')
+    } catch (e) { setErro(falhaTela(e, 'Não foi possível excluir o take-off. Tente de novo.')) } finally { setBusy(false) }
   }
 
   // Passo 3 · o clímax: explode ambientes × serviços no orçamento, depois mostra o resultado + BOM.
@@ -198,7 +247,7 @@ export default function EngenhariaPage() {
       setItensGerados((itens as ItemGerado[]) ?? [])
       setBom((bomRows as BomRow[]) ?? [])
       setMsg(`Orçamento gerado: ${data} item(ns) de serviço explodidos.`)
-    } catch (e) { setErro((e as Error).message || String(e)) } finally { setBusy(false) }
+    } catch (e) { setErro(falhaTela(e, 'Não foi possível gerar o orçamento. Revise os ambientes e tente de novo.')) } finally { setBusy(false) }
   }
 
   // Total explodido por serviço (soma das quantidades dos ambientes confirmados que usam o serviço).
@@ -210,6 +259,12 @@ export default function EngenhariaPage() {
     }
     return m
   }, [ambientes])
+
+  // Quantos ambientes estão prontos para o passo 3 (confirmados E com serviço vinculado) — orienta o usuário.
+  const ambientesProntos = useMemo(
+    () => ambientes.filter((a) => a.confirmado && a.servico_id).length,
+    [ambientes]
+  )
 
   const totalOrcamento = itensGerados.reduce((s, i) => s + (i.subtotal ?? 0), 0)
   // Materiais e mão-de-obra consolidados: BOM por unidade de serviço × quantidade explodida daquele serviço.
@@ -307,7 +362,14 @@ export default function EngenhariaPage() {
       {planta && (
         <section className="rounded-2xl bg-white border border-[#E7DECF] overflow-hidden">
           <div className="p-3 flex items-center justify-between gap-2 border-b border-[#E7DECF] flex-wrap">
-            <span className="text-sm font-semibold text-[#3D2314]">{planta.nome} · Ambientes ({ambientes.length})</span>
+            <span className="text-sm font-semibold text-[#3D2314]">
+              {planta.nome} · Ambientes ({ambientes.length})
+              {ambientes.length > 0 && (
+                <span className="ml-1 font-normal" style={{ color: ambientesProntos > 0 ? '#16A34A' : ESP60 }}>
+                  · {ambientesProntos} pronto{ambientesProntos !== 1 ? 's' : ''} p/ gerar
+                </span>
+              )}
+            </span>
             <div className="flex items-center gap-2">
               <button onClick={sugerir} disabled={busy || ambientes.length === 0} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white" style={{ background: GOLD, opacity: (busy || ambientes.length === 0) ? 0.5 : 1 }} title="Sugere o serviço de cada ambiente por palavra-chave (você confirma depois)">
                 <Sparkles size={13} /> Sugerir serviços
@@ -315,6 +377,12 @@ export default function EngenhariaPage() {
               <button onClick={() => setAddAberto(true)} disabled={busy} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border" style={{ borderColor: GOLD, color: GOLD, background: 'transparent', opacity: busy ? 0.6 : 1 }}>
                 <Plus size={13} /> Ambiente
               </button>
+              <span className="inline-flex items-center">
+                <button onClick={excluirTakeoff} disabled={busy} data-testid="engenharia-excluir-takeoff" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border" style={{ borderColor: '#C59', color: '#A63A5A', background: 'transparent', opacity: busy ? 0.6 : 1 }}>
+                  <Trash2 size={13} /> Excluir take-off
+                </button>
+                <AjudaCampo chave="projetos.engenharia.excluir_takeoff" rota="/dashboard/projetos/engenharia" />
+              </span>
             </div>
           </div>
           {ambientes.length === 0 ? (
@@ -325,7 +393,7 @@ export default function EngenhariaPage() {
                 <thead className="text-xs" style={{ color: ESP60, background: BG }}>
                   <tr>
                     <th className="text-left p-2"><span className="inline-flex items-center gap-1">Nome <AjudaCampo chave="projetos.engenharia.amb_nome" rota="/dashboard/projetos/engenharia" /></span></th><th className="text-right p-2"><span className="inline-flex items-center gap-1">m² <AjudaCampo chave="projetos.engenharia.amb_area" rota="/dashboard/projetos/engenharia" /></span></th><th className="text-right p-2"><span className="inline-flex items-center gap-1">ml <AjudaCampo chave="projetos.engenharia.amb_perimetro" rota="/dashboard/projetos/engenharia" /></span></th><th className="text-right p-2"><span className="inline-flex items-center gap-1">pé-dir. <AjudaCampo chave="projetos.engenharia.amb_pe_direito" rota="/dashboard/projetos/engenharia" /></span></th>
-                    <th className="p-2"><span className="inline-flex items-center gap-1">Serviço <AjudaCampo chave="projetos.engenharia.amb_servico" rota="/dashboard/projetos/engenharia" /></span></th><th className="p-2"><span className="inline-flex items-center gap-1">Base <AjudaCampo chave="projetos.engenharia.amb_base" rota="/dashboard/projetos/engenharia" /></span></th><th className="p-2"><span className="inline-flex items-center gap-1">OK <AjudaCampo chave="projetos.engenharia.amb_ok" rota="/dashboard/projetos/engenharia" /></span></th>
+                    <th className="p-2"><span className="inline-flex items-center gap-1">Serviço <AjudaCampo chave="projetos.engenharia.amb_servico" rota="/dashboard/projetos/engenharia" /></span></th><th className="p-2"><span className="inline-flex items-center gap-1">Base <AjudaCampo chave="projetos.engenharia.amb_base" rota="/dashboard/projetos/engenharia" /></span></th><th className="p-2"><span className="inline-flex items-center gap-1">OK <AjudaCampo chave="projetos.engenharia.amb_ok" rota="/dashboard/projetos/engenharia" /></span></th><th className="p-2 text-center"><span className="inline-flex items-center gap-1">Excluir <AjudaCampo chave="projetos.engenharia.amb_excluir" rota="/dashboard/projetos/engenharia" /></span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -349,14 +417,26 @@ export default function EngenhariaPage() {
                         </select>
                       </td>
                       <td className="p-2 text-center"><input type="checkbox" checked={a.confirmado} onChange={(e) => atualizarAmb(a, { confirmado: e.target.checked })} /></td>
+                      <td className="p-2 text-center">
+                        <button onClick={() => excluirAmbiente(a)} disabled={busy} data-testid={`engenharia-excluir-amb-${a.id}`} title={`Excluir ${a.nome}`} aria-label={`Excluir ambiente ${a.nome}`} className="inline-flex items-center justify-center p-1.5 rounded-lg" style={{ color: '#A63A5A', opacity: busy ? 0.5 : 1 }}>
+                          <Trash2 size={14} />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           )}
-          <div className="p-3 flex flex-wrap items-center justify-end gap-2 border-t border-[#E7DECF]" style={{ background: BG }}>
-            <button onClick={gerar} disabled={busy || !orcId} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold" style={{ background: ESP, color: '#fff', opacity: (busy || !orcId) ? 0.6 : 1 }}>
+          <div className="p-3 flex flex-wrap items-center justify-between gap-2 border-t border-[#E7DECF]" style={{ background: BG }}>
+            <span className="text-xs" style={{ color: ESP60 }}>
+              {!orcId
+                ? 'Selecione um orçamento de destino no topo para gerar.'
+                : ambientesProntos === 0
+                  ? 'Confirme ao menos 1 ambiente com serviço vinculado para gerar.'
+                  : `${ambientesProntos} ambiente${ambientesProntos !== 1 ? 's' : ''} entrará${ambientesProntos !== 1 ? 'ão' : ''} no cálculo.`}
+            </span>
+            <button onClick={gerar} disabled={busy || !orcId || ambientesProntos === 0} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold" style={{ background: ESP, color: '#fff', opacity: (busy || !orcId || ambientesProntos === 0) ? 0.6 : 1 }}>
               <Sparkles size={15} /> Gerar orçamento (BOM + mão de obra)
             </button>
           </div>
