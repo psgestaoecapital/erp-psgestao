@@ -12,6 +12,19 @@ import { use, useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
+
+// A camada de dados desta aba (tabela erp_obra_arquivos + bucket obra-documentos) entra por migration
+// própria, que pode chegar à produção DEPOIS desta tela. Enquanto não chegar, a tabela/bucket não
+// existem e o PostgREST/Storage respondem "relation does not exist" / "Bucket not found". RD-98: a tela
+// NUNCA mostra esse erro cru — degrada para um aviso de "recurso sendo liberado" (tela viva, não morta).
+function recursoEmLiberacao(e: unknown): boolean {
+  const err = (e && typeof e === 'object' ? e : {}) as { code?: unknown; message?: unknown }
+  const code = typeof err.code === 'string' ? err.code : ''
+  const msg = typeof err.message === 'string' ? err.message.toLowerCase() : ''
+  if (['42P01', 'PGRST205', 'PGRST202', 'PGRST204'].includes(code)) return true
+  return /does not exist|not found|schema cache|bucket not found/.test(msg)
+}
 
 const ROTA = '/dashboard/projetos/obras/[id]/encerramento'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = 'rgba(61,35,20,0.18)', MUT = 'rgba(61,35,20,0.55)', VERM = '#A32D2D'
@@ -60,13 +73,15 @@ export default function EncerramentoObraPage({ params }: { params: Promise<{ id:
   const [tipoUpload, setTipoUpload] = useState<string>('termo_entrega')
   const [filtro, setFiltro] = useState<string>('todos')
   const [arrastando, setArrastando] = useState(false)
+  // true quando a camada de dados (tabela/bucket) ainda não chegou à produção — mostra aviso, não erro cru.
+  const [emLiberacao, setEmLiberacao] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const carregar = useCallback(async () => {
-    setCarregando(true); setErro(null)
+    setCarregando(true); setErro(null); setEmLiberacao(false)
     const { data: o, error: eo } = await supabase
       .from('projetos_obras').select('id, nome, company_id').eq('id', id).maybeSingle()
-    if (eo) { setCarregando(false); setErro(eo.message); return }
+    if (eo) { setCarregando(false); setErro(erroAmigavel(eo, 'Não foi possível abrir a obra. Tente de novo.')); return }
     if (!o) { setCarregando(false); setObra(null); return }
     setObra(o as Obra)
     const { data, error } = await supabase
@@ -74,7 +89,11 @@ export default function EncerramentoObraPage({ params }: { params: Promise<{ id:
       .select('id, obra_id, company_id, tipo, nome_arquivo, storage_path, tamanho_bytes, mime_type, enviado_em')
       .eq('obra_id', id).is('deleted_at', null).order('enviado_em', { ascending: false })
     setCarregando(false)
-    if (error) { setErro(error.message); return }
+    if (error) {
+      if (recursoEmLiberacao(error)) { setEmLiberacao(true); return }
+      setErro(erroAmigavel(error, 'Não foi possível carregar os documentos. Tente de novo.'))
+      return
+    }
     setLista((data as ArquivoRow[]) ?? [])
   }, [id])
 
@@ -89,7 +108,12 @@ export default function EncerramentoObraPage({ params }: { params: Promise<{ id:
     setEnviando(true)
     const path = `${id}/${Date.now()}_${sanitizar(file.name)}`
     const up = await supabase.storage.from(BUCKET).upload(path, file, { contentType: file.type, upsert: false })
-    if (up.error) { setEnviando(false); setErro('Não consegui anexar: ' + up.error.message); return }
+    if (up.error) {
+      setEnviando(false)
+      if (recursoEmLiberacao(up.error)) { setEmLiberacao(true); return }
+      setErro(erroAmigavel(up.error, 'Não consegui anexar o documento. Tente de novo.'))
+      return
+    }
     const ins = await supabase.from('erp_obra_arquivos').insert({
       obra_id: id, company_id: obra.company_id, tipo: tipoUpload,
       nome_arquivo: file.name, storage_path: path, tamanho_bytes: file.size, mime_type: file.type,
@@ -97,7 +121,8 @@ export default function EncerramentoObraPage({ params }: { params: Promise<{ id:
     setEnviando(false)
     if (ins.error) {
       await supabase.storage.from(BUCKET).remove([path]) // rollback do blob órfão
-      setErro('Não consegui registrar o anexo: ' + ins.error.message)
+      if (recursoEmLiberacao(ins.error)) { setEmLiberacao(true); return }
+      setErro(erroAmigavel(ins.error, 'Não consegui registrar o anexo. Tente de novo.'))
       return
     }
     await carregar()
@@ -106,7 +131,7 @@ export default function EncerramentoObraPage({ params }: { params: Promise<{ id:
   async function baixar(row: ArquivoRow) {
     setErro(null)
     const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(row.storage_path, 60)
-    if (error || !data?.signedUrl) { setErro('Não consegui gerar o link: ' + (error?.message ?? 'sem URL')); return }
+    if (error || !data?.signedUrl) { setErro(erroAmigavel(error, 'Não consegui gerar o link do documento. Tente de novo.')); return }
     window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
   }
 
@@ -114,7 +139,7 @@ export default function EncerramentoObraPage({ params }: { params: Promise<{ id:
     if (!confirm(`Excluir "${row.nome_arquivo}"? Sai da lista (exclusão rastreável — o arquivo não é apagado de vez).`)) return
     setErro(null)
     const { error } = await supabase.from('erp_obra_arquivos').update({ deleted_at: new Date().toISOString() }).eq('id', row.id)
-    if (error) { setErro('Não consegui excluir: ' + error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não consegui excluir o documento. Tente de novo.')); return }
     await carregar()
   }
 
@@ -139,6 +164,15 @@ export default function EncerramentoObraPage({ params }: { params: Promise<{ id:
           <div style={{ padding: 40, textAlign: 'center', color: MUT }}>Carregando…</div>
         ) : !obra ? (
           <div style={{ padding: 40, textAlign: 'center', color: MUT }}>Obra não encontrada ou sem acesso.</div>
+        ) : emLiberacao ? (
+          <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 28, textAlign: 'center' }}>
+            <div style={{ fontSize: 28, marginBottom: 8 }}>🗂️</div>
+            <div style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, color: ESP, marginBottom: 6 }}>Documentos da obra — em liberação</div>
+            <div style={{ fontSize: 13, color: MUT, lineHeight: 1.5, maxWidth: 440, margin: '0 auto' }}>
+              Esta área está sendo habilitada para a sua empresa. Em breve você poderá anexar e consultar
+              termo de entrega, ART/RRT, as built, laudos e fotos da obra, tudo em arquivo privado.
+            </div>
+          </div>
         ) : (
           <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 18 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginBottom: 12 }}>

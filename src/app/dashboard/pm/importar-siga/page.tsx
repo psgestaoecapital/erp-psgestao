@@ -1,13 +1,13 @@
 "use client";
-// P&M · Importar jobs do SIGA (PM-J, CEO 02/10). 1) escolher a planilha; 2) conferir o mapa das colunas (o sistema
+// P&M · Importar jobs do sistema anterior (PM-J, CEO 02/10). 1) escolher a planilha; 2) conferir o mapa das colunas (o sistema
 // sugere pelo cabeçalho); 3) prévia: quantos entram pela regra do CEO (últimos 60 dias + em aberto, sem os "em aprovação"
 // antigos), quantos ficam de fora e por quê; o banco confere de novo (já existe, cliente e responsável não achados);
 // 4) importar. Nada é gravado sem a prévia; rodar de novo não duplica. Todo campo tem o "?".
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import * as XLSX from "xlsx";
-import { Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, ArrowLeft } from "lucide-react";
+import { Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, ArrowLeft, History } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
@@ -15,7 +15,10 @@ import { CAMPOS, MOTIVO_TEXTO, adivinharMapa, ehCsv, selecionar, textoCsv, type 
 
 type Conferencia = { ok: boolean; erro?: string; mensagem?: string; total: number; novos: number; ja_existem: number; gravados: number;
   clientes_nao_encontrados: string[] | null; responsaveis_nao_encontrados: string[] | null; pecas_nao_encontradas: string[] | null };
+type ImportacaoHist = { id: string; importado_em: string; total: number; novos: number; ja_existem: number; gravados: number;
+  n_clientes_nao_encontrados: number; n_responsaveis_nao_encontrados: number; importado_por_nome: string | null };
 const card = "rounded-2xl border border-[#3D2314]/10 bg-white p-4";
+const dataHoraBR = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? "—" : d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }); };
 const hojeSP = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
 
 export default function ImportarSigaPage() {
@@ -29,6 +32,16 @@ export default function ImportarSigaPage() {
   const [ocupado, setOcupado] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [feito, setFeito] = useState<number | null>(null);
+  const [historico, setHistorico] = useState<ImportacaoHist[]>([]);
+
+  const carregarHistorico = useCallback(async () => {
+    if (!empresa) { setHistorico([]); return; }
+    const { data } = await supabase.rpc("fn_pm_siga_importacoes_listar", { p_company_id: empresa, p_limit: 20 });
+    const r = data as { ok?: boolean; itens?: ImportacaoHist[] } | null;
+    setHistorico(r?.ok && Array.isArray(r.itens) ? r.itens : []);
+  }, [empresa]);
+
+  useEffect(() => { void carregarHistorico(); }, [carregarHistorico]);
 
   async function ler(f: File) {
     setErro(null); setConf(null); setFeito(null);
@@ -64,7 +77,7 @@ export default function ImportarSigaPage() {
     const r = data as Conferencia | null;
     if (error || !r?.ok) { setErro(r?.mensagem || error?.message || r?.erro || "Não foi possível conferir."); return; }
     setConf(r);
-    if (gravar) setFeito(r.gravados);
+    if (gravar) { setFeito(r.gravados); void carregarHistorico(); }
   }
 
   if (!empresa) return <div className="p-6 text-[13px] text-[#3D2314]/70">Escolha uma empresa no seletor.</div>;
@@ -75,13 +88,13 @@ export default function ImportarSigaPage() {
         <Link href="/dashboard/pm/pauta" className="inline-flex items-center gap-1 text-[12.5px] text-[#3D2314]/60 hover:underline"><ArrowLeft size={13} /> Pauta</Link>
         <header>
           <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#C8941A]"><FileSpreadsheet size={13} /> P&amp;M · Implantação</div>
-          <h1 className="text-[26px] font-medium leading-tight">Importar jobs do SIGA</h1>
+          <h1 className="text-[26px] font-medium leading-tight">Importar jobs do sistema anterior</h1>
           <p className="text-[13px] text-[#3D2314]/60">Entram os jobs dos últimos 60 dias e todos os que estão em aberto. Os &ldquo;em aprovação&rdquo; parados há mais de 60 dias ficam de fora. Nada é gravado antes da prévia.</p>
         </header>
 
         <section className={card}>
           <label className="block">
-            <span className="mb-1 flex items-center text-[12px] font-semibold">1 · Planilha do SIGA<AjudaCampo chave="pm.siga.arquivo" /></span>
+            <span className="mb-1 flex items-center text-[12px] font-semibold">1 · Planilha do sistema anterior<AjudaCampo chave="pm.siga.arquivo" /></span>
             <span className="flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-[#C8941A]/60 bg-[#FAEEDA]/40 px-4 py-4 text-[13.5px] hover:bg-[#FAEEDA]">
               <Upload size={16} /> {arquivo ? `${arquivo} · ${linhas.length} linha(s)` : "Escolher arquivo (.xlsx, .xls ou .csv)"}
               <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void ler(f); }} data-testid="siga-arquivo" />
@@ -118,9 +131,22 @@ export default function ImportarSigaPage() {
               {conf && <div className="rounded-xl bg-[#FAEEDA] p-3"><div className="text-[11px] text-[#6B4A0E]">novos de verdade</div><div className="text-[22px] font-medium" data-testid="siga-n-novos">{conf.novos}</div></div>}
             </div>
             {!!sel.fora.length && (
-              <ul className="mt-2 text-[12.5px] text-[#3D2314]/70">
-                {(Object.entries(porMotivo) as [Motivo, number][]).map(([m, n]) => <li key={m}>· {n} {MOTIVO_TEXTO[m]}</li>)}
-              </ul>
+              <div className="mt-2" data-testid="siga-fora-detalhe">
+                <ul className="text-[12.5px] text-[#3D2314]/70">
+                  {(Object.entries(porMotivo) as [Motivo, number][]).map(([m, n]) => <li key={m}>· {n} {MOTIVO_TEXTO[m]}</li>)}
+                </ul>
+                <div className="mt-2 overflow-x-auto rounded-xl border border-[#3D2314]/10">
+                  <table className="w-full text-[12.5px]">
+                    <thead className="bg-[#FAF7F2] text-left text-[11px] uppercase tracking-wider text-[#3D2314]/55"><tr><th className="px-2 py-1.5">Linha</th><th className="px-2">Nº do job</th><th className="px-2">Por que ficou de fora</th></tr></thead>
+                    <tbody>
+                      {sel.fora.slice(0, 12).map((f) => (
+                        <tr key={f.linha} className="border-t border-[#3D2314]/6 text-[#6B4A0E]"><td className="px-2 py-1">{f.linha}</td><td className="px-2">{f.numero ?? "—"}</td><td className="px-2">{MOTIVO_TEXTO[f.motivo]}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {sel.fora.length > 12 && <div className="px-2 py-1 text-[11.5px] text-[#3D2314]/55">… e mais {sel.fora.length - 12} linha(s) fora</div>}
+                </div>
+              </div>
             )}
             <div className="mt-3 overflow-x-auto rounded-xl border border-[#3D2314]/10">
               <table className="w-full text-[12.5px]">
@@ -152,10 +178,43 @@ export default function ImportarSigaPage() {
         {erro && <div className="rounded-xl bg-[#F7E1E1] px-3 py-2 text-[12.5px] text-[#791F1F]" data-testid="siga-erro">{erro}</div>}
         {feito != null && (
           <div className="flex items-center justify-between gap-2 rounded-xl bg-[#E5F2E1] px-4 py-3 text-[13.5px] text-[#2F5A1F]" data-testid="siga-feito">
-            <span className="flex items-center gap-1.5"><CheckCircle2 size={16} /> {feito} job(s) importado(s) do SIGA.</span>
+            <span className="flex items-center gap-1.5"><CheckCircle2 size={16} /> {feito} job(s) importado(s) do sistema anterior.</span>
             <Link href="/dashboard/pm/pauta" className="font-semibold underline">Abrir a Pauta</Link>
           </div>
         )}
+
+        <section className={card} data-testid="siga-historico">
+          <div className="mb-2 flex items-center text-[12px] font-semibold"><History size={13} className="mr-1.5 text-[#C8941A]" />Histórico de importações<AjudaCampo chave="pm.siga.historico" /></div>
+          {historico.length === 0 ? (
+            <div className="text-[12.5px] text-[#3D2314]/55">Nenhuma importação registrada nesta empresa ainda.</div>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-[#3D2314]/10">
+              <table className="w-full text-[12.5px]">
+                <thead className="bg-[#FAF7F2] text-left text-[11px] uppercase tracking-wider text-[#3D2314]/55">
+                  <tr><th className="px-2 py-1.5">Quando</th><th className="px-2">Quem</th><th className="px-2 text-right">Linhas</th><th className="px-2 text-right">Novos</th><th className="px-2 text-right">Já existiam</th><th className="px-2 text-right">Importados</th><th className="px-2">Pendências</th></tr>
+                </thead>
+                <tbody>
+                  {historico.map((h) => (
+                    <tr key={h.id} className="border-t border-[#3D2314]/6">
+                      <td className="px-2 py-1 whitespace-nowrap">{dataHoraBR(h.importado_em)}</td>
+                      <td className="px-2">{h.importado_por_nome ?? "—"}</td>
+                      <td className="px-2 text-right">{h.total}</td>
+                      <td className="px-2 text-right">{h.novos}</td>
+                      <td className="px-2 text-right text-[#3D2314]/60">{h.ja_existem}</td>
+                      <td className="px-2 text-right font-medium text-[#2F5A1F]">{h.gravados}</td>
+                      <td className="px-2 text-[#6B4A0E]">
+                        {h.n_clientes_nao_encontrados > 0 ? `${h.n_clientes_nao_encontrados} s/ cliente` : ""}
+                        {h.n_clientes_nao_encontrados > 0 && h.n_responsaveis_nao_encontrados > 0 ? " · " : ""}
+                        {h.n_responsaveis_nao_encontrados > 0 ? `${h.n_responsaveis_nao_encontrados} s/ resp.` : ""}
+                        {h.n_clientes_nao_encontrados === 0 && h.n_responsaveis_nao_encontrados === 0 ? "—" : ""}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );
