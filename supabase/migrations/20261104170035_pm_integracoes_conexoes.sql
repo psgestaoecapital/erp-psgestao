@@ -168,7 +168,7 @@ UPDATE public.system_screens
    SET rpcs_chamadas = ARRAY['fn_agency_integracao_listar','fn_agency_integracao_conectar','fn_agency_integracao_desconectar'],
        views_consumidas = COALESCE(views_consumidas, ARRAY[]::text[]),
        componentes_principais = ARRAY['IntegracoesView'],
-       estado_real = 'ativo',
+       estado_real = 'pronto',
        modulo = 'pm',
        atualizado_em = now()
  WHERE rota = '/dashboard/pm/integracoes';
