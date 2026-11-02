@@ -142,15 +142,18 @@ export default function ContratosPage() {
           <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Fees</h1>
           <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>Cada contrato ativo na Gestão Empresarial vira um fee: o resumo do que foi contratado. A produção de cada fee segue <b>Briefing → Planejamento do mês → Jobs</b>, e aqui você vê o contratado × realizado por serviço.</p>
           {/* #59 PDOIS parte 2: atalho para solicitar/elaborar contratos de fee (fluxo na GE) */}
-          <a href="/dashboard/contratos?tab=fee" style={{ display: 'inline-block', marginTop: 10, background: DOURADO, color: '#fff', fontSize: 12, fontWeight: 700, textDecoration: 'none', padding: '8px 14px', borderRadius: 8 }}>
-            🧾 Solicitar / elaborar contrato de fee →
-          </a>
+          <span style={{ display: 'inline-flex', alignItems: 'center', marginTop: 10 }}>
+            <a href="/dashboard/contratos?tab=fee" style={{ display: 'inline-block', background: DOURADO, color: '#fff', fontSize: 12, fontWeight: 700, textDecoration: 'none', padding: '8px 14px', borderRadius: 8 }}>
+              🧾 Solicitar / elaborar contrato de fee →
+            </a>
+            <AjudaCampo chave="pm.contratos.acao_solicitar_contrato" />
+          </span>
         </header>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px,1fr))', gap: 10, marginBottom: 14 }}>
-          <Kpi l="Contratos ativos" v={String(kpis.ativos)} />
-          <Kpi l="MRR (fee da GE)" v={brl(kpis.mrr)} cor={DOURADO} />
-          {kpis.semGe > 0 && <Kpi l="Sem contrato na GE" v={String(kpis.semGe)} cor={RED} />}
+          <Kpi l="Contratos ativos" v={String(kpis.ativos)} chave="pm.contratos.kpi_ativos" />
+          <Kpi l="MRR (fee da GE)" v={brl(kpis.mrr)} cor={DOURADO} chave="pm.contratos.kpi_mrr" />
+          {kpis.semGe > 0 && <Kpi l="Sem contrato na GE" v={String(kpis.semGe)} cor={RED} chave="pm.contratos.kpi_sem_ge" />}
         </div>
 
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM }}>Carregando…</div>
@@ -189,11 +192,14 @@ export default function ContratosPage() {
                         style={{ fontSize: 11, fontWeight: 700, color: c.escopo_status === 'sem_escopo' ? TEXTM : (c.itens_a_mais > 0 ? RED : GREEN), background: c.escopo_status === 'sem_escopo' ? '#F0E9DE' : (c.itens_a_mais > 0 ? '#F9E4E4' : '#DCEFD7'), border: `1px solid ${c.escopo_status === 'sem_escopo' ? BORDA : (c.itens_a_mais > 0 ? RED : GREEN)}`, borderRadius: 999, padding: '3px 10px', cursor: 'pointer' }}>
                         {exp ? '▾ ' : '▸ '}{c.escopo_status === 'sem_escopo' ? 'escopo não cadastrado' : c.itens_a_mais > 0 ? `${c.itens_a_mais} item(ns) a mais neste mês` : `escopo · ${c.itens_total} ${c.itens_total === 1 ? 'item' : 'itens'}`}
                       </button>
-                      <button onClick={() => setEditEscopo(c)} style={btnSec}>Editar escopo</button>
+                      <span style={{ display: 'inline-flex', alignItems: 'center' }}><button onClick={() => setEditEscopo(c)} style={btnSec}>Editar escopo</button><AjudaCampo chave="pm.contratos.acao_editar_escopo" /></span>
                       <span style={{ fontSize: 11, fontWeight: 700, color: ESPRESSO, background: stCfg(c.status).cor, padding: '3px 10px', borderRadius: 999 }}>{stCfg(c.status).l}</span>
-                      {c.status === 'ativo' ? <button onClick={() => mudarStatus(c, 'suspenso')} style={btnSec}>Suspender</button>
-                        : c.status === 'suspenso' ? <button onClick={() => mudarStatus(c, 'ativo')} style={btnOk}>Reativar</button>
-                        : c.status === 'rascunho' ? <button onClick={() => mudarStatus(c, 'ativo')} style={btnOk}>Ativar</button> : null}
+                      <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                        {c.status === 'ativo' ? <button onClick={() => mudarStatus(c, 'suspenso')} style={btnSec}>Suspender</button>
+                          : c.status === 'suspenso' ? <button onClick={() => mudarStatus(c, 'ativo')} style={btnOk}>Reativar</button>
+                          : c.status === 'rascunho' ? <button onClick={() => mudarStatus(c, 'ativo')} style={btnOk}>Ativar</button> : null}
+                        {c.status !== 'encerrado' && <AjudaCampo chave="pm.contratos.acao_status" />}
+                      </span>
                     </div>
 
                     {c.status === 'ativo' && (() => {
@@ -230,6 +236,7 @@ export default function ContratosPage() {
                             <button onClick={() => mudarMes(c.contrato_id, -1)} style={arrow}>◀</button>
                             <span style={{ fontSize: 12, fontWeight: 700, minWidth: 74, textAlign: 'center' }}>{rotuloMes(exp.ref)}</span>
                             <button onClick={() => mudarMes(c.contrato_id, 1)} style={arrow}>▶</button>
+                            <AjudaCampo chave="pm.contratos.acao_navegar_mes" alinhar="fim" />
                           </div>
                         </div>
                         {exp.loading ? <div style={{ fontSize: 12, color: TEXTM }}>Carregando…</div>
@@ -238,7 +245,7 @@ export default function ContratosPage() {
                           : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                               <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px 70px 70px 130px', gap: 8, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.3, color: TEXTM, fontWeight: 700, padding: '2px 0' }}>
-                                <span>serviço</span><span style={{ textAlign: 'right' }}>contratado</span><span style={{ textAlign: 'right' }}>criados</span><span style={{ textAlign: 'right' }}>entregues</span><span style={{ textAlign: 'right' }}>situação</span>
+                                <span style={{ display: 'inline-flex', alignItems: 'center' }}>serviço<AjudaCampo chave="pm.contratos.col_servico" /></span><span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end' }}>contratado<AjudaCampo chave="pm.contratos.col_contratado" alinhar="fim" /></span><span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end' }}>criados<AjudaCampo chave="pm.contratos.col_criados" alinhar="fim" /></span><span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end' }}>entregues<AjudaCampo chave="pm.contratos.col_entregues" alinhar="fim" /></span><span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end' }}>situação<AjudaCampo chave="pm.contratos.col_situacao" alinhar="fim" /></span>
                               </div>
                               {exp.itens.map((it) => {
                                 const s = SIT[it.situacao] ?? SIT.sem_limite
@@ -407,9 +414,9 @@ function Modal({ titulo, children, onClose }: { titulo: string; children: React.
     </div>
   )
 }
-function Kpi({ l, v, cor }: { l: string; v: string; cor?: string }) {
+function Kpi({ l, v, cor, chave }: { l: string; v: string; cor?: string; chave?: string }) {
   return <div style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: '12px 14px' }}>
-    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700 }}>{l}</div>
+    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700, display: 'flex', alignItems: 'center' }}>{l}{chave && <AjudaCampo chave={chave} />}</div>
     <div style={{ fontSize: 22, fontWeight: 700, color: cor ?? ESPRESSO, marginTop: 2 }}>{v}</div>
   </div>
 }
