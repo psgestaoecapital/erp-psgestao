@@ -121,17 +121,21 @@ union all select 'sequence '||c.relname||'|' from pg_class c
 set -e
 dir=$(mktemp -d); trap 'rm -rf "$dir"' EXIT
 
+# NOTA (gilberto-esteira 03/11): todo psql que CAPTURA a saída e usa `set statement_timeout=...; <query>` leva `-q`.
+# Sem `-q`, o psql imprime o status do comando `SET` no stdout; como "SET" ordena DEPOIS de qualquer versão de 14
+# dígitos, o `tail -1` devolvia ref_max="SET" e a trava P1 abortava TODA aceitação de vaga 0/2 ("a versão máxima da
+# referência (SET) não é a última migration da main"). O `-q` suprime só o status; as linhas do SELECT continuam.
 # ── P2 (leitura consistente, 1ª leitura): ledger da referência ANTES de coletar o catálogo. ──────────────────────────
-"$PSQL" "$REF_DATABASE_URL" -tA -v ON_ERROR_STOP=1 -c "set statement_timeout='60s'; select version from supabase_migrations.schema_migrations order by 1" | sort > "$dir/ref.led.antes"
+"$PSQL" "$REF_DATABASE_URL" -tA -q -v ON_ERROR_STOP=1 -c "set statement_timeout='60s'; select version from supabase_migrations.schema_migrations order by 1" | sort > "$dir/ref.led.antes"
 [ -s "$dir/ref.led.antes" ] || erro "ledger da referência vazio (leitura falhou)"
 
 # A REFERÊNCIA é lida SÓ por SELECT (nunca -f, nunca DDL/DML), com timeout curto. A vaga é a única que recebe escrita.
-"$PSQL" "$REF_DATABASE_URL"  -tA -v ON_ERROR_STOP=1 -c "set statement_timeout='60s'; $SIG" | sort > "$dir/ref.sig"
+"$PSQL" "$REF_DATABASE_URL"  -tA -q -v ON_ERROR_STOP=1 -c "set statement_timeout='60s'; $SIG" | sort > "$dir/ref.sig"
 "$PSQL" "$TEST_DATABASE_URL" -tA -v ON_ERROR_STOP=1 -c "$SIG" | sort > "$dir/vaga.sig"
 [ -s "$dir/ref.sig" ] || erro "assinatura da referência vazia (leitura falhou)"
 
 # ── P2 (2ª leitura): ledger da referência DEPOIS do catálogo. Mudou no meio (aceitação da main rodou) → descarta e pula. ─
-"$PSQL" "$REF_DATABASE_URL" -tA -v ON_ERROR_STOP=1 -c "set statement_timeout='60s'; select version from supabase_migrations.schema_migrations order by 1" | sort > "$dir/ref.led.depois"
+"$PSQL" "$REF_DATABASE_URL" -tA -q -v ON_ERROR_STOP=1 -c "set statement_timeout='60s'; select version from supabase_migrations.schema_migrations order by 1" | sort > "$dir/ref.led.depois"
 if ! cmp -s "$dir/ref.led.antes" "$dir/ref.led.depois"; then
   pular "o ledger da referência mudou durante a leitura (a aceitação da main rodou no meio)"
 fi
@@ -234,18 +238,18 @@ else
     [ -z "$k" ] && continue
     case "$k" in
       "func "*) sig=${k#func }
-        ddl=$("$PSQL" "$REF_DATABASE_URL" -tA -v ON_ERROR_STOP=1 -c "set statement_timeout='60s'; select pg_get_functiondef('$sig'::regprocedure)")
-        gr=$("$PSQL" "$REF_DATABASE_URL" -tA -v ON_ERROR_STOP=1 -c "set statement_timeout='60s'; select coalesce(string_agg(format('grant %s on function %s to %s;', a.privilege_type, '$sig'::regprocedure, case when a.grantee=0 then 'public' else a.grantee::regrole::text end), ' '), '') from aclexplode((select proacl from pg_proc where oid='$sig'::regprocedure)) a")
+        ddl=$("$PSQL" "$REF_DATABASE_URL" -tA -q -v ON_ERROR_STOP=1 -c "set statement_timeout='60s'; select pg_get_functiondef('$sig'::regprocedure)")
+        gr=$("$PSQL" "$REF_DATABASE_URL" -tA -q -v ON_ERROR_STOP=1 -c "set statement_timeout='60s'; select coalesce(string_agg(format('grant %s on function %s to %s;', a.privilege_type, '$sig'::regprocedure, case when a.grantee=0 then 'public' else a.grantee::regrole::text end), ' '), '') from aclexplode((select proacl from pg_proc where oid='$sig'::regprocedure)) a")
         printf '%s;\n' "$ddl" >> "$txn"
         echo "revoke all on function ${sig} from public, anon, authenticated, service_role;" >> "$txn"
         [ -z "$gr" ] || printf '%s\n' "$gr" >> "$txn"
         resumo "- vaga ${VAGA}: RECRIA função ${sig} a partir da referência (definição + permissões)";;
       "view "*) vn=${k#view }
-        def=$("$PSQL" "$REF_DATABASE_URL" -tA -v ON_ERROR_STOP=1 -c "set statement_timeout='60s'; select pg_get_viewdef('public.\"$vn\"'::regclass, true)")
+        def=$("$PSQL" "$REF_DATABASE_URL" -tA -q -v ON_ERROR_STOP=1 -c "set statement_timeout='60s'; select pg_get_viewdef('public.\"$vn\"'::regclass, true)")
         printf 'create or replace view public."%s" as %s;\n' "$vn" "$def" >> "$txn"
         resumo "- vaga ${VAGA}: RECRIA view public.${vn} a partir da referência";;
       "grant-fn "*) sig=${k#grant-fn }
-        gr=$("$PSQL" "$REF_DATABASE_URL" -tA -v ON_ERROR_STOP=1 -c "set statement_timeout='60s'; select coalesce(string_agg(format('grant %s on function %s to %s;', a.privilege_type, '$sig'::regprocedure, case when a.grantee=0 then 'public' else a.grantee::regrole::text end), ' '), '') from aclexplode((select proacl from pg_proc where oid='$sig'::regprocedure)) a")
+        gr=$("$PSQL" "$REF_DATABASE_URL" -tA -q -v ON_ERROR_STOP=1 -c "set statement_timeout='60s'; select coalesce(string_agg(format('grant %s on function %s to %s;', a.privilege_type, '$sig'::regprocedure, case when a.grantee=0 then 'public' else a.grantee::regrole::text end), ' '), '') from aclexplode((select proacl from pg_proc where oid='$sig'::regprocedure)) a")
         echo "revoke all on function ${sig} from public, anon, authenticated, service_role;" >> "$txn"
         [ -z "$gr" ] || printf '%s\n' "$gr" >> "$txn"
         resumo "- vaga ${VAGA}: REAPLICA permissões da função ${sig} a partir da referência";;
