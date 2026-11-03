@@ -155,13 +155,14 @@ function ProducaoPageInner() {
   }
 
   async function loadAll() {
-    const [cl, jb, ts, us, ct, sv] = await Promise.all([
+    const [cl, jb, ts, us, ct, sv, ac] = await Promise.all([
       supabase.from('agency_clientes').select('*').eq('company_id', sel).is('excluido_em', null).order('nome'),
       supabase.from('agency_jobs').select('*').eq('company_id', sel).is('excluido_em', null).order('created_at', { ascending: false }),
       supabase.from('agency_timesheet').select('id, company_id, job_id, tarefa_id, user_id, data, horas, descricao, tipo_atividade, aprovado, aprovado_por, created_at, inicio_em, fim_em, etapa_tipo, cliente_id').eq('company_id', sel).is('excluido_em', null).order('data', { ascending: false }),
       supabase.rpc('fn_usuarios_da_empresa', { p_company_id: sel }),
       supabase.from('erp_contratos').select('id,numero,nome,valor_mensal,status').eq('company_id', sel).order('numero', { ascending: false }),
       supabase.rpc('fn_agency_servico_listar_proposta', { p_company_id: sel }),
+      supabase.rpc('fn_agency_contrato_listar', { p_company_id: sel }),
     ])
     setClientes((cl.data ?? []) as Cliente[])
     setJobs((jb.data ?? []) as Job[])
@@ -173,11 +174,19 @@ function ProducaoPageInner() {
 
     const now = new Date()
     const mesAtual = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    // Receita recorrente (MRR): mesma fonte de verdade de /dashboard/pm/contratos
+    // (fn_agency_contrato_listar + idêntica fórmula): contratos recorrentes ATIVOS,
+    // usando o valor da GE quando o fee está vinculado, senão o fee local. Antes somava
+    // agency_clientes.fee_mensal, divergindo do Hub/Contratos (RD-38: 41.000 vs 17.300).
+    type ContratoMrr = { status?: string; tipo?: string; tem_contrato_ge?: boolean; fee_mensal?: number | null; ge_valor_mensal?: number | null }
+    const mrr = ((ac.data ?? []) as ContratoMrr[])
+      .filter((c) => c.status === 'ativo' && c.tipo === 'recorrente')
+      .reduce((s, c) => s + Number((c.tem_contrato_ge ? c.ge_valor_mensal : c.fee_mensal) ?? 0), 0)
     setMetrics({
       clientes: (cl.data ?? []).filter((c: { status?: string }) => c.status === 'ativo').length,
       jobs_ativos: (jb.data ?? []).filter((j: { status?: string }) => !['concluida', 'publicado', 'cancelado'].includes(j.status ?? '')).length,
       horas_mes: (ts.data ?? []).filter((t: { data?: string }) => t.data?.startsWith(mesAtual)).reduce((s: number, t: { horas?: number }) => s + (t.horas ?? 0), 0),
-      receita_mes: (cl.data ?? []).filter((c: { status?: string }) => c.status === 'ativo').reduce((s: number, c: { fee_mensal?: number }) => s + (c.fee_mensal ?? 0), 0),
+      receita_mes: mrr,
     })
   }
 
