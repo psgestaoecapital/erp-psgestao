@@ -70,7 +70,10 @@ test.describe('Hub — itens do orçamento (CRUD)', () => {
   })
 
   test('escopo congelado: recusa as três operações com mensagem clara', { tag: '@pos-migration' }, async () => {
-    const [item] = await dbSelect<{ id: string }>('erp_orcamentos_itens', `orcamento_id=eq.${orc}&select=id&limit=1`)
+    // só itens VIVOS: desde o soft-delete (#3774, RD-98 p4) o item excluído no teste anterior continua
+    // na tabela; sem o filtro, o limit=1 podia pegar o item já excluído (re-excluir é idempotente ok=true
+    // ANTES da guarda) e o "escopo congelado" não era exercido — @pos flaky (verde no run #1434, vermelho no #1435).
+    const [item] = await dbSelect<{ id: string }>('erp_orcamentos_itens', `orcamento_id=eq.${orc}&excluido_em=is.null&select=id&limit=1`)
     expect(item?.id, 'o teste anterior deixa um item').toBeTruthy()
     const antes = await total()
     await dbPatch('erp_orcamentos', `id=eq.${orc}`, { escopo_congelado_em: new Date().toISOString() })
@@ -95,7 +98,7 @@ test.describe('Hub — itens do orçamento (CRUD)', () => {
     await dbPatch('erp_orcamentos', `id=eq.${orc}`, { escopo_congelado_em: null, status: 'aprovado' })
     const obras = await dbSelect<{ id: string }>('projetos_obras', `orcamento_id=eq.${orc}&select=id`)
     for (const o of obras) await dbDelete('projetos_obras', `id=eq.${o.id}&orcamento_id=eq.${orc}`).catch(() => {})
-    const [o] = await dbSelect<{ id: string }>('erp_orcamentos_itens', `orcamento_id=eq.${orc}&select=id&limit=1`)
+    const [o] = await dbSelect<{ id: string }>('erp_orcamentos_itens', `orcamento_id=eq.${orc}&excluido_em=is.null&select=id&limit=1`)
     expect(o?.id, 'os itens do orçamento permanecem').toBeTruthy()
   })
 })
