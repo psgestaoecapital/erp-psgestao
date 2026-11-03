@@ -49,6 +49,12 @@ const nextConfig: NextConfig = {
         destination: '/dashboard/commerce/estoque',
         permanent: true,
       },
+      // RD-100 (CEO 01/11): rota visível com nome de terceiro renomeada, com redirect do caminho antigo.
+      {
+        source: '/dashboard/pm/importar-siga',
+        destination: '/dashboard/pm/importar-sistema-anterior',
+        permanent: true,
+      },
     ]
   },
 }
