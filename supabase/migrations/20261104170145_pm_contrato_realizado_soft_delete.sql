@@ -111,3 +111,10 @@ BEGIN
   ORDER BY c.criado_em DESC;
 END;
 $function$;
+
+-- REVOKE anon (check-fn-guards Regra 1): re-declara o ACL vivo das 2 funções SECURITY DEFINER recriadas.
+-- ACL vivo confirmado (RD-38): {postgres, authenticated, service_role} — sem anon/PUBLIC; CREATE OR REPLACE preserva.
+REVOKE ALL ON FUNCTION public.fn_agency_contrato_realizado(uuid, date) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_agency_contrato_listar(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_agency_contrato_realizado(uuid, date) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_agency_contrato_listar(uuid) TO authenticated, service_role;
