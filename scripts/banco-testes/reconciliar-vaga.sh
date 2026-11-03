@@ -96,7 +96,7 @@ union all select 'type '||t.typname||'|'||t.typtype::text||'/'||coalesce((select
 union all select 'sequence '||c.relname||'|' from pg_class c
   join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='S'"
 dir=$(mktemp -d); trap 'rm -rf "$dir"' EXIT
-"$PSQL" "$PROD_DATABASE_URL" -tA -v ON_ERROR_STOP=1 -c "set statement_timeout='60s'; $SIG" | sort > "$dir/prod.sig"
+"$PSQL" "$PROD_DATABASE_URL" -tA -q -v ON_ERROR_STOP=1 -c "set statement_timeout='60s'; $SIG" | sort > "$dir/prod.sig"
 "$PSQL" "$TEST_DATABASE_URL"  -tA -v ON_ERROR_STOP=1 -c "$SIG" | sort > "$dir/vaga.sig"
 [ -s "$dir/prod.sig" ] || erro "assinatura da produção vazia (leitura falhou)"
 
