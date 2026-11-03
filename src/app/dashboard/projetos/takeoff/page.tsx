@@ -783,19 +783,28 @@ export default function TakeoffPage() {
               </span>
             )}
             {planta.arquivo_tipo !== 'dwg' && (
-              <button onClick={() => void analisar()} disabled={busy || planta.status === 'processando'} className="ml-auto inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold" style={{ background: GOLD, color: '#fff', opacity: busy ? 0.6 : 1 }}>
-                <Sparkles size={15} /> Analisar com IA
-              </button>
+              <span className="ml-auto inline-flex items-center gap-1">
+                <button onClick={() => void analisar()} disabled={busy || planta.status === 'processando'} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold" style={{ background: GOLD, color: '#fff', opacity: busy ? 0.6 : 1 }}>
+                  <Sparkles size={15} /> Analisar com IA
+                </button>
+                <AjudaCampo chave="projetos.takeoff.analisar_ia" rota={ROTA} />
+              </span>
             )}
             {planta.arquivo_tipo === 'dwg' && planta.aps_status !== 'radiografado' && (
-              <button onClick={() => processarDwg(false)} disabled={busy} className="ml-auto inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold" style={{ background: GOLD, color: '#fff', opacity: busy ? 0.6 : 1 }}>
-                <Sparkles size={15} /> {planta.aps_status === 'traduzindo' ? 'Concluir processamento' : 'Processar DWG (precisão CAD)'}
-              </button>
+              <span className="ml-auto inline-flex items-center gap-1">
+                <button onClick={() => processarDwg(false)} disabled={busy} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold" style={{ background: GOLD, color: '#fff', opacity: busy ? 0.6 : 1 }}>
+                  <Sparkles size={15} /> {planta.aps_status === 'traduzindo' ? 'Concluir processamento' : 'Processar DWG (precisão CAD)'}
+                </button>
+                <AjudaCampo chave="projetos.takeoff.processar_dwg" rota={ROTA} />
+              </span>
             )}
             {planta.arquivo_tipo === 'dwg' && planta.aps_status === 'radiografado' && (
-              <button onClick={() => processarDwg(true)} disabled={busy} className="ml-auto inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold" style={{ background: '#FFFFFF', color: ESP, border: `0.5px solid ${GOLD}`, opacity: busy ? 0.6 : 1 }}>
-                Reanalisar (custa 1 crédito)
-              </button>
+              <span className="ml-auto inline-flex items-center gap-1">
+                <button onClick={() => processarDwg(true)} disabled={busy} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold" style={{ background: '#FFFFFF', color: ESP, border: `0.5px solid ${GOLD}`, opacity: busy ? 0.6 : 1 }}>
+                  Reanalisar (custa 1 crédito)
+                </button>
+                <AjudaCampo chave="projetos.takeoff.reanalisar" rota={ROTA} />
+              </span>
             )}
           </div>
         )}
@@ -840,15 +849,18 @@ export default function TakeoffPage() {
         <section className="rounded-2xl bg-white border border-[#E7DECF] overflow-hidden">
           <div className="p-3 flex items-center justify-between gap-2 border-b border-[#E7DECF]">
             <span className="text-sm font-semibold text-[#3D2314]">Ambientes ({ambientes.length})</span>
-            <button
-              data-testid="takeoff-add-ambiente"
-              onClick={() => setAddAberto(true)}
-              disabled={busy}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border"
-              style={{ borderColor: GOLD, color: GOLD, background: 'transparent', opacity: busy ? 0.6 : 1 }}
-            >
-              + Adicionar ambiente
-            </button>
+            <span className="inline-flex items-center gap-1">
+              <button
+                data-testid="takeoff-add-ambiente"
+                onClick={() => setAddAberto(true)}
+                disabled={busy}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border"
+                style={{ borderColor: GOLD, color: GOLD, background: 'transparent', opacity: busy ? 0.6 : 1 }}
+              >
+                + Adicionar ambiente
+              </button>
+              <AjudaCampo chave="projetos.takeoff.add_ambiente" rota={ROTA} />
+            </span>
           </div>
           {ambientes.length === 0 ? (
             <div className="p-6 text-center text-sm" style={{ color: ESP60 }}>
@@ -906,9 +918,12 @@ export default function TakeoffPage() {
             <div className="text-sm">
               <span style={{ color: ESP60 }}>Estimado:</span> <b className="text-[#3D2314]">{money(totalEstimado)}</b>
             </div>
-            <button onClick={gerarOrcamento} disabled={busy || !orcId} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold" style={{ background: ESP, color: '#fff', opacity: (busy || !orcId) ? 0.6 : 1 }}>
-              <Check size={15} /> Gerar itens no orçamento
-            </button>
+            <span className="inline-flex items-center gap-1">
+              <button onClick={gerarOrcamento} disabled={busy || !orcId} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold" style={{ background: ESP, color: '#fff', opacity: (busy || !orcId) ? 0.6 : 1 }}>
+                <Check size={15} /> Gerar itens no orçamento
+              </button>
+              <AjudaCampo chave="projetos.takeoff.gerar_orcamento" rota={ROTA} />
+            </span>
           </div>
           )}
         </section>
