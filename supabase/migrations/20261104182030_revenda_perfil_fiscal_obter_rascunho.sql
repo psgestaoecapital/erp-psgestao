@@ -72,3 +72,6 @@ BEGIN
     'historico', COALESCE(v_hist, '[]'::jsonb),
     'convite', v_conv);
 END $function$;
+
+REVOKE ALL ON FUNCTION public.fn_veic_perfil_fiscal_obter(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_veic_perfil_fiscal_obter(uuid) TO authenticated, service_role;
