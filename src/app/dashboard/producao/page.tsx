@@ -709,6 +709,16 @@ function KanbanBoard({
     const c = clientes.find((x) => x.id === id)
     return c?.nome_fantasia || c?.nome || null
   }
+  // RD-98 p1: nenhum job real pode sumir do board. Jobs com status fora dos 5 estágios
+  // oficiais (ex.: 'aguardando', legado) não apareciam em nenhuma coluna. Mostramos uma
+  // coluna extra para esses status; ela NÃO é destino de arraste (fn_pm_job_mover_status
+  // só aceita os 5 oficiais), mas o seletor do card deixa mover o job para um estágio válido.
+  const ESTAGIO_VS = ESTAGIOS.map((e) => e.v)
+  const EXTRA_LABEL: Record<string, string> = { aguardando: 'Aguardando' }
+  const extras = Array.from(new Set(jobs.map((j) => j.status)))
+    .filter((s) => !!s && s !== 'cancelado' && !ESTAGIO_VS.includes(s))
+  const colunasExtra = extras.map((s) => ({ v: s, l: EXTRA_LABEL[s] ?? s, bg: '#FBE4D8', fg: ESPRESSO, extra: true }))
+  const colunas: { v: string; l: string; bg: string; fg: string; extra?: boolean }[] = [...colunasExtra, ...ESTAGIOS]
   return (
     <div>
       <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
@@ -717,7 +727,7 @@ function KanbanBoard({
       </div>
       <div style={boardWrap}>
         <div style={board}>
-          {ESTAGIOS.map((et) => {
+          {colunas.map((et) => {
             const cards = jobs.filter((j) => j.status === et.v)
             const valor = cards.reduce((s, j) => s + (j.valor_job ?? 0), 0)
             const hover = hoverCol === et.v
@@ -725,9 +735,9 @@ function KanbanBoard({
               <div
                 key={et.v}
                 style={{ ...col, ...(hover ? colHover : {}) }}
-                onDragOver={(e) => onDragOver(e, et.v)}
-                onDragLeave={() => onDragLeave(et.v)}
-                onDrop={(e) => onDrop(e, et.v)}
+                onDragOver={et.extra ? undefined : (e) => onDragOver(e, et.v)}
+                onDragLeave={et.extra ? undefined : () => onDragLeave(et.v)}
+                onDrop={et.extra ? undefined : (e) => onDrop(e, et.v)}
               >
                 <div style={colHead}>
                   <span style={{ ...etapaChip, background: et.bg, color: et.fg }}>{et.l}</span>
@@ -787,6 +797,9 @@ function KanbanBoard({
                             aria-label="Mover para outro estágio"
                             style={moverSel}
                           >
+                            {et.extra && (
+                              <option value={et.v} disabled>· {et.l} (atual)</option>
+                            )}
                             {ESTAGIOS.map((d) => (
                               <option key={d.v} value={d.v}>
                                 {d.v === et.v ? `· ${d.l} (atual)` : `↳ ${d.l}`}
