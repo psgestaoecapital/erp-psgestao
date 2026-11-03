@@ -476,7 +476,7 @@ export default function PautaPage() {
             <p className="mx-auto mt-1 max-w-md text-[13.5px] text-[#3D2314]/70">Os jobs do sistema anterior ainda não foram trazidos — a importação entra assim que a exportação chegar. Enquanto isso, já dá para criar jobs novos aqui.</p>
             <div className="mt-4 flex flex-wrap justify-center gap-2">
               <Link href="/dashboard/producao?novo=job" className="inline-flex items-center gap-2 rounded-xl bg-[#3D2314] px-5 py-3 text-[14px] font-medium text-white shadow-md hover:bg-[#3D2314]/90" data-testid="pauta-vazia-novo-job"><Plus size={16} /> Novo job</Link>
-              <Link href="/dashboard/pm/importar-siga" className="inline-flex items-center gap-2 rounded-xl border border-[#3D2314]/20 bg-white px-5 py-3 text-[14px] font-medium text-[#3D2314] hover:bg-[#FAF7F2]" data-testid="pauta-vazia-importar-siga">Importar jobs do sistema anterior</Link>
+              <Link href="/dashboard/pm/importar-sistema-anterior" className="inline-flex items-center gap-2 rounded-xl border border-[#3D2314]/20 bg-white px-5 py-3 text-[14px] font-medium text-[#3D2314] hover:bg-[#FAF7F2]" data-testid="pauta-vazia-importar-siga">Importar jobs do sistema anterior</Link>
             </div>
             <div className="mt-2 flex items-center justify-center text-[12px] text-[#3D2314]/55">como funciona<AjudaCampo chave="pm.pauta.vazia" /></div>
           </div>
