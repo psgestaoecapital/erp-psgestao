@@ -183,15 +183,21 @@ export default function ContratosPage() {
                           {c.data_inicio ? ` · desde ${c.data_inicio}` : ''}
                         </div>
                         {!c.tem_contrato_ge && (
-                          <button onClick={() => setVincular(c)} style={{ marginTop: 4, fontSize: 11, color: RED, background: '#F9E4E4', border: `1px solid ${RED}`, borderRadius: 8, padding: '3px 8px', cursor: 'pointer', fontWeight: 600 }}>
-                            ⚠️ sem contrato na GE — não gera faturamento · vincular
-                          </button>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', marginTop: 4 }}>
+                            <button onClick={() => setVincular(c)} style={{ fontSize: 11, color: RED, background: '#F9E4E4', border: `1px solid ${RED}`, borderRadius: 8, padding: '3px 8px', cursor: 'pointer', fontWeight: 600 }}>
+                              ⚠️ sem contrato na GE — não gera faturamento · vincular
+                            </button>
+                            <AjudaCampo chave="pm.contratos.acao_vincular_ge" />
+                          </span>
                         )}
                       </div>
-                      <button onClick={() => toggle(c.contrato_id)}
-                        style={{ fontSize: 11, fontWeight: 700, color: c.escopo_status === 'sem_escopo' ? TEXTM : (c.itens_a_mais > 0 ? RED : GREEN), background: c.escopo_status === 'sem_escopo' ? '#F0E9DE' : (c.itens_a_mais > 0 ? '#F9E4E4' : '#DCEFD7'), border: `1px solid ${c.escopo_status === 'sem_escopo' ? BORDA : (c.itens_a_mais > 0 ? RED : GREEN)}`, borderRadius: 999, padding: '3px 10px', cursor: 'pointer' }}>
-                        {exp ? '▾ ' : '▸ '}{c.escopo_status === 'sem_escopo' ? 'escopo não cadastrado' : c.itens_a_mais > 0 ? `${c.itens_a_mais} item(ns) a mais neste mês` : `escopo · ${c.itens_total} ${c.itens_total === 1 ? 'item' : 'itens'}`}
-                      </button>
+                      <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                        <button onClick={() => toggle(c.contrato_id)}
+                          style={{ fontSize: 11, fontWeight: 700, color: c.escopo_status === 'sem_escopo' ? TEXTM : (c.itens_a_mais > 0 ? RED : GREEN), background: c.escopo_status === 'sem_escopo' ? '#F0E9DE' : (c.itens_a_mais > 0 ? '#F9E4E4' : '#DCEFD7'), border: `1px solid ${c.escopo_status === 'sem_escopo' ? BORDA : (c.itens_a_mais > 0 ? RED : GREEN)}`, borderRadius: 999, padding: '3px 10px', cursor: 'pointer' }}>
+                          {exp ? '▾ ' : '▸ '}{c.escopo_status === 'sem_escopo' ? 'escopo não cadastrado' : c.itens_a_mais > 0 ? `${c.itens_a_mais} item(ns) a mais neste mês` : `escopo · ${c.itens_total} ${c.itens_total === 1 ? 'item' : 'itens'}`}
+                        </button>
+                        <AjudaCampo chave="pm.contratos.acao_ver_escopo" />
+                      </span>
                       <span style={{ display: 'inline-flex', alignItems: 'center' }}><button onClick={() => setEditEscopo(c)} style={btnSec}>Editar escopo</button><AjudaCampo chave="pm.contratos.acao_editar_escopo" /></span>
                       <span style={{ fontSize: 11, fontWeight: 700, color: ESPRESSO, background: stCfg(c.status).cor, padding: '3px 10px', borderRadius: 999 }}>{stCfg(c.status).l}</span>
                       <span style={{ display: 'inline-flex', alignItems: 'center' }}>
@@ -290,6 +296,8 @@ function EscopoModal({ contrato, servicos, onClose, onChanged, onToast }: { cont
   const [novo, setNovo] = useState({ servico_id: '', tipo_servico: '', quantidade_contratada: '', unidade: '', periodicidade: 'mensal' })
   const [erro, setErro] = useState<string | null>(null); const [campo, setCampo] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // RD-98 p4: exclusão rastreável (soft-delete via RPC guardada) com "desfazer" do último item excluído nesta sessão.
+  const [desfazer, setDesfazer] = useState<string | null>(null); const [restaurando, setRestaurando] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -315,9 +323,20 @@ function EscopoModal({ contrato, servicos, onClose, onChanged, onToast }: { cont
     setNovo({ servico_id: '', tipo_servico: '', quantidade_contratada: '', unidade: '', periodicidade: 'mensal' }); onToast('Item ALTERADO.'); void load(); onChanged()
   }
   async function excluir(item_id: string) {
+    if (!confirm('Excluir este item do escopo?\n\nEle sai da lista e fica o registro de quem e quando (auditoria). Dá para desfazer.')) return
     const { data: { user } } = await supabase.auth.getUser()
     const { data } = await supabase.rpc('fn_agency_contrato_item_excluir', { p_item_id: item_id, p_user: user?.id ?? null })
-    if ((data as { ok?: boolean } | null)?.ok) { onToast('Item EXCLUÍDO.'); void load(); onChanged() }
+    if ((data as { ok?: boolean } | null)?.ok) { setDesfazer(item_id); onToast('Item EXCLUÍDO.'); void load(); onChanged() }
+    else onToast('Não consegui excluir agora. Tente de novo em instantes.')
+  }
+  async function desfazerExclusao() {
+    if (!desfazer) return
+    setRestaurando(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data } = await supabase.rpc('fn_agency_contrato_item_restaurar', { p_item_id: desfazer, p_user: user?.id ?? null })
+    setRestaurando(false)
+    if ((data as { ok?: boolean } | null)?.ok) { setDesfazer(null); onToast('Item RESTAURADO.'); void load(); onChanged() }
+    else onToast('Não consegui desfazer agora. Tente de novo em instantes.')
   }
 
   return (
@@ -329,9 +348,19 @@ function EscopoModal({ contrato, servicos, onClose, onChanged, onToast }: { cont
           {itens.map((it) => (
             <div key={it.item_id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, borderTop: `1px solid ${OFFWHITE}`, padding: '5px 0' }}>
               <span style={{ flex: 1 }}>{it.servico_id ? '🔗' : '⚠️'} {it.servico_nome} <span style={{ color: TEXTM }}>· {it.sem_limite ? 'sem limite' : `${it.quantidade_contratada}${it.unidade ? ' ' + it.unidade : ''}`}{it.periodicidade ? ` · ${it.periodicidade}` : ''}</span></span>
-              <button onClick={() => void excluir(it.item_id)} style={{ border: 'none', background: 'none', color: RED, cursor: 'pointer', fontSize: 12 }}>excluir</button>
+              <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                <button onClick={() => void excluir(it.item_id)} style={{ border: 'none', background: 'none', color: RED, cursor: 'pointer', fontSize: 12 }}>excluir</button>
+                <AjudaCampo chave="pm.contratos.escopo_excluir" alinhar="fim" />
+              </span>
             </div>
           ))}
+        </div>
+      )}
+      {desfazer && (
+        <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: ESPRESSO, background: '#fff', border: `1px solid ${DOURADO}`, borderRadius: 8, padding: '7px 10px', marginBottom: 10 }}>
+          Item excluído.
+          <button onClick={() => void desfazerExclusao()} disabled={restaurando} style={{ border: 'none', background: 'none', color: DOURADO, fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}>{restaurando ? 'Desfazendo…' : 'Desfazer'}</button>
+          <AjudaCampo chave="pm.contratos.escopo_desfazer" />
         </div>
       )}
       <div style={{ borderTop: `1px solid ${BORDA}`, paddingTop: 10 }}>
@@ -359,8 +388,9 @@ function EscopoModal({ contrato, servicos, onClose, onChanged, onToast }: { cont
             </select><AjudaCampo chave="pm.contratos.escopo_periodicidade" />
           </label>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginTop: 10 }}>
           <button disabled={busy || !novo.tipo_servico.trim()} onClick={() => void salvar()} style={{ ...btnOk, background: busy || !novo.tipo_servico.trim() ? '#ccc' : DOURADO, color: '#fff', border: 'none', fontWeight: 700 }}>{busy ? 'Salvando…' : '+ Adicionar item'}</button>
+          <AjudaCampo chave="pm.contratos.escopo_adicionar" alinhar="fim" />
         </div>
       </div>
     </Modal>
