@@ -71,3 +71,43 @@ BEGIN
     'jobs_sem_servico', COALESCE(v_sem_servico, '[]'::jsonb));
 END;
 $function$;
+
+-- fn_agency_contrato_listar: o indicador 'itens_a_mais' (itens com entregas acima do
+-- contratado) na LISTA de contratos contava agency_jobs sem excluido_em IS NULL — mesmo
+-- vazamento de soft-delete (RD-98 p4) na mesma tela /dashboard/pm/contratos. Correção
+-- aditiva: só adiciona o filtro na subconsulta de agency_jobs. Assinatura/RLS/grants iguais.
+CREATE OR REPLACE FUNCTION public.fn_agency_contrato_listar(p_company_id uuid)
+ RETURNS TABLE(contrato_id uuid, cliente_nome text, erp_cliente_id uuid, proposta_id uuid, tipo text, fee_mensal numeric, ge_valor_mensal numeric, erp_contrato_id uuid, tem_contrato_ge boolean, status text, data_inicio date, itens_total integer, itens_a_mais integer, escopo_status text)
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+BEGIN
+  IF NOT is_admin() AND p_company_id NOT IN (SELECT get_user_company_ids()) THEN RAISE EXCEPTION 'sem_acesso'; END IF;
+  RETURN QUERY
+  SELECT c.id,
+    COALESCE(ac.nome_fantasia, ac.nome, ec.nome_fantasia, ec.razao_social, '—'),
+    c.erp_cliente_id, c.proposta_id, c.tipo,
+    c.fee_mensal, gc.valor_atual, c.erp_contrato_id, (c.erp_contrato_id IS NOT NULL),
+    c.status, c.data_inicio,
+    (SELECT count(*)::int FROM agency_contrato_itens ci WHERE ci.contrato_id = c.id) AS itens_total,
+    (SELECT count(*)::int FROM agency_contrato_itens ci
+       CROSS JOIN LATERAL fn_agency_item_janela(ci.periodicidade, CURRENT_DATE) jn
+       WHERE ci.contrato_id = c.id AND ci.quantidade_contratada IS NOT NULL
+         AND (SELECT count(*) FROM agency_jobs j
+              WHERE j.contrato_id = c.id AND j.excluido_em IS NULL
+                AND j.status NOT IN ('cancelado','cancelada')
+                AND ((ci.servico_id IS NOT NULL AND j.servico_id = ci.servico_id)
+                     OR (ci.servico_id IS NULL AND lower(btrim(j.tipo)) = lower(btrim(ci.tipo_servico))))
+                AND (jn.ini IS NULL OR (j.created_at::date >= jn.ini AND j.created_at::date < jn.fim))
+             ) > ci.quantidade_contratada) AS itens_a_mais,
+    CASE WHEN (SELECT count(*) FROM agency_contrato_itens ci WHERE ci.contrato_id = c.id) = 0
+         THEN 'sem_escopo' ELSE 'com_escopo' END AS escopo_status
+  FROM agency_contratos c
+  LEFT JOIN agency_clientes ac ON ac.id = c.cliente_id
+  LEFT JOIN erp_clientes ec ON ec.id = c.erp_cliente_id
+  LEFT JOIN erp_contratos gc ON gc.id = c.erp_contrato_id
+  WHERE c.company_id = p_company_id
+  ORDER BY c.criado_em DESC;
+END;
+$function$;
