@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js'
 import { Buffer } from 'node:buffer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { faltasCredencialBb } from '@/lib/banco/bb'
-import { faltasCobrancaBb, nossoNumeroBb, registrarBoletoBb } from '@/lib/banco/bb/cobranca'
+import { faltasCobrancaBb, nossoNumeroBb, registrarBoletoBb, seuNumeroBb } from '@/lib/banco/bb/cobranca'
 import { BB_BANCO, carregarCredBb, logSyncBb } from '@/lib/banco/bb/servidor'
 import { gerarPdfBoleto } from '@/lib/boleto/gerarPdfBoleto'
 import { salvarPdfBoletoNoBucket } from '@/lib/boleto/salvarPdfBoleto'
@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
     const emissaoPretendida = rec.data_emissao ?? hojeSP
     const emissaoISO = emissaoPretendida > hojeSP ? hojeSP : emissaoPretendida
     const vencimentoISO = rec.data_vencimento < emissaoISO ? emissaoISO : rec.data_vencimento
-    const seuNumero = (rec.numero_documento ?? rec.id).toString().replace(/[^0-9A-Za-z]/g, '').slice(0, 15)
+    let seuNumero = String(rec.numero_documento ?? '')
 
     // sequencial atômico por config (o mesmo contador do seu número dos demais bancos); só os 10 últimos dígitos entram no nosso número
     const { data: seq, error: seqErr } = await supabaseAdmin.rpc('fn_banco_proximo_seu_numero', {
@@ -100,6 +100,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, erro: 'Não foi possível reservar o nosso número do boleto. Tente de novo.' }, { status: 500 })
     }
     const nossoNumero = nossoNumeroBb(c.cfg.convenio, String(seq))
+    seuNumero = seuNumeroBb(seuNumero, nossoNumero) // só número: o BB recusa alfanumérico (chamado #5404)
 
     const result = await registrarBoletoBb(c.cred, {
       cfg: c.cfg, nossoNumero, seuNumero, valor: Number(rec.valor), emissaoISO, vencimentoISO, pagador,
