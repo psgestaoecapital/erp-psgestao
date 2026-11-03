@@ -416,7 +416,7 @@ export default function ClientesPage() {
                     <AjudaCampo chave="projetos.clientes.acao.nova_obra" />
                     <Link href={linkNovaOportunidade(c.id)} data-testid="hub-cliente-nova-oportunidade" style={{ ...btnOutline, textDecoration: 'none' }}>Nova oportunidade</Link>
                     <AjudaCampo chave="projetos.clientes.acao.oportunidade" />
-                    <Link href="/dashboard/orcamentos" style={{ ...btnOutline, textDecoration: 'none' }}>Nova proposta</Link>
+                    <Link href={`/dashboard/orcamentos?cliente=${c.id}`} data-testid="hub-cliente-nova-proposta" style={{ ...btnOutline, textDecoration: 'none' }}>Nova proposta</Link>
                     <AjudaCampo chave="projetos.clientes.acao.proposta" />
                   </div>
                   {(c.logradouro || c.bairro || c.cep) && (
