@@ -155,13 +155,14 @@ function ProducaoPageInner() {
   }
 
   async function loadAll() {
-    const [cl, jb, ts, us, ct, sv] = await Promise.all([
+    const [cl, jb, ts, us, ct, sv, ac] = await Promise.all([
       supabase.from('agency_clientes').select('*').eq('company_id', sel).is('excluido_em', null).order('nome'),
       supabase.from('agency_jobs').select('*').eq('company_id', sel).is('excluido_em', null).order('created_at', { ascending: false }),
       supabase.from('agency_timesheet').select('id, company_id, job_id, tarefa_id, user_id, data, horas, descricao, tipo_atividade, aprovado, aprovado_por, created_at, inicio_em, fim_em, etapa_tipo, cliente_id').eq('company_id', sel).is('excluido_em', null).order('data', { ascending: false }),
       supabase.rpc('fn_usuarios_da_empresa', { p_company_id: sel }),
       supabase.from('erp_contratos').select('id,numero,nome,valor_mensal,status').eq('company_id', sel).order('numero', { ascending: false }),
       supabase.rpc('fn_agency_servico_listar_proposta', { p_company_id: sel }),
+      supabase.rpc('fn_agency_contrato_listar', { p_company_id: sel }),
     ])
     setClientes((cl.data ?? []) as Cliente[])
     setJobs((jb.data ?? []) as Job[])
@@ -173,11 +174,19 @@ function ProducaoPageInner() {
 
     const now = new Date()
     const mesAtual = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    // Receita recorrente (MRR): mesma fonte de verdade de /dashboard/pm/contratos
+    // (fn_agency_contrato_listar + idêntica fórmula): contratos recorrentes ATIVOS,
+    // usando o valor da GE quando o fee está vinculado, senão o fee local. Antes somava
+    // agency_clientes.fee_mensal, divergindo do Hub/Contratos (RD-38: 41.000 vs 17.300).
+    type ContratoMrr = { status?: string; tipo?: string; tem_contrato_ge?: boolean; fee_mensal?: number | null; ge_valor_mensal?: number | null }
+    const mrr = ((ac.data ?? []) as ContratoMrr[])
+      .filter((c) => c.status === 'ativo' && c.tipo === 'recorrente')
+      .reduce((s, c) => s + Number((c.tem_contrato_ge ? c.ge_valor_mensal : c.fee_mensal) ?? 0), 0)
     setMetrics({
       clientes: (cl.data ?? []).filter((c: { status?: string }) => c.status === 'ativo').length,
       jobs_ativos: (jb.data ?? []).filter((j: { status?: string }) => !['concluida', 'publicado', 'cancelado'].includes(j.status ?? '')).length,
       horas_mes: (ts.data ?? []).filter((t: { data?: string }) => t.data?.startsWith(mesAtual)).reduce((s: number, t: { horas?: number }) => s + (t.horas ?? 0), 0),
-      receita_mes: (cl.data ?? []).filter((c: { status?: string }) => c.status === 'ativo').reduce((s: number, c: { fee_mensal?: number }) => s + (c.fee_mensal ?? 0), 0),
+      receita_mes: mrr,
     })
   }
 
@@ -709,6 +718,16 @@ function KanbanBoard({
     const c = clientes.find((x) => x.id === id)
     return c?.nome_fantasia || c?.nome || null
   }
+  // RD-98 p1: nenhum job real pode sumir do board. Jobs com status fora dos 5 estágios
+  // oficiais (ex.: 'aguardando', legado) não apareciam em nenhuma coluna. Mostramos uma
+  // coluna extra para esses status; ela NÃO é destino de arraste (fn_pm_job_mover_status
+  // só aceita os 5 oficiais), mas o seletor do card deixa mover o job para um estágio válido.
+  const ESTAGIO_VS = ESTAGIOS.map((e) => e.v)
+  const EXTRA_LABEL: Record<string, string> = { aguardando: 'Aguardando' }
+  const extras = Array.from(new Set(jobs.map((j) => j.status)))
+    .filter((s) => !!s && s !== 'cancelado' && !ESTAGIO_VS.includes(s))
+  const colunasExtra = extras.map((s) => ({ v: s, l: EXTRA_LABEL[s] ?? s, bg: '#FBE4D8', fg: ESPRESSO, extra: true }))
+  const colunas: { v: string; l: string; bg: string; fg: string; extra?: boolean }[] = [...colunasExtra, ...ESTAGIOS]
   return (
     <div>
       <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
@@ -717,7 +736,7 @@ function KanbanBoard({
       </div>
       <div style={boardWrap}>
         <div style={board}>
-          {ESTAGIOS.map((et) => {
+          {colunas.map((et) => {
             const cards = jobs.filter((j) => j.status === et.v)
             const valor = cards.reduce((s, j) => s + (j.valor_job ?? 0), 0)
             const hover = hoverCol === et.v
@@ -725,9 +744,9 @@ function KanbanBoard({
               <div
                 key={et.v}
                 style={{ ...col, ...(hover ? colHover : {}) }}
-                onDragOver={(e) => onDragOver(e, et.v)}
-                onDragLeave={() => onDragLeave(et.v)}
-                onDrop={(e) => onDrop(e, et.v)}
+                onDragOver={et.extra ? undefined : (e) => onDragOver(e, et.v)}
+                onDragLeave={et.extra ? undefined : () => onDragLeave(et.v)}
+                onDrop={et.extra ? undefined : (e) => onDrop(e, et.v)}
               >
                 <div style={colHead}>
                   <span style={{ ...etapaChip, background: et.bg, color: et.fg }}>{et.l}</span>
@@ -787,6 +806,9 @@ function KanbanBoard({
                             aria-label="Mover para outro estágio"
                             style={moverSel}
                           >
+                            {et.extra && (
+                              <option value={et.v} disabled>· {et.l} (atual)</option>
+                            )}
                             {ESTAGIOS.map((d) => (
                               <option key={d.v} value={d.v}>
                                 {d.v === et.v ? `· ${d.l} (atual)` : `↳ ${d.l}`}
