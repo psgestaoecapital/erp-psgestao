@@ -40,6 +40,14 @@ export function nossoNumeroBb(convenio: string, sequencial10: string): string {
   return `000${conv}${seq}`
 }
 
+// Seu número (numeroTituloBeneficiario): a homologação do BB recusa ("dados inválidos") o identificador alfanumérico
+// (uuid do título). Vai SÓ NÚMERO (até 15 dígitos): os dígitos do nº do documento; sem nº, o sequencial do nosso número.
+export function seuNumeroBb(seuNumero: string | null | undefined, nossoNumero: string): string {
+  const d = onlyDigitsDoc(seuNumero).replace(/^0+(?=\d)/, '').slice(0, 15)
+  if (d) return d
+  return onlyDigitsDoc(nossoNumero).slice(-10).replace(/^0+(?=\d)/, '') || '1'
+}
+
 // ISO (yyyy-mm-dd) → dd.mm.aaaa (formato de data da Cobrança v2)
 export function dataBb(iso: string): string {
   const [y, m, d] = iso.slice(0, 10).split('-')
@@ -85,7 +93,7 @@ export function montarCorpoRegistroBb(i: RegistrarBbInput): Record<string, unkno
     codigoTipoTitulo: 2,
     descricaoTipoTitulo: 'DM',
     indicadorPermissaoRecebimentoParcial: 'N',
-    numeroTituloBeneficiario: limpar(i.seuNumero, 15).replace(/[^0-9A-Za-z]/g, ''),
+    numeroTituloBeneficiario: seuNumeroBb(i.seuNumero, i.nossoNumero),
     numeroTituloCliente: i.nossoNumero,
     pagador: {
       tipoInscricao: pessoa === 'FISICA' ? 1 : 2,
