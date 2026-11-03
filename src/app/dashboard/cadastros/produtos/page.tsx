@@ -654,7 +654,9 @@ export default function ProdutosPage() {
                     className="w-full px-2 py-1.5 text-[12.5px] border border-[#3D2314]/15 rounded bg-white text-[#3D2314]"
                   >
                     <option value="todos">Todas</option>
-                    <option value="omie">OMIE</option>
+                    {/* RD-100: rótulo genérico visível; o value "omie" e o ref_externa_sistema "OMIE" (L228) são
+                        identificadores técnicos da integração (não visíveis) — mantidos para não quebrar o filtro. */}
+                    <option value="omie">Sistema anterior</option>
                     <option value="manual">Manual / Importado</option>
                   </select>
                 </div>
