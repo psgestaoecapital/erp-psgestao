@@ -41,10 +41,10 @@ ok(/jsonb_array_length\(p_linhas\) > 5000/.test(mig), 'limite de 5.000 linhas')
 ok(/ARRAY\['siga'\]/.test(mig) && /fn_pm_cliente_garantir\(p_company_id, v_erp\)/.test(mig), 'job importado com etiqueta "siga" e cliente do cadastro')
 ok(/REVOKE ALL ON FUNCTION public\.fn_pm_importar_jobs_siga\(uuid, jsonb, boolean\) FROM PUBLIC, anon;/.test(mig), 'nada aberto a anônimo')
 ok(!/\b(DELETE\s+FROM|CREATE TABLE|DROP\s+(TABLE|COLUMN|FUNCTION))\b/i.test(mig.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')), 'sem tabela nova e nada apagado')
-const tela = readFileSync('src/app/dashboard/pm/importar-siga/page.tsx', 'utf8')
+const tela = readFileSync('src/app/dashboard/pm/importar-sistema-anterior/page.tsx', 'utf8')
 ok(/chamar\(false\)/.test(tela) && /disabled=\{ocupado \|\| !conf \|\| !conf\.novos/.test(tela), 'tela: importar só depois de conferir no sistema')
 for (const k of ['pm.siga.arquivo', 'pm.siga.mapa', 'pm.siga.previa']) ok(tela.includes(`chave="${k}"`) && mig.includes(`'${k}'`), `"?" ${k}`)
-ok(readFileSync('src/app/dashboard/pm/pauta/page.tsx', 'utf8').includes('href="/dashboard/pm/importar-siga"'), 'Pauta vazia leva ao importador')
+ok(readFileSync('src/app/dashboard/pm/pauta/page.tsx', 'utf8').includes('href="/dashboard/pm/importar-sistema-anterior"'), 'Pauta vazia leva ao importador')
 
 // veredito em produção 02/10 (#1991): o CSV lido como bytes trocava os acentos ("NÂº Job") e o mapa não achava número
 // nem título; e a biblioteca lia 05/10/2026 como 10 de maio. CSV vira texto (UTF-8 ou Windows-1252) e as datas ficam texto.
@@ -61,7 +61,7 @@ ok(readFileSync('src/app/dashboard/pm/pauta/page.tsx', 'utf8').includes('href="/
   const win = new Uint8Array([...csv].map((c) => { const k = c.charCodeAt(0); return k < 256 ? k : 63 }))  // Windows-1252 = Latin-1 nesses acentos
   ok(String(ler(win)[0][1]) === 'Título do Job' && String(ler(win)[0][0]) === 'Nº Job', 'CSV Windows-1252 (Excel brasileiro): acentos certos')
   ok(ehCsv('jobs.CSV') && ehCsv('x', 'text/csv') && !ehCsv('jobs.xlsx'), 'reconhece o CSV pelo nome ou tipo')
-  const tela = readFileSync('src/app/dashboard/pm/importar-siga/page.tsx', 'utf8')
+  const tela = readFileSync('src/app/dashboard/pm/importar-sistema-anterior/page.tsx', 'utf8')
   ok(/ehCsv\(f\.name, f\.type\)/.test(tela) && /XLSX\.read\(textoCsv\(/.test(tela) && /type: "string", raw: true/.test(tela), 'tela lê CSV como texto, sem converter datas')
 }
 
