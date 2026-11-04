@@ -902,6 +902,19 @@ export default function InboxPage() {
       if (r.aviso) setErro(r.aviso) // aviso não-bloqueante: título(s) com ajuste — confira o valor manualmente
       return
     }
+    // #6734: transferência entre contas — RPC própria (libera o movimento e remove a transferência se ninguém mais a usa).
+    if (c.lancamento_tabela === 'erp_transferencia') {
+      if (!confirm('Desvincular esta transferência entre contas? O movimento volta para pendente e a transferência criada é desfeita.')) return
+      const { data, error } = await supabase.rpc('fn_conciliacao_desvincular_transferencia', {
+        p_movimento_id: c.movimento_id,
+      })
+      if (error) { falhou('Erro ao desvincular: ' + error.message); return }
+      const r = (data ?? {}) as { sucesso?: boolean; erro?: string; msg?: string }
+      if (r.sucesso === false) { falhou('Não desvinculou: ' + (r.msg ?? r.erro ?? 'erro desconhecido')); return }
+      await carregarConciliados()
+      await carregar()
+      return
+    }
     if (!confirm(`Desvincular este lançamento conciliado? O movimento volta para pendente.`)) return
     // fn_conciliacao_desvincular(p_lancamento_id uuid, p_tipo text)
     // p_tipo espera 'pagar'/'receber' — c.lancamento_tabela vem como 'erp_pagar'/'erp_receber',
