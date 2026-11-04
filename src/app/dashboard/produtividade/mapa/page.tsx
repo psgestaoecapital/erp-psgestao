@@ -49,6 +49,24 @@ const TIPOS = [
 const rotuloTipo = (v: string | null) => TIPOS.find((t) => t.value === v)?.label ?? '—'
 const seg = (n: number | null | undefined) => (n == null ? '' : String(n))
 
+// Mensagens amigáveis para os códigos de erro das RPCs — a tela nunca mostra o texto cru do banco.
+const ERROS: Record<string, string> = {
+  sem_acesso: 'Você não tem acesso a esta empresa.',
+  direcao_invalida: 'Direção inválida.',
+  raia_nao_encontrada: 'Raia não encontrada.',
+  nome_obrigatorio: 'Dê um nome para a raia.',
+  planta_de_outra_empresa: 'Esta planta é de outra empresa.',
+  setor_de_outra_empresa: 'Este setor é de outra empresa.',
+  contexto_incompleto: 'Escolha empresa, planta e setor antes de criar a raia.',
+  modo_invalido: 'Modo da raia inválido.',
+  produto_obrigatorio: 'Escolha o produto da raia.',
+  produto_de_outra_empresa: 'Este produto é de outra empresa.',
+  modelo_inexistente: 'Modelo não encontrado.',
+  sem_setor: 'Cadastre um setor antes de aplicar o modelo.',
+  modelo_ja_aplicado: 'Já existem raias nesta planta.',
+}
+const amigavel = (code?: string | null) => (code && ERROS[code]) || 'Não foi possível concluir.'
+
 export default function MapaFluxoPage() {
   return (
     <Suspense fallback={<div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>}>
@@ -108,7 +126,7 @@ function Inner() {
     const { data, error } = await supabase.rpc(fn, args)
     if (error) return error.message
     const r = data as { ok?: boolean; erro?: string } | null
-    if (!r?.ok) return r?.erro ?? 'Não foi possível concluir.'
+    if (!r?.ok) return amigavel(r?.erro)
     return null
   }, [])
 
@@ -171,9 +189,20 @@ function Inner() {
   const aplicarModelo = useCallback(async () => {
     if (!companyId || !plantId || !modeloSel) return
     const setor = setores[0]?.id ?? null
-    const e = await chamar('fn_prod_modelo_aplicar', { p_company_id: companyId, p_plant_id: plantId, p_modelo: modeloSel, p_setor_id: setor })
-    if (e) aviso('erro', e); else { aviso('ok', 'Modelo aplicado — edite as raias e atividades à vontade.'); setModeloSel(''); await carregar() }
-  }, [companyId, plantId, modeloSel, setores, chamar, carregar, aviso])
+    const aplicar = async (confirmar: boolean): Promise<void> => {
+      const { data, error } = await supabase.rpc('fn_prod_modelo_aplicar',
+        { p_company_id: companyId, p_plant_id: plantId, p_modelo: modeloSel, p_setor_id: setor, p_confirmar: confirmar })
+      if (error) { aviso('erro', 'Não foi possível aplicar o modelo agora.'); return }
+      const r = data as { ok?: boolean; erro?: string } | null
+      if (r?.ok) { aviso('ok', 'Modelo aplicado — edite as raias e atividades à vontade.'); setModeloSel(''); await carregar(); return }
+      if (r?.erro === 'modelo_ja_aplicado') {
+        if (window.confirm('Já existem raias nesta planta. Aplicar o modelo mesmo assim? As raias do modelo serão acrescentadas às que já existem.')) await aplicar(true)
+        return
+      }
+      aviso('erro', amigavel(r?.erro))
+    }
+    await aplicar(false)
+  }, [companyId, plantId, modeloSel, setores, carregar, aviso])
 
   const raias = useMemo(() => (mapa?.raias ?? []).slice().sort((a, b) => a.ordem - b.ordem), [mapa])
 
