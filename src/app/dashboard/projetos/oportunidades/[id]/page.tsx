@@ -140,6 +140,10 @@ export default function OportunidadeFichaPage() {
   const [visitaEditando, setVisitaEditando] = useState<VisitaInicial | null | undefined>(undefined)
   const [gerandoOrc, setGerandoOrc] = useState(false)
   const [gerandoOrcDeVisita, setGerandoOrcDeVisita] = useState<string | null>(null)
+  // Elo da jornada · a venda ganha vira obra (projetos_obras.oportunidade_id). Aqui mostramos a obra
+  // já criada (link direto ao cockpit) ou, quando ganha e ainda sem obra, o botão para abri-la.
+  const [obraVinc, setObraVinc] = useState<{ id: string; numero: string } | null>(null)
+  const [criandoObra, setCriandoObra] = useState(false)
 
   const reload = useCallback(async () => {
     if (!id) return
@@ -180,11 +184,47 @@ export default function OportunidadeFichaPage() {
       })
   }, [op?.company_id])
 
+  // Obra vinculada a esta venda (se já existir): alimenta o link "Abrir obra" / esconde o botão de criar.
+  useEffect(() => {
+    if (!ehUuid(id)) { setObraVinc(null); return }
+    supabase
+      .from('projetos_obras')
+      .select('id, numero')
+      .eq('oportunidade_id', id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => setObraVinc((data ?? null) as { id: string; numero: string } | null))
+  }, [id, op?.etapa])
+
   useEffect(() => {
     if (!toast) return
     const t = setTimeout(() => setToast(null), 3500)
     return () => clearTimeout(t)
   }, [toast])
+
+  // Abrir obra a partir da venda ganha — reusa a MESMA RPC da tela Nova obra / Clientes
+  // (numeração OBR-AAAA-NNNN, nome e endereço da venda, guarda de empresa no banco). Aditivo, não altera o banco.
+  async function criarObraDaVenda() {
+    if (!op) return
+    if (!op.cliente_id) { setToast('Defina o cliente da oportunidade antes de abrir a obra.'); return }
+    if (!confirm('Isto vai ABRIR uma obra vinculada a esta venda ganha. Continuar?')) return
+    setCriandoObra(true)
+    const cli = op.erp_clientes
+    const nomeCli = cli?.nome_fantasia ?? cli?.razao_social ?? ''
+    const valor = (op.valor_proposta ?? op.valor_estimado ?? 0) > 0 ? (op.valor_proposta ?? op.valor_estimado) : null
+    const { data: obraId, error } = await supabase.rpc('fn_hub_criar_obra_rapida', {
+      p_company_id: op.company_id, p_cliente_id: op.cliente_id, p_cliente_nome: nomeCli, p_nome: op.titulo || `Obra ${nomeCli}`,
+      p_logradouro: op.obra_endereco || null, p_numero: null, p_bairro: op.obra_bairro || null,
+      p_cidade: op.obra_cidade || null, p_uf: null, p_cep: null, p_codigo_ibge: null, p_cno: null,
+      p_valor_previsto: valor,
+    })
+    if (error || !obraId) { setCriandoObra(false); setToast(erroAmigavel(error) || 'Não foi possível abrir a obra.'); return }
+    // A obra guarda a oportunidade de origem (o funil sabe que a venda virou obra; o botão some).
+    await supabase.from('projetos_obras').update({ oportunidade_id: op.id }).eq('id', obraId as string)
+    setCriandoObra(false)
+    router.push(`/dashboard/projetos/obras/${obraId as string}/cockpit?area=hub`)
+  }
 
   async function moverEtapa(nova: string) {
     if (!op) return
@@ -391,12 +431,35 @@ export default function OportunidadeFichaPage() {
         )}
       </div>
 
-      {/* Dados da obra */}
-      {(op.obra_endereco || op.obra_cidade || op.obra_bairro) && (
+      {/* Obra — endereço da venda e o elo com a obra (link para a existente ou abertura a partir da venda ganha) */}
+      {(op.obra_endereco || op.obra_cidade || op.obra_bairro || op.etapa === 'ganho' || obraVinc) && (
         <Sec titulo="Obra">
-          <p style={{ color: TEXTM, fontSize: 13 }}>
-            {[op.obra_endereco, op.obra_bairro, op.obra_cidade].filter(Boolean).join(' · ')}
-          </p>
+          {(op.obra_endereco || op.obra_cidade || op.obra_bairro) && (
+            <p style={{ color: TEXTM, fontSize: 13, marginBottom: 10 }}>
+              {[op.obra_endereco, op.obra_bairro, op.obra_cidade].filter(Boolean).join(' · ')}
+            </p>
+          )}
+          {obraVinc ? (
+            <Link
+              href={`/dashboard/projetos/obras/${obraVinc.id}/cockpit?area=hub`}
+              className="inline-block px-3 py-2 rounded-lg text-sm"
+              style={{ background: OFFWHITE, color: ESPRESSO, border: `1px solid ${BORDA}` }}
+              data-testid="ficha-oport-abrir-obra"
+            >
+              Abrir obra {obraVinc.numero} →
+            </Link>
+          ) : op.etapa === 'ganho' ? (
+            <>
+              <button onClick={criarObraDaVenda} disabled={criandoObra} style={btnPrimary} data-testid="ficha-oport-criar-obra">
+                {criandoObra ? 'Abrindo…' : '+ ABRIR obra desta venda'}
+              </button>
+              <p style={{ color: TEXTM, fontSize: 12, marginTop: 6 }}>
+                A venda foi ganha. Abra a obra para executar: nasce com o cliente, o título e o endereço desta venda.
+              </p>
+            </>
+          ) : (
+            <p style={{ color: TEXTM, fontSize: 12 }}>A obra é aberta quando a oportunidade é marcada como <b>Ganha</b>.</p>
+          )}
         </Sec>
       )}
 
