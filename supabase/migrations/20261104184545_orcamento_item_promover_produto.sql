@@ -19,6 +19,7 @@
 --     em massa (só o item que o usuário escolhe promover, dentro do escopo da guarda).
 --   • origem (ICMS, fiscal) fica no default '0'; tipo='produto'; ativo=true; código único
 --     MAN-xxxxxx por empresa (respeita ux_erp_produtos_company_codigo).
+-- ci-sem-guarda: fn_orcamento_item_promover_produto — reusa fn_orcamento_item_guarda, que confere a empresa via get_user_company_ids()/is_admin() e devolve company_id
 --
 -- PROVA (RD-38, produção, BEGIN/ROLLBACK, statement_timeout 15s): sobre o item manual real
 -- 2a67d1e9-… (Chapa de gesso ST 12,5mm, empresa …0006): INSERT em erp_produtos + UPDATE do
