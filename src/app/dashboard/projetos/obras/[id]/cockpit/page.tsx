@@ -30,23 +30,25 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
   const [info, setInfo] = useState<ObraInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
+  // Código curto de referência do erro para o suporte triar o motivo (RD-98 p2: erro amigável + código + CTA).
+  const [codigoErro, setCodigoErro] = useState<string | null>(null)
 
   const consulta = useCallback(async () => await supabase.from('v_obra_resultado_alocado').select('*').eq('obra_id', id).maybeSingle(), [id])
   const carregar = useCallback(async () => {
-    if (!ehUuid(id)) { setLoading(false); setErro('Obra não encontrada. Abra pela lista de obras.'); return }
-    setLoading(true); setErro(null)
+    if (!ehUuid(id)) { setLoading(false); setErro('Obra não encontrada. Abra pela lista de obras.'); setCodigoErro('OBRA-LINK'); return }
+    setLoading(true); setErro(null); setCodigoErro(null)
     let res: Awaited<ReturnType<typeof consulta>>
-    try { res = await comPrazo(consulta, { ms: 8000, tentativas: 1, label: 'cockpit-obra' }) } catch { setLoading(false); setErro(MSG_CARREGAMENTO_FALHOU); return }
+    try { res = await comPrazo(consulta, { ms: 8000, tentativas: 1, label: 'cockpit-obra' }) } catch { setLoading(false); setErro(MSG_CARREGAMENTO_FALHOU); setCodigoErro('OBRA-REDE'); return }
     const { data, error } = res
     setLoading(false)
-    if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar a obra. Tente de novo.')); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar a obra. Tente de novo.')); setCodigoErro('OBRA-ERR'); return }
     if (!data) {
       // Diferencia obra inexistente × sem acesso nesta empresa (fn_obra_existe só diz existe/tem_acesso).
       const { data: ex } = await supabase.rpc('fn_obra_existe', { p_obra_id: id })
       const j = ex as { existe?: boolean; tem_acesso?: boolean } | null
-      setErro(j?.existe === false ? 'Esta obra não existe. O link pode estar desatualizado.'
-        : j?.existe && !j.tem_acesso ? 'Você não tem acesso a esta obra na empresa ativa. Troque de empresa ou peça acesso.'
-        : 'Não foi possível confirmar esta obra. Abra pela lista de obras.')
+      if (j?.existe === false) { setErro('Esta obra não existe. O link pode estar desatualizado.'); setCodigoErro('OBRA-404') }
+      else if (j?.existe && !j.tem_acesso) { setErro('Você não tem acesso a esta obra na empresa ativa. Troque de empresa ou peça acesso.'); setCodigoErro('OBRA-403') }
+      else { setErro('Não foi possível confirmar esta obra. Abra pela lista de obras.'); setCodigoErro('OBRA-CONF') }
       return
     }
     setR(data as Resultado)
@@ -105,7 +107,7 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
     { k: 'margem', ajuda: 'projetos.cockpit.margem', l: 'Margem', v: brl(margem), sub: margemPct == null ? (custo > 0 ? 'Custo lançado, mas sem medição: a margem fica negativa até medir' : 'Sem receita ainda') : `${margemPct.toFixed(1)}% da receita`, cor: margem < 0 ? VERM : VERDE },
     { k: 'avanco_fisico', ajuda: 'projetos.cockpit.avanco_fisico', l: 'Avanço físico', v: fisicoPct == null ? '—' : `${fisicoPct.toFixed(0)}%`, sub: fisicoPct == null ? 'Lance o % no cronograma' : 'Execução em campo', bar: fisicoPct },
     { k: 'avanco', ajuda: 'projetos.cockpit.avanco', l: 'Avanço financeiro', v: avancoPct == null ? '—' : `${avancoPct.toFixed(0)}%`, sub: `Realizado ${brl(receita)} de ${brl(r.receita_prevista)}`, bar: avancoPct },
-    { k: 'prazo', ajuda: 'projetos.cockpit.prazo', l: 'Prazo', v: prazoBR ?? '—', sub: prazoSub, cor: prazoVencido ? VERM : undefined },
+    { k: 'prazo', ajuda: 'projetos.cockpit.prazo', l: 'Prazo', v: prazoBR ?? '—', sub: prazoSub, cor: prazoVencido ? VERM : undefined, bar: tempoPct },
   ] : []
 
   const pendencias: string[] = []
@@ -140,7 +142,8 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
           : erro ? (
             <div data-testid="cockpit-erro" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 14, padding: '32px 24px', textAlign: 'center', maxWidth: 440, margin: '20px auto 0' }}>
               <div style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, fontWeight: 400, color: ESP, marginBottom: 6 }}>Não foi possível abrir este cockpit</div>
-              <div style={{ fontSize: 13, color: MUT, lineHeight: 1.5, marginBottom: 18 }}>{erro}</div>
+              <div style={{ fontSize: 13, color: MUT, lineHeight: 1.5, marginBottom: codigoErro ? 8 : 18 }}>{erro}</div>
+              {codigoErro && <div data-testid="cockpit-erro-codigo" style={{ fontSize: 11, color: MUT, marginBottom: 18 }}>Código de referência: <b style={{ color: ESP, fontVariantNumeric: 'tabular-nums' }}>{codigoErro}</b></div>}
               <Link href="/dashboard/projetos/obras?area=hub" data-testid="cockpit-erro-voltar" style={{ display: 'inline-block', background: ESP, color: BG, borderRadius: 10, padding: '10px 20px', fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>Voltar para Obras</Link>
             </div>
           )
@@ -194,6 +197,8 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
               <Link href={`/dashboard/projetos/obras/${id}/linha-do-tempo?area=hub`} style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Ver linha do tempo →</Link><AjudaCampo chave="projetos.cockpit.linha_tempo" rota={ROTA} />
               <Link href={`/dashboard/projetos/obras/${id}/cronograma?area=hub`} style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', marginLeft: 14 }}>Ver cronograma →</Link><AjudaCampo chave="projetos.cockpit.cronograma" rota={ROTA} />
               <Link href={`/dashboard/projetos/viagens?obra=${id}&area=hub`} data-testid="link-nova-viagem" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', marginLeft: 14 }}>Nova viagem desta obra →</Link><AjudaCampo chave="projetos.cockpit.nova_viagem" rota={ROTA} />
+              <Link href={`/dashboard/projetos/obras/${id}/encerramento?area=hub`} data-testid="link-encerramento-obra" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', marginLeft: 14 }}>Encerramento da obra →</Link><AjudaCampo chave="projetos.cockpit.encerramento" rota={ROTA} />
+              <Link href={`/dashboard/projetos/obras/${id}/relatorio?area=hub`} data-testid="link-relatorio-cliente" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', marginLeft: 14 }}>Relatório ao cliente →</Link><AjudaCampo chave="projetos.cockpit.relatorio" rota={ROTA} />
             </>
           )}
       </div>

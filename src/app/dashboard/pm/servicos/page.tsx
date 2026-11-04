@@ -102,8 +102,8 @@ export default function ServicosPage() {
   return (
     <Shell>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
-        <div style={{ fontSize: 13, color: TEXTM }}>{servicos.length} serviço(s) no catálogo</div>
-        <Btn onClick={() => setEdit({ tipo: 'pontual', modelo_preco: 'fixo', ativo: true, entregaveis: [], pacote_itens: [] })}><Plus size={15} /> Novo serviço</Btn>
+        <div style={{ fontSize: 13, color: TEXTM, display: 'flex', alignItems: 'center' }}>{servicos.length} serviço(s) no catálogo<AjudaCampo chave="pm.servico.lista" /></div>
+        <span style={{ display: 'inline-flex', alignItems: 'center' }}><Btn onClick={() => setEdit({ tipo: 'pontual', modelo_preco: 'fixo', ativo: true, entregaveis: [], pacote_itens: [] })}><Plus size={15} /> Novo serviço</Btn><AjudaCampo chave="pm.servico.novo" /></span>
       </div>
       {loading ? <Load /> : servicos.length === 0 ? (
         <Vazio t="Nenhum serviço cadastrado" l="Cadastre o primeiro serviço (ex.: Social Mensal, Vídeo institucional). O catálogo irriga proposta, produção e comissão — sem redigitar." />
@@ -126,10 +126,11 @@ export default function ServicosPage() {
                 </div>
                 {s.entregaveis?.length > 0 && <div style={{ fontSize: 11.5, color: TEXTM, marginTop: 2 }}>Entregáveis: {s.entregaveis.join(' · ')}</div>}
               </div>
-              <div style={{ display: 'flex', gap: 6 }}>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                 <IconBtn title="Editar" onClick={() => setEdit({ ...s })}><Pencil size={15} /></IconBtn>
                 <IconBtn title="Duplicar" onClick={() => duplicar(s)}><Copy size={15} /></IconBtn>
                 <IconBtn title="Excluir" onClick={() => excluir(s)} danger><Trash2 size={15} /></IconBtn>
+                <AjudaCampo chave="pm.servico.acoes" />
               </div>
             </div>
           ))}
@@ -160,32 +161,32 @@ function FormServico({ edit, setEdit, equipe, servicos, onSalvar, erro, opcoes, 
 
   return (
     <Modal titulo={edit.id ? 'Editar serviço' : 'Novo serviço'} onClose={() => setEdit(null)}>
-      <Campo label="Nome *"><input style={inp} value={edit.nome ?? ''} onChange={e => setEdit({ ...edit, nome: e.target.value })} placeholder="Ex.: Social Mensal" /></Campo>
+      <Campo label="Nome *" ajuda="pm.servico.nome"><input style={inp} value={edit.nome ?? ''} onChange={e => setEdit({ ...edit, nome: e.target.value })} placeholder="Ex.: Social Mensal" /></Campo>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        <Campo label="Tipo"><select style={inp} value={edit.tipo ?? 'pontual'} onChange={e => setEdit({ ...edit, tipo: e.target.value })}>{TIPOS.map(t => <option key={t.v} value={t.v}>{t.l}</option>)}</select></Campo>
-        <Campo label="Área / equipe"><SelectConfig lista="area_equipe" opcoes={opcoes} value={edit.area ?? ''} onChange={v => setEdit({ ...edit, area: v || null })} onGerenciar={onGerenciar} /></Campo>
+        <Campo label="Tipo" ajuda="pm.servico.tipo"><select style={inp} value={edit.tipo ?? 'pontual'} onChange={e => setEdit({ ...edit, tipo: e.target.value })}>{TIPOS.map(t => <option key={t.v} value={t.v}>{t.l}</option>)}</select></Campo>
+        <Campo label="Área / equipe" ajuda="pm.servico.area"><SelectConfig lista="area_equipe" opcoes={opcoes} value={edit.area ?? ''} onChange={v => setEdit({ ...edit, area: v || null })} onGerenciar={onGerenciar} /></Campo>
       </div>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        <Campo label="Modelo de preço"><select style={inp} value={edit.modelo_preco ?? 'fixo'} onChange={e => setEdit({ ...edit, modelo_preco: e.target.value })}>{MODELOS.map(m => <option key={m.v} value={m.v}>{m.l}</option>)}</select></Campo>
-        <Campo label="Valor base (R$)"><input type="number" style={inp} value={edit.valor_base ?? ''} onChange={e => setEdit({ ...edit, valor_base: e.target.value === '' ? null : Number(e.target.value) })} /></Campo>
-        <Campo label="Unidade"><SelectConfig lista="unidade" opcoes={opcoes} value={edit.unidade ?? ''} onChange={v => setEdit({ ...edit, unidade: v || null })} onGerenciar={onGerenciar} /></Campo>
+        <Campo label="Modelo de preço" ajuda="pm.servico.modelo_preco"><select style={inp} value={edit.modelo_preco ?? 'fixo'} onChange={e => setEdit({ ...edit, modelo_preco: e.target.value })}>{MODELOS.map(m => <option key={m.v} value={m.v}>{m.l}</option>)}</select></Campo>
+        <Campo label="Valor base (R$)" ajuda="pm.servico.valor_base"><input type="number" style={inp} value={edit.valor_base ?? ''} onChange={e => setEdit({ ...edit, valor_base: e.target.value === '' ? null : Number(e.target.value) })} /></Campo>
+        <Campo label="Unidade" ajuda="pm.servico.unidade"><SelectConfig lista="unidade" opcoes={opcoes} value={edit.unidade ?? ''} onChange={v => setEdit({ ...edit, unidade: v || null })} onGerenciar={onGerenciar} /></Campo>
       </div>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        {edit.tipo === 'recorrente' && <Campo label="Periodicidade"><SelectConfig lista="periodicidade" opcoes={opcoes} value={edit.periodicidade ?? ''} onChange={v => setEdit({ ...edit, periodicidade: v || null })} onGerenciar={onGerenciar} /></Campo>}
-        <Campo label="Horas estimadas"><input type="number" style={inp} value={edit.horas_estimadas ?? ''} onChange={e => setEdit({ ...edit, horas_estimadas: e.target.value === '' ? null : Number(e.target.value) })} /></Campo>
-        <Campo label="Prazo padrão (dias)"><input type="number" style={inp} value={edit.prazo_dias_padrao ?? ''} onChange={e => setEdit({ ...edit, prazo_dias_padrao: e.target.value === '' ? null : Number(e.target.value) })} /></Campo>
+        {edit.tipo === 'recorrente' && <Campo label="Periodicidade" ajuda="pm.servico.periodicidade"><SelectConfig lista="periodicidade" opcoes={opcoes} value={edit.periodicidade ?? ''} onChange={v => setEdit({ ...edit, periodicidade: v || null })} onGerenciar={onGerenciar} /></Campo>}
+        <Campo label="Horas estimadas" ajuda="pm.servico.horas"><input type="number" style={inp} value={edit.horas_estimadas ?? ''} onChange={e => setEdit({ ...edit, horas_estimadas: e.target.value === '' ? null : Number(e.target.value) })} /></Campo>
+        <Campo label="Prazo padrão (dias)" ajuda="pm.servico.prazo"><input type="number" style={inp} value={edit.prazo_dias_padrao ?? ''} onChange={e => setEdit({ ...edit, prazo_dias_padrao: e.target.value === '' ? null : Number(e.target.value) })} /></Campo>
         <div style={{ marginBottom: 10, flex: 1, minWidth: 130 }}>
           <label style={{ display: 'flex', alignItems: 'center', fontSize: 12, color: TEXTM, marginBottom: 4 }}>Antecedência da publicação (dias)<AjudaCampo chave="pm.servico.antecedencia" /></label>
           <input type="number" min={0} max={60} style={inp} value={edit.antecedencia_dias ?? 2} onChange={e => setEdit({ ...edit, antecedencia_dias: e.target.value === '' ? 2 : Math.max(0, Math.min(60, Number(e.target.value))) })} data-testid="servico-antecedencia" />
         </div>
       </div>
-      <Campo label="Responsável / equipe padrão">
+      <Campo label="Responsável / equipe padrão" ajuda="pm.servico.responsavel">
         <select style={inp} value={edit.responsavel_padrao_id ?? ''} onChange={e => setEdit({ ...edit, responsavel_padrao_id: e.target.value || null })}>
           <option value="">—</option>{equipe.map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}
         </select>
       </Campo>
 
-      <Campo label="Entregáveis">
+      <Campo label="Entregáveis" ajuda="pm.servico.entregaveis">
         <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
           <input style={{ ...inp, flex: 1 }} value={novoEntreg} onChange={e => setNovoEntreg(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addEntreg() } }} placeholder="Ex.: 12 posts feed/mês" />
           <button onClick={addEntreg} style={{ ...btnSec }}>Adicionar</button>
@@ -200,10 +201,10 @@ function FormServico({ edit, setEdit, equipe, servicos, onSalvar, erro, opcoes, 
         </div>
       </Campo>
 
-      <Campo label="Especificações (formato, dimensões, requisitos)"><textarea style={{ ...inp, minHeight: 54 }} value={edit.especificacoes ?? ''} onChange={e => setEdit({ ...edit, especificacoes: e.target.value })} /></Campo>
+      <Campo label="Especificações (formato, dimensões, requisitos)" ajuda="pm.servico.especificacoes"><textarea style={{ ...inp, minHeight: 54 }} value={edit.especificacoes ?? ''} onChange={e => setEdit({ ...edit, especificacoes: e.target.value })} /></Campo>
 
       {edit.tipo === 'pacote' && (
-        <Campo label="Itens do pacote">
+        <Campo label="Itens do pacote" ajuda="pm.servico.pacote_itens">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {pacoteItens.map((p, i) => (
               <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -221,7 +222,7 @@ function FormServico({ edit, setEdit, equipe, servicos, onSalvar, erro, opcoes, 
       )}
 
       <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13.5, color: ESPRESSO, cursor: 'pointer', marginTop: 4 }}>
-        <input type="checkbox" checked={edit.ativo ?? true} onChange={e => setEdit({ ...edit, ativo: e.target.checked })} /> Ativo (aparece na proposta)
+        <input type="checkbox" checked={edit.ativo ?? true} onChange={e => setEdit({ ...edit, ativo: e.target.checked })} /> Ativo (aparece na proposta)<AjudaCampo chave="pm.servico.ativo" />
       </label>
       {erro && <div style={{ background: '#F4D6D6', color: RED, borderRadius: 8, padding: '8px 10px', fontSize: 12.5, marginTop: 10 }}>{erro}</div>}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
@@ -298,8 +299,19 @@ function ConfigOpcoesModal({ companyId, lista, servicos, onClose, onChange }: {
   function patch(id: string, p: Partial<Opcao>) { setRows(arr => arr.map(r => r.id === id ? { ...r, ...p } : r)) }
   return (
     <Modal titulo={`Opções · ${LISTA_ROTULO[lista] ?? lista}`} onClose={onClose}>
+      <div style={{ display: 'flex', alignItems: 'center', fontSize: 12, color: TEXTM, marginBottom: 8 }}>
+        Adicione, renomeie, ative ou exclua as opções desta lista.<AjudaCampo chave="pm.servico.opcoes" />
+      </div>
       {msg && <div style={{ background: '#FCEBEB', color: RED, padding: '7px 10px', borderRadius: 6, fontSize: 12, marginBottom: 8 }}>{msg}</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+        {rows.length > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 8, alignItems: 'center', fontSize: 11, color: TEXTM, fontWeight: 700 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>Nome<AjudaCampo chave="pm.servico.opcao_nome" /></span>
+            <span style={{ minWidth: 54, textAlign: 'right' }}>Uso</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>Status<AjudaCampo chave="pm.servico.opcao_ativa" /></span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>Excluir<AjudaCampo chave="pm.servico.opcao_excluir" /></span>
+          </div>
+        )}
         {rows.map(o => {
           const n = usoDe(o.valor)
           return (
@@ -313,9 +325,10 @@ function ConfigOpcoesModal({ companyId, lista, servicos, onClose, onChange }: {
         })}
         {rows.length === 0 && <div style={{ fontSize: 12.5, color: TEXTM }}>Sem opções — adicione a primeira.</div>}
       </div>
-      <div style={{ display: 'flex', gap: 6 }}>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
         <input value={novo} onChange={e => setNovo(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void adicionar() }} placeholder="Nova opção (ex.: carrossel)" style={{ ...inp, flex: 1 }} />
         <button disabled={busy} onClick={() => void adicionar()} style={{ ...btnSec, background: DOURADO, color: '#fff', borderColor: DOURADO }}>+ Add</button>
+        <AjudaCampo chave="pm.servico.opcao_nova" />
       </div>
     </Modal>
   )
@@ -339,7 +352,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 }
 function Vazio({ t, l }: { t: string; l: string }) { return <div style={{ background: '#fff', border: `1px dashed ${BORDA}`, borderRadius: 14, padding: '34px 20px', textAlign: 'center' }}><div style={{ fontSize: 15, fontWeight: 600, color: ESPRESSO }}>{t}</div><div style={{ fontSize: 13, color: TEXTM, marginTop: 5, maxWidth: 460, marginInline: 'auto' }}>{l}</div></div> }
 function Load() { return <div style={{ color: TEXTM, padding: 30, textAlign: 'center', fontSize: 13 }}>Carregando…</div> }
-function Campo({ label, children }: { label: string; children: React.ReactNode }) { return <div style={{ marginBottom: 10, flex: 1, minWidth: 130 }}><label style={{ display: 'block', fontSize: 12, color: TEXTM, marginBottom: 4 }}>{label}</label>{children}</div> }
+function Campo({ label, ajuda, children }: { label: string; ajuda?: string; children: React.ReactNode }) { return <div style={{ marginBottom: 10, flex: 1, minWidth: 130 }}><label style={{ display: 'flex', alignItems: 'center', fontSize: 12, color: TEXTM, marginBottom: 4 }}>{label}{ajuda ? <AjudaCampo chave={ajuda} /> : null}</label>{children}</div> }
 function Btn({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) { return <button onClick={onClick} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: DOURADO, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>{children}</button> }
 function IconBtn({ children, onClick, title, danger }: { children: React.ReactNode; onClick?: () => void; title?: string; danger?: boolean }) { return <button title={title} onClick={onClick} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 34, height: 34, border: `1px solid ${BORDA}`, background: '#fff', color: danger ? RED : ESPRESSO, borderRadius: 8, cursor: 'pointer' }}>{children}</button> }
 function Modal({ titulo, children, onClose }: { titulo: string; children: React.ReactNode; onClose: () => void }) {

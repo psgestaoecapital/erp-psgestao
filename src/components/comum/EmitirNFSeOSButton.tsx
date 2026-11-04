@@ -20,6 +20,7 @@ import { supabase } from '@/lib/supabase'
 import { carregarProducaoDisponivel } from '@/lib/fiscal/producaoDisponivel'
 import { NotaDaOSStatus, notaJaEmitida, useNotaDaOS } from '@/components/comum/NotaFiscalDaOS'
 import NFSeEmitirGovModal from '@/components/fiscal/NFSeEmitirGovModal'
+import { buscarVeiculoLigado, montarObservacoesNfseOS, type DadosOSNfse } from '@/lib/oficina/observacoesNfseOS'
 
 type ServicoFiscal = {
   id: string
@@ -69,6 +70,8 @@ export default function EmitirNFSeOSButton({
   // cliente da OS = tomador da nota (caixa jordana-code 3352399e: a OS-2026-0198 da Gean pegava o cadastro DUPLICADO
   // da FC Pisos, inativo e sem endereço, porque a emissão procurava só pelo CNPJ)
   const [clienteId, setClienteId] = useState<string | null>(null)
+  // #3774 · OS, modelo e placa do veículo vão prontos nas informações complementares da nota (editável)
+  const [obsOS, setObsOS] = useState('')
   // #2167 · nota já emitida para a OS → botão verde que abre o PDF da NFS-e
   const { nota, recarregar } = useNotaDaOS('nfse', osId, companyId)
   const notaEmitida = notaJaEmitida(nota)
@@ -80,13 +83,18 @@ export default function EmitirNFSeOSButton({
       const [rpc, prod, os] = await Promise.all([
         supabase.rpc('fn_os_nfse_preparar', { p_os_id: osId }),
         carregarProducaoDisponivel(companyId),
-        supabase.from('erp_os').select('cliente_id').eq('id', osId).eq('company_id', companyId).maybeSingle(),
+        // consulta da OS SEM embed: o tomador (cliente_id) nunca depende da busca do veículo
+        supabase.from('erp_os').select('cliente_id, numero, marca, modelo, placa, veic_veiculo_id')
+          .eq('id', osId).eq('company_id', companyId).maybeSingle(),
       ])
       if (rpc.error) { setErro(rpc.error.message); return }
       const p = rpc.data as Prep | null
       if (!p?.ok) { setErro(p?.erro ?? 'Não foi possível preparar a NFS-e.'); return }
       setPrep(p)
-      setClienteId((os.data as { cliente_id?: string | null } | null)?.cliente_id ?? null)
+      const osDados = os.data as (DadosOSNfse & { cliente_id?: string | null; veic_veiculo_id?: string | null }) | null
+      setClienteId(osDados?.cliente_id ?? null)
+      setObsOS(montarObservacoesNfseOS(osDados ? { ...osDados, veiculo: await buscarVeiculoLigado(osDados.veic_veiculo_id,
+        (id) => supabase.from('veic_veiculo').select('marca, modelo, placa').eq('id', id).maybeSingle()) } : null))
       setProducao(prod)
       setServSel(p.servico_fiscal_id_default ?? p.servicos_fiscais?.[0]?.id ?? '')
       setConfirmAberto(true)
@@ -232,6 +240,7 @@ export default function EmitirNFSeOSButton({
         aliquotaIss={servico?.aliquota_iss ?? undefined}
         valorServicos={prep?.valor_servicos}
         servicoId={servico?.id}
+        observacoesIniciais={obsOS}
       />
     </>
   )

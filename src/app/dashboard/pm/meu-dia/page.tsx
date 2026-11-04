@@ -8,7 +8,7 @@ import { BarraHorasHoje } from "@/components/pm/BarraHorasHoje";
 import { ResumoFimDia } from "@/components/pm/ResumoFimDia";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Sun, AtSign, History, StickyNote, Pin, PinOff, Archive, CalendarClock, ListChecks, AlertTriangle } from "lucide-react";
+import { Sun, AtSign, History, StickyNote, Pin, PinOff, Archive, CalendarClock, ListChecks, AlertTriangle, Pencil, Check, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
@@ -37,6 +37,8 @@ export default function MeuDiaPage() {
   const [acoes, setAcoes] = useState<Acao[]>([]);
   const [notas, setNotas] = useState<Nota[]>([]);
   const [novaNota, setNovaNota] = useState("");
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editTexto, setEditTexto] = useState("");
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
 
@@ -94,8 +96,23 @@ export default function MeuDiaPage() {
     if (error) { setErro(error.message); return; }
     setNovaNota(""); void carregar();
   }
-  async function mexerNota(n: Nota, campos: Partial<{ fixada: boolean; excluido_em: string }>) {
-    const { error } = await supabase.from("agency_anotacoes").update({ ...campos, atualizado_em: new Date().toISOString() }).eq("id", n.id);
+  async function fixarNota(n: Nota) {
+    // fixar/desafixar não é exclusão: update direto (RLS autor-only já garante a posse)
+    const { error } = await supabase.from("agency_anotacoes").update({ fixada: !n.fixada, atualizado_em: new Date().toISOString() }).eq("id", n.id);
+    if (error) { setErro(error.message); return; }
+    void carregar();
+  }
+  async function salvarEdicao(n: Nota) {
+    const t = editTexto.trim();
+    if (!t) return;
+    // editar o texto: update direto (RLS autor-only). CRUD completo (RD-98 p2).
+    const { error } = await supabase.from("agency_anotacoes").update({ texto: t, atualizado_em: new Date().toISOString() }).eq("id", n.id);
+    if (error) { setErro(error.message); return; }
+    setEditId(null); setEditTexto(""); void carregar();
+  }
+  async function arquivarNota(n: Nota) {
+    // RD-98 p4: exclusão rastreável — RPC grava excluido_por = auth.uid() + audit_log_global
+    const { error } = await supabase.rpc("fn_agency_anotacao_arquivar", { p_id: n.id });
     if (error) { setErro(error.message); return; }
     void carregar();
   }
@@ -116,7 +133,7 @@ export default function MeuDiaPage() {
         <div>
           <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#C8941A]"><Sun size={13} /> Meu dia</div>
           <h1 className="text-[26px] font-medium leading-tight">{saudacao()}{meuNome ? `, ${meuNome}` : ""}.</h1>
-          <p className="text-[13px] text-[#3D2314]/60">{new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" })} · {atrasados.length} atrasado(s) · {deHoje.length} para hoje · {mencoes.length} menção(ões)</p>
+          <p className="text-[13px] text-[#3D2314]/60">{new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" })} · {atrasados.length} atrasado(s) · {deHoje.length} para hoje · {mencoes.length} menção(ões)<AjudaCampo chave="pm.dia.resumo_topo" /></p>
         </div>
         <Link href="/dashboard/pm/pauta" className="inline-flex items-center gap-1.5 rounded-lg border border-[#3D2314]/15 bg-white px-3 py-2 text-[12.5px]"><ListChecks size={14} /> Abrir a Pauta</Link>
       </header>
@@ -130,7 +147,7 @@ export default function MeuDiaPage() {
           {userId && <Cronometro empresa={empresa} userId={userId} jobs={jobsCrono} onMudou={() => void carregar()} />}
 
           <section className={cartao} data-testid="dia-para-hoje">
-            <div className={titulo}><CalendarClock size={14} /> O que é meu</div>
+            <div className={titulo}><CalendarClock size={14} /> O que é meu<AjudaCampo chave="pm.dia.o_que_e_meu" /></div>
             {!!atrasados.length && <>
               <div className="mt-1 text-[12px] font-semibold text-[#791F1F]">Atrasados · {atrasados.length}</div>
               <ul className="divide-y divide-[#3D2314]/6" data-testid="dia-atrasados">{atrasados.map((it) => <Linha key={it.id} it={it} />)}</ul>
@@ -143,7 +160,7 @@ export default function MeuDiaPage() {
           </section>
 
           <section className={cartao} data-testid="dia-aprovacoes">
-            <div className={titulo}><AlertTriangle size={14} /> Aprovações dos meus jobs</div>
+            <div className={titulo}><AlertTriangle size={14} /> Aprovações dos meus jobs<AjudaCampo chave="pm.dia.aprovacoes" /></div>
             {!aprov.length && <div className="text-[12.5px] text-[#3D2314]/50">Nenhuma aprovação aberta.</div>}
             <ul className="space-y-1">
               {aprov.map((a) => { const p = prazoAprovacao(a.prazo_em); const j = porId.get(a.job_id); return (
@@ -154,7 +171,7 @@ export default function MeuDiaPage() {
           </section>
 
           <section className={cartao} data-testid="dia-acoes">
-            <div className={titulo}><History size={14} /> Minhas últimas ações</div>
+            <div className={titulo}><History size={14} /> Minhas últimas ações<AjudaCampo chave="pm.dia.acoes" /></div>
             {!acoes.length && <div className="text-[12.5px] text-[#3D2314]/50">Nada ainda hoje.</div>}
             <ol className="space-y-1.5">
               {acoes.map((a, i) => (
@@ -169,7 +186,7 @@ export default function MeuDiaPage() {
 
         <div className="space-y-3">
           <section className={cartao} data-testid="dia-mencoes">
-            <div className={titulo}><AtSign size={14} /> Menções para mim</div>
+            <div className={titulo}><AtSign size={14} /> Menções para mim<AjudaCampo chave="pm.dia.mencoes" /></div>
             {!mencoes.length && <div className="text-[12.5px] text-[#3D2314]/50">Ninguém te chamou nos últimos 7 dias.</div>}
             <ul className="space-y-2">
               {mencoes.map((m) => (
@@ -182,18 +199,42 @@ export default function MeuDiaPage() {
           </section>
 
           <section className={cartao} data-testid="dia-anotacoes">
-            <div className={titulo}><StickyNote size={14} /> Minhas anotações</div>
+            <div className={titulo}><StickyNote size={14} /> Minhas anotações<AjudaCampo chave="pm.dia.anotacoes" /></div>
             <label className="block">
               <span className="mb-1 flex items-center text-[11.5px] font-medium text-[#3D2314]/70">Nova anotação (só você vê)<AjudaCampo chave="pm.dia.anotacao.texto" /></span>
               <textarea className="min-h-[64px] w-full rounded-lg border border-[#3D2314]/15 px-2.5 py-2 text-[13px] focus:border-[#C8941A] focus:outline-none" value={novaNota} onChange={(e) => setNovaNota(e.target.value)} placeholder="Ex.: ligar para a Clínica Sorriso às 15h sobre o banner" data-testid="dia-nota-texto" />
             </label>
-            <button className="mt-1 rounded-lg bg-[#3D2314] px-3 py-1.5 text-[12.5px] text-white disabled:opacity-40" disabled={!novaNota.trim()} onClick={() => void salvarNota()} data-testid="dia-nota-salvar">Guardar</button>
+            <div className="mt-1 flex items-center gap-1">
+              <button className="rounded-lg bg-[#3D2314] px-3 py-1.5 text-[12.5px] text-white disabled:opacity-40" disabled={!novaNota.trim()} onClick={() => void salvarNota()} data-testid="dia-nota-salvar">Guardar</button>
+              <AjudaCampo chave="pm.dia.anotacao.salvar" />
+            </div>
             <ul className="mt-2 space-y-1.5">
               {notas.map((n) => (
                 <li key={n.id} className={`flex items-start gap-2 rounded-lg px-2.5 py-1.5 text-[12.5px] ${n.fixada ? "bg-[#FAEEDA]" : "bg-[#FAF7F2]"}`} data-testid="dia-nota">
-                  <span className="min-w-0 flex-1 whitespace-pre-wrap">{n.texto}<span className="block text-[11px] text-[#3D2314]/50">{quando(n.atualizado_em)}</span></span>
-                  <button onClick={() => void mexerNota(n, { fixada: !n.fixada })} aria-label={n.fixada ? "desafixar" : "fixar"} title={n.fixada ? "desafixar" : "fixar no topo"}>{n.fixada ? <PinOff size={14} /> : <Pin size={14} />}</button>
-                  <button onClick={() => void mexerNota(n, { excluido_em: new Date().toISOString() })} aria-label="arquivar" title="arquivar"><Archive size={14} /></button>
+                  {editId === n.id ? (
+                    <>
+                      <label className="block min-w-0 flex-1">
+                        <span className="mb-1 flex items-center text-[11px] font-medium text-[#3D2314]/60">Editar anotação<AjudaCampo chave="pm.dia.anotacao.editar" /></span>
+                        <textarea className="min-h-[52px] w-full rounded-lg border border-[#C8941A] px-2 py-1.5 text-[12.5px] focus:outline-none" value={editTexto} onChange={(e) => setEditTexto(e.target.value)} autoFocus data-testid="dia-nota-editar-texto" />
+                      </label>
+                      <AjudaCampo chave="pm.dia.anotacao.editar.salvar" />
+                      <button onClick={() => void salvarEdicao(n)} disabled={!editTexto.trim()} aria-label="salvar edição" title="salvar" className="disabled:opacity-40" data-testid="dia-nota-editar-salvar"><Check size={14} /></button>
+                      <AjudaCampo chave="pm.dia.anotacao.editar.cancelar" />
+                      <button onClick={() => { setEditId(null); setEditTexto(""); }} aria-label="cancelar edição" title="cancelar"><X size={14} /></button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="min-w-0 flex-1 whitespace-pre-wrap">{n.texto}<span className="block text-[11px] text-[#3D2314]/50">{quando(n.atualizado_em)}</span></span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        <AjudaCampo chave="pm.dia.anotacao.editar" />
+                        <button onClick={() => { setEditId(n.id); setEditTexto(n.texto); }} aria-label="editar" title="editar o texto" data-testid="dia-nota-editar"><Pencil size={14} /></button>
+                        <AjudaCampo chave="pm.dia.anotacao.fixar" />
+                        <button onClick={() => void fixarNota(n)} aria-label={n.fixada ? "desafixar" : "fixar"} title={n.fixada ? "desafixar" : "fixar no topo"}>{n.fixada ? <PinOff size={14} /> : <Pin size={14} />}</button>
+                        <AjudaCampo chave="pm.dia.anotacao.arquivar" />
+                        <button onClick={() => void arquivarNota(n)} aria-label="arquivar" title="arquivar" data-testid="dia-nota-arquivar"><Archive size={14} /></button>
+                      </span>
+                    </>
+                  )}
                 </li>
               ))}
             </ul>

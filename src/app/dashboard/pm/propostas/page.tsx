@@ -377,7 +377,10 @@ export default function PropostasPage() {
             <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Propostas · Orçamentos</h1>
             <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>Itens → totais ao vivo → envio → aprovação vira contrato. Escopo por empresa.</p>
           </div>
-          <button onClick={() => abrirNovo()} style={btnPri}>+ Nova proposta</button>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+            <button onClick={() => abrirNovo()} style={btnPri}>+ Nova proposta</button>
+            <AjudaCampo chave="pm.propostas.nova" />
+          </span>
         </header>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px,1fr))', gap: 10, marginBottom: 14 }}>
@@ -394,6 +397,10 @@ export default function PropostasPage() {
             </div>
           ) : (
             <div style={{ display: 'grid', gap: 8 }}>
+              <div style={{ fontSize: 12, color: TEXTM, display: 'flex', alignItems: 'center', gap: 4, padding: '0 2px' }}>
+                {propostas.length} {propostas.length === 1 ? 'proposta' : 'propostas'}
+                <AjudaCampo chave="pm.propostas.lista" />
+              </div>
               {propostas.map((p) => {
                 const cfg = stCfg(p.status)
                 const nItens = Array.isArray(p.itens) ? p.itens.length : 0

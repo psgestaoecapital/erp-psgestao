@@ -144,6 +144,14 @@ export default function PainelCodes() {
         <span data-testid="codes-atualizado" style={{ fontSize: 12, color: TXM }}>
           {atualizado ? `Atualizado ${diaMes(atualizado)} · ${hora(atualizado)}` : 'Carregando…'}
           {' '}<b style={{ color: aoVivo ? DOU : TXM }}>{aoVivo ? '(ao vivo)' : '(reconectando…)'}</b>
+          {(() => {
+            // Idade do dado em vermelho quando > 2 min (CEO 26/10): deixa claro que a foto está velha
+            // — a esteira pode ter publicado e o painel ainda não recarregou. `agora` recomputa a cada 60 s.
+            if (!atualizado) return null
+            const min = Math.floor((agora.getTime() - atualizado.getTime()) / 60000)
+            if (min < 2) return null
+            return <b data-testid="codes-dado-velho" title="O painel não recarregou há mais de 2 min — pode haver publicação mais recente ainda não refletida." style={{ color: VERM, marginLeft: 6 }}>· dado de {min} min atrás</b>
+          })()}
         </span>
       </div>
 

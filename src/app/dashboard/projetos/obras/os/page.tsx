@@ -27,6 +27,7 @@ type OS = {
   tarefa_id: string | null; etapa: string | null; obra_item_id: string | null; servico: string | null
   descricao: string; equipe: string | null; responsavel: string | null; data_prevista: string | null
   prioridade: 'baixa' | 'normal' | 'alta' | 'urgente'; status: 'aberta' | 'em_execucao' | 'concluida' | 'cancelada'
+  excluido_em?: string | null
 }
 
 const STATUS: Record<OS['status'], { rotulo: string; cor: string; fundo: string }> = {
@@ -57,6 +58,8 @@ export default function OSObraPage() {
   const [fObra, setFObra] = useState('')
   const [fStatus, setFStatus] = useState<'andamento' | 'concluida' | 'cancelada' | 'todas'>('andamento')
   const [fResp, setFResp] = useState('')
+  const [verExcluidas, setVerExcluidas] = useState(false)
+  const [excluidas, setExcluidas] = useState<OS[]>([])
   const [aberto, setAberto] = useState(false)
   const [f, setF] = useState({ ...VAZIO })
   const [etapas, setEtapas] = useState<Etapa[]>([])
@@ -165,12 +168,29 @@ export default function OSObraPage() {
     carregar()
   }
   const excluir = async (o: OS) => {
-    if (!window.confirm(`Excluir a ${o.numero}? Ela sai da lista (fica no histórico).`)) return
+    if (!window.confirm(`Excluir a ${o.numero}? Ela sai da lista (vai para a lixeira e dá para restaurar).`)) return
     setOcupado(o.id); setErro('')
     const { error } = await supabase.rpc('fn_obra_os_excluir', { p_id: o.id })
     setOcupado(null)
     if (error) { setErro(error.message); return }
-    carregar()
+    carregar(); if (verExcluidas) carregarExcluidas()
+  }
+
+  // Lixeira: OS excluídas ficam guardadas (soft-delete) e podem ser restauradas — RD-98 pilar 4.
+  const carregarExcluidas = useCallback(async () => {
+    if (!companyIds?.length) { setExcluidas([]); return }
+    const { data, error } = await supabase.rpc('fn_obra_os_listar_excluidas', { p_company_ids: companyIds, p_obra_id: null })
+    if (!error) setExcluidas((data ?? []) as OS[])
+  }, [companyIds])
+  useEffect(() => { if (verExcluidas) carregarExcluidas() }, [verExcluidas, carregarExcluidas])
+
+  const restaurar = async (o: OS) => {
+    if (!window.confirm(`Restaurar a ${o.numero}? Ela volta para a lista.`)) return
+    setOcupado(o.id); setErro('')
+    const { error } = await supabase.rpc('fn_obra_os_restaurar', { p_id: o.id })
+    setOcupado(null)
+    if (error) { setErro(error.message); return }
+    carregarExcluidas(); carregar()
   }
 
   const abrirHoras = (o: OS) => { setFh({ ...VAZIO_H, data: hoje() }); setErro(''); setDiario(null); setApontando(apontando === o.id ? null : o.id) }
@@ -268,6 +288,12 @@ export default function OSObraPage() {
               </select>
             </label>
           )}
+          <label style={{ ...lab, flexDirection: 'row', alignItems: 'center', color: ESP }}>
+            <span style={{ ...rot, fontWeight: 600 }}>
+              <input type="checkbox" checked={verExcluidas} onChange={e => setVerExcluidas(e.target.checked)} style={{ width: 18, height: 18 }} data-testid="os-obra-filtro-excluidas" />
+              Ver a lixeira <AjudaCampo chave="projetos.os_obra.filtro_excluidas" />
+            </span>
+          </label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <button type="button" onClick={novo} style={{ ...btn(ESP, '#fff'), flex: 1 }} data-testid="os-obra-nova">+ Nova OS</button>
             <AjudaCampo chave="projetos.os_obra.nova" />
@@ -360,7 +386,7 @@ export default function OSObraPage() {
                       {o.equipe && <><dt style={{ color: MUT }}>Equipe</dt><dd style={{ margin: 0 }}>{o.equipe}</dd></>}
                       {o.responsavel && <><dt style={{ color: MUT }}>Responsável</dt><dd style={{ margin: 0 }}>{o.responsavel}</dd></>}
                       {o.data_prevista && <><dt style={{ color: MUT }}>Para</dt><dd style={{ margin: 0, color: atrasada ? VERM : ESP, fontWeight: atrasada ? 700 : 400 }}>{dataBR(o.data_prevista)}{atrasada ? ' · atrasada' : ''}</dd></>}
-                      {o.prioridade !== 'normal' && <><dt style={{ color: MUT }}>Prioridade</dt><dd style={{ margin: 0, color: o.prioridade === 'urgente' ? VERM : ESP }}>{PRIORIDADES.find(p => p[0] === o.prioridade)?.[1]}</dd></>}
+                      <><dt style={{ color: MUT }}>Prioridade</dt><dd style={{ margin: 0, color: o.prioridade === 'urgente' ? VERM : o.prioridade === 'alta' ? '#92400E' : ESP, fontWeight: (o.prioridade === 'urgente' || o.prioridade === 'alta') ? 700 : 400 }}>{PRIORIDADES.find(p => p[0] === o.prioridade)?.[1]}</dd></>
                       {horasOS[o.id] && <><dt style={{ ...rot, color: MUT }}>Horas <AjudaCampo chave="projetos.os_obra.horas_apontadas" /></dt>
                         <dd style={{ margin: 0, fontWeight: 600 }} data-testid="os-obra-horas-total">{horasOS[o.id].horas.toLocaleString('pt-BR')} h · {brl(horasOS[o.id].valor)}</dd></>}
                       {diarios.length > 0 && <><dt style={{ ...rot, color: MUT }}>Diários <AjudaCampo chave="projetos.os_obra.rdo_registrados" /></dt>
@@ -414,7 +440,7 @@ export default function OSObraPage() {
                         </div>
                       </form>
                     )}
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+                    {o.status !== 'concluida' && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
                       {o.status === 'aberta' && <button type="button" disabled={!!ocupado} onClick={() => mudar(o, 'em_execucao')} style={btn(GOLD, ESP)} data-testid="os-obra-iniciar">Iniciar</button>}
                       {o.status === 'em_execucao' && <button type="button" disabled={!!ocupado} onClick={() => mudar(o, 'concluida')} style={btn(VERDE, '#fff')} data-testid="os-obra-concluir">Concluir</button>}
                       {(o.status === 'aberta' || o.status === 'em_execucao') && <span style={rot}><button type="button" disabled={!!ocupado} onClick={() => abrirHoras(o)} style={btn('#fff', ESP)} data-testid="os-obra-apontar">Apontar horas</button><AjudaCampo chave="projetos.os_obra.apontar" /></span>}
@@ -423,12 +449,45 @@ export default function OSObraPage() {
                       {(o.status === 'aberta' || o.status === 'em_execucao') && <button type="button" disabled={!!ocupado} onClick={() => mudar(o, 'cancelada')} style={btn('#fff', VERM)}>Cancelar</button>}
                       {o.status === 'cancelada' && <button type="button" disabled={!!ocupado} onClick={() => mudar(o, 'aberta')} style={btn('#fff', ESP)}>Reabrir</button>}
                       {o.status === 'cancelada' && <button type="button" disabled={!!ocupado} onClick={() => excluir(o)} style={btn('#fff', VERM)}>Excluir</button>}
-                    </div>
+                    </div>}
                   </article>
                 )
               })}
             </div>
           </>
+        )}
+
+        {verExcluidas && (
+          <section data-testid="os-obra-lixeira" style={{ marginTop: 24 }}>
+            <div style={{ ...rot, fontSize: 13, color: MUT, margin: '0 0 8px', fontWeight: 600 }}>
+              Lixeira · {excluidas.length} {excluidas.length === 1 ? 'OS excluída' : 'OS excluídas'} <AjudaCampo chave="projetos.os_obra.filtro_excluidas" />
+            </div>
+            {excluidas.length === 0 ? (
+              <div style={{ background: '#fff', border: `1px dashed ${LINE}`, borderRadius: 14, padding: 20, textAlign: 'center', color: MUT, fontSize: 14 }}>
+                Nenhuma OS na lixeira. As OS que você excluir aparecem aqui e podem ser restauradas.
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill,minmax(280px,1fr))' }} data-testid="os-obra-lixeira-lista">
+                {excluidas.map(o => (
+                  <article key={o.id} data-testid="os-obra-lixeira-cartao" style={{ background: '#fff', border: `1px dashed ${LINE}`, borderRadius: 14, padding: 14, display: 'grid', gap: 8, opacity: ocupado === o.id ? 0.5 : 0.85 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
+                      <span style={{ fontFamily: 'ui-monospace,monospace', fontWeight: 700, fontSize: 15 }}>{o.numero}</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: MUT, background: 'rgba(61,35,20,0.05)', borderRadius: 999, padding: '3px 10px' }}>Excluída</span>
+                    </div>
+                    <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.4 }}>{o.descricao}</div>
+                    <dl style={{ margin: 0, display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 10px', fontSize: 13 }}>
+                      <dt style={{ color: MUT }}>Obra</dt><dd style={{ margin: 0 }}>{nomeObra(o)}</dd>
+                      {o.excluido_em && <><dt style={{ color: MUT }}>Excluída em</dt><dd style={{ margin: 0 }}>{dataBR(o.excluido_em.slice(0, 10))}</dd></>}
+                    </dl>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}>
+                      <button type="button" disabled={!!ocupado} onClick={() => restaurar(o)} style={btn(ESP, '#fff')} data-testid="os-obra-restaurar">Restaurar</button>
+                      <AjudaCampo chave="projetos.os_obra.restaurar" />
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
         )}
       </div>
     </div>

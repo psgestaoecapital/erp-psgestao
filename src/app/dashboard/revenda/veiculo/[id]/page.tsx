@@ -455,10 +455,68 @@ function ClienteVendaBusca({ companyId, nome, onNome, onEscolher, invalido }: { 
   )
 }
 
+// #5680 — tabela de recebimentos da venda: cada linha vira um título em contas a receber (GE) com forma, vencimento e conta.
+type RecLinha = { tipo: string; devedor: 'cliente' | 'banco'; valor: string; data: string; forma: string; conta: string }
+const REC_TIPOS: { v: string; l: string }[] = [{ v: 'entrada', l: 'Entrada' }, { v: 'sinal', l: 'Sinal' }, { v: 'parcela', l: 'Parcela' }, { v: 'financiamento', l: 'Financiamento (banco)' }, { v: 'retorno_banco', l: 'Retorno do banco' }]
+const REC_FORMAS = ['PIX', 'Dinheiro', 'Cheque', 'Promissória', 'Boleto', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência']
+const hojeIso = () => new Date().toISOString().slice(0, 10)
+const maisDias = (iso: string, d: number) => { const x = new Date(iso + 'T12:00:00'); x.setDate(x.getDate() + d); return x.toISOString().slice(0, 10) }
+function RecebimentosTabela({ companyId, linhas, onChange, totalVenda }: { companyId: string; linhas: RecLinha[]; onChange: (l: RecLinha[]) => void; totalVenda: number }) {
+  const [contas, setContas] = useState<{ id: string; nome: string }[]>([])
+  const [nParc, setNParc] = useState('3')
+  const [intervalo, setIntervalo] = useState('30')
+  useEffect(() => {
+    void supabase.from('erp_banco_contas').select('id,nome').eq('company_id', companyId).eq('ativo', true).order('nome').then(({ data }) => setContas((data as { id: string; nome: string }[] | null) ?? []))
+  }, [companyId])
+  const soma = linhas.reduce((a, l) => a + (moedaNum(l.valor) ?? 0), 0)
+  const dif = Math.round((totalVenda - soma) * 100) / 100
+  const nova = (p: Partial<RecLinha> = {}): RecLinha => ({ tipo: 'parcela', devedor: 'cliente', valor: '', data: hojeIso(), forma: 'PIX', conta: '', ...p })
+  const set = (i: number, p: Partial<RecLinha>) => onChange(linhas.map((l, k) => k === i ? { ...l, ...p } : l))
+  const fmt = (v: number) => moedaMascara(String(Math.round(v * 100)))
+  const aVista = () => onChange([nova({ tipo: 'parcela', valor: fmt(totalVenda) })])
+  const gerar = () => {
+    const q = Math.max(1, Math.min(120, parseInt(nParc, 10) || 1)); const iv = Math.max(1, parseInt(intervalo, 10) || 30)
+    const base = Math.floor((totalVenda / q) * 100) / 100
+    onChange(Array.from({ length: q }, (_, k) => nova({ valor: fmt(k === q - 1 ? Math.round((totalVenda - base * (q - 1)) * 100) / 100 : base), data: maisDias(hojeIso(), iv * (k + 1)) })))
+  }
+  const btn: React.CSSProperties = { padding: '6px 10px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.espM, cursor: 'pointer', fontSize: 12 }
+  return (
+    <div data-testid="venda-recebimentos">
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 6 }}>
+        <button type="button" style={btn} data-testid="rec-avista" onClick={aVista} disabled={totalVenda <= 0}>À vista</button>
+        <button type="button" style={btn} onClick={gerar} disabled={totalVenda <= 0}>Gerar parcelas iguais</button>
+        <input value={nParc} onChange={(e) => setNParc(e.target.value.replace(/\D/g, ''))} inputMode="numeric" style={{ ...inp, width: 52, padding: '5px 8px' }} aria-label="número de parcelas" />
+        <span style={{ fontSize: 11.5, color: C.espL }}>parcelas a cada</span>
+        <input value={intervalo} onChange={(e) => setIntervalo(e.target.value.replace(/\D/g, ''))} inputMode="numeric" style={{ ...inp, width: 52, padding: '5px 8px' }} aria-label="intervalo em dias" />
+        <span style={{ fontSize: 11.5, color: C.espL }}>dias</span>
+        <AjudaCampo chave="revenda.venda.recebimentos" rota="/dashboard/revenda/veiculo" />
+      </div>
+      {linhas.map((l, i) => (
+        <div key={i} data-testid={`rec-linha-${i}`} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 6, marginBottom: 6, paddingBottom: 6, borderBottom: `1px dashed ${C.border}` }}>
+          <select value={l.tipo} onChange={(e) => set(i, { tipo: e.target.value, devedor: e.target.value === 'financiamento' || e.target.value === 'retorno_banco' ? 'banco' : 'cliente' })} style={inp} aria-label="tipo">{REC_TIPOS.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}</select>
+          <input value={l.valor} onChange={(e) => set(i, { valor: moedaMascara(e.target.value) })} placeholder="valor" inputMode="numeric" style={inp} aria-label="valor" data-testid={`rec-valor-${i}`} />
+          <input type="date" value={l.data} onChange={(e) => set(i, { data: e.target.value })} style={inp} aria-label="vencimento" />
+          <select value={l.forma} onChange={(e) => set(i, { forma: e.target.value })} style={inp} aria-label="forma de pagamento">{REC_FORMAS.map((f) => <option key={f} value={f}>{f}</option>)}</select>
+          <select value={l.conta} onChange={(e) => set(i, { conta: e.target.value })} style={inp} aria-label="conta de destino"><option value="">conta de destino</option>{contas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select>
+          <AjudaCampo chave="revenda.venda.recebimentos" rota="/dashboard/revenda/veiculo" />
+          <button type="button" style={btn} onClick={() => onChange(linhas.filter((_, k) => k !== i))} aria-label="remover linha">Remover</button>
+        </div>
+      ))}
+      <button type="button" style={btn} data-testid="rec-add" onClick={() => onChange([...linhas, nova()])}>+ Adicionar linha</button>
+      {linhas.length > 0 && (
+        <div style={{ fontSize: 12, marginTop: 6, color: Math.abs(dif) < 0.01 ? C.green : C.amber }}>
+          Soma dos recebimentos {brl(soma)} de {brl(totalVenda)}{Math.abs(dif) < 0.01 ? ' — confere.' : dif > 0 ? ` — faltam ${brl(dif)}.` : ` — passa ${brl(-dif)}.`}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onSaved, onErro }: { companyId: string; veiculoId: string; custoTotal: number; margemAlvo: number; onClose: () => void; onSaved: () => void; onErro: (m: string) => void }) {
   const [clienteSel, setClienteSel] = useState<ErpCliente | null>(null)
   const [f, setF] = useState({ cliente_nome: '', vendedor_nome: '', valor_venda: '', valor_entrada: '', valor_financiado: '', banco_nome: '', retorno_banco: '' })
   const [troca, setTroca] = useState({ on: false, chassi: '', modelo: '', valor_troca: '', valor_avaliacao: '' })
+  const [recs, setRecs] = useState<RecLinha[]>([])
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [campo, setCampo] = useState<string | null>(null)
@@ -487,15 +545,22 @@ function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onS
     if (!vvOk) { setErro('Informe o valor da venda (maior que zero).'); setCampo('valor_venda'); return }
     setBusy(true)
     const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
-    const recebimentos: { tipo: string; devedor: string; valor: number }[] = []
-    if (n(f.valor_entrada) > 0) recebimentos.push({ tipo: 'entrada', devedor: 'cliente', valor: n(f.valor_entrada) })
-    if (n(f.valor_financiado) > 0) recebimentos.push({ tipo: 'financiamento', devedor: 'banco', valor: n(f.valor_financiado) })
-    if (n(f.retorno_banco) > 0) recebimentos.push({ tipo: 'retorno_banco', devedor: 'banco', valor: n(f.retorno_banco) })
+    const recebimentos: { tipo: string; devedor: string; valor: number; data_prevista?: string; forma_pagamento?: string; conta_bancaria_id?: string }[] = []
+    const recsOk = recs.filter((r) => (moedaNum(r.valor) ?? 0) > 0)
+    for (const r of recsOk) recebimentos.push({ tipo: r.tipo, devedor: r.devedor, valor: n(r.valor), data_prevista: r.data || undefined, forma_pagamento: r.forma || undefined, conta_bancaria_id: r.conta || undefined })
+    const somaTipo = (t: string) => recsOk.filter((r) => r.tipo === t).reduce((a, r) => a + n(r.valor), 0)
+    const usaTabela = recsOk.length > 0
+    const vEntrada = usaTabela ? somaTipo('entrada') : n(f.valor_entrada)
+    const vFinanc = usaTabela ? somaTipo('financiamento') : n(f.valor_financiado)
+    const vRetorno = usaTabela ? somaTipo('retorno_banco') : n(f.retorno_banco)
+    if (!usaTabela && n(f.valor_entrada) > 0) recebimentos.push({ tipo: 'entrada', devedor: 'cliente', valor: n(f.valor_entrada) })
+    if (!usaTabela && n(f.valor_financiado) > 0) recebimentos.push({ tipo: 'financiamento', devedor: 'banco', valor: n(f.valor_financiado) })
+    if (!usaTabela && n(f.retorno_banco) > 0) recebimentos.push({ tipo: 'retorno_banco', devedor: 'banco', valor: n(f.retorno_banco) })
     // sem entrada/financiamento explícitos: à vista, o cliente deve o valor da venda
     if (recebimentos.length === 0 && n(f.valor_venda) > 0) recebimentos.push({ tipo: 'parcela', devedor: 'cliente', valor: n(f.valor_venda) })
     const { data, error } = await supabase.rpc('fn_veic_venda_registrar', {
       p_company_id: companyId, p_veiculo_id: veiculoId,
-      p_venda: { cliente_nome: f.cliente_nome.trim() || null, cliente_id: clienteSel?.id ?? null, cliente_doc: clienteSel ? (clienteSel.cpf_cnpj || clienteSel.cnpj_cpf || null) : null, vendedor_nome: f.vendedor_nome.trim() || null, valor_venda: f.valor_venda ? n(f.valor_venda) : null, valor_entrada: f.valor_entrada ? n(f.valor_entrada) : null, valor_financiado: f.valor_financiado ? n(f.valor_financiado) : null, banco_nome: f.banco_nome.trim() || null, retorno_banco: f.retorno_banco ? n(f.retorno_banco) : null },
+      p_venda: { cliente_nome: f.cliente_nome.trim() || null, cliente_id: clienteSel?.id ?? null, cliente_doc: clienteSel ? (clienteSel.cpf_cnpj || clienteSel.cnpj_cpf || null) : null, vendedor_nome: f.vendedor_nome.trim() || null, valor_venda: f.valor_venda ? n(f.valor_venda) : null, valor_entrada: vEntrada > 0 ? vEntrada : null, valor_financiado: vFinanc > 0 ? vFinanc : null, banco_nome: f.banco_nome.trim() || null, retorno_banco: vRetorno > 0 ? vRetorno : null },
       p_recebimentos: recebimentos,
       p_troca: troca.on ? { chassi: troca.chassi.trim() || null, modelo: troca.modelo.trim() || null, valor_troca: troca.valor_troca ? n(troca.valor_troca) : null, valor_avaliacao: troca.valor_avaliacao ? n(troca.valor_avaliacao) : null } : null,
       p_user: user?.id ?? null,
@@ -517,14 +582,16 @@ function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onS
         <InputMoeda value={f.valor_venda} onChange={(v) => setF({ ...f, valor_venda: v })} placeholder="valor da venda *" ajuda="revenda.venda.valor_venda" style={{ ...inp, gridColumn: '1 / -1', ...estiloBordaInput(campo === 'valor_venda' ? 'x' : null) }} />
       </div>
 
-      <div style={{ fontSize: 12, fontWeight: 700, color: C.espM, margin: '12px 0 4px' }}>Pagamento</div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: C.espM, margin: '12px 0 4px' }}>Recebimentos</div>
+      <RecebimentosTabela companyId={companyId} linhas={recs} onChange={setRecs} totalVenda={Math.max(0, vendaN - (troca.on ? n(troca.valor_troca) : 0))} />
+      <div style={{ fontSize: 12, fontWeight: 700, color: C.espM, margin: '12px 0 4px' }}>Ou resumo rápido (sem tabela)</div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         <InputMoeda value={f.valor_entrada} onChange={(v) => setF({ ...f, valor_entrada: v })} placeholder="entrada (cliente)" ajuda="revenda.venda.entrada" style={inp} />
         <InputMoeda value={f.valor_financiado} onChange={(v) => setF({ ...f, valor_financiado: v })} placeholder="financiado (banco)" ajuda="revenda.venda.financiado" style={inp} />
         <input value={f.banco_nome} onChange={(e) => setF({ ...f, banco_nome: e.target.value })} placeholder="banco" style={inp} />
         <InputMoeda value={f.retorno_banco} onChange={(v) => setF({ ...f, retorno_banco: v })} placeholder="retorno do banco (receita)" ajuda="revenda.venda.retorno_banco" style={inp} />
       </div>
-      <div style={{ fontSize: 11, color: C.espL, marginTop: 4 }}>O financiado é cobrado do banco; a entrada, do cliente. Cada um vira um título em contas a receber com o devedor certo.</div>
+      <div style={{ fontSize: 11, color: C.espL, marginTop: 4 }}>O financiado é cobrado do banco; a entrada, do cliente. Cada um vira um título em contas a receber com o devedor certo. Se a tabela acima tiver linhas, ela vale no lugar do resumo.</div>
 
       <label style={{ fontSize: 13, color: C.esp, display: 'inline-flex', alignItems: 'center', gap: 6, margin: '12px 0 4px', fontWeight: 700 }}>
         <input type="checkbox" checked={troca.on} onChange={(e) => setTroca({ ...troca, on: e.target.checked })} /> Tem veículo na troca
@@ -1037,7 +1104,6 @@ function PreparacaoModal({ veiculoId, onClose, onSaved, onErro }: { veiculoId: s
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 14, justifyContent: 'flex-end' }}>
         <button onClick={onClose} style={{ padding: '8px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.espM, cursor: 'pointer' }}>Cancelar</button>
-        <button disabled={busy} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: busy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>{busy ? 'Abrindo…' : 'Abrir OS'}</button>
       </div>
     </Modal>
   )
@@ -1302,15 +1368,40 @@ const COMBS = ['gasolina', 'etanol', 'flex', 'diesel', 'gnv', 'elétrico', 'híb
 const simNao = (b: boolean | null | undefined) => (b == null ? '' : b ? 'sim' : 'nao')
 // #101 (Fábio): 3 veículos da Alliance com modelo = "2009"/"2021"/"2025" — o ano foi digitado no modelo.
 const pareceAno = (m: string) => /^(19|20)\d{2}$/.test(m.trim())
-function SimNao({ id, rotulo, valor, onC }: { id: string; rotulo: string; valor: string; onC: (v: string) => void }) {
+function SimNao({ id, rotulo, valor, onC, ajuda }: { id: string; rotulo: string; valor: string; onC: (v: string) => void; ajuda: string }) {
   return (
     <label htmlFor={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: C.espM }}>
       {rotulo}
       <select id={id} value={valor} onChange={(e) => onC(e.target.value)} style={{ ...inp, width: 72 }}>
         <option value="">—</option><option value="sim">sim</option><option value="nao">não</option>
       </select>
+      <AjudaCampo chave={ajuda} rota="/dashboard/revenda/veiculo" />
     </label>
   )
+}
+// #5662: rótulo FIXO acima do campo (o placeholder some quando preenchido) + dica curta + aviso opcional (não bloqueia).
+function CampoRot({ id, rotulo, dica, aviso, ajuda, children }: { id: string; rotulo: string; dica?: string; aviso?: string | null; ajuda: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxWidth: 230 }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 700, color: C.espM }}>
+        <label htmlFor={id}>{rotulo}</label>
+        <AjudaCampo chave={ajuda} rota="/dashboard/revenda/veiculo" />
+      </span>
+      {children}
+      {dica && <span style={{ fontSize: 11, color: C.espL }}>{dica}</span>}
+      {aviso && <span style={{ fontSize: 11.5, color: '#8A4B08', background: C.amberBg, borderRadius: 6, padding: '3px 7px' }}>Atenção: {aviso}</span>}
+    </div>
+  )
+}
+// número digitado em formato BR ("72.956,00") ou simples ("72956") → number | null
+const numBR = (t: string) => { const b = t.trim(); if (!b) return null; const n = Number(b.includes(',') ? b.replace(/\./g, '').replace(',', '.') : b); return Number.isFinite(n) ? n : null }
+const DICAS: Record<string, { r: string; d: string }> = {
+  marca: { r: 'Marca', d: 'Fabricante, ex.: Chevrolet' }, modelo: { r: 'Modelo', d: 'Só o nome, sem o ano, ex.: Onix' },
+  versao: { r: 'Versão', d: 'Acabamento, ex.: Premier 1.8 AT' }, cor: { r: 'Cor', d: 'Como no documento, ex.: Prata' },
+  portas: { r: 'Portas', d: 'ex.: 4' }, cambio: { r: 'Câmbio', d: 'manual ou automático' },
+  ano_fabricacao: { r: 'Ano de fabricação', d: '4 dígitos, ex.: 2020' }, ano_modelo: { r: 'Ano do modelo', d: '4 dígitos, ex.: 2021' },
+  renavam: { r: 'RENAVAM', d: 'Número do documento (CRLV)' }, potencia_cv: { r: 'Potência (cv)', d: 'Em cavalos, ex.: 110' },
+  lugares: { r: 'Lugares', d: 'Capacidade de passageiros, ex.: 5' },
 }
 function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic; faltantes: string[] | null; sugestaoAno: number | null; onSaved: () => void; onErro: (m: string) => void }) {
   const num = (n: number | null) => (n == null ? '' : String(n))
@@ -1360,6 +1451,7 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
   }
   const [busy, setBusy] = useState(false)
   const [ncmMsg, setNcmMsg] = useState<string | null>(null)
+  const [ncmPend, setNcmPend] = useState<string | null>(null) // #5662: NCM sugerido aguardando confirmação de troca
   // #140/#141 (Fábio): o salvar falhava em silêncio (HTTP 400 com "72.956,00") e o aviso ia pro topo da ficha.
   // Agora o erro aparece AQUI, ao lado do botão, com o campo marcado.
   const [erroLocal, setErroLocal] = useState<string | null>(null)
@@ -1370,7 +1462,9 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
     const { data } = await supabase.rpc('fn_veic_veiculo_fiscal', { p_veiculo_id: v.id, p_tipo: tp })
     const r = data as { ok?: boolean; ncm_sugerido?: string | null; ncm_padrao?: string | null } | null
     const sug = r?.ncm_sugerido ?? r?.ncm_padrao ?? null
-    if (sug) { setF((p) => ({ ...p, ncm: sug })); setNcmMsg(`NCM ${r?.ncm_sugerido ? 'sugerido pela tabela' : 'do padrão da empresa'}: ${sug}`) }
+    if (sug && f.ncm.trim() && f.ncm.trim() !== sug) { setNcmPend(sug); setNcmMsg(null) }
+    else if (sug && f.ncm.trim() === sug) setNcmMsg(`O NCM ${sug} já é o sugerido.`)
+    else if (sug) { setF((p) => ({ ...p, ncm: sug })); setNcmMsg(`NCM ${r?.ncm_sugerido ? 'sugerido pela tabela' : 'do padrão da empresa'}: ${sug}`) }
     else setNcmMsg('Sem sugestão para este veículo — informe o NCM com o seu contador.')
   }
   const anoSugerido = sugestaoAno != null && (!f.ano_modelo || !f.ano_fabricacao)
@@ -1390,11 +1484,27 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
         : 'Não foi possível salvar agora. Tente de novo em instantes.'
       setErroLocal(m); setCampo(r?.campo ?? null); onErro(m); return
     }
-    onSaved()
+    setInicial(JSON.stringify(f)); onSaved()
   }
-  const F = (k: keyof typeof f, ph: string, w?: number) => (
-    <input id={`campo-${String(k)}`} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} placeholder={ph} style={{ ...inp, width: w, ...estiloBordaInput(campo === String(k) ? 'x' : null) }} />
+  const F = (k: keyof typeof f, ph: string, w?: number, extra?: { dica?: string; aviso?: string | null }) => (
+    <CampoRot id={`campo-${String(k)}`} ajuda={`revenda.veiculo.${String(k)}`} rotulo={DICAS[String(k)]?.r ?? ph} dica={extra?.dica ?? DICAS[String(k)]?.d} aviso={extra?.aviso}>
+      <input id={`campo-${String(k)}`} value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} placeholder={ph} style={{ ...inp, width: w, ...estiloBordaInput(campo === String(k) ? 'x' : null) }} />
+    </CampoRot>
   )
+  // #5662: avisos (não bloqueiam) para valores implausíveis
+  const nCil = numBR(f.cilindradas), nAq = numBR(f.valor_aquisicao)
+  const avisoCil = nCil != null && nCil > 0 && nCil < 50 ? `Parece pouco: cilindradas se informa em cc (ex.: 1800), não em litros nem em número de cilindros.` : null
+  const avisoAq = nAq != null && nAq > 0 && v.preco_venda != null && v.preco_venda > 0 && nAq < v.preco_venda * 0.25
+    ? `Aquisição muito abaixo do preço de venda (${brl(v.preco_venda)}). Confira se não falta um zero.` : null
+  // #5662: alterações não salvas — marca o que foi carregado e avisa ao sair da tela
+  const [inicial, setInicial] = useState(() => JSON.stringify(f))
+  const sujo = JSON.stringify(f) !== inicial
+  useEffect(() => {
+    if (!sujo) return
+    const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', h)
+    return () => window.removeEventListener('beforeunload', h)
+  }, [sujo])
   return (
     <div>
       {(faltantes?.length ?? 0) > 0 && (
@@ -1411,24 +1521,29 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
         </div>
       )}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-        <select id="campo-tipo" value={f.tipo} onChange={(e) => setF({ ...f, tipo: e.target.value })} style={inp} title="tipo do veículo — usado na sugestão de NCM">
-          <option value="">tipo…</option>{TIPOS.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}
-        </select>
+        <CampoRot id="campo-tipo" ajuda="revenda.veiculo.tipo" rotulo="Tipo do veículo" dica="Define a sugestão de NCM">
+          <select id="campo-tipo" value={f.tipo} onChange={(e) => setF({ ...f, tipo: e.target.value })} style={inp} title="tipo do veículo — usado na sugestão de NCM">
+            <option value="">tipo…</option>{TIPOS.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}
+          </select>
+        </CampoRot>
         {F('marca', 'marca', 130)}{F('modelo', 'modelo (ex.: Onix)', 150)}{F('versao', 'versão', 130)}{F('cor', 'cor', 100)}
-        <select id="campo-combustivel" value={f.combustivel} onChange={(e) => setF({ ...f, combustivel: e.target.value })} style={inp}>
-          <option value="">combustível…</option>{COMBS.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <input id="campo-km_atual" value={f.km_atual} onChange={(e) => setF({ ...f, km_atual: e.target.value })} inputMode="numeric"
-          placeholder={v.km_entrada != null ? `KM (entrada ${Number(v.km_entrada).toLocaleString('pt-BR')})` : 'KM'} title="quilometragem atual"
-          style={{ ...inp, width: 130, ...estiloBordaInput(campo === 'km_atual' ? 'x' : null) }} />
-        <SimNao id="campo-tem_manual" rotulo="manual" valor={f.tem_manual} onC={(x) => setF({ ...f, tem_manual: x })} />
-        <SimNao id="campo-tem_chave_reserva" rotulo="chave reserva" valor={f.tem_chave_reserva} onC={(x) => setF({ ...f, tem_chave_reserva: x })} />
+        <CampoRot id="campo-combustivel" ajuda="revenda.veiculo.combustivel" rotulo="Combustível" dica="ex.: flex">
+          <select id="campo-combustivel" value={f.combustivel} onChange={(e) => setF({ ...f, combustivel: e.target.value })} style={inp}>
+            <option value="">combustível…</option>{COMBS.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </CampoRot>
+        <CampoRot id="campo-km_atual" ajuda="revenda.veiculo.km_atual" rotulo="KM atual" dica="Lida no painel, só números">
+          <input id="campo-km_atual" value={f.km_atual} onChange={(e) => setF({ ...f, km_atual: e.target.value })} inputMode="numeric"
+            placeholder={v.km_entrada != null ? `KM (entrada ${Number(v.km_entrada).toLocaleString('pt-BR')})` : 'KM'} title="quilometragem atual"
+            style={{ ...inp, width: 130, ...estiloBordaInput(campo === 'km_atual' ? 'x' : null) }} />
+        </CampoRot>
+        <SimNao id="campo-tem_manual" rotulo="manual" ajuda="revenda.veiculo.tem_manual" valor={f.tem_manual} onC={(x) => setF({ ...f, tem_manual: x })} />
+        <SimNao id="campo-tem_chave_reserva" rotulo="chave reserva" ajuda="revenda.veiculo.tem_chave_reserva" valor={f.tem_chave_reserva} onC={(x) => setF({ ...f, tem_chave_reserva: x })} />
         {F('portas', 'portas', 70)}{F('cambio', 'câmbio', 100)}
         {F('ano_fabricacao', 'ano fab.', 80)}{F('ano_modelo', 'ano mod.', 80)}{F('renavam', 'renavam', 120)}
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        <CampoRot id="campo-valor_aquisicao" ajuda="revenda.veiculo.valor_aquisicao" rotulo="Valor de aquisição (R$)" dica="Pago na compra, ex.: 72.956,00" aviso={avisoAq}>
           <input id="campo-valor_aquisicao" value={f.valor_aquisicao} onChange={(e) => setF({ ...f, valor_aquisicao: e.target.value })} inputMode="decimal" placeholder="aquisição (R$)" style={{ ...inp, width: 130, ...estiloBordaInput(campo === 'valor_aquisicao' ? 'x' : null) }} />
-          <AjudaCampo chave="revenda.veiculo.valor_aquisicao" rota="/dashboard/revenda/veiculo" />
-        </label>
+        </CampoRot>
         <button disabled={busy} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: busy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer' }}>{busy ? 'Salvando…' : 'Salvar dados'}</button>
       </div>
       {pareceAno(f.modelo) && (
@@ -1439,18 +1554,28 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
       <textarea id="campo-observacao" value={f.observacao} onChange={(e) => setF({ ...f, observacao: e.target.value })} rows={2} maxLength={2000}
         placeholder="especificação (opcionais, estado, detalhes — entra no texto do anúncio)"
         style={{ ...inp, width: '100%', marginTop: 8, resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }} />
-      {erroLocal && <div style={{ background: C.redBg, color: C.red, padding: '6px 10px', borderRadius: 7, fontSize: 12, marginTop: 6, display: 'inline-block' }}>{erroLocal}</div>}
       {/* item 2c-c: Fiscal do veículo — FIPE (comissão/frescor) e NCM (nota; 8 dígitos) */}
       <div style={{ borderTop: `1px solid ${C.cream}`, marginTop: 10, paddingTop: 10 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: C.esp, marginBottom: 6 }}>Fiscal do veículo <span style={{ fontWeight: 400, color: C.espL }}>· FIPE, NCM, potência e cilindradas (dados da nota)</span></div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-          {F('potencia_cv', 'potência (cv)', 110)}{F('cilindradas', f.tipo === 'moto' ? 'cilindradas (moto: define o NCM)' : 'cilindradas', f.tipo === 'moto' ? 210 : 110)}
-          <input id="campo-valor_fipe" value={f.valor_fipe} onChange={(e) => setF({ ...f, valor_fipe: e.target.value })} inputMode="decimal" placeholder="valor FIPE (R$)" style={{ ...inp, width: 130, ...estiloBordaInput(campo === 'valor_fipe' ? 'x' : null) }} />
-          <input id="campo-ncm" value={f.ncm} onChange={(e) => setF({ ...f, ncm: e.target.value })} inputMode="numeric" placeholder="NCM (8 dígitos)" style={{ ...inp, width: 130, fontFamily: 'monospace', ...estiloBordaInput(campo === 'ncm' ? 'x' : null) }} />
+          {F('potencia_cv', 'potência (cv)', 110)}{F('cilindradas', f.tipo === 'moto' ? 'cilindradas (moto: define o NCM)' : 'cilindradas', f.tipo === 'moto' ? 210 : 110, { dica: 'Em cc, ex.: 1800. Define o NCM sugerido', aviso: avisoCil })}
+          <CampoRot id="campo-valor_fipe" ajuda="revenda.veiculo.valor_fipe" rotulo="Valor FIPE (R$)" dica="Tabela FIPE, ex.: 72.956,00">
+            <input id="campo-valor_fipe" value={f.valor_fipe} onChange={(e) => setF({ ...f, valor_fipe: e.target.value })} inputMode="decimal" placeholder="valor FIPE (R$)" style={{ ...inp, width: 130, ...estiloBordaInput(campo === 'valor_fipe' ? 'x' : null) }} />
+          </CampoRot>
+          <CampoRot id="campo-ncm" ajuda="revenda.veiculo.ncm" rotulo="NCM" dica="8 dígitos, ex.: 87032310">
+            <input id="campo-ncm" value={f.ncm} onChange={(e) => setF({ ...f, ncm: e.target.value })} inputMode="numeric" placeholder="NCM (8 dígitos)" style={{ ...inp, width: 130, fontFamily: 'monospace', ...estiloBordaInput(campo === 'ncm' ? 'x' : null) }} />
+          </CampoRot>
           {F('lugares', 'lugares', 80)}
           <button type="button" onClick={() => void sugerirNcm()} title={f.tipo ? `sugere pelo tipo: ${f.tipo}` : 'defina o tipo acima para uma sugestão melhor'} style={{ border: `1px solid ${C.gold}`, background: C.white, color: C.gold, borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 12.5, fontWeight: 700 }}>sugerir NCM</button>
         </div>
         {ncmMsg && <div style={{ fontSize: 11.5, color: C.espM, marginTop: 6 }}>{ncmMsg}</div>}
+        {ncmPend && (
+          <div style={{ marginTop: 6, background: C.amberBg, color: '#8A4B08', borderRadius: 8, padding: '8px 10px', fontSize: 12.5 }}>
+            Já existe NCM preenchido (<b>{f.ncm}</b>). Deseja substituir por <b>{ncmPend}</b>?{' '}
+            <button type="button" onClick={() => { setF((p) => ({ ...p, ncm: ncmPend })); setNcmPend(null); setNcmMsg(`NCM substituído por ${ncmPend} — falta salvar.`) }} style={{ border: `1px solid ${C.gold}`, background: C.white, color: C.gold, borderRadius: 6, padding: '2px 10px', cursor: 'pointer', fontWeight: 700 }}>Substituir</button>{' '}
+            <button type="button" onClick={() => { setNcmPend(null); setNcmMsg('NCM mantido.') }} style={{ border: `1px solid ${C.espL}`, background: C.white, color: C.espM, borderRadius: 6, padding: '2px 10px', cursor: 'pointer' }}>Manter o atual</button>
+          </div>
+        )}
       </div>
       {/* Chamado #34: consignação — dono do veículo e valor combinado */}
       <div style={{ borderTop: `1px solid ${C.cream}`, marginTop: 10, paddingTop: 10 }}>
@@ -1477,6 +1602,12 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
           <button type="button" disabled={consBusy} onClick={() => void salvarConsignacao()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: consBusy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: consBusy ? 'not-allowed' : 'pointer' }}>{consBusy ? 'Salvando…' : 'Salvar consignação'}</button>
         </div>
         {consMsg && <div style={{ fontSize: 12, marginTop: 6, color: consMsg.ok ? C.espM : C.red }}>{consMsg.t}</div>}
+      </div>
+      {/* #5662: um único Salvar no fim do card — grava dados do veículo e campos fiscais */}
+      <div style={{ borderTop: `1px solid ${C.cream}`, marginTop: 10, paddingTop: 10, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button disabled={busy} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: busy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>{busy ? 'Abrindo…' : 'Abrir OS'}</button>
+        {sujo && <span style={{ fontSize: 12, color: '#8A4B08' }}>Há alterações não salvas.</span>}
+        {erroLocal && <div style={{ background: C.redBg, color: C.red, padding: '6px 10px', borderRadius: 7, fontSize: 12 }}>{erroLocal}</div>}
       </div>
       <div style={{ fontSize: 11, color: C.espL, marginTop: 6 }}>Campos vazios não apagam o que já existe — só completam. Manual e chave reserva: &ldquo;—&rdquo; é não informado. Combustível, potência, cilindradas e ano podem vir do catálogo de modelos (tela Completar). O NCM sugerido vem da tabela TIPI por faixa (item 2c) — confirme com o seu contador.</div>
     </div>
