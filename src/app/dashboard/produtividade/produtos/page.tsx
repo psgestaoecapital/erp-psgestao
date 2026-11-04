@@ -11,7 +11,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CelulaEditavel } from '@/components/produtividade/CelulaEditavel'
-import { ClipboardList } from 'lucide-react'
+import { ClipboardList, PlugZap } from 'lucide-react'
 
 const ROTA = '/dashboard/produtividade/produtos'
 const Aj = ({ k }: { k: string }) => <AjudaCampo chave={k} rota={ROTA} />
@@ -86,6 +86,7 @@ function Inner() {
   const [filtroPapel, setFiltroPapel] = useState('')
   const [novoAberto, setNovoAberto] = useState(false)
   const [colarAberto, setColarAberto] = useState(false)
+  const [importarAberto, setImportarAberto] = useState(false)
   const [expandido, setExpandido] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
@@ -187,6 +188,10 @@ function Inner() {
         </label>
         <button data-testid="produtos-novo" onClick={() => setNovoAberto(true)} style={{ ...btn(true), padding: '7px 12px', fontSize: 12.5 }}>+ Novo produto</button>
         <button data-testid="produtos-colar" onClick={() => setColarAberto(true)} style={{ ...btn(true), background: 'transparent', color: C.esp, border: `1px solid ${C.border}`, padding: '7px 12px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><ClipboardList size={14} strokeWidth={1.5} />Colar lista</button>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+          <button data-testid="produtos-importar-vinculado" onClick={() => setImportarAberto(true)} style={{ ...btn(true), background: 'transparent', color: C.esp, border: `1px solid ${C.border}`, padding: '7px 12px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><PlugZap size={14} strokeWidth={1.5} />Importar do sistema vinculado</button>
+          <Aj k="prod.produto.importar_vinculado" />
+        </span>
       </div>
 
       {carregando && produtos.length === 0 ? (
@@ -233,6 +238,12 @@ function Inner() {
         <ColarListaModal companyId={companyId} plantId={plantId}
           onClose={() => setColarAberto(false)}
           onGravou={(n, verbo) => { setColarAberto(false); flash(`${n} produto(s) ${verbo}.`); void carregar() }} />
+      )}
+      {importarAberto && plantId && (
+        <ImportarVinculadoModal companyId={companyId} plantId={plantId}
+          codigosExistentes={new Set(produtos.map((p) => p.codigo.trim().toLowerCase()))}
+          onClose={() => setImportarAberto(false)}
+          onGravou={(n) => { setImportarAberto(false); flash(`${n} produto(s) importado(s) do sistema vinculado.`); void carregar() }} />
       )}
     </div>
   )
@@ -482,6 +493,164 @@ function ColarListaModal({ companyId, plantId, onClose, onGravou }: {
           <button data-testid="colar-previa" disabled={busy || !texto.trim()} onClick={() => void previsualizar()} style={{ ...btn(!busy && !!texto.trim()), background: 'transparent', color: C.esp, border: `1px solid ${C.border}` }}>Prévia</button>
           <button data-testid="colar-gravar" disabled={busy || !texto.trim()} onClick={() => void gravar()} style={btn(!busy && !!texto.trim())}>{busy ? 'Processando…' : 'Gravar'}</button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────── MODAL: Importar do sistema vinculado (3ª via de cadastro) ───────────
+// Reusa o backend existente (RD-26): fn_prod_atak_produtos lista as fontes e os produtos do conector;
+// a gravação reusa fn_prod_produto_colar (upsert por código — não duplica). RD-100: rótulos sempre
+// "sistema vinculado"/"fonte vinculada", nunca o nome do fornecedor do conector.
+type FonteVinc = { dominio: string; produtos: number }
+type ItemVinc = { descricao: string; ocorrencias: number; categoria_nome: string | null }
+
+function ImportarVinculadoModal({ companyId, plantId, codigosExistentes, onClose, onGravou }: {
+  companyId: string; plantId: string; codigosExistentes: Set<string>
+  onClose: () => void; onGravou: (n: number) => void
+}) {
+  const [fontes, setFontes] = useState<FonteVinc[]>([])
+  const [fonte, setFonte] = useState('')
+  const [itens, setItens] = useState<ItemVinc[]>([])
+  const [sel, setSel] = useState<Set<string>>(new Set())
+  const [busca, setBusca] = useState('')
+  const [carregandoFontes, setCarregandoFontes] = useState(true)
+  const [carregandoItens, setCarregandoItens] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  useEffect(() => {
+    let vivo = true
+    void (async () => {
+      setCarregandoFontes(true); setErro(null)
+      const { data, error } = await supabase.rpc('fn_prod_atak_produtos', { p_company_id: companyId, p_plant_id: plantId, p_dominio: null, p_limit: null })
+      if (!vivo) return
+      setCarregandoFontes(false)
+      if (error) { setErro('Não consegui falar com o sistema vinculado agora.'); return }
+      const r = data as { ok?: boolean; erro?: string; dominios?: FonteVinc[] } | null
+      if (!r?.ok) { setErro(r?.erro === 'sem_acesso' ? 'Você não tem acesso a esta empresa.' : 'Nenhum sistema vinculado disponível.'); return }
+      const ds = r.dominios ?? []
+      setFontes(ds)
+      if (ds.length === 1) setFonte(ds[0].dominio)
+    })()
+    return () => { vivo = false }
+  }, [companyId, plantId])
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!fonte) { setItens([]); setSel(new Set()); return }
+    let vivo = true
+    void (async () => {
+      setCarregandoItens(true); setErro(null); setSel(new Set())
+      const { data, error } = await supabase.rpc('fn_prod_atak_produtos', { p_company_id: companyId, p_plant_id: plantId, p_dominio: fonte, p_limit: 500 })
+      if (!vivo) return
+      setCarregandoItens(false)
+      if (error) { setErro('Não consegui carregar os produtos do sistema vinculado.'); return }
+      const r = data as { ok?: boolean; itens?: ItemVinc[] } | null
+      setItens(r?.itens ?? [])
+    })()
+    return () => { vivo = false }
+  }, [companyId, plantId, fonte])
+
+  const jaImportado = useCallback((descricao: string) => codigosExistentes.has((descricao ?? '').trim().toLowerCase()), [codigosExistentes])
+  const filtrados = useMemo(() => {
+    const q = busca.trim().toLowerCase()
+    return itens.filter((i) => i.descricao && (!q || i.descricao.toLowerCase().includes(q)))
+  }, [itens, busca])
+  const selecionaveis = useMemo(() => filtrados.filter((i) => !jaImportado(i.descricao)), [filtrados, jaImportado])
+  const todosSel = selecionaveis.length > 0 && selecionaveis.every((i) => sel.has(i.descricao))
+
+  const toggle = (d: string) => setSel((s) => { const n = new Set(s); if (n.has(d)) n.delete(d); else n.add(d); return n })
+  const toggleTodos = () => setSel((s) => {
+    const n = new Set(s)
+    if (todosSel) selecionaveis.forEach((i) => n.delete(i.descricao))
+    else selecionaveis.forEach((i) => n.add(i.descricao))
+    return n
+  })
+
+  async function importar() {
+    if (sel.size === 0) return
+    setBusy(true); setErro(null)
+    const linhas = [...sel].map((d) => d.replace(/;/g, ',').trim()).filter(Boolean).map((v) => `${v};${v}`).join('\n')
+    const { data, error } = await supabase.rpc('fn_prod_produto_colar', { p_company_id: companyId, p_plant_id: plantId, p_linhas: linhas, p_gravar: true })
+    setBusy(false)
+    if (error) { setErro(`Não consegui importar: ${error.message}`); return }
+    const r = data as { ok?: boolean; gravadas?: number } | null
+    if (!r?.ok) { setErro('Não consegui importar agora. Tente de novo.'); return }
+    onGravou(r.gravadas ?? sel.size)
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 80, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '30px 16px', overflowY: 'auto' }}>
+      <div onClick={(e) => e.stopPropagation()} data-ajuda="prod.produto.importar_vinculado" style={{ background: C.white, borderRadius: 12, padding: 18, width: 'min(680px,100%)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontSize: 16, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}>Importar do sistema vinculado<Aj k="prod.produto.importar_vinculado" /></div>
+          <button onClick={onClose} style={{ border: 'none', background: 'none', color: C.espM, cursor: 'pointer', fontSize: 22, lineHeight: 1 }}>×</button>
+        </div>
+        <div style={{ fontSize: 12, color: C.espM, margin: '2px 0 10px' }}>Traga os produtos direto da fonte vinculada. O que já está na sua lista aparece como “já importado” e não é duplicado.</div>
+
+        {erro && <div style={{ background: C.redBg, color: C.red, padding: '8px 11px', borderRadius: 7, fontSize: 12.5, marginBottom: 10 }}>{erro}</div>}
+
+        {carregandoFontes ? (
+          <div style={{ fontSize: 13, color: C.espM, padding: 10 }}>Procurando fontes vinculadas…</div>
+        ) : fontes.length === 0 ? (
+          <div style={{ background: C.bg, border: `1px dashed ${C.border}`, borderRadius: 8, padding: '18px 14px', textAlign: 'center', color: C.espM, fontSize: 13 }}>
+            Nenhum sistema vinculado conectado a esta empresa ainda. Use “Novo produto” ou “Colar lista”.
+          </div>
+        ) : (
+          <>
+            {fontes.length > 1 && (
+              <label style={{ fontSize: 12, color: C.espM, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+                Fonte vinculada<Aj k="prod.produto.importar_fonte" />
+                <select data-testid="importar-fonte" value={fonte} onChange={(e) => setFonte(e.target.value)} style={{ ...inp, width: 'auto', flex: 1 }}>
+                  <option value="">Escolha a fonte…</option>
+                  {fontes.map((f) => <option key={f.dominio} value={f.dominio}>{f.dominio} ({f.produtos})</option>)}
+                </select>
+              </label>
+            )}
+
+            {fonte && (
+              <>
+                <label style={{ fontSize: 12, color: C.espM, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                  Buscar<Aj k="prod.produto.importar_busca" />
+                  <input data-testid="importar-busca" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="nome do produto" style={{ ...inp, flex: 1 }} />
+                </label>
+
+                {carregandoItens ? (
+                  <div style={{ fontSize: 13, color: C.espM, padding: 10 }}>Carregando os produtos do sistema vinculado…</div>
+                ) : (
+                  <>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12, color: C.espM, marginBottom: 6 }}>
+                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: selecionaveis.length ? 'pointer' : 'default' }}>
+                        <input data-testid="importar-todos" type="checkbox" checked={todosSel} disabled={!selecionaveis.length} onChange={toggleTodos} />
+                        Selecionar todos ({selecionaveis.length})
+                      </label>
+                      <span>{sel.size} selecionado(s)</span>
+                    </div>
+                    <div style={{ maxHeight: 320, overflowY: 'auto', border: `1px solid ${C.border}`, borderRadius: 8 }}>
+                      {filtrados.length === 0 && <div style={{ padding: '14px', fontSize: 12.5, color: C.espM, textAlign: 'center' }}>Nenhum produto nesta fonte.</div>}
+                      {filtrados.map((i, idx) => {
+                        const ja = jaImportado(i.descricao)
+                        return (
+                          <label key={i.descricao + idx} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderBottom: idx < filtrados.length - 1 ? `1px solid ${C.cream}` : 'none', cursor: ja ? 'default' : 'pointer', opacity: ja ? 0.6 : 1 }}>
+                            <input type="checkbox" data-testid="importar-item" checked={ja || sel.has(i.descricao)} disabled={ja} onChange={() => toggle(i.descricao)} />
+                            <span style={{ flex: 1, fontSize: 13, color: C.esp }}>{i.descricao}{i.categoria_nome ? <span style={{ color: C.espL, fontSize: 11.5 }}> · {i.categoria_nome}</span> : null}</span>
+                            {ja && <span style={{ fontSize: 11, fontWeight: 700, color: C.green, background: C.greenBg, padding: '2px 7px', borderRadius: 20 }}>já importado</span>}
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </>
+                )}
+              </>
+            )}
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
+              <button onClick={onClose} style={{ ...btn(true), background: 'transparent', color: C.esp, border: `1px solid ${C.border}` }}>Cancelar</button>
+              <button data-testid="importar-confirmar" disabled={busy || sel.size === 0} onClick={() => void importar()} style={btn(!busy && sel.size > 0)}>{busy ? 'Importando…' : `Importar selecionados (${sel.size})`}</button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
