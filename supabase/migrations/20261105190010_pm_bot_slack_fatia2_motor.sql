@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS public.erp_pm_bot_envio (
 );
 COMMENT ON TABLE public.erp_pm_bot_envio IS
   'P&M · histórico das mensagens do bot de Slack por empresa (fatia 2). Guarda o conteúdo do aviso e o resultado; '
-  'NUNCA o webhook (o segredo fica no cofre). RLS por empresa (SELECT), REVOKE anon. Migration 20261105160010.';
+  'NUNCA o webhook (o segredo fica no cofre). RLS por empresa (SELECT), REVOKE anon. Migration 20261105190010.';
 CREATE INDEX IF NOT EXISTS erp_pm_bot_envio_company_criado_idx
   ON public.erp_pm_bot_envio (company_id, criado_em DESC);
 
@@ -88,6 +88,11 @@ SET search_path TO 'public', 'extensions', 'vault', 'pg_temp'
 AS $f$
 DECLARE v_id uuid; v_key text;
 BEGIN
+  -- Defesa em profundidade (check_fn_guards): SECURITY DEFINER grava conferindo o acesso à empresa do registro.
+  -- No caminho de serviço/gatilho (sem auth.uid()) a guarda retorna sem erro; no caminho autenticado
+  -- (fn_pm_bot_testar) reforça o isolamento por empresa antes de qualquer gravação.
+  PERFORM public.fn__guarda_empresa(p_company_id);
+
   INSERT INTO public.erp_pm_bot_envio (company_id, evento, titulo, texto, status, criado_por)
   VALUES (p_company_id, left(coalesce(p_evento,'teste'),40), p_titulo, p_texto, 'enfileirado', auth.uid())
   RETURNING id INTO v_id;
