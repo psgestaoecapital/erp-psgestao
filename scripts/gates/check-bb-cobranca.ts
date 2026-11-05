@@ -1,7 +1,7 @@
 // Gate #5404 (FC Pisos) parte (b): boleto do Banco do Brasil (Cobrança v2). Funções puras + ligação nas rotas/telas.
 // Sem rede, sem banco.
 import { readFileSync, existsSync } from 'node:fs'
-import { dataBb, faltasCobrancaBb, modalidadeBb, montarCorpoRegistroBb, normalizarCarteiraBb, nossoNumeroBb, seuNumeroBb } from '../../src/lib/banco/bb/cobrancaPura'
+import { dataBb, faltasCobrancaBb, modalidadeBb, montarCorpoRegistroBb, normalizarCarteiraBb, nossoNumeroBb, nossoNumeroJaIncluidoBb, sequencialHomologacaoBb, seuNumeroBb } from '../../src/lib/banco/bb/cobrancaPura'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗', m) } else console.log('✓', m) }
@@ -58,5 +58,12 @@ const mig = readFileSync('supabase/migrations/20261030220020_bb_cobranca_variaca
 ok(mig.includes('ADD COLUMN IF NOT EXISTS variacao_carteira') && mig.includes("'variacao_carteira', c.variacao_carteira") && mig.includes("p_dados->>'modalidade_boleto'"), 'migration: colunas + credencial + salvar CNAB')
 ok(!/\b(DELETE|DROP|TRUNCATE)\b/i.test(mig), 'migration aditiva (sem DELETE/DROP/TRUNCATE)')
 
+// chamado #5404 (05/11): "Nosso Número já incluído" → tenta outro número, e grava assim que o BB aceita
+ok(nossoNumeroJaIncluidoBb('{"erros":[{"codigo":"4874915","mensagem":"Nosso Número já incluído anteriormente."}]}'), 'detecta "Nosso Número já incluído" (código 4874915)')
+ok(nossoNumeroJaIncluidoBb('nosso numero ja incluido') && !nossoNumeroJaIncluidoBb('{"erros":[{"codigo":"4678420"}]}') && !nossoNumeroJaIncluidoBb(null), 'não confunde com outros erros do BB')
+const sh = sequencialHomologacaoBb('26', () => 0), sh2 = sequencialHomologacaoBb('26', () => 0.999999)
+ok(/^26[1-9]\d{7}$/.test(sh) && /^26[1-9]\d{7}$/.test(sh2) && sh !== sh2, 'sequencial de homologação: 10 dígitos, espalhado ao acaso')
+ok(nossoNumeroBb('3128557', sh).length === 20, 'nosso número de homologação com 20 posições')
+ok(reg.includes('nossoNumeroJaIncluidoBb') && reg.includes('tentativa <= 5') && reg.indexOf("boleto_status: 'registrado'") < reg.indexOf('gerarPdfBoleto('), 'registrar: reenvia com número novo e grava o boleto antes do PDF')
 if (falhas) { console.error(`\n${falhas} falha(s)`); process.exit(1) }
 console.log('\ncheck-bb-cobranca: OK')
