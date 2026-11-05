@@ -34,6 +34,9 @@ interface Props {
   impactos: ImpactoServico[];
   margemAlvoPct: number | null;
   margemMinimaPct: number | null;
+  // Quando o carregamento do impacto falhou de verdade (view/rede), mostramos erro
+  // honesto em vez de fingir "nenhum serviço" — não enganar o usuário (RD-97, chamado #3362).
+  impactosErro?: string | null;
 }
 
 function fmtBRL(v: number | null | undefined) {
@@ -79,6 +82,7 @@ export function BdiPreview({
   impactos,
   margemAlvoPct,
   margemMinimaPct,
+  impactosErro = null,
 }: Props) {
   const bdiCalc = calcularBdiAec(componentes);
   // O numero grande e sempre o calculo ao vivo (fonte da verdade do que o usuario ve).
@@ -174,11 +178,24 @@ export function BdiPreview({
             </a>
           )}
         </div>
-        {impactos.length === 0 ? (
-          <p className="text-xs text-[#3D2314]/50">
-            Nenhum serviço cadastrado. Adicione serviços ao catálogo para ver o
-            impacto.
+        {impactosErro ? (
+          <p className="text-xs text-red-700" data-testid="bdi-impacto-erro">
+            Não foi possível carregar o impacto nos serviços agora. {impactosErro}
           </p>
+        ) : impactos.length === 0 ? (
+          <div className="text-xs text-[#3D2314]/60" data-testid="bdi-impacto-vazio">
+            <p>
+              Nenhum serviço cadastrado ainda — por isso ainda não há impacto do
+              BDI para mostrar.
+            </p>
+            <a
+              href={ROTA_CATALOGO}
+              className="mt-2 inline-block font-medium text-[#C8941A] hover:underline"
+              title="Cadastre serviços no catálogo: o BDI configurado aqui vira preço de venda deles"
+            >
+              Cadastrar serviços no catálogo →
+            </a>
+          </div>
         ) : (
           <>
           <ul className="divide-y divide-[#3D2314]/8">
