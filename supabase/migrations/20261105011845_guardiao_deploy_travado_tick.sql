@@ -125,3 +125,8 @@ BEGIN
   END LOOP;
 END;
 $function$;
+
+-- Guarda RD (check-fn-guards): o tick é interno (job do cron / service_role), nunca chamado por anon.
+-- Mantém o acesso mínimo já vivo (só service_role/owner); fecha explicitamente para PUBLIC e anon.
+REVOKE ALL ON FUNCTION public.fn_monitor_merge_tick() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_monitor_merge_tick() TO service_role;
