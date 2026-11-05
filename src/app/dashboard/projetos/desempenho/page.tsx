@@ -90,6 +90,15 @@ export default function DesempenhoComercialPage() {
 
   const r = data?.resumo
   const maxFunil = useMemo(() => Math.max(1, ...(data?.funil ?? []).map((f) => f.qtd)), [data])
+  // Contador honesto do funil (#3331): total e abertura em andamento/ganhas/perdidas, derivados do
+  // próprio funil exibido logo abaixo (RD-38: nada fixo; coerente com as barras).
+  const funilResumo = useMemo(() => {
+    const fun = data?.funil ?? []
+    const total = fun.reduce((s, f) => s + (f.qtd ?? 0), 0)
+    const ganhas = fun.find((f) => f.etapa === 'ganho')?.qtd ?? 0
+    const perdidas = fun.find((f) => f.etapa === 'perdido')?.qtd ?? 0
+    return { total, ganhas, perdidas, andamento: Math.max(0, total - ganhas - perdidas) }
+  }, [data])
   // período sem nenhum registro → aviso honesto em vez de parede de zeros (RD-98)
   const vazio = periodoVazio(r)
 
@@ -151,6 +160,12 @@ export default function DesempenhoComercialPage() {
 
             {/* Bloco B · funil */}
             <Secao titulo="Funil por fase" ajuda="projetos.desempenho.funil">
+              <div data-testid="desempenho-funil-contador" style={{ fontSize: 12.5, color: MUT, marginBottom: 12, lineHeight: 1.6 }}>
+                <b style={{ color: ESP }}>{funilResumo.total}</b> oportunidade{funilResumo.total === 1 ? '' : 's'} no período ·{' '}
+                <b style={{ color: ROXO }}>{funilResumo.andamento}</b> em andamento ·{' '}
+                <b style={{ color: VERDE }}>{funilResumo.ganhas}</b> ganha{funilResumo.ganhas === 1 ? '' : 's'} ·{' '}
+                <b style={{ color: VERM }}>{funilResumo.perdidas}</b> perdida{funilResumo.perdidas === 1 ? '' : 's'}
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {data.funil.map((f) => (
                   <div key={f.etapa} style={{ display: 'grid', gridTemplateColumns: '110px 1fr auto', alignItems: 'center', gap: 10 }}>
