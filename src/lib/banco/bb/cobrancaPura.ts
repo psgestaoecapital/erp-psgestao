@@ -40,6 +40,21 @@ export function nossoNumeroBb(convenio: string, sequencial10: string): string {
   return `000${conv}${seq}`
 }
 
+// "Nosso Número já incluído anteriormente" (código 4874915 do BB; chamado #5404, 05/11): o número já existe no banco.
+// O convênio de homologação do BB é COMPARTILHADO entre todos os desenvolvedores, então colide fácil; em produção
+// só colide se um registro anterior não voltou para o sistema. Em ambos, o certo é tentar OUTRO nosso número.
+export function nossoNumeroJaIncluidoBb(raw: string | null | undefined): boolean {
+  const t = String(raw ?? '')
+  return /4874915/.test(t) || /nosso\s+n[uú]mero\s+j[aá]\s+inclu[ií]do/i.test(t)
+}
+
+// Homologação: sequencial de 10 posições ("YY" + 8 dígitos) espalhado ao acaso para não bater nos números que outros
+// testadores já usaram no convênio compartilhado. `rnd` (0..1) é injetável para teste. Produção NÃO usa isto (contador atômico).
+export function sequencialHomologacaoBb(yy: string, rnd: () => number = Math.random): string {
+  const n = 10_000_000 + Math.floor(rnd() * 89_999_999) // 8 dígitos, nunca começa com 0
+  return `${onlyDigitsDoc(yy).padStart(2, '0').slice(-2)}${n}`
+}
+
 // Seu número (numeroTituloBeneficiario): a homologação do BB recusa ("dados inválidos") o identificador alfanumérico
 // (uuid do título). Vai SÓ NÚMERO (até 15 dígitos): os dígitos do nº do documento; sem nº, o sequencial do nosso número.
 export function seuNumeroBb(seuNumero: string | null | undefined, nossoNumero: string): string {
