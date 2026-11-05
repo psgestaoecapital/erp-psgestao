@@ -2,8 +2,10 @@
 
 // App de campo do vendedor (Hub). Reusa <InstalarApp> (RD-52). O QR/link abre o Funil de
 // Oportunidades. offline=false: o funil NÃO tem cache offline como o rebanho do Agro (RD-51 —
-// não prometemos "sem internet"). Nota honesta: o ícone instalado abre a home do app
-// (start_url do manifest), não o funil direto — ajuste do manifest fica pra depois.
+// não prometemos "sem internet"). Limitação aceita (RD-98 p3): o manifest PWA é global
+// (um único start_url para todas as superfícies de instalação), então o ícone instalado abre
+// a home do app, não o funil direto. O QR/link abrem o funil; o usuário toca em Oportunidades
+// para voltar — é honesto para o usuário na prop `nota` abaixo.
 // RD-98 pilar 3: esta tela OPTA por rastrear a instalação (prop `rastrear`) — registra por empresa e
 // mostra "pessoas que já instalaram" (fn_app_instalacao_*), para a tela consumir/gravar dado real.
 import InstalarApp from '@/components/comum/InstalarApp'
