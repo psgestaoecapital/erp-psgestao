@@ -140,7 +140,11 @@ function fmtDate(s: string | null): string {
 }
 
 function fmtBR(d?: string | null): string {
-  return d ? new Date(d).toLocaleDateString('pt-BR') : ''
+  if (!d) return ''
+  // Chamado #6733: data pura (YYYY-MM-DD) vira meia-noite UTC no new Date() e aparece um dia antes no fuso BR.
+  const puro = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d)
+  if (puro) return `${puro[3]}/${puro[2]}/${puro[1]}`
+  return new Date(d).toLocaleDateString('pt-BR')
 }
 
 // ONDA-A-INBOX-SELO-v1: selo de precisao (escala 0-100, vinda de psgc_confianca/match_score)
