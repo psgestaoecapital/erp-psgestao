@@ -5,7 +5,7 @@
 // Reusa fn_simular_montagem (que reusa fn_precificar_montagem + BOM). Tudo por empresa/linha.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Calculator, Loader2, AlertTriangle, Save, Trash2, FolderOpen, FileSpreadsheet, FileText, Share2 } from "lucide-react";
+import { Calculator, Loader2, AlertTriangle, Save, Trash2, FolderOpen, Pencil, FileSpreadsheet, FileText, Share2 } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
@@ -64,6 +64,8 @@ export default function SimuladorPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [excluindo, setExcluindo] = useState<Salva | null>(null);
   const [motivo, setMotivo] = useState("");
+  // RD-98 p2: editar in-place uma simulação salva (atualiza o MESMO registro, não duplica).
+  const [editId, setEditId] = useState<string | null>(null);
 
   const carregarSalvas = useCallback(async () => {
     if (!companyId) return;
@@ -163,17 +165,29 @@ export default function SimuladorPage() {
     if (!companyId || !montagemId || salvando) return;
     const areaNum = Number((area || "0").replace(",", ".")) || 0;
     setSalvando(true); setErro(null); setMsg(null);
-    const { error } = await supabaseBrowser().rpc("fn_simulador_salvar", {
-      p_company_id: companyId, p_servico_id: montagemId, p_business_line_id: montagemSel?.business_line_id ?? null,
-      p_area: areaNum, p_nome: nomeSim.trim(), p_cliente_id: clienteId || null,
-    });
+    // Com editId: atualiza o MESMO registro (fn_simulador_editar); sem: cria um novo (fn_simulador_salvar).
+    const { error } = editId
+      ? await supabaseBrowser().rpc("fn_simulador_editar", {
+          p_id: editId, p_nome: nomeSim.trim(), p_servico_id: montagemId,
+          p_business_line_id: montagemSel?.business_line_id ?? null, p_area: areaNum, p_cliente_id: clienteId || null,
+        })
+      : await supabaseBrowser().rpc("fn_simulador_salvar", {
+          p_company_id: companyId, p_servico_id: montagemId, p_business_line_id: montagemSel?.business_line_id ?? null,
+          p_area: areaNum, p_nome: nomeSim.trim(), p_cliente_id: clienteId || null,
+        });
     setSalvando(false);
     if (error) { setErro(error.message); return; }
-    setNomeSim(""); setMsg("Simulação salva."); await carregarSalvas();
+    setNomeSim(""); setMsg(editId ? "Simulação atualizada." : "Simulação salva."); setEditId(null); await carregarSalvas();
   };
 
   const abrirSalva = (x: Salva) => {
-    setFLinha(""); setMontagemId(x.servico_id); setArea(String(x.area).replace(".", ",")); setMsg(`Simulação “${x.nome}” carregada.`);
+    setEditId(null); setFLinha(""); setMontagemId(x.servico_id); setArea(String(x.area).replace(".", ",")); setMsg(`Simulação “${x.nome}” carregada.`);
+  };
+
+  // Editar: leva a simulação para o formulário em modo edição (atualiza o mesmo registro ao salvar).
+  const editarSalva = (x: Salva) => {
+    setFLinha(""); setMontagemId(x.servico_id); setArea(String(x.area).replace(".", ",")); setNomeSim(x.nome); setEditId(x.id);
+    setMsg(`Editando “${x.nome}”. Ajuste a montagem, a metragem ou o nome e clique em Atualizar.`);
   };
 
   const excluirSalva = async () => {
@@ -409,13 +423,17 @@ export default function SimuladorPage() {
               </div>
               <p className="text-[11px] text-[#3D2314]/50">Nasce em rascunho; o valor é recalculado na hora de gerar.</p>
               <div className="border-t border-[#3D2314]/10 pt-3" data-ajuda="1">
-                <span className="mb-1 block text-[11px] uppercase tracking-wider text-[#3D2314]/55">Nome da simulação <AjudaCampo chave="projetos.simulador.nome_simulacao" /></span>
+                <span className="mb-1 block text-[11px] uppercase tracking-wider text-[#3D2314]/55">{editId ? "Editando simulação salva" : "Nome da simulação"} <AjudaCampo chave="projetos.simulador.nome_simulacao" /></span>
                 <input data-testid="simulador-nome" value={nomeSim} onChange={(e) => setNomeSim(e.target.value)} placeholder="ex.: Piso galpão — 450 m²" className={selCls} />
                 <div className="mt-2 flex items-center gap-2">
                   <button data-testid="simulador-salvar" onClick={() => void salvarSimulacao()} disabled={salvando || nomeSim.trim().length < 2}
                     className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-[#C8941A] bg-white px-3 py-2.5 text-sm font-medium text-[#3D2314] disabled:cursor-not-allowed disabled:opacity-50">
-                    <Save size={14} /> {salvando ? "Salvando…" : "Salvar simulação"}
+                    <Save size={14} /> {salvando ? (editId ? "Atualizando…" : "Salvando…") : (editId ? "Atualizar simulação" : "Salvar simulação")}
                   </button>
+                  {editId && (
+                    <button data-testid="simulador-cancelar-edicao" onClick={() => { setEditId(null); setNomeSim(""); setMsg(null); }}
+                      className="rounded-lg border border-[#3D2314]/12 px-3 py-2.5 text-sm text-[#3D2314] transition-colors hover:bg-[#FAF7F2]">Cancelar</button>
+                  )}
                   <AjudaCampo chave="projetos.simulador.salvar" />
                 </div>
               </div>
@@ -438,6 +456,8 @@ export default function SimuladorPage() {
                   <div className="text-[11px] text-[#3D2314]/55">{x.montagem ?? "montagem"} · {num(x.area)} {x.unidade || "m²"} · {brl(x.total_obra)} · margem {num(x.margem_pct)}% · {new Date(x.criado_em).toLocaleDateString("pt-BR")}</div>
                 </div>
                 <button onClick={() => abrirSalva(x)} className="inline-flex items-center gap-1 rounded-lg border border-[#3D2314]/12 px-2.5 py-1.5 text-[11px] font-semibold text-[#3D2314]"><FolderOpen size={12} /> Abrir</button>
+                <button data-testid="simulador-editar" onClick={() => editarSalva(x)} className="inline-flex items-center gap-1 rounded-lg border border-[#C8941A]/60 px-2.5 py-1.5 text-[11px] font-semibold text-[#3D2314]"><Pencil size={12} /> Editar</button>
+                <AjudaCampo chave="projetos.simulador.editar" />
                 <button data-testid="simulador-excluir" onClick={() => { setExcluindo(x); setMotivo(""); }} className="inline-flex items-center gap-1 rounded-lg border border-red-300 px-2.5 py-1.5 text-[11px] font-semibold text-red-700"><Trash2 size={12} /> Excluir</button>
               </li>
             ))}
