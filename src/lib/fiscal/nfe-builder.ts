@@ -261,7 +261,7 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     // #5684 · destinatário = cliente do cadastro do GE (erp_clientes) ligado à venda; mesmo mapeamento do ramo do financeiro.
     const { data: cli } = await supabaseAdmin
       .from('erp_clientes')
-      .select('razao_social, cnpj_cpf, cpf_cnpj, email, logradouro, numero, bairro, cidade, uf, cep, ie, contribuinte_icms')
+      .select('razao_social, nome_fantasia, cnpj_cpf, cpf_cnpj, email, logradouro, numero, bairro, cidade, uf, cep, ie, contribuinte_icms')
       .eq('id', input.vendaVeiculo.clienteId).eq('company_id', input.companyId).maybeSingle()
     if (!cli) throw new FiscalError('PAYLOAD_INVALIDO', 'Cliente da venda não encontrado no cadastro de clientes')
     const docLimpo = (cli.cnpj_cpf ?? cli.cpf_cnpj ?? '').replace(/\D/g, '')
@@ -278,7 +278,8 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     destinatario = {
       cnpj: docLimpo.length === 14 ? docLimpo : undefined,
       cpf: docLimpo.length === 11 ? docLimpo : undefined,
-      razaoSocial: cli.razao_social,
+      // Pessoa física não tem razão social no cadastro (só "Nome / Apelido" → nome_fantasia): usa o nome. PJ continua exigindo razão social.
+      razaoSocial: cli.razao_social || (docLimpo.length === 11 ? (cli.nome_fantasia ?? '').trim() : ''),
       inscricaoEstadual: ieLimpa || undefined,
       indicadorIE: indIE,
       email: cli.email ?? undefined,
