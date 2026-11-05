@@ -2,8 +2,16 @@
 -- (ledger supabase_migrations.schema_migrations, versão 20261104002141), mas não tinha
 -- arquivo no repo, quebrando o `supabase db push --include-all`
 -- ("Remote migration versions not found in local migrations directory").
--- O corpo abaixo é BYTE-IDÊNTICO ao que foi aplicado (conferido por sha256 contra o
--- banco). Nada muda em produção: o `db push` casa pela versão e não re-executa.
+--
+-- O bloco CREATE OR REPLACE abaixo é BYTE-IDÊNTICO ao que foi aplicado (conferido por
+-- sha256 contra o banco: 2618fc80886b1d36ae89eb7af94f78a3093b14f29dec1285167f63ffdaa140d6).
+-- Nada muda em produção: o `db push` casa pela versão e NÃO re-executa.
+--
+-- O REVOKE/GRANT ao final NÃO faz parte do statement aplicado (que teve só o CREATE OR
+-- REPLACE); foram acrescentados para (1) satisfazer a régua check:fn-guards e (2) documentar
+-- e reproduzir em builds limpos a postura de acesso REAL já vigente em produção, conferida no
+-- dado (RD-38): anon=NÃO, authenticated=NÃO, PUBLIC=NÃO, service_role=SIM. Também é no-op em
+-- produção (não re-executa). A função é um lote diário do SISTEMA (service_role), não é RPC de cliente.
 CREATE OR REPLACE FUNCTION public.fn_contrato_processar_lote_diario(p_data_referencia date DEFAULT CURRENT_DATE)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -73,3 +81,5 @@ BEGIN
     'total_erro', v_total_erro, 'erros', v_erros, 'executado_em', now());
 END;
 $function$;
+REVOKE ALL ON FUNCTION public.fn_contrato_processar_lote_diario(date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_contrato_processar_lote_diario(date) TO service_role;
