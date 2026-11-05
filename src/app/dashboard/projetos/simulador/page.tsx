@@ -5,11 +5,12 @@
 // Reusa fn_simular_montagem (que reusa fn_precificar_montagem + BOM). Tudo por empresa/linha.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Calculator, Loader2, AlertTriangle, Save, Trash2, FolderOpen, FileSpreadsheet, Share2 } from "lucide-react";
+import { Calculator, Loader2, AlertTriangle, Save, Trash2, FolderOpen, FileSpreadsheet, FileText, Share2 } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { exportToExcel } from "@/lib/export-utils";
+import { exportarPDF, type Coluna } from "@/lib/export/relatorioLista";
 
 type Cliente = { id: string; nome: string };
 type Linha = { id: string; nome: string };
@@ -39,7 +40,7 @@ const MSG_ERRO: Record<string, string> = {
 const traduzErro = (chave: string | null | undefined, padrao: string) => (chave && MSG_ERRO[chave]) || padrao;
 
 export default function SimuladorPage() {
-  const { sel } = useCompanyIds();
+  const { sel, selInfo } = useCompanyIds();
   const companyId = sel && !sel.startsWith("group_") && sel !== "consolidado" ? sel : null;
   const router = useRouter();
 
@@ -214,6 +215,35 @@ export default function SimuladorPage() {
     window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, "_blank", "noopener,noreferrer");
   };
 
+  // RD-98 O.3.7 — a lista de compra prometida é PDF, Excel e WhatsApp. Reusa o motor
+  // genérico de relatório (src/lib/export/relatorioLista) — não recria PDF (RD-26).
+  const exportarPdf = async () => {
+    if (itens.length === 0) return;
+    const colunas: Coluna<QuantItem>[] = [
+      { header: "Insumo", get: (q) => q.insumo, tipo: "texto", peso: 2.6 },
+      { header: `Coef./${unidadeObra}`, get: (q) => q.qtd_m2, tipo: "numero", align: "right", peso: 1 },
+      { header: "Perda %", get: (q) => q.perda_pct ?? 0, tipo: "numero", align: "right", peso: 0.8 },
+      { header: "Qtd total", get: (q) => q.qtd_total, tipo: "numero", align: "right", peso: 1 },
+      { header: "Unidade", get: (q) => q.unidade || "", tipo: "texto", peso: 0.8 },
+      { header: "Custo unit.", get: (q) => q.custo_unitario ?? null, tipo: "moeda", align: "right", peso: 1.1 },
+      { header: "Custo total", get: (q) => q.custo_total, tipo: "moeda", align: "right", peso: 1.2, total: true },
+    ];
+    await exportarPDF<QuantItem>(
+      {
+        titulo: `Lista de materiais — ${sim?.montagem ?? "montagem"}`,
+        empresa: selInfo?.nome || "Empresa",
+        filtros: `Montagem: ${sim?.montagem ?? "—"} · Metragem: ${num(sim?.area)} ${unidadeObra}`,
+        emitidoEmISO: new Date().toISOString(),
+        kpis: [
+          { label: "Total de materiais", valor: totalMateriais, qtd: itens.length },
+          { label: "Total da obra", valor: sim?.total_obra ?? 0 },
+        ],
+      },
+      colunas,
+      itens,
+    );
+  };
+
   if (!companyId) {
     return <main className="mx-auto max-w-3xl px-6 py-20 text-center text-[#3D2314]/60">Selecione uma empresa específica para usar o Simulador.</main>;
   }
@@ -283,6 +313,10 @@ export default function SimuladorPage() {
               </h2>
               {itens.length > 0 && (
                 <div className="flex items-center gap-2">
+                  <button data-testid="simulador-exportar-pdf" onClick={() => void exportarPdf()}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-[#C8941A]/60 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-[#3D2314] transition-colors hover:bg-[#FBF4E4]">
+                    <FileText size={14} className="text-[#C8941A]" /> PDF
+                  </button>
                   <button data-testid="simulador-exportar-excel" onClick={() => void exportarExcel()}
                     className="inline-flex items-center gap-1.5 rounded-lg border border-[#C8941A]/60 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-[#3D2314] transition-colors hover:bg-[#FBF4E4]">
                     <FileSpreadsheet size={14} className="text-[#C8941A]" /> Excel
