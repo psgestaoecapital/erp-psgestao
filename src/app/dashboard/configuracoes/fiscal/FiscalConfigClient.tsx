@@ -1,5 +1,6 @@
 'use client'
 
+import { situacaoCertificado } from '@/lib/fiscal/certificadoValidade'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import CertificadoUploadCard from '@/components/fiscal/CertificadoUploadCard'
@@ -124,9 +125,11 @@ function buildChecklist(state: FiscalState): ChecklistItem[] {
   const items: ChecklistItem[] = [
     {
       label: 'Certificado digital A1',
-      ok: !!cert,
+      ok: !!cert && situacaoCertificado(cert.validade_fim).estado !== 'vencido',
       detalhe: cert
-        ? `${cert.razao_social_certificado ?? 'Cert salvo'} · válido até ${fmtData(cert.validade_fim)}`
+        ? (situacaoCertificado(cert.validade_fim).estado === 'vencido'
+            ? situacaoCertificado(cert.validade_fim).mensagem ?? 'Certificado vencido; envie um novo.'
+            : `${cert.razao_social_certificado ?? 'Cert salvo'} · válido até ${fmtData(cert.validade_fim)}`)
         : 'Envie o arquivo .pfx/.p12 + senha',
       critico: true,
     },
@@ -440,7 +443,7 @@ export default function FiscalConfigClient() {
       {/* Detalhe certificado salvo */}
       {state.certificado && (
         <div className="bg-white border border-[#3D2314]/10 rounded-xl px-4 py-3 flex items-start gap-3">
-          <FileCheck className="text-[#3F7012] flex-shrink-0 mt-0.5" size={16} />
+          <FileCheck className={`${situacaoCertificado(state.certificado.validade_fim).estado === 'vencido' ? 'text-[#B3261E]' : 'text-[#3F7012]'} flex-shrink-0 mt-0.5`} size={16} />
           <div className="flex-1 min-w-0 text-[12.5px]">
             <div className="font-medium text-[#3D2314]">
               Certificado salvo · {state.certificado.razao_social_certificado ?? 'Sem razão social'}
@@ -449,6 +452,19 @@ export default function FiscalConfigClient() {
               CNPJ {fmtCnpj(state.certificado.cnpj_certificado)} · válido até{' '}
               {fmtData(state.certificado.validade_fim)}
             </div>
+            {(() => {
+              const sit = situacaoCertificado(state.certificado.validade_fim)
+              if (!sit.mensagem) return null
+              return (
+                <div
+                  className={`mt-1 font-semibold ${sit.estado === 'vencido' ? 'text-[#B3261E]' : 'text-[#8A4B08]'}`}
+                  role="alert"
+                  data-testid="aviso-validade-certificado"
+                >
+                  {sit.estado === 'vencido' ? 'Vencido · ' : 'Atenção · '}{sit.mensagem}
+                </div>
+              )
+            })()}
           </div>
         </div>
       )}
