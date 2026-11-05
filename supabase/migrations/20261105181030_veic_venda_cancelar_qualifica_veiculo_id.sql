@@ -30,3 +30,7 @@ BEGIN
 
   RETURN jsonb_build_object('ok', true, 'titulos_nao_excluidos', n_titulos, 'troca_veiculo_id', v_troca);
 END $function$;
+
+-- ACL idêntica à viva (sem anon): rede de segurança estática do check_fn_guards.
+REVOKE ALL ON FUNCTION public.fn_veic_venda_cancelar(uuid, uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_veic_venda_cancelar(uuid, uuid, text) TO authenticated, service_role;
