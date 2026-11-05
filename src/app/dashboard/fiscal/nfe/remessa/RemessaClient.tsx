@@ -244,6 +244,21 @@ export default function RemessaClient() {
   }, [companyId, destTabela, destPendente])
 
   const destinatario = pessoas.find((p) => p.id === destinatarioId)
+  const [destBusca, setDestBusca] = useState('')
+  const [destAberto, setDestAberto] = useState(false)
+  const textoDest = (p: DestPessoa) =>
+    `${p.razao_social ?? p.nome_fantasia ?? p.id}${p.cnpj_cpf || p.cpf_cnpj ? ` · ${p.cnpj_cpf ?? p.cpf_cnpj}` : ''}${p.uf ? ` · ${p.uf}` : ''}`
+  // busca por qualquer parte do nome/razão/fantasia (sem acento) e por CPF/CNPJ com ou sem pontuação
+  const pessoasFiltradas = useMemo(() => {
+    const norm = (v: string) => v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+    const q = norm(destBusca)
+    const d = soDigitos(destBusca)
+    if (!q) return pessoas.slice(0, 50)
+    return pessoas.filter((p) => {
+      if (norm(`${p.razao_social ?? ''} ${p.nome_fantasia ?? ''}`).includes(q)) return true
+      return d.length > 0 && soDigitos(p.cnpj_cpf ?? p.cpf_cnpj).includes(d)
+    }).slice(0, 50)
+  }, [pessoas, destBusca])
   const ufDest = ufDestino(destinatario?.uf)
 
   function escolherCfop(codigo: string) {
@@ -512,21 +527,33 @@ export default function RemessaClient() {
               <option value="erp_fornecedores">Fornecedor</option>
             </select>
           </label>
-          <label className="block">
+          <label className="block relative">
             <span className={rotuloCls}>{destTabela === 'erp_clientes' ? 'Cliente' : 'Fornecedor'} * <AjudaCampo chave="fiscal.nfe_avulsa.destinatario" /></span>
-            <select
-              value={destinatarioId}
-              onChange={(e) => setDestinatarioId(e.target.value)}
+            <input
+              type="text"
+              value={destAberto ? destBusca : (destinatario ? textoDest(destinatario) : '')}
+              onFocus={() => { setDestAberto(true); setDestBusca('') }}
+              onBlur={() => setTimeout(() => setDestAberto(false), 150)}
+              onChange={(e) => setDestBusca(e.target.value)}
+              placeholder="Digite parte do nome ou o CPF/CNPJ"
               className={inputCls}
+              autoComplete="off"
               data-testid="nfe-avulsa-destinatario"
-            >
-              <option value="">Selecione...</option>
-              {pessoas.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.razao_social ?? p.nome_fantasia ?? p.id} {p.cnpj_cpf || p.cpf_cnpj ? `· ${p.cnpj_cpf ?? p.cpf_cnpj}` : ''}{p.uf ? ` · ${p.uf}` : ''}
-                </option>
-              ))}
-            </select>
+            />
+            {destAberto && (
+              <div className="absolute z-20 left-0 right-0 mt-1 max-h-72 overflow-y-auto bg-white border border-[#3D2314]/15 rounded-lg shadow-lg">
+                {pessoasFiltradas.map((p) => (
+                  <button key={p.id} type="button"
+                    onMouseDown={() => { setDestinatarioId(p.id); setDestAberto(false) }}
+                    className="w-full text-left px-3 py-2 hover:bg-[#FAF7F2] border-b border-[#3D2314]/5 last:border-0 text-[12px] text-[#3D2314]">
+                    {textoDest(p)}
+                  </button>
+                ))}
+                {pessoasFiltradas.length === 0 && (
+                  <div className="px-3 py-2 text-[12px] text-[#3D2314]/55">Nenhum cadastro encontrado.</div>
+                )}
+              </div>
+            )}
             {destinatario && !ufDest && (
               <span className="block text-[10.5px] text-[#A32D2D] mt-1">Cadastro sem UF: complete o endereço antes de emitir.</span>
             )}
