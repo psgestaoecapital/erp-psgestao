@@ -9,7 +9,7 @@
 // Dados próprios (campanha "E2E Social …"); no fim vão para a lixeira — planejamento, posts e jobs (nada é apagado).
 
 import { test, expect, aguardarConteudo } from '../../support/fixtures'
-import { dbPatch, dbSelect, registrarJornada, obterSessionPayload } from '../../support/api'
+import { dbPatch, dbSelect, registrarJornada, obterSessionPayload, rpc } from '../../support/api'
 
 const DEMO_PM = 'b0700000-0000-4000-a000-000000000002'
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || ''
@@ -37,7 +37,14 @@ test.describe('P&M Social — planejamento, posts, calendário e post que vira j
     return { status: r.status, dados, texto }
   }
 
-  test.beforeAll(async () => { token = (JSON.parse(await obterSessionPayload()) as { access_token: string }).access_token })
+  test.beforeAll(async () => {
+    token = (JSON.parse(await obterSessionPayload()) as { access_token: string }).access_token
+    // A demonstração do mês é relativa a "agora": fn_demo_seed_pm_social semeia os 2 planejamentos do cliente da demo
+    // em date_trunc('month', now()). A tela /dashboard/pm/planejamento abre no mês corrente, então sem reaplicar o seed
+    // a virada de mês zera os cartões (a demo ficava no mês anterior) e o teste de tela quebrava. Reaplicar é idempotente
+    // (IF NOT EXISTS por mês) e só mexe na empresa de demonstração (guarda is_demo na função).
+    await rpc('fn_demo_seed_pm_social', { p_company_id: DEMO_PM }).catch(() => {})
+  })
   // limpeza suave: os planejamentos de teste (e os posts, pelo gatilho) e os jobs gerados vão para a lixeira
   test.afterAll(async () => {
     const planos = await dbSelect<{ id: string }>('agency_planejamentos', `company_id=eq.${DEMO_PM}&campanha=like.E2E%20Social*&excluido_em=is.null&select=id`).catch(() => [])

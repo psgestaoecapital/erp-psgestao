@@ -1,7 +1,7 @@
 // Gate #5404 (FC Pisos) parte (b): boleto do Banco do Brasil (Cobrança v2). Funções puras + ligação nas rotas/telas.
 // Sem rede, sem banco.
 import { readFileSync, existsSync } from 'node:fs'
-import { dataBb, faltasCobrancaBb, modalidadeBb, montarCorpoRegistroBb, normalizarCarteiraBb, nossoNumeroBb } from '../../src/lib/banco/bb/cobrancaPura'
+import { dataBb, faltasCobrancaBb, modalidadeBb, montarCorpoRegistroBb, normalizarCarteiraBb, nossoNumeroBb, seuNumeroBb } from '../../src/lib/banco/bb/cobrancaPura'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗', m) } else console.log('✓', m) }
@@ -31,7 +31,9 @@ ok(corpo.numeroConvenio === 3128557 && corpo.numeroCarteira === 17 && corpo.nume
 ok(corpo.valorOriginal === 2 && corpo.dataVencimento === '05.11.2026', 'corpo: valor e vencimento')
 ok(corpo.pagador.tipoInscricao === 1 && corpo.pagador.numeroInscricao === 12345678909, 'pagador CPF → tipoInscricao 1 (pelo documento)')
 ok(corpo.pagador.uf === 'SC' && corpo.pagador.nome === 'Jordana Carolina Richter' && corpo.pagador.endereco === 'Rua Sao Jose, 10', 'pagador: UF maiúscula e sem acento')
-ok(corpo.numeroTituloBeneficiario === 'REC12345', 'seu número só alfanumérico')
+ok(corpo.numeroTituloBeneficiario === '12345', 'seu número só dígitos (BB recusa alfanumérico)')
+ok(seuNumeroBb(null, '00031285572600000001') === '2600000001', 'sem nº de documento → sequencial numérico')
+ok(seuNumeroBb('', '00031285572600000007') === '2600000007' && seuNumeroBb('abc', '00031285572600000007') === '2600000007' && seuNumeroBb('1234567890123456789', 'x') === '123456789012345', 'seu número: fallback, só letras, corte em 15')
 const pj = montarCorpoRegistroBb({ cfg: { convenio: '3128557', carteira: '17', variacao: '35', modalidade: 1 }, nossoNumero: 'x', seuNumero: '1', valor: 10, emissaoISO: '2026-10-28', vencimentoISO: '2026-10-28',
   pagador: { documento: '12.345.678/0001-95', nome: 'Empresa', logradouro: null, bairro: null, cidade: null, uf: null, cep: null } }) as { pagador: Record<string, unknown> }
 ok(pj.pagador.tipoInscricao === 2, 'pagador CNPJ → tipoInscricao 2')

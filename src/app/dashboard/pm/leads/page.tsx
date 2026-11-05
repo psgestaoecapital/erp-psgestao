@@ -399,10 +399,13 @@ export default function LeadsPage() {
   // Excluir lead = soft-delete (RD-54/55: não some do banco). Gate no servidor
   // (responsável/criador/admin) — mensagem clara se não puder.
   async function excluirLead(l: Lead) {
-    if (typeof window !== 'undefined' && !window.confirm(`Excluir o lead "${l.empresa || l.nome}"?\nEle sai do Kanban (pode ser recuperado depois).`)) return
+    if (typeof window === 'undefined') return
+    // RD-98 p4: a exclusão fica rastreável (quem/quando/motivo + audit_log). O motivo é opcional, mas registrado.
+    const motivo = window.prompt(`Excluir o lead "${l.empresa || l.nome}"?\nEle sai do Kanban (pode ser recuperado depois).\n\nMotivo da exclusão (opcional, fica registrado na auditoria):`, '')
+    if (motivo === null) return
     setBusy(true)
     try {
-      const { data, error } = await supabase.rpc('fn_crm_lead_excluir', { p_lead_id: l.id })
+      const { data, error } = await supabase.rpc('fn_crm_lead_excluir', { p_lead_id: l.id, p_motivo: motivo.trim() || null })
       const r = data as { ok?: boolean; erro?: string; orientacao?: string } | null
       if (error || !r?.ok) {
         setToast(r?.orientacao ?? (r?.erro === 'sem_permissao'
@@ -444,27 +447,42 @@ export default function LeadsPage() {
         </div>
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
-          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar contato/empresa/email…" style={{ ...inp, minWidth: 220 }} />
-          <select value={fOrigem} onChange={(e) => setFOrigem(e.target.value)} style={inp} aria-label="Origem">
-            <option value="todas">Origem: todas</option>
-            {origens.map((o) => <option key={o.chave} value={o.chave}>{o.nome}</option>)}
-          </select>
-          <select value={fResp} onChange={(e) => setFResp(e.target.value)} style={inp} aria-label="Responsável">
-            <option value="todos">Responsável: todos</option>
-            {uid && <option value={uid}>Meus leads</option>}
-            {Object.entries(respMap).sort((a, b) => a[1].localeCompare(b[1])).map(([id, nome]) => <option key={id} value={id}>{nome}</option>)}
-          </select>
-          <select value={fPeriodo} onChange={(e) => setFPeriodo(e.target.value as typeof fPeriodo)} style={inp} aria-label="Período">
-            <option value="todos">Período: todos</option>
-            <option value="mes">Mês atual</option>
-            <option value="trimestre">Trimestre atual</option>
-            <option value="ano">Ano atual</option>
-            <option value="custom">Personalizado…</option>
-          </select>
-          {fPeriodo === 'custom' && (<>
-            <input type="date" value={pIni} onChange={(e) => setPIni(e.target.value)} style={inp} aria-label="Início do período" />
-            <input type="date" value={pFim} onChange={(e) => setPFim(e.target.value)} style={inp} aria-label="Fim do período" />
-          </>)}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+            <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar contato/empresa/email…" style={{ ...inp, minWidth: 220 }} />
+            <AjudaCampo chave="pm.leads.filtro_busca" />
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+            <select value={fOrigem} onChange={(e) => setFOrigem(e.target.value)} style={inp} aria-label="Origem">
+              <option value="todas">Origem: todas</option>
+              {origens.map((o) => <option key={o.chave} value={o.chave}>{o.nome}</option>)}
+            </select>
+            <AjudaCampo chave="pm.leads.filtro_origem" />
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+            <select value={fResp} onChange={(e) => setFResp(e.target.value)} style={inp} aria-label="Responsável">
+              <option value="todos">Responsável: todos</option>
+              {uid && <option value={uid}>Meus leads</option>}
+              {Object.entries(respMap).sort((a, b) => a[1].localeCompare(b[1])).map(([id, nome]) => <option key={id} value={id}>{nome}</option>)}
+            </select>
+            <AjudaCampo chave="pm.leads.filtro_responsavel" />
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+            <select value={fPeriodo} onChange={(e) => setFPeriodo(e.target.value as typeof fPeriodo)} style={inp} aria-label="Período">
+              <option value="todos">Período: todos</option>
+              <option value="mes">Mês atual</option>
+              <option value="trimestre">Trimestre atual</option>
+              <option value="ano">Ano atual</option>
+              <option value="custom">Personalizado…</option>
+            </select>
+            <AjudaCampo chave="pm.leads.filtro_periodo" />
+          </span>
+          {fPeriodo === 'custom' && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+              <input type="date" value={pIni} onChange={(e) => setPIni(e.target.value)} style={inp} aria-label="Início do período" />
+              <input type="date" value={pFim} onChange={(e) => setPFim(e.target.value)} style={inp} aria-label="Fim do período" />
+              <AjudaCampo chave="pm.leads.filtro_periodo_custom" />
+            </span>
+          )}
         </div>
 
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM }}>Carregando…</div>

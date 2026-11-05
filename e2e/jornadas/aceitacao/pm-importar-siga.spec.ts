@@ -31,7 +31,7 @@ test.describe('PM-J — importar jobs do SIGA', () => {
   test('planilha → mapa → prévia → conferir → importar só o novo', { tag: '@pos-migration' }, async ({ page }) => {
     await page.addInitScript((id) => { try { window.localStorage.setItem('ps_empresa_sel', id) } catch { /* noop */ } }, DEMO_PM)
     await page.setViewportSize({ width: 1440, height: 900 })
-    await page.goto('/dashboard/pm/importar-siga')
+    await page.goto('/dashboard/pm/importar-sistema-anterior')
     await aguardarConteudo(page)
     await page.getByTestId('siga-arquivo').setInputFiles({ name: 'jobs-siga.csv', mimeType: 'text/csv', buffer: Buffer.from(CSV, 'utf8') })
     await expect(page.getByTestId('siga-mapa-numero')).toHaveValue('0', { timeout: 15000 })
