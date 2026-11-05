@@ -203,3 +203,9 @@ BEGIN
   RETURN jsonb_build_object('ok',true,'transferencia_id',v_transf_id,
     'origem',v_origem,'destino',v_destino,'valor',abs(v_mov.valor));
 END $function$;
+
+-- Guarda de funções (check_fn_guards, regra revoke_anon): SECURITY DEFINER sem acesso anônimo.
+REVOKE ALL ON FUNCTION public.fn_conciliacao_desvincular(uuid, text) FROM anon;
+REVOKE ALL ON FUNCTION public.fn_conciliacao_transferir(uuid, uuid, text) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_conciliacao_desvincular(uuid, text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_conciliacao_transferir(uuid, uuid, text) TO authenticated, service_role;
