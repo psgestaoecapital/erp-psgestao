@@ -51,6 +51,7 @@ ok(/veic_venda_recebimento/.test(loader) && /body\.erpReceberId = vendaVeic\.rec
 ok(/input\.vendaVeiculo/.test(builder) && /veiculoMontado \? \[veiculoMontado\.item\] : itensNFe/.test(builder), 'builder: modo novo opcional; itens atuais intocados')
 ok(/\.\.\.\(item\.veiculo \?/.test(focus) && /\.\.\.\(item\.ibsCbs \?/.test(focus) && /item\.icms\?\.reducaoBase != null/.test(focus) && !/veiculo_renavam/.test(focus), 'provider: campos opcionais da Focus, sem campo RENAVAM')
 ok(/emitirNfe\(v\)/.test(tela) && /revenda\.vendas\.emitir_nfe/.test(tela), 'tela: botão Emitir NF-e com "?"')
+ok(/nome_fantasia/.test(builder.split('input.vendaVeiculo) {')[1] ?? '') && /docLimpo\.length === 11 \? \(cli\.nome_fantasia/.test(builder), 'destinatário PF sem razão social usa o nome do cadastro (PJ segue exigindo razão social)')
 
 if (falhas) { console.error(`\n${falhas} falha(s)`); process.exit(1) }
 console.log('\nOK')
