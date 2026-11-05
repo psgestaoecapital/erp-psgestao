@@ -5,15 +5,16 @@
 // Reusa fn_simular_montagem (que reusa fn_precificar_montagem + BOM). Tudo por empresa/linha.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Calculator, Loader2, AlertTriangle, Save, Trash2, FolderOpen } from "lucide-react";
+import { Calculator, Loader2, AlertTriangle, Save, Trash2, FolderOpen, FileSpreadsheet, Share2 } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { exportToExcel } from "@/lib/export-utils";
 
 type Cliente = { id: string; nome: string };
 type Linha = { id: string; nome: string };
 type Produto = { servico_id: string; nome: string; unidade: string | null; categoria: string | null; business_line_id: string | null };
-type QuantItem = { insumo: string; unidade: string | null; qtd_m2: number; qtd_total: number; custo_total: number };
+type QuantItem = { insumo: string; unidade: string | null; qtd_m2: number; perda_pct?: number; custo_unitario?: number; qtd_total: number; custo_total: number };
 type PrecoM2 = {
   venda_material?: number; venda_mo?: number; subtotal_m2?: number; comissao?: number;
   custo_fixo_m2?: number; custo_fixo_origem?: string; total_m2?: number; margem_rs?: number; margem_pct?: number;
@@ -23,6 +24,7 @@ type Sim = { ok: boolean; erro?: string; montagem?: string; unidade?: string; ar
 
 const brl = (v: number | null | undefined) => (v == null ? "—" : v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
 const num = (v: number | null | undefined, d = 2) => (v == null ? "—" : v.toLocaleString("pt-BR", { maximumFractionDigits: d }));
+const pct = (v: number | null | undefined, d = 1) => (v == null ? "—" : `${v.toLocaleString("pt-BR", { maximumFractionDigits: d })}%`);
 
 // RD-95/96: o motor de precificação devolve chaves cruas (ex.: "sem_config_precificacao").
 // Nunca mostramos a chave ao usuário — traduzimos para texto claro; chave desconhecida cai no texto padrão.
@@ -180,6 +182,38 @@ export default function SimuladorPage() {
     setExcluindo(null); setMotivo(""); setMsg("Simulação excluída (fica registrada na auditoria)."); await carregarSalvas();
   };
 
+  // RD-98 O.3.7 — exportar a lista de materiais (lista de compra) + totais.
+  const itens = sim?.quantitativo ?? [];
+  const unidadeObra = sim?.unidade || "m²";
+  const totalMateriais = useMemo(() => itens.reduce((s, q) => s + (q.custo_total || 0), 0), [itens]);
+  const tituloExport = `Lista de materiais — ${sim?.montagem ?? "montagem"} (${num(sim?.area)} ${unidadeObra})`;
+
+  const exportarExcel = async () => {
+    if (itens.length === 0) return;
+    const rows: Record<string, string | number | null>[] = itens.map((q) => ({
+      Insumo: q.insumo,
+      "Coef./un.": q.qtd_m2,
+      "Perda %": q.perda_pct ?? 0,
+      "Qtd total": q.qtd_total,
+      Unidade: q.unidade || "",
+      "Custo unit. (R$)": q.custo_unitario ?? null,
+      "Custo total (R$)": q.custo_total,
+    }));
+    rows.push({
+      Insumo: "TOTAL DE MATERIAIS",
+      "Coef./un.": null, "Perda %": null, "Qtd total": null, Unidade: "",
+      "Custo unit. (R$)": null, "Custo total (R$)": Number(totalMateriais.toFixed(2)),
+    });
+    await exportToExcel(rows, { filename: `lista-materiais-${Date.now()}.xlsx`, sheetName: "Materiais", title: tituloExport });
+  };
+
+  const exportarWhatsApp = () => {
+    if (itens.length === 0) return;
+    const linhas = itens.map((q) => `• ${q.insumo}: ${num(q.qtd_total, 2)} ${q.unidade || ""} — ${brl(q.custo_total)}`).join("\n");
+    const txt = `*${tituloExport}*\n\n${linhas}\n\nTotal de materiais: ${brl(totalMateriais)}\nTotal da obra: ${brl(sim?.total_obra)}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, "_blank", "noopener,noreferrer");
+  };
+
   if (!companyId) {
     return <main className="mx-auto max-w-3xl px-6 py-20 text-center text-[#3D2314]/60">Selecione uma empresa específica para usar o Simulador.</main>;
   }
@@ -243,34 +277,66 @@ export default function SimuladorPage() {
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.4fr_1fr]">
           {/* Quantitativo */}
           <section className="rounded-2xl border border-[#3D2314]/8 bg-white p-5 shadow-sm">
-            <h2 className="mb-3 text-base font-medium text-[#3D2314]" style={{ fontFamily: "var(--ps-font-body)" }}>
-              Quantitativo de materiais <AjudaCampo chave="projetos.simulador.quantitativo" /> <span className="text-sm text-[#3D2314]/50">· {sim.montagem} · {num(sim.area)} {sim.unidade || "m²"}</span>
-            </h2>
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+              <h2 className="text-base font-medium text-[#3D2314]" style={{ fontFamily: "var(--ps-font-body)" }}>
+                Quantitativo de materiais <AjudaCampo chave="projetos.simulador.quantitativo" /> <span className="text-sm text-[#3D2314]/50">· {sim.montagem} · {num(sim.area)} {sim.unidade || "m²"}</span>
+              </h2>
+              {itens.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <button data-testid="simulador-exportar-excel" onClick={() => void exportarExcel()}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-[#C8941A]/60 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-[#3D2314] transition-colors hover:bg-[#FBF4E4]">
+                    <FileSpreadsheet size={14} className="text-[#C8941A]" /> Excel
+                  </button>
+                  <button data-testid="simulador-exportar-whatsapp" onClick={exportarWhatsApp}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-[#3D2314]/12 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-[#3D2314] transition-colors hover:bg-[#FAF7F2]">
+                    <Share2 size={14} /> WhatsApp
+                  </button>
+                  <AjudaCampo chave="projetos.simulador.exportar" />
+                </div>
+              )}
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[#3D2314]/10 text-left text-[11px] uppercase tracking-wider text-[#3D2314]/50">
                     <th className="py-2 pr-3">Insumo</th>
-                    <th className="py-2 px-3 text-right">Qtd/m²</th>
+                    <th className="py-2 px-3 text-right">Coef./{sim.unidade || "m²"}</th>
+                    <th className="py-2 px-3 text-right">Perda <AjudaCampo chave="projetos.simulador.perda" /></th>
                     <th className="py-2 px-3 text-right">Qtd total</th>
+                    <th className="py-2 px-3 text-right">Custo unit. <AjudaCampo chave="projetos.simulador.custo_unitario" /></th>
                     <th className="py-2 pl-3 text-right">Custo</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(sim.quantitativo ?? []).map((q, i) => (
+                  {itens.map((q, i) => (
                     <tr key={i} className="border-b border-[#3D2314]/6">
                       <td className="py-2 pr-3 text-[#3D2314]">{q.insumo}</td>
                       <td className="py-2 px-3 text-right font-mono text-[#3D2314]/70">{num(q.qtd_m2, 3)}</td>
+                      <td className="py-2 px-3 text-right font-mono text-[#3D2314]/70">{pct(q.perda_pct)}</td>
                       <td className="py-2 px-3 text-right font-mono font-semibold text-[#3D2314]">{num(q.qtd_total, 2)} <span className="text-[10px] font-normal text-[#3D2314]/45">{q.unidade || ""}</span></td>
+                      <td className="py-2 px-3 text-right font-mono text-[#3D2314]/70">{brl(q.custo_unitario)}</td>
                       <td className="py-2 pl-3 text-right font-mono text-[#3D2314]">{brl(q.custo_total)}</td>
                     </tr>
                   ))}
-                  {(sim.quantitativo ?? []).length === 0 && (
-                    <tr><td colSpan={4} className="py-4 text-center text-sm text-[#3D2314]/50">Sem materiais no BOM desta montagem.</td></tr>
+                  {itens.length === 0 && (
+                    <tr><td colSpan={6} className="py-4 text-center text-sm text-[#3D2314]/50">Sem materiais no BOM desta montagem.</td></tr>
                   )}
                 </tbody>
+                {itens.length > 0 && (
+                  <tfoot>
+                    <tr className="border-t border-[#3D2314]/10">
+                      <td className="py-2 pr-3 text-[11px] font-semibold uppercase tracking-wider text-[#3D2314]/55" colSpan={5}>Total de materiais</td>
+                      <td className="py-2 pl-3 text-right font-mono font-semibold text-[#3D2314]">{brl(totalMateriais)}</td>
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             </div>
+            {itens.length > 0 && (
+              <p className="mt-3 rounded-lg bg-[#FAF7F2] px-3 py-2 text-[11px] leading-relaxed text-[#3D2314]/60">
+                <span className="font-semibold text-[#3D2314]/75">Como a conta é feita:</span> Qtd total = coef./{sim.unidade || "m²"} × (1 + perda%) × metragem ({num(sim.area)} {sim.unidade || "m²"}). Custo = qtd total × custo unitário.
+              </p>
+            )}
           </section>
 
           {/* Orçamento (5 camadas) + total */}
