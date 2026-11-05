@@ -26,6 +26,13 @@ type ParetoItem = { rotulo: string; valor: number; pct: number; pct_acumulado: n
 type Pareto = { ok: boolean; dimensao: string; itens: ParetoItem[] }
 type RankItem = { cod_vend_comp: string; vendedor: string; volume_kg: number; faturamento: number; clientes: number; lucro: number | null; margem_pct: number | null }
 type Ranking = { ok: boolean; erro?: string; ranking: RankItem[]; lucro_status: string }
+type ProdStatus = 'entra' | 'fora' | 'a_classificar'
+type Produto = { cod_produto: string; desc_produto: string; status: ProdStatus; kg: number; valor_total: number }
+
+// heurística: despojo/não comestível → candidato a "fora" (só sugere; a decisão é do usuário)
+const RE_DESPOJO = /DESPOJO|COURO|SANGUE|DESCARTAD|RES[IÍ]DUO|SEBO|OSSO|GORDURA|VISCERA|V[IÍ]SCERA|UNHA|CASCO|CHIFRE|PENA|BUCHO|N[AÃ]O\s*COMEST/i
+const ehDespojo = (d: string) => RE_DESPOJO.test(d || '')
+const STATUS_LABEL: Record<ProdStatus, string> = { entra: 'Entra', a_classificar: 'A classificar', fora: 'Fora' }
 
 const GRANS = [{ v: 'dia', l: 'Dia' }, { v: 'semana', l: 'Semana' }, { v: 'mes', l: 'Mês' }, { v: 'trimestre', l: 'Trimestre' }, { v: 'ano', l: 'Ano' }]
 const DIMS = [{ v: 'cliente', l: 'Cliente' }, { v: 'vendedor', l: 'Vendedor' }, { v: 'supervisor', l: 'Supervisor' }, { v: 'filial', l: 'Filial' }]
@@ -89,6 +96,9 @@ function Inner() {
   const [serie, setSerie] = useState<Serie | null>(null)
   const [pareto, setPareto] = useState<Pareto | null>(null)
   const [ranking, setRanking] = useState<Ranking | null>(null)
+  const [produtos, setProdutos] = useState<Produto[] | null>(null)
+  const [salvandoCod, setSalvandoCod] = useState<string | null>(null)
+  const [painelAberto, setPainelAberto] = useState(false)
   const [loading, setLoading] = useState(true)
 
   const ehLider = ranking?.ok === true // ranking só volta ok p/ diretor/assistente/admin
@@ -117,6 +127,25 @@ function Inner() {
   }, [de, ate, gran, dim, vendedor])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (companyId) void carregar(companyId) }, [companyId, carregar])
+
+  // painel "Produtos no cálculo" — só para o líder (config da empresa); vendedor vê só os números
+  const carregarProdutos = useCallback(async (cid: string) => {
+    const { data } = await supabase.rpc('fn_bi_comercial_produtos', { p_company_id: cid, p_de: de, p_ate: ate })
+    const d = data as { ok?: boolean; produtos?: Produto[] } | null
+    setProdutos(d?.ok ? (d.produtos ?? []) : [])
+  }, [de, ate])
+  useEffect(() => { if (companyId && ehLider) void carregarProdutos(companyId) }, [companyId, ehLider, carregarProdutos])
+
+  const classificar = useCallback(async (cod: string, status: ProdStatus) => {
+    if (!companyId) return
+    setSalvandoCod(cod)
+    try {
+      await supabase.rpc('fn_bi_comercial_produto_classificar', { p_company_id: companyId, p_cod_produto: cod, p_status: status })
+      await Promise.all([carregar(companyId), carregarProdutos(companyId)]) // totais/KPIs e lista refletem a mudança
+    } finally { setSalvandoCod(null) }
+  }, [companyId, carregar, carregarProdutos])
+
+  const aClassificar = (produtos ?? []).filter(p => p.status === 'a_classificar').length
 
   const maxSerie = useMemo(() => Math.max(1, ...(serie?.serie ?? []).map(s => s[metrica] ?? 0)), [serie, metrica])
   const lucroConfiavel = kpis?.lucro_status === 'ok'
@@ -190,6 +219,18 @@ function Inner() {
               }`}
             />
           </div>
+
+          {/* Produtos no cálculo (CEO · só líder): liga/desliga por COD_PRODUTO, salvo na config da empresa */}
+          {ehLider && (
+            <PainelProdutos
+              produtos={produtos}
+              aberto={painelAberto}
+              setAberto={setPainelAberto}
+              aClassificar={aClassificar}
+              salvandoCod={salvandoCod}
+              classificar={classificar}
+            />
+          )}
 
           {/* KPIs — comparativo vs período anterior */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 14 }}>
@@ -298,6 +339,69 @@ function Inner() {
   )
 }
 
+function PainelProdutos({ produtos, aberto, setAberto, aClassificar, salvandoCod, classificar }: {
+  produtos: Produto[] | null; aberto: boolean; setAberto: (v: boolean) => void; aClassificar: number
+  salvandoCod: string | null; classificar: (cod: string, status: ProdStatus) => void
+}) {
+  const lista = produtos ?? []
+  return (
+    <Card>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }} onClick={() => setAberto(!aberto)}>
+        <ChevronDown size={16} style={{ color: MUT, transform: aberto ? 'none' : 'rotate(-90deg)', transition: 'transform .15s' }} />
+        <span style={{ fontSize: 13, fontWeight: 700, color: ESP }}>Produtos no cálculo</span>
+        <AjudaCampo chave="comercial.bi.produtos_no_calculo" rota={ROTA} />
+        {aClassificar > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: '#8A6A1E', background: '#F3E6C9', borderRadius: 999, padding: '2px 9px' }}>{aClassificar} a classificar</span>}
+        <span style={{ flex: 1 }} />
+        <span style={{ fontSize: 11.5, color: MUT }}>{lista.length} produto{lista.length === 1 ? '' : 's'}</span>
+      </div>
+      {aberto && (
+        produtos == null ? <div style={{ color: MUT, fontSize: 12.5, padding: '10px 0' }}>Carregando produtos…</div>
+        : lista.length === 0 ? <div style={{ color: MUT, fontSize: 12.5, padding: '10px 0' }}>Sem produtos no período.</div>
+        : (
+          <div style={{ marginTop: 10, maxHeight: 360, overflowY: 'auto', border: `0.5px solid ${LINE}`, borderRadius: 10 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+              <thead><tr style={{ color: MUT, position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
+                <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600 }}>Produto</th>
+                <th style={{ textAlign: 'right', padding: '8px 10px', fontWeight: 600 }}>Volume</th>
+                <th style={{ textAlign: 'right', padding: '8px 10px', fontWeight: 600 }}>Faturamento</th>
+                <th style={{ textAlign: 'center', padding: '8px 10px', fontWeight: 600 }}>No cálculo</th>
+              </tr></thead>
+              <tbody>
+                {lista.map(p => {
+                  const naoClass = p.status === 'a_classificar'
+                  const sugereFora = naoClass && ehDespojo(p.desc_produto)
+                  return (
+                    <tr key={p.cod_produto} style={{ borderTop: `0.5px solid ${LINE}`, background: naoClass ? '#FBF7EC' : '#fff' }}>
+                      <td style={{ padding: '7px 10px', color: ESP, maxWidth: 260 }}>
+                        <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.desc_produto || p.cod_produto}</div>
+                        <div style={{ fontSize: 10.5, color: MUT }}>cód. {p.cod_produto}{sugereFora && <span style={{ color: '#8A6A1E', fontWeight: 700 }}> · candidato a “fora” (despojo)</span>}</div>
+                      </td>
+                      <td style={{ textAlign: 'right', padding: '7px 10px', color: MUT, whiteSpace: 'nowrap' }}>{nf(p.kg, 0)} kg</td>
+                      <td style={{ textAlign: 'right', padding: '7px 10px', color: ESP, fontWeight: 700, whiteSpace: 'nowrap' }}>{brl(p.valor_total)}</td>
+                      <td style={{ padding: '6px 10px' }}>
+                        <div style={{ display: 'inline-flex', gap: 2, background: BG, borderRadius: 999, padding: 2, opacity: salvandoCod === p.cod_produto ? 0.5 : 1 }}>
+                          {(['entra', 'a_classificar', 'fora'] as ProdStatus[]).map(st => (
+                            <button key={st} disabled={salvandoCod === p.cod_produto} onClick={() => classificar(p.cod_produto, st)}
+                              title={STATUS_LABEL[st]}
+                              style={{ fontSize: 11, fontWeight: 700, padding: '4px 9px', borderRadius: 999, border: 'none', cursor: salvandoCod === p.cod_produto ? 'default' : 'pointer',
+                                background: p.status === st ? (st === 'entra' ? GREEN : st === 'fora' ? RED : GOLD) : 'transparent',
+                                color: p.status === st ? '#fff' : MUT }}>
+                              {STATUS_LABEL[st]}
+                            </button>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )
+      )}
+    </Card>
+  )
+}
 function TotalTopo({ chave, rotulo, valor, sub, destaque }: { chave: string; rotulo: string; valor: string; sub: string; destaque?: boolean }) {
   return (
     <div style={{ background: destaque ? '#FBF7EC' : '#fff', border: `${destaque ? 1 : 0.5}px solid ${destaque ? GOLD : LINE}`, borderRadius: 14, padding: '15px 17px' }}>
