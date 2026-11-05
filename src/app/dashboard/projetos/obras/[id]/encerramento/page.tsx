@@ -75,6 +75,10 @@ export default function EncerramentoObraPage({ params }: { params: Promise<{ id:
   const [arrastando, setArrastando] = useState(false)
   // true quando a camada de dados (tabela/bucket) ainda não chegou à produção — mostra aviso, não erro cru.
   const [emLiberacao, setEmLiberacao] = useState(false)
+  // RD-98 p4: exclusão rastreável — modal com motivo obrigatório; o RPC grava quem/quando/por quê + auditoria.
+  const [excluindo, setExcluindo] = useState<ArquivoRow | null>(null)
+  const [motivoExcl, setMotivoExcl] = useState('')
+  const [removendo, setRemovendo] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const carregar = useCallback(async () => {
@@ -135,11 +139,15 @@ export default function EncerramentoObraPage({ params }: { params: Promise<{ id:
     window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
   }
 
-  async function remover(row: ArquivoRow) {
-    if (!confirm(`Excluir "${row.nome_arquivo}"? Sai da lista (exclusão rastreável — o arquivo não é apagado de vez).`)) return
-    setErro(null)
-    const { error } = await supabase.from('erp_obra_arquivos').update({ deleted_at: new Date().toISOString() }).eq('id', row.id)
-    if (error) { setErro(erroAmigavel(error, 'Não consegui excluir o documento. Tente de novo.')); return }
+  async function confirmarExclusao() {
+    if (!excluindo) return
+    if (motivoExcl.trim().length < 3) { setErro('Informe o motivo da exclusão (ao menos 3 letras).'); return }
+    setRemovendo(true); setErro(null)
+    const { data, error } = await supabase.rpc('fn_obra_arquivo_excluir', { p_id: excluindo.id, p_motivo: motivoExcl.trim() })
+    setRemovendo(false)
+    const j = (data ?? null) as { ok?: boolean; erro?: string } | null
+    if (error || !j?.ok) { setErro(erroAmigavel(error, j?.erro ?? 'Não consegui excluir o documento. Tente de novo.')); return }
+    setExcluindo(null); setMotivoExcl('')
     await carregar()
   }
 
@@ -240,11 +248,38 @@ export default function EncerramentoObraPage({ params }: { params: Promise<{ id:
                       <div style={{ fontSize: 11, color: MUT, marginTop: 2 }}>{fmtTamanho(row.tamanho_bytes)} · enviado em {fmtData(row.enviado_em)}</div>
                     </div>
                     <button type="button" onClick={() => void baixar(row)} style={{ background: GOLD, color: ESP, border: 'none', padding: '6px 14px', borderRadius: 5, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Baixar</button>
-                    <button type="button" onClick={() => void remover(row)} style={{ background: 'transparent', color: VERM, border: `0.5px solid rgba(163,45,45,0.4)`, padding: '6px 12px', borderRadius: 5, fontSize: 12, cursor: 'pointer' }}>Excluir</button>
+                    <button type="button" onClick={() => { setExcluindo(row); setMotivoExcl(''); setErro(null) }} style={{ background: 'transparent', color: VERM, border: `0.5px solid rgba(163,45,45,0.4)`, padding: '6px 12px', borderRadius: 5, fontSize: 12, cursor: 'pointer' }}>Excluir</button>
                   </li>
                 ))}
               </ul>
             )}
+          </div>
+        )}
+
+        {/* RD-98 p4 — modal de exclusão rastreável (motivo obrigatório) */}
+        {excluindo && (
+          <div onClick={() => { if (!removendo) setExcluindo(null) }} style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.4)', padding: 18 }}>
+            <div role="dialog" aria-label="Excluir documento" onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 420, background: BG, border: `0.5px solid ${LINE}`, borderRadius: 14, padding: 20 }}>
+              <div style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, color: ESP, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                Excluir documento <AjudaCampo chave="projetos.encerramento.motivo_exclusao" rota={ROTA} />
+              </div>
+              <div style={{ fontSize: 12.5, color: MUT, lineHeight: 1.5, marginBottom: 12 }}>
+                “{excluindo.nome_arquivo}” sai da lista. Nada é apagado de vez: ficam registrados <strong>quem</strong> excluiu, <strong>quando</strong> e o <strong>motivo</strong>.
+              </div>
+              <div data-ajuda="projetos.encerramento.motivo_exclusao">
+                <span style={{ fontSize: 11, color: MUT, textTransform: 'uppercase', letterSpacing: 0.6 }}>Motivo *</span>
+                <input autoFocus value={motivoExcl} onChange={(e) => setMotivoExcl(e.target.value)} placeholder="ex.: versão antiga, reenviado corrigido"
+                  style={{ ...inp, width: '100%', marginTop: 4 }} onKeyDown={(e) => { if (e.key === 'Enter') void confirmarExclusao() }} />
+              </div>
+              {erro && <div style={{ background: '#FCEBEB', color: VERM, padding: '8px 12px', borderRadius: 6, marginTop: 10, fontSize: 12 }}>{erro}</div>}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+                <button type="button" onClick={() => { if (!removendo) setExcluindo(null) }} style={{ background: 'transparent', color: ESP, border: `0.5px solid ${LINE}`, padding: '8px 16px', borderRadius: 8, fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
+                <button type="button" onClick={() => void confirmarExclusao()} disabled={removendo || motivoExcl.trim().length < 3}
+                  style={{ background: VERM, color: '#FFF', border: 'none', padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: removendo || motivoExcl.trim().length < 3 ? 'not-allowed' : 'pointer', opacity: removendo || motivoExcl.trim().length < 3 ? 0.5 : 1 }}>
+                  {removendo ? 'Excluindo…' : 'Excluir'}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
