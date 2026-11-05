@@ -171,7 +171,11 @@ function Inner() {
   const aplicarModelo = useCallback(async () => {
     if (!companyId || !plantId || !modeloSel) return
     const setor = setores[0]?.id ?? null
-    const e = await chamar('fn_prod_modelo_aplicar', { p_company_id: companyId, p_plant_id: plantId, p_modelo: modeloSel, p_setor_id: setor })
+    let e = await chamar('fn_prod_modelo_aplicar', { p_company_id: companyId, p_plant_id: plantId, p_modelo: modeloSel, p_setor_id: setor })
+    if (e === 'modelo_ja_aplicado') {
+      if (!window.confirm('Já existem raias nesta planta. Aplicar o modelo mesmo assim vai acrescentar novas raias (pode duplicar). Continuar?')) return
+      e = await chamar('fn_prod_modelo_aplicar', { p_company_id: companyId, p_plant_id: plantId, p_modelo: modeloSel, p_setor_id: setor, p_forcar: true })
+    }
     if (e) aviso('erro', e); else { aviso('ok', 'Modelo aplicado — edite as raias e atividades à vontade.'); setModeloSel(''); await carregar() }
   }, [companyId, plantId, modeloSel, setores, chamar, carregar, aviso])
 
