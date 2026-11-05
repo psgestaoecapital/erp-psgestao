@@ -50,6 +50,7 @@ ok(!/fn_faturar|baixar_estoque|erp_pedidos/.test(loaderCodigo), 'caminho A: sem 
 ok(/veic_venda_recebimento/.test(loader) && /body\.erpReceberId = vendaVeic\.receberId/.test(rota), 'nota ligada ao título que a venda já criou (erp_receber)')
 ok(/input\.vendaVeiculo/.test(builder) && /veiculoMontado \? \[veiculoMontado\.item\] : itensNFe/.test(builder), 'builder: modo novo opcional; itens atuais intocados')
 ok(/\.\.\.\(item\.veiculo \?/.test(focus) && /\.\.\.\(item\.ibsCbs \?/.test(focus) && /item\.icms\?\.reducaoBase != null/.test(focus) && !/veiculo_renavam/.test(focus), 'provider: campos opcionais da Focus, sem campo RENAVAM')
+ok(/nome_fantasia/.test(builder) && /docLimpo\.length === 11 \? cli\.nome_fantasia/.test(builder), 'destinatário PF sem razão social usa o nome do cadastro (nome_fantasia); PJ segue exigindo razão social')
 ok(/emitirNfe\(v\)/.test(tela) && /revenda\.vendas\.emitir_nfe/.test(tela), 'tela: botão Emitir NF-e com "?"')
 
 if (falhas) { console.error(`\n${falhas} falha(s)`); process.exit(1) }
