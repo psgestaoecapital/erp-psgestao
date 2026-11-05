@@ -587,7 +587,12 @@ export default function OrcamentosPage(){
 
     let orcId=editing?.id;
     if(editing){
-      const{error}=await supabase.from("erp_orcamentos").update(dadosOrc).eq("id",editing.id);
+      // #6730 · orçamento feito FORA (só PDF, sem itens): o valor vem do "Salvar valor" do anexo (fn_orcamento_anexar_pdf).
+      // O total calculado dos itens seria 0 e apagaria esse valor — então, sem itens, não regrava subtotal/total.
+      const somentePdfSemItens = itensValidosCheck.length===0 && !!editing.pdf_anexo_path;
+      const dadosUpd:Record<string,unknown>={...dadosOrc};
+      if(somentePdfSemItens){delete dadosUpd.subtotal;delete dadosUpd.total;}
+      const{error}=await supabase.from("erp_orcamentos").update(dadosUpd).eq("id",editing.id);
       if(error){setMsg("Erro: "+error.message);return;}
     }else{
       const{data,error}=await supabase.from("erp_orcamentos").insert(dadosOrc).select().single();
