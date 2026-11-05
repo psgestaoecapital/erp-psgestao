@@ -22,6 +22,8 @@ const escolherOrc = (l: Orc[]) =>
 type Item = { id: string; ordem: number; produto_nome: string; unidade: string; quantidade: number; preco_unitario: number;
   desconto_percentual: number; desconto_valor: number; subtotal: number; tipo_item: string; observacoes: string | null };
 type Lista = { ok: boolean; erro?: string; itens: Item[]; subtotal: number; total: number; status: string; congelado: boolean; editavel: boolean };
+type FlutuaItem = { item_id: string; produto_nome: string; custo_registrado: number; custo_atual: number; variacao_valor: number; subiu: boolean };
+type Flutua = { ok: boolean; revisavel: boolean; qtd: number; itens: FlutuaItem[] };
 type Form = { id?: string; produto_nome: string; tipo_item: string; unidade: string; quantidade: string; preco_unitario: string;
   desconto_percentual: string; desconto_valor: string; observacoes: string };
 const VAZIO: Form = { produto_nome: "", tipo_item: "servico", unidade: "UN", quantidade: "1", preco_unitario: "0", desconto_percentual: "0", desconto_valor: "0", observacoes: "" };
@@ -39,6 +41,7 @@ export default function OrcamentoItensPage() {
   const [form, setForm] = useState<Form | null>(null);
   const [busca, setBusca] = useState("");
   const [msg, setMsg] = useState<{ tipo: "ok" | "erro"; texto: string } | null>(null);
+  const [flutua, setFlutua] = useState<Flutua | null>(null);
 
   useEffect(() => {
     if (!empresa) { setOrcs([]); return; }
@@ -81,7 +84,13 @@ export default function OrcamentoItensPage() {
     if (!l.ok) { setMsg({ tipo: "erro", texto: l.erro ?? "Erro ao listar" }); setLista(null); return; }
     setLista(l);
   }, []);
-  useEffect(() => { void carregar(orcId); }, [orcId, carregar]);
+  // Aviso de flutuação: itens de catálogo cujo custo no estoque mudou desde que entraram no orçamento (RPC read-only).
+  const revisarCustos = useCallback(async (id: string) => {
+    if (!id) { setFlutua(null); return; }
+    const { data } = await supabase.rpc("fn_orcamento_custos_revisar", { p_orcamento_id: id });
+    setFlutua((data as Flutua) ?? null);
+  }, []);
+  useEffect(() => { void carregar(orcId); void revisarCustos(orcId); }, [orcId, carregar, revisarCustos]);
 
   async function salvar() {
     if (!form || !orcId) return;
@@ -93,14 +102,22 @@ export default function OrcamentoItensPage() {
     const r = data as { ok: boolean; erro?: string } | null;
     if (error || !r?.ok) { setMsg({ tipo: "erro", texto: error?.message ?? r?.erro ?? "Não foi possível salvar" }); return; }
     setMsg({ tipo: "ok", texto: form.id ? "Item atualizado." : "Item incluído." });
-    setForm(null); await carregar(orcId);
+    setForm(null); await carregar(orcId); await revisarCustos(orcId);
   }
   async function excluir(it: Item) {
     if (!window.confirm(`Excluir o item "${it.produto_nome}"?`)) return;
     const { data, error } = await supabase.rpc("fn_orcamento_item_excluir", { p_item_id: it.id });
     const r = data as { ok: boolean; erro?: string } | null;
     if (error || !r?.ok) { setMsg({ tipo: "erro", texto: error?.message ?? r?.erro ?? "Não foi possível excluir" }); return; }
-    setMsg({ tipo: "ok", texto: "Item excluído." }); await carregar(orcId);
+    setMsg({ tipo: "ok", texto: "Item excluído." }); await carregar(orcId); await revisarCustos(orcId);
+  }
+  // Atualizar em 1 toque o custo de referência do item para o custo atual do estoque (reusa fn_orcamento_item_editar).
+  async function atualizarCusto(f: FlutuaItem) {
+    const { data, error } = await supabase.rpc("fn_orcamento_item_editar", { p_item_id: f.item_id, p_item: { preco_custo: String(f.custo_atual) } });
+    const r = data as { ok: boolean; erro?: string } | null;
+    if (error || !r?.ok) { setMsg({ tipo: "erro", texto: error?.message ?? r?.erro ?? "Não foi possível atualizar o custo" }); return; }
+    setMsg({ tipo: "ok", texto: `Custo de "${f.produto_nome}" atualizado para ${brl(f.custo_atual)}.` });
+    await carregar(orcId); await revisarCustos(orcId);
   }
   const set = (k: keyof Form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm((f) => (f ? { ...f, [k]: e.target.value } : f));
@@ -143,6 +160,22 @@ export default function OrcamentoItensPage() {
         </div>
       )}
       {msg && <p role="status" data-testid="orc-msg" className={`mt-3 rounded-lg border px-3 py-2 text-[14px] ${msg.tipo === "ok" ? "border-[#1baf7a] text-[#1baf7a]" : "border-[#c0392b] text-[#c0392b]"}`}>{msg.texto}</p>}
+      {flutua?.revisavel && flutua.qtd > 0 && (
+        <section className="mt-4 rounded-xl border border-[#E6C079] bg-[#FBF4E6] p-3" data-testid="orc-flutuacao">
+          <div className="flex items-center gap-1 text-[14px] font-semibold text-[#8A6A14]">
+            Custo do estoque mudou em {flutua.qtd} {flutua.qtd === 1 ? "item" : "itens"}
+            <AjudaCampo chave="hub.orcamento_itens.aviso_flutuacao" rota={ROTA} />
+          </div>
+          <ul className="mt-2 divide-y divide-[#EADFC6]">
+            {flutua.itens.map((f) => (
+              <li key={f.item_id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-[13px] text-[#5A4632]" data-testid="flutua-linha">
+                <span>{f.produto_nome}: {f.subiu ? "subiu" : "caiu"} de {brl(f.custo_registrado)} para {brl(f.custo_atual)}</span>
+                <button type="button" data-testid="flutua-atualizar" className="shrink-0 rounded-lg border border-[#8A6A14] px-3 py-1 text-[13px] text-[#8A6A14] hover:bg-[#8A6A14] hover:text-white" onClick={() => void atualizarCusto(f)}>Atualizar custo</button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {lista && (
         <section className="mt-5">
           {lista.congelado && <p className="mb-3 rounded-lg bg-[#FAF7F2] px-3 py-2 text-[14px] text-[#7A6A5E]" data-testid="orc-congelado">Escopo congelado: os itens não podem mais ser alterados. Mudanças entram como mudança de escopo.</p>}
