@@ -4,6 +4,7 @@
  * fn_faturar, grava veic_venda.nfe_id, campos opcionais que não mudam o fluxo atual).
  */
 import { readFileSync } from 'node:fs'
+import { nomeDestinatarioNFe } from '../../src/lib/fiscal/nomeDestinatarioNFe'
 import { montarItemVeiculo, cstRegimeNormal, codigoCombustivel, type DadosVendaVeiculo } from '../../src/lib/fiscal/nfe-veiculo'
 
 let falhas = 0
@@ -51,7 +52,10 @@ ok(/veic_venda_recebimento/.test(loader) && /body\.erpReceberId = vendaVeic\.rec
 ok(/input\.vendaVeiculo/.test(builder) && /veiculoMontado \? \[veiculoMontado\.item\] : itensNFe/.test(builder), 'builder: modo novo opcional; itens atuais intocados')
 ok(/\.\.\.\(item\.veiculo \?/.test(focus) && /\.\.\.\(item\.ibsCbs \?/.test(focus) && /item\.icms\?\.reducaoBase != null/.test(focus) && !/veiculo_renavam/.test(focus), 'provider: campos opcionais da Focus, sem campo RENAVAM')
 ok(/emitirNfe\(v\)/.test(tela) && /revenda\.vendas\.emitir_nfe/.test(tela), 'tela: botão Emitir NF-e com "?"')
-ok(/nome_fantasia/.test(builder.split('input.vendaVeiculo) {')[1] ?? '') && /docLimpo\.length === 11 \? \(cli\.nome_fantasia/.test(builder), 'destinatário PF sem razão social usa o nome do cadastro (PJ segue exigindo razão social)')
+ok(/nomeDestinatarioNFe\(cli\.razao_social, cli\.nome_fantasia, docLimpo\)/.test(builder) && /nome_fantasia/.test(builder.split('input.vendaVeiculo) {')[1] ?? ''), 'builder usa nomeDestinatarioNFe e carrega nome_fantasia')
+ok(nomeDestinatarioNFe(null, 'CLIENTE TESTE HOMOLOGACAO', '52998224725') === 'CLIENTE TESTE HOMOLOGACAO', 'PF sem razão social usa nome_fantasia como xNome')
+ok(nomeDestinatarioNFe('  Maria da Silva ', 'Mari', '52998224725') === 'Maria da Silva', 'PF com razão social mantém a razão')
+ok(nomeDestinatarioNFe(null, 'Fantasia SA', '11222333000181') === '' && nomeDestinatarioNFe('  ', 'Fantasia SA', '11222333000181') === '', 'PJ sem razão social segue vazia (validador recusa com a mesma mensagem)')
 
 if (falhas) { console.error(`\n${falhas} falha(s)`); process.exit(1) }
 console.log('\nOK')

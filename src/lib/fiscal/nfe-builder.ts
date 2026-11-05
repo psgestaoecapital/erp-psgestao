@@ -1,4 +1,5 @@
 import type { NFeRequest, NFeProdutoItem } from './types'
+import { nomeDestinatarioNFe } from './nomeDestinatarioNFe'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { FiscalError } from './errors'
 import { enderecoComMunicipioOficial } from './municipioDestinatario'
@@ -278,9 +279,7 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     destinatario = {
       cnpj: docLimpo.length === 14 ? docLimpo : undefined,
       cpf: docLimpo.length === 11 ? docLimpo : undefined,
-      // Pessoa física não tem razão social no cadastro (só "Nome / Apelido" → nome_fantasia): usa o nome
-      // do cadastro. Pessoa jurídica segue exigindo razão social (o validador barra se vazia). Nada é gravado.
-      razaoSocial: (cli.razao_social ?? '').trim() || (docLimpo.length === 11 ? (cli.nome_fantasia ?? '').trim() : ''),
+      razaoSocial: nomeDestinatarioNFe(cli.razao_social, cli.nome_fantasia, docLimpo),
       inscricaoEstadual: ieLimpa || undefined,
       indicadorIE: indIE,
       email: cli.email ?? undefined,
