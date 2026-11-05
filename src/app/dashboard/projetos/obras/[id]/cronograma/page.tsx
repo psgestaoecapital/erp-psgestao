@@ -424,6 +424,10 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
                             )}
                             <div style={{ position: 'absolute', top: 2, height: 12, left: `${pos(t.inicio)}%`, width: `${larg(t.inicio, t.fim)}%`, background: '#FBF4E4', border: `${critica ? 2 : 1}px solid ${atras || critica ? VERM : GOLD}`, borderRadius: 4, overflow: 'hidden' }}>
                               <div style={{ width: `${Number(t.percentual)}%`, height: '100%', background: atras ? VERM : GOLD }} />
+                              {/* % de avanço legível na própria barra (PDCA): texto branco com leve sombra lê sobre a parte cheia e a vazia; barra muito curta fica só com o % do texto abaixo */}
+                              {larg(t.inicio, t.fim) >= 9 && (
+                                <span aria-hidden style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, color: '#fff', textShadow: '0 0 2px rgba(61,35,20,0.65)', fontVariantNumeric: 'tabular-nums', pointerEvents: 'none', letterSpacing: 0.2 }}>{Number(t.percentual)}%</span>
+                              )}
                             </div>
                           </div>
                           <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>

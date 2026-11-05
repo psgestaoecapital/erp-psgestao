@@ -93,7 +93,7 @@ export default function PmBiPage() {
                   return (
                     <div key={ind.sigla} style={{ background: '#fff', border: `1px solid ${C.offWhiteDarker}`, borderRadius: R.xl, padding: 14, borderLeft: `4px solid ${cor}` }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                        <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.5, color: C.espresso }}>{ind.sigla}</span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 12, fontWeight: 800, letterSpacing: 0.5, color: C.espresso }}>{ind.sigla}<AjudaCampo chave={`pm.painel.ind_${ind.sigla.toLowerCase()}`} /></span>
                         <span style={{ fontSize: 10, color: C.espressoLight }}>meta {nf(Number(ind.meta_numerica ?? 0))} {ind.meta_unidade}</span>
                       </div>
                       <div style={{ fontSize: 22, fontWeight: 700, color: emCalc ? C.espressoLight : cor, marginTop: 6 }}>
@@ -107,7 +107,7 @@ export default function PmBiPage() {
 
               {/* Faixa 3 — Gráficos */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px,1fr))', gap: 12, marginTop: 8 }}>
-                <Card titulo="Receita (12 meses)">
+                <Card titulo="Receita (12 meses)" ajuda="pm.painel.grafico_receita">
                   <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 120 }}>
                     {(serie?.receita_12m ?? []).map((x) => (
                       <div key={x.mes} title={`${x.mes}: ${fmtR(x.valor)}`} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
@@ -117,12 +117,12 @@ export default function PmBiPage() {
                     ))}
                   </div>
                 </Card>
-                <Card titulo="Top clientes por MRR">
+                <Card titulo="Top clientes por MRR" ajuda="pm.painel.grafico_top_clientes">
                   {(serie?.top_clientes ?? []).length === 0 ? <Vazinho /> : (serie?.top_clientes ?? []).map((x) => (
                     <BarRow key={x.cliente} label={x.cliente} valor={fmtR(x.mrr)} pct={(x.mrr / maxMrr) * 100} cor={C.espresso} />
                   ))}
                 </Card>
-                <Card titulo="Margem por cliente (fee − custo)">
+                <Card titulo="Margem por cliente (fee − custo)" ajuda="pm.painel.grafico_margem">
                   {(serie?.margem_clientes ?? []).length === 0 ? <Vazinho /> : (serie?.margem_clientes ?? []).map((x) => (
                     <BarRow key={x.cliente} label={x.cliente} valor={fmtR(x.margem)} pct={(Math.abs(x.margem) / maxMargem) * 100} cor={x.margem < 0 ? '#dc2626' : '#16a34a'} />
                   ))}
@@ -132,9 +132,9 @@ export default function PmBiPage() {
               {/* Faixa 4 — Alertas */}
               <SecTitle>Alertas</SecTitle>
               <section style={grid(220)}>
-                <Alerta n={al?.jobs_atrasados ?? 0} l="Jobs atrasados" bom={0} ajuda="pm.painel.alerta_jobs_atrasados" />
-                <Alerta n={al?.titulos_vencidos ?? 0} l="Títulos vencidos (a receber)" bom={0} ajuda="pm.painel.alerta_titulos_vencidos" />
-                <Alerta n={al?.contratos_renovar_60d ?? 0} l="Contratos a renovar (60d)" bom={0} neutro ajuda="pm.painel.alerta_contratos_renovar" />
+                <Alerta n={al?.jobs_atrasados ?? 0} l="Jobs atrasados" bom={0} ajuda="pm.painel.alerta_jobs_atrasados" href="/dashboard/pm/painel-jobs" verLabel="Ver jobs" />
+                <Alerta n={al?.titulos_vencidos ?? 0} l="Títulos vencidos (a receber)" bom={0} ajuda="pm.painel.alerta_titulos_vencidos" href="/dashboard/pm/cobranca" verLabel="Ver cobrança" />
+                <Alerta n={al?.contratos_renovar_60d ?? 0} l="Contratos a renovar (60d)" bom={0} neutro ajuda="pm.painel.alerta_contratos_renovar" href="/dashboard/pm/contratos" verLabel="Ver contratos" />
               </section>
             </>
           )}
@@ -151,20 +151,21 @@ function Kpi({ l, v, cor, destaque, ajuda }: { l: string; v: string; cor?: strin
     </div>
   )
 }
-function Alerta({ n, l, bom, neutro, ajuda }: { n: number; l: string; bom: number; neutro?: boolean; ajuda?: string }) {
+function Alerta({ n, l, bom, neutro, ajuda, href, verLabel }: { n: number; l: string; bom: number; neutro?: boolean; ajuda?: string; href?: string; verLabel?: string }) {
   const ruim = n > bom
   const cor = neutro ? C.dourado : ruim ? '#dc2626' : '#16a34a'
   return (
     <div style={{ background: '#fff', border: `1px solid ${C.offWhiteDarker}`, borderRadius: R.xl, padding: 14, borderLeft: `4px solid ${cor}` }}>
       <div style={{ fontSize: 22, fontWeight: 700, color: cor }}>{n}</div>
       <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 12, color: C.espressoLight, marginTop: 2 }}>{l}{ajuda && <AjudaCampo chave={ajuda} />}</div>
+      {href && <Link href={href} style={{ display: 'inline-block', fontSize: 11, fontWeight: 700, color: C.dourado, marginTop: 8, textDecoration: 'none' }}>{verLabel ?? 'Ver'} →</Link>}
     </div>
   )
 }
-function Card({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+function Card({ titulo, ajuda, children }: { titulo: string; ajuda?: string; children: React.ReactNode }) {
   return (
     <div style={{ background: '#fff', border: `1px solid ${C.offWhiteDarker}`, borderRadius: R.xl, padding: 16 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: C.espressoLight, marginBottom: 12 }}>{titulo}</div>
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: C.espressoLight, marginBottom: 12 }}>{titulo}{ajuda && <AjudaCampo chave={ajuda} />}</div>
       {children}
     </div>
   )

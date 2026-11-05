@@ -61,6 +61,14 @@ type Orcamento = {
   itens?:ItemOrc[];
 };
 
+// ONDA 1 (Hub) · item de catálogo cujo custo de estoque mudou desde a inclusão no orçamento.
+// Fonte = fn_orcamento_custos_revisar (slice 1, #3880): só leitura, respeita acesso/congelamento.
+type FlutuacaoItem = {
+  item_id:string; produto_id:string|null; produto_codigo:string|null; produto_nome:string|null;
+  unidade:string|null; quantidade:number|null; custo_registrado:number; custo_atual:number;
+  variacao_valor:number; variacao_pct:number|null; subiu:boolean;
+};
+
 const CONDS = ['À vista','7 dias','14 dias','21 dias','30 dias','30/60 dias','30/60/90 dias','45 dias','60 dias','90 dias'];
 const FORMAS = ['PIX','Boleto','Transferência','Cartão Crédito','Cartão Débito','Dinheiro','Cheque','Múltiplas'];
 const FRETES = ['CIF (por conta do fornecedor)','FOB (por conta do cliente)','Retira','Incluso no valor','Combinar'];
@@ -121,6 +129,9 @@ export default function OrcamentosPage(){
   const [pdfNovo,setPdfNovo]=useState<File|null>(null);
   const [pdfValor,setPdfValor]=useState<string>("");
   const [permEdit,setPermEdit]=useState<{pode_editar:boolean;precisa_liberacao:boolean;edicao_liberada:boolean;pode_liberar:boolean;motivo:string;status:string}|null>(null);
+  // ONDA 1 (Hub) · aviso de flutuação de custo (itens de catálogo com custo de estoque alterado).
+  const [flutuacao,setFlutuacao]=useState<FlutuacaoItem[]>([]);
+  const [flutuacaoAberta,setFlutuacaoAberta]=useState(false);
   const [msg,setMsg]=useState("");
 
   // Form state
@@ -182,6 +193,21 @@ export default function OrcamentosPage(){
       const{data:vis}=await supabase.from('erp_crm_visita').select('anotacoes').eq('oportunidade_id',op.id).eq('status','realizada').order('data_visita',{ascending:false}).limit(1).maybeSingle();
       const cli=(op as any).erp_clientes;
       if(vivo)setInfoOport({titulo:op.titulo,obra_endereco:op.obra_endereco,obra_cidade:op.obra_cidade,obra_bairro:op.obra_bairro,responsavel_nome:op.responsavel_nome,observacoes:op.observacoes,cliente:cli?(cli.nome_fantasia||cli.razao_social):null,visita:vis?.anotacoes??null});
+    })();
+    return()=>{vivo=false;};
+  },[showForm,editing?.id]);
+  // ONDA 1 (Hub) · ao abrir um orçamento ABERTO existente, busca os itens de catálogo cujo custo
+  // de estoque mudou desde a inclusão (fn_orcamento_custos_revisar — só leitura). Orçamento
+  // aprovado/congelado devolve revisavel=false (custo congelado) → sem faixa.
+  useEffect(()=>{
+    setFlutuacao([]);setFlutuacaoAberta(false);
+    const oid=editing?.id;
+    if(!showForm||!oid){return;}
+    let vivo=true;
+    (async()=>{
+      const{data}=await supabase.rpc('fn_orcamento_custos_revisar',{p_orcamento_id:oid});
+      const j=data as {ok?:boolean;revisavel?:boolean;itens?:FlutuacaoItem[]}|null;
+      if(vivo&&j?.ok&&j.revisavel&&Array.isArray(j.itens))setFlutuacao(j.itens);
     })();
     return()=>{vivo=false;};
   },[showForm,editing?.id]);
@@ -318,30 +344,49 @@ export default function OrcamentosPage(){
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[companyIds.join(",")]);
 
-  const abrirNovo=async()=>{
+  // clientePrefill (opcional): quando vem da ficha do cliente no Hub ("Nova proposta"), o novo orçamento já
+  // nasce com o cliente preenchido — o orçamento "inicia direto" do cliente (jornada cliente → orçamento).
+  const abrirNovo=async(clientePrefill?:{id:string;nome_fantasia?:string|null;razao_social?:string|null;cpf_cnpj?:string|null;email?:string|null;telefone?:string|null})=>{
     if(!companyIdParaCadastro){setMsg("❌ Selecione uma empresa");return;}
-    
+
     if(sel==="consolidado" || sel.startsWith("group_")){
       const empresaNome = companies.find(c=>c.id===companyIdParaCadastro)?.nome_fantasia || "primeira empresa";
       if(!confirm(`Novo orçamento será criado em "${empresaNome}". Continuar?`))return;
     }
-    
+
     setEditing(null);setPdfNovo(null);setPdfValor("");
     // Gera número automático
     const{data}=await supabase.rpc('next_orcamento_numero',{p_company_id:companyIdParaCadastro});
     const numero=data||`ORC-${new Date().getFullYear()}-0001`;
     const validadeDias=await getValidadeDias(companyIdParaCadastro);
+    const nomeCli=clientePrefill?(clientePrefill.nome_fantasia||clientePrefill.razao_social||''):'';
     setForm({
       numero,data_emissao:new Date().toISOString().slice(0,10),data_validade:addDias(validadeDias),
       status:'rascunho',versao:1,
       condicao_pagamento:'30 dias',prazo_entrega_dias:10,
       subtotal:0,desconto_percentual:0,desconto_valor:0,acrescimo_valor:0,frete_valor:0,total:0,
       observacoes:OBS_PADRAO,
+      ...(clientePrefill?{cliente_id:clientePrefill.id,cliente_nome:nomeCli,cliente_cnpj:clientePrefill.cpf_cnpj||'',cliente_email:clientePrefill.email||'',cliente_telefone:clientePrefill.telefone||''}:{}),
     });
     setItens([{...EMPTY_ITEM,ordem:1}]);
-    setBuscaCliente("");
+    setBuscaCliente(nomeCli);
     setShowForm(true);
   };
+
+  // Deep-link ?cliente=<id> (vem de "Nova proposta" da ficha do cliente no Hub): abre um NOVO orçamento já com o
+  // cliente preenchido. Dispara 1x quando as empresas carregam. (window.location evita o Suspense do useSearchParams.)
+  const deepLinkClienteAberto=useRef(false);
+  useEffect(()=>{
+    if(deepLinkClienteAberto.current || companyIds.length===0) return;
+    const cid=typeof window!=='undefined' ? new URLSearchParams(window.location.search).get('cliente') : null;
+    if(!cid) return;
+    deepLinkClienteAberto.current=true;
+    void(async()=>{
+      const{data}=await supabase.from('erp_clientes').select('id,razao_social,nome_fantasia,cpf_cnpj,email,telefone,company_id').in('company_id',companyIds).eq('id',cid).eq('ativo',true).maybeSingle();
+      await abrirNovo(data?{id:data.id,nome_fantasia:data.nome_fantasia,razao_social:data.razao_social,cpf_cnpj:data.cpf_cnpj,email:data.email,telefone:data.telefone}:undefined);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[companyIds.join(',')]);
 
   const carregarPerm=async(o:Orcamento)=>{
     const{data}=await supabase.rpc('fn_orcamento_pode_editar',{p_orcamento_id:o.id});
@@ -726,7 +771,7 @@ export default function OrcamentosPage(){
             <button onClick={()=>setShowNumeracao(true)} title="Configurar a numeração dos orçamentos"
               style={{padding:"8px 12px",borderRadius:8,background:"transparent",color:"#3D2314",fontSize:12,fontWeight:600,border:"1px solid rgba(61,35,20,0.15)",cursor:"pointer"}}>⚙ Numeração</button>
           )}
-          <button onClick={abrirNovo} style={{padding:"8px 16px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>+ Novo Orçamento</button>
+          <button onClick={()=>abrirNovo()} style={{padding:"8px 16px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>+ Novo Orçamento</button>
         </div>
       </div>
       {showNumeracao && companyIdParaCadastro && (
@@ -871,6 +916,41 @@ export default function OrcamentosPage(){
               </label>
             )}
           </div>
+
+          {/* ONDA 1 (Hub) · faixa de flutuação de custo: itens de catálogo cujo custo de estoque
+              mudou desde a inclusão. Não-intrusiva (só aparece com itens afetados), só leitura:
+              aponta quais itens revisar antes de enviar/aprovar. */}
+          {editing?.id && flutuacao.length>0 && (
+            <div data-testid="orc-flutuacao-custo" style={{background:"#FBF3E0",border:`1px solid #E6CE97`,borderRadius:8,padding:"10px 12px",marginBottom:12}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+                <div style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:12,fontWeight:700,color:"#8A5A00"}}>
+                  <span aria-hidden>⚠</span>
+                  {flutuacao.length===1
+                    ? "1 item do catálogo teve o custo do estoque alterado desde a inclusão"
+                    : `${flutuacao.length} itens do catálogo tiveram o custo do estoque alterado desde a inclusão`}
+                  <AjudaCampo chave="orcamentos.flutuacao_custo" rota="/dashboard/orcamentos"/>
+                </div>
+                <button type="button" onClick={()=>setFlutuacaoAberta(a=>!a)}
+                  style={{fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:6,border:`1px solid #D9A441`,background:"#FFF",color:"#8A5A00",cursor:"pointer"}}>
+                  {flutuacaoAberta?"Ocultar":"Revisar"}
+                </button>
+              </div>
+              {flutuacaoAberta && (
+                <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:6}}>
+                  {flutuacao.map(f=>(
+                    <div key={f.item_id} style={{fontSize:11.5,color:TX,display:"flex",flexWrap:"wrap",alignItems:"center",gap:6}}>
+                      <span style={{fontWeight:600}}>{f.produto_nome||f.produto_codigo||"Item"}</span>
+                      <span style={{color:TXM}}>custo {f.subiu?"subiu":"caiu"} de {fmtR(f.custo_registrado)} para {fmtR(f.custo_atual)}</span>
+                      <span style={{fontWeight:700,color:f.subiu?"#B45309":"#1F5A1F"}}>
+                        ({f.variacao_valor>0?"+":""}{fmtR(f.variacao_valor)}{f.variacao_pct!=null?` · ${f.variacao_pct>0?"+":""}${f.variacao_pct}%`:""})
+                      </span>
+                    </div>
+                  ))}
+                  <div style={{fontSize:10.5,color:TXD,marginTop:2}}>Abra o item para atualizar o custo, se quiser aplicar o valor atual do estoque.</div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Itens */}
           <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -1096,7 +1176,7 @@ export default function OrcamentosPage(){
               <div style={{fontSize:40,marginBottom:8}}>💰</div>
               <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:4}}>Nenhum orçamento ainda</div>
               <div style={{fontSize:11,color:TXD,marginBottom:16}}>Crie seu primeiro orçamento e acompanhe o ciclo de vendas.</div>
-              <button onClick={abrirNovo} style={{padding:"10px 20px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>+ Primeiro Orçamento</button>
+              <button onClick={()=>abrirNovo()} style={{padding:"10px 20px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>+ Primeiro Orçamento</button>
             </div>
           ):(
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>

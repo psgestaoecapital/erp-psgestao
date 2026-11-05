@@ -221,7 +221,17 @@ export default function SimuladorPage() {
       {msg && <div data-testid="simulador-msg" className="mb-4 rounded-lg bg-[#FBF4E4] p-3 text-sm text-[#3D2314]">{msg}</div>}
       {erro && <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-800"><AlertTriangle className="mb-0.5 mr-1 inline" size={15} />{erro}{faltaConfig && <> <a href="/dashboard/projetos/configuracoes" className="font-semibold underline">Configurar precificação</a></>}</div>}
 
-      {!montagemId ? (
+      {!loadingCat && produtos.length === 0 ? (
+        <div data-testid="simulador-sem-montagens" className="rounded-2xl border border-dashed border-[#3D2314]/20 bg-[#FAF7F2] p-10 text-center">
+          <p className="text-sm font-medium text-[#3D2314]">Nenhuma montagem cadastrada ainda</p>
+          <p className="mx-auto mt-1 max-w-md text-sm text-[#3D2314]/60">
+            O simulador calcula o quantitativo e o orçamento a partir das montagens (composições das 5 camadas) do catálogo de serviços desta empresa. Cadastre a primeira montagem e volte aqui para simular por metragem.
+          </p>
+          <a href="/dashboard/projetos/catalogo" className="mt-4 inline-flex items-center gap-1 rounded-lg bg-[#3D2314] px-4 py-2 text-sm font-medium text-[#FAF7F2] transition-colors hover:bg-[#3D2314]/90">
+            Abrir o catálogo de serviços
+          </a>
+        </div>
+      ) : !montagemId ? (
         <div className="rounded-2xl border border-dashed border-[#3D2314]/20 bg-[#FAF7F2] p-12 text-center text-sm text-[#3D2314]/60">
           Escolha uma montagem e informe a metragem.
         </div>
