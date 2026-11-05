@@ -27,6 +27,10 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
   const [erro, setErro] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [f, setF] = useState({ data: hoje(), categoria: 'Material' as string, descricao: '', valor: '', fornecedor_nome: '' })
+  // RD-98 p2 · editar custo EM ABERTO (pago/conciliado é travado no servidor). `ed` = custo em edição; `ef` = o form.
+  const [ed, setEd] = useState<Custo | null>(null)
+  const [ef, setEf] = useState({ data: hoje(), categoria: 'Material' as string, descricao: '', valor: '', fornecedor_nome: '' })
+  const [salvandoEd, setSalvandoEd] = useState(false)
 
   const carregar = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
@@ -61,6 +65,37 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
     if (!window.confirm(`Excluir o custo "${c.descricao}" de ${brl(c.valor)}? Ele sai do custo da obra.`)) return
     const { error } = await supabase.rpc('fn_obra_custo_excluir', { p_pagar_id: c.id })
     if (error) { setErro(erroAmigavel(error)); return }
+    carregar()
+  }
+
+  // RD-98 p2 · abre o editor pré-preenchido com o custo (valor em pt-BR); só custo EM ABERTO.
+  const abrirEditar = (c: Custo) => {
+    if (c.pago) { setErro('Este custo já foi pago/conciliado — não pode ser editado aqui. Trate no financeiro.'); return }
+    setErro('')
+    setEf({
+      data: (c.data ?? hoje()).slice(0, 10),
+      categoria: c.categoria || 'Material',
+      descricao: c.descricao || '',
+      valor: Number(c.valor ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      fornecedor_nome: c.fornecedor_nome ?? '',
+    })
+    setEd(c)
+  }
+  const salvarEditar = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!ed) return
+    setErro('')
+    const valor = Number(ef.valor.replace(/\./g, '').replace(',', '.'))
+    if (!ef.descricao.trim()) { setErro('Informe a descrição do custo.'); return }
+    if (!(valor > 0)) { setErro('Informe um valor maior que zero.'); return }
+    setSalvandoEd(true)
+    const { error } = await supabase.rpc('fn_obra_custo_editar', {
+      p_pagar_id: ed.id,
+      p_dados: { data: ef.data, categoria: ef.categoria, descricao: ef.descricao.trim(), valor, fornecedor_nome: ef.fornecedor_nome.trim() },
+    })
+    setSalvandoEd(false)
+    if (error) { setErro(erroAmigavel(error)); return }
+    setEd(null)
     carregar()
   }
 
@@ -116,7 +151,10 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
                     <td style={{ padding: 8 }}>
                       {c.pago
                         ? <span style={{ color: MUT, fontSize: 12 }} title="Custo pago/conciliado: trate no financeiro">—</span>
-                        : <button onClick={() => excluir(c)} data-testid="custos-excluir" style={{ color: VERM, background: 'none', border: 0, cursor: 'pointer' }}>Excluir <AjudaCampo chave="projetos.obra_custos.excluir" /></button>}
+                        : <span style={{ display: 'inline-flex', gap: 10, alignItems: 'center' }}>
+                            <button onClick={() => abrirEditar(c)} data-testid="custos-editar" style={{ color: ESP, background: 'none', border: 0, cursor: 'pointer' }}>Editar <AjudaCampo chave="projetos.obra_custos.editar" /></button>
+                            <button onClick={() => excluir(c)} data-testid="custos-excluir" style={{ color: VERM, background: 'none', border: 0, cursor: 'pointer' }}>Excluir <AjudaCampo chave="projetos.obra_custos.excluir" /></button>
+                          </span>}
                     </td>
                   </tr>))}
                 <tr style={{ fontWeight: 700 }}><td colSpan={4} style={{ padding: 8 }}>Total de custos da obra</td><td style={{ padding: 8, textAlign: 'right' }} data-testid="custos-total">{brl(total)}</td><td colSpan={2} /></tr>
@@ -124,6 +162,30 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
             </table>
           </div>)}
       </div>
+
+      {ed && (
+        <div role="dialog" aria-label="Editar custo da obra" onClick={() => !salvandoEd && setEd(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 80, padding: 16 }}>
+          <form onSubmit={salvarEditar} onClick={e => e.stopPropagation()} data-testid="custos-editar-form"
+            style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 16, width: '100%', maxWidth: 460, display: 'grid', gap: 10 }}>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>Editar custo da obra</div>
+            <div><label style={lab}>Data</label>
+              <input type="date" value={ef.data} onChange={e => setEf({ ...ef, data: e.target.value })} style={inp} data-testid="custos-editar-data" /> <AjudaCampo chave="projetos.obra_custos.data" /></div>
+            <div><label style={lab}>Categoria</label>
+              <AjudaCampo chave="projetos.obra_custos.categoria" /> <select value={ef.categoria} onChange={e => setEf({ ...ef, categoria: e.target.value })} style={inp} data-testid="custos-editar-categoria">
+                {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
+            <div><label style={lab}>Valor (R$)</label>
+              <input inputMode="decimal" value={ef.valor} onChange={e => setEf({ ...ef, valor: e.target.value })} style={inp} data-testid="custos-editar-valor" placeholder="0,00" /> <AjudaCampo chave="projetos.obra_custos.valor" /></div>
+            <div><label style={lab}>Fornecedor</label>
+              <input value={ef.fornecedor_nome} onChange={e => setEf({ ...ef, fornecedor_nome: e.target.value })} style={inp} data-testid="custos-editar-fornecedor" placeholder="Opcional" /> <AjudaCampo chave="projetos.obra_custos.fornecedor" /></div>
+            <div><label style={lab}>Descrição</label>
+              <input value={ef.descricao} onChange={e => setEf({ ...ef, descricao: e.target.value })} style={inp} data-testid="custos-editar-descricao" placeholder="O que foi comprado ou pago" /> <AjudaCampo chave="projetos.obra_custos.descricao" /></div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
+              <button type="button" onClick={() => setEd(null)} disabled={salvandoEd} style={{ padding: '9px 16px', background: '#fff', color: ESP, border: `1px solid ${LINE}`, borderRadius: 8, cursor: 'pointer' }}>Cancelar</button>
+              <button type="submit" disabled={salvandoEd} data-testid="custos-editar-salvar" style={{ padding: '9px 16px', background: ESP, color: '#fff', border: 0, borderRadius: 8, fontWeight: 600, cursor: salvandoEd ? 'wait' : 'pointer' }}>{salvandoEd ? 'Salvando…' : 'Salvar'}</button>
+            </div>
+          </form>
+        </div>)}
     </div>
   )
 }
