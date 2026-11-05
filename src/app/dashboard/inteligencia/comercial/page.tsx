@@ -35,7 +35,7 @@ const ehDespojo = (d: string) => RE_DESPOJO.test(d || '')
 const STATUS_LABEL: Record<ProdStatus, string> = { entra: 'Entra', a_classificar: 'A classificar', fora: 'Fora' }
 
 const GRANS = [{ v: 'dia', l: 'Dia' }, { v: 'semana', l: 'Semana' }, { v: 'mes', l: 'Mês' }, { v: 'trimestre', l: 'Trimestre' }, { v: 'ano', l: 'Ano' }]
-const DIMS = [{ v: 'cliente', l: 'Cliente' }, { v: 'vendedor', l: 'Vendedor' }, { v: 'supervisor', l: 'Supervisor' }, { v: 'filial', l: 'Filial' }]
+const DIMS = [{ v: 'cliente', l: 'Cliente' }, { v: 'cidade', l: 'Cidade' }, { v: 'produto', l: 'Produto' }, { v: 'vendedor', l: 'Vendedor' }, { v: 'supervisor', l: 'Supervisor' }, { v: 'filial', l: 'Filial' }]
 
 const addD = (d: Date, n: number) => { const x = new Date(d); x.setDate(x.getDate() + n); return x }
 const som = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1)
@@ -362,9 +362,8 @@ function Inner() {
 
           {/* Cards honestos "aguardando dados" (RD-58/RD-51) — nada de "Previsto" fake */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 8, marginTop: 4 }}>
-            <TierCard titulo="Cidades atendidas" motivo="Aguardando cidade/UF do cliente no conector ATAK." />
-            <TierCard titulo="Pareto por cidade" motivo="Aguardando o cadastro de cidade do cliente no conector." />
-            <TierCard titulo="KG e R$/kg por produto" motivo="Aguardando o faturamento por produto (linha-a-linha) no conector." />
+            <TierCard titulo="Cidades atendidas" motivo="Aguardando o indicador de cidades no painel (a concentração por cidade já está no Pareto acima)." />
+            <TierCard titulo="KG e R$/kg por produto" motivo="Aguardando o painel de produto com volume e preço médio (a concentração por produto já está no Pareto acima)." />
           </div>
         </>
       )}
