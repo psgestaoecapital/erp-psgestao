@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { FiscalError } from './errors'
 import { enderecoComMunicipioOficial } from './municipioDestinatario'
 import { montarItemVeiculo, type DadosVendaVeiculo, type ItemVeiculoMontado } from './nfe-veiculo'
+import { nomeDestinatarioVenda } from './nomeDestinatario'
 import { type CondicaoCreditoSN, aliquotaCreditoValida, csosnDoItem, observacoesComSimples, valorCreditoSN } from './creditoIcmsSimples'
 
 // UFs válidas (27). Fora desta lista não é UF nacional confiável (exterior, texto sujo) → não deriva CFOP.
@@ -261,7 +262,7 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     // #5684 · destinatário = cliente do cadastro do GE (erp_clientes) ligado à venda; mesmo mapeamento do ramo do financeiro.
     const { data: cli } = await supabaseAdmin
       .from('erp_clientes')
-      .select('razao_social, cnpj_cpf, cpf_cnpj, email, logradouro, numero, bairro, cidade, uf, cep, ie, contribuinte_icms')
+      .select('razao_social, nome_fantasia, cnpj_cpf, cpf_cnpj, email, logradouro, numero, bairro, cidade, uf, cep, ie, contribuinte_icms')
       .eq('id', input.vendaVeiculo.clienteId).eq('company_id', input.companyId).maybeSingle()
     if (!cli) throw new FiscalError('PAYLOAD_INVALIDO', 'Cliente da venda não encontrado no cadastro de clientes')
     const docLimpo = (cli.cnpj_cpf ?? cli.cpf_cnpj ?? '').replace(/\D/g, '')
@@ -278,7 +279,7 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     destinatario = {
       cnpj: docLimpo.length === 14 ? docLimpo : undefined,
       cpf: docLimpo.length === 11 ? docLimpo : undefined,
-      razaoSocial: cli.razao_social,
+      razaoSocial: nomeDestinatarioVenda(cli.razao_social, cli.nome_fantasia, docLimpo.length === 11),
       inscricaoEstadual: ieLimpa || undefined,
       indicadorIE: indIE,
       email: cli.email ?? undefined,
