@@ -1,14 +1,18 @@
 'use client'
 
 // Hub · Gestão de Obras · Encerramento da obra (H8 · HBF-7.x).
-// Duas abas na mesma tela (1 tela = 1 PR):
+// Três abas na mesma tela (1 tela = 1 PR):
 //  • TERMO DE ENTREGA: registrar o termo da obra (data de entrega, observações, assinatura) como rascunho
 //    e, ao assinar, torná-lo IMUTÁVEL. Consome fn_obra_termo_entrega_obter/_registrar (#3920, já na main).
+//  • RETENÇÃO E GARANTIA: controla a retenção contratual (percentual/valor, data prevista de liberação e
+//    situação) e a garantia da obra (prazo em meses, início/fim, situação). Consome
+//    fn_obra_retencao_garantia_obter/_salvar. É só o CONTROLE: a retenção "virar título" em erp_receber é
+//    um passo do FINANCEIRO (núcleo) e entra em PR própria coordenada — esta aba NÃO toca o financeiro.
 //  • DOCUMENTOS: anexos da obra por tipo em storage PRIVADO (bucket 'obra-documentos'), com exclusão
 //    rastreável (soft-delete + motivo + auditoria via fn_obra_arquivo_excluir, #3912).
 // Fronteira de núcleo: o "flip" do status da obra para 'entregue' NÃO é feito aqui (CHECK de projetos_obras
 // só admite em_andamento|pausada|concluida|cancelada — decisão do eng_chefe/gilberto-desenv). O termo tem o
-// próprio ciclo (rascunho -> assinado). As próximas fatias (retenção -> título, garantia) entram em PRs próprias.
+// próprio ciclo (rascunho -> assinado).
 // RD-95: "?" em todo campo/ação. RD-100: linguagem de arquiteto/engenheiro, sem nome de terceiros.
 
 import { use, useCallback, useEffect, useRef, useState } from 'react'
@@ -57,6 +61,32 @@ type Termo = {
   assinado_por: string | null; assinado_em: string | null
   criado_em: string | null; atualizado_em: string | null
 }
+type RetGar = {
+  id: string; obra_id: string
+  retencao_percentual: number | null; retencao_valor: number | null
+  retencao_data_prevista_liberacao: string | null; retencao_status: string; retencao_observacoes: string | null
+  garantia_prazo_meses: number | null; garantia_inicio: string | null; garantia_fim: string | null
+  garantia_status: string; garantia_observacoes: string | null
+  atualizado_em: string | null
+}
+const RET_STATUS: { v: string; l: string }[] = [
+  { v: 'prevista', l: 'Prevista' }, { v: 'liberada', l: 'Liberada' }, { v: 'cancelada', l: 'Cancelada' },
+]
+const GAR_STATUS: { v: string; l: string }[] = [
+  { v: 'vigente', l: 'Vigente' }, { v: 'encerrada', l: 'Encerrada' }, { v: 'acionada', l: 'Acionada' },
+]
+const labelDe = (arr: { v: string; l: string }[], v: string) => arr.find((x) => x.v === v)?.l ?? v
+// número a partir de texto de formulário: vazio → null; vírgula decimal aceita
+function numOuNull(s: string): number | null {
+  const t = s.trim().replace(/\./g, '').replace(',', '.')
+  if (t === '') return null
+  const n = Number(t)
+  return Number.isFinite(n) ? n : null
+}
+function fmtMoeda(n: number | null): string {
+  if (n === null || n === undefined) return '—'
+  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
 
 function fmtTamanho(b: number | null): string {
   if (!b) return '—'
@@ -80,7 +110,7 @@ function sanitizar(nome: string): string {
 
 export default function EncerramentoObraPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
-  const [aba, setAba] = useState<'termo' | 'documentos'>('termo')
+  const [aba, setAba] = useState<'termo' | 'documentos' | 'retencao'>('termo')
   const [obra, setObra] = useState<Obra | null>(null)
   const [carregando, setCarregando] = useState(true)
   const [erroGeral, setErroGeral] = useState<string | null>(null)
@@ -108,6 +138,23 @@ export default function EncerramentoObraPage({ params }: { params: Promise<{ id:
   const [erroTermo, setErroTermo] = useState<string | null>(null)
   const [okTermo, setOkTermo] = useState<string | null>(null)
   const [confirmandoAssinatura, setConfirmandoAssinatura] = useState(false)
+
+  // --- Retenção e garantia ---
+  const [retGar, setRetGar] = useState<RetGar | null>(null)
+  const [rgEmLiberacao, setRgEmLiberacao] = useState(false)
+  const [rgRetPct, setRgRetPct] = useState('')
+  const [rgRetValor, setRgRetValor] = useState('')
+  const [rgRetLiberacao, setRgRetLiberacao] = useState('')
+  const [rgRetStatus, setRgRetStatus] = useState('prevista')
+  const [rgRetObs, setRgRetObs] = useState('')
+  const [rgGarPrazo, setRgGarPrazo] = useState('')
+  const [rgGarInicio, setRgGarInicio] = useState('')
+  const [rgGarFim, setRgGarFim] = useState('')
+  const [rgGarStatus, setRgGarStatus] = useState('vigente')
+  const [rgGarObs, setRgGarObs] = useState('')
+  const [salvandoRG, setSalvandoRG] = useState(false)
+  const [erroRG, setErroRG] = useState<string | null>(null)
+  const [okRG, setOkRG] = useState<string | null>(null)
 
   const carregarDocumentos = useCallback(async () => {
     setDocEmLiberacao(false)
@@ -140,16 +187,38 @@ export default function EncerramentoObraPage({ params }: { params: Promise<{ id:
     }
   }, [id])
 
+  const carregarRetGar = useCallback(async () => {
+    setRgEmLiberacao(false)
+    const { data, error } = await supabase.rpc('fn_obra_retencao_garantia_obter', { p_obra_id: id })
+    if (error) {
+      if (recursoEmLiberacao(error)) { setRgEmLiberacao(true); return }
+      setErroRG(erroAmigavel(error, 'Não foi possível carregar a retenção e a garantia. Tente de novo.'))
+      return
+    }
+    const row = (Array.isArray(data) ? data[0] : data) as RetGar | undefined
+    setRetGar(row ?? null)
+    setRgRetPct(row?.retencao_percentual != null ? String(row.retencao_percentual).replace('.', ',') : '')
+    setRgRetValor(row?.retencao_valor != null ? String(row.retencao_valor).replace('.', ',') : '')
+    setRgRetLiberacao(row?.retencao_data_prevista_liberacao ?? '')
+    setRgRetStatus(row?.retencao_status ?? 'prevista')
+    setRgRetObs(row?.retencao_observacoes ?? '')
+    setRgGarPrazo(row?.garantia_prazo_meses != null ? String(row.garantia_prazo_meses) : '')
+    setRgGarInicio(row?.garantia_inicio ?? '')
+    setRgGarFim(row?.garantia_fim ?? '')
+    setRgGarStatus(row?.garantia_status ?? 'vigente')
+    setRgGarObs(row?.garantia_observacoes ?? '')
+  }, [id])
+
   const carregar = useCallback(async () => {
-    setCarregando(true); setErroGeral(null); setErroDoc(null); setErroTermo(null)
+    setCarregando(true); setErroGeral(null); setErroDoc(null); setErroTermo(null); setErroRG(null)
     const { data: o, error: eo } = await supabase
       .from('projetos_obras').select('id, nome, company_id').eq('id', id).maybeSingle()
     if (eo) { setCarregando(false); setErroGeral(erroAmigavel(eo, 'Não foi possível abrir a obra. Tente de novo.')); return }
     if (!o) { setCarregando(false); setObra(null); return }
     setObra(o as Obra)
-    await Promise.all([carregarTermo(), carregarDocumentos()])
+    await Promise.all([carregarTermo(), carregarDocumentos(), carregarRetGar()])
     setCarregando(false)
-  }, [id, carregarTermo, carregarDocumentos])
+  }, [id, carregarTermo, carregarDocumentos, carregarRetGar])
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
@@ -177,6 +246,50 @@ export default function EncerramentoObraPage({ params }: { params: Promise<{ id:
     }
     setOkTermo(assinar ? 'Termo de entrega assinado.' : 'Rascunho do termo salvo.')
     await carregarTermo()
+  }
+
+  async function salvarRetGar() {
+    setErroRG(null); setOkRG(null)
+    if (!obra) { setErroRG('Obra não encontrada ou sem acesso.'); return }
+    const pct = numOuNull(rgRetPct)
+    if (pct !== null && (pct < 0 || pct > 100)) { setErroRG('O percentual de retenção deve ficar entre 0 e 100.'); return }
+    const valor = numOuNull(rgRetValor)
+    if (valor !== null && valor < 0) { setErroRG('O valor retido não pode ser negativo.'); return }
+    const prazo = numOuNull(rgGarPrazo)
+    if (prazo !== null && (prazo < 0 || !Number.isInteger(prazo))) { setErroRG('O prazo de garantia deve ser um número inteiro de meses (0 ou mais).'); return }
+    if (rgGarInicio && rgGarFim && rgGarFim < rgGarInicio) { setErroRG('O fim da garantia não pode ser antes do início.'); return }
+    setSalvandoRG(true)
+    const { error } = await supabase.rpc('fn_obra_retencao_garantia_salvar', {
+      p_obra_id: id,
+      p_retencao_percentual: pct,
+      p_retencao_valor: valor,
+      p_retencao_data_prevista_liberacao: rgRetLiberacao || null,
+      p_retencao_status: rgRetStatus,
+      p_retencao_observacoes: rgRetObs.trim() || null,
+      p_garantia_prazo_meses: prazo,
+      p_garantia_inicio: rgGarInicio || null,
+      p_garantia_fim: rgGarFim || null,
+      p_garantia_status: rgGarStatus,
+      p_garantia_observacoes: rgGarObs.trim() || null,
+    })
+    setSalvandoRG(false)
+    if (error) {
+      if (recursoEmLiberacao(error)) { setRgEmLiberacao(true); return }
+      setErroRG(erroAmigavel(error, 'Não consegui salvar a retenção e a garantia. Tente de novo.'))
+      return
+    }
+    setOkRG('Retenção e garantia salvas.')
+    await carregarRetGar()
+  }
+
+  // sugere o fim da garantia a partir do início + prazo, quando o usuário ainda não preencheu o fim
+  function sugerirFimGarantia() {
+    const prazo = numOuNull(rgGarPrazo)
+    if (!rgGarInicio || prazo === null || prazo <= 0) return
+    const d = new Date(`${rgGarInicio}T00:00:00`)
+    d.setMonth(d.getMonth() + Math.round(prazo))
+    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    setRgGarFim(iso)
   }
 
   async function anexar(file: File) {
@@ -253,7 +366,7 @@ export default function EncerramentoObraPage({ params }: { params: Promise<{ id:
           <>
             {/* abas */}
             <div style={{ display: 'flex', gap: 6, marginBottom: 16, borderBottom: `0.5px solid ${LINE}` }}>
-              {([['termo', 'Termo de entrega'], ['documentos', 'Documentos']] as const).map(([k, l]) => (
+              {([['termo', 'Termo de entrega'], ['retencao', 'Retenção e garantia'], ['documentos', 'Documentos']] as const).map(([k, l]) => (
                 <button key={k} type="button" onClick={() => setAba(k)}
                   style={{
                     background: 'transparent', border: 'none', cursor: 'pointer', padding: '8px 12px',
@@ -334,7 +447,7 @@ export default function EncerramentoObraPage({ params }: { params: Promise<{ id:
                   )}
                 </div>
               )
-            ) : (
+            ) : aba === 'documentos' ? (
               /* ---------- aba DOCUMENTOS ---------- */
               docEmLiberacao ? (
                 <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 28, textAlign: 'center' }}>
@@ -419,6 +532,107 @@ export default function EncerramentoObraPage({ params }: { params: Promise<{ id:
                   )}
                 </div>
               )
+            ) : (
+              /* ---------- aba RETENÇÃO E GARANTIA ---------- */
+              rgEmLiberacao ? (
+                <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 28, textAlign: 'center' }}>
+                  <div style={{ fontSize: 28, marginBottom: 8 }}>🛡️</div>
+                  <div style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, color: ESP, marginBottom: 6 }}>Retenção e garantia — em liberação</div>
+                  <div style={{ fontSize: 13, color: MUT, lineHeight: 1.5, maxWidth: 440, margin: '0 auto' }}>
+                    Esta área está sendo habilitada para a sua empresa. Em breve você poderá controlar a retenção
+                    contratual e a garantia da obra aqui.
+                  </div>
+                </div>
+              ) : (
+                <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 18 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginBottom: 4 }}>
+                    Retenção e garantia <AjudaCampo chave="projetos.encerramento.retencao_garantia" rota={ROTA} />
+                  </div>
+
+                  {/* faixa de situação (retenção · garantia) */}
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 999, background: 'rgba(200,148,26,0.14)', color: '#8A6A12' }}>
+                      Retenção: {labelDe(RET_STATUS, retGar?.retencao_status ?? 'prevista')}
+                    </span>
+                    <span style={{ fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 999, background: rgGarStatus === 'vigente' ? 'rgba(46,125,82,0.12)' : 'rgba(61,35,20,0.08)', color: rgGarStatus === 'vigente' ? VERDE : MUT }}>
+                      Garantia: {labelDe(GAR_STATUS, retGar?.garantia_status ?? 'vigente')}
+                    </span>
+                  </div>
+
+                  {/* ── RETENÇÃO ── */}
+                  <div style={secHead}>Retenção contratual</div>
+                  <div style={grid2}>
+                    <label style={col}>
+                      <span style={lbl}>Percentual de retenção (%) <AjudaCampo chave="projetos.encerramento.retencao_percentual" rota={ROTA} /></span>
+                      <input inputMode="decimal" value={rgRetPct} onChange={(e) => setRgRetPct(e.target.value)} placeholder="ex.: 5" style={inp} />
+                    </label>
+                    <label style={col}>
+                      <span style={lbl}>Valor retido (R$) <AjudaCampo chave="projetos.encerramento.retencao_valor" rota={ROTA} /></span>
+                      <input inputMode="decimal" value={rgRetValor} onChange={(e) => setRgRetValor(e.target.value)} placeholder="ex.: 2160,76" style={inp} />
+                    </label>
+                    <label style={col}>
+                      <span style={lbl}>Data prevista de liberação <AjudaCampo chave="projetos.encerramento.retencao_liberacao" rota={ROTA} /></span>
+                      <input type="date" value={rgRetLiberacao} onChange={(e) => setRgRetLiberacao(e.target.value)} style={inp} />
+                    </label>
+                    <label style={col}>
+                      <span style={lbl}>Situação da retenção <AjudaCampo chave="projetos.encerramento.retencao_status" rota={ROTA} /></span>
+                      <select value={rgRetStatus} onChange={(e) => setRgRetStatus(e.target.value)} style={inp}>
+                        {RET_STATUS.map((s) => <option key={s.v} value={s.v}>{s.l}</option>)}
+                      </select>
+                    </label>
+                  </div>
+                  <label style={{ ...col, marginTop: 12 }}>
+                    <span style={lbl}>Observações da retenção <AjudaCampo chave="projetos.encerramento.retencao_obs" rota={ROTA} /></span>
+                    <textarea value={rgRetObs} onChange={(e) => setRgRetObs(e.target.value)} rows={2}
+                      placeholder="Sobre o que incide, como será devolvida, combinados…" style={{ ...inp, resize: 'vertical', fontFamily: 'inherit' }} />
+                  </label>
+
+                  {/* ── GARANTIA ── */}
+                  <div style={{ ...secHead, marginTop: 20 }}>Garantia da obra</div>
+                  <div style={grid2}>
+                    <label style={col}>
+                      <span style={lbl}>Prazo de garantia (meses) <AjudaCampo chave="projetos.encerramento.garantia_prazo" rota={ROTA} /></span>
+                      <input inputMode="numeric" value={rgGarPrazo} onChange={(e) => setRgGarPrazo(e.target.value)} onBlur={sugerirFimGarantia} placeholder="ex.: 12" style={inp} />
+                    </label>
+                    <label style={col}>
+                      <span style={lbl}>Início da garantia <AjudaCampo chave="projetos.encerramento.garantia_inicio" rota={ROTA} /></span>
+                      <input type="date" value={rgGarInicio} onChange={(e) => setRgGarInicio(e.target.value)} onBlur={sugerirFimGarantia} style={inp} />
+                    </label>
+                    <label style={col}>
+                      <span style={lbl}>Fim da garantia <AjudaCampo chave="projetos.encerramento.garantia_fim" rota={ROTA} /></span>
+                      <input type="date" value={rgGarFim} onChange={(e) => setRgGarFim(e.target.value)} style={inp} />
+                    </label>
+                    <label style={col}>
+                      <span style={lbl}>Situação da garantia <AjudaCampo chave="projetos.encerramento.garantia_status" rota={ROTA} /></span>
+                      <select value={rgGarStatus} onChange={(e) => setRgGarStatus(e.target.value)} style={inp}>
+                        {GAR_STATUS.map((s) => <option key={s.v} value={s.v}>{s.l}</option>)}
+                      </select>
+                    </label>
+                  </div>
+                  <label style={{ ...col, marginTop: 12 }}>
+                    <span style={lbl}>Observações da garantia <AjudaCampo chave="projetos.encerramento.garantia_obs" rota={ROTA} /></span>
+                    <textarea value={rgGarObs} onChange={(e) => setRgGarObs(e.target.value)} rows={2}
+                      placeholder="O que a garantia cobre, exclusões, condições…" style={{ ...inp, resize: 'vertical', fontFamily: 'inherit' }} />
+                  </label>
+
+                  {erroRG && <div style={{ background: '#FCEBEB', color: VERM, padding: '8px 12px', borderRadius: 6, fontSize: 12, marginTop: 14 }}>{erroRG}</div>}
+                  {okRG && <div style={{ background: 'rgba(46,125,82,0.1)', color: VERDE, padding: '8px 12px', borderRadius: 6, fontSize: 12, marginTop: 14 }}>{okRG}</div>}
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 16 }}>
+                    <button type="button" onClick={() => void salvarRetGar()} disabled={salvandoRG}
+                      style={{ background: GOLD, color: ESP, border: 'none', padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: salvandoRG ? 'wait' : 'pointer', opacity: salvandoRG ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      {salvandoRG ? 'Salvando…' : 'Salvar'} <AjudaCampo chave="projetos.encerramento.retencao_garantia_salvar" rota={ROTA} />
+                    </button>
+                    {retGar?.retencao_valor != null && (
+                      <span style={{ fontSize: 12, color: MUT }}>Retido hoje: <strong style={{ color: ESP }}>{fmtMoeda(retGar.retencao_valor)}</strong></span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: MUT, marginTop: 10, lineHeight: 1.5 }}>
+                    Aqui você <strong>controla</strong> a retenção e a garantia da obra. A geração do título financeiro da
+                    retenção (a devolução virar uma conta a receber) é um passo do Financeiro e entra depois.
+                  </div>
+                </div>
+              )
             )}
           </>
         )}
@@ -487,3 +701,6 @@ function Campo({ rotulo, children }: { rotulo: string; children: React.ReactNode
 const inp: React.CSSProperties = { fontSize: 13, padding: '7px 10px', border: `1px solid ${LINE}`, borderRadius: 8, background: '#FFF', color: ESP }
 const lbl: React.CSSProperties = { fontSize: 11, color: MUT, textTransform: 'uppercase', letterSpacing: 0.6, display: 'inline-flex', alignItems: 'center', gap: 4 }
 const leitura: React.CSSProperties = { fontSize: 14, color: ESP, fontWeight: 500 }
+const secHead: React.CSSProperties = { fontSize: 12.5, fontWeight: 700, color: ESP, marginBottom: 10, paddingBottom: 4, borderBottom: `0.5px solid ${LINE}` }
+const grid2: React.CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }
+const col: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4 }
