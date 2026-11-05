@@ -1,0 +1,129 @@
+'use client'
+
+// Gestão de Obras (CEO 01/11) · Custos em lançamento simples por obra (centro de custo = obra).
+// Lança uma despesa da obra (material, mão de obra avulsa, terceiros, equipamento) direto no financeiro da
+// empresa (erp_pagar) com o centro de custo da obra, pelas funções fn_obra_custo_lancar/_listar/_excluir.
+// O custo entra sozinho no "custo realizado" do Resultado por obra. MO POR HORA continua em "Lançar horas".
+import { use, useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
+import { supabase } from '@/lib/supabase'
+import { ehUuid, erroAmigavel } from '@/lib/erroAmigavel'
+import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
+import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERM = '#B91C1C'
+const brl = (v: number | null | undefined) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+const hoje = () => new Date().toISOString().slice(0, 10)
+const CATEGORIAS = ['Material', 'Mão de obra', 'Terceiros', 'Equipamento', 'Outros'] as const
+
+type Custo = { id: string; data: string; categoria: string; descricao: string; fornecedor_nome: string | null; valor: number; status: string; pago: boolean }
+
+export default function CustosObraPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params)
+  const { companyIds } = useCompanyIds()
+  const [itens, setItens] = useState<Custo[]>([])
+  const [loading, setLoading] = useState(true)
+  const [erro, setErro] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [f, setF] = useState({ data: hoje(), categoria: 'Material' as string, descricao: '', valor: '', fornecedor_nome: '' })
+
+  const carregar = useCallback(async () => {
+    if (!companyIds?.length) { setLoading(false); return }
+    if (!ehUuid(id)) { setLoading(false); setErro('Obra não encontrada. Abra pela lista de obras.'); return }
+    setLoading(true); setErro('')
+    try {
+      const r = await comPrazo(async () => await supabase.rpc('fn_obra_custo_listar', { p_obra_id: id }), { ms: 8000, tentativas: 1, label: 'custos' })
+      if (r.error) { setErro(erroAmigavel(r.error, 'Não foi possível carregar os custos. Tente de novo.')); return }
+      setItens((r.data ?? []) as Custo[])
+    } catch { setErro(MSG_CARREGAMENTO_FALHOU) } finally { setLoading(false) }
+  }, [companyIds, id])
+  useEffect(() => { carregar() }, [carregar])
+
+  const lancar = async (e: React.FormEvent) => {
+    e.preventDefault(); setErro('')
+    const valor = Number(f.valor.replace(/\./g, '').replace(',', '.'))
+    if (!f.descricao.trim()) { setErro('Informe a descrição do custo.'); return }
+    if (!(valor > 0)) { setErro('Informe um valor maior que zero.'); return }
+    setSalvando(true)
+    const { error } = await supabase.rpc('fn_obra_custo_lancar', {
+      p_obra_id: id,
+      p_dados: { data: f.data, categoria: f.categoria, descricao: f.descricao.trim(), valor, fornecedor_nome: f.fornecedor_nome.trim() || null },
+    })
+    setSalvando(false)
+    if (error) { setErro(erroAmigavel(error)); return }
+    setF({ data: f.data, categoria: f.categoria, descricao: '', valor: '', fornecedor_nome: '' })
+    carregar()
+  }
+
+  const excluir = async (c: Custo) => {
+    if (c.pago) { setErro('Este custo já foi pago/conciliado — não pode ser excluído aqui. Trate no financeiro.'); return }
+    if (!window.confirm(`Excluir o custo "${c.descricao}" de ${brl(c.valor)}? Ele sai do custo da obra.`)) return
+    const { error } = await supabase.rpc('fn_obra_custo_excluir', { p_pagar_id: c.id })
+    if (error) { setErro(erroAmigavel(error)); return }
+    carregar()
+  }
+
+  const total = itens.reduce((s, c) => s + Number(c.valor ?? 0), 0)
+  const inp: React.CSSProperties = { padding: '8px 10px', border: `1px solid ${LINE}`, borderRadius: 8, background: '#fff', fontSize: 14, width: '100%', boxSizing: 'border-box' }
+  const lab: React.CSSProperties = { fontSize: 12, color: MUT, fontWeight: 600, display: 'block', marginBottom: 4 }
+
+  return (
+    <div style={{ background: BG, minHeight: '100vh', padding: 16, color: ESP }}>
+      <div style={{ maxWidth: 920, margin: '0 auto' }}>
+        <Link href={`/dashboard/projetos/obras/${id}/cockpit?area=hub`} style={{ color: GOLD, fontSize: 13 }}>← Cockpit da obra</Link>
+        <h1 style={{ fontSize: 22, margin: '8px 0 4px' }}>Custos da obra</h1>
+        <p style={{ fontSize: 13, color: MUT, margin: '0 0 12px' }}>
+          Cada custo lançado vira uma despesa no financeiro da empresa, com o centro de custo desta obra, e entra sozinho no Resultado por obra.
+          Para mão de obra por hora, use <Link href={`/dashboard/projetos/obras/${id}/horas?area=hub`} style={{ color: GOLD }}>Lançar horas</Link>.
+        </p>
+
+        <form onSubmit={lancar} data-testid="custos-form" style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 12, display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))' }}>
+          <div><label style={lab}>Data</label>
+            <input type="date" value={f.data} onChange={e => setF({ ...f, data: e.target.value })} style={inp} data-testid="custos-data" /> <AjudaCampo chave="projetos.obra_custos.data" /></div>
+          <div><label style={lab}>Categoria</label>
+            <AjudaCampo chave="projetos.obra_custos.categoria" /> <select value={f.categoria} onChange={e => setF({ ...f, categoria: e.target.value })} style={inp} data-testid="custos-categoria">
+              {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
+          <div><label style={lab}>Valor (R$)</label>
+            <input inputMode="decimal" value={f.valor} onChange={e => setF({ ...f, valor: e.target.value })} style={inp} data-testid="custos-valor" placeholder="0,00" /> <AjudaCampo chave="projetos.obra_custos.valor" /></div>
+          <div><label style={lab}>Fornecedor</label>
+            <input value={f.fornecedor_nome} onChange={e => setF({ ...f, fornecedor_nome: e.target.value })} style={inp} data-testid="custos-fornecedor" placeholder="Opcional" /> <AjudaCampo chave="projetos.obra_custos.fornecedor" /></div>
+          <div style={{ gridColumn: '1 / -1' }}><label style={lab}>Descrição</label>
+            <input value={f.descricao} onChange={e => setF({ ...f, descricao: e.target.value })} style={inp} data-testid="custos-descricao" placeholder="O que foi comprado ou pago" /> <AjudaCampo chave="projetos.obra_custos.descricao" /></div>
+          <div><button type="submit" disabled={salvando} data-testid="custos-lancar" style={{ padding: '9px 16px', background: ESP, color: '#fff', border: 0, borderRadius: 8, fontWeight: 600, cursor: salvando ? 'wait' : 'pointer' }}>{salvando ? 'Lançando…' : 'Lançar custo'}</button>
+            <AjudaCampo chave="projetos.obra_custos.lancar" /></div>
+        </form>
+
+        {erro && <p role="alert" data-testid="custos-erro" style={{ color: VERM }}>{erro}</p>}
+        {loading && <p data-testid="custos-carregando">Carregando…</p>}
+        {!loading && itens.length === 0 && <p data-testid="custos-vazio">Nenhum custo lançado ainda. Preencha o formulário acima: a despesa aparece na hora no Resultado por obra.</p>}
+        {!loading && itens.length > 0 && (
+          <div style={{ overflowX: 'auto', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, marginTop: 12 }}>
+            <table data-testid="custos-tabela" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead><tr style={{ borderBottom: `1px solid ${LINE}`, color: MUT, textAlign: 'left' }}>
+                <th style={{ padding: 8 }}>Data</th><th style={{ padding: 8 }}>Categoria</th><th style={{ padding: 8 }}>Descrição</th>
+                <th style={{ padding: 8 }}>Fornecedor</th><th style={{ padding: 8, textAlign: 'right' }}>Valor</th>
+                <th style={{ padding: 8, textAlign: 'right' }}>Situação <AjudaCampo chave="projetos.obra_custos.total" /></th><th /></tr></thead>
+              <tbody>
+                {itens.map(c => (
+                  <tr key={c.id} style={{ borderBottom: `1px solid ${LINE}` }}>
+                    <td style={{ padding: 8 }}>{c.data}</td>
+                    <td style={{ padding: 8 }}>{c.categoria}</td>
+                    <td style={{ padding: 8 }}>{c.descricao}</td>
+                    <td style={{ padding: 8 }}>{c.fornecedor_nome ?? '—'}</td>
+                    <td style={{ padding: 8, textAlign: 'right' }}>{brl(Number(c.valor))}</td>
+                    <td style={{ padding: 8, textAlign: 'right' }}>{c.pago ? <span style={{ color: '#3B5A1E', fontWeight: 600 }}>Pago/conciliado</span> : <span style={{ color: MUT }}>Em aberto</span>}</td>
+                    <td style={{ padding: 8 }}>
+                      {c.pago
+                        ? <span style={{ color: MUT, fontSize: 12 }} title="Custo pago/conciliado: trate no financeiro">—</span>
+                        : <button onClick={() => excluir(c)} data-testid="custos-excluir" style={{ color: VERM, background: 'none', border: 0, cursor: 'pointer' }}>Excluir <AjudaCampo chave="projetos.obra_custos.excluir" /></button>}
+                    </td>
+                  </tr>))}
+                <tr style={{ fontWeight: 700 }}><td colSpan={4} style={{ padding: 8 }}>Total de custos da obra</td><td style={{ padding: 8, textAlign: 'right' }} data-testid="custos-total">{brl(total)}</td><td colSpan={2} /></tr>
+              </tbody>
+            </table>
+          </div>)}
+      </div>
+    </div>
+  )
+}
