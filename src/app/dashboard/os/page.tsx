@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { orFiltroClienteBusca } from '@/lib/clienteBusca'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -239,6 +240,13 @@ export default function OSMecanicoPage() {
           </h1>
           <div style={{ fontSize: 11, color: C.espressoL }}>Abra, preencha e assine a OS direto no celular.</div>
         </div>
+        <Link
+          href="/dashboard/os/relatorio"
+          style={{ minHeight: 44, padding: '10px 14px', borderRadius: 8, border: `1px solid ${C.border}`, color: C.espresso, background: C.white, fontSize: 13, fontWeight: 600, display: 'inline-flex', alignItems: 'center', marginRight: 8 }}
+          data-testid="os-relatorio"
+        >
+          Relatório por período
+        </Link>
         <button
           onClick={() => { setErro(null); setOkMsg(null); setNovoAberto(true) }}
           style={{
