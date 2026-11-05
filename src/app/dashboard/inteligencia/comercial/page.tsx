@@ -8,7 +8,10 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { TrendingUp, Clock, ChevronDown, ArrowUp, ArrowDown } from 'lucide-react'
+
+const ROTA = '/dashboard/inteligencia/comercial'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', GREEN = '#166534', RED = '#A32D2D'
 const brl = (n: number | null) => n == null ? '—' : n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -16,7 +19,7 @@ const nf = (n: number | null, d = 0) => n == null ? '—' : n.toLocaleString('pt
 const iso = (d: Date) => d.toISOString().slice(0, 10)
 const perLabel = (s: string, gran: string) => { try { const d = new Date(s + 'T00:00:00'); if (gran === 'ano') return String(d.getFullYear()); if (gran === 'trimestre') return `T${Math.floor(d.getMonth() / 3) + 1}/${String(d.getFullYear()).slice(2)}`; if (gran === 'mes') return d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }); return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) } catch { return s } }
 
-type Kpis = { ok: boolean; erro?: string; escopo?: string; vendedor?: string | null; volume_kg: number; faturamento: number; clientes: number; ticket_kg: number | null; ticket_cliente: number | null; lucro: number | null; margem_pct: number | null; lucro_status: string }
+type Kpis = { ok: boolean; erro?: string; escopo?: string; vendedor?: string | null; volume_kg: number; faturamento: number; clientes: number; cidades?: number; ticket_kg: number | null; ticket_cliente: number | null; faturamento_com_selecao?: number; volume_kg_com_selecao?: number; ticket_kg_com_selecao?: number | null; lucro: number | null; margem_pct: number | null; lucro_status: string }
 type SerieP = { periodo: string; volume_kg: number; faturamento: number; margem_pct: number | null }
 type Serie = { ok: boolean; granularidade: string; serie: SerieP[]; lucro_status: string }
 type ParetoItem = { rotulo: string; valor: number; pct: number; pct_acumulado: number }
@@ -167,6 +170,27 @@ function Inner() {
 
       {loading && !kpis ? <div style={{ color: MUT, fontSize: 13 }}>Carregando os números…</div> : (
         <>
+          {/* DOIS TOTAIS no topo (CEO): "com seleção" (preço/margem limpos) × "faturamento total" (tudo, despojo não some) */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 10, marginBottom: 14 }}>
+            <TotalTopo
+              chave="comercial.bi.total_com_selecao"
+              rotulo="Faturamento com seleção"
+              valor={brl(kpis?.faturamento_com_selecao ?? null)}
+              sub={`${nf(kpis?.volume_kg_com_selecao ?? null, 0)} kg · só produtos marcados “entra”`}
+              destaque
+            />
+            <TotalTopo
+              chave="comercial.bi.total_faturamento"
+              rotulo="Faturamento total"
+              valor={brl(kpis?.faturamento ?? null)}
+              sub={`${nf(kpis?.volume_kg ?? null, 0)} kg · tudo, inclusive despojos${
+                kpis && kpis.faturamento_com_selecao != null && kpis.faturamento > kpis.faturamento_com_selecao
+                  ? ` (despojos/a classificar: ${brl(kpis.faturamento - kpis.faturamento_com_selecao)})`
+                  : ''
+              }`}
+            />
+          </div>
+
           {/* KPIs — comparativo vs período anterior */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 14 }}>
             <KpiCard label="Faturamento" valor={brl(kpis?.faturamento ?? null)} d={delta(kpis?.faturamento, kpisAnt?.faturamento)} />
@@ -274,6 +298,18 @@ function Inner() {
   )
 }
 
+function TotalTopo({ chave, rotulo, valor, sub, destaque }: { chave: string; rotulo: string; valor: string; sub: string; destaque?: boolean }) {
+  return (
+    <div style={{ background: destaque ? '#FBF7EC' : '#fff', border: `${destaque ? 1 : 0.5}px solid ${destaque ? GOLD : LINE}`, borderRadius: 14, padding: '15px 17px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: destaque ? '#8A6A1E' : MUT, textTransform: 'uppercase', letterSpacing: 0.3 }}>{rotulo}</span>
+        <AjudaCampo chave={chave} rota={ROTA} />
+      </div>
+      <div style={{ fontSize: 26, fontWeight: 700, color: ESP, lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{valor}</div>
+      <div style={{ fontSize: 11.5, color: MUT, marginTop: 4 }}>{sub}</div>
+    </div>
+  )
+}
 function KpiCard({ label, valor, d }: { label: string; valor: string; d: { pct: number; up: boolean } | null }) {
   return (
     <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: '13px 15px' }}>
