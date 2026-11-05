@@ -9,7 +9,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
-import { TrendingUp, Clock, ChevronDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { TrendingUp, Clock, ChevronDown, ArrowUp, ArrowDown, Search, ArrowUpDown } from 'lucide-react'
 
 const ROTA = '/dashboard/inteligencia/comercial'
 
@@ -100,6 +100,9 @@ function Inner() {
   const [salvandoCod, setSalvandoCod] = useState<string | null>(null)
   const [painelAberto, setPainelAberto] = useState(false)
   const [loading, setLoading] = useState(true)
+  // Pareto MOSTRA TUDO (CEO): busca por rótulo + ordenação maior↔menor sobre a lista COMPLETA (sem top-N)
+  const [paretoBusca, setParetoBusca] = useState('')
+  const [paretoOrdem, setParetoOrdem] = useState<'desc' | 'asc'>('desc')
 
   const ehLider = ranking?.ok === true // ranking só volta ok p/ diretor/assistente/admin
   const escopo = kpis?.escopo
@@ -269,7 +272,8 @@ function Inner() {
             )}
           </Card>
 
-          {/* Pareto (cliente/vendedor/supervisor/filial) com % acumulado */}
+          {/* Pareto (cliente/vendedor/supervisor/filial) com % acumulado — MOSTRA TUDO (CEO):
+              lista COMPLETA (sem corte top-N), com busca, ordenação maior↔menor e rolagem interna. */}
           <Card>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
               <span style={{ fontSize: 13, fontWeight: 700, color: ESP }}>Concentração (Pareto) por {DIMS.find(x => x.v === dim)?.l}</span>
@@ -277,24 +281,53 @@ function Inner() {
                 {DIMS.map(x => <button key={x.v} onClick={() => setDim(x.v)} style={pill(dim === x.v)}>{x.l}</button>)}
               </div>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-              {(pareto?.itens ?? []).slice(0, 15).map((p, i) => (
-                <div key={p.rotulo + i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ width: 18, fontSize: 11, color: MUT, textAlign: 'right' }}>{i + 1}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                      <span style={{ fontSize: 12.5, color: ESP, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.rotulo}</span>
-                      <span style={{ fontSize: 12.5, color: ESP, fontWeight: 700, whiteSpace: 'nowrap' }}>{brl(p.valor)} <span style={{ color: MUT, fontWeight: 500 }}>· {nf(p.pct, 1)}%</span></span>
-                    </div>
-                    <div style={{ position: 'relative', height: 6, borderRadius: 999, background: LINE, marginTop: 3, overflow: 'hidden' }}>
-                      <div style={{ width: `${Math.min(100, p.pct)}%`, height: '100%', background: GOLD }} />
-                    </div>
-                    <div style={{ fontSize: 10, color: MUT, marginTop: 1 }}>acumulado {nf(p.pct_acumulado, 1)}%</div>
+            {(() => {
+              const todos = pareto?.itens ?? [] // já vem ordenado por valor DESC do servidor (posição = rank real)
+              const termo = paretoBusca.trim().toLowerCase()
+              let lista = todos
+                .map((p, i) => ({ p, rk: i + 1 }))
+                .filter(({ p }) => !termo || (p.rotulo || '').toLowerCase().includes(termo))
+              if (paretoOrdem === 'asc') lista = [...lista].reverse()
+              return (
+                <>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
+                    <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', flex: '1 1 200px' }}>
+                      <Search size={13} style={{ position: 'absolute', left: 9, color: MUT, pointerEvents: 'none' }} />
+                      <input
+                        value={paretoBusca}
+                        onChange={e => setParetoBusca(e.target.value)}
+                        placeholder={`Buscar ${(DIMS.find(x => x.v === dim)?.l ?? '').toLowerCase()}…`}
+                        style={{ width: '100%', border: `0.5px solid ${LINE}`, borderRadius: 999, padding: '6px 10px 6px 28px', fontSize: 12.5, color: ESP, background: '#fff' }}
+                      />
+                      <AjudaCampo chave="comercial.bi.pareto_busca" rota={ROTA} />
+                    </span>
+                    <button onClick={() => setParetoOrdem(o => (o === 'desc' ? 'asc' : 'desc'))} style={{ ...chip(false), display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <ArrowUpDown size={12} /> {paretoOrdem === 'desc' ? 'Maior → menor' : 'Menor → maior'}
+                    </button>
+                    <span style={{ fontSize: 11.5, color: MUT, whiteSpace: 'nowrap' }}>{lista.length} de {todos.length}</span>
                   </div>
-                </div>
-              ))}
-              {(pareto?.itens ?? []).length === 0 && <div style={{ color: MUT, fontSize: 12.5 }}>Sem movimento no período.</div>}
-            </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 420, overflowY: 'auto', paddingRight: 4 }}>
+                    {lista.map(({ p, rk }) => (
+                      <div key={p.rotulo + rk} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ width: 24, fontSize: 11, color: MUT, textAlign: 'right' }}>{rk}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                            <span style={{ fontSize: 12.5, color: ESP, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.rotulo}</span>
+                            <span style={{ fontSize: 12.5, color: ESP, fontWeight: 700, whiteSpace: 'nowrap' }}>{brl(p.valor)} <span style={{ color: MUT, fontWeight: 500 }}>· {nf(p.pct, 1)}%</span></span>
+                          </div>
+                          <div style={{ position: 'relative', height: 6, borderRadius: 999, background: LINE, marginTop: 3, overflow: 'hidden' }}>
+                            <div style={{ width: `${Math.min(100, p.pct)}%`, height: '100%', background: GOLD }} />
+                          </div>
+                          <div style={{ fontSize: 10, color: MUT, marginTop: 1 }}>acumulado {nf(p.pct_acumulado, 1)}%</div>
+                        </div>
+                      </div>
+                    ))}
+                    {todos.length === 0 && <div style={{ color: MUT, fontSize: 12.5 }}>Sem movimento no período.</div>}
+                    {todos.length > 0 && lista.length === 0 && <div style={{ color: MUT, fontSize: 12.5 }}>Nenhum resultado para “{paretoBusca}”.</div>}
+                  </div>
+                </>
+              )
+            })()}
           </Card>
 
           {/* Ranking de vendedores (só líder) */}
