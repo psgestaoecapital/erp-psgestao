@@ -110,6 +110,7 @@ function statusFromRpc(s: string | null): SidebarStatus {
 // Mantemos no front pra nao precisar de migration por cada apresentacao.
 const SECAO_LABEL_OVERRIDE: Record<string, string> = {
   PM_COMERCIAL: '1 · Comercial & Entrada',
+  PM_BI: 'Inteligência BI',
   PM_PRODUCAO: '2 · Produção & Controle',
   PM_FINANCEIRO: '3 · Financeiro da Produção',
   PM_INTELIGENCIA: '4 · Inteligência & IA',
