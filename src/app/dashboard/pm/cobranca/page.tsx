@@ -37,19 +37,35 @@ export default function CobrancaPage() {
   const carregar = useCallback(async () => {
     if (!empresa) { setLoading(false); return }
     setLoading(true)
-    const [c, cl, lc] = await Promise.all([
+    // Contratos + lançamentos primeiro; só então os clientes REFERENCIADOS (por id). Buscar "todos os clientes da
+    // empresa" estourava o limite padrão de 1000 linhas do PostgREST em empresas com muitos clientes (p.ex. 1370),
+    // e os contratos/lançamentos cujo cliente ficava fora da página resolviam o nome como "—". Buscando só os ids
+    // usados, o nome real sempre aparece (e o conjunto é pequeno). RD-45: RLS por empresa segue valendo.
+    const [c, lc] = await Promise.all([
       supabase.from('agency_contratos').select('id, cliente_id, fee_mensal, dia_vencimento').eq('company_id', empresa).eq('tipo', 'recorrente').eq('status', 'ativo'),
-      supabase.from('agency_clientes').select('id, nome, nome_fantasia').eq('company_id', empresa),
       supabase.rpc('fn_agency_cobranca_listar', { p_company_id: empresa }),
     ])
-    setContratos((c.data ?? []) as Contrato[]); setClientes((cl.data ?? []) as Cli[])
+    const contratosData = (c.data ?? []) as Contrato[]
     const r = (lc.data ?? {}) as { ok?: boolean; lancamentos?: Lanc[] }
-    setLancs(r.ok ? (r.lancamentos ?? []) : [])
+    const lancsData = r.ok ? (r.lancamentos ?? []) : []
+    const ids = Array.from(new Set([...contratosData.map((x) => x.cliente_id), ...lancsData.map((x) => x.cliente_id)].filter((v): v is string => !!v)))
+    let clientesData: Cli[] = []
+    if (ids.length) {
+      const { data: cl } = await supabase.from('agency_clientes').select('id, nome, nome_fantasia').eq('company_id', empresa).in('id', ids)
+      clientesData = (cl ?? []) as Cli[]
+    }
+    setContratos(contratosData); setClientes(clientesData); setLancs(lancsData)
     setLoading(false)
   }, [empresa])
   useEffect(() => { void carregar() }, [carregar])
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3500); return () => clearTimeout(t) }, [toast])
-  const nomeCli = (id: string | null) => { const c = clientes.find((x) => x.id === id); return c ? (c.nome_fantasia ?? c.nome) : '—' }
+  // Nome do cliente para exibição. Sem vínculo (cliente_id nulo) → rótulo claro, nunca "—" cru. Vínculo que não
+  // resolve (cliente ausente/removido) → aviso, para o usuário saber que há um dado a corrigir.
+  const nomeCli = (id: string | null): { texto: string; vinculado: boolean } => {
+    if (!id) return { texto: 'Sem cliente vinculado', vinculado: false }
+    const c = clientes.find((x) => x.id === id)
+    return c ? { texto: c.nome_fantasia ?? c.nome, vinculado: true } : { texto: 'Cliente não encontrado', vinculado: false }
+  }
 
   const comp = competenciaAtual()
   const vivaDoMes = useMemo(() => {
@@ -102,7 +118,10 @@ export default function CobrancaPage() {
                 return (
                   <div key={c.id} style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: '14px 16px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', boxShadow: '0 1px 2px rgba(61,35,20,0.04)' }}>
                     <div style={{ flex: 1, minWidth: 160 }}>
-                      <div style={{ fontWeight: 700, fontSize: 15 }}>{nomeCli(c.cliente_id)}</div>
+                      {(() => { const nc = nomeCli(c.cliente_id); return (
+                        <div style={{ fontWeight: 700, fontSize: 15, color: nc.vinculado ? ESPRESSO : TEXTM, fontStyle: nc.vinculado ? 'normal' : 'italic' }}
+                          title={nc.vinculado ? undefined : 'Contrato sem cliente vinculado — corrija o vínculo do contrato em P&M · Contratos'}>{nc.texto}</div>
+                      ) })()}
                       <div style={{ fontSize: 12, color: TEXTM, marginTop: 3 }}>vencimento dia {c.dia_vencimento ?? '—'}</div>
                     </div>
                     <div style={{ minWidth: 110, textAlign: 'right' }}>
@@ -146,7 +165,10 @@ export default function CobrancaPage() {
                 {lancs.map((l) => { const s = ST[l.status]
                   return (
                     <div key={l.id} style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 10, padding: '10px 14px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', fontSize: 13 }}>
-                      <div style={{ flex: 1, minWidth: 150, fontWeight: 600 }}>{nomeCli(l.cliente_id)}</div>
+                      {(() => { const nc = nomeCli(l.cliente_id); return (
+                        <div style={{ flex: 1, minWidth: 150, fontWeight: 600, color: nc.vinculado ? undefined : TEXTM, fontStyle: nc.vinculado ? undefined : 'italic' }}
+                          title={nc.vinculado ? undefined : 'Cobrança sem cliente vinculado'}>{nc.texto}</div>
+                      ) })()}
                       <div style={{ minWidth: 90, color: TEXTM, textTransform: 'capitalize' }}>{compLabel(l.competencia?.slice(0, 10) ?? '')}</div>
                       <div style={{ minWidth: 100, textAlign: 'right', fontWeight: 700, color: l.status === 'estornada' ? TEXTM : ESPRESSO, textDecoration: l.status === 'estornada' ? 'line-through' : 'none' }}>{brl(Number(l.valor))}</div>
                       <div style={{ minWidth: 90 }}><span style={chipStyle(s?.cor ?? TEXTM)}>{s?.rot ?? l.status}</span></div>
