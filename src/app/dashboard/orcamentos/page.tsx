@@ -109,6 +109,9 @@ export default function OrcamentosPage(){
   const { companyIds, selInfo, companies, sel } = useCompanyIds();
   const [orcamentos,setOrcamentos]=useState<Orcamento[]>([]);
   const [loading,setLoading]=useState(true);
+  const [selExcluir,setSelExcluir]=useState<Set<string>>(new Set()); // #6723 · seleção para "Excluir selecionados"
+  const [confirmaExcluir,setConfirmaExcluir]=useState(false);
+  const [excluindo,setExcluindo]=useState(false);
   const [busca,setBusca]=useState("");
   const [filtroStatus,setFiltroStatus]=useState("todos");
   // F2.7 · vínculo com oportunidade: filtro "Sem oportunidade" + recorte por ?oportunidades= (link da coluna do Kanban).
@@ -730,6 +733,24 @@ export default function OrcamentosPage(){
     setTimeout(()=>setMsg(""),3000);
   };
 
+  // #6723 · excluir de vez, em lote: a RPC recusa o que já virou negócio e devolve o motivo; PDFs saem do bucket.
+  const excluirSelecionados=async()=>{
+    const ids=Array.from(selExcluir);
+    if(ids.length===0)return;
+    setExcluindo(true);
+    const{data,error}=await supabase.rpc('fn_orcamento_excluir_lote',{p_ids:ids,p_motivo:'exclusão em lote pela lista de orçamentos'});
+    setExcluindo(false);setConfirmaExcluir(false);
+    if(error){setMsg("❌ "+error.message);return;}
+    const j=data as{apagados?:{id:string;numero:string}[];ignorados?:{numero:string|null;motivo:string}[];pdf_paths?:string[]}|null;
+    const paths=j?.pdf_paths??[];
+    if(paths.length)await supabase.storage.from("crm-anexos").remove(paths);
+    const nA=j?.apagados?.length??0;
+    const ign=j?.ignorados??[];
+    setMsg(`✅ ${nA} orçamento(s) excluído(s).`+(ign.length?` Ficaram de fora ${ign.length}: `+ign.map(x=>`${x.numero||'?'} (${x.motivo})`).join('; '):''));
+    setSelExcluir(new Set());
+    loadOrcamentos();
+  };
+
   const filtrados=useMemo(()=>{
     let r=orcamentos;
     if(filtroStatus!=="todos")r=r.filter(o=>o.status===filtroStatus);
@@ -1184,8 +1205,23 @@ export default function OrcamentosPage(){
               <button onClick={()=>abrirNovo()} style={{padding:"10px 20px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>+ Primeiro Orçamento</button>
             </div>
           ):(
+            <>
+            {selExcluir.size>0&&(
+              <div data-testid="orc-barra-excluir" style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:R+"10",borderBottom:`1px solid ${BD}`,flexWrap:"wrap"}}>
+                <span style={{fontSize:12,color:TX,fontWeight:600}}>{selExcluir.size} selecionado(s)</span>
+                <button data-testid="orc-excluir-selecionados" onClick={()=>setConfirmaExcluir(true)} style={{fontSize:11,padding:"6px 12px",borderRadius:6,background:R,color:"#FFF",border:"none",cursor:"pointer",fontWeight:600}}>🗑 Excluir selecionados</button>
+                <AjudaCampo chave="orcamentos.lista.excluir_selecionados" rota="/dashboard/orcamentos"/>
+                <button onClick={()=>setSelExcluir(new Set())} style={{fontSize:11,padding:"6px 12px",borderRadius:6,background:"transparent",color:TXM,border:`1px solid ${BD}`,cursor:"pointer"}}>Limpar seleção</button>
+              </div>
+            )}
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
               <thead><tr style={{borderBottom:`2px solid ${BD}`,background:BG3}}>
+                <th style={{padding:"8px",width:28}}>
+                  <input type="checkbox" aria-label="Selecionar todos os orçamentos da lista" data-testid="orc-sel-todos"
+                    checked={filtrados.length>0&&filtrados.every(x=>selExcluir.has(x.id))}
+                    onChange={e=>setSelExcluir(e.target.checked?new Set(filtrados.map(x=>x.id)):new Set())}/>
+                  <AjudaCampo chave="orcamentos.lista.selecionar" rota="/dashboard/orcamentos"/>
+                </th>
                 <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Número</th>
                 <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Cliente</th>
                 <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Emissão</th>
@@ -1201,6 +1237,10 @@ export default function OrcamentosPage(){
                   const expirado=o.data_validade&&new Date(o.data_validade)<new Date()&&!['aprovado','recusado','convertido'].includes(o.status);
                   return(
                     <tr key={o.id} style={{borderBottom:`0.5px solid ${BD}`,background:expirado?R+"06":"transparent"}}>
+                      <td style={{padding:"8px"}}>
+                        <input type="checkbox" aria-label={`Selecionar orçamento ${o.numero}`} data-testid="orc-sel-linha" checked={selExcluir.has(o.id)}
+                          onChange={e=>setSelExcluir(prev=>{const n=new Set(prev);if(e.target.checked)n.add(o.id);else n.delete(o.id);return n;})}/>
+                      </td>
                       <td style={{padding:"8px"}}>
                         <div style={{fontFamily:"monospace",fontWeight:600,color:GO}}>{o.numero}</div>
                         {(o.versao||1)>1&&<div style={{fontSize:9,color:TXD}}>v{o.versao}</div>}
@@ -1247,6 +1287,19 @@ export default function OrcamentosPage(){
                 })}
               </tbody>
             </table>
+            {confirmaExcluir&&(
+              <div role="dialog" aria-modal="true" data-testid="orc-confirma-excluir" style={{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:16}}>
+                <div style={{background:BG2,border:`1px solid ${BD}`,borderRadius:12,padding:20,maxWidth:420,width:"100%"}}>
+                  <div style={{fontSize:15,fontWeight:700,color:TX,marginBottom:8}}>Excluir {selExcluir.size} orçamento(s)?</div>
+                  <div style={{fontSize:12,color:TXM,marginBottom:16,lineHeight:1.5}}>Isto <b>apaga de vez</b> e <b>não dá para desfazer</b>. Orçamentos que já viraram pedido, obra ou oportunidade não são apagados — a tela mostra quais ficaram e por quê.</div>
+                  <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                    <button onClick={()=>setConfirmaExcluir(false)} disabled={excluindo} style={{fontSize:12,padding:"8px 14px",borderRadius:6,background:"transparent",color:TXM,border:`1px solid ${BD}`,cursor:"pointer"}}>Cancelar</button>
+                    <button data-testid="orc-confirmar-excluir" onClick={excluirSelecionados} disabled={excluindo} style={{fontSize:12,padding:"8px 14px",borderRadius:6,background:R,color:"#FFF",border:"none",cursor:"pointer",fontWeight:600}}>{excluindo?"Excluindo…":"Sim, apagar de vez"}</button>
+                  </div>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </div>
       )}
