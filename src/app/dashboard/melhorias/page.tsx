@@ -20,6 +20,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { type Marca } from '@/components/melhorias/FotoMarcador'
 import FotosChamado, { type FotoItem } from '@/components/melhorias/FotosChamado'
 import ConversaChamado from '@/components/melhorias/ConversaChamado'
+import AprovacoesPendentes from '@/components/melhorias/AprovacoesPendentes'
 import { uploadFotoSugestao } from '@/lib/sugestaoUpload'
 import { salvarRascunhoAnexos, lerRascunhoAnexos, limparRascunhoAnexos } from '@/lib/rascunhoAnexos'
 import { marcarFormSujo, marcarFormLimpo } from '@/lib/formSujo'
@@ -272,6 +273,7 @@ function Inner() {
           </a>
         )}
       </div>
+      <AprovacoesPendentes />
       <p style={{ color: C.espM, fontSize: 13, margin: '6px 0 4px' }}>Cole um print (Ctrl+V), arraste a imagem ou use a câmera — marque onde está o problema e descreva. A foto é opcional. Nada some — vira uma sugestão que a gente trabalha até concluir.</p>
       {rotaOrigem !== '/dashboard/melhorias' && (
         <p style={{ color: C.espL, fontSize: 12, margin: '0 0 12px' }}>Registrando a partir de <b style={{ color: C.espM }}>{rotaOrigem}</b> — a tela vai junto, você não precisa explicar onde estava.</p>
