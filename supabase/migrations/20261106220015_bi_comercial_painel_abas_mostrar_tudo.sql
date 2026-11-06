@@ -157,6 +157,10 @@ BEGIN
   RETURN v_out;
 END $function$;
 
+-- Guarda de função (REVOKE anon + só logado) — idempotente; a RPC é SECURITY DEFINER e exige auth.uid() no corpo.
+REVOKE ALL ON FUNCTION public.fn_bi_comercial_painel(uuid, text, date, date) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_bi_comercial_painel(uuid, text, date, date) TO authenticated, service_role;
+
 -- RD-95: textos de ajuda ("?") das abas/campos novos — aditivo e idempotente (catálogo global).
 INSERT INTO erp_ajuda_campo (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, vertical, ordem, status)
 VALUES
