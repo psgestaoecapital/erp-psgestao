@@ -9,6 +9,8 @@ import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { authFetch } from '@/lib/authFetch'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -61,6 +63,27 @@ function Inner() {
   const [acerto, setAcerto] = useState<Acerto | null>(null)
   const [recebs, setRecebs] = useState<Map<string, Receb[]>>(new Map())
   const [acResumo, setAcResumo] = useState<Map<string, { previsto: number | null; realizado: number | null }>>(new Map())
+
+  // #5684 · Emitir NF-e da venda (Caminho A: mesmo emissor do GE, ligada ao título da venda, grava veic_venda.nfe_id).
+  const emitirNfe = async (v: Venda) => {
+    if (!companyId) return
+    setBusy(true); setErro(null); setMsg(null)
+    try {
+      const res = await authFetch('/api/fiscal/nfe/emitir', { method: 'POST', body: JSON.stringify({ companyId, vendaVeiculoId: v.id }) })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok || j?.ok === false) {
+        setErro(`NF-e não emitida: ${j?.motivoRejeicao ?? j?.mensagem ?? j?.message ?? `erro ${res.status}`}. Corrija e clique em Emitir NF-e para reenviar.`)
+      } else {
+        const avisos: string[] = Array.isArray(j.avisosVeiculo) ? j.avisosVeiculo : []
+        setMsg(`NF-e ${j.numero ?? ''} — ${j.status}${j.ambiente ? ` (${j.ambiente})` : ''}.${avisos.length ? ' Atenção: ' + avisos.join(' ') : ''}`)
+      }
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Falha ao emitir a NF-e')
+    } finally {
+      setBusy(false)
+      await carregar()
+    }
+  }
 
   const carregar = useCallback(async () => {
     if (!companyId) { setRows([]); setRecebs(new Map()); setAcResumo(new Map()); return }
@@ -282,7 +305,11 @@ function Inner() {
                   {!encerrada && (
                     v.nfe_autorizada || (v.is_demo && v.situacao === 'faturada')
                       ? <button disabled={busy} onClick={() => void abrirChecklist(v)} style={btnGold}>Entregar</button>
-                      : <span style={{ padding: '6px 12px', borderRadius: 8, background: C.amberBg, color: '#8A4B08', fontSize: 11.5, fontWeight: 600 }}>Emitir nota antes de entregar</span>
+                      : <>
+                          <span style={{ padding: '6px 12px', borderRadius: 8, background: C.amberBg, color: '#8A4B08', fontSize: 11.5, fontWeight: 600 }}>Emitir nota antes de entregar</span>
+                          <button disabled={busy} onClick={() => void emitirNfe(v)} style={btnGold}>Emitir NF-e</button>
+                          <AjudaCampo chave="revenda.vendas.emitir_nfe" rota="/dashboard/revenda/vendas" />
+                        </>
                   )}
                   {v.is_demo && !encerrada && (v.nfe_autorizada ? null : <span style={{ padding: '3px 8px', borderRadius: 999, background: C.amberBg, color: '#8A4B08', fontSize: 10.5, fontWeight: 700, alignSelf: 'center' }} title="Empresa de demonstração — sem emissão fiscal real">Demonstração — sem nota fiscal real</span>)}
 

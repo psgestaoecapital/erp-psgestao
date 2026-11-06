@@ -143,6 +143,9 @@ export default function CatalogoServicosPage() {
   const [filtroOrigem, setFiltroOrigem] = useState<"todos" | "manual" | "fork" | "demo">("todos");
   const [filtroStatus, setFiltroStatus] = useState<"ativo" | "inativo" | "todos">("ativo");
   const [apenasComBom, setApenasComBom] = useState(false);
+  // Colunas de valor (Custo, BDI, Preço venda, Estoque) visíveis sem rolagem: por padrão recolhemos as
+  // secundárias (Un, Produtividade, Origem) no computador; o toggle expande para ver todas (auditoria PDCA 01/11).
+  const [colsDetalhe, setColsDetalhe] = useState(false);
 
   const [importando, setImportando] = useState(false);
   const [criando, setCriando] = useState(false);
@@ -480,6 +483,7 @@ export default function CatalogoServicosPage() {
       label: "Un",
       ajuda: "projetos.catalogo.col_unidade",
       hiddenOnMobile: true,
+      secondary: true,
       render: (s) => <span className="text-[#3D2314]/70">{s.unidade || "—"}</span>,
     },
     {
@@ -488,6 +492,7 @@ export default function CatalogoServicosPage() {
       ajuda: "projetos.catalogo.col_rup",
       align: "center",
       hiddenOnMobile: true,
+      secondary: true,
       render: (s) =>
         s.produtividade_unidade_dia !== null && s.produtividade_unidade_dia !== undefined ? (
           <span
@@ -506,6 +511,7 @@ export default function CatalogoServicosPage() {
       key: "origem",
       label: "Origem",
       ajuda: "projetos.catalogo.col_origem",
+      secondary: true,
       render: (s) => {
         const o = origemDoServico(s);
         return (
@@ -847,9 +853,24 @@ export default function CatalogoServicosPage() {
               Apenas com BOM completo
               <AjudaCampo chave="projetos.catalogo.apenas_bom" rota={ROTA} />
             </label>
-            <p className="text-xs text-[#3D2314]/60">
-              {filtrados.length} de {servicos.length} serviço{servicos.length !== 1 ? "s" : ""}
-            </p>
+            <div className="flex items-center gap-3">
+              {/* No computador, mostrar/ocultar as colunas secundárias (Un, Produtividade, Origem) para que
+                  Custo, BDI e Preço venda fiquem visíveis sem rolagem horizontal (auditoria PDCA 01/11). */}
+              <button
+                type="button"
+                onClick={() => setColsDetalhe((v) => !v)}
+                aria-pressed={colsDetalhe}
+                title={colsDetalhe
+                  ? "Ocultar as colunas Un, Produtividade e Origem para ver custo e preço sem rolar"
+                  : "Mostrar as colunas Un, Produtividade e Origem"}
+                className="hidden items-center gap-1.5 rounded-lg border border-[#3D2314]/12 bg-white px-3 py-1.5 text-xs font-medium text-[#3D2314]/70 transition-colors hover:border-[#C8941A] hover:text-[#3D2314] md:inline-flex"
+              >
+                {colsDetalhe ? "Menos colunas" : "Mais colunas"}
+              </button>
+              <p className="text-xs text-[#3D2314]/60">
+                {filtrados.length} de {servicos.length} serviço{servicos.length !== 1 ? "s" : ""}
+              </p>
+            </div>
           </div>
 
           <CatalogoTable
@@ -858,6 +879,7 @@ export default function CatalogoServicosPage() {
             loading={loading}
             rowKey={(s) => s.id}
             actions={acoes}
+            collapseSecondary={!colsDetalhe}
             onRowClick={(s) => router.push(`/dashboard/projetos/catalogo/${s.id}`)}
             emptyMessage="Nenhum serviço encontrado com esses filtros"
           />

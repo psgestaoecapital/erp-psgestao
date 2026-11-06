@@ -182,6 +182,17 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   }, [companyId])
   const rotuloCategoria = (c: string | null | undefined) => (c ? (nomeCategoria[c] ? `${c} · ${nomeCategoria[c]}` : c) : '')
   const [busca, setBusca] = useState('')
+  // #5427 · deep-link da Oficina ("Faturada — ver na GE"): a OS manda ?busca=OS-2026-0242
+  // (e revenda manda ?q=...). Pré-preenche o campo de busca ao abrir, pra a tela já mostrar
+  // só o lançamento daquela OS. Uma vez, no mount; não atrapalha quem digita depois.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      const sp = new URLSearchParams(window.location.search)
+      const q = (sp.get('busca') || sp.get('q') || '').trim()
+      if (q) setBusca(q)
+    } catch { /* URL indisponível */ }
+  }, [])
   // RD-41 · filtros por coluna (client-side, sobre as linhas já carregadas do período)
   const [filtrosAbertos, setFiltrosAbertos] = useState(false)
   const [fPessoa, setFPessoa] = useState('')

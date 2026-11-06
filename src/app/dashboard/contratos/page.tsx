@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import ContratosFeePanel from "@/components/ge/ContratosFeePanel";
+import ContratosModelosPanel from "@/components/ge/ContratosModelosPanel";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
@@ -78,7 +79,7 @@ export default function ContratosPage(){
 
   const [contratos,setContratos]=useState<Contrato[]>([]);
   const [clientes,setClientes]=useState<any[]>([]);
-  const [tab,setTab]=useState<'contratos'|'dashboard'|'acoes'|'fee'>('dashboard');
+  const [tab,setTab]=useState<'contratos'|'dashboard'|'acoes'|'fee'|'modelos'>('dashboard');
   // #59 PDOIS parte 2: atalho ?tab=fee (usado pelo /dashboard/pm/contratos) abre direto a fila de fee
   useEffect(()=>{ if(typeof window!=='undefined'){ const q=new URLSearchParams(window.location.search); if(q.get('tab')==='fee'||q.get('aba')==='fee') setTab('fee'); } },[]);
   const [loading,setLoading]=useState(true);
@@ -486,7 +487,7 @@ export default function ContratosPage(){
 
       {/* Tabs */}
       <div style={{display:"flex",gap:6,marginBottom:16,borderBottom:`1px solid ${BD}`}}>
-        {[{k:'dashboard',l:'📊 Dashboard SaaS'},{k:'contratos',l:'📋 Contratos'},{k:'fee',l:'🧾 Solicitações & Fee'},{k:'acoes',l:'⚡ Ações'}].map(t=>(
+        {[{k:'dashboard',l:'📊 Dashboard SaaS'},{k:'contratos',l:'📋 Contratos'},{k:'fee',l:'🧾 Solicitações & Fee'},{k:'modelos',l:'📝 Modelos'},{k:'acoes',l:'⚡ Ações'}].map(t=>(
           <button key={t.k} onClick={()=>setTab(t.k as any)} style={{padding:"10px 20px",fontSize:12,fontWeight:tab===t.k?700:500,background:"transparent",border:"none",color:tab===t.k?GO:TXM,borderBottom:`3px solid ${tab===t.k?GO:"transparent"}`,cursor:"pointer",marginBottom:-1}}>{t.l}</button>
         ))}
       </div>
@@ -494,6 +495,11 @@ export default function ContratosPage(){
       {/* TAB SOLICITAÇÕES & FEE (#59 PDOIS parte 2) */}
       {tab==='fee'&&(
         <ContratosFeePanel companyId={empresaUnica} />
+      )}
+
+      {/* TAB MODELOS DE CONTRATO (#5452 Pdois/P&M · slice 2) */}
+      {tab==='modelos'&&(
+        <ContratosModelosPanel companyId={empresaUnica} />
       )}
 
       {/* TAB DASHBOARD SAAS */}

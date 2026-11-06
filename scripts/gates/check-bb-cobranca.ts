@@ -1,7 +1,7 @@
 // Gate #5404 (FC Pisos) parte (b): boleto do Banco do Brasil (Cobrança v2). Funções puras + ligação nas rotas/telas.
 // Sem rede, sem banco.
 import { readFileSync, existsSync } from 'node:fs'
-import { dataBb, faltasCobrancaBb, modalidadeBb, montarCorpoRegistroBb, normalizarCarteiraBb, nossoNumeroBb } from '../../src/lib/banco/bb/cobrancaPura'
+import { dataBb, faltasCobrancaBb, modalidadeBb, montarCorpoRegistroBb, normalizarCarteiraBb, nossoNumeroBb, nossoNumeroJaIncluidoBb, sequencialHomologacaoBb, seuNumeroBb } from '../../src/lib/banco/bb/cobrancaPura'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗', m) } else console.log('✓', m) }
@@ -31,7 +31,9 @@ ok(corpo.numeroConvenio === 3128557 && corpo.numeroCarteira === 17 && corpo.nume
 ok(corpo.valorOriginal === 2 && corpo.dataVencimento === '05.11.2026', 'corpo: valor e vencimento')
 ok(corpo.pagador.tipoInscricao === 1 && corpo.pagador.numeroInscricao === 12345678909, 'pagador CPF → tipoInscricao 1 (pelo documento)')
 ok(corpo.pagador.uf === 'SC' && corpo.pagador.nome === 'Jordana Carolina Richter' && corpo.pagador.endereco === 'Rua Sao Jose, 10', 'pagador: UF maiúscula e sem acento')
-ok(corpo.numeroTituloBeneficiario === 'REC12345', 'seu número só alfanumérico')
+ok(corpo.numeroTituloBeneficiario === '12345', 'seu número só dígitos (BB recusa alfanumérico)')
+ok(seuNumeroBb(null, '00031285572600000001') === '2600000001', 'sem nº de documento → sequencial numérico')
+ok(seuNumeroBb('', '00031285572600000007') === '2600000007' && seuNumeroBb('abc', '00031285572600000007') === '2600000007' && seuNumeroBb('1234567890123456789', 'x') === '123456789012345', 'seu número: fallback, só letras, corte em 15')
 const pj = montarCorpoRegistroBb({ cfg: { convenio: '3128557', carteira: '17', variacao: '35', modalidade: 1 }, nossoNumero: 'x', seuNumero: '1', valor: 10, emissaoISO: '2026-10-28', vencimentoISO: '2026-10-28',
   pagador: { documento: '12.345.678/0001-95', nome: 'Empresa', logradouro: null, bairro: null, cidade: null, uf: null, cep: null } }) as { pagador: Record<string, unknown> }
 ok(pj.pagador.tipoInscricao === 2, 'pagador CNPJ → tipoInscricao 2')
@@ -56,5 +58,12 @@ const mig = readFileSync('supabase/migrations/20261030220020_bb_cobranca_variaca
 ok(mig.includes('ADD COLUMN IF NOT EXISTS variacao_carteira') && mig.includes("'variacao_carteira', c.variacao_carteira") && mig.includes("p_dados->>'modalidade_boleto'"), 'migration: colunas + credencial + salvar CNAB')
 ok(!/\b(DELETE|DROP|TRUNCATE)\b/i.test(mig), 'migration aditiva (sem DELETE/DROP/TRUNCATE)')
 
+// chamado #5404 (05/11): "Nosso Número já incluído" → tenta outro número, e grava assim que o BB aceita
+ok(nossoNumeroJaIncluidoBb('{"erros":[{"codigo":"4874915","mensagem":"Nosso Número já incluído anteriormente."}]}'), 'detecta "Nosso Número já incluído" (código 4874915)')
+ok(nossoNumeroJaIncluidoBb('nosso numero ja incluido') && !nossoNumeroJaIncluidoBb('{"erros":[{"codigo":"4678420"}]}') && !nossoNumeroJaIncluidoBb(null), 'não confunde com outros erros do BB')
+const sh = sequencialHomologacaoBb('26', () => 0), sh2 = sequencialHomologacaoBb('26', () => 0.999999)
+ok(/^26[1-9]\d{7}$/.test(sh) && /^26[1-9]\d{7}$/.test(sh2) && sh !== sh2, 'sequencial de homologação: 10 dígitos, espalhado ao acaso')
+ok(nossoNumeroBb('3128557', sh).length === 20, 'nosso número de homologação com 20 posições')
+ok(reg.includes('nossoNumeroJaIncluidoBb') && reg.includes('tentativa <= 5') && reg.indexOf("boleto_status: 'registrado'") < reg.indexOf('gerarPdfBoleto('), 'registrar: reenvia com número novo e grava o boleto antes do PDF')
 if (falhas) { console.error(`\n${falhas} falha(s)`); process.exit(1) }
 console.log('\ncheck-bb-cobranca: OK')
