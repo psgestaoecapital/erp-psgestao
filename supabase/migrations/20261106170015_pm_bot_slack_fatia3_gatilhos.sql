@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS public.erp_pm_bot_evento_marca (
 );
 COMMENT ON TABLE public.erp_pm_bot_evento_marca IS
   'P&M · Bot Slack (fatia 3): marca de "já avisei este evento para este job", para não repetir o aviso. '
-  'RLS por empresa (SELECT); escrita só via função SECURITY DEFINER / service_role. Migration 20261106150015.';
+  'RLS por empresa (SELECT); escrita só via função SECURITY DEFINER / service_role. Migration 20261106170015.';
 CREATE INDEX IF NOT EXISTS erp_pm_bot_evento_marca_company_idx
   ON public.erp_pm_bot_evento_marca (company_id, marcado_em DESC);
 
@@ -53,6 +53,7 @@ CREATE POLICY pm_bot_evento_marca_sel ON public.erp_pm_bot_evento_marca FOR SELE
 -- fn_pm_bot_disparar (fatia 2) para enfileirar + chamar a edge function. Devolve o envio_id (ou NULL se não enviou).
 -- p_dedup=false → evento que pode repetir legitimamente (aprovacao_pendente a cada vez que o job volta a aprovação);
 -- p_dedup=true  → evento único por job (novo_job, atrasado, 24h, estouro).
+-- ci-sem-guarda: fn_pm_bot_evento_emitir — chamada só por trigger/cron SECURITY DEFINER com o company_id do próprio job; sem sessão de usuário
 CREATE OR REPLACE FUNCTION public.fn_pm_bot_evento_emitir(
   p_company_id uuid, p_evento text, p_ref_id uuid, p_titulo text, p_texto text, p_dedup boolean DEFAULT true)
 RETURNS uuid
@@ -141,6 +142,8 @@ BEGIN
   RETURN NULL;  -- AFTER trigger
 END;
 $f$;
+-- função de gatilho SECURITY DEFINER: fecha a porta anon (gatilho não precisa de GRANT a authenticated)
+REVOKE ALL ON FUNCTION public.trg_pm_bot_job_evento() FROM PUBLIC, anon;
 
 DROP TRIGGER IF EXISTS trg_pm_bot_job_ins ON public.agency_jobs;
 CREATE TRIGGER trg_pm_bot_job_ins
