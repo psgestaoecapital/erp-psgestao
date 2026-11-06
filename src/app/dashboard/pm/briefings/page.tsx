@@ -44,6 +44,7 @@ export default function BriefingsPage() {
   const [novo, setNovo] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [form, setForm] = useState<Form>(VAZIO)
+  const [editStatus, setEditStatus] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<{ texto: string; jobId?: string } | null>(null)
 
@@ -61,6 +62,7 @@ export default function BriefingsPage() {
     }
     setLoading(false)
   }
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- carrega os briefings quando a empresa muda
   useEffect(() => { void carregar() }, [empresa]) // eslint-disable-line react-hooks/exhaustive-deps
   // Vindo de P&M › Fees › "Fazer briefing" (?fee=): abre o briefing já ligado ao fee e ao cliente (CEO 28/10, V30 §00-F).
   useEffect(() => {
@@ -80,7 +82,7 @@ export default function BriefingsPage() {
       }
       const mes = new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
       setForm({ ...VAZIO, fee_id: fee.id, cliente_id: fee.cliente_id ?? '', cliente_nome: nome, titulo: `Briefing do fee${nome ? ` — ${nome}` : ''} · ${mes}` })
-      setEditId(null); setNovo(true)
+      setEditId(null); setEditStatus(null); setNovo(true)
     })()
   }, [empresa])
 
@@ -98,7 +100,7 @@ export default function BriefingsPage() {
 
   const kpis = useMemo(() => ({
     total: briefings.length,
-    pendentes: briefings.filter((b) => ['novo', 'em_analise'].includes(b.status)).length,
+    pendentes: briefings.filter((b) => b.status === 'novo').length,
     viraramJob: briefings.filter((b) => b.status === 'virou_job').length,
   }), [briefings])
 
@@ -108,9 +110,9 @@ export default function BriefingsPage() {
       objetivo: b.objetivo ?? '', descricao: b.descricao ?? '', publico_alvo: b.publico_alvo ?? '', referencias: b.referencias ?? '',
       tipo_servico: b.tipo_servico ?? '', prazo_desejado: b.prazo_desejado?.slice(0, 10) ?? '', fee_id: b.fee_id ?? '',
     })
-    setEditId(b.id); setNovo(true)
+    setEditId(b.id); setEditStatus(b.status); setNovo(true)
   }
-  function fechar() { setNovo(false); setEditId(null); setForm(VAZIO) }
+  function fechar() { setNovo(false); setEditId(null); setEditStatus(null); setForm(VAZIO) }
 
   async function criar() {
     if (!empresa) return
@@ -122,6 +124,16 @@ export default function BriefingsPage() {
       publico_alvo: form.publico_alvo.trim() || null, referencias: form.referencias.trim() || null,
       tipo_servico: form.tipo_servico.trim() || null, prazo_desejado: form.prazo_desejado || null,
       ...(form.fee_id ? { fee_id: form.fee_id } : {}),
+    }
+    if (editId && editStatus === 'novo') {
+      // Briefing pendente (nasceu do fee): lançar pela RPC, que move novo → em_analise e tem a guarda de empresa.
+      const { data, error } = await supabase.rpc('fn_agency_briefing_lancar', { p_id: editId, p_dados: campos })
+      setBusy(false)
+      const r = data as { ok?: boolean; erro?: string } | null
+      if (error || !r?.ok) { setToast({ texto: `Não deu para lançar: ${error?.message ?? r?.erro ?? 'erro'}.` }); return }
+      fechar()
+      setToast({ texto: 'Briefing lançado. Pronto para o planejamento.' }); void carregar()
+      return
     }
     const { error } = editId
       ? await supabase.from('agency_briefings').update({ ...campos, updated_at: new Date().toISOString() }).eq('id', editId).eq('company_id', empresa)
@@ -201,8 +213,10 @@ export default function BriefingsPage() {
                       {b.prazo_desejado && <div className="mt-0.5 text-[11.5px] text-[#3D2314]/50">prazo desejado {b.prazo_desejado.split('-').reverse().join('/')}</div>}
                     </div>
                     <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${st.cls}`}>{st.l}</span>
-                    <span className="inline-flex items-center"><button onClick={() => abrir(b)} className="rounded-xl border border-[#3D2314]/15 px-3 py-1.5 text-[12.5px] font-medium" data-testid="briefing-abrir">Abrir</button><AjudaCampo chave="pm.briefing.abrir" /></span>
-                    {b.fee_id
+                    <span className="inline-flex items-center"><button onClick={() => abrir(b)} className="rounded-xl border border-[#3D2314]/15 px-3 py-1.5 text-[12.5px] font-medium" data-testid="briefing-abrir">{b.status === 'novo' ? 'Lançar briefing' : 'Abrir'}</button><AjudaCampo chave="pm.briefing.abrir" /></span>
+                    {b.fee_id && b.status === 'novo'
+                      ? <span className="text-[12px] text-[#6B4A0E]/70" data-testid="briefing-aguarda-lancamento">Lance o briefing para planejar</span>
+                      : b.fee_id
                       ? <span className="inline-flex items-center"><button disabled={busy} onClick={() => void planejarMes(b)} className="inline-flex items-center gap-1 rounded-xl border border-[#C8941A] px-3 py-1.5 text-[12.5px] font-medium text-[#6B4A0E] disabled:opacity-40" data-testid="briefing-planejar">Planejar o mês <ArrowRight size={14} /></button><AjudaCampo chave="pm.fee.planejar" /></span>
                       : b.status !== 'virou_job'
                       ? <span className="inline-flex items-center"><button disabled={busy} onClick={() => void virarJob(b)} className="inline-flex items-center gap-1 rounded-xl border border-[#2F5A1F] px-3 py-1.5 text-[12.5px] font-medium text-[#2F5A1F] disabled:opacity-40" data-testid="briefing-virar-job">Virar job <ArrowRight size={14} /></button><AjudaCampo chave="pm.briefing.virar_job" /></span>

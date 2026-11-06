@@ -9,6 +9,8 @@ import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { authFetch } from '@/lib/authFetch'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -60,7 +62,29 @@ function Inner() {
   const [acertoVenda, setAcertoVenda] = useState<Venda | null>(null)
   const [acerto, setAcerto] = useState<Acerto | null>(null)
   const [recebs, setRecebs] = useState<Map<string, Receb[]>>(new Map())
+  const [cancelaTit, setCancelaTit] = useState<{ venda: Venda; motivo: string; abertos: { id: string; valor: number }[] } | null>(null)
   const [acResumo, setAcResumo] = useState<Map<string, { previsto: number | null; realizado: number | null }>>(new Map())
+
+  // #5684 · Emitir NF-e da venda (Caminho A: mesmo emissor do GE, ligada ao título da venda, grava veic_venda.nfe_id).
+  const emitirNfe = async (v: Venda) => {
+    if (!companyId) return
+    setBusy(true); setErro(null); setMsg(null)
+    try {
+      const res = await authFetch('/api/fiscal/nfe/emitir', { method: 'POST', body: JSON.stringify({ companyId, vendaVeiculoId: v.id }) })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok || j?.ok === false) {
+        setErro(`NF-e não emitida: ${j?.motivoRejeicao ?? j?.mensagem ?? j?.message ?? `erro ${res.status}`}. Corrija e clique em Emitir NF-e para reenviar.`)
+      } else {
+        const avisos: string[] = Array.isArray(j.avisosVeiculo) ? j.avisosVeiculo : []
+        setMsg(`NF-e ${j.numero ?? ''} — ${j.status}${j.ambiente ? ` (${j.ambiente})` : ''}.${avisos.length ? ' Atenção: ' + avisos.join(' ') : ''}`)
+      }
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Falha ao emitir a NF-e')
+    } finally {
+      setBusy(false)
+      await carregar()
+    }
+  }
 
   const carregar = useCallback(async () => {
     if (!companyId) { setRows([]); setRecebs(new Map()); setAcResumo(new Map()); return }
@@ -177,14 +201,38 @@ function Inner() {
     setMsg(`Devolução registrada. Veículo volta ao pátio. ${n} título(s) marcado(s) a estornar (evento enviado ao financeiro).`)
     void carregar()
   }
+  // #6928: títulos do financeiro (GE) ainda em aberto de uma venda. Pago/cancelado nunca entram.
+  const ABERTO = ['aberto', 'vencido', 'pendente']
+  const titulosAbertos = (vendaId: string) => (recebs.get(vendaId) ?? []).filter((t) => t.receber_id && t.status && ABERTO.includes(t.status))
+  const titulosPagos = (vendaId: string) => (recebs.get(vendaId) ?? []).filter((t) => t.receber_id && t.status && !ABERTO.includes(t.status) && t.status !== 'cancelado')
+
   async function cancelar(v: Venda) {
     const motivo = window.prompt('Motivo do cancelamento:') ?? ''
+    // Releitura do status dos títulos no banco (a lista da tela pode estar velha).
+    const ids = (recebs.get(v.id) ?? []).map((t) => t.receber_id).filter((x): x is string => !!x)
+    let abertos: { id: string; valor: number }[] = []
+    if (ids.length) {
+      const { data: er } = await supabase.from('erp_receber').select('id, valor, status').in('id', ids)
+      abertos = ((er as { id: string; valor: number; status: string | null }[]) ?? []).filter((e) => e.status && ABERTO.includes(e.status)).map((e) => ({ id: e.id, valor: Number(e.valor) || 0 }))
+    }
+    if (abertos.length > 0) { setCancelaTit({ venda: v, motivo, abertos }); return }
+    await executarCancelar(v, motivo, [])
+  }
+  async function executarCancelar(v: Venda, motivo: string, cancelarTitulos: { id: string; valor: number }[]) {
     setBusy(true)
     const { data, error } = await supabase.rpc('fn_veic_venda_cancelar', { p_venda_id: v.id, p_user: await userId(), p_motivo: motivo || null })
-    setBusy(false)
     const r = data as { ok?: boolean; erro?: string; mensagem?: string; titulos_nao_excluidos?: number } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.mensagem || r?.erro || 'Falha'); return }
-    setMsg('Venda cancelada.'); void carregar()
+    if (error || !r?.ok) { setBusy(false); setErro(error?.message || r?.mensagem || r?.erro || 'Falha'); return }
+    // Venda cancelada. Só então cancela os títulos escolhidos, pela função do financeiro (histórico + auditoria).
+    let falhas = 0
+    for (const t of cancelarTitulos) {
+      const { data: cr, error: ce } = await supabase.rpc('fn_receber_cancelar', { p_id: t.id, p_motivo: `Venda cancelada${motivo ? `: ${motivo}` : ''}` })
+      if (ce || !(cr as { sucesso?: boolean } | null)?.sucesso) falhas++
+    }
+    setBusy(false)
+    if (falhas > 0) setErro(`Venda cancelada, mas ${falhas} título(s) não puderam ser cancelados. Cancele no Contas a Receber.`)
+    else setMsg(cancelarTitulos.length ? `Venda cancelada e ${cancelarTitulos.length} título(s) do financeiro cancelado(s).` : 'Venda cancelada.')
+    void carregar()
   }
 
   if (!companyId) return <div style={{ padding: 28, color: C.espM, background: C.bg, minHeight: '100vh' }}>Selecione uma empresa específica no topo.</div>
@@ -261,6 +309,13 @@ function Inner() {
                   </div>
                 )}
 
+                {/* #6928: venda cancelada com título ainda aberto no financeiro — aviso em destaque. */}
+                {v.situacao === 'cancelada' && titulosAbertos(v.id).length > 0 && (
+                  <div style={{ marginTop: 8, fontSize: 12.5, color: C.red, background: C.redBg, borderRadius: 8, padding: '8px 10px', fontWeight: 600 }}>
+                    Venda cancelada, mas o título do financeiro continua em aberto ({brl(titulosAbertos(v.id).reduce((a, t) => a + (t.valor || 0), 0))}). Use o &quot;ver&quot; acima para tratar no Contas a Receber.
+                  </div>
+                )}
+
                 {/* Acerto resumo no card entregue — sem exigir clique (o detalhe fica no botão "Acerto de contas"). */}
                 {entregue && acResumo.get(v.id) && (
                   <div style={{ marginTop: 6, fontSize: 12 }}>
@@ -282,7 +337,11 @@ function Inner() {
                   {!encerrada && (
                     v.nfe_autorizada || (v.is_demo && v.situacao === 'faturada')
                       ? <button disabled={busy} onClick={() => void abrirChecklist(v)} style={btnGold}>Entregar</button>
-                      : <span style={{ padding: '6px 12px', borderRadius: 8, background: C.amberBg, color: '#8A4B08', fontSize: 11.5, fontWeight: 600 }}>Emitir nota antes de entregar</span>
+                      : <>
+                          <span style={{ padding: '6px 12px', borderRadius: 8, background: C.amberBg, color: '#8A4B08', fontSize: 11.5, fontWeight: 600 }}>Emitir nota antes de entregar</span>
+                          <button disabled={busy} onClick={() => void emitirNfe(v)} style={btnGold}>Emitir NF-e</button>
+                          <AjudaCampo chave="revenda.vendas.emitir_nfe" rota="/dashboard/revenda/vendas" />
+                        </>
                   )}
                   {v.is_demo && !encerrada && (v.nfe_autorizada ? null : <span style={{ padding: '3px 8px', borderRadius: 999, background: C.amberBg, color: '#8A4B08', fontSize: 10.5, fontWeight: 700, alignSelf: 'center' }} title="Empresa de demonstração — sem emissão fiscal real">Demonstração — sem nota fiscal real</span>)}
 
@@ -301,6 +360,23 @@ function Inner() {
             )
           })}
         </div>
+      )}
+
+      {/* ── Modal #6928: cancelar também o título? ── */}
+      {cancelaTit && (
+        <Modal onClose={() => setCancelaTit(null)} titulo="Cancelar venda">
+          <p style={{ fontSize: 13, color: C.esp, margin: '0 0 8px' }}>
+            Esta venda tem <b>{brl(cancelaTit.abertos.reduce((a, t) => a + t.valor, 0))}</b> em título aberto no financeiro. Cancelar também o título?
+          </p>
+          {titulosPagos(cancelaTit.venda.id).length > 0 && (
+            <p style={{ fontSize: 12, color: C.amber, background: C.amberBg, borderRadius: 8, padding: '6px 10px', margin: '0 0 8px' }}>Título já pago não é cancelado: trate no Contas a Receber.</p>
+          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+            <button disabled={busy} style={btnGold} onClick={() => { const c = cancelaTit; setCancelaTit(null); void executarCancelar(c.venda, c.motivo, c.abertos) }}>Sim, cancelar venda e título</button>
+            <button disabled={busy} style={btnDanger} onClick={() => { const c = cancelaTit; setCancelaTit(null); void executarCancelar(c.venda, c.motivo, []) }}>Não, só a venda</button>
+            <button disabled={busy} style={btnGhost} onClick={() => setCancelaTit(null)}>Voltar</button>
+          </div>
+        </Modal>
       )}
 
       {/* ── Modal checklist ── */}

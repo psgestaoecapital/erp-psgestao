@@ -17,6 +17,7 @@ import CronogramaHub from './CronogramaHub'
 import SaudeCodes from './SaudeCodes'
 import { BlocoSeguro } from '@/components/dev/BlocoSeguro'
 import MeuCode from '@/components/dev/MeuCode'
+import AprovacoesSocios from '@/components/dev/AprovacoesSocios'
 import { ConectarClaude, EsperandoOkCeo } from '@/components/dev/CanalPs'
 import {
   AUDITOR_CODE, AUDITOR_LEGENDA, AUDITOR_NOME, estadoAuditor, lerAuditor, type AuditorResumo,
@@ -177,6 +178,9 @@ export default function PainelCodes() {
       <BlocoSeguro nome="Diagnóstico da esteira"><DiagnosticoEsteira /></BlocoSeguro>
       <BlocoSeguro nome="Cronograma do Hub"><CronogramaHub /></BlocoSeguro>
       <BlocoSeguro nome="Saúde dos Codes"><SaudeCodes /></BlocoSeguro>
+
+      {/* CEO 06/11: Gilberto, Rodrigo e Jordana aprovam a bandeja do revisor e os pedidos de núcleo (só aparece para eles) */}
+      <BlocoSeguro nome="Aprovações dos sócios"><AprovacoesSocios /></BlocoSeguro>
 
       {/* Canal PS: o sócio dono de um Code pede direto a ele (só aparece para o dono) */}
       <BlocoSeguro nome="Meu Code"><MeuCode /></BlocoSeguro>

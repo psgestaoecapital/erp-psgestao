@@ -128,10 +128,10 @@ async function handler(req: NextRequest, user: UsuarioApi) {
     }
 
     // 7. Contexto humano
-    const { data: ctxData } = await supabase.from("ai_reports").select("report_content").eq("company_id", companyId).eq("report_type", "contexto_humano").order("created_at", { ascending: false }).limit(1);
+    const { data: ctxData } = await supabase.from("ai_reports").select("output_content").eq("company_id", companyId).eq("report_type", "contexto_humano").order("created_at", { ascending: false }).limit(1);
     let ctxText = "";
     if (ctxData && ctxData.length > 0) {
-      ctxText = typeof ctxData[0].report_content === "string" ? ctxData[0].report_content : JSON.stringify(ctxData[0].report_content);
+      ctxText = typeof ctxData[0].output_content === "string" ? ctxData[0].output_content : JSON.stringify(ctxData[0].output_content);
     }
 
     // 8. Fluxo de caixa resumo

@@ -5,15 +5,17 @@
 // Reusa fn_simular_montagem (que reusa fn_precificar_montagem + BOM). Tudo por empresa/linha.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Calculator, Loader2, AlertTriangle, Save, Trash2, FolderOpen } from "lucide-react";
+import { Calculator, Loader2, AlertTriangle, Save, Trash2, FolderOpen, Pencil, FileSpreadsheet, FileText, Share2 } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { exportToExcel } from "@/lib/export-utils";
+import { exportarPDF, type Coluna } from "@/lib/export/relatorioLista";
 
 type Cliente = { id: string; nome: string };
 type Linha = { id: string; nome: string };
 type Produto = { servico_id: string; nome: string; unidade: string | null; categoria: string | null; business_line_id: string | null };
-type QuantItem = { insumo: string; unidade: string | null; qtd_m2: number; qtd_total: number; custo_total: number };
+type QuantItem = { insumo: string; unidade: string | null; qtd_m2: number; perda_pct?: number; custo_unitario?: number; qtd_total: number; custo_total: number };
 type PrecoM2 = {
   venda_material?: number; venda_mo?: number; subtotal_m2?: number; comissao?: number;
   custo_fixo_m2?: number; custo_fixo_origem?: string; total_m2?: number; margem_rs?: number; margem_pct?: number;
@@ -23,6 +25,7 @@ type Sim = { ok: boolean; erro?: string; montagem?: string; unidade?: string; ar
 
 const brl = (v: number | null | undefined) => (v == null ? "—" : v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
 const num = (v: number | null | undefined, d = 2) => (v == null ? "—" : v.toLocaleString("pt-BR", { maximumFractionDigits: d }));
+const pct = (v: number | null | undefined, d = 1) => (v == null ? "—" : `${v.toLocaleString("pt-BR", { maximumFractionDigits: d })}%`);
 
 // RD-95/96: o motor de precificação devolve chaves cruas (ex.: "sem_config_precificacao").
 // Nunca mostramos a chave ao usuário — traduzimos para texto claro; chave desconhecida cai no texto padrão.
@@ -37,7 +40,7 @@ const MSG_ERRO: Record<string, string> = {
 const traduzErro = (chave: string | null | undefined, padrao: string) => (chave && MSG_ERRO[chave]) || padrao;
 
 export default function SimuladorPage() {
-  const { sel } = useCompanyIds();
+  const { sel, selInfo } = useCompanyIds();
   const companyId = sel && !sel.startsWith("group_") && sel !== "consolidado" ? sel : null;
   const router = useRouter();
 
@@ -61,6 +64,8 @@ export default function SimuladorPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [excluindo, setExcluindo] = useState<Salva | null>(null);
   const [motivo, setMotivo] = useState("");
+  // RD-98 p2: editar in-place uma simulação salva (atualiza o MESMO registro, não duplica).
+  const [editId, setEditId] = useState<string | null>(null);
 
   const carregarSalvas = useCallback(async () => {
     if (!companyId) return;
@@ -160,17 +165,29 @@ export default function SimuladorPage() {
     if (!companyId || !montagemId || salvando) return;
     const areaNum = Number((area || "0").replace(",", ".")) || 0;
     setSalvando(true); setErro(null); setMsg(null);
-    const { error } = await supabaseBrowser().rpc("fn_simulador_salvar", {
-      p_company_id: companyId, p_servico_id: montagemId, p_business_line_id: montagemSel?.business_line_id ?? null,
-      p_area: areaNum, p_nome: nomeSim.trim(), p_cliente_id: clienteId || null,
-    });
+    // Com editId: atualiza o MESMO registro (fn_simulador_editar); sem: cria um novo (fn_simulador_salvar).
+    const { error } = editId
+      ? await supabaseBrowser().rpc("fn_simulador_editar", {
+          p_id: editId, p_nome: nomeSim.trim(), p_servico_id: montagemId,
+          p_business_line_id: montagemSel?.business_line_id ?? null, p_area: areaNum, p_cliente_id: clienteId || null,
+        })
+      : await supabaseBrowser().rpc("fn_simulador_salvar", {
+          p_company_id: companyId, p_servico_id: montagemId, p_business_line_id: montagemSel?.business_line_id ?? null,
+          p_area: areaNum, p_nome: nomeSim.trim(), p_cliente_id: clienteId || null,
+        });
     setSalvando(false);
     if (error) { setErro(error.message); return; }
-    setNomeSim(""); setMsg("Simulação salva."); await carregarSalvas();
+    setNomeSim(""); setMsg(editId ? "Simulação atualizada." : "Simulação salva."); setEditId(null); await carregarSalvas();
   };
 
   const abrirSalva = (x: Salva) => {
-    setFLinha(""); setMontagemId(x.servico_id); setArea(String(x.area).replace(".", ",")); setMsg(`Simulação “${x.nome}” carregada.`);
+    setEditId(null); setFLinha(""); setMontagemId(x.servico_id); setArea(String(x.area).replace(".", ",")); setMsg(`Simulação “${x.nome}” carregada.`);
+  };
+
+  // Editar: leva a simulação para o formulário em modo edição (atualiza o mesmo registro ao salvar).
+  const editarSalva = (x: Salva) => {
+    setFLinha(""); setMontagemId(x.servico_id); setArea(String(x.area).replace(".", ",")); setNomeSim(x.nome); setEditId(x.id);
+    setMsg(`Editando “${x.nome}”. Ajuste a montagem, a metragem ou o nome e clique em Atualizar.`);
   };
 
   const excluirSalva = async () => {
@@ -178,6 +195,67 @@ export default function SimuladorPage() {
     const { error } = await supabaseBrowser().rpc("fn_simulador_excluir", { p_id: excluindo.id, p_motivo: motivo.trim() });
     if (error) { setErro(error.message); return; }
     setExcluindo(null); setMotivo(""); setMsg("Simulação excluída (fica registrada na auditoria)."); await carregarSalvas();
+  };
+
+  // RD-98 O.3.7 — exportar a lista de materiais (lista de compra) + totais.
+  const itens = sim?.quantitativo ?? [];
+  const unidadeObra = sim?.unidade || "m²";
+  const totalMateriais = useMemo(() => itens.reduce((s, q) => s + (q.custo_total || 0), 0), [itens]);
+  const tituloExport = `Lista de materiais — ${sim?.montagem ?? "montagem"} (${num(sim?.area)} ${unidadeObra})`;
+
+  const exportarExcel = async () => {
+    if (itens.length === 0) return;
+    const rows: Record<string, string | number | null>[] = itens.map((q) => ({
+      Insumo: q.insumo,
+      "Coef./un.": q.qtd_m2,
+      "Perda %": q.perda_pct ?? 0,
+      "Qtd total": q.qtd_total,
+      Unidade: q.unidade || "",
+      "Custo unit. (R$)": q.custo_unitario ?? null,
+      "Custo total (R$)": q.custo_total,
+    }));
+    rows.push({
+      Insumo: "TOTAL DE MATERIAIS",
+      "Coef./un.": null, "Perda %": null, "Qtd total": null, Unidade: "",
+      "Custo unit. (R$)": null, "Custo total (R$)": Number(totalMateriais.toFixed(2)),
+    });
+    await exportToExcel(rows, { filename: `lista-materiais-${Date.now()}.xlsx`, sheetName: "Materiais", title: tituloExport });
+  };
+
+  const exportarWhatsApp = () => {
+    if (itens.length === 0) return;
+    const linhas = itens.map((q) => `• ${q.insumo}: ${num(q.qtd_total, 2)} ${q.unidade || ""} — ${brl(q.custo_total)}`).join("\n");
+    const txt = `*${tituloExport}*\n\n${linhas}\n\nTotal de materiais: ${brl(totalMateriais)}\nTotal da obra: ${brl(sim?.total_obra)}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(txt)}`, "_blank", "noopener,noreferrer");
+  };
+
+  // RD-98 O.3.7 — a lista de compra prometida é PDF, Excel e WhatsApp. Reusa o motor
+  // genérico de relatório (src/lib/export/relatorioLista) — não recria PDF (RD-26).
+  const exportarPdf = async () => {
+    if (itens.length === 0) return;
+    const colunas: Coluna<QuantItem>[] = [
+      { header: "Insumo", get: (q) => q.insumo, tipo: "texto", peso: 2.6 },
+      { header: `Coef./${unidadeObra}`, get: (q) => q.qtd_m2, tipo: "numero", align: "right", peso: 1 },
+      { header: "Perda %", get: (q) => q.perda_pct ?? 0, tipo: "numero", align: "right", peso: 0.8 },
+      { header: "Qtd total", get: (q) => q.qtd_total, tipo: "numero", align: "right", peso: 1 },
+      { header: "Unidade", get: (q) => q.unidade || "", tipo: "texto", peso: 0.8 },
+      { header: "Custo unit.", get: (q) => q.custo_unitario ?? null, tipo: "moeda", align: "right", peso: 1.1 },
+      { header: "Custo total", get: (q) => q.custo_total, tipo: "moeda", align: "right", peso: 1.2, total: true },
+    ];
+    await exportarPDF<QuantItem>(
+      {
+        titulo: `Lista de materiais — ${sim?.montagem ?? "montagem"}`,
+        empresa: selInfo?.nome || "Empresa",
+        filtros: `Montagem: ${sim?.montagem ?? "—"} · Metragem: ${num(sim?.area)} ${unidadeObra}`,
+        emitidoEmISO: new Date().toISOString(),
+        kpis: [
+          { label: "Total de materiais", valor: totalMateriais, qtd: itens.length },
+          { label: "Total da obra", valor: sim?.total_obra ?? 0 },
+        ],
+      },
+      colunas,
+      itens,
+    );
   };
 
   if (!companyId) {
@@ -221,7 +299,17 @@ export default function SimuladorPage() {
       {msg && <div data-testid="simulador-msg" className="mb-4 rounded-lg bg-[#FBF4E4] p-3 text-sm text-[#3D2314]">{msg}</div>}
       {erro && <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-800"><AlertTriangle className="mb-0.5 mr-1 inline" size={15} />{erro}{faltaConfig && <> <a href="/dashboard/projetos/configuracoes" className="font-semibold underline">Configurar precificação</a></>}</div>}
 
-      {!montagemId ? (
+      {!loadingCat && produtos.length === 0 ? (
+        <div data-testid="simulador-sem-montagens" className="rounded-2xl border border-dashed border-[#3D2314]/20 bg-[#FAF7F2] p-10 text-center">
+          <p className="text-sm font-medium text-[#3D2314]">Nenhuma montagem cadastrada ainda</p>
+          <p className="mx-auto mt-1 max-w-md text-sm text-[#3D2314]/60">
+            O simulador calcula o quantitativo e o orçamento a partir das montagens (composições das 5 camadas) do catálogo de serviços desta empresa. Cadastre a primeira montagem e volte aqui para simular por metragem.
+          </p>
+          <a href="/dashboard/projetos/catalogo" className="mt-4 inline-flex items-center gap-1 rounded-lg bg-[#3D2314] px-4 py-2 text-sm font-medium text-[#FAF7F2] transition-colors hover:bg-[#3D2314]/90">
+            Abrir o catálogo de serviços
+          </a>
+        </div>
+      ) : !montagemId ? (
         <div className="rounded-2xl border border-dashed border-[#3D2314]/20 bg-[#FAF7F2] p-12 text-center text-sm text-[#3D2314]/60">
           Escolha uma montagem e informe a metragem.
         </div>
@@ -233,34 +321,70 @@ export default function SimuladorPage() {
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.4fr_1fr]">
           {/* Quantitativo */}
           <section className="rounded-2xl border border-[#3D2314]/8 bg-white p-5 shadow-sm">
-            <h2 className="mb-3 text-base font-medium text-[#3D2314]" style={{ fontFamily: "var(--ps-font-body)" }}>
-              Quantitativo de materiais <AjudaCampo chave="projetos.simulador.quantitativo" /> <span className="text-sm text-[#3D2314]/50">· {sim.montagem} · {num(sim.area)} {sim.unidade || "m²"}</span>
-            </h2>
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+              <h2 className="text-base font-medium text-[#3D2314]" style={{ fontFamily: "var(--ps-font-body)" }}>
+                Quantitativo de materiais <AjudaCampo chave="projetos.simulador.quantitativo" /> <span className="text-sm text-[#3D2314]/50">· {sim.montagem} · {num(sim.area)} {sim.unidade || "m²"}</span>
+              </h2>
+              {itens.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <button data-testid="simulador-exportar-pdf" onClick={() => void exportarPdf()}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-[#C8941A]/60 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-[#3D2314] transition-colors hover:bg-[#FBF4E4]">
+                    <FileText size={14} className="text-[#C8941A]" /> PDF
+                  </button>
+                  <button data-testid="simulador-exportar-excel" onClick={() => void exportarExcel()}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-[#C8941A]/60 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-[#3D2314] transition-colors hover:bg-[#FBF4E4]">
+                    <FileSpreadsheet size={14} className="text-[#C8941A]" /> Excel
+                  </button>
+                  <button data-testid="simulador-exportar-whatsapp" onClick={exportarWhatsApp}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-[#3D2314]/12 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-[#3D2314] transition-colors hover:bg-[#FAF7F2]">
+                    <Share2 size={14} /> WhatsApp
+                  </button>
+                  <AjudaCampo chave="projetos.simulador.exportar" />
+                </div>
+              )}
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[#3D2314]/10 text-left text-[11px] uppercase tracking-wider text-[#3D2314]/50">
                     <th className="py-2 pr-3">Insumo</th>
-                    <th className="py-2 px-3 text-right">Qtd/m²</th>
+                    <th className="py-2 px-3 text-right">Coef./{sim.unidade || "m²"}</th>
+                    <th className="py-2 px-3 text-right">Perda <AjudaCampo chave="projetos.simulador.perda" /></th>
                     <th className="py-2 px-3 text-right">Qtd total</th>
+                    <th className="py-2 px-3 text-right">Custo unit. <AjudaCampo chave="projetos.simulador.custo_unitario" /></th>
                     <th className="py-2 pl-3 text-right">Custo</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(sim.quantitativo ?? []).map((q, i) => (
+                  {itens.map((q, i) => (
                     <tr key={i} className="border-b border-[#3D2314]/6">
                       <td className="py-2 pr-3 text-[#3D2314]">{q.insumo}</td>
                       <td className="py-2 px-3 text-right font-mono text-[#3D2314]/70">{num(q.qtd_m2, 3)}</td>
+                      <td className="py-2 px-3 text-right font-mono text-[#3D2314]/70">{pct(q.perda_pct)}</td>
                       <td className="py-2 px-3 text-right font-mono font-semibold text-[#3D2314]">{num(q.qtd_total, 2)} <span className="text-[10px] font-normal text-[#3D2314]/45">{q.unidade || ""}</span></td>
+                      <td className="py-2 px-3 text-right font-mono text-[#3D2314]/70">{brl(q.custo_unitario)}</td>
                       <td className="py-2 pl-3 text-right font-mono text-[#3D2314]">{brl(q.custo_total)}</td>
                     </tr>
                   ))}
-                  {(sim.quantitativo ?? []).length === 0 && (
-                    <tr><td colSpan={4} className="py-4 text-center text-sm text-[#3D2314]/50">Sem materiais no BOM desta montagem.</td></tr>
+                  {itens.length === 0 && (
+                    <tr><td colSpan={6} className="py-4 text-center text-sm text-[#3D2314]/50">Sem materiais no BOM desta montagem.</td></tr>
                   )}
                 </tbody>
+                {itens.length > 0 && (
+                  <tfoot>
+                    <tr className="border-t border-[#3D2314]/10">
+                      <td className="py-2 pr-3 text-[11px] font-semibold uppercase tracking-wider text-[#3D2314]/55" colSpan={5}>Total de materiais</td>
+                      <td className="py-2 pl-3 text-right font-mono font-semibold text-[#3D2314]">{brl(totalMateriais)}</td>
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             </div>
+            {itens.length > 0 && (
+              <p className="mt-3 rounded-lg bg-[#FAF7F2] px-3 py-2 text-[11px] leading-relaxed text-[#3D2314]/60">
+                <span className="font-semibold text-[#3D2314]/75">Como a conta é feita:</span> Qtd total = coef./{sim.unidade || "m²"} × (1 + perda%) × metragem ({num(sim.area)} {sim.unidade || "m²"}). Custo = qtd total × custo unitário.
+              </p>
+            )}
           </section>
 
           {/* Orçamento (5 camadas) + total */}
@@ -299,13 +423,17 @@ export default function SimuladorPage() {
               </div>
               <p className="text-[11px] text-[#3D2314]/50">Nasce em rascunho; o valor é recalculado na hora de gerar.</p>
               <div className="border-t border-[#3D2314]/10 pt-3" data-ajuda="1">
-                <span className="mb-1 block text-[11px] uppercase tracking-wider text-[#3D2314]/55">Nome da simulação <AjudaCampo chave="projetos.simulador.nome_simulacao" /></span>
+                <span className="mb-1 block text-[11px] uppercase tracking-wider text-[#3D2314]/55">{editId ? "Editando simulação salva" : "Nome da simulação"} <AjudaCampo chave="projetos.simulador.nome_simulacao" /></span>
                 <input data-testid="simulador-nome" value={nomeSim} onChange={(e) => setNomeSim(e.target.value)} placeholder="ex.: Piso galpão — 450 m²" className={selCls} />
                 <div className="mt-2 flex items-center gap-2">
                   <button data-testid="simulador-salvar" onClick={() => void salvarSimulacao()} disabled={salvando || nomeSim.trim().length < 2}
                     className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-[#C8941A] bg-white px-3 py-2.5 text-sm font-medium text-[#3D2314] disabled:cursor-not-allowed disabled:opacity-50">
-                    <Save size={14} /> {salvando ? "Salvando…" : "Salvar simulação"}
+                    <Save size={14} /> {salvando ? (editId ? "Atualizando…" : "Salvando…") : (editId ? "Atualizar simulação" : "Salvar simulação")}
                   </button>
+                  {editId && (
+                    <button data-testid="simulador-cancelar-edicao" onClick={() => { setEditId(null); setNomeSim(""); setMsg(null); }}
+                      className="rounded-lg border border-[#3D2314]/12 px-3 py-2.5 text-sm text-[#3D2314] transition-colors hover:bg-[#FAF7F2]">Cancelar</button>
+                  )}
                   <AjudaCampo chave="projetos.simulador.salvar" />
                 </div>
               </div>
@@ -328,6 +456,8 @@ export default function SimuladorPage() {
                   <div className="text-[11px] text-[#3D2314]/55">{x.montagem ?? "montagem"} · {num(x.area)} {x.unidade || "m²"} · {brl(x.total_obra)} · margem {num(x.margem_pct)}% · {new Date(x.criado_em).toLocaleDateString("pt-BR")}</div>
                 </div>
                 <button onClick={() => abrirSalva(x)} className="inline-flex items-center gap-1 rounded-lg border border-[#3D2314]/12 px-2.5 py-1.5 text-[11px] font-semibold text-[#3D2314]"><FolderOpen size={12} /> Abrir</button>
+                <button data-testid="simulador-editar" onClick={() => editarSalva(x)} className="inline-flex items-center gap-1 rounded-lg border border-[#C8941A]/60 px-2.5 py-1.5 text-[11px] font-semibold text-[#3D2314]"><Pencil size={12} /> Editar</button>
+                <AjudaCampo chave="projetos.simulador.editar" />
                 <button data-testid="simulador-excluir" onClick={() => { setExcluindo(x); setMotivo(""); }} className="inline-flex items-center gap-1 rounded-lg border border-red-300 px-2.5 py-1.5 text-[11px] font-semibold text-red-700"><Trash2 size={12} /> Excluir</button>
               </li>
             ))}
