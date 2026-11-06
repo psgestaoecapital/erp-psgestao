@@ -40,5 +40,10 @@ ok(chaves.size >= 10, '"?" nas telas')
 for (const k of chaves) ok(mig.includes(`('${k}',`), `chave de ajuda cadastrada: ${k}`)
 ok(/module_catalog[\s\S]*'\/dashboard\/gestao-empresarial\/resultado-por-negocio'/.test(sql) && /system_screens[\s\S]*'\/dashboard\/gestao-empresarial\/resultado-por-negocio'/.test(sql), 'tela no menu e em system_screens')
 
+// 7) sinal do lançamento respeitado (estorno não vira receita/despesa a mais) — vale a versão mais nova do cálculo
+const versoes = readdirSync('supabase/migrations').filter((f) => /_ge_resultado_por_negocio(_[a-z_]+)?\.sql$/.test(f)).sort()
+const ultima = readFileSync(`supabase/migrations/${versoes.at(-1)}`, 'utf8')
+ok(/-coalesce\(p\.valor,0\)::numeric AS v/.test(ultima) && /\bcoalesce\(r\.valor,0\)::numeric,/.test(ultima) && !/abs\(coalesce\([pr]\.valor/.test(ultima), 'sinal do lançamento respeitado (estorno)')
+
 if (falhas) { console.error(`\n${falhas} falha(s) — Resultado por negócio`); process.exit(1) }
 console.log('\nResultado por negócio ok')
