@@ -213,7 +213,7 @@ export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfter
         </div>
       ) : (
       <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: 10 }}>
-        <textarea value={texto} onChange={(e) => setTexto(e.target.value)} placeholder={ehSuporte ? 'Responder ao autor…' : 'Escreva ou mande uma foto de um novo erro — o chamado volta pra equipe sem encerrar.'} rows={2}
+        <textarea value={texto} onChange={(e) => setTexto(e.target.value)} placeholder={ehSuporte && autorChamadoId !== userId ? 'Responder ao autor…' : autorChamadoId === userId ? 'Enviar mensagem para quem está atendendo… (escreva ou mande uma foto de um novo erro)' : 'Escreva ou mande uma foto de um novo erro — o chamado volta pra equipe sem encerrar.'} rows={2}
           style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, outline: 'none', resize: 'vertical' }} />
         <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
           <FotosChamado value={fotos} onChange={setFotos} compact />
