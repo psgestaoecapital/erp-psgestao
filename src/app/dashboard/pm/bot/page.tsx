@@ -310,13 +310,14 @@ export default function BotSlackPage() {
         </div>
       )}
 
-      {/* O que vem a seguir (honesto, RD-98) */}
+      {/* O que o bot já faz (honesto, RD-38/RD-98) */}
       <div style={{ ...card, background: OFFWHITE }}>
-        <div style={{ ...label }}>O que vem a seguir <AjudaCampo chave="pm.bot.proximo" rota={ROTA} /></div>
+        <div style={{ ...label }}>O que o bot já faz <AjudaCampo chave="pm.bot.proximo" rota={ROTA} /></div>
         <p style={{ color: TEXTM, fontSize: 14, margin: 0, lineHeight: 1.6 }}>
-          Já funciona: conectar o canal, escolher os avisos, <strong>testar o envio</strong> e ver o
-          <strong> histórico</strong> das mensagens. A próxima fatia liga o <strong>disparo automático por evento</strong>
-          (novo job, prazo em 24h, job atrasado…), para os avisos marcados saírem sozinhos quando o fato acontecer.
+          Tudo da V1 já funciona ponta a ponta: conectar o canal, escolher os avisos, o
+          <strong> disparo automático por evento</strong> — os avisos marcados (novo job, aprovação pendente,
+          prazo em 24h, job atrasado e estouro de horas) saem sozinhos quando o fato acontece —, o
+          <strong> envio de teste</strong> e o <strong>histórico</strong> das mensagens.
         </p>
       </div>
 
