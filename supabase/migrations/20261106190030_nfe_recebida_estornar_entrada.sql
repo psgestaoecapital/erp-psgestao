@@ -116,3 +116,12 @@ END $function$;
 
 REVOKE ALL ON FUNCTION public.fn_nfe_recebida_estornar_entrada(uuid, text) FROM anon, public;
 GRANT EXECUTE ON FUNCTION public.fn_nfe_recebida_estornar_entrada(uuid, text) TO authenticated;
+
+-- RD-95 · "?" do botão Estornar entrada
+INSERT INTO public.erp_ajuda_campo (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, vertical, ordem, status)
+VALUES ('compras.docs_recebidos.estornar_entrada','/dashboard/compras/documentos-recebidos','Documentos recebidos','Estornar entrada',
+ 'Informe o motivo (mínimo 5 letras). Desfaz o que o lançamento fez: devolve o estoque, cancela o título a pagar e volta a nota para pendente.',
+ 'Corrige uma nota lançada por engano sem apagar histórico: tudo fica registrado (quem, quando, motivo).',
+ 'Motivo: lançada na empresa errada','Tentar estornar nota com título já pago, estoque já consumido, pedido de compra ou manifestação feita — o sistema bloqueia e explica.',
+ 'compras',90,'publicado')
+ON CONFLICT (chave) DO NOTHING;
