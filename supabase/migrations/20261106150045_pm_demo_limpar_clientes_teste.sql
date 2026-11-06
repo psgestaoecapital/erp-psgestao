@@ -116,3 +116,8 @@ BEGIN
     'horas_mes', v_horas, 'comissao_pagar', v_com, 'receber_vencido', v_venc);
   RETURN v;
 END $function$;
+
+-- 4) Guarda de ACL explícita no arquivo (espelha a ACL viva, exigida pelo gate
+--    check_fn_guards Regra 1: função SECURITY DEFINER recriada precisa do REVOKE anon).
+REVOKE ALL ON FUNCTION public.fn_pm_bi_kpis(uuid[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_pm_bi_kpis(uuid[]) TO authenticated, service_role;
