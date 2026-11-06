@@ -97,6 +97,7 @@ export default function DocumentosRecebidosPage() {
   const [loading, setLoading] = useState(true)
   const [buscando, setBuscando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [podeEstornar, setPodeEstornar] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [filtroStatus, setFiltroStatus] = useState<string>('todos')
   // #1692 · abas: a tela abre na fila de trabalho; nota concluída sai dela e vai para "Concluídas"
@@ -211,6 +212,18 @@ export default function DocumentosRecebidosPage() {
     setTimeout(() => setToast(null), 6000)
     void carregar(true)
   }
+
+  // #5730 · botão Estornar só para perfil financeiro/gestão (a função do banco confere de novo por empresa)
+  useEffect(() => {
+    let vivo = true
+    ;(async () => {
+      const ids = companyIds ?? []
+      if (!ids.length) { if (vivo) setPodeEstornar(false); return }
+      const r = await Promise.all(ids.map((id) => supabase.rpc('fn_nfe_recebida_pode_estornar', { p_company_id: id })))
+      if (vivo) setPodeEstornar(r.some((x) => x.data === true))
+    })()
+    return () => { vivo = false }
+  }, [companyIds])
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -866,7 +879,7 @@ export default function DocumentosRecebidosPage() {
                         >
                           <Eye size={11} /> DANFE
                         </button>
-                        {n.lancado_pagar && (
+                        {n.lancado_pagar && podeEstornar && (
                           <span className="inline-flex items-center gap-1">
                             <button
                               type="button"

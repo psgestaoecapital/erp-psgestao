@@ -21,6 +21,22 @@ CREATE POLICY nfe_recebida_estorno_log_sel ON public.erp_nfe_recebida_estorno_lo
 REVOKE ALL ON public.erp_nfe_recebida_estorno_log FROM anon, public;
 GRANT SELECT ON public.erp_nfe_recebida_estorno_log TO authenticated;
 
+CREATE OR REPLACE FUNCTION public.fn_nfe_recebida_pode_estornar(p_company_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $f$
+  SELECT auth.uid() IS NOT NULL AND (
+    is_admin()
+    OR EXISTS (SELECT 1 FROM user_companies uc
+                WHERE uc.user_id = auth.uid() AND uc.company_id = p_company_id
+                  AND lower(COALESCE(uc.role,'')) IN ('adm','admin','acesso_total','socio','sócio','diretor','gerente','financeiro')))
+$f$;
+REVOKE ALL ON FUNCTION public.fn_nfe_recebida_pode_estornar(uuid) FROM anon, public;
+GRANT EXECUTE ON FUNCTION public.fn_nfe_recebida_pode_estornar(uuid) TO authenticated;
+
 CREATE OR REPLACE FUNCTION public.fn_nfe_recebida_estornar_entrada(p_nfe_recebida_id uuid, p_motivo text)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -41,6 +57,9 @@ BEGIN
   IF NOT FOUND THEN RETURN jsonb_build_object('ok',false,'erro','nota nao encontrada'); END IF;
   IF NOT (v.company_id IN (SELECT get_user_company_ids()) OR is_admin()) THEN
     RETURN jsonb_build_object('ok',false,'erro','sem permissao'); END IF;
+  -- ação destrutiva de financeiro/estoque: só papéis financeiro/gestão (revisor #4000 item 2)
+  IF NOT fn_nfe_recebida_pode_estornar(v.company_id) THEN
+    RETURN jsonb_build_object('ok',false,'erro','sem permissao: estorno restrito a perfil financeiro/gestao/admin'); END IF;
 
   -- idempotência: nada lançado e nada movimentado = nada a estornar
   IF NOT COALESCE(v.lancado_pagar,false)
