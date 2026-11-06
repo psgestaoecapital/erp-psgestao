@@ -119,11 +119,11 @@ nchanges=$(( $(grep -c . "$dir/vaga_only.keys" || true) + $(grep -c . "$dir/prod
 
 # Irreversível com segurança → recriar (antes de tocar em nada):
 if [ -s "$dir/prod_only.keys" ]; then
-  echo "objetos aprovados AUSENTES na vaga (vaga ATRÁS da produção):"; sed 's/^/  - /' "$dir/prod_only.keys" | head
+  echo "objetos aprovados AUSENTES na vaga (vaga ATRÁS da produção):"; { sed 's/^/  - /' "$dir/prod_only.keys" | head; } || true
   recriar "a vaga perdeu/está sem objeto(s) aprovado(s) da produção — restauração cirúrgica seria insegura; rode o Montar (recriar)"
 fi
 if grep -qvE '^(func|view) ' "$dir/diff.keys" 2>/dev/null; then
-  echo "objetos MODIFICADOS de classe não restaurável (só restauramos função/view):"; grep -vE '^(func|view) ' "$dir/diff.keys" | sed 's/^/  - /' | head
+  echo "objetos MODIFICADOS de classe não restaurável (só restauramos função/view):"; { grep -vE '^(func|view) ' "$dir/diff.keys" | sed 's/^/  - /' | head; } || true
   recriar "objeto modificado que não é função/view"
 fi
 
