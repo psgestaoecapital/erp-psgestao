@@ -173,12 +173,12 @@ comm -12 "$dir/changed.all" "$dir/ref.keys" | comm -12 - "$dir/vaga.keys" > "$di
 
 # (d) irreversível com segurança ANTES de tocar em nada: objeto aprovado ausente na vaga (tabela/coluna/etc.).
 if [ -s "$dir/ref_only.keys" ]; then
-  echo "objeto(s) da referência AUSENTE(s) na vaga (diferença estrutural — tabela/coluna/etc.):"; sed 's/^/  - /' "$dir/ref_only.keys" | head
+  echo "objeto(s) da referência AUSENTE(s) na vaga (diferença estrutural — tabela/coluna/etc.):"; { sed 's/^/  - /' "$dir/ref_only.keys" | head; } || true
   montar "a vaga não tem objeto(s) aprovado(s) da referência — correção cirúrgica seria insegura (tabela de referência ausente ou colunas diferem)"
 fi
 # diff só é corrigível quando é função (def/perm), view, ou PERMISSÃO de função (grant-fn). Qualquer outra classe → Montar.
 if grep -qvE '^(func|view|grant-fn) ' "$dir/diff.keys" 2>/dev/null; then
-  echo "objeto(s) MODIFICADO(s) de classe não corrigível (só função/view/permissão-de-função):"; grep -vE '^(func|view|grant-fn) ' "$dir/diff.keys" | sed 's/^/  - /' | head
+  echo "objeto(s) MODIFICADO(s) de classe não corrigível (só função/view/permissão-de-função):"; { grep -vE '^(func|view|grant-fn) ' "$dir/diff.keys" | sed 's/^/  - /' | head; } || true
   montar "objeto modificado que não é função/view/permissão-de-função (ex.: tabela, coluna, tipo, policy, trigger)"
 fi
 
