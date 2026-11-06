@@ -403,7 +403,7 @@ function AbaAnalise({ companyId, de, ate, vendedor, aba }: { companyId: string; 
   const [dir, setDir] = useState<'desc' | 'asc'>('desc')
   const [drill, setDrill] = useState<AnaliseItem | null>(null)
 
-  const itens = dados?.ok ? dados.itens : []
+  const itens = useMemo(() => dados?.ok ? dados.itens : [], [dados])
   const total = dados?.total
   const termo = busca.trim().toLowerCase()
   const filtrados = useMemo(() => {
