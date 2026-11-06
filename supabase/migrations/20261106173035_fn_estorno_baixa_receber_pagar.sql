@@ -128,3 +128,23 @@ REVOKE ALL ON FUNCTION public.fn_receber_estornar_baixa(uuid, text) FROM PUBLIC,
 REVOKE ALL ON FUNCTION public.fn_pagar_cancelar_pagamento(uuid, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_receber_estornar_baixa(uuid, text) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.fn_pagar_cancelar_pagamento(uuid, text) TO authenticated, service_role;
+
+-- ===================== RD-95 ("?") da ação nova (estornar/cancelar pagamento) =====================
+-- Ajuda de campo da ação nova nas listas de Contas a Receber e Contas a Pagar (chave nova no banco,
+-- lida por fn_ajuda_campo_listar na própria tela). Explica o que o estorno faz, quando bloqueia
+-- (título conciliado) e o próximo passo (editar o valor e marcar recebido/pago de novo). Idempotente.
+INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
+VALUES
+  ('financeiro.receber.estornar_baixa', 'Receitas a Receber', 'Estornar recebimento',
+   'Clique quando o recebimento foi lançado com algum dado errado (valor, data) e você precisa refazer. O botão só aparece em título já baixado (✓ baixado). O sistema desfaz a baixa e devolve o título para EM ABERTO — sem excluir o lançamento.',
+   'Desfaz a baixa do recebimento: zera o valor recebido e a data de pagamento e volta o status para EM ABERTO, mantendo o título. Depois é só Editar o valor certo e marcar recebido de novo. A ação fica registrada (quem/quando/motivo) na trilha do lançamento.',
+   'Recebeu R$200 mas o certo era R$250: clique em Estornar, Edite o valor para R$250 e marque recebido novamente.',
+   'Tentar estornar um recebimento já conciliado com o extrato do banco: o sistema bloqueia e pede para cancelar a conciliação no inbox antes.',
+   2, '/dashboard/financeiro/receber', 'gestao_empresarial', 'publicado'),
+  ('financeiro.pagar.cancelar_pagamento', 'Despesas a Pagar', 'Cancelar pagamento',
+   'Clique quando o pagamento foi lançado com algum dado errado (valor, data) e você precisa refazer. O botão só aparece em título já baixado (✓ baixado). O sistema desfaz a baixa e devolve o título para EM ABERTO — sem excluir o lançamento.',
+   'Desfaz a baixa do pagamento: zera o valor pago e a data de pagamento e volta o status para EM ABERTO, mantendo o título. Depois é só Editar o valor certo e marcar pago de novo. A ação fica registrada (quem/quando/motivo) na trilha do lançamento.',
+   'Pagou R$200 mas o certo era R$250: clique em Cancelar pagto, Edite o valor para R$250 e marque pago novamente.',
+   'Tentar cancelar um pagamento já conciliado com o extrato do banco: o sistema bloqueia e pede para cancelar a conciliação no inbox antes.',
+   2, '/dashboard/financeiro/pagar', 'gestao_empresarial', 'publicado')
+ON CONFLICT (chave) DO NOTHING;

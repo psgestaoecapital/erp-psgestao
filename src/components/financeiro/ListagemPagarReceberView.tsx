@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { selecionarTodas } from '@/lib/selecionarTodas'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import MarcarPagoModal from './MarcarPagoModal'
 import MarcarPagoLoteModal from './MarcarPagoLoteModal'
 import EmitirNFSeButton from './EmitirNFSeButton'
@@ -1591,6 +1592,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                                 >
                                   ↩️ {tipo === 'pagar' ? 'Cancelar pagto' : 'Estornar'}
                                 </button>
+                                <AjudaCampo chave={tipo === 'pagar' ? 'financeiro.pagar.cancelar_pagamento' : 'financeiro.receber.estornar_baixa'} />
                               </>
                             )}
                             <button
