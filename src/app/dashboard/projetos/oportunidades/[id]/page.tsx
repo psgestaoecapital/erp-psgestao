@@ -1,5 +1,6 @@
 'use client'
 import { useCallback, useEffect, useState, type CSSProperties } from 'react'
+import { Phone } from 'lucide-react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
@@ -9,6 +10,8 @@ import OportunidadeFormModal, { type OportunidadeRow } from '../OportunidadeForm
 import VisitaFormModal, { type VisitaInicial, type OportunidadeOpt } from '@/components/crm/VisitaFormModal'
 import AnexosCard from '@/components/crm/AnexosCard'
 import { telefoneDoCliente, linkTelefone } from '@/lib/crm/oportunidadeCliente'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { ehUuid, erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 type Oport = {
   id: string
@@ -137,9 +140,15 @@ export default function OportunidadeFichaPage() {
   const [visitaEditando, setVisitaEditando] = useState<VisitaInicial | null | undefined>(undefined)
   const [gerandoOrc, setGerandoOrc] = useState(false)
   const [gerandoOrcDeVisita, setGerandoOrcDeVisita] = useState<string | null>(null)
+  // Elo da jornada · a venda ganha vira obra (projetos_obras.oportunidade_id). Aqui mostramos a obra
+  // já criada (link direto ao cockpit) ou, quando ganha e ainda sem obra, o botão para abri-la.
+  const [obraVinc, setObraVinc] = useState<{ id: string; numero: string } | null>(null)
+  const [criandoObra, setCriandoObra] = useState(false)
 
   const reload = useCallback(async () => {
     if (!id) return
+    // id que não é uuid (ex.: o literal "[id]") nem vai ao banco: cai no "não encontrada" da tela.
+    if (!ehUuid(id)) { setOp(null); setLoading(false); return }
     setLoading(true)
     try {
       const [o, i, v, h] = await comPrazo(() => Promise.all([
@@ -175,11 +184,47 @@ export default function OportunidadeFichaPage() {
       })
   }, [op?.company_id])
 
+  // Obra vinculada a esta venda (se já existir): alimenta o link "Abrir obra" / esconde o botão de criar.
+  useEffect(() => {
+    if (!ehUuid(id)) { setObraVinc(null); return }
+    supabase
+      .from('projetos_obras')
+      .select('id, numero')
+      .eq('oportunidade_id', id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => setObraVinc((data ?? null) as { id: string; numero: string } | null))
+  }, [id, op?.etapa])
+
   useEffect(() => {
     if (!toast) return
     const t = setTimeout(() => setToast(null), 3500)
     return () => clearTimeout(t)
   }, [toast])
+
+  // Abrir obra a partir da venda ganha — reusa a MESMA RPC da tela Nova obra / Clientes
+  // (numeração OBR-AAAA-NNNN, nome e endereço da venda, guarda de empresa no banco). Aditivo, não altera o banco.
+  async function criarObraDaVenda() {
+    if (!op) return
+    if (!op.cliente_id) { setToast('Defina o cliente da oportunidade antes de abrir a obra.'); return }
+    if (!confirm('Isto vai ABRIR uma obra vinculada a esta venda ganha. Continuar?')) return
+    setCriandoObra(true)
+    const cli = op.erp_clientes
+    const nomeCli = cli?.nome_fantasia ?? cli?.razao_social ?? ''
+    const valor = (op.valor_proposta ?? op.valor_estimado ?? 0) > 0 ? (op.valor_proposta ?? op.valor_estimado) : null
+    const { data: obraId, error } = await supabase.rpc('fn_hub_criar_obra_rapida', {
+      p_company_id: op.company_id, p_cliente_id: op.cliente_id, p_cliente_nome: nomeCli, p_nome: op.titulo || `Obra ${nomeCli}`,
+      p_logradouro: op.obra_endereco || null, p_numero: null, p_bairro: op.obra_bairro || null,
+      p_cidade: op.obra_cidade || null, p_uf: null, p_cep: null, p_codigo_ibge: null, p_cno: null,
+      p_valor_previsto: valor,
+    })
+    if (error || !obraId) { setCriandoObra(false); setToast(erroAmigavel(error) || 'Não foi possível abrir a obra.'); return }
+    // A obra guarda a oportunidade de origem (o funil sabe que a venda virou obra; o botão some).
+    await supabase.from('projetos_obras').update({ oportunidade_id: op.id }).eq('id', obraId as string)
+    setCriandoObra(false)
+    router.push(`/dashboard/projetos/obras/${obraId as string}/cockpit?area=hub`)
+  }
 
   async function moverEtapa(nova: string) {
     if (!op) return
@@ -193,9 +238,9 @@ export default function OportunidadeFichaPage() {
     const { data, error } = await supabase.rpc('fn_crm_mover_etapa', {
       p_id: op.id, p_etapa: nova, p_motivo_perda: motivo,
     })
-    if (error) { setToast(`Erro: ${error.message}`); return }
+    if (error) { setToast(erroAmigavel(error)); return }
     const r = data as { ok?: boolean; erro?: string } | null
-    if (r && r.ok === false) { setToast(r.erro === 'motivo_obrigatorio' ? 'Informe o motivo da perda.' : `Erro: ${r.erro ?? 'falha'}`); return }
+    if (r && r.ok === false) { setToast(r.erro === 'motivo_obrigatorio' ? 'Informe o motivo da perda.' : codigoAmigavel(r.erro)); return }
     setToast(`Etapa ALTERADA para ${etapaCfg(nova).l}.`)
     reload()
   }
@@ -208,9 +253,9 @@ export default function OportunidadeFichaPage() {
     const { data, error } = await supabase.rpc('fn_crm_oportunidade_excluir', {
       p_company_id: op.company_id, p_id: op.id, p_motivo: motivo || null,
     })
-    if (error) { setToast(`Erro: ${error.message}`); return }
+    if (error) { setToast(erroAmigavel(error)); return }
     const r = data as { ok?: boolean; erro?: string } | null
-    if (r && r.ok === false) { setToast(`Erro: ${r.erro ?? 'falha'}`); return }
+    if (r && r.ok === false) { setToast(codigoAmigavel(r.erro)); return }
     router.push('/dashboard/projetos/oportunidades')
   }
 
@@ -220,9 +265,9 @@ export default function OportunidadeFichaPage() {
     const { data, error } = await supabase.rpc('fn_crm_oportunidade_retornar_funil', {
       p_company_id: op.company_id, p_id: op.id, p_etapa_destino: retornoEtapa,
     })
-    if (error) { setToast(`Erro: ${error.message}`); return }
+    if (error) { setToast(erroAmigavel(error)); return }
     const r = data as { ok?: boolean; erro?: string } | null
-    if (r && r.ok === false) { setToast(`Erro: ${r.erro ?? 'falha'}`); return }
+    if (r && r.ok === false) { setToast(codigoAmigavel(r.erro)); return }
     setToast(`RETORNOU AO FUNIL na etapa ${etapaCfg(retornoEtapa).l}.`)
     reload()
   }
@@ -233,7 +278,7 @@ export default function OportunidadeFichaPage() {
     const cli = op.erp_clientes
     const nomeCli = cli?.nome_fantasia ?? cli?.razao_social ?? ''
     const { data: numero, error: numErr } = await supabase.rpc('next_orcamento_numero', { p_company_id: op.company_id })
-    if (numErr) { setToast(`Erro: ${numErr.message}`); return null }
+    if (numErr) { setToast(erroAmigavel(numErr)); return null }
     const hoje = new Date().toISOString().slice(0, 10)
     const valid = new Date(); valid.setDate(valid.getDate() + 15)
     const { data: orc, error: oErr } = await supabase
@@ -255,7 +300,7 @@ export default function OportunidadeFichaPage() {
       })
       .select('id, numero')
       .single()
-    if (oErr) { setToast(`Erro: ${oErr.message}`); return null }
+    if (oErr) { setToast(erroAmigavel(oErr)); return null }
     return orc as { id: string; numero: string }
   }
 
@@ -335,7 +380,7 @@ export default function OportunidadeFichaPage() {
             </p>
             {linkTelefone(telefoneDoCliente(op.erp_clientes)) && (
               <a href={linkTelefone(telefoneDoCliente(op.erp_clientes))} className="text-sm font-semibold" style={{ color: '#C8941A' }} data-testid="ficha-oport-telefone">
-                📞 {telefoneDoCliente(op.erp_clientes)}
+                <Phone size={14} aria-hidden style={{ display: 'inline', verticalAlign: '-2px' }} /> {telefoneDoCliente(op.erp_clientes)}
               </a>
             )}
           </div>
@@ -364,6 +409,7 @@ export default function OportunidadeFichaPage() {
           >
             {ETAPAS.map((e) => <option key={e.v} value={e.v}>Mover para: {e.l}</option>)}
           </select>
+          <AjudaCampo chave="projetos.oportunidade.ficha.etapa" rota="/dashboard/projetos/oportunidades/[id]" />
           {respNome && <span className="text-sm ml-auto" style={{ color: TEXTM }}>resp: {respNome}</span>}
         </div>
         {op.motivo_perda && (
@@ -378,18 +424,42 @@ export default function OportunidadeFichaPage() {
                 <option key={e.v} value={e.v}>{e.l}</option>
               ))}
             </select>
+            <AjudaCampo chave="projetos.oportunidade.ficha.retornar_funil" rota="/dashboard/projetos/oportunidades/[id]" />
             <button onClick={retornarFunil} style={btnSec}>Retornar</button>
             <span className="text-xs" style={{ color: TEXTM }}>o valor é preservado; só reabre a negociação.</span>
           </div>
         )}
       </div>
 
-      {/* Dados da obra */}
-      {(op.obra_endereco || op.obra_cidade || op.obra_bairro) && (
+      {/* Obra — endereço da venda e o elo com a obra (link para a existente ou abertura a partir da venda ganha) */}
+      {(op.obra_endereco || op.obra_cidade || op.obra_bairro || op.etapa === 'ganho' || obraVinc) && (
         <Sec titulo="Obra">
-          <p style={{ color: TEXTM, fontSize: 13 }}>
-            {[op.obra_endereco, op.obra_bairro, op.obra_cidade].filter(Boolean).join(' · ')}
-          </p>
+          {(op.obra_endereco || op.obra_cidade || op.obra_bairro) && (
+            <p style={{ color: TEXTM, fontSize: 13, marginBottom: 10 }}>
+              {[op.obra_endereco, op.obra_bairro, op.obra_cidade].filter(Boolean).join(' · ')}
+            </p>
+          )}
+          {obraVinc ? (
+            <Link
+              href={`/dashboard/projetos/obras/${obraVinc.id}/cockpit?area=hub`}
+              className="inline-block px-3 py-2 rounded-lg text-sm"
+              style={{ background: OFFWHITE, color: ESPRESSO, border: `1px solid ${BORDA}` }}
+              data-testid="ficha-oport-abrir-obra"
+            >
+              Abrir obra {obraVinc.numero} →
+            </Link>
+          ) : op.etapa === 'ganho' ? (
+            <>
+              <button onClick={criarObraDaVenda} disabled={criandoObra} style={btnPrimary} data-testid="ficha-oport-criar-obra">
+                {criandoObra ? 'Abrindo…' : '+ ABRIR obra desta venda'}
+              </button>
+              <p style={{ color: TEXTM, fontSize: 12, marginTop: 6 }}>
+                A venda foi ganha. Abra a obra para executar: nasce com o cliente, o título e o endereço desta venda.
+              </p>
+            </>
+          ) : (
+            <p style={{ color: TEXTM, fontSize: 12 }}>A obra é aberta quando a oportunidade é marcada como <b>Ganha</b>.</p>
+          )}
         </Sec>
       )}
 
@@ -662,7 +732,7 @@ function NovaInteracaoModal({
       descricao: descricao.trim(),
     })
     setSaving(false)
-    if (error) { setErr(error.message); return }
+    if (error) { setErr(erroAmigavel(error, 'Não foi possível registrar a interação. Tente de novo.')); return }
     onSaved()
   }
 
@@ -674,13 +744,13 @@ function NovaInteracaoModal({
           <button onClick={onClose} style={closeBtn} aria-label="Fechar">✕</button>
         </div>
         <label style={lbl}>
-          Tipo
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Tipo <AjudaCampo chave="projetos.oportunidade.interacao.tipo" rota="/dashboard/projetos/oportunidades/[id]" /></span>
           <select value={tipo} onChange={(e) => setTipo(e.target.value as typeof TIPOS_INT[number])} style={inp}>
             {TIPOS_INT.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
         </label>
         <label style={{ ...lbl, marginTop: 10 }}>
-          Descrição *
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Descrição * <AjudaCampo chave="projetos.oportunidade.interacao.descricao" rota="/dashboard/projetos/oportunidades/[id]" /></span>
           <textarea
             rows={4}
             value={descricao}

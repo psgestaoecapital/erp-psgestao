@@ -12,6 +12,7 @@
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { watcherSecretValido } from '@/lib/watcherSecret'
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -104,13 +105,13 @@ export async function GET(req: Request) {
   // Vercel Cron envia Authorization: Bearer <CRON_SECRET>
   // Em chamada manual aceita x-watcher-secret tambem
   const cronSecret = process.env.CRON_SECRET;
-  const watcherSecret = process.env.WATCHER_SECRET;
+  const watcherSecret = process.env.WATCHER_SECRET || process.env.WATCHER_SECRET_NOVO;
 
   const auth = req.headers.get('authorization');
   const xWatcher = req.headers.get('x-watcher-secret');
 
   const cronOk = !!cronSecret && auth === `Bearer ${cronSecret}`;
-  const watcherOk = !!watcherSecret && xWatcher === watcherSecret;
+  const watcherOk = watcherSecretValido(xWatcher);
 
   if (!cronOk && !watcherOk) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

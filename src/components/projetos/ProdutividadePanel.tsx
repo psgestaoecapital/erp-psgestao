@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Gauge, Loader2, CheckCircle2, AlertTriangle, Plus, Trash2 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
 type Linha = { id: string; nome: string };
 type Produto = {
@@ -18,6 +19,7 @@ type Produto = {
 type RowEdit = { nome?: string; business_line_id?: string; produtividade?: string; equipe?: string };
 
 const brl = (v: number | null) => (v == null ? "—" : v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
+const rot = "flex items-center gap-1 text-[10px] uppercase tracking-wider text-[#3D2314]/55";
 const inp = "rounded-lg border border-[#3D2314]/12 bg-white px-2 py-1 text-sm text-[#3D2314] focus:border-[#C8941A] focus:outline-none";
 
 export default function ProdutividadePanel({ companyId }: { companyId: string }) {
@@ -146,14 +148,20 @@ export default function ProdutividadePanel({ companyId }: { companyId: string })
               <CheckCircle2 size={12} /> {toast}
             </span>
           )}
-          <select value={fLinha} onChange={(e) => setFLinha(e.target.value)} className={inp}>
-            <option value="">Todas as linhas</option>
-            {linhas.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
-          </select>
-          <select value={fCategoria} onChange={(e) => setFCategoria(e.target.value)} className={inp}>
-            <option value="">Todas as categorias</option>
-            {categorias.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
+          <label className="flex items-center gap-1">
+            <select value={fLinha} onChange={(e) => setFLinha(e.target.value)} aria-label="Filtrar por linha de negócio" className={inp}>
+              <option value="">Todas as linhas</option>
+              {linhas.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
+            </select>
+            <AjudaCampo chave="projetos.produtividade.filtro_linha" />
+          </label>
+          <label className="flex items-center gap-1">
+            <select value={fCategoria} onChange={(e) => setFCategoria(e.target.value)} aria-label="Filtrar por categoria" className={inp}>
+              <option value="">Todas as categorias</option>
+              {categorias.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <AjudaCampo chave="projetos.produtividade.filtro_categoria" />
+          </label>
           <button onClick={() => setNovoAberto((v) => !v)} className="inline-flex items-center gap-1 rounded-lg bg-[#3D2314] px-3 py-1.5 text-sm font-medium text-[#FAF7F2]">
             <Plus size={14} /> Novo produto
           </button>
@@ -163,17 +171,35 @@ export default function ProdutividadePanel({ companyId }: { companyId: string })
       {erro && produtos.length > 0 && <div className="mb-3 rounded-lg bg-red-50 p-2 text-xs text-red-800">{erro}</div>}
 
       {novoAberto && (
-        <div className="mb-4 grid grid-cols-1 gap-2 rounded-xl border border-[#C8941A]/30 bg-[#FBF4E4] p-3 sm:grid-cols-3 lg:grid-cols-7">
-          <input placeholder="Nome *" value={novo.nome} onChange={(e) => setNovo({ ...novo, nome: e.target.value })} className={`${inp} lg:col-span-2`} />
-          <input placeholder="Unidade" value={novo.unidade} onChange={(e) => setNovo({ ...novo, unidade: e.target.value })} className={inp} />
-          <input placeholder="Categoria" value={novo.categoria} onChange={(e) => setNovo({ ...novo, categoria: e.target.value })} className={inp} />
-          <select value={novo.business_line_id} onChange={(e) => setNovo({ ...novo, business_line_id: e.target.value })} className={inp}>
-            <option value="">Linha…</option>
-            {linhas.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
-          </select>
-          <input placeholder="Produt./dia" inputMode="decimal" value={novo.produtividade} onChange={(e) => setNovo({ ...novo, produtividade: e.target.value.replace(/[^\d.,]/g, "") })} className={inp} />
-          <div className="flex gap-2">
-            <input placeholder="Equipe" value={novo.equipe} onChange={(e) => setNovo({ ...novo, equipe: e.target.value })} className={`${inp} flex-1`} />
+        <div className="mb-4 grid grid-cols-1 items-end gap-2 rounded-xl border border-[#C8941A]/30 bg-[#FBF4E4] p-3 sm:grid-cols-3 lg:grid-cols-7">
+          <label className="grid gap-1 lg:col-span-2">
+            <span className={rot}>Nome * <AjudaCampo chave="projetos.produtividade.novo_nome" /></span>
+            <input placeholder="Ex.: Forro de gesso" value={novo.nome} onChange={(e) => setNovo({ ...novo, nome: e.target.value })} className={inp} />
+          </label>
+          <label className="grid gap-1">
+            <span className={rot}>Unidade <AjudaCampo chave="projetos.produtividade.novo_unidade" /></span>
+            <input placeholder="m2" value={novo.unidade} onChange={(e) => setNovo({ ...novo, unidade: e.target.value })} className={inp} />
+          </label>
+          <label className="grid gap-1">
+            <span className={rot}>Categoria <AjudaCampo chave="projetos.produtividade.novo_categoria" /></span>
+            <input placeholder="Ex.: Forros" value={novo.categoria} onChange={(e) => setNovo({ ...novo, categoria: e.target.value })} className={inp} />
+          </label>
+          <label className="grid gap-1">
+            <span className={rot}>Linha <AjudaCampo chave="projetos.produtividade.novo_linha" /></span>
+            <select value={novo.business_line_id} onChange={(e) => setNovo({ ...novo, business_line_id: e.target.value })} className={inp}>
+              <option value="">Linha…</option>
+              {linhas.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
+            </select>
+          </label>
+          <label className="grid gap-1">
+            <span className={rot}>Produt./dia <AjudaCampo chave="projetos.produtividade.novo_produtividade" /></span>
+            <input placeholder="Ex.: 40" inputMode="decimal" value={novo.produtividade} onChange={(e) => setNovo({ ...novo, produtividade: e.target.value.replace(/[^\d.,]/g, "") })} className={inp} />
+          </label>
+          <div className="flex items-end gap-2">
+            <label className="grid flex-1 gap-1">
+              <span className={rot}>Equipe <AjudaCampo chave="projetos.produtividade.novo_equipe" /></span>
+              <input placeholder="Ex.: 1 gesseiro + 1 ajudante" value={novo.equipe} onChange={(e) => setNovo({ ...novo, equipe: e.target.value })} className={inp} />
+            </label>
             <button onClick={() => void criar()} disabled={criando} className="rounded-lg bg-[#C8941A] px-3 py-1 text-sm font-semibold text-[#3D2314] disabled:opacity-50">{criando ? "…" : "Criar"}</button>
           </div>
         </div>
@@ -188,11 +214,11 @@ export default function ProdutividadePanel({ companyId }: { companyId: string })
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[#3D2314]/10 text-left text-[11px] uppercase tracking-wider text-[#3D2314]/50">
-                <th className="py-2 pr-3">Produto</th>
-                <th className="py-2 px-3">Linha de negócio</th>
-                <th className="py-2 px-3">Produtividade</th>
-                <th className="py-2 px-3">Equipe</th>
-                <th className="py-2 px-3 text-right">MO (R$/m²)</th>
+                <th className="py-2 pr-3"><span className="inline-flex items-center gap-1">Produto <AjudaCampo chave="projetos.produtividade.nome" /></span></th>
+                <th className="py-2 px-3"><span className="inline-flex items-center gap-1">Linha de negócio <AjudaCampo chave="projetos.produtividade.linha" /></span></th>
+                <th className="py-2 px-3"><span className="inline-flex items-center gap-1">Produtividade <AjudaCampo chave="projetos.produtividade.produtividade" /></span></th>
+                <th className="py-2 px-3"><span className="inline-flex items-center gap-1">Equipe <AjudaCampo chave="projetos.produtividade.equipe" /></span></th>
+                <th className="py-2 px-3 text-right"><span className="inline-flex items-center gap-1">MO (R$/m²) <AjudaCampo chave="projetos.produtividade.mo" /></span></th>
                 <th className="py-2 pl-3 text-right">Ações</th>
               </tr>
             </thead>

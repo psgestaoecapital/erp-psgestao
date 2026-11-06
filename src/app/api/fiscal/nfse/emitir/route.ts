@@ -13,7 +13,7 @@ import { aliquotaIbptEmpresa } from '@/lib/fiscal/ibptEmpresa'
 import { SELECT_CONFIG_EMISSOR, dadosEmissorDaConfig } from '@/lib/fiscal/emissorConfig'
 import { dataBrasil } from '@/lib/fiscal/dataBrasil'
 import { CAMPOS_CADASTRO_TOMADOR, enderecoFiscalDoCliente, escolherCadastroTomador, filtroCadastroTomador, nomeCadastro, type CadastroTomador } from '@/lib/fiscal/tomadorEndereco'
-import { aplicarRetencoesNota, calcularRetencoesFederais, issRetidoNfse, lerRetencoesNota, reformaIbsCbsDoServico, retencoesNotaDoCadastro, retencoesNotaIguais, travaEmissaoNfse, validarIbsCbsObrigatorio, type RetencoesFederaisNfse, type RetencoesNota, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
+import { aplicarRetencoesNota, calcularRetencoesFederais, issRetidoNfse, lerRetencoesNota, reformaIbsCbsDoServico, retencoesNotaDoCadastro, retencoesNotaIguais, totaisLiquidosNfse, travaEmissaoNfse, validarIbsCbsObrigatorio, type RetencoesFederaisNfse, type RetencoesNota, type ServicoIbsCbs, type ServicoTributosFederais } from '@/lib/fiscal/retencoesFederaisNfse'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -964,6 +964,12 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     )
     if (registroId && issRetido > 0 && resposta.status !== 'rejeitada') {
       await supabaseAdmin.from('erp_nfse_emitidas').update({ valor_iss_retido: issRetido }).eq('id', registroId)
+    }
+
+    // #3862 · total retido e líquido na nota (antes ficavam 0/NULL mesmo com INSS e ISS gravados)
+    if (registroId && resposta.status !== 'rejeitada' && (issRetido > 0 || (retencoesCalculadas?.totalRetido ?? 0) > 0)) {
+      const t = totaisLiquidosNfse(Number(nfseReq.valorServicos), retencoesCalculadas, issRetido)
+      await supabaseAdmin.from('erp_nfse_emitidas').update({ valor_retencoes: t.valorRetencoes, valor_liquido: t.valorLiquido }).eq('id', registroId)
     }
 
     // #82① · liga a nota emitida à obra (para rastreio e para a próxima nota já achar a obra)

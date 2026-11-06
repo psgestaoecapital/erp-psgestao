@@ -3,6 +3,8 @@
 // Card "Qualidade por Vertical" (Auditor Completo de Tela, RD-35): por área, % de telas LIBERADAS; clique abre as telas e,
 // na tela, o veredito com os gaps exatos. Verde/amarelo/vermelho só como semáforo de desempenho (identidade PS: espresso,
 // off-white e dourado). Dados: fn_auditor_telas_resumo() e fn_auditor_tela_completo(rota).
+// Ticker do Hub (CEO 23/10, msg b76dd837 item B): quando o veredito traz 'ticker' (rotas /dashboard/projetos), mostra os
+// 5 critérios com passou/falhou e "x de 5". Sem 'ticker' no retorno (fora do Hub), nada muda.
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
@@ -10,6 +12,7 @@ import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 type Resumo = { area: string; total: number; liberado: number; bloqueado: number; pct_liberado: number; sem_auditoria: number }
 type Tela = { rota: string; titulo: string | null }
+type CriterioTicker = { n: number; criterio: string; nome: string; passou: boolean; detalhe?: string | null; verificado_em?: string | null }
 type Veredito = {
   rota: string
   veredito: string | null
@@ -18,6 +21,9 @@ type Veredito = {
   features_faltando?: string[] | null
   gaps?: string[] | null
   analisado_em?: string | null
+  ticker?: CriterioTicker[] | null
+  criterios_ok?: number | null
+  criterios_total?: number | null
 }
 
 const COR = { espresso: '#3D2314', fraco: 'rgba(61,35,20,0.6)', offWhite: '#FAF7F2', dourado: '#C8941A', borda: '0.5px solid rgba(61,35,20,0.14)' }
@@ -124,6 +130,27 @@ export default function CardQualidadeVertical() {
                 </strong>{' '}
                 <AjudaCampo chave="auditor.qualidade.veredito" rota={ROTA_AJUDA} />
               </p>
+              {(ver.ticker?.length ?? 0) > 0 && (
+                <div style={{ margin: '0 0 12px', border: COR.borda, borderRadius: 8, padding: 12, background: COR.offWhite }}>
+                  <p style={{ margin: '0 0 8px', fontWeight: 700 }}>
+                    Ticker de qualidade: {ver.criterios_ok ?? ver.ticker!.filter((c) => c.passou).length} de {ver.criterios_total ?? ver.ticker!.length} critérios{' '}
+                    <AjudaCampo chave="auditor.qualidade.ticker" rota={ROTA_AJUDA} />
+                  </p>
+                  <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 6 }}>
+                    {ver.ticker!.slice().sort((a, b) => a.n - b.n).map((c) => (
+                      <li key={c.criterio} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                        <span aria-label={c.passou ? 'passou' : 'falhou'} style={{ flex: '0 0 auto', minWidth: 56, textAlign: 'center', borderRadius: 6, padding: '2px 6px', fontSize: 12, fontWeight: 700, color: '#fff', background: c.passou ? SEMAFORO.verde : SEMAFORO.vermelho }}>
+                          {c.passou ? 'Passou' : 'Falhou'}
+                        </span>
+                        <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+                          <strong>{c.n}. {c.nome}</strong>
+                          {c.detalhe ? <span style={{ color: COR.fraco }}> · {c.detalhe}</span> : null}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {ver.scores && (
                 <p style={{ margin: '0 0 8px' }}>
                   Visual {ver.scores.visual ?? '—'} · Funcional {ver.scores.funcional ?? '—'} · Consistência {ver.scores.consistencia ?? '—'} (meta 90){' '}

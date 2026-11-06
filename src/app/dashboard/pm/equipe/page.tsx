@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { COLUNAS_EQUIPE, carregarCustosEquipe } from '@/lib/pm/equipeCustos'
+import { resumirPrevia, type PapelPrevia } from '@/lib/pm/papelAgencia'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CargaEquipe } from '@/components/pm/CargaEquipe'
 
@@ -29,18 +30,39 @@ export default function EquipePage() {
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [podeVer, setPodeVer] = useState(false)
+  const [papeis, setPapeis] = useState<{ slug: string; nome: string }[]>([])
+  const [papelSel, setPapelSel] = useState('')
+  const [previa, setPrevia] = useState<PapelPrevia | null>(null)
   const [versao, setVersao] = useState(0) // recarrega a carga quando a equipe muda (jornada)
 
   const carregar = async () => {
     if (!empresa) { setMembros([]); setLoading(false); return }
     setLoading(true)
     const [{ data }, c] = await Promise.all([
-      supabase.from('agency_equipe').select(COLUNAS_EQUIPE).eq('company_id', empresa).order('nome'),
+      supabase.from('agency_equipe').select(COLUNAS_EQUIPE).eq('company_id', empresa).is('excluido_em', null).order('nome'),
       carregarCustosEquipe(supabase, empresa),
     ])
     setPodeVer(c.podeVer)
     setMembros(((data ?? []) as Omit<Membro, 'custo_hora'>[]).map((m) => ({ ...m, custo_hora: c.custos.get(m.id) ?? null })))
     setLoading(false); setVersao((v) => v + 1)
+  }
+  useEffect(() => {
+    void supabase.from('rbac_papel').select('slug,nome').eq('vertical', 'pm').neq('slug', 'pm_cliente').order('nome')
+      .then(({ data }) => setPapeis((data ?? []) as { slug: string; nome: string }[]))
+  }, [])
+  async function verPrevia(userId: string, slug: string) {
+    if (!empresa || !slug) { setPrevia(null); return }
+    const { data, error } = await supabase.rpc('fn_pm_papel_agencia_previa', { p_company: empresa, p_user: userId, p_slug: slug })
+    setPrevia(error ? { ok: false, erro: error.message } : (data as PapelPrevia))
+  }
+  async function aplicarPapel() {
+    if (!empresa || !edit?.user_id || !papelSel) return
+    setBusy(true)
+    const { data, error } = await supabase.rpc('fn_pm_papel_agencia_aplicar', { p_company: empresa, p_user: edit.user_id, p_slug: papelSel })
+    setBusy(false)
+    const r = data as PapelPrevia | null
+    if (error || !r?.ok) { setToast(`Erro: ${error?.message ?? r?.erro ?? 'falha'}`); return }
+    setToast('Papel na agência GRAVADO.'); setPrevia(null)
   }
   useEffect(() => { void carregar() }, [empresa]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3000); return () => clearTimeout(t) }, [toast])
@@ -67,6 +89,22 @@ export default function EquipePage() {
     setEdit(null); setToast(edit.id ? 'Membro ALTERADO.' : 'Membro CRIADO.'); void carregar()
   }
 
+  // RD-98 pilar 4 · exclusão RASTREÁVEL: soft-delete auditado por fn_agency_equipe_excluir (grava
+  // excluido_em/por/motivo + audit_log; a lista filtra excluido_em IS NULL). Reversível pela auditoria.
+  async function excluir() {
+    if (!edit?.id) return
+    if (!window.confirm(`Excluir ${edit.nome ?? 'este membro'} da equipe? Ele sai da lista e deixa de contar na margem (exclusão rastreável: guarda quem excluiu e quando, reversível pela auditoria). Para afastamento temporário, use "Ativo" em vez de excluir.`)) return
+    setBusy(true)
+    const { data, error } = await supabase.rpc('fn_agency_equipe_excluir', { p_id: edit.id, p_motivo: null })
+    setBusy(false)
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) {
+      setToast(`Erro: ${error?.message ?? (r?.erro === 'sem_acesso' ? 'Você não tem acesso a este membro.' : r?.erro === 'membro_nao_encontrado' ? 'Membro não encontrado (pode já ter sido excluído).' : r?.erro ?? 'Não foi possível excluir.')}`)
+      return
+    }
+    setEdit(null); setToast('Membro EXCLUÍDO.'); void carregar()
+  }
+
   if (!empresa) return <div style={{ padding: 32, color: TEXTM, background: OFFWHITE, minHeight: '100vh' }}>Selecione uma empresa no topo.</div>
 
   return (
@@ -82,8 +120,8 @@ export default function EquipePage() {
         </header>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px,1fr))', gap: 10, marginBottom: 14 }}>
-          <Kpi l="Membros ativos" v={String(kpis.total)} />
-          <Kpi l="Custo/hora médio" v={podeVer ? brl(kpis.custoMedio) : 'restrito'} />
+          <Kpi l="Membros ativos" v={String(kpis.total)} ajuda="pm.equipe.kpi_membros_ativos" />
+          <Kpi l="Custo/hora médio" v={podeVer ? brl(kpis.custoMedio) : 'restrito'} ajuda="pm.equipe.kpi_custo_medio" />
         </div>
 
         <CargaEquipe empresa={empresa} versao={versao} />
@@ -105,7 +143,7 @@ export default function EquipePage() {
                     <div style={{ textAlign: 'right', minWidth: 110 }}>
                       <div style={{ fontWeight: 700, color: m.custo_hora ? ESPRESSO : RED }}>{m.custo_hora ? `${brl(Number(m.custo_hora))}/h` : 'sem custo/h'}</div>
                     </div>
-                    <button onClick={() => setEdit(m)} style={btnSec}>Editar</button>
+                    <button onClick={() => { setEdit(m); setPapelSel(''); setPrevia(null) }} style={btnSec}>Editar</button>
                   </>}
                 </div>
               ))}
@@ -129,9 +167,33 @@ export default function EquipePage() {
             <label style={{ ...lbl, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <input type="checkbox" checked={edit.ativo ?? true} onChange={(e) => setEdit({ ...edit, ativo: e.target.checked })} /> Ativo<AjudaCampo chave="pm.equipe.ativo" />
             </label>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
+            {edit.id && edit.user_id && (
+              <div data-testid="papel-agencia" style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${BORDA}` }}>
+                <label style={lbl}>Papel na agência <AjudaCampo chave="pm.equipe.papel_agencia" />
+                  <select style={inp} value={papelSel} onChange={(e) => { setPapelSel(e.target.value); void verPrevia(edit.user_id!, e.target.value) }}>
+                    <option value="">— escolher —</option>
+                    {papeis.map((p) => <option key={p.slug} value={p.slug}>{p.nome}</option>)}
+                  </select>
+                </label>
+                {previa && (
+                  <ul style={{ fontSize: 12, color: TEXTM, margin: '8px 0 0', paddingLeft: 18 }}>
+                    {resumirPrevia(previa).map((l, i) => <li key={i}>{l}</li>)}
+                  </ul>
+                )}
+                {previa?.ok && <button disabled={busy} onClick={aplicarPapel} style={{ ...btnSec, marginTop: 8 }}>Aplicar papel</button>}
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: edit.id ? 'space-between' : 'flex-end', gap: 8, marginTop: 14, alignItems: 'center' }}>
+              {edit.id && (
+                <span style={rot}>
+                  <button disabled={busy} onClick={() => void excluir()} data-testid="equipe-excluir" style={{ ...btnGhost, color: RED, borderColor: RED }}>🗑️ Excluir</button>
+                  <AjudaCampo chave="pm.equipe.excluir" />
+                </span>
+              )}
+              <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => setEdit(null)} style={btnGhost}>Cancelar</button>
               <button disabled={busy} onClick={salvar} style={btnPri}>{busy ? 'Salvando…' : (edit.id ? 'SALVAR' : 'CRIAR')}</button>
+              </div>
             </div>
           </div>
         </div>
@@ -141,10 +203,10 @@ export default function EquipePage() {
   )
 }
 
-function Kpi({ l, v }: { l: string; v: string }) {
+function Kpi({ l, v, ajuda }: { l: string; v: string; ajuda: string }) {
   return (
     <div style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: '12px 14px' }}>
-      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700 }}>{l}</div>
+      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700, display: 'flex', alignItems: 'center' }}>{l}<AjudaCampo chave={ajuda} /></div>
       <div style={{ fontSize: 22, fontWeight: 700, color: ESPRESSO, marginTop: 2 }}>{v}</div>
     </div>
   )

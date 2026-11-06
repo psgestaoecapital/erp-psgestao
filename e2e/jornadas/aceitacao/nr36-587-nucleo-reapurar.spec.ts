@@ -97,7 +97,8 @@ test.describe('NR-36: núcleo + porta e reapuração por serviço (#587)', () =>
     await importar()
     await robo('fn_nr36_apurar', { p_company_id: DEMO_SST, p_dt_ini: DIA, p_dt_fim: DIA, p_cpf: cpf })
     const pelaPorta = await apurado()
-    expect(pelaPorta.status).toBe('pendente_confirmacao')
+    // #2119: 16/09 (3 de 4, todas conformes) é conforme; a falta estimada fica só sinalizada à parte
+    expect(pelaPorta.status).toBe('conforme')
     await dbDelete('nr36_pausa_apurada', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=eq.${DIA}`)
     const n = await rpc<{ ok: boolean; linhas: number }>('fn_nr36_apurar_nucleo', { p_company_id: DEMO_SST, p_dt_ini: DIA, p_dt_fim: DIA, p_cpf: cpf })
     expect(n.ok).toBe(true)
@@ -111,16 +112,16 @@ test.describe('NR-36: núcleo + porta e reapuração por serviço (#587)', () =>
   test('reapurar_servico: backup antes, relatório antes→depois, máximo de 31 dias', { tag: '@pos-migration' }, async () => {
     await importar()
     await robo('fn_nr36_apurar', { p_company_id: DEMO_SST, p_dt_ini: DIA, p_dt_fim: DIA, p_cpf: cpf })
-    // força um estado "antigo" para ter o que mudar: o dia volta a 'conforme' como na apuração velha
-    await dbPatch('nr36_pausa_apurada', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=eq.${DIA}`, { status: 'conforme' })
+    // força um estado "antigo" ERRADO para ter o que mudar: a reapuração deve corrigir para 'conforme' (#2119)
+    await dbPatch('nr36_pausa_apurada', `company_id=eq.${DEMO_SST}&cpf=eq.${cpf}&data=eq.${DIA}`, { status: 'desvio' })
     const rel = await rpc<{ ok: boolean; backup_id: string; linhas_backup: number; dias_mudaram: number; mudancas: Array<{ de: string; para: string; dias: number }> }>(
       'fn_nr36_reapurar_servico', { p_company: DEMO_SST, p_ini: DIA, p_fim: DIA })
     expect(rel.ok).toBe(true)
     expect(rel.linhas_backup).toBeGreaterThanOrEqual(1)
     const bk = await dbSelect<{ status: string }>('nr36_pausa_apurada_backup', `backup_id=eq.${rel.backup_id}&cpf=eq.${cpf}&select=status`)
-    expect(bk[0]?.status, 'o backup guarda o estado de ANTES').toBe('conforme')
-    expect((await apurado()).status).toBe('pendente_confirmacao')
-    expect(rel.mudancas).toContainEqual({ de: 'conforme', para: 'pendente_confirmacao', dias: 1 })
+    expect(bk[0]?.status, 'o backup guarda o estado de ANTES').toBe('desvio')
+    expect((await apurado()).status).toBe('conforme')
+    expect(rel.mudancas).toContainEqual({ de: 'desvio', para: 'conforme', dias: 1 })
     expect(rel.dias_mudaram).toBe(1)
     // segunda reapuração: nada mais muda
     const rel2 = await rpc<{ dias_mudaram: number }>('fn_nr36_reapurar_servico', { p_company: DEMO_SST, p_ini: DIA, p_fim: DIA })

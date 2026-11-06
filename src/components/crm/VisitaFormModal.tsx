@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { labelUsuario } from '@/lib/usuarioLabel'
 import ClienteForm from '@/components/clientes/ClienteForm'
 import AnexosCard from '@/components/crm/AnexosCard'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 export type VisitaFotoRef = { path: string; name?: string }
 
@@ -19,6 +20,7 @@ export type VisitaInicial = {
   gps_lat: number | null
   gps_lng: number | null
   fotos: VisitaFotoRef[] | null
+  audio_briefing_url?: string | null
 }
 
 export type OportunidadeOpt = {
@@ -81,6 +83,8 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
   const [anotacoes, setAnotacoes] = useState<string>(initial?.anotacoes ?? '')
   const [files, setFiles] = useState<File[]>([])
   const [fotosExistentes, setFotosExistentes] = useState<VisitaFotoRef[]>(initial?.fotos ?? [])
+  const [audioFile, setAudioFile] = useState<File | null>(null)
+  const [audioAtual, setAudioAtual] = useState<string | null>(initial?.audio_briefing_url ?? null)
   const [gps, setGps] = useState<{ lat: number; lng: number } | null>(
     initial?.gps_lat != null && initial?.gps_lng != null
       ? { lat: Number(initial.gps_lat), lng: Number(initial.gps_lng) }
@@ -173,6 +177,14 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
     }
     const fotosTodas = [...fotosExistentes, ...fotosNovas]
 
+    let audioPath: string | null = null
+    if (audioFile) {
+      const safe = audioFile.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+      audioPath = `${companyId}/visitas/${oportId}/audio_${Date.now()}_${safe}`
+      const upA = await supabase.storage.from('projetos-plantas').upload(audioPath, audioFile, { upsert: false })
+      if (upA.error) { setSaving(false); setErr(`Upload do áudio falhou: ${upA.error.message}`); return }
+    }
+
     const { data: rpc, error } = await supabase.rpc('fn_crm_visita_salvar', {
       p_id: initial?.id ?? null,
       p_oportunidade_id: oportId,
@@ -186,6 +198,8 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
       p_gps_lat: gps?.lat ?? null,
       p_gps_lng: gps?.lng ?? null,
       p_fotos: fotosTodas,
+      p_audio_briefing_url: audioPath,
+      p_audio_remover: !audioFile && !audioAtual && !!initial?.audio_briefing_url,
     })
     setSaving(false)
     if (error) { setErr(`Erro: ${error.message}`); return }
@@ -213,7 +227,7 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
           <div style={{ ...lblTxt, marginBottom: 8 }}>Editando visita já registrada.</div>
         ) : (
           <label style={lbl}>
-            Cliente *
+            <span style={rotAjuda}>Cliente * <AjudaCampo chave="projetos.visitas.form.cliente" /></span>
             <Combobox
               value={clienteId}
               onChange={setClienteId}
@@ -227,11 +241,11 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
 
         <div style={grid}>
           <label style={lbl}>
-            Data / hora *
+            <span style={rotAjuda}>Data / hora * <AjudaCampo chave="projetos.visitas.form.data" /></span>
             <input type="datetime-local" value={data} onChange={(e) => setData(e.target.value)} style={inp} />
           </label>
           <label style={lbl}>
-            Status
+            <span style={rotAjuda}>Status <AjudaCampo chave="projetos.visitas.form.status" /></span>
             <select value={status} onChange={(e) => setStatus(e.target.value as typeof status)} style={inp}>
               <option value="agendada">agendada</option>
               <option value="realizada">realizada</option>
@@ -239,7 +253,7 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
             </select>
           </label>
           <label style={lbl}>
-            Responsável
+            <span style={rotAjuda}>Responsável <AjudaCampo chave="projetos.visitas.form.responsavel" /></span>
             <Combobox
               value={responsavelId}
               onChange={setResponsavelId}
@@ -249,7 +263,7 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
             />
           </label>
           <label style={lbl}>
-            ou nome (sem login)
+            <span style={rotAjuda}>ou nome (sem login) <AjudaCampo chave="projetos.visitas.form.responsavel_nome" /></span>
             <input
               value={responsavelNome}
               onChange={(e) => setResponsavelNome(e.target.value)}
@@ -261,12 +275,12 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
         </div>
 
         <label style={{ ...lbl, marginTop: 10 }}>
-          Endereço
+          <span style={rotAjuda}>Endereço <AjudaCampo chave="projetos.visitas.form.endereco" /></span>
           <input value={endereco} onChange={(e) => setEndereco(e.target.value)} style={inp} placeholder="rua, nº, bairro" />
         </label>
 
         <label style={{ ...lbl, marginTop: 10 }}>
-          Anotações
+          <span style={rotAjuda}>Anotações <AjudaCampo chave="projetos.visitas.form.anotacoes" /></span>
           <textarea
             rows={3}
             value={anotacoes}
@@ -297,6 +311,23 @@ export default function VisitaFormModal({ companyId, oportunidadeFixa, initial, 
             style={{ fontSize: 13 }}
           />
           {files.length > 0 && <p style={{ fontSize: 12, color: TEXTM, marginTop: 4 }}>{files.length} nova(s) foto(s) a enviar</p>}
+        </div>
+
+        <div style={{ marginTop: 10 }}>
+          <div style={lblTxt}>Áudio do briefing <AjudaCampo chave="projetos.visitas.audio_briefing" /></div>
+          {audioAtual && !audioFile && (
+            <span style={fotoChip}>
+              🎙️ áudio gravado
+              <button onClick={() => setAudioAtual(null)} style={fotoX} aria-label="Remover áudio">×</button>
+            </span>
+          )}
+          <input
+            type="file"
+            accept="audio/*"
+            capture
+            onChange={(e) => setAudioFile(e.target.files?.[0] ?? null)}
+            style={{ fontSize: 13 }}
+          />
         </div>
 
         {/* ANEXO-1 · foto com observação (pedido do CEO): descrição por anexo. Só na visita já salva. */}
@@ -428,6 +459,7 @@ const grid: CSSProperties = {
 }
 const lbl: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: TEXTM }
 const lblTxt: CSSProperties = { fontSize: 12, color: TEXTM, marginBottom: 4 }
+const rotAjuda: CSSProperties = { display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: TEXTM }
 const inp: CSSProperties = {
   border: `1px solid ${BORDA}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, minHeight: 40,
   background: '#fff', color: ESPRESSO,

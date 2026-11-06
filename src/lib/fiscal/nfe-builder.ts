@@ -2,7 +2,8 @@ import type { NFeRequest, NFeProdutoItem } from './types'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { FiscalError } from './errors'
 import { enderecoComMunicipioOficial } from './municipioDestinatario'
-import { type CondicaoCreditoSN, aliquotaCreditoValida, csosnDoItem, empresaComCreditoSN, observacoesComSimples, valorCreditoSN } from './creditoIcmsSimples'
+import { montarItemVeiculo, type DadosVendaVeiculo, type ItemVeiculoMontado } from './nfe-veiculo'
+import { type CondicaoCreditoSN, aliquotaCreditoValida, csosnDoItem, observacoesComSimples, valorCreditoSN } from './creditoIcmsSimples'
 
 // UFs válidas (27). Fora desta lista não é UF nacional confiável (exterior, texto sujo) → não deriva CFOP.
 const UFS_BR = new Set([
@@ -52,6 +53,8 @@ export interface NFeBuilderInput {
   erpReceberId?: string
   // FEAT-NFE-PRODUTO-2-CARD-PEDIDO-v1 · terceiro modo: monta a partir do pedido
   pedidoId?: string
+  // NF-e de peças da OS (modo manual): a OS de origem dá as "Observações para o cliente" das Informações Complementares
+  osId?: string
   manual?: {
     destinatario: {
       razaoSocial: string
@@ -82,6 +85,11 @@ export interface NFeBuilderInput {
   // indFinal escolhido NA VENDA (não no cadastro): a mesma empresa compra p/ revenda numa nota e p/
   // consumo em outra. Quando undefined, o builder deriva do indIEDest (contribuinte c/ IE = revenda).
   consumidorFinal?: boolean
+  // #5684 · venda de veículo (Revenda): dados já carregados por carregarVendaVeiculo. Item, CFOP, ICMS/IBS/CBS vêm do
+  // perfil fiscal aprovado (não de erp_produtos). Ausente = nenhum caminho existente muda.
+  vendaVeiculo?: DadosVendaVeiculo
+  /** Preenchido pelo builder quando vendaVeiculo vem: avisos do que não deu para validar (a rota devolve à tela). */
+  onVeiculoMontado?: (m: ItemVeiculoMontado) => void
 }
 
 export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeRequest> {
@@ -127,6 +135,10 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
   let itensInput: NFeBuilderItemInput[] = []
   let naturezaOp = 'Venda de mercadoria'
   let finalidade: 'normal' | 'complementar' | 'ajuste' | 'devolucao' = 'normal'
+  // Informações Complementares (infCpl) que vêm da origem da nota. Pedido: o campo "Observações" do pedido (o
+  // que veio do orçamento, ex.: nº da ordem de compra do cliente) — nunca as observações internas.
+  let observacoesOrigem: string | undefined
+  let veiculoMontado: ItemVeiculoMontado | undefined
 
   if (input.pedidoId) {
     // FEAT-NFE-PRODUTO-2-CARD-PEDIDO-v1
@@ -175,6 +187,13 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     }))
     naturezaOp = 'Venda de mercadoria'
     finalidade = 'normal'
+    const { data: ped } = await supabaseAdmin
+      .from('erp_pedidos')
+      .select('observacoes')
+      .eq('id', input.pedidoId)
+      .eq('company_id', input.companyId)
+      .maybeSingle()
+    observacoesOrigem = (ped?.observacoes ?? '').trim() || undefined
   } else if (input.erpReceberId) {
     const { data: rec } = await supabaseAdmin
       .from('erp_receber')
@@ -238,6 +257,39 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     }
     naturezaOp = input.overrides?.naturezaOperacao ?? 'Venda de mercadoria'
     finalidade = input.overrides?.finalidade ?? 'normal'
+  } else if (input.vendaVeiculo) {
+    // #5684 · destinatário = cliente do cadastro do GE (erp_clientes) ligado à venda; mesmo mapeamento do ramo do financeiro.
+    const { data: cli } = await supabaseAdmin
+      .from('erp_clientes')
+      .select('razao_social, cnpj_cpf, cpf_cnpj, email, logradouro, numero, bairro, cidade, uf, cep, ie, contribuinte_icms')
+      .eq('id', input.vendaVeiculo.clienteId).eq('company_id', input.companyId).maybeSingle()
+    if (!cli) throw new FiscalError('PAYLOAD_INVALIDO', 'Cliente da venda não encontrado no cadastro de clientes')
+    const docLimpo = (cli.cnpj_cpf ?? cli.cpf_cnpj ?? '').replace(/\D/g, '')
+    if (docLimpo.length !== 11 && docLimpo.length !== 14) throw new FiscalError('PAYLOAD_INVALIDO', 'Cliente da venda sem CPF/CNPJ válido no cadastro')
+    const ieLimpa = (cli.ie ?? '').replace(/\D/g, '')
+    const indIE = ((): 1 | 2 | 9 | undefined => {
+      switch ((cli.contribuinte_icms ?? '').toLowerCase()) {
+        case 'contribuinte': return 1
+        case 'isento': return 2
+        case 'nao_contribuinte': return 9
+        default: return undefined
+      }
+    })()
+    destinatario = {
+      cnpj: docLimpo.length === 14 ? docLimpo : undefined,
+      cpf: docLimpo.length === 11 ? docLimpo : undefined,
+      razaoSocial: cli.razao_social,
+      inscricaoEstadual: ieLimpa || undefined,
+      indicadorIE: indIE,
+      email: cli.email ?? undefined,
+      endereco: cli.logradouro
+        ? { logradouro: cli.logradouro, numero: cli.numero ?? undefined, bairro: cli.bairro ?? '', cidade: cli.cidade ?? '', uf: cli.uf ?? '', cep: (cli.cep ?? '').replace(/\D/g, '') }
+        : undefined,
+    }
+    veiculoMontado = montarItemVeiculo(input.vendaVeiculo, ufEmitente, destinatario.endereco?.uf, ehSimples)
+    input.onVeiculoMontado?.(veiculoMontado)
+    naturezaOp = veiculoMontado.naturezaOperacao
+    observacoesOrigem = veiculoMontado.observacoes
   } else if (input.manual) {
     destinatario = input.manual.destinatario
     // #131 (KGF) · 3º caminho: o modo manual (botão da OS, NFeCard, devolução, devolução-venda, remessa)
@@ -275,7 +327,7 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
   } else {
     throw new FiscalError(
       'PAYLOAD_INVALIDO',
-      'Forneca pedidoId OU erpReceberId+overrides.itens OU manual.itens'
+      'Forneca pedidoId OU erpReceberId+overrides.itens OU manual.itens OU vendaVeiculoId'
     )
   }
 
@@ -291,7 +343,7 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
   // #jordana 26/09 · OS-2026-0179: o mesmo produto pode aparecer em 2+ itens (2 linhas de OLEO 80). A busca por id
   // devolve distintos; comparar com a lista COM repetição recusava a nota ("encontrei 10 · esperado 11").
   const produtoIds = Array.from(new Set(itensInput.map((i) => i.produtoId)))
-  const { data: produtos } = await supabaseAdmin
+  const { data: produtos } = veiculoMontado ? { data: [] as never[] } : await supabaseAdmin
     .from('erp_produtos')
     .select(
       'id, codigo, nome, descricao, ncm, ex_ipi, cfop_venda, cfop_venda_interestadual, cest, origem, cst_icms, cst_pis, cst_cofins, aliquota_icms, aliquota_ipi, aliquota_pis, aliquota_cofins, unidade, preco_venda, vbcst_ret, pst, vicms_substituto, vicms_st_ret, combustivel_codigo_anp, combustivel_descricao_anp'
@@ -430,6 +482,17 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     }
   })
 
+  // NF-e de peças da OS (pedido Jordana 20/10, item 5): as "Observações para o cliente" da OS vão para as Informações
+  // Complementares, como as Observações do pedido — nunca as observações internas.
+  if (input.osId && observacoesOrigem === undefined) {
+    const { data: os } = await supabaseAdmin
+      .from('erp_os')
+      .select('observacoes_cliente')
+      .eq('id', input.osId)
+      .eq('company_id', input.companyId)
+      .maybeSingle()
+    observacoesOrigem = (os?.observacoes_cliente ?? '').trim() || undefined
+  }
 
   return {
     serie: cfg?.serie_nfe_padrao ?? '1',
@@ -443,15 +506,19 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
       simplesNacional: ehSimples,
     },
     destinatario,
-    itens: itensNFe,
+    itens: veiculoMontado ? [veiculoMontado.item] : itensNFe,
+    ...(veiculoMontado && veiculoMontado.item.ibsCbs ? { ibsCbsTotais: veiculoMontado.ibsCbsTotais } : {}),
     chaveReferenciada: input.manual?.chaveReferenciada,
-    observacoes: empresaComCreditoSN(condCreditoSN) && aliqCreditoSN != null
+    // #2876 (ajuste Jordana 20/10): a frase do Simples ("DOCUMENTO EMITIDO POR ME OU EPP…") sai em TODA nota de
+    // emitente do Simples, com ou sem alíquota de crédito cadastrada (a NF-e nº 2 da FCR saiu sem nenhum texto e as
+    // da Gean também). A frase do crédito (art. 23) só entra quando algum item saiu 101 com vCredICMSSN.
+    observacoes: ehSimples
       ? observacoesComSimples(
-          input.manual?.observacoes,
+          input.manual?.observacoes ?? observacoesOrigem,
           itensNFe.reduce((a, i) => a + (i.icms?.creditoSN?.valor ?? 0), 0) || null,
-          aliqCreditoSN,
+          aliqCreditoSN ?? 0,
         )
-      : input.manual?.observacoes,
+      : (input.manual?.observacoes ?? observacoesOrigem),
     totais: input.manual?.totais,
   }
 }

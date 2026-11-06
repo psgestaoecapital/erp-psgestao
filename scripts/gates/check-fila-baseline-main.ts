@@ -26,7 +26,9 @@ if (!temFerramentas()) {
 } else {
   const dir = mkdtempSync(join(tmpdir(), 'bmain-'))
   const vazia = join(dir, 'q.txt'); writeFileSync(vazia, '# vazia\n')
-  const env = { FILA_QUARENTENA_JORNADAS: vazia, FILA_AGORA_EPOCH: dentro, FILA_BASELINE_MAIN_SPECS: `${M1}\n${M2}` }
+  // A aceitação é informativa por padrão (esteira contínua); aqui forçamos o bloqueio (FILA_ACEITACAO_BLOQUEIA=1)
+  // para exercer de verdade a lógica de comparação com a main (que só roda quando a aceitação bloqueia).
+  const env = { FILA_QUARENTENA_JORNADAS: vazia, FILA_AGORA_EPOCH: dentro, FILA_BASELINE_MAIN_SPECS: `${M1}\n${M2}`, FILA_ACEITACAO_BLOQUEIA: '1' }
   const rev = { n: 1, labels: ['revisao-eng-chefe'], autorizada: true, aceitacao: 'failure' as const }
   comFilaSimulada((rodar) => {
     let x = rodar([{ ...rev, aceitacaoSpecs: [M1] }], false, 5000, env)

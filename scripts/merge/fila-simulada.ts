@@ -30,6 +30,7 @@ export type PrSimulada = {
   aceitacaoSemLog?: boolean    // log do job da aceitação ilegível/ausente (a lista completa vem do LOG, P3 18/10) → fila bloqueia
   sqlMigration?: string        // SQL da migration da PR (lote de migrations independentes, CEO 16/10); padrão: select 1;
   autorCode?: string           // Code autor em erp_dev_entrega (para o acionamento automático do @pos, Parte 2)
+  mergeavel?: boolean          // pulls/<n>.mergeable (CEO 22/10, vazão): atrás-mas-limpa (true) mergeia sem update; false/null = update-first
 }
 // Estado do @pos-migration da main (janela da linha-de-base, CEO 15/10). Com conclusion='failure', a fila lê o log do
 // job falho e compara os specs com a linha-de-base (FILA_POS_BASELINE).
@@ -90,6 +91,9 @@ esac
     const rodar = (prs: PrSimulada[], mainOcupada = false, cota = 5000, envExtra: Record<string, string> = {}, posMain: PosMain = {}): Rodada => {
       rmSync(fx, { recursive: true, force: true }); execFileSync('mkdir', ['-p', fx])
       const put = (p: string, v: unknown) => writeFileSync(join(fx, `${p.replace(/[^A-Za-z0-9]/g, '_')}.json`), JSON.stringify(v))
+      // aceitação da main sem run (mesmo efeito de antes, quando faltava a fixture): sem ela o `api` repetia 3x com
+      // sleep 2+4 s em cada leitura e os gates da fila com FILA_ACEITACAO_BLOQUEIA=1 estouravam os 180 s (23/10).
+      put(`${R}/actions/workflows/aceitacao-main.yml/runs?branch=main&status=completed&per_page=10`, { workflow_runs: [] })
       put(`${R}/pulls?state=open&base=main&per_page=100`, prs.map((p, i) => ({
         number: p.n, title: `PR ${p.n}`, draft: !!p.draft, created_at: `2026-10-07T09:0${i}:00Z`, base: { ref: 'main' },
         head: { ref: `pr${p.n}`, sha: sha[p.n], repo: { full_name: 'o/r' } }, labels: (p.labels ?? ['fila-merge']).map((name) => ({ name })) })))
@@ -100,7 +104,7 @@ esac
         const coments = [...(p.comentarios ?? [])]
         if (p.autorizada) coments.push(`MERGE AUTORIZADO #${p.n} — gilberto-revisor · patch-id ${pid[p.n]}`)
         put(`${R}/issues/${p.n}/comments`, coments.map((body) => ({ body })))
-        put(`${R}/pulls/${p.n}`, { number: p.n, title: `PR ${p.n}`, draft: !!p.draft, mergeable: true, base: { ref: 'main' },
+        put(`${R}/pulls/${p.n}`, { number: p.n, title: `PR ${p.n}`, draft: !!p.draft, mergeable: p.mergeavel ?? true, base: { ref: 'main' },
           head: { sha: sha[p.n], repo: { full_name: 'o/r' } }, labels: labels.map((name) => ({ name })) })
         const arq = p.migration ? `${(p.migrationBaixa ? 20261001000000 : 20261009000000) + p.n}_m.sql` : ''
         const files: unknown[] = [{ status: p.migrationCorrige ? 'modified' : 'added', filename: p.migration ? `supabase/migrations/${arq}` : `src/${p.n}.ts` }]
@@ -160,9 +164,9 @@ esac
         put(`${R}/actions/runs/2`, { head_sha: 'deadpos1', run_attempt: 1 })
         put(`${R}/commits/deadpos1/pulls`, [{ number: posMain.headPr ?? prs[0]?.n ?? 1 }])
       }
-      // Padrão: agora DEPOIS da janela da via revisada (CEO 15/10) e sem publicações na última hora, para os gates
-      // existentes verem o comportamento normal. Os testes da janela/ritmo passam FILA_AGORA_EPOCH / FILA_PUB_HORA em envExtra.
-      const envPadrao = { FILA_AGORA_EPOCH: String(Math.floor(Date.UTC(2026, 9, 20) / 1000)), FILA_PUB_HORA: '0' }
+      // Padrão: agora DEPOIS da janela da via revisada (reaberta CEO 22/10 até 2026-10-23T20:00:00Z) e sem publicações na
+      // última hora, para os gates existentes verem o comportamento normal. Os testes da janela/ritmo passam FILA_AGORA_EPOCH / FILA_PUB_HORA em envExtra.
+      const envPadrao = { FILA_AGORA_EPOCH: String(Math.floor(Date.UTC(2026, 9, 25) / 1000)), FILA_PUB_HORA: '0' }
       const r = spawnSync('bash', [SCRIPT_FILA], { cwd: w, encoding: 'utf8',
         env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, FX: fx, GH_TOKEN: 'x', REPO: 'o/r', GITHUB_STEP_SUMMARY: '', ...envPadrao, ...envExtra } })
       const log = `${r.stdout}${r.stderr}`

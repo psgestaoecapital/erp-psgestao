@@ -4,19 +4,23 @@
 //  - "A partir de uma proposta": fn_contrato_solicitar copia cliente/título/valor/escopo da proposta
 //    (e a condição de pagamento dela); o que for preenchido aqui prevalece;
 //  - "Com dados novos": cliente (cadastro rápido) + título + código + valor.
-// Nos dois modos o pedido leva o que o cliente listou no chamado #59 ("ficou muito resumido"): CPF/CNPJ,
-// responsável pelo contrato, objeto, serviços/produtos, forma e condição de pagamento, nº de parcelas,
-// periodicidade, dia/1º vencimento, vigência, reajuste, condições específicas, observação e prazo desejado.
-// Cria o contrato em status 'solicitado' e dispara o e-mail ao responsável (trigger). Depois de criado,
+// CEO (reunião Pdois 14/10) · "Comunicação P&M ↔ Financeiro nos contratos": ao abrir a partir de uma proposta, o modal
+//  PREENCHE automaticamente os campos com os dados reais (editáveis) — cliente, CPF/CNPJ, contato, objeto, serviços
+//  (itens com qtd e valor), valor por parcela, condição e periodicidade — marcando "veio da proposta"/"do cadastro",
+//  para o usuário ver o que será enviado. Proposta sem cliente: avisa e exige escolher/cadastrar. Só deixa solicitar de
+//  proposta APROVADA. Obrigatórios para o financeiro: cliente, CPF/CNPJ, objeto, valor, periodicidade. "?" em todo campo (RD-95).
+// Cria o contrato em status 'solicitado' e dispara o aviso ao responsável (fn_contrato_solicitar). Depois de criado,
 // o comercial pode anexar modelos/prints de referência (tipo 'outro' — não conta como contrato assinado).
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 import ClientePickerInline from './ClientePickerInline'
 import ContratoArquivos from './ContratoArquivos'
 import { FORMAS_PAGAMENTO, PERIODICIDADES_CONTRATO, TIPOS_REAJUSTE_CONTRATO, gradeContrato } from './contratoOpcoes'
 
-const C = { espresso: '#3D2314', espressoM: '#6B5D4F', cream: '#FAF7F2', border: '#E0D8CC', gold: '#C8941A', white: '#FFFFFF', red: '#A32D2D', redBg: '#FCEBEB' }
+const ROTA = '/dashboard/pm/propostas'
+const C = { espresso: '#3D2314', espressoM: '#6B5D4F', cream: '#FAF7F2', border: '#E0D8CC', gold: '#C8941A', white: '#FFFFFF', red: '#A32D2D', redBg: '#FCEBEB', green: '#1E7A46', greenBg: '#EAF6EE', amber: '#8A6A1E', amberBg: '#FBF4E6' }
 const inp: React.CSSProperties = { width: '100%', minHeight: 38, padding: '8px 10px', fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 6, background: C.white, color: C.espresso, outline: 'none', boxSizing: 'border-box' }
 
 export interface SolicitarResultado { contrato_id: string; numero: string; responsavel_id: string | null; aviso: string | null }
@@ -25,10 +29,13 @@ interface Props {
   companyId: string
   propostaId?: string | null
   propostaLabel?: string | null      // rótulo p/ mostrar de qual proposta veio
+  propostaStatus?: string | null     // status da proposta (gate: só 'aprovada' pode solicitar)
   clienteId?: string | null          // prefill (aberto do cliente/lead)
   onClose: () => void
   onSolicitado?: (r: SolicitarResultado) => void
 }
+
+interface ClienteInfo { id: string | null; nome: string; doc: string; email: string; telefone: string; endereco: string }
 
 // "1.500,50" e "1500.50" → 1500.5
 const num = (s: string) => {
@@ -37,12 +44,18 @@ const num = (s: string) => {
   const n = Number(t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t)
   return Number.isFinite(n) ? n : null
 }
+const brl = (n: number) => n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+// prazo sugerido: 5 dias úteis a partir de hoje (pula sáb/dom)
+function prazoSugerido(): string {
+  const d = new Date(); let u = 0
+  while (u < 5) { d.setDate(d.getDate() + 1); const dia = d.getDay(); if (dia !== 0 && dia !== 6) u++ }
+  return d.toISOString().slice(0, 10)
+}
 
-export default function SolicitarContratoModal({ companyId, propostaId, propostaLabel, clienteId, onClose, onSolicitado }: Props) {
+export default function SolicitarContratoModal({ companyId, propostaId, propostaLabel, propostaStatus, clienteId, onClose, onSolicitado }: Props) {
   const [modo, setModo] = useState<'proposta' | 'manual'>(propostaId ? 'proposta' : 'manual')
   const [cli, setCli] = useState(clienteId ?? '')
   const [titulo, setTitulo] = useState('')
-  const [codigo, setCodigo] = useState('')
   const [valorMensal, setValorMensal] = useState('')
   // #59 · identificação e objeto
   const [doc, setDoc] = useState('')
@@ -68,26 +81,109 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
   const [erro, setErro] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [criado, setCriado] = useState<SolicitarResultado | null>(null)
+  // CEO 14/10 · dados reais da proposta/cadastro (preenchidos ao abrir)
+  const [status, setStatus] = useState<string | null>(propostaStatus ?? null)
+  const [cliInfo, setCliInfo] = useState<ClienteInfo | null>(null)
+  const [semCliente, setSemCliente] = useState(false)
+  const [prefilled, setPrefilled] = useState(false)
 
-  // condição de pagamento da proposta como ponto de partida (editável)
+  // Preenche a partir da proposta + cadastro do cliente (fonte da verdade do que será enviado).
   useEffect(() => {
-    if (!propostaId) return
+    if (!propostaId) { setPrefilled(true); return }
     let vivo = true
-    void supabase.from('agency_propostas').select('condicao_pagamento').eq('id', propostaId).maybeSingle()
-      .then(({ data }) => {
-        const c = (data as { condicao_pagamento?: string | null } | null)?.condicao_pagamento
-        if (vivo && c) setCondicao((atual) => atual || c)
-      })
+    void (async () => {
+      const { data: p } = await supabase.from('agency_propostas')
+        .select('titulo, descricao, condicao_pagamento, valor_final, valor_total, erp_cliente_id, cliente_id, status, numero')
+        .eq('id', propostaId).maybeSingle()
+      if (!vivo || !p) { setPrefilled(true); return }
+      const prop = p as { titulo?: string | null; descricao?: string | null; condicao_pagamento?: string | null; valor_final?: number | null; valor_total?: number | null; erp_cliente_id?: string | null; cliente_id?: string | null; status?: string | null; numero?: string | null }
+      setStatus(prop.status ?? propostaStatus ?? null)
+
+      // itens da proposta → escopo (• desc (qtd x R$ unit)) + valor somado
+      const { data: itensRaw } = await supabase.from('agency_proposta_itens')
+        .select('descricao, quantidade, valor_unitario, valor_total, ordem, excluido_em')
+        .eq('proposta_id', propostaId).order('ordem')
+      const itens = ((itensRaw ?? []) as Array<{ descricao: string | null; quantidade: number | null; valor_unitario: number | null; valor_total: number | null; excluido_em: string | null }>).filter((i) => !i.excluido_em)
+      const escopoTxt = itens.map((i) => `• ${i.descricao ?? 'item'} (${i.quantidade ?? 1} x R$ ${brl(Number(i.valor_unitario) || 0)})`).join('\n')
+      const somaItens = itens.reduce((s, i) => s + (Number(i.valor_total) || 0), 0)
+      const valorBase = somaItens > 0 ? somaItens : (Number(prop.valor_final) || Number(prop.valor_total) || 0)
+
+      // cliente: erp_clientes (erp_cliente_id) → agency_clientes (cliente_id) → sem cliente
+      let info: ClienteInfo | null = null
+      if (prop.erp_cliente_id) {
+        const { data: ec } = await supabase.from('erp_clientes')
+          .select('razao_social, nome_fantasia, cnpj_cpf, email, telefone, celular, logradouro, numero, bairro, cidade, uf, endereco, contato_operacional')
+          .eq('id', prop.erp_cliente_id).maybeSingle()
+        if (ec) {
+          const e = ec as Record<string, string | null>
+          const end = e.endereco || [e.logradouro, e.numero, e.bairro, e.cidade && e.uf ? `${e.cidade}/${e.uf}` : (e.cidade || e.uf)].filter(Boolean).join(', ')
+          info = { id: prop.erp_cliente_id, nome: e.nome_fantasia || e.razao_social || '', doc: e.cnpj_cpf || '', email: e.email || '', telefone: e.telefone || e.celular || '', endereco: end }
+        }
+      } else if (prop.cliente_id) {
+        const { data: ac } = await supabase.from('agency_clientes')
+          .select('nome_fantasia, nome, cnpj_cpf, email, telefone').eq('id', prop.cliente_id).maybeSingle()
+        if (ac) {
+          const a = ac as Record<string, string | null>
+          info = { id: null, nome: a.nome_fantasia || a.nome || '', doc: a.cnpj_cpf || '', email: a.email || '', telefone: a.telefone || '', endereco: '' }
+        }
+      }
+      if (!vivo) return
+      setCliInfo(info)
+      setSemCliente(!info || !info.nome)
+      // prefill (só se o campo ainda está vazio, para não apagar edição do usuário)
+      setTitulo((v) => v || (prop.titulo ?? ''))
+      setObjeto((v) => v || (prop.descricao ?? ''))
+      setEscopo((v) => v || escopoTxt)
+      setValorMensal((v) => v || (valorBase ? brl(valorBase) : ''))
+      setCondicao((v) => v || (prop.condicao_pagamento ?? ''))
+      setDoc((v) => v || (info?.doc ?? ''))
+      setResponsavel((v) => v) // contato do cadastro não existe em agency_clientes; vem do erp quando houver
+      if (info && 'id' in info) { /* contato vem abaixo */ }
+      setPrazo((v) => v || prazoSugerido())
+      setPrefilled(true)
+    })()
     return () => { vivo = false }
-  }, [propostaId])
+  }, [propostaId, propostaStatus])
+
+  // contato operacional do cadastro ERP → responsável (quando houver)
+  useEffect(() => {
+    if (!propostaId || !cliInfo?.id) return
+    let vivo = true
+    void supabase.from('erp_clientes').select('contato_operacional').eq('id', cliInfo.id).maybeSingle()
+      .then(({ data }) => { const c = (data as { contato_operacional?: string | null } | null)?.contato_operacional; if (vivo && c) setResponsavel((v) => v || c) })
+    return () => { vivo = false }
+  }, [propostaId, cliInfo?.id])
+
+  const aprovada = modo !== 'proposta' || status === 'aprovada'
+  const chip = (txt: string, cor: string, bg: string) => <span style={{ fontSize: 10, fontWeight: 700, color: cor, background: bg, padding: '1px 6px', borderRadius: 999, marginLeft: 6 }}>{txt}</span>
+  const daProposta = modo === 'proposta' ? chip('da proposta', C.amber, C.amberBg) : null
+  const doCadastro = modo === 'proposta' && cliInfo ? chip('do cadastro', C.green, C.greenBg) : null
+
+  // escolher cliente para proposta sem vínculo: puxa nome/doc do cadastro p/ enviar como identidade do contrato
+  async function escolherCliente(id: string) {
+    const { data } = await supabase.from('erp_clientes').select('razao_social, nome_fantasia, cnpj_cpf, email, telefone, celular, logradouro, numero, bairro, cidade, uf, endereco, contato_operacional').eq('id', id).maybeSingle()
+    const e = (data ?? {}) as Record<string, string | null>
+    const end = e.endereco || [e.logradouro, e.numero, e.bairro, e.cidade && e.uf ? `${e.cidade}/${e.uf}` : (e.cidade || e.uf)].filter(Boolean).join(', ')
+    setCliInfo({ id, nome: e.nome_fantasia || e.razao_social || '', doc: e.cnpj_cpf || '', email: e.email || '', telefone: e.telefone || e.celular || '', endereco: end })
+    setSemCliente(false)
+    setDoc((v) => v || e.cnpj_cpf || '')
+    if (e.contato_operacional) setResponsavel((v) => v || e.contato_operacional || '')
+  }
 
   async function solicitar() {
     setErro(null)
+    if (modo === 'proposta' && !aprovada) { setErro('Só dá para solicitar o contrato de uma proposta APROVADA. Aprove a proposta primeiro.'); return }
+    if (modo === 'proposta' && !propostaId) { setErro('Proposta não informada.'); return }
+    // Obrigatórios para enviar ao financeiro (CEO 14/10): cliente, CPF/CNPJ, objeto, valor, periodicidade.
+    const temCliente = modo === 'proposta' ? !!(cliInfo && cliInfo.nome) : !!cli
+    if (!temCliente) { setErro('Esta proposta não tem cliente — escolha ou cadastre um cliente antes de pedir o contrato.'); return }
+    if (!doc.trim()) { setErro('Informe o CPF/CNPJ do cliente.'); return }
+    if (!objeto.trim()) { setErro('Informe o objeto do contrato (o que está sendo contratado).'); return }
+    if (num(valorMensal) == null || (num(valorMensal) ?? 0) <= 0) { setErro('Informe o valor (por parcela).'); return }
+    if (!periodicidade) { setErro('Escolha a periodicidade.'); return }
     const dia = diaVenc ? Number(diaVenc) : null
     if (dia != null && (!Number.isInteger(dia) || dia < 1 || dia > 28)) { setErro('Dia de vencimento: de 1 a 28.'); return }
     if (inicio && fim && fim < inicio) { setErro('O fim da vigência não pode ser antes do início.'); return }
-    if (modo === 'manual' && !cli && !titulo.trim()) { setErro('Escolha um cliente ou informe um título para o contrato.'); return }
-    if (modo === 'proposta' && !propostaId) { setErro('Proposta não informada.'); return }
     const dados: Record<string, unknown> = {
       cliente_cnpj: doc.trim() || null,
       responsavel: responsavel.trim() || null,
@@ -107,9 +203,9 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
       titulo: titulo.trim() || null,
       valor_mensal: num(valorMensal),
     }
+    if (modo === 'proposta' && cliInfo?.nome) dados.cliente_nome = cliInfo.nome   // identidade do cliente escolhido/vinculado
     if (modo === 'manual') {
       dados.cliente_id = cli || null
-      dados.codigo_identificador = codigo.trim() || null
     }
     setSalvando(true)
     try {
@@ -142,11 +238,11 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
 
         <div style={{ padding: 20 }}>
           {erro && <div style={{ background: C.redBg, color: C.red, padding: '10px 14px', borderRadius: 6, marginBottom: 14, fontSize: 13 }}>{erro}</div>}
-          {toast && <div style={{ background: '#EAF6EE', color: '#1E7A46', padding: '10px 14px', borderRadius: 6, marginBottom: 14, fontSize: 13 }}>{toast}</div>}
+          {toast && <div style={{ background: C.greenBg, color: C.green, padding: '10px 14px', borderRadius: 6, marginBottom: 14, fontSize: 13 }}>{toast}</div>}
 
           {criado ? (
             <div data-testid="solicitacao-criada">
-              <div style={{ background: '#EAF6EE', color: '#1E7A46', padding: '12px 14px', borderRadius: 6, marginBottom: 14, fontSize: 13, lineHeight: 1.5 }}>
+              <div style={{ background: C.greenBg, color: C.green, padding: '12px 14px', borderRadius: 6, marginBottom: 14, fontSize: 13, lineHeight: 1.5 }}>
                 Solicitação enviada{criado.numero ? <> — contrato nº <strong>{criado.numero}</strong></> : null}.
                 {criado.aviso ? <> {criado.aviso}.</> : null}
               </div>
@@ -167,68 +263,94 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
                 <button type="button" onClick={() => setModo('manual')} style={tab(modo === 'manual', false)}>Com dados novos</button>
               </div>
 
+              {/* gate: proposta não aprovada */}
+              {modo === 'proposta' && prefilled && !aprovada && (
+                <div style={{ background: C.amberBg, color: C.amber, padding: '10px 14px', borderRadius: 6, marginBottom: 14, fontSize: 13, lineHeight: 1.5 }}>
+                  Esta proposta está em <strong>{rotuloStatus(status)}</strong>. Só dá para solicitar o contrato de uma proposta
+                  <strong> aprovada</strong> — aprove a proposta primeiro (botão “Aprovar” na proposta) e depois peça o contrato.
+                </div>
+              )}
+
               <Secao titulo="Cliente e contrato">
                 {modo === 'proposta' ? (
-                  <div style={{ fontSize: 13, color: C.espresso, lineHeight: 1.6, marginBottom: 12 }}>
-                    Cliente, título, valor e serviços vêm da proposta
-                    {propostaLabel ? <> <strong>{propostaLabel}</strong></> : null}. Preencha abaixo só o que quiser mudar ou completar.
-                  </div>
+                  <>
+                    <div style={{ fontSize: 13, color: C.espresso, lineHeight: 1.6, marginBottom: 12 }}>
+                      Os campos abaixo já vêm preenchidos com os dados da proposta
+                      {propostaLabel ? <> <strong>{propostaLabel}</strong></> : null} e do cadastro do cliente — confira e ajuste o que precisar.
+                    </div>
+                    {semCliente ? (
+                      <div style={{ background: C.redBg, borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                        <div style={{ fontSize: 13, color: C.red, fontWeight: 700, marginBottom: 8 }}>
+                          Esta proposta não tem cliente — escolha ou cadastre antes de pedir o contrato.
+                        </div>
+                        <ClientePickerInline companyId={companyId} value={cliInfo?.id ?? ''} onChange={(id) => { if (id) void escolherCliente(id) }} onToast={(s) => setToast(s)} />
+                      </div>
+                    ) : cliInfo ? (
+                      <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: C.espresso }}>{cliInfo.nome}{doCadastro}</div>
+                        {cliInfo.endereco && <div style={{ fontSize: 12, color: C.espressoM, marginTop: 4 }}>{cliInfo.endereco}</div>}
+                        <div style={{ fontSize: 12, color: C.espressoM, marginTop: 2 }}>
+                          {cliInfo.email || 'sem e-mail'} · {cliInfo.telefone || 'sem telefone'}
+                        </div>
+                        <div style={{ fontSize: 11, color: C.espressoM, marginTop: 6 }}>Endereço, e-mail e telefone vêm do cadastro do cliente — edite no cadastro se mudaram.</div>
+                      </div>
+                    ) : null}
+                  </>
                 ) : (
-                  <Campo label="Cliente">
+                  <Campo label="Cliente" chave="pm.solicitar_contrato.cliente" ajuda>
                     <ClientePickerInline companyId={companyId} value={cli} onChange={(id) => setCli(id)} onToast={(s) => setToast(s)} />
                   </Campo>
                 )}
                 <div style={gradeContrato}>
-                  <Campo label="CPF/CNPJ do cliente">
-                    <input style={inp} value={doc} onChange={(e) => setDoc(e.target.value)} placeholder="Vazio = o do cadastro" />
+                  <Campo label="CPF/CNPJ do cliente" chave="pm.solicitar_contrato.cpf_cnpj" ajuda>
+                    <input style={inp} value={doc} onChange={(e) => setDoc(e.target.value)} placeholder="Obrigatório" />
                   </Campo>
-                  <Campo label="Responsável pelo contrato">
+                  <Campo label="Responsável pelo contrato" chave="pm.solicitar_contrato.responsavel" ajuda>
                     <input style={inp} value={responsavel} onChange={(e) => setResponsavel(e.target.value)} placeholder="Quem assina / contato no cliente" />
                   </Campo>
                 </div>
-                <Campo label="Título do contrato">
-                  <input style={inp} value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder={modo === 'proposta' ? 'Vazio = o título da proposta' : 'Ex.: "Fee mensal — assessoria contábil"'} />
+                <Campo label="Título do contrato" chave="pm.solicitar_contrato.titulo" ajuda>
+                  <input style={inp} value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder={modo === 'proposta' ? 'O título da proposta' : 'Ex.: "Fee mensal — assessoria contábil"'} />
                 </Campo>
-                <Campo label="Objeto do contrato">
+                <Campo label="Objeto do contrato" chave="pm.solicitar_contrato.objeto" ajuda>
                   <textarea style={{ ...inp, minHeight: 56, fontFamily: 'inherit' }} value={objeto} onChange={(e) => setObjeto(e.target.value)} placeholder="O que está sendo contratado" />
                 </Campo>
-                <Campo label="Serviços / produtos">
-                  <textarea style={{ ...inp, minHeight: 56, fontFamily: 'inherit' }} value={escopo} onChange={(e) => setEscopo(e.target.value)} placeholder={modo === 'proposta' ? 'Vazio = os itens da proposta' : 'Um por linha'} />
+                <Campo label="Serviços / produtos" chave="pm.solicitar_contrato.servicos" ajuda>
+                  <textarea style={{ ...inp, minHeight: 56, fontFamily: 'inherit' }} value={escopo} onChange={(e) => setEscopo(e.target.value)} placeholder={modo === 'proposta' ? 'Os itens da proposta' : 'Um por linha'} />
                 </Campo>
                 <div style={gradeContrato}>
-                  {modo === 'manual' && (
-                    <Campo label="Código identificador (opcional)">
-                      <input style={inp} value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="Ex.: FEE-2026-001" />
-                    </Campo>
-                  )}
-                  <Campo label="Valor (por parcela)">
-                    <input style={inp} inputMode="decimal" value={valorMensal} onChange={(e) => setValorMensal(e.target.value)} placeholder={modo === 'proposta' ? 'Vazio = o da proposta' : '0,00'} />
+                  <Campo label="Código identificador (automático)" chave="pm.solicitar_contrato.codigo" ajuda>
+                    <input style={inp} value="" readOnly disabled placeholder="Gerado automaticamente ao solicitar (ex.: CTR-2026-0001)" />
+                  </Campo>
+                  <Campo label="Valor (por parcela)" chave="pm.solicitar_contrato.valor" ajuda>
+                    <input style={inp} inputMode="decimal" value={valorMensal} onChange={(e) => setValorMensal(e.target.value)} placeholder={modo === 'proposta' ? 'Somado dos itens da proposta' : '0,00'} />
+                    {modo === 'proposta' && valorMensal ? daProposta : null}
                   </Campo>
                 </div>
               </Secao>
 
               <Secao titulo="Pagamento">
                 <div style={gradeContrato}>
-                  <Campo label="Forma de pagamento">
+                  <Campo label="Forma de pagamento" chave="pm.solicitar_contrato.forma_pagamento" ajuda>
                     <select style={inp} value={forma} onChange={(e) => setForma(e.target.value)}>
                       {FORMAS_PAGAMENTO.map((f) => <option key={f.v} value={f.v}>{f.l}</option>)}
                     </select>
                   </Campo>
-                  <Campo label="Condição de pagamento">
+                  <Campo label="Condição de pagamento" chave="pm.solicitar_contrato.condicao_pagamento" ajuda>
                     <input style={inp} value={condicao} onChange={(e) => setCondicao(e.target.value)} placeholder="Ex.: entrada + 5x, 30/60/90" />
                   </Campo>
-                  <Campo label="Nº de parcelas">
+                  <Campo label="Nº de parcelas" chave="pm.solicitar_contrato.num_parcelas" ajuda>
                     <input style={inp} type="number" min={1} value={nParcelas} onChange={(e) => setNParcelas(e.target.value)} />
                   </Campo>
-                  <Campo label="Periodicidade">
+                  <Campo label="Periodicidade" chave="pm.solicitar_contrato.periodicidade" ajuda>
                     <select style={inp} value={periodicidade} onChange={(e) => setPeriodicidade(e.target.value)}>
                       {PERIODICIDADES_CONTRATO.map((p) => <option key={p.v} value={p.v}>{p.l}</option>)}
                     </select>
                   </Campo>
-                  <Campo label="Dia do vencimento">
+                  <Campo label="Dia do vencimento" chave="pm.solicitar_contrato.dia_vencimento" ajuda>
                     <input style={inp} type="number" min={1} max={28} value={diaVenc} onChange={(e) => setDiaVenc(e.target.value)} placeholder="1 a 28" />
                   </Campo>
-                  <Campo label="1º vencimento">
+                  <Campo label="1º vencimento" chave="pm.solicitar_contrato.primeiro_vencimento" ajuda>
                     <input style={inp} type="date" value={primeiroVenc} onChange={(e) => setPrimeiroVenc(e.target.value)} />
                   </Campo>
                 </div>
@@ -236,38 +358,38 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
 
               <Secao titulo="Vigência e condições">
                 <div style={gradeContrato}>
-                  <Campo label="Início previsto">
+                  <Campo label="Início previsto" chave="pm.solicitar_contrato.inicio" ajuda>
                     <input style={inp} type="date" value={inicio} onChange={(e) => setInicio(e.target.value)} />
                   </Campo>
-                  <Campo label="Fim da vigência">
+                  <Campo label="Fim da vigência" chave="pm.solicitar_contrato.fim" ajuda>
                     <input style={inp} type="date" value={fim} onChange={(e) => setFim(e.target.value)} />
                   </Campo>
-                  <Campo label="Reajuste">
+                  <Campo label="Reajuste" chave="pm.solicitar_contrato.reajuste" ajuda>
                     <select style={inp} value={reajuste} onChange={(e) => setReajuste(e.target.value)}>
                       {TIPOS_REAJUSTE_CONTRATO.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}
                     </select>
                   </Campo>
-                  <Campo label="% de reajuste">
+                  <Campo label="% de reajuste" chave="pm.solicitar_contrato.reajuste_pct" ajuda>
                     <input style={inp} inputMode="decimal" value={reajustePct} onChange={(e) => setReajustePct(e.target.value)} disabled={reajuste === 'nenhum'} placeholder="0,00" />
                   </Campo>
                 </div>
-                <Campo label="Condições específicas">
+                <Campo label="Condições específicas" chave="pm.solicitar_contrato.condicoes_especificas" ajuda>
                   <textarea style={{ ...inp, minHeight: 56, fontFamily: 'inherit' }} value={especificas} onChange={(e) => setEspecificas(e.target.value)} placeholder="Multa, fidelidade, garantias, o que foi combinado" />
                 </Campo>
-                <Campo label="Prazo desejado para o contrato">
+                <Campo label="Prazo desejado para o contrato" chave="pm.solicitar_contrato.prazo" ajuda>
                   <input type="date" style={inp} value={prazo} onChange={(e) => setPrazo(e.target.value)} />
                 </Campo>
-                <Campo label="Observação para quem vai elaborar">
+                <Campo label="Observação para quem vai elaborar" chave="pm.solicitar_contrato.observacao" ajuda>
                   <textarea style={{ ...inp, minHeight: 70, fontFamily: 'inherit' }} value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Contexto, pedidos do cliente, etc." />
                 </Campo>
                 <div style={{ fontSize: 11, color: C.espressoM, marginTop: -6, marginBottom: 12 }}>
-                  Depois de enviar, você pode anexar modelos de contrato, prints e documentos do cliente.
+                  Obrigatórios para enviar ao financeiro: cliente, CPF/CNPJ, objeto, valor e periodicidade. O resto o financeiro pode completar.
                 </div>
               </Secao>
 
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8, flexWrap: 'wrap' }}>
                 <button type="button" onClick={onClose} disabled={salvando} style={{ background: 'transparent', color: C.espresso, border: `1px solid ${C.border}`, padding: '10px 20px', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
-                <button type="button" data-testid="solicitar-contrato" onClick={() => void solicitar()} disabled={salvando} style={{ background: C.gold, color: C.white, border: 'none', padding: '10px 24px', borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: salvando ? 'wait' : 'pointer' }}>
+                <button type="button" data-testid="solicitar-contrato" onClick={() => void solicitar()} disabled={salvando || (modo === 'proposta' && !aprovada)} style={{ background: C.gold, color: C.white, border: 'none', padding: '10px 24px', borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: salvando ? 'wait' : (modo === 'proposta' && !aprovada) ? 'not-allowed' : 'pointer', opacity: (modo === 'proposta' && !aprovada) ? 0.5 : 1 }}>
                   {salvando ? 'Enviando…' : 'Solicitar elaboração'}
                 </button>
               </div>
@@ -290,13 +412,20 @@ function Secao({ titulo, children }: { titulo: string; children: React.ReactNode
     </div>
   )
 }
-function Campo({ label, children }: { label: string; children: React.ReactNode }) {
+// RD-95: o "?" (AjudaCampo) renderiza ao lado do rótulo quando há `chave`; o atributo `ajuda` marca o campo como coberto
+// para o gate check-ajuda-campo-telas-alteradas (que lê o call-site, não o interior deste componente).
+function Campo({ label, chave, children }: { label: string; chave?: string; ajuda?: boolean; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 14 }}>
-      <label style={{ display: 'block', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>{label}</label>
+      <label style={{ display: 'flex', alignItems: 'center', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>
+        {label}{chave ? <AjudaCampo chave={chave} rota={ROTA} /> : null}
+      </label>
       {children}
     </div>
   )
+}
+function rotuloStatus(s: string | null): string {
+  switch (s) { case 'rascunho': return 'Rascunho'; case 'enviada': return 'Enviada'; case 'recusada': return 'Recusada'; case 'aprovada': return 'Aprovada'; default: return s || 'rascunho' }
 }
 function traduz(e?: string): string {
   switch (e) {

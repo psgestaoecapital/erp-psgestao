@@ -4,13 +4,15 @@
 // Incluir e excluir (exclusão lógica, com confirmação); o custo entra sozinho no Resultado por obra.
 import { use, useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { fmtR } from '@/lib/psgc-tokens'
 import { supabase } from '@/lib/supabase'
+import { ehUuid, erroAmigavel } from '@/lib/erroAmigavel'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERM = '#B91C1C'
+// Moeda com centavos (padrão das telas irmãs de obra: Obras lista e Resultado) — R$ 100,00
+const brl = (v: number | null | undefined) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
 type Funcao = { id: string; nome: string; custo_hora_manual: number | null }
 type Apont = { id: string; data: string; funcao_id: string | null; descricao: string | null; horas: number; custo_hora: number; valor: number }
@@ -29,6 +31,7 @@ export default function LancarHorasPage({ params }: { params: Promise<{ id: stri
 
   const carregar = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
+    if (!ehUuid(id)) { setLoading(false); setErro('Obra não encontrada. Abra pela lista de obras.'); return }
     setLoading(true); setErro('')
     try {
       const [a, b] = await Promise.all([
@@ -38,7 +41,7 @@ export default function LancarHorasPage({ params }: { params: Promise<{ id: stri
         comPrazo(async () => await supabase.from('erp_funcao_mao_obra').select('id,nome,custo_hora_manual').in('company_id', companyIds).eq('ativo', true).order('nome'),
           { ms: 8000, tentativas: 1, label: 'funcoes' }),
       ])
-      if (a.error) { setErro(a.error.message); return }
+      if (a.error) { setErro(erroAmigavel(a.error, 'Não foi possível carregar os lançamentos. Tente de novo.')); return }
       setItens((a.data ?? []) as Apont[]); setFuncoes((b.data ?? []) as Funcao[])
     } catch { setErro(MSG_CARREGAMENTO_FALHOU) } finally { setLoading(false) }
   }, [companyIds, id])
@@ -57,7 +60,7 @@ export default function LancarHorasPage({ params }: { params: Promise<{ id: stri
     setSalvando(true)
     const { error } = await supabase.rpc('fn_obra_mao_obra_apontar', { p_obra_id: id, p_dados: { data: f.data, funcao_id: f.funcao_id, descricao: f.descricao || null, horas, custo_hora: custo } })
     setSalvando(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error)); return }
     setF({ data: f.data, funcao_id: f.funcao_id, descricao: '', horas: '', custo_hora: f.custo_hora })
     carregar()
   }
@@ -65,7 +68,7 @@ export default function LancarHorasPage({ params }: { params: Promise<{ id: stri
   const excluir = async (a: Apont) => {
     if (!window.confirm(`Excluir o lançamento de ${a.horas} h em ${a.data}? Ele sai do custo da obra.`)) return
     const { error } = await supabase.rpc('fn_obra_mao_obra_excluir', { p_id: a.id })
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error)); return }
     carregar()
   }
 
@@ -110,11 +113,11 @@ export default function LancarHorasPage({ params }: { params: Promise<{ id: stri
                 {itens.map(a => (
                   <tr key={a.id} style={{ borderBottom: `1px solid ${LINE}` }}>
                     <td style={{ padding: 8 }}>{a.data}</td><td style={{ padding: 8 }}>{nomeFn(a.funcao_id)}</td><td style={{ padding: 8 }}>{a.descricao ?? ''}</td>
-                    <td style={{ padding: 8, textAlign: 'right' }}>{a.horas}</td><td style={{ padding: 8, textAlign: 'right' }}>{fmtR(Number(a.custo_hora))}</td>
-                    <td style={{ padding: 8, textAlign: 'right' }}>{fmtR(Number(a.valor))}</td>
+                    <td style={{ padding: 8, textAlign: 'right' }}>{a.horas}</td><td style={{ padding: 8, textAlign: 'right' }}>{brl(Number(a.custo_hora))}</td>
+                    <td style={{ padding: 8, textAlign: 'right' }}>{brl(Number(a.valor))}</td>
                     <td style={{ padding: 8 }}><button onClick={() => excluir(a)} data-testid="horas-excluir" style={{ color: VERM, background: 'none', border: 0, cursor: 'pointer' }}>Excluir</button></td>
                   </tr>))}
-                <tr style={{ fontWeight: 700 }}><td colSpan={5} style={{ padding: 8 }}>Total de mão de obra</td><td style={{ padding: 8, textAlign: 'right' }} data-testid="horas-total">{fmtR(total)}</td><td /></tr>
+                <tr style={{ fontWeight: 700 }}><td colSpan={5} style={{ padding: 8 }}>Total de mão de obra</td><td style={{ padding: 8, textAlign: 'right' }} data-testid="horas-total">{brl(total)}</td><td /></tr>
               </tbody>
             </table>
           </div>)}

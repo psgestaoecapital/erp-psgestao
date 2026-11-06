@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { orFiltroClienteBusca } from '@/lib/clienteBusca'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -129,7 +130,8 @@ export default function OSMecanicoPage() {
     const { data, error } = await supabase.rpc('fn_oficina_os_listar', {
       p_company_id: companyIdAtiva,
       p_excluidas: verExcluidas,
-      p_limit: 200,
+      // Chamado #5440: a lista e a busca rodam no cliente, então carrega TODAS as OS da empresa (antes cortava em 200).
+      p_limit: 5000,
     })
     const r = data as { ok?: boolean; erro?: string; itens?: OSRow[] } | null
     if (error || r?.ok === false) setErro(error?.message || r?.erro || 'Falha ao carregar OS')
@@ -232,12 +234,19 @@ export default function OSMecanicoPage() {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
         <div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: C.espresso, display: 'flex', alignItems: 'center', gap: 8 }}>
-            🛠 Ordens de Serviço
+          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: C.espresso, display: 'flex', alignItems: 'center', gap: 8 }}>
+            Ordens de Serviço
             <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: C.goldBg, color: C.gold, fontWeight: 700, letterSpacing: 0.5 }}>os-mec-v1</span>
-          </div>
+          </h1>
           <div style={{ fontSize: 11, color: C.espressoL }}>Abra, preencha e assine a OS direto no celular.</div>
         </div>
+        <Link
+          href="/dashboard/os/relatorio"
+          style={{ minHeight: 44, padding: '10px 14px', borderRadius: 8, border: `1px solid ${C.border}`, color: C.espresso, background: C.white, fontSize: 13, fontWeight: 600, display: 'inline-flex', alignItems: 'center', marginRight: 8 }}
+          data-testid="os-relatorio"
+        >
+          Relatório por período
+        </Link>
         <button
           onClick={() => { setErro(null); setOkMsg(null); setNovoAberto(true) }}
           style={{

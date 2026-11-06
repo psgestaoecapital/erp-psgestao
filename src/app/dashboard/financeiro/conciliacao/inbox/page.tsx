@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { dataReferenciaSaldoOFX, rotuloDataSaldo, dtendDoOFX, saldoOFXValido, AVISO_SALDO_INVALIDO } from '@/lib/financeiro/saldoPorConta'
 import { parseSaldoFechamento, ehLinhaSaldoOFX, parseValorOFX, decodificarOFX, mensagemErroOFX } from '@/lib/ofx-parser'
 import { temConectorExtrato } from '@/lib/banco/extratoConector'
 import ArquivarMovimentoModal from '@/components/conciliacao/ArquivarMovimentoModal'
@@ -139,7 +140,11 @@ function fmtDate(s: string | null): string {
 }
 
 function fmtBR(d?: string | null): string {
-  return d ? new Date(d).toLocaleDateString('pt-BR') : ''
+  if (!d) return ''
+  // Chamado #6733: data pura (YYYY-MM-DD) vira meia-noite UTC no new Date() e aparece um dia antes no fuso BR.
+  const puro = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d)
+  if (puro) return `${puro[3]}/${puro[2]}/${puro[1]}`
+  return new Date(d).toLocaleDateString('pt-BR')
 }
 
 // ONDA-A-INBOX-SELO-v1: selo de precisao (escala 0-100, vinda de psgc_confianca/match_score)
@@ -527,7 +532,11 @@ export default function InboxPage() {
       const hash = `${text.length}-${movimentos[0]?.id_externo ?? ''}-${movimentos[movimentos.length - 1]?.id_externo ?? ''}`
       // Saldo Bancário: extrai o saldo de fechamento (LEDGERBAL) do OFX e deixa o backend gravá-lo
       // na MESMA transação do lote (ponto único de escrita, RD-65). Sem LEDGERBAL → segue sem saldo.
+      // #3952: a data do saldo é o FIM do dia a que ele se refere (nunca antes do último movimento do arquivo).
       const saldo = parseSaldoFechamento(text)
+      // #4969: DTASOF zerado (Bradesco "00000000") → último movimento ou DTEND; sem valor/data válidos → aviso, não grava.
+      const saldoDataRef = saldo.presente ? dataReferenciaSaldoOFX(saldo.dtasof_bruto, movimentos.map((m) => m.data_transacao), dtendDoOFX(text)) : null
+      const saldoLedgerOk = saldo.presente && saldoOFXValido(saldo.valor, saldoDataRef)
       // Fallback do saldo pela linha "SALDO ANTERIOR/DO DIA": só quando NÃO há LEDGERBAL (este tem
       // prioridade). Pega a linha de saldo mais recente do arquivo (>= mantém a última em empate de
       // data). O valor volta ao sinal contábil (débito → negativo). origem 'ofx_saldo_linha'.
@@ -549,8 +558,8 @@ export default function InboxPage() {
         p_storage_path: null,
         p_movimentos: movimentos,
         p_conta_bancaria_id: contaImportId,
-        p_saldo_fechamento: saldo.presente ? saldo.valor : (saldoLinha ? saldoLinha.valor : null),
-        p_saldo_data: saldo.presente ? saldo.dataISO : (saldoLinha ? saldoLinha.dataISO : null),
+        p_saldo_fechamento: saldo.presente ? (saldoLedgerOk ? saldo.valor : null) : (saldoLinha ? saldoLinha.valor : null),
+        p_saldo_data: saldo.presente ? (saldoLedgerOk ? saldoDataRef : null) : (saldoLinha ? saldoLinha.dataISO : null),
         p_saldo_bruto: saldo.presente
           ? { balamt_bruto: saldo.balamt_bruto, dtasof_bruto: saldo.dtasof_bruto, origem: 'ofx' }
           : (saldoLinha ? { origem: 'ofx_saldo_linha', descricao_linha: saldoLinha.descricao } : null),
@@ -566,17 +575,19 @@ export default function InboxPage() {
       // Linha de saldo do banco: gravado, mantido (leitura mais antiga) ou não veio no arquivo.
       // Valor/data efetivos: LEDGERBAL quando presente, senão a linha "SALDO ANTERIOR/DO DIA".
       const saldoValor = saldo.presente ? saldo.valor : (saldoLinha ? saldoLinha.valor : null)
-      const saldoDataISO = saldo.presente ? saldo.dataISO : (saldoLinha ? saldoLinha.dataISO : null)
+      const saldoDataISO = saldo.presente ? saldoDataRef : (saldoLinha ? saldoLinha.dataISO : null)
       let linhaSaldo = ''
       if (!temSaldo) {
         linhaSaldo = '\nEste arquivo não trouxe o saldo do banco.'
+      } else if (saldo.presente && !saldoLedgerOk) {
+        linhaSaldo = `\n${AVISO_SALDO_INVALIDO}`
       } else if (r.saldo?.gravado === false && r.saldo?.motivo === 'leitura_mais_antiga') {
         linhaSaldo = '\nSaldo mais antigo que o já registrado — mantido.'
       } else if (r.saldo?.ok && saldoValor != null) {
-        const dia = saldoDataISO ? new Date(saldoDataISO).toLocaleDateString('pt-BR') : '—'
+        const dia = saldoDataISO ? rotuloDataSaldo(saldoDataISO) : '—'
         const val = saldoValor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
         const fonte = saldo.presente ? '' : ' (linha de saldo do extrato)'
-        linhaSaldo = `\nSaldo do banco em ${dia}: ${val}${fonte}`
+        linhaSaldo = `\nSaldo do banco (${dia}): ${val}${fonte}`
       }
       alert((r.mensagem ?? (novos === 0
         ? `Nenhum lançamento novo — todos os ${r.total_recebidos ?? movimentos.length} já estavam no sistema.`
@@ -877,6 +888,8 @@ export default function InboxPage() {
   }
 
   async function desvincularConciliado(c: Conciliado) {
+    // #3963: a caixa de erro fica no topo da página, longe do botão — a recusa também abre um aviso na hora.
+    const falhou = (msg: string) => { setErro(msg); alert(msg) }
     // Fatura AGRUPADA (lancamento_id NULL): os vínculos ficam em conciliacao_vinculo, não no 1:1.
     // Antes o botão virava um aviso inerte ("use Ignorar") — não desfazia nada. Agora chama a RPC
     // de movimento, que estorna a baixa dos N títulos + limpa vínculos + volta o movimento p/ Pendentes.
@@ -885,9 +898,9 @@ export default function InboxPage() {
       const { data, error } = await supabase.rpc('fn_conciliacao_desvincular_movimento', {
         p_movimento_id: c.movimento_id,
       })
-      if (error) { setErro('Erro ao desvincular: ' + error.message); return }
+      if (error) { falhou('Erro ao desvincular: ' + error.message); return }
       const r = (data ?? {}) as { sucesso?: boolean; erro?: string; msg?: string; aviso?: string }
-      if (r.sucesso === false) { setErro('Não desvinculou: ' + (r.msg ?? r.erro ?? 'erro desconhecido')); return }
+      if (r.sucesso === false) { falhou('Não desvinculou: ' + (r.msg ?? r.erro ?? 'erro desconhecido')); return }
       await carregarConciliados()
       await carregar()
       if (r.aviso) setErro(r.aviso) // aviso não-bloqueante: título(s) com ajuste — confira o valor manualmente
@@ -901,10 +914,10 @@ export default function InboxPage() {
       p_lancamento_id: c.lancamento_id,
       p_tipo: c.lancamento_tabela.replace(/^erp_/, ''),
     })
-    if (error) { setErro('Erro ao desvincular: ' + error.message); return }
+    if (error) { falhou('Erro ao desvincular: ' + error.message); return }
     // a RPC retorna {sucesso:false, erro} sem erro SQL — antes era engolido
     const r = (data ?? {}) as { sucesso?: boolean; erro?: string }
-    if (r.sucesso === false) { setErro('Não desvinculou: ' + (r.erro ?? 'erro desconhecido')); return }
+    if (r.sucesso === false) { falhou('Não desvinculou: ' + (r.erro ?? 'erro desconhecido')); return }
     await carregarConciliados()
     await carregar()
   }

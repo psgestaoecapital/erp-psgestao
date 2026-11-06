@@ -124,10 +124,10 @@ ok(!/prod-url\.sh/.test(pr) && !/SUPABASE_ACCESS_TOKEN/.test(pr) && !/SUPABASE_D
 // ── P1: REFERÊNCIA ATRASADA — só reconcilia com o ledger da referência contendo toda a main e mesma versão máxima ──
 ok(/MAIN_MIGR_DIR:\?MAIN_MIGR_DIR ausente/.test(sh), 'P1: MAIN_MIGR_DIR é obrigatório (última migration da main)')
 ok(/comm -23 "\$dir\/main\.led" "\$dir\/ref\.led" \| grep -c \. \|\| true/.test(sh)
-  && /faltando" -ne 0 \]; then[\s\S]{0,200}pular "referência atrás da main/.test(sh),
-  'P1: migration da main ausente no ledger da referência → PULA (referência atrás da main), não reconcilia')
-ok(/if \[ "\$ref_max" != "\$main_max" \]; then\s*\n\s*pular /.test(sh),
-  'P1: versão máxima da referência ≠ última migration da main → PULA')
+  && /faltando" -ne 0 \]; then[\s\S]{0,700}erro "referência \(vaga 1\) atrás da main/.test(sh),
+  'P1: migration da main ausente no ledger da referência → FALHA explícito (22/10: não pula em silêncio)')
+ok(/if \[ "\$ref_max" != "\$main_max" \]; then\s*\n\s*erro "a versão máxima/.test(sh),
+  'P1: versão máxima da referência ≠ última migration da main → FALHA explícito')
 ok(/pular\(\)\s*\{[\s\S]{0,160}exit 0; \}/.test(sh), 'P1/P2: "pular" é exit 0 (segue o comportamento atual), nunca remove nada')
 ok(/comm -23 "\$dir\/orphan\.pre" "\$dir\/main\.led"/.test(sh) && /version not in \(select version from _mainled\)/.test(sh),
   'P1: NUNCA remove da vaga uma versão/objeto que pertença a uma migration presente na main (órfão e DELETE excluem a main)')

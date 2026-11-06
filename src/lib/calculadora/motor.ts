@@ -46,6 +46,8 @@ export type Regras = RegrasParede | RegrasForroF530 | RegrasForroAramado | Regra
 export type ItemCalculo = {
   chave: string; descricao: string; unidadeCompra: string
   quantidadeBruta: number; quantidade: number; conta: string
+  // Quantidade real ao lado da embalagem de compra (ex.: "2.640 un necessárias → 27 centos (2.700 un)"); só nas embalagens de contagem
+  equivalente?: string
 }
 export type Resultado = { ok: true; area: number; itens: ItemCalculo[]; avisos: string[] } | { ok: false; erro: string }
 
@@ -143,8 +145,16 @@ export const REGRAS_REVESTIMENTO_ESTRUTURADO: RegrasRevestimentoEstruturado = {
   massaKgM2: 0.5, fitaMM2: 1.5, baldeKg: 22, rolofitaM: 150,
 }
 
-const item = (chave: string, descricao: string, unidadeCompra: string, bruta: number, conta: string): ItemCalculo =>
-  ({ chave, descricao, unidadeCompra, quantidadeBruta: arred2(bruta), quantidade: paraCima(bruta), conta })
+const POR_EMBALAGEM: Record<string, number> = { cento: 100 }
+const inteiro = (n: number) => Math.round(n).toLocaleString('pt-BR')
+const item = (chave: string, descricao: string, unidadeCompra: string, bruta: number, conta: string): ItemCalculo => {
+  const quantidade = paraCima(bruta)
+  const porEmb = POR_EMBALAGEM[unidadeCompra]
+  const equivalente = porEmb
+    ? `${inteiro(arred2(bruta) * porEmb)} un necessárias → compra de ${quantidade} ${quantidade === 1 ? unidadeCompra : unidadeCompra + 's'} (${inteiro(quantidade * porEmb)} un)`
+    : undefined
+  return { chave, descricao, unidadeCompra, quantidadeBruta: arred2(bruta), quantidade, conta, ...(equivalente ? { equivalente } : {}) }
+}
 
 export function faixaDoPeDireito(faixas: FaixaPeDireito[], pd: number): FaixaPeDireito | null {
   // escolhe a última faixa que começa em/antes do pé-direito: entre 2,50 e 2,55 vale a anterior (nunca "trava")

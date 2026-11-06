@@ -101,6 +101,18 @@ test.describe('Aceitação #59 — pedido de contrato com pagamento, vigência e
     const titulo = `Aceitação #59 tela ${RUN}`
     await abrirSolicitacao(page)
     await page.getByRole('button', { name: 'Com dados novos' }).click()
+    // Obrigatórios para enviar ao financeiro (regra CEO 14/10, implementada na #2613): cliente, CPF/CNPJ, objeto, valor.
+    // O #59 era anterior a essa regra e só preenchia título — por isso a tela bloqueava e 'solicitacao-criada' não abria.
+    // Seleciona o cliente cadastrando um inline na GE pelo seletor do modal.
+    const nomeCliente = `Cliente 59 ${RUN}`
+    await page.getByPlaceholder('Buscar cliente da GE…').fill(nomeCliente)
+    await page.getByText(/Cadastrar cliente/).click()
+    await page.getByPlaceholder('Nome do cliente').fill(nomeCliente)
+    await page.getByRole('button', { name: 'Criar' }).click()
+    await expect(page.getByRole('button', { name: 'Trocar' })).toBeVisible({ timeout: 15000 })
+    await campo(page, 'CPF/CNPJ do cliente').fill('12.345.678/0001-90')
+    await campo(page, 'Objeto do contrato').fill('Serviços de marketing (aceitação #59)')
+    await campo(page, 'Valor (por parcela)').fill('1500,50')
     await campo(page, 'Título do contrato').fill(titulo)
     await campo(page, 'Forma de pagamento').selectOption('pix')
     await campo(page, 'Condição de pagamento').fill('30/60/90')

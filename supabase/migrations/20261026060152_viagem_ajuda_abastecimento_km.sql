@@ -1,0 +1,17 @@
+-- Viagem · "?" (RD-95) do km da viagem e dos indicadores de abastecimento (consumo km/l, custo por km, R$/litro)
+-- na tela /dashboard/projetos/viagens — desenvolvedor_4_g (faixa 52). Gap do auditor "Abastecimento na viagem".
+-- ADITIVA: só insere textos novos em erp_ajuda_campo (ON CONFLICT DO NOTHING); nada existente é alterado.
+-- As contas já existem no fn_viagem_resumo (km_rodado, custo_km, litros, media_km_l); esta PR só as mostra na tela.
+INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
+SELECT v.chave, v.grupo, v.rotulo, v.o_que, v.para_que, v.exemplo, v.erro, v.ordem, '/dashboard/projetos/viagens', 'hub_construcao', 'publicado'
+FROM (VALUES
+  ('projetos.viagem.km_inicial', 'Km da viagem', 'Km na saída', 'O número do hodômetro (painel do carro) na hora de sair. Pode anotar com foto do painel e digitar depois.', 'Com o km da volta dá o km rodado, que vira o custo por km e o consumo médio da viagem.', '128450', 'Digitar o km de um abastecimento no meio da viagem: o km rodado fica menor que o real.', 40),
+  ('projetos.viagem.km_final', 'Km da viagem', 'Km na volta', 'O número do hodômetro ao chegar de volta. Preencha antes de fechar a viagem.', 'Km na volta menos km na saída = km rodado. Sem ele a tela não mostra custo por km nem consumo.', '129058', 'Digitar menos que o km da saída: o sistema recusa.', 41),
+  ('projetos.viagem.salvar_km', 'Km da viagem', 'Salvar km', 'Toque depois de digitar o km da saída e/ou da volta.', 'Grava o km na viagem e recalcula na hora o km rodado, o custo por km e o consumo.', 'Saída 128450 · volta 129058 → 608 km', 'Sair da tela sem salvar: o km digitado se perde.', 42),
+  ('projetos.viagem.resumo_km', 'Resumo da viagem', 'Km rodado', 'Não se preenche: é o km da volta menos o km da saída.', 'É a base do custo por km e do consumo médio.', '608 km', 'Aparece "—" enquanto faltar o km da saída ou da volta.', 43),
+  ('projetos.viagem.resumo_custo_km', 'Resumo da viagem', 'Custo por km', 'Não se preenche: é o total da viagem (despesas + abastecimentos) dividido pelo km rodado.', 'Mostra quanto cada km de estrada custou à obra; serve para orçar a próxima mobilização.', 'R$ 3.748,10 ÷ 608 km = R$ 6,16/km', 'Lançar combustível como despesa comum não muda o total, mas some do consumo médio.', 44),
+  ('projetos.viagem.resumo_litros', 'Resumo da viagem', 'Litros', 'Não se preenche: soma os litros de todos os abastecimentos da viagem.', 'Entra no consumo médio (km rodado ÷ litros).', '58,4 L', 'Abastecimento lançado como despesa não entra nesta soma.', 45),
+  ('projetos.viagem.resumo_consumo', 'Resumo da viagem', 'Consumo médio', 'Não se preenche: é o km rodado dividido pelos litros abastecidos na viagem.', 'Mostra se o veículo está gastando dentro do normal; consumo muito baixo pode indicar problema mecânico ou cupom errado.', '608 km ÷ 58,4 L = 10,41 km/l', 'Fica distorcido se faltar algum cupom de abastecimento ou se o tanque não voltou no mesmo nível da saída.', 46),
+  ('projetos.viagem.lanc_preco_litro', 'Lançamento', 'Preço por litro', 'Não se preenche: é o valor do cupom dividido pelos litros.', 'Ajuda a conferir o cupom e comparar postos na mesma rota.', 'R$ 350,00 ÷ 58,4 L = R$ 5,993/L', 'Preço muito fora do normal costuma ser litros ou valor digitados trocados.', 47)
+) v(chave, grupo, rotulo, o_que, para_que, exemplo, erro, ordem)
+ON CONFLICT (chave) DO NOTHING;

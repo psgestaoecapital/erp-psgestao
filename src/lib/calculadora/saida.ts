@@ -48,3 +48,16 @@ export function listaDeCompraCsv(linhas: LinhaCusto[]): string {
   })
   return '﻿' + [cab.join(';'), ...corpo].join('\r\n')
 }
+
+const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+const brl = (v: number) => r2(v).toFixed(2).replace('.', ',')
+
+// Documento HTML da lista de compra para imprimir / salvar como PDF (sem biblioteca: o navegador gera o PDF).
+export function listaDeCompraHtml(linhas: LinhaCusto[], titulo: string): string {
+  let total = 0
+  const corpo = linhas.map(l => {
+    const sub = r2(l.item.quantidade * (l.custoUnitario ?? 0)); total += sub
+    return `<tr><td>${esc(l.produto?.nome ?? l.item.descricao)}</td><td class="n">${String(l.item.quantidade).replace('.', ',')}</td><td>${esc(l.item.unidadeCompra)}</td><td class="n">${brl(l.custoUnitario ?? 0)}</td><td class="n">${brl(sub)}</td></tr>`
+  }).join('')
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(titulo)}</title><style>body{font-family:system-ui,sans-serif;color:#2A1A10;margin:24px}h1{color:#C8941A;font-size:20px}table{border-collapse:collapse;width:100%}th,td{border-bottom:1px solid #E8E2D6;padding:6px 8px;text-align:left;font-size:13px}th{background:#3D2314;color:#fff}.n{text-align:right}tfoot td{font-weight:700}</style></head><body><h1>${esc(titulo)}</h1><table><thead><tr><th>Material</th><th class="n">Qtd</th><th>Un.</th><th class="n">Custo unit.</th><th class="n">Subtotal</th></tr></thead><tbody>${corpo}</tbody><tfoot><tr><td colspan="4">Total</td><td class="n">${brl(total)}</td></tr></tfoot></table></body></html>`
+}

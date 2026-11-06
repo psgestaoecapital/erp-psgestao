@@ -25,11 +25,14 @@ const iPend = sh.indexOf('pend=$('), iFiltro = sh.search(/\[ "\$via" = rapida \]
 ok(iFiltro > 0 && iFiltro < iPend, '(a) o filtro vem ANTES do cálculo de pendentes, vermelhos e cancelados')
 ok(/if \[ "\$via" = revisada \] && ! aceitacao_dispensada(?: && \[ "\$acc_quar" != 1 \])?; then\s*\n\s*acc=/.test(sh), '(a) aceitação só é exigida na via revisada (fora da janela do CEO 15/10)')
 ok(/test\("cancel\|ignor"; "i"\)\)\) then "pending"/.test(sh), '(a) Vercel só conta build real ("Canceled by Ignored Build Step" não é verde)')
-ok(/via=rapida\s*\n\s*jq -e --arg l "\$SENSIVEL" .* && via=revisada/.test(sh), '(a) a via sai da label revisao-eng-chefe')
+// CEO 23/10 (#3007): PR com a label `hub` é via expressa — o teste da etiqueta vem depois de `[ "$n_hub" = 0 ] &&`.
+ok(/via=rapida\s*\n\s*(?:\[ "\$n_hub" = 0 \] && )?jq -e --arg l "\$SENSIVEL" .* && via=revisada/.test(sh), '(a) a via sai da label revisao-eng-chefe')
 ok(/if \[ "\$via" = revisada \]; then\s*\n\s*a=\$\(autorizacao "\$n"\)/.test(sh), '(a) via revisada continua exigindo MERGE AUTORIZADO pelo patch-id')
 ok(/c=\$\(estado_checks "\$sha" "\$via"( "\$so_docs")?( "\$n")?( "\$regime_disp")?\)/.test(sh), '(a) o laço passa a via para estado_checks')
 ok(/via rápida/.test(sh) && /via revisada/.test(sh) && /log "#\$n segue a /.test(sh), '(a) o log diz a via de cada PR')
-ok(/m=\$\(estado_main\)/.test(sh) && /so_sem_migration=1/.test(sh), '(a) regra de migration intacta (espera o @pos-migration da anterior)')
+// CEO 23/10 (#3002): main não-livre segura migration em 2 níveis (deploy_travado = todas; critica_na_main = só as críticas).
+ok(/m=\$\(estado_main( "\$(?:mig_)?via")?\)/.test(sh) && /if \[ "\$m" != livre \]; then[\s\S]{0,400}?deploy_travado=1[\s\S]{0,60}?critica_na_main=1[\s\S]{0,40}?continue/.test(sh),
+  '(a) regra de migration intacta (espera o @pos-migration da anterior)')
 
 // (b) aceitação da main
 const wf = ler('.github/workflows/aceitacao-main.yml')

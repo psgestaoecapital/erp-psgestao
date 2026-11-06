@@ -6,6 +6,7 @@
 // guarda: chamados só da carteira dele e tarefas só para o Code dele.
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { mensagemErroLogin } from '@/lib/erroLogin'
 
 const ESP = '#3D2314', OFF = '#FAF7F2', DOU = '#C8941A', BRANCO = '#FFFFFF', BD = '#E7DED3', TXM = '#6B5D4F'
 
@@ -39,9 +40,10 @@ export default function ConsentimentoCanalPs() {
 
   const entrar = async () => {
     setOcupado(true); setErro(null)
-    const { error } = await supabase.auth.signInWithPassword({ email, password: senha })
+    let error: unknown = null
+    try { ({ error } = await supabase.auth.signInWithPassword({ email, password: senha })) } catch (e) { error = e }
     setOcupado(false)
-    if (error) { setErro('E-mail ou senha incorretos.'); return }
+    if (error) { setErro(mensagemErroLogin(error)); return }
     setLogado(true)
     if (id) await carregar(id)
   }

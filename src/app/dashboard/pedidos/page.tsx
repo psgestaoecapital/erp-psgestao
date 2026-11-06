@@ -239,10 +239,10 @@ export default function PedidosPage(){
     <div style={{minHeight:"100vh",background:BG,padding:20}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
         <div>
-          <div style={{fontSize:22,fontWeight:700,color:TX,display:'flex',alignItems:'center',gap:8}}>
-            🎯 Pedidos de Venda
+          <h1 style={{margin:0,fontSize:22,fontWeight:700,color:TX,display:'flex',alignItems:'center',gap:8}}>
+            Pedidos de Venda
             <span style={{fontSize:9,padding:'2px 6px',borderRadius:4,background:GO+'20',color:GO,fontWeight:700,letterSpacing:0.5}}>v4</span>
-          </div>
+          </h1>
           <div style={{fontSize:11,color:TXD,display:"flex",alignItems:"center",gap:6}}>
             <span>Gestão completa: do pedido à entrega e faturamento</span>
             <span>·</span>

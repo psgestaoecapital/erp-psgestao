@@ -11,33 +11,12 @@ import ts from 'typescript'
 
 // Telas do Hub ainda sem ajuda de campo (H0). Só pode DIMINUIR: tela que ganhou ajuda sai da lista (o gate avisa);
 // tela nova não entra aqui — já nasce com o "?".
-const PENDENTES = [
-  'src/app/dashboard/projetos/catalogo/[id]/page.tsx',
-  'src/app/dashboard/projetos/catalogo/page.tsx',
-  'src/app/dashboard/projetos/clientes/page.tsx',
-  'src/app/dashboard/projetos/configuracoes/page.tsx',
-  'src/app/dashboard/projetos/desempenho/page.tsx',
-  'src/app/dashboard/projetos/engenharia/page.tsx',
-  'src/app/dashboard/projetos/insumos/page.tsx',
-  'src/app/dashboard/projetos/obras/page.tsx',
-  'src/app/dashboard/projetos/oportunidades/OportunidadeFormModal.tsx',
-  'src/app/dashboard/projetos/oportunidades/OportunidadesKanban.tsx',
-  'src/app/dashboard/projetos/oportunidades/[id]/page.tsx',
-  'src/app/dashboard/projetos/oportunidades/page.tsx',
-  'src/app/dashboard/projetos/simulador/page.tsx',
-  'src/app/dashboard/projetos/takeoff/page.tsx',
-  'src/components/projetos/BdiSlider.tsx',
-  'src/components/projetos/BomEditor.tsx',
-  'src/components/projetos/CatalogoForm.tsx',
-  'src/components/projetos/MaoObraCatalogoLegado.tsx',
-  'src/components/projetos/PrecificacaoConfigPanel.tsx',
-  'src/components/projetos/ProdutividadePanel.tsx',
-  'src/components/projetos/SeletorItemModal.tsx',
+const PENDENTES: string[] = [
 ]
 const MAX_PENDENTES = 21   // tamanho da lista no dia da regra (01/10) — não pode crescer
 
 // + Pauta do P&M (CEO 02/10: P2 nasce com "?" em cada campo)
-const RAIZES = ['src/app/dashboard/projetos', 'src/components/projetos', 'src/app/dashboard/pm/pauta', 'src/app/dashboard/pm/briefings', 'src/app/dashboard/pm/importar-siga',
+const RAIZES = ['src/app/dashboard/projetos', 'src/components/projetos', 'src/app/dashboard/pm/pauta', 'src/app/dashboard/pm/briefings', 'src/app/dashboard/pm/importar-sistema-anterior',
   'src/app/dashboard/pm/meu-dia', 'src/components/pm/ClienteBusca.tsx', 'src/components/pm/BriefingEditor.tsx',
   'src/components/pm/JobFluxo.tsx', 'src/components/pm/JobComentarios.tsx', 'src/components/pm/Cronometro.tsx',  // + P&M Bloco 1, PM-C/PM-D, SIGA (CEO 02/10)
   'src/app/dashboard/pm/planejamento', 'src/app/dashboard/pm/calendario', 'src/components/pm/social']  // + Social (CEO 03/10)

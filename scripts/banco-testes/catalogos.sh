@@ -17,9 +17,13 @@ PSQL="${PSQL:-psql}"
 LISTA="${LISTA:-scripts/banco-testes/catalogos.txt}"
 PROD_REF=horsymhsinqcimflrtjo
 TEST_REF=xjzqndnvjkdjyisuklpy
-# Colunas de AUDITORIA (quem criou/alterou): não são dado de negócio — ficam FORA da cópia (não abortam a montagem).
+# Colunas de AUDITORIA (quem criou/alterou/auditou): não são dado de negócio — ficam FORA da cópia (não abortam a montagem).
 # Qualquer outra coluna de dono/autoria/dado pessoal continua recusada pela trava abaixo.
-AUDITORIA='^(atualizado_por|updated_by|criado_por|created_by|deleted_by|excluido_por)$'
+# auditada_ok_por (system_screens, migration 20261030210000_tela_auditada_ok): registra QUEM marcou a tela auditada-OK
+# (identificador de agente/robô, ex.: auditor_pdca_2) — metadado de auditoria, não dado de cliente. Sem ele, o montar
+# abortava em TODA execução ("whitelist recusada: system_screens: coluna proibida (auditada_ok_por)") e nenhuma vaga
+# conseguia ser remontada (VAGA DOENTE recorrente).
+AUDITORIA='^(atualizado_por|updated_by|criado_por|created_by|deleted_by|excluido_por|auditada_ok_por)$'
 erro() { echo "::error::$*"; exit 1; }
 
 # Trava de destino/origem: o destino NUNCA é a produção; a origem só pode ser a produção.

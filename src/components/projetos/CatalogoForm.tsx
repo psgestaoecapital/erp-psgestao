@@ -1,16 +1,20 @@
 // src/components/projetos/CatalogoForm.tsx
 // Drawer lateral genérico para criar/editar itens de catálogo
+// RD-95: todo campo tem o "?" (AjudaCampo) — `ajuda` é obrigatório no FormField e o texto vem de erp_ajuda_campo.
 
 "use client";
 
 import { ReactNode, useEffect, useState } from "react";
 import { X } from "lucide-react";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
 export type FieldType = "text" | "textarea" | "number" | "select" | "radio";
 
 export interface FormField {
   key: string;
   label: string;
+  /** chave do "?" em erp_ajuda_campo (rota = tela que abre o formulário) */
+  ajuda: string;
   type: FieldType;
   required?: boolean;
   placeholder?: string;
@@ -129,11 +133,14 @@ export function CatalogoForm<T extends Record<string, any>>({
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {fields.map((f) => (
-              <div key={f.key} className={f.fullWidth ? "md:col-span-2" : ""}>
-                <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-[#3D2314]/60">
-                  {f.label}
-                  {f.required && <span className="text-red-600"> *</span>}
-                </label>
+              <div key={f.key} data-ajuda={f.ajuda} className={f.fullWidth ? "md:col-span-2" : ""}>
+                <div className="mb-1 flex items-center gap-1">
+                  <span className="text-xs font-medium uppercase tracking-wider text-[#3D2314]/60">
+                    {f.label}
+                    {f.required && <span className="text-red-600"> *</span>}
+                  </span>
+                  <AjudaCampo chave={f.ajuda} />
+                </div>
 
                 {f.type === "text" && (
                   <input
@@ -189,26 +196,22 @@ export function CatalogoForm<T extends Record<string, any>>({
                 )}
 
                 {f.type === "radio" && f.options && (
-                  <div className="flex flex-wrap gap-2">
+                  <div role="radiogroup" aria-label={f.label} className="flex flex-wrap gap-2">
                     {f.options.map((o) => (
-                      <label
+                      <button
                         key={o.value}
-                        className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition ${
+                        type="button"
+                        role="radio"
+                        aria-checked={values[f.key] === o.value}
+                        onClick={() => set(f.key as keyof T, o.value as any)}
+                        className={`min-h-[36px] rounded-lg border px-3 py-1.5 text-sm transition ${
                           values[f.key] === o.value
                             ? "border-[#C8941A] bg-[#C8941A]/10 text-[#3D2314]"
                             : "border-[#3D2314]/12 bg-white text-[#3D2314]/70 hover:bg-[#3D2314]/5"
                         }`}
                       >
-                        <input
-                          type="radio"
-                          name={f.key}
-                          value={o.value}
-                          checked={values[f.key] === o.value}
-                          onChange={(e) => set(f.key as keyof T, e.target.value as any)}
-                          className="hidden"
-                        />
                         {o.label}
-                      </label>
+                      </button>
                     ))}
                   </div>
                 )}

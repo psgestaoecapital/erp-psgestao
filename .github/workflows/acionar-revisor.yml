@@ -10,9 +10,10 @@ name: Acionar revisor
 on:
   pull_request_target:
     types: [labeled, synchronize, ready_for_review]
-  # CEO 12/10: varredura a cada 5 min — o revisor passa por TODAS as PRs pendentes da alçada dele num run só
+  # CEO 23/10: varredura a cada 15 min — o revisor acorda, passa por TODAS as PRs pendentes da alçada dele num run só,
+  # e para até ser acordado de novo (sessão curta, sem loop). (Era */5; 15 min reduz 3× os despertares e basta.)
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '*/15 * * * *'
   workflow_dispatch:
 
 # um grupo por PR: PR diferente não cancela o acionamento da outra; a varredura tem grupo próprio

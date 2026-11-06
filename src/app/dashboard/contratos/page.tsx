@@ -3,6 +3,8 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import ContratosFeePanel from "@/components/ge/ContratosFeePanel";
+import ContratosModelosPanel from "@/components/ge/ContratosModelosPanel";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -77,7 +79,7 @@ export default function ContratosPage(){
 
   const [contratos,setContratos]=useState<Contrato[]>([]);
   const [clientes,setClientes]=useState<any[]>([]);
-  const [tab,setTab]=useState<'contratos'|'dashboard'|'acoes'|'fee'>('dashboard');
+  const [tab,setTab]=useState<'contratos'|'dashboard'|'acoes'|'fee'|'modelos'>('dashboard');
   // #59 PDOIS parte 2: atalho ?tab=fee (usado pelo /dashboard/pm/contratos) abre direto a fila de fee
   useEffect(()=>{ if(typeof window!=='undefined'){ const q=new URLSearchParams(window.location.search); if(q.get('tab')==='fee'||q.get('aba')==='fee') setTab('fee'); } },[]);
   const [loading,setLoading]=useState(true);
@@ -109,6 +111,10 @@ export default function ContratosPage(){
   });
   // Empresa-alvo do novo contrato (necessario quando multi)
   const [novoCompanyId,setNovoCompanyId]=useState<string>("");
+  // #3857 Pdois: empresa com catálogo próprio de serviços (agency_servico) escolhe o SERVIÇO dela no lugar da lista
+  // genérica de tipos (BPO, academia, clínica…). O contrato grava tipo 'servico' (o mesmo da solicitação pelo comercial).
+  const [servicosEmp,setServicosEmp]=useState<{id:string;nome:string}[]>([]);
+  const [servicoSel,setServicoSel]=useState("");
 
   const [showReajuste,setShowReajuste]=useState<Contrato|null>(null);
   const [pctReajuste,setPctReajuste]=useState(0);
@@ -222,8 +228,31 @@ export default function ContratosPage(){
     loadContratos(); loadMetricas(); loadDashboardSplits(); loadAcoesData();
   };
 
+  useEffect(()=>{
+    if(!showNovo||!novoCompanyId){ setServicosEmp([]); setServicoSel(""); return; }
+    let vivo=true;
+    void supabase.from("agency_servico").select("id,nome").eq("company_id",novoCompanyId).eq("ativo",true)
+      .order("ordem",{ascending:true}).order("nome",{ascending:true})
+      .then(({data})=>{
+        if(!vivo) return;
+        const l=((data as {id:string;nome:string}[])||[]).filter(s=>(s.nome||"").trim());
+        setServicosEmp(l); setServicoSel("");
+        if(l.length) setNovoContrato((n:Record<string,unknown>)=>({...n,tipo:'servico'}));
+      });
+    return ()=>{ vivo=false; };
+  },[showNovo,novoCompanyId]);
+
+  const escolherServico=(id:string)=>{
+    const ant=servicosEmp.find(x=>x.id===servicoSel)?.nome??"";
+    const s=servicosEmp.find(x=>x.id===id);
+    setServicoSel(id);
+    // o nome do contrato acompanha o serviço enquanto o usuário não digitou outro nome
+    setNovoContrato((n:Record<string,unknown>)=>({...n,tipo:'servico',nome:(!n.nome||n.nome===ant)?(s?.nome??""):n.nome}));
+  };
+
   const criarContrato=async()=>{
     if (!novoCompanyId) { setMsg("❌ Selecione a empresa"); return; }
+    if (servicosEmp.length>0 && !servicoSel) { setMsg("❌ Escolha o serviço do contrato"); return; }
     if(!novoContrato.cliente_nome||!novoContrato.nome||!novoContrato.valor_mensal){
       setMsg("❌ Preencha cliente, nome e valor");return;
     }
@@ -252,7 +281,7 @@ export default function ContratosPage(){
 
     if(error){setMsg("❌ "+error.message);return;}
     setMsg(`✅ Contrato ${numero} criado com sucesso`);
-    setShowNovo(false);
+    setShowNovo(false); setServicoSel("");
     setNovoContrato({cliente_id:'',cliente_nome:'',cliente_cnpj:'',cliente_email:'',tipo:'bpo_financeiro',nome:'',descricao:'',escopo:'',valor_mensal:0,data_inicio:hoje(),data_fim:'',dia_vencimento:10,periodicidade:'mensal',tipo_reajuste:'ipca',reajuste_percentual:0,mes_reajuste:1,forma_pagamento:'boleto'});
     setBuscaCli("");
     refetchAll();
@@ -458,7 +487,7 @@ export default function ContratosPage(){
 
       {/* Tabs */}
       <div style={{display:"flex",gap:6,marginBottom:16,borderBottom:`1px solid ${BD}`}}>
-        {[{k:'dashboard',l:'📊 Dashboard SaaS'},{k:'contratos',l:'📋 Contratos'},{k:'fee',l:'🧾 Solicitações & Fee'},{k:'acoes',l:'⚡ Ações'}].map(t=>(
+        {[{k:'dashboard',l:'📊 Dashboard SaaS'},{k:'contratos',l:'📋 Contratos'},{k:'fee',l:'🧾 Solicitações & Fee'},{k:'modelos',l:'📝 Modelos'},{k:'acoes',l:'⚡ Ações'}].map(t=>(
           <button key={t.k} onClick={()=>setTab(t.k as any)} style={{padding:"10px 20px",fontSize:12,fontWeight:tab===t.k?700:500,background:"transparent",border:"none",color:tab===t.k?GO:TXM,borderBottom:`3px solid ${tab===t.k?GO:"transparent"}`,cursor:"pointer",marginBottom:-1}}>{t.l}</button>
         ))}
       </div>
@@ -466,6 +495,11 @@ export default function ContratosPage(){
       {/* TAB SOLICITAÇÕES & FEE (#59 PDOIS parte 2) */}
       {tab==='fee'&&(
         <ContratosFeePanel companyId={empresaUnica} />
+      )}
+
+      {/* TAB MODELOS DE CONTRATO (#5452 Pdois/P&M · slice 2) */}
+      {tab==='modelos'&&(
+        <ContratosModelosPanel companyId={empresaUnica} />
       )}
 
       {/* TAB DASHBOARD SAAS */}
@@ -840,10 +874,18 @@ export default function ContratosPage(){
             </div>
 
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
-              <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Tipo *</div>
-                <select value={novoContrato.tipo} onChange={e=>setNovoContrato({...novoContrato,tipo:e.target.value})} style={{...inp,cursor:"pointer"}}>
-                  {TIPOS_CONTRATO.map(t=><option key={t.v} value={t.v}>{t.icon} {t.l}</option>)}
-                </select></div>
+              {servicosEmp.length>0?(
+                <label style={{display:"block"}}><div style={{fontSize:10,color:TXD,marginBottom:3}}>Serviço * <AjudaCampo chave="ge.contrato.novo.servico" /></div>
+                  <select value={servicoSel} onChange={e=>escolherServico(e.target.value)} style={{...inp,cursor:"pointer"}} data-testid="novo-contrato-servico">
+                    <option value="">— escolha o serviço —</option>
+                    {servicosEmp.map(s=><option key={s.id} value={s.id}>{s.nome}</option>)}
+                  </select></label>
+              ):(
+                <label style={{display:"block"}}><div style={{fontSize:10,color:TXD,marginBottom:3}}>Tipo * <AjudaCampo chave="ge.contrato.novo.tipo" /></div>
+                  <select value={novoContrato.tipo} onChange={e=>setNovoContrato({...novoContrato,tipo:e.target.value})} style={{...inp,cursor:"pointer"}}>
+                    {TIPOS_CONTRATO.map(t=><option key={t.v} value={t.v}>{t.icon} {t.l}</option>)}
+                  </select></label>
+              )}
               <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Periodicidade</div>
                 <select value={novoContrato.periodicidade} onChange={e=>setNovoContrato({...novoContrato,periodicidade:e.target.value})} style={{...inp,cursor:"pointer"}}>
                   <option value="mensal">Mensal</option>

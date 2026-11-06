@@ -11,10 +11,14 @@ import { createClient } from '@supabase/supabase-js';
 import chromium from '@sparticuz/chromium-min';
 import { chromium as playwright } from 'playwright-core';
 import type { Browser, Page } from 'playwright-core';
-import { modeloPara, registrarFalhaIA } from '@/lib/aiModel';
+import { modeloPara, registrarFalhaIA, assertIAPermitida, IABloqueadaError } from '@/lib/aiModel';
 import { empresaPermitidaParaRobo, MSG_ROBO_SO_DEMO } from '@/lib/gold/roboEmpresaPermitida';
 import { conferirEmpresaRenderizada } from '@/lib/gold/empresaRenderizada';
 import { classificarEstadoConteudo, estadoNaoEhBug } from '@/lib/gold/estadoConteudo';
+import { watcherSecretValido } from '@/lib/watcherSecret'
+import {
+  EMPRESA_BOT_OFICINA, EMPRESA_BOT_PM, empresaBotDaRota, verticalDaRota,
+} from '@/lib/gold/empresaBotDaRota';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,11 +28,8 @@ const CHROMIUM_PACK_URL =
   'https://github.com/Sparticuz/chromium/releases/download/v147.0.0/chromium-v147.0.0-pack.x64.tar';
 
 // INCIDENTE LGPD 20/09 (0e8add26): o default NÃO pode ser empresa real. Cada vertical aponta para a sua
-// DEMONSTRAÇÃO (is_demo). Sem demo da vertical ⇒ empresaPermitidaParaRobo recusa e a rota fica "NÃO AUDITADA".
-const EMPRESA_BOT_OFICINA = 'b0700000-0000-4000-a000-000000000001'; // Demonstração · Oficina
-const EMPRESA_BOT_PM = 'b0700000-0000-4000-a000-000000000002';      // Demonstração · Agência (P&M)
-const EMPRESA_BOT_REVENDA = 'b0700000-0000-4000-a000-000000000003'; // Demonstração · Revenda
-const EMPRESA_BOT_GE = 'b0700000-0000-4000-a000-000000000004';      // Demonstração · Comércio (GE) — default geral
+// DEMONSTRAÇÃO (is_demo) — regra em src/lib/gold/empresaBotDaRota.ts. Sem demo da vertical ⇒
+// empresaPermitidaParaRobo recusa e a rota fica "NÃO AUDITADA".
 
 type Body = { rota?: string; screen_id?: string };
 
@@ -46,9 +47,7 @@ interface BotaoRow {
 }
 
 export async function POST(req: Request) {
-  const expected = process.env.WATCHER_SECRET;
-  const got = req.headers.get('x-watcher-secret');
-  if (!expected || got !== expected) {
+  if (!watcherSecretValido(req.headers.get('x-watcher-secret'))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -76,6 +75,13 @@ export async function POST(req: Request) {
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
+  // RLS FIX (P0 Gold 24/10): o login do bot roda num cliente SEPARADO. signInWithPassword SETA a sessão no cliente
+  // que o chama — no `supabase`, o Authorization virava o JWT do bot (authenticated) e, desde a 20260928120000
+  // (authenticated sem escrita nas gold_*), todo INSERT em gold_camada2_validacoes era RECUSADO em silêncio
+  // (último registro 27/09). `supabase` fica como service_role para banco e storage.
+  const authClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
 
   const PROJECT_REF = SUPABASE_URL.replace('https://', '').split('.')[0];
 
@@ -90,12 +96,12 @@ export async function POST(req: Request) {
   if (!botoes?.length) return NextResponse.json({ erro: 'sem botoes', rota }, { status: 200 });
 
   let browser: Browser | null = null;
-  const resultados: Array<{ botao_id: string; veredito: string; custo_usd: number; motivo: string; estado_conteudo?: string }> = [];
+  const resultados: Array<{ botao_id: string; veredito: string; custo_usd: number; motivo: string; estado_conteudo?: string; erro_gravacao?: string }> = [];
   let custoTotal = 0;
   let authStatus = 'desconhecido';
 
   try {
-    const { data: signIn, error: signErr } = await supabase.auth.signInWithPassword({
+    const { data: signIn, error: signErr } = await authClient.auth.signInWithPassword({
       email: BOT_EMAIL, password: BOT_PASSWORD,
     });
     if (signErr || !signIn?.session) throw new Error(`login bot: ${signErr?.message || 'sem session'}`);
@@ -111,15 +117,22 @@ export async function POST(req: Request) {
 
     // Rota de oficina/P&M → empresa-bot própria + seed idempotente antes de auditar (filas populadas).
     // O robô é PS_ADMIN (isento do gating de área/assinatura), então navega direto sem depender do menu.
-    const ehOficina = rota.startsWith('/dashboard/oficina');
-    const ehPm = rota.startsWith('/dashboard/pm') || rota === '/dashboard/producao';
-    const ehRevenda = rota.startsWith('/dashboard/revenda');
-    // vertical → demo por is_demo (item 4 do incidente). Default geral = Demonstração Comércio (GE), NUNCA PS LTDA.
-    const empresaAudit = ehOficina ? EMPRESA_BOT_OFICINA : ehPm ? EMPRESA_BOT_PM : ehRevenda ? EMPRESA_BOT_REVENDA : EMPRESA_BOT_GE;
+    const vertical = verticalDaRota(rota);
+    const ehOficina = vertical === 'oficina';
+    const ehPm = vertical === 'pm';
+    // vertical → demo por is_demo (item 4 do incidente). Hub → Construtora Modelo DEMO. Default geral = Comércio (GE),
+    // NUNCA PS LTDA.
+    const empresaAudit = empresaBotDaRota(rota);
     // RD-69 P1/RD-70: o robô SÓ audita empresa de DEMONSTRAÇÃO (is_demo=true). Rota sem demo da vertical
     // (ex.: genérica que caía na PS LTDA) ⇒ 403 e a rota fica "NÃO AUDITADA" no painel. Fail-closed.
     if (!(await empresaPermitidaParaRobo(supabase, empresaAudit))) {
       return NextResponse.json({ error: MSG_ROBO_SO_DEMO, empresa_id: empresaAudit, rota }, { status: 403 });
+    }
+    // P0 CUSTO (CEO 01/11): porteiro do bloqueio global (sub-teto Gold incluso) ANTES de abrir o browser
+    // e varrer os botões com chamada paga. Fail-closed → 503; a rota fica "NÃO AUDITADA" sem gastar.
+    try { await assertIAPermitida({ gold: true }); } catch (e) {
+      if (e instanceof IABloqueadaError) return NextResponse.json({ error: e.motivo, ia_bloqueada: true, rota }, { status: 503 });
+      throw e;
     }
     if (ehOficina) {
       await supabase.rpc('fn_gold_oficina_seed_reparar', { p_company_id: EMPRESA_BOT_OFICINA });
@@ -157,9 +170,10 @@ export async function POST(req: Request) {
     if (browser) await browser.close().catch(() => {});
   }
 
+  const errosGravacao = resultados.filter((r) => r.erro_gravacao).length;
   return NextResponse.json({
     rota, screen_id: body.screen_id, auth_status: authStatus,
-    botoes_auditados: resultados.length, custo_total_usd: custoTotal, resultados,
+    botoes_auditados: resultados.length, custo_total_usd: custoTotal, erros_gravacao: errosGravacao, resultados,
   });
 }
 
@@ -227,9 +241,10 @@ async function auditarBotao(
   });
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
   const path = `gold-camada2/${botao.id}/${ts}.jpg`;
-  await supabase.storage.from('system-screenshots').upload(path, buffer, {
+  const { error: upErr } = await supabase.storage.from('system-screenshots').upload(path, buffer, {
     contentType: 'image/jpeg', upsert: true,
   });
+  if (upErr) console.error('[gold/auditar-rota] screenshot não subiu', botao.id, upErr.message);
   // LGPD: bucket system-screenshots é PRIVADO — guarda o PATH (nunca URL pública). O Claude usa o buffer
   // em base64 (abaixo), não a URL; o painel Gold assina sob demanda (PS_ADMIN).
   const screenshotUrl = path;
@@ -327,7 +342,7 @@ Responda APENAS JSON sem markdown:
   const veredito2 = analise.veredito === 'OURO' ? 'verde'
     : analise.veredito === 'PRATA' ? 'amarelo' : 'vermelho';
 
-  await supabase.from('gold_camada2_validacoes').insert({
+  const { error: insErr } = await supabase.from('gold_camada2_validacoes').insert({
     botao_id: botao.id,
     destino_real_url: urlAposClique,
     destino_match_esperado: botao.destino_esperado_rota ? urlAposClique.includes(botao.destino_esperado_rota) : true,
@@ -346,8 +361,13 @@ Responda APENAS JSON sem markdown:
     playwright_real: true,
     auth_status: 'autenticado',
   });
+  // Nunca mais em silêncio: falha de gravação volta no resumo (erros_gravacao) e no log.
+  if (insErr) console.error('[gold/auditar-rota] validação não gravou', botao.id, insErr.message);
 
-  return { botao_id: botao.id, veredito: analise.veredito, custo_usd: custoUsd, motivo: analise.motivo || '', estado_conteudo: estadoConteudo };
+  return {
+    botao_id: botao.id, veredito: analise.veredito, custo_usd: custoUsd, motivo: analise.motivo || '',
+    estado_conteudo: estadoConteudo, ...(insErr ? { erro_gravacao: insErr.message } : {}),
+  };
 }
 
 async function gravarErro(
@@ -358,7 +378,7 @@ async function gravarErro(
   msg: string,
   veredito: 'vermelho' | 'nao_testavel' = 'vermelho',
 ) {
-  await supabase.from('gold_camada2_validacoes').insert({
+  const { error: insErr } = await supabase.from('gold_camada2_validacoes').insert({
     botao_id: botao.id,
     veredito_camada2: veredito,
     motivo_veredito: `${tipo}: ${msg}`,
@@ -371,5 +391,9 @@ async function gravarErro(
   });
   // veredito de RETORNO da função (para o resumo): não testável não é bloqueado.
   const vRet = veredito === 'nao_testavel' ? 'NAO_TESTAVEL' : 'BLOQUEADO';
-  return { botao_id: botao.id, veredito: vRet, custo_usd: 0, motivo: `${tipo}: ${msg}` };
+  if (insErr) console.error('[gold/auditar-rota] validação não gravou', botao.id, insErr.message);
+  return {
+    botao_id: botao.id, veredito: vRet, custo_usd: 0, motivo: `${tipo}: ${msg}`,
+    ...(insErr ? { erro_gravacao: insErr.message } : {}),
+  };
 }

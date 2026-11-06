@@ -131,6 +131,16 @@ export async function soltarTravaDemo(dono: string): Promise<void> {
   catch (e) { console.warn('[trava-demo] não soltou (expira sozinha):', e instanceof Error ? e.message : String(e)) }
 }
 
+// Purga durável do lixo de E2E nas demos (CEO 22/10): obras/centros marcados E2E que ficaram ativos porque um run
+// cancelado/timeout pulou o afterAll. Rodada no passo "sempre" (e2e-trava-soltar), zera a acumulação antes que
+// estoure o limite de 1000 linhas do PostgREST (dropdown "Centro de custo / obra"). Nunca derruba o run se falhar.
+export async function purgarLeftoversDemo(): Promise<void> {
+  try {
+    const r = await rpc<{ centros_desativados?: number; obras_canceladas?: number }>('fn_e2e_purgar_leftovers_demo', {})
+    console.log(`[purga-e2e] centros desativados: ${r?.centros_desativados ?? 0} · obras canceladas: ${r?.obras_canceladas ?? 0}`)
+  } catch (e) { console.warn('[purga-e2e] não purgou (segue):', e instanceof Error ? e.message : String(e)) }
+}
+
 // Reset da demo ao FIM da suíte (a demo pode ser mexida à vontade e volta ao seed).
 export async function resetarDemo(): Promise<void> {
   await rpc('fn_demo_reset', { p_company_id: DEMO_REVENDA })

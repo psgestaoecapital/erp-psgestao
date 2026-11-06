@@ -1,12 +1,13 @@
 name: Gates do build
 
 # CEO 07/10 (custo da Vercel): os ~94 gates de scripts/gates/ saíram do build da Vercel (vercel.json › buildCommand =
-# "next build") e rodam AQUI, de graça (repositório público), em toda PR e na main. Mesmo efeito de antes: um gate
-# vermelho deixa a PR vermelha (check "gates" — marcar como obrigatório na proteção da main). Os gates são checagens
-# estáticas (leem arquivos do repo, sem rede, banco ou variável de ambiente da Vercel): não precisam de segredo.
+# "next build") e rodam AQUI, de graça (repositório público). Os gates são checagens estáticas (leem arquivos do repo,
+# sem rede, banco ou variável de ambiente da Vercel): não precisam de segredo.
+# CEO 22/10 (capacidade do Actions): a suíte 'gates' virou INFORMATIVA (não bloqueia o merge — nem na fila nem na
+# proteção). Rodá-la em TODA atualização de PR (com dezenas de PRs na fila) saturava os runners e travava a própria
+# esteira. Agora roda SÓ na main (rede de segurança pós-merge: a aceitação da main cobre o veredito) e sob demanda
+# (workflow_dispatch). NÃO roda mais em pull_request.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
   workflow_dispatch:

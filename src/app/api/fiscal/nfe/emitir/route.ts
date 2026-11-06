@@ -9,6 +9,8 @@ import { isFiscalError } from '@/lib/fiscal/errors'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 import { guardarXmlNota } from '@/lib/fiscal/guardarXmlNota'
 import { registrarFalhaEmissaoNFe, registrarTentativaEmissaoNFe, type ContextoEmissaoNFe } from '@/lib/fiscal/nfeRecusa'
+import { carregarVendaVeiculo, type ItemVeiculoMontado } from '@/lib/fiscal/nfe-veiculo'
+import { LIMITE_INF_CPL, excedeLimiteInfCpl, mensagemLimiteInfCpl, textoInformacoesComplementares } from '@/lib/fiscal/informacoesComplementares'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -18,6 +20,8 @@ interface EmitirNFeBody {
   erpReceberId?: string
   // FEAT-NFE-PRODUTO-2-CARD-PEDIDO-v1 · terceiro modo de emissao (a partir do pedido)
   pedidoId?: string
+  // #5684 · NF-e da venda de VEÍCULO (Revenda · Caminho A): liga ao título que a venda já criou e grava veic_venda.nfe_id
+  vendaVeiculoId?: string
   // chamado #20 Fase 3 · NF-e de peça a partir da OS: vincula a nota à OS e guarda a justificativa
   // de divergência de valor NO registro (recuperável depois — §8.1 detalhe #1 do CEO).
   osId?: string
@@ -43,6 +47,10 @@ interface EmitirNFeBody {
   }
   // indFinal escolhido na venda (modal/pedido). undefined → o builder deriva do indIEDest.
   consumidorFinal?: boolean
+  // Pedido Jordana 20/10: apenasPrevia=true só monta a nota e devolve o texto final das Informações Complementares
+  // (não emite, não grava). informacoesComplementares = texto editado na tela; substitui o composto por inteiro.
+  apenasPrevia?: boolean
+  informacoesComplementares?: string | null
 }
 
 export const POST = withAuth(async (req: NextRequest, { userId }) => {
@@ -62,10 +70,25 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     const negado = await guardaEmpresaFiscal({ userId, companyId: body.companyId, papelMinimo: 'membro', log: { notaTipo: 'nfe', operacao: 'emissao', endpoint: 'nfe/emitir' } })
     if (negado) return negado
 
+    // #5684 · venda de veículo: carrega venda/perfil/título (recusa nota autorizada/em processamento — sem duplicar).
+    let vendaVeic: Awaited<ReturnType<typeof carregarVendaVeiculo>> | undefined
+    let veicMontado: ItemVeiculoMontado | undefined
+    if (body.vendaVeiculoId) {
+      vendaVeic = await carregarVendaVeiculo(body.companyId, body.vendaVeiculoId)
+      if (vendaVeic.nfeStatusAtual === 'autorizada' || vendaVeic.nfeStatusAtual === 'processando') {
+        return NextResponse.json({ ok: false, mensagem: `Esta venda já tem NF-e ${vendaVeic.nfeStatusAtual} — não emita de novo.` }, { status: 409 })
+      }
+      // Nota ligada ao título da venda (sem criar título novo): vai no registro como erp_receber_id.
+      body.erpReceberId = vendaVeic.receberId ?? undefined
+    }
+
     const nfeReq = await buildNFeRequest({
       companyId: body.companyId,
-      erpReceberId: body.erpReceberId,
+      vendaVeiculo: vendaVeic,
+      onVeiculoMontado: (m) => { veicMontado = m },
+      erpReceberId: vendaVeic ? undefined : body.erpReceberId,
       pedidoId: body.pedidoId,
+      osId: body.osId,
       manual: body.manual,
       overrides: body.overrides,
       consumidorFinal: body.consumidorFinal,
@@ -88,7 +111,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     try {
       validateNFeRequest(nfeReq)
     } catch (e) {
-      await registrarFalhaEmissaoNFe(ctxEmissao, e)
+      if (!body.apenasPrevia) await registrarFalhaEmissaoNFe(ctxEmissao, e)
       throw e
     }
 
@@ -105,6 +128,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     // SIMPLES: percentual único (percentual_total_tributos_sn) × valor da nota. REGIME NORMAL: tabela
     // IBPT por item (NCM, EX, UF do destinatário, origem — a Focus NÃO calcula, provado no dado). Só
     // quando lei12741_ativo=true, consumidor_final e empresa NÃO estrangeira. CONCATENA (não sobrescreve).
+    // Ordem (pedido Jordana 20/10): observação da origem (pedido) primeiro, depois os textos legais (Simples, 12.741).
     // UF/NCM sem linha na versão vigente → a nota SAI sem o valor daquele item + AVISO (nunca trava, nunca
     // inventa). FONTES: Lei 12.741/2012 art.1º; Decreto 8.264/2014; Ajuste SINIEF 20/2012 (origem).
     let avisoIbpt: string | null = null
@@ -130,7 +154,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
             ? cfg12741.lei12741_observacao_template.trim()
             : 'Valor aproximado dos tributos: R$ {valor} ({percentual}%) — Fonte: Simples Nacional, Lei 12.741/2012'
           const bloco = template.replace(/\{valor\}/g, fmt(valorAprox)).replace(/\{percentual\}/g, fmt(pctTrib))
-          nfeReq.observacoes = [bloco, nfeReq.observacoes].map((s) => (s ?? '').trim()).filter(Boolean).join(' | ')
+          nfeReq.observacoes = [nfeReq.observacoes, bloco].map((s) => (s ?? '').trim()).filter(Boolean).join(' | ')
         } else if (!ehSimples) {
           // Regime normal: soma por item da tabela IBPT vigente (federal por origem + estadual + municipal).
           const ufDest = (nfeReq.destinatario?.endereco?.uf ?? '').trim()
@@ -179,13 +203,28 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
           if (vFed + vEst + vMun > 0) {
             const pct = (v: number) => fmt(round2(v / valorProdutos * 100))
             const bloco = `Valor aprox. dos tributos: R$ ${fmt(vFed)} Federal (${pct(vFed)}%), R$ ${fmt(vEst)} Estadual (${pct(vEst)}%) e R$ ${fmt(vMun)} Municipal (${pct(vMun)}%). Fonte: IBPT${versaoIbpt ? ' ' + versaoIbpt : ''}`
-            nfeReq.observacoes = [bloco, nfeReq.observacoes].map((s) => (s ?? '').trim()).filter(Boolean).join(' | ')
+            nfeReq.observacoes = [nfeReq.observacoes, bloco].map((s) => (s ?? '').trim()).filter(Boolean).join(' | ')
           }
           if (semLinha.length) {
             avisoIbpt = `Lei 12.741: ${semLinha.length} NCM(s) sem alíquota IBPT na UF ${ufDest || '?'} / versão vigente (${semLinha.slice(0, 10).join(', ')}${semLinha.length > 10 ? '…' : ''}). A nota SAIU, sem esses itens no valor de tributos — atualize a tabela IBPT ou confira o NCM.`
           }
         }
       }
+    }
+
+    // Prévia / edição das Informações Complementares (pedido Jordana 20/10). O texto composto acima (observação do
+    // pedido + Simples/crédito + Lei 12.741) é o que a tela mostra; o editado substitui por inteiro. Acima do limite do
+    // campo a nota NÃO sai (o provedor cortaria calado) — a tela avisa antes.
+    nfeReq.observacoes = textoInformacoesComplementares(nfeReq.observacoes, body.informacoesComplementares)
+    const tamanhoInfCpl = (nfeReq.observacoes ?? '').length
+    if (body.apenasPrevia) {
+      return NextResponse.json({
+        ok: true,
+        previa: { informacoesComplementares: nfeReq.observacoes ?? '', tamanho: tamanhoInfCpl, limite: LIMITE_INF_CPL, avisoIbpt },
+      })
+    }
+    if (excedeLimiteInfCpl(nfeReq.observacoes)) {
+      return NextResponse.json({ ok: false, mensagem: mensagemLimiteInfCpl(tamanhoInfCpl) }, { status: 400 })
     }
 
     const svc = await createFiscalService(body.companyId, { ambienteOverride: body.ambiente })
@@ -285,6 +324,12 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         .eq('id', registroId)
     }
 
+    // #5684 · liga a nota à venda do veículo (veic_venda.nfe_id) — também quando rejeitada, para a tela mostrar o motivo e
+    // permitir reenviar. A entrega continua exigindo status 'autorizada' (fn_veic_venda_entregar).
+    if (registroId && vendaVeic) {
+      await supabaseAdmin.from('veic_venda').update({ nfe_id: registroId }).eq('id', vendaVeic.vendaId).eq('company_id', body.companyId)
+    }
+
     // chamado #20 Fase 3 · vincula a nota à OS e persiste a justificativa da divergência de valor
     // (§8.1) no registro — recuperável meses depois ("por que a NF saiu menor que a OS?").
     if (registroId && body.osId) {
@@ -310,6 +355,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       providerReference: resposta.providerReference,
       ambiente: svc.ambiente,
       ...(avisoIbpt ? { avisoIbpt } : {}),
+      ...(veicMontado?.avisos.length ? { avisosVeiculo: veicMontado.avisos } : {}),
     })
   } catch (err) {
     if (isFiscalError(err)) {

@@ -10,7 +10,10 @@ import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
 import { textoObsDevolucaoCompra, type NotaOrigem } from '@/lib/fiscal/obsDevolucaoTexto'
-import { ArrowLeft, Loader2, AlertCircle, Trash2, Plus, RotateCcw } from 'lucide-react'
+import { baixarUrlComNome } from '@/lib/download/baixarArquivo'
+import { nomeArquivoNota } from '@/lib/download/nomeArquivo'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { ArrowLeft, Loader2, AlertCircle, Trash2, Plus, RotateCcw, FileText, FileCode } from 'lucide-react'
 
 interface Fornecedor {
   id: string
@@ -78,7 +81,8 @@ export default function DevolucaoCompraClient() {
   const [modalidadeFrete, setModalidadeFrete] = useState<number>(9)
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
-  const [sucesso, setSucesso] = useState<{ numero: string; chave?: string } | null>(null)
+  const [sucesso, setSucesso] = useState<{ numero: string; chave?: string; nfeId?: string } | null>(null)
+  const [baixando, setBaixando] = useState<'pdf' | 'xml' | null>(null)
   const [processandoMsg, setProcessandoMsg] = useState<string | null>(null)
 
   useEffect(() => {
@@ -314,7 +318,7 @@ export default function DevolucaoCompraClient() {
         setEnviando(false)
         return
       }
-      setSucesso({ numero: String(json.numero ?? '?'), chave: json.chave })
+      setSucesso({ numero: String(json.numero ?? '?'), chave: json.chave, nfeId: json.nfeId ? String(json.nfeId) : undefined })
       setEnviando(false)
       alert(`EMITIU NF-e de devolução de compra nº ${json.numero}.`)
     } catch (e) {
@@ -337,7 +341,7 @@ export default function DevolucaoCompraClient() {
       const st = (data?.status as string | undefined) ?? undefined
       if (st === 'autorizada') {
         setProcessandoMsg(null)
-        setSucesso({ numero: String(data?.numero ?? '?'), chave: (data?.chave as string | null) ?? undefined })
+        setSucesso({ numero: String(data?.numero ?? '?'), chave: (data?.chave as string | null) ?? undefined, nfeId })
         alert(`EMITIU NF-e de devolução de compra nº ${data?.numero ?? '?'}.`)
         return
       }
@@ -349,6 +353,40 @@ export default function DevolucaoCompraClient() {
     }
     // Ainda processando após ~30s: deixa claro que NÃO falhou, só está demorando.
     setProcessandoMsg('A SEFAZ ainda está processando. Atualize a página em instantes para ver a autorização ou o motivo da rejeição (a nota fica na lista de NF-e emitidas).')
+  }
+
+  // #4050 (Gean): baixar o DANFE/XML da devolução recém-emitida na própria tela (antes era preciso ir em NF-e emitidas).
+  // Mesmo caminho da lista: arquivo guardado no storage; se ainda não foi guardado (a cópia chega minutos depois da
+  // autorização), usa o link do provedor gravado na nota.
+  async function baixarEmitida(tipo: 'pdf' | 'xml') {
+    if (!sucesso?.nfeId) return
+    setBaixando(tipo)
+    try {
+      const { data: nota } = await supabase
+        .from('erp_nfe_emitidas')
+        .select('numero, data_emissao, destinatario_razao_social, danfe_url, xml_url')
+        .eq('id', sucesso.nfeId)
+        .maybeSingle()
+      const nome = nomeArquivoNota({
+        razao: (nota?.destinatario_razao_social as string | null) ?? null,
+        numero: (nota?.numero as string | null) ?? sucesso.numero,
+        emissao: (nota?.data_emissao as string | null) ?? new Date(),
+        ext: tipo,
+      })
+      const { data } = await supabase.rpc('fn_fiscal_get_storage_url', { p_tabela: 'nfe', p_doc_id: sucesso.nfeId, p_tipo: tipo })
+      const arq = (data ?? {}) as { ok?: boolean; storage_path?: string; bucket?: string }
+      if (arq.ok && arq.storage_path) {
+        const signed = await supabase.storage.from(arq.bucket ?? 'fiscal-xmls').createSignedUrl(arq.storage_path, 3600, { download: nome })
+        if (signed.data?.signedUrl) { await baixarUrlComNome(signed.data.signedUrl, nome); return }
+      }
+      const direta = (tipo === 'pdf' ? nota?.danfe_url : nota?.xml_url) as string | null | undefined
+      if (direta) { await baixarUrlComNome(direta, nome); return }
+      alert(`O ${tipo === 'pdf' ? 'DANFE' : 'XML'} ainda está sendo gerado pela SEFAZ. Tente de novo em instantes (a nota também fica em NF-e emitidas).`)
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Erro ao baixar')
+    } finally {
+      setBaixando(null)
+    }
   }
 
   function resetar() {
@@ -394,6 +432,19 @@ export default function DevolucaoCompraClient() {
         <div className="mb-4 p-3 bg-[#E7F4EC] border border-[#1B873F]/40 rounded-lg text-[12.5px] text-[#1B873F]">
           ✓ EMITIU NF-e de devolução de compra nº <strong>{sucesso.numero}</strong>
           {sucesso.chave && <div className="font-mono text-[10.5px] mt-1 text-[#1B873F]/85 break-all">chave: {sucesso.chave}</div>}
+          {sucesso.nfeId && (
+            <div className="mt-2.5 flex flex-wrap items-center gap-2">
+              <button type="button" onClick={() => void baixarEmitida('pdf')} disabled={baixando !== null} data-testid="nfe-devol-baixar-pdf"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1B873F] text-white text-[12px] font-medium hover:bg-[#166F33] disabled:opacity-60">
+                {baixando === 'pdf' ? <Loader2 size={13} className="animate-spin" /> : <FileText size={13} />} Baixar DANFE (PDF)
+              </button>
+              <button type="button" onClick={() => void baixarEmitida('xml')} disabled={baixando !== null} data-testid="nfe-devol-baixar-xml"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#1B873F]/50 bg-white text-[#1B873F] text-[12px] font-medium hover:bg-[#F3FAF5] disabled:opacity-60">
+                {baixando === 'xml' ? <Loader2 size={13} className="animate-spin" /> : <FileCode size={13} />} Baixar XML
+              </button>
+              <AjudaCampo chave="fiscal.nfe.devolucao.baixar" />
+            </div>
+          )}
         </div>
       )}
 

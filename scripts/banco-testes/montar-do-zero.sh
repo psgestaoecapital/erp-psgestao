@@ -21,7 +21,7 @@ scripts/banco-testes/limpar-public.sh
 psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "create schema if not exists public; grant usage on schema public to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on tables to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on functions to postgres, anon, authenticated, service_role; alter default privileges in schema public grant all on sequences to postgres, anon, authenticated, service_role;"
 
 echo "== 2/4 extensões que as migrations assumem já existentes (o db push não as cria) =="
-psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "CREATE EXTENSION IF NOT EXISTS pgcrypto; CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"; CREATE EXTENSION IF NOT EXISTS unaccent WITH SCHEMA public; CREATE EXTENSION IF NOT EXISTS pg_trgm; CREATE EXTENSION IF NOT EXISTS btree_gist; CREATE EXTENSION IF NOT EXISTS citext;" || echo "::warning::alguma extensão não pôde ser criada — o db push dirá se faltou"
+psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "CREATE EXTENSION IF NOT EXISTS pgcrypto; CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"; CREATE EXTENSION IF NOT EXISTS unaccent WITH SCHEMA public; CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public; CREATE EXTENSION IF NOT EXISTS btree_gist; CREATE EXTENSION IF NOT EXISTS citext;" || echo "::warning::alguma extensão não pôde ser criada — o db push dirá se faltou"
 
 echo "== 3/4 aplica TODAS as migrations do repo, do zero (schema + ledger juntos) =="
 supabase db push --include-all --db-url "$TEST_DATABASE_URL"

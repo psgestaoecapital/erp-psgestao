@@ -35,6 +35,9 @@ ok(exigeViaRevisada([{ nome: 'supabase/migrations/10.sql', conteudo: 'CREATE OR 
 ok(exigeViaRevisada([{ nome: 'supabase/migrations/12.sql', conteudo: 'CREATE OR REPLACE FUNCTION fn_pagar() RETURNS void AS $$ BEGIN UPDATE public.titulo SET pago=true; END $$ LANGUAGE plpgsql;' }]).revisada, 'RPC que mexe em titulo (crítico) → revisada')
 // RPC que mexe em tabela NÃO-crítica dentro do corpo = produto novo → direto (caso #2942 cronômetro)
 ok(!exigeViaRevisada([{ nome: 'supabase/migrations/13.sql', conteudo: 'CREATE TABLE public.prod_tarefa_tempo(id uuid); DROP POLICY IF EXISTS p ON public.prod_tarefa_tempo; CREATE POLICY p ON public.prod_tarefa_tempo FOR SELECT USING (true); CREATE OR REPLACE FUNCTION f() RETURNS void AS $$ BEGIN UPDATE public.prod_tarefa SET cap_hora=1; END $$ LANGUAGE plpgsql; REVOKE ALL ON FUNCTION f() FROM anon;' }]).revisada, 'RPC que mexe em prod_tarefa (não-crítica) + DROP POLICY IF EXISTS + REVOKE → direto')
+// Financeiro de cliente DENTRO do corpo de função (gap do incidente 21/10) → revisada, mesmo "aditivo"
+ok(exigeViaRevisada([{ nome: 'supabase/migrations/14.sql', conteudo: 'CREATE OR REPLACE FUNCTION f() RETURNS void AS $$ BEGIN INSERT INTO public.erp_contratos(id) VALUES (gen_random_uuid()); INSERT INTO public.agency_comissao(id) VALUES (gen_random_uuid()); END $$ LANGUAGE plpgsql;' }]).revisada, 'RPC que cria contrato/comissão do cliente → revisada (#2613)')
+ok(exigeViaRevisada([{ nome: 'supabase/migrations/15.sql', conteudo: 'CREATE OR REPLACE FUNCTION f() RETURNS void AS $$ BEGIN UPDATE public.erp_pedidos SET obra_id=1; END $$ LANGUAGE plpgsql;' }]).revisada, 'RPC que altera pedido do cliente → revisada (#2896)')
 
 const y = readFileSync('.github/workflows/etiquetar-revisao.yml', 'utf8').replace(/^\s*#.*$/gm, '')
 ok(/pull_request_target:\s*\n\s*types:\s*\[opened, reopened, synchronize, ready_for_review\]/.test(y) && !/\n\s+pull_request:/.test(y), 'pull_request_target (código da main)')

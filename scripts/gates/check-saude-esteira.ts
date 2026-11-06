@@ -20,6 +20,6 @@ ok(k({}).portaoHa === '2 h', 'portão verde há 2 h')
 
 const card = readFileSync('src/components/dev/SaudeEsteira.tsx', 'utf8')
 ok(card.includes("rpc('fn_esteira_saude')"), 'card lê a RPC fn_esteira_saude')
-ok(readFileSync('src/components/dev/PainelCodes.tsx', 'utf8').includes('<SaudeEsteira />'), 'card montado na aba Codes')
+ok(readFileSync('src/components/dev/PainelCodes.tsx', 'utf8').match(/<SaudeEsteira[\s/>]/) !== null, 'card montado na aba Codes')
 ok(['cadencia', 'estabilidade', 'fila', 'portao'].every((b) => card.includes(`id="${b}"`)), '4 blocos (cadência, estabilidade, fila, portão), cada um com "?"')
 if (falhas) { console.error(`\n${falhas} falha(s)`); process.exit(1) }

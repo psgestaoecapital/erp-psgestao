@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { withAuth } from '@/lib/withAuth'
 import { empresaPermitidaParaRobo, MSG_ROBO_SO_DEMO } from '@/lib/gold/roboEmpresaPermitida'
+import { watcherSecretValido } from '@/lib/watcherSecret'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -99,8 +100,6 @@ async function core(req: NextRequest, ctx: { userId: string | null; viaSecret?: 
 }
 
 export async function POST(req: NextRequest, routeCtx: unknown) {
-  const secret = req.headers.get('x-watcher-secret')
-  const expected = process.env.WATCHER_SECRET
-  if (expected && secret === expected) return core(req, { userId: null, viaSecret: true })
+  if (watcherSecretValido(req.headers.get('x-watcher-secret'))) return core(req, { userId: null, viaSecret: true })
   return withAuth((r, c) => core(r, { userId: c.userId, viaSecret: false }))(req, routeCtx)
 }

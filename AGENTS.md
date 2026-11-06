@@ -204,9 +204,36 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
 - **(d) Fila de merge** (`.github/workflows/fila-merge.yml` + `scripts/merge/fila-merge.sh`, sem polling): a fila pega
   **toda PR Ready** (não-draft) na `main` em ordem de entrada: atualiza com a `main` (merge, sem reescrever histórico),
   espera os checks, confere a autorização (PR com `revisao-eng-chefe`) e mergeia (squash, travado no SHA conferido).
-  **LOTE (CEO 09/10):** numa mesma rodada a fila publica **VÁRIAS PRs SEM migration** (até o teto `LOTE_MAX`, padrão 6);
-  **PR COM migration continua UMA por rodada** e encerra a rodada (a próxima migration espera o deploy + `@pos-migration`
-  da `main`). O "atrás da main" é medido contra a `main` do **início da rodada**, para a PR já em dia no começo não virar
+  **LOTE (CEO 09/10):** numa mesma rodada a fila publica **VÁRIAS PRs SEM migration** (até o teto `LOTE_MAX`, padrão 6).
+  **LOTE DE MIGRATIONS (CEO 16/10, tetos revistos 23/10):** numa rodada a fila publica migrations **INDEPENDENTES** entre si
+  (`scripts/merge/migrations-independentes.ts`; qualquer dúvida → 1), com DOIS tetos — **`LOTE_MIG_MAX` (padrão 6)** para o
+  conjunto e **`LOTE_MIG_CRIT_MAX` (padrão 5 desde CEO 01/11; era 1)** só para as **CRÍTICAS** (etiqueta `revisao-eng-chefe`).
+  O `@pos-migration` da main roda uma vez para o lote; `LOTE_MIG_MAX=1` desliga (comportamento antigo, 1 migration/rodada).
+  **LOTE DE CRÍTICAS (CEO 01/11):** a fila crítica chegou a **44** com vazão de **2-3/h** (cada crítica saía sozinha e
+  esperava ~20 min de `@pos`). O CEO aprovou batelar até **`LOTE_MIG_CRIT_MAX`=5** migrations **CRÍTICAS** num **mesmo
+  `@pos`**, desde que INDEPENDENTES. **CARVE-OUT — publicam SOZINHAS (1 por `@pos`, "como hoje"):** migrations de **NR-36,
+  fiscal, financeiro de cliente, RLS/permissão/LGPD** e **qualquer `conserto-main`**. O `conserto-main` é detectado pela
+  etiqueta; o resto pelo classificador puro e testado `scripts/merge/critica-solo.ts` (viés de SEGURANÇA: migration
+  ilegível/dúvida → SOLO). Prioridade segue valendo (`FILA_PRIORIDADE` / `MERGE AUTORIZADO` vão primeiro). No script:
+  `n_critica_solo`. **SE O `@pos` DO LOTE FALHAR, o guardião (`gilberto-esteira`) BISSECTA** (ver PROTOCOLO DE MAIN
+  VERMELHA do guardião): reverte metade do lote, roda o `@pos`, repete até ISOLAR a PR culpada, reverte só ela (PR com
+  `conserto-main`) e republica as inocentes. Gate: `scripts/gates/check-fila-lote-critico.ts` (teto 5, carve-out SOLO,
+  encerra a rodada no SOLO e o caminho de falha). Nunca afrouxe o crítico para drenar.
+  **VIA EXPRESSA DO HUB (CEO 23/10 — "Hub inteiro no dev, sem parar; publicação direta e prioritária, sem trava nenhuma;
+  reauditamos depois"):** PR com a label **`hub`** é tratada pela fila como **via rápida** (SEM revisor, mesmo com
+  `revisao-eng-chefe`) e como **ADITIVA** (batela até `LOTE_MIG_MAX`, NÃO entra no teto `LOTE_MIG_CRIT_MAX`), e vai na
+  **frente de toda a fila** (prioridade por label, antes da `FILA_PRIORIDADE`). Ficam **só as travas ESTRUTURAIS** (que
+  nenhuma reauditoria conserta): `deploy-migrations` não-verde segura o hub também, e `gates`/build/Vercel/independência de
+  migration continuam valendo. O classificador de conteúdo não re-rotula hub como revisada. A qualidade de tela (RD-95 "?"
+  é gate) segue cobrada; o que o hub dispensa é o **revisor** (RD-96/no-copy, julgamento humano) e a **serialização de
+  crítica** — reauditados pelo PDCA depois. No script: `n_hub`. Gate: `scripts/gates/check-fila-hub-expressa.ts`.
+  **ESCALA NO ADITIVO, CAUTELA NO CRÍTICO (CEO 23/10):** a serialização de migration é em 2 níveis.
+  `deploy-migrations` da `main` não-verde segura **TODAS** as migrations (não dá para aplicar nada). O `@pos-migration` de
+  uma migration **CRÍTICA** (via revisada) em andamento/vermelho segura só as **OUTRAS CRÍTICAS** — a migration **ADITIVA**
+  (via rápida) NÃO espera esse `@pos` (ela é validada pelo `deploy-migrations` + o auditor PDCA pós-publicação, que clica
+  tela/botão e fotografa até 100%). O crítico NUNCA afrouxa: migration crítica (etiqueta `revisao-eng-chefe`, ou
+  crítica-por-conteúdo que o classificador `exige-via-revisada` rotula e pula) só publica com o gate verde. No script:
+  `deploy_travado` × `critica_na_main`. Gate: `scripts/gates/check-fila-aditiva-escala.ts` (prova os dois lados). O "atrás da main" é medido contra a `main` do **início da rodada**, para a PR já em dia no começo não virar
   "atrás" sozinha quando a fila mergeia outras à frente dela no mesmo lote. Conflito, check vermelho ou autorização
   inválida → comenta o motivo **uma vez por commit** (e tira a label `fila-merge`, se houver); a PR volta a ser avaliada
   sozinha no próximo commit.
@@ -224,11 +251,14 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   migration; esperar os próprios checks não segura ninguém (07/10). Gate: `scripts/gates/check-fila-sem-bloqueio.ts` (roda os cenários contra um `gh` simulado).
   Precisa do segredo `FILA_MERGE_TOKEN` (PAT): merge com o `GITHUB_TOKEN` não dispara o `deploy-migrations`.
   Com a fila, o Code não roda `gh pr merge` à mão para PR que está nela.
-  **Janela temporária da aceitação (CEO 15/10, com o CEO presente):** a aceitação **VERMELHA** da **via revisada** NÃO
-  bloqueia até **2026-10-17 11:00 America/Sao_Paulo** (`JANELA_ACEITACAO_REVISADA_FIM='2026-10-17T14:00:00Z'` em
-  `fila-merge.sh`); depois do limite a fila volta a bloquear **sozinha**, sem ninguém mexer. Continuam bloqueando dentro
-  da janela: gates/checks estáticos vermelhos, preview (Vercel) com falha, conflito e falta do `MERGE AUTORIZADO` do
-  revisor para o patch-id atual. **Ritmo:** no máximo `RITMO_MAX_HORA` (padrão **4**) publicações por hora.
+  **Esteira contínua (CEO 22/10, com o CEO presente):** a aceitação e2e **NÃO é mais porteiro do merge** — ela é **sempre
+  informativa** no caminho da fila. O banco de testes (frágil, serial) saiu da frente: parava a fila inteira a cada
+  instabilidade de infra, 3 semanas seguidas. A aceitação vira **verificação PÓS-MERGE** (smoke nas empresas DEMO de
+  produção, com **revert** no vermelho). No caminho do merge, a regra é **nada que bloqueia pode depender de banco**:
+  continuam bloqueando só **gates/checks estáticos** (lint, guarda de funções/RLS, réguas, compilação), **preview
+  (Vercel)**, conflito e, se sensível, o **`MERGE AUTORIZADO`** do revisor. Em `fila-merge.sh`,
+  `aceitacao_dispensada()` devolve **verdadeiro por padrão**; `FILA_ACEITACAO_BLOQUEIA=1` força o caminho antigo (bloqueio)
+  **só nos testes dos gates**. **Ritmo:** no máximo `RITMO_MAX_HORA` (padrão **10**, CEO 22/10) publicações por hora.
   **Prioridade** (`FILA_PRIORIDADE`): Hub (`#2569 #2508 #2298`) e FC/FCR (`#2100`) na frente; o resto segue a ordem de
   entrada. Gate: `scripts/gates/check-fila-janela-aceitacao.ts` (prova os dois lados da data, o ritmo e a prioridade).
   **Janela temporária do @pos-migration por linha-de-base (CEO 15/10, com o CEO presente):** até a MESMA data-limite
@@ -256,7 +286,8 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   `demo-e2e` é fora do runner e não conta). O **vigia** (`vigia-runs.yml`, a cada 10 min) cancela o run cujo job está
   **executando** há mais de 45 min; job esperando a vez na fila nunca é cancelado.
 - Gate: `scripts/gates/check-esteira-merge.ts`.
-- **Revisor por evento (CEO 07/10):** `.github/workflows/acionar-revisor.yml` (`pull_request_target` labeled/synchronize/ready_for_review, só PR Ready do repo com `revisao-eng-chefe`) acorda a rotina do `gilberto-revisor` em minutos (espera 120 s; rajada = 1 acionamento por PR; não aciona se a PR já tem `MERGE AUTORIZADO` com o patch-id atual). Sem checkout da PR. Segredos `REVISOR_ROTINA_URL`/`REVISOR_ROTINA_TOKEN`; ausentes = `::warning`, nunca falha a PR. **Varredura a cada 5 min (CEO 12/10):** o mesmo workflow tem `schedule: */5` (job `varredura`, grupo de concorrência próprio, não se auto-cancela): se houver PR Ready com `revisao-eng-chefe`, aciona a rotina para revisar TODAS as da alçada num run; sem pendência, sai rápido. As sensíveis do CEO seguem esperando o CEO. Gate: `scripts/gates/check-acionar-revisor.ts`.
+- **Revisor por evento (CEO 07/10):** `.github/workflows/acionar-revisor.yml` (`pull_request_target` labeled/synchronize/ready_for_review, só PR Ready do repo com `revisao-eng-chefe`) acorda a rotina do `gilberto-revisor` em minutos (espera 120 s; rajada = 1 acionamento por PR; não aciona se a PR já tem `MERGE AUTORIZADO` com o patch-id atual). Sem checkout da PR. Segredos `REVISOR_ROTINA_URL`/`REVISOR_ROTINA_TOKEN`; ausentes = `::warning`, nunca falha a PR. **Varredura a cada 15 min (CEO 23/10, era 5 min):** o mesmo workflow tem `schedule: */15` (job `varredura`, grupo de concorrência próprio, não se auto-cancela): acorda a rotina para revisar TODAS as PRs Ready com `revisao-eng-chefe` da alçada num run só, e para até ser acordada de novo; sem pendência, sai rápido. As sensíveis do CEO seguem esperando o CEO. Gate: `scripts/gates/check-acionar-revisor.ts`.
+- **Esteira acompanha as PRs (CEO 23/10):** `.github/workflows/acionar-esteira.yml` é o ESPELHO da varredura do revisor para a rotina do `gilberto-esteira`. A `fila-merge.yml` publica o que está PRONTO; quem CONSERTA uma PR presa (conflito com a main, aceitação vermelha de re-rodar, versão de migration abaixo da main, rascunho autorizado por marcar Ready) é o Code esteira — e ele só era acordado pelo despertador (com tarefa na caixa) ou pelo guardião (@pos/deploy vermelho). Agora, a cada **15 min** (`schedule: */15`, grupo próprio sem auto-cancelamento), se houver PR Ready aberta na main sem `nao-publicar`, a rotina do esteira é acordada para varrer o backlog e destravar — e para até ser acordada de novo. NÃO publica por si (só leitura): o Code segue as regras de merge de sempre. Segredos `ESTEIRA_ROTINA_URL`/`ESTEIRA_ROTINA_TOKEN`; ausentes = `::warning` com o passo a passo, nunca falha. Gate: `scripts/gates/check-acionar-esteira.ts`.
 - **Etiqueta automática por conteúdo (Eng. Chefe 14/10):** `.github/workflows/etiquetar-revisao.yml` (`pull_request_target`, sem checkout da PR) coloca `revisao-eng-chefe` em PR que toca tela, cálculo, migration/SQL, edge function ou área crítica (`scripts/merge/exige-via-revisada.ts`, mesmo sinal de área crítica do `escopo-aceitacao.ts`); nunca tira. A fila também confere o conteúdo: PR dessas condições sem etiqueta ganha a etiqueta e espera o `MERGE AUTORIZADO` — nunca publica pela via rápida. Gate: `scripts/gates/check-etiqueta-automatica.ts`.
 - **O que conta como autorização do `gilberto-revisor` (Eng. Chefe 08/10):** autorização própria = comentário cuja
   PRIMEIRA linha é exatamente `MERGE AUTORIZADO #<n> — gilberto-revisor · patch-id <40 hex>`. Comentário com a marca
@@ -267,9 +298,13 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
 - **Renumeração automática de migration na fila (Eng. Chefe 09/10):** a fila, ao pegar PR com migration nova de versão NÃO
   maior que a última da `main` (recalculada na hora), **renomeia o arquivo** (commit no ramo da PR via API: versão nova =
   timestamp do momento, mantendo os 2 últimos dígitos = faixa do agente) e comenta o que mudou, em vez de recusar. O commit
-  novo roda os checks de novo. **PR revisada (`revisao-eng-chefe`): o patch-id muda, então o revisor precisa autorizar de
-  novo** — a fila tira e recoloca a etiqueta para acordá-lo. Se outro arquivo da PR cita a versão antiga (gate/spec que lê a
-  migration pelo nome), a fila NÃO renumera: recusa como antes e quem fez a PR corrige. Gate: `check-fila-sem-bloqueio.ts`.
+  novo roda os checks de novo. **PR revisada (`revisao-eng-chefe`): a autorização do revisor CONTINUA VALENDO** — a
+  renumeração só troca o NOME do arquivo (conteúdo idêntico) e o patch-id ESTÁVEL (normaliza `supabase/migrations/<14 díg>_`)
+  não muda, então a fila NÃO tira/recoloca a etiqueta nem pede nova revisão; comenta "autorização mantida: só renumeração"
+  (Eng. Chefe 02/11 — tirar/recolocar a etiqueta acordava o revisor à toa e devolvia a PR para a espera do revisor, o ciclo
+  que prendia dezenas de PRs). Mudança REAL de conteúdo muda o patch-id e `autorizacao` já exige nova revisão sozinha. Se
+  outro arquivo da PR cita a versão antiga (gate/spec que lê a migration pelo nome), a fila NÃO renumera: recusa como antes e
+  quem fez a PR corrige. Gates: `check-fila-sem-bloqueio.ts`, `check-fila-patchid-estavel.ts`.
 
 ## Esteira em 2 velocidades (CEO 07/10 08:05) — TEMPORÁRIA, até haver um banco de testes por vaga
 Palavras do CEO: "PR comum publica com checks rápidos + preview verde e a aceitação vira informativa; PR com etiqueta
@@ -335,6 +370,15 @@ Gate: `scripts/gates/check-quarentena.ts`.
 - **Núcleo compartilhado** (financeiro, fiscal, cadastros, permissões/RLS, menu, segurança, `/_compartilhado`, qualquer função/tabela
   usada por mais de uma vertical) só é alterado pela `gilberto-desenv`; os Codes de vertical abrem pedido no BOX e o Eng. Chefe repassa.
 
+# Chamado de agente de sócio (CEO 05/10) — o `gilberto-chamados` NÃO age nele
+Chamado **aberto pelo sócio** ou com o sócio como **responsável** (`sugestoes.responsavel_id`) pertence ao agente de sócio
+(`erp_agente_escopo`: `rodrigo-code` ↔ equipe `code-rodrigo`). `fn_chamado_agente_dono(<chamado>)` devolve o dono (ou null).
+1. **`gilberto-chamados` (e qualquer outro agente) confere antes de começar:** se o dono não é null, não age — `fn_agente_chamado_responder`
+   recusa com `chamado_de_agente_socio`. O agente de sócio só age no próprio escopo (`chamado_fora_do_escopo`).
+2. Chamado novo (ou reatribuído) do escopo vira tarefa na caixa do agente de sócio (se `aciona=true`); o despertador aciona.
+3. **OK do sócio** (em vez do OK do CEO): o Code pede com `fn_agente_pedir_ok_socio(<id>, '<agente>', '<texto>')`; o sócio aprova ou recusa no bloco
+   "O Code pede sua aprovação" da tela do chamado (`fn_agente_ok_socio`, só `auth.uid()` = sócio). Só com `aprovado` o `fn_agente_chamado_responder` posta,
+   e o texto postado tem de estar contido no pedido aprovado.
 # Re-rodar teste (Eng. Chefe 07/10)
 A rede da sessão do Code troca o token pelo da integração: `POST .../runs/<id>/rerun` dá 403 com qualquer token nosso.
 **Para re-rodar teste, comente `/re-rodar` na PR** (exatamente isso; autor com permissão write): o workflow `comando-pr.yml`
@@ -358,6 +402,28 @@ Responda a cada rodada com ENTREGUE / EM TESTE / PRÓXIMO até zerar a lista.
 - **Checklist de revisão de PR de tela:** (1) todo campo/filtro/indicador/ação tem "?" com chave existente no banco; (2) tarefa principal
   em até 3 toques; (3) a tela aparece no menu do banco e em `system_screens` (entrega só conta se o usuário a enxerga); (4) nomes e
   fluxo próprios, nada decalcado de concorrente; (5) funciona no celular; (6) teste do caminho principal como usuário real.
+
+# RD-100 — nenhum nome de sistema de terceiros no produto (CEO 01/11, INEGOCIÁVEL) — vale para TODOS os Codes
+Nenhum nome de sistema de terceiros pode aparecer em NADA que o usuário veja: tela (strings de interface em `src/`),
+menu, catálogos (`module_catalog`, `feature_catalog`), ajuda (`erp_ajuda_campo`), blueprint vivo
+(`blueprint_tela_requisito`), rotas visíveis, PDFs e e-mails. Isto é marca própria — o produto não se posiciona pelo
+concorrente (complementa a RD-96).
+- **Lista do gate** (atualizável no próprio gate): SIGA, Conta Azul/ContaAzul, Omie, Olist, Bling, Sienge, Obra Prima,
+  Procore, Buildertrend, JobTread, CoConstruct, Knowify, Assembly, TOTVS, Protheus, Senior, Dotise, QuickBooks, Mobuss,
+  Prevision, Nibo, Aplix e similares.
+- **Termos genéricos** no lugar do nome: "sistema anterior", "seu ERP atual", "importar de outro sistema", "de mercado"
+  (ex.: "ref. Omie: …" → "ref. mercado: …"; "Paridade Sienge:" → "Paridade de mercado:"). Preserve TODO o resto do texto —
+  troque só o nome.
+- **Única exceção:** identificador técnico NÃO visível exigido pelo provedor (ex.: callback OAuth, nome de parâmetro de
+  API, slug de rota de integração real). Marque com comentário no código justificando. Cuidado com fronteira de palavra
+  (`\b`) e maiúsc./minúsc.: "Senior"/"SIGA" como marca ≠ "senior" (cargo) / "siga" (verbo).
+- **Rota visível com nome de terceiro** é renomeada com redirecionamento do caminho antigo (ex.:
+  `/dashboard/pm/importar-siga` → `/dashboard/pm/importar-sistema-anterior`).
+- **Migrations de limpeza** são aditivas e idempotentes, com cópia de segurança ANTES (ex.: `*_bkp_rd100`) e prova RD-38
+  (contagem antes/depois: 0 nomes depois, mesma contagem de linhas) no PR. Nunca altera dado de cliente (nome de cliente
+  que por acaso seja igual a um sistema NÃO é tocado).
+- **Gate:** `scripts/gates/check-sem-nome-de-terceiros.ts` reprova texto visível com nome de terceiro em `src/`, migrations/
+  seeds de ajuda e catálogos, e no blueprint vivo. Tela/texto novo com nome de terceiro não é entregue.
 
 # Sessões de rotina não prendem o CEO (Eng. Chefe 08/10) — vale para TODOS os Codes
 1. **Não use `subscribe_pr_activity` nem `unsubscribe_pr_activity`**: os eventos de PR já chegam pela fila de merge, pelo
@@ -411,3 +477,9 @@ Escopo inicial: **rebase/resolução de conflito** e **PR multi-arquivo**. Funç
   `scripts/gates/check-fila-quarentena-jornadas.ts`.
 
 - **Comparação com a main (CEO 17/10 14:35 BRT, TEMPORÁRIA 24 h):** aceitação da main #462 vermelha (ambiente de teste doente). Na via revisada, se TODOS os specs que falharam na aceitação da PR já falharam na ÚLTIMA aceitação da main (`aceitacao-main.yml`), a fila não bloqueia e comenta as falhas herdadas; falha que a main não tem, spec da PRÓPRIA PR e falha ilegível bloqueiam. Vale de 2026-10-17T17:35Z a 2026-10-18T17:35Z (`BASELINE_MAIN_INICIO/FIM` em `fila-merge.sh`) e desliga sozinha quando a última aceitação da main concluída deixa de ser falha. Gate: `scripts/gates/check-fila-baseline-main.ts`.
+
+# PRs prontas esperando: SEM TETO (CEO 30/10) — revogado o limite de 3 (CEO 14/10)
+O CEO removeu o teto em 30/10: os Codes abrem PR nova **sem limite** de prontas na fila. `SELECT fn_esteira_pode_abrir_pr('<seu-identificador>');`
+segue existindo e devolve `pode` = true sempre, com `prontas` só **informativo** (contagem igual à do painel "PRs prontas esperando").
+Continua valendo o bom senso: priorize **destravar** o que já está pronto (aceitação vermelha, "AJUSTES ANTES DO MERGE" do revisor,
+rascunho autorizado → Ready, conflito com a main, ordem das migrations) antes de empilhar PR nova. Gate: `scripts/gates/check-esteira-limite-prontas.ts`.
