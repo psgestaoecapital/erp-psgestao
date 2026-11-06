@@ -126,7 +126,7 @@ export default function MateriaisObraPage({ params }: { params: Promise<{ id: st
         {abrirForm && (
           <div style={{ ...card, marginBottom: 14 }} data-testid="mat-form">
             <div style={{ display: 'flex', alignItems: 'center', fontSize: 13, fontWeight: 700, marginBottom: 6 }}>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }} data-ajuda="projetos.obra_materiais.selecionar_todos">
                 <input type="checkbox" checked={todosMarcados} onChange={toggleTodos} data-testid="mat-sel-todos" />
                 Selecionar todos
               </label>
@@ -136,7 +136,7 @@ export default function MateriaisObraPage({ params }: { params: Promise<{ id: st
             <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 10px', maxHeight: 260, overflowY: 'auto' }}>
               {itens.map((it) => (
                 <li key={it.id} style={{ borderTop: `1px solid ${LINE}`, padding: '7px 2px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }} data-ajuda="projetos.obra_materiais.selecionar_itens">
                     <input type="checkbox" checked={sel.has(it.id)} onChange={() => toggle(it.id)} data-testid={`mat-item-${it.id}`} />
                     <span style={{ flex: 1 }}>{it.descricao}</span>
                     <span style={{ color: MUT, fontSize: 12 }}>{Number(it.quantidade_contratada ?? 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} {it.unidade ?? ''}</span>
