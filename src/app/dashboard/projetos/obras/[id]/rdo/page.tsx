@@ -268,7 +268,7 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
                           </div>
                         )}
                         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                          {editavel && <button type="button" onClick={() => abrirEdicao(r)} style={btn('#fff', ESP)} data-testid="obra-rdo-editar">Editar</button>}
+                          {editavel && <span style={rot}><button type="button" onClick={() => abrirEdicao(r)} style={btn('#fff', ESP)} data-testid="obra-rdo-editar">Editar</button><AjudaCampo chave="projetos.obra_rdo.editar" /></span>}
                           <span style={rot}>
                             <button type="button" onClick={() => excluir(r)} disabled={excluindo === r.id} style={btn('#fff', VERM)} data-testid="obra-rdo-excluir">{excluindo === r.id ? 'Excluindo…' : 'Excluir'}</button>
                             <AjudaCampo chave="projetos.obra_rdo.excluir" />
