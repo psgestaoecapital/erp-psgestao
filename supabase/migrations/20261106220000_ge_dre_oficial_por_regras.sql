@@ -118,6 +118,8 @@ DECLARE
   v_dif numeric;
   v_res jsonb := '{}'::jsonb;
 BEGIN
+  -- guarda da empresa: com usuário logado, só a empresa dele; no worker da fila (serviço, sem usuário) passa
+  PERFORM public.fn__guarda_empresa(p_company_id);
   IF NOT EXISTS (SELECT 1 FROM public.cost_center_map
                  WHERE company_id = p_company_id AND ativo AND source_type IN ('conta','texto')) THEN
     RETURN jsonb_build_object('status', 'sem_regras');
