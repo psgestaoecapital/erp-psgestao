@@ -437,9 +437,10 @@ em toda vertical (Hub, P&M, Gestão Empresarial…), em toda rodada — não dep
   na DEMO; problema que o cliente relatou e a tela ainda tem = gap.
 - **Saída:** 1 linha em `erp_contexto_projeto` (categoria `descoberta`) por jornada (onde trava, quantos toques, o que
   falta) + 1 tarefa por tela ao dev, consolidada nas existentes; atualize `blueprint_tela_cobertura` do que verificar.
-- **Divisão:** `auditor_pdca_1` = jornadas do Hub; `auditor_pdca_2` = jornadas do P&M; `aud8claudeps` = auditoria
-  visual tela a tela (foto, celular, toques) das duas, cruzando com o que os outros dois gravaram. O Eng. Chefe muda a
-  divisão pela caixa (ex.: Gestão Empresarial depois de Hub e P&M).
+- **Divisão (CEO 06/11 19:24):** `auditor_pdca_1` = Hub; `auditor_pdca_2` = P&M; `aud8claudeps` = **Gestão
+  Empresarial** (a base de todas as verticais: primeiros passos, pagar/receber, banco, compra→pagar, venda→receber,
+  rateio→resultado→DRE→fluxo de caixa, fechamento). Financeiro, fiscal, cadastros e permissões são NÚCLEO: o auditor só
+  audita e manda a tarefa ao dev do núcleo. O Eng. Chefe muda a divisão pela caixa.
 
 # RD-100 — nenhum nome de sistema de terceiros no produto (CEO 01/11, INEGOCIÁVEL) — vale para TODOS os Codes
 Nenhum nome de sistema de terceiros pode aparecer em NADA que o usuário veja: tela (strings de interface em `src/`),
