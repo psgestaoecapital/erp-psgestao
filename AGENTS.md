@@ -415,6 +415,32 @@ Responda a cada rodada com ENTREGUE / EM TESTE / PRÓXIMO até zerar a lista.
   em até 3 toques; (3) a tela aparece no menu do banco e em `system_screens` (entrega só conta se o usuário a enxerga); (4) nomes e
   fluxo próprios, nada decalcado de concorrente; (5) funciona no celular; (6) teste do caminho principal como usuário real.
 
+# Auditor PDCA — nota 95 = o usuário faz o trabalho SOZINHO (CEO 06/11, PERMANENTE) — vale para TODOS os auditores
+Origem: nas visitas aos clientes (Pdois no P&M; Tryo/FC no Hub) o sistema foi achado **confuso e pouco intuitivo**, e
+55 de 58 telas aprovadas tinham nota exatamente 95. A nota tinha virado "não achei gap técnico". A partir de agora ela
+mede **jornada de usuário real**. Vale para `auditor_pdca_1`, `auditor_pdca_2`, `aud8claudeps` e qualquer auditor novo,
+em toda vertical (Hub, P&M, Gestão Empresarial…), em toda rodada — não depende de aviso na caixa.
+- **Jornada ponta a ponta, não tela isolada:** audite o caminho do trabalho (ex.: oportunidade → orçamento → proposta →
+  contrato/obra → custos → medição → faturamento → resultado), na DEMO (RD-69/LGPD), contando toques e onde trava.
+- **Critérios a–h** (cada falha = gap CONCRETO em `bugs_detectados`, com rota e o que acontece):
+  a. a tarefa principal da tela sai em até 3 toques, sem ajuda externa;
+  b. o dado já informado CARREGA para a etapa seguinte (cliente, valor, itens) — redigitar é gap;
+  c. o que se salva FICA salvo e o status muda sozinho quando deve;
+  d. estado vazio diz o que fazer e tem o botão para fazer;
+  e. sem botões duplicados ou ambíguos; nomes na língua do cliente; erro em linguagem do usuário (nunca erro cru do banco);
+  f. listas só com o que é da empresa;
+  g. incluir, editar e excluir visíveis (RD-98);
+  h. requisito ESSENCIAL do `blueprint_tela_requisito` da rota ausente/parcial (cruze com `blueprint_tela_cobertura`) = gap.
+- **Nota 95 só se passa em a–h.** Se não passa, grave a nota REAL (pode cair) e retire o selo `auditada_ok`. Tela com
+  selo **não é pulada** quando a nota dela é anterior a 06/11/2026 — recontar primeiro as mais antigas.
+- **Chamados de cliente são evidência:** leia as `sugestoes` das empresas reais da vertical (últimos 45 dias) e reproduza
+  na DEMO; problema que o cliente relatou e a tela ainda tem = gap.
+- **Saída:** 1 linha em `erp_contexto_projeto` (categoria `descoberta`) por jornada (onde trava, quantos toques, o que
+  falta) + 1 tarefa por tela ao dev, consolidada nas existentes; atualize `blueprint_tela_cobertura` do que verificar.
+- **Divisão:** `auditor_pdca_1` = jornadas do Hub; `auditor_pdca_2` = jornadas do P&M; `aud8claudeps` = auditoria
+  visual tela a tela (foto, celular, toques) das duas, cruzando com o que os outros dois gravaram. O Eng. Chefe muda a
+  divisão pela caixa (ex.: Gestão Empresarial depois de Hub e P&M).
+
 # RD-100 — nenhum nome de sistema de terceiros no produto (CEO 01/11, INEGOCIÁVEL) — vale para TODOS os Codes
 Nenhum nome de sistema de terceiros pode aparecer em NADA que o usuário veja: tela (strings de interface em `src/`),
 menu, catálogos (`module_catalog`, `feature_catalog`), ajuda (`erp_ajuda_campo`), blueprint vivo
