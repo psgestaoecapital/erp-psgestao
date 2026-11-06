@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useEmpresaSelecionada } from '@/lib/agro/usePecuaria'
+import RegrasRateio from './RegrasRateio'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'
 const ESP60 = 'rgba(61,35,20,0.6)'; const GREEN = '#5C8D3F'; const RED = '#C44536'
@@ -59,7 +60,11 @@ export default function CentrosCustoPage() {
       lote_id: d.tipo === 'direto' ? (d.lote || null) : null,
       allocation_pct: 100, cost_scope: 'todos', priority: 0, ativo: true,
     })
-    return error ? error.message : null
+    if (error) return error.message
+    // o centro passa a aparecer na lista "Centro de custo" ao lançar despesa/receita (a lista lê erp_centros_custo)
+    const { data: existe } = await supabase.from('erp_centros_custo').select('id').eq('company_id', empresaUnica).eq('nome', sourceKey).limit(1)
+    if (!existe?.length) await supabase.from('erp_centros_custo').insert({ company_id: empresaUnica, nome: sourceKey, codigo: sourceKey, ativo: true })
+    return null
   }
 
   async function salvar(valor: string) {
@@ -125,6 +130,8 @@ export default function CentrosCustoPage() {
           <button onClick={() => void adicionarManual()} style={btnPri}>+ Cadastrar</button>
         </div>
       </div>
+
+      <RegrasRateio companyId={empresaUnica} bls={bls} />
 
       {naoMapeados > 0 && (
         <div style={{ marginBottom: 12, fontSize: 13, color: RED, background: '#FCE8E8', padding: 8, borderRadius: 6 }}>
