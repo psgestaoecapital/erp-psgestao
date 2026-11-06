@@ -509,7 +509,7 @@ function AbaAnalise({ companyId, de, ate, vendedor, aba }: { companyId: string; 
         )}
       </Card>
 
-      {drill && <DrillPanel companyId={companyId} de={de} ate={ate} vendedor={vendedor} item={drill} aba={aba} onClose={() => setDrill(null)} />}
+      {drill && <DrillPanel companyId={companyId} de={de} ate={ate} vendedor={vendedor} item={drill} aba={aba === 'clientes' ? 'clientes' : 'cidades'} onClose={() => setDrill(null)} />}
     </>
   )
 }
