@@ -762,6 +762,41 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     setReloadKey((k) => k + 1)
   }
 
+  // Chamado #6713 (Jordana): estornar o recebimento/pagamento para CORRIGIR o valor e lançar de novo —
+  // sem excluir o título. Desfaz a baixa (volta para EM ABERTO) via RPC guardada (fn_receber_estornar_baixa /
+  // fn_pagar_cancelar_pagamento): bloqueia se conciliado (avisa p/ desconciliar no inbox antes) e registra
+  // quem/quando/motivo no histórico. Depois é só Editar o valor e Marcar recebido/pago de novo.
+  const estornarBaixa = async (r: Resultado) => {
+    const rpc = tipo === 'pagar' ? 'fn_pagar_cancelar_pagamento' : 'fn_receber_estornar_baixa'
+    const acao = tipo === 'pagar' ? 'o pagamento' : 'o recebimento'
+    const verbo = tipo === 'pagar' ? 'pagar' : 'receber'
+    const motivo = prompt(
+      `ESTORNAR ${acao} de "${r.descricao}"?\n` +
+      `R$ ${r.valor_documento.toFixed(2)} · venc ${fmtData(r.data_vencimento)}\n\n` +
+      `A baixa é desfeita e o título volta para EM ABERTO. Depois você pode corrigir o valor (Editar) e ${verbo} de novo.\n` +
+      `O título NÃO é excluído e fica tudo registrado no histórico.\n\n` +
+      `Motivo (fica no histórico):`,
+      '',
+    )
+    if (motivo === null) return
+    const { data, error } = await supabase.rpc(rpc, { p_id: r.id, p_motivo: motivo.trim() || null })
+    if (error) { alert('Erro ao estornar: ' + error.message); return }
+    const j = data as { sucesso?: boolean; erro?: string; orientacao?: string; valor_estornado?: number } | null
+    if (!j?.sucesso) {
+      if (j?.erro === 'bloqueado_conciliado') {
+        alert(
+          `Este lançamento está CONCILIADO com o banco.\n\n` +
+          `Estornar agora deixaria um movimento bancário órfão.\n` +
+          `${j.orientacao ?? 'Cancele a conciliação no inbox, depois volte aqui.'}`,
+        )
+      } else {
+        alert('Não foi possível estornar: ' + (j?.orientacao ?? j?.erro ?? 'desconhecido'))
+      }
+      return
+    }
+    setReloadKey((k) => k + 1)
+  }
+
   // Edição em massa (Jordana #6) · aplica o MESMO valor do CAMPO escolhido a N selecionados. Reusa a RPC
   // do domínio (whitelist + pula pagos p/ valor/vencimento + RLS + log — RD-55/RD-57).
   const campoMassaDef = CAMPOS_MASSA.find((c) => c.v === massaCampo) ?? CAMPOS_MASSA[0]
@@ -1542,7 +1577,22 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                                 {r.id in bloqueioMap ? '🔓 Desbloquear' : '🔒 Bloquear'}
                               </button>
                             )}
-                            {pago && <span style={{ fontSize: 10, color: 'rgba(61,35,20,0.4)', marginRight: 6 }}>✓ baixado</span>}
+                            {pago && (
+                              <>
+                                <span style={{ fontSize: 10, color: 'rgba(61,35,20,0.4)', marginRight: 2 }}>✓ baixado</span>
+                                <button
+                                  type="button"
+                                  onClick={() => void estornarBaixa(r)}
+                                  title={tipo === 'pagar'
+                                    ? 'Cancelar pagamento: desfaz a baixa e volta o título para EM ABERTO (p/ corrigir o valor e pagar de novo). Bloqueado se conciliado.'
+                                    : 'Estornar recebimento: desfaz a baixa e volta o título para EM ABERTO (p/ corrigir o valor e receber de novo). Bloqueado se conciliado.'}
+                                  aria-label={tipo === 'pagar' ? 'Cancelar pagamento' : 'Estornar recebimento'}
+                                  style={{ background: 'transparent', color: '#8A5A00', border: '0.5px solid rgba(200,148,26,0.45)', padding: '4px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', marginRight: 2 }}
+                                >
+                                  ↩️ {tipo === 'pagar' ? 'Cancelar pagto' : 'Estornar'}
+                                </button>
+                              </>
+                            )}
                             <button
                               type="button"
                               onClick={() => setEditandoItem(r)}
