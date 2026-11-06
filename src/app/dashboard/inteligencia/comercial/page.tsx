@@ -16,6 +16,19 @@ const ROTA = '/dashboard/inteligencia/comercial'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', GREEN = '#166534', RED = '#A32D2D'
 const brl = (n: number | null) => n == null ? '—' : n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const nf = (n: number | null, d = 0) => n == null ? '—' : n.toLocaleString('pt-BR', { maximumFractionDigits: d, minimumFractionDigits: d })
+// Frescor do BI: a view materializada é recalculada a cada 30 min (cron bi_comercial_item_refresh). Mostramos a hora da
+// última atualização para o gestor saber que o número é vivo (e não dado antigo). Hoje → "às HH:MM"; outro dia → data + hora.
+const fmtAtualizado = (s: string | null): string | null => {
+  if (!s) return null
+  try {
+    const d = new Date(s)
+    if (isNaN(d.getTime())) return null
+    const hora = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    const hoje = new Date()
+    const mesmoDia = d.getFullYear() === hoje.getFullYear() && d.getMonth() === hoje.getMonth() && d.getDate() === hoje.getDate()
+    return mesmoDia ? `Atualizado às ${hora}` : `Atualizado em ${d.toLocaleDateString('pt-BR')} ${hora}`
+  } catch { return null }
+}
 const iso = (d: Date) => d.toISOString().slice(0, 10)
 const perLabel = (s: string, gran: string) => { try { const d = new Date(s + 'T00:00:00'); if (gran === 'ano') return String(d.getFullYear()); if (gran === 'trimestre') return `T${Math.floor(d.getMonth() / 3) + 1}/${String(d.getFullYear()).slice(2)}`; if (gran === 'mes') return d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }); return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) } catch { return s } }
 
@@ -100,6 +113,7 @@ function Inner() {
   const [salvandoCod, setSalvandoCod] = useState<string | null>(null)
   const [painelAberto, setPainelAberto] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [atualizadoEm, setAtualizadoEm] = useState<string | null>(null) // hora do último refresh da MV (fn_bi_comercial_status)
   // Pareto MOSTRA TUDO (CEO): busca por rótulo + ordenação maior↔menor sobre a lista COMPLETA (sem top-N)
   const [paretoBusca, setParetoBusca] = useState('')
   const [paretoOrdem, setParetoOrdem] = useState<'desc' | 'asc'>('desc')
@@ -117,16 +131,19 @@ function Inner() {
     setLoading(true)
     const pv = vendedor // servidor ignora p/ vendedor logado; efetivo só p/ líder
     const ant = prior(de, ate)
-    const [k, ka, s, p, r] = await Promise.all([
+    const [k, ka, s, p, r, st] = await Promise.all([
       supabase.rpc('fn_bi_comercial_kpis', { p_company_id: cid, p_dt_ini: de, p_dt_fim: ate, p_vendedor: pv }),
       supabase.rpc('fn_bi_comercial_kpis', { p_company_id: cid, p_dt_ini: ant.de, p_dt_fim: ant.ate, p_vendedor: pv }),
       supabase.rpc('fn_bi_comercial_serie', { p_company_id: cid, p_dt_ini: de, p_dt_fim: ate, p_granularidade: gran, p_vendedor: pv }),
       supabase.rpc('fn_bi_comercial_pareto', { p_company_id: cid, p_dt_ini: de, p_dt_fim: ate, p_dimensao: dim, p_vendedor: pv }),
       supabase.rpc('fn_bi_comercial_ranking_vendedores', { p_company_id: cid, p_dt_ini: de, p_dt_fim: ate }),
+      supabase.rpc('fn_bi_comercial_status', { p_company_id: cid }),
     ])
     setKpis(k.data as Kpis | null); setKpisAnt(ka.data as Kpis | null)
     setSerie(s.data as Serie | null); setPareto(p.data as Pareto | null)
-    setRanking(r.data as Ranking | null); setLoading(false)
+    setRanking(r.data as Ranking | null)
+    setAtualizadoEm((st.data as { ok?: boolean; atualizado_em?: string | null } | null)?.atualizado_em ?? null)
+    setLoading(false)
   }, [de, ate, gran, dim, vendedor])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (companyId) void carregar(companyId) }, [companyId, carregar])
@@ -166,6 +183,17 @@ function Inner() {
 
   return (
     <Shell {...{ area, router }}>
+      {/* frescor do BI: recalculado a cada 30 min; a hora prova ao gestor que o número é vivo (não dado antigo) */}
+      {atualizadoEm && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
+          <span
+            title={`Os números são recalculados automaticamente a cada 30 minutos a partir da origem ATAK. Última atualização: ${(() => { try { return new Date(atualizadoEm).toLocaleString('pt-BR') } catch { return atualizadoEm } })()}.`}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, fontWeight: 600, color: MUT, background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 999, padding: '4px 11px', cursor: 'default' }}
+          >
+            <Clock size={12} /> {fmtAtualizado(atualizadoEm)}
+          </span>
+        </div>
+      )}
       {/* presets */}
       <div style={{ display: 'flex', gap: 5, alignItems: 'center', marginBottom: 8, overflowX: 'auto', paddingBottom: 2, WebkitOverflowScrolling: 'touch' }}>
         {PRESETS.map(p => <button key={p.v} onClick={() => aplicarPreset(p.v)} style={{ ...chip(preset === p.v), flex: '0 0 auto' }}>{p.l}</button>)}
