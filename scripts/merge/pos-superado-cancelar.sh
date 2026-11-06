@@ -12,7 +12,7 @@
 set -uo pipefail
 : "${GH_TOKEN:?GH_TOKEN ausente}" "${REPO:?REPO ausente}"
 api() { gh api -H 'Accept: application/vnd.github+json' "$@" 2>/dev/null; }
-WF=aceitacao-pos-migration.yml
+WF=${WF:-aceitacao-pos-migration.yml}
 
 ult=$(api "repos/$REPO/actions/workflows/$WF/runs?branch=main&per_page=1" --jq '.workflow_runs[0].id' || true)
 [ -n "$ult" ] && [ "$ult" != null ] || { echo "pos-superado: sem run do @pos na main, nada a fazer"; exit 0; }

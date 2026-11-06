@@ -90,4 +90,9 @@ ok(sepP.ok && sepP.itens.find(i => i.chave === 'montante')!.descricao.includes('
 const cf = calcularParede(REGRAS_PAREDE_CORTA_FOGO, { comprimento: 12.5, peDireito: 2.8, vaos: 1.68 })
 ok(cf.ok && cf.itens.find(i => i.chave === 'chapa')!.quantidade === 65 && cf.itens.find(i => i.chave === 'montante')!.descricao.includes('M70'), 'corta-fogo 2,80 m: 2 camadas por face = 65 chapas e montante M70 (faixa própria)')
 ok(!calcularParede(REGRAS_PAREDE_CORTA_FOGO, { comprimento: 5, peDireito: 6.5 }).ok, 'corta-fogo: acima da última faixa devolve erro claro, não exceção')
+// Unidade de compra junto da quantidade real (Trevo: "2.640 parafusos = 27 centos")
+const pEq = calcularParede(REGRAS_PAREDE_SIMPLES_ST, { comprimento: 12.5, peDireito: 2.8, vaos: 1.68 })
+const eqP = pEq.ok ? pEq.itens.find(i => i.chave === 'parafuso')?.equivalente : undefined
+ok(!!eqP && eqP.includes('un necessárias') && eqP.includes('centos'), `parafuso mostra a quantidade real ao lado do cento (veio ${eqP})`)
+ok(pEq.ok && pEq.itens.find(i => i.chave === 'chapa')?.equivalente === undefined, 'chapa (embalagem unitária) não ganha equivalência')
 if (falhas) { console.error(`\n${falhas} falha(s)`); process.exit(1) }

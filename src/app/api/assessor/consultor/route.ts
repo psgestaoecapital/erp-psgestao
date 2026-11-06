@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { modeloPara, registrarFalhaIA } from '@/lib/aiModel'
+import { modeloPara, registrarFalhaIA, assertIAPermitida, IABloqueadaError } from '@/lib/aiModel'
 import { exigirUsuario } from '@/lib/auth/guardaApi'
 
 export async function POST(req: NextRequest) {
   const guarda = await exigirUsuario(req, { admin: true })
   if (guarda instanceof NextResponse) return guarda
+  // P0 CUSTO (CEO 01/11): porteiro do bloqueio global de IA paga, antes de qualquer custo.
+  try { await assertIAPermitida() } catch (e) {
+    if (e instanceof IABloqueadaError) return NextResponse.json({ error: e.motivo, ia_bloqueada: true }, { status: 503 })
+    throw e
+  }
   try {
     const { diagnostico, cliente_nome, assessoria_nome } = await req.json()
     const apiKey = process.env.ANTHROPIC_API_KEY

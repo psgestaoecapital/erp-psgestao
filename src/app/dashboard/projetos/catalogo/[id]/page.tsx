@@ -134,6 +134,8 @@ export default function ServicoEditorPage({
   const [loading, setLoading] = useState(true);
   const [recalculando, setRecalculando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  // Código de referência do erro de abertura (id da URL): ajuda o suporte a localizar o registro.
+  const [refErro, setRefErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   // Sinal p/ a tabela CPU recarregar quando o BOM muda (a CPU lê de fn_servico_composicao_detalhe).
   const [cpuReload, setCpuReload] = useState(0);
@@ -148,12 +150,14 @@ export default function ServicoEditorPage({
       // id que não é uuid (ex.: o literal "[id]") nem vai ao banco: mensagem do usuário, não erro de Postgres.
       if (!ehUuid(id)) {
         setErro(MSG_ENDERECO_INVALIDO);
+        setRefErro(String(id));
         setLoading(false);
         return;
       }
       if (opts?.soft) setRecalculando(true);
       else setLoading(true);
       setErro(null);
+      setRefErro(null);
       try {
         const supabase = supabaseBrowser();
         const { data: rpcData, error } = await supabase.rpc(
@@ -161,11 +165,17 @@ export default function ServicoEditorPage({
           { p_servico_id: id }
         );
         if (error) throw error;
-        if (!rpcData) throw { code: "P0001", message: "Serviço não encontrado ou sem acesso." };
 
-        // RPC pode devolver objeto único ou array
-        const raw = Array.isArray(rpcData) ? rpcData[0] : rpcData;
-        if (!raw || !raw.servico) throw { code: "P0001", message: "Serviço não encontrado ou sem acesso." };
+        // RPC pode devolver objeto único ou array; quando o serviço não existe ela devolve { error: '...' }.
+        const raw = (Array.isArray(rpcData) ? rpcData[0] : rpcData) as
+          | (Partial<ServicoCompleto> & { error?: string })
+          | null;
+        if (!raw || raw.error || !raw.servico) {
+          // Serviço inexistente/removido (RPC é SECURITY DEFINER: se não voltou, o id não existe mais).
+          // Mensagem específica — não é "sem acesso" genérico — e guarda o código de referência p/ o suporte.
+          setRefErro(id);
+          throw { code: "P0001", message: "Este serviço não existe mais ou foi removido do catálogo. Volte à lista e abra um serviço atual." };
+        }
         setData(raw as ServicoCompleto);
       } catch (e) {
         setErro(erroAmigavel(e, "Não foi possível carregar o serviço. Tente de novo."));
@@ -288,16 +298,36 @@ export default function ServicoEditorPage({
   if (erro && !servico) {
     return (
       <main className="mx-auto max-w-3xl px-6 py-20">
-        <div className="rounded-xl bg-red-50 p-5 text-sm text-red-800">
-          <p className="font-medium">Erro ao carregar serviço</p>
-          <p className="mt-1">{erro}</p>
-        </div>
-        <button
-          onClick={() => router.push("/dashboard/projetos/catalogo")}
-          className="mt-4 inline-flex items-center gap-2 rounded-lg bg-[#3D2314] px-4 py-2 text-sm font-medium text-[#FAF7F2] hover:bg-[#3D2314]/90"
+        <div
+          data-testid="catalogo-servico-erro"
+          className="mx-auto max-w-md rounded-2xl border border-[#3D2314]/10 bg-white p-8 text-center shadow-sm"
         >
-          <ArrowLeft size={14} /> Voltar ao catálogo
-        </button>
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#C8941A]/10 text-[#C8941A]">
+            <AlertTriangle size={22} />
+          </div>
+          <h1
+            className="mb-2 text-[#3D2314]"
+            style={{ fontFamily: "Fraunces, Georgia, serif", fontSize: 20, fontWeight: 400 }}
+          >
+            Não foi possível abrir este serviço
+          </h1>
+          <p className="mb-4 text-sm leading-relaxed text-[#3D2314]/60">{erro}</p>
+          {refErro && (
+            <p
+              data-testid="catalogo-servico-erro-ref"
+              className="mb-6 font-mono text-xs text-[#3D2314]/40"
+            >
+              Código de referência: {refErro}
+            </p>
+          )}
+          <button
+            onClick={() => router.push("/dashboard/projetos/catalogo")}
+            data-testid="catalogo-servico-erro-voltar"
+            className="inline-flex items-center gap-2 rounded-lg bg-[#3D2314] px-5 py-2.5 text-sm font-medium text-[#FAF7F2] hover:bg-[#3D2314]/90"
+          >
+            <ArrowLeft size={14} /> Voltar ao catálogo
+          </button>
+        </div>
       </main>
     );
   }
@@ -515,6 +545,7 @@ export default function ServicoEditorPage({
                   label="Material"
                   valor={custoMaterial}
                   pct={pctOf(custoMaterial, custoTotal)}
+                  chave="projetos.catalogo.cpu.custo_material"
                 />
                 <LinhaComposicao
                   icon={HardHat}
@@ -522,6 +553,7 @@ export default function ServicoEditorPage({
                   label="Mão de obra"
                   valor={custoMaoObra}
                   pct={pctOf(custoMaoObra, custoTotal)}
+                  chave="projetos.catalogo.cpu.custo_mao_obra"
                 />
                 <LinhaComposicao
                   icon={Wrench}
@@ -529,11 +561,15 @@ export default function ServicoEditorPage({
                   label="Equipamento"
                   valor={custoEquipamento}
                   pct={pctOf(custoEquipamento, custoTotal)}
+                  chave="projetos.catalogo.cpu.custo_equipamento"
                 />
               </div>
               <div className="mt-3 border-t border-[#3D2314]/8 pt-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-[#3D2314]">Custo unitário</span>
+                  <span className="inline-flex items-center gap-1 text-sm font-medium text-[#3D2314]">
+                    Custo unitário
+                    <AjudaCampo chave="projetos.catalogo.cpu.custo_total" rota={ROTA_AJUDA} />
+                  </span>
                   <span className="font-mono text-base font-medium text-[#3D2314]">
                     {fmtBRL(custoTotal)}
                   </span>
@@ -556,17 +592,26 @@ export default function ServicoEditorPage({
               </h3>
               <div className="space-y-1.5 text-sm">
                 <div className="flex items-center justify-between text-[#3D2314]/70">
-                  <span>Custo</span>
+                  <span className="inline-flex items-center gap-1">
+                    Custo
+                    <AjudaCampo chave="projetos.catalogo.cpu.custo_total" rota={ROTA_AJUDA} />
+                  </span>
                   <span className="font-mono">{fmtBRL(custoTotal)}</span>
                 </div>
                 <div className="flex items-center justify-between text-[#3D2314]/70">
-                  <span>BDI aplicado</span>
+                  <span className="inline-flex items-center gap-1">
+                    BDI aplicado
+                    <AjudaCampo chave="projetos.catalogo.cpu.bdi" rota={ROTA_AJUDA} />
+                  </span>
                   <span className="font-mono">{pct(bdiPct)}</span>
                 </div>
               </div>
               <div className="mt-3 border-t border-[#C8941A]/20 pt-3">
                 <div className="flex items-baseline justify-between">
-                  <span className="text-sm font-medium text-[#3D2314]">Preço final</span>
+                  <span className="inline-flex items-center gap-1 text-sm font-medium text-[#3D2314]">
+                    Preço final
+                    <AjudaCampo chave="projetos.catalogo.cpu.preco_venda" rota={ROTA_AJUDA} />
+                  </span>
                   <span
                     className="font-mono text-2xl font-medium text-[#3D2314]"
                     style={{ fontFamily: "var(--ps-font-body)", fontStyle: "normal" }}
@@ -594,7 +639,7 @@ export default function ServicoEditorPage({
       </div>
 
       {/* Composição de Preço Unitário (CPU) completa — padrão de mercado, genérica */}
-      <ComposicaoCpu servicoId={servico.id} companyId={servico.company_id} reloadKey={cpuReload} />
+      <ComposicaoCpu servicoId={servico.id} companyId={servico.company_id} reloadKey={cpuReload} rotaAjuda={ROTA_AJUDA} />
     </main>
   );
 }
@@ -605,12 +650,14 @@ function LinhaComposicao({
   label,
   valor,
   pct,
+  chave,
 }: {
   icon: typeof Package;
   cor: "emerald" | "blue" | "purple";
   label: string;
   valor: number;
   pct: number;
+  chave?: string;
 }) {
   const corChip =
     cor === "emerald"
@@ -630,6 +677,7 @@ function LinhaComposicao({
             <Icon size={12} />
           </span>
           {label}
+          {chave && <AjudaCampo chave={chave} rota={ROTA_AJUDA} />}
         </span>
         <span className="font-mono text-[#3D2314]">{fmtBRL(valor)}</span>
       </div>

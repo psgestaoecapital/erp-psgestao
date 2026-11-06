@@ -18,7 +18,9 @@ import { executarVisualTruthRules, type VisualTruthResult } from '@/lib/visual-t
 import { empresaPermitidaParaRobo, MSG_ROBO_SO_DEMO } from '@/lib/gold/roboEmpresaPermitida';
 import { conferirEmpresaRenderizada } from '@/lib/gold/empresaRenderizada';
 import { empresaDoPedidoRobo } from '@/lib/gold/empresaDoPedidoRobo';
+import { watcherSecretValido } from '@/lib/watcherSecret'
 import { rotaConcreta } from '@/lib/gold/rotaConcreta';
+import { salvarMiniaturaRota } from '@/lib/gold/miniaturaRota';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -221,6 +223,16 @@ async function capturarRota(browser: Browser, cfg: Ctx, rotaCompleta: string): P
         screenshot_url: path, screenshot_atualizado_em: new Date().toISOString(),
         auditavel_robo: true, motivo_nao_auditavel: null, auditabilidade_em: new Date().toISOString(),
       }).eq('id', screenId);
+      // Miniatura base64 para o aud8 ler por SELECT. Falha aqui não derruba a captura, mas NUNCA é
+      // engolida: erro de gravação vira console.error, e o caso "não coube no limite" (retorno false)
+      // também é registrado — antes era silencioso e deixava a thumb presa em uma data antiga.
+      const miniaturaGravada = await salvarMiniaturaRota(supabase, rotaBase, page, alturaCaptura).catch((e) => {
+        console.error('[miniatura] erro ao gravar:', e);
+        return false;
+      });
+      if (!miniaturaGravada) {
+        console.error(`[miniatura] NÃO regravada para ${rotaBase}: base64 acima do limite de 120 KB mesmo no menor recorte/qualidade — thumb mantém a versão anterior.`);
+      }
       try {
         visualTruth = await executarVisualTruthRules(page, screenId, rotaBase, supabase);
       } catch (vtErr) { console.error('[visual-truth] erro nao fatal:', vtErr); }
@@ -259,8 +271,7 @@ async function capturarRota(browser: Browser, cfg: Ctx, rotaCompleta: string): P
 }
 
 export async function POST(req: Request) {
-  const expected = process.env.WATCHER_SECRET;
-  if (!expected || req.headers.get('x-watcher-secret') !== expected) {
+  if (!watcherSecretValido(req.headers.get('x-watcher-secret'))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

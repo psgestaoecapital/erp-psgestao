@@ -18,6 +18,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { watcherSecretValido } from '@/lib/watcherSecret'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -63,8 +64,7 @@ async function listarBucket(
 }
 
 export async function POST(req: NextRequest) {
-  const expected = process.env.WATCHER_SECRET
-  if (!expected || req.headers.get('x-watcher-secret') !== expected) {
+  if (!watcherSecretValido(req.headers.get('x-watcher-secret'))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {

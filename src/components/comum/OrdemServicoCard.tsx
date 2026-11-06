@@ -1163,7 +1163,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
         {faturada ? (
           // §2.5 · mostra o estado e LEVA à GE (alterar o título é ação da GE, não da OS — fronteira [→GE])
           <>
-            <a href="/dashboard/financeiro/receber" data-testid="os-faturada" title="Ver ou alterar o título financeiro na Gestão Empresarial (Contas a Receber)"
+            <a href={os.numero ? `/dashboard/financeiro/receber?busca=${encodeURIComponent(os.numero)}` : '/dashboard/financeiro/receber'} data-testid="os-faturada" title="Ver ou alterar o título financeiro na Gestão Empresarial (Contas a Receber)"
               style={{ fontSize: 12, fontWeight: 700, color: C.green, background: C.greenBg, borderRadius: 8, padding: '10px 14px', minHeight: 44, display: 'inline-flex', alignItems: 'center', textDecoration: 'none' }}>
               ✓ Faturada · ver na GE →
             </a>
@@ -1193,15 +1193,23 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           !os.pedido_id ? (
             // OS avulsa (oficina): abre o lançamento de receita COMPLETO (forma de pagamento, parcelas),
             // pré-preenchido com cliente e valor da OS — chamado #20 §2.4. Não emite NF.
-            <button
-              type="button"
-              onClick={() => setReceitaAberta(true)}
-              data-testid="os-faturar"
-              title="Abre o lançamento de receita (forma de pagamento, parcelas) já preenchido com o cliente e o valor da OS. Não emite NF."
-              style={{ ...btnPri, background: C.gold, color: '#3D2314' }}
-            >
-              💰 Gerar Financeiro
-            </button>
+            // Chamado #5435 (Gean): a marcação "NF fora da OS" tira a OS da pendência de NF (nfPendente não
+            // exige faturamento). Antes só aparecia na OS já faturada; agora a OS pronta/entregue também pode
+            // ser marcada — quando a nota foi emitida por fora, sem precisar gerar financeiro nem informar
+            // os códigos de estoque dos itens. O selo mostra a situação atual da NF.
+            <>
+              <OSNotasFiscaisSelo osId={os.id} companyId={os.company_id} />
+              <OSNFForaDaOS osId={os.id} companyId={os.company_id} />
+              <button
+                type="button"
+                onClick={() => setReceitaAberta(true)}
+                data-testid="os-faturar"
+                title="Abre o lançamento de receita (forma de pagamento, parcelas) já preenchido com o cliente e o valor da OS. Não emite NF."
+                style={{ ...btnPri, background: C.gold, color: '#3D2314' }}
+              >
+                💰 Gerar Financeiro
+              </button>
+            </>
           ) : (
             // OS via pedido: o financeiro vem das parcelas do pedido (fn_os_faturar → fn_faturar)
             <button

@@ -11,8 +11,9 @@ import EtiquetasProdutosModal from '@/components/cadastros/EtiquetasProdutosModa
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import {
   Package, Plus, Search, Edit, Loader2, Filter, ChevronDown, ChevronUp,
-  ArrowUp, ArrowDown, X, Upload, Sparkles, ListChecks, Printer, Copy, Download, Tags, AlertTriangle,
+  ArrowUp, ArrowDown, X, Upload, Sparkles, ListChecks, Printer, Copy, Download, Tags, AlertTriangle, Trash2,
 } from 'lucide-react'
+import ExcluirProdutoModal from '@/components/cadastros/ExcluirProdutoModal'
 import { exportarProdutosXlsx, type ExportProdutosResult } from '@/lib/produtos/exportarProdutos'
 
 export const dynamic = 'force-dynamic'
@@ -282,6 +283,7 @@ export default function ProdutosPage() {
 
   // Clonar: busca a linha completa (igual abrirEdicao) e abre o form em modo NOVO pré-preenchido (clonarDe).
   const [confirmarCloneId, setConfirmarCloneId] = useState<string | null>(null)
+  const [excluindoId, setExcluindoId] = useState<string | null>(null) // chamado #3856: exclusão lógica com checagem de vínculos
   async function clonarProduto(id: string) {
     if (!companyId) return
     const { data, error } = await supabase.from('erp_produtos').select('*').eq('company_id', companyId).eq('id', id).maybeSingle()
@@ -652,7 +654,9 @@ export default function ProdutosPage() {
                     className="w-full px-2 py-1.5 text-[12.5px] border border-[#3D2314]/15 rounded bg-white text-[#3D2314]"
                   >
                     <option value="todos">Todas</option>
-                    <option value="omie">OMIE</option>
+                    {/* RD-100: rótulo genérico visível; o value "omie" e o ref_externa_sistema "OMIE" (L228) são
+                        identificadores técnicos da integração (não visíveis) — mantidos para não quebrar o filtro. */}
+                    <option value="omie">Sistema anterior</option>
                     <option value="manual">Manual / Importado</option>
                   </select>
                 </div>
@@ -791,6 +795,15 @@ export default function ProdutosPage() {
                           >
                             <Edit size={14} />
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => setExcluindoId(p.id)}
+                            data-testid="produto-excluir"
+                            className="text-red-700 hover:text-red-900"
+                            title="Excluir"
+                          >
+                            <Trash2 size={14} />
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -851,6 +864,15 @@ export default function ProdutosPage() {
                         >
                           <Edit size={14} />
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => setExcluindoId(p.id)}
+                          data-testid="produto-excluir-mobile"
+                          className="text-red-700 hover:text-red-900"
+                          title="Excluir"
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -878,6 +900,13 @@ export default function ProdutosPage() {
             </>
           )}
         </div>
+
+        <ExcluirProdutoModal
+          produtoId={excluindoId}
+          companyId={companyId}
+          onFechar={() => setExcluindoId(null)}
+          onExcluido={() => { setExcluindoId(null); carregar(true) }}
+        />
 
         <ConfirmarClonar
           aberto={!!confirmarCloneId}

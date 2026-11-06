@@ -93,7 +93,7 @@ for (const k of ['pm.post.assunto', 'pm.post.publicar_em', 'pm.post.redes', 'pm.
 for (const k of ['pm.calendario.visao', 'pm.calendario.data', 'pm.calendario.cliente', 'pm.calendario.status']) ok(ca.includes(`"${k}"`), `"?" ${k}`)
 ok(/prazoDoPost\(f\.publicar_em, peca\?\.antecedencia_dias\)/.test(pf), 'd) formulário mostra o prazo do job antes de gravar')
 ok(/calendario-semana-lista/.test(ca) && /calendario-mes-celular/.test(ca) && /md:grid/.test(ca), 'calendário: semana e mês, com versão de celular')
-ok(/excluido_em: new Date\(\)\.toISOString\(\)/.test(pl) && !/\.delete\(\)/.test(pl), 'tela manda para a lixeira (nunca apaga)')
+ok(/fn_pm_planejamento_excluir/.test(pl) && !/\.delete\(\)/.test(pl), 'tela manda para a lixeira pela RPC rastreável fn_pm_planejamento_excluir (RD-98 p4; nunca apaga)')
 ok(/'rede_social', label: 'Redes sociais'/.test(ler('src/app/dashboard/pm/configuracoes/page.tsx')), 'c) redes gerenciáveis em P&M › Configurações › Listas')
 ok(/chave="pm\.servico\.antecedencia"/.test(ler('src/app/dashboard/pm/servicos/page.tsx')), 'd) antecedência editável no catálogo, com "?"')
 

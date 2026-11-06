@@ -1,0 +1,57 @@
+-- RD-95 (CEO 08/10): fechar o "?" na tela Margem por Job (P&M) · /dashboard/pm/margem-job.
+-- A tela já tinha ajuda nos 4 KPIs, no filtro "Ver margem por" e na coluna Margem. Esta PR completa:
+-- o "?" de contexto da tela e o das colunas de valor das duas tabelas (grupo e por job). Aditivo:
+-- só texto em erp_ajuda_campo. Idempotente (ON CONFLICT chave) — a chave pm.margem.grupo já existe e é preservada.
+INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
+SELECT v.chave, v.grupo, v.rotulo, v.o, v.p, v.e, v.x, v.ordem, '/dashboard/pm/margem-job', 'pm', 'publicado'
+FROM (VALUES
+ ('pm.margem.tela', 'Margem · Visão geral', 'Margem por Job',
+  'Visão de rentabilidade: valor − custo por job (ou agrupado por cliente, serviço, etc.). Não se digita aqui; os dados vêm dos jobs e das horas apontadas.',
+  'Mostra onde a agência ganha e onde perde margem, para priorizar clientes/serviços e corrigir custo de hora.',
+  'Agrupar por cliente para ver qual carteira tem a melhor margem no período.',
+  'Ler o lucro sem cadastrar o custo da hora: sem custo/hora o lucro sai igual ao valor (veja o aviso no topo).',
+  1),
+ ('pm.margem.col_dimensao', 'Margem · Colunas', 'Agrupador (cliente/serviço/…)',
+  'Primeira coluna do modo agrupado: o nome do grupo escolhido no filtro "Ver margem por" (cliente, serviço, responsável…).',
+  'Identifica cada linha do agrupamento para comparar a margem entre grupos.',
+  'Com "Ver margem por cliente", cada linha é um cliente.',
+  'Comparar grupos de dimensões diferentes: troque o filtro e releia a tabela inteira.',
+  2),
+ ('pm.margem.col_jobs', 'Margem · Colunas', 'Jobs',
+  'Quantidade de jobs somados naquele grupo. Pode indicar quantos estão sem custo completo.',
+  'Dá o peso de cada grupo — uma margem alta com 1 job pesa menos que com 20.',
+  '"12 · 2 sem custo" = 12 jobs, 2 ainda sem custo lançado.',
+  'Tratar grupos com poucos jobs como tendência: amostra pequena engana.',
+  3),
+ ('pm.margem.col_valor', 'Margem · Colunas', 'Valor',
+  'Soma do valor dos jobs (o que foi/será faturado) do job ou grupo da linha.',
+  'É a receita da linha; base do lucro (valor − custo) e da margem.',
+  'R$ 20.000 de valor no cliente X.',
+  'Confundir valor com lucro: valor é a receita bruta, não o que sobra.',
+  4),
+ ('pm.margem.col_custo', 'Margem · Colunas', 'Custo',
+  'Custo dos jobs: horas apontadas × custo/hora da equipe (ou custo estimado quando não há apontamento).',
+  'É o que se desconta do valor para achar o lucro e a margem.',
+  'R$ 12.000 de custo = horas da equipe valoradas pelo custo/hora.',
+  'Esquecer o custo/hora da equipe: sem ele o custo some e o lucro fica irreal.',
+  5),
+ ('pm.margem.col_lucro', 'Margem · Colunas', 'Lucro',
+  'Valor − custo da linha. Em verde quando positivo, em vermelho quando negativo.',
+  'Mostra quanto sobra por job/grupo em reais; é a margem em valor absoluto.',
+  'Valor R$ 20.000 − custo R$ 12.000 = R$ 8.000 de lucro.',
+  'Olhar só o lucro sem a margem: R$ 8.000 em R$ 20.000 (40%) é diferente de R$ 8.000 em R$ 100.000 (8%).',
+  6),
+ ('pm.margem.col_job', 'Margem · Colunas', 'Job',
+  'Nome/identificação do job na visão por job (quando o filtro está em "Job").',
+  'Liga a margem ao trabalho específico, para auditar caso a caso.',
+  '"Campanha de Natal — Cliente X".',
+  'Esperar editar o job aqui: esta tela só lê a margem; o job é editado no painel de jobs.',
+  7),
+ ('pm.margem.col_cliente', 'Margem · Colunas', 'Cliente',
+  'Cliente dono do job, na visão por job.',
+  'Permite ver, dentro da lista de jobs, de qual cliente vem cada margem.',
+  'Cliente "Padaria Pão Quente".',
+  'Agrupar mentalmente por cliente na visão por job: use "Ver margem por cliente" para o total certo.',
+  8)
+) AS v(chave, grupo, rotulo, o, p, e, x, ordem)
+ON CONFLICT (chave) DO NOTHING;

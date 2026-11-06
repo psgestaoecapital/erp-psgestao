@@ -19,7 +19,8 @@ ok(modal.includes(".from('projetos_obras')") && modal.includes(".select('cno')")
 ok(/setObservacoes\(\(prev\) => \(prev\.trim\(\) === '' \? `CNO: \$\{cno\}` : prev\)\)/.test(modal), 'modal: pré-preenche CNO só quando vazio (editável, não sobrescreve)')
 
 // 3) reseta na abertura
-ok(modal.includes("setObservacoes('')"), 'modal: reseta observacoes na abertura')
+// (#3774: reseta para o texto inicial do chamador — vazio quando não vier nada)
+ok(modal.includes("setObservacoes(observacoesIniciais?.trim() || '')"), 'modal: reseta observacoes na abertura')
 
 // 4) envia observacoes nos DOIS caminhos (Focus bodyFocus e gov legado) — nível superior
 ok((modal.match(/observacoes: observacoes\.trim\(\) \|\| undefined/g) ?? []).length >= 2, 'modal: envia observacoes no caminho Focus e no gov legado')

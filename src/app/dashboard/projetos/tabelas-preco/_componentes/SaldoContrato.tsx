@@ -22,6 +22,7 @@ export function SaldoContrato({ tabelaId, servicos, podeGravar, recarregar }: { 
     setErro('')
     setLinhas(((data as { linhas: Linha[] }).linhas ?? []).map(l => ({ ...l, contratada: Number(l.contratada), medida: Number(l.medida), saldo: Number(l.saldo) })))
   }, [tabelaId])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- carga do saldo (recarrega quando uma medição é salva/excluída)
   useEffect(() => { carregar() }, [carregar, recarregar])
   const nome = (r: string) => servicos.find(s => s.ref === r)?.nome ?? r
   const un = (r: string) => servicos.find(s => s.ref === r)?.unidade ?? ''
@@ -36,7 +37,7 @@ export function SaldoContrato({ tabelaId, servicos, podeGravar, recarregar }: { 
   return (
     <section data-testid="tp-saldo" style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 16, marginTop: 16, display: 'grid', gap: 10 }}>
       <h2 style={{ fontSize: 17, margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>Saldo contratado <AjudaCampo chave="hub.tabela_preco.saldo" /></h2>
-      <p style={{ fontSize: 13, color: MUT, margin: 0 }}>Quanto do contrato já foi medido (medições salvas) e quanto ainda resta, por serviço.</p>
+      <p style={{ fontSize: 13, color: MUT, margin: 0, display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>Quanto do contrato já foi medido (medições salvas) e quanto ainda resta, por serviço.<AjudaCampo chave="hub.tabela_preco.saldo_colunas" /></p>
       {podeGravar && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <label style={{ fontSize: 12, color: MUT }}>Serviço <AjudaCampo chave="hub.tabela_preco.servico" />

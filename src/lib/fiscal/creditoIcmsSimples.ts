@@ -1,6 +1,7 @@
 // #2876 · Crédito de ICMS do Simples Nacional na NF-e (LC 123/2006 art. 23; CSOSN 101 com pCredSN/vCredICMSSN).
 // Regras puras, usadas pelo nfe-builder e conferidas por gate. Opt-in POR EMPRESA: só vale quando a empresa do Simples
-// tem a alíquota do crédito cadastrada na Configuração Fiscal (informada pelo contador). Sem alíquota, nada muda.
+// tem a alíquota do crédito cadastrada na Configuração Fiscal (informada pelo contador). Sem alíquota, o CSOSN não muda;
+// a frase do Simples (TEXTO_SIMPLES) sai em toda nota do Simples, com ou sem alíquota (ajuste Jordana 20/10).
 //
 // Quando vale o crédito (todas ao mesmo tempo): emitente do Simples · alíquota cadastrada > 0 · destinatário
 // CONTRIBUINTE (indIEDest = 1) · NÃO é consumidor final · nota de finalidade normal (devolução tem regra própria).

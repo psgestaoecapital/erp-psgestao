@@ -16,6 +16,9 @@ export interface CatalogoColumn<T> {
   align?: "left" | "right" | "center";
   className?: string;
   hiddenOnMobile?: boolean;
+  /** Coluna secundária: no computador pode ser recolhida (prop `collapseSecondary`) para os
+   *  valores (custo/preço) caberem sem rolagem horizontal. No celular (cartão) nada muda. */
+  secondary?: boolean;
   render: (row: T) => ReactNode;
 }
 
@@ -27,6 +30,9 @@ interface Props<T> {
   onRowClick?: (row: T) => void;
   emptyMessage?: string;
   actions?: (row: T) => ReactNode;
+  /** Recolhe no computador as colunas marcadas como `secondary`, para as colunas de valor
+   *  (custo/preço) ficarem visíveis sem rolagem horizontal. O cartão do celular não é afetado. */
+  collapseSecondary?: boolean;
 }
 
 export function CatalogoTable<T>({
@@ -37,7 +43,18 @@ export function CatalogoTable<T>({
   onRowClick,
   emptyMessage = "Nenhum item encontrado",
   actions,
+  collapseSecondary,
 }: Props<T>) {
+  // A tabela só aparece no computador (md+). Uma coluna secundária recolhida fica oculta aí; o cartão
+  // do celular usa um caminho próprio (filtro por hiddenOnMobile) e não enxerga estas classes.
+  // Não emitimos md:table-cell e md:hidden juntos (evita depender da ordem das classes do Tailwind).
+  const colClass = (col: CatalogoColumn<T>) => {
+    const recolhida = Boolean(collapseSecondary && col.secondary);
+    const vis = recolhida
+      ? col.hiddenOnMobile ? "hidden" : "md:hidden"
+      : col.hiddenOnMobile ? "hidden md:table-cell" : "";
+    return `${vis} ${col.className || ""}`;
+  };
   const [titulo, ...camposCartao] = columns.filter((c) => !c.hiddenOnMobile);
   return (
     <>
@@ -81,19 +98,21 @@ export function CatalogoTable<T>({
             {columns.map((col) => (
               <th
                 key={col.key}
-                className={`px-4 py-3 ${
+                className={`whitespace-nowrap px-3 py-3 ${
                   col.align === "right"
                     ? "text-right"
                     : col.align === "center"
                     ? "text-center"
                     : "text-left"
-                } ${col.hiddenOnMobile ? "hidden md:table-cell" : ""} ${col.className || ""}`}
+                } ${colClass(col)}`}
               >
                 {col.label}{col.ajuda && <AjudaCampo chave={col.ajuda} />}
               </th>
             ))}
             {actions && (
-              <th className="px-4 py-3 text-right text-xs uppercase tracking-wider text-[#3D2314]/60">
+              // Ações fixada à direita (auditor 27/10: com muitas colunas a tabela rolava e a coluna de ações
+              // saía da captura/da tela). Pinada, ela fica sempre visível e acessível sem rolagem horizontal.
+              <th className="sticky right-0 z-10 whitespace-nowrap bg-[#F6F3F1] px-3 py-3 text-right text-xs uppercase tracking-wider text-[#3D2314]/60 shadow-[-8px_0_8px_-8px_rgba(61,35,20,0.18)]">
                 Ações
               </th>
             )}
@@ -130,20 +149,20 @@ export function CatalogoTable<T>({
                 {columns.map((col) => (
                   <td
                     key={col.key}
-                    className={`px-4 py-3 ${
+                    className={`px-3 py-3 ${
                       col.align === "right"
                         ? "text-right"
                         : col.align === "center"
                         ? "text-center"
                         : "text-left"
-                    } ${col.hiddenOnMobile ? "hidden md:table-cell" : ""} ${col.className || ""}`}
+                    } ${colClass(col)}`}
                   >
                     {col.render(row)}
                   </td>
                 ))}
                 {actions && (
                   <td
-                    className="px-4 py-3 text-right"
+                    className="sticky right-0 z-10 bg-white px-3 py-3 text-right shadow-[-8px_0_8px_-8px_rgba(61,35,20,0.18)]"
                     onClick={(e) => e.stopPropagation()}
                   >
                     {actions(row)}

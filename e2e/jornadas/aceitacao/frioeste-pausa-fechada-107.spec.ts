@@ -49,7 +49,8 @@ test.describe('Conferência de pausas — pausa com saída no relatório não é
     await page.goto('/dashboard/compliance/pausas-tecnicas')
     await aguardarConteudo(page)
     await page.getByRole('button', { name: 'Conferência' }).click()
-    await expect(page.getByText('Conferência — pausas sem hora de saída')).toBeVisible({ timeout: 20000 })
+    // #3843 · a Conferência agora abre com o fluxo único "Conferência do mês" (revisar + confirmar/corrigir juntos)
+    await expect(page.getByText('Conferência do mês')).toBeVisible({ timeout: 20000 })
   }
   const linha = (page: import('@playwright/test').Page, inicio: string) =>
     page.locator('tbody tr').filter({ hasText: colaborador }).filter({ hasText: inicio })

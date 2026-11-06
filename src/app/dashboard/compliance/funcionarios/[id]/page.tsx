@@ -8,6 +8,8 @@ import { fmtData, fmtDataHora } from '@/lib/psgc-tokens'
 import { UploadDocumentoModal, type UploadContext } from '../../_components/UploadDocumentoModal'
 import { C, StatusBadge, baixarDocumento } from '../../_components/ui'
 import MarcarDocsPessoa from './MarcarDocsPessoa'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { supabase } from '@/lib/supabase'
 
 type Matriz = {
   tipo_documento_id: string | null
@@ -80,6 +82,31 @@ export default function FuncionarioDetalhePage() {
   // (continua visível — e reversível — em "Quais documentos esta pessoa precisa").
   const matrizAplicavel = matriz.filter((m) => m.status_final !== 'nao_se_aplica')
 
+  // #4037 (Frioeste): botão "Não se aplica" ao lado de cada item, direto na lista de documentos.
+  // Reutiliza a RPC provada do painel "Quais documentos esta pessoa precisa" (fn_compliance_pessoa_dispensar):
+  // marca o treinamento como não aplicável SÓ para este colaborador (ex.: auxiliar mecânico sem NR12/NR10).
+  // Reversível em "Voltar a exigir" no mesmo painel. Um clique, sem justificativa obrigatória (pedido da cliente #47).
+  async function marcarNaoSeAplica(m: Matriz) {
+    if (!funcionario || !m.tipo_documento_id) return
+    if (!confirm(`Marcar "${m.tipo_nome}" como NÃO aplicável para ${funcionario.nome_completo}? Ele sai da lista de documentos desta pessoa. Dá para voltar a exigir em "Quais documentos esta pessoa precisa".`)) return
+    setErro(null)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      const { error } = await supabase.rpc('fn_compliance_pessoa_dispensar', {
+        p_company_id: funcionario.company_id,
+        p_funcionario_id: funcionario.id,
+        p_tipo_documento_id: m.tipo_documento_id,
+        p_on: true,
+        p_motivo: null,
+        p_user: user?.id ?? null,
+      })
+      if (error) throw error
+      await carregar()
+    } catch (e: any) {
+      setErro(e?.message || 'Falha ao marcar não aplicável')
+    }
+  }
+
   return (
     <div style={{ backgroundColor: C.offwhite, minHeight: '100vh', color: C.ink }}>
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: '32px 24px' }}>
@@ -149,6 +176,7 @@ export default function FuncionarioDetalhePage() {
               })
             }}
             onBaixar={(docId) => baixarDocumento(docId)}
+            onNaoSeAplica={marcarNaoSeAplica}
           />
         )}
         {tab === 'historico' && (
@@ -275,12 +303,13 @@ function AbaDados({ funcionario, salario, onSaved }: { funcionario: Funcionario;
 }
 
 function AbaDocumentos({
-  loading, matriz, onUpload, onBaixar,
+  loading, matriz, onUpload, onBaixar, onNaoSeAplica,
 }: {
   loading: boolean
   matriz: Matriz[]
   onUpload: (m: Matriz, modo: 'upload' | 'substituir') => void
   onBaixar: (documentoId: string) => void
+  onNaoSeAplica: (m: Matriz) => void
 }) {
   return (
     <section style={{ background: 'white', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)' }}>
@@ -292,7 +321,7 @@ function AbaDocumentos({
               <Th>Grupo</Th>
               <Th>Status</Th>
               <Th>Validade</Th>
-              <Th>Ações</Th>
+              <Th><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Ações <AjudaCampo chave="compliance.funcionario.doc_nao_se_aplica" rota="/dashboard/compliance/funcionarios/[id]" /></span></Th>
             </tr>
           </thead>
           <tbody>
@@ -323,6 +352,9 @@ function AbaDocumentos({
                           <button onClick={() => onUpload(m, 'substituir')} style={btnPrim()}>Substituir</button>
                           <button onClick={() => onBaixar(m.documento_id!)} style={btnSec()}>Baixar</button>
                         </>
+                      )}
+                      {m.tipo_documento_id && (
+                        <button onClick={() => onNaoSeAplica(m)} style={btnNaoAplica()} title="Marcar este treinamento/documento como não aplicável a esta pessoa">Não se aplica</button>
                       )}
                     </div>
                   </Td>
@@ -398,5 +430,6 @@ function inputStyle() {
 }
 function btnPrim() { return { padding: '6px 12px', borderRadius: 6, border: 'none', backgroundColor: C.espresso, color: 'white', fontSize: 12, fontWeight: 600, cursor: 'pointer' } as any }
 function btnSec() { return { padding: '6px 12px', borderRadius: 6, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 12, fontWeight: 600, cursor: 'pointer' } as any }
+function btnNaoAplica() { return { padding: '6px 12px', borderRadius: 6, border: `1px solid ${C.red}`, backgroundColor: 'white', color: C.red, fontSize: 12, fontWeight: 600, cursor: 'pointer' } as any }
 function Th({ children }: { children: any }) { return (<th style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'rgba(61, 35, 20, 0.65)' }}>{children}</th>) }
 function Td({ children, mono }: { children: any; mono?: boolean }) { return (<td style={{ padding: '10px 16px', verticalAlign: 'top', fontFamily: mono ? 'ui-monospace, SFMono-Regular, Menlo, monospace' : undefined }}>{children}</td>) }

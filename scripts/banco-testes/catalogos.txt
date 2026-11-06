@@ -66,3 +66,8 @@ psgc_contas
 # quebrou — o CHECK erp_agente_rotina_agente_check da produção ganhou agentes (code-desenvolvedor-3, desenvolvedor_4/5/6_g,
 # auditor_pdca_g) FORA de migration, e o banco de testes (só migrations) recusa essas linhas. Volta quando uma migration
 # alinhar o CHECK à produção (via revisada). Até lá canal-ps e agente-chamado-responder seguem com 23503 na aceitação.
+
+# Modelo de produtividade (PR A · CEO 28/10): template "Abate de bovinos" como DADO global, sem coluna de dono.
+# "Começar pelo modelo" (fn_prod_modelo_aplicar) copia estas linhas para as raias/atividades da empresa.
+prod_modelo_fluxo          # pai de prod_modelo_etapa (FK)
+prod_modelo_etapa

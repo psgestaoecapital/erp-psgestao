@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { exigirLogin, exigirEmpresas, type UsuarioApi } from "@/lib/auth/guardaApi";
-import { modeloPara, registrarFalhaIA } from "@/lib/aiModel";
+import { modeloPara, registrarFalhaIA, assertIAPermitida, IABloqueadaError } from "@/lib/aiModel";
 
 export const dynamic = "force-dynamic";
 export const runtime = 'nodejs';
@@ -23,6 +23,11 @@ async function handler(req: NextRequest, user: UsuarioApi) {
     if (!companyId) return NextResponse.json({ error: "Empresa não selecionada" }, { status: 400 });
     const negado = await exigirEmpresas(user, [companyId]);
     if (negado) return negado;
+    // P0 CUSTO (CEO 01/11): porteiro do bloqueio global de IA paga, antes de qualquer custo.
+    try { await assertIAPermitida(); } catch (e) {
+      if (e instanceof IABloqueadaError) return NextResponse.json({ error: e.motivo, ia_bloqueada: true }, { status: 503 });
+      throw e;
+    }
 
     const supabase = supabaseAdmin;
 
@@ -123,10 +128,10 @@ async function handler(req: NextRequest, user: UsuarioApi) {
     }
 
     // 7. Contexto humano
-    const { data: ctxData } = await supabase.from("ai_reports").select("report_content").eq("company_id", companyId).eq("report_type", "contexto_humano").order("created_at", { ascending: false }).limit(1);
+    const { data: ctxData } = await supabase.from("ai_reports").select("output_content").eq("company_id", companyId).eq("report_type", "contexto_humano").order("created_at", { ascending: false }).limit(1);
     let ctxText = "";
     if (ctxData && ctxData.length > 0) {
-      ctxText = typeof ctxData[0].report_content === "string" ? ctxData[0].report_content : JSON.stringify(ctxData[0].report_content);
+      ctxText = typeof ctxData[0].output_content === "string" ? ctxData[0].output_content : JSON.stringify(ctxData[0].output_content);
     }
 
     // 8. Fluxo de caixa resumo

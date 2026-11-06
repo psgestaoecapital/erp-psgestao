@@ -56,7 +56,6 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
   const [modo, setModo] = useState<'proposta' | 'manual'>(propostaId ? 'proposta' : 'manual')
   const [cli, setCli] = useState(clienteId ?? '')
   const [titulo, setTitulo] = useState('')
-  const [codigo, setCodigo] = useState('')
   const [valorMensal, setValorMensal] = useState('')
   // #59 · identificação e objeto
   const [doc, setDoc] = useState('')
@@ -207,7 +206,6 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
     if (modo === 'proposta' && cliInfo?.nome) dados.cliente_nome = cliInfo.nome   // identidade do cliente escolhido/vinculado
     if (modo === 'manual') {
       dados.cliente_id = cli || null
-      dados.codigo_identificador = codigo.trim() || null
     }
     setSalvando(true)
     try {
@@ -321,11 +319,9 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
                   <textarea style={{ ...inp, minHeight: 56, fontFamily: 'inherit' }} value={escopo} onChange={(e) => setEscopo(e.target.value)} placeholder={modo === 'proposta' ? 'Os itens da proposta' : 'Um por linha'} />
                 </Campo>
                 <div style={gradeContrato}>
-                  {modo === 'manual' && (
-                    <Campo label="Código identificador (opcional)" chave="pm.solicitar_contrato.codigo" ajuda>
-                      <input style={inp} value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="Ex.: FEE-2026-001" />
-                    </Campo>
-                  )}
+                  <Campo label="Código identificador (automático)" chave="pm.solicitar_contrato.codigo" ajuda>
+                    <input style={inp} value="" readOnly disabled placeholder="Gerado automaticamente ao solicitar (ex.: CTR-2026-0001)" />
+                  </Campo>
                   <Campo label="Valor (por parcela)" chave="pm.solicitar_contrato.valor" ajuda>
                     <input style={inp} inputMode="decimal" value={valorMensal} onChange={(e) => setValorMensal(e.target.value)} placeholder={modo === 'proposta' ? 'Somado dos itens da proposta' : '0,00'} />
                     {modo === 'proposta' && valorMensal ? daProposta : null}

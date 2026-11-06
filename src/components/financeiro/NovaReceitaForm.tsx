@@ -11,6 +11,7 @@ import GerarBoletosReceita from './GerarBoletosReceita'
 import Modal from '@/components/ui/Modal'
 import ClienteForm, { type ClienteFormInitial } from '@/components/clientes/ClienteForm'
 import { PSGC_COLORS } from '@/lib/psgc-tokens'
+import { parcelasCartao } from '@/lib/financeiro/cartaoParcelas'
 // RD-41 · padrão único de "erro de salvamento" (piloto)
 import FeedbackSalvar from '@/components/ui/feedback/FeedbackSalvar'
 import { Campo } from '@/components/ui/feedback/Campo'
@@ -134,6 +135,9 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
     | { ok: true; taxa_percentual: number; valor_taxa: number; valor_liquido: number; prazo_repasse_dias: number; data_repasse: string }
     | { ok: false; erro: string }
   const [cartaoCalc, setCartaoCalc] = useState<CartaoCalc | null>(null)
+  // #3740 · venda no cartão (inclusão fora da conciliação): o cliente fica quitado e as parcelas viram títulos da
+  // operadora (fn_cartao_registrar_recebimento). Na conciliação o crédito já é o repasse → segue o caminho comum.
+  const vendaCartao = ehCartao && !editando && !origemConciliacao
 
   const [loading, setLoading] = useState(false)
   const [dupWarn, setDupWarn] = useState(false)
@@ -421,6 +425,13 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
     if (!valor || parseFloat(valor) <= 0) return { campo: 'valor', banner: 'Faltou preencher: Valor' }
     if (!dataRecebimento) return { campo: 'dataRecebimento', banner: 'Faltou preencher: Quando entra na conta' }
     if (parcelas < 1 || parcelas > 60) return { campo: 'parcelas', banner: 'Parcelas devem ficar entre 1 e 60' }
+    // #3740 · venda no cartão (fora da conciliação) exige maquininha, bandeira e modalidade; débito é sempre 1x.
+    if (vendaCartao) {
+      if (!adquirenteId || !bandeira || !modalidadeCartao) return { campo: 'cartao', banner: 'Faltou preencher: maquininha, bandeira e modalidade do cartão' }
+      if (!cartaoCalc?.ok) return { campo: 'cartao', banner: 'Ainda não há taxa para essa bandeira/modalidade · cadastre em Cartões / Adquirentes' }
+      if (modalidadeCartao === 'debito' && parcelas !== 1) return { campo: 'parcelas', banner: 'Cartão de débito é sempre 1 parcela' }
+      if (parcelas > 24) return { campo: 'parcelas', banner: 'Cartão de crédito vai até 24 parcelas' }
+    }
     return null
   }
 
@@ -446,7 +457,8 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
 
     const hoje = new Date().toISOString().split('T')[0]
     // N ≥ 2 → v2 com o array editado (datas/valores por parcela). À vista → v1 (com trava de dup).
-    const { data, error } = parcelas >= 2
+    // #3740 · venda no cartão: UM título do cliente pelo total (as parcelas são da operadora, geradas abaixo).
+    const { data, error } = parcelas >= 2 && !vendaCartao
       ? await supabase.rpc('fn_receber_criar_com_parcelas_v2', {
           p_company_id: companyId,
           p_cliente_id: clienteId || null,
@@ -472,7 +484,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
           p_valor_total: parseFloat(valor),
           p_data_emissao: hoje,
           p_data_primeiro_recebimento: dataRecebimento,
-          p_total_parcelas: parcelas,
+          p_total_parcelas: vendaCartao ? 1 : parcelas,
           p_categoria: categoriaCodigo || null,
           p_numero_documento: numeroDocumento || null,
           p_forma_recebimento: formaRecebimento || null,
@@ -517,7 +529,8 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
       patch.tipo_chave_pix = pixR ? tipoChavePix : null
       patch.chave_pix = pixR ? normalizarChavePix(tipoChavePix, chavePix) : null
       // CART-1: grava os dados do cartão + líquido projetado (a parcela mantém o BRUTO).
-      if (ehCartao && cartaoCalc?.ok) {
+      // Venda no cartão (#3740) não passa aqui: fn_cartao_registrar_recebimento grava tudo abaixo.
+      if (ehCartao && cartaoCalc?.ok && !vendaCartao) {
         patch.adquirente_id = adquirenteId
         patch.bandeira = bandeira
         patch.modalidade_cartao = modalidadeCartao
@@ -530,10 +543,24 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
       if (Object.keys(patch).length) await supabase.from('erp_receber').update(patch).in('id', ids)
     }
 
+    // #3740 · venda no cartão: quita o cliente e gera um título da operadora por parcela (bruto, taxa,
+    // líquido, repasse) + a taxa em contas a pagar. Sem conta → o dinheiro entra no saldo no dia do repasse.
+    if (vendaCartao && ids.length > 0) {
+      const { data: rc, error: rcErr } = await supabase.rpc('fn_cartao_registrar_recebimento', {
+        p_company_id: companyId, p_receber_id: ids[0], p_adquirente_id: adquirenteId, p_bandeira: bandeira,
+        p_modalidade: modalidadeCartao, p_parcelas: parcelas, p_data_venda: dataRecebimento,
+      })
+      if (rcErr || !(rc as { ok?: boolean } | null)?.ok) {
+        setLoading(false)
+        setFeedback({ tipo: 'erro', texto: 'Receita CRIOU, mas não registrou o cartão. Abra o título e use "Registrar em cartão".' })
+        return
+      }
+    }
+
     // Fluxo atomico (RD-38): quando vem da Conciliacao, a baixa e feita pelo
     // trigger trg_baixa_por_conciliacao — NUNCA chamar fn_receber_baixar_pagamento
     // aqui, mesmo com "ja recebido" marcado. Fonte unica da baixa.
-    if (!origemConciliacao && jaRecebido && ids.length > 0 && contaBancaria) {
+    if (!origemConciliacao && !vendaCartao && jaRecebido && ids.length > 0 && contaBancaria) {
       // Baixa apenas a 1a parcela · as demais ficam 'aberto'.
       // ids[0] eh a parcela 1/N (fn_receber_criar_com_parcelas retorna na ordem).
       const primeiroId = ids[0]
@@ -772,11 +799,11 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
               onChange={(e) => { setParcelas(parseInt(e.target.value) || 1); if (erroCampo === 'parcelas') limparFeedback() }}
               style={{ ...inputStyle, ...estiloBordaInput(erroCampo === 'parcelas' ? 'x' : null) }}
             />
-            <small style={helperStyle}>1 = recebimento à vista</small>
+            <small style={helperStyle}>{vendaCartao ? 'Parcelas do cartão · cada uma vira um repasse da operadora' : '1 = recebimento à vista'}</small>
           </Campo>
           )}
 
-          {parcelas > 1 && (
+          {parcelas > 1 && !vendaCartao && (
             <Campo ajuda="financeiro.receita.intervalo" ajudaRota={ROTA_AJUDA} label="Intervalo entre parcelas">
               <select
                 value={intervaloDias}
@@ -792,7 +819,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             </Campo>
           )}
 
-          {parcelas > 1 && (intervaloDias === 30 || intervaloDias === 60 || intervaloDias === 90) && (
+          {parcelas > 1 && !vendaCartao && (intervaloDias === 30 || intervaloDias === 60 || intervaloDias === 90) && (
             <Campo ajuda="financeiro.receita.dia_fixo" ajudaRota={ROTA_AJUDA} label="Dia do vencimento (opcional)">
               <input
                 type="number" min="1" max="31" inputMode="numeric"
@@ -812,7 +839,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             </Campo>
           )}
 
-          {parcelas >= 2 && (
+          {parcelas >= 2 && !vendaCartao && (
             <div style={{ gridColumn: '1 / -1' }}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 12, color: 'rgba(61,35,20,0.65)', fontWeight: 500 }}>O valor informado é:</span>
@@ -917,8 +944,22 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
                   </div>
                   <div style={{ fontSize: 12.5, color: 'rgba(61,35,20,0.7)', marginTop: 3 }}>
                     Cai em <b>{cartaoCalc.data_repasse.split('-').reverse().join('/').slice(0, 5)}</b> (D+{cartaoCalc.prazo_repasse_dias})
-                    {parcelas > 1 ? ` · por parcela: ${brl((cartaoCalc.valor_liquido || 0) / parcelas)} líquido` : ''}
+                    {parcelas > 1 && !vendaCartao ? ` · por parcela: ${brl((cartaoCalc.valor_liquido || 0) / parcelas)} líquido` : ''}
                   </div>
+                  {vendaCartao && parcelas > 1 && (
+                    <div style={{ marginTop: 8, display: 'grid', gap: 2, fontSize: 12.5, color: '#3D2314', fontVariantNumeric: 'tabular-nums' }}>
+                      {parcelasCartao(parseFloat(valor) || 0, parcelas, Number(cartaoCalc.taxa_percentual), cartaoCalc.prazo_repasse_dias, dataRecebimento).map((pc) => (
+                        <div key={pc.i}>
+                          {pc.i}/{parcelas} · cai em <b>{pc.repasse.split('-').reverse().join('/')}</b> · bruto {brl(pc.bruto)} − taxa {brl(pc.taxa)} = <b>{brl(pc.liquido)}</b>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {vendaCartao && (
+                    <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.7)', marginTop: 6 }}>
+                      Ao salvar, o cliente fica quitado e cada parcela vira um título a receber da operadora; a taxa vai para contas a pagar.
+                    </div>
+                  )}
                 </div>
               )}
               {cartaoCalc && !cartaoCalc.ok && cartaoCalc.erro === 'taxa_nao_cadastrada' && (
@@ -1015,6 +1056,10 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
                   </div>
                 )}
               </>
+            ) : vendaCartao ? (
+              <div style={{ background: PSGC_COLORS.amareloSoft, color: '#3D2314', padding: '10px 12px', borderRadius: 8, fontSize: 12, border: `0.5px solid ${PSGC_COLORS.dourado}` }}>
+                Venda no cartão: o cliente já pagou. O dinheiro entra na conta no dia de cada repasse da operadora.
+              </div>
             ) : origemConciliacao ? (
               <div style={{ background: '#DCFCE7', color: '#166534', padding: '10px 12px', borderRadius: 8, fontSize: 12, border: '0.5px solid rgba(22,163,74,0.35)' }}>
                 🔗 Esta receita CRIOU a partir de um movimento do extrato bancário.
@@ -1032,7 +1077,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
                 <AjudaCampo chave="financeiro.receita.ja_recebido" rota={ROTA_AJUDA} />
               </label>
             )}
-            {jaRecebido && !origemConciliacao && !editando && (
+            {jaRecebido && !origemConciliacao && !editando && !vendaCartao && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginTop: 12 }}>
                 <Campo ajuda="financeiro.receita.data_recebimento" ajudaRota={ROTA_AJUDA} label="Data do recebimento" obrigatorio>
                   <input

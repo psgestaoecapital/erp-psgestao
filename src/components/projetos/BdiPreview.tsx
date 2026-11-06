@@ -4,6 +4,10 @@
 "use client";
 
 import { CheckCircle2, AlertTriangle, AlertOctagon } from "lucide-react";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+
+const ROTA_CFG = "/dashboard/projetos/configuracoes";
+const ROTA_CATALOGO = "/dashboard/projetos/catalogo";
 
 export interface BdiComponentes {
   ac: number; // administracao central
@@ -25,10 +29,14 @@ export interface ImpactoServico {
 
 interface Props {
   componentes: BdiComponentes;
-  bdiTotalPct: number; // valor autoritativo do backend (apos refetch)
+  bdiTotalPct: number; // valor persistido pelo backend (apos refetch)
+  salvo?: boolean; // true quando a empresa ja tem config gravada (linha existe)
   impactos: ImpactoServico[];
   margemAlvoPct: number | null;
   margemMinimaPct: number | null;
+  // Quando o carregamento do impacto falhou de verdade (view/rede), mostramos erro
+  // honesto em vez de fingir "nenhum serviço" — não enganar o usuário (RD-97, chamado #3362).
+  impactosErro?: string | null;
 }
 
 function fmtBRL(v: number | null | undefined) {
@@ -70,14 +78,19 @@ function statusMargem(
 export function BdiPreview({
   componentes,
   bdiTotalPct,
+  salvo = false,
   impactos,
   margemAlvoPct,
   margemMinimaPct,
+  impactosErro = null,
 }: Props) {
   const bdiCalc = calcularBdiAec(componentes);
-  // Em geral o backend recalcula igual ao calculo client-side. Se divergir,
-  // mostra o numero do backend mas com indicador discreto.
-  const divergencia = Math.abs(bdiCalc - bdiTotalPct) > 0.05;
+  // O numero grande e sempre o calculo ao vivo (fonte da verdade do que o usuario ve).
+  // So comparamos com o backend quando HA valor gravado de verdade (linha existe e > 0).
+  // Sem isso, antes do primeiro "salvar" o backend reporta 0,00% e virava uma falsa
+  // divergencia "frontend 36,58% x backend 0,00%" (chamado #3362).
+  const temBackend = salvo && Number.isFinite(bdiTotalPct) && bdiTotalPct > 0;
+  const divergencia = temBackend && Math.abs(bdiCalc - bdiTotalPct) > 0.05;
 
   const formula = `((1+${componentes.ac.toFixed(2)}%+${componentes.sg.toFixed(
     2
@@ -103,10 +116,11 @@ export function BdiPreview({
       {/* BDI Total */}
       <div className="rounded-2xl border border-[#C8941A]/30 bg-gradient-to-br from-white to-[#C8941A]/5 p-5 shadow-sm">
         <p
-          className="text-xs uppercase tracking-wider text-[#3D2314]/60"
+          className="flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60"
           style={{ fontFamily: "var(--ps-font-body)", fontStyle: "normal" }}
         >
           BDI Total
+          <AjudaCampo chave="projetos.bdi.total" rota={ROTA_CFG} />
         </p>
         <div className="mt-1 flex items-baseline gap-2">
           <span
@@ -119,14 +133,21 @@ export function BdiPreview({
           >
             {fmtPct(bdiCalc, 2)}
           </span>
-          {divergencia && (
+          {divergencia ? (
             <span
               className="text-xs text-[#3D2314]/50"
-              title={`Backend reporta ${fmtPct(bdiTotalPct, 2)}`}
+              title={`Valor gravado no banco: ${fmtPct(bdiTotalPct, 2)}. Salve novamente para sincronizar.`}
             >
-              · backend: {fmtPct(bdiTotalPct, 2)}
+              · gravado: {fmtPct(bdiTotalPct, 2)}
             </span>
-          )}
+          ) : !temBackend ? (
+            <span
+              className="text-xs text-[#3D2314]/50"
+              title="Ainda não há BDI gravado para esta empresa. Ajuste um componente para salvar."
+            >
+              · não salvo ainda
+            </span>
+          ) : null}
         </div>
         <p className="mt-3 break-all rounded-lg bg-[#3D2314]/5 px-3 py-2 font-mono text-[10px] text-[#3D2314]/60">
           {formula}
@@ -139,18 +160,44 @@ export function BdiPreview({
 
       {/* Impacto nos servicos */}
       <div className="rounded-2xl border border-[#3D2314]/8 bg-white p-5 shadow-sm">
-        <h3
-          className="mb-3 text-sm font-medium uppercase tracking-wider text-[#3D2314]/60"
-          style={{ fontFamily: "var(--ps-font-body)", fontStyle: "normal" }}
-        >
-          Impacto nos serviços
-        </h3>
-        {impactos.length === 0 ? (
-          <p className="text-xs text-[#3D2314]/50">
-            Nenhum serviço cadastrado. Adicione serviços ao catálogo para ver o
-            impacto.
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h3
+            className="flex items-center gap-1 text-sm font-medium uppercase tracking-wider text-[#3D2314]/60"
+            style={{ fontFamily: "var(--ps-font-body)", fontStyle: "normal" }}
+          >
+            Impacto nos serviços
+            <AjudaCampo chave="projetos.bdi.impacto" rota={ROTA_CFG} />
+          </h3>
+          {impactos.length > 0 && (
+            <a
+              href={ROTA_CATALOGO}
+              className="shrink-0 text-xs font-medium text-[#C8941A] hover:underline"
+              title="Abrir o catálogo de serviços — é onde o BDI configurado aqui vira preço de venda"
+            >
+              Ver no catálogo →
+            </a>
+          )}
+        </div>
+        {impactosErro ? (
+          <p className="text-xs text-red-700" data-testid="bdi-impacto-erro">
+            Não foi possível carregar o impacto nos serviços agora. {impactosErro}
           </p>
+        ) : impactos.length === 0 ? (
+          <div className="text-xs text-[#3D2314]/60" data-testid="bdi-impacto-vazio">
+            <p>
+              Nenhum serviço cadastrado ainda — por isso ainda não há impacto do
+              BDI para mostrar.
+            </p>
+            <a
+              href={ROTA_CATALOGO}
+              className="mt-2 inline-block font-medium text-[#C8941A] hover:underline"
+              title="Cadastre serviços no catálogo: o BDI configurado aqui vira preço de venda deles"
+            >
+              Cadastrar serviços no catálogo →
+            </a>
+          </div>
         ) : (
+          <>
           <ul className="divide-y divide-[#3D2314]/8">
             {impactos.slice(0, 5).map((s, idx) => {
               const st = statusMargem(
@@ -190,16 +237,26 @@ export function BdiPreview({
               );
             })}
           </ul>
+          {impactos.length > 5 && (
+            <a
+              href={ROTA_CATALOGO}
+              className="mt-2 block text-xs font-medium text-[#C8941A] hover:underline"
+            >
+              +{impactos.length - 5} serviço{impactos.length - 5 !== 1 ? "s" : ""} — ver todos no catálogo →
+            </a>
+          )}
+          </>
         )}
       </div>
 
       {/* Status margens */}
       <div className="rounded-2xl border border-[#3D2314]/8 bg-white p-5 shadow-sm">
         <h3
-          className="mb-3 text-sm font-medium uppercase tracking-wider text-[#3D2314]/60"
+          className="mb-3 flex items-center gap-1 text-sm font-medium uppercase tracking-wider text-[#3D2314]/60"
           style={{ fontFamily: "var(--ps-font-body)", fontStyle: "normal" }}
         >
           Status de margem
+          <AjudaCampo chave="projetos.bdi.status_margem" rota={ROTA_CFG} />
         </h3>
         <div className="grid grid-cols-3 gap-2">
           <StatusChip

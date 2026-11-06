@@ -11,10 +11,11 @@ import { createClient } from '@supabase/supabase-js';
 import chromium from '@sparticuz/chromium-min';
 import { chromium as playwright } from 'playwright-core';
 import type { Browser, Page } from 'playwright-core';
-import { modeloPara, registrarFalhaIA } from '@/lib/aiModel';
+import { modeloPara, registrarFalhaIA, assertIAPermitida, IABloqueadaError } from '@/lib/aiModel';
 import { empresaPermitidaParaRobo, MSG_ROBO_SO_DEMO } from '@/lib/gold/roboEmpresaPermitida';
 import { conferirEmpresaRenderizada } from '@/lib/gold/empresaRenderizada';
 import { classificarEstadoConteudo, estadoNaoEhBug } from '@/lib/gold/estadoConteudo';
+import { watcherSecretValido } from '@/lib/watcherSecret'
 import {
   EMPRESA_BOT_OFICINA, EMPRESA_BOT_PM, empresaBotDaRota, verticalDaRota,
 } from '@/lib/gold/empresaBotDaRota';
@@ -46,9 +47,7 @@ interface BotaoRow {
 }
 
 export async function POST(req: Request) {
-  const expected = process.env.WATCHER_SECRET;
-  const got = req.headers.get('x-watcher-secret');
-  if (!expected || got !== expected) {
+  if (!watcherSecretValido(req.headers.get('x-watcher-secret'))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -128,6 +127,12 @@ export async function POST(req: Request) {
     // (ex.: genérica que caía na PS LTDA) ⇒ 403 e a rota fica "NÃO AUDITADA" no painel. Fail-closed.
     if (!(await empresaPermitidaParaRobo(supabase, empresaAudit))) {
       return NextResponse.json({ error: MSG_ROBO_SO_DEMO, empresa_id: empresaAudit, rota }, { status: 403 });
+    }
+    // P0 CUSTO (CEO 01/11): porteiro do bloqueio global (sub-teto Gold incluso) ANTES de abrir o browser
+    // e varrer os botões com chamada paga. Fail-closed → 503; a rota fica "NÃO AUDITADA" sem gastar.
+    try { await assertIAPermitida({ gold: true }); } catch (e) {
+      if (e instanceof IABloqueadaError) return NextResponse.json({ error: e.motivo, ia_bloqueada: true, rota }, { status: 503 });
+      throw e;
     }
     if (ehOficina) {
       await supabase.rpc('fn_gold_oficina_seed_reparar', { p_company_id: EMPRESA_BOT_OFICINA });

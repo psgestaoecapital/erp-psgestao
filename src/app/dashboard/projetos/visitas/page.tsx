@@ -54,6 +54,20 @@ const fmtDT = (s: string | null) =>
 type Filtro = 'todas' | 'agendada' | 'realizada' | 'cancelada' | 'proximas' | 'atrasadas' | 'mes' | 'sem_orcamento'
 const DIA = 86_400_000
 
+// Estado-vazio honesto por recorte: diz o que aquele filtro não encontrou (e enquadra o "bom" como bom), em vez do genérico.
+const MSG_VAZIO: Record<Filtro, string> = {
+  todas: 'Nenhuma visita encontrada.',
+  agendada: 'Nenhuma visita agendada no momento.',
+  realizada: 'Nenhuma visita realizada ainda.',
+  cancelada: 'Nenhuma visita cancelada.',
+  proximas: 'Nenhuma visita nos próximos 7 dias.',
+  atrasadas: 'Nenhuma visita passou da data — está tudo em dia.',
+  mes: 'Nenhuma visita realizada neste mês ainda.',
+  sem_orcamento: 'Toda visita realizada já virou orçamento — nenhuma pendente.',
+}
+const vazioRecorte = (f: Filtro, temBusca: boolean) =>
+  temBusca ? 'Nenhuma visita bate com a busca. Limpe a busca ou mude o filtro.' : (MSG_VAZIO[f] ?? 'Nenhuma visita neste recorte.')
+
 // Orçamento da visita: o gerado a partir dela ou, na falta, o da oportunidade (mesma regra da ficha da oportunidade).
 const orcamentoDa = (r: Row) => r.gerou_orcamento_id ?? r.erp_crm_oportunidade?.orcamento_id ?? null
 const atrasada = (r: Row, agora: number) => r.status === 'agendada' && !!r.data_visita && new Date(r.data_visita).getTime() < agora
@@ -97,6 +111,9 @@ export default function VisitasPage() {
   const [anexosPorVisita, setAnexosPorVisita] = useState<Record<string, number>>({})
   const [anexosAberto, setAnexosAberto] = useState<string | null>(null)
   const [capturandoGps, setCapturandoGps] = useState<string | null>(null)
+  const [desfazerVisita, setDesfazerVisita] = useState<string | null>(null)
+  const [excluindoVisita, setExcluindoVisita] = useState<string | null>(null)
+  const [marcandoRealizada, setMarcandoRealizada] = useState<string | null>(null)
 
   // Quantos anexos (erp_crm_anexo, vínculo visita) cada visita tem. Falha aqui não esconde a lista: só não mostra o número.
   const contarAnexos = useCallback(async (ids: string[]) => {
@@ -115,6 +132,7 @@ export default function VisitasPage() {
       .from('erp_crm_visita')
       .select('id, company_id, oportunidade_id, data_visita, responsavel_id, responsavel_nome, status, endereco, anotacoes, gps_lat, gps_lng, fotos, audio_briefing_url, gerou_orcamento_id, created_at, erp_crm_oportunidade(id, titulo, obra_endereco, orcamento_id, erp_clientes(nome_fantasia, razao_social))')
       .eq('company_id', empresaUnica)
+      .is('deleted_at', null)
       .order('data_visita', { ascending: false, nullsFirst: false })
     if (error) setErro('Não foi possível carregar as visitas agora. Atualize a página; se persistir, avise o suporte.')
     setAgora(Date.now())
@@ -187,6 +205,24 @@ export default function VisitasPage() {
     reload()
   }
 
+  // RD-98 p4: exclusão rastreável da visita (soft-delete via RPC guardada; deleted_at + autor + audit_log;
+  // desfazer de 15 min só por quem excluiu). Nunca DELETE físico; a lista filtra deleted_at IS NULL.
+  async function excluirVisita(r: Row) {
+    if (!confirm('Excluir esta visita?\n\nEla sai da lista. Dá para desfazer por 15 minutos.')) return
+    setExcluindoVisita(r.id)
+    const { data, error } = await supabase.rpc('fn_crm_visita_excluir', { p_id: r.id })
+    setExcluindoVisita(null)
+    if (error || !(data as { ok?: boolean } | null)?.ok) { setToast(`Não consegui excluir: ${error?.message ?? (data as { erro?: string } | null)?.erro ?? 'tente de novo'}`); return }
+    setDesfazerVisita(r.id)
+    reload()
+  }
+  async function desfazerExcluirVisita() {
+    if (!desfazerVisita) return
+    const { data } = await supabase.rpc('fn_crm_visita_restaurar', { p_id: desfazerVisita })
+    if ((data as { ok?: boolean } | null)?.ok) { setDesfazerVisita(null); reload() }
+    else setToast(`Não consegui desfazer: ${(data as { erro?: string } | null)?.erro ?? 'tente de novo'}`)
+  }
+
   // Registra o local da visita pelo GPS do aparelho, sem abrir o formulário. Grava pela mesma RPC do formulário,
   // repetindo os dados atuais da visita e trocando só a posição.
   function registrarLocal(r: Row) {
@@ -216,6 +252,30 @@ export default function VisitasPage() {
       () => { setCapturandoGps(null); setToast('Localização negada ou indisponível. Libere o acesso à localização e tente de novo.') },
       { enableHighAccuracy: true, timeout: 10000 },
     )
+  }
+
+  // Marca a visita como REALIZADA sem abrir o formulário (ação rápida do "Passou da data" / próximo passo).
+  // Reusa a mesma RPC guardada do formulário, repetindo os dados atuais e trocando só o status.
+  async function marcarRealizada(r: Row) {
+    setMarcandoRealizada(r.id)
+    const { data, error } = await supabase.rpc('fn_crm_visita_salvar', {
+      p_id: r.id,
+      p_oportunidade_id: r.oportunidade_id,
+      p_data_visita: r.data_visita,
+      p_responsavel_id: r.responsavel_id,
+      p_responsavel_nome: r.responsavel_id ? null : r.responsavel_nome,
+      p_status: 'realizada',
+      p_endereco: r.endereco,
+      p_anotacoes: r.anotacoes,
+      p_gps_lat: r.gps_lat,
+      p_gps_lng: r.gps_lng,
+      p_fotos: r.fotos ?? [],
+    })
+    setMarcandoRealizada(null)
+    const res = data as { ok?: boolean } | null
+    if (error || !res?.ok) { setToast('Não foi possível marcar como realizada agora. Tente de novo em instantes.'); return }
+    setToast('Visita marcada como REALIZADA.')
+    reload()
   }
 
   function abrirEdicao(r: Row) {
@@ -286,7 +346,7 @@ export default function VisitasPage() {
         ))}
       </div>
 
-      <div className="flex flex-wrap gap-2 mb-4 items-center">
+      <div className="flex flex-wrap gap-2 mb-3 items-center">
         <label className="flex items-center gap-1 text-xs grow" style={{ minWidth: 220 }}>
           <input
             type="search"
@@ -330,11 +390,23 @@ export default function VisitasPage() {
               <p className="text-sm opacity-70">Clique em &ldquo;+ Nova visita&rdquo; para registrar.</p>
             </>
           ) : (
-            <p className="font-medium">Nenhuma visita neste recorte. Mude o filtro ou limpe a busca.</p>
+            <>
+              <p className="font-medium" data-testid="visitas-vazio-recorte">{vazioRecorte(filtroStatus, !!busca.trim())}</p>
+              {filtroStatus !== 'todas' && (
+                <button onClick={() => setFiltroStatus('todas')} className="text-sm underline mt-1" style={{ color: DOURADO }}>Ver todas as visitas</button>
+              )}
+            </>
           )}
         </div>
       )}
 
+      {desfazerVisita && (
+        <div role="status" className="mb-2 flex items-center gap-2 rounded-xl border p-3 text-sm" style={{ borderColor: DOURADO, background: '#fff' }}>
+          Visita excluída.
+          <button onClick={() => void desfazerExcluirVisita()} className="font-medium underline" data-testid="visita-desfazer">Desfazer</button>
+          <AjudaCampo chave="projetos.visitas.desfazer_exclusao" />
+        </div>
+      )}
       <div className="space-y-2">
         {filtradas.map((r) => {
           const cfg = STATUS_CFG[r.status] ?? { l: r.status, bg: OFFWHITE, fg: ESPRESSO }
@@ -355,20 +427,24 @@ export default function VisitasPage() {
             >
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div className="min-w-0">
-                  <div className="font-semibold" style={{ color: ESPRESSO }}>{fmtDT(r.data_visita)}</div>
-                  {op && (
-                    <div className="text-sm" style={{ color: TEXTM }}>
-                      <Link href={`/dashboard/projetos/oportunidades/${op.id}`} style={{ color: DOURADO, textDecoration: 'underline' }}>
-                        {op.titulo}
-                      </Link>
-                      {cliNome && <span> · {cliNome}</span>}
-                    </div>
-                  )}
-                  {r.endereco && <div className="text-xs" style={{ color: TEXTM }}>{r.endereco}</div>}
+                  <div className="font-semibold break-words leading-snug" style={{ color: ESPRESSO }}>
+                    {cliNome ?? op?.titulo ?? 'Visita avulsa'}
+                  </div>
+                  {op && cliNome && <div className="text-sm break-words" style={{ color: TEXTM }}>{op.titulo}</div>}
+                  <div className="text-xs mt-0.5 break-words" style={{ color: TEXTM }}>
+                    {fmtDT(r.data_visita)}
+                    {r.endereco && <> · {r.endereco}</>}
+                  </div>
                 </div>
-                <span className="text-[11px] px-2 py-1 rounded-full font-medium" style={{ background: cfg.bg, color: cfg.fg }}>
-                  {cfg.l}
-                </span>
+                {atrasada(r, agora) ? (
+                  <span className="text-[11px] px-2 py-1 rounded-full font-medium" style={{ background: '#F4D6D6', color: '#7A1F1F' }} data-testid="visita-badge" title="Visita agendada cuja data já passou">
+                    Agendada · atrasada
+                  </span>
+                ) : (
+                  <span className="text-[11px] px-2 py-1 rounded-full font-medium" style={{ background: cfg.bg, color: cfg.fg }} data-testid="visita-badge">
+                    {cfg.l}
+                  </span>
+                )}
               </div>
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs" style={{ color: TEXTM }}>
                 <span data-testid="visita-responsavel">Responsável: {resp ?? 'sem responsável'}</span>
@@ -429,6 +505,21 @@ export default function VisitasPage() {
               )}
               <div className="mt-3 flex gap-2 flex-wrap items-center">
                 <button onClick={() => abrirEdicao(r)} style={btnSec}>Editar</button>
+                {r.status === 'agendada' && (
+                  <>
+                    <button
+                      onClick={() => marcarRealizada(r)}
+                      disabled={marcandoRealizada === r.id}
+                      style={btnPrim}
+                      data-testid="visita-marcar-realizada"
+                    >
+                      {marcandoRealizada === r.id ? 'Marcando…' : '✓ Marcar realizada'}
+                    </button>
+                    <button onClick={() => abrirEdicao(r)} style={btnSec} data-testid="visita-reagendar">
+                      {atrasada(r, agora) ? 'Reagendar' : 'Alterar data'}
+                    </button>
+                  </>
+                )}
                 {semOrcamento(r) && (
                   <button
                     onClick={() => gerarOrcamento(r)}
@@ -449,6 +540,12 @@ export default function VisitasPage() {
                     Abrir orçamento →
                   </Link>
                 )}
+                <span className="inline-flex items-center gap-1">
+                  <button onClick={() => excluirVisita(r)} disabled={excluindoVisita === r.id} style={btnSec} data-testid="visita-excluir">
+                    {excluindoVisita === r.id ? 'Excluindo…' : 'Excluir'}
+                  </button>
+                  <AjudaCampo chave="projetos.visitas.excluir" />
+                </span>
                 <AjudaCampo chave="projetos.visitas.acoes" />
               </div>
             </div>

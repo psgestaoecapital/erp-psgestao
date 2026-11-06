@@ -30,9 +30,12 @@ test.describe('Hub — Painel com indicadores do banco', () => {
     for (const chave of ['projetos.painel.kpi.obras_ativas', 'projetos.painel.kpi.margem_prevista']) {
       await expect(indicadores.getByTestId(`ajuda-${chave}`)).toBeVisible()
     }
-    for (const chave of ['projetos.painel.funil', 'projetos.painel.obras_situacao', 'projetos.cockpit.escolher_obra']) {
-      await expect(page.getByTestId(`ajuda-${chave}`)).toBeVisible()
-    }
+    // Funil e obras por situação têm o "?" no título e em cada número (#3351): escopo na seção e pelo menos um visível.
+    const ajudaFunil = page.getByTestId('painel-funil').getByTestId('ajuda-projetos.painel.funil')
+    await expect(ajudaFunil.first()).toBeVisible()
+    expect(await ajudaFunil.count()).toBeGreaterThanOrEqual(4)
+    await expect(page.getByTestId('painel-obras-situacao').getByTestId('ajuda-projetos.painel.obras_situacao').first()).toBeVisible()
+    await expect(page.getByTestId('ajuda-projetos.cockpit.escolher_obra').first()).toBeVisible()
     await indicadores.getByTestId('ajuda-projetos.painel.kpi.margem_prevista').click()
     await expect(page.getByTestId('ajuda-cartao-projetos.painel.kpi.margem_prevista')).toContainText('receita prevista')
   })

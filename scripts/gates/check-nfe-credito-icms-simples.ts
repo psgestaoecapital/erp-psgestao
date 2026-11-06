@@ -37,6 +37,8 @@ const builder = readFileSync('src/lib/fiscal/nfe-builder.ts', 'utf8')
 const focus = readFileSync('src/lib/fiscal/providers/focusnfe.ts', 'utf8')
 ok(/csosnDoItem\(cstIcmsProd, condCreditoSN\)/.test(builder), 'builder aplica a regra no CSOSN do item (fora da devolução)')
 ok(/it\.icmsOverride\s*\n?\s*\?\s*\{\s*\n\s*cst: it\.icmsOverride\.csosn/.test(builder), 'devolução (icmsOverride) segue intocada')
+ok(/observacoes: ehSimples\s*\n\s*\? observacoesComSimples\(/.test(builder), 'frase do Simples em TODA nota do Simples, com ou sem alíquota (ajuste 20/10, NF-e nº 2 FCR)')
+ok(/aliqCreditoSN \?\? 0,/.test(builder) && observacoesComSimples(undefined, null, 0) === TEXTO_SIMPLES, 'sem alíquota: só a frase do Simples, nunca a do crédito')
 ok(/select\('serie_nfe_padrao, aliquota_credito_icms_sn'\)/.test(builder), 'alíquota vem da configuração fiscal da empresa')
 ok(/icms_aliquota_credito_simples: item\.icms\.creditoSN\.aliquota/.test(focus) && /icms_valor_credito_simples: item\.icms\.creditoSN\.valor/.test(focus), 'payload Focus: pCredSN e vCredICMSSN')
 

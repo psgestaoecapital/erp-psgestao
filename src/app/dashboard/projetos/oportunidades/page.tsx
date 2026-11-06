@@ -190,6 +190,14 @@ export default function OportunidadesPage() {
   const nPerdidas = rows.filter((r) => r.etapa === 'perdido').length
   const nAberto   = totalOps - nGanhas - nPerdidas
   const mesAtual  = new Date().toLocaleDateString('pt-BR', { month: 'long' })
+  // Dinheiro vindo da MESMA lista que alimenta o funil (rows): garante, por construção, que a soma dos cards
+  // visíveis = os números do topo (RD-38). O pipeline da RPC (resumo.valor_pipeline) é só conferência.
+  const ehTerminal   = (r: Row) => r.etapa === 'ganho' || r.etapa === 'perdido'
+  const somaValor    = (f: (r: Row) => boolean) => rows.filter(f).reduce((s, r) => s + Number(r.valor_estimado ?? 0), 0)
+  const valorAberto  = somaValor((r) => !ehTerminal(r))
+  const valorGanho   = somaValor((r) => r.etapa === 'ganho')
+  const valorPerdido = somaValor((r) => r.etapa === 'perdido')
+  const valorTotal   = valorAberto + valorGanho + valorPerdido
 
   return (
     <div className="px-4 py-4 w-full" style={{ color: ESPRESSO }}>
@@ -206,12 +214,19 @@ export default function OportunidadesPage() {
         <span className="inline-flex items-center gap-1"><button onClick={() => setEditing(null)} style={btnNovo}>+ Nova oportunidade</button><AjudaCampo chave="projetos.oportunidades.nova" /></span>
       </header>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4" style={{ maxWidth: 640 }}>
-        <Kpi titulo="Em aberto"     valor={String(nAberto)} ajuda="projetos.oportunidades.kpi_aberto" />
-        {/* rótulo nomeia o mês — "Ganhas no mês 0" parecia erro; as ganhas da Tryo são de agosto */}
-        <Kpi titulo={`Ganhas em ${mesAtual}`} valor={String(resumo?.ganhas_mes ?? 0)} ajuda="projetos.oportunidades.kpi_ganhas_mes" />
-        <Kpi titulo="Pipeline (R$)" valor={brl(resumo?.valor_pipeline)} destaque ajuda="projetos.oportunidades.kpi_pipeline" />
+      {/* KPIs que se CRUZAM e PROVAM a conta (RD-38, auditor PDCA 27/10 cons 45: "3 ganhas" × "ganhas em outubro 1"
+          × "pipeline 194k" × "ganhas 690k" pareciam se contradizer). Agora tudo sai da MESMA lista (rows), então a
+          soma dos cards do funil = os números do topo: em aberto (pipeline) + ganhas + perdidas = total. O mês é
+          rodapé das ganhas — "1 em outubro" é recorte de "3 no total", não um número que briga com os outros. */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-2" style={{ maxWidth: 760 }}>
+        <Kpi titulo="Em aberto"     valor={String(nAberto)}  sub={`pipeline ${brl(valorAberto)}`} destaque ajuda="projetos.oportunidades.kpi_aberto" />
+        <Kpi titulo="Ganhas"        valor={String(nGanhas)}  sub={`${brl(valorGanho)} · ${resumo?.ganhas_mes ?? 0} em ${mesAtual}`} ajuda="projetos.oportunidades.kpi_ganhas" />
+        <Kpi titulo="Perdidas"      valor={String(nPerdidas)} sub={brl(valorPerdido)} ajuda="projetos.oportunidades.kpi_perdidas" />
+        <Kpi titulo="Total no funil" valor={String(totalOps)} sub={brl(valorTotal)} ajuda="projetos.oportunidades.kpi_total" />
       </div>
+      <p className="text-[11px] opacity-55 mb-4" style={{ maxWidth: 760 }}>
+        Pipeline conta só as em aberto; <b>em aberto + ganhas + perdidas = total</b>. A soma das colunas do funil bate com o pipeline.
+      </p>
 
       {/* Filtros herdados da antiga Lista — agora sempre visíveis (Kanban é a única visão) */}
       <div className="flex flex-wrap gap-2 mb-3 items-center">
@@ -233,7 +248,9 @@ export default function OportunidadesPage() {
         />
         <AjudaCampo chave="projetos.oportunidades.busca" />
         {loading && <span className="text-xs opacity-60">Carregando…</span>}
-        <span className="text-xs opacity-60 ml-auto inline-flex items-center gap-1">{countKanban} oportunidade(s)<AjudaCampo chave="projetos.oportunidades.contagem_filtro" /></span>
+        {/* #3423 · "mostrando N" (o que o funil exibe agora), nunca "N oportunidade(s)": com filtro/colunas
+            operacionais o número do board é menor que o total do topo — dizer "mostrando" tira a falsa contradição (RD-97). */}
+        <span className="text-xs opacity-60 ml-auto inline-flex items-center gap-1">mostrando {countKanban}{(filtroEtapa !== 'todas' || filtroResp !== 'todos' || busca.trim() !== '') ? ` de ${totalOps}` : ''}<AjudaCampo chave="projetos.oportunidades.contagem_filtro" /></span>
       </div>
 
       <OportunidadesKanban
@@ -246,6 +263,7 @@ export default function OportunidadesPage() {
         onCount={setCountKanban}
         onEdit={(id) => { const r = rows.find((x) => x.id === id); if (r) setEditing(rowParaForm(r)) }}
         onExcluir={(id) => { const r = rows.find((x) => x.id === id); if (r) excluir(r) }}
+        onNova={(etapa) => setEditing({ ...oportunidadeVazia(), etapa })}
         excluindoId={excluindoId}
         onMoved={(m) => { setToast(m); reload(); setKanbanKey((k) => k + 1) }}
         onError={(m) => setToast(m)}
@@ -270,11 +288,12 @@ export default function OportunidadesPage() {
   )
 }
 
-function Kpi({ titulo, valor, destaque, ajuda }: { titulo: string; valor: string; destaque?: boolean; ajuda: string }) {
+function Kpi({ titulo, valor, sub, destaque, ajuda }: { titulo: string; valor: string; sub?: string; destaque?: boolean; ajuda: string }) {
   return (
     <div className="rounded-xl p-3" style={{ background: OFFWHITE, minHeight: 76 }}>
       <div className="text-[11px] uppercase leading-tight flex items-center gap-1"><span className="opacity-60">{titulo}</span><AjudaCampo chave={ajuda} /></div>
       <div className="font-bold leading-tight" style={{ color: destaque ? DOURADO : ESPRESSO, fontSize: 18 }}>{valor}</div>
+      {sub && <div className="text-[10.5px] opacity-55 leading-tight mt-0.5">{sub}</div>}
     </div>
   )
 }

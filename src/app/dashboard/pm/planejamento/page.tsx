@@ -173,9 +173,11 @@ export default function PlanejamentoPage() {
     if (!aberto) return;
     if (!confirm(`Mandar "${aberto.titulo}" para a lixeira? Os posts vão junto; os jobs já criados continuam na pauta.`)) return;
     setBusy(true);
-    const { error } = await supabase.from("agency_planejamentos").update({ excluido_em: new Date().toISOString() }).eq("id", aberto.id);
+    // RD-98 p4: exclusão rastreável — RPC grava excluido_por + audit_log (antes era UPDATE direto só com excluido_em).
+    const { data, error } = await supabase.rpc("fn_pm_planejamento_excluir", { p_id: aberto.id });
     setBusy(false);
-    if (error) { setToast({ texto: mensagemErro(error) }); return; }
+    const r = data as { ok?: boolean; erro?: string } | null;
+    if (error || !r?.ok) { setToast({ texto: error ? mensagemErro(error) : (r?.erro || "Não foi possível excluir.") }); return; }
     fechar(); setToast({ texto: "Planejamento na lixeira." }); void carregar();
   }
 
@@ -203,8 +205,10 @@ export default function PlanejamentoPage() {
 
   async function lixeiraPost(post: Post) {
     if (!confirm(`Mandar o post "${post.assunto}" para a lixeira?${post.job_id ? " O job dele continua na pauta." : ""}`)) return;
-    const { error } = await supabase.from("agency_posts").update({ excluido_em: new Date().toISOString() }).eq("id", post.id);
-    if (error) { setToast({ texto: mensagemErro(error) }); return; }
+    // RD-98 p4: exclusão rastreável — RPC grava excluido_por + audit_log.
+    const { data, error } = await supabase.rpc("fn_pm_post_excluir", { p_id: post.id });
+    const r = data as { ok?: boolean; erro?: string } | null;
+    if (error || !r?.ok) { setToast({ texto: error ? mensagemErro(error) : (r?.erro || "Não foi possível excluir.") }); return; }
     if (aberto) await carregarPosts(aberto.id);
     void carregar();
   }
@@ -274,9 +278,9 @@ export default function PlanejamentoPage() {
         </div>
 
         <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {([["Planejamentos", kpis.planos], ["Posts", kpis.posts], ["Em aprovação", kpis.aprov], ["Viraram job", kpis.jobs]] as const).map(([l, v]) => (
+          {([["Planejamentos", kpis.planos, "pm.planejamento.kpi_planejamentos"], ["Posts", kpis.posts, "pm.planejamento.kpi_posts"], ["Em aprovação", kpis.aprov, "pm.planejamento.kpi_em_aprovacao"], ["Viraram job", kpis.jobs, "pm.planejamento.kpi_viraram_job"]] as [string, number, string][]).map(([l, v, chave]) => (
             <div key={l} className="rounded-2xl border border-[#3D2314]/10 bg-white px-4 py-3">
-              <div className="text-[10.5px] font-semibold uppercase tracking-wider text-[#3D2314]/55">{l}</div>
+              <div className="flex items-center text-[10.5px] font-semibold uppercase tracking-wider text-[#3D2314]/55">{l}<AjudaCampo chave={chave} /></div>
               <div className="text-[22px] font-medium">{v}</div>
             </div>
           ))}

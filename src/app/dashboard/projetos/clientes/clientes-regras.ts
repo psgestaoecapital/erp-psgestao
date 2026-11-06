@@ -37,7 +37,9 @@ export const temContato = (c: { telefone?: string | null; celular?: string | nul
 // montado na tela a partir de 3 consultas (oportunidades, propostas, visitas) — sem uma consulta por cliente.
 export const ETAPAS_FECHADAS = new Set(['ganho', 'perdido'])
 export type OpLinha = { id: string; cliente_id: string | null; etapa: string | null; valor_estimado: number | null; valor_proposta: number | null }
-export type OrcLinha = { cliente_id: string | null }
+export type OrcLinha = { cliente_id: string | null; status?: string | null; total?: number | null }
+// Proposta em aberto = ainda negociando com o cliente (não convertida em obra nem cancelada).
+export const STATUS_PROPOSTA_ABERTA = new Set(['rascunho', 'enviado', 'aberta', 'aberto', 'negociacao'])
 export type VisitaLinha = { oportunidade_id: string | null }
 export type Comercial = { abertas: number; valorAberto: number; ganhas: number; propostas: number; visitas: number }
 
@@ -56,7 +58,13 @@ export function comercialPorCliente(ops: OpLinha[], orcs: OrcLinha[], visitas: V
     if (o.etapa === 'ganho') c.ganhas++
     else if (!ETAPAS_FECHADAS.has(o.etapa ?? '')) { c.abertas++; c.valorAberto += valorOportunidade(o) }
   }
-  for (const x of orcs) if (x.cliente_id) de(x.cliente_id).propostas++
+  for (const x of orcs) {
+    if (!x.cliente_id) continue
+    const c = de(x.cliente_id)
+    c.propostas++
+    // "Em negociação" soma também as propostas abertas do cliente (antes só contava oportunidades com valor).
+    if (STATUS_PROPOSTA_ABERTA.has(x.status ?? '')) c.valorAberto += Number(x.total ?? 0) || 0
+  }
   for (const v of visitas) {
     const cli = v.oportunidade_id ? clienteDaOp.get(v.oportunidade_id) : undefined
     if (cli) de(cli).visitas++
@@ -93,6 +101,56 @@ export function obraRecenteIdPorCliente(linhas: ObraLinha[]): Record<string, str
   }
   return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, v.id as string]))
 }
+// Nome da obra mais recente (sem a cidade) — para a hierarquia do card: nome em cima, cidade embaixo (auditor FC 27/10).
+export function obraRecenteNomePorCliente(linhas: ObraLinha[]): Record<string, string> {
+  const m: Record<string, ObraLinha> = {}
+  for (const l of linhas) {
+    if (!l.cliente_id) continue
+    const atual = m[l.cliente_id]
+    if (!atual || (l.created_at ?? '') > (atual.created_at ?? '')) m[l.cliente_id] = l
+  }
+  return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, v.nome || v.projeto_nome || '(obra sem nome)']))
+}
+
+// Cidade/UF da obra mais recente do cliente — separada do nome para a hierarquia do card (auditor FC 27/10:
+// "obra / cidade / resultado concatenados num texto longo truncado, sem hierarquia"). Vazio quando não há cidade.
+export function obraRecenteCidadePorCliente(linhas: ObraLinha[]): Record<string, string> {
+  const m: Record<string, ObraLinha> = {}
+  for (const l of linhas) {
+    if (!l.cliente_id) continue
+    const atual = m[l.cliente_id]
+    if (!atual || (l.created_at ?? '') > (atual.created_at ?? '')) m[l.cliente_id] = l
+  }
+  return Object.fromEntries(Object.entries(m).map(([k, v]) => [k, v.obra_cidade ? `${v.obra_cidade}${v.obra_uf ? '/' + v.obra_uf : ''}` : '']))
+}
+
+// Resultado/margem por cliente a partir de v_obra_resultado (auditor FC 27/10, gap 3: "indicador de margem/resultado por
+// obra do cliente, reaproveitar v_obra_resultado" — e desfaz a suspeita de "Com obra = Clientes" ser coincidência: cada
+// cliente ganha um número próprio). A margem PREVISTA (receita_prevista − custo_previsto) é a do orçamento da obra — o que
+// o comercial decide; a REALIZADA soma margem_realizada (receita − custo já lançados), que começa negativa/zero. Agregado
+// por cliente somando as obras dele (uma consulta por tela). Base: as MESMAS obras do card (RD-38, fecham entre si).
+export type ObraResultadoLinha = { obra_id: string; cliente_id?: string | null; receita_prevista: number | null; custo_previsto: number | null; margem_realizada: number | null }
+export type ResultadoCliente = { receitaPrevista: number; custoPrevisto: number; margemPrevista: number; margemPct: number | null; margemRealizada: number; obras: number }
+export function resultadoPorCliente(obras: { id?: string | null; cliente_id: string | null }[], resultados: ObraResultadoLinha[]): Record<string, ResultadoCliente> {
+  const clienteDaObra = new Map<string, string>()
+  for (const o of obras) if (o.id && o.cliente_id) clienteDaObra.set(o.id, o.cliente_id)
+  const m: Record<string, ResultadoCliente> = {}
+  for (const r of resultados) {
+    const cli = clienteDaObra.get(r.obra_id) ?? r.cliente_id ?? null
+    if (!cli) continue
+    const a = (m[cli] ??= { receitaPrevista: 0, custoPrevisto: 0, margemPrevista: 0, margemPct: null, margemRealizada: 0, obras: 0 })
+    a.receitaPrevista += Number(r.receita_prevista ?? 0)
+    a.custoPrevisto += Number(r.custo_previsto ?? 0)
+    a.margemRealizada += Number(r.margem_realizada ?? 0)
+    a.obras++
+  }
+  for (const a of Object.values(m)) {
+    a.margemPrevista = a.receitaPrevista - a.custoPrevisto
+    a.margemPct = a.receitaPrevista > 0 ? (a.margemPrevista / a.receitaPrevista) * 100 : null
+  }
+  return m
+}
+
 export const ganhasSemObra = (ganhas: number, obras: number) => Math.max(0, ganhas - obras)
 // Vendas que já viraram obra (projetos_obras.oportunidade_id): "Abrir obra desta venda" some nelas, para não duplicar.
 export function oportunidadesComObra(linhas: { oportunidade_id?: string | null }[]): Set<string> {
@@ -129,6 +187,30 @@ export function aplicarCEP<T extends EnderecoForm>(form: T, d: { logradouro: str
   }
 }
 export const cepCompleto = (cep: string | null | undefined) => (cep ?? '').replace(/\D/g, '').length === 8
+
+// Preenche o cadastro com os dados do CNPJ (BrasilAPI/Receita) SÓ nos campos ainda vazios — o que a pessoa já
+// digitou prevalece sobre a consulta (RD-38: a consulta completa, nunca sobrescreve o cadastro manual). Mesmo
+// princípio do aplicarCEP; aqui vem também razão social, contato e número do endereço. nome_fantasia cai para a
+// razão social quando a Receita não traz o fantasia. Devolve um form novo (imutável), sem tocar no documento.
+export type ClienteDocForm = EnderecoForm & { nome_fantasia?: string | null; razao_social?: string | null; telefone?: string | null; email?: string | null; numero?: string | null }
+export function aplicarCNPJ<T extends ClienteDocForm>(form: T, d: { razao_social: string | null; nome_fantasia: string | null; email: string | null; telefone: string | null; cep: string | null; logradouro: string | null; numero: string | null; bairro: string | null; cidade: string; uf: string }): T {
+  const vazio = (v: string | null | undefined) => !(v ?? '').trim()
+  const preferir = (atual: string | null | undefined, novo: string | null | undefined) => (vazio(atual) && (novo ?? '').trim() ? novo : atual)
+  return {
+    ...form,
+    nome_fantasia: preferir(form.nome_fantasia, d.nome_fantasia || d.razao_social),
+    razao_social: preferir(form.razao_social, d.razao_social),
+    telefone: preferir(form.telefone, d.telefone),
+    email: preferir(form.email, d.email),
+    cep: preferir(form.cep, d.cep),
+    logradouro: preferir(form.logradouro, d.logradouro),
+    numero: preferir(form.numero, d.numero),
+    bairro: preferir(form.bairro, d.bairro),
+    cidade: preferir(form.cidade, d.cidade),
+    uf: (preferir(form.uf, d.uf) ?? '').toUpperCase(),
+  }
+}
+export const cnpjCompleto = (doc: string | null | undefined) => (doc ?? '').replace(/\D/g, '').length === 14
 
 // PDCA 24/10 · "Nova oportunidade" a partir do cliente já leva o cliente: a tela de oportunidades lê ?cliente=<uuid>
 // e abre o formulário com ele escolhido. Só aceita UUID (parâmetro de URL é entrada livre).
