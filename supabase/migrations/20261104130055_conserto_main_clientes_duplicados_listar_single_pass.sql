@@ -59,3 +59,9 @@ BEGIN
       FROM grp
   ), '[]'::jsonb);
 END $function$;
+
+-- Guarda de ACL (check_fn_guards / revoke_anon): função SECURITY DEFINER NÃO exposta a anon.
+-- A ACL viva em produção já é {postgres, authenticated, service_role} (anon/PUBLIC sem acesso);
+-- estas linhas apenas declaram no arquivo o que o banco já aplica, para um db push limpo reproduzir a ACL.
+REVOKE ALL ON FUNCTION public.fn_clientes_duplicados_listar(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_clientes_duplicados_listar(uuid) TO authenticated, service_role;
