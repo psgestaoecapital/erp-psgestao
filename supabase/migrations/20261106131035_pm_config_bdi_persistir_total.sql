@@ -113,6 +113,10 @@ BEGIN
 END;
 $function$;
 
+-- Guarda (check-fn-guards regra 1): função SECURITY DEFINER nunca exposta a anon
+-- (valida a empresa internamente via is_admin()/get_user_company_ids()).
+REVOKE ALL ON FUNCTION public.fn_projetos_config_salvar(uuid, jsonb) FROM anon;
+
 -- 2) Backfill idempotente dos totais já gravados (só NULL/0/divergentes; não toca linha correta) --
 UPDATE public.projetos_modulo_config c SET
   bdi_total_pct = round(
