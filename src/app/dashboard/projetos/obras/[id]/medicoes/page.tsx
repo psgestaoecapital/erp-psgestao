@@ -220,14 +220,14 @@ export default function MedicoesObraPage({ params }: { params: Promise<{ id: str
             {abrirForm && (
               <div style={{ ...card, marginTop: 12 }} data-testid="med-form">
                 <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-                  <div style={{ minWidth: 180 }}>
+                  <div style={{ minWidth: 180 }} data-ajuda="projetos.medicao.tipo">
                     <div style={lbl}>Medir por <AjudaCampo chave="projetos.medicao.tipo" rota={ROTA} /></div>
                     <select value={tipo} onChange={(e) => { setTipo(e.target.value as typeof tipo); setLinhas({}) }} style={{ ...inp, marginTop: 4 }} data-testid="med-tipo">
                       <option value="percentual">% do contratado</option>
                       <option value="quantidade">Quantidade executada</option>
                     </select>
                   </div>
-                  <div style={{ minWidth: 180 }}>
+                  <div style={{ minWidth: 180 }} data-ajuda="projetos.medicao.competencia">
                     <div style={lbl}>Competência <AjudaCampo chave="projetos.medicao.competencia" rota={ROTA} /></div>
                     <input type="date" value={competencia} onChange={(e) => setCompetencia(e.target.value)} style={{ ...inp, marginTop: 4 }} data-testid="med-competencia" />
                   </div>
@@ -238,7 +238,7 @@ export default function MedicoesObraPage({ params }: { params: Promise<{ id: str
                   <p style={{ fontSize: 13, color: MUT, marginTop: 6 }}>Esta obra ainda não tem itens de escopo contratado. Cadastre o contrato/escopo da obra antes de medir.</p>
                 ) : (
                   <div style={{ marginTop: 6, overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }} data-ajuda="projetos.medicao.linhas">
                       <thead>
                         <tr style={{ color: MUT, textAlign: 'left' }}>
                           <th style={{ padding: '6px 8px' }}>Item</th>
@@ -274,8 +274,10 @@ export default function MedicoesObraPage({ params }: { params: Promise<{ id: str
                   </div>
                 )}
 
-                <div style={{ ...lbl, marginTop: 14 }}>Observações <AjudaCampo chave="projetos.medicao.observacoes" rota={ROTA} /></div>
-                <textarea value={observacoes} onChange={(e) => setObservacoes(e.target.value)} rows={2} style={{ ...inp, marginTop: 4, resize: 'vertical' }} placeholder="Opcional — ex.: medição referente à etapa de fundação concluída." data-testid="med-obs" />
+                <div data-ajuda="projetos.medicao.observacoes">
+                  <div style={{ ...lbl, marginTop: 14 }}>Observações <AjudaCampo chave="projetos.medicao.observacoes" rota={ROTA} /></div>
+                  <textarea value={observacoes} onChange={(e) => setObservacoes(e.target.value)} rows={2} style={{ ...inp, marginTop: 4, resize: 'vertical' }} placeholder="Opcional — ex.: medição referente à etapa de fundação concluída." data-testid="med-obs" />
+                </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 14, flexWrap: 'wrap' }}>
                   <div style={{ fontSize: 13, color: ESP }}>

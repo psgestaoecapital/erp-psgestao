@@ -4,7 +4,7 @@
 // b) clientes = erp_clientes (busca por nome/razão/CNPJ) no Briefing, no Novo Job e no filtro da Pauta; o perfil P&M
 //    vem de fn_pm_cliente_garantir (guarda da empresa, mesmo cliente da empresa, nada apagado);
 // c) responsáveis = usuários ativos da empresa (fn_usuarios_da_empresa) na Pauta, na edição em massa e na IA do filtro;
-// d) Pauta vazia: "Novo job" em destaque + "Os jobs do SIGA ainda não foram trazidos".
+// d) Pauta vazia: "Novo job" em destaque + "Os jobs do sistema anterior ainda não foram trazidos" (RD-100: sem nome de terceiro).
 import { readFileSync } from 'node:fs'
 import { briefingParaJob, linkSeguro, termoBusca } from '../../src/lib/pm/briefing'
 
@@ -36,7 +36,7 @@ ok(/from\("erp_clientes"\)/.test(cb) && /fn_pm_cliente_garantir/.test(cb) && /mo
 const pa = ler('src/app/dashboard/pm/pauta/page.tsx')
 ok(!/from\("agency_equipe"\)/.test(pa) && /supabase\.rpc\("fn_usuarios_da_empresa", \{ p_company_id: empresa \}\)/.test(pa) && /\.filter\(\(u\) => u\.is_active\)/.test(pa), 'c) Pauta: responsáveis = usuários ativos da empresa (filtro e edição em massa)')
 ok(/<ClienteBusca empresa=\{empresa\} modo="filtro"/.test(pa), 'b) Pauta: filtro de cliente busca no cadastro')
-ok(/Os jobs do SIGA ainda não foram trazidos/.test(pa) && /data-testid="pauta-vazia-novo-job"/.test(pa) && /data-testid="pauta-novo-job"/.test(pa), 'd) Pauta vazia: texto do SIGA e "Novo job" em destaque')
+ok(/Os jobs do sistema anterior ainda não foram trazidos/.test(pa) && /data-testid="pauta-vazia-novo-job"/.test(pa) && /data-testid="pauta-novo-job"/.test(pa), 'd) Pauta vazia: texto do sistema anterior e "Novo job" em destaque')
 const ia = ler('src/app/api/pm/pauta/filtro-ia/route.ts')
 ok(/rpc\('fn_usuarios_da_empresa'/.test(ia) && !/from\('agency_equipe'\)/.test(ia), 'c) filtro por frase (IA) conhece os usuários da empresa')
 
@@ -45,7 +45,7 @@ ok(/PERFORM public\.fn__guarda_empresa\(p_company_id\);/.test(mig) && /WHERE id 
 ok(/IF v_iguais = 1 THEN/.test(mig) && /erp_cliente_id IS NULL/.test(mig), 'b) liga perfil antigo só quando o nome é único no cadastro')
 ok(/REVOKE ALL ON FUNCTION public\.fn_pm_cliente_garantir\(uuid, uuid\) FROM PUBLIC, anon;/.test(mig), 'b) nada aberto a anônimo')
 ok(!/\b(DELETE\s+FROM|CREATE TABLE|DROP\s+(TABLE|COLUMN|FUNCTION))\b/i.test(mig.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')), 'sem tabela nova e nada apagado')
-ok(/CREATE TRIGGER trg_agency_job_numero BEFORE INSERT ON public\.agency_jobs/.test(mig) && /pg_advisory_xact_lock\(hashtext\('agency_jobs_numero:'/.test(mig) && /IF NEW\.numero IS NULL OR btrim\(NEW\.numero\) = '' THEN/.test(mig), 'job novo ganha o próximo número da empresa (sem corrida; número do SIGA é mantido)')
+ok(/CREATE TRIGGER trg_agency_job_numero BEFORE INSERT ON public\.agency_jobs/.test(mig) && /pg_advisory_xact_lock\(hashtext\('agency_jobs_numero:'/.test(mig) && /IF NEW\.numero IS NULL OR btrim\(NEW\.numero\) = '' THEN/.test(mig), 'job novo ganha o próximo número da empresa (sem corrida; número do sistema anterior é mantido)')
 for (const k of ['pm.cliente.busca', 'pm.briefing.texto', 'pm.job.briefing', 'pm.job.responsavel', 'pm.pauta.vazia']) ok(mig.includes(`'${k}'`), `"?" ${k} no banco`)
 
 if (falhas) { console.error(`\ncheck-pm-bloco1: ${falhas} falha(s)`); process.exit(1) }

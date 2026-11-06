@@ -20,7 +20,7 @@ const C = {
 }
 const brDate = (d: string) => d ? new Date(d).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''
 
-type Anexo = { url: string; marcacoes: Marca[] }
+type Anexo = { url: string; marcacoes: Marca[]; pdf: boolean; nome: string }
 type Msg = {
   id: string; papel: 'autor' | 'ps'; texto: string | null; autor_email: string | null; criado_em: string
   ia_analise: Record<string, string> | null
@@ -66,7 +66,11 @@ export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfter
     const porMsg: Record<string, Anexo[]> = {}
     for (const a of (anx as { mensagem_id: string; storage_path: string; marcacoes: Marca[] }[] ?? [])) {
       const { data: signed } = await supabase.storage.from('sugestoes-anexos').createSignedUrl(a.storage_path, 3600)
-      if (signed?.signedUrl) (porMsg[a.mensagem_id] ||= []).push({ url: signed.signedUrl, marcacoes: Array.isArray(a.marcacoes) ? a.marcacoes : [] })
+      if (signed?.signedUrl) {
+        const pdf = a.storage_path.toLowerCase().endsWith('.pdf')
+        const nome = a.storage_path.split('/').pop() || (pdf ? 'arquivo.pdf' : 'imagem')
+        ;(porMsg[a.mensagem_id] ||= []).push({ url: signed.signedUrl, marcacoes: Array.isArray(a.marcacoes) ? a.marcacoes : [], pdf, nome })
+      }
     }
     setMsgs(base.map((m) => ({ ...m, anexos: porMsg[m.id] || [] })))
     setCarregando(false)
@@ -79,7 +83,7 @@ export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfter
   // print nunca lido — caso do Rodrigo 15:22). O teto diário protege o custo; o ref evita repetir.
   useEffect(() => {
     if (!ehSuporte || !msgs.length) return
-    const pendentes = msgs.filter((m) => m.papel === 'autor' && !m.ia_analise && m.anexos.length > 0 && !reprocessadosRef.current.has(m.id))
+    const pendentes = msgs.filter((m) => m.papel === 'autor' && !m.ia_analise && m.anexos.some((a) => !a.pdf) && !reprocessadosRef.current.has(m.id))
     if (!pendentes.length) return
     pendentes.forEach((m) => reprocessadosRef.current.add(m.id))
     void (async () => {
@@ -144,13 +148,22 @@ export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfter
                   <div style={{ fontSize: 10, fontWeight: 700, color: daPS ? C.blue : C.espM, marginBottom: 2 }}>{daPS ? 'Equipe PS' : 'Você / autor'} · {brDate(m.criado_em)}</div>
                   {m.texto && <div style={{ fontSize: 12.5, color: C.esp, whiteSpace: 'pre-wrap' }}>{m.texto}</div>}
                   {m.anexos.map((a, ai) => (
-                    <div key={ai} style={{ position: 'relative', display: 'inline-block', marginTop: 6, maxWidth: '100%' }}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={a.url} alt="" style={{ maxWidth: '100%', maxHeight: 320, borderRadius: 8, border: `1px solid ${C.border}`, display: 'block' }} />
-                      {a.marcacoes.map((mk, mi) => (
-                        <div key={mi} title={mk.texto} style={{ position: 'absolute', left: `${mk.x * 100}%`, top: `${mk.y * 100}%`, transform: 'translate(-50%,-50%)', width: 20, height: 20, borderRadius: 999, background: 'rgba(180,35,24,0.85)', color: '#fff', fontSize: 10.5, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #fff' }}>{mi + 1}</div>
-                      ))}
-                    </div>
+                    a.pdf ? (
+                      <a key={ai} href={a.url} target="_blank" rel="noopener noreferrer"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 6, padding: '6px 10px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.cream, color: C.esp, fontSize: 12, fontWeight: 700, textDecoration: 'none', maxWidth: '100%' }}>
+                        <span style={{ fontSize: 15 }}>📄</span>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.nome}</span>
+                        <span style={{ color: C.espM, fontWeight: 600 }}>— abrir PDF</span>
+                      </a>
+                    ) : (
+                      <div key={ai} style={{ position: 'relative', display: 'inline-block', marginTop: 6, maxWidth: '100%' }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={a.url} alt="" style={{ maxWidth: '100%', maxHeight: 320, borderRadius: 8, border: `1px solid ${C.border}`, display: 'block' }} />
+                        {a.marcacoes.map((mk, mi) => (
+                          <div key={mi} title={mk.texto} style={{ position: 'absolute', left: `${mk.x * 100}%`, top: `${mk.y * 100}%`, transform: 'translate(-50%,-50%)', width: 20, height: 20, borderRadius: 999, background: 'rgba(180,35,24,0.85)', color: '#fff', fontSize: 10.5, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #fff' }}>{mi + 1}</div>
+                        ))}
+                      </div>
+                    )
                   ))}
                   {/* Comparação de erro (mecânica, os DOIS lados veem): "não funcionou" não esconde progresso */}
                   {m.erro_comparacao === 'mudou' && (
