@@ -386,6 +386,7 @@ function useAnalise(companyId: string, de: string, ate: string, vendedor: string
   const [carregando, setCarregando] = useState(true)
   useEffect(() => {
     let vivo = true
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- recarrega ao mudar filtro/dimensão
     setCarregando(true)
     void supabase.rpc('fn_bi_comercial_analise', { p_company_id: companyId, p_dt_ini: de, p_dt_fim: ate, p_dimensao: dimensao, p_vendedor: vendedor, p_cidade: cidade ?? null, p_cod_cliente: codCliente ?? null })
       .then(({ data }) => { if (!vivo) return; setDados(data as Analise | null); setCarregando(false) })
