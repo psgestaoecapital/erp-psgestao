@@ -20,6 +20,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
+import { FileSignature, FolderArchive, Paperclip, ShieldCheck } from 'lucide-react'
 
 // A camada de dados desta tela (tabela/bucket/RPC) pode chegar à produção DEPOIS da UI. Enquanto não chegar,
 // PostgREST/Storage respondem "relation does not exist" / "function not found" / "Bucket not found". RD-98: a
@@ -379,7 +380,7 @@ export default function EncerramentoObraPage({ params }: { params: Promise<{ id:
             {aba === 'termo' ? (
               termoEmLiberacao ? (
                 <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 28, textAlign: 'center' }}>
-                  <div style={{ fontSize: 28, marginBottom: 8 }}>📝</div>
+                  <div style={{ marginBottom: 8 }}><FileSignature size={28} color={GOLD} aria-hidden /></div>
                   <div style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, color: ESP, marginBottom: 6 }}>Termo de entrega — em liberação</div>
                   <div style={{ fontSize: 13, color: MUT, lineHeight: 1.5, maxWidth: 440, margin: '0 auto' }}>
                     Esta área está sendo habilitada para a sua empresa. Em breve você poderá registrar e assinar o
@@ -451,7 +452,7 @@ export default function EncerramentoObraPage({ params }: { params: Promise<{ id:
               /* ---------- aba DOCUMENTOS ---------- */
               docEmLiberacao ? (
                 <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 28, textAlign: 'center' }}>
-                  <div style={{ fontSize: 28, marginBottom: 8 }}>🗂️</div>
+                  <div style={{ marginBottom: 8 }}><FolderArchive size={28} color={GOLD} aria-hidden /></div>
                   <div style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, color: ESP, marginBottom: 6 }}>Documentos da obra — em liberação</div>
                   <div style={{ fontSize: 13, color: MUT, lineHeight: 1.5, maxWidth: 440, margin: '0 auto' }}>
                     Esta área está sendo habilitada para a sua empresa. Em breve você poderá anexar e consultar
@@ -489,7 +490,7 @@ export default function EncerramentoObraPage({ params }: { params: Promise<{ id:
                         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') inputRef.current?.click() }}
                         style={{ border: `1.5px dashed ${arrastando ? GOLD : 'rgba(61,35,20,0.3)'}`, borderRadius: 8, padding: '14px', textAlign: 'center', background: arrastando ? 'rgba(200,148,26,0.08)' : 'rgba(61,35,20,0.02)', cursor: enviando ? 'wait' : 'pointer', opacity: enviando ? 0.6 : 1 }}
                       >
-                        <div style={{ fontSize: 13, color: ESP, fontWeight: 500 }}>{enviando ? 'Anexando…' : '📎 Anexar — arraste ou clique'}</div>
+                        <div style={{ fontSize: 13, color: ESP, fontWeight: 500 }}>{enviando ? 'Anexando…' : (<><Paperclip size={14} color={GOLD} style={{ verticalAlign: '-2px', marginRight: 4 }} aria-hidden />Anexar — arraste ou clique</>)}</div>
                         <div style={{ fontSize: 11, color: MUT, marginTop: 4 }}>PDF, JPG, PNG ou WebP — até 10 MB</div>
                         <input ref={inputRef} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" style={{ display: 'none' }}
                           onChange={(e) => { const f = e.target.files?.[0]; if (f) void anexar(f); e.target.value = '' }} />
@@ -536,7 +537,7 @@ export default function EncerramentoObraPage({ params }: { params: Promise<{ id:
               /* ---------- aba RETENÇÃO E GARANTIA ---------- */
               rgEmLiberacao ? (
                 <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 28, textAlign: 'center' }}>
-                  <div style={{ fontSize: 28, marginBottom: 8 }}>🛡️</div>
+                  <div style={{ marginBottom: 8 }}><ShieldCheck size={28} color={GOLD} aria-hidden /></div>
                   <div style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, color: ESP, marginBottom: 6 }}>Retenção e garantia — em liberação</div>
                   <div style={{ fontSize: 13, color: MUT, lineHeight: 1.5, maxWidth: 440, margin: '0 auto' }}>
                     Esta área está sendo habilitada para a sua empresa. Em breve você poderá controlar a retenção
