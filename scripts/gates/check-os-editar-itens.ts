@@ -5,7 +5,7 @@
  * precisa levar TODOS os itens atuais e o texto/km como estão.
  */
 import { readFileSync, readdirSync } from 'node:fs'
-import { edicaoInicialOS, montarDadosDiagnosticoOS, podeEditarItensNaOS, validarEdicaoOS } from '../../src/lib/oficina/itensNaOS'
+import { edicaoInicialOS, montarDadosDiagnosticoOS, motivoItensBloqueadosOS, podeEditarItensNaOS, validarEdicaoOS } from '../../src/lib/oficina/itensNaOS'
 
 let falhas = 0
 function ok(cond: boolean, msg: string) { if (!cond) { falhas++; console.error(`✘ ${msg}`) } else console.log(`✓ ${msg}`) }
@@ -14,7 +14,14 @@ ok(podeEditarItensNaOS('centralizado', true, 'aberta'), 'centralizado + pode lan
 ok(podeEditarItensNaOS('centralizado', true, 'aguardando_aprovacao'), 'centralizado + aguardando aprovação → pode editar')
 ok(!podeEditarItensNaOS('tablet', true, 'aberta'), 'modelo com tablet → não (itens seguem no Diagnóstico)')
 ok(!podeEditarItensNaOS('centralizado', false, 'aberta'), 'perfil sem permissão de valor → não')
-ok(!podeEditarItensNaOS('centralizado', true, 'em_execucao'), 'OS em execução → não')
+// #135 ajuste 21/10: qualquer status antes de "Entregue" (inclusive a OS criada como orçamento)
+for (const st of ['orcamento', 'aprovada', 'em_execucao', 'aguardando_peca', 'pronta']) ok(podeEditarItensNaOS('centralizado', true, st), `centralizado + OS "${st}" → pode editar`)
+ok(!podeEditarItensNaOS('centralizado', true, 'entregue'), 'OS entregue → não')
+ok(!podeEditarItensNaOS('centralizado', true, 'cancelada'), 'OS cancelada → não')
+ok(!podeEditarItensNaOS('centralizado', true, 'em_execucao', true), 'OS faturada → não (só com estorno/cancelamento da nota)')
+ok(/estorn/.test(motivoItensBloqueadosOS('centralizado', 'pronta', true) ?? ''), 'faturada → mensagem clara de estorno/cancelamento da nota')
+ok(!!motivoItensBloqueadosOS('centralizado', 'entregue', false), 'entregue → mensagem clara')
+ok(motivoItensBloqueadosOS('tablet', 'entregue', true) === null, 'modelo com tablet → sem aviso novo (nada muda)')
 
 const atual = {
   diagnostico: 'Folga no câmbio', km: 152300,
@@ -51,6 +58,7 @@ const card = readFileSync('src/components/comum/OrdemServicoCard.tsx', 'utf8')
 ok(card.includes("supabase.rpc('fn_oficina_diagnostico_salvar'"), 'a ficha grava pela mesma RPC do Diagnóstico (sem regra paralela)')
 ok(/salvarItensOS[\s\S]*?fn_oficina_diagnostico_obter[\s\S]*?montarDadosDiagnosticoOS[\s\S]*?fn_oficina_diagnostico_salvar/.test(card), 'relê o diagnóstico na hora de salvar e monta o payload pela regra única')
 ok(card.includes('podeEditarItensNaOS(') && card.includes('data-testid="os-editar-itens"'), 'botão "Editar itens e preços" com a regra única')
+ok(card.includes(', faturada)') && card.includes('data-testid="os-itens-bloqueados"'), 'edição fecha na OS faturada e mostra o motivo')
 for (const k of ['oficina.os.editar_itens', 'oficina.os.item_descricao', 'oficina.os.item_quantidade', 'oficina.os.item_preco']) {
   ok(card.includes(`<AjudaCampo chave="${k}"`), `"?" (RD-95) em ${k}`)
 }
