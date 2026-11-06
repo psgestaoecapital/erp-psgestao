@@ -134,7 +134,7 @@ export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfter
   return (
     <div style={{ marginTop: 10, borderTop: `1px dashed ${C.border}`, paddingTop: 10 }}>
       <div style={{ fontSize: 11, fontWeight: 700, color: C.espM, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>💬 Conversa do chamado</div>
-      {ehSuporte && <PedidoOkSocio sugestaoId={sugestaoId} />}
+      <PedidoOkSocio sugestaoId={sugestaoId} />
 
       {carregando ? <div style={{ fontSize: 12, color: C.espL }}>carregando…</div> : msgs.length === 0 ? (
         <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic', marginBottom: 6 }}>Sem mensagens ainda. Escreva abaixo — dá pra anexar uma foto nova.</div>
