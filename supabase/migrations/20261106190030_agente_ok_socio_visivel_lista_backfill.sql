@@ -17,6 +17,7 @@ AS $function$
      ORDER BY m.pedido_ok_socio_em DESC LIMIT 1), 'null'::jsonb);
 $function$;
 
+-- ci-sem-guarda: fn_agente_ok_socio — mensagem do agente não tem empresa; a guarda é o escopo: só o sócio dono do agente (erp_agente_escopo.socio_user_id = auth.uid())
 CREATE OR REPLACE FUNCTION public.fn_agente_ok_socio(p_mensagem_id uuid, p_decisao text)
  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
 AS $function$
@@ -36,6 +37,13 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'id', p_mensagem_id, 'decisao', p_decisao);
 END;
 $function$;
+
+REVOKE ALL ON FUNCTION public.fn_agente_ok_socio_pendente(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_agente_ok_socio_pendente(uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_agente_ok_socio_pendente(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_agente_ok_socio(uuid, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_agente_ok_socio(uuid, text) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_agente_ok_socio(uuid, text) TO authenticated, service_role;
 
 -- Lista de "Aprovações pendentes" do sócio logado (ligadas ou não a chamado). Outro usuário recebe lista vazia.
 CREATE OR REPLACE FUNCTION public.fn_agente_ok_socio_lista()
