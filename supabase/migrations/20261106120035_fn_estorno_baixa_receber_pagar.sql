@@ -124,7 +124,7 @@ BEGIN
 END $function$;
 
 -- Guarda de acesso: só usuário autenticado (a função valida a empresa); nunca anon.
-REVOKE ALL ON FUNCTION public.fn_receber_estornar_baixa(uuid, text) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.fn_pagar_cancelar_pagamento(uuid, text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_receber_estornar_baixa(uuid, text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_pagar_cancelar_pagamento(uuid, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_receber_estornar_baixa(uuid, text) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.fn_pagar_cancelar_pagamento(uuid, text) TO authenticated, service_role;
