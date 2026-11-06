@@ -33,7 +33,7 @@ const STATUS: Record<string, { cor: string; label: string }> = {
   convertido: { cor: GOLD, label: 'Virou pedido' },
 }
 
-type Proposta = { id: string; company_id: string; numero: string | null; cliente_nome: string | null; status: string; total: number | null; data_emissao: string | null; data_validade: string | null; obra_id: string | null; eh_obra: boolean | null; versao: number | null; orcamento_origem_id: string | null; pdf_anexo_path: string | null }
+type Proposta = { id: string; company_id: string; numero: string | null; cliente_nome: string | null; status: string; total: number | null; data_emissao: string | null; data_validade: string | null; obra_id: string | null; eh_obra: boolean | null; versao: number | null; orcamento_origem_id: string | null; pdf_anexo_path: string | null; orcamentista_id: string | null; orcamentista_nome: string | null }
 
 const POR_PAGINA = 25, LIMITE = 100
 
@@ -50,6 +50,8 @@ export default function PropostasHubPage() {
   const [erro, setErro] = useState('')
   const [busca, setBusca] = useState('')
   const [filtro, setFiltro] = useState('todos')
+  const [meuId, setMeuId] = useState<string | null>(null)
+  const [soMeus, setSoMeus] = useState(false)
   const [comp, setComp] = useState<Record<string, Composicao>>({})
   const [compErro, setCompErro] = useState(false)
   const [orig, setOrig] = useState<Record<string, Origem>>({})
@@ -87,7 +89,7 @@ export default function PropostasHubPage() {
     setLoading(true); setErro('')
     try {
       const { data, error, count } = await comPrazo(
-        async () => await supabase.from('erp_orcamentos').select('id,company_id,numero,cliente_nome,status,total,data_emissao,data_validade,obra_id,eh_obra,versao,orcamento_origem_id,pdf_anexo_path', { count: 'exact' })
+        async () => await supabase.from('erp_orcamentos').select('id,company_id,numero,cliente_nome,status,total,data_emissao,data_validade,obra_id,eh_obra,versao,orcamento_origem_id,pdf_anexo_path,orcamentista_id,orcamentista_nome', { count: 'exact' })
           .in('company_id', companyIds).is('deleted_at', null).order('data_emissao', { ascending: false }).limit(LIMITE),
         { ms: 8000, tentativas: 1, label: 'propostas_hub' },
       )
@@ -130,6 +132,8 @@ export default function PropostasHubPage() {
     } catch { setErro(MSG_CARREGAMENTO_FALHOU) } finally { setLoading(false) }
   }, [companyIds, carregarOrigem])
   useEffect(() => { carregar() }, [carregar])
+  // Quem está logado — para o filtro "meus orçamentos" (compara com orcamentista_id)
+  useEffect(() => { let vivo = true; supabase.auth.getUser().then(({ data }) => { if (vivo) setMeuId(data.user?.id ?? null) }).catch(() => {}); return () => { vivo = false } }, [])
 
   // Só proposta que não virou negócio pode sair (o banco confere de novo)
   const podeExcluir = (l: Proposta) => ['rascunho', 'enviado', 'visualizado', 'recusado', 'expirado'].includes(l.status) && !l.obra_id
@@ -147,8 +151,9 @@ export default function PropostasHubPage() {
   const vis = useMemo(() => {
     const b = busca.trim().toLowerCase()
     return linhas.filter(l => (filtro === 'todos' || l.status === filtro)
-      && (!b || (l.numero ?? '').toLowerCase().includes(b) || (l.cliente_nome ?? '').toLowerCase().includes(b)))
-  }, [linhas, busca, filtro])
+      && (!soMeus || (!!meuId && l.orcamentista_id === meuId))
+      && (!b || (l.numero ?? '').toLowerCase().includes(b) || (l.cliente_nome ?? '').toLowerCase().includes(b) || (l.orcamentista_nome ?? '').toLowerCase().includes(b)))
+  }, [linhas, busca, filtro, soMeus, meuId])
   const r = useMemo(() => resumoFunil(linhas), [linhas])
   const numeroPorId = useMemo(() => Object.fromEntries(linhas.map(l => [l.id, l.numero])) as Record<string, string | null>, [linhas])
   const comPdf = useMemo(() => linhas.filter(l => !!l.pdf_anexo_path).length, [linhas])
@@ -275,7 +280,7 @@ export default function PropostasHubPage() {
           {totalBanco > linhas.length && <div role="status" data-testid="hub-propostas-truncado" style={{ marginTop: 12, fontSize: 12, color: '#B45309' }}>Mostrando as {linhas.length} mais recentes de {totalBanco} propostas — os indicadores valem para estas.</div>}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
             <div style={{ flex: '1 1 220px', display: 'flex', alignItems: 'center', gap: 4 }}>
-              <input value={busca} onChange={e => { setBusca(e.target.value); setMostrar(POR_PAGINA) }} placeholder="Buscar por número ou cliente"
+              <input value={busca} onChange={e => { setBusca(e.target.value); setMostrar(POR_PAGINA) }} placeholder="Buscar por número, cliente ou orçamentista"
                 style={{ flex: 1, padding: '8px 12px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 13 }} />
               <AjudaCampo chave="projetos.propostas.busca" />
             </div>
@@ -286,11 +291,20 @@ export default function PropostasHubPage() {
               </select>
               <AjudaCampo chave="projetos.propostas.status" />
             </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <button type="button" data-testid="hub-propostas-meus" aria-pressed={soMeus} onClick={() => { setSoMeus(v => !v); setMostrar(POR_PAGINA) }} disabled={!meuId}
+                title={!meuId ? 'Entre para filtrar seus orçamentos' : undefined}
+                style={{ border: `1px solid ${soMeus ? GOLD : LINE}`, background: soMeus ? `${GOLD}14` : '#fff', color: soMeus ? GOLD : ESP, borderRadius: 8, padding: '8px 12px', fontSize: 13, fontWeight: 600, cursor: meuId ? 'pointer' : 'not-allowed', opacity: meuId ? 1 : 0.5, minHeight: 36 }}>
+                Meus orçamentos
+              </button>
+              <AjudaCampo chave="projetos.propostas.filtro_meus" />
+            </div>
           </div>
           <div style={{ overflowX: 'auto', marginTop: 12, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12 }}>
-            <table style={{ width: '100%', minWidth: 1220, borderCollapse: 'collapse' }}>
+            <table style={{ width: '100%', minWidth: 1360, borderCollapse: 'collapse' }}>
               <thead><tr style={{ textAlign: 'left', fontSize: 12, color: MUT }}>
                 <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Número <AjudaCampo chave="projetos.propostas.col_numero" /></span></th><th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Versão <AjudaCampo chave="projetos.propostas.versao" /></span></th><th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Cliente <AjudaCampo chave="projetos.propostas.col_cliente" /></span></th>
+                <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Orçamentista <AjudaCampo chave="projetos.propostas.orcamentista" /></span></th>
                 <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Origem <AjudaCampo chave="projetos.propostas.origem" /></span></th>
                 <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Status <AjudaCampo chave="projetos.propostas.col_status" /></span></th><th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Emissão <AjudaCampo chave="projetos.propostas.col_emissao" /></span></th>
                 <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Validade <AjudaCampo chave="projetos.propostas.validade" /></span></th>
@@ -318,6 +332,11 @@ export default function PropostasHubPage() {
                         {l.pdf_anexo_path && <span data-testid="hub-proposta-pdf" style={{ display: 'block', color: '#16A34A' }}>PDF anexo</span>}
                       </td>
                       <td style={{ padding: '8px 12px' }}>{l.cliente_nome ?? '—'}</td>
+                      <td style={{ padding: '8px 12px', fontSize: 12 }} data-testid="hub-proposta-orcamentista">
+                        {l.orcamentista_nome
+                          ? <span style={meuId && l.orcamentista_id === meuId ? { color: GOLD, fontWeight: 600 } : undefined}>{l.orcamentista_nome}{meuId && l.orcamentista_id === meuId ? ' · você' : ''}</span>
+                          : <span style={{ color: '#B45309' }}>sem orçamentista</span>}
+                      </td>
                       <td style={{ padding: '8px 12px', fontSize: 12, maxWidth: 220 }} data-testid="hub-proposta-origem">
                         {origErro ? '—' : !temOrigem(o) ? <span style={{ color: MUT }}>avulsa</span> : (
                           <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -379,7 +398,7 @@ export default function PropostasHubPage() {
                     </tr>
                   )
                 })}
-                {vis.length === 0 && <tr><td colSpan={13} style={{ padding: 16, color: MUT, fontSize: 13 }}>Nenhuma proposta com esse filtro.</td></tr>}
+                {vis.length === 0 && <tr><td colSpan={14} style={{ padding: 16, color: MUT, fontSize: 13 }}>Nenhuma proposta com esse filtro.</td></tr>}
               </tbody>
             </table>
           </div>
