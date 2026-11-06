@@ -186,6 +186,18 @@ Responder chamado exige usuário logado (`auth.uid()`), e a rotina/Code é conex
    e o aviso por e-mail sai pelo mesmo caminho da aprovação normal.
 3. Sem OK do CEO na caixa: não responda o chamado; registre `recusada` com o motivo.
 
+# Aprovação pelos SÓCIOS (CEO 06/11/2026) — "nada deve ficar parado; deve fluir com OK de qualquer um de nós"
+Gilberto (CEO), Rodrigo e Jordana aprovam **igual** — qualquer PR da bandeja (inclusive de outros Codes) e qualquer OK de núcleo.
+- **PR na "BANDEJA DO CEO"** do revisor: qualquer sócio aprova/recusa no ERP (aba Codes › **Aprovações dos sócios**,
+  `fn_pr_bandeja_aprovar`, logado, justificativa obrigatória, presa ao patch-id da bandeja). O workflow `bandeja-socios.yml`
+  (a cada 15 min) entrega no GitHub: comentário `OK DE SÓCIO #N — <nome>` + etiqueta **`ceo-aprovado`**. Para o revisor e a
+  fila, `ceo-aprovado` posta assim vale **exatamente** como a do CEO.
+- **OK de núcleo da caixa** (`requer_ok_ceo`): além do Eng. Chefe (`fn_agente_mensagem_ok_ceo`), qualquer sócio logado dá o OK
+  (`fn_aprovador_ok_mensagem`, `ok_ceo_origem = 'OK de <nome> no ERP'`); o Code trata igual (`pode_executar`).
+- **Chamados:** Rodrigo e Jordana têm escopo (`erp_agente_escopo`); a resposta ao cliente do chamado deles sai com o OK do
+  próprio sócio no chamado (`fn_agente_ok_socio`).
+- Aprovadores em `erp_aprovador_pr` (só por migration). Gate: `scripts/gates/check-aprovacao-socios.ts`.
+
 # Merge pelo Code (RD-94, CEO 04/10) — o CEO não faz merge
 O Code PODE mergear uma PR com `gh pr merge` (nunca auto-merge) somente quando: (1) há na SUA caixa uma mensagem do
 `eng_chefe` com "MERGE AUTORIZADO #NNNN" para essa PR; (2) a PR está Ready, atualizada com a main, com todos os checks e
