@@ -120,6 +120,18 @@ BEGIN
 END;
 $function$;
 
+-- Guarda da função (check-fn-guards):
+-- Regra 1 (revoke_anon): função SECURITY DEFINER do cron/serviço — fecha para anon/authenticated e
+--   mantém a execução só para o service_role (CREATE OR REPLACE preserva grants antigos, mas a régua
+--   exige o REVOKE escrito na migration nova).
+REVOKE ALL ON FUNCTION public.fn_chamados_rotear(integer) FROM anon;
+REVOKE ALL ON FUNCTION public.fn_chamados_rotear(integer) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_chamados_rotear(integer) TO service_role;
+-- Regra 4 (grava_sem_guarda_empresa): escape consciente — a função grava (UPDATE sugestoes/erp_agente_mensagem)
+--   mas é o roteador GLOBAL do serviço/cron, guardado por auth.uid() IS NULL (RAISE 42501), não é escrita
+--   escopada por empresa, logo não há company_id a conferir.
+-- ci-sem-guarda: fn_chamados_rotear — roteador global do serviço/cron; a guarda é auth.uid() IS NULL, não é escrita escopada por empresa
+
 -- BUG 2 — frequência: reagenda o cron de fn_chamados_rotear para a cada 20 min.
 -- Guardado: nunca derruba a migration se o papel do deploy não puder alterar cron.
 DO $cron$
