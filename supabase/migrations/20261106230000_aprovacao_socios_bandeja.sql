@@ -29,7 +29,6 @@ REVOKE ALL ON public.erp_aprovador_pr FROM PUBLIC, anon;
 INSERT INTO public.erp_aprovador_pr (user_id, nome)
 SELECT u.id, v.nome FROM (VALUES
   ('gilberto.paravizi@gmail.com', 'Gilberto (CEO)'),
-  ('gilberto.paravizi@yahoo.com.br', 'Gilberto (CEO)'),
   ('rodrigo.rjantsch@gmail.com', 'Rodrigo'),
   ('jordanacarolinar@gmail.com', 'Jordana')
 ) AS v(email, nome) JOIN auth.users u ON lower(u.email) = v.email
