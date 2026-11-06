@@ -30,6 +30,12 @@ CREATE TABLE IF NOT EXISTS public.agency_clientes_bkp_pm_pdca (
   backup_em timestamptz NOT NULL DEFAULT now()
 );
 
+-- RLS na tabela de backup (convenção da casa: todo _bkp_* tem RLS ligada e sem acesso anon).
+-- Sem policy: só definer/service_role acessa; nenhum authenticated precisa ler o backup.
+-- Evita o alerta rls_disabled_in_public do security advisor (que pode travar o @pos/portão).
+ALTER TABLE public.agency_clientes_bkp_pm_pdca ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.agency_clientes_bkp_pm_pdca FROM PUBLIC, anon;
+
 INSERT INTO public.agency_clientes_bkp_pm_pdca (id, company_id, nome, status, excluido_em)
 SELECT cl.id, cl.company_id, cl.nome, cl.status, cl.excluido_em
 FROM public.agency_clientes cl
