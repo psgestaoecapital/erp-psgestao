@@ -1,6 +1,6 @@
 // src/app/dashboard/projetos/configuracoes/page.tsx
 // Configuracoes do modulo Projetos: BDI interativo + margens + defaults operacionais
-// Autosave com debounce 800ms; trigger backend recalcula bdi_total_pct
+// Autosave com debounce 800ms; a RPC fn_projetos_config_salvar recalcula e persiste bdi_total_pct (fórmula AEC) — #3362
 
 "use client";
 

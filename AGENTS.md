@@ -186,6 +186,18 @@ Responder chamado exige usuário logado (`auth.uid()`), e a rotina/Code é conex
    e o aviso por e-mail sai pelo mesmo caminho da aprovação normal.
 3. Sem OK do CEO na caixa: não responda o chamado; registre `recusada` com o motivo.
 
+# Aprovação pelos SÓCIOS (CEO 06/11/2026) — "nada deve ficar parado; deve fluir com OK de qualquer um de nós"
+Gilberto (CEO), Rodrigo e Jordana aprovam **igual** — qualquer PR da bandeja (inclusive de outros Codes) e qualquer OK de núcleo.
+- **PR na "BANDEJA DO CEO"** do revisor: qualquer sócio aprova/recusa no ERP (aba Codes › **Aprovações dos sócios**,
+  `fn_pr_bandeja_aprovar`, logado, justificativa obrigatória, presa ao patch-id da bandeja). O workflow `bandeja-socios.yml`
+  (a cada 15 min) entrega no GitHub: comentário `OK DE SÓCIO #N — <nome>` + etiqueta **`ceo-aprovado`**. Para o revisor e a
+  fila, `ceo-aprovado` posta assim vale **exatamente** como a do CEO.
+- **OK de núcleo da caixa** (`requer_ok_ceo`): além do Eng. Chefe (`fn_agente_mensagem_ok_ceo`), qualquer sócio logado dá o OK
+  (`fn_aprovador_ok_mensagem`, `ok_ceo_origem = 'OK de <nome> no ERP'`); o Code trata igual (`pode_executar`).
+- **Chamados:** Rodrigo e Jordana têm escopo (`erp_agente_escopo`); a resposta ao cliente do chamado deles sai com o OK do
+  próprio sócio no chamado (`fn_agente_ok_socio`).
+- Aprovadores em `erp_aprovador_pr` (só por migration). Gate: `scripts/gates/check-aprovacao-socios.ts`.
+
 # Merge pelo Code (RD-94, CEO 04/10) — o CEO não faz merge
 O Code PODE mergear uma PR com `gh pr merge` (nunca auto-merge) somente quando: (1) há na SUA caixa uma mensagem do
 `eng_chefe` com "MERGE AUTORIZADO #NNNN" para essa PR; (2) a PR está Ready, atualizada com a main, com todos os checks e
@@ -402,6 +414,33 @@ Responda a cada rodada com ENTREGUE / EM TESTE / PRÓXIMO até zerar a lista.
 - **Checklist de revisão de PR de tela:** (1) todo campo/filtro/indicador/ação tem "?" com chave existente no banco; (2) tarefa principal
   em até 3 toques; (3) a tela aparece no menu do banco e em `system_screens` (entrega só conta se o usuário a enxerga); (4) nomes e
   fluxo próprios, nada decalcado de concorrente; (5) funciona no celular; (6) teste do caminho principal como usuário real.
+
+# Auditor PDCA — nota 95 = o usuário faz o trabalho SOZINHO (CEO 06/11, PERMANENTE) — vale para TODOS os auditores
+Origem: nas visitas aos clientes (Pdois no P&M; Tryo/FC no Hub) o sistema foi achado **confuso e pouco intuitivo**, e
+55 de 58 telas aprovadas tinham nota exatamente 95. A nota tinha virado "não achei gap técnico". A partir de agora ela
+mede **jornada de usuário real**. Vale para `auditor_pdca_1`, `auditor_pdca_2`, `aud8claudeps` e qualquer auditor novo,
+em toda vertical (Hub, P&M, Gestão Empresarial…), em toda rodada — não depende de aviso na caixa.
+- **Jornada ponta a ponta, não tela isolada:** audite o caminho do trabalho (ex.: oportunidade → orçamento → proposta →
+  contrato/obra → custos → medição → faturamento → resultado), na DEMO (RD-69/LGPD), contando toques e onde trava.
+- **Critérios a–h** (cada falha = gap CONCRETO em `bugs_detectados`, com rota e o que acontece):
+  a. a tarefa principal da tela sai em até 3 toques, sem ajuda externa;
+  b. o dado já informado CARREGA para a etapa seguinte (cliente, valor, itens) — redigitar é gap;
+  c. o que se salva FICA salvo e o status muda sozinho quando deve;
+  d. estado vazio diz o que fazer e tem o botão para fazer;
+  e. sem botões duplicados ou ambíguos; nomes na língua do cliente; erro em linguagem do usuário (nunca erro cru do banco);
+  f. listas só com o que é da empresa;
+  g. incluir, editar e excluir visíveis (RD-98);
+  h. requisito ESSENCIAL do `blueprint_tela_requisito` da rota ausente/parcial (cruze com `blueprint_tela_cobertura`) = gap.
+- **Nota 95 só se passa em a–h.** Se não passa, grave a nota REAL (pode cair) e retire o selo `auditada_ok`. Tela com
+  selo **não é pulada** quando a nota dela é anterior a 06/11/2026 — recontar primeiro as mais antigas.
+- **Chamados de cliente são evidência:** leia as `sugestoes` das empresas reais da vertical (últimos 45 dias) e reproduza
+  na DEMO; problema que o cliente relatou e a tela ainda tem = gap.
+- **Saída:** 1 linha em `erp_contexto_projeto` (categoria `descoberta`) por jornada (onde trava, quantos toques, o que
+  falta) + 1 tarefa por tela ao dev, consolidada nas existentes; atualize `blueprint_tela_cobertura` do que verificar.
+- **Divisão (CEO 06/11 19:24):** `auditor_pdca_1` = Hub; `auditor_pdca_2` = P&M; `aud8claudeps` = **Gestão
+  Empresarial** (a base de todas as verticais: primeiros passos, pagar/receber, banco, compra→pagar, venda→receber,
+  rateio→resultado→DRE→fluxo de caixa, fechamento). Financeiro, fiscal, cadastros e permissões são NÚCLEO: o auditor só
+  audita e manda a tarefa ao dev do núcleo. O Eng. Chefe muda a divisão pela caixa.
 
 # RD-100 — nenhum nome de sistema de terceiros no produto (CEO 01/11, INEGOCIÁVEL) — vale para TODOS os Codes
 Nenhum nome de sistema de terceiros pode aparecer em NADA que o usuário veja: tela (strings de interface em `src/`),
