@@ -8,7 +8,7 @@ import { Play, Square, Timer } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { horasDoCronometro, horasTexto, relogio } from "@/lib/pm/meuDia";
-import { EVENTO_CRONOMETRO, avisarCronometro } from "@/lib/pm/cronometroGlobal";
+import { EVENTO_CRONOMETRO, avisarCronometro, lerCronometroAberto } from "@/lib/pm/cronometroGlobal";
 
 type Aberto = { id: string; job_id: string | null; inicio_em: string };
 export type JobCurto = { id: string; codigo: string; titulo: string | null };
@@ -24,8 +24,7 @@ export function Cronometro({ empresa, userId, jobs, jobFixo, onMudou }: {
   const [msg, setMsg] = useState<string | null>(null);
 
   const carregar = useCallback(async () => {
-    const { data } = await supabase.from("agency_timesheet").select("id, job_id, inicio_em").eq("user_id", userId).is("fim_em", null).maybeSingle();
-    const a = (data as Aberto | null) ?? null;
+    const a = (await lerCronometroAberto(userId)) as Aberto | null;
     setAberto(a);
     if (a?.job_id) {
       const { data: j } = await supabase.from("agency_jobs").select("numero, titulo, rodada_ajuste").eq("id", a.job_id).maybeSingle();
