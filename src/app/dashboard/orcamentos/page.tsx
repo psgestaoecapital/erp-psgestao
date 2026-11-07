@@ -716,7 +716,10 @@ export default function OrcamentosPage(){
 
   const duplicar=async(o:Orcamento)=>{
     const{data:numero}=await supabase.rpc('next_orcamento_numero',{p_company_id:o.company_id});
-    const novoOrc={...o,id:undefined,numero,versao:(o.versao||1)+1,status:'rascunho',data_emissao:new Date().toISOString().slice(0,10),data_validade:addDias(15),data_aprovacao:null,data_recusa:null,pedido_id:null,convertido_em:null,created_at:undefined,updated_at:undefined};
+    // #3269/Tryo: a nova versão também segue a validade padrão DA EMPRESA (orcamento_config_empresa.validade_dias),
+    // não um fixo de 15 dias — mesma regra do cadastro de um orçamento novo.
+    const validadeDias=await getValidadeDias(o.company_id);
+    const novoOrc={...o,id:undefined,numero,versao:(o.versao||1)+1,status:'rascunho',data_emissao:new Date().toISOString().slice(0,10),data_validade:addDias(validadeDias),data_aprovacao:null,data_recusa:null,pedido_id:null,convertido_em:null,created_at:undefined,updated_at:undefined};
     const{data:novo,error}=await supabase.from("erp_orcamentos").insert(novoOrc).select().single();
     if(error){setMsg("Erro: "+error.message);return;}
     // Copiar itens
