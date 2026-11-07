@@ -90,7 +90,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     // 2. Chama Focus
     let resposta: { status: 'registrado' | 'rejeitado' | 'processando'; protocolo?: string; motivoRejeicao?: string; providerRaw: unknown }
     try {
-      const svc = await createFiscalService(nfe.company_id, { ambienteOverride: body.ambiente })
+      const svc = await createFiscalService(nfe.company_id, { ambienteOverride: body.ambiente, tipo: 'nfe' })
       resposta = await svc.cartaCorrecaoNFe(referenciaFocus, correcao)
     } catch (focusErr) {
       // Atualiza evento como rejeitado pra nao ficar travado em 'processando'

@@ -191,7 +191,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       throw e
     }
 
-    const svc = await createFiscalService(nfeVenda.company_id, { ambienteOverride: body.ambiente })
+    const svc = await createFiscalService(nfeVenda.company_id, { ambienteOverride: body.ambiente, tipo: 'nfe' })
     let resposta
     try {
       resposta = await svc.emitirNFe(nfeReq)
