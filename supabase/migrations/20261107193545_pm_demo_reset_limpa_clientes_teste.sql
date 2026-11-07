@@ -24,6 +24,7 @@
 -- ──────────────────────────────────────────────────────────────────────────────────────────────
 -- 1) Função reutilizável de limpeza (mesmo critério da #3982, agora chamável pelo reset)
 -- ──────────────────────────────────────────────────────────────────────────────────────────────
+-- ci-sem-guarda: fn_demo_pm_limpar_clientes_teste — reset da DEMO; só service_role; trava por is_demo=true + company_id, não por membership de usuário (sem auth.uid no fluxo de reset)
 CREATE OR REPLACE FUNCTION public.fn_demo_pm_limpar_clientes_teste(p_company_id uuid)
  RETURNS integer
  LANGUAGE plpgsql
