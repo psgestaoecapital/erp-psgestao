@@ -220,6 +220,18 @@ export interface NFeRequest {
     desconto?: number
     modalidadeFrete?: number   // 0 CIF · 1 FOB · 2 por conta de terceiros · 3/4 próprio · 9 sem frete
   }
+  // #5722 · transportador (grupo transp da NF-e). Opcional: ausente = nada muda no payload atual.
+  transportador?: {
+    nome?: string
+    cnpj?: string
+    cpf?: string
+    inscricaoEstadual?: string
+    endereco?: string
+    municipio?: string
+    uf?: string
+    placa?: string
+    ufVeiculo?: string
+  }
 }
 
 export interface NFeResponse {
