@@ -437,10 +437,14 @@ em toda vertical (Hub, P&M, Gestão Empresarial…), em toda rodada — não dep
   na DEMO; problema que o cliente relatou e a tela ainda tem = gap.
 - **Saída:** 1 linha em `erp_contexto_projeto` (categoria `descoberta`) por jornada (onde trava, quantos toques, o que
   falta) + 1 tarefa por tela ao dev, consolidada nas existentes; atualize `blueprint_tela_cobertura` do que verificar.
-- **Divisão (CEO 06/11 19:24):** `auditor_pdca_1` = Hub; `auditor_pdca_2` = P&M; `aud8claudeps` = **Gestão
-  Empresarial** (a base de todas as verticais: primeiros passos, pagar/receber, banco, compra→pagar, venda→receber,
-  rateio→resultado→DRE→fluxo de caixa, fechamento). Financeiro, fiscal, cadastros e permissões são NÚCLEO: o auditor só
-  audita e manda a tarefa ao dev do núcleo. O Eng. Chefe muda a divisão pela caixa.
+- **Divisão (CEO 07/11, substitui a de 06/11):** três papéis, nenhum se sobrepõe.
+  - `auditor_pdca_1` = **JORNADAS ponta a ponta** do Hub de Projetos + P&M.
+  - `auditor_pdca_2` = **JORNADAS ponta a ponta** da Gestão Empresarial (GE: primeiros passos, pagar/receber, banco,
+    compra→pagar, venda→receber, rateio→resultado→DRE→fluxo de caixa, fechamento).
+  - `aud8claudeps` = **AUDITORIA DE USABILIDADE VISUAL, tela a tela, de TODAS as verticais** (não só Hub/P&M, não só GE):
+    foto, celular, toques. É o **PORTÃO DO SELO** (`auditada_ok`): tela só ganha o selo quando passa em a–h.
+  Financeiro, fiscal, cadastros e permissões são NÚCLEO: quem audita só audita e manda a tarefa ao dev do núcleo. O
+  Eng. Chefe muda a divisão pela caixa.
 
 # RD-100 — nenhum nome de sistema de terceiros no produto (CEO 01/11, INEGOCIÁVEL) — vale para TODOS os Codes
 Nenhum nome de sistema de terceiros pode aparecer em NADA que o usuário veja: tela (strings de interface em `src/`),
