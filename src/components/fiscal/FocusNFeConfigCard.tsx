@@ -26,6 +26,7 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
 
   const [apiKey, setApiKey] = useState('')
   const [ambiente, setAmbiente] = useState<Ambiente>('homologacao')
+  const [ambienteNfe, setAmbienteNfe] = useState<Ambiente>('homologacao')
   const [serieNfse, setSerieNfse] = useState('1')
   const [proxNumNfse, setProxNumNfse] = useState('1')
   const [serieNfe, setSerieNfe] = useState('1')
@@ -47,6 +48,8 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
     setProvider(((c.provider as Provider) ?? 'gov_nfse_nacional'))
     setMunicipioIbge(((c.gov_nfse_municipio_codigo as string) ?? ''))
     setAmbiente(((c.ambiente as Ambiente) ?? 'homologacao'))
+    // #5666 · NULL no banco = NF-e herda o ambiente da NFS-e (nada muda para quem já existe).
+    setAmbienteNfe(((c.ambiente_nfe as Ambiente) ?? (c.ambiente as Ambiente) ?? 'homologacao'))
     setSerieNfse(String(c.serie_nfse_padrao ?? '1'))
     setProxNumNfse(String(c.proxima_numeracao_nfse ?? '1'))
     setSerieNfe(String(c.serie_nfe_padrao ?? '1'))
@@ -83,6 +86,7 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
         companyId,
         provider,
         ambiente,
+        ambienteNfe,
         serieNfsePadrao: serieNfse,
         proximaNumeracaoNfse: parseInt(proxNumNfse, 10) || 1,
         serieNfePadrao: serieNfe,
@@ -306,7 +310,7 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
         )}
 
         <div>
-          <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">Ambiente</label>
+          <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">Ambiente da NFS-e</label>
           <div className="grid grid-cols-2 gap-2">
             {(['homologacao', 'producao'] as const).map((amb) => (
               <button
@@ -324,6 +328,30 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
               </button>
             ))}
           </div>
+        </div>
+
+        <div>
+          <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">Ambiente da NF-e</label>
+          <div className="grid grid-cols-2 gap-2">
+            {(['homologacao', 'producao'] as const).map((amb) => (
+              <button
+                key={amb}
+                type="button"
+                disabled={!podeEditar}
+                onClick={() => setAmbienteNfe(amb)}
+                className={`px-3 py-2.5 text-[12.5px] font-medium rounded-lg border transition-colors disabled:opacity-50 ${
+                  ambienteNfe === amb
+                    ? 'bg-[#C8941A]/10 border-[#C8941A]/45 text-[#633806]'
+                    : 'bg-white border-[#3D2314]/15 text-[#3D2314] hover:bg-[#3D2314]/5'
+                }`}
+              >
+                {amb === 'homologacao' ? 'Homologação' : 'Produção'}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] mt-1 text-[#3D2314]/60">
+            Este ambiente vale só para NF-e. O ambiente acima vale só para NFS-e. Chave em uso na NF-e: {ambienteNfe === 'producao' ? 'produção' : 'homologação'}.
+          </p>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
