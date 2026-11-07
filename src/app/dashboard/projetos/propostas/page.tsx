@@ -52,6 +52,7 @@ export default function PropostasHubPage() {
   const [filtro, setFiltro] = useState('todos')
   const [meuId, setMeuId] = useState<string | null>(null)
   const [soMeus, setSoMeus] = useState(false)
+  const [usuariosPorEmpresa, setUsuariosPorEmpresa] = useState<Record<string, { id: string; full_name: string | null; email: string | null; is_active?: boolean }[]>>({})
   const [comp, setComp] = useState<Record<string, Composicao>>({})
   const [compErro, setCompErro] = useState(false)
   const [orig, setOrig] = useState<Record<string, Origem>>({})
@@ -134,6 +135,25 @@ export default function PropostasHubPage() {
   useEffect(() => { carregar() }, [carregar])
   // Quem está logado — para o filtro "meus orçamentos" (compara com orcamentista_id)
   useEffect(() => { let vivo = true; supabase.auth.getUser().then(({ data }) => { if (vivo) setMeuId(data.user?.id ?? null) }).catch(() => {}); return () => { vivo = false } }, [])
+  // #3270/#3271 — orçamentistas da empresa, para ATRIBUIR na própria linha da lista do Hub (mesma fonte/update de /dashboard/orcamentos, sem sair do Hub)
+  useEffect(() => {
+    if (!companyIds?.length) return
+    let vivo = true
+    Promise.all(companyIds.map(async cid => {
+      const { data } = await supabase.rpc('fn_usuarios_da_empresa', { p_company_id: cid })
+      return [cid, ((data || []) as { id: string; full_name: string | null; email: string | null; is_active?: boolean }[]).filter(u => u.is_active !== false)] as const
+    })).then(r => { if (vivo) setUsuariosPorEmpresa(Object.fromEntries(r)) }).catch(() => {})
+    return () => { vivo = false }
+  }, [companyIds])
+  // Atribuir/remover orçamentista direto na lista do Hub (muda rascunho → "Em elaboração"; remover volta a rascunho)
+  async function atribuirOrcamentista(l: Proposta, uid: string) {
+    const u = (usuariosPorEmpresa[l.company_id] || []).find(x => x.id === uid)
+    const nome = u ? (u.full_name || u.email || null) : null
+    const { error } = await supabase.from('erp_orcamentos').update({ orcamentista_id: uid || null, orcamentista_nome: uid ? nome : null }).eq('id', l.id)
+    if (error) { setMsgErro(erroAmigavel(error, 'Não foi possível atribuir o orçamentista.')); return }
+    setLinhas(ls => ls.map(x => x.id === l.id ? { ...x, orcamentista_id: uid || null, orcamentista_nome: uid ? nome : null } : x))
+    setMsg(uid ? `${nome ?? 'Orçamentista'} agora é o orçamentista de ${l.numero ?? 'proposta'}.` : `Orçamentista removido de ${l.numero ?? 'proposta'}.`); setMsgErro(''); setTimeout(() => setMsg(''), 3000)
+  }
 
   // Só proposta que não virou negócio pode sair (o banco confere de novo)
   const podeExcluir = (l: Proposta) => ['rascunho', 'enviado', 'visualizado', 'recusado', 'expirado'].includes(l.status) && !l.obra_id
@@ -317,7 +337,8 @@ export default function PropostasHubPage() {
               </tr></thead>
               <tbody>
                 {vis.slice(0, mostrar).map(l => {
-                  const st = STATUS[l.status] ?? { cor: MUT, label: l.status }
+                  const emElaboracao = l.status === 'rascunho' && !!l.orcamentista_id
+                  const st = emElaboracao ? { cor: '#3B82F6', label: 'Em elaboração' } : STATUS[l.status] ?? { cor: MUT, label: l.status }
                   const dias = ABERTAS.includes(l.status as typeof ABERTAS[number]) ? diasParaVencer(l.data_validade) : null
                   const corVal = dias === null ? ESP : dias < 0 ? '#B91C1C' : dias <= 7 ? '#B45309' : ESP
                   const c = comp[l.id]
@@ -333,9 +354,19 @@ export default function PropostasHubPage() {
                       </td>
                       <td style={{ padding: '8px 12px' }}>{l.cliente_nome ?? '—'}</td>
                       <td style={{ padding: '8px 12px', fontSize: 12 }} data-testid="hub-proposta-orcamentista">
-                        {l.orcamentista_nome
-                          ? <span style={meuId && l.orcamentista_id === meuId ? { color: GOLD, fontWeight: 600 } : undefined}>{l.orcamentista_nome}{meuId && l.orcamentista_id === meuId ? ' · você' : ''}</span>
-                          : <span style={{ color: '#B45309' }}>sem orçamentista</span>}
+                        {(() => {
+                          const users = usuariosPorEmpresa[l.company_id] || []
+                          const falta = !!l.orcamentista_id && !users.some(u => u.id === l.orcamentista_id)
+                          return (
+                            <select aria-label="Orçamentista" data-testid="hub-proposta-orcamentista-select" value={l.orcamentista_id || ''} onChange={e => void atribuirOrcamentista(l, e.target.value)}
+                              style={{ fontSize: 12, padding: '4px 6px', borderRadius: 6, border: `1px solid ${LINE}`, background: '#fff', color: l.orcamentista_id ? ESP : '#B45309', maxWidth: 160, cursor: 'pointer' }}>
+                              <option value="">sem orçamentista</option>
+                              {falta && <option value={l.orcamentista_id!}>{l.orcamentista_nome || 'orçamentista atual'}</option>}
+                              {users.map(u => <option key={u.id} value={u.id}>{u.full_name || u.email || 'usuário'}</option>)}
+                            </select>
+                          )
+                        })()}
+                        {meuId && l.orcamentista_id === meuId && <span style={{ display: 'block', color: GOLD, fontWeight: 600, marginTop: 2 }}>você</span>}
                       </td>
                       <td style={{ padding: '8px 12px', fontSize: 12, maxWidth: 220 }} data-testid="hub-proposta-origem">
                         {origErro ? '—' : !temOrigem(o) ? <span style={{ color: MUT }}>avulsa</span> : (
