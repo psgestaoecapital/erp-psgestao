@@ -198,7 +198,9 @@ export default function TabelasPrecoPage() {
         {!loading && !erro && tabelas.length === 0 && (
           <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 20 }} data-testid="tabelas-vazio">
             <b>Nenhuma tabela de preço cadastrada.</b>
-            <p style={{ fontSize: 14, color: MUT }}>A tabela do cliente (faixas de quantidade e adicionais por turno) entra pela importação de planilha, na próxima entrega. Enquanto isso, o Eng. Chefe carrega a primeira tabela.</p>
+            {podeGravar
+              ? <p style={{ fontSize: 14, color: MUT }} data-testid="tabelas-vazio-admin">Crie a primeira tabela ou importe a planilha do cliente no bloco <b>“Editar contrato”</b> abaixo. A tabela guarda as faixas de quantidade e os adicionais por turno de cada serviço do contrato.</p>
+              : <p style={{ fontSize: 14, color: MUT }} data-testid="tabelas-vazio-consulta">Ainda não há contrato cadastrado para esta empresa. O cadastro das faixas e adicionais fica com o administrativo; assim que a primeira tabela entrar, os preços aparecem aqui.</p>}
           </div>
         )}
         {!loading && !erro && tabelas.length > 0 && (
