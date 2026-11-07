@@ -13,6 +13,7 @@ import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { dataBrasil } from '@/lib/fiscal/dataBrasil'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERM = '#B91C1C', VERDE = '#15803D'
 
@@ -39,7 +40,9 @@ const STATUS: Record<OS['status'], { rotulo: string; cor: string; fundo: string 
 }
 const PRIORIDADES = [['baixa', 'Baixa'], ['normal', 'Normal'], ['alta', 'Alta'], ['urgente', 'Urgente']] as const
 const VAZIO = { obra_id: '', tarefa_id: '', obra_item_id: '', descricao: '', equipe: '', responsavel: '', data_prevista: '', prioridade: 'normal' }
-const hoje = () => new Date().toISOString().slice(0, 10)
+// "Hoje" é o dia do canteiro (fuso America/Sao_Paulo), não o de UTC: depois das 21h de Brasília o toISOString()
+// já virava o dia seguinte e marcava como "atrasada" uma OS que vence HOJE (e barrava o diário do próprio dia).
+const hoje = () => dataBrasil()
 const dataBR = (d: string | null) => (d ? d.split('-').reverse().join('/') : '')
 const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const num = (v: string) => Number(v.replace(',', '.'))
