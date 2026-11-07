@@ -1,5 +1,6 @@
 'use client'
 
+import { estadoCertificado } from '@/lib/fiscal/certificado-validade'
 import { useRef, useState } from 'react'
 import { authFetch } from '@/lib/authFetch'
 // HOTFIX Configuração Fiscal: só o TIPO no bundle inicial. O parser puxa `node-forge` (biblioteca
@@ -87,6 +88,7 @@ export default function CertificadoUploadCard({ companyId, certificadoAtual, onA
   const razaoSocial = certificadoAtual?.razao_social_certificado as string | undefined
   const cnpjAtual = certificadoAtual?.cnpj_certificado as string | undefined
   const validadeFim = certificadoAtual?.validade_fim as string | undefined
+  const est = estadoCertificado(validadeFim)
 
   return (
     <div className="bg-white border border-[#3D2314]/10 rounded-xl overflow-hidden">
@@ -96,8 +98,17 @@ export default function CertificadoUploadCard({ companyId, certificadoAtual, onA
           <h2 className="text-[15px] font-medium text-[#3D2314]">Configuração Fiscal</h2>
         </div>
         {certificadoAtual && (
-          <span className="text-[10px] bg-[#C0DD97] text-[#173404] px-2.5 py-1 rounded-full font-medium tracking-[0.3px]">
-            ATIVO
+          <span
+            data-testid="cert-selo"
+            className={`text-[10px] px-2.5 py-1 rounded-full font-medium tracking-[0.3px] ${
+              est.estado === 'vencido'
+                ? 'bg-[#F7C1C1] text-[#791F1F]'
+                : est.estado === 'vencendo'
+                  ? 'bg-[#FAC775] text-[#412402]'
+                  : 'bg-[#C0DD97] text-[#173404]'
+            }`}
+          >
+            {est.estado === 'vencido' ? 'VENCIDO' : est.estado === 'vencendo' ? 'VENCE EM BREVE' : 'ATIVO'}
           </span>
         )}
       </div>
@@ -117,6 +128,17 @@ export default function CertificadoUploadCard({ companyId, certificadoAtual, onA
                 </div>
               </div>
             </div>
+            {est.estado === 'vencido' && validadeFim && (
+              <p data-testid="cert-aviso" className="text-[12px] text-[#791F1F] bg-[#FCEBEB] rounded-lg px-3 py-2">
+                Certificado vencido em {new Date(validadeFim).toLocaleDateString('pt-BR')}; envie um novo.
+                Remova este e envie o certificado atualizado para voltar a emitir notas.
+              </p>
+            )}
+            {est.estado === 'vencendo' && est.dias !== null && (
+              <p data-testid="cert-aviso" className="text-[12px] text-[#412402] bg-[#FAEEDA] rounded-lg px-3 py-2">
+                Este certificado vence em {est.dias} {est.dias === 1 ? 'dia' : 'dias'}. Providencie um novo.
+              </p>
+            )}
             <button
               type="button"
               onClick={remover}
