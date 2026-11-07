@@ -138,6 +138,8 @@ DECLARE
   v_com_id uuid;
   v_com_valor numeric;
 BEGIN
+  -- ci-sem-guarda: fn_pm_job_aprovar_publico — a guarda é o TOKEN do job (cliente é anon e não tem empresa);
+  -- a empresa e o vendedor vêm do PRÓPRIO job casado pelo token, nunca de parâmetro do cliente.
   SELECT id, company_id, status, titulo, valor_job, percentual_comissao, responsavel_id
     INTO v_id, v_comp, v_status, v_titulo, v_valor, v_pct, v_resp
     FROM agency_jobs WHERE aprovacao_token = p_token AND excluido_em IS NULL FOR UPDATE;
@@ -207,6 +209,7 @@ DECLARE
   v_now   timestamptz := now();
   v_nome  text;
 BEGIN
+  -- ci-sem-guarda: fn_pm_job_solicitar_ajustes_publico — guarda é o TOKEN do job (cliente anon), não a empresa do usuário.
   SELECT id, company_id, status, titulo
     INTO v_id, v_comp, v_status, v_titulo
     FROM agency_jobs WHERE aprovacao_token = p_token AND excluido_em IS NULL FOR UPDATE;
@@ -238,7 +241,10 @@ END;
 $function$;
 
 -- 3) Grants. Interno só para authenticated; RPCs de token (guardadas) também para anon (como /p/orcamento).
-REVOKE ALL ON FUNCTION public.fn_pm_job_gerar_link_aprovacao(uuid) FROM public;
+-- ci-allow-anon: rota PÚBLICA de aprovação do job pelo cliente — o token é conferido no corpo de cada função e
+-- cada RPC só enxerga o job casado pelo token (nunca outro job/empresa), análogo a /p/orcamento/[token].
+-- As 3 funções públicas estão em scripts/anon-funcoes-aprovadas.ts (lista aprovada pelo CEO/revisor).
+REVOKE ALL ON FUNCTION public.fn_pm_job_gerar_link_aprovacao(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_pm_job_gerar_link_aprovacao(uuid) TO authenticated, service_role;
 
 REVOKE ALL ON FUNCTION public.fn_pm_job_aprovacao_por_token(text) FROM public;
