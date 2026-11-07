@@ -14,6 +14,7 @@
 -- Nunca toca dado de cliente nem empresa não-demo.
 
 -- 1) Função de seed idempotente (demo-only)
+-- ci-sem-guarda: fn_demo_seed_pm_eventos_custos — só a empresa de demonstração fixa da P&M (is_demo, conferido no topo); sem GRANT a usuário, roda pelo fn_demo_reset (service_role); nunca toca dado de cliente nem empresa não-demo
 CREATE OR REPLACE FUNCTION public.fn_demo_seed_pm_eventos_custos(p_company_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -174,6 +175,10 @@ BEGIN
 
   RETURN jsonb_build_object('ok', true, 'empresa', v_nome, 'seed', v_seed, 'resultado', v_res);
 END $function$;
+
+-- Espelha a ACL viva de fn_demo_reset (só service_role; anon/authenticated/PUBLIC já sem EXECUTE) para o gate check_fn_guards.
+REVOKE ALL ON FUNCTION public.fn_demo_reset(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_demo_reset(uuid) TO service_role;
 
 -- 3) Carga inicial na DEMO existente (produção + banco de testes); idempotente
 DO $$
