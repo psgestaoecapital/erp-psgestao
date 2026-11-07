@@ -146,11 +146,30 @@ function ProducaoPageInner() {
       const r = await supabase.from('user_companies').select('companies(id,nome_fantasia,razao_social)').eq('user_id', user.id)
       d = ((r.data ?? []) as unknown as Array<{ companies: { id: string; nome_fantasia: string | null; razao_social: string | null } | null }>)
         .map((u) => u.companies).filter(Boolean) as typeof d
+      // determinístico: ordena a lista do usuário não-admin (o banco não garante ordem)
+      d.sort((a, b) => (a.nome_fantasia ?? a.razao_social ?? '').localeCompare(b.nome_fantasia ?? b.razao_social ?? ''))
     }
     setCompanies(d)
     const s = empresaParam || (typeof window !== 'undefined' ? localStorage.getItem('ps_empresa_sel') : '') || ''
     const m = s ? d.find((c) => c.id === s) : null
-    setSel(m ? m.id : (d[0]?.id ?? ''))
+    // Sem escolha explícita (param/localStorage): preferir a empresa que TEM dado de agência
+    // nesta tela, em vez de cair no primeiro da lista (conta com muitas empresas abria o
+    // Workspace zerado numa empresa sem jobs, apesar de haver jobs reais noutra). RD-98 pilar 1.
+    let padrao = d[0]?.id ?? ''
+    if (!m && d.length > 1) {
+      const ids = d.map((c) => c.id)
+      const { data: jrows } = await supabase.from('agency_jobs').select('company_id').is('excluido_em', null).in('company_id', ids).limit(2000)
+      const comJobs = new Set((jrows ?? []).map((r: { company_id: string }) => r.company_id))
+      const comData = d.find((c) => comJobs.has(c.id))
+      if (comData) {
+        padrao = comData.id
+      } else {
+        const { data: crows } = await supabase.from('agency_clientes').select('company_id').is('excluido_em', null).in('company_id', ids).limit(2000)
+        const comCli = new Set((crows ?? []).map((r: { company_id: string }) => r.company_id))
+        padrao = d.find((c) => comCli.has(c.id))?.id ?? padrao
+      }
+    }
+    setSel(m ? m.id : padrao)
     setLoading(false)
   }
 
