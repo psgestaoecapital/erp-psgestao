@@ -257,29 +257,14 @@ VALUES
 ON CONFLICT (chave) DO NOTHING;
 
 -- --------------------------------------------------------------------------------------------------------------------
--- 5) Seed DEMO (só empresa is_demo) — uma remessa de ativo imobilizado "em aberto" para a tela ter o que mostrar
+-- 5) Seed DEMO — REMOVIDO (conserto-main, gilberto-esteira 07/11)
 -- --------------------------------------------------------------------------------------------------------------------
--- Empresa DEMO Indústria (envia equipamento para uso fora do estabelecimento). Idempotente por chave fictícia DEMO.
-INSERT INTO public.erp_nfe_emitidas
-  (company_id, provider, provider_reference, ambiente, data_emissao, natureza_operacao, finalidade, valor_total,
-   emitente_cnpj, emitente_razao_social, destinatario_razao_social, numero, serie, chave, status, itens, modelo)
-SELECT
-  c.id, 'demo', 'DEMO-REMESSA-ATIVO-5167', 'homologacao',
-  (now() - interval '28 days'),
-  'Remessa de bem do ativo imobilizado para uso fora do estabelecimento',
-  'normal', 8500.00,
-  '00000000000191', c.razao_social, 'Obra Demonstração — Canteiro Norte',
-  '900001', '1',
-  '35261100000000000191550010009000010000000001',
-  'autorizada',
-  jsonb_build_array(jsonb_build_object(
-    'codigo','ATIVO-001','descricao','Furadeira de bancada (ativo imobilizado)','ncm','84594900',
-    'cfop','5554','quantidade',1,'valorUnitario',8500.00,'valorTotal',8500.00,'unidade','UN')),
-  '55'
-FROM public.companies c
-WHERE c.is_demo = true
-  AND c.id = 'b0700000-0000-4000-a000-000000000005'::uuid
-  AND NOT EXISTS (
-    SELECT 1 FROM public.erp_nfe_emitidas e
-     WHERE e.company_id = c.id AND e.provider_reference = 'DEMO-REMESSA-ATIVO-5167'
-  );
+-- O seed original inseria uma NF-e de remessa fictícia na empresa DEMO Indústria
+-- (b0700000-0000-4000-a000-000000000005). Essa empresa tem companies.ambiente_tenant='auditoria',
+-- e o guard fiscal fn_bloqueia_emissao_nao_produtiva (trigger trg_bloqueia_emissao_demo em
+-- erp_nfe_emitidas) BLOQUEIA qualquer linha de NF-e emitida para empresa não-produção
+-- ("Operacao real bloqueada: esta empresa e de auditoria", SQLSTATE 23514). O seed por isso
+-- NUNCA aplica e derrubava o deploy-migrations (run 42409935665, commit f7a1f10).
+-- Por design fiscal nenhuma empresa DEMO/auditoria tem NF-e emitida, então a tela de controle
+-- mostra o estado vazio em DEMO (RD-95). O guard NÃO é alterado. Só o seed foi removido:
+-- o corpo aditivo acima (tabela + 2 funções + ajuda RD-95) é o mesmo da PR #4041 revisada.
