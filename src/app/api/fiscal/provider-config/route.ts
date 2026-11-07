@@ -17,6 +17,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       provider,
       govNfseMunicipioCodigo,
       govNfseMunicipioAderido,
+      ambienteNfe,
     } = body as Record<string, unknown>
 
     if (typeof companyId !== 'string' || typeof ambiente !== 'string') {
@@ -53,6 +54,8 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       ativo: true,
       atualizado_por: userId,
     }
+    // #5666 · ambiente só da NF-e (opcional; ausente = não mexe — NULL no banco herda `ambiente`). Não toca cofre/numeração.
+    if (ambienteNfe === 'homologacao' || ambienteNfe === 'producao') payload.ambiente_nfe = ambienteNfe
 
     if (providerFinal === 'gov_nfse_nacional') {
       const codigo =

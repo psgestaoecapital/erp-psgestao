@@ -57,6 +57,9 @@ interface CreateFiscalServiceOpts {
   // FEAT-NFE-PRODUTO-2-CARD-PEDIDO-v1 · override SO desce pra homologacao
   // body NUNCA consegue subir pra producao a partir desta opcao
   ambienteOverride?: 'homologacao' | 'producao'
+  // #5666 · tipo de nota: 'nfe' usa erp_fiscal_provider_config.ambiente_nfe (quando preenchido); sem tipo ou 'nfse'
+  // segue o `ambiente` de sempre. Coluna vazia = herda `ambiente` (nenhuma empresa muda ao publicar).
+  tipo?: 'nfe' | 'nfse'
 }
 
 export async function createFiscalService(
@@ -93,7 +96,7 @@ export async function createFiscalService(
 
   const { data: configRow, error: cfgErr } = await supabaseAdmin
     .from('erp_fiscal_provider_config')
-    .select('api_key_encrypted, ambiente')
+    .select('*')
     .eq('company_id', companyId)
     .eq('provider', 'focusnfe')
     .eq('ativo', true)
@@ -106,7 +109,12 @@ export async function createFiscalService(
   // FEAT-NFE-PRODUTO-2-CARD-PEDIDO-v1
   // ambiente da config + override anti-engano: SO desce pra homologacao;
   // body NUNCA consegue subir pra producao
-  const configAmbiente = (configRow.ambiente ?? 'homologacao') as FiscalAmbiente
+  const ambienteNfe = (configRow as { ambiente_nfe?: string | null }).ambiente_nfe
+  const configAmbiente = (
+    opts.tipo === 'nfe' && (ambienteNfe === 'producao' || ambienteNfe === 'homologacao')
+      ? ambienteNfe
+      : (configRow.ambiente ?? 'homologacao')
+  ) as FiscalAmbiente
   const ambiente: FiscalAmbiente =
     opts.ambienteOverride === 'homologacao' ? 'homologacao' : configAmbiente
 
