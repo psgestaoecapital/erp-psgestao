@@ -116,11 +116,25 @@ function ProducaoPageInner() {
   const [novaEtapa, setNovaEtapa] = useState<{ titulo: string; responsavel_id: string; data_prazo: string; horas_estimadas: string }>({ titulo: '', responsavel_id: '', data_prazo: '', horas_estimadas: '' })
   const [etapaBusy, setEtapaBusy] = useState<string | null>(null)
   const [maisDetalhesJob, setMaisDetalhesJob] = useState(false)
+  // Alerta amarelo (nunca bloqueia) quando o job novo ultrapassa o contratado do item (RD-38, blueprint)
+  const [previaContratado, setPreviaContratado] = useState<string | null>(null)
   // "Copiar de um job pronto" (CEO 03/10): null = fechado; '' = busca; id = já na prévia desse job
   const [copiar, setCopiar] = useState<string | null>(null)
 
   useEffect(() => { void loadCompanies() }, [])
   useEffect(() => { if (sel) void loadAll() }, [sel]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Prévia do contratado ao montar um job novo: avisa (sem bloquear) se o job ultrapassa o contratado do item.
+  useEffect(() => {
+    if (showForm !== 'job' || editId || !sel || !form.cliente_id || !form.tipo) { setPreviaContratado(null); return }
+    let cancel = false
+    void (async () => {
+      const { data } = await supabase.rpc('fn_pm_job_previa_contratado', { p_company_id: sel, p_cliente_id: form.cliente_id as string, p_tipo: form.tipo as string, p_servico_id: null })
+      if (cancel) return
+      const r = data as { estouraria?: boolean; mensagem?: string } | null
+      setPreviaContratado(r?.estouraria ? (r.mensagem ?? 'Atenção: este job ultrapassa o contratado do item no período. Segue permitido.') : null)
+    })()
+    return () => { cancel = true }
+  }, [showForm, editId, sel, form.cliente_id, form.tipo]) // eslint-disable-line react-hooks/exhaustive-deps
   // Bloco 1: /dashboard/producao?novo=job (botão "Novo job" da Pauta) já abre o formulário
   const novoDoLink = useRef(false)
   useEffect(() => {
@@ -550,6 +564,13 @@ function ProducaoPageInner() {
               onLimpar={() => setForm({ ...form, cliente_id: null, cliente_nome_tmp: '' })} />
             <Select label="Peça / tipo" testId="job-tipo" v={(form.tipo as string) ?? ''} on={(v) => setForm({ ...form, tipo: v || null })}
               opts={[['', '— que peça vai ser feita —'], ...TIPOS_PECA]} />
+            {previaContratado && (
+              <div data-testid="job-alerta-contratado" style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#FFF7E3', border: `1px solid #E7C96A`, borderRadius: 10, padding: '9px 12px', color: YELLOW, fontSize: 12.5 }}>
+                <span style={{ fontSize: 15, lineHeight: 1 }}>⚠️</span>
+                <span style={{ flex: 1 }}>{previaContratado} <b>Você pode criar o job mesmo assim.</b></span>
+                <AjudaCampo chave="pm.producao.alerta_contratado" />
+              </div>
+            )}
             <label style={lbl}>
               <span style={{ display: 'flex', alignItems: 'center' }}>Título *<AjudaCampo chave="pm.job.titulo" /></span>
               <textarea data-testid="job-titulo" rows={2} value={(form.titulo as string) ?? ''}

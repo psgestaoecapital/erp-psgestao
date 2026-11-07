@@ -34,7 +34,7 @@ type Contrato = {
   itens_total: number; itens_a_mais: number; escopo_status: string
 }
 type Servico = { id: string; nome: string; unidade: string | null; periodicidade: string | null }
-type GeContrato = { id: string; numero: string | null; cliente_nome: string | null; valor_atual: number | null }
+type GeContrato = { id: string; numero: string | null; cliente_nome: string | null; valor_atual: number | null; status: string | null }
 type RealItem = {
   item_id: string; servico_id: string | null; tipo_servico: string; servico_nome: string
   quantidade_contratada: number | null; unidade: string | null; periodicidade: string | null; sem_limite: boolean
@@ -55,6 +55,7 @@ export default function ContratosPage() {
   const [vincular, setVincular] = useState<Contrato | null>(null)
   const [esteira, setEsteira] = useState<Record<string, Esteira>>({})
   const [planejando, setPlanejando] = useState<string | null>(null)
+  const [enviando, setEnviando] = useState<string | null>(null)
 
   const carregar = async () => {
     if (!empresa) { setLoading(false); return }
@@ -62,7 +63,7 @@ export default function ContratosPage() {
     const [c, sv, ge] = await Promise.all([
       supabase.rpc('fn_agency_contrato_listar', { p_company_id: empresa }),
       supabase.from('agency_servico').select('id, nome, unidade, periodicidade').eq('company_id', empresa).eq('ativo', true).order('ordem'),
-      supabase.from('erp_contratos').select('id, numero, cliente_nome, valor_atual').eq('company_id', empresa).order('data_inicio', { ascending: false }),
+      supabase.from('erp_contratos').select('id, numero, cliente_nome, valor_atual, status').eq('company_id', empresa).order('data_inicio', { ascending: false }),
     ])
     const lista = (c.data ?? []) as Contrato[]
     setContratos(lista)
@@ -133,6 +134,40 @@ export default function ContratosPage() {
     setToast(`Contrato ALTERADO para ${stCfg(status).l}.`); void carregar()
   }
 
+  // Elo contrato → financeiro (PDCA 06/11): um clique envia o fee recorrente ao financeiro (GE), que
+  // RECEBE a solicitação (erp_contratos status 'solicitado', cliente+valor já carregados) e ativa sem
+  // redigitar. Reusa fn_agency_contrato_solicitar_financeiro (idempotente: não duplica se já houver elo).
+  async function enviarFinanceiro(c: Contrato) {
+    setEnviando(c.contrato_id)
+    const { data, error } = await supabase.rpc('fn_agency_contrato_solicitar_financeiro', { p_agency_contrato_id: c.contrato_id })
+    setEnviando(null)
+    if (error) {
+      setToast(/permission|rls|policy|acesso/i.test(error.message) ? 'Sem permissão para enviar este contrato ao financeiro.' : `Erro ao enviar ao financeiro: ${error.message}`)
+      return
+    }
+    const j = data as { ok?: boolean; erro?: string; ja_vinculado?: boolean } | null
+    if (j && j.ok === false) {
+      const motivo: Record<string, string> = {
+        nao_recorrente: 'Só contratos recorrentes geram cobrança no financeiro. Para projeto, vincule a um contrato da GE.',
+        sem_fee_mensal: 'Defina o fee mensal do contrato antes de enviar ao financeiro.',
+        sem_cliente_financeiro: 'Vincule o cliente à Gestão Empresarial antes de enviar ao financeiro.',
+        contrato_nao_encontrado: 'Contrato não encontrado.',
+        sem_acesso: 'Sem permissão para enviar este contrato ao financeiro.',
+      }
+      setToast(motivo[j.erro ?? ''] ?? `Não foi possível enviar: ${j.erro ?? 'falha'}`)
+      return
+    }
+    setToast(j?.ja_vinculado ? 'Este contrato já está no financeiro.' : 'Solicitação enviada ao financeiro — aguardando a equipe financeira ativar a cobrança.')
+    void carregar()
+  }
+
+  // Status do contrato espelhado no financeiro (GE), por id, para o selo "aguardando ativar" × "ativo".
+  const erpStatusById = useMemo(() => {
+    const m = new Map<string, string | null>()
+    for (const g of geContratos) m.set(g.id, g.status)
+    return m
+  }, [geContratos])
+
   const kpis = useMemo(() => ({
     ativos: contratos.filter((c) => c.status === 'ativo').length,
     mrr: contratos.filter((c) => c.status === 'ativo' && c.tipo === 'recorrente').reduce((s, c) => s + Number((c.tem_contrato_ge ? c.ge_valor_mensal : c.fee_mensal) ?? 0), 0),
@@ -180,6 +215,7 @@ export default function ContratosPage() {
               {contratos.map((c) => {
                 const exp = expand[c.contrato_id]
                 const feeMostrar = c.tem_contrato_ge ? c.ge_valor_mensal : c.fee_mensal
+                const erpSt = c.erp_contrato_id ? (erpStatusById.get(c.erp_contrato_id) ?? null) : null
                 return (
                   <div key={c.contrato_id} style={{ background: '#fff', border: `1px solid ${c.itens_a_mais > 0 ? RED : BORDA}`, borderRadius: 12, padding: '12px 14px' }}>
                     <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -189,12 +225,42 @@ export default function ContratosPage() {
                           {c.tipo === 'recorrente' ? `${brl(Number(feeMostrar ?? 0))}/mês` : brl(Number(c.ge_valor_mensal ?? c.fee_mensal ?? 0))}
                           {c.data_inicio ? ` · desde ${c.data_inicio}` : ''}
                         </div>
-                        {!c.tem_contrato_ge && (
+                        {/* Elo contrato → financeiro (PDCA 06/11): recorrente sem elo envia em 1 clique; projeto segue o vínculo manual. */}
+                        {!c.erp_contrato_id && c.tipo === 'recorrente' && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                            <button data-testid="contrato-enviar-financeiro" disabled={enviando === c.contrato_id} onClick={() => void enviarFinanceiro(c)}
+                              style={{ fontSize: 11, color: '#fff', background: enviando === c.contrato_id ? '#caa94f' : DOURADO, border: 'none', borderRadius: 8, padding: '4px 10px', cursor: 'pointer', fontWeight: 700 }}>
+                              {enviando === c.contrato_id ? 'Enviando…' : '📤 Enviar ao financeiro'}
+                            </button>
+                            <AjudaCampo chave="pm.contratos.acao_enviar_financeiro" />
+                            <button onClick={() => setVincular(c)} style={{ fontSize: 11, color: TEXTM, background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer' }}>
+                              ou vincular a um contrato já criado
+                            </button>
+                            <AjudaCampo chave="pm.contratos.acao_vincular_ge" />
+                          </span>
+                        )}
+                        {!c.erp_contrato_id && c.tipo !== 'recorrente' && (
                           <span style={{ display: 'inline-flex', alignItems: 'center', marginTop: 4 }}>
                             <button onClick={() => setVincular(c)} style={{ fontSize: 11, color: RED, background: '#F9E4E4', border: `1px solid ${RED}`, borderRadius: 8, padding: '3px 8px', cursor: 'pointer', fontWeight: 600 }}>
                               ⚠️ sem contrato na GE — não gera faturamento · vincular
                             </button>
                             <AjudaCampo chave="pm.contratos.acao_vincular_ge" />
+                          </span>
+                        )}
+                        {c.erp_contrato_id && erpSt === 'solicitado' && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', marginTop: 4 }} data-testid="contrato-aguardando-financeiro">
+                            <span style={{ fontSize: 11, color: '#8a6d1a', background: '#FFF3D6', border: `1px solid ${AMBER}`, borderRadius: 8, padding: '3px 8px', fontWeight: 600 }}>
+                              ⏳ enviado ao financeiro — aguardando ativar a cobrança
+                            </span>
+                            <AjudaCampo chave="pm.contratos.status_financeiro" />
+                          </span>
+                        )}
+                        {c.erp_contrato_id && erpSt === 'ativo' && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', marginTop: 4 }} data-testid="contrato-financeiro-ativo">
+                            <span style={{ fontSize: 11, color: GREEN, background: '#DCEFD7', border: `1px solid ${GREEN}`, borderRadius: 8, padding: '3px 8px', fontWeight: 600 }}>
+                              ✅ ativo no financeiro — gera faturamento
+                            </span>
+                            <AjudaCampo chave="pm.contratos.status_financeiro" />
                           </span>
                         )}
                       </div>
