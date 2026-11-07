@@ -97,6 +97,7 @@ export default function DocumentosRecebidosPage() {
   const [loading, setLoading] = useState(true)
   const [buscando, setBuscando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [podeEstornar, setPodeEstornar] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [filtroStatus, setFiltroStatus] = useState<string>('todos')
   // #1692 · abas: a tela abre na fila de trabalho; nota concluída sai dela e vai para "Concluídas"
@@ -211,6 +212,18 @@ export default function DocumentosRecebidosPage() {
     setTimeout(() => setToast(null), 6000)
     void carregar(true)
   }
+
+  // #5730 · botão Estornar só para perfil financeiro/gestão (a função do banco confere de novo por empresa)
+  useEffect(() => {
+    let vivo = true
+    ;(async () => {
+      const ids = companyIds ?? []
+      if (!ids.length) { if (vivo) setPodeEstornar(false); return }
+      const r = await Promise.all(ids.map((id) => supabase.rpc('fn_nfe_recebida_pode_estornar', { p_company_id: id })))
+      if (vivo) setPodeEstornar(r.some((x) => x.data === true))
+    })()
+    return () => { vivo = false }
+  }, [companyIds])
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -381,6 +394,26 @@ export default function DocumentosRecebidosPage() {
     if (mov > 0) partes.push(`${mov} item(ns) deram entrada no estoque`)
     if (pend > 0) partes.push(`${pend} pendente(s) de vínculo`)
     return { ok: true, msg: partes.join(' · ') }
+  }
+
+  // #5730 · Estornar entrada: reverte estoque + título a pagar da nota lançada (motivo obrigatório, com rastro no banco).
+  async function estornarEntrada(n: Linha) {
+    const motivo = window.prompt(
+      `Estornar a entrada da nota ${n.numero ?? ''}? Isso desfaz o estoque e cancela o título a pagar gerado. Informe o motivo (mínimo 5 letras):`,
+    )
+    if (motivo === null) return
+    if (motivo.trim().length < 5) { setErro('Informe o motivo do estorno (mínimo 5 letras).'); return }
+    setProcessando((p) => ({ ...p, [n.id]: true }))
+    setErro(null)
+    const { data, error } = await supabase.rpc('fn_nfe_recebida_estornar_entrada', {
+      p_nfe_recebida_id: n.id, p_motivo: motivo.trim(),
+    })
+    setProcessando((p) => ({ ...p, [n.id]: false }))
+    const r = data as { ok?: boolean; erro?: string; ja_estornado?: boolean } | null
+    if (error || !r?.ok) { setErro(`Não consegui estornar: ${error?.message ?? r?.erro ?? 'sem retorno'}`); return }
+    setToast(r.ja_estornado ? 'Esta entrada já estava estornada.' : '✅ Entrada estornada: estoque e título a pagar revertidos.')
+    await carregar(true)
+    setTimeout(() => setToast(null), 5000)
   }
 
   async function lancarUma(nfeId: string) {
@@ -846,6 +879,21 @@ export default function DocumentosRecebidosPage() {
                         >
                           <Eye size={11} /> DANFE
                         </button>
+                        {n.lancado_pagar && podeEstornar && (
+                          <span className="inline-flex items-center gap-1">
+                            <button
+                              type="button"
+                              data-testid="nfe-estornar-entrada"
+                              disabled={!!processando[n.id]}
+                              onClick={() => void estornarEntrada(n)}
+                              title="Desfaz a entrada no estoque e cancela o título a pagar desta nota (pede motivo)"
+                              className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border border-[#B3261E]/40 text-[#B3261E] hover:bg-[#B3261E]/5 disabled:opacity-60"
+                            >
+                              <RotateCcw size={11} /> Estornar entrada
+                            </button>
+                            <AjudaCampo chave="compras.docs_recebidos.estornar_entrada" />
+                          </span>
+                        )}
                         {/* Devolver ao fornecedor: abre a NF-e de devolução pré-preenchida por esta nota (chave/fornecedor/itens). */}
                         <Link
                           href={`/dashboard/fiscal/nfe/devolucao?recebida_id=${n.id}`}
