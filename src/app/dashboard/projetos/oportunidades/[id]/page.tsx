@@ -279,8 +279,12 @@ export default function OportunidadeFichaPage() {
     const nomeCli = cli?.nome_fantasia ?? cli?.razao_social ?? ''
     const { data: numero, error: numErr } = await supabase.rpc('next_orcamento_numero', { p_company_id: op.company_id })
     if (numErr) { setToast(erroAmigavel(numErr)); return null }
+    // #3269/Tryo: a validade do orçamento gerado da oportunidade segue o padrão DA EMPRESA
+    // (orcamento_config_empresa.validade_dias), não um fixo de 15 dias — mesma regra do editor.
+    const { data: cfgVal } = await supabase.from('orcamento_config_empresa').select('validade_dias').eq('company_id', op.company_id).maybeSingle()
+    const validadeDias = cfgVal?.validade_dias || 15
     const hoje = new Date().toISOString().slice(0, 10)
-    const valid = new Date(); valid.setDate(valid.getDate() + 15)
+    const valid = new Date(); valid.setDate(valid.getDate() + validadeDias)
     const { data: orc, error: oErr } = await supabase
       .from('erp_orcamentos')
       .insert({

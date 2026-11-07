@@ -26,6 +26,7 @@ import {
 } from 'lucide-react'
 import OrcamentoItensEditor, { type EditorItem } from '@/components/comum/OrcamentoItensEditor'
 import BlocoObraFiscal, { type ObraFiscalState, obraFiscalStateInicial, resolverObraFiscal } from '@/components/comum/BlocoObraFiscal'
+import { obraPreenchidaDoOrcamento, OBRA_PREENCHIDA_SELECT, type OrcamentoObra, type ObraSalva } from '@/lib/fiscal/obraPreenchida'
 import ParcelasEditor from '@/components/comum/ParcelasEditor'
 import MedicoesNFSeCard, { type MedicaoEscolhida } from '@/components/comum/MedicoesNFSeCard'
 import NFSeEmitirGovModal from '@/components/fiscal/NFSeEmitirGovModal'
@@ -126,6 +127,13 @@ type Orcamento = {
   observacoes: string | null
   observacoes_internas: string | null
   created_at: string | null
+  obra_id?: string | null
+  obra_cno?: string | null
+  obra_logradouro?: string | null
+  obra_numero?: string | null
+  obra_bairro?: string | null
+  obra_cidade?: string | null
+  obra_uf?: string | null
 }
 
 type Pedido = {
@@ -483,6 +491,8 @@ function OTCPageInner() {
           orc={orcSel}
           itens={orcItens}
           onClose={() => setOrcSel(null)}
+          onObraSalva={(patch) => { setOrcSel((o) => (o ? { ...o, ...patch } : o)); setOrcamentos((l) => l.map((x) => (x.id === orcSel.id ? { ...x, ...patch } : x))) }}
+          flash={flash}
           onEnviar={() => enviarOrcamento(orcSel.id)}
           onAprovar={() => aprovarOrcamento(orcSel.id)}
           // PEDIDO 2 · um caminho: card, arrastar e drawer passam TODOS pela mesma confirmação →
@@ -1115,8 +1125,78 @@ function KpiCard({ label, valor, sub, accent }: { label: string; valor: string; 
   )
 }
 
-function DrawerOrcamento({ orc, itens, onClose, onEnviar, onAprovar, onConverter, onCancelar }: {
+// #3862/#3863 etapa 1 · editar a obra do orçamento JÁ SALVO (antes só dava para informar ao criar).
+// Mesmo componente único BlocoObraFiscal; grava no próprio orçamento (obra_* congelados + obra_id) e a
+// NFS-e de obra abre pré-preenchida com isso. Só aparece em orçamento aberto e de serviço de obra (E0370).
+function CardObraOrcamento({ orc, onSalva, flash }: {
+  orc: Orcamento; onSalva: (patch: Record<string, unknown>) => void; flash: (m: string) => void;
+}) {
+  const [exige, setExige] = useState(false)
+  const [editando, setEditando] = useState(false)
+  const [salvando, setSalvando] = useState(false)
+  const [st, setSt] = useState<ObraFiscalState>(obraFiscalStateInicial)
+  const o = orc as unknown as OrcamentoObra
+  const resumo = [o.obra_logradouro, o.obra_numero, o.obra_bairro, o.obra_cidade, o.obra_uf].filter(Boolean).join(', ')
+
+  useEffect(() => {
+    let cancel = false
+    supabase.rpc('fn_orcamento_exige_obra', { p_orcamento_id: orc.id })
+      .then(({ data }) => { if (!cancel) setExige(data === true) })
+    return () => { cancel = true }
+  }, [orc.id])
+
+  async function abrir() {
+    let salva: ObraSalva | null = null
+    if (o.obra_id) {
+      const { data } = await supabase.from('projetos_obras').select(OBRA_PREENCHIDA_SELECT).eq('id', o.obra_id).maybeSingle()
+      salva = (data as ObraSalva | null) ?? null
+    }
+    const p = obraPreenchidaDoOrcamento(o, salva)
+    setSt(p ? { ...obraFiscalStateInicial, modo: p.modo, obraSel: p.obraSel, obraCno: p.obraCno,
+      obraEnd: p.obraEnd ?? obraFiscalStateInicial.obraEnd } : obraFiscalStateInicial)
+    setEditando(true)
+  }
+
+  async function salvar() {
+    setSalvando(true)
+    const r = await resolverObraFiscal(st, { companyId: orc.company_id, clienteId: orc.cliente_id, clienteNome: orc.cliente_nome })
+    if (!r.ok) { flash(r.erro); setSalvando(false); return }
+    const { error } = await supabase.from('erp_orcamentos').update(r.obra as unknown as Record<string, unknown>).eq('id', orc.id)
+    setSalvando(false)
+    if (error) { flash('Erro ao salvar a obra: ' + error.message); return }
+    onSalva(r.obra as unknown as Record<string, unknown>)
+    setEditando(false)
+    flash('Dados da obra salvos no orçamento.')
+  }
+
+  if (!exige) return null
+  return (
+    <Card titulo="Dados da obra (nota fiscal)">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+        <span style={{ fontSize: 11, color: C.espressoM }}>Endereço da obra usado na NFS-e</span>
+        <AjudaCampo chave="otc.orcamento.dados_obra" rota="/dashboard/commerce/otc" />
+      </div>
+      {!editando ? (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, color: resumo ? C.espresso : C.espressoM }}>{resumo || 'Obra ainda não informada.'}</span>
+          <button onClick={abrir} style={btnSec}>{resumo ? 'Editar obra' : 'Informar obra'}</button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <BlocoObraFiscal companyId={orc.company_id} value={st} onChange={setSt} />
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button onClick={() => setEditando(false)} style={btnSec} disabled={salvando}>Cancelar</button>
+            <button onClick={salvar} style={btnPri} disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar obra'}</button>
+          </div>
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function DrawerOrcamento({ orc, itens, onClose, onObraSalva, flash, onEnviar, onAprovar, onConverter, onCancelar }: {
   orc: Orcamento; itens: OrcamentoItem[]; onClose: () => void;
+  onObraSalva: (patch: Record<string, unknown>) => void; flash: (m: string) => void;
   onEnviar: () => void; onAprovar: () => void; onConverter: () => void; onCancelar: () => void;
 }) {
   const canEnviar = orc.status === 'rascunho'
@@ -1175,6 +1255,8 @@ function DrawerOrcamento({ orc, itens, onClose, onEnviar, onAprovar, onConverter
               </table>
             )}
           </Card>
+
+          {canCancelar && <CardObraOrcamento orc={orc} onSalva={onObraSalva} flash={flash} />}
 
           {/* Totais */}
           <Card titulo="Totais">
