@@ -163,8 +163,8 @@ async function main() {
   ok(ativo.cor === 'verde', 'Code com fila mas com sessão ativa não trava a faixa')
   ok(intervaloDia('2026-10-07').de === '2026-10-07T03:00:00.000Z' && intervaloDia('2026-10-07').ate === '2026-10-08T03:00:00.000Z',
     'filtro por data: o dia de São Paulo (00:00−03:00 a 24:00−03:00)')
-  ok(CODES_PRINCIPAIS.join(',') === 'gilberto-esteira,dev7claudeps,desenvolvedor_4_g,aud8claudeps,auditor_pdca_g,gilberto-revisor,rodrigo-code,jordana-code'
-    && CODES_LINHA_FINAL.length === 0, 'cartões: só os 8 Codes vivos (esteira, devs, auditor, revisor, sócios); os inativos ficam ocultos, não apagados')
+  ok(CODES_PRINCIPAIS.join(',') === 'gilberto-esteira,gilberto-revisor,dev7claudeps,desenvolvedor_4_g,code-desenvolvedor-3,auditor_pdca_1,auditor_pdca_2,aud8claudeps,rodrigo-code,jordana-code'
+    && CODES_LINHA_FINAL.length === 0, 'cartões: só os 10 Codes rodando (CEO 06/11: esteira, revisor, 3 devs, 3 auditores, sócios); os pausados ficam ocultos, não apagados')
 
   // ── (5) tela e AGENTS.md ────────────────────────────────────────────────────────────────────────────────────────
   const painel = ler('src/components/dev/PainelCodes.tsx')

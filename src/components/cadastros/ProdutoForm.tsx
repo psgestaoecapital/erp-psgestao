@@ -139,6 +139,8 @@ export default function ProdutoForm({ companyId, produto, clonarDe = null, onClo
   // Grupo comb (NCM 2710) · ANP. '' = não informado (mantém NULL no banco).
   const [combAnpCodigo, setCombAnpCodigo] = useState(base?.combustivel_codigo_anp != null ? String(base.combustivel_codigo_anp) : '')
   const [combAnpDescricao, setCombAnpDescricao] = useState(base?.combustivel_descricao_anp ?? '')
+  // Saldo inicial (só produto novo): vira UMA movimentação de estoque com o custo unitário informado.
+  const [saldoInicial, setSaldoInicial] = useState('')
   const ncmEhCombustivel = ncm.replace(/\D/g, '').startsWith('2710')
 
   async function salvar(cadastrarOutro = false) {
@@ -150,6 +152,10 @@ export default function ProdutoForm({ companyId, produto, clonarDe = null, onClo
       if (!codigo.trim()) throw new Error('Codigo obrigatorio')
       if (estMin.trim() && estMax.trim() && numOuNulo(estMax)! < numOuNulo(estMin)!) {
         throw new Error('O estoque máximo não pode ser menor que o mínimo.')
+      }
+      const saldoIni = ehNovo && saldoInicial.trim() !== '' ? parseFloat(saldoInicial.replace(',', '.')) : null
+      if (saldoIni !== null && (!Number.isFinite(saldoIni) || saldoIni < 0)) {
+        throw new Error('O saldo inicial precisa ser um número maior ou igual a zero.')
       }
       if (ehNovo) {
         const aviso = validarProdutoNovo({ codigo, nome, ncm, precoVenda })
@@ -212,6 +218,16 @@ export default function ProdutoForm({ companyId, produto, clonarDe = null, onClo
       })
       const json = await r.json()
       if (!r.ok || !json.ok) throw new Error(json.mensagem ?? 'Erro ao salvar')
+      if (saldoIni !== null && saldoIni > 0 && json.id) {
+        const { data: rAj, error: eAj } = await supabase.rpc('fn_estoque_ajuste_migracao', {
+          p_produto_id: json.id, p_saldo_alvo: saldoIni,
+          p_custo: parseFloat(precoCusto.replace(',', '.')) || 0, p_motivo: 'Saldo inicial no cadastro do produto',
+        })
+        const aj = rAj as { ok?: boolean; erro?: string } | null
+        if (eAj || !aj?.ok) {
+          throw new Error(`O produto foi cadastrado, mas o saldo inicial não foi lançado (${eAj?.message ?? aj?.erro ?? 'erro'}). Feche e lance o saldo pela tela de Estoque.`)
+        }
+      }
       onSalvo(cadastrarOutro)
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro')
@@ -288,6 +304,12 @@ export default function ProdutoForm({ companyId, produto, clonarDe = null, onClo
                 <Campo label="Local de armazenagem" value={localizacao} onChange={setLocalizacao} placeholder="ex: Galpão B · Prat. 3" testId="produto-localizacao" />
                 <Campo label="Codigo de barras (EAN)" value={codigoBarras} onChange={setCodigoBarras} placeholder="vazio = etiqueta usa o codigo interno" mono />
               </div>
+              {ehNovo && (
+                <div>
+                  <Campo label="Saldo inicial em estoque" value={saldoInicial} onChange={setSaldoInicial} placeholder="quantidade que você já tem (custo = Preco de custo)" testId="produto-saldo-inicial" />
+                  <AjudaCampo chave="cadastros.produtos.saldo_inicial" />
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Campo label="Estoque mínimo" value={estMin} onChange={setEstMin} placeholder="avisa quando chegar aqui" testId="produto-estoque-minimo" />
