@@ -21,6 +21,9 @@ const migC = arqC.length ? readFileSync(`supabase/migrations/${arqC[0]}`, 'utf8'
 const sqlC = migC.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
 const tela = readFileSync('src/app/dashboard/comercial/meu-painel/page.tsx', 'utf8')
 const adm = readFileSync('src/app/dashboard/admin/vendedores/page.tsx', 'utf8')
+// chaves de ajuda podem ser semeadas em QUALQUER migration (ex.: *_bi_comercial_painel_abas_mostrar_tudo.sql,
+// não só nas duas que recriam a fn) — a "?" exige a chave cadastrada no banco, onde quer que o seed esteja.
+const todasMigs = readdirSync('supabase/migrations').filter((f) => f.endsWith('.sql')).map((f) => readFileSync(`supabase/migrations/${f}`, 'utf8')).join('\n')
 
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
 ok(!UUID.test(sql) && !UUID.test(tela) && !UUID.test(adm), 'nenhuma empresa fixa (genérico)')
@@ -52,7 +55,7 @@ ok(recriadas.every((n) => novas.includes(n)), 'só funções novas')
 for (const [nome, txt] of [['meu-painel', tela], ['vendedores', adm]] as const) {
   const chaves = [...txt.matchAll(/AjudaCampo chave="([^"]+)"/g)].map((m) => m[1])
   ok(chaves.length > 0, `"?" na tela ${nome}`)
-  for (const k of new Set(chaves)) ok(mig.includes(`('${k}',`) || migC.includes(`('${k}',`), `chave de ajuda cadastrada: ${k}`)
+  for (const k of new Set(chaves)) ok(todasMigs.includes(`('${k}',`), `chave de ajuda cadastrada: ${k}`)
 }
 
 if (falhas) { console.error(`\n${falhas} falha(s) — Meu painel de vendas`); process.exit(1) }
