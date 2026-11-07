@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Painel Comercial Frioeste — proposta</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Fraunces:opsz,wght@9..144,500;9..144,600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F7F3EC;font-family:Inter,system-ui,sans-serif;color:#2B2118}
+a{color:#8A5A0B}a:hover{color:#5C3B06}
+.card{background:#FFFFFF;border:1px solid #E6DCCB;border-radius:20px;padding:24px;display:flex;flex-direction:column;gap:16px;min-width:0;box-sizing:border-box}
+.h2{margin:0;font-family:Fraunces,Georgia,serif;font-size:23px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.sub{font-size:14px;color:#5E5247;margin-top:4px;line-height:1.45}
+.nota{background:#F7F3EC;border-radius:12px;padding:14px 16px;font-size:14px;line-height:1.55}
+.aj{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:11px;border:1px solid #D8CBB6;font:600 12px Inter,sans-serif;color:#6B5E52;background:#FFFFFF;flex:0 0 22px}
+.lin{display:flex;flex-wrap:wrap;gap:20px}
+.big{font-family:Fraunces,Georgia,serif;font-weight:600}
+.tb{width:100%;border-collapse:collapse;font-size:14px}
+.tb th{padding:8px 10px;border-bottom:2px solid #E6DCCB;text-align:left;white-space:nowrap;position:sticky;top:0;background:#FFFFFF;z-index:1}
+.tb td{padding:9px 10px;border-bottom:1px solid #EFE7DA;white-space:nowrap}
+.pill{display:inline-block;padding:3px 9px;border-radius:12px;font-weight:600;font-size:13px}
+.thb{border:0;background:none;padding:0;min-height:32px;font:600 13px Inter,sans-serif;cursor:pointer;white-space:nowrap}
+.lk{min-height:32px;border:0;background:none;padding:0;font:600 14px Inter,sans-serif;color:#8A5A0B;text-decoration:underline;cursor:pointer;text-align:left}
+.tbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.sel{min-height:40px;padding:0 10px;border-radius:10px;border:1px solid #D8CBB6;font:500 13px Inter,sans-serif;background:#FFFFFF;color:#2B2118}
+.btn2{min-height:40px;padding:0 14px;border-radius:20px;border:1px solid #D8CBB6;background:#FFFFFF;font:600 13px Inter,sans-serif;color:#2B2118;cursor:pointer}
+.tip{position:absolute;z-index:20;pointer-events:none;background:#2B2118;color:#FFFFFF;border-radius:10px;padding:9px 12px;font-size:13px;line-height:1.45;white-space:nowrap;transform:translate(-50%,calc(-100% - 12px));box-shadow:0 6px 18px rgba(43,33,24,0.3)}
+.gear{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;border-radius:22px;border:1px solid #C8941A;background:#FFFBF2;font:600 14px Inter,sans-serif;color:#5C3B06;cursor:pointer}
+</style>
+</helmet>
+<div style="max-width: 1360px; margin: 0 auto; padding: 32px 24px 72px; display: flex; flex-direction: column; gap: 22px; box-sizing: border-box">
+
+  <header style="display: flex; flex-direction: column; gap: 8px">
+    <div style="font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #8A5A0B">Frioeste · Comercial · Meu painel de vendas</div>
+    <h1 style="margin: 0; font-family: Fraunces, Georgia, serif; font-weight: 600; font-size: 38px; line-height: 1.1">Como a Frioeste está vendendo</h1>
+    <div style="font-size: 15px; color: #3F352C; line-height: 1.55">De <strong>{{H.de}}</strong> a <strong>{{H.ate}}</strong>{{H.quem}}: faturou <strong>{{H.val}}</strong> em <strong>{{H.kg}}</strong>. <strong>{{H.ab}}</strong> dos itens saíram abaixo do preço de tabela, somando <strong>{{H.desc}}</strong> de desconto.</div>
+  </header>
+
+  <section class="card" style="padding: 18px 22px; gap: 14px" aria-label="Filtros">
+    <div style="display: flex; flex-wrap: wrap; gap: 16px 24px; align-items: flex-end">
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <div style="font-size: 13px; font-weight: 600; color: #5E5247; display: flex; gap: 6px; align-items: center">Período <span class="aj" aria-label="Ajuda do campo Período">?</span></div>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px" role="group" aria-label="Período">
+          <sc-for list="{{periodos}}" as="p" hint-placeholder-count="6">
+            <button onClick="{{p.pick}}" style="min-height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid {{p.borda}}; background: {{p.fundo}}; color: {{p.txt}}; font: 600 14px Inter, sans-serif; cursor: pointer">{{p.rot}}</button>
+          </sc-for>
+        </div>
+      </div>
+      <div style="display: flex; gap: 10px; align-items: flex-end">
+        <label style="display: flex; flex-direction: column; gap: 8px; font-size: 13px; font-weight: 600; color: #5E5247">De
+          <input type="date" value="{{F.deIso}}" min="2026-10-01" max="2026-11-06" onChange="{{F.mudaDe}}" style="min-height: 44px; padding: 0 10px; border-radius: 12px; border: 1px solid #D8CBB6; font: 500 14px Inter, sans-serif; color: #2B2118; box-sizing: border-box">
+        </label>
+        <label style="display: flex; flex-direction: column; gap: 8px; font-size: 13px; font-weight: 600; color: #5E5247">Até
+          <input type="date" value="{{F.ateIso}}" min="2026-10-01" max="2026-11-06" onChange="{{F.mudaAte}}" style="min-height: 44px; padding: 0 10px; border-radius: 12px; border: 1px solid #D8CBB6; font: 500 14px Inter, sans-serif; color: #2B2118; box-sizing: border-box">
+        </label>
+      </div>
+      <label style="display: flex; flex-direction: column; gap: 8px; font-size: 13px; font-weight: 600; color: #5E5247">
+        <span style="display: flex; gap: 6px; align-items: center">Visão (vendedor) <span class="aj" aria-label="Ajuda do campo Visão">?</span></span>
+        <select value="{{F.ven}}" onChange="{{F.mudaVen}}" style="min-height: 44px; min-width: 180px; padding: 0 12px; border-radius: 12px; border: 1px solid #D8CBB6; font: 500 14px Inter, sans-serif; background: #FFFFFF; color: #2B2118">
+          <sc-for list="{{F.vens}}" as="o" hint-placeholder-count="10"><option value="{{o.v}}">{{o.rot}}</option></sc-for>
+        </select>
+      </label>
+      <label style="display: flex; flex-direction: column; gap: 8px; font-size: 13px; font-weight: 600; color: #5E5247">
+        <span style="display: flex; gap: 6px; align-items: center">Linha <span class="aj" aria-label="Ajuda do campo Linha">?</span></span>
+        <select value="{{F.lin}}" onChange="{{F.mudaLin}}" style="min-height: 44px; min-width: 170px; padding: 0 12px; border-radius: 12px; border: 1px solid #D8CBB6; font: 500 14px Inter, sans-serif; background: #FFFFFF; color: #2B2118">
+          <option value="todas">Todas as linhas</option><option value="0">Desossados</option><option value="1">Com osso</option><option value="2">Miúdos</option><option value="3">Subprodutos e outros</option>
+        </select>
+      </label>
+      <button onClick="{{abrirCfg}}" class="gear" aria-label="Configurar quais produtos entram na análise">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+        Produtos na análise · {{F.nProd}}
+      </button>
+      <label style="display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: 14px; font-weight: 500">
+        <input type="checkbox" checked="{{F.cod}}" onChange="{{F.mudaCod}}" style="width: 20px; height: 20px">Ver código <span class="aj" aria-label="Ajuda do campo Ver código">?</span>
+      </label>
+    </div>
+    <div style="font-size: 13px; color: #5E5247">{{F.escopoTxt}}</div>
+  </section>
+
+  <nav style="display: flex; gap: 4px; overflow-x: auto; border-bottom: 2px solid #E6DCCB" aria-label="Abas do painel">
+    <sc-for list="{{abas}}" as="a" hint-placeholder-count="8">
+      <button onClick="{{a.pick}}" style="min-height: 48px; padding: 0 16px; border: 0; border-bottom: 3px solid {{a.linha}}; margin-bottom: -2px; background: transparent; font: {{a.peso}} 15px Inter, sans-serif; color: {{a.cor}}; white-space: nowrap; cursor: pointer">{{a.rot}}</button>
+    </sc-for>
+  </nav>
+
+  <sc-if value="{{vazio}}" hint-placeholder-val="{{ false }}">
+    <div class="card"><h2 class="h2">Nenhuma venda neste recorte</h2><div class="sub">Mude o período, o vendedor, a linha ou os produtos na análise.</div></div>
+  </sc-if>
+
+  <sc-if value="{{tGeral}}" hint-placeholder-val="{{ true }}">
+  <div style="display: flex; flex-direction: column; gap: 22px">
+    <section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px" aria-label="Indicadores">
+      <sc-for list="{{kpis}}" as="k" hint-placeholder-count="8">
+        <div style="background: #FFFFFF; border: 1px solid #E6DCCB; border-radius: 16px; padding: 16px 18px; display: flex; flex-direction: column; gap: 6px">
+          <div style="font-size: 13px; font-weight: 600; color: #5E5247; display: flex; justify-content: space-between; gap: 8px">{{k.rot}} <span class="aj" aria-label="Ajuda do indicador">?</span></div>
+          <div class="big" style="font-size: 28px; color: {{k.cor}}; line-height: 1.1">{{k.val}}</div>
+          <div style="font-size: 13px; color: #5E5247; line-height: 1.4">{{k.sub}} <span class="pill" style="background: {{k.dF}}; color: {{k.dC}}">{{k.delta}}</span></div>
+        </div>
+      </sc-for>
+    </section>
+
+    <section style="background: #3D2314; color: #FFFFFF; border-radius: 20px; padding: 26px 28px; display: flex; flex-direction: column; gap: 18px" aria-label="Diagnóstico">
+      <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; align-items: baseline">
+        <div class="big" style="font-size: 25px">Diagnóstico do período</div>
+        <div style="font-size: 13px; color: #E3C98F">Calculado agora sobre o recorte escolhido · muda com os filtros</div>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px">
+        <sc-for list="{{diag}}" as="col" hint-placeholder-count="3">
+          <div style="background: rgba(255,255,255,0.06); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 12px">
+            <div style="display: flex; align-items: center; gap: 10px"><div style="width: 10px; height: 10px; border-radius: 5px; background: {{col.cor}}"></div><div style="font-size: 15px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: {{col.cor}}">{{col.titulo}}</div></div>
+            <sc-for list="{{col.itens}}" as="i" hint-placeholder-count="4">
+              <div style="font-size: 14px; line-height: 1.5; color: #F3EADB"><strong style="color: #FFFFFF">{{i.t}}</strong> {{i.d}}</div>
+            </sc-for>
+          </div>
+        </sc-for>
+      </div>
+    </section>
+
+    <div class="lin">
+      <section class="card" style="flex: 1 1 560px" aria-label="Do que vive a Frioeste">
+        <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px">
+          <div><h2 class="h2">Do que vive a Frioeste <span class="aj" aria-label="Ajuda">?</span></h2><div class="sub">Passe o mouse em cada fatia</div></div>
+          <div style="display: flex; gap: 6px" role="group" aria-label="Medida">
+            <button onClick="{{verVal}}" style="min-height: 44px; padding: 0 15px; border-radius: 22px; border: 1px solid {{mVal.b}}; background: {{mVal.f}}; color: {{mVal.t}}; font: 600 14px Inter, sans-serif; cursor: pointer">Faturamento</button>
+            <button onClick="{{verKg}}" style="min-height: 44px; padding: 0 15px; border-radius: 22px; border: 1px solid {{mKg.b}}; background: {{mKg.f}}; color: {{mKg.t}}; font: 600 14px Inter, sans-serif; cursor: pointer">Volume (kg)</button>
+          </div>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: center">
+          <div style="position: relative; flex: 0 0 230px; width: 230px; height: 230px">
+            <svg width="230" height="230" viewBox="0 0 240 240" role="img" aria-label="Participação por grupo de produto">
+              <sc-for list="{{grupoFatias}}" as="f" hint-placeholder-count="4"><path d="{{f.d}}" fill="{{f.cor}}" stroke="#FFFFFF" stroke-width="2" onMouseEnter="{{f.hover}}" onMouseLeave="{{sair}}" onClick="{{f.hover}}" style="cursor: pointer"></path></sc-for>
+              <text x="120" y="114" text-anchor="middle" style="font: 600 13px Inter, sans-serif; fill: #5E5247">{{grupoCentroRot}}</text>
+              <text x="120" y="142" text-anchor="middle" style="font: 600 24px Fraunces, Georgia, serif; fill: #2B2118">{{grupoCentroVal}}</text>
+            </svg>
+            <sc-if value="{{T.grp.on}}" hint-placeholder-val="{{ false }}"><div class="tip" style="left: {{T.grp.l}}; top: {{T.grp.t}}"><sc-for list="{{T.grp.linhas}}" as="x" hint-placeholder-count="3"><div>{{x}}</div></sc-for></div></sc-if>
+          </div>
+          <div style="flex: 1 1 250px; display: flex; flex-direction: column; gap: 12px">
+            <sc-for list="{{grupoFatias}}" as="f" hint-placeholder-count="4">
+              <div style="display: flex; align-items: center; gap: 12px">
+                <div style="flex: 0 0 14px; height: 14px; border-radius: 4px; background: {{f.cor}}"></div>
+                <div style="flex: 1 1 auto; min-width: 0"><div style="font-size: 15px; font-weight: 600">{{f.nome}}</div><div style="font-size: 13px; color: #5E5247">{{f.detalhe}}</div></div>
+                <div class="big" style="font-size: 22px">{{f.pct}}</div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" style="flex: 1 1 560px" aria-label="Projeção do mês">
+        <div><h2 class="h2">Para onde vai {{M.mesNome}} <span class="aj" aria-label="Ajuda">?</span></h2><div class="sub">{{M.sub}}</div></div>
+        <div style="position: relative; display: flex; align-items: flex-end; gap: 28px; height: 220px; padding: 0 12px">
+          <sc-for list="{{M.barras}}" as="b" hint-placeholder-count="2">
+            <div onMouseEnter="{{b.hover}}" onMouseLeave="{{sair}}" style="flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 8px; height: 100%; cursor: pointer">
+              <div class="big" style="font-size: 21px">{{b.val}}</div>
+              <div style="width: 100%; height: {{b.h}}; border-radius: 10px 10px 2px 2px; background: {{b.fundo}}; border: {{b.borda}}; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden"><div style="height: {{b.hIn}}; background: #3D2314"></div></div>
+              <div style="font-size: 14px; font-weight: 600">{{b.rot}}</div>
+            </div>
+          </sc-for>
+          <sc-if value="{{T.mes.on}}" hint-placeholder-val="{{ false }}"><div class="tip" style="left: {{T.mes.l}}; top: {{T.mes.t}}"><sc-for list="{{T.mes.linhas}}" as="x" hint-placeholder-count="3"><div>{{x}}</div></sc-for></div></sc-if>
+        </div>
+        <div class="nota">{{M.leitura}}</div>
+      </section>
+    </div>
+
+    <section class="card" aria-label="Preço médio">
+      <div class="tbar">
+        <div><h2 class="h2">Preço médio do kg <span class="aj" aria-label="Ajuda">?</span></h2><div class="sub">{{L.sub}} · passe o mouse nos pontos</div></div>
+        <div style="display: flex; gap: 6px" role="group" aria-label="Agrupar por">
+          <button onClick="{{L.porDia}}" style="min-height: 40px; padding: 0 14px; border-radius: 20px; border: 1px solid {{L.bDia.b}}; background: {{L.bDia.f}}; color: {{L.bDia.t}}; font: 600 13px Inter, sans-serif; cursor: pointer">Por dia</button>
+          <button onClick="{{L.porSem}}" style="min-height: 40px; padding: 0 14px; border-radius: 20px; border: 1px solid {{L.bSem.b}}; background: {{L.bSem.f}}; color: {{L.bSem.t}}; font: 600 13px Inter, sans-serif; cursor: pointer">Por semana</button>
+          <button onClick="{{abrirCfg}}" class="btn2">⚙ Produtos</button>
+        </div>
+      </div>
+      <div style="position: relative">
+        <svg viewBox="0 0 1000 300" width="100%" role="img" aria-label="Preço médio do kg ao longo do período">
+          <sc-for list="{{L.grade}}" as="g" hint-placeholder-count="5">
+            <line x1="60" x2="920" y1="{{g.y}}" y2="{{g.y}}" stroke="#EFE7DA" stroke-width="1"></line>
+            <text x="50" y="{{g.ty}}" text-anchor="end" style="font: 500 12px Inter, sans-serif; fill: #6B5E52">{{g.rot}}</text>
+          </sc-for>
+          <sc-for list="{{L.series}}" as="s" hint-placeholder-count="3">
+            <polyline points="{{s.pts}}" fill="none" stroke="{{s.cor}}" stroke-width="{{s.esp}}" stroke-linejoin="round" stroke-linecap="round"></polyline>
+            <sc-for list="{{s.pontos}}" as="p" hint-placeholder-count="6"><circle cx="{{p.x}}" cy="{{p.y}}" r="6" fill="#FFFFFF" stroke="{{s.cor}}" stroke-width="2.5" onMouseEnter="{{p.hover}}" onMouseLeave="{{sair}}" onClick="{{p.hover}}" style="cursor: pointer"></circle></sc-for>
+            <text x="928" y="{{s.fimY}}" style="font: 700 13px Inter, sans-serif; fill: {{s.cor}}">{{s.fim}}</text>
+          </sc-for>
+          <sc-for list="{{L.eixo}}" as="e" hint-placeholder-count="6"><text x="{{e.x}}" y="290" text-anchor="middle" style="font: 500 11px Inter, sans-serif; fill: #6B5E52">{{e.rot}}</text></sc-for>
+        </svg>
+        <sc-if value="{{T.linha.on}}" hint-placeholder-val="{{ false }}"><div class="tip" style="left: {{T.linha.l}}; top: {{T.linha.t}}"><sc-for list="{{T.linha.linhas}}" as="x" hint-placeholder-count="3"><div>{{x}}</div></sc-for></div></sc-if>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 18px">
+        <sc-for list="{{L.series}}" as="s" hint-placeholder-count="3"><div style="display: flex; align-items: center; gap: 8px; font-size: 14px"><div style="width: 22px; height: 4px; border-radius: 2px; background: {{s.cor}}"></div>{{s.nome}}</div></sc-for>
+      </div>
+    </section>
+
+    <div class="lin">
+      <section class="card" style="flex: 1 1 760px" aria-label="Faturamento por dia">
+        <div><h2 class="h2">Faturamento por dia <span class="aj" aria-label="Ajuda">?</span></h2><div class="sub">Todos os dias com venda no período · passe o mouse nas barras</div></div>
+        <div style="position: relative">
+          <svg viewBox="0 0 1000 260" width="100%" role="img" aria-label="Faturamento de cada dia do período">
+            <line x1="20" x2="980" y1="220" y2="220" stroke="#D8CBB6"></line>
+            <sc-for list="{{DI.barras}}" as="b" hint-placeholder-count="20">
+              <rect x="{{b.x}}" y="{{b.y}}" width="{{b.w}}" height="{{b.h}}" rx="3" fill="{{b.cor}}" onMouseEnter="{{b.hover}}" onMouseLeave="{{sair}}" onClick="{{b.hover}}" style="cursor: pointer"></rect>
+              <text x="{{b.cx}}" y="240" text-anchor="middle" style="font: 500 10px Inter, sans-serif; fill: #6B5E52">{{b.rot}}</text>
+            </sc-for>
+          </svg>
+          <sc-if value="{{T.dia.on}}" hint-placeholder-val="{{ false }}"><div class="tip" style="left: {{T.dia.l}}; top: {{T.dia.t}}"><sc-for list="{{T.dia.linhas}}" as="x" hint-placeholder-count="3"><div>{{x}}</div></sc-for></div></sc-if>
+        </div>
+      </section>
+      <section class="card" style="flex: 1 1 400px" aria-label="Ritmo da semana">
+        <div><h2 class="h2">Ritmo da semana <span class="aj" aria-label="Ajuda">?</span></h2><div class="sub">Faturamento médio por dia da semana</div></div>
+        <div style="position: relative; display: flex; align-items: flex-end; gap: 12px; height: 220px; padding-top: 10px">
+          <sc-for list="{{semana}}" as="d" hint-placeholder-count="6">
+            <div onMouseEnter="{{d.hover}}" onMouseLeave="{{sair}}" style="flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 6px; height: 100%; cursor: pointer">
+              <div style="font-size: 13px; font-weight: 600">{{d.val}}</div>
+              <div style="width: 100%; border-radius: 8px 8px 2px 2px; background: {{d.cor}}; height: {{d.h}}"></div>
+              <div style="font-size: 13px; color: #5E5247">{{d.dia}}</div>
+            </div>
+          </sc-for>
+          <sc-if value="{{T.sem.on}}" hint-placeholder-val="{{ false }}"><div class="tip" style="left: {{T.sem.l}}; top: {{T.sem.t}}"><sc-for list="{{T.sem.linhas}}" as="x" hint-placeholder-count="3"><div>{{x}}</div></sc-for></div></sc-if>
+        </div>
+      </section>
+    </div>
+
+    <section class="card" aria-label="Linhas de produto">
+      <div><h2 class="h2">As linhas de produto <span class="aj" aria-label="Ajuda">?</span></h2><div class="sub">Todas as linhas do sistema de origem · toque no título da coluna para ordenar</div></div>
+      <div class="tbar"><div style="font-size: 13px; color: #5E5247">{{tbLin.info}}</div><div style="display: flex; gap: 8px; align-items: center"><label style="font-size: 13px; color: #5E5247; display: flex; gap: 6px; align-items: center">Ordenar por <select class="sel" value="{{tbLin.k}}" onChange="{{tbLin.onOrd}}"><sc-for list="{{tbLin.opts}}" as="o" hint-placeholder-count="6"><option value="{{o.v}}">{{o.rot}}</option></sc-for></select></label><button onClick="{{tbLin.inverter}}" class="btn2">{{tbLin.dirRot}}</button></div></div>
+      <div style="overflow: auto; max-height: {{tbLin.alt}}"><table class="tb"><thead><tr><sc-for list="{{tbLin.cols}}" as="c" hint-placeholder-count="7"><th><button onClick="{{c.pick}}" class="thb" style="color: {{c.cor}}">{{c.rot}} {{c.seta}}</button></th></sc-for></tr></thead>
+      <tbody><sc-for list="{{tbLin.rows}}" as="r" hint-placeholder-count="8"><tr><sc-for list="{{r.cells}}" as="x" hint-placeholder-count="7"><td>
+        <sc-if value="{{x.isLink}}" hint-placeholder-val="{{ false }}"><button onClick="{{x.abrir}}" class="lk">{{x.t}}</button></sc-if>
+        <sc-if value="{{x.isBar}}" hint-placeholder-val="{{ false }}"><div style="display: flex; align-items: center; gap: 8px; min-width: 200px"><div style="flex: 1 1 auto; height: 10px; background: #F1E9DC; border-radius: 5px"><div style="height: 10px; border-radius: 5px; background: {{x.bc}}; width: {{x.w}}"></div></div><span style="flex: 0 0 auto; font-weight: 600">{{x.t}}</span></div></sc-if>
+        <sc-if value="{{x.isPill}}" hint-placeholder-val="{{ false }}"><span class="pill" style="background: {{x.pf}}; color: {{x.pc}}">{{x.t}}</span></sc-if>
+        <sc-if value="{{x.isTxt}}" hint-placeholder-val="{{ true }}">{{x.t}}</sc-if>
+      </td></sc-for></tr></sc-for></tbody></table></div>
+    </section>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{tVend}}" hint-placeholder-val="{{ false }}">
+  <div style="display: flex; flex-direction: column; gap: 22px">
+    <div class="lin">
+      <section class="card" style="flex: 1 1 520px" aria-label="Participação por vendedor">
+        <div><h2 class="h2">Quem vende quanto <span class="aj" aria-label="Ajuda">?</span></h2><div class="sub">Todos os vendedores · passe o mouse em cada fatia</div></div>
+        <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: center">
+          <div style="position: relative; flex: 0 0 230px; width: 230px; height: 230px">
+            <svg width="230" height="230" viewBox="0 0 240 240" role="img" aria-label="Participação de cada vendedor no faturamento">
+              <sc-for list="{{vendFatias}}" as="f" hint-placeholder-count="9"><path d="{{f.d}}" fill="{{f.cor}}" stroke="#FFFFFF" stroke-width="2" onMouseEnter="{{f.hover}}" onMouseLeave="{{sair}}" onClick="{{f.hover}}" style="cursor: pointer"></path></sc-for>
+              <text x="120" y="114" text-anchor="middle" style="font: 600 13px Inter, sans-serif; fill: #5E5247">3 maiores</text>
+              <text x="120" y="142" text-anchor="middle" style="font: 600 24px Fraunces, Georgia, serif; fill: #2B2118">{{vendTop3}}</text>
+            </svg>
+            <sc-if value="{{T.vend.on}}" hint-placeholder-val="{{ false }}"><div class="tip" style="left: {{T.vend.l}}; top: {{T.vend.t}}"><sc-for list="{{T.vend.linhas}}" as="x" hint-placeholder-count="3"><div>{{x}}</div></sc-for></div></sc-if>
+          </div>
+          <div style="flex: 1 1 220px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px">
+            <sc-for list="{{vendFatias}}" as="f" hint-placeholder-count="9">
+              <div style="display: flex; align-items: center; gap: 8px; min-width: 0"><div style="flex: 0 0 12px; height: 12px; border-radius: 3px; background: {{f.cor}}"></div><div style="font-size: 14px; flex: 1 1 auto">{{f.nome}}</div><div style="font-size: 14px; font-weight: 600">{{f.pct}}</div></div>
+            </sc-for>
+          </div>
+        </div>
+      </section>
+      <section class="card" style="flex: 1 1 620px" aria-label="Desconto e devolução">
+        <div><h2 class="h2">Desconto × devolução <span class="aj" aria-label="Ajuda">?</span></h2><div class="sub">Cada bolha é um vendedor; o tamanho é o faturamento · passe o mouse nas bolhas</div></div>
+        <div style="position: relative">
+          <svg viewBox="0 0 620 310" width="100%" role="img" aria-label="Desconto e devolução de cada vendedor">
+            <rect x="{{Q.zx}}" y="20" width="{{Q.zw}}" height="{{Q.zh}}" fill="#FBEDE8"></rect>
+            <text x="596" y="40" text-anchor="end" style="font: 600 12px Inter, sans-serif; fill: #A33A1F">desconto e devolução acima da média</text>
+            <line x1="60" x2="600" y1="260" y2="260" stroke="#D8CBB6"></line>
+            <line x1="60" x2="60" y1="20" y2="260" stroke="#D8CBB6"></line>
+            <sc-for list="{{Q.ex}}" as="e" hint-placeholder-count="6"><text x="{{e.x}}" y="280" text-anchor="middle" style="font: 500 12px Inter, sans-serif; fill: #6B5E52">{{e.rot}}</text></sc-for>
+            <sc-for list="{{Q.ey}}" as="e" hint-placeholder-count="5"><text x="52" y="{{e.y}}" text-anchor="end" style="font: 500 12px Inter, sans-serif; fill: #6B5E52">{{e.rot}}</text></sc-for>
+            <text x="330" y="302" text-anchor="middle" style="font: 600 12px Inter, sans-serif; fill: #5E5247">desconto sobre a tabela → · ↑ devolução em % do faturado</text>
+            <sc-for list="{{Q.pts}}" as="q" hint-placeholder-count="8">
+              <circle cx="{{q.x}}" cy="{{q.y}}" r="{{q.r}}" fill="{{q.cor}}" fill-opacity="0.85" stroke="#FFFFFF" stroke-width="2" onMouseEnter="{{q.hover}}" onMouseLeave="{{sair}}" onClick="{{q.hover}}" style="cursor: pointer"></circle>
+              <text x="{{q.tx}}" y="{{q.ty}}" style="font: 600 12px Inter, sans-serif; fill: #2B2118; pointer-events: none">{{q.nome}}</text>
+            </sc-for>
+          </svg>
+          <sc-if value="{{T.quad.on}}" hint-placeholder-val="{{ false }}"><div class="tip" style="left: {{T.quad.l}}; top: {{T.quad.t}}"><sc-for list="{{T.quad.linhas}}" as="x" hint-placeholder-count="3"><div>{{x}}</div></sc-for></div></sc-if>
+        </div>
+      </section>
+    </div>
+
+    <section class="card" aria-label="Placar dos vendedores">
+      <div><h2 class="h2">Placar dos vendedores <span class="aj" aria-label="Ajuda">?</span></h2><div class="sub">Índice de preço: 100 = média da empresa vendendo os mesmos produtos. Toque no nome para ver a carteira.</div></div>
+      <div class="tbar"><div style="font-size: 13px; color: #5E5247">{{tbVend.info}}</div><div style="display: flex; gap: 8px; align-items: center"><label style="font-size: 13px; color: #5E5247; display: flex; gap: 6px; align-items: center">Ordenar por <select class="sel" value="{{tbVend.k}}" onChange="{{tbVend.onOrd}}"><sc-for list="{{tbVend.opts}}" as="o" hint-placeholder-count="6"><option value="{{o.v}}">{{o.rot}}</option></sc-for></select></label><button onClick="{{tbVend.inverter}}" class="btn2">{{tbVend.dirRot}}</button></div></div>
+      <div style="overflow: auto; max-height: {{tbVend.alt}}"><table class="tb"><thead><tr><sc-for list="{{tbVend.cols}}" as="c" hint-placeholder-count="10"><th><button onClick="{{c.pick}}" class="thb" style="color: {{c.cor}}">{{c.rot}} {{c.seta}}</button></th></sc-for></tr></thead>
+      <tbody><sc-for list="{{tbVend.rows}}" as="r" hint-placeholder-count="9"><tr><sc-for list="{{r.cells}}" as="x" hint-placeholder-count="10"><td>
+        <sc-if value="{{x.isLink}}" hint-placeholder-val="{{ false }}"><button onClick="{{x.abrir}}" class="lk">{{x.t}}</button></sc-if>
+        <sc-if value="{{x.isBar}}" hint-placeholder-val="{{ false }}"><div style="display: flex; align-items: center; gap: 8px; min-width: 200px"><div style="flex: 1 1 auto; height: 10px; background: #F1E9DC; border-radius: 5px"><div style="height: 10px; border-radius: 5px; background: {{x.bc}}; width: {{x.w}}"></div></div><span style="flex: 0 0 auto; font-weight: 600">{{x.t}}</span></div></sc-if>
+        <sc-if value="{{x.isPill}}" hint-placeholder-val="{{ false }}"><span class="pill" style="background: {{x.pf}}; color: {{x.pc}}">{{x.t}}</span></sc-if>
+        <sc-if value="{{x.isTxt}}" hint-placeholder-val="{{ true }}">{{x.t}}</sc-if>
+      </td></sc-for></tr></sc-for></tbody></table></div>
+    </section>
+
+    <section class="card" aria-label="Mix por vendedor">
+      <div><h2 class="h2">O que cada um vende <span class="aj" aria-label="Ajuda">?</span></h2><div class="sub">Mix do faturamento de cada vendedor · passe o mouse nos pedaços</div></div>
+      <div style="position: relative; display: flex; flex-direction: column; gap: 10px">
+        <sc-for list="{{mixVend}}" as="m" hint-placeholder-count="9">
+          <div style="display: grid; grid-template-columns: 120px minmax(0, 1fr) 90px; gap: 14px; align-items: center">
+            <div style="font-size: 14px; font-weight: 600">{{m.nome}}</div>
+            <div style="display: flex; height: 24px; border-radius: 6px; overflow: hidden; background: #F1E9DC">
+              <sc-for list="{{m.seg}}" as="s" hint-placeholder-count="4"><div onMouseEnter="{{s.hover}}" onMouseLeave="{{sair}}" style="width: {{s.w}}; background: {{s.cor}}; cursor: pointer"></div></sc-for>
+            </div>
+            <div style="font-size: 13px; color: #5E5247; text-align: right">{{m.val}}</div>
+          </div>
+        </sc-for>
+        <sc-if value="{{T.mix.on}}" hint-placeholder-val="{{ false }}"><div class="tip" style="left: {{T.mix.l}}; top: {{T.mix.t}}"><sc-for list="{{T.mix.linhas}}" as="x" hint-placeholder-count="3"><div>{{x}}</div></sc-for></div></sc-if>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px">
+        <sc-for list="{{legGrupos}}" as="g" hint-placeholder-count="4"><div style="display: flex; align-items: center; gap: 6px"><div style="width: 12px; height: 12px; border-radius: 3px; background: {{g.cor}}"></div>{{g.nome}}</div></sc-for>
+      </div>
+    </section>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{tCli}}" hint-placeholder-val="{{ false }}">
+  <div style="display: flex; flex-direction: column; gap: 22px">
+    <section class="card" aria-label="Segmentos de clientes">
+      <div class="tbar">
+        <div><h2 class="h2">Os {{nCli}} clientes em 6 grupos <span class="aj" aria-label="Ajuda">?</span></h2><div class="sub">Pelo quanto compram, quantas vezes e há quanto tempo · toque num grupo para ver os clientes</div></div>
+        <button onClick="{{abrirTodos}}" style="min-height: 44px; padding: 0 18px; border-radius: 22px; border: 0; background: #3D2314; color: #FFFFFF; font: 600 14px Inter, sans-serif; cursor: pointer">Ver todos os {{nCli}} clientes</button>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px">
+        <sc-for list="{{rfm}}" as="r" hint-placeholder-count="6">
+          <button onClick="{{r.abrir}}" style="text-align: left; cursor: pointer; font: inherit; color: inherit; border-radius: 16px; padding: 16px; background: {{r.fundo}}; display: flex; flex-direction: column; gap: 6px; border: 1px solid {{r.borda}}">
+            <span style="font-size: 14px; font-weight: 700; color: {{r.cor}}">{{r.nome}}</span>
+            <span class="big" style="font-size: 28px">{{r.n}} <span style="font: 500 14px Inter, sans-serif; color: #5E5247">clientes</span></span>
+            <span style="font-size: 13px; color: #3F352C">{{r.val}} · {{r.tk}} cada</span>
+            <span style="font-size: 12px; color: #5E5247; line-height: 1.4">{{r.regra}}</span>
+            <span style="font-size: 13px; font-weight: 600; color: {{r.cor}}">{{r.acao}}</span>
+            <span style="font-size: 13px; font-weight: 600; color: #2B2118; margin-top: 4px">Ver os {{r.n}} clientes →</span>
+          </button>
+        </sc-for>
+      </div>
+    </section>
+
+    <div class="lin">
+      <section class="card" style="flex: 1 1 560px" aria-label="Concentração">
+        <div><h2 class="h2">Quanto dependemos de poucos <span class="aj" aria-label="Ajuda">?</span></h2><div class="sub">Curva acumulada de todos os clientes, do maior para o menor · passe o mouse nos pontos</div></div>
+        <div style="position: relative">
+          <svg viewBox="0 0 560 260" width="100%" role="img" aria-label="Curva de concentração dos clientes">
+            <line x1="40" x2="540" y1="220" y2="220" stroke="#D8CBB6"></line>
+            <line x1="40" x2="540" y1="60" y2="60" stroke="#C8941A" stroke-dasharray="4 4"></line>
+            <text x="44" y="54" style="font: 600 12px Inter, sans-serif; fill: #8A5A0B">80% do faturamento</text>
+            <polygon points="{{P.area}}" fill="#F1E3C4"></polygon>
+            <polyline points="{{P.linha}}" fill="none" stroke="#3D2314" stroke-width="3" stroke-linejoin="round"></polyline>
+            <sc-for list="{{P.marcas}}" as="m" hint-placeholder-count="8"><circle cx="{{m.x}}" cy="{{m.y}}" r="6" fill="#3D2314" stroke="#FFFFFF" stroke-width="2" onMouseEnter="{{m.hover}}" onMouseLeave="{{sair}}" onClick="{{m.hover}}" style="cursor: pointer"></circle></sc-for>
+            <text x="40" y="244" style="font: 500 12px Inter, sans-serif; fill: #6B5E52">1º cliente</text>
+            <text x="540" y="244" text-anchor="end" style="font: 500 12px Inter, sans-serif; fill: #6B5E52">{{P.ult}}</text>
+          </svg>
+          <sc-if value="{{T.pareto.on}}" hint-placeholder-val="{{ false }}"><div class="tip" style="left: {{T.pareto.l}}; top: {{T.pareto.t}}"><sc-for list="{{T.pareto.linhas}}" as="x" hint-placeholder-count="3"><div>{{x}}</div></sc-for></div></sc-if>
+        </div>
+        <div style="overflow-x: auto"><table class="tb"><thead><tr><th>Curva</th><th>Clientes</th><th>Faturamento</th><th>R$/kg</th><th>Comprou, em média</th></tr></thead><tbody>
+          <sc-for list="{{curvas}}" as="k" hint-placeholder-count="3"><tr><td><button onClick="{{k.abrir}}" class="lk">Curva {{k.l}}</button></td><td>{{k.n}}</td><td>{{k.p}}</td><td>{{k.rkg}}</td><td>{{k.f}}</td></tr></sc-for>
+        </tbody></table></div>
+      </section>
+      <section class="card" style="flex: 1 1 560px" aria-label="Venda cruzada">
+        <div><h2 class="h2">Quem compra mais linhas gasta mais <span class="aj" aria-label="Ajuda">?</span></h2><div class="sub">Faturamento médio por cliente conforme quantas linhas de carne compra · toque para ver os clientes</div></div>
+        <sc-for list="{{cross}}" as="c" hint-placeholder-count="4">
+          <button onClick="{{c.abrir}}" style="display: grid; grid-template-columns: 150px minmax(0, 1fr) 110px; gap: 14px; align-items: center; border: 0; background: none; padding: 6px 0; font: inherit; color: inherit; text-align: left; cursor: pointer; min-height: 44px">
+            <span style="font-size: 14px"><strong>{{c.rot}}</strong><span style="display: block; font-size: 12px; color: #8A5A0B; font-weight: 600; text-decoration: underline">ver os {{c.n}} clientes</span></span>
+            <span style="display: block; height: 26px; background: #F1E9DC; border-radius: 8px"><span style="display: block; height: 26px; border-radius: 8px; background: {{c.cor}}; width: {{c.w}}"></span></span>
+            <span class="big" style="font-size: 20px; text-align: right">{{c.val}}</span>
+          </button>
+        </sc-for>
+        <div class="nota">{{crossLeitura}}</div>
+        <div><h2 class="h2" style="font-size: 19px">Tamanho das notas</h2></div>
+        <sc-for list="{{ticket}}" as="t" hint-placeholder-count="6">
+          <div style="display: grid; grid-template-columns: 90px minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: center; font-size: 13px">
+            <div style="font-weight: 600">{{t.f}}</div>
+            <div style="display: flex; align-items: center; gap: 6px"><div style="height: 14px; border-radius: 4px; background: #CFC4B6; width: {{t.wn}}"></div><span>{{t.pn}} das notas</span></div>
+            <div style="display: flex; align-items: center; gap: 6px"><div style="height: 14px; border-radius: 4px; background: #3D2314; width: {{t.wv}}"></div><span>{{t.pv}} do R$</span></div>
+          </div>
+        </sc-for>
+      </section>
+    </div>
+
+    <section class="card" aria-label="Grupos econômicos">
+      <div><h2 class="h2">Grupos econômicos <span class="aj" aria-label="Ajuda">?</span></h2><div class="sub">Lojas do mesmo dono somadas pela raiz do CNPJ · toque no grupo para ver as lojas</div></div>
+      <div class="tbar"><div style="font-size: 13px; color: #5E5247">{{tbGrp.info}}</div><div style="display: flex; gap: 8px; align-items: center"><label style="font-size: 13px; color: #5E5247; display: flex; gap: 6px; align-items: center">Ordenar por <select class="sel" value="{{tbGrp.k}}" onChange="{{tbGrp.onOrd}}"><sc-for list="{{tbGrp.opts}}" as="o" hint-placeholder-count="6"><option value="{{o.v}}">{{o.rot}}</option></sc-for></select></label><button onClick="{{tbGrp.inverter}}" class="btn2">{{tbGrp.dirRot}}</button></div></div>
+      <div style="overflow: auto; max-height: {{tbGrp.alt}}"><table class="tb"><thead><tr><sc-for list="{{tbGrp.cols}}" as="c" hint-placeholder-count="7"><th><button onClick="{{c.pick}}" class="thb" style="color: {{c.cor}}">{{c.rot}} {{c.seta}}</button></th></sc-for></tr></thead>
+      <tbody><sc-for list="{{tbGrp.rows}}" as="r" hint-placeholder-count="10"><tr><sc-for list="{{r.cells}}" as="x" hint-placeholder-count="7"><td>
+        <sc-if value="{{x.isLink}}" hint-placeholder-val="{{ false }}"><button onClick="{{x.abrir}}" class="lk">{{x.t}}</button></sc-if>
+        <sc-if value="{{x.isBar}}" hint-placeholder-val="{{ false }}"><div style="display: flex; align-items: center; gap: 8px; min-width: 200px"><div style="flex: 1 1 auto; height: 10px; background: #F1E9DC; border-radius: 5px"><div style="height: 10px; border-radius: 5px; background: {{x.bc}}; width: {{x.w}}"></div></div><span style="flex: 0 0 auto; font-weight: 600">{{x.t}}</span></div></sc-if>
+        <sc-if value="{{x.isPill}}" hint-placeholder-val="{{ false }}"><span class="pill" style="background: {{x.pf}}; color: {{x.pc}}">{{x.t}}</span></sc-if>
+        <sc-if value="{{x.isTxt}}" hint-placeholder-val="{{ true }}">{{x.t}}</sc-if>
+      </td></sc-for></tr></sc-for></tbody></table></div>
+    </section>
+
+    <section class="card" aria-label="Saúde da carteira">
+      <div><h2 class="h2">Saúde da carteira <span class="aj" aria-label="Ajuda">?</span></h2><div class="sub">Há quanto tempo cada cliente comprou pela última vez · toque numa faixa para ver os clientes</div></div>
+      <div style="display: flex; height: 44px; border-radius: 10px; overflow: hidden" role="img" aria-label="Clientes por tempo desde a última compra">
+        <sc-for list="{{recencia}}" as="r" hint-placeholder-count="4"><div style="width: {{r.w}}; background: {{r.cor}}; color: {{r.txt}}; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600">{{r.n}}</div></sc-for>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 8px">
+        <sc-for list="{{recencia}}" as="r" hint-placeholder-count="4"><button onClick="{{r.abrir}}" style="display: flex; align-items: center; gap: 8px; font: 500 14px Inter, sans-serif; color: #2B2118; min-height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid #D8CBB6; background: #FFFFFF; cursor: pointer"><span style="width: 12px; height: 12px; border-radius: 3px; background: {{r.cor}}"></span>{{r.rot}}: <strong>{{r.n}}</strong> →</button></sc-for>
+      </div>
+    </section>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{tCid}}" hint-placeholder-val="{{ false }}">
+  <div style="display: flex; flex-direction: column; gap: 22px">
+    <div class="lin">
+      <section class="card" style="flex: 1 1 520px" aria-label="Participação das cidades">
+        <div><h2 class="h2">Onde a Frioeste vende <span class="aj" aria-label="Ajuda">?</span></h2><div class="sub">As 10 maiores cidades e o resto somado · passe o mouse nas fatias</div></div>
+        <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: center">
+          <div style="position: relative; flex: 0 0 230px; width: 230px; height: 230px">
+            <svg width="230" height="230" viewBox="0 0 240 240" role="img" aria-label="Participação das cidades no faturamento">
+              <sc-for list="{{cidFatias}}" as="f" hint-placeholder-count="11"><path d="{{f.d}}" fill="{{f.cor}}" stroke="#FFFFFF" stroke-width="2" onMouseEnter="{{f.hover}}" onMouseLeave="{{sair}}" onClick="{{f.hover}}" style="cursor: pointer"></path></sc-for>
+              <text x="120" y="114" text-anchor="middle" style="font: 600 13px Inter, sans-serif; fill: #5E5247">{{cidCentro.rot}}</text>
+              <text x="120" y="142" text-anchor="middle" style="font: 600 24px Fraunces, Georgia, serif; fill: #2B2118">{{cidCentro.val}}</text>
+            </svg>
+            <sc-if value="{{T.cid.on}}" hint-placeholder-val="{{ false }}"><div class="tip" style="left: {{T.cid.l}}; top: {{T.cid.t}}"><sc-for list="{{T.cid.linhas}}" as="x" hint-placeholder-count="3"><div>{{x}}</div></sc-for></div></sc-if>
+          </div>
+          <div style="flex: 1 1 220px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px">
+            <sc-for list="{{cidFatias}}" as="f" hint-placeholder-count="11"><div style="display: flex; align-items: center; gap: 8px; min-width: 0"><div style="flex: 0 0 12px; height: 12px; border-radius: 3px; background: {{f.cor}}"></div><div style="font-size: 13px; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis">{{f.nome}}</div><div style="font-size: 13px; font-weight: 600">{{f.pct}}</div></div></sc-for>
+          </div>
+        </div>
+      </section>
+      <section style="flex: 1 1 520px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+        <sc-for list="{{cidKpis}}" as="k" hint-placeholder-count="4"><div class="card" style="padding: 16px 18px; gap: 4px"><div style="font-size: 13px; font-weight: 600; color: #5E5247">{{k.rot}}</div><div class="big" style="font-size: 27px; color: {{k.cor}}">{{k.val}}</div><div style="font-size: 13px; color: #5E5247">{{k.sub}}</div></div></sc-for>
+      </section>
+    </div>
+    <section class="card" aria-label="Todas as cidades">
+      <div><h2 class="h2">Todas as cidades <span class="aj" aria-label="Ajuda">?</span></h2><div class="sub">Toque na cidade para ver os clientes · "Espaço" = quanto a cidade ganhou ou perdeu de participação da 1ª para a 2ª metade do período</div></div>
+      <div class="tbar"><div style="font-size: 13px; color: #5E5247">{{tbCid.info}}</div><div style="display: flex; gap: 8px; align-items: center"><label style="font-size: 13px; color: #5E5247; display: flex; gap: 6px; align-items: center">Ordenar por <select class="sel" value="{{tbCid.k}}" onChange="{{tbCid.onOrd}}"><sc-for list="{{tbCid.opts}}" as="o" hint-placeholder-count="6"><option value="{{o.v}}">{{o.rot}}</option></sc-for></select></label><button onClick="{{tbCid.inverter}}" class="btn2">{{tbCid.dirRot}}</button></div></div>
+      <div style="overflow: auto; max-height: {{tbCid.alt}}"><table class="tb"><thead><tr><sc-for list="{{tbCid.cols}}" as="c" hint-placeholder-count="9"><th><button onClick="{{c.pick}}" class="thb" style="color: {{c.cor}}">{{c.rot}} {{c.seta}}</button></th></sc-for></tr></thead>
+      <tbody><sc-for list="{{tbCid.rows}}" as="r" hint-placeholder-count="12"><tr><sc-for list="{{r.cells}}" as="x" hint-placeholder-count="9"><td>
+        <sc-if value="{{x.isLink}}" hint-placeholder-val="{{ false }}"><button onClick="{{x.abrir}}" class="lk">{{x.t}}</button></sc-if>
+        <sc-if value="{{x.isBar}}" hint-placeholder-val="{{ false }}"><div style="display: flex; align-items: center; gap: 8px; min-width: 200px"><div style="flex: 1 1 auto; height: 10px; background: #F1E9DC; border-radius: 5px"><div style="height: 10px; border-radius: 5px; background: {{x.bc}}; width: {{x.w}}"></div></div><span style="flex: 0 0 auto; font-weight: 600">{{x.t}}</span></div></sc-if>
+        <sc-if value="{{x.isPill}}" hint-placeholder-val="{{ false }}"><span class="pill" style="background: {{x.pf}}; color: {{x.pc}}">{{x.t}}</span></sc-if>
+        <sc-if value="{{x.isTxt}}" hint-placeholder-val="{{ true }}">{{x.t}}</sc-if>
+      </td></sc-for></tr></sc-for></tbody></table></div>
+    </section>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{tProd}}" hint-placeholder-val="{{ false }}">
+  <div style="display: flex; flex-direction: column; gap: 22px">
+    <section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px">
+      <sc-for list="{{prodKpis}}" as="k" hint-placeholder-count="4"><div class="card" style="padding: 16px 18px; gap: 4px"><div style="font-size: 13px; font-weight: 600; color: #5E5247">{{k.rot}}</div><div class="big" style="font-size: 27px">{{k.val}}</div><div style="font-size: 13px; color: #5E5247">{{k.sub}}</div></div></sc-for>
+    </section>
+    <section class="card" aria-label="Todos os produtos">
+      <div class="tbar">
+        <div><h2 class="h2">Todos os produtos <span class="aj" aria-label="Ajuda">?</span></h2><div class="sub">Faixa de preço = do preço mais baixo ao mais alto praticado (sem os 10% extremos), com o ponto no preço médio · toque no produto para ver quem compra</div></div>
+        <button onClick="{{abrirCfg}}" class="gear">⚙ Escolher produtos da análise</button>
+      </div>
+      <div class="tbar"><div style="font-size: 13px; color: #5E5247">{{tbProd.info}}</div><div style="display: flex; gap: 8px; align-items: center"><label style="font-size: 13px; color: #5E5247; display: flex; gap: 6px; align-items: center">Ordenar por <select class="sel" value="{{tbProd.k}}" onChange="{{tbProd.onOrd}}"><sc-for list="{{tbProd.opts}}" as="o" hint-placeholder-count="6"><option value="{{o.v}}">{{o.rot}}</option></sc-for></select></label><button onClick="{{tbProd.inverter}}" class="btn2">{{tbProd.dirRot}}</button></div></div>
+      <div style="overflow: auto; max-height: {{tbProd.alt}}"><table class="tb"><thead><tr><sc-for list="{{tbProd.cols}}" as="c" hint-placeholder-count="10"><th><button onClick="{{c.pick}}" class="thb" style="color: {{c.cor}}">{{c.rot}} {{c.seta}}</button></th></sc-for></tr></thead>
+      <tbody><sc-for list="{{tbProd.rows}}" as="r" hint-placeholder-count="12"><tr><sc-for list="{{r.cells}}" as="x" hint-placeholder-count="10"><td>
+        <sc-if value="{{x.isLink}}" hint-placeholder-val="{{ false }}"><button onClick="{{x.abrir}}" class="lk">{{x.t}}</button></sc-if>
+        <sc-if value="{{x.isBar}}" hint-placeholder-val="{{ false }}"><div style="display: flex; align-items: center; gap: 8px; min-width: 200px"><div style="flex: 1 1 auto; height: 10px; background: #F1E9DC; border-radius: 5px"><div style="height: 10px; border-radius: 5px; background: {{x.bc}}; width: {{x.w}}"></div></div><span style="flex: 0 0 auto; font-weight: 600">{{x.t}}</span></div></sc-if>
+        <sc-if value="{{x.isFaixa}}" hint-placeholder-val="{{ false }}"><div style="position: relative; height: 16px; width: 220px; background: #F7F3EC; border-radius: 8px"><div style="position: absolute; top: 4px; height: 8px; border-radius: 4px; background: #E3C98F; left: {{x.fl}}; width: {{x.fw}}"></div><div style="position: absolute; top: 1px; width: 14px; height: 14px; margin-left: -7px; border-radius: 7px; background: #3D2314; border: 2px solid #FFFFFF; box-sizing: border-box; left: {{x.fm}}"></div></div></sc-if>
+        <sc-if value="{{x.isPill}}" hint-placeholder-val="{{ false }}"><span class="pill" style="background: {{x.pf}}; color: {{x.pc}}">{{x.t}}</span></sc-if>
+        <sc-if value="{{x.isTxt}}" hint-placeholder-val="{{ true }}">{{x.t}}</sc-if>
+      </td></sc-for></tr></sc-for></tbody></table></div>
+      <div style="font-size: 12px; color: #6B5E52">A faixa vai de R$ 0 a {{faixaMax}}/kg. Produtos fora da análise aparecem marcados como "fora"; produtos vendidos por peça ficam sem R$/kg.</div>
+    </section>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{tFlex}}" hint-placeholder-val="{{ false }}">
+  <div style="display: flex; flex-direction: column; gap: 22px">
+    <div class="lin">
+      <section class="card" style="flex: 1 1 560px" aria-label="Onde o preço cai">
+        <div><h2 class="h2">Onde o preço cai <span class="aj" aria-label="Ajuda">?</span></h2><div class="sub">Itens por faixa de desconto sobre a tabela e quanto cada faixa custou · passe o mouse</div></div>
+        <div style="position: relative; display: flex; flex-direction: column; gap: 10px">
+          <sc-for list="{{hist}}" as="h" hint-placeholder-count="6">
+            <div onMouseEnter="{{h.hover}}" onMouseLeave="{{sair}}" style="display: grid; grid-template-columns: 120px minmax(0, 1fr) 110px; gap: 12px; align-items: center; cursor: pointer">
+              <div style="font-size: 14px; font-weight: 600">{{h.f}}</div>
+              <div style="display: flex; align-items: center; gap: 8px"><div style="height: 22px; border-radius: 6px; background: {{h.cor}}; width: {{h.w}}"></div><span style="font-size: 13px">{{h.n}} itens</span></div>
+              <div style="font-size: 14px; font-weight: 600; text-align: right; color: {{h.pc}}">{{h.perda}}</div>
+            </div>
+          </sc-for>
+          <sc-if value="{{T.hist.on}}" hint-placeholder-val="{{ false }}"><div class="tip" style="left: {{T.hist.l}}; top: {{T.hist.t}}"><sc-for list="{{T.hist.linhas}}" as="x" hint-placeholder-count="3"><div>{{x}}</div></sc-for></div></sc-if>
+        </div>
+        <div class="nota">{{histLeitura}}</div>
+      </section>
+      <section class="card" style="flex: 1 1 560px" aria-label="Índice de preço">
+        <div><h2 class="h2">Quem vende mais caro e mais barato <span class="aj" aria-label="Ajuda">?</span></h2><div class="sub">Índice de preço: 100 = média da empresa nos mesmos produtos · passe o mouse</div></div>
+        <div style="position: relative; display: flex; flex-direction: column; gap: 10px">
+          <sc-for list="{{indice}}" as="i" hint-placeholder-count="9">
+            <div onMouseEnter="{{i.hover}}" onMouseLeave="{{sair}}" style="display: grid; grid-template-columns: 110px minmax(0, 1fr) 56px; gap: 12px; align-items: center; cursor: pointer">
+              <div style="font-size: 14px; font-weight: 600">{{i.nome}}</div>
+              <div style="position: relative; height: 22px; background: #F7F3EC; border-radius: 6px">
+                <div style="position: absolute; left: {{i.meio}}; top: -3px; bottom: -3px; width: 2px; background: #2B2118"></div>
+                <div style="position: absolute; top: 3px; height: 16px; border-radius: 4px; background: {{i.cor}}; left: {{i.l}}; width: {{i.w}}"></div>
+              </div>
+              <div style="font-size: 14px; font-weight: 600; text-align: right">{{i.v}}</div>
+            </div>
+          </sc-for>
+          <sc-if value="{{T.idx.on}}" hint-placeholder-val="{{ false }}"><div class="tip" style="left: {{T.idx.l}}; top: {{T.idx.t}}"><sc-for list="{{T.idx.linhas}}" as="x" hint-placeholder-count="3"><div>{{x}}</div></sc-for></div></sc-if>
+        </div>
+        <div style="display: flex; justify-content: space-between; font-size: 12px; color: #6B5E52; padding-left: 122px; padding-right: 68px"><span>{{idxEsc.a}}</span><span>100 = média</span><span>{{idxEsc.b}}</span></div>
+      </section>
+    </div>
+    <section class="card" aria-label="Desconto por cliente">
+      <div><h2 class="h2">Desconto por cliente <span class="aj" aria-label="Ajuda">?</span></h2><div class="sub">Todos os clientes que compraram abaixo da tabela · onde está o dinheiro que ficou na mesa</div></div>
+      <div class="tbar"><div style="font-size: 13px; color: #5E5247">{{tbDesc.info}}</div><div style="display: flex; gap: 8px; align-items: center"><label style="font-size: 13px; color: #5E5247; display: flex; gap: 6px; align-items: center">Ordenar por <select class="sel" value="{{tbDesc.k}}" onChange="{{tbDesc.onOrd}}"><sc-for list="{{tbDesc.opts}}" as="o" hint-placeholder-count="6"><option value="{{o.v}}">{{o.rot}}</option></sc-for></select></label><button onClick="{{tbDesc.inverter}}" class="btn2">{{tbDesc.dirRot}}</button></div></div>
+      <div style="overflow: auto; max-height: {{tbDesc.alt}}"><table class="tb"><thead><tr><sc-for list="{{tbDesc.cols}}" as="c" hint-placeholder-count="7"><th><button onClick="{{c.pick}}" class="thb" style="color: {{c.cor}}">{{c.rot}} {{c.seta}}</button></th></sc-for></tr></thead>
+      <tbody><sc-for list="{{tbDesc.rows}}" as="r" hint-placeholder-count="12"><tr><sc-for list="{{r.cells}}" as="x" hint-placeholder-count="7"><td>
+        <sc-if value="{{x.isLink}}" hint-placeholder-val="{{ false }}"><button onClick="{{x.abrir}}" class="lk">{{x.t}}</button></sc-if>
+        <sc-if value="{{x.isBar}}" hint-placeholder-val="{{ false }}"><div style="display: flex; align-items: center; gap: 8px; min-width: 200px"><div style="flex: 1 1 auto; height: 10px; background: #F1E9DC; border-radius: 5px"><div style="height: 10px; border-radius: 5px; background: {{x.bc}}; width: {{x.w}}"></div></div><span style="flex: 0 0 auto; font-weight: 600">{{x.t}}</span></div></sc-if>
+        <sc-if value="{{x.isPill}}" hint-placeholder-val="{{ false }}"><span class="pill" style="background: {{x.pf}}; color: {{x.pc}}">{{x.t}}</span></sc-if>
+        <sc-if value="{{x.isTxt}}" hint-placeholder-val="{{ true }}">{{x.t}}</sc-if>
+      </td></sc-for></tr></sc-for></tbody></table></div>
+    </section>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{tLog}}" hint-placeholder-val="{{ false }}">
+  <div style="display: flex; flex-direction: column; gap: 22px">
+    <section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px">
+      <sc-for list="{{logKpis}}" as="k" hint-placeholder-count="4"><div class="card" style="padding: 16px 18px; gap: 4px"><div style="font-size: 13px; font-weight: 600; color: #5E5247">{{k.rot}}</div><div class="big" style="font-size: 27px; color: {{k.cor}}">{{k.val}}</div><div style="font-size: 13px; color: #5E5247">{{k.sub}}</div></div></sc-for>
+    </section>
+    <div class="lin">
+      <section class="card" style="flex: 1 1 560px" aria-label="Peso das cargas">
+        <div><h2 class="h2">Peso das cargas <span class="aj" aria-label="Ajuda">?</span></h2><div class="sub">Quantas cargas saíram em cada faixa de peso · passe o mouse</div></div>
+        <div style="position: relative; display: flex; align-items: flex-end; gap: 14px; height: 210px">
+          <sc-for list="{{cargasKg}}" as="c" hint-placeholder-count="5">
+            <div onMouseEnter="{{c.hover}}" onMouseLeave="{{sair}}" style="flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 6px; height: 100%; cursor: pointer">
+              <div style="font-size: 14px; font-weight: 600">{{c.n}}</div>
+              <div style="width: 100%; border-radius: 8px 8px 2px 2px; background: {{c.cor}}; height: {{c.h}}"></div>
+              <div style="font-size: 13px; color: #5E5247">{{c.f}}</div>
+            </div>
+          </sc-for>
+          <sc-if value="{{T.ckg.on}}" hint-placeholder-val="{{ false }}"><div class="tip" style="left: {{T.ckg.l}}; top: {{T.ckg.t}}"><sc-for list="{{T.ckg.linhas}}" as="x" hint-placeholder-count="3"><div>{{x}}</div></sc-for></div></sc-if>
+        </div>
+      </section>
+      <section class="card" style="flex: 1 1 560px" aria-label="Cargas por dia da semana">
+        <div><h2 class="h2">Cargas por dia da semana <span class="aj" aria-label="Ajuda">?</span></h2><div class="sub">Média de cargas por dia e peso médio · passe o mouse</div></div>
+        <div style="position: relative; display: flex; align-items: flex-end; gap: 14px; height: 210px">
+          <sc-for list="{{cargasDia}}" as="c" hint-placeholder-count="6">
+            <div onMouseEnter="{{c.hover}}" onMouseLeave="{{sair}}" style="flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 6px; height: 100%; cursor: pointer">
+              <div style="font-size: 14px; font-weight: 600">{{c.n}}</div>
+              <div style="width: 100%; border-radius: 8px 8px 2px 2px; background: #2F6B73; height: {{c.h}}"></div>
+              <div style="font-size: 13px; color: #5E5247">{{c.d}}</div>
+            </div>
+          </sc-for>
+          <sc-if value="{{T.cdia.on}}" hint-placeholder-val="{{ false }}"><div class="tip" style="left: {{T.cdia.l}}; top: {{T.cdia.t}}"><sc-for list="{{T.cdia.linhas}}" as="x" hint-placeholder-count="3"><div>{{x}}</div></sc-for></div></sc-if>
+        </div>
+      </section>
+    </div>
+    <section class="card" aria-label="Transportadoras">
+      <div><h2 class="h2">Transportadoras <span class="aj" aria-label="Ajuda">?</span></h2><div class="sub">Quem leva as cargas</div></div>
+      <div class="tbar"><div style="font-size: 13px; color: #5E5247">{{tbTr.info}}</div><div style="display: flex; gap: 8px; align-items: center"><label style="font-size: 13px; color: #5E5247; display: flex; gap: 6px; align-items: center">Ordenar por <select class="sel" value="{{tbTr.k}}" onChange="{{tbTr.onOrd}}"><sc-for list="{{tbTr.opts}}" as="o" hint-placeholder-count="5"><option value="{{o.v}}">{{o.rot}}</option></sc-for></select></label><button onClick="{{tbTr.inverter}}" class="btn2">{{tbTr.dirRot}}</button></div></div>
+      <div style="overflow: auto; max-height: {{tbTr.alt}}"><table class="tb"><thead><tr><sc-for list="{{tbTr.cols}}" as="c" hint-placeholder-count="5"><th><button onClick="{{c.pick}}" class="thb" style="color: {{c.cor}}">{{c.rot}} {{c.seta}}</button></th></sc-for></tr></thead>
+      <tbody><sc-for list="{{tbTr.rows}}" as="r" hint-placeholder-count="4"><tr><sc-for list="{{r.cells}}" as="x" hint-placeholder-count="5"><td>
+        <sc-if value="{{x.isLink}}" hint-placeholder-val="{{ false }}"><button onClick="{{x.abrir}}" class="lk">{{x.t}}</button></sc-if>
+        <sc-if value="{{x.isBar}}" hint-placeholder-val="{{ false }}"><div style="display: flex; align-items: center; gap: 8px; min-width: 200px"><div style="flex: 1 1 auto; height: 10px; background: #F1E9DC; border-radius: 5px"><div style="height: 10px; border-radius: 5px; background: {{x.bc}}; width: {{x.w}}"></div></div><span style="flex: 0 0 auto; font-weight: 600">{{x.t}}</span></div></sc-if>
+        <sc-if value="{{x.isPill}}" hint-placeholder-val="{{ false }}"><span class="pill" style="background: {{x.pf}}; color: {{x.pc}}">{{x.t}}</span></sc-if>
+        <sc-if value="{{x.isTxt}}" hint-placeholder-val="{{ true }}">{{x.t}}</sc-if>
+      </td></sc-for></tr></sc-for></tbody></table></div>
+    </section>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{tMeta}}" hint-placeholder-val="{{ false }}">
+  <div style="display: flex; flex-direction: column; gap: 22px">
+    <section class="card" style="border-color: #E3C98F; background: #FFFBF2" aria-label="Metas não cadastradas">
+      <h2 class="h2">As metas ainda não estão cadastradas <span class="aj" aria-label="Ajuda">?</span></h2>
+      <div style="font-size: 15px; line-height: 1.55">O sistema de origem manda as cotas dos vendedores zeradas. Abaixo, uma <strong>sugestão</strong> para a diretoria partir: o mês anterior + 5%. Basta ajustar e salvar; o painel passa a mostrar realizado × meta todo dia.</div>
+      <div><button style="min-height: 44px; padding: 0 18px; border-radius: 22px; border: 0; background: #3D2314; color: #FFFFFF; font: 600 14px Inter, sans-serif">Cadastrar metas de {{M.mesNome}}</button></div>
+    </section>
+    <section class="card" aria-label="Metas sugeridas">
+      <div><h2 class="h2">{{M.mesTitulo}} por vendedor <span class="aj" aria-label="Ajuda">?</span></h2><div class="sub">{{M.sub}}</div></div>
+      <div class="tbar"><div style="font-size: 13px; color: #5E5247">{{tbMeta.info}}</div><div style="display: flex; gap: 8px; align-items: center"><label style="font-size: 13px; color: #5E5247; display: flex; gap: 6px; align-items: center">Ordenar por <select class="sel" value="{{tbMeta.k}}" onChange="{{tbMeta.onOrd}}"><sc-for list="{{tbMeta.opts}}" as="o" hint-placeholder-count="6"><option value="{{o.v}}">{{o.rot}}</option></sc-for></select></label><button onClick="{{tbMeta.inverter}}" class="btn2">{{tbMeta.dirRot}}</button></div></div>
+      <div style="overflow: auto; max-height: {{tbMeta.alt}}"><table class="tb"><thead><tr><sc-for list="{{tbMeta.cols}}" as="c" hint-placeholder-count="6"><th><button onClick="{{c.pick}}" class="thb" style="color: {{c.cor}}">{{c.rot}} {{c.seta}}</button></th></sc-for></tr></thead>
+      <tbody><sc-for list="{{tbMeta.rows}}" as="r" hint-placeholder-count="9"><tr><sc-for list="{{r.cells}}" as="x" hint-placeholder-count="6"><td>
+        <sc-if value="{{x.isLink}}" hint-placeholder-val="{{ false }}"><button onClick="{{x.abrir}}" class="lk">{{x.t}}</button></sc-if>
+        <sc-if value="{{x.isBar}}" hint-placeholder-val="{{ false }}"><div style="display: flex; align-items: center; gap: 8px; min-width: 200px"><div style="flex: 1 1 auto; height: 10px; background: #F1E9DC; border-radius: 5px"><div style="height: 10px; border-radius: 5px; background: {{x.bc}}; width: {{x.w}}"></div></div><span style="flex: 0 0 auto; font-weight: 600">{{x.t}}</span></div></sc-if>
+        <sc-if value="{{x.isPill}}" hint-placeholder-val="{{ false }}"><span class="pill" style="background: {{x.pf}}; color: {{x.pc}}">{{x.t}}</span></sc-if>
+        <sc-if value="{{x.isTxt}}" hint-placeholder-val="{{ true }}">{{x.t}}</sc-if>
+      </td></sc-for></tr></sc-for></tbody></table></div>
+      <div style="font-size: 13px; color: #5E5247">Barra = projeção do mês em % da meta sugerida. Verde = no ritmo de bater; laranja = perto; vermelho = longe.</div>
+    </section>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{cfgAberto}}" hint-placeholder-val="{{ false }}">
+  <div style="position: fixed; top: 0; right: 0; bottom: 0; left: 0; background: rgba(43,33,24,0.45); z-index: 60; display: flex; justify-content: flex-end">
+    <div role="dialog" aria-label="Produtos na análise" style="width: 100%; max-width: 860px; height: 100%; background: #F7F3EC; overflow-y: auto; padding: 28px 24px 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px; box-shadow: -12px 0 40px rgba(43,33,24,0.25)">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px">
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <div style="font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #8A5A0B">Configurar a análise</div>
+          <h2 style="margin: 0; font-family: Fraunces, Georgia, serif; font-size: 30px; font-weight: 600">Quais produtos entram</h2>
+          <div style="font-size: 14px; color: #5E5247; line-height: 1.5">Despojo, couro, osso, sebo e itens inativos baixam o preço médio. Escolha o que entra; o painel recalcula na hora.</div>
+        </div>
+        <button onClick="{{fecharCfg}}" aria-label="Fechar a configuração" style="flex: 0 0 auto; min-height: 44px; padding: 0 18px; border-radius: 22px; border: 1px solid #D8CBB6; background: #FFFFFF; font: 600 14px Inter, sans-serif; color: #2B2118; cursor: pointer">Pronto ✓</button>
+      </div>
+      <div class="card" style="padding: 16px 18px; gap: 10px">
+        <div style="font-size: 14px; font-weight: 600">Os produtos fora saem de:</div>
+        <label style="display: flex; gap: 10px; align-items: center; min-height: 40px; font-size: 14px; cursor: pointer"><input type="radio" name="escopo" checked="{{C.escPreco}}" onChange="{{C.setPreco}}" style="width: 20px; height: 20px">Só do preço médio e do R$/kg (o faturamento continua com tudo)</label>
+        <label style="display: flex; gap: 10px; align-items: center; min-height: 40px; font-size: 14px; cursor: pointer"><input type="radio" name="escopo" checked="{{C.escTudo}}" onChange="{{C.setTudo}}" style="width: 20px; height: 20px">De todo o painel (faturamento, volume, clientes e preço)</label>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px">
+        <sc-for list="{{C.resumo}}" as="s" hint-placeholder-count="4"><div style="background: #FFFFFF; border: 1px solid #E6DCCB; border-radius: 14px; padding: 12px 14px"><div style="font-size: 12px; font-weight: 600; color: #5E5247">{{s.rot}}</div><div class="big" style="font-size: 21px">{{s.val}}</div></div></sc-for>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+        <button onClick="{{C.padrao}}" class="btn2">Padrão: só carne</button>
+        <button onClick="{{C.todos}}" class="btn2">Todos os produtos</button>
+        <button onClick="{{C.nenhumInativo}}" class="btn2">Tirar também os inativos</button>
+        <input type="search" value="{{C.busca}}" onInput="{{C.onBusca}}" placeholder="buscar produto" aria-label="Buscar produto" style="min-height: 40px; flex: 1 1 200px; padding: 0 12px; border-radius: 10px; border: 1px solid #D8CBB6; font: 500 14px Inter, sans-serif; background: #FFFFFF; box-sizing: border-box">
+      </div>
+      <sc-for list="{{C.linhas}}" as="g" hint-placeholder-count="6">
+        <div class="card" style="padding: 14px 16px; gap: 6px">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap">
+            <div style="font-size: 15px; font-weight: 700">{{g.nome}} <span style="font-weight: 500; color: #5E5247">· {{g.info}}</span></div>
+            <div style="display: flex; gap: 6px"><button onClick="{{g.marcar}}" class="btn2">Marcar todos</button><button onClick="{{g.desmarcar}}" class="btn2">Tirar todos</button></div>
+          </div>
+          <sc-for list="{{g.prods}}" as="p" hint-placeholder-count="8">
+            <label style="display: grid; grid-template-columns: 28px minmax(0, 1fr) 100px 90px 90px; gap: 10px; align-items: center; min-height: 40px; font-size: 14px; border-top: 1px solid #EFE7DA; cursor: pointer">
+              <input type="checkbox" checked="{{p.on}}" onChange="{{p.toggle}}" style="width: 20px; height: 20px">
+              <span style="color: {{p.cor}}">{{p.nome}}</span>
+              <span style="text-align: right">{{p.val}}</span>
+              <span style="text-align: right; color: #5E5247">{{p.kg}}</span>
+              <span style="text-align: right; font-weight: 600">{{p.rkg}}</span>
+            </label>
+          </sc-for>
+        </div>
+      </sc-for>
+      <div style="font-size: 12px; color: #6B5E52">Faturamento, kg e R$/kg de cada produto no período escolhido. No sistema, a escolha fica salva por empresa e vale para todos os usuários.</div>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{detAberto}}" hint-placeholder-val="{{ false }}">
+  <div style="position: fixed; top: 0; right: 0; bottom: 0; left: 0; background: rgba(43,33,24,0.45); z-index: 50; display: flex; justify-content: flex-end">
+    <div role="dialog" aria-label="{{detTitulo}}" style="width: 100%; max-width: 1180px; height: 100%; background: #F7F3EC; overflow-y: auto; padding: 28px 24px 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 18px; box-shadow: -12px 0 40px rgba(43,33,24,0.25)">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 16px">
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <div style="font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: {{detCor}}">{{detTipo}}</div>
+          <h2 style="margin: 0; font-family: Fraunces, Georgia, serif; font-size: 30px; font-weight: 600; line-height: 1.15">{{detTitulo}}</h2>
+          <div style="font-size: 14px; color: #5E5247">{{detSub}}</div>
+        </div>
+        <button onClick="{{fechar}}" aria-label="Fechar o detalhe" style="flex: 0 0 auto; min-height: 44px; padding: 0 18px; border-radius: 22px; border: 1px solid #D8CBB6; background: #FFFFFF; font: 600 14px Inter, sans-serif; color: #2B2118; cursor: pointer">Fechar ✕</button>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px">
+        <sc-for list="{{detStats}}" as="s" hint-placeholder-count="6"><div style="background: #FFFFFF; border: 1px solid #E6DCCB; border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px"><div style="font-size: 12px; font-weight: 600; color: #5E5247">{{s.rot}}</div><div class="big" style="font-size: 22px">{{s.val}}</div></div></sc-for>
+      </div>
+      <sc-if value="{{detTemAcao}}" hint-placeholder-val="{{ true }}">
+        <div style="background: #3D2314; color: #F3EADB; border-radius: 14px; padding: 14px 16px; font-size: 14px; line-height: 1.5"><strong style="color: #E3C98F">O que fazer:</strong> {{detAcao}}</div>
+      </sc-if>
+      <div class="tbar">
+        <label style="display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; color: #5E5247">Buscar
+          <input type="search" value="{{busca}}" onInput="{{onBusca}}" placeholder="nome do cliente ou cidade" style="min-height: 44px; width: 300px; max-width: 70vw; padding: 0 14px; border-radius: 12px; border: 1px solid #D8CBB6; font: 500 14px Inter, sans-serif; color: #2B2118; background: #FFFFFF; box-sizing: border-box">
+        </label>
+        <div style="font-size: 14px; color: #5E5247">Mostrando <strong style="color: #2B2118">{{detMostrando}}</strong> · toque no título da coluna para ordenar</div>
+      </div>
+      <div style="background: #FFFFFF; border: 1px solid #E6DCCB; border-radius: 16px; overflow-x: auto">
+        <table class="tb" style="min-width: 1080px">
+          <thead><tr><sc-for list="{{detCols}}" as="c" hint-placeholder-count="11"><th><button onClick="{{c.pick}}" class="thb" style="color: {{c.cor}}">{{c.rot}} {{c.seta}}</button></th></sc-for></tr></thead>
+          <tbody>
+            <sc-for list="{{detRows}}" as="r" hint-placeholder-count="12">
+              <tr>
+                <td style="white-space: normal; min-width: 220px"><strong>{{r.nome}}</strong><span style="display: block; font-size: 12px; color: #6B5E52">{{r.grupo}}</span></td>
+                <td>{{r.cid}}</td><td>{{r.vend}}</td><td style="font-weight: 600">{{r.val}}</td><td>{{r.rkg}}</td><td>{{r.nt}}</td><td>{{r.f}}</td>
+                <td><span class="pill" style="background: {{r.uF}}; color: {{r.uC}}">{{r.ult}}</span></td>
+                <td><span class="pill" style="background: {{r.sF}}; color: {{r.sC}}">{{r.seg}}</span></td>
+                <td>{{r.cur}} · {{r.nl}}</td>
+                <td><span class="pill" style="background: {{r.dF}}; color: {{r.dC}}">{{r.desc}}</span></td>
+              </tr>
+            </sc-for>
+          </tbody>
+        </table>
+      </div>
+      <div style="font-size: 12px; color: #6B5E52">Dados do recorte escolhido nos filtros. Vendedor = quem mais vendeu para o cliente. Desconto = preço praticado abaixo da tabela.</div>
+    </div>
+  </div>
+  </sc-if>
+
+  <div style="font-size: 13px; color: #6B5E52; line-height: 1.6">Proposta aprovada pelo CEO em 07/11/2026 (dados de cliente removidos deste arquivo). Faturamento = valor líquido das notas. Desconto = preço praticado abaixo do preço de tabela da origem. Margem ainda não aparece: o custo da origem não chega preenchido.</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":3600}}'>
+// lógica em ./logica.js (o __BASE__ é o pacote de dados descrito em formato-dados.md)
+</script>
+</body>
+</html>
