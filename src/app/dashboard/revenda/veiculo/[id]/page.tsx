@@ -11,6 +11,8 @@ import { CSS } from '@dnd-kit/utilities'
 import { supabase } from '@/lib/supabase'
 import { mensagemDeResultado, estiloBordaInput } from '@/components/ui/feedback/contratoSalvar'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaMascara } from '@/lib/moeda-mascara'
 import { buscarClientesErp, nomeErp, type ErpCliente } from '@/components/pm/ClienteBusca'
 import { parseNumBR } from '@/lib/num'
 
@@ -410,17 +412,12 @@ function ReservaModal({ companyId, veiculoId, onClose, onSaved, onErro }: { comp
 }
 
 // #5678 — dinheiro digitado: mostra "R$ 100.000,00" enquanto digita; guarda só o número (parseNumBR aceita vírgula e ponto).
-const moedaMascara = (s: string): string => {
-  const d = s.replace(/\D/g, '')
-  if (!d) return ''
-  return (Number(d) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-}
 const moedaNum = (s: string): number | null => parseNumBR(String(s).replace(/[R$\s.]/g, '').replace(',', '.'))
 function InputMoeda({ value, onChange, placeholder, style, ajuda }: { value: string; onChange: (v: string) => void; placeholder: string; style?: React.CSSProperties; ajuda: string }) {
   const { gridColumn, ...resto } = style ?? {}
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 4, gridColumn }}>
-      <input value={value} onChange={(e) => onChange(moedaMascara(e.target.value))} placeholder={placeholder} inputMode="numeric" style={{ ...resto, flex: 1, minWidth: 0 }} />
+      <CampoMoeda value={value} onChange={onChange} placeholder={placeholder} style={{ ...resto, flex: 1, minWidth: 0 }} />
       <AjudaCampo chave={ajuda} rota="/dashboard/revenda/veiculo" />
     </div>
   )
@@ -494,7 +491,7 @@ function RecebimentosTabela({ companyId, linhas, onChange, totalVenda }: { compa
       {linhas.map((l, i) => (
         <div key={i} data-testid={`rec-linha-${i}`} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 6, marginBottom: 6, paddingBottom: 6, borderBottom: `1px dashed ${C.border}` }}>
           <select value={l.tipo} onChange={(e) => set(i, { tipo: e.target.value, devedor: e.target.value === 'financiamento' || e.target.value === 'retorno_banco' ? 'banco' : 'cliente' })} style={inp} aria-label="tipo">{REC_TIPOS.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}</select>
-          <input value={l.valor} onChange={(e) => set(i, { valor: moedaMascara(e.target.value) })} placeholder="valor" inputMode="numeric" style={inp} aria-label="valor" data-testid={`rec-valor-${i}`} />
+          <CampoMoeda value={l.valor} onChange={(v) => set(i, { valor: v })} placeholder="valor" style={inp} testId={`rec-valor-${i}`} />
           <input type="date" value={l.data} onChange={(e) => set(i, { data: e.target.value })} style={inp} aria-label="vencimento" />
           <select value={l.forma} onChange={(e) => set(i, { forma: e.target.value })} style={inp} aria-label="forma de pagamento">{REC_FORMAS.map((f) => <option key={f} value={f}>{f}</option>)}</select>
           <select value={l.conta} onChange={(e) => set(i, { conta: e.target.value })} style={inp} aria-label="conta de destino"><option value="">conta de destino</option>{contas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select>
