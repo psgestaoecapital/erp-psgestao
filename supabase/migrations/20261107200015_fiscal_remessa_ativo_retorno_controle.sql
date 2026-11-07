@@ -178,7 +178,10 @@ DECLARE
   v_remessa record;
   v_id uuid;
 BEGIN
-  -- Guarda de empresa FAIL-CLOSED
+  -- Guarda de empresa CANÔNICA (conferidor reconhecido pelo gate check-fn-guards, regra 4):
+  -- fail-closed, levanta 42501 quando o usuário logado não tem acesso à empresa.
+  PERFORM public.fn__guarda_empresa(p_company_id);
+  -- Guarda de empresa FAIL-CLOSED (mantida p/ o contrato 'sem_acesso' que o componente e o gate esperam)
   IF auth.role() <> 'service_role'
      AND NOT EXISTS (SELECT 1 FROM public.user_companies uc WHERE uc.user_id = auth.uid() AND uc.company_id = p_company_id) THEN
     RETURN jsonb_build_object('ok', false, 'erro', 'sem_acesso');
