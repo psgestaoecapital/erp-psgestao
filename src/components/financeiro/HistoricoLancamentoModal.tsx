@@ -125,6 +125,8 @@ const ACAO_COR: Record<string, { bg: string; fg: string; label: string }> = {
   DUPLICOU:          { bg: '#DCFCE7', fg: '#166534', label: 'DUPLICOU' },
   ORIGEM_DUPLICADA:  { bg: '#DBEAFE', fg: '#1E40AF', label: 'foi duplicada' },
   CRIOU:             { bg: '#E0E7FF', fg: '#3730A3', label: 'CRIOU' },
+  CONTA_PELA_CONCILIACAO:       { bg: '#DCFCE7', fg: '#166534', label: 'conta pela conciliação' },
+  CONCILIACAO_CONTA_DIVERGENTE: { bg: '#FEF3C7', fg: '#7A5A0F', label: 'conta a confirmar' },
 }
 
 export default function HistoricoLancamentoModal({ open, onClose, itemId, itemDescricao, tipo }: Props) {
@@ -287,6 +289,7 @@ export default function HistoricoLancamentoModal({ open, onClose, itemId, itemDe
                 const diff = antes && depois ? diffAntesDepois(antes, depois) : []
                 const origemId = typeof alt.origem_id === 'string' ? alt.origem_id : null
                 const novoId = typeof alt.novo_id === 'string' ? alt.novo_id : null
+                const motivo = typeof alt.motivo === 'string' ? alt.motivo : null
 
                 return (
                   <div key={e.id} style={{ background: '#FFFFFF', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: 12 }}>
@@ -305,6 +308,10 @@ export default function HistoricoLancamentoModal({ open, onClose, itemId, itemDe
                         {fmtData(e.created_at)}
                       </span>
                     </div>
+
+                    {motivo && (
+                      <div style={{ marginTop: 8, fontSize: 12, color: ESP }}>{motivo}</div>
+                    )}
 
                     {diff.length > 0 && (
                       <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
