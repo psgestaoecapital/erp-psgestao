@@ -182,7 +182,9 @@ VALUES (
   'Portal do cliente — acesso',
   'Equipe da obra convida e revoga o acesso do cliente ao portal (somente leitura). Cada convite liga um login de cliente à obra, restrito por empresa (RLS); o cliente passa a ver avanço, fotos, medições e faturas desta obra pelo portal e nada de outra obra.',
   'hub',
-  'ativo',
+  -- conserto-main (gilberto-esteira 2026-11-07): 'ativo' viola system_screens_estado_real_check
+  -- (valores válidos: pronto|parcial|placeholder|quebrada|desconhecida). Tela tem front+back prontos → 'pronto'.
+  'pronto',
   false
 )
 ON CONFLICT (id) DO UPDATE SET
