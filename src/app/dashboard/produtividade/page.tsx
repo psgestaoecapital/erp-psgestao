@@ -13,6 +13,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CelulaEditavel } from '@/components/produtividade/CelulaEditavel'
+import { ArvoreProduto } from '@/components/produtividade/ArvoreProduto'
 
 const ROTA = '/dashboard/produtividade'
 const Aj = ({ k }: { k: string }) => <AjudaCampo chave={k} rota={ROTA} />
@@ -136,6 +137,9 @@ function Inner() {
       {msg && <div style={{ background: C.greenBg, color: C.green, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 12 }}>{msg}</div>}
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 12 }}>{erro}</div>}
 
+      {/* Produto acabado + árvore até a origem (Onda 2) */}
+      {plantId && <ArvoreProduto companyId={companyId} plantId={plantId} fluxos={fluxos.map((f) => ({ id: f.id, nome: f.nome }))} flash={flash} flashErr={flashErr} onMudou={recarregar} />}
+
       {/* Faixa: o que falta para medir */}
       {pront && <FaixaProntidao pront={pront} temPostos={(fc?.postos.length ?? 0) > 0} onIr={(tipo) => setFoco({ tipo, n: Date.now() })} />}
 
@@ -166,6 +170,7 @@ function Inner() {
         <>
           {/* Contexto do fluxo — cada valor edita no lugar */}
           <ContextoFluxo fc={fc} setores={setoresOpt} flash={flash} onMudou={recarregar} />
+          <ProntidaoFluxo fc={fc} companyId={companyId} plantId={plantId!} flash={flash} onMudou={recarregar} onIr={(tipo) => { if (tipo === 'turno' || tipo === 'novo') setFoco({ tipo, n: Date.now() }); else document.querySelector('[data-testid="arvore-produto"]')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }} />
 
           <TabelaPostos fc={fc} companyId={companyId} plantId={plantId!} flash={flash} flashErr={flashErr} onMudou={recarregar} foco={foco} />
         </>
@@ -206,9 +211,9 @@ function FaixaProntidao({ pront, temPostos, onIr }: { pront: Prontidao; temPosto
   }
   return (
     <div data-testid="faixa-prontidao" style={{ background: ok ? C.greenBg : C.amberBg, border: `1px solid ${ok ? C.green : C.amber}55`, borderRadius: 12, padding: '11px 14px', fontSize: 13, color: ok ? C.green : '#8A4B08' }}>
-      {ok ? <b>Pronto para medir.</b> : (
+      {ok ? <b>Base da planta pronta.</b> : (
         <>
-          <b>Ainda não dá para medir.</b>{pront.falta.length > 0 && ' Falta:'}
+          <b>Base da planta incompleta.</b>{pront.falta.length > 0 && ' Falta:'}
           <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
             {pront.falta.map((f) => {
               const d = destino(f)
@@ -246,6 +251,52 @@ function ContextoFluxo({ fc, setores, flash, onMudou }: { fc: FluxoCompleto; set
         }} /></b></span>
       <span>Entra<Aj k="prod.fluxo.unidade_entrada" /> <b style={{ color: C.esp }}><CelulaEditavel testid="fluxo-unidade" tipo="lista" valor={f.unidade_entrada_id ?? ''} opcoes={unids} vazio="— escolher" rotuloValor={(v) => unids.find((o) => o.value === v)?.label ?? '—'} onSalvar={(v) => gravar({ unidade_entrada_id: v || null }, 'ALTEROU a unidade de entrada.')} /></b></span>
       <span>{`ponto: ${fc.contexto.ponto} vínculo(s)`}{fc.contexto.producao.length > 0 ? ` · produção: ${fc.contexto.producao.join(', ')}` : ' · produção: sem vínculo'}</span>
+    </div>
+  )
+}
+
+
+// "Pronto para medir" POR FLUXO (RD-58): só fica verde quando o fluxo selecionado tem produto de origem, saídas, postos com turno e fontes ligadas.
+type FaltaFluxo = { chave: string; texto: string; destino: string | null }
+function ProntidaoFluxo({ fc, companyId, plantId, flash, onMudou, onIr }: { fc: FluxoCompleto; companyId: string; plantId: string; flash: (m: string) => void; onMudou: () => Promise<void>; onIr: (destino: string) => void }) {
+  const fluxoId = fc.fluxo.id
+  const [r, setR] = useState<{ pronto: boolean; falta: FaltaFluxo[] } | null>(null)
+  const [origemId, setOrigemId] = useState('')
+  const [prods, setProds] = useState<{ value: string; label: string }[]>([])
+  const carregar = useCallback(async () => {
+    const [{ data }, { data: fx }, { data: pp }] = await Promise.all([
+      supabase.rpc('fn_prod_fluxo_prontidao', { p_fluxo_id: fluxoId }),
+      supabase.from('prod_fluxo').select('produto_origem_id').eq('id', fluxoId).maybeSingle(),
+      supabase.from('prod_produto').select('id, codigo, nome').eq('company_id', companyId).eq('plant_id', plantId).eq('ativo', true).order('codigo').limit(500),
+    ])
+    const x = data as { ok?: boolean; pronto?: boolean; falta?: FaltaFluxo[] } | null
+    setR(x?.ok ? { pronto: !!x.pronto, falta: x.falta ?? [] } : null)
+    setOrigemId((fx as { produto_origem_id: string | null } | null)?.produto_origem_id ?? '')
+    setProds(((pp as { id: string; codigo: string; nome: string }[]) ?? []).map((p) => ({ value: p.id, label: `${p.codigo} · ${p.nome}` })))
+  }, [fluxoId, companyId, plantId])
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void carregar() }, [carregar, fc])
+  async function gravarOrigem(v: string): Promise<string | null> {
+    const { error } = await supabase.from('prod_fluxo').update({ produto_origem_id: v || null, updated_at: new Date().toISOString() }).eq('id', fluxoId)
+    if (error) return `Não consegui salvar: ${error.message}`
+    flash('ALTEROU o produto de origem do fluxo.'); await carregar(); await onMudou(); return null
+  }
+  const linkTxt: Record<string, string> = { origem: 'escolher o produto de origem', saidas: 'cadastrar as saídas na árvore', novo: 'cadastrar o 1º posto', turno: 'definir turno e horário' }
+  return (
+    <div data-testid="prontidao-fluxo" style={{ background: r?.pronto ? C.greenBg : C.amberBg, border: `1px solid ${r?.pronto ? C.green : C.amber}55`, borderRadius: 12, padding: '10px 14px', fontSize: 13, margin: '0 0 12px', color: r?.pronto ? C.green : '#8A4B08' }}>
+      <div style={{ marginBottom: 4, color: C.esp }}>Entrada do fluxo<Aj k="prod.fluxo.produto_origem" /> <b><CelulaEditavel testid="fluxo-origem" tipo="busca" valor={origemId} opcoes={prods} vazio="— produto de origem" rotuloValor={(v) => prods.find((o) => o.value === v)?.label ?? '—'} onSalvar={gravarOrigem} /></b></div>
+      {r == null ? 'Conferindo o fluxo…' : r.pronto ? <b>Pronto para medir este fluxo.</b> : (
+        <>
+          <b>Este fluxo ainda não está pronto para medir.</b> Falta:
+          <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+            {r.falta.map((f) => (
+              <li key={f.chave}>{f.texto} {f.destino
+                ? <button type="button" data-testid={`falta-fluxo-${f.chave}`} onClick={() => onIr(f.destino!)} style={{ background: 'none', border: 'none', padding: 0, color: C.blue, textDecoration: 'underline', cursor: 'pointer', fontSize: 13 }}>→ {linkTxt[f.destino] ?? 'resolver'}</button>
+                : <span style={{ color: C.espM }}>→ ligar em ⚙ Cadastros ou pedir pelo chamado</span>}</li>
+            ))}
+          </ul>
+        </>
+      )}
     </div>
   )
 }
