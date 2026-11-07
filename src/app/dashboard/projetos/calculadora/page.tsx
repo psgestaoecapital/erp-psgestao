@@ -13,6 +13,7 @@ import { itensParaOrcamento, listaDeCompra, linkWhatsApp, listaDeCompraCsv, list
 import { precoComMargem } from "@/lib/calculadora/margem";
 import { mesclarRegras } from "@/lib/calculadora/regras-empresa";
 import { RESUMO_VALIDACAO } from "@/lib/calculadora/referencia-validacao";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 import { CheckCircle2 } from "lucide-react";
 import {
   REGRAS_FORRO_ARAMADO, REGRAS_FORRO_F530, REGRAS_PAREDE_SIMPLES_ST, REGRAS_PAREDE_SEPARATIVA, REGRAS_PAREDE_CORTA_FOGO, REGRAS_REVESTIMENTO_COLADO, calcularRevestimentoColado, REGRAS_REVESTIMENTO_ESTRUTURADO, calcularRevestimentoEstruturado, calcularForroAramado, calcularForroF530, calcularParede, type Resultado,
@@ -97,7 +98,7 @@ export default function CalculadoraObraPage() {
       ? sb.from("erp_calc_depara").upsert({ company_id: companyId, sistema: sistemaDb, chave, produto_id: produtoId, atualizado_em: new Date().toISOString() }, { onConflict: "company_id,sistema,chave" })
       : sb.from("erp_calc_depara").delete().eq("company_id", companyId).eq("sistema", sistemaDb).eq("chave", chave);
     const { error } = await q;
-    if (error) { setErroVinculo("Não consegui salvar o vínculo: " + error.message); return; }
+    if (error) { setErroVinculo(erroAmigavel(error, "Não consegui salvar o vínculo com o estoque. Tente de novo.")); return; }
     setVinculos((v) => { const n2 = { ...v }; if (produtoId) n2[chave] = produtoId; else delete n2[chave]; return n2; });
   }
 
@@ -117,7 +118,7 @@ export default function CalculadoraObraPage() {
     const linhas = itensParaOrcamento(custo.linhas, orcId, companyId, Number(ult?.[0]?.ordem) || 0);
     const { error } = await sb.from("erp_orcamentos_itens").insert(linhas);
     if (!error) await salvarCalculo(orcId, true);
-    setMsgSaida(error ? { ok: false, texto: "Não consegui enviar: " + error.message } : { ok: true, texto: `${linhas.length} itens enviados à proposta. Itens sem produto vinculado foram com preço zero para você completar lá.` });
+    setMsgSaida(error ? { ok: false, texto: erroAmigavel(error, "Não consegui enviar os itens à proposta. Tente de novo.") } : { ok: true, texto: `${linhas.length} itens enviados à proposta. Itens sem produto vinculado foram com preço zero para você completar lá.` });
   }
 
   // Gerar orçamento NOVO a partir do cálculo: cria um rascunho (numero vem do trigger trg_orcamento_set_numero),
@@ -133,10 +134,10 @@ export default function CalculadoraObraPage() {
       const { data: novo, error: e1 } = await sb.from("erp_orcamentos")
         .insert({ company_id: companyId, status: "rascunho", cliente_nome: nome })
         .select("id,numero").single();
-      if (e1 || !novo) { setMsgSaida({ ok: false, texto: "Não consegui criar o orçamento: " + (e1?.message ?? "erro desconhecido") }); return; }
+      if (e1 || !novo) { setMsgSaida({ ok: false, texto: erroAmigavel(e1, "Não consegui criar o orçamento. Tente de novo.") }); return; }
       const linhas = itensParaOrcamento(custo.linhas, novo.id, companyId, 0);
       const { error: e2 } = await sb.from("erp_orcamentos_itens").insert(linhas);
-      if (e2) { setMsgSaida({ ok: false, texto: `Orçamento ${novo.numero ?? ""} criado, mas não consegui enviar os itens: ${e2.message}` }); return; }
+      if (e2) { setMsgSaida({ ok: false, texto: erroAmigavel(e2, `Orçamento ${novo.numero ?? ""} criado, mas não consegui enviar os itens. Abra em Orçamentos e tente de novo.`) }); return; }
       await salvarCalculo(novo.id, true);
       setOrcId(novo.id);
       await carregarEstoque();
@@ -153,7 +154,7 @@ export default function CalculadoraObraPage() {
       itens: custo.linhas.map((l) => ({ chave: l.item.chave, descricao: l.item.descricao, quantidade: l.item.quantidade, unidade: l.item.unidadeCompra, custo_unitario: l.custoUnitario, total: l.total })),
       custo_total: custo.total, margem_pct: venda?.margemPct ?? 0, preco_venda: venda?.preco ?? 0,
     });
-    if (error) { if (!silencioso) setMsgSaida({ ok: false, texto: "Não consegui salvar o cálculo: " + error.message }); return; }
+    if (error) { if (!silencioso) setMsgSaida({ ok: false, texto: erroAmigavel(error, "Não consegui salvar o cálculo no histórico. Tente de novo.") }); return; }
     if (!silencioso) setMsgSaida({ ok: true, texto: "Cálculo salvo no histórico." });
     void carregarEstoque();
   }
