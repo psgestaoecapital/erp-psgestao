@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { rpc } from '@/lib/authFetch'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const C = { espresso: '#3D2314', offwhite: '#FAF7F2', gold: '#C8941A', borderLt: '#ece3d2', gray: '#6b6b6b', red: '#a02020', green: '#2d6a3e' }
 type Setor = { setor: string; setor_id: string }
@@ -60,16 +61,19 @@ export default function TreinamentosPorSetorPage() {
     <div style={{ background: C.offwhite, minHeight: '100vh', padding: 24, color: C.espresso }}>
       <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>Treinamentos por setor</h1>
       <p style={{ fontSize: 13, color: C.gray, margin: '6px 0 16px' }}>Escolha o setor e marque os treinamentos que todos os colaboradores dele precisam ter. O que a empresa já exige hoje (por cargo ou para todos) continua valendo: aqui você só acrescenta.</p>
-      <select data-testid="setor-select" value={setorId} onChange={e => setSetorId(e.target.value)} style={{ padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.borderLt}`, minWidth: 260, fontSize: 14 }}>
-        <option value="">Escolha o setor…</option>
-        {setores.map(s => <option key={s.setor_id} value={s.setor_id}>{s.setor}</option>)}
-      </select>
+      <label style={{ display: 'block', maxWidth: 440 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Setor<AjudaCampo chave="compliance.treinamentos_por_setor.setor" /></span>
+        <select data-testid="setor-select" value={setorId} onChange={e => setSetorId(e.target.value)} style={{ padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.borderLt}`, minWidth: 260, fontSize: 14 }}>
+          <option value="">Escolha o setor…</option>
+          {setores.map(s => <option key={s.setor_id} value={s.setor_id}>{s.setor}</option>)}
+        </select>
+      </label>
       {setorId && grupos.map(g => (
         <div key={g} style={{ marginTop: 16 }}>
-          <div style={{ fontSize: 11.5, fontWeight: 800, color: C.gold, textTransform: 'uppercase', marginBottom: 6 }}>{g}</div>
+          <div style={{ fontSize: 11.5, fontWeight: 800, color: C.gold, textTransform: 'uppercase', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>{g}<AjudaCampo chave="compliance.treinamentos_por_setor.exigencia" /></div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(320px,1fr))', gap: 6 }}>
             {itens.filter(i => i.grupo === g).map(i => (
-              <label key={i.exigido_id} style={{ display: 'flex', gap: 10, background: '#fff', border: `1px solid ${marcados.has(i.exigido_id) ? C.gold : C.borderLt}`, borderRadius: 10, padding: '10px 12px', cursor: 'pointer' }}>
+              <label key={i.exigido_id} data-ajuda="compliance.treinamentos_por_setor.exigencia" style={{ display: 'flex', gap: 10, background: '#fff', border: `1px solid ${marcados.has(i.exigido_id) ? C.gold : C.borderLt}`, borderRadius: 10, padding: '10px 12px', cursor: 'pointer' }}>
                 <input type="checkbox" data-testid="setor-exigencia" checked={marcados.has(i.exigido_id)} onChange={() => alternar(i.exigido_id)} />
                 <span style={{ fontSize: 13.5, fontWeight: 600 }}>{i.nome}{i.ja_exigido_por_escopo && <span style={{ display: 'block', fontSize: 11, fontWeight: 400, color: C.green }}>já exigido para este setor pela regra atual</span>}</span>
               </label>
@@ -78,7 +82,10 @@ export default function TreinamentosPorSetorPage() {
         </div>
       ))}
       {setorId && itens.length > 0 && (
-        <button data-testid="setor-salvar" disabled={salvando} onClick={salvar} style={{ marginTop: 18, padding: '10px 20px', border: 'none', borderRadius: 8, background: C.gold, color: '#fff', fontWeight: 700, cursor: 'pointer' }}>{salvando ? 'Salvando…' : 'Salvar'}</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 18 }}>
+          <button data-testid="setor-salvar" disabled={salvando} onClick={salvar} style={{ padding: '10px 20px', border: 'none', borderRadius: 8, background: C.gold, color: '#fff', fontWeight: 700, cursor: 'pointer' }}>{salvando ? 'Salvando…' : 'Salvar'}</button>
+          <AjudaCampo chave="compliance.treinamentos_por_setor.salvar" />
+        </div>
       )}
       {msg && <div data-testid="setor-msg" style={{ marginTop: 12, fontSize: 13, color: msg.startsWith('Salvo') ? C.green : C.red }}>{msg}</div>}
     </div>

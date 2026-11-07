@@ -36,7 +36,10 @@ if (mig[0]) {
   ok(!/DELETE\s+FROM\s+public\.erp_obra_planta/i.test(sql), 'migration: nenhum DELETE físico da planta')
   ok(/fn__guarda_empresa/.test(sql), 'migration: RPCs com guarda de empresa')
   ok(/REVOKE ALL ON FUNCTION public\.fn_takeoff_planta_excluir/.test(sql) && /REVOKE ALL ON FUNCTION public\.fn_takeoff_planta_editar/.test(sql), 'migration: REVOKE anon nas RPCs')
-  ok(/deleted_at IS NULL/.test(sql.split('procurar_por_hash')[1] ?? ''), 'migration: busca por hash ignora planta excluída')
+  // O corpo da função de busca por hash fica entre o CREATE dela e o fechamento $function$; — o nome
+  // procurar_por_hash também aparece antes (REVOKE/GRANT) e depois (array de rpcs), por isso ancoramos no CREATE.
+  const corpoHash = (sql.split('CREATE OR REPLACE FUNCTION public.fn_takeoff_planta_procurar_por_hash')[1] ?? '').split('$function$;')[0]
+  ok(/deleted_at IS NULL/.test(corpoHash), 'migration: busca por hash ignora planta excluída')
   for (const k of ['acoes', 'planta_progresso', 'planta_editar', 'planta_excluir', 'motivo_exclusao', 'planta_nome']) {
     ok(sql.includes(`'projetos.takeoff.${k}'`) && tela.includes(`projetos.takeoff.${k}`), `"?" projetos.takeoff.${k} no banco e na tela`)
   }
