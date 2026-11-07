@@ -73,6 +73,8 @@ export default function PropostasPage() {
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const prefill = useRef<{ cliente_id?: string; briefing_id?: string; titulo?: string }>({})
+  // Hand-off de "Preço sugerido" (ia-preco): abre a proposta já com 1 item do serviço e o valor sugerido (?preco&?servico_id)
+  const precoPrefill = useRef<{ preco: number; servico_id?: string } | null>(null)
   const anexosRef = useRef<AnexosCardHandle>(null)   // ANEXO-2 · confirmar/limpar o staging da proposta nova
 
   // formulário da nova proposta (com editor de itens)
@@ -236,11 +238,30 @@ export default function PropostasPage() {
     const cli = q.get('erp_cliente_id') || q.get('cliente_id') || undefined
     const brf = q.get('briefing_id') || undefined
     const tit = q.get('titulo') || undefined
-    if (!(cli || brf || tit)) return
+    // Hand-off do Preço sugerido: ?preco=<valor>&servico_id=<id> → abre a proposta já com o item preenchido
+    const pre = num(q.get('preco'))
+    const sid = q.get('servico_id') || undefined
+    if (pre > 0) precoPrefill.current = { preco: pre, servico_id: sid }
+    if (!(cli || brf || tit || pre > 0)) return
     prefill.current = { cliente_id: cli, briefing_id: brf, titulo: tit }
     const t = setTimeout(() => abrirNovo(cli, tit), 0) // fora do ciclo do effect (evita setState síncrono)
     return () => clearTimeout(t)
   }, [])
+
+  // Aplica o item do Preço sugerido assim que o catálogo terminar de carregar (resolve serviço → item; senão, item avulso)
+  useEffect(() => {
+    if (!novo || loading || !precoPrefill.current) return
+    const { preco, servico_id } = precoPrefill.current
+    precoPrefill.current = null
+    const s = servico_id ? catalogo.find((x) => x.id === servico_id) : undefined
+    const item: Item = s
+      ? { servico_id: s.id, tipo_servico: s.nome, descricao: s.nome, unidade: s.unidade ?? 'un',
+          periodicidade: s.periodicidade, quantidade: 1, valor_unitario: preco, valor_total: preco,
+          entregaveis: s.entregaveis ?? undefined, preco_catalogo: s.valor_base ?? null }
+      : { ...itemVazio(), valor_unitario: preco, valor_total: preco }
+    setItens([item])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [novo, loading, catalogo])
 
   const nomeCliente = (id: string | null) => { const c = clientes.find((x) => x.id === id); return c ? (c.nome_fantasia ?? c.nome) : '—' }
   const kpis = useMemo(() => ({
