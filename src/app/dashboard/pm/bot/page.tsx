@@ -18,6 +18,14 @@ const BORDA = '#E7DED3'; const TEXTM = '#6b5444'; const GREEN = '#1F5A1F'; const
 type EvKey = 'novo_job' | 'aprovacao_pendente' | 'prazo_24h' | 'job_atrasado' | 'estouro_horas'
 type Eventos = Record<EvKey, boolean>
 type Config = { conectado: boolean; canal_nome: string | null; eventos: Eventos; conectado_em: string | null }
+type EnvioStatus = 'enfileirado' | 'enviado' | 'falhou'
+type Envio = { id: string; evento: string; titulo: string | null; texto: string | null; status: EnvioStatus; http_status: number | null; erro: string | null; criado_em: string; enviado_em: string | null }
+
+const STATUS_UI: Record<EnvioStatus, { rotulo: string; bg: string; fg: string }> = {
+  enviado: { rotulo: 'Enviada', bg: '#DCEFD7', fg: '#1F5A1F' },
+  falhou: { rotulo: 'Falhou', bg: '#F6DADA', fg: '#9B2222' },
+  enfileirado: { rotulo: 'Na fila', bg: '#EFE6D3', fg: '#8A6D1A' },
+}
 
 const EVENTOS_DEF: { key: EvKey; chave: string; titulo: string; descricao: string }[] = [
   { key: 'novo_job', chave: 'pm.bot.ev_novo_job', titulo: 'Novo job', descricao: 'Quando entra um trabalho novo na agência.' },
@@ -32,6 +40,11 @@ const sFmt = (s: string | null) => {
   if (!s) return '—'
   const d = new Date(s)
   return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+const dhFmt = (s: string | null) => {
+  if (!s) return '—'
+  const d = new Date(s)
+  return isNaN(d.getTime()) ? '—' : d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
 export default function BotSlackPage() {
@@ -49,6 +62,17 @@ export default function BotSlackPage() {
   const [canal, setCanal] = useState('')
   const [evForm, setEvForm] = useState<Eventos>(EVENTOS_VAZIO)
 
+  // histórico de envios (fatia 2)
+  const [historico, setHistorico] = useState<Envio[]>([])
+  const [testando, setTestando] = useState(false)
+
+  const carregarHistorico = useCallback(async () => {
+    if (!empresa) { setHistorico([]); return }
+    const r = await supabase.rpc('fn_pm_bot_envio_listar', { p_company_id: empresa, p_limite: 20 })
+    if (r.error) return
+    setHistorico((Array.isArray(r.data) ? r.data : []) as Envio[])
+  }, [empresa])
+
   const carregar = useCallback(async () => {
     if (!empresa) { setLoading(false); return }
     setLoading(true)
@@ -58,7 +82,8 @@ export default function BotSlackPage() {
     setCfg(c)
     if (c) setEvForm({ ...EVENTOS_VAZIO, ...(c.eventos || {}) })
     setLoading(false)
-  }, [empresa])
+    void carregarHistorico()
+  }, [empresa, carregarHistorico])
 
   useEffect(() => { void carregar() }, [carregar])
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3500); return () => clearTimeout(t) }, [toast])
@@ -95,6 +120,20 @@ export default function BotSlackPage() {
     const next = { ...cfg.eventos, [key]: !cfg.eventos[key] }
     setCfg({ ...cfg, eventos: next })
     void salvarEventos(next)
+  }
+
+  const testar = async () => {
+    if (!empresa) return
+    setTestando(true); setErro(null)
+    const r = await supabase.rpc('fn_pm_bot_testar', { p_company_id: empresa })
+    if (r.error || !(r.data as { ok?: boolean })?.ok) {
+      setToast((r.data as { erro?: string })?.erro || 'Não foi possível enviar o teste.'); setTestando(false); return
+    }
+    setToast('Mensagem de teste enviada. Confira o canal no Slack (e o histórico abaixo).')
+    // o resultado chega em segundos (motor assíncrono): recarrega agora e de novo em 2,5 s
+    await carregarHistorico()
+    setTimeout(() => { void carregarHistorico() }, 2500)
+    setTestando(false)
   }
 
   const desconectar = async () => {
@@ -218,13 +257,69 @@ export default function BotSlackPage() {
         </div>
       )}
 
-      {/* O que vem a seguir (honesto, RD-98) */}
+      {/* Testar envio (quando conectado) */}
+      {conectado && (
+        <div style={card}>
+          <div style={{ ...label }}>Testar envio <AjudaCampo chave="pm.bot.testar" rota={ROTA} /></div>
+          <p style={{ color: TEXTM, fontSize: 13, marginTop: 0, lineHeight: 1.5 }}>
+            Manda uma mensagem de teste para o canal conectado agora. Use para confirmar que o Slack está recebendo.
+          </p>
+          <button style={{ ...btn, opacity: testando ? 0.6 : 1 }} onClick={testar} disabled={testando || busy}>
+            {testando ? 'Enviando teste…' : 'Enviar mensagem de teste'}
+          </button>
+        </div>
+      )}
+
+      {/* Histórico de envios (quando conectado) */}
+      {conectado && (
+        <div style={card}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ ...label, marginBottom: 0 }}>Histórico de envios <AjudaCampo chave="pm.bot.historico" rota={ROTA} /></div>
+            <button style={{ ...btnGhost, marginLeft: 'auto', padding: '6px 12px' }} onClick={() => void carregarHistorico()}>
+              Atualizar
+            </button>
+          </div>
+          {historico.length === 0 ? (
+            <p style={{ color: TEXTM, fontSize: 14, margin: '12px 0 0' }}>
+              Nenhuma mensagem enviada ainda. Toque em <strong>Enviar mensagem de teste</strong> acima para ver o histórico aparecer aqui.
+            </p>
+          ) : (
+            <div style={{ marginTop: 10 }}>
+              {historico.map((h) => {
+                const ui = STATUS_UI[h.status] ?? STATUS_UI.enfileirado
+                return (
+                  <div key={h.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 0', borderTop: `1px solid ${BORDA}` }}>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ fontWeight: 700, fontSize: 14, display: 'block', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {h.titulo || h.evento}
+                      </span>
+                      <span style={{ color: TEXTM, fontSize: 12 }}>{dhFmt(h.enviado_em || h.criado_em)}</span>
+                      {h.status === 'falhou' && h.erro && (
+                        <span style={{ color: '#9B2222', fontSize: 12, display: 'block', marginTop: 2 }}>{h.erro}</span>
+                      )}
+                    </span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                      <span style={{ background: ui.bg, color: ui.fg, padding: '3px 10px', borderRadius: 999, fontWeight: 700, fontSize: 12 }}>{ui.rotulo}</span>
+                      {historico.indexOf(h) === 0 && <AjudaCampo chave="pm.bot.envio_status" rota={ROTA} />}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* O que o bot já faz (honesto, RD-38/RD-98) */}
       <div style={{ ...card, background: OFFWHITE }}>
-        <div style={{ ...label }}>O que vem a seguir <AjudaCampo chave="pm.bot.proximo" rota={ROTA} /></div>
+        <div style={{ ...label }}>O que o bot já faz <AjudaCampo chave="pm.bot.proximo" rota={ROTA} /></div>
         <p style={{ color: TEXTM, fontSize: 14, margin: 0, lineHeight: 1.6 }}>
-          Já funciona: conectar o canal e escolher os avisos. O <strong>envio automático</strong> das mensagens e o
-          <strong> histórico dos avisos enviados</strong> entram na próxima fatia (motor de envio). Assim que publicados,
-          os avisos marcados passam a sair sozinhos.
+          Já funciona: conectar o canal, escolher os avisos e a
+          <strong> detecção automática por evento</strong> — novo job, aprovação pendente,
+          prazo em 24h, job atrasado e estouro de horas entram na fila sozinhos quando o fato acontece.
+          A <strong>entrega ao Slack está sendo ativada</strong>: por enquanto os avisos ficam
+          <strong> na fila</strong> e o <strong>histórico</strong> abaixo mostra cada um (o envio de teste
+          também fica registrado ali). Assim que a entrega estiver no ar, as mensagens passam a sair sozinhas.
         </p>
       </div>
 

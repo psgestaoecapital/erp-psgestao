@@ -134,7 +134,7 @@ export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfter
   return (
     <div style={{ marginTop: 10, borderTop: `1px dashed ${C.border}`, paddingTop: 10 }}>
       <div style={{ fontSize: 11, fontWeight: 700, color: C.espM, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 6 }}>💬 Conversa do chamado</div>
-      {ehSuporte && <PedidoOkSocio sugestaoId={sugestaoId} />}
+      <PedidoOkSocio sugestaoId={sugestaoId} />
 
       {carregando ? <div style={{ fontSize: 12, color: C.espL }}>carregando…</div> : msgs.length === 0 ? (
         <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic', marginBottom: 6 }}>Sem mensagens ainda. Escreva abaixo — dá pra anexar uma foto nova.</div>
@@ -213,7 +213,7 @@ export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfter
         </div>
       ) : (
       <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: 10 }}>
-        <textarea value={texto} onChange={(e) => setTexto(e.target.value)} placeholder={ehSuporte ? 'Responder ao autor…' : 'Escreva ou mande uma foto de um novo erro — o chamado volta pra equipe sem encerrar.'} rows={2}
+        <textarea value={texto} onChange={(e) => setTexto(e.target.value)} placeholder={ehSuporte && autorChamadoId !== userId ? 'Responder ao autor…' : autorChamadoId === userId ? 'Enviar mensagem para quem está atendendo… (escreva ou mande uma foto de um novo erro)' : 'Escreva ou mande uma foto de um novo erro — o chamado volta pra equipe sem encerrar.'} rows={2}
           style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, outline: 'none', resize: 'vertical' }} />
         <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
           <FotosChamado value={fotos} onChange={setFotos} compact />
