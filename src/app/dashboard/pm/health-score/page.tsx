@@ -78,16 +78,68 @@ export default function HealthScorePage() {
   const [loadingRank, setLoadingRank] = useState(false)
   const [aberto, setAberto] = useState<string | null>(null)
   const [mostrar, setMostrar] = useState(RANK_PAGINA)
+  const [verSemDados, setVerSemDados] = useState(false)
+  const [mostrarSem, setMostrarSem] = useState(RANK_PAGINA)
   const carregarRanking = useCallback(async () => {
     if (!empresa) { setRanking(null); return }
     setLoadingRank(true)
     const { data } = await supabase.rpc('fn_agency_score_calcular', { p_company_id: empresa, p_cliente_id: null, p_periodo_dias: periodo })
     const r = (data ?? {}) as { ok?: boolean; clientes?: RankCli[] }
     setRanking(r.ok ? (r.clientes ?? []) : [])
-    setMostrar(RANK_PAGINA); setAberto(null)
+    setMostrar(RANK_PAGINA); setAberto(null); setVerSemDados(false); setMostrarSem(RANK_PAGINA)
     setLoadingRank(false)
   }, [empresa, periodo])
   useEffect(() => { void carregarRanking() }, [carregarRanking])
+
+  // O ranking útil é só quem tem score calculável. Clientes sem base para a nota (dados_insuficientes) — incluindo
+  // artefatos de teste sem movimento — iam poluir a lista; vão para uma seção recolhida "Sem dados suficientes (N)".
+  const comScore = useMemo(() => (ranking ?? []).filter((c) => !c.dados_insuficientes), [ranking])
+  const semDados = useMemo(() => (ranking ?? []).filter((c) => c.dados_insuficientes), [ranking])
+
+  const linhaCliente = (c: RankCli, rank: number | null) => {
+    const b = banda(c.score)
+    const exp = aberto === c.cliente_id
+    return (
+      <div key={c.cliente_id} style={{ border: `1px solid ${BORDA}`, borderRadius: 12, overflow: 'hidden' }}>
+        <button type="button" onClick={() => setAberto(exp ? null : c.cliente_id)} data-testid="health-cliente"
+          style={{ width: '100%', display: 'flex', gap: 12, alignItems: 'center', background: '#fff', border: 'none', padding: '11px 14px', cursor: 'pointer', textAlign: 'left' }}>
+          {rank != null && <span style={{ fontSize: 12, color: TEXTM, fontWeight: 700, minWidth: 22 }}>{rank}º</span>}
+          <span style={{ flex: 1, minWidth: 140, fontWeight: 700, color: ESPRESSO }}>{c.nome}</span>
+          {c.dados_insuficientes
+            ? <span style={{ fontSize: 11, color: TEXTM, border: `1px dashed ${BORDA}`, borderRadius: 8, padding: '2px 8px' }}>dados insuficientes</span>
+            : (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 10.5, color: b.cor, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3 }}>{b.rot}</span>
+                <span style={{ minWidth: 46, textAlign: 'center', background: b.cor, color: '#fff', fontWeight: 700, fontSize: 15, borderRadius: 8, padding: '4px 8px' }}>{n1(c.score)}</span>
+              </span>
+            )}
+          <span style={{ color: TEXTM, fontSize: 12 }}>{exp ? '▾' : '▸'}</span>
+        </button>
+        {exp && (
+          <div style={{ borderTop: `1px solid ${OFFWHITE}`, background: OFFWHITE, padding: '10px 14px' }} data-testid="health-detalhe">
+            <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.4, color: TEXTM, fontWeight: 700, marginBottom: 6, display: 'flex', alignItems: 'center' }}>Por que esta nota<AjudaCampo chave="pm.health_score.detalhe" rota={ROTA} /></div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px,1fr))', gap: 8 }}>
+              {COMPONENTES.map((comp) => {
+                const val = c[comp.k] as number | null
+                const semDado = val == null
+                return (
+                  <div key={comp.k} style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 10, padding: '8px 10px', opacity: semDado ? 0.6 : 1 }}>
+                    <div style={{ fontSize: 11, color: TEXTM, fontWeight: 700 }}>{comp.rot} · {pesos[comp.k]}%</div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: semDado ? TEXTM : ESPRESSO, marginTop: 1 }}>{semDado ? 'sem dado' : `${n1(val)}`}</div>
+                  </div>
+                )
+              })}
+            </div>
+            <p style={{ fontSize: 11, color: TEXTM, margin: '8px 0 0', fontStyle: 'italic' }}>
+              {c.dados_insuficientes
+                ? 'Ainda não há base (jobs com prazo, receita/custo, recebimentos ou atividade) para calcular a nota neste período.'
+                : 'A nota é a média dos componentes COM dado, ponderada pelos pesos acima; componentes sem dado não entram e os pesos são renormalizados.'}
+            </p>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   if (!empresa) return <div style={{ padding: 32, color: TEXTM, background: OFFWHITE, minHeight: '100vh' }}>Selecione uma empresa no topo.</div>
 
@@ -166,60 +218,49 @@ export default function HealthScorePage() {
                 Nenhum cliente ativo com base suficiente para o score neste período. Cadastre clientes e registre jobs, horas e recebimentos para a nota aparecer.
               </div>
             ) : (
-              <div style={{ display: 'grid', gap: 8 }} data-testid="health-ranking">
-                {ranking.slice(0, mostrar).map((c, i) => {
-                  const b = banda(c.score)
-                  const exp = aberto === c.cliente_id
-                  return (
-                    <div key={c.cliente_id} style={{ border: `1px solid ${BORDA}`, borderRadius: 12, overflow: 'hidden' }}>
-                      <button type="button" onClick={() => setAberto(exp ? null : c.cliente_id)} data-testid="health-cliente"
-                        style={{ width: '100%', display: 'flex', gap: 12, alignItems: 'center', background: '#fff', border: 'none', padding: '11px 14px', cursor: 'pointer', textAlign: 'left' }}>
-                        <span style={{ fontSize: 12, color: TEXTM, fontWeight: 700, minWidth: 22 }}>{i + 1}º</span>
-                        <span style={{ flex: 1, minWidth: 140, fontWeight: 700, color: ESPRESSO }}>{c.nome}</span>
-                        {c.dados_insuficientes
-                          ? <span style={{ fontSize: 11, color: TEXTM, border: `1px dashed ${BORDA}`, borderRadius: 8, padding: '2px 8px' }}>dados insuficientes</span>
-                          : (
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                              <span style={{ fontSize: 10.5, color: b.cor, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.3 }}>{b.rot}</span>
-                              <span style={{ minWidth: 46, textAlign: 'center', background: b.cor, color: '#fff', fontWeight: 700, fontSize: 15, borderRadius: 8, padding: '4px 8px' }}>{n1(c.score)}</span>
-                            </span>
-                          )}
-                        <span style={{ color: TEXTM, fontSize: 12 }}>{exp ? '▾' : '▸'}</span>
-                      </button>
-                      {exp && (
-                        <div style={{ borderTop: `1px solid ${OFFWHITE}`, background: OFFWHITE, padding: '10px 14px' }} data-testid="health-detalhe">
-                          <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.4, color: TEXTM, fontWeight: 700, marginBottom: 6, display: 'flex', alignItems: 'center' }}>Por que esta nota<AjudaCampo chave="pm.health_score.detalhe" rota={ROTA} /></div>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px,1fr))', gap: 8 }}>
-                            {COMPONENTES.map((comp) => {
-                              const val = c[comp.k] as number | null
-                              const semDado = val == null
-                              return (
-                                <div key={comp.k} style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 10, padding: '8px 10px', opacity: semDado ? 0.6 : 1 }}>
-                                  <div style={{ fontSize: 11, color: TEXTM, fontWeight: 700 }}>{comp.rot} · {pesos[comp.k]}%</div>
-                                  <div style={{ fontSize: 16, fontWeight: 700, color: semDado ? TEXTM : ESPRESSO, marginTop: 1 }}>{semDado ? 'sem dado' : `${n1(val)}`}</div>
-                                </div>
-                              )
-                            })}
-                          </div>
-                          <p style={{ fontSize: 11, color: TEXTM, margin: '8px 0 0', fontStyle: 'italic' }}>
-                            {c.dados_insuficientes
-                              ? 'Ainda não há base (jobs com prazo, receita/custo, recebimentos ou atividade) para calcular a nota neste período.'
-                              : 'A nota é a média dos componentes COM dado, ponderada pelos pesos acima; componentes sem dado não entram e os pesos são renormalizados.'}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-                {ranking.length > mostrar && (
-                  <div style={{ textAlign: 'center', marginTop: 4 }}>
-                    <button type="button" onClick={() => setMostrar((m) => m + RANK_PAGINA)} data-testid="health-ranking-mais"
-                      style={{ background: '#fff', color: ESPRESSO, border: `1px solid ${BORDA}`, borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-                      Mostrar mais ({ranking.length - mostrar} restante{ranking.length - mostrar > 1 ? 's' : ''})
-                    </button>
+              <>
+                {comScore.length === 0 ? (
+                  <div style={{ padding: '26px 20px', textAlign: 'center', color: TEXTM, border: `1px dashed ${BORDA}`, borderRadius: 12 }} data-testid="health-ranking-sem-score">
+                    Nenhum cliente com score calculável neste período. Os clientes ainda sem base aparecem abaixo em “Sem dados suficientes”.
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gap: 8 }} data-testid="health-ranking">
+                    {comScore.slice(0, mostrar).map((c, i) => linhaCliente(c, i + 1))}
+                    {comScore.length > mostrar && (
+                      <div style={{ textAlign: 'center', marginTop: 4 }}>
+                        <button type="button" onClick={() => setMostrar((m) => m + RANK_PAGINA)} data-testid="health-ranking-mais"
+                          style={{ background: '#fff', color: ESPRESSO, border: `1px solid ${BORDA}`, borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                          Mostrar mais ({comScore.length - mostrar} restante{comScore.length - mostrar > 1 ? 's' : ''})
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
-              </div>
+
+                {semDados.length > 0 && (
+                  <div style={{ marginTop: comScore.length === 0 ? 12 : 16 }}>
+                    <button type="button" onClick={() => setVerSemDados((v) => !v)} data-testid="health-semdados-toggle"
+                      style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, background: OFFWHITE, color: TEXTM, border: `1px dashed ${BORDA}`, borderRadius: 10, padding: '10px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer', textAlign: 'left' }}>
+                      <span style={{ flex: 1 }}>Sem dados suficientes ({semDados.length})</span>
+                      <span style={{ fontSize: 11, fontWeight: 400, fontStyle: 'italic' }}>clientes ainda sem base para a nota</span>
+                      <span>{verSemDados ? '▾' : '▸'}</span>
+                    </button>
+                    {verSemDados && (
+                      <div style={{ display: 'grid', gap: 8, marginTop: 8 }} data-testid="health-semdados">
+                        {semDados.slice(0, mostrarSem).map((c) => linhaCliente(c, null))}
+                        {semDados.length > mostrarSem && (
+                          <div style={{ textAlign: 'center', marginTop: 4 }}>
+                            <button type="button" onClick={() => setMostrarSem((m) => m + RANK_PAGINA)} data-testid="health-semdados-mais"
+                              style={{ background: '#fff', color: ESPRESSO, border: `1px solid ${BORDA}`, borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                              Mostrar mais ({semDados.length - mostrarSem} restante{semDados.length - mostrarSem > 1 ? 's' : ''})
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
             )}
         </section>
 
