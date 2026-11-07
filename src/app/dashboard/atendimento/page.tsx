@@ -133,8 +133,15 @@ function Inner() {
     .sort((a, b) => (PRIO_ORD[a.prioridade] ?? 2) - (PRIO_ORD[b.prioridade] ?? 2) || b.dias_aberta - a.dias_aberta),
     [base, busca, fEmpresa, fCategoria, aba, buscaLimpa])
 
+  const [telaInf, setTelaInf] = useState<Record<string, string>>({})
+
   async function abrir(id: string) {
     setAberto(aberto === id ? null : id)
+    if (aberto !== id && telaInf[id] === undefined) {
+      // #6725 — tela que o usuário informou ("Em qual tela acontece?"); a rota automática segue em it.rota
+      const { data: t } = await supabase.from('sugestoes').select('tela_informada').eq('id', id).maybeSingle()
+      setTelaInf((s) => ({ ...s, [id]: (t as { tela_informada?: string | null } | null)?.tela_informada ?? '' }))
+    }
     if (aberto !== id && !anexosUrl[id]) {
       // só os anexos do CHAMADO (mensagem_id NULL) — as fotos de mensagens aparecem na conversa, não aqui
       const { data } = await supabase.from('sugestao_anexo').select('storage_path, marcacoes').eq('sugestao_id', id).is('mensagem_id', null).order('ordem')
@@ -403,6 +410,7 @@ function Inner() {
                     </div>
                   ))}
 
+                  {telaInf[it.id] ? <div style={{ marginTop: 8, fontSize: 13, color: C.esp }}><b>Tela informada pelo usuário:</b> {telaInf[it.id]}</div> : null}
                   {/* IA — SEMPRE rotulada como IA, separada (RD-51) */}
                   <div style={{ marginTop: 10, background: '#F3F6FC', border: `1px solid #D8E2F2`, borderRadius: 8, padding: 10 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: C.blue, marginBottom: 4 }}>🤖 Leitura da IA (palpite — não é decisão)</div>

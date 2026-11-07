@@ -67,7 +67,7 @@ function Inner() {
   // deep link do e-mail de aviso: /dashboard/melhorias?n=<numero> abre direto no chamado (rola + destaca)
   const focoNumero = (searchParams.get('n') || '').trim()
 
-  const [f, setF] = useState({ categoria: 'bug', titulo: '', descricao: '', prioridade: 'media' })
+  const [f, setF] = useState({ categoria: 'bug', titulo: '', descricao: '', prioridade: 'media', tela: '' })
   const [fotos, setFotos] = useState<FotoItem[]>([])
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
@@ -215,6 +215,7 @@ function Inner() {
 
   async function enviar() {
     if (!companyId) { setErro('Selecione uma empresa específica no topo.'); return }
+    if (!f.tela.trim()) { setErro('Informe em qual tela acontece.'); return }
     if (!f.descricao.trim()) { setErro('Descreva a dificuldade.'); return }
     setBusy(true); setErro(null)
     try {
@@ -231,7 +232,7 @@ function Inner() {
 
       const { data, error } = await supabase.rpc('fn_sugestao_criar', {
         p_company_id: companyId,
-        p_sugestao: { tipo: f.categoria === 'melhoria' ? 'melhoria' : 'bug', titulo: f.titulo.trim() || null, descricao: f.descricao.trim(), prioridade: f.prioridade, categoria: f.categoria, rota: rotaOrigem, area: selInfo.tipo === 'empresa' ? 'gestao_empresarial' : null },
+        p_sugestao: { tipo: f.categoria === 'melhoria' ? 'melhoria' : 'bug', titulo: f.titulo.trim() || null, descricao: f.descricao.trim(), prioridade: f.prioridade, categoria: f.categoria, rota: rotaOrigem, tela_informada: f.tela.trim(), area: selInfo.tipo === 'empresa' ? 'gestao_empresarial' : null },
         p_anexos: anexos,
         p_user: user.id,
       })
@@ -252,12 +253,12 @@ function Inner() {
         if (n) numeroTxt = ` #${n}`
       } catch { /* segue sem o número */ }
 
-      setF({ categoria: 'bug', titulo: '', descricao: '', prioridade: 'media' }); setFotos([])
+      setF({ categoria: 'bug', titulo: '', descricao: '', prioridade: 'media', tela: '' }); setFotos([])
       setMsg(`Chamado${numeroTxt} registrado. A IA vai analisar em instantes.`); void carregar()
     } finally { setBusy(false) }
   }
 
-  const podeEnviar = useMemo(() => !!companyId && !!f.descricao.trim() && !busy, [companyId, f.descricao, busy])
+  const podeEnviar = useMemo(() => !!companyId && !!f.descricao.trim() && !!f.tela.trim() && !busy, [companyId, f.descricao, f.tela, busy])
 
   return (
     <div style={{ background: C.bg, minHeight: '100vh', padding: '22px 16px 48px', maxWidth: 980, margin: '0 auto', color: C.esp }}>
@@ -292,6 +293,8 @@ function Inner() {
           </label>
         </div>
         <input value={f.titulo} onChange={(e) => setF({ ...f, titulo: e.target.value })} placeholder="título curto (opcional)" style={{ ...inp, width: '100%', marginTop: 10, boxSizing: 'border-box' }} />
+        <input value={f.tela} onChange={(e) => setF({ ...f, tela: e.target.value })} placeholder="Em qual tela acontece? (obrigatório) — ex.: Ordens de Serviço, NF-e recebidas, Perfil fiscal da revenda" maxLength={200} aria-required style={{ ...inp, width: '100%', marginTop: 10, boxSizing: 'border-box' }} />
+        <AjudaCampo chave="chamado.tela_informada" rota="/dashboard/melhorias" />
         <textarea value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} placeholder="descreva a dificuldade — o que você tentou fazer e o que aconteceu (ou dite por voz 🎙️)" rows={3} style={{ ...inp, width: '100%', marginTop: 10, boxSizing: 'border-box', resize: 'vertical' }} />
         {/* #63 · ditar a sugestão por voz (fala→texto, editável antes de enviar) */}
         <div style={{ marginTop: 6 }}>
