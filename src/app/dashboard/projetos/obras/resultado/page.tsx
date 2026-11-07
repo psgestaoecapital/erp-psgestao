@@ -359,6 +359,7 @@ function DrilldownEscopo({ estado, onRecarregar, mobile }: { estado?: EstadoEsco
   )
   const d = estado.dados
   const itens = d?.itens ?? []
+  const lgd: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 2 }
   const titulo = (
     <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12.5, fontWeight: 700, marginBottom: 8 }}>
       Itens do escopo <AjudaCampo chave="projetos.resultado_obra.itens" />
@@ -375,11 +376,19 @@ function DrilldownEscopo({ estado, onRecarregar, mobile }: { estado?: EstadoEsco
   if (mobile) return (
     <div data-testid="resultado-itens-lista" style={{ background: '#FBF9F5', border: `1px solid ${LINE}`, borderRadius: 12, padding: pad }}>
       {titulo}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: MUT, flexWrap: 'wrap', marginBottom: 6 }}>
-        <AjudaCampo chave="projetos.resultado_obra.item_qtd_contratada" /><AjudaCampo chave="projetos.resultado_obra.item_qtd_medida" />
-        <AjudaCampo chave="projetos.resultado_obra.item_pct_medido" /><AjudaCampo chave="projetos.resultado_obra.item_preco_unit" />
-        <AjudaCampo chave="projetos.resultado_obra.item_valor_contratado" /><AjudaCampo chave="projetos.resultado_obra.item_valor_medido" />
-        <AjudaCampo chave="projetos.resultado_obra.item_custo_previsto" />
+      {/* Legenda das colunas do cartão: cada "?" fica junto do NOME do campo (RD-95) — antes os "?" apareciam
+          soltos, sem rótulo, e o auditor via "interrogação isolada sem contexto". */}
+      <div style={{ fontSize: 11, color: MUT, marginBottom: 6 }}>
+        <span style={{ fontWeight: 600 }}>O que cada número quer dizer:</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 4 }}>
+          <span style={lgd}>Contratada <AjudaCampo chave="projetos.resultado_obra.item_qtd_contratada" /></span>
+          <span style={lgd}>Medida <AjudaCampo chave="projetos.resultado_obra.item_qtd_medida" /></span>
+          <span style={lgd}>% medido <AjudaCampo chave="projetos.resultado_obra.item_pct_medido" /></span>
+          <span style={lgd}>Preço unit. <AjudaCampo chave="projetos.resultado_obra.item_preco_unit" /></span>
+          <span style={lgd}>Contratado <AjudaCampo chave="projetos.resultado_obra.item_valor_contratado" /></span>
+          <span style={lgd}>Medido <AjudaCampo chave="projetos.resultado_obra.item_valor_medido" /></span>
+          <span style={lgd}>Custo previsto <AjudaCampo chave="projetos.resultado_obra.item_custo_previsto" /></span>
+        </div>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {itens.map(it => (
