@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
@@ -99,7 +100,7 @@ export default function OSObraPage() {
           .in('company_id', companyIds).is('excluido_em', null).not('quantidade_executada', 'is', null).limit(2000),
           { ms: 8000, tentativas: 1, label: 'rdo_qtd' }),
       ])
-      if (a.error) { setErro(a.error.message); return }
+      if (a.error) { setErro(erroAmigavel(a.error, 'Não foi possível carregar as ordens de serviço. Tente de novo.')); return }
       setLista((a.data ?? []) as OS[]); setObras((b.data ?? []) as Obra[]); setFuncoes((fn.data ?? []) as Funcao[])
       const soma: Record<string, Horas> = {}
       for (const r of (h.data ?? []) as { os_id: string; horas: number; valor: number }[]) {
@@ -155,7 +156,7 @@ export default function OSObraPage() {
     setSalvando(true)
     const { error } = await supabase.rpc('fn_obra_os_salvar', { p_obra_id: f.obra_id, p_dados: { ...f, id: editando } })
     setSalvando(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível salvar a ordem de serviço. Tente de novo.')); return }
     fechar(); carregar()
   }
 
@@ -164,7 +165,7 @@ export default function OSObraPage() {
     setOcupado(o.id); setErro('')
     const { error } = await supabase.rpc('fn_obra_os_status', { p_id: o.id, p_status: status })
     setOcupado(null)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível mudar o status desta ordem de serviço. Tente de novo.')); return }
     carregar()
   }
   const excluir = async (o: OS) => {
@@ -172,7 +173,7 @@ export default function OSObraPage() {
     setOcupado(o.id); setErro('')
     const { error } = await supabase.rpc('fn_obra_os_excluir', { p_id: o.id })
     setOcupado(null)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível excluir a ordem de serviço. Tente de novo.')); return }
     carregar(); if (verExcluidas) carregarExcluidas()
   }
 
@@ -189,7 +190,7 @@ export default function OSObraPage() {
     setOcupado(o.id); setErro('')
     const { error } = await supabase.rpc('fn_obra_os_restaurar', { p_id: o.id })
     setOcupado(null)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível restaurar a ordem de serviço. Tente de novo.')); return }
     carregarExcluidas(); carregar()
   }
 
@@ -206,7 +207,7 @@ export default function OSObraPage() {
     setOcupado(o.id)
     const { error } = await supabase.rpc('fn_obra_os_apontar_horas', { p_os_id: o.id, p_dados: { data: fh.data, funcao_id: fh.funcao_id, horas, custo_hora: custo } })
     setOcupado(null)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível lançar as horas. Tente de novo.')); return }
     setApontando(null); setFh({ ...VAZIO_H }); carregar()
   }
 
@@ -244,7 +245,7 @@ export default function OSObraPage() {
       data: fr.data, clima: fr.clima, praticavel: fr.praticavel, efetivo: fr.efetivo === '' ? 0 : Number(fr.efetivo), quantidade_executada: qtd,
       atividades: fr.atividades, ocorrencias: fr.ocorrencias, fotos: [...fr.fotos, ...enviadas] } })
     setOcupado(null)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível salvar o diário de obra. Tente de novo.')); return }
     setDiario(null); setFr({ ...VAZIO_R }); setNovasFotos([]); carregar()
   }
 
