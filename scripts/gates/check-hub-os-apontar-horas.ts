@@ -30,7 +30,9 @@ const base = ['20261023180535_hub_os_obra.sql', '20261024190000_hb0_os_obra_rdo.
   // filtro por responsável (migration posterior ao HB0): mesma leitura por sufixo (renomeável pela fila)
   ...readdirSync('supabase/migrations').filter(f => f.endsWith('_hub_os_obra_ajuda_filtro_responsavel.sql')),
   // restaurar/lixeira RD-98 p4 (filtro_excluidas, restaurar): lida pelo sufixo (renomeável pela fila)
-  ...readdirSync('supabase/migrations').filter(f => f.endsWith('_obra_os_restaurar_lixeira_rd98_p4.sql'))]
+  ...readdirSync('supabase/migrations').filter(f => f.endsWith('_obra_os_restaurar_lixeira_rd98_p4.sql')),
+  // margem parcial no cartão (orcado, margem_parcial): lida pelo sufixo (renomeável pela fila)
+  ...readdirSync('supabase/migrations').filter(f => f.endsWith('_obra_os_margem_parcial_ajuda_rd95.sql'))]
   .map(f => readFileSync(`supabase/migrations/${f}`, 'utf8')).join('\n')
 const chaves = [...tela.matchAll(/AjudaCampo chave="([^"]+)"/g)].map(m => m[1])
 const novas = ['apontar', 'horas_apontadas', 'apontar_data', 'apontar_funcao', 'apontar_horas', 'apontar_custo_hora', 'apontar_lancar'].map(c => `projetos.os_obra.${c}`)
