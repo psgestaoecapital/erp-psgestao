@@ -99,6 +99,16 @@ export default function DesempenhoComercialPage() {
     const perdidas = fun.find((f) => f.etapa === 'perdido')?.qtd ?? 0
     return { total, ganhas, perdidas, andamento: Math.max(0, total - ganhas - perdidas) }
   }, [data])
+  // Perdas por motivo em Pareto (#3331 "detalhamento do motivo de perda"): ordena do maior valor
+  // perdido para o menor e deriva a participação de cada motivo no total perdido, para a seção mostrar
+  // ONDE a perda se concentra — não só a lista. RD-38: tudo vem de data.perdas (nada fixo).
+  const perdas = useMemo(() => {
+    const lista = [...(data?.perdas ?? [])].sort((a, b) => (b.valor ?? 0) - (a.valor ?? 0))
+    const totalValor = lista.reduce((s, p) => s + (p.valor ?? 0), 0)
+    const totalQtd = lista.reduce((s, p) => s + (p.qtd ?? 0), 0)
+    const maxValor = Math.max(1, ...lista.map((p) => p.valor ?? 0))
+    return { lista, totalValor, totalQtd, maxValor }
+  }, [data])
   // período sem nenhum registro → aviso honesto em vez de parede de zeros (RD-98)
   const vazio = periodoVazio(r)
 
@@ -221,17 +231,30 @@ export default function DesempenhoComercialPage() {
               </Secao>
             )}
 
-            {/* Bloco D · perdas por motivo */}
+            {/* Bloco D · perdas por motivo (Pareto: maior → menor, com barra e participação no total perdido) */}
             <Secao titulo="Por que não fechou (perdas por motivo)" ajuda="projetos.desempenho.perdas">
-              {data.perdas.length === 0 ? <div style={{ color: MUT, fontSize: 12.5 }}>Nenhuma perda registrada no período.</div> :
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {data.perdas.map((p) => (
-                    <div key={p.motivo} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, padding: '6px 0', borderBottom: `0.5px solid ${BG}` }}>
-                      <span style={{ color: ESP, textTransform: 'capitalize' }}>{p.motivo}</span>
-                      <span style={{ color: MUT }}><b style={{ color: VERM }}>{brl(p.valor)}</b> · {p.qtd}</span>
-                    </div>
-                  ))}
-                </div>}
+              {perdas.lista.length === 0 ? <div style={{ color: MUT, fontSize: 12.5 }}>Nenhuma perda registrada no período.</div> :
+                <>
+                  <div style={{ fontSize: 12.5, color: MUT, marginBottom: 10, lineHeight: 1.6 }}>
+                    <b style={{ color: VERM }}>{brl(perdas.totalValor)}</b> perdidos em{' '}
+                    <b style={{ color: ESP }}>{perdas.totalQtd}</b> oportunidade{perdas.totalQtd === 1 ? '' : 's'} ·{' '}
+                    maior ofensor: <b style={{ color: ESP, textTransform: 'capitalize' }}>{perdas.lista[0].motivo}</b>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {perdas.lista.map((p) => {
+                      const share = perdas.totalValor > 0 ? Math.round(((p.valor ?? 0) / perdas.totalValor) * 100) : 0
+                      return (
+                        <div key={p.motivo} data-testid="desempenho-perda-linha" style={{ display: 'grid', gridTemplateColumns: '150px 1fr auto', alignItems: 'center', gap: 10, padding: '4px 0', borderBottom: `0.5px solid ${BG}` }}>
+                          <span style={{ fontSize: 12.5, color: ESP, textTransform: 'capitalize', overflowWrap: 'anywhere' }}>{p.motivo}</span>
+                          <div style={{ background: BG, borderRadius: 6, height: 20, position: 'relative', overflow: 'hidden' }}>
+                            <div style={{ width: `${((p.valor ?? 0) / perdas.maxValor) * 100}%`, height: '100%', background: VERM, opacity: 0.8, borderRadius: 6, minWidth: (p.valor ?? 0) > 0 ? 3 : 0 }} />
+                          </div>
+                          <span style={{ fontSize: 12, color: MUT, whiteSpace: 'nowrap' }}><b style={{ color: VERM }}>{brl(p.valor)}</b> · {p.qtd} · {share}%</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </>}
             </Secao>
           </>
         )}
