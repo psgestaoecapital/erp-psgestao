@@ -16,6 +16,7 @@ import {
   validarNFeAvulsa, cfopNoCatalogo, formatarCfop, ufDestino, soDigitos,
   ICMS_OPCOES_SIMPLES, ICMS_OPCOES_NORMAL, type CfopSaida, type FinalidadeNFe,
 } from '@/lib/fiscal/nfeAvulsa'
+import { lerRascunho, gravarRascunho, apagarRascunho, rascunhoVazio, type RascunhoAvulsa } from '@/lib/fiscal/rascunhoAvulsa'
 import { termosBuscaProduto, filtroTermoProduto, filtroPrefixoProduto, juntarResultados } from '@/lib/fiscal/buscaProdutoAvulsa'
 import { ArrowLeft, Loader2, AlertCircle, FileText, Plus, Trash2, Info } from 'lucide-react'
 
@@ -121,6 +122,53 @@ export default function RemessaClient() {
   const [reenvioInfo, setReenvioInfo] = useState<string | null>(null)
   // destinatário da nota recusada: escolhido depois que a lista da tabela certa carrega
   const [destPendente, setDestPendente] = useState<DestPessoa | null>(null)
+
+  // #6728 · rascunho local + aviso ao sair
+  const [rascunhoSalvo, setRascunhoSalvo] = useState<RascunhoAvulsa | null>(null)
+  const [rascunhoMsg, setRascunhoMsg] = useState<string | null>(null)
+  const [sujo, setSujo] = useState(false)
+  const instantaneo = () => ({
+    destTabela, destinatarioId, tipoId, natureza, cfop, finalidade, chaveRef, icmsCodigo,
+    modalidadeFrete, valorFrete, observacoes, itens: itens as unknown[],
+  })
+  const temConteudo = !rascunhoVazio({ destinatarioId, natureza, cfop, chaveRef, observacoes, itens, valorFrete })
+
+  useEffect(() => {
+    if (!companyId || reenvioDe) return
+    setRascunhoSalvo(lerRascunho(companyId))
+  }, [companyId, reenvioDe])
+
+  useEffect(() => { if (temConteudo && !sucesso) setSujo(true) }, [temConteudo, sucesso, destinatarioId, natureza, cfop, chaveRef, observacoes, itens, valorFrete])
+
+  useEffect(() => {
+    if (!sujo || sucesso) return
+    const aviso = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', aviso)
+    return () => window.removeEventListener('beforeunload', aviso)
+  }, [sujo, sucesso])
+
+  function salvarRascunho() {
+    if (!companyId) return
+    const ok = gravarRascunho(companyId, instantaneo())
+    setRascunhoMsg(ok ? 'Rascunho salvo neste navegador. Ao voltar, é só restaurar.' : 'Não foi possível salvar o rascunho neste navegador.')
+    if (ok) { setSujo(false); setRascunhoSalvo(lerRascunho(companyId)) }
+  }
+  function restaurarRascunho() {
+    const r = rascunhoSalvo
+    if (!r) return
+    setDestTabela(r.destTabela); setDestinatarioId(r.destinatarioId); setTipoId(r.tipoId)
+    setNatureza(r.natureza); setCfop(r.cfop); setFinalidade(r.finalidade as FinalidadeNFe)
+    setChaveRef(r.chaveRef); setIcmsCodigo(r.icmsCodigo); setModalidadeFrete(r.modalidadeFrete)
+    setValorFrete(r.valorFrete); setObservacoes(r.observacoes); setItens(r.itens as ItemRem[])
+    setRascunhoSalvo(null); setRascunhoMsg('Rascunho restaurado. Confira os dados antes de emitir.')
+  }
+  function descartarRascunho() {
+    if (companyId) apagarRascunho(companyId)
+    setRascunhoSalvo(null); setRascunhoMsg(null)
+  }
+  function sairDaTela(e: React.MouseEvent) {
+    if (sujo && !window.confirm('Há dados preenchidos que não foram salvos. Sair mesmo assim? (Use "Salvar rascunho" para guardar.)')) e.preventDefault()
+  }
 
   useEffect(() => {
     const cid = resolveCompanyId()
@@ -367,7 +415,7 @@ export default function RemessaClient() {
       const json = await r.json()
       if (json?.status === 'autorizada') {
         setAguardando(null)
-        setSucesso({ numero: String(json.numero ?? '?'), chave: json.chave, danfeUrl: json.danfeUrl })
+        { setSucesso({ numero: String(json.numero ?? '?'), chave: json.chave, danfeUrl: json.danfeUrl }); setSujo(false); if (companyId) apagarRascunho(companyId) }
         return
       }
       if (json?.status === 'rejeitada' || json?.status === 'denegada') {
@@ -431,7 +479,7 @@ export default function RemessaClient() {
         return
       }
       if (json?.status === 'autorizada') {
-        setSucesso({ numero: String(json.numero ?? '?'), chave: json.chave, danfeUrl: json.danfeUrl })
+        { setSucesso({ numero: String(json.numero ?? '?'), chave: json.chave, danfeUrl: json.danfeUrl }); setSujo(false); if (companyId) apagarRascunho(companyId) }
       } else if (json?.status === 'rejeitada' || json?.status === 'denegada') {
         setErro(`Nota ${json.status} pela SEFAZ: ${json.motivoRejeicao ?? 'motivo não informado'}. Use "Corrigir e reenviar" em Notas emitidas.`)
       } else if (json?.nfeId) {
@@ -460,7 +508,7 @@ export default function RemessaClient() {
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto">
       <div className="flex items-center gap-3 mb-5">
-        <Link href="/dashboard/fiscal/nfe" className="text-[#3D2314]/65 hover:text-[#3D2314] flex items-center gap-1.5 text-[12.5px]">
+        <Link href="/dashboard/fiscal/nfe" onClick={sairDaTela} className="text-[#3D2314]/65 hover:text-[#3D2314] flex items-center gap-1.5 text-[12.5px]">
           <ArrowLeft size={14} /> Notas emitidas
         </Link>
         <span className="text-[#3D2314]/30">/</span>
@@ -477,6 +525,17 @@ export default function RemessaClient() {
           Teste cada operação nova em homologação e confirme o CFOP e o ICMS com a contabilidade.
         </span>
       </div>
+
+      {rascunhoSalvo && !reenvioDe && (
+        <div className="mb-4 p-3 bg-[#FBF3E0] border border-[#C8941A]/40 rounded-lg text-[12.5px] text-[#3D2314] flex flex-wrap items-center gap-2" data-testid="nfe-avulsa-rascunho-banner">
+          <Info size={14} className="flex-shrink-0 text-[#C8941A]" />
+          <span>Você tem um rascunho salvo em {new Date(rascunhoSalvo.salvoEm).toLocaleString('pt-BR')}.</span>
+          <button type="button" onClick={restaurarRascunho} data-testid="nfe-avulsa-rascunho-restaurar" className="px-3 py-1 text-[11.5px] font-semibold rounded-lg border border-[#C8941A]">Restaurar</button>
+          <button type="button" onClick={descartarRascunho} data-testid="nfe-avulsa-rascunho-descartar" className="px-3 py-1 text-[11.5px] rounded-lg border border-[#3D2314]/30">Descartar</button>
+          <AjudaCampo chave="fiscal.nfe_avulsa.rascunho" />
+        </div>
+      )}
+      {rascunhoMsg && <div className="mb-4 text-[12px] text-[#3D2314]/80" data-testid="nfe-avulsa-rascunho-msg">{rascunhoMsg}</div>}
 
       {reenvioInfo && (
         <div className="mb-4 p-3 bg-[#FBF3E0] border border-[#C8941A]/40 rounded-lg text-[12.5px] text-[#3D2314] flex items-start gap-2" data-testid="nfe-avulsa-reenvio">
@@ -798,6 +857,16 @@ export default function RemessaClient() {
       )}
 
       <div className="flex justify-end items-center gap-2">
+        <AjudaCampo chave="fiscal.nfe_avulsa.rascunho" />
+        <button
+          type="button"
+          onClick={salvarRascunho}
+          disabled={!temConteudo || enviando}
+          data-testid="nfe-avulsa-salvar-rascunho"
+          className="px-4 py-2 text-[12.5px] font-semibold rounded-lg border border-[#C8941A] text-[#3D2314] disabled:opacity-50"
+        >
+          Salvar rascunho
+        </button>
         <AjudaCampo chave="fiscal.nfe_avulsa.emitir" />
         <button
           type="button"
