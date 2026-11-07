@@ -172,3 +172,6 @@ BEGIN
 
   RETURN jsonb_build_object('ok', true, 'status', p_status, 'financeiro', v_fin);
 END $function$;
+
+REVOKE ALL ON FUNCTION public.fn_agency_contrato_mudar_status(uuid, text) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_agency_contrato_mudar_status(uuid, text) TO authenticated, service_role;
