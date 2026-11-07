@@ -62,11 +62,18 @@ COMMIT;
 SQL
 "$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$dir/carga.sql"
 
-# Conferência (RD-38): quantas funções o anon executa — produção (contada nos próprios comandos lidos, sem consultar
-# função por linha na produção) × teste (catálogo do teste, que é descartável).
-anon_prod=$(grep -E '^GRANT EXECUTE ON (FUNCTION|PROCEDURE) .* TO (anon|PUBLIC)$' "$dir/cmds.txt" \
-  | sed -E 's/^GRANT EXECUTE ON (FUNCTION|PROCEDURE) (.*) TO (anon|PUBLIC)$/\2/' | sort -u | wc -l)
-anon_teste=$("$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -At -c "select count(*) from pg_proc p where p.pronamespace='public'::regnamespace and p.prokind in ('f','p') and has_function_privilege('anon', p.oid, 'EXECUTE')")
+# Conferência (RD-38): quantas funções o anon EXECUTA DE FATO — produção × teste, medidas do MESMO jeito (privilégio
+# efetivo via has_function_privilege, que inclui o EXECUTE default de PUBLIC). A versão anterior contava a produção
+# grepando só os GRANTs EXPLÍCITOS do dump (TO anon|PUBLIC) → não via o EXECUTE default de PUBLIC e dava 26, enquanto o
+# teste usava has_function_privilege e dava 61. Era divergência só de MEDIÇÃO (prod e teste têm os mesmos 61 — provado no
+# dado): o guarda derrubava o montar ANTES da semente, a vaga ficava sem dado e os testes morriam em <5 min ("vaga
+# doente"). É UMA agregação no catálogo (pg_proc, ~1,9k linhas) com timeout curto — não é "função por linha em volume"
+# do incidente 03/10 (aquele chamava função auxiliar por linha de tabela grande, 365 mil vezes).
+# -q (quiet): sem ele, o "SET statement_timeout" imprime o status tag "SET" no stdout ANTES do número e o $(...) captura
+# "SET\n61" → a aritmética da linha seguinte quebra com `set -u` ("SET: unbound variable") e o montar falha a cada deploy
+# (vaga sem rebuild → "vaga doente"). É o MESMO padrão -q da leitura da produção acima (linha do cat | psql -q).
+anon_prod=$("$PSQL" "$PROD_DATABASE_URL" -v ON_ERROR_STOP=1 -At -q -c "set statement_timeout='30s'; select count(*) from pg_proc p where p.pronamespace='public'::regnamespace and p.prokind in ('f','p') and has_function_privilege('anon', p.oid, 'EXECUTE')")
+anon_teste=$("$PSQL" "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -At -q -c "select count(*) from pg_proc p where p.pronamespace='public'::regnamespace and p.prokind in ('f','p') and has_function_privilege('anon', p.oid, 'EXECUTE')")
 echo "funções executáveis pelo anon — produção: $anon_prod · teste: $anon_teste"
 dif=$(( anon_teste > anon_prod ? anon_teste - anon_prod : anon_prod - anon_teste ))
 [ "$dif" -le 10 ] || erro "espelhar-grants: anon executa $anon_teste funções no teste × $anon_prod na produção — direitos não espelhados"

@@ -7,7 +7,7 @@ const src = readFileSync('src/app/dashboard/projetos/obras/nova/page.tsx', 'utf8
 const lista = readFileSync('src/app/dashboard/projetos/obras/page.tsx', 'utf8')
 
 ok(/rpc\('fn_hub_criar_obra_rapida'/.test(src), 'cria pela RPC fn_hub_criar_obra_rapida')
-ok(!/\.from\(/.test(src), 'sem escrita direta em tabela')
+ok(!/\.from\([^)]*\)\s*\.(insert|update|upsert|delete)\(/.test(src), 'sem escrita direta em tabela (leitura .select para busca de cliente é permitida)')
 ok(/\/cockpit\?area=hub/.test(src), 'abre o cockpit da obra criada')
 ok(/role="alert"/.test(src) && /nova-obra-salvar/.test(src), 'erro visível e botão de salvar')
 ok(/link-nova-obra/.test(lista), 'lista de obras tem o atalho + Nova obra')

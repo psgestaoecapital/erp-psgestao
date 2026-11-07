@@ -23,6 +23,8 @@ export default function PainelGestorPage() {
   const [dias, setDias] = useState(7);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
+  const [buscaSem, setBuscaSem] = useState("");
+  const [respSem, setRespSem] = useState("");
 
   useEffect(() => {
     if (!empresa) { setCarregando(false); return; }
@@ -51,6 +53,22 @@ export default function PainelGestorPage() {
   const alertas = useMemo(() => alertasEstimado(jobs, hoje), [jobs, hoje]);
   const nome = (id: string | null) => equipe.find((p) => p.id === id)?.nome ?? "—";
   const comApontamento = cob.filter((c) => !c.semApontar).length;
+
+  // Filtro da lista "Jobs sem horas" (aud8: lista extensa sem filtro). O contador do título
+  // continua mostrando o total real (sem.length); a lista exibida respeita busca + responsável.
+  const respsSemHoras = useMemo(() => {
+    const ids = Array.from(new Set(sem.map((j) => j.responsavel_id).filter((x): x is string => !!x)));
+    return ids.map((id) => ({ id, nome: nome(id) })).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  }, [sem, equipe]);
+  const semFiltrados = useMemo(() => {
+    const q = buscaSem.trim().toLowerCase();
+    return sem.filter((j) => {
+      if (respSem && j.responsavel_id !== respSem) return false;
+      if (!q) return true;
+      const alvo = `${codigoPainel(j)} ${j.titulo ?? ""} ${j.numero ?? ""}`.toLowerCase();
+      return alvo.includes(q);
+    });
+  }, [sem, buscaSem, respSem]);
 
   return (
     <div className="mx-auto max-w-5xl space-y-4 p-4">
@@ -85,14 +103,46 @@ export default function PainelGestorPage() {
           <section className={cartao} data-testid="sem-horas">
             <h2 className="mb-2 text-[14px] font-semibold text-[#3D2314]">Jobs em andamento sem horas ({sem.length})<AjudaCampo chave="pm.painel_gestor.sem_horas" rota={ROTA} /></h2>
             {sem.length === 0 ? <p className="text-[12px] text-[#6b5444]">Todos os jobs em andamento têm horas.</p> : (
-              <ul className="divide-y divide-[#E7DED3]">
-                {sem.slice(0, 50).map((j) => (
-                  <li key={j.id} className="flex items-center justify-between gap-2 py-2 text-[13px]">
-                    <Link href={`/dashboard/pm/painel-jobs?codigo=${encodeURIComponent(j.numero ?? "")}`} className="text-[#3D2314] underline">{codigoPainel(j)} · {j.titulo}</Link>
-                    <span className="shrink-0 text-[#6b5444]">{nome(j.responsavel_id)}</span>
-                  </li>
-                ))}
-              </ul>
+              <>
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <label className="sr-only" htmlFor="busca-sem-horas">Buscar job sem horas</label>
+                  <input
+                    id="busca-sem-horas"
+                    type="search"
+                    value={buscaSem}
+                    onChange={(e) => setBuscaSem(e.target.value)}
+                    placeholder="Buscar por código ou título…"
+                    className="min-h-[40px] flex-1 rounded-lg border border-[#E7DED3] px-3 text-[13px] text-[#3D2314] placeholder:text-[#9a8a78]"
+                  />
+                  <label className="sr-only" htmlFor="resp-sem-horas">Responsável</label>
+                  <select
+                    id="resp-sem-horas"
+                    value={respSem}
+                    onChange={(e) => setRespSem(e.target.value)}
+                    className="min-h-[40px] rounded-lg border border-[#E7DED3] px-2 text-[13px] text-[#3D2314]"
+                  >
+                    <option value="">Todos os responsáveis</option>
+                    {respsSemHoras.map((p) => (<option key={p.id} value={p.id}>{p.nome}</option>))}
+                  </select>
+                  {(buscaSem || respSem) && (
+                    <button type="button" onClick={() => { setBuscaSem(""); setRespSem(""); }} className="min-h-[40px] rounded-lg border border-[#E7DED3] px-3 text-[12px] text-[#3D2314]">Limpar</button>
+                  )}
+                  <AjudaCampo chave="pm.painel_gestor.filtro_sem_horas" rota={ROTA} />
+                </div>
+                {semFiltrados.length === 0 ? (
+                  <p className="text-[12px] text-[#6b5444]">Nenhum job sem horas para esse filtro. <button type="button" onClick={() => { setBuscaSem(""); setRespSem(""); }} className="underline">Limpar filtro</button></p>
+                ) : (
+                  <ul className="divide-y divide-[#E7DED3]">
+                    {semFiltrados.slice(0, 50).map((j) => (
+                      <li key={j.id} className="flex items-center justify-between gap-2 py-2 text-[13px]">
+                        <Link href={`/dashboard/pm/painel-jobs?codigo=${encodeURIComponent(j.numero ?? "")}`} className="text-[#3D2314] underline">{codigoPainel(j)} · {j.titulo}</Link>
+                        <span className="shrink-0 text-[#6b5444]">{nome(j.responsavel_id)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {semFiltrados.length > 50 && <p className="mt-2 text-[11px] text-[#9a8a78]">Mostrando os primeiros 50 de {semFiltrados.length}. Refine a busca para ver os demais.</p>}
+              </>
             )}
           </section>
           <section className={cartao} data-testid="alerta-80">

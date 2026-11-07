@@ -590,6 +590,13 @@ export class FocusNFeProvider implements FiscalProvider {
       // DANFE imprime, e onde vai o "valor aproximado dos tributos" da Lei 12.741 (composto no route,
       // gated por consumidor final). Campo único de até 5000 — o route já concatenou eventuais observações.
       ...(req.observacoes ? { informacoes_adicionais_contribuinte: sanitizeTextoFiscal(req.observacoes).slice(0, 5000) } : {}),
+      // #5684 · totais IBS/CBS (raiz do payload; só quando a nota traz IBS/CBS por item)
+      ...(req.ibsCbsTotais ? {
+        ibs_cbs_base_calculo: req.ibsCbsTotais.baseCalculo,
+        cbs_valor_total: req.ibsCbsTotais.cbsValor,
+        ibs_uf_valor_total: req.ibsCbsTotais.ibsUfValor,
+        ibs_valor_total: req.ibsCbsTotais.ibsValor,
+      } : {}),
       itens: req.itens.map((item, idx) => ({
         numero_item: idx + 1,
         codigo_produto: item.codigo,
@@ -627,6 +634,31 @@ export class FocusNFeProvider implements FiscalProvider {
         ...(item.icms?.modBc != null ? { icms_modalidade_base_calculo: item.icms.modBc } : {}),
         // #2876 · CSOSN 101 (Simples com crédito): pCredSN=icms_aliquota_credito_simples ·
         // vCredICMSSN=icms_valor_credito_simples (doc Focus ItemNotaFiscalXML). Só sai quando o builder montou o crédito.
+        // #5684 · CST 20 (pRedBC) e cBenef (codigo_beneficio_fiscal, campo do item). Só saem quando informados.
+        ...(item.icms?.reducaoBase != null ? { icms_reducao_base_calculo: item.icms.reducaoBase } : {}),
+        ...(item.icms?.cBenef ? { codigo_beneficio_fiscal: item.icms.cBenef } : {}),
+        // #5684 · IBS/CBS por item (nomes Focus: guia da reforma tributária). Só sai quando o item traz o grupo.
+        ...(item.ibsCbs ? {
+          ibs_cbs_situacao_tributaria: item.ibsCbs.cst,
+          ibs_cbs_classificacao_tributaria: item.ibsCbs.cClassTrib,
+          ibs_cbs_base_calculo: item.ibsCbs.baseCalculo,
+          cbs_aliquota: item.ibsCbs.cbsAliquota, cbs_valor: item.ibsCbs.cbsValor,
+          ibs_uf_aliquota: item.ibsCbs.ibsUfAliquota, ibs_uf_valor: item.ibsCbs.ibsUfValor,
+          ibs_mun_aliquota: item.ibsCbs.ibsMunAliquota, ibs_mun_valor: item.ibsCbs.ibsMunValor,
+          ibs_valor_total: item.ibsCbs.ibsValorTotal,
+        } : {}),
+        // #5684 · bloco do veículo (veicProd). NÃO existe campo RENAVAM aqui (vai nas Informações Complementares).
+        ...(item.veiculo ? {
+          veiculo_tipo_operacao: item.veiculo.tipoOperacao, veiculo_chassi: item.veiculo.chassi,
+          ...(item.veiculo.descricaoCor ? { veiculo_descricao_cor: item.veiculo.descricaoCor } : {}),
+          ...(item.veiculo.potenciaMotor ? { veiculo_potencia_motor: item.veiculo.potenciaMotor } : {}),
+          ...(item.veiculo.cm3 ? { veiculo_cm3: item.veiculo.cm3 } : {}),
+          ...(item.veiculo.tipoCombustivel ? { veiculo_tipo_combustivel: item.veiculo.tipoCombustivel } : {}),
+          ...(item.veiculo.anoModelo ? { veiculo_ano_modelo: item.veiculo.anoModelo } : {}),
+          ...(item.veiculo.anoFabricacao ? { veiculo_ano_fabricacao: item.veiculo.anoFabricacao } : {}),
+          ...(item.veiculo.condicao ? { veiculo_condicao: item.veiculo.condicao } : {}),
+          ...(item.veiculo.lotacao ? { veiculo_lotacao: item.veiculo.lotacao } : {}),
+        } : {}),
         ...(item.icms?.creditoSN ? { icms_aliquota_credito_simples: item.icms.creditoSN.aliquota, icms_valor_credito_simples: item.icms.creditoSN.valor } : {}),
         ...(item.ipi?.cst ? { ipi_situacao_tributaria: item.ipi.cst, ipi_aliquota: item.ipi.aliquota } : {}),
         pis_situacao_tributaria: item.pis?.cst,

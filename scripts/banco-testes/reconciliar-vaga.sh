@@ -96,7 +96,7 @@ union all select 'type '||t.typname||'|'||t.typtype::text||'/'||coalesce((select
 union all select 'sequence '||c.relname||'|' from pg_class c
   join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='S'"
 dir=$(mktemp -d); trap 'rm -rf "$dir"' EXIT
-"$PSQL" "$PROD_DATABASE_URL" -tA -v ON_ERROR_STOP=1 -c "set statement_timeout='60s'; $SIG" | sort > "$dir/prod.sig"
+"$PSQL" "$PROD_DATABASE_URL" -tA -q -v ON_ERROR_STOP=1 -c "set statement_timeout='60s'; $SIG" | sort > "$dir/prod.sig"
 "$PSQL" "$TEST_DATABASE_URL"  -tA -v ON_ERROR_STOP=1 -c "$SIG" | sort > "$dir/vaga.sig"
 [ -s "$dir/prod.sig" ] || erro "assinatura da produção vazia (leitura falhou)"
 
@@ -119,11 +119,11 @@ nchanges=$(( $(grep -c . "$dir/vaga_only.keys" || true) + $(grep -c . "$dir/prod
 
 # Irreversível com segurança → recriar (antes de tocar em nada):
 if [ -s "$dir/prod_only.keys" ]; then
-  echo "objetos aprovados AUSENTES na vaga (vaga ATRÁS da produção):"; sed 's/^/  - /' "$dir/prod_only.keys" | head
+  echo "objetos aprovados AUSENTES na vaga (vaga ATRÁS da produção):"; { sed 's/^/  - /' "$dir/prod_only.keys" | head; } || true
   recriar "a vaga perdeu/está sem objeto(s) aprovado(s) da produção — restauração cirúrgica seria insegura; rode o Montar (recriar)"
 fi
 if grep -qvE '^(func|view) ' "$dir/diff.keys" 2>/dev/null; then
-  echo "objetos MODIFICADOS de classe não restaurável (só restauramos função/view):"; grep -vE '^(func|view) ' "$dir/diff.keys" | sed 's/^/  - /' | head
+  echo "objetos MODIFICADOS de classe não restaurável (só restauramos função/view):"; { grep -vE '^(func|view) ' "$dir/diff.keys" | sed 's/^/  - /' | head; } || true
   recriar "objeto modificado que não é função/view"
 fi
 

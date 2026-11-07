@@ -9,6 +9,7 @@ import { isFiscalError } from '@/lib/fiscal/errors'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 import { guardarXmlNota } from '@/lib/fiscal/guardarXmlNota'
 import { registrarFalhaEmissaoNFe, registrarTentativaEmissaoNFe, type ContextoEmissaoNFe } from '@/lib/fiscal/nfeRecusa'
+import { carregarVendaVeiculo, type ItemVeiculoMontado } from '@/lib/fiscal/nfe-veiculo'
 import { LIMITE_INF_CPL, excedeLimiteInfCpl, mensagemLimiteInfCpl, textoInformacoesComplementares } from '@/lib/fiscal/informacoesComplementares'
 
 export const dynamic = 'force-dynamic'
@@ -19,6 +20,8 @@ interface EmitirNFeBody {
   erpReceberId?: string
   // FEAT-NFE-PRODUTO-2-CARD-PEDIDO-v1 · terceiro modo de emissao (a partir do pedido)
   pedidoId?: string
+  // #5684 · NF-e da venda de VEÍCULO (Revenda · Caminho A): liga ao título que a venda já criou e grava veic_venda.nfe_id
+  vendaVeiculoId?: string
   // chamado #20 Fase 3 · NF-e de peça a partir da OS: vincula a nota à OS e guarda a justificativa
   // de divergência de valor NO registro (recuperável depois — §8.1 detalhe #1 do CEO).
   osId?: string
@@ -67,9 +70,23 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     const negado = await guardaEmpresaFiscal({ userId, companyId: body.companyId, papelMinimo: 'membro', log: { notaTipo: 'nfe', operacao: 'emissao', endpoint: 'nfe/emitir' } })
     if (negado) return negado
 
+    // #5684 · venda de veículo: carrega venda/perfil/título (recusa nota autorizada/em processamento — sem duplicar).
+    let vendaVeic: Awaited<ReturnType<typeof carregarVendaVeiculo>> | undefined
+    let veicMontado: ItemVeiculoMontado | undefined
+    if (body.vendaVeiculoId) {
+      vendaVeic = await carregarVendaVeiculo(body.companyId, body.vendaVeiculoId)
+      if (vendaVeic.nfeStatusAtual === 'autorizada' || vendaVeic.nfeStatusAtual === 'processando') {
+        return NextResponse.json({ ok: false, mensagem: `Esta venda já tem NF-e ${vendaVeic.nfeStatusAtual} — não emita de novo.` }, { status: 409 })
+      }
+      // Nota ligada ao título da venda (sem criar título novo): vai no registro como erp_receber_id.
+      body.erpReceberId = vendaVeic.receberId ?? undefined
+    }
+
     const nfeReq = await buildNFeRequest({
       companyId: body.companyId,
-      erpReceberId: body.erpReceberId,
+      vendaVeiculo: vendaVeic,
+      onVeiculoMontado: (m) => { veicMontado = m },
+      erpReceberId: vendaVeic ? undefined : body.erpReceberId,
       pedidoId: body.pedidoId,
       osId: body.osId,
       manual: body.manual,
@@ -307,6 +324,12 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         .eq('id', registroId)
     }
 
+    // #5684 · liga a nota à venda do veículo (veic_venda.nfe_id) — também quando rejeitada, para a tela mostrar o motivo e
+    // permitir reenviar. A entrega continua exigindo status 'autorizada' (fn_veic_venda_entregar).
+    if (registroId && vendaVeic) {
+      await supabaseAdmin.from('veic_venda').update({ nfe_id: registroId }).eq('id', vendaVeic.vendaId).eq('company_id', body.companyId)
+    }
+
     // chamado #20 Fase 3 · vincula a nota à OS e persiste a justificativa da divergência de valor
     // (§8.1) no registro — recuperável meses depois ("por que a NF saiu menor que a OS?").
     if (registroId && body.osId) {
@@ -332,6 +355,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       providerReference: resposta.providerReference,
       ambiente: svc.ambiente,
       ...(avisoIbpt ? { avisoIbpt } : {}),
+      ...(veicMontado?.avisos.length ? { avisosVeiculo: veicMontado.avisos } : {}),
     })
   } catch (err) {
     if (isFiscalError(err)) {
