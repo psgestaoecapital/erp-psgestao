@@ -175,3 +175,30 @@ END $function$;
 
 REVOKE ALL ON FUNCTION public.fn_agency_contrato_mudar_status(uuid, text) FROM anon;
 GRANT EXECUTE ON FUNCTION public.fn_agency_contrato_mudar_status(uuid, text) TO authenticated, service_role;
+
+-- ───────────────────────────────────────────────────────────────────────────────────────
+-- 3) RD-95 "?" das AÇÕES/INDICADOR novos da tela Fees/Contratos (P&M) · /dashboard/pm/contratos:
+--    "Enviar ao financeiro" (um clique) e o selo de situação do contrato no financeiro.
+--    Aditivo: só texto em erp_ajuda_campo (sem tabela nova, sem RLS, sem dado de cliente).
+--    Idempotente (ON CONFLICT chave) — reaplicar não duplica.
+-- ───────────────────────────────────────────────────────────────────────────────────────
+INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
+SELECT v.chave, v.grupo, v.rotulo, v.o, v.p, v.e, v.x, v.ordem, '/dashboard/pm/contratos', 'pm', 'publicado'
+FROM (VALUES
+ ('pm.contratos.acao_enviar_financeiro', 'Contratos · Ações', 'Enviar ao financeiro',
+  'Ação (não é campo): envia este fee recorrente ao financeiro (Gestão Empresarial) em um clique. O financeiro RECEBE a solicitação com o cliente e o valor já preenchidos — não é preciso redigitar.',
+  'Fecha a ponte comercial → financeiro: sem isso o fee não vira cobrança. Ao enviar, nasce uma solicitação de contrato (status "solicitado") que o financeiro confere e ativa; a ativação é que passa a gerar os títulos a receber.',
+  'Fee recorrente de R$2.500/mês: um clique cria a solicitação no financeiro; a equipe financeira ativa e os boletos mensais passam a ser gerados.',
+  'Esperar o boleto na hora: enviar só SOLICITA. O faturamento começa quando o financeiro ATIVA a cobrança.',
+  40),
+ ('pm.contratos.status_financeiro', 'Contratos · Indicadores', 'Situação no financeiro',
+  'Indicador (não é campo): mostra onde o contrato está na ponte com o financeiro — "aguardando ativar" (solicitação enviada, financeiro ainda não ativou) ou "ativo no financeiro" (gerando faturamento).',
+  'Deixa claro se o fee já fatura ou se ainda depende de o financeiro ativar — evita achar que um contrato enviado já está cobrando.',
+  'Enviado hoje → "⏳ aguardando ativar"; depois que o financeiro ativa → "✅ ativo no financeiro".',
+  'Confundir "aguardando ativar" com "ativo": enquanto estiver aguardando, nenhum título é gerado.',
+  41)
+) AS v(chave, grupo, rotulo, o, p, e, x, ordem)
+ON CONFLICT (chave) DO UPDATE SET
+  grupo = EXCLUDED.grupo, rotulo = EXCLUDED.rotulo, o_que_preencher = EXCLUDED.o_que_preencher,
+  para_que_serve = EXCLUDED.para_que_serve, exemplo = EXCLUDED.exemplo, erro_comum = EXCLUDED.erro_comum,
+  ordem = EXCLUDED.ordem, rota = EXCLUDED.rota, vertical = EXCLUDED.vertical, status = EXCLUDED.status;
