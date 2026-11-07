@@ -7,3 +7,6 @@ node_modules/
 
 # RD-78 · screenshots do diagnóstico de host (só CI)
 e2e/diagnostico-host/
+
+# Hub · explorador de botões (eng-chefe-auto) — screenshots só CI/local
+scripts/auditoria/hub-output/

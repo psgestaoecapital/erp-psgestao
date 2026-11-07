@@ -17,6 +17,8 @@
     "check:retencoes-nfse": "tsx scripts/gates/check-retencoes-nfse.ts",
     "gates": "tsx scripts/rodar-gates.ts",
     "auditor:run": "tsx scripts/auditor-playwright.ts",
+    "hub:explorar": "tsx scripts/auditoria/hub-explorador.ts",
+    "hub:pr-rotas": "tsx scripts/auditoria/pr-rotas-tocadas.ts",
     "check:menu": "tsx scripts/check-menu-rotas.ts",
     "check:fn-guards": "tsx scripts/check-fn-guards.ts",
     "check:migrations": "tsx scripts/check-migration-versions.ts",
