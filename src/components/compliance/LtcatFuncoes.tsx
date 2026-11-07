@@ -48,6 +48,18 @@ export default function LtcatFuncoes({ companyId, recarregarChave }: { companyId
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
   const [ok, setOk] = useState('')
+  const [filtroEpi, setFiltroEpi] = useState('')
+  const episFiltrados = useMemo(() => {
+    const q = filtroEpi.trim().toLowerCase()
+    return q ? listas.epis.filter((e) => e.nome.toLowerCase().includes(q)) : listas.epis
+  }, [listas.epis, filtroEpi])
+  // Marca/desmarca de uma vez todos os EPIs que o filtro mostra (família: todas as botas, todos os tamanhos)
+  const alternarEpis = (marcar: boolean) => {
+    if (!edit) return
+    const n = new Set(edit.epis)
+    for (const e of episFiltrados) { if (marcar) n.add(e.id); else n.delete(e.id) }
+    setEdit({ ...edit, epis: n })
+  }
 
   const carregar = useCallback(async () => {
     setCarregando(true); setErro('')
@@ -214,14 +226,21 @@ export default function LtcatFuncoes({ companyId, recarregarChave }: { companyId
 
               <Rotulo texto="EPIs obrigatórios">
                 {listas.epis.length === 0 ? <div style={{ fontSize: 12, color: C.gray }}>Nenhum EPI no catálogo. Cadastre em Compliance → EPI → Catálogo.</div> : (
+                  <>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+                    <input aria-label="Filtrar EPIs pelo nome" data-testid="ltcat-epi-filtro" value={filtroEpi} onChange={(e) => setFiltroEpi(e.target.value)} placeholder="Filtrar pelo nome (ex.: bota)" style={{ ...inp, flex: 1, minWidth: 160 }} />
+                    <button type="button" data-testid="ltcat-epi-marcar" disabled={episFiltrados.length === 0} onClick={() => alternarEpis(true)} style={btnSec}>Marcar os {episFiltrados.length} da lista</button>
+                    <button type="button" data-testid="ltcat-epi-desmarcar" disabled={episFiltrados.length === 0} onClick={() => alternarEpis(false)} style={btnSec}>Desmarcar</button>
+                  </div>
                   <div style={lista}>
-                    {listas.epis.map((e) => (
+                    {episFiltrados.map((e) => (
                       <label key={e.id} style={item}>
                         <input type="checkbox" checked={edit.epis.has(e.id)} onChange={() => { const n = new Set(edit.epis); if (n.has(e.id)) n.delete(e.id); else n.add(e.id); setEdit({ ...edit, epis: n }) }} style={{ accentColor: C.gold }} />
                         {e.nome} <span style={{ color: C.gray }}>· CA {e.ca}{e.global ? ' · catálogo PS' : ''}</span>
                       </label>
                     ))}
                   </div>
+                  </>
                 )}
               </Rotulo>
 
