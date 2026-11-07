@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 const ROTA = '/dashboard/pm/eventos'
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
@@ -121,7 +122,7 @@ export default function EventosPage() {
     const { data, error } = await supabase.rpc('fn_pm_evento_salvar', { p_company_id: empresa, p_id: form.id, p_dados: dados })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setToast(error ? erroAmigavel(error, 'Não foi possível salvar o evento. Tente de novo.') : codigoAmigavel(j?.erro, 'Não foi possível salvar o evento. Tente de novo.')); return }
     setForm(null); setToast(form.id ? 'Evento atualizado.' : 'Evento criado.'); void carregar()
   }
   async function excluir(e: Evento) {
@@ -131,7 +132,7 @@ export default function EventosPage() {
     const { data, error } = await supabase.rpc('fn_pm_evento_excluir', { p_id: e.id, p_motivo: motivo || null })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setToast(error ? erroAmigavel(error, 'Não foi possível excluir o evento. Tente de novo.') : codigoAmigavel(j?.erro, 'Não foi possível excluir o evento. Tente de novo.')); return }
     setToast('Evento excluído (registrado na auditoria).'); void carregar()
   }
 
@@ -171,7 +172,7 @@ export default function EventosPage() {
     const { data, error } = await supabase.rpc('fn_pm_evento_pagar_vincular', { p_evento_id: detalhe.id, p_lancamento_id: lancamentoId })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setToast(error ? erroAmigavel(error, 'Não foi possível vincular o custo ao evento. Tente de novo.') : codigoAmigavel(j?.erro, 'Não foi possível vincular o custo ao evento. Tente de novo.')); return }
     setToast('Custo vinculado ao evento.'); setVincularOpen(false)
     await carregarDetalhe(detalhe.id); void carregar()
   }
@@ -183,7 +184,7 @@ export default function EventosPage() {
     const { data, error } = await supabase.rpc('fn_pm_evento_pagar_desvincular', { p_id: c.vinculo_id, p_motivo: motivo || null })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setToast(error ? erroAmigavel(error, 'Não foi possível desvincular o custo. Tente de novo.') : codigoAmigavel(j?.erro, 'Não foi possível desvincular o custo. Tente de novo.')); return }
     setToast('Custo desvinculado (registrado na auditoria).')
     await carregarDetalhe(detalhe.id); void carregar()
   }
@@ -199,7 +200,7 @@ export default function EventosPage() {
     const { data, error } = await supabase.rpc('fn_pm_evento_item_salvar', { p_evento_id: detalhe.id, p_id: itemForm.id, p_dados: dados })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setToast(error ? erroAmigavel(error, 'Não foi possível salvar o item. Tente de novo.') : codigoAmigavel(j?.erro, 'Não foi possível salvar o item. Tente de novo.')); return }
     setItemForm(null); setToast(itemForm.id ? 'Item atualizado.' : 'Item adicionado.'); await carregarDetalhe(detalhe.id)
   }
   async function excluirItem(it: Item) {
@@ -210,7 +211,7 @@ export default function EventosPage() {
     const { data, error } = await supabase.rpc('fn_pm_evento_item_excluir', { p_id: it.id, p_motivo: motivo || null })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setToast(error ? erroAmigavel(error, 'Não foi possível excluir o item. Tente de novo.') : codigoAmigavel(j?.erro, 'Não foi possível excluir o item. Tente de novo.')); return }
     setToast('Item excluído (registrado na auditoria).'); await carregarDetalhe(detalhe.id)
   }
   async function salvarChk() {
@@ -221,7 +222,7 @@ export default function EventosPage() {
     const { data, error } = await supabase.rpc('fn_pm_evento_checklist_salvar', { p_evento_id: detalhe.id, p_id: chkForm.id, p_dados: dados })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setToast(error ? erroAmigavel(error, 'Não foi possível salvar a tarefa. Tente de novo.') : codigoAmigavel(j?.erro, 'Não foi possível salvar a tarefa. Tente de novo.')); return }
     setChkForm(null); setToast(chkForm.id ? 'Tarefa atualizada.' : 'Tarefa adicionada.'); await carregarDetalhe(detalhe.id)
   }
   async function toggleChk(c: Chk) {
@@ -230,7 +231,7 @@ export default function EventosPage() {
     const { data, error } = await supabase.rpc('fn_pm_evento_checklist_toggle', { p_id: c.id, p_concluido: !c.concluido })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setToast(error ? erroAmigavel(error, 'Não foi possível atualizar a tarefa. Tente de novo.') : codigoAmigavel(j?.erro, 'Não foi possível atualizar a tarefa. Tente de novo.')); return }
     await carregarDetalhe(detalhe.id)
   }
   async function excluirChk(c: Chk) {
@@ -241,7 +242,7 @@ export default function EventosPage() {
     const { data, error } = await supabase.rpc('fn_pm_evento_checklist_excluir', { p_id: c.id, p_motivo: motivo || null })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setToast(error ? erroAmigavel(error, 'Não foi possível excluir a tarefa. Tente de novo.') : codigoAmigavel(j?.erro, 'Não foi possível excluir a tarefa. Tente de novo.')); return }
     setToast('Tarefa excluída (registrada na auditoria).'); await carregarDetalhe(detalhe.id)
   }
 
