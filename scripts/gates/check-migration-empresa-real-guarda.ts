@@ -9,6 +9,13 @@ import { readdirSync, readFileSync } from 'node:fs'
 const DIR = 'supabase/migrations'
 const DESDE = '20261023141505'
 const DEMO = /^(b0700000-|00000000-0000-|c830f980-)/
+// UUIDs de SISTEMA que NÃO são empresas (nunca entram como company_id) — não exigem a guarda de existência de
+// empresa. Falso-positivo: o conserto-main 20261109001030 declara `v_robo constant uuid := '74cf…'` (o usuário-robô
+// screenshot@psgestao.com, confirmado em auth.users; NÃO está em companies) usado só como autor (uploaded_by/
+// operador_user_id/assigned_to). A função já pula pela existência da empresa DEMO (`IF NOT EXISTS … companies …
+// THEN RETURN`), então v_robo só é escrito para a DEMO. Allowlist estreita: só exclui UUID de usuário conhecido,
+// sem afrouxar a proteção de dado de empresa real.
+const SISTEMA = new Set(['74cf7dfa-4af5-4ef5-bd58-6a2166ea4cfa'])
 
 export function faltaGuarda(sql: string): string[] {
   const semComentario = sql.replace(/--[^\n]*/g, '')
@@ -16,7 +23,7 @@ export function faltaGuarda(sql: string): string[] {
   const falta: string[] = []
   for (const m of semComentario.matchAll(/\b(v_\w+)\s+constant\s+uuid\s*:=\s*'([0-9a-f-]{36})'/gi)) {
     const [, v, id] = m
-    if (DEMO.test(id)) continue
+    if (DEMO.test(id) || SISTEMA.has(id.toLowerCase())) continue
     const guarda = new RegExp(`FROM\\s+(public\\.)?companies\\s+WHERE\\s+id\\s*=\\s*${v}\\b`, 'i')
     if (!guarda.test(semComentario)) falta.push(`${v} = ${id}`)
   }
@@ -33,6 +40,7 @@ ok(faltaGuarda(sem).length === 1, 'INSERT com empresa real sem guarda reprova')
 ok(faltaGuarda(com).length === 0, 'com a guarda "FROM companies WHERE id = v_fc" passa')
 ok(faltaGuarda(sem.replace('b202b50f-37cb-462e-accf-126869de49f0', 'b0700000-0000-4000-a000-000000000006')).length === 0, 'empresa DEMO não exige guarda')
 ok(faltaGuarda("DO $m$ DECLARE v_fc constant uuid := 'b202b50f-37cb-462e-accf-126869de49f0'; BEGIN PERFORM 1; END $m$;").length === 0, 'sem escrita não exige guarda')
+ok(faltaGuarda("DO $m$ DECLARE v_robo constant uuid := '74cf7dfa-4af5-4ef5-bd58-6a2166ea4cfa'; BEGIN INSERT INTO compliance_responsaveis (company_id, user_id) VALUES (v_x, v_robo); END $m$;").length === 0, 'UUID de usuário de sistema (robô) não exige guarda de empresa')
 
 // ── migrations ──
 const arquivos = readdirSync(DIR).filter((f) => f.endsWith('.sql') && f.slice(0, 14) >= DESDE).sort()
