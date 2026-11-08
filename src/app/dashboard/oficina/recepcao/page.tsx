@@ -9,6 +9,7 @@ import AssinaturaModal from '@/components/oficina/AssinaturaModal'
 import FotosMultiplas from '@/components/oficina/FotosMultiplas'   // #135 item 6 · fotos em lote
 import Modal from '@/components/ui/Modal'
 import { useOficinaRamo } from '@/lib/oficina/ramo'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'; const RED = '#A32D2D'
@@ -344,7 +345,7 @@ export default function RecepcaoPage() {
 
         {/* PLACA + busca — só na automotiva (a peça/trabalho não tem placa) */}
         {ramo.pedeVeiculo && (
-          <Sec titulo="Placa">
+          <Sec titulo="Placa" ajuda="oficina.recepcao.placa">
             <div style={{ display: 'flex', gap: 8 }}>
               <input value={placa} onChange={(e) => setPlaca(e.target.value.toUpperCase())} onBlur={buscarPlaca}
                 placeholder="ABC1D23" inputMode="text" autoCapitalize="characters"
@@ -374,8 +375,8 @@ export default function RecepcaoPage() {
         )}
 
         {/* CLIENTE + OBJETO (veículo OU peça/trabalho) */}
-        <Sec titulo={ramo.automotivo ? 'Cliente & veículo' : `Cliente & ${ramo.objetoLabelCurto}`}>
-          <Campo l="Cliente">
+        <Sec titulo={ramo.automotivo ? 'Cliente & veículo' : `Cliente & ${ramo.objetoLabelCurto}`} ajuda="oficina.recepcao.cliente_veiculo">
+          <Campo l="Cliente" ajuda="oficina.recepcao.cliente">
             <div style={{ display: 'flex', gap: 8 }}>
               <input value={clienteNome} onChange={(e) => onClienteNomeChange(e.target.value)}
                 placeholder="Nome do cliente — digite pra buscar" style={inp} />
@@ -406,7 +407,7 @@ export default function RecepcaoPage() {
               <div style={selOk}>✓ Cliente selecionado: {clienteNome}</div>
             )}
           </Campo>
-          <Campo l="CPF/CNPJ (opcional)">
+          <Campo l="CPF/CNPJ (opcional)" ajuda="oficina.recepcao.documento">
             <div style={{ display: 'flex', gap: 8 }}>
               <input value={clienteCnpj}
                 onChange={(e) => { setClienteCnpj(e.target.value); setDocStatus(null); setClienteId('') }}
@@ -437,7 +438,7 @@ export default function RecepcaoPage() {
             {!buscandoDoc && docStatus?.tipo === 'erro' && <div style={selMut}>Não consegui buscar agora — pode digitar o nome manualmente.</div>}
           </Campo>
           {/* Onda 10 · A — WhatsApp/telefone + consentimento (LGPD). Exige de leve (RD-51): avisa, não trava. */}
-          <Campo l="WhatsApp / telefone">
+          <Campo l="WhatsApp / telefone" ajuda="oficina.recepcao.whatsapp">
             <input value={whatsapp} disabled={naoQuisTelefone}
               onChange={(e) => setWhatsapp(e.target.value)}
               onFocus={() => { if (naoQuisTelefone) setNaoQuisTelefone(false) }}
@@ -464,15 +465,15 @@ export default function RecepcaoPage() {
           {ramo.automotivo ? (
             <>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                <Campo l="Marca"><input value={marca} onChange={(e) => setMarca(e.target.value)} style={inp} /></Campo>
-                <Campo l="Modelo"><input value={modelo} onChange={(e) => setModelo(e.target.value)} style={inp} /></Campo>
-                <Campo l="Ano"><input value={ano} onChange={(e) => setAno(e.target.value.replace(/\D/g, ''))} inputMode="numeric" maxLength={4} style={inp} /></Campo>
+                <Campo l="Marca" ajuda="oficina.recepcao.marca"><input value={marca} onChange={(e) => setMarca(e.target.value)} style={inp} /></Campo>
+                <Campo l="Modelo" ajuda="oficina.recepcao.modelo"><input value={modelo} onChange={(e) => setModelo(e.target.value)} style={inp} /></Campo>
+                <Campo l="Ano" ajuda="oficina.recepcao.ano"><input value={ano} onChange={(e) => setAno(e.target.value.replace(/\D/g, ''))} inputMode="numeric" maxLength={4} style={inp} /></Campo>
               </div>
               {/* Onda 6 · KM em destaque. Exigir de leve (RD-51): avisa quando tem placa e sem km, mas não trava.
                   "KM não disponível" é explícito → separa "esqueceu" (NULL) de "não deu pra ler o painel" (flag). */}
               <div style={{ marginTop: 8, padding: 10, border: `1px solid ${kmIndisponivel ? LINE : (placa.trim() && !km ? GOLD : LINE)}`, borderRadius: 10, background: '#fff' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: ESP60, minWidth: 64 }}>KM atual</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: ESP60, minWidth: 64 }} className="inline-flex items-center">KM atual<AjudaCampo chave="oficina.recepcao.km" /></span>
                   <input value={km} disabled={kmIndisponivel}
                     onChange={(e) => setKm(e.target.value.replace(/\D/g, ''))} inputMode="numeric"
                     placeholder={kmIndisponivel ? '— não disponível —' : 'Hodômetro'}
@@ -489,7 +490,7 @@ export default function RecepcaoPage() {
                   </div>
                 )}
               </div>
-              <Campo l="Chassi (opcional)"><input value={chassi} onChange={(e) => setChassi(e.target.value.toUpperCase())} style={inp} /></Campo>
+              <Campo l="Chassi (opcional)" ajuda="oficina.recepcao.chassi"><input value={chassi} onChange={(e) => setChassi(e.target.value.toUpperCase())} style={inp} /></Campo>
             </>
           ) : (
             <>
@@ -519,14 +520,14 @@ export default function RecepcaoPage() {
         </Sec>
 
         {/* SERVIÇO / O QUE FAZER */}
-        <Sec titulo={ramo.servicoLabel}>
+        <Sec titulo={ramo.servicoLabel} ajuda="oficina.recepcao.servico">
           <textarea value={queixa} onChange={(e) => setQueixa(e.target.value)} rows={3}
             placeholder={ramo.automotivo ? 'Ex.: barulho na frente ao frear, luz do motor acesa…' : 'Ex.: retífica de cabeçote, plaina, brunimento…'}
             style={{ ...inp, resize: 'vertical' }} />
         </Sec>
 
         {/* MECÂNICO RESPONSÁVEL (opcional no check-in; pode designar depois no Pátio) */}
-        <Sec titulo="Mecânico responsável (opcional)">
+        <Sec titulo="Mecânico responsável (opcional)" ajuda="oficina.recepcao.mecanico">
           {/* seletor de 1 toque: cadastrados (com id → designação grava mecanico_id, enche a fila do 3.3) */}
           {mecCadastrados.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
@@ -550,7 +551,7 @@ export default function RecepcaoPage() {
 
         {/* CHECKLIST DE ENTRADA — só automotiva (combustível/retrovisores/pneus não fazem sentido p/ peça) */}
         {ramo.pedeCheckinAutomotivo && (
-          <Sec titulo="Como o carro chegou (checklist)">
+          <Sec titulo="Como o carro chegou (checklist)" ajuda="oficina.recepcao.checklist">
             <div style={{ display: 'flex', gap: 10, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
               <span style={{ fontSize: 12, color: ESP60 }}>Combustível:</span>
               {COMBUSTIVEL.map((c) => (
@@ -570,8 +571,8 @@ export default function RecepcaoPage() {
                 </button>
               )
             })}
-            <Campo l="Avarias na entrada (riscos, amassados…)"><textarea value={avarias} onChange={(e) => setAvarias(e.target.value)} rows={2} placeholder="Ex.: risco na porta esquerda" style={{ ...inp, resize: 'vertical' }} /></Campo>
-            <Campo l="Objetos deixados no veículo"><input value={objetos} onChange={(e) => setObjetos(e.target.value)} placeholder="Ex.: documento no porta-luvas" style={inp} /></Campo>
+            <Campo l="Avarias na entrada (riscos, amassados…)" ajuda="oficina.recepcao.avarias"><textarea value={avarias} onChange={(e) => setAvarias(e.target.value)} rows={2} placeholder="Ex.: risco na porta esquerda" style={{ ...inp, resize: 'vertical' }} /></Campo>
+            <Campo l="Objetos deixados no veículo" ajuda="oficina.recepcao.objetos"><input value={objetos} onChange={(e) => setObjetos(e.target.value)} placeholder="Ex.: documento no porta-luvas" style={inp} /></Campo>
           </Sec>
         )}
 
@@ -652,16 +653,16 @@ export default function RecepcaoPage() {
   )
 }
 
-function Sec({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+function Sec({ titulo, children, ajuda }: { titulo: string; children: React.ReactNode; ajuda?: string }) {
   return (
     <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 14, padding: 14, marginBottom: 12 }}>
-      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 10 }}>{titulo}</div>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 10 }} className="inline-flex items-center">{titulo}{ajuda && <AjudaCampo chave={ajuda} />}</div>
       {children}
     </div>
   )
 }
-function Campo({ l, children }: { l: string; children: React.ReactNode }) {
-  return <div style={{ marginBottom: 10 }}><div style={{ fontSize: 11, color: ESP60, marginBottom: 4 }}>{l}</div>{children}</div>
+function Campo({ l, children, ajuda }: { l: string; children: React.ReactNode; ajuda?: string }) {
+  return <div style={{ marginBottom: 10 }}><div style={{ fontSize: 11, color: ESP60, marginBottom: 4 }} className="inline-flex items-center">{l}{ajuda && <AjudaCampo chave={ajuda} />}</div>{children}</div>
 }
 const inp: CSSProperties = { width: '100%', padding: '11px 12px', border: `1px solid ${LINE}`, borderRadius: 10, fontSize: 15, background: '#fff', color: ESP, outline: 'none', fontFamily: 'inherit' }
 const btnGold: CSSProperties = { background: GOLD, color: '#3D2314', border: 'none', borderRadius: 10, padding: '11px 16px', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }
