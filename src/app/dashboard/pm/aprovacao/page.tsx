@@ -22,6 +22,9 @@ export default function AprovacaoPage() {
   // Busca + paginação (RD-98 usabilidade): fila de aprovação pode encher (ex.: import em lote) e virar parede de linhas
   // iguais; a busca filtra por título/número/cliente e o "mostrar mais" rende a lista de PAGINA em PAGINA.
   const [busca, setBusca] = useState(''); const [mostrar, setMostrar] = useState(PAGINA)
+  // Link de aprovação do CLIENTE (por job): guarda o link gerado por id para exibir/copiar inline (fallback se o
+  // clipboard do navegador estiver bloqueado). A aprovação interna segue como registro de OK recebido por fora.
+  const [links, setLinks] = useState<Record<string, string>>({})
   // Seleção para decidir VÁRIOS jobs de uma vez (RD-99): quem recebe o OK de um lote inteiro do cliente não precisa
   // clicar job a job. A seleção é por id; "selecionar todos" marca só os VISÍVEIS (respeita busca + paginação).
   const [sel, setSel] = useState<Set<string>>(new Set())
@@ -62,6 +65,20 @@ export default function AprovacaoPage() {
     setBusy(false); setToast(aprovar ? 'Job APROVADO · publicado.' : 'Job devolvido pra produção.'); void carregar()
   }
 
+  // Gera (ou reaproveita) o link público de aprovação do job e copia pro clipboard. O cliente abre sem login,
+  // aprova ou pede ajustes; a aprovação volta aqui como "aprovado pelo cliente" (origem=cliente) e publica o job.
+  async function gerarLink(j: Job) {
+    setBusy(true)
+    const { data, error } = await supabase.rpc('fn_pm_job_gerar_link_aprovacao', { p_job_id: j.id })
+    setBusy(false)
+    const r = data as { ok?: boolean; token?: string; erro?: string } | null
+    if (error || !r?.ok || !r.token) { setToast('Não foi possível gerar o link. Tente de novo.'); return }
+    const url = `${window.location.origin}/p/aprovacao/${r.token}`
+    setLinks((m) => ({ ...m, [j.id]: url }))
+    try { await navigator.clipboard.writeText(url); setToast('Link copiado! Envie ao cliente.') }
+    catch { setToast('Link gerado — copie abaixo e envie ao cliente.') }
+  }
+
   async function decidirLote(aprovar: boolean) {
     const alvo = jobs.filter((j) => sel.has(j.id))
     if (!alvo.length) return
@@ -89,7 +106,7 @@ export default function AprovacaoPage() {
         <header style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: DOURADO, fontWeight: 700 }}>🏭 P&amp;M · Produção</div>
           <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Aprovação do cliente<AjudaCampo chave="pm.aprovacao.tela" rota="/dashboard/pm/aprovacao" /></h1>
-          <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>Jobs em conferência aguardando o OK. Aprovar publica; reprovar volta pra produção.</p>
+          <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>Jobs aguardando aprovação. Envie o <strong>link de aprovação</strong> para o cliente aprovar pelo celular — ou registre o OK recebido por fora com ✓ Aprovar (publica); ↩ Reprovar volta pra produção.</p>
         </header>
 
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM }}>Carregando…</div>
@@ -136,6 +153,10 @@ export default function AprovacaoPage() {
                             <div style={{ fontSize: 12, color: TEXTM, marginTop: 2 }}>{nomeCli(j.cliente_id)} · {brl(Number(j.valor_job ?? 0))}{j.data_prazo ? ` · prazo ${j.data_prazo}` : ''}</div>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center' }}>
+                            <button disabled={busy} onClick={() => gerarLink(j)} style={btnLink} data-testid={`aprovacao-link-${j.id}`}>🔗 Link do cliente</button>
+                            <AjudaCampo chave="pm.aprovacao.link_cliente" rota="/dashboard/pm/aprovacao" />
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center' }}>
                             <button disabled={busy} onClick={() => decidir(j, true)} style={btnOk}>✓ Aprovar</button>
                             <AjudaCampo chave="pm.aprovacao.acao_aprovar" rota="/dashboard/pm/aprovacao" />
                           </div>
@@ -143,6 +164,11 @@ export default function AprovacaoPage() {
                             <button disabled={busy} onClick={() => decidir(j, false)} style={btnNo}>↩ Reprovar</button>
                             <AjudaCampo chave="pm.aprovacao.acao_reprovar" rota="/dashboard/pm/aprovacao" />
                           </div>
+                          {links[j.id] && (
+                            <div style={{ flexBasis: '100%', background: '#FBF7EF', border: `1px solid ${BORDA}`, borderRadius: 8, padding: '8px 10px', fontSize: 12, color: ESPRESSO, wordBreak: 'break-all' }}>
+                              Link do cliente: <a href={links[j.id]} target="_blank" rel="noreferrer" style={{ color: DOURADO, fontWeight: 600 }}>{links[j.id]}</a>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -162,6 +188,7 @@ export default function AprovacaoPage() {
 }
 const btnOk: CSSProperties = { border: `1px solid ${GREEN}`, color: GREEN, background: '#fff', borderRadius: 8, padding: '8px 14px', fontSize: 13, cursor: 'pointer', fontWeight: 700, minHeight: 42 }
 const btnNo: CSSProperties = { border: `1px solid ${RED}`, color: RED, background: '#fff', borderRadius: 8, padding: '8px 14px', fontSize: 13, cursor: 'pointer', minHeight: 42 }
+const btnLink: CSSProperties = { border: `1px solid ${DOURADO}`, color: DOURADO, background: '#fff', borderRadius: 8, padding: '8px 14px', fontSize: 13, cursor: 'pointer', fontWeight: 700, minHeight: 42 }
 const btnLimpar: CSSProperties = { border: `1px solid ${BORDA}`, color: TEXTM, background: '#fff', borderRadius: 8, padding: '8px 12px', fontSize: 12, cursor: 'pointer', minHeight: 42 }
 const toastStyle: CSSProperties = { position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', background: ESPRESSO, color: '#fff', padding: '10px 18px', borderRadius: 999, fontSize: 13, zIndex: 60 }
 const inpBusca: CSSProperties = { flex: 1, minWidth: 0, border: `1px solid ${BORDA}`, borderRadius: 8, padding: '8px 12px', fontSize: 13, color: ESPRESSO, background: '#fff', minHeight: 42 }

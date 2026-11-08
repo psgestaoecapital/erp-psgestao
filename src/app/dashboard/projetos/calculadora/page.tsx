@@ -49,6 +49,43 @@ function Campo({ rotulo, chave, valor, set, testid }: { rotulo: string; chave: s
   );
 }
 
+// RD-95 (aud8 90/95, matriz calculadora): glossário dos códigos técnicos de drywall para o usuário leigo
+// (pilotos Tryo/FC Pisos). A cor da bolinha reproduz a cor da face da chapa (padrão ABNT NBR 14715).
+// Cada código tem "?" (AjudaCampo) com a explicação completa, editável no banco (erp_ajuda_campo).
+const GLOSSARIO_CODIGOS: { cod: string; chave: string; cor?: string; texto: string }[] = [
+  { cod: "ST", chave: "projetos.calculadora.cod.st", cor: "#D9D2C4", texto: "Chapa Standard (comum): paredes e forros internos secos, como quarto e sala." },
+  { cod: "RU", chave: "projetos.calculadora.cod.ru", cor: "#2E7D32", texto: "Chapa Resistente à Umidade (face verde): áreas molhadas — banheiro, cozinha, área de serviço." },
+  { cod: "RF", chave: "projetos.calculadora.cod.rf", cor: "#E1588E", texto: "Chapa Resistente ao Fogo (face rosa): paredes corta-fogo e rotas de saída, quando a norma exige." },
+  { cod: "F530", chave: "projetos.calculadora.cod.f530", texto: "Sistema de forro de gesso acartonado com perfil F530 (o perfil que sustenta as chapas do forro)." },
+  { cod: "PPA 25", chave: "projetos.calculadora.cod.ppa", texto: "Parafuso ponta agulha 25 mm: prende a chapa de gesso na estrutura (perfis de drywall)." },
+  { cod: "PFM 13", chave: "projetos.calculadora.cod.pfm", texto: "Parafuso ponta broca metal 13 mm: prende perfil no perfil (metal no metal) da estrutura." },
+  { cod: "Tabica", chave: "projetos.calculadora.cod.tabica", texto: "Perfil de acabamento do perímetro do forro, no encontro com a parede." },
+  { cod: "Junção H", chave: "projetos.calculadora.cod.juncao_h", texto: "Perfil em “H” que une as placas do forro aramado lado a lado." },
+  { cod: "Nervura", chave: "projetos.calculadora.cod.nervura", texto: "Travessa estrutural do forro aramado, que trava e sustenta as placas." },
+];
+
+function GlossarioCodigos() {
+  return (
+    <details className="mb-4 rounded-xl border border-[#3D2314]/10 bg-[#FAF7F2]">
+      <summary className="flex cursor-pointer list-none items-center gap-1 px-4 py-2.5 text-sm font-medium text-[#3D2314]">
+        <span className="text-[#C8941A]">?</span> Entenda os códigos (ST, RU, RF, F530…)
+        <AjudaCampo chave="projetos.calculadora.glossario" rota="/dashboard/projetos/calculadora" />
+      </summary>
+      <div className="grid grid-cols-1 gap-x-6 gap-y-2.5 px-4 pb-4 pt-1 sm:grid-cols-2">
+        {GLOSSARIO_CODIGOS.map((g) => (
+          <div key={g.cod} className="flex items-start gap-2 text-sm text-[#3D2314]/80">
+            {g.cor && <span className="mt-1.5 inline-block h-2.5 w-2.5 shrink-0 rounded-full border border-[#3D2314]/20" style={{ background: g.cor }} aria-hidden />}
+            <span>
+              <b className="text-[#3D2314]">{g.cod}</b> — {g.texto}
+              <AjudaCampo chave={g.chave} rota="/dashboard/projetos/calculadora" />
+            </span>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
 export default function CalculadoraObraPage() {
   const [sistema, setSistema] = useState<Sistema>("parede");
   const [comp, setComp] = useState("12,5");
@@ -273,6 +310,7 @@ export default function CalculadoraObraPage() {
               className={`rounded-full px-3 py-1.5 text-sm ${sistema === k ? "bg-[#3D2314] text-white" : "bg-[#3D2314]/5 text-[#3D2314]"}`}>{t}</button>
           ))}
         </div>
+        <GlossarioCodigos />
         {sistema === "parede" || sistema === "separativa" || sistema === "cortafogo" || sistema === "revestimento" || sistema === "estruturado" ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Campo rotulo="Comprimento (m)" chave="projetos.calculadora.comprimento" valor={comp} set={setComp} testid="calc-comprimento" />
