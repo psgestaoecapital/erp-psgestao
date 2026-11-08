@@ -452,7 +452,7 @@ export default function AnalisesPage(){
 
           {(realData.chart_mensal||chartData)&&(realData.chart_mensal||chartData).length>0&&(
             <Card>
-              <div style={{fontSize:12,fontWeight:600,color:GOL,marginBottom:10}}>Receitas × Despesas × Resultado — Dados Reais do Omie (R$)</div>
+              <div style={{fontSize:12,fontWeight:600,color:GOL,marginBottom:10}}>Receitas × Despesas × Resultado — Dados Reais Importados (R$)</div>
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={realData.chart_mensal||chartData}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BD}/>
@@ -500,12 +500,12 @@ export default function AnalisesPage(){
             </Card>
           )}
 
-          <div style={{fontSize:10,color:TXM,textAlign:"right",marginBottom:10}}>Fonte: Omie API | Última sincronização: {omieData.length>0?new Date(Math.max(...omieData.map(d=>new Date(d.imported_at).getTime()))).toLocaleString("pt-BR"):""}</div>
+          <div style={{fontSize:10,color:TXM,textAlign:"right",marginBottom:10}}>Fonte: Integração | Última sincronização: {omieData.length>0?new Date(Math.max(...omieData.map(d=>new Date(d.imported_at).getTime()))).toLocaleString("pt-BR"):""}</div>
         </div>
       )}
 
       {loadingReal&&!realData&&(
-        <Card><div style={{textAlign:"center",padding:20,color:TXM,fontSize:12}}>Processando dados do Omie...</div></Card>
+        <Card><div style={{textAlign:"center",padding:20,color:TXM,fontSize:12}}>Processando dados importados...</div></Card>
       )}
 
       {!realData&&!loadingReal&&(<>
@@ -529,7 +529,7 @@ export default function AnalisesPage(){
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div>
                   <div style={{fontSize:13,fontWeight:600,color:TX}}>{decodeHTML(r.nome)} <span style={{fontSize:9,color:TXD}}>{drillOpen===`rec-${i}`?"▼":"▶"}</span></div>
-                  <div style={{fontSize:11,color:TXM}}>Categoria Omie | Clique para ver lançamentos</div>
+                  <div style={{fontSize:11,color:TXM}}>Categoria importada | Clique para ver lançamentos</div>
                 </div>
                 <div style={{textAlign:"right"}}>
                   <div style={{fontSize:16,fontWeight:700,color:G}}>{fmtBRL(r.valor)}</div>
@@ -602,7 +602,7 @@ export default function AnalisesPage(){
                   <div style={{width:4,height:40,borderRadius:2,background:cores[i%8]}}/>
                   <div>
                     <div style={{fontSize:14,fontWeight:600,color:TX}}>{decodeHTML(r.nome)}</div>
-                    <div style={{fontSize:11,color:TXM}}>Categoria Omie | Receita operacional</div>
+                    <div style={{fontSize:11,color:TXM}}>Categoria importada | Receita operacional</div>
                   </div>
                 </div>
                 <div style={{textAlign:"right"}}>
@@ -650,7 +650,7 @@ export default function AnalisesPage(){
           })}
         </>)}
       </>):(
-        <div style={{padding:40,textAlign:"center",color:TXM,fontSize:12}}>Conecte o Omie para ver os negócios</div>
+        <div style={{padding:40,textAlign:"center",color:TXM,fontSize:12}}>Conecte seu sistema anterior para ver os negócios</div>
       )}
     </div>)}
 
@@ -817,7 +817,7 @@ export default function AnalisesPage(){
       {realData&&realData.top_receitas_operacionais?(<>
         <Tit t="Análise de Receitas por Categoria"/>
         <Card>
-          <div style={{fontSize:11,color:TXM,marginBottom:12}}>Receita por categoria do Omie ordenada por valor.</div>
+          <div style={{fontSize:11,color:TXM,marginBottom:12}}>Receita por categoria importada ordenada por valor.</div>
           <div style={{overflowX:"auto"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:400}}>
               <thead><tr style={{borderBottom:`1px solid ${BD}`}}>
@@ -951,7 +951,7 @@ export default function AnalisesPage(){
 
     <div style={{textAlign:"center",padding:"24px 16px 20px",borderTop:`1px solid ${BD}`,marginTop:40}}>
       <div style={{fontSize:11,fontWeight:600,color:GOL}}>PS Gestão e Capital — Análises Financeiras</div>
-      <div style={{fontSize:9,color:TXD,marginTop:4}}>9 abas · Dados Omie · Análises IA · Relatórios V19</div>
+      <div style={{fontSize:9,color:TXD,marginTop:4}}>9 abas · Dados Importados · Análises IA · Relatórios V19</div>
     </div>
   </div>);
 }
