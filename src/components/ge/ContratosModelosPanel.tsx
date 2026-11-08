@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const C = { espresso: '#3D2314', espressoM: '#6B5D4F', espressoD: '#9C8E80', cream: '#FAF7F2', border: '#E0D8CC', gold: '#C8941A', white: '#FFFFFF', danger: '#B4452F' }
@@ -45,7 +46,7 @@ export default function ContratosModelosPanel({ companyId }: { companyId: string
     const { data, error } = await supabase.rpc('fn_contrato_modelo_listar', {
       p_company_id: companyId, p_incluir_inativos: incluirInativos,
     })
-    if (error) { setErro(error.message); setModelos([]); setLoading(false); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar os modelos. Tente de novo.')); setModelos([]); setLoading(false); return }
     setModelos(((data as { modelos?: Modelo[] } | null)?.modelos ?? []) as Modelo[])
     setLoading(false)
   }, [companyId, incluirInativos])
@@ -56,6 +57,12 @@ export default function ContratosModelosPanel({ companyId }: { companyId: string
   const abrirEdicao = (m: Modelo) => {
     setErro('')
     setForm({ id: m.id, nome: m.nome, descricao: m.descricao ?? '', texto: m.texto ?? '' })
+  }
+  // Duplicar: abre "Novo modelo" pré-preenchido com o texto/descrição deste (id null → cria um NOVO ao salvar,
+  // reusando fn_contrato_modelo_salvar). O original não muda.
+  const abrirDuplicacao = (m: Modelo) => {
+    setErro('')
+    setForm({ id: null, nome: `${m.nome} (cópia)`, descricao: m.descricao ?? '', texto: m.texto ?? '' })
   }
 
   const salvar = async () => {
@@ -70,7 +77,7 @@ export default function ContratosModelosPanel({ companyId }: { companyId: string
       p_id: form.id,
     })
     setSalvando(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível salvar o modelo. Tente de novo.')); return }
     setForm(null)
     await carregar()
   }
@@ -83,7 +90,7 @@ export default function ContratosModelosPanel({ companyId }: { companyId: string
       p_id: inativando.id, p_ativo: false, p_motivo: motivo.trim(),
     })
     setSalvando(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível inativar o modelo. Tente de novo.')); return }
     setInativando(null); setMotivo('')
     await carregar()
   }
@@ -94,7 +101,7 @@ export default function ContratosModelosPanel({ companyId }: { companyId: string
       p_id: m.id, p_ativo: true, p_motivo: null,
     })
     setSalvando(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível reativar o modelo. Tente de novo.')); return }
     await carregar()
   }
 
@@ -157,6 +164,9 @@ export default function ContratosModelosPanel({ companyId }: { companyId: string
                 <div style={{ display: 'flex', gap: 8, flexShrink: 0, flexWrap: 'wrap' }}>
                   <button onClick={() => abrirEdicao(m)} style={btnSec}>
                     Editar <AjudaCampo chave="ge.contrato.modelo.editar" />
+                  </button>
+                  <button onClick={() => abrirDuplicacao(m)} style={btnSec}>
+                    Duplicar <AjudaCampo chave="ge.contrato.modelo.duplicar" />
                   </button>
                   {m.ativo ? (
                     <button onClick={() => { setErro(''); setMotivo(''); setInativando(m) }} style={btnDanger}>
