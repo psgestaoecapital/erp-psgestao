@@ -12,6 +12,7 @@ import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import { Package, Download, Upload, Loader2, CheckCircle2, AlertTriangle, XCircle, History } from 'lucide-react'
 import { COLUNAS_ESTOQUE, TIPOS_SPED, TIPOS_EXIGEM_NCM, ORIGENS, CODIGO_EXEMPLO } from '@/lib/estoque/colunasImportacao'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 export const dynamic = 'force-dynamic'
 
@@ -241,9 +242,9 @@ export default function ImportarEstoquePage() {
   }
 
   const podeCarregar = linhas.length > 0 && !carregando && (soValidas ? contagem.ok + contagem.aviso > 0 : contagem.erro === 0)
-  const Card = ({ l, v, cor }: { l: string; v: string; cor?: string }) => (
+  const Card = ({ l, v, cor, ajuda }: { l: string; v: string; cor?: string; ajuda?: string }) => (
     <div className="rounded-lg border border-[#3D2314]/10 bg-white px-3 py-2">
-      <div className="text-[11px] text-[#3D2314]/60">{l}</div>
+      <div className="text-[11px] text-[#3D2314]/60 inline-flex items-center">{l}{ajuda && <AjudaCampo chave={ajuda} />}</div>
       <div className={`text-[16px] font-medium tabular-nums ${cor ?? 'text-[#3D2314]'}`}>{v}</div>
     </div>
   )
@@ -263,10 +264,13 @@ export default function ImportarEstoquePage() {
           className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2">
           <Download size={15} /> Baixar planilha padrão
         </a>
-        <button type="button" onClick={() => inputRef.current?.click()}
-          className="px-4 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] flex items-center gap-2">
-          <Upload size={15} /> {nomeArquivo ? 'Trocar arquivo' : 'Subir planilha'}
-        </button>
+        <span className="inline-flex items-center">
+          <button type="button" onClick={() => inputRef.current?.click()}
+            className="px-4 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] flex items-center gap-2">
+            <Upload size={15} /> {nomeArquivo ? 'Trocar arquivo' : 'Subir planilha'}
+          </button>
+          <AjudaCampo chave="cadastros.produtos.importar.arquivo" />
+        </span>
         <input ref={inputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
           onChange={(e) => { const f = e.target.files?.[0]; if (f) void onArquivo(f); e.target.value = '' }} />
         {nomeArquivo && <span className="text-[12px] text-[#3D2314]/60">{nomeArquivo} · {linhas.length} linha(s)</span>}
@@ -278,14 +282,14 @@ export default function ImportarEstoquePage() {
         <>
           {/* 8 indicadores (iguais à aba Conferência) */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
-            <Card l="Itens" v={numBR(totais.itens)} />
-            <Card l="Quantidade líquida" v={numBR(totais.soma_qtd)} />
-            <Card l="Com saldo positivo" v={numBR(totais.positivos)} />
-            <Card l="Zerados/vazios" v={numBR(totais.zerados)} />
-            <Card l="NEGATIVOS" v={numBR(totais.negativos)} cor={totais.negativos > 0 ? 'text-[#A32D2D]' : undefined} />
-            <Card l="Soma dos custos" v={brl(totais.soma_custo)} />
-            <Card l="Valor do estoque líquido" v={brl(totais.valor_liquido)} />
-            <Card l="Códigos repetidos" v={numBR(totais.repetidos)} cor={totais.repetidos > 0 ? 'text-[#A32D2D]' : undefined} />
+            <Card l="Itens" v={numBR(totais.itens)} ajuda="cadastros.produtos.importar.ind_itens" />
+            <Card l="Quantidade líquida" v={numBR(totais.soma_qtd)} ajuda="cadastros.produtos.importar.ind_qtd_liquida" />
+            <Card l="Com saldo positivo" v={numBR(totais.positivos)} ajuda="cadastros.produtos.importar.ind_positivos" />
+            <Card l="Zerados/vazios" v={numBR(totais.zerados)} ajuda="cadastros.produtos.importar.ind_zerados" />
+            <Card l="NEGATIVOS" v={numBR(totais.negativos)} cor={totais.negativos > 0 ? 'text-[#A32D2D]' : undefined} ajuda="cadastros.produtos.importar.ind_negativos" />
+            <Card l="Soma dos custos" v={brl(totais.soma_custo)} ajuda="cadastros.produtos.importar.ind_soma_custo" />
+            <Card l="Valor do estoque líquido" v={brl(totais.valor_liquido)} ajuda="cadastros.produtos.importar.ind_valor_liquido" />
+            <Card l="Códigos repetidos" v={numBR(totais.repetidos)} cor={totais.repetidos > 0 ? 'text-[#A32D2D]' : undefined} ajuda="cadastros.produtos.importar.ind_repetidos" />
           </div>
 
           <div className="bg-white rounded-xl border border-[#3D2314]/10 overflow-hidden mb-4">
@@ -299,6 +303,7 @@ export default function ImportarEstoquePage() {
                 <label className="flex items-center gap-1.5 text-[12px] text-[#3D2314]/75 cursor-pointer">
                   <input type="checkbox" checked={soValidas} onChange={(e) => setSoValidas(e.target.checked)} className="accent-[#C8941A]" />
                   Carregar só as válidas ({contagem.ok + contagem.aviso})
+                  <AjudaCampo chave="cadastros.produtos.importar.so_validas" />
                 </label>
               )}
             </div>
@@ -306,12 +311,12 @@ export default function ImportarEstoquePage() {
               <table className="w-full text-[12px]">
                 <thead className="bg-[#3D2314]/5 text-[11px] text-[#3D2314]/70 sticky top-0"><tr>
                   <th className="text-left px-3 py-2 font-medium">#</th>
-                  <th className="text-left px-3 py-2 font-medium">status</th>
-                  <th className="text-left px-3 py-2 font-medium">codigo</th>
-                  <th className="text-left px-3 py-2 font-medium">descrição</th>
-                  <th className="text-right px-3 py-2 font-medium">qtd</th>
-                  <th className="text-right px-3 py-2 font-medium">custo</th>
-                  <th className="text-left px-3 py-2 font-medium">mensagens</th>
+                  <th className="text-left px-3 py-2 font-medium">status<AjudaCampo chave="cadastros.produtos.importar.col_status" /></th>
+                  <th className="text-left px-3 py-2 font-medium">codigo<AjudaCampo chave="cadastros.produtos.importar.col_codigo" /></th>
+                  <th className="text-left px-3 py-2 font-medium">descrição<AjudaCampo chave="cadastros.produtos.importar.col_descricao" /></th>
+                  <th className="text-right px-3 py-2 font-medium">qtd<AjudaCampo chave="cadastros.produtos.importar.col_qtd" /></th>
+                  <th className="text-right px-3 py-2 font-medium">custo<AjudaCampo chave="cadastros.produtos.importar.col_custo" /></th>
+                  <th className="text-left px-3 py-2 font-medium">mensagens<AjudaCampo chave="cadastros.produtos.importar.col_mensagens" /></th>
                 </tr></thead>
                 <tbody>
                   {linhas.map((l, i) => (
@@ -330,11 +335,14 @@ export default function ImportarEstoquePage() {
             </div>
             <div className="px-4 py-3 border-t border-[#3D2314]/10 flex items-center justify-between gap-3 flex-wrap">
               <span className="text-[12px] text-[#3D2314]/60">{contagem.erro > 0 && !soValidas ? 'Corrija os erros ou marque "carregar só as válidas".' : 'Pronto para carregar.'}</span>
-              <button type="button" onClick={() => void carregar()} disabled={!podeCarregar}
-                className="px-5 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] disabled:opacity-40 flex items-center gap-2">
-                {carregando ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
-                {carregando && progresso ? `Carregando ${progresso.feito}/${progresso.total}…` : 'Carregar'}
-              </button>
+              <span className="inline-flex items-center">
+                <button type="button" onClick={() => void carregar()} disabled={!podeCarregar}
+                  className="px-5 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] disabled:opacity-40 flex items-center gap-2">
+                  {carregando ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
+                  {carregando && progresso ? `Carregando ${progresso.feito}/${progresso.total}…` : 'Carregar'}
+                </button>
+                <AjudaCampo chave="cadastros.produtos.importar.carregar" />
+              </span>
             </div>
           </div>
         </>
