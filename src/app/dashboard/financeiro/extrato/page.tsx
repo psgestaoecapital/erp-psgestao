@@ -5,6 +5,9 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import GerarSegundoPlanoButton from '@/components/relatorios/GerarSegundoPlanoButton'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
+
+const ROTA_AJUDA = '/dashboard/financeiro/extrato'
 
 interface Linha {
   id: string
@@ -218,35 +221,54 @@ export default function ExtratoPage() {
             <button type="button" onClick={() => { const h = new Date(); setDataInicio(toISO(new Date(h.getFullYear(), h.getMonth() - 1, 1))); setDataFim(toISO(new Date(h.getFullYear(), h.getMonth(), 0))) }} style={quickBtn}>Mês passado</button>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
-            <select value={contaId} onChange={(e) => setContaId(e.target.value)} style={input}>
-              <option value="">Todas as contas</option>
-              {contas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
-            </select>
-            <input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} style={input} />
-            <input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} style={input} />
-            <select value={tipo} onChange={(e) => setTipo(e.target.value as Tipo)} style={input}>
-              <option value="todos">Todos os tipos</option>
-              <option value="entradas">Só entradas</option>
-              <option value="saidas">Só saídas</option>
-            </select>
-            <input placeholder="Buscar descrição, pessoa, categoria…" value={busca} onChange={(e) => setBusca(e.target.value)} style={input} />
+            <label style={campoFiltro}>
+              <span style={campoCaption}>Conta<AjudaCampo chave="ge.extrato.filtro.conta" rota={ROTA_AJUDA} /></span>
+              <select value={contaId} onChange={(e) => setContaId(e.target.value)} style={input}>
+                <option value="">Todas as contas</option>
+                {contas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+              </select>
+            </label>
+            <label style={campoFiltro}>
+              <span style={campoCaption}>De<AjudaCampo chave="ge.extrato.filtro.data_inicio" rota={ROTA_AJUDA} /></span>
+              <input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} style={input} />
+            </label>
+            <label style={campoFiltro}>
+              <span style={campoCaption}>Até<AjudaCampo chave="ge.extrato.filtro.data_fim" rota={ROTA_AJUDA} /></span>
+              <input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} style={input} />
+            </label>
+            <label style={campoFiltro}>
+              <span style={campoCaption}>Tipo<AjudaCampo chave="ge.extrato.filtro.tipo" rota={ROTA_AJUDA} /></span>
+              <select value={tipo} onChange={(e) => setTipo(e.target.value as Tipo)} style={input}>
+                <option value="todos">Todos os tipos</option>
+                <option value="entradas">Só entradas</option>
+                <option value="saidas">Só saídas</option>
+              </select>
+            </label>
+            <label style={campoFiltro}>
+              <span style={campoCaption}>Buscar<AjudaCampo chave="ge.extrato.filtro.busca" rota={ROTA_AJUDA} /></span>
+              <input placeholder="Descrição, pessoa, categoria…" value={busca} onChange={(e) => setBusca(e.target.value)} style={input} />
+            </label>
           </div>
         </div>
 
-        {/* ONDA-A-EXTRATO-KPIs-UNIFICADOS-v1: fonte unica = totalizadores do RPC (ancorados no saldo_inicial) */}
+        {/* RD-95/#2634: os 4 cartões FECHAM sob o mesmo período/conta — saldo inicial do período + entradas − saídas = saldo final.
+            O saldo inicial é o saldo_anterior (saldo no início do período filtrado), não a abertura histórica da conta. */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 20 }}>
           <Card
-            label="Saldo inicial"
-            valor={`R$ ${fmt(total?.saldo_base)}`}
+            label="Saldo inicial do período"
+            ajudaChave="ge.extrato.kpi.saldo_inicial"
+            valor={`R$ ${fmt(total?.saldo_anterior)}`}
             cor="rgba(61,35,20,0.55)"
-            sub={total?.data_ancora ? `em ${fmtDate(total.data_ancora)}` : '—'}
+            sub={extrato ? `antes de ${fmtDate(extrato.periodo.inicio)}` : '—'}
           />
-          <Card label="Entradas (período)" valor={`+ R$ ${fmt(total?.total_entradas)}`} cor="#3B6D11" />
-          <Card label="Saídas (período)" valor={`− R$ ${fmt(total?.total_saidas)}`} cor="#A32D2D" />
+          <Card label="Entradas (período)" ajudaChave="ge.extrato.kpi.entradas" valor={`+ R$ ${fmt(total?.total_entradas)}`} cor="#3B6D11" />
+          <Card label="Saídas (período)" ajudaChave="ge.extrato.kpi.saidas" valor={`− R$ ${fmt(total?.total_saidas)}`} cor="#A32D2D" />
           <Card
-            label="Saldo atual"
+            label="Saldo final do período"
+            ajudaChave="ge.extrato.kpi.saldo_final"
             valor={`R$ ${fmt(total?.saldo_atual)}`}
             cor={Number(total?.saldo_atual ?? 0) < 0 ? '#A32D2D' : '#3B6D11'}
+            sub={extrato ? `em ${fmtDate(extrato.periodo.fim)}` : undefined}
             destaque
           />
         </div>
@@ -269,13 +291,13 @@ export default function ExtratoPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: 'rgba(61,35,20,0.04)' }}>
-                    <th style={th}>Data</th>
-                    <th style={th}>Descrição</th>
-                    <th style={th}>Categoria</th>
-                    <th style={th}>Pessoa</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Valor</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Saldo</th>
-                    <th style={th}>Status</th>
+                    <th style={th}>Data<AjudaCampo chave="ge.extrato.col.data" rota={ROTA_AJUDA} /></th>
+                    <th style={th}>Descrição<AjudaCampo chave="ge.extrato.col.descricao" rota={ROTA_AJUDA} /></th>
+                    <th style={th}>Categoria<AjudaCampo chave="ge.extrato.col.categoria" rota={ROTA_AJUDA} /></th>
+                    <th style={th}>Pessoa<AjudaCampo chave="ge.extrato.col.pessoa" rota={ROTA_AJUDA} /></th>
+                    <th style={{ ...th, textAlign: 'right' }}>Valor<AjudaCampo chave="ge.extrato.col.valor" rota={ROTA_AJUDA} /></th>
+                    <th style={{ ...th, textAlign: 'right' }}>Saldo<AjudaCampo chave="ge.extrato.col.saldo" rota={ROTA_AJUDA} /></th>
+                    <th style={th}>Status<AjudaCampo chave="ge.extrato.col.status" rota={ROTA_AJUDA} /></th>
                     <th style={{ ...th, width: 36 }} aria-label="Editar"></th>
                   </tr>
                 </thead>
@@ -302,7 +324,10 @@ export default function ExtratoPage() {
                             {l.categoria}
                           </span>
                         ) : (
-                          <span style={{ color: 'rgba(61,35,20,0.45)', fontSize: 12 }}>—</span>
+                          // Sem categoria classificada: mostra a natureza do movimento em vez de "—" (RD-98 p1), sem inventar categoria.
+                          <span style={{ fontSize: 11, fontWeight: 500, color: 'rgba(61,35,20,0.5)', background: 'rgba(61,35,20,0.05)', padding: '2px 8px', borderRadius: 4, whiteSpace: 'nowrap', fontStyle: 'italic' }} title="Lançamento sem categoria classificada">
+                            {l.sinal < 0 ? 'Despesa' : 'Receita'}
+                          </span>
                         )}
                       </td>
                       <td style={{ ...td, color: 'rgba(61,35,20,0.85)', fontSize: 12 }}>{l.nome_pessoa ?? '—'}</td>
@@ -351,7 +376,7 @@ export default function ExtratoPage() {
   )
 }
 
-function Card({ label, valor, cor, destaque, sub }: { label: string; valor: string; cor: string; destaque?: boolean; sub?: string }) {
+function Card({ label, valor, cor, destaque, sub, ajudaChave }: { label: string; valor: string; cor: string; destaque?: boolean; sub?: string; ajudaChave?: string }) {
   return (
     <div style={{
       background: destaque ? '#FFF8E7' : '#FFFFFF',
@@ -360,7 +385,10 @@ function Card({ label, valor, cor, destaque, sub }: { label: string; valor: stri
       borderRadius: 8,
       padding: '14px 16px',
     }}>
-      <div style={{ fontSize: 10, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6 }}>{label}</div>
+      <div style={{ display: 'flex', alignItems: 'center', fontSize: 10, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 6 }}>
+        {label}
+        {ajudaChave && <AjudaCampo chave={ajudaChave} rota={ROTA_AJUDA} />}
+      </div>
       <div style={{ fontSize: 18, fontWeight: 600, color: cor, fontVariantNumeric: 'tabular-nums' }}>{valor}</div>
       {sub && <div style={{ fontSize: 10, color: 'rgba(61,35,20,0.45)', marginTop: 4 }}>{sub}</div>}
     </div>
@@ -375,6 +403,24 @@ const input: React.CSSProperties = {
   fontSize: 13,
   color: '#3D2314',
   fontFamily: 'inherit',
+  width: '100%',
+  boxSizing: 'border-box',
+}
+
+const campoFiltro: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+}
+
+const campoCaption: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  fontSize: 10.5,
+  fontWeight: 600,
+  color: 'rgba(61,35,20,0.55)',
+  textTransform: 'uppercase',
+  letterSpacing: 0.6,
 }
 
 const th: React.CSSProperties = {
