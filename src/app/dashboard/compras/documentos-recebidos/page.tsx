@@ -76,8 +76,9 @@ function chipManifestacao(m: string): { cor: string; bg: string; texto: string }
   if (m === 'ciencia') return { cor: '#BA7517', bg: '#FAEEDA', texto: 'Ciência' }
   if (m === 'desconhecida') return { cor: '#A32D2D', bg: '#FCEBEB', texto: 'Desconhecida' }
   if (m === 'nao_realizada') return { cor: '#A32D2D', bg: '#FCEBEB', texto: 'Não realizada' }
-  // NFE-F3 · §1 · status desconhecido enquanto o OMIE manifesta (cinza, informativo, NÃO bloqueia)
-  if (m === 'gerida_omie') return { cor: 'rgba(61,35,20,0.55)', bg: 'rgba(61,35,20,0.06)', texto: 'Gerida no OMIE' }
+  // NFE-F3 · §1 · status desconhecido enquanto o outro sistema manifesta (cinza, informativo, NÃO bloqueia)
+  // `gerida_omie` é o código técnico de status devolvido pela RPC (identificador não visível, RD-100 §exceção)
+  if (m === 'gerida_omie') return { cor: 'rgba(61,35,20,0.55)', bg: 'rgba(61,35,20,0.06)', texto: 'Gerida em outro sistema' }
   return { cor: 'rgba(61,35,20,0.65)', bg: 'rgba(61,35,20,0.08)', texto: 'Pendente' }
 }
 
@@ -293,14 +294,14 @@ export default function DocumentosRecebidosPage() {
   }
 
   // NFE-F3 · §1 · sincroniza a manifestação do resumo DF-e (SÓ LEITURA — nada é enviado à SEFAZ).
-  // As notas sem evento (o OMIE ainda manifesta lá) passam a "Gerida no OMIE" e param de fingir "pendente".
+  // As notas sem evento (o outro sistema ainda manifesta lá) passam a "Gerida em outro sistema" e param de fingir "pendente".
   async function sincronizarManifestacao() {
     if (!empresaUnica) return
     setErro(null); setToast(null)
     const { data, error } = await supabase.rpc('fn_dfe_sincronizar_manifestacao', { p_company_id: empresaUnica })
     const r = data as { ok?: boolean; com_evento?: number; gerida_omie?: number; erro?: string } | null
     if (error || !r?.ok) { setErro('Não consegui sincronizar: ' + (error?.message ?? r?.erro ?? 'falhou')); return }
-    setToast(`Manifestação sincronizada (só leitura) · ${r.com_evento ?? 0} com evento real · ${r.gerida_omie ?? 0} geridas no OMIE. Nada enviado à SEFAZ.`)
+    setToast(`Manifestação sincronizada (só leitura) · ${r.com_evento ?? 0} com evento real · ${r.gerida_omie ?? 0} geridas em outro sistema. Nada enviado à SEFAZ.`)
     await carregar()
     setTimeout(() => setToast(null), 6000)
   }
@@ -566,7 +567,7 @@ export default function DocumentosRecebidosPage() {
             <button
               type="button"
               onClick={() => void sincronizarManifestacao()}
-              title="Lê o resumo DF-e e atualiza o status de manifestação. Não envia nada à SEFAZ (o OMIE faz a manifestação)."
+              title="Lê o resumo DF-e e atualiza o status de manifestação. Não envia nada à SEFAZ (o outro sistema faz a manifestação)."
               className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[#3D2314]/15 text-[12px] font-medium text-[#3D2314]/70 hover:bg-[#3D2314]/5 min-h-[44px]"
             >
               <RefreshCw size={14} /> Sincronizar manifestação

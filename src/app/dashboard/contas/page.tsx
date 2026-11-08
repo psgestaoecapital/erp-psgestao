@@ -296,7 +296,7 @@ export default function ContasPage(){
             <div style={{padding:40,textAlign:"center"}}>
               <div style={{fontSize:40,marginBottom:8}}>💼</div>
               <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:4}}>{totalEmpresa===0?"Nenhum lançamento nesta empresa":"Nenhum lançamento para os filtros escolhidos"}</div>
-              <div style={{fontSize:11,color:TXD}} data-testid="contas-vazio">{totalEmpresa===0?"Importe dados do Omie/ContaAzul":`A empresa tem ${totalEmpresa} título(s); ajuste os filtros (status, tipo ou busca).`}</div>
+              <div style={{fontSize:11,color:TXD}} data-testid="contas-vazio">{totalEmpresa===0?"Importe dados do seu sistema anterior":`A empresa tem ${totalEmpresa} título(s); ajuste os filtros (status, tipo ou busca).`}</div>
             </div>
           ):(
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
