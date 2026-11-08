@@ -363,7 +363,7 @@ export default function CusteioPage(){
                 <div style={{background:BG3,borderRadius:8,padding:12}}>
                   <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"flex-start"}}>
                     <span style={{background:G+"20",color:G,padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:700,minWidth:70,textAlign:"center"}}>Camada 1</span>
-                    <div><div style={{fontSize:11,fontWeight:600,color:TX}}>Distribuição do ERP (Omie)</div><div style={{fontSize:10,color:TXD}}>Se o lançamento tem departamento no Omie (campo distribuicao[]), usa o percentual exato definido lá. É a forma mais precisa.</div></div>
+                    <div><div style={{fontSize:11,fontWeight:600,color:TX}}>Distribuição do ERP de origem</div><div style={{fontSize:10,color:TXD}}>Se o lançamento tem departamento no ERP de origem (campo distribuicao[]), usa o percentual exato definido lá. É a forma mais precisa.</div></div>
                   </div>
                   <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"flex-start"}}>
                     <span style={{background:B+"20",color:B,padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:700,minWidth:70,textAlign:"center"}}>Camada 2</span>
@@ -425,7 +425,7 @@ export default function CusteioPage(){
               <div style={{marginBottom:20}}>
                 <div style={{fontSize:13,fontWeight:700,color:GO,marginBottom:8}}>Fontes de dados suportadas</div>
                 <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                  {["Omie","Nibo","ContaAzul","Bling","Entrada Manual","Módulo Industrial"].map(s=>(
+                  {["Conectores (API)","Importação por planilha","Entrada Manual","Módulo Industrial"].map(s=>(
                     <span key={s} style={{padding:"4px 10px",borderRadius:6,background:GO+"15",color:GOL,fontSize:10,fontWeight:500}}>{s}</span>
                   ))}
                 </div>
@@ -459,7 +459,7 @@ export default function CusteioPage(){
                 <span style={{fontSize:12,fontWeight:700,color:Y}}>R$ {result.naoAlocado.toLocaleString("pt-BR",{minimumFractionDigits:0})} em custos não alocados</span>
               </div>
               <div style={{fontSize:11,color:TXM,lineHeight:1.6}}>
-                Esses custos não possuem departamento no Omie (distribuicao[]) nem regra de fallback por CNPJ. Para alocar, configure as regras de rateio por CNPJ no módulo de administração ou solicite ao financeiro que distribua os custos por departamento no Omie.
+                Esses custos não possuem departamento no ERP de origem (distribuicao[]) nem regra de fallback por CNPJ. Para alocar, configure as regras de rateio por CNPJ no módulo de administração ou solicite ao financeiro que distribua os custos por departamento no ERP de origem.
               </div>
             </div>
           )}
