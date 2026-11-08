@@ -6,6 +6,7 @@ import React, { useEffect, useState, useCallback, type CSSProperties } from 'rea
 import { useRouter } from 'next/navigation'
 import { Car, ChevronLeft, Search, Gauge, Wrench } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'
@@ -99,20 +100,23 @@ export default function VeiculosPage() {
           <div style={{ fontSize: 14, color: ESP60, marginBottom: 12 }}>{[v.marca, v.modelo, v.ano].filter(Boolean).join(' · ') || 'Veículo'}{v.cliente_nome ? ` · ${v.cliente_nome}` : ''}</div>
 
           {/* Onda 10 · D — compartilhar o histórico (portal público SEM valores) com o cliente via WhatsApp */}
-          <button onClick={() => void compartilharHistorico(v.placa)} disabled={gerandoLink}
-            style={{ marginBottom: 12, minHeight: 42, padding: '0 16px', borderRadius: 10, border: 'none', background: '#25D366', color: '#0b3d1f', fontWeight: 800, fontSize: 13.5, cursor: gerandoLink ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {gerandoLink ? 'Gerando…' : '📲 Enviar histórico ao cliente'}
-          </button>
+          <div style={{ display: 'inline-flex', alignItems: 'center', marginBottom: 12 }}>
+            <button onClick={() => void compartilharHistorico(v.placa)} disabled={gerandoLink}
+              style={{ minHeight: 42, padding: '0 16px', borderRadius: 10, border: 'none', background: '#25D366', color: '#0b3d1f', fontWeight: 800, fontSize: 13.5, cursor: gerandoLink ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {gerandoLink ? 'Gerando…' : '📲 Enviar histórico ao cliente'}
+            </button>
+            <AjudaCampo chave="oficina.veiculos.compartilhar" />
+          </div>
           {linkMsg && <div style={{ fontSize: 12, color: OK, marginBottom: 12 }}>{linkMsg}</div>}
 
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            <Stat l="Passagens" v={String(v.os_count)} />
-            <Stat l="Último KM" v={fmtKm(v.ultimo_km)} />
-            {v.chassi && <Stat l="Chassi" v={v.chassi} />}
+            <Stat l="Passagens" v={String(v.os_count)} ajuda="oficina.veiculos.passagens" />
+            <Stat l="Último KM" v={fmtKm(v.ultimo_km)} ajuda="oficina.veiculos.ultimo_km" />
+            {v.chassi && <Stat l="Chassi" v={v.chassi} ajuda="oficina.veiculos.chassi" />}
           </div>
 
           {sel.km_evolucao.length > 1 && (
-            <Sec titulo="Evolução do KM">
+            <Sec titulo="Evolução do KM" ajuda="oficina.veiculos.km_evolucao">
               {sel.km_evolucao.map((p, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                   <span style={{ fontSize: 11, color: ESP60, width: 74, flexShrink: 0 }}>{fmtData(p.data)}</span>
@@ -125,7 +129,7 @@ export default function VeiculosPage() {
             </Sec>
           )}
 
-          <Sec titulo={`Histórico de serviços (${sel.os.length})`}>
+          <Sec titulo={`Histórico de serviços (${sel.os.length})`} ajuda="oficina.veiculos.historico">
             {sel.os.length === 0 && <div style={{ color: ESP60, fontSize: 13 }}>Sem OS registradas.</div>}
             {sel.os.map((o) => (
               <div key={o.id} style={{ border: `1px solid ${LINE}`, borderRadius: 12, padding: 12, marginBottom: 10, background: '#fff' }}>
@@ -149,7 +153,7 @@ export default function VeiculosPage() {
           </Sec>
 
           {/* Onda 10 · C — Contatos com o cliente sobre este veículo (pós-venda, retorno). Evita ligar 2× na semana. */}
-          <Sec titulo={`Contatos (${contatos.length})`}>
+          <Sec titulo={`Contatos (${contatos.length})`} ajuda="oficina.veiculos.contatos">
             {contatos.length === 0 && <div style={{ color: ESP60, fontSize: 13 }}>Nenhum contato registrado ainda.</div>}
             {contatos.map((c) => (
               <div key={c.id} style={{ borderLeft: `3px solid ${LINE}`, paddingLeft: 10, marginBottom: 10 }}>
@@ -173,13 +177,14 @@ export default function VeiculosPage() {
       <div style={{ maxWidth: 560, margin: '0 auto', padding: '16px 14px 40px' }}>
         <button onClick={() => router.push('/dashboard/oficina/patio')} style={linkBtn}><ChevronLeft size={16} /> Pátio</button>
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginTop: 6 }}>🔧 Oficina · Veículos</div>
-        <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}><Car size={22} /> Veículos</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}><Car size={22} /> Veículos <AjudaCampo chave="oficina.veiculos.passagens" /></h1>
 
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14, alignItems: 'center' }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', border: `1px solid ${LINE}`, borderRadius: 10, padding: '0 10px', background: '#fff', flex: 1 }}>
             <Search size={16} color={ESP60} />
             <input value={termo} onChange={(e) => setTermo(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void buscar() }}
-              placeholder="Placa ou cliente…" style={{ ...inp, border: 'none', padding: '11px 0' }} />
+              placeholder="Placa ou cliente…" aria-label="Buscar veículo por placa ou cliente" style={{ ...inp, border: 'none', padding: '11px 0' }} />
+            <AjudaCampo chave="oficina.veiculos.busca" />
           </div>
           <button onClick={() => void buscar()} disabled={carregando} style={{ ...btnGold, minWidth: 52 }}><Search size={18} /></button>
         </div>
@@ -206,18 +211,18 @@ export default function VeiculosPage() {
   )
 }
 
-function Sec({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+function Sec({ titulo, children, ajuda }: { titulo: string; children: React.ReactNode; ajuda?: string }) {
   return (
     <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 14, padding: 14, marginBottom: 12 }}>
-      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 10 }}>{titulo}</div>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 10, display: 'flex', alignItems: 'center' }}>{titulo}{ajuda && <AjudaCampo chave={ajuda} />}</div>
       {children}
     </div>
   )
 }
-function Stat({ l, v }: { l: string; v: string }) {
+function Stat({ l, v, ajuda }: { l: string; v: string; ajuda?: string }) {
   return (
     <div style={{ flex: 1, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: '10px 12px', minWidth: 0 }}>
-      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700 }}>{l}</div>
+      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, display: 'flex', alignItems: 'center' }}>{l}{ajuda && <AjudaCampo chave={ajuda} />}</div>
       <div style={{ fontSize: 15, fontWeight: 700, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v}</div>
     </div>
   )
