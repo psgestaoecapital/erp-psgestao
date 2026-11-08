@@ -13,6 +13,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CelulaEditavel } from '@/components/produtividade/CelulaEditavel'
+import { PostoPessoas } from '@/components/produtividade/PostoPessoas'
 
 const ROTA = '/dashboard/produtividade'
 const Aj = ({ k }: { k: string }) => <AjudaCampo chave={k} rota={ROTA} />
@@ -504,6 +505,11 @@ function LinhaPostoEditavel({ posto, descricao, fc, flash, flashErr, onMudou, ab
             {mais ? '− menos campos' : '+ mais campos (centro de custo, supervisor, categoria, descrição…)'}
           </button>
           {posto.capacidade_hora == null && <span style={{ fontSize: 11.5, color: C.espM, marginLeft: 10 }}>Capacidade em branco = <b>a medir</b> (nunca zero).</span>}
+        </td>
+      </tr>
+      <tr>
+        <td /><td colSpan={6} style={{ padding: '0 9px 12px' }}>
+          <PostoPessoas postoId={posto.id} capacidade={posto.quadro?.pessoas ?? null} turnos={fc.listas.turnos} onChange={() => { void onMudou() }} />
         </td>
       </tr>
     </>
