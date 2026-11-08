@@ -18,6 +18,9 @@
 -- ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 -- 1) Seed do quadro de postos da DEMO de indústria (abatedouro fictício)
 -- ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+-- ci-sem-guarda: fn_demo_seed_industria_postos — seed de manutenção da DEMO, não é escrita por usuário: trava
+-- hard no ÚNICO tenant DEMO de indústria (p_company_id = c fixo; só companies.is_demo) e é chamada só pelo
+-- fn_demo_reset (service_role); nenhum company_id de registro vem do chamador, logo não há empresa a conferir.
 CREATE OR REPLACE FUNCTION public.fn_demo_seed_industria_postos(p_company_id uuid)
  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public', 'extensions'
 AS $function$
