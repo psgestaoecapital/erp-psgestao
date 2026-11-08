@@ -169,6 +169,7 @@ BEGIN
 
   v_base := COALESCE(i.valor_total,0) + v_trib + v_rateio - COALESCE(i.valor_desconto,0);
   v_custo := CASE WHEN COALESCE(i.quantidade,0) > 0 THEN v_base / i.quantidade ELSE NULL END;
+  -- ci-sem-guarda: fn_nfe_item_custo_real_core — núcleo service_role-only (ACL sem authenticated/anon), chamada no processamento interno da NF-e sem sessão de usuário; recomputa apenas custo_unitario_real do próprio item, a guarda por empresa fica nas RPCs chamadoras.
   UPDATE erp_nfe_recebidas_itens SET custo_unitario_real = v_custo WHERE id = i.id;
 
   RETURN jsonb_build_object('ok', true, 'natureza', v_nat, 'aviso', v_aviso,
@@ -178,6 +179,11 @@ BEGIN
       'detalhe', jsonb_build_object('icms',v_icms,'st',v_st,'ipi',v_ipi,'pis',v_pis,'cofins',v_cofins,
         'config', jsonb_build_object('icms',cfg.icms_e_custo,'st',cfg.st_e_custo,'ipi',cfg.ipi_e_custo,'pis',cfg.pis_e_custo,'cofins',cfg.cofins_e_custo,'frete',cfg.frete_e_custo,'seguro',cfg.seguro_e_custo,'outras',cfg.outras_e_custo))));
 END $function$;
+
+-- REVOKE/GRANT de fn_nfe_item_custo_real_core (SECURITY DEFINER recriada acima) — casando com a ACL VIVA (service_role apenas).
+-- Núcleo de custo fiscal chamado internamente no processamento da NF-e; NÃO conceder a authenticated (evita expandir privilégio).
+REVOKE ALL ON FUNCTION public.fn_nfe_item_custo_real_core(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_nfe_item_custo_real_core(uuid) TO service_role;
 
 -- 7) Ajuda (RD-95) de todo campo/ação da tela — cada texto explica o EFEITO NO CÁLCULO (custo/margem).
 INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
