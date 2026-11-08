@@ -73,6 +73,10 @@ BEGIN
   RETURN QUERY SELECT v_alertas, v_empresas, v_criticas;
 END $function$;
 
+-- Auditoria do Truth: rodada só pelo cron (service_role). Nunca exposta a anon/authenticated.
+REVOKE ALL ON FUNCTION public.fn_truth_audit_dre() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_truth_audit_dre() TO service_role;
+
 CREATE OR REPLACE FUNCTION public.fn_truth_audit_dre_despesa()
  RETURNS TABLE(alertas_gerados integer, empresas_auditadas integer, divergencias_criticas integer)
  LANGUAGE plpgsql
@@ -116,3 +120,7 @@ BEGIN
   SELECT COUNT(DISTINCT company_id), COUNT(*) FILTER (WHERE severity='critical') INTO v_empresas, v_criticas FROM erp_truth_alerts WHERE rule_id='dre_despesas_bate_pagamentos' AND status='novo';
   RETURN QUERY SELECT v_alertas, v_empresas, v_criticas;
 END $function$;
+
+-- Auditoria do Truth: rodada só pelo cron (service_role). Nunca exposta a anon/authenticated.
+REVOKE ALL ON FUNCTION public.fn_truth_audit_dre_despesa() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_truth_audit_dre_despesa() TO service_role;
