@@ -73,6 +73,7 @@ export default function OSObraPage() {
   const [editando, setEditando] = useState<string | null>(null)
   const [funcoes, setFuncoes] = useState<Funcao[]>([])
   const [horasOS, setHorasOS] = useState<Record<string, Horas>>({})
+  const [orcadoItens, setOrcadoItens] = useState<Record<string, number>>({})
   const [apontando, setApontando] = useState<string | null>(null)
   const [fh, setFh] = useState({ ...VAZIO_H })
   const [rdos, setRdos] = useState<Rdo[]>([])
@@ -84,7 +85,7 @@ export default function OSObraPage() {
     if (!companyIds?.length) { setLoading(false); return }
     setLoading(true); setErro('')
     try {
-      const [a, b, h, fn, rd, rq] = await Promise.all([
+      const [a, b, h, fn, rd, rq, oi] = await Promise.all([
         comPrazo(async () => await supabase.rpc('fn_obra_os_listar', { p_company_ids: companyIds, p_obra_id: null }),
           { ms: 8000, tentativas: 1, label: 'os_obra' }),
         comPrazo(async () => await supabase.from('projetos_obras').select('id,numero,nome').in('company_id', companyIds)
@@ -102,6 +103,10 @@ export default function OSObraPage() {
         comPrazo(async () => await supabase.from('projetos_obra_rdo').select('os_id,data,quantidade_executada')
           .in('company_id', companyIds).is('excluido_em', null).not('quantidade_executada', 'is', null).limit(2000),
           { ms: 8000, tentativas: 1, label: 'rdo_qtd' }),
+        // orçado do serviço de cada OS: valor contratado do obra_item (para o indicador de margem parcial no cartão)
+        comPrazo(async () => await supabase.from('projetos_obra_item').select('id,valor_contratado')
+          .in('company_id', companyIds).is('excluido_em', null).limit(5000),
+          { ms: 8000, tentativas: 1, label: 'obra_item_orcado' }),
       ])
       if (a.error) { setErro(erroAmigavel(a.error, 'Não foi possível carregar as ordens de serviço. Tente de novo.')); return }
       setLista((a.data ?? []) as OS[]); setObras((b.data ?? []) as Obra[]); setFuncoes((fn.data ?? []) as Funcao[])
@@ -112,6 +117,9 @@ export default function OSObraPage() {
       }
       const qtd = new Map(((rq.error ? [] : rq.data) ?? []).map((r: { os_id: string; data: string; quantidade_executada: number }) => [`${r.os_id}|${r.data}`, r.quantidade_executada]))
       setHorasOS(soma); setRdos(((rd.data ?? []) as Rdo[]).map(r => ({ ...r, quantidade_executada: qtd.get(`${r.os_id}|${r.data}`) ?? null })))
+      const orc: Record<string, number> = {}
+      for (const r of (((oi.error ? [] : oi.data) ?? []) as { id: string; valor_contratado: number | null }[])) orc[r.id] = Number(r.valor_contratado) || 0
+      setOrcadoItens(orc)
     } catch { setErro(MSG_CARREGAMENTO_FALHOU) } finally { setLoading(false) }
   }, [companyIds])
   useEffect(() => { carregar() }, [carregar])
@@ -376,6 +384,13 @@ export default function OSObraPage() {
                 const st = STATUS[o.status]
                 const diarios = rdos.filter(r => r.os_id === o.id)
                 const atrasada = o.data_prevista && o.data_prevista < hoje() && (o.status === 'aberta' || o.status === 'em_execucao')
+                // Margem parcial: orçado do serviço (obra_item) − realizado de mão de obra. Sem valor contratado → "sem orçado".
+                const temServico = !!o.obra_item_id
+                const orcado = temServico ? (orcadoItens[o.obra_item_id as string] ?? 0) : 0
+                const realizadoMO = horasOS[o.id]?.valor ?? 0
+                const margem = orcado - realizadoMO
+                const margemPct = orcado > 0 ? Math.round((margem / orcado) * 100) : 0
+                const margemCor = margem < 0 ? VERM : margemPct >= 25 ? VERDE : '#92400E'
                 return (
                   <article key={o.id} data-testid="os-obra-cartao" style={{ background: '#fff', border: `1px solid ${o.prioridade === 'urgente' ? VERM : LINE}`, borderRadius: 14, padding: 14, display: 'grid', gap: 8, opacity: ocupado === o.id ? 0.5 : 1 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
@@ -395,6 +410,14 @@ export default function OSObraPage() {
                         <dd style={{ margin: 0, fontWeight: 600 }} data-testid="os-obra-horas-total">{horasOS[o.id].horas.toLocaleString('pt-BR')} h · {brl(horasOS[o.id].valor)}</dd></>}
                       {diarios.length > 0 && <><dt style={{ ...rot, color: MUT }}>Diários <AjudaCampo chave="projetos.os_obra.rdo_registrados" /></dt>
                         <dd style={{ margin: 0 }} data-testid="os-obra-rdo-total">{diarios.length} {diarios.length === 1 ? 'dia' : 'dias'} · último {dataBR(diarios[0].data)}</dd></>}
+                      {temServico && orcado <= 0 && <><dt style={{ ...rot, color: MUT }}>Orçado <AjudaCampo chave="projetos.os_obra.orcado" /></dt>
+                        <dd style={{ margin: 0, color: MUT }} data-testid="os-obra-orcado">sem orçado</dd></>}
+                      {temServico && orcado > 0 && <>
+                        <dt style={{ ...rot, color: MUT }}>Orçado <AjudaCampo chave="projetos.os_obra.orcado" /></dt>
+                        <dd style={{ margin: 0 }} data-testid="os-obra-orcado">{brl(orcado)} <span style={{ color: MUT, fontSize: 12 }}>· serviço</span></dd>
+                        <dt style={{ ...rot, color: MUT }}>Margem parcial <AjudaCampo chave="projetos.os_obra.margem_parcial" /></dt>
+                        <dd style={{ margin: 0, color: margemCor, fontWeight: 600 }} data-testid="os-obra-margem">{brl(margem)} · {margemPct}% <span style={{ color: MUT, fontSize: 12, fontWeight: 400 }}>só mão de obra</span></dd>
+                      </>}
                     </dl>
                     {apontando === o.id && (
                       <form onSubmit={e => lancarHoras(e, o)} data-testid="os-obra-horas-form" style={{ display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr', background: BG, borderRadius: 10, padding: 10 }}>
