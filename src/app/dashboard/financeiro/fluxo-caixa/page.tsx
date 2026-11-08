@@ -1,10 +1,25 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import PSGCMetric from '@/components/psgc/PSGCMetric'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 import { PSGC_COLORS, PSGC_RADIUS } from '@/lib/psgc-tokens'
+
+const ROTA = '/dashboard/financeiro/fluxo-caixa'
+// "?" RD-95: textos vêm do banco (erp_ajuda_campo), uma busca por tela.
+const Aj = ({ k }: { k: string }) => <AjudaCampo chave={k} rota={ROTA} />
+// KPI com "?" no canto, sem alterar o componente compartilhado PSGCMetric.
+function MetricComAjuda({ chave, children }: { chave: string; children: React.ReactNode }) {
+  return (
+    <div style={{ position: 'relative' }}>
+      {children}
+      <span style={{ position: 'absolute', top: 6, right: 8, lineHeight: 0 }}><Aj k={chave} /></span>
+    </div>
+  )
+}
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis,
   CartesianGrid, Tooltip, ReferenceLine,
@@ -97,6 +112,10 @@ export default function FluxoCaixaPage() {
         Visão diária do seu saldo · entradas e saídas
       </p>
 
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+        <span style={{ color: PSGC_COLORS.espresso, fontSize: 12, fontWeight: 700, opacity: 0.8 }}>Período</span>
+        <Aj k="ge.fluxo_caixa.periodo" />
+      </div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         {([7, 30, 90] as const).map((p) => (
           <button key={p} onClick={() => setPeriodo(p)}
@@ -113,13 +132,19 @@ export default function FluxoCaixaPage() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12, marginBottom: 20 }}>
-        <PSGCMetric label="Saldo Atual" valor={brl(saldoHoje)} destaque
-          icon="wallet" cor={PSGC_COLORS.espresso} />
+        <MetricComAjuda chave="ge.fluxo_caixa.kpi.saldo_atual">
+          <PSGCMetric label="Saldo Atual" valor={brl(saldoHoje)} destaque
+            icon="wallet" cor={PSGC_COLORS.espresso} />
+        </MetricComAjuda>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <PSGCMetric label="Entradas no período" valor={brl(dados?.total_recebimentos ?? 0)}
-            icon="arrow-up" cor={PSGC_COLORS.baixa} pequeno />
-          <PSGCMetric label="Saídas no período" valor={brl(dados?.total_pagamentos ?? 0)}
-            icon="arrow-down" cor={PSGC_COLORS.alta} pequeno />
+          <MetricComAjuda chave="ge.fluxo_caixa.kpi.entradas">
+            <PSGCMetric label="Entradas no período" valor={brl(dados?.total_recebimentos ?? 0)}
+              icon="arrow-up" cor={PSGC_COLORS.baixa} pequeno />
+          </MetricComAjuda>
+          <MetricComAjuda chave="ge.fluxo_caixa.kpi.saidas">
+            <PSGCMetric label="Saídas no período" valor={brl(dados?.total_pagamentos ?? 0)}
+              icon="arrow-down" cor={PSGC_COLORS.alta} pequeno />
+          </MetricComAjuda>
         </div>
       </div>
 
@@ -167,23 +192,33 @@ export default function FluxoCaixaPage() {
         </div>
 
         {diasComMov.length === 0 ? (
-          <p style={{ color: PSGC_COLORS.espresso, opacity: 0.6, fontSize: 13, lineHeight: 1.5 }}>
-            Nenhuma movimentação no período. Conforme você registrar pagamentos e
-            recebimentos, eles aparecem aqui.
-          </p>
+          <div style={{ textAlign: 'center', padding: '12px 4px 4px' }}>
+            <p style={{ color: PSGC_COLORS.espresso, opacity: 0.65, fontSize: 13, lineHeight: 1.5, marginBottom: 14 }}>
+              Nenhuma movimentação no período. Comece registrando uma despesa ou
+              receita — elas aparecem aqui no dia do pagamento/recebimento.
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+              <Link href="/dashboard/financeiro/nova-receita" style={{ ...ctaBtn, background: PSGC_COLORS.espresso, color: PSGC_COLORS.offWhite, border: `1px solid ${PSGC_COLORS.espresso}` }}>
+                + Lançar receita
+              </Link>
+              <Link href="/dashboard/financeiro/nova-despesa" style={{ ...ctaBtn, background: 'transparent', color: PSGC_COLORS.espresso, border: `1px solid ${PSGC_COLORS.espresso}` }}>
+                + Lançar despesa
+              </Link>
+            </div>
+          </div>
         ) : (
           <>
             <div className="fc-table-wrap" style={{ overflowX: 'auto', marginTop: 6 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
                 <thead style={{ position: 'sticky', top: 0, background: PSGC_COLORS.offWhite, zIndex: 5 }}>
                   <tr>
-                    <th style={th}>Data</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Entradas</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Saídas</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Transf. ↓</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Transf. ↑</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Movimento</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Saldo no dia</th>
+                    <th style={th}>Data <Aj k="ge.fluxo_caixa.col.data" /></th>
+                    <th style={{ ...th, textAlign: 'right' }}>Entradas <Aj k="ge.fluxo_caixa.col.entradas" /></th>
+                    <th style={{ ...th, textAlign: 'right' }}>Saídas <Aj k="ge.fluxo_caixa.col.saidas" /></th>
+                    <th style={{ ...th, textAlign: 'right' }}>Transf. ↓ <Aj k="ge.fluxo_caixa.col.transf_entrada" /></th>
+                    <th style={{ ...th, textAlign: 'right' }}>Transf. ↑ <Aj k="ge.fluxo_caixa.col.transf_saida" /></th>
+                    <th style={{ ...th, textAlign: 'right' }}>Movimento <Aj k="ge.fluxo_caixa.col.movimento" /></th>
+                    <th style={{ ...th, textAlign: 'right' }}>Saldo no dia <Aj k="ge.fluxo_caixa.col.saldo" /></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -322,4 +357,13 @@ const th: React.CSSProperties = {
 const td: React.CSSProperties = {
   padding: '8px 6px',
   fontSize: 13,
+}
+
+const ctaBtn: React.CSSProperties = {
+  display: 'inline-block',
+  padding: '9px 16px',
+  borderRadius: PSGC_RADIUS.md,
+  fontWeight: 600,
+  fontSize: 13,
+  textDecoration: 'none',
 }
