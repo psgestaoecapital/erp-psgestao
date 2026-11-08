@@ -6,6 +6,7 @@ import WaterfallChart from '@/components/linhas-negocio/WaterfallChart'
 import DREPorLinhaCard from '@/components/linhas-negocio/DREPorLinha'
 import HealthScorePanel from '@/components/linhas-negocio/HealthScore'
 import BudgetVsRealizado from '@/components/linhas-negocio/BudgetVsRealizado'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import type { DREPorLinha } from '@/types/linhas-negocio'
 
 const mesAtual = new Date().toISOString().slice(0, 7)
@@ -34,12 +35,18 @@ export default function LinhasNegocioPage() {
           </p>
         </div>
         <div className='flex items-center gap-3'>
-          <input type='month' value={periodo} onChange={e => setPeriodo(e.target.value)}
-            className='border rounded px-3 py-1.5 text-sm bg-background'/>
-          <a href='/dashboard/linhas-negocio/configurar'
-            className='text-sm border rounded px-3 py-1.5 hover:bg-muted transition-colors'>
-            ⚙ Configurar
-          </a>
+          <span className='inline-flex items-center'>
+            <input type='month' value={periodo} onChange={e => setPeriodo(e.target.value)}
+              className='border rounded px-3 py-1.5 text-sm bg-background'/>
+            <AjudaCampo chave='ge.linhas.periodo' />
+          </span>
+          <span className='inline-flex items-center'>
+            <a href='/dashboard/linhas-negocio/configurar'
+              className='text-sm border rounded px-3 py-1.5 hover:bg-muted transition-colors'>
+              ⚙ Configurar
+            </a>
+            <AjudaCampo chave='ge.linhas.configurar' />
+          </span>
         </div>
       </div>
 
@@ -61,13 +68,13 @@ export default function LinhasNegocioPage() {
       {benchmark && (
         <div className='grid grid-cols-2 md:grid-cols-4 gap-4'>
           {[
-            { label: 'Receita total', val: fmt(benchmark.consolidado.receita_total) },
-            { label: 'CM3 consolidado', val: fmt(benchmark.consolidado.cm3_total) },
-            { label: 'Margem CM3', val: benchmark.consolidado.cm3_pct_media.toFixed(1) + '%' },
-            { label: 'Melhor linha', val: benchmark.consolidado.melhor_linha },
+            { label: 'Receita total', val: fmt(benchmark.consolidado.receita_total), chave: 'ge.linhas.receita_total' },
+            { label: 'CM3 consolidado', val: fmt(benchmark.consolidado.cm3_total), chave: 'ge.linhas.cm3_consolidado' },
+            { label: 'Margem CM3', val: benchmark.consolidado.cm3_pct_media.toFixed(1) + '%', chave: 'ge.linhas.margem_cm3' },
+            { label: 'Melhor linha', val: benchmark.consolidado.melhor_linha, chave: 'ge.linhas.melhor_linha' },
           ].map((k, i) => (
             <div key={i} className='bg-card border rounded-xl p-4'>
-              <p className='text-xs text-muted-foreground uppercase tracking-wide'>{k.label}</p>
+              <p className='flex items-center text-xs text-muted-foreground uppercase tracking-wide'>{k.label}<AjudaCampo chave={k.chave} /></p>
               <p className='text-xl font-bold mt-1'>{k.val}</p>
             </div>
           ))}
