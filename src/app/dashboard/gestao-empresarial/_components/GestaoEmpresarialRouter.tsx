@@ -52,6 +52,14 @@ export default function GestaoEmpresarialRouter() {
     let ignore = false
     ;(async () => {
       setLoading(true)
+      // conserto-main (#4117): a guarda multi-tenant de fn_ge_onboarding_status levanta 42501
+      // quando p_company_id é NULL. No 1º render (empresas ainda carregando / modo consolidado)
+      // empresaUnica é null; chamar a RPC aqui gerava "permission denied" (403) na tela da GE.
+      // Sem empresa única resolvida não há dado de empresa a buscar: renderiza o empty state do hub.
+      if (!empresaUnica) {
+        if (!ignore) { setData(null); setLoading(false) }
+        return
+      }
       const { data: result, error } = await supabase.rpc('fn_ge_onboarding_status', {
         p_company_id: empresaUnica,
       })
