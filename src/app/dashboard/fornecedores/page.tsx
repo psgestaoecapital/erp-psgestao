@@ -266,14 +266,12 @@ export default function FornecedoresPage(){
               </div>
               <button onClick={()=>setShowImport(false)} style={{background:"none",border:"none",color:TXD,fontSize:22,cursor:"pointer"}}>✕</button>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>
               {[
-                {k:'omie',nome:'Omie',icon:'🟢',desc:'API direta',cor:G,href:'/dashboard/conectores'},
-                {k:'nibo',nome:'Nibo',icon:'🔵',desc:'API direta',cor:B,href:'/dashboard/conectores'},
-                {k:'contaazul',nome:'ContaAzul',icon:'🔷',desc:'OAuth',cor:'#00A3E0',href:'/dashboard/conectores'},
-                {k:'bling',nome:'Bling',icon:'🟡',desc:'Via CSV',cor:Y,href:'/dashboard/importar'},
-                {k:'tiny',nome:'Tiny',icon:'🟠',desc:'Via CSV',cor:'#FF6B35',href:'/dashboard/importar'},
-                {k:'csv',nome:'Excel / CSV',icon:'📊',desc:'Qualquer sistema',cor:T,href:'/dashboard/importar'},
+                // RD-100: nenhum nome de sistema de terceiro em tela geral. O provedor específico (API) é escolhido
+                // na tela de Conectores (tela de integração); aqui ficam só as CATEGORIAS genéricas de origem.
+                {k:'conectores',nome:'Conector automático',icon:'🔌',desc:'API direta — sincroniza sozinho',cor:G,href:'/dashboard/conectores'},
+                {k:'planilha',nome:'Planilha Excel / CSV',icon:'📊',desc:'Qualquer sistema — mapeamento inteligente',cor:T,href:'/dashboard/importar'},
               ].map(o=>(
                 <a key={o.k} href={o.href} style={{textDecoration:"none"}}>
                   <div style={{background:BG3,borderRadius:10,padding:14,border:`1px solid ${o.cor}30`,cursor:"pointer"}}>
