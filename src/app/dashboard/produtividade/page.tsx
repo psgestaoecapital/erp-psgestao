@@ -157,6 +157,7 @@ function Inner() {
         </label>
         <button data-testid="novo-fluxo" onClick={() => setNovoFluxo(true)} style={{ ...btn(true), padding: '7px 12px', fontSize: 12.5 }}>+ Novo fluxo</button>
         <button onClick={() => setConfigAberto(true)} style={{ ...btn(true), background: 'transparent', color: C.esp, border: `1px solid ${C.border}`, padding: '7px 12px', fontSize: 12.5 }}>⚙ Cadastros</button>
+        <Link href="/dashboard/produtividade/importar" data-testid="link-importar-postos" style={{ ...btn(true), textDecoration: 'none', background: 'transparent', color: C.esp, border: `1px solid ${C.border}`, padding: '7px 12px', fontSize: 12.5 }}>⬆ Importar por planilha</Link>
       </div>
 
       {fluxos.length === 0 ? (
