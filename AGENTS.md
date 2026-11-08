@@ -67,7 +67,7 @@ no livro de intervenções e nos comentários de PR).
 
 <!-- BEGIN:provas-producao -->
 # Aba "Codes" da Central de Desenvolvimento (CEO 07/10 14:30) — toda PR diz qual Code a fez
-**Toda PR leva no corpo a linha `Code: <nome da rotina>`** (ex.: `Code: gilberto-desenv`; o mesmo identificador da caixa).
+**Toda PR leva no corpo a linha `Code: <nome da rotina>`** (ex.: `Code: code-desenvolvedor-3`; o mesmo identificador da caixa).
 O workflow `registrar-entrega.yml` grava cada PR aberta, pronta, publicada (merge) ou fechada em `erp_dev_entrega`, e a aba
 **Codes** de `/dashboard/dev` (rota `/dashboard/dev/codes`) mostra por Code, em tempo real: trabalhando agora, entregue nas
 últimas 24 h, em teste e fila. Sem a linha, o Code sai da caixa (`erp_agente_mensagem.pr_numero`) ou fica "não identificado".
@@ -380,7 +380,8 @@ Gate: `scripts/gates/check-quarentena.ts`.
   CREATE OR REPLACE de view/função existente, RLS/policies/grants, funções de guarda, fiscal, financeiro de cliente, NR-36,
   LGPD/salários, Wealth/CVM, alterar ou apagar dado de cliente.
 - **Núcleo compartilhado** (financeiro, fiscal, cadastros, permissões/RLS, menu, segurança, `/_compartilhado`, qualquer função/tabela
-  usada por mais de uma vertical) só é alterado pela `gilberto-desenv`; os Codes de vertical abrem pedido no BOX e o Eng. Chefe repassa.
+  usada por mais de uma vertical) só é alterado pela `code-desenvolvedor-3` (dev do núcleo desde 07/11; a `gilberto-desenv` foi
+  excluída no incidente de créditos); os Codes de vertical abrem pedido no BOX e o Eng. Chefe repassa.
 
 # Chamado de agente de sócio (CEO 05/10) — o `gilberto-chamados` NÃO age nele
 Chamado **aberto pelo sócio** ou com o sócio como **responsável** (`sugestoes.responsavel_id`) pertence ao agente de sócio
