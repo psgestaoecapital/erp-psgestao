@@ -88,7 +88,7 @@ export default function ApontamentoPage() {
           {campo('custo_mo','Mão de obra')}
           {campo('custo_energia','Energia')}
           {campo('custo_insumos','Insumos/outros')}
-          {campo('receita_turno','Receita do turno (Omie)')}
+          {campo('receita_turno','Receita do turno (integração)')}
         </div>
       </div>
 
