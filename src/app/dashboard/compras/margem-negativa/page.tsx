@@ -9,6 +9,7 @@ import Link from 'next/link'
 import { AlertTriangle, Loader2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 type Row = { codigo: string; nome: string; venda: number; custo: number; diferenca: number }
 
@@ -59,8 +60,18 @@ export default function MargemNegativaPage() {
             <div className="px-6 py-16 text-center text-[13px] text-[#3D2314]/60">Nenhum produto com margem negativa. 🎉</div>
           ) : (
             <>
-              <div className="px-4 py-3 border-b border-[#3D2314]/10 text-[12px] text-[#3D2314]/70">
-                <strong className="text-[#3D2314]">{rows.length}</strong> produto(s) vendendo abaixo do custo
+              <div className="px-4 py-3 border-b border-[#3D2314]/10 text-[12px] text-[#3D2314]/70 flex items-center justify-between gap-3 flex-wrap">
+                <span className="inline-flex items-center">
+                  <strong className="text-[#3D2314]">{rows.length}</strong>&nbsp;produto(s) vendendo abaixo do custo
+                  <AjudaCampo chave="compras.margem_neg.total" />
+                </span>
+                <span className="inline-flex items-center gap-2 text-[11px] text-[#3D2314]/55">
+                  <span className="inline-flex items-center">Produto<AjudaCampo chave="compras.margem_neg.produto" /></span>
+                  <span className="inline-flex items-center">Venda<AjudaCampo chave="compras.margem_neg.venda" /></span>
+                  <span className="inline-flex items-center">Custo<AjudaCampo chave="compras.margem_neg.custo" /></span>
+                  <span className="inline-flex items-center">Diferença<AjudaCampo chave="compras.margem_neg.diferenca" /></span>
+                  <span className="inline-flex items-center">Editar<AjudaCampo chave="compras.margem_neg.editar" /></span>
+                </span>
               </div>
               <div className="divide-y divide-[#3D2314]/8">
                 {rows.map((p) => (
