@@ -48,6 +48,20 @@ function Campo({ rotulo, chave, valor, set, testid }: { rotulo: string; chave: s
   );
 }
 
+// Glossário dos códigos técnicos de drywall (aud8 90/95: leigo não escolhe/entende o sistema sem explicação).
+// O texto de cada "?" vem do banco (erp_ajuda_campo), editável sem deploy. RD-95 em linguagem do usuário.
+const GLOSSARIO: readonly (readonly [string, string])[] = [
+  ["Chapa ST (Standard)", "projetos.calculadora.cod.st"],
+  ["Chapa RU (resistente à umidade)", "projetos.calculadora.cod.ru"],
+  ["Chapa RF (resistente ao fogo)", "projetos.calculadora.cod.rf"],
+  ["Parafuso PPA25 / PPA35", "projetos.calculadora.cod.ppa"],
+  ["Parafuso PFM13", "projetos.calculadora.cod.pfm"],
+  ["Perfil F530", "projetos.calculadora.cod.f530"],
+  ["Tabica", "projetos.calculadora.cod.tabica"],
+  ["Nervura", "projetos.calculadora.cod.nervura"],
+  ["Junção H", "projetos.calculadora.cod.juncao_h"],
+];
+
 export default function CalculadoraObraPage() {
   const [sistema, setSistema] = useState<Sistema>("parede");
   const [comp, setComp] = useState("12,5");
@@ -394,6 +408,20 @@ export default function CalculadoraObraPage() {
                   </li>
                 ))}
               </ul>
+              <details className="mt-3 rounded-lg border border-[#3D2314]/10 bg-[#3D2314]/[0.02] p-3 text-xs" data-testid="calc-glossario">
+                <summary className="cursor-pointer font-medium text-[#3D2314]">
+                  Entenda os termos técnicos (drywall)
+                  <AjudaCampo chave="projetos.calculadora.glossario" rota="/dashboard/projetos/calculadora" />
+                </summary>
+                <ul className="mt-2 space-y-1.5 text-[#3D2314]/75">
+                  {GLOSSARIO.map(([rot, chave]) => (
+                    <li key={chave} className="flex items-center gap-1" data-testid={`calc-glossario-${chave}`}>
+                      <span className="font-medium text-[#3D2314]">{rot}</span>
+                      <AjudaCampo chave={chave} rota="/dashboard/projetos/calculadora" />
+                    </li>
+                  ))}
+                </ul>
+              </details>
             </div>
             <div className="lg:col-span-2 lg:sticky lg:top-4 lg:self-start">
               {companyId && (
