@@ -10,6 +10,19 @@
 -- Prova RD-38 (BEGIN..ROLLBACK, producao): user comercial 3aadeb3a (comp propria 918c3ea4) chamando com
 --   company alheia 1163bb56 passa a RAISE 42501; dono legitimo e service role continuam passando. Ver PR.
 -- RD-52: arquivo+PR; nao aplicado via MCP. Faixa segundos :35 (code-desenvolvedor-3). revisao-eng-chefe.
+--
+-- AJUSTE revisor #4117 (REVOKE anon + caminho NULL-auth.uid()): fn__guarda_empresa faz RETURN quando
+-- auth.uid() e NULL (service role) — mas o papel `anon` TAMBEM tem auth.uid() NULL. Se qualquer destas 22
+-- concedesse EXECUTE a anon/PUBLIC, um chamador anonimo passaria pelo guard e leria dado de qualquer empresa.
+-- Por isso cada funcao recebe, apos o CREATE OR REPLACE:
+--   REVOKE ALL ON FUNCTION public.<fn>(<args>) FROM PUBLIC, anon;   (fecha o caminho anon de forma permanente)
+--   GRANT EXECUTE ON FUNCTION public.<fn>(<args>) TO authenticated, service_role;  (mantem o contrato do dono)
+-- Prova RD-38 (producao, pg_proc.proacl, 08/11): hoje as 22 concedem EXECUTE SO a {owner, authenticated,
+--   service_role} — NENHUMA a anon/PUBLIC => o REVOKE nao tira acesso vivo (sem regressao) e cobre exatamente
+--   o caminho que o guard libera por NULL. Cenario anon: chave anonima (auth.uid() NULL) chamando qualquer uma
+--   destas RPCs BLOQUEIA no nivel do grant (anon sem EXECUTE) ANTES de entrar no corpo — nao chega no guard.
+--   authenticated-membro e service_role continuam devolvendo igual. Prova leve BEGIN..ROLLBACK (statement_timeout
+--   15s) confirmou que os 44 REVOKE/GRANT aplicam limpo nas 22 assinaturas reais.
 
 CREATE OR REPLACE FUNCTION public.fn_balanco_patrimonial(p_company_id uuid, p_data_ref date)
  RETURNS jsonb
@@ -90,6 +103,10 @@ BEGIN
     'passivo_mais_pl',ROUND(v_passivo+v_pl,2),'diferenca',ROUND(v_ativo-(v_passivo+v_pl),2),
     'fecha',ABS(v_ativo-(v_passivo+v_pl))<0.01,'linhas',v_linhas);
 END; $function$;
+-- Trava de grants (revisor #4117 · segurança RLS/LGPD): fecha o caminho anon do NULL-auth.uid() do guard.
+REVOKE ALL ON FUNCTION public.fn_balanco_patrimonial(uuid, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_balanco_patrimonial(uuid, date) TO authenticated, service_role;
+
 
 CREATE OR REPLACE FUNCTION public.fn_dashboard_kpis(p_company_ids uuid[])
  RETURNS TABLE(a_receber_valor numeric, a_receber_qtd bigint, a_pagar_valor numeric, a_pagar_qtd bigint, saldo_bancos numeric, mrr_mensal numeric)
@@ -109,6 +126,10 @@ AS $function$
         WHEN 'bimestral' THEN 1.0/2 ELSE 1 END)
       FROM erp_contratos WHERE company_id = ANY(p_company_ids) AND status='ativo'), 0)
 $function$;
+-- Trava de grants (revisor #4117 · segurança RLS/LGPD): fecha o caminho anon do NULL-auth.uid() do guard.
+REVOKE ALL ON FUNCTION public.fn_dashboard_kpis(uuid[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_dashboard_kpis(uuid[]) TO authenticated, service_role;
+
 
 CREATE OR REPLACE FUNCTION public.fn_dre_ordem_personalizada_get(p_company_id uuid)
  RETURNS jsonb
@@ -128,6 +149,10 @@ AS $function$
   FROM erp_dre_ordem_personalizada
   WHERE company_id = p_company_id
 $function$;
+-- Trava de grants (revisor #4117 · segurança RLS/LGPD): fecha o caminho anon do NULL-auth.uid() do guard.
+REVOKE ALL ON FUNCTION public.fn_dre_ordem_personalizada_get(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_dre_ordem_personalizada_get(uuid) TO authenticated, service_role;
+
 
 CREATE OR REPLACE FUNCTION public.fn_fiscal_subitens_obra(p_company_id uuid, p_codigo_lc116 text)
  RETURNS jsonb
@@ -143,6 +168,10 @@ AS $function$
     AND left(codigo, 4) = left(regexp_replace(COALESCE(p_codigo_lc116,''),'[^0-9]','','g'), 4)
     AND length(regexp_replace(COALESCE(p_codigo_lc116,''),'[^0-9]','','g')) >= 4;
 $function$;
+-- Trava de grants (revisor #4117 · segurança RLS/LGPD): fecha o caminho anon do NULL-auth.uid() do guard.
+REVOKE ALL ON FUNCTION public.fn_fiscal_subitens_obra(uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_fiscal_subitens_obra(uuid, text) TO authenticated, service_role;
+
 
 CREATE OR REPLACE FUNCTION public.fn_fluxo_caixa_diario(p_company_id uuid, p_data_inicio date DEFAULT ((CURRENT_DATE - '30 days'::interval))::date, p_data_fim date DEFAULT ((CURRENT_DATE + '30 days'::interval))::date, p_conta_id uuid DEFAULT NULL::uuid)
  RETURNS jsonb
@@ -217,6 +246,10 @@ BEGIN
   );
 END;
 $function$;
+-- Trava de grants (revisor #4117 · segurança RLS/LGPD): fecha o caminho anon do NULL-auth.uid() do guard.
+REVOKE ALL ON FUNCTION public.fn_fluxo_caixa_diario(uuid, date, date, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_fluxo_caixa_diario(uuid, date, date, uuid) TO authenticated, service_role;
+
 
 CREATE OR REPLACE FUNCTION public.fn_ge_dre_divisional(p_company_id uuid)
  RETURNS jsonb
@@ -274,6 +307,10 @@ BEGIN
   RETURN jsonb_build_object('company_id', p_company_id, 'mes', v_mes, 'ano', v_ano, 'linhas', v_linhas,
     'total_realizado', COALESCE(v_total_realizado, 0), 'total_orcado', COALESCE(v_total_orcado, 0), 'pct_geral', v_pct_geral);
 END; $function$;
+-- Trava de grants (revisor #4117 · segurança RLS/LGPD): fecha o caminho anon do NULL-auth.uid() do guard.
+REVOKE ALL ON FUNCTION public.fn_ge_dre_divisional(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ge_dre_divisional(uuid) TO authenticated, service_role;
+
 
 CREATE OR REPLACE FUNCTION public.fn_ge_extrato_conta(p_company_id uuid, p_conta_id uuid DEFAULT NULL::uuid, p_data_inicio date DEFAULT NULL::date, p_data_fim date DEFAULT NULL::date)
  RETURNS jsonb
@@ -377,6 +414,10 @@ BEGIN
   );
 END;
 $function$;
+-- Trava de grants (revisor #4117 · segurança RLS/LGPD): fecha o caminho anon do NULL-auth.uid() do guard.
+REVOKE ALL ON FUNCTION public.fn_ge_extrato_conta(uuid, uuid, date, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ge_extrato_conta(uuid, uuid, date, date) TO authenticated, service_role;
+
 
 CREATE OR REPLACE FUNCTION public.fn_ge_kpis_dashboard(p_company_id uuid)
  RETURNS jsonb
@@ -433,6 +474,10 @@ BEGIN
     'kpi_receber_vencido', v_receber_vencido, 'kpi_vencem_hoje', v_receber_hoje,
     'kpi_vencer_mes', v_receber_mes, 'kpi_pagar_vencido', v_pagar_vencido, 'kpi_saldo_total', v_saldo_total);
 END; $function$;
+-- Trava de grants (revisor #4117 · segurança RLS/LGPD): fecha o caminho anon do NULL-auth.uid() do guard.
+REVOKE ALL ON FUNCTION public.fn_ge_kpis_dashboard(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ge_kpis_dashboard(uuid) TO authenticated, service_role;
+
 
 CREATE OR REPLACE FUNCTION public.fn_ge_listagem_v2(p_company_id uuid, p_tipo text, p_data_inicio date, p_data_fim date, p_status_filtro text DEFAULT 'todos'::text, p_status_filtros text[] DEFAULT NULL::text[])
  RETURNS jsonb
@@ -598,6 +643,10 @@ BEGIN
     'resultados', COALESCE(v_resultados, '[]'::jsonb)
   );
 END; $function$;
+-- Trava de grants (revisor #4117 · segurança RLS/LGPD): fecha o caminho anon do NULL-auth.uid() do guard.
+REVOKE ALL ON FUNCTION public.fn_ge_listagem_v2(uuid, text, date, date, text, text[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ge_listagem_v2(uuid, text, date, date, text, text[]) TO authenticated, service_role;
+
 
 CREATE OR REPLACE FUNCTION public.fn_ge_next_best_action(p_company_id uuid)
  RETURNS jsonb
@@ -650,6 +699,10 @@ BEGIN
     'cta_principal', 'Ver contratos recorrentes', 'cta_secundario', 'Falar com IA',
     'rota_principal', '/dashboard/cadastros/contratos-recorrentes', 'rota_secundaria', '/dashboard/consultor-ia');
 END; $function$;
+-- Trava de grants (revisor #4117 · segurança RLS/LGPD): fecha o caminho anon do NULL-auth.uid() do guard.
+REVOKE ALL ON FUNCTION public.fn_ge_next_best_action(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ge_next_best_action(uuid) TO authenticated, service_role;
+
 
 CREATE OR REPLACE FUNCTION public.fn_ge_onboarding_status(p_company_id uuid)
  RETURNS jsonb
@@ -734,6 +787,10 @@ BEGIN
   );
 END;
 $function$;
+-- Trava de grants (revisor #4117 · segurança RLS/LGPD): fecha o caminho anon do NULL-auth.uid() do guard.
+REVOKE ALL ON FUNCTION public.fn_ge_onboarding_status(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ge_onboarding_status(uuid) TO authenticated, service_role;
+
 
 CREATE OR REPLACE FUNCTION public.fn_ge_saude_financeira(p_company_id uuid)
  RETURNS jsonb
@@ -795,6 +852,10 @@ BEGIN
     'concentracao_pct', v_concentracao_pct, 'top_cliente_nome', v_top_cliente_nome,
     'frases', jsonb_build_array(v_frase_1, v_frase_2, v_frase_3));
 END; $function$;
+-- Trava de grants (revisor #4117 · segurança RLS/LGPD): fecha o caminho anon do NULL-auth.uid() do guard.
+REVOKE ALL ON FUNCTION public.fn_ge_saude_financeira(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ge_saude_financeira(uuid) TO authenticated, service_role;
+
 
 CREATE OR REPLACE FUNCTION public.fn_ge_top_inadimplentes(p_company_id uuid, p_limit integer DEFAULT 3)
  RETURNS jsonb
@@ -867,6 +928,10 @@ BEGIN
   );
 END;
 $function$;
+-- Trava de grants (revisor #4117 · segurança RLS/LGPD): fecha o caminho anon do NULL-auth.uid() do guard.
+REVOKE ALL ON FUNCTION public.fn_ge_top_inadimplentes(uuid, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ge_top_inadimplentes(uuid, integer) TO authenticated, service_role;
+
 
 CREATE OR REPLACE FUNCTION public.fn_hub_fiscal_resumo(p_company_id uuid)
  RETURNS jsonb
@@ -923,6 +988,10 @@ BEGIN
   RETURN v_dados;
 END;
 $function$;
+-- Trava de grants (revisor #4117 · segurança RLS/LGPD): fecha o caminho anon do NULL-auth.uid() do guard.
+REVOKE ALL ON FUNCTION public.fn_hub_fiscal_resumo(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_hub_fiscal_resumo(uuid) TO authenticated, service_role;
+
 
 CREATE OR REPLACE FUNCTION public.fn_inadimplentes_por_status(p_company_id uuid)
  RETURNS jsonb
@@ -1001,6 +1070,10 @@ BEGIN
   );
 END;
 $function$;
+-- Trava de grants (revisor #4117 · segurança RLS/LGPD): fecha o caminho anon do NULL-auth.uid() do guard.
+REVOKE ALL ON FUNCTION public.fn_inadimplentes_por_status(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_inadimplentes_por_status(uuid) TO authenticated, service_role;
+
 
 CREATE OR REPLACE FUNCTION public.fn_nr36_conferencia_anexo_listar(p_company_id uuid, p_cpf text, p_data date)
  RETURNS jsonb
@@ -1022,6 +1095,10 @@ BEGIN
    WHERE company_id = p_company_id AND cpf = p_cpf AND data = p_data AND removido_em IS NULL;
   RETURN jsonb_build_object('ok', true, 'anexos', v);
 END $function$;
+-- Trava de grants (revisor #4117 · segurança RLS/LGPD): fecha o caminho anon do NULL-auth.uid() do guard.
+REVOKE ALL ON FUNCTION public.fn_nr36_conferencia_anexo_listar(uuid, text, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_nr36_conferencia_anexo_listar(uuid, text, date) TO authenticated, service_role;
+
 
 CREATE OR REPLACE FUNCTION public.fn_onboarding_maturidade(p_company_id uuid)
  RETURNS jsonb
@@ -1055,6 +1132,10 @@ BEGIN
   );
 END;
 $function$;
+-- Trava de grants (revisor #4117 · segurança RLS/LGPD): fecha o caminho anon do NULL-auth.uid() do guard.
+REVOKE ALL ON FUNCTION public.fn_onboarding_maturidade(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_onboarding_maturidade(uuid) TO authenticated, service_role;
+
 
 CREATE OR REPLACE FUNCTION public.fn_psgc_painel_operacional(p_company_ids uuid[])
  RETURNS jsonb
@@ -1164,6 +1245,10 @@ BEGIN
     'conciliacoes_pendentes', jsonb_build_object('qtd', v_conciliacoes_qtd, 'valor_estimado', ROUND(v_conciliacoes_valor::numeric, 2)),
     'alertas_imediatos', COALESCE(v_alertas_imediatos, '[]'::jsonb));
 END; $function$;
+-- Trava de grants (revisor #4117 · segurança RLS/LGPD): fecha o caminho anon do NULL-auth.uid() do guard.
+REVOKE ALL ON FUNCTION public.fn_psgc_painel_operacional(uuid[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_psgc_painel_operacional(uuid[]) TO authenticated, service_role;
+
 
 CREATE OR REPLACE FUNCTION public.fn_rateio_base(p_company_id uuid, p_data_ref date)
  RETURNS TABLE(business_line_id uuid, nome text, base numeric, percentual numeric)
@@ -1234,6 +1319,10 @@ BEGIN
   ORDER BY adj.vbase DESC;
 END;
 $function$;
+-- Trava de grants (revisor #4117 · segurança RLS/LGPD): fecha o caminho anon do NULL-auth.uid() do guard.
+REVOKE ALL ON FUNCTION public.fn_rateio_base(uuid, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_rateio_base(uuid, date) TO authenticated, service_role;
+
 
 CREATE OR REPLACE FUNCTION public.fn_remessa_extrato(p_remessa_id uuid, p_company_id uuid)
  RETURNS jsonb
@@ -1267,6 +1356,10 @@ BEGIN
       'gerado_em', v_rem.gerado_em, 'retorno_importado_em', v_rem.retorno_importado_em),
     'itens', v_itens, 'total', v_total, 'qtd', jsonb_array_length(v_itens));
 END; $function$;
+-- Trava de grants (revisor #4117 · segurança RLS/LGPD): fecha o caminho anon do NULL-auth.uid() do guard.
+REVOKE ALL ON FUNCTION public.fn_remessa_extrato(uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_remessa_extrato(uuid, uuid) TO authenticated, service_role;
+
 
 CREATE OR REPLACE FUNCTION public.fn_saldo_bancos_dinamico(p_company_ids uuid[])
  RETURNS numeric
@@ -1279,6 +1372,10 @@ AS $function$
   FROM public.fn_saldo_gerencial_contas(p_company_ids) g
   WHERE g.conta_id IS NOT NULL AND g.soma_no_saldo = true;
 $function$;
+-- Trava de grants (revisor #4117 · segurança RLS/LGPD): fecha o caminho anon do NULL-auth.uid() do guard.
+REVOKE ALL ON FUNCTION public.fn_saldo_bancos_dinamico(uuid[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_saldo_bancos_dinamico(uuid[]) TO authenticated, service_role;
+
 
 CREATE OR REPLACE FUNCTION public.fn_saude_alertas_proativos(p_company_id uuid)
  RETURNS jsonb
@@ -1387,4 +1484,8 @@ BEGIN
   );
 END;
 $function$;
+-- Trava de grants (revisor #4117 · segurança RLS/LGPD): fecha o caminho anon do NULL-auth.uid() do guard.
+REVOKE ALL ON FUNCTION public.fn_saude_alertas_proativos(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_saude_alertas_proativos(uuid) TO authenticated, service_role;
+
 
