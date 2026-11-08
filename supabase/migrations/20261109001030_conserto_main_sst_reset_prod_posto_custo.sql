@@ -10,6 +10,12 @@
 -- Correção: apagar prod_posto_custo (filho) antes de prod_posto (pai) no bloco de limpeza.
 -- Dado 100% FAKE (RD-69), só empresa DEMO de indústria (b0700000-...-005). Sem tocar expect de teste,
 -- sem tocar dado de cliente, RLS, fiscal, financeiro, LGPD ou NR-36.
+--
+-- check_fn_guards: esta função SECURITY DEFINER é de SEED/RESET da demo, trancada a UMA empresa DEMO fixa
+-- (constante c = b0700000-...-005 + checagem is_demo IS TRUE): qualquer p_company_id diferente retorna sem
+-- escrever. Não há escrita cross-tenant possível e o grant é só service_role (harness de reset/testes), não
+-- authenticated nem anon. Por isso o escape consciente abaixo (o lock é o próprio guard, não fn__guarda_empresa):
+-- ci-sem-guarda: fn_gold_sst_seed_reparar — seed/reset trancado a 1 empresa DEMO fixa (is_demo), recusa outro company_id; grant só service_role.
 
 CREATE OR REPLACE FUNCTION public.fn_gold_sst_seed_reparar(p_company_id uuid)
  RETURNS jsonb
@@ -284,3 +290,7 @@ BEGIN
     'alertas_caixa_robo', (SELECT count(*) FROM bpo_inbox_items WHERE company_id = c AND tipo_origem = 'compliance_vencimento' AND assigned_to = v_robo),
     'alertas_caixa_outros', (SELECT count(*) FROM bpo_inbox_items WHERE company_id = c AND tipo_origem = 'compliance_vencimento' AND assigned_to IS DISTINCT FROM v_robo));
 END $function$;
+
+-- Trava de grants (check_fn_guards · segurança): fecha o caminho anon do NULL-auth.uid(); mantém só service_role (contrato atual).
+REVOKE ALL ON FUNCTION public.fn_gold_sst_seed_reparar(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_gold_sst_seed_reparar(uuid) TO service_role;
