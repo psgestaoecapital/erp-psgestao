@@ -63,13 +63,36 @@ export default function MedicoesObraPage({ params }: { params: Promise<{ id: str
   const [filtro, setFiltro] = useState<'todas' | 'rascunho' | 'aprovada'>('todas')
   const [expandida, setExpandida] = useState<string | null>(null)
 
-  // Formulário de nova medição.
+  // Formulário de nova medição / edição de rascunho (RD-98 p2). editId != null → editando.
   const [abrirForm, setAbrirForm] = useState(false)
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editNumero, setEditNumero] = useState<number | null>(null)
   const [tipo, setTipo] = useState<'percentual' | 'quantidade'>('percentual')
   const [competencia, setCompetencia] = useState<string>(() => new Date().toISOString().slice(0, 10))
   const [observacoes, setObservacoes] = useState('')
   const [linhas, setLinhas] = useState<Record<string, string>>({})
   const [salvando, setSalvando] = useState(false)
+
+  function fecharForm() { setAbrirForm(false); setEditId(null); setEditNumero(null); setLinhas({}); setObservacoes('') }
+  function novaMedicao() {
+    if (abrirForm && !editId) { fecharForm(); return }
+    setEditId(null); setEditNumero(null); setLinhas({}); setObservacoes(''); setTipo('percentual')
+    setCompetencia(new Date().toISOString().slice(0, 10)); setErro(null); setAbrirForm(true)
+  }
+  // RD-98 p2 · abre o formulário pré-preenchido com um rascunho (só rascunho pode ser editado).
+  function abrirEditar(med: Medicao) {
+    setErro(null)
+    setEditId(med.id); setEditNumero(med.numero)
+    setTipo(med.tipo === 'quantidade' ? 'quantidade' : 'percentual')
+    setCompetencia((med.competencia ?? new Date().toISOString()).slice(0, 10))
+    setObservacoes(med.observacoes ?? '')
+    const pre: Record<string, string> = {}
+    for (const it of med.itens) {
+      const v = med.tipo === 'percentual' ? it.percentual : it.quantidade
+      if (v != null && Number(v) !== 0) pre[it.obra_item_id] = String(v)
+    }
+    setLinhas(pre); setAbrirForm(true)
+  }
 
   const carregar = useCallback(async () => {
     setCarregando(true); setErro(null); setEmLiberacao(false)
@@ -124,7 +147,7 @@ export default function MedicoesObraPage({ params }: { params: Promise<{ id: str
 
   const medicoesFiltradas = medicoes.filter((m) => filtro === 'todas' || m.status === filtro)
 
-  async function criar() {
+  async function salvar() {
     if (!obra) return
     const payload = itens
       .map((it) => {
@@ -139,14 +162,19 @@ export default function MedicoesObraPage({ params }: { params: Promise<{ id: str
       .filter(Boolean)
     if (payload.length === 0) { setErro('Informe ao menos uma linha de medição (percentual ou quantidade > 0).'); return }
     setSalvando(true); setErro(null)
-    const { data, error } = await supabase.rpc('fn_obra_medicao_criar', {
-      p_obra_id: id, p_tipo: tipo, p_competencia: competencia, p_itens: payload, p_observacoes: observacoes || null,
-    })
+    const { data, error } = editId
+      ? await supabase.rpc('fn_obra_medicao_editar', {
+          p_medicao_id: editId, p_tipo: tipo, p_competencia: competencia, p_itens: payload, p_observacoes: observacoes || null,
+        })
+      : await supabase.rpc('fn_obra_medicao_criar', {
+          p_obra_id: id, p_tipo: tipo, p_competencia: competencia, p_itens: payload, p_observacoes: observacoes || null,
+        })
     setSalvando(false)
-    if (error) { setErro(erroAmigavel(error, 'Não foi possível criar a medição.')); return }
+    const acao = editId ? 'salvar a medição' : 'criar a medição'
+    if (error) { setErro(erroAmigavel(error, `Não foi possível ${acao}.`)); return }
     const r = (data ?? {}) as { ok?: boolean; erro?: string }
-    if (r.ok === false) { setErro(r.erro ?? 'Não foi possível criar a medição.'); return }
-    setAbrirForm(false); setLinhas({}); setObservacoes('')
+    if (r.ok === false) { setErro(r.erro ?? `Não foi possível ${acao}.`); return }
+    fecharForm()
     await carregar()
   }
 
@@ -201,8 +229,8 @@ export default function MedicoesObraPage({ params }: { params: Promise<{ id: str
           <>
             {/* Barra de ações + filtro */}
             <div style={{ display: 'flex', gap: 10, marginTop: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-              <button onClick={() => setAbrirForm((v) => !v)} style={btn(GOLD, ESP)} data-testid="med-nova">
-                {abrirForm ? 'Fechar' : '+ Nova medição'}
+              <button onClick={() => novaMedicao()} style={btn(GOLD, ESP)} data-testid="med-nova">
+                {abrirForm && !editId ? 'Fechar' : '+ Nova medição'}
               </button>
               <AjudaCampo chave="projetos.medicao.criar" rota={ROTA} />
               <span style={{ flex: 1 }} />
@@ -219,6 +247,7 @@ export default function MedicoesObraPage({ params }: { params: Promise<{ id: str
             {/* Formulário de nova medição */}
             {abrirForm && (
               <div style={{ ...card, marginTop: 12 }} data-testid="med-form">
+                {editId && <div style={{ fontSize: 14, fontWeight: 800, color: ESP, marginBottom: 10 }}>Editar rascunho — Medição nº {editNumero}</div>}
                 <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
                   <div style={{ minWidth: 180 }} data-ajuda="projetos.medicao.tipo">
                     <div style={lbl}>Medir por <AjudaCampo chave="projetos.medicao.tipo" rota={ROTA} /></div>
@@ -286,8 +315,13 @@ export default function MedicoesObraPage({ params }: { params: Promise<{ id: str
                     <strong style={{ marginLeft: 6 }}>{brl(previaValor)}</strong>
                   </div>
                   <span style={{ flex: 1 }} />
-                  <button onClick={() => void criar()} disabled={salvando || itens.length === 0} style={{ ...btn(ESP), opacity: salvando || itens.length === 0 ? 0.6 : 1 }} data-testid="med-salvar">
-                    {salvando ? 'Salvando…' : 'Lançar medição'}
+                  {editId && (
+                    <button onClick={() => fecharForm()} disabled={salvando} style={{ ...btn('transparent', ESP), border: `1px solid ${LINE}` }} data-testid="med-cancelar-edicao">
+                      Cancelar
+                    </button>
+                  )}
+                  <button onClick={() => void salvar()} disabled={salvando || itens.length === 0} style={{ ...btn(ESP), opacity: salvando || itens.length === 0 ? 0.6 : 1 }} data-testid="med-salvar">
+                    {salvando ? 'Salvando…' : editId ? 'Salvar alterações' : 'Lançar medição'}
                   </button>
                 </div>
               </div>
@@ -320,6 +354,8 @@ export default function MedicoesObraPage({ params }: { params: Promise<{ id: str
                       </button>
                       {med.status === 'rascunho' && (
                         <>
+                          <button onClick={() => abrirEditar(med)} style={{ ...btn('transparent', ESP), padding: '6px 10px', border: `1px solid ${LINE}` }} data-testid={`med-editar-${med.numero}`}>Editar</button>
+                          <AjudaCampo chave="projetos.medicao.editar" rota={ROTA} />
                           <button onClick={() => void aprovar(med)} style={btn(VERDE)} data-testid={`med-aprovar-${med.numero}`}>Aprovar</button>
                           <AjudaCampo chave="projetos.medicao.aprovar" rota={ROTA} />
                         </>
