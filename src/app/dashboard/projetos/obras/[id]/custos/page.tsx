@@ -3,7 +3,10 @@
 // Gestão de Obras (CEO 01/11) · Custos em lançamento simples por obra (centro de custo = obra).
 // Lança uma despesa da obra (material, mão de obra avulsa, terceiros, equipamento) direto no financeiro da
 // empresa (erp_pagar) com o centro de custo da obra, pelas funções fn_obra_custo_lancar/_listar/_excluir.
-// O custo entra sozinho no "custo realizado" do Resultado por obra. MO POR HORA continua em "Lançar horas".
+// A despesa soma no "Total de custos da obra" (lista abaixo). A ligação automática desses lançamentos ao
+// "Custo realizado" do Resultado por obra (consolidação de erp_pagar por centro de custo) ainda está sendo
+// montada no núcleo financeiro — por isso esta tela NÃO promete que o lançamento já entra no Resultado sozinho.
+// MO POR HORA continua em "Lançar horas".
 import { use, useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
@@ -125,7 +128,7 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
         <Link href={`/dashboard/projetos/obras/${id}/cockpit?area=hub`} style={{ color: GOLD, fontSize: 13 }}>← Cockpit da obra</Link>
         <h1 style={{ fontSize: 22, margin: '8px 0 4px' }}>Custos da obra</h1>
         <p style={{ fontSize: 13, color: MUT, margin: '0 0 12px' }}>
-          Cada custo lançado vira uma despesa no financeiro da empresa, com o centro de custo desta obra, e entra sozinho no Resultado por obra.
+          Cada custo lançado vira uma despesa no financeiro da empresa, com o centro de custo desta obra, e soma no Total de custos da obra (lista abaixo).
           Para mão de obra por hora, use <Link href={`/dashboard/projetos/obras/${id}/horas?area=hub`} style={{ color: GOLD }}>Lançar horas</Link>.
         </p>
 
@@ -165,7 +168,7 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
 
         {erro && <p role="alert" data-testid="custos-erro" style={{ color: VERM }}>{erro}</p>}
         {loading && <p data-testid="custos-carregando">Carregando…</p>}
-        {!loading && itens.length === 0 && <p data-testid="custos-vazio">Nenhum custo lançado ainda. Preencha o formulário acima: a despesa aparece na hora no Resultado por obra.</p>}
+        {!loading && itens.length === 0 && <p data-testid="custos-vazio">Nenhum custo lançado ainda. Preencha o formulário acima: a despesa entra no financeiro da empresa com o centro de custo desta obra e aparece no Total de custos da obra.</p>}
         {!loading && itens.length > 0 && (
           <div style={{ overflowX: 'auto', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, marginTop: 12 }}>
             <table data-testid="custos-tabela" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
