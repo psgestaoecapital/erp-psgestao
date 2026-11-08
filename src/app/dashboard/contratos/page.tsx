@@ -531,6 +531,7 @@ export default function ContratosPage(){
         {[{k:'dashboard',l:'📊 Dashboard SaaS'},{k:'contratos',l:'📋 Contratos'},{k:'fee',l:'🧾 Solicitações & Fee'},{k:'modelos',l:'📝 Modelos'},{k:'acoes',l:'⚡ Ações'}].map(t=>(
           <button key={t.k} onClick={()=>setTab(t.k as any)} style={{padding:"10px 20px",fontSize:12,fontWeight:tab===t.k?700:500,background:"transparent",border:"none",color:tab===t.k?GO:TXM,borderBottom:`3px solid ${tab===t.k?GO:"transparent"}`,cursor:"pointer",marginBottom:-1}}>{t.l}</button>
         ))}
+        <span style={{display:"flex",alignItems:"center",paddingLeft:4}}><AjudaCampo chave="ge.contrato.abas" /></span>
       </div>
 
       {/* TAB SOLICITAÇÕES & FEE (#59 PDOIS parte 2) */}
@@ -560,34 +561,34 @@ export default function ContratosPage(){
             <>
               <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:16}}>
                 <div style={{background:BG2,borderRadius:10,padding:12,border:`1px solid ${BD}`}}>
-                  <div style={{fontSize:9,color:TXD,textTransform:"uppercase",letterSpacing:0.5}}>💎 MRR Mensal</div>
+                  <div style={{fontSize:9,color:TXD,textTransform:"uppercase",letterSpacing:0.5}}>💎 MRR Mensal <AjudaCampo chave="ge.contrato.kpi_mrr" /></div>
                   <div style={{fontSize:20,fontWeight:800,color:GO,marginTop:2,fontFamily:"monospace"}}>{fmtR(metricas.mrr)}</div>
                   <div style={{fontSize:9,color:TXD,marginTop:2}}>ARR: {fmtR(metricas.arr)}</div>
                 </div>
                 <div style={{background:BG2,borderRadius:10,padding:12,border:`1px solid ${BD}`}}>
-                  <div style={{fontSize:9,color:TXD,textTransform:"uppercase",letterSpacing:0.5}}>👥 Clientes Ativos</div>
+                  <div style={{fontSize:9,color:TXD,textTransform:"uppercase",letterSpacing:0.5}}>👥 Clientes Ativos <AjudaCampo chave="ge.contrato.kpi_clientes_ativos" /></div>
                   <div style={{fontSize:20,fontWeight:800,color:B,marginTop:2}}>{metricas.total_clientes_ativos}</div>
                   <div style={{fontSize:9,color:TXD,marginTop:2}}>Ticket: {fmtR(metricas.ticket_medio)}</div>
                 </div>
                 <div style={{background:BG2,borderRadius:10,padding:12,border:`1px solid ${BD}`}}>
-                  <div style={{fontSize:9,color:TXD,textTransform:"uppercase",letterSpacing:0.5}}>📉 Churn Rate (12m)</div>
+                  <div style={{fontSize:9,color:TXD,textTransform:"uppercase",letterSpacing:0.5}}>📉 Churn Rate (12m) <AjudaCampo chave="ge.contrato.kpi_churn" /></div>
                   <div style={{fontSize:20,fontWeight:800,color:Number(metricas.churn_rate_12m)>10?R:Number(metricas.churn_rate_12m)>5?Y:G,marginTop:2}}>{Number(metricas.churn_rate_12m||0).toFixed(1)}%</div>
                   <div style={{fontSize:9,color:TXD,marginTop:2}}>LTV: {fmtR(metricas.ltv)}</div>
                 </div>
                 <div style={{background:BG2,borderRadius:10,padding:12,border:`1px solid ${BD}`}}>
-                  <div style={{fontSize:9,color:TXD,textTransform:"uppercase",letterSpacing:0.5}}>📈 Novo MRR (30d)</div>
+                  <div style={{fontSize:9,color:TXD,textTransform:"uppercase",letterSpacing:0.5}}>📈 Novo MRR (30d) <AjudaCampo chave="ge.contrato.kpi_novo_mrr" /></div>
                   <div style={{fontSize:20,fontWeight:800,color:G,marginTop:2}}>+{fmtR(metricas.novo_mrr_30d)}</div>
                   <div style={{fontSize:9,color:R,marginTop:2}}>-{fmtR(metricas.churned_mrr_30d)} churn</div>
                 </div>
                 <div style={{background:BG2,borderRadius:10,padding:12,border:`1px solid ${BD}`}}>
-                  <div style={{fontSize:9,color:TXD,textTransform:"uppercase",letterSpacing:0.5}}>📅 Renovações 60d</div>
+                  <div style={{fontSize:9,color:TXD,textTransform:"uppercase",letterSpacing:0.5}}>📅 Renovações 60d <AjudaCampo chave="ge.contrato.kpi_renovacoes" /></div>
                   <div style={{fontSize:20,fontWeight:800,color:metricas.proximas_renovacoes_60d>0?Y:G,marginTop:2}}>{metricas.proximas_renovacoes_60d}</div>
                 </div>
               </div>
 
               {/* Gráfico de evolução MRR */}
               <div style={{background:BG2,borderRadius:12,padding:16,marginBottom:16,border:`1px solid ${BD}`}}>
-                <div style={{fontSize:12,fontWeight:600,color:GO,marginBottom:10,textTransform:"uppercase",letterSpacing:0.5}}>📈 Evolução do MRR (últimos 12 meses)</div>
+                <div style={{fontSize:12,fontWeight:600,color:GO,marginBottom:10,textTransform:"uppercase",letterSpacing:0.5}}>📈 Evolução do MRR (últimos 12 meses) <AjudaCampo chave="ge.contrato.grafico_mrr" /></div>
                 {graficoMRR||<div style={{padding:40,textAlign:"center",color:TXD}}>Sem dados históricos ainda</div>}
               </div>
             </>
@@ -598,7 +599,7 @@ export default function ContratosPage(){
           {/* Splits MRR por Tipo + Top 5 (multi-tenant via views) */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
             <div style={{background:BG2,borderRadius:12,padding:16,border:`1px solid ${BD}`}}>
-              <div style={{fontSize:12,fontWeight:600,color:GO,marginBottom:10,textTransform:"uppercase",letterSpacing:0.5}}>💼 MRR por Tipo de Serviço</div>
+              <div style={{fontSize:12,fontWeight:600,color:GO,marginBottom:10,textTransform:"uppercase",letterSpacing:0.5}}>💼 MRR por Tipo de Serviço <AjudaCampo chave="ge.contrato.painel_mrr_tipo" /></div>
               {(()=>{
                 // Agrega view (varias linhas por empresa) por tipo
                 const porTipo:Record<string,{count:number,mrr:number}>={};
@@ -636,7 +637,7 @@ export default function ContratosPage(){
             </div>
 
             <div style={{background:BG2,borderRadius:12,padding:16,border:`1px solid ${BD}`}}>
-              <div style={{fontSize:12,fontWeight:600,color:GO,marginBottom:10,textTransform:"uppercase",letterSpacing:0.5}}>🏆 Top 5 Clientes por MRR</div>
+              <div style={{fontSize:12,fontWeight:600,color:GO,marginBottom:10,textTransform:"uppercase",letterSpacing:0.5}}>🏆 Top 5 Clientes por MRR <AjudaCampo chave="ge.contrato.painel_top_clientes" /></div>
               {(()=>{
                 // Ordena view por mrr desc; aceita variacoes de nome
                 const top = [...(topClientes||[])].map((r:any)=>({
