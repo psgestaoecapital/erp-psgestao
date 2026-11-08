@@ -57,6 +57,10 @@ BEGIN
     'disparados', v_disparados, 'pulados_sem_demo', v_pulados_sem_demo, 'erros', v_errors, 'detalhes', v_resultados);
 END $function$;
 
+-- Execução só pelo papel de serviço (hoje já é assim no banco; o REVOKE fecha a regra do check-fn-guards).
+REVOKE ALL ON FUNCTION public.fn_disparar_playwright_batch(integer, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_disparar_playwright_batch(integer, text) TO service_role;
+
 -- ── 2. Captura dirigida de uma rota (só service_role) ─────────────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.fn_disparar_playwright_rota(p_rota text)
  RETURNS jsonb
