@@ -3,7 +3,8 @@
 -- (bugs_detectados não vazio) vira UMA tarefa de conserto ao dono:
 --   · NÚCLEO (financeiro/fiscal/cadastros/permissões, e financeiro/DRE/conciliação/plano-de-contas/extrato da GE)
 --     → sempre 'code-desenvolvedor-3';
---   · demais telas → o dev de UI vivo com MENOR fila (tarefas abertas). Pausado e 'gilberto-desenv' ficam de fora.
+--   · demais telas → o dev de UI ATIVO com MENOR fila (tarefas abertas). "Ativo" = executou nas últimas 2 h
+--     (erp_code_execucao_log), não a flag pausado (desatualizada). 'gilberto-desenv' fica de fora.
 -- Não duplica: pula rota com tarefa aberta que cite a rota, e rota já roteada com o mesmo conjunto de gaps.
 -- Rotas do Hub ficam com o fn_hub_rotear_gaps (já roteadas por ele; aqui são excluídas).
 -- Aditiva: 1 tabela de controle, 1 função nova, 1 cron novo. Nenhuma função existente é alterada.
@@ -51,9 +52,9 @@ BEGIN
        ORDER BY m.rota_base, m.consultado_em DESC
     )
     SELECT u.rota_base, u.bugs_detectados,
-           (s.area IN ('financeiro', 'fiscal', 'cadastros', 'permissoes')
+           coalesce(s.area IN ('financeiro', 'fiscal', 'cadastros', 'permissoes')
             OR (s.area = 'gestao_empresarial'
-                AND u.rota_base ~* '(financeir|/dre|conciliac|plano-de-contas|plano_de_contas|extrato|fluxo-de-caixa)')) AS nucleo
+                AND u.rota_base ~* '(financeir|/dre|conciliac|plano-de-contas|plano_de_contas|extrato|fluxo-de-caixa)'), false) AS nucleo
       FROM ult u
       LEFT JOIN public.system_screens s ON s.rota = u.rota_base
      WHERE u.score_pct < 95
@@ -83,8 +84,11 @@ BEGIN
       SELECT p.agente INTO v_code
         FROM public.erp_agente_papel p
        WHERE p.papel IN ('dev_hub', 'dev_ui')
-         AND NOT p.pausado
          AND p.agente NOT IN ('code-desenvolvedor-3', 'gilberto-desenv')
+         -- "ativo" = executou nas últimas 2 h (erp_code_execucao_log). A flag erp_agente_papel.pausado
+         -- está desatualizada (dev7claudeps aparece pausado mas roda de 1 h em 1 h) e NÃO é usada.
+         AND EXISTS (SELECT 1 FROM public.erp_code_execucao_log l
+                      WHERE l.agente = p.agente AND l.iniciada_em > now() - interval '2 hours')
        ORDER BY (SELECT count(*) FROM public.erp_agente_mensagem m
                   WHERE m.para = p.agente AND m.tipo = 'tarefa'
                     AND m.status IN ('nova', 'em_andamento', 'recebida')
