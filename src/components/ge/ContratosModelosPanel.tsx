@@ -9,8 +9,9 @@
 // o cadastro de contrato — a geração do contrato a partir do modelo (→ erp_contratos.texto_legal) é
 // o próximo slice. RD-95: "?" (AjudaCampo) em cada campo/filtro/ação. RLS por company_id nas RPCs.
 
-import { useCallback, useEffect, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const C = { espresso: '#3D2314', espressoM: '#6B5D4F', espressoD: '#9C8E80', cream: '#FAF7F2', border: '#E0D8CC', gold: '#C8941A', white: '#FFFFFF', danger: '#B4452F' }
@@ -26,6 +27,8 @@ interface Modelo {
   atualizado_em: string | null
 }
 
+type Variavel = { chave: string; rotulo: string }
+
 type FormState = { id: string | null; nome: string; descricao: string; texto: string }
 const FORM_VAZIO: FormState = { id: null, nome: '', descricao: '', texto: '' }
 
@@ -38,6 +41,8 @@ export default function ContratosModelosPanel({ companyId }: { companyId: string
   const [salvando, setSalvando] = useState(false)
   const [inativando, setInativando] = useState<Modelo | null>(null)
   const [motivo, setMotivo] = useState('')
+  const [variaveis, setVariaveis] = useState<Variavel[]>([])
+  const textoRef = useRef<HTMLTextAreaElement>(null)
 
   const carregar = useCallback(async () => {
     if (!companyId) { setModelos([]); setLoading(false); return }
@@ -45,17 +50,50 @@ export default function ContratosModelosPanel({ companyId }: { companyId: string
     const { data, error } = await supabase.rpc('fn_contrato_modelo_listar', {
       p_company_id: companyId, p_incluir_inativos: incluirInativos,
     })
-    if (error) { setErro(error.message); setModelos([]); setLoading(false); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar os modelos. Tente de novo.')); setModelos([]); setLoading(false); return }
     setModelos(((data as { modelos?: Modelo[] } | null)?.modelos ?? []) as Modelo[])
     setLoading(false)
   }, [companyId, incluirInativos])
 
   useEffect(() => { void carregar() }, [carregar])
 
+  // Campos variáveis disponíveis (fn_contrato_modelo_variaveis, sem argumento) — o usuário clica para
+  // inserir {{chave}} no texto, em vez de ter de decorar os nomes. Carrega uma vez.
+  useEffect(() => {
+    let vivo = true
+    void supabase.rpc('fn_contrato_modelo_variaveis').then(({ data, error }) => {
+      if (!vivo || error || !Array.isArray(data)) return
+      setVariaveis(data as Variavel[])
+    })
+    return () => { vivo = false }
+  }, [])
+
+  // Insere {{chave}} na posição do cursor do texto (ou no fim), sem apagar o que já está escrito.
+  const inserirVariavel = (chave: string) => {
+    if (!form) return
+    const token = `{{${chave}}}`
+    const el = textoRef.current
+    const texto = form.texto ?? ''
+    if (el && typeof el.selectionStart === 'number') {
+      const ini = el.selectionStart, fim = el.selectionEnd ?? el.selectionStart
+      const novo = texto.slice(0, ini) + token + texto.slice(fim)
+      setForm({ ...form, texto: novo })
+      requestAnimationFrame(() => { el.focus(); const p = ini + token.length; el.setSelectionRange(p, p) })
+    } else {
+      setForm({ ...form, texto: texto + token })
+    }
+  }
+
   const abrirNovo = () => { setErro(''); setForm({ ...FORM_VAZIO }) }
   const abrirEdicao = (m: Modelo) => {
     setErro('')
     setForm({ id: m.id, nome: m.nome, descricao: m.descricao ?? '', texto: m.texto ?? '' })
+  }
+  // Duplicar: abre "Novo modelo" pré-preenchido com o texto/descrição deste (id null → cria um NOVO ao salvar,
+  // reusando fn_contrato_modelo_salvar). O original não muda.
+  const abrirDuplicacao = (m: Modelo) => {
+    setErro('')
+    setForm({ id: null, nome: `${m.nome} (cópia)`, descricao: m.descricao ?? '', texto: m.texto ?? '' })
   }
 
   const salvar = async () => {
@@ -70,7 +108,7 @@ export default function ContratosModelosPanel({ companyId }: { companyId: string
       p_id: form.id,
     })
     setSalvando(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível salvar o modelo. Tente de novo.')); return }
     setForm(null)
     await carregar()
   }
@@ -83,7 +121,7 @@ export default function ContratosModelosPanel({ companyId }: { companyId: string
       p_id: inativando.id, p_ativo: false, p_motivo: motivo.trim(),
     })
     setSalvando(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível inativar o modelo. Tente de novo.')); return }
     setInativando(null); setMotivo('')
     await carregar()
   }
@@ -94,7 +132,7 @@ export default function ContratosModelosPanel({ companyId }: { companyId: string
       p_id: m.id, p_ativo: true, p_motivo: null,
     })
     setSalvando(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível reativar o modelo. Tente de novo.')); return }
     await carregar()
   }
 
@@ -158,6 +196,9 @@ export default function ContratosModelosPanel({ companyId }: { companyId: string
                   <button onClick={() => abrirEdicao(m)} style={btnSec}>
                     Editar <AjudaCampo chave="ge.contrato.modelo.editar" />
                   </button>
+                  <button onClick={() => abrirDuplicacao(m)} style={btnSec}>
+                    Duplicar <AjudaCampo chave="ge.contrato.modelo.duplicar" />
+                  </button>
                   {m.ativo ? (
                     <button onClick={() => { setErro(''); setMotivo(''); setInativando(m) }} style={btnDanger}>
                       Inativar <AjudaCampo chave="ge.contrato.modelo.inativar" />
@@ -198,9 +239,22 @@ export default function ContratosModelosPanel({ companyId }: { companyId: string
 
             <label style={lbl}>
               <span style={lblTxt}>Texto do modelo <AjudaCampo chave="ge.contrato.modelo.texto" /></span>
-              <textarea value={form.texto} onChange={(e) => setForm({ ...form, texto: e.target.value })} style={{ ...inp, minHeight: 200, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5 }}
+              <textarea ref={textoRef} value={form.texto} onChange={(e) => setForm({ ...form, texto: e.target.value })} style={{ ...inp, minHeight: 200, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5 }}
                 placeholder={'Escreva o contrato. Use campos variáveis entre chaves duplas, ex.: {{cliente_nome}}, {{cliente_cnpj}}, {{valor}}, {{data_inicio}}.'} />
             </label>
+
+            {variaveis.length > 0 && (
+              <div style={{ marginTop: 10 }}>
+                <span style={lblTxt}>Campos variáveis — clique para inserir no texto <AjudaCampo chave="ge.contrato.modelo.variaveis" /></span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                  {variaveis.map((v) => (
+                    <button key={v.chave} type="button" onClick={() => inserirVariavel(v.chave)} style={chipVar} title={`Inserir {{${v.chave}}}`}>
+                      {v.rotulo}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {erro && <div style={alertErro}>{erro}</div>}
 
@@ -242,6 +296,7 @@ const btnSec: CSSProperties = { ...btnBase, background: C.white, color: C.espres
 const btnDanger: CSSProperties = { ...btnBase, background: C.white, color: C.danger, border: `1px solid ${C.danger}` }
 const card: CSSProperties = { background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16 }
 const verChip: CSSProperties = { fontSize: 11, fontWeight: 600, color: C.espressoM, background: C.cream, borderRadius: 999, padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 3 }
+const chipVar: CSSProperties = { fontSize: 11.5, fontWeight: 600, color: C.espresso, background: C.cream, border: `1px solid ${C.border}`, borderRadius: 999, padding: '4px 10px', cursor: 'pointer' }
 const inativoChip: CSSProperties = { fontSize: 10.5, fontWeight: 700, color: C.espressoD, background: '#EFE8DE', borderRadius: 999, padding: '2px 8px', textTransform: 'uppercase', letterSpacing: 0.4 }
 const overlay: CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(40,25,12,0.38)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 60 }
 const modal: CSSProperties = { background: C.white, borderRadius: 14, padding: 22, width: '100%', maxWidth: 560, maxHeight: '90vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(40,25,12,0.25)' }
