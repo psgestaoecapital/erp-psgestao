@@ -49,3 +49,6 @@ SELECT 'chamado.tela_informada', 'Chamados', 'Em qual tela acontece?',
   0, '/dashboard/melhorias', 'gestao_empresarial', 'publicado'
 WHERE EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'erp_ajuda_campo')
 ON CONFLICT (chave) DO NOTHING;
+
+REVOKE ALL ON FUNCTION public.fn_sugestao_criar(uuid, jsonb, jsonb, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_sugestao_criar(uuid, jsonb, jsonb, uuid) TO authenticated, service_role;
