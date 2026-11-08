@@ -4,6 +4,12 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import LdnBudgetForm, { type LDNRef } from './LdnBudgetForm'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+// Componente compartilhado por /dashboard/cadastros/divisoes e /dashboard/cadastros/linhas-negocio.
+// A ajuda (RD-95 "?") usa chaves cadastradas na rota canônica abaixo, passada explicitamente em cada
+// AjudaCampo para carregar o mesmo texto em qualquer um dos dois pontos de montagem.
+const ROTA_AJUDA = '/dashboard/cadastros/divisoes'
 
 interface LDN {
   id: string
@@ -151,13 +157,16 @@ export default function LinhasNegocioList({ companyId }: { companyId: string }) 
             Áreas separadas de receita e despesa (ex: Tintas · Gesso · Consultoria · Imóveis). Necessário para ver DRE de cada divisão.
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowLdnForm(true)}
-          style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '12px 22px', borderRadius: 6, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
-        >
-          + Nova divisão
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <button
+            type="button"
+            onClick={() => setShowLdnForm(true)}
+            style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '12px 22px', borderRadius: 6, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+          >
+            + Nova divisão
+          </button>
+          <AjudaCampo chave="ge.divisoes.nova" rota={ROTA_AJUDA} />
+        </div>
       </div>
 
       {ldns.length === 0 && !showLdnForm && (
@@ -174,15 +183,20 @@ export default function LinhasNegocioList({ companyId }: { companyId: string }) 
           {erroLdn && (
             <div style={{ background: '#FCEBEB', color: '#A32D2D', padding: '10px 14px', borderRadius: 6, marginBottom: 12, fontSize: 13 }}>{erroLdn}</div>
           )}
-          <input
-            value={novoNome}
-            onChange={(e) => setNovoNome(e.target.value)}
-            placeholder="Ex: Tintas · Gesso · Consultoria · Imóveis · Serviços"
-            style={{ ...inputStyle, marginBottom: 12 }}
-          />
+          <label style={{ display: 'block', marginBottom: 12 }}>
+            <span style={{ display: 'flex', alignItems: 'center', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6, fontWeight: 700 }}>
+              Nome da divisão<AjudaCampo chave="ge.divisoes.nome" rota={ROTA_AJUDA} />
+            </span>
+            <input
+              value={novoNome}
+              onChange={(e) => setNovoNome(e.target.value)}
+              placeholder="Ex: Tintas · Gesso · Consultoria · Imóveis · Serviços"
+              style={inputStyle}
+            />
+          </label>
           <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8, fontWeight: 700 }}>
-              Cor (para identificar nos gráficos)
+            <div style={{ display: 'flex', alignItems: 'center', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8, fontWeight: 700 }}>
+              Cor (para identificar nos gráficos)<AjudaCampo chave="ge.divisoes.cor" rota={ROTA_AJUDA} />
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {CORES_SUGERIDAS.map((c) => (
@@ -292,7 +306,7 @@ function CardLDN({
     >
       <div style={{ width: 6, height: 56, borderRadius: 4, background: ldn.cor || '#C8941A', flexShrink: 0 }} />
       <div style={{ flex: 1, minWidth: 200 }}>
-        <div style={{ fontSize: 15, fontWeight: 600, color: '#3D2314', marginBottom: 4 }}>{ldn.nome}</div>
+        <div style={{ fontSize: 15, fontWeight: 600, color: '#3D2314', marginBottom: 4, display: 'flex', alignItems: 'center' }}>{ldn.nome}<AjudaCampo chave="ge.divisoes.resultado" rota={ROTA_AJUDA} /></div>
         {temBudget ? (
           <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.6)' }}>
             Planejado {ano}: Receita R$ {fmt(budget.receita_anual)} · Despesa R$ {fmt(budget.despesa_anual)} · Margem{' '}
@@ -304,21 +318,27 @@ function CardLDN({
           </div>
         )}
       </div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        <button
-          type="button"
-          onClick={onConfigBudget}
-          style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '8px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
-        >
-          {temBudget ? 'Ajustar planejado' : 'Definir planejado'}
-        </button>
-        <button
-          type="button"
-          onClick={onToggleAtivo}
-          style={{ background: 'transparent', color: ldn.ativo ? '#A32D2D' : '#3B6D11', border: `0.5px solid ${ldn.ativo ? '#A32D2D' : '#3B6D11'}`, padding: '8px 14px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
-        >
-          {ldn.ativo ? 'Inativar' : 'Ativar'}
-        </button>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <button
+            type="button"
+            onClick={onConfigBudget}
+            style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '8px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+          >
+            {temBudget ? 'Ajustar planejado' : 'Definir planejado'}
+          </button>
+          <AjudaCampo chave="ge.divisoes.planejado" rota={ROTA_AJUDA} />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <button
+            type="button"
+            onClick={onToggleAtivo}
+            style={{ background: 'transparent', color: ldn.ativo ? '#A32D2D' : '#3B6D11', border: `0.5px solid ${ldn.ativo ? '#A32D2D' : '#3B6D11'}`, padding: '8px 14px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+          >
+            {ldn.ativo ? 'Inativar' : 'Ativar'}
+          </button>
+          <AjudaCampo chave="ge.divisoes.inativar" rota={ROTA_AJUDA} />
+        </div>
       </div>
     </div>
   )
