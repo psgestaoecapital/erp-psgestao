@@ -213,8 +213,14 @@ WHERE NOT EXISTS (SELECT 1 FROM public.erp_ajuda_campo e WHERE e.chave = v.chave
 -- Idempotente e restrito à empresa DEMO (is_demo) — NUNCA toca cliente real.
 
 -- 6a) Dois diários com foto (placeholder) se ainda não houver RDO com foto nesta obra DEMO.
-INSERT INTO public.projetos_obra_rdo (company_id, obra_id, data, clima, praticavel, efetivo, atividades, fotos)
-SELECT o.company_id, o.id, d.data, 'Bom', true, d.efetivo, d.atividades, d.fotos
+-- os_id é NOT NULL (FK -> projetos_obra_os): amarra o diário a uma OS real da própria obra DEMO.
+-- clima respeita o CHECK (sol|nublado|chuva|chuva_forte). Se a obra DEMO não tiver OS, pula (não força).
+INSERT INTO public.projetos_obra_rdo (company_id, obra_id, os_id, data, clima, praticavel, efetivo, atividades, fotos)
+SELECT o.company_id, o.id,
+       (SELECT os.id FROM public.projetos_obra_os os
+         WHERE os.obra_id = o.id AND os.excluido_em IS NULL AND os.status <> 'cancelada'
+         ORDER BY os.criado_em ASC LIMIT 1),
+       d.data, 'sol', true, d.efetivo, d.atividades, d.fotos
 FROM public.projetos_obras o
 JOIN public.companies c ON c.id = o.company_id AND c.is_demo = true
 CROSS JOIN (VALUES
@@ -225,6 +231,10 @@ CROSS JOIN (VALUES
 ) AS d(data, efetivo, atividades, fotos)
 WHERE o.numero = 'DEMO-OB-003'
   AND o.company_id = 'b0700000-0000-4000-a000-000000000006'
+  AND EXISTS (
+    SELECT 1 FROM public.projetos_obra_os os
+    WHERE os.obra_id = o.id AND os.excluido_em IS NULL AND os.status <> 'cancelada'
+  )
   AND NOT EXISTS (
     SELECT 1 FROM public.projetos_obra_rdo r
     WHERE r.obra_id = o.id AND r.excluido_em IS NULL
@@ -233,7 +243,8 @@ WHERE o.numero = 'DEMO-OB-003'
 
 -- 6b) Uma medição aprovada, se ainda não houver medição nesta obra DEMO.
 INSERT INTO public.projetos_obra_medicao (company_id, obra_id, numero, tipo, competencia, status, valor_total, aprovada_em)
-SELECT o.company_id, o.id, 1, 'periodica', date_trunc('month', CURRENT_DATE)::date, 'aprovada', 84500.00, now()
+-- tipo respeita o CHECK (percentual|quantidade); status aprovada é válido.
+SELECT o.company_id, o.id, 1, 'percentual', date_trunc('month', CURRENT_DATE)::date, 'aprovada', 84500.00, now()
 FROM public.projetos_obras o
 JOIN public.companies c ON c.id = o.company_id AND c.is_demo = true
 WHERE o.numero = 'DEMO-OB-003'
