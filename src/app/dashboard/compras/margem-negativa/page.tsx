@@ -84,7 +84,7 @@ export default function MargemNegativaPage() {
                       <div className="text-right"><div className="text-[10px] text-[#3D2314]/50">venda</div><div className="text-[#3D2314] font-medium">{brl(p.venda)}</div></div>
                       <div className="text-right"><div className="text-[10px] text-[#3D2314]/50">custo</div><div className="text-[#3D2314] font-medium">{brl(p.custo)}</div></div>
                       <div className="text-right"><div className="text-[10px] text-[#3D2314]/50">diferença</div><div className="text-[#A32D2D] font-semibold">-{brl(p.diferenca)}</div></div>
-                      <Link href={`/dashboard/produtos?busca=${encodeURIComponent(p.codigo)}`}
+                      <Link href={`/dashboard/cadastros/produtos?busca=${encodeURIComponent(p.codigo)}`}
                         className="text-[11px] px-2.5 py-1 rounded-md bg-[#C8941A] text-white font-medium hover:bg-[#A87810]">Editar</Link>
                     </div>
                   </div>

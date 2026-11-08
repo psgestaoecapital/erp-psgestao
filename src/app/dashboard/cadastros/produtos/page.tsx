@@ -184,6 +184,13 @@ export default function ProdutosPage() {
     return () => { alive = false }
   }, [companyId])
 
+  // Deep-link ?busca=<texto>: preenche o campo de busca já filtrando (ex.: "Editar" vindo de
+  // /compras/margem-negativa e /compras/custo-simulacao). Consolidação da duplicata /dashboard/produtos.
+  useEffect(() => {
+    const b = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('busca') : null
+    if (b) setBusca(b)
+  }, [])
+
   // Carrega grupos distintos (uma vez por empresa)
   useEffect(() => {
     if (!companyId) return
