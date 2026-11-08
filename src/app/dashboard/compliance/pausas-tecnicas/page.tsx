@@ -472,7 +472,8 @@ function ModalCienciaDoc({ id, onClose }: { id: string; onClose: () => void }) {
           <div>
             <div style={{ textAlign: 'center', marginBottom: 12 }}>
               <div style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, fontWeight: 700, color: C.espresso }}>Relatório Mensal de Pausas Térmicas — NR-36 / Art. 253 CLT</div>
-              <div style={{ fontSize: 12, color: C.gray }}>Competência {String(doc.competencia).slice(0, 7)}{Number(doc.versao ?? 1) > 1 ? ` · versão ${String(doc.versao)}${doc.versao_motivo ? ` (${String(doc.versao_motivo)})` : ''}` : ''}</div>
+              {/* #6903 (Frioeste): o motivo da versão é nota interna e NÃO entra no relatório assinado (documento legal); fica só no painel de gestão. */}
+              <div style={{ fontSize: 12, color: C.gray }}>Competência {String(doc.competencia).slice(0, 7)}{Number(doc.versao ?? 1) > 1 ? ` · versão ${String(doc.versao)}` : ''}</div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 6, fontSize: 12.5, marginBottom: 12 }}>
               <div><b>Nome:</b> {snap.nome || '—'}</div><div><b>CPF:</b> {snap.cpf || '—'}</div>
