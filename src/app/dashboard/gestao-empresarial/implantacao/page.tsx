@@ -28,6 +28,12 @@ export default function GuiaImplantacaoPage() {
     setLoading(true)
     setErro(null)
     void (async () => {
+      // conserto-main (#4117): sem empresa única resolvida, p_company_id=null levanta 42501
+      // na guarda multi-tenant. Não chama a RPC; mostra o empty state "Selecione uma empresa".
+      if (!empresaUnica) {
+        if (alive) { setData(null); setLoading(false) }
+        return
+      }
       const { data: result, error } = await supabase.rpc('fn_ge_onboarding_status', {
         p_company_id: empresaUnica,
       })
