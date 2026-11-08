@@ -334,11 +334,11 @@ export default function FichaTecnicaPage(){
         <div style={{background:BG2,borderRadius:14,padding:16,border:`1px solid ${B}30`,marginBottom:14}}>
           <div style={{fontSize:14,fontWeight:600,color:B,marginBottom:10}}>📖 Como criar uma Ficha Técnica</div>
           <div style={{fontSize:12,color:TX,lineHeight:1.8}}>
-            <p style={{marginBottom:8}}><strong style={{color:GOL}}>1. Escolha a empresa</strong> — Cada empresa tem seu catálogo próprio. Produtos podem vir do ERP (Omie, ContaAzul) ou ser cadastrados manualmente.</p>
+            <p style={{marginBottom:8}}><strong style={{color:GOL}}>1. Escolha a empresa</strong> — Cada empresa tem seu catálogo próprio. Produtos podem vir do seu ERP atual ou ser cadastrados manualmente.</p>
             <p style={{marginBottom:8}}><strong style={{color:GOL}}>2. Crie a ficha</strong> — Use um <strong>Template</strong> (prontos para drywall/forro) ou crie do zero com <strong>+ Nova</strong>. Dê um nome descritivo: ex: "Parede Drywall Simples 73mm (ST)".</p>
             <p style={{marginBottom:8}}><strong style={{color:GOL}}>3. Configure os custos</strong> — No topo da ficha, ajuste: <strong>MO Direta</strong> (R$/m²), <strong>Custos Indiretos</strong> (%), <strong>Impostos</strong> (%) e <strong>Markup</strong> (%).</p>
             <p style={{marginBottom:8}}><strong style={{color:GOL}}>4. Adicione os materiais</strong> — Três formas:</p>
-            <p style={{marginBottom:4,paddingLeft:16}}>▸ <strong style={{color:G}}>🔍 Buscar Produto</strong> — Busca no catálogo do ERP (Omie, ContaAzul, etc.) por nome ou código. Preço vem automático. Se não tiver ERP, digite manual..</p>
+            <p style={{marginBottom:4,paddingLeft:16}}>▸ <strong style={{color:G}}>🔍 Buscar Produto</strong> — Busca no catálogo do seu ERP atual por nome ou código. Preço vem automático. Se não tiver ERP, digite manual..</p>
             <p style={{marginBottom:8,paddingLeft:16}}>▸ <strong>Digitar manual</strong> — Na última linha da tabela, preencha código, nome, unidade, qtd/m² e preço.</p>
             <p style={{marginBottom:8}}><strong style={{color:GOL}}>5. Ajuste quantidades</strong> — Para cada material, informe a <strong>quantidade por m²</strong> (ex: 2.10 placas/m², 24 parafusos/m²).</p>
             <p style={{marginBottom:8}}><strong style={{color:GOL}}>6. Atualize preços</strong> — Clique <strong style={{color:B}}>🔄 Atualizar Preços (ERP)</strong> para atualizar todos os preços com os valores atuais do ERP conectado.</p>
