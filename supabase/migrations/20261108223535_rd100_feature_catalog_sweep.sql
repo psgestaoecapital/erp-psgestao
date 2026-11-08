@@ -12,6 +12,12 @@ CREATE TABLE IF NOT EXISTS public.feature_catalog_bkp_rd100 (
   dados jsonb NOT NULL,
   bkp_em timestamptz NOT NULL DEFAULT now()
 );
+-- Isolamento (critério 1 / RD-97): o backup não pode nascer mais exposto que a fonte.
+-- feature_catalog tem RLS on e anon bloqueado; o backup (só tocado por migration/service_role,
+-- que não passa por RLS nem precisa de grant) fica igual ao blueprint_tela_requisito_bkp_rd100.
+ALTER TABLE public.feature_catalog_bkp_rd100 ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.feature_catalog_bkp_rd100 FROM anon, authenticated;
+
 INSERT INTO public.feature_catalog_bkp_rd100 (id, dados)
 SELECT f.id, to_jsonb(f)
 FROM public.feature_catalog f
