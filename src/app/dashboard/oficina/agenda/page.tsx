@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { orFiltroClienteBusca } from '@/lib/clienteBusca'
 import { diasParaImpressao, mecanicosDoPeriodo, nomeMecanico } from '@/lib/agenda/impressao'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A', AMBAR = '#B45309', VERM = '#B91C1C'
 const iso = (d: Date) => d.toISOString().slice(0, 10)
@@ -125,8 +126,9 @@ export default function OficinaAgendaPage() {
 
         {/* controles */}
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', margin: '12px 0' }}>
-          <div style={{ display: 'flex', gap: 4 }}>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
             {(['dia', 'semana'] as const).map((m) => <button key={m} onClick={() => setModo(m)} style={{ ...tabBtn, ...(modo === m ? tabOn : {}) }}>{m === 'dia' ? 'Dia' : 'Semana'}</button>)}
+            <AjudaCampo chave="oficina.agenda.visao" />
           </div>
           <button onClick={() => setRef((d) => somaDias(d, modo === 'dia' ? -1 : -7))} style={btnGhost}>←</button>
           <button onClick={() => setRef(new Date())} style={btnGhost}>Hoje</button>
@@ -140,7 +142,9 @@ export default function OficinaAgendaPage() {
               <option value="">Todos os mecânicos</option>
               {mecanicosDoPeriodo(ags).map((m) => <option key={m} value={m}>{m}</option>)}
             </select>
+            <AjudaCampo chave="oficina.agenda.mecanico_imprimir" />
             <button onClick={() => window.print()} disabled={loading || !!erro} data-testid="agenda-imprimir" style={btnGhost}>🖨 Imprimir {modo === 'dia' ? 'o dia' : 'a semana'}</button>
+            <AjudaCampo chave="oficina.agenda.imprimir" />
           </span>
         </div>
 
