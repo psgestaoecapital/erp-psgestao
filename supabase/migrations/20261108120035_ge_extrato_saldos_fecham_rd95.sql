@@ -120,6 +120,12 @@ BEGIN
 END;
 $function$;
 
+-- Guarda da SECURITY DEFINER (check_fn_guards): explicita o REVOKE de PUBLIC/anon + GRANT.
+-- Os grants vivos já são só authenticated/service_role/postgres; isto apenas os torna explícitos
+-- na migration (nenhuma ACL muda na prática), para o gate obrigatório passar.
+REVOKE ALL ON FUNCTION public.fn_ge_extrato_conta(uuid, uuid, date, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ge_extrato_conta(uuid, uuid, date, date) TO authenticated, service_role;
+
 -- 2) RD-95: "?" (AjudaCampo) em filtros, KPIs e colunas do Extrato. Texto do banco, aditivo, idempotente.
 INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
 SELECT v.chave, v.grupo, v.rotulo, v.o_que, v.para_que, v.exemplo, v.erro, v.ordem, '/dashboard/financeiro/extrato', 'gestao_empresarial', 'publicado'
