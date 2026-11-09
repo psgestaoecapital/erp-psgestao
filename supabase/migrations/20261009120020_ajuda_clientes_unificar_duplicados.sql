@@ -1,0 +1,35 @@
+-- Carteira Gean (caixa jordana-code 3352399e, item 3): ajuda de campo ("?", RD-95) da tela "CNPJ/CPF repetido" do
+-- cadastro de clientes (unificar cadastros com o mesmo documento — funções da #2302). Só texto novo; nada é alterado.
+INSERT INTO public.erp_ajuda_campo (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem)
+VALUES
+  ('cadastros.clientes.duplicados', '/dashboard/cadastros/clientes', 'CNPJ/CPF repetido', 'Cadastros com o mesmo CNPJ/CPF',
+   'Abra para ver os clientes cadastrados mais de uma vez com o mesmo CNPJ ou CPF nesta empresa (vale com ou sem pontuação, ativos e inativos).',
+   'Cadastro repetido espalha títulos e OS em dois clientes e faz a nota fiscal pegar o endereço errado. Unificar junta tudo num só.',
+   'FC Pisos cadastrada duas vezes: uma vinda do Omie, outra digitada à mão.',
+   'Inativar o repetido na mão: os títulos e OS antigos continuam presos a ele.', 950),
+  ('cadastros.clientes.unificar_principal', '/dashboard/cadastros/clientes', 'CNPJ/CPF repetido', 'Cadastro principal',
+   'Marque o cadastro que vai ficar. O sistema já sugere o ativo, com endereço e código IBGE completos.',
+   'Tudo o que hoje aponta para o outro cadastro (títulos, OS, orçamentos, contratos, agenda) passa a apontar para este.',
+   'Fica o cadastro ativo com endereço completo; sai o inativo sem endereço.',
+   'Escolher como principal o cadastro sem endereço: a nota fiscal continua sem o município do tomador.', 951),
+  ('cadastros.clientes.unificar_duplicado', '/dashboard/cadastros/clientes', 'CNPJ/CPF repetido', 'Cadastro a unificar agora',
+   'Quando há mais de dois cadastros com o mesmo documento, escolha qual juntar ao principal agora. Repita para os outros.',
+   'A unificação é feita um par por vez, para a prévia mostrar exatamente o que muda.',
+   'Três cadastros da mesma empresa: junte o 2º, depois o 3º.',
+   'Achar que os três foram unificados de uma vez: confira a lista depois de cada um.', 952),
+  ('cadastros.clientes.unificar_motivo', '/dashboard/cadastros/clientes', 'CNPJ/CPF repetido', 'Motivo',
+   'Opcional. Escreva em poucas palavras por que os cadastros foram juntados.',
+   'Fica no registro de auditoria da unificação, junto com quem fez, quando e o que foi movido.',
+   'Cadastro antigo do Omie repetido.',
+   'Colocar dado pessoal ou senha aqui: o motivo fica guardado no histórico.', 953),
+  ('cadastros.clientes.unificar_previa', '/dashboard/cadastros/clientes', 'CNPJ/CPF repetido', 'Ver o que vai mudar',
+   'Clique antes de unificar: mostra quantos títulos, OS, orçamentos e outros registros vão passar para o principal.',
+   'É a conferência. Nada é gravado neste passo.',
+   '10 títulos a receber e 5 ordens de serviço.',
+   'Pular a conferência: o botão Unificar só libera depois dela.', 954),
+  ('cadastros.clientes.unificar_confirmar', '/dashboard/cadastros/clientes', 'CNPJ/CPF repetido', 'Unificar',
+   'Confirma a junção: move os registros mostrados na prévia e inativa o cadastro repetido.',
+   'Valor, vencimento, status e baixa dos títulos não mudam; nota fiscal já emitida não é tocada. Fica registro de auditoria.',
+   'Depois de unificar, a FC Pisos aparece uma vez só na lista e na emissão da nota.',
+   'Unificar no ERP um cliente que ainda sincroniza com o Omie: o sistema recusa — junte primeiro no Omie.', 955)
+ON CONFLICT (chave) DO NOTHING;
