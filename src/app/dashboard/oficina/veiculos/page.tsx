@@ -189,6 +189,11 @@ export default function VeiculosPage() {
           <button onClick={() => void buscar()} disabled={carregando} style={{ ...btnGold, minWidth: 52 }}><Search size={18} /></button>
         </div>
 
+        {lista.length > 0 && (
+          <div style={{ fontSize: 11, color: ESP60, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 4, lineHeight: 1.5 }}>
+            Cada card mostra a placa, as passagens, o veículo, o cliente e o último KM — toque para ver o histórico completo.<AjudaCampo chave="oficina.veiculos.lista" />
+          </div>
+        )}
         {lista.length === 0 && (
           <div style={{ color: ESP60, fontSize: 14, padding: '20px 0', lineHeight: 1.5 }}>
             {carregando ? 'Buscando…' : (termo.trim()
