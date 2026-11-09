@@ -1,7 +1,7 @@
 // Visita → Orçamento direto da lista de visitas (PDCA /dashboard/projetos/visitas, auditor 24/10: "ligar Abrir
 // orçamento a partir da visita realizada"). Mesma regra da ficha da oportunidade (gerarOrcamentoDaVisita):
 // - a oportunidade já tem orçamento → só vincula a visita a ele (nada é criado);
-// - não tem → cria o orçamento em rascunho (número da empresa, cliente da oportunidade, validade 15 dias),
+// - não tem → cria o orçamento em rascunho (número da empresa, cliente da oportunidade, validade = padrão da empresa),
 //   liga à oportunidade, avança a etapa para 'orcando' (só se ainda antes dela) e vincula a visita.
 // Tudo pelo cliente logado (RLS da empresa); a oportunidade é relida na hora para não usar dado velho da lista.
 import { supabase } from '@/lib/supabase'
@@ -32,7 +32,12 @@ export async function gerarOrcamentoDaVisita(visitaId: string, oportunidadeId: s
     const { data: num, error: numErr } = await supabase.rpc('next_orcamento_numero', { p_company_id: op.company_id })
     if (numErr) return { ok: false, erro: erroAmigavel(numErr) }
     const hoje = new Date().toISOString().slice(0, 10)
-    const valid = new Date(); valid.setDate(valid.getDate() + 15)
+    // Validade segue o padrão configurado da empresa (orcamento_config_empresa.validade_dias),
+    // não um fixo de 15 dias — mesma regra do editor e da ficha da oportunidade (#4017/#4018).
+    // Orçamento aberto da visita nascia com 15 dias mesmo quando a empresa configurou outro N (ex.: Tryo=5).
+    const { data: cfgVal } = await supabase.from('orcamento_config_empresa').select('validade_dias').eq('company_id', op.company_id).maybeSingle()
+    const validadeDias = cfgVal?.validade_dias || 15
+    const valid = new Date(); valid.setDate(valid.getDate() + validadeDias)
     const { data: orc, error: oErr } = await supabase
       .from('erp_orcamentos')
       .insert({

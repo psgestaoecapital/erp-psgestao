@@ -4,6 +4,7 @@
 // Lê só a fn_ge_resultado_por_negocio (porta com login + empresa do usuário). As regras ficam em Centros de Custo:
 // linha de negócio da receita > centro de custo do lançamento > texto > conta; o comum é rateado pela receita.
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useEmpresaSelecionada } from '@/lib/agro/usePecuaria'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
@@ -39,6 +40,7 @@ const NOME_LINHA: Record<string, string> = {
 }
 
 export default function ResultadoPorNegocioPage() {
+  const router = useRouter()
   const { companyId } = useEmpresaSelecionada()
   const empresa = companyId && !companyId.startsWith('group_') && companyId !== 'consolidado' ? companyId : null
   const [ini, setIni] = useState(`${hoje.getFullYear()}-01`)
@@ -97,6 +99,25 @@ export default function ResultadoPorNegocioPage() {
 
       {dados && (
         <>
+          {dados.negocios.length === 0 ? (
+            /* estado vazio: nenhum lançamento tem linha de negócio/centro de custo — orienta a mapear */
+            <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: '28px 24px', marginBottom: 18, textAlign: 'center' }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: ESP, marginBottom: 6 }}>Ainda não dá para dividir o resultado por negócio</div>
+              <div style={{ fontSize: 13.5, color: ESP60, lineHeight: 1.55, maxWidth: 520, margin: '0 auto 16px' }}>
+                Os lançamentos do período não têm <strong>linha de negócio</strong> nem <strong>centro de custo</strong>, então
+                tudo cai em “Sem negócio” e não há colunas por negócio para comparar. Defina as regras (linha de negócio da
+                receita · centro de custo · texto · conta) nos Centros de Custo para ver cada negócio lado a lado.
+              </div>
+              <button
+                type="button"
+                onClick={() => router.push('/dashboard/gestao-empresarial/centros-custo')}
+                style={{ background: 'transparent', color: GOLD, border: `1px solid ${GOLD}`, padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+              >
+                Mapear centros de custo →
+              </button>
+            </div>
+          ) : (
+          <>
           {/* cartões por negócio */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14, marginBottom: 18 }}>
             {dados.negocios.map((n) => (
@@ -139,6 +160,8 @@ export default function ResultadoPorNegocioPage() {
               </tbody>
             </table>
           </div>
+          </>
+          )}
 
           {/* totais e o que fica fora */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 18 }}>

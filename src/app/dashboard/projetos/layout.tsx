@@ -24,6 +24,7 @@ import {
   Gauge,
   Calculator,
   Route,
+  Truck,
   type LucideIcon,
 } from "lucide-react";
 
@@ -56,6 +57,7 @@ const EXECUCAO: Tab[] = [
   { href: "/dashboard/projetos/obras/resultado", label: "Resultado",      icon: BarChart3,    key: "0" },
   { href: "/dashboard/projetos/cockpit",         label: "Cockpit",        icon: Gauge,        key: "" },
   { href: "/dashboard/projetos/viagens",         label: "Viagens",        icon: Route,        key: "" },
+  { href: "/dashboard/projetos/frota",           label: "Frota",          icon: Truck,        key: "" },
 ];
 
 const CONFIG: Tab = {
