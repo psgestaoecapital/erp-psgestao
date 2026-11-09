@@ -2,6 +2,10 @@
 
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+// RD-95: chaves ge.contas_bancarias.form.* cadastradas na rota canônica (o formulário abre dentro dela).
+const ROTA_AJUDA = '/dashboard/cadastros/contas-bancarias'
 
 const TIPOS = [
   { value: 'corrente', label: 'Conta Corrente', icone: '🏦' },
@@ -205,11 +209,11 @@ export default function ContasBancariasForm({ companyId, conta, contas = [], onC
             </div>
           )}
 
-          <Campo label="Nome / Apelido *" hint="Como você vai identificar essa conta no dia-a-dia">
+          <Campo ajuda="ge.contas_bancarias.form.nome" label="Nome / Apelido *" hint="Como você vai identificar essa conta no dia-a-dia">
             <input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="BB Principal · Caixinha Reserva" style={inputStyle} />
           </Campo>
 
-          <Campo label="Tipo *">
+          <Campo ajuda="ge.contas_bancarias.form.tipo" label="Tipo *">
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 6 }}>
               {TIPOS.map((t) => {
                 const ativo = tipoConta === t.value
@@ -240,29 +244,29 @@ export default function ContasBancariasForm({ companyId, conta, contas = [], onC
             </div>
           </Campo>
 
-          <Campo label="Banco" hint="Opcional · ex: '001 - Banco do Brasil'">
+          <Campo ajuda="ge.contas_bancarias.form.banco" label="Banco" hint="Opcional · ex: '001 - Banco do Brasil'">
             <input value={banco} onChange={(e) => setBanco(e.target.value)} style={inputStyle} />
           </Campo>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12 }}>
-            <Campo label="Agência">
+            <Campo ajuda="ge.contas_bancarias.form.agencia" label="Agência">
               <input value={agencia} onChange={(e) => setAgencia(e.target.value)} style={inputStyle} />
             </Campo>
-            <Campo label="Conta">
+            <Campo ajuda="ge.contas_bancarias.form.conta" label="Conta">
               <input value={contaNumero} onChange={(e) => setContaNumero(e.target.value)} style={inputStyle} />
             </Campo>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 12 }}>
-            <Campo label="Saldo inicial (R$)">
+            <Campo ajuda="ge.contas_bancarias.form.saldo_inicial" label="Saldo inicial (R$)">
               <input type="number" step="0.01" value={saldoInicial} onChange={(e) => setSaldoInicial(e.target.value)} style={inputStyle} />
             </Campo>
-            <Campo label="Data do saldo">
+            <Campo ajuda="ge.contas_bancarias.form.data_saldo" label="Data do saldo">
               <input type="date" value={dataSaldoInicial} onChange={(e) => setDataSaldoInicial(e.target.value)} style={inputStyle} />
             </Campo>
           </div>
 
-          <Campo label="Limite de crédito (R$)" hint="Cartão de crédito ou cheque especial · zero se não houver">
+          <Campo ajuda="ge.contas_bancarias.form.limite_credito" label="Limite de crédito (R$)" hint="Cartão de crédito ou cheque especial · zero se não houver">
             <input type="number" step="0.01" min="0" value={limiteCredito} onChange={(e) => setLimiteCredito(e.target.value)} style={inputStyle} />
           </Campo>
 
@@ -272,7 +276,7 @@ export default function ContasBancariasForm({ companyId, conta, contas = [], onC
                 💳 Cartão de crédito
               </div>
 
-              <Campo label="Conta corrente vinculada" hint="A fatura deste cartão debita desta conta">
+              <Campo ajuda="ge.contas_bancarias.form.cc_vinculada" label="Conta corrente vinculada" hint="A fatura deste cartão debita desta conta">
                 <select value={ccVinculada} onChange={(e) => setCcVinculada(e.target.value)} style={inputStyle}>
                   <option value="">— selecionar —</option>
                   {contasCorrentes.map((c) => (
@@ -289,7 +293,7 @@ export default function ContasBancariasForm({ companyId, conta, contas = [], onC
               </Campo>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <Campo label="Dia de fechamento" hint="Dia 1–31 em que a fatura fecha">
+                <Campo ajuda="ge.contas_bancarias.form.dia_fechamento" label="Dia de fechamento" hint="Dia 1–31 em que a fatura fecha">
                   <input
                     type="number" min="1" max="31" inputMode="numeric"
                     value={diaFechamento}
@@ -301,7 +305,7 @@ export default function ContasBancariasForm({ companyId, conta, contas = [], onC
                     style={inputStyle}
                   />
                 </Campo>
-                <Campo label="Dia de vencimento" hint="Dia 1–31 em que a fatura vence">
+                <Campo ajuda="ge.contas_bancarias.form.dia_vencimento" label="Dia de vencimento" hint="Dia 1–31 em que a fatura vence">
                   <input
                     type="number" min="1" max="31" inputMode="numeric"
                     value={diaVencimento}
@@ -315,7 +319,7 @@ export default function ContasBancariasForm({ companyId, conta, contas = [], onC
                 </Campo>
               </div>
 
-              <Campo label="Número do cartão (final)" hint="Só os 4 últimos dígitos, pra identificar (ex.: 'MasterCard final 1234')">
+              <Campo ajuda="ge.contas_bancarias.form.cartao_final" label="Número do cartão (final)" hint="Só os 4 últimos dígitos, pra identificar (ex.: 'MasterCard final 1234')">
                 <input
                   inputMode="numeric"
                   value={cartaoFinal}
@@ -331,7 +335,7 @@ export default function ContasBancariasForm({ companyId, conta, contas = [], onC
             </div>
           )}
 
-          <Campo label="Cor identificadora">
+          <Campo ajuda="ge.contas_bancarias.form.cor" label="Cor identificadora">
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {CORES_SUGERIDAS.map((c) => (
                 <button
@@ -357,7 +361,7 @@ export default function ContasBancariasForm({ companyId, conta, contas = [], onC
             <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
               <input type="checkbox" checked={somaNoSaldo} onChange={(e) => setSomaNoSaldo(e.target.checked)} style={{ width: 18, height: 18, accentColor: '#C8941A' }} />
               <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#3D2314' }}>Somar no saldo consolidado</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#3D2314', display: 'flex', alignItems: 'center' }}>Somar no saldo consolidado<AjudaCampo chave="ge.contas_bancarias.form.soma_saldo" rota={ROTA_AJUDA} /></div>
                 <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.6)' }}>
                   Marque para contas operacionais. Desmarque para cartões de crédito ou investimentos que você quer ver separado.
                 </div>
@@ -372,21 +376,21 @@ export default function ContasBancariasForm({ companyId, conta, contas = [], onC
             <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '6px 0' }}>
               <input type="checkbox" checked={incluirResumo} onChange={(e) => setIncluirResumo(e.target.checked)} style={{ width: 16, height: 16, accentColor: '#C8941A' }} />
               <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#3D2314' }}>Incluir no Resumo</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#3D2314', display: 'flex', alignItems: 'center' }}>Incluir no Resumo<AjudaCampo chave="ge.contas_bancarias.form.incluir_resumo" rota={ROTA_AJUDA} /></div>
                 <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.6)' }}>Aparece no saldo total do hub</div>
               </div>
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '6px 0' }}>
               <input type="checkbox" checked={incluirFluxo} onChange={(e) => setIncluirFluxo(e.target.checked)} style={{ width: 16, height: 16, accentColor: '#C8941A' }} />
               <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#3D2314' }}>Incluir no Fluxo de Caixa</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#3D2314', display: 'flex', alignItems: 'center' }}>Incluir no Fluxo de Caixa<AjudaCampo chave="ge.contas_bancarias.form.incluir_fluxo" rota={ROTA_AJUDA} /></div>
                 <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.6)' }}>Movimentos somam na visão diária</div>
               </div>
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '6px 0' }}>
               <input type="checkbox" checked={incluirOrcamento} onChange={(e) => setIncluirOrcamento(e.target.checked)} style={{ width: 16, height: 16, accentColor: '#C8941A' }} />
               <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#3D2314' }}>Incluir no Orçamento</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#3D2314', display: 'flex', alignItems: 'center' }}>Incluir no Orçamento<AjudaCampo chave="ge.contas_bancarias.form.incluir_orcamento" rota={ROTA_AJUDA} /></div>
                 <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.6)' }}>Lançamentos entram no Budget Anual</div>
               </div>
             </label>
@@ -416,11 +420,12 @@ export default function ContasBancariasForm({ companyId, conta, contas = [], onC
   )
 }
 
-function Campo({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+function Campo({ label, hint, ajuda, children }: { label: string; hint?: string; ajuda?: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 14 }}>
-      <label style={{ display: 'block', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>
+      <label style={{ display: 'flex', alignItems: 'center', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>
         {label}
+        {ajuda && <AjudaCampo chave={ajuda} rota={ROTA_AJUDA} />}
       </label>
       {children}
       {hint && <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.5)', marginTop: 4 }}>{hint}</div>}
