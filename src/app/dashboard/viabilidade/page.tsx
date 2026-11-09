@@ -215,6 +215,34 @@ Dados do arquivo: ${fileData.substring(0,2000)}`;
               ✏️ Descrever Projeto Manualmente
             </button>
           </div>
+
+          {/* Prévia do relatório — orienta o usuário antes do upload (RD-98 p1: tela não é só caixa de entrada) */}
+          <div style={{background:BG2,borderRadius:14,padding:20,border:`1px solid ${BD}`,marginTop:24}}>
+            <div style={{fontSize:13,fontWeight:700,color:TX,marginBottom:4}}>O que você vai receber</div>
+            <div style={{fontSize:11,color:TXM,marginBottom:14}}>Ao enviar o projeto, a IA devolve um laudo de viabilidade com estes blocos:</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginBottom:16}}>
+              {[
+                {i:"✅",t:"Veredito",d:"Viável ou inviável, com justificativa"},
+                {i:"🎯",t:"Score /100",d:"Nota de viabilidade do projeto"},
+                {i:"📈",t:"Margem & ROI",d:"Margem projetada, retorno anual e payback"},
+                {i:"💰",t:"Investimento",d:"Aporte estimado para iniciar"},
+                {i:"💪",t:"Pontos fortes",d:"O que joga a favor do projeto"},
+                {i:"⚠️",t:"Riscos & sugestões",d:"O que observar e como melhorar os números"},
+              ].map((b,i)=>(
+                <div key={i} style={{background:BG3,borderRadius:10,padding:"10px 12px",border:`1px solid ${BD}`}}>
+                  <div style={{fontSize:16,marginBottom:4}}>{b.i}</div>
+                  <div style={{fontSize:12,fontWeight:700,color:TX,marginBottom:2}}>{b.t}</div>
+                  <div style={{fontSize:10,color:TXM,lineHeight:1.4}}>{b.d}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{display:"flex",gap:8,alignItems:"flex-start",flexWrap:"wrap",fontSize:11,color:TXD}}>
+              <span style={{fontWeight:700,color:TXM}}>Como funciona:</span>
+              <span>1. Envie um arquivo ou descreva o projeto</span>
+              <span>→ 2. A IA analisa custos e receitas</span>
+              <span>→ 3. Você recebe o laudo em segundos</span>
+            </div>
+          </div>
         </div>
       )}
 
