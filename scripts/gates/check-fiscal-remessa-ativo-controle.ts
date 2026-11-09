@@ -39,8 +39,10 @@ ok(!/\b(custo|margem|preco_custo|preço de custo)\b/i.test(sql.split('CREATE TAB
 ok(!/\b(DROP TABLE|TRUNCATE)\b/i.test(sql), 'não há DROP/TRUNCATE de tabela')
 ok(!/\bDELETE FROM public\.erp_nfe_emitidas\b/i.test(sql), 'não apaga nota emitida de cliente')
 
-// Seed só em empresa DEMO
-ok(/is_demo = true/.test(sql), 'seed restrito a empresa DEMO (is_demo = true)')
+// Seed: REMOVIDO de propósito (conserto-main, gilberto-esteira 07/11). O guard fiscal fn_bloqueia_emissao_nao_produtiva
+// barra NF-e emitida em empresa DEMO/auditoria e o seed derrubava o deploy-migrations. Regra (mais forte que a antiga
+// "seed só em DEMO"): a migration não semeia NF-e emitida em empresa nenhuma.
+ok(!/INSERT INTO public\.erp_nfe_emitidas/i.test(sqlSemComentarios), 'migration não semeia NF-e emitida (guard fiscal barra DEMO; derrubava o deploy)')
 
 // Ajuda RD-95 das novas chaves
 ok(/erp_ajuda_campo/.test(sql) && /fiscal\.remessa_ativo\.painel/.test(sql), 'ajuda RD-95 das chaves do controle')
