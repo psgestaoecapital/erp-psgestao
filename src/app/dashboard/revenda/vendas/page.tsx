@@ -286,6 +286,7 @@ function Inner() {
                   {v.recebido > 0 ? <span>recebido <b style={{ color: C.green }}>{brl(v.recebido)}</b></span> : null}
                   {v.retorno_banco ? <span>retorno banco {brl(v.retorno_banco)}</span> : null}
                   {v.desconto_embutido_troca ? <span style={{ color: C.amber }} title="valor de troca − valor de avaliação">desconto embutido na troca {brl(v.desconto_embutido_troca)}</span> : null}
+                  {(v.retorno_banco || v.desconto_embutido_troca) ? <AjudaCampo chave="revenda.vendas.financiamento" rota="/dashboard/revenda/vendas" /> : null}
                   <AjudaCampo chave="revenda.vendas.em_aberto" rota="/dashboard/revenda/vendas" />
                 </div>
 
