@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { RespostaInline } from '@/components/melhorias/RespostaInline'
 import ConversaChamado from '@/components/melhorias/ConversaChamado'
 import { estadoFila, carregarFila, contarPrecisaDeMim, rascunhoNaoEnviado, RASCUNHO_NAO_ENVIADO, filtrarBusca, carregarEmpresasDemo, semDemos, filtrarVisao, trava, type EstadoFila, type Visao } from '@/lib/sugestoes/filaAtendimento'
@@ -247,6 +248,7 @@ function Inner() {
 
       {/* VISÃO (Chamados em equipe): onde o chamado caiu. A carteira define para onde cai, não quem pode atender. */}
       <div data-testid="fila-visoes" style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        <AjudaCampo chave="atendimento.visao" />
         {([['meus', '👤 Meus chamados', contVisao.meus], ['todos', '👥 Todos', contVisao.todos], ['sem_dono', '⚠️ Sem dono', contVisao.sem_dono]] as [Visao, string, number][]).map(([k, label, n]) => (
           <button key={k} type="button" data-testid={`visao-${k}`} onClick={() => setVisao(k)}
             style={{ padding: '6px 12px', borderRadius: 999, border: `1px solid ${visao === k ? C.esp : C.border}`, background: visao === k ? C.esp : C.white, color: visao === k ? '#fff' : (k === 'sem_dono' && n ? C.red : C.esp), fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>
@@ -254,15 +256,16 @@ function Inner() {
           </button>
         ))}
         {visao === 'todos' && (
-          <select data-testid="fila-filtro-responsavel" value={fResp} onChange={(e) => setFResp(e.target.value)} style={inp}>
+          <><select data-testid="fila-filtro-responsavel" value={fResp} onChange={(e) => setFResp(e.target.value)} style={inp}>
             <option value="todos">todos os responsáveis</option>
             {equipe.filter((p) => p.papel !== 'suporte').map((p) => <option key={p.user_id} value={p.user_id}>{p.nome}</option>)}
-          </select>
+          </select><AjudaCampo chave="atendimento.filtro_responsavel" /></>
         )}
       </div>
 
       {/* ABAS por estado — "quem trabalha" vê só o que é dela; entregue (aguardando o autor) sai da fila. */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 14, flexWrap: 'wrap', borderBottom: `1px solid ${C.border}` }}>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 14, flexWrap: 'wrap', borderBottom: `1px solid ${C.border}`, alignItems: 'center' }}>
+        <AjudaCampo chave="atendimento.abas" />
         {([
           ['precisa_mim', '⏳ Precisa de mim', cont.precisa],
           ['em_curso', '🔵 Em curso', cont.emCurso],
@@ -280,16 +283,36 @@ function Inner() {
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 12 }} onClick={() => setErro(null)}>{erro}</div>}
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-        <input data-testid="fila-busca" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="buscar nº (#14) ou título — varre todas as abas" style={{ ...inp, minWidth: 220 }} />
-        <select value={fEmpresa} onChange={(e) => setFEmpresa(e.target.value)} style={inp}><option value="todas">todas empresas</option>{empresas.map((e) => <option key={e} value={e}>{e}</option>)}</select>
-        <select value={fCategoria} onChange={(e) => setFCategoria(e.target.value)} style={inp}><option value="todas">toda categoria</option>{['bug', 'melhoria', 'duvida', 'erro_dado'].map((c) => <option key={c} value={c}>{c}</option>)}</select>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><input data-testid="fila-busca" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="buscar nº (#14) ou título — varre todas as abas" style={{ ...inp, minWidth: 220 }} /><AjudaCampo chave="atendimento.busca" /></span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><select value={fEmpresa} onChange={(e) => setFEmpresa(e.target.value)} style={inp}><option value="todas">todas empresas</option>{empresas.map((e) => <option key={e} value={e}>{e}</option>)}</select><AjudaCampo chave="atendimento.filtro_empresa" /></span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><select value={fCategoria} onChange={(e) => setFCategoria(e.target.value)} style={inp}><option value="todas">toda categoria</option>{['bug', 'melhoria', 'duvida', 'erro_dado'].map((c) => <option key={c} value={c}>{c}</option>)}</select><AjudaCampo chave="atendimento.filtro_categoria" /></span>
         <label data-testid="fila-mostrar-demos" style={{ fontSize: 12, color: C.espM, alignSelf: 'center', display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}>
           <input type="checkbox" checked={mostrarDemos} onChange={(e) => setMostrarDemos(e.target.checked)} /> mostrar demos{nDemos && !mostrarDemos ? ` (${nDemos} ocultos)` : ''}
         </label>
         <span style={{ fontSize: 12, color: C.espM, alignSelf: 'center' }}>{buscaLimpa ? `${visiveis.length} encontrado(s)` : `${visiveis.length} nesta aba`}</span>
       </div>
 
-      {visiveis.length === 0 ? <div style={{ background: C.white, border: `1px dashed ${C.border}`, borderRadius: 12, padding: '30px 16px', textAlign: 'center', color: C.espM }}>Fila vazia.</div> : (
+      {visiveis.length === 0 ? <div style={{ background: C.white, border: `1px dashed ${C.border}`, borderRadius: 12, padding: '30px 16px', textAlign: 'center', color: C.espM }}>
+        <div style={{ fontSize: 28, marginBottom: 6 }}>{buscaLimpa ? '🔎' : aba === 'precisa_mim' ? '✅' : '📭'}</div>
+        <div style={{ fontWeight: 700, color: C.esp, marginBottom: 4 }}>{
+          buscaLimpa ? 'Nada encontrado para esta busca'
+          : aba === 'precisa_mim' ? 'Nada precisa de você agora'
+          : aba === 'em_curso' ? 'Nenhum chamado em curso'
+          : aba === 'sem_confirmacao' ? 'Nenhum chamado aguardando o autor'
+          : aba === 'terminal' ? 'Nenhum chamado concluído ainda'
+          : 'Fila vazia'
+        }</div>
+        <div style={{ fontSize: 12.5, marginBottom: 14 }}>{
+          buscaLimpa ? 'Tente outro número ou título, ou limpe a busca.'
+          : aba === 'precisa_mim' ? 'Tudo em dia por aqui. Veja a fila completa em "Todos" ou olhe o que está em curso.'
+          : 'Nada nesta aba agora. Veja a fila completa em "Todos".'
+        }</div>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+          {buscaLimpa
+            ? <button type="button" onClick={() => setBusca('')} style={{ padding: '8px 16px', borderRadius: 8, border: `1px solid ${C.border}`, background: C.white, color: C.esp, fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Limpar busca</button>
+            : <button type="button" onClick={() => { setVisao('todos'); setAba('precisa_mim') }} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: C.esp, color: '#fff', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Ver todos os chamados</button>}
+        </div>
+      </div> : (
         <div style={{ display: 'grid', gap: 10 }}>
           {visiveis.map((it) => {
             const ia = it.ia_analise as Record<string, string> | null
