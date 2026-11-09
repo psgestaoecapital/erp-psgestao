@@ -188,21 +188,22 @@ function AcaoModal({ ctx, onClose, onFeito }: { ctx: { contrato: Contrato; tipo:
   async function confirmar() {
     setMsg(null); setBusy(true)
     try {
-      let res: { ok?: boolean; erro?: string; mensagem?: string } | null = null
+      type RpcResp = { ok?: boolean; erro?: string; mensagem?: string }
+      let res: RpcResp | null = null
       let erro: string | null = null
       if (modo === 'editar') {
         if (!(valorNum > 0)) { setMsg('Informe o valor mensal (maior que zero).'); setBusy(false); return }
         const patch: Record<string, unknown> = { nome: nome.trim() || null, valor_mensal: valorNum, valor_atual: valorNum, periodicidade }
         const { data, error } = await supabase.rpc('fn_contrato_editar', { p_id: c.id, p_patch: patch })
-        res = data as typeof res; erro = error?.message ?? null
+        res = (data as RpcResp) ?? null; erro = error?.message ?? null
       } else if (modo === 'encerrar') {
         if (!motivo.trim()) { setMsg('Informe o motivo do encerramento.'); setBusy(false); return }
         const { data, error } = await supabase.rpc('fn_contrato_encerrar', { p_id: c.id, p_motivo: motivo.trim() })
-        res = data as typeof res; erro = error?.message ?? null
+        res = (data as RpcResp) ?? null; erro = error?.message ?? null
       } else {
         if (!motivo.trim()) { setMsg('Informe o motivo da exclusão.'); setBusy(false); return }
         const { data, error } = await supabase.rpc('fn_contrato_excluir', { p_id: c.id, p_motivo: motivo.trim() })
-        res = data as typeof res; erro = error?.message ?? null
+        res = (data as RpcResp) ?? null; erro = error?.message ?? null
       }
       if (erro || !res?.ok) { setMsg((erro ?? res?.erro) || 'Não foi possível concluir a ação.'); return }
       onFeito()
@@ -343,7 +344,7 @@ function WizardModal({ empresa, onClose, onCriado }: { empresa: string; onClose:
     setBusy(true)
     try {
       const campos = {
-        company_id: empresa, natureza, modo: 'servico',
+        company_id: empresa, natureza, tipo: 'servico',
         cliente_id: clienteId, cliente_nome: clienteNome || cliTermo, cliente_cnpj: clienteCnpj,
         nome: nome || `Recorrência · ${clienteNome || cliTermo}`, descricao,
         valor_mensal: valorNum, data_inicio: dataInicio, data_fim: dataFim || null,
