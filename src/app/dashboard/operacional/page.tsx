@@ -3,7 +3,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
-const C={bg:'#0F0F0F',card:'#1A1410',card2:'#1E1E1B',border:'#2A2822',gold:'#C8941A',goldL:'#E8C872',text:'#FAF7F2',muted:'#B0AB9F',dim:'#918C82',green:'#22C55E',red:'#EF4444',blue:'#3B82F6',yellow:'#F59E0B',purple:'#8B5CF6'}
+// Design system PS claro (RD-96): espresso/off-white/dourado. Status escurecidos p/ contraste no claro.
+const C={bg:'#FAF7F2',card:'#FFFFFF',card2:'#F5F2EB',border:'#E7DECF',gold:'#C8941A',goldL:'#9A6B10',text:'#3D2314',muted:'rgba(61,35,20,0.62)',dim:'rgba(61,35,20,0.45)',green:'#2E7D46',red:'#C44536',blue:'#2563EB',yellow:'#A77A06',purple:'#7C3AED'}
 const STATUS_COLORS:Record<string,string>={PAGO:C.green,RECEBIDO:C.green,'A VENCER':C.yellow,VENCIDO:C.red,CANCELADO:C.dim}
 const fmtVal=(v:number)=>`R$ ${v.toLocaleString('pt-BR',{minimumFractionDigits:2})}`
 const today=()=>{const d=new Date();return`${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`}
@@ -365,7 +366,7 @@ export default function OperacionalPage(){
       <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
         <button onClick={()=>{setEditId(null);setFormL({...emptyLanc,tipo:tab==='pagar'?'pagar':'receber'});setCatSearch('');setShowForm(!showForm)}} style={{
           padding:'10px 18px',borderRadius:8,fontWeight:700,fontSize:12,cursor:'pointer',border:'none',
-          background:tab==='receber'?`linear-gradient(135deg,${C.green},#10B981)`:`linear-gradient(135deg,${C.red},#DC2626)`,color:C.text
+          background:tab==='receber'?`linear-gradient(135deg,${C.green},#10B981)`:`linear-gradient(135deg,${C.red},#DC2626)`,color:'#fff'
         }}>+ {tab==='receber'?'Nova Conta a Receber':'Nova Conta a Pagar'}</button>
         <input value={filtro} onChange={e=>setFiltro(e.target.value)} placeholder="🔍 Buscar..." style={{...inp,flex:1,minWidth:180}}/>
         <select value={filtroStatus} onChange={e=>setFiltroStatus(e.target.value)} style={{...inp,width:'auto',cursor:'pointer'}}>
@@ -581,7 +582,7 @@ export default function OperacionalPage(){
              <div style={{fontSize:32,marginBottom:8}}>{tab==='receber'?'📥':'📤'}</div>
              <div style={{fontSize:14,color:C.gold,fontWeight:600,marginBottom:4}}>{(filtro||filtroStatus)?'Nenhum lançamento para os filtros':`Nenhuma conta a ${tab==='receber'?'receber':'pagar'} ainda`}</div>
              <div style={{fontSize:11,color:C.dim,marginBottom:14,maxWidth:360,marginLeft:'auto',marginRight:'auto',lineHeight:1.5}}>{(filtro||filtroStatus)?'Ajuste a busca ou o status para ver os lançamentos.':'Cadastre o primeiro lançamento ou importe do seu sistema anterior para ver valores, vencimentos e totais aqui.'}</div>
-             {!(filtro||filtroStatus)&&<button onClick={()=>{setEditId(null);setFormL({...emptyLanc,tipo:tab==='pagar'?'pagar':'receber'});setCatSearch('');setShowForm(true)}} style={{padding:'10px 18px',borderRadius:8,fontWeight:700,fontSize:12,cursor:'pointer',border:'none',background:tab==='receber'?`linear-gradient(135deg,${C.green},#10B981)`:`linear-gradient(135deg,${C.red},#DC2626)`,color:C.text}}>+ {tab==='receber'?'Nova Conta a Receber':'Nova Conta a Pagar'}</button>}
+             {!(filtro||filtroStatus)&&<button onClick={()=>{setEditId(null);setFormL({...emptyLanc,tipo:tab==='pagar'?'pagar':'receber'});setCatSearch('');setShowForm(true)}} style={{padding:'10px 18px',borderRadius:8,fontWeight:700,fontSize:12,cursor:'pointer',border:'none',background:tab==='receber'?`linear-gradient(135deg,${C.green},#10B981)`:`linear-gradient(135deg,${C.red},#DC2626)`,color:'#fff'}}>+ {tab==='receber'?'Nova Conta a Receber':'Nova Conta a Pagar'}</button>}
            </div>
          ):
         <table style={{width:'100%',borderCollapse:'collapse',fontSize:11,minWidth:900}}>
@@ -626,7 +627,7 @@ export default function OperacionalPage(){
       <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
         <button onClick={()=>{setEditId(null);setFormP(emptyPessoa);setShowForm(!showForm)}} style={{
           padding:'10px 18px',borderRadius:8,fontWeight:700,fontSize:12,cursor:'pointer',border:'none',
-          background:tab==='clientes'?`linear-gradient(135deg,${C.blue},#2563EB)`:`linear-gradient(135deg,${C.purple},#7C3AED)`,color:C.text
+          background:tab==='clientes'?`linear-gradient(135deg,${C.blue},#2563EB)`:`linear-gradient(135deg,${C.purple},#7C3AED)`,color:'#fff'
         }}>+ {tab==='clientes'?'Novo Cliente':'Novo Fornecedor'}</button>
         <input value={filtro} onChange={e=>setFiltro(e.target.value)} placeholder="🔍 Buscar..." style={{...inp,flex:1,minWidth:180}}/>
         <div style={{fontSize:11,color:C.dim}}>{filteredPessoas.length} cadastros</div>
@@ -868,7 +869,7 @@ export default function OperacionalPage(){
     </>)}
 
     <div style={{fontSize:9,color:C.dim,textAlign:'center',marginTop:16}}>
-      PS Gestão e Capital — Operacional | Date pickers · Parcelas · Formas de pagamento · Contas bancárias · Juros/Multa/Desconto · Integração Dashboard + BPO + Custeio
+      PS Gestão e Capital — Operacional · Parcelas · Formas de pagamento · Contas bancárias · Juros/Multa/Desconto · Integração Dashboard + BPO + Custeio
     </div>
   </div>)
 }
