@@ -27,6 +27,7 @@ type Cliente = {
   observacoes:string; observacoes_internas:string;
   ref_externa_sistema:string; ref_externa_id:string;
   ativo:boolean; bloqueado:boolean;
+  excluido_em:string|null;
   created_at:string; updated_at:string;
 };
 
@@ -54,14 +55,20 @@ export default function ClientesPage(){
     return companyIds[0] || "";
   },[sel, companyIds]);
 
+  // "🗑 Excluídos" troca o conjunto carregado (arquivados) — RD-98 p4: a lista normal nunca mostra excluídos.
+  const verExcluidos = filtroAtivo==="excluidos";
+
   useEffect(()=>{
     if(companyIds.length>0)loadClientes();
-  },[companyIds.join(",")]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[companyIds.join(","),verExcluidos]);
 
   const loadClientes=async()=>{
     if(companyIds.length===0){setLoading(false);return;}
     setLoading(true);
-    const{data,error}=await supabase.from("erp_clientes").select("*").in("company_id",companyIds).order("razao_social");
+    let q=supabase.from("erp_clientes").select("*").in("company_id",companyIds).order("razao_social");
+    q = verExcluidos ? q.not("excluido_em","is",null) : q.is("excluido_em",null);
+    const{data,error}=await q;
     if(data)setClientes(data);
     if(error&&!error.message.includes('does not exist'))setMsg("❌ "+erroAmigavel(error,"Não foi possível carregar os clientes. Tente de novo."));
     setLoading(false);
@@ -69,8 +76,23 @@ export default function ClientesPage(){
 
   const abrirEdicao=(c:Cliente)=>{setEditing(c);setShowForm(true);};
   const abrirNovo=()=>{setEditing(null);setShowForm(true);};
-  const toggleAtivo=async(c:Cliente)=>{await supabase.from("erp_clientes").update({ativo:!c.ativo}).eq("id",c.id);setClientes(clientes.map(x=>x.id===c.id?{...x,ativo:!x.ativo}:x));};
   const toggleBloqueado=async(c:Cliente)=>{await supabase.from("erp_clientes").update({bloqueado:!c.bloqueado}).eq("id",c.id);setClientes(clientes.map(x=>x.id===c.id?{...x,bloqueado:!x.bloqueado}:x));};
+  // RD-98 p2/p4 · Excluir (arquivar, soft-delete rastreável) e Restaurar — via RPC guardada, nunca DELETE físico.
+  const excluir=async(c:Cliente)=>{
+    if(typeof window!=="undefined"&&!window.confirm(`Excluir o cliente "${c.nome_fantasia||c.razao_social}"? Ele sai da lista ativa, mas o histórico é preservado e você pode restaurá-lo depois.`))return;
+    const{data,error}=await supabase.rpc("fn_cliente_arquivar",{p_id:c.id});
+    const r=data as {ok?:boolean;erro?:string}|null;
+    if(error||!r?.ok){setMsg("❌ "+(r?.erro||"Não foi possível excluir o cliente agora."));setTimeout(()=>setMsg(""),4000);return;}
+    setClientes(clientes.filter(x=>x.id!==c.id));
+    setMsg('✅ Cliente excluído. Ele fica em "🗑 Excluídos" e pode ser restaurado.');setTimeout(()=>setMsg(""),4000);
+  };
+  const restaurar=async(c:Cliente)=>{
+    const{data,error}=await supabase.rpc("fn_cliente_restaurar",{p_id:c.id});
+    const r=data as {ok?:boolean;erro?:string}|null;
+    if(error||!r?.ok){setMsg("❌ "+(r?.erro||"Não foi possível restaurar o cliente agora."));setTimeout(()=>setMsg(""),4000);return;}
+    setClientes(clientes.filter(x=>x.id!==c.id));
+    setMsg("✅ Cliente restaurado para a lista ativa.");setTimeout(()=>setMsg(""),3000);
+  };
 
   const filtrados=useMemo(()=>{
     let r=clientes;
@@ -151,7 +173,7 @@ export default function ClientesPage(){
         </div>
         <div style={{display:"flex",gap:4,alignItems:"center"}}>
           <AjudaCampo chave="ge.clientes.filtro_status" rota={ROTA} />
-          {[{v:"ativos",l:"Ativos"},{v:"inativos",l:"Inativos"},{v:"bloqueados",l:"🚫 Bloqueados"},{v:"todos",l:"Todos"}].map(f=>(
+          {[{v:"ativos",l:"Ativos"},{v:"inativos",l:"Inativos"},{v:"bloqueados",l:"🚫 Bloqueados"},{v:"todos",l:"Todos"},{v:"excluidos",l:"🗑 Excluídos"}].map(f=>(
             <button key={f.v} onClick={()=>setFiltroAtivo(f.v)} style={{padding:"6px 10px",borderRadius:6,fontSize:10,border:`1px solid ${filtroAtivo===f.v?GO:BD}`,background:filtroAtivo===f.v?GO+"12":"transparent",color:filtroAtivo===f.v?GO:TXM,cursor:"pointer",fontWeight:filtroAtivo===f.v?600:400}}>{f.l}</button>
           ))}
         </div>
@@ -210,13 +232,15 @@ export default function ClientesPage(){
         <div style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,overflow:"auto"}}>
           {filtrados.length===0?(
             <div style={{padding:40,textAlign:"center"}}>
-              <div style={{fontSize:40,marginBottom:8}}>👥</div>
-              <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:4}}>Nenhum cliente cadastrado</div>
-              <div style={{fontSize:11,color:TXD,marginBottom:16}}>Comece cadastrando manualmente ou importando de outro sistema.</div>
+              <div style={{fontSize:40,marginBottom:8}}>{verExcluidos?"🗑":"👥"}</div>
+              <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:4}}>{verExcluidos?"Nenhum cliente excluído":(busca.trim()||filtroRisco!=="todos"||filtroAtivo!=="ativos")?"Nenhum cliente neste filtro":"Nenhum cliente cadastrado"}</div>
+              <div style={{fontSize:11,color:TXD,marginBottom:16}}>{verExcluidos?"Clientes que você excluir aparecem aqui e podem ser restaurados.":(busca.trim()||filtroRisco!=="todos"||filtroAtivo!=="ativos")?"Ajuste a busca ou os filtros para ver mais clientes.":"Comece cadastrando manualmente ou importando de outro sistema."}</div>
+              {!verExcluidos&&!busca.trim()&&filtroRisco==="todos"&&filtroAtivo==="ativos"&&(
               <div style={{display:"flex",gap:8,justifyContent:"center"}}>
                 <button onClick={abrirNovo} style={{padding:"10px 20px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>+ Cadastrar Cliente</button>
                 <button onClick={()=>setShowImport(true)} style={{padding:"10px 20px",borderRadius:8,background:B+"15",color:B,fontSize:12,fontWeight:600,border:`1px solid ${B}40`,cursor:"pointer"}}>📥 Importar de outro sistema</button>
               </div>
+              )}
             </div>
           ):(
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
@@ -252,10 +276,15 @@ export default function ClientesPage(){
                     </td>
                     <td style={{padding:"8px"}}>
                       <div style={{display:"flex",gap:3,justifyContent:"flex-end"}}>
-                        {c.whatsapp&&<a href={`https://wa.me/55${c.whatsapp.replace(/\D/g,'')}`} target="_blank" style={{fontSize:12,textDecoration:"none",padding:"2px 6px"}} title="WhatsApp">💬</a>}
-                        {c.email&&<a href={`mailto:${c.email}`} style={{fontSize:12,textDecoration:"none",padding:"2px 6px"}} title="Email">📧</a>}
-                        <button onClick={()=>abrirEdicao(c)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:B+"12",color:B,border:`1px solid ${B}25`,cursor:"pointer"}}>Editar</button>
-                        <button onClick={()=>toggleBloqueado(c)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:c.bloqueado?G+"12":R+"12",color:c.bloqueado?G:R,border:`1px solid ${c.bloqueado?G:R}25`,cursor:"pointer"}}>{c.bloqueado?"✓ Desbloq":"🚫 Bloq"}</button>
+                        {verExcluidos?(
+                          <button onClick={()=>restaurar(c)} title="Restaurar cliente" style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:G+"12",color:G,border:`1px solid ${G}25`,cursor:"pointer"}}>↩ Restaurar</button>
+                        ):(<>
+                          {c.whatsapp&&<a href={`https://wa.me/55${c.whatsapp.replace(/\D/g,'')}`} target="_blank" style={{fontSize:12,textDecoration:"none",padding:"2px 6px"}} title="WhatsApp">💬</a>}
+                          {c.email&&<a href={`mailto:${c.email}`} style={{fontSize:12,textDecoration:"none",padding:"2px 6px"}} title="Email">📧</a>}
+                          <button onClick={()=>abrirEdicao(c)} title="Editar cliente" style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:B+"12",color:B,border:`1px solid ${B}25`,cursor:"pointer"}}>Editar</button>
+                          <button onClick={()=>toggleBloqueado(c)} title={c.bloqueado?"Desbloquear":"Bloquear"} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:c.bloqueado?G+"12":R+"12",color:c.bloqueado?G:R,border:`1px solid ${c.bloqueado?G:R}25`,cursor:"pointer"}}>{c.bloqueado?"✓ Desbloq":"🚫 Bloq"}</button>
+                          <button onClick={()=>excluir(c)} title="Excluir cliente" style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:R+"12",color:R,border:`1px solid ${R}25`,cursor:"pointer"}}>🗑 Excluir</button>
+                        </>)}
                       </div>
                     </td>
                   </tr>
