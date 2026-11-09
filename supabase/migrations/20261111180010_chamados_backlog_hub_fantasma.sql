@@ -110,6 +110,9 @@ BEGIN
 END;
 $function$;
 
+REVOKE ALL ON FUNCTION public.fn_chamados_briefing() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_chamados_briefing() TO authenticated, service_role;
+
 -- 5a) guarda de arquivamento na TABELA (cobre fn_sugestao_status e o update direto)
 CREATE OR REPLACE FUNCTION public.trg_sugestao_arquivar_tecnico_guarda()
 RETURNS trigger
