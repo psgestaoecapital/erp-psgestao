@@ -12,6 +12,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { FORMAS_PAGAMENTO } from '@/lib/financeiro/formasPagamento'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import Modal from '@/components/ui/Modal'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import GerarBoletosReceita from '@/components/financeiro/GerarBoletosReceita'
@@ -143,7 +144,7 @@ function Criar({ companyId }: { companyId: string }) {
   async function buscar(cli: string = clienteId, preSel?: string) {
     setErro(null); setBuscou(false); setSel(new Set()); setEdit({})
     const { data, error } = await supabase.rpc('fn_renegociacao_titulos_abertos', { p_company: companyId, p_cliente: cli || null, p_conta: contaId || null })
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error)); return }
     const lista = (data ?? []) as Titulo[]
     setTitulos(lista); setBuscou(true)
     if (preSel && lista.some((t) => t.id === preSel)) setSel(new Set([preSel]))
@@ -215,7 +216,7 @@ function Criar({ companyId }: { companyId: string }) {
       if (!j?.sucesso) throw new Error(j?.erro ?? 'falha ao criar')
       setResultado({ renegociacao_id: j.renegociacao_id!, gerados: j.gerados ?? [], avisos: j.avisos ?? [], qtdBoleto, clienteId, boletoIds: (j.gerados ?? []).filter((_, i) => boletos[i]?.forma_pagamento === 'boleto') })
       setConfirmOpen(false)
-    } catch (e) { setErro((e as Error).message) } finally { setSalvando(false) }
+    } catch (e) { setErro(erroAmigavel(e)) } finally { setSalvando(false) }
   }
 
   // #2254 · WhatsApp SEM API: abre o wa.me com a mensagem pronta (nome, valor, vencimento, linha digitável, link do
