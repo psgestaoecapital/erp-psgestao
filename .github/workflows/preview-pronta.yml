@@ -17,11 +17,14 @@ on:
     types: [opened, reopened, ready_for_review, synchronize]
 
 concurrency:
-  # CEO 12/10: sem cancelar run em andamento (o commit vazio pode estar a meio); eventos da mesma PR entram em fila e o
-  # anti-laço (head já é o commit vazio) os torna no-op.
+  # CEO 12/10: sem cancelar run em andamento (o commit vazio pode estar a meio). Com `cancel-in-progress: false` os
+  # eventos da mesma PR JÁ entram em fila (FIFO) por padrão, e o anti-laço (head já é o commit vazio) os torna no-op.
+  # 09/11 (code-desenvolvedor-3): removido o `queue: max` DESTE nível. Era a ÚNICA ocorrência em NÍVEL DE WORKFLOW no repo
+  # (as demais ficam em `jobs.<job>.concurrency`, que o GitHub tolera) e `queue` NÃO é chave documentada de `concurrency`
+  # (a sintaxe oficial só tem `group` e `cancel-in-progress`). O enfileiramento desejado já vem do `cancel-in-progress:
+  # false`, então a remoção é no-op funcional e tira um outlier não-padrão do único workflow que vinha tendo startup_failure.
   group: preview-pronta-${{ github.event.pull_request.number }}
   cancel-in-progress: false
-  queue: max
 
 permissions:
   contents: read
