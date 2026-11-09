@@ -292,7 +292,7 @@ function Inner() {
                 {/* Títulos no financeiro (GE): cada recebimento aponta o título gerado no Contas a Receber (RD-65). */}
                 {(recebs.get(v.id)?.length ?? 0) > 0 && (
                   <div style={{ marginTop: 8, borderTop: `1px solid ${C.cream}`, paddingTop: 8 }}>
-                    <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.6, color: C.espL, fontWeight: 700, marginBottom: 4 }}>Títulos no financeiro (GE)</div>
+                    <div style={{ display: 'flex', alignItems: 'center', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.6, color: C.espL, fontWeight: 700, marginBottom: 4 }}>Títulos no financeiro (GE)<AjudaCampo chave="revenda.vendas.titulos_ge" rota="/dashboard/revenda/vendas" /></div>
                     <div style={{ display: 'grid', gap: 4 }}>
                       {recebs.get(v.id)!.map((t, i) => (
                         <div key={i} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', fontSize: 12, color: C.espM }}>
@@ -325,6 +325,7 @@ function Inner() {
                     <b>{acResumo.get(v.id)!.previsto != null ? brl(acResumo.get(v.id)!.previsto!) : '—'}</b>
                     <span style={{ color: C.espM }}> · realizado </span>
                     <b style={{ color: (acResumo.get(v.id)!.realizado ?? 0) < 0 ? C.red : C.green }}>{acResumo.get(v.id)!.realizado != null ? brl(acResumo.get(v.id)!.realizado!) : '—'}</b>
+                    <AjudaCampo chave="revenda.vendas.acerto_resumo" rota="/dashboard/revenda/vendas" />
                   </div>
                 )}
 
@@ -332,8 +333,9 @@ function Inner() {
                   <div style={{ marginTop: 8, fontSize: 12, color: C.amber, background: C.amberBg, borderRadius: 8, padding: '6px 10px' }}>Devolvida{v.devolvido_em ? ` em ${brDate(v.devolvido_em)}` : ''}: {v.devolucao_motivo}</div>
                 ) : null}
 
-                <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                   <button onClick={() => router.push(`/dashboard/revenda/veiculo/${v.veiculo_id}`)} style={btnGhost}>ver veículo</button>
+                  <AjudaCampo chave="revenda.vendas.acoes" rota="/dashboard/revenda/vendas" />
 
                   {/* Entregar (via checklist) — R0.2/R0.2b travas de NF mantidas na função */}
                   {!encerrada && (
