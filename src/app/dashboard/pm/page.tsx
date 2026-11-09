@@ -59,6 +59,7 @@ export default function PmBiPage() {
             <p style={{ margin: 0, fontSize: 13, color: C.espressoLight }}>{selInfo.tipo === 'empresa' ? selInfo.nome : 'Indicadores da agência — receita, operação e moat.'}</p>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Link href="/dashboard/pm/rentabilidade" style={btnGhost}>Rentabilidade</Link>
             <Link href="/dashboard/pm/comercial" style={btnGhost}>Comercial</Link>
             <Link href="/dashboard/pm/leads" style={btnGhost}>+ Novo lead</Link>
             <Link href="/dashboard/pm/propostas" style={btnPri}>+ Nova proposta</Link>
