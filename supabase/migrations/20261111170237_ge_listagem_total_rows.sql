@@ -7,12 +7,20 @@
 --   período, pré-LIMIT), mas faltava o TOTAL de linhas da lista para o card "Total" mostrar a
 --   quantidade certa e para a UI avisar quando a lista está truncada em 5000.
 --
+-- GAP núcleo adicional (PDCA auditor_pdca_2 · 09/11 · tela /dashboard/financeiro/pagar, aud8 86/95):
+--   kpis.total ficava INCONSISTENTE com os próprios buckets (podia ser MENOR que `vencidos`).
+--   Causa: o 1º SELECT calcula v_kpi_total só na JANELA do período; o bloco seguinte SOBRESCREVE
+--   v_kpi_vencidos com o all-time (vencido não tem período), mas v_kpi_total NÃO era recomputado.
+--   Prova RD-38 (DEMO Comércio GE, 2026-11, pagar): vencidos 9235.40 · total exibido 2246.16 (< vencidos).
+--
 -- FIX (SENSÍVEL · CREATE OR REPLACE de função de núcleo financeiro · revisao-eng-chefe):
---   ADITIVO e sem regressão — acrescenta só `total_rows` ao retorno (contagem do conjunto da
---   LISTA pré-LIMIT: período OU vencido-em-aberto, menos cancelado/orcamento/renegociado).
---   NÃO altera os `kpis`, nem `resultados`, nem a ordenação, nem o LIMIT 5000. A UI passa a:
---     (a) usar `kpis` do servidor nos cards quando não há filtro client-side (corrige o subcount);
---     (b) avisar quando a lista vem truncada (há mais que os 5000 exibidos).
+--   ADITIVO e sem regressão. (1) acrescenta `total_rows` ao retorno (contagem do conjunto da LISTA
+--   pré-LIMIT: período OU vencido-em-aberto, menos cancelado/orcamento/renegociado); (2) recompõe
+--   `v_kpi_total` sobre ESSE MESMO conjunto da lista, então o card "Total" bate com a soma das linhas
+--   exibidas e é sempre >= vencidos. Prova RD-38: pagar total passa a 10360.11 (=18 linhas); receber
+--   32583.88 (41 linhas), ambos >= vencidos. NÃO altera `resultados`, ordenação nem o LIMIT 5000. A UI:
+--     (a) usa `kpis` do servidor nos cards quando não há filtro client-side (corrige o subcount);
+--     (b) avisa quando a lista vem truncada (há mais que os 5000 exibidos).
 --   A paginação server-side completa (alcançar todas as páginas via offset) é follow-up à parte
 --   (exige busca/filtro server-side para não regredir o componente compartilhado).
 --
@@ -63,7 +71,11 @@ BEGIN
       AND COALESCE(status, '') <> 'cancelado';
 
     -- total de linhas da LISTA (mesmo conjunto do jsonb_agg abaixo, sem o LIMIT e sem o filtro de chips).
-    SELECT COUNT(*) INTO v_total_rows
+    -- GAP núcleo (auditor_pdca_2 09/11): o 1º SELECT calcula v_kpi_total só na JANELA do período, mas
+    -- o bloco acima SOBRESCREVE v_kpi_vencidos com o all-time; v_kpi_total ficava MENOR que vencidos.
+    -- Recompomos v_kpi_total sobre o MESMO conjunto da lista (período OU vencido-aberto all-time), para o
+    -- card "Total" bater com a soma das linhas exibidas e ser sempre >= vencidos. Aditivo, sem regressão.
+    SELECT COUNT(*), COALESCE(SUM(d.valor),0) INTO v_total_rows, v_kpi_total
     FROM erp_pagar d
     WHERE d.company_id = p_company_id AND d.deleted_at IS NULL
       AND COALESCE(d.status, '') <> 'cancelado'
@@ -135,7 +147,9 @@ BEGIN
       AND data_vencimento < v_hoje AND status NOT IN ('recebido','pago')
       AND COALESCE(status, '') NOT IN ('orcamento','renegociado','cancelado');
 
-    SELECT COUNT(*) INTO v_total_rows
+    -- Mesmo GAP núcleo do ramo pagar: recompõe v_kpi_total sobre o conjunto da LISTA (período OU
+    -- vencido-aberto all-time), para o card "Total" bater com as linhas exibidas e ser >= vencidos.
+    SELECT COUNT(*), COALESCE(SUM(d.valor),0) INTO v_total_rows, v_kpi_total
     FROM v_receber_efetivo d
     WHERE d.company_id = p_company_id AND d.deleted_at IS NULL
       AND COALESCE(d.status, '') NOT IN ('orcamento','renegociado','cancelado')
