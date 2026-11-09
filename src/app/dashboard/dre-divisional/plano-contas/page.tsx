@@ -66,7 +66,7 @@ export default function PlanoContasPage() {
         ? supabase.from('psgc_contas_custom').select('id,codigo,nome,pai_psgc_codigo,natureza,dre_grupo,dre_ordem,descricao').eq('company_id', companyId).eq('ativo', true)
         : Promise.resolve({ data: [], error: null }),
     ])
-    if (padraoRes.error) { setErro(padraoRes.error.message); setLoading(false); return }
+    if (padraoRes.error) { console.error('[plano-contas] carregar', padraoRes.error); setErro('Não foi possível carregar o plano de contas agora. Verifique a conexão e tente novamente.'); setLoading(false); return }
     setErro(null)
     const padrao: Conta[] = (padraoRes.data ?? []).map((c) => ({
       codigo: c.codigo, nome: c.nome, pai: c.pai_codigo, natureza: c.natureza, dre_grupo: c.dre_grupo, dre_ordem: c.dre_ordem, custom: false, id: null, descricao: c.descricao,
@@ -92,7 +92,7 @@ export default function PlanoContasPage() {
       p_company_id: companyId, p_pai_psgc_codigo: criarSob.codigo, p_nome: nome.trim(), p_descricao: desc.trim() || null,
     })
     setBusy(false)
-    if (error) { setErro(error.message); return }
+    if (error) { console.error('[plano-contas] criar', error); setErro('Não foi possível criar a subconta. Confira o nome e tente novamente.'); return }
     setOk(`CRIOU subconta "${nome.trim()}" sob ${criarSob.nome}`); setCriarSob(null); setNome(''); setDesc(''); void carregar()
   }
   async function salvarEditar() {
@@ -102,14 +102,14 @@ export default function PlanoContasPage() {
       p_id: editar.id, p_company_id: companyId, p_nome: nome.trim(), p_descricao: desc.trim() || null,
     })
     setBusy(false)
-    if (error) { setErro(error.message); return }
+    if (error) { console.error('[plano-contas] editar', error); setErro('Não foi possível salvar as alterações. Tente novamente.'); return }
     setOk(`ALTEROU "${nome.trim()}"`); setEditar(null); setNome(''); setDesc(''); void carregar()
   }
   async function excluir(c: Conta) {
     if (!companyId || !c.id) return
     if (!window.confirm(`Remover a conta custom "${c.nome}"? (some da árvore; histórico da DRE é preservado)`)) return
     const { error } = await supabase.rpc('fn_psgc_contas_custom_excluir', { p_id: c.id, p_company_id: companyId })
-    if (error) { setErro(error.message); return }
+    if (error) { console.error('[plano-contas] excluir', error); setErro('Não foi possível remover a conta. Tente novamente.'); return }
     setOk(`REMOVEU "${c.nome}"`); void carregar()
   }
 
@@ -135,6 +135,11 @@ export default function PlanoContasPage() {
           <div className="text-sm" style={{ color: ESP60 }}>Carregando…</div>
         ) : (
           <div className="rounded-2xl overflow-hidden" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+            <div className="flex items-center gap-2 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide" style={{ background: BG, color: ESP60 }}>
+              <span className="shrink-0 inline-flex items-center" style={{ minWidth: 56 }}>Código<AjudaCampo chave="dre.plano_contas.codigo" /></span>
+              <span className="flex-1 inline-flex items-center">Conta<AjudaCampo chave="dre.plano_contas.conta" /></span>
+              <span className="inline-flex items-center">Tipo<AjudaCampo chave="dre.plano_contas.tipo" /></span>
+            </div>
             {ordenadas.map((c) => {
               const nivel = Math.max(0, c.codigo.split('.').length - 1)
               return (
