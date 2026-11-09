@@ -122,6 +122,7 @@ export default function OficinaAgendaPage() {
             <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 26, fontWeight: 400, color: ESP, margin: '2px 0 0' }}>Agenda</h1>
           </div>
           <button onClick={() => setNovo(true)} disabled={!companyId} style={{ ...btnPrim, opacity: companyId ? 1 : 0.5 }}>+ Agendar</button>
+          <AjudaCampo chave="oficina.agenda.novo" />
         </div>
 
         {/* controles */}
@@ -133,6 +134,7 @@ export default function OficinaAgendaPage() {
           <button onClick={() => setRef((d) => somaDias(d, modo === 'dia' ? -1 : -7))} style={btnGhost}>←</button>
           <button onClick={() => setRef(new Date())} style={btnGhost}>Hoje</button>
           <button onClick={() => setRef((d) => somaDias(d, modo === 'dia' ? 1 : 7))} style={btnGhost}>→</button>
+          <AjudaCampo chave="oficina.agenda.navegacao" />
           <span style={{ fontSize: 13, color: ESP, fontWeight: 600 }}>
             {modo === 'dia' ? new Date(range.de + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' }) : `${fmtDiaCurto(range.de)} – ${fmtDiaCurto(range.ate)}`}
           </span>
@@ -313,7 +315,7 @@ function AutoBusca<T>({ value, onText, onPick, buscar, rotulo, sub, placeholder,
   const escolher = (item: T) => { skip.current = true; setAberto(false); setItens([]); onPick(item) }
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div style={{ position: 'relative' }} data-ajuda="campo">
       <input
         value={value}
         onChange={(e) => onText(upper ? e.target.value.toUpperCase() : e.target.value)}
@@ -434,7 +436,7 @@ function ModalNovo({ daOS, companyId, dataDefault, onClose, onCriou }: { daOS?: 
       <div onClick={(e) => e.stopPropagation()} style={{ background: '#FFF', borderRadius: 14, padding: 20, width: '100%', maxWidth: 440, border: `0.5px solid ${LINE}`, maxHeight: '90vh', overflowY: 'auto' }}>
         <h3 style={{ fontFamily: 'Fraunces, Georgia, serif', fontWeight: 400, color: ESP, margin: '0 0 12px' }}>Novo agendamento</h3>
         {err && <div style={{ padding: '7px 10px', borderRadius: 8, background: '#FBEAEA', color: VERM, fontSize: 12, marginBottom: 10 }}>{err}</div>}
-        <Campo l="Cliente">
+        <Campo l="Cliente" ajuda={<AjudaCampo chave="oficina.agenda.cliente" />}>
           <AutoBusca<ItemCliente>
             value={f.cliente}
             onText={(v) => { set('cliente', v); setClienteId(null) }}
@@ -444,7 +446,7 @@ function ModalNovo({ daOS, companyId, dataDefault, onClose, onCriou }: { daOS?: 
           />
         </Campo>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 8 }}>
-          <Campo l="Placa (opcional)">
+          <Campo l="Placa (opcional)" ajuda={<AjudaCampo chave="oficina.agenda.placa" />}>
             <AutoBusca<ItemVeiculo>
               value={f.placa} upper
               onText={(v) => set('placa', v)}
@@ -453,7 +455,7 @@ function ModalNovo({ daOS, companyId, dataDefault, onClose, onCriou }: { daOS?: 
               placeholder="ABC1D23"
             />
           </Campo>
-          <Campo l="Veículo (opcional)">
+          <Campo l="Veículo (opcional)" ajuda={<AjudaCampo chave="oficina.agenda.veiculo" />}>
             <AutoBusca<ItemVeiculo>
               value={f.veiculo}
               onText={(v) => set('veiculo', v)}
@@ -463,7 +465,7 @@ function ModalNovo({ daOS, companyId, dataDefault, onClose, onCriou }: { daOS?: 
             />
           </Campo>
         </div>
-        <Campo l="Mecânico responsável (opcional)">
+        <Campo l="Mecânico responsável (opcional)" ajuda={<AjudaCampo chave="oficina.agenda.mecanico" />}>
           <AutoBusca<ItemMecanico>
             value={f.responsavel}
             onText={(v) => { set('responsavel', v); setResponsavelId(null) }}
@@ -473,11 +475,11 @@ function ModalNovo({ daOS, companyId, dataDefault, onClose, onCriou }: { daOS?: 
           />
         </Campo>
         <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 8 }}>
-          <Campo l="Data"><input type="date" value={f.data} onChange={(e) => set('data', e.target.value)} style={inp} /></Campo>
-          <Campo l="Início"><input type="time" value={f.hi} onChange={(e) => set('hi', e.target.value)} style={inp} /></Campo>
-          <Campo l="Fim"><input type="time" value={f.hf} onChange={(e) => set('hf', e.target.value)} style={inp} /></Campo>
+          <Campo l="Data" ajuda={<AjudaCampo chave="oficina.agenda.data" />}><input type="date" value={f.data} onChange={(e) => set('data', e.target.value)} style={inp} /></Campo>
+          <Campo l="Início" ajuda={<AjudaCampo chave="oficina.agenda.hora_inicio" />}><input type="time" value={f.hi} onChange={(e) => set('hi', e.target.value)} style={inp} /></Campo>
+          <Campo l="Fim" ajuda={<AjudaCampo chave="oficina.agenda.hora_fim" />}><input type="time" value={f.hf} onChange={(e) => set('hf', e.target.value)} style={inp} /></Campo>
         </div>
-        <Campo l="Observação"><textarea value={f.obs} onChange={(e) => set('obs', e.target.value)} rows={2} style={{ ...inp, resize: 'vertical' }} /></Campo>
+        <Campo l="Observação" ajuda={<AjudaCampo chave="oficina.agenda.observacao" />}><textarea value={f.obs} onChange={(e) => set('obs', e.target.value)} rows={2} style={{ ...inp, resize: 'vertical' }} /></Campo>
         {/* Aviso (nao bloqueio · decisao do CEO 09/09): sem placa E sem cliente do cadastro, a chegada
             nao casa sozinha com a OS (o auto-vinculo usa placa, e o fallback usa cliente_id). Placa
             NUNCA e obrigatoria (torneria/usinagem nao tem veiculo) — por isso e aviso, nao trava. */}
@@ -540,7 +542,7 @@ function ModalEditar({ companyId, ag, onClose, onSalvou }: { companyId: string; 
       <div onClick={(e) => e.stopPropagation()} style={{ background: '#FFF', borderRadius: 14, padding: 20, width: '100%', maxWidth: 440, border: `0.5px solid ${LINE}`, maxHeight: '90vh', overflowY: 'auto' }}>
         <h3 style={{ fontFamily: 'Fraunces, Georgia, serif', fontWeight: 400, color: ESP, margin: '0 0 12px' }}>Editar agendamento</h3>
         {err && <div style={{ padding: '7px 10px', borderRadius: 8, background: '#FBEAEA', color: VERM, fontSize: 12, marginBottom: 10 }}>{err}</div>}
-        <Campo l="Cliente">
+        <Campo l="Cliente" ajuda={<AjudaCampo chave="oficina.agenda.cliente" />}>
           <AutoBusca<ItemCliente>
             value={f.cliente}
             onText={(v) => { set('cliente', v); setClienteId(null) }}
@@ -550,15 +552,15 @@ function ModalEditar({ companyId, ag, onClose, onSalvou }: { companyId: string; 
           />
         </Campo>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 8 }}>
-          <Campo l="Placa (opcional)"><input value={f.placa} onChange={(e) => set('placa', e.target.value.toUpperCase())} placeholder="ABC1D23" style={inp} /></Campo>
-          <Campo l="Veículo (opcional)"><input value={f.veiculo} onChange={(e) => set('veiculo', e.target.value)} placeholder="Compass 2017" style={inp} /></Campo>
+          <Campo l="Placa (opcional)" ajuda={<AjudaCampo chave="oficina.agenda.placa" />}><input value={f.placa} onChange={(e) => set('placa', e.target.value.toUpperCase())} placeholder="ABC1D23" style={inp} /></Campo>
+          <Campo l="Veículo (opcional)" ajuda={<AjudaCampo chave="oficina.agenda.veiculo" />}><input value={f.veiculo} onChange={(e) => set('veiculo', e.target.value)} placeholder="Compass 2017" style={inp} /></Campo>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr', gap: 8 }}>
-          <Campo l="Data"><input type="date" value={f.data} onChange={(e) => set('data', e.target.value)} style={inp} /></Campo>
-          <Campo l="Início"><input type="time" value={f.hi} onChange={(e) => set('hi', e.target.value)} style={inp} /></Campo>
-          <Campo l="Fim"><input type="time" value={f.hf} onChange={(e) => set('hf', e.target.value)} style={inp} /></Campo>
+          <Campo l="Data" ajuda={<AjudaCampo chave="oficina.agenda.data" />}><input type="date" value={f.data} onChange={(e) => set('data', e.target.value)} style={inp} /></Campo>
+          <Campo l="Início" ajuda={<AjudaCampo chave="oficina.agenda.hora_inicio" />}><input type="time" value={f.hi} onChange={(e) => set('hi', e.target.value)} style={inp} /></Campo>
+          <Campo l="Fim" ajuda={<AjudaCampo chave="oficina.agenda.hora_fim" />}><input type="time" value={f.hf} onChange={(e) => set('hf', e.target.value)} style={inp} /></Campo>
         </div>
-        <Campo l="Observação"><textarea value={f.obs} onChange={(e) => set('obs', e.target.value)} rows={2} style={{ ...inp, resize: 'vertical' }} /></Campo>
+        <Campo l="Observação" ajuda={<AjudaCampo chave="oficina.agenda.observacao" />}><textarea value={f.obs} onChange={(e) => set('obs', e.target.value)} rows={2} style={{ ...inp, resize: 'vertical' }} /></Campo>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
           <button onClick={onClose} style={btnGhost}>Cancelar</button>
           <button onClick={salvar} disabled={busy} style={btnPrim}>{busy ? 'Salvando…' : 'Salvar'}</button>
@@ -567,8 +569,8 @@ function ModalEditar({ companyId, ag, onClose, onSalvou }: { companyId: string; 
     </div>
   )
 }
-function Campo({ l, children }: { l: string; children: React.ReactNode }) {
-  return <label style={{ display: 'block', marginBottom: 8 }}><span style={{ display: 'block', fontSize: 10.5, color: MUT, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 3 }}>{l}</span>{children}</label>
+function Campo({ l, ajuda, children }: { l: string; ajuda?: React.ReactNode; children: React.ReactNode }) {
+  return <label style={{ display: 'block', marginBottom: 8 }}><span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: MUT, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 3 }}>{l}{ajuda}</span>{children}</label>
 }
 const inp: React.CSSProperties = { width: '100%', fontSize: 13, padding: '8px 10px', border: `1px solid ${LINE}`, borderRadius: 8, background: '#FFF', color: ESP, boxSizing: 'border-box' }
 const btnPrim: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: '#FFF', background: ESP, border: 'none', borderRadius: 9, padding: '9px 16px', cursor: 'pointer' }
