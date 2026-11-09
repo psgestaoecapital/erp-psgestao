@@ -2,7 +2,10 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 
+const ROTA = "/dashboard/fornecedores";
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
 const BD="var(--ps-border,#E0D8CC)",GO="var(--ps-gold,#C8941A)";
@@ -96,7 +99,7 @@ export default function FornecedoresPage(){
     setLoading(true);
     const{data,error}=await supabase.from("erp_fornecedores").select("*").in("company_id",companyIds).order("razao_social");
     if(data)setFornecedores(data);
-    if(error&&!error.message.includes('does not exist'))setMsg("Erro: "+error.message);
+    if(error&&!error.message.includes('does not exist'))setMsg("❌ "+erroAmigavel(error,"Não foi possível carregar os fornecedores. Tente de novo."));
     setLoading(false);
   };
 
@@ -160,13 +163,13 @@ export default function FornecedoresPage(){
 
     if(editing){
       const{error}=await supabase.from("erp_fornecedores").update(dados).eq("id",editing.id);
-      if(error){setMsg("Erro: "+error.message);return;}
+      if(error){setMsg("❌ "+erroAmigavel(error,"Não foi possível salvar o fornecedor. Tente de novo."));return;}
       setMsg("✅ Fornecedor atualizado!");
     }else{
       const{error}=await supabase.from("erp_fornecedores").insert(dados);
       if(error){
         if(error.message.includes("unique"))setMsg("❌ CNPJ já cadastrado.");
-        else setMsg("Erro: "+error.message);return;
+        else setMsg("❌ "+erroAmigavel(error,"Não foi possível cadastrar o fornecedor. Tente de novo."));return;
       }
       setMsg("✅ Fornecedor cadastrado!");
     }
@@ -216,7 +219,9 @@ export default function FornecedoresPage(){
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
           <button onClick={()=>setShowImport(true)} style={{padding:"8px 14px",borderRadius:8,background:B+"15",color:B,fontSize:12,fontWeight:600,border:`1px solid ${B}40`,cursor:"pointer"}}>📥 Importar</button>
+          <AjudaCampo chave="ge.fornecedores.acao_importar" rota={ROTA} />
           <button onClick={abrirNovo} style={{padding:"8px 16px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>+ Novo</button>
+          <AjudaCampo chave="ge.fornecedores.acao_novo" rota={ROTA} />
         </div>
       </div>
 
@@ -225,14 +230,14 @@ export default function FornecedoresPage(){
       {/* KPIs */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:16}}>
         {[
-          {l:"Fornecedores Ativos",v:String(kpiTotal),c:B,icon:"🚚"},
-          {l:"Principais",v:String(kpiPrincipais),c:GO,icon:"⭐"},
-          {l:"Bem Avaliados (4+)",v:String(kpiMelhorNota),c:G,icon:"🏆"},
-          {l:"Nota Média",v:kpiMediaNota>0?`${kpiMediaNota.toFixed(1)}★`:"—",c:kpiMediaNota>=4?G:kpiMediaNota>=3?Y:R,icon:"📊"},
-          {l:"Total em Compras",v:fmtR(kpiTotalCompras),c:P,icon:"💰"},
+          {l:"Fornecedores Ativos",v:String(kpiTotal),c:B,icon:"🚚",ch:"ge.fornecedores.kpi_ativos"},
+          {l:"Principais",v:String(kpiPrincipais),c:GO,icon:"⭐",ch:"ge.fornecedores.kpi_principais"},
+          {l:"Bem Avaliados (4+)",v:String(kpiMelhorNota),c:G,icon:"🏆",ch:"ge.fornecedores.kpi_bem_avaliados"},
+          {l:"Nota Média",v:kpiMediaNota>0?`${kpiMediaNota.toFixed(1)}★`:"—",c:kpiMediaNota>=4?G:kpiMediaNota>=3?Y:R,icon:"📊",ch:"ge.fornecedores.kpi_nota_media"},
+          {l:"Total em Compras",v:fmtR(kpiTotalCompras),c:P,icon:"💰",ch:"ge.fornecedores.kpi_total_compras"},
         ].map((k,i)=>(
           <div key={i} style={{background:BG2,borderRadius:10,padding:"10px 14px",border:`1px solid ${BD}`}}>
-            <div style={{fontSize:8,color:TXD,textTransform:"uppercase",letterSpacing:0.5}}>{k.icon} {k.l}</div>
+            <div style={{fontSize:8,color:TXD,textTransform:"uppercase",letterSpacing:0.5,display:"flex",alignItems:"center",gap:4}}>{k.icon} {k.l} <AjudaCampo chave={k.ch} rota={ROTA} /></div>
             <div style={{fontSize:16,fontWeight:700,color:k.c,marginTop:2}}>{k.v}</div>
           </div>
         ))}
@@ -240,14 +245,19 @@ export default function FornecedoresPage(){
 
       {/* Filtros */}
       <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
-        <div style={{flex:1,minWidth:200,position:"relative"}}>
-          <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por nome, CNPJ, cidade..." style={{...inp,paddingLeft:32}}/>
+        <div style={{flex:1,minWidth:200,position:"relative",display:"flex",alignItems:"center",gap:4}}>
+          <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por nome, CNPJ, cidade..." style={{...inp,flex:1,paddingLeft:32}}/>
           <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:TXD}}>🔍</span>
+          <AjudaCampo chave="ge.fornecedores.filtro_busca" rota={ROTA} />
         </div>
-        <select value={filtroCategoria} onChange={e=>setFiltroCategoria(e.target.value)} style={{...inp,width:"auto",cursor:"pointer"}}>
-          <option value="todas">Todas categorias</option>{CATEGORIAS_FORN.map(c=><option key={c} value={c}>{c}</option>)}
-        </select>
-        <div style={{display:"flex",gap:4}}>
+        <div style={{display:"flex",alignItems:"center",gap:4}}>
+          <select value={filtroCategoria} onChange={e=>setFiltroCategoria(e.target.value)} style={{...inp,width:"auto",cursor:"pointer"}}>
+            <option value="todas">Todas categorias</option>{CATEGORIAS_FORN.map(c=><option key={c} value={c}>{c}</option>)}
+          </select>
+          <AjudaCampo chave="ge.fornecedores.filtro_categoria" rota={ROTA} />
+        </div>
+        <div style={{display:"flex",gap:4,alignItems:"center"}}>
+          <AjudaCampo chave="ge.fornecedores.filtro_status" rota={ROTA} />
           {[{v:"ativos",l:"Ativos"},{v:"principais",l:"⭐ Principais"},{v:"inativos",l:"Inativos"},{v:"todos",l:"Todos"}].map(f=>(
             <button key={f.v} onClick={()=>setFiltroAtivo(f.v)} style={{padding:"6px 10px",borderRadius:6,fontSize:10,border:`1px solid ${filtroAtivo===f.v?GO:BD}`,background:filtroAtivo===f.v?GO+"12":"transparent",color:filtroAtivo===f.v?GO:TXM,cursor:"pointer",fontWeight:filtroAtivo===f.v?600:400}}>{f.l}</button>
           ))}
@@ -455,13 +465,13 @@ export default function FornecedoresPage(){
           ):(
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
               <thead><tr style={{borderBottom:`2px solid ${BD}`,background:BG3}}>
-                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Razão / Fantasia</th>
-                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>CNPJ</th>
-                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Categoria</th>
-                <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Avaliação</th>
-                <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Prazo</th>
-                <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Tags</th>
-                <th style={{padding:"8px",textAlign:"right",color:TXD,fontSize:10}}>Ações</th>
+                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}><span style={{display:"inline-flex",alignItems:"center",gap:3}}>Razão / Fantasia <AjudaCampo chave="ge.fornecedores.col_razao" rota={ROTA} /></span></th>
+                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}><span style={{display:"inline-flex",alignItems:"center",gap:3}}>CNPJ <AjudaCampo chave="ge.fornecedores.col_cnpj" rota={ROTA} /></span></th>
+                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}><span style={{display:"inline-flex",alignItems:"center",gap:3}}>Categoria <AjudaCampo chave="ge.fornecedores.col_categoria" rota={ROTA} /></span></th>
+                <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}><span style={{display:"inline-flex",alignItems:"center",gap:3}}>Avaliação <AjudaCampo chave="ge.fornecedores.col_avaliacao" rota={ROTA} /></span></th>
+                <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}><span style={{display:"inline-flex",alignItems:"center",gap:3}}>Prazo <AjudaCampo chave="ge.fornecedores.col_prazo" rota={ROTA} /></span></th>
+                <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}><span style={{display:"inline-flex",alignItems:"center",gap:3}}>Tags <AjudaCampo chave="ge.fornecedores.col_tags" rota={ROTA} /></span></th>
+                <th style={{padding:"8px",textAlign:"right",color:TXD,fontSize:10}}><span style={{display:"inline-flex",alignItems:"center",gap:3}}>Ações <AjudaCampo chave="ge.fornecedores.col_acoes" rota={ROTA} /></span></th>
               </tr></thead>
               <tbody>
                 {filtrados.map(f=>(
@@ -496,6 +506,7 @@ export default function FornecedoresPage(){
                         {f.email&&<a href={`mailto:${f.email}`} style={{fontSize:12,textDecoration:"none",padding:"2px 6px"}} title="Email">📧</a>}
                         <button onClick={()=>togglePrincipal(f)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:f.fornecedor_principal?GO+"15":"transparent",color:f.fornecedor_principal?GO:TXM,border:`1px solid ${f.fornecedor_principal?GO:BD}`,cursor:"pointer"}} title="Marcar como principal">⭐</button>
                         <button onClick={()=>abrirEdicao(f)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:B+"12",color:B,border:`1px solid ${B}25`,cursor:"pointer"}}>Editar</button>
+                        <button onClick={()=>{ if(f.ativo && !confirm(`Inativar "${f.nome_fantasia||f.razao_social}"? Ele sai da lista de ativos, mas o histórico de compras é preservado.`))return; toggleAtivo(f); }} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:f.ativo?R+"10":G+"12",color:f.ativo?R:G,border:`1px solid ${f.ativo?R:G}25`,cursor:"pointer"}} title={f.ativo?"Inativar fornecedor":"Reativar fornecedor"}>{f.ativo?"Inativar":"Reativar"}</button>
                       </div>
                     </td>
                   </tr>
