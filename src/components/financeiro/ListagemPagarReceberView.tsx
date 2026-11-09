@@ -533,9 +533,9 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   // devem vir do `kpis` do SERVIDOR (calculado sobre TODAS as linhas do período, pré-LIMIT 5000) —
   // senão, em empresa com >5000 títulos, o recálculo a partir das 5000 linhas SUBCONTA (ex.: Total
   // R$248.560,01 virava o somatório só das 5000). Com filtro ativo, mantém o kpisFiltrados (bug André).
-  const semFiltroClient = !busca.trim() && !categoria && contasSel.length === 0 && !fPessoa.trim()
+  const semFiltroClient = !busca.trim() && !categoria && contasSel.size === 0 && !fPessoa.trim()
     && !fForma && !fValorMin.trim() && !fValorMax.trim() && !soBloqueadas
-    && (statusSel.length === 0 || statusSel.includes('todos'))
+    && statusSel.length === 0   // [] = todos (StatusOpt não tem 'todos')
   const cardsKpis = (semFiltroClient && data && !data.sem_plano)
     ? {
         vencidos: data.kpis.vencidos,
