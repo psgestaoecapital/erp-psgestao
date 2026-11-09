@@ -148,8 +148,9 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
             <div data-testid="custos-resumo" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
               <div style={cardS}><div style={rotS}>Orçado <AjudaCampo chave="projetos.resultado_obra.custo_previsto" rota={ROTA_RESULTADO} /></div>
                 <div style={valS} data-testid="custos-resumo-orcado">{temOrcamento ? brl(resumo.custo_previsto) : '—'}</div></div>
-              <div style={cardS}><div style={rotS}>Custo realizado <AjudaCampo chave="projetos.obra_custos.realizado" rota={ROTA} /></div>
-                <div style={valS} data-testid="custos-resumo-realizado">{brl(resumo.realizado)}</div></div>
+              <div style={cardS}><div style={rotS}>Custo realizado (todas as fontes) <AjudaCampo chave="projetos.obra_custos.realizado" rota={ROTA} /></div>
+                <div style={valS} data-testid="custos-resumo-realizado">{brl(resumo.realizado)}</div>
+                <div style={{ fontSize: 10, color: MUT, marginTop: 2 }}>Material, mão de obra, viagens e rateio — maior que as despesas lançadas aqui.</div></div>
               <div style={cardS}><div style={rotS}>Saldo do custo <AjudaCampo chave="projetos.resultado_obra.saldo_custo" rota={ROTA_RESULTADO} /></div>
                 <div style={{ ...valS, color: temOrcamento ? (saldo < 0 ? VERM : VERDE) : MUT }} data-testid="custos-resumo-saldo">{temOrcamento ? brl(saldo) : '—'}</div></div>
             </div>
