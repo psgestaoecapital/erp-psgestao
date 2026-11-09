@@ -73,6 +73,18 @@ export default function DREDivisional({ companyId }: { companyId: string }) {
     ? (pctGeral >= 90 ? '#3B6D11' : pctGeral >= 70 ? '#BA7517' : '#A32D2D')
     : 'rgba(61,35,20,0.4)'
 
+  const linhas = data.linhas ?? []
+  const semLinha = linhas.find((l) => l.linha_id === 'sem_linha')
+  const nomeadas = linhas.filter((l) => l.linha_id !== 'sem_linha')
+  const nomeadasRealizado = nomeadas.reduce((s, l) => s + (Number(l.realizado) || 0), 0)
+  const semLinhaValor = Number(semLinha?.realizado) || 0
+  const totalRealizado = Number(data.total_realizado) || 0
+  const totalOrcado = Number(data.total_orcado) || 0
+  // Reconciliação: há receita no mês ainda não atribuída a nenhuma linha de negócio.
+  // Mostra de onde vem a receita (critério e) e como classificar (critério d).
+  const mostrarReconciliacao = semLinhaValor > 0.005
+  const tudoSemLinha = mostrarReconciliacao && nomeadasRealizado <= 0.005
+
   return (
     <div style={{ background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 12, padding: '18px 20px', marginBottom: 32 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
@@ -97,12 +109,20 @@ export default function DREDivisional({ companyId }: { companyId: string }) {
             </tr>
           </thead>
           <tbody>
-            {(data.linhas ?? []).map((l) => {
+            {linhas.map((l) => {
               const tone = l.status !== 'sem_orcamento' ? COR[l.status] : null
+              const isSemLinha = l.linha_id === 'sem_linha'
               return (
-                <tr key={l.linha_id} style={{ borderBottom: '0.5px solid rgba(61,35,20,0.06)' }}>
-                  <td style={{ padding: '10px 0', color: '#3D2314' }}>{l.linha_nome}</td>
-                  <td style={{ padding: '10px 0', textAlign: 'right', color: '#3D2314', fontVariantNumeric: 'tabular-nums' }}>R$ {fmt(l.realizado)}</td>
+                <tr key={l.linha_id} style={{ borderBottom: '0.5px solid rgba(61,35,20,0.06)', background: isSemLinha ? 'rgba(61,35,20,0.025)' : undefined }}>
+                  <td style={{ padding: '10px 0', color: isSemLinha ? 'rgba(61,35,20,0.6)' : '#3D2314' }}>
+                    {l.linha_nome}
+                    {isSemLinha && (
+                      <span style={{ marginLeft: 8, background: '#FAEEDA', color: '#854F0B', fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 4, letterSpacing: 0.3, textTransform: 'uppercase', verticalAlign: 'middle' }}>
+                        não atribuído
+                      </span>
+                    )}
+                  </td>
+                  <td style={{ padding: '10px 0', textAlign: 'right', color: isSemLinha ? 'rgba(61,35,20,0.7)' : '#3D2314', fontVariantNumeric: 'tabular-nums' }}>R$ {fmt(l.realizado)}</td>
                   <td style={{ padding: '10px 0', textAlign: 'right', color: 'rgba(61,35,20,0.6)', fontVariantNumeric: 'tabular-nums' }}>R$ {fmt(l.orcado)}</td>
                   <td style={{ padding: '10px 0', textAlign: 'right' }}>
                     {tone && l.pct_atingido != null ? (
@@ -117,8 +137,39 @@ export default function DREDivisional({ companyId }: { companyId: string }) {
               )
             })}
           </tbody>
+          <tfoot>
+            <tr style={{ borderTop: '1px solid rgba(61,35,20,0.18)' }}>
+              <td style={{ padding: '10px 0', color: '#3D2314', fontWeight: 600 }}>Total do mês</td>
+              <td style={{ padding: '10px 0', textAlign: 'right', color: '#3D2314', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>R$ {fmt(totalRealizado)}</td>
+              <td style={{ padding: '10px 0', textAlign: 'right', color: 'rgba(61,35,20,0.6)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>R$ {fmt(totalOrcado)}</td>
+              <td style={{ padding: '10px 0', textAlign: 'right' }}>
+                {pctGeral != null ? (
+                  <span style={{ color: corPctGeral, fontSize: 12, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{pctGeral}%</span>
+                ) : (
+                  <span style={{ color: 'rgba(61,35,20,0.4)', fontSize: 11 }}>—</span>
+                )}
+              </td>
+            </tr>
+          </tfoot>
         </table>
       </div>
+
+      {mostrarReconciliacao && (
+        <div style={{ marginTop: 14, padding: '12px 14px', background: '#FBF6EC', border: '0.5px solid rgba(200,148,26,0.3)', borderRadius: 8, display: 'flex', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: 220, fontSize: 12.5, color: 'rgba(61,35,20,0.8)', lineHeight: 1.5 }}>
+            {tudoSemLinha
+              ? <>Toda a receita do mês (<strong>R$ {fmt(semLinhaValor)}</strong>) ainda está <strong>sem linha de negócio</strong>. Por isso Atacado/Serviços/Varejo aparecem zerados. Defina as regras de linha de negócio nos Centros de Custo para ver a divisão.</>
+              : <><strong>R$ {fmt(semLinhaValor)}</strong> de receita ainda não está atribuída a uma linha de negócio. Ajuste as regras nos Centros de Custo para reconciliar o total.</>}
+          </div>
+          <button
+            type="button"
+            onClick={() => router.push('/dashboard/gestao-empresarial/centros-custo')}
+            style={{ background: 'transparent', color: '#C8941A', border: '0.5px solid #C8941A', padding: '8px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
+          >
+            Classificar receita →
+          </button>
+        </div>
+      )}
     </div>
   )
 }

@@ -69,6 +69,10 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
   const avancoPct = r && Number(r.receita_prevista) > 0 ? Math.min(100, (receita / Number(r.receita_prevista)) * 100) : null
   const custoPrevisto = r ? Number(r.custo_previsto) : 0
   const estouro = custoPrevisto > 0 && custo > custoPrevisto
+  // Custo a incorrer = o que ainda falta gastar até o previsto (previsto − realizado, nunca negativo). Dá ao gestor
+  // a visão de quanto ainda vai desembolsar. (O "comprometido"/empenhado em OS depende de valor na OS, que hoje não
+  // existe no dado — projetos_obra_os não tem coluna de valor —, então não é exibido para não gerar falso-zero.)
+  const custoAIncorrer = custoPrevisto > 0 ? Math.max(0, custoPrevisto - custo) : null
   // Avanço físico = execução em campo (pct_conclusao do cronograma/medição). Distinto do avanço financeiro (receita realizada).
   const fisicoPct = info && info.pct_conclusao != null ? Math.max(0, Math.min(100, Number(info.pct_conclusao))) : null
   // Prazo: dias até a data prevista de término; vencido só vale enquanto a obra não foi concluída.
@@ -99,7 +103,7 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
     { k: 'receita', ajuda: 'projetos.cockpit.receita', l: 'Receita realizada', v: brl(receita), sub: receita > 0 ? 'Medido e vendido na obra' : 'Nenhuma medição lançada ainda', linhas: [
       { k: 'serv', ajuda: 'projetos.cockpit.receita_servico', l: 'Serviço medido', v: Number(r.receita_servico) },
       { k: 'mat', ajuda: 'projetos.cockpit.receita_material', l: 'Material vendido', v: Number(r.receita_material) }] },
-    { k: 'custo', ajuda: 'projetos.cockpit.custo', l: 'Custo realizado', v: brl(custo), sub: custoPrevisto > 0 ? `Previsto ${brl(custoPrevisto)}` : 'Sem custo previsto', cor: estouro ? VERM : undefined, linhas: [
+    { k: 'custo', ajuda: 'projetos.cockpit.custo', l: 'Custo realizado', v: brl(custo), sub: custoPrevisto > 0 ? `Previsto ${brl(custoPrevisto)} · A incorrer ${brl(custoAIncorrer)}` : 'Sem custo previsto', cor: estouro ? VERM : undefined, linhas: [
       { k: 'mat', ajuda: 'projetos.cockpit.custo_material', l: 'Material', v: Number(r.custo_material) },
       { k: 'via', ajuda: 'projetos.cockpit.custo_viagens', l: 'Viagens', v: Number(r.custo_viagens) },
       { k: 'mo', ajuda: 'projetos.cockpit.custo_mao_obra', l: 'Mão de obra', v: Number(r.custo_mao_obra ?? 0) },
@@ -180,10 +184,17 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
                     <div style={{ fontSize: 11, color: MUT }}>{c.sub}</div>
                   </div>
                 ))}
-                <div data-testid="cockpit-curva-s" style={{ background: '#fff', border: `0.5px dashed ${LINE}`, borderRadius: 12, padding: 14 }}>
+                <div data-testid="cockpit-curva-s" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14 }}>
                   <div style={{ fontSize: 11, color: MUT, textTransform: 'uppercase', letterSpacing: 0.5 }}>Curva S <AjudaCampo chave="projetos.cockpit.curva_s" rota={ROTA} /></div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: ESP, margin: '6px 0' }}>Em construção</div>
-                  <div style={{ fontSize: 11, color: MUT }}>Previsto × realizado acumulado entra quando o cronograma tiver medições mensais.</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: ESP, margin: '6px 0' }}>
+                    {fisicoPct != null && tempoPct != null ? `Físico ${fisicoPct.toFixed(0)}% · Prazo ${tempoPct.toFixed(0)}%` : 'Previsto × realizado'}
+                  </div>
+                  <div style={{ fontSize: 11, color: MUT, marginBottom: 8 }}>
+                    {fisicoPct != null && tempoPct != null
+                      ? (fisicoPct >= tempoPct ? 'Execução acompanha o tempo decorrido.' : 'Execução atrás do tempo decorrido — veja o ritmo.')
+                      : 'O avanço físico acumulado × previsto aparece na curva do cronograma.'}
+                  </div>
+                  <Link href={`/dashboard/projetos/obras/${id}/cronograma?area=hub`} data-testid="link-curva-s-cronograma" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Ver curva S no cronograma →</Link>
                 </div>
               </div>
               <div data-testid="cockpit-pendencias" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
@@ -192,19 +203,22 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
                   ? <div style={{ fontSize: 12, color: VERDE }}>Nenhuma pendência. Obra em ordem.</div>
                   : <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: ESP }}>{pendencias.map((p) => <li key={p}>{p}</li>)}</ul>}
               </div>
-              <Link href={`/dashboard/projetos/obras/${id}/horas?area=hub`} data-testid="link-lancar-horas" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', marginRight: 12 }}>Lançar horas →</Link><AjudaCampo chave="projetos.cockpit.lancar_horas" rota={ROTA} />
-              <Link href={`/dashboard/projetos/obras/${id}/custos?area=hub`} data-testid="link-custos-obra" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', marginRight: 12 }}>Custos da obra →</Link><AjudaCampo chave="projetos.cockpit.custos" rota={ROTA} />
-              <Link href={`/dashboard/projetos/obras/os?obra=${id}&area=hub`} data-testid="link-os-obra" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', marginRight: 12 }}>Ordens de serviço →</Link><AjudaCampo chave="projetos.cockpit.os" rota={ROTA} />
-              <Link href={`/dashboard/projetos/obras/${id}/medicoes?area=hub`} data-testid="link-medicoes-obra" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', marginRight: 12 }}>Medições →</Link><AjudaCampo chave="projetos.cockpit.medicoes" rota={ROTA} />
-              <Link href={`/dashboard/projetos/obras/${id}/subempreiteiros?area=hub`} data-testid="link-subempreiteiros-obra" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', marginRight: 12 }}>Subempreiteiros →</Link><AjudaCampo chave="projetos.cockpit.subempreiteiros" rota={ROTA} />
-              <Link href={`/dashboard/projetos/obras/${id}/revisoes?area=hub`} data-testid="link-revisoes-obra" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', marginRight: 12 }}>Revisões de escopo →</Link><AjudaCampo chave="projetos.cockpit.revisoes" rota={ROTA} />
-              <Link href={`/dashboard/projetos/obras/${id}/linha-do-tempo?area=hub`} style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Ver linha do tempo →</Link><AjudaCampo chave="projetos.cockpit.linha_tempo" rota={ROTA} />
-              <Link href={`/dashboard/projetos/obras/${id}/cronograma?area=hub`} style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', marginLeft: 14 }}>Ver cronograma →</Link><AjudaCampo chave="projetos.cockpit.cronograma" rota={ROTA} />
-              <Link href={`/dashboard/projetos/viagens?obra=${id}&area=hub`} data-testid="link-nova-viagem" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', marginLeft: 14 }}>Nova viagem desta obra →</Link><AjudaCampo chave="projetos.cockpit.nova_viagem" rota={ROTA} />
-              <Link href={`/dashboard/projetos/obras/${id}/encerramento?area=hub`} data-testid="link-encerramento-obra" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', marginLeft: 14 }}>Encerramento da obra →</Link><AjudaCampo chave="projetos.cockpit.encerramento" rota={ROTA} />
-              <Link href={`/dashboard/projetos/obras/${id}/materiais?area=hub`} data-testid="link-materiais-obra" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', marginLeft: 14 }}>Materiais da obra →</Link><AjudaCampo chave="projetos.cockpit.materiais" rota={ROTA} />
-              <Link href={`/dashboard/projetos/obras/${id}/relatorio?area=hub`} data-testid="link-relatorio-cliente" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', marginLeft: 14 }}>Relatório ao cliente →</Link><AjudaCampo chave="projetos.cockpit.relatorio" rota={ROTA} />
-              <Link href={`/dashboard/projetos/obras/${id}/portal-cliente?area=hub`} data-testid="link-portal-cliente" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none', marginLeft: 14 }}>Portal do cliente →</Link><AjudaCampo chave="projetos.cockpit.portal_cliente" rota={ROTA} />
+              {/* Ações da obra: contêiner que quebra linha sem cortar (antes eram links soltos com margens inconsistentes que estouravam no mobile) */}
+              <nav aria-label="Ações da obra" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px 18px', marginTop: 2 }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Link href={`/dashboard/projetos/obras/${id}/horas?area=hub`} data-testid="link-lancar-horas" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Lançar horas →</Link><AjudaCampo chave="projetos.cockpit.lancar_horas" rota={ROTA} /></span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Link href={`/dashboard/projetos/obras/${id}/custos?area=hub`} data-testid="link-custos-obra" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Custos da obra →</Link><AjudaCampo chave="projetos.cockpit.custos" rota={ROTA} /></span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Link href={`/dashboard/projetos/obras/os?obra=${id}&area=hub`} data-testid="link-os-obra" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Ordens de serviço →</Link><AjudaCampo chave="projetos.cockpit.os" rota={ROTA} /></span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Link href={`/dashboard/projetos/obras/${id}/medicoes?area=hub`} data-testid="link-medicoes-obra" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Medições →</Link><AjudaCampo chave="projetos.cockpit.medicoes" rota={ROTA} /></span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Link href={`/dashboard/projetos/obras/${id}/subempreiteiros?area=hub`} data-testid="link-subempreiteiros-obra" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Subempreiteiros →</Link><AjudaCampo chave="projetos.cockpit.subempreiteiros" rota={ROTA} /></span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Link href={`/dashboard/projetos/obras/${id}/revisoes?area=hub`} data-testid="link-revisoes-obra" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Revisões de escopo →</Link><AjudaCampo chave="projetos.cockpit.revisoes" rota={ROTA} /></span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Link href={`/dashboard/projetos/obras/${id}/linha-do-tempo?area=hub`} style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Ver linha do tempo →</Link><AjudaCampo chave="projetos.cockpit.linha_tempo" rota={ROTA} /></span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Link href={`/dashboard/projetos/obras/${id}/cronograma?area=hub`} style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Ver cronograma →</Link><AjudaCampo chave="projetos.cockpit.cronograma" rota={ROTA} /></span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Link href={`/dashboard/projetos/viagens?obra=${id}&area=hub`} data-testid="link-nova-viagem" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Nova viagem desta obra →</Link><AjudaCampo chave="projetos.cockpit.nova_viagem" rota={ROTA} /></span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Link href={`/dashboard/projetos/obras/${id}/encerramento?area=hub`} data-testid="link-encerramento-obra" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Encerramento da obra →</Link><AjudaCampo chave="projetos.cockpit.encerramento" rota={ROTA} /></span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Link href={`/dashboard/projetos/obras/${id}/materiais?area=hub`} data-testid="link-materiais-obra" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Materiais da obra →</Link><AjudaCampo chave="projetos.cockpit.materiais" rota={ROTA} /></span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Link href={`/dashboard/projetos/obras/${id}/relatorio?area=hub`} data-testid="link-relatorio-cliente" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Relatório ao cliente →</Link><AjudaCampo chave="projetos.cockpit.relatorio" rota={ROTA} /></span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}><Link href={`/dashboard/projetos/obras/${id}/portal-cliente?area=hub`} data-testid="link-portal-cliente" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Portal do cliente →</Link><AjudaCampo chave="projetos.cockpit.portal_cliente" rota={ROTA} /></span>
+              </nav>
             </>
           )}
       </div>

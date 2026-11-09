@@ -160,14 +160,12 @@ export default function ClientesPage(){
               </div>
               <button onClick={()=>setShowImport(false)} style={{background:"none",border:"none",color:TXD,fontSize:22,cursor:"pointer"}}>✕</button>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>
               {[
-                {k:'omie',nome:'Omie',icon:'🟢',desc:'API direta — sync automático',cor:G,href:'/dashboard/conectores'},
-                {k:'nibo',nome:'Nibo',icon:'🔵',desc:'API direta — sync automático',cor:B,href:'/dashboard/conectores'},
-                {k:'contaazul',nome:'ContaAzul',icon:'🔷',desc:'OAuth — em configuração',cor:'#00A3E0',href:'/dashboard/conectores'},
-                {k:'bling',nome:'Bling',icon:'🟡',desc:'Via CSV ou API token',cor:Y,href:'/dashboard/importar'},
-                {k:'tiny',nome:'Tiny',icon:'🟠',desc:'Via CSV exportado',cor:'#FF6B35',href:'/dashboard/importar'},
-                {k:'csv',nome:'Excel / CSV',icon:'📊',desc:'Qualquer sistema — mapeamento inteligente',cor:T,href:'/dashboard/importar'},
+                // RD-100: nenhum nome de sistema de terceiro em tela geral. O provedor específico (API) é escolhido
+                // na tela de Conectores (tela de integração); aqui ficam só as CATEGORIAS genéricas de origem.
+                {k:'conectores',nome:'Conector automático',icon:'🔌',desc:'API direta — sincroniza sozinho',cor:G,href:'/dashboard/conectores'},
+                {k:'planilha',nome:'Planilha Excel / CSV',icon:'📊',desc:'Qualquer sistema — mapeamento inteligente',cor:T,href:'/dashboard/importar'},
               ].map(o=>(
                 <a key={o.k} href={o.href} style={{textDecoration:"none"}}>
                   <div style={{background:BG3,borderRadius:10,padding:14,border:`1px solid ${o.cor}30`,cursor:"pointer",transition:"all 0.2s"}} onMouseEnter={e=>(e.currentTarget.style.borderColor=o.cor,e.currentTarget.style.transform="translateY(-2px)")} onMouseLeave={e=>(e.currentTarget.style.borderColor=`${o.cor}30`,e.currentTarget.style.transform="translateY(0)")}>
@@ -180,7 +178,7 @@ export default function ClientesPage(){
             </div>
             <div style={{marginTop:16,padding:12,background:BG3,borderRadius:8,borderLeft:`3px solid ${B}`}}>
               <div style={{fontSize:10,fontWeight:600,color:B,marginBottom:4}}>💡 Dica</div>
-              <div style={{fontSize:10,color:TXM,lineHeight:1.5}}>Para qualquer sistema não listado (Protheus, SAP, Sage, planilhas antigas), use o <b>Excel/CSV</b>. O Importador Universal mapeia as colunas automaticamente — basta arrastar o arquivo.</div>
+              <div style={{fontSize:10,color:TXM,lineHeight:1.5}}>Para qualquer sistema não listado ou planilhas antigas, use o <b>Excel/CSV</b>. O Importador Universal mapeia as colunas automaticamente — basta arrastar o arquivo.</div>
             </div>
           </div>
         </div>
@@ -208,7 +206,7 @@ export default function ClientesPage(){
               <div style={{fontSize:11,color:TXD,marginBottom:16}}>Comece cadastrando manualmente ou importando de outro sistema.</div>
               <div style={{display:"flex",gap:8,justifyContent:"center"}}>
                 <button onClick={abrirNovo} style={{padding:"10px 20px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>+ Cadastrar Cliente</button>
-                <button onClick={()=>setShowImport(true)} style={{padding:"10px 20px",borderRadius:8,background:B+"15",color:B,fontSize:12,fontWeight:600,border:`1px solid ${B}40`,cursor:"pointer"}}>📥 Importar do Omie/Nibo/CSV</button>
+                <button onClick={()=>setShowImport(true)} style={{padding:"10px 20px",borderRadius:8,background:B+"15",color:B,fontSize:12,fontWeight:600,border:`1px solid ${B}40`,cursor:"pointer"}}>📥 Importar de outro sistema</button>
               </div>
             </div>
           ):(

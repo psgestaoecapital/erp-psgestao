@@ -3,7 +3,10 @@
 // Gestão de Obras (CEO 01/11) · Custos em lançamento simples por obra (centro de custo = obra).
 // Lança uma despesa da obra (material, mão de obra avulsa, terceiros, equipamento) direto no financeiro da
 // empresa (erp_pagar) com o centro de custo da obra, pelas funções fn_obra_custo_lancar/_listar/_excluir.
-// O custo entra sozinho no "custo realizado" do Resultado por obra. MO POR HORA continua em "Lançar horas".
+// A despesa soma no "Total de custos da obra" (lista abaixo). A ligação automática desses lançamentos ao
+// "Custo realizado" do Resultado por obra (consolidação de erp_pagar por centro de custo) ainda está sendo
+// montada no núcleo financeiro — por isso esta tela NÃO promete que o lançamento já entra no Resultado sozinho.
+// MO POR HORA continua em "Lançar horas".
 import { use, useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
@@ -12,17 +15,23 @@ import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
-const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERM = '#B91C1C'
+const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERM = '#B91C1C', VERDE = '#2E7D32'
 const brl = (v: number | null | undefined) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+const n = (v: unknown) => Number(v ?? 0)
 const hoje = () => new Date().toISOString().slice(0, 10)
 const CATEGORIAS = ['Material', 'Mão de obra', 'Terceiros', 'Equipamento', 'Outros'] as const
 
 type Custo = { id: string; data: string; categoria: string; descricao: string; fornecedor_nome: string | null; valor: number; status: string; pago: boolean }
+// ONDA 2 Hub — Orçado × Realizado × Saldo da obra, lido de v_obra_resultado_alocado (mesma fonte do Resultado por obra).
+// Realizado = custo real alocado de TODAS as fontes (material, mão de obra, viagem/frota, custo fixo rateado), diferente
+// do "Total de custos" da lista abaixo (só os lançamentos desta tela). Saldo = orçado − realizado (sem orçado → "—").
+type ResumoObra = { custo_previsto: number; realizado: number }
 
 export default function CustosObraPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const { companyIds } = useCompanyIds()
   const [itens, setItens] = useState<Custo[]>([])
+  const [resumo, setResumo] = useState<ResumoObra | null>(null)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState('')
   const [salvando, setSalvando] = useState(false)
@@ -40,6 +49,16 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
       const r = await comPrazo(async () => await supabase.rpc('fn_obra_custo_listar', { p_obra_id: id }), { ms: 8000, tentativas: 1, label: 'custos' })
       if (r.error) { setErro(erroAmigavel(r.error, 'Não foi possível carregar os custos. Tente de novo.')); return }
       setItens((r.data ?? []) as Custo[])
+      // Resumo Orçado × Realizado × Saldo da obra (mesma fonte do Resultado por obra). Falha aqui não quebra a lista.
+      try {
+        const rr = await supabase.from('v_obra_resultado_alocado')
+          .select('custo_previsto,custo_material,custo_viagens,custo_mao_obra,custo_rateio')
+          .eq('obra_id', id).in('company_id', companyIds).maybeSingle()
+        if (!rr.error && rr.data) {
+          const d = rr.data as Record<string, unknown>
+          setResumo({ custo_previsto: n(d.custo_previsto), realizado: n(d.custo_material) + n(d.custo_viagens) + n(d.custo_mao_obra) + n(d.custo_rateio) })
+        } else setResumo(null)
+      } catch { setResumo(null) }
     } catch { setErro(MSG_CARREGAMENTO_FALHOU) } finally { setLoading(false) }
   }, [companyIds, id])
   useEffect(() => { carregar() }, [carregar])
@@ -109,9 +128,27 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
         <Link href={`/dashboard/projetos/obras/${id}/cockpit?area=hub`} style={{ color: GOLD, fontSize: 13 }}>← Cockpit da obra</Link>
         <h1 style={{ fontSize: 22, margin: '8px 0 4px' }}>Custos da obra</h1>
         <p style={{ fontSize: 13, color: MUT, margin: '0 0 12px' }}>
-          Cada custo lançado vira uma despesa no financeiro da empresa, com o centro de custo desta obra, e entra sozinho no Resultado por obra.
+          Cada custo lançado vira uma despesa no financeiro da empresa, com o centro de custo desta obra, e soma no Total de custos da obra (lista abaixo).
           Para mão de obra por hora, use <Link href={`/dashboard/projetos/obras/${id}/horas?area=hub`} style={{ color: GOLD }}>Lançar horas</Link>.
         </p>
+
+        {resumo && (() => {
+          const temOrcamento = resumo.custo_previsto > 0
+          const saldo = resumo.custo_previsto - resumo.realizado
+          const cardS: React.CSSProperties = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: '10px 14px', flex: '1 1 160px' }
+          const rotS: React.CSSProperties = { fontSize: 11, color: MUT, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 2, marginBottom: 2 }
+          const valS: React.CSSProperties = { fontSize: 18, fontWeight: 700 }
+          return (
+            <div data-testid="custos-resumo" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
+              <div style={cardS}><div style={rotS}>Orçado <AjudaCampo chave="projetos.resultado_obra.custo_previsto" /></div>
+                <div style={valS} data-testid="custos-resumo-orcado">{temOrcamento ? brl(resumo.custo_previsto) : '—'}</div></div>
+              <div style={cardS}><div style={rotS}>Custo realizado <AjudaCampo chave="projetos.obra_custos.realizado" /></div>
+                <div style={valS} data-testid="custos-resumo-realizado">{brl(resumo.realizado)}</div></div>
+              <div style={cardS}><div style={rotS}>Saldo do custo <AjudaCampo chave="projetos.resultado_obra.saldo_custo" /></div>
+                <div style={{ ...valS, color: temOrcamento ? (saldo < 0 ? VERM : VERDE) : MUT }} data-testid="custos-resumo-saldo">{temOrcamento ? brl(saldo) : '—'}</div></div>
+            </div>
+          )
+        })()}
 
         <form onSubmit={lancar} data-testid="custos-form" style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 12, display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))' }}>
           <div><label style={lab}>Data</label>
@@ -131,7 +168,7 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
 
         {erro && <p role="alert" data-testid="custos-erro" style={{ color: VERM }}>{erro}</p>}
         {loading && <p data-testid="custos-carregando">Carregando…</p>}
-        {!loading && itens.length === 0 && <p data-testid="custos-vazio">Nenhum custo lançado ainda. Preencha o formulário acima: a despesa aparece na hora no Resultado por obra.</p>}
+        {!loading && itens.length === 0 && <p data-testid="custos-vazio">Nenhum custo lançado ainda. Preencha o formulário acima: a despesa entra no financeiro da empresa com o centro de custo desta obra e aparece no Total de custos da obra.</p>}
         {!loading && itens.length > 0 && (
           <div style={{ overflowX: 'auto', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, marginTop: 12 }}>
             <table data-testid="custos-tabela" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -157,10 +194,16 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
                           </span>}
                     </td>
                   </tr>))}
-                <tr style={{ fontWeight: 700 }}><td colSpan={4} style={{ padding: 8 }}>Total de custos da obra</td><td style={{ padding: 8, textAlign: 'right' }} data-testid="custos-total">{brl(total)}</td><td colSpan={2} /></tr>
+                <tr style={{ fontWeight: 700 }}><td colSpan={4} style={{ padding: 8 }}>Total de despesas diretas lançadas aqui</td><td style={{ padding: 8, textAlign: 'right' }} data-testid="custos-total">{brl(total)}</td><td colSpan={2} /></tr>
               </tbody>
             </table>
           </div>)}
+        {!loading && itens.length > 0 && (
+          <p data-testid="custos-reconciliacao" style={{ fontSize: 12, color: MUT, marginTop: 8 }}>
+            Este total soma só as despesas diretas lançadas nesta tela. O <strong>custo realizado completo da obra</strong> (que aparece no{' '}
+            <Link href={`/dashboard/projetos/obras/${id}/cockpit?area=hub`} style={{ color: GOLD }}>Cockpit</Link>) também inclui o material dos pedidos de compra, as viagens e a mão de obra por hora —
+            por isso o número do Cockpit costuma ser maior que o desta lista. <AjudaCampo chave="projetos.obra_custos.reconciliacao" />
+          </p>)}
       </div>
 
       {ed && (

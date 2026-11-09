@@ -1,10 +1,14 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import PSGCMetric from '@/components/psgc/PSGCMetric'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 import { PSGC_COLORS, PSGC_RADIUS } from '@/lib/psgc-tokens'
+
+const ROTA_AJUDA = '/dashboard/financeiro/fluxo-caixa'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis,
   CartesianGrid, Tooltip, ReferenceLine,
@@ -34,6 +38,7 @@ const brl = (v: number) =>
 const hojeISO = () => new Date().toISOString().slice(0, 10)
 
 export default function FluxoCaixaPage() {
+  const router = useRouter()
   const { companyIds } = useCompanyIds()
   const empresaUnica = companyIds.length === 1 ? companyIds[0] : null
 
@@ -87,6 +92,22 @@ export default function FluxoCaixaPage() {
     saldo: Number(d.saldo_final),
     ehHoje: d.data === hojeISO(),
   }))
+  // Legibilidade do gráfico (RD-98): com poucos pontos ou saldo quase constante a curva fica
+  // "plana"/ilegível. Calcula um domínio com folga, mostra pontos quando são poucos e avisa
+  // quando o saldo é estável, em vez de exibir uma linha colada na borda.
+  const saldosSerie = chartData.map((d) => d.saldo)
+  const minSaldo = saldosSerie.length ? Math.min(...saldosSerie) : 0
+  const maxSaldo = saldosSerie.length ? Math.max(...saldosSerie) : 0
+  const spanSaldo = maxSaldo - minSaldo
+  const padSaldo = spanSaldo === 0 ? Math.max(Math.abs(maxSaldo) * 0.1, 100) : spanSaldo * 0.15
+  const yDomain: [number, number] = [minSaldo - padSaldo, maxSaldo + padSaldo]
+  const poucosPontos = chartData.length > 0 && chartData.length <= 8
+  const saldoEstavel = chartData.length >= 2 && spanSaldo === 0
+  const fmtEixoSaldo = (v: number) => {
+    const a = Math.abs(v)
+    if (a >= 1000) return `R$${(v / 1000).toFixed(a >= 10000 ? 0 : 1)}k`
+    return `R$${Math.round(v)}`
+  }
 
   return (
     <div style={{ padding: 16, background: PSGC_COLORS.offWhite, minHeight: '100vh' }}>
@@ -97,6 +118,9 @@ export default function FluxoCaixaPage() {
         Visão diária do seu saldo · entradas e saídas
       </p>
 
+      <div style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6, color: 'rgba(61,35,20,0.6)', marginBottom: 6 }}>
+        Período<AjudaCampo chave="ge.fluxo_caixa.periodo" rota={ROTA_AJUDA} />
+      </div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         {([7, 30, 90] as const).map((p) => (
           <button key={p} onClick={() => setPeriodo(p)}
@@ -114,12 +138,12 @@ export default function FluxoCaixaPage() {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12, marginBottom: 20 }}>
         <PSGCMetric label="Saldo Atual" valor={brl(saldoHoje)} destaque
-          icon="wallet" cor={PSGC_COLORS.espresso} />
+          icon="wallet" cor={PSGC_COLORS.espresso} ajuda="ge.fluxo_caixa.kpi.saldo_atual" ajudaRota={ROTA_AJUDA} />
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <PSGCMetric label="Entradas no período" valor={brl(dados?.total_recebimentos ?? 0)}
-            icon="arrow-up" cor={PSGC_COLORS.baixa} pequeno />
+            icon="arrow-up" cor={PSGC_COLORS.baixa} pequeno ajuda="ge.fluxo_caixa.kpi.entradas" ajudaRota={ROTA_AJUDA} />
           <PSGCMetric label="Saídas no período" valor={brl(dados?.total_pagamentos ?? 0)}
-            icon="arrow-down" cor={PSGC_COLORS.alta} pequeno />
+            icon="arrow-down" cor={PSGC_COLORS.alta} pequeno ajuda="ge.fluxo_caixa.kpi.saidas" ajudaRota={ROTA_AJUDA} />
         </div>
       </div>
 
@@ -131,7 +155,13 @@ export default function FluxoCaixaPage() {
           <p style={{ color: PSGC_COLORS.espresso, opacity: 0.6, fontSize: 13 }}>Carregando…</p>
         ) : erro ? (
           <p style={{ color: PSGC_COLORS.alta, fontSize: 13 }}>{erro}</p>
+        ) : chartData.length < 2 ? (
+          <div style={{ padding: '28px 8px', textAlign: 'center', color: PSGC_COLORS.espresso, opacity: 0.6, fontSize: 13, lineHeight: 1.5 }}>
+            Ainda não há dias suficientes para traçar a curva do saldo.<br />
+            Registre movimentações (ou aumente o período) para ver a evolução aqui.
+          </div>
         ) : (
+          <>
           <ResponsiveContainer width="100%" height={220}>
             <AreaChart data={chartData} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
               <defs>
@@ -143,13 +173,21 @@ export default function FluxoCaixaPage() {
               <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
               <XAxis dataKey="data" tick={{ fontSize: 10, fill: PSGC_COLORS.espresso }} interval="preserveStartEnd" />
               <YAxis tick={{ fontSize: 10, fill: PSGC_COLORS.espresso }} width={56}
-                tickFormatter={(v) => `R$${Math.round(Number(v) / 1000)}k`} />
+                domain={yDomain} tickFormatter={(v) => fmtEixoSaldo(Number(v))} />
               <Tooltip formatter={(v) => brl(Number(v))} labelStyle={{ color: PSGC_COLORS.espresso }} />
               <ReferenceLine x={hojeISO().slice(5)} stroke={PSGC_COLORS.dourado} strokeDasharray="4 2" />
               <Area type="monotone" dataKey="saldo" stroke={PSGC_COLORS.espresso}
-                strokeWidth={2} fill="url(#gradSaldo)" />
+                strokeWidth={2} fill="url(#gradSaldo)"
+                dot={poucosPontos ? { r: 3, fill: PSGC_COLORS.espresso, strokeWidth: 0 } : false}
+                activeDot={{ r: 4 }} />
             </AreaChart>
           </ResponsiveContainer>
+          {saldoEstavel && (
+            <p style={{ color: PSGC_COLORS.espresso, opacity: 0.55, fontSize: 11, marginTop: 6, marginBottom: 0 }}>
+              Saldo estável no período — sem variação de um dia para o outro.
+            </p>
+          )}
+          </>
         )}
       </div>
 
@@ -167,23 +205,34 @@ export default function FluxoCaixaPage() {
         </div>
 
         {diasComMov.length === 0 ? (
-          <p style={{ color: PSGC_COLORS.espresso, opacity: 0.6, fontSize: 13, lineHeight: 1.5 }}>
-            Nenhuma movimentação no período. Conforme você registrar pagamentos e
-            recebimentos, eles aparecem aqui.
-          </p>
+          <div style={{ padding: '8px 0 4px' }}>
+            <p style={{ color: PSGC_COLORS.espresso, opacity: 0.6, fontSize: 13, lineHeight: 1.5, marginTop: 0 }}>
+              Nenhuma movimentação no período. Registre uma receita ou despesa para começar a ver o fluxo aqui.
+            </p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+              <button onClick={() => router.push('/dashboard/financeiro/nova-receita')}
+                style={{ padding: '9px 16px', borderRadius: PSGC_RADIUS.md, border: 'none', background: PSGC_COLORS.dourado, color: PSGC_COLORS.espresso, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                + Lançar receita
+              </button>
+              <button onClick={() => router.push('/dashboard/financeiro/nova-despesa')}
+                style={{ padding: '9px 16px', borderRadius: PSGC_RADIUS.md, border: `1px solid ${PSGC_COLORS.espresso}`, background: 'transparent', color: PSGC_COLORS.espresso, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                − Lançar despesa
+              </button>
+            </div>
+          </div>
         ) : (
           <>
             <div className="fc-table-wrap" style={{ overflowX: 'auto', marginTop: 6 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
                 <thead style={{ position: 'sticky', top: 0, background: PSGC_COLORS.offWhite, zIndex: 5 }}>
                   <tr>
-                    <th style={th}>Data</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Entradas</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Saídas</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Transf. ↓</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Transf. ↑</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Movimento</th>
-                    <th style={{ ...th, textAlign: 'right' }}>Saldo no dia</th>
+                    <th style={th}>Data<AjudaCampo chave="ge.fluxo_caixa.col.data" rota={ROTA_AJUDA} /></th>
+                    <th style={{ ...th, textAlign: 'right' }}>Entradas<AjudaCampo chave="ge.fluxo_caixa.col.entradas" rota={ROTA_AJUDA} /></th>
+                    <th style={{ ...th, textAlign: 'right' }}>Saídas<AjudaCampo chave="ge.fluxo_caixa.col.saidas" rota={ROTA_AJUDA} /></th>
+                    <th style={{ ...th, textAlign: 'right' }}>Transf. ↓<AjudaCampo chave="ge.fluxo_caixa.col.transf_entrada" rota={ROTA_AJUDA} /></th>
+                    <th style={{ ...th, textAlign: 'right' }}>Transf. ↑<AjudaCampo chave="ge.fluxo_caixa.col.transf_saida" rota={ROTA_AJUDA} /></th>
+                    <th style={{ ...th, textAlign: 'right' }}>Movimento<AjudaCampo chave="ge.fluxo_caixa.col.movimento" rota={ROTA_AJUDA} /></th>
+                    <th style={{ ...th, textAlign: 'right' }}>Saldo no dia<AjudaCampo chave="ge.fluxo_caixa.col.saldo" rota={ROTA_AJUDA} /></th>
                   </tr>
                 </thead>
                 <tbody>
