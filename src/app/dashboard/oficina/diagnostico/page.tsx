@@ -402,12 +402,12 @@ export default function DiagnosticoPage() {
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: '2px 0 4px' }}>{osSel.placa} · {osSel.marca} {osSel.modelo}</h1>
         {osSel.defeito_relatado && <div style={{ fontSize: 13, color: ESP60, marginBottom: 12 }}>Queixa do cliente: “{osSel.defeito_relatado}”</div>}
 
-        <Sec titulo={ramo.automotivo ? 'Causa provável (o que o carro tem)' : 'Causa provável (o que foi constatado)'}>
+        <Sec ajuda="oficina.diagnostico.causa" titulo={ramo.automotivo ? 'Causa provável (o que o carro tem)' : 'Causa provável (o que foi constatado)'}>
           <textarea value={diagnostico} onChange={(e) => setDiagnostico(e.target.value)} rows={3} placeholder="Ex.: barulho ao frear — pastilha dianteira gasta e disco com sulco." style={{ ...inp, resize: 'vertical' }} />
-          <Campo l="KM confirmado"><input value={km} onChange={(e) => setKm(e.target.value.replace(/\D/g, ''))} inputMode="numeric" style={inp} /></Campo>
+          <Campo l="KM confirmado" ajuda="oficina.diagnostico.km"><input value={km} onChange={(e) => setKm(e.target.value.replace(/\D/g, ''))} inputMode="numeric" style={inp} /></Campo>
         </Sec>
 
-        <Sec titulo="Serviços & peças necessárias">
+        <Sec ajuda="oficina.diagnostico.servico_peca" titulo="Serviços & peças necessárias">
           {/* 3.2 · a tela escolhe SERVIÇO ou PEÇA — uma busca por vez. Toque grande (44px), sem ruído. */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
             {([['servico', 'Serviço', Wrench], ['peca', 'Peça', Package]] as const).map(([m, l, Icon]) => (
@@ -758,16 +758,16 @@ export default function DiagnosticoPage() {
   )
 }
 
-function Sec({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+function Sec({ titulo, children, ajuda }: { titulo: string; children: React.ReactNode; ajuda?: string }) {
   return (
     <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 14, padding: 14, marginBottom: 12 }}>
-      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 10 }}>{titulo}</div>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 4 }}>{titulo}{ajuda && <AjudaCampo chave={ajuda} />}</div>
       {children}
     </div>
   )
 }
-function Campo({ l, children }: { l: string; children: React.ReactNode }) {
-  return <div><div style={{ fontSize: 11, color: ESP60, marginBottom: 4 }}>{l}</div>{children}</div>
+function Campo({ l, children, ajuda }: { l: string; children: React.ReactNode; ajuda?: string }) {
+  return <div><div style={{ fontSize: 11, color: ESP60, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>{l}{ajuda && <AjudaCampo chave={ajuda} />}</div>{children}</div>
 }
 function Toast({ children }: { children: React.ReactNode }) {
   return <div style={{ position: 'fixed', bottom: 74, left: '50%', transform: 'translateX(-50%)', background: ESP, color: '#fff', padding: '10px 16px', borderRadius: 999, fontSize: 13, zIndex: 70, maxWidth: '92%', textAlign: 'center' }}>{children}</div>
