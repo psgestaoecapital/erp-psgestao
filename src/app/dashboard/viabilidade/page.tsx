@@ -2,10 +2,13 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { authFetch } from "@/lib/authFetch";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
-const GO="#C6973F",GOL="#E8C872",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
-    G="#34D399",R="#F87171",Y="#FBBF24",B="#60A5FA",P="#A78BFA",
-    BD="#2A2822",TX="#F0ECE3",TXM="#B0AB9F",TXD="#918C82";
+// Design system PS claro (RD-96): espresso/off-white/dourado. Cores de status escurecidas
+// para contraste legível sobre fundo claro. Layout inalterado — só os tokens de cor.
+const GO="#C8941A",GOL="#9A6B10",BG="#FAF7F2",BG2="#FFFFFF",BG3="#F5F2EB",
+    G="#2E7D46",R="#C44536",Y="#A77A06",B="#2563EB",P="#7C3AED",
+    BD="#E7DECF",TX="#3D2314",TXM="rgba(61,35,20,0.62)",TXD="rgba(61,35,20,0.45)";
 
 const fmtR=(v:number)=>`R$ ${v.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 
@@ -168,6 +171,7 @@ Dados do arquivo: ${fileData.substring(0,2000)}`;
           <div style={{fontSize:11,color:TXD}}>Upload de arquivo → IA analisa → viável ou não, com sugestões</div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <AjudaCampo chave="viabilidade.empresa" />
           <select value={selectedComp} onChange={e=>setSelectedComp(e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:600}}>
             {groups.length>0&&groups.map(g=>{
               const groupComps=companies.filter(c=>c.group_id===g.id);
@@ -194,7 +198,7 @@ Dados do arquivo: ${fileData.substring(0,2000)}`;
             }}
           >
             <div style={{fontSize:48,marginBottom:12}}>📄</div>
-            <div style={{fontSize:16,fontWeight:600,color:TX,marginBottom:6}}>Arraste o arquivo do projeto aqui</div>
+            <div style={{fontSize:16,fontWeight:600,color:TX,marginBottom:6,display:"flex",alignItems:"center",justifyContent:"center",gap:6}} onClick={e=>e.stopPropagation()}>Arraste o arquivo do projeto aqui<AjudaCampo chave="viabilidade.upload" /></div>
             <div style={{fontSize:12,color:TXM,marginBottom:16}}>
               Orçamento, proposta comercial, planilha de custos, plano de negócio
             </div>
@@ -224,7 +228,7 @@ Dados do arquivo: ${fileData.substring(0,2000)}`;
             </div>
 
             <div style={{marginBottom:14}}>
-              <div style={{fontSize:10,color:TXD,marginBottom:4,textTransform:"uppercase",letterSpacing:1}}>Setor / Ramo de Atividade</div>
+              <div style={{fontSize:10,color:TXD,marginBottom:4,textTransform:"uppercase",letterSpacing:1,display:"flex",alignItems:"center",gap:4}}>Setor / Ramo de Atividade<AjudaCampo chave="viabilidade.setor" /></div>
               <select value={setor} onChange={e=>setSetor(e.target.value)} style={inp}>
                 <option value="">Selecione o setor...</option>
                 {["Comércio","Indústria","Serviços","Construção Civil","Alimentação","Tecnologia","Energia","Agronegócio","Saúde","Educação","Logística","Varejo","Outro"].map(s=>(
@@ -234,7 +238,7 @@ Dados do arquivo: ${fileData.substring(0,2000)}`;
             </div>
 
             <div>
-              <div style={{fontSize:10,color:TXD,marginBottom:4,textTransform:"uppercase",letterSpacing:1}}>Descreva o Projeto</div>
+              <div style={{fontSize:10,color:TXD,marginBottom:4,textTransform:"uppercase",letterSpacing:1,display:"flex",alignItems:"center",gap:4}}>Descreva o Projeto<AjudaCampo chave="viabilidade.descricao" /></div>
               <textarea
                 value={descricaoProjeto}
                 onChange={e=>setDescricaoProjeto(e.target.value)}
@@ -362,7 +366,8 @@ Dados do arquivo: ${fileData.substring(0,2000)}`;
               </div>
             )}
 
-            <div style={{display:"flex",gap:8}}>
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              <AjudaCampo chave="viabilidade.ia_pergunta" />
               <input value={iaPergunta} onChange={e=>setIaPergunta(e.target.value)}
                 onKeyDown={e=>{if(e.key==="Enter")perguntarIA();}}
                 placeholder="Ex: Como chegou nesse valor de investimento? Esse projeto cabe no meu caixa?"
