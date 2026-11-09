@@ -2,7 +2,9 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
+import AjudaCampo from "@/components/ajuda/AjudaCampo";
 
+const ROTA_AJUDA = "/dashboard/fornecedores";
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
 const BD="var(--ps-border,#E0D8CC)",GO="var(--ps-gold,#C8941A)";
@@ -21,6 +23,7 @@ type Fornecedor = {
   categoria:string; tags:string[]; fornecedor_principal:boolean;
   observacoes:string; ref_externa_sistema:string; ref_externa_id:string;
   ativo:boolean; bloqueado:boolean;
+  excluido_em:string|null;
   created_at:string; updated_at:string;
 };
 
@@ -82,9 +85,13 @@ export default function FornecedoresPage(){
     return companyIds[0] || "";
   },[sel, companyIds]);
 
+  // "🗑 Excluídos" troca o conjunto carregado (arquivados) — RD-98 p4: a lista normal nunca mostra excluídos.
+  const verExcluidos = filtroAtivo==="excluidos";
+
   useEffect(()=>{
     if(companyIds.length>0)loadFornecedores();
-  },[companyIds.join(",")]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[companyIds.join(","),verExcluidos]);
 
   // #7a.3 · deep-link da remessa ("cadastrar chave PIX · <fornecedor>") pré-filtra por nome.
   useEffect(()=>{
@@ -94,9 +101,11 @@ export default function FornecedoresPage(){
   const loadFornecedores=async()=>{
     if(companyIds.length===0){setLoading(false);return;}
     setLoading(true);
-    const{data,error}=await supabase.from("erp_fornecedores").select("*").in("company_id",companyIds).order("razao_social");
+    let q=supabase.from("erp_fornecedores").select("*").in("company_id",companyIds).order("razao_social");
+    q = verExcluidos ? q.not("excluido_em","is",null) : q.is("excluido_em",null);
+    const{data,error}=await q;
     if(data)setFornecedores(data);
-    if(error&&!error.message.includes('does not exist'))setMsg("Erro: "+error.message);
+    if(error&&!error.message.includes('does not exist'))setMsg("❌ Não foi possível carregar os fornecedores agora. Tente novamente em instantes.");
     setLoading(false);
   };
 
@@ -178,6 +187,22 @@ export default function FornecedoresPage(){
   const abrirNovo=()=>{setEditing(null);setForm({...EMPTY,codigo:String(fornecedores.length+1).padStart(4,'0')});setShowForm(true);};
   const toggleAtivo=async(f:Fornecedor)=>{await supabase.from("erp_fornecedores").update({ativo:!f.ativo}).eq("id",f.id);setFornecedores(fornecedores.map(x=>x.id===f.id?{...x,ativo:!x.ativo}:x));};
   const togglePrincipal=async(f:Fornecedor)=>{await supabase.from("erp_fornecedores").update({fornecedor_principal:!f.fornecedor_principal}).eq("id",f.id);setFornecedores(fornecedores.map(x=>x.id===f.id?{...x,fornecedor_principal:!x.fornecedor_principal}:x));};
+  // RD-98 p2/p4 · Excluir (arquivar, soft-delete rastreável) e Restaurar — via RPC guardada, nunca DELETE físico.
+  const excluir=async(f:Fornecedor)=>{
+    if(typeof window!=="undefined"&&!window.confirm(`Excluir o fornecedor "${f.nome_fantasia||f.razao_social}"? Ele sai da lista ativa, mas o histórico é preservado e você pode restaurá-lo depois.`))return;
+    const{data,error}=await supabase.rpc("fn_fornecedor_arquivar",{p_id:f.id});
+    const r=data as {ok?:boolean;erro?:string}|null;
+    if(error||!r?.ok){setMsg("❌ "+(r?.erro||"Não foi possível excluir o fornecedor agora."));setTimeout(()=>setMsg(""),4000);return;}
+    setFornecedores(fornecedores.filter(x=>x.id!==f.id));
+    setMsg('✅ Fornecedor excluído. Ele fica em "🗑 Excluídos" e pode ser restaurado.');setTimeout(()=>setMsg(""),4000);
+  };
+  const restaurar=async(f:Fornecedor)=>{
+    const{data,error}=await supabase.rpc("fn_fornecedor_restaurar",{p_id:f.id});
+    const r=data as {ok?:boolean;erro?:string}|null;
+    if(error||!r?.ok){setMsg("❌ "+(r?.erro||"Não foi possível restaurar o fornecedor agora."));setTimeout(()=>setMsg(""),4000);return;}
+    setFornecedores(fornecedores.filter(x=>x.id!==f.id));
+    setMsg("✅ Fornecedor restaurado para a lista ativa.");setTimeout(()=>setMsg(""),3000);
+  };
 
   const filtrados=useMemo(()=>{
     let r=fornecedores;
@@ -216,7 +241,9 @@ export default function FornecedoresPage(){
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
           <button onClick={()=>setShowImport(true)} style={{padding:"8px 14px",borderRadius:8,background:B+"15",color:B,fontSize:12,fontWeight:600,border:`1px solid ${B}40`,cursor:"pointer"}}>📥 Importar</button>
+          <AjudaCampo chave="fornecedores.acao.importar" rota={ROTA_AJUDA}/>
           <button onClick={abrirNovo} style={{padding:"8px 16px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>+ Novo</button>
+          <AjudaCampo chave="fornecedores.acao.novo" rota={ROTA_AJUDA}/>
         </div>
       </div>
 
@@ -225,14 +252,14 @@ export default function FornecedoresPage(){
       {/* KPIs */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:16}}>
         {[
-          {l:"Fornecedores Ativos",v:String(kpiTotal),c:B,icon:"🚚"},
-          {l:"Principais",v:String(kpiPrincipais),c:GO,icon:"⭐"},
-          {l:"Bem Avaliados (4+)",v:String(kpiMelhorNota),c:G,icon:"🏆"},
-          {l:"Nota Média",v:kpiMediaNota>0?`${kpiMediaNota.toFixed(1)}★`:"—",c:kpiMediaNota>=4?G:kpiMediaNota>=3?Y:R,icon:"📊"},
-          {l:"Total em Compras",v:fmtR(kpiTotalCompras),c:P,icon:"💰"},
+          {l:"Fornecedores Ativos",v:String(kpiTotal),c:B,icon:"🚚",a:"fornecedores.kpi.ativos"},
+          {l:"Principais",v:String(kpiPrincipais),c:GO,icon:"⭐",a:"fornecedores.kpi.principais"},
+          {l:"Bem Avaliados (4+)",v:String(kpiMelhorNota),c:G,icon:"🏆",a:"fornecedores.kpi.bem_avaliados"},
+          {l:"Nota Média",v:kpiMediaNota>0?`${kpiMediaNota.toFixed(1)}★`:"—",c:kpiMediaNota>=4?G:kpiMediaNota>=3?Y:R,icon:"📊",a:"fornecedores.kpi.nota_media"},
+          {l:"Total em Compras",v:fmtR(kpiTotalCompras),c:P,icon:"💰",a:"fornecedores.kpi.total_compras"},
         ].map((k,i)=>(
           <div key={i} style={{background:BG2,borderRadius:10,padding:"10px 14px",border:`1px solid ${BD}`}}>
-            <div style={{fontSize:8,color:TXD,textTransform:"uppercase",letterSpacing:0.5}}>{k.icon} {k.l}</div>
+            <div style={{fontSize:8,color:TXD,textTransform:"uppercase",letterSpacing:0.5,display:"flex",alignItems:"center"}}>{k.icon} {k.l}<AjudaCampo chave={k.a} rota={ROTA_AJUDA}/></div>
             <div style={{fontSize:16,fontWeight:700,color:k.c,marginTop:2}}>{k.v}</div>
           </div>
         ))}
@@ -240,15 +267,22 @@ export default function FornecedoresPage(){
 
       {/* Filtros */}
       <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
-        <div style={{flex:1,minWidth:200,position:"relative"}}>
-          <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por nome, CNPJ, cidade..." style={{...inp,paddingLeft:32}}/>
-          <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:TXD}}>🔍</span>
-        </div>
-        <select value={filtroCategoria} onChange={e=>setFiltroCategoria(e.target.value)} style={{...inp,width:"auto",cursor:"pointer"}}>
-          <option value="todas">Todas categorias</option>{CATEGORIAS_FORN.map(c=><option key={c} value={c}>{c}</option>)}
-        </select>
-        <div style={{display:"flex",gap:4}}>
-          {[{v:"ativos",l:"Ativos"},{v:"principais",l:"⭐ Principais"},{v:"inativos",l:"Inativos"},{v:"todos",l:"Todos"}].map(f=>(
+        <label style={{flex:1,minWidth:200,display:"flex",alignItems:"center",gap:4}}>
+          <span style={{flex:1,position:"relative",display:"block"}}>
+            <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por nome, CNPJ, cidade..." style={{...inp,paddingLeft:32}}/>
+            <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:TXD}}>🔍</span>
+          </span>
+          <AjudaCampo chave="fornecedores.filtro.busca" rota={ROTA_AJUDA}/>
+        </label>
+        <label style={{display:"flex",alignItems:"center",gap:2}}>
+          <select value={filtroCategoria} onChange={e=>setFiltroCategoria(e.target.value)} style={{...inp,width:"auto",cursor:"pointer"}}>
+            <option value="todas">Todas categorias</option>{CATEGORIAS_FORN.map(c=><option key={c} value={c}>{c}</option>)}
+          </select>
+          <AjudaCampo chave="fornecedores.filtro.categoria" rota={ROTA_AJUDA}/>
+        </label>
+        <div style={{display:"flex",gap:4,alignItems:"center"}}>
+          <span style={{fontSize:9,color:TXD,textTransform:"uppercase",display:"flex",alignItems:"center"}}>Situação<AjudaCampo chave="fornecedores.filtro.status" rota={ROTA_AJUDA}/></span>
+          {[{v:"ativos",l:"Ativos"},{v:"principais",l:"⭐ Principais"},{v:"inativos",l:"Inativos"},{v:"todos",l:"Todos"},{v:"excluidos",l:"🗑 Excluídos"}].map(f=>(
             <button key={f.v} onClick={()=>setFiltroAtivo(f.v)} style={{padding:"6px 10px",borderRadius:6,fontSize:10,border:`1px solid ${filtroAtivo===f.v?GO:BD}`,background:filtroAtivo===f.v?GO+"12":"transparent",color:filtroAtivo===f.v?GO:TXM,cursor:"pointer",fontWeight:filtroAtivo===f.v?600:400}}>{f.l}</button>
           ))}
         </div>
@@ -444,24 +478,26 @@ export default function FornecedoresPage(){
         <div style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,overflow:"auto"}}>
           {filtrados.length===0?(
             <div style={{padding:40,textAlign:"center"}}>
-              <div style={{fontSize:40,marginBottom:8}}>🚚</div>
-              <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:4}}>Nenhum fornecedor cadastrado</div>
-              <div style={{fontSize:11,color:TXD,marginBottom:16}}>Cadastre manualmente ou importe de outro sistema.</div>
+              <div style={{fontSize:40,marginBottom:8}}>{verExcluidos?"🗑":"🚚"}</div>
+              <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:4}}>{verExcluidos?"Nenhum fornecedor excluído":(busca.trim()||filtroCategoria!=="todas"||filtroAtivo!=="ativos")?"Nenhum fornecedor neste filtro":"Nenhum fornecedor cadastrado"}</div>
+              <div style={{fontSize:11,color:TXD,marginBottom:16}}>{verExcluidos?"Fornecedores que você excluir aparecem aqui e podem ser restaurados.":(busca.trim()||filtroCategoria!=="todas"||filtroAtivo!=="ativos")?"Ajuste a busca ou os filtros para ver mais fornecedores.":"Cadastre manualmente ou importe de outro sistema."}</div>
+              {!verExcluidos&&!busca.trim()&&filtroCategoria==="todas"&&filtroAtivo==="ativos"&&(
               <div style={{display:"flex",gap:8,justifyContent:"center"}}>
                 <button onClick={abrirNovo} style={{padding:"10px 20px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>+ Cadastrar Fornecedor</button>
                 <button onClick={()=>setShowImport(true)} style={{padding:"10px 20px",borderRadius:8,background:B+"15",color:B,fontSize:12,fontWeight:600,border:`1px solid ${B}40`,cursor:"pointer"}}>📥 Importar</button>
               </div>
+              )}
             </div>
           ):(
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
               <thead><tr style={{borderBottom:`2px solid ${BD}`,background:BG3}}>
-                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Razão / Fantasia</th>
-                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>CNPJ</th>
-                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Categoria</th>
-                <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Avaliação</th>
-                <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Prazo</th>
-                <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Tags</th>
-                <th style={{padding:"8px",textAlign:"right",color:TXD,fontSize:10}}>Ações</th>
+                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Razão / Fantasia<AjudaCampo chave="fornecedores.col.razao" rota={ROTA_AJUDA}/></th>
+                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>CNPJ<AjudaCampo chave="fornecedores.col.cnpj" rota={ROTA_AJUDA}/></th>
+                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Categoria<AjudaCampo chave="fornecedores.col.categoria" rota={ROTA_AJUDA}/></th>
+                <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Avaliação<AjudaCampo chave="fornecedores.col.avaliacao" rota={ROTA_AJUDA}/></th>
+                <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Prazo<AjudaCampo chave="fornecedores.col.prazo" rota={ROTA_AJUDA}/></th>
+                <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Tags<AjudaCampo chave="fornecedores.col.tags" rota={ROTA_AJUDA}/></th>
+                <th style={{padding:"8px",textAlign:"right",color:TXD,fontSize:10}}>Ações<AjudaCampo chave="fornecedores.col.acoes" rota={ROTA_AJUDA}/></th>
               </tr></thead>
               <tbody>
                 {filtrados.map(f=>(
@@ -492,10 +528,15 @@ export default function FornecedoresPage(){
                     </td>
                     <td style={{padding:"8px"}}>
                       <div style={{display:"flex",gap:3,justifyContent:"flex-end"}}>
-                        {f.whatsapp&&<a href={`https://wa.me/55${f.whatsapp.replace(/\D/g,'')}`} target="_blank" style={{fontSize:12,textDecoration:"none",padding:"2px 6px"}} title="WhatsApp">💬</a>}
-                        {f.email&&<a href={`mailto:${f.email}`} style={{fontSize:12,textDecoration:"none",padding:"2px 6px"}} title="Email">📧</a>}
-                        <button onClick={()=>togglePrincipal(f)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:f.fornecedor_principal?GO+"15":"transparent",color:f.fornecedor_principal?GO:TXM,border:`1px solid ${f.fornecedor_principal?GO:BD}`,cursor:"pointer"}} title="Marcar como principal">⭐</button>
-                        <button onClick={()=>abrirEdicao(f)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:B+"12",color:B,border:`1px solid ${B}25`,cursor:"pointer"}}>Editar</button>
+                        {verExcluidos?(
+                          <button onClick={()=>restaurar(f)} title="Restaurar fornecedor" style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:G+"12",color:G,border:`1px solid ${G}25`,cursor:"pointer"}}>↩ Restaurar</button>
+                        ):(<>
+                          {f.whatsapp&&<a href={`https://wa.me/55${f.whatsapp.replace(/\D/g,'')}`} target="_blank" style={{fontSize:12,textDecoration:"none",padding:"2px 6px"}} title="WhatsApp">💬</a>}
+                          {f.email&&<a href={`mailto:${f.email}`} style={{fontSize:12,textDecoration:"none",padding:"2px 6px"}} title="Email">📧</a>}
+                          <button onClick={()=>togglePrincipal(f)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:f.fornecedor_principal?GO+"15":"transparent",color:f.fornecedor_principal?GO:TXM,border:`1px solid ${f.fornecedor_principal?GO:BD}`,cursor:"pointer"}} title="Marcar como principal">⭐</button>
+                          <button onClick={()=>abrirEdicao(f)} title="Editar fornecedor" style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:B+"12",color:B,border:`1px solid ${B}25`,cursor:"pointer"}}>Editar</button>
+                          <button onClick={()=>excluir(f)} title="Excluir fornecedor" style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:R+"12",color:R,border:`1px solid ${R}25`,cursor:"pointer"}}>🗑 Excluir</button>
+                        </>)}
                       </div>
                     </td>
                   </tr>
