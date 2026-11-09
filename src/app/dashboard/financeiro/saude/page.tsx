@@ -85,9 +85,27 @@ export default function SaudeFinanceiraPage() {
     return <div style={{ padding: 40, textAlign: 'center', background: '#FAF7F2', minHeight: '100vh', color: 'rgba(61,35,20,0.65)' }}>Carregando…</div>
   }
   if (!data || data.sem_plano) {
-    return <div style={{ padding: 40, textAlign: 'center', background: '#FAF7F2', minHeight: '100vh', color: '#3D2314' }}>
-      Plano Gestão Empresarial Pró necessário.
-    </div>
+    return (
+      <div style={{ padding: 40, background: '#FAF7F2', minHeight: '100vh', color: '#3D2314' }}>
+        <div style={{ maxWidth: 460, margin: '8vh auto 0', textAlign: 'center', background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.1)', borderRadius: 16, padding: '32px 28px' }}>
+          <div style={{ fontSize: 40, marginBottom: 8 }}>📊</div>
+          <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 24, fontWeight: 400, margin: '0 0 8px' }}>
+            Saúde Financeira
+          </h1>
+          <p style={{ fontSize: 14, color: 'rgba(61,35,20,0.75)', lineHeight: 1.6, margin: '0 0 24px' }}>
+            Este painel acompanha caixa, inadimplência e concentração de clientes em tempo real. Ele faz parte do plano <strong>Gestão Empresarial Pró</strong>, que ainda não está ativo para esta empresa.
+          </p>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button onClick={() => router.push('/dashboard/gestao-empresarial')} style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '11px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+              Ativar Gestão Empresarial Pró
+            </button>
+            <button onClick={() => router.push('/dashboard/ajuda')} style={{ background: 'transparent', color: '#3D2314', border: '1px solid rgba(61,35,20,0.2)', padding: '11px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+              Central de Ajuda
+            </button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   const tone = COR[data.cor_semaforo] ?? COR.amarelo
