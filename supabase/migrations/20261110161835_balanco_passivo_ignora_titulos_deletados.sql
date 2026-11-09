@@ -92,3 +92,7 @@ BEGIN
     'passivo_mais_pl',ROUND(v_passivo+v_pl,2),'diferenca',ROUND(v_ativo-(v_passivo+v_pl),2),
     'fecha',ABS(v_ativo-(v_passivo+v_pl))<0.01,'linhas',v_linhas);
 END; $function$;
+
+-- CI (check-fn-guards): função SECURITY DEFINER não pode ficar aberta a anon. Execução só pelo app logado e pelo serviço.
+REVOKE ALL ON FUNCTION public.fn_balanco_patrimonial(uuid, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_balanco_patrimonial(uuid, date) TO authenticated, service_role;
