@@ -188,3 +188,9 @@ BEGIN
   );
 END;
 $function$;
+
+-- Guarda RD: funções SECURITY DEFINER de leitura, fechadas a anon/PUBLIC (chamadas pela UI autenticada).
+REVOKE ALL ON FUNCTION public.fn_ge_saude_financeira(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ge_saude_financeira(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_saude_alertas_proativos(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_saude_alertas_proativos(uuid) TO authenticated, service_role;
