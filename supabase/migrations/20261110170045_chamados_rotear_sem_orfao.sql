@@ -1,12 +1,40 @@
 -- Chamados sem órfão (RD 329fe62e, CEO 09/11). CREATE OR REPLACE de fn_chamados_rotear: corpo igual ao vivo, exceto:
---  1) SENSÍVEIS não são mais pulados: são roteados por menor fila como os demais, com a tarefa marcada
---     (erp_agente_mensagem.sensivel = true). A tarefa manda o PR com label revisao-eng-chefe (aprovação do CEO/sócio).
+--  1) SENSÍVEIS não são mais pulados: roteados por menor fila, com requer_ok_ceo = true (o Code só executa com OK do CEO).
+--     Também marcados em erp_agente_mensagem.sensivel = true. Não depende de o dev pôr label.
 --  2) status 'aguardando_confirmacao' entra no roteamento (acompanhamento).
 --  3) SINCRONIZAÇÃO: chamado ABERTO com tarefa de dev em caixa e agente vazio recebe o agente do destinatário.
 -- Sem cron novo e sem alterar frequência. Hub continua no fn_hub_rotear_gaps. Sem execução no merge.
 -- Aditiva: 1 coluna nova com default (sensivel). Ordenação da caixa (novos no topo) NÃO muda aqui (fn_agente_caixa).
 
 ALTER TABLE public.erp_agente_mensagem ADD COLUMN IF NOT EXISTS sensivel boolean NOT NULL DEFAULT false;
+
+-- Dev de menor fila: ATIVO = executou nas últimas 2 h (erp_code_execucao_log). A flag pausado está desatualizada e não é usada.
+-- Usada só por fn_chamados_rotear.
+CREATE OR REPLACE FUNCTION public.fn_dev_mais_vazio()
+RETURNS text
+LANGUAGE sql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  SELECT p.agente
+    FROM public.erp_agente_papel p
+   WHERE p.papel = 'dev_hub'
+     AND p.agente <> 'gilberto-desenv'
+     AND EXISTS (SELECT 1 FROM public.erp_code_execucao_log l
+                  WHERE l.agente = p.agente AND l.iniciada_em > now() - interval '2 hours')
+     AND (SELECT count(*) FROM public.erp_agente_mensagem m
+           WHERE m.para = p.agente AND m.assunto LIKE 'CHAMADO #%'
+             AND m.status IN ('nova', 'recebida', 'em_andamento')
+             AND coalesce(m.arquivada, false) = false) < 10
+   ORDER BY (SELECT count(*) FROM public.erp_agente_mensagem m
+              WHERE m.para = p.agente AND m.status IN ('nova', 'recebida', 'em_andamento')
+                AND coalesce(m.arquivada, false) = false) ASC,
+            p.agente ASC
+   LIMIT 1;
+$function$;
+
+REVOKE ALL ON FUNCTION public.fn_dev_mais_vazio() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_dev_mais_vazio() TO service_role;
 
 CREATE OR REPLACE FUNCTION public.fn_chamados_rotear(p_limite integer DEFAULT 10)
 RETURNS jsonb
@@ -141,7 +169,7 @@ BEGIN
       || '(LGPD: título e descrição do cliente NÃO são copiados para a fila; leia pelo id em sugestoes.)' || E'\n\n'
       || 'Regras: PR pequena, com "Code: ' || v_dev || '" no corpo. A resposta ao cliente só sai por '
       || 'fn_agente_chamado_responder, com OK do CEO. Não conclua esta tarefa antes de resolver o chamado.',
-      false, 'eng_chefe');
+      c.sensivel, 'eng_chefe');  -- sensível: requer_ok_ceo=true (o Code só executa com OK do CEO; o PR não publica sem ele)
 
     v_msg := (v_res ->> 'id')::uuid;
     UPDATE public.erp_agente_mensagem SET sugestao_id = c.id, chamado_numero = c.numero, sensivel = c.sensivel WHERE id = v_msg;
