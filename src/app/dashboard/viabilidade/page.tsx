@@ -3,9 +3,11 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { authFetch } from "@/lib/authFetch";
 
-const GO="#C6973F",GOL="#E8C872",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
-    G="#34D399",R="#F87171",Y="#FBBF24",B="#60A5FA",P="#A78BFA",
-    BD="#2A2822",TX="#F0ECE3",TXM="#B0AB9F",TXD="#918C82";
+// Design system PS (psgc-tokens): espresso/off-white/dourado. Lei: "Sem dark theme".
+// Esta tela usava paleta escura divergente (RD-96); remapeada para os tokens claros canônicos.
+const GO="#C8941A",GOL="#A77614",BG="#FAF7F2",BG2="#FFFFFF",BG3="#F0EAE0",
+    G="#5C8D3F",R="#C44536",Y="#D89627",B="#3D6FA8",P="#3D6FA8",
+    BD="#E5DDC8",TX="#3D2314",TXM="#5A3A2A",TXD="rgba(61,35,20,0.55)";
 
 const fmtR=(v:number)=>`R$ ${v.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 
