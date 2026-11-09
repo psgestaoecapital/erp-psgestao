@@ -93,7 +93,8 @@ export default function ConfigurarDREPage() {
       merged.sort((a, b) => a.ordem - b.ordem)
       setItems(merged)
     } catch (e: any) {
-      setErro(e.message)
+      console.error('[dre/configurar] carregar', e)
+      setErro('Não foi possível carregar a configuração da DRE agora. Verifique a conexão e tente novamente.')
     } finally {
       setLoading(false)
     }
@@ -182,7 +183,13 @@ export default function ConfigurarDREPage() {
             {loading ? (
               <div style={{ color: C.muted, fontSize: 13, padding: 20 }}>Carregando…</div>
             ) : items.length === 0 ? (
-              <div style={{ color: C.muted, fontSize: 13, padding: 20 }}>Nenhuma linha de negócio cadastrada.</div>
+              <div style={{ color: C.muted, fontSize: 13, padding: '20px 20px 24px', textAlign: 'center' }}>
+                <p style={{ margin: '0 0 4px', fontWeight: 600, color: C.ink }}>Nenhuma linha de negócio cadastrada.</p>
+                <p style={{ margin: '0 0 16px' }}>A DRE divisional separa o resultado por linha de negócio. Cadastre a primeira para começar a configurar.</p>
+                <Link href="/dashboard/linhas-negocio" style={{ display: 'inline-block', background: C.gold, color: C.espresso, padding: '10px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
+                  Cadastrar linha de negócio
+                </Link>
+              </div>
             ) : (
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                 <SortableContext items={items.map((i) => i.linha_id)} strategy={verticalListSortingStrategy}>
