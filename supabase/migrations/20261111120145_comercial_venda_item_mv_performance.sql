@@ -96,3 +96,7 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.fn_bi_comercial_item_refresh() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_bi_comercial_item_refresh() TO service_role;
+
+-- CI (check-fn-guards): função SECURITY DEFINER não pode ficar aberta a anon. Execução só pelo app logado e pelo serviço.
+REVOKE ALL ON FUNCTION public.fn_com_venda_item(uuid, date, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_com_venda_item(uuid, date, date) TO authenticated, service_role;
