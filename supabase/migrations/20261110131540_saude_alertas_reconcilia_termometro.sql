@@ -130,3 +130,8 @@ BEGIN
   );
 END;
 $function$;
+
+-- REVOKE anon explícito (gate check_fn_guards): a função é SECURITY DEFINER.
+-- Idempotente: a ACL viva já é {authenticated, service_role} (anon sem grant).
+REVOKE ALL ON FUNCTION public.fn_saude_alertas_proativos(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_saude_alertas_proativos(uuid) TO authenticated, service_role;
