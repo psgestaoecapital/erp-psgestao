@@ -247,11 +247,12 @@ function Inner() {
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 12, cursor: 'pointer' }} onClick={() => setErro(null)}>{erro}</div>}
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, alignItems: 'center' }}>
-        <label style={{ fontSize: 12, color: C.espM }}>Situação&nbsp;
+        <label style={{ fontSize: 12, color: C.espM, display: 'inline-flex', alignItems: 'center' }}>Situação&nbsp;
           <select value={filtro} onChange={(e) => setFiltro(e.target.value)} style={inp}>
             <option value="todos">todas</option>
             {SIT.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
+          <AjudaCampo chave="revenda.vendas.filtro_situacao" rota="/dashboard/revenda/vendas" />
         </label>
         <span style={{ fontSize: 12, color: C.espM }}>{visiveis.length} venda(s)</span>
       </div>
@@ -285,6 +286,7 @@ function Inner() {
                   {v.recebido > 0 ? <span>recebido <b style={{ color: C.green }}>{brl(v.recebido)}</b></span> : null}
                   {v.retorno_banco ? <span>retorno banco {brl(v.retorno_banco)}</span> : null}
                   {v.desconto_embutido_troca ? <span style={{ color: C.amber }} title="valor de troca − valor de avaliação">desconto embutido na troca {brl(v.desconto_embutido_troca)}</span> : null}
+                  <AjudaCampo chave="revenda.vendas.em_aberto" rota="/dashboard/revenda/vendas" />
                 </div>
 
                 {/* Títulos no financeiro (GE): cada recebimento aponta o título gerado no Contas a Receber (RD-65). */}
@@ -461,6 +463,7 @@ function Passos({ v }: { v: Venda }) {
           <span>{p.feito ? '✓' : p.atual ? '•' : '○'}</span>{p.nome}
         </span>
       ))}
+      <AjudaCampo chave="revenda.vendas.passos" rota="/dashboard/revenda/vendas" />
     </div>
   )
 }
