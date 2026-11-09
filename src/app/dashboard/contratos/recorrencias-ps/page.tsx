@@ -7,11 +7,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
+const ROTA = '/dashboard/contratos/recorrencias-ps'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF'
 const MUT = 'rgba(61,35,20,0.55)', GREEN = '#166534', RED = '#A32D2D'
 const brl = (n: number | null | undefined) => 'R$ ' + Number(n ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const dt = (s: string | null | undefined) => (s && /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10).split('-').reverse().join('/') : '—')
+const cardAct = (cor: string): React.CSSProperties => ({ flex: 1, background: '#fff', color: cor, border: `0.5px solid ${LINE}`, borderRadius: 7, padding: '6px 8px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' })
 
 type Contrato = {
   id: string; numero: string; nome: string | null; cliente_nome: string | null; tipo: string | null
@@ -34,6 +37,7 @@ export default function RecorrenciasPsPage() {
   const [loading, setLoading] = useState(true)
   const [filtro, setFiltro] = useState<'tudo' | 'receita' | 'despesa'>('tudo')
   const [wizardOpen, setWizardOpen] = useState(false)
+  const [acaoCtx, setAcaoCtx] = useState<{ contrato: Contrato; tipo: 'editar' | 'encerrar' | 'excluir' } | null>(null)
   // Janela [hoje, hoje+30d] capturada uma vez (lazy init) — evita chamar new Date()/Date.now() no render.
   const [janela30] = useState<readonly [string, string]>(() => {
     const d = new Date(); const a = d.toISOString().slice(0, 10)
@@ -78,27 +82,31 @@ export default function RecorrenciasPsPage() {
             <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 0' }}>Recorrências (receita e despesa)</h1>
             <p style={{ fontSize: 12.5, color: MUT, margin: '4px 0 0' }}>Receita <b>ou</b> despesa recorrente — aluguel, salário, diarista, mensalidade, BPO. Cria o contrato e o sistema gera as parcelas sozinho (a receber ou a pagar). Sem duplicar à mão.</p>
           </div>
-          <button type="button" onClick={() => setWizardOpen(true)} style={{ background: GOLD, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>+ Nova recorrência</button>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <button type="button" onClick={() => setWizardOpen(true)} style={{ background: GOLD, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>+ Nova recorrência</button>
+            <AjudaCampo chave="recorrencias_ps.nova" rota={ROTA} />
+          </div>
         </header>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 16 }}>
           {[
-            { l: 'MRR receita', v: brl(kpis.mrrRec), cor: GREEN },
-            { l: 'MRR despesa', v: brl(kpis.mrrDesp), cor: RED },
-            { l: 'A gerar (30d)', v: brl(kpis.aGerar30) },
-            { l: 'Próximo reajuste', v: dt(kpis.proxReaj) },
+            { l: 'MRR receita', v: brl(kpis.mrrRec), cor: GREEN, chave: 'recorrencias_ps.kpi_mrr_receita' },
+            { l: 'MRR despesa', v: brl(kpis.mrrDesp), cor: RED, chave: 'recorrencias_ps.kpi_mrr_despesa' },
+            { l: 'A gerar (30d)', v: brl(kpis.aGerar30), chave: 'recorrencias_ps.kpi_a_gerar_30' },
+            { l: 'Próximo reajuste', v: dt(kpis.proxReaj), chave: 'recorrencias_ps.kpi_proximo_reajuste' },
           ].map((k, i) => (
             <div key={i} style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: '12px 14px' }}>
-              <div style={{ fontSize: 10.5, color: MUT, textTransform: 'uppercase', letterSpacing: 0.5 }}>{k.l}</div>
+              <div style={{ fontSize: 10.5, color: MUT, textTransform: 'uppercase', letterSpacing: 0.5, display: 'flex', alignItems: 'center', gap: 2 }}>{k.l}<AjudaCampo chave={k.chave} rota={ROTA} /></div>
               <div style={{ fontSize: 19, fontWeight: 700, marginTop: 2, color: (k as { cor?: string }).cor ?? ESP }}>{k.v}</div>
             </div>
           ))}
         </div>
 
-        <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 14, alignItems: 'center' }}>
           {(['tudo', 'receita', 'despesa'] as const).map((f) => (
             <button key={f} type="button" onClick={() => setFiltro(f)} style={{ background: filtro === f ? ESP : '#fff', color: filtro === f ? BG : ESP, border: `1px solid ${filtro === f ? ESP : LINE}`, borderRadius: 999, padding: '5px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', textTransform: 'capitalize' }}>{f}</button>
           ))}
+          <AjudaCampo chave="recorrencias_ps.filtro_natureza" rota={ROTA} />
         </div>
 
         {loading ? <div style={{ padding: 30, textAlign: 'center', color: MUT, fontSize: 13 }}>Carregando…</div>
@@ -116,7 +124,7 @@ export default function RecorrenciasPsPage() {
               return (
                 <div key={c.id} style={{ background: '#fff', border: `1px solid ${LINE}`, borderLeft: `4px solid ${saude}`, borderRadius: 12, padding: 14 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                    <strong style={{ fontSize: 13.5 }}>{c.cliente_nome || c.nome || c.numero}</strong>
+                    <strong style={{ fontSize: 13.5, display: 'inline-flex', alignItems: 'center', gap: 2 }}>{c.cliente_nome || c.nome || c.numero}<AjudaCampo chave="recorrencias_ps.card" rota={ROTA} /></strong>
                     <span style={{ fontSize: 10, fontWeight: 700, color: nat === 'despesa' ? RED : GREEN, background: nat === 'despesa' ? '#FCEBEB' : '#E7F3E7', borderRadius: 999, padding: '2px 8px' }}>{nat}</span>
                   </div>
                   <div style={{ fontSize: 11, color: MUT, marginTop: 2 }}>{c.numero} · {c.periodicidade ?? 'mensal'}{c.nome && c.nome !== c.cliente_nome ? ` · ${c.nome}` : ''}</div>
@@ -126,6 +134,12 @@ export default function RecorrenciasPsPage() {
                     {c.situacao_reajuste && c.situacao_reajuste !== 'sem_reajuste' && <span style={{ fontSize: 10, fontWeight: 700, color: GOLD, background: '#FBF3DE', borderRadius: 999, padding: '2px 8px' }}>📈 {c.situacao_reajuste}</span>}
                     {(c.faturas_vencidas ?? 0) > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: RED, background: '#FCEBEB', borderRadius: 999, padding: '2px 8px' }}>⚠ {c.faturas_vencidas} vencida(s)</span>}
                   </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, paddingTop: 10, borderTop: `0.5px solid ${LINE}` }}>
+                    <button type="button" onClick={() => setAcaoCtx({ contrato: c, tipo: 'editar' })} style={cardAct(ESP)}>Editar</button>
+                    <button type="button" onClick={() => setAcaoCtx({ contrato: c, tipo: 'encerrar' })} style={cardAct(GOLD)}>Encerrar</button>
+                    <button type="button" onClick={() => setAcaoCtx({ contrato: c, tipo: 'excluir' })} style={cardAct(RED)}>Excluir</button>
+                    <AjudaCampo chave="recorrencias_ps.acoes" rota={ROTA} alinhar="fim" />
+                  </div>
                 </div>
               )
             })}
@@ -134,6 +148,126 @@ export default function RecorrenciasPsPage() {
       </div>
 
       {wizardOpen && empresa && <WizardModal empresa={empresa} onClose={() => setWizardOpen(false)} onCriado={() => { setWizardOpen(false); void carregar() }} />}
+      {acaoCtx && <AcaoModal ctx={acaoCtx} onClose={() => setAcaoCtx(null)} onFeito={() => { setAcaoCtx(null); void carregar() }} />}
+    </div>
+  )
+}
+
+// ── Ações do contrato: Editar / Encerrar / Excluir (via RPCs guardadas, rastreável) ──────────────
+type Acoes = { pode_editar?: boolean; pode_excluir?: boolean; pode_encerrar?: boolean; status?: string; motivo_bloqueio?: string | null }
+function AcaoModal({ ctx, onClose, onFeito }: { ctx: { contrato: Contrato; tipo: 'editar' | 'encerrar' | 'excluir' }; onClose: () => void; onFeito: () => void }) {
+  const c = ctx.contrato
+  const [modo, setModo] = useState<'editar' | 'encerrar' | 'excluir'>(ctx.tipo)
+  const [acoes, setAcoes] = useState<Acoes | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  // editar
+  const [nome, setNome] = useState(c.nome ?? '')
+  const [valor, setValor] = useState(String(c.valor_atual ?? c.valor_mensal ?? ''))
+  const [periodicidade, setPeriodicidade] = useState(c.periodicidade ?? 'mensal')
+  // encerrar / excluir
+  const [motivo, setMotivo] = useState('')
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => {
+    let vivo = true
+    void (async () => {
+      const { data } = await supabase.rpc('fn_contrato_acoes_permitidas', { p_contrato_id: c.id })
+      if (vivo) setAcoes((data as Acoes) ?? {})
+    })()
+    return () => { vivo = false }
+  }, [c.id])
+
+  const valorNum = (() => {
+    const raw = String(valor).replace(/[^\d.,]/g, '')
+    const norm = raw.includes(',') ? raw.replace(/\./g, '').replace(',', '.') : raw
+    const n = parseFloat(norm)
+    return Number.isFinite(n) ? n : 0
+  })()
+
+  async function confirmar() {
+    setMsg(null); setBusy(true)
+    try {
+      type RpcResp = { ok?: boolean; erro?: string; mensagem?: string }
+      let res: RpcResp | null = null
+      let erro: string | null = null
+      if (modo === 'editar') {
+        if (!(valorNum > 0)) { setMsg('Informe o valor mensal (maior que zero).'); setBusy(false); return }
+        const patch: Record<string, unknown> = { nome: nome.trim() || null, valor_mensal: valorNum, valor_atual: valorNum, periodicidade }
+        const { data, error } = await supabase.rpc('fn_contrato_editar', { p_id: c.id, p_patch: patch })
+        res = (data as RpcResp) ?? null; erro = error?.message ?? null
+      } else if (modo === 'encerrar') {
+        if (!motivo.trim()) { setMsg('Informe o motivo do encerramento.'); setBusy(false); return }
+        const { data, error } = await supabase.rpc('fn_contrato_encerrar', { p_id: c.id, p_motivo: motivo.trim() })
+        res = (data as RpcResp) ?? null; erro = error?.message ?? null
+      } else {
+        if (!motivo.trim()) { setMsg('Informe o motivo da exclusão.'); setBusy(false); return }
+        const { data, error } = await supabase.rpc('fn_contrato_excluir', { p_id: c.id, p_motivo: motivo.trim() })
+        res = (data as RpcResp) ?? null; erro = error?.message ?? null
+      }
+      if (erro || !res?.ok) { setMsg((erro ?? res?.erro) || 'Não foi possível concluir a ação.'); return }
+      onFeito()
+    } catch (e) {
+      setMsg((e as Error)?.message ?? 'Falha inesperada.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const inp: React.CSSProperties = { width: '100%', border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '9px 10px', fontSize: 13, color: ESP, background: '#fff', fontFamily: 'inherit', boxSizing: 'border-box' }
+  const lbl: React.CSSProperties = { fontSize: 11.5, color: MUT, display: 'block', marginBottom: 4, fontWeight: 600 }
+  const titulo = modo === 'editar' ? 'Editar recorrência' : modo === 'encerrar' ? 'Encerrar recorrência' : 'Excluir recorrência'
+  const bloqueado = modo === 'excluir' && acoes != null && acoes.pode_excluir === false
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '24px 12px', zIndex: 60, overflowY: 'auto' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: BG, borderRadius: 14, width: '100%', maxWidth: 480 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 18px', background: ESP, borderRadius: '14px 14px 0 0' }}>
+          <div style={{ color: GOLD, fontWeight: 700, fontSize: 15 }}>{titulo}</div>
+          <button type="button" onClick={onClose} style={{ background: 'none', border: 'none', color: BG, cursor: 'pointer', fontSize: 18 }}>✕</button>
+        </div>
+        <div style={{ padding: 18, display: 'grid', gap: 12 }}>
+          <div style={{ fontSize: 12.5, color: MUT }}>{c.cliente_nome || c.nome || c.numero} · {c.numero}</div>
+
+          {modo === 'editar' && (
+            <>
+              <label><span style={lbl}>Nome do contrato<AjudaCampo chave="recorrencias_ps.edit_nome" rota={ROTA} /></span><input style={inp} value={nome} onChange={(e) => setNome(e.target.value)} placeholder="ex.: BPO Financeiro mensal" /></label>
+              <label><span style={lbl}>Valor mensal (R$)<AjudaCampo chave="recorrencias_ps.edit_valor" rota={ROTA} /></span><input style={inp} inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value.replace(/[^\d.,]/g, ''))} placeholder="0,00" /></label>
+              <label><span style={lbl}>Periodicidade<AjudaCampo chave="recorrencias_ps.edit_periodicidade" rota={ROTA} /></span><select style={inp} value={periodicidade} onChange={(e) => setPeriodicidade(e.target.value)}>{PERIODOS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+              <small style={{ fontSize: 10.5, color: MUT }}>Para parar de gerar cobranças use <b>Encerrar</b>; para apagar, <b>Excluir</b> (só sem cobrança viva/paga).</small>
+            </>
+          )}
+
+          {modo === 'encerrar' && (
+            <>
+              <div style={{ background: '#FBF3DE', border: `1px solid ${GOLD}`, borderRadius: 8, padding: '10px 12px', fontSize: 12.5 }}>Encerrar <b>para de gerar novas cobranças</b> e preserva o histórico do contrato. As cobranças já geradas continuam no financeiro.</div>
+              <label><span style={lbl}>Motivo do encerramento<AjudaCampo chave="recorrencias_ps.motivo_encerrar" rota={ROTA} /></span><input style={inp} value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="ex.: Fim do contrato / cliente cancelou" /></label>
+            </>
+          )}
+
+          {modo === 'excluir' && (
+            bloqueado ? (
+              <div style={{ background: '#FCEBEB', border: `1px solid ${RED}`, borderRadius: 8, padding: '10px 12px', fontSize: 12.5, color: RED }}>
+                {acoes?.motivo_bloqueio || 'Este contrato não pode ser excluído.'}
+                <div style={{ marginTop: 8 }}><button type="button" onClick={() => { setMsg(null); setModo('encerrar') }} style={{ ...cardAct(GOLD), flex: 'none', padding: '6px 12px' }}>Encerrar em vez disso</button></div>
+              </div>
+            ) : (
+              <>
+                <div style={{ background: '#FCEBEB', border: `1px solid ${RED}`, borderRadius: 8, padding: '10px 12px', fontSize: 12.5 }}>Excluir marca o contrato como <b>excluído</b> (rastreável, fica no histórico). Só é permitido quando não há cobrança viva, paga ou nota emitida.</div>
+                <label><span style={lbl}>Motivo da exclusão<AjudaCampo chave="recorrencias_ps.motivo_excluir" rota={ROTA} /></span><input style={inp} value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="ex.: Criado por engano / duplicado" /></label>
+              </>
+            )
+          )}
+
+          {msg && <div style={{ fontSize: 12.5, color: RED, fontWeight: 600 }}>{msg}</div>}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '0 18px 18px' }}>
+          <button type="button" onClick={onClose} style={{ background: 'transparent', border: `0.5px solid ${LINE}`, color: ESP, borderRadius: 8, padding: '10px 18px', fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
+          {!bloqueado && (
+            <button type="button" disabled={busy} onClick={() => void confirmar()} style={{ background: modo === 'excluir' ? RED : GOLD, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 22px', fontSize: 13, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1 }}>{busy ? 'Salvando…' : modo === 'editar' ? 'Salvar' : modo === 'encerrar' ? 'Encerrar' : 'Excluir'}</button>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
