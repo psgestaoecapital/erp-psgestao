@@ -1,24 +1,31 @@
 'use client'
 
-// "Centros de Custo" (GE — conceito de Gestão Empresarial, compartilhado com o Agro).
+// "Centros de Custo" (GE — conceito de Gestão Empresarial, UNIVERSAL a todos os ramos).
 // Fonte da verdade: cost_center_map (source_type='centro_custo'). Mapeia cada centro →
-// tipo de apropriação + linha de negócio (+ lote quando direto). NÃO adivinha: não mapeado
-// entra como extra+revisar no importador. Permite CADASTRO MANUAL PRÉVIO (antes de haver
-// lançamento) — resolve o ovo-e-galinha.
-import { useCallback, useEffect, useState } from 'react'
+// tipo de apropriação + linha de negócio (+ lote, só quando a empresa tem lotes). NÃO adivinha:
+// não mapeado entra como extra+revisar no importador. Permite CADASTRO MANUAL PRÉVIO (antes de
+// haver lançamento) — resolve o ovo-e-galinha.
+//
+// Decoupla do AGRO (PDCA GE, Princ.1 núcleo universal): usa o seletor de empresa GENÉRICO
+// (@/hooks/useEmpresaSelecionada), não o hook de pecuária. O "Lote" só aparece quando a empresa
+// realmente tem lotes cadastrados (dimensão opcional por ramo) — para comércio/indústria a tela
+// não mostra nem depende de conceito de pecuária.
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { useEmpresaSelecionada } from '@/lib/agro/usePecuaria'
+import { useEmpresaSelecionada } from '@/hooks/useEmpresaSelecionada'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import RegrasRateio from './RegrasRateio'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'
 const ESP60 = 'rgba(61,35,20,0.6)'; const GREEN = '#5C8D3F'; const RED = '#C44536'
 const TIPOS = ['direto', 'comum', 'extra'] as const
+const POR_PAGINA = 50
 
 type Row = { valor_origem: string; ocorrencias: number; mapeado: boolean; ativo: boolean; tipo_apropriacao: string | null; business_line_id: string | null; lote_id: string | null }
 type BL = { id: string; name: string }
 type Lote = { id: string; codigo: string; fase: string | null }
 type Draft = { tipo: string; bl: string; lote: string }
+type FiltroStatus = 'todos' | 'nao_mapeado' | 'mapeado' | 'inativo'
 
 export default function CentrosCustoPage() {
   const { companyId } = useEmpresaSelecionada()
@@ -31,6 +38,13 @@ export default function CentrosCustoPage() {
   const [draft, setDraft] = useState<Record<string, Draft>>({})
   // cadastro manual prévio
   const [novo, setNovo] = useState<{ key: string; tipo: string; bl: string; lote: string }>({ key: '', tipo: 'comum', bl: '', lote: '' })
+  // busca / filtro / paginação (RD-99: a lista pode ter milhares de centros)
+  const [busca, setBusca] = useState('')
+  const [fStatus, setFStatus] = useState<FiltroStatus>('todos')
+  const [pagina, setPagina] = useState(0)
+
+  // dimensão "lote" é opcional por ramo: só aparece quando a empresa tem lotes cadastrados
+  const temLotes = lotes.length > 0
 
   const carregar = useCallback(async () => {
     if (!empresaUnica) return
@@ -101,7 +115,7 @@ export default function CentrosCustoPage() {
 
   async function adicionarManual() {
     const key = novo.key.trim()
-    if (!key) { setMsg('Digite o nome do centro de custo (ex.: DIR_GADO).'); return }
+    if (!key) { setMsg('Digite o nome do centro de custo (ex.: ADMIN).'); return }
     setMsg(null)
     const err = await gravar(key, { tipo: novo.tipo, bl: novo.bl, lote: novo.lote })
     if (err) setMsg('Erro: ' + err)
@@ -109,6 +123,25 @@ export default function CentrosCustoPage() {
   }
 
   const naoMapeados = rows.filter((r) => !r.mapeado).length
+
+  // filtro + ordenação (não-mapeados primeiro) + paginação
+  const filtradas = useMemo(() => {
+    const q = busca.trim().toLowerCase()
+    const fs = rows.filter((r) => {
+      if (q && !r.valor_origem.toLowerCase().includes(q)) return false
+      if (fStatus === 'nao_mapeado') return !r.mapeado
+      if (fStatus === 'mapeado') return r.mapeado && r.ativo
+      if (fStatus === 'inativo') return r.mapeado && !r.ativo
+      return true
+    })
+    // não-mapeados no topo (prioridade), depois alfabético
+    return fs.sort((a, b) => Number(a.mapeado) - Number(b.mapeado) || a.valor_origem.localeCompare(b.valor_origem))
+  }, [rows, busca, fStatus])
+
+  const totalPaginas = Math.max(1, Math.ceil(filtradas.length / POR_PAGINA))
+  const pag = Math.min(pagina, totalPaginas - 1)
+  const visiveis = filtradas.slice(pag * POR_PAGINA, pag * POR_PAGINA + POR_PAGINA)
+  const colSpan = temLotes ? 7 : 6
 
   if (!empresaUnica) return <div style={{ padding: 24, color: ESP60 }}>Selecione UMA empresa específica.</div>
 
@@ -122,13 +155,30 @@ export default function CentrosCustoPage() {
       {/* cadastro manual prévio — resolve o ovo-e-galinha (criar antes de ter lançamento) */}
       <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10, padding: 14, marginBottom: 16 }}>
         <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 14 }}>Cadastrar centro de custo manualmente</div>
-        <div style={{ fontSize: 12, color: ESP60, marginBottom: 8 }}>Crie o mapeamento antes de existir lançamento (ex.: DIR_GADO, DIR_SOJA, COMUM, EXTRA).</div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <input value={novo.key} onChange={(e) => setNovo({ ...novo, key: e.target.value })} placeholder="Nome do centro (ex.: DIR_GADO)" style={{ ...inp, minWidth: 200 }} />
-          <select style={inp} value={novo.tipo} onChange={(e) => setNovo({ ...novo, tipo: e.target.value })}>{TIPOS.map((t) => <option key={t} value={t}>{t}</option>)}</select>
-          <select style={inp} value={novo.bl} onChange={(e) => setNovo({ ...novo, bl: e.target.value })}><option value="">— linha —</option>{bls.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
-          <select style={inp} value={novo.lote} disabled={novo.tipo !== 'direto'} onChange={(e) => setNovo({ ...novo, lote: e.target.value })}><option value="">— lote (se direto) —</option>{lotes.map((l) => <option key={l.id} value={l.id}>{l.codigo} ({l.fase})</option>)}</select>
-          <button onClick={() => void adicionarManual()} style={btnPri}>+ Cadastrar</button>
+        <div style={{ fontSize: 12, color: ESP60, marginBottom: 8 }}>Crie o mapeamento antes de existir lançamento (ex.: ADMIN, COMERCIAL, PROJETO, COMUM, EXTRA).</div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <label style={campoWrap}>
+            <span style={lbl}>Nome <AjudaCampo chave="ge.centros_custo.novo_nome" /></span>
+            <input value={novo.key} onChange={(e) => setNovo({ ...novo, key: e.target.value })} placeholder="ex.: ADMIN" style={{ ...inp, minWidth: 200 }} />
+          </label>
+          <label style={campoWrap}>
+            <span style={lbl}>Tipo <AjudaCampo chave="ge.centros_custo.novo_tipo" /></span>
+            <select style={inp} value={novo.tipo} onChange={(e) => setNovo({ ...novo, tipo: e.target.value })}>{TIPOS.map((t) => <option key={t} value={t}>{t}</option>)}</select>
+          </label>
+          <label style={campoWrap}>
+            <span style={lbl}>Linha <AjudaCampo chave="ge.centros_custo.novo_linha" /></span>
+            <select style={inp} value={novo.bl} onChange={(e) => setNovo({ ...novo, bl: e.target.value })}><option value="">— linha —</option>{bls.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select>
+          </label>
+          {temLotes && (
+            <label style={campoWrap}>
+              <span style={lbl}>Lote <AjudaCampo chave="ge.centros_custo.novo_lote" /></span>
+              <select style={inp} value={novo.lote} disabled={novo.tipo !== 'direto'} onChange={(e) => setNovo({ ...novo, lote: e.target.value })}><option value="">— lote (se direto) —</option>{lotes.map((l) => <option key={l.id} value={l.id}>{l.codigo} ({l.fase})</option>)}</select>
+            </label>
+          )}
+          <label style={campoWrap}>
+            <span style={lbl}>&nbsp;<AjudaCampo chave="ge.centros_custo.novo_cadastrar" /></span>
+            <button onClick={() => void adicionarManual()} style={btnPri}>+ Cadastrar</button>
+          </label>
         </div>
       </div>
 
@@ -141,6 +191,24 @@ export default function CentrosCustoPage() {
       )}
       {msg && <div style={{ marginBottom: 12, fontSize: 13, color: msg.startsWith('Erro') ? RED : GREEN }}>{msg}</div>}
 
+      {/* busca + filtro por situação (RD-99: lista grande fica navegável) */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 10 }}>
+        <label style={campoWrap}>
+          <span style={lbl}>Buscar <AjudaCampo chave="ge.centros_custo.busca" /></span>
+          <input value={busca} onChange={(e) => { setBusca(e.target.value); setPagina(0) }} placeholder="nome do centro…" style={{ ...inp, minWidth: 220 }} />
+        </label>
+        <label style={campoWrap}>
+          <span style={lbl}>Situação <AjudaCampo chave="ge.centros_custo.filtro_status" /></span>
+          <select style={inp} value={fStatus} onChange={(e) => { setFStatus(e.target.value as FiltroStatus); setPagina(0) }}>
+            <option value="todos">Todos</option>
+            <option value="nao_mapeado">Não mapeados</option>
+            <option value="mapeado">Mapeados</option>
+            <option value="inativo">Inativos</option>
+          </select>
+        </label>
+        <div style={{ fontSize: 12, color: ESP60, paddingBottom: 6 }}>{filtradas.length} centro(s){filtradas.length !== rows.length ? ` de ${rows.length}` : ''}</div>
+      </div>
+
       <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10, padding: 16, overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead><tr style={{ color: ESP60, textAlign: 'left' }}>
@@ -149,11 +217,11 @@ export default function CentrosCustoPage() {
             <th style={th}><span style={thWrap}>Status <AjudaCampo chave="ge.centros_custo.col_status" /></span></th>
             <th style={th}><span style={thWrap}>Tipo <AjudaCampo chave="ge.centros_custo.col_tipo" /></span></th>
             <th style={th}><span style={thWrap}>Linha <AjudaCampo chave="ge.centros_custo.col_linha" /></span></th>
-            <th style={th}><span style={thWrap}>Lote (se direto) <AjudaCampo chave="ge.centros_custo.col_lote" /></span></th>
+            {temLotes && <th style={th}><span style={thWrap}>Lote (se direto) <AjudaCampo chave="ge.centros_custo.col_lote" /></span></th>}
             <th style={th}></th>
           </tr></thead>
           <tbody>
-            {rows.map((r) => {
+            {visiveis.map((r) => {
               const d = draft[r.valor_origem] ?? { tipo: 'comum', bl: '', lote: '' }
               return (
                 <tr key={r.valor_origem} style={{ borderTop: `1px solid ${LINE}`, background: !r.mapeado ? '#FCF2F2' : (!r.ativo ? '#F1EEE8' : 'transparent'), opacity: r.mapeado && !r.ativo ? 0.65 : 1 }}>
@@ -174,11 +242,13 @@ export default function CentrosCustoPage() {
                       <option value="">—</option>{bls.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
                     </select>
                   </td>
-                  <td style={td}>
-                    <select style={inp} value={d.lote} disabled={d.tipo !== 'direto'} onChange={(e) => setDraft({ ...draft, [r.valor_origem]: { ...d, lote: e.target.value } })}>
-                      <option value="">—</option>{lotes.map((l) => <option key={l.id} value={l.id}>{l.codigo} ({l.fase})</option>)}
-                    </select>
-                  </td>
+                  {temLotes && (
+                    <td style={td}>
+                      <select style={inp} value={d.lote} disabled={d.tipo !== 'direto'} onChange={(e) => setDraft({ ...draft, [r.valor_origem]: { ...d, lote: e.target.value } })}>
+                        <option value="">—</option>{lotes.map((l) => <option key={l.id} value={l.id}>{l.codigo} ({l.fase})</option>)}
+                      </select>
+                    </td>
+                  )}
                   <td style={td}>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       <button onClick={() => void salvar(r.valor_origem)} style={btnPri}>Salvar</button>
@@ -189,15 +259,25 @@ export default function CentrosCustoPage() {
                 </tr>
               )
             })}
-            {rows.length === 0 && <tr><td style={td} colSpan={7}>Nenhum centro de custo ainda. Use o cadastro manual acima (ex.: DIR_GADO).</td></tr>}
+            {filtradas.length === 0 && <tr><td style={td} colSpan={colSpan}>{rows.length === 0 ? 'Nenhum centro de custo ainda. Use o cadastro manual acima (ex.: ADMIN).' : 'Nenhum centro de custo para esta busca/filtro.'}</td></tr>}
           </tbody>
         </table>
+
+        {totalPaginas > 1 && (
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'flex-end', marginTop: 12, fontSize: 12, color: ESP60, flexWrap: 'wrap' }}>
+            <button onClick={() => setPagina(Math.max(0, pag - 1))} disabled={pag === 0} style={btnSec}>← Anterior</button>
+            <span>Página {pag + 1} de {totalPaginas}</span>
+            <button onClick={() => setPagina(Math.min(totalPaginas - 1, pag + 1))} disabled={pag >= totalPaginas - 1} style={btnSec}>Próxima →</button>
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
 const inp: React.CSSProperties = { padding: '5px 7px', border: `1px solid ${LINE}`, borderRadius: 6, fontSize: 12, background: '#fff', color: ESP, minWidth: 120 }
+const campoWrap: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4 }
+const lbl: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: ESP60, fontWeight: 600 }
 const th: React.CSSProperties = { padding: '6px 8px', fontWeight: 600, whiteSpace: 'nowrap' }
 const thWrap: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4 }
 const td: React.CSSProperties = { padding: '6px 8px', verticalAlign: 'middle' }
