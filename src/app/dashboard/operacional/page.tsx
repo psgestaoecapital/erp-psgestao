@@ -313,7 +313,7 @@ export default function OperacionalPage(){
     {/* HEADER */}
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:8}}>
       <div>
-        <div style={{fontSize:20,fontWeight:700,color:C.gold}}>PS Gestão — Operacional v9.0</div>
+        <div style={{fontSize:20,fontWeight:700,color:C.gold}}>PS Gestão — Operacional</div>
         <div style={{fontSize:10,color:C.dim}}>Contas a Pagar · Receber · Clientes · Fornecedores · Bancárias · Plano de Contas</div>
       </div>
       <div style={{display:'flex',gap:8,alignItems:'center'}}>
@@ -868,7 +868,7 @@ export default function OperacionalPage(){
     </>)}
 
     <div style={{fontSize:9,color:C.dim,textAlign:'center',marginTop:16}}>
-      PS Gestão e Capital — Operacional v9.0 | Date pickers · Parcelas · Formas de pagamento · Contas bancárias · Juros/Multa/Desconto · Integração Dashboard + BPO + Custeio
+      PS Gestão e Capital — Operacional | Date pickers · Parcelas · Formas de pagamento · Contas bancárias · Juros/Multa/Desconto · Integração Dashboard + BPO + Custeio
     </div>
   </div>)
 }
