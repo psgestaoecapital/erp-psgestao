@@ -3,6 +3,9 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA = '/dashboard/gestao-empresarial'
 
 interface BreakdownItem { categoria: string; valor: number }
 
@@ -82,31 +85,31 @@ export default function KpisDashboard({ companyId }: { companyId: string }) {
 
   return (
     <div style={gridStyle}>
-      <KpiCard chave="receber_vencido" cor="#A32D2D" label="A receber vencido" valor={recVen?.valor ?? 0}
+      <KpiCard chave="receber_vencido" ajudaChave="ge.hub.kpi.receber_vencido" cor="#A32D2D" label="A receber vencido" valor={recVen?.valor ?? 0}
         sublabel={`${recVen?.qtd ?? 0} contas em atraso`}
         breakdown={recVen?.breakdown}
         expandido={expandidos.has('receber_vencido')}
         onToggle={() => toggle('receber_vencido')}
         onClick={() => router.push('/dashboard/financeiro/receber?status=vencido')} />
-      <KpiCard chave="vencem_hoje" cor="#BA7517" label="A receber hoje" valor={venHoje?.valor ?? 0}
+      <KpiCard chave="vencem_hoje" ajudaChave="ge.hub.kpi.vencem_hoje" cor="#BA7517" label="A receber hoje" valor={venHoje?.valor ?? 0}
         sublabel={`Restante: R$ ${fmt(venHoje?.restante_mes)}`}
         breakdown={venHoje?.breakdown}
         expandido={expandidos.has('vencem_hoje')}
         onToggle={() => toggle('vencem_hoje')}
         onClick={() => router.push('/dashboard/financeiro/receber?status=hoje')} />
-      <KpiCard chave="vencer_mes" cor="rgba(61,35,20,0.3)" label="A vencer este mês" valor={venMes?.valor ?? 0}
+      <KpiCard chave="vencer_mes" ajudaChave="ge.hub.kpi.vencer_mes" cor="rgba(61,35,20,0.3)" label="A vencer este mês" valor={venMes?.valor ?? 0}
         sublabel={`${venMes?.qtd ?? 0} lançamentos`}
         breakdown={venMes?.breakdown}
         expandido={expandidos.has('vencer_mes')}
         onToggle={() => toggle('vencer_mes')}
         onClick={() => router.push('/dashboard/financeiro/receber?status=avencer')} />
-      <KpiCard chave="pagar_vencido" cor="#A32D2D" label="A pagar vencido" valor={pagVen?.valor ?? 0}
+      <KpiCard chave="pagar_vencido" ajudaChave="ge.hub.kpi.pagar_vencido" cor="#A32D2D" label="A pagar vencido" valor={pagVen?.valor ?? 0}
         sublabel={(pagVen?.dias_max_atraso ?? 0) > 0 ? `Atrasado ${pagVen?.dias_max_atraso} dias` : `${pagVen?.qtd ?? 0} contas`}
         breakdown={pagVen?.breakdown}
         expandido={expandidos.has('pagar_vencido')}
         onToggle={() => toggle('pagar_vencido')}
         onClick={() => router.push('/dashboard/financeiro/pagar?status=vencido')} />
-      <KpiCard chave="saldo_total" cor={(saldo?.valor ?? 0) < 0 ? '#A32D2D' : '#3B6D11'} label="Saldo total" valor={saldo?.valor ?? 0}
+      <KpiCard chave="saldo_total" ajudaChave="ge.hub.kpi.saldo_total" cor={(saldo?.valor ?? 0) < 0 ? '#A32D2D' : '#3B6D11'} label="Saldo total" valor={saldo?.valor ?? 0}
         sublabel={`${saldo?.qtd_contas ?? 0} contas`}
         breakdown={saldo?.breakdown}
         expandido={expandidos.has('saldo_total')}
@@ -116,8 +119,9 @@ export default function KpisDashboard({ companyId }: { companyId: string }) {
   )
 }
 
-function KpiCard({ chave, cor, label, valor, sublabel, breakdown, expandido, onToggle, onClick }: {
+function KpiCard({ chave, ajudaChave, cor, label, valor, sublabel, breakdown, expandido, onToggle, onClick }: {
   chave: string
+  ajudaChave: string
   cor: string
   label: string
   valor: number
@@ -133,6 +137,7 @@ function KpiCard({ chave, cor, label, valor, sublabel, breakdown, expandido, onT
   return (
     <div
       style={{
+        position: 'relative',
         background: '#FFFFFF',
         border: '0.5px solid rgba(61,35,20,0.12)',
         borderLeft: `3px solid ${cor}`,
@@ -141,6 +146,10 @@ function KpiCard({ chave, cor, label, valor, sublabel, breakdown, expandido, onT
         textAlign: 'left',
       }}
     >
+      {/* "?" (RD-95) fora do botão do cartão para não aninhar botões */}
+      <span style={{ position: 'absolute', top: 10, right: 10, zIndex: 1 }}>
+        <AjudaCampo chave={ajudaChave} rota={ROTA} alinhar="fim" />
+      </span>
       <button
         type="button"
         onClick={onClick}

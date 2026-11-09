@@ -10,8 +10,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { dataBrasil } from '@/lib/fiscal/dataBrasil'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERM = '#B91C1C', VERDE = '#15803D'
 
@@ -38,7 +40,9 @@ const STATUS: Record<OS['status'], { rotulo: string; cor: string; fundo: string 
 }
 const PRIORIDADES = [['baixa', 'Baixa'], ['normal', 'Normal'], ['alta', 'Alta'], ['urgente', 'Urgente']] as const
 const VAZIO = { obra_id: '', tarefa_id: '', obra_item_id: '', descricao: '', equipe: '', responsavel: '', data_prevista: '', prioridade: 'normal' }
-const hoje = () => new Date().toISOString().slice(0, 10)
+// "Hoje" é o dia do canteiro (fuso America/Sao_Paulo), não o de UTC: depois das 21h de Brasília o toISOString()
+// já virava o dia seguinte e marcava como "atrasada" uma OS que vence HOJE (e barrava o diário do próprio dia).
+const hoje = () => dataBrasil()
 const dataBR = (d: string | null) => (d ? d.split('-').reverse().join('/') : '')
 const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const num = (v: string) => Number(v.replace(',', '.'))
@@ -69,6 +73,7 @@ export default function OSObraPage() {
   const [editando, setEditando] = useState<string | null>(null)
   const [funcoes, setFuncoes] = useState<Funcao[]>([])
   const [horasOS, setHorasOS] = useState<Record<string, Horas>>({})
+  const [orcadoItens, setOrcadoItens] = useState<Record<string, number>>({})
   const [apontando, setApontando] = useState<string | null>(null)
   const [fh, setFh] = useState({ ...VAZIO_H })
   const [rdos, setRdos] = useState<Rdo[]>([])
@@ -80,7 +85,7 @@ export default function OSObraPage() {
     if (!companyIds?.length) { setLoading(false); return }
     setLoading(true); setErro('')
     try {
-      const [a, b, h, fn, rd, rq] = await Promise.all([
+      const [a, b, h, fn, rd, rq, oi] = await Promise.all([
         comPrazo(async () => await supabase.rpc('fn_obra_os_listar', { p_company_ids: companyIds, p_obra_id: null }),
           { ms: 8000, tentativas: 1, label: 'os_obra' }),
         comPrazo(async () => await supabase.from('projetos_obras').select('id,numero,nome').in('company_id', companyIds)
@@ -98,8 +103,12 @@ export default function OSObraPage() {
         comPrazo(async () => await supabase.from('projetos_obra_rdo').select('os_id,data,quantidade_executada')
           .in('company_id', companyIds).is('excluido_em', null).not('quantidade_executada', 'is', null).limit(2000),
           { ms: 8000, tentativas: 1, label: 'rdo_qtd' }),
+        // orçado do serviço de cada OS: valor contratado do obra_item (para o indicador de margem parcial no cartão)
+        comPrazo(async () => await supabase.from('projetos_obra_item').select('id,valor_contratado')
+          .in('company_id', companyIds).is('excluido_em', null).limit(5000),
+          { ms: 8000, tentativas: 1, label: 'obra_item_orcado' }),
       ])
-      if (a.error) { setErro(a.error.message); return }
+      if (a.error) { setErro(erroAmigavel(a.error, 'Não foi possível carregar as ordens de serviço. Tente de novo.')); return }
       setLista((a.data ?? []) as OS[]); setObras((b.data ?? []) as Obra[]); setFuncoes((fn.data ?? []) as Funcao[])
       const soma: Record<string, Horas> = {}
       for (const r of (h.data ?? []) as { os_id: string; horas: number; valor: number }[]) {
@@ -108,6 +117,9 @@ export default function OSObraPage() {
       }
       const qtd = new Map(((rq.error ? [] : rq.data) ?? []).map((r: { os_id: string; data: string; quantidade_executada: number }) => [`${r.os_id}|${r.data}`, r.quantidade_executada]))
       setHorasOS(soma); setRdos(((rd.data ?? []) as Rdo[]).map(r => ({ ...r, quantidade_executada: qtd.get(`${r.os_id}|${r.data}`) ?? null })))
+      const orc: Record<string, number> = {}
+      for (const r of (((oi.error ? [] : oi.data) ?? []) as { id: string; valor_contratado: number | null }[])) orc[r.id] = Number(r.valor_contratado) || 0
+      setOrcadoItens(orc)
     } catch { setErro(MSG_CARREGAMENTO_FALHOU) } finally { setLoading(false) }
   }, [companyIds])
   useEffect(() => { carregar() }, [carregar])
@@ -155,7 +167,7 @@ export default function OSObraPage() {
     setSalvando(true)
     const { error } = await supabase.rpc('fn_obra_os_salvar', { p_obra_id: f.obra_id, p_dados: { ...f, id: editando } })
     setSalvando(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível salvar a ordem de serviço. Tente de novo.')); return }
     fechar(); carregar()
   }
 
@@ -164,7 +176,7 @@ export default function OSObraPage() {
     setOcupado(o.id); setErro('')
     const { error } = await supabase.rpc('fn_obra_os_status', { p_id: o.id, p_status: status })
     setOcupado(null)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível mudar o status desta ordem de serviço. Tente de novo.')); return }
     carregar()
   }
   const excluir = async (o: OS) => {
@@ -172,7 +184,7 @@ export default function OSObraPage() {
     setOcupado(o.id); setErro('')
     const { error } = await supabase.rpc('fn_obra_os_excluir', { p_id: o.id })
     setOcupado(null)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível excluir a ordem de serviço. Tente de novo.')); return }
     carregar(); if (verExcluidas) carregarExcluidas()
   }
 
@@ -189,7 +201,7 @@ export default function OSObraPage() {
     setOcupado(o.id); setErro('')
     const { error } = await supabase.rpc('fn_obra_os_restaurar', { p_id: o.id })
     setOcupado(null)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível restaurar a ordem de serviço. Tente de novo.')); return }
     carregarExcluidas(); carregar()
   }
 
@@ -206,7 +218,7 @@ export default function OSObraPage() {
     setOcupado(o.id)
     const { error } = await supabase.rpc('fn_obra_os_apontar_horas', { p_os_id: o.id, p_dados: { data: fh.data, funcao_id: fh.funcao_id, horas, custo_hora: custo } })
     setOcupado(null)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível lançar as horas. Tente de novo.')); return }
     setApontando(null); setFh({ ...VAZIO_H }); carregar()
   }
 
@@ -244,7 +256,7 @@ export default function OSObraPage() {
       data: fr.data, clima: fr.clima, praticavel: fr.praticavel, efetivo: fr.efetivo === '' ? 0 : Number(fr.efetivo), quantidade_executada: qtd,
       atividades: fr.atividades, ocorrencias: fr.ocorrencias, fotos: [...fr.fotos, ...enviadas] } })
     setOcupado(null)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível salvar o diário de obra. Tente de novo.')); return }
     setDiario(null); setFr({ ...VAZIO_R }); setNovasFotos([]); carregar()
   }
 
@@ -372,6 +384,13 @@ export default function OSObraPage() {
                 const st = STATUS[o.status]
                 const diarios = rdos.filter(r => r.os_id === o.id)
                 const atrasada = o.data_prevista && o.data_prevista < hoje() && (o.status === 'aberta' || o.status === 'em_execucao')
+                // Margem parcial: orçado do serviço (obra_item) − realizado de mão de obra. Sem valor contratado → "sem orçado".
+                const temServico = !!o.obra_item_id
+                const orcado = temServico ? (orcadoItens[o.obra_item_id as string] ?? 0) : 0
+                const realizadoMO = horasOS[o.id]?.valor ?? 0
+                const margem = orcado - realizadoMO
+                const margemPct = orcado > 0 ? Math.round((margem / orcado) * 100) : 0
+                const margemCor = margem < 0 ? VERM : margemPct >= 25 ? VERDE : '#92400E'
                 return (
                   <article key={o.id} data-testid="os-obra-cartao" style={{ background: '#fff', border: `1px solid ${o.prioridade === 'urgente' ? VERM : LINE}`, borderRadius: 14, padding: 14, display: 'grid', gap: 8, opacity: ocupado === o.id ? 0.5 : 1 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
@@ -391,6 +410,14 @@ export default function OSObraPage() {
                         <dd style={{ margin: 0, fontWeight: 600 }} data-testid="os-obra-horas-total">{horasOS[o.id].horas.toLocaleString('pt-BR')} h · {brl(horasOS[o.id].valor)}</dd></>}
                       {diarios.length > 0 && <><dt style={{ ...rot, color: MUT }}>Diários <AjudaCampo chave="projetos.os_obra.rdo_registrados" /></dt>
                         <dd style={{ margin: 0 }} data-testid="os-obra-rdo-total">{diarios.length} {diarios.length === 1 ? 'dia' : 'dias'} · último {dataBR(diarios[0].data)}</dd></>}
+                      {temServico && orcado <= 0 && <><dt style={{ ...rot, color: MUT }}>Orçado <AjudaCampo chave="projetos.os_obra.orcado" /></dt>
+                        <dd style={{ margin: 0, color: MUT }} data-testid="os-obra-orcado">sem orçado</dd></>}
+                      {temServico && orcado > 0 && <>
+                        <dt style={{ ...rot, color: MUT }}>Orçado <AjudaCampo chave="projetos.os_obra.orcado" /></dt>
+                        <dd style={{ margin: 0 }} data-testid="os-obra-orcado">{brl(orcado)} <span style={{ color: MUT, fontSize: 12 }}>· serviço</span></dd>
+                        <dt style={{ ...rot, color: MUT }}>Margem parcial <AjudaCampo chave="projetos.os_obra.margem_parcial" /></dt>
+                        <dd style={{ margin: 0, color: margemCor, fontWeight: 600 }} data-testid="os-obra-margem">{brl(margem)} · {margemPct}% <span style={{ color: MUT, fontSize: 12, fontWeight: 400 }}>só mão de obra</span></dd>
+                      </>}
                     </dl>
                     {apontando === o.id && (
                       <form onSubmit={e => lancarHoras(e, o)} data-testid="os-obra-horas-form" style={{ display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr', background: BG, borderRadius: 10, padding: 10 }}>

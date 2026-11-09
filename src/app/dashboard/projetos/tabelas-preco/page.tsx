@@ -95,6 +95,7 @@ export default function TabelasPrecoPage() {
     setMsg(`${gravadas} faixa(s) importada(s).`); setPlanilha(''); setRev(r => r + 1)
   }
   const excluirFaixa = async (id: string) => { if (window.confirm('Excluir esta faixa do contrato? Ela sai do cálculo, do orçamento e do saldo. A exclusão é rastreável (fica o registro de quem excluiu e quando).')) await salvar('fn_tabela_preco_faixa_excluir', { p_id: id }, 'Faixa excluída.') }
+  const excluirCond = async (cond: string) => { if (window.confirm(`Excluir a condição "${cond}" deste contrato? Ela deixa de ser oferecida no cálculo e na medição. A exclusão é rastreável (fica o registro de quem excluiu e quando). Se houver código de cliente ou preço fixo usando esta condição, remova-os antes.`)) await salvar('fn_tabela_preco_condicao_excluir', { p_tabela_id: tabelaId, p_condicao: cond }, 'Condição excluída.') }
 
   const carregarTabelas = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
@@ -124,7 +125,13 @@ export default function TabelasPrecoPage() {
           // Ambiente ainda sem a coluna deleted_at (preview antes da migração): lê sem o filtro para não quebrar a tela.
           return r.error && /deleted_at/i.test(r.error.message ?? '') ? await base() : r
         })(),
-        supabase.from('erp_tabela_preco_condicao').select('condicao,percentual').eq('tabela_id', tabelaId).order('condicao'),
+        (async () => {
+          // Condições excluídas (soft-delete rastreável) saem da lista, do cálculo e da medição.
+          const baseC = () => supabase.from('erp_tabela_preco_condicao').select('condicao,percentual').eq('tabela_id', tabelaId).order('condicao')
+          const r = await baseC().is('deleted_at', null)
+          // Ambiente ainda sem a coluna deleted_at (preview antes da migração): lê sem o filtro para não quebrar a tela.
+          return r.error && /deleted_at/i.test(r.error.message ?? '') ? await baseC() : r
+        })(),
         supabase.from('erp_tabela_preco_codigo').select('servico_ref,condicao,codigo_externo,preco_fixo').eq('tabela_id', tabelaId),
       ])
       if (!vivo) return
@@ -191,7 +198,9 @@ export default function TabelasPrecoPage() {
         {!loading && !erro && tabelas.length === 0 && (
           <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 20 }} data-testid="tabelas-vazio">
             <b>Nenhuma tabela de preço cadastrada.</b>
-            <p style={{ fontSize: 14, color: MUT }}>A tabela do cliente (faixas de quantidade e adicionais por turno) entra pela importação de planilha, na próxima entrega. Enquanto isso, o Eng. Chefe carrega a primeira tabela.</p>
+            {podeGravar
+              ? <p style={{ fontSize: 14, color: MUT }} data-testid="tabelas-vazio-admin">Crie a primeira tabela ou importe a planilha do cliente no bloco <b>“Editar contrato”</b> abaixo. A tabela guarda as faixas de quantidade e os adicionais por turno de cada serviço do contrato.</p>
+              : <p style={{ fontSize: 14, color: MUT }} data-testid="tabelas-vazio-consulta">Ainda não há contrato cadastrado para esta empresa. O cadastro das faixas e adicionais fica com o administrativo; assim que a primeira tabela entrar, os preços aparecem aqui.</p>}
           </div>
         )}
         {!loading && !erro && tabelas.length > 0 && (
@@ -359,6 +368,20 @@ export default function TabelasPrecoPage() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}><input data-testid="tp-f-pct" inputMode="decimal" style={campo} value={fm.pct} onChange={e => setF('pct', e.target.value)} placeholder="50" aria-label="Adicional em porcentagem" /> <AjudaCampo chave="hub.tabela_preco.f_adicional_pct" /></div>
                     </div>
                     <button type="button" data-testid="tp-f-salvar-cond" onClick={salvarCond} disabled={!fm.cond.trim() || num(fm.pct) == null} style={{ ...campo, width: 'auto', cursor: 'pointer', fontWeight: 700, background: GOLD, color: '#fff', border: 'none' }}>Salvar condição</button>
+                    {conds.length > 0 && (
+                      <div style={{ display: 'grid', gap: 4 }}>
+                        <span style={{ fontSize: 12, color: MUT }}>Condições cadastradas</span>
+                        {conds.map(c => (
+                          <div key={c.condicao} data-testid="tp-cond-linha" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: 13, borderTop: `1px solid ${LINE}`, paddingTop: 4 }}>
+                            <span>{c.condicao}{c.percentual != null ? ` (+${c.percentual}%)` : ''}</span>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <button type="button" data-testid="tp-cond-excluir" onClick={() => excluirCond(c.condicao)} style={{ color: '#B91C1C', background: 'none', border: 'none', cursor: 'pointer' }}>Excluir</button>
+                              <AjudaCampo chave="hub.tabela_preco.condicao_excluir" />
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div style={{ display: 'grid', gap: 8, borderTop: `1px solid ${LINE}`, paddingTop: 12 }}>
                     <span style={rot}>Código no cliente (serviço escolhido acima) <AjudaCampo chave="hub.tabela_preco.codigo_cadastro" /></span>

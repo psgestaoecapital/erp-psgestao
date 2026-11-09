@@ -284,6 +284,7 @@ function Inner() {
             <KpiCard label="Faturamento" valor={brl(kpis?.faturamento ?? null)} d={delta(kpis?.faturamento, kpisAnt?.faturamento)} />
             <KpiCard label="Volume" valor={`${nf(kpis?.volume_kg ?? null, 0)} kg`} d={delta(kpis?.volume_kg, kpisAnt?.volume_kg)} />
             <KpiCard label="Clientes" valor={nf(kpis?.clientes ?? null, 0)} d={delta(kpis?.clientes, kpisAnt?.clientes)} />
+            <KpiCard label="Cidades atendidas" valor={nf(kpis?.cidades ?? null, 0)} d={delta(kpis?.cidades, kpisAnt?.cidades)} chave="comercial.bi.cidades_atendidas" />
             <KpiCard label="Ticket / kg" valor={kpis?.ticket_kg != null ? `${brl(kpis.ticket_kg)}/kg` : '—'} d={delta(kpis?.ticket_kg, kpisAnt?.ticket_kg)} />
             <KpiCard label="Ticket / cliente" valor={brl(kpis?.ticket_cliente ?? null)} d={delta(kpis?.ticket_cliente, kpisAnt?.ticket_cliente)} />
             {lucroConfiavel ? <>
@@ -706,12 +707,12 @@ function TotalTopo({ chave, rotulo, valor, sub, destaque }: { chave: string; rot
     </div>
   )
 }
-function KpiCard({ label, valor, d }: { label: string; valor: string; d: { pct: number; up: boolean } | null }) {
+function KpiCard({ label, valor, d, chave }: { label: string; valor: string; d: { pct: number; up: boolean } | null; chave?: string }) {
   return (
     <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: '13px 15px' }}>
       <div style={{ fontSize: 19, fontWeight: 700, color: ESP, lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{valor}</div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginTop: 3 }}>
-        <span style={{ fontSize: 11.5, color: MUT }}>{label}</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11.5, color: MUT }}>{label}{chave && <AjudaCampo chave={chave} rota={ROTA} />}</span>
         {d && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 10.5, fontWeight: 700, color: d.up ? GREEN : RED }}>{d.up ? <ArrowUp size={11} /> : <ArrowDown size={11} />}{nf(d.pct, 1)}%</span>}
       </div>
     </div>

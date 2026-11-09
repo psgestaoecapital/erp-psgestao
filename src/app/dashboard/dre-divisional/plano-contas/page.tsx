@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -144,6 +145,7 @@ export default function PlanoContasPage() {
                     ? <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold" style={{ background: '#FAEEDA', color: '#854F0B' }}>custom</span>
                     : <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: BG, color: ESP60 }}>padrão</span>}
                   <button onClick={() => { setCriarSob(c); setNome(''); setDesc('') }} title="Adicionar subconta" className="text-[10px] px-2 py-1 rounded" style={{ border: `1px solid ${GOLD}`, color: GOLD }}>+ sub</button>
+                  {c.codigo === ordenadas[0]?.codigo && <AjudaCampo chave="dre.plano_contas.add_sub" />}
                   {c.custom && (<>
                     <button onClick={() => { setEditar(c); setNome(c.nome); setDesc(c.descricao ?? '') }} className="text-[10px] px-2 py-1 rounded" style={{ background: BG, color: ESP }}>Editar</button>
                     <button onClick={() => void excluir(c)} className="text-[10px] px-2 py-1 rounded" style={{ background: '#fff', border: `1px solid ${RED}`, color: RED }}>Remover</button>
@@ -163,8 +165,14 @@ export default function PlanoContasPage() {
             </h3>
             {criarSob && <div className="text-xs mb-3" style={{ color: ESP60 }}>Sob: <b>{criarSob.codigo} · {criarSob.nome}</b> ({GRUPO_LABEL[criarSob.dre_grupo] ?? criarSob.dre_grupo})</div>}
             <div className="space-y-2">
-              <input autoFocus value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome da conta (ex.: Cartão de Crédito)" className="w-full rounded-xl border border-[#E7DECF] bg-white px-3 py-2 text-sm text-[#3D2314]" />
-              <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Descrição (opcional)" className="w-full rounded-xl border border-[#E7DECF] bg-white px-3 py-2 text-sm text-[#3D2314]" />
+              <div className="flex items-center gap-1">
+                <input autoFocus value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome da conta (ex.: Cartão de Crédito)" className="w-full rounded-xl border border-[#E7DECF] bg-white px-3 py-2 text-sm text-[#3D2314]" />
+                <AjudaCampo chave="dre.plano_contas.nome" />
+              </div>
+              <div className="flex items-center gap-1">
+                <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Descrição (opcional)" className="w-full rounded-xl border border-[#E7DECF] bg-white px-3 py-2 text-sm text-[#3D2314]" />
+                <AjudaCampo chave="dre.plano_contas.descricao" />
+              </div>
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <button onClick={() => { setCriarSob(null); setEditar(null) }} className="px-4 py-2 rounded-xl text-sm" style={{ background: '#fff', border: `1px solid ${LINE}`, color: ESP }}>Cancelar</button>

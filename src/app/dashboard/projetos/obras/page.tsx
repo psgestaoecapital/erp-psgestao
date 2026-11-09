@@ -69,11 +69,13 @@ export default function ObrasPage() {
       setKpis(k as Kpis); setObras((l as Obra[]) ?? [])
       // receita não derruba o board: se falhar, o cartão mostra "não deu para carregar"
       const { data: rc, error: er } = await supabase.rpc('fn_obras_receita', { p_company_ids: companyIds })
-      // custo real (material + viagens) e resultado realizado vêm da v_obra_resultado (fonte do banco),
-      // keyed POR OBRA — custo/resultado aparecem mesmo sem NFS-e emitida (antes só grudavam nas linhas de faturamento).
-      const { data: cr, error: ecr } = await supabase.from('v_obra_resultado').select('obra_id,custo_material,custo_viagens,margem_realizada,receita_servico,receita_material').in('company_id', companyIds)
-      const voMap = Object.fromEntries(((cr ?? []) as { obra_id: string; custo_material: number; custo_viagens: number; margem_realizada: number; receita_servico: number; receita_material: number }[])
-        .map((x) => [x.obra_id, { custo: Number(x.custo_material || 0) + Number(x.custo_viagens || 0), margem_realizada: Number(x.margem_realizada || 0), receita_reconhecida: Number(x.receita_servico || 0) + Number(x.receita_material || 0) }]))
+      // custo realizado COMPLETO (material + viagens + mão de obra + rateio) e resultado realizado vêm da
+      // v_obra_resultado_alocado (mesma fonte do KPI de /obras/[id]/custos e da tela /obras/resultado), keyed POR OBRA.
+      // Antes o card lia a v_obra_resultado (só material+viagens), escondendo mão de obra/rateio: obra cujo custo era
+      // só mão de obra aparecia como "Sem custo lançado" (falso-zero) e o resultado não reconciliava com o KPI.
+      const { data: cr, error: ecr } = await supabase.from('v_obra_resultado_alocado').select('obra_id,custo_material,custo_viagens,custo_mao_obra,custo_rateio,margem_alocada,receita_servico,receita_material').in('company_id', companyIds)
+      const voMap = Object.fromEntries(((cr ?? []) as { obra_id: string; custo_material: number; custo_viagens: number; custo_mao_obra: number; custo_rateio: number; margem_alocada: number; receita_servico: number; receita_material: number }[])
+        .map((x) => [x.obra_id, { custo: Number(x.custo_material || 0) + Number(x.custo_viagens || 0) + Number(x.custo_mao_obra || 0) + Number(x.custo_rateio || 0), margem_realizada: Number(x.margem_alocada || 0), receita_reconhecida: Number(x.receita_servico || 0) + Number(x.receita_material || 0) }]))
       const { data: fp } = await supabase.from('projetos_obras').select('id,cno,codigo_obra_municipal,endereco').in('company_id', companyIds)
       setFiscalPend(new Set(((fp ?? []) as { id: string; cno: string | null; codigo_obra_municipal: string | null; endereco: string | null }[])
         .filter((x) => !((x.cno ?? '').trim() || (x.codigo_obra_municipal ?? '').trim()) || !(x.endereco ?? '').trim()).map((x) => x.id)))

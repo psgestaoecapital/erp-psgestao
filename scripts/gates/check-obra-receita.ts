@@ -24,7 +24,8 @@ ok(/REVOKE ALL ON FUNCTION public\.fn_obras_receita\(uuid\[\]\) FROM PUBLIC, ano
 ok(!/\b(INSERT|UPDATE|DELETE)\b/i.test(sql), 'não grava nada')
 
 ok(tela.includes("supabase.rpc('fn_obras_receita', { p_company_ids: companyIds })"), 'board chama fn_obras_receita')
-ok(/setReceita\(er \? null :/.test(tela), 'falha na receita não derruba o board (cartão avisa)')
+// #4004: une receita (NFS-e) + custo/resultado (banco); só zera (cartão avisa) se AMBAS as fontes falharem.
+ok(/setReceita\(er && ecr \? null : merged\)/.test(tela), 'falha na receita não derruba o board (cartão avisa)')
 for (const id of ['obra-resultado', 'obra-faturado', 'obra-recebido', 'obra-a-receber', 'obra-custo', 'obra-notas']) {
   ok(tela.includes(`'${id}'`) || tela.includes(`"${id}"`), `cartão: ${id}`)
 }

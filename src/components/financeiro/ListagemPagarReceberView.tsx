@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { selecionarTodas } from '@/lib/selecionarTodas'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import MarcarPagoModal from './MarcarPagoModal'
 import MarcarPagoLoteModal from './MarcarPagoLoteModal'
 import EmitirNFSeButton from './EmitirNFSeButton'
@@ -762,6 +763,41 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     setReloadKey((k) => k + 1)
   }
 
+  // Chamado #6713 (Jordana): estornar o recebimento/pagamento para CORRIGIR o valor e lançar de novo —
+  // sem excluir o título. Desfaz a baixa (volta para EM ABERTO) via RPC guardada (fn_receber_estornar_baixa /
+  // fn_pagar_cancelar_pagamento): bloqueia se conciliado (avisa p/ desconciliar no inbox antes) e registra
+  // quem/quando/motivo no histórico. Depois é só Editar o valor e Marcar recebido/pago de novo.
+  const estornarBaixa = async (r: Resultado) => {
+    const rpc = tipo === 'pagar' ? 'fn_pagar_cancelar_pagamento' : 'fn_receber_estornar_baixa'
+    const acao = tipo === 'pagar' ? 'o pagamento' : 'o recebimento'
+    const verbo = tipo === 'pagar' ? 'pagar' : 'receber'
+    const motivo = prompt(
+      `ESTORNAR ${acao} de "${r.descricao}"?\n` +
+      `R$ ${r.valor_documento.toFixed(2)} · venc ${fmtData(r.data_vencimento)}\n\n` +
+      `A baixa é desfeita e o título volta para EM ABERTO. Depois você pode corrigir o valor (Editar) e ${verbo} de novo.\n` +
+      `O título NÃO é excluído e fica tudo registrado no histórico.\n\n` +
+      `Motivo (fica no histórico):`,
+      '',
+    )
+    if (motivo === null) return
+    const { data, error } = await supabase.rpc(rpc, { p_id: r.id, p_motivo: motivo.trim() || null })
+    if (error) { alert('Erro ao estornar: ' + error.message); return }
+    const j = data as { sucesso?: boolean; erro?: string; orientacao?: string; valor_estornado?: number } | null
+    if (!j?.sucesso) {
+      if (j?.erro === 'bloqueado_conciliado') {
+        alert(
+          `Este lançamento está CONCILIADO com o banco.\n\n` +
+          `Estornar agora deixaria um movimento bancário órfão.\n` +
+          `${j.orientacao ?? 'Cancele a conciliação no inbox, depois volte aqui.'}`,
+        )
+      } else {
+        alert('Não foi possível estornar: ' + (j?.orientacao ?? j?.erro ?? 'desconhecido'))
+      }
+      return
+    }
+    setReloadKey((k) => k + 1)
+  }
+
   // Edição em massa (Jordana #6) · aplica o MESMO valor do CAMPO escolhido a N selecionados. Reusa a RPC
   // do domínio (whitelist + pula pagos p/ valor/vencimento + RLS + log — RD-55/RD-57).
   const campoMassaDef = CAMPOS_MASSA.find((c) => c.v === massaCampo) ?? CAMPOS_MASSA[0]
@@ -898,14 +934,18 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
               }}>
               📥 Importar em massa
             </Link>
-            <ExportarListaButton
-              companyId={companyId}
-              tipo={tipo}
-              titulo={labels.titulo}
-              filtros={filtrosDesc}
-              kpis={kpisExport}
-              linhas={resultadosFiltrados}
-            />
+            <AjudaCampo chave={`financeiro.${tipo}.acao_importar`} />
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+              <ExportarListaButton
+                companyId={companyId}
+                tipo={tipo}
+                titulo={labels.titulo}
+                filtros={filtrosDesc}
+                kpis={kpisExport}
+                linhas={resultadosFiltrados}
+              />
+              <AjudaCampo chave={`financeiro.${tipo}.acao_exportar`} />
+            </span>
             {/* #3281: período longo sem esperar na tela — o Excel chega em Meus relatórios */}
             <GerarSegundoPlanoButton
               companyId={companyId}
@@ -977,6 +1017,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
             destaque={kpisFiltrados.vencidos.qtd > 0}
             ativo={statusSel.includes('vencidos')}
             onClick={() => toggleStatus('vencidos')}
+            chave={`financeiro.${tipo}.kpi_vencidos`}
           />
           <KpiCard
             titulo={labels.hojeLabel}
@@ -985,6 +1026,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
             cor="#C8941A"
             ativo={statusSel.includes('hoje')}
             onClick={() => toggleStatus('hoje')}
+            chave={`financeiro.${tipo}.kpi_hoje`}
           />
           <KpiCard
             titulo="A vencer"
@@ -993,6 +1035,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
             cor="#3D2314"
             ativo={statusSel.includes('avencer')}
             onClick={() => toggleStatus('avencer')}
+            chave={`financeiro.${tipo}.kpi_avencer`}
           />
           <KpiCard
             titulo={labels.pagosLabel}
@@ -1001,6 +1044,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
             cor="#16A34A"
             ativo={statusSel.includes('pagos')}
             onClick={() => toggleStatus('pagos')}
+            chave={`financeiro.${tipo}.kpi_pagos`}
           />
           <KpiCard
             titulo="Total"
@@ -1009,6 +1053,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
             cor="#3D2314"
             ativo={statusSel.length === 0}
             onClick={() => setStatusSel([])}
+            chave={`financeiro.${tipo}.kpi_total`}
           />
         </div>
       </div>
@@ -1026,7 +1071,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           gap: 12,
         }}
       >
-        <Campo label="Período">
+        <Campo label="Período" ajuda={`financeiro.${tipo}.filtro_periodo`}>
           <select value={periodoChoice} onChange={(e) => aplicarPeriodo(e.target.value as PeriodoChoice)} style={inputStyle}>
             <option value="mes_atual">Mês atual ({MESES[hoje.getMonth()]})</option>
             <option value="mes_passado">Mês passado</option>
@@ -1056,7 +1101,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           </>
         )}
 
-        <Campo label="Status (múltiplo)">
+        <Campo label="Status (múltiplo)" ajuda={`financeiro.${tipo}.filtro_status`}>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
             {/* Vocabulário da Jordana (RD-41): Aberto = A vencer + Hoje (não pago, não vencido). Multi-select preservado.
                 'Incluído na remessa' e 'Agendado' vêm da remessa (só a pagar) — na lista como os demais, sem 2ª classe. */}
@@ -1097,7 +1142,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           </div>
         </Campo>
 
-        <Campo label="Categoria">
+        <Campo label="Categoria" ajuda={`financeiro.${tipo}.filtro_categoria`}>
           <select value={categoria} onChange={(e) => { setCategoria(e.target.value); setPage(1) }} style={inputStyle}>
             <option value="">Todas</option>
             {categoriasDistinct.map((c) => (
@@ -1106,7 +1151,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           </select>
         </Campo>
 
-        <Campo label="Buscar">
+        <Campo label="Buscar" ajuda={`financeiro.${tipo}.filtro_busca`}>
           <input
             value={busca}
             onChange={(e) => { setBusca(e.target.value); setPage(1) }}
@@ -1320,11 +1365,11 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                         aria-label="Selecionar todos não pagos"
                       />
                     </Th>
-                    <Th>Descrição</Th>
-                    <Th>Quem</Th>
-                    <Th>Categoria</Th>
-                    <Th>Vencimento</Th>
-                    <Th>
+                    <Th chave={`financeiro.${tipo}.col_descricao`}>Descrição</Th>
+                    <Th chave={`financeiro.${tipo}.col_quem`}>Quem</Th>
+                    <Th chave={`financeiro.${tipo}.col_categoria`}>Categoria</Th>
+                    <Th chave={`financeiro.${tipo}.col_vencimento`}>Vencimento</Th>
+                    <Th chave={`financeiro.${tipo}.col_pagamento`}>
                       <span
                         onClick={() => setPagSort((s) => (s === 'off' ? 'asc' : s === 'asc' ? 'desc' : 'off'))}
                         style={{ cursor: 'pointer', userSelect: 'none' }}
@@ -1334,10 +1379,10 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                         Pagamento {pagSort === 'asc' ? '▲' : pagSort === 'desc' ? '▼' : '⇅'}
                       </span>
                     </Th>
-                    <Th align="right">Valor</Th>
-                    <Th>Status</Th>
-                    {tipo === 'receber' && <Th>Fiscal</Th>}
-                    <Th align="right">Ação</Th>
+                    <Th align="right" chave={`financeiro.${tipo}.col_valor`}>Valor</Th>
+                    <Th chave={`financeiro.${tipo}.col_status`}>Status</Th>
+                    {tipo === 'receber' && <Th chave="financeiro.receber.col_fiscal">Fiscal</Th>}
+                    <Th align="right" chave={`financeiro.${tipo}.col_acao`}>Ação</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1542,7 +1587,23 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                                 {r.id in bloqueioMap ? '🔓 Desbloquear' : '🔒 Bloquear'}
                               </button>
                             )}
-                            {pago && <span style={{ fontSize: 10, color: 'rgba(61,35,20,0.4)', marginRight: 6 }}>✓ baixado</span>}
+                            {pago && (
+                              <>
+                                <span style={{ fontSize: 10, color: 'rgba(61,35,20,0.4)', marginRight: 2 }}>✓ baixado</span>
+                                <button
+                                  type="button"
+                                  onClick={() => void estornarBaixa(r)}
+                                  title={tipo === 'pagar'
+                                    ? 'Cancelar pagamento: desfaz a baixa e volta o título para EM ABERTO (p/ corrigir o valor e pagar de novo). Bloqueado se conciliado.'
+                                    : 'Estornar recebimento: desfaz a baixa e volta o título para EM ABERTO (p/ corrigir o valor e receber de novo). Bloqueado se conciliado.'}
+                                  aria-label={tipo === 'pagar' ? 'Cancelar pagamento' : 'Estornar recebimento'}
+                                  style={{ background: 'transparent', color: '#8A5A00', border: '0.5px solid rgba(200,148,26,0.45)', padding: '4px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', marginRight: 2 }}
+                                >
+                                  ↩️ {tipo === 'pagar' ? 'Cancelar pagto' : 'Estornar'}
+                                </button>
+                                <AjudaCampo chave={tipo === 'pagar' ? 'financeiro.pagar.cancelar_pagamento' : 'financeiro.receber.estornar_baixa'} />
+                              </>
+                            )}
                             <button
                               type="button"
                               onClick={() => setEditandoItem(r)}
@@ -1926,8 +1987,8 @@ function Header({ labels, onHistorico, acaoExtra }: {
   )
 }
 
-function KpiCard({ titulo, valor, qtd, cor, destaque = false, onClick, ativo = false }: {
-  titulo: string; valor: number; qtd: number; cor: string; destaque?: boolean; onClick?: () => void; ativo?: boolean
+function KpiCard({ titulo, valor, qtd, cor, destaque = false, onClick, ativo = false, chave }: {
+  titulo: string; valor: number; qtd: number; cor: string; destaque?: boolean; onClick?: () => void; ativo?: boolean; chave?: string
 }) {
   const clicavel = !!onClick
   return (
@@ -1956,7 +2017,9 @@ function KpiCard({ titulo, valor, qtd, cor, destaque = false, onClick, ativo = f
           marginBottom: 8,
         }}
       >
-        {titulo}{ativo ? ' · filtrando' : ''}
+        <span style={{ display: 'inline-flex', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+          {titulo}{ativo ? ' · filtrando' : ''}{chave && <AjudaCampo chave={chave} />}
+        </span>
       </div>
       <div style={{ fontSize: 20, color: ativo ? '#FFFFFF' : cor, fontWeight: 600 }}>{fmtBRL(valor)}</div>
       <div style={{ fontSize: 11, color: ativo ? 'rgba(255,255,255,0.85)' : 'rgba(61,35,20,0.55)', marginTop: 4 }}>
@@ -2031,26 +2094,27 @@ function FiltroChip({ label, onX }: { label: string; onX: () => void }) {
   )
 }
 
-function Campo({ label, children }: { label: string; children: React.ReactNode }) {
+function Campo({ label, children, ajuda }: { label: string; children: React.ReactNode; ajuda?: string }) {
   return (
     <div>
       <label
         style={{
-          display: 'block',
+          display: 'flex',
+          alignItems: 'center',
           fontSize: 11,
           color: 'rgba(61,35,20,0.65)',
           marginBottom: 4,
           fontWeight: 500,
         }}
       >
-        {label}
+        {label}{ajuda && <AjudaCampo chave={ajuda} />}
       </label>
       {children}
     </div>
   )
 }
 
-function Th({ children, align = 'left' }: { children: React.ReactNode; align?: 'left' | 'right' }) {
+function Th({ children, align = 'left', chave }: { children: React.ReactNode; align?: 'left' | 'right'; chave?: string }) {
   return (
     <th
       style={{
@@ -2063,7 +2127,9 @@ function Th({ children, align = 'left' }: { children: React.ReactNode; align?: '
         fontWeight: 500,
       }}
     >
-      {children}
+      {chave
+        ? <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: align === 'right' ? 'flex-end' : 'flex-start' }}>{children}<AjudaCampo chave={chave} /></span>
+        : children}
     </th>
   )
 }

@@ -1525,6 +1525,9 @@ const inputMini: React.CSSProperties = { width: '100%', padding: '6px 8px', bord
 // ANTI-DUPLICIDADE — helpers do alerta (linguagem do usuário, não "duplicate/SELECT").
 function fmtDataBr(iso: string | null): string {
   if (!iso) return '—'
+  // data pura (YYYY-MM-DD) é formatada direto: new Date() a lê como meia-noite UTC e mostra o dia anterior (chamado #6733)
+  const puro = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  if (puro) return `${puro[3]}/${puro[2]}/${puro[1]}`
   try { return new Date(iso).toLocaleDateString('pt-BR') } catch { return '—' }
 }
 function fmtBRL(v: number | null): string {
