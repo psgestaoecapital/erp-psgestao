@@ -76,6 +76,7 @@ type Resposta = {
     pagos: KpiBlock
     total: number
   }
+  total_rows?: number   // total de linhas do período (pré-LIMIT 5000) — p/ o card Total e aviso de truncagem
   resultados: Resultado[]
 }
 
@@ -527,6 +528,27 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       totalQtd: rows.length,
     }
   }, [resultadosFiltrados])
+
+  // GAP PDCA (auditor_pdca_2): quando NÃO há filtro client-side nem status selecionado, os cards
+  // devem vir do `kpis` do SERVIDOR (calculado sobre TODAS as linhas do período, pré-LIMIT 5000) —
+  // senão, em empresa com >5000 títulos, o recálculo a partir das 5000 linhas SUBCONTA (ex.: Total
+  // R$248.560,01 virava o somatório só das 5000). Com filtro ativo, mantém o kpisFiltrados (bug André).
+  const semFiltroClient = !busca.trim() && !categoria && contasSel.length === 0 && !fPessoa.trim()
+    && !fForma && !fValorMin.trim() && !fValorMax.trim() && !soBloqueadas
+    && (statusSel.length === 0 || statusSel.includes('todos'))
+  const cardsKpis = (semFiltroClient && data && !data.sem_plano)
+    ? {
+        vencidos: data.kpis.vencidos,
+        hoje: data.kpis.hoje,
+        avencer: data.kpis.avencer,
+        pagos: data.kpis.pagos,
+        total: data.kpis.total,
+        totalQtd: data.total_rows ?? resultadosFiltrados.length,
+      }
+    : kpisFiltrados
+  // Lista truncada no teto de 5000 do servidor: avisar (RD-98 pilar 1 — dado não some em silêncio).
+  const totalReal = data?.total_rows ?? 0
+  const listaTruncada = !!data && !data.sem_plano && totalReal > (data.resultados?.length ?? 0)
 
   const idsSelecionaveis = useMemo(
     () => resultadosFiltrados.filter((r) => r.situacao !== 'pago').map((r) => r.id),
@@ -1011,18 +1033,18 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         >
           <KpiCard
             titulo={labels.vencidosLabel}
-            valor={kpisFiltrados.vencidos.valor}
-            qtd={kpisFiltrados.vencidos.qtd}
+            valor={cardsKpis.vencidos.valor}
+            qtd={cardsKpis.vencidos.qtd}
             cor="#DC2626"
-            destaque={kpisFiltrados.vencidos.qtd > 0}
+            destaque={cardsKpis.vencidos.qtd > 0}
             ativo={statusSel.includes('vencidos')}
             onClick={() => toggleStatus('vencidos')}
             chave={`financeiro.${tipo}.kpi_vencidos`}
           />
           <KpiCard
             titulo={labels.hojeLabel}
-            valor={kpisFiltrados.hoje.valor}
-            qtd={kpisFiltrados.hoje.qtd}
+            valor={cardsKpis.hoje.valor}
+            qtd={cardsKpis.hoje.qtd}
             cor="#C8941A"
             ativo={statusSel.includes('hoje')}
             onClick={() => toggleStatus('hoje')}
@@ -1030,8 +1052,8 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           />
           <KpiCard
             titulo="A vencer"
-            valor={kpisFiltrados.avencer.valor}
-            qtd={kpisFiltrados.avencer.qtd}
+            valor={cardsKpis.avencer.valor}
+            qtd={cardsKpis.avencer.qtd}
             cor="#3D2314"
             ativo={statusSel.includes('avencer')}
             onClick={() => toggleStatus('avencer')}
@@ -1039,8 +1061,8 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           />
           <KpiCard
             titulo={labels.pagosLabel}
-            valor={kpisFiltrados.pagos.valor}
-            qtd={kpisFiltrados.pagos.qtd}
+            valor={cardsKpis.pagos.valor}
+            qtd={cardsKpis.pagos.qtd}
             cor="#16A34A"
             ativo={statusSel.includes('pagos')}
             onClick={() => toggleStatus('pagos')}
@@ -1048,8 +1070,8 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           />
           <KpiCard
             titulo="Total"
-            valor={kpisFiltrados.total}
-            qtd={kpisFiltrados.totalQtd}
+            valor={cardsKpis.total}
+            qtd={cardsKpis.totalQtd}
             cor="#3D2314"
             ativo={statusSel.length === 0}
             onClick={() => setStatusSel([])}
@@ -1057,6 +1079,32 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           />
         </div>
       </div>
+
+      {listaTruncada && (
+        <div
+          role="status"
+          style={{
+            background: '#FDF6E3',
+            border: '0.5px solid #E6CE8F',
+            borderRadius: 12,
+            padding: '10px 16px',
+            marginBottom: 16,
+            fontSize: 13,
+            color: '#7A5A12',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <span aria-hidden="true">ℹ️</span>
+          <span>
+            Este período tem <b>{totalReal.toLocaleString('pt-BR')}</b> lançamentos; a lista mostra os
+            primeiros <b>{(data?.resultados?.length ?? 0).toLocaleString('pt-BR')}</b>. Os indicadores
+            no topo já consideram <b>todos</b> — para navegar o restante na lista, estreite o período ou
+            use a busca e os filtros.
+          </span>
+        </div>
+      )}
 
       {/* Filtros */}
       <div
@@ -1327,10 +1375,10 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                 return { qtd: rows.length, valor: rows.reduce((a, r) => a + (r.valor_documento || 0), 0) }
               }
               const info: Record<StatusOpt, { label: string; cor: string; valor: number; qtd: number }> = {
-                vencidos: { label: labels.vencidosLabel, cor: '#DC2626', valor: kpisFiltrados.vencidos.valor, qtd: kpisFiltrados.vencidos.qtd },
-                hoje: { label: labels.hojeLabel, cor: '#C8941A', valor: kpisFiltrados.hoje.valor, qtd: kpisFiltrados.hoje.qtd },
-                avencer: { label: 'A vencer', cor: '#3D2314', valor: kpisFiltrados.avencer.valor, qtd: kpisFiltrados.avencer.qtd },
-                pagos: { label: labels.pagosLabel, cor: '#16A34A', valor: kpisFiltrados.pagos.valor, qtd: kpisFiltrados.pagos.qtd },
+                vencidos: { label: labels.vencidosLabel, cor: '#DC2626', valor: cardsKpis.vencidos.valor, qtd: cardsKpis.vencidos.qtd },
+                hoje: { label: labels.hojeLabel, cor: '#C8941A', valor: cardsKpis.hoje.valor, qtd: cardsKpis.hoje.qtd },
+                avencer: { label: 'A vencer', cor: '#3D2314', valor: cardsKpis.avencer.valor, qtd: cardsKpis.avencer.qtd },
+                pagos: { label: labels.pagosLabel, cor: '#16A34A', valor: cardsKpis.pagos.valor, qtd: cardsKpis.pagos.qtd },
                 conciliado: { label: 'Conciliado', cor: '#0D9488', ...derivar('conciliado') },
                 agendado: { label: 'Agendado', cor: '#2F5AA8', ...derivar('agendado') },
                 incluido_remessa: { label: 'Incluído na remessa', cor: '#4F46E5', ...derivar('incluido_remessa') },
@@ -1677,6 +1725,11 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                 <span>
                   Mostrando {pageStart + 1}–{Math.min(pageStart + pageSize, resultadosFiltrados.length)} de {resultadosFiltrados.length}
+                  {listaTruncada && (
+                    <span style={{ color: '#C8941A', fontWeight: 600 }}>
+                      {' '}(lista limitada a {resultadosFiltrados.length.toLocaleString('pt-BR')} de {totalReal.toLocaleString('pt-BR')} no período)
+                    </span>
+                  )}
                 </span>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span>Itens por página:</span>
