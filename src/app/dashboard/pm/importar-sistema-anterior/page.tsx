@@ -9,6 +9,7 @@ import Link from "next/link";
 import * as XLSX from "xlsx";
 import { Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, ArrowLeft, History } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { CAMPOS, MOTIVO_TEXTO, adivinharMapa, ehCsv, selecionar, textoCsv, type CampoSiga, type Motivo } from "@/lib/pm/importSiga";
@@ -56,7 +57,7 @@ export default function ImportarSigaPage() {
       if (i < 0) { setErro("A planilha está vazia."); return; }
       const c = (m[i] as unknown[]).map((x) => String(x ?? "").trim());
       setArquivo(f.name); setCab(c); setLinhas(m.slice(i + 1) as unknown[][]); setMapa(adivinharMapa(c));
-    } catch (e) { setErro(`Não consegui ler a planilha: ${(e as Error).message}`); }
+    } catch { setErro("Não consegui ler a planilha. Confira se o arquivo é .xlsx ou .csv válido e tente de novo."); }
   }
 
   const sel = useMemo(() => (linhas.length ? selecionar(linhas, mapa, hojeSP()) : null), [linhas, mapa]);
@@ -75,7 +76,7 @@ export default function ImportarSigaPage() {
     const { data, error } = await supabase.rpc("fn_pm_importar_jobs_siga", { p_company_id: empresa, p_linhas: payload, p_gravar: gravar });
     setOcupado(false);
     const r = data as Conferencia | null;
-    if (error || !r?.ok) { setErro(r?.mensagem || error?.message || r?.erro || "Não foi possível conferir."); return; }
+    if (error || !r?.ok) { setErro(r?.mensagem || (error ? erroAmigavel(error, "Não foi possível conferir.") : (r?.erro || "Não foi possível conferir."))); return; }
     setConf(r);
     if (gravar) { setFeito(r.gravados); void carregarHistorico(); }
   }
@@ -94,7 +95,7 @@ export default function ImportarSigaPage() {
 
         <section className={card}>
           <label className="block">
-            <span className="mb-1 flex items-center text-[12px] font-semibold">1 · Planilha do sistema anterior<AjudaCampo chave="pm.siga.arquivo" /></span>
+            <span className="mb-1 flex items-center text-[12px] font-semibold">1 · Planilha do sistema anterior<AjudaCampo chave="pm.importacao.arquivo" /></span>
             <span className="flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-[#C8941A]/60 bg-[#FAEEDA]/40 px-4 py-4 text-[13.5px] hover:bg-[#FAEEDA]">
               <Upload size={16} /> {arquivo ? `${arquivo} · ${linhas.length} linha(s)` : "Escolher arquivo (.xlsx, .xls ou .csv)"}
               <input type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void ler(f); }} data-testid="siga-arquivo" />
@@ -104,11 +105,11 @@ export default function ImportarSigaPage() {
 
         {!!cab.length && (
           <section className={card} data-testid="siga-mapa">
-            <div className="mb-2 flex items-center text-[12px] font-semibold">2 · Colunas da planilha<AjudaCampo chave="pm.siga.mapa" /></div>
+            <div className="mb-2 flex items-center text-[12px] font-semibold">2 · Colunas da planilha<AjudaCampo chave="pm.importacao.mapa" /></div>
             <div className="grid gap-2 sm:grid-cols-3">
               {CAMPOS.map((c) => (
                 <label key={c.id} className="block text-[12px]">
-                  <span className="mb-0.5 flex items-center text-[#3D2314]/70">{c.rotulo}{c.obrigatorio ? " *" : ""}<AjudaCampo chave="pm.siga.mapa" /></span>
+                  <span className="mb-0.5 flex items-center text-[#3D2314]/70">{c.rotulo}{c.obrigatorio ? " *" : ""}<AjudaCampo chave="pm.importacao.mapa" /></span>
                   <select className="w-full rounded-lg border border-[#3D2314]/15 bg-white px-2 py-1.5 text-[13px]" value={mapa[c.id] ?? ""} data-testid={`siga-mapa-${c.id}`}
                     onChange={(e) => setMapa((m) => ({ ...m, [c.id]: e.target.value === "" ? undefined : Number(e.target.value) }))}>
                     <option value="">— não tem —</option>
@@ -123,7 +124,7 @@ export default function ImportarSigaPage() {
 
         {sel && !faltaObrigatorio.length && (
           <section className={card} data-testid="siga-previa">
-            <div className="mb-2 flex items-center text-[12px] font-semibold">3 · Prévia<AjudaCampo chave="pm.siga.previa" /></div>
+            <div className="mb-2 flex items-center text-[12px] font-semibold">3 · Prévia<AjudaCampo chave="pm.importacao.previa" /></div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <div className="rounded-xl bg-[#E5F2E1] p-3"><div className="text-[11px] text-[#2F5A1F]">entram</div><div className="text-[22px] font-medium" data-testid="siga-n-entram">{sel.entra.length}</div></div>
               <div className="rounded-xl bg-[#FAF7F2] p-3"><div className="text-[11px] text-[#3D2314]/60">ficam de fora</div><div className="text-[22px] font-medium" data-testid="siga-n-fora">{sel.fora.length}</div></div>
@@ -169,13 +170,13 @@ export default function ImportarSigaPage() {
             <div className="mt-3 flex flex-wrap gap-2">
               <span className="inline-flex items-center">
                 <button className="rounded-xl border border-[#3D2314]/15 bg-white px-4 py-2 text-[13px] disabled:opacity-40" disabled={ocupado || !sel.entra.length} onClick={() => void chamar(false)} data-testid="siga-conferir">Conferir no sistema</button>
-                <AjudaCampo chave="pm.siga.conferir" />
+                <AjudaCampo chave="pm.importacao.conferir" />
               </span>
               <span className="inline-flex items-center">
                 <button className="rounded-xl bg-[#3D2314] px-4 py-2 text-[13px] font-medium text-white disabled:opacity-40" disabled={ocupado || !conf || !conf.novos || feito != null} onClick={() => void chamar(true)} data-testid="siga-importar">
                   {conf ? `Importar ${conf.novos} job(s)` : "Importar"}
                 </button>
-                <AjudaCampo chave="pm.siga.importar" />
+                <AjudaCampo chave="pm.importacao.importar" />
               </span>
             </div>
           </section>
@@ -190,7 +191,7 @@ export default function ImportarSigaPage() {
         )}
 
         <section className={card} data-testid="siga-historico">
-          <div className="mb-2 flex items-center text-[12px] font-semibold"><History size={13} className="mr-1.5 text-[#C8941A]" />Histórico de importações<AjudaCampo chave="pm.siga.historico" /></div>
+          <div className="mb-2 flex items-center text-[12px] font-semibold"><History size={13} className="mr-1.5 text-[#C8941A]" />Histórico de importações<AjudaCampo chave="pm.importacao.historico" /></div>
           {historico.length === 0 ? (
             <div className="text-[12.5px] text-[#3D2314]/55">Nenhuma importação registrada nesta empresa ainda.</div>
           ) : (
