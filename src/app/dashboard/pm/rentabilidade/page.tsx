@@ -7,6 +7,7 @@
 // Somente leitura: consome a RPC fn_pm_indiretas_rateio (guarda fn_pm_pode_ver_margem, SECURITY DEFINER). Escopo por
 // company_id. Tema Espresso (RD-96). "?" em tudo (RD-95).
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
@@ -146,6 +147,28 @@ export default function RentabilidadePage() {
               <span style={{ fontSize: 12, color: TEXTM }}>{dados.nao_classificado.n} lançamento(s) — não rateado</span>
             </div>
           </div>
+
+          {/* RD-98 pilar 1: estado vazio das indiretas — a tela não pode parecer morta.
+              Quando NÃO há nenhuma despesa indireta no período (nem rateada, nem a classificar),
+              oriente o empresário a lançar/classificar as despesas na GE e dê o botão para fazer. */}
+          {dados.total_indiretas === 0 && dados.nao_classificado.valor === 0 && (
+            <div style={{ background: '#FDF6E9', border: `1px solid ${DOURADO}55`, borderRadius: 10, padding: 16, marginBottom: 16, fontSize: 13, color: '#7A5A0F' }}>
+              <p style={{ margin: 0, fontWeight: 700, color: ESPRESSO, fontSize: 14 }}>Nenhuma despesa indireta para ratear no período</p>
+              <p style={{ margin: '6px 0 0' }}>
+                A rentabilidade só aparece quando a empresa tem <strong>despesas indiretas</strong> lançadas em Contas a pagar
+                (tipo despesa, sem contrato), <strong>com conta do plano</strong> e <strong>data dentro do período</strong>.
+                Lance ou classifique essas despesas na Gestão Empresarial para que sejam rateadas entre os clientes.
+              </p>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>
+                <Link href="/dashboard/financeiro/pagar" style={{ background: ESPRESSO, color: OFFWHITE, borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
+                  Ir para Contas a pagar
+                </Link>
+                <Link href="/dashboard/cadastros/plano-contas" style={{ background: CARD, color: ESPRESSO, border: `1px solid ${BORDA}`, borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
+                  Plano de contas
+                </Link>
+              </div>
+            </div>
+          )}
 
           {dados.nao_classificado.valor > 0 && (
             <div style={{ background: '#FDF6E9', border: `1px solid ${DOURADO}55`, borderRadius: 10, padding: 12, marginBottom: 16, fontSize: 13, color: '#7A5A0F' }}>
