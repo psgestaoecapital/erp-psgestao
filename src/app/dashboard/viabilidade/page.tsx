@@ -2,6 +2,9 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { authFetch } from "@/lib/authFetch";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+
+const ROTA = "/dashboard/viabilidade";
 
 // Design system PS (psgc-tokens): espresso/off-white/dourado. Lei: "Sem dark theme".
 // Esta tela usava paleta escura divergente (RD-96); remapeada para os tokens claros canônicos.
@@ -170,6 +173,7 @@ Dados do arquivo: ${fileData.substring(0,2000)}`;
           <div style={{fontSize:11,color:TXD}}>Upload de arquivo → IA analisa → viável ou não, com sugestões</div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <AjudaCampo chave="viabilidade.empresa" rota={ROTA} alinhar="fim" />
           <select value={selectedComp} onChange={e=>setSelectedComp(e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:8,padding:"6px 10px",fontSize:11,fontWeight:600}}>
             {groups.length>0&&groups.map(g=>{
               const groupComps=companies.filter(c=>c.group_id===g.id);
@@ -200,7 +204,8 @@ Dados do arquivo: ${fileData.substring(0,2000)}`;
             <div style={{fontSize:12,color:TXM,marginBottom:16}}>
               Orçamento, proposta comercial, planilha de custos, plano de negócio
             </div>
-            <div style={{fontSize:11,color:TXD}}>Aceita: CSV, TXT, XLS, XLSX, PDF, DOC</div>
+            <div style={{fontSize:11,color:TXD,marginBottom:6}}>Aceita: CSV, TXT, XLS, XLSX, PDF, DOC</div>
+            <AjudaCampo chave="viabilidade.upload_arquivo" rota={ROTA} />
             <input id="viabFileInput" type="file" accept=".csv,.txt,.xlsx,.xls,.pdf,.doc,.docx" onChange={e=>{const f=e.target.files?.[0];if(f)handleFile(f);}} style={{display:"none"}}/>
           </div>
 
@@ -225,18 +230,18 @@ Dados do arquivo: ${fileData.substring(0,2000)}`;
               </div>
             </div>
 
-            <div style={{marginBottom:14}}>
-              <div style={{fontSize:10,color:TXD,marginBottom:4,textTransform:"uppercase",letterSpacing:1}}>Setor / Ramo de Atividade</div>
+            <label style={{display:"block",marginBottom:14}}>
+              <div style={{fontSize:10,color:TXD,marginBottom:4,textTransform:"uppercase",letterSpacing:1,display:"inline-flex",alignItems:"center",gap:4}}>Setor / Ramo de Atividade <AjudaCampo chave="viabilidade.setor" rota={ROTA} /></div>
               <select value={setor} onChange={e=>setSetor(e.target.value)} style={inp}>
                 <option value="">Selecione o setor...</option>
                 {["Comércio","Indústria","Serviços","Construção Civil","Alimentação","Tecnologia","Energia","Agronegócio","Saúde","Educação","Logística","Varejo","Outro"].map(s=>(
                   <option key={s} value={s}>{s}</option>
                 ))}
               </select>
-            </div>
+            </label>
 
-            <div>
-              <div style={{fontSize:10,color:TXD,marginBottom:4,textTransform:"uppercase",letterSpacing:1}}>Descreva o Projeto</div>
+            <label style={{display:"block"}}>
+              <div style={{fontSize:10,color:TXD,marginBottom:4,textTransform:"uppercase",letterSpacing:1,display:"inline-flex",alignItems:"center",gap:4}}>Descreva o Projeto <AjudaCampo chave="viabilidade.descricao_projeto" rota={ROTA} /></div>
               <textarea
                 value={descricaoProjeto}
                 onChange={e=>setDescricaoProjeto(e.target.value)}
@@ -244,7 +249,7 @@ Dados do arquivo: ${fileData.substring(0,2000)}`;
                 rows={8}
                 style={{...inp,resize:"vertical",lineHeight:1.6}}
               />
-            </div>
+            </label>
           </div>
 
           <div style={{display:"flex",gap:8}}>
@@ -364,7 +369,8 @@ Dados do arquivo: ${fileData.substring(0,2000)}`;
               </div>
             )}
 
-            <div style={{display:"flex",gap:8}}>
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              <AjudaCampo chave="viabilidade.pergunta_ia" rota={ROTA} />
               <input value={iaPergunta} onChange={e=>setIaPergunta(e.target.value)}
                 onKeyDown={e=>{if(e.key==="Enter")perguntarIA();}}
                 placeholder="Ex: Como chegou nesse valor de investimento? Esse projeto cabe no meu caixa?"
