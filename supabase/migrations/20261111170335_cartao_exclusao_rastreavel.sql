@@ -107,11 +107,15 @@ BEGIN
   RETURN jsonb_build_object('ok',true,'desc',v_desc);
 END $function$;
 
--- 5) Trancar as RPCs novas (sem anon)
+-- 5) Trancar as RPCs (sem anon) — inclui as listar redefinidas acima (check_fn_guards exige REVOKE por função DEFINER)
 REVOKE ALL ON FUNCTION public.fn_cartao_adquirente_excluir(uuid, uuid) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.fn_cartao_taxa_excluir(uuid, uuid)       FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_cartao_adquirente_listar(uuid)        FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_cartao_taxa_listar(uuid, uuid)        FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_cartao_adquirente_excluir(uuid, uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.fn_cartao_taxa_excluir(uuid, uuid)       TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_cartao_adquirente_listar(uuid)        TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_cartao_taxa_listar(uuid, uuid)        TO authenticated, service_role;
 
 -- 6) RD-95: chave de ajuda da nova busca de adquirente
 INSERT INTO public.erp_ajuda_campo (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, vertical, ordem)
