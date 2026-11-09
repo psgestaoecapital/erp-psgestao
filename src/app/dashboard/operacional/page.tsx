@@ -869,7 +869,7 @@ export default function OperacionalPage(){
     </>)}
 
     <div style={{fontSize:9,color:C.dim,textAlign:'center',marginTop:16}}>
-      PS Gestão e Capital — Operacional · Parcelas · Formas de pagamento · Contas bancárias · Juros/Multa/Desconto
+      PS Gestão e Capital — Operacional · Parcelas · Formas de pagamento · Contas bancárias · Juros/Multa/Desconto · Integração Dashboard + BPO + Custeio
     </div>
   </div>)
 }

@@ -92,6 +92,22 @@ export default function FluxoCaixaPage() {
     saldo: Number(d.saldo_final),
     ehHoje: d.data === hojeISO(),
   }))
+  // Legibilidade do gráfico (RD-98): com poucos pontos ou saldo quase constante a curva fica
+  // "plana"/ilegível. Calcula um domínio com folga, mostra pontos quando são poucos e avisa
+  // quando o saldo é estável, em vez de exibir uma linha colada na borda.
+  const saldosSerie = chartData.map((d) => d.saldo)
+  const minSaldo = saldosSerie.length ? Math.min(...saldosSerie) : 0
+  const maxSaldo = saldosSerie.length ? Math.max(...saldosSerie) : 0
+  const spanSaldo = maxSaldo - minSaldo
+  const padSaldo = spanSaldo === 0 ? Math.max(Math.abs(maxSaldo) * 0.1, 100) : spanSaldo * 0.15
+  const yDomain: [number, number] = [minSaldo - padSaldo, maxSaldo + padSaldo]
+  const poucosPontos = chartData.length > 0 && chartData.length <= 8
+  const saldoEstavel = chartData.length >= 2 && spanSaldo === 0
+  const fmtEixoSaldo = (v: number) => {
+    const a = Math.abs(v)
+    if (a >= 1000) return `R$${(v / 1000).toFixed(a >= 10000 ? 0 : 1)}k`
+    return `R$${Math.round(v)}`
+  }
 
   return (
     <div style={{ padding: 16, background: PSGC_COLORS.offWhite, minHeight: '100vh' }}>
@@ -139,7 +155,13 @@ export default function FluxoCaixaPage() {
           <p style={{ color: PSGC_COLORS.espresso, opacity: 0.6, fontSize: 13 }}>Carregando…</p>
         ) : erro ? (
           <p style={{ color: PSGC_COLORS.alta, fontSize: 13 }}>{erro}</p>
+        ) : chartData.length < 2 ? (
+          <div style={{ padding: '28px 8px', textAlign: 'center', color: PSGC_COLORS.espresso, opacity: 0.6, fontSize: 13, lineHeight: 1.5 }}>
+            Ainda não há dias suficientes para traçar a curva do saldo.<br />
+            Registre movimentações (ou aumente o período) para ver a evolução aqui.
+          </div>
         ) : (
+          <>
           <ResponsiveContainer width="100%" height={220}>
             <AreaChart data={chartData} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
               <defs>
@@ -151,13 +173,21 @@ export default function FluxoCaixaPage() {
               <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
               <XAxis dataKey="data" tick={{ fontSize: 10, fill: PSGC_COLORS.espresso }} interval="preserveStartEnd" />
               <YAxis tick={{ fontSize: 10, fill: PSGC_COLORS.espresso }} width={56}
-                tickFormatter={(v) => `R$${Math.round(Number(v) / 1000)}k`} />
+                domain={yDomain} tickFormatter={(v) => fmtEixoSaldo(Number(v))} />
               <Tooltip formatter={(v) => brl(Number(v))} labelStyle={{ color: PSGC_COLORS.espresso }} />
               <ReferenceLine x={hojeISO().slice(5)} stroke={PSGC_COLORS.dourado} strokeDasharray="4 2" />
               <Area type="monotone" dataKey="saldo" stroke={PSGC_COLORS.espresso}
-                strokeWidth={2} fill="url(#gradSaldo)" />
+                strokeWidth={2} fill="url(#gradSaldo)"
+                dot={poucosPontos ? { r: 3, fill: PSGC_COLORS.espresso, strokeWidth: 0 } : false}
+                activeDot={{ r: 4 }} />
             </AreaChart>
           </ResponsiveContainer>
+          {saldoEstavel && (
+            <p style={{ color: PSGC_COLORS.espresso, opacity: 0.55, fontSize: 11, marginTop: 6, marginBottom: 0 }}>
+              Saldo estável no período — sem variação de um dia para o outro.
+            </p>
+          )}
+          </>
         )}
       </div>
 
