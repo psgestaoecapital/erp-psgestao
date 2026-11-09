@@ -63,6 +63,13 @@ const nextConfig: NextConfig = {
         destination: '/dashboard/cadastros/produtos',
         permanent: true,
       },
+      // PDCA GE (Princ.3 menu limpo): /dashboard/cadastros/linhas-negocio renderizava EXATAMENTE o mesmo
+      // <LinhasNegocioList/> da tela canônica de Divisões (a única no menu) — rota órfã duplicada.
+      {
+        source: '/dashboard/cadastros/linhas-negocio',
+        destination: '/dashboard/cadastros/divisoes',
+        permanent: true,
+      },
     ]
   },
 }
