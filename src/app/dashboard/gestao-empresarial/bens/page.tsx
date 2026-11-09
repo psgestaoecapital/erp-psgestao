@@ -128,9 +128,13 @@ export default function BensPage() {
   async function excluir(b: Bem) {
     if (!empresaUnica) return
     if (b.dep_acumulada > 0) { window.alert(`"${b.descricao}" já tem depreciação lançada. Não pode ser excluído — use "Baixar/Vender".`); return }
-    if (!window.confirm(`Excluir o bem "${b.descricao}"? Esta ação não pode ser desfeita.`)) return
-    const { error } = await supabase.from('erp_bem').delete().eq('id', b.id).eq('company_id', empresaUnica)
-    if (error) setMsg('Erro: ' + error.message); else { setMsg('Bem excluído.'); await carregar() }
+    if (!window.confirm(`Excluir o bem "${b.descricao}"? Ele sai da lista.`)) return
+    // RD-98 p4: exclusão rastreável via RPC guardada (soft-delete + audit_log), no lugar do DELETE físico do client.
+    const { data, error } = await supabase.rpc('fn_bem_excluir', { p_bem_id: b.id, p_company_id: empresaUnica, p_motivo: null })
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) {
+      setMsg('Erro: ' + (error?.message ?? (r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : r?.erro === 'tem_depreciacao' ? 'Bem com depreciação lançada — use Baixar/Vender.' : r?.erro === 'nao_encontrado' ? 'Bem não encontrado.' : 'Não foi possível excluir.')))
+    } else { setMsg('Bem excluído.'); await carregar() }
   }
 
   async function baixar(b: Bem) {
