@@ -81,6 +81,9 @@ BEGIN
   ORDER BY b.status, b.natureza, b.descricao;
 END $function$;
 
+REVOKE ALL ON FUNCTION public.fn_bem_listar(uuid) FROM anon, public;
+GRANT EXECUTE ON FUNCTION public.fn_bem_listar(uuid) TO authenticated, service_role;
+
 -- (5) fn_bem_criar_do_pagar: adiciona a guarda de empresa (fail-closed) antes de qualquer leitura/escrita.
 --     Corpo preservado verbatim; só prepende a guarda.
 CREATE OR REPLACE FUNCTION public.fn_bem_criar_do_pagar(p_company_id uuid, p_pagar_id uuid, p_natureza text, p_vida_util_meses integer DEFAULT NULL::integer, p_business_line_id uuid DEFAULT NULL::uuid, p_centro_custo text DEFAULT NULL::text)
@@ -124,3 +127,6 @@ BEGIN
 
   RETURN jsonb_build_object('ok',true,'bem_id',v_bem_id,'vida_util_meses',v_vida,'deprecia',v_dep);
 END $function$;
+
+REVOKE ALL ON FUNCTION public.fn_bem_criar_do_pagar(uuid, uuid, text, integer, uuid, text) FROM anon, public;
+GRANT EXECUTE ON FUNCTION public.fn_bem_criar_do_pagar(uuid, uuid, text, integer, uuid, text) TO authenticated, service_role;
