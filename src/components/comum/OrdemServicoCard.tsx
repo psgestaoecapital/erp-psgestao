@@ -18,11 +18,11 @@ import { fmtData } from '@/lib/psgc-tokens'   // formata date puro em LOCAL (sem
 import { useOficinaRamo } from '@/lib/oficina/ramo'   // HB0 item 6 · campos de oficina só no ramo automotivo
 import { useOficinaModelo } from '@/lib/oficina/modelo'   // #135 · atendimento centralizado (sem tablet)
 import { itensPendentesOS, podeAprovarNaOS } from '@/lib/oficina/aprovarNaOS'
-import { edicaoInicialOS, itemEditavelNaOS, montarDadosDiagnosticoOS, motivoItensBloqueadosOS, podeEditarItensNaOS, validarEdicaoOS, type EdicaoItemOS } from '@/lib/oficina/itensNaOS'
+import { edicaoInicialOS, idsRemovidosNaEdicao, itemEditavelNaOS, montarDadosDiagnosticoOS, motivoItensBloqueadosOS, podeEditarItensNaOS, validarEdicaoOS, type EdicaoItemOS } from '@/lib/oficina/itensNaOS'
 import { aprovaPendentesAoAvancar, proximoPassoOS } from '@/lib/oficina/avancoNaOS'   // #135 · Iniciar → Finalizar → Entregar na ficha
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
 import FotosOS from '@/components/oficina/FotosOS'   // #135 item 6 · fotos da OS em lote
-import { Lock, Package, PencilLine, Play, Search, Wrench } from 'lucide-react'
+import { Lock, Package, PencilLine, Play, Search, Trash2, Wrench } from 'lucide-react'
 
 interface OS {
   id: string
@@ -280,6 +280,12 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   function addItemOS(tipo: 'peca' | 'servico') {
     setEdItens((p) => [...(p ?? []), { id: null, chave: `novo-${Date.now()}-${(p ?? []).length}`, tipo, descricao: '', quantidade: '1', preco: '' }])
   }
+  function excluirItemOS(chave: string) {
+    const it = (edItens ?? []).find((e) => e.chave === chave)
+    if (!it) return
+    if (it.id && !window.confirm(`Excluir "${it.descricao.trim() || 'este item'}" da OS?`)) return
+    setEdItens((p) => (p ?? []).filter((e) => e.chave !== chave))
+  }
   function mudarItemOS(chave: string, campo: 'descricao' | 'quantidade' | 'preco', valor: string) {
     setEdItens((p) => (p ?? []).map((e) => (e.chave === chave ? { ...e, [campo]: valor } : e)))
   }
@@ -291,12 +297,13 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
     const { data: diag, error: e1 } = await supabase.rpc('fn_oficina_diagnostico_obter', { p_company_id: os.company_id, p_os_id: os.id })
     const dd = diag as { os?: { diagnostico?: string | null; km?: number | null } | null; itens?: typeof itensDiag } | null
     if (e1 || !dd?.os) { setSalvandoItens(false); setErro(e1?.message ?? 'Não foi possível ler os itens da OS. Tente de novo.'); return }
-    const p_dados = montarDadosDiagnosticoOS({ diagnostico: dd.os.diagnostico, km: dd.os.km, itens: Array.isArray(dd.itens) ? dd.itens : [] }, edItens)
+    const p_dados = montarDadosDiagnosticoOS({ diagnostico: dd.os.diagnostico, km: dd.os.km, itens: Array.isArray(dd.itens) ? dd.itens : [] }, edItens, idsRemovidosNaEdicao(itensDiag, edItens))
     const { data, error } = await supabase.rpc('fn_oficina_diagnostico_salvar', { p_company_id: os.company_id, p_os_id: os.id, p_dados })
     setSalvandoItens(false)
-    const r = data as { ok?: boolean; erro?: string; itens?: number } | null
+    const r = data as { ok?: boolean; erro?: string; itens?: number; nao_removidos?: number } | null
     if (error || r?.ok === false) { setErro(error?.message ?? r?.erro ?? 'Falha ao salvar os itens'); return }
     setEdItens(null)
+    if (Number(r?.nao_removidos ?? 0) > 0) setErro('Algum item excluído não saiu: ele já foi para cotação ou apontamento da oficina.')
     const n = r?.itens ?? p_dados.itens.length
     flash(`Itens da OS salvos ✓ ${n} ${n === 1 ? 'item' : 'itens'}.`)
     await carregar()
@@ -999,6 +1006,8 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
                     style={{ width: 64, minHeight: 36, padding: '6px 8px', fontSize: 12.5, border: '1px solid rgba(61,35,20,0.2)', borderRadius: 6, boxSizing: 'border-box' }} />
                   <input data-testid={`os-item-ed-preco-${i}`} value={e.preco} inputMode="decimal" placeholder="0,00" onChange={(ev) => mudarItemOS(e.chave, 'preco', ev.target.value)}
                     style={{ width: 96, minHeight: 36, padding: '6px 8px', fontSize: 12.5, border: '1px solid rgba(61,35,20,0.2)', borderRadius: 6, boxSizing: 'border-box' }} />
+                  <button type="button" data-testid={`os-item-ed-excluir-${i}`} aria-label={`Excluir ${e.descricao.trim() || 'item'}`} title="Excluir item" onClick={() => excluirItemOS(e.chave)}
+                    style={{ width: 36, minHeight: 36, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: C.red, background: 'none', border: '1px solid rgba(61,35,20,0.2)', borderRadius: 6, cursor: 'pointer' }}><Trash2 size={14} strokeWidth={1.5} /></button>
                 </div>
               ))}
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -1014,7 +1023,7 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
                   {salvandoItens ? 'Salvando…' : 'Salvar itens'}
                 </button>
               </div>
-              <div style={{ fontSize: 10.5, color: C.espressoL }}>Peça do estoque: inclua como texto e ligue depois no botão <Search size={11} strokeWidth={1.5} style={{ verticalAlign: '-1px' }} /> estoque. Para remover um item, use a tela de Diagnóstico.</div>
+              <div style={{ fontSize: 10.5, color: C.espressoL }}>Peça do estoque: inclua como texto e ligue depois no botão <Search size={11} strokeWidth={1.5} style={{ verticalAlign: '-1px' }} /> estoque.</div>
             </div>
           )}
           {edItens === null && itensDiag.map((it, i) => {
