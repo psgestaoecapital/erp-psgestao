@@ -31,6 +31,7 @@ type Venda = {
   tem_checklist: boolean; checklist_ok: boolean; tem_termo: boolean; termo_assinado: boolean
   km_entrega: number | null; devolvido_em: string | null; devolucao_motivo: string | null
 }
+type NfeVenda = { id: string; numero: string | null; chave: string | null; status: string; motivo_rejeicao: string | null; danfe_url: string | null; xml_url: string | null }
 type ChkItem = { id: string; item: string; obrigatorio: boolean; feito: boolean }
 type Acerto = {
   previsto: { preco_venda: number | null; custo_real_total: number | null; lucro_projetado: number | null }
@@ -63,6 +64,7 @@ function Inner() {
   const [acerto, setAcerto] = useState<Acerto | null>(null)
   const [recebs, setRecebs] = useState<Map<string, Receb[]>>(new Map())
   const [cancelaTit, setCancelaTit] = useState<{ venda: Venda; motivo: string; abertos: { id: string; valor: number }[] } | null>(null)
+  const [nfes, setNfes] = useState<Map<string, NfeVenda>>(new Map())
   const [acResumo, setAcResumo] = useState<Map<string, { previsto: number | null; realizado: number | null }>>(new Map())
 
   // #5684 · Emitir NF-e da venda (Caminho A: mesmo emissor do GE, ligada ao título da venda, grava veic_venda.nfe_id).
@@ -73,7 +75,9 @@ function Inner() {
       const res = await authFetch('/api/fiscal/nfe/emitir', { method: 'POST', body: JSON.stringify({ companyId, vendaVeiculoId: v.id }) })
       const j = await res.json().catch(() => ({}))
       if (!res.ok || j?.ok === false) {
-        setErro(`NF-e não emitida: ${j?.motivoRejeicao ?? j?.mensagem ?? j?.message ?? `erro ${res.status}`}. Corrija e clique em Emitir NF-e para reenviar.`)
+        const txt = String(j?.motivoRejeicao ?? j?.mensagem ?? j?.message ?? `erro ${res.status}`)
+        if (/processando/i.test(txt)) setMsg('Enviando à SEFAZ… aguarde, o status do card atualiza sozinho.')
+        else setErro(`NF-e não emitida: ${txt}. Corrija e clique em Emitir NF-e para reenviar.`)
       } else {
         const avisos: string[] = Array.isArray(j.avisosVeiculo) ? j.avisosVeiculo : []
         setMsg(`NF-e ${j.numero ?? ''} — ${j.status}${j.ambiente ? ` (${j.ambiente})` : ''}.${avisos.length ? ' Atenção: ' + avisos.join(' ') : ''}`)
@@ -112,6 +116,18 @@ function Inner() {
       })
     }
     setRecebs(m)
+    // #7641 · status real da NF-e de cada venda (veic_venda.nfe_id → erp_nfe_emitidas).
+    const nm = new Map<string, NfeVenda>()
+    if (ids.length) {
+      const { data: vn } = await supabase.from('veic_venda').select('id, nfe_id').in('id', ids).not('nfe_id', 'is', null)
+      const link = (vn as { id: string; nfe_id: string }[]) ?? []
+      if (link.length) {
+        const { data: ne } = await supabase.from('erp_nfe_emitidas').select('id, numero, chave, status, motivo_rejeicao, danfe_url, xml_url').in('id', link.map((l) => l.nfe_id))
+        const byId = new Map(((ne as NfeVenda[]) ?? []).map((n) => [n.id, n]))
+        link.forEach((l) => { const n = byId.get(l.nfe_id); if (n) nm.set(l.id, n) })
+      }
+    }
+    setNfes(nm)
     // Acerto resumo (lucro previsto × realizado) das vendas entregues — sem exigir clique.
     const am = new Map<string, { previsto: number | null; realizado: number | null }>()
     for (const v of vs.filter((x) => x.situacao === 'entregue')) {
@@ -123,6 +139,13 @@ function Inner() {
   }, [companyId])
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
+  // #7641 · enquanto alguma nota está sendo enviada à SEFAZ, atualiza sozinho até autorizar ou rejeitar.
+  const algumaProcessando = Array.from(nfes.values()).some((n) => n.status === 'processando')
+  useEffect(() => {
+    if (!algumaProcessando) return
+    const t = setInterval(() => { void carregar() }, 8000)
+    return () => clearInterval(t)
+  }, [algumaProcessando, carregar])
 
   const visiveis = useMemo(() => filtro === 'todos' ? rows : rows.filter((r) => r.situacao === filtro), [rows, filtro])
   async function userId() { const { data: { session } } = await supabase.auth.getSession(); return session?.user?.id ?? null }
@@ -329,6 +352,30 @@ function Inner() {
                     <AjudaCampo chave="revenda.vendas.acerto_resumo" rota="/dashboard/revenda/vendas" />
                   </div>
                 )}
+
+                {nfes.get(v.id) && (() => {
+                  const n = nfes.get(v.id)!
+                  const lnk: React.CSSProperties = { color: C.gold, fontWeight: 700, textDecoration: 'none' }
+                  return (
+                    <div style={{ marginTop: 8, fontSize: 12.5, borderRadius: 8, padding: '8px 10px', background: n.status === 'autorizada' ? C.greenBg : n.status === 'processando' ? C.amberBg : C.redBg, color: n.status === 'autorizada' ? C.green : n.status === 'processando' ? '#8A4B08' : C.red }}>
+                      <b>{n.status === 'autorizada' ? `NF-e autorizada${n.numero ? ` — nº ${n.numero}` : ''}` : n.status === 'processando' ? 'Enviando à SEFAZ… aguarde' : 'NF-e rejeitada'}</b>
+                      <AjudaCampo chave="revenda.vendas.nfe_status" rota="/dashboard/revenda/vendas" />
+                      {n.status === 'autorizada' && n.chave && (
+                        <div style={{ marginTop: 4, color: C.espM, wordBreak: 'break-all' }}>Chave: {n.chave}{' '}
+                          <button type="button" onClick={() => { void navigator.clipboard?.writeText(n.chave!) }} style={{ ...lnk, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>copiar</button>
+                        </div>
+                      )}
+                      {n.status !== 'autorizada' && n.status !== 'processando' && (
+                        <div style={{ marginTop: 4 }}>{n.motivo_rejeicao ?? 'A SEFAZ recusou a nota.'} Corrija o dado indicado e clique em Emitir NF-e para reenviar.</div>
+                      )}
+                      <div style={{ marginTop: 6, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                        {n.status === 'autorizada' && n.danfe_url && <a href={n.danfe_url} target="_blank" rel="noopener noreferrer" style={lnk}>Imprimir DANFE</a>}
+                        {n.status === 'autorizada' && n.xml_url && <a href={n.xml_url} target="_blank" rel="noopener noreferrer" style={lnk}>Baixar XML</a>}
+                        <a href="/dashboard/fiscal/nfe" style={lnk}>Ver na NFes Emitidas</a>
+                      </div>
+                    </div>
+                  )
+                })()}
 
                 {v.situacao === 'devolvida' && v.devolucao_motivo ? (
                   <div style={{ marginTop: 8, fontSize: 12, color: C.amber, background: C.amberBg, borderRadius: 8, padding: '6px 10px' }}>Devolvida{v.devolvido_em ? ` em ${brDate(v.devolvido_em)}` : ''}: {v.devolucao_motivo}</div>
