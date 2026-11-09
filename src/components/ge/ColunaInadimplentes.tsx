@@ -73,7 +73,7 @@ export default function ColunaInadimplentes({ companyId }: { companyId: string }
                 {c.iniciais || '?'}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#3D2314', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nome || 'Sem nome'}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#3D2314', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nome || 'Cliente sem cadastro'}</div>
                 <div style={{ fontSize: 11, color: '#A32D2D' }}>Atrasado {c.dias_atraso} dias · {c.qtd_lancamentos} lanç.</div>
               </div>
               <div style={{ fontSize: 13, fontWeight: 600, color: '#A32D2D', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>R$ {fmt(c.valor_total)}</div>
