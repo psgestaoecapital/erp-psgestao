@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF'
 const ESP60 = 'rgba(61,35,20,0.6)', GREEN = '#16A34A', RED = '#B91C1C'
@@ -145,20 +146,20 @@ export default function CartoesPage() {
         {/* ADQUIRENTES */}
         <div style={card}>
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10 }}>
-            <div style={{ fontWeight: 700 }}>Adquirentes ({adquirentes.length})</div>
+            <div style={{ fontWeight: 700 }}>Adquirentes ({adquirentes.length})<AjudaCampo chave="financeiro.cartoes.adquirentes" /></div>
             <span style={{ flex: 1 }} />
             <button onClick={() => setFAdq({ nome: '', conta_bancaria_id: '', documento: '', observacao: '' })} style={btnPri}>+ Nova</button>
           </div>
           {fAdq && (
             <div style={{ display: 'grid', gap: 8, background: BG, borderRadius: 8, padding: 10, marginBottom: 10 }}>
-              <div><span style={lbl}>Nome *</span><input style={inp} value={fAdq.nome} onChange={(e) => setFAdq({ ...fAdq, nome: e.target.value })} placeholder="Cielo, Rede, Stone…" /></div>
-              <div><span style={lbl}>Conta de repasse</span>
+              <label style={{ display: 'block' }}><span style={lbl}>Nome *<AjudaCampo chave="financeiro.cartoes.adq_nome" /></span><input style={inp} value={fAdq.nome} onChange={(e) => setFAdq({ ...fAdq, nome: e.target.value })} placeholder="Cielo, Rede, Stone…" /></label>
+              <label style={{ display: 'block' }}><span style={lbl}>Conta de repasse<AjudaCampo chave="financeiro.cartoes.adq_conta" /></span>
                 <select style={inp} value={fAdq.conta_bancaria_id} onChange={(e) => setFAdq({ ...fAdq, conta_bancaria_id: e.target.value })}>
                   <option value="">— não definida —</option>
                   {contas.map((c) => <option key={c.id} value={c.id}>{c.nome}{c.banco ? ` · ${c.banco}` : ''}</option>)}
                 </select>
-              </div>
-              <div><span style={lbl}>CNPJ (opcional)</span><input style={inp} value={fAdq.documento} onChange={(e) => setFAdq({ ...fAdq, documento: e.target.value })} /></div>
+              </label>
+              <label style={{ display: 'block' }}><span style={lbl}>CNPJ (opcional)<AjudaCampo chave="financeiro.cartoes.adq_cnpj" /></span><input style={inp} value={fAdq.documento} onChange={(e) => setFAdq({ ...fAdq, documento: e.target.value })} /></label>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={() => void salvarAdq()} disabled={busy} style={btnPri}>{fAdq.id ? 'Salvar' : 'Adicionar'}</button>
                 <button onClick={() => setFAdq(null)} style={btnSec}>Cancelar</button>
@@ -178,7 +179,11 @@ export default function CartoesPage() {
                     </td>
                   </tr>
                 ))}
-                {adquirentes.length === 0 && <tr><td style={td} colSpan={3}>Nenhuma adquirente. Cadastre a primeira (ex.: Cielo).</td></tr>}
+                {adquirentes.length === 0 && !fAdq && <tr><td style={{ ...td, padding: '16px 8px' }} colSpan={3}>
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>Nenhuma adquirente cadastrada ainda</div>
+                  <div style={{ fontSize: 12, color: ESP60, marginBottom: 10, lineHeight: 1.5 }}>A adquirente é a operadora que processa seus cartões e repassa o dinheiro (Cielo, Rede, Stone…). Cadastre a que você usa para registrar as taxas, simular o líquido e conciliar os repasses.</div>
+                  <button onClick={() => setFAdq({ nome: '', conta_bancaria_id: '', documento: '', observacao: '' })} style={btnPri}>+ Cadastrar primeira adquirente</button>
+                </td></tr>}
               </tbody>
             </table>
           </div>
@@ -187,19 +192,19 @@ export default function CartoesPage() {
         {/* TAXAS do adquirente selecionado */}
         <div style={card}>
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: 10, gap: 8, flexWrap: 'wrap' }}>
-            <div style={{ fontWeight: 700 }}>Taxas {adqNome ? `· ${adqNome}` : ''}</div>
+            <div style={{ fontWeight: 700 }}>Taxas {adqNome ? `· ${adqNome}` : ''}<AjudaCampo chave="financeiro.cartoes.taxas" /></div>
             <span style={{ flex: 1 }} />
             <button onClick={() => setFTaxa({ ...vazioTaxa })} disabled={!sel} style={{ ...btnPri, opacity: sel ? 1 : 0.5 }}>+ Nova taxa</button>
           </div>
           {!sel && <div style={{ fontSize: 12, color: ESP60 }}>Selecione uma adquirente (clique no nome à esquerda).</div>}
           {fTaxa && sel && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, background: BG, borderRadius: 8, padding: 10, marginBottom: 10 }}>
-              <div><span style={lbl}>Bandeira</span><input style={inp} list="bandeiras" value={fTaxa.bandeira} onChange={(e) => setFTaxa({ ...fTaxa, bandeira: e.target.value })} /></div>
-              <div><span style={lbl}>Modalidade</span><select style={inp} value={fTaxa.modalidade} onChange={(e) => setFTaxa({ ...fTaxa, modalidade: e.target.value })}>{MODALIDADES.map((m) => <option key={m} value={m}>{m}</option>)}</select></div>
-              <div><span style={lbl}>Parcelas de</span><input style={inp} type="number" value={fTaxa.parcelas_de} onChange={(e) => setFTaxa({ ...fTaxa, parcelas_de: e.target.value })} /></div>
-              <div><span style={lbl}>Parcelas até</span><input style={inp} type="number" value={fTaxa.parcelas_ate} onChange={(e) => setFTaxa({ ...fTaxa, parcelas_ate: e.target.value })} /></div>
-              <div><span style={lbl}>Taxa %</span><input style={inp} type="number" step="0.01" value={fTaxa.taxa_percentual} onChange={(e) => setFTaxa({ ...fTaxa, taxa_percentual: e.target.value })} placeholder="ex.: 1,01" /></div>
-              <div><span style={lbl}>Repasse (dias)</span><input style={inp} type="number" value={fTaxa.prazo_repasse_dias} onChange={(e) => setFTaxa({ ...fTaxa, prazo_repasse_dias: e.target.value })} placeholder="D+" /></div>
+              <label style={{ display: 'block' }}><span style={lbl}>Bandeira<AjudaCampo chave="financeiro.cartoes.taxa_bandeira" /></span><input style={inp} list="bandeiras" value={fTaxa.bandeira} onChange={(e) => setFTaxa({ ...fTaxa, bandeira: e.target.value })} /></label>
+              <label style={{ display: 'block' }}><span style={lbl}>Modalidade<AjudaCampo chave="financeiro.cartoes.taxa_modalidade" /></span><select style={inp} value={fTaxa.modalidade} onChange={(e) => setFTaxa({ ...fTaxa, modalidade: e.target.value })}>{MODALIDADES.map((m) => <option key={m} value={m}>{m}</option>)}</select></label>
+              <label style={{ display: 'block' }}><span style={lbl}>Parcelas de<AjudaCampo chave="financeiro.cartoes.taxa_parcelas_de" /></span><input style={inp} type="number" value={fTaxa.parcelas_de} onChange={(e) => setFTaxa({ ...fTaxa, parcelas_de: e.target.value })} /></label>
+              <label style={{ display: 'block' }}><span style={lbl}>Parcelas até<AjudaCampo chave="financeiro.cartoes.taxa_parcelas_ate" /></span><input style={inp} type="number" value={fTaxa.parcelas_ate} onChange={(e) => setFTaxa({ ...fTaxa, parcelas_ate: e.target.value })} /></label>
+              <label style={{ display: 'block' }}><span style={lbl}>Taxa %<AjudaCampo chave="financeiro.cartoes.taxa_percentual" /></span><input style={inp} type="number" step="0.01" value={fTaxa.taxa_percentual} onChange={(e) => setFTaxa({ ...fTaxa, taxa_percentual: e.target.value })} placeholder="ex.: 1,01" /></label>
+              <label style={{ display: 'block' }}><span style={lbl}>Repasse (dias)<AjudaCampo chave="financeiro.cartoes.taxa_repasse_dias" /></span><input style={inp} type="number" value={fTaxa.prazo_repasse_dias} onChange={(e) => setFTaxa({ ...fTaxa, prazo_repasse_dias: e.target.value })} placeholder="D+" /></label>
               <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 8 }}>
                 <button onClick={() => void salvarTaxa()} disabled={busy} style={btnPri}>{fTaxa.id ? 'Salvar' : 'Adicionar'}</button>
                 <button onClick={() => setFTaxa(null)} style={btnSec}>Cancelar</button>
@@ -226,7 +231,11 @@ export default function CartoesPage() {
                       </td>
                     </tr>
                   ))}
-                  {taxas.length === 0 && <tr><td style={td} colSpan={6}>Nenhuma taxa cadastrada para esta adquirente.</td></tr>}
+                  {taxas.length === 0 && !fTaxa && <tr><td style={{ ...td, padding: '14px 8px' }} colSpan={6}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>Nenhuma taxa cadastrada para esta adquirente</div>
+                    <div style={{ fontSize: 12, color: ESP60, marginBottom: 10, lineHeight: 1.5 }}>Cadastre ao menos uma taxa (por bandeira × modalidade × faixa de parcelas). Sem taxa, o simulador e os recebíveis de cartão não calculam o líquido.</div>
+                    <button onClick={() => setFTaxa({ ...vazioTaxa })} style={btnPri}>+ Cadastrar primeira taxa</button>
+                  </td></tr>}
                 </tbody>
               </table>
             </div>
@@ -235,15 +244,17 @@ export default function CartoesPage() {
 
         {/* SIMULADOR */}
         <div style={card}>
-          <div style={{ fontWeight: 700, marginBottom: 4 }}>Simulador</div>
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>Simulador<AjudaCampo chave="financeiro.cartoes.simulador" /></div>
           <div style={{ fontSize: 11.5, color: ESP60, marginBottom: 10 }}>Valida o cadastro: valor da venda → taxa, líquido e data de repasse (motor <code>fn_cartao_calcular</code>).</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <div><span style={lbl}>Bandeira</span><input style={inp} list="bandeiras" value={sim.bandeira} onChange={(e) => setSim({ ...sim, bandeira: e.target.value })} /></div>
-            <div><span style={lbl}>Modalidade</span><select style={inp} value={sim.modalidade} onChange={(e) => setSim({ ...sim, modalidade: e.target.value })}>{MODALIDADES.map((m) => <option key={m} value={m}>{m}</option>)}</select></div>
-            <div><span style={lbl}>Parcelas</span><input style={inp} type="number" value={sim.parcelas} onChange={(e) => setSim({ ...sim, parcelas: e.target.value })} /></div>
-            <div><span style={lbl}>Valor da venda (R$)</span><input style={inp} value={sim.valor} onChange={(e) => setSim({ ...sim, valor: e.target.value })} placeholder="2110,00" /></div>
+            <label style={{ display: 'block' }}><span style={lbl}>Bandeira<AjudaCampo chave="financeiro.cartoes.sim_bandeira" /></span><input style={inp} list="bandeiras" value={sim.bandeira} onChange={(e) => setSim({ ...sim, bandeira: e.target.value })} /></label>
+            <label style={{ display: 'block' }}><span style={lbl}>Modalidade<AjudaCampo chave="financeiro.cartoes.sim_modalidade" /></span><select style={inp} value={sim.modalidade} onChange={(e) => setSim({ ...sim, modalidade: e.target.value })}>{MODALIDADES.map((m) => <option key={m} value={m}>{m}</option>)}</select></label>
+            <label style={{ display: 'block' }}><span style={lbl}>Parcelas<AjudaCampo chave="financeiro.cartoes.sim_parcelas" /></span><input style={inp} type="number" value={sim.parcelas} onChange={(e) => setSim({ ...sim, parcelas: e.target.value })} /></label>
+            <label style={{ display: 'block' }}><span style={lbl}>Valor da venda (R$)<AjudaCampo chave="financeiro.cartoes.sim_valor" /></span><input style={inp} value={sim.valor} onChange={(e) => setSim({ ...sim, valor: e.target.value })} placeholder="2110,00" /></label>
           </div>
           <button onClick={() => void simular()} disabled={busy || !sel} style={{ ...btnPri, marginTop: 10, opacity: sel ? 1 : 0.5 }}>Calcular</button>
+          {!sel && <div style={{ fontSize: 11.5, color: ESP60, marginTop: 8 }}>Cadastre uma adquirente e selecione-a (clique no nome, à esquerda) para simular.</div>}
+          {sel && taxas.length === 0 && <div style={{ fontSize: 11.5, color: ESP60, marginTop: 8 }}>Cadastre ao menos uma taxa para <b>{adqNome}</b> acima — sem taxa não há o que calcular.</div>}
           {simRes && (
             simRes.ok
               ? <div style={{ marginTop: 12, padding: 12, borderRadius: 8, background: '#EAF5EE', border: `0.5px solid ${GREEN}55` }}>
@@ -260,7 +271,7 @@ export default function CartoesPage() {
 
       {/* F3 · REPASSES A CONCILIAR ─────────────────────────────────────────── */}
       <div style={{ ...card, marginTop: 16 }}>
-        <div style={{ fontWeight: 700, marginBottom: 4 }}>Repasses de cartão a conciliar</div>
+        <div style={{ fontWeight: 700, marginBottom: 4 }}>Repasses de cartão a conciliar<AjudaCampo chave="financeiro.cartoes.repasses" /></div>
         <div style={{ fontSize: 11.5, color: ESP60, marginBottom: 12 }}>O que as adquirentes devem repassar (líquido), agrupado por adquirente × data. Quando o crédito cair no extrato, concilie o grupo cuja soma bate.</div>
         {repGrupos.length === 0 ? (
           <div style={{ fontSize: 12.5, color: ESP60, background: BG, borderRadius: 8, padding: 12 }}>Nenhum repasse pendente. Recebíveis de cartão surgem aqui quando você registra vendas no cartão (💳 na tela de Contas a Receber).</div>
