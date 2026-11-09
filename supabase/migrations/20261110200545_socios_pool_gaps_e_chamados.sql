@@ -3,7 +3,7 @@
 -- que os sócios nunca gravam (logam na conta deles). Entregam PR em erp_dev_entrega.
 --
 -- 1) Pool: papel de dev + os dois sócios (explícitos; erp_agente_papel tem chave só em agente, então não se dá papel).
--- 2) "Ativo": execução nas últimas 2 h (erp_code_execucao_log) OU entrega de PR nas últimas 3 h (erp_dev_entrega).
+-- 2) "Ativo": execução nas últimas 2 h (erp_code_execucao_log) OU entrega de PR nas últimas 48 h (erp_dev_entrega).
 -- 3) Teto de elegibilidade: menos de 10 CHAMADO# abertos (carteira). Carteira NÃO conta no ranking de gaps:
 --    o ranking do roteador de gaps conta só as tarefas 'GAPS ·' abertas.
 -- 4) Núcleo continua indo só para code-desenvolvedor-3 (excluído do pool de gaps como antes).
@@ -19,14 +19,14 @@ AS $function$
   SELECT q.agente
     FROM (
       SELECT p.agente FROM public.erp_agente_papel p
-       WHERE p.papel = 'dev_hub' AND p.agente <> 'gilberto-desenv'
+       WHERE p.papel = 'dev_hub' AND p.agente NOT IN ('gilberto-desenv', 'desenvolvedor_5_g')
       UNION
       SELECT x.agente FROM (VALUES ('jordana-code'), ('rodrigo-code')) AS x(agente)
     ) q
    WHERE (EXISTS (SELECT 1 FROM public.erp_code_execucao_log l
                    WHERE l.agente = q.agente AND l.iniciada_em > now() - interval '2 hours')
           OR EXISTS (SELECT 1 FROM public.erp_dev_entrega e
-                      WHERE e.code = q.agente AND e.ocorrido_em > now() - interval '3 hours'))
+                      WHERE e.code = q.agente AND e.ocorrido_em > now() - interval '48 hours'))
      AND (SELECT count(*) FROM public.erp_agente_mensagem m
            WHERE m.para = q.agente AND m.assunto LIKE 'CHAMADO #%'
              AND m.status IN ('nova', 'recebida', 'em_andamento')
@@ -101,7 +101,7 @@ BEGIN
       CONTINUE;
     END IF;
 
-    -- dono: núcleo → code-desenvolvedor-3; demais → dev ATIVO (exec 2 h ou entrega 3 h) com teto de carteira,
+    -- dono: núcleo → code-desenvolvedor-3; demais → dev ATIVO (exec 2 h ou entrega 48 h) com teto de carteira,
     -- ranqueado pela fila de GAPS (a carteira de CHAMADO# não conta contra quem recebe gap)
     IF r.nucleo THEN
       v_code := 'code-desenvolvedor-3';
@@ -109,14 +109,14 @@ BEGIN
       SELECT q.agente INTO v_code
         FROM (
           SELECT p.agente FROM public.erp_agente_papel p
-           WHERE p.papel IN ('dev_hub', 'dev_ui') AND p.agente NOT IN ('code-desenvolvedor-3', 'gilberto-desenv')
+           WHERE p.papel IN ('dev_hub', 'dev_ui') AND p.agente NOT IN ('code-desenvolvedor-3', 'gilberto-desenv', 'desenvolvedor_5_g')
           UNION
           SELECT x.agente FROM (VALUES ('jordana-code'), ('rodrigo-code')) AS x(agente)
         ) q
        WHERE (EXISTS (SELECT 1 FROM public.erp_code_execucao_log l
                        WHERE l.agente = q.agente AND l.iniciada_em > now() - interval '2 hours')
               OR EXISTS (SELECT 1 FROM public.erp_dev_entrega e
-                          WHERE e.code = q.agente AND e.ocorrido_em > now() - interval '3 hours'))
+                          WHERE e.code = q.agente AND e.ocorrido_em > now() - interval '48 hours'))
          AND (SELECT count(*) FROM public.erp_agente_mensagem m
                WHERE m.para = q.agente AND m.assunto LIKE 'CHAMADO #%'
                  AND m.status IN ('nova', 'recebida', 'em_andamento')
