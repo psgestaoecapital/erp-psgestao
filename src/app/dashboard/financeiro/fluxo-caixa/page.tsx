@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import PSGCMetric from '@/components/psgc/PSGCMetric'
@@ -87,6 +88,14 @@ export default function FluxoCaixaPage() {
     saldo: Number(d.saldo_final),
     ehHoje: d.data === hojeISO(),
   }))
+  // Gráfico legível mesmo com poucos pontos / saldo quase constante: domínio Y com folga
+  // (senão a linha cola numa borda e parece "plana") e pontos visíveis quando há poucos dias.
+  const saldos = chartData.map((d) => d.saldo)
+  const sMin = saldos.length ? Math.min(...saldos) : 0
+  const sMax = saldos.length ? Math.max(...saldos) : 0
+  const folga = Math.max((sMax - sMin) * 0.2, Math.abs(sMax || sMin) * 0.1, 100)
+  const yDominio: [number, number] = [Math.floor(sMin - folga), Math.ceil(sMax + folga)]
+  const poucosPontos = chartData.length <= 14
 
   return (
     <div style={{ padding: 16, background: PSGC_COLORS.offWhite, minHeight: '100vh' }}>
@@ -141,13 +150,16 @@ export default function FluxoCaixaPage() {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
-              <XAxis dataKey="data" tick={{ fontSize: 10, fill: PSGC_COLORS.espresso }} interval="preserveStartEnd" />
-              <YAxis tick={{ fontSize: 10, fill: PSGC_COLORS.espresso }} width={56}
+              <XAxis dataKey="data" tick={{ fontSize: 10, fill: PSGC_COLORS.espresso }}
+                interval={poucosPontos ? 0 : 'preserveStartEnd'} minTickGap={8} />
+              <YAxis tick={{ fontSize: 10, fill: PSGC_COLORS.espresso }} width={56} domain={yDominio}
                 tickFormatter={(v) => `R$${Math.round(Number(v) / 1000)}k`} />
               <Tooltip formatter={(v) => brl(Number(v))} labelStyle={{ color: PSGC_COLORS.espresso }} />
               <ReferenceLine x={hojeISO().slice(5)} stroke={PSGC_COLORS.dourado} strokeDasharray="4 2" />
               <Area type="monotone" dataKey="saldo" stroke={PSGC_COLORS.espresso}
-                strokeWidth={2} fill="url(#gradSaldo)" />
+                strokeWidth={2} fill="url(#gradSaldo)"
+                dot={poucosPontos ? { r: 2.5, fill: PSGC_COLORS.espresso, strokeWidth: 0 } : false}
+                activeDot={{ r: 4 }} />
             </AreaChart>
           </ResponsiveContainer>
         )}
@@ -167,10 +179,22 @@ export default function FluxoCaixaPage() {
         </div>
 
         {diasComMov.length === 0 ? (
-          <p style={{ color: PSGC_COLORS.espresso, opacity: 0.6, fontSize: 13, lineHeight: 1.5 }}>
-            Nenhuma movimentação no período. Conforme você registrar pagamentos e
-            recebimentos, eles aparecem aqui.
-          </p>
+          <div style={{ padding: '8px 0 4px' }}>
+            <p style={{ color: PSGC_COLORS.espresso, opacity: 0.6, fontSize: 13, lineHeight: 1.5, marginBottom: 12 }}>
+              Nenhuma movimentação no período. Lance uma despesa ou uma receita para o
+              fluxo começar a se desenhar aqui.
+            </p>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <Link href="/dashboard/financeiro/nova-despesa" style={{
+                padding: '9px 16px', borderRadius: PSGC_RADIUS.md, fontWeight: 600, fontSize: 13,
+                background: PSGC_COLORS.espresso, color: PSGC_COLORS.offWhite, textDecoration: 'none',
+              }}>Lançar despesa</Link>
+              <Link href="/dashboard/financeiro/nova-receita" style={{
+                padding: '9px 16px', borderRadius: PSGC_RADIUS.md, fontWeight: 600, fontSize: 13,
+                border: `1px solid ${PSGC_COLORS.espresso}`, color: PSGC_COLORS.espresso, textDecoration: 'none',
+              }}>Lançar receita</Link>
+            </div>
+          </div>
         ) : (
           <>
             <div className="fc-table-wrap" style={{ overflowX: 'auto', marginTop: 6 }}>
