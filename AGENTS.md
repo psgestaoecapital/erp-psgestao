@@ -67,7 +67,7 @@ no livro de intervenções e nos comentários de PR).
 
 <!-- BEGIN:provas-producao -->
 # Aba "Codes" da Central de Desenvolvimento (CEO 07/10 14:30) — toda PR diz qual Code a fez
-**Toda PR leva no corpo a linha `Code: <nome da rotina>`** (ex.: `Code: gilberto-desenv`; o mesmo identificador da caixa).
+**Toda PR leva no corpo a linha `Code: <nome da rotina>`** (ex.: `Code: code-desenvolvedor-3`; o mesmo identificador da caixa).
 O workflow `registrar-entrega.yml` grava cada PR aberta, pronta, publicada (merge) ou fechada em `erp_dev_entrega`, e a aba
 **Codes** de `/dashboard/dev` (rota `/dashboard/dev/codes`) mostra por Code, em tempo real: trabalhando agora, entregue nas
 últimas 24 h, em teste e fila. Sem a linha, o Code sai da caixa (`erp_agente_mensagem.pr_numero`) ou fica "não identificado".
@@ -380,7 +380,8 @@ Gate: `scripts/gates/check-quarentena.ts`.
   CREATE OR REPLACE de view/função existente, RLS/policies/grants, funções de guarda, fiscal, financeiro de cliente, NR-36,
   LGPD/salários, Wealth/CVM, alterar ou apagar dado de cliente.
 - **Núcleo compartilhado** (financeiro, fiscal, cadastros, permissões/RLS, menu, segurança, `/_compartilhado`, qualquer função/tabela
-  usada por mais de uma vertical) só é alterado pela `gilberto-desenv`; os Codes de vertical abrem pedido no BOX e o Eng. Chefe repassa.
+  usada por mais de uma vertical) só é alterado pela `code-desenvolvedor-3` (dev do núcleo desde 07/11; a `gilberto-desenv` foi
+  excluída no incidente de créditos); os Codes de vertical abrem pedido no BOX e o Eng. Chefe repassa.
 
 # Chamado de agente de sócio (CEO 05/10) — o `gilberto-chamados` NÃO age nele
 Chamado **aberto pelo sócio** ou com o sócio como **responsável** (`sugestoes.responsavel_id`) pertence ao agente de sócio
@@ -437,10 +438,14 @@ em toda vertical (Hub, P&M, Gestão Empresarial…), em toda rodada — não dep
   na DEMO; problema que o cliente relatou e a tela ainda tem = gap.
 - **Saída:** 1 linha em `erp_contexto_projeto` (categoria `descoberta`) por jornada (onde trava, quantos toques, o que
   falta) + 1 tarefa por tela ao dev, consolidada nas existentes; atualize `blueprint_tela_cobertura` do que verificar.
-- **Divisão (CEO 06/11 19:24):** `auditor_pdca_1` = Hub; `auditor_pdca_2` = P&M; `aud8claudeps` = **Gestão
-  Empresarial** (a base de todas as verticais: primeiros passos, pagar/receber, banco, compra→pagar, venda→receber,
-  rateio→resultado→DRE→fluxo de caixa, fechamento). Financeiro, fiscal, cadastros e permissões são NÚCLEO: o auditor só
-  audita e manda a tarefa ao dev do núcleo. O Eng. Chefe muda a divisão pela caixa.
+- **Divisão (CEO 07/11, substitui a de 06/11):** três papéis, nenhum se sobrepõe.
+  - `auditor_pdca_1` = **JORNADAS ponta a ponta** do Hub de Projetos + P&M.
+  - `auditor_pdca_2` = **JORNADAS ponta a ponta** da Gestão Empresarial (GE: primeiros passos, pagar/receber, banco,
+    compra→pagar, venda→receber, rateio→resultado→DRE→fluxo de caixa, fechamento).
+  - `aud8claudeps` = **AUDITORIA DE USABILIDADE VISUAL, tela a tela, de TODAS as verticais** (não só Hub/P&M, não só GE):
+    foto, celular, toques. É o **PORTÃO DO SELO** (`auditada_ok`): tela só ganha o selo quando passa em a–h.
+  Financeiro, fiscal, cadastros e permissões são NÚCLEO: quem audita só audita e manda a tarefa ao dev do núcleo. O
+  Eng. Chefe muda a divisão pela caixa.
 
 # RD-100 — nenhum nome de sistema de terceiros no produto (CEO 01/11, INEGOCIÁVEL) — vale para TODOS os Codes
 Nenhum nome de sistema de terceiros pode aparecer em NADA que o usuário veja: tela (strings de interface em `src/`),

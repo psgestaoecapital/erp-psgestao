@@ -116,11 +116,25 @@ function ProducaoPageInner() {
   const [novaEtapa, setNovaEtapa] = useState<{ titulo: string; responsavel_id: string; data_prazo: string; horas_estimadas: string }>({ titulo: '', responsavel_id: '', data_prazo: '', horas_estimadas: '' })
   const [etapaBusy, setEtapaBusy] = useState<string | null>(null)
   const [maisDetalhesJob, setMaisDetalhesJob] = useState(false)
+  // Alerta amarelo (nunca bloqueia) quando o job novo ultrapassa o contratado do item (RD-38, blueprint)
+  const [previaContratado, setPreviaContratado] = useState<string | null>(null)
   // "Copiar de um job pronto" (CEO 03/10): null = fechado; '' = busca; id = já na prévia desse job
   const [copiar, setCopiar] = useState<string | null>(null)
 
   useEffect(() => { void loadCompanies() }, [])
   useEffect(() => { if (sel) void loadAll() }, [sel]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Prévia do contratado ao montar um job novo: avisa (sem bloquear) se o job ultrapassa o contratado do item.
+  useEffect(() => {
+    if (showForm !== 'job' || editId || !sel || !form.cliente_id || !form.tipo) { setPreviaContratado(null); return }
+    let cancel = false
+    void (async () => {
+      const { data } = await supabase.rpc('fn_pm_job_previa_contratado', { p_company_id: sel, p_cliente_id: form.cliente_id as string, p_tipo: form.tipo as string, p_servico_id: null })
+      if (cancel) return
+      const r = data as { estouraria?: boolean; mensagem?: string } | null
+      setPreviaContratado(r?.estouraria ? (r.mensagem ?? 'Atenção: este job ultrapassa o contratado do item no período. Segue permitido.') : null)
+    })()
+    return () => { cancel = true }
+  }, [showForm, editId, sel, form.cliente_id, form.tipo]) // eslint-disable-line react-hooks/exhaustive-deps
   // Bloco 1: /dashboard/producao?novo=job (botão "Novo job" da Pauta) já abre o formulário
   const novoDoLink = useRef(false)
   useEffect(() => {
@@ -146,11 +160,30 @@ function ProducaoPageInner() {
       const r = await supabase.from('user_companies').select('companies(id,nome_fantasia,razao_social)').eq('user_id', user.id)
       d = ((r.data ?? []) as unknown as Array<{ companies: { id: string; nome_fantasia: string | null; razao_social: string | null } | null }>)
         .map((u) => u.companies).filter(Boolean) as typeof d
+      // determinístico: ordena a lista do usuário não-admin (o banco não garante ordem)
+      d.sort((a, b) => (a.nome_fantasia ?? a.razao_social ?? '').localeCompare(b.nome_fantasia ?? b.razao_social ?? ''))
     }
     setCompanies(d)
     const s = empresaParam || (typeof window !== 'undefined' ? localStorage.getItem('ps_empresa_sel') : '') || ''
     const m = s ? d.find((c) => c.id === s) : null
-    setSel(m ? m.id : (d[0]?.id ?? ''))
+    // Sem escolha explícita (param/localStorage): preferir a empresa que TEM dado de agência
+    // nesta tela, em vez de cair no primeiro da lista (conta com muitas empresas abria o
+    // Workspace zerado numa empresa sem jobs, apesar de haver jobs reais noutra). RD-98 pilar 1.
+    let padrao = d[0]?.id ?? ''
+    if (!m && d.length > 1) {
+      const ids = d.map((c) => c.id)
+      const { data: jrows } = await supabase.from('agency_jobs').select('company_id').is('excluido_em', null).in('company_id', ids).limit(2000)
+      const comJobs = new Set((jrows ?? []).map((r: { company_id: string }) => r.company_id))
+      const comData = d.find((c) => comJobs.has(c.id))
+      if (comData) {
+        padrao = comData.id
+      } else {
+        const { data: crows } = await supabase.from('agency_clientes').select('company_id').is('excluido_em', null).in('company_id', ids).limit(2000)
+        const comCli = new Set((crows ?? []).map((r: { company_id: string }) => r.company_id))
+        padrao = d.find((c) => comCli.has(c.id))?.id ?? padrao
+      }
+    }
+    setSel(m ? m.id : padrao)
     setLoading(false)
   }
 
@@ -471,6 +504,7 @@ function ProducaoPageInner() {
         <TimesheetTabela
           timesheets={timesheets}
           jobs={jobs}
+          responsaveis={responsaveis}
           onNovo={() => { setEditId(null); setForm({ data: new Date().toISOString().slice(0, 10) }); setShowForm('timesheet') }}
           onEditar={abrirEdicaoTimesheet}
           onExcluir={(t) => excluir('agency_timesheet', t.id)}
@@ -530,6 +564,13 @@ function ProducaoPageInner() {
               onLimpar={() => setForm({ ...form, cliente_id: null, cliente_nome_tmp: '' })} />
             <Select label="Peça / tipo" testId="job-tipo" v={(form.tipo as string) ?? ''} on={(v) => setForm({ ...form, tipo: v || null })}
               opts={[['', '— que peça vai ser feita —'], ...TIPOS_PECA]} />
+            {previaContratado && (
+              <div data-testid="job-alerta-contratado" style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#FFF7E3', border: `1px solid #E7C96A`, borderRadius: 10, padding: '9px 12px', color: YELLOW, fontSize: 12.5 }}>
+                <span style={{ fontSize: 15, lineHeight: 1 }}>⚠️</span>
+                <span style={{ flex: 1 }}>{previaContratado} <b>Você pode criar o job mesmo assim.</b></span>
+                <AjudaCampo chave="pm.producao.alerta_contratado" />
+              </div>
+            )}
             <label style={lbl}>
               <span style={{ display: 'flex', alignItems: 'center' }}>Título *<AjudaCampo chave="pm.job.titulo" /></span>
               <textarea data-testid="job-titulo" rows={2} value={(form.titulo as string) ?? ''}
@@ -840,14 +881,48 @@ function JobsTabela({
   jobs: Job[]; clientes: Cliente[]; responsaveis: Array<{ id: string; email: string | null; full_name?: string | null }>
   onNovo: () => void; onEditar: (j: Job) => void; onEtapas: (j: Job) => void; onExcluir: (j: Job) => void
 }) {
+  // Busca + filtros (RD-99 "achar um job em <=3 toques"): a lista crua de dezenas/centenas de jobs
+  // vira pesquisável por texto (título/cliente) e filtrável por cliente, responsável e estágio.
+  const [q, setQ] = useState('')
+  const [fCli, setFCli] = useState('')
+  const [fResp, setFResp] = useState('')
+  const [fEst, setFEst] = useState('')
+  const termo = q.trim().toLowerCase()
+  const cliById = (id: string) => clientes.find((c) => c.id === id)
+  const filtrados = jobs.filter((j) => {
+    if (fCli && j.cliente_id !== fCli) return false
+    if (fResp && j.responsavel_id !== fResp) return false
+    if (fEst && j.status !== fEst) return false
+    if (termo) {
+      const c = cliById(j.cliente_id)
+      const alvo = `${j.titulo ?? ''} ${j.numero ?? ''} ${c?.nome_fantasia ?? ''} ${c?.nome ?? ''}`.toLowerCase()
+      if (!alvo.includes(termo)) return false
+    }
+    return true
+  })
+  const filtrando = !!(termo || fCli || fResp || fEst)
+  const limpar = () => { setQ(''); setFCli(''); setFResp(''); setFEst('') }
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold">Jobs ({jobs.length})</h2>
+        <h2 className="text-sm font-semibold">Jobs ({filtrando ? `${filtrados.length} de ${jobs.length}` : jobs.length})</h2>
         <button onClick={onNovo} style={btnPrimary}>+ Novo job</button>
       </div>
+      {jobs.length > 0 && (
+        <FiltroBarra onLimpar={filtrando ? limpar : undefined}>
+          <BuscaCampo chave="pm.jobs.filtro_busca" valor={q} on={setQ} placeholder="Buscar por título ou cliente…" />
+          <Select label="Cliente" ajuda="pm.jobs.filtro_cliente" v={fCli} on={setFCli}
+            opts={[['', 'Todos os clientes'], ...clientes.map((c) => [c.id, c.nome_fantasia || c.nome] as [string, string])]} />
+          <Select label="Responsável" ajuda="pm.jobs.filtro_responsavel" v={fResp} on={setFResp}
+            opts={[['', 'Todos os responsáveis'], ...responsaveis.map((u) => [u.id, labelUsuario(u, responsaveis)] as [string, string])]} />
+          <Select label="Estágio" ajuda="pm.jobs.filtro_estagio" v={fEst} on={setFEst}
+            opts={[['', 'Todos os estágios'], ...ESTAGIOS.map((e) => [e.v, e.l] as [string, string])]} />
+        </FiltroBarra>
+      )}
       {jobs.length === 0 ? (
         <EmptyBox titulo="Nenhum job ainda" sub="Comece criando o primeiro." />
+      ) : filtrados.length === 0 ? (
+        <EmptyBox titulo="Nenhum job com esse filtro" sub="Ajuste a busca ou limpe os filtros para ver todos." />
       ) : (
         <div style={tableWrap}>
           <table style={tableSt}>
@@ -859,7 +934,7 @@ function JobsTabela({
               </tr>
             </thead>
             <tbody>
-              {jobs.map((j) => {
+              {filtrados.map((j) => {
                 const cli = clientes.find((c) => c.id === j.cliente_id)
                 const resp = responsaveis.find((u) => u.id === j.responsavel_id)
                 const cfg = estagioCfg(j.status)
@@ -894,14 +969,37 @@ function ClientesTabela({
   clientes: Cliente[]; contratos: ContratoOpt[]
   onNovo: () => void; onEditar: (c: Cliente) => void; onExcluir: (c: Cliente) => void
 }) {
+  // Busca + filtro de status (RD-99): achar 1 cliente por nome em <=3 toques, mesmo com centenas na lista.
+  const [q, setQ] = useState('')
+  const [fStatus, setFStatus] = useState('')
+  const termo = q.trim().toLowerCase()
+  const filtrados = clientes.filter((c) => {
+    if (fStatus && c.status !== fStatus) return false
+    if (termo) {
+      const alvo = `${c.nome ?? ''} ${c.nome_fantasia ?? ''} ${c.contato_principal ?? ''} ${c.cnpj_cpf ?? ''} ${c.email ?? ''} ${c.segmento ?? ''}`.toLowerCase()
+      if (!alvo.includes(termo)) return false
+    }
+    return true
+  })
+  const filtrando = !!(termo || fStatus)
+  const limpar = () => { setQ(''); setFStatus('') }
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold">Clientes da agência ({clientes.length})</h2>
+        <h2 className="text-sm font-semibold">Clientes da agência ({filtrando ? `${filtrados.length} de ${clientes.length}` : clientes.length})</h2>
         <button onClick={onNovo} style={btnPrimary}>+ Novo cliente</button>
       </div>
+      {clientes.length > 0 && (
+        <FiltroBarra onLimpar={filtrando ? limpar : undefined}>
+          <BuscaCampo chave="pm.clientes.filtro_busca" valor={q} on={setQ} placeholder="Buscar por nome, contato ou CNPJ/CPF…" />
+          <Select label="Status" ajuda="pm.clientes.filtro_status" v={fStatus} on={setFStatus}
+            opts={[['', 'Todos os status'], ['ativo', 'Ativo'], ['prospect', 'Prospect'], ['inativo', 'Inativo']]} />
+        </FiltroBarra>
+      )}
       {clientes.length === 0 ? (
         <EmptyBox titulo="Nenhum cliente ainda" sub="Cadastre os clientes da agência para começar." />
+      ) : filtrados.length === 0 ? (
+        <EmptyBox titulo="Nenhum cliente com esse filtro" sub="Ajuste a busca ou limpe os filtros para ver todos." />
       ) : (
         <div style={tableWrap}>
           <table style={tableSt}>
@@ -913,7 +1011,7 @@ function ClientesTabela({
               </tr>
             </thead>
             <tbody>
-              {clientes.map((c) => {
+              {filtrados.map((c) => {
                 const ct = contratos.find((x) => x.id === c.contrato_id)
                 return (
                   <tr key={c.id} style={{ borderTop: `1px solid ${BORDA}` }}>
@@ -946,16 +1044,45 @@ function ClientesTabela({
 }
 
 function TimesheetTabela({
-  timesheets, jobs, onNovo, onEditar, onExcluir,
-}: { timesheets: Timesheet[]; jobs: Job[]; onNovo: () => void; onEditar: (t: Timesheet) => void; onExcluir: (t: Timesheet) => void }) {
+  timesheets, jobs, responsaveis, onNovo, onEditar, onExcluir,
+}: { timesheets: Timesheet[]; jobs: Job[]; responsaveis: Array<{ id: string; email: string | null; full_name?: string | null }>; onNovo: () => void; onEditar: (t: Timesheet) => void; onExcluir: (t: Timesheet) => void }) {
+  // Busca + filtros (RD-99): achar os lançamentos de um job/responsável sem rolar centenas de linhas.
+  const [q, setQ] = useState('')
+  const [fJob, setFJob] = useState('')
+  const [fResp, setFResp] = useState('')
+  const termo = q.trim().toLowerCase()
+  const jobById = (id: string) => jobs.find((j) => j.id === id)
+  const filtrados = timesheets.filter((t) => {
+    if (fJob && t.job_id !== fJob) return false
+    if (fResp && t.user_id !== fResp) return false
+    if (termo) {
+      const j = jobById(t.job_id)
+      const alvo = `${j?.titulo ?? ''} ${t.descricao ?? ''} ${t.tipo_atividade ?? ''}`.toLowerCase()
+      if (!alvo.includes(termo)) return false
+    }
+    return true
+  })
+  const filtrando = !!(termo || fJob || fResp)
+  const limpar = () => { setQ(''); setFJob(''); setFResp('') }
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold">Timesheet</h2>
+        <h2 className="text-sm font-semibold">Timesheet{filtrando ? ` (${filtrados.length} de ${timesheets.length})` : ''}</h2>
         <button onClick={onNovo} style={btnPrimary}>+ Registrar horas</button>
       </div>
+      {timesheets.length > 0 && (
+        <FiltroBarra onLimpar={filtrando ? limpar : undefined}>
+          <BuscaCampo chave="pm.timesheet.filtro_busca" valor={q} on={setQ} placeholder="Buscar por job, atividade ou descrição…" />
+          <Select label="Job" ajuda="pm.timesheet.filtro_job" v={fJob} on={setFJob}
+            opts={[['', 'Todos os jobs'], ...jobs.map((j) => [j.id, j.titulo] as [string, string])]} />
+          <Select label="Responsável" ajuda="pm.timesheet.filtro_responsavel" v={fResp} on={setFResp}
+            opts={[['', 'Todos os responsáveis'], ...responsaveis.map((u) => [u.id, labelUsuario(u, responsaveis)] as [string, string])]} />
+        </FiltroBarra>
+      )}
       {timesheets.length === 0 ? (
         <EmptyBox titulo="Nenhum registro de horas" sub="Registre as horas pra calcular rentabilidade." />
+      ) : filtrados.length === 0 ? (
+        <EmptyBox titulo="Nenhum lançamento com esse filtro" sub="Ajuste a busca ou limpe os filtros para ver todos." />
       ) : (
         <div style={tableWrap}>
           <table style={tableSt}>
@@ -966,7 +1093,7 @@ function TimesheetTabela({
               </tr>
             </thead>
             <tbody>
-              {timesheets.slice(0, 100).map((t) => {
+              {filtrados.slice(0, 100).map((t) => {
                 const job = jobs.find((j) => j.id === t.job_id)
                 return (
                   <tr key={t.id} style={{ borderTop: `1px solid ${BORDA}` }}>
@@ -1042,6 +1169,26 @@ function Select({ label, v, on, opts, testId, ajuda }: { label: string; v: strin
       <select value={v} onChange={(e) => on(e.target.value)} data-testid={testId} style={inp}>
         {opts.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
       </select>
+    </label>
+  )
+}
+// Barra de busca/filtros das listas (Jobs, Clientes, Timesheet). Em coluna no celular (390px), em linha no desktop.
+function FiltroBarra({ children, onLimpar }: { children: React.ReactNode; onLimpar?: () => void }) {
+  return (
+    <div style={filtroBarra}>
+      {children}
+      {onLimpar && (
+        <button onClick={onLimpar} style={filtroLimpar} aria-label="Limpar filtros">✕ Limpar</button>
+      )}
+    </div>
+  )
+}
+// Campo de busca por texto, com o "?" padrão (RD-95).
+function BuscaCampo({ chave, valor, on, placeholder }: { chave: string; valor: string; on: (v: string) => void; placeholder: string }) {
+  return (
+    <label style={{ ...lbl, minWidth: 0 }}>
+      <span style={{ display: 'flex', alignItems: 'center' }}>Buscar<AjudaCampo chave={chave} /></span>
+      <input type="search" value={valor} onChange={(e) => on(e.target.value)} placeholder={placeholder} style={inp} />
     </label>
   )
 }
@@ -1160,6 +1307,15 @@ const toastStyle: CSSProperties = {
   position: 'fixed', bottom: 16, left: '50%', transform: 'translateX(-50%)',
   background: ESPRESSO, color: '#fff', padding: '10px 16px', borderRadius: 10,
   fontSize: 13, zIndex: 60, maxWidth: '90vw',
+}
+const filtroBarra: CSSProperties = {
+  display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+  gap: 10, alignItems: 'end', marginBottom: 12,
+  background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: 12,
+}
+const filtroLimpar: CSSProperties = {
+  border: `1px solid ${BORDA}`, background: OFFWHITE, color: TEXTM,
+  borderRadius: 8, padding: '8px 10px', fontSize: 12, cursor: 'pointer', minHeight: 40,
 }
 const statusChip: CSSProperties = {
   fontSize: 11, padding: '2px 10px', borderRadius: 999, fontWeight: 600, textTransform: 'uppercase',

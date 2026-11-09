@@ -13,6 +13,7 @@ import { itensParaOrcamento, listaDeCompra, linkWhatsApp, listaDeCompraCsv, list
 import { precoComMargem } from "@/lib/calculadora/margem";
 import { mesclarRegras } from "@/lib/calculadora/regras-empresa";
 import { RESUMO_VALIDACAO } from "@/lib/calculadora/referencia-validacao";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 import { CheckCircle2 } from "lucide-react";
 import {
   REGRAS_FORRO_ARAMADO, REGRAS_FORRO_F530, REGRAS_PAREDE_SIMPLES_ST, REGRAS_PAREDE_SEPARATIVA, REGRAS_PAREDE_CORTA_FOGO, REGRAS_REVESTIMENTO_COLADO, calcularRevestimentoColado, REGRAS_REVESTIMENTO_ESTRUTURADO, calcularRevestimentoEstruturado, calcularForroAramado, calcularForroF530, calcularParede, type Resultado,
@@ -45,6 +46,43 @@ function Campo({ rotulo, chave, valor, set, testid }: { rotulo: string; chave: s
       <span className={lbCls}>{rotulo}<AjudaCampo chave={chave} rota="/dashboard/projetos/calculadora" /></span>
       <input inputMode="decimal" value={valor} data-testid={testid} onChange={(e) => set(e.target.value.replace(/[^\d.,]/g, ""))} className={inCls} />
     </label>
+  );
+}
+
+// RD-95 (aud8 90/95, matriz calculadora): glossário dos códigos técnicos de drywall para o usuário leigo
+// (pilotos Tryo/FC Pisos). A cor da bolinha reproduz a cor da face da chapa (padrão ABNT NBR 14715).
+// Cada código tem "?" (AjudaCampo) com a explicação completa, editável no banco (erp_ajuda_campo).
+const GLOSSARIO_CODIGOS: { cod: string; chave: string; cor?: string; texto: string }[] = [
+  { cod: "ST", chave: "projetos.calculadora.cod.st", cor: "#D9D2C4", texto: "Chapa Standard (comum): paredes e forros internos secos, como quarto e sala." },
+  { cod: "RU", chave: "projetos.calculadora.cod.ru", cor: "#2E7D32", texto: "Chapa Resistente à Umidade (face verde): áreas molhadas — banheiro, cozinha, área de serviço." },
+  { cod: "RF", chave: "projetos.calculadora.cod.rf", cor: "#E1588E", texto: "Chapa Resistente ao Fogo (face rosa): paredes corta-fogo e rotas de saída, quando a norma exige." },
+  { cod: "F530", chave: "projetos.calculadora.cod.f530", texto: "Sistema de forro de gesso acartonado com perfil F530 (o perfil que sustenta as chapas do forro)." },
+  { cod: "PPA 25", chave: "projetos.calculadora.cod.ppa", texto: "Parafuso ponta agulha 25 mm: prende a chapa de gesso na estrutura (perfis de drywall)." },
+  { cod: "PFM 13", chave: "projetos.calculadora.cod.pfm", texto: "Parafuso ponta broca metal 13 mm: prende perfil no perfil (metal no metal) da estrutura." },
+  { cod: "Tabica", chave: "projetos.calculadora.cod.tabica", texto: "Perfil de acabamento do perímetro do forro, no encontro com a parede." },
+  { cod: "Junção H", chave: "projetos.calculadora.cod.juncao_h", texto: "Perfil em “H” que une as placas do forro aramado lado a lado." },
+  { cod: "Nervura", chave: "projetos.calculadora.cod.nervura", texto: "Travessa estrutural do forro aramado, que trava e sustenta as placas." },
+];
+
+function GlossarioCodigos() {
+  return (
+    <details className="mb-4 rounded-xl border border-[#3D2314]/10 bg-[#FAF7F2]">
+      <summary className="flex cursor-pointer list-none items-center gap-1 px-4 py-2.5 text-sm font-medium text-[#3D2314]">
+        <span className="text-[#C8941A]">?</span> Entenda os códigos (ST, RU, RF, F530…)
+        <AjudaCampo chave="projetos.calculadora.glossario" rota="/dashboard/projetos/calculadora" />
+      </summary>
+      <div className="grid grid-cols-1 gap-x-6 gap-y-2.5 px-4 pb-4 pt-1 sm:grid-cols-2">
+        {GLOSSARIO_CODIGOS.map((g) => (
+          <div key={g.cod} className="flex items-start gap-2 text-sm text-[#3D2314]/80">
+            {g.cor && <span className="mt-1.5 inline-block h-2.5 w-2.5 shrink-0 rounded-full border border-[#3D2314]/20" style={{ background: g.cor }} aria-hidden />}
+            <span>
+              <b className="text-[#3D2314]">{g.cod}</b> — {g.texto}
+              <AjudaCampo chave={g.chave} rota="/dashboard/projetos/calculadora" />
+            </span>
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }
 
@@ -97,7 +135,7 @@ export default function CalculadoraObraPage() {
       ? sb.from("erp_calc_depara").upsert({ company_id: companyId, sistema: sistemaDb, chave, produto_id: produtoId, atualizado_em: new Date().toISOString() }, { onConflict: "company_id,sistema,chave" })
       : sb.from("erp_calc_depara").delete().eq("company_id", companyId).eq("sistema", sistemaDb).eq("chave", chave);
     const { error } = await q;
-    if (error) { setErroVinculo("Não consegui salvar o vínculo: " + error.message); return; }
+    if (error) { setErroVinculo(erroAmigavel(error, "Não consegui salvar o vínculo com o estoque. Tente de novo.")); return; }
     setVinculos((v) => { const n2 = { ...v }; if (produtoId) n2[chave] = produtoId; else delete n2[chave]; return n2; });
   }
 
@@ -117,7 +155,7 @@ export default function CalculadoraObraPage() {
     const linhas = itensParaOrcamento(custo.linhas, orcId, companyId, Number(ult?.[0]?.ordem) || 0);
     const { error } = await sb.from("erp_orcamentos_itens").insert(linhas);
     if (!error) await salvarCalculo(orcId, true);
-    setMsgSaida(error ? { ok: false, texto: "Não consegui enviar: " + error.message } : { ok: true, texto: `${linhas.length} itens enviados à proposta. Itens sem produto vinculado foram com preço zero para você completar lá.` });
+    setMsgSaida(error ? { ok: false, texto: erroAmigavel(error, "Não consegui enviar os itens à proposta. Tente de novo.") } : { ok: true, texto: `${linhas.length} itens enviados à proposta. Itens sem produto vinculado foram com preço zero para você completar lá.` });
   }
 
   // Gerar orçamento NOVO a partir do cálculo: cria um rascunho (numero vem do trigger trg_orcamento_set_numero),
@@ -133,10 +171,10 @@ export default function CalculadoraObraPage() {
       const { data: novo, error: e1 } = await sb.from("erp_orcamentos")
         .insert({ company_id: companyId, status: "rascunho", cliente_nome: nome })
         .select("id,numero").single();
-      if (e1 || !novo) { setMsgSaida({ ok: false, texto: "Não consegui criar o orçamento: " + (e1?.message ?? "erro desconhecido") }); return; }
+      if (e1 || !novo) { setMsgSaida({ ok: false, texto: erroAmigavel(e1, "Não consegui criar o orçamento. Tente de novo.") }); return; }
       const linhas = itensParaOrcamento(custo.linhas, novo.id, companyId, 0);
       const { error: e2 } = await sb.from("erp_orcamentos_itens").insert(linhas);
-      if (e2) { setMsgSaida({ ok: false, texto: `Orçamento ${novo.numero ?? ""} criado, mas não consegui enviar os itens: ${e2.message}` }); return; }
+      if (e2) { setMsgSaida({ ok: false, texto: erroAmigavel(e2, `Orçamento ${novo.numero ?? ""} criado, mas não consegui enviar os itens. Abra em Orçamentos e tente de novo.`) }); return; }
       await salvarCalculo(novo.id, true);
       setOrcId(novo.id);
       await carregarEstoque();
@@ -153,7 +191,7 @@ export default function CalculadoraObraPage() {
       itens: custo.linhas.map((l) => ({ chave: l.item.chave, descricao: l.item.descricao, quantidade: l.item.quantidade, unidade: l.item.unidadeCompra, custo_unitario: l.custoUnitario, total: l.total })),
       custo_total: custo.total, margem_pct: venda?.margemPct ?? 0, preco_venda: venda?.preco ?? 0,
     });
-    if (error) { if (!silencioso) setMsgSaida({ ok: false, texto: "Não consegui salvar o cálculo: " + error.message }); return; }
+    if (error) { if (!silencioso) setMsgSaida({ ok: false, texto: erroAmigavel(error, "Não consegui salvar o cálculo no histórico. Tente de novo.") }); return; }
     if (!silencioso) setMsgSaida({ ok: true, texto: "Cálculo salvo no histórico." });
     void carregarEstoque();
   }
@@ -272,6 +310,7 @@ export default function CalculadoraObraPage() {
               className={`rounded-full px-3 py-1.5 text-sm ${sistema === k ? "bg-[#3D2314] text-white" : "bg-[#3D2314]/5 text-[#3D2314]"}`}>{t}</button>
           ))}
         </div>
+        <GlossarioCodigos />
         {sistema === "parede" || sistema === "separativa" || sistema === "cortafogo" || sistema === "revestimento" || sistema === "estruturado" ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Campo rotulo="Comprimento (m)" chave="projetos.calculadora.comprimento" valor={comp} set={setComp} testid="calc-comprimento" />

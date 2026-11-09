@@ -28,6 +28,10 @@ export default function LancarHorasPage({ params }: { params: Promise<{ id: stri
   const [erro, setErro] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [f, setF] = useState({ data: hoje(), funcao_id: '', descricao: '', horas: '', custo_hora: '' })
+  // RD-98 p2 · editar um lançamento sem excluir e relançar. `ed` = lançamento em edição; `ef` = o form.
+  const [ed, setEd] = useState<Apont | null>(null)
+  const [ef, setEf] = useState({ data: hoje(), funcao_id: '', descricao: '', horas: '', custo_hora: '' })
+  const [salvandoEd, setSalvandoEd] = useState(false)
 
   const carregar = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
@@ -69,6 +73,36 @@ export default function LancarHorasPage({ params }: { params: Promise<{ id: stri
     if (!window.confirm(`Excluir o lançamento de ${a.horas} h em ${a.data}? Ele sai do custo da obra.`)) return
     const { error } = await supabase.rpc('fn_obra_mao_obra_excluir', { p_id: a.id })
     if (error) { setErro(erroAmigavel(error)); return }
+    carregar()
+  }
+
+  // RD-98 p2 · abre o editor pré-preenchido com o lançamento (horas/custo em número simples).
+  const abrirEditar = (a: Apont) => {
+    setErro('')
+    setEf({
+      data: (a.data ?? hoje()).slice(0, 10),
+      funcao_id: a.funcao_id ?? '',
+      descricao: a.descricao ?? '',
+      horas: String(a.horas ?? ''),
+      custo_hora: String(a.custo_hora ?? ''),
+    })
+    setEd(a)
+  }
+  const salvarEditar = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!ed) return
+    setErro('')
+    const horas = Number(ef.horas.replace(',', '.')), custo = Number(ef.custo_hora.replace(',', '.'))
+    if (!(horas > 0)) { setErro('Informe as horas trabalhadas (maior que zero).'); return }
+    if (!(custo >= 0) || ef.custo_hora === '') { setErro('Informe o custo da hora.'); return }
+    setSalvandoEd(true)
+    const { error } = await supabase.rpc('fn_obra_mao_obra_editar', {
+      p_id: ed.id,
+      p_dados: { data: ef.data, funcao_id: ef.funcao_id, descricao: ef.descricao || null, horas, custo_hora: custo },
+    })
+    setSalvandoEd(false)
+    if (error) { setErro(erroAmigavel(error)); return }
+    setEd(null)
     carregar()
   }
 
@@ -115,13 +149,42 @@ export default function LancarHorasPage({ params }: { params: Promise<{ id: stri
                     <td style={{ padding: 8 }}>{a.data}</td><td style={{ padding: 8 }}>{nomeFn(a.funcao_id)}</td><td style={{ padding: 8 }}>{a.descricao ?? ''}</td>
                     <td style={{ padding: 8, textAlign: 'right' }}>{a.horas}</td><td style={{ padding: 8, textAlign: 'right' }}>{brl(Number(a.custo_hora))}</td>
                     <td style={{ padding: 8, textAlign: 'right' }}>{brl(Number(a.valor))}</td>
-                    <td style={{ padding: 8 }}><button onClick={() => excluir(a)} data-testid="horas-excluir" style={{ color: VERM, background: 'none', border: 0, cursor: 'pointer' }}>Excluir</button></td>
+                    <td style={{ padding: 8 }}>
+                      <span style={{ display: 'inline-flex', gap: 10, alignItems: 'center' }}>
+                        <button onClick={() => abrirEditar(a)} data-testid="horas-editar" style={{ color: ESP, background: 'none', border: 0, cursor: 'pointer' }}>Editar <AjudaCampo chave="projetos.horas_obra.editar" /></button>
+                        <button onClick={() => excluir(a)} data-testid="horas-excluir" style={{ color: VERM, background: 'none', border: 0, cursor: 'pointer' }}>Excluir <AjudaCampo chave="projetos.horas_obra.excluir" /></button>
+                      </span>
+                    </td>
                   </tr>))}
-                <tr style={{ fontWeight: 700 }}><td colSpan={5} style={{ padding: 8 }}>Total de mão de obra</td><td style={{ padding: 8, textAlign: 'right' }} data-testid="horas-total">{brl(total)}</td><td /></tr>
+                <tr style={{ fontWeight: 700 }}><td colSpan={5} style={{ padding: 8 }}>Total de mão de obra <AjudaCampo chave="projetos.horas_obra.total" /></td><td style={{ padding: 8, textAlign: 'right' }} data-testid="horas-total">{brl(total)}</td><td /></tr>
               </tbody>
             </table>
           </div>)}
       </div>
+
+      {ed && (
+        <div role="dialog" aria-label="Editar lançamento de horas" onClick={() => !salvandoEd && setEd(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 80, padding: 16 }}>
+          <form onSubmit={salvarEditar} onClick={e => e.stopPropagation()} data-testid="horas-editar-form"
+            style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 16, width: '100%', maxWidth: 460, display: 'grid', gap: 10 }}>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>Editar lançamento de horas</div>
+            <div><label style={lab}>Data</label>
+              <input type="date" value={ef.data} onChange={e => setEf({ ...ef, data: e.target.value })} style={inp} data-testid="horas-editar-data" /> <AjudaCampo chave="projetos.horas_obra.data" /></div>
+            <div><label style={lab}>Função</label>
+              <AjudaCampo chave="projetos.horas_obra.funcao" /> <select value={ef.funcao_id} onChange={e => setEf({ ...ef, funcao_id: e.target.value })} style={inp} data-testid="horas-editar-funcao">
+                <option value="">Sem função</option>{funcoes.map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}</select></div>
+            <div><label style={lab}>Horas</label>
+              <input inputMode="decimal" value={ef.horas} onChange={e => setEf({ ...ef, horas: e.target.value })} style={inp} data-testid="horas-editar-horas" /> <AjudaCampo chave="projetos.horas_obra.horas" /></div>
+            <div><label style={lab}>Custo da hora (R$)</label>
+              <input inputMode="decimal" value={ef.custo_hora} onChange={e => setEf({ ...ef, custo_hora: e.target.value })} style={inp} data-testid="horas-editar-custo" /> <AjudaCampo chave="projetos.horas_obra.custo_hora" /></div>
+            <div><label style={lab}>O que foi feito</label>
+              <input value={ef.descricao} onChange={e => setEf({ ...ef, descricao: e.target.value })} style={inp} data-testid="horas-editar-descricao" /> <AjudaCampo chave="projetos.horas_obra.descricao" /></div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
+              <button type="button" onClick={() => setEd(null)} disabled={salvandoEd} style={{ padding: '9px 16px', background: '#fff', color: ESP, border: `1px solid ${LINE}`, borderRadius: 8, cursor: 'pointer' }}>Cancelar</button>
+              <button type="submit" disabled={salvandoEd} data-testid="horas-editar-salvar" style={{ padding: '9px 16px', background: ESP, color: '#fff', border: 0, borderRadius: 8, fontWeight: 600, cursor: salvandoEd ? 'wait' : 'pointer' }}>{salvandoEd ? 'Salvando…' : 'Salvar'}</button>
+            </div>
+          </form>
+        </div>)}
     </div>
   )
 }

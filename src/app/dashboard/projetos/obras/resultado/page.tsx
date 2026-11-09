@@ -39,6 +39,10 @@ const custo = (l: Linha) => n(l.custo_material) + n(l.custo_viagens) + n(l.custo
 // Sem receita não há margem: mostrar -custo como prejuízo seria alarme falso (falta lançar a medição, não estouro de custo).
 const semMedicao = (l: Linha) => receita(l) <= 0
 const margem = (l: Linha) => (semMedicao(l) ? 0 : receita(l) - custo(l))
+// Saldo do custo (ONDA 2 Hub): orçado − realizado. Positivo = dentro do orçamento; negativo = estouro.
+// Sem custo previsto não há saldo (mostra "—"): seria alarme falso de estouro.
+const temOrcamentoCusto = (l: Linha) => n(l.custo_previsto) > 0
+const saldoCusto = (l: Linha) => n(l.custo_previsto) - custo(l)
 const pctPrevisto = (l: Linha) => (n(l.receita_prevista) > 0 ? Math.min(100, (receita(l) / n(l.receita_prevista)) * 100) : null)
 // Margem % sobre a receita realizada. Sem receita ainda → null (mostra "—"), para não dividir por zero.
 // Sem receita a margem % não existe: "N/A" ("—" parece dado que falhou ao carregar).
@@ -141,8 +145,8 @@ export default function ResultadoObrasPage() {
   }), { receita: 0, custo: 0, margem: 0, prevista: 0, custoPrev: 0 }), [visiveis])
 
   const baixarCsv = () => {
-    const cab = ['Obra', 'Nome', 'Receita serviço', 'Receita material', 'Custo material', 'Custo viagens', 'Mão de obra', 'Custo fixo rateado', 'Situação', 'Margem', 'Margem %', 'Receita prevista', 'Custo previsto']
-    const rows = visiveis.map(l => { const p = margemPct(receita(l), margem(l)); return [l.numero, l.nome, l.receita_servico, l.receita_material, l.custo_material, l.custo_viagens, n(l.custo_mao_obra), n(l.custo_rateio), situacaoObra(l).rot, margem(l), p === null ? '' : p.toFixed(1), l.receita_prevista, l.custo_previsto] })
+    const cab = ['Obra', 'Nome', 'Receita serviço', 'Receita material', 'Custo material', 'Custo viagens', 'Mão de obra', 'Custo fixo rateado', 'Situação', 'Margem', 'Margem %', 'Receita prevista', 'Custo previsto', 'Saldo do custo']
+    const rows = visiveis.map(l => { const p = margemPct(receita(l), margem(l)); return [l.numero, l.nome, l.receita_servico, l.receita_material, l.custo_material, l.custo_viagens, n(l.custo_mao_obra), n(l.custo_rateio), situacaoObra(l).rot, margem(l), p === null ? '' : p.toFixed(1), l.receita_prevista, l.custo_previsto, temOrcamentoCusto(l) ? saldoCusto(l) : ''] })
     const csv = [cab, ...rows].map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(';')).join('\n')
     const a = document.createElement('a')
     a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }))
@@ -249,7 +253,7 @@ export default function ResultadoObrasPage() {
                 <thead><tr style={{ borderBottom: `1px solid ${LINE}` }}>
                   <th style={{ ...th, ...fixa, textAlign: 'left' }}>Obra</th><th style={th}>Receita <AjudaCampo chave="projetos.resultado_obra.receita" /></th><th style={th}>Custo <AjudaCampo chave="projetos.resultado_obra.custo" /></th>
                   <th style={th}>Materiais <AjudaCampo chave="projetos.resultado_obra.custo_material" /></th><th style={th}>Viagens <AjudaCampo chave="projetos.resultado_obra.custo_viagens" /></th>
-                  <th style={th}>Mão de obra <AjudaCampo chave="projetos.resultado_obra.mao_obra" /></th><th style={th}>Custo fixo rateado <AjudaCampo chave="projetos.resultado_obra.custo_rateio" /></th><th style={th}>Situação <AjudaCampo chave="projetos.resultado_obra.situacao" /></th><th style={th}>Margem <AjudaCampo chave="projetos.resultado_obra.margem" /></th><th style={th}>Margem % <AjudaCampo chave="projetos.resultado_obra.margem_pct" /></th><th style={th}>Receita prevista <AjudaCampo chave="projetos.resultado_obra.receita_prevista" /></th><th style={th}>Custo previsto <AjudaCampo chave="projetos.resultado_obra.custo_previsto" /></th>
+                  <th style={th}>Mão de obra <AjudaCampo chave="projetos.resultado_obra.mao_obra" /></th><th style={th}>Custo fixo rateado <AjudaCampo chave="projetos.resultado_obra.custo_rateio" /></th><th style={th}>Situação <AjudaCampo chave="projetos.resultado_obra.situacao" /></th><th style={th}>Margem <AjudaCampo chave="projetos.resultado_obra.margem" /></th><th style={th}>Margem % <AjudaCampo chave="projetos.resultado_obra.margem_pct" /></th><th style={th}>Receita prevista <AjudaCampo chave="projetos.resultado_obra.receita_prevista" /></th><th style={th}>Custo previsto <AjudaCampo chave="projetos.resultado_obra.custo_previsto" /></th><th style={th}>Saldo do custo <AjudaCampo chave="projetos.resultado_obra.saldo_custo" /></th>
                 </tr></thead>
                 <tbody>
                   {daPagina.map(l => {
@@ -271,10 +275,13 @@ export default function ResultadoObrasPage() {
                         : <><td style={{ ...td, color: cor(margem(l)), fontWeight: 600 }}>{fmtR(margem(l))}</td>
                           <td style={{ ...td, color: cor(margem(l)) }}>{fmtPct(margemPct(receita(l), margem(l)))}</td></>}
                       <td style={td}>{fmtR(n(l.receita_prevista))}<Barra pct={pctPrevisto(l)} /></td><td style={td}>{fmtR(n(l.custo_previsto))}</td>
+                      {temOrcamentoCusto(l)
+                        ? <td style={{ ...td, color: saldoCusto(l) < 0 ? VERM : VERDE, fontWeight: 600 }}>{fmtR(saldoCusto(l))}</td>
+                        : <td style={{ ...td, color: MUT, fontSize: 12 }}>—</td>}
                     </tr>
                     {open && (
                       <tr data-testid="resultado-itens-linha">
-                        <td colSpan={12} style={{ padding: 0, background: '#FBF9F5', borderBottom: `1px solid ${LINE}` }}>
+                        <td colSpan={13} style={{ padding: 0, background: '#FBF9F5', borderBottom: `1px solid ${LINE}` }}>
                           <DrilldownEscopo estado={escopo[l.obra_id]} onRecarregar={() => alternarItens(l.obra_id)} />
                         </td>
                       </tr>
@@ -291,6 +298,9 @@ export default function ResultadoObrasPage() {
                     <td style={{ ...td, color: cor(total.margem) }}>{fmtR(total.margem)}</td>
                     <td style={{ ...td, color: cor(total.margem) }}>{fmtPct(margemPct(total.receita, total.margem))}</td>
                     <td style={td}>{fmtR(total.prevista)}</td><td style={td}>{fmtR(total.custoPrev)}</td>
+                    {total.custoPrev > 0
+                      ? <td style={{ ...td, color: (total.custoPrev - total.custo) < 0 ? VERM : VERDE }}>{fmtR(total.custoPrev - total.custo)}</td>
+                      : <td style={{ ...td, color: MUT }}>—</td>}
                   </tr>
                 </tbody>
               </table>
@@ -332,6 +342,12 @@ function CartaoObra({ obraId, titulo, receita, custo, material, viagens, maoObra
         {par('Materiais', material, 'projetos.resultado_obra.custo_material')}{par('Viagens', viagens, 'projetos.resultado_obra.custo_viagens')}
         {par('Mão de obra', maoObra, 'projetos.resultado_obra.mao_obra')}{par('Custo fixo rateado', rateio, 'projetos.resultado_obra.custo_rateio')}
         {par('Receita prevista', prevista, 'projetos.resultado_obra.receita_prevista')}{par('Custo previsto', custoPrev, 'projetos.resultado_obra.custo_previsto')}
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 11, color: MUT, display: 'flex', alignItems: 'center', gap: 2 }}>Saldo do custo{destaque && <AjudaCampo chave="projetos.resultado_obra.saldo_custo" />}</div>
+          {custoPrev > 0
+            ? <div style={{ fontSize: 13.5, fontWeight: 600, color: (custoPrev - custo) < 0 ? VERM : VERDE }}>{fmtR(custoPrev - custo)}</div>
+            : <div style={{ fontSize: 13.5, fontWeight: 600, color: MUT }}>—</div>}
+        </div>
       </div>
       {sit && <div data-testid="resultado-situacao-cartao" style={{ fontSize: 12, fontWeight: 600, color: sit.cor, marginTop: 8 }}>{sit.rot}</div>}
       {pctPrev != null && <Barra pct={pctPrev} />}
@@ -359,6 +375,7 @@ function DrilldownEscopo({ estado, onRecarregar, mobile }: { estado?: EstadoEsco
   )
   const d = estado.dados
   const itens = d?.itens ?? []
+  const lgd: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 2 }
   const titulo = (
     <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12.5, fontWeight: 700, marginBottom: 8 }}>
       Itens do escopo <AjudaCampo chave="projetos.resultado_obra.itens" />
@@ -375,11 +392,19 @@ function DrilldownEscopo({ estado, onRecarregar, mobile }: { estado?: EstadoEsco
   if (mobile) return (
     <div data-testid="resultado-itens-lista" style={{ background: '#FBF9F5', border: `1px solid ${LINE}`, borderRadius: 12, padding: pad }}>
       {titulo}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: MUT, flexWrap: 'wrap', marginBottom: 6 }}>
-        <AjudaCampo chave="projetos.resultado_obra.item_qtd_contratada" /><AjudaCampo chave="projetos.resultado_obra.item_qtd_medida" />
-        <AjudaCampo chave="projetos.resultado_obra.item_pct_medido" /><AjudaCampo chave="projetos.resultado_obra.item_preco_unit" />
-        <AjudaCampo chave="projetos.resultado_obra.item_valor_contratado" /><AjudaCampo chave="projetos.resultado_obra.item_valor_medido" />
-        <AjudaCampo chave="projetos.resultado_obra.item_custo_previsto" />
+      {/* Legenda das colunas do cartão: cada "?" fica junto do NOME do campo (RD-95) — antes os "?" apareciam
+          soltos, sem rótulo, e o auditor via "interrogação isolada sem contexto". */}
+      <div style={{ fontSize: 11, color: MUT, marginBottom: 6 }}>
+        <span style={{ fontWeight: 600 }}>O que cada número quer dizer:</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 4 }}>
+          <span style={lgd}>Contratada <AjudaCampo chave="projetos.resultado_obra.item_qtd_contratada" /></span>
+          <span style={lgd}>Medida <AjudaCampo chave="projetos.resultado_obra.item_qtd_medida" /></span>
+          <span style={lgd}>% medido <AjudaCampo chave="projetos.resultado_obra.item_pct_medido" /></span>
+          <span style={lgd}>Preço unit. <AjudaCampo chave="projetos.resultado_obra.item_preco_unit" /></span>
+          <span style={lgd}>Contratado <AjudaCampo chave="projetos.resultado_obra.item_valor_contratado" /></span>
+          <span style={lgd}>Medido <AjudaCampo chave="projetos.resultado_obra.item_valor_medido" /></span>
+          <span style={lgd}>Custo previsto <AjudaCampo chave="projetos.resultado_obra.item_custo_previsto" /></span>
+        </div>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {itens.map(it => (

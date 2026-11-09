@@ -12,6 +12,11 @@ import { supabase } from '@/lib/supabase'
 import { Download, Upload, Loader2, CheckCircle2, XCircle, AlertTriangle, Search } from 'lucide-react'
 import { CHAVES_CADASTROS, NOME_EXEMPLO, casarColunasCadastros } from '@/lib/cadastros/colunasImportacao'
 import { buscarCNPJ } from '@/lib/cadastros/buscarCNPJ'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+// Componente compartilhado por /dashboard/cadastros/{clientes,fornecedores}/importar.
+// Rota canônica de ajuda (RD-95): uma única lista de chaves em erp_ajuda_campo serve as duas telas.
+const ROTA_AJUDA = '/dashboard/cadastros/importar'
 
 type Tipo = 'cliente' | 'fornecedor'
 type Linha = Record<string, string>
@@ -171,9 +176,12 @@ export default function ImportarCadastrosView({ companyId, tipo }: { companyId: 
         <a href={modeloUrl} download className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2">
           <Download size={15} /> Baixar planilha modelo
         </a>
-        <button type="button" onClick={() => inputRef.current?.click()} className="px-4 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] flex items-center gap-2">
-          <Upload size={15} /> {nomeArquivo ? 'Trocar arquivo' : 'Subir planilha'}
-        </button>
+        <span className="inline-flex items-center">
+          <button type="button" onClick={() => inputRef.current?.click()} className="px-4 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] flex items-center gap-2">
+            <Upload size={15} /> {nomeArquivo ? 'Trocar arquivo' : 'Subir planilha'}
+          </button>
+          <AjudaCampo rota={ROTA_AJUDA} chave="cadastros.importar.arquivo" />
+        </span>
         <input ref={inputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
           onChange={(e) => { const f = e.target.files?.[0]; if (f) void onArquivo(f); e.target.value = '' }} />
         {nomeArquivo && <span className="text-[12px] text-[#3D2314]/60">{nomeArquivo} · {linhas.length} linha(s)</span>}
@@ -225,9 +233,11 @@ export default function ImportarCadastrosView({ companyId, tipo }: { companyId: 
                 {previa.erro_ > 0 && (
                   <label className="flex items-center gap-1.5 text-[12px] text-[#3D2314]/75 cursor-pointer">
                     <input type="checkbox" checked={soErros} onChange={(e) => setSoErros(e.target.checked)} className="accent-[#C8941A]" /> Só erros
+                    <AjudaCampo rota={ROTA_AJUDA} chave="cadastros.importar.so_erros" />
                   </label>
                 )}
                 <label className="flex items-center gap-1.5 text-[12px] text-[#3D2314]/75">
+                  <span className="inline-flex items-center">Modo<AjudaCampo rota={ROTA_AJUDA} chave="cadastros.importar.modo" /></span>
                   <select value={modo}
                     onChange={(e) => { const m = e.target.value as 'so_novos' | 'criar_e_atualizar' | 'completar_por_nome'; setModo(m); void rodarPrevia(linhas, m) }}
                     className="border border-[#3D2314]/20 rounded px-2 py-1 text-[12px] bg-white">
@@ -249,11 +259,11 @@ export default function ImportarCadastrosView({ companyId, tipo }: { companyId: 
               <table className="w-full text-[12px]">
                 <thead className="bg-[#3D2314]/5 text-[11px] text-[#3D2314]/70 sticky top-0"><tr>
                   <th className="text-left px-3 py-2 font-medium">#</th>
-                  <th className="text-left px-3 py-2 font-medium">ação</th>
-                  <th className="text-left px-3 py-2 font-medium">tipo</th>
-                  <th className="text-left px-3 py-2 font-medium">nome</th>
-                  <th className="text-left px-3 py-2 font-medium">CPF/CNPJ</th>
-                  <th className="text-left px-3 py-2 font-medium">motivo</th>
+                  <th className="text-left px-3 py-2 font-medium">ação<AjudaCampo rota={ROTA_AJUDA} chave="cadastros.importar.col_acao" /></th>
+                  <th className="text-left px-3 py-2 font-medium">tipo<AjudaCampo rota={ROTA_AJUDA} chave="cadastros.importar.col_tipo" /></th>
+                  <th className="text-left px-3 py-2 font-medium">nome<AjudaCampo rota={ROTA_AJUDA} chave="cadastros.importar.col_nome" /></th>
+                  <th className="text-left px-3 py-2 font-medium">CPF/CNPJ<AjudaCampo rota={ROTA_AJUDA} chave="cadastros.importar.col_documento" /></th>
+                  <th className="text-left px-3 py-2 font-medium">motivo<AjudaCampo rota={ROTA_AJUDA} chave="cadastros.importar.col_motivo" /></th>
                 </tr></thead>
                 <tbody>
                   {linhasView.map((l) => {
@@ -274,11 +284,14 @@ export default function ImportarCadastrosView({ companyId, tipo }: { companyId: 
             </div>
             <div className="px-4 py-3 border-t border-[#3D2314]/10 flex items-center justify-between gap-3 flex-wrap">
               <span className="text-[12px] text-[#3D2314]/60">{previa.erro_ > 0 ? 'Linhas com erro são ignoradas na importação.' : 'Pronto para importar.'}</span>
-              <button type="button" onClick={() => void aplicar()} disabled={!podeImportar}
-                className="px-5 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] disabled:opacity-40 flex items-center gap-2">
-                {carregando ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
-                Importar {previa.criar + previa.atualizar} cadastro(s)
-              </button>
+              <span className="inline-flex items-center">
+                <button type="button" onClick={() => void aplicar()} disabled={!podeImportar}
+                  className="px-5 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] disabled:opacity-40 flex items-center gap-2">
+                  {carregando ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
+                  Importar {previa.criar + previa.atualizar} cadastro(s)
+                </button>
+                <AjudaCampo rota={ROTA_AJUDA} chave="cadastros.importar.acao_importar" />
+              </span>
             </div>
           </div>
         </>
