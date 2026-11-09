@@ -8,6 +8,9 @@ import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA = '/dashboard/revenda/patio' // RD-95: rota das chaves de ajuda ("?")
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -250,22 +253,25 @@ function Inner() {
               )}
             </div>
           )}
-          <button onClick={() => setNovo(true)} style={{ padding: '9px 16px', border: 'none', borderRadius: 8, background: C.gold, color: C.white, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>+ Novo veículo</button>
+          <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+            <button onClick={() => setNovo(true)} style={{ padding: '9px 16px', border: 'none', borderRadius: 8, background: C.gold, color: C.white, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>+ Novo veículo</button>
+            <AjudaCampo chave="revenda.patio.novo_veiculo" rota={ROTA} />
+          </span>
         </div>
       </div>
-      <p style={{ color: C.espM, fontSize: 13, margin: '6px 0 14px' }}>Dias parados e custo acumulado são calculados na hora — nunca gravados. Semáforo pelas faixas da empresa.</p>
+      <p style={{ color: C.espM, fontSize: 13, margin: '6px 0 14px' }} className="inline-flex items-center">Dias parados e custo acumulado são calculados na hora — nunca gravados. Semáforo pelas faixas da empresa.<AjudaCampo chave="revenda.patio.indicadores_card" rota={ROTA} /></p>
 
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 12 }} onClick={() => setErro(null)}>{erro}</div>}
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
-        <label style={{ fontSize: 12, color: C.espM }}>Situação&nbsp;
+        <label style={{ fontSize: 12, color: C.espM }} className="inline-flex items-center">Situação<AjudaCampo chave="revenda.patio.filtro_situacao" rota={ROTA} />&nbsp;
           <select value={filtro} onChange={(e) => setFiltro(e.target.value)} style={inp}>
             <option value="estoque">estoque atual (padrão)</option>
             <option value="todos">todas (inclui vendidos/entregues)</option>
             {SIT.map((s) => <option key={s} value={s}>{SIT_LABEL[s] ?? s.replace('_', ' ')}</option>)}
           </select>
         </label>
-        <label style={{ fontSize: 12, color: C.espM }}>Completude&nbsp;
+        <label style={{ fontSize: 12, color: C.espM }} className="inline-flex items-center">Completude<AjudaCampo chave="revenda.patio.filtro_completude" rota={ROTA} />&nbsp;
           <select value={compl} onChange={(e) => setCompl(e.target.value)} style={inp}>
             <option value="todos">todas</option>
             <option value="sem_custo">sem custo de aquisição{nSemCusto ? ` (${nSemCusto})` : ''}</option>
@@ -278,7 +284,7 @@ function Inner() {
             <option value="faltam_nota">faltam campos p/ nota{nFaltam ? ` (${nFaltam})` : ''}</option>
           </select>
         </label>
-        <label style={{ fontSize: 12, color: C.espM }}>Ordenar&nbsp;
+        <label style={{ fontSize: 12, color: C.espM }} className="inline-flex items-center">Ordenar<AjudaCampo chave="revenda.patio.ordenar" rota={ROTA} />&nbsp;
           <select value={ordem} onChange={(e) => setOrdem(e.target.value as 'dias' | 'sangria' | 'vira' | 'roi')} style={inp}>
             <option value="dias">dias parados</option>
             <option value="sangria">maior sangria</option>
@@ -287,7 +293,7 @@ function Inner() {
           </select>
         </label>
         {/* R7a · filtro PS por sinal (o que o dono quer caçar no pátio) */}
-        <label style={{ fontSize: 12, color: C.espM }}>Sinal&nbsp;
+        <label style={{ fontSize: 12, color: C.espM }} className="inline-flex items-center">Sinal<AjudaCampo chave="revenda.patio.filtro_sinal" rota={ROTA} />&nbsp;
           <select value={filtroPS} onChange={(e) => setFiltroPS(e.target.value as typeof filtroPS)} style={inp}>
             <option value="todos">todos</option>
             <option value="vira_prejuizo">vai virar prejuízo</option>
@@ -298,7 +304,10 @@ function Inner() {
           </select>
         </label>
         {/* R7a · busca por modelo/placa (Alliance 23/09: ocupa a linha inteira no celular) */}
-        <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="buscar modelo/placa" style={{ ...inp, width: isMobile ? '100%' : 170, flex: isMobile ? '1 1 100%' : undefined, boxSizing: 'border-box' }} />
+        <label className="inline-flex items-center" style={{ flex: isMobile ? '1 1 100%' : undefined }}>
+          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="buscar modelo/placa" style={{ ...inp, width: isMobile ? '100%' : 170, flex: isMobile ? '1 1 100%' : undefined, boxSizing: 'border-box' }} />
+          <AjudaCampo chave="revenda.patio.busca" rota={ROTA} />
+        </label>
         {/* R7a-2 · controle segmentado Lista | Cards (comunica a alternância; no celular abre em Lista) */}
         <div style={{ display: 'inline-flex', border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden' }}>
           <button onClick={() => setDensa(true)} title="lista densa — uma linha por carro"
@@ -306,22 +315,26 @@ function Inner() {
           <button onClick={() => setDensa(false)} title="cards com foto"
             style={{ padding: '8px 12px', fontSize: 12.5, fontWeight: 700, border: 'none', borderLeft: `1px solid ${C.border}`, cursor: 'pointer', background: !densa ? C.gold : C.white, color: !densa ? C.white : C.espM }}>▦ Cards</button>
         </div>
+        <AjudaCampo chave="revenda.patio.modo_exibicao" rota={ROTA} />
         <span style={{ fontSize: 12, color: C.espM }}>{visiveis.length} veículo(s)</span>
       </div>
 
       {/* Onda 0 + Alliance 23/09: contador de completude fiscal — sobre o pátio filtrado (base) */}
       {base.length > 0 && (
-        <button onClick={() => setCompl(compl === 'faltam_nota' ? 'todos' : 'faltam_nota')}
-          style={{ display: 'block', width: '100%', textAlign: 'left', background: nFaltam > 0 ? C.amberBg : C.greenBg, border: `1px solid ${nFaltam > 0 ? C.amber : C.green}55`, borderRadius: 10, padding: '9px 12px', marginBottom: 12, cursor: 'pointer', fontSize: 13, color: nFaltam > 0 ? '#8A4B08' : C.green }}>
-          <b>{nPronto} de {base.length}</b> prontos para emitir nota{nFaltam > 0 ? ` · toque para ver os ${nFaltam} pendentes` : ' ✅'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 12 }}>
+          <button onClick={() => setCompl(compl === 'faltam_nota' ? 'todos' : 'faltam_nota')}
+            style={{ display: 'block', flex: 1, textAlign: 'left', background: nFaltam > 0 ? C.amberBg : C.greenBg, border: `1px solid ${nFaltam > 0 ? C.amber : C.green}55`, borderRadius: 10, padding: '9px 12px', cursor: 'pointer', fontSize: 13, color: nFaltam > 0 ? '#8A4B08' : C.green }}>
+            <b>{nPronto} de {base.length}</b> prontos para emitir nota{nFaltam > 0 ? ` · toque para ver os ${nFaltam} pendentes` : ' ✅'}
+          </button>
+          <AjudaCampo chave="revenda.patio.prontos_nota" rota={ROTA} />
+        </div>
       )}
 
       {/* R7a-2 · mapa de calor: dias parados × dinheiro parado. Clique numa faixa filtra o pátio. */}
       {rows.length > 0 && (
         <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: C.espM, fontWeight: 700, marginBottom: 6 }}>
-            Onde o dinheiro está parado <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· por tempo no pátio</span>
+          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: C.espM, fontWeight: 700, marginBottom: 6 }} className="inline-flex items-center">
+            Onde o dinheiro está parado <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· por tempo no pátio</span><AjudaCampo chave="revenda.patio.mapa_calor" rota={ROTA} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
             {heat.map((h) => {
