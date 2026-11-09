@@ -363,6 +363,7 @@ function Inner() {
                   <AjudaCampo chave="revenda.vendas.acoes" rota="/dashboard/revenda/vendas" />
 
                   {/* #7641 · status real da NF-e (lido de erp_nfe_emitidas), sem aviso de erro enquanto processa */}
+                  {nfes.get(v.id) && <AjudaCampo chave="revenda.vendas.nfe_status" rota="/dashboard/revenda/vendas" />}
                   {nfes.get(v.id) && (() => {
                     const n = nfes.get(v.id)!
                     const lnk: React.CSSProperties = { color: C.gold, fontWeight: 700, textDecoration: 'none', fontSize: 12 }
