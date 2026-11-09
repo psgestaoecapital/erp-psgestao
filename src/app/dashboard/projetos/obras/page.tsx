@@ -10,6 +10,7 @@ import PSGCMetric from '@/components/psgc/PSGCMetric'
 import { fmtR } from '@/lib/psgc-tokens'
 import { supabase } from '@/lib/supabase'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import CepEndereco from '@/components/comum/CepEndereco'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
@@ -65,7 +66,7 @@ export default function ObrasPage() {
         supabase.rpc('fn_obras_kpis', { p_company_ids: companyIds }),
         supabase.rpc('fn_obras_listar', { p_company_ids: companyIds, p_status: null }),
       ]), { ms: 8000, tentativas: 1, label: 'projetos_obras' })
-      if (ek || el) { setErro((ek ?? el)!.message); return }
+      if (ek || el) { setErro(erroAmigavel(ek ?? el, MSG_CARREGAMENTO_FALHOU)); return }
       setKpis(k as Kpis); setObras((l as Obra[]) ?? [])
       // receita não derruba o board: se falhar, o cartão mostra "não deu para carregar"
       const { data: rc, error: er } = await supabase.rpc('fn_obras_receita', { p_company_ids: companyIds })
@@ -101,7 +102,7 @@ export default function ObrasPage() {
     setBusy(o.id); setMsg('')
     const { error } = await supabase.rpc('fn_obra_mudar_status', { p_obra_id: o.id, p_novo_status: novo })
     setBusy('')
-    if (error) { setMsg('Erro: ' + error.message); return }
+    if (error) { setMsg(erroAmigavel(error)); return }
     setMsg(novo === 'concluida' ? `CONCLUIU a obra ${o.numero}.` : `Obra ${o.numero} → ${ST[novo]?.label ?? novo}.`)
     void carregar()
   }
@@ -389,7 +390,7 @@ function EscopoModal({ obra, onClose, onChanged }: { obra: Obra; onClose: () => 
     setCarregando(true); setErro(null)
     try {
       const { data, error } = await comPrazo(async () => await supabase.rpc('fn_obra_escopo', { p_obra_id: obra.id }), { ms: 8000, tentativas: 1, label: 'projetos_obra_escopo' })
-      if (error) { setErro(error.message); return }
+      if (error) { setErro(erroAmigavel(error)); return }
       const j = data as Escopo
       if (!j?.ok) { setErro(j?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : (j?.erro ?? 'Falha ao carregar o escopo.')); return }
       setEsc(j)
@@ -410,7 +411,7 @@ function EscopoModal({ obra, onClose, onChanged }: { obra: Obra; onClose: () => 
     })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string; mensagem?: string } | null
-    if (error || !j?.ok) { setErro(j?.mensagem ?? error?.message ?? j?.erro ?? 'Falha ao adicionar o item.'); return }
+    if (error || !j?.ok) { setErro(j?.mensagem ?? (error ? erroAmigavel(error) : (j?.erro ?? 'Falha ao adicionar o item.'))); return }
     setForm({ descricao: '', unidade: 'un', quantidade: '', preco_unit: '' }); setAddAberto(false)
     await carregar(); onChanged()
   }
@@ -421,7 +422,7 @@ function EscopoModal({ obra, onClose, onChanged }: { obra: Obra; onClose: () => 
     const { data, error } = await supabase.rpc('fn_obra_item_excluir', { p_item_id: it.id, p_motivo: 'removido pela tela de obras' })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string; mensagem?: string } | null
-    if (error || !j?.ok) { setErro(j?.mensagem ?? error?.message ?? j?.erro ?? 'Falha ao remover o item.'); return }
+    if (error || !j?.ok) { setErro(j?.mensagem ?? (error ? erroAmigavel(error) : (j?.erro ?? 'Falha ao remover o item.'))); return }
     await carregar(); onChanged()
   }
 
@@ -534,7 +535,7 @@ function FiscalObraModal({ obra, onClose, onSaved }: { obra: Obra; onClose: () =
     })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setMsg('Erro: ' + (j?.erro ?? error?.message ?? 'falha ao salvar')); return }
+    if (error || !j?.ok) { setMsg((error ? erroAmigavel(error) : (j?.erro ?? 'Não foi possível salvar. Tente de novo.'))); return }
     onSaved(); onClose()
   }
   const inp: React.CSSProperties = { border: `1px solid ${LINE}`, borderRadius: 8, padding: '8px 10px', fontSize: 12.5, color: ESP, background: '#fff', width: '100%', boxSizing: 'border-box' }
@@ -612,7 +613,7 @@ function EditarObraModal({ obra, onClose, onSaved }: { obra: Obra; onClose: () =
     const { data, error } = await supabase.rpc('fn_obra_editar', { p_obra_id: obra.id, p_dados: { ...f, valor_previsto: String(valor) } })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setMsg('Erro: ' + (j?.erro ?? error?.message ?? 'falha ao salvar')); return }
+    if (error || !j?.ok) { setMsg((error ? erroAmigavel(error) : (j?.erro ?? 'Não foi possível salvar. Tente de novo.'))); return }
     onSaved(); onClose()
   }
   const inp: React.CSSProperties = { border: `1px solid ${LINE}`, borderRadius: 8, padding: '8px 10px', fontSize: 12.5, color: ESP, background: '#fff', width: '100%', boxSizing: 'border-box' }
@@ -662,7 +663,7 @@ function ExcluirObraModal({ obra, onClose, onDone }: { obra: Obra; onClose: () =
     const { data, error } = await supabase.rpc('fn_obra_excluir', { p_obra_id: obra.id, p_motivo: motivo })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setMsg(j?.erro ?? error?.message ?? 'Falha ao excluir.'); return }
+    if (error || !j?.ok) { setMsg((error ? erroAmigavel(error) : (j?.erro ?? 'Falha ao excluir.'))); return }
     onDone(); onClose()
   }
   return (
