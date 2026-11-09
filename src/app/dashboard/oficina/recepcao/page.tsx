@@ -494,7 +494,7 @@ export default function RecepcaoPage() {
             </>
           ) : (
             <>
-              <Campo l={ramo.objetoLabel}>
+              <Campo l={ramo.objetoLabel} ajuda="oficina.recepcao.objeto">
                 <input value={itemDesc} onChange={(e) => setItemDesc(e.target.value)} placeholder={ramo.identPlaceholder} style={inp} />
                 {!itemDesc.trim() && (
                   <div style={{ fontSize: 11, color: GOLD, marginTop: 6 }}>
@@ -502,14 +502,14 @@ export default function RecepcaoPage() {
                   </div>
                 )}
               </Campo>
-              <Campo l="Material (opcional)"><input value={material} onChange={(e) => setMaterial(e.target.value)} placeholder="Ex.: alumínio / ferro fundido" style={inp} /></Campo>
+              <Campo l="Material (opcional)" ajuda="oficina.recepcao.material"><input value={material} onChange={(e) => setMaterial(e.target.value)} placeholder="Ex.: alumínio / ferro fundido" style={inp} /></Campo>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 110px', gap: 8 }}>
-                <Campo l="Medidas / specs (opcional)"><input value={medidas} onChange={(e) => setMedidas(e.target.value)} placeholder="Ex.: Ø 82,00mm" style={inp} /></Campo>
-                <Campo l="Quantidade (opcional)"><input value={quantidade} onChange={(e) => setQuantidade(e.target.value.replace(/[^\d.,]/g, ''))} inputMode="decimal" placeholder="1" style={inp} /></Campo>
+                <Campo l="Medidas / specs (opcional)" ajuda="oficina.recepcao.medidas"><input value={medidas} onChange={(e) => setMedidas(e.target.value)} placeholder="Ex.: Ø 82,00mm" style={inp} /></Campo>
+                <Campo l="Quantidade (opcional)" ajuda="oficina.recepcao.quantidade"><input value={quantidade} onChange={(e) => setQuantidade(e.target.value.replace(/[^\d.,]/g, ''))} inputMode="decimal" placeholder="1" style={inp} /></Campo>
               </div>
               {/* Motor/veículo de origem — colapsado (rastreio opcional de qual carro veio a peça) */}
               {origemAberta ? (
-                <Campo l="Motor / veículo de origem (opcional)"><input value={marca} onChange={(e) => setMarca(e.target.value)} placeholder="Ex.: motor AP 1.8 / Gol G4" style={inp} autoFocus /></Campo>
+                <Campo l="Motor / veículo de origem (opcional)" ajuda="oficina.recepcao.motor_origem"><input value={marca} onChange={(e) => setMarca(e.target.value)} placeholder="Ex.: motor AP 1.8 / Gol G4" style={inp} autoFocus /></Campo>
               ) : (
                 <button onClick={() => setOrigemAberta(true)} style={{ background: 'none', border: 'none', color: GOLD, fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: '2px 0', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                   + Motor / veículo de origem
@@ -635,9 +635,9 @@ export default function RecepcaoPage() {
           </button>
         </>}
       >
-        <Campo l="Nome / Razão social *"><input value={cadNome} onChange={(e) => setCadNome(e.target.value)} style={inp} autoFocus /></Campo>
-        <Campo l="Documento"><input value={clienteCnpj} readOnly style={{ ...inp, background: '#F0EADE', color: ESP60 }} /></Campo>
-        <Campo l="Telefone (opcional)"><input value={cadTelefone} onChange={(e) => setCadTelefone(e.target.value)} inputMode="tel" style={inp} /></Campo>
+        <Campo l="Nome / Razão social *" ajuda="oficina.recepcao.cad_nome"><input value={cadNome} onChange={(e) => setCadNome(e.target.value)} style={inp} autoFocus /></Campo>
+        <Campo l="Documento" ajuda="oficina.recepcao.cad_documento"><input value={clienteCnpj} readOnly style={{ ...inp, background: '#F0EADE', color: ESP60 }} /></Campo>
+        <Campo l="Telefone (opcional)" ajuda="oficina.recepcao.cad_telefone"><input value={cadTelefone} onChange={(e) => setCadTelefone(e.target.value)} inputMode="tel" style={inp} /></Campo>
         {isCnpj && (
           <button type="button" onClick={() => void enriquecerCnpj()} disabled={cadEnriq} style={{ ...btnGold, width: 'auto', opacity: cadEnriq ? 0.6 : 1 }}>
             <Search size={16} /> {cadEnriq ? 'Buscando…' : 'Buscar dados públicos'}
