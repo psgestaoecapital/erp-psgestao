@@ -9,10 +9,9 @@ import Link from "next/link";
 import * as XLSX from "xlsx";
 import { Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, ArrowLeft, History } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { erroAmigavel } from "@/lib/erroAmigavel";
+import { erroAmigavel, codigoAmigavel } from "@/lib/erroAmigavel";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
-import { erroAmigavel, codigoAmigavel } from "@/lib/erroAmigavel";
 import { CAMPOS, MOTIVO_TEXTO, adivinharMapa, ehCsv, selecionar, textoCsv, type CampoSiga, type Motivo } from "@/lib/pm/importSiga";
 
 type Conferencia = { ok: boolean; erro?: string; mensagem?: string; total: number; novos: number; ja_existem: number; gravados: number;
