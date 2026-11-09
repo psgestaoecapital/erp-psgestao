@@ -368,14 +368,21 @@ export default function OperacionalPage(){
           padding:'10px 18px',borderRadius:8,fontWeight:700,fontSize:12,cursor:'pointer',border:'none',
           background:tab==='receber'?`linear-gradient(135deg,${C.green},#10B981)`:`linear-gradient(135deg,${C.red},#DC2626)`,color:'#fff'
         }}>+ {tab==='receber'?'Nova Conta a Receber':'Nova Conta a Pagar'}</button>
-        <input value={filtro} onChange={e=>setFiltro(e.target.value)} placeholder="🔍 Buscar..." style={{...inp,flex:1,minWidth:180}}/>
-        <select value={filtroStatus} onChange={e=>setFiltroStatus(e.target.value)} style={{...inp,width:'auto',cursor:'pointer'}}>
-          <option value="">Todos</option>
-          <option value="A VENCER">A Vencer</option>
-          <option value={tab==='receber'?'RECEBIDO':'PAGO'}>{tab==='receber'?'Recebido':'Pago'}</option>
-          <option value="VENCIDO">Vencido</option>
-          <option value="CANCELADO">Cancelado</option>
-        </select>
+        <AjudaCampo rota="/dashboard/operacional" chave="operacional.acao_nova_conta" />
+        <div style={{display:'flex',alignItems:'center',flex:1,minWidth:180,gap:2}}>
+          <input value={filtro} onChange={e=>setFiltro(e.target.value)} placeholder="🔍 Buscar..." style={{...inp,flex:1}}/>
+          <AjudaCampo rota="/dashboard/operacional" chave="operacional.filtro_busca" />
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:2}}>
+          <select value={filtroStatus} onChange={e=>setFiltroStatus(e.target.value)} style={{...inp,width:'auto',cursor:'pointer'}}>
+            <option value="">Todos</option>
+            <option value="A VENCER">A Vencer</option>
+            <option value={tab==='receber'?'RECEBIDO':'PAGO'}>{tab==='receber'?'Recebido':'Pago'}</option>
+            <option value="VENCIDO">Vencido</option>
+            <option value="CANCELADO">Cancelado</option>
+          </select>
+          <AjudaCampo rota="/dashboard/operacional" chave="operacional.filtro_status" />
+        </div>
       </div>
 
       {/* FORM */}
@@ -629,7 +636,11 @@ export default function OperacionalPage(){
           padding:'10px 18px',borderRadius:8,fontWeight:700,fontSize:12,cursor:'pointer',border:'none',
           background:tab==='clientes'?`linear-gradient(135deg,${C.blue},#2563EB)`:`linear-gradient(135deg,${C.purple},#7C3AED)`,color:'#fff'
         }}>+ {tab==='clientes'?'Novo Cliente':'Novo Fornecedor'}</button>
-        <input value={filtro} onChange={e=>setFiltro(e.target.value)} placeholder="🔍 Buscar..." style={{...inp,flex:1,minWidth:180}}/>
+        <AjudaCampo rota="/dashboard/operacional" chave="operacional.acao_novo_cadastro" />
+        <div style={{display:'flex',alignItems:'center',flex:1,minWidth:180,gap:2}}>
+          <input value={filtro} onChange={e=>setFiltro(e.target.value)} placeholder="🔍 Buscar..." style={{...inp,flex:1}}/>
+          <AjudaCampo rota="/dashboard/operacional" chave="operacional.filtro_busca_pessoas" />
+        </div>
         <div style={{fontSize:11,color:C.dim}}>{filteredPessoas.length} cadastros</div>
       </div>
 
@@ -712,6 +723,7 @@ export default function OperacionalPage(){
           padding:'10px 18px',borderRadius:8,fontWeight:700,fontSize:12,cursor:'pointer',border:'none',
           background:`linear-gradient(135deg,${C.gold},${C.goldL})`,color:C.bg
         }}>+ Nova Conta Bancária</button>
+        <AjudaCampo rota="/dashboard/operacional" chave="operacional.acao_nova_bancaria" />
         <div style={{fontSize:11,color:C.dim}}>{contasBancarias.length} contas</div>
       </div>
 
@@ -792,7 +804,11 @@ export default function OperacionalPage(){
           padding:'10px 18px',borderRadius:8,fontWeight:700,fontSize:12,cursor:'pointer',border:'none',
           background:`linear-gradient(135deg,${C.gold},${C.goldL})`,color:C.bg
         }}>+ Nova Categoria</button>
-        <input value={filtro} onChange={e=>setFiltro(e.target.value)} placeholder="🔍 Buscar por código ou nome..." style={{...inp,flex:1,minWidth:180}}/>
+        <AjudaCampo rota="/dashboard/operacional" chave="operacional.acao_nova_categoria" />
+        <div style={{display:'flex',alignItems:'center',flex:1,minWidth:180,gap:2}}>
+          <input value={filtro} onChange={e=>setFiltro(e.target.value)} placeholder="🔍 Buscar por código ou nome..." style={{...inp,flex:1}}/>
+          <AjudaCampo rota="/dashboard/operacional" chave="operacional.filtro_busca_plano" />
+        </div>
         <div style={{fontSize:11,color:C.dim}}>{plano.length} categorias</div>
       </div>
 
