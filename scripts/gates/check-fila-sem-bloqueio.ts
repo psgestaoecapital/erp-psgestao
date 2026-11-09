@@ -75,9 +75,10 @@ if (!temFerramentas()) {
     ok(merges(x.escritas).length === 0, 'cenário 14/10: sem deploy vermelho a regra segue (migration adicionada espera a main)')
     x = rodar([{ n: 1, migration: true, migrationBaixa: true }, { n: 2, migration: true }])
     ok(merges(x.escritas).join() === '2' && /renumerada\(s\) pela fila/.test(x.log)
-      && x.escritas.some((l) => /^PUT repos\/o\/r\/contents\/supabase\/migrations\/\d{14}_m\.sql .*branch=pr1/.test(l))
-      && x.escritas.some((l) => /^DELETE repos\/o\/r\/contents\/supabase\/migrations\/20261001000001_m\.sql/.test(l)),
-      'cenário 09/10: migration com versão abaixo da última da main (recalculada na hora) é RENUMERADA pela fila (commit no ramo); a outra COM migration válida é mergeada')
+      && x.escritas.filter((l) => /^POST repos\/o\/r\/git\/commits /.test(l)).length === 1
+      && x.escritas.filter((l) => /^PATCH repos\/o\/r\/git\/refs\/heads\/pr1 /.test(l)).length === 1
+      && !x.escritas.some((l) => /contents\/supabase\/migrations/.test(l) && !/^GET /.test(l)),
+      'cenário 09/10: migration com versão abaixo da última da main é RENUMERADA em UM commit só (git data: 1 commit, 1 ref); sem PUT/DELETE pelo contents; a outra COM migration válida é mergeada')
   })
 }
 
