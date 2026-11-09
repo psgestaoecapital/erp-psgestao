@@ -102,7 +102,7 @@ export default function BotSlackPage() {
     if (r.error || !(r.data as { ok?: boolean })?.ok) {
       setErro((r.data as { erro?: string })?.erro || 'Não foi possível conectar o canal. Confira o webhook e tente de novo.'); return
     }
-    setWebhook(''); setToast('Canal conectado. Os avisos marcados passam a ser enviados quando o motor de envio for publicado.')
+    setWebhook(''); setToast('Canal conectado. Os avisos marcados são detectados e entram na fila; a entrega ao Slack ainda está sendo ativada.')
     await carregar()
   }
 
@@ -129,7 +129,7 @@ export default function BotSlackPage() {
     if (r.error || !(r.data as { ok?: boolean })?.ok) {
       setToast((r.data as { erro?: string })?.erro || 'Não foi possível enviar o teste.'); setTestando(false); return
     }
-    setToast('Mensagem de teste enviada. Confira o canal no Slack (e o histórico abaixo).')
+    setToast('Teste na fila. A entrega ao Slack ainda está sendo ativada — acompanhe o status (Na fila / Enviada / Falhou) no histórico abaixo.')
     // o resultado chega em segundos (motor assíncrono): recarrega agora e de novo em 2,5 s
     await carregarHistorico()
     setTimeout(() => { void carregarHistorico() }, 2500)
