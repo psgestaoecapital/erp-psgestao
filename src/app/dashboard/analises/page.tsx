@@ -428,7 +428,7 @@ export default function AnalisesPage(){
         const alerts: {sev:string,msg:string,det:string}[] = [];
         if(realData.resultado_periodo<0) alerts.push({sev:"critico",msg:`Resultado negativo: ${fmtBRL(realData.resultado_periodo)}`,det:"A empresa está gastando mais do que fatura. Ação imediata necessária."});
         if(realData.top_receitas?.some((r:any)=>r.nome?.toLowerCase().includes("empréstimo")||r.nome?.toLowerCase().includes("financiamento")||r.nome?.toLowerCase().includes("aporte")))
-          alerts.push({sev:"atencao",msg:"Empréstimos/financiamentos estão sendo contados como receita",det:"Isso infla o faturamento real. Reclassifique no Omie: Categorias → mova empréstimos para 4.xx ou 5.xx"});
+          alerts.push({sev:"atencao",msg:"Empréstimos/financiamentos estão sendo contados como receita",det:"Isso infla o faturamento real. Reclassifique no sistema de origem: mova empréstimos para categorias 4.xx ou 5.xx"});
         return alerts.length>0?(
           <div style={{marginBottom:12}}>
             {alerts.map((a,i)=>(
@@ -447,7 +447,7 @@ export default function AnalisesPage(){
             <KPI r="Receitas (Contas a Receber)" v={`${fmtBRL(realData.total_receitas)}`} d={`${realData.num_empresas} empresas consolidadas`} ok={true}/>
             <KPI r="Despesas (Contas a Pagar)" v={`${fmtBRL(realData.total_despesas)}`} d={`Total do período`} ok={null}/>
             <KPI r="Resultado do Período" v={`${fmtBRL(realData.resultado_periodo)}`} d={`Margem ${realData.margem}%`} ok={realData.resultado_periodo>0}/>
-            <KPI r="Clientes" v={realData.total_clientes.toLocaleString("pt-BR")} d="Cadastrados no Omie" ok={true}/>
+            <KPI r="Clientes" v={realData.total_clientes.toLocaleString("pt-BR")} d="Cadastrados no sistema de origem" ok={true}/>
           </div>
 
           {(realData.chart_mensal||chartData)&&(realData.chart_mensal||chartData).length>0&&(
@@ -512,7 +512,7 @@ export default function AnalisesPage(){
       <div style={{textAlign:"center",padding:"40px 20px"}}>
         <div style={{fontSize:16,fontWeight:600,color:TX,marginBottom:8}}>Conecte seus dados para começar</div>
         <div style={{fontSize:12,color:TXM,lineHeight:1.6,maxWidth:400,margin:"0 auto 20px"}}>
-          Importe dados do Omie ou ContaAzul para ver as análises com dados reais.
+          Importe dados do seu sistema de origem para ver as análises com dados reais.
         </div>
         <div style={{display:"flex",gap:8,justifyContent:"center"}}>
           <a href="/dashboard/dados" style={{padding:"10px 20px",borderRadius:10,background:`linear-gradient(135deg,${GO},${GOL})`,color:BG,fontSize:12,fontWeight:700,textDecoration:"none"}}>📊 Conectar ERP</a>
@@ -591,7 +591,7 @@ export default function AnalisesPage(){
 
     {aba==="negocios"&&(<div>
       {realData&&realData.top_receitas_operacionais&&realData.top_receitas_operacionais.length>0?(<>
-        <Tit t={`${realData.top_receitas_operacionais.length} Linhas de Receita Identificadas — Dados Reais do Omie`}/>
+        <Tit t={`${realData.top_receitas_operacionais.length} Linhas de Receita Identificadas — Dados Reais (sistema de origem)`}/>
         {realData.top_receitas_operacionais.map((r:any,i:number)=>{
           const pct = realData.total_rec_operacional>0?((r.valor/realData.total_rec_operacional)*100):0;
           const cores = [GO,G,B,P,T,GOL,"#F97316","#EC4899"];
@@ -789,7 +789,7 @@ export default function AnalisesPage(){
           <KPI r="Despesas Totais" v={`${fmtBRL(realData.total_despesas)}`} d="Contas a pagar" ok={null}/>
           <KPI r="Resultado Operacional" v={`${fmtBRL(realData.resultado_periodo)}`} d={`Margem ${realData.margem}%`} ok={realData.resultado_periodo>0}/>
           <KPI r="Empréstimos Recebidos" v={`${fmtBRL(realData.total_emprestimos||0)}`} d="Financiamentos, aportes" ok={null}/>
-          <KPI r="Clientes" v={realData.total_clientes.toLocaleString("pt-BR")} d="No cadastro do Omie" ok={true}/>
+          <KPI r="Clientes" v={realData.total_clientes.toLocaleString("pt-BR")} d="No cadastro do sistema de origem" ok={true}/>
           <KPI r="Empresas" v={`${realData.num_empresas}`} d="CNPJs consolidados" ok={null}/>
         </div>
         <Tit t="Receitas × Despesas × Resultado"/>
