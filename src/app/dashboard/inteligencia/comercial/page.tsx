@@ -458,7 +458,7 @@ function AbaAnalise({ companyId, de, ate, vendedor, aba }: { companyId: string; 
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
           <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', flex: '1 1 200px' }}>
             <Search size={13} style={{ position: 'absolute', left: 9, color: MUT, pointerEvents: 'none' }} />
-            <input value={busca} onChange={e => setBusca(e.target.value)} placeholder={`Buscar ${aba === 'vendedores' ? 'vendedor' : aba === 'clientes' ? 'cliente' : aba === 'cidades' ? 'cidade' : 'produto'}…`} aria-label="Buscar na lista" style={{ width: '100%', border: `0.5px solid ${LINE}`, borderRadius: 999, padding: '6px 10px 6px 28px', fontSize: 12.5, color: ESP, background: '#fff' }} />
+            <input value={busca} onChange={e => setBusca(e.target.value)} placeholder={`Buscar ${aba === 'vendedores' ? 'vendedor' : aba === 'clientes' ? 'cliente' : aba === 'cidades' ? 'cidade' : 'produto (nome ou código)'}…`} aria-label="Buscar na lista" style={{ width: '100%', border: `0.5px solid ${LINE}`, borderRadius: 999, padding: '6px 10px 6px 28px', fontSize: 12.5, color: ESP, background: '#fff' }} />
             <AjudaCampo chave="comercial.bi.busca_analise" rota={ROTA} />
           </span>
           <span style={{ fontSize: 11.5, color: MUT, whiteSpace: 'nowrap' }}>{filtrados.length} de {itens.length}</span>
@@ -489,7 +489,13 @@ function AbaAnalise({ companyId, de, ate, vendedor, aba }: { companyId: string; 
                         <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{i + 1}. {rot}</div>
                         {aba === 'vendedores' && <div style={{ fontSize: 10, color: MUT }}>{it.cargo || 'Vendedor'}{it.filial ? ` · filial ${it.filial}` : ''} · {nf(it.n_clientes, 0)} clientes</div>}
                         {aba === 'cidades' && it.uf && <div style={{ fontSize: 10, color: MUT }}>{it.uf} · {nf(it.n_clientes, 0)} clientes · {nf(it.n_produtos, 0)} produtos</div>}
-                        {aba === 'produtos' && ehDespojo(rot) && <div style={{ fontSize: 10, color: '#8A6A1E', fontWeight: 700 }}>despojo / não comestível</div>}
+                        {aba === 'produtos' && (it.chave || ehDespojo(rot)) && (
+                          <div style={{ fontSize: 10, color: ehDespojo(rot) ? '#8A6A1E' : MUT, fontWeight: ehDespojo(rot) ? 700 : 400 }}>
+                            {it.chave && it.chave !== rot ? `cód. ${it.chave}` : ''}
+                            {it.chave && it.chave !== rot && ehDespojo(rot) ? ' · ' : ''}
+                            {ehDespojo(rot) ? 'despojo / não comestível' : ''}
+                          </div>
+                        )}
                       </td>
                       <td style={{ textAlign: 'right', padding: '7px 10px', color: ESP, fontWeight: 700, whiteSpace: 'nowrap' }}>{brl(it.faturamento)}</td>
                       <td style={{ textAlign: 'right', padding: '7px 10px', color: MUT, whiteSpace: 'nowrap' }}>{nf(it.kg, 0)} kg</td>
