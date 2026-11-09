@@ -1,0 +1,73 @@
+-- RD-95 ("?" em todo campo/filtro/indicador/ação) · Pátio de veículos (Comércio · Revenda).
+-- Gap do auditor (/dashboard/revenda/patio, score 78): "tela de estoque rica (filtros Situação/
+-- Completude/Ordenar/Sinal, busca, Lista/Cards, faixas 'ONDE O DINHEIRO ESTÁ PARADO' e indicadores
+-- por card) com NENHUM AjudaCampo '?'". Esta migration cadastra as chaves de ajuda dos filtros,
+-- do seletor de exibição, da ação de novo veículo e dos dois indicadores principais (mapa de calor
+-- de dias parados e contador de completude fiscal). O page.tsx passa a referenciar cada uma com
+-- <AjudaCampo chave="..." />.
+-- Catálogo de ajuda é metadata de SISTEMA (sem dado de cliente).
+-- ADITIVO/IDEMPOTENTE: ON CONFLICT (chave) DO NOTHING.
+
+INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
+VALUES
+('revenda.patio.filtro_situacao','Filtros','Situação',
+ 'Escolha quais carros aparecem pela situação. O padrão "estoque atual" mostra só o que está na loja (esconde vendidos e entregues); "devolvido" volta ao pátio e conta como estoque.',
+ 'Controla a base de todos os números da tela (contadores, mapa de calor e lista seguem o filtro escolhido).',
+ 'Deixar em "estoque atual" no dia a dia; mudar para "vendido" só quando for conferir o que já saiu.',
+ 'Achar que o pátio está vazio sem notar que o filtro está em "vendido" ou "entregue" — troque para "estoque atual".',
+ 1,'/dashboard/revenda/patio','revenda','publicado'),
+('revenda.patio.filtro_completude','Filtros','Completude',
+ 'Filtra os carros pelo que ainda falta: sem custo de aquisição, sem dados do veículo, sem vistoria, sem foto, não precificado, em preparação ou pendentes para emitir nota.',
+ 'Ajuda a caçar e completar o cadastro dos carros antes de anunciar ou emitir nota — cada opção mostra entre parênteses quantos estão naquele estado.',
+ 'Selecionar "sem foto (3)" para ver e completar os 3 carros sem foto no anúncio.',
+ 'Esquecer o filtro ligado e achar que há poucos carros — volte para "todas" para ver o pátio inteiro.',
+ 2,'/dashboard/revenda/patio','revenda','publicado'),
+('revenda.patio.ordenar','Filtros','Ordenar',
+ 'Define a ordem da lista: por dias parados (padrão), maior sangria por dia, vira prejuízo antes ou pior ROI.',
+ 'Coloca no topo o carro que mais pede atenção segundo o critério escolhido — útil para decidir qual reprecificar ou vender primeiro.',
+ 'Ordenar por "vira prejuízo antes" para agir primeiro nos carros com data de virada mais próxima.',
+ 'Comparar carros sem reparar que a lista está ordenada por outro critério.',
+ 3,'/dashboard/revenda/patio','revenda','publicado'),
+('revenda.patio.filtro_sinal','Filtros','Sinal',
+ 'Filtra por um sinal de risco: vai virar prejuízo, anunciado abaixo do piso, ROI negativo, sem custo de aquisição ou sem dados para nota.',
+ 'Destaca de uma vez os carros em que o dinheiro corre risco, sem precisar abrir um por um.',
+ 'Escolher "anunciado abaixo do piso" para rever o preço dos carros vendendo por menos que o mínimo.',
+ 'Confundir com o filtro de Completude: Sinal é sobre risco de dinheiro; Completude é sobre cadastro faltando.',
+ 4,'/dashboard/revenda/patio','revenda','publicado'),
+('revenda.patio.busca','Filtros','Buscar modelo/placa',
+ 'Digite parte do modelo, da placa ou do fim do chassi para encontrar um carro específico no pátio.',
+ 'Encontra rápido um veículo sem rolar a lista — a busca respeita os filtros ativos (situação, completude, sinal).',
+ 'Digitar "gol" para ver todos os VW Gol, ou a placa "ABC" para localizar um carro.',
+ 'Não achar um carro porque ele está fora do filtro de situação atual (ex.: já vendido) — use "todas".',
+ 5,'/dashboard/revenda/patio','revenda','publicado'),
+('revenda.patio.modo_exibicao','Exibição','Lista ou Cards',
+ 'Alterne entre a lista densa (uma linha por carro, melhor no celular e em pátios grandes) e os cards com foto.',
+ 'Deixa você ver muitos carros de uma vez (lista) ou olhar foto e detalhes (cards), conforme a tarefa.',
+ 'Usar a lista para varrer o pátio inteiro rápido; trocar para cards ao escolher um carro com foto.',
+ 'No celular os cards ocupam muito espaço — a tela já abre em lista; use os botões para alternar.',
+ 6,'/dashboard/revenda/patio','revenda','publicado'),
+('revenda.patio.novo_veiculo','Ações','Novo veículo',
+ 'Cadastra um carro novo no pátio pelo chassi (placa é opcional). Depois você completa custo, fotos, vistoria e preço na ficha do veículo.',
+ 'É a porta de entrada do estoque: todo carro que chega à loja começa aqui para aparecer no pátio e nos relatórios.',
+ 'Receber um carro na troca e cadastrá-lo pelo chassi para já entrar no controle de dias parados.',
+ 'Cadastrar duas vezes o mesmo chassi: confira na busca antes de criar.',
+ 7,'/dashboard/revenda/patio','revenda','publicado'),
+('revenda.patio.mapa_calor','Indicadores','Onde o dinheiro está parado',
+ 'Nenhum dado a preencher: é um indicador. Mostra, por faixa de tempo no pátio (0–15, 16–30, 31–60, 61–90, 90+ dias), quantos carros há e quanto dinheiro (custo acumulado) está preso em cada faixa. Clique numa faixa para filtrar.',
+ 'Mostra em segundos onde o capital está travado — quanto mais antiga a faixa, mais urgente girar o carro.',
+ 'Ver uma barra grande em "90+ dias" e clicar para agir nos carros que mais prendem dinheiro.',
+ 'Ignorar as faixas vermelhas (61+ dias): são o dinheiro que mais custa parado.',
+ 8,'/dashboard/revenda/patio','revenda','publicado'),
+('revenda.patio.prontos_nota','Indicadores','Prontos para emitir nota',
+ 'Nenhum dado a preencher: é um indicador. Mostra quantos carros, do pátio filtrado, já têm todos os campos necessários para emitir nota e quantos ainda faltam. Toque para ver só os pendentes.',
+ 'Antecipa gargalos fiscais: você sabe antes da venda quais carros ainda não podem ser faturados.',
+ 'Ver "8 de 10 prontos para nota · toque para ver os 2 pendentes" e completar os dados que faltam.',
+ 'Prometer a nota ao cliente sem conferir se o carro está entre os pendentes.',
+ 9,'/dashboard/revenda/patio','revenda','publicado'),
+('revenda.patio.indicadores_card','Indicadores','Dias parados, custo, piso e anunciado',
+ 'Nenhum dado a preencher: são indicadores calculados na hora para cada carro. Dias parados (semáforo pelas faixas da empresa) e custo acumulado nunca são gravados; piso é o preço mínimo e anunciado é o preço de venda atual.',
+ 'Reúne no card tudo que decide o preço: há quanto tempo o carro está parado, quanto já custou e onde está o preço frente ao piso.',
+ 'Um card com "61 dias · anunc. abaixo do piso" é sinal claro para reprecificar ou negociar a venda.',
+ 'Tratar dias parados ou custo como valor fixo: eles mudam a cada dia e a cada custo lançado.',
+ 10,'/dashboard/revenda/patio','revenda','publicado')
+ON CONFLICT (chave) DO NOTHING;

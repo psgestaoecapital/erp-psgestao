@@ -600,7 +600,7 @@ function ImportarVinculadoModal({ companyId, plantId, codigosExistentes, onClose
         ) : (
           <>
             {fontes.length > 1 && (
-              <label style={{ fontSize: 12, color: C.espM, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+              <label data-ajuda="prod.produto.importar_fonte" style={{ fontSize: 12, color: C.espM, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
                 Fonte vinculada<Aj k="prod.produto.importar_fonte" />
                 <select data-testid="importar-fonte" value={fonte} onChange={(e) => setFonte(e.target.value)} style={{ ...inp, width: 'auto', flex: 1 }}>
                   <option value="">Escolha a fonte…</option>
@@ -611,7 +611,7 @@ function ImportarVinculadoModal({ companyId, plantId, codigosExistentes, onClose
 
             {fonte && (
               <>
-                <label style={{ fontSize: 12, color: C.espM, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                <label data-ajuda="prod.produto.importar_busca" style={{ fontSize: 12, color: C.espM, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                   Buscar<Aj k="prod.produto.importar_busca" />
                   <input data-testid="importar-busca" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="nome do produto" style={{ ...inp, flex: 1 }} />
                 </label>
@@ -621,9 +621,9 @@ function ImportarVinculadoModal({ companyId, plantId, codigosExistentes, onClose
                 ) : (
                   <>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12, color: C.espM, marginBottom: 6 }}>
-                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: selecionaveis.length ? 'pointer' : 'default' }}>
+                      <label data-ajuda="prod.produto.importar_selecao" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: selecionaveis.length ? 'pointer' : 'default' }}>
                         <input data-testid="importar-todos" type="checkbox" checked={todosSel} disabled={!selecionaveis.length} onChange={toggleTodos} />
-                        Selecionar todos ({selecionaveis.length})
+                        Selecionar todos ({selecionaveis.length})<Aj k="prod.produto.importar_selecao" />
                       </label>
                       <span>{sel.size} selecionado(s)</span>
                     </div>
@@ -632,7 +632,7 @@ function ImportarVinculadoModal({ companyId, plantId, codigosExistentes, onClose
                       {filtrados.map((i, idx) => {
                         const ja = jaImportado(i.descricao)
                         return (
-                          <label key={i.descricao + idx} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderBottom: idx < filtrados.length - 1 ? `1px solid ${C.cream}` : 'none', cursor: ja ? 'default' : 'pointer', opacity: ja ? 0.6 : 1 }}>
+                          <label key={i.descricao + idx} data-ajuda="prod.produto.importar_selecao" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderBottom: idx < filtrados.length - 1 ? `1px solid ${C.cream}` : 'none', cursor: ja ? 'default' : 'pointer', opacity: ja ? 0.6 : 1 }}>
                             <input type="checkbox" data-testid="importar-item" checked={ja || sel.has(i.descricao)} disabled={ja} onChange={() => toggle(i.descricao)} />
                             <span style={{ flex: 1, fontSize: 13, color: C.esp }}>{i.descricao}{i.categoria_nome ? <span style={{ color: C.espL, fontSize: 11.5 }}> · {i.categoria_nome}</span> : null}</span>
                             {ja && <span style={{ fontSize: 11, fontWeight: 700, color: C.green, background: C.greenBg, padding: '2px 7px', borderRadius: 20 }}>já importado</span>}

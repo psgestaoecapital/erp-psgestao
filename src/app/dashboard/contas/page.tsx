@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -232,31 +233,33 @@ export default function ContasPage(){
       {/* KPIs */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(200px, 1fr))",gap:10,marginBottom:16}}>
         <div style={{background:BG2,borderRadius:10,padding:14,border:`1px solid ${BD}`}}>
-          <div style={{fontSize:10,color:TXD,textTransform:"uppercase",letterSpacing:0.5,fontWeight:600}}>A Receber</div>
+          <div style={{fontSize:10,color:TXD,textTransform:"uppercase",letterSpacing:0.5,fontWeight:600,display:"flex",alignItems:"center",gap:4}}>A Receber<AjudaCampo chave="contas.kpi_receber" /></div>
           <div style={{fontSize:20,fontWeight:700,color:G,marginTop:4,fontFamily:"var(--ps-font-mono,monospace)"}}>{fmtR(kpis.aReceber)}</div>
           {kpis.atrasadoR>0&&<div style={{fontSize:10,color:R,marginTop:2}}>⚠️ {fmtR(kpis.atrasadoR)} atrasado</div>}
         </div>
         <div style={{background:BG2,borderRadius:10,padding:14,border:`1px solid ${BD}`}}>
-          <div style={{fontSize:10,color:TXD,textTransform:"uppercase",letterSpacing:0.5,fontWeight:600}}>A Pagar</div>
+          <div style={{fontSize:10,color:TXD,textTransform:"uppercase",letterSpacing:0.5,fontWeight:600,display:"flex",alignItems:"center",gap:4}}>A Pagar<AjudaCampo chave="contas.kpi_pagar" /></div>
           <div style={{fontSize:20,fontWeight:700,color:R,marginTop:4,fontFamily:"var(--ps-font-mono,monospace)"}}>{fmtR(kpis.aPagar)}</div>
           {kpis.atrasadoP>0&&<div style={{fontSize:10,color:R,marginTop:2}}>⚠️ {fmtR(kpis.atrasadoP)} atrasado</div>}
         </div>
         <div style={{background:BG2,borderRadius:10,padding:14,border:`1px solid ${BD}`}}>
-          <div style={{fontSize:10,color:TXD,textTransform:"uppercase",letterSpacing:0.5,fontWeight:600}}>Saldo Projetado</div>
+          <div style={{fontSize:10,color:TXD,textTransform:"uppercase",letterSpacing:0.5,fontWeight:600,display:"flex",alignItems:"center",gap:4}}>Saldo Projetado<AjudaCampo chave="contas.kpi_saldo" /></div>
           <div style={{fontSize:20,fontWeight:700,color:kpis.aReceber-kpis.aPagar>=0?G:R,marginTop:4,fontFamily:"var(--ps-font-mono,monospace)"}}>{fmtR(kpis.aReceber-kpis.aPagar)}</div>
         </div>
         <div style={{background:BG2,borderRadius:10,padding:14,border:`1px solid ${BD}`}}>
-          <div style={{fontSize:10,color:TXD,textTransform:"uppercase",letterSpacing:0.5,fontWeight:600}}>Pendentes / Atrasados</div>
+          <div style={{fontSize:10,color:TXD,textTransform:"uppercase",letterSpacing:0.5,fontWeight:600,display:"flex",alignItems:"center",gap:4}}>Pendentes / Atrasados<AjudaCampo chave="contas.kpi_pendentes" /></div>
           <div style={{fontSize:20,fontWeight:700,color:kpis.totalAtras>0?Y:B,marginTop:4}}>{kpis.totalPend} / <span style={{color:R}}>{kpis.totalAtras}</span></div>
         </div>
       </div>
 
       {/* Filtros */}
       <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
-        <div style={{flex:1,minWidth:200}}>
+        <div style={{flex:1,minWidth:200,display:"flex",alignItems:"center",gap:4}}>
           <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="🔍 Buscar por descrição, cliente, fornecedor..." style={inp}/>
+          <AjudaCampo chave="contas.busca" />
         </div>
-        <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+        <div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
+          <AjudaCampo chave="contas.filtro_tipo" />
           {[
             {v:'todos',l:'Todos'},
             {v:'receita',l:'💰 Receitas'},
@@ -265,7 +268,8 @@ export default function ContasPage(){
             <button key={f.v} onClick={()=>setFiltroTipo(f.v as any)} style={{padding:"6px 12px",borderRadius:6,fontSize:10,border:`1px solid ${filtroTipo===f.v?GO:BD}`,background:filtroTipo===f.v?GO+"12":"transparent",color:filtroTipo===f.v?GO:TXM,cursor:"pointer",fontWeight:filtroTipo===f.v?600:400}}>{f.l}</button>
           ))}
         </div>
-        <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+        <div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
+          <AjudaCampo chave="contas.filtro_status" />
           {[
             {v:'pendente',l:'Pendentes'},
             {v:'atrasado',l:'⚠️ Atrasados'},
@@ -296,7 +300,7 @@ export default function ContasPage(){
             <div style={{padding:40,textAlign:"center"}}>
               <div style={{fontSize:40,marginBottom:8}}>💼</div>
               <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:4}}>{totalEmpresa===0?"Nenhum lançamento nesta empresa":"Nenhum lançamento para os filtros escolhidos"}</div>
-              <div style={{fontSize:11,color:TXD}} data-testid="contas-vazio">{totalEmpresa===0?"Importe dados do Omie/ContaAzul":`A empresa tem ${totalEmpresa} título(s); ajuste os filtros (status, tipo ou busca).`}</div>
+              <div style={{fontSize:11,color:TXD}} data-testid="contas-vazio">{totalEmpresa===0?"Importe dados do seu sistema anterior":`A empresa tem ${totalEmpresa} título(s); ajuste os filtros (status, tipo ou busca).`}</div>
             </div>
           ):(
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
@@ -304,12 +308,12 @@ export default function ContasPage(){
                 <th style={{padding:"8px",textAlign:"center",width:32}}>
                   <input type="checkbox" checked={selecionados.size===filtrados.length&&filtrados.length>0} onChange={selAll}/>
                 </th>
-                <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Venc.</th>
-                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Descrição</th>
-                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Cliente / Fornecedor</th>
+                <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Venc.<AjudaCampo chave="contas.col_venc" /></th>
+                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Descrição<AjudaCampo chave="contas.col_descricao" /></th>
+                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Cliente / Fornecedor<AjudaCampo chave="contas.col_pessoa" /></th>
                 {showCompanyColumn&&<th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Empresa</th>}
-                <th style={{padding:"8px",textAlign:"right",color:TXD,fontSize:10}}>Valor</th>
-                <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Status</th>
+                <th style={{padding:"8px",textAlign:"right",color:TXD,fontSize:10}}>Valor<AjudaCampo chave="contas.col_valor" /></th>
+                <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Status<AjudaCampo chave="contas.col_status" /></th>
               </tr></thead>
               <tbody>
                 {filtrados.map(l=>{

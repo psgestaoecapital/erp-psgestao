@@ -284,6 +284,7 @@ function Inner() {
             <KpiCard label="Faturamento" valor={brl(kpis?.faturamento ?? null)} d={delta(kpis?.faturamento, kpisAnt?.faturamento)} />
             <KpiCard label="Volume" valor={`${nf(kpis?.volume_kg ?? null, 0)} kg`} d={delta(kpis?.volume_kg, kpisAnt?.volume_kg)} />
             <KpiCard label="Clientes" valor={nf(kpis?.clientes ?? null, 0)} d={delta(kpis?.clientes, kpisAnt?.clientes)} />
+            <KpiCard label="Cidades atendidas" valor={nf(kpis?.cidades ?? null, 0)} d={delta(kpis?.cidades, kpisAnt?.cidades)} chave="comercial.bi.cidades_atendidas" />
             <KpiCard label="Ticket / kg" valor={kpis?.ticket_kg != null ? `${brl(kpis.ticket_kg)}/kg` : '—'} d={delta(kpis?.ticket_kg, kpisAnt?.ticket_kg)} />
             <KpiCard label="Ticket / cliente" valor={brl(kpis?.ticket_cliente ?? null)} d={delta(kpis?.ticket_cliente, kpisAnt?.ticket_cliente)} />
             {lucroConfiavel ? <>
@@ -457,7 +458,7 @@ function AbaAnalise({ companyId, de, ate, vendedor, aba }: { companyId: string; 
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
           <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', flex: '1 1 200px' }}>
             <Search size={13} style={{ position: 'absolute', left: 9, color: MUT, pointerEvents: 'none' }} />
-            <input value={busca} onChange={e => setBusca(e.target.value)} placeholder={`Buscar ${aba === 'vendedores' ? 'vendedor' : aba === 'clientes' ? 'cliente' : aba === 'cidades' ? 'cidade' : 'produto'}…`} aria-label="Buscar na lista" style={{ width: '100%', border: `0.5px solid ${LINE}`, borderRadius: 999, padding: '6px 10px 6px 28px', fontSize: 12.5, color: ESP, background: '#fff' }} />
+            <input value={busca} onChange={e => setBusca(e.target.value)} placeholder={`Buscar ${aba === 'vendedores' ? 'vendedor' : aba === 'clientes' ? 'cliente' : aba === 'cidades' ? 'cidade' : 'produto (nome ou código)'}…`} aria-label="Buscar na lista" style={{ width: '100%', border: `0.5px solid ${LINE}`, borderRadius: 999, padding: '6px 10px 6px 28px', fontSize: 12.5, color: ESP, background: '#fff' }} />
             <AjudaCampo chave="comercial.bi.busca_analise" rota={ROTA} />
           </span>
           <span style={{ fontSize: 11.5, color: MUT, whiteSpace: 'nowrap' }}>{filtrados.length} de {itens.length}</span>
@@ -488,7 +489,13 @@ function AbaAnalise({ companyId, de, ate, vendedor, aba }: { companyId: string; 
                         <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{i + 1}. {rot}</div>
                         {aba === 'vendedores' && <div style={{ fontSize: 10, color: MUT }}>{it.cargo || 'Vendedor'}{it.filial ? ` · filial ${it.filial}` : ''} · {nf(it.n_clientes, 0)} clientes</div>}
                         {aba === 'cidades' && it.uf && <div style={{ fontSize: 10, color: MUT }}>{it.uf} · {nf(it.n_clientes, 0)} clientes · {nf(it.n_produtos, 0)} produtos</div>}
-                        {aba === 'produtos' && ehDespojo(rot) && <div style={{ fontSize: 10, color: '#8A6A1E', fontWeight: 700 }}>despojo / não comestível</div>}
+                        {aba === 'produtos' && (it.chave || ehDespojo(rot)) && (
+                          <div style={{ fontSize: 10, color: ehDespojo(rot) ? '#8A6A1E' : MUT, fontWeight: ehDespojo(rot) ? 700 : 400 }}>
+                            {it.chave && it.chave !== rot ? `cód. ${it.chave}` : ''}
+                            {it.chave && it.chave !== rot && ehDespojo(rot) ? ' · ' : ''}
+                            {ehDespojo(rot) ? 'despojo / não comestível' : ''}
+                          </div>
+                        )}
                       </td>
                       <td style={{ textAlign: 'right', padding: '7px 10px', color: ESP, fontWeight: 700, whiteSpace: 'nowrap' }}>{brl(it.faturamento)}</td>
                       <td style={{ textAlign: 'right', padding: '7px 10px', color: MUT, whiteSpace: 'nowrap' }}>{nf(it.kg, 0)} kg</td>
@@ -706,12 +713,12 @@ function TotalTopo({ chave, rotulo, valor, sub, destaque }: { chave: string; rot
     </div>
   )
 }
-function KpiCard({ label, valor, d }: { label: string; valor: string; d: { pct: number; up: boolean } | null }) {
+function KpiCard({ label, valor, d, chave }: { label: string; valor: string; d: { pct: number; up: boolean } | null; chave?: string }) {
   return (
     <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: '13px 15px' }}>
       <div style={{ fontSize: 19, fontWeight: 700, color: ESP, lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{valor}</div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, marginTop: 3 }}>
-        <span style={{ fontSize: 11.5, color: MUT }}>{label}</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11.5, color: MUT }}>{label}{chave && <AjudaCampo chave={chave} rota={ROTA} />}</span>
         {d && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 10.5, fontWeight: 700, color: d.up ? GREEN : RED }}>{d.up ? <ArrowUp size={11} /> : <ArrowDown size={11} />}{nf(d.pct, 1)}%</span>}
       </div>
     </div>

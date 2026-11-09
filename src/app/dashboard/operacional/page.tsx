@@ -1,8 +1,10 @@
 'use client'
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
-const C={bg:'#0F0F0F',card:'#1A1410',card2:'#1E1E1B',border:'#2A2822',gold:'#C8941A',goldL:'#E8C872',text:'#FAF7F2',muted:'#B0AB9F',dim:'#918C82',green:'#22C55E',red:'#EF4444',blue:'#3B82F6',yellow:'#F59E0B',purple:'#8B5CF6'}
+// Design system PS claro (RD-96): espresso/off-white/dourado. Status escurecidos p/ contraste no claro.
+const C={bg:'#FAF7F2',card:'#FFFFFF',card2:'#F5F2EB',border:'#E7DECF',gold:'#C8941A',goldL:'#9A6B10',text:'#3D2314',muted:'rgba(61,35,20,0.62)',dim:'rgba(61,35,20,0.45)',green:'#2E7D46',red:'#C44536',blue:'#2563EB',yellow:'#A77A06',purple:'#7C3AED'}
 const STATUS_COLORS:Record<string,string>={PAGO:C.green,RECEBIDO:C.green,'A VENCER':C.yellow,VENCIDO:C.red,CANCELADO:C.dim}
 const fmtVal=(v:number)=>`R$ ${v.toLocaleString('pt-BR',{minimumFractionDigits:2})}`
 const today=()=>{const d=new Date();return`${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`}
@@ -107,41 +109,50 @@ export default function OperacionalPage(){
 
   useEffect(()=>{
     (async()=>{
-      const{data:{user}}=await supabase.auth.getUser();if(!user)return
-      const{data:up}=await supabase.from('users').select('role').eq('id',user.id).single()
-      let comps:any[]=[]
-      if(up?.role==='adm'||up?.role==='acesso_total'||up?.role==='adm_investimentos'){
-        const{data}=await supabase.from('companies').select('id,nome_fantasia,razao_social').order('nome_fantasia');comps=data||[]
-      }else{
-        const{data:uc}=await supabase.from('user_companies').select('companies(id,nome_fantasia,razao_social)').eq('user_id',user.id)
-        comps=(uc||[]).map((u:any)=>u.companies).filter(Boolean)
-      }
-      setEmpresas(comps);if(comps.length>0)setSel(comps[0].id);setLoading(false)
+      try{
+        const{data:{user}}=await supabase.auth.getUser()
+        if(!user){setLoading(false);return}   // sessão não pronta: para o spinner em vez de travar em "Carregando..."
+        const{data:up}=await supabase.from('users').select('role').eq('id',user.id).single()
+        let comps:any[]=[]
+        if(up?.role==='adm'||up?.role==='acesso_total'||up?.role==='adm_investimentos'){
+          const{data}=await supabase.from('companies').select('id,nome_fantasia,razao_social').order('nome_fantasia');comps=data||[]
+        }else{
+          const{data:uc}=await supabase.from('user_companies').select('companies(id,nome_fantasia,razao_social)').eq('user_id',user.id)
+          comps=(uc||[]).map((u:any)=>u.companies).filter(Boolean)
+        }
+        setEmpresas(comps)
+        if(comps.length>0)setSel(comps[0].id)   // dispara loadAll, que controla o loading
+        else setLoading(false)                   // sem empresa: nada a carregar
+      }catch(e:any){setMsg('❌ '+(e?.message||'Falha ao carregar empresas'));setLoading(false)}
     })()
   },[])
 
   const loadAll=useCallback(async()=>{
     if(!sel)return;setLoading(true)
-    const{data:ld}=await supabase.from('erp_lancamentos').select('*').eq('company_id',sel).order('data_vencimento',{ascending:false})
-    setLancs((ld||[]).map((r:any)=>({...r,valor_documento:Number(r.valor_documento)})))
-    const{data:cd}=await supabase.from('erp_clientes').select('*').eq('company_id',sel).eq('ativo',true).order('nome_fantasia')
-    setClientes(cd||[])
-    const{data:fd}=await supabase.from('erp_fornecedores').select('*').eq('company_id',sel).eq('ativo',true).order('nome_fantasia')
-    setFornecedores(fd||[])
-    const{data:pc}=await supabase.from('erp_plano_contas').select('*').or(`company_id.is.null,company_id.eq.${sel}`).eq('ativo',true).order('codigo')
-    // Dedup por codigo preferindo a cópia da empresa sobre o template global (RD-52 fonte única):
-    // sem isso, uma conta que existe como global + cópia da empresa aparecia DUAS vezes (DRE/lista).
-    const _porCodigo=new Map<string,any>()
-    for(const r of ((pc||[]) as any[])){
-      const ex=_porCodigo.get(r.codigo)
-      if(!ex || (r.company_id===sel && ex.company_id!==sel)) _porCodigo.set(r.codigo,r)
-    }
-    setPlano(Array.from(_porCodigo.values()).sort((a,b)=>String(a.codigo).localeCompare(String(b.codigo))))
+    // try/finally: qualquer falha de rede/consulta NUNCA deixa a tela travada em "Carregando..." (gap aud8 #1).
     try{
+      const{data:ld}=await supabase.from('erp_lancamentos').select('*').eq('company_id',sel).order('data_vencimento',{ascending:false})
+      setLancs((ld||[]).map((r:any)=>({...r,valor_documento:Number(r.valor_documento)})))
+      const{data:cd}=await supabase.from('erp_clientes').select('*').eq('company_id',sel).eq('ativo',true).order('nome_fantasia')
+      setClientes(cd||[])
+      const{data:fd}=await supabase.from('erp_fornecedores').select('*').eq('company_id',sel).eq('ativo',true).order('nome_fantasia')
+      setFornecedores(fd||[])
+      const{data:pc}=await supabase.from('erp_plano_contas').select('*').or(`company_id.is.null,company_id.eq.${sel}`).eq('ativo',true).order('codigo')
+      // Dedup por codigo preferindo a cópia da empresa sobre o template global (RD-52 fonte única):
+      // sem isso, uma conta que existe como global + cópia da empresa aparecia DUAS vezes (DRE/lista).
+      const _porCodigo=new Map<string,any>()
+      for(const r of ((pc||[]) as any[])){
+        const ex=_porCodigo.get(r.codigo)
+        if(!ex || (r.company_id===sel && ex.company_id!==sel)) _porCodigo.set(r.codigo,r)
+      }
+      setPlano(Array.from(_porCodigo.values()).sort((a,b)=>String(a.codigo).localeCompare(String(b.codigo))))
       const{data:cb}=await supabase.from('erp_contas_bancarias').select('*').eq('company_id',sel).eq('ativo',true).order('nome')
       setContasBancarias(cb||[])
-    }catch{}
-    setLoading(false)
+    }catch(e:any){
+      setMsg('❌ '+(e?.message||'Falha ao carregar os dados da empresa'));setTimeout(()=>setMsg(''),4000)
+    }finally{
+      setLoading(false)
+    }
   },[sel])
 
   useEffect(()=>{loadAll()},[loadAll])
@@ -303,7 +314,7 @@ export default function OperacionalPage(){
     {/* HEADER */}
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:8}}>
       <div>
-        <div style={{fontSize:20,fontWeight:700,color:C.gold}}>PS Gestão — Operacional v9.0</div>
+        <div style={{fontSize:20,fontWeight:700,color:C.gold}}>PS Gestão — Operacional</div>
         <div style={{fontSize:10,color:C.dim}}>Contas a Pagar · Receber · Clientes · Fornecedores · Bancárias · Plano de Contas</div>
       </div>
       <div style={{display:'flex',gap:8,alignItems:'center'}}>
@@ -319,18 +330,18 @@ export default function OperacionalPage(){
     {/* TABS */}
     <div style={{display:'flex',gap:4,marginBottom:16,flexWrap:'wrap'}}>
       {([
-        {id:'receber' as const,label:'📥 Contas a Receber',color:C.green,count:lancs.filter(l=>l.tipo==='receber').length},
-        {id:'pagar' as const,label:'📤 Contas a Pagar',color:C.red,count:lancs.filter(l=>l.tipo==='pagar').length},
-        {id:'clientes' as const,label:'👥 Clientes',color:C.blue,count:clientes.length},
-        {id:'fornecedores' as const,label:'🏭 Fornecedores',color:C.purple,count:fornecedores.length},
-        {id:'bancarias' as const,label:'🏦 Contas Bancárias',color:C.gold,count:contasBancarias.length},
-        {id:'plano' as const,label:'📑 Plano de Contas',color:C.goldL,count:plano.length},
+        {id:'receber' as const,label:'📥 Contas a Receber',color:C.green,count:lancs.filter(l=>l.tipo==='receber').length,ajuda:'operacional.aba_receber'},
+        {id:'pagar' as const,label:'📤 Contas a Pagar',color:C.red,count:lancs.filter(l=>l.tipo==='pagar').length,ajuda:'operacional.aba_pagar'},
+        {id:'clientes' as const,label:'👥 Clientes',color:C.blue,count:clientes.length,ajuda:'operacional.aba_clientes'},
+        {id:'fornecedores' as const,label:'🏭 Fornecedores',color:C.purple,count:fornecedores.length,ajuda:'operacional.aba_fornecedores'},
+        {id:'bancarias' as const,label:'🏦 Contas Bancárias',color:C.gold,count:contasBancarias.length,ajuda:'operacional.aba_bancarias'},
+        {id:'plano' as const,label:'📑 Plano de Contas',color:C.goldL,count:plano.length,ajuda:'operacional.aba_plano'},
       ]).map(t=>(
         <button key={t.id} onClick={()=>{setTab(t.id);setShowForm(false);setEditId(null);setFiltro('');setFiltroStatus('')}} style={{
           padding:'10px 16px',borderRadius:8,fontSize:12,fontWeight:tab===t.id?700:400,cursor:'pointer',
           border:tab===t.id?`2px solid ${t.color}`:`1px solid ${C.border}`,
           background:tab===t.id?t.color+'15':'transparent',color:tab===t.id?t.color:C.muted
-        }}>{t.label}<span style={{marginLeft:6,fontSize:10,opacity:0.7}}>{t.count}</span></button>
+        }}>{t.label}<span style={{marginLeft:6,fontSize:10,opacity:0.7}}>{t.count}</span><AjudaCampo rota="/dashboard/operacional" chave={t.ajuda} /></button>
       ))}
     </div>
 
@@ -339,14 +350,14 @@ export default function OperacionalPage(){
       {/* KPIs */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:8,marginBottom:12}}>
         {[
-          {l:'Total',v:fmtVal(totalVal),c:tab==='receber'?C.green:C.red,icon:'📊'},
-          {l:tab==='receber'?'Recebido':'Pago',v:fmtVal(totalPago),c:C.green,icon:'✅'},
-          {l:'Pendente',v:fmtVal(totalPend),c:C.yellow,icon:'⏳'},
-          {l:'Vencido',v:fmtVal(totalVenc),c:C.red,icon:'🚨'},
-          {l:'Registros',v:String(filteredLancs.length),c:C.gold,icon:'📋'},
+          {l:'Total',v:fmtVal(totalVal),c:tab==='receber'?C.green:C.red,icon:'📊',ajuda:'operacional.kpi_total'},
+          {l:tab==='receber'?'Recebido':'Pago',v:fmtVal(totalPago),c:C.green,icon:'✅',ajuda:'operacional.kpi_liquidado'},
+          {l:'Pendente',v:fmtVal(totalPend),c:C.yellow,icon:'⏳',ajuda:'operacional.kpi_pendente'},
+          {l:'Vencido',v:fmtVal(totalVenc),c:C.red,icon:'🚨',ajuda:'operacional.kpi_vencido'},
+          {l:'Registros',v:String(filteredLancs.length),c:C.gold,icon:'📋',ajuda:'operacional.kpi_registros'},
         ].map((k,i)=>(
           <div key={i} style={{background:`linear-gradient(135deg,${C.card},${C.card2})`,borderRadius:10,padding:10,border:`1px solid ${C.border}`,borderLeft:`4px solid ${k.c}`}}>
-            <div style={{fontSize:8,color:C.dim,textTransform:'uppercase'}}>{k.icon} {k.l}</div>
+            <div style={{fontSize:8,color:C.dim,textTransform:'uppercase'}} className="inline-flex items-center">{k.icon} {k.l}<AjudaCampo rota="/dashboard/operacional" chave={k.ajuda} /></div>
             <div style={{fontSize:15,fontWeight:700,color:k.c,marginTop:2}}>{k.v}</div>
           </div>
         ))}
@@ -355,16 +366,23 @@ export default function OperacionalPage(){
       <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
         <button onClick={()=>{setEditId(null);setFormL({...emptyLanc,tipo:tab==='pagar'?'pagar':'receber'});setCatSearch('');setShowForm(!showForm)}} style={{
           padding:'10px 18px',borderRadius:8,fontWeight:700,fontSize:12,cursor:'pointer',border:'none',
-          background:tab==='receber'?`linear-gradient(135deg,${C.green},#10B981)`:`linear-gradient(135deg,${C.red},#DC2626)`,color:C.text
+          background:tab==='receber'?`linear-gradient(135deg,${C.green},#10B981)`:`linear-gradient(135deg,${C.red},#DC2626)`,color:'#fff'
         }}>+ {tab==='receber'?'Nova Conta a Receber':'Nova Conta a Pagar'}</button>
-        <input value={filtro} onChange={e=>setFiltro(e.target.value)} placeholder="🔍 Buscar..." style={{...inp,flex:1,minWidth:180}}/>
-        <select value={filtroStatus} onChange={e=>setFiltroStatus(e.target.value)} style={{...inp,width:'auto',cursor:'pointer'}}>
-          <option value="">Todos</option>
-          <option value="A VENCER">A Vencer</option>
-          <option value={tab==='receber'?'RECEBIDO':'PAGO'}>{tab==='receber'?'Recebido':'Pago'}</option>
-          <option value="VENCIDO">Vencido</option>
-          <option value="CANCELADO">Cancelado</option>
-        </select>
+        <AjudaCampo rota="/dashboard/operacional" chave="operacional.acao_nova_conta" />
+        <div style={{display:'flex',alignItems:'center',flex:1,minWidth:180,gap:2}}>
+          <input value={filtro} onChange={e=>setFiltro(e.target.value)} placeholder="🔍 Buscar..." style={{...inp,flex:1}}/>
+          <AjudaCampo rota="/dashboard/operacional" chave="operacional.filtro_busca" />
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:2}}>
+          <select value={filtroStatus} onChange={e=>setFiltroStatus(e.target.value)} style={{...inp,width:'auto',cursor:'pointer'}}>
+            <option value="">Todos</option>
+            <option value="A VENCER">A Vencer</option>
+            <option value={tab==='receber'?'RECEBIDO':'PAGO'}>{tab==='receber'?'Recebido':'Pago'}</option>
+            <option value="VENCIDO">Vencido</option>
+            <option value="CANCELADO">Cancelado</option>
+          </select>
+          <AjudaCampo rota="/dashboard/operacional" chave="operacional.filtro_status" />
+        </div>
       </div>
 
       {/* FORM */}
@@ -566,7 +584,14 @@ export default function OperacionalPage(){
       {/* LIST */}
       <div style={{background:C.card,borderRadius:12,border:`1px solid ${C.border}`,overflow:'auto'}}>
         {loading?<div style={{padding:40,textAlign:'center',color:C.gold}}>⏳ Carregando...</div>:
-         filteredLancs.length===0?<div style={{padding:40,textAlign:'center'}}><div style={{fontSize:28,marginBottom:8}}>{tab==='receber'?'📥':'📤'}</div><div style={{fontSize:13,color:C.gold}}>Nenhum registro</div></div>:
+         filteredLancs.length===0?(
+           <div style={{padding:48,textAlign:'center'}}>
+             <div style={{fontSize:32,marginBottom:8}}>{tab==='receber'?'📥':'📤'}</div>
+             <div style={{fontSize:14,color:C.gold,fontWeight:600,marginBottom:4}}>{(filtro||filtroStatus)?'Nenhum lançamento para os filtros':`Nenhuma conta a ${tab==='receber'?'receber':'pagar'} ainda`}</div>
+             <div style={{fontSize:11,color:C.dim,marginBottom:14,maxWidth:360,marginLeft:'auto',marginRight:'auto',lineHeight:1.5}}>{(filtro||filtroStatus)?'Ajuste a busca ou o status para ver os lançamentos.':'Cadastre o primeiro lançamento ou importe do seu sistema anterior para ver valores, vencimentos e totais aqui.'}</div>
+             {!(filtro||filtroStatus)&&<button onClick={()=>{setEditId(null);setFormL({...emptyLanc,tipo:tab==='pagar'?'pagar':'receber'});setCatSearch('');setShowForm(true)}} style={{padding:'10px 18px',borderRadius:8,fontWeight:700,fontSize:12,cursor:'pointer',border:'none',background:tab==='receber'?`linear-gradient(135deg,${C.green},#10B981)`:`linear-gradient(135deg,${C.red},#DC2626)`,color:'#fff'}}>+ {tab==='receber'?'Nova Conta a Receber':'Nova Conta a Pagar'}</button>}
+           </div>
+         ):
         <table style={{width:'100%',borderCollapse:'collapse',fontSize:11,minWidth:900}}>
           <thead><tr style={{borderBottom:`2px solid ${C.gold}40`}}>
             {['Status','Vencimento',tab==='receber'?'Cliente':'Fornecedor','Descrição','Categoria','Forma','Parc.','Valor','Ações'].map(h=>
@@ -609,9 +634,13 @@ export default function OperacionalPage(){
       <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
         <button onClick={()=>{setEditId(null);setFormP(emptyPessoa);setShowForm(!showForm)}} style={{
           padding:'10px 18px',borderRadius:8,fontWeight:700,fontSize:12,cursor:'pointer',border:'none',
-          background:tab==='clientes'?`linear-gradient(135deg,${C.blue},#2563EB)`:`linear-gradient(135deg,${C.purple},#7C3AED)`,color:C.text
+          background:tab==='clientes'?`linear-gradient(135deg,${C.blue},#2563EB)`:`linear-gradient(135deg,${C.purple},#7C3AED)`,color:'#fff'
         }}>+ {tab==='clientes'?'Novo Cliente':'Novo Fornecedor'}</button>
-        <input value={filtro} onChange={e=>setFiltro(e.target.value)} placeholder="🔍 Buscar..." style={{...inp,flex:1,minWidth:180}}/>
+        <AjudaCampo rota="/dashboard/operacional" chave="operacional.acao_novo_cadastro" />
+        <div style={{display:'flex',alignItems:'center',flex:1,minWidth:180,gap:2}}>
+          <input value={filtro} onChange={e=>setFiltro(e.target.value)} placeholder="🔍 Buscar..." style={{...inp,flex:1}}/>
+          <AjudaCampo rota="/dashboard/operacional" chave="operacional.filtro_busca_pessoas" />
+        </div>
         <div style={{fontSize:11,color:C.dim}}>{filteredPessoas.length} cadastros</div>
       </div>
 
@@ -694,6 +723,7 @@ export default function OperacionalPage(){
           padding:'10px 18px',borderRadius:8,fontWeight:700,fontSize:12,cursor:'pointer',border:'none',
           background:`linear-gradient(135deg,${C.gold},${C.goldL})`,color:C.bg
         }}>+ Nova Conta Bancária</button>
+        <AjudaCampo rota="/dashboard/operacional" chave="operacional.acao_nova_bancaria" />
         <div style={{fontSize:11,color:C.dim}}>{contasBancarias.length} contas</div>
       </div>
 
@@ -774,7 +804,11 @@ export default function OperacionalPage(){
           padding:'10px 18px',borderRadius:8,fontWeight:700,fontSize:12,cursor:'pointer',border:'none',
           background:`linear-gradient(135deg,${C.gold},${C.goldL})`,color:C.bg
         }}>+ Nova Categoria</button>
-        <input value={filtro} onChange={e=>setFiltro(e.target.value)} placeholder="🔍 Buscar por código ou nome..." style={{...inp,flex:1,minWidth:180}}/>
+        <AjudaCampo rota="/dashboard/operacional" chave="operacional.acao_nova_categoria" />
+        <div style={{display:'flex',alignItems:'center',flex:1,minWidth:180,gap:2}}>
+          <input value={filtro} onChange={e=>setFiltro(e.target.value)} placeholder="🔍 Buscar por código ou nome..." style={{...inp,flex:1}}/>
+          <AjudaCampo rota="/dashboard/operacional" chave="operacional.filtro_busca_plano" />
+        </div>
         <div style={{fontSize:11,color:C.dim}}>{plano.length} categorias</div>
       </div>
 
@@ -851,7 +885,7 @@ export default function OperacionalPage(){
     </>)}
 
     <div style={{fontSize:9,color:C.dim,textAlign:'center',marginTop:16}}>
-      PS Gestão e Capital — Operacional v9.0 | Date pickers · Parcelas · Formas de pagamento · Contas bancárias · Juros/Multa/Desconto · Integração Dashboard + BPO + Custeio
+      PS Gestão e Capital — Operacional · Parcelas · Formas de pagamento · Contas bancárias · Juros/Multa/Desconto · Integração Dashboard + BPO + Custeio
     </div>
   </div>)
 }

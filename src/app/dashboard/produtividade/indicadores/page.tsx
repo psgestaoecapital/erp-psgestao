@@ -8,8 +8,11 @@ import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
+const ROTA = '/dashboard/produtividade/indicadores'
 const C = { esp: '#3D2314', espM: '#6B5D4F', bg: '#FAF7F2', white: '#FFFFFF', border: '#E0D8CC', gold: '#C8941A', green: '#166534', amber: '#BA7517', red: '#B42318' }
+const lblFiltro: React.CSSProperties = { fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 4 }
 
 type Dia = { data: string; kg: number | null; pessoas: number | null; horas: number | null; horas_extras: number | null; kg_hh: number | null; motivo_sem_dado: string | null }
 type SetorR = { setor: string; meta_kg_hh: number | null; kg: number | null; horas: number | null; horas_extras: number | null; pessoas_media: number | null; dias_medidos: number; kg_hh: number | null; dias: Dia[] }
@@ -82,15 +85,15 @@ function Inner() {
       <h1 style={{ fontSize: 20, margin: '0 0 4px' }}>Produtividade · Indicadores</h1>
       <div style={{ fontSize: 12, color: C.espM, marginBottom: 12 }}>{r?.fonte}</div>
       <div className="nao-imprimir" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
-        <input type="date" value={de} onChange={(e) => setDe(e.target.value)} aria-label="De" />
-        <input type="date" value={ate} onChange={(e) => setAte(e.target.value)} aria-label="Até" />
-        <select value={setor} onChange={(e) => setSetor(e.target.value)} aria-label="Setor">
+        <label style={lblFiltro}>De<AjudaCampo chave="produtividade.indicadores.de" rota={ROTA} /><input type="date" value={de} onChange={(e) => setDe(e.target.value)} aria-label="De" /></label>
+        <label style={lblFiltro}>Até<AjudaCampo chave="produtividade.indicadores.ate" rota={ROTA} /><input type="date" value={ate} onChange={(e) => setAte(e.target.value)} aria-label="Até" /></label>
+        <label style={lblFiltro}>Setor<AjudaCampo chave="produtividade.indicadores.setor" rota={ROTA} /><select value={setor} onChange={(e) => setSetor(e.target.value)} aria-label="Setor">
           {[...new Set(['DESOSSA', ...setores])].map((s) => <option key={s}>{s}</option>)}
-        </select>
-        <select value={base} onChange={(e) => setBase(e.target.value)} aria-label="Base do kg" title="Base do kg">
+        </select></label>
+        <label style={lblFiltro}>Base<AjudaCampo chave="produtividade.indicadores.base" rota={ROTA} /><select value={base} onChange={(e) => setBase(e.target.value)} aria-label="Base do kg" title="Base do kg">
           {BASES.map((b) => <option key={b.v} value={b.v}>Base do kg: {b.t}</option>)}
-        </select>
-        <label style={{ fontSize: 13 }}>Meta kg/h-h <input defaultValue={meta ?? ''} key={`${setor}-${meta}`} onBlur={(e) => void salvarMeta(e.target.value)} style={{ width: 70 }} /></label>
+        </select></label>
+        <label style={lblFiltro}>Meta kg/h-h<AjudaCampo chave="produtividade.indicadores.meta" rota={ROTA} /><input defaultValue={meta ?? ''} key={`${setor}-${meta}`} onBlur={(e) => void salvarMeta(e.target.value)} style={{ width: 70 }} /></label>
         <button onClick={() => window.print()} style={{ padding: '6px 12px', background: C.gold, color: C.white, border: 0, borderRadius: 6, fontWeight: 700 }}>Exportar PDF</button>
       </div>
       {erro && <div style={{ color: C.red, marginBottom: 10 }}>{erro}</div>}

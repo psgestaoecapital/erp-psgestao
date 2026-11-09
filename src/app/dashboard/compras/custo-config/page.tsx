@@ -8,6 +8,7 @@ import Link from 'next/link'
 import { SlidersHorizontal, Loader2, Landmark } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 type Cfg = {
   id?: string; natureza: string
@@ -15,10 +16,10 @@ type Cfg = {
   cofins_e_custo: boolean; frete_e_custo: boolean; seguro_e_custo: boolean; outras_e_custo: boolean
 }
 const NATUREZAS = ['revenda', 'industrializacao', 'uso_consumo', 'imobilizado', 'default']
-const CAMPOS: { k: keyof Cfg; l: string }[] = [
-  { k: 'icms_e_custo', l: 'ICMS' }, { k: 'st_e_custo', l: 'ST' }, { k: 'ipi_e_custo', l: 'IPI' },
-  { k: 'pis_e_custo', l: 'PIS' }, { k: 'cofins_e_custo', l: 'COFINS' }, { k: 'frete_e_custo', l: 'Frete' },
-  { k: 'seguro_e_custo', l: 'Seguro' }, { k: 'outras_e_custo', l: 'Outras' },
+const CAMPOS: { k: keyof Cfg; l: string; aj: string }[] = [
+  { k: 'icms_e_custo', l: 'ICMS', aj: 'compras.custo_config.trib_icms' }, { k: 'st_e_custo', l: 'ST', aj: 'compras.custo_config.trib_st' }, { k: 'ipi_e_custo', l: 'IPI', aj: 'compras.custo_config.trib_ipi' },
+  { k: 'pis_e_custo', l: 'PIS', aj: 'compras.custo_config.trib_pis' }, { k: 'cofins_e_custo', l: 'COFINS', aj: 'compras.custo_config.trib_cofins' }, { k: 'frete_e_custo', l: 'Frete', aj: 'compras.custo_config.trib_frete' },
+  { k: 'seguro_e_custo', l: 'Seguro', aj: 'compras.custo_config.trib_seguro' }, { k: 'outras_e_custo', l: 'Outras', aj: 'compras.custo_config.trib_outras' },
 ]
 const vazia = (natureza: string): Cfg => ({ natureza, icms_e_custo: false, st_e_custo: true, ipi_e_custo: true, pis_e_custo: false, cofins_e_custo: false, frete_e_custo: true, seguro_e_custo: true, outras_e_custo: true })
 
@@ -38,7 +39,7 @@ export default function CustoConfigPage() {
   const carregar = useCallback(async () => {
     if (!empresa) { setRows([]); setLoading(false); return }
     setLoading(true)
-    const { data } = await supabase.from('erp_custo_estoque_config').select('*').eq('company_id', empresa).order('natureza')
+    const { data } = await supabase.from('erp_custo_estoque_config').select('*').eq('company_id', empresa).is('deleted_em', null).order('natureza')
     setRows((data ?? []) as Cfg[]); setLoading(false)
   }, [empresa])
   const carregarVenda = useCallback(async () => {
@@ -55,26 +56,48 @@ export default function CustoConfigPage() {
   useEffect(() => { void carregarVenda() }, [carregarVenda]) // eslint-disable-line react-hooks/set-state-in-effect
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 2500); return () => clearTimeout(t) }, [toast])
 
+  function foraDaFaixa(s: string): boolean {
+    if (s.trim() === '') return false
+    const n = Number(s)
+    return Number.isNaN(n) || n < 0 || n > 100
+  }
+
   async function salvarVenda() {
     if (!empresa) return
+    if (foraDaFaixa(vImp) || foraDaFaixa(vCom)) { setToast('Imposto e comissão da venda devem ficar entre 0 e 100%.'); return }
     setSavingV(true)
-    const { data, error } = await supabase.from('erp_oficina_parametros').update({
-      imposto_venda_pct: vImp.trim() === '' ? null : Number(vImp),
-      comissao_venda_pct: vCom.trim() === '' ? null : Number(vCom),
-      alterado_em: new Date().toISOString(),
-    }).eq('company_id', empresa).select('company_id')
+    const { data, error } = await supabase.rpc('fn_oficina_venda_params_salvar', {
+      p_company_id: empresa,
+      p_imposto_venda_pct: vImp.trim() === '' ? null : Number(vImp),
+      p_comissao_venda_pct: vCom.trim() === '' ? null : Number(vCom),
+    })
     setSavingV(false)
+    const r = data as { ok?: boolean; erro?: string } | null
     if (error) { setToast('Erro ao salvar: ' + error.message); return }
-    if (!data || data.length === 0) { setToast('Esta empresa ainda não tem parâmetros de oficina — configure a oficina primeiro.'); return }
+    if (!r?.ok) { setToast(r?.erro ?? 'Não foi possível salvar.'); return }
     setToast('Imposto e comissão da venda salvos.')
   }
 
   async function salvar(c: Cfg) {
     if (!empresa) return
-    const payload = { ...c, company_id: empresa }
-    const { error } = await supabase.from('erp_custo_estoque_config').upsert(payload, { onConflict: 'company_id,natureza' })
+    const { data, error } = await supabase.rpc('fn_custo_estoque_config_salvar', {
+      p_company_id: empresa, p_natureza: c.natureza,
+      p_icms: c.icms_e_custo, p_st: c.st_e_custo, p_ipi: c.ipi_e_custo, p_pis: c.pis_e_custo,
+      p_cofins: c.cofins_e_custo, p_frete: c.frete_e_custo, p_seguro: c.seguro_e_custo, p_outras: c.outras_e_custo,
+    })
+    const r = data as { ok?: boolean; erro?: string } | null
     if (error) { setToast('Erro ao salvar: ' + error.message); return }
+    if (!r?.ok) { setToast(r?.erro ?? 'Não foi possível salvar.'); return }
     setToast('Configuração salva.'); void carregar()
+  }
+  async function excluir(natureza: string) {
+    if (!empresa) return
+    if (!window.confirm(`Excluir a configuração de custo da natureza "${natureza}"? As notas dessa natureza passam a usar o default. A exclusão fica registrada (rastreável).`)) return
+    const { data, error } = await supabase.rpc('fn_custo_estoque_config_excluir', { p_company_id: empresa, p_natureza: natureza })
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error) { setToast('Erro ao excluir: ' + error.message); return }
+    if (!r?.ok) { setToast(r?.erro ?? 'Não foi possível excluir.'); return }
+    setToast('Configuração excluída.'); void carregar()
   }
   function patch(natureza: string, k: keyof Cfg, v: boolean) {
     setRows((arr) => arr.map((r) => (r.natureza === natureza ? { ...r, [k]: v } : r)))
@@ -108,22 +131,27 @@ export default function CustoConfigPage() {
             o regime automaticamente{vSN != null ? ' (Simples).' : '.'}
           </p>
           <div className="flex flex-wrap items-end gap-3">
-            <label className="text-[12px] text-[#3D2314]/70">Imposto da venda (%)
+            <label className="text-[12px] text-[#3D2314]/70">Imposto da venda (%)<AjudaCampo chave="compras.custo_config.imposto_venda" />
               <div className="mt-0.5">
-                <input type="number" step="0.01" min="0" value={vImp} onChange={(e) => setVImp(e.target.value)}
+                <input type="number" step="0.01" min="0" max="100" value={vImp} onChange={(e) => setVImp(e.target.value)}
                   placeholder={vSN != null ? `auto: ${vSN}% (Simples)` : 'ex.: 6'}
-                  className="w-44 border border-[#3D2314]/15 rounded-md px-2 py-1 text-[13px] text-[#3D2314]" />
+                  aria-invalid={foraDaFaixa(vImp)}
+                  className={'w-44 border rounded-md px-2 py-1 text-[13px] text-[#3D2314] ' + (foraDaFaixa(vImp) ? 'border-[#B42318]' : 'border-[#3D2314]/15')} />
               </div>
             </label>
-            <label className="text-[12px] text-[#3D2314]/70">Comissão da venda (%)
+            <label className="text-[12px] text-[#3D2314]/70">Comissão da venda (%)<AjudaCampo chave="compras.custo_config.comissao_venda" />
               <div className="mt-0.5">
-                <input type="number" step="0.01" min="0" value={vCom} onChange={(e) => setVCom(e.target.value)}
+                <input type="number" step="0.01" min="0" max="100" value={vCom} onChange={(e) => setVCom(e.target.value)}
                   placeholder="ex.: 5"
-                  className="w-44 border border-[#3D2314]/15 rounded-md px-2 py-1 text-[13px] text-[#3D2314]" />
+                  aria-invalid={foraDaFaixa(vCom)}
+                  className={'w-44 border rounded-md px-2 py-1 text-[13px] text-[#3D2314] ' + (foraDaFaixa(vCom) ? 'border-[#B42318]' : 'border-[#3D2314]/15')} />
               </div>
             </label>
-            <button onClick={() => void salvarVenda()} disabled={savingV}
-              className="text-[12px] px-3 py-1.5 rounded-md bg-[#3F7012] text-white font-medium hover:bg-[#2F5510] disabled:opacity-40">Salvar</button>
+            <span className="inline-flex items-center">
+              <button onClick={() => void salvarVenda()} disabled={savingV}
+                className="text-[12px] px-3 py-1.5 rounded-md bg-[#3F7012] text-white font-medium hover:bg-[#2F5510] disabled:opacity-40">Salvar</button>
+              <AjudaCampo chave="compras.custo_config.salvar_venda" />
+            </span>
           </div>
           {vSN != null && (
             <p className="text-[11px] text-[#3D2314]/55 mt-2 max-w-2xl">
@@ -141,8 +169,8 @@ export default function CustoConfigPage() {
               <table className="w-full text-[12px]">
                 <thead>
                   <tr className="text-[#3D2314]/55 text-left border-b border-[#3D2314]/8">
-                    <th className="px-3 py-2 font-medium">Natureza</th>
-                    {CAMPOS.map((c) => <th key={c.k} className="px-2 py-2 font-medium text-center">{c.l}</th>)}
+                    <th className="px-3 py-2 font-medium"><span className="inline-flex items-center">Natureza<AjudaCampo chave="compras.custo_config.natureza" /></span></th>
+                    {CAMPOS.map((c) => <th key={c.k} className="px-2 py-2 font-medium text-center"><span className="inline-flex items-center justify-center">{c.l}<AjudaCampo chave={c.aj} /></span></th>)}
                     <th className="px-3 py-2"></th>
                   </tr>
                 </thead>
@@ -156,7 +184,14 @@ export default function CustoConfigPage() {
                           <input type="checkbox" checked={r[c.k] as boolean} onChange={(e) => patch(r.natureza, c.k, e.target.checked)} className="cursor-pointer" />
                         </td>
                       ))}
-                      <td className="px-3 py-2 text-right"><button onClick={() => void salvar(r)} className="text-[11px] px-2.5 py-1 rounded-md bg-[#3F7012] text-white font-medium hover:bg-[#2F5510]">Salvar</button></td>
+                      <td className="px-3 py-2 text-right whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1 justify-end">
+                          <button onClick={() => void salvar(r)} className="text-[11px] px-2.5 py-1 rounded-md bg-[#3F7012] text-white font-medium hover:bg-[#2F5510]">Salvar</button>
+                          <AjudaCampo chave="compras.custo_config.salvar_linha" />
+                          <button onClick={() => void excluir(r.natureza)} className="text-[11px] px-2.5 py-1 rounded-md border border-[#B42318]/30 text-[#B42318] font-medium hover:bg-[#FBEAE8]">Excluir</button>
+                          <AjudaCampo chave="compras.custo_config.excluir" />
+                        </span>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -167,7 +202,9 @@ export default function CustoConfigPage() {
             <select value={novaNat} onChange={(e) => setNovaNat(e.target.value)} className="text-[12px] border border-[#3D2314]/15 rounded-md px-2 py-1 text-[#3D2314]">
               {NATUREZAS.map((n) => <option key={n} value={n}>{n}</option>)}
             </select>
+            <AjudaCampo chave="compras.custo_config.natureza" />
             <button onClick={() => void adicionar()} className="text-[12px] px-3 py-1.5 rounded-md bg-[#C8941A] text-white font-medium hover:bg-[#A87810]">+ Adicionar natureza</button>
+            <AjudaCampo chave="compras.custo_config.adicionar" />
           </div>
         </div>
         {toast && <div className="mt-3 text-[12px] px-3 py-2 rounded-md bg-[#E8F4DC] text-[#1B3608] border border-[#3F7012]/20 inline-block">{toast}</div>}

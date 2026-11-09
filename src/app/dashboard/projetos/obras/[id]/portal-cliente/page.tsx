@@ -29,6 +29,18 @@ function recursoEmLiberacao(e: unknown): boolean {
 
 const fmtData = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—'
+const fmtBRL = (v: number | null | undefined) =>
+  (typeof v === 'number' ? v : 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+const pct = (v: number | null | undefined) => `${Math.round(Number(v ?? 0))}%`
+
+type TarefaPrev = { nome: string | null; inicio: string | null; fim: string | null; percentual: number | null }
+type Avanco = {
+  numero: string | null; nome: string | null; status: string | null
+  pct_conclusao: number | null; data_inicio: string | null; data_prevista_fim: string | null
+  tarefas: TarefaPrev[]
+}
+type FotoDia = { data: string | null; clima: string | null; atividades: string | null; fotos: string[] }
+type MedicaoPrev = { numero: number | null; competencia: string | null; status: string | null; valor_total: number | null; aprovada_em: string | null }
 
 type Obra = { id: string; nome: string | null; numero: string | null }
 type Acesso = {
@@ -47,6 +59,10 @@ export default function PortalClienteObraPage({ params }: { params: Promise<{ id
   const [aviso, setAviso] = useState('')
   const [email, setEmail] = useState('')
   const [salvando, setSalvando] = useState(false)
+  const [avanco, setAvanco] = useState<Avanco | null>(null)
+  const [fotos, setFotos] = useState<FotoDia[]>([])
+  const [medicoes, setMedicoes] = useState<MedicaoPrev[]>([])
+  const [previaCarregando, setPreviaCarregando] = useState(true)
 
   const carregar = useCallback(async () => {
     setCarregando(true); setErro('')
@@ -69,6 +85,28 @@ export default function PortalClienteObraPage({ params }: { params: Promise<{ id
   }, [id])
 
   useEffect(() => { void carregar() }, [carregar])
+
+  // Prévia do que o cliente vê (só leitura) — mesmas RPCs guardadas (fail-closed) do portal do cliente.
+  const carregarPrevia = useCallback(async () => {
+    setPreviaCarregando(true)
+    try {
+      const [av, ft, md] = await Promise.all([
+        supabase.rpc('fn_obra_portal_avanco', { p_obra_id: id }),
+        supabase.rpc('fn_obra_portal_fotos', { p_obra_id: id }),
+        supabase.rpc('fn_obra_portal_medicoes', { p_obra_id: id }),
+      ])
+      if (!av.error && av.data && Object.keys(av.data as object).length > 0) setAvanco(av.data as Avanco)
+      if (!ft.error && Array.isArray(ft.data)) setFotos(ft.data as FotoDia[])
+      if (!md.error && Array.isArray(md.data)) setMedicoes(md.data as MedicaoPrev[])
+      if (av.error && recursoEmLiberacao(av.error)) setEmLiberacao(true)
+    } catch {
+      /* prévia é complementar: nunca derruba a tela de gestão de acesso */
+    } finally {
+      setPreviaCarregando(false)
+    }
+  }, [id])
+
+  useEffect(() => { void carregarPrevia() }, [carregarPrevia])
 
   const convidar = useCallback(async () => {
     const alvo = email.trim()
@@ -197,6 +235,99 @@ export default function PortalClienteObraPage({ params }: { params: Promise<{ id
                   <div style={{ fontSize: 12, fontWeight: 700, color: MUT, marginTop: 8 }}>Acessos revogados (histórico)</div>
                 )}
                 {revogados.map(linhaAcesso)}
+              </div>
+            )}
+
+            {/* Prévia do portal: exatamente o que o cliente convidado enxerga (só leitura) */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 28 }}>
+              <h2 style={{ fontSize: 16, fontWeight: 800, color: ESP, margin: 0 }}>Prévia do que o cliente vê</h2>
+              <AjudaCampo chave="obra.portal.previa" rota={ROTA} />
+            </div>
+            <p style={{ fontSize: 12, color: MUT, marginTop: 4, maxWidth: 680 }}>
+              Visão somente leitura, idêntica à do cliente convidado. Sem custo nem margem — só o acompanhamento da obra.
+            </p>
+
+            {previaCarregando ? (
+              <div style={{ ...card, marginTop: 12, color: MUT, fontSize: 13 }}>Carregando a prévia…</div>
+            ) : (
+              <div style={{ display: 'grid', gap: 12, marginTop: 12 }} data-testid="portal-previa">
+                {/* Avanço */}
+                <div style={card} data-testid="previa-avanco">
+                  <div style={{ ...lbl, marginBottom: 10 }}>Avanço da obra <AjudaCampo chave="obra.portal.avanco" rota={ROTA} /></div>
+                  {!avanco ? (
+                    <div style={{ fontSize: 13, color: MUT }}>Ainda sem cronograma para mostrar. Lance tarefas e avanços no cronograma da obra.</div>
+                  ) : (
+                    <>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 30, fontWeight: 800, color: GOLD }}>{pct(avanco.pct_conclusao)}</span>
+                        <span style={{ fontSize: 13, color: MUT }}>concluído{avanco.status ? ` · ${avanco.status}` : ''}</span>
+                        <span style={{ flex: 1 }} />
+                        <span style={{ fontSize: 12, color: MUT }}>{fmtData(avanco.data_inicio)} → {fmtData(avanco.data_prevista_fim)}</span>
+                      </div>
+                      <div style={{ height: 8, background: 'rgba(61,35,20,0.08)', borderRadius: 6, marginTop: 10, overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${Math.min(100, Math.max(0, Number(avanco.pct_conclusao ?? 0)))}%`, background: GOLD }} />
+                      </div>
+                      {avanco.tarefas.length > 0 && (
+                        <div style={{ display: 'grid', gap: 8, marginTop: 14 }}>
+                          {avanco.tarefas.map((t, i) => (
+                            <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                              <span style={{ flex: '1 1 180px', fontSize: 13, color: ESP, fontWeight: 600, minWidth: 0 }}>{t.nome || 'Etapa'}</span>
+                              <span style={{ fontSize: 11, color: MUT }}>{fmtData(t.inicio)} → {fmtData(t.fim)}</span>
+                              <div style={{ width: 90, height: 6, background: 'rgba(61,35,20,0.08)', borderRadius: 4, overflow: 'hidden' }}>
+                                <div style={{ height: '100%', width: `${Math.min(100, Math.max(0, Number(t.percentual ?? 0)))}%`, background: VERDE }} />
+                              </div>
+                              <span style={{ fontSize: 12, color: MUT, width: 42, textAlign: 'right' }}>{pct(t.percentual)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {/* Fotos do diário */}
+                <div style={card} data-testid="previa-fotos">
+                  <div style={{ ...lbl, marginBottom: 10 }}>Fotos do diário <AjudaCampo chave="obra.portal.fotos" rota={ROTA} /></div>
+                  {fotos.length === 0 ? (
+                    <div style={{ fontSize: 13, color: MUT }}>Sem fotos no diário ainda. As fotos lançadas no RDO aparecem aqui para o cliente.</div>
+                  ) : (
+                    <div style={{ display: 'grid', gap: 14 }}>
+                      {fotos.map((f, i) => (
+                        <div key={i}>
+                          <div style={{ fontSize: 12, color: ESP, fontWeight: 700 }}>{fmtData(f.data)}{f.clima ? ` · ${f.clima}` : ''}</div>
+                          {f.atividades && <div style={{ fontSize: 12, color: MUT, marginTop: 2 }}>{f.atividades}</div>}
+                          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                            {f.fotos.map((src, j) => (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img key={j} src={src} alt={`Foto do diário de ${fmtData(f.data)}`} loading="lazy"
+                                   style={{ width: 120, height: 90, objectFit: 'cover', borderRadius: 10, border: `1px solid ${LINE}` }} />
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Medições */}
+                <div style={card} data-testid="previa-medicoes">
+                  <div style={{ ...lbl, marginBottom: 10 }}>Medições <AjudaCampo chave="obra.portal.medicoes" rota={ROTA} /></div>
+                  {medicoes.length === 0 ? (
+                    <div style={{ fontSize: 13, color: MUT }}>Nenhuma medição lançada ainda. As medições da obra aparecem aqui para o cliente acompanhar.</div>
+                  ) : (
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      {medicoes.map((m, i) => (
+                        <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', paddingBottom: 8, borderBottom: i < medicoes.length - 1 ? `1px solid ${LINE}` : 'none' }}>
+                          <span style={{ fontSize: 13, color: ESP, fontWeight: 700 }}>Medição {m.numero ?? '—'}</span>
+                          <span style={{ fontSize: 12, color: MUT }}>{m.competencia ? fmtData(m.competencia) : ''}</span>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: m.status === 'aprovada' ? VERDE : MUT, background: m.status === 'aprovada' ? 'rgba(46,125,50,0.1)' : 'rgba(61,35,20,0.06)', padding: '2px 8px', borderRadius: 16 }}>{m.status || 'rascunho'}</span>
+                          <span style={{ flex: 1 }} />
+                          <span style={{ fontSize: 14, color: ESP, fontWeight: 700 }}>{fmtBRL(m.valor_total)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </>
