@@ -194,10 +194,16 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
                           </span>}
                     </td>
                   </tr>))}
-                <tr style={{ fontWeight: 700 }}><td colSpan={4} style={{ padding: 8 }}>Total de custos da obra</td><td style={{ padding: 8, textAlign: 'right' }} data-testid="custos-total">{brl(total)}</td><td colSpan={2} /></tr>
+                <tr style={{ fontWeight: 700 }}><td colSpan={4} style={{ padding: 8 }}>Total de despesas diretas lançadas aqui</td><td style={{ padding: 8, textAlign: 'right' }} data-testid="custos-total">{brl(total)}</td><td colSpan={2} /></tr>
               </tbody>
             </table>
           </div>)}
+        {!loading && itens.length > 0 && (
+          <p data-testid="custos-reconciliacao" style={{ fontSize: 12, color: MUT, marginTop: 8 }}>
+            Este total soma só as despesas diretas lançadas nesta tela. O <strong>custo realizado completo da obra</strong> (que aparece no{' '}
+            <Link href={`/dashboard/projetos/obras/${id}/cockpit?area=hub`} style={{ color: GOLD }}>Cockpit</Link>) também inclui o material dos pedidos de compra, as viagens e a mão de obra por hora —
+            por isso o número do Cockpit costuma ser maior que o desta lista. <AjudaCampo chave="projetos.obra_custos.reconciliacao" />
+          </p>)}
       </div>
 
       {ed && (
