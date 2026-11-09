@@ -148,6 +148,10 @@ BEGIN
 END;
 $function$;
 
+-- Guarda RD/CI (check-fn-guards): função SECURITY DEFINER não fica aberta ao anon.
+REVOKE ALL ON FUNCTION public.fn_fluxo_caixa_diario(uuid, date, date, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_fluxo_caixa_diario(uuid, date, date, uuid) TO authenticated, service_role;
+
 -- RD-95: "?" dos novos indicadores de previsão (idempotente).
 INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
 SELECT v.chave, v.grupo, v.rotulo, v.o_que, v.para_que, v.exemplo, v.erro, v.ordem, '/dashboard/financeiro/fluxo-caixa', 'gestao_empresarial', 'publicado'
