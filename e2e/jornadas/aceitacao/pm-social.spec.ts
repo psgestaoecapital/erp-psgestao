@@ -93,7 +93,7 @@ test.describe('P&M Social — planejamento, posts, calendário e post que vira j
       servico_id: peca.id, publicar_em: `${dia}T18:00:00-03:00`, arte: 'Pet no banho', legenda: 'Seu pet merece!', hashtags: '#pet',
     })
     expect(post.status, post.texto).toBe(201)
-    expect(post.dados[0].job_id, 'rascunho não vira job').toBeNull()
+    expect(post.dados[0].job_id, 'post novo (não iniciado) não vira job sem o botão Gerar job').toBeNull()
     const postId = post.dados[0].id
 
     // 2b) rede em uso por post não sai da lista (a empresa oculta; remover é recusado e nada é apagado)
@@ -104,11 +104,17 @@ test.describe('P&M Social — planejamento, posts, calendário e post que vira j
     expect(rem.dados.ok, 'rede usada em post não pode ser removida').toBe(false)
     expect(rem.dados.erro).toBe('opcao_em_uso')
 
-    // 3) aprovado → job com prazo = publicação − antecedência
-    const ap = await api<{ job_id: string }[]>('PATCH', `agency_posts?id=eq.${postId}`, { status: 'aprovado' })
-    expect(ap.status, ap.texto).toBe(200)
-    const jobId = ap.dados[0].job_id
-    expect(jobId, 'post aprovado vira job').toBeTruthy()
+    // 3) Gerar job (botão) → 1 job com prazo = publicação − antecedência; o post FICA em nao_iniciada (Fase 2, CEO 09/11)
+    const gj = await api<{ ok: boolean; job_id: string; ja_existia: boolean }>('POST', 'rpc/fn_agency_post_gerar_job', { p_post_id: postId })
+    expect(gj.status, gj.texto).toBe(200)
+    expect(gj.dados.ok, gj.texto).toBe(true)
+    const jobId = gj.dados.job_id
+    expect(jobId, 'Gerar job cria o job').toBeTruthy()
+    const gj2 = await api<{ ok: boolean; job_id: string; ja_existia: boolean }>('POST', 'rpc/fn_agency_post_gerar_job', { p_post_id: postId })
+    expect(gj2.dados.job_id, 'chamar de novo não cria segundo job').toBe(jobId)
+    expect(gj2.dados.ja_existia).toBe(true)
+    const [postDepois] = await dbSelect<{ status: string; job_id: string }>('agency_posts', `id=eq.${postId}&select=status,job_id`)
+    expect(postDepois.status, 'o post segue em Não Iniciada até o designer mover').toBe('nao_iniciada')
     const [job] = await dbSelect<{ numero: string; data_prazo: string; descricao: string; servico_id: string; status: string }>('agency_jobs', `id=eq.${jobId}&select=numero,data_prazo,descricao,servico_id,status`)
     expect(job.data_prazo).toBe(somarDias(dia, -2))
     expect(job.numero, 'número pelo gatilho do Bloco 1').toMatch(/^\d+$/)
@@ -156,7 +162,7 @@ test.describe('P&M Social — planejamento, posts, calendário e post que vira j
     await ed.getByTestId('planejamento-salvar').click()
     await expect(ed.getByTestId('post-novo')).toBeVisible({ timeout: 15000 })
 
-    // post pela tela, já aprovado → vira job
+    // post pela tela: o job nasce do botão Gerar job do próprio post (o dropdown não cria job)
     await ed.getByTestId('post-novo').click()
     const pf = page.getByTestId('post-form')
     await pf.getByTestId('post-assunto').fill(`E2E Social carrossel ${CARIMBO}`)
@@ -168,9 +174,11 @@ test.describe('P&M Social — planejamento, posts, calendário e post que vira j
     await expect(pf.getByTestId('post-prazo-previsto')).toContainText(somarDias(mes, 12).split('-').reverse().join('/'))
     await expect(pf.getByTestId('ajuda-pm.post.redes')).toBeVisible()
     await page.screenshot({ path: 'e2e/diagnostico-host/pm-social-post-form.png', fullPage: false })
-    await pf.getByTestId('post-status').selectOption('aprovado')
+    await expect(pf.getByTestId('post-status').locator('option')).toHaveText(['Não Iniciada', 'Em Produção', 'Em aprovação', 'Concluído', 'Publicado'])
     await pf.getByTestId('post-salvar').click()
-    await expect(page.getByTestId('planejamento-toast')).toContainText('job', { timeout: 15000 })
+    await expect(ed.getByTestId('post-item').filter({ hasText: `E2E Social carrossel ${CARIMBO}` }).getByTestId('post-gerar-job')).toBeVisible({ timeout: 15000 })
+    await ed.getByTestId('post-item').filter({ hasText: `E2E Social carrossel ${CARIMBO}` }).getByTestId('post-gerar-job').click()
+    await expect(page.getByTestId('planejamento-toast')).toContainText('Job', { timeout: 15000 })
     await expect(ed.getByTestId('post-job').first()).toContainText(`prazo ${somarDias(mes, 12).split('-').reverse().join('/')}`)
     await page.screenshot({ path: 'e2e/diagnostico-host/pm-social-post-job.png', fullPage: false })
 

@@ -21,7 +21,7 @@ export type PostRascunho = Omit<Post, "id" | "planejamento_id" | "cliente_id" | 
 const inp = "w-full rounded-xl border border-[#3D2314]/15 bg-white px-3 py-2.5 text-[14px] text-[#3D2314] focus:border-[#C8941A] focus:outline-none";
 const rot = "mb-1 flex items-center text-[12px] font-semibold text-[#3D2314]";
 
-export const postVazio = (): PostRascunho => ({ assunto: "", publicar_em: null, redes: [], servico_id: null, arte: "", texto_arte: "", legenda: "", hashtags: "", responsavel_id: null, status: "rascunho" });
+export const postVazio = (): PostRascunho => ({ assunto: "", publicar_em: null, redes: [], servico_id: null, arte: "", texto_arte: "", legenda: "", hashtags: "", responsavel_id: null, status: "nao_iniciada" });
 
 export function PostForm({ inicial, redes, pecas, usuarios, busy, erro, onCancelar, onSalvar, onGerarJob }: {
   inicial: PostRascunho; redes: Opcao[]; pecas: Peca[]; usuarios: Usuario[]; busy: boolean; erro: string | null;
@@ -70,8 +70,8 @@ export function PostForm({ inicial, redes, pecas, usuarios, busy, erro, onCancel
           <div className="flex items-start gap-2 rounded-xl border border-[#C8941A]/30 bg-[#FFF8E7] px-3 py-2.5 text-[12.5px] text-[#6B4A0E]" data-testid="post-prazo-previsto">
             <CalendarClock size={16} className="mt-0.5 shrink-0" />
             {prazo
-              ? <span>Prazo do job: <b>{dataBR(prazo)}</b> — {peca?.antecedencia_dias ?? 2} dia(s) antes da publicação{temJob ? ". O job já existe: mudar a data move o prazo dele." : ", criado sozinho quando o post for aprovado."}</span>
-              : <span>Informe a data de publicação e a peça: ao aprovar, o post vira job com prazo antes da publicação.</span>}
+              ? <span>Prazo do job: <b>{dataBR(prazo)}</b> — {peca?.antecedencia_dias ?? 2} dia(s) antes da publicação{temJob ? ". O job já existe: mudar a data move o prazo dele." : ", criado pelo botão Gerar job."}</span>
+              : <span>Informe a data de publicação e a peça: aí o botão Gerar job cria o job, com prazo antes da publicação.</span>}
           </div>
 
           <div>
@@ -99,7 +99,7 @@ export function PostForm({ inicial, redes, pecas, usuarios, busy, erro, onCancel
               </select></label>
             <label className="block"><span className={rot}>Situação<AjudaCampo chave="pm.post.status" /></span>
               <select className={inp} value={f.status} onChange={(e) => setF({ ...f, status: e.target.value as StatusPost })} data-testid="post-status">
-                {STATUS_POST.map((s) => <option key={s.v} value={s.v}>{s.l}{s.v === "aprovado" && !temJob ? " (vira job)" : ""}</option>)}
+                {STATUS_POST.map((s) => <option key={s.v} value={s.v}>{s.l}</option>)}
               </select></label>
           </div>
 
