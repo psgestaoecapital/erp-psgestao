@@ -4,6 +4,10 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import ContratoArquivos from './ContratoArquivos'
 import ContratoAssinatura from './ContratoAssinatura'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+// RD-95: chaves ge.contratos.* cadastradas na rota canônica (o form abre dentro dela).
+const ROTA_AJUDA = '/dashboard/cadastros/contratos-recorrentes'
 
 interface Cliente {
   id: string
@@ -205,19 +209,19 @@ export default function ContratoForm({ companyId, contrato, onClose, onSaved }: 
             <div style={{ background: '#FCEBEB', color: '#A32D2D', padding: '10px 14px', borderRadius: 6, marginBottom: 16, fontSize: 13 }}>{erro}</div>
           )}
 
-          <Campo label="Nome da cobrança *" hint='Ex: "Aluguel sala 101", "Mensalidade Cliente ABC"'>
+          <Campo ajuda="ge.contratos.form.nome" label="Nome da cobrança *" hint='Ex: "Aluguel sala 101", "Mensalidade Cliente ABC"'>
             <input value={nome} onChange={(e) => setNome(e.target.value)} style={inputStyle} />
           </Campo>
 
           <div style={gridResponsivo}>
-            <Campo label="Tipo *">
+            <Campo ajuda="ge.contratos.form.tipo" label="Tipo *">
               <select value={tipo} onChange={(e) => setTipo(e.target.value)} style={inputStyle}>
                 {TIPOS.map((t) => (
                   <option key={t.value} value={t.value}>{t.label}</option>
                 ))}
               </select>
             </Campo>
-            <Campo label="Status">
+            <Campo ajuda="ge.contratos.form.status" label="Status">
               <select value={status} onChange={(e) => setStatus(e.target.value)} style={inputStyle}>
                 <option value="ativo">Ativo · cobrando</option>
                 <option value="suspenso">Pausado</option>
@@ -226,7 +230,7 @@ export default function ContratoForm({ companyId, contrato, onClose, onSaved }: 
             </Campo>
           </div>
 
-          <Campo label="Cliente (opcional)" hint="Vincule a um cliente cadastrado. Se vazio, fica como cobrança avulsa.">
+          <Campo ajuda="ge.contratos.form.cliente" label="Cliente (opcional)" hint="Vincule a um cliente cadastrado. Se vazio, fica como cobrança avulsa.">
             <select value={clienteId} onChange={(e) => setClienteId(e.target.value)} style={inputStyle}>
               <option value="">— Sem cliente vinculado —</option>
               {clientes.map((c) => (
@@ -239,44 +243,44 @@ export default function ContratoForm({ companyId, contrato, onClose, onSaved }: 
           </Campo>
 
           <div style={{ ...gridResponsivo, gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
-            <Campo label="Valor *">
+            <Campo ajuda="ge.contratos.form.valor" label="Valor *">
               <input type="number" step="0.01" value={valorMensal} onChange={(e) => setValorMensal(e.target.value)} placeholder="0,00" style={inputStyle} />
             </Campo>
-            <Campo label="Frequência *">
+            <Campo ajuda="ge.contratos.form.frequencia" label="Frequência *">
               <select value={periodicidade} onChange={(e) => setPeriodicidade(e.target.value)} style={inputStyle}>
                 {PERIODICIDADES.map((p) => (
                   <option key={p.value} value={p.value}>{p.label}</option>
                 ))}
               </select>
             </Campo>
-            <Campo label="Dia vence *">
+            <Campo ajuda="ge.contratos.form.dia_vencimento" label="Dia vence *">
               <input type="number" min={1} max={31} value={diaVencimento} onChange={(e) => setDiaVencimento(e.target.value)} style={inputStyle} />
             </Campo>
           </div>
 
           <div style={gridResponsivo}>
-            <Campo label="Quando começa *">
+            <Campo ajuda="ge.contratos.form.inicio" label="Quando começa *">
               <input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} style={inputStyle} />
             </Campo>
-            <Campo label="Quando acaba (deixe vazio se indefinido)">
+            <Campo ajuda="ge.contratos.form.fim" label="Quando acaba (deixe vazio se indefinido)">
               <input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} style={inputStyle} />
             </Campo>
           </div>
 
           <div style={gridResponsivo}>
-            <Campo label="Reajuste">
+            <Campo ajuda="ge.contratos.form.reajuste" label="Reajuste">
               <select value={tipoReajuste} onChange={(e) => setTipoReajuste(e.target.value)} style={inputStyle}>
                 {TIPOS_REAJUSTE.map((t) => (
                   <option key={t.value} value={t.value}>{t.label}</option>
                 ))}
               </select>
             </Campo>
-            <Campo label="% anual">
+            <Campo ajuda="ge.contratos.form.reajuste_pct" label="% anual">
               <input type="number" step="0.01" value={reajustePercentual} onChange={(e) => setReajustePercentual(e.target.value)} disabled={tipoReajuste === 'nenhum'} style={inputStyle} />
             </Campo>
           </div>
 
-          <Campo label="Observações (opcional)">
+          <Campo ajuda="ge.contratos.form.observacoes" label="Observações (opcional)">
             <textarea value={descricao} onChange={(e) => setDescricao(e.target.value)} rows={3} style={{ ...inputStyle, fontFamily: 'inherit' }} placeholder="Algum detalhe importante?" />
           </Campo>
 
@@ -309,11 +313,12 @@ export default function ContratoForm({ companyId, contrato, onClose, onSaved }: 
   )
 }
 
-function Campo({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+function Campo({ label, hint, ajuda, children }: { label: string; hint?: string; ajuda?: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 14 }}>
-      <label style={{ display: 'block', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>
+      <label style={{ display: 'flex', alignItems: 'center', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>
         {label}
+        {ajuda && <AjudaCampo chave={ajuda} rota={ROTA_AJUDA} />}
       </label>
       {children}
       {hint && <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.5)', marginTop: 4 }}>{hint}</div>}
