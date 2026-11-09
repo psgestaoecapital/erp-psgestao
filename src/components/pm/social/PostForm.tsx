@@ -23,9 +23,11 @@ const rot = "mb-1 flex items-center text-[12px] font-semibold text-[#3D2314]";
 
 export const postVazio = (): PostRascunho => ({ assunto: "", publicar_em: null, redes: [], servico_id: null, arte: "", texto_arte: "", legenda: "", hashtags: "", responsavel_id: null, status: "rascunho" });
 
-export function PostForm({ inicial, redes, pecas, usuarios, busy, erro, onCancelar, onSalvar }: {
+export function PostForm({ inicial, redes, pecas, usuarios, busy, erro, onCancelar, onSalvar, onGerarJob }: {
   inicial: PostRascunho; redes: Opcao[]; pecas: Peca[]; usuarios: Usuario[]; busy: boolean; erro: string | null;
   onCancelar: () => void; onSalvar: (p: PostRascunho) => void;
+  // Fase 1 (P&M): botão "Gerar job" na própria edição. Só aparece em post já salvo que ainda não tem job.
+  onGerarJob?: () => void;
 }) {
   const [f, setF] = useState<PostRascunho>(inicial);
   const peca = pecas.find((p) => p.id === f.servico_id);
@@ -36,6 +38,9 @@ export function PostForm({ inicial, redes, pecas, usuarios, busy, erro, onCancel
   const novasInvalidas = redesInvalidas(f.redes.filter((r) => !inicial.redes.includes(r)), ativas);
   const temJob = !!f.job_id;
   const podeSalvar = f.assunto.trim().length > 0 && !novasInvalidas.length && !busy;
+  // o job é gerado do post SALVO: com alteração não salva, o botão pede para salvar primeiro
+  const alterado = JSON.stringify(f) !== JSON.stringify(inicial);
+  const mostrarGerarJob = !!onGerarJob && !!inicial.id && !temJob;
 
   return (
     <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/40 sm:items-start sm:overflow-y-auto sm:p-6" onClick={onCancelar}>
@@ -116,6 +121,12 @@ export function PostForm({ inicial, redes, pecas, usuarios, busy, erro, onCancel
 
         <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t border-[#3D2314]/10 bg-[#FAF7F2] px-5 py-3">
           <button onClick={onCancelar} className="rounded-xl border border-[#3D2314]/15 bg-white px-4 py-2.5 text-[13.5px] text-[#3D2314]">Cancelar</button>
+          {mostrarGerarJob && (
+            <button disabled={busy || alterado} onClick={() => onGerarJob?.()} title={alterado ? "Salve o post antes de gerar o job" : undefined}
+              className="mr-auto rounded-xl border border-[#2F5A1F] bg-white px-4 py-2.5 text-[13.5px] font-medium text-[#2F5A1F] disabled:opacity-40" data-testid="post-gerar-job">
+              Gerar job{alterado ? " (salve antes)" : ""}
+            </button>
+          )}
           <button disabled={!podeSalvar} onClick={() => onSalvar({ ...f, assunto: f.assunto.trim() })} className="rounded-xl bg-[#3D2314] px-5 py-2.5 text-[13.5px] font-medium text-white disabled:opacity-40" data-testid="post-salvar">{busy ? "Salvando…" : "Salvar post"}</button>
         </div>
       </div>
