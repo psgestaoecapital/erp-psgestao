@@ -58,7 +58,7 @@ export default function RentabilidadePage() {
       const { data, error } = await supabase.rpc('fn_pm_indiretas_rateio', {
         p_company_id: empresa, p_ini: ini, p_fim: fim,
       })
-      if (error) { setErro(error.message); setDados(null); return }
+      if (error) { console.error('rentabilidade: falha na RPC fn_pm_indiretas_rateio', error); setErro('Não foi possível calcular a rentabilidade. Tente novamente.'); setDados(null); return }
       const r = data as Rateio
       if (!r?.ok) {
         setErro(r?.erro === 'sem_acesso'
@@ -67,7 +67,7 @@ export default function RentabilidadePage() {
         setDados(null); return
       }
       setDados(r)
-    } catch (e: any) { setErro(e.message); setDados(null) }
+    } catch (e: any) { console.error('rentabilidade: erro ao calcular', e); setErro('Não foi possível calcular a rentabilidade. Tente novamente.'); setDados(null) }
     finally { setLoading(false) }
   }, [empresa, ini, fim])
 
