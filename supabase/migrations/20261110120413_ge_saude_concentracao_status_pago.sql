@@ -82,3 +82,8 @@ BEGIN
     'concentracao_pct', v_concentracao_pct, 'top_cliente_nome', v_top_cliente_nome,
     'frases', jsonb_build_array(v_frase_1, v_frase_2, v_frase_3));
 END; $function$;
+
+-- Guarda de função (check_fn_guards): SECURITY DEFINER de leitura financeira nunca acessível ao anon.
+-- Idempotente — anon já não tinha EXECUTE em prod (provado: só postgres/authenticated/service_role).
+REVOKE ALL ON FUNCTION public.fn_ge_saude_financeira(uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_ge_saude_financeira(uuid) TO authenticated;
