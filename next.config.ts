@@ -55,6 +55,14 @@ const nextConfig: NextConfig = {
         destination: '/dashboard/pm/importar-sistema-anterior',
         permanent: true,
       },
+      // PDCA GE (Princ.3 menu limpo): /dashboard/produtos era DUPLICATA da tela canônica de produtos
+      // (/dashboard/cadastros/produtos, a única no menu). Consolidado: a canônica absorve o deep-link ?busca
+      // e esta rota passa a redirecionar (query preservada automaticamente).
+      {
+        source: '/dashboard/produtos',
+        destination: '/dashboard/cadastros/produtos',
+        permanent: true,
+      },
     ]
   },
 }
