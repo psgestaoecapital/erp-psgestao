@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { RespostaInline } from '@/components/melhorias/RespostaInline'
 import ConversaChamado from '@/components/melhorias/ConversaChamado'
 import { estadoFila, carregarFila, contarPrecisaDeMim, rascunhoNaoEnviado, RASCUNHO_NAO_ENVIADO, filtrarBusca, carregarEmpresasDemo, semDemos, filtrarVisao, trava, type EstadoFila, type Visao } from '@/lib/sugestoes/filaAtendimento'
@@ -17,6 +18,7 @@ const C = {
   border: '#E0D8CC', gold: '#C8941A', green: '#166534', greenBg: '#ECFDF5', amber: '#BA7517', amberBg: '#FFF6E5', red: '#B42318', redBg: '#FDECEC', blue: '#2F5AA8',
 }
 const inp: React.CSSProperties = { padding: '7px 9px', fontSize: 12, border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, outline: 'none' }
+const ROTA = '/dashboard/atendimento'
 const PRIO_ORD: Record<string, number> = { critica: 0, alta: 1, media: 2, baixa: 3 }
 const STATUSES = ['nova', 'em_analise', 'aceita', 'em_desenvolvimento', 'aguardando_confirmacao', 'concluida', 'recusada', 'duplicada', 'arquivada']
 const brDate = (d: string) => d ? new Date(d).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''
@@ -39,6 +41,7 @@ type Item = {
 type Pessoa = { user_id: string; nome: string; papel: 'ceo' | 'socio' | 'suporte'; agente: string | null; eu: boolean }
 type Hist = { acao: string; de: string | null; para: string | null; por: string; motivo: string | null; confirmacao_extra: boolean; automatico: boolean; em: string }
 const ACAO_HIST: Record<string, string> = { assumir: 'assumiu', direcionar: 'direcionou', puxar: 'puxou', liberar: 'liberou', expirar: 'trava venceu', implantacao: 'implantação', carteira: 'carteira mudou' }
+const ABA_LABEL: Record<string, string> = { precisa_mim: 'Precisa de mim', em_curso: 'Em curso', sem_confirmacao: 'Aguardando o autor', terminal: 'Concluídas' }
 
 // Três estados que importam para o CEO (em vez de misturar tudo em "em desenvolvimento"):
 const diasDesde = (iso: string | null) => iso ? Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)) : 0
@@ -253,11 +256,15 @@ function Inner() {
             {label} <span style={{ opacity: 0.8 }}>{n}</span>
           </button>
         ))}
+        <AjudaCampo chave="atendimento.visao" rota={ROTA} />
         {visao === 'todos' && (
-          <select data-testid="fila-filtro-responsavel" value={fResp} onChange={(e) => setFResp(e.target.value)} style={inp}>
-            <option value="todos">todos os responsáveis</option>
-            {equipe.filter((p) => p.papel !== 'suporte').map((p) => <option key={p.user_id} value={p.user_id}>{p.nome}</option>)}
-          </select>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <select data-testid="fila-filtro-responsavel" value={fResp} onChange={(e) => setFResp(e.target.value)} style={inp}>
+              <option value="todos">todos os responsáveis</option>
+              {equipe.filter((p) => p.papel !== 'suporte').map((p) => <option key={p.user_id} value={p.user_id}>{p.nome}</option>)}
+            </select>
+            <AjudaCampo chave="atendimento.filtro_responsavel" rota={ROTA} />
+          </label>
         )}
       </div>
 
@@ -274,22 +281,54 @@ function Inner() {
             {label} <span style={{ fontSize: 12, fontWeight: 800, padding: '1px 8px', borderRadius: 999, background: aba === k ? C.gold : C.cream, color: aba === k ? '#fff' : C.espM }}>{n}</span>
           </button>
         ))}
+        <span style={{ display: 'inline-flex', alignItems: 'center', paddingBottom: 6 }}><AjudaCampo chave="atendimento.abas" rota={ROTA} /></span>
       </div>
 
       {msg && <div style={{ background: C.amberBg, color: C.amber, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 12 }} onClick={() => setMsg(null)}>{msg}</div>}
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 12 }} onClick={() => setErro(null)}>{erro}</div>}
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-        <input data-testid="fila-busca" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="buscar nº (#14) ou título — varre todas as abas" style={{ ...inp, minWidth: 220 }} />
-        <select value={fEmpresa} onChange={(e) => setFEmpresa(e.target.value)} style={inp}><option value="todas">todas empresas</option>{empresas.map((e) => <option key={e} value={e}>{e}</option>)}</select>
-        <select value={fCategoria} onChange={(e) => setFCategoria(e.target.value)} style={inp}><option value="todas">toda categoria</option>{['bug', 'melhoria', 'duvida', 'erro_dado'].map((c) => <option key={c} value={c}>{c}</option>)}</select>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flex: '1 1 220px', minWidth: 220 }}>
+          <input data-testid="fila-busca" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="buscar nº (#14) ou título — varre todas as abas" style={{ ...inp, flex: 1 }} />
+          <AjudaCampo chave="atendimento.busca" rota={ROTA} />
+        </label>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <select value={fEmpresa} onChange={(e) => setFEmpresa(e.target.value)} style={inp}><option value="todas">todas empresas</option>{empresas.map((e) => <option key={e} value={e}>{e}</option>)}</select>
+          <AjudaCampo chave="atendimento.filtro_empresa" rota={ROTA} />
+        </label>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <select value={fCategoria} onChange={(e) => setFCategoria(e.target.value)} style={inp}><option value="todas">toda categoria</option>{['bug', 'melhoria', 'duvida', 'erro_dado'].map((c) => <option key={c} value={c}>{c}</option>)}</select>
+          <AjudaCampo chave="atendimento.filtro_categoria" rota={ROTA} />
+        </label>
         <label data-testid="fila-mostrar-demos" style={{ fontSize: 12, color: C.espM, alignSelf: 'center', display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}>
           <input type="checkbox" checked={mostrarDemos} onChange={(e) => setMostrarDemos(e.target.checked)} /> mostrar demos{nDemos && !mostrarDemos ? ` (${nDemos} ocultos)` : ''}
+          <AjudaCampo chave="atendimento.mostrar_demos" rota={ROTA} />
         </label>
         <span style={{ fontSize: 12, color: C.espM, alignSelf: 'center' }}>{buscaLimpa ? `${visiveis.length} encontrado(s)` : `${visiveis.length} nesta aba`}</span>
       </div>
 
-      {visiveis.length === 0 ? <div style={{ background: C.white, border: `1px dashed ${C.border}`, borderRadius: 12, padding: '30px 16px', textAlign: 'center', color: C.espM }}>Fila vazia.</div> : (
+      {visiveis.length === 0 ? (
+        <div style={{ background: C.white, border: `1px dashed ${C.border}`, borderRadius: 12, padding: '30px 20px', textAlign: 'center', color: C.espM }}>
+          <div style={{ fontSize: 28, marginBottom: 6 }}>📭</div>
+          {buscaLimpa ? (
+            <>
+              <div style={{ fontSize: 14, fontWeight: 700, color: C.esp, marginBottom: 4 }}>Nenhum chamado encontrado</div>
+              <div style={{ fontSize: 12.5, maxWidth: 420, margin: '0 auto 12px', lineHeight: 1.5 }}>Nada corresponde a <b>&ldquo;{busca.trim()}&rdquo;</b>. A busca varre todas as abas — confira o número (ex.: #14) ou limpe para voltar à fila.</div>
+              <button type="button" onClick={() => setBusca('')} style={btn(C.gold)}>Limpar busca</button>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: 14, fontWeight: 700, color: C.esp, marginBottom: 4 }}>Nada em &ldquo;{ABA_LABEL[aba] ?? 'esta aba'}&rdquo; agora</div>
+              <div style={{ fontSize: 12.5, maxWidth: 440, margin: '0 auto 12px', lineHeight: 1.5 }}>
+                {visao === 'meus'
+                  ? 'Nenhum chamado da sua carteira neste estado. Veja a fila inteira em “Todos” ou os sem responsável em “Sem dono”.'
+                  : 'Nenhum chamado neste estado para a visão atual. Troque de aba acima (⏳ Precisa de mim mostra o que espera aprovação) ou ajuste os filtros.'}
+              </div>
+              {visao !== 'todos' && <button type="button" onClick={() => setVisao('todos')} style={btn(C.gold)}>Ver todos os chamados</button>}
+            </>
+          )}
+        </div>
+      ) : (
         <div style={{ display: 'grid', gap: 10 }}>
           {visiveis.map((it) => {
             const ia = it.ia_analise as Record<string, string> | null
