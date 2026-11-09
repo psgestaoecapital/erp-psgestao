@@ -166,6 +166,11 @@ export default function VeiculosPage() {
               </div>
             ))}
           </Sec>
+
+          {/* RD-98 p3 (origem) + p2 (CRUD): o veículo não tem cadastro próprio — é consolidado da OS e editado lá. */}
+          <p style={{ fontSize: 11, color: ESP60, marginTop: 6, lineHeight: 1.5 }}>
+            Origem: consolidado das Ordens de Serviço desta oficina. O cadastro do veículo (placa, marca, modelo, cliente e KM) nasce e é editado na OS, na recepção — esta tela é só de consulta do histórico.
+          </p>
         </div>
       </div>
     )
@@ -211,6 +216,12 @@ export default function VeiculosPage() {
             <div style={{ fontSize: 12, color: ESP60, marginTop: 2 }}>{veic.cliente_nome || 'Cliente não informado'}{veic.ultimo_km != null ? ` · ${fmtKm(veic.ultimo_km)}` : ''}</div>
           </button>
         ))}
+
+        {lista.length > 0 && (
+          <p style={{ fontSize: 11, color: ESP60, marginTop: 14, lineHeight: 1.5 }}>
+            Origem: Ordens de Serviço desta oficina. Os veículos não têm cadastro próprio — nascem e são editados na OS, na recepção. Aqui é só a consulta do histórico por placa.
+          </p>
+        )}
       </div>
     </div>
   )
