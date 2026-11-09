@@ -31,7 +31,7 @@ type Custo = { id: string; data: string; categoria: string; descricao: string; f
 // ONDA 2 Hub — Orçado × Realizado × Saldo da obra, lido de v_obra_resultado_alocado (mesma fonte do Resultado por obra).
 // Realizado = custo real alocado de TODAS as fontes (material, mão de obra, viagem/frota, custo fixo rateado), diferente
 // do "Total de custos" da lista abaixo (só os lançamentos desta tela). Saldo = orçado − realizado (sem orçado → "—").
-type ResumoObra = { custo_previsto: number; realizado: number }
+type ResumoObra = { custo_previsto: number; realizado: number; material: number; mao_obra: number; viagens: number; rateio: number }
 
 export default function CustosObraPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -62,7 +62,7 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
           .eq('obra_id', id).in('company_id', companyIds).maybeSingle()
         if (!rr.error && rr.data) {
           const d = rr.data as Record<string, unknown>
-          setResumo({ custo_previsto: n(d.custo_previsto), realizado: n(d.custo_material) + n(d.custo_viagens) + n(d.custo_mao_obra) + n(d.custo_rateio) })
+          setResumo({ custo_previsto: n(d.custo_previsto), realizado: n(d.custo_material) + n(d.custo_viagens) + n(d.custo_mao_obra) + n(d.custo_rateio), material: n(d.custo_material), mao_obra: n(d.custo_mao_obra), viagens: n(d.custo_viagens), rateio: n(d.custo_rateio) })
         } else setResumo(null)
       } catch { setResumo(null) }
     } catch { setErro(MSG_CARREGAMENTO_FALHOU) } finally { setLoading(false) }
@@ -141,6 +141,14 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
         {resumo && (() => {
           const temOrcamento = resumo.custo_previsto > 0
           const saldo = resumo.custo_previsto - resumo.realizado
+          // Composição do "Custo realizado" (mesmas 4 fontes consolidadas de v_obra_resultado_alocado):
+          // mostrar cada parcela faz o número grande se explicar sozinho e reconciliar com a lista abaixo (auditoria: os dois totais confundiam).
+          const comp = [
+            { k: 'Material', v: resumo.material },
+            { k: 'Mão de obra', v: resumo.mao_obra },
+            { k: 'Viagens', v: resumo.viagens },
+            { k: 'Rateio', v: resumo.rateio },
+          ].filter(c => c.v > 0)
           const cardS: React.CSSProperties = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: '10px 14px', flex: '1 1 160px' }
           const rotS: React.CSSProperties = { fontSize: 11, color: MUT, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 2, marginBottom: 2 }
           const valS: React.CSSProperties = { fontSize: 18, fontWeight: 700 }
@@ -148,9 +156,14 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
             <div data-testid="custos-resumo" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
               <div style={cardS}><div style={rotS}>Orçado <AjudaCampo chave="projetos.resultado_obra.custo_previsto" rota={ROTA_RESULTADO} /></div>
                 <div style={valS} data-testid="custos-resumo-orcado">{temOrcamento ? brl(resumo.custo_previsto) : '—'}</div></div>
-              <div style={cardS}><div style={rotS}>Custo realizado (todas as fontes) <AjudaCampo chave="projetos.obra_custos.realizado" rota={ROTA} /></div>
+              <div style={{ ...cardS, flex: '1 1 240px' }}><div style={rotS}>Custo realizado (fontes consolidadas) <AjudaCampo chave="projetos.obra_custos.realizado" rota={ROTA} /></div>
                 <div style={valS} data-testid="custos-resumo-realizado">{brl(resumo.realizado)}</div>
-                <div style={{ fontSize: 10, color: MUT, marginTop: 2 }}>Material, mão de obra, viagens e rateio — maior que as despesas lançadas aqui.</div></div>
+                <div data-testid="custos-resumo-composicao" style={{ fontSize: 10, color: MUT, marginTop: 3, lineHeight: 1.5 }}>
+                  {comp.length > 0
+                    ? <>{comp.map((c, i) => <span key={c.k}>{i > 0 ? ' · ' : ''}{c.k} {brl(c.v)}</span>)}</>
+                    : <>Material, mão de obra, viagens e rateio.</>}
+                  <br />Não inclui as despesas diretas da lista abaixo — elas entram aqui conforme são conciliadas no financeiro.
+                </div></div>
               <div style={cardS}><div style={rotS}>Saldo do custo <AjudaCampo chave="projetos.resultado_obra.saldo_custo" rota={ROTA_RESULTADO} /></div>
                 <div style={{ ...valS, color: temOrcamento ? (saldo < 0 ? VERM : VERDE) : MUT }} data-testid="custos-resumo-saldo">{temOrcamento ? brl(saldo) : '—'}</div></div>
             </div>
@@ -207,9 +220,9 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
           </div>)}
         {!loading && itens.length > 0 && (
           <p data-testid="custos-reconciliacao" style={{ fontSize: 12, color: MUT, marginTop: 8 }}>
-            Este total soma só as despesas diretas lançadas nesta tela. O <strong>custo realizado completo da obra</strong> (que aparece no{' '}
-            <Link href={`/dashboard/projetos/obras/${id}/cockpit?area=hub`} style={{ color: GOLD }}>Cockpit</Link>) também inclui o material dos pedidos de compra, as viagens e a mão de obra por hora —
-            por isso o número do Cockpit costuma ser maior que o desta lista. <AjudaCampo chave="projetos.obra_custos.reconciliacao" rota={ROTA} />
+            Este total soma <strong>só</strong> as despesas diretas lançadas nesta tela. O <strong>Custo realizado (fontes consolidadas)</strong> do card acima — e o do{' '}
+            <Link href={`/dashboard/projetos/obras/${id}/cockpit?area=hub`} style={{ color: GOLD }}>Cockpit</Link> — reúne material dos pedidos de compra, viagens e mão de obra por hora,
+            por isso costuma ser bem maior que o desta lista. As despesas daqui passam a somar no custo realizado conforme são conciliadas no financeiro. <AjudaCampo chave="projetos.obra_custos.reconciliacao" rota={ROTA} />
           </p>)}
       </div>
 
