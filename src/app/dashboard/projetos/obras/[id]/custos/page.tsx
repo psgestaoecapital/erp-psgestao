@@ -16,6 +16,12 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERM = '#B91C1C', VERDE = '#2E7D32'
+// RD-95: a ajuda "?" é carregada por rota exata (fn_ajuda_campo_listar). Esta tela é rota dinâmica (/obras/[id]/custos):
+// usePathname() traria o UUID real, que nunca casa com a linha de ajuda (gravada no padrão [id]). Fixamos a rota no padrão
+// [id] para as chaves próprias (projetos.obra_custos.*) e, para os 2 KPIs reusados da tela "Resultado por obra"
+// (Orçado/Saldo do custo), apontamos para a rota onde essas chaves de fato vivem.
+const ROTA = '/dashboard/projetos/obras/[id]/custos'
+const ROTA_RESULTADO = '/dashboard/projetos/obras/resultado'
 const brl = (v: number | null | undefined) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const n = (v: unknown) => Number(v ?? 0)
 const hoje = () => new Date().toISOString().slice(0, 10)
@@ -140,11 +146,12 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
           const valS: React.CSSProperties = { fontSize: 18, fontWeight: 700 }
           return (
             <div data-testid="custos-resumo" style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 12 }}>
-              <div style={cardS}><div style={rotS}>Orçado <AjudaCampo chave="projetos.resultado_obra.custo_previsto" /></div>
+              <div style={cardS}><div style={rotS}>Orçado <AjudaCampo chave="projetos.resultado_obra.custo_previsto" rota={ROTA_RESULTADO} /></div>
                 <div style={valS} data-testid="custos-resumo-orcado">{temOrcamento ? brl(resumo.custo_previsto) : '—'}</div></div>
-              <div style={cardS}><div style={rotS}>Custo realizado <AjudaCampo chave="projetos.obra_custos.realizado" /></div>
-                <div style={valS} data-testid="custos-resumo-realizado">{brl(resumo.realizado)}</div></div>
-              <div style={cardS}><div style={rotS}>Saldo do custo <AjudaCampo chave="projetos.resultado_obra.saldo_custo" /></div>
+              <div style={cardS}><div style={rotS}>Custo realizado (todas as fontes) <AjudaCampo chave="projetos.obra_custos.realizado" rota={ROTA} /></div>
+                <div style={valS} data-testid="custos-resumo-realizado">{brl(resumo.realizado)}</div>
+                <div style={{ fontSize: 10, color: MUT, marginTop: 2 }}>Material, mão de obra, viagens e rateio — maior que as despesas lançadas aqui.</div></div>
+              <div style={cardS}><div style={rotS}>Saldo do custo <AjudaCampo chave="projetos.resultado_obra.saldo_custo" rota={ROTA_RESULTADO} /></div>
                 <div style={{ ...valS, color: temOrcamento ? (saldo < 0 ? VERM : VERDE) : MUT }} data-testid="custos-resumo-saldo">{temOrcamento ? brl(saldo) : '—'}</div></div>
             </div>
           )
@@ -152,18 +159,18 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
 
         <form onSubmit={lancar} data-testid="custos-form" style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 12, display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))' }}>
           <div><label style={lab}>Data</label>
-            <input type="date" value={f.data} onChange={e => setF({ ...f, data: e.target.value })} style={inp} data-testid="custos-data" /> <AjudaCampo chave="projetos.obra_custos.data" /></div>
+            <input type="date" value={f.data} onChange={e => setF({ ...f, data: e.target.value })} style={inp} data-testid="custos-data" /> <AjudaCampo chave="projetos.obra_custos.data" rota={ROTA} /></div>
           <div><label style={lab}>Categoria</label>
-            <AjudaCampo chave="projetos.obra_custos.categoria" /> <select value={f.categoria} onChange={e => setF({ ...f, categoria: e.target.value })} style={inp} data-testid="custos-categoria">
+            <AjudaCampo chave="projetos.obra_custos.categoria" rota={ROTA} /> <select value={f.categoria} onChange={e => setF({ ...f, categoria: e.target.value })} style={inp} data-testid="custos-categoria">
               {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
           <div><label style={lab}>Valor (R$)</label>
-            <input inputMode="decimal" value={f.valor} onChange={e => setF({ ...f, valor: e.target.value })} style={inp} data-testid="custos-valor" placeholder="0,00" /> <AjudaCampo chave="projetos.obra_custos.valor" /></div>
+            <input inputMode="decimal" value={f.valor} onChange={e => setF({ ...f, valor: e.target.value })} style={inp} data-testid="custos-valor" placeholder="0,00" /> <AjudaCampo chave="projetos.obra_custos.valor" rota={ROTA} /></div>
           <div><label style={lab}>Fornecedor</label>
-            <input value={f.fornecedor_nome} onChange={e => setF({ ...f, fornecedor_nome: e.target.value })} style={inp} data-testid="custos-fornecedor" placeholder="Opcional" /> <AjudaCampo chave="projetos.obra_custos.fornecedor" /></div>
+            <input value={f.fornecedor_nome} onChange={e => setF({ ...f, fornecedor_nome: e.target.value })} style={inp} data-testid="custos-fornecedor" placeholder="Opcional" /> <AjudaCampo chave="projetos.obra_custos.fornecedor" rota={ROTA} /></div>
           <div style={{ gridColumn: '1 / -1' }}><label style={lab}>Descrição</label>
-            <input value={f.descricao} onChange={e => setF({ ...f, descricao: e.target.value })} style={inp} data-testid="custos-descricao" placeholder="O que foi comprado ou pago" /> <AjudaCampo chave="projetos.obra_custos.descricao" /></div>
+            <input value={f.descricao} onChange={e => setF({ ...f, descricao: e.target.value })} style={inp} data-testid="custos-descricao" placeholder="O que foi comprado ou pago" /> <AjudaCampo chave="projetos.obra_custos.descricao" rota={ROTA} /></div>
           <div><button type="submit" disabled={salvando} data-testid="custos-lancar" style={{ padding: '9px 16px', background: ESP, color: '#fff', border: 0, borderRadius: 8, fontWeight: 600, cursor: salvando ? 'wait' : 'pointer' }}>{salvando ? 'Lançando…' : 'Lançar custo'}</button>
-            <AjudaCampo chave="projetos.obra_custos.lancar" /></div>
+            <AjudaCampo chave="projetos.obra_custos.lancar" rota={ROTA} /></div>
         </form>
 
         {erro && <p role="alert" data-testid="custos-erro" style={{ color: VERM }}>{erro}</p>}
@@ -175,7 +182,7 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
               <thead><tr style={{ borderBottom: `1px solid ${LINE}`, color: MUT, textAlign: 'left' }}>
                 <th style={{ padding: 8 }}>Data</th><th style={{ padding: 8 }}>Categoria</th><th style={{ padding: 8 }}>Descrição</th>
                 <th style={{ padding: 8 }}>Fornecedor</th><th style={{ padding: 8, textAlign: 'right' }}>Valor</th>
-                <th style={{ padding: 8, textAlign: 'right' }}>Situação <AjudaCampo chave="projetos.obra_custos.total" /></th><th /></tr></thead>
+                <th style={{ padding: 8, textAlign: 'right' }}>Situação <AjudaCampo chave="projetos.obra_custos.total" rota={ROTA} /></th><th /></tr></thead>
               <tbody>
                 {itens.map(c => (
                   <tr key={c.id} style={{ borderBottom: `1px solid ${LINE}` }}>
@@ -189,8 +196,8 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
                       {c.pago
                         ? <span style={{ color: MUT, fontSize: 12 }} title="Custo pago/conciliado: trate no financeiro">—</span>
                         : <span style={{ display: 'inline-flex', gap: 10, alignItems: 'center' }}>
-                            <button onClick={() => abrirEditar(c)} data-testid="custos-editar" style={{ color: ESP, background: 'none', border: 0, cursor: 'pointer' }}>Editar <AjudaCampo chave="projetos.obra_custos.editar" /></button>
-                            <button onClick={() => excluir(c)} data-testid="custos-excluir" style={{ color: VERM, background: 'none', border: 0, cursor: 'pointer' }}>Excluir <AjudaCampo chave="projetos.obra_custos.excluir" /></button>
+                            <button onClick={() => abrirEditar(c)} data-testid="custos-editar" style={{ color: ESP, background: 'none', border: 0, cursor: 'pointer' }}>Editar <AjudaCampo chave="projetos.obra_custos.editar" rota={ROTA} /></button>
+                            <button onClick={() => excluir(c)} data-testid="custos-excluir" style={{ color: VERM, background: 'none', border: 0, cursor: 'pointer' }}>Excluir <AjudaCampo chave="projetos.obra_custos.excluir" rota={ROTA} /></button>
                           </span>}
                     </td>
                   </tr>))}
@@ -202,7 +209,7 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
           <p data-testid="custos-reconciliacao" style={{ fontSize: 12, color: MUT, marginTop: 8 }}>
             Este total soma só as despesas diretas lançadas nesta tela. O <strong>custo realizado completo da obra</strong> (que aparece no{' '}
             <Link href={`/dashboard/projetos/obras/${id}/cockpit?area=hub`} style={{ color: GOLD }}>Cockpit</Link>) também inclui o material dos pedidos de compra, as viagens e a mão de obra por hora —
-            por isso o número do Cockpit costuma ser maior que o desta lista. <AjudaCampo chave="projetos.obra_custos.reconciliacao" />
+            por isso o número do Cockpit costuma ser maior que o desta lista. <AjudaCampo chave="projetos.obra_custos.reconciliacao" rota={ROTA} />
           </p>)}
       </div>
 
@@ -213,16 +220,16 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
             style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 16, width: '100%', maxWidth: 460, display: 'grid', gap: 10 }}>
             <div style={{ fontSize: 16, fontWeight: 700 }}>Editar custo da obra</div>
             <div><label style={lab}>Data</label>
-              <input type="date" value={ef.data} onChange={e => setEf({ ...ef, data: e.target.value })} style={inp} data-testid="custos-editar-data" /> <AjudaCampo chave="projetos.obra_custos.data" /></div>
+              <input type="date" value={ef.data} onChange={e => setEf({ ...ef, data: e.target.value })} style={inp} data-testid="custos-editar-data" /> <AjudaCampo chave="projetos.obra_custos.data" rota={ROTA} /></div>
             <div><label style={lab}>Categoria</label>
-              <AjudaCampo chave="projetos.obra_custos.categoria" /> <select value={ef.categoria} onChange={e => setEf({ ...ef, categoria: e.target.value })} style={inp} data-testid="custos-editar-categoria">
+              <AjudaCampo chave="projetos.obra_custos.categoria" rota={ROTA} /> <select value={ef.categoria} onChange={e => setEf({ ...ef, categoria: e.target.value })} style={inp} data-testid="custos-editar-categoria">
                 {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
             <div><label style={lab}>Valor (R$)</label>
-              <input inputMode="decimal" value={ef.valor} onChange={e => setEf({ ...ef, valor: e.target.value })} style={inp} data-testid="custos-editar-valor" placeholder="0,00" /> <AjudaCampo chave="projetos.obra_custos.valor" /></div>
+              <input inputMode="decimal" value={ef.valor} onChange={e => setEf({ ...ef, valor: e.target.value })} style={inp} data-testid="custos-editar-valor" placeholder="0,00" /> <AjudaCampo chave="projetos.obra_custos.valor" rota={ROTA} /></div>
             <div><label style={lab}>Fornecedor</label>
-              <input value={ef.fornecedor_nome} onChange={e => setEf({ ...ef, fornecedor_nome: e.target.value })} style={inp} data-testid="custos-editar-fornecedor" placeholder="Opcional" /> <AjudaCampo chave="projetos.obra_custos.fornecedor" /></div>
+              <input value={ef.fornecedor_nome} onChange={e => setEf({ ...ef, fornecedor_nome: e.target.value })} style={inp} data-testid="custos-editar-fornecedor" placeholder="Opcional" /> <AjudaCampo chave="projetos.obra_custos.fornecedor" rota={ROTA} /></div>
             <div><label style={lab}>Descrição</label>
-              <input value={ef.descricao} onChange={e => setEf({ ...ef, descricao: e.target.value })} style={inp} data-testid="custos-editar-descricao" placeholder="O que foi comprado ou pago" /> <AjudaCampo chave="projetos.obra_custos.descricao" /></div>
+              <input value={ef.descricao} onChange={e => setEf({ ...ef, descricao: e.target.value })} style={inp} data-testid="custos-editar-descricao" placeholder="O que foi comprado ou pago" /> <AjudaCampo chave="projetos.obra_custos.descricao" rota={ROTA} /></div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
               <button type="button" onClick={() => setEd(null)} disabled={salvandoEd} style={{ padding: '9px 16px', background: '#fff', color: ESP, border: `1px solid ${LINE}`, borderRadius: 8, cursor: 'pointer' }}>Cancelar</button>
               <button type="submit" disabled={salvandoEd} data-testid="custos-editar-salvar" style={{ padding: '9px 16px', background: ESP, color: '#fff', border: 0, borderRadius: 8, fontWeight: 600, cursor: salvandoEd ? 'wait' : 'pointer' }}>{salvandoEd ? 'Salvando…' : 'Salvar'}</button>
