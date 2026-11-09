@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { CalendarRange, Plus, ChevronRight, X, Trash2, CheckCheck, Send, CheckCircle2, Megaphone, Undo2, Pencil, Briefcase } from "lucide-react";
+import { CalendarRange, Plus, ChevronRight, X, Trash2, CheckCheck, Send, Megaphone, Undo2, Pencil, Briefcase } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
@@ -39,6 +39,17 @@ function Campo({ texto, ajuda, children }: { texto: string; ajuda: string; child
       {children}
     </label>
   );
+}
+
+// Mensagens da RPC fn_agency_post_gerar_job (texto para o usuário; sem erro cru do banco — RD-98)
+function mensagemGerarJob(erro?: string): string {
+  switch (erro) {
+    case "falta_peca_ou_data": return "Para gerar o job, informe a peça e a data de publicação.";
+    case "sem_acesso": return "Você não tem acesso a esta empresa.";
+    case "post_na_lixeira": return "Este post está na lixeira. Restaure-o antes de gerar o job.";
+    case "post_nao_encontrado": return "Post não encontrado. Recarregue a tela.";
+    default: return "Não foi possível gerar o job. Tente de novo.";
+  }
 }
 
 export default function PlanejamentoPage() {
@@ -201,6 +212,17 @@ export default function PlanejamentoPage() {
     setBusy(false);
     if (error) { setToast({ texto: mensagemErro(error) }); return; }
     await aposMudarPost(data as Post, !post.job_id && !!(data as Post).job_id);
+  }
+
+  // Fase 1 (CEO 09/11): "Gerar job" é explícito. A RPC leva o post a 'aprovado' e o gatilho do banco cria o job (um só).
+  async function gerarJob(post: Post, fecharEdicao = false) {
+    setBusy(true);
+    const { data, error } = await supabase.rpc("fn_agency_post_gerar_job", { p_post_id: post.id });
+    setBusy(false);
+    const r = data as { ok?: boolean; erro?: string; job_id?: string; ja_existia?: boolean } | null;
+    if (error || !r?.ok || !r.job_id) { setToast({ texto: error ? mensagemErro(error) : mensagemGerarJob(r?.erro) }); return; }
+    if (fecharEdicao) setPostEdit(null);
+    await aposMudarPost({ ...post, status: "aprovado", job_id: r.job_id }, !r.ja_existia);
   }
 
   async function lixeiraPost(post: Post) {
@@ -410,10 +432,10 @@ export default function PlanejamentoPage() {
                           </div>
                           <div className="mt-2.5 flex flex-wrap gap-1.5">
                             <button onClick={() => { setPostErro(null); setPostEdit({ ...p }); }} className={btnSec} data-testid="post-editar"><Pencil size={13} /> Editar</button>
-                            {p.status === "rascunho" && <button disabled={busy} onClick={() => void mudarStatus(p, "em_aprovacao")} className={btnSec} data-testid="post-enviar"><Send size={13} /> Enviar para aprovação</button>}
-                            {(p.status === "rascunho" || p.status === "em_aprovacao") && (
-                              <button disabled={busy} onClick={() => void mudarStatus(p, "aprovado")} className="inline-flex items-center gap-1.5 rounded-xl border border-[#2F5A1F] bg-white px-3 py-2 text-[12.5px] font-medium text-[#2F5A1F] disabled:opacity-40" data-testid="post-aprovar"><CheckCircle2 size={13} /> Aprovar{p.job_id ? "" : " → job"}</button>
+                            {!p.job_id && p.status !== "publicado" && (
+                              <button disabled={busy} onClick={() => void gerarJob(p)} className="inline-flex items-center gap-1.5 rounded-xl border border-[#2F5A1F] bg-white px-3 py-2 text-[12.5px] font-medium text-[#2F5A1F] disabled:opacity-40" data-testid="post-gerar-job"><Briefcase size={13} /> Gerar job</button>
                             )}
+                            {p.status === "rascunho" && <button disabled={busy} onClick={() => void mudarStatus(p, "em_aprovacao")} className={btnSec} data-testid="post-enviar"><Send size={13} /> Enviar para aprovação</button>}
                             {p.status === "aprovado" && <button disabled={busy} onClick={() => void mudarStatus(p, "publicado")} className={btnSec} data-testid="post-publicado"><Megaphone size={13} /> Publicado</button>}
                             {p.status !== "rascunho" && p.status !== "publicado" && <button disabled={busy} onClick={() => void mudarStatus(p, "rascunho")} className={btnSec}><Undo2 size={13} /> Rascunho</button>}
                             <button onClick={() => void lixeiraPost(p)} className="ml-auto rounded-xl p-2 text-[#791F1F]/70 hover:bg-[#791F1F]/8" aria-label="post para a lixeira"><Trash2 size={14} /></button>
@@ -431,7 +453,8 @@ export default function PlanejamentoPage() {
 
       {postEdit && (
         <PostForm key={postEdit.id ?? "novo"} inicial={postEdit} redes={redes} pecas={pecas} usuarios={usuarios} busy={busy} erro={postErro}
-          onCancelar={() => setPostEdit(null)} onSalvar={(p) => void salvarPost(p)} />
+          onCancelar={() => setPostEdit(null)} onSalvar={(p) => void salvarPost(p)}
+          onGerarJob={() => { const alvo = posts.find((x) => x.id === postEdit.id); if (alvo) void gerarJob(alvo, true); }} />
       )}
 
       {toast && (
