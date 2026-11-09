@@ -10,9 +10,12 @@ if (/href:\s*"\/dashboard\/projetos\/acompanhamento"/.test(layout)) {
 if (!/href:\s*"\/dashboard\/projetos\/obras\/resultado"/.test(layout)) {
   erros.push('layout do Hub: falta o item "Resultado" (obras/resultado)')
 }
-const redirect = readFileSync('src/app/dashboard/projetos/acompanhamento/page.tsx', 'utf8')
-if (!redirect.includes("redirect('/dashboard/projetos/obras/resultado')")) {
-  erros.push('rota antiga /acompanhamento deve seguir redirecionando para obras/resultado')
+// #4130: /acompanhamento deixou de ser redirect e virou TELA PRÓPRIA (andamento das obras/portfólio). A regra anti-
+// duplicata passa a ser: ela não pode ser só um desvio/cópia da tela de Resultado (redirect ou reexport dela).
+const acompanhamento = readFileSync('src/app/dashboard/projetos/acompanhamento/page.tsx', 'utf8')
+if (/redirect\(\s*['"]\/dashboard\/projetos\/obras\/resultado/.test(acompanhamento)
+  || /from\s+['"][^'"]*obras\/resultado/.test(acompanhamento)) {
+  erros.push('/acompanhamento é tela própria (#4130): não pode redirecionar nem reexportar obras/resultado (duplicata)')
 }
 if (erros.length) {
   console.error(erros.join('\n'))
