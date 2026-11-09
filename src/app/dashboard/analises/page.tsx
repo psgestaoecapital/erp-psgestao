@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { authFetch } from "@/lib/authFetch";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid } from "recharts";
 import AnaliseIAFlags from "../components/AnaliseIAFlags";
 import BalancoPatrimonial from "../components/BalancoPatrimonial";
@@ -98,9 +99,9 @@ const negocios:any[]=[];
 const rev:any[]=[];
 const caixa:any[]=[];
 
-const KPI=({r,v,d,ok}:any)=>(
+const KPI=({r,v,d,ok,ajuda}:any)=>(
   <div style={{background:"linear-gradient(135deg, #161614, #1E1E1B)",borderRadius:12,padding:"12px 14px",borderLeft:`3px solid ${ok?G:ok===false?R:BD}`,border:`1px solid #2A2822`,transition:"all 0.2s"}}>
-    <div style={{fontSize:10,color:TXM,letterSpacing:0.8,textTransform:"uppercase",fontWeight:500}}>{r}</div>
+    <div style={{fontSize:10,color:TXM,letterSpacing:0.8,textTransform:"uppercase",fontWeight:500,display:"flex",alignItems:"center",gap:4}}>{r}{ajuda&&<AjudaCampo rota="/dashboard/analises" chave={ajuda} />}</div>
     <div style={{fontSize:20,fontWeight:700,color:ok?GOL:ok===false?R:TX,marginTop:4,letterSpacing:-0.3}}>{v}</div>
     <div style={{fontSize:11,color:ok?G:ok===false?R:TXM,marginTop:3,fontWeight:500}}>{d}</div>
   </div>
@@ -384,6 +385,7 @@ export default function AnalisesPage(){
               {empresasSemGrupo.length>0&&empresasSemGrupo.map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
             </select>
           )}
+          {grupoEmpresas.length>1&&<AjudaCampo rota="/dashboard/analises" chave="analises.filtro_empresa" />}
         </div>
       </div>
       <div style={{display:"flex",alignItems:"center",gap:4,flexWrap:"wrap"}}>
@@ -396,6 +398,7 @@ export default function AnalisesPage(){
           <option value="dia">Dia</option>
           <option value="periodo">Período</option>
         </select>
+        <AjudaCampo rota="/dashboard/analises" chave="analises.filtro_periodo" />
         {filtroTipo==="mes"&&(<>
           <input type="month" value={periodoInicio} onChange={e=>setPeriodoInicio(e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:5,padding:"2px 6px",fontSize:10,fontWeight:600}}/>
           <span style={{fontSize:9,color:TXD}}>a</span>
@@ -414,11 +417,13 @@ export default function AnalisesPage(){
           <button onClick={()=>setRegime("competencia")} style={{padding:"3px 10px",fontSize:9,fontWeight:600,border:"none",cursor:"pointer",background:regime==="competencia"?`${GO}30`:"transparent",color:regime==="competencia"?GOL:TXD}}>Competência</button>
           <button onClick={()=>setRegime("caixa")} style={{padding:"3px 10px",fontSize:9,fontWeight:600,border:"none",cursor:"pointer",background:regime==="caixa"?`${GO}30`:"transparent",color:regime==="caixa"?GOL:TXD}}>Caixa</button>
         </div>
+        <AjudaCampo rota="/dashboard/analises" chave="analises.filtro_regime" />
       </div>
     </div>
 
     <div style={{display:"flex",gap:3,padding:"8px 12px",overflowX:"auto",borderBottom:`1px solid ${BD}`,position:"sticky",top:82,zIndex:99,background:BG,alignItems:"center"}}>
       {abas.map(a=>(<button key={a.id} onClick={()=>setAba(a.id)} style={{padding:"8px 18px",borderRadius:10,fontSize:11,whiteSpace:"nowrap",border:aba===a.id?`1px solid ${GO}50`:`1px solid transparent`,background:aba===a.id?`linear-gradient(135deg, ${GO}18, ${GO}08)`:"transparent",color:aba===a.id?GOL:TXM,fontWeight:aba===a.id?600:400,letterSpacing:0.3,transition:"all 0.2s",position:"relative",cursor:"pointer"}}>{a.nome}</button>))}
+      <AjudaCampo rota="/dashboard/analises" chave="analises.abas" />
     </div>
 
     <div style={{padding:"14px 20px",maxWidth:1400,margin:"0 auto"}}>
@@ -444,10 +449,10 @@ export default function AnalisesPage(){
       {realData&&(
         <div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:8,marginBottom:14}}>
-            <KPI r="Receitas (Contas a Receber)" v={`${fmtBRL(realData.total_receitas)}`} d={`${realData.num_empresas} empresas consolidadas`} ok={true}/>
-            <KPI r="Despesas (Contas a Pagar)" v={`${fmtBRL(realData.total_despesas)}`} d={`Total do período`} ok={null}/>
-            <KPI r="Resultado do Período" v={`${fmtBRL(realData.resultado_periodo)}`} d={`Margem ${realData.margem}%`} ok={realData.resultado_periodo>0}/>
-            <KPI r="Clientes" v={realData.total_clientes.toLocaleString("pt-BR")} d="Cadastrados no sistema de origem" ok={true}/>
+            <KPI r="Receitas (Contas a Receber)" v={`${fmtBRL(realData.total_receitas)}`} d={`${realData.num_empresas} empresas consolidadas`} ok={true}ajuda="analises.kpi_receitas"/>
+            <KPI r="Despesas (Contas a Pagar)" v={`${fmtBRL(realData.total_despesas)}`} d={`Total do período`} ok={null}ajuda="analises.kpi_despesas"/>
+            <KPI r="Resultado do Período" v={`${fmtBRL(realData.resultado_periodo)}`} d={`Margem ${realData.margem}%`} ok={realData.resultado_periodo>0}ajuda="analises.kpi_resultado"/>
+            <KPI r="Clientes" v={realData.total_clientes.toLocaleString("pt-BR")} d="Cadastrados no sistema de origem" ok={true}ajuda="analises.kpi_clientes"/>
           </div>
 
           {(realData.chart_mensal||chartData)&&(realData.chart_mensal||chartData).length>0&&(
@@ -549,6 +554,7 @@ export default function AnalisesPage(){
             <div style={{fontSize:11,color:TXM,marginBottom:10}}>
               Digite o que está acontecendo na empresa, dúvidas, decisões que precisa tomar. O PS vai cruzar com seus dados financeiros reais.
             </div>
+            <AjudaCampo rota="/dashboard/analises" chave="analises.ia_contexto" />
             <textarea
               value={contextoTexto}
               onChange={e=>setContextoTexto(e.target.value)}
@@ -659,10 +665,10 @@ export default function AnalisesPage(){
         <Tit t="Resultado Financeiro — Clique nas linhas para abrir detalhes"/>
 
         <div style={{display:"grid",gridTemplateColumns:"repeat(4, 1fr)",gap:8,marginBottom:14}}>
-          <KPI r="Receita Período" v={`${fmtBRL(realData.total_rec_operacional||realData.total_receitas||0)}`} d="Faturamento operacional" ok={true}/>
-          <KPI r="Despesas Período" v={`${fmtBRL(realData.total_despesas||0)}`} d="Contas a pagar" ok={null}/>
-          <KPI r="Resultado" v={`${fmtBRL(realData.resultado_periodo||0)}`} d={`Margem ${realData.margem||0}%`} ok={(realData.resultado_periodo||0)>0}/>
-          <KPI r="Margem" v={`${realData.margem||0}%`} d={Number(realData.margem||0)>0?"Positiva":"Negativa"} ok={Number(realData.margem||0)>0}/>
+          <KPI r="Receita Período" v={`${fmtBRL(realData.total_rec_operacional||realData.total_receitas||0)}`} d="Faturamento operacional" ok={true}ajuda="analises.kpi_receitas"/>
+          <KPI r="Despesas Período" v={`${fmtBRL(realData.total_despesas||0)}`} d="Contas a pagar" ok={null}ajuda="analises.kpi_despesas"/>
+          <KPI r="Resultado" v={`${fmtBRL(realData.resultado_periodo||0)}`} d={`Margem ${realData.margem||0}%`} ok={(realData.resultado_periodo||0)>0}ajuda="analises.kpi_resultado"/>
+          <KPI r="Margem" v={`${realData.margem||0}%`} d={Number(realData.margem||0)>0?"Positiva":"Negativa"} ok={Number(realData.margem||0)>0}ajuda="analises.kpi_margem"/>
         </div>
 
         <Card p="8px">
@@ -785,11 +791,11 @@ export default function AnalisesPage(){
     {aba==="financeiro"&&(<div>
       {realData&&(<>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:8,marginBottom:14}}>
-          <KPI r="Receita Operacional" v={`${fmtBRL(realData.total_rec_operacional||realData.total_receitas)}`} d="Faturamento real" ok={true}/>
-          <KPI r="Despesas Totais" v={`${fmtBRL(realData.total_despesas)}`} d="Contas a pagar" ok={null}/>
-          <KPI r="Resultado Operacional" v={`${fmtBRL(realData.resultado_periodo)}`} d={`Margem ${realData.margem}%`} ok={realData.resultado_periodo>0}/>
+          <KPI r="Receita Operacional" v={`${fmtBRL(realData.total_rec_operacional||realData.total_receitas)}`} d="Faturamento real" ok={true}ajuda="analises.kpi_receitas"/>
+          <KPI r="Despesas Totais" v={`${fmtBRL(realData.total_despesas)}`} d="Contas a pagar" ok={null}ajuda="analises.kpi_despesas"/>
+          <KPI r="Resultado Operacional" v={`${fmtBRL(realData.resultado_periodo)}`} d={`Margem ${realData.margem}%`} ok={realData.resultado_periodo>0}ajuda="analises.kpi_resultado"/>
           <KPI r="Empréstimos Recebidos" v={`${fmtBRL(realData.total_emprestimos||0)}`} d="Financiamentos, aportes" ok={null}/>
-          <KPI r="Clientes" v={realData.total_clientes.toLocaleString("pt-BR")} d="No cadastro do sistema de origem" ok={true}/>
+          <KPI r="Clientes" v={realData.total_clientes.toLocaleString("pt-BR")} d="No cadastro do sistema de origem" ok={true}ajuda="analises.kpi_clientes"/>
           <KPI r="Empresas" v={`${realData.num_empresas}`} d="CNPJs consolidados" ok={null}/>
         </div>
         <Tit t="Receitas × Despesas × Resultado"/>
