@@ -515,12 +515,13 @@ export default function AnalisesPage(){
 
       {!realData&&!loadingReal&&(<>
       <div style={{textAlign:"center",padding:"40px 20px"}}>
-        <div style={{fontSize:16,fontWeight:600,color:TX,marginBottom:8}}>Conecte seus dados para começar</div>
-        <div style={{fontSize:12,color:TXM,lineHeight:1.6,maxWidth:400,margin:"0 auto 20px"}}>
-          Importe dados do seu sistema de origem para ver as análises com dados reais.
+        <div style={{fontSize:16,fontWeight:600,color:TX,marginBottom:8}}>Comece com seus próprios dados</div>
+        <div style={{fontSize:12,color:TXM,lineHeight:1.6,maxWidth:420,margin:"0 auto 20px"}}>
+          Escolha um caminho: importe uma planilha ou arquivo do seu sistema anterior, ou lance seus dados direto no sistema. As análises aparecem assim que houver movimento.
         </div>
-        <div style={{display:"flex",gap:8,justifyContent:"center"}}>
-          <a href="/dashboard/dados" style={{padding:"10px 20px",borderRadius:10,background:`linear-gradient(135deg,${GO},${GOL})`,color:BG,fontSize:12,fontWeight:700,textDecoration:"none"}}>📊 Conectar ERP</a>
+        <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
+          <a href="/dashboard/dados" style={{padding:"10px 20px",borderRadius:10,background:`linear-gradient(135deg,${GO},${GOL})`,color:BG,fontSize:12,fontWeight:700,textDecoration:"none"}}>📥 Importar planilha/arquivo</a>
+          <a href="/dashboard/operacional" style={{padding:"10px 20px",borderRadius:10,background:BG2,border:`1px solid ${BD}`,color:TX,fontSize:12,fontWeight:700,textDecoration:"none"}}>✏️ Lançar manualmente</a>
         </div>
       </div>
       </>)}
@@ -656,7 +657,7 @@ export default function AnalisesPage(){
           })}
         </>)}
       </>):(
-        <div style={{padding:40,textAlign:"center",color:TXM,fontSize:12}}>Conecte seu sistema anterior para ver os negócios</div>
+        <div style={{padding:40,textAlign:"center",color:TXM,fontSize:12}}>Importe uma planilha ou lance seus dados para ver os negócios</div>
       )}
     </div>)}
 
