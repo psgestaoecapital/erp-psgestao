@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useEmpresaSelecionada } from '@/lib/agro/usePecuaria'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import RegrasRateio from './RegrasRateio'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'
@@ -143,7 +144,13 @@ export default function CentrosCustoPage() {
       <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10, padding: 16, overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead><tr style={{ color: ESP60, textAlign: 'left' }}>
-            <th style={th}>Centro de custo</th><th style={{ ...th, textAlign: 'right' }}>Ocorr.</th><th style={th}>Status</th><th style={th}>Tipo</th><th style={th}>Linha</th><th style={th}>Lote (se direto)</th><th style={th}></th>
+            <th style={th}><span style={thWrap}>Centro de custo <AjudaCampo chave="ge.centros_custo.col_centro" /></span></th>
+            <th style={{ ...th, textAlign: 'right' }}><span style={{ ...thWrap, justifyContent: 'flex-end' }}>Ocorr. <AjudaCampo chave="ge.centros_custo.col_ocorrencias" /></span></th>
+            <th style={th}><span style={thWrap}>Status <AjudaCampo chave="ge.centros_custo.col_status" /></span></th>
+            <th style={th}><span style={thWrap}>Tipo <AjudaCampo chave="ge.centros_custo.col_tipo" /></span></th>
+            <th style={th}><span style={thWrap}>Linha <AjudaCampo chave="ge.centros_custo.col_linha" /></span></th>
+            <th style={th}><span style={thWrap}>Lote (se direto) <AjudaCampo chave="ge.centros_custo.col_lote" /></span></th>
+            <th style={th}></th>
           </tr></thead>
           <tbody>
             {rows.map((r) => {
@@ -192,6 +199,7 @@ export default function CentrosCustoPage() {
 
 const inp: React.CSSProperties = { padding: '5px 7px', border: `1px solid ${LINE}`, borderRadius: 6, fontSize: 12, background: '#fff', color: ESP, minWidth: 120 }
 const th: React.CSSProperties = { padding: '6px 8px', fontWeight: 600, whiteSpace: 'nowrap' }
+const thWrap: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4 }
 const td: React.CSSProperties = { padding: '6px 8px', verticalAlign: 'middle' }
 const btnPri: React.CSSProperties = { padding: '6px 12px', background: GOLD, color: '#3D2314', border: 'none', borderRadius: 6, fontWeight: 600, cursor: 'pointer', fontSize: 12 }
 const btnDel: React.CSSProperties = { padding: '6px 12px', background: 'transparent', color: RED, border: `1px solid ${RED}55`, borderRadius: 6, fontWeight: 600, cursor: 'pointer', fontSize: 12 }
