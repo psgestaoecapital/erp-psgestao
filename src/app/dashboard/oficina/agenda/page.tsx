@@ -122,6 +122,7 @@ export default function OficinaAgendaPage() {
             <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 26, fontWeight: 400, color: ESP, margin: '2px 0 0' }}>Agenda</h1>
           </div>
           <button onClick={() => setNovo(true)} disabled={!companyId} style={{ ...btnPrim, opacity: companyId ? 1 : 0.5 }}>+ Agendar</button>
+          <AjudaCampo chave="oficina.agenda.novo" />
         </div>
 
         {/* controles */}
@@ -133,6 +134,7 @@ export default function OficinaAgendaPage() {
           <button onClick={() => setRef((d) => somaDias(d, modo === 'dia' ? -1 : -7))} style={btnGhost}>←</button>
           <button onClick={() => setRef(new Date())} style={btnGhost}>Hoje</button>
           <button onClick={() => setRef((d) => somaDias(d, modo === 'dia' ? 1 : 7))} style={btnGhost}>→</button>
+          <AjudaCampo chave="oficina.agenda.navegacao" />
           <span style={{ fontSize: 13, color: ESP, fontWeight: 600 }}>
             {modo === 'dia' ? new Date(range.de + 'T00:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' }) : `${fmtDiaCurto(range.de)} – ${fmtDiaCurto(range.ate)}`}
           </span>
