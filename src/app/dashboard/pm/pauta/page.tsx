@@ -102,6 +102,8 @@ export default function PautaPage() {
   const [aviso, setAviso] = useState<{ texto: string; lote?: string } | null>(null);
   const [massa, setMassa] = useState(false);
   const [aberto, setAberto] = useState<ItemPauta | null>(null);
+  // briefing do job aberto (descricao montada pelo banco a partir do post): null = carregando; "" = sem briefing
+  const [briefingJob, setBriefingJob] = useState<string | null>(null);
   const [frase, setFrase] = useState("");
   const [sugestaoIA, setSugestaoIA] = useState<{ filtros: FiltrosPauta; explicacao: string } | null>(null);
   const [prefCarregada, setPrefCarregada] = useState(false);
@@ -306,6 +308,9 @@ export default function PautaPage() {
 
   async function abrirJob(it: ItemPauta) {
     setAberto(it);
+    setBriefingJob(null);
+    const { data: bj } = await supabase.from("agency_jobs").select("descricao").eq("id", it.id).maybeSingle();
+    setBriefingJob((((bj as { descricao: string | null } | null)?.descricao) ?? "").trim());
     if (empresa && userId) {
       await supabase.from("agency_job_visto").upsert({ company_id: empresa, user_id: userId, job_id: it.id, visto_em: new Date().toISOString() }, { onConflict: "user_id,job_id" });
     }
@@ -514,7 +519,7 @@ export default function PautaPage() {
                     </span>
                     <span className="col-span-2 md:col-span-1">
                       {it.nota ? <span className="mr-1 inline-flex text-[#C8941A]" title={`nota ${it.nota}`}>{Array.from({ length: it.nota }).map((_, i) => <Star key={i} size={11} fill="currentColor" />)}</span> : null}
-                      {it.titulo}
+                      <button className="text-left underline-offset-2 hover:underline" onClick={() => void abrirJob(it)} data-testid={`pauta-titulo-${it.numero}`}>{it.titulo}</button>
                       {it.rodada > 0 && <span className="ml-1 rounded bg-[#3D2314]/8 px-1 text-[10.5px]">rodada {it.rodada}</span>}
                       {it.status === "aguardando" && <span className="ml-1 rounded bg-[#FAEEDA] px-1 text-[10.5px]" data-testid="pauta-selo-aguardando">{textoAguardando(it.aguardando_de, it.aguardando_dias, motivos.find((m) => m.valor === it.aguardando_motivo)?.rotulo)}</span>}
                       {prazos[it.id] && (() => { const pr = prazoAprovacao(prazos[it.id]); return (
@@ -613,6 +618,15 @@ export default function PautaPage() {
               <dt className="text-[#3D2314]/60">Escopo</dt><dd>{seloEscopo(aberto) ?? "sem limite de ajustes"}</dd>
               {lista?.pode_ver_margem && <><dt className="text-[#3D2314]/60">Valor · margem</dt><dd>{brl(aberto.valor_job)} · {brl(aberto.margem)}</dd></>}
             </dl>
+            {/* briefing do post (arte, texto da arte, legenda, hashtags, redes) — o que o designer precisa para produzir */}
+            <div className="mt-3 rounded-lg border border-[#3D2314]/10 bg-[#FAF7F2] p-3" data-testid="pauta-job-briefing">
+              <div className="mb-1 text-[11px] uppercase tracking-wider text-[#3D2314]/50">Briefing</div>
+              {briefingJob === null
+                ? <div className="text-[12.5px] text-[#3D2314]/50">carregando briefing…</div>
+                : briefingJob
+                  ? <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed text-[#3D2314]">{briefingJob.replace(/\*\*/g, "")}</pre>
+                  : <div className="text-[12.5px] text-[#3D2314]/50">Este job não tem briefing.</div>}
+            </div>
             {userId && empresa && <div className="mt-3"><Cronometro key={`c-${aberto.id}`} empresa={empresa} userId={userId} jobFixo={{ id: aberto.id, codigo: aberto.codigo, titulo: aberto.titulo }} /></div>}
             {sugCron && sugCron.jobId === aberto.id && userId && empresa && <SugestaoCronometroAviso empresa={empresa} userId={userId} jobId={sugCron.jobId} sugestao={sugCron.sugestao} situacao={sugCron.situacao} onFechar={() => setSugCron(null)} />}
             {semHorasJob === aberto.id && <AvisoSemHoras jobId={aberto.id} onFechar={() => setSemHorasJob(null)} />}

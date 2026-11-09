@@ -1,7 +1,7 @@
 // Gate (CEO 30/09 · trava do CFOP, parte B): o CFOP de venda vem do cadastro — dentro do estado (cfop_venda) e fora
 // (cfop_venda_interestadual). Sem "5102 automático" e sem derivar 5→6 (5405 virava 6405, que não existe). Produto sem o
 // CFOP do escopo da nota trava antes do envio dizendo o produto e o campo. Sem rede.
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { validateNFeRequest } from '../../src/lib/fiscal/nfe-validator'
 import type { NFeRequest } from '../../src/lib/fiscal/types'
 
@@ -32,8 +32,16 @@ ok(!erroDe(base({ cfop: '6102' })).includes('CFOP'), 'com CFOP não trava por CF
 ok(erroDe(base({ cfop: '51' })).includes('CFOP invalido'), 'CFOP malformado segue recusado')
 
 // 3) nenhum cadastro de produto nasce com 5102
-const telaAntiga = readFileSync('src/app/dashboard/produtos/page.tsx', 'utf8')
-ok(!telaAntiga.includes("cfop_venda:'5102'"), 'cadastro de produto não nasce com 5102')
+// /dashboard/produtos virou redirect (Princ.3: consolidada na canônica /dashboard/cadastros/produtos). A regra vale para
+// toda tela de cadastro de produto que existir; a canônica é obrigatória (se sumir, o gate tem de ser revisto).
+for (const tela of ['src/app/dashboard/cadastros/produtos/page.tsx', 'src/app/dashboard/produtos/page.tsx']) {
+  if (!existsSync(tela)) {
+    if (tela.includes('/cadastros/')) ok(false, `tela canônica de produtos existe (${tela})`)
+    continue
+  }
+  const s = readFileSync(tela, 'utf8')
+  ok(!s.includes("cfop_venda:'5102'") && !s.includes("cfop_venda: '5102'"), `cadastro de produto não nasce com 5102 (${tela})`)
+}
 const ficha = readFileSync('src/components/cadastros/ProdutoForm.tsx', 'utf8')
 ok(!ficha.includes("cfop_venda ?? '5102'"), "ficha sem '5102' padrão")
 
