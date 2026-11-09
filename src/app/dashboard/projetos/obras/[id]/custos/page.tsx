@@ -143,7 +143,8 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
               <div style={cardS}><div style={rotS}>Orçado <AjudaCampo chave="projetos.resultado_obra.custo_previsto" /></div>
                 <div style={valS} data-testid="custos-resumo-orcado">{temOrcamento ? brl(resumo.custo_previsto) : '—'}</div></div>
               <div style={cardS}><div style={rotS}>Custo realizado <AjudaCampo chave="projetos.obra_custos.realizado" /></div>
-                <div style={valS} data-testid="custos-resumo-realizado">{brl(resumo.realizado)}</div></div>
+                <div style={valS} data-testid="custos-resumo-realizado">{brl(resumo.realizado)}</div>
+                <div style={{ fontSize: 10, color: MUT, marginTop: 2 }}>Tudo da obra: material e compras, viagens, mão de obra e rateio</div></div>
               <div style={cardS}><div style={rotS}>Saldo do custo <AjudaCampo chave="projetos.resultado_obra.saldo_custo" /></div>
                 <div style={{ ...valS, color: temOrcamento ? (saldo < 0 ? VERM : VERDE) : MUT }} data-testid="custos-resumo-saldo">{temOrcamento ? brl(saldo) : '—'}</div></div>
             </div>
@@ -194,7 +195,7 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
                           </span>}
                     </td>
                   </tr>))}
-                <tr style={{ fontWeight: 700 }}><td colSpan={4} style={{ padding: 8 }}>Total de despesas diretas lançadas aqui</td><td style={{ padding: 8, textAlign: 'right' }} data-testid="custos-total">{brl(total)}</td><td colSpan={2} /></tr>
+                <tr style={{ fontWeight: 700 }}><td colSpan={4} style={{ padding: 8 }}>Total de despesas diretas lançadas aqui<div style={{ fontWeight: 400, fontSize: 11, color: MUT, marginTop: 2 }}>Parte do Custo realizado acima — só os lançamentos feitos nesta tela (não inclui compras, viagens nem mão de obra por hora).</div></td><td style={{ padding: 8, textAlign: 'right' }} data-testid="custos-total">{brl(total)}</td><td colSpan={2} /></tr>
               </tbody>
             </table>
           </div>)}
