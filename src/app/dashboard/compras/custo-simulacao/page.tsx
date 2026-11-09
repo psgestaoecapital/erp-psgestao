@@ -98,7 +98,7 @@ export default function CustoSimulacaoPage() {
                         <td className="px-3 py-2 text-right tabular-nums text-[#3D2314]/70">{brl(r.preco_venda)}</td>
                         <td className="px-3 py-2 text-right tabular-nums text-[#3D2314]/70">{pct(r.margem_hoje_pct)}</td>
                         <td className={'px-3 py-2 text-right tabular-nums font-medium ' + ((r.margem_real_pct ?? 0) < 0 ? 'text-[#A32D2D]' : 'text-[#3D2314]')}>{pct(r.margem_real_pct)}</td>
-                        <td className="px-3 py-2 text-right"><Link href={`/dashboard/produtos?busca=${encodeURIComponent(r.codigo)}`} className="text-[11px] text-[#BA7517] font-medium hover:underline">editar</Link></td>
+                        <td className="px-3 py-2 text-right"><Link href={`/dashboard/cadastros/produtos?busca=${encodeURIComponent(r.codigo)}`} className="text-[11px] text-[#BA7517] font-medium hover:underline">editar</Link></td>
                       </tr>
                     ))}
                   </tbody>
