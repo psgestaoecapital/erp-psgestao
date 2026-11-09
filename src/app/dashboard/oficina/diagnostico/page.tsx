@@ -377,6 +377,7 @@ export default function DiagnosticoPage() {
         )}
         {lista.length === 0 && <div style={{ color: ESP60, fontSize: 14, padding: '20px 0' }}>{ramo.automotivo ? 'Nenhum veículo ativo no pátio.' : 'Nada ativo no pátio.'} Faça a recepção primeiro.</div>}
         {lista.length > 0 && buscaOS.trim() && filtrarOS(lista, buscaOS).length === 0 && <div style={{ color: ESP60, fontSize: 14, padding: '12px 0' }}>Nenhuma OS encontrada para “{buscaOS.trim()}”.</div>}
+        {lista.length > 0 && <div style={{ fontSize: 11, color: ESP60, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>Toque num card para abrir o diagnóstico — cada um mostra placa, {ramo.objetoLabelCurto}, cliente e a queixa.<AjudaCampo chave="oficina.diagnostico.lista" rota="/dashboard/oficina/diagnostico" /></div>}
         {filtrarOS(lista, buscaOS).map((os) => (
           <div key={os.id} onClick={() => void abrirOS(os)} style={{ width: '100%', textAlign: 'left', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 10, cursor: 'pointer' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
