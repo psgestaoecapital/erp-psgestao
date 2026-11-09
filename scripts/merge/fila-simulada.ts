@@ -63,7 +63,7 @@ export function comFilaSimulada<T>(fn: (rodar: (prs: PrSimulada[], mainOcupada?:
     execFileSync('mkdir', ['-p', bin, fx])
     writeFileSync(join(bin, 'gh'), `#!/usr/bin/env bash
 shift; m=GET; jqe=; path=; campos=()
-while [ $# -gt 0 ]; do case "$1" in -X) m=$2; shift 2;; -H) shift 2;; --paginate) shift;; --jq) jqe=$2; shift 2;; -f|-F) campos+=("$2"); shift 2;; *) path=$1; shift;; esac; done
+while [ $# -gt 0 ]; do case "$1" in -X) m=$2; shift 2;; -H) shift 2;; --paginate) shift;; --jq) jqe=$2; shift 2;; -f|-F) campos+=("$2"); shift 2;; --input) shift 2;; *) path=$1; shift;; esac; done
 echo "$m $path \${campos[*]}" >> "$FX/chamadas.log"
 [ "$m" = GET ] || { echo '{}'; exit 0; }
 f="$FX/$(echo "$path" | sed 's/[^A-Za-z0-9]/_/g').json"
@@ -111,6 +111,8 @@ esac
         for (const s of p.specsProprios ?? []) files.push({ status: 'added', filename: s })
         for (const f of p.arquivos ?? []) files.push({ status: 'added', filename: f })   // arquivos extras (regime de construção: núcleo × elegível)
         put(`${R}/pulls/${p.n}/files`, files)
+        put(`${R}/git/ref/heads/pr${p.n}`, { object: { sha: sha[p.n] } })
+        put(`${R}/git/commits/${sha[p.n]}`, { tree: { sha: `tree${p.n}` } })
         if (arq) put(`${R}/contents/supabase/migrations/${arq}?ref=pr${p.n}`, { content: 'c2VsZWN0IDE7Cg==', sha: 'abc123' })
         if (arq) put(`${R}/contents/supabase/migrations/${arq}?ref=${sha[p.n]}`, { content: Buffer.from(p.sqlMigration ?? 'select 1;\n').toString('base64'), sha: 'abc123' })
         put(`${R}/git/trees/main:supabase/migrations`, { tree: [{ path: '20261008150005_ultima.sql' }, { path: 'README.md' }] })
