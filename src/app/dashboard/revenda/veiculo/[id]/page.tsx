@@ -1541,7 +1541,6 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
         <CampoRot id="campo-valor_aquisicao" ajuda="revenda.veiculo.valor_aquisicao" rotulo="Valor de aquisição (R$)" dica="Pago na compra, ex.: 72.956,00" aviso={avisoAq}>
           <input id="campo-valor_aquisicao" value={f.valor_aquisicao} onChange={(e) => setF({ ...f, valor_aquisicao: e.target.value })} inputMode="decimal" placeholder="aquisição (R$)" style={{ ...inp, width: 130, ...estiloBordaInput(campo === 'valor_aquisicao' ? 'x' : null) }} />
         </CampoRot>
-        <button disabled={busy} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: busy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer' }}>{busy ? 'Salvando…' : 'Salvar dados'}</button>
       </div>
       {pareceAno(f.modelo) && (
         <div style={{ background: C.amberBg, color: '#8A4B08', padding: '6px 10px', borderRadius: 7, fontSize: 12, marginTop: 6, display: 'inline-block' }}>
