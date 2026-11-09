@@ -507,19 +507,20 @@ export default function DiagnosticoPage() {
               <input value={it.descricao} onChange={(e) => setItem(i, { descricao: e.target.value })} placeholder={it.tipo === 'peca' ? 'Qual peça?' : 'Qual serviço?'} style={{ ...inp, marginBottom: 8 }} />
               <div style={{ display: 'grid', gridTemplateColumns: it.tipo === 'peca' ? '1fr' : '1fr 1fr', gap: 8, marginBottom: 8 }}>
                 {it.tipo === 'peca'
-                  ? <Campo l="Qtd"><input value={it.quantidade} onChange={(e) => setItem(i, { quantidade: e.target.value.replace(/[^\d.,]/g, '') })} inputMode="decimal" data-testid="diag-item-qtd" style={inp} /></Campo>
-                  : <Campo l="Tempo estimado (h)"><input value={it.tempo_estimado_h} onChange={(e) => setItem(i, { tempo_estimado_h: e.target.value.replace(/[^\d.,]/g, '') })} inputMode="decimal" style={inp} /></Campo>}
-                {it.tipo === 'servico' && <Campo l="Qtd"><input value={it.quantidade} onChange={(e) => setItem(i, { quantidade: e.target.value.replace(/[^\d.,]/g, '') })} inputMode="decimal" data-testid="diag-item-qtd" style={inp} /></Campo>}
+                  ? <Campo l="Qtd" ajuda="oficina.diagnostico.quantidade"><input value={it.quantidade} onChange={(e) => setItem(i, { quantidade: e.target.value.replace(/[^\d.,]/g, '') })} inputMode="decimal" data-testid="diag-item-qtd" style={inp} /></Campo>
+                  : <Campo l="Tempo estimado (h)" ajuda="oficina.diagnostico.tempo_estimado"><input value={it.tempo_estimado_h} onChange={(e) => setItem(i, { tempo_estimado_h: e.target.value.replace(/[^\d.,]/g, '') })} inputMode="decimal" style={inp} /></Campo>}
+                {it.tipo === 'servico' && <Campo l="Qtd" ajuda="oficina.diagnostico.quantidade"><input value={it.quantidade} onChange={(e) => setItem(i, { quantidade: e.target.value.replace(/[^\d.,]/g, '') })} inputMode="decimal" data-testid="diag-item-qtd" style={inp} /></Campo>}
               </div>
               {/* #135 · atendimento centralizado: preço unitário já no Diagnóstico (item aprovado/recusado não muda aqui) */}
               {podePreco && it.status_item !== 'aprovado' && it.status_item !== 'recusado' && (
                 <div style={{ marginBottom: 8 }}>
-                  <Campo l="Preço unitário (R$)">
+                  <Campo l="Preço unitário (R$)" ajuda="oficina.diagnostico.preco_unitario">
                     <input value={it._preco ?? ''} onChange={(e) => setItem(i, { _preco: e.target.value.replace(/[^\d.,]/g, '') })}
                       inputMode="decimal" placeholder="0,00" data-testid="diag-item-preco" style={inp} />
                   </Campo>
                 </div>
               )}
+              <div style={{ fontSize: 11, color: ESP60, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>Severidade <AjudaCampo chave="oficina.diagnostico.severidade" /></div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {SEVERIDADES.map((s) => (
                   <button key={s.v} onClick={() => setItem(i, { severidade: s.v })} style={{ ...chip, borderColor: it.severidade === s.v ? s.c : LINE, background: it.severidade === s.v ? s.c : '#fff', color: it.severidade === s.v ? '#fff' : s.c }}>{s.l}</button>
