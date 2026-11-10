@@ -2,7 +2,7 @@
 // Índice de preço do produto = R$/kg do produto ÷ R$/kg médio da análise × 100 (100 = na média da empresa).
 // Só produtos dentro da análise têm índice; produto fora da análise mostra "—" (decisão CEO 10/11).
 // % itens abaixo da tabela usa o mesmo critério da visão geral: diferença maior que R$ 0,05.
-import type { BaseV5, EstadoV5, GrupoProduto, ModeloV5 } from '../meu-painel/motor-v5'
+import type { BaseV5, EstadoV5, GrupoProduto, ModeloV5 } from './motor-v5'
 
 export type ProdutoV7 = {
   pi: number; nome: string; linha: string; grupo: number; dentro: boolean

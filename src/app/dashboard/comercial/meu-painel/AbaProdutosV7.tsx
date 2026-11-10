@@ -2,11 +2,11 @@
 // Aba Produtos do painel v7 (SPEC §2.5). Só desenha: números de calcularProdutosV7 (produtos-v7.ts).
 import { useMemo, useState } from 'react'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
-import type { BaseV5, ModeloV5 } from '../meu-painel/motor-v5'
+import type { BaseV5, ModeloV5 } from './motor-v5'
 import type { ProdutosV7, ProdutoV7 } from './produtos-v7'
 
 const C = { esp: '#3D2314', off: '#FAF7F2', gold: '#C8941A', bd: '#E7DED3', m: '#6B5D4F', d: '#9C8E80', ok: '#1a8f63', warn: '#b07a12', bad: '#C0392B', bg2: '#F0ECE3' }
-const ROTA = '/dashboard/comercial/meu-painel-v6'
+const ROTA = '/dashboard/comercial/meu-painel'
 const nf = (o: Intl.NumberFormatOptions) => new Intl.NumberFormat('pt-BR', o)
 const brl0 = (v: number | null | undefined) => v == null ? '—' : nf({ style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(v)
 const brl2 = (v: number | null | undefined) => v == null ? '—' : nf({ style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v)
