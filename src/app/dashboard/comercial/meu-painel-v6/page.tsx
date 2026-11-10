@@ -60,7 +60,7 @@ export default function MeuPainelV6() {
   const [estado, setEstado] = useState<EstadoV5 | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
-  const [aba, setAba] = useState<'geral' | 'vendedores' | 'clientes'>('geral')
+  const [aba, setAba] = useState<'geral' | 'vendedores' | 'clientes' | 'cidades'>('geral')
 
   // Período: últimos 30 dias (mesmo recorte padrão do v5), até hoje.
   const intervalo = useMemo(() => {
@@ -191,6 +191,22 @@ export default function MeuPainelV6() {
     }).filter((x) => x.qtd > 0)
   }, [modelo])
 
+  // Bloco 5 — aba "Cidades": faturamento, participação, clientes e vendedores por cidade (modelo.cidM + cidVen).
+  const cidades = useMemo(() => {
+    if (!modelo || !base) return [] as { ci: number; nome: string; val: number; part: number; clientes: number; vendedores: number }[]
+    const tot = modelo.tot.val || 1
+    return [...modelo.cidM.entries()]
+      .map(([ci, a]) => ({
+        ci,
+        nome: base.cid[ci] ?? 'Sem cidade',
+        val: a.val,
+        part: a.val / tot,
+        clientes: a.clis.size,
+        vendedores: modelo.cidVen.get(ci)?.size ?? 0,
+      }))
+      .sort((a, b) => b.val - a.val)
+  }, [modelo, base])
+
   if (!empresa) {
     return <div style={{ padding: 16, color: C.m }}>Escolha uma empresa para ver o painel.</div>
   }
@@ -206,7 +222,7 @@ export default function MeuPainelV6() {
 
       {r && modelo && (
         <div role="tablist" aria-label="Abas do painel" style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-          {([['geral', 'Visão geral'], ['vendedores', 'Vendedores'], ['clientes', 'Clientes']] as const).map(([k, rot]) => (
+          {([['geral', 'Visão geral'], ['vendedores', 'Vendedores'], ['clientes', 'Clientes'], ['cidades', 'Cidades']] as const).map(([k, rot]) => (
             <button
               key={k}
               role="tab"
@@ -443,6 +459,63 @@ export default function MeuPainelV6() {
               </ResponsiveContainer>
             </div>
             <div style={{ fontSize: 11, color: C.d, marginTop: 8 }}>Barra = ticket médio por cliente da faixa (faturamento ÷ clientes da faixa).</div>
+          </Bloco>
+        </>
+      )}
+
+      {aba === 'cidades' && r && modelo && (
+        <>
+          <p style={{ fontSize: 16, lineHeight: 1.5, margin: '0 0 16px' }}>
+            {cidades.length
+              ? <>Vende em <b>{int(cidades.length)} cidades</b>. <b>{cidades[0].nome}</b> lidera com <b>{brl0(cidades[0].val)}</b> ({pct(cidades[0].part)} do total).</>
+              : <>Sem venda por cidade no período.</>}
+          </p>
+
+          {/* Bloco 5a — Onde a empresa vende (top cidades) */}
+          <Bloco titulo="Onde a Frioeste vende" chave="comv6.cid_onde">
+            <p style={{ fontSize: 14, color: C.m, margin: '0 0 12px' }}>As cidades que mais pesam no faturamento do período.</p>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {cidades.slice(0, 10).map((c) => (
+                <div key={c.ci} style={{ minWidth: 0 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 13 }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nome}</span>
+                    <span style={{ color: C.m, flexShrink: 0 }}>{brl0(c.val)} · {pct(c.part)}</span>
+                  </div>
+                  <div style={{ height: 8, background: C.bd, borderRadius: 4, marginTop: 4, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${Math.max(2, Math.round(c.part * 100))}%`, background: C.gold }} />
+                  </div>
+                  <div style={{ fontSize: 11, color: C.d, marginTop: 2 }}>{int(c.clientes)} clientes · {int(c.vendedores)} {c.vendedores === 1 ? 'vendedor' : 'vendedores'}</div>
+                </div>
+              ))}
+            </div>
+          </Bloco>
+
+          {/* Bloco 5b — Todas as cidades */}
+          <Bloco titulo="Todas as cidades" chave="comv6.cid_todas">
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+                <thead>
+                  <tr style={{ color: C.m, textAlign: 'left' }}>
+                    <th style={{ padding: '6px 4px' }}>Cidade</th>
+                    <th style={{ padding: '6px 4px', textAlign: 'right' }}>Faturamento</th>
+                    <th style={{ padding: '6px 4px', textAlign: 'right' }}>Part.</th>
+                    <th style={{ padding: '6px 4px', textAlign: 'right' }}>Clientes</th>
+                    <th style={{ padding: '6px 4px', textAlign: 'right' }}>Vendedores</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cidades.map((c) => (
+                    <tr key={c.ci} style={{ borderTop: `1px solid ${C.bd}` }}>
+                      <td style={{ padding: '6px 4px' }}>{c.nome}</td>
+                      <td style={{ padding: '6px 4px', textAlign: 'right' }}>{brl0(c.val)}</td>
+                      <td style={{ padding: '6px 4px', textAlign: 'right' }}>{pct(c.part)}</td>
+                      <td style={{ padding: '6px 4px', textAlign: 'right' }}>{int(c.clientes)}</td>
+                      <td style={{ padding: '6px 4px', textAlign: 'right' }}>{int(c.vendedores)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </Bloco>
         </>
       )}
