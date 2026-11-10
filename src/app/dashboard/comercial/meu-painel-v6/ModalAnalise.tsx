@@ -102,10 +102,9 @@ export function ModalAnalise({ open, onClose, empresa, base, modelo, estado, onA
 
         {/* Escopo */}
         <div role="radiogroup" aria-label="Escopo da exclusão" style={{ display: 'grid', gap: 6, marginBottom: 10 }}>
-          <AjudaCampo chave="com.painel.analise" rota={ROTA} />
           {([['preco', 'Só do preço médio e R$/kg (faturamento continua com tudo)'], ['tudo', 'De todo o painel (faturamento, volume, clientes e preço)']] as [EscopoAnalise, string][]).map(([k, rot]) => (
             <label key={k} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14, minHeight: 40, background: '#fff', border: `1px solid ${escopo === k ? C.gold : C.bd}`, borderRadius: 8, padding: '8px 10px' }}>
-              <input type="radio" name="escopo" checked={escopo === k} onChange={() => setEscopo(k)} /> {rot}
+              <input type="radio" name="escopo" checked={escopo === k} onChange={() => setEscopo(k)} /> {rot}<AjudaCampo chave="com.painel.analise" rota={ROTA} />
             </label>
           ))}
         </div>
