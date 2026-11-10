@@ -476,13 +476,13 @@ function Inner() {
         <Modal onClose={() => { setAcertoVenda(null); setAcerto(null) }} titulo={`Acerto de contas — ${acertoVenda.modelo || ''}`}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div style={{ background: C.cream, borderRadius: 8, padding: 12 }}>
-              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.espM, fontWeight: 700, marginBottom: 6 }}>Previsto</div>
+              <div style={{ display: 'flex', alignItems: 'center', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.espM, fontWeight: 700, marginBottom: 6 }}>Previsto<AjudaCampo chave="revenda.vendas.acerto_previsto" rota="/dashboard/revenda/vendas" /></div>
               <Linha k="Preço de venda" v={acerto.previsto.preco_venda} />
               <Linha k="Custo real" v={acerto.previsto.custo_real_total} />
               <Linha k="Lucro projetado" v={acerto.previsto.lucro_projetado} destaque />
             </div>
             <div style={{ background: C.cream, borderRadius: 8, padding: 12 }}>
-              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.espM, fontWeight: 700, marginBottom: 6 }}>Realizado</div>
+              <div style={{ display: 'flex', alignItems: 'center', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.espM, fontWeight: 700, marginBottom: 6 }}>Realizado<AjudaCampo chave="revenda.vendas.acerto_realizado" rota="/dashboard/revenda/vendas" /></div>
               <Linha k="Recebido" v={acerto.realizado.recebido} />
               <Linha k="Em aberto — cliente" v={acerto.realizado.em_aberto_cliente} />
               <Linha k="Em aberto — banco" v={acerto.realizado.em_aberto_banco} />
