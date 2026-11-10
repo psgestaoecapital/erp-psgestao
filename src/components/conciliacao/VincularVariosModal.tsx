@@ -9,6 +9,9 @@ import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { conferirBaixaParcial, saldoTitulo } from '@/lib/conciliacao/baixaParcial'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA = '/dashboard/financeiro/conciliacao/inbox'
 
 interface Vinculo {
   vinculo_id: string
@@ -375,15 +378,18 @@ export default function VincularVariosModal({
               </div>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 <label style={{ flex: 1, minWidth: 150, fontSize: 11, color: '#3D2314', fontWeight: 600 }}>
-                  Acréscimo (juros/multa recebido)
+                  Acréscimo (juros/multa recebido)<AjudaCampo chave="financeiro.conciliacao.vincular_acrescimo" rota={ROTA} />
                   <input value={acrescimo} onChange={(e) => { setAjusteTouched(true); setAcrescimo(e.target.value) }} inputMode="decimal" placeholder="0,00" style={{ ...inputStyle, marginTop: 4, width: '100%' }} />
                 </label>
                 <label style={{ flex: 1, minWidth: 150, fontSize: 11, color: '#3D2314', fontWeight: 600 }}>
-                  Desconto concedido
+                  Desconto concedido<AjudaCampo chave="financeiro.conciliacao.vincular_desconto" rota={ROTA} />
                   <input value={desconto} onChange={(e) => { setAjusteTouched(true); setDesconto(e.target.value) }} inputMode="decimal" placeholder="0,00" style={{ ...inputStyle, marginTop: 4, width: '100%' }} />
                 </label>
               </div>
-              <input value={obsAjuste} onChange={(e) => setObsAjuste(e.target.value)} placeholder="Observação (opcional)" style={{ ...inputStyle, marginTop: 10, width: '100%' }} />
+              <label style={{ display: 'block', marginTop: 10, fontSize: 11, color: '#3D2314', fontWeight: 600 }}>
+                Observação (opcional)<AjudaCampo chave="financeiro.conciliacao.vincular_obs_ajuste" rota={ROTA} />
+                <input value={obsAjuste} onChange={(e) => setObsAjuste(e.target.value)} placeholder="Observação (opcional)" style={{ ...inputStyle, marginTop: 4, width: '100%' }} />
+              </label>
               <div style={{ fontSize: 11, marginTop: 8, color: fechaAjuste ? '#3B6D11' : '#BA7517' }}>
                 {fechaAjuste ? '✅ Com o ajuste, a conciliação fecha — pode conciliar.' : `Ainda faltam R$ ${fmt(Math.max(0, saldoAjustado))} — ajuste os valores.`}
               </div>
@@ -441,6 +447,7 @@ export default function VincularVariosModal({
                       return (
                         <div style={{ flexBasis: '100%', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 11.5, color: '#3D2314' }}>
                           <span>Baixar nesta fatura R$</span>
+                          <AjudaCampo chave="financeiro.conciliacao.vincular_parcial" rota={ROTA} />
                           <input value={parcialValor} onChange={(e) => setParcialValor(e.target.value)} inputMode="decimal"
                             data-testid={`vv-parcial-valor-${v.lancamento_id}`} style={{ ...inputStyle, width: 110 }} />
                           <span data-testid={`vv-parcial-info-${v.lancamento_id}`} style={{ color: conf && !conf.ok ? '#A32D2D' : 'rgba(61,35,20,0.7)' }}>
@@ -479,7 +486,7 @@ export default function VincularVariosModal({
                         <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)' }}>venc {fmtDate(v.vencimento)} · saldo R$ {fmt(saldo)}</div>
                       </div>
                       <label style={{ fontSize: 11, color: '#3D2314', display: 'flex', alignItems: 'center', gap: 6 }}>
-                        aplicar R$
+                        aplicar R$<AjudaCampo chave="financeiro.conciliacao.vincular_rateio" rota={ROTA} />
                         <input value={rateioVals[v.lancamento_id] ?? ''} onChange={(e) => setRateioVals((m) => ({ ...m, [v.lancamento_id]: e.target.value }))}
                           inputMode="decimal" style={{ ...inputStyle, maxWidth: 110, minWidth: 90 }} />
                       </label>
@@ -510,7 +517,8 @@ export default function VincularVariosModal({
           <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600, marginBottom: 6 }}>
             Buscar contas a {naturezaBusca === 'debito' ? 'pagar' : 'receber'}
           </div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }}>
+            <AjudaCampo chave="financeiro.conciliacao.vincular_busca" rota={ROTA} />
             <input
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
@@ -531,11 +539,11 @@ export default function VincularVariosModal({
               style={{ ...inputStyle, maxWidth: 110 }}
             />
             <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <span style={{ fontSize: 9.5, color: 'rgba(61,35,20,0.5)' }}>Venc. de</span>
+              <span style={{ fontSize: 9.5, color: 'rgba(61,35,20,0.5)' }}>Venc. de<AjudaCampo chave="financeiro.conciliacao.vincular_venc" rota={ROTA} /></span>
               <input type="date" value={dataIni} onChange={(e) => setDataIni(e.target.value)} title="Vencimento inicial" style={{ ...inputStyle, maxWidth: 150 }} />
             </label>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <span style={{ fontSize: 9.5, color: 'rgba(61,35,20,0.5)' }}>Venc. até</span>
+              <span style={{ fontSize: 9.5, color: 'rgba(61,35,20,0.5)' }}>Venc. até<AjudaCampo chave="financeiro.conciliacao.vincular_venc" rota={ROTA} /></span>
               <input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} title="Vencimento final" style={{ ...inputStyle, maxWidth: 150 }} />
             </label>
             {(dataIni || dataFim) && (
