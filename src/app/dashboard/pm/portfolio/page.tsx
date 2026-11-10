@@ -99,7 +99,14 @@ export default function PortfolioPage() {
         </header>
 
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM }}>Carregando…</div>
-          : filtrados.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM, background: '#fff', border: `1px dashed ${BORDA}`, borderRadius: 12 }}>Sem entregas publicadas ainda.</div>
+          : filtrados.length === 0 ? (
+            <div style={{ padding: 40, textAlign: 'center', color: TEXTM, background: '#fff', border: `1px dashed ${BORDA}`, borderRadius: 12 }}>
+              <div style={{ marginBottom: 14 }}>Nenhuma entrega publicada ainda. Publique um job na Pauta para ele aparecer aqui.</div>
+              <Link href="/dashboard/pm/pauta" style={{ display: 'inline-block', padding: '10px 20px', borderRadius: 8, background: DOURADO, color: '#fff', fontWeight: 600, fontSize: 14, textDecoration: 'none' }}>
+                Abrir a Pauta
+              </Link>
+            </div>
+          )
           : (
             <>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, margin: '0 0 8px', fontSize: 12, color: TEXTM, flexWrap: 'wrap' }}>
