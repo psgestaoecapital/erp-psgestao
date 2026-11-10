@@ -111,12 +111,14 @@ function Inner() {
   useEffect(() => { void carregar() }, [carregar])
 
   // Link do sino: abre o chamado (mesmo de demo) e mostra ele, em qualquer visão/aba.
+  // A Lista é a tela de trabalho onde o card do chamado (trava, Liberar, histórico) aparece; o deep-link
+  // precisa cair nela, não no Quadro (Kanban), que é só panorama e não traz o card individual (#7050 Fase 2).
   useEffect(() => {
     if (!idDaUrl || !rows.length) return
     const it = rows.find((r) => r.id === idDaUrl)
     if (!it) return
     // eslint-disable-next-line react-hooks/set-state-in-effect -- abre o chamado do link uma vez, quando a fila carrega
-    setBusca(String(it.numero)); setVisao('todos'); setAberto(it.id)
+    setFormato('lista'); setBusca(String(it.numero)); setVisao('todos'); setAberto(it.id)
     if (it.company_id && demos.has(it.company_id)) setMostrarDemos(true)
   }, [idDaUrl, rows, demos])
 
@@ -134,8 +136,9 @@ function Inner() {
   // busca: número EXATO ("14" ou "#14" → só o #14) OU trecho do título/descrição (filtrarBusca).
   const buscaLimpa = busca.trim()
   const visiveis = useMemo(() => filtrarBusca(base, busca)
-    .filter((r) => fEmpresa === 'todas' || r.empresa === fEmpresa)
-    .filter((r) => fCategoria === 'todas' || r.categoria === fCategoria)
+    // buscando (nº/título) os filtros de empresa/categoria não escondem o chamado (#7050: busca por 5622 não achava)
+    .filter((r) => buscaLimpa || fEmpresa === 'todas' || r.empresa === fEmpresa)
+    .filter((r) => buscaLimpa || fCategoria === 'todas' || r.categoria === fCategoria)
     // aba = estado da fila. Buscando (nº/título) varre TODAS as abas; senão, mostra só a aba atual.
     .filter((r) => buscaLimpa ? true : estadoFila(r) === aba)
     // dentro da aba: prioridade e idade.
@@ -191,6 +194,29 @@ function Inner() {
   async function aprovar(it: Item) {
     const ok = await acao(it.id, 'fn_sugestao_aprovar_resposta', { p_id: it.id, p_user: userId })
     if (ok) setMsg('Resposta aprovada e enviada — o autor foi avisado.')
+  }
+  // ── Aprovação em LOTE (#7050): só PS_ADMIN/PS_ADMIN_CVM; cada chamado passa pela MESMA rpc da aprovação individual
+  // (fn_sugestao_aprovar_resposta grava resposta_aprovada_por/em); nada é aprovado sem o clique + confirmação do operador.
+  const [selLote, setSelLote] = useState<Set<string>>(new Set())
+  const [loteAberto, setLoteAberto] = useState(false)
+  const [loteRodando, setLoteRodando] = useState(false)
+  const pendentesLote = useMemo(() => visiveis.filter((r) => estadoFila(r) === 'precisa_mim'), [visiveis])
+  const alternarLote = (id: string) => setSelLote((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  const selecionadosLote = pendentesLote.filter((r) => selLote.has(r.id))
+  async function aprovarLote() {
+    if (!selecionadosLote.length || loteRodando) return
+    if (!window.confirm(`Aprovar e enviar ao autor a resposta de ${selecionadosLote.length} chamado(s)? Cada um fica registrado com você e o horário.`)) return
+    setLoteRodando(true)
+    const falhas: string[] = []; let okN = 0
+    for (const it of selecionadosLote) {
+      const { data, error } = await supabase.rpc('fn_sugestao_aprovar_resposta', { p_id: it.id, p_user: userId })
+      const r = data as { ok?: boolean; mensagem?: string; erro?: string } | null
+      if (error || !r?.ok) falhas.push(`#${it.numero}: ${r?.mensagem || r?.erro || error?.message || 'falha'}`); else okN++
+    }
+    setLoteRodando(false); setSelLote(new Set()); setLoteAberto(false)
+    if (falhas.length) setErro(`Aprovados ${okN}; não aprovados: ${falhas.join(' · ')}`)
+    setMsg(okN ? `${okN} resposta(s) aprovada(s) e enviada(s) — os autores foram avisados.` : '')
+    void carregar()
   }
   // Reenvia o aviso para os aprovados que o autor ainda não confirmou (os que ficam "no limbo").
   async function reenviar(it: Item) {
@@ -370,6 +396,30 @@ function Inner() {
         </div>
       ) : (
         <div style={{ display: 'grid', gap: 10 }}>
+          {ehAdmin && aba === 'precisa_mim' && !buscaLimpa && pendentesLote.length > 0 && (
+            <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, marginBottom: 10 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <b style={{ fontSize: 13 }}>Aprovar em lote</b>
+                <button onClick={() => setSelLote(new Set(pendentesLote.map((r) => r.id)))} style={btn(C.gold)}>Selecionar todos do filtro ({pendentesLote.length})</button>
+                <button onClick={() => setSelLote(new Set())} style={btn(C.espM)}>Limpar</button>
+                <button disabled={!selecionadosLote.length} onClick={() => setLoteAberto(true)} style={btn(C.green)}>Conferir e aprovar selecionados ({selecionadosLote.length})</button>
+              </div>
+              {loteAberto && (
+                <div style={{ marginTop: 10, maxHeight: 320, overflow: 'auto', borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
+                  {selecionadosLote.map((r) => (
+                    <div key={r.id} style={{ fontSize: 12, padding: '5px 0', borderBottom: `1px solid ${C.border}` }}>
+                      <b>#{r.numero}</b> {r.titulo || r.descricao.slice(0, 60)} · {r.pr_numero ? <span style={{ color: C.green }}>PR #{r.pr_numero} vinculada</span> : <span style={{ color: C.amber }}>sem PR vinculada</span>}
+                      <div style={{ color: C.espM, whiteSpace: 'pre-wrap' }}>{(r.resposta || '').slice(0, 160)}{(r.resposta || '').length > 160 ? '…' : ''}</div>
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <button disabled={loteRodando} onClick={() => void aprovarLote()} style={btn(C.green)}>{loteRodando ? 'Aprovando…' : `Aprovar e enviar ao autor (${selecionadosLote.length})`}</button>
+                    <button onClick={() => setLoteAberto(false)} style={btn(C.espM)}>Voltar</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           {visiveis.map((it) => {
             const ia = it.ia_analise as Record<string, string> | null
             const est = estadoFila(it)
@@ -411,6 +461,7 @@ function Inner() {
                   {it.origem_sugestao_id && <span title="desmembrado de outro chamado" style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, background: C.cream, color: C.espM, fontWeight: 700 }}>↳ desmembrado</span>}
                   {it.ultimo_erro_comparacao === 'mesmo' && <span title="o erro reapareceu igual na última tentativa" style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, background: C.redBg, color: C.red, fontWeight: 700 }}>erro igual</span>}
                   {it.ultimo_erro_comparacao === 'mudou' && <span title="o erro mudou entre tentativas" style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, background: C.greenBg, color: C.green, fontWeight: 700 }}>erro mudou</span>}
+                  {ehAdmin && est === 'precisa_mim' && <label style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}><input type="checkbox" aria-label={`Selecionar #${it.numero} para aprovar em lote`} checked={selLote.has(it.id)} onChange={() => alternarLote(it.id)} /><AjudaCampo chave="atendimento.aprovar_lote" rota={ROTA} /></label>}
                   {est === 'precisa_mim' && <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: C.amberBg, color: C.amber, border: '1px solid #F0DDB0', fontWeight: 800 }}>⏳ Precisa de mim</span>}
                   {est === 'sem_confirmacao' && <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: '#EAF0FA', color: C.blue, border: '1px solid #D2DEF2', fontWeight: 800 }}>📤 Sem confirmação</span>}
                   {est === 'em_curso' && <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: C.cream, color: C.espM, fontWeight: 800 }}>🔵 Em curso</span>}
