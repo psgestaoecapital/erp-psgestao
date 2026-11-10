@@ -100,7 +100,7 @@ BEGIN
       url := 'https://erp-psgestao.vercel.app/api/screen-watcher/playwright',
       headers := jsonb_build_object(
         'Content-Type', 'application/json',
-        'x-watcher-secret', 'ps-watcher-2026-9k2mxqp4nv8wzr7y6h3t'
+        'x-watcher-secret', '<segredo no cofre: screen_watcher_secret>'
       ),
       body := jsonb_build_object('rota', v_rota_base, 'empresa_id', v_empresa),
       timeout_milliseconds := 90000
