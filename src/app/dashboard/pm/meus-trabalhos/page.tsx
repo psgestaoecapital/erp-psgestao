@@ -8,6 +8,7 @@ import Link from "next/link";
 import { Briefcase, Play } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 import EmpresaNaoResolvida from "@/components/pm/EmpresaNaoResolvida";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { BotaoPlay } from "@/components/pm/BotaoPlay";
@@ -40,7 +41,8 @@ export default function MeusTrabalhosPage() {
       supabase.rpc("fn_pauta_contadores", { p_company_id: empresa, p_filtros: {} }),
     ]);
     setTotalEmpresa(ct.error ? null : Number((ct.data as { total?: number } | null)?.total ?? 0));
-    if (ls.error) { setErro(ls.error.message); setCarregando(false); return; }
+    // RD-98 critério e: nunca o erro cru do banco ao usuário — mensagem em linguagem dele.
+    if (ls.error) { setErro(erroAmigavel(ls.error, "Não foi possível carregar seus trabalhos. Tente de novo.")); setCarregando(false); return; }
     const itens = ((ls.data as { itens: ItemPauta[] } | null)?.itens ?? []);
     const ids = itens.map((i) => i.id);
     const [ini, ta] = await Promise.all([
