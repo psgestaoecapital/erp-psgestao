@@ -5,7 +5,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { nomeDestinatarioNFe } from '../../src/lib/fiscal/nomeDestinatarioNFe'
-import { montarItemVeiculo, cstRegimeNormal, codigoCombustivel, type DadosVendaVeiculo } from '../../src/lib/fiscal/nfe-veiculo'
+import { montarItemVeiculo, cstRegimeNormal, codigoCombustivel, fraseReducaoBaseIcms, infComplementarVeiculo, type DadosVendaVeiculo } from '../../src/lib/fiscal/nfe-veiculo'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error(`✘ ${m}`) } else console.log(`✓ ${m}`) }
@@ -56,6 +56,13 @@ ok(/nomeDestinatarioNFe\(cli\.razao_social, cli\.nome_fantasia, docLimpo\)/.test
 ok(nomeDestinatarioNFe(null, 'CLIENTE TESTE HOMOLOGACAO', '52998224725') === 'CLIENTE TESTE HOMOLOGACAO', 'PF sem razão social usa nome_fantasia como xNome')
 ok(nomeDestinatarioNFe('  Maria da Silva ', 'Mari', '52998224725') === 'Maria da Silva', 'PF com razão social mantém a razão')
 ok(nomeDestinatarioNFe(null, 'Fantasia SA', '11222333000181') === '' && nomeDestinatarioNFe('  ', 'Fantasia SA', '11222333000181') === '', 'PJ sem razão social segue vazia (validador recusa com a mesma mensagem)')
+
+// #7641 (Alliance): frase da redução de base nas informações complementares — só com CST 20 e % > 0, % vindo do perfil.
+const itemRed = montarItemVeiculo(base, 'SC', 'SC', false)
+ok(/Redução da base de cálculo do ICMS de 95%/.test(itemRed.observacoes ?? '') && /Chassi: /.test(itemRed.observacoes ?? ''), 'infCpl: frase de redução 95% + dados do veículo preservados')
+ok(fraseReducaoBaseIcms('20', 12.5) === 'Redução da base de cálculo do ICMS de 12,5%', 'infCpl: percentual vem do parâmetro (12,5%)')
+ok(fraseReducaoBaseIcms('20', 0) === null && fraseReducaoBaseIcms('20', null) === null && fraseReducaoBaseIcms('00', 95) === null, 'infCpl: sem redução/CST≠20 não recebe a frase')
+ok((infComplementarVeiculo(base.veiculo, 'Redução da base de cálculo do ICMS de 95%', 'Redução da base de cálculo do ICMS de 95%').match(/Redução da base/g) ?? []).length === 1, 'infCpl: não duplica se o texto do perfil já traz a frase')
 
 if (falhas) { console.error(`\n${falhas} falha(s)`); process.exit(1) }
 console.log('\nOK')

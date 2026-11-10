@@ -79,7 +79,14 @@ export function codigoCombustivel(txt: string | null | undefined): string | null
   return null
 }
 
-export function infComplementarVeiculo(v: DadosVendaVeiculo['veiculo'], textoPerfil?: string | null): string {
+/** Frase pedida pela contabilidade (Alliance, #7641): só quando há redução de base (CST 20 e % > 0); % vem do perfil. */
+export function fraseReducaoBaseIcms(cst: string, reducaoBasePct: number | null | undefined): string | null {
+  const r = Number(reducaoBasePct ?? 0)
+  if (cst !== '20' || !(r > 0)) return null
+  return `Redução da base de cálculo do ICMS de ${String(Number(r.toFixed(2))).replace('.', ',')}%`
+}
+
+export function infComplementarVeiculo(v: DadosVendaVeiculo['veiculo'], textoPerfil?: string | null, reducaoFrase?: string | null): string {
   const partes = [
     `Veículo: ${[v.marca, v.modelo, v.versao].filter(Boolean).join(' ')}`.trim(),
     `Chassi: ${v.chassi}`,
@@ -92,7 +99,8 @@ export function infComplementarVeiculo(v: DadosVendaVeiculo['veiculo'], textoPer
   ].filter(Boolean) as string[]
   const base = partes.join(' | ')
   const extra = (textoPerfil ?? '').trim()
-  return extra ? `${base} | ${extra}` : base
+  const frase = reducaoFrase && !extra.toLowerCase().includes(reducaoFrase.toLowerCase()) ? reducaoFrase : null
+  return [base, frase, extra || null].filter(Boolean).join(' | ')
 }
 
 /**
@@ -171,7 +179,7 @@ export function montarItemVeiculo(d: DadosVendaVeiculo, ufEmitente: string | und
 
   return {
     item,
-    observacoes: infComplementarVeiculo(d.veiculo, op.infComplementar),
+    observacoes: infComplementarVeiculo(d.veiculo, op.infComplementar, fraseReducaoBaseIcms(cst, op.reducaoBasePct)),
     naturezaOperacao: (op.naturezaOperacao ?? '').trim() || NATUREZA_PADRAO_VENDA_VEICULO,
     ibsCbsTotais: { baseCalculo: temIbsCbs ? valor : 0, cbsValor: temIbsCbs ? cbsValor : 0, ibsUfValor: temIbsCbs ? ibsUfValor : 0, ibsMunValor: temIbsCbs ? ibsMunValor : 0, ibsValor: temIbsCbs ? ibsValor : 0 },
     avisos,
