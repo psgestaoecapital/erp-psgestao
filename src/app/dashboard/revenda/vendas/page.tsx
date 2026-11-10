@@ -21,6 +21,16 @@ const brl = (v: number) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency',
 const brDate = (d: string) => d ? String(d).slice(0, 10).split('-').reverse().join('/') : ''
 const SIT = ['aberta', 'faturada', 'entregue', 'devolvida', 'cancelada']
 
+// Traduz erro cru do banco/transporte para linguagem do usuário (nunca vaza mensagem técnica).
+function msgAmigavel(raw?: string | null): string {
+  const s = (raw || '').toLowerCase()
+  if (!s) return 'Não foi possível concluir a ação. Tente novamente; se continuar, avise o suporte.'
+  if (s.includes('jwt') || s.includes('token') || s.includes('session') || s.includes('expired') || s.includes('refresh')) return 'Sua sessão expirou. Entre novamente para continuar.'
+  if (s.includes('permission') || s.includes('row-level') || s.includes('rls') || s.includes('not authorized') || s.includes('denied') || s.includes('policy')) return 'Você não tem acesso a esta informação nesta empresa.'
+  if (s.includes('network') || s.includes('failed to fetch') || s.includes('fetch') || s.includes('timeout') || s.includes('timed out')) return 'Falha de conexão. Verifique sua internet e tente novamente.'
+  return 'Não foi possível concluir a ação. Tente novamente; se continuar, avise o suporte.'
+}
+
 type Venda = {
   id: string; veiculo_id: string; chassi: string; modelo: string | null; placa: string | null; cliente_nome: string | null
   data_venda: string; valor_venda: number | null; desconto_embutido_troca: number | null
@@ -64,6 +74,10 @@ function Inner() {
   const [acerto, setAcerto] = useState<Acerto | null>(null)
   const [recebs, setRecebs] = useState<Map<string, Receb[]>>(new Map())
   const [cancelaTit, setCancelaTit] = useState<{ venda: Venda; motivo: string; abertos: { id: string; valor: number }[] } | null>(null)
+  // Motivo (devolução/cancelamento) coletado por Modal/bottom-sheet do design PS — sem window.prompt() nativo.
+  const [motivoModal, setMotivoModal] = useState<{ titulo: string; label: string; obrig: boolean; confirmLabel: string; onConfirm: (motivo: string) => void | Promise<void> } | null>(null)
+  const [motivoTxt, setMotivoTxt] = useState('')
+  const [motivoErro, setMotivoErro] = useState<string | null>(null)
   // #7641 · status real da NF-e de cada venda (veic_venda.nfe_id → erp_nfe_emitidas).
   const [nfes, setNfes] = useState<Map<string, NfeVenda>>(new Map())
   const [acResumo, setAcResumo] = useState<Map<string, { previsto: number | null; realizado: number | null }>>(new Map())
@@ -92,7 +106,7 @@ function Inner() {
         setMsg(`NF-e ${j.numero ?? ''} — ${j.status}${j.ambiente ? ` (${j.ambiente})` : ''}.${avisos.length ? ' Atenção: ' + avisos.join(' ') : ''}`)
       }
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Falha ao emitir a NF-e')
+      setErro(e instanceof Error ? msgAmigavel(e.message) : 'Falha ao emitir a NF-e')
     } finally {
       setBusy(false)
       await carregar()
@@ -102,7 +116,7 @@ function Inner() {
   const carregar = useCallback(async () => {
     if (!companyId) { setRows([]); setRecebs(new Map()); setAcResumo(new Map()); return }
     const { data, error } = await supabase.from('v_veic_venda').select('*').eq('company_id', companyId).order('data_venda', { ascending: false })
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(msgAmigavel(error.message)); return }
     const vs = (data as Venda[]) ?? []
     setRows(vs)
     {
@@ -157,7 +171,7 @@ function Inner() {
     const { data, error } = await supabase.rpc('fn_veic_venda_checklist_materializar', { p_venda_id: v.id, p_user: await userId() })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string; itens?: ChkItem[] } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha ao abrir checklist'); return }
+    if (error || !r?.ok) { setErro((error ? msgAmigavel(error.message) : null) || r?.erro || 'Falha ao abrir checklist'); return }
     setChkVenda(v); setChkItens(r.itens ?? []); setChkKm(v.km_entrega ? String(v.km_entrega) : '')
   }
   async function marcarItem(it: ChkItem, feito: boolean) {
@@ -175,7 +189,7 @@ function Inner() {
     const r = data as { ok?: boolean; erro?: string; faltando?: string[]; mensagem?: string } | null
     if (error || !r?.ok) {
       if (r?.erro === 'checklist_incompleto') setErro(`Faltam itens obrigatórios: ${(r.faltando ?? []).join(' · ')}`)
-      else setErro(error?.message || r?.mensagem || r?.erro || 'Falha ao entregar')
+      else setErro((error ? msgAmigavel(error.message) : null) || r?.mensagem || r?.erro || 'Falha ao entregar')
       return
     }
     setMsg('Veículo entregue.'); setChkVenda(null); void carregar()
@@ -187,7 +201,7 @@ function Inner() {
     const { data, error } = await supabase.rpc('fn_veic_termo_entrega', { p_venda_id: v.id })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string; termo_md?: string } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha ao gerar termo'); return }
+    if (error || !r?.ok) { setErro((error ? msgAmigavel(error.message) : null) || r?.erro || 'Falha ao gerar termo'); return }
     setTermoVenda(v); setTermoMd(r.termo_md ?? ''); setAssinaNome(v.cliente_nome ?? ''); void carregar()
   }
   async function assinarTermo() {
@@ -197,7 +211,7 @@ function Inner() {
     const { data, error } = await supabase.rpc('fn_veic_termo_assinar', { p_venda_id: termoVenda.id, p_nome: assinaNome.trim(), p_ip: null, p_user: await userId() })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha no aceite'); return }
+    if (error || !r?.ok) { setErro((error ? msgAmigavel(error.message) : null) || r?.erro || 'Falha no aceite'); return }
     setMsg('Aceite registrado.'); setTermoVenda(null); void carregar()
   }
 
@@ -207,20 +221,21 @@ function Inner() {
     const { data, error } = await supabase.rpc('fn_veic_venda_acerto', { p_venda_id: v.id })
     setBusy(false)
     const r = data as ({ ok?: boolean; erro?: string } & Acerto) | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha no acerto'); return }
+    if (error || !r?.ok) { setErro((error ? msgAmigavel(error.message) : null) || r?.erro || 'Falha no acerto'); return }
     setAcertoVenda(v); setAcerto({ previsto: r.previsto, realizado: r.realizado })
   }
 
   // ── Devolução / cancelamento ───────────────────────────────────────────────────────────────
-  async function devolver(v: Venda) {
-    const motivo = window.prompt('Motivo da devolução (obrigatório):')
-    if (motivo == null) return
-    if (!motivo.trim()) { setErro('A devolução exige um motivo.'); return }
+  function devolver(v: Venda) {
+    setMotivoTxt(''); setMotivoErro(null)
+    setMotivoModal({ titulo: `Registrar devolução — ${v.modelo || ''}`, label: 'Motivo da devolução', obrig: true, confirmLabel: 'Registrar devolução', onConfirm: (motivo) => executarDevolver(v, motivo) })
+  }
+  async function executarDevolver(v: Venda, motivo: string) {
     setBusy(true)
-    const { data, error } = await supabase.rpc('fn_veic_venda_devolver', { p_venda_id: v.id, p_motivo: motivo.trim(), p_data: null, p_user: await userId() })
+    const { data, error } = await supabase.rpc('fn_veic_venda_devolver', { p_venda_id: v.id, p_motivo: motivo, p_data: null, p_user: await userId() })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string; titulos_a_estornar?: string[] } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha na devolução'); return }
+    if (error || !r?.ok) { setErro((error ? msgAmigavel(error.message) : null) || r?.erro || 'Falha na devolução'); return }
     const n = (r.titulos_a_estornar ?? []).length
     setMsg(`Devolução registrada. Veículo volta ao pátio. ${n} título(s) marcado(s) a estornar (evento enviado ao financeiro).`)
     void carregar()
@@ -230,8 +245,11 @@ function Inner() {
   const titulosAbertos = (vendaId: string) => (recebs.get(vendaId) ?? []).filter((t) => t.receber_id && t.status && ABERTO.includes(t.status))
   const titulosPagos = (vendaId: string) => (recebs.get(vendaId) ?? []).filter((t) => t.receber_id && t.status && !ABERTO.includes(t.status) && t.status !== 'cancelado')
 
-  async function cancelar(v: Venda) {
-    const motivo = window.prompt('Motivo do cancelamento:') ?? ''
+  function cancelar(v: Venda) {
+    setMotivoTxt(''); setMotivoErro(null)
+    setMotivoModal({ titulo: `Cancelar venda — ${v.modelo || ''}`, label: 'Motivo do cancelamento (opcional)', obrig: false, confirmLabel: 'Continuar', onConfirm: (motivo) => prosseguirCancelar(v, motivo) })
+  }
+  async function prosseguirCancelar(v: Venda, motivo: string) {
     // Releitura do status dos títulos no banco (a lista da tela pode estar velha).
     const ids = (recebs.get(v.id) ?? []).map((t) => t.receber_id).filter((x): x is string => !!x)
     let abertos: { id: string; valor: number }[] = []
@@ -246,7 +264,7 @@ function Inner() {
     setBusy(true)
     const { data, error } = await supabase.rpc('fn_veic_venda_cancelar', { p_venda_id: v.id, p_user: await userId(), p_motivo: motivo || null })
     const r = data as { ok?: boolean; erro?: string; mensagem?: string; titulos_nao_excluidos?: number } | null
-    if (error || !r?.ok) { setBusy(false); setErro(error?.message || r?.mensagem || r?.erro || 'Falha'); return }
+    if (error || !r?.ok) { setBusy(false); setErro((error ? msgAmigavel(error.message) : null) || r?.mensagem || r?.erro || 'Falha'); return }
     // Venda cancelada. Só então cancela os títulos escolhidos, pela função do financeiro (histórico + auditoria).
     let falhas = 0
     for (const t of cancelarTitulos) {
@@ -282,7 +300,21 @@ function Inner() {
       </div>
 
       {visiveis.length === 0 ? (
-        <div style={{ background: C.white, border: `1px dashed ${C.border}`, borderRadius: 12, padding: '30px 16px', textAlign: 'center', color: C.espM }}>Nenhuma venda registrada. Registre a venda pela ficha do veículo.</div>
+        <div style={{ background: C.white, border: `1px dashed ${C.border}`, borderRadius: 12, padding: '30px 16px', textAlign: 'center', color: C.espM }}>
+          {filtro === 'todos' ? (
+            <>
+              <div style={{ fontSize: 14, color: C.esp, fontWeight: 600 }}>Nenhuma venda registrada ainda.</div>
+              <div style={{ fontSize: 12.5, marginTop: 4 }}>A venda começa na ficha do veículo, lá no pátio.</div>
+              <button onClick={() => router.push('/dashboard/revenda/patio')} style={{ ...btnGold, marginTop: 14 }}>Registrar venda no pátio</button>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: 14, color: C.esp, fontWeight: 600 }}>Nenhuma venda {filtro}.</div>
+              <div style={{ fontSize: 12.5, marginTop: 4 }}>Há vendas registradas, mas nenhuma neste filtro de situação.</div>
+              <button onClick={() => setFiltro('todos')} style={{ ...btnGhost, marginTop: 14 }}>Ver todas as vendas</button>
+            </>
+          )}
+        </div>
       ) : (
         <div style={{ display: 'grid', gap: 10 }}>
           {visiveis.map((v) => {
@@ -414,6 +446,32 @@ function Inner() {
             )
           })}
         </div>
+      )}
+
+      {/* ── Modal de motivo (devolução / cancelamento) — bottom sheet PS no lugar do window.prompt() ── */}
+      {motivoModal && (
+        <Modal onClose={() => { setMotivoModal(null); setMotivoErro(null) }} titulo={motivoModal.titulo}>
+          <label style={{ display: 'block', fontSize: 12.5, color: C.espM, marginBottom: 6 }}>{motivoModal.label}</label>
+          <textarea
+            value={motivoTxt}
+            onChange={(e) => { setMotivoTxt(e.target.value); if (motivoErro) setMotivoErro(null) }}
+            rows={3}
+            autoFocus
+            placeholder="Descreva o motivo…"
+            style={{ ...inp, display: 'block', width: '100%', resize: 'vertical', fontFamily: 'inherit', minHeight: 72 }}
+          />
+          {motivoErro && <div style={{ fontSize: 12, color: C.red, marginTop: 6 }}>{motivoErro}</div>}
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
+            <button onClick={() => { setMotivoModal(null); setMotivoErro(null) }} style={btnGhost}>Voltar</button>
+            <button disabled={busy} onClick={() => {
+              const t = motivoTxt.trim()
+              if (motivoModal.obrig && !t) { setMotivoErro('Informe o motivo para continuar.'); return }
+              const cb = motivoModal.onConfirm
+              setMotivoModal(null); setMotivoErro(null)
+              void cb(t)
+            }} style={btnGold}>{motivoModal.confirmLabel}</button>
+          </div>
+        </Modal>
       )}
 
       {/* ── Modal #6928: cancelar também o título? ── */}
