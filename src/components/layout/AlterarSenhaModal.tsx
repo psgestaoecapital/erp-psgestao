@@ -3,6 +3,7 @@
 // confere a senha atual (signInWithPassword do próprio e-mail) e troca com updateUser. Nunca mostra nem define senha de outra pessoa.
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 export default function AlterarSenhaModal({ email, onClose }: { email: string; onClose: () => void }) {
   const [atual, setAtual] = useState('')
@@ -35,13 +36,16 @@ export default function AlterarSenhaModal({ email, onClose }: { email: string; o
       <form onSubmit={salvar} data-ajuda="alterar-senha" onClick={(ev) => ev.stopPropagation()}
         className="bg-white rounded-xl shadow-xl w-full max-w-sm p-5 space-y-3">
         <h2 className="text-[16px] font-semibold text-[#3D2314]">Alterar minha senha</h2>
-        <label className="block text-[12.5px] text-[#3D2314]/70">Senha atual
+        <label className="block text-[12.5px] text-[#3D2314]/70">
+          Senha atual <AjudaCampo chave="menu_usuario.senha_atual" rota="menu-usuario" />
           <input type="password" autoComplete="current-password" value={atual} onChange={(e) => setAtual(e.target.value)} className={campo} />
         </label>
-        <label className="block text-[12.5px] text-[#3D2314]/70">Nova senha (mínimo 8 caracteres)
+        <label className="block text-[12.5px] text-[#3D2314]/70">
+          Nova senha (mínimo 8 caracteres) <AjudaCampo chave="menu_usuario.senha_nova" rota="menu-usuario" />
           <input type="password" autoComplete="new-password" value={nova} onChange={(e) => setNova(e.target.value)} className={campo} />
         </label>
-        <label className="block text-[12.5px] text-[#3D2314]/70">Confirmar nova senha
+        <label className="block text-[12.5px] text-[#3D2314]/70">
+          Confirmar nova senha <AjudaCampo chave="menu_usuario.senha_confirmar" rota="menu-usuario" />
           <input type="password" autoComplete="new-password" value={conf} onChange={(e) => setConf(e.target.value)} className={campo} />
         </label>
         {msg && <p role="status" className={`text-[13px] font-medium ${msg.ok ? 'text-green-700' : 'text-red-700'}`}>{msg.t}</p>}
