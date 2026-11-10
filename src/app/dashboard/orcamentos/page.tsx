@@ -278,7 +278,7 @@ export default function OrcamentosPage(){
   const loadOrcamentos=async()=>{
     if(companyIds.length===0){setLoading(false);return;}
     setLoading(true);
-    const{data,error}=await supabase.from("erp_orcamentos").select("*").in("company_id",companyIds).order("data_emissao",{ascending:false}).order("created_at",{ascending:false}).limit(100);
+    const{data,error}=await supabase.from("erp_orcamentos").select("*").in("company_id",companyIds).is("deleted_at",null).order("data_emissao",{ascending:false}).order("created_at",{ascending:false}).limit(100);
     if(data)setOrcamentos(data);
     if(error&&!error.message.includes('does not exist'))setMsg("Erro: "+error.message);
     setLoading(false);
@@ -729,6 +729,22 @@ export default function OrcamentosPage(){
       await supabase.from("erp_orcamentos_itens").insert(novosItens);
     }
     setMsg(`✅ Orçamento duplicado como ${numero}`);
+    loadOrcamentos();
+    setTimeout(()=>setMsg(""),3000);
+  };
+
+  // #6723 · excluir orçamento (RD-98 critério g): exclusão LÓGICA e rastreável via RPC fn_orcamento_excluir
+  // (SECURITY DEFINER, guarda por empresa, exige motivo, grava em audit_log_global). A RPC recusa orçamento
+  // que já virou pedido — documento financeiro não se apaga. Nunca é DELETE físico (deleted_at + motivo_exclusao).
+  const excluir=async(o:Orcamento)=>{
+    if(o.status==='convertido'||o.pedido_id){setMsg("❌ Orçamento já virou pedido — não pode ser excluído.");setTimeout(()=>setMsg(""),4000);return;}
+    const motivo=window.prompt(`Excluir o orçamento ${o.numero}? Ele sai da lista mas fica no histórico (exclusão rastreável).\n\nInforme o motivo da exclusão:`);
+    if(motivo===null)return;
+    if(!motivo.trim()){setMsg("❌ Informe o motivo da exclusão.");setTimeout(()=>setMsg(""),4000);return;}
+    const{data,error}=await supabase.rpc('fn_orcamento_excluir',{p_orcamento_id:o.id,p_motivo:motivo.trim()});
+    const res=data as {ok:boolean;erro?:string;numero?:string}|null;
+    if(error||!res?.ok){setMsg("❌ "+(res?.erro||error?.message||"Falha ao excluir."));setTimeout(()=>setMsg(""),5000);return;}
+    setMsg(`🗑️ Orçamento ${res.numero||o.numero} excluído.`);
     loadOrcamentos();
     setTimeout(()=>setMsg(""),3000);
   };
@@ -1243,6 +1259,8 @@ export default function OrcamentosPage(){
                           <button onClick={()=>enviarWhatsApp(o)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:G+"12",color:G,border:`1px solid ${G}25`,cursor:"pointer"}} title="Enviar por WhatsApp">📱</button>
                           <button onClick={()=>verComoCliente(o)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:B+"12",color:B,border:`1px solid ${B}25`,cursor:"pointer"}} title="Ver como cliente (página pública)">👁</button>
                           <button onClick={()=>duplicar(o)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:Y+"12",color:Y,border:`1px solid ${Y}25`,cursor:"pointer"}} title="Duplicar/Nova versão">📋</button>
+                          {o.status!=='convertido'&&!o.pedido_id&&<button onClick={()=>excluir(o)} data-testid="orc-lista-excluir" style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:R+"12",color:R,border:`1px solid ${R}25`,cursor:"pointer"}} title="Excluir orçamento (sai da lista, fica no histórico)">🗑️ Excluir</button>}
+                          <AjudaCampo chave="orcamentos.acao.excluir" rota="/dashboard/orcamentos"/>
                         </div>
                       </td>
                     </tr>
