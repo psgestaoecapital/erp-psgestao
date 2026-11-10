@@ -134,3 +134,9 @@ BEGIN
   );
 END;
 $function$;
+
+-- Permissões (check:fn-guards · régua revoke_anon): função SECURITY DEFINER com guarda de empresa
+-- (PERFORM fn__guarda_empresa no corpo); fechada a anon/PUBLIC, aberta só a quem está logado e ao serviço,
+-- igual ao ACL vivo (authenticated, service_role). Sem mudança de quem já podia chamar.
+REVOKE ALL ON FUNCTION public.fn_saude_alertas_proativos(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_saude_alertas_proativos(uuid) TO authenticated, service_role;
