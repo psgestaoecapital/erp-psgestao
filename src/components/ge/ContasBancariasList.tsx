@@ -5,6 +5,9 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import ContasBancariasForm, { type Conta } from './ContasBancariasForm'
 import BancoIntegracaoPanel from './BancoIntegracaoPanel'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
+
+const ROTA_AJUDA = '/dashboard/cadastros/contas-bancarias'
 
 const TIPOS_LABELS: Record<string, { label: string; icone: string }> = {
   corrente: { label: 'Conta Corrente', icone: '🏦' },
@@ -80,22 +83,25 @@ export default function ContasBancariasList({ companyId }: { companyId: string }
             Cadastre seus bancos, caixinhas e cartões de crédito. O saldo total alimenta o dashboard.
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setEditing(null)
-            setShowForm(true)
-          }}
-          style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '10px 20px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-        >
-          + Nova conta
-        </button>
+        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+          <button
+            type="button"
+            onClick={() => {
+              setEditing(null)
+              setShowForm(true)
+            }}
+            style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '10px 20px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+          >
+            + Nova conta
+          </button>
+          <AjudaCampo chave="ge.contas_bancarias.nova" rota={ROTA_AJUDA} />
+        </span>
       </div>
 
       {contas.length > 0 && (
         <div style={{ background: '#3D2314', color: '#FAF7F2', borderRadius: 12, padding: '20px 24px', marginBottom: 20 }}>
-          <div style={{ fontSize: 11, opacity: 0.7, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>
-            Saldo consolidado (contas com "Soma no saldo")
+          <div style={{ fontSize: 11, opacity: 0.7, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4, display: 'flex', alignItems: 'center' }}>
+            Saldo consolidado (contas com "Soma no saldo")<AjudaCampo chave="ge.contas_bancarias.saldo_consolidado" rota={ROTA_AJUDA} alinhar="fim" />
           </div>
           <div style={{ fontSize: 28, fontWeight: 600, color: '#C8941A', fontVariantNumeric: 'tabular-nums' }}>
             R$ {fmt(saldoTotal)}
@@ -127,6 +133,13 @@ export default function ContasBancariasList({ companyId }: { companyId: string }
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', padding: '0 18px 6px', fontSize: 11, color: 'rgba(61,35,20,0.5)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 700 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>Dados da conta<AjudaCampo chave="ge.contas_bancarias.dados_conta" rota={ROTA_AJUDA} /></span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>Saldo inicial<AjudaCampo chave="ge.contas_bancarias.col_saldo_inicial" rota={ROTA_AJUDA} /></span>
+            <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center' }}>Integração bancária<AjudaCampo chave="ge.contas_bancarias.integracao" rota={ROTA_AJUDA} /></span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>Editar<AjudaCampo chave="ge.contas_bancarias.editar" rota={ROTA_AJUDA} /></span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>Inativar / Reativar<AjudaCampo chave="ge.contas_bancarias.inativar" rota={ROTA_AJUDA} /></span>
+          </div>
           {contas.map((c) => (
             <CardConta
               key={c.id}
