@@ -45,6 +45,9 @@ export default function EpiDashboardPage() {
   const companyIdsKey = useMemo(() => [...(companyIds ?? [])].sort().join(','), [companyIds])
 
   const [dados, setDados] = useState<DashRow[]>([])
+  // Distribuição por categoria vem da MESMA fonte do KPI "EPIs no catálogo" (epi_catalogo ativos),
+  // não de v_epi_dashboard (que não traz o detalhe por categoria). Assim o gráfico nunca contradiz o KPI.
+  const [catPorNome, setCatPorNome] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
 
@@ -60,6 +63,22 @@ export default function EpiDashboardPage() {
         .in('company_id', ids)
       if (error) throw error
       setDados((data || []) as DashRow[])
+
+      // Catálogo real por categoria (mesma leitura da tela de Catálogo): alimenta a "Distribuição por categoria".
+      const { data: cat, error: catErr } = await supabase
+        .from('epi_catalogo')
+        .select('categoria_id, epi_categoria(nome)')
+        .in('company_id', ids)
+        .eq('ativo', true)
+      if (catErr) throw catErr
+      const dist: Record<string, number> = {}
+      for (const r of (cat || []) as any[]) {
+        const emb = r.epi_categoria
+        const nomeCat: string | null = (Array.isArray(emb) ? emb[0]?.nome : emb?.nome) ?? null
+        const nome = nomeCat?.trim() || 'Sem categoria'
+        dist[nome] = (dist[nome] || 0) + 1
+      }
+      setCatPorNome(dist)
     } catch (e: any) {
       setErro(e?.message || 'Falha ao carregar dashboard')
     } finally {
@@ -72,13 +91,14 @@ export default function EpiDashboardPage() {
   // Agregar valores de todas as empresas selecionadas
   const agregado = useMemo(() => {
     const sum = (k: keyof DashRow) => dados.reduce((acc, d) => acc + (Number((d as any)[k]) || 0), 0)
-    const porCategoria: Record<string, number> = {}
     const movimentacoesMes: Record<string, number> = {}
     for (const d of dados) {
-      for (const c of d.por_categoria || []) porCategoria[c.categoria] = (porCategoria[c.categoria] || 0) + (c.total || 0)
       for (const m of d.movimentacoes_6m || []) movimentacoesMes[m.mes] = (movimentacoesMes[m.mes] || 0) + (m.total || 0)
     }
-    const piedata = Object.entries(porCategoria).map(([name, value]) => ({ name, value }))
+    // Pie da distribuição por categoria: catálogo real (soma = KPI "EPIs no catálogo").
+    const piedata = Object.entries(catPorNome)
+      .sort(([, a], [, b]) => b - a)
+      .map(([name, value]) => ({ name, value }))
     const bardata = Object.entries(movimentacoesMes)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([mes, total]) => ({ mes, total }))
@@ -94,7 +114,7 @@ export default function EpiDashboardPage() {
       piedata,
       bardata,
     }
-  }, [dados])
+  }, [dados, catPorNome])
 
   return (
     <div style={{ background: C.offwhite, minHeight: '100vh', color: C.ink }}>
@@ -147,7 +167,7 @@ export default function EpiDashboardPage() {
         <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, marginBottom: 24 }}>
           <Card titulo="Distribuição EPIs por categoria" chave="compliance.epi.grafico.categoria">
             {agregado.piedata.length === 0 ? (
-              <Vazio msg="Sem dados de catálogo ainda" cta={{ label: '+ Cadastrar EPI no catálogo', href: '/dashboard/compliance/epi/catalogo' }} />
+              <Vazio msg="Nenhum EPI cadastrado no catálogo ainda" cta={{ label: '+ Cadastrar EPI no catálogo', href: '/dashboard/compliance/epi/catalogo' }} />
             ) : (
               <ResponsiveContainer width="100%" height={240}>
                 <PieChart>
