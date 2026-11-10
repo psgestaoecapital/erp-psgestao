@@ -21,6 +21,17 @@ type RepasseGrupo = { adquirente: string; adquirente_id: string; data_repasse: s
 
 const brl = (n: number) => Number(n ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
+// Traduz o código de erro das RPCs de cartões (fn_cartao_*) para linguagem do usuário (criterio-e).
+// Códigos reais retornados: sem_acesso, taxa_nao_cadastrada, nao_encontrado. Erro de transporte/desconhecido → mensagem genérica, nunca o erro cru do banco.
+const msgErroCartao = (cod?: string | null): string => {
+  switch (cod) {
+    case 'sem_acesso': return 'Você não tem permissão para esta operação de cartões nesta empresa. Fale com o administrador.'
+    case 'taxa_nao_cadastrada': return 'Taxa não cadastrada para essa bandeira/modalidade/parcelas. Cadastre-a acima.'
+    case 'nao_encontrado': return 'Registro não encontrado. Atualize a página e tente novamente.'
+    default: return 'Não foi possível concluir a operação. Tente novamente em instantes.'
+  }
+}
+
 export default function CartoesPage() {
   const { companyIds } = useCompanyIds()
   const empresaUnica = companyIds.length === 1 ? companyIds[0] : null
@@ -77,7 +88,7 @@ export default function CartoesPage() {
       id: fAdq.id, nome: fAdq.nome.trim(), conta_bancaria_id: fAdq.conta_bancaria_id, documento: fAdq.documento, observacao: fAdq.observacao,
     } })
     setBusy(false)
-    if (error || (data as { ok?: boolean })?.ok === false) { setMsg({ t: 'Erro: ' + (error?.message || (data as { erro?: string }).erro), ok: false }); return }
+    if (error || (data as { ok?: boolean })?.ok === false) { setMsg({ t: msgErroCartao(error ? undefined : (data as { erro?: string }).erro), ok: false }); return }
     setMsg({ t: fAdq.id ? 'Adquirente ALTERADA.' : 'Adquirente criada.', ok: true }); setFAdq(null); await carregar()
   }
 
@@ -91,7 +102,7 @@ export default function CartoesPage() {
       taxa_percentual: String(fTaxa.taxa_percentual).replace(',', '.'), prazo_repasse_dias: Number(fTaxa.prazo_repasse_dias) || 1,
     } })
     setBusy(false)
-    if (error || (data as { ok?: boolean })?.ok === false) { setMsg({ t: 'Erro: ' + (error?.message || (data as { erro?: string }).erro), ok: false }); return }
+    if (error || (data as { ok?: boolean })?.ok === false) { setMsg({ t: msgErroCartao(error ? undefined : (data as { erro?: string }).erro), ok: false }); return }
     setMsg({ t: fTaxa.id ? 'Taxa ALTERADA.' : 'Taxa criada.', ok: true }); setFTaxa(null); await carregarTaxas()
   }
 
@@ -105,7 +116,7 @@ export default function CartoesPage() {
       p_parcelas: Number(sim.parcelas) || 1, p_valor: v,
     })
     setBusy(false)
-    if (error) { setSimRes({ ok: false, erro: error.message }); return }
+    if (error) { setSimRes({ ok: false, erro: '_transporte' }); return }
     setSimRes(data as CalcRes)
   }
 
@@ -119,7 +130,7 @@ export default function CartoesPage() {
     })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string; recebiveis_baixados?: number; taxas_quitadas?: number; total_liquido?: number } | null
-    if (error || r?.ok === false) { setMsg({ t: 'Erro: ' + (error?.message || r?.erro), ok: false }); return }
+    if (error || r?.ok === false) { setMsg({ t: msgErroCartao(error ? undefined : r?.erro), ok: false }); return }
     setMsg({ t: `Repasse CONCILIADO — ${g.adquirente}: ${r?.recebiveis_baixados ?? 0} recebido(s) · R$ ${brl(r?.total_liquido ?? 0)} líquido · ${r?.taxas_quitadas ?? 0} taxa(s) quitada(s).`, ok: true })
     await carregar()
   }
@@ -263,7 +274,7 @@ export default function CartoesPage() {
                   <div style={{ fontSize: 12, color: ESP60 }}>Taxa retida R$ {brl(simRes.valor_taxa ?? 0)} · cai em {simRes.data_repasse ? new Date(simRes.data_repasse + 'T00:00:00').toLocaleDateString('pt-BR') : '—'}</div>
                 </div>
               : <div style={{ marginTop: 12, padding: 10, borderRadius: 8, background: '#FEECEC', color: RED, fontSize: 12.5 }}>
-                  {simRes.erro === 'taxa_nao_cadastrada' ? 'Taxa não cadastrada para essa bandeira/modalidade/parcelas. Cadastre acima.' : `Erro: ${simRes.erro}`}
+                  {msgErroCartao(simRes.erro)}
                 </div>
           )}
         </div>
