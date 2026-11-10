@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import PessoasList from '@/components/cadastros/PessoasList'
 import SolicitarContratoModal from '@/components/ge/SolicitarContratoModal'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 export default function Page() {
   const { companyIds, selInfo } = useCompanyIds()
@@ -20,18 +21,27 @@ export default function Page() {
   return (
     <>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', padding: '12px 16px 0' }}>
-        <a href="/modelos/MODELO_importacao_cadastros_PS_clientes.xlsx" download
-          style={{ border: '1px solid #C8941A', color: '#C8941A', background: '#fff', padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
-          ⬇ Baixar planilha modelo
-        </a>
-        <a href="/dashboard/cadastros/clientes/importar"
-          style={{ border: '1px solid #3D2314', color: '#3D2314', background: '#fff', padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
-          ⬆ Importar planilha
-        </a>
-        <button type="button" onClick={() => setSolicitar(true)}
-          style={{ background: '#C8941A', color: '#fff', border: 'none', padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-          🧾 Solicitar elaboração de contrato
-        </button>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <a href="/modelos/MODELO_importacao_cadastros_PS_clientes.xlsx" download
+            style={{ border: '1px solid #C8941A', color: '#C8941A', background: '#fff', padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
+            ⬇ Baixar planilha modelo
+          </a>
+          <AjudaCampo chave="cadastros.cliente.modelo" rota="/dashboard/cadastros/clientes" />
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <a href="/dashboard/cadastros/clientes/importar"
+            style={{ border: '1px solid #3D2314', color: '#3D2314', background: '#fff', padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
+            ⬆ Importar planilha
+          </a>
+          <AjudaCampo chave="cadastros.cliente.importar" rota="/dashboard/cadastros/clientes" />
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <button type="button" onClick={() => setSolicitar(true)}
+            style={{ background: '#C8941A', color: '#fff', border: 'none', padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+            🧾 Solicitar elaboração de contrato
+          </button>
+          <AjudaCampo chave="cadastros.cliente.solicitar_contrato" rota="/dashboard/cadastros/clientes" />
+        </span>
       </div>
       <PessoasList companyId={empresaUnica} tipo="cliente" />
       {solicitar && (
