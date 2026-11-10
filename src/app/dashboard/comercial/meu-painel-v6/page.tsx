@@ -5,7 +5,7 @@
 // alimentado pela RPC fn_bi_comercial_base, que trava o escopo no banco (líder vê a empresa; vendedor só o próprio).
 // Fonte: fn_com_venda_item / bi_comercial_venda_item_mv (R$ 13.983.740 no aceite). Nunca a MV inflada.
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
@@ -73,6 +73,29 @@ export default function MeuPainelV6() {
   const notas = modelo?.tot.notas.size ?? 0
   const ticketNota = notas ? (modelo?.tot.val ?? 0) / notas : null
 
+  // Bloco 2 — linhas de produto (mesma agregação do motor, por linha, com a análise padrão).
+  const linhas = useMemo(() => {
+    if (!modelo) return [] as { nome: string; val: number; part: number; rpkg: number | null }[]
+    const tot = modelo.tot.val || 1
+    return [...modelo.linM]
+      .map(([nome, a]) => ({ nome, val: a.val, part: 100 * a.val / tot, rpkg: a.kgP ? a.valP / a.kgP : null }))
+      .sort((a, b) => b.val - a.val)
+  }, [modelo])
+
+  // Ritmo da semana: faturamento somado por dia da semana (domingo a sábado).
+  const ritmoSemana = useMemo(() => {
+    const nomes = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+    const acc = nomes.map((n) => ({ rot: n, val: 0 }))
+    serie.forEach((s) => { acc[new Date(s.dia + 'T00:00:00Z').getUTCDay()].val += s.val })
+    return acc
+  }, [serie])
+
+  // Para onde vai o mês: ritmo médio por dia com venda no período × 30 dias (estimativa, não previsão contábil).
+  const mediaDia = serie.length && modelo ? modelo.tot.val / serie.length : null
+  const projecaoMes = mediaDia != null ? mediaDia * 30 : null
+
+  const CORES_LINHA = ['#C8941A', '#3D2314', '#6B5D4F', '#9C8E80', '#E0B048', '#2f6f8f', '#3f7d4e']
+
   if (!empresa) {
     return <div style={{ padding: 16, color: C.m }}>Escolha uma empresa para ver o painel.</div>
   }
@@ -112,6 +135,83 @@ export default function MeuPainelV6() {
                 </BarChart>
               </ResponsiveContainer>
             </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12, marginTop: 16 }}>
+            <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: C.m, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>Do que vive a Frioeste<AjudaCampo chave="com.painel.produtos" rota={ROTA} /></div>
+              <div style={{ width: '100%', height: 200 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={linhas} dataKey="val" nameKey="nome" innerRadius={55} outerRadius={85} paddingAngle={2}>
+                      {linhas.map((l, i) => <Cell key={l.nome} fill={CORES_LINHA[i % CORES_LINHA.length]} />)}
+                    </Pie>
+                    <Tooltip formatter={(v) => brl0(Number(v))} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <ul style={{ listStyle: 'none', padding: 0, margin: '8px 0 0', fontSize: 13 }}>
+                {linhas.map((l, i) => (
+                  <li key={l.nome} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '3px 0' }}>
+                    <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: CORES_LINHA[i % CORES_LINHA.length], marginRight: 6 }} />{l.nome}</span>
+                    <span style={{ color: C.m }}>{brl0(l.val)} · {nf({ maximumFractionDigits: 1 }).format(l.part)}%</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: C.m, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>Ritmo da semana<AjudaCampo chave="com.painel.meses" rota={ROTA} /></div>
+              <div style={{ width: '100%', height: 200 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={ritmoSemana} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                    <CartesianGrid vertical={false} stroke={C.bd} />
+                    <XAxis dataKey="rot" tick={{ fontSize: 12, fill: C.m }} />
+                    <YAxis tickFormatter={(v: number) => brl0(v)} tick={{ fontSize: 11, fill: C.m }} width={84} />
+                    <Tooltip formatter={(v) => brl0(Number(v))} />
+                    <Bar dataKey="val" fill={C.esp} radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: C.m, display: 'flex', alignItems: 'center', gap: 4 }}>Para onde vai o mês<AjudaCampo chave="com.painel.meses" rota={ROTA} /></div>
+              <div style={{ fontSize: 26, fontWeight: 700, marginTop: 6 }}>{brl0(projecaoMes)}</div>
+              <div style={{ fontSize: 13, color: C.m, marginTop: 4 }}>
+                Estimativa no ritmo do período: {brl0(mediaDia)} por dia com venda × 30 dias.
+              </div>
+            </div>
+
+            <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: C.m, display: 'flex', alignItems: 'center', gap: 4 }}>Preço médio do kg<AjudaCampo chave="com.painel.rpkg" rota={ROTA} /></div>
+              <div style={{ fontSize: 26, fontWeight: 700, marginTop: 6 }}>{brl2(r.precoPorKg)}</div>
+              <div style={{ fontSize: 13, color: C.m, marginTop: 4 }}>Sem despojo: carne e miúdo. Fora da conta: inativos e subprodutos bovinos.</div>
+            </div>
+          </div>
+
+          <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16, marginTop: 12, overflowX: 'auto' }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: C.m, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>As linhas de produto<AjudaCampo chave="com.painel.produtos" rota={ROTA} /></div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+              <thead>
+                <tr style={{ color: C.m, textAlign: 'left' }}>
+                  <th style={{ padding: '6px 4px' }}>Linha</th>
+                  <th style={{ padding: '6px 4px', textAlign: 'right' }}>Faturamento</th>
+                  <th style={{ padding: '6px 4px', textAlign: 'right' }}>Part.</th>
+                  <th style={{ padding: '6px 4px', textAlign: 'right' }}>R$/kg</th>
+                </tr>
+              </thead>
+              <tbody>
+                {linhas.map((l) => (
+                  <tr key={l.nome} style={{ borderTop: `1px solid ${C.bd}` }}>
+                    <td style={{ padding: '6px 4px' }}>{l.nome}</td>
+                    <td style={{ padding: '6px 4px', textAlign: 'right' }}>{brl0(l.val)}</td>
+                    <td style={{ padding: '6px 4px', textAlign: 'right' }}>{nf({ maximumFractionDigits: 1 }).format(l.part)}%</td>
+                    <td style={{ padding: '6px 4px', textAlign: 'right' }}>{brl2(l.rpkg)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </>
       )}
