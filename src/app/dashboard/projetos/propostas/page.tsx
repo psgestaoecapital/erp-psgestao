@@ -184,7 +184,7 @@ export default function PropostasHubPage() {
     // #3270 — registra quem atribuiu/trocou/removeu (rastro; não bloqueia a atribuição se o log falhar)
     const acao = uid ? (l.orcamentista_id && l.orcamentista_id !== uid ? 'trocado' : 'atribuido') : 'removido'
     setHistOrc(h => ({ ...h, [l.id]: { por: meuNome ?? 'você', em: new Date().toISOString(), acao } }))
-    void supabase.rpc('fn_orcamento_orcamentista_log', { p_orcamento_id: l.id, p_orcamentista_id: uid || null, p_orcamentista_nome: uid ? nome : null, p_acao: acao }).catch(() => {})
+    void supabase.rpc('fn_orcamento_orcamentista_log', { p_orcamento_id: l.id, p_orcamentista_id: uid || null, p_orcamentista_nome: uid ? nome : null, p_acao: acao }).then(() => {}, () => {})
     setMsg(uid ? `${nome ?? 'Orçamentista'} agora é o orçamentista de ${l.numero ?? 'proposta'}.` : `Orçamentista removido de ${l.numero ?? 'proposta'}.`); setMsgErro(''); setTimeout(() => setMsg(''), 3000)
   }
 
