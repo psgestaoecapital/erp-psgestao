@@ -111,12 +111,14 @@ function Inner() {
   useEffect(() => { void carregar() }, [carregar])
 
   // Link do sino: abre o chamado (mesmo de demo) e mostra ele, em qualquer visão/aba.
+  // A Lista é a tela de trabalho onde o card do chamado (trava, Liberar, histórico) aparece; o deep-link
+  // precisa cair nela, não no Quadro (Kanban), que é só panorama e não traz o card individual (#7050 Fase 2).
   useEffect(() => {
     if (!idDaUrl || !rows.length) return
     const it = rows.find((r) => r.id === idDaUrl)
     if (!it) return
     // eslint-disable-next-line react-hooks/set-state-in-effect -- abre o chamado do link uma vez, quando a fila carrega
-    setBusca(String(it.numero)); setVisao('todos'); setAberto(it.id)
+    setFormato('lista'); setBusca(String(it.numero)); setVisao('todos'); setAberto(it.id)
     if (it.company_id && demos.has(it.company_id)) setMostrarDemos(true)
   }, [idDaUrl, rows, demos])
 
