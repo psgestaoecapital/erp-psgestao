@@ -92,3 +92,8 @@ BEGIN
     'passivo_mais_pl',ROUND(v_passivo+v_pl,2),'diferenca',ROUND(v_ativo-(v_passivo+v_pl),2),
     'fecha',ABS(v_ativo-(v_passivo+v_pl))<0.01,'linhas',v_linhas);
 END; $function$;
+
+-- Guarda da função (check-fn-guards): SECURITY DEFINER não fica aberta ao anon. Preserva os grants vivos
+-- (authenticated, service_role); CREATE OR REPLACE mantém grants, aqui ficam explícitos e idempotentes.
+REVOKE ALL ON FUNCTION public.fn_balanco_patrimonial(uuid, date) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_balanco_patrimonial(uuid, date) TO authenticated, service_role;
