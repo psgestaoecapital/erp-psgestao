@@ -5,7 +5,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { nomeDestinatarioNFe } from '../../src/lib/fiscal/nomeDestinatarioNFe'
-import { montarItemVeiculo, cstRegimeNormal, codigoCombustivel, type DadosVendaVeiculo } from '../../src/lib/fiscal/nfe-veiculo'
+import { montarItemVeiculo, cstRegimeNormal, codigoCombustivel, infComplementarVeiculo, textoReducaoBaseIcms, type DadosVendaVeiculo } from '../../src/lib/fiscal/nfe-veiculo'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error(`✘ ${m}`) } else console.log(`✓ ${m}`) }
@@ -56,6 +56,17 @@ ok(/nomeDestinatarioNFe\(cli\.razao_social, cli\.nome_fantasia, docLimpo\)/.test
 ok(nomeDestinatarioNFe(null, 'CLIENTE TESTE HOMOLOGACAO', '52998224725') === 'CLIENTE TESTE HOMOLOGACAO', 'PF sem razão social usa nome_fantasia como xNome')
 ok(nomeDestinatarioNFe('  Maria da Silva ', 'Mari', '52998224725') === 'Maria da Silva', 'PF com razão social mantém a razão')
 ok(nomeDestinatarioNFe(null, 'Fantasia SA', '11222333000181') === '' && nomeDestinatarioNFe('  ', 'Fantasia SA', '11222333000181') === '', 'PJ sem razão social segue vazia (validador recusa com a mesma mensagem)')
+
+// #7641 — frase da redução de base no infCpl (contabilidade Alliance): só com redução; % do parâmetro; sem duplicar; dados do veículo mantidos
+{
+  const v = { chassi: 'CH123', placa: 'ABC1D23', marca: 'Fiat', modelo: 'Uno' } as DadosVendaVeiculo['veiculo']
+  const com = infComplementarVeiculo(v, null, 95)
+  ok(com.includes('Redução da base de cálculo do ICMS de 95%') && com.includes('Chassi: CH123'), 'infCpl: venda com redução 95% leva a frase e mantém os dados do veículo')
+  ok(!infComplementarVeiculo(v, null, 0).includes('Redução da base') && !infComplementarVeiculo(v, null, null).includes('Redução da base') && !infComplementarVeiculo(v).includes('Redução da base'), 'infCpl: nota sem redução não recebe a frase')
+  ok(textoReducaoBaseIcms(33.33) === 'Redução da base de cálculo do ICMS de 33,33%', 'infCpl: percentual vem do parâmetro (não fixo)')
+  const dup = infComplementarVeiculo(v, 'Redução da base de cálculo do ICMS de 95%', 95)
+  ok(dup.split('Redução da base de cálculo').length === 2, 'infCpl: não duplica quando o texto do perfil já traz a frase')
+}
 
 if (falhas) { console.error(`\n${falhas} falha(s)`); process.exit(1) }
 console.log('\nOK')

@@ -79,7 +79,14 @@ export function codigoCombustivel(txt: string | null | undefined): string | null
   return null
 }
 
-export function infComplementarVeiculo(v: DadosVendaVeiculo['veiculo'], textoPerfil?: string | null): string {
+/** Chamado #7641 (contabilidade): venda com redução de base de ICMS leva a frase no infCpl; % vem do parâmetro do perfil. */
+export function textoReducaoBaseIcms(reducaoBasePct: number | null | undefined): string | null {
+  const r = Number(reducaoBasePct ?? 0)
+  if (!Number.isFinite(r) || r <= 0) return null
+  return `Redução da base de cálculo do ICMS de ${String(Math.round(r * 100) / 100).replace('.', ',')}%`
+}
+
+export function infComplementarVeiculo(v: DadosVendaVeiculo['veiculo'], textoPerfil?: string | null, reducaoBasePct?: number | null): string {
   const partes = [
     `Veículo: ${[v.marca, v.modelo, v.versao].filter(Boolean).join(' ')}`.trim(),
     `Chassi: ${v.chassi}`,
@@ -92,7 +99,10 @@ export function infComplementarVeiculo(v: DadosVendaVeiculo['veiculo'], textoPer
   ].filter(Boolean) as string[]
   const base = partes.join(' | ')
   const extra = (textoPerfil ?? '').trim()
-  return extra ? `${base} | ${extra}` : base
+  const reducao = textoReducaoBaseIcms(reducaoBasePct)
+  // não duplica se o texto do perfil já traz a frase
+  const fraseReducao = reducao && !/redu[cç][aã]o da base de c[aá]lculo do icms/i.test(extra) ? reducao : null
+  return [base, extra, fraseReducao].filter(Boolean).join(' | ')
 }
 
 /**
@@ -171,7 +181,7 @@ export function montarItemVeiculo(d: DadosVendaVeiculo, ufEmitente: string | und
 
   return {
     item,
-    observacoes: infComplementarVeiculo(d.veiculo, op.infComplementar),
+    observacoes: infComplementarVeiculo(d.veiculo, op.infComplementar, cst === '20' ? op.reducaoBasePct : null),
     naturezaOperacao: (op.naturezaOperacao ?? '').trim() || NATUREZA_PADRAO_VENDA_VEICULO,
     ibsCbsTotais: { baseCalculo: temIbsCbs ? valor : 0, cbsValor: temIbsCbs ? cbsValor : 0, ibsUfValor: temIbsCbs ? ibsUfValor : 0, ibsMunValor: temIbsCbs ? ibsMunValor : 0, ibsValor: temIbsCbs ? ibsValor : 0 },
     avisos,
