@@ -60,12 +60,16 @@ REVOKE ALL ON FUNCTION public.fn_compliance_funcionario_restaurar(uuid) FROM ano
 GRANT EXECUTE ON FUNCTION public.fn_compliance_funcionario_arquivar(uuid)  TO authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_compliance_funcionario_restaurar(uuid) TO authenticated;
 
--- 3) RD-95 "?" do novo filtro "Cadastro" (idempotente, convenção underscore como a dev7) ──────────
+-- 3) RD-95 "?" do novo filtro "Cadastro" + ações Excluir/Restaurar da tela de detalhe (idempotente) ──────────
+-- As chaves acao.excluir/acao.restaurar são referenciadas em funcionarios/[id]/page.tsx (rota
+-- /dashboard/compliance/funcionarios, resolvida por fn_ajuda_campo_listar) — sem esta linha o "?" abria vazio.
 INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
 SELECT v.chave, v.grupo, v.rotulo, v.o_que, v.para_que, v.exemplo, v.erro, v.ordem,
        '/dashboard/compliance/funcionarios', 'gestao_empresarial', 'publicado'
 FROM (VALUES
- ('compliance.funcionarios.filtro_cadastro','Filtros','Cadastro','Escolha "Cadastros ativos" (em uso) ou "🗑 Excluídos" (arquivados).','Separa os cadastros em uso dos que foram excluídos — a exclusão é reversível.','"🗑 Excluídos" mostra os arquivados, com a opção Restaurar.','Procurar um cadastro excluído na lista de Ativos: ele só aparece em Excluídos.',7)
+ ('compliance.funcionarios.filtro_cadastro','Filtros','Cadastro','Escolha "Cadastros ativos" (em uso) ou "🗑 Excluídos" (arquivados).','Separa os cadastros em uso dos que foram excluídos — a exclusão é reversível.','"🗑 Excluídos" mostra os arquivados, com a opção Restaurar.','Procurar um cadastro excluído na lista de Ativos: ele só aparece em Excluídos.',7),
+ ('compliance.funcionarios.acao.excluir','Ações','Excluir','Clique para arquivar (excluir) este cadastro de funcionário.','Remove o cadastro da lista de ativos sem apagar o histórico — a exclusão é reversível e fica registrada (quem/quando).','Depois de excluir, o cadastro aparece no filtro "🗑 Excluídos", de onde pode ser Restaurado.','Achar que o dado foi perdido: nada é apagado de verdade, só arquivado; use Restaurar para voltar.',8),
+ ('compliance.funcionarios.acao.restaurar','Ações','Restaurar','Clique para reverter a exclusão e trazer o cadastro de volta aos ativos.','Desfaz o arquivamento — o cadastro volta a aparecer na lista de "Cadastros ativos".','Some do filtro "🗑 Excluídos" e reaparece nos ativos, com o registro de quem restaurou.','Procurar o botão Restaurar na aba de ativos: ele só aparece no cadastro já excluído.',9)
 ) AS v(chave, grupo, rotulo, o_que, para_que, exemplo, erro, ordem)
 WHERE EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='erp_ajuda_campo')
 ON CONFLICT (chave) DO NOTHING;
