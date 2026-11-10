@@ -3,11 +3,11 @@
 import { Fragment, useMemo, useState } from 'react'
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
-import type { BaseV5, ModeloV5 } from '../meu-painel/motor-v5'
+import type { BaseV5, ModeloV5 } from './motor-v5'
 import type { CidadesV7, CidadeV7 } from './cidades-v7'
 
 const C = { esp: '#3D2314', off: '#FAF7F2', gold: '#C8941A', bd: '#E7DED3', m: '#6B5D4F', d: '#9C8E80', bg2: '#F0ECE3' }
-const ROTA = '/dashboard/comercial/meu-painel-v6'
+const ROTA = '/dashboard/comercial/meu-painel'
 const CORES = ['#C8941A', '#3D2314', '#6B5D4F', '#9C8E80', '#E0B048', '#2f6f8f', '#3f7d4e', '#7a5c3a', '#D9CBB5']
 const nf = (o: Intl.NumberFormatOptions) => new Intl.NumberFormat('pt-BR', o)
 const brl0 = (v: number | null | undefined) => v == null ? '—' : nf({ style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(v)
