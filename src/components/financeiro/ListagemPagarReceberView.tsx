@@ -215,6 +215,11 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [loading, setLoading] = useState(false)
   const [sincLiqBusy, setSincLiqBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  // #584 (aud8 86/95 · RD-98 p1 · estado vazio enganoso): quando o período padrão (mês atual) vem
+  // vazio mas a empresa TEM títulos fora dele (vencidos/outros meses), o empty-state antigo dizia só
+  // "cadastrar a primeira" e ESCONDIA os vencidos — risco de perder pagamento atrasado em tela de dinheiro.
+  // Aqui guardamos o resumo do que existe fora do período para o EmptyState oferecer "Ver vencidas".
+  const [foraPeriodo, setForaPeriodo] = useState<{ vencidasQtd: number; vencidasValor: number; totalFora: number } | null>(null)
   const [nfseMap, setNfseMap] = useState<Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada'>>({})
   const [nfseDocMap, setNfseDocMap] = useState<Record<string, { pdf?: string | null; xml?: string | null; notaId?: string }>>({})
   const [nfeMap, setNfeMap] = useState<Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada' | 'denegada'>>({})
@@ -459,6 +464,54 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       alive = false
     }
   }, [companyId, tipo, dataInicio, dataFim, statusSel, reloadKey])
+
+  // #584 · empty-state honesto: só investigamos "fora do período" quando o período PADRÃO (mês atual)
+  // veio vazio e o usuário não aplicou nenhum filtro — assim não disparamos a consulta larga à toa.
+  const semResultadoPeriodo = !!data && !data.sem_plano && (data.resultados?.length ?? 0) === 0
+  const periodoPadraoMesAtual = periodoChoice === 'mes_atual'
+  const semFiltrosUsuario =
+    statusSel.length === 0 && !busca.trim() && !categoria && !soBloqueadas &&
+    contasSel.size === 0 && !fPessoa.trim() && !fForma && !fValorMin.trim() && !fValorMax.trim()
+  useEffect(() => {
+    if (!companyId || !(semResultadoPeriodo && periodoPadraoMesAtual && semFiltrosUsuario)) {
+      setForaPeriodo(null)
+      return
+    }
+    let alive = true
+    const ano = new Date().getFullYear()
+    // Uma única chamada larga (janela ±5 anos) quando o mês atual está vazio: devolve os KPIs
+    // (vencidos: qtd+valor) e o total de linhas do período amplo para a mensagem.
+    supabase
+      .rpc('fn_ge_listagem_v2', {
+        p_company_id: companyId,
+        p_tipo: tipo,
+        p_data_inicio: `${ano - 5}-01-01`,
+        p_data_fim: `${ano + 5}-12-31`,
+        p_status_filtros: null,
+      })
+      .then(({ data: amplo, error }) => {
+        if (!alive) return
+        if (error || !amplo) { setForaPeriodo(null); return }
+        const a = amplo as Resposta
+        const totalFora = a.total_rows ?? a.resultados?.length ?? 0
+        setForaPeriodo({
+          vencidasQtd: a.kpis?.vencidos?.qtd ?? 0,
+          vencidasValor: a.kpis?.vencidos?.valor ?? 0,
+          totalFora,
+        })
+      })
+    return () => { alive = false }
+  }, [companyId, tipo, semResultadoPeriodo, periodoPadraoMesAtual, semFiltrosUsuario, reloadKey])
+
+  // Ações do empty-state honesto (#584): reusam o fluxo ?status=vencido já existente (período largo até hoje).
+  const verVencidas = () => {
+    const ano = new Date().getFullYear()
+    setStatusSel(['vencidos'])
+    setPeriodoChoice('personalizado')
+    setDataInicio(`${ano - 5}-01-01`)
+    setDataFim(fimMesAtual())
+    setPage(1)
+  }
 
   const resultadosFiltrados = useMemo(() => {
     const base = data?.resultados ?? []
@@ -1310,7 +1363,13 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
             Carregando...
           </div>
         ) : pageItems.length === 0 ? (
-          <EmptyState labels={labels} />
+          <EmptyState
+            labels={labels}
+            foraPeriodo={foraPeriodo}
+            filtrosOcultaram={(data?.resultados?.length ?? 0) > 0}
+            onVerVencidas={verVencidas}
+            onAmpliarPeriodo={() => aplicarPeriodo('ano_atual')}
+          />
         ) : (
           <>
             {selecionados.size > 0 && (
@@ -2111,28 +2170,105 @@ function Pill({ situacao, tipo }: { situacao: Situacao; tipo?: Tipo }) {
   )
 }
 
-function EmptyState({ labels }: { labels: ReturnType<typeof labelsPorTipo> }) {
+function EmptyState({
+  labels,
+  foraPeriodo,
+  filtrosOcultaram,
+  onVerVencidas,
+  onAmpliarPeriodo,
+}: {
+  labels: ReturnType<typeof labelsPorTipo>
+  foraPeriodo?: { vencidasQtd: number; vencidasValor: number; totalFora: number } | null
+  filtrosOcultaram?: boolean
+  onVerVencidas?: () => void
+  onAmpliarPeriodo?: () => void
+}) {
+  const singular = labels.tipoPlural === 'despesas' ? 'despesa' : 'receita'
+  const ctaNovo = (
+    <Link
+      href={labels.rotaNovo + '?area=gestao_empresarial'}
+      style={{
+        display: 'inline-block',
+        background: '#C8941A',
+        color: '#3D2314',
+        padding: '10px 22px',
+        borderRadius: 6,
+        fontSize: 13,
+        fontWeight: 500,
+        textDecoration: 'none',
+      }}
+    >
+      + {labels.ctaNovo}
+    </Link>
+  )
+  const btnSecundario: React.CSSProperties = {
+    background: '#FFFFFF',
+    color: '#3D2314',
+    border: '0.5px solid rgba(61,35,20,0.3)',
+    padding: '10px 18px',
+    borderRadius: 6,
+    fontSize: 13,
+    fontWeight: 500,
+    cursor: 'pointer',
+  }
+
+  // #584 · a empresa TEM títulos fora do mês atual (vencidos/outros meses): não dizer "cadastre o primeiro".
+  // Mostrar o que existe e levar aos vencidos — nunca esconder atraso numa tela de dinheiro.
+  if (foraPeriodo && foraPeriodo.totalFora > 0) {
+    const temVencidas = foraPeriodo.vencidasQtd > 0
+    const mesAtual = new Date().toLocaleDateString('pt-BR', { month: 'long' })
+    const partes: string[] = []
+    if (temVencidas) {
+      partes.push(
+        `${foraPeriodo.vencidasQtd} vencida${foraPeriodo.vencidasQtd > 1 ? 's' : ''} (${fmtBRL(foraPeriodo.vencidasValor)})`,
+      )
+    }
+    const outros = foraPeriodo.totalFora - foraPeriodo.vencidasQtd
+    if (outros > 0) partes.push(`${outros} em outros meses`)
+    return (
+      <div style={{ padding: 32, textAlign: 'center' }}>
+        <div style={{ fontSize: 14, color: '#3D2314', fontWeight: 600, marginBottom: 6 }}>
+          Nenhuma {singular} vence em {mesAtual}.
+        </div>
+        <div style={{ fontSize: 13, color: 'rgba(61,35,20,0.7)', marginBottom: 16 }}>
+          {partes.length ? `Você tem ${partes.join(' e ')}.` : 'Há títulos fora deste período.'}
+        </div>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+          {temVencidas && onVerVencidas && (
+            <button type="button" onClick={onVerVencidas} style={{ ...btnSecundario, borderColor: '#DC2626', color: '#DC2626' }}>
+              Ver vencidas
+            </button>
+          )}
+          {onAmpliarPeriodo && (
+            <button type="button" onClick={onAmpliarPeriodo} style={btnSecundario}>
+              Ampliar período
+            </button>
+          )}
+          {ctaNovo}
+        </div>
+      </div>
+    )
+  }
+
+  // Há títulos no período, mas os filtros aplicados esconderam todos.
+  if (filtrosOcultaram) {
+    return (
+      <div style={{ padding: 32, textAlign: 'center' }}>
+        <div style={{ fontSize: 14, color: 'rgba(61,35,20,0.7)', marginBottom: 12 }}>
+          Nenhuma {singular} encontrada com os filtros aplicados. Ajuste ou limpe os filtros acima.
+        </div>
+        {ctaNovo}
+      </div>
+    )
+  }
+
+  // Empresa realmente sem nenhum título: convidar a cadastrar o primeiro.
   return (
     <div style={{ padding: 32, textAlign: 'center' }}>
       <div style={{ fontSize: 14, color: 'rgba(61,35,20,0.7)', marginBottom: 12 }}>
-        Nenhuma {labels.tipoPlural === 'despesas' ? 'despesa' : 'receita'} encontrada neste período.
-        Que tal cadastrar a primeira?
+        Nenhuma {singular} encontrada neste período. Que tal cadastrar a primeira?
       </div>
-      <Link
-        href={labels.rotaNovo + '?area=gestao_empresarial'}
-        style={{
-          display: 'inline-block',
-          background: '#C8941A',
-          color: '#3D2314',
-          padding: '10px 22px',
-          borderRadius: 6,
-          fontSize: 13,
-          fontWeight: 500,
-          textDecoration: 'none',
-        }}
-      >
-        + {labels.ctaNovo}
-      </Link>
+      {ctaNovo}
     </div>
   )
 }
