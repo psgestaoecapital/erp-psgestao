@@ -7,6 +7,7 @@ import type { CSSProperties } from 'react'
 import { authFetch } from '@/lib/authFetch'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import NovoFuncionarioModal from '../_components/NovoFuncionarioModal'
 
 const ROTA = '/dashboard/compliance/funcionarios'
@@ -154,6 +155,11 @@ export default function FuncionariosPage() {
     })
   }, [funcs, fStatus])
 
+  const temFiltro = Boolean(busca || fCargo || fSetor || fEmp || fVinculo || fStatus || mostrarDesligados)
+  const limparFiltros = useCallback(() => {
+    setBusca(''); setFCargo(''); setFSetor(''); setFEmp(''); setFVinculo(''); setFStatus(''); setMostrarDesligados(false)
+  }, [])
+
   const cargos = useMemo(() => Array.from(new Set(funcs.map((f: Funcionario) => f.cargo).filter(Boolean) as string[])).sort(), [funcs])
   const setores = useMemo(() => Array.from(new Set(funcs.map((f: Funcionario) => f.setor).filter(Boolean) as string[])).sort(), [funcs])
   const empresas = useMemo(() => Array.from(new Set(funcs.map((f: Funcionario) => f.empresa_tomadora_nome).filter(Boolean) as string[])).sort(), [funcs])
@@ -187,7 +193,7 @@ export default function FuncionariosPage() {
                   setImportando(true); setMsgImport(null); setErro(null)
                   const { data, error } = await supabase.rpc('fn_compliance_projetar_de_ind_ponto', { p_company_id: companyAtiva })
                   setImportando(false)
-                  if (error) { setErro('Erro na importação: ' + error.message); return }
+                  if (error) { setErro(erroAmigavel(error, 'Não foi possível importar do ponto eletrônico. Verifique a conexão e tente de novo.')); return }
                   const j = data as { criados?: number; atualizados?: number; ignorados_sem_cpf?: number; total_processados?: number } | null
                   setMsgImport(`IMPORTOU ${j?.total_processados ?? 0} colaboradores · ${j?.criados ?? 0} novos · ${j?.atualizados ?? 0} atualizados${j?.ignorados_sem_cpf ? ` · ${j.ignorados_sem_cpf} sem CPF (ignorados)` : ''}`)
                   await carregar()
@@ -299,7 +305,35 @@ export default function FuncionariosPage() {
               </thead>
               <tbody>
                 {loading && (<tr><td colSpan={multiEmpresa ? 8 : 7} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Carregando…</td></tr>)}
-                {!loading && funcsFiltrados.length === 0 && (<tr><td colSpan={multiEmpresa ? 8 : 7} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Nenhum funcionário</td></tr>)}
+                {!loading && funcsFiltrados.length === 0 && (
+                  <tr><td colSpan={multiEmpresa ? 8 : 7} style={{ padding: '40px 24px', textAlign: 'center' }}>
+                    {temFiltro ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: C.espresso }}>Nenhum funcionário com esses filtros</div>
+                        <div style={{ fontSize: 13, color: C.muted, maxWidth: 420 }}>Ajuste ou limpe os filtros para ver os demais funcionários desta empresa.</div>
+                        <button
+                          onClick={limparFiltros}
+                          style={{ padding: '9px 16px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          Limpar filtros
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: C.espresso }}>Nenhum funcionário cadastrado ainda</div>
+                        <div style={{ fontSize: 13, color: C.muted, maxWidth: 460 }}>
+                          Cadastre o primeiro funcionário para começar o acompanhamento de compliance (documentos, ASO e vínculos){companyAtiva ? ' — ou use “Importar do ponto eletrônico” acima para trazer quem já bate ponto' : ''}.
+                        </div>
+                        <button
+                          onClick={() => setModalAberto(true)}
+                          style={{ padding: '10px 18px', borderRadius: 8, border: 'none', backgroundColor: C.espresso, color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          + Novo funcionário
+                        </button>
+                      </div>
+                    )}
+                  </td></tr>
+                )}
                 {funcsFiltrados.map((f: Funcionario, i: number) => {
                   const pct = f.compliance_resumo?.pct ?? 0
                   const barColor = pct === 100 ? C.green : pct >= 50 ? C.amber : C.red
