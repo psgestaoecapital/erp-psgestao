@@ -48,6 +48,9 @@ export default function PessoasList({ companyId, tipo }: Props) {
   const [drawerPessoa, setDrawerPessoa] = useState<Pessoa | null>(null)
   // critério c/e: nunca falhar em silêncio — erro de carga/ação vira aviso em linguagem do usuário.
   const [erro, setErro] = useState<string | null>(null)
+  // RD-98: soft-delete reversível. Quem inativa precisa poder VER os inativos e REATIVAR —
+  // sem isso o cadastro some para sempre. Alterna entre ativos (padrão) e inativos.
+  const [verInativos, setVerInativos] = useState(false)
 
   async function load(reset = true) {
     if (reset) { setLoading(true); setErro(null) } else { setCarregandoMais(true) }
@@ -56,7 +59,7 @@ export default function PessoasList({ companyId, tipo }: Props) {
       .from(tabela)
       .select(SELECT_COLS, { count: 'exact' })   // select montado (coluna do IBGE só em clientes)
       .eq('company_id', companyId)
-      .eq('ativo', true)
+      .eq('ativo', !verInativos)
     const termo = busca.trim()
     if (termo) {
       // busca NO SERVIDOR por nome/razão (texto) e CNPJ/CPF (dígitos). Sanitiza os operadores do PostgREST.
@@ -88,15 +91,27 @@ export default function PessoasList({ companyId, tipo }: Props) {
     const t = setTimeout(() => { void load(true) }, busca ? 300 : 0)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyId, tabela, busca])
+  }, [companyId, tabela, busca, verInativos])
 
   async function handleInativar(id: string) {
-    if (!confirm(`Inativar esse ${labelSingular}? Você pode reativá-lo depois.`)) return
+    if (!confirm(`Inativar esse ${labelSingular}? Você pode reativá-lo depois em "Ver só inativos".`)) return
     setErro(null)
     // Antes o error do update era ignorado: se a inativação falhasse (RLS, rede), o usuário achava que deu certo.
     const { error } = await supabase.from(tabela).update({ ativo: false }).eq('id', id)
     if (error) {
       setErro(erroAmigavel(error, `Não foi possível inativar o ${labelSingular}. Tente de novo.`))
+      return
+    }
+    void load(true)
+  }
+
+  async function handleReativar(id: string) {
+    if (!confirm(`Reativar esse ${labelSingular}? Ele volta para a lista de ativos.`)) return
+    setErro(null)
+    // RD-98: reativar é o inverso do soft-delete; erro nunca passa em silêncio.
+    const { error } = await supabase.from(tabela).update({ ativo: true }).eq('id', id)
+    if (error) {
+      setErro(erroAmigavel(error, `Não foi possível reativar o ${labelSingular}. Tente de novo.`))
       return
     }
     void load(true)
@@ -145,7 +160,7 @@ export default function PessoasList({ companyId, tipo }: Props) {
         </div>
       )}
 
-      {(total > 0 || busca) && (
+      {(total > 0 || busca || verInativos) && (
         <div style={{ background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 12, padding: '14px 18px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <input
             type="search"
@@ -155,13 +170,32 @@ export default function PessoasList({ companyId, tipo }: Props) {
             style={{ flex: 1, minWidth: 220, padding: '8px 12px', border: '0.5px solid rgba(61,35,20,0.15)', borderRadius: 6, fontSize: 13, color: '#3D2314', background: 'transparent' }}
           />
           <AjudaCampo chave="cadastros.pessoa.busca" rota="/dashboard/cadastros/pessoa" />
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: verInativos ? '#854F0B' : 'rgba(61,35,20,0.7)', cursor: 'pointer', userSelect: 'none', fontWeight: verInativos ? 700 : 500 }}>
+            <input type="checkbox" checked={verInativos} onChange={(e) => { setVerInativos(e.target.checked); setBusca('') }} style={{ accentColor: '#C8941A', cursor: 'pointer' }} />
+            Ver só inativos
+          </label>
+          <AjudaCampo chave="cadastros.pessoa.ver_inativos" rota="/dashboard/cadastros/pessoa" />
           <span style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)' }}>
-            {busca ? `${total} encontrado${total === 1 ? '' : 's'}` : `${pessoas.length} de ${total} ativos`}
+            {busca ? `${total} encontrado${total === 1 ? '' : 's'}` : `${pessoas.length} de ${total} ${verInativos ? 'inativos' : 'ativos'}`}
           </span>
         </div>
       )}
 
-      {erro ? null : total === 0 && !busca ? (
+      {erro ? null : total === 0 && !busca && verInativos ? (
+        <div style={{ background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 12, padding: 48, textAlign: 'center' }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }} aria-hidden>✅</div>
+          <div style={{ fontSize: 14, color: 'rgba(61,35,20,0.65)', marginBottom: 16 }}>
+            Nenhum {labelSingular} inativo.
+          </div>
+          <button
+            type="button"
+            onClick={() => setVerInativos(false)}
+            style={{ background: 'transparent', color: '#C8941A', border: '0.5px solid #C8941A', padding: '10px 24px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+          >
+            ← Voltar aos ativos
+          </button>
+        </div>
+      ) : erro ? null : total === 0 && !busca ? (
         <div style={{ background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 12, padding: 60, textAlign: 'center' }}>
           <div style={{ fontSize: 36, marginBottom: 12 }} aria-hidden>👥</div>
           <div style={{ fontSize: 14, color: 'rgba(61,35,20,0.65)', marginBottom: 16 }}>
@@ -192,12 +226,14 @@ export default function PessoasList({ companyId, tipo }: Props) {
                 <Card
                   key={p.id}
                   pessoa={p}
+                  inativo={verInativos}
                   onAbrir={() => setDrawerPessoa(p)}
                   onEditar={() => {
                     setEditing(p)
                     setShowForm(true)
                   }}
                   onInativar={() => handleInativar(p.id)}
+                  onReativar={() => handleReativar(p.id)}
                 />
               ))}
               {pessoas.length < total && (
@@ -246,6 +282,7 @@ export default function PessoasList({ companyId, tipo }: Props) {
         <PessoaDrawer
           pessoa={drawerPessoa}
           tipo={tipo}
+          inativo={verInativos}
           onClose={() => setDrawerPessoa(null)}
           onEditar={() => {
             setEditing(drawerPessoa)
@@ -256,13 +293,17 @@ export default function PessoasList({ companyId, tipo }: Props) {
             handleInativar(drawerPessoa.id)
             setDrawerPessoa(null)
           }}
+          onReativar={() => {
+            handleReativar(drawerPessoa.id)
+            setDrawerPessoa(null)
+          }}
         />
       )}
     </div>
   )
 }
 
-function Card({ pessoa, onAbrir, onEditar, onInativar }: { pessoa: Pessoa; onAbrir: () => void; onEditar: () => void; onInativar: () => void }) {
+function Card({ pessoa, inativo, onAbrir, onEditar, onInativar, onReativar }: { pessoa: Pessoa; inativo?: boolean; onAbrir: () => void; onEditar: () => void; onInativar: () => void; onReativar: () => void }) {
   const isPJ = pessoa.tipo_pessoa === 'PJ'
   const icone = isPJ ? '🏢' : '👤'
   const local = [pessoa.cidade, pessoa.uf].filter(Boolean).join(' / ')
@@ -317,18 +358,27 @@ function Card({ pessoa, onAbrir, onEditar, onInativar }: { pessoa: Pessoa; onAbr
           </button>
           <AjudaCampo chave="cadastros.pessoa.editar" rota="/dashboard/cadastros/pessoa" />
         </span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-          <button type="button" onClick={onInativar} style={{ background: 'transparent', color: '#A32D2D', border: '0.5px solid rgba(163,45,45,0.3)', padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
-            Inativar
-          </button>
-          <AjudaCampo chave="cadastros.pessoa.inativar" rota="/dashboard/cadastros/pessoa" />
-        </span>
+        {inativo ? (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+            <button type="button" onClick={onReativar} style={{ background: 'transparent', color: '#3f7d4e', border: '0.5px solid rgba(63,125,78,0.4)', padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+              Reativar
+            </button>
+            <AjudaCampo chave="cadastros.pessoa.reativar" rota="/dashboard/cadastros/pessoa" />
+          </span>
+        ) : (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+            <button type="button" onClick={onInativar} style={{ background: 'transparent', color: '#A32D2D', border: '0.5px solid rgba(163,45,45,0.3)', padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+              Inativar
+            </button>
+            <AjudaCampo chave="cadastros.pessoa.inativar" rota="/dashboard/cadastros/pessoa" />
+          </span>
+        )}
       </div>
     </div>
   )
 }
 
-function PessoaDrawer({ pessoa, tipo, onClose, onEditar, onInativar }: { pessoa: Pessoa; tipo: 'cliente' | 'fornecedor'; onClose: () => void; onEditar: () => void; onInativar: () => void }) {
+function PessoaDrawer({ pessoa, tipo, inativo, onClose, onEditar, onInativar, onReativar }: { pessoa: Pessoa; tipo: 'cliente' | 'fornecedor'; inativo?: boolean; onClose: () => void; onEditar: () => void; onInativar: () => void; onReativar: () => void }) {
   const router = useRouter()
   const tags = pessoa.tags ?? []
   const inicial = (pessoa.nome_fantasia ?? '?').charAt(0).toUpperCase()
@@ -413,7 +463,9 @@ function PessoaDrawer({ pessoa, tipo, onClose, onEditar, onInativar }: { pessoa:
             </div>
           )}
           <div style={{ height: 1, background: 'rgba(61,35,20,0.1)', margin: '8px 0' }} />
-          <DrawerAction label="🗑 Inativar" onClick={onInativar} danger />
+          {inativo
+            ? <DrawerAction label="↩ Reativar" onClick={onReativar} />
+            : <DrawerAction label="🗑 Inativar" onClick={onInativar} danger />}
         </div>
       </aside>
     </div>
