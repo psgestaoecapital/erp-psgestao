@@ -313,8 +313,10 @@ export default function MeuPainelV6() {
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
             <AjudaCampo chave="com.painel.periodo" rota={ROTA} />
             <input type="date" aria-label="De" value={deC} onChange={(e) => setDeC(e.target.value)} style={selStyle} />
+            <AjudaCampo chave="com.painel.datas" rota={ROTA} />
             <span style={{ color: C.m, fontSize: 13 }}>até</span>
             <input type="date" aria-label="Até" value={ateC} onChange={(e) => setAteC(e.target.value)} style={selStyle} />
+            <AjudaCampo chave="com.painel.datas" rota={ROTA} />
           </div>
         )}
       </div>
