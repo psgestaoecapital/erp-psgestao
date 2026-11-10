@@ -46,6 +46,12 @@ const SEMANA: { dow: number; curto: string; nome: string }[] = [
   { dow: 5, curto: 'Sex', nome: 'sexta-feira' }, { dow: 6, curto: 'Sáb', nome: 'sábado' },
   { dow: 0, curto: 'Dom', nome: 'domingo' },
 ]
+// Segmentos de cliente (motor: clis[].seg 0..5) — mesmos nomes e ordem do v5.
+const SEG: { rot: string; cor: string; saude: 'bom' | 'neutro' | 'risco' }[] = [
+  { rot: 'Campeões', cor: '#2F5A1F', saude: 'bom' }, { rot: 'Fiéis', cor: '#2f6f8f', saude: 'bom' },
+  { rot: 'Novos', cor: '#C8941A', saude: 'neutro' }, { rot: 'Ocasionais', cor: '#6B5D4F', saude: 'neutro' },
+  { rot: 'Em risco', cor: '#B8860B', saude: 'risco' }, { rot: 'Sumindo', cor: '#A33A1F', saude: 'risco' },
+]
 
 export default function MeuPainelV6() {
   const { companyIds, selInfo } = useCompanyIds()
@@ -54,7 +60,7 @@ export default function MeuPainelV6() {
   const [estado, setEstado] = useState<EstadoV5 | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
-  const [aba, setAba] = useState<'geral' | 'vendedores'>('geral')
+  const [aba, setAba] = useState<'geral' | 'vendedores' | 'clientes'>('geral')
 
   // Período: últimos 30 dias (mesmo recorte padrão do v5), até hoje.
   const intervalo = useMemo(() => {
@@ -142,6 +148,49 @@ export default function MeuPainelV6() {
   const devMedio = modelo && modelo.tot.val > 0 ? (modelo.devTot / modelo.tot.val) * 100 : 0
   const liderVen = vendedores.length ? vendedores[0] : null
 
+  // Bloco 4 — aba "Clientes": tudo derivado de modelo.clis (o motor v5 já classifica segmento, curva ABC e nº de linhas).
+  // "Os N clientes em 6 grupos": distribuição por segmento (quantos e quanto faturam).
+  const segmentos = useMemo(() => {
+    if (!modelo) return [] as { seg: number; rot: string; cor: string; saude: string; qtd: number; val: number; part: number }[]
+    const tot = modelo.tot.val || 1
+    const acc = SEG.map((s, i) => ({ seg: i, rot: s.rot, cor: s.cor, saude: s.saude, qtd: 0, val: 0, part: 0 }))
+    modelo.clis.forEach((c) => { const a = acc[c.seg]; if (a) { a.qtd++; a.val += c.val } })
+    acc.forEach((a) => { a.part = a.val / tot })
+    return acc
+  }, [modelo])
+
+  // "Saúde da carteira": fatia do faturamento em clientes de risco (Em risco + Sumindo).
+  const faturamentoRisco = useMemo(() => segmentos.filter((s) => s.saude === 'risco').reduce((s, x) => s + x.part, 0), [segmentos])
+  const faturamentoBom = useMemo(() => segmentos.filter((s) => s.saude === 'bom').reduce((s, x) => s + x.part, 0), [segmentos])
+
+  // "Quanto dependemos de poucos": curva ABC (A = clientes que somam até 80% do faturamento) e a fatia do maior cliente.
+  const concentracao = useMemo(() => {
+    if (!modelo || !modelo.clis.length) return null
+    const tot = modelo.tot.val || 1
+    const a = modelo.clis.filter((c) => c.cur === 0).length
+    const b = modelo.clis.filter((c) => c.cur === 1).length
+    const cc = modelo.clis.filter((c) => c.cur === 2).length
+    const valA = modelo.clis.filter((c) => c.cur === 0).reduce((s, c) => s + c.val, 0)
+    const top = modelo.clis[0] // já vem ordenado por faturamento
+    return { a, b, c: cc, partA: valA / tot, topNome: top.nome, topPart: top.val / tot }
+  }, [modelo])
+
+  // "Quem compra mais linhas gasta mais": agrupa por quantas linhas de produto (0..3+) o cliente comprou.
+  const porLinhas = useMemo(() => {
+    if (!modelo) return [] as { faixa: string; qtd: number; ticket: number }[]
+    // nl = quantas linhas de carne/miúdo (desossado, com osso, miúdo) o cliente comprou — vai de 1 a 3.
+    const faixas = [
+      { faixa: '1 linha', f: (nl: number) => nl <= 1 },
+      { faixa: '2 linhas', f: (nl: number) => nl === 2 },
+      { faixa: '3 linhas', f: (nl: number) => nl >= 3 },
+    ]
+    return faixas.map((fx) => {
+      const grupo = modelo.clis.filter((c) => fx.f(c.nl))
+      const soma = grupo.reduce((s, c) => s + c.val, 0)
+      return { faixa: fx.faixa, qtd: grupo.length, ticket: grupo.length ? soma / grupo.length : 0 }
+    }).filter((x) => x.qtd > 0)
+  }, [modelo])
+
   if (!empresa) {
     return <div style={{ padding: 16, color: C.m }}>Escolha uma empresa para ver o painel.</div>
   }
@@ -157,7 +206,7 @@ export default function MeuPainelV6() {
 
       {r && modelo && (
         <div role="tablist" aria-label="Abas do painel" style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-          {([['geral', 'Visão geral'], ['vendedores', 'Vendedores']] as const).map(([k, rot]) => (
+          {([['geral', 'Visão geral'], ['vendedores', 'Vendedores'], ['clientes', 'Clientes']] as const).map(([k, rot]) => (
             <button
               key={k}
               role="tab"
@@ -331,6 +380,69 @@ export default function MeuPainelV6() {
               </table>
             </div>
             <div style={{ fontSize: 11, color: C.d, marginTop: 8 }}>Média da empresa: desconto {pct(descMedio / 100)} · devolução {pct(devMedio / 100)}. Em vermelho, acima da média.</div>
+          </Bloco>
+        </>
+      )}
+
+      {aba === 'clientes' && r && modelo && (
+        <>
+          <p style={{ fontSize: 16, lineHeight: 1.5, margin: '0 0 16px' }}>
+            São <b>{int(r.clientes)} clientes</b> no período. <b>{pct(faturamentoBom)}</b> do faturamento vem de clientes saudáveis (campeões e fiéis){faturamentoRisco > 0 ? <> e <b>{pct(faturamentoRisco)}</b> de clientes em risco ou sumindo.</> : <>.</>}
+          </p>
+
+          {/* Bloco 4a — Os clientes em 6 grupos (segmentos) */}
+          <Bloco titulo="Os clientes em 6 grupos" chave="comv6.cli_grupos">
+            <p style={{ fontSize: 14, color: C.m, margin: '0 0 12px' }}>
+              Cada cliente entra num grupo pela recência e frequência de compra. Campeões e fiéis sustentam a carteira; em risco e sumindo pedem atenção.
+            </p>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {segmentos.map((s) => (
+                <div key={s.seg} style={{ minWidth: 0 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 13 }}>
+                    <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: s.cor, marginRight: 6 }} />{s.rot}</span>
+                    <span style={{ color: C.m, flexShrink: 0 }}>{int(s.qtd)} clientes · {brl0(s.val)} · {pct(s.part)}</span>
+                  </div>
+                  <div style={{ height: 8, background: C.bd, borderRadius: 4, marginTop: 4, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${Math.max(2, Math.round(s.part * 100))}%`, background: s.cor }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Bloco>
+
+          {/* Bloco 4b — Quanto dependemos de poucos (curva ABC) */}
+          <Bloco titulo="Quanto dependemos de poucos" chave="comv6.cli_concentracao">
+            {concentracao ? (
+              <>
+                <p style={{ fontSize: 14, color: C.m, margin: '0 0 12px' }}>
+                  <b>{int(concentracao.a)} clientes</b> (curva A) já respondem por <b>{pct(concentracao.partA)}</b> do faturamento. O maior cliente sozinho, <b>{concentracao.topNome}</b>, vale <b>{pct(concentracao.topPart)}</b>.
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
+                  <div style={{ background: C.off, borderRadius: 10, padding: 12 }}><div style={{ fontSize: 12, color: C.m }}>Curva A (até 80%)</div><div style={{ fontSize: 20, fontWeight: 700 }}>{int(concentracao.a)}</div></div>
+                  <div style={{ background: C.off, borderRadius: 10, padding: 12 }}><div style={{ fontSize: 12, color: C.m }}>Curva B (80–95%)</div><div style={{ fontSize: 20, fontWeight: 700 }}>{int(concentracao.b)}</div></div>
+                  <div style={{ background: C.off, borderRadius: 10, padding: 12 }}><div style={{ fontSize: 12, color: C.m }}>Curva C (últimos 5%)</div><div style={{ fontSize: 20, fontWeight: 700 }}>{int(concentracao.c)}</div></div>
+                </div>
+              </>
+            ) : <div style={{ fontSize: 13, color: C.m }}>Sem cliente no período.</div>}
+          </Bloco>
+
+          {/* Bloco 4c — Quem compra mais linhas gasta mais */}
+          <Bloco titulo="Quem compra mais linhas gasta mais" chave="comv6.cli_linhas">
+            <p style={{ fontSize: 14, color: C.m, margin: '0 0 12px' }}>
+              Agrupando os clientes por quantas linhas de carne/miúdo levam, o ticket médio sobe com a variedade — oportunidade de venda cruzada.
+            </p>
+            <div style={{ width: '100%', height: 220 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={porLinhas} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid vertical={false} stroke={C.bd} />
+                  <XAxis dataKey="faixa" tick={{ fontSize: 12, fill: C.m }} />
+                  <YAxis tickFormatter={(v: number) => brl0(v)} tick={{ fontSize: 11, fill: C.m }} width={84} />
+                  <Tooltip formatter={(v) => brl0(Number(v))} labelFormatter={(_, p) => { const d = p?.[0]?.payload; return d ? `${d.faixa} · ${int(d.qtd)} clientes` : '' }} />
+                  <Bar dataKey="ticket" fill={C.gold} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div style={{ fontSize: 11, color: C.d, marginTop: 8 }}>Barra = ticket médio por cliente da faixa (faturamento ÷ clientes da faixa).</div>
           </Bloco>
         </>
       )}
