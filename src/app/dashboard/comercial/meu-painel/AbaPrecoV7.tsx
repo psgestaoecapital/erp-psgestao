@@ -6,7 +6,7 @@ import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import type { PrecoV7 } from './precoV7'
 
 const C = { esp: '#3D2314', off: '#FAF7F2', gold: '#C8941A', bd: '#E7DED3', m: '#6B5D4F', d: '#9C8E80', ok: '#1a8f63', bad: '#C0392B', bg2: '#F0ECE3' }
-const ROTA = '/dashboard/comercial/meu-painel-v6'
+const ROTA = '/dashboard/comercial/meu-painel'
 const nf = (o: Intl.NumberFormatOptions) => new Intl.NumberFormat('pt-BR', o)
 const brl0 = (v: number | null | undefined) => v == null ? '—' : nf({ style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(v)
 const brl2 = (v: number | null | undefined) => v == null ? '—' : nf({ style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v)

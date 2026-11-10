@@ -12,7 +12,7 @@
 //      Novos recapturáveis: frequência ≤ 2 e recência ≤ 30
 //      Ocasionais:         o restante
 //  - desconto = (tabela − praticado) ÷ tabela, só nos itens abaixo da tabela em mais de R$ 0,05.
-import type { BaseV5, EstadoV5, GrupoProduto, ModeloV5 } from '../meu-painel/motor-v5'
+import type { BaseV5, EstadoV5, GrupoProduto, ModeloV5 } from './motor-v5'
 
 export type Segmento = 'Campeões' | 'Fiéis' | 'Novos recapturáveis' | 'Ocasionais' | 'Em risco' | 'Sumindo'
 export const SEGMENTOS: Segmento[] = ['Campeões', 'Fiéis', 'Novos recapturáveis', 'Ocasionais', 'Em risco', 'Sumindo']
