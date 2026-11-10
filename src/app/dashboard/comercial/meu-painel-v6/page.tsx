@@ -16,6 +16,8 @@ import {
 } from '../meu-painel/motor-v5'
 import { calcularClientesV7 } from './clientes-v7'
 import { AbaClientes } from './AbaClientes'
+import { calcularCidadesV7 } from './cidades-v7'
+import { AbaCidades } from './AbaCidades'
 
 const C = { esp: '#3D2314', off: '#FAF7F2', gold: '#C8941A', bd: '#E7DED3', m: '#6B5D4F', d: '#9C8E80' }
 const ROTA = '/dashboard/comercial/meu-painel-v6'
@@ -231,6 +233,8 @@ export default function MeuPainelV6() {
 
   // Aba Clientes (SPEC §2.3): segmentos RFM, Pareto, cross-sell, notas, grupos, carteira e tabela completa.
   const clientesV7 = useMemo(() => base && modelo && estado && pg ? calcularClientesV7(base, modelo, estado, pg) : null, [base, modelo, estado, pg])
+  // Aba Cidades (SPEC §2.4).
+  const cidadesV7 = useMemo(() => base && modelo && estado && pg ? calcularCidadesV7(base, modelo, estado, pg) : null, [base, modelo, estado, pg])
 
   // Bloco 3 — aba Vendedores. Mesmas definições do placar v5 (motor-v5): ticket = faturamento ÷ notas;
   // R$/kg = preço da análise sem despojo; índice = faturamento ÷ valor esperado ao preço médio da empresa;
@@ -342,7 +346,7 @@ export default function MeuPainelV6() {
         ))}
       </nav>
 
-      {aba !== 'geral' && aba !== 'vendedores' && aba !== 'clientes' && (
+      {aba !== 'geral' && aba !== 'vendedores' && aba !== 'clientes' && aba !== 'cidades' && (
         <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16, color: C.m, fontSize: 14 }}>
           <b style={{ color: C.esp }}>{ABAS.find((a) => a.k === aba)?.rot}</b> — esta aba entra no próximo bloco do painel. O período e os filtros acima já valem para ela.
         </div>
@@ -640,6 +644,9 @@ export default function MeuPainelV6() {
 
       {aba === 'clientes' && base && modelo && clientesV7 && (
         <AbaClientes clientes={clientesV7} base={base} modelo={modelo} />
+      )}
+      {aba === 'cidades' && base && modelo && cidadesV7 && (
+        <AbaCidades cidades={cidadesV7} base={base} modelo={modelo} />
       )}
 
       <div style={{ marginTop: 16, fontSize: 12, color: C.d }}>
