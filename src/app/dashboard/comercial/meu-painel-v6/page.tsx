@@ -19,8 +19,9 @@ import { Clientes } from './abas/Clientes'
 import { Cidades } from './abas/Cidades'
 import { Produtos } from './abas/Produtos'
 import { PrecoDesconto } from './abas/PrecoDesconto'
+import { Logistica } from './abas/Logistica'
 
-type Aba = 'visao' | 'vendedores' | 'clientes' | 'cidades' | 'produtos' | 'preco'
+type Aba = 'visao' | 'vendedores' | 'clientes' | 'cidades' | 'produtos' | 'preco' | 'logistica'
 const ABAS: { id: Aba; nome: string; chave: string }[] = [
   { id: 'visao', nome: 'Visão geral', chave: 'comv6.aba_visao' },
   { id: 'vendedores', nome: 'Vendedores', chave: 'comv6.aba_vendedores' },
@@ -28,6 +29,7 @@ const ABAS: { id: Aba; nome: string; chave: string }[] = [
   { id: 'cidades', nome: 'Cidades', chave: 'comv6.aba_cidades' },
   { id: 'produtos', nome: 'Produtos', chave: 'comv6.aba_produtos' },
   { id: 'preco', nome: 'Preço e desconto', chave: 'comv6.aba_preco' },
+  { id: 'logistica', nome: 'Logística', chave: 'comv6.aba_logistica' },
 ]
 
 export default function MeuPainelV6() {
@@ -101,7 +103,8 @@ export default function MeuPainelV6() {
           : aba === 'clientes' ? <Clientes base={base} modelo={modelo} r={r} />
           : aba === 'cidades' ? <Cidades base={base} modelo={modelo} r={r} />
           : aba === 'produtos' ? <Produtos base={base} modelo={modelo} r={r} />
-          : <PrecoDesconto base={base} modelo={modelo} r={r} />
+          : aba === 'preco' ? <PrecoDesconto base={base} modelo={modelo} r={r} />
+          : <Logistica base={base} modelo={modelo} r={r} />
       ) : !carregando && !erro ? (
         <div style={{ color: C.m }}>Sem dados para o período.</div>
       ) : null}
