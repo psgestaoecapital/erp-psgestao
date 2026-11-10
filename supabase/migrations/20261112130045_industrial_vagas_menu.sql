@@ -17,7 +17,7 @@
 --   * o irmão industrial_mao_obra tem 5 planos (v15_industrial_media/grande/pequena, industrial, v15_gestao_empresarial_pro);
 --     o INSERT ... SELECT replica exatamente esses 5 para industrial_rh_vagas (5 depois; re-rodado = 5, idempotente).
 --
--- RD-52: arquivo + PR, versão 20261109000145 acima da última da main (20261109000115), faixa de segundos :45–:54.
+-- RD-52: arquivo + PR, versão 20261112130045 acima da última da main (20261112120045), faixa de segundos :45–:54.
 -- ADITIVA e idempotente: ON CONFLICT (id) / ON CONFLICT (plan_id, module_id) DO NOTHING.
 
 -- 1) Menu: um item "Vagas" no subgrupo rh_ponto do grupo industrial, logo após "Mão de Obra" (ordem 12).
