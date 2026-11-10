@@ -27,13 +27,16 @@ import { composicaoPorProposta, diasParaVencer, ganhasComObra, situacaoBdi, obra
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)'
 
 const STATUS: Record<string, { cor: string; label: string }> = {
-  rascunho: { cor: '#9C8E80', label: 'Rascunho' }, enviado: { cor: '#3B82F6', label: 'Enviado' },
+  rascunho: { cor: '#9C8E80', label: 'Rascunho' }, em_elaboracao: { cor: '#3B82F6', label: 'Em elaboração' }, enviado: { cor: '#3B82F6', label: 'Enviado' },
   visualizado: { cor: '#8B5CF6', label: 'Visualizado' }, aprovado: { cor: '#16A34A', label: 'Aprovado' },
   recusado: { cor: '#B91C1C', label: 'Recusado' }, expirado: { cor: '#F59E0B', label: 'Expirado' },
   convertido: { cor: GOLD, label: 'Virou pedido' },
 }
 
 type Proposta = { id: string; company_id: string; numero: string | null; cliente_nome: string | null; status: string; total: number | null; data_emissao: string | null; data_validade: string | null; obra_id: string | null; eh_obra: boolean | null; versao: number | null; orcamento_origem_id: string | null; pdf_anexo_path: string | null; orcamentista_id: string | null; orcamentista_nome: string | null }
+// Situação visível (#3271): rascunho com orçamentista atribuído entra em "Em elaboração"; sem orçamentista volta a rascunho.
+// O status persistido segue 'rascunho' (sem risco na máquina de estados); a derivação vale na lista, no filtro e nos contadores.
+const vstatus = (l: Pick<Proposta, 'status' | 'orcamentista_id'>) => (l.status === 'rascunho' && !!l.orcamentista_id ? 'em_elaboracao' : l.status)
 
 const POR_PAGINA = 25, LIMITE = 100
 
@@ -170,11 +173,17 @@ export default function PropostasHubPage() {
 
   const vis = useMemo(() => {
     const b = busca.trim().toLowerCase()
-    return linhas.filter(l => (filtro === 'todos' || l.status === filtro)
+    return linhas.filter(l => (filtro === 'todos' || vstatus(l) === filtro)
       && (!soMeus || (!!meuId && l.orcamentista_id === meuId))
       && (!b || (l.numero ?? '').toLowerCase().includes(b) || (l.cliente_nome ?? '').toLowerCase().includes(b) || (l.orcamentista_nome ?? '').toLowerCase().includes(b)))
   }, [linhas, busca, filtro, soMeus, meuId])
   const r = useMemo(() => resumoFunil(linhas), [linhas])
+  // Contadores por situação visível (#3271): separa "Em elaboração" de "Rascunho", igual ao selo e ao filtro.
+  const porStatusVisual = useMemo(() => {
+    const m: Record<string, { n: number; valor: number }> = {}
+    for (const l of linhas) { const s = (m[vstatus(l)] ??= { n: 0, valor: 0 }); s.n++; s.valor += Number(l.total ?? 0) }
+    return m
+  }, [linhas])
   const numeroPorId = useMemo(() => Object.fromEntries(linhas.map(l => [l.id, l.numero])) as Record<string, string | null>, [linhas])
   const comPdf = useMemo(() => linhas.filter(l => !!l.pdf_anexo_path).length, [linhas])
   const revisoes = useMemo(() => linhas.filter(l => (l.versao ?? 1) > 1 || !!l.orcamento_origem_id).length, [linhas])
@@ -286,12 +295,12 @@ export default function PropostasHubPage() {
               {r.total} proposta(s) · {r.abertas} em aberto — toque numa situação para filtrar <AjudaCampo chave="projetos.propostas.funil" />
             </div>
             <div data-testid="hub-propostas-funil" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-              {Object.entries(STATUS).filter(([k]) => r.porStatus[k]).map(([k, v]) => {
+              {Object.entries(STATUS).filter(([k]) => porStatusVisual[k]).map(([k, v]) => {
                 const ativo = filtro === k
                 return (
                   <button key={k} type="button" data-testid="hub-propostas-funil-etapa" aria-pressed={ativo} onClick={() => { setFiltro(ativo ? 'todos' : k); setMostrar(POR_PAGINA) }}
                     style={{ border: `1px solid ${ativo ? v.cor : LINE}`, background: ativo ? `${v.cor}14` : '#fff', borderRadius: 999, padding: '6px 12px', fontSize: 12, color: ESP, cursor: 'pointer', minHeight: 36 }}>
-                    <span style={{ color: v.cor, fontWeight: 700 }}>{v.label}</span> · {r.porStatus[k].n} · {fmtR(r.porStatus[k].valor)}
+                    <span style={{ color: v.cor, fontWeight: 700 }}>{v.label}</span> · {porStatusVisual[k].n} · {fmtR(porStatusVisual[k].valor)}
                   </button>
                 )
               })}
@@ -337,8 +346,7 @@ export default function PropostasHubPage() {
               </tr></thead>
               <tbody>
                 {vis.slice(0, mostrar).map(l => {
-                  const emElaboracao = l.status === 'rascunho' && !!l.orcamentista_id
-                  const st = emElaboracao ? { cor: '#3B82F6', label: 'Em elaboração' } : STATUS[l.status] ?? { cor: MUT, label: l.status }
+                  const st = STATUS[vstatus(l)] ?? { cor: MUT, label: l.status }
                   const dias = ABERTAS.includes(l.status as typeof ABERTAS[number]) ? diasParaVencer(l.data_validade) : null
                   const corVal = dias === null ? ESP : dias < 0 ? '#B91C1C' : dias <= 7 ? '#B45309' : ESP
                   const c = comp[l.id]
