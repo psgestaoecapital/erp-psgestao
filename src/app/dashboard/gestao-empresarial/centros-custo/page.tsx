@@ -120,6 +120,14 @@ export default function CentrosCustoPage() {
 
   const naoMapeados = rows.filter((r) => !r.mapeado).length
 
+  // contagem por status (prioriza/agrupa a lista: o usuário vê o tamanho de cada grupo antes de filtrar)
+  const contagem = useMemo(() => ({
+    todos: rows.length,
+    nao: rows.filter((r) => !r.mapeado).length,
+    map: rows.filter((r) => r.mapeado && r.ativo).length,
+    inativo: rows.filter((r) => r.mapeado && !r.ativo).length,
+  }), [rows])
+
   // filtro + ordenação (não mapeados no topo) + paginação
   const filtradas = useMemo(() => {
     const q = busca.trim().toLowerCase()
@@ -177,7 +185,7 @@ export default function CentrosCustoPage() {
         </span>
         <span style={{ ...field, gap: 6 }}>
           {([['todos', 'Todos'], ['nao', 'Não mapeados'], ['map', 'Mapeados'], ['inativo', 'Inativos']] as [FiltroStatus, string][]).map(([v, lbl]) => (
-            <button key={v} onClick={() => mudarFiltro(v)} style={filtroStatus === v ? chipOn : chipOff}>{lbl}</button>
+            <button key={v} onClick={() => mudarFiltro(v)} style={filtroStatus === v ? chipOn : chipOff}>{lbl} <b style={{ fontVariantNumeric: 'tabular-nums' }}>{contagem[v]}</b></button>
           ))}
           <AjudaCampo chave="ge.centros_custo.filtro_status" />
         </span>
