@@ -16,12 +16,14 @@ import { C, ROTA, iso, dataBR } from './abas/fmt'
 import { VisaoGeral } from './abas/VisaoGeral'
 import { Vendedores } from './abas/Vendedores'
 import { Clientes } from './abas/Clientes'
+import { Cidades } from './abas/Cidades'
 
-type Aba = 'visao' | 'vendedores' | 'clientes'
+type Aba = 'visao' | 'vendedores' | 'clientes' | 'cidades'
 const ABAS: { id: Aba; nome: string; chave: string }[] = [
   { id: 'visao', nome: 'Visão geral', chave: 'comv6.aba_visao' },
   { id: 'vendedores', nome: 'Vendedores', chave: 'comv6.aba_vendedores' },
   { id: 'clientes', nome: 'Clientes', chave: 'comv6.aba_clientes' },
+  { id: 'cidades', nome: 'Cidades', chave: 'comv6.aba_cidades' },
 ]
 
 export default function MeuPainelV6() {
@@ -92,7 +94,8 @@ export default function MeuPainelV6() {
       {r && base && modelo ? (
         aba === 'visao' ? <VisaoGeral base={base} modelo={modelo} r={r} />
           : aba === 'vendedores' ? <Vendedores base={base} modelo={modelo} r={r} />
-          : <Clientes base={base} modelo={modelo} r={r} />
+          : aba === 'clientes' ? <Clientes base={base} modelo={modelo} r={r} />
+          : <Cidades base={base} modelo={modelo} r={r} />
       ) : !carregando && !erro ? (
         <div style={{ color: C.m }}>Sem dados para o período.</div>
       ) : null}
