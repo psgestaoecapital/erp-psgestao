@@ -18,6 +18,10 @@ import {
   calcularModelo, estadoPadrao, maxDia, gruposProduto, resumo,
   type BaseV5, type EstadoV5, type ModeloV5, type GrupoProduto,
 } from './motor-v5'
+import { AbaConcentracao } from './AbaConcentracao'
+import { AbaKpis } from './AbaKpis'
+import { AbaRanking } from './AbaRanking'
+import { AbaProdutos } from './AbaProdutos'
 
 const C = { esp: '#3D2314', off: '#FAF7F2', gold: '#C8941A', gold2: '#E0B048', bd: '#E7DED3', m: '#6B5D4F', d: '#9C8E80', ok: '#1a8f63', warn: '#b07a12', bad: '#C0392B', bg2: '#F0ECE3', azul: '#2f6f8f', verde: '#3f7d4e' }
 const ROTA = '/dashboard/comercial/meu-painel'
@@ -40,11 +44,11 @@ const PERIODOS: { k: PerKey; rot: string }[] = [
   { k: 'hoje', rot: 'Hoje' }, { k: 'semana', rot: 'Semana' }, { k: '30', rot: '30 dias' },
   { k: 'mes', rot: 'Este mês' }, { k: 'ano', rot: 'Ano' }, { k: 'custom', rot: 'De–até' },
 ]
-type AbaKey = 'geral' | 'vendedores' | 'clientes' | 'cidades' | 'produtos' | 'flex' | 'logistica' | 'metas'
+type AbaKey = 'geral' | 'indicadores' | 'vendedores' | 'ranking' | 'clientes' | 'cidades' | 'prodsrv' | 'produtos' | 'concentracao' | 'flex' | 'logistica' | 'metas'
 const ABAS: { k: AbaKey; rot: string }[] = [
-  { k: 'geral', rot: 'Visão geral' }, { k: 'vendedores', rot: 'Vendedores' }, { k: 'clientes', rot: 'Clientes' },
-  { k: 'cidades', rot: 'Cidades' }, { k: 'produtos', rot: 'Produtos' }, { k: 'flex', rot: 'Preço e desconto' },
-  { k: 'logistica', rot: 'Logística' }, { k: 'metas', rot: 'Metas' },
+  { k: 'geral', rot: 'Visão geral' }, { k: 'indicadores', rot: 'Indicadores' }, { k: 'vendedores', rot: 'Vendedores' }, { k: 'ranking', rot: 'Ranking' }, { k: 'clientes', rot: 'Clientes' },
+  { k: 'cidades', rot: 'Cidades' }, { k: 'prodsrv', rot: 'Produtos' }, { k: 'produtos', rot: 'Cortes' }, { k: 'concentracao', rot: 'Concentração' },
+  { k: 'flex', rot: 'Preço e desconto' }, { k: 'logistica', rot: 'Logística' }, { k: 'metas', rot: 'Metas' },
 ]
 // Segmentos de cliente (motor: 0..5) e curva ABC (0..2) — nomes e cores do protótipo v5.
 const SEG = [
@@ -750,6 +754,24 @@ export default function MeuPainelVendas() {
             )}
 
             {/* ===================== METAS ===================== */}
+            {aba === 'indicadores' && empresa && (
+              <AbaKpis empresa={empresa} de={intervalo.de} ate={intervalo.ate}
+                vendedorCod={estado && estado.ven !== 'todos' ? (base.ven[Number(estado.ven)]?.[0] ?? null) : null} />
+            )}
+
+            {aba === 'concentracao' && empresa && (
+              <AbaConcentracao empresa={empresa} de={intervalo.de} ate={intervalo.ate}
+                vendedorCod={estado && estado.ven !== 'todos' ? (base.ven[Number(estado.ven)]?.[0] ?? null) : null} />
+            )}
+
+            {aba === 'ranking' && empresa && (
+              <AbaRanking empresa={empresa} de={intervalo.de} ate={intervalo.ate} />
+            )}
+
+            {aba === 'prodsrv' && empresa && (
+              <AbaProdutos empresa={empresa} de={intervalo.de} ate={intervalo.ate} />
+            )}
+
             {aba === 'metas' && (
               <Placeholder titulo="Metas" ajuda="com.painel.meta" texto="O ERP de origem manda as cotas zeradas. A aba de metas (realizado × meta por vendedor, produto e cidade, com a sugestão de mês anterior + 5% e cadastro em erp_meta) entra no próximo bloco — sem inventar número enquanto não houver a meta cadastrada." />
             )}

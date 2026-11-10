@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import PessoaForm, { type Pessoa } from './PessoaForm'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import ClienteArquivos from './ClienteArquivos'   // PM-QW #16 · anexos do cliente (contrato)
 
 interface Props {
@@ -29,48 +30,77 @@ export default function PessoasList({ companyId, tipo }: Props) {
     ? 'Cadastre quem compra seus produtos ou serviços. Usado em lançamentos e cobranças.'
     : 'Cadastre quem você paga. Usado em contas a pagar e DRE.'
 
+  // Página do servidor: a base real pode ter milhares de ativos (uma empresa tem 1.771 clientes).
+  // Carregar tudo batia no teto de 1.000 linhas do PostgREST e sumia com os registros 1.001+ —
+  // a busca, feita só no array carregado, nunca os achava. Agora pagina e busca NO SERVIDOR.
+  const PAGE_SIZE = 50
+  const SELECT_COLS =
+    'id, company_id, nome_fantasia, razao_social, cnpj_cpf, tipo_pessoa, ie, inscricao_municipal, contribuinte_icms, email, telefone, whatsapp, cep, logradouro, numero, bairro, complemento, cidade, uf, ativo, tags' +
+    (tabela === 'erp_clientes' ? ', codigo_ibge_municipio' : '')
+
   const [pessoas, setPessoas] = useState<Pessoa[]>([])
+  const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [carregandoMais, setCarregandoMais] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Pessoa | null>(null)
   const [busca, setBusca] = useState('')
   const [drawerPessoa, setDrawerPessoa] = useState<Pessoa | null>(null)
+  // critério c/e: nunca falhar em silêncio — erro de carga/ação vira aviso em linguagem do usuário.
+  const [erro, setErro] = useState<string | null>(null)
 
-  async function load() {
-    setLoading(true)
-    const { data } = await supabase
+  async function load(reset = true) {
+    if (reset) { setLoading(true); setErro(null) } else { setCarregandoMais(true) }
+    const offset = reset ? 0 : pessoas.length
+    let q = supabase
       .from(tabela)
-      // codigo_ibge_municipio só existe em erp_clientes (o formulário mostra e edita o IBGE do cliente)
-      .select('id, company_id, nome_fantasia, razao_social, cnpj_cpf, tipo_pessoa, ie, inscricao_municipal, contribuinte_icms, email, telefone, whatsapp, cep, logradouro, numero, bairro, complemento, cidade, uf, ativo, tags' + (tabela === 'erp_clientes' ? ', codigo_ibge_municipio' : ''))
+      .select(SELECT_COLS, { count: 'exact' })   // select montado (coluna do IBGE só em clientes)
       .eq('company_id', companyId)
       .eq('ativo', true)
+    const termo = busca.trim()
+    if (termo) {
+      // busca NO SERVIDOR por nome/razão (texto) e CNPJ/CPF (dígitos). Sanitiza os operadores do PostgREST.
+      const texto = termo.replace(/[,()*%]/g, ' ').trim()
+      const digitos = termo.replace(/\D/g, '')
+      const ors: string[] = []
+      if (texto) { ors.push(`nome_fantasia.ilike.*${texto}*`); ors.push(`razao_social.ilike.*${texto}*`) }
+      if (digitos) ors.push(`cnpj_cpf.ilike.*${digitos}*`)
+      if (ors.length) q = q.or(ors.join(','))
+    }
+    const { data, error, count } = await q
       .order('nome_fantasia')
-    if (data) setPessoas(data as unknown as Pessoa[])   // select montado (coluna do IBGE só em clientes)
-    setLoading(false)
+      .range(offset, offset + PAGE_SIZE - 1)
+    // Antes a query ignorava o error e caía em lista vazia silenciosa (parecia "nenhum cadastro").
+    if (error) {
+      setErro(erroAmigavel(error, `Não foi possível carregar os ${labelPlural.toLowerCase()}. Tente de novo.`))
+      if (reset) setPessoas([])
+    } else {
+      const linhas = (data as unknown as Pessoa[] | null) ?? []
+      setPessoas((prev) => (reset ? linhas : [...prev, ...linhas]))
+      if (typeof count === 'number') setTotal(count)
+    }
+    if (reset) setLoading(false); else setCarregandoMais(false)
   }
 
   useEffect(() => {
-    if (companyId) load()
+    if (!companyId) return
+    // debounce da busca (reinicia na 1ª página a cada mudança de empresa/tipo/termo)
+    const t = setTimeout(() => { void load(true) }, busca ? 300 : 0)
+    return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyId, tabela])
+  }, [companyId, tabela, busca])
 
   async function handleInativar(id: string) {
     if (!confirm(`Inativar esse ${labelSingular}? Você pode reativá-lo depois.`)) return
-    await supabase.from(tabela).update({ ativo: false }).eq('id', id)
-    load()
+    setErro(null)
+    // Antes o error do update era ignorado: se a inativação falhasse (RLS, rede), o usuário achava que deu certo.
+    const { error } = await supabase.from(tabela).update({ ativo: false }).eq('id', id)
+    if (error) {
+      setErro(erroAmigavel(error, `Não foi possível inativar o ${labelSingular}. Tente de novo.`))
+      return
+    }
+    void load(true)
   }
-
-  const filtradas = useMemo(() => {
-    const q = busca.trim().toLowerCase()
-    if (!q) return pessoas
-    const qDigits = q.replace(/\D/g, '')
-    return pessoas.filter((p) => {
-      if ((p.nome_fantasia ?? '').toLowerCase().includes(q)) return true
-      if ((p.razao_social ?? '').toLowerCase().includes(q)) return true
-      if (qDigits && (p.cnpj_cpf ?? '').includes(qDigits)) return true
-      return false
-    })
-  }, [pessoas, busca])
 
   if (loading) {
     return <div style={{ padding: 40, textAlign: 'center', color: 'rgba(61,35,20,0.5)' }}>Carregando {labelPlural.toLowerCase()}…</div>
@@ -102,7 +132,17 @@ export default function PessoasList({ companyId, tipo }: Props) {
         </button>
       </div>
 
-      {pessoas.length > 0 && (
+      {erro && (
+        <div role="alert" data-testid="pessoas-erro" style={{ background: '#FDECEC', border: '0.5px solid #E0A3A3', color: '#9B2C2C', borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 13, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span aria-hidden>⚠️</span>
+          <span style={{ flex: 1 }}>{erro}</span>
+          <button type="button" onClick={() => void load(true)} style={{ background: 'transparent', color: '#9B2C2C', border: '0.5px solid #E0A3A3', padding: '5px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+            Tentar de novo
+          </button>
+        </div>
+      )}
+
+      {(total > 0 || busca) && (
         <div style={{ background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 12, padding: '14px 18px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <input
             type="search"
@@ -113,12 +153,12 @@ export default function PessoasList({ companyId, tipo }: Props) {
           />
           <AjudaCampo chave="cadastros.pessoa.busca" rota="/dashboard/cadastros/pessoa" />
           <span style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)' }}>
-            {filtradas.length} de {pessoas.length} ativos
+            {busca ? `${total} encontrado${total === 1 ? '' : 's'}` : `${pessoas.length} de ${total} ativos`}
           </span>
         </div>
       )}
 
-      {pessoas.length === 0 ? (
+      {erro ? null : total === 0 && !busca ? (
         <div style={{ background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 12, padding: 60, textAlign: 'center' }}>
           <div style={{ fontSize: 36, marginBottom: 12 }} aria-hidden>👥</div>
           <div style={{ fontSize: 14, color: 'rgba(61,35,20,0.65)', marginBottom: 16 }}>
@@ -139,23 +179,35 @@ export default function PessoasList({ companyId, tipo }: Props) {
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {filtradas.length === 0 ? (
+          {pessoas.length === 0 ? (
             <div style={{ background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 8, padding: 32, textAlign: 'center', color: 'rgba(61,35,20,0.55)', fontSize: 13 }}>
               Nenhum resultado para “{busca}”.
             </div>
           ) : (
-            filtradas.map((p) => (
-              <Card
-                key={p.id}
-                pessoa={p}
-                onAbrir={() => setDrawerPessoa(p)}
-                onEditar={() => {
-                  setEditing(p)
-                  setShowForm(true)
-                }}
-                onInativar={() => handleInativar(p.id)}
-              />
-            ))
+            <>
+              {pessoas.map((p) => (
+                <Card
+                  key={p.id}
+                  pessoa={p}
+                  onAbrir={() => setDrawerPessoa(p)}
+                  onEditar={() => {
+                    setEditing(p)
+                    setShowForm(true)
+                  }}
+                  onInativar={() => handleInativar(p.id)}
+                />
+              ))}
+              {pessoas.length < total && (
+                <button
+                  type="button"
+                  onClick={() => void load(false)}
+                  disabled={carregandoMais}
+                  style={{ marginTop: 8, alignSelf: 'center', background: 'transparent', color: '#C8941A', border: '0.5px solid #C8941A', padding: '10px 24px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: carregandoMais ? 'default' : 'pointer', opacity: carregandoMais ? 0.6 : 1 }}
+                >
+                  {carregandoMais ? 'Carregando…' : `Carregar mais (${total - pessoas.length} restantes)`}
+                </button>
+              )}
+            </>
           )}
         </div>
       )}
