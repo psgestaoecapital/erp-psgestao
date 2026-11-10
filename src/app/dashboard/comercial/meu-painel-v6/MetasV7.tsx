@@ -114,7 +114,7 @@ export function MetasV7({ empresa }: Props) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <div style={{ fontSize: 15, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>Metas de vendas<AjudaCampo chave="com.painel.visao" rota={ROTA} /></div>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: C.m }}>Mês
-          <input type="month" aria-label="Mês da meta" value={mes} onChange={(e) => e.target.value && setMes(e.target.value)} style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.bd}`, minHeight: 40, fontSize: 14 }} />
+          <input type="month" aria-label="Mês da meta" value={mes} onChange={(e) => e.target.value && setMes(e.target.value)} style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.bd}`, minHeight: 40, fontSize: 14 }} /><AjudaCampo chave="com.painel.meta" rota={ROTA} />
         </label>
       </div>
 
@@ -157,7 +157,7 @@ export function MetasV7({ empresa }: Props) {
                   {lider && editando[l.cod] !== undefined ? (
                     <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
                       <input aria-label={`Meta de ${l.nome}`} inputMode="decimal" value={editando[l.cod]} onChange={(e) => setEditando((x) => ({ ...x, [l.cod]: e.target.value }))}
-                        style={{ width: 120, padding: '6px 8px', borderRadius: 8, border: `1px solid ${C.bd}`, fontSize: 13, minHeight: 36, textAlign: 'right' }} />
+                        style={{ width: 120, padding: '6px 8px', borderRadius: 8, border: `1px solid ${C.bd}`, fontSize: 13, minHeight: 36, textAlign: 'right' }} /><AjudaCampo chave="com.painel.meta" rota={ROTA} />
                       <button type="button" onClick={() => salvar(l.cod, l.nome)} style={{ padding: '6px 10px', minHeight: 36, borderRadius: 8, border: 'none', background: C.esp, color: '#fff', cursor: 'pointer', fontSize: 12 }}>Salvar</button>
                     </span>
                   ) : (
