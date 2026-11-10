@@ -685,6 +685,7 @@ export default function ConexoesBancariasPage() {
         <ConectarBancoModal
           banco={conectandoBanco}
           companyId={empresaUnica}
+          configs={configs}
           onClose={() => setConectandoBanco(null)}
           onSucesso={() => { setConectandoBanco(null); setMsg('Banco conectado.'); void carregar() }}
         />
@@ -695,6 +696,7 @@ export default function ConexoesBancariasPage() {
           banco={editando.banco}
           companyId={empresaUnica}
           cfgExistente={editando.cfg}
+          configs={configs}
           onClose={() => setEditando(null)}
           onSucesso={() => { setEditando(null); setMsg('Configuração atualizada (segredo do Vault preservado se deixado em branco).'); void carregar() }}
         />
@@ -823,14 +825,15 @@ interface ConectarProps {
   // pré-preenche os campos NÃO-secretos; os secretos ficam em branco e, se
   // continuarem em branco, o RPC preserva o segredo já gravado no Vault.
   cfgExistente?: ProviderConfig | null
+  // #7974: todas as linhas do banco na empresa (um registro POR ambiente). O modal usa isto para
+  // RECARREGAR os campos do ambiente selecionado ao trocar o seletor — cada ambiente é isolado.
+  configs?: ProviderConfig[]
 }
-function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente }: ConectarProps) {
+function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente, configs }: ConectarProps) {
   const editMode = !!cfgExistente
   // Indicador "configurado" (Rodrigo): o valor do segredo NUNCA volta do servidor (a tela nem o seleciona);
   // usamos só a presença do *_vault_id (um id de referência, não o segredo) para mostrar que já há algo salvo.
   const PH_CONFIG = '•••••••• configurado — deixe em branco para manter'
-  const jaTem = (slot: 'client_secret_vault_id' | 'cert_vault_id' | 'cert_senha_vault_id' | 'api_key_vault_id') =>
-    editMode && !!cfgExistente?.[slot]
   // Sicredi está em fase de teste → default Homologação (state controlado persiste a escolha).
   const [ambiente, setAmbiente] = useState<Ambiente>(cfgExistente?.ambiente ?? (banco.sigla === 'sicredi' ? 'homologacao' : 'producao'))
   const [clientId, setClientId] = useState(cfgExistente?.client_id ?? '')
@@ -869,10 +872,50 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
   const [instr2, setInstr2] = useState(cfgExistente?.instrucao_linha2 ?? '')
   const [instr3, setInstr3] = useState(cfgExistente?.instrucao_linha3 ?? '')
   const [instr4, setInstr4] = useState(cfgExistente?.instrucao_linha4 ?? '')
+  // #7974 (BB): variação da carteira e modalidade são POR AMBIENTE (linha própria). Ficavam só no modal
+  // "Dados CNAB"; agora também entram aqui, gravados na linha do ambiente selecionado.
+  const [variacaoCarteira, setVariacaoCarteira] = useState(cfgExistente?.variacao_carteira ?? '')
+  const [modalidadeBoleto, setModalidadeBoleto] = useState(cfgExistente?.modalidade_boleto ?? '')
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   // ② aviso por provider: campos que o manifesto exige e ainda faltam (avisa, não bloqueia · regra 0e580f96)
   const [faltantes, setFaltantes] = useState<string[] | null>(null)
+
+  // #7974: a linha (registro) deste banco no ambiente informado — cada ambiente é uma linha isolada.
+  const linhaDoAmbiente = (amb: Ambiente): ProviderConfig | null =>
+    (configs ?? []).find((c) => c.provider.includes(banco.sigla) && c.ambiente === amb)
+    ?? (cfgExistente?.ambiente === amb ? cfgExistente : null)
+  const rowAtual = linhaDoAmbiente(ambiente)
+  // Indicador "configurado": presença do *_vault_id da linha do AMBIENTE ATUAL (não da linha aberta).
+  const jaTem = (slot: 'client_secret_vault_id' | 'cert_vault_id' | 'cert_senha_vault_id' | 'api_key_vault_id') =>
+    !!rowAtual?.[slot]
+
+  // #7974: trocar o ambiente RECARREGA os campos daquele ambiente (cada ambiente é uma linha própria;
+  // nunca mistura nem sobrescreve o outro). Segredos são limpos — o segredo do Vault é por ambiente e,
+  // deixado em branco, o RPC preserva o já gravado na linha do novo ambiente.
+  function aplicarAmbiente(amb: Ambiente) {
+    setAmbiente(amb)
+    const r = linhaDoAmbiente(amb)
+    setClientId(r?.client_id ?? '')
+    setCooperativa(r?.cooperativa ?? '')
+    setConta(r?.conta ?? '')
+    setCodBenef(r?.codigo_beneficiario ?? '')
+    setPosto(r?.posto ?? '')
+    setAgencia(r?.agencia ?? '')
+    setConvenio(r?.convenio ?? '')
+    setCarteira(r?.carteira ?? '')
+    setVariacaoCarteira(r?.variacao_carteira ?? '')
+    setModalidadeBoleto(r?.modalidade_boleto ?? '')
+    setCapBoleto(r?.cap_boleto ?? true)
+    setCapExtrato(r?.cap_extrato ?? true)
+    setJurosPct(numStr(r?.juros_pct)); setMultaPct(numStr(r?.multa_pct))
+    setDiasMulta(numStr(r?.dias_multa)); setDiasJuros(numStr(r?.dias_juros))
+    setInstr1(r?.instrucao_linha1 ?? ''); setInstr2(r?.instrucao_linha2 ?? '')
+    setInstr3(r?.instrucao_linha3 ?? ''); setInstr4(r?.instrucao_linha4 ?? '')
+    // segredos: limpam ao trocar de ambiente (pertencem a um ambiente só)
+    setClientSecret(''); setApiKey(''); setCertSenha(''); setCodigoAcesso('')
+    setCertA1Base64(''); setCertA1Nome(''); setCrtPem(''); setCrtNome(''); setKeyPem(''); setKeyNome(''); setKeySenha('')
+  }
 
   // Após salvar, checa (data-driven do manifesto) o que ainda falta pra este banco. Se faltar, mostra o
   // aviso e mantém o modal aberto (a pessoa completa agora ou fecha); se estiver completo, fecha normal.
@@ -1015,6 +1058,23 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
         .eq('banco_codigo', String(banco.codigo))
         .eq('ambiente', ambiente)
         .or('estado_conexao.is.null,estado_conexao.eq.nao_iniciado')
+      // #7974 (BB): grava carteira (só o número), variação e modalidade NA LINHA DO AMBIENTE salvo.
+      // Writer único dessas colunas é fn_banco_config_salvar_cnab (RD-52); vazio preserva o existente.
+      if (banco.sigla === 'bb') {
+        const { data: linha } = await supabase.from('erp_banco_provider_config')
+          .select('id')
+          .eq('company_id', companyId)
+          .eq('banco_codigo', String(banco.codigo))
+          .eq('ambiente', ambiente)
+          .maybeSingle()
+        const linhaId = (linha as { id?: string } | null)?.id
+        if (linhaId) {
+          await supabase.rpc('fn_banco_config_salvar_cnab', {
+            p_company_id: companyId, p_config_id: linhaId,
+            p_dados: { carteira, variacao_carteira: variacaoCarteira, modalidade_boleto: modalidadeBoleto },
+          })
+        }
+      }
       await checarEFinalizar()
     } catch (e) {
       setErro((e as Error).message)
@@ -1073,11 +1133,22 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
             </div>
           )}
           <Field label="Ambiente">
-            <select value={ambiente} onChange={(e) => setAmbiente(e.target.value as Ambiente)} style={inp}>
+            {/* #7974: trocar o ambiente recarrega os campos daquele ambiente (cada um é uma linha isolada). */}
+            <select data-testid="conectar-ambiente" value={ambiente} onChange={(e) => aplicarAmbiente(e.target.value as Ambiente)} style={inp}>
               <option value="producao">Produção</option>
               <option value="homologacao">Homologação</option>
             </select>
           </Field>
+          {/* #7974: deixar claro o ambiente em uso, para não emitir boleto real durante testes. */}
+          {ambiente === 'producao' ? (
+            <div data-testid="conectar-ambiente-aviso" style={{ background: '#FEF2F2', border: `0.5px solid #FCA5A5`, color: '#B91C1C', borderRadius: 6, padding: '8px 11px', fontSize: 12, lineHeight: 1.4 }}>
+              <b>Produção.</b> Os boletos emitidos com esta linha são <b>cobrança real</b>. Convênio, carteira, variação e modalidade abaixo valem só para a produção.
+            </div>
+          ) : (
+            <div data-testid="conectar-ambiente-aviso" style={{ background: '#FEF3E2', border: `0.5px solid ${GOLD}`, color: '#B45309', borderRadius: 6, padding: '8px 11px', fontSize: 12, lineHeight: 1.4 }}>
+              <b>Homologação · teste.</b> O boleto emitido aqui <b>não é cobrança real</b>. Estes dados não tocam a linha de produção.
+            </div>
+          )}
           {banco.campos.includes('client_id') && (
             <Field label="Client ID">
               <input value={clientId} onChange={(e) => setClientId(e.target.value)} style={inp} />
@@ -1129,8 +1200,26 @@ function ConectarBancoModal({ banco, companyId, onClose, onSucesso, cfgExistente
               <input name="ps_convenio_nofill" autoComplete="off" inputMode="numeric" value={convenio} onChange={(e) => setConvenio(e.target.value)} style={inp} placeholder="ex.: 3128557" />
             </Field>
           )}
-          {banco.campos.includes('carteira') && (
-            <Field label="Carteira / variação" ajuda="banco.carteira" hint="Ex.: 17 / 35 (carteira e variação do convênio). No BB, a variação e a modalidade ficam também em Dados CNAB. Só é preciso para emitir boleto.">
+          {/* #7974 (BB): carteira e variação são campos SEPARADOS (não "17/01-9" junto); modalidade configurável. */}
+          {banco.campos.includes('carteira') && banco.sigla === 'bb' && (
+            <>
+              <Field label="Carteira" ajuda="banco.carteira_numero" hint="Só o número da carteira (ex.: 17), sem o dígito nem a variação.">
+                <input data-testid="conectar-carteira" name="ps_carteira_nofill" autoComplete="off" value={carteira} onChange={(e) => setCarteira(e.target.value)} style={inp} placeholder="ex.: 17" />
+              </Field>
+              <Field label="Variação da carteira" ajuda="banco.variacao_carteira" hint="Campo próprio, separado da carteira (ex.: 01-9 na produção, 35 no teste). Vem do contrato de cobrança do BB.">
+                <input data-testid="conectar-variacao" name="ps_variacao_nofill" autoComplete="off" value={variacaoCarteira} onChange={(e) => setVariacaoCarteira(e.target.value)} style={inp} placeholder="ex.: 01-9" />
+              </Field>
+              <Field label="Modalidade do boleto" ajuda="banco.modalidade_boleto" hint="1 = Simples (padrão). Só mude para 4 (vinculada) se o contrato do BB pedir.">
+                <select data-testid="conectar-modalidade" value={modalidadeBoleto} onChange={(e) => setModalidadeBoleto(e.target.value)} style={inp}>
+                  <option value="">1 · Simples (padrão)</option>
+                  <option value="1">1 · Simples</option>
+                  <option value="4">4 · Vinculada</option>
+                </select>
+              </Field>
+            </>
+          )}
+          {banco.campos.includes('carteira') && banco.sigla !== 'bb' && (
+            <Field label="Carteira / variação" ajuda="banco.carteira" hint="Ex.: 17 / 35 (carteira e variação do convênio). Só é preciso para emitir boleto.">
               <input name="ps_carteira_nofill" autoComplete="off" value={carteira} onChange={(e) => setCarteira(e.target.value)} style={inp} placeholder="ex.: 17/35" />
             </Field>
           )}
