@@ -4,6 +4,7 @@
 'use client'
 
 import Link from 'next/link'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -44,6 +45,9 @@ export default function EpiDashboardPage() {
   const companyIdsKey = useMemo(() => [...(companyIds ?? [])].sort().join(','), [companyIds])
 
   const [dados, setDados] = useState<DashRow[]>([])
+  // Distribuição por categoria vem da MESMA fonte do KPI "EPIs no catálogo" (epi_catalogo ativos),
+  // não de v_epi_dashboard (que não traz o detalhe por categoria). Assim o gráfico nunca contradiz o KPI.
+  const [catPorNome, setCatPorNome] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
 
@@ -59,6 +63,22 @@ export default function EpiDashboardPage() {
         .in('company_id', ids)
       if (error) throw error
       setDados((data || []) as DashRow[])
+
+      // Catálogo real por categoria (mesma leitura da tela de Catálogo): alimenta a "Distribuição por categoria".
+      const { data: cat, error: catErr } = await supabase
+        .from('epi_catalogo')
+        .select('categoria_id, epi_categoria(nome)')
+        .in('company_id', ids)
+        .eq('ativo', true)
+      if (catErr) throw catErr
+      const dist: Record<string, number> = {}
+      for (const r of (cat || []) as any[]) {
+        const emb = r.epi_categoria
+        const nomeCat: string | null = (Array.isArray(emb) ? emb[0]?.nome : emb?.nome) ?? null
+        const nome = nomeCat?.trim() || 'Sem categoria'
+        dist[nome] = (dist[nome] || 0) + 1
+      }
+      setCatPorNome(dist)
     } catch (e: any) {
       setErro(e?.message || 'Falha ao carregar dashboard')
     } finally {
@@ -71,13 +91,14 @@ export default function EpiDashboardPage() {
   // Agregar valores de todas as empresas selecionadas
   const agregado = useMemo(() => {
     const sum = (k: keyof DashRow) => dados.reduce((acc, d) => acc + (Number((d as any)[k]) || 0), 0)
-    const porCategoria: Record<string, number> = {}
     const movimentacoesMes: Record<string, number> = {}
     for (const d of dados) {
-      for (const c of d.por_categoria || []) porCategoria[c.categoria] = (porCategoria[c.categoria] || 0) + (c.total || 0)
       for (const m of d.movimentacoes_6m || []) movimentacoesMes[m.mes] = (movimentacoesMes[m.mes] || 0) + (m.total || 0)
     }
-    const piedata = Object.entries(porCategoria).map(([name, value]) => ({ name, value }))
+    // Pie da distribuição por categoria: catálogo real (soma = KPI "EPIs no catálogo").
+    const piedata = Object.entries(catPorNome)
+      .sort(([, a], [, b]) => b - a)
+      .map(([name, value]) => ({ name, value }))
     const bardata = Object.entries(movimentacoesMes)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([mes, total]) => ({ mes, total }))
@@ -93,7 +114,7 @@ export default function EpiDashboardPage() {
       piedata,
       bardata,
     }
-  }, [dados])
+  }, [dados, catPorNome])
 
   return (
     <div style={{ background: C.offwhite, minHeight: '100vh', color: C.ink }}>
@@ -113,10 +134,10 @@ export default function EpiDashboardPage() {
         {/* Atalhos rapidos */}
         <section style={{ marginBottom: 24 }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-            <BotaoNav href="/dashboard/compliance/epi/catalogo" titulo="Catálogo" icone="📋" />
-            <BotaoNav href="/dashboard/compliance/epi/estoque" titulo="Estoque" icone="📦" />
-            <BotaoNav href="/dashboard/compliance/epi/fichas" titulo="Fichas" icone="📄" />
-            <BotaoNav href="/dashboard/compliance/epi/alertas" titulo="Alertas" icone="⚠️" badge={agregado.alertas_ativos} />
+            <BotaoNav href="/dashboard/compliance/epi/catalogo" titulo="Catálogo" icone="📋" chave="compliance.epi.nav.catalogo" />
+            <BotaoNav href="/dashboard/compliance/epi/estoque" titulo="Estoque" icone="📦" chave="compliance.epi.nav.estoque" />
+            <BotaoNav href="/dashboard/compliance/epi/fichas" titulo="Fichas" icone="📄" chave="compliance.epi.nav.fichas" />
+            <BotaoNav href="/dashboard/compliance/epi/alertas" titulo="Alertas" icone="⚠️" badge={agregado.alertas_ativos} chave="compliance.epi.nav.alertas" />
           </div>
         </section>
 
@@ -124,10 +145,10 @@ export default function EpiDashboardPage() {
         <section style={{ marginBottom: 24 }}>
           <h2 style={subTitulo}>Visão geral</h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-            <Kpi label="Total funcionários" valor={agregado.total_funcionarios} />
-            <Kpi label="EPIs no catálogo" valor={agregado.total_epis_catalogo} />
-            <Kpi label="Fichas em uso" valor={agregado.total_fichas_em_uso} />
-            <Kpi label="Movimentações 30d" valor={agregado.movimentacoes_30d} />
+            <Kpi label="Total funcionários" valor={agregado.total_funcionarios} chave="compliance.epi.kpi.total_funcionarios" />
+            <Kpi label="EPIs no catálogo" valor={agregado.total_epis_catalogo} chave="compliance.epi.kpi.epis_catalogo" />
+            <Kpi label="Fichas em uso" valor={agregado.total_fichas_em_uso} chave="compliance.epi.kpi.fichas_uso" />
+            <Kpi label="Movimentações 30d" valor={agregado.movimentacoes_30d} chave="compliance.epi.kpi.movimentacoes_30d" />
           </div>
         </section>
 
@@ -135,18 +156,18 @@ export default function EpiDashboardPage() {
         <section style={{ marginBottom: 24 }}>
           <h2 style={subTitulo}>Pontos de atenção</h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-            <Kpi label="Alertas ativos" valor={agregado.alertas_ativos} cor={agregado.alertas_ativos > 0 ? C.gold : undefined} />
-            <Kpi label="Alertas críticos" valor={agregado.alertas_criticos} cor={agregado.alertas_criticos > 0 ? C.red : undefined} />
-            <Kpi label="Estoque crítico" valor={agregado.estoque_critico} cor={agregado.estoque_critico > 0 ? C.yellow : undefined} />
-            <Kpi label="Trocas atrasadas" valor={agregado.trocas_atrasadas} cor={agregado.trocas_atrasadas > 0 ? C.red : undefined} />
+            <Kpi label="Alertas ativos" valor={agregado.alertas_ativos} cor={agregado.alertas_ativos > 0 ? C.gold : undefined} chave="compliance.epi.atencao.alertas_ativos" />
+            <Kpi label="Alertas críticos" valor={agregado.alertas_criticos} cor={agregado.alertas_criticos > 0 ? C.red : undefined} chave="compliance.epi.atencao.alertas_criticos" />
+            <Kpi label="Estoque crítico" valor={agregado.estoque_critico} cor={agregado.estoque_critico > 0 ? C.yellow : undefined} chave="compliance.epi.atencao.estoque_critico" />
+            <Kpi label="Trocas atrasadas" valor={agregado.trocas_atrasadas} cor={agregado.trocas_atrasadas > 0 ? C.red : undefined} chave="compliance.epi.atencao.trocas_atrasadas" />
           </div>
         </section>
 
         {/* Graficos */}
         <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, marginBottom: 24 }}>
-          <Card titulo="Distribuição EPIs por categoria">
+          <Card titulo="Distribuição EPIs por categoria" chave="compliance.epi.grafico.categoria">
             {agregado.piedata.length === 0 ? (
-              <Vazio msg="Sem dados de catálogo ainda" />
+              <Vazio msg="Nenhum EPI cadastrado no catálogo ainda" cta={{ label: '+ Cadastrar EPI no catálogo', href: '/dashboard/compliance/epi/catalogo' }} />
             ) : (
               <ResponsiveContainer width="100%" height={240}>
                 <PieChart>
@@ -160,9 +181,9 @@ export default function EpiDashboardPage() {
             )}
           </Card>
 
-          <Card titulo="Movimentações últimos 6 meses">
+          <Card titulo="Movimentações últimos 6 meses" chave="compliance.epi.grafico.movimentacoes">
             {agregado.bardata.length === 0 ? (
-              <Vazio msg="Sem movimentações ainda" />
+              <Vazio msg="Sem movimentações ainda" cta={{ label: '+ Registrar movimentação', href: '/dashboard/compliance/epi/estoque' }} />
             ) : (
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={agregado.bardata}>
@@ -182,40 +203,56 @@ export default function EpiDashboardPage() {
   )
 }
 
-function Kpi({ label, valor, cor }: { label: string; valor: number; cor?: string }) {
+function Kpi({ label, valor, cor, chave }: { label: string; valor: number; cor?: string; chave?: string }) {
   return (
     <div style={{ background: '#FFFFFF', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61,35,20,0.06)', borderTop: `3px solid ${cor || C.gold}` }}>
-      <p style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, margin: 0 }}>{label}</p>
+      <p style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, margin: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
+        {label}{chave && <AjudaCampo chave={chave} rota="/dashboard/compliance/epi" />}
+      </p>
       <p style={{ fontSize: 28, fontWeight: 700, color: cor || C.espresso, margin: '6px 0 0', fontFeatureSettings: '"tnum"' }}>{valor}</p>
     </div>
   )
 }
 
-function BotaoNav({ href, titulo, icone, badge }: { href: string; titulo: string; icone: string; badge?: number }) {
+function BotaoNav({ href, titulo, icone, badge, chave }: { href: string; titulo: string; icone: string; badge?: number; chave?: string }) {
   return (
-    <Link href={href} style={{ display: 'block', textDecoration: 'none', position: 'relative' }}>
-      <div style={{ background: '#FFFFFF', borderRadius: 12, padding: 18, textAlign: 'center', boxShadow: '0 1px 3px rgba(61,35,20,0.06)', border: `1px solid ${C.borderLt}`, transition: 'transform 150ms' }}>
-        <div style={{ fontSize: 28, marginBottom: 4 }}>{icone}</div>
-        <div style={{ fontSize: 13, fontWeight: 600, color: C.espresso }}>{titulo}</div>
-        {!!badge && badge > 0 && (
-          <span style={{ position: 'absolute', top: 8, right: 8, padding: '2px 8px', borderRadius: 12, background: C.red, color: '#FFFFFF', fontSize: 11, fontWeight: 700 }}>{badge}</span>
-        )}
-      </div>
-    </Link>
+    <div style={{ position: 'relative' }}>
+      <Link href={href} style={{ display: 'block', textDecoration: 'none' }}>
+        <div style={{ background: '#FFFFFF', borderRadius: 12, padding: 18, textAlign: 'center', boxShadow: '0 1px 3px rgba(61,35,20,0.06)', border: `1px solid ${C.borderLt}`, transition: 'transform 150ms' }}>
+          <div style={{ fontSize: 28, marginBottom: 4 }}>{icone}</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.espresso }}>{titulo}</div>
+          {!!badge && badge > 0 && (
+            <span style={{ position: 'absolute', top: 8, right: 8, padding: '2px 8px', borderRadius: 12, background: C.red, color: '#FFFFFF', fontSize: 11, fontWeight: 700 }}>{badge}</span>
+          )}
+        </div>
+      </Link>
+      {chave && <span style={{ position: 'absolute', top: 6, left: 8 }}><AjudaCampo chave={chave} rota="/dashboard/compliance/epi" /></span>}
+    </div>
   )
 }
 
-function Card({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+function Card({ titulo, children, chave }: { titulo: string; children: React.ReactNode; chave?: string }) {
   return (
     <div style={{ background: '#FFFFFF', borderRadius: 12, padding: 18, boxShadow: '0 1px 3px rgba(61,35,20,0.06)' }}>
-      <h3 style={{ fontSize: 13, fontWeight: 700, color: C.espresso, textTransform: 'uppercase', letterSpacing: 0.8, margin: '0 0 12px' }}>{titulo}</h3>
+      <h3 style={{ fontSize: 13, fontWeight: 700, color: C.espresso, textTransform: 'uppercase', letterSpacing: 0.8, margin: '0 0 12px', display: 'flex', alignItems: 'center', gap: 4 }}>
+        {titulo}{chave && <AjudaCampo chave={chave} rota="/dashboard/compliance/epi" />}
+      </h3>
       {children}
     </div>
   )
 }
 
-function Vazio({ msg }: { msg: string }) {
-  return <div style={{ textAlign: 'center', padding: 32, color: C.muted, fontSize: 13 }}>{msg}</div>
+function Vazio({ msg, cta }: { msg: string; cta?: { label: string; href: string } }) {
+  return (
+    <div style={{ textAlign: 'center', padding: 32, color: C.muted, fontSize: 13 }}>
+      <div>{msg}</div>
+      {cta && (
+        <Link href={cta.href} style={{ display: 'inline-block', marginTop: 12, padding: '8px 14px', borderRadius: 8, background: C.espresso, color: '#FFFFFF', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
+          {cta.label}
+        </Link>
+      )}
+    </div>
+  )
 }
 
 function Erro({ msg }: { msg: string }) {

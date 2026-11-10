@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { OnboardingFiveSteps, type OnboardingData } from '@/components/ge/OnboardingFiveSteps'
 
 type FnReturn =
@@ -28,11 +29,17 @@ export default function GuiaImplantacaoPage() {
     setLoading(true)
     setErro(null)
     void (async () => {
+      // conserto-main (#4117): sem empresa única resolvida, p_company_id=null levanta 42501
+      // na guarda multi-tenant. Não chama a RPC; mostra o empty state "Selecione uma empresa".
+      if (!empresaUnica) {
+        if (alive) { setData(null); setLoading(false) }
+        return
+      }
       const { data: result, error } = await supabase.rpc('fn_ge_onboarding_status', {
         p_company_id: empresaUnica,
       })
       if (!alive) return
-      if (error) setErro(error.message)
+      if (error) setErro(erroAmigavel(error, 'Não foi possível carregar o status de implantação. Tente de novo.'))
       else setData(result as FnReturn)
       setLoading(false)
     })()

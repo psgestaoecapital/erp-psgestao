@@ -5,6 +5,9 @@ import { supabase } from '@/lib/supabase'
 import { getUsuarioAtual } from '@/lib/AuthProvider'
 import { PSGC_COLORS } from '@/lib/psgc-tokens'
 import PSGCButton from '@/components/psgc/PSGCButton'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA = '/dashboard/bpo/inbox'
 
 type InboxItem = {
   item_id: string
@@ -189,7 +192,7 @@ export default function BPOInboxPage() {
 
   // ─── Sub-componentes (DENTRO do componente principal pra closure sobre C) ───
 
-  function KpiCard({ label, valor, cor }: { label: string; valor: number; cor: string }) {
+  function KpiCard({ label, valor, cor, ajuda }: { label: string; valor: number; cor: string; ajuda?: string }) {
     return (
       <div style={{
         backgroundColor: 'rgba(255,255,255,0.1)', // PRESERVADO: overlay no header espresso
@@ -200,7 +203,9 @@ export default function BPOInboxPage() {
         borderLeft: `3px solid ${cor}`,
       }}>
         <div style={{ fontSize: 24, fontWeight: 'bold', fontFamily: 'Georgia, serif', color: cor }}>{valor}</div>
-        <div style={{ fontSize: 10, color: C.offwhite, textTransform: 'uppercase', letterSpacing: 1, marginTop: 2 }}>{label}</div>
+        <div style={{ fontSize: 10, color: C.offwhite, textTransform: 'uppercase', letterSpacing: 1, marginTop: 2, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+          {label}{ajuda && <AjudaCampo chave={ajuda} rota={ROTA} />}
+        </div>
       </div>
     )
   }
@@ -350,7 +355,11 @@ export default function BPOInboxPage() {
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 24, paddingTop: 16, borderTop: `1px solid ${C.border}` }}>
+        <div style={{ marginTop: 24, paddingTop: 16, borderTop: `1px solid ${C.border}` }}>
+          <div style={{ fontSize: 10, fontWeight: 'bold', color: C.txtMedio, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            Resolver item <AjudaCampo chave="bpo.inbox.acao.resolver" rota={ROTA} />
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
           <PSGCButton
             variant="success"
             size="md"
@@ -378,6 +387,7 @@ export default function BPOInboxPage() {
           >
             Escalar
           </PSGCButton>
+          </div>
         </div>
       </div>
     )
@@ -391,6 +401,9 @@ export default function BPOInboxPage() {
     backgroundColor: C.offwhite,
     cursor: 'pointer',
   }
+
+  const filtroLbl: React.CSSProperties = { display: 'inline-flex', flexDirection: 'column', gap: 3 }
+  const filtroCap: React.CSSProperties = { fontSize: 10, fontWeight: 'bold', color: C.txtMedio, textTransform: 'uppercase', letterSpacing: 1, display: 'inline-flex', alignItems: 'center', gap: 3 }
 
   return (
     <div style={{ backgroundColor: C.offwhite, minHeight: 'calc(100vh - 64px)', fontFamily: 'inherit', margin: -24, padding: 0 }}>
@@ -410,10 +423,10 @@ export default function BPOInboxPage() {
           </div>
 
           <div style={{ display: 'flex', gap: 12 }}>
-            <KpiCard label="Total" valor={stats.total} cor={C.douradoClaro} />
-            <KpiCard label="Atrasados" valor={stats.atrasados} cor={C.atrasado} />
-            <KpiCard label="Urgentes" valor={stats.urgentes} cor={C.urgente} />
-            <KpiCard label="Hoje" valor={stats.hoje} cor={C.hoje} />
+            <KpiCard label="Total" valor={stats.total} cor={C.douradoClaro} ajuda="bpo.inbox.kpi.total" />
+            <KpiCard label="Atrasados" valor={stats.atrasados} cor={C.atrasado} ajuda="bpo.inbox.kpi.atrasados" />
+            <KpiCard label="Urgentes" valor={stats.urgentes} cor={C.urgente} ajuda="bpo.inbox.kpi.urgentes" />
+            <KpiCard label="Hoje" valor={stats.hoje} cor={C.hoje} ajuda="bpo.inbox.kpi.hoje" />
           </div>
         </div>
       </div>
@@ -428,34 +441,49 @@ export default function BPOInboxPage() {
         alignItems: 'center',
         flexWrap: 'wrap',
       }}>
-        <input
-          type="text"
-          placeholder="Buscar por titulo..."
-          value={busca}
-          onChange={ev => setBusca(ev.target.value)}
-          style={{ padding: '8px 12px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 13, minWidth: 220, backgroundColor: C.offwhite, color: C.txt }}
-        />
-        <select value={filterEmpresa} onChange={ev => setFilterEmpresa(ev.target.value)} style={selectStyle}>
-          <option value="todas">Todas empresas</option>
-          {empresas.map(emp => <option key={emp} value={emp}>{emp}</option>)}
-        </select>
-        <select value={filterPrioridade} onChange={ev => setFilterPrioridade(ev.target.value)} style={selectStyle}>
-          <option value="todas">Todas prioridades</option>
-          <option value="urgente">Urgente</option>
-          <option value="alta">Alta</option>
-          <option value="normal">Normal</option>
-          <option value="baixa">Baixa</option>
-        </select>
-        <select value={filterTipo} onChange={ev => setFilterTipo(ev.target.value)} style={selectStyle}>
-          <option value="todos">Todos tipos</option>
-          <option value="classificacao">Classificacao IA</option>
-          <option value="alerta">Alerta</option>
-          <option value="tarefa">Tarefa de rotina</option>
-          <option value="cliente">Solicitacao cliente</option>
-        </select>
-        <PSGCButton variant="primary" size="sm" onClick={loadInbox}>
-          Atualizar
-        </PSGCButton>
+        <label style={filtroLbl}>
+          <span style={filtroCap}>Buscar <AjudaCampo chave="bpo.inbox.filtro.busca" rota={ROTA} /></span>
+          <input
+            type="text"
+            placeholder="Buscar por titulo..."
+            value={busca}
+            onChange={ev => setBusca(ev.target.value)}
+            style={{ padding: '8px 12px', borderRadius: 6, border: `1px solid ${C.border}`, fontSize: 13, minWidth: 220, backgroundColor: C.offwhite, color: C.txt }}
+          />
+        </label>
+        <label style={filtroLbl}>
+          <span style={filtroCap}>Empresa <AjudaCampo chave="bpo.inbox.filtro.empresa" rota={ROTA} /></span>
+          <select value={filterEmpresa} onChange={ev => setFilterEmpresa(ev.target.value)} style={selectStyle}>
+            <option value="todas">Todas empresas</option>
+            {empresas.map(emp => <option key={emp} value={emp}>{emp}</option>)}
+          </select>
+        </label>
+        <label style={filtroLbl}>
+          <span style={filtroCap}>Prioridade <AjudaCampo chave="bpo.inbox.filtro.prioridade" rota={ROTA} /></span>
+          <select value={filterPrioridade} onChange={ev => setFilterPrioridade(ev.target.value)} style={selectStyle}>
+            <option value="todas">Todas prioridades</option>
+            <option value="urgente">Urgente</option>
+            <option value="alta">Alta</option>
+            <option value="normal">Normal</option>
+            <option value="baixa">Baixa</option>
+          </select>
+        </label>
+        <label style={filtroLbl}>
+          <span style={filtroCap}>Tipo <AjudaCampo chave="bpo.inbox.filtro.tipo" rota={ROTA} /></span>
+          <select value={filterTipo} onChange={ev => setFilterTipo(ev.target.value)} style={selectStyle}>
+            <option value="todos">Todos tipos</option>
+            <option value="classificacao">Classificacao IA</option>
+            <option value="alerta">Alerta</option>
+            <option value="tarefa">Tarefa de rotina</option>
+            <option value="cliente">Solicitacao cliente</option>
+          </select>
+        </label>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, alignSelf: 'flex-end' }}>
+          <PSGCButton variant="primary" size="sm" onClick={loadInbox}>
+            Atualizar
+          </PSGCButton>
+          <AjudaCampo chave="bpo.inbox.acao.atualizar" rota={ROTA} />
+        </span>
       </div>
 
       {/* Feedback inline das acoes Aprovar/Rejeitar/Escalar */}

@@ -10,6 +10,9 @@ import { ComoCalculadoModal } from './_components/ComoCalculadoModal'
 import { GraficoBarrasEbitda, GraficoSerie12m } from './_components/Graficos'
 import { TabelaDetalhada } from './_components/TabelaDetalhada'
 import VincularCategoriasModal from '@/components/dre/VincularCategoriasModal'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA_AJUDA = '/dashboard/dre-divisional'
 
 type ViewMode = 'mes' | 'ytd' | 'serie_12m'
 
@@ -174,9 +177,21 @@ export default function DreDivisionalPage() {
       empresa={data?.metadata.empresa.razao_social || null}
     >
       {semVinculo > 0 && (
-        <div data-testid="dre-aviso-sem-vinculo" role="status" style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 8, background: C.redBg, color: C.espresso, fontSize: 13, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <span>{semVinculo} {semVinculo === 1 ? 'conta sem vínculo' : 'contas sem vínculo'} na DRE — herdam o vínculo da conta pai ou o tipo da conta.</span>
-          <Link href="/dashboard/dre-divisional/plano-contas" style={{ fontWeight: 700, color: C.espresso }}>Configurar DRE</Link>
+        <div data-testid="dre-aviso-sem-vinculo" role="status" style={{ marginBottom: 12, padding: '14px 16px', borderRadius: 10, background: 'white', border: `1px solid ${C.gold}`, boxShadow: '0 1px 3px rgba(61,35,20,0.06)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: C.espresso }}>Vincule {semVinculo} {semVinculo === 1 ? 'conta' : 'contas'} à DRE para o resultado ficar completo</span>
+            <AjudaCampo chave="dre.divisional.aviso.sem_vinculo" rota={ROTA_AJUDA} />
+          </div>
+          <p style={{ margin: '0 0 10px', fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>
+            Enquanto não vincular, {semVinculo === 1 ? 'essa conta herda' : 'essas contas herdam'} o vínculo da conta pai ou o tipo da conta — o resultado por divisão pode sair incompleto. Resolva em 2 passos:
+          </p>
+          <ol style={{ margin: '0 0 12px', paddingLeft: 18, fontSize: 12.5, color: C.espresso, lineHeight: 1.75 }}>
+            <li>Abra o <b>Plano de Contas da DRE</b> e localize as contas marcadas como <b>sem vínculo</b>.</li>
+            <li>Em cada uma, escolha o <b>grupo da DRE</b> (receita, custo, despesa, resultado) — a conta passa a somar na divisão certa.</li>
+          </ol>
+          <Link href="/dashboard/dre-divisional/plano-contas" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: C.gold, color: C.espresso, border: 'none', padding: '9px 16px', borderRadius: 8, fontWeight: 700, fontSize: 13, textDecoration: 'none' }}>
+            Vincular contas agora →
+          </Link>
         </div>
       )}
       {/* Filtros sticky */}
@@ -199,12 +214,14 @@ export default function DreDivisionalPage() {
                 <option key={i + 1} value={i + 1}>{nome}</option>
               ))}
             </select>
+            <AjudaCampo chave="dre.divisional.filtro.mes" rota={ROTA_AJUDA} />
             <select value={ano} onChange={(e: any) => setAno(Number(e.target.value))} style={selStyle()}>
               {anos.map((a) => (<option key={a} value={a}>{a}</option>))}
             </select>
+            <AjudaCampo chave="dre.divisional.filtro.ano" rota={ROTA_AJUDA} />
           </div>
 
-          <div style={{ display: 'flex', gap: 4, padding: 4, background: C.beigeLt, borderRadius: 8 }}>
+          <div style={{ display: 'flex', gap: 4, padding: 4, background: C.beigeLt, borderRadius: 8, alignItems: 'center' }}>
             {(['mes', 'ytd', 'serie_12m'] as ViewMode[]).map((v) => (
               <button
                 key={v}
@@ -214,6 +231,7 @@ export default function DreDivisionalPage() {
                 {v === 'mes' ? 'Mês atual' : v === 'ytd' ? 'YTD ano' : 'Série 12m'}
               </button>
             ))}
+            <AjudaCampo chave="dre.divisional.filtro.visao" rota={ROTA_AJUDA} />
           </div>
 
           <span style={{ flex: 1 }} />
@@ -230,6 +248,7 @@ export default function DreDivisionalPage() {
               Rateio: {METODO_LABEL[data.metadata.metodo_rateio] || data.metadata.metodo_rateio}
             </span>
           )}
+          {data?.metadata && <AjudaCampo chave="dre.divisional.rateio" rota={ROTA_AJUDA} alinhar="fim" />}
         </div>
       </section>
 
@@ -320,18 +339,21 @@ function CardsTotais({ totais, viewMode }: { totais: DreResponse['totais']; view
     <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 20 }}>
       <Card
         label="Receita Total"
+        ajuda="dre.divisional.kpi.receita_total"
         valor={fmtBRL(totais.receita_total)}
         info={`${totais.qtd_lancamentos_total} lançamentos`}
         cor={C.espresso}
       />
       <Card
         label="EBITDA Antes Rateio"
+        ajuda="dre.divisional.kpi.ebitda_pre"
         valor={fmtBRL(totais.ebitda_pre_total)}
         info="(Sem absorção SEDE)"
         cor={C.gold}
       />
       <Card
         label="EBITDA Real"
+        ajuda="dre.divisional.kpi.ebitda_real"
         valor={fmtBRL(totais.ebitda_real_total)}
         info={`${fmtPct(pctReal)} sobre receita · após rateio NBC TG 16${viewMode === 'ytd' ? ' · YTD' : ''}`}
         cor={corReal}
@@ -340,11 +362,11 @@ function CardsTotais({ totais, viewMode }: { totais: DreResponse['totais']; view
   )
 }
 
-function Card({ label, valor, info, cor }: { label: string; valor: string; info: string; cor: string }) {
+function Card({ label, valor, info, cor, ajuda }: { label: string; valor: string; info: string; cor: string; ajuda?: string }) {
   return (
     <div style={{ background: 'white', borderRadius: 12, padding: '16px 18px', boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)' }}>
-      <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.2, textTransform: 'uppercase', opacity: 0.55, margin: 0 }}>
-        {label}
+      <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.2, textTransform: 'uppercase', opacity: 0.55, margin: 0, display: 'flex', alignItems: 'center' }}>
+        {label}{ajuda && <AjudaCampo chave={ajuda} rota={ROTA_AJUDA} />}
       </p>
       <p style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 28, fontWeight: 400, margin: '4px 0 0', color: cor }}>
         {valor}
@@ -384,13 +406,16 @@ function CardLN({ linha, companyId, onChange }: { linha: Linha; companyId: strin
         </span>
       </div>
       {companyId && (
-        <button
-          type="button"
-          onClick={() => setVinculando(true)}
-          style={{ background: 'transparent', color: C.espresso, border: `0.5px solid ${C.borderLt}`, padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', alignSelf: 'flex-start' }}
-        >
-          + Vincular categorias
-        </button>
+        <span style={{ display: 'inline-flex', alignItems: 'center', alignSelf: 'flex-start' }}>
+          <button
+            type="button"
+            onClick={() => setVinculando(true)}
+            style={{ background: 'transparent', color: C.espresso, border: `0.5px solid ${C.borderLt}`, padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+          >
+            + Vincular categorias
+          </button>
+          <AjudaCampo chave="dre.divisional.acao.vincular" rota={ROTA_AJUDA} />
+        </span>
       )}
       {companyId && (
         <VincularCategoriasModal
@@ -403,13 +428,13 @@ function CardLN({ linha, companyId, onChange }: { linha: Linha; companyId: strin
         />
       )}
 
-      <Row label="Receita Bruta" valor={fmtBRL(linha.rob)} />
-      <Row label="EBITDA Antes Rateio" valor={`${fmtBRL(linha.ebitda_pre_rateio)} · ${fmtPct(pctPre)}`} />
-      <Row label="Rateio SEDE Absorvido" valor={`-${fmtBRL(linha.rateio_sede_recebido)}`} />
+      <Row label="Receita Bruta" valor={fmtBRL(linha.rob)} ajuda="dre.divisional.ln.receita_bruta" />
+      <Row label="EBITDA Antes Rateio" valor={`${fmtBRL(linha.ebitda_pre_rateio)} · ${fmtPct(pctPre)}`} ajuda="dre.divisional.ln.ebitda_pre" />
+      <Row label="Rateio SEDE Absorvido" valor={`-${fmtBRL(linha.rateio_sede_recebido)}`} ajuda="dre.divisional.ln.rateio_sede" />
 
       <div style={{ borderTop: `1px solid ${C.borderLt}`, paddingTop: 8, marginTop: 4 }}>
-        <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.2, textTransform: 'uppercase', opacity: 0.55, margin: 0 }}>
-          EBITDA Real
+        <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.2, textTransform: 'uppercase', opacity: 0.55, margin: 0, display: 'flex', alignItems: 'center' }}>
+          EBITDA Real<AjudaCampo chave="dre.divisional.ln.ebitda_real" rota={ROTA_AJUDA} />
         </p>
         <p style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 24, fontWeight: 400, margin: '2px 0 0', color: corReal }}>
           {fmtBRL(linha.ebitda_pos_rateio)}
@@ -425,10 +450,10 @@ function CardLN({ linha, companyId, onChange }: { linha: Linha; companyId: strin
   )
 }
 
-function Row({ label, valor }: { label: string; valor: string }) {
+function Row({ label, valor, ajuda }: { label: string; valor: string; ajuda?: string }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: C.ink }}>
-      <span style={{ color: C.muted }}>{label}</span>
+      <span style={{ color: C.muted, display: 'inline-flex', alignItems: 'center' }}>{label}{ajuda && <AjudaCampo chave={ajuda} rota={ROTA_AJUDA} />}</span>
       <span style={{ fontWeight: 600, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{valor}</span>
     </div>
   )
@@ -470,25 +495,34 @@ function Layout({
               Resultado por linha de negócio com rateio NBC TG 16{empresa ? ` · ${empresa}` : ''}.
             </p>
           </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <Link
-              href="/dashboard/dre-divisional/plano-contas"
-              style={{ padding: '10px 14px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 13, fontWeight: 600, cursor: 'pointer', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
-            >
-              🗂 Plano de contas
-            </Link>
-            <Link
-              href="/dashboard/dre-divisional/configurar"
-              style={{ padding: '10px 14px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 13, fontWeight: 600, cursor: 'pointer', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
-            >
-              ⚙ Configurar ordem
-            </Link>
-            <button
-              onClick={onAbrirModal}
-              style={{ padding: '10px 14px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-            >
-              ℹ️ Como é calculado
-            </button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+              <Link
+                href="/dashboard/dre-divisional/plano-contas"
+                style={{ padding: '10px 14px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 13, fontWeight: 600, cursor: 'pointer', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+              >
+                🗂 Plano de contas
+              </Link>
+              <AjudaCampo chave="dre.divisional.acao.plano_contas" rota={ROTA_AJUDA} />
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+              <Link
+                href="/dashboard/dre-divisional/configurar"
+                style={{ padding: '10px 14px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 13, fontWeight: 600, cursor: 'pointer', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+              >
+                ⚙ Configurar ordem
+              </Link>
+              <AjudaCampo chave="dre.divisional.acao.configurar_ordem" rota={ROTA_AJUDA} />
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+              <button
+                onClick={onAbrirModal}
+                style={{ padding: '10px 14px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+              >
+                ℹ️ Como é calculado
+              </button>
+              <AjudaCampo chave="dre.divisional.acao.como_calculado" rota={ROTA_AJUDA} alinhar="fim" />
+            </span>
           </div>
         </header>
 

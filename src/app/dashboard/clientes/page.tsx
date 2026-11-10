@@ -3,6 +3,10 @@ import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import ClienteForm from "@/components/clientes/ClienteForm";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { erroAmigavel } from "@/lib/erroAmigavel";
+
+const ROTA = "/dashboard/clientes";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -23,6 +27,7 @@ type Cliente = {
   observacoes:string; observacoes_internas:string;
   ref_externa_sistema:string; ref_externa_id:string;
   ativo:boolean; bloqueado:boolean;
+  excluido_em:string|null;
   created_at:string; updated_at:string;
 };
 
@@ -50,23 +55,44 @@ export default function ClientesPage(){
     return companyIds[0] || "";
   },[sel, companyIds]);
 
+  // "🗑 Excluídos" troca o conjunto carregado (arquivados) — RD-98 p4: a lista normal nunca mostra excluídos.
+  const verExcluidos = filtroAtivo==="excluidos";
+
   useEffect(()=>{
     if(companyIds.length>0)loadClientes();
-  },[companyIds.join(",")]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[companyIds.join(","),verExcluidos]);
 
   const loadClientes=async()=>{
     if(companyIds.length===0){setLoading(false);return;}
     setLoading(true);
-    const{data,error}=await supabase.from("erp_clientes").select("*").in("company_id",companyIds).order("razao_social");
+    let q=supabase.from("erp_clientes").select("*").in("company_id",companyIds).order("razao_social");
+    q = verExcluidos ? q.not("excluido_em","is",null) : q.is("excluido_em",null);
+    const{data,error}=await q;
     if(data)setClientes(data);
-    if(error&&!error.message.includes('does not exist'))setMsg("Erro: "+error.message);
+    if(error&&!error.message.includes('does not exist'))setMsg("❌ "+erroAmigavel(error,"Não foi possível carregar os clientes. Tente de novo."));
     setLoading(false);
   };
 
   const abrirEdicao=(c:Cliente)=>{setEditing(c);setShowForm(true);};
   const abrirNovo=()=>{setEditing(null);setShowForm(true);};
-  const toggleAtivo=async(c:Cliente)=>{await supabase.from("erp_clientes").update({ativo:!c.ativo}).eq("id",c.id);setClientes(clientes.map(x=>x.id===c.id?{...x,ativo:!x.ativo}:x));};
   const toggleBloqueado=async(c:Cliente)=>{await supabase.from("erp_clientes").update({bloqueado:!c.bloqueado}).eq("id",c.id);setClientes(clientes.map(x=>x.id===c.id?{...x,bloqueado:!x.bloqueado}:x));};
+  // RD-98 p2/p4 · Excluir (arquivar, soft-delete rastreável) e Restaurar — via RPC guardada, nunca DELETE físico.
+  const excluir=async(c:Cliente)=>{
+    if(typeof window!=="undefined"&&!window.confirm(`Excluir o cliente "${c.nome_fantasia||c.razao_social}"? Ele sai da lista ativa, mas o histórico é preservado e você pode restaurá-lo depois.`))return;
+    const{data,error}=await supabase.rpc("fn_cliente_arquivar",{p_id:c.id});
+    const r=data as {ok?:boolean;erro?:string}|null;
+    if(error||!r?.ok){setMsg("❌ "+(r?.erro||"Não foi possível excluir o cliente agora."));setTimeout(()=>setMsg(""),4000);return;}
+    setClientes(clientes.filter(x=>x.id!==c.id));
+    setMsg('✅ Cliente excluído. Ele fica em "🗑 Excluídos" e pode ser restaurado.');setTimeout(()=>setMsg(""),4000);
+  };
+  const restaurar=async(c:Cliente)=>{
+    const{data,error}=await supabase.rpc("fn_cliente_restaurar",{p_id:c.id});
+    const r=data as {ok?:boolean;erro?:string}|null;
+    if(error||!r?.ok){setMsg("❌ "+(r?.erro||"Não foi possível restaurar o cliente agora."));setTimeout(()=>setMsg(""),4000);return;}
+    setClientes(clientes.filter(x=>x.id!==c.id));
+    setMsg("✅ Cliente restaurado para a lista ativa.");setTimeout(()=>setMsg(""),3000);
+  };
 
   const filtrados=useMemo(()=>{
     let r=clientes;
@@ -108,7 +134,9 @@ export default function ClientesPage(){
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
           <button onClick={()=>setShowImport(true)} style={{padding:"8px 14px",borderRadius:8,background:B+"15",color:B,fontSize:12,fontWeight:600,border:`1px solid ${B}40`,cursor:"pointer"}}>📥 Importar</button>
+          <AjudaCampo chave="ge.clientes.acao_importar" rota={ROTA} />
           <button onClick={abrirNovo} style={{padding:"8px 16px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>+ Novo</button>
+          <AjudaCampo chave="ge.clientes.acao_novo" rota={ROTA} />
         </div>
       </div>
 
@@ -117,14 +145,14 @@ export default function ClientesPage(){
       {/* KPIs */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:16}}>
         {[
-          {l:"Clientes Ativos",v:String(kpiTotal),c:B,icon:"👥"},
-          {l:"Clientes VIP",v:String(kpiVIP),c:GO,icon:"⭐"},
-          {l:"Risco Alto",v:String(kpiRiscoAlto),c:kpiRiscoAlto>0?R:G,icon:kpiRiscoAlto>0?"🔴":"✅"},
-          {l:"Limite Total",v:fmtR(kpiLimite),c:G,icon:"💳"},
-          {l:"Utilizado",v:fmtR(kpiUtilizado),c:kpiUtilizado>kpiLimite*0.8?R:Y,icon:"📊"},
+          {l:"Clientes Ativos",v:String(kpiTotal),c:B,icon:"👥",ch:"ge.clientes.kpi_ativos"},
+          {l:"Clientes VIP",v:String(kpiVIP),c:GO,icon:"⭐",ch:"ge.clientes.kpi_vip"},
+          {l:"Risco Alto",v:String(kpiRiscoAlto),c:kpiRiscoAlto>0?R:G,icon:kpiRiscoAlto>0?"🔴":"✅",ch:"ge.clientes.kpi_risco_alto"},
+          {l:"Limite Total",v:fmtR(kpiLimite),c:G,icon:"💳",ch:"ge.clientes.kpi_limite"},
+          {l:"Utilizado",v:fmtR(kpiUtilizado),c:kpiUtilizado>kpiLimite*0.8?R:Y,icon:"📊",ch:"ge.clientes.kpi_utilizado"},
         ].map((k,i)=>(
           <div key={i} style={{background:BG2,borderRadius:10,padding:"10px 14px",border:`1px solid ${BD}`}}>
-            <div style={{fontSize:8,color:TXD,textTransform:"uppercase",letterSpacing:0.5}}>{k.icon} {k.l}</div>
+            <div style={{fontSize:8,color:TXD,textTransform:"uppercase",letterSpacing:0.5,display:"flex",alignItems:"center",gap:4}}>{k.icon} {k.l} <AjudaCampo chave={k.ch} rota={ROTA} /></div>
             <div style={{fontSize:16,fontWeight:700,color:k.c,marginTop:2}}>{k.v}</div>
           </div>
         ))}
@@ -132,17 +160,20 @@ export default function ClientesPage(){
 
       {/* Filtros */}
       <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
-        <div style={{flex:1,minWidth:200,position:"relative"}}>
-          <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por nome, CNPJ, email ou cidade..." style={{...inp,paddingLeft:32}}/>
+        <div style={{flex:1,minWidth:200,position:"relative",display:"flex",alignItems:"center",gap:4}}>
+          <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por nome, CNPJ, email ou cidade..." style={{...inp,flex:1,paddingLeft:32}}/>
           <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:TXD}}>🔍</span>
+          <AjudaCampo chave="ge.clientes.filtro_busca" rota={ROTA} />
         </div>
-        <div style={{display:"flex",gap:4}}>
+        <div style={{display:"flex",gap:4,alignItems:"center"}}>
+          <AjudaCampo chave="ge.clientes.filtro_risco" rota={ROTA} />
           {[{v:"todos",l:"Todos"},{v:"BAIXO",l:"🟢 Baixo"},{v:"MEDIO",l:"🟡 Médio"},{v:"ALTO",l:"🔴 Alto"}].map(f=>(
             <button key={f.v} onClick={()=>setFiltroRisco(f.v)} style={{padding:"6px 10px",borderRadius:6,fontSize:10,border:`1px solid ${filtroRisco===f.v?GO:BD}`,background:filtroRisco===f.v?GO+"12":"transparent",color:filtroRisco===f.v?GO:TXM,cursor:"pointer",fontWeight:filtroRisco===f.v?600:400}}>{f.l}</button>
           ))}
         </div>
-        <div style={{display:"flex",gap:4}}>
-          {[{v:"ativos",l:"Ativos"},{v:"inativos",l:"Inativos"},{v:"bloqueados",l:"🚫 Bloqueados"},{v:"todos",l:"Todos"}].map(f=>(
+        <div style={{display:"flex",gap:4,alignItems:"center"}}>
+          <AjudaCampo chave="ge.clientes.filtro_status" rota={ROTA} />
+          {[{v:"ativos",l:"Ativos"},{v:"inativos",l:"Inativos"},{v:"bloqueados",l:"🚫 Bloqueados"},{v:"todos",l:"Todos"},{v:"excluidos",l:"🗑 Excluídos"}].map(f=>(
             <button key={f.v} onClick={()=>setFiltroAtivo(f.v)} style={{padding:"6px 10px",borderRadius:6,fontSize:10,border:`1px solid ${filtroAtivo===f.v?GO:BD}`,background:filtroAtivo===f.v?GO+"12":"transparent",color:filtroAtivo===f.v?GO:TXM,cursor:"pointer",fontWeight:filtroAtivo===f.v?600:400}}>{f.l}</button>
           ))}
         </div>
@@ -160,14 +191,12 @@ export default function ClientesPage(){
               </div>
               <button onClick={()=>setShowImport(false)} style={{background:"none",border:"none",color:TXD,fontSize:22,cursor:"pointer"}}>✕</button>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>
               {[
-                {k:'omie',nome:'Omie',icon:'🟢',desc:'API direta — sync automático',cor:G,href:'/dashboard/conectores'},
-                {k:'nibo',nome:'Nibo',icon:'🔵',desc:'API direta — sync automático',cor:B,href:'/dashboard/conectores'},
-                {k:'contaazul',nome:'ContaAzul',icon:'🔷',desc:'OAuth — em configuração',cor:'#00A3E0',href:'/dashboard/conectores'},
-                {k:'bling',nome:'Bling',icon:'🟡',desc:'Via CSV ou API token',cor:Y,href:'/dashboard/importar'},
-                {k:'tiny',nome:'Tiny',icon:'🟠',desc:'Via CSV exportado',cor:'#FF6B35',href:'/dashboard/importar'},
-                {k:'csv',nome:'Excel / CSV',icon:'📊',desc:'Qualquer sistema — mapeamento inteligente',cor:T,href:'/dashboard/importar'},
+                // RD-100: nenhum nome de sistema de terceiro em tela geral. O provedor específico (API) é escolhido
+                // na tela de Conectores (tela de integração); aqui ficam só as CATEGORIAS genéricas de origem.
+                {k:'conectores',nome:'Conector automático',icon:'🔌',desc:'API direta — sincroniza sozinho',cor:G,href:'/dashboard/conectores'},
+                {k:'planilha',nome:'Planilha Excel / CSV',icon:'📊',desc:'Qualquer sistema — mapeamento inteligente',cor:T,href:'/dashboard/importar'},
               ].map(o=>(
                 <a key={o.k} href={o.href} style={{textDecoration:"none"}}>
                   <div style={{background:BG3,borderRadius:10,padding:14,border:`1px solid ${o.cor}30`,cursor:"pointer",transition:"all 0.2s"}} onMouseEnter={e=>(e.currentTarget.style.borderColor=o.cor,e.currentTarget.style.transform="translateY(-2px)")} onMouseLeave={e=>(e.currentTarget.style.borderColor=`${o.cor}30`,e.currentTarget.style.transform="translateY(0)")}>
@@ -180,7 +209,7 @@ export default function ClientesPage(){
             </div>
             <div style={{marginTop:16,padding:12,background:BG3,borderRadius:8,borderLeft:`3px solid ${B}`}}>
               <div style={{fontSize:10,fontWeight:600,color:B,marginBottom:4}}>💡 Dica</div>
-              <div style={{fontSize:10,color:TXM,lineHeight:1.5}}>Para qualquer sistema não listado (Protheus, SAP, Sage, planilhas antigas), use o <b>Excel/CSV</b>. O Importador Universal mapeia as colunas automaticamente — basta arrastar o arquivo.</div>
+              <div style={{fontSize:10,color:TXM,lineHeight:1.5}}>Para qualquer sistema não listado ou planilhas antigas, use o <b>Excel/CSV</b>. O Importador Universal mapeia as colunas automaticamente — basta arrastar o arquivo.</div>
             </div>
           </div>
         </div>
@@ -203,24 +232,26 @@ export default function ClientesPage(){
         <div style={{background:BG2,borderRadius:12,border:`1px solid ${BD}`,overflow:"auto"}}>
           {filtrados.length===0?(
             <div style={{padding:40,textAlign:"center"}}>
-              <div style={{fontSize:40,marginBottom:8}}>👥</div>
-              <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:4}}>Nenhum cliente cadastrado</div>
-              <div style={{fontSize:11,color:TXD,marginBottom:16}}>Comece cadastrando manualmente ou importando de outro sistema.</div>
+              <div style={{fontSize:40,marginBottom:8}}>{verExcluidos?"🗑":"👥"}</div>
+              <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:4}}>{verExcluidos?"Nenhum cliente excluído":(busca.trim()||filtroRisco!=="todos"||filtroAtivo!=="ativos")?"Nenhum cliente neste filtro":"Nenhum cliente cadastrado"}</div>
+              <div style={{fontSize:11,color:TXD,marginBottom:16}}>{verExcluidos?"Clientes que você excluir aparecem aqui e podem ser restaurados.":(busca.trim()||filtroRisco!=="todos"||filtroAtivo!=="ativos")?"Ajuste a busca ou os filtros para ver mais clientes.":"Comece cadastrando manualmente ou importando de outro sistema."}</div>
+              {!verExcluidos&&!busca.trim()&&filtroRisco==="todos"&&filtroAtivo==="ativos"&&(
               <div style={{display:"flex",gap:8,justifyContent:"center"}}>
                 <button onClick={abrirNovo} style={{padding:"10px 20px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>+ Cadastrar Cliente</button>
-                <button onClick={()=>setShowImport(true)} style={{padding:"10px 20px",borderRadius:8,background:B+"15",color:B,fontSize:12,fontWeight:600,border:`1px solid ${B}40`,cursor:"pointer"}}>📥 Importar do Omie/Nibo/CSV</button>
+                <button onClick={()=>setShowImport(true)} style={{padding:"10px 20px",borderRadius:8,background:B+"15",color:B,fontSize:12,fontWeight:600,border:`1px solid ${B}40`,cursor:"pointer"}}>📥 Importar de outro sistema</button>
               </div>
+              )}
             </div>
           ):(
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
               <thead><tr style={{borderBottom:`2px solid ${BD}`,background:BG3}}>
-                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Razão / Fantasia</th>
-                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>CNPJ</th>
-                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Cidade/UF</th>
-                <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Risco</th>
-                <th style={{padding:"8px",textAlign:"right",color:TXD,fontSize:10}}>Limite</th>
-                <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Tags</th>
-                <th style={{padding:"8px",textAlign:"right",color:TXD,fontSize:10}}>Ações</th>
+                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}><span style={{display:"inline-flex",alignItems:"center",gap:3}}>Razão / Fantasia <AjudaCampo chave="ge.clientes.col_razao" rota={ROTA} /></span></th>
+                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}><span style={{display:"inline-flex",alignItems:"center",gap:3}}>CNPJ <AjudaCampo chave="ge.clientes.col_cnpj" rota={ROTA} /></span></th>
+                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}><span style={{display:"inline-flex",alignItems:"center",gap:3}}>Cidade/UF <AjudaCampo chave="ge.clientes.col_cidade" rota={ROTA} /></span></th>
+                <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}><span style={{display:"inline-flex",alignItems:"center",gap:3}}>Risco <AjudaCampo chave="ge.clientes.col_risco" rota={ROTA} /></span></th>
+                <th style={{padding:"8px",textAlign:"right",color:TXD,fontSize:10}}><span style={{display:"inline-flex",alignItems:"center",gap:3}}>Limite <AjudaCampo chave="ge.clientes.col_limite" rota={ROTA} /></span></th>
+                <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}><span style={{display:"inline-flex",alignItems:"center",gap:3}}>Tags <AjudaCampo chave="ge.clientes.col_tags" rota={ROTA} /></span></th>
+                <th style={{padding:"8px",textAlign:"right",color:TXD,fontSize:10}}><span style={{display:"inline-flex",alignItems:"center",gap:3}}>Ações <AjudaCampo chave="ge.clientes.col_acoes" rota={ROTA} /></span></th>
               </tr></thead>
               <tbody>
                 {filtrados.map(c=>(
@@ -245,10 +276,15 @@ export default function ClientesPage(){
                     </td>
                     <td style={{padding:"8px"}}>
                       <div style={{display:"flex",gap:3,justifyContent:"flex-end"}}>
-                        {c.whatsapp&&<a href={`https://wa.me/55${c.whatsapp.replace(/\D/g,'')}`} target="_blank" style={{fontSize:12,textDecoration:"none",padding:"2px 6px"}} title="WhatsApp">💬</a>}
-                        {c.email&&<a href={`mailto:${c.email}`} style={{fontSize:12,textDecoration:"none",padding:"2px 6px"}} title="Email">📧</a>}
-                        <button onClick={()=>abrirEdicao(c)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:B+"12",color:B,border:`1px solid ${B}25`,cursor:"pointer"}}>Editar</button>
-                        <button onClick={()=>toggleBloqueado(c)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:c.bloqueado?G+"12":R+"12",color:c.bloqueado?G:R,border:`1px solid ${c.bloqueado?G:R}25`,cursor:"pointer"}}>{c.bloqueado?"✓ Desbloq":"🚫 Bloq"}</button>
+                        {verExcluidos?(
+                          <button onClick={()=>restaurar(c)} title="Restaurar cliente" style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:G+"12",color:G,border:`1px solid ${G}25`,cursor:"pointer"}}>↩ Restaurar</button>
+                        ):(<>
+                          {c.whatsapp&&<a href={`https://wa.me/55${c.whatsapp.replace(/\D/g,'')}`} target="_blank" style={{fontSize:12,textDecoration:"none",padding:"2px 6px"}} title="WhatsApp">💬</a>}
+                          {c.email&&<a href={`mailto:${c.email}`} style={{fontSize:12,textDecoration:"none",padding:"2px 6px"}} title="Email">📧</a>}
+                          <button onClick={()=>abrirEdicao(c)} title="Editar cliente" style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:B+"12",color:B,border:`1px solid ${B}25`,cursor:"pointer"}}>Editar</button>
+                          <button onClick={()=>toggleBloqueado(c)} title={c.bloqueado?"Desbloquear":"Bloquear"} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:c.bloqueado?G+"12":R+"12",color:c.bloqueado?G:R,border:`1px solid ${c.bloqueado?G:R}25`,cursor:"pointer"}}>{c.bloqueado?"✓ Desbloq":"🚫 Bloq"}</button>
+                          <button onClick={()=>excluir(c)} title="Excluir cliente" style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:R+"12",color:R,border:`1px solid ${R}25`,cursor:"pointer"}}>🗑 Excluir</button>
+                        </>)}
                       </div>
                     </td>
                   </tr>

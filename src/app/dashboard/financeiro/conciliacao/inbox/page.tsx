@@ -9,6 +9,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { dataReferenciaSaldoOFX, rotuloDataSaldo, dtendDoOFX, saldoOFXValido, AVISO_SALDO_INVALIDO } from '@/lib/financeiro/saldoPorConta'
 import { parseSaldoFechamento, ehLinhaSaldoOFX, parseValorOFX, decodificarOFX, mensagemErroOFX } from '@/lib/ofx-parser'
 import { temConectorExtrato } from '@/lib/banco/extratoConector'
@@ -304,7 +306,7 @@ export default function InboxPage() {
       p_status: 'pendente',
       p_limite: 200,
     })
-    if (error) setErro(error.message)
+    if (error) setErro(erroAmigavel(error))
     setItems((data ?? []) as Item[])
     setLoading(false)
   }
@@ -388,7 +390,7 @@ export default function InboxPage() {
   // Reincluir (desfaz) → volta pra pendentes. Reversibilidade Pilar 1.
   async function reincluir(id: string) {
     const { data, error } = await supabase.rpc('fn_conciliacao_reincluir_movimento', { p_movimento_id: id })
-    if (error) { setErro('Erro ao reincluir: ' + error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não consegui reincluir o movimento agora. Tente de novo em instantes.')); return }
     const j = data as { sucesso?: boolean; erro?: string } | null
     if (!j?.sucesso) { setErro('Não foi possível reincluir: ' + (j?.erro ?? 'erro')); return }
     setAvisoOk('REINCLUIU · voltou para pendentes')
@@ -617,7 +619,7 @@ export default function InboxPage() {
       updated_at: new Date().toISOString(),
     })
     if (error) {
-      setErro('Erro ao salvar preferência: ' + error.message)
+      setErro(erroAmigavel(error, 'Não consegui salvar a preferência agora. Tente de novo em instantes.'))
       setAutoGlobal(!v)
     }
   }
@@ -724,7 +726,7 @@ export default function InboxPage() {
           p_operador_id: operadorId,
           p_origem: 'manual',
         })
-        if (error) setErro(error.message)
+        if (error) setErro(erroAmigavel(error))
         else {
           // aplicar_match sinaliza recusa por LINHA (status_resultado='erro'), não por exceção — ex.: a
           // trava anti-duplicação "Este título já foi conciliado" (FIX B) ou match de baixa confiança.
@@ -750,7 +752,7 @@ export default function InboxPage() {
       p_lancamento_id: it.sugestao_lancamento_id,
       p_operador_id: operadorId,
     })
-    if (error) setErro(error.message)
+    if (error) setErro(erroAmigavel(error))
     await carregar()
     const ns = new Set(aplicandoIds); ns.delete(it.movimento_id); setAplicandoIds(ns)
   }
@@ -764,7 +766,7 @@ export default function InboxPage() {
       p_max_sugestoes: 5,
     })
     if (error) {
-      setErro('Erro ao carregar sugestões: ' + error.message)
+      setErro(erroAmigavel(error, 'Não consegui carregar as sugestões agora. Tente de novo em instantes.'))
       setSugestoesPorMov({ ...sugestoesPorMov, [movId]: [] })
     } else {
       setSugestoesPorMov({ ...sugestoesPorMov, [movId]: (data ?? []) as SugestaoMatch[] })
@@ -806,7 +808,7 @@ export default function InboxPage() {
           p_operador_id: operadorId,
           p_origem: 'manual',
         })
-        if (error) { setErro(error.message) }
+        if (error) { setErro(erroAmigavel(error)) }
         else {
           // limpa cache e fecha expand
           const novo = { ...sugestoesPorMov }; delete novo[movId]; setSugestoesPorMov(novo)
@@ -829,7 +831,7 @@ export default function InboxPage() {
       p_lancamento_id: sug.lancamento_id,
       p_operador_id: operadorId,
     })
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error)); return }
     // remove a sugestao da lista local
     setSugestoesPorMov({
       ...sugestoesPorMov,
@@ -898,7 +900,7 @@ export default function InboxPage() {
       const { data, error } = await supabase.rpc('fn_conciliacao_desvincular_movimento', {
         p_movimento_id: c.movimento_id,
       })
-      if (error) { falhou('Erro ao desvincular: ' + error.message); return }
+      if (error) { falhou(erroAmigavel(error, 'Não consegui desvincular agora. Tente de novo em instantes.')); return }
       const r = (data ?? {}) as { sucesso?: boolean; erro?: string; msg?: string; aviso?: string }
       if (r.sucesso === false) { falhou('Não desvinculou: ' + (r.msg ?? r.erro ?? 'erro desconhecido')); return }
       await carregarConciliados()
@@ -914,7 +916,7 @@ export default function InboxPage() {
       p_lancamento_id: c.lancamento_id,
       p_tipo: c.lancamento_tabela.replace(/^erp_/, ''),
     })
-    if (error) { falhou('Erro ao desvincular: ' + error.message); return }
+    if (error) { falhou(erroAmigavel(error, 'Não consegui desvincular agora. Tente de novo em instantes.')); return }
     // a RPC retorna {sucesso:false, erro} sem erro SQL — antes era engolido
     const r = (data ?? {}) as { sucesso?: boolean; erro?: string }
     if (r.sucesso === false) { falhou('Não desvinculou: ' + (r.erro ?? 'erro desconhecido')); return }
@@ -990,6 +992,7 @@ export default function InboxPage() {
           <button onClick={() => setModo('sistema')} style={modo === 'sistema' ? tabActive : tabInactive}>
             📥 Pendências do Sistema
           </button>
+          <AjudaCampo chave="financeiro.conciliacao.modo" />
         </div>
 
         {modo === 'extrato' && (
@@ -1014,7 +1017,9 @@ export default function InboxPage() {
                   fontSize: 12, fontWeight: 600, cursor: 'pointer',
                 }}
               >💳 Cartão</button>
+              <AjudaCampo chave="financeiro.conciliacao.tipo_extrato" />
             </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <select
               value={loteSelId ?? ''}
               onChange={(e) => setLoteSelId(e.target.value || null)}
@@ -1027,12 +1032,15 @@ export default function InboxPage() {
                 </option>
               ))}
             </select>
+            <AjudaCampo chave="financeiro.conciliacao.lote" />
+            </label>
 
             {loteSel && (
               <div style={{ background: '#FAF7F2', border: '0.5px solid #E7DED3', borderRadius: 10, padding: 12, marginBottom: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#3D2314' }}>
-                  Extrato {loteSel.nome ?? '—'}
-                  {loteSel.periodo_inicio && <> · {fmtDate(loteSel.periodo_inicio)} a {fmtDate(loteSel.periodo_fim)}</>}
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#3D2314', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>Extrato {loteSel.nome ?? '—'}
+                  {loteSel.periodo_inicio && <> · {fmtDate(loteSel.periodo_inicio)} a {fmtDate(loteSel.periodo_fim)}</>}</span>
+                  <AjudaCampo chave="financeiro.conciliacao.progresso_fechamento" />
                 </div>
                 <div style={{ fontSize: 12, color: '#3D2314', marginTop: 4 }}>
                   {/* #60: resolvidos = conciliados + ignorados (ignorado é decisão, não pendência) */}
@@ -1056,10 +1064,12 @@ export default function InboxPage() {
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', cursor: 'pointer' }}>
             <input type="checkbox" checked={autoGlobal} onChange={(e) => void toggleAutoGlobal(e.target.checked)} />
             Auto-conciliar OURO desta empresa (perfeitos 1:1 entram sozinhos)
+            <AjudaCampo chave="financeiro.conciliacao.auto_ouro" />
           </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', cursor: 'pointer' }}>
             <input type="checkbox" checked={soOuro} onChange={(e) => setSoOuro(e.target.checked)} />
             Mostrar só matches OURO
+            <AjudaCampo chave="financeiro.conciliacao.so_ouro" />
           </label>
         </div>
 
@@ -1077,6 +1087,7 @@ export default function InboxPage() {
             onClick={() => setAba('ignorados')}
             style={aba === 'ignorados' ? tabActive : tabInactive}
           >Ignorados ({ignorados.length})</button>
+          <AjudaCampo chave="financeiro.conciliacao.abas" />
           {temExtratoApi && (
             <button
               onClick={sincronizarExtratoAgora}
@@ -1098,31 +1109,38 @@ export default function InboxPage() {
             style={{ ...tabInactive, borderStyle: 'dashed' }}
             data-testid="inbox-importar-ofx"
           >+ Importar extrato (OFX)</button>
+          <AjudaCampo chave="financeiro.conciliacao.importar_ofx" />
         </div>
 
         {/* Camada1/Fatia1: barra de indicadores (item 1 valor pendente + item 3 datas) */}
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 8, padding: '10px 14px', marginBottom: 12 }}>
           <div>
-            <div style={{ fontSize: 10, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Valor pendente de conciliação</div>
+            <div style={{ fontSize: 10, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.5, display: 'flex', alignItems: 'center', gap: 4 }}>Valor pendente de conciliação <AjudaCampo chave="financeiro.conciliacao.valor_pendente" /></div>
             <div style={{ fontSize: 18, fontWeight: 700, color: valorPendente > 0 ? '#C8941A' : '#3B6D11', fontVariantNumeric: 'tabular-nums' }}>
               R$ {fmt(valorPendente)} <span style={{ fontSize: 11, fontWeight: 500, color: 'rgba(61,35,20,0.55)' }}>· {totPend} movimento(s)</span>
             </div>
           </div>
           <div style={{ marginLeft: 'auto', textAlign: 'right', fontSize: 11, color: 'rgba(61,35,20,0.6)' }}>
-            <div>Última atualização: <b>{ultimaAtualizacao ? fmtBR(ultimaAtualizacao) : '—'}</b></div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
+              <span>Última atualização: <b>{ultimaAtualizacao ? fmtBR(ultimaAtualizacao) : '—'}</b></span>
+              <AjudaCampo chave="financeiro.conciliacao.datas_referencia" alinhar="fim" />
+            </div>
             <div>Último lançamento: <b>{ultimoLancamento ? fmtDate(ultimoLancamento) : '—'}</b></div>
           </div>
         </div>
 
         {/* Camada1/Fatia1: busca (item 2) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
         <input
           type="text"
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
           placeholder="Pesquise descrição ou valor…"
-          style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '0.5px solid #E7DED3', fontSize: 13, background: '#FFF', color: '#3D2314', marginBottom: 12, fontFamily: 'inherit' }}
+          style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '0.5px solid #E7DED3', fontSize: 13, background: '#FFF', color: '#3D2314', fontFamily: 'inherit' }}
           data-testid="inbox-busca"
         />
+        <AjudaCampo chave="financeiro.conciliacao.busca" />
+        </div>
 
         {/* Camada1/Fatia1: contadores por natureza (item 4) — filtram a aba Pendentes */}
         {aba === 'pendentes' && (
@@ -1143,6 +1161,7 @@ export default function InboxPage() {
                 }}
               >{label}</button>
             ))}
+            <AjudaCampo chave="financeiro.conciliacao.filtro_natureza" />
           </div>
         )}
 
@@ -1151,6 +1170,9 @@ export default function InboxPage() {
           <div style={{ border: '1px solid #E3D9CC', borderRadius: 8, padding: 16, marginBottom: 16, background: '#FAF7F2' }}>
             <div style={{ fontWeight: 600, marginBottom: 8, color: '#3D2314' }}>Importar extrato bancário (.ofx)</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: '#3D2314' }}>
+                Conta bancária do extrato<AjudaCampo chave="financeiro.conciliacao.import_conta" />
+              </div>
               <select
                 value={contaImportId}
                 onChange={(e) => setContaImportId(e.target.value)}
@@ -1163,6 +1185,9 @@ export default function InboxPage() {
                   </option>
                 ))}
               </select>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: '#3D2314', marginTop: 4 }}>
+                Arquivo .OFX do banco<AjudaCampo chave="financeiro.conciliacao.import_arquivo" />
+              </div>
               <input
                 type="file"
                 accept=".ofx,application/x-ofx,text/plain"
@@ -1303,7 +1328,8 @@ export default function InboxPage() {
                       </div>
                     </div>
 
-                    <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <AjudaCampo chave="financeiro.conciliacao.acoes_linha" alinhar="fim" />
                       <button onClick={() => setArquivando(it)} disabled={aplicando} style={secondaryBtn(aplicando)}>
                         ✕ Ignorar
                       </button>

@@ -368,7 +368,7 @@ export default function OrcamentoPage(){
       {items.length===0&&!loading&&(
         <div style={{background:BG2,borderRadius:12,padding:24,border:`1px solid ${BD}`,textAlign:"center",marginTop:12}}>
           <div style={{fontSize:14,color:TX}}>Nenhuma categoria encontrada para este mês.</div>
-          <div style={{fontSize:11,color:TXM,marginTop:4}}>Importe dados do Omie/ContaAzul primeiro, ou selecione um mês com dados.</div>
+          <div style={{fontSize:11,color:TXM,marginTop:4}}>Importe dados do seu sistema anterior primeiro, ou selecione um mês com dados.</div>
         </div>
       )}
 

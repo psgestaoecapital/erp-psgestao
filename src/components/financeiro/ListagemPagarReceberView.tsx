@@ -76,6 +76,7 @@ type Resposta = {
     pagos: KpiBlock
     total: number
   }
+  total_rows?: number   // total de linhas do período (pré-LIMIT 5000) — p/ o card Total e aviso de truncagem
   resultados: Resultado[]
 }
 
@@ -528,6 +529,27 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     }
   }, [resultadosFiltrados])
 
+  // GAP PDCA (auditor_pdca_2): quando NÃO há filtro client-side nem status selecionado, os cards
+  // devem vir do `kpis` do SERVIDOR (calculado sobre TODAS as linhas do período, pré-LIMIT 5000) —
+  // senão, em empresa com >5000 títulos, o recálculo a partir das 5000 linhas SUBCONTA (ex.: Total
+  // R$248.560,01 virava o somatório só das 5000). Com filtro ativo, mantém o kpisFiltrados (bug André).
+  const semFiltroClient = !busca.trim() && !categoria && contasSel.size === 0 && !fPessoa.trim()
+    && !fForma && !fValorMin.trim() && !fValorMax.trim() && !soBloqueadas
+    && statusSel.length === 0   // [] = todos (StatusOpt não tem 'todos')
+  const cardsKpis = (semFiltroClient && data && !data.sem_plano)
+    ? {
+        vencidos: data.kpis.vencidos,
+        hoje: data.kpis.hoje,
+        avencer: data.kpis.avencer,
+        pagos: data.kpis.pagos,
+        total: data.kpis.total,
+        totalQtd: data.total_rows ?? resultadosFiltrados.length,
+      }
+    : kpisFiltrados
+  // Lista truncada no teto de 5000 do servidor: avisar (RD-98 pilar 1 — dado não some em silêncio).
+  const totalReal = data?.total_rows ?? 0
+  const listaTruncada = !!data && !data.sem_plano && totalReal > (data.resultados?.length ?? 0)
+
   const idsSelecionaveis = useMemo(
     () => resultadosFiltrados.filter((r) => r.situacao !== 'pago').map((r) => r.id),
     [resultadosFiltrados],
@@ -934,14 +956,18 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
               }}>
               📥 Importar em massa
             </Link>
-            <ExportarListaButton
-              companyId={companyId}
-              tipo={tipo}
-              titulo={labels.titulo}
-              filtros={filtrosDesc}
-              kpis={kpisExport}
-              linhas={resultadosFiltrados}
-            />
+            <AjudaCampo chave={`financeiro.${tipo}.acao_importar`} />
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+              <ExportarListaButton
+                companyId={companyId}
+                tipo={tipo}
+                titulo={labels.titulo}
+                filtros={filtrosDesc}
+                kpis={kpisExport}
+                linhas={resultadosFiltrados}
+              />
+              <AjudaCampo chave={`financeiro.${tipo}.acao_exportar`} />
+            </span>
             {/* #3281: período longo sem esperar na tela — o Excel chega em Meus relatórios */}
             <GerarSegundoPlanoButton
               companyId={companyId}
@@ -1007,47 +1033,78 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         >
           <KpiCard
             titulo={labels.vencidosLabel}
-            valor={kpisFiltrados.vencidos.valor}
-            qtd={kpisFiltrados.vencidos.qtd}
+            valor={cardsKpis.vencidos.valor}
+            qtd={cardsKpis.vencidos.qtd}
             cor="#DC2626"
-            destaque={kpisFiltrados.vencidos.qtd > 0}
+            destaque={cardsKpis.vencidos.qtd > 0}
             ativo={statusSel.includes('vencidos')}
             onClick={() => toggleStatus('vencidos')}
+            chave={`financeiro.${tipo}.kpi_vencidos`}
           />
           <KpiCard
             titulo={labels.hojeLabel}
-            valor={kpisFiltrados.hoje.valor}
-            qtd={kpisFiltrados.hoje.qtd}
+            valor={cardsKpis.hoje.valor}
+            qtd={cardsKpis.hoje.qtd}
             cor="#C8941A"
             ativo={statusSel.includes('hoje')}
             onClick={() => toggleStatus('hoje')}
+            chave={`financeiro.${tipo}.kpi_hoje`}
           />
           <KpiCard
             titulo="A vencer"
-            valor={kpisFiltrados.avencer.valor}
-            qtd={kpisFiltrados.avencer.qtd}
+            valor={cardsKpis.avencer.valor}
+            qtd={cardsKpis.avencer.qtd}
             cor="#3D2314"
             ativo={statusSel.includes('avencer')}
             onClick={() => toggleStatus('avencer')}
+            chave={`financeiro.${tipo}.kpi_avencer`}
           />
           <KpiCard
             titulo={labels.pagosLabel}
-            valor={kpisFiltrados.pagos.valor}
-            qtd={kpisFiltrados.pagos.qtd}
+            valor={cardsKpis.pagos.valor}
+            qtd={cardsKpis.pagos.qtd}
             cor="#16A34A"
             ativo={statusSel.includes('pagos')}
             onClick={() => toggleStatus('pagos')}
+            chave={`financeiro.${tipo}.kpi_pagos`}
           />
           <KpiCard
             titulo="Total"
-            valor={kpisFiltrados.total}
-            qtd={kpisFiltrados.totalQtd}
+            valor={cardsKpis.total}
+            qtd={cardsKpis.totalQtd}
             cor="#3D2314"
             ativo={statusSel.length === 0}
             onClick={() => setStatusSel([])}
+            chave={`financeiro.${tipo}.kpi_total`}
           />
         </div>
       </div>
+
+      {listaTruncada && (
+        <div
+          role="status"
+          style={{
+            background: '#FDF6E3',
+            border: '0.5px solid #E6CE8F',
+            borderRadius: 12,
+            padding: '10px 16px',
+            marginBottom: 16,
+            fontSize: 13,
+            color: '#7A5A12',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <span aria-hidden="true">ℹ️</span>
+          <span>
+            Este período tem <b>{totalReal.toLocaleString('pt-BR')}</b> lançamentos; a lista mostra os
+            primeiros <b>{(data?.resultados?.length ?? 0).toLocaleString('pt-BR')}</b>. Os indicadores
+            no topo já consideram <b>todos</b> — para navegar o restante na lista, estreite o período ou
+            use a busca e os filtros.
+          </span>
+        </div>
+      )}
 
       {/* Filtros */}
       <div
@@ -1062,7 +1119,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           gap: 12,
         }}
       >
-        <Campo label="Período">
+        <Campo label="Período" ajuda={`financeiro.${tipo}.filtro_periodo`}>
           <select value={periodoChoice} onChange={(e) => aplicarPeriodo(e.target.value as PeriodoChoice)} style={inputStyle}>
             <option value="mes_atual">Mês atual ({MESES[hoje.getMonth()]})</option>
             <option value="mes_passado">Mês passado</option>
@@ -1092,7 +1149,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           </>
         )}
 
-        <Campo label="Status (múltiplo)">
+        <Campo label="Status (múltiplo)" ajuda={`financeiro.${tipo}.filtro_status`}>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
             {/* Vocabulário da Jordana (RD-41): Aberto = A vencer + Hoje (não pago, não vencido). Multi-select preservado.
                 'Incluído na remessa' e 'Agendado' vêm da remessa (só a pagar) — na lista como os demais, sem 2ª classe. */}
@@ -1133,7 +1190,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           </div>
         </Campo>
 
-        <Campo label="Categoria">
+        <Campo label="Categoria" ajuda={`financeiro.${tipo}.filtro_categoria`}>
           <select value={categoria} onChange={(e) => { setCategoria(e.target.value); setPage(1) }} style={inputStyle}>
             <option value="">Todas</option>
             {categoriasDistinct.map((c) => (
@@ -1142,7 +1199,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           </select>
         </Campo>
 
-        <Campo label="Buscar">
+        <Campo label="Buscar" ajuda={`financeiro.${tipo}.filtro_busca`}>
           <input
             value={busca}
             onChange={(e) => { setBusca(e.target.value); setPage(1) }}
@@ -1318,10 +1375,10 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                 return { qtd: rows.length, valor: rows.reduce((a, r) => a + (r.valor_documento || 0), 0) }
               }
               const info: Record<StatusOpt, { label: string; cor: string; valor: number; qtd: number }> = {
-                vencidos: { label: labels.vencidosLabel, cor: '#DC2626', valor: kpisFiltrados.vencidos.valor, qtd: kpisFiltrados.vencidos.qtd },
-                hoje: { label: labels.hojeLabel, cor: '#C8941A', valor: kpisFiltrados.hoje.valor, qtd: kpisFiltrados.hoje.qtd },
-                avencer: { label: 'A vencer', cor: '#3D2314', valor: kpisFiltrados.avencer.valor, qtd: kpisFiltrados.avencer.qtd },
-                pagos: { label: labels.pagosLabel, cor: '#16A34A', valor: kpisFiltrados.pagos.valor, qtd: kpisFiltrados.pagos.qtd },
+                vencidos: { label: labels.vencidosLabel, cor: '#DC2626', valor: cardsKpis.vencidos.valor, qtd: cardsKpis.vencidos.qtd },
+                hoje: { label: labels.hojeLabel, cor: '#C8941A', valor: cardsKpis.hoje.valor, qtd: cardsKpis.hoje.qtd },
+                avencer: { label: 'A vencer', cor: '#3D2314', valor: cardsKpis.avencer.valor, qtd: cardsKpis.avencer.qtd },
+                pagos: { label: labels.pagosLabel, cor: '#16A34A', valor: cardsKpis.pagos.valor, qtd: cardsKpis.pagos.qtd },
                 conciliado: { label: 'Conciliado', cor: '#0D9488', ...derivar('conciliado') },
                 agendado: { label: 'Agendado', cor: '#2F5AA8', ...derivar('agendado') },
                 incluido_remessa: { label: 'Incluído na remessa', cor: '#4F46E5', ...derivar('incluido_remessa') },
@@ -1356,11 +1413,11 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                         aria-label="Selecionar todos não pagos"
                       />
                     </Th>
-                    <Th>Descrição</Th>
-                    <Th>Quem</Th>
-                    <Th>Categoria</Th>
-                    <Th>Vencimento</Th>
-                    <Th>
+                    <Th chave={`financeiro.${tipo}.col_descricao`}>Descrição</Th>
+                    <Th chave={`financeiro.${tipo}.col_quem`}>Quem</Th>
+                    <Th chave={`financeiro.${tipo}.col_categoria`}>Categoria</Th>
+                    <Th chave={`financeiro.${tipo}.col_vencimento`}>Vencimento</Th>
+                    <Th chave={`financeiro.${tipo}.col_pagamento`}>
                       <span
                         onClick={() => setPagSort((s) => (s === 'off' ? 'asc' : s === 'asc' ? 'desc' : 'off'))}
                         style={{ cursor: 'pointer', userSelect: 'none' }}
@@ -1370,10 +1427,10 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                         Pagamento {pagSort === 'asc' ? '▲' : pagSort === 'desc' ? '▼' : '⇅'}
                       </span>
                     </Th>
-                    <Th align="right">Valor</Th>
-                    <Th>Status</Th>
-                    {tipo === 'receber' && <Th>Fiscal</Th>}
-                    <Th align="right">Ação</Th>
+                    <Th align="right" chave={`financeiro.${tipo}.col_valor`}>Valor</Th>
+                    <Th chave={`financeiro.${tipo}.col_status`}>Status</Th>
+                    {tipo === 'receber' && <Th chave="financeiro.receber.col_fiscal">Fiscal</Th>}
+                    <Th align="right" chave={`financeiro.${tipo}.col_acao`}>Ação</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1668,6 +1725,11 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                 <span>
                   Mostrando {pageStart + 1}–{Math.min(pageStart + pageSize, resultadosFiltrados.length)} de {resultadosFiltrados.length}
+                  {listaTruncada && (
+                    <span style={{ color: '#C8941A', fontWeight: 600 }}>
+                      {' '}(lista limitada a {resultadosFiltrados.length.toLocaleString('pt-BR')} de {totalReal.toLocaleString('pt-BR')} no período)
+                    </span>
+                  )}
                 </span>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span>Itens por página:</span>
@@ -1978,8 +2040,8 @@ function Header({ labels, onHistorico, acaoExtra }: {
   )
 }
 
-function KpiCard({ titulo, valor, qtd, cor, destaque = false, onClick, ativo = false }: {
-  titulo: string; valor: number; qtd: number; cor: string; destaque?: boolean; onClick?: () => void; ativo?: boolean
+function KpiCard({ titulo, valor, qtd, cor, destaque = false, onClick, ativo = false, chave }: {
+  titulo: string; valor: number; qtd: number; cor: string; destaque?: boolean; onClick?: () => void; ativo?: boolean; chave?: string
 }) {
   const clicavel = !!onClick
   return (
@@ -2008,7 +2070,9 @@ function KpiCard({ titulo, valor, qtd, cor, destaque = false, onClick, ativo = f
           marginBottom: 8,
         }}
       >
-        {titulo}{ativo ? ' · filtrando' : ''}
+        <span style={{ display: 'inline-flex', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+          {titulo}{ativo ? ' · filtrando' : ''}{chave && <AjudaCampo chave={chave} />}
+        </span>
       </div>
       <div style={{ fontSize: 20, color: ativo ? '#FFFFFF' : cor, fontWeight: 600 }}>{fmtBRL(valor)}</div>
       <div style={{ fontSize: 11, color: ativo ? 'rgba(255,255,255,0.85)' : 'rgba(61,35,20,0.55)', marginTop: 4 }}>
@@ -2083,26 +2147,27 @@ function FiltroChip({ label, onX }: { label: string; onX: () => void }) {
   )
 }
 
-function Campo({ label, children }: { label: string; children: React.ReactNode }) {
+function Campo({ label, children, ajuda }: { label: string; children: React.ReactNode; ajuda?: string }) {
   return (
     <div>
       <label
         style={{
-          display: 'block',
+          display: 'flex',
+          alignItems: 'center',
           fontSize: 11,
           color: 'rgba(61,35,20,0.65)',
           marginBottom: 4,
           fontWeight: 500,
         }}
       >
-        {label}
+        {label}{ajuda && <AjudaCampo chave={ajuda} />}
       </label>
       {children}
     </div>
   )
 }
 
-function Th({ children, align = 'left' }: { children: React.ReactNode; align?: 'left' | 'right' }) {
+function Th({ children, align = 'left', chave }: { children: React.ReactNode; align?: 'left' | 'right'; chave?: string }) {
   return (
     <th
       style={{
@@ -2115,7 +2180,9 @@ function Th({ children, align = 'left' }: { children: React.ReactNode; align?: '
         fontWeight: 500,
       }}
     >
-      {children}
+      {chave
+        ? <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: align === 'right' ? 'flex-end' : 'flex-start' }}>{children}<AjudaCampo chave={chave} /></span>
+        : children}
     </th>
   )
 }

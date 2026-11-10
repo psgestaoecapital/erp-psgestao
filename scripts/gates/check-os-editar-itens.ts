@@ -5,7 +5,7 @@
  * precisa levar TODOS os itens atuais e o texto/km como estão.
  */
 import { readFileSync, readdirSync } from 'node:fs'
-import { edicaoInicialOS, montarDadosDiagnosticoOS, motivoItensBloqueadosOS, podeEditarItensNaOS, validarEdicaoOS } from '../../src/lib/oficina/itensNaOS'
+import { edicaoInicialOS, idsRemovidosNaEdicao, montarDadosDiagnosticoOS, motivoItensBloqueadosOS, podeEditarItensNaOS, validarEdicaoOS } from '../../src/lib/oficina/itensNaOS'
 
 let falhas = 0
 function ok(cond: boolean, msg: string) { if (!cond) { falhas++; console.error(`✘ ${msg}`) } else console.log(`✓ ${msg}`) }
@@ -49,6 +49,15 @@ ok(b.descricao === 'Óleo' && b.quantidade === '4' && b.produto_id === 'p1', 'it
 const novos = d.itens.filter((i) => i.id === null)
 ok(novos.length === 1 && novos[0].descricao === 'Filtro' && novos[0].quantidade === '2' && novos[0].preco === '35.90', 'item novo entra com descrição/qtd/preço; linha vazia é ignorada')
 
+// exclusão (#135, 09/11): item pendente tirado da edição sai do payload; aprovado/recusado nunca sai
+const edSem = ed.filter((e) => e.id !== 'a')
+const rem = idsRemovidosNaEdicao(atual.itens, edSem)
+ok(rem.length === 1 && rem[0] === 'a', 'excluir item pendente: só ele aparece como removido (aprovado/recusado não)')
+const dx = montarDadosDiagnosticoOS(atual, edSem, rem)
+ok(!dx.itens.some((i) => i.id === 'a') && dx.itens.some((i) => i.id === 'b') && dx.itens.some((i) => i.id === 'c'), 'payload sem o item excluído e com aprovado/recusado intactos')
+ok(montarDadosDiagnosticoOS(atual, ed, ['b']).itens.some((i) => i.id === 'b'), 'item aprovado não é excluído nem se vier em removidos')
+ok(montarDadosDiagnosticoOS(atual, ed).itens.some((i) => i.id === 'a'), 'sem removidos, nada some (comportamento anterior)')
+
 ok(validarEdicaoOS(ed) === null, 'edição válida passa')
 ok(validarEdicaoOS([{ id: null, chave: 'x', tipo: 'peca', descricao: 'X', quantidade: '0', preco: '' }]) !== null, 'quantidade zero é recusada')
 ok(validarEdicaoOS([{ id: null, chave: 'x', tipo: 'peca', descricao: 'X', quantidade: '1', preco: 'abc' }]) !== null, 'preço inválido é recusado')
@@ -57,6 +66,7 @@ ok(validarEdicaoOS([{ id: 'a', chave: 'a', tipo: 'peca', descricao: '', quantida
 const card = readFileSync('src/components/comum/OrdemServicoCard.tsx', 'utf8')
 ok(card.includes("supabase.rpc('fn_oficina_diagnostico_salvar'"), 'a ficha grava pela mesma RPC do Diagnóstico (sem regra paralela)')
 ok(/salvarItensOS[\s\S]*?fn_oficina_diagnostico_obter[\s\S]*?montarDadosDiagnosticoOS[\s\S]*?fn_oficina_diagnostico_salvar/.test(card), 'relê o diagnóstico na hora de salvar e monta o payload pela regra única')
+ok(card.includes('os-item-ed-excluir-') && !card.includes('use a tela de Diagnóstico'), 'cada item tem botão excluir e o aviso antigo saiu')
 ok(card.includes('podeEditarItensNaOS(') && card.includes('data-testid="os-editar-itens"'), 'botão "Editar itens e preços" com a regra única')
 ok(card.includes(', faturada)') && card.includes('data-testid="os-itens-bloqueados"'), 'edição fecha na OS faturada e mostra o motivo')
 for (const k of ['oficina.os.editar_itens', 'oficina.os.item_descricao', 'oficina.os.item_quantidade', 'oficina.os.item_preco']) {

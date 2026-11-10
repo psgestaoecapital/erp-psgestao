@@ -1,9 +1,11 @@
-// Gate (CEO 07/10 — custo de Build CPU Minutes na Vercel). Sem rede.
-//  · o build da Vercel roda SÓ o next build (vercel.json › buildCommand); os gates rodam no gates.yml, em toda PR e
-//    na main (check "gates"), e a fila de merge exige esse check;
-//  · Ignored Build Step: não builda preview de PR draft, de PR só .md/docs/.github, nem de branch sem PR; main sempre;
-//    falha na consulta → builda;
-//  · PR que fica pronta sem preview ganha o build (preview-pronta.yml).
+// Gate (CEO 07/10 + CEO 10/11 — custo de Build CPU Minutes na Vercel). Sem rede.
+//  · a Vercel builda SÓ o `next build` (vercel.json › buildCommand) e, desde CEO 10/11, SÓ a produção (main): o
+//    preview de PR foi DESLIGADO (scripts/vercel-ignore.mjs: ref ≠ main → não builda);
+//  · a COMPILAÇÃO por PR (`next build`) roda no GitHub Actions (build-pr.yml → check "build-pr"), de graça; a fila de
+//    merge exige o check "build-pr" verde no lugar do antigo "Vercel (build real)" (transição: ainda aceita um preview
+//    real da Vercel já verde);
+//  · os gates de scripts/gates/ rodam no gates.yml (só na main, informativos — CEO 22/10);
+//  · e2e segue PÓS-MERGE (aceitacao-main.yml).
 import { readFileSync } from 'node:fs'
 import { decidir, SO_DOCS } from '../vercel-ignore.mjs'
 
@@ -16,40 +18,36 @@ ok(vercel.buildCommand === 'next build', `vercel.json: buildCommand = "next buil
 ok(vercel.ignoreCommand === 'bash scripts/vercel-ignore.sh', 'vercel.json: ignoreCommand = scripts/vercel-ignore.sh')
 
 const gates = ler('.github/workflows/gates.yml')
-ok(/^  push:/m.test(gates) && /branches: \[main\]/.test(gates) && !/^  pull_request:/m.test(gates), 'gates.yml: roda SÓ na main (não em PR — suíte informativa, novo modelo CEO 22/10; libera runner do Actions)')
+ok(/^  push:/m.test(gates) && /branches: \[main\]/.test(gates) && !/^  pull_request:/m.test(gates), 'gates.yml: roda SÓ na main (não em PR — suíte informativa, CEO 22/10; libera runner do Actions)')
 ok(/^  gates:\s*$/m.test(gates) && /run: npm run gates\s*$/m.test(gates), 'gates.yml: job "gates" roda npm run gates')
 ok(!/secrets\./.test(gates), 'gates.yml: não depende de segredo (gates são estáticos)')
 
+// COMPILAÇÃO por PR no Actions (CEO 10/11): build-pr.yml roda next build em toda PR (fora draft/docs), sem segredo.
+const build = ler('.github/workflows/build-pr.yml')
+ok(/^  pull_request:/m.test(build) && /run: npx next build\s*$/m.test(build), 'build-pr.yml: roda `npx next build` em pull_request')
+ok(/paths-ignore:/.test(build) && /'\*\*\/\*\.md'/.test(build) && /'docs\/\*\*'/.test(build) && /'\.github\/\*\*'/.test(build), 'build-pr.yml: pula PR só de .md/docs/.github (igual ao so_docs da fila)')
+ok(/!github\.event\.pull_request\.draft/.test(build), 'build-pr.yml: não roda em rascunho (como o preview não rodava)')
+ok(!/secrets\./.test(build), 'build-pr.yml: compila com placeholders — não depende de segredo (não conecta a banco)')
+ok(/NEXT_PUBLIC_SUPABASE_URL:/.test(build) && /NEXT_PUBLIC_SUPABASE_ANON_KEY:/.test(build), 'build-pr.yml: define as NEXT_PUBLIC_* (placeholders) que o src/lib/supabase.ts exige')
+
 const fila = ler('scripts/merge/fila-merge.sh')
-ok(/\$1 != "gates"/.test(fila) && !/esperar:gates ainda não rodaram/.test(fila), 'fila de merge: suíte "gates" é informativa (fora do bloqueio) — guardas focados + preview bloqueiam (novo modelo CEO 22/10)')
-ok(/so_docs=1/.test(fila), 'fila de merge: PR só de docs não espera preview')
+ok(/\$1 != "gates"/.test(fila) && !/esperar:gates ainda não rodaram/.test(fila), 'fila de merge: suíte "gates" é informativa (fora do bloqueio) — guardas focados + compilação bloqueiam (CEO 22/10)')
+ok(/so_docs=1/.test(fila), 'fila de merge: PR só de docs não espera compilação')
+ok(/\$1 == "build-pr"/.test(fila) && /\[ "\$bp" = success \]/.test(fila), 'fila de merge: exige o check "build-pr" verde (compilação no Actions, CEO 10/11)')
+ok(/esperar:compilação \(build-pr\) ainda não rodou/.test(fila), 'fila de merge: sem build-pr nem preview legado verde → ESPERA (nunca passa sem compilar)')
+ok(/test\("cancel\|ignor"; "i"\)/.test(fila), 'fila de merge: preview legado "Canceled by Ignored Build Step" não conta como verde (transição)')
 
-const pronta = ler('.github/workflows/preview-pronta.yml')
-ok(/types: \[opened, reopened, ready_for_review, synchronize\]/.test(pronta), 'preview-pronta: dispara ao abrir/reabrir/sair de draft e a cada head novo (merge/renumeração da fila)')
-ok(/ci: preview da PR #/.test(pronta) && /não repito/.test(pronta), 'preview-pronta: anti-laço (head que já é o commit vazio não gera outro)')
-ok(/success\) if grep -qiE 'cancel\|ignor'/.test(pronta), 'preview-pronta: success "Canceled by Ignored Build Step" não conta como preview')
-ok(/test\("cancel\|ignor"; "i"\)/.test(fila), 'fila de merge: build ignorado não conta como Vercel verde')
-ok(/secrets\.FILA_MERGE_TOKEN/.test(pronta) && /-F force=false/.test(pronta), 'preview-pronta: commit vazio com PAT, sem force')
-
-// decisões do Ignored Build Step (0 = não builda; 1 = builda)
-type Entrada = { env: string; ref: string; pr?: { number: number; draft: boolean } | null; arquivos?: string[] }
+// decisões do Ignored Build Step (0 = não builda; 1 = builda). CEO 10/11: só main/produção builda; preview de PR off.
+type Entrada = { env: string; ref: string }
 const decide = decidir as unknown as (e: Entrada) => { codigo: number; motivo: string }
-const pr = (o: Partial<{ number: number; draft: boolean }> = {}) => ({ number: 1, draft: false, ...o })
 const casos: [string, Entrada, number][] = [
   ['produção sempre builda', { env: 'production', ref: 'main' }, 1],
   ['main sempre builda (mesmo como preview)', { env: 'preview', ref: 'main' }, 1],
-  ['branch sem PR não builda', { env: 'preview', ref: 'x', pr: null }, 0],
-  ['PR draft não builda', { env: 'preview', ref: 'x', pr: pr({ draft: true }) }, 0],
-  ['PR só .md/docs/.github não builda', { env: 'preview', ref: 'x', pr: pr(), arquivos: ['AGENTS.md', 'docs/a.png', '.github/workflows/w.yml'] }, 0],
-  ['PR com código builda', { env: 'preview', ref: 'x', pr: pr(), arquivos: ['AGENTS.md', 'src/app/page.tsx'] }, 1],
-  ['PR com migration builda', { env: 'preview', ref: 'x', pr: pr(), arquivos: ['supabase/migrations/1.sql'] }, 1],
-  ['consulta da PR falhou → builda', { env: 'preview', ref: 'x', pr: undefined }, 1],
-  ['consulta dos arquivos falhou → builda', { env: 'preview', ref: 'x', pr: pr(), arquivos: undefined }, 1],
-  ['PR sem arquivos → builda (falha segura)', { env: 'preview', ref: 'x', pr: pr(), arquivos: [] }, 1],
-  ['sem branch → builda', { env: 'preview', ref: '' }, 1],
+  ['preview de PR NÃO builda (desligado, CEO 10/11)', { env: 'preview', ref: 'x' }, 0],
+  ['branch sem env também não builda (preview off)', { env: '', ref: 'alguma-branch' }, 0],
 ]
 for (const [nome, entrada, esperado] of casos) ok(decide(entrada).codigo === esperado, `ignore: ${nome}`)
-ok(SO_DOCS.test('docs/x.ts') && !SO_DOCS.test('src/docs.ts') && !SO_DOCS.test('README.mdx'), 'ignore: regra de "só docs" exata')
+ok(SO_DOCS.test('docs/x.ts') && !SO_DOCS.test('src/docs.ts') && !SO_DOCS.test('README.mdx'), 'ignore: regra de "só docs" exata (ainda usada pela fila/so_docs)')
 
 if (falhas) { console.error(`\ncheck-vercel-build: ${falhas} falha(s)`); process.exit(1) }
-console.log('\nBuild da Vercel enxuto (gates no Actions, Ignored Build Step): ok')
+console.log('\nVercel builda só produção; compilação por PR no Actions (build-pr): ok')

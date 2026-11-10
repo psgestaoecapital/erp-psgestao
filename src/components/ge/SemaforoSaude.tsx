@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 interface SaudeData {
   score: number
@@ -59,8 +60,8 @@ export default function SemaforoSaude({ companyId }: { companyId: string }) {
 
       <div style={{ flex: 1, minWidth: 240 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>
-            Saúde Financeira
+          <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>
+            Saúde Financeira<AjudaCampo chave="ge.hub.semaforo_saude" rota="/dashboard/gestao-empresarial" />
           </span>
           <span style={{ background: tone.bg, color: tone.badge, fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 4, letterSpacing: 0.3 }}>
             {data.classificacao}
