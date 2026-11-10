@@ -6,6 +6,7 @@ import { authFetch } from '@/lib/authFetch'
 // grande), que só é usado quando o usuário escolhe um .pfx — não tem por que pesar o carregamento
 // da tela. Importamos parsePfxFile sob demanda (dynamic import) dentro do handler.
 import type { PfxParsedInfo } from '@/lib/fiscal/pfx-parser'
+import { estadoCertificado } from '@/lib/fiscal/estadoCertificado'
 import { Upload, FileCheck, AlertTriangle, Trash2, Loader2 } from 'lucide-react'
 
 interface Props {
@@ -88,9 +89,10 @@ export default function CertificadoUploadCard({ companyId, certificadoAtual, onA
   const cnpjAtual = certificadoAtual?.cnpj_certificado as string | undefined
   const validadeFim = certificadoAtual?.validade_fim as string | undefined
   // Chamado #5661: o selo reflete a validade real (vencido não pode aparecer como ativo).
-  const fimMs = validadeFim ? new Date(validadeFim).getTime() : NaN
-  const vencido = Number.isFinite(fimMs) && fimMs < Date.now()
-  const venceEmBreve = !vencido && Number.isFinite(fimMs) && fimMs - Date.now() < 30 * 86400000
+  // Lógica pura e provada em @/lib/fiscal/estadoCertificado (gate check-estado-certificado).
+  const estadoCert = estadoCertificado(validadeFim)
+  const vencido = estadoCert === 'vencido'
+  const venceEmBreve = estadoCert === 'vence_breve'
 
   return (
     <div className="bg-white border border-[#3D2314]/10 rounded-xl overflow-hidden">
