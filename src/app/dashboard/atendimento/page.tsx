@@ -11,6 +11,7 @@ import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { RespostaInline } from '@/components/melhorias/RespostaInline'
 import ConversaChamado from '@/components/melhorias/ConversaChamado'
+import AprovacoesPendentes from '@/components/melhorias/AprovacoesPendentes'
 import { estadoFila, carregarFila, contarPrecisaDeMim, rascunhoNaoEnviado, RASCUNHO_NAO_ENVIADO, filtrarBusca, carregarEmpresasDemo, semDemos, filtrarVisao, trava, type EstadoFila, type Visao } from '@/lib/sugestoes/filaAtendimento'
 
 const C = {
@@ -254,6 +255,11 @@ function Inner() {
       <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700 }}>📥 Atendimento</div>
       <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 0' }}>Fila de Melhorias</h1>
       <p style={{ color: C.espM, fontSize: 13, margin: '6px 0 12px' }}>Cada empresa tem um responsável (carteira); toda a equipe vê todos os chamados. Um atendente por vez: assuma antes de mexer. <a href="/dashboard/admin/carteira" style={{ color: C.blue, fontWeight: 700 }}>Carteira →</a></p>
+
+      {/* #6696 — pedidos de OK do Code ao sócio (fn_agente_ok_socio_lista) aparecem AQUI (Precisa de mim), não só em
+          /dashboard/melhorias. Mostra todos os pedidos abertos do sócio logado — ligados ou não a um chamado — com
+          Aprovar/Recusar e contador. O componente some sozinho (retorna null) para quem não é sócio. */}
+      <AprovacoesPendentes />
 
       {/* VISÃO (Chamados em equipe): onde o chamado caiu. A carteira define para onde cai, não quem pode atender. */}
       <div data-testid="fila-visoes" style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
