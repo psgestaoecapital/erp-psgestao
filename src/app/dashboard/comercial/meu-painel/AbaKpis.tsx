@@ -22,6 +22,7 @@ type Kpis = {
   volume_kg?: number; faturamento?: number; clientes?: number; cidades?: number
   ticket_kg?: number | null; ticket_cliente?: number | null
   faturamento_com_selecao?: number; volume_kg_com_selecao?: number; ticket_kg_com_selecao?: number | null
+  faturamento_sem_despojo?: number; volume_kg_sem_despojo?: number; ticket_kg_sem_despojo?: number | null
   lucro?: number | null; margem_pct?: number | null; lucro_status?: string
 }
 
@@ -79,7 +80,7 @@ export function AbaKpis({ empresa, de, ate, vendedorCod }: { empresa: string; de
             <Kpi rot="Volume" chave="com.painel.volume" valor={kg0(k.volume_kg)} />
             <Kpi rot="Clientes" chave="com.painel.clientes" valor={int(k.clientes)} />
             <Kpi rot="Cidades" chave="com.painel.cidades" valor={int(k.cidades)} />
-            <Kpi rot="R$ por kg" chave="com.painel.rpkg" valor={brl2(k.ticket_kg ?? null)} sub="Faturamento ÷ volume" />
+            <Kpi rot="R$ por kg" chave="com.painel.rpkg" valor={brl2(k.ticket_kg_sem_despojo ?? null)} sub="Sem despojo: carne e miúdo ÷ kg" />
             <Kpi rot="Ticket por cliente" chave="com.painel.ticket" valor={brl0(k.ticket_cliente ?? null)} sub="Faturamento ÷ clientes" />
           </div>
 
