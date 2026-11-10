@@ -500,6 +500,7 @@ export default function ProdutosPage() {
               placeholder="Buscar por nome, codigo ou NCM..."
               className="flex-1 text-[13px] outline-none bg-transparent text-[#3D2314] placeholder:text-[#3D2314]/40 min-w-0"
             />
+            <AjudaCampo chave="cadastros.produtos.busca" />
             <button
               type="button"
               onClick={() => setFiltrosAbertos((o) => !o)}
@@ -540,8 +541,8 @@ export default function ProdutosPage() {
             <div className="px-4 py-3 border-b border-[#3D2314]/10 bg-[#FAF7F2]/40">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <div>
-                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
-                    Unidade
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 mb-1 font-medium flex items-center gap-1">
+                    Unidade<AjudaCampo chave="cadastros.produtos.filtro.unidade" />
                   </label>
                   <select
                     value={unidade}
@@ -559,8 +560,8 @@ export default function ProdutosPage() {
                 </div>
 
                 <div>
-                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
-                    Grupo
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 mb-1 font-medium flex items-center gap-1">
+                    Grupo<AjudaCampo chave="cadastros.produtos.filtro.grupo" />
                   </label>
                   <select
                     value={grupo}
@@ -576,8 +577,8 @@ export default function ProdutosPage() {
                 </div>
 
                 <div>
-                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
-                    Estoque
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 mb-1 font-medium flex items-center gap-1">
+                    Estoque<AjudaCampo chave="cadastros.produtos.filtro.estoque" />
                   </label>
                   <select
                     value={statusEstoque}
@@ -593,8 +594,8 @@ export default function ProdutosPage() {
                 </div>
 
                 <div>
-                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
-                    Situação
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 mb-1 font-medium flex items-center gap-1">
+                    Situação<AjudaCampo chave="cadastros.produtos.filtro.situacao" />
                   </label>
                   <select
                     value={situacao}
@@ -609,8 +610,8 @@ export default function ProdutosPage() {
                 </div>
 
                 <div>
-                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
-                    Preço entre (R$)
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 mb-1 font-medium flex items-center gap-1">
+                    Preço entre (R$)<AjudaCampo chave="cadastros.produtos.filtro.preco" />
                   </label>
                   <div className="flex items-center gap-1.5">
                     <input
@@ -636,8 +637,8 @@ export default function ProdutosPage() {
                 </div>
 
                 <div>
-                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
-                    EAN (cód. barras)
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 mb-1 font-medium flex items-center gap-1">
+                    EAN (cód. barras)<AjudaCampo chave="cadastros.produtos.filtro.ean" />
                   </label>
                   <select
                     value={comEan}
@@ -652,8 +653,8 @@ export default function ProdutosPage() {
                 </div>
 
                 <div>
-                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
-                    Origem
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 mb-1 font-medium flex items-center gap-1">
+                    Origem<AjudaCampo chave="cadastros.produtos.filtro.origem" />
                   </label>
                   <select
                     value={origem}
@@ -670,8 +671,8 @@ export default function ProdutosPage() {
                 </div>
 
                 <div>
-                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
-                    Outros
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 mb-1 font-medium flex items-center gap-1">
+                    Outros<AjudaCampo chave="cadastros.produtos.filtro.outros" />
                   </label>
                   <label className="flex items-center gap-2 px-2 py-1.5 border border-[#3D2314]/15 rounded bg-white cursor-pointer text-[12.5px] text-[#3D2314]">
                     <input
@@ -713,9 +714,32 @@ export default function ProdutosPage() {
             </div>
           ) : produtos.length === 0 ? (
             <div className="py-12 text-center text-[#3D2314]/70 text-[13px]">
-              {buscaOuFiltroAtivo
-                ? 'Nenhum produto corresponde à busca + filtros · ajuste ou limpe pra ver mais.'
-                : 'Nenhum produto cadastrado · clique em "Novo Produto" pra começar'}
+              <p className="mb-3">
+                {buscaOuFiltroAtivo
+                  ? 'Nenhum produto corresponde à busca + filtros · ajuste ou limpe pra ver mais.'
+                  : 'Nenhum produto cadastrado · comece cadastrando o primeiro.'}
+              </p>
+              {buscaOuFiltroAtivo ? (
+                filtrosAtivos > 0 && (
+                  <button
+                    type="button"
+                    onClick={limparFiltros}
+                    data-testid="produto-vazio-limpar"
+                    className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] inline-flex items-center gap-2"
+                  >
+                    <X size={15} /> Limpar filtros
+                  </button>
+                )
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setNovoAberto(true)}
+                  data-testid="produto-vazio-novo"
+                  className="px-4 py-2 text-[13px] font-semibold rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] inline-flex items-center gap-2"
+                >
+                  <Plus size={15} /> Novo produto
+                </button>
+              )}
             </div>
           ) : (
             <>
