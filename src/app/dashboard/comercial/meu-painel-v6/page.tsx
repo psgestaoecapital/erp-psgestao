@@ -22,6 +22,8 @@ import { calcularProdutosV7 } from './produtos-v7'
 import { AbaProdutosV7 } from './AbaProdutosV7'
 import { calcularPrecoV7 } from './precoV7'
 import { AbaPrecoV7 } from './AbaPrecoV7'
+import { calcularLogisticaV7 } from './logisticaV7'
+import { AbaLogisticaV7 } from './AbaLogisticaV7'
 import { ModalAnalise, lerEscolhaSalva, type EscopoAnalise } from './ModalAnalise'
 
 const C = { esp: '#3D2314', off: '#FAF7F2', gold: '#C8941A', gold2: '#E0B048', verde: '#3f7d4e', bd: '#E7DED3', bg2: '#F0ECE3', m: '#6B5D4F', d: '#9C8E80' }
@@ -249,6 +251,8 @@ export default function MeuPainelV6() {
 
   // Aba Clientes (SPEC §2.3): segmentos RFM, Pareto, cross-sell, notas, grupos, carteira e tabela completa.
   const clientesV7 = useMemo(() => base && modelo && estado && pg ? calcularClientesV7(base, modelo, estado, pg) : null, [base, modelo, estado, pg])
+  // Aba Logística (SPEC §2.7).
+  const logisticaV7 = useMemo(() => base && modelo ? calcularLogisticaV7(base, modelo) : null, [base, modelo])
   // Aba Preço e desconto (SPEC §2.6).
   const precoV7 = useMemo(() => base && modelo && estado ? calcularPrecoV7(base, modelo, estado) : null, [base, modelo, estado])
   // Aba Produtos (SPEC §2.5).
@@ -368,7 +372,7 @@ export default function MeuPainelV6() {
         ))}
       </nav>
 
-      {aba !== 'geral' && aba !== 'vendedores' && aba !== 'clientes' && aba !== 'cidades' && aba !== 'produtos' && aba !== 'preco' && (
+      {aba !== 'geral' && aba !== 'vendedores' && aba !== 'clientes' && aba !== 'cidades' && aba !== 'produtos' && aba !== 'preco' && aba !== 'logistica' && (
         <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16, color: C.m, fontSize: 14 }}>
           <b style={{ color: C.esp }}>{ABAS.find((a) => a.k === aba)?.rot}</b> — esta aba entra no próximo bloco do painel. O período e os filtros acima já valem para ela.
         </div>
@@ -669,6 +673,9 @@ export default function MeuPainelV6() {
       )}
       {aba === 'cidades' && base && modelo && cidadesV7 && (
         <AbaCidades cidades={cidadesV7} base={base} modelo={modelo} />
+      )}
+      {aba === 'logistica' && logisticaV7 && (
+        <AbaLogisticaV7 log={logisticaV7} />
       )}
       {aba === 'preco' && precoV7 && (
         <AbaPrecoV7 preco={precoV7} />
