@@ -43,6 +43,10 @@ const STAT_LABEL: Record<string, string> = { nova: 'Nova', em_analise: 'Em anál
 const STATUS_TERMINAL = ['concluida', 'concluido', 'resolvida', 'recusada', 'duplicada', 'arquivada', 'implementado']
 // #63 · abas da Central pela ótica do AUTOR (a Jordana): separar o que ESPERA a equipe do que
 // PRECISA DELA (resposta chegou, falta ela dizer se resolveu) do que já ACABOU. Antes era lista plana.
+// #7050 · "Aguardando sua confirmação" só quando a resposta JÁ foi aprovada e enviada ao autor. Se o chamado está nesse
+// status mas a resposta ainda espera o operador aprovar (nada vai ao cliente sem tratamento), o autor vê "Em análise".
+const rotuloStatusAutor = (m: { status: string; resposta_aprovada: boolean }) =>
+  m.status === 'aguardando_confirmacao' && !m.resposta_aprovada ? 'Em análise pela equipe' : (STAT_LABEL[m.status] || m.status)
 type BucketMelhoria = 'precisa_voce' | 'aguardando' | 'concluidas'
 // A aba da Central. 'todos' (padrão) mostra tudo — o quadro nunca abre vazio quando há chamados; as demais filtram por bucket.
 type AbaMelhoria = 'todos' | BucketMelhoria
@@ -420,7 +424,7 @@ function Inner() {
             <div key={m.id} id={`chamado-${m.numero}`} style={{ background: C.white, border: `1px solid ${foco === String(m.numero) ? C.gold : C.border}`, borderRadius: 10, padding: 12, boxShadow: foco === String(m.numero) ? `0 0 0 2px ${C.gold}` : 'none', transition: 'box-shadow .3s, border-color .3s' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <b style={{ fontSize: 14 }}><span style={{ color: C.gold, fontWeight: 800 }}>#{m.numero}</span> <span style={{ fontWeight: 600, fontSize: 11.5, color: C.espM }}>· {quando(m.created_at)}</span> {m.titulo || m.descricao.slice(0, 60)}</b>
-                <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: m.status === 'concluida' ? C.greenBg : m.status === 'recusada' ? C.redBg : C.cream, color: m.status === 'concluida' ? C.green : m.status === 'recusada' ? C.red : C.espM, fontWeight: 700 }}>{STAT_LABEL[m.status] || m.status}</span>
+                <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: m.status === 'concluida' ? C.greenBg : m.status === 'recusada' ? C.redBg : C.cream, color: m.status === 'concluida' ? C.green : m.status === 'recusada' ? C.red : C.espM, fontWeight: 700 }}>{rotuloStatusAutor(m)}</span>
               </div>
               {/* de qual empresa é o chamado (útil pra papel de plataforma, que abre nas 10 empresas) */}
               <div style={{ fontSize: 10.5, color: m.empresa ? C.espL : C.amber, marginTop: 2 }}>🏢 {m.empresa || 'Sem empresa (chamado antigo)'}
