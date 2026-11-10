@@ -280,7 +280,7 @@ export default function MeuPainelVendas() {
     const tv = modelo.tot.val || 1
     return [...modelo.prodM].map(([pi, a]) => ({
       pi, nome: base.prod[pi]?.[0] ?? String(pi), linha: base.prod[pi]?.[1] ?? '—', grupo: pg[pi],
-      val: a.val, part: 100 * a.val / tv, kg: a.kg, rpkg: a.kgP ? a.valP / a.kgP : (a.kg ? a.val / a.kg : null),
+      val: a.val, part: 100 * a.val / tv, kg: a.kg, rpkg: a.kgP ? a.valP / a.kgP : null,
       desc: a.tab > 0 ? 100 * a.desc / a.tab : 0, pa: a.n ? 100 * a.ab / a.n : 0, cli: a.clis.size, incluido: modelo.inc(pi),
     }))
   }, [modelo, base, pg])
