@@ -6,13 +6,16 @@ export const FUSO = 'America/Sao_Paulo'
 // São Paulo não tem horário de verão desde 2019: o deslocamento é fixo.
 const OFFSET_SP = '-03:00'
 
-export type StatusPost = 'rascunho' | 'em_aprovacao' | 'aprovado' | 'publicado'
+// Fase 2 (CEO 09/11): o POST usa o vocabulário do JOB, na ordem do dropdown. O job nasce com "Gerar job" (o post fica em
+// nao_iniciada); quem move para em_producao é o designer. O planejamento mantém o vocabulário dele (abaixo).
+export type StatusPost = 'nao_iniciada' | 'em_producao' | 'em_aprovacao' | 'concluida' | 'publicado'
 export type StatusPlanejamento = 'rascunho' | 'em_aprovacao' | 'aprovado'
 
 export const STATUS_POST: { v: StatusPost; l: string; cls: string }[] = [
-  { v: 'rascunho', l: 'Rascunho', cls: 'bg-[#3D2314]/8 text-[#3D2314]/75' },
+  { v: 'nao_iniciada', l: 'Não Iniciada', cls: 'bg-[#3D2314]/8 text-[#3D2314]/75' },
+  { v: 'em_producao', l: 'Em Produção', cls: 'bg-[#E4EEF9] text-[#1F4E8C]' },
   { v: 'em_aprovacao', l: 'Em aprovação', cls: 'bg-[#FCE9C2] text-[#6B4A0E]' },
-  { v: 'aprovado', l: 'Aprovado', cls: 'bg-[#DCEFD7] text-[#2F5A1F]' },
+  { v: 'concluida', l: 'Concluído', cls: 'bg-[#DCEFD7] text-[#2F5A1F]' },
   { v: 'publicado', l: 'Publicado', cls: 'bg-[#3D2314] text-[#F5E6C8]' },
 ]
 export const STATUS_PLANEJAMENTO: { v: StatusPlanejamento; l: string; cls: string }[] = [

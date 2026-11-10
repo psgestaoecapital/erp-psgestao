@@ -5,6 +5,9 @@
 // (zero no DRE), só muda o saldo por conta. Chama fn_conciliacao_transferir(mov, contraparte, desc).
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA = '/dashboard/financeiro/conciliacao/inbox'
 
 interface Props {
   open: boolean
@@ -73,7 +76,7 @@ export default function TransferenciaContaModal({ open, onClose, onConciliado, c
         </div>
 
         <label style={{ display: 'block', marginBottom: 12 }}>
-          <span style={{ fontSize: 10, color: MUT, textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600, display: 'block', marginBottom: 4 }}>Conta contraparte</span>
+          <span style={{ fontSize: 10, color: MUT, textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600, display: 'block', marginBottom: 4 }}>Conta contraparte<AjudaCampo chave="financeiro.conciliacao.transf_conta_contraparte" rota={ROTA} /></span>
           <select value={contraparte} onChange={(e) => setContraparte(e.target.value)} style={inp}>
             <option value="">— escolha a conta —</option>
             {contas.map((c) => <option key={c.id} value={c.id}>{c.nome}{c.banco ? ` · ${c.banco}` : ''}</option>)}
@@ -82,13 +85,14 @@ export default function TransferenciaContaModal({ open, onClose, onConciliado, c
         </label>
 
         <label style={{ display: 'block', marginBottom: 8 }}>
-          <span style={{ fontSize: 10, color: MUT, textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600, display: 'block', marginBottom: 4 }}>Descrição (opcional)</span>
+          <span style={{ fontSize: 10, color: MUT, textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600, display: 'block', marginBottom: 4 }}>Descrição (opcional)<AjudaCampo chave="financeiro.conciliacao.transf_descricao" rota={ROTA} /></span>
           <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Ex.: depósito de cheque" style={inp} />
         </label>
 
         {erro && <div style={{ background: '#FCEBEB', color: VERM, padding: '8px 12px', borderRadius: 6, fontSize: 12, marginTop: 8 }}>{erro}</div>}
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 18, justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', gap: 8, marginTop: 18, justifyContent: 'flex-end', alignItems: 'center' }}>
+          <AjudaCampo chave="financeiro.conciliacao.transf_acao" rota={ROTA} />
           <button onClick={onClose} disabled={busy} style={{ background: 'transparent', color: ESP, border: `0.5px solid ${LINE}`, padding: '10px 18px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: busy ? 'not-allowed' : 'pointer' }}>Cancelar</button>
           <button onClick={confirmar} disabled={busy || !contraparte} style={{ background: (busy || !contraparte) ? 'rgba(200,148,26,0.5)' : GOLD, color: '#3D2314', border: 'none', padding: '10px 18px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: (busy || !contraparte) ? 'not-allowed' : 'pointer' }}>
             {busy ? 'Registrando…' : 'Conciliar como transferência'}

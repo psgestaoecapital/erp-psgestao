@@ -298,7 +298,7 @@ export default function NOCDashboard(){
             </div>
           ))}
           {empresas.filter((e:any)=>e.registrosImportados>0).length===0&&(
-            <div style={{textAlign:"center",padding:20,color:C.txd}}>Nenhum dado importado ainda. Conecte o Omie ou Nibo.</div>
+            <div style={{textAlign:"center",padding:20,color:C.txd}}>Nenhum dado importado ainda. Conecte seu sistema anterior.</div>
           )}
         </Card>
       </>)}

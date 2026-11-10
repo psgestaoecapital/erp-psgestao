@@ -4,6 +4,10 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { erroAmigavel } from '@/lib/erroAmigavel'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA_AJUDA = '/dashboard/cadastros/contratos-recorrentes/a-faturar'
 
 interface Contrato {
   id: string
@@ -96,7 +100,7 @@ export default function ContratosAFaturarPage() {
     })
     setFaturandoId(null)
     if (error) {
-      setMensagem({ tipo: 'erro', texto: error.message })
+      setMensagem({ tipo: 'erro', texto: erroAmigavel(error, 'Não foi possível gerar a cobrança. Tente de novo.') })
       return
     }
     setMensagem({ tipo: 'ok', texto: `Cobrança gerada com sucesso (${c.cliente_nome ?? 'cliente'})` })
@@ -166,32 +170,39 @@ export default function ContratosAFaturarPage() {
                 }}>
                   <div style={{ flex: 1, minWidth: 200 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: '#3D2314' }}>{cliente}</div>
-                    <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.6)', marginTop: 2 }}>
+                    <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.6)', marginTop: 2, display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap' }}>
                       {contrato.nome ?? 'Contrato'} · próx. venc {proxIso ? fmtDate(proxIso) : '—'}
+                      <AjudaCampo chave="ge.contratos.a_faturar.proximo_venc" rota={ROTA_AJUDA} />
                     </div>
                   </div>
                   <div style={{ textAlign: 'right', minWidth: 110 }}>
-                    <div style={{ fontSize: 10, color: 'rgba(61,35,20,0.5)', textTransform: 'uppercase', letterSpacing: 0.6 }}>Valor</div>
+                    <div style={{ fontSize: 10, color: 'rgba(61,35,20,0.5)', textTransform: 'uppercase', letterSpacing: 0.6, display: 'inline-flex', alignItems: 'center' }}>
+                      Valor
+                      <AjudaCampo chave="ge.contratos.a_faturar.valor" rota={ROTA_AJUDA} />
+                    </div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: '#3D2314', fontVariantNumeric: 'tabular-nums' }}>R$ {fmt(valor)}</div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => faturar(contrato, proxIso ?? hoje.toISOString().slice(0, 10))}
-                    disabled={faturandoId === contrato.id}
-                    style={{
-                      background: faturandoId === contrato.id ? 'rgba(200,148,26,0.5)' : '#C8941A',
-                      color: '#3D2314',
-                      border: 'none',
-                      padding: '8px 16px',
-                      borderRadius: 6,
-                      fontSize: 12,
-                      fontWeight: 700,
-                      cursor: faturandoId === contrato.id ? 'wait' : 'pointer',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {faturandoId === contrato.id ? 'Faturando…' : 'Faturar agora →'}
-                  </button>
+                  <div style={{ display: 'inline-flex', alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      onClick={() => faturar(contrato, proxIso ?? hoje.toISOString().slice(0, 10))}
+                      disabled={faturandoId === contrato.id}
+                      style={{
+                        background: faturandoId === contrato.id ? 'rgba(200,148,26,0.5)' : '#C8941A',
+                        color: '#3D2314',
+                        border: 'none',
+                        padding: '8px 16px',
+                        borderRadius: 6,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: faturandoId === contrato.id ? 'wait' : 'pointer',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {faturandoId === contrato.id ? 'Faturando…' : 'Faturar agora →'}
+                    </button>
+                    <AjudaCampo chave="ge.contratos.a_faturar.faturar" rota={ROTA_AJUDA} />
+                  </div>
                 </div>
               )
             })}

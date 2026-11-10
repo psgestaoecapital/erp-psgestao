@@ -36,6 +36,7 @@ type Acerto = {
   previsto: { preco_venda: number | null; custo_real_total: number | null; lucro_projetado: number | null }
   realizado: { recebido: number; em_aberto: number; em_aberto_cliente: number; em_aberto_banco: number; custos_pos_venda: number; lucro_real: number | null }
 }
+type NfeVenda = { id: string; numero: string | null; chave: string | null; status: string; danfe_url: string | null; xml_url: string | null; motivo_rejeicao: string | null }
 type Receb = { venda_id: string; tipo: string; devedor: string; valor: number; receber_id: string | null; numero: string | null; status: string | null }
 
 export default function VendasPage() {
@@ -63,16 +64,28 @@ function Inner() {
   const [acerto, setAcerto] = useState<Acerto | null>(null)
   const [recebs, setRecebs] = useState<Map<string, Receb[]>>(new Map())
   const [cancelaTit, setCancelaTit] = useState<{ venda: Venda; motivo: string; abertos: { id: string; valor: number }[] } | null>(null)
+  // #7641 · status real da NF-e de cada venda (veic_venda.nfe_id → erp_nfe_emitidas).
+  const [nfes, setNfes] = useState<Map<string, NfeVenda>>(new Map())
   const [acResumo, setAcResumo] = useState<Map<string, { previsto: number | null; realizado: number | null }>>(new Map())
 
   // #5684 · Emitir NF-e da venda (Caminho A: mesmo emissor do GE, ligada ao título da venda, grava veic_venda.nfe_id).
+  const nfeProcessando = Array.from(nfes.values()).some((n) => n.status === 'processando')
+  useEffect(() => {
+    if (!nfeProcessando) return
+    const t = setInterval(() => { void carregar() }, 8000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nfeProcessando])
+
   const emitirNfe = async (v: Venda) => {
     if (!companyId) return
     setBusy(true); setErro(null); setMsg(null)
     try {
       const res = await authFetch('/api/fiscal/nfe/emitir', { method: 'POST', body: JSON.stringify({ companyId, vendaVeiculoId: v.id }) })
       const j = await res.json().catch(() => ({}))
-      if (!res.ok || j?.ok === false) {
+      if (j?.status === 'processando') {
+        setMsg('NF-e enviada à SEFAZ. Aguarde: o status aparece no card da venda.')
+      } else if (!res.ok || j?.ok === false) {
         setErro(`NF-e não emitida: ${j?.motivoRejeicao ?? j?.mensagem ?? j?.message ?? `erro ${res.status}`}. Corrija e clique em Emitir NF-e para reenviar.`)
       } else {
         const avisos: string[] = Array.isArray(j.avisosVeiculo) ? j.avisosVeiculo : []
@@ -92,6 +105,17 @@ function Inner() {
     if (error) { setErro(error.message); return }
     const vs = (data as Venda[]) ?? []
     setRows(vs)
+    {
+      const { data: vn } = await supabase.from('veic_venda').select('id, nfe_id').in('id', vs.map((v) => v.id)).not('nfe_id', 'is', null)
+      const link = (vn as { id: string; nfe_id: string }[]) ?? []
+      const nm = new Map<string, NfeVenda>()
+      if (link.length) {
+        const { data: nn } = await supabase.from('erp_nfe_emitidas').select('id, numero, chave, status, danfe_url, xml_url, motivo_rejeicao').in('id', link.map((l) => l.nfe_id))
+        const byId = new Map(((nn as NfeVenda[]) ?? []).map((n) => [n.id, n]))
+        link.forEach((l) => { const n = byId.get(l.nfe_id); if (n) nm.set(l.id, n) })
+      }
+      setNfes(nm)
+    }
     // Títulos na GE por venda: recebimento ↔ erp_receber (rastreabilidade ponta a ponta, RD-65).
     const ids = vs.map((v) => v.id)
     const m = new Map<string, Receb[]>()
@@ -247,11 +271,12 @@ function Inner() {
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 12, cursor: 'pointer' }} onClick={() => setErro(null)}>{erro}</div>}
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, alignItems: 'center' }}>
-        <label style={{ fontSize: 12, color: C.espM }}>Situação&nbsp;
+        <label style={{ fontSize: 12, color: C.espM, display: 'inline-flex', alignItems: 'center' }}>Situação&nbsp;
           <select value={filtro} onChange={(e) => setFiltro(e.target.value)} style={inp}>
             <option value="todos">todas</option>
             {SIT.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
+          <AjudaCampo chave="revenda.vendas.filtro_situacao" rota="/dashboard/revenda/vendas" />
         </label>
         <span style={{ fontSize: 12, color: C.espM }}>{visiveis.length} venda(s)</span>
       </div>
@@ -285,12 +310,14 @@ function Inner() {
                   {v.recebido > 0 ? <span>recebido <b style={{ color: C.green }}>{brl(v.recebido)}</b></span> : null}
                   {v.retorno_banco ? <span>retorno banco {brl(v.retorno_banco)}</span> : null}
                   {v.desconto_embutido_troca ? <span style={{ color: C.amber }} title="valor de troca − valor de avaliação">desconto embutido na troca {brl(v.desconto_embutido_troca)}</span> : null}
+                  {(v.retorno_banco || v.desconto_embutido_troca) ? <AjudaCampo chave="revenda.vendas.financiamento" rota="/dashboard/revenda/vendas" /> : null}
+                  <AjudaCampo chave="revenda.vendas.em_aberto" rota="/dashboard/revenda/vendas" />
                 </div>
 
                 {/* Títulos no financeiro (GE): cada recebimento aponta o título gerado no Contas a Receber (RD-65). */}
                 {(recebs.get(v.id)?.length ?? 0) > 0 && (
                   <div style={{ marginTop: 8, borderTop: `1px solid ${C.cream}`, paddingTop: 8 }}>
-                    <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.6, color: C.espL, fontWeight: 700, marginBottom: 4 }}>Títulos no financeiro (GE)</div>
+                    <div style={{ display: 'flex', alignItems: 'center', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.6, color: C.espL, fontWeight: 700, marginBottom: 4 }}>Títulos no financeiro (GE)<AjudaCampo chave="revenda.vendas.titulos_ge" rota="/dashboard/revenda/vendas" /></div>
                     <div style={{ display: 'grid', gap: 4 }}>
                       {recebs.get(v.id)!.map((t, i) => (
                         <div key={i} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', fontSize: 12, color: C.espM }}>
@@ -323,6 +350,7 @@ function Inner() {
                     <b>{acResumo.get(v.id)!.previsto != null ? brl(acResumo.get(v.id)!.previsto!) : '—'}</b>
                     <span style={{ color: C.espM }}> · realizado </span>
                     <b style={{ color: (acResumo.get(v.id)!.realizado ?? 0) < 0 ? C.red : C.green }}>{acResumo.get(v.id)!.realizado != null ? brl(acResumo.get(v.id)!.realizado!) : '—'}</b>
+                    <AjudaCampo chave="revenda.vendas.acerto_resumo" rota="/dashboard/revenda/vendas" />
                   </div>
                 )}
 
@@ -330,8 +358,34 @@ function Inner() {
                   <div style={{ marginTop: 8, fontSize: 12, color: C.amber, background: C.amberBg, borderRadius: 8, padding: '6px 10px' }}>Devolvida{v.devolvido_em ? ` em ${brDate(v.devolvido_em)}` : ''}: {v.devolucao_motivo}</div>
                 ) : null}
 
-                <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                   <button onClick={() => router.push(`/dashboard/revenda/veiculo/${v.veiculo_id}`)} style={btnGhost}>ver veículo</button>
+                  <AjudaCampo chave="revenda.vendas.acoes" rota="/dashboard/revenda/vendas" />
+
+                  {/* #7641 · status real da NF-e (lido de erp_nfe_emitidas), sem aviso de erro enquanto processa */}
+                  {nfes.get(v.id) && (() => {
+                    const n = nfes.get(v.id)!
+                    const lnk: React.CSSProperties = { color: C.gold, fontWeight: 700, textDecoration: 'none', fontSize: 12 }
+                    const ajuda = <AjudaCampo chave="revenda.vendas.nfe_status" rota="/dashboard/revenda/vendas" />
+                    if (n.status === 'autorizada') return (
+                      <span style={{ display: 'inline-flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', padding: '4px 10px', borderRadius: 8, background: C.greenBg, color: C.green, fontSize: 12, fontWeight: 600 }} data-testid="venda-nfe-status">
+                        Autorizada{n.numero ? ` — nº ${n.numero}` : ''}
+                        {n.danfe_url && <a href={n.danfe_url} target="_blank" rel="noreferrer" style={lnk}>Imprimir DANFE</a>}
+                        {n.xml_url && <a href={n.xml_url} target="_blank" rel="noreferrer" style={lnk}>Baixar XML</a>}
+                        <a href="/dashboard/fiscal/nfe" style={lnk}>Ver em NF-e emitidas</a>
+                        {ajuda}
+                      </span>
+                    )
+                    if (n.status === 'processando') return (
+                      <span style={{ padding: '4px 10px', borderRadius: 8, background: C.amberBg, color: '#8A4B08', fontSize: 12, fontWeight: 600 }} data-testid="venda-nfe-status">Enviando à SEFAZ… aguarde, a tela atualiza sozinha.{ajuda}</span>
+                    )
+                    if (n.status === 'rejeitada') return (
+                      <span style={{ padding: '4px 10px', borderRadius: 8, background: C.redBg, color: C.red, fontSize: 12, fontWeight: 600 }} data-testid="venda-nfe-status">
+                        Nota rejeitada: {n.motivo_rejeicao ?? 'motivo não informado'}. Corrija o cadastro e emita de novo. <a href="/dashboard/fiscal/nfe" style={lnk}>Ver nota</a>{ajuda}
+                      </span>
+                    )
+                    return null
+                  })()}
 
                   {/* Entregar (via checklist) — R0.2/R0.2b travas de NF mantidas na função */}
                   {!encerrada && (
@@ -339,7 +393,7 @@ function Inner() {
                       ? <button disabled={busy} onClick={() => void abrirChecklist(v)} style={btnGold}>Entregar</button>
                       : <>
                           <span style={{ padding: '6px 12px', borderRadius: 8, background: C.amberBg, color: '#8A4B08', fontSize: 11.5, fontWeight: 600 }}>Emitir nota antes de entregar</span>
-                          <button disabled={busy} onClick={() => void emitirNfe(v)} style={btnGold}>Emitir NF-e</button>
+                          <button disabled={busy || nfes.get(v.id)?.status === 'processando'} onClick={() => void emitirNfe(v)} style={btnGold}>Emitir NF-e</button>
                           <AjudaCampo chave="revenda.vendas.emitir_nfe" rota="/dashboard/revenda/vendas" />
                         </>
                   )}
@@ -461,6 +515,7 @@ function Passos({ v }: { v: Venda }) {
           <span>{p.feito ? '✓' : p.atual ? '•' : '○'}</span>{p.nome}
         </span>
       ))}
+      <AjudaCampo chave="revenda.vendas.passos" rota="/dashboard/revenda/vendas" />
     </div>
   )
 }

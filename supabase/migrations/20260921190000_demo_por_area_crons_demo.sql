@@ -79,7 +79,7 @@ BEGIN
     BEGIN
       SELECT net.http_post(
         url := 'https://erp-psgestao.vercel.app/api/screen-watcher/playwright',
-        headers := jsonb_build_object('Content-Type', 'application/json', 'x-watcher-secret', 'ps-watcher-2026-9k2mxqp4nv8wzr7y6h3t'),
+        headers := jsonb_build_object('Content-Type', 'application/json', 'x-watcher-secret', '<segredo no cofre: screen_watcher_secret>'),
         body := jsonb_build_object('rota', v_screen.rota, 'empresa_id', v_empresa),
         timeout_milliseconds := 90000
       ) INTO v_request_id;
@@ -108,7 +108,7 @@ BEGIN
   END IF;
   SELECT net.http_post(
     url := v_url,
-    headers := jsonb_build_object('Content-Type', 'application/json', 'x-watcher-secret', 'ps-watcher-2026-9k2mxqp4nv8wzr7y6h3t'),
+    headers := jsonb_build_object('Content-Type', 'application/json', 'x-watcher-secret', '<segredo no cofre: screen_watcher_secret>'),
     body := jsonb_build_object('prioridade', ARRAY['critica','alta'], 'origem', 'pg_cron', 'limit', 30, 'areas_demo', to_jsonb(v_areas))
   ) INTO v_request_id;
   RETURN jsonb_build_object('request_id', v_request_id, 'disparado_em', NOW(), 'url', v_url, 'areas_demo', to_jsonb(v_areas));

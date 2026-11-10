@@ -69,7 +69,7 @@ BEGIN
     url := v_url,
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
-      'x-watcher-secret', 'ps-watcher-2026-9k2mxqp4nv8wzr7y6h3t'
+      'x-watcher-secret', '<segredo no cofre: screen_watcher_secret>'
     ),
     body := v_body,
     timeout_milliseconds := 240000

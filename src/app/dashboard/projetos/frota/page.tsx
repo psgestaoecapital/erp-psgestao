@@ -11,6 +11,7 @@ import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { RelatoriosFrota } from "@/components/frota/RelatoriosFrota";
+import { erroAmigavel, ErroUsuario } from "@/lib/erroAmigavel";
 
 const ROTA = "/dashboard/projetos/frota";
 const BUCKET_ANEXOS = "frota-anexos";
@@ -74,12 +75,12 @@ const dataBR = (d: string | null) => (d ? d.split("-").reverse().join("/") : "�
 const decimal = (s: string) => (s.trim() ? s.replace(/\./g, "").replace(",", ".") : "");
 
 async function enviarAnexo(companyId: string, pasta: string, arquivo: File): Promise<string> {
-  if (!ANEXO_TIPOS.includes(arquivo.type)) throw new Error("O anexo precisa ser PDF, JPG, PNG ou WEBP.");
-  if (arquivo.size > ANEXO_MAX) throw new Error("O anexo passa de 10 MB.");
+  if (!ANEXO_TIPOS.includes(arquivo.type)) throw new ErroUsuario("O anexo precisa ser PDF, JPG, PNG ou WEBP.");
+  if (arquivo.size > ANEXO_MAX) throw new ErroUsuario("O anexo passa de 10 MB.");
   const nome = arquivo.name.replace(/[^A-Za-z0-9._-]/g, "_");
   const path = `${companyId}/${pasta}/${Date.now()}-${nome}`;
   const { error } = await supabase.storage.from(BUCKET_ANEXOS).upload(path, arquivo, { contentType: arquivo.type, upsert: false });
-  if (error) throw new Error(error.message);
+  if (error) throw error;
   return path;
 }
 
@@ -103,7 +104,7 @@ export default function FrotaPage() {
   const carregar = useCallback(async () => {
     if (!companyId) return;
     const { data, error } = await supabase.rpc("fn_hub_frota_indicadores", { p_company_id: companyId, p_veiculo_id: null });
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error)); return; }
     setErro(null);
     const d = data as { resumo: Resumo; veiculos: Veiculo[] };
     setResumo(d.resumo); setVeiculos(d.veiculos ?? []);
@@ -260,7 +261,7 @@ function ExcluidoLinha({ x, companyId, onFeito }: { x: { id: string; placa: stri
   const [erro, setErro] = useState<string | null>(null);
   async function restaurar() {
     const { error } = await supabase.rpc("fn_hub_frota_veiculo_restaurar", { p_id: x.id, p_motivo: "restaurado pela tela" });
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error)); return; }
     onFeito();
   }
   return (
@@ -312,7 +313,7 @@ function PainelVeiculo({ companyId, veic, onFechar, onSalvo }: {
         ...x, valor_aquisicao: decimal(x.valor_aquisicao), crlv_path: crlv ?? x.crlv_path,
       },
     });
-    if (error) { setErro(error.message); return null; }
+    if (error) { setErro(erroAmigavel(error)); return null; }
     return data as string;
   }
 
@@ -321,7 +322,7 @@ function PainelVeiculo({ companyId, veic, onFechar, onSalvo }: {
     let crlv: string | null = null;
     try {
       if (crlvArquivo) crlv = await enviarAnexo(companyId, veic ? `frota/${veic.id}` : "frota/cadastro", crlvArquivo);
-    } catch (e) { setErro((e as Error).message); return; }
+    } catch (e) { setErro(erroAmigavel(e)); return; }
     const id = await salvarVeiculo(crlv);
     if (!id) return;
     const pendentes = [...planos, ...(novoPlano.tipo.trim() ? [novoPlano] : [])];
@@ -331,7 +332,7 @@ function PainelVeiculo({ companyId, veic, onFechar, onSalvo }: {
         p_veiculo_id: id, p_tipo: p.tipo, p_intervalo_km: Number(p.intervalo_km),
         p_observacao: null, p_ultimo_km: p.ultimo_km ? Number(p.ultimo_km) : null, p_id: p.id ?? null,
       });
-      if (error) { setErro(error.message); return; }
+      if (error) { setErro(erroAmigavel(error)); return; }
     }
     setMsg("Salvo.");
     setCrlvArquivo(null);
@@ -494,7 +495,7 @@ function ExcluirVeiculo({ id, onFeito }: { id: string; onFeito: () => void }) {
   const [erro, setErro] = useState<string | null>(null);
   async function excluir() {
     const { error } = await supabase.rpc("fn_hub_frota_veiculo_excluir", { p_id: id, p_motivo: motivo });
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error)); return; }
     onFeito();
   }
   return (
@@ -520,7 +521,7 @@ function AbaCustos({ companyId, veiculo }: { companyId: string; veiculo: Veiculo
     const { data, error } = await supabase.from("erp_hub_frota_custo")
       .select("id, categoria, descricao, valor, fornecedor_nome, data_custo, documento, anexo_path, entra_base_fiscal")
       .eq("veiculo_id", veiculo.id).is("excluido_em", null).order("data_custo", { ascending: false });
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error)); return; }
     setLista((data ?? []) as Custo[]);
   }, [veiculo.id]);
   useEffect(() => { void carregar(); }, [carregar]);
@@ -533,11 +534,11 @@ function AbaCustos({ companyId, veiculo }: { companyId: string; veiculo: Veiculo
         p_company_id: companyId, p_id: null,
         p_dados: { veiculo_id: veiculo.id, ...f, valor: decimal(f.valor), anexo_path: anexo },
       });
-      if (error) { setErro(error.message); return; }
+      if (error) { setErro(erroAmigavel(error)); return; }
       setF(CUSTO_VAZIO); setArquivo(null);
       void carregar();
     } catch (e) {
-      setErro((e as Error).message);
+      setErro(erroAmigavel(e));
     } finally {
       setEnviando(false);
     }
@@ -547,7 +548,7 @@ function AbaCustos({ companyId, veiculo }: { companyId: string; veiculo: Veiculo
     const motivo = window.prompt("Motivo da exclusão deste custo:");
     if (!motivo) return;
     const { error } = await supabase.rpc("fn_hub_frota_custo_excluir", { p_id: id, p_motivo: motivo });
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error)); return; }
     void carregar();
   }
 
@@ -623,11 +624,11 @@ function AbaDocumentos({ companyId, veiculo, onFeito }: { companyId: string; vei
         p_company_id: companyId, p_id: null,
         p_dados: { veiculo_id: veiculo.id, tipo: f.tipo, vencimento: f.vencimento, valor: decimal(f.valor), anexo_path: anexo },
       });
-      if (error) { setErro(error.message); return; }
+      if (error) { setErro(erroAmigavel(error)); return; }
       setF(DOC_VAZIO); setArquivo(null);
       onFeito();
     } catch (e) {
-      setErro((e as Error).message);
+      setErro(erroAmigavel(e));
     } finally {
       setEnviando(false);
     }
@@ -678,7 +679,7 @@ function LinhaDoc({ d, onFeito }: { d: Doc; onFeito: () => void }) {
     setErro(null);
     if (!novo) { setErro("Informe o novo vencimento."); return; }
     const { error } = await supabase.rpc("fn_hub_frota_documento_renovar", { p_id: d.id, p_vencimento: novo, p_valor: null, p_anexo: null });
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error)); return; }
     setRenovando(false); setNovo("");
     onFeito();
   }
@@ -687,7 +688,7 @@ function LinhaDoc({ d, onFeito }: { d: Doc; onFeito: () => void }) {
     const motivo = window.prompt("Motivo da exclusão deste documento:");
     if (!motivo) return;
     const { error } = await supabase.rpc("fn_hub_frota_documento_excluir", { p_id: d.id, p_motivo: motivo });
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error)); return; }
     onFeito();
   }
 
@@ -741,12 +742,12 @@ function AbaManutencoes({ companyId, veiculo }: { companyId: string; veiculo: Ve
     try {
       const anexo = arquivo ? await enviarAnexo(companyId, `frota/${veiculo.id}`, arquivo) : null;
       const { error } = await supabase.rpc("fn_hub_frota_manutencao_registrar", { p_veiculo_id: veiculo.id, p_dados: { ...r, anexo_path: anexo } });
-      if (error) { setErro(error.message); return; }
+      if (error) { setErro(erroAmigavel(error)); return; }
       setR({ ...r, data: "", km: "", valor: "", fornecedor: "", descricao: "" });
       setArquivo(null);
       void carregar();
     } catch (e) {
-      setErro(e instanceof Error ? e.message : "Não foi possível registrar a manutenção.");
+      setErro(erroAmigavel(e, "Não foi possível registrar a manutenção. Tente de novo."));
     } finally {
       setEnviando(false);
     }
@@ -756,7 +757,7 @@ function AbaManutencoes({ companyId, veiculo }: { companyId: string; veiculo: Ve
     const motivo = window.prompt("Motivo da exclusão desta manutenção:");
     if (!motivo) return;
     const { error } = await supabase.rpc("fn_hub_frota_manutencao_excluir", { p_registro_id: id, p_motivo: motivo });
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error)); return; }
     void carregar();
   }
 

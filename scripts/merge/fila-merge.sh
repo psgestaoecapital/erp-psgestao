@@ -511,7 +511,7 @@ Continuam obrigatórios: gates, guarda de funções, réguas, compilação, prev
 
 # Verificação de checks do commit de cabeça. $2 = rapida | revisada. Ecoa: ok | esperar:<motivo> | vermelho:<motivo>
 estado_checks() {
-  local sha=$1 via=${2:-revisada} so_docs=${3:-0} n=${4:-} regime_disp=${5:-0} acc_quar=0 base_main falhos quar_novos linhas pend verm canc acc esgotou id vercel_ok vercel_ruim acc_conc acc_url acc_run proprios
+  local sha=$1 via=${2:-revisada} so_docs=${3:-0} n=${4:-} regime_disp=${5:-0} acc_quar=0 base_main falhos quar_novos linhas pend verm canc acc esgotou id vercel_ok bp acc_conc acc_url acc_run proprios
   linhas=$(api "repos/$REPO/commits/$sha/check-runs?per_page=100" --paginate \
     --jq '.check_runs[] | select(.name != "fila") | [.name, .status, (.conclusion // "-"), .details_url] | @tsv')
   # REGRA DO TESTE PRÓPRIO (CEO 16/10): dentro da janela da aceitação revisada (#2665) a aceitação é informativa — MAS se um
@@ -681,14 +681,20 @@ estado_checks() {
     acc=$(awk -F'\t' '$1 == "aceitacao" {print $3}' <<< "$linhas" | tail -1)
     case "$acc" in success|skipped|neutral) ;; '') echo "esperar:aceitação (preview) ainda não rodou"; return;; *) echo "vermelho:aceitação $acc"; return;; esac
   fi
-  # Vercel (preview): status de commit ou check-run cujo nome começa com Vercel — só build REAL conta como verde
-  # (build pulado aparece como success "Canceled by Ignored Build Step": conta como pendente)
+  # COMPILAÇÃO (CEO 10/11, custo da Vercel): o `next build` SAIU do preview da Vercel (desligado em
+  # scripts/vercel-ignore.mjs) e roda no GitHub Actions (build-pr.yml → check "build-pr"), de graça. O check "build-pr"
+  # já entra no cálculo geral de pendentes/vermelhos acima (pendente = espera; failure = vermelho); aqui exigimos que ele
+  # EXISTA e esteja verde — como se exigia o preview da Vercel. Preview pulado ("Canceled by Ignored Build Step") nunca
+  # contou e segue sem contar. TRANSIÇÃO: aceita também um preview REAL da Vercel já verde (head antigo, aberto antes
+  # desta mudança, que ainda não ganhou o build-pr — ao sincronizar com a main ele passa a ter o build-pr). Gate:
+  # check-vercel-build.ts.
+  bp=$(awk -F'\t' '$1 == "build-pr" {print $3}' <<< "$linhas" | tail -1)
+  [ "$bp" = success ] && { echo ok; return; }
   vercel_ok=$( { api "repos/$REPO/commits/$sha/status" --jq '.statuses[] | select(.context | startswith("Vercel"))
-                   | if (.state == "success" and ((.description // "") | test("cancel|ignor"; "i"))) then "pending" else .state end'
+                   | if (.state == "success" and ((.description // "") | test("cancel|ignor"; "i"))) then "pending" else .state end' 2> /dev/null
                  awk -F'\t' '$1 ~ /^Vercel/ {print $3}' <<< "$linhas"; } | sort -u)
-  vercel_ruim=$(grep -vE '^(success)$' <<< "$vercel_ok" | grep -v '^$' || true)
-  [ -n "$vercel_ok" ] || { echo "esperar:Vercel ainda não respondeu"; return; }
-  case "$vercel_ruim" in '') echo ok;; *pending*) echo "esperar:Vercel em andamento";; *) echo "vermelho:Vercel $vercel_ruim";; esac
+  grep -qx success <<< "$vercel_ok" && { echo ok; return; }
+  echo "esperar:compilação (build-pr) ainda não rodou"; return
 }
 
 # (c) autorização pelo conteúdo. Ecoa: ok | vermelho:<motivo>
@@ -773,8 +779,9 @@ proxima_versao() {
 # Retorna 0 se renumerou (a PR segue no próximo commit) e 1 se não pôde (quem chama recusa como antes). Não renumera se
 # outro arquivo da PR cita a versão antiga (gate/spec que lê a migration pelo nome): aí a decisão é de quem fez a PR.
 renumerar_migrations() {
-  local n=$1 pj=$2 ult=$3 baixas=$4 via=$5 ref piso f v rest novo c b64 fsha lista=''
-  ref=$(jq -r .head.ref <<< "$pj"); piso=$ult
+  local n=$1 pj=$2 ult=$3 baixas=$4 via=$5 ref head tree tree_novo commit piso f v rest novo c fsha lista='' resumo='' entradas='[]'
+  ref=$(jq -r .head.ref <<< "$pj"); head=$(jq -r .head.sha <<< "$pj"); piso=$ult
+  { [ -n "$head" ] && [ "$head" != null ]; } || return 1
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     v=${f:0:14}
@@ -782,19 +789,33 @@ renumerar_migrations() {
       log "#$n: outro arquivo da PR cita a versão $v: não renumero sozinha"; return 1
     fi
   done <<< "$baixas"
+  # CEO 09/11 (corte de build da Vercel): UM commit só, com o rename (árvore nova = nome novo + nome antigo removido,
+  # mesmo blob). O par PUT+DELETE pelo contents gerava 2 commits = 2 builds de preview por renumeração. Base é o head da
+  # PR (`pj`) e a ref avança sem force: se a branch andou no meio, o PATCH recusa e a rodada não renumera nada.
+  tree=$(api "repos/$REPO/git/commits/$head" --jq .tree.sha) || return 1
+  { [ -n "$tree" ] && [ "$tree" != null ]; } || return 1
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     v=${f:0:14}; rest=${f:15}
     novo=$(proxima_versao "$piso" "${v:12:2}"); piso=$novo
-    c=$(api "repos/$REPO/contents/supabase/migrations/$f?ref=$ref") || return 1
-    b64=$(jq -r .content <<< "$c" | tr -d '\n'); fsha=$(jq -r .sha <<< "$c")
-    { [ -n "$b64" ] && [ "$fsha" != null ]; } || return 1
-    api -X PUT "repos/$REPO/contents/supabase/migrations/${novo}_$rest" -f message="fila: renumera migration $v para $novo (acima da última da main $ult)" -f content="$b64" -f branch="$ref" > /dev/null || return 1
-    api -X DELETE "repos/$REPO/contents/supabase/migrations/$f" -f message="fila: remove migration $v (renumerada para $novo)" -f sha="$fsha" -f branch="$ref" > /dev/null || return 1
+    c=$(api "repos/$REPO/contents/supabase/migrations/$f?ref=$head") || return 1
+    fsha=$(jq -r .sha <<< "$c")   # sha do BLOB: o conteúdo não muda, só o nome do arquivo
+    { [ -n "$fsha" ] && [ "$fsha" != null ]; } || return 1
+    entradas=$(jq --arg nw "supabase/migrations/${novo}_$rest" --arg old "supabase/migrations/$f" --arg b "$fsha" \
+      '. + [{path: $nw, mode: "100644", type: "blob", sha: $b}, {path: $old, mode: "100644", type: "blob", sha: null}]' <<< "$entradas") || return 1
     lista="$lista
 - \`${v}_$rest\` → \`${novo}_$rest\`"
+    resumo="$resumo ${v} → ${novo};"
   done <<< "$baixas"
-  log "#$n: migration(s) renumerada(s) pela fila"
+  tree_novo=$(jq -n --arg base "$tree" --argjson t "$entradas" '{base_tree: $base, tree: $t}' \
+    | api -X POST "repos/$REPO/git/trees" --input - --jq .sha) || return 1
+  { [ -n "$tree_novo" ] && [ "$tree_novo" != null ]; } || return 1
+  commit=$(jq -n --arg m "fila: renumera migration(s) acima da última da main $ult (conteúdo idêntico):$resumo" \
+    --arg t "$tree_novo" --arg p "$head" '{message: $m, tree: $t, parents: [$p]}' \
+    | api -X POST "repos/$REPO/git/commits" --input - --jq .sha) || return 1
+  { [ -n "$commit" ] && [ "$commit" != null ]; } || return 1
+  jq -n --arg s "$commit" '{sha: $s}' | api -X PATCH "repos/$REPO/git/refs/heads/$ref" --input - > /dev/null || return 1
+  log "#$n: migration(s) renumerada(s) pela fila (1 commit:$resumo)"
   # Eng. Chefe 02/11: a renumeração só troca o NOME do arquivo (conteúdo idêntico — e esta função recusa acima se outro
   # arquivo cita a versão). O patch-id ESTÁVEL (patch-id-lib.sh normaliza supabase/migrations/<14 díg>_) NÃO muda, então
   # a autorização do revisor CONTINUA VALENDO (provado em check-fila-patchid-estavel). Por isso NÃO tiramos/recolocamos a

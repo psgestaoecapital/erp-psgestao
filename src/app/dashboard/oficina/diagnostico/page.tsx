@@ -366,7 +366,7 @@ export default function DiagnosticoPage() {
       <div style={{ maxWidth: 560, margin: '0 auto', padding: '16px 14px 40px' }}>
         <button onClick={() => router.push('/dashboard/oficina/patio')} style={linkBtn}><ChevronLeft size={16} /> Pátio</button>
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginTop: 6 }}>🔧 Oficina · Diagnóstico</div>
-        <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}><Stethoscope size={22} /> Qual {ramo.objetoLabelCurto} diagnosticar?</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}><Stethoscope size={22} /> Qual {ramo.objetoLabelCurto} diagnosticar?<AjudaCampo chave="oficina.diagnostico.selecao" rota="/dashboard/oficina/diagnostico" /></h1>
         {lista.length > 0 && (
           <div style={{ marginBottom: 12 }}>
             <label style={{ display: 'block' }}>
@@ -377,6 +377,7 @@ export default function DiagnosticoPage() {
         )}
         {lista.length === 0 && <div style={{ color: ESP60, fontSize: 14, padding: '20px 0' }}>{ramo.automotivo ? 'Nenhum veículo ativo no pátio.' : 'Nada ativo no pátio.'} Faça a recepção primeiro.</div>}
         {lista.length > 0 && buscaOS.trim() && filtrarOS(lista, buscaOS).length === 0 && <div style={{ color: ESP60, fontSize: 14, padding: '12px 0' }}>Nenhuma OS encontrada para “{buscaOS.trim()}”.</div>}
+        {lista.length > 0 && <div style={{ fontSize: 11, color: ESP60, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>Toque num card para abrir o diagnóstico — cada um mostra placa, {ramo.objetoLabelCurto}, cliente e a queixa.<AjudaCampo chave="oficina.diagnostico.lista" rota="/dashboard/oficina/diagnostico" /></div>}
         {filtrarOS(lista, buscaOS).map((os) => (
           <div key={os.id} onClick={() => void abrirOS(os)} style={{ width: '100%', textAlign: 'left', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 10, cursor: 'pointer' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
@@ -385,7 +386,7 @@ export default function DiagnosticoPage() {
             </div>
             <div style={{ fontSize: 13, color: ESP, marginTop: 3 }}>{[os.marca, os.modelo].filter(Boolean).join(' ') || ramo.objetoLabel}{os.cliente_nome ? ` · ${os.cliente_nome}` : ''}</div>
             {os.defeito_relatado && <div style={{ fontSize: 12, color: ESP60, marginTop: 4 }}>“{os.defeito_relatado}”</div>}
-            {os.tem_laudo && <div style={{ fontSize: 11, fontWeight: 700, color: OK, marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Check size={13} /> já tem laudo — toque p/ editar</div>}
+            {os.tem_laudo && <div style={{ fontSize: 11, fontWeight: 700, color: OK, marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Check size={13} /> já tem laudo — toque p/ editar<AjudaCampo chave="oficina.diagnostico.selo_laudo" rota="/dashboard/oficina/diagnostico" /></div>}
           </div>
         ))}
       </div>
@@ -402,12 +403,12 @@ export default function DiagnosticoPage() {
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: '2px 0 4px' }}>{osSel.placa} · {osSel.marca} {osSel.modelo}</h1>
         {osSel.defeito_relatado && <div style={{ fontSize: 13, color: ESP60, marginBottom: 12 }}>Queixa do cliente: “{osSel.defeito_relatado}”</div>}
 
-        <Sec titulo={ramo.automotivo ? 'Causa provável (o que o carro tem)' : 'Causa provável (o que foi constatado)'}>
+        <Sec ajuda="oficina.diagnostico.causa" titulo={ramo.automotivo ? 'Causa provável (o que o carro tem)' : 'Causa provável (o que foi constatado)'}>
           <textarea value={diagnostico} onChange={(e) => setDiagnostico(e.target.value)} rows={3} placeholder="Ex.: barulho ao frear — pastilha dianteira gasta e disco com sulco." style={{ ...inp, resize: 'vertical' }} />
-          <Campo l="KM confirmado"><input value={km} onChange={(e) => setKm(e.target.value.replace(/\D/g, ''))} inputMode="numeric" style={inp} /></Campo>
+          <Campo l="KM confirmado" ajuda="oficina.diagnostico.km"><input value={km} onChange={(e) => setKm(e.target.value.replace(/\D/g, ''))} inputMode="numeric" style={inp} /></Campo>
         </Sec>
 
-        <Sec titulo="Serviços & peças necessárias">
+        <Sec ajuda="oficina.diagnostico.servico_peca" titulo="Serviços & peças necessárias">
           {/* 3.2 · a tela escolhe SERVIÇO ou PEÇA — uma busca por vez. Toque grande (44px), sem ruído. */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
             {([['servico', 'Serviço', Wrench], ['peca', 'Peça', Package]] as const).map(([m, l, Icon]) => (
@@ -507,19 +508,20 @@ export default function DiagnosticoPage() {
               <input value={it.descricao} onChange={(e) => setItem(i, { descricao: e.target.value })} placeholder={it.tipo === 'peca' ? 'Qual peça?' : 'Qual serviço?'} style={{ ...inp, marginBottom: 8 }} />
               <div style={{ display: 'grid', gridTemplateColumns: it.tipo === 'peca' ? '1fr' : '1fr 1fr', gap: 8, marginBottom: 8 }}>
                 {it.tipo === 'peca'
-                  ? <Campo l="Qtd"><input value={it.quantidade} onChange={(e) => setItem(i, { quantidade: e.target.value.replace(/[^\d.,]/g, '') })} inputMode="decimal" data-testid="diag-item-qtd" style={inp} /></Campo>
-                  : <Campo l="Tempo estimado (h)"><input value={it.tempo_estimado_h} onChange={(e) => setItem(i, { tempo_estimado_h: e.target.value.replace(/[^\d.,]/g, '') })} inputMode="decimal" style={inp} /></Campo>}
-                {it.tipo === 'servico' && <Campo l="Qtd"><input value={it.quantidade} onChange={(e) => setItem(i, { quantidade: e.target.value.replace(/[^\d.,]/g, '') })} inputMode="decimal" data-testid="diag-item-qtd" style={inp} /></Campo>}
+                  ? <Campo l="Qtd" ajuda="oficina.diagnostico.quantidade"><input value={it.quantidade} onChange={(e) => setItem(i, { quantidade: e.target.value.replace(/[^\d.,]/g, '') })} inputMode="decimal" data-testid="diag-item-qtd" style={inp} /></Campo>
+                  : <Campo l="Tempo estimado (h)" ajuda="oficina.diagnostico.tempo_estimado"><input value={it.tempo_estimado_h} onChange={(e) => setItem(i, { tempo_estimado_h: e.target.value.replace(/[^\d.,]/g, '') })} inputMode="decimal" style={inp} /></Campo>}
+                {it.tipo === 'servico' && <Campo l="Qtd" ajuda="oficina.diagnostico.quantidade"><input value={it.quantidade} onChange={(e) => setItem(i, { quantidade: e.target.value.replace(/[^\d.,]/g, '') })} inputMode="decimal" data-testid="diag-item-qtd" style={inp} /></Campo>}
               </div>
               {/* #135 · atendimento centralizado: preço unitário já no Diagnóstico (item aprovado/recusado não muda aqui) */}
               {podePreco && it.status_item !== 'aprovado' && it.status_item !== 'recusado' && (
                 <div style={{ marginBottom: 8 }}>
-                  <Campo l="Preço unitário (R$)">
+                  <Campo l="Preço unitário (R$)" ajuda="oficina.diagnostico.preco_unitario">
                     <input value={it._preco ?? ''} onChange={(e) => setItem(i, { _preco: e.target.value.replace(/[^\d.,]/g, '') })}
                       inputMode="decimal" placeholder="0,00" data-testid="diag-item-preco" style={inp} />
                   </Campo>
                 </div>
               )}
+              <div style={{ fontSize: 11, color: ESP60, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>Severidade <AjudaCampo chave="oficina.diagnostico.severidade" /></div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {SEVERIDADES.map((s) => (
                   <button key={s.v} onClick={() => setItem(i, { severidade: s.v })} style={{ ...chip, borderColor: it.severidade === s.v ? s.c : LINE, background: it.severidade === s.v ? s.c : '#fff', color: it.severidade === s.v ? '#fff' : s.c }}>{s.l}</button>
@@ -758,16 +760,16 @@ export default function DiagnosticoPage() {
   )
 }
 
-function Sec({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+function Sec({ titulo, children, ajuda }: { titulo: string; children: React.ReactNode; ajuda?: string }) {
   return (
     <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 14, padding: 14, marginBottom: 12 }}>
-      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 10 }}>{titulo}</div>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 4 }}>{titulo}{ajuda && <AjudaCampo chave={ajuda} />}</div>
       {children}
     </div>
   )
 }
-function Campo({ l, children }: { l: string; children: React.ReactNode }) {
-  return <div><div style={{ fontSize: 11, color: ESP60, marginBottom: 4 }}>{l}</div>{children}</div>
+function Campo({ l, children, ajuda }: { l: string; children: React.ReactNode; ajuda?: string }) {
+  return <div><div style={{ fontSize: 11, color: ESP60, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>{l}{ajuda && <AjudaCampo chave={ajuda} />}</div>{children}</div>
 }
 function Toast({ children }: { children: React.ReactNode }) {
   return <div style={{ position: 'fixed', bottom: 74, left: '50%', transform: 'translateX(-50%)', background: ESP, color: '#fff', padding: '10px 16px', borderRadius: 999, fontSize: 13, zIndex: 70, maxWidth: '92%', textAlign: 'center' }}>{children}</div>
