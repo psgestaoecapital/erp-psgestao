@@ -59,6 +59,8 @@ export default function FuncionariosPage() {
   const [modalAberto, setModalAberto] = useState(false)
   const [importando, setImportando] = useState(false)
   const [msgImport, setMsgImport] = useState<string | null>(null)
+  // id do funcionário cuja ação (desligar/reativar) está em andamento — desabilita o botão da própria linha
+  const [acaoBusy, setAcaoBusy] = useState<string | null>(null)
 
   // useCompanyIds devolve um array novo a cada render — estabiliza pelo CSV ordenado.
   const companyIdsKey = useMemo(() => [...(companyIds ?? [])].sort().join(','), [companyIds])
@@ -107,6 +109,39 @@ export default function FuncionariosPage() {
   useEffect(() => {
     carregar()
   }, [carregar])
+
+  // RD-98 p2/g: desligar/reativar direto na lista. Reusa a API existente (DELETE = soft-delete ativo=false + data_demissao;
+  // PATCH ativo=true = reativa), que já valida o acesso à empresa do registro. Soft-delete rastreável e reversível.
+  async function desligar(f: Funcionario) {
+    if (!window.confirm(`Desligar ${f.nome_completo}?\n\nA ficha e o histórico de compliance ficam guardados e dá para reativar depois. Registra a data de desligamento.`)) return
+    setAcaoBusy(f.id)
+    setErro(null)
+    try {
+      const res = await authFetch(`/api/compliance/funcionarios/${f.id}`, { method: 'DELETE' })
+      const j = await res.json()
+      if (!j.ok) throw new Error(j.error || 'falha')
+      await carregar()
+    } catch (e: any) {
+      setErro(e.message)
+    } finally {
+      setAcaoBusy(null)
+    }
+  }
+  async function reativar(f: Funcionario) {
+    if (!window.confirm(`Reativar ${f.nome_completo}?\n\nEle volta para a lista de ativos e a data de desligamento é limpa.`)) return
+    setAcaoBusy(f.id)
+    setErro(null)
+    try {
+      const res = await authFetch(`/api/compliance/funcionarios/${f.id}`, { method: 'PATCH', body: JSON.stringify({ ativo: true, data_demissao: null }) })
+      const j = await res.json()
+      if (!j.ok) throw new Error(j.error || 'falha')
+      await carregar()
+    } catch (e: any) {
+      setErro(e.message)
+    } finally {
+      setAcaoBusy(null)
+    }
+  }
 
   const funcsFiltrados = useMemo(() => {
     return funcs.filter((f: Funcionario) => {
@@ -300,9 +335,34 @@ export default function FuncionariosPage() {
                         <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{f.compliance_resumo?.em_dia ?? 0} / {f.compliance_resumo?.total ?? 0} em dia</div>
                       </Td>
                       <Td>
-                        <Link href={`/dashboard/compliance/funcionarios/${f.id}`} style={{ padding: '6px 12px', borderRadius: 6, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 12, fontWeight: 600, textDecoration: 'none' }}>
-                          Abrir
-                        </Link>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <Link href={`/dashboard/compliance/funcionarios/${f.id}`} style={{ padding: '6px 12px', borderRadius: 6, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 12, fontWeight: 600, textDecoration: 'none' }}>
+                            Abrir
+                          </Link>
+                          {f.ativo ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                              <button
+                                onClick={() => desligar(f)}
+                                disabled={acaoBusy === f.id}
+                                style={{ padding: '6px 12px', borderRadius: 6, border: `1px solid ${C.red}`, backgroundColor: 'white', color: C.red, fontSize: 12, fontWeight: 600, cursor: acaoBusy === f.id ? 'not-allowed' : 'pointer', opacity: acaoBusy === f.id ? 0.6 : 1 }}
+                              >
+                                {acaoBusy === f.id ? '…' : 'Desligar'}
+                              </button>
+                              <AjudaCampo chave="compliance.funcionarios.acao_desligar" rota={ROTA} />
+                            </span>
+                          ) : (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                              <button
+                                onClick={() => reativar(f)}
+                                disabled={acaoBusy === f.id}
+                                style={{ padding: '6px 12px', borderRadius: 6, border: `1px solid ${C.green}`, backgroundColor: 'white', color: C.green, fontSize: 12, fontWeight: 600, cursor: acaoBusy === f.id ? 'not-allowed' : 'pointer', opacity: acaoBusy === f.id ? 0.6 : 1 }}
+                              >
+                                {acaoBusy === f.id ? '…' : 'Reativar'}
+                              </button>
+                              <AjudaCampo chave="compliance.funcionarios.acao_reativar" rota={ROTA} />
+                            </span>
+                          )}
+                        </div>
                       </Td>
                     </tr>
                   )
