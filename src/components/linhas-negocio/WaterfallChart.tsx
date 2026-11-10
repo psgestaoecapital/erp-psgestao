@@ -1,6 +1,7 @@
 'use client'
 import React from 'react'
 import type { DREPorLinha } from '@/types/linhas-negocio'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 // Design system PS premium (RD-96) — mesma paleta das telas irmãs da jornada (Divisões / Linhas de negócio).
 // Antes: tokens genéricos do shadcn/tailwind (text-muted-foreground, bg-muted, text-green/red/yellow-600) destoavam
@@ -24,9 +25,12 @@ export default function WaterfallChart({ linhas, onLinhaClick }: Props) {
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between mb-3">
-        <p className="text-xs uppercase tracking-wide" style={{ color: TEXTM }}>
-          Contribuição Marginal (CM3) por linha
-        </p>
+        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+          <p className="text-xs uppercase tracking-wide" style={{ color: TEXTM }}>
+            Contribuição Marginal (CM3) por linha
+          </p>
+          <AjudaCampo chave='ge.linhas.waterfall_cm3' rota='/dashboard/linhas-negocio' />
+        </span>
         <p className="text-sm font-medium">{fmt(total)}</p>
       </div>
       {linhas.sort((a, b) => b.cm3 - a.cm3).map(l => {
