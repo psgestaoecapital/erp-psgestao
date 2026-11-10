@@ -54,8 +54,11 @@ export default function PropostasHubPage() {
   const [busca, setBusca] = useState('')
   const [filtro, setFiltro] = useState('todos')
   const [meuId, setMeuId] = useState<string | null>(null)
+  const [meuNome, setMeuNome] = useState<string | null>(null)
   const [soMeus, setSoMeus] = useState(false)
   const [usuariosPorEmpresa, setUsuariosPorEmpresa] = useState<Record<string, { id: string; full_name: string | null; email: string | null; is_active?: boolean }[]>>({})
+  // #3270 — última atribuição do orçamentista por proposta (quem atribuiu/trocou/removeu e quando)
+  const [histOrc, setHistOrc] = useState<Record<string, { por: string | null; em: string; acao: string }>>({})
   const [comp, setComp] = useState<Record<string, Composicao>>({})
   const [compErro, setCompErro] = useState(false)
   const [orig, setOrig] = useState<Record<string, Origem>>({})
@@ -136,8 +139,31 @@ export default function PropostasHubPage() {
     } catch { setErro(MSG_CARREGAMENTO_FALHOU) } finally { setLoading(false) }
   }, [companyIds, carregarOrigem])
   useEffect(() => { carregar() }, [carregar])
-  // Quem está logado — para o filtro "meus orçamentos" (compara com orcamentista_id)
-  useEffect(() => { let vivo = true; supabase.auth.getUser().then(({ data }) => { if (vivo) setMeuId(data.user?.id ?? null) }).catch(() => {}); return () => { vivo = false } }, [])
+  // Quem está logado — para o filtro "meus orçamentos" (compara com orcamentista_id) e para o rastro da atribuição (#3270)
+  useEffect(() => { let vivo = true; void supabase.auth.getUser().then(async ({ data }) => {
+    if (!vivo) return
+    const id = data.user?.id ?? null
+    setMeuId(id)
+    if (id) { const { data: u } = await supabase.from('users').select('full_name').eq('id', id).maybeSingle(); if (vivo) setMeuNome(((u as { full_name?: string | null } | null)?.full_name) ?? null) }
+  }).catch(() => {}); return () => { vivo = false } }, [])
+  // #3270 — carrega a última atribuição do orçamentista de cada proposta (RLS por empresa na tabela)
+  useEffect(() => {
+    const ids = linhas.map(l => l.id)
+    if (!ids.length) { setHistOrc({}); return }
+    let vivo = true
+    void (async () => {
+      const { data } = await supabase.from('erp_orcamento_orcamentista_hist')
+        .select('orcamento_id,atribuido_por_nome,acao,criado_em')
+        .in('orcamento_id', ids).order('criado_em', { ascending: false })
+      if (!vivo) return
+      const m: Record<string, { por: string | null; em: string; acao: string }> = {}
+      for (const r of ((data || []) as { orcamento_id: string; atribuido_por_nome: string | null; acao: string; criado_em: string }[])) {
+        if (!m[r.orcamento_id]) m[r.orcamento_id] = { por: r.atribuido_por_nome, em: r.criado_em, acao: r.acao }
+      }
+      setHistOrc(m)
+    })()
+    return () => { vivo = false }
+  }, [linhas])
   // #3270/#3271 — orçamentistas da empresa, para ATRIBUIR na própria linha da lista do Hub (mesma fonte/update de /dashboard/orcamentos, sem sair do Hub)
   useEffect(() => {
     if (!companyIds?.length) return
@@ -155,6 +181,10 @@ export default function PropostasHubPage() {
     const { error } = await supabase.from('erp_orcamentos').update({ orcamentista_id: uid || null, orcamentista_nome: uid ? nome : null }).eq('id', l.id)
     if (error) { setMsgErro(erroAmigavel(error, 'Não foi possível atribuir o orçamentista.')); return }
     setLinhas(ls => ls.map(x => x.id === l.id ? { ...x, orcamentista_id: uid || null, orcamentista_nome: uid ? nome : null } : x))
+    // #3270 — registra quem atribuiu/trocou/removeu (rastro; não bloqueia a atribuição se o log falhar)
+    const acao = uid ? (l.orcamentista_id && l.orcamentista_id !== uid ? 'trocado' : 'atribuido') : 'removido'
+    setHistOrc(h => ({ ...h, [l.id]: { por: meuNome ?? 'você', em: new Date().toISOString(), acao } }))
+    void supabase.rpc('fn_orcamento_orcamentista_log', { p_orcamento_id: l.id, p_orcamentista_id: uid || null, p_orcamentista_nome: uid ? nome : null, p_acao: acao }).catch(() => {})
     setMsg(uid ? `${nome ?? 'Orçamentista'} agora é o orçamentista de ${l.numero ?? 'proposta'}.` : `Orçamentista removido de ${l.numero ?? 'proposta'}.`); setMsgErro(''); setTimeout(() => setMsg(''), 3000)
   }
 
@@ -375,6 +405,12 @@ export default function PropostasHubPage() {
                           )
                         })()}
                         {meuId && l.orcamentista_id === meuId && <span style={{ display: 'block', color: GOLD, fontWeight: 600, marginTop: 2 }}>você</span>}
+                        {histOrc[l.id] && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 2, color: MUT, fontSize: 10.5 }} data-testid="hub-proposta-orcamentista-hist">
+                            {histOrc[l.id].acao === 'removido' ? 'removido por' : 'por'} {histOrc[l.id].por || '—'} · {new Date(histOrc[l.id].em).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                            <AjudaCampo chave="projetos.propostas.orcamentista_hist" />
+                          </span>
+                        )}
                       </td>
                       <td style={{ padding: '8px 12px', fontSize: 12, maxWidth: 220 }} data-testid="hub-proposta-origem">
                         {origErro ? '—' : !temOrigem(o) ? <span style={{ color: MUT }}>avulsa</span> : (
