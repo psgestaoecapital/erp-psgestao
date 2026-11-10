@@ -2,6 +2,7 @@
 
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import PessoasList from '@/components/cadastros/PessoasList'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 export default function Page() {
   const { companyIds, selInfo } = useCompanyIds()
@@ -15,14 +16,20 @@ export default function Page() {
   return (
     <>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', padding: '12px 16px 0' }}>
-        <a href="/modelos/MODELO_importacao_cadastros_PS_fornecedores.xlsx" download
-          style={{ border: '1px solid #C8941A', color: '#C8941A', background: '#fff', padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
-          ⬇ Baixar planilha modelo
-        </a>
-        <a href="/dashboard/cadastros/fornecedores/importar"
-          style={{ border: '1px solid #3D2314', color: '#3D2314', background: '#fff', padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
-          ⬆ Importar planilha
-        </a>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <a href="/modelos/MODELO_importacao_cadastros_PS_fornecedores.xlsx" download
+            style={{ border: '1px solid #C8941A', color: '#C8941A', background: '#fff', padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
+            ⬇ Baixar planilha modelo
+          </a>
+          <AjudaCampo chave="cadastros.fornecedor.modelo" rota="/dashboard/cadastros/fornecedores" />
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <a href="/dashboard/cadastros/fornecedores/importar"
+            style={{ border: '1px solid #3D2314', color: '#3D2314', background: '#fff', padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
+            ⬆ Importar planilha
+          </a>
+          <AjudaCampo chave="cadastros.fornecedor.importar" rota="/dashboard/cadastros/fornecedores" />
+        </span>
       </div>
       <PessoasList companyId={empresaUnica} tipo="fornecedor" />
     </>
