@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { dataReferenciaSaldoOFX, rotuloDataSaldo, dtendDoOFX, saldoOFXValido, AVISO_SALDO_INVALIDO } from '@/lib/financeiro/saldoPorConta'
 import { parseSaldoFechamento, ehLinhaSaldoOFX, parseValorOFX, decodificarOFX, mensagemErroOFX } from '@/lib/ofx-parser'
@@ -991,6 +992,7 @@ export default function InboxPage() {
           <button onClick={() => setModo('sistema')} style={modo === 'sistema' ? tabActive : tabInactive}>
             📥 Pendências do Sistema
           </button>
+          <AjudaCampo chave="financeiro.conciliacao.modo" />
         </div>
 
         {modo === 'extrato' && (
@@ -1015,7 +1017,9 @@ export default function InboxPage() {
                   fontSize: 12, fontWeight: 600, cursor: 'pointer',
                 }}
               >💳 Cartão</button>
+              <AjudaCampo chave="financeiro.conciliacao.tipo_extrato" />
             </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <select
               value={loteSelId ?? ''}
               onChange={(e) => setLoteSelId(e.target.value || null)}
@@ -1028,6 +1032,8 @@ export default function InboxPage() {
                 </option>
               ))}
             </select>
+            <AjudaCampo chave="financeiro.conciliacao.lote" />
+            </label>
 
             {loteSel && (
               <div style={{ background: '#FAF7F2', border: '0.5px solid #E7DED3', borderRadius: 10, padding: 12, marginBottom: 12 }}>
@@ -1057,10 +1063,12 @@ export default function InboxPage() {
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', cursor: 'pointer' }}>
             <input type="checkbox" checked={autoGlobal} onChange={(e) => void toggleAutoGlobal(e.target.checked)} />
             Auto-conciliar OURO desta empresa (perfeitos 1:1 entram sozinhos)
+            <AjudaCampo chave="financeiro.conciliacao.auto_ouro" />
           </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', cursor: 'pointer' }}>
             <input type="checkbox" checked={soOuro} onChange={(e) => setSoOuro(e.target.checked)} />
             Mostrar só matches OURO
+            <AjudaCampo chave="financeiro.conciliacao.so_ouro" />
           </label>
         </div>
 
@@ -1078,6 +1086,7 @@ export default function InboxPage() {
             onClick={() => setAba('ignorados')}
             style={aba === 'ignorados' ? tabActive : tabInactive}
           >Ignorados ({ignorados.length})</button>
+          <AjudaCampo chave="financeiro.conciliacao.abas" />
           {temExtratoApi && (
             <button
               onClick={sincronizarExtratoAgora}
@@ -1099,6 +1108,7 @@ export default function InboxPage() {
             style={{ ...tabInactive, borderStyle: 'dashed' }}
             data-testid="inbox-importar-ofx"
           >+ Importar extrato (OFX)</button>
+          <AjudaCampo chave="financeiro.conciliacao.importar_ofx" />
         </div>
 
         {/* Camada1/Fatia1: barra de indicadores (item 1 valor pendente + item 3 datas) */}
@@ -1116,14 +1126,17 @@ export default function InboxPage() {
         </div>
 
         {/* Camada1/Fatia1: busca (item 2) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
         <input
           type="text"
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
           placeholder="Pesquise descrição ou valor…"
-          style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '0.5px solid #E7DED3', fontSize: 13, background: '#FFF', color: '#3D2314', marginBottom: 12, fontFamily: 'inherit' }}
+          style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '0.5px solid #E7DED3', fontSize: 13, background: '#FFF', color: '#3D2314', fontFamily: 'inherit' }}
           data-testid="inbox-busca"
         />
+        <AjudaCampo chave="financeiro.conciliacao.busca" />
+        </div>
 
         {/* Camada1/Fatia1: contadores por natureza (item 4) — filtram a aba Pendentes */}
         {aba === 'pendentes' && (
