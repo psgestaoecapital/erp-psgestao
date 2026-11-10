@@ -79,9 +79,15 @@ export default function RenegociacaoPage() {
       <div style={{ maxWidth: 1080, margin: '0 auto' }}>
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700 }}>Financeiro · Contas a Receber</div>
         <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 26, fontWeight: 400, color: ESP, margin: '2px 0 14px' }}>Renegociação / Acerto</h1>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-          <button onClick={() => setAba('criar')} style={aba === 'criar' ? { ...btnG } : btnO}>Criar acerto</button>
-          <button onClick={() => setAba('consultar')} style={aba === 'consultar' ? { ...btnG } : btnO}>Consultar</button>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <button onClick={() => setAba('criar')} style={aba === 'criar' ? { ...btnG } : btnO}>Criar acerto</button>
+            <AjudaCampo chave="financeiro.renegociacao.aba_criar" />
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <button onClick={() => setAba('consultar')} style={aba === 'consultar' ? { ...btnG } : btnO}>Consultar</button>
+            <AjudaCampo chave="financeiro.renegociacao.aba_consultar" />
+          </span>
         </div>
         {aba === 'criar' ? <Criar companyId={companyId} /> : <Consultar companyId={companyId} />}
       </div>
@@ -284,7 +290,10 @@ function Criar({ companyId }: { companyId: string }) {
           <select value={contaId} onChange={(e) => setContaId(e.target.value)} style={inp}>
             <option value="">— todas —</option>{contas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
           </select></Campo>
-        <button onClick={() => buscar()} style={btnG}>Buscar títulos abertos</button>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <button onClick={() => buscar()} style={btnG}>Buscar títulos abertos</button>
+          <AjudaCampo chave="financeiro.renegociacao.buscar" />
+        </div>
       </div>
 
       {buscou && (
