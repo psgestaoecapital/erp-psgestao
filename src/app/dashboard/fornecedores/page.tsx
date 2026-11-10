@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import AjudaCampo from "@/components/ajuda/AjudaCampo";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 
 const ROTA_AJUDA = "/dashboard/fornecedores";
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
@@ -169,13 +170,14 @@ export default function FornecedoresPage(){
 
     if(editing){
       const{error}=await supabase.from("erp_fornecedores").update(dados).eq("id",editing.id);
-      if(error){setMsg("Erro: "+error.message);return;}
+      if(error){setMsg("❌ "+erroAmigavel(error,"Não foi possível salvar o fornecedor agora. Confira os dados e tente novamente."));return;}
       setMsg("✅ Fornecedor atualizado!");
     }else{
       const{error}=await supabase.from("erp_fornecedores").insert(dados);
       if(error){
         if(error.message.includes("unique"))setMsg("❌ CNPJ já cadastrado.");
-        else setMsg("Erro: "+error.message);return;
+        else setMsg("❌ "+erroAmigavel(error,"Não foi possível cadastrar o fornecedor agora. Confira os dados e tente novamente."));
+        return;
       }
       setMsg("✅ Fornecedor cadastrado!");
     }

@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { dataReferenciaSaldoOFX, rotuloDataSaldo, dtendDoOFX, saldoOFXValido, AVISO_SALDO_INVALIDO } from '@/lib/financeiro/saldoPorConta'
 import { parseSaldoFechamento, ehLinhaSaldoOFX, parseValorOFX, decodificarOFX, mensagemErroOFX } from '@/lib/ofx-parser'
 import { temConectorExtrato } from '@/lib/banco/extratoConector'
@@ -304,7 +305,7 @@ export default function InboxPage() {
       p_status: 'pendente',
       p_limite: 200,
     })
-    if (error) setErro(error.message)
+    if (error) setErro(erroAmigavel(error))
     setItems((data ?? []) as Item[])
     setLoading(false)
   }
@@ -388,7 +389,7 @@ export default function InboxPage() {
   // Reincluir (desfaz) → volta pra pendentes. Reversibilidade Pilar 1.
   async function reincluir(id: string) {
     const { data, error } = await supabase.rpc('fn_conciliacao_reincluir_movimento', { p_movimento_id: id })
-    if (error) { setErro('Erro ao reincluir: ' + error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não consegui reincluir o movimento agora. Tente de novo em instantes.')); return }
     const j = data as { sucesso?: boolean; erro?: string } | null
     if (!j?.sucesso) { setErro('Não foi possível reincluir: ' + (j?.erro ?? 'erro')); return }
     setAvisoOk('REINCLUIU · voltou para pendentes')
@@ -617,7 +618,7 @@ export default function InboxPage() {
       updated_at: new Date().toISOString(),
     })
     if (error) {
-      setErro('Erro ao salvar preferência: ' + error.message)
+      setErro(erroAmigavel(error, 'Não consegui salvar a preferência agora. Tente de novo em instantes.'))
       setAutoGlobal(!v)
     }
   }
@@ -724,7 +725,7 @@ export default function InboxPage() {
           p_operador_id: operadorId,
           p_origem: 'manual',
         })
-        if (error) setErro(error.message)
+        if (error) setErro(erroAmigavel(error))
         else {
           // aplicar_match sinaliza recusa por LINHA (status_resultado='erro'), não por exceção — ex.: a
           // trava anti-duplicação "Este título já foi conciliado" (FIX B) ou match de baixa confiança.
@@ -750,7 +751,7 @@ export default function InboxPage() {
       p_lancamento_id: it.sugestao_lancamento_id,
       p_operador_id: operadorId,
     })
-    if (error) setErro(error.message)
+    if (error) setErro(erroAmigavel(error))
     await carregar()
     const ns = new Set(aplicandoIds); ns.delete(it.movimento_id); setAplicandoIds(ns)
   }
@@ -764,7 +765,7 @@ export default function InboxPage() {
       p_max_sugestoes: 5,
     })
     if (error) {
-      setErro('Erro ao carregar sugestões: ' + error.message)
+      setErro(erroAmigavel(error, 'Não consegui carregar as sugestões agora. Tente de novo em instantes.'))
       setSugestoesPorMov({ ...sugestoesPorMov, [movId]: [] })
     } else {
       setSugestoesPorMov({ ...sugestoesPorMov, [movId]: (data ?? []) as SugestaoMatch[] })
@@ -806,7 +807,7 @@ export default function InboxPage() {
           p_operador_id: operadorId,
           p_origem: 'manual',
         })
-        if (error) { setErro(error.message) }
+        if (error) { setErro(erroAmigavel(error)) }
         else {
           // limpa cache e fecha expand
           const novo = { ...sugestoesPorMov }; delete novo[movId]; setSugestoesPorMov(novo)
@@ -829,7 +830,7 @@ export default function InboxPage() {
       p_lancamento_id: sug.lancamento_id,
       p_operador_id: operadorId,
     })
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error)); return }
     // remove a sugestao da lista local
     setSugestoesPorMov({
       ...sugestoesPorMov,
@@ -898,7 +899,7 @@ export default function InboxPage() {
       const { data, error } = await supabase.rpc('fn_conciliacao_desvincular_movimento', {
         p_movimento_id: c.movimento_id,
       })
-      if (error) { falhou('Erro ao desvincular: ' + error.message); return }
+      if (error) { falhou(erroAmigavel(error, 'Não consegui desvincular agora. Tente de novo em instantes.')); return }
       const r = (data ?? {}) as { sucesso?: boolean; erro?: string; msg?: string; aviso?: string }
       if (r.sucesso === false) { falhou('Não desvinculou: ' + (r.msg ?? r.erro ?? 'erro desconhecido')); return }
       await carregarConciliados()
@@ -914,7 +915,7 @@ export default function InboxPage() {
       p_lancamento_id: c.lancamento_id,
       p_tipo: c.lancamento_tabela.replace(/^erp_/, ''),
     })
-    if (error) { falhou('Erro ao desvincular: ' + error.message); return }
+    if (error) { falhou(erroAmigavel(error, 'Não consegui desvincular agora. Tente de novo em instantes.')); return }
     // a RPC retorna {sucesso:false, erro} sem erro SQL — antes era engolido
     const r = (data ?? {}) as { sucesso?: boolean; erro?: string }
     if (r.sucesso === false) { falhou('Não desvinculou: ' + (r.erro ?? 'erro desconhecido')); return }
