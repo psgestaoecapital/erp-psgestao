@@ -1,7 +1,7 @@
 // Cálculos da aba Logística do painel v7 (SPEC §2.7). Funções puras sobre o motor v5 (fonte bi_comercial_venda_item_mv).
 // Carga = número de carga do item (NUM_CARGA). Itens sem carga contam como "sem carga" (notas e kg retirados).
 // Peso da carga = soma do kg dos itens da carga (QTDE KG na análise de volume).
-import type { BaseV5, ModeloV5 } from '../meu-painel/motor-v5'
+import type { BaseV5, ModeloV5 } from './motor-v5'
 
 export const FAIXAS_PESO: [string, number, number][] = [
   ['Até 1 t', 0, 1000], ['1 a 2 t', 1000, 2000], ['2 a 3 t', 2000, 3000], ['3 a 5 t', 3000, 5000], ['5 a 10 t', 5000, 10000], ['Acima de 10 t', 10000, Infinity],

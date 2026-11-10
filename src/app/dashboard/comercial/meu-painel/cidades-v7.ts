@@ -1,7 +1,7 @@
 // Cálculos da aba Cidades do painel v7 (SPEC §2.4). Funções puras sobre o motor v5 (fonte bi_comercial_venda_item_mv).
 // Devolução por cidade = devoluções dos clientes da cidade (a devolução não traz cidade no cadastro do item).
 // Prazo por cidade = prazo médio de cada nota, ponderado pelo valor dos itens da cidade.
-import type { BaseV5, EstadoV5, GrupoProduto, ModeloV5 } from '../meu-painel/motor-v5'
+import type { BaseV5, EstadoV5, GrupoProduto, ModeloV5 } from './motor-v5'
 
 export type CidadeV7 = {
   ci: number; nome: string; uf: string

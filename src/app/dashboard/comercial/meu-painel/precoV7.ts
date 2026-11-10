@@ -2,7 +2,7 @@
 // Critério de "abaixo da tabela": diferença maior que R$ 0,05 (centavo de arredondamento não conta).
 // Faixas por item: Acima da tabela (praticado > tabela); Na tabela (diferença de até R$ 0,05);
 // depois as faixas de desconto percentual sobre a tabela: 0,01–2%, 2–5%, 5–10%, mais de 10%.
-import type { BaseV5, EstadoV5, ModeloV5 } from '../meu-painel/motor-v5'
+import type { BaseV5, EstadoV5, ModeloV5 } from './motor-v5'
 
 export const FAIXAS_PRECO = ['Acima da tabela', 'Na tabela', '0,01–2%', '2–5%', '5–10%', 'Mais de 10%'] as const
 export type FaixaPreco = typeof FAIXAS_PRECO[number]
