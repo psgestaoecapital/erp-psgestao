@@ -55,6 +55,8 @@ export default function FluxoCaixaPage() {
   const empresaUnica = companyIds.length === 1 ? companyIds[0] : null
 
   const [periodo, setPeriodo] = useState<7 | 30 | 90>(30)
+  const [contas, setContas] = useState<{ id: string; nome: string }[]>([])
+  const [contaId, setContaId] = useState<string>('')   // '' = Todas as contas
   const [dados, setDados] = useState<FluxoResp | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
@@ -71,14 +73,30 @@ export default function FluxoCaixaPage() {
       p_company_id: empresaUnica,
       p_data_inicio: inicio.toISOString().slice(0, 10),
       p_data_fim: fim.toISOString().slice(0, 10),
-      p_conta_id: null,
+      p_conta_id: contaId || null,
     })
     if (error) setErro('Não foi possível carregar o fluxo de caixa agora.')
     else setDados(data as FluxoResp)
     setCarregando(false)
-  }, [empresaUnica, periodo])
+  }, [empresaUnica, periodo, contaId])
 
   useEffect(() => { carregar() }, [carregar])
+
+  // Contas da empresa que entram no saldo (para o seletor). '' = Todas.
+  useEffect(() => {
+    if (!empresaUnica) { setContas([]); return }
+    let vivo = true
+    ;(async () => {
+      const { data } = await supabase
+        .from('erp_banco_contas')
+        .select('id, nome')
+        .eq('company_id', empresaUnica)
+        .eq('ativo', true)
+        .order('nome')
+      if (vivo) setContas((data ?? []) as { id: string; nome: string }[])
+    })()
+    return () => { vivo = false }
+  }, [empresaUnica])
 
   if (!empresaUnica) {
     return (
@@ -121,6 +139,25 @@ export default function FluxoCaixaPage() {
   const yDomain: [number, number] = [minSaldo - padSaldo, maxSaldo + padSaldo]
   const poucosPontos = chartData.length > 0 && chartData.length <= 8
   const saldoEstavel = chartData.length >= 2 && spanSaldo === 0
+  function exportarCsv() {
+    const sep = ';'
+    const cab = ['Data', 'Entradas', 'Saidas', 'Transf. entrada', 'Transf. saida', 'Movimento', 'Saldo no dia']
+    const linhas = dias.map((d) => [
+      d.data,
+      entradaDia(d).toFixed(2), saidaDia(d).toFixed(2),
+      (d.transferencias_entrada ?? 0).toFixed(2), (d.transferencias_saida ?? 0).toFixed(2),
+      Number(d.movimento_dia).toFixed(2), Number(d.saldo_final).toFixed(2),
+    ].join(sep))
+    const csv = '\ufeff' + [cab.join(sep), ...linhas].join('\r\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `fluxo-caixa-${hojeISO()}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   const fmtEixoSaldo = (v: number) => {
     const a = Math.abs(v)
     if (a >= 1000) return `R$${(v / 1000).toFixed(a >= 10000 ? 0 : 1)}k`
@@ -135,6 +172,19 @@ export default function FluxoCaixaPage() {
       <p style={{ color: PSGC_COLORS.espresso, opacity: 0.65, fontSize: 13, marginBottom: 16 }}>
         Visão diária do seu saldo · entradas e saídas
       </p>
+
+      <div style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6, color: 'rgba(61,35,20,0.6)', marginBottom: 6 }}>
+        Conta<AjudaCampo chave="ge.fluxo_caixa.conta" rota={ROTA_AJUDA} />
+      </div>
+      <select
+        value={contaId}
+        onChange={(e) => setContaId(e.target.value)}
+        style={{ width: '100%', padding: '9px 12px', marginBottom: 16, borderRadius: PSGC_RADIUS.md, border: `1px solid ${PSGC_COLORS.espresso}`, background: 'transparent', color: PSGC_COLORS.espresso, fontSize: 13, fontWeight: 600 }}
+        aria-label="Filtrar por conta"
+      >
+        <option value="">Todas as contas</option>
+        {contas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+      </select>
 
       <div style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6, color: 'rgba(61,35,20,0.6)', marginBottom: 6 }}>
         Período<AjudaCampo chave="ge.fluxo_caixa.periodo" rota={ROTA_AJUDA} />
@@ -240,14 +290,25 @@ export default function FluxoCaixaPage() {
 
       <div style={{ background: '#fff', borderRadius: PSGC_RADIUS.lg, padding: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
-          <p style={{ color: PSGC_COLORS.espresso, fontWeight: 700, fontSize: 14, margin: 0 }}>
+          <p style={{ color: PSGC_COLORS.espresso, fontWeight: 700, fontSize: 14, margin: 0, display: 'flex', alignItems: 'center' }}>
             Movimentações
           </p>
-          <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <span><span style={{ color: ENTRADA }}>●</span> Entradas</span>
-            <span><span style={{ color: SAIDA }}>●</span> Saídas</span>
-            <span><span style={{ color: TRANSF_IN }}>●</span> Transf. entrada</span>
-            <span><span style={{ color: TRANSF_OUT }}>●</span> Transf. saída</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <span><span style={{ color: ENTRADA }}>●</span> Entradas</span>
+              <span><span style={{ color: SAIDA }}>●</span> Saídas</span>
+              <span><span style={{ color: TRANSF_IN }}>●</span> Transf. entrada</span>
+              <span><span style={{ color: TRANSF_OUT }}>●</span> Transf. saída</span>
+            </div>
+            {dias.length > 0 && (
+              <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                <button type="button" onClick={exportarCsv}
+                  style={{ padding: '6px 14px', borderRadius: PSGC_RADIUS.md, border: `1px solid ${PSGC_COLORS.espresso}`, background: 'transparent', color: PSGC_COLORS.espresso, fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>
+                  ↓ Exportar (CSV)
+                </button>
+                <AjudaCampo chave="ge.fluxo_caixa.exportar" rota={ROTA_AJUDA} />
+              </span>
+            )}
           </div>
         </div>
 
