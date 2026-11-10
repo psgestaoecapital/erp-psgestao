@@ -4,7 +4,7 @@
 // A tela só desenha: o cálculo vive em ../meu-painel/motor-v5 (mesmo motor já provado contra o aceite),
 // alimentado pela RPC fn_bi_comercial_base, que trava o escopo no banco (líder vê a empresa; vendedor só o próprio).
 // Fonte: fn_com_venda_item / bi_comercial_venda_item_mv (R$ 13.983.740 no aceite). Nunca a MV inflada.
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -32,6 +32,22 @@ const diaISO = (base: string, n: number) => {
 }
 const dataBR = (isoDia: string) => { const [y, m, d] = isoDia.split('-'); return `${d}/${m}/${y}` }
 
+type PerKey = 'hoje' | 'semana' | '30' | 'mes' | 'ano' | 'custom'
+type AbaKey = 'geral' | 'vendedores' | 'clientes' | 'cidades' | 'produtos' | 'preco' | 'logistica' | 'metas'
+
+// As 8 abas do protótipo, na mesma ordem. Só a Visão geral tem conteúdo neste chassi; as outras entram em blocos próprios.
+const ABAS: { k: AbaKey; rot: string }[] = [
+  { k: 'geral', rot: 'Visão geral' }, { k: 'vendedores', rot: 'Vendedores' }, { k: 'clientes', rot: 'Clientes' },
+  { k: 'cidades', rot: 'Cidades' }, { k: 'produtos', rot: 'Produtos' }, { k: 'preco', rot: 'Preço e desconto' },
+  { k: 'logistica', rot: 'Logística' }, { k: 'metas', rot: 'Metas' },
+]
+const PERIODOS: { k: PerKey; rot: string }[] = [
+  { k: 'hoje', rot: 'Hoje' }, { k: 'semana', rot: 'Semana' }, { k: '30', rot: '30 dias' },
+  { k: 'mes', rot: 'Este mês' }, { k: 'ano', rot: 'Ano' }, { k: 'custom', rot: 'De–até' },
+]
+// Linha = grupo de produto do motor (gruposProduto): 0 desossado, 1 com osso, 2 miúdo, 3 subprodutos e outros.
+const LINHAS_OPC = ['Desossado (s/osso)', 'Com osso', 'Miúdo', 'Subprodutos e outros']
+
 export default function MeuPainelV6() {
   const { companyIds, selInfo } = useCompanyIds()
   const empresa = selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : null
@@ -40,12 +56,23 @@ export default function MeuPainelV6() {
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
 
-  // Período: últimos 30 dias (mesmo recorte padrão do v5), até hoje.
+  // Chassi: período, abas e seletores. O período recarrega a base (fn_bi_comercial_base com p_de/p_ate);
+  // vendedor e linha filtram o motor (estado.ven e estado.lin), então todas as abas recalculam juntas.
+  const [per, setPer] = useState<PerKey>('30')
+  const hojeISO = iso(new Date())
+  const [deC, setDeC] = useState(hojeISO)
+  const [ateC, setAteC] = useState(hojeISO)
+  const [aba, setAba] = useState<AbaKey>('geral')
+
   const intervalo = useMemo(() => {
-    const hoje = new Date()
-    const ini = new Date(hoje); ini.setDate(ini.getDate() - 29)
-    return { de: iso(ini), ate: iso(hoje) }
-  }, [])
+    const hoje = new Date(); const ate = iso(hoje)
+    if (per === 'hoje') return { de: ate, ate }
+    if (per === 'semana') { const d = new Date(hoje); d.setDate(d.getDate() - 6); return { de: iso(d), ate } }
+    if (per === 'mes') return { de: iso(new Date(hoje.getFullYear(), hoje.getMonth(), 1)), ate }
+    if (per === 'ano') return { de: iso(new Date(hoje.getFullYear(), 0, 1)), ate }
+    if (per === 'custom') return { de: deC <= ateC ? deC : ateC, ate: deC <= ateC ? ateC : deC }
+    const d = new Date(hoje); d.setDate(d.getDate() - 29); return { de: iso(d), ate }
+  }, [per, deC, ateC])
 
   const carregar = useCallback(async () => {
     if (!empresa) return
@@ -56,7 +83,12 @@ export default function MeuPainelV6() {
     setBase(data as BaseV5)
   }, [empresa, intervalo])
   useEffect(() => { void carregar() }, [carregar])
-  useEffect(() => { setEstado(base ? estadoPadrao(base) : null) }, [base])
+  // Base nova (outro período) → análise padrão, mas mantém vendedor e linha escolhidos.
+  useEffect(() => {
+    setEstado((prev) => base ? { ...estadoPadrao(base), ven: prev?.ven ?? 'todos', lin: prev?.lin ?? 'todas' } : null)
+  }, [base])
+  const setVen = (v: EstadoV5['ven']) => setEstado((e) => e ? { ...e, ven: v } : e)
+  const setLin = (v: EstadoV5['lin']) => setEstado((e) => e ? { ...e, lin: v } : e)
 
   const pg = useMemo<GrupoProduto[] | null>(() => base ? gruposProduto(base) : null, [base])
   const modelo = useMemo<ModeloV5 | null>(() => base && estado && pg ? calcularModelo(base, estado, pg) : null, [base, estado, pg])
@@ -100,14 +132,73 @@ export default function MeuPainelV6() {
     return <div style={{ padding: 16, color: C.m }}>Escolha uma empresa para ver o painel.</div>
   }
 
+  const selStyle: CSSProperties = { padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.bd}`, background: '#fff', color: C.esp, fontSize: 14, minHeight: 40 }
+
   return (
-    <div style={{ padding: 16, background: C.off, color: C.esp, minHeight: '100vh', maxWidth: 1100, margin: '0 auto' }}>
-      <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 4px' }}>Como a Frioeste está vendendo</h1>
-      <p style={{ fontSize: 14, color: C.m, margin: '0 0 16px' }}>
+    <div style={{ padding: 16, background: C.off, color: C.esp, minHeight: '100vh', boxSizing: 'border-box', width: '100%', maxWidth: 1100, marginLeft: 'auto', marginRight: 'auto', overflowX: 'hidden' }}>
+      <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 4px' }}>Painel de vendas</h1>
+      <p style={{ fontSize: 14, color: C.m, margin: '0 0 12px' }}>
         {base ? <>De {dataBR(base.de)} a {dataBR(base.ate)}.</> : null}
         {carregando ? ' Carregando…' : null}
         {erro ? <span style={{ color: '#C0392B' }}> {erro}</span> : null}
       </p>
+
+      {/* Filtros: período, vendedor, linha */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+        <div role="group" aria-label="Período" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+          <AjudaCampo chave="com.painel.periodo" rota={ROTA} />
+          {PERIODOS.map((p) => (
+            <button key={p.k} type="button" onClick={() => setPer(p.k)} aria-pressed={per === p.k}
+              style={{ padding: '8px 12px', minHeight: 40, borderRadius: 999, fontSize: 13, cursor: 'pointer',
+                border: `1px solid ${per === p.k ? C.gold : C.bd}`, background: per === p.k ? C.gold : '#fff', color: per === p.k ? '#fff' : C.esp }}>
+              {p.rot}
+            </button>
+          ))}
+        </div>
+        {per === 'custom' && (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input type="date" aria-label="De" value={deC} onChange={(e) => setDeC(e.target.value)} style={selStyle} />
+            <span style={{ color: C.m, fontSize: 13 }}>até</span>
+            <input type="date" aria-label="Até" value={ateC} onChange={(e) => setAteC(e.target.value)} style={selStyle} />
+          </div>
+        )}
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 12, color: C.m }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Vendedor<AjudaCampo chave="com.painel.equipe" rota={ROTA} /></span>
+          <select aria-label="Vendedor" value={String(estado?.ven ?? 'todos')} onChange={(e) => setVen(e.target.value === 'todos' ? 'todos' : Number(e.target.value))} style={selStyle} disabled={!base}>
+            <option value="todos">Todos</option>
+            {(base?.ven ?? []).map(([cod, nome], i) => <option key={cod + i} value={i}>{nome || cod}</option>)}
+          </select>
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 12, color: C.m }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Linha<AjudaCampo chave="com.painel.produtos" rota={ROTA} /></span>
+          <select aria-label="Linha" value={String(estado?.lin ?? 'todas')} onChange={(e) => setLin(e.target.value === 'todas' ? 'todas' : Number(e.target.value))} style={selStyle} disabled={!base}>
+            <option value="todas">Todas</option>
+            {LINHAS_OPC.map((nome, i) => <option key={i} value={i}>{nome}</option>)}
+          </select>
+        </label>
+      </div>
+
+      {/* Navegação das 8 abas */}
+      <nav aria-label="Abas" style={{ display: 'flex', gap: 6, overflowX: 'auto', borderBottom: `1px solid ${C.bd}`, marginBottom: 16, paddingBottom: 2 }}>
+        {ABAS.map((a) => (
+          <button key={a.k} type="button" onClick={() => setAba(a.k)} aria-current={aba === a.k ? 'page' : undefined}
+            style={{ flex: '0 0 auto', padding: '10px 12px', minHeight: 40, background: 'none', border: 'none', cursor: 'pointer', fontSize: 14,
+              borderBottom: `3px solid ${aba === a.k ? C.gold : 'transparent'}`, color: aba === a.k ? C.esp : C.m, fontWeight: aba === a.k ? 700 : 500, whiteSpace: 'nowrap' }}>
+            {a.rot}
+          </button>
+        ))}
+      </nav>
+
+      {aba !== 'geral' && (
+        <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16, color: C.m, fontSize: 14 }}>
+          <b style={{ color: C.esp }}>{ABAS.find((a) => a.k === aba)?.rot}</b> — esta aba entra no próximo bloco do painel. O período e os filtros acima já valem para ela.
+        </div>
+      )}
+
+      {aba === 'geral' && (<>
+      <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 8px' }}>Como a Frioeste está vendendo</h2>
 
       {r && modelo && (
         <>
@@ -215,6 +306,7 @@ export default function MeuPainelV6() {
           </div>
         </>
       )}
+      </>)}
 
       <div style={{ marginTop: 16, fontSize: 12, color: C.d }}>
         <AjudaCampo chave="com.painel.faturado" rota={ROTA} /> Esta é a versão nova do painel. O painel atual continua disponível.
