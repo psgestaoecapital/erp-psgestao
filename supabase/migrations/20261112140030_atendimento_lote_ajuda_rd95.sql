@@ -1,0 +1,6 @@
+-- RD-95: "?" da aprovação em lote da fila de Atendimento (#7050). Aditiva/idempotente.
+INSERT INTO public.erp_ajuda_campo (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, status)
+VALUES
+ ('atendimento.lote_selecionar','/dashboard/atendimento','Fila de Atendimento','Selecionar todos do filtro','Marque para escolher de uma vez todos os chamados da lista atual que têm resposta escrita esperando aprovação. Desmarque para limpar.','Poupa o clique um a um quando muitos chamados já foram tratados e só falta liberar a resposta ao autor.','Filtrei a empresa Alliance e marquei todos (5).','Esquecer que a seleção segue o filtro e a aba atuais: trocar de aba muda quais chamados entram.',20,'publicado'),
+ ('atendimento.lote_aprovar','/dashboard/atendimento','Fila de Atendimento','Aprovar e enviar ao autor (lote)','Clique para ver o resumo (número, título, resposta e se há PR publicada) e então confirmar.','Libera de uma vez as respostas selecionadas aos autores, registrando quem aprovou e quando em cada chamado.','5 selecionados → conferir → Confirmar e enviar.','Enviar sem conferir: chamados sem PR publicada aparecem destacados no resumo — confira antes.',21,'publicado')
+ON CONFLICT (chave) DO NOTHING;

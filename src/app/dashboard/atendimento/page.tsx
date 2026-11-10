@@ -69,6 +69,8 @@ function Inner() {
   const [respostaAberta, setRespostaAberta] = useState<string | null>(null) // #61 · qual chamado está com o textarea de resposta
   const [anexosUrl, setAnexosUrl] = useState<Record<string, { url: string; marcacoes: Marca[] }[]>>({})
   const [ehAdmin, setEhAdmin] = useState(false)   // PS_ADMIN / PS_ADMIN_CVM aprovam resposta
+  const [selLote, setSelLote] = useState<Set<string>>(new Set())   // #7050 · aprovação em lote
+  const [confLote, setConfLote] = useState(false)
   const [respExpandida, setRespExpandida] = useState<string | null>(null)   // "ver completa" da resposta no card
   // Chamados em equipe: a carteira define para onde o chamado cai; toda a equipe vê "Todos" (SPEC rev. 9).
   const [equipe, setEquipe] = useState<Pessoa[]>([])
@@ -185,6 +187,19 @@ function Inner() {
   async function aprovar(it: Item) {
     const ok = await acao(it.id, 'fn_sugestao_aprovar_resposta', { p_id: it.id, p_user: userId })
     if (ok) setMsg('Resposta aprovada e enviada — o autor foi avisado.')
+  }
+  // #7050 · aprovação em LOTE: mesma RPC da aprovação individual (grava aprovador e hora), um chamado por vez.
+  const aprovaveis = useMemo(() => visiveis.filter((r) => !r.resposta_aprovada && !!(r.resposta || '').trim() && !rascunhoNaoEnviado(r)), [visiveis])
+  const selecionados = useMemo(() => aprovaveis.filter((r) => selLote.has(r.id)), [aprovaveis, selLote])
+  async function aprovarLote() {
+    let ok = 0; const falhas: number[] = []
+    for (const it of selecionados) {
+      const { data, error } = await supabase.rpc('fn_sugestao_aprovar_resposta', { p_id: it.id, p_user: userId })
+      if ((data as { ok?: boolean } | null)?.ok && !error) ok++; else falhas.push(it.numero)
+    }
+    setSelLote(new Set()); setConfLote(false); void carregar()
+    if (falhas.length) setErro(`Aprovadas ${ok}. Não foi possível aprovar: ${falhas.map((n) => '#' + n).join(', ')}.`)
+    else setMsg(`${ok} resposta(s) aprovada(s) e enviada(s) — os autores foram avisados.`)
   }
   // Reenvia o aviso para os aprovados que o autor ainda não confirmou (os que ficam "no limbo").
   async function reenviar(it: Item) {
@@ -314,6 +329,35 @@ function Inner() {
         <span style={{ fontSize: 12, color: C.espM, alignSelf: 'center' }}>{buscaLimpa ? `${visiveis.length} encontrado(s)` : `${visiveis.length} nesta aba`}</span>
       </div>
 
+      {ehAdmin && aprovaveis.length > 0 && (
+        <div data-testid="lote-barra" style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: '10px 14px', margin: '0 0 10px', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <label style={{ fontSize: 12.5, display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
+            <input data-testid="lote-todos" type="checkbox" checked={selecionados.length === aprovaveis.length} onChange={(e) => setSelLote(e.target.checked ? new Set(aprovaveis.map((r) => r.id)) : new Set())} />
+            Selecionar todos do filtro ({aprovaveis.length})
+            <AjudaCampo chave="atendimento.lote_selecionar" rota={ROTA} />
+          </label>
+          <button data-testid="lote-aprovar" disabled={selecionados.length === 0} onClick={() => setConfLote(true)} style={{ ...btn(C.green), opacity: selecionados.length === 0 ? 0.5 : 1 }}>Aprovar e enviar ao autor ({selecionados.length})</button>
+          <AjudaCampo chave="atendimento.lote_aprovar" rota={ROTA} />
+        </div>
+      )}
+      {confLote && (
+        <div data-testid="lote-resumo" style={{ background: C.amberBg, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, margin: '0 0 10px' }}>
+          <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 8 }}>Confira antes de enviar ({selecionados.length})</div>
+          <div style={{ display: 'grid', gap: 6, maxHeight: 320, overflow: 'auto' }}>
+            {selecionados.map((r) => (
+              <div key={r.id} style={{ fontSize: 12.5, background: C.white, borderRadius: 8, padding: '6px 10px' }}>
+                <b>#{r.numero}</b> {r.titulo || r.descricao.slice(0, 70)} {r.pr_numero ? <span style={{ color: C.green }}>· PR #{r.pr_numero}</span> : <span style={{ color: C.amber }}>· sem PR publicada</span>}
+                <div style={{ color: C.espM, whiteSpace: 'pre-wrap' }}>{(r.resposta || '').trim().slice(0, 180)}{(r.resposta || '').trim().length > 180 ? '…' : ''}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <button data-testid="lote-confirmar" onClick={() => void aprovarLote()} style={btn(C.green)}>Confirmar e enviar</button>
+            <button onClick={() => setConfLote(false)} style={btn(C.espM)}>Voltar</button>
+          </div>
+        </div>
+      )}
+
       {visiveis.length === 0 ? (
         <div style={{ background: C.white, border: `1px dashed ${C.border}`, borderRadius: 12, padding: '30px 20px', textAlign: 'center', color: C.espM }}>
           <div style={{ fontSize: 28, marginBottom: 6 }}>📭</div>
@@ -343,6 +387,11 @@ function Inner() {
             const respPreview = (it.resposta || '').trim()
             return (
             <div key={it.id} style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14 }}>
+              {ehAdmin && aprovaveis.some((r) => r.id === it.id) && (
+                <label style={{ fontSize: 11.5, color: C.espM, display: 'flex', gap: 5, alignItems: 'center', marginBottom: 6, cursor: 'pointer' }}>
+                  <input data-testid={`lote-sel-${it.numero}`} type="checkbox" checked={selLote.has(it.id)} onChange={(e) => setSelLote((s) => { const n = new Set(s); if (e.target.checked) n.add(it.id); else n.delete(it.id); return n })} /> incluir no lote
+                </label>
+              )}
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
                 <div>
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
