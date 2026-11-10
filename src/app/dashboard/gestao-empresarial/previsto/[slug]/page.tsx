@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 type ModuloPrevisto = {
   id: string
@@ -60,7 +61,7 @@ export default function GestaoEmpresarialPrevistoPage() {
         .eq('id', slug)
         .maybeSingle()
       if (!alive) return
-      if (error) setErro(error.message)
+      if (error) setErro(erroAmigavel(error, 'Não foi possível carregar este módulo. Tente de novo.'))
       else setModulo(data as ModuloPrevisto | null)
       setLoading(false)
     })()
