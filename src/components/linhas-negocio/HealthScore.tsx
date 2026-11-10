@@ -1,6 +1,7 @@
 'use client'
 import React from 'react'
 import type { DREPorLinha } from '@/types/linhas-negocio'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 // Design system PS premium (RD-96) — mesma paleta das telas irmãs (Divisões / Linhas de negócio).
 // Antes: tokens genéricos do shadcn/tailwind (bg-card, bg-muted, text-muted-foreground, text-green/yellow/red-600).
@@ -30,7 +31,10 @@ export default function HealthScorePanel({ linhas }: Props) {
   return (
     <div className="rounded-xl p-4" style={{ background: '#fff', border: `1px solid ${BORDA}` }}>
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold" style={{ color: ESPRESSO, fontFamily: SERIF }}>Health Score por linha</h3>
+        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+          <h3 className="text-sm font-semibold" style={{ color: ESPRESSO, fontFamily: SERIF }}>Health Score por linha</h3>
+          <AjudaCampo chave='ge.linhas.health_score' rota='/dashboard/linhas-negocio' />
+        </span>
         <div className="text-right">
           <p className="text-xs" style={{ color: TEXTM }}>Média geral</p>
           <p className="text-lg font-bold" style={{ color: corScore(media) }}>{media}</p>
