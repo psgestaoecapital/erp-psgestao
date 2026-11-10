@@ -21,6 +21,7 @@ ALTER TABLE public.erp_redigir_nonce ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.erp_redigir_nonce FROM anon, authenticated;
 
 -- Consome o nonce (marca usado) se válido e recente. Só a conexão de serviço (a função) chama.
+-- ci-sem-guarda: fn_redigir_nonce_consumir — erp_redigir_nonce é tabela de INFRA sem empresa (nonce de uso único); EXECUTE só service_role (REVOKE PUBLIC/anon/authenticated). Não grava dado de cliente.
 CREATE OR REPLACE FUNCTION public.fn_redigir_nonce_consumir(p_nonce text)
 RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $fn$
 DECLARE v_ok boolean := false;
@@ -35,6 +36,7 @@ GRANT EXECUTE ON FUNCTION public.fn_redigir_nonce_consumir(text) TO service_role
 
 -- 2) Disparador: gera o nonce, grava e chama a Edge Function por net.http_post. Só servidor (auth.uid() IS NULL,
 --    ex.: cron/conexão de serviço) ou um usuário PS_ADMIN pode disparar. A função faz a redação só do RASCUNHO.
+-- ci-sem-guarda: fn_chamado_redigir_disparar — grava só o nonce de INFRA (erp_redigir_nonce, sem empresa); não escreve dado de cliente. O acesso é guardado antes (auth.uid() PS_ADMIN, ou servidor sem sessão), e o escopo por empresa é aplicado na função/edge que redige o rascunho.
 CREATE OR REPLACE FUNCTION public.fn_chamado_redigir_disparar(p_ids uuid[] DEFAULT NULL, p_limite integer DEFAULT 30)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public' AS $fn$
 DECLARE v_nonce text; v_req bigint; v_uid uuid := auth.uid();
