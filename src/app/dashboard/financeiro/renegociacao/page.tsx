@@ -296,6 +296,16 @@ function Criar({ companyId }: { companyId: string }) {
         </div>
       </div>
 
+      {!buscou && (
+        <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: '28px 20px', textAlign: 'center' }}>
+          <div style={{ fontSize: 28, lineHeight: 1 }} aria-hidden>🔎</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: ESP, margin: '8px 0 6px' }}>Comece buscando os títulos em aberto</div>
+          <div style={{ fontSize: 12.5, color: MUT, maxWidth: 470, margin: '0 auto', lineHeight: 1.6 }}>
+            Escolha o <b>Cliente</b> (ou deixe “todos”) e a <b>Conta</b> acima e clique em <b>Buscar títulos abertos</b>. Os títulos vencidos/abertos do filtro aparecem aqui para você selecionar e consolidar em um acerto.
+          </div>
+        </div>
+      )}
+
       {buscou && (
         <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: ESP, marginBottom: 8 }}>Títulos elegíveis (aberto/vencido, sem acerto) — {titulos.length}</div>
