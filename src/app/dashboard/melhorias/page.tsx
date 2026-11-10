@@ -21,6 +21,8 @@ import { type Marca } from '@/components/melhorias/FotoMarcador'
 import FotosChamado, { type FotoItem } from '@/components/melhorias/FotosChamado'
 import ConversaChamado from '@/components/melhorias/ConversaChamado'
 import AprovacoesPendentes from '@/components/melhorias/AprovacoesPendentes'
+import QuadroChamados from '@/components/melhorias/QuadroChamados'
+import { type FiltroKanban } from '@/lib/melhorias/kanban'
 import { uploadFotoSugestao } from '@/lib/sugestaoUpload'
 import { salvarRascunhoAnexos, lerRascunhoAnexos, limparRascunhoAnexos } from '@/lib/rascunhoAnexos'
 import { marcarFormSujo, marcarFormLimpo } from '@/lib/formSujo'
@@ -51,7 +53,7 @@ const bucketMelhoria = (m: { status: string; resposta: string | null; confirmado
   return 'aguardando'
 }
 
-type Minha = { id: string; numero: number; titulo: string | null; descricao: string; categoria: string | null; status: string; resposta: string | null; resposta_aprovada: boolean; confirmado_pelo_autor: boolean; concluido_em?: string | null; conclusao_automatica?: boolean; tem_ia?: boolean; ia_analise: Record<string, unknown> | null; created_at: string; company_id: string | null; empresa: string | null; user_id: string; user_name: string | null; rota: string | null }
+type Minha = { id: string; numero: number; titulo: string | null; descricao: string; categoria: string | null; status: string; responsavel_id: string | null; agente: string | null; resposta: string | null; resposta_aprovada: boolean; confirmado_pelo_autor: boolean; concluido_em?: string | null; conclusao_automatica?: boolean; tem_ia?: boolean; ia_analise: Record<string, unknown> | null; created_at: string; company_id: string | null; empresa: string | null; user_id: string; user_name: string | null; rota: string | null }
 
 export default function MelhoriasPage() {
   return <Suspense fallback={<div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>}><Inner /></Suspense>
@@ -67,7 +69,7 @@ function Inner() {
   // deep link do e-mail de aviso: /dashboard/melhorias?n=<numero> abre direto no chamado (rola + destaca)
   const focoNumero = (searchParams.get('n') || '').trim()
 
-  const [f, setF] = useState({ categoria: 'bug', titulo: '', descricao: '', prioridade: 'media' })
+  const [f, setF] = useState({ categoria: 'bug', titulo: '', descricao: '', prioridade: 'media', tela: '' })
   const [fotos, setFotos] = useState<FotoItem[]>([])
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
@@ -87,6 +89,11 @@ function Inner() {
   // o ?from traz a rota de origem; aqui ela pode afunilar só nos chamados daquela tela, mas o padrão é ver TODOS.
   const [soDestaTela, setSoDestaTela] = useState(false)
   const [foco, setFoco] = useState<string | null>(null)   // nº destacado ao chegar pelo link do e-mail
+  // Fase 2 do #7050 (CEO 09/11): quadro de chamados é a visão padrão; a lista (com o detalhe) continua por trás do "Abrir".
+  const [visao, setVisao] = useState<'quadro' | 'lista'>('quadro')
+  const [busca, setBusca] = useState('')
+  const [filtroKanban, setFiltroKanban] = useState<FiltroKanban>('gerais')
+  const [abrirNum, setAbrirNum] = useState<number | null>(null)
 
   const carregar = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -105,22 +112,42 @@ function Inner() {
     // selecionada, abertos por colegas (CEO 28/09: quem abre em nome da empresa e quem acompanha veem o mesmo
     // chamado — evita chamado repetido). A RLS de sugestoes libera a leitura pela empresa (get_user_company_ids).
     // Mostramos de QUAL empresa é cada um (embed companies). Arquivadas saem da lista por padrão (CEO).
-    let q = supabase.from('sugestoes').select('id,numero,titulo,descricao,categoria,status,resposta,resposta_aprovada,confirmado_pelo_autor,concluido_em,conclusao_automatica,ia_analise,created_at,company_id,user_id,user_name,rota,companies(nome_fantasia,razao_social)')
+    let q = supabase.from('sugestoes').select('id,numero,titulo,descricao,categoria,status,responsavel_id,agente,resposta,resposta_aprovada,confirmado_pelo_autor,concluido_em,conclusao_automatica,ia_analise,created_at,company_id,user_id,user_name,rota,companies(nome_fantasia,razao_social)')
     // CEO 13/10: incluir SEMPRE os chamados DAS EMPRESAS da pessoa (não só da empresa selecionada) — assim os abertos
     // pela equipe PS em nome dela também aparecem, mesmo em "consolidado". A RLS de sugestoes já limita pela empresa.
     const empresasVisiveis = companyId ? [companyId] : (companyIds ?? [])
     q = !sup && empresasVisiveis.length
       ? q.or(`user_id.eq.${user.id},company_id.in.(${empresasVisiveis.join(',')})`)
       : q.eq('user_id', user.id)
-    q = verArquivadas ? q.eq('status', 'arquivada') : q.neq('status', 'arquivada')
-    const { data } = await q.order('created_at', { ascending: false }).limit(50)
+    // Busca (Fase 2, CEO 09/11): com termo, procura no banco também nos finalizados e arquivados (a lista padrão não).
+    const termo = busca.trim().replace(/[,()*%\\]/g, '')
+    if (verArquivadas) q = q.eq('status', 'arquivada')
+    else if (!termo) q = q.neq('status', 'arquivada')
+    if (termo) {
+      const num = /^#?\d+$/.test(termo) ? termo.replace('#', '') : null
+      q = q.or(`titulo.ilike.*${termo}*,descricao.ilike.*${termo}*,user_name.ilike.*${termo}*${num ? `,numero.eq.${num}` : ''}`)
+    }
+    const { data } = await q.order('created_at', { ascending: false }).limit(termo || verArquivadas ? 200 : 200)
     type Row = Minha & { companies?: { nome_fantasia: string | null; razao_social: string | null } | { nome_fantasia: string | null; razao_social: string | null }[] | null }
     setMinhas(((data as Row[]) ?? []).map(({ companies, ...m }) => {
       const co = Array.isArray(companies) ? companies[0] : companies
       return { ...m, empresa: co?.nome_fantasia || co?.razao_social || null, tem_ia: !!m.ia_analise, resposta: m.resposta_aprovada ? m.resposta : null }
     }))
-  }, [verArquivadas, companyId, companyIds])
-  useEffect(() => { void carregar() }, [carregar])
+  }, [verArquivadas, companyId, companyIds, busca])
+  // debounce da busca: consulta ao banco 300 ms depois da última tecla
+  useEffect(() => { const t = setTimeout(() => { void carregar() }, 300); return () => clearTimeout(t) }, [carregar])
+
+  // "Abrir" no quadro: vai para a lista (com o detalhe), na aba Todos, e rola até o cartão do chamado
+  useEffect(() => {
+    if (abrirNum == null || visao !== 'lista') return
+    const el = document.getElementById('chamado-' + abrirNum)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    setFoco(String(abrirNum))
+    setAbrirNum(null)
+    const t = setTimeout(() => setFoco(null), 4000)
+    return () => clearTimeout(t)
+  }, [abrirNum, visao, minhas])
 
   // #61 (Jordana) · a ABERTURA do chamado não pode perder o texto ao trocar de janela/recarregar.
   // Rascunho em localStorage (restaura ao montar, salva a cada mudança, limpa ao enviar). Efeito em vez
@@ -215,6 +242,7 @@ function Inner() {
 
   async function enviar() {
     if (!companyId) { setErro('Selecione uma empresa específica no topo.'); return }
+    if (!f.tela.trim()) { setErro('Informe em qual tela acontece.'); return }
     if (!f.descricao.trim()) { setErro('Descreva a dificuldade.'); return }
     setBusy(true); setErro(null)
     try {
@@ -231,7 +259,7 @@ function Inner() {
 
       const { data, error } = await supabase.rpc('fn_sugestao_criar', {
         p_company_id: companyId,
-        p_sugestao: { tipo: f.categoria === 'melhoria' ? 'melhoria' : 'bug', titulo: f.titulo.trim() || null, descricao: f.descricao.trim(), prioridade: f.prioridade, categoria: f.categoria, rota: rotaOrigem, area: selInfo.tipo === 'empresa' ? 'gestao_empresarial' : null },
+        p_sugestao: { tipo: f.categoria === 'melhoria' ? 'melhoria' : 'bug', titulo: f.titulo.trim() || null, descricao: f.descricao.trim(), prioridade: f.prioridade, categoria: f.categoria, rota: rotaOrigem, tela_informada: f.tela.trim(), area: selInfo.tipo === 'empresa' ? 'gestao_empresarial' : null },
         p_anexos: anexos,
         p_user: user.id,
       })
@@ -252,12 +280,12 @@ function Inner() {
         if (n) numeroTxt = ` #${n}`
       } catch { /* segue sem o número */ }
 
-      setF({ categoria: 'bug', titulo: '', descricao: '', prioridade: 'media' }); setFotos([])
+      setF({ categoria: 'bug', titulo: '', descricao: '', prioridade: 'media', tela: '' }); setFotos([])
       setMsg(`Chamado${numeroTxt} registrado. A IA vai analisar em instantes.`); void carregar()
     } finally { setBusy(false) }
   }
 
-  const podeEnviar = useMemo(() => !!companyId && !!f.descricao.trim() && !busy, [companyId, f.descricao, busy])
+  const podeEnviar = useMemo(() => !!companyId && !!f.descricao.trim() && !!f.tela.trim() && !busy, [companyId, f.descricao, f.tela, busy])
 
   return (
     <div style={{ background: C.bg, minHeight: '100vh', padding: '22px 16px 48px', maxWidth: 980, margin: '0 auto', color: C.esp }}>
@@ -292,6 +320,8 @@ function Inner() {
           </label>
         </div>
         <input value={f.titulo} onChange={(e) => setF({ ...f, titulo: e.target.value })} placeholder="título curto (opcional)" style={{ ...inp, width: '100%', marginTop: 10, boxSizing: 'border-box' }} />
+        <input value={f.tela} onChange={(e) => setF({ ...f, tela: e.target.value })} placeholder="Em qual tela acontece? (obrigatório) — ex.: Ordens de Serviço, NF-e recebidas, Perfil fiscal da revenda" maxLength={200} aria-required style={{ ...inp, width: '100%', marginTop: 10, boxSizing: 'border-box' }} />
+        <AjudaCampo chave="chamado.tela_informada" rota="/dashboard/melhorias" />
         <textarea value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} placeholder="descreva a dificuldade — o que você tentou fazer e o que aconteceu (ou dite por voz 🎙️)" rows={3} style={{ ...inp, width: '100%', marginTop: 10, boxSizing: 'border-box', resize: 'vertical' }} />
         {/* #63 · ditar a sugestão por voz (fala→texto, editável antes de enviar) */}
         <div style={{ marginTop: 6 }}>
@@ -308,12 +338,35 @@ function Inner() {
         </div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, margin: '4px 0 10px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, margin: '4px 0 10px', flexWrap: 'wrap' }}>
         <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>{verArquivadas ? 'Sugestões arquivadas' : (companyId && !ehSuporte ? 'Chamados — meus e da empresa' : 'Minhas sugestões')}</h2>
-        <button type="button" onClick={() => setVerArquivadas((v) => !v)} style={{ border: 'none', background: 'none', color: C.blue, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
-          {verArquivadas ? '← voltar às ativas' : 'ver arquivadas'}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div role="tablist" aria-label="Visão dos chamados" style={{ display: 'flex', border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden' }}>
+            {(['quadro', 'lista'] as const).map((v) => (
+              <button key={v} type="button" role="tab" aria-selected={visao === v} data-testid={`melhorias-visao-${v}`} onClick={() => { setVisao(v); setVerArquivadas(false) }}
+                style={{ border: 'none', cursor: 'pointer', padding: '5px 11px', fontSize: 12, fontWeight: 700, background: visao === v ? C.cream : C.white, color: visao === v ? C.esp : C.espM }}>
+                {v === 'quadro' ? 'Quadro' : 'Lista'}
+              </button>
+            ))}
+          </div>
+          <button type="button" onClick={() => setVerArquivadas((v) => !v)} style={{ border: 'none', background: 'none', color: C.blue, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+            {verArquivadas ? '← voltar às ativas' : 'ver arquivadas'}
+          </button>
+        </div>
       </div>
+      {visao === 'quadro' && !verArquivadas && (
+        <QuadroChamados
+          itens={minhas}
+          meuId={userId}
+          busca={busca}
+          onBusca={setBusca}
+          filtro={filtroKanban}
+          onFiltro={setFiltroKanban}
+          rotuloStatus={(st) => STAT_LABEL[st] || st}
+          onAbrir={(numero, arquivada) => { setAbrirNum(numero); setSoDestaTela(false); setAbaMelhoria('todos'); setVisao('lista'); if (arquivada) setVerArquivadas(true) }}
+        />
+      )}
+      {(visao === 'lista' || verArquivadas) && (<>
       {/* #63 · abas por status (só nas ativas). Padrão "Todos" (CEO 13/10): o quadro nunca abre vazio quando há chamados.
           Filtro OPCIONAL "só desta tela" (desligado) para quem chegou pelo ícone do cabeçalho de uma tela. */}
       {!verArquivadas && minhas.length > 0 && (() => {
@@ -431,6 +484,7 @@ function Inner() {
         </div>
         )
       })()}
+      </>)}
     </div>
   )
 }

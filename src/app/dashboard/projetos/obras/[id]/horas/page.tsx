@@ -11,6 +11,10 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERM = '#B91C1C'
+// RD-95: a ajuda "?" é carregada por rota (fn_ajuda_campo_listar filtra rota exata). Esta tela é rota dinâmica
+// (/obras/[id]/horas); usePathname() traria o UUID real, que nunca casa com a linha de ajuda. Fixamos a rota no
+// padrão [id] (igual às telas irmãs subempreiteiros/revisões), onde as 9 chaves projetos.horas_obra.* estão gravadas.
+const ROTA = '/dashboard/projetos/obras/[id]/horas'
 // Moeda com centavos (padrão das telas irmãs de obra: Obras lista e Resultado) — R$ 100,00
 const brl = (v: number | null | undefined) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
@@ -120,18 +124,18 @@ export default function LancarHorasPage({ params }: { params: Promise<{ id: stri
 
         <form onSubmit={lancar} data-testid="horas-form" style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 12, display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))' }}>
           <div><label style={lab}>Data</label>
-            <input type="date" value={f.data} onChange={e => setF({ ...f, data: e.target.value })} style={inp} data-testid="horas-data" /> <AjudaCampo chave="projetos.horas_obra.data" /></div>
+            <input type="date" value={f.data} onChange={e => setF({ ...f, data: e.target.value })} style={inp} data-testid="horas-data" /> <AjudaCampo chave="projetos.horas_obra.data" rota={ROTA} /></div>
           <div><label style={lab}>Função</label>
-            <AjudaCampo chave="projetos.horas_obra.funcao" /> <select value={f.funcao_id} onChange={e => escolherFuncao(e.target.value)} style={inp} data-testid="horas-funcao">
+            <AjudaCampo chave="projetos.horas_obra.funcao" rota={ROTA} /> <select value={f.funcao_id} onChange={e => escolherFuncao(e.target.value)} style={inp} data-testid="horas-funcao">
               <option value="">Sem função</option>{funcoes.map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}</select></div>
           <div><label style={lab}>Horas</label>
-            <input inputMode="decimal" value={f.horas} onChange={e => setF({ ...f, horas: e.target.value })} style={inp} data-testid="horas-horas" /> <AjudaCampo chave="projetos.horas_obra.horas" /></div>
+            <input inputMode="decimal" value={f.horas} onChange={e => setF({ ...f, horas: e.target.value })} style={inp} data-testid="horas-horas" /> <AjudaCampo chave="projetos.horas_obra.horas" rota={ROTA} /></div>
           <div><label style={lab}>Custo da hora (R$)</label>
-            <input inputMode="decimal" value={f.custo_hora} onChange={e => setF({ ...f, custo_hora: e.target.value })} style={inp} data-testid="horas-custo" /> <AjudaCampo chave="projetos.horas_obra.custo_hora" /></div>
+            <input inputMode="decimal" value={f.custo_hora} onChange={e => setF({ ...f, custo_hora: e.target.value })} style={inp} data-testid="horas-custo" /> <AjudaCampo chave="projetos.horas_obra.custo_hora" rota={ROTA} /></div>
           <div style={{ gridColumn: '1 / -1' }}><label style={lab}>O que foi feito</label>
-            <input value={f.descricao} onChange={e => setF({ ...f, descricao: e.target.value })} style={inp} data-testid="horas-descricao" /> <AjudaCampo chave="projetos.horas_obra.descricao" /></div>
+            <input value={f.descricao} onChange={e => setF({ ...f, descricao: e.target.value })} style={inp} data-testid="horas-descricao" /> <AjudaCampo chave="projetos.horas_obra.descricao" rota={ROTA} /></div>
           <div><button type="submit" disabled={salvando} data-testid="horas-lancar" style={{ padding: '9px 16px', background: ESP, color: '#fff', border: 0, borderRadius: 8, fontWeight: 600 }}>{salvando ? 'Lançando…' : 'Lançar horas'}</button>
-            <AjudaCampo chave="projetos.horas_obra.lancar" /></div>
+            <AjudaCampo chave="projetos.horas_obra.lancar" rota={ROTA} /></div>
         </form>
 
         {erro && <p role="alert" style={{ color: VERM }}>{erro}</p>}
@@ -151,12 +155,12 @@ export default function LancarHorasPage({ params }: { params: Promise<{ id: stri
                     <td style={{ padding: 8, textAlign: 'right' }}>{brl(Number(a.valor))}</td>
                     <td style={{ padding: 8 }}>
                       <span style={{ display: 'inline-flex', gap: 10, alignItems: 'center' }}>
-                        <button onClick={() => abrirEditar(a)} data-testid="horas-editar" style={{ color: ESP, background: 'none', border: 0, cursor: 'pointer' }}>Editar <AjudaCampo chave="projetos.horas_obra.editar" /></button>
-                        <button onClick={() => excluir(a)} data-testid="horas-excluir" style={{ color: VERM, background: 'none', border: 0, cursor: 'pointer' }}>Excluir <AjudaCampo chave="projetos.horas_obra.excluir" /></button>
+                        <button onClick={() => abrirEditar(a)} data-testid="horas-editar" style={{ color: ESP, background: 'none', border: 0, cursor: 'pointer' }}>Editar <AjudaCampo chave="projetos.horas_obra.editar" rota={ROTA} /></button>
+                        <button onClick={() => excluir(a)} data-testid="horas-excluir" style={{ color: VERM, background: 'none', border: 0, cursor: 'pointer' }}>Excluir <AjudaCampo chave="projetos.horas_obra.excluir" rota={ROTA} /></button>
                       </span>
                     </td>
                   </tr>))}
-                <tr style={{ fontWeight: 700 }}><td colSpan={5} style={{ padding: 8 }}>Total de mão de obra <AjudaCampo chave="projetos.horas_obra.total" /></td><td style={{ padding: 8, textAlign: 'right' }} data-testid="horas-total">{brl(total)}</td><td /></tr>
+                <tr style={{ fontWeight: 700 }}><td colSpan={5} style={{ padding: 8 }}>Total de mão de obra <AjudaCampo chave="projetos.horas_obra.total" rota={ROTA} /></td><td style={{ padding: 8, textAlign: 'right' }} data-testid="horas-total">{brl(total)}</td><td /></tr>
               </tbody>
             </table>
           </div>)}
@@ -169,16 +173,16 @@ export default function LancarHorasPage({ params }: { params: Promise<{ id: stri
             style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 16, width: '100%', maxWidth: 460, display: 'grid', gap: 10 }}>
             <div style={{ fontSize: 16, fontWeight: 700 }}>Editar lançamento de horas</div>
             <div><label style={lab}>Data</label>
-              <input type="date" value={ef.data} onChange={e => setEf({ ...ef, data: e.target.value })} style={inp} data-testid="horas-editar-data" /> <AjudaCampo chave="projetos.horas_obra.data" /></div>
+              <input type="date" value={ef.data} onChange={e => setEf({ ...ef, data: e.target.value })} style={inp} data-testid="horas-editar-data" /> <AjudaCampo chave="projetos.horas_obra.data" rota={ROTA} /></div>
             <div><label style={lab}>Função</label>
-              <AjudaCampo chave="projetos.horas_obra.funcao" /> <select value={ef.funcao_id} onChange={e => setEf({ ...ef, funcao_id: e.target.value })} style={inp} data-testid="horas-editar-funcao">
+              <AjudaCampo chave="projetos.horas_obra.funcao" rota={ROTA} /> <select value={ef.funcao_id} onChange={e => setEf({ ...ef, funcao_id: e.target.value })} style={inp} data-testid="horas-editar-funcao">
                 <option value="">Sem função</option>{funcoes.map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}</select></div>
             <div><label style={lab}>Horas</label>
-              <input inputMode="decimal" value={ef.horas} onChange={e => setEf({ ...ef, horas: e.target.value })} style={inp} data-testid="horas-editar-horas" /> <AjudaCampo chave="projetos.horas_obra.horas" /></div>
+              <input inputMode="decimal" value={ef.horas} onChange={e => setEf({ ...ef, horas: e.target.value })} style={inp} data-testid="horas-editar-horas" /> <AjudaCampo chave="projetos.horas_obra.horas" rota={ROTA} /></div>
             <div><label style={lab}>Custo da hora (R$)</label>
-              <input inputMode="decimal" value={ef.custo_hora} onChange={e => setEf({ ...ef, custo_hora: e.target.value })} style={inp} data-testid="horas-editar-custo" /> <AjudaCampo chave="projetos.horas_obra.custo_hora" /></div>
+              <input inputMode="decimal" value={ef.custo_hora} onChange={e => setEf({ ...ef, custo_hora: e.target.value })} style={inp} data-testid="horas-editar-custo" /> <AjudaCampo chave="projetos.horas_obra.custo_hora" rota={ROTA} /></div>
             <div><label style={lab}>O que foi feito</label>
-              <input value={ef.descricao} onChange={e => setEf({ ...ef, descricao: e.target.value })} style={inp} data-testid="horas-editar-descricao" /> <AjudaCampo chave="projetos.horas_obra.descricao" /></div>
+              <input value={ef.descricao} onChange={e => setEf({ ...ef, descricao: e.target.value })} style={inp} data-testid="horas-editar-descricao" /> <AjudaCampo chave="projetos.horas_obra.descricao" rota={ROTA} /></div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
               <button type="button" onClick={() => setEd(null)} disabled={salvandoEd} style={{ padding: '9px 16px', background: '#fff', color: ESP, border: `1px solid ${LINE}`, borderRadius: 8, cursor: 'pointer' }}>Cancelar</button>
               <button type="submit" disabled={salvandoEd} data-testid="horas-editar-salvar" style={{ padding: '9px 16px', background: ESP, color: '#fff', border: 0, borderRadius: 8, fontWeight: 600, cursor: salvandoEd ? 'wait' : 'pointer' }}>{salvandoEd ? 'Salvando…' : 'Salvar'}</button>

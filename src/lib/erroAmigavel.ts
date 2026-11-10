@@ -8,9 +8,16 @@ export const ehUuid = (v: unknown): v is string => typeof v === 'string' && UUID
 
 export const MSG_ENDERECO_INVALIDO = 'Registro não encontrado: o endereço desta página está incompleto. Volte à lista e abra o item de novo.'
 
+// Erro que a própria tela lança JÁ em linguagem do usuário (ex.: "O anexo passa de 10 MB.").
+// erroAmigavel devolve a mensagem como está, sem cair na frase genérica.
+export class ErroUsuario extends Error {
+  constructor(message: string) { super(message); this.name = 'ErroUsuario' }
+}
+
 type ErroLike = { code?: unknown; message?: unknown } | null | undefined
 
 export function erroAmigavel(e: unknown, generica = 'Não foi possível concluir. Tente de novo.'): string {
+  if (e instanceof ErroUsuario && e.message.trim()) return e.message.trim()
   const err = (e && typeof e === 'object' ? e : { message: e }) as ErroLike
   const code = typeof err?.code === 'string' ? err.code : ''
   const msg = typeof err?.message === 'string' ? err.message.trim() : ''

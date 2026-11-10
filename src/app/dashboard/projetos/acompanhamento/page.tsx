@@ -11,6 +11,7 @@ import { AlertTriangle, HardHat, CalendarClock, ArrowRight } from 'lucide-react'
 import PSGCMetric from '@/components/psgc/PSGCMetric'
 import { supabase } from '@/lib/supabase'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
@@ -53,7 +54,7 @@ export default function AcompanhamentoPage() {
         () => Promise.resolve(supabase.rpc('fn_obras_acompanhamento', { p_company_ids: companyIds })),
         { ms: 8000, tentativas: 1, label: 'acompanhamento_obras' },
       )
-      if (error) { setErro(error.message); return }
+      if (error) { setErro(erroAmigavel(error, MSG_CARREGAMENTO_FALHOU)); return }
       setObras((data as Obra[]) ?? [])
     } catch {
       setErro(MSG_CARREGAMENTO_FALHOU)

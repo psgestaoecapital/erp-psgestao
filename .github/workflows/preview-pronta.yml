@@ -17,8 +17,13 @@ on:
     types: [opened, reopened, ready_for_review, synchronize]
 
 concurrency:
-  # CEO 12/10: sem cancelar run em andamento (o commit vazio pode estar a meio); eventos da mesma PR entram em fila e o
-  # anti-laço (head já é o commit vazio) os torna no-op.
+  # CEO 12/10: sem cancelar run em andamento (o commit vazio pode estar a meio). Com `cancel-in-progress: false` os
+  # eventos da mesma PR JÁ entram em fila (FIFO) por padrão, e o anti-laço (head já é o commit vazio) os torna no-op.
+  # 09/11 (code-desenvolvedor-3): `queue: max` RESTAURADO. A #4261 o tirou supondo ser a única ocorrência em nível de
+  # workflow e a causa do startup_failure — as duas premissas não se sustentaram: montar-banco-testes.yml usa `queue: max`
+  # no mesmo nível e roda normalmente, e o próprio título da #4261 registra que o startup_failure foi transitório. Sem a
+  # fila o GitHub descarta a rodada pendente (regra CEO 12/10, gate check-esteira-sem-cancelamento, que ficou vermelho na
+  # main desde a #4261).
   group: preview-pronta-${{ github.event.pull_request.number }}
   cancel-in-progress: false
   queue: max

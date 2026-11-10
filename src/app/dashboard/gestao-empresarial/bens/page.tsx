@@ -4,7 +4,8 @@
 // Vida útil SUGERIDA pela natureza (editável). Sem vida útil => alerta "falta parâmetro" (RD-51).
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { useEmpresaSelecionada } from '@/lib/agro/usePecuaria'
+import { useCompanyIds } from '@/lib/useCompanyIds'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ROTA = '/dashboard/gestao-empresarial/bens'
@@ -51,8 +52,9 @@ function fmtc(n: number | null | undefined): string { return Number(n ?? 0).toLo
 function mesAtual(): string { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01` }
 
 export default function BensPage() {
-  const { companyId } = useEmpresaSelecionada()
-  const empresaUnica = companyId && !companyId.startsWith('group_') && companyId !== 'consolidado' ? companyId : null
+  // Princ.1 (núcleo universal): seletor GENÉRICO de empresa da GE — antes vinha do hook da pecuária (agro).
+  const { companyIds, selInfo } = useCompanyIds()
+  const empresaUnica = selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : null
 
   const [bens, setBens] = useState<Bem[]>([])
   const [bls, setBls] = useState<BL[]>([])
@@ -113,7 +115,7 @@ export default function BensPage() {
     const { error } = editId
       ? await supabase.from('erp_bem').update(payload).eq('id', editId)
       : await supabase.from('erp_bem').insert(payload)
-    if (error) setMsg('Erro: ' + error.message)
+    if (error) setMsg('Erro: ' + erroAmigavel(error))
     else { setMsg('Bem salvo.'); setF({ ...vazio }); setEditId(null); setShowForm(false); await carregar() }
     setBusy(false)
   }
@@ -128,9 +130,13 @@ export default function BensPage() {
   async function excluir(b: Bem) {
     if (!empresaUnica) return
     if (b.dep_acumulada > 0) { window.alert(`"${b.descricao}" já tem depreciação lançada. Não pode ser excluído — use "Baixar/Vender".`); return }
-    if (!window.confirm(`Excluir o bem "${b.descricao}"? Esta ação não pode ser desfeita.`)) return
-    const { error } = await supabase.from('erp_bem').delete().eq('id', b.id).eq('company_id', empresaUnica)
-    if (error) setMsg('Erro: ' + error.message); else { setMsg('Bem excluído.'); await carregar() }
+    if (!window.confirm(`Excluir o bem "${b.descricao}"? Ele sai da lista.`)) return
+    // RD-98 p4: exclusão rastreável via RPC guardada (soft-delete + audit_log), no lugar do DELETE físico do client.
+    const { data, error } = await supabase.rpc('fn_bem_excluir', { p_bem_id: b.id, p_company_id: empresaUnica, p_motivo: null })
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) {
+      setMsg('Erro: ' + (error ? erroAmigavel(error) : (r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : r?.erro === 'tem_depreciacao' ? 'Bem com depreciação lançada — use Baixar/Vender.' : r?.erro === 'nao_encontrado' ? 'Bem não encontrado.' : 'Não foi possível excluir.')))
+    } else { setMsg('Bem excluído.'); await carregar() }
   }
 
   async function baixar(b: Bem) {
@@ -144,7 +150,7 @@ export default function BensPage() {
       p_company_id: empresaUnica, p_bem_id: b.id, p_tipo: tipo, p_data: new Date().toISOString().slice(0, 10),
       p_valor: Number(String(valorStr).replace(',', '.')) || 0, p_justificativa: just,
     })
-    if (error) { setMsg('Erro: ' + error.message); return }
+    if (error) { setMsg('Erro: ' + erroAmigavel(error)); return }
     const r = data as { valor_contabil?: number; resultado?: number }
     setMsg(`${tipo} registrada · contábil R$ ${fmt(r?.valor_contabil)} · resultado R$ ${fmt(r?.resultado)}.`)
     await carregar()
@@ -154,7 +160,7 @@ export default function BensPage() {
     if (!empresaUnica) return
     setBusy(true); setMsg(null)
     const { data, error } = await supabase.rpc('fn_bem_calcular_depreciacao', { p_company_id: empresaUnica, p_competencia: compDep })
-    if (error) setMsg('Erro: ' + error.message)
+    if (error) setMsg('Erro: ' + erroAmigavel(error))
     else {
       const r = data as { bens_depreciados?: number; depreciacao_total?: number; faltando_parametro?: unknown[] }
       const falt = Array.isArray(r?.faltando_parametro) ? r.faltando_parametro.length : 0
