@@ -60,21 +60,19 @@ export default function CentrosCustoPage() {
   // indústria a coluna fica vazia/confusa — então só aparece quando há lotes cadastrados.
   const usaLotes = lotes.length > 0
 
-  // grava 1 mapeamento por centro em cost_center_map (delete+insert; RLS garante a empresa)
+  // grava 1 mapeamento por centro via RPC guardada (fn_centro_custo_mapear): valida empresa,
+  // linha/lote, rastro em audit_log_global e cria o erp_centros_custo — tudo no servidor (RD-98.2)
   async function gravar(sourceKey: string, d: Draft): Promise<string | null> {
     if (!empresaUnica) return 'sem empresa'
-    await supabase.from('cost_center_map').delete()
-      .eq('company_id', empresaUnica).eq('source_type', 'centro_custo').eq('source_key', sourceKey)
-    const { error } = await supabase.from('cost_center_map').insert({
-      company_id: empresaUnica, source_type: 'centro_custo', source_key: sourceKey,
-      business_line_id: d.bl || null, tipo_apropriacao: d.tipo,
-      lote_id: d.tipo === 'direto' ? (d.lote || null) : null,
-      allocation_pct: 100, cost_scope: 'todos', priority: 0, ativo: true,
+    const { data, error } = await supabase.rpc('fn_centro_custo_mapear', {
+      p_company_id: empresaUnica,
+      p_source_key: sourceKey,
+      p_tipo: d.tipo,
+      p_business_line_id: d.bl || null,
+      p_lote_id: d.tipo === 'direto' ? (d.lote || null) : null,
     })
     if (error) return error.message
-    // o centro passa a aparecer na lista "Centro de custo" ao lançar despesa/receita (a lista lê erp_centros_custo)
-    const { data: existe } = await supabase.from('erp_centros_custo').select('id').eq('company_id', empresaUnica).eq('nome', sourceKey).limit(1)
-    if (!existe?.length) await supabase.from('erp_centros_custo').insert({ company_id: empresaUnica, nome: sourceKey, codigo: sourceKey, ativo: true })
+    if (data && data.ok === false) return data.erro || 'falha ao mapear'
     return null
   }
 
@@ -85,27 +83,32 @@ export default function CentrosCustoPage() {
     else { setMsg(`"${valor}" mapeado.`); await carregar() }
   }
 
+  // exclusão SEMPRE rastreável (soft-delete via fn_centro_custo_excluir): nunca DELETE físico,
+  // guarda quem/quando/motivo em audit_log_global (RD-98.4). O mapeamento fica inativo e auditável.
   async function excluir(r: Row) {
     if (!empresaUnica) return
     const emUso = r.ocorrencias > 0
     const ok = window.confirm(emUso
-      ? `"${r.valor_origem}" tem ${r.ocorrencias} lançamento(s) usando este centro. Para não quebrar o rateio já processado, ele NÃO será excluído — será INATIVADO (para de ser aplicado, mas fica no histórico). Continuar?`
-      : `Excluir o mapeamento "${r.valor_origem}"? Lançamentos que usarem esse centro voltarão a ficar não mapeados.`)
+      ? `"${r.valor_origem}" tem ${r.ocorrencias} lançamento(s) usando este centro. Ele será INATIVADO (para de ser aplicado no rateio, mas fica no histórico e auditável). Continuar?`
+      : `Inativar o mapeamento "${r.valor_origem}"? Ele sai da aplicação no rateio, mas fica auditável no histórico. Lançamentos que usarem esse centro voltarão a ficar não mapeados.`)
     if (!ok) return
     setMsg(null)
-    const { error } = emUso
-      ? await supabase.from('cost_center_map').update({ ativo: false }).eq('company_id', empresaUnica).eq('source_type', 'centro_custo').eq('source_key', r.valor_origem)
-      : await supabase.from('cost_center_map').delete().eq('company_id', empresaUnica).eq('source_type', 'centro_custo').eq('source_key', r.valor_origem)
+    const { data, error } = await supabase.rpc('fn_centro_custo_excluir', {
+      p_company_id: empresaUnica, p_source_key: r.valor_origem, p_motivo: null,
+    })
     if (error) setMsg('Erro: ' + error.message)
-    else { setMsg(emUso ? `"${r.valor_origem}" inativado (estava em uso).` : `"${r.valor_origem}" excluído.`); await carregar() }
+    else if (data && data.ok === false) setMsg('Erro: ' + (data.erro || 'falha ao inativar'))
+    else { setMsg(`"${r.valor_origem}" inativado.`); await carregar() }
   }
 
   async function reativar(r: Row) {
     if (!empresaUnica) return
     setMsg(null)
-    const { error } = await supabase.from('cost_center_map').update({ ativo: true })
-      .eq('company_id', empresaUnica).eq('source_type', 'centro_custo').eq('source_key', r.valor_origem)
+    const { data, error } = await supabase.rpc('fn_centro_custo_reativar', {
+      p_company_id: empresaUnica, p_source_key: r.valor_origem,
+    })
     if (error) setMsg('Erro: ' + error.message)
+    else if (data && data.ok === false) setMsg('Erro: ' + (data.erro || 'falha ao reativar'))
     else { setMsg(`"${r.valor_origem}" reativado.`); await carregar() }
   }
 
