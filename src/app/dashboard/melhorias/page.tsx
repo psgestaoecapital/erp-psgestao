@@ -46,7 +46,7 @@ const STATUS_TERMINAL = ['concluida', 'concluido', 'resolvida', 'recusada', 'dup
 // #7050 · "Aguardando sua confirmação" só quando a resposta JÁ foi aprovada e enviada ao autor. Se o chamado está nesse
 // status mas a resposta ainda espera o operador aprovar (nada vai ao cliente sem tratamento), o autor vê "Em análise".
 const rotuloStatusAutor = (m: { status: string; resposta_aprovada: boolean }) =>
-  m.status === 'aguardando_confirmacao' && !m.resposta_aprovada ? 'Em análise pela equipe' : (STAT_LABEL[m.status] || m.status)
+  m.status === 'aguardando_confirmacao' && !m.resposta_aprovada ? 'A equipe está liberando a resposta para você conferir' : (STAT_LABEL[m.status] || m.status)
 type BucketMelhoria = 'precisa_voce' | 'aguardando' | 'concluidas'
 // A aba da Central. 'todos' (padrão) mostra tudo — o quadro nunca abre vazio quando há chamados; as demais filtram por bucket.
 type AbaMelhoria = 'todos' | BucketMelhoria
