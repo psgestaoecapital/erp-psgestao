@@ -4,10 +4,10 @@
 // e persiste a escolha por empresa no navegador (try/catch: se o navegador bloquear, a escolha vale só nesta sessão).
 import { useMemo, useState } from 'react'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
-import type { BaseV5, EstadoV5, ModeloV5 } from '../meu-painel/motor-v5'
+import type { BaseV5, EstadoV5, ModeloV5 } from './motor-v5'
 
 const C = { esp: '#3D2314', off: '#FAF7F2', gold: '#C8941A', bd: '#E7DED3', m: '#6B5D4F', d: '#9C8E80', bg2: '#F0ECE3' }
-const ROTA = '/dashboard/comercial/meu-painel-v6'
+const ROTA = '/dashboard/comercial/meu-painel'
 const nf = (o: Intl.NumberFormatOptions) => new Intl.NumberFormat('pt-BR', o)
 const brl0 = (v: number) => nf({ style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(v)
 const brl2 = (v: number | null) => v == null ? '—' : nf({ style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v)

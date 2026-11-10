@@ -6,7 +6,7 @@ import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import type { LogisticaV7 } from './logisticaV7'
 
 const C = { esp: '#3D2314', off: '#FAF7F2', gold: '#C8941A', bd: '#E7DED3', m: '#6B5D4F', d: '#9C8E80', bg2: '#F0ECE3' }
-const ROTA = '/dashboard/comercial/meu-painel-v6'
+const ROTA = '/dashboard/comercial/meu-painel'
 const nf = (o: Intl.NumberFormatOptions) => new Intl.NumberFormat('pt-BR', o)
 const int = (v: number | null | undefined) => v == null ? '—' : nf({ maximumFractionDigits: 0 }).format(v)
 const kg = (v: number) => `${int(v)} kg`
