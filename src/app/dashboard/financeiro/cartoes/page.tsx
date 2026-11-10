@@ -208,7 +208,7 @@ export default function CartoesPage() {
           )}
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
-              <thead><tr style={{ color: ESP60 }}><th style={th}>Nome</th><th style={th}>Conta de repasse</th><th style={th}></th></tr></thead>
+              <thead><tr style={{ color: ESP60 }}><th style={th}>Nome</th><th style={th}>Conta de repasse</th><th style={{ ...th, textAlign: 'right' }}>Ações <AjudaCampo chave="financeiro.cartoes.adq_acoes" /></th></tr></thead>
               <tbody>
                 {adqVisiveis.map((a) => (
                   <tr key={a.id} style={{ borderTop: `1px solid ${LINE}`, background: a.id === sel ? '#FBF3E0' : 'transparent' }}>
@@ -266,7 +266,7 @@ export default function CartoesPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
                 <thead><tr style={{ color: ESP60 }}>
                   <th style={th}>Bandeira</th><th style={th}>Modal.</th><th style={{ ...th, textAlign: 'center' }}>Parcelas</th>
-                  <th style={{ ...th, textAlign: 'right' }}>Taxa %</th><th style={{ ...th, textAlign: 'right' }}>Repasse</th><th style={th}></th>
+                  <th style={{ ...th, textAlign: 'right' }}>Taxa %</th><th style={{ ...th, textAlign: 'right' }}>Repasse</th><th style={{ ...th, textAlign: 'right' }}>Ações <AjudaCampo chave="financeiro.cartoes.taxa_acoes" /></th>
                 </tr></thead>
                 <tbody>
                   {taxas.map((t) => (

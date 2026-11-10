@@ -124,5 +124,17 @@ VALUES ('financeiro.cartoes.busca_adquirente', '/dashboard/financeiro/cartoes', 
         'Acha rápido uma adquirente quando há muitas cadastradas, sem rolar a lista inteira.',
         'Digite "Cielo" para ver só as adquirentes com esse nome.',
         'Buscar pelo CNPJ: a busca é pelo NOME da adquirente, não pelo documento.',
-        'financeiro', 45)
+        'financeiro', 45),
+       ('financeiro.cartoes.adq_acoes', '/dashboard/financeiro/cartoes', 'Adquirentes', 'Ações da adquirente',
+        'Nada a preencher: botões Editar (ajustar os dados) e Excluir (arquivar a adquirente).',
+        'Permite corrigir ou remover uma adquirente direto da lista. A exclusão é rastreável (soft-delete) — some da operação sem apagar o histórico.',
+        'Clique em Excluir para tirar da lista uma adquirente cadastrada por engano.',
+        'Excluir uma adquirente com repasse de cartão em aberto: a ação é bloqueada com aviso — concilie ou baixe os repasses antes.',
+        'financeiro', 46),
+       ('financeiro.cartoes.taxa_acoes', '/dashboard/financeiro/cartoes', 'Taxas', 'Ações da taxa',
+        'Nada a preencher: botões Editar (ajustar a taxa) e Excluir (arquivar a taxa).',
+        'Permite corrigir ou remover uma taxa (bandeira × modalidade × faixa de parcelas) direto da lista. A exclusão é rastreável (soft-delete).',
+        'Clique em Excluir para remover uma faixa de parcelas cadastrada errada.',
+        'Achar que a taxa some para sempre: fica auditável e pode ser reconstruída recadastrando.',
+        'financeiro', 47)
 ON CONFLICT (chave) DO NOTHING;
