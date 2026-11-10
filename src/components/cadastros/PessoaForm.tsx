@@ -19,6 +19,7 @@
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import FornecedorContatosCard from './FornecedorContatosCard'
 import { consultarCNPJ } from '@/lib/cadastros/buscarCNPJ'
 import { buscarCEP } from '@/lib/cadastros/buscarCEP'
@@ -334,7 +335,7 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
 
     setSalvando(false)
     if (result.error) {
-      setErro('Erro: ' + result.error.message)
+      setErro(erroAmigavel(result.error))
       return
     }
     onSaved()
