@@ -102,6 +102,7 @@ export function ModalAnalise({ open, onClose, empresa, base, modelo, estado, onA
 
         {/* Escopo */}
         <div role="radiogroup" aria-label="Escopo da exclusão" style={{ display: 'grid', gap: 6, marginBottom: 10 }}>
+          <AjudaCampo chave="com.painel.analise" rota={ROTA} />
           {([['preco', 'Só do preço médio e R$/kg (faturamento continua com tudo)'], ['tudo', 'De todo o painel (faturamento, volume, clientes e preço)']] as [EscopoAnalise, string][]).map(([k, rot]) => (
             <label key={k} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 14, minHeight: 40, background: '#fff', border: `1px solid ${escopo === k ? C.gold : C.bd}`, borderRadius: 8, padding: '8px 10px' }}>
               <input type="radio" name="escopo" checked={escopo === k} onChange={() => setEscopo(k)} /> {rot}
@@ -123,8 +124,8 @@ export function ModalAnalise({ open, onClose, empresa, base, modelo, estado, onA
             <button key={p.k} type="button" onClick={() => setRascunho(p.fn())} style={{ padding: '8px 10px', minHeight: 40, borderRadius: 999, border: `1px solid ${C.bd}`, background: '#fff', cursor: 'pointer', fontSize: 13 }}>{p.rot}</button>
           ))}
         </div>
-        <input aria-label="Buscar produto" placeholder="Buscar produto" value={busca} onChange={(e) => setBusca(e.target.value)}
-          style={{ width: '100%', boxSizing: 'border-box', padding: '10px', borderRadius: 8, border: `1px solid ${C.bd}`, fontSize: 14, minHeight: 40, marginBottom: 10 }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}><AjudaCampo chave="com.painel.busca" rota={ROTA} /><input aria-label="Buscar produto" placeholder="Buscar produto" value={busca} onChange={(e) => setBusca(e.target.value)}
+          style={{ flex: 1, boxSizing: 'border-box', padding: '10px', borderRadius: 8, border: `1px solid ${C.bd}`, fontSize: 14, minHeight: 40 }} /></div>
 
         {/* Lista agrupada por linha */}
         {grupos.map((g) => (
@@ -142,7 +143,7 @@ export function ModalAnalise({ open, onClose, empresa, base, modelo, estado, onA
                 return (
                   <label key={pi} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 8, alignItems: 'center', fontSize: 13, minHeight: 40, padding: '4px 4px', borderTop: `1px solid ${C.bg2}` }}>
                     <input type="checkbox" aria-label={base.prod[pi]?.[0]} checked={!rascunho[pi]} onChange={(e) => setRascunho((r) => { const n = { ...r }; if (e.target.checked) delete n[pi]; else n[pi] = true; return n })} />
-                    <span>{base.prod[pi]?.[0]}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>{base.prod[pi]?.[0]}<AjudaCampo chave="com.painel.produtos" rota={ROTA} /></span>
                     <span style={{ color: C.m, textAlign: 'right' }}>{brl0(a.val)} · {nf({ maximumFractionDigits: 0 }).format(a.kg)} kg · {a.kg > 0 && !rascunho[pi] ? brl2(a.val / a.kg) : '—'}/kg</span>
                   </label>
                 )
