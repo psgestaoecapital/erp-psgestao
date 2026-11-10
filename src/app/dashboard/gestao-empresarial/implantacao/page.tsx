@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { OnboardingFiveSteps, type OnboardingData } from '@/components/ge/OnboardingFiveSteps'
 
 type FnReturn =
@@ -38,7 +39,7 @@ export default function GuiaImplantacaoPage() {
         p_company_id: empresaUnica,
       })
       if (!alive) return
-      if (error) setErro(error.message)
+      if (error) setErro(erroAmigavel(error, 'Não foi possível carregar o status de implantação. Tente de novo.'))
       else setData(result as FnReturn)
       setLoading(false)
     })()
