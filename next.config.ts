@@ -63,6 +63,14 @@ const nextConfig: NextConfig = {
         destination: '/dashboard/cadastros/produtos',
         permanent: true,
       },
+      // PDCA GE (Princ.3 menu limpo · auditor_pdca_2 08/11): /dashboard/cadastros/linhas-negocio renderizava
+      // EXATAMENTE o mesmo <LinhasNegocioList/> que /dashboard/cadastros/divisoes (mesma entidade business_lines),
+      // porém órfã (fora do module_catalog). Consolidado na rota canônica do menu (Divisões); query preservada.
+      {
+        source: '/dashboard/cadastros/linhas-negocio',
+        destination: '/dashboard/cadastros/divisoes',
+        permanent: true,
+      },
     ]
   },
 }
