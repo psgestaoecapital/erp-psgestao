@@ -12,6 +12,8 @@ import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { RespostaInline } from '@/components/melhorias/RespostaInline'
 import ConversaChamado from '@/components/melhorias/ConversaChamado'
 import AprovacoesPendentes from '@/components/melhorias/AprovacoesPendentes'
+import QuadroChamados from '@/components/melhorias/QuadroChamados'
+import { type FiltroKanban } from '@/lib/melhorias/kanban'
 import { estadoFila, carregarFila, contarPrecisaDeMim, rascunhoNaoEnviado, RASCUNHO_NAO_ENVIADO, filtrarBusca, carregarEmpresasDemo, semDemos, filtrarVisao, trava, type EstadoFila, type Visao } from '@/lib/sugestoes/filaAtendimento'
 
 const C = {
@@ -56,6 +58,9 @@ function Inner() {
   const [userId, setUserId] = useState<string | null>(null)
   const [rows, setRows] = useState<Item[]>([])
   const [erro, setErro] = useState<string | null>(null)
+  // #7050 Fase 2: visão Quadro (Kanban) da fila de atendimento; a Lista continua sendo a tela de trabalho.
+  const [formato, setFormato] = useState<'quadro' | 'lista'>('quadro')
+  const [filtroQuadro, setFiltroQuadro] = useState<FiltroKanban>('gerais')
   const [msg, setMsg] = useState<string | null>(null)
   const [fEmpresa, setFEmpresa] = useState('todas')
   // ABAS por estado (decisão do CEO): "Aguardando o autor" sai da fila principal — chamado entregue não é
@@ -261,6 +266,28 @@ function Inner() {
           Aprovar/Recusar e contador. O componente some sozinho (retorna null) para quem não é sócio. */}
       <AprovacoesPendentes />
 
+      <div role="tablist" aria-label="Formato da fila" style={{ display: 'inline-flex', border: `1px solid ${C.border}`, borderRadius: 8, overflow: 'hidden', marginBottom: 10 }}>
+        {(['quadro', 'lista'] as const).map((v) => (
+          <button key={v} type="button" role="tab" aria-selected={formato === v} data-testid={`fila-formato-${v}`} onClick={() => setFormato(v)}
+            style={{ border: 'none', cursor: 'pointer', padding: '6px 14px', fontSize: 12.5, fontWeight: 700, background: formato === v ? C.cream : C.white, color: formato === v ? C.esp : C.espM }}>
+            {v === 'quadro' ? 'Quadro' : 'Lista'}
+          </button>
+        ))}
+      </div>
+      {formato === 'quadro' && (
+        <QuadroChamados
+          modo="operador"
+          itens={semDemo}
+          meuId={userId}
+          busca={busca}
+          onBusca={setBusca}
+          filtro={filtroQuadro}
+          onFiltro={setFiltroQuadro}
+          rotuloStatus={(st) => st.replace(/_/g, ' ')}
+          onAbrir={(numero) => { setBusca(String(numero)); setVisao('todos'); setFormato('lista') }}
+        />
+      )}
+      {formato === 'lista' && (<>
       {/* VISÃO (Chamados em equipe): onde o chamado caiu. A carteira define para onde cai, não quem pode atender. */}
       <div data-testid="fila-visoes" style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
         {([['meus', '👤 Meus chamados', contVisao.meus], ['todos', '👥 Todos', contVisao.todos], ['sem_dono', '⚠️ Sem dono', contVisao.sem_dono]] as [Visao, string, number][]).map(([k, label, n]) => (
@@ -567,6 +594,7 @@ function Inner() {
           )})}
         </div>
       )}
+      </>)}
     </div>
   )
 }
