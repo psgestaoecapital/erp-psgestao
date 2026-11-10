@@ -5,7 +5,7 @@
 // alimentado pela RPC fn_bi_comercial_base, que trava o escopo no banco (líder vê a empresa; vendedor só o próprio).
 // Fonte: fn_com_venda_item / bi_comercial_venda_item_mv (R$ 13.983.740 no aceite). Nunca a MV inflada.
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
-import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from 'recharts'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
@@ -47,6 +47,11 @@ const PERIODOS: { k: PerKey; rot: string }[] = [
 ]
 // Linha = grupo de produto do motor (gruposProduto): 0 desossado, 1 com osso, 2 miúdo, 3 subprodutos e outros.
 const LINHAS_OPC = ['Desossado (s/osso)', 'Com osso', 'Miúdo', 'Subprodutos e outros']
+
+type VendRow = {
+  nome: string; val: number; part: number; cli: number; notas: number; ticket: number | null; rpkg: number | null
+  idx: number | null; desc: number; dev: number; devPct: number; prazo: number | null
+}
 
 export default function MeuPainelV6() {
   const { companyIds, selInfo } = useCompanyIds()
@@ -128,6 +133,52 @@ export default function MeuPainelV6() {
 
   const CORES_LINHA = ['#C8941A', '#3D2314', '#6B5D4F', '#9C8E80', '#E0B048', '#2f6f8f', '#3f7d4e']
 
+  // Bloco 3 — aba Vendedores. Mesmas definições do placar v5 (motor-v5): ticket = faturamento ÷ notas;
+  // R$/kg = preço da análise sem despojo; índice = faturamento ÷ valor esperado ao preço médio da empresa;
+  // desconto = soma (tabela − praticado) ÷ tabela; devolução = devoluções ÷ faturamento.
+  const vendedores = useMemo(() => {
+    if (!modelo || !base) return [] as VendRow[]
+    return [...modelo.venM].map(([vi, a]) => {
+      const dev = modelo.devVen.get(vi) || 0
+      const pz = modelo.venPz.get(vi)
+      return {
+        nome: base.ven[vi]?.[1] || base.ven[vi]?.[0] || 'Sem vendedor',
+        val: a.val,
+        part: 100 * a.val / (modelo.tot.val || 1),
+        cli: a.clis.size,
+        notas: a.notas.size,
+        ticket: a.notas.size ? a.val / a.notas.size : null,
+        rpkg: a.kgP ? a.valP / a.kgP : null,
+        // Índice na base da análise (valP, só o que entra na conta) contra o esperado (exp), mesma base do R$/kg.
+        idx: a.exp > 0 ? 100 * a.valP / a.exp : null,
+        desc: a.tab > 0 ? 100 * a.desc / a.tab : 0,
+        dev,
+        devPct: a.val ? 100 * dev / a.val : 0,
+        prazo: pz && pz[1] ? pz[0] / pz[1] : null,
+      }
+    }).sort((x, y) => y.val - x.val)
+  }, [modelo, base])
+
+  // O que cada um vende: faturamento por linha dentro de cada vendedor (100% empilhado no gráfico).
+  const mixVendedor = useMemo(() => {
+    if (!modelo || !base) return { linhas: [] as string[], rows: [] as Record<string, string | number>[] }
+    const porVen = new Map<number, Map<string, number>>()
+    const linhasSet = new Set<string>()
+    modelo.its.forEach((x) => {
+      const linha = base.prod[x[4]]?.[1] || '—'
+      linhasSet.add(linha)
+      let m = porVen.get(x[2]); if (!m) { m = new Map(); porVen.set(x[2], m) }
+      m.set(linha, (m.get(linha) || 0) + x[6])
+    })
+    const linhas = [...linhasSet].sort()
+    const rows = [...porVen].map(([vi, m]) => {
+      const row: Record<string, string | number> = { nome: base.ven[vi]?.[1] || base.ven[vi]?.[0] || 'Sem vendedor' }
+      linhas.forEach((l) => { row[l] = m.get(l) || 0 })
+      return row
+    })
+    return { linhas, rows }
+  }, [modelo, base])
+
   if (!empresa) {
     return <div style={{ padding: 16, color: C.m }}>Escolha uma empresa para ver o painel.</div>
   }
@@ -191,7 +242,7 @@ export default function MeuPainelV6() {
         ))}
       </nav>
 
-      {aba !== 'geral' && (
+      {aba !== 'geral' && aba !== 'vendedores' && (
         <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16, color: C.m, fontSize: 14 }}>
           <b style={{ color: C.esp }}>{ABAS.find((a) => a.k === aba)?.rot}</b> — esta aba entra no próximo bloco do painel. O período e os filtros acima já valem para ela.
         </div>
@@ -304,8 +355,100 @@ export default function MeuPainelV6() {
               </tbody>
             </table>
           </div>
+
         </>
       )}
+      </>)}
+
+      {aba === 'vendedores' && r && modelo && (<>
+          <div style={{ marginTop: 24, fontSize: 18, fontWeight: 700 }}>Vendedores</div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12, marginTop: 8 }}>
+            <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: C.m, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>Quem vende quanto<AjudaCampo chave="com.painel.equipe" rota={ROTA} /></div>
+              <div style={{ width: '100%', height: Math.max(180, vendedores.length * 34) }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={vendedores} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 0 }}>
+                    <CartesianGrid horizontal={false} stroke={C.bd} />
+                    <XAxis type="number" tickFormatter={(v: number) => brl0(v)} tick={{ fontSize: 11, fill: C.m }} />
+                    <YAxis type="category" dataKey="nome" width={130} tick={{ fontSize: 12, fill: C.esp }} />
+                    <Tooltip formatter={(v) => brl0(Number(v))} />
+                    <Bar dataKey="val" fill={C.gold} radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: C.m, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>Desconto × devolução<AjudaCampo chave="com.painel.desconto" rota={ROTA} /></div>
+              <div style={{ width: '100%', height: 260 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <ScatterChart margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
+                    <CartesianGrid stroke={C.bd} />
+                    <XAxis type="number" dataKey="desc" name="Desconto" unit="%" tick={{ fontSize: 11, fill: C.m }} />
+                    <YAxis type="number" dataKey="devPct" name="Devolução" unit="%" tick={{ fontSize: 11, fill: C.m }} width={48} />
+                    <ZAxis range={[80, 80]} />
+                    <Tooltip cursor={{ strokeDasharray: '3 3' }} formatter={(v, n) => `${nf({ maximumFractionDigits: 2 }).format(Number(v))}${n === 'Desconto' || n === 'Devolução' ? '%' : ''}`} />
+                    <Scatter data={vendedores} fill={C.esp} />
+                  </ScatterChart>
+                </ResponsiveContainer>
+              </div>
+              <div style={{ fontSize: 12, color: C.m, marginTop: 4 }}>Cada ponto é um vendedor: à direita, mais desconto; acima, mais devolução.</div>
+            </div>
+
+            <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: C.m, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>O que cada um vende<AjudaCampo chave="com.painel.produtos" rota={ROTA} /></div>
+              <div style={{ width: '100%', height: Math.max(180, mixVendedor.rows.length * 34) }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={mixVendedor.rows} layout="vertical" stackOffset="expand" margin={{ top: 4, right: 16, left: 8, bottom: 0 }}>
+                    <XAxis type="number" hide />
+                    <YAxis type="category" dataKey="nome" width={130} tick={{ fontSize: 12, fill: C.esp }} />
+                    <Tooltip formatter={(v) => brl0(Number(v))} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    {mixVendedor.linhas.map((l, i) => (
+                      <Bar key={l} dataKey={l} stackId="mix" fill={CORES_LINHA[i % CORES_LINHA.length]} />
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16, marginTop: 12, overflowX: 'auto' }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: C.m, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>Placar dos vendedores<AjudaCampo chave="com.painel.faturado" rota={ROTA} /></div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 820 }}>
+              <thead>
+                <tr style={{ color: C.m, textAlign: 'left' }}>
+                  <th style={{ padding: '6px 4px' }}>Vendedor</th>
+                  <th style={{ padding: '6px 4px', textAlign: 'right' }}>Faturamento</th>
+                  <th style={{ padding: '6px 4px', textAlign: 'right' }}>Part.</th>
+                  <th style={{ padding: '6px 4px', textAlign: 'right' }}>Clientes</th>
+                  <th style={{ padding: '6px 4px', textAlign: 'right' }}>Ticket</th>
+                  <th style={{ padding: '6px 4px', textAlign: 'right' }}>R$/kg</th>
+                  <th style={{ padding: '6px 4px', textAlign: 'right' }}>Índice</th>
+                  <th style={{ padding: '6px 4px', textAlign: 'right' }}>Desconto</th>
+                  <th style={{ padding: '6px 4px', textAlign: 'right' }}>Devolução</th>
+                  <th style={{ padding: '6px 4px', textAlign: 'right' }}>Prazo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vendedores.map((v) => (
+                  <tr key={v.nome} style={{ borderTop: `1px solid ${C.bd}` }}>
+                    <td style={{ padding: '6px 4px' }}>{v.nome}</td>
+                    <td style={{ padding: '6px 4px', textAlign: 'right' }}>{brl0(v.val)}</td>
+                    <td style={{ padding: '6px 4px', textAlign: 'right' }}>{nf({ maximumFractionDigits: 1 }).format(v.part)}%</td>
+                    <td style={{ padding: '6px 4px', textAlign: 'right' }}>{int(v.cli)}</td>
+                    <td style={{ padding: '6px 4px', textAlign: 'right' }}>{brl0(v.ticket)}</td>
+                    <td style={{ padding: '6px 4px', textAlign: 'right' }}>{brl2(v.rpkg)}</td>
+                    <td style={{ padding: '6px 4px', textAlign: 'right' }}>{v.idx == null ? '—' : nf({ maximumFractionDigits: 0 }).format(v.idx)}</td>
+                    <td style={{ padding: '6px 4px', textAlign: 'right' }}>{nf({ maximumFractionDigits: 2 }).format(v.desc)}%</td>
+                    <td style={{ padding: '6px 4px', textAlign: 'right' }}>{brl0(v.dev)} · {nf({ maximumFractionDigits: 2 }).format(v.devPct)}%</td>
+                    <td style={{ padding: '6px 4px', textAlign: 'right' }}>{v.prazo == null ? '—' : `${nf({ maximumFractionDigits: 0 }).format(v.prazo)} dias`}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
       </>)}
 
       <div style={{ marginTop: 16, fontSize: 12, color: C.d }}>
