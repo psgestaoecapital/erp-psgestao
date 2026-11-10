@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 interface Contrato {
   id: string
@@ -96,7 +97,7 @@ export default function ContratosAFaturarPage() {
     })
     setFaturandoId(null)
     if (error) {
-      setMensagem({ tipo: 'erro', texto: error.message })
+      setMensagem({ tipo: 'erro', texto: erroAmigavel(error, 'Não foi possível gerar a cobrança. Tente de novo.') })
       return
     }
     setMensagem({ tipo: 'ok', texto: `Cobrança gerada com sucesso (${c.cliente_nome ?? 'cliente'})` })
