@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import PessoaForm, { type Pessoa } from './PessoaForm'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import ClienteArquivos from './ClienteArquivos'   // PM-QW #16 · anexos do cliente (contrato)
 
 interface Props {
@@ -35,17 +36,20 @@ export default function PessoasList({ companyId, tipo }: Props) {
   const [editing, setEditing] = useState<Pessoa | null>(null)
   const [busca, setBusca] = useState('')
   const [drawerPessoa, setDrawerPessoa] = useState<Pessoa | null>(null)
+  const [erro, setErro] = useState<string | null>(null)
 
   async function load() {
     setLoading(true)
-    const { data } = await supabase
+    setErro(null)
+    const { data, error } = await supabase
       .from(tabela)
       // codigo_ibge_municipio só existe em erp_clientes (o formulário mostra e edita o IBGE do cliente)
       .select('id, company_id, nome_fantasia, razao_social, cnpj_cpf, tipo_pessoa, ie, inscricao_municipal, contribuinte_icms, email, telefone, whatsapp, cep, logradouro, numero, bairro, complemento, cidade, uf, ativo, tags' + (tabela === 'erp_clientes' ? ', codigo_ibge_municipio' : ''))
       .eq('company_id', companyId)
       .eq('ativo', true)
       .order('nome_fantasia')
-    if (data) setPessoas(data as unknown as Pessoa[])   // select montado (coluna do IBGE só em clientes)
+    if (error) setErro(erroAmigavel(error, `Não consegui carregar os ${labelPlural.toLowerCase()} agora. Tente de novo em instantes.`))
+    else setPessoas((data ?? []) as unknown as Pessoa[])   // select montado (coluna do IBGE só em clientes)
     setLoading(false)
   }
 
@@ -56,7 +60,9 @@ export default function PessoasList({ companyId, tipo }: Props) {
 
   async function handleInativar(id: string) {
     if (!confirm(`Inativar esse ${labelSingular}? Você pode reativá-lo depois.`)) return
-    await supabase.from(tabela).update({ ativo: false }).eq('id', id)
+    setErro(null)
+    const { error } = await supabase.from(tabela).update({ ativo: false }).eq('id', id)
+    if (error) { setErro(erroAmigavel(error, `Não consegui inativar o ${labelSingular} agora. Tente de novo em instantes.`)); return }
     load()
   }
 
@@ -101,6 +107,13 @@ export default function PessoasList({ companyId, tipo }: Props) {
           + Novo {labelSingular}
         </button>
       </div>
+
+      {erro && (
+        <div role="alert" style={{ background: '#FCEBEB', color: '#A32D2D', padding: '10px 14px', borderRadius: 8, marginBottom: 16, fontSize: 13, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+          <span>{erro}</span>
+          <button type="button" onClick={() => setErro(null)} aria-label="Fechar aviso" style={{ background: 'transparent', border: 'none', color: '#A32D2D', cursor: 'pointer', fontSize: 16 }}>×</button>
+        </div>
+      )}
 
       {pessoas.length > 0 && (
         <div style={{ background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 12, padding: '14px 18px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
