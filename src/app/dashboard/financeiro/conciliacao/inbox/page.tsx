@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { dataReferenciaSaldoOFX, rotuloDataSaldo, dtendDoOFX, saldoOFXValido, AVISO_SALDO_INVALIDO } from '@/lib/financeiro/saldoPorConta'
 import { parseSaldoFechamento, ehLinhaSaldoOFX, parseValorOFX, decodificarOFX, mensagemErroOFX } from '@/lib/ofx-parser'
@@ -991,6 +992,7 @@ export default function InboxPage() {
           <button onClick={() => setModo('sistema')} style={modo === 'sistema' ? tabActive : tabInactive}>
             📥 Pendências do Sistema
           </button>
+          <AjudaCampo chave="financeiro.conciliacao.modo" />
         </div>
 
         {modo === 'extrato' && (
@@ -1015,7 +1017,9 @@ export default function InboxPage() {
                   fontSize: 12, fontWeight: 600, cursor: 'pointer',
                 }}
               >💳 Cartão</button>
+              <AjudaCampo chave="financeiro.conciliacao.tipo_extrato" />
             </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <select
               value={loteSelId ?? ''}
               onChange={(e) => setLoteSelId(e.target.value || null)}
@@ -1028,12 +1032,15 @@ export default function InboxPage() {
                 </option>
               ))}
             </select>
+            <AjudaCampo chave="financeiro.conciliacao.lote" />
+            </label>
 
             {loteSel && (
               <div style={{ background: '#FAF7F2', border: '0.5px solid #E7DED3', borderRadius: 10, padding: 12, marginBottom: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#3D2314' }}>
-                  Extrato {loteSel.nome ?? '—'}
-                  {loteSel.periodo_inicio && <> · {fmtDate(loteSel.periodo_inicio)} a {fmtDate(loteSel.periodo_fim)}</>}
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#3D2314', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>Extrato {loteSel.nome ?? '—'}
+                  {loteSel.periodo_inicio && <> · {fmtDate(loteSel.periodo_inicio)} a {fmtDate(loteSel.periodo_fim)}</>}</span>
+                  <AjudaCampo chave="financeiro.conciliacao.progresso_fechamento" />
                 </div>
                 <div style={{ fontSize: 12, color: '#3D2314', marginTop: 4 }}>
                   {/* #60: resolvidos = conciliados + ignorados (ignorado é decisão, não pendência) */}
@@ -1057,10 +1064,12 @@ export default function InboxPage() {
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', cursor: 'pointer' }}>
             <input type="checkbox" checked={autoGlobal} onChange={(e) => void toggleAutoGlobal(e.target.checked)} />
             Auto-conciliar OURO desta empresa (perfeitos 1:1 entram sozinhos)
+            <AjudaCampo chave="financeiro.conciliacao.auto_ouro" />
           </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', cursor: 'pointer' }}>
             <input type="checkbox" checked={soOuro} onChange={(e) => setSoOuro(e.target.checked)} />
             Mostrar só matches OURO
+            <AjudaCampo chave="financeiro.conciliacao.so_ouro" />
           </label>
         </div>
 
@@ -1078,6 +1087,7 @@ export default function InboxPage() {
             onClick={() => setAba('ignorados')}
             style={aba === 'ignorados' ? tabActive : tabInactive}
           >Ignorados ({ignorados.length})</button>
+          <AjudaCampo chave="financeiro.conciliacao.abas" />
           {temExtratoApi && (
             <button
               onClick={sincronizarExtratoAgora}
@@ -1099,31 +1109,38 @@ export default function InboxPage() {
             style={{ ...tabInactive, borderStyle: 'dashed' }}
             data-testid="inbox-importar-ofx"
           >+ Importar extrato (OFX)</button>
+          <AjudaCampo chave="financeiro.conciliacao.importar_ofx" />
         </div>
 
         {/* Camada1/Fatia1: barra de indicadores (item 1 valor pendente + item 3 datas) */}
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 8, padding: '10px 14px', marginBottom: 12 }}>
           <div>
-            <div style={{ fontSize: 10, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Valor pendente de conciliação</div>
+            <div style={{ fontSize: 10, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.5, display: 'flex', alignItems: 'center', gap: 4 }}>Valor pendente de conciliação <AjudaCampo chave="financeiro.conciliacao.valor_pendente" /></div>
             <div style={{ fontSize: 18, fontWeight: 700, color: valorPendente > 0 ? '#C8941A' : '#3B6D11', fontVariantNumeric: 'tabular-nums' }}>
               R$ {fmt(valorPendente)} <span style={{ fontSize: 11, fontWeight: 500, color: 'rgba(61,35,20,0.55)' }}>· {totPend} movimento(s)</span>
             </div>
           </div>
           <div style={{ marginLeft: 'auto', textAlign: 'right', fontSize: 11, color: 'rgba(61,35,20,0.6)' }}>
-            <div>Última atualização: <b>{ultimaAtualizacao ? fmtBR(ultimaAtualizacao) : '—'}</b></div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
+              <span>Última atualização: <b>{ultimaAtualizacao ? fmtBR(ultimaAtualizacao) : '—'}</b></span>
+              <AjudaCampo chave="financeiro.conciliacao.datas_referencia" alinhar="fim" />
+            </div>
             <div>Último lançamento: <b>{ultimoLancamento ? fmtDate(ultimoLancamento) : '—'}</b></div>
           </div>
         </div>
 
         {/* Camada1/Fatia1: busca (item 2) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
         <input
           type="text"
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
           placeholder="Pesquise descrição ou valor…"
-          style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '0.5px solid #E7DED3', fontSize: 13, background: '#FFF', color: '#3D2314', marginBottom: 12, fontFamily: 'inherit' }}
+          style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '0.5px solid #E7DED3', fontSize: 13, background: '#FFF', color: '#3D2314', fontFamily: 'inherit' }}
           data-testid="inbox-busca"
         />
+        <AjudaCampo chave="financeiro.conciliacao.busca" />
+        </div>
 
         {/* Camada1/Fatia1: contadores por natureza (item 4) — filtram a aba Pendentes */}
         {aba === 'pendentes' && (
@@ -1144,6 +1161,7 @@ export default function InboxPage() {
                 }}
               >{label}</button>
             ))}
+            <AjudaCampo chave="financeiro.conciliacao.filtro_natureza" />
           </div>
         )}
 
@@ -1304,7 +1322,8 @@ export default function InboxPage() {
                       </div>
                     </div>
 
-                    <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <AjudaCampo chave="financeiro.conciliacao.acoes_linha" alinhar="fim" />
                       <button onClick={() => setArquivando(it)} disabled={aplicando} style={secondaryBtn(aplicando)}>
                         ✕ Ignorar
                       </button>
