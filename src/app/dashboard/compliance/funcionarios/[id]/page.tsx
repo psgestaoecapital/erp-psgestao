@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
 import { authFetch } from '@/lib/authFetch'
 import { fmtData, fmtDataHora } from '@/lib/psgc-tokens'
@@ -47,7 +47,9 @@ type SalarioInfo = { pode_ver: boolean; cargo?: string | null; pessoas_no_cargo?
 
 export default function FuncionarioDetalhePage() {
   const params = useParams()
+  const router = useRouter()
   const id = String(params?.id ?? '')
+  const [acaoExcluir, setAcaoExcluir] = useState(false)
   const [tab, setTab] = useState<'dados' | 'documentos' | 'historico'>('dados')
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
@@ -107,6 +109,26 @@ export default function FuncionarioDetalhePage() {
     }
   }
 
+  // RD-98 p4 — Excluir (arquivar) / Restaurar o cadastro. Soft-delete rastreável; nunca DELETE físico.
+  const excluido = !!funcionario?.excluido_em
+  async function excluirOuRestaurar() {
+    if (!funcionario) return
+    if (!excluido && !confirm(`Excluir o cadastro de ${funcionario.nome_completo}?\n\nEle sai da lista ativa, mas o histórico é preservado — dá para Restaurar depois.`)) return
+    setAcaoExcluir(true); setErro(null)
+    try {
+      const fn = excluido ? 'fn_compliance_funcionario_restaurar' : 'fn_compliance_funcionario_arquivar'
+      const { data, error } = await supabase.rpc(fn, { p_id: funcionario.id })
+      const r = data as { ok?: boolean; erro?: string } | null
+      if (error || !r?.ok) throw new Error((error?.message || r?.erro) === 'sem_acesso' ? 'Sem permissão para esta ação.' : (error?.message || r?.erro || 'Falha na ação'))
+      if (excluido) await carregar()
+      else router.push('/dashboard/compliance/funcionarios')
+    } catch (e: any) {
+      setErro(e?.message || 'Falha na ação')
+    } finally {
+      setAcaoExcluir(false)
+    }
+  }
+
   return (
     <div style={{ backgroundColor: C.offwhite, minHeight: '100vh', color: C.ink }}>
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: '32px 24px' }}>
@@ -120,10 +142,29 @@ export default function FuncionarioDetalhePage() {
               {funcionario?.cargo || '—'} · {funcionario?.setor || '—'} · {funcionario?.empresa_tomadora_nome || 'sem tomadora'}
             </p>
           </div>
-          <Link href="/dashboard/compliance/funcionarios" style={{ padding: '10px 14px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
-            ← Voltar
-          </Link>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            {funcionario && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <button
+                  onClick={excluirOuRestaurar}
+                  disabled={acaoExcluir}
+                  style={{ padding: '10px 14px', borderRadius: 8, border: `1px solid ${excluido ? C.green : C.red}`, backgroundColor: 'white', color: excluido ? C.green : C.red, fontSize: 13, fontWeight: 600, cursor: acaoExcluir ? 'not-allowed' : 'pointer', opacity: acaoExcluir ? 0.6 : 1 }}
+                >
+                  {acaoExcluir ? '…' : excluido ? '↩ Restaurar cadastro' : 'Excluir cadastro'}
+                </button>
+                <AjudaCampo chave={excluido ? 'compliance.funcionarios.acao.restaurar' : 'compliance.funcionarios.acao.excluir'} rota="/dashboard/compliance/funcionarios" />
+              </span>
+            )}
+            <Link href="/dashboard/compliance/funcionarios" style={{ padding: '10px 14px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
+              ← Voltar
+            </Link>
+          </div>
         </header>
+        {excluido && (
+          <div style={{ backgroundColor: C.amberBg ?? '#fdf4e0', color: C.amber ?? '#8a6a10', padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>
+            Este cadastro está <strong>excluído</strong> (arquivado). Use “Restaurar cadastro” para trazê-lo de volta à lista ativa.
+          </div>
+        )}
 
         {erro && (<div style={{ backgroundColor: C.redBg, color: C.red, padding: '12px 16px', borderRadius: 8, marginBottom: 16, fontSize: 14 }}>{erro}</div>)}
 

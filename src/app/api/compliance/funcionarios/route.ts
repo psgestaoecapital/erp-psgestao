@@ -34,9 +34,14 @@ export const GET = exigirLogin(async (req: NextRequest, u) => {
   // Terceirização: filtra pelo prestador (aba Funcionários do prestador) e/ou pelo vínculo.
   const prestadorId = url.searchParams.get('prestador_id')
   const vinculoTipo = url.searchParams.get('vinculo_tipo')
+  // Soft-delete (RD-98 p4): por padrão lista só cadastros vivos; excluidos=true mostra os arquivados.
+  const excluidos = url.searchParams.get('excluidos') === 'true'
 
   const sb = admin()
   let query = sb.from('compliance_funcionarios').select('*').order('nome_completo')
+  // Cadastro excluído (arquivado) nunca aparece na lista ativa; a aba Excluídos mostra só os arquivados.
+  if (excluidos) query = query.not('excluido_em', 'is', null)
+  else query = query.is('excluido_em', null)
   // Empregadora (company_id) OU tomadora (empresa_tomadora_id) — terceirização.
   const idsCsv = companyIds.join(',')
   query = query.or(`company_id.in.(${idsCsv}),empresa_tomadora_id.in.(${idsCsv})`)
