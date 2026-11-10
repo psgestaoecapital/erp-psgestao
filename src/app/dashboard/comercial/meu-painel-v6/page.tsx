@@ -11,13 +11,16 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import {
-  calcularModelo, estadoPadrao, gruposProduto, resumo,
+  calcularModelo, estadoPadrao, exclusaoPadrao, gruposProduto, resumo,
   type BaseV5, type EstadoV5, type GrupoProduto, type ModeloV5,
 } from '../meu-painel/motor-v5'
 import { AbaClientes } from './AbaClientes'
 import { calcularClientesV7, type ClientesV7 } from './clientes-v7'
 import { AbaCidades } from './AbaCidades'
 import { calcularCidadesV7, type CidadesV7 } from './cidades-v7'
+import { AbaProdutosV7 } from './AbaProdutosV7'
+import { calcularProdutosV7 } from './produtos-v7'
+import { ModalAnalise, type EscopoAnalise } from './ModalAnalise'
 
 const C = { esp: '#3D2314', off: '#FAF7F2', gold: '#C8941A', bd: '#E7DED3', m: '#6B5D4F', d: '#9C8E80' }
 const ROTA = '/dashboard/comercial/meu-painel-v6'
@@ -98,6 +101,11 @@ export default function MeuPainelV6() {
   }, [base])
   const setVen = (v: EstadoV5['ven']) => setEstado((e) => e ? { ...e, ven: v } : e)
   const setLin = (v: EstadoV5['lin']) => setEstado((e) => e ? { ...e, lin: v } : e)
+  const [modalAnalise, setModalAnalise] = useState(false)
+  // A aba Produtos abre "Configurar a análise": o usuário escolhe quais produtos entram
+  // no cálculo (excl) e se vale só para preço ou para todo o painel (escopo). Default = análise padrão.
+  const aplicarAnalise = (excl: Record<number, boolean>, escopo: EscopoAnalise) =>
+    setEstado((e) => (e ? { ...e, excl, escopo } : e))
 
   const pg = useMemo<GrupoProduto[] | null>(() => base ? gruposProduto(base) : null, [base])
   const modelo = useMemo<ModeloV5 | null>(() => base && estado && pg ? calcularModelo(base, estado, pg) : null, [base, estado, pg])
@@ -113,6 +121,12 @@ export default function MeuPainelV6() {
   // Bloco 5 — aba Cidades (onde a Frioeste vende, todas as cidades). Mesmo motor já provado.
   const cidadesV7 = useMemo<CidadesV7 | null>(
     () => (base && modelo && estado && pg ? calcularCidadesV7(base, modelo, estado, pg) : null),
+    [base, modelo, estado, pg],
+  )
+
+  // Bloco 6 — aba Produtos (todos os produtos, onde o preço cai). Mesmo motor já provado.
+  const produtosV7 = useMemo(
+    () => (base && modelo && estado && pg ? calcularProdutosV7(base, modelo, estado, pg) : null),
     [base, modelo, estado, pg],
   )
 
@@ -259,7 +273,7 @@ export default function MeuPainelV6() {
         ))}
       </nav>
 
-      {aba !== 'geral' && aba !== 'vendedores' && aba !== 'clientes' && aba !== 'cidades' && (
+      {aba !== 'geral' && aba !== 'vendedores' && aba !== 'clientes' && aba !== 'cidades' && aba !== 'produtos' && (
         <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16, color: C.m, fontSize: 14 }}>
           <b style={{ color: C.esp }}>{ABAS.find((a) => a.k === aba)?.rot}</b> — esta aba entra no próximo bloco do painel. O período e os filtros acima já valem para ela.
         </div>
@@ -474,6 +488,14 @@ export default function MeuPainelV6() {
 
       {aba === 'cidades' && base && modelo && cidadesV7 && (
         <AbaCidades cidades={cidadesV7} base={base} modelo={modelo} />
+      )}
+
+      {aba === 'produtos' && base && modelo && produtosV7 && estado && (
+        <AbaProdutosV7 produtos={produtosV7} base={base} modelo={modelo} onAbrirAnalise={() => setModalAnalise(true)} />
+      )}
+      {base && modelo && estado && empresa && (
+        <ModalAnalise open={modalAnalise} onClose={() => setModalAnalise(false)} empresa={empresa} base={base} modelo={modelo} estado={estado}
+          onAplicar={aplicarAnalise} exclusaoPadrao={exclusaoPadrao(base)} />
       )}
 
       <div style={{ marginTop: 16, fontSize: 12, color: C.d }}>
