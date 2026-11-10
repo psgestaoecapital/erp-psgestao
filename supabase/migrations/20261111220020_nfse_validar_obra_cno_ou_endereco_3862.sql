@@ -111,3 +111,7 @@ BEGIN
     'municipio_prestacao_ibge', v_ibge,
     'exige_obra', COALESCE((v_exige_obra->>'exige')::boolean, false));
 END $function$;
+
+-- Guarda de funções: o CREATE OR REPLACE preserva o ACL, mas o gate check_fn_guards exige os grants escritos.
+REVOKE ALL ON FUNCTION public.fn_nfse_validar_emissao(uuid, jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_nfse_validar_emissao(uuid, jsonb) TO authenticated, service_role;
