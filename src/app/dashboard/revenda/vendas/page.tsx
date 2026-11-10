@@ -366,20 +366,22 @@ function Inner() {
                   {nfes.get(v.id) && (() => {
                     const n = nfes.get(v.id)!
                     const lnk: React.CSSProperties = { color: C.gold, fontWeight: 700, textDecoration: 'none', fontSize: 12 }
+                    const ajuda = <AjudaCampo chave="revenda.vendas.nfe_status" rota="/dashboard/revenda/vendas" />
                     if (n.status === 'autorizada') return (
                       <span style={{ display: 'inline-flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', padding: '4px 10px', borderRadius: 8, background: C.greenBg, color: C.green, fontSize: 12, fontWeight: 600 }} data-testid="venda-nfe-status">
                         Autorizada{n.numero ? ` — nº ${n.numero}` : ''}
                         {n.danfe_url && <a href={n.danfe_url} target="_blank" rel="noreferrer" style={lnk}>Imprimir DANFE</a>}
                         {n.xml_url && <a href={n.xml_url} target="_blank" rel="noreferrer" style={lnk}>Baixar XML</a>}
                         <a href="/dashboard/fiscal/nfe" style={lnk}>Ver em NF-e emitidas</a>
+                        {ajuda}
                       </span>
                     )
                     if (n.status === 'processando') return (
-                      <span style={{ padding: '4px 10px', borderRadius: 8, background: C.amberBg, color: '#8A4B08', fontSize: 12, fontWeight: 600 }} data-testid="venda-nfe-status">Enviando à SEFAZ… aguarde, a tela atualiza sozinha.</span>
+                      <span style={{ padding: '4px 10px', borderRadius: 8, background: C.amberBg, color: '#8A4B08', fontSize: 12, fontWeight: 600 }} data-testid="venda-nfe-status">Enviando à SEFAZ… aguarde, a tela atualiza sozinha.{ajuda}</span>
                     )
                     if (n.status === 'rejeitada') return (
                       <span style={{ padding: '4px 10px', borderRadius: 8, background: C.redBg, color: C.red, fontSize: 12, fontWeight: 600 }} data-testid="venda-nfe-status">
-                        Nota rejeitada: {n.motivo_rejeicao ?? 'motivo não informado'}. Corrija o cadastro e emita de novo. <a href="/dashboard/fiscal/nfe" style={lnk}>Ver nota</a>
+                        Nota rejeitada: {n.motivo_rejeicao ?? 'motivo não informado'}. Corrija o cadastro e emita de novo. <a href="/dashboard/fiscal/nfe" style={lnk}>Ver nota</a>{ajuda}
                       </span>
                     )
                     return null
