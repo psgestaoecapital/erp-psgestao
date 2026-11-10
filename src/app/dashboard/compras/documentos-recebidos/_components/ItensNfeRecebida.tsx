@@ -9,6 +9,7 @@ import AnexosCard from '@/components/crm/AnexosCard'
 import { UNIDADES_ESTOQUE } from '@/lib/produtos/unidades'
 import PrecoVendaEntradaNota from '@/components/precificacao/PrecoVendaEntradaNota'
 import { custoProdutoDaNota } from '@/lib/precificacao/entradaNota'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 type Sugestao = {
   produto_id: string
@@ -592,14 +593,14 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange, onConcluida }: Pr
                 const div = Number(rec) !== Number(it.quantidade)
                 return (
                   <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10.5px] text-[#3D2314]/70">
-                    <span className="flex items-center gap-1">recebido
+                    <span className="flex items-center gap-1">recebido<AjudaCampo chave="compras.docs_recebidos.item_qtd_recebida" />
                       <input type="number" step="any" defaultValue={rec}
                         onBlur={(e) => { const q = Number(e.target.value); if (q !== Number(rec)) void conferir(it.item_id, { qtd: q, motivo: div ? ex.divergencia_motivo : null }) }}
                         className="w-16 border border-[#3D2314]/15 rounded px-1 py-0.5 text-[11px] text-[#3D2314]" />
                       <span className="text-[#3D2314]/45">de {Number(it.quantidade).toLocaleString('pt-BR')}</span>
                     </span>
                     {div && (
-                      <span className="flex items-center gap-1 text-[#BA7517] font-medium">⚠️ divergência
+                      <span className="flex items-center gap-1 text-[#BA7517] font-medium">⚠️ divergência<AjudaCampo chave="compras.docs_recebidos.item_divergencia_motivo" />
                         <select defaultValue={ex.divergencia_motivo ?? ''} onChange={(e) => void conferir(it.item_id, { qtd: rec, motivo: e.target.value })}
                           className="border border-[#BA7517]/40 rounded px-1 py-0.5 text-[10.5px] text-[#3D2314]">
                           <option value="">motivo…</option>
@@ -608,16 +609,17 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange, onConcluida }: Pr
                       </span>
                     )}
                     <label className="flex items-center gap-1 cursor-pointer">
-                      <input type="checkbox" checked={ex.gera_financeiro !== false} onChange={(e) => void conferir(it.item_id, { gera: e.target.checked })} /> gera financeiro
+                      <input type="checkbox" checked={ex.gera_financeiro !== false} onChange={(e) => void conferir(it.item_id, { gera: e.target.checked })} /> gera financeiro<AjudaCampo chave="compras.docs_recebidos.item_gera_financeiro" />
                     </label>
                     {/* E2 · fator de conversão (CX→UN) — pergunta uma vez, vale sempre */}
-                    <span className="flex items-center gap-1" data-testid={`nfe-conversao-${it.item_id}`}>1 {ex.unidade || 'emb.'} da nota =
+                    <span className="flex items-center gap-1" data-testid={`nfe-conversao-${it.item_id}`}>1 {ex.unidade || 'emb.'} da nota =<AjudaCampo chave="compras.docs_recebidos.item_fator_conversao" />
                       <input key={`f-${it.produto_id}-${fatorSalvo[it.produto_id ?? ''] ?? 1}`} type="number" step="any" min="0.000001"
                         defaultValue={fatorSalvo[it.produto_id ?? ''] ?? 1} data-testid={`nfe-fator-${it.item_id}`}
                         title="Quantas unidades do seu produto vêm em 1 unidade da nota (ex.: 1 CX = 12 LT → 12)"
                         onBlur={(e) => { const f = Number(e.target.value); if (f > 0 && f !== (fatorSalvo[it.produto_id ?? ''] ?? 1)) void salvarFator(it.item_id, it.produto_id, ex.unidade, f) }}
                         className="w-14 border border-[#3D2314]/15 rounded px-1 py-0.5 text-[11px] text-[#3D2314]" />
                       {/* #573 · unidade de estoque do produto (litro, metro, pacote…) */}
+                      <AjudaCampo chave="compras.docs_recebidos.item_unidade_estoque" />
                       <select key={`u-${it.produto_id}-${unidadeProd[it.produto_id ?? ''] ?? ''}`} defaultValue={unidadeProd[it.produto_id ?? ''] ?? ''}
                         disabled={!it.produto_id} data-testid={`nfe-unidade-${it.item_id}`} title={it.produto_id ? 'Unidade de estoque do produto' : 'Vincule o produto primeiro'}
                         onChange={(e) => void salvarUnidade(it.produto_id, it.produto_nome, e.target.value)}
@@ -763,6 +765,8 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange, onConcluida }: Pr
 
           {buscaItem === it.item_id && (
             <div className="mt-2 rounded-md bg-white border border-[#3D2314]/10 p-2">
+              <div className="flex items-center gap-1 text-[10.5px] text-[#3D2314]/55 mb-1">Buscar produto</div>
+              <AjudaCampo chave="compras.docs_recebidos.item_buscar_produto" />
               <input
                 autoFocus
                 value={q}
@@ -803,6 +807,8 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange, onConcluida }: Pr
 
           {buscaOS === it.item_id && (
             <div className="mt-2 rounded-md bg-white border border-[#2F5AA8]/30 p-2">
+              <div className="flex items-center gap-1 text-[10.5px] text-[#3D2314]/55 mb-1">Buscar ordem de serviço</div>
+              <AjudaCampo chave="compras.docs_recebidos.item_buscar_os" />
               <input
                 autoFocus
                 value={qOS}
@@ -957,13 +963,21 @@ function ParcelasBlock({ parcelas, valorNota, contas, onRefazer, onSalvar }: {
     <div className="mt-3 rounded-lg border border-[#3D2314]/12 p-3 bg-white">
       <div className="text-[12px] font-medium text-[#3D2314] mb-2">🧾 Parcelas do financeiro <span className="text-[10.5px] text-[#3D2314]/55 font-normal">(edite antes de gerar; a soma tem que bater com a nota)</span></div>
       <div className="flex flex-wrap items-end gap-2 mb-2 text-[11px] text-[#3D2314]/70">
-        <span className="flex items-center gap-1">refazer <input type="number" min="1" value={num} onChange={(e) => setNum(e.target.value)} className="w-14 border border-[#3D2314]/15 rounded px-1 py-0.5" />×</span>
-        <span className="flex items-center gap-1">1º venc <input type="date" value={primeiro} onChange={(e) => setPrimeiro(e.target.value)} className="border border-[#3D2314]/15 rounded px-1 py-0.5" /></span>
+        <span className="flex items-center gap-1">refazer<AjudaCampo chave="compras.docs_recebidos.parcela_refazer_qtd" /> <input type="number" min="1" value={num} onChange={(e) => setNum(e.target.value)} className="w-14 border border-[#3D2314]/15 rounded px-1 py-0.5" />×</span>
+        <span className="flex items-center gap-1">1º venc<AjudaCampo chave="compras.docs_recebidos.parcela_primeiro_venc" /> <input type="date" value={primeiro} onChange={(e) => setPrimeiro(e.target.value)} className="border border-[#3D2314]/15 rounded px-1 py-0.5" /></span>
         <button type="button" onClick={() => onRefazer(Math.max(1, Number(num) || 1), primeiro)} className="px-2.5 py-1 rounded-md bg-[#C8941A] text-white font-medium text-[11px]">Refazer</button>
+      </div>
+      {/* RD-95 · legenda das colunas editáveis da parcela com "?" (ação principal em até 3 toques) */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-[#3D2314]/55 mb-1 pl-5">
+        <span className="flex items-center gap-0.5">Vencimento<AjudaCampo chave="compras.docs_recebidos.parcela_vencimento" /></span>
+        <span className="flex items-center gap-0.5">Valor<AjudaCampo chave="compras.docs_recebidos.parcela_valor" /></span>
+        <span className="flex items-center gap-0.5">Forma<AjudaCampo chave="compras.docs_recebidos.parcela_forma" /></span>
+        <span className="flex items-center gap-0.5">Conta<AjudaCampo chave="compras.docs_recebidos.parcela_conta" /></span>
+        <span className="flex items-center gap-0.5">Código de barras<AjudaCampo chave="compras.docs_recebidos.parcela_codigo_barras" /></span>
       </div>
       <div className="space-y-1">
         {lista.map((p, i) => (
-          <div key={p.id ?? i} className="flex flex-wrap items-center gap-2 text-[11px] border-b border-[#3D2314]/6 pb-1.5">
+          <div key={p.id ?? i} data-ajuda="compras.docs_recebidos.parcela_vencimento" className="flex flex-wrap items-center gap-2 text-[11px] border-b border-[#3D2314]/6 pb-1.5">
             <span className="text-[#3D2314]/45 w-5">{i + 1}</span>
             <input type="date" value={p.data_vencimento ?? ''} onChange={(e) => patch(i, { data_vencimento: e.target.value })} className="border border-[#3D2314]/15 rounded px-1 py-0.5 text-[#3D2314]" />
             <input type="number" step="0.01" value={p.valor ?? ''} onChange={(e) => patch(i, { valor: Number(e.target.value) })} placeholder="valor" className="w-24 border border-[#3D2314]/15 rounded px-1 py-0.5 text-right text-[#3D2314]" />
