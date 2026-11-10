@@ -67,6 +67,8 @@ export default function MedicoesObraPage({ params }: { params: Promise<{ id: str
   // Somente leitura: título a receber gerado pela aprovação da medição (trigger do núcleo, #4397).
   // Mapa medicao.id -> { valor, status } do erp_receber (ref_externa_sistema='obra_medicao').
   const [recebiveis, setRecebiveis] = useState<Record<string, { valor: number; status: string }>>({})
+  // Medição cujo título a receber está sendo gerado manualmente (desabilita o botão enquanto roda).
+  const [gerandoId, setGerandoId] = useState<string | null>(null)
 
   // Formulário de nova medição / edição de rascunho (RD-98 p2). editId != null → editando.
   const [abrirForm, setAbrirForm] = useState(false)
@@ -220,6 +222,19 @@ export default function MedicoesObraPage({ params }: { params: Promise<{ id: str
     if (error) { setErro(erroAmigavel(error, 'Não foi possível excluir a medição.')); return }
     const r = (data ?? {}) as { ok?: boolean; erro?: string }
     if (r.ok === false) { setErro(r.erro ?? 'Não foi possível excluir a medição.'); return }
+    await carregar()
+  }
+
+  // Gera (uma vez, sem duplicar) o título a receber de uma medição APROVADA que ainda não tem.
+  // Cobre medições aprovadas antes do elo automático (#4397). Escrita no núcleo via RPC guardada.
+  async function gerarReceber(med: Medicao) {
+    if (!confirm(`Gerar a conta a receber da medição nº ${med.numero} (${brl(med.valor_total)})? O cliente passa a ter o título no financeiro. Fazer de novo não duplica.`)) return
+    setErro(null); setGerandoId(med.id)
+    const { data, error } = await supabase.rpc('fn_obra_medicao_gerar_receber_manual', { p_medicao_id: med.id })
+    setGerandoId(null)
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível gerar a conta a receber.')); return }
+    const r = (data ?? {}) as { ok?: boolean; erro?: string }
+    if (r.ok === false) { setErro(r.erro ?? 'Não foi possível gerar a conta a receber.'); return }
     await carregar()
   }
 
@@ -380,6 +395,18 @@ export default function MedicoesObraPage({ params }: { params: Promise<{ id: str
                         <span style={{ color: MUT }}>· {recebiveis[med.id].status}</span>
                         <Link href="/dashboard/financeiro/receber" style={{ color: GOLD, textDecoration: 'none', fontWeight: 600 }}>Ver no financeiro →</Link>
                         <AjudaCampo chave="projetos.medicao.receber_gerado" rota={ROTA} />
+                      </div>
+                    )}
+
+                    {/* Medição aprovada SEM título a receber (ex.: aprovada antes do elo automático #4397):
+                        ação para gerar o título uma vez, sem duplicar (RPC guardada do núcleo). Critério b. */}
+                    {med.status === 'aprovada' && !recebiveis[med.id] && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, flexWrap: 'wrap', fontSize: 13 }} data-testid={`med-gerar-receber-${med.numero}`}>
+                        <span style={{ color: MUT }}>Sem conta a receber ainda.</span>
+                        <button onClick={() => gerarReceber(med)} disabled={gerandoId === med.id} style={{ ...btn(VERDE), opacity: gerandoId === med.id ? 0.6 : 1, cursor: gerandoId === med.id ? 'default' : 'pointer' }}>
+                          {gerandoId === med.id ? 'Gerando…' : 'Gerar conta a receber'}
+                        </button>
+                        <AjudaCampo chave="projetos.medicao.gerar_receber" rota={ROTA} />
                       </div>
                     )}
 
