@@ -101,7 +101,7 @@ export function AbaClientes({ clientes, base, modelo }: Props) {
       <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
           <div style={{ fontSize: 15, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>Quanto dependemos de poucos<AjudaCampo chave="com.painel.curva" rota={ROTA} /></div>
-          <label style={{ fontSize: 12, color: C.m, display: 'flex', alignItems: 'center', gap: 6 }}>Olhar por
+          <label style={{ fontSize: 12, color: C.m, display: 'flex', alignItems: 'center', gap: 6 }}>Olhar por<AjudaCampo chave="com.painel.dimensao" rota={ROTA} />
             <select aria-label="Dimensão do Pareto" value={dim} onChange={(e) => setDim(e.target.value as Dim)} style={{ padding: '6px 8px', borderRadius: 8, border: `1px solid ${C.bd}`, fontSize: 13, minHeight: 36 }}>
               <option value="cliente">Cliente</option><option value="produto">Produto</option><option value="cidade">Cidade</option><option value="vendedor">Vendedor</option>
             </select>
@@ -254,6 +254,7 @@ export function AbaClientes({ clientes, base, modelo }: Props) {
         <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 8 }}>
           <div style={{ fontSize: 15, fontWeight: 700 }}>Todos os clientes ({int(tabela.length)}{segFiltro !== 'todos' ? ` · ${segFiltro}` : ''})</div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            <AjudaCampo chave="com.painel.busca" rota={ROTA} />
             <input aria-label="Buscar cliente" placeholder="Buscar cliente ou cidade" value={busca} onChange={(e) => setBusca(e.target.value)}
               style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.bd}`, fontSize: 14, minHeight: 40, minWidth: 200 }} />
             {segFiltro !== 'todos' && <button type="button" onClick={() => setSegFiltro('todos')} style={{ padding: '8px 10px', minHeight: 40, borderRadius: 8, border: `1px solid ${C.bd}`, background: '#fff', cursor: 'pointer', fontSize: 13 }}>Ver todos os segmentos</button>}
