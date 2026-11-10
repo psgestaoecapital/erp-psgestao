@@ -408,7 +408,7 @@ export default function PlanejamentoPage() {
                   <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                     <h3 className="text-[15px] font-medium">Posts <span className="text-[#3D2314]/50">({posts.length})</span></h3>
                     <div className="flex flex-wrap gap-2">
-                      <button disabled={busy} onClick={() => void gerarJobsProntos()} className={btnSec} data-testid="planejamento-aprovar-prontos"><CheckCheck size={14} /> Gerar jobs dos prontos</button>
+                      <span className="inline-flex items-center"><button disabled={busy} onClick={() => void gerarJobsProntos()} className={btnSec} data-testid="planejamento-aprovar-prontos"><CheckCheck size={14} /> Gerar jobs dos prontos</button><AjudaCampo chave="pm.planejamento.acao_gerar_prontos" /></span>
                       <button onClick={() => { setPostErro(null); setPostEdit(postVazio()); }} className="inline-flex items-center gap-1.5 rounded-xl bg-[#C8941A] px-3.5 py-2 text-[12.5px] font-medium text-white" data-testid="post-novo"><Plus size={14} /> Novo post</button>
                     </div>
                   </div>
@@ -437,11 +437,11 @@ export default function PlanejamentoPage() {
                           <div className="mt-2.5 flex flex-wrap gap-1.5">
                             <button onClick={() => { setPostErro(null); setPostEdit({ ...p }); }} className={btnSec} data-testid="post-editar"><Pencil size={13} /> Editar</button>
                             {!p.job_id && p.status !== "publicado" && (
-                              <button disabled={busy} onClick={() => void gerarJob(p)} className="inline-flex items-center gap-1.5 rounded-xl border border-[#2F5A1F] bg-white px-3 py-2 text-[12.5px] font-medium text-[#2F5A1F] disabled:opacity-40" data-testid="post-gerar-job"><Briefcase size={13} /> Gerar job</button>
+                              <span className="inline-flex items-center"><button disabled={busy} onClick={() => void gerarJob(p)} className="inline-flex items-center gap-1.5 rounded-xl border border-[#2F5A1F] bg-white px-3 py-2 text-[12.5px] font-medium text-[#2F5A1F] disabled:opacity-40" data-testid="post-gerar-job"><Briefcase size={13} /> Gerar job</button><AjudaCampo chave="pm.planejamento.acao_gerar_job" /></span>
                             )}
-                            {p.status === "nao_iniciada" && <button disabled={busy} onClick={() => void mudarStatus(p, "em_aprovacao")} className={btnSec} data-testid="post-enviar"><Send size={13} /> Enviar para aprovação</button>}
-                            {p.status === "concluida" && <button disabled={busy} onClick={() => void mudarStatus(p, "publicado")} className={btnSec} data-testid="post-publicado"><Megaphone size={13} /> Publicado</button>}
-                            {p.status === "em_aprovacao" && <button disabled={busy} onClick={() => void mudarStatus(p, "nao_iniciada")} className={btnSec}><Undo2 size={13} /> Não iniciada</button>}
+                            {p.status === "nao_iniciada" && <span className="inline-flex items-center"><button disabled={busy} onClick={() => void mudarStatus(p, "em_aprovacao")} className={btnSec} data-testid="post-enviar"><Send size={13} /> Enviar para aprovação</button><AjudaCampo chave="pm.planejamento.acao_mudar_status" /></span>}
+                            {p.status === "concluida" && <span className="inline-flex items-center"><button disabled={busy} onClick={() => void mudarStatus(p, "publicado")} className={btnSec} data-testid="post-publicado"><Megaphone size={13} /> Publicado</button><AjudaCampo chave="pm.planejamento.acao_mudar_status" /></span>}
+                            {p.status === "em_aprovacao" && <span className="inline-flex items-center"><button disabled={busy} onClick={() => void mudarStatus(p, "nao_iniciada")} className={btnSec}><Undo2 size={13} /> Não iniciada</button><AjudaCampo chave="pm.planejamento.acao_mudar_status" /></span>}
                             <button onClick={() => void lixeiraPost(p)} className="ml-auto rounded-xl p-2 text-[#791F1F]/70 hover:bg-[#791F1F]/8" aria-label="post para a lixeira"><Trash2 size={14} /></button>
                           </div>
                         </article>
