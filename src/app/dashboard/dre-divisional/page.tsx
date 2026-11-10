@@ -177,9 +177,21 @@ export default function DreDivisionalPage() {
       empresa={data?.metadata.empresa.razao_social || null}
     >
       {semVinculo > 0 && (
-        <div data-testid="dre-aviso-sem-vinculo" role="status" style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 8, background: C.redBg, color: C.espresso, fontSize: 13, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center' }}>{semVinculo} {semVinculo === 1 ? 'conta sem vínculo' : 'contas sem vínculo'} na DRE — herdam o vínculo da conta pai ou o tipo da conta.<AjudaCampo chave="dre.divisional.aviso.sem_vinculo" rota={ROTA_AJUDA} /></span>
-          <Link href="/dashboard/dre-divisional/plano-contas" style={{ fontWeight: 700, color: C.espresso }}>Configurar DRE</Link>
+        <div data-testid="dre-aviso-sem-vinculo" role="status" style={{ marginBottom: 12, padding: '14px 16px', borderRadius: 10, background: 'white', border: `1px solid ${C.gold}`, boxShadow: '0 1px 3px rgba(61,35,20,0.06)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: C.espresso }}>Vincule {semVinculo} {semVinculo === 1 ? 'conta' : 'contas'} à DRE para o resultado ficar completo</span>
+            <AjudaCampo chave="dre.divisional.aviso.sem_vinculo" rota={ROTA_AJUDA} />
+          </div>
+          <p style={{ margin: '0 0 10px', fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>
+            Enquanto não vincular, {semVinculo === 1 ? 'essa conta herda' : 'essas contas herdam'} o vínculo da conta pai ou o tipo da conta — o resultado por divisão pode sair incompleto. Resolva em 2 passos:
+          </p>
+          <ol style={{ margin: '0 0 12px', paddingLeft: 18, fontSize: 12.5, color: C.espresso, lineHeight: 1.75 }}>
+            <li>Abra o <b>Plano de Contas da DRE</b> e localize as contas marcadas como <b>sem vínculo</b>.</li>
+            <li>Em cada uma, escolha o <b>grupo da DRE</b> (receita, custo, despesa, resultado) — a conta passa a somar na divisão certa.</li>
+          </ol>
+          <Link href="/dashboard/dre-divisional/plano-contas" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: C.gold, color: C.espresso, border: 'none', padding: '9px 16px', borderRadius: 8, fontWeight: 700, fontSize: 13, textDecoration: 'none' }}>
+            Vincular contas agora →
+          </Link>
         </div>
       )}
       {/* Filtros sticky */}
