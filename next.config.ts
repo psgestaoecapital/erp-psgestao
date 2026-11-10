@@ -71,6 +71,15 @@ const nextConfig: NextConfig = {
         destination: '/dashboard/cadastros/divisoes',
         permanent: true,
       },
+      // PDCA GE (Princ.3 menu limpo · auditor): /dashboard/fornecedores era uma SEGUNDA tela de fornecedores
+      // (CRUD inline, 555 linhas) sobre a MESMA entidade erp_fornecedores, porém órfã (fora do module_catalog).
+      // A tela do menu é /dashboard/cadastros/fornecedores (PessoasList). Consolidado na rota canônica do menu;
+      // o deep-link ?busca= (vindo de remessa-pagamento) é preservado automaticamente.
+      {
+        source: '/dashboard/fornecedores',
+        destination: '/dashboard/cadastros/fornecedores',
+        permanent: true,
+      },
     ]
   },
 }
