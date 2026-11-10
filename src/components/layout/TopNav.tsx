@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Bell, LogOut, Lightbulb, HelpCircle, Gauge } from 'lucide-react'
+import { Bell, LogOut, KeyRound, Lightbulb, HelpCircle, Gauge } from 'lucide-react'
 import MobileDrawer from './MobileDrawer'
+import AlterarSenhaModal from './AlterarSenhaModal'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { useAjuda } from '@/lib/stores/ajuda-store'
@@ -49,6 +50,7 @@ export default function TopNav() {
   const temNotificacao = alertas.length > 0 || notifsChamado.some((n) => !n.lida) || notifsUsuario.some((n) => !n.lida)
   const [sinoAberto, setSinoAberto] = useState(false)
   const [menuAberto, setMenuAberto] = useState(false)
+  const [senhaAberta, setSenhaAberta] = useState(false)
   // ⑤ medidor da Central de Desenvolvimento — só admin (CEO). Chamada LEVE (fn_dev_medidor_badge):
   // número = travado no CEO (rascunhos aguardando aprovação); cor = saúde (tela quebrada→vermelho).
   const [devBadge, setDevBadge] = useState<{ numero: number; cor: string } | null>(null)
@@ -339,6 +341,15 @@ export default function TopNav() {
                 <button
                   type="button"
                   role="menuitem"
+                  data-testid="alterar-senha-button"
+                  onClick={() => { setMenuAberto(false); setSenhaAberta(true) }}
+                  className="w-full flex items-center gap-2.5 px-4 py-2.5 text-[13px] font-medium text-[#3D2314] hover:bg-[#3D2314]/8 transition-colors text-left"
+                >
+                  <KeyRound size={15} /> Alterar minha senha
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
                   data-testid="logout-button"
                   onClick={() => { setMenuAberto(false); void sair() }}
                   className="w-full flex items-center gap-2.5 px-4 py-2.5 text-[13px] font-medium text-[#3D2314] hover:bg-[#3D2314]/8 transition-colors text-left"
@@ -364,6 +375,7 @@ export default function TopNav() {
           </button>
         )}
       </div>
+      {senhaAberta && user && <AlterarSenhaModal email={user.email} onClose={() => setSenhaAberta(false)} />}
     </header>
   )
 }
