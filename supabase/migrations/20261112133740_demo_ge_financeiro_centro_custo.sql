@@ -190,3 +190,11 @@ BEGIN
   RAISE NOTICE 'Backfill centro_custo DEMO GE: receber %, pagar %', v_r, v_p;
 END
 $pop$;
+
+-- Permissões / guardas (check:fn-guards) ---------------------------------------
+-- Função de SEED DEMO: trava por `IF p_company <> v_bot` (só a empresa DEMO fixa b07..004) e roda
+-- sob service_role no fn_demo_reset, SEM auth.uid() — por isso NÃO chama fn__guarda_empresa (exigiria
+-- usuário logado e quebraria o reset). Fica fechada a anon/PUBLIC, igual ao ACL vivo (service_role).
+-- ci-sem-guarda: fn_demo_seed_ge_financeiro — seed DEMO travado em v_bot, roda sob service_role sem auth.uid no fn_demo_reset
+REVOKE ALL ON FUNCTION public.fn_demo_seed_ge_financeiro(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_demo_seed_ge_financeiro(uuid) TO service_role;
