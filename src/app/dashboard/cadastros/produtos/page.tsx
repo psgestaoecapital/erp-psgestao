@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import ExcluirProdutoModal from '@/components/cadastros/ExcluirProdutoModal'
 import { exportarProdutosXlsx, type ExportProdutosResult } from '@/lib/produtos/exportarProdutos'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 export const dynamic = 'force-dynamic'
 
@@ -106,10 +107,10 @@ export default function ProdutosPage() {
         p_unidade: unidade || null,
       })
       const res = data as ExportProdutosResult | null
-      if (error || !res?.ok) { setErro(error?.message ?? 'Não consegui baixar os produtos agora.'); return }
+      if (error || !res?.ok) { setErro(erroAmigavel(error, 'Não consegui baixar os produtos agora.')); return }
       await exportarProdutosXlsx(res)
     } catch (e) {
-      setErro((e as Error)?.message ?? 'Não consegui baixar os produtos agora.')
+      setErro(erroAmigavel(e, 'Não consegui baixar os produtos agora.'))
     } finally {
       setExportando(false)
     }
@@ -263,7 +264,7 @@ export default function ProdutosPage() {
         setProdutos((prev) => (reset ? rows : [...prev, ...rows]))
         offsetRef.current += rows.length
       } catch (e) {
-        setErro(e instanceof Error ? e.message : 'Erro ao carregar produtos')
+        setErro(erroAmigavel(e, 'Não foi possível carregar os produtos.'))
       } finally {
         setLoading(false)
         setLoadingMore(false)
@@ -284,7 +285,7 @@ export default function ProdutosPage() {
   async function abrirEdicao(id: string) {
     if (!companyId) return
     const { data, error } = await supabase.from('erp_produtos').select('*').eq('company_id', companyId).eq('id', id).maybeSingle()
-    if (error || !data) { setErro(error?.message ?? 'Produto não encontrado'); return }
+    if (error || !data) { setErro(erroAmigavel(error, 'Produto não encontrado.')); return }
     setEditando(data as unknown as Produto)
   }
 
@@ -294,7 +295,7 @@ export default function ProdutosPage() {
   async function clonarProduto(id: string) {
     if (!companyId) return
     const { data, error } = await supabase.from('erp_produtos').select('*').eq('company_id', companyId).eq('id', id).maybeSingle()
-    if (error || !data) { setErro(error?.message ?? 'Produto não encontrado'); return }
+    if (error || !data) { setErro(erroAmigavel(error, 'Produto não encontrado.')); return }
     setEditando(null)
     setNovoAberto(false)
     setClonando(data as unknown as Produto)
