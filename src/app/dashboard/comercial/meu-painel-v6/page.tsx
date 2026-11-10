@@ -16,6 +16,8 @@ import {
 } from '../meu-painel/motor-v5'
 import { AbaClientes } from './AbaClientes'
 import { calcularClientesV7, type ClientesV7 } from './clientes-v7'
+import { AbaCidades } from './AbaCidades'
+import { calcularCidadesV7, type CidadesV7 } from './cidades-v7'
 
 const C = { esp: '#3D2314', off: '#FAF7F2', gold: '#C8941A', bd: '#E7DED3', m: '#6B5D4F', d: '#9C8E80' }
 const ROTA = '/dashboard/comercial/meu-painel-v6'
@@ -105,6 +107,12 @@ export default function MeuPainelV6() {
   // Mesmo motor já provado: calcularClientesV7 lê a base e o modelo que o chassi monta.
   const clientesV7 = useMemo<ClientesV7 | null>(
     () => (base && modelo && estado && pg ? calcularClientesV7(base, modelo, estado, pg) : null),
+    [base, modelo, estado, pg],
+  )
+
+  // Bloco 5 — aba Cidades (onde a Frioeste vende, todas as cidades). Mesmo motor já provado.
+  const cidadesV7 = useMemo<CidadesV7 | null>(
+    () => (base && modelo && estado && pg ? calcularCidadesV7(base, modelo, estado, pg) : null),
     [base, modelo, estado, pg],
   )
 
@@ -251,7 +259,7 @@ export default function MeuPainelV6() {
         ))}
       </nav>
 
-      {aba !== 'geral' && aba !== 'vendedores' && aba !== 'clientes' && (
+      {aba !== 'geral' && aba !== 'vendedores' && aba !== 'clientes' && aba !== 'cidades' && (
         <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16, color: C.m, fontSize: 14 }}>
           <b style={{ color: C.esp }}>{ABAS.find((a) => a.k === aba)?.rot}</b> — esta aba entra no próximo bloco do painel. O período e os filtros acima já valem para ela.
         </div>
@@ -462,6 +470,10 @@ export default function MeuPainelV6() {
 
       {aba === 'clientes' && base && modelo && clientesV7 && (
         <AbaClientes clientes={clientesV7} base={base} modelo={modelo} />
+      )}
+
+      {aba === 'cidades' && base && modelo && cidadesV7 && (
+        <AbaCidades cidades={cidadesV7} base={base} modelo={modelo} />
       )}
 
       <div style={{ marginTop: 16, fontSize: 12, color: C.d }}>
