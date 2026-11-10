@@ -1,49 +1,26 @@
 'use client'
-// Comercial › Meu painel de vendas (CEO 06/11/2026, validar com a Franciele/Frioeste).
-// BI em cascata e GENÉRICO: lê só a fn_bi_comercial_painel, que trava o escopo no banco pelo vínculo do usuário com o
-// código de vendedor do ERP de origem (ATAK hoje; outro ERP = outro tradutor, a tela não muda). Vendedor vê só a própria
-// venda; supervisor a equipe dele; diretoria a empresa toda.
-// Protótipo aprovado pelo CEO 06/11: 8 ABAS (Visão geral · Vendedores · Clientes · Cidades · Produtos · Flex · Logística ·
-// Metas). AO VIVO (lê a venda detalhada, nota a nota), MOSTRAR TUDO (sem top-N: rolagem + cabeçalho fixo + busca +
-// ordenação nos dois sentidos), DRILL ao clicar, filtros de período no topo, cada aba abre com uma leitura automática.
-// Identidade PS (espresso/dourado/off-white). Celular (390px) e notebook.
+// Comercial › Meu painel de vendas — v5 (CEO 07/11/2026, validar com a Franciele/Frioeste).
+// Esta tela desenha; TODO o cálculo vive em ./motor-v5 (porte fiel de docs/prototipos/bi-comercial-v5/logica.js),
+// alimentado pela RPC fn_bi_comercial_base (item 1, em produção), que trava o escopo no banco pelo vínculo do usuário
+// com o código de vendedor do ERP de origem (fn_bi_comercial_scope / com_vendedor_acesso). Vendedor vê só a própria
+// venda; líder vê a empresa toda. Nada aqui decide escopo — recebe a base já filtrada e só renderiza.
+// 8 ABAS (Visão geral · Vendedores · Clientes · Cidades · Produtos · Preço e desconto · Logística · Metas). AO VIVO (lê a
+// venda detalhada, nota a nota), MOSTRAR TUDO (rolagem + cabeçalho fixo + busca + ordenação nos dois sentidos), DRILL ao
+// clicar, filtros de período no topo, engrenagem para o que entra na análise (despojo fora por padrão), cada aba abre com
+// uma leitura automática. Identidade PS (espresso/dourado/off-white). Celular (390px) e notebook.
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
-import { Lock, ChevronRight, ChevronDown, ChevronUp, ArrowUp, ArrowDown, X } from 'lucide-react'
+import { erroAmigavel } from '@/lib/erroAmigavel'
+import { Lock, ChevronRight, ChevronDown, ChevronUp, ArrowUp, ArrowDown, X, SlidersHorizontal } from 'lucide-react'
+import {
+  calcularModelo, estadoPadrao, maxDia, gruposProduto, resumo,
+  type BaseV5, type EstadoV5, type ModeloV5, type GrupoProduto,
+} from './motor-v5'
 
 const C = { esp: '#3D2314', off: '#FAF7F2', gold: '#C8941A', gold2: '#E0B048', bd: '#E7DED3', m: '#6B5D4F', d: '#9C8E80', ok: '#1a8f63', warn: '#b07a12', bad: '#C0392B', bg2: '#F0ECE3', azul: '#2f6f8f', verde: '#3f7d4e' }
 const ROTA = '/dashboard/comercial/meu-painel'
-
-type No = { no: string; nome: string; cargo: string; pai: string | null; ordem: string }
-type Equipe = { ven: string; nome: string; val: number; kg: number; preco_kg: number | null; desc_pct: number | null; pct_abaixo: number | null; clientes: number; notas: number; ticket: number | null }
-type Cliente = { cod: string; cliente: string; cidade: string; val: number; kg: number; notas: number; preco_kg: number | null; desc_pct: number | null; pct_abaixo: number | null; ult_compra: string | null; dias: number | null }
-type Cidade = { cidade: string; val: number; kg: number; clientes: number; preco_kg: number | null }
-type Produto = { cod: string; produto: string; val: number; kg: number; preco_kg: number | null; desc_pct: number | null; pct_abaixo: number; clientes: number; despojo: boolean }
-type Resumo = { val: number; kg: number; preco_kg: number | null; desc_pct: number | null; desconto: number; pct_abaixo: number | null; clientes: number; notas: number; ticket: number | null; produtos: number; vendedores: number }
-type Anterior = { val: number; kg: number; preco_kg: number | null; desc_pct: number | null; desconto: number; pct_abaixo: number | null; clientes: number; notas: number }
-type Painel = {
-  ok: boolean; erro?: string; mensagem?: string
-  periodo: { de: string; ate: string }
-  escopo: { raiz: string; no: string; restrito: boolean }
-  nos: No[]
-  resumo: Resumo
-  anterior: Anterior | null
-  meses: { mes: string; val: number; kg: number }[]
-  conc_top10: number | null
-  referencia: { desc_pct: number | null; pct_abaixo: number | null; preco_kg: number | null }
-  posicao: { lugar: number; de: number } | null
-  dia: { dia: string; val: number; kg: number; notas: number }[]
-  divisoes?: { linha: string; val: number; kg: number }[]
-  clientes: Cliente[]
-  cidades?: Cidade[]
-  produtos: Produto[]
-  cede_mais: string[]
-  equipe: Equipe[]
-  logistica?: { cargas: number; kg_carga: number | null; clientes_carga: number | null; notas_sem_carga: number; kg_sem_carga: number }
-  cargas?: { carga: string; dia: string; transportador: string; notas: number; clientes: number; cidades: number; kg: number; val: number }[]
-}
 
 const nf = (o: Intl.NumberFormatOptions) => new Intl.NumberFormat('pt-BR', o)
 const brl = (v: number | null | undefined) => v == null ? '—' : nf({ style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(v)
@@ -55,7 +32,8 @@ const int = (v: number | null | undefined) => v == null ? '—' : nf({ maximumFr
 const dataBR = (s: string) => { const [a, m, d] = String(s).slice(0, 10).split('-'); return `${d}/${m}/${a}` }
 const iso = (d: Date) => d.toISOString().slice(0, 10)
 const cap = (s: string) => (s || '').toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase())
-const mesCurto = (ym: string) => { const [, m] = ym.split('-'); return ['', 'jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'][Number(m)] ?? ym }
+// índice de dia (dias desde base.de) -> data ISO
+const diaISO = (de: string, d: number) => { const dt = new Date(de + 'T00:00:00'); dt.setDate(dt.getDate() + d); return iso(dt) }
 
 type PerKey = 'hoje' | 'semana' | '30' | 'mes' | 'ano' | 'custom'
 const PERIODOS: { k: PerKey; rot: string }[] = [
@@ -65,8 +43,18 @@ const PERIODOS: { k: PerKey; rot: string }[] = [
 type AbaKey = 'geral' | 'vendedores' | 'clientes' | 'cidades' | 'produtos' | 'flex' | 'logistica' | 'metas'
 const ABAS: { k: AbaKey; rot: string }[] = [
   { k: 'geral', rot: 'Visão geral' }, { k: 'vendedores', rot: 'Vendedores' }, { k: 'clientes', rot: 'Clientes' },
-  { k: 'cidades', rot: 'Cidades' }, { k: 'produtos', rot: 'Produtos' }, { k: 'flex', rot: 'Flex' },
+  { k: 'cidades', rot: 'Cidades' }, { k: 'produtos', rot: 'Produtos' }, { k: 'flex', rot: 'Preço e desconto' },
   { k: 'logistica', rot: 'Logística' }, { k: 'metas', rot: 'Metas' },
+]
+// Segmentos de cliente (motor: 0..5) e curva ABC (0..2) — nomes e cores do protótipo v5.
+const SEG = [
+  { rot: 'Campeões', cor: C.verde }, { rot: 'Fiéis', cor: C.azul }, { rot: 'Novos', cor: C.gold },
+  { rot: 'Ocasionais', cor: C.m }, { rot: 'Em risco', cor: C.warn }, { rot: 'Sumindo', cor: C.bad },
+]
+const CUR = ['A', 'B', 'C']
+// Grupo de produto (motor): 0 desossado, 1 com osso, 2 miúdo, 3 subproduto/outros.
+const LINHAS: { k: GrupoProduto; rot: string }[] = [
+  { k: 0, rot: 'Desossados' }, { k: 1, rot: 'Com osso' }, { k: 2, rot: 'Miúdos' }, { k: 3, rot: 'Subprodutos e outros' },
 ]
 
 const card: CSSProperties = { background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 14, padding: 16, minWidth: 0, display: 'grid', gap: 8, alignContent: 'start' }
@@ -112,28 +100,7 @@ function BarrasH({ dados, cor, fmt, refv }: { dados: { rot: string; v: number; d
     </div>
   )
 }
-
-// Gráfico de 12 meses (mês corrente destacado).
-function BarrasMes({ dados }: { dados: { mes: string; val: number }[] }) {
-  const mesAtual = new Date().toISOString().slice(0, 7)
-  const max = Math.max(1, ...dados.map((d) => d.val))
-  return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 170, paddingTop: 18, overflowX: 'auto' }}>
-      {dados.map((d) => {
-        const atual = d.mes === mesAtual
-        return (
-          <div key={d.mes} title={`${mesCurto(d.mes)} · ${brl(d.val)}`} style={{ flex: '1 0 30px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, fontSize: 10, color: C.m }}>
-            <span style={{ fontSize: 10, color: C.esp }}>{d.val > 0 ? brlc(d.val).replace('R$ ', '') : ''}</span>
-            <i style={{ display: 'block', width: '100%', height: Math.max(3, 120 * d.val / max), background: atual ? C.esp : `linear-gradient(180deg, ${C.gold2}, ${C.gold})`, borderRadius: '5px 5px 0 0' }} />
-            <span style={{ fontWeight: atual ? 700 : 400, color: atual ? C.esp : C.m }}>{mesCurto(d.mes)}</span>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-// Seta de variação vs período anterior. inverso = "menor é melhor" (desconto, % abaixo).
+// Seta de variação (metade 2 × metade 1 do período, normalizada por dias corridos). inverso = "menor é melhor".
 function Variacao({ cur, ant, inverso }: { cur: number | null; ant: number | null | undefined; inverso?: boolean }) {
   if (cur == null || ant == null || ant === 0) return null
   const delta = 100 * (cur - ant) / Math.abs(ant)
@@ -225,10 +192,16 @@ function Placeholder({ titulo, texto, ajuda }: { titulo: string; texto: string; 
   )
 }
 
+// Linhas derivadas (o motor já calculou os agregados; aqui só extraímos o que a tabela mostra).
+type RVen = { vi: number; cod: string; nome: string; val: number; part: number; cli: number; notas: number; ticket: number | null; rpkg: number | null; idx: number | null; desc: number; pa: number; dev: number; pz: number | null }
+type RCli = { ci: number; nome: string; cidade: string; seg: number; cur: number; val: number; part: number; rpkg: number | null; descPct: number; r: number; f: number; notas: number; dev: number }
+type RProd = { pi: number; nome: string; linha: string; grupo: number; val: number; part: number; kg: number; rpkg: number | null; desc: number; pa: number; cli: number; incluido: boolean }
+type RCid = { ci: number; nome: string; val: number; part: number; kg: number; rpkg: number | null; cli: number; ven: number }
+type RTr = { ti: number; nome: string; val: number; kg: number; notas: number; cli: number }
+
 export default function MeuPainelVendas() {
   const { companyIds, selInfo } = useCompanyIds()
   const empresa = selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : null
-  const [no, setNo] = useState<string | null>(null)
   const [per, setPer] = useState<PerKey>('30')
   const hojeISO = iso(new Date())
   const [deC, setDeC] = useState(hojeISO)
@@ -236,11 +209,14 @@ export default function MeuPainelVendas() {
   const [aba, setAba] = useState<AbaKey>('geral')
   const [verCod, setVerCod] = useState(false)
   const [busca, setBusca] = useState('')
-  const [p, setP] = useState<Painel | null>(null)
+  const [base, setBase] = useState<BaseV5 | null>(null)
+  const [estado, setEstado] = useState<EstadoV5 | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [dica, setDica] = useState<string | null>(null)
-  const [cidadeSel, setCidadeSel] = useState<string | null>(null)
+  const [cidadeSel, setCidadeSel] = useState<number | null>(null)
+  const [diaModo, setDiaModo] = useState<'dia' | 'semana'>('dia')
+  const [engrenagem, setEngrenagem] = useState(false)
 
   const intervalo = useMemo(() => {
     const hoje = new Date(); const ate = iso(hoje)
@@ -255,38 +231,125 @@ export default function MeuPainelVendas() {
   const carregar = useCallback(async () => {
     if (!empresa) return
     setCarregando(true); setErro(null)
-    const { data, error } = await supabase.rpc('fn_bi_comercial_painel', { p_company_id: empresa, p_no: no, p_de: intervalo.de, p_ate: intervalo.ate })
+    const { data, error } = await supabase.rpc('fn_bi_comercial_base', { p_company_id: empresa, p_de: intervalo.de, p_ate: intervalo.ate })
     setCarregando(false)
-    if (error) { setErro(error.message); setP(null); return }
-    setP(data as Painel)
-  }, [empresa, no, intervalo])
+    if (error) { setErro(erroAmigavel(error)); setBase(null); return }
+    setBase(data as BaseV5)
+  }, [empresa, intervalo])
   useEffect(() => { void carregar() }, [carregar])
+  // Base nova → estado padrão (análise padrão: só carne, escopo preço). Também zera busca/drill ao trocar de aba.
+  useEffect(() => { setEstado(base ? estadoPadrao(base) : null) }, [base])
   useEffect(() => { setBusca(''); setCidadeSel(null) }, [aba])
 
-  const nos = p?.nos ?? []
-  const nomeNo = nos.find((n) => n.no === p?.escopo.no)?.nome ?? '—'
-  const trilha = useMemo(() => {
-    if (!p) return [] as No[]
-    const por = new Map(nos.map((n) => [n.no, n]))
-    const cam: No[] = []; let n = por.get(p.escopo.no)
-    while (n && cam.length < 10) { cam.unshift(n); n = n.pai ? por.get(n.pai) : undefined }
-    return cam
-  }, [p, nos])
-  const ehVendedor = !!p?.posicao
-  const r = p?.resumo; const ant = p?.anterior; const refv = p?.referencia
-  const equipe = p?.equipe ?? []
-  const clientes = p?.clientes ?? []
-  const cidades = p?.cidades ?? []
-  const produtos = p?.produtos ?? []
-  const maxDia = Math.max(1, ...(p?.dia ?? []).map((d) => d.val))
-  const totDiv = (p?.divisoes ?? []).reduce((s, d) => s + d.val, 0) || 1
-  const maiorDesc = [...equipe].filter((e) => e.val > 5000).sort((a, b) => (b.desc_pct ?? 0) - (a.desc_pct ?? 0))[0]
-  const abreNo = (ven: string) => nos.some((n) => n.no === ven) && ven !== p?.escopo.no
-  const nomeComCod = (nome: string, cod: string) => verCod ? `${cod} · ${cap(nome)}` : cap(nome)
+  const pg = useMemo<GrupoProduto[] | null>(() => base ? gruposProduto(base) : null, [base])
+  const modelo = useMemo<ModeloV5 | null>(() => base && estado && pg ? calcularModelo(base, estado, pg) : null, [base, estado, pg])
+  const r = useMemo(() => modelo ? resumo(modelo) : null, [modelo])
 
+  const setVen = (v: EstadoV5['ven']) => setEstado((e) => e ? { ...e, ven: v } : e)
+  const setLin = (v: EstadoV5['lin']) => setEstado((e) => e ? { ...e, lin: v } : e)
+
+  // Linhas derivadas por aba ------------------------------------------------
+  const venRows = useMemo<RVen[]>(() => {
+    if (!modelo || !base) return []
+    const tv = modelo.tot.val || 1
+    return [...modelo.venM].map(([vi, a]) => ({
+      vi, cod: base.ven[vi]?.[0] ?? String(vi), nome: base.ven[vi]?.[1] ?? 'Sem vendedor',
+      val: a.val, part: 100 * a.val / tv, cli: a.clis.size, notas: a.notas.size,
+      ticket: a.notas.size ? a.val / a.notas.size : null, rpkg: a.kgP ? a.valP / a.kgP : null,
+      idx: a.exp > 0 ? 100 * a.val / a.exp : null, desc: a.tab > 0 ? 100 * a.desc / a.tab : 0,
+      pa: a.n ? 100 * a.ab / a.n : 0, dev: modelo.devVen.get(vi) || 0,
+      pz: (() => { const p = modelo.venPz.get(vi); return p && p[1] ? p[0] / p[1] : null })(),
+    }))
+  }, [modelo, base])
+
+  const cliRows = useMemo<RCli[]>(() => {
+    if (!modelo) return []
+    const tv = modelo.tot.val || 1
+    return modelo.clis.map((c) => ({
+      ci: c.ci, nome: c.nome, cidade: c.cid, seg: c.seg, cur: c.cur, val: c.val, part: 100 * c.val / tv,
+      rpkg: c.kgP ? c.valP / c.kgP : null, descPct: c.tab > 0 ? 100 * c.desc / c.tab : 0, r: c.r, f: c.f, notas: c.notas, dev: c.dev,
+    }))
+  }, [modelo])
+
+  const prodRows = useMemo<RProd[]>(() => {
+    if (!modelo || !base || !pg) return []
+    const tv = modelo.tot.val || 1
+    return [...modelo.prodM].map(([pi, a]) => ({
+      pi, nome: base.prod[pi]?.[0] ?? String(pi), linha: base.prod[pi]?.[1] ?? '—', grupo: pg[pi],
+      val: a.val, part: 100 * a.val / tv, kg: a.kg, rpkg: a.kgP ? a.valP / a.kgP : (a.kg ? a.val / a.kg : null),
+      desc: a.tab > 0 ? 100 * a.desc / a.tab : 0, pa: a.n ? 100 * a.ab / a.n : 0, cli: a.clis.size, incluido: modelo.inc(pi),
+    }))
+  }, [modelo, base, pg])
+
+  const cidRows = useMemo<RCid[]>(() => {
+    if (!modelo || !base) return []
+    const tv = modelo.tot.val || 1
+    return [...modelo.cidM].map(([ci, a]) => ({
+      ci, nome: base.cid[ci] ?? '—', val: a.val, part: 100 * a.val / tv, kg: a.kg,
+      rpkg: a.kgP ? a.valP / a.kgP : null, cli: a.clis.size, ven: modelo.cidVen.get(ci)?.size ?? 0,
+    }))
+  }, [modelo, base])
+
+  const trRows = useMemo<RTr[]>(() => {
+    if (!modelo || !base) return []
+    return [...modelo.trM].map(([ti, a]) => ({ ti, nome: base.tr[ti] ?? '—', val: a.val, kg: a.kg, notas: a.notas.size, cli: a.clis.size }))
+  }, [modelo, base])
+
+  // Agregados de apoio -------------------------------------------------------
+  const segDist = useMemo(() => {
+    const d = SEG.map(() => ({ n: 0, val: 0 }))
+    cliRows.forEach((c) => { const s = d[c.seg]; if (s) { s.n++; s.val += c.val } })
+    return d
+  }, [cliRows])
+  const curva = useMemo(() => {
+    const d = CUR.map(() => ({ n: 0, val: 0, kgP: 0, valP: 0, notas: 0 }))
+    if (modelo) modelo.clis.forEach((c) => { const g = d[c.cur]; if (g) { g.n++; g.val += c.val; g.kgP += c.kgP; g.valP += c.valP; g.notas += c.notas } })
+    return d
+  }, [modelo])
+  const serie = useMemo(() => {
+    if (!modelo || !base) return [] as { rot: string; iso: string; val: number; kg: number; notas: number }[]
+    const grupos = new Map<number, { val: number; kg: number; notas: Set<number> }>()
+    modelo.diaM.forEach((a, d) => {
+      const g = diaModo === 'semana' ? Math.floor(d / 7) : d
+      let acc = grupos.get(g); if (!acc) { acc = { val: 0, kg: 0, notas: new Set() }; grupos.set(g, acc) }
+      acc.val += a.val; acc.kg += a.kg; a.notas.forEach((n) => acc!.notas.add(n))
+    })
+    return [...grupos].sort((a, b) => a[0] - b[0]).map(([g, v]) => {
+      const d0 = diaModo === 'semana' ? g * 7 : g
+      const diaIso = diaISO(base.de, d0)
+      return { rot: diaModo === 'semana' ? `sem. ${dataBR(diaIso).slice(0, 5)}` : dataBR(diaIso).slice(0, 5), iso: diaIso, val: v.val, kg: v.kg, notas: v.notas.size }
+    })
+  }, [modelo, base, diaModo])
+  const grupoMix = useMemo(() => {
+    if (!modelo) return [] as { rot: string; v: number }[]
+    const tv = modelo.tot.val || 1
+    return LINHAS.map((l) => ({ rot: l.rot, v: 100 * (modelo.grpM.get(l.k)?.val ?? 0) / tv })).filter((x) => x.v > 0)
+  }, [modelo])
+  const logi = useMemo(() => {
+    if (!modelo) return null
+    let kgCarga = 0; modelo.cargaM.forEach((a) => { kgCarga += a.kg })
+    const semCargaNotas = new Set<number>(); let kgSem = 0
+    modelo.its.forEach((x) => { if (x[8] < 0) { semCargaNotas.add(x[1]); kgSem += x[5] } })
+    const cliCarga = new Set<number>(); modelo.cargaM.forEach((a) => a.clis.forEach((c) => cliCarga.add(c)))
+    return {
+      cargas: modelo.cargaM.size, kgMed: modelo.cargaM.size ? kgCarga / modelo.cargaM.size : 0,
+      cliMed: modelo.cargaM.size ? cliCarga.size / modelo.cargaM.size : 0,
+      notasSem: semCargaNotas.size, kgSem,
+    }
+  }, [modelo])
+
+  // Nomes / helpers de exibição
+  const restrito = base?.modo === 'vendedor'
+  const nomeComCod = (nome: string, cod: string) => verCod ? `${cod} · ${cap(nome)}` : cap(nome)
+  const tot = modelo?.tot
+  const topVen = useMemo(() => [...venRows].sort((a, b) => b.val - a.val)[0], [venRows])
+  const maiorDesc = useMemo(() => venRows.filter((e) => e.val > 5000).sort((a, b) => b.desc - a.desc)[0], [venRows])
+  const topProd = useMemo(() => [...prodRows].sort((a, b) => b.val - a.val)[0], [prodRows])
+  const maxSerie = Math.max(1, ...serie.map((s) => s.val))
+  const clientesDaCidade = useMemo(() => cidadeSel == null ? [] : cliRows.filter((c) => base && base.cli[c.ci] && base.cli[c.ci][1] === cidadeSel), [cidadeSel, cliRows, base])
   const grade = (min: number): CSSProperties => ({ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(min(100%, ${min}px), 1fr))`, gap: 12, alignItems: 'start' })
 
-  const kpiVar = (rot: string, chave: string, valor: string, cur: number | null, antv: number | null | undefined, sub: ReactNode, inverso?: boolean, cor?: string) => (
+  const kpi = (rot: string, chave: string, valor: string, cur: number | null, antv: number | null | undefined, sub: ReactNode, inverso?: boolean, cor?: string) => (
     <div style={{ ...card, gap: 2 }}>
       <div style={{ fontSize: 12, color: C.m, display: 'flex', alignItems: 'center', gap: 4 }}>{rot}<AjudaCampo chave={chave} rota={ROTA} /></div>
       <div style={{ fontFamily: 'Georgia, serif', fontSize: 'clamp(22px, 2.4vw, 30px)', lineHeight: 1.15, color: cor ?? C.esp, fontVariantNumeric: 'tabular-nums' }}>{valor}</div>
@@ -297,25 +360,22 @@ export default function MeuPainelVendas() {
     </div>
   )
 
-  // Drill de cidade → clientes dessa cidade
-  const clientesDaCidade = useMemo(() => cidadeSel ? clientes.filter((c) => c.cidade === cidadeSel) : [], [cidadeSel, clientes])
-
   return (
     <div style={{ background: C.off, minHeight: '100%', color: C.esp, padding: 'clamp(12px, 2.5vw, 28px)' }}>
       <div style={{ maxWidth: 1400, margin: '0 auto', display: 'grid', gap: 16 }}>
         <header style={{ display: 'grid', gap: 6 }}>
-          <div style={{ fontSize: 12, color: C.m }}>Comercial · Meu painel de vendas · ao vivo · lido da venda detalhada (nota a nota) · atualiza a cada import</div>
-          <h1 style={{ margin: 0, fontSize: 'clamp(24px, 3.4vw, 34px)', fontFamily: 'Georgia, serif', fontWeight: 400 }}>{p?.ok ? nomeNo : 'Meu painel de vendas'}</h1>
-          {p?.ok && r && (
+          <div style={{ fontSize: 12, color: C.m }}>Comercial · Meu painel de vendas · v5 · ao vivo · lido da venda detalhada (nota a nota) · atualiza a cada import</div>
+          <h1 style={{ margin: 0, fontSize: 'clamp(24px, 3.4vw, 34px)', fontFamily: 'Georgia, serif', fontWeight: 400 }}>Meu painel de vendas</h1>
+          {base && r && tot && (
             <p style={{ margin: 0, fontSize: 15, color: C.m, maxWidth: '80ch' }}>
-              De <b style={{ color: C.esp }}>{dataBR(p.periodo.de)}</b> a <b style={{ color: C.esp }}>{dataBR(p.periodo.ate)}</b>: faturou <b style={{ color: C.esp }}>{brl(r.val)}</b> em <b style={{ color: C.esp }}>{ton(r.kg)}</b>.{' '}
-              <b style={{ color: C.esp }}>{pct(r.pct_abaixo)}</b> dos itens saíram abaixo do preço de tabela, somando <b style={{ color: C.esp }}>{brl(r.desconto)}</b> de desconto.
+              De <b style={{ color: C.esp }}>{dataBR(base.de)}</b> a <b style={{ color: C.esp }}>{dataBR(base.ate)}</b>: faturou <b style={{ color: C.esp }}>{brl(r.totalValor)}</b> em <b style={{ color: C.esp }}>{ton(tot.kg)}</b>.{' '}
+              <b style={{ color: C.esp }}>{pct(tot.n ? 100 * tot.ab / tot.n : 0)}</b> dos itens saíram abaixo do preço de tabela, somando <b style={{ color: C.esp }}>{brl(tot.desc)}</b> de desconto.
             </p>
           )}
-          {p?.ok && p.escopo.restrito && <div style={{ fontSize: 12, color: C.m, display: 'flex', alignItems: 'center', gap: 4 }}><Lock size={13} strokeWidth={1.5} /> Você vê somente os seus dados{nos.length > 1 ? ' e os da sua equipe' : ''}.</div>}
+          {restrito && <div style={{ fontSize: 12, color: C.m, display: 'flex', alignItems: 'center', gap: 4 }}><Lock size={13} strokeWidth={1.5} /> Você vê somente as suas vendas.</div>}
         </header>
 
-        {/* Barra de período / visão / opções — vale em TODAS as abas */}
+        {/* Barra de período / filtros — vale em TODAS as abas */}
         <div style={{ ...card, display: 'flex', flexWrap: 'wrap', gap: '10px 16px', alignItems: 'flex-end' }}>
           <div style={{ display: 'grid', gap: 2 }}>
             <span style={{ fontSize: 12, color: C.m, display: 'flex', alignItems: 'center', gap: 4 }}>Período<AjudaCampo chave="com.painel.periodo" rota={ROTA} /></span>
@@ -336,33 +396,36 @@ export default function MeuPainelVendas() {
               </span>
             </label>
           )}
-          {p?.ok && nos.length > 1 && (
+          {base && estado && !restrito && base.ven.length > 1 && (
             <label style={{ display: 'grid', gap: 2, fontSize: 12, color: C.m }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Visão (cascata da equipe)<AjudaCampo chave="com.painel.visao" rota={ROTA} /></span>
-              <select value={p.escopo.no} onChange={(e) => setNo(e.target.value)} aria-label="Visão"
-                style={{ font: 'inherit', fontSize: 14, padding: '8px 10px', borderRadius: 10, border: `1px solid ${C.bd}`, background: '#fff', color: C.esp, minWidth: 200, maxWidth: '80vw' }}>
-                {nos.map((n) => <option key={n.no} value={n.no}>{n.nome}</option>)}
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Vendedor<AjudaCampo chave="com.painel.visao" rota={ROTA} /></span>
+              <select value={String(estado.ven)} onChange={(e) => setVen(e.target.value === 'todos' ? 'todos' : Number(e.target.value))} aria-label="Vendedor"
+                style={{ font: 'inherit', fontSize: 14, padding: '8px 10px', borderRadius: 10, border: `1px solid ${C.bd}`, background: '#fff', color: C.esp, minWidth: 180, maxWidth: '80vw' }}>
+                <option value="todos">Todos os vendedores</option>
+                {base.ven.map((v, i) => <option key={i} value={i}>{cap(v[1])}</option>)}
               </select>
             </label>
           )}
+          {base && estado && (
+            <label style={{ display: 'grid', gap: 2, fontSize: 12, color: C.m }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Linha<AjudaCampo chave="com.painel.produtos" rota={ROTA} /></span>
+              <select value={String(estado.lin)} onChange={(e) => setLin(e.target.value === 'todas' ? 'todas' : Number(e.target.value))} aria-label="Linha de produto"
+                style={{ font: 'inherit', fontSize: 14, padding: '8px 10px', borderRadius: 10, border: `1px solid ${C.bd}`, background: '#fff', color: C.esp }}>
+                <option value="todas">Todas as linhas</option>
+                {LINHAS.map((l) => <option key={l.k} value={l.k}>{l.rot}</option>)}
+              </select>
+            </label>
+          )}
+          <button type="button" onClick={() => setEngrenagem(true)} disabled={!base} aria-label="O que entra na análise"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, font: 'inherit', fontSize: 13, padding: '8px 12px', borderRadius: 10, border: `1px solid ${C.bd}`, background: '#fff', color: C.esp, cursor: base ? 'pointer' : 'default' }}>
+            <SlidersHorizontal size={15} /> Análise<AjudaCampo chave="com.painel.analise" rota={ROTA} />
+          </button>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: C.esp, cursor: 'pointer' }}>
             <input type="checkbox" checked={verCod} onChange={(e) => setVerCod(e.target.checked)} aria-label="Ver código" />
             Ver código<AjudaCampo chave="com.painel.vercodigo" rota={ROTA} />
           </label>
           {carregando && <span style={{ fontSize: 12, color: C.m }}>atualizando…</span>}
         </div>
-
-        {trilha.length > 1 && (
-          <nav aria-label="Trilha da visão" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, fontSize: 12 }}>
-            {trilha.map((n, i) => (
-              <span key={n.no} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                {i > 0 && <ChevronRight size={12} strokeWidth={1.5} />}
-                <button type="button" onClick={() => setNo(n.no)} aria-current={n.no === p?.escopo.no}
-                  style={{ font: 'inherit', fontSize: 12, borderRadius: 999, padding: '3px 10px', cursor: 'pointer', border: `1px solid ${n.no === p?.escopo.no ? C.esp : C.bd}`, background: n.no === p?.escopo.no ? C.esp : '#fff', color: n.no === p?.escopo.no ? '#fff' : C.esp }}>{n.nome}</button>
-              </span>
-            ))}
-          </nav>
-        )}
 
         {/* Abas */}
         <div role="tablist" aria-label="Análises" style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4, borderBottom: `1px solid ${C.bd}` }}>
@@ -376,12 +439,14 @@ export default function MeuPainelVendas() {
         </div>
 
         {!empresa && <div style={card}>Escolha uma empresa no topo para ver o painel.</div>}
-        {erro && <div role="alert" style={{ ...card, borderColor: C.bad, color: C.bad }}>Não foi possível carregar: {erro}</div>}
-        {p && !p.ok && <div style={{ ...card, borderLeft: `5px solid ${C.warn}` }}>{p.mensagem}</div>}
-        {carregando && !p && <div style={card}>Carregando…</div>}
+        {erro && <div role="alert" style={{ ...card, borderColor: C.bad, color: C.bad }}>Não foi possível carregar o painel: {erro}</div>}
+        {empresa && !erro && base && modelo && modelo.its.length === 0 && (
+          <div style={{ ...card, borderLeft: `5px solid ${C.warn}` }}>Sem venda no período para este recorte. Experimente outro período ou tire filtros da análise.</div>
+        )}
+        {carregando && !base && <div style={card}>Carregando…</div>}
 
-        {/* Campo de busca (abas de lista) */}
-        {p?.ok && r && ['vendedores', 'clientes', 'cidades', 'produtos'].includes(aba) && (
+        {/* Busca (abas de lista) */}
+        {base && modelo && modelo.its.length > 0 && ['vendedores', 'clientes', 'cidades', 'produtos'].includes(aba) && (
           <label style={{ display: 'grid', gap: 2, fontSize: 12, color: C.m, maxWidth: 420 }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Buscar<AjudaCampo chave="com.painel.busca" rota={ROTA} /></span>
             <input type="text" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="nome ou código…" aria-label="Buscar na lista"
@@ -389,75 +454,92 @@ export default function MeuPainelVendas() {
           </label>
         )}
 
-        {p?.ok && r && (
+        {base && r && tot && modelo && modelo.its.length > 0 && (
           <>
             {/* ===================== VISÃO GERAL ===================== */}
             {aba === 'geral' && (
               <>
                 <section style={grade(170)} aria-label="Indicadores">
-                  {kpiVar('Faturamento', 'com.painel.faturado', brlc(r.val), r.val, ant?.val, <>ticket {brl(r.ticket)}</>)}
-                  {kpiVar('Volume', 'com.painel.volume', ton(r.kg), r.kg, ant?.kg, <>{int(r.notas)} notas</>)}
-                  {kpiVar('Preço médio', 'com.painel.preco', brl2(r.preco_kg), r.preco_kg, ant?.preco_kg, 'R$/kg sem despojo')}
-                  {kpiVar('Abaixo da tabela', 'com.painel.flex', pct(r.pct_abaixo), r.pct_abaixo, ant?.pct_abaixo, 'dos itens', true, (r.pct_abaixo ?? 0) >= 50 ? C.bad : undefined)}
-                  {kpiVar('Flex gasto', 'com.painel.flex', brlc(r.desconto), r.desconto, ant?.desconto, 'desconto concedido', true)}
-                  {kpiVar('Clientes', 'com.painel.clientes', int(r.clientes), r.clientes, ant?.clientes, <>top 10 = {pct(p.conc_top10)}</>)}
+                  {kpi('Faturamento', 'com.painel.faturado', brlc(r.totalValor), tot.v2, tot.v1, <>ticket {brl(tot.notas.size ? tot.val / tot.notas.size : null)}</>)}
+                  {kpi('Volume na análise', 'com.painel.volume', ton(tot.kgP), tot.kP2, tot.kP1, <>{int(tot.notas.size)} notas</>)}
+                  {kpi('Preço médio', 'com.painel.preco', brl2(r.precoPorKg), null, null, 'R$/kg na análise')}
+                  {kpi('Ticket médio', 'com.painel.ticket', brl(tot.notas.size ? tot.val / tot.notas.size : null), null, null, <>{int(tot.notas.size)} notas</>)}
+                  {kpi('Desconto na tabela', 'com.painel.desconto', brlc(tot.desc), tot.v2, tot.v1, pct(tot.tab ? 100 * tot.desc / tot.tab : 0, 2) + ' sobre a tabela', true)}
+                  {kpi('Devoluções', 'com.painel.devolucao', brlc(modelo.devTot), null, null, pct(r.totalValor ? 100 * modelo.devTot / r.totalValor : 0, 2) + ' do faturado', true, modelo.devTot > 0 ? C.bad : undefined)}
+                  {kpi('Clientes que compraram', 'com.painel.clientes', int(r.clientes), null, null, <>{int(r.produtos)} cortes</>)}
+                  {kpi('Prazo médio', 'com.painel.prazo', modelo.pz ? `${nf({ maximumFractionDigits: 0 }).format(modelo.pz)} dias` : '—', null, null, 'ponderado pelo valor')}
                 </section>
 
                 <Leitura>
                   <b>Leitura rápida:</b>{' '}
-                  {equipe[0] ? <>Maior vendedor: <b>{equipe[0].nome}</b> ({brl(equipe[0].val)}). </> : null}
-                  {maiorDesc ? <>Quem mais deu desconto: <b>{maiorDesc.nome}</b> ({pct(maiorDesc.desc_pct, 1)}) — vale conversa. </> : null}
-                  {produtos[0] ? <>Produto que mais fatura: <b>{cap(produtos[0].produto)}</b>.</> : null}
+                  {topVen ? <>Maior vendedor: <b>{cap(topVen.nome)}</b> ({brl(topVen.val)}). </> : null}
+                  {maiorDesc ? <>Quem mais deu desconto: <b>{cap(maiorDesc.nome)}</b> ({pct(maiorDesc.desc, 2)}) — vale conversa. </> : null}
+                  {topProd ? <>Corte que mais fatura: <b>{cap(topProd.nome)}</b>.</> : null}
                 </Leitura>
 
-                <section style={card} aria-label="Faturamento por mês">
-                  <Titulo t="Faturamento por mês" nota="12 meses corridos. O mês corrente (em espresso) ainda está em andamento." ajuda="com.painel.meses" />
-                  <BarrasMes dados={p.meses ?? []} />
+                <section style={card} aria-label="Faturamento no período">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <Titulo t="Faturamento no período" nota="Valor líquido das notas. Toque numa barra para ver volume e notas." ajuda="com.painel.meses" />
+                    <div role="group" aria-label="Agrupar" style={{ display: 'flex', gap: 6 }}>
+                      {(['dia', 'semana'] as const).map((k) => (
+                        <button key={k} type="button" onClick={() => setDiaModo(k)} aria-pressed={diaModo === k}
+                          style={{ font: 'inherit', fontSize: 12, padding: '5px 12px', borderRadius: 999, cursor: 'pointer', border: `1px solid ${diaModo === k ? C.esp : C.bd}`, background: diaModo === k ? C.esp : '#fff', color: diaModo === k ? '#fff' : C.esp }}>{k === 'dia' ? 'Por dia' : 'Por semana'}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 190, paddingTop: 18, overflowX: 'auto' }}>
+                    {serie.length === 0 && <span style={{ fontSize: 13, color: C.m }}>Sem venda no período.</span>}
+                    {serie.map((s) => (
+                      <button key={s.iso} type="button" onClick={() => setDica(`${dataBR(s.iso)} · ${brl(s.val)} · ${int(s.kg)} kg · ${s.notas} notas`)}
+                        title={`${dataBR(s.iso)} · ${brl(s.val)} · ${int(s.kg)} kg · ${s.notas} notas`}
+                        style={{ flex: '1 0 26px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, fontSize: 10, color: C.m, background: 'none', border: 0, padding: 0, cursor: 'pointer', font: 'inherit' }}>
+                        <span style={{ fontSize: 10, color: C.esp }}>{brlc(s.val).replace('R$ ', '')}</span>
+                        <i style={{ display: 'block', width: '100%', height: Math.max(3, 140 * s.val / maxSerie), background: `linear-gradient(180deg, ${C.gold2}, ${C.gold})`, borderRadius: '5px 5px 0 0' }} />
+                        <span>{s.rot}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {dica && <div role="status" style={{ fontSize: 12, color: C.esp, background: C.bg2, borderRadius: 8, padding: '6px 10px' }}>{dica}</div>}
                 </section>
 
                 <section style={grade(380)} aria-label="Top vendedores e cidades">
                   <div style={card}>
-                    <Titulo t="Top vendedores" nota="Por faturamento no período. Ordene na tabela da aba Vendedores." ajuda="com.painel.equipe" />
-                    <BarrasH cor={C.gold} fmt={(v) => brlc(v)} dados={[...equipe].sort((a, b) => b.val - a.val).map((e) => ({ rot: e.nome, v: e.val }))} />
+                    <Titulo t="Top vendedores" nota="Por faturamento no período. Ordene na aba Vendedores." ajuda="com.painel.equipe" />
+                    <BarrasH cor={C.gold} fmt={(v) => brlc(v)} dados={[...venRows].sort((a, b) => b.val - a.val).map((e) => ({ rot: cap(e.nome), v: e.val }))} />
                   </div>
                   <div style={card}>
                     <Titulo t="Top cidades" nota="Por volume (kg) no período." ajuda="com.painel.cidades" />
-                    <BarrasH cor={C.verde} fmt={(v) => int(v) + ' kg'} dados={[...cidades].sort((a, b) => b.kg - a.kg).map((c) => ({ rot: c.cidade, v: c.kg }))} />
+                    <BarrasH cor={C.verde} fmt={(v) => int(v) + ' kg'} dados={[...cidRows].sort((a, b) => b.kg - a.kg).map((c) => ({ rot: cap(c.nome), v: c.kg }))} />
                   </div>
                 </section>
 
-                <section style={grade(380)} aria-label="Vendas">
+                <section style={grade(380)} aria-label="Mix e segmentos">
                   <div style={card}>
-                    <Titulo t="Faturamento por dia" nota="Notas de venda, valor líquido. Toque numa barra para ver volume e notas." />
-                    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 190, paddingTop: 18, overflowX: 'auto' }}>
-                      {p.dia.length === 0 && <span style={{ fontSize: 13, color: C.m }}>Sem venda no período.</span>}
-                      {p.dia.map((d) => (
-                        <button key={d.dia} type="button" onClick={() => setDica(`${dataBR(d.dia)} · ${brl(d.val)} · ${int(d.kg)} kg · ${d.notas} notas`)}
-                          title={`${dataBR(d.dia)} · ${brl(d.val)} · ${int(d.kg)} kg · ${d.notas} notas`}
-                          style={{ flex: '1 0 26px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, fontSize: 10, color: C.m, background: 'none', border: 0, padding: 0, cursor: 'pointer', font: 'inherit' }}>
-                          <span style={{ fontSize: 10, color: C.esp }}>{brlc(d.val).replace('R$ ', '')}</span>
-                          <i style={{ display: 'block', width: '100%', height: Math.max(3, 140 * d.val / maxDia), background: `linear-gradient(180deg, ${C.gold2}, ${C.gold})`, borderRadius: '5px 5px 0 0' }} />
-                          <span>{dataBR(d.dia).slice(0, 5)}</span>
-                        </button>
-                      ))}
-                    </div>
-                    {dica && <div role="status" style={{ fontSize: 12, color: C.esp, background: C.bg2, borderRadius: 8, padding: '6px 10px' }}>{dica}</div>}
+                    <Titulo t="Mix por linha de produto" nota="Participação de cada linha no faturamento." ajuda="com.painel.produtos" />
+                    <BarrasH cor={C.azul} fmt={(v) => pct(v)} dados={grupoMix} />
                   </div>
                   <div style={card}>
-                    <Titulo t="Mix por linha de produto" nota="Participação de cada linha no faturamento." />
-                    <BarrasH cor={C.azul} fmt={(v) => pct(v)} dados={(p.divisoes ?? []).map((d) => ({ rot: cap(d.linha), v: 100 * d.val / totDiv }))} />
+                    <Titulo t="Segmentos de clientes" nota="Pela recência e frequência de compra no período." ajuda="com.painel.segmento" />
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      {SEG.map((s, i) => segDist[i].n > 0 && (
+                        <div key={s.rot} style={{ display: 'grid', gridTemplateColumns: 'minmax(90px,38%) 1fr auto', gap: 8, alignItems: 'center', fontSize: 12 }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><i style={{ width: 9, height: 9, borderRadius: 3, background: s.cor }} />{s.rot}</span>
+                          <span style={{ position: 'relative', height: 14, background: C.bg2, borderRadius: 4 }}><b style={{ position: 'absolute', inset: '0 auto 0 0', width: `${Math.max(2, 100 * segDist[i].n / Math.max(1, ...segDist.map((x) => x.n)))}%`, background: s.cor, borderRadius: 4 }} /></span>
+                          <span style={{ color: C.m }}>{int(segDist[i].n)} · {brlc(segDist[i].val)}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </section>
 
                 <section style={{ ...card, borderLeft: `5px solid ${C.gold}` }} aria-label="Leituras para a decisão">
                   <Titulo t="Leituras para a decisão" ajuda="com.painel.leituras" />
                   <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 6, fontSize: 14 }}>
-                    <li><b>Preço:</b> {pct(r.pct_abaixo)} dos itens foram vendidos abaixo da tabela{refv?.pct_abaixo != null && p.escopo.no !== 'empresa' ? <> (empresa: {pct(refv.pct_abaixo)})</> : null}. O desconto médio é {pct(r.desc_pct, 2)}: {brl(r.desconto)} no período.</li>
-                    {!ehVendedor && maiorDesc && <li><b>Quem mais concede desconto:</b> {maiorDesc.nome}, com {pct(maiorDesc.desc_pct, 2)} e {pct(maiorDesc.pct_abaixo)} dos itens abaixo da tabela.</li>}
-                    {p.cede_mais.length > 0 && <li><b>Onde mais se cede preço:</b> {p.cede_mais.map(cap).join(', ')} — todos os itens abaixo da tabela.</li>}
-                    <li><b>Concentração:</b> os 10 maiores clientes somam {pct(p.conc_top10)} do faturamento desta visão.</li>
-                    {produtos[0] && <li><b>Produto que mais fatura:</b> {cap(produtos[0].produto)} ({brl(produtos[0].val)}, {brl2(produtos[0].preco_kg)}/kg).</li>}
-                    <li><b>Metas:</b> o ERP de origem ainda não tem cota cadastrada. Com a meta, o painel mostra realizado × meta.<AjudaCampo chave="com.painel.meta" rota={ROTA} /></li>
+                    <li><b>Preço:</b> {pct(tot.n ? 100 * tot.ab / tot.n : 0)} dos itens foram vendidos abaixo da tabela. O desconto no período soma {brl(tot.desc)} ({pct(tot.tab ? 100 * tot.desc / tot.tab : 0, 2)} sobre a tabela).</li>
+                    {maiorDesc && <li><b>Quem mais concede desconto:</b> {cap(maiorDesc.nome)}, com {pct(maiorDesc.desc, 2)} e {pct(maiorDesc.pa)} dos itens abaixo da tabela.</li>}
+                    {curva[0].n > 0 && <li><b>Concentração (curva A):</b> {int(curva[0].n)} clientes concentram {pct(tot.val ? 100 * curva[0].val / tot.val : 0)} do faturamento.</li>}
+                    {modelo.devTot > 0 && <li><b>Devoluções:</b> {brl(modelo.devTot)} no período ({pct(r.totalValor ? 100 * modelo.devTot / r.totalValor : 0, 2)} do faturado).</li>}
+                    {topProd && <li><b>Corte que mais fatura:</b> {cap(topProd.nome)} ({brl(topProd.val)}, {brl2(topProd.rpkg)}/kg).</li>}
                   </ul>
                 </section>
               </>
@@ -466,34 +548,34 @@ export default function MeuPainelVendas() {
             {/* ===================== VENDEDORES ===================== */}
             {aba === 'vendedores' && (
               <>
-                <Leitura><b>Leitura:</b> {equipe.length} vendedores no período. {equipe[0] ? <>Maior: <b>{equipe[0].nome}</b> ({brl(equipe[0].val)}). </> : null}{maiorDesc ? <>Mais desconto: <b>{maiorDesc.nome}</b> ({pct(maiorDesc.desc_pct, 1)}).</> : null}</Leitura>
-                {ehVendedor && p.posicao && <div style={{ ...card, borderLeft: `5px solid ${C.gold}` }}>Sua posição: <b>{p.posicao.lugar}º</b> em faturamento, entre {p.posicao.de} vendedores.</div>}
+                <Leitura><b>Leitura:</b> {venRows.length} vendedores no período. {topVen ? <>Maior: <b>{cap(topVen.nome)}</b> ({brl(topVen.val)}). </> : null}{maiorDesc ? <>Mais desconto: <b>{cap(maiorDesc.nome)}</b> ({pct(maiorDesc.desc, 2)}).</> : null}</Leitura>
                 <section style={card} aria-label="Vendedores">
-                  <Titulo t="Vendedores" nota="Toque num vendedor para abrir a visão dele. Semáforo do desconto: verde ok, amarelo atenção, vermelho acima do normal." ajuda="com.painel.equipe" />
-                  <Tabela<Equipe>
-                    linhas={equipe} buscaTexto={busca} buscaEm={(e) => `${e.nome} ${e.ven}`} inicialK="val" chaveRow={(e) => e.ven}
-                    onRow={(e) => abreNo(e.ven) ? () => setNo(e.ven) : undefined} aberta={(e) => abreNo(e.ven)}
+                  <Titulo t="Vendedores" nota="Índice de preço = o quanto o preço praticado difere da média da empresa no mesmo produto (100 = na média). Semáforo do desconto: verde ok, amarelo atenção, vermelho acima do normal." ajuda="com.painel.equipe" />
+                  <Tabela<RVen>
+                    linhas={venRows} buscaTexto={busca} buscaEm={(e) => `${e.nome} ${e.cod}`} inicialK="val" chaveRow={(e) => String(e.vi)}
+                    onRow={(e) => () => setVen(e.vi)} aberta={() => true}
                     cols={[
-                      { k: 'nome', rot: 'Vendedor', esq: true, ordenar: (e) => e.nome, render: (e) => nomeComCod(e.nome, e.ven) },
+                      { k: 'nome', rot: 'Vendedor', esq: true, ordenar: (e) => e.nome, render: (e) => nomeComCod(e.nome, e.cod) },
                       { k: 'val', rot: 'Faturamento', ordenar: (e) => e.val, max: (rs) => Math.max(1, ...rs.map((x) => x.val)), render: (e, mx) => <BarraCelula v={e.val} max={mx} txt={brl(e.val)} cor={C.gold} /> },
-                      { k: 'kg', rot: 'Volume (kg)', ordenar: (e) => e.kg, render: (e) => int(e.kg) },
-                      { k: 'rpkg', rot: 'R$/kg carne', ajuda: 'com.painel.rpkg', ordenar: (e) => e.preco_kg ?? 0, render: (e) => brl2(e.preco_kg) },
-                      { k: 'desc', rot: 'Desconto', ajuda: 'com.painel.flex', ordenar: (e) => e.desc_pct ?? 0, render: (e) => <Chip v={e.desc_pct} a={1} b={2} d={2} /> },
-                      { k: 'pa', rot: 'Itens abaixo', ordenar: (e) => e.pct_abaixo ?? 0, render: (e) => <Chip v={e.pct_abaixo} a={40} b={70} /> },
-                      { k: 'cli', rot: 'Clientes', ordenar: (e) => e.clientes, render: (e) => int(e.clientes) },
-                      { k: 'nt', rot: 'Notas', ordenar: (e) => e.notas, render: (e) => int(e.notas) },
-                      { k: 'tk', rot: 'Ticket médio', ordenar: (e) => e.ticket ?? 0, render: (e) => brl(e.ticket) },
+                      { k: 'part', rot: 'Participação', ajuda: 'com.painel.participacao', ordenar: (e) => e.part, render: (e) => pct(e.part) },
+                      { k: 'cli', rot: 'Clientes', ordenar: (e) => e.cli, render: (e) => int(e.cli) },
+                      { k: 'tk', rot: 'Ticket', ajuda: 'com.painel.ticket', ordenar: (e) => e.ticket ?? 0, render: (e) => brl(e.ticket) },
+                      { k: 'rpkg', rot: 'R$/kg', ajuda: 'com.painel.rpkg', ordenar: (e) => e.rpkg ?? 0, render: (e) => brl2(e.rpkg) },
+                      { k: 'idx', rot: 'Índice de preço', ajuda: 'com.painel.indice', ordenar: (e) => e.idx ?? 0, render: (e) => e.idx == null ? '—' : <span style={{ color: e.idx >= 100 ? C.ok : C.bad }}>{nf({ maximumFractionDigits: 0 }).format(e.idx)}</span> },
+                      { k: 'desc', rot: 'Desconto', ajuda: 'com.painel.desconto', ordenar: (e) => e.desc, render: (e) => <Chip v={e.desc} a={1} b={2} d={2} /> },
+                      { k: 'dev', rot: 'Devolução', ajuda: 'com.painel.devolucao', ordenar: (e) => e.dev, render: (e) => e.dev > 0 ? <span style={{ color: C.bad }}>{brl(e.dev)}</span> : '—' },
+                      { k: 'pz', rot: 'Prazo', ajuda: 'com.painel.prazo', ordenar: (e) => e.pz ?? 0, render: (e) => e.pz == null ? '—' : `${nf({ maximumFractionDigits: 0 }).format(e.pz)}d` },
                     ]}
                   />
                 </section>
                 <section style={grade(380)}>
                   <div style={card}>
-                    <Titulo t="Desconto sobre a tabela, por vendedor" nota="Em vermelho, acima de 2%." ajuda="com.painel.flex" />
-                    <BarrasH cor={C.gold} fmt={(v) => pct(v, 2)} dados={equipe.filter((e) => e.val > 5000).sort((a, b) => (b.desc_pct ?? 0) - (a.desc_pct ?? 0)).map((e) => ({ rot: e.nome, v: Math.max(0, e.desc_pct ?? 0), destaque: (e.desc_pct ?? 0) >= 2 }))} />
+                    <Titulo t="Desconto sobre a tabela, por vendedor" nota="Em vermelho, acima de 2%." ajuda="com.painel.desconto" />
+                    <BarrasH cor={C.gold} fmt={(v) => pct(v, 2)} dados={venRows.filter((e) => e.val > 5000).sort((a, b) => b.desc - a.desc).map((e) => ({ rot: cap(e.nome), v: Math.max(0, e.desc), destaque: e.desc >= 2 }))} />
                   </div>
                   <div style={card}>
-                    <Titulo t="Preço médio da carne, por vendedor" nota="R$ por kg. O traço é a média desta visão." ajuda="com.painel.rpkg" />
-                    <BarrasH cor={C.verde} fmt={(v) => brl2(v)} refv={r.preco_kg} dados={equipe.filter((e) => e.preco_kg != null && e.kg > 500).sort((a, b) => (b.preco_kg ?? 0) - (a.preco_kg ?? 0)).map((e) => ({ rot: e.nome, v: e.preco_kg ?? 0 }))} />
+                    <Titulo t="Preço médio, por vendedor" nota="R$ por kg na análise. O traço é a média desta visão." ajuda="com.painel.rpkg" />
+                    <BarrasH cor={C.verde} fmt={(v) => brl2(v)} refv={r.precoPorKg} dados={venRows.filter((e) => e.rpkg != null).sort((a, b) => (b.rpkg ?? 0) - (a.rpkg ?? 0)).map((e) => ({ rot: cap(e.nome), v: e.rpkg ?? 0 }))} />
                   </div>
                 </section>
               </>
@@ -502,19 +584,48 @@ export default function MeuPainelVendas() {
             {/* ===================== CLIENTES ===================== */}
             {aba === 'clientes' && (
               <>
-                <Leitura><b>Leitura:</b> {int(r.clientes)} clientes no período; os 10 maiores concentram <b>{pct(p.conc_top10)}</b> do faturamento. Clientes parados há mais de 30 dias aparecem sinalizados em <span style={{ color: C.bad }}>vermelho</span>.</Leitura>
+                <Leitura><b>Leitura:</b> {int(r.clientes)} clientes no período. {curva[0].n > 0 ? <>A curva A ({int(curva[0].n)} clientes) concentra <b>{pct(tot.val ? 100 * curva[0].val / tot.val : 0)}</b> do faturamento. </> : null}Clientes <span style={{ color: SEG[4].cor }}>em risco</span> e <span style={{ color: SEG[5].cor }}>sumindo</span> precisam de atenção.</Leitura>
+                <section style={grade(380)} aria-label="Curva ABC">
+                  <div style={card}>
+                    <Titulo t="Curva ABC de clientes" nota="A = até 80% do faturamento, B = até 95%, C = o resto." ajuda="com.painel.curva" />
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead><tr><th style={{ ...th, textAlign: 'left' }}>Curva</th><th style={th}>Clientes</th><th style={th}>Faturamento</th><th style={th}>R$/kg</th></tr></thead>
+                        <tbody>
+                          {CUR.map((rot, i) => curva[i].n > 0 && (
+                            <tr key={rot}><td style={{ ...td, textAlign: 'left', fontWeight: 600 }}>{rot}</td><td style={td}>{int(curva[i].n)}</td><td style={td}>{brl(curva[i].val)}</td><td style={td}>{brl2(curva[i].kgP ? curva[i].valP / curva[i].kgP : null)}</td></tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  <div style={card}>
+                    <Titulo t="Segmentos de clientes" nota="Campeões e Fiéis sustentam; Em risco e Sumindo pedem ação." ajuda="com.painel.segmento" />
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      {SEG.map((s, i) => segDist[i].n > 0 && (
+                        <div key={s.rot} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><i style={{ width: 9, height: 9, borderRadius: 3, background: s.cor }} />{s.rot}</span>
+                          <span style={{ color: C.m }}>{int(segDist[i].n)} clientes · {brl(segDist[i].val)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </section>
                 <section style={card} aria-label="Clientes">
-                  <Titulo t="Clientes" nota="Cada loja pelo seu código no ERP de origem. Recência = dias desde a última compra (12 meses)." />
-                  <Tabela<Cliente>
-                    linhas={clientes} buscaTexto={busca} buscaEm={(c) => `${c.cliente} ${c.cod} ${c.cidade}`} inicialK="val" chaveRow={(c) => c.cod}
+                  <Titulo t="Clientes" nota="Cada loja pelo seu código no ERP de origem. Recência = dias desde a última compra; frequência = dias com compra." />
+                  <Tabela<RCli>
+                    linhas={cliRows} buscaTexto={busca} buscaEm={(c) => `${c.nome} ${c.cidade}`} inicialK="val" chaveRow={(c) => String(c.ci)}
                     cols={[
-                      { k: 'cliente', rot: 'Cliente', esq: true, ordenar: (c) => c.cliente, render: (c) => <><span>{nomeComCod(c.cliente, c.cod)}</span><div style={{ fontSize: 11, color: C.m }}>{c.cidade}</div></> },
+                      { k: 'nome', rot: 'Cliente', esq: true, ordenar: (c) => c.nome, render: (c) => <><span>{cap(c.nome)}</span><div style={{ fontSize: 11, color: C.m }}>{cap(c.cidade)}</div></> },
+                      { k: 'seg', rot: 'Segmento', ajuda: 'com.painel.segmento', esq: true, ordenar: (c) => c.seg, render: (c) => <span style={{ display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: 11, color: '#fff', background: SEG[c.seg]?.cor ?? C.m }}>{SEG[c.seg]?.rot ?? '—'}</span> },
+                      { k: 'cur', rot: 'Curva', ajuda: 'com.painel.curva', ordenar: (c) => c.cur, render: (c) => CUR[c.cur] ?? '—' },
                       { k: 'val', rot: 'Faturamento', ordenar: (c) => c.val, max: (rs) => Math.max(1, ...rs.map((x) => x.val)), render: (c, mx) => <BarraCelula v={c.val} max={mx} txt={brl(c.val)} cor={C.verde} /> },
-                      { k: 'kg', rot: 'Volume (kg)', ordenar: (c) => c.kg, render: (c) => int(c.kg) },
-                      { k: 'rpkg', rot: 'R$/kg', ajuda: 'com.painel.rpkg', ordenar: (c) => c.preco_kg ?? 0, render: (c) => brl2(c.preco_kg) },
-                      { k: 'desc', rot: 'Desconto', ajuda: 'com.painel.flex', ordenar: (c) => c.desc_pct ?? 0, render: (c) => <Chip v={c.desc_pct} a={1} b={2} d={2} /> },
-                      { k: 'nt', rot: 'Notas', ordenar: (c) => c.notas, render: (c) => int(c.notas) },
-                      { k: 'rec', rot: 'Última compra', ajuda: 'com.painel.recencia', ordenar: (c) => c.dias ?? 9999, render: (c) => c.ult_compra ? <span style={{ color: (c.dias ?? 0) > 30 ? C.bad : C.esp }}>{dataBR(c.ult_compra)} <span style={{ fontSize: 11, color: C.m }}>({int(c.dias)}d)</span></span> : '—' },
+                      { k: 'part', rot: 'Participação', ajuda: 'com.painel.participacao', ordenar: (c) => c.part, render: (c) => pct(c.part, 2) },
+                      { k: 'rpkg', rot: 'R$/kg', ajuda: 'com.painel.rpkg', ordenar: (c) => c.rpkg ?? 0, render: (c) => brl2(c.rpkg) },
+                      { k: 'desc', rot: 'Desconto', ajuda: 'com.painel.desconto', ordenar: (c) => c.descPct, render: (c) => <Chip v={c.descPct} a={1} b={2} d={2} /> },
+                      { k: 'rec', rot: 'Recência', ajuda: 'com.painel.recencia', ordenar: (c) => c.r, render: (c) => <span style={{ color: c.r > 30 ? C.bad : C.esp }}>{int(c.r)}d</span> },
+                      { k: 'f', rot: 'Frequência', ajuda: 'com.painel.frequencia', ordenar: (c) => c.f, render: (c) => `${int(c.f)} dias` },
+                      { k: 'dev', rot: 'Devolução', ajuda: 'com.painel.devolucao', ordenar: (c) => c.dev, render: (c) => c.dev > 0 ? <span style={{ color: C.bad }}>{brl(c.dev)}</span> : '—' },
                     ]}
                   />
                 </section>
@@ -524,19 +635,19 @@ export default function MeuPainelVendas() {
             {/* ===================== CIDADES ===================== */}
             {aba === 'cidades' && (
               <>
-                <Leitura><b>Leitura:</b> {cidades.length} cidades (praças) no período{cidades[0] ? <>; a maior é <b>{cidades[0].cidade}</b> ({brl(cidades[0].val)}).</> : '.'} Toque numa cidade para ver os clientes dela.</Leitura>
-                {cidadeSel && (
-                  <section style={{ ...card, borderLeft: `5px solid ${C.gold}` }} aria-label={`Clientes de ${cidadeSel}`}>
+                <Leitura><b>Leitura:</b> {cidRows.length} cidades (praças) no período{cidRows[0] ? <>; a maior é <b>{cap([...cidRows].sort((a, b) => b.val - a.val)[0].nome)}</b>.</> : '.'} Toque numa cidade para ver os clientes dela.</Leitura>
+                {cidadeSel != null && (
+                  <section style={{ ...card, borderLeft: `5px solid ${C.gold}` }} aria-label="Clientes da cidade">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                      <Titulo t={`Clientes em ${cap(cidadeSel)}`} nota={`${clientesDaCidade.length} clientes nesta praça`} />
+                      <Titulo t={`Clientes em ${cap(base.cid[cidadeSel] ?? '')}`} nota={`${clientesDaCidade.length} clientes nesta praça`} />
                       <button type="button" onClick={() => setCidadeSel(null)} aria-label="Fechar" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, font: 'inherit', fontSize: 12, padding: '6px 10px', borderRadius: 999, border: `1px solid ${C.bd}`, background: '#fff', color: C.esp, cursor: 'pointer' }}><X size={13} /> Fechar</button>
                     </div>
                     <div style={{ overflow: 'auto', maxHeight: 360 }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead><tr><th style={{ ...th, textAlign: 'left' }}>Cliente</th><th style={th}>Faturamento</th><th style={th}>Volume (kg)</th><th style={th}>R$/kg</th></tr></thead>
+                        <thead><tr><th style={{ ...th, textAlign: 'left' }}>Cliente</th><th style={th}>Faturamento</th><th style={th}>R$/kg</th></tr></thead>
                         <tbody>
-                          {clientesDaCidade.sort((a, b) => b.val - a.val).map((c) => (
-                            <tr key={c.cod}><td style={{ ...td, textAlign: 'left', whiteSpace: 'normal' }}>{nomeComCod(c.cliente, c.cod)}</td><td style={td}>{brl(c.val)}</td><td style={td}>{int(c.kg)}</td><td style={td}>{brl2(c.preco_kg)}</td></tr>
+                          {[...clientesDaCidade].sort((a, b) => b.val - a.val).map((c) => (
+                            <tr key={c.ci}><td style={{ ...td, textAlign: 'left', whiteSpace: 'normal' }}>{cap(c.nome)}</td><td style={td}>{brl(c.val)}</td><td style={td}>{brl2(c.rpkg)}</td></tr>
                           ))}
                         </tbody>
                       </table>
@@ -545,15 +656,16 @@ export default function MeuPainelVendas() {
                 )}
                 <section style={card} aria-label="Cidades">
                   <Titulo t="Cidades (praças)" nota="Nomes normalizados (sem duplicar por maiúscula/acento). Toque para abrir os clientes." ajuda="com.painel.cidades" />
-                  <Tabela<Cidade>
-                    linhas={cidades} buscaTexto={busca} buscaEm={(c) => c.cidade} inicialK="val" chaveRow={(c) => c.cidade}
-                    onRow={(c) => () => setCidadeSel(c.cidade)} aberta={() => true}
+                  <Tabela<RCid>
+                    linhas={cidRows} buscaTexto={busca} buscaEm={(c) => c.nome} inicialK="val" chaveRow={(c) => String(c.ci)}
+                    onRow={(c) => () => setCidadeSel(c.ci)} aberta={() => true}
                     cols={[
-                      { k: 'cidade', rot: 'Cidade', esq: true, ordenar: (c) => c.cidade, render: (c) => cap(c.cidade) },
+                      { k: 'nome', rot: 'Cidade', esq: true, ordenar: (c) => c.nome, render: (c) => cap(c.nome) },
                       { k: 'val', rot: 'Faturamento', ordenar: (c) => c.val, max: (rs) => Math.max(1, ...rs.map((x) => x.val)), render: (c, mx) => <BarraCelula v={c.val} max={mx} txt={brl(c.val)} cor={C.verde} /> },
+                      { k: 'part', rot: 'Participação', ajuda: 'com.painel.participacao', ordenar: (c) => c.part, render: (c) => pct(c.part) },
                       { k: 'kg', rot: 'Volume (kg)', ordenar: (c) => c.kg, render: (c) => int(c.kg) },
-                      { k: 'rpkg', rot: 'R$/kg', ajuda: 'com.painel.rpkg', ordenar: (c) => c.preco_kg ?? 0, render: (c) => brl2(c.preco_kg) },
-                      { k: 'cli', rot: 'Clientes', ordenar: (c) => c.clientes, render: (c) => int(c.clientes) },
+                      { k: 'rpkg', rot: 'R$/kg', ajuda: 'com.painel.rpkg', ordenar: (c) => c.rpkg ?? 0, render: (c) => brl2(c.rpkg) },
+                      { k: 'cli', rot: 'Clientes', ordenar: (c) => c.cli, render: (c) => int(c.cli) },
                     ]}
                   />
                 </section>
@@ -563,41 +675,43 @@ export default function MeuPainelVendas() {
             {/* ===================== PRODUTOS ===================== */}
             {aba === 'produtos' && (
               <>
-                <Leitura><b>Leitura:</b> {produtos.length} cortes no período{produtos[0] ? <>; o que mais fatura é <b>{cap(produtos[0].produto)}</b> ({brl2(produtos[0].preco_kg)}/kg).</> : '.'} <b>Sem margem</b>: o custo do ERP de origem vem zerado — não inventamos número.</Leitura>
+                <Leitura><b>Leitura:</b> {prodRows.length} cortes no período{topProd ? <>; o que mais fatura é <b>{cap(topProd.nome)}</b> ({brl2(topProd.rpkg)}/kg).</> : '.'} <b>Sem margem</b>: o custo do ERP de origem vem zerado — não inventamos número. Use a <b>engrenagem Análise</b> para tirar despojo/inativos.</Leitura>
                 <section style={card} aria-label="Produtos">
-                  <Titulo t="Produtos (cortes)" nota="Volume, preço médio e flex por corte. Despojo (couro/miúdos) sinalizado." ajuda="com.painel.produtos" />
-                  <Tabela<Produto>
-                    linhas={produtos} buscaTexto={busca} buscaEm={(x) => `${x.produto} ${x.cod}`} inicialK="val" chaveRow={(x) => x.cod}
+                  <Titulo t="Produtos (cortes)" nota="Volume, preço e desconto por corte. Fora da análise = marcado na engrenagem (não entra no preço médio)." ajuda="com.painel.produtos" />
+                  <Tabela<RProd>
+                    linhas={prodRows} buscaTexto={busca} buscaEm={(x) => `${x.nome} ${x.linha}`} inicialK="val" chaveRow={(x) => String(x.pi)}
                     cols={[
-                      { k: 'produto', rot: 'Produto', esq: true, ordenar: (x) => x.produto, render: (x) => <span>{nomeComCod(x.produto, x.cod)}{x.despojo && <span style={{ marginLeft: 6, fontSize: 10, padding: '1px 6px', borderRadius: 999, background: C.bg2, color: C.m }}>despojo</span>}</span> },
+                      { k: 'nome', rot: 'Produto', esq: true, ordenar: (x) => x.nome, render: (x) => <span>{cap(x.nome)}{!x.incluido && <span style={{ marginLeft: 6, fontSize: 10, padding: '1px 6px', borderRadius: 999, background: C.bg2, color: C.m }}>fora da análise</span>}</span> },
+                      { k: 'linha', rot: 'Linha', ordenar: (x) => x.linha, esq: true, render: (x) => LINHAS[x.grupo]?.rot ?? cap(x.linha) },
                       { k: 'val', rot: 'Faturamento', ordenar: (x) => x.val, max: (rs) => Math.max(1, ...rs.map((y) => y.val)), render: (x, mx) => <BarraCelula v={x.val} max={mx} txt={brl(x.val)} cor={C.azul} /> },
+                      { k: 'part', rot: 'Participação', ajuda: 'com.painel.participacao', ordenar: (x) => x.part, render: (x) => pct(x.part) },
                       { k: 'kg', rot: 'Volume (kg)', ordenar: (x) => x.kg, render: (x) => int(x.kg) },
-                      { k: 'rpkg', rot: 'R$/kg', ajuda: 'com.painel.rpkg', ordenar: (x) => x.preco_kg ?? 0, render: (x) => brl2(x.preco_kg) },
-                      { k: 'desc', rot: 'Desconto', ajuda: 'com.painel.flex', ordenar: (x) => x.desc_pct ?? 0, render: (x) => x.desc_pct != null ? <Chip v={x.desc_pct} a={1} b={2} d={2} /> : '—' },
-                      { k: 'pa', rot: 'Itens abaixo', ordenar: (x) => x.pct_abaixo, render: (x) => <Chip v={x.pct_abaixo} a={40} b={70} /> },
-                      { k: 'cli', rot: 'Clientes', ordenar: (x) => x.clientes, render: (x) => int(x.clientes) },
+                      { k: 'rpkg', rot: 'R$/kg', ajuda: 'com.painel.rpkg', ordenar: (x) => x.rpkg ?? 0, render: (x) => brl2(x.rpkg) },
+                      { k: 'desc', rot: 'Desconto', ajuda: 'com.painel.desconto', ordenar: (x) => x.desc, render: (x) => <Chip v={x.desc} a={1} b={2} d={2} /> },
+                      { k: 'pa', rot: 'Itens abaixo', ordenar: (x) => x.pa, render: (x) => <Chip v={x.pa} a={40} b={70} /> },
+                      { k: 'cli', rot: 'Clientes', ordenar: (x) => x.cli, render: (x) => int(x.cli) },
                     ]}
                   />
                 </section>
               </>
             )}
 
-            {/* ===================== FLEX ===================== */}
+            {/* ===================== PREÇO E DESCONTO (flex) ===================== */}
             {aba === 'flex' && (
               <>
-                <Leitura><b>Leitura:</b> no período, {brl(r.desconto)} de desconto concedido ({pct(r.desc_pct, 2)} sobre a tabela). Abaixo, onde o flex mais aparece — por vendedor, produto e cliente.</Leitura>
-                <section style={grade(380)} aria-label="Flex consolidado">
+                <Leitura><b>Leitura:</b> no período, {brl(tot.desc)} de desconto concedido ({pct(tot.tab ? 100 * tot.desc / tot.tab : 0, 2)} sobre a tabela), em {pct(tot.n ? 100 * tot.ab / tot.n : 0)} dos itens. Abaixo, onde o preço mais cai — por vendedor, produto e cliente.</Leitura>
+                <section style={grade(380)} aria-label="Preço e desconto">
                   <div style={card}>
-                    <Titulo t="Flex por vendedor" nota="Desconto médio sobre a tabela. Vermelho acima de 2%." ajuda="com.painel.flex" />
-                    <BarrasH cor={C.gold} fmt={(v) => pct(v, 2)} dados={equipe.filter((e) => e.val > 5000 && (e.desc_pct ?? 0) > 0).sort((a, b) => (b.desc_pct ?? 0) - (a.desc_pct ?? 0)).map((e) => ({ rot: e.nome, v: e.desc_pct ?? 0, destaque: (e.desc_pct ?? 0) >= 2 }))} />
+                    <Titulo t="Desconto por vendedor" nota="Desconto médio sobre a tabela. Vermelho acima de 2%." ajuda="com.painel.desconto" />
+                    <BarrasH cor={C.gold} fmt={(v) => pct(v, 2)} dados={venRows.filter((e) => e.val > 5000 && e.desc > 0).sort((a, b) => b.desc - a.desc).map((e) => ({ rot: cap(e.nome), v: e.desc, destaque: e.desc >= 2 }))} />
                   </div>
                   <div style={card}>
-                    <Titulo t="Flex por produto" nota="Cortes com mais desconto sobre a tabela." ajuda="com.painel.flex" />
-                    <BarrasH cor={C.azul} fmt={(v) => pct(v, 2)} dados={produtos.filter((x) => (x.desc_pct ?? 0) > 0).sort((a, b) => (b.desc_pct ?? 0) - (a.desc_pct ?? 0)).slice(0, 20).map((x) => ({ rot: cap(x.produto), v: x.desc_pct ?? 0, destaque: (x.desc_pct ?? 0) >= 2 }))} />
+                    <Titulo t="Desconto por produto" nota="Cortes com mais desconto sobre a tabela." ajuda="com.painel.desconto" />
+                    <BarrasH cor={C.azul} fmt={(v) => pct(v, 2)} dados={prodRows.filter((x) => x.desc > 0).sort((a, b) => b.desc - a.desc).slice(0, 20).map((x) => ({ rot: cap(x.nome), v: x.desc, destaque: x.desc >= 2 }))} />
                   </div>
                   <div style={card}>
-                    <Titulo t="Flex por cliente" nota="Clientes com mais desconto sobre a tabela." ajuda="com.painel.flex" />
-                    <BarrasH cor={C.verde} fmt={(v) => pct(v, 2)} dados={clientes.filter((c) => (c.desc_pct ?? 0) > 0).sort((a, b) => (b.desc_pct ?? 0) - (a.desc_pct ?? 0)).slice(0, 20).map((c) => ({ rot: cap(c.cliente), v: c.desc_pct ?? 0, destaque: (c.desc_pct ?? 0) >= 2 }))} />
+                    <Titulo t="Desconto por cliente" nota="Onde está o dinheiro que ficou na mesa." ajuda="com.painel.desconto" />
+                    <BarrasH cor={C.verde} fmt={(v) => pct(v, 2)} dados={cliRows.filter((c) => c.descPct > 0).sort((a, b) => b.descPct - a.descPct).slice(0, 20).map((c) => ({ rot: cap(c.nome), v: c.descPct, destaque: c.descPct >= 2 }))} />
                   </div>
                 </section>
               </>
@@ -606,46 +720,80 @@ export default function MeuPainelVendas() {
             {/* ===================== LOGÍSTICA ===================== */}
             {aba === 'logistica' && (
               <>
-                {p.logistica && p.logistica.cargas > 0 ? (
+                {logi && logi.cargas > 0 ? (
                   <section style={{ display: 'grid', gap: 12 }} aria-label="Logística de saída">
-                    <Leitura><b>Leitura:</b> {int(p.logistica.cargas)} cargas montadas no período, {int(p.logistica.kg_carga)} kg por carga em média.</Leitura>
+                    <Leitura><b>Leitura:</b> {int(logi.cargas)} cargas montadas no período, {int(logi.kgMed)} kg por carga em média.</Leitura>
                     <div style={grade(170)}>
-                      {kpiVar('Cargas montadas', 'com.painel.logistica', int(p.logistica.cargas), null, null, 'no período')}
-                      {kpiVar('Peso médio por carga', 'com.painel.logistica', `${int(p.logistica.kg_carga)} kg`, null, null, 'peso líquido vendido')}
-                      {kpiVar('Clientes por carga', 'com.painel.logistica', nf({ maximumFractionDigits: 1 }).format(p.logistica.clientes_carga ?? 0), null, null, 'entregas em média')}
-                      {kpiVar('Notas sem carga', 'com.painel.logistica', int(p.logistica.notas_sem_carga), null, null, <>{int(p.logistica.kg_sem_carga)} kg retirados/sem romaneio</>)}
+                      {kpi('Cargas montadas', 'com.painel.logistica', int(logi.cargas), null, null, 'no período')}
+                      {kpi('Peso médio por carga', 'com.painel.logistica', `${int(logi.kgMed)} kg`, null, null, 'peso líquido vendido')}
+                      {kpi('Clientes por carga', 'com.painel.logistica', nf({ maximumFractionDigits: 1 }).format(logi.cliMed), null, null, 'entregas em média')}
+                      {kpi('Notas sem carga', 'com.painel.logistica', int(logi.notasSem), null, null, <>{int(logi.kgSem)} kg retirados/sem romaneio</>)}
                     </div>
                     <div style={card}>
-                      <Titulo t="Cargas do período" nota="Cada carga com notas, clientes, cidades, peso e valor. Na visão de um vendedor, só a parte dele." />
-                      <div style={{ overflow: 'auto', maxHeight: 480 }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                          <thead><tr><th style={{ ...th, textAlign: 'left' }}>Data</th><th style={th}>Carga</th><th style={{ ...th, textAlign: 'left' }}>Transportador</th><th style={th}>Notas</th><th style={th}>Clientes</th><th style={th}>Cidades</th><th style={th}>Peso (kg)</th><th style={th}>Valor</th></tr></thead>
-                          <tbody>
-                            {(p.cargas ?? []).map((c) => (
-                              <tr key={c.carga}>
-                                <td style={{ ...td, textAlign: 'left' }}>{dataBR(c.dia)}</td><td style={td}>{c.carga}</td>
-                                <td style={{ ...td, textAlign: 'left', whiteSpace: 'normal', minWidth: 160 }}>{cap(c.transportador)}</td>
-                                <td style={td}>{int(c.notas)}</td><td style={td}>{int(c.clientes)}</td><td style={td}>{int(c.cidades)}</td><td style={td}>{int(c.kg)}</td><td style={td}>{brl(c.val)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                      <Titulo t="Transportadores do período" nota="Peso e valor por transportador. Na visão de um vendedor, só a parte dele." ajuda="com.painel.logistica" />
+                      <Tabela<RTr>
+                        linhas={trRows} buscaTexto="" buscaEm={(t) => t.nome} inicialK="val" chaveRow={(t) => String(t.ti)}
+                        cols={[
+                          { k: 'nome', rot: 'Transportador', esq: true, ordenar: (t) => t.nome, render: (t) => cap(t.nome) },
+                          { k: 'val', rot: 'Faturamento', ordenar: (t) => t.val, max: (rs) => Math.max(1, ...rs.map((x) => x.val)), render: (t, mx) => <BarraCelula v={t.val} max={mx} txt={brl(t.val)} cor={C.gold} /> },
+                          { k: 'kg', rot: 'Peso (kg)', ordenar: (t) => t.kg, render: (t) => int(t.kg) },
+                          { k: 'nt', rot: 'Notas', ordenar: (t) => t.notas, render: (t) => int(t.notas) },
+                          { k: 'cli', rot: 'Clientes', ordenar: (t) => t.cli, render: (t) => int(t.cli) },
+                        ]}
+                      />
                     </div>
                   </section>
                 ) : (
-                  <Placeholder titulo="Logística de saída" ajuda="com.painel.logistica" texto="Sem cargas/romaneios no período para esta visão. O frete por placa (integração Brasil Sat) entra numa onda posterior — a aba já está preparada para recebê-lo." />
+                  <Placeholder titulo="Logística de saída" ajuda="com.painel.logistica" texto="Sem cargas/romaneios no período para esta visão. Quando as notas trazem carga e transportador, esta aba mostra cargas montadas, peso por carga, clientes por entrega e o desempenho por transportador." />
                 )}
               </>
             )}
 
             {/* ===================== METAS ===================== */}
             {aba === 'metas' && (
-              <Placeholder titulo="Metas" ajuda="com.painel.meta" texto="O ERP de origem ainda não envia cota/meta de venda. Quando a meta for cadastrada, esta aba mostra realizado × meta por vendedor, produto e cidade — sem inventar número enquanto não houver o dado." />
+              <Placeholder titulo="Metas" ajuda="com.painel.meta" texto="O ERP de origem manda as cotas zeradas. A aba de metas (realizado × meta por vendedor, produto e cidade, com a sugestão de mês anterior + 5% e cadastro em erp_meta) entra no próximo bloco — sem inventar número enquanto não houver a meta cadastrada." />
             )}
           </>
         )}
       </div>
+
+      {/* ===================== ENGRENAGEM: o que entra na análise ===================== */}
+      {engrenagem && base && estado && pg && (
+        <div role="dialog" aria-label="O que entra na análise" style={{ position: 'fixed', inset: 0, background: 'rgba(40,30,20,.45)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 50 }} onClick={() => setEngrenagem(false)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: C.off, width: 'min(560px, 100%)', maxHeight: '86vh', overflow: 'auto', borderRadius: '16px 16px 0 0', padding: 'clamp(16px,3vw,24px)', display: 'grid', gap: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <div style={{ fontSize: 17, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>O que entra na análise<AjudaCampo chave="com.painel.analise" rota={ROTA} /></div>
+              <button type="button" onClick={() => setEngrenagem(false)} aria-label="Fechar" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, font: 'inherit', fontSize: 13, padding: '6px 10px', borderRadius: 999, border: `1px solid ${C.bd}`, background: '#fff', color: C.esp, cursor: 'pointer' }}><X size={15} /> Fechar</button>
+            </div>
+            <p style={{ margin: 0, fontSize: 13, color: C.m }}>O despojo (não-carne) fica fora do preço médio por padrão. Escolha o que entra e se a exclusão vale só para o preço ou para todo o painel.</p>
+            <div role="group" aria-label="Escopo da exclusão" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {([['preco', 'Fora só do preço/R$ por kg'], ['tudo', 'Fora de todo o painel']] as const).map(([k, rot]) => (
+                <button key={k} type="button" onClick={() => setEstado((e) => e ? { ...e, escopo: k } : e)} aria-pressed={estado.escopo === k}
+                  style={{ font: 'inherit', fontSize: 13, padding: '7px 12px', borderRadius: 999, cursor: 'pointer', border: `1px solid ${estado.escopo === k ? C.esp : C.bd}`, background: estado.escopo === k ? C.esp : '#fff', color: estado.escopo === k ? '#fff' : C.esp }}>{rot}</button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button type="button" onClick={() => setEstado((e) => e ? { ...e, excl: Object.fromEntries(base.prod.map((p, i) => [i, p[2] !== 1])) } : e)}
+                style={{ font: 'inherit', fontSize: 12, padding: '6px 12px', borderRadius: 8, cursor: 'pointer', border: `1px solid ${C.bd}`, background: '#fff', color: C.esp }}>Padrão: só carne</button>
+              <button type="button" onClick={() => setEstado((e) => e ? { ...e, excl: {} } : e)}
+                style={{ font: 'inherit', fontSize: 12, padding: '6px 12px', borderRadius: 8, cursor: 'pointer', border: `1px solid ${C.bd}`, background: '#fff', color: C.esp }}>Todos os produtos</button>
+            </div>
+            <div style={{ display: 'grid', gap: 2 }}>
+              {base.prod.map((p, i) => {
+                const marcado = !estado.excl[i]
+                return (
+                  <label key={i} data-ajuda="com.painel.analise" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, padding: '6px 4px', borderBottom: `1px solid ${C.bg2}`, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={marcado} onChange={(ev) => setEstado((e) => e ? { ...e, excl: { ...e.excl, [i]: !ev.target.checked } } : e)} aria-label={`Incluir ${p[0]}`} />
+                    <span style={{ flex: 1 }}>{cap(p[0])}</span>
+                    <span style={{ fontSize: 11, color: C.m }}>{LINHAS[pg[i]]?.rot ?? cap(p[1])}</span>
+                  </label>
+                )
+              })}
+            </div>
+            <button type="button" onClick={() => setEngrenagem(false)} style={{ font: 'inherit', fontSize: 14, fontWeight: 600, padding: '10px 16px', borderRadius: 10, cursor: 'pointer', border: 0, background: C.esp, color: '#fff' }}>Pronto</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
