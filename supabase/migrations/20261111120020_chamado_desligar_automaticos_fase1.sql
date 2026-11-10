@@ -28,3 +28,9 @@ AS $function$
 BEGIN
   RETURN jsonb_build_object('ok', true, 'pulou', 'desligado_chamado_7050');
 END $function$;
+
+-- ACL preservada (só dono + service_role; chamadas apenas pelo pg_cron). Não abrir para anon/authenticated.
+REVOKE ALL ON FUNCTION public.fn_sugestao_confirmacao_automatica(date) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_sugestao_lembrete_confirmacao() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_sugestao_confirmacao_automatica(date) TO service_role;
+GRANT EXECUTE ON FUNCTION public.fn_sugestao_lembrete_confirmacao() TO service_role;
