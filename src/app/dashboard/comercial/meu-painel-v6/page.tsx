@@ -6,10 +6,12 @@
 // Fonte: fn_com_venda_item / bi_comercial_venda_item_mv (R$ 13.983.740 no aceite). Nunca a MV inflada.
 //
 // Bloco 1 ("Como a Frioeste está vendendo"): faturamento, volume, preço, ticket e faturamento por dia.
-// Bloco 2 (este PR): "As linhas de produto" (de onde vem o faturamento) e "Ritmo da semana" (dias que mais vendem).
+// Bloco 2: "As linhas de produto" (de onde vem o faturamento) e "Ritmo da semana" (dias que mais vendem).
+// Bloco 3 (este PR) — aba "Vendedores": "Quem vende quanto" (ranking), "Desconto × devolução" (cada ponto é um
+//   vendedor) e o "Placar dos vendedores" (tabela). Fonte: modelo.venM + modelo.devVen (mesma base do motor v5).
 // As chaves de ajuda "?" são do v6 (comv6.*), com a rota do v6 — a ajuda é carregada por rota (fn_ajuda_campo_listar).
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from 'recharts'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
@@ -52,6 +54,7 @@ export default function MeuPainelV6() {
   const [estado, setEstado] = useState<EstadoV5 | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [aba, setAba] = useState<'geral' | 'vendedores'>('geral')
 
   // Período: últimos 30 dias (mesmo recorte padrão do v5), até hoje.
   const intervalo = useMemo(() => {
@@ -112,6 +115,33 @@ export default function MeuPainelV6() {
   const notas = modelo?.tot.notas.size ?? 0
   const ticketNota = notas ? (modelo?.tot.val ?? 0) / notas : null
 
+  // Bloco 3 — aba "Vendedores": um registro por vendedor, com faturamento, participação, clientes atendidos,
+  // desconto cedido (% sobre a tabela) e devolução (% do faturado). Mesma base e guarda de escopo do motor v5.
+  const vendedores = useMemo(() => {
+    if (!modelo || !base) return [] as { vi: number; nome: string; val: number; part: number; clientes: number; descPct: number; devPct: number; dev: number }[]
+    const tot = modelo.tot.val || 1
+    return [...modelo.venM.entries()]
+      .map(([vi, a]) => {
+        const dev = modelo.devVen.get(vi) ?? 0
+        return {
+          vi,
+          nome: base.ven[vi]?.[1] ?? 'Sem vendedor',
+          val: a.val,
+          part: a.val / tot,
+          clientes: a.clis.size,
+          descPct: a.tab > 0 ? (a.desc / a.tab) * 100 : 0,
+          devPct: a.val > 0 ? (dev / a.val) * 100 : 0,
+          dev,
+        }
+      })
+      .sort((a, b) => b.val - a.val)
+  }, [modelo, base])
+
+  // Médias da empresa — linhas de referência do gráfico desconto × devolução (quadrante "acima da média").
+  const descMedio = modelo && modelo.tot.tab > 0 ? (modelo.tot.desc / modelo.tot.tab) * 100 : 0
+  const devMedio = modelo && modelo.tot.val > 0 ? (modelo.devTot / modelo.tot.val) * 100 : 0
+  const liderVen = vendedores.length ? vendedores[0] : null
+
   if (!empresa) {
     return <div style={{ padding: 16, color: C.m }}>Escolha uma empresa para ver o painel.</div>
   }
@@ -126,6 +156,25 @@ export default function MeuPainelV6() {
       </p>
 
       {r && modelo && (
+        <div role="tablist" aria-label="Abas do painel" style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+          {([['geral', 'Visão geral'], ['vendedores', 'Vendedores']] as const).map(([k, rot]) => (
+            <button
+              key={k}
+              role="tab"
+              aria-selected={aba === k}
+              onClick={() => setAba(k)}
+              data-testid={`v6-aba-${k}`}
+              style={{
+                border: `1px solid ${aba === k ? C.esp : C.bd}`, background: aba === k ? C.esp : '#fff',
+                color: aba === k ? '#fff' : C.m, borderRadius: 999, padding: '7px 16px', fontSize: 13.5,
+                fontWeight: 600, cursor: 'pointer',
+              }}
+            >{rot}</button>
+          ))}
+        </div>
+      )}
+
+      {aba === 'geral' && r && modelo && (
         <>
           <p style={{ fontSize: 16, lineHeight: 1.5, margin: '0 0 16px' }}>
             Faturou <b>{brl0(r.totalValor)}</b> em <b>{ton(modelo.tot.kg)}</b>, para <b>{int(r.clientes)} clientes</b>. Sem o despojo, o quilo sai a <b>{brl2(r.precoPorKg)}</b>.
@@ -191,6 +240,97 @@ export default function MeuPainelV6() {
                 </BarChart>
               </ResponsiveContainer>
             </div>
+          </Bloco>
+        </>
+      )}
+
+      {aba === 'vendedores' && r && modelo && (
+        <>
+          <p style={{ fontSize: 16, lineHeight: 1.5, margin: '0 0 16px' }}>
+            {liderVen
+              ? <>Quem puxa as vendas. <b>{liderVen.nome}</b> lidera com <b>{brl0(liderVen.val)}</b> ({pct(liderVen.part)} do total), atendendo <b>{int(liderVen.clientes)} clientes</b>.</>
+              : <>Sem venda de vendedor no período.</>}
+          </p>
+
+          {/* Bloco 3a — Quem vende quanto */}
+          <Bloco titulo="Quem vende quanto" chave="comv6.vend_quanto">
+            {vendedores.length ? (
+              <div style={{ display: 'grid', gap: 8 }}>
+                {vendedores.map((v) => (
+                  <div key={v.vi} style={{ minWidth: 0 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 13 }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.nome}</span>
+                      <span style={{ color: C.m, flexShrink: 0 }}>{brl0(v.val)} · {pct(v.part)}</span>
+                    </div>
+                    <div style={{ height: 8, background: C.bd, borderRadius: 4, marginTop: 4, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${Math.max(2, Math.round(v.part * 100))}%`, background: C.gold }} />
+                    </div>
+                    <div style={{ fontSize: 11, color: C.d, marginTop: 2 }}>{int(v.clientes)} clientes · desconto {pct(v.descPct / 100)} · devolução {v.dev > 0 ? pct(v.devPct / 100) : 'nenhuma'}</div>
+                  </div>
+                ))}
+              </div>
+            ) : <div style={{ fontSize: 13, color: C.m }}>Sem vendedor com venda no período.</div>}
+          </Bloco>
+
+          {/* Bloco 3b — Desconto × devolução (cada ponto é um vendedor) */}
+          <Bloco titulo="Desconto × devolução" chave="comv6.vend_desc_dev">
+            <p style={{ fontSize: 14, color: C.m, margin: '0 0 12px' }}>
+              Cada ponto é um vendedor; o tamanho é o faturamento. Quem fica no canto superior direito cede
+              desconto <b>e</b> tem devolução acima da média da empresa (linhas de referência).
+            </p>
+            {vendedores.length ? (
+              <div style={{ width: '100%', height: 260 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <ScatterChart margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
+                    <CartesianGrid stroke={C.bd} />
+                    <XAxis type="number" dataKey="x" name="Desconto" unit="%" tick={{ fontSize: 11, fill: C.m }}
+                      tickFormatter={(v: number) => nf({ maximumFractionDigits: 1 }).format(v)} />
+                    <YAxis type="number" dataKey="y" name="Devolução" unit="%" tick={{ fontSize: 11, fill: C.m }} width={48}
+                      tickFormatter={(v: number) => nf({ maximumFractionDigits: 1 }).format(v)} />
+                    <ZAxis type="number" dataKey="z" range={[60, 600]} name="Faturamento" />
+                    <ReferenceLine x={descMedio} stroke={C.d} strokeDasharray="4 4" />
+                    <ReferenceLine y={devMedio} stroke={C.d} strokeDasharray="4 4" />
+                    <Tooltip cursor={{ strokeDasharray: '3 3' }} labelFormatter={() => ''} formatter={(val, nome) => (
+                      nome === 'Faturamento'
+                        ? [brl0(Number(val)), String(nome)]
+                        : [`${nf({ maximumFractionDigits: 1 }).format(Number(val))}%`, String(nome)]
+                    )} />
+                    <Scatter data={vendedores.map((v) => ({ x: v.descPct, y: v.devPct, z: Math.max(1, v.val), nome: v.nome }))} fill={C.esp} fillOpacity={0.65} />
+                  </ScatterChart>
+                </ResponsiveContainer>
+              </div>
+            ) : <div style={{ fontSize: 13, color: C.m }}>Sem vendedor com venda no período.</div>}
+          </Bloco>
+
+          {/* Bloco 3c — Placar dos vendedores */}
+          <Bloco titulo="Placar dos vendedores" chave="comv6.vend_placar">
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+                <thead>
+                  <tr style={{ color: C.m, textAlign: 'left' }}>
+                    <th style={{ padding: '6px 4px' }}>Vendedor</th>
+                    <th style={{ padding: '6px 4px', textAlign: 'right' }}>Faturamento</th>
+                    <th style={{ padding: '6px 4px', textAlign: 'right' }}>Part.</th>
+                    <th style={{ padding: '6px 4px', textAlign: 'right' }}>Clientes</th>
+                    <th style={{ padding: '6px 4px', textAlign: 'right' }}>Desconto</th>
+                    <th style={{ padding: '6px 4px', textAlign: 'right' }}>Devolução</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {vendedores.map((v) => (
+                    <tr key={v.vi} style={{ borderTop: `1px solid ${C.bd}` }}>
+                      <td style={{ padding: '6px 4px' }}>{v.nome}</td>
+                      <td style={{ padding: '6px 4px', textAlign: 'right' }}>{brl0(v.val)}</td>
+                      <td style={{ padding: '6px 4px', textAlign: 'right' }}>{pct(v.part)}</td>
+                      <td style={{ padding: '6px 4px', textAlign: 'right' }}>{int(v.clientes)}</td>
+                      <td style={{ padding: '6px 4px', textAlign: 'right', color: v.descPct > descMedio ? '#A33A1F' : C.esp }}>{pct(v.descPct / 100)}</td>
+                      <td style={{ padding: '6px 4px', textAlign: 'right', color: v.devPct > devMedio && v.dev > 0 ? '#A33A1F' : C.esp }}>{v.dev > 0 ? pct(v.devPct / 100) : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ fontSize: 11, color: C.d, marginTop: 8 }}>Média da empresa: desconto {pct(descMedio / 100)} · devolução {pct(devMedio / 100)}. Em vermelho, acima da média.</div>
           </Bloco>
         </>
       )}
