@@ -385,8 +385,8 @@ function ConteudoAtrasadas({
                   <div style={{ fontSize: 14, fontWeight: 600, color: '#3D2314', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {c.cliente_nome ?? 'Cliente sem cadastro'}
                   </div>
-                  <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', marginTop: 2 }}>
-                    {c.qtd_contas} {c.qtd_contas === 1 ? 'conta' : 'contas'}
+                  <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', marginTop: 2, display: 'inline-flex', alignItems: 'center' }}>
+                    {c.qtd_contas} {c.qtd_contas === 1 ? 'conta' : 'contas'}<AjudaCampo chave="ge.inadimplentes.card.contas" rota={ROTA_AJUDA} />
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6, marginRight: 12, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
@@ -402,8 +402,8 @@ function ConteudoAtrasadas({
                   )}
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 4 }}>
-                  <div style={{ fontSize: 15, fontWeight: 600, color: '#A32D2D', fontVariantNumeric: 'tabular-nums' }}>
-                    R$ {fmt(c.total_valor)}
+                  <div style={{ fontSize: 15, fontWeight: 600, color: '#A32D2D', fontVariantNumeric: 'tabular-nums', display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                    R$ {fmt(c.total_valor)}<AjudaCampo chave="ge.inadimplentes.card.valor" rota={ROTA_AJUDA} />
                   </div>
                 </div>
                 <div style={{ fontSize: 16, color: 'rgba(61,35,20,0.4)', marginLeft: 12 }}>{open ? '−' : '+'}</div>
