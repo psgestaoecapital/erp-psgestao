@@ -11,13 +11,18 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import {
-  calcularModelo, estadoPadrao, gruposProduto, resumo,
+  calcularModelo, estadoPadrao, exclusaoPadrao, gruposProduto, resumo,
   type BaseV5, type EstadoV5, type GrupoProduto, type ModeloV5,
 } from '../meu-painel/motor-v5'
 import { calcularClientesV7 } from './clientes-v7'
 import { AbaClientes } from './AbaClientes'
 import { calcularCidadesV7 } from './cidades-v7'
 import { AbaCidades } from './AbaCidades'
+import { calcularProdutosV7 } from './produtos-v7'
+import { AbaProdutosV7 } from './AbaProdutosV7'
+import { calcularPrecoV7 } from './precoV7'
+import { AbaPrecoV7 } from './AbaPrecoV7'
+import { ModalAnalise, lerEscolhaSalva, type EscopoAnalise } from './ModalAnalise'
 
 const C = { esp: '#3D2314', off: '#FAF7F2', gold: '#C8941A', gold2: '#E0B048', verde: '#3f7d4e', bd: '#E7DED3', bg2: '#F0ECE3', m: '#6B5D4F', d: '#9C8E80' }
 const ROTA = '/dashboard/comercial/meu-painel-v6'
@@ -93,9 +98,20 @@ export default function MeuPainelV6() {
   }, [empresa, intervalo])
   useEffect(() => { void carregar() }, [carregar])
   // Base nova (outro período) → análise padrão, mas mantém vendedor e linha escolhidos.
+  // Se o usuário já escolheu a análise nesta empresa, a escolha salva vale; senão, a análise padrão (só carne).
   useEffect(() => {
-    setEstado((prev) => base ? { ...estadoPadrao(base), ven: prev?.ven ?? 'todos', lin: prev?.lin ?? 'todas' } : null)
-  }, [base])
+    setEstado((prev) => {
+      if (!base) return null
+      const salva = empresa ? lerEscolhaSalva(empresa) : null
+      const padrao = estadoPadrao(base)
+      const excl: Record<number, boolean> = salva
+        ? Object.fromEntries(base.prod.map((p, i) => [i, true] as const).filter(([i]) => salva.fora.includes(base.prod[i]?.[0] ?? '')))
+        : padrao.excl
+      return { ...padrao, excl, escopo: salva?.escopo ?? 'preco', ven: prev?.ven ?? 'todos', lin: prev?.lin ?? 'todas' }
+    })
+  }, [base, empresa])
+  const [modalAnalise, setModalAnalise] = useState(false)
+  const aplicarAnalise = (excl: Record<number, boolean>, escopo: EscopoAnalise) => setEstado((e) => e ? { ...e, excl, escopo } : e)
   const setVen = (v: EstadoV5['ven']) => setEstado((e) => e ? { ...e, ven: v } : e)
   const setLin = (v: EstadoV5['lin']) => setEstado((e) => e ? { ...e, lin: v } : e)
 
@@ -233,6 +249,10 @@ export default function MeuPainelV6() {
 
   // Aba Clientes (SPEC §2.3): segmentos RFM, Pareto, cross-sell, notas, grupos, carteira e tabela completa.
   const clientesV7 = useMemo(() => base && modelo && estado && pg ? calcularClientesV7(base, modelo, estado, pg) : null, [base, modelo, estado, pg])
+  // Aba Preço e desconto (SPEC §2.6).
+  const precoV7 = useMemo(() => base && modelo && estado ? calcularPrecoV7(base, modelo, estado) : null, [base, modelo, estado])
+  // Aba Produtos (SPEC §2.5).
+  const produtosV7 = useMemo(() => base && modelo && estado && pg ? calcularProdutosV7(base, modelo, estado, pg) : null, [base, modelo, estado, pg])
   // Aba Cidades (SPEC §2.4).
   const cidadesV7 = useMemo(() => base && modelo && estado && pg ? calcularCidadesV7(base, modelo, estado, pg) : null, [base, modelo, estado, pg])
 
@@ -348,7 +368,7 @@ export default function MeuPainelV6() {
         ))}
       </nav>
 
-      {aba !== 'geral' && aba !== 'vendedores' && aba !== 'clientes' && aba !== 'cidades' && (
+      {aba !== 'geral' && aba !== 'vendedores' && aba !== 'clientes' && aba !== 'cidades' && aba !== 'produtos' && aba !== 'preco' && (
         <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16, color: C.m, fontSize: 14 }}>
           <b style={{ color: C.esp }}>{ABAS.find((a) => a.k === aba)?.rot}</b> — esta aba entra no próximo bloco do painel. O período e os filtros acima já valem para ela.
         </div>
@@ -649,6 +669,16 @@ export default function MeuPainelV6() {
       )}
       {aba === 'cidades' && base && modelo && cidadesV7 && (
         <AbaCidades cidades={cidadesV7} base={base} modelo={modelo} />
+      )}
+      {aba === 'preco' && precoV7 && (
+        <AbaPrecoV7 preco={precoV7} />
+      )}
+      {aba === 'produtos' && base && modelo && produtosV7 && estado && (
+        <AbaProdutosV7 produtos={produtosV7} base={base} modelo={modelo} onAbrirAnalise={() => setModalAnalise(true)} />
+      )}
+      {base && modelo && estado && empresa && (
+        <ModalAnalise open={modalAnalise} onClose={() => setModalAnalise(false)} empresa={empresa} base={base} modelo={modelo} estado={estado}
+          onAplicar={aplicarAnalise} exclusaoPadrao={exclusaoPadrao(base)} />
       )}
 
       <div style={{ marginTop: 16, fontSize: 12, color: C.d }}>
