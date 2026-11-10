@@ -5,7 +5,7 @@
 // alimentado pela RPC fn_bi_comercial_base, que trava o escopo no banco (líder vê a empresa; vendedor só o próprio).
 // Fonte: fn_com_venda_item / bi_comercial_venda_item_mv (R$ 13.983.740 no aceite). Nunca a MV inflada.
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
-import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from 'recharts'
+import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from 'recharts'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
@@ -14,8 +14,12 @@ import {
   calcularModelo, estadoPadrao, gruposProduto, resumo,
   type BaseV5, type EstadoV5, type GrupoProduto, type ModeloV5,
 } from '../meu-painel/motor-v5'
+import { calcularClientesV7 } from './clientes-v7'
+import { AbaClientes } from './AbaClientes'
+import { calcularCidadesV7 } from './cidades-v7'
+import { AbaCidades } from './AbaCidades'
 
-const C = { esp: '#3D2314', off: '#FAF7F2', gold: '#C8941A', bd: '#E7DED3', m: '#6B5D4F', d: '#9C8E80' }
+const C = { esp: '#3D2314', off: '#FAF7F2', gold: '#C8941A', gold2: '#E0B048', verde: '#3f7d4e', bd: '#E7DED3', bg2: '#F0ECE3', m: '#6B5D4F', d: '#9C8E80' }
 const ROTA = '/dashboard/comercial/meu-painel-v6'
 
 const nf = (o: Intl.NumberFormatOptions) => new Intl.NumberFormat('pt-BR', o)
@@ -131,7 +135,106 @@ export default function MeuPainelV6() {
   const mediaDia = serie.length && modelo ? modelo.tot.val / serie.length : null
   const projecaoMes = mediaDia != null ? mediaDia * 30 : null
 
+  // ── Visão geral completa (SPEC §2.1). Números do motor; desconto usa a base "abaixo da tabela > R$ 0,05"
+  // (centavo de arredondamento não conta como desconto).
+  const [donutMetrica, setDonutMetrica] = useState<'val' | 'kg'>('val')
+  const [escalaPreco, setEscalaPreco] = useState<'dia' | 'semana'>('dia')
+  const [ordLin, setOrdLin] = useState<{ k: 'val' | 'part' | 'kg' | 'rpkg' | 'desc' | 'cli'; dir: 1 | -1 }>({ k: 'val', dir: -1 })
+
+  const descR = modelo?.tot.desc ?? 0
+  const tabR = modelo?.tot.tab ?? 0
+  const descPct = tabR ? 100 * descR / tabR : 0
+  const devR = useMemo(() => modelo ? modelo.devs.reduce((s, x) => s + (x[4] as number), 0) : 0, [modelo])
+  const devPct = modelo?.tot.val ? 100 * devR / modelo.tot.val : 0
+  const prazo = modelo?.pz ?? null
+  const itensAbaixoPct = useMemo(() => {
+    if (!modelo || !modelo.its.length) return 0
+    const n = modelo.its.filter((x) => x[7] > x[6] + 0.05).length
+    return 100 * n / modelo.its.length
+  }, [modelo])
+
+  // Linhas com desconto, clientes e R$/kg (base da análise), ordenáveis.
+  const linhasTab = useMemo(() => {
+    if (!modelo) return [] as { nome: string; val: number; part: number; kg: number; rpkg: number | null; desc: number; cli: number }[]
+    const tot = modelo.tot.val || 1
+    const rows = [...modelo.linM].map(([nome, a]) => ({
+      nome, val: a.val, part: 100 * a.val / tot, kg: a.kg,
+      rpkg: a.kgP ? a.valP / a.kgP : null, desc: a.tab ? 100 * a.desc / a.tab : 0, cli: a.clis.size,
+    }))
+    const k = ordLin.k
+    return rows.sort((a, b) => {
+      const va = k === 'rpkg' ? (a.rpkg ?? -1) : (a as any)[k]
+      const vb = k === 'rpkg' ? (b.rpkg ?? -1) : (b as any)[k]
+      return (va - vb) * ordLin.dir
+    })
+  }, [modelo, ordLin])
+
+  // Série de preço por kg (R$ por kg na análise): toda a análise, desossados e com osso.
+  const precoSerie = useMemo(() => {
+    if (!modelo || !base || !pg || !estado) return [] as { rot: string; t: number | null; g0: number | null; g1: number | null }[]
+    const porDia = new Map<number, { t: [number, number]; g0: [number, number]; g1: [number, number] }>()
+    modelo.its.forEach((x) => {
+      if (estado.excl[x[4]] || !(x[5] > 0)) return
+      const d = x[0]
+      let a = porDia.get(d); if (!a) { a = { t: [0, 0], g0: [0, 0], g1: [0, 0] }; porDia.set(d, a) }
+      a.t[0] += x[6]; a.t[1] += x[5]
+      const g = pg[x[4]]
+      if (g === 0) { a.g0[0] += x[6]; a.g0[1] += x[5] } else if (g === 1) { a.g1[0] += x[6]; a.g1[1] += x[5] }
+    })
+    const div = (p: [number, number]) => p[1] > 0 ? p[0] / p[1] : null
+    if (escalaPreco === 'dia') {
+      return [...porDia].sort((a, b) => a[0] - b[0]).map(([d, a]) => ({
+        rot: dataBR(diaISO(base.de, d)).slice(0, 5), t: div(a.t), g0: div(a.g0), g1: div(a.g1),
+      }))
+    }
+    const porSem = new Map<number, { t: [number, number]; g0: [number, number]; g1: [number, number] }>()
+    porDia.forEach((a, d) => {
+      const s = Math.floor(d / 7)
+      let b = porSem.get(s); if (!b) { b = { t: [0, 0], g0: [0, 0], g1: [0, 0] }; porSem.set(s, b) }
+      b.t[0] += a.t[0]; b.t[1] += a.t[1]; b.g0[0] += a.g0[0]; b.g0[1] += a.g0[1]; b.g1[0] += a.g1[0]; b.g1[1] += a.g1[1]
+    })
+    return [...porSem].sort((a, b) => a[0] - b[0]).map(([s, b]) => ({
+      rot: `sem. ${dataBR(diaISO(base.de, s * 7)).slice(0, 5)}`, t: div(b.t), g0: div(b.g0), g1: div(b.g1),
+    }))
+  }, [modelo, base, pg, estado, escalaPreco])
+
+  // Diagnóstico do período (SPEC §2.1): regras determinísticas a partir do motor. Limites explícitos:
+  // desconto acima de 1,5× a média da empresa; concentração = clientes da curva A (até 80% do faturamento).
+  const diagnostico = useMemo(() => {
+    const riscos: string[] = []; const oport: string[] = []; const acoes: string[] = []
+    if (!modelo || !base) return { riscos, oport, acoes }
+    const nomeVen = (vi: number) => base.ven[vi]?.[1] || base.ven[vi]?.[0] || 'Sem vendedor'
+    const abusivos = [...modelo.venM].filter(([, a]) => a.tab > 0 && (100 * a.desc / a.tab) > 1.5 * descPct)
+    abusivos.forEach(([vi, a]) => {
+      const p = 100 * a.desc / a.tab
+      riscos.push(`Desconto de ${nomeVen(vi)} acima do normal: ${nf({ maximumFractionDigits: 2 }).format(p)}% (empresa ${nf({ maximumFractionDigits: 2 }).format(descPct)}%)`)
+      acoes.push(`Revisar o desconto de ${nomeVen(vi)}`)
+    })
+    const cliVals = [...modelo.cliM].map(([ci, a]) => ({ ci, val: a.val })).sort((a, b) => b.val - a.val)
+    const tot = modelo.tot.val || 1
+    let acc = 0; let nA = 0
+    for (const c of cliVals) { if (acc / tot < 0.8) { nA++; acc += c.val } }
+    if (nA) riscos.push(`Concentração: ${nA} clientes = ${nf({ maximumFractionDigits: 1 }).format(100 * acc / tot)}% do faturamento`)
+    const inat = modelo.linM.get('INATIVOS')
+    if (inat && inat.val > 0) riscos.push(`Vendas de produtos inativos: ${brl0(inat.val)}`)
+    const melhor = [...modelo.venM].filter(([, a]) => a.exp > 0).map(([vi, a]) => ({ vi, idx: 100 * a.valP / a.exp }))
+      .sort((a, b) => b.idx - a.idx)[0]
+    if (melhor) oport.push(`Melhor preço médio: ${nomeVen(melhor.vi)} (índice ${nf({ maximumFractionDigits: 0 }).format(melhor.idx)})`)
+    const topLinha = [...modelo.linM].sort((a, b) => b[1].val - a[1].val)[0]
+    if (topLinha) oport.push(`Linha que mais fatura: ${topLinha[0]} (${nf({ maximumFractionDigits: 1 }).format(100 * topLinha[1].val / tot)}%)`)
+    const topDev = [...modelo.devProd].sort((a, b) => b[1] - a[1])[0]
+    if (topDev && topDev[1] > 0) acoes.push(`Cuidar das devoluções de ${topDev[0]}: ${brl0(topDev[1])}`)
+    const topCli = cliVals[0]
+    if (topCli) acoes.push(`Ligar para ${base.cli[topCli.ci]?.[0] ?? 'o maior cliente'} (maior cliente)`)
+    return { riscos, oport, acoes }
+  }, [modelo, base, descPct])
+
   const CORES_LINHA = ['#C8941A', '#3D2314', '#6B5D4F', '#9C8E80', '#E0B048', '#2f6f8f', '#3f7d4e']
+
+  // Aba Clientes (SPEC §2.3): segmentos RFM, Pareto, cross-sell, notas, grupos, carteira e tabela completa.
+  const clientesV7 = useMemo(() => base && modelo && estado && pg ? calcularClientesV7(base, modelo, estado, pg) : null, [base, modelo, estado, pg])
+  // Aba Cidades (SPEC §2.4).
+  const cidadesV7 = useMemo(() => base && modelo && estado && pg ? calcularCidadesV7(base, modelo, estado, pg) : null, [base, modelo, estado, pg])
 
   // Bloco 3 — aba Vendedores. Mesmas definições do placar v5 (motor-v5): ticket = faturamento ÷ notas;
   // R$/kg = preço da análise sem despojo; índice = faturamento ÷ valor esperado ao preço médio da empresa;
@@ -208,9 +311,12 @@ export default function MeuPainelV6() {
         </div>
         {per === 'custom' && (
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+            <AjudaCampo chave="com.painel.periodo" rota={ROTA} />
             <input type="date" aria-label="De" value={deC} onChange={(e) => setDeC(e.target.value)} style={selStyle} />
+            <AjudaCampo chave="com.painel.datas" rota={ROTA} />
             <span style={{ color: C.m, fontSize: 13 }}>até</span>
             <input type="date" aria-label="Até" value={ateC} onChange={(e) => setAteC(e.target.value)} style={selStyle} />
+            <AjudaCampo chave="com.painel.datas" rota={ROTA} />
           </div>
         )}
       </div>
@@ -242,7 +348,7 @@ export default function MeuPainelV6() {
         ))}
       </nav>
 
-      {aba !== 'geral' && aba !== 'vendedores' && (
+      {aba !== 'geral' && aba !== 'vendedores' && aba !== 'clientes' && aba !== 'cidades' && (
         <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16, color: C.m, fontSize: 14 }}>
           <b style={{ color: C.esp }}>{ABAS.find((a) => a.k === aba)?.rot}</b> — esta aba entra no próximo bloco do painel. O período e os filtros acima já valem para ela.
         </div>
@@ -254,46 +360,64 @@ export default function MeuPainelV6() {
       {r && modelo && (
         <>
           <p style={{ fontSize: 16, lineHeight: 1.5, margin: '0 0 16px' }}>
-            Faturou <b>{brl0(r.totalValor)}</b> em <b>{ton(modelo.tot.kg)}</b>, para <b>{int(r.clientes)} clientes</b>. Sem o despojo, o quilo sai a <b>{brl2(r.precoPorKg)}</b>.
+            Faturou <b>{brl0(r.totalValor)}</b> em <b>{ton(modelo.tot.kg)}</b>, para <b>{int(r.clientes)} clientes</b>. Sem o despojo, o quilo sai a <b>{brl2(r.precoPorKg)}</b>. <b>{nf({ maximumFractionDigits: 1 }).format(itensAbaixoPct)}%</b> dos itens saíram abaixo do preço de tabela, somando <b>{brl0(descR)}</b> de desconto.
           </p>
 
+          {/* 8 cards KPI (SPEC §2.1) */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 16 }}>
             <Cartao rot="Faturamento" chave="com.painel.faturado" valor={brl0(r.totalValor)} />
             <Cartao rot="Volume na análise" chave="com.painel.volume" valor={ton(modelo.tot.kgP)} />
             <Cartao rot="Preço médio" chave="com.painel.preco" valor={brl2(r.precoPorKg)} sub="R$/kg sem despojo" />
             <Cartao rot="Ticket por nota" chave="com.painel.ticket" valor={brl0(ticketNota)} sub={`${int(notas)} notas`} />
+            <Cartao rot="Desconto na tabela" chave="com.painel.desconto" valor={`${nf({ maximumFractionDigits: 2 }).format(descPct)}%`} sub={brl0(descR)} />
+            <Cartao rot="Devoluções" chave="com.painel.devolucao" valor={`${nf({ maximumFractionDigits: 2 }).format(devPct)}%`} sub={brl0(devR)} />
+            <Cartao rot="Clientes que compraram" chave="com.painel.clientes" valor={int(r.clientes)} />
+            <Cartao rot="Prazo médio" chave="com.painel.visao" valor={prazo == null ? '—' : `${nf({ maximumFractionDigits: 1 }).format(prazo)} dias`} sub="ponderado pelo valor" />
           </div>
 
-          <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: C.m, marginBottom: 8 }}>Faturamento por dia</div>
-            <div style={{ width: '100%', height: 240 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={serie} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                  <CartesianGrid vertical={false} stroke={C.bd} />
-                  <XAxis dataKey="rot" tick={{ fontSize: 11, fill: C.m }} interval="preserveStartEnd" />
-                  <YAxis tickFormatter={(v: number) => brl0(v)} tick={{ fontSize: 11, fill: C.m }} width={84} />
-                  <Tooltip formatter={(v) => brl0(Number(v))} labelFormatter={(_, p) => dataBR(String(p?.[0]?.payload?.dia ?? ''))} />
-                  <Bar dataKey="val" fill={C.gold} radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+          {/* Diagnóstico do período (SPEC §2.1): painel escuro, 3 colunas */}
+          <div style={{ background: C.esp, color: C.off, borderRadius: 12, padding: 16, marginBottom: 16 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 4, color: C.gold2 }}>Diagnóstico do período<AjudaCampo chave="com.painel.visao" rota={ROTA} /></div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+              {([['⚠️ Riscos', diagnostico.riscos], ['💡 Oportunidades', diagnostico.oport], ['✅ Ações', diagnostico.acoes]] as [string, string[]][]).map(([titulo, itens]) => (
+                <div key={titulo}>
+                  <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6, color: C.gold2 }}>{titulo}</div>
+                  {itens.length ? (
+                    <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, lineHeight: 1.5 }}>
+                      {itens.map((t, i) => <li key={i}>{t}</li>)}
+                    </ul>
+                  ) : <div style={{ fontSize: 13, opacity: 0.8 }}>Nada fora do normal neste período.</div>}
+                </div>
+              ))}
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12, marginTop: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
+            {/* Do que vive a Frioeste: donut com alternância faturamento/volume */}
             <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: C.m, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>Do que vive a Frioeste<AjudaCampo chave="com.painel.produtos" rota={ROTA} /></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: C.m, display: 'flex', alignItems: 'center', gap: 4 }}>Do que vive a Frioeste<AjudaCampo chave="com.painel.produtos" rota={ROTA} /></div>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {(['val', 'kg'] as const).map((m) => (
+                    <button key={m} type="button" onClick={() => setDonutMetrica(m)} aria-pressed={donutMetrica === m}
+                      style={{ padding: '4px 10px', minHeight: 32, borderRadius: 999, fontSize: 12, cursor: 'pointer', border: `1px solid ${donutMetrica === m ? C.gold : C.bd}`, background: donutMetrica === m ? C.gold : '#fff', color: donutMetrica === m ? '#fff' : C.esp }}>
+                      {m === 'val' ? 'Faturamento' : 'Volume'}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div style={{ width: '100%', height: 200 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={linhas} dataKey="val" nameKey="nome" innerRadius={55} outerRadius={85} paddingAngle={2}>
-                      {linhas.map((l, i) => <Cell key={l.nome} fill={CORES_LINHA[i % CORES_LINHA.length]} />)}
+                    <Pie data={linhasTab} dataKey={donutMetrica === 'val' ? 'val' : 'kg'} nameKey="nome" innerRadius={55} outerRadius={85} paddingAngle={2}>
+                      {linhasTab.map((l, i) => <Cell key={l.nome} fill={CORES_LINHA[i % CORES_LINHA.length]} />)}
                     </Pie>
-                    <Tooltip formatter={(v) => brl0(Number(v))} />
+                    <Tooltip formatter={(v) => donutMetrica === 'val' ? brl0(Number(v)) : `${int(Number(v))} kg`} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
               <ul style={{ listStyle: 'none', padding: 0, margin: '8px 0 0', fontSize: 13 }}>
-                {linhas.map((l, i) => (
+                {linhasTab.map((l, i) => (
                   <li key={l.nome} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '3px 0' }}>
                     <span><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: CORES_LINHA[i % CORES_LINHA.length], marginRight: 6 }} />{l.nome}</span>
                     <span style={{ color: C.m }}>{brl0(l.val)} · {nf({ maximumFractionDigits: 1 }).format(l.part)}%</span>
@@ -302,6 +426,7 @@ export default function MeuPainelV6() {
               </ul>
             </div>
 
+            {/* Ritmo da semana */}
             <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16 }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: C.m, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>Ritmo da semana<AjudaCampo chave="com.painel.meses" rota={ROTA} /></div>
               <div style={{ width: '100%', height: 200 }}>
@@ -317,45 +442,113 @@ export default function MeuPainelV6() {
               </div>
             </div>
 
+            {/* Para onde vai o mês: realizado × projetado */}
             <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16 }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: C.m, display: 'flex', alignItems: 'center', gap: 4 }}>Para onde vai o mês<AjudaCampo chave="com.painel.meses" rota={ROTA} /></div>
-              <div style={{ fontSize: 26, fontWeight: 700, marginTop: 6 }}>{brl0(projecaoMes)}</div>
+              <div style={{ width: '100%', height: 170, marginTop: 6 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={[{ rot: 'Realizado', val: r.totalValor }, { rot: 'Projetado', val: projecaoMes ?? 0 }]} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                    <XAxis dataKey="rot" tick={{ fontSize: 12, fill: C.m }} />
+                    <YAxis tickFormatter={(v: number) => brl0(v)} tick={{ fontSize: 11, fill: C.m }} width={84} />
+                    <Tooltip formatter={(v) => brl0(Number(v))} />
+                    <Bar dataKey="val" radius={[4, 4, 0, 0]}>
+                      <Cell fill={C.esp} />
+                      <Cell fill={C.gold} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
               <div style={{ fontSize: 13, color: C.m, marginTop: 4 }}>
-                Estimativa no ritmo do período: {brl0(mediaDia)} por dia com venda × 30 dias.
+                Estimativa no ritmo do período: {brl0(mediaDia)} por dia com venda × 30 dias. Não é previsão contábil.
               </div>
             </div>
 
+            {/* Preço médio do kg: linha temporal */}
             <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: C.m, display: 'flex', alignItems: 'center', gap: 4 }}>Preço médio do kg<AjudaCampo chave="com.painel.rpkg" rota={ROTA} /></div>
-              <div style={{ fontSize: 26, fontWeight: 700, marginTop: 6 }}>{brl2(r.precoPorKg)}</div>
-              <div style={{ fontSize: 13, color: C.m, marginTop: 4 }}>Sem despojo: carne e miúdo. Fora da conta: inativos e subprodutos bovinos.</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: C.m, display: 'flex', alignItems: 'center', gap: 4 }}>Preço médio do kg<AjudaCampo chave="com.painel.rpkg" rota={ROTA} /></div>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {(['dia', 'semana'] as const).map((e) => (
+                    <button key={e} type="button" onClick={() => setEscalaPreco(e)} aria-pressed={escalaPreco === e}
+                      style={{ padding: '4px 10px', minHeight: 32, borderRadius: 999, fontSize: 12, cursor: 'pointer', border: `1px solid ${escalaPreco === e ? C.gold : C.bd}`, background: escalaPreco === e ? C.gold : '#fff', color: escalaPreco === e ? '#fff' : C.esp }}>
+                      {e === 'dia' ? 'Por dia' : 'Por semana'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div style={{ width: '100%', height: 200 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={precoSerie} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                    <CartesianGrid vertical={false} stroke={C.bd} />
+                    <XAxis dataKey="rot" tick={{ fontSize: 11, fill: C.m }} interval="preserveStartEnd" />
+                    <YAxis domain={['auto', 'auto']} tickFormatter={(v: number) => brl2(v)} tick={{ fontSize: 11, fill: C.m }} width={70} />
+                    <Tooltip formatter={(v) => brl2(Number(v))} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Line type="monotone" dataKey="t" name="Toda a análise" stroke={C.esp} dot={false} connectNulls />
+                    <Line type="monotone" dataKey="g0" name="Desossados" stroke={C.gold} dot={false} connectNulls />
+                    <Line type="monotone" dataKey="g1" name="Com osso" stroke={C.verde} dot={false} connectNulls />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
             </div>
           </div>
 
+          {/* Faturamento por dia */}
+          <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16, marginTop: 12 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: C.m, marginBottom: 8 }}>Faturamento por dia</div>
+            <div style={{ width: '100%', height: 240 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={serie} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid vertical={false} stroke={C.bd} />
+                  <XAxis dataKey="rot" tick={{ fontSize: 11, fill: C.m }} interval="preserveStartEnd" />
+                  <YAxis tickFormatter={(v: number) => brl0(v)} tick={{ fontSize: 11, fill: C.m }} width={84} />
+                  <Tooltip formatter={(v) => brl0(Number(v))} labelFormatter={(_, p) => dataBR(String(p?.[0]?.payload?.dia ?? ''))} />
+                  <Bar dataKey="val" fill={C.gold} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* As linhas de produto: tabela ordenável, todas as linhas */}
           <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16, marginTop: 12, overflowX: 'auto' }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: C.m, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>As linhas de produto<AjudaCampo chave="com.painel.produtos" rota={ROTA} /></div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14, minWidth: 620 }}>
               <thead>
                 <tr style={{ color: C.m, textAlign: 'left' }}>
-                  <th style={{ padding: '6px 4px' }}>Linha</th>
-                  <th style={{ padding: '6px 4px', textAlign: 'right' }}>Faturamento</th>
-                  <th style={{ padding: '6px 4px', textAlign: 'right' }}>Part.</th>
-                  <th style={{ padding: '6px 4px', textAlign: 'right' }}>R$/kg</th>
+                  {([['Linha', null], ['Faturamento', 'val'], ['Part.', 'part'], ['Volume', 'kg'], ['R$/kg', 'rpkg'], ['Desconto', 'desc'], ['Clientes', 'cli']] as [string, 'val' | 'part' | 'kg' | 'rpkg' | 'desc' | 'cli' | null][]).map(([rot, k]) => (
+                    <th key={rot} style={{ padding: '6px 4px', textAlign: k || rot === 'Linha' ? (rot === 'Linha' ? 'left' : 'right') : 'left' }}>
+                      {k ? (
+                        <button type="button" onClick={() => setOrdLin((o) => ({ k, dir: o.k === k ? (o.dir === 1 ? -1 : 1) : -1 }))}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.m, fontWeight: 600, fontSize: 14, padding: 0 }}>
+                          {rot}{ordLin.k === k ? (ordLin.dir === -1 ? ' ↓' : ' ↑') : ''}
+                        </button>
+                      ) : rot}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {linhas.map((l) => (
+                {linhasTab.map((l) => (
                   <tr key={l.nome} style={{ borderTop: `1px solid ${C.bd}` }}>
                     <td style={{ padding: '6px 4px' }}>{l.nome}</td>
-                    <td style={{ padding: '6px 4px', textAlign: 'right' }}>{brl0(l.val)}</td>
+                    <td style={{ padding: '6px 4px', textAlign: 'right' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+                        <span style={{ display: 'inline-block', width: 80, height: 8, background: C.bg2, borderRadius: 4, overflow: 'hidden' }}>
+                          <span style={{ display: 'block', height: 8, width: `${Math.min(100, l.part)}%`, background: C.gold }} />
+                        </span>
+                        {brl0(l.val)}
+                      </div>
+                    </td>
                     <td style={{ padding: '6px 4px', textAlign: 'right' }}>{nf({ maximumFractionDigits: 1 }).format(l.part)}%</td>
+                    <td style={{ padding: '6px 4px', textAlign: 'right' }}>{ton(l.kg)}</td>
                     <td style={{ padding: '6px 4px', textAlign: 'right' }}>{brl2(l.rpkg)}</td>
+                    <td style={{ padding: '6px 4px', textAlign: 'right' }}>{nf({ maximumFractionDigits: 2 }).format(l.desc)}%</td>
+                    <td style={{ padding: '6px 4px', textAlign: 'right' }}>{int(l.cli)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-
         </>
       )}
       </>)}
@@ -450,6 +643,13 @@ export default function MeuPainelV6() {
             </table>
           </div>
       </>)}
+
+      {aba === 'clientes' && base && modelo && clientesV7 && (
+        <AbaClientes clientes={clientesV7} base={base} modelo={modelo} />
+      )}
+      {aba === 'cidades' && base && modelo && cidadesV7 && (
+        <AbaCidades cidades={cidadesV7} base={base} modelo={modelo} />
+      )}
 
       <div style={{ marginTop: 16, fontSize: 12, color: C.d }}>
         <AjudaCampo chave="com.painel.faturado" rota={ROTA} /> Esta é a versão nova do painel. O painel atual continua disponível.
