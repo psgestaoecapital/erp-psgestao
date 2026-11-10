@@ -1,8 +1,12 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { PSGC_COLORS } from '@/lib/psgc-tokens'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
+
+const ROTA_AJUDA = '/dashboard/bpo/supervisor'
 
 // Paleta local: usa PSGC_COLORS como fonte de verdade.
 // Mantemos referencias curtas pra preservar legibilidade do codigo original.
@@ -112,10 +116,33 @@ export default function BPOSupervisorPage() {
             marginTop: 4,
             opacity: 0.9,
           }}>
-            {empresas.length} empresas - {operadores.length} operadores
+            {loading ? 'Carregando…' : `${empresas.length} empresas · ${operadores.length} operadores`}
           </div>
         </div>
 
+        {/* ESTADO VAZIO: nada configurado ainda (criterios a/c/d) — orienta e oferece o botao que resolve */}
+        {!loading && empresas.length === 0 && operadores.length === 0 ? (
+          <div style={{
+            background: C.card,
+            borderRadius: 12,
+            padding: '48px 32px',
+            border: `1px solid ${C.border}`,
+            textAlign: 'center',
+          }}>
+            <div style={{ color: C.txt, fontSize: 18, fontWeight: 700, marginBottom: 6 }}>
+              Nenhuma empresa sob supervisão ainda
+            </div>
+            <div style={{ color: C.txtMedio, fontSize: 14, maxWidth: 520, margin: '0 auto 20px' }}>
+              O painel mostra a carga de trabalho por empresa e por operador. Comece adicionando as empresas da
+              carteira e atribuindo um operador a cada uma — os indicadores passam a aparecer automaticamente.
+            </div>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+              <Link href="/dashboard/bpo/empresas" style={ctaPrimario}>+ Adicionar empresas</Link>
+              <Link href="/dashboard/bpo/atribuicao" style={ctaSecundario}>Atribuir operador</Link>
+            </div>
+          </div>
+        ) : (
+        <>
         {/* 6 BIG KPIs */}
         <div style={{
           display: 'grid',
@@ -123,12 +150,12 @@ export default function BPOSupervisorPage() {
           gap: 12,
           marginBottom: 24,
         }}>
-          {BigKpi('Pendentes Total', totals.total, C.txt)}
-          {BigKpi('Atrasados', totals.atrasados, C.atrasado)}
-          {BigKpi('Urgentes', totals.urgentes, C.urgente)}
-          {BigKpi('Hoje', totals.hoje, C.hoje)}
-          {BigKpi('Sem Operador', totals.sem_op, C.atrasado)}
-          {BigKpi('Concluidos Hoje', totals.concluidos, C.ok)}
+          {BigKpi('Pendentes Total', totals.total, C.txt, 'bpo.supervisor.kpi.pendentes')}
+          {BigKpi('Atrasados', totals.atrasados, C.atrasado, 'bpo.supervisor.kpi.atrasados')}
+          {BigKpi('Urgentes', totals.urgentes, C.urgente, 'bpo.supervisor.kpi.urgentes')}
+          {BigKpi('Hoje', totals.hoje, C.hoje, 'bpo.supervisor.kpi.hoje')}
+          {BigKpi('Sem Operador', totals.sem_op, C.atrasado, 'bpo.supervisor.kpi.sem_operador')}
+          {BigKpi('Concluidos Hoje', totals.concluidos, C.ok, 'bpo.supervisor.kpi.concluidos')}
         </div>
 
         {/* TABELA EMPRESAS */}
@@ -147,12 +174,19 @@ export default function BPOSupervisorPage() {
             textTransform: 'uppercase',
             marginTop: 0,
             marginBottom: 16,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
           }}>
-            Visao por Empresa
+            Visao por Empresa<AjudaCampo chave="bpo.supervisor.tabela" rota={ROTA_AJUDA} />
           </h3>
           {loading ? (
             <div style={{ textAlign: 'center', color: C.txtClaro, padding: 40 }}>
               Carregando...
+            </div>
+          ) : empresas.length === 0 ? (
+            <div style={{ textAlign: 'center', color: C.txtMedio, padding: 32, fontSize: 14 }}>
+              Nenhuma empresa com movimento. <Link href="/dashboard/bpo/empresas" style={{ color: C.dourado, fontWeight: 600 }}>Adicionar empresas</Link> para preencher o painel.
             </div>
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -204,8 +238,11 @@ export default function BPOSupervisorPage() {
               letterSpacing: 2,
               textTransform: 'uppercase',
               marginBottom: 16,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
             }}>
-              Carga por Operador
+              Carga por Operador<AjudaCampo chave="bpo.supervisor.operadores" rota={ROTA_AJUDA} />
             </h3>
             <div style={{
               display: 'grid',
@@ -236,11 +273,13 @@ export default function BPOSupervisorPage() {
             </div>
           </div>
         )}
+        </>
+        )}
       </div>
     </div>
   )
 
-  function BigKpi(label: string, valor: number, cor: string) {
+  function BigKpi(label: string, valor: number, cor: string, chave: string) {
     return (
       <div key={label} style={{
         background: C.offwhite,
@@ -256,8 +295,11 @@ export default function BPOSupervisorPage() {
           letterSpacing: 0.8,
           textTransform: 'uppercase',
           marginBottom: 6,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 3,
         }}>
-          {label}
+          {label}<AjudaCampo chave={chave} rota={ROTA_AJUDA} />
         </div>
         <div style={{
           color: cor,
@@ -324,4 +366,25 @@ const tdStyleRight: React.CSSProperties = {
   ...tdStyle,
   textAlign: 'right',
   fontVariantNumeric: 'tabular-nums',
+}
+
+const ctaPrimario: React.CSSProperties = {
+  padding: '11px 20px',
+  borderRadius: 8,
+  background: PSGC_COLORS.dourado,
+  color: 'white',
+  fontSize: 14,
+  fontWeight: 600,
+  textDecoration: 'none',
+}
+
+const ctaSecundario: React.CSSProperties = {
+  padding: '11px 20px',
+  borderRadius: 8,
+  background: 'white',
+  color: PSGC_COLORS.espresso,
+  border: `1px solid ${PSGC_COLORS.offWhiteDarker}`,
+  fontSize: 14,
+  fontWeight: 600,
+  textDecoration: 'none',
 }
