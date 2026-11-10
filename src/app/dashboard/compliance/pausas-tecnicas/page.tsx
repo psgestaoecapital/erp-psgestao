@@ -19,7 +19,7 @@ import { cpfValido } from '@/lib/documentos/cpf'
 import { marcasDasPausas, parearMarcas, validarMarcas, normalizarHora, sugerirPapeis, diaSuspeito, type Marca, type PapelMarca, type LinhaPausaDia, type PausaRelida } from '@/lib/ponto/pausasMarcas'
 import { ORIGENS_AJUSTE, ajusteDe, rotuloAjuste, rotuloOrigemAjuste, pendenciasDaPrevia, textoPendencia, linhaPausaDoc, notaDiaDoc, type AjusteDia, type OrigemAjuste, type PausaDoc } from '@/lib/ponto/ajusteBatida'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
-import { Timer, Snowflake, ClipboardList, ClipboardCheck, FileText, AlertTriangle, Save, Upload, History, Download, RefreshCw, ShieldAlert, CheckCircle2, Users, Copy, Printer, BarChart3, FileSignature, Paperclip, X } from 'lucide-react'
+import { Timer, Snowflake, ClipboardList, ClipboardCheck, FileText, AlertTriangle, Save, Upload, History, Download, RefreshCw, ShieldAlert, CheckCircle2, Users, Copy, Printer, BarChart3, FileSignature, Paperclip, X, Search } from 'lucide-react'
 
 const C = {
   espresso: '#3D2314', offwhite: '#FAF7F2', gold: '#C8941A', beigeLt: '#f5f0e8', borderLt: '#ece3d2',
@@ -1205,8 +1205,23 @@ async function parseArquivo(file: File): Promise<{ linhas: LinhaImport[]; descar
 // confirma. Dois níveis VISUALMENTE distintos: batida do ponto (forte) × estimativa (fraca).
 // Lote com prévia + dupla confirmação acima de N; desfazer por período (caminho de volta).
 type PendenteRow = { pausa_id: string; cpf: string; colaborador: string; data: string; classe_evento: string; inicio_local: string; fim_sugerido_local: string; fim_sugerido_tipo: string; batida_local: string | null; sem_saida?: boolean }
+// #3843 (Karol · reaberto 04/11) · tipos de item que a responsável resolve na conferência — AGORA numa lista só,
+// por colaborador, para ela não precisar olhar duas listas soltas nem "descobrir" pendência ao auditar o mês.
+type ItemConf =
+  | { key: string; cpf: string; colaborador: string; data: string; grupo: 'batida'; marcasIniciais: Marca[]; comoVeio: string; sugestao: string; faltando: string }
+  | { key: string; cpf: string; colaborador: string; data: string; grupo: 'batida_ajuste'; pendencia: string }
+  | { key: string; cpf: string; colaborador: string; data: string; grupo: 'sem_saida'; row: PendenteRow }
+  | { key: string; cpf: string; colaborador: string; data: string; grupo: 'fim'; row: PendenteRow; forte: boolean }
+
 function AbaConferencia({ companyId }: { companyId: string }) {
+  // #3843 · a conferência é feita MÊS A MÊS; a auditoria de batidas roda SOZINHA no mês escolhido (antes era um botão
+  // "Auditar o mês" à parte — por isso pendências "apareciam" só depois que alguém clicava). Default: mês atual.
+  const [mes, setMes] = useState(mesAtual())
+  // #3843 (segurancadotrabalho@frioeste · 04/11) · filtrar a conferência por colaborador
+  const [filtro, setFiltro] = useState('')
   const [rows, setRows] = useState<PendenteRow[]>([])
+  const [diasAudit, setDiasAudit] = useState<DiaAuditoria[]>([])
+  const [ajustadosPend, setAjustadosPend] = useState<DiaAjustado[]>([])
   const [carregando, setCarregando] = useState(false)
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState(''); const [okMsg, setOkMsg] = useState('')
@@ -1216,15 +1231,57 @@ function AbaConferencia({ companyId }: { companyId: string }) {
   const carregar = useCallback(async () => {
     setCarregando(true); setErro(''); setOkMsg('')
     try {
-      const { data, error } = await supabase.rpc('fn_nr36_pausas_pendentes_listar', { p_company_id: companyId, p_limite: 2000 })
-      if (error) throw error
-      setRows((data as PendenteRow[] | null) ?? [])
-    } catch (e) { setErro((e as Error).message) } finally { setCarregando(false) }
-  }, [companyId])
+      const [ay, am] = mes.split('-').map(Number)
+      const ini = `${mes}-01`, fim = `${mes}-${String(new Date(ay, am, 0).getDate()).padStart(2, '0')}`
+      // #3843 · as duas fontes da conferência carregam JUNTAS: pausas sem hora de saída + dias com batida faltando (do mês).
+      // Uma chamada cada (nunca por linha), para não repetir o incidente 03/10 de função pesada em loop.
+      const [pend, aud] = await Promise.all([
+        supabase.rpc('fn_nr36_pausas_pendentes_listar', { p_company_id: companyId, p_limite: 2000 }),
+        supabase.rpc('fn_nr36_auditoria_batidas_dias', { p_company_id: companyId, p_ini: ini, p_fim: fim }),
+      ])
+      if (pend.error) throw pend.error
+      setRows((pend.data as PendenteRow[] | null) ?? [])
+      // a auditoria de batidas é um APOIO: se ela falhar, a lista de pausas pendentes não pode cair junto.
+      if (aud.error) { setDiasAudit([]); setAjustadosPend([]); console.warn('auditoria de batidas falhou', aud.error) }
+      else {
+        const ar = aud.data as { ok?: boolean; dias?: DiaAuditoria[]; ajustados?: DiaAjustado[] } | null
+        if (ar && ar.ok === false) { setDiasAudit([]); setAjustadosPend([]) }
+        else {
+          setDiasAudit((ar?.dias || []).filter(d => diaSuspeito(d.linhas)))
+          setAjustadosPend((ar?.ajustados || []).filter(a => a.pendencias.length > 0))
+        }
+      }
+    } catch (e) {
+      console.warn('conferência: carregar', e)
+      setErro('Não foi possível carregar a conferência do mês. Toque em Atualizar; se continuar, avise o suporte.')
+    } finally { setCarregando(false) }
+  }, [companyId, mes])
   useEffect(() => { void carregar() }, [carregar])
 
-  const fortes = useMemo(() => rows.filter(r => r.fim_sugerido_tipo === 'batida_forte'), [rows])
-  const fracas = useMemo(() => rows.filter(r => r.fim_sugerido_tipo === 'inferencia_fraca'), [rows])
+  const fortes = useMemo(() => rows.filter(r => !r.sem_saida && r.fim_sugerido_tipo === 'batida_forte'), [rows])
+  const fracas = useMemo(() => rows.filter(r => !r.sem_saida && r.fim_sugerido_tipo === 'inferencia_fraca'), [rows])
+
+  // #3843 · UMA lista só, ordenada por colaborador: dias com batida faltando (a revisar / a digitar o horário) +
+  // pausas sem hora de saída + fins a confirmar. Cada item guarda o seu tipo e a sua ação — nada de duas tabelas soltas.
+  const itens = useMemo<ItemConf[]>(() => {
+    const txt = (ps: PausaRelida[]) => ps.map(p => p.situacao === 'fechada' ? `${p.inicio}–${p.fim} (${p.minutos} min)` : p.situacao === 'sem_retorno' ? `${p.inicio}–?` : `?–${p.fim}`).join(' · ')
+    const out: ItemConf[] = []
+    for (const d of diasAudit) {
+      const marcas = marcasDasPausas(d.linhas); const s = sugerirPapeis(marcas)
+      out.push({ key: `b:${d.cpf}:${d.data}`, cpf: d.cpf, colaborador: d.colaborador, data: d.data, grupo: 'batida', marcasIniciais: s.marcas, comoVeio: txt(parearMarcas(marcas)), sugestao: txt(s.pausas), faltando: s.faltando.join(', ') || '—' })
+    }
+    for (const a of ajustadosPend) {
+      out.push({ key: `ba:${a.cpf}:${a.data}`, cpf: a.cpf, colaborador: a.colaborador, data: a.data, grupo: 'batida_ajuste', pendencia: a.pendencias.map(textoPendencia).join('; ') })
+    }
+    for (const r of rows) {
+      if (r.sem_saida) out.push({ key: `s:${r.pausa_id}`, cpf: r.cpf, colaborador: r.colaborador, data: r.data, grupo: 'sem_saida', row: r })
+      else out.push({ key: `f:${r.pausa_id}`, cpf: r.cpf, colaborador: r.colaborador, data: r.data, grupo: 'fim', row: r, forte: r.fim_sugerido_tipo === 'batida_forte' })
+    }
+    const q = filtro.trim().toLowerCase()
+    return out
+      .filter(i => !q || i.colaborador.toLowerCase().includes(q))
+      .sort((x, y) => x.colaborador.localeCompare(y.colaborador) || x.data.localeCompare(y.data) || x.grupo.localeCompare(y.grupo))
+  }, [diasAudit, ajustadosPend, rows, filtro])
 
   // #2119/#4032 (Karol) · confirmar/corrigir/desfazer NÃO reapurava — o fn_nr36_confirmar_fim_pausa só grava
   // fim_confirmado em ind_ponto_pausa e retorna. Como o Painel (fn_nr36_apuracao_listar) e a Supervisão
@@ -1289,15 +1346,19 @@ function AbaConferencia({ companyId }: { companyId: string }) {
   const btn = (bg: string): React.CSSProperties => ({ display: 'inline-flex', alignItems: 'center', gap: 5, border: 'none', borderRadius: 8, padding: '7px 12px', fontSize: 12.5, fontWeight: 700, cursor: busy ? 'wait' : 'pointer', background: bg, color: '#fff', opacity: busy ? 0.6 : 1 })
   const btnGhost: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4, border: `1px solid ${C.borderLt}`, borderRadius: 7, padding: '4px 8px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', background: '#fff', color: C.espresso }
 
+  const corGrupo = (g: ItemConf['grupo'], forte?: boolean) => g === 'fim' && forte ? C.green : C.amber
+  const rotuloGrupo = (g: ItemConf['grupo']) => g === 'batida' || g === 'batida_ajuste' ? 'Batida faltando' : g === 'sem_saida' ? 'Sem hora de saída' : 'Fim a confirmar'
+  const pill = (cor: string, bg: string): React.CSSProperties => ({ fontSize: 10.5, fontWeight: 700, color: cor, background: bg, padding: '2px 8px', borderRadius: 20, whiteSpace: 'nowrap' })
+
   return (
     <div>
       <div style={{ marginBottom: 12 }}>
         <div style={secTitle()}>Conferência do mês</div>
-        {/* #3843 (Karol) · a responsável via duas listas soltas — "revisar" (batida faltando) e "confirmar/correção"
-            (pausa sem saída) — e ao auditar o período apareciam horários/pendências que não estavam antes. As duas têm a
-            mesma finalidade (deixar o mês conferido antes de fechar), então agora ficam JUNTAS, numa ordem só: primeiro os
-            dias com batida faltando, depois as pausas sem hora de saída. Só a apresentação muda — o cálculo do dia é o mesmo. */}
-        <div style={{ fontSize: 13, color: C.gray }}>Dois tipos de item para resolver antes de fechar o mês, na mesma ordem em que aparecem abaixo: <b>1 · dias com batida faltando</b> (revisar o horário que ficou trocado) e <b>2 · pausas sem hora de saída</b> (confirmar ou corrigir o fim). O sistema <b>sugere</b> pela batida do ponto; <b>você confirma</b>, e cada horário guarda a origem — ponto ou estimativa.</div>
+        {/* #3843 (Karol · reaberto 04/11) · antes a responsável via DUAS listas soltas — "revisar" (batida faltando) e
+            "confirmar/corrigir" (pausa sem saída) — e a de batida só aparecia depois de clicar "Auditar o mês", então
+            pendências "surgiam" ao auditar o período. Agora é UMA lista só, por colaborador, com a auditoria rodando
+            sozinha no mês escolhido e um filtro por nome. Só a apresentação muda — o cálculo do dia é o mesmo. */}
+        <div style={{ fontSize: 13, color: C.gray }}>Tudo o que falta resolver antes de fechar o mês, numa lista só por colaborador: <b>dias com batida faltando</b> (revisar o horário trocado), <b>pausas sem hora de saída</b> e <b>fins a confirmar</b>. O sistema <b>sugere</b> pela batida do ponto; <b>você confirma</b>, e cada horário guarda a origem — ponto ou estimativa.</div>
         {/* #256 · quando falta uma batida, os pares do relatório deslizam (retorno lido como saída) */}
         <div style={{ fontSize: 12.5, color: C.espresso, marginTop: 6 }}>Pausa de 1h ou mais, com intervalos de ~20 min entre elas? Provavelmente faltou uma batida e os horários ficaram trocados. Use <b>Saída/retorno</b> na linha para dizer o que cada horário do dia é.</div>
       </div>
@@ -1305,66 +1366,71 @@ function AbaConferencia({ companyId }: { companyId: string }) {
       {erro && <div style={{ background: C.redBg, color: C.red, borderRadius: 8, padding: '9px 12px', fontSize: 12.5, marginBottom: 10 }}>{erro}</div>}
       {okMsg && <div style={{ background: C.greenBg, color: C.green, borderRadius: 8, padding: '9px 12px', fontSize: 12.5, marginBottom: 10 }}><CheckCircle2 size={13} style={{ verticalAlign: 'middle', marginRight: 5 }} />{okMsg}</div>}
 
-      {/* #587 · auditoria de batidas: o sistema sugere, a responsável confirma com justificativa */}
-      {/* #3843 · passo 1 do fluxo único de conferência (antes era uma lista solta no topo) */}
-      <div style={subTituloConf}>1 · Dias com batida faltando <span style={subTituloConfLeve}>revisar o horário que ficou trocado</span></div>
-      <AuditoriaBatidas companyId={companyId} onRevisar={(d) => setEditor(d)} />
-
-      {/* #3843 · passo 2 do mesmo fluxo — antes vinha sem título, dando a impressão de ser outra tela */}
-      <div style={subTituloConf}>2 · Pausas sem hora de saída <span style={subTituloConfLeve}>confirmar ou corrigir o fim</span></div>
-      {/* Prévia + lote separado por confiabilidade */}
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', background: C.blueBg, border: `1px solid ${C.blue}22`, borderRadius: 12, padding: 12, marginBottom: 14 }}>
-        <div style={{ fontSize: 13, color: C.espresso, flex: '1 1 260px' }}>
-          <b>{rows.length}</b> pendente(s) · <b style={{ color: C.green }}>{fortes.length}</b> pela batida do ponto (forte) · <b style={{ color: C.amber }}>{fracas.length}</b> pela estimativa de 20&nbsp;min (fraca). Os dois grupos têm confiabilidade diferente — confirme os fortes e olhe os fracos com calma.
+      {/* #3843 · barra única: mês auditado + filtro por colaborador + lote por confiabilidade + desfazer/atualizar.
+          #587 · a auditoria de batidas (fn_nr36_auditoria_batidas_dias) agora roda embutida aqui pelo seletor de mês. */}
+      <div data-testid="auditoria-batidas" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', background: C.blueBg, border: `1px solid ${C.blue}22`, borderRadius: 12, padding: 12, marginBottom: 14 }}>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11.5, fontWeight: 600, color: C.gray }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>Mês da conferência <AjudaCampo chave="compliance.pausas.conferencia.mes" rota="/dashboard/compliance/pausas-tecnicas" /></span>
+          <input type="month" value={mes} onChange={e => setMes(e.target.value)} data-testid="conf-mes" style={{ ...inp(), padding: '6px 8px' }} />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11.5, fontWeight: 600, color: C.gray, flex: '1 1 200px' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>Filtrar por colaborador <AjudaCampo chave="compliance.pausas.conferencia.filtro_colaborador" rota="/dashboard/compliance/pausas-tecnicas" /></span>
+          <span style={{ position: 'relative', display: 'block' }}>
+            <Search size={14} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: C.gray }} />
+            <input value={filtro} onChange={e => setFiltro(e.target.value)} placeholder="nome do colaborador" data-testid="conf-filtro" style={{ ...inp(), padding: '6px 8px 6px 28px', width: '100%' }} />
+          </span>
+        </label>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button disabled={busy || fortes.length === 0} style={btn(C.green)} onClick={() => confirmarLote(fortes.map(r => r.pausa_id), 'confirmar_ponto', `${fortes.length} pela batida do ponto`)}><CheckCircle2 size={14} /> Confirmar os {fortes.length} pela batida</button>
+          <button disabled={busy || fracas.length === 0} style={btn(C.amber)} onClick={() => confirmarLote(fracas.map(r => r.pausa_id), 'confirmar_estimativa', `${fracas.length} pela estimativa`)}><AlertTriangle size={14} /> Confirmar os {fracas.length} pela estimativa</button>
+          <button disabled={busy} style={{ ...btnGhost, padding: '7px 12px' }} onClick={desfazerPeriodo}><History size={13} /> Desfazer por período</button>
+          <button disabled={carregando} style={{ ...btnGhost, padding: '7px 12px' }} onClick={carregar}><RefreshCw size={13} /> Atualizar</button>
         </div>
-        <button disabled={busy || fortes.length === 0} style={btn(C.green)} onClick={() => confirmarLote(fortes.map(r => r.pausa_id), 'confirmar_ponto', `${fortes.length} pela batida do ponto`)}><CheckCircle2 size={14} /> Confirmar os {fortes.length} pela batida</button>
-        <button disabled={busy || fracas.length === 0} style={btn(C.amber)} onClick={() => confirmarLote(fracas.map(r => r.pausa_id), 'confirmar_estimativa', `${fracas.length} pela estimativa`)}><AlertTriangle size={14} /> Confirmar os {fracas.length} pela estimativa</button>
-        <button disabled={busy} style={{ ...btnGhost, padding: '7px 12px' }} onClick={desfazerPeriodo}><History size={13} /> Desfazer por período</button>
-        <button disabled={carregando} style={{ ...btnGhost, padding: '7px 12px' }} onClick={carregar}><RefreshCw size={13} /> Atualizar</button>
+      </div>
+
+      {/* resumo: uma contagem só, com a quebra por tipo — para a responsável não "descobrir" pendência depois.
+          #587 · "ajustado(s) ainda com horário faltando" = dias já relidos que seguem na auditoria com pendência. */}
+      <div style={{ fontSize: 12.5, color: C.espresso, marginBottom: 10 }} data-testid="conf-resumo">
+        <b>{itens.length}</b> item(ns) a resolver{filtro.trim() ? ' (filtrado)' : ''} · <b style={{ color: C.amber }}>{diasAudit.length}</b> com batida faltando no mês · <b style={{ color: C.amber }} data-testid="auditoria-ajustados">{ajustadosPend.length}</b> ajustado(s) ainda com horário faltando · <b style={{ color: C.amber }}>{rows.filter(r => r.sem_saida).length}</b> sem hora de saída · <b style={{ color: C.green }}>{fortes.length}</b> fim pela batida · <b style={{ color: C.amber }}>{fracas.length}</b> fim pela estimativa
       </div>
 
       {carregando ? <div style={{ color: C.gray, padding: 24 }}>Carregando…</div>
-        : rows.length === 0 ? <Vazio titulo="Nenhuma pausa pendente" texto="Todas as pausas têm hora de saída registrada ou confirmada. Nada a conferir." />
+        : itens.length === 0 ? <Vazio titulo={filtro.trim() ? 'Nenhum item para este colaborador' : 'Nada a conferir neste mês'} texto={filtro.trim() ? 'Esse nome não tem pendência no mês selecionado. Limpe o filtro para ver todos.' : 'Todas as pausas têm hora de saída registrada ou confirmada e nenhuma batida está faltando no mês. Troque o mês para conferir outro período.'} />
         : (
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
             <thead><tr style={{ textAlign: 'left', color: C.gray, borderBottom: `1px solid ${C.borderLt}` }}>
-              <th style={{ padding: '7px 8px' }}>Colaborador</th><th style={{ padding: '7px 8px' }}>Dia</th><th style={{ padding: '7px 8px' }}>Início</th><th style={{ padding: '7px 8px' }}>Fim provável</th><th style={{ padding: '7px 8px' }}>Ações</th>
+              <th style={{ padding: '7px 8px' }}>Colaborador</th><th style={{ padding: '7px 8px' }}>Dia</th><th style={{ padding: '7px 8px' }}>O que resolver</th><th style={{ padding: '7px 8px' }}>Detalhe</th><th style={{ padding: '7px 8px' }}>Ações</th>
             </tr></thead>
             <tbody>
-              {rows.map(r => {
-                const forte = r.fim_sugerido_tipo === 'batida_forte'
-                return (
-                  <tr key={r.pausa_id} style={{ borderBottom: `1px solid ${C.beigeLt}` }}>
-                    <td style={{ padding: '8px', fontWeight: 600, color: C.espresso }}>{r.colaborador}</td>
-                    <td style={{ padding: '8px', color: C.gray }}>{r.data.split('-').reverse().join('/')}</td>
-                    {/* #93 · horário do início estava sem cor e herdava um tom claro do ambiente,
-                        ficando ilegível. Fixa no Espresso, igual aos demais dados da linha. */}
-                    <td style={{ padding: '8px', color: C.espresso, fontWeight: 600 }}>
-                      {r.sem_saida
-                        ? <span data-testid={`conf-sem-saida-${r.pausa_id}`}>retorno {r.inicio_local} <span style={{ fontSize: 10.5, fontWeight: 700, color: C.amber, background: C.amberBg, padding: '2px 7px', borderRadius: 20 }}>saída não registrada</span></span>
-                        : r.inicio_local}
-                    </td>
-                    <td style={{ padding: '8px' }}>
-                      {r.sem_saida ? <span style={{ fontSize: 12, color: C.gray }}>informe a saída em Saída/retorno</span> : <>
-                      <span style={{ fontWeight: 700, color: C.espresso }}>{r.fim_sugerido_local}</span>{' '}
-                      {forte
-                        ? <span style={{ fontSize: 10.5, fontWeight: 700, color: C.green, background: C.greenBg, padding: '2px 7px', borderRadius: 20 }}>batida do ponto {r.batida_local}</span>
-                        : <span style={{ fontSize: 10.5, fontWeight: 700, color: C.amber, background: C.amberBg, padding: '2px 7px', borderRadius: 20 }}>estimativa · o ponto não ajuda</span>}
-                      </>}
-                    </td>
-                    <td style={{ padding: '8px', whiteSpace: 'nowrap' }}>
-                      {!r.sem_saida && <>
-                      <button style={{ ...btnGhost, color: forte ? C.green : C.amber, borderColor: (forte ? C.green : C.amber) + '55', marginRight: 4 }} onClick={() => confirmarUm(r.pausa_id, forte ? 'confirmar_ponto' : 'confirmar_estimativa', undefined, r.data)}>Confirmar</button>
-                      <button style={{ ...btnGhost, marginRight: 4 }} onClick={() => corrigir(r.pausa_id, r.data)}>Corrigir</button>
-                      </>}
-                      <button style={{ ...btnGhost, marginRight: 4 }} data-testid={`conf-marcas-${r.pausa_id}`} title="Dizer se cada horário do dia é saída ou retorno da pausa"
-                        onClick={() => setEditor({ cpf: r.cpf, data: r.data, colaborador: r.colaborador })}>Saída/retorno</button>
-                      <button style={btnGhost} onClick={() => confirmarUm(r.pausa_id, 'indeterminado', undefined, r.data)}>Não sei</button>
-                    </td>
-                  </tr>
-                )
-              })}
+              {itens.map(it => (
+                <tr key={it.key} style={{ borderBottom: `1px solid ${C.beigeLt}` }} data-testid={`conf-item-${it.key}`}>
+                  <td style={{ padding: '8px', fontWeight: 600, color: C.espresso }}>{it.colaborador}</td>
+                  <td style={{ padding: '8px', color: C.gray, whiteSpace: 'nowrap' }}>{it.data.split('-').reverse().join('/')}</td>
+                  <td style={{ padding: '8px' }}>
+                    <span style={pill(corGrupo(it.grupo, it.grupo === 'fim' ? it.forte : undefined), it.grupo === 'fim' && it.forte ? C.greenBg : C.amberBg)}>{rotuloGrupo(it.grupo)}</span>
+                  </td>
+                  <td style={{ padding: '8px', color: C.espresso }}>
+                    {it.grupo === 'batida' && <span style={{ color: C.gray }}>como veio: {it.comoVeio || '—'} · sugestão: <b style={{ color: C.espresso }}>{it.sugestao || '—'}</b> · <span style={{ color: C.amber, fontWeight: 700 }}>falta {it.faltando}</span></span>}
+                    {it.grupo === 'batida_ajuste' && <span style={{ color: C.amber, fontWeight: 600 }}>ajustado · ainda falta {it.pendencia}</span>}
+                    {it.grupo === 'sem_saida' && <span data-testid={`conf-sem-saida-${it.row.pausa_id}`}>retorno <b>{it.row.inicio_local}</b> <span style={pill(C.amber, C.amberBg)}>saída não registrada</span></span>}
+                    {it.grupo === 'fim' && <><b style={{ fontWeight: 700 }}>{it.row.fim_sugerido_local}</b>{' '}{it.forte
+                      ? <span style={pill(C.green, C.greenBg)}>batida do ponto {it.row.batida_local}</span>
+                      : <span style={pill(C.amber, C.amberBg)}>estimativa · o ponto não ajuda</span>}</>}
+                  </td>
+                  <td style={{ padding: '8px', whiteSpace: 'nowrap' }}>
+                    {it.grupo === 'batida' && <button style={{ ...btnGhost, color: C.amber, borderColor: C.amber + '55' }} data-testid={`conf-revisar-${it.data}`} onClick={() => setEditor({ cpf: it.cpf, data: it.data, colaborador: it.colaborador, marcasIniciais: it.marcasIniciais })}>Revisar</button>}
+                    {it.grupo === 'batida_ajuste' && <button style={{ ...btnGhost, color: C.amber, borderColor: C.amber + '55' }} data-testid={`conf-digitar-${it.data}`} onClick={() => setEditor({ cpf: it.cpf, data: it.data, colaborador: it.colaborador })}>Digitar horário</button>}
+                    {it.grupo === 'sem_saida' && <button style={{ ...btnGhost }} data-testid={`conf-marcas-${it.row.pausa_id}`} title="Dizer se cada horário do dia é saída ou retorno da pausa" onClick={() => setEditor({ cpf: it.cpf, data: it.data, colaborador: it.colaborador })}>Saída/retorno</button>}
+                    {it.grupo === 'fim' && <>
+                      <button style={{ ...btnGhost, color: it.forte ? C.green : C.amber, borderColor: (it.forte ? C.green : C.amber) + '55', marginRight: 4 }} onClick={() => confirmarUm(it.row.pausa_id, it.forte ? 'confirmar_ponto' : 'confirmar_estimativa', undefined, it.data)}>Confirmar</button>
+                      <button style={{ ...btnGhost, marginRight: 4 }} onClick={() => corrigir(it.row.pausa_id, it.data)}>Corrigir</button>
+                      <button style={{ ...btnGhost, marginRight: 4 }} data-testid={`conf-marcas-${it.row.pausa_id}`} title="Dizer se cada horário do dia é saída ou retorno da pausa" onClick={() => setEditor({ cpf: it.cpf, data: it.data, colaborador: it.colaborador })}>Saída/retorno</button>
+                      <button style={btnGhost} onClick={() => confirmarUm(it.row.pausa_id, 'indeterminado', undefined, it.data)}>Não sei</button>
+                    </>}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -1619,102 +1685,6 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
 type DiaAuditoria = { cpf: string; colaborador: string; data: string; linhas: LinhaPausaDia[] }
 // #587 (CEO 02/10): dia já relido continua na auditoria, como "ajustado" — e com o que ainda falta (ex.: retorno sem saída)
 type DiaAjustado = { cpf: string; colaborador: string; data: string; pendencias: Array<{ tipo: 'sem_saida' | 'sem_retorno'; hora: string }>; ajuste: AjusteDia }
-function mesAnterior(): string { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` }
-function AuditoriaBatidas({ companyId, onRevisar }: { companyId: string; onRevisar: (d: { cpf: string; data: string; colaborador: string; marcasIniciais?: Marca[] }) => void }) {
-  const [mes, setMes] = useState(mesAnterior())
-  const [dias, setDias] = useState<DiaAuditoria[] | null>(null)
-  const [ajustados, setAjustados] = useState<DiaAjustado[]>([])
-  const [busy, setBusy] = useState(false); const [erro, setErro] = useState('')
-  async function auditar() {
-    setBusy(true); setErro('')
-    try {
-      const [a, m] = mes.split('-').map(Number)
-      const ini = `${mes}-01`, fim = `${mes}-${String(new Date(a, m, 0).getDate()).padStart(2, '0')}`
-      const r = await rpc<{ ok: boolean; dias?: DiaAuditoria[]; ajustados?: DiaAjustado[]; mensagem?: string }>('fn_nr36_auditoria_batidas_dias', { p_company_id: companyId, p_ini: ini, p_fim: fim })
-      if (!r.ok) throw new Error(r.mensagem || 'falha na auditoria')
-      setDias((r.dias || []).filter(d => diaSuspeito(d.linhas)))
-      setAjustados(r.ajustados || [])
-    } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
-  }
-  const txt = (ps: PausaRelida[]) => ps.map(p => p.situacao === 'fechada' ? `${p.inicio}–${p.fim} (${p.minutos} min)` : p.situacao === 'sem_retorno' ? `${p.inicio}–?` : `?–${p.fim}`).join(' · ')
-  return (
-    <div style={{ background: '#fff', border: `1px solid ${C.borderLt}`, borderRadius: 12, padding: 12, marginBottom: 14 }} data-testid="auditoria-batidas">
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        <div style={{ flex: '1 1 280px' }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: C.espresso }}>Auditoria de batidas</div>
-          <div style={{ fontSize: 12.5, color: C.gray }}>Aponta os dias em que faltou uma batida e os horários do relatório ficaram trocados. O sistema <b>sugere</b>; você confere o antes/depois e <b>confirma com justificativa</b>. Nada é gravado sem você.</div>
-        </div>
-        <input type="month" value={mes} onChange={e => setMes(e.target.value)} data-testid="auditoria-mes" style={{ ...inp(), padding: '6px 8px' }} />
-        <button onClick={auditar} disabled={busy} style={btnStyle(busy)} data-testid="auditoria-rodar">{busy ? 'Auditando…' : 'Auditar o mês'}</button>
-      </div>
-      {erro && <div style={erroBox()}>{erro}</div>}
-      {dias && ajustados.length > 0 && (
-        <div style={{ overflowX: 'auto', marginTop: 10 }} data-testid="auditoria-ajustados">
-          <div style={{ fontSize: 12.5, color: C.espresso, marginBottom: 6 }}>
-            <b>{ajustados.length}</b> dia(s) já ajustado(s) · <b style={{ color: C.amber }}>{ajustados.filter(a => a.pendencias.length > 0).length}</b> ainda com horário faltando
-          </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-            <thead><tr style={{ textAlign: 'left', color: C.gray, borderBottom: `1px solid ${C.borderLt}` }}>
-              <th style={{ padding: '6px 8px' }}>Colaborador</th><th style={{ padding: '6px 8px' }}>Dia</th><th style={{ padding: '6px 8px' }}>Situação</th><th style={{ padding: '6px 8px' }}>Ajuste (original × digitado)</th><th />
-            </tr></thead>
-            <tbody>
-              {ajustados.map(a => {
-                const ult = a.ajuste.justificativas?.[a.ajuste.justificativas.length - 1]
-                return (
-                  <tr key={a.cpf + a.data} style={{ borderBottom: `1px solid ${C.beigeLt}` }} data-testid={`auditoria-ajustado-${a.data}`}>
-                    <td style={{ padding: '7px 8px', fontWeight: 600, color: C.espresso }}>{a.colaborador}</td>
-                    <td style={{ padding: '7px 8px', color: C.gray }}>{a.data.split('-').reverse().join('/')}</td>
-                    <td style={{ padding: '7px 8px' }}>
-                      {a.pendencias.length === 0
-                        ? <span style={{ fontSize: 10.5, fontWeight: 700, color: C.green, background: C.greenBg, padding: '2px 8px', borderRadius: 20 }}>ajustado</span>
-                        : <span style={{ fontSize: 10.5, fontWeight: 700, color: C.amber, background: C.amberBg, padding: '2px 8px', borderRadius: 20 }} data-testid={`auditoria-falta-${a.data}`}>ajustado · {a.pendencias.map(textoPendencia).join('; ')}</span>}
-                    </td>
-                    <td style={{ padding: '7px 8px', color: C.espresso }}>
-                      <div style={{ color: C.gray }}>original: {a.ajuste.originais.join(', ') || '—'}</div>
-                      {a.ajuste.ajustes.map(x => <div key={x.hora + x.papel}>{x.papel === 'saida' ? 'saída' : 'retorno'} {x.hora} · {rotuloAjuste(x)}</div>)}
-                      {ult && <div style={{ color: C.gray, fontSize: 11 }}>“{ult.justificativa}” — {ult.por || 'responsável'}</div>}
-                    </td>
-                    <td style={{ padding: '7px 8px' }}><button type="button" onClick={() => onRevisar({ cpf: a.cpf, data: a.data, colaborador: a.colaborador })} data-testid={`auditoria-abrir-${a.data}`}
-                      style={{ border: `1px solid ${C.borderLt}`, background: '#fff', color: C.espresso, borderRadius: 7, padding: '4px 9px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>{a.pendencias.length ? 'Digitar horário' : 'Abrir o dia'}</button></td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {dias && (dias.length === 0
-        ? <div style={{ fontSize: 12.5, color: C.green, marginTop: 10 }} data-testid="auditoria-vazia">Nenhum dia novo (ainda não conferido) com batida faltando neste mês.</div>
-        : (
-        <div style={{ overflowX: 'auto', marginTop: 10 }}>
-          <div style={{ fontSize: 12.5, color: C.espresso, marginBottom: 6 }} data-testid="auditoria-resumo"><b>{dias.length}</b> dia(s) para conferir · <b>{dias.reduce((n, d) => n + sugerirPapeis(marcasDasPausas(d.linhas)).faltando.length, 0)}</b> batida(s) faltando apontada(s)</div>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-            <thead><tr style={{ textAlign: 'left', color: C.gray, borderBottom: `1px solid ${C.borderLt}` }}>
-              <th style={{ padding: '6px 8px' }}>Colaborador</th><th style={{ padding: '6px 8px' }}>Dia</th><th style={{ padding: '6px 8px' }}>Como veio do relatório</th><th style={{ padding: '6px 8px' }}>Sugestão</th><th style={{ padding: '6px 8px' }}>Batida faltando</th><th />
-            </tr></thead>
-            <tbody>
-              {dias.map(d => {
-                const marcas = marcasDasPausas(d.linhas)
-                const s = sugerirPapeis(marcas)
-                return (
-                  <tr key={d.cpf + d.data} style={{ borderBottom: `1px solid ${C.beigeLt}` }} data-testid={`auditoria-dia-${d.data}`}>
-                    <td style={{ padding: '7px 8px', fontWeight: 600, color: C.espresso }}>{d.colaborador}</td>
-                    <td style={{ padding: '7px 8px', color: C.gray }}>{d.data.split('-').reverse().join('/')}</td>
-                    <td style={{ padding: '7px 8px', color: C.gray }}>{txt(parearMarcas(marcas))}</td>
-                    <td style={{ padding: '7px 8px', color: C.espresso }}>{txt(s.pausas)}</td>
-                    <td style={{ padding: '7px 8px', color: C.amber, fontWeight: 700 }}>{s.faltando.join(', ') || '—'}</td>
-                    <td style={{ padding: '7px 8px' }}><button type="button" onClick={() => onRevisar({ cpf: d.cpf, data: d.data, colaborador: d.colaborador, marcasIniciais: s.marcas })} data-testid={`auditoria-revisar-${d.data}`}
-                      style={{ border: `1px solid ${C.borderLt}`, background: '#fff', color: C.espresso, borderRadius: 7, padding: '4px 9px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer' }}>Revisar</button></td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      ))}
-    </div>
-  )
-}
 
 function Wrap({ children }: { children: React.ReactNode }) { return <div style={{ background: C.offwhite, minHeight: '100vh', padding: '24px clamp(14px,4vw,36px)' }}><div style={{ maxWidth: 1100, margin: '0 auto' }}>{children}</div></div> }
 function Header() {
@@ -1731,9 +1701,6 @@ function Header() {
 function Vazio({ titulo, texto, acao }: { titulo: string; texto: string; acao?: React.ReactNode }) { return <div style={{ background: '#fff', border: `1px dashed ${C.borderLt}`, borderRadius: 14, padding: '32px 20px', textAlign: 'center' }}><div style={{ fontSize: 15, fontWeight: 600, color: C.espresso }}>{titulo}</div><div style={{ fontSize: 13, color: C.gray, marginTop: 5, maxWidth: 460, marginInline: 'auto' }}>{texto}</div>{acao && <div style={{ marginTop: 14 }}>{acao}</div>}</div> }
 function Load() { return <div style={{ color: C.gray, padding: 30, textAlign: 'center', fontSize: 13 }}>Carregando…</div> }
 function secTitle(): React.CSSProperties { return { fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, fontWeight: 500, color: C.espresso, margin: '0 0 8px' } }
-// #3843 · subtítulo dos dois passos do fluxo único de conferência (revisar · confirmar/corrigir)
-const subTituloConf: React.CSSProperties = { fontFamily: 'Fraunces, Georgia, serif', fontSize: 15, fontWeight: 500, color: C.espresso, margin: '16px 0 8px' }
-const subTituloConfLeve: React.CSSProperties = { fontFamily: 'inherit', fontSize: 12, fontWeight: 400, color: C.gray }
 function card(): React.CSSProperties { return { display: 'flex', gap: 12, alignItems: 'center', background: '#fff', border: `1px solid ${C.borderLt}`, borderRadius: 12, padding: '12px 14px', marginBottom: 10 } }
 function th(): React.CSSProperties { return { padding: '8px 10px', fontWeight: 600, fontSize: 12 } }
 // corpo da tabela SEMPRE com cor de texto explícita (Espresso #3D2314) — sem cor, herdava um
