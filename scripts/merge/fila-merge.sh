@@ -511,7 +511,7 @@ Continuam obrigatórios: gates, guarda de funções, réguas, compilação, prev
 
 # Verificação de checks do commit de cabeça. $2 = rapida | revisada. Ecoa: ok | esperar:<motivo> | vermelho:<motivo>
 estado_checks() {
-  local sha=$1 via=${2:-revisada} so_docs=${3:-0} n=${4:-} regime_disp=${5:-0} acc_quar=0 base_main falhos quar_novos linhas pend verm canc acc esgotou id vercel_ok vercel_ruim acc_conc acc_url acc_run proprios
+  local sha=$1 via=${2:-revisada} so_docs=${3:-0} n=${4:-} regime_disp=${5:-0} acc_quar=0 base_main falhos quar_novos linhas pend verm canc acc esgotou id vercel_ok bp acc_conc acc_url acc_run proprios
   linhas=$(api "repos/$REPO/commits/$sha/check-runs?per_page=100" --paginate \
     --jq '.check_runs[] | select(.name != "fila") | [.name, .status, (.conclusion // "-"), .details_url] | @tsv')
   # REGRA DO TESTE PRÓPRIO (CEO 16/10): dentro da janela da aceitação revisada (#2665) a aceitação é informativa — MAS se um
@@ -681,14 +681,20 @@ estado_checks() {
     acc=$(awk -F'\t' '$1 == "aceitacao" {print $3}' <<< "$linhas" | tail -1)
     case "$acc" in success|skipped|neutral) ;; '') echo "esperar:aceitação (preview) ainda não rodou"; return;; *) echo "vermelho:aceitação $acc"; return;; esac
   fi
-  # Vercel (preview): status de commit ou check-run cujo nome começa com Vercel — só build REAL conta como verde
-  # (build pulado aparece como success "Canceled by Ignored Build Step": conta como pendente)
+  # COMPILAÇÃO (CEO 10/11, custo da Vercel): o `next build` SAIU do preview da Vercel (desligado em
+  # scripts/vercel-ignore.mjs) e roda no GitHub Actions (build-pr.yml → check "build-pr"), de graça. O check "build-pr"
+  # já entra no cálculo geral de pendentes/vermelhos acima (pendente = espera; failure = vermelho); aqui exigimos que ele
+  # EXISTA e esteja verde — como se exigia o preview da Vercel. Preview pulado ("Canceled by Ignored Build Step") nunca
+  # contou e segue sem contar. TRANSIÇÃO: aceita também um preview REAL da Vercel já verde (head antigo, aberto antes
+  # desta mudança, que ainda não ganhou o build-pr — ao sincronizar com a main ele passa a ter o build-pr). Gate:
+  # check-vercel-build.ts.
+  bp=$(awk -F'\t' '$1 == "build-pr" {print $3}' <<< "$linhas" | tail -1)
+  [ "$bp" = success ] && { echo ok; return; }
   vercel_ok=$( { api "repos/$REPO/commits/$sha/status" --jq '.statuses[] | select(.context | startswith("Vercel"))
-                   | if (.state == "success" and ((.description // "") | test("cancel|ignor"; "i"))) then "pending" else .state end'
+                   | if (.state == "success" and ((.description // "") | test("cancel|ignor"; "i"))) then "pending" else .state end' 2> /dev/null
                  awk -F'\t' '$1 ~ /^Vercel/ {print $3}' <<< "$linhas"; } | sort -u)
-  vercel_ruim=$(grep -vE '^(success)$' <<< "$vercel_ok" | grep -v '^$' || true)
-  [ -n "$vercel_ok" ] || { echo "esperar:Vercel ainda não respondeu"; return; }
-  case "$vercel_ruim" in '') echo ok;; *pending*) echo "esperar:Vercel em andamento";; *) echo "vermelho:Vercel $vercel_ruim";; esac
+  grep -qx success <<< "$vercel_ok" && { echo ok; return; }
+  echo "esperar:compilação (build-pr) ainda não rodou"; return
 }
 
 # (c) autorização pelo conteúdo. Ecoa: ok | vermelho:<motivo>
