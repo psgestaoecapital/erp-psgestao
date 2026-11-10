@@ -27,7 +27,7 @@ import { AbaLogisticaV7 } from './AbaLogisticaV7'
 import { MetasV7 } from './MetasV7'
 import { ModalAnalise, lerEscolhaSalva, type EscopoAnalise } from './ModalAnalise'
 
-const C = { esp: '#3D2314', off: '#FAF7F2', gold: '#C8941A', bd: '#E7DED3', m: '#6B5D4F', d: '#9C8E80' }
+const C = { esp: '#3D2314', off: '#FAF7F2', gold: '#C8941A', gold2: '#E0B048', verde: '#3f7d4e', bd: '#E7DED3', bg2: '#F0ECE3', m: '#6B5D4F', d: '#9C8E80' }
 const ROTA = '/dashboard/comercial/meu-painel-v6'
 
 const nf = (o: Intl.NumberFormatOptions) => new Intl.NumberFormat('pt-BR', o)
@@ -474,7 +474,7 @@ export default function MeuPainelV6() {
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={[{ rot: 'Realizado', val: r.totalValor }, { rot: 'Projetado', val: projecaoMes ?? 0 }]} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                     <XAxis dataKey="rot" tick={{ fontSize: 12, fill: C.m }} />
-                    <YAxis tickFormatter={(v: number) => brlc(v)} tick={{ fontSize: 11, fill: C.m }} width={84} />
+                    <YAxis tickFormatter={(v: number) => brl0(v)} tick={{ fontSize: 11, fill: C.m }} width={84} />
                     <Tooltip formatter={(v) => brl0(Number(v))} />
                     <Bar dataKey="val" radius={[4, 4, 0, 0]}>
                       <Cell fill={C.esp} />
