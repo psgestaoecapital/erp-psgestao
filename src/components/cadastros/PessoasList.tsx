@@ -120,16 +120,19 @@ export default function PessoasList({ companyId, tipo }: Props) {
             {descricao}
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setEditing(null)
-            setShowForm(true)
-          }}
-          style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '10px 20px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-        >
-          + Novo {labelSingular}
-        </button>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <button
+            type="button"
+            onClick={() => {
+              setEditing(null)
+              setShowForm(true)
+            }}
+            style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '10px 20px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+          >
+            + Novo {labelSingular}
+          </button>
+          <AjudaCampo chave="cadastros.pessoa.novo" rota="/dashboard/cadastros/pessoa" />
+        </div>
       </div>
 
       {erro && (
@@ -308,12 +311,18 @@ function Card({ pessoa, onAbrir, onEditar, onInativar }: { pessoa: Pessoa; onAbr
         )}
       </div>
       <div style={{ display: 'flex', gap: 6 }} onClick={(e) => e.stopPropagation()}>
-        <button type="button" onClick={onEditar} style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.25)', padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
-          Editar
-        </button>
-        <button type="button" onClick={onInativar} style={{ background: 'transparent', color: '#A32D2D', border: '0.5px solid rgba(163,45,45,0.3)', padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
-          Inativar
-        </button>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+          <button type="button" onClick={onEditar} style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.25)', padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+            Editar
+          </button>
+          <AjudaCampo chave="cadastros.pessoa.editar" rota="/dashboard/cadastros/pessoa" />
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+          <button type="button" onClick={onInativar} style={{ background: 'transparent', color: '#A32D2D', border: '0.5px solid rgba(163,45,45,0.3)', padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+            Inativar
+          </button>
+          <AjudaCampo chave="cadastros.pessoa.inativar" rota="/dashboard/cadastros/pessoa" />
+        </span>
       </div>
     </div>
   )
