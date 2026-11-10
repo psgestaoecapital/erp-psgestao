@@ -1676,6 +1676,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                               </button>
                             )}
                             {!pago && (
+                              <>
                               <button
                                 type="button"
                                 onClick={() => { if (tipo === 'pagar' && r.id in bloqueioMap) { alert('Conta BLOQUEADA para pagamento. Desbloqueie antes de dar baixa.'); return } setPagandoItem(r) }}
@@ -1683,8 +1684,11 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                               >
                                 {tipo === 'pagar' ? 'Marcar pago' : 'Marcar recebido'}
                               </button>
+                              <AjudaCampo chave={tipo === 'pagar' ? 'financeiro.pagar.acao_marcar_pago' : 'financeiro.receber.acao_marcar_recebido'} alinhar="fim" />
+                              </>
                             )}
                             {tipo === 'pagar' && ehMaster && !pago && (
+                              <>
                               <button
                                 type="button"
                                 onClick={() => void alternarBloqueio(r)}
@@ -1693,6 +1697,8 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                               >
                                 {r.id in bloqueioMap ? '🔓 Desbloquear' : '🔒 Bloquear'}
                               </button>
+                              <AjudaCampo chave="financeiro.pagar.acao_bloquear" alinhar="fim" />
+                              </>
                             )}
                             {pago && (
                               <>
@@ -1720,6 +1726,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                             >
                               ✏️
                             </button>
+                            <AjudaCampo chave={tipo === 'pagar' ? 'financeiro.pagar.acao_editar' : 'financeiro.receber.acao_editar'} alinhar="fim" />
                             <button
                               type="button"
                               onClick={() => setHistoricoItem(r)}
@@ -1729,6 +1736,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                             >
                               🕐
                             </button>
+                            <AjudaCampo chave={tipo === 'pagar' ? 'financeiro.pagar.acao_historico' : 'financeiro.receber.acao_historico'} alinhar="fim" />
                             <button
                               type="button"
                               onClick={() => void duplicar(r)}
