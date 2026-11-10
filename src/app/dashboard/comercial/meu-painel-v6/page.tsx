@@ -14,6 +14,8 @@ import {
   calcularModelo, estadoPadrao, gruposProduto, resumo,
   type BaseV5, type EstadoV5, type GrupoProduto, type ModeloV5,
 } from '../meu-painel/motor-v5'
+import { AbaClientes } from './AbaClientes'
+import { calcularClientesV7, type ClientesV7 } from './clientes-v7'
 
 const C = { esp: '#3D2314', off: '#FAF7F2', gold: '#C8941A', bd: '#E7DED3', m: '#6B5D4F', d: '#9C8E80' }
 const ROTA = '/dashboard/comercial/meu-painel-v6'
@@ -98,6 +100,13 @@ export default function MeuPainelV6() {
   const pg = useMemo<GrupoProduto[] | null>(() => base ? gruposProduto(base) : null, [base])
   const modelo = useMemo<ModeloV5 | null>(() => base && estado && pg ? calcularModelo(base, estado, pg) : null, [base, estado, pg])
   const r = useMemo(() => modelo ? resumo(modelo) : null, [modelo])
+
+  // Bloco 4 — aba Clientes (os N clientes em 6 grupos, curva ABC/concentração, mais linhas = maior ticket).
+  // Mesmo motor já provado: calcularClientesV7 lê a base e o modelo que o chassi monta.
+  const clientesV7 = useMemo<ClientesV7 | null>(
+    () => (base && modelo && estado && pg ? calcularClientesV7(base, modelo, estado, pg) : null),
+    [base, modelo, estado, pg],
+  )
 
   // Série diária (faturamento por dia) — mesma base do motor, ordenada por data.
   const serie = useMemo(() => {
@@ -242,7 +251,7 @@ export default function MeuPainelV6() {
         ))}
       </nav>
 
-      {aba !== 'geral' && aba !== 'vendedores' && (
+      {aba !== 'geral' && aba !== 'vendedores' && aba !== 'clientes' && (
         <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16, color: C.m, fontSize: 14 }}>
           <b style={{ color: C.esp }}>{ABAS.find((a) => a.k === aba)?.rot}</b> — esta aba entra no próximo bloco do painel. O período e os filtros acima já valem para ela.
         </div>
@@ -450,6 +459,10 @@ export default function MeuPainelV6() {
             </table>
           </div>
       </>)}
+
+      {aba === 'clientes' && base && modelo && clientesV7 && (
+        <AbaClientes clientes={clientesV7} base={base} modelo={modelo} />
+      )}
 
       <div style={{ marginTop: 16, fontSize: 12, color: C.d }}>
         <AjudaCampo chave="com.painel.faturado" rota={ROTA} /> Esta é a versão nova do painel. O painel atual continua disponível.
