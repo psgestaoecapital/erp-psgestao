@@ -16,21 +16,33 @@ import {
 
 type DiaFluxo = {
   data: string
+  eh_futuro?: boolean
   recebimentos: number
   pagamentos: number
+  recebimentos_previstos?: number
+  pagamentos_previstos?: number
   transferencias_entrada: number
   transferencias_saida: number
   movimento_dia: number
   saldo_final: number
 }
 type FluxoResp = {
+  hoje?: string
   saldo_inicial: number
   saldo_final: number
   total_recebimentos: number
   total_pagamentos: number
+  total_recebimentos_previstos?: number
+  total_pagamentos_previstos?: number
+  total_receber_vencido_aberto?: number
+  total_pagar_vencido_aberto?: number
   movimento_liquido: number
   dias: DiaFluxo[]
 }
+
+// Entrada/saída exibida por dia: realizado no passado, previsto (por vencimento) no futuro.
+const entradaDia = (d: DiaFluxo) => (d.eh_futuro ? (d.recebimentos_previstos ?? 0) : d.recebimentos)
+const saidaDia = (d: DiaFluxo) => (d.eh_futuro ? (d.pagamentos_previstos ?? 0) : d.pagamentos)
 
 const brl = (v: number) =>
   (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -87,15 +99,21 @@ export default function FluxoCaixaPage() {
   const totalTransfEntrada = dias.reduce((s, d) => s + (d.transferencias_entrada ?? 0), 0)
   const totalTransfSaida = dias.reduce((s, d) => s + (d.transferencias_saida ?? 0), 0)
   const HOJE = hojeISO()
+  // Realizado (sólido, até hoje) × Previsto (tracejado, de hoje em diante, por vencimento).
+  // A linha de saldo é contínua: hoje aparece nos dois para conectar.
   const chartData = dias.map((d) => ({
     data: d.data.slice(5),
-    saldo: Number(d.saldo_final),
-    ehHoje: d.data === hojeISO(),
+    saldoReal: d.data <= HOJE ? Number(d.saldo_final) : null,
+    saldoPrevisto: d.data >= HOJE ? Number(d.saldo_final) : null,
+    ehHoje: d.data === HOJE,
   }))
+  const temPrevisto = dias.some((d) => d.eh_futuro)
+  const previstoEntrar = dados?.total_recebimentos_previstos ?? 0
+  const previstoSair = dados?.total_pagamentos_previstos ?? 0
   // Legibilidade do gráfico (RD-98): com poucos pontos ou saldo quase constante a curva fica
   // "plana"/ilegível. Calcula um domínio com folga, mostra pontos quando são poucos e avisa
   // quando o saldo é estável, em vez de exibir uma linha colada na borda.
-  const saldosSerie = chartData.map((d) => d.saldo)
+  const saldosSerie = dias.map((d) => Number(d.saldo_final))
   const minSaldo = saldosSerie.length ? Math.min(...saldosSerie) : 0
   const maxSaldo = saldosSerie.length ? Math.max(...saldosSerie) : 0
   const spanSaldo = maxSaldo - minSaldo
@@ -140,17 +158,40 @@ export default function FluxoCaixaPage() {
         <PSGCMetric label="Saldo Atual" valor={brl(saldoHoje)} destaque
           icon="wallet" cor={PSGC_COLORS.espresso} ajuda="ge.fluxo_caixa.kpi.saldo_atual" ajudaRota={ROTA_AJUDA} />
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          <PSGCMetric label="Entradas no período" valor={brl(dados?.total_recebimentos ?? 0)}
+          <PSGCMetric label="Entradas realizadas no período" valor={brl(dados?.total_recebimentos ?? 0)}
             icon="arrow-up" cor={PSGC_COLORS.baixa} pequeno ajuda="ge.fluxo_caixa.kpi.entradas" ajudaRota={ROTA_AJUDA} />
-          <PSGCMetric label="Saídas no período" valor={brl(dados?.total_pagamentos ?? 0)}
+          <PSGCMetric label="Saídas realizadas no período" valor={brl(dados?.total_pagamentos ?? 0)}
             icon="arrow-down" cor={PSGC_COLORS.alta} pequeno ajuda="ge.fluxo_caixa.kpi.saidas" ajudaRota={ROTA_AJUDA} />
         </div>
+        {(previstoEntrar > 0 || previstoSair > 0) && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <PSGCMetric label="Previsto a entrar" valor={brl(previstoEntrar)}
+              icon="arrow-up" cor={PSGC_COLORS.dourado} pequeno ajuda="ge.fluxo_caixa.kpi.previsto_entrar" ajudaRota={ROTA_AJUDA} />
+            <PSGCMetric label="Previsto a sair" valor={brl(previstoSair)}
+              icon="arrow-down" cor={PSGC_COLORS.dourado} pequeno ajuda="ge.fluxo_caixa.kpi.previsto_sair" ajudaRota={ROTA_AJUDA} />
+          </div>
+        )}
       </div>
 
       <div style={{ background: '#fff', borderRadius: PSGC_RADIUS.lg, padding: 16, marginBottom: 20 }}>
-        <p style={{ color: PSGC_COLORS.espresso, fontWeight: 700, fontSize: 14, marginBottom: 12 }}>
-          Saldo dia a dia
-        </p>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+          <p style={{ color: PSGC_COLORS.espresso, fontWeight: 700, fontSize: 14, margin: 0 }}>
+            Saldo dia a dia
+          </p>
+          {temPrevisto && (
+            <div style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11, color: 'rgba(61,35,20,0.7)', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <svg width="22" height="6" aria-hidden="true"><line x1="0" y1="3" x2="22" y2="3" stroke={PSGC_COLORS.espresso} strokeWidth="2" /></svg>
+                Realizado
+              </span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <svg width="22" height="6" aria-hidden="true"><line x1="0" y1="3" x2="22" y2="3" stroke={PSGC_COLORS.espresso} strokeWidth="2" strokeDasharray="5 4" /></svg>
+                Previsto
+              </span>
+              <AjudaCampo chave="ge.fluxo_caixa.legenda_previsto" rota={ROTA_AJUDA} />
+            </div>
+          )}
+        </div>
         {carregando ? (
           <p style={{ color: PSGC_COLORS.espresso, opacity: 0.6, fontSize: 13 }}>Carregando…</p>
         ) : erro ? (
@@ -174,11 +215,17 @@ export default function FluxoCaixaPage() {
               <XAxis dataKey="data" tick={{ fontSize: 10, fill: PSGC_COLORS.espresso }} interval="preserveStartEnd" />
               <YAxis tick={{ fontSize: 10, fill: PSGC_COLORS.espresso }} width={56}
                 domain={yDomain} tickFormatter={(v) => fmtEixoSaldo(Number(v))} />
-              <Tooltip formatter={(v) => brl(Number(v))} labelStyle={{ color: PSGC_COLORS.espresso }} />
+              <Tooltip
+                formatter={(v, n) => [brl(Number(v)), n === 'saldoPrevisto' ? 'Saldo previsto' : 'Saldo realizado']}
+                labelStyle={{ color: PSGC_COLORS.espresso }} />
               <ReferenceLine x={hojeISO().slice(5)} stroke={PSGC_COLORS.dourado} strokeDasharray="4 2" />
-              <Area type="monotone" dataKey="saldo" stroke={PSGC_COLORS.espresso}
-                strokeWidth={2} fill="url(#gradSaldo)"
+              <Area type="monotone" dataKey="saldoReal" stroke={PSGC_COLORS.espresso}
+                strokeWidth={2} fill="url(#gradSaldo)" connectNulls
                 dot={poucosPontos ? { r: 3, fill: PSGC_COLORS.espresso, strokeWidth: 0 } : false}
+                activeDot={{ r: 4 }} />
+              <Area type="monotone" dataKey="saldoPrevisto" stroke={PSGC_COLORS.espresso}
+                strokeWidth={2} strokeDasharray="5 4" fill="none" connectNulls
+                dot={poucosPontos ? { r: 3, fill: '#fff', stroke: PSGC_COLORS.espresso, strokeWidth: 1.5 } : false}
                 activeDot={{ r: 4 }} />
             </AreaChart>
           </ResponsiveContainer>
@@ -238,18 +285,22 @@ export default function FluxoCaixaPage() {
                 <tbody>
                   {diasComMov.map((d) => {
                     const ehHoje = d.data === HOJE
+                    const futuro = !!d.eh_futuro
+                    const ent = entradaDia(d)
+                    const sai = saidaDia(d)
                     const movCor = d.movimento_dia > 0 ? ENTRADA : d.movimento_dia < 0 ? SAIDA : 'rgba(61,35,20,0.5)'
                     const movPrefixo = d.movimento_dia > 0 ? '+' : d.movimento_dia < 0 ? '−' : ''
                     return (
-                      <tr key={d.data} style={{ borderTop: '1px solid #f0ebe4', background: ehHoje ? '#FEF3C7' : 'transparent' }}>
+                      <tr key={d.data} style={{ borderTop: '1px solid #f0ebe4', background: ehHoje ? '#FEF3C7' : 'transparent', fontStyle: futuro ? 'italic' : 'normal' }}>
                         <td style={{ ...td, fontWeight: ehHoje ? 700 : 600, color: PSGC_COLORS.espresso }}>
                           {d.data.slice(8, 10)}/{d.data.slice(5, 7)}{ehHoje && ' (hoje)'}
+                          {futuro && <span style={{ marginLeft: 6, fontSize: 9, fontStyle: 'normal', fontWeight: 700, color: PSGC_COLORS.dourado, border: `1px solid ${PSGC_COLORS.dourado}`, borderRadius: 4, padding: '1px 4px', verticalAlign: 'middle' }}>previsto</span>}
                         </td>
-                        <td style={{ ...td, textAlign: 'right', color: d.recebimentos > 0 ? ENTRADA : 'rgba(61,35,20,0.45)' }}>
-                          {d.recebimentos > 0 ? `+${brl(d.recebimentos)}` : '—'}
+                        <td style={{ ...td, textAlign: 'right', color: ent > 0 ? ENTRADA : 'rgba(61,35,20,0.45)' }}>
+                          {ent > 0 ? `+${brl(ent)}` : '—'}
                         </td>
-                        <td style={{ ...td, textAlign: 'right', color: d.pagamentos > 0 ? SAIDA : 'rgba(61,35,20,0.45)' }}>
-                          {d.pagamentos > 0 ? `−${brl(d.pagamentos)}` : '—'}
+                        <td style={{ ...td, textAlign: 'right', color: sai > 0 ? SAIDA : 'rgba(61,35,20,0.45)' }}>
+                          {sai > 0 ? `−${brl(sai)}` : '—'}
                         </td>
                         <td style={{ ...td, textAlign: 'right', color: d.transferencias_entrada > 0 ? TRANSF_IN : 'rgba(61,35,20,0.45)' }}>
                           {d.transferencias_entrada > 0 ? `+${brl(d.transferencias_entrada)}` : '—'}
@@ -271,10 +322,10 @@ export default function FluxoCaixaPage() {
                   <tr style={{ background: PSGC_COLORS.offWhite, borderTop: `2px solid ${PSGC_COLORS.espresso}` }}>
                     <td style={{ ...td, fontWeight: 700, color: PSGC_COLORS.espresso }}>Total no período</td>
                     <td style={{ ...td, textAlign: 'right', color: ENTRADA, fontWeight: 700 }}>
-                      +{brl(dados?.total_recebimentos ?? 0)}
+                      +{brl((dados?.total_recebimentos ?? 0) + previstoEntrar)}
                     </td>
                     <td style={{ ...td, textAlign: 'right', color: SAIDA, fontWeight: 700 }}>
-                      −{brl(dados?.total_pagamentos ?? 0)}
+                      −{brl((dados?.total_pagamentos ?? 0) + previstoSair)}
                     </td>
                     <td style={{ ...td, textAlign: 'right', color: TRANSF_IN, fontWeight: 700 }}>
                       {totalTransfEntrada > 0 ? `+${brl(totalTransfEntrada)}` : '—'}
@@ -300,12 +351,15 @@ export default function FluxoCaixaPage() {
             <div className="fc-cards">
               {diasComMov.map((d) => {
                 const ehHoje = d.data === HOJE
+                const futuro = !!d.eh_futuro
+                const ent = entradaDia(d)
+                const sai = saidaDia(d)
                 const movCor = d.movimento_dia > 0 ? ENTRADA : d.movimento_dia < 0 ? SAIDA : 'rgba(61,35,20,0.5)'
                 const movPrefixo = d.movimento_dia > 0 ? '+' : d.movimento_dia < 0 ? '−' : ''
                 const temTransf = d.transferencias_entrada > 0 || d.transferencias_saida > 0
                 return (
                   <div key={d.data} style={{
-                    border: '1px solid #f0ebe4',
+                    border: futuro ? `1px dashed ${PSGC_COLORS.dourado}` : '1px solid #f0ebe4',
                     borderRadius: PSGC_RADIUS.md,
                     padding: '10px 12px',
                     marginBottom: 8,
@@ -314,14 +368,15 @@ export default function FluxoCaixaPage() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                       <span style={{ fontWeight: 700, color: PSGC_COLORS.espresso }}>
                         {d.data.slice(8, 10)}/{d.data.slice(5, 7)}{ehHoje && ' (hoje)'}
+                        {futuro && <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, color: PSGC_COLORS.dourado, border: `1px solid ${PSGC_COLORS.dourado}`, borderRadius: 4, padding: '1px 4px' }}>previsto</span>}
                       </span>
                       <span style={{ fontWeight: 700, color: PSGC_COLORS.espresso, fontVariantNumeric: 'tabular-nums' }}>
                         {brl(d.saldo_final)}
                       </span>
                     </div>
                     <div style={{ display: 'flex', gap: 12, fontSize: 12, fontVariantNumeric: 'tabular-nums', flexWrap: 'wrap' }}>
-                      {d.recebimentos > 0 && <span style={{ color: ENTRADA }}>+{brl(d.recebimentos)}</span>}
-                      {d.pagamentos > 0 && <span style={{ color: SAIDA }}>−{brl(d.pagamentos)}</span>}
+                      {ent > 0 && <span style={{ color: ENTRADA }}>+{brl(ent)}</span>}
+                      {sai > 0 && <span style={{ color: SAIDA }}>−{brl(sai)}</span>}
                       <span style={{ color: movCor, fontWeight: 600 }}>
                         Mov {movPrefixo}{brl(Math.abs(d.movimento_dia))}
                       </span>
@@ -337,6 +392,15 @@ export default function FluxoCaixaPage() {
                 )
               })}
             </div>
+            {temPrevisto && (
+              <p style={{ color: 'rgba(61,35,20,0.6)', fontSize: 11, lineHeight: 1.5, marginTop: 10, marginBottom: 0 }}>
+                Dias à frente de hoje (marcados <b>previsto</b>) são projeção pelos vencimentos dos
+                títulos em aberto — só entram/saem de fato quando forem pagos.
+                {(dados?.total_receber_vencido_aberto ?? 0) > 0 || (dados?.total_pagar_vencido_aberto ?? 0) > 0
+                  ? ` Inclui ${brl(dados?.total_receber_vencido_aberto ?? 0)} a receber e ${brl(dados?.total_pagar_vencido_aberto ?? 0)} a pagar já vencidos e em aberto.`
+                  : ''}
+              </p>
+            )}
           </>
         )}
       </div>

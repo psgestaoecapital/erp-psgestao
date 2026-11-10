@@ -9,7 +9,7 @@ import Link from "next/link";
 import * as XLSX from "xlsx";
 import { Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, ArrowLeft, History } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { erroAmigavel } from "@/lib/erroAmigavel";
+import { erroAmigavel, codigoAmigavel } from "@/lib/erroAmigavel";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { CAMPOS, MOTIVO_TEXTO, adivinharMapa, ehCsv, selecionar, textoCsv, type CampoSiga, type Motivo } from "@/lib/pm/importSiga";
@@ -57,7 +57,7 @@ export default function ImportarSigaPage() {
       if (i < 0) { setErro("A planilha está vazia."); return; }
       const c = (m[i] as unknown[]).map((x) => String(x ?? "").trim());
       setArquivo(f.name); setCab(c); setLinhas(m.slice(i + 1) as unknown[][]); setMapa(adivinharMapa(c));
-    } catch { setErro("Não consegui ler a planilha. Confira se o arquivo é .xlsx ou .csv válido e tente de novo."); }
+    } catch { setErro("Não consegui ler esta planilha. Confira se o arquivo é .xlsx, .xls ou .csv e se não está corrompido ou protegido por senha."); }
   }
 
   const sel = useMemo(() => (linhas.length ? selecionar(linhas, mapa, hojeSP()) : null), [linhas, mapa]);
@@ -76,7 +76,7 @@ export default function ImportarSigaPage() {
     const { data, error } = await supabase.rpc("fn_pm_importar_jobs_siga", { p_company_id: empresa, p_linhas: payload, p_gravar: gravar });
     setOcupado(false);
     const r = data as Conferencia | null;
-    if (error || !r?.ok) { setErro(r?.mensagem || (error ? erroAmigavel(error, "Não foi possível conferir.") : (r?.erro || "Não foi possível conferir."))); return; }
+    if (error || !r?.ok) { setErro(r?.mensagem || (r?.erro ? codigoAmigavel(r.erro, "Não foi possível conferir.") : erroAmigavel(error, "Não foi possível conferir."))); return; }
     setConf(r);
     if (gravar) { setFeito(r.gravados); void carregarHistorico(); }
   }
