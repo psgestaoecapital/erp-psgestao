@@ -14,6 +14,13 @@
 -- ADITIVA/idempotente, não altera dado de cliente. Caminho "Todas × Todas" preservado byte a byte. Faixa code-desenvolvedor-3 (:40), acima da main.
 -- SENSÍVEL: núcleo financeiro, CREATE OR REPLACE -> revisao-eng-chefe.
 
+-- ── 0) Fonte única (RD-52): a assinatura nova tem 5 args; CREATE OR REPLACE NÃO substitui a de 4 args (overload).
+--     Removemos a sobrecarga antiga (uuid,date,date,uuid) para a versão corrigida ficar como fonte única — do
+--     contrário a cópia antiga (com o bug latente por conta) continuaria chamável e uma chamada com os 4 nomes de
+--     args viraria PGRST203 ("Could not choose the best candidate"). Validado (reviewer + banco): nenhum chamador no
+--     app ou no banco referencia a de 4 args além desta tela, que passou a mandar p_categoria (5 args).
+DROP FUNCTION IF EXISTS public.fn_fluxo_caixa_diario(uuid, date, date, uuid);
+
 -- ── 1) fn_fluxo_caixa_diario: filtro por conta (fix) + por categoria (novo) ─────────────────────────────────────
 CREATE OR REPLACE FUNCTION public.fn_fluxo_caixa_diario(
   p_company_id uuid,
