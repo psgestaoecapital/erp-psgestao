@@ -9,6 +9,9 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import AjustarValoresModal from './AjustarValoresModal'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA = '/dashboard/financeiro/conciliacao/inbox'
 
 type Natureza = 'credito' | 'debito' | string
 type LancamentoTabela = 'erp_pagar' | 'erp_receber'
@@ -216,6 +219,7 @@ export default function PickerTituloExistenteModal({
 
         {/* Filtros */}
         <div style={{ padding: '10px 20px', borderBottom: '0.5px solid rgba(61,35,20,0.08)', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <AjudaCampo chave="financeiro.conciliacao.picker_filtros" rota={ROTA} />
           <input
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
@@ -331,9 +335,10 @@ export default function PickerTituloExistenteModal({
           {/* #37: valor diferente do banco → justificar (libera o match de baixa confiança) OU ajustar valores */}
           {selecionado && Math.abs(selecionado.diff_valor) >= 0.01 && (
             <div style={{ background: '#FBF4E4', border: '0.5px solid rgba(200,148,26,0.4)', borderRadius: 8, padding: '10px 12px' }}>
-              <div style={{ fontSize: 12, color: '#3D2314', marginBottom: 6 }}>
-                Diferença de <strong>{fmtBRL(Math.abs(selecionado.diff_valor))}</strong> entre o título e o banco. Conciliando assim, o título fica <strong>parcial</strong>.
+              <div style={{ fontSize: 12, color: '#3D2314', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span>Diferença de <strong>{fmtBRL(Math.abs(selecionado.diff_valor))}</strong> entre o título e o banco. Conciliando assim, o título fica <strong>parcial</strong>.</span>
               </div>
+              <AjudaCampo chave="financeiro.conciliacao.picker_justificativa" rota={ROTA} />
               <textarea
                 value={motivo}
                 onChange={(e) => setMotivo(e.target.value)}
@@ -350,6 +355,7 @@ export default function PickerTituloExistenteModal({
             </div>
           )}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', alignItems: 'center' }}>
+            <AjudaCampo chave="financeiro.conciliacao.picker_acao" rota={ROTA} />
             <button
               type="button" onClick={onClose} disabled={aplicando}
               style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.25)', padding: '8px 16px', borderRadius: 6, fontSize: 13, cursor: aplicando ? 'not-allowed' : 'pointer' }}
