@@ -2,6 +2,13 @@
 import React from 'react'
 import type { DREPorLinha } from '@/types/linhas-negocio'
 
+// Design system PS premium (RD-96) — mesma paleta das telas irmãs da jornada (Divisões / Linhas de negócio).
+// Antes: tokens genéricos do shadcn/tailwind (text-muted-foreground, bg-muted, text-green/red/yellow-600) destoavam
+// do restante da jornada. Agora cores próprias PS por estilo inline; layout segue em utilitárias.
+const DOURADO = '#C8941A'; const BORDA = '#E7DED3'; const TEXTM = '#6b5444'
+const BG_NEUTRO = '#F0ECE3'; const POS = '#1A7A4A'; const NEG = '#8B1A1A'
+const corScore = (s: number) => (s >= 70 ? POS : s >= 40 ? DOURADO : NEG)
+
 interface Props {
   linhas: DREPorLinha[]
   onLinhaClick?: (linha: DREPorLinha) => void
@@ -17,7 +24,7 @@ export default function WaterfallChart({ linhas, onLinhaClick }: Props) {
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between mb-3">
-        <p className="text-xs text-muted-foreground uppercase tracking-wide">
+        <p className="text-xs uppercase tracking-wide" style={{ color: TEXTM }}>
           Contribuição Marginal (CM3) por linha
         </p>
         <p className="text-sm font-medium">{fmt(total)}</p>
@@ -25,14 +32,13 @@ export default function WaterfallChart({ linhas, onLinhaClick }: Props) {
       {linhas.sort((a, b) => b.cm3 - a.cm3).map(l => {
         const barPct = (Math.abs(l.cm3) / maxAbs) * 100
         const positivo = l.cm3 >= 0
-        const colorClass = positivo ? 'text-green-600' : 'text-red-600'
-        const scoreClass = (l.health_score ?? 0) >= 70 ? 'text-green-600'
-          : (l.health_score ?? 0) >= 40 ? 'text-yellow-600' : 'text-red-600'
         return (
           <div
             key={l.linha_id}
             onClick={() => onLinhaClick?.(l)}
-            className="flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-muted/50 transition-colors"
+            className="flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors"
+            onMouseEnter={(e) => { e.currentTarget.style.background = BG_NEUTRO }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
           >
             <div className="flex items-center gap-2 w-40 flex-shrink-0">
               <div
@@ -41,25 +47,25 @@ export default function WaterfallChart({ linhas, onLinhaClick }: Props) {
               />
               <span className="text-xs font-medium truncate">{l.linha_nome}</span>
             </div>
-            <div className="flex-1 relative h-6 bg-muted/30 rounded">
+            <div className="flex-1 relative h-6 rounded" style={{ background: BG_NEUTRO }}>
               <div
                 className="absolute top-0 h-full rounded transition-all"
                 style={{
                   width: barPct + '%',
-                  background: positivo ? l.linha_cor : '#8B1A1A',
+                  background: positivo ? l.linha_cor : NEG,
                   opacity: 0.8
                 }}
               />
             </div>
             <div className="w-28 text-right flex-shrink-0">
-              <span className={'text-xs font-medium ' + colorClass}>
+              <span className="text-xs font-medium" style={{ color: positivo ? POS : NEG }}>
                 {fmt(l.cm3)}
               </span>
-              <span className="text-xs text-muted-foreground ml-1">({pct(l.cm3_pct)})</span>
+              <span className="text-xs ml-1" style={{ color: TEXTM }}>({pct(l.cm3_pct)})</span>
             </div>
             {l.health_score !== undefined && (
               <div className="w-8 flex-shrink-0">
-                <div className={'text-xs font-bold text-center ' + scoreClass}>
+                <div className="text-xs font-bold text-center" style={{ color: corScore(l.health_score ?? 0) }}>
                   {l.health_score}
                 </div>
               </div>
@@ -67,13 +73,13 @@ export default function WaterfallChart({ linhas, onLinhaClick }: Props) {
           </div>
         )
       })}
-      <div className="flex items-center gap-3 p-2 border-t mt-2">
+      <div className="flex items-center gap-3 p-2 mt-2" style={{ borderTop: `1px solid ${BORDA}` }}>
         <div className="w-40 flex-shrink-0">
           <span className="text-xs font-bold uppercase tracking-wide">Total</span>
         </div>
         <div className="flex-1" />
         <div className="w-28 text-right flex-shrink-0">
-          <span className={'text-sm font-bold ' + (total >= 0 ? 'text-green-600' : 'text-red-600')}>
+          <span className="text-sm font-bold" style={{ color: total >= 0 ? POS : NEG }}>
             {fmt(total)}
           </span>
         </div>
