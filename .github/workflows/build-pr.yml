@@ -1,0 +1,52 @@
+name: Build da PR (compilação)
+
+# CEO 10/11 (custo da Vercel): o preview de PR SAIU da Vercel (scripts/vercel-ignore.mjs desliga o preview de PR; a
+# Vercel passa a buildar SÓ produção/main). O portão de COMPILAÇÃO por PR — o `next build`, que antes só era validado
+# no preview da Vercel — passa a rodar AQUI, de graça (repositório público, GitHub Actions). A fila de merge
+# (scripts/merge/fila-merge.sh) exige o check "build-pr" verde no lugar do "Vercel (build real)".
+#
+# Compila com PLACEHOLDERS de ambiente (não conecta a banco nenhum): valida só que o código COMPILA — a mesma coisa que
+# o build do preview fazia. A aceitação e2e segue PÓS-MERGE (aceitacao-main.yml, build+next start no próprio runner),
+# modelo "esteira contínua" (CEO 22/10). Não roda em draft nem em PR só de .md/docs/.github (como o Ignored Build Step).
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - '.github/**'
+
+concurrency:
+  # por PR (não por SHA): um push novo cancela o build do head anterior — não se gasta runner compilando head que não vai
+  # mergear. O head vigente sempre tem o seu run; a fila avalia o head vigente.
+  group: build-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-pr:
+    # não roda em rascunho (o preview da Vercel também não rodava); PR do próprio repositório, contra a main.
+    if: >-
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-24.04 # mesma imagem do aceitacao-main (que já roda next build + next start aqui)
+    timeout-minutes: 20
+    env:
+      # Placeholders: o build NÃO conecta a nada; só compila. src/lib/supabase.ts lança erro se as duas NEXT_PUBLIC_*
+      # estiverem vazias, então damos valores sintáticos (nunca segredos — a compilação não precisa de banco real).
+      NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key-build-only
+      SUPABASE_URL: https://placeholder.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: placeholder-service-key-build-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+      - run: npm ci
+      - name: next build (compilação — a mesma validação que rodava no preview da Vercel)
+        run: npx next build
