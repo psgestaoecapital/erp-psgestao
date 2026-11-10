@@ -28,6 +28,8 @@ type DiaFluxo = {
 }
 type FluxoResp = {
   hoje?: string
+  conta_id?: string | null
+  categoria?: string | null
   saldo_inicial: number
   saldo_final: number
   total_recebimentos: number
@@ -39,6 +41,8 @@ type FluxoResp = {
   movimento_liquido: number
   dias: DiaFluxo[]
 }
+type ContaFiltro = { id: string; nome: string }
+type Filtros = { contas: ContaFiltro[]; categorias: string[] }
 
 // Entrada/saída exibida por dia: realizado no passado, previsto (por vencimento) no futuro.
 const entradaDia = (d: DiaFluxo) => (d.eh_futuro ? (d.recebimentos_previstos ?? 0) : d.recebimentos)
@@ -55,9 +59,23 @@ export default function FluxoCaixaPage() {
   const empresaUnica = companyIds.length === 1 ? companyIds[0] : null
 
   const [periodo, setPeriodo] = useState<7 | 30 | 90>(30)
+  const [contaId, setContaId] = useState<string>('')      // '' = todas as contas
+  const [categoria, setCategoria] = useState<string>('')  // '' = todas as categorias
+  const [filtros, setFiltros] = useState<Filtros>({ contas: [], categorias: [] })
   const [dados, setDados] = useState<FluxoResp | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const filtrandoCategoria = categoria !== ''
+
+  // Opções dos seletores (contas ativas + categorias usadas), uma chamada por empresa.
+  useEffect(() => {
+    let vivo = true
+    if (!empresaUnica) { setFiltros({ contas: [], categorias: [] }); return }
+    supabase.rpc('fn_fluxo_caixa_filtros', { p_company_id: empresaUnica }).then(({ data }) => {
+      if (vivo && data) setFiltros(data as Filtros)
+    })
+    return () => { vivo = false }
+  }, [empresaUnica])
 
   const carregar = useCallback(async () => {
     if (!empresaUnica) return
@@ -71,12 +89,13 @@ export default function FluxoCaixaPage() {
       p_company_id: empresaUnica,
       p_data_inicio: inicio.toISOString().slice(0, 10),
       p_data_fim: fim.toISOString().slice(0, 10),
-      p_conta_id: null,
+      p_conta_id: contaId || null,
+      p_categoria: categoria || null,
     })
     if (error) setErro('Não foi possível carregar o fluxo de caixa agora.')
     else setDados(data as FluxoResp)
     setCarregando(false)
-  }, [empresaUnica, periodo])
+  }, [empresaUnica, periodo, contaId, categoria])
 
   useEffect(() => { carregar() }, [carregar])
 
@@ -106,6 +125,10 @@ export default function FluxoCaixaPage() {
     saldoReal: d.data <= HOJE ? Number(d.saldo_final) : null,
     saldoPrevisto: d.data >= HOJE ? Number(d.saldo_final) : null,
     ehHoje: d.data === HOJE,
+    entrada: entradaDia(d),
+    saida: saidaDia(d),
+    movimento: d.movimento_dia,
+    futuro: !!d.eh_futuro,
   }))
   const temPrevisto = dias.some((d) => d.eh_futuro)
   const previstoEntrar = dados?.total_recebimentos_previstos ?? 0
@@ -125,6 +148,30 @@ export default function FluxoCaixaPage() {
     const a = Math.abs(v)
     if (a >= 1000) return `R$${(v / 1000).toFixed(a >= 10000 ? 0 : 1)}k`
     return `R$${Math.round(v)}`
+  }
+
+  const nomeContaSel = filtros.contas.find((c) => c.id === contaId)?.nome ?? ''
+  const rotuloSaldo = filtrandoCategoria ? 'Acumulado da categoria' : 'Saldo Atual'
+
+  // Exportar o período em CSV (separador ";" = padrão BR, abre direto no Excel).
+  const exportarCSV = () => {
+    const sep = ';'
+    const esc = (s: string) => `"${String(s).replace(/"/g, '""')}"`
+    const num = (v: number) => (v ?? 0).toFixed(2).replace('.', ',')
+    const cab = ['Data', 'Entradas', 'Saidas', 'Transf. entrada', 'Transf. saida', 'Movimento', 'Saldo no dia', 'Previsto']
+    const linhas = diasComMov.map((d) =>
+      [d.data, num(entradaDia(d)), num(saidaDia(d)), num(d.transferencias_entrada), num(d.transferencias_saida),
+        num(d.movimento_dia), num(d.saldo_final), d.eh_futuro ? 'sim' : 'nao'].map(esc).join(sep),
+    )
+    const ctx = [`Conta${sep}${esc(nomeContaSel || 'Todas as contas')}`, `Categoria${sep}${esc(categoria || 'Todas')}`]
+    const csv = '﻿' + [...ctx, '', cab.map(esc).join(sep), ...linhas].join('\r\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `fluxo-caixa_${hojeISO()}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   return (
@@ -154,8 +201,59 @@ export default function FluxoCaixaPage() {
         ))}
       </div>
 
+      {/* Filtros: conta + categoria (RD-99). O seletor de conta usa o fn_fluxo_caixa_diario já corrigido por conta. */}
+      <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+        <div style={{ flex: '1 1 180px', minWidth: 160 }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6, color: 'rgba(61,35,20,0.6)', marginBottom: 6 }}>
+            Conta<AjudaCampo chave="ge.fluxo_caixa.filtro_conta" rota={ROTA_AJUDA} />
+          </div>
+          <select value={contaId} onChange={(e) => setContaId(e.target.value)} style={selectStyle}>
+            <option value="">Todas as contas</option>
+            {filtros.contas.map((c) => (<option key={c.id} value={c.id}>{c.nome}</option>))}
+          </select>
+        </div>
+        <div style={{ flex: '1 1 180px', minWidth: 160 }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6, color: 'rgba(61,35,20,0.6)', marginBottom: 6 }}>
+            Categoria<AjudaCampo chave="ge.fluxo_caixa.filtro_categoria" rota={ROTA_AJUDA} />
+          </div>
+          <select value={categoria} onChange={(e) => setCategoria(e.target.value)} style={selectStyle}>
+            <option value="">Todas as categorias</option>
+            {filtros.categorias.map((c) => (<option key={c} value={c}>{c}</option>))}
+          </select>
+        </div>
+      </div>
+
+      {/* Ações: lançar movimentação direto e exportar (RD-98 pilar 2 / RD-99). */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6, color: 'rgba(61,35,20,0.6)' }}>
+          Lançar<AjudaCampo chave="ge.fluxo_caixa.nova_movimentacao" rota={ROTA_AJUDA} />
+        </div>
+        <button onClick={() => router.push('/dashboard/financeiro/nova-receita')}
+          style={{ padding: '8px 14px', borderRadius: PSGC_RADIUS.md, border: 'none', background: PSGC_COLORS.dourado, color: PSGC_COLORS.espresso, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+          + Lançar receita
+        </button>
+        <button onClick={() => router.push('/dashboard/financeiro/nova-despesa')}
+          style={{ padding: '8px 14px', borderRadius: PSGC_RADIUS.md, border: `1px solid ${PSGC_COLORS.espresso}`, background: 'transparent', color: PSGC_COLORS.espresso, fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+          − Lançar despesa
+        </button>
+        <span style={{ flex: 1 }} />
+        <div style={{ display: 'inline-flex', alignItems: 'center' }}>
+          <button onClick={exportarCSV} disabled={diasComMov.length === 0}
+            style={{ padding: '8px 14px', borderRadius: PSGC_RADIUS.md, border: `1px solid ${PSGC_COLORS.espresso}`, background: 'transparent', color: PSGC_COLORS.espresso, fontWeight: 700, fontSize: 13, cursor: diasComMov.length === 0 ? 'not-allowed' : 'pointer', opacity: diasComMov.length === 0 ? 0.45 : 1 }}>
+            ↓ Exportar CSV
+          </button>
+          <AjudaCampo chave="ge.fluxo_caixa.exportar" rota={ROTA_AJUDA} />
+        </div>
+      </div>
+
+      {filtrandoCategoria && (
+        <div style={{ background: '#FFF7ED', border: `1px solid ${PSGC_COLORS.dourado}`, borderRadius: PSGC_RADIUS.md, padding: '10px 12px', marginBottom: 16, fontSize: 12.5, color: PSGC_COLORS.espresso, lineHeight: 1.5 }}>
+          Mostrando só o fluxo da categoria <b>{categoria}</b>. O acumulado começa em zero (fluxo líquido da categoria no período) — o saldo bancário não pertence a uma categoria, e transferências não entram neste filtro.
+        </div>
+      )}
+
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12, marginBottom: 20 }}>
-        <PSGCMetric label="Saldo Atual" valor={brl(saldoHoje)} destaque
+        <PSGCMetric label={rotuloSaldo} valor={brl(saldoHoje)} destaque
           icon="wallet" cor={PSGC_COLORS.espresso} ajuda="ge.fluxo_caixa.kpi.saldo_atual" ajudaRota={ROTA_AJUDA} />
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <PSGCMetric label="Entradas realizadas no período" valor={brl(dados?.total_recebimentos ?? 0)}
@@ -175,8 +273,8 @@ export default function FluxoCaixaPage() {
 
       <div style={{ background: '#fff', borderRadius: PSGC_RADIUS.lg, padding: 16, marginBottom: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-          <p style={{ color: PSGC_COLORS.espresso, fontWeight: 700, fontSize: 14, margin: 0 }}>
-            Saldo dia a dia
+          <p style={{ color: PSGC_COLORS.espresso, fontWeight: 700, fontSize: 14, margin: 0, display: 'inline-flex', alignItems: 'center' }}>
+            Saldo dia a dia<AjudaCampo chave="ge.fluxo_caixa.grafico" rota={ROTA_AJUDA} />
           </p>
           {temPrevisto && (
             <div style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11, color: 'rgba(61,35,20,0.7)', gap: 10, flexWrap: 'wrap' }}>
@@ -215,9 +313,7 @@ export default function FluxoCaixaPage() {
               <XAxis dataKey="data" tick={{ fontSize: 10, fill: PSGC_COLORS.espresso }} interval="preserveStartEnd" />
               <YAxis tick={{ fontSize: 10, fill: PSGC_COLORS.espresso }} width={56}
                 domain={yDomain} tickFormatter={(v) => fmtEixoSaldo(Number(v))} />
-              <Tooltip
-                formatter={(v, n) => [brl(Number(v)), n === 'saldoPrevisto' ? 'Saldo previsto' : 'Saldo realizado']}
-                labelStyle={{ color: PSGC_COLORS.espresso }} />
+              <Tooltip content={<FluxoTooltip />} />
               <ReferenceLine x={hojeISO().slice(5)} stroke={PSGC_COLORS.dourado} strokeDasharray="4 2" />
               <Area type="monotone" dataKey="saldoReal" stroke={PSGC_COLORS.espresso}
                 strokeWidth={2} fill="url(#gradSaldo)" connectNulls
@@ -420,6 +516,45 @@ const ENTRADA = '#16A34A'
 const SAIDA = '#DC2626'
 const TRANSF_IN = '#3B82F6'
 const TRANSF_OUT = '#6B7280'
+
+// Tooltip do gráfico com o detalhamento do dia (entradas, saídas, movimento e saldo).
+type TipPayload = { payload: { data: string; entrada: number; saida: number; movimento: number; saldoReal: number | null; saldoPrevisto: number | null; futuro: boolean } }
+function FluxoTooltip({ active, payload }: { active?: boolean; payload?: TipPayload[] }) {
+  if (!active || !payload || payload.length === 0) return null
+  const d = payload[0].payload
+  const saldo = d.saldoReal ?? d.saldoPrevisto ?? 0
+  const row = (label: string, valor: string, cor: string) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, fontSize: 12 }}>
+      <span style={{ color: 'rgba(61,35,20,0.7)' }}>{label}</span>
+      <span style={{ color: cor, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{valor}</span>
+    </div>
+  )
+  return (
+    <div style={{ background: '#fff', border: '1px solid #e7ddd2', borderRadius: 8, padding: '8px 10px', boxShadow: '0 4px 14px rgba(61,35,20,0.12)', minWidth: 150 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: PSGC_COLORS.espresso, marginBottom: 4 }}>
+        {d.data}{d.futuro ? ' (previsto)' : ''}
+      </div>
+      {d.entrada > 0 && row('Entradas', `+${brl(d.entrada)}`, ENTRADA)}
+      {d.saida > 0 && row('Saídas', `−${brl(d.saida)}`, SAIDA)}
+      {row('Movimento', `${d.movimento > 0 ? '+' : d.movimento < 0 ? '−' : ''}${brl(Math.abs(d.movimento))}`, d.movimento > 0 ? ENTRADA : d.movimento < 0 ? SAIDA : 'rgba(61,35,20,0.6)')}
+      <div style={{ borderTop: '1px solid #f0ebe4', marginTop: 4, paddingTop: 4 }}>
+        {row(d.futuro ? 'Saldo previsto' : 'Saldo', brl(saldo), PSGC_COLORS.espresso)}
+      </div>
+    </div>
+  )
+}
+
+const selectStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '9px 10px',
+  borderRadius: 10,
+  border: '1px solid rgba(61,35,20,0.25)',
+  background: '#fff',
+  color: '#3D2314',
+  fontSize: 13,
+  fontWeight: 600,
+  cursor: 'pointer',
+}
 
 const th: React.CSSProperties = {
   fontSize: 11,
