@@ -314,7 +314,7 @@ export default function MeuPainelV6() {
   const selStyle: CSSProperties = { padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.bd}`, background: '#fff', color: C.esp, fontSize: 14, minHeight: 40 }
 
   return (
-    <div style={{ padding: 16, background: C.off, color: C.esp, minHeight: '100vh', boxSizing: 'border-box', width: '100%', maxWidth: 1100, marginLeft: 'auto', marginRight: 'auto', overflowX: 'hidden' }}>
+    <div style={{ padding: '16px clamp(16px, 2vw, 28px)', background: C.off, color: C.esp, minHeight: '100vh', boxSizing: 'border-box', width: '100%', maxWidth: 1400, marginLeft: 'auto', marginRight: 'auto', overflowX: 'hidden' }}>
       <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 4px' }}>Painel de vendas</h1>
       <p style={{ fontSize: 14, color: C.m, margin: '0 0 12px' }}>
         {base ? <>De {dataBR(base.de)} a {dataBR(base.ate)}.</> : null}
