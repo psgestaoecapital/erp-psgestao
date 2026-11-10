@@ -119,6 +119,21 @@ export default function ContratoFeeModal({ companyId, contratoId, onClose, onSav
 
   const ativo = row?.status === 'ativo'
 
+  // #6703 · ao escolher o cliente, o CPF/CNPJ do contratante vem do cadastro do cliente (erp_clientes),
+  // em vez de ser digitado à mão. Continua editável antes de gerar o contrato (RD-38: dado vem do cadastro).
+  async function escolherCliente(id: string) {
+    setCli(id)
+    if (!id) return
+    const { data } = await supabase
+      .from('erp_clientes')
+      .select('cnpj_cpf,cpf_cnpj')
+      .eq('id', id)
+      .maybeSingle()
+    const c = data as { cnpj_cpf?: string | null; cpf_cnpj?: string | null } | null
+    const docCad = (c?.cnpj_cpf ?? c?.cpf_cnpj ?? '').trim()
+    if (docCad) setDoc(docCad)
+  }
+
   async function salvarCabecalho() {
     setErro(null); setToast(null)
     const dia = diaVenc ? Number(diaVenc) : null
@@ -204,7 +219,7 @@ export default function ContratoFeeModal({ companyId, contratoId, onClose, onSav
 
               {/* Cabeçalho do fee */}
               <Campo label="Cliente">
-                <ClientePickerInline companyId={companyId} value={cli} onChange={(id) => setCli(id)} onToast={(s) => setToast(s)} />
+                <ClientePickerInline companyId={companyId} value={cli} onChange={(id) => void escolherCliente(id)} onToast={(s) => setToast(s)} />
               </Campo>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <Campo label="Código identificador"><input style={inp} value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="Ex.: FEE-2026-001" /></Campo>
