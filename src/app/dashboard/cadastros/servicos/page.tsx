@@ -10,6 +10,7 @@ import ConfirmarClonar from '@/components/cadastros/ConfirmarClonar'
 import ServicoForm, { type Servico } from '@/components/cadastros/ServicoForm'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { Briefcase, Plus, Search, Edit, Loader2, Copy, Trash2, RotateCcw } from 'lucide-react'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 export const dynamic = 'force-dynamic'
 
@@ -102,7 +103,7 @@ export default function ServicosPage() {
         setServicos((prev) => (reset ? rows : [...prev, ...rows]))
         offsetRef.current += rows.length
       } catch (e) {
-        setErro(e instanceof Error ? e.message : 'Erro ao carregar servicos')
+        setErro(erroAmigavel(e, 'Não foi possível carregar os serviços.'))
       } finally {
         setLoading(false)
         setLoadingMore(false)
@@ -122,7 +123,7 @@ export default function ServicosPage() {
     setAcaoBusy(true); setAcaoErro(null)
     const { data, error } = await supabase.rpc('fn_erp_servico_excluir', { p_servico_id: excluindoServico.id, p_company_id: companyId })
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { setAcaoErro(error?.message ?? (r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : 'Não foi possível excluir.')) }
+    if (error || !r?.ok) { setAcaoErro(r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : erroAmigavel(error, 'Não foi possível excluir.')) }
     else { setExcluindoServico(null); await carregar(true) }
     setAcaoBusy(false)
   }
@@ -132,7 +133,7 @@ export default function ServicosPage() {
     setAcaoBusy(true); setAcaoErro(null)
     const { data, error } = await supabase.rpc('fn_erp_servico_reativar', { p_servico_id: s.id, p_company_id: companyId })
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) setAcaoErro(error?.message ?? 'Não foi possível reativar.')
+    if (error || !r?.ok) setAcaoErro(erroAmigavel(error, 'Não foi possível reativar.'))
     else await carregar(true)
     setAcaoBusy(false)
   }
