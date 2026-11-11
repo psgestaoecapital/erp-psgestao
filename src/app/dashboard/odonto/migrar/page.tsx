@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react'
 import { UploadCloud, Check, AlertTriangle, ArrowRight } from 'lucide-react'
 import ExcelJS from 'exceljs'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { odontoParseRows, type OdontoParsedRecord } from '@/lib/import/odonto'
 
 const ESP = '#3D2314'
@@ -117,7 +118,7 @@ export default function MigrarPacientesPage() {
       p_dry_run: dryRun,
     })
     setBusy(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível importar. Confira a planilha e tente de novo.')); return }
     if (dryRun) setPreview(data as Preview)
     else setDone(data as Preview)
   }
