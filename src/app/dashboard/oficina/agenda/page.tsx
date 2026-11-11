@@ -9,6 +9,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { orFiltroClienteBusca } from '@/lib/clienteBusca'
 import { diasParaImpressao, mecanicosDoPeriodo, nomeMecanico } from '@/lib/agenda/impressao'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A', AMBAR = '#B45309', VERM = '#B91C1C'
 const iso = (d: Date) => d.toISOString().slice(0, 10)
@@ -70,7 +71,7 @@ export default function OficinaAgendaPage() {
     setLoading(true); setErro('')
     const { data, error } = await supabase.rpc('fn_agenda_listar', { p_company_ids: companyIds, p_origem: 'oficina', p_de: range.de, p_ate: range.ate })
     setLoading(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar a agenda. Tente de novo.')); return }
     setAgs((data as Ag[]) ?? [])
   }, [companyIds, range])
 
@@ -87,7 +88,7 @@ export default function OficinaAgendaPage() {
       if (!confirm(`Marcar como "Não compareceu"${a.cliente_nome ? ` — ${a.cliente_nome}` : ''}?\n\nDiferente de cancelar: o cliente não avisou.`)) return
     }
     const { error } = await supabase.rpc('fn_agendamento_mudar_status', { p_id: a.id, p_status: s, p_motivo: motivo })
-    if (error) { setMsg('Erro: ' + error.message); return }
+    if (error) { setMsg(erroAmigavel(error, 'Não foi possível mudar o status. Tente de novo.')); return }
     const verbo = s === 'confirmado' ? 'CONFIRMOU' : s === 'concluido' ? 'CONCLUIU' : s === 'em_atendimento' ? 'INICIOU'
       : s === 'cancelado' ? 'CANCELOU' : s === 'nao_compareceu' ? 'marcou NÃO COMPARECEU em' : 'ATUALIZOU'
     setMsg(`${verbo} o agendamento${a.cliente_nome ? ` de ${a.cliente_nome}` : ''}.`)
@@ -102,7 +103,7 @@ export default function OficinaAgendaPage() {
     const { data, error } = await supabase.rpc('fn_agendamento_excluir', { p_id: a.id, p_motivo: motivo.trim() || null })
     const r = data as { ok?: boolean; erro?: string } | null
     if (error || r?.ok === false) {
-      setMsg('Erro: ' + (r?.erro === 'ja_virou_os' ? 'Este agendamento já virou OS — não dá para excluir pela agenda.' : (error?.message || r?.erro || 'falha ao excluir')))
+      setMsg(r?.erro === 'ja_virou_os' ? 'Este agendamento já virou OS — não dá para excluir pela agenda.' : erroAmigavel(error, codigoAmigavel(r?.erro, 'Não foi possível excluir. Tente de novo.')))
       return
     }
     setMsg(`EXCLUIU o agendamento${a.cliente_nome ? ` de ${a.cliente_nome}` : ''}.`)
@@ -427,7 +428,7 @@ function ModalNovo({ daOS, companyId, dataDefault, onClose, onCriou }: { daOS?: 
       p_observacao: f.obs.trim() || null, p_orcamento_id: null,
     })
     setBusy(false)
-    if (error) { setErr(error.message); return }
+    if (error) { setErr(erroAmigavel(error, 'Não foi possível criar o agendamento. Tente de novo.')); return }
     onCriou(`CRIOU agendamento${f.cliente ? ` para ${f.cliente}` : ''}.`)
   }
 
@@ -532,7 +533,7 @@ function ModalEditar({ companyId, ag, onClose, onSalvou }: { companyId: string; 
     const r = data as { ok?: boolean; erro?: string } | null
     if (error || r?.ok === false) {
       setErr(r?.erro === 'ja_virou_os' ? 'Este agendamento já virou OS — não dá para editar pela agenda.'
-        : (error?.message || r?.erro || 'Falha ao salvar')); return
+        : erroAmigavel(error, codigoAmigavel(r?.erro, 'Não foi possível salvar. Tente de novo.'))); return
     }
     onSalvou(`ATUALIZOU o agendamento${f.cliente ? ` de ${f.cliente}` : ''}.`)
   }
