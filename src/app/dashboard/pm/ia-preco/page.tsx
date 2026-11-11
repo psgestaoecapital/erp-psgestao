@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
 const BORDA = '#E7DED3'; const TEXTM = '#6b5444'; const GREEN = '#1F5A1F'; const YELLOW = '#7A5A0F'; const RED = '#7A1F1F'
@@ -66,7 +67,7 @@ export default function IaPrecoPage() {
     const { data, error } = await supabase.rpc('fn_pm_preco_sugerido', {
       p_company_id: empresa, p_servico_id: servicoSel || null, p_tipo: null, p_margem_pct: margem,
     })
-    if (error) { setMsg({ tipo: 'erro', texto: `Não foi possível calcular: ${error.message}` }) }
+    if (error) { setMsg({ tipo: 'erro', texto: erroAmigavel(error, 'Não foi possível calcular o preço sugerido. Tente de novo.') }) }
     else { setResultado(data as Resultado) }
     setCalculando(false)
   }, [empresa, servicoSel, margemInput])
@@ -82,7 +83,7 @@ export default function IaPrecoPage() {
       p_company_id: empresa, p_servico_id: servicoSel || null, p_margem_pct: margem, p_observacao: null,
     })
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { setMsg({ tipo: 'erro', texto: `Não foi possível salvar: ${error?.message ?? r?.erro ?? 'erro'}` }) }
+    if (error || !r?.ok) { setMsg({ tipo: 'erro', texto: error ? erroAmigavel(error, 'Não foi possível salvar a margem-alvo. Tente de novo.') : codigoAmigavel(r?.erro, 'Não foi possível salvar a margem-alvo. Tente de novo.') }) }
     else {
       setMsg({ tipo: 'ok', texto: servicoSel ? 'Margem-alvo do serviço salva.' : 'Margem-alvo geral da empresa salva.' })
       await carregar()
@@ -95,7 +96,7 @@ export default function IaPrecoPage() {
     if (!window.confirm(`Excluir a margem-alvo de "${m.servico_nome}"? A tela volta a usar a margem geral ou o padrão.`)) return
     const { data, error } = await supabase.rpc('fn_pm_margem_alvo_excluir', { p_id: m.id })
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { setMsg({ tipo: 'erro', texto: `Não foi possível excluir: ${error?.message ?? r?.erro ?? 'erro'}` }) }
+    if (error || !r?.ok) { setMsg({ tipo: 'erro', texto: error ? erroAmigavel(error, 'Não foi possível excluir a margem-alvo. Tente de novo.') : codigoAmigavel(r?.erro, 'Não foi possível excluir a margem-alvo. Tente de novo.') }) }
     else { setMsg({ tipo: 'ok', texto: 'Margem-alvo excluída.' }); await carregar() }
   }, [empresa, carregar])
 
