@@ -48,7 +48,7 @@ export function RelatorioViagens({ empresa, obras }: { empresa: string; obras: O
 
   const carregar = useCallback(async () => {
     const { data, error } = await supabase.rpc('fn_viagem_relatorio', { p_company_id: empresa, p_ini: ini || null, p_fim: fim || null, p_obra_id: obra || null })
-    if (error) { setErro(error.message); setRel(null); return }
+    if (error) { setErro('Não foi possível carregar o relatório de viagens. Tente novamente.'); setRel(null); return }
     setErro(''); setRel(data as Rel)
   }, [empresa, ini, fim, obra])
   // eslint-disable-next-line react-hooks/set-state-in-effect -- recarrega ao mudar os filtros
