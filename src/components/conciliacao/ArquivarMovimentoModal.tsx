@@ -5,6 +5,9 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA = '/dashboard/financeiro/conciliacao/inbox'
 
 interface Props {
   open: boolean
@@ -55,7 +58,7 @@ export default function ArquivarMovimentoModal({ open, onClose, onSucesso, movim
         {descricao && <p style={{ fontSize: 12, color: 'rgba(61,35,20,0.65)', marginTop: 4, marginBottom: 14 }}>{descricao}</p>}
 
         <div style={{ fontSize: 10, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600, marginBottom: 6 }}>
-          Por que ignorar?
+          Por que ignorar?<AjudaCampo chave="financeiro.conciliacao.arquivar_motivo" rota={ROTA} />
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
           {SUGESTOES.map((s) => (
@@ -78,7 +81,8 @@ export default function ArquivarMovimentoModal({ open, onClose, onSucesso, movim
 
         {erro && <div style={erroBox}>{erro}</div>}
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 18, justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', gap: 8, marginTop: 18, justifyContent: 'flex-end', alignItems: 'center' }}>
+          <AjudaCampo chave="financeiro.conciliacao.arquivar_acao" rota={ROTA} />
           <button onClick={onClose} disabled={loading} style={secondaryBtn(loading)}>Cancelar</button>
           <button onClick={confirmar} disabled={loading} style={primaryBtn(loading)}>
             {loading ? 'Ignorando…' : 'Ignorar movimento'}

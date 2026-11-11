@@ -11,6 +11,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import Link from 'next/link'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { buscarCEP } from '@/lib/cadastros/buscarCEP'
 import { aplicarCEP, aplicarCNPJ, brlCurto, cepCompleto, cnpjCompleto, comercialPorCliente, etapaPorCliente, ETAPAS_FECHADAS, ganhasSemObra, iniciais, linkNovaOportunidade, obraRecenteCidadePorCliente, obraRecenteIdPorCliente, obraRecenteNomePorCliente, obraRecentePorCliente, obrasPorCliente, oportunidadesComObra, resultadoPorCliente, rotuloStatusObra, temContato, tipoPessoaNormal, valorOportunidade, type Comercial, type ObraLinha, type ObraResultadoLinha, type OpLinha, type ResultadoCliente, type TipoPF } from './clientes-regras'
 import { cpfValido, soDigitosCpf } from '@/lib/documentos/cpf'
@@ -117,7 +118,7 @@ export default function ClientesPage() {
       .eq('ativo', true)
       .order('nome_fantasia', { nullsFirst: false })
       .limit(1000)
-    if (error) { setErro(error.message); setLista([]) } else { setLista((data ?? []) as Cliente[]) }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar os clientes. Tente de novo.')); setLista([]) } else { setLista((data ?? []) as Cliente[]) }
     // Obras de cada cliente (quantas, a mais recente com cidade) e o RESULTADO de cada obra (v_obra_resultado — a mesma
     // base do cockpit): uma consulta cada, contadas/agregadas na tela. O resultado por cliente desfaz a suspeita do auditor
     // ("Com obra = Clientes ativos" parecer hardcode): cada cliente ganha uma margem própria (RD-38, fecha com a obra).
@@ -224,7 +225,7 @@ export default function ClientesPage() {
       : supabase.from('erp_clientes').insert(payload)
     const { error } = await q
     setSalvando(false)
-    if (error) { setErro(`Erro ao salvar: ${error.message}`); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível salvar o cliente. Tente de novo.')); return }
     setOk(editando ? `ALTEROU cliente ${nome}` : `CRIOU cliente ${nome}`)
     setForm(null)
     await carregar()
@@ -236,7 +237,7 @@ export default function ClientesPage() {
     // RD-98 p4: exclusão rastreável via RPC (soft-delete ativo=false + excluido_em/excluido_por + audit_log_global),
     // em vez do update direto que não registrava quem/quando. A listagem segue filtrando ativo=true.
     const { data, error } = await supabase.rpc('fn_cliente_arquivar', { p_id: c.id })
-    if (error || !(data as { ok?: boolean } | null)?.ok) { setErro(`Erro ao excluir: ${error?.message ?? (data as { erro?: string } | null)?.erro ?? 'tente de novo'}`); return }
+    if (error || !(data as { ok?: boolean } | null)?.ok) { setErro(erroAmigavel(error, 'Não foi possível excluir o cliente. Tente de novo.')); return }
     setOk(`EXCLUIU (arquivou) ${nomeOf(c)}`)
     if (sel2?.id === c.id) setSel2(null)
     await carregar()
@@ -284,7 +285,7 @@ export default function ClientesPage() {
     let error = eCria
     // A obra da venda guarda a oportunidade de origem (o botão some e o funil sabe que a venda virou obra).
     if (!error && op && obraId) ({ error } = await supabase.from('projetos_obras').update({ oportunidade_id: op.id }).eq('id', obraId as string))
-    if (error) { setErro(`Erro ao criar obra: ${error.message}`); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível criar a obra. Tente de novo.')); return }
     setOk(`CRIOU obra "${nome.trim()}" para ${nomeOf(c)}`)
     await Promise.all([carregarObras(c.id), carregar()])
     setTimeout(() => setOk(null), 4000)
@@ -313,12 +314,16 @@ export default function ClientesPage() {
         <Indicador rotulo="Em negociação" valor={loading ? '…' : brlCurto(resumo.emAberto)} ajuda="projetos.clientes.kpi.em_aberto" dica={!loading && resumo.emAberto === 0 ? 'Sem proposta ou oportunidade em aberto neste recorte' : undefined} />
       </div>
 
-      {/* Toolbar */}
+      {/* Toolbar — cada "?" fica colado ao seu controle (busca e ação), sem ficar solto no meio da barra */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }}>
-        <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por nome, documento, cidade, contato…" style={{ ...inp, flex: 1, minWidth: 200 }} />
-        <AjudaCampo chave="projetos.clientes.busca" />
-        <button onClick={() => { setCepMsg(null); setDocMsg(null); setForm({ ...VAZIO }) }} style={btnGold}>+ Novo cliente</button>
-        <AjudaCampo chave="projetos.clientes.acao.novo" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 200 }}>
+          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por nome, documento, cidade, contato…" style={{ ...inp, flex: 1, minWidth: 0 }} />
+          <AjudaCampo chave="projetos.clientes.busca" />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <button onClick={() => { setCepMsg(null); setDocMsg(null); setForm({ ...VAZIO }) }} style={btnGold}>+ Novo cliente</button>
+          <AjudaCampo chave="projetos.clientes.acao.novo" />
+        </div>
       </div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
         {([['', 'Todos'], ['PJ', 'Pessoa jurídica'], ['PF', 'Pessoa física']] as const).map(([v, r]) => (

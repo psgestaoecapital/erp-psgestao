@@ -9,6 +9,7 @@ import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, us
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, rectSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { mensagemDeResultado, estiloBordaInput } from '@/components/ui/feedback/contratoSalvar'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
@@ -79,7 +80,7 @@ function Inner() {
   const carregar = useCallback(async () => {
     if (!id) return
     const { data: vd, error: ve } = await supabase.from('veic_veiculo').select('*').eq('id', id).is('deleted_at', null).maybeSingle()
-    if (ve) { setErro(ve.message); return }
+    if (ve) { setErro(erroAmigavel(ve, 'Não foi possível carregar o veículo. Tente de novo.')); return }
     setV(vd as Veic | null)
     const comp = (vd as Veic | null)?.company_id
     const [cs, es, cfg, rs, vs, cp] = await Promise.all([
@@ -137,13 +138,13 @@ function Inner() {
     if (nova === 'vendido' && !venda) { setModal('venda'); return }
     const { data, error } = await supabase.rpc('fn_veic_mudar_situacao', { p_veiculo_id: id, p_nova: nova, p_user: await userId(), p_obs: null })
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha'); return }
+    if (error || !r?.ok) { setErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha.'))); return }
     setMsg('Situação atualizada.'); void carregar()
   }
   async function excluirCusto(custoId: string) {
     const { data, error } = await supabase.rpc('fn_veic_custo_excluir', { p_custo_id: custoId, p_user: await userId() })
     const r = data as { ok?: boolean; erro?: string; tinha_titulo?: boolean } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha'); return }
+    if (error || !r?.ok) { setErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha.'))); return }
     setMsg(r.tinha_titulo ? '⚠️ Custo excluído. O título em Contas a Pagar NÃO foi excluído — trate-o no financeiro.' : 'Custo excluído.')
     void carregar()
   }
@@ -151,7 +152,7 @@ function Inner() {
     if (!reserva) return
     const { data, error } = await supabase.rpc('fn_veic_reserva_cancelar', { p_reserva_id: reserva.id, p_user: await userId() })
     const r = data as { ok?: boolean; erro?: string; tinha_sinal?: boolean } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha'); return }
+    if (error || !r?.ok) { setErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha.'))); return }
     setMsg(r.tinha_sinal ? '⚠️ Reserva cancelada. O título do sinal NÃO foi excluído — trate-o no financeiro.' : 'Reserva cancelada.')
     void carregar()
   }
@@ -159,14 +160,14 @@ function Inner() {
     if (!venda) return
     const { data, error } = await supabase.rpc('fn_veic_venda_entregar', { p_venda_id: venda.id, p_user: await userId(), p_obs: null })
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha'); return }
+    if (error || !r?.ok) { setErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha.'))); return }
     setMsg('Veículo entregue.'); void carregar()
   }
   async function cancelarVenda() {
     if (!venda) return
     const { data, error } = await supabase.rpc('fn_veic_venda_cancelar', { p_venda_id: venda.id, p_user: await userId(), p_motivo: null })
     const r = data as { ok?: boolean; erro?: string; titulos_nao_excluidos?: number } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha'); return }
+    if (error || !r?.ok) { setErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha.'))); return }
     setMsg(r.titulos_nao_excluidos ? `⚠️ Venda cancelada. ${r.titulos_nao_excluidos} título(s) em Contas a Receber NÃO foram excluídos — trate-os no financeiro.` : 'Venda cancelada.')
     void carregar()
   }
@@ -517,6 +518,17 @@ function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onS
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [campo, setCampo] = useState<string | null>(null)
+  // #8162 etapa 2c: bancos parceiros cadastrados (Configuração da garagem) para seleção na venda.
+  // Leitura tolerante: se a empresa ainda não cadastrou nenhum (ou a tabela ainda não existe no
+  // ambiente), a lista fica vazia e o campo "banco" segue como texto livre (compatibilidade total).
+  const [parceiros, setParceiros] = useState<{ id: string; nome: string; retorno_pct: number | null }[]>([])
+  useEffect(() => {
+    if (!companyId) { setParceiros([]); return }
+    let vivo = true
+    void supabase.from('veic_banco_parceiro').select('id, nome, retorno_pct').eq('company_id', companyId).eq('ativo', true).order('nome')
+      .then(({ data }) => { if (vivo) setParceiros((data ?? []) as { id: string; nome: string; retorno_pct: number | null }[]) })
+    return () => { vivo = false }
+  }, [companyId])
   // Simulador ao vivo (§3.2): o vendedor vê as duas margens recalcularem ANTES de fechar — o momento
   // em que a decisão ainda pode mudar. Mesma conta da fn_veic_venda_composicao, só que client-side.
   const n = (s: string): number => moedaNum(s) ?? 0
@@ -536,6 +548,22 @@ function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onS
   const vvNum = moedaNum(f.valor_venda) ?? NaN
   const vvOk = f.valor_venda.trim() !== '' && Number.isFinite(vvNum) && vvNum > 0
   const podeEnviar = !!f.cliente_nome.trim() && vvOk && !busy
+  // #8162 etapa 2c: retorno previsto = % do banco parceiro × valor financiado (editável pelo operador).
+  const parceiroSel = parceiros.find((p) => p.nome === (f.banco_nome ?? ''))
+  const financiadoNum = moedaNum(f.valor_financiado)
+  const retornoPrevisto = parceiroSel && parceiroSel.retorno_pct != null && financiadoNum != null
+    ? Math.round(financiadoNum * parceiroSel.retorno_pct) / 100
+    : null
+  const escolherBanco = (nome: string) => {
+    const p = parceiros.find((x) => x.nome === nome)
+    const fin = moedaNum(f.valor_financiado)
+    setF((s) => {
+      const prox = { ...s, banco_nome: nome }
+      // retorno em centavos = financiado(reais) × pct (ex.: 50000 × 2 = 100000 cent = R$ 1.000,00)
+      if (p && p.retorno_pct != null && fin != null) prox.retorno_banco = moedaMascara(String(Math.round(fin * p.retorno_pct)))
+      return prox
+    })
+  }
   async function salvar() {
     setErro(null); setCampo(null)
     if (!f.cliente_nome.trim()) { setErro('Informe o nome do cliente.'); setCampo('cliente_nome'); return }
@@ -585,9 +613,31 @@ function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onS
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         <InputMoeda value={f.valor_entrada} onChange={(v) => setF({ ...f, valor_entrada: v })} placeholder="entrada (cliente)" ajuda="revenda.venda.entrada" style={inp} />
         <InputMoeda value={f.valor_financiado} onChange={(v) => setF({ ...f, valor_financiado: v })} placeholder="financiado (banco)" ajuda="revenda.venda.financiado" style={inp} />
-        <input value={f.banco_nome} onChange={(e) => setF({ ...f, banco_nome: e.target.value })} placeholder="banco" style={inp} />
+        {parceiros.length === 0 ? (
+          <input value={f.banco_nome} onChange={(e) => setF({ ...f, banco_nome: e.target.value })} placeholder="banco" style={inp} />
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <select value={f.banco_nome} onChange={(e) => escolherBanco(e.target.value)} style={{ ...inp, flex: 1, minWidth: 0 }} aria-label="banco parceiro (financiamento)">
+              <option value="">— banco (financiamento) —</option>
+              {parceiros.map((p) => <option key={p.id} value={p.nome}>{p.nome}{p.retorno_pct != null ? ` (${p.retorno_pct}%)` : ''}</option>)}
+              {f.banco_nome && !parceiros.some((p) => p.nome === f.banco_nome) && <option value={f.banco_nome}>{f.banco_nome} (cadastro antigo)</option>}
+            </select>
+            <AjudaCampo chave="revenda.venda.banco_parceiro" rota="/dashboard/revenda/veiculo" />
+          </div>
+        )}
         <InputMoeda value={f.retorno_banco} onChange={(v) => setF({ ...f, retorno_banco: v })} placeholder="retorno do banco (receita)" ajuda="revenda.venda.retorno_banco" style={inp} />
       </div>
+      {parceiroSel && parceiroSel.retorno_pct != null && (
+        <div style={{ marginTop: 6, fontSize: 12, color: C.espM, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span>Retorno previsto ({parceiroSel.retorno_pct}% × financiado): <b style={{ color: C.esp }}>{retornoPrevisto == null ? 'informe o financiado' : brl(retornoPrevisto)}</b>. Valor editável acima.</span>
+          {retornoPrevisto != null && (moedaNum(f.retorno_banco) ?? 0) !== retornoPrevisto && (
+            <button type="button" onClick={() => setF((s) => ({ ...s, retorno_banco: moedaMascara(String(Math.round(retornoPrevisto * 100))) }))}
+              style={{ border: `1px solid ${C.gold}`, background: C.white, color: C.gold, borderRadius: 6, padding: '3px 10px', cursor: 'pointer', fontSize: 11.5, fontWeight: 700 }}>
+              aplicar retorno previsto
+            </button>
+          )}
+        </div>
+      )}
       <div style={{ fontSize: 11, color: C.espL, marginTop: 4 }}>O financiado é cobrado do banco; a entrada, do cliente. Cada um vira um título em contas a receber com o devedor certo. Se a tabela acima tiver linhas, ela vale no lugar do resumo.</div>
 
       <label style={{ fontSize: 13, color: C.esp, display: 'inline-flex', alignItems: 'center', gap: 6, margin: '12px 0 4px', fontWeight: 700 }}>
@@ -1008,7 +1058,7 @@ function PreparacaoBloco({ veiculoId, companyId, onMsg, onErro, onChange }: { ve
     const { data, error } = await supabase.rpc('fn_veic_preparacao_concluir', { p_os_id: os.os_id, p_user: user?.id ?? null })
     setBusy(null)
     const r = data as { ok?: boolean; erro?: string; ja_lancado?: boolean; valor?: number; sem_custo?: boolean } | null
-    if (error || !r?.ok) { onErro(error?.message || r?.erro || 'Falha ao concluir a OS.'); return }
+    if (error || !r?.ok) { onErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao concluir a OS.'))); return }
     if (r.ja_lancado) onMsg(`OS ${os.numero} já estava lançada — nenhum custo duplicado.`)
     else if (r.sem_custo) onMsg(`OS ${os.numero} concluída (sem valor lançado — nenhum custo criado).`)
     else onMsg(`OS ${os.numero} concluída. CRIOU o custo de ${brl(r.valor ?? 0)} no veículo. A conta a pagar é opcional: lance em "Custos no chassi" quando tiver fornecedor e vencimento.`)
@@ -1084,7 +1134,7 @@ function PreparacaoModal({ veiculoId, onClose, onSaved, onErro }: { veiculoId: s
     })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string; numero?: string } | null
-    if (error || !r?.ok) { onErro(error?.message || r?.erro || 'Falha ao abrir a OS.'); return }
+    if (error || !r?.ok) { onErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao abrir a OS.'))); return }
     onSaved(r.numero ?? '')
   }
   return (
@@ -1184,7 +1234,7 @@ function RegistrarInteresseModal({ veiculoId, companyId, onClose, onSaved, onErr
       p_user: uid,
     })
     const r = data as { ok?: boolean; erro?: string; oportunidade_id?: string } | null
-    if (error || !r?.ok) { setBusy(false); onErro(error?.message || r?.erro || 'Falha ao registrar o interesse.'); return }
+    if (error || !r?.ok) { setBusy(false); onErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao registrar o interesse.'))); return }
     if (proc.on && (proc.marca.trim() || proc.modelo.trim())) {
       await supabase.rpc('fn_veic_procura_registrar', {
         p_company_id: companyId,
@@ -1714,7 +1764,7 @@ function FotosVeiculo({ veiculoId, companyId, onErro, onMsg }: { veiculoId: stri
         if (error || !r?.ok) {
           // upload subiu mas o registro falhou → remove o objeto órfão (mesmo padrão provado na vistoria)
           falhas++
-          ultimoErro = r?.erro || error?.message || 'Falha ao registrar foto'
+          ultimoErro = erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao registrar foto.'))
           onErro(ultimoErro)
           await supabase.storage.from('revenda-veiculos').remove([path])
           continue
@@ -1867,7 +1917,7 @@ function AnuncioVeiculo({ v, onErro, onMsg, onSaved }: { v: Veic; onErro: (m: st
     const { data, error } = await supabase.rpc('fn_veic_anuncio_salvar', { p_veiculo_id: v.id, p_texto: texto })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { onErro(r?.erro === 'sem_acesso' ? 'Sem acesso a este veículo.' : (error?.message || 'Falha ao salvar o anúncio.')); return }
+    if (error || !r?.ok) { onErro(r?.erro === 'sem_acesso' ? 'Sem acesso a este veículo.' : erroAmigavel(error, 'Falha ao salvar o anúncio.')); return }
     onMsg('Anúncio salvo.'); onSaved()
   }
 
@@ -1945,7 +1995,7 @@ function CrlvVeiculo({ veiculoId, companyId, crlvPath, onErro, onMsg, onChange }
       const r = data as { ok?: boolean; erro?: string } | null
       if (error || !r?.ok) {
         // registro falhou → remove o objeto órfão (mesmo padrão das fotos/vistoria)
-        onErro(r?.erro === 'sem_acesso' ? 'Sem acesso a este veículo.' : (r?.erro || error?.message || 'Falha ao registrar o CRLV'))
+        onErro(r?.erro === 'sem_acesso' ? 'Sem acesso a este veículo.' : erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao registrar o CRLV.')))
         await supabase.storage.from('revenda-veiculos').remove([path])
         return
       }
@@ -1961,7 +2011,7 @@ function CrlvVeiculo({ veiculoId, companyId, crlvPath, onErro, onMsg, onChange }
     try {
       const { data, error } = await supabase.rpc('fn_veic_atualizar_dados', { p_veiculo_id: veiculoId, p_dados: { crlv_storage_path: '' }, p_user: await uid() })
       const r = data as { ok?: boolean; erro?: string } | null
-      if (error || !r?.ok) { onErro(r?.erro || error?.message || 'Falha ao remover o CRLV'); return }
+      if (error || !r?.ok) { onErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao remover o CRLV.'))); return }
       await supabase.storage.from('revenda-veiculos').remove([crlvPath])
       onMsg('CRLV removido.'); onChange()
     } finally { setBusy(false) }

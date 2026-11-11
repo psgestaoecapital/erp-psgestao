@@ -1,5 +1,6 @@
 "use client";
 import React, { useState, useEffect } from "react";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
@@ -213,16 +214,28 @@ export default function ContasPage(){
 
   return(
     <div style={{minHeight:"100vh",background:BG,padding:20}}>
-      <div style={{marginBottom:16}}>
-        <div style={{fontSize:22,fontWeight:700,color:TX,fontFamily:"var(--ps-font-display,serif)"}}>💰 Contas a Pagar e Receber</div>
-        <div style={{fontSize:11,color:TXD,display:"flex",gap:8,alignItems:"center"}}>
-          <span>
-            {selInfo.tipo==='consolidado'?'📊 Consolidado · ':selInfo.tipo==='grupo'?'📁 Grupo · ':'🏢 '}
-            <strong>{selInfo.nome}</strong>
-            {selInfo.isGroup&&` (${selInfo.count} empresas)`}
-          </span>
-          <span>·</span>
-          <span>Baixa em lote · Alteração de vencimento · Exportação</span>
+      <div style={{marginBottom:16,display:"flex",gap:12,alignItems:"flex-start",flexWrap:"wrap",justifyContent:"space-between"}}>
+        <div>
+          <div style={{fontSize:22,fontWeight:700,color:TX,fontFamily:"var(--ps-font-display,serif)"}}>💰 Contas a Pagar e Receber</div>
+          <div style={{fontSize:11,color:TXD,display:"flex",gap:8,alignItems:"center"}}>
+            <span>
+              {selInfo.tipo==='consolidado'?'📊 Consolidado · ':selInfo.tipo==='grupo'?'📁 Grupo · ':'🏢 '}
+              <strong>{selInfo.nome}</strong>
+              {selInfo.isGroup&&` (${selInfo.count} empresas)`}
+            </span>
+            <span>·</span>
+            <span>Baixa em lote · Alteração de vencimento · Exportação</span>
+          </div>
+        </div>
+        {/* Incluir (RD-98 p2): esta é uma visão consolidada; a criação de títulos é nas telas-fonte. CTAs visíveis levam direto a elas. */}
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          <span style={{fontSize:10,color:TXD}}>Novo título:</span>
+          <Link href="/dashboard/financeiro/receber" style={{textDecoration:"none"}}>
+            <span style={{display:"inline-flex",alignItems:"center",gap:4,padding:"8px 14px",borderRadius:8,background:G+"12",border:`1px solid ${G}`,color:G,fontSize:11,fontWeight:600,cursor:"pointer"}}>+ A Receber</span>
+          </Link>
+          <Link href="/dashboard/financeiro/pagar" style={{textDecoration:"none"}}>
+            <span style={{display:"inline-flex",alignItems:"center",gap:4,padding:"8px 14px",borderRadius:8,background:R+"12",border:`1px solid ${R}`,color:R,fontSize:11,fontWeight:600,cursor:"pointer"}}>+ A Pagar</span>
+          </Link>
         </div>
       </div>
 

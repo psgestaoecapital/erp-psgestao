@@ -10,6 +10,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 export type TipoLancamento = 'pagar' | 'receber'
 export type Campos = Record<string, string | null>
@@ -52,7 +53,7 @@ export function useEdicaoLancamento(tipo: TipoLancamento, id: string | undefined
       .then(({ data, error }) => {
         if (!alive) return
         setCarregando(false)
-        if (error) { setErroCarga(error.message); return }
+        if (error) { setErroCarga(erroAmigavel(error, 'Não foi possível carregar o lançamento. Tente de novo.')); return }
         if (!data) { setErroCarga('Lançamento não encontrado nesta empresa.'); return }
         setLinha(data as Record<string, unknown>)
       })
@@ -80,10 +81,10 @@ export function useEdicaoLancamento(tipo: TipoLancamento, id: string | undefined
     }
     const rpc = tipo === 'pagar' ? 'fn_pagar_editar_completo' : 'fn_receber_editar_completo'
     const { data, error } = await supabase.rpc(rpc, { p_id: id, p_campos: payload })
-    if (error) return { ok: false, erro: error.message }
+    if (error) return { ok: false, erro: erroAmigavel(error, 'Não foi possível salvar o lançamento. Tente de novo.') }
     const j = data as { sucesso?: boolean; erro?: string } | null
     if (!j?.sucesso) {
-      return { ok: false, erro: j?.erro === 'fornecedor_de_outra_empresa' ? 'Esse fornecedor não é desta empresa.' : (j?.erro ?? 'Não foi possível salvar.') }
+      return { ok: false, erro: j?.erro === 'fornecedor_de_outra_empresa' ? 'Esse fornecedor não é desta empresa.' : codigoAmigavel(j?.erro, 'Não foi possível salvar.') }
     }
 
     const replicaveis: Campos = {}
@@ -106,9 +107,9 @@ export function useEdicaoLancamento(tipo: TipoLancamento, id: string | undefined
     try {
       if (ids.length > 0) {
         const { data, error } = await supabase.rpc(tipo === 'pagar' ? 'fn_pagar_editar_massa' : 'fn_receber_editar_massa', { p_ids: ids, p_campos: replica.campos })
-        if (error) return error.message
+        if (error) return erroAmigavel(error, 'Não foi possível aplicar às demais parcelas. Tente de novo.')
         const r = data as { sucesso?: boolean; erro?: string } | null
-        if (r?.sucesso === false) return r?.erro ?? 'falha ao aplicar nas demais parcelas'
+        if (r?.sucesso === false) return codigoAmigavel(r?.erro, 'Não foi possível aplicar às demais parcelas.')
       }
       setReplica(null)
       return null

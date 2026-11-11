@@ -6,6 +6,7 @@ import { authFetch } from '@/lib/authFetch'
 // grande), que só é usado quando o usuário escolhe um .pfx — não tem por que pesar o carregamento
 // da tela. Importamos parsePfxFile sob demanda (dynamic import) dentro do handler.
 import type { PfxParsedInfo } from '@/lib/fiscal/pfx-parser'
+import { estadoCertificado } from '@/lib/fiscal/estadoCertificado'
 import { Upload, FileCheck, AlertTriangle, Trash2, Loader2 } from 'lucide-react'
 
 interface Props {
@@ -87,6 +88,11 @@ export default function CertificadoUploadCard({ companyId, certificadoAtual, onA
   const razaoSocial = certificadoAtual?.razao_social_certificado as string | undefined
   const cnpjAtual = certificadoAtual?.cnpj_certificado as string | undefined
   const validadeFim = certificadoAtual?.validade_fim as string | undefined
+  // Chamado #5661: o selo reflete a validade real (vencido não pode aparecer como ativo).
+  // Lógica pura e provada em @/lib/fiscal/estadoCertificado (gate check-estado-certificado).
+  const estadoCert = estadoCertificado(validadeFim)
+  const vencido = estadoCert === 'vencido'
+  const venceEmBreve = estadoCert === 'vence_breve'
 
   return (
     <div className="bg-white border border-[#3D2314]/10 rounded-xl overflow-hidden">
@@ -96,8 +102,17 @@ export default function CertificadoUploadCard({ companyId, certificadoAtual, onA
           <h2 className="text-[15px] font-medium text-[#3D2314]">Configuração Fiscal</h2>
         </div>
         {certificadoAtual && (
-          <span className="text-[10px] bg-[#C0DD97] text-[#173404] px-2.5 py-1 rounded-full font-medium tracking-[0.3px]">
-            ATIVO
+          <span
+            data-testid="cert-selo"
+            className={`text-[10px] px-2.5 py-1 rounded-full font-medium tracking-[0.3px] ${
+              vencido
+                ? 'bg-[#F7C1C1] text-[#791F1F]'
+                : venceEmBreve
+                  ? 'bg-[#FAC775] text-[#633806]'
+                  : 'bg-[#C0DD97] text-[#173404]'
+            }`}
+          >
+            {vencido ? 'VENCIDO' : venceEmBreve ? 'VENCE EM BREVE' : 'ATIVO'}
           </span>
         )}
       </div>
@@ -115,6 +130,11 @@ export default function CertificadoUploadCard({ companyId, certificadoAtual, onA
                   CNPJ: {cnpjAtual ?? '—'} · Válido até:{' '}
                   {validadeFim ? new Date(validadeFim).toLocaleDateString('pt-BR') : '—'}
                 </div>
+                {vencido && (
+                  <div className="text-[12px] text-[#791F1F] mt-1" data-testid="cert-vencido-aviso">
+                    Este certificado venceu. Remova-o e envie um certificado novo para voltar a emitir notas.
+                  </div>
+                )}
               </div>
             </div>
             <button

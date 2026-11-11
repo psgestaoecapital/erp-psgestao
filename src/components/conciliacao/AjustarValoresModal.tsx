@@ -10,6 +10,9 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA = '/dashboard/financeiro/conciliacao/inbox'
 
 interface Props {
   open: boolean
@@ -160,7 +163,7 @@ export default function AjustarValoresModal({
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
           <label style={{ display: 'block' }}>
-            <span style={labelSpan}>✏️ Valor da conta (editável)</span>
+            <span style={labelSpan}>✏️ Valor da conta (editável)<AjudaCampo chave="financeiro.conciliacao.ajustar_valor_conta" rota={ROTA} /></span>
             <input
               type="number" step="0.01" min="0" value={valorConta}
               onChange={(e) => setValorConta(e.target.value)}
@@ -201,10 +204,10 @@ export default function AjustarValoresModal({
         ) : (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-              <Field label="Juros R$">
+              <Field label="Juros R$" ajuda="financeiro.conciliacao.ajustar_juros">
                 <input type="number" step="0.01" min="0" value={juros} onChange={(e) => { setMexeu(true); setJuros(e.target.value) }} placeholder="0,00" style={input} />
               </Field>
-              <Field label="Desconto R$">
+              <Field label="Desconto R$" ajuda="financeiro.conciliacao.ajustar_desconto">
                 <input type="number" step="0.01" min="0" value={desconto} onChange={(e) => { setMexeu(true); setDesconto(e.target.value) }} placeholder="0,00" style={input} />
               </Field>
             </div>
@@ -214,13 +217,14 @@ export default function AjustarValoresModal({
           </>
         )}
 
-        <Field label="Observação">
+        <Field label="Observação" ajuda="financeiro.conciliacao.ajustar_obs">
           <textarea value={obs} onChange={(e) => setObs(e.target.value)} rows={2} placeholder="Detalhes do ajuste (opcional)" style={input} />
         </Field>
 
         {erro && <div style={erroBox}>{erro}</div>}
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 18, justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', gap: 8, marginTop: 18, justifyContent: 'flex-end', alignItems: 'center' }}>
+          <AjudaCampo chave="financeiro.conciliacao.ajustar_acao" rota={ROTA} />
           <button onClick={fecharComGuarda} disabled={loading} style={secondaryBtn(loading)}>Cancelar</button>
           <button onClick={confirmar} disabled={loading} style={primaryBtn(loading)}>
             {loading ? 'Salvando…' : recebeuMenos && modo === 'parcial' ? 'Registrar parcial' : 'Confirmar ajuste'}
@@ -240,10 +244,10 @@ function Info({ label, valor, cor }: { label: string; valor: string; cor: string
   )
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, ajuda, children }: { label: string; ajuda?: string; children: React.ReactNode }) {
   return (
     <label style={{ display: 'block' }}>
-      <span style={labelSpan}>{label}</span>
+      <span style={labelSpan}>{label}{ajuda && <AjudaCampo chave={ajuda} rota={ROTA} />}</span>
       {children}
     </label>
   )

@@ -511,7 +511,7 @@ Continuam obrigatórios: gates, guarda de funções, réguas, compilação, prev
 
 # Verificação de checks do commit de cabeça. $2 = rapida | revisada. Ecoa: ok | esperar:<motivo> | vermelho:<motivo>
 estado_checks() {
-  local sha=$1 via=${2:-revisada} so_docs=${3:-0} n=${4:-} regime_disp=${5:-0} acc_quar=0 base_main falhos quar_novos linhas pend verm canc acc esgotou id vercel_ok vercel_ruim acc_conc acc_url acc_run proprios
+  local sha=$1 via=${2:-revisada} so_docs=${3:-0} n=${4:-} regime_disp=${5:-0} acc_quar=0 base_main falhos quar_novos linhas pend verm canc acc esgotou id vercel_ok bp acc_conc acc_url acc_run proprios
   linhas=$(api "repos/$REPO/commits/$sha/check-runs?per_page=100" --paginate \
     --jq '.check_runs[] | select(.name != "fila") | [.name, .status, (.conclusion // "-"), .details_url] | @tsv')
   # REGRA DO TESTE PRÓPRIO (CEO 16/10): dentro da janela da aceitação revisada (#2665) a aceitação é informativa — MAS se um
@@ -681,14 +681,20 @@ estado_checks() {
     acc=$(awk -F'\t' '$1 == "aceitacao" {print $3}' <<< "$linhas" | tail -1)
     case "$acc" in success|skipped|neutral) ;; '') echo "esperar:aceitação (preview) ainda não rodou"; return;; *) echo "vermelho:aceitação $acc"; return;; esac
   fi
-  # Vercel (preview): status de commit ou check-run cujo nome começa com Vercel — só build REAL conta como verde
-  # (build pulado aparece como success "Canceled by Ignored Build Step": conta como pendente)
+  # COMPILAÇÃO (CEO 10/11, custo da Vercel): o `next build` SAIU do preview da Vercel (desligado em
+  # scripts/vercel-ignore.mjs) e roda no GitHub Actions (build-pr.yml → check "build-pr"), de graça. O check "build-pr"
+  # já entra no cálculo geral de pendentes/vermelhos acima (pendente = espera; failure = vermelho); aqui exigimos que ele
+  # EXISTA e esteja verde — como se exigia o preview da Vercel. Preview pulado ("Canceled by Ignored Build Step") nunca
+  # contou e segue sem contar. TRANSIÇÃO: aceita também um preview REAL da Vercel já verde (head antigo, aberto antes
+  # desta mudança, que ainda não ganhou o build-pr — ao sincronizar com a main ele passa a ter o build-pr). Gate:
+  # check-vercel-build.ts.
+  bp=$(awk -F'\t' '$1 == "build-pr" {print $3}' <<< "$linhas" | tail -1)
+  [ "$bp" = success ] && { echo ok; return; }
   vercel_ok=$( { api "repos/$REPO/commits/$sha/status" --jq '.statuses[] | select(.context | startswith("Vercel"))
-                   | if (.state == "success" and ((.description // "") | test("cancel|ignor"; "i"))) then "pending" else .state end'
+                   | if (.state == "success" and ((.description // "") | test("cancel|ignor"; "i"))) then "pending" else .state end' 2> /dev/null
                  awk -F'\t' '$1 ~ /^Vercel/ {print $3}' <<< "$linhas"; } | sort -u)
-  vercel_ruim=$(grep -vE '^(success)$' <<< "$vercel_ok" | grep -v '^$' || true)
-  [ -n "$vercel_ok" ] || { echo "esperar:Vercel ainda não respondeu"; return; }
-  case "$vercel_ruim" in '') echo ok;; *pending*) echo "esperar:Vercel em andamento";; *) echo "vermelho:Vercel $vercel_ruim";; esac
+  grep -qx success <<< "$vercel_ok" && { echo ok; return; }
+  echo "esperar:compilação (build-pr) ainda não rodou"; return
 }
 
 # (c) autorização pelo conteúdo. Ecoa: ok | vermelho:<motivo>
@@ -819,6 +825,7 @@ renumerar_migrations() {
   comentar "$n" "🔢 **Fila de merge:** a migration desta PR estava com versão NÃO maior que a última da main (\`$ult\`); renumerei sozinha (commit no ramo, conteúdo idêntico):$lista
 
 Os checks rodam de novo no commit novo.$([ "$via" = revisada ] && echo " **Via revisada: autorização mantida — só renumeração; o patch-id do conteúdo é estável, não precisa de nova revisão.**")"
+  RENUM_PISO_FINAL=$piso   # último piso atribuído: a rodada reserva isto para a próxima PR com migration (Eng. Chefe 11/11)
   return 0
 }
 
@@ -860,6 +867,12 @@ merges=0
 LOTE_MIG_MAX=${LOTE_MIG_MAX:-6}
 LOTE_MIG_CRIT_MAX=${LOTE_MIG_CRIT_MAX:-5}
 lote_mig_n=0; lote_mig_crit_n=0; lote_mig_sqls=()
+# Eng. Chefe 11/11: PISO de versão RESERVADO na rodada. A renumeração automática calcula a versão nova a partir da
+# última da MAIN, mas a main NÃO reflete as versões que a própria rodada já atribuiu aos ramos de outras PRs. Logo duas
+# PRs renumeradas na MESMA rodada recebiam a MESMA versão (incidente 20261113140220: #4606 e #4608 → db push pulou uma
+# em silêncio e o deploy-migrations ficou vermelho). Agora cada renumeração incrementa sobre o MAIOR entre a última da
+# main e as versões já reservadas nesta rodada; renumerar_migrations devolve o seu último piso em RENUM_PISO_FINAL.
+piso_reservado_rodada=''
 mkdir -p "$TMPF/mig"
 # SQL das migrations da PR no SHA conferido → $TMPF/mig/<n>.sql (vazio/falha = dúvida na checagem de independência)
 baixar_sql_migrations() {
@@ -1073,12 +1086,20 @@ for n in $fila; do
     # `db push` recusou — deploy vermelho por horas). Recalcula a última migration da main agora (não usa o check antigo
     # da PR). Com o deploy-migrations verde (estado_main livre), a última da main = a última aplicada em produção.
     ult_main=$(api "repos/$REPO/git/trees/main:supabase/migrations" | jq -r '[.tree[].path | select(test("^[0-9]{14}_")) | .[0:14]] | max')
+    # Quais migrations precisam renumerar: as que estão ABAIXO da última da main (detecção por $ult_main — NÃO pelo piso
+    # reservado, que é um timestamp de agora e varreria migrations legítimas acima da main).
     baixas=$(api "repos/$REPO/pulls/$n/files" --paginate | jq -r --arg u "$ult_main" '.[] | select(.status == "added" and (.filename | test("^supabase/migrations/[0-9]{14}_"))) | .filename | ltrimstr("supabase/migrations/") | select(.[0:14] <= $u)')
+    # PISO EFETIVO (só o CHÃO da renumeração, não a detecção) = maior entre a última da main e o já reservado NESTA rodada
+    # (Eng. Chefe 11/11), para 2 PRs renumeradas na mesma rodada não receberem a mesma versão. Comparação de string vale
+    # para timestamps de 14 dígitos de largura fixa.
+    piso_efetivo=$ult_main
+    { [ -n "$piso_reservado_rodada" ] && [ "$piso_reservado_rodada" '>' "$piso_efetivo" ]; } && piso_efetivo=$piso_reservado_rodada
     if [ -n "$baixas" ]; then
       # Renumeração AUTOMÁTICA (Eng. Chefe 09/10): em vez de recusar, a fila renomeia a(s) migration(s) da PR com um commit
       # no ramo dela (versão nova = timestamp do momento, mantendo os 2 últimos dígitos = faixa do agente). O commit roda
       # os checks de novo; a PR revisada MANTÉM a autorização: só o nome muda, o patch-id ESTÁVEL do conteúdo não (Eng. Chefe 02/11).
-      if renumerar_migrations "$n" "$pj" "$ult_main" "$baixas" "$via"; then continue; fi
+      # Usa o PISO EFETIVO (acima também do que esta rodada já reservou) e reserva o último piso para a próxima PR da rodada.
+      if renumerar_migrations "$n" "$pj" "$piso_efetivo" "$baixas" "$via"; then piso_reservado_rodada=$RENUM_PISO_FINAL; continue; fi
       tirar_da_fila "$n" "migration com versão NÃO maior que a última da main ($ult_main): $(tr '\n' ' ' <<< "$baixas") — não consegui renumerar sozinha; renumere para uma versão acima e atualize com a main (o db push recusa versão abaixo da última aplicada)" "$sha"; continue
     fi
   fi

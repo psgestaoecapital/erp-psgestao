@@ -1170,6 +1170,9 @@ export default function InboxPage() {
           <div style={{ border: '1px solid #E3D9CC', borderRadius: 8, padding: 16, marginBottom: 16, background: '#FAF7F2' }}>
             <div style={{ fontWeight: 600, marginBottom: 8, color: '#3D2314' }}>Importar extrato bancário (.ofx)</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: '#3D2314' }}>
+                Conta bancária do extrato<AjudaCampo chave="financeiro.conciliacao.import_conta" />
+              </div>
               <select
                 value={contaImportId}
                 onChange={(e) => setContaImportId(e.target.value)}
@@ -1182,6 +1185,9 @@ export default function InboxPage() {
                   </option>
                 ))}
               </select>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: '#3D2314', marginTop: 4 }}>
+                Arquivo .OFX do banco<AjudaCampo chave="financeiro.conciliacao.import_arquivo" />
+              </div>
               <input
                 type="file"
                 accept=".ofx,application/x-ofx,text/plain"

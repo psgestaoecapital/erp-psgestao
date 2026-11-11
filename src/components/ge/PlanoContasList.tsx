@@ -57,7 +57,28 @@ export default function PlanoContasList({ companyId }: { companyId: string }) {
   }
 
   async function handleToggleAtivo(c: ContaPlano) {
-    await supabase.from('erp_plano_contas').update({ ativo: !c.ativo }).eq('id', c.id)
+    // RD-98 pilar 4: toggle auditado — registra QUEM inativou/reativou e grava audit_log_global.
+    // Nunca escreve direto na tabela (ignorava erro de RLS e mostrava sucesso falso).
+    const { data, error } = await supabase.rpc('fn_plano_contas_toggle_ativo', {
+      p_categoria_id: c.id,
+      p_ativo: !c.ativo,
+    })
+    if (error) {
+      alert('Não foi possível alterar a conta: ' + error.message)
+      return
+    }
+    const result = data as { ok?: boolean; erro?: string } | null
+    if (result && result.ok === false) {
+      const motivos: Record<string, string> = {
+        sem_acesso: 'Você não tem acesso a esta empresa.',
+        nao_encontrado: 'Conta não encontrada.',
+        conta_global_nao_editavel: 'Conta do modelo global não pode ser inativada por empresa.',
+        nao_autenticado: 'Sessão expirada. Faça login novamente.',
+        parametros_invalidos: 'Dados inválidos.',
+      }
+      alert(motivos[result.erro ?? ''] ?? ('Não foi possível alterar a conta: ' + (result.erro ?? 'erro')))
+      return
+    }
     load()
   }
 

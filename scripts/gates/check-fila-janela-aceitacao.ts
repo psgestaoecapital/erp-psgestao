@@ -29,12 +29,12 @@ ok(/pub_hora=\$\{FILA_PUB_HORA:-/.test(sh) && /\|\| echo 0\)\}/.test(sh),
 // prioridade
 ok(/FILA_PRIORIDADE=\$\{FILA_PRIORIDADE:-'2100'\}/.test(sh) && /_hub=''; for hn in \$fila; do jq -e[\s\S]*?index\("hub"\)/.test(sh),
   'prioridade: label hub na frente de tudo; FILA_PRIORIDADE fixa = FC/FCR (#2100)')
-// o que NUNCA deixa de bloquear (dentro ou fora da janela): Vercel (preview), guardas focados, autorização.
-// A suíte 'gates' passou a ser INFORMATIVA (novo modelo CEO 22/10): sai do bloqueio nas duas vias.
-ok(/echo "vermelho:Vercel/.test(sh)
+// o que NUNCA deixa de bloquear (dentro ou fora da janela): compilação (build-pr no Actions, CEO 10/11 — antes era o
+// preview da Vercel), guardas focados, autorização. A suíte 'gates' é INFORMATIVA (CEO 22/10): sai do bloqueio nas duas vias.
+ok(/\$1 == "build-pr"/.test(sh) && /esperar:compilação \(build-pr\)/.test(sh)
   && /sem a autorização do revisor para o conteúdo atual/.test(sh)
   && /\$1 != "gates"/.test(sh),
-  'dentro da janela, Vercel/MERGE AUTORIZADO continuam bloqueando e a suíte "gates" é informativa (novo modelo CEO 22/10)')
+  'dentro da janela, compilação (build-pr)/MERGE AUTORIZADO continuam bloqueando e a suíte "gates" é informativa (CEO 22/10)')
 
 const ag = readFileSync('AGENTS.md', 'utf8')
 ok(/Esteira cont[ií]nua \(CEO 22\/10/.test(ag) && /aceita[çc][ãa]o[\s\S]{0,400}informativa/i.test(ag),
