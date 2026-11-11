@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Landmark, Loader2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 type Mes = { mes: string; ibs: number; cbs: number; ibs_cbs: number; notas_com_valor: number }
 type Painel = {
@@ -32,9 +33,9 @@ export default function PainelReformaPage() {
     setLoading(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_fiscal_reforma_painel', { p_company_id: empresa, p_competencia: null })
     setLoading(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar o painel da reforma tributária. Tente de novo.')); return }
     const r = data as Painel | null
-    if (!r?.ok) { setErro(r?.erro ?? 'Erro ao carregar'); return }
+    if (!r?.ok) { setErro(r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : 'Não foi possível carregar o painel da reforma tributária. Tente de novo.'); return }
     setDados(r)
   }, [empresa])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
