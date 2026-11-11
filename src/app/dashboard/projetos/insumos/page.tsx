@@ -739,6 +739,7 @@ export default function InsumosPage() {
       >
         <TrendingUp size={14} />
       </button>
+      <AjudaCampo chave="projetos.insumos.atualizar_preco" />
       <button
         onClick={() => abrirEditar(i)}
         className="rounded-lg p-1.5 text-[#3D2314]/60 hover:bg-[#3D2314]/5 hover:text-[#3D2314]"
@@ -746,6 +747,7 @@ export default function InsumosPage() {
       >
         <Pencil size={14} />
       </button>
+      <AjudaCampo chave="projetos.insumos.editar" />
       <button
         onClick={() => deletar(i)}
         disabled={(i.qtd_servicos_uso ?? 0) > 0}
@@ -754,6 +756,7 @@ export default function InsumosPage() {
       >
         <Trash2 size={14} />
       </button>
+      <AjudaCampo chave="projetos.insumos.excluir" alinhar="fim" />
     </div>
   );
 
