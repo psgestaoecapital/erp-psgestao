@@ -168,6 +168,12 @@ BEGIN
   ORDER BY COALESCE((SELECT aso.ordem FROM area_secao_ordem aso WHERE aso.area_slug = p_area_id AND aso.secao = t.secao AND aso.ativo = true), t.secao_ordem), t.ordem;
 END $function$;
 
+-- Reafirma a guarda da função SECURITY DEFINER (leitor da sidebar): fora de anon, só logado.
+-- CREATE OR REPLACE preserva os grants existentes (authenticated/service_role), mas o gate check-fn-guards
+-- exige o REVOKE explícito na mesma migration que redefine a função.
+REVOKE ALL ON FUNCTION public.fn_modulos_sidebar_por_area(text, uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_modulos_sidebar_por_area(text, uuid, uuid) TO authenticated, service_role;
+
 -- 3) reativa o módulo industrial, mas restrito a DEMO
 UPDATE public.module_catalog SET ativo = true, so_demo = true WHERE id = 'industrial';
 
