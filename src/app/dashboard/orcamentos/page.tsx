@@ -9,6 +9,7 @@ import { useCompanyIds } from "@/lib/useCompanyIds";
 import ServicoAutocomplete, { type ServicoSelecionado } from "@/components/comum/ServicoAutocomplete";
 import ServicoEngenhariaAutocomplete, { type ServicoEngSelecionado } from "@/components/comum/ServicoEngenhariaAutocomplete";
 import NumeracaoConfigModal from "@/components/orcamento/NumeracaoConfigModal";
+import AnexosCard from "@/components/crm/AnexosCard";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -118,7 +119,7 @@ export default function OrcamentosPage(){
   const [meuId,setMeuId]=useState<string|null>(null);
   const [filtroMeus,setFiltroMeus]=useState(false);
   // #3272 · oportunidade de origem do orçamento aberto em edição.
-  const [infoOport,setInfoOport]=useState<{titulo:string|null;obra_endereco:string|null;obra_cidade:string|null;obra_bairro:string|null;responsavel_nome:string|null;observacoes:string|null;cliente:string|null;visita:string|null}|null>(null);
+  const [infoOport,setInfoOport]=useState<{oportunidade_id:string|null;titulo:string|null;obra_endereco:string|null;obra_cidade:string|null;obra_bairro:string|null;responsavel_nome:string|null;observacoes:string|null;cliente:string|null;visita:string|null}|null>(null);
   const [linkedOrcIds,setLinkedOrcIds]=useState<Set<string>>(new Set());
   const [oportFiltroOrcIds,setOportFiltroOrcIds]=useState<string[]|null>(null);
   const [oportFiltroAtivo,setOportFiltroAtivo]=useState(false);
@@ -192,7 +193,7 @@ export default function OrcamentosPage(){
       if(!op||!vivo)return;
       const{data:vis}=await supabase.from('erp_crm_visita').select('anotacoes').eq('oportunidade_id',op.id).eq('status','realizada').order('data_visita',{ascending:false}).limit(1).maybeSingle();
       const cli=(op as any).erp_clientes;
-      if(vivo)setInfoOport({titulo:op.titulo,obra_endereco:op.obra_endereco,obra_cidade:op.obra_cidade,obra_bairro:op.obra_bairro,responsavel_nome:op.responsavel_nome,observacoes:op.observacoes,cliente:cli?(cli.nome_fantasia||cli.razao_social):null,visita:vis?.anotacoes??null});
+      if(vivo)setInfoOport({oportunidade_id:op.id,titulo:op.titulo,obra_endereco:op.obra_endereco,obra_cidade:op.obra_cidade,obra_bairro:op.obra_bairro,responsavel_nome:op.responsavel_nome,observacoes:op.observacoes,cliente:cli?(cli.nome_fantasia||cli.razao_social):null,visita:vis?.anotacoes??null});
     })();
     return()=>{vivo=false;};
   },[showForm,editing?.id]);
@@ -278,7 +279,7 @@ export default function OrcamentosPage(){
   const loadOrcamentos=async()=>{
     if(companyIds.length===0){setLoading(false);return;}
     setLoading(true);
-    const{data,error}=await supabase.from("erp_orcamentos").select("*").in("company_id",companyIds).order("data_emissao",{ascending:false}).order("created_at",{ascending:false}).limit(100);
+    const{data,error}=await supabase.from("erp_orcamentos").select("*").in("company_id",companyIds).is("deleted_at",null).order("data_emissao",{ascending:false}).order("created_at",{ascending:false}).limit(100);
     if(data)setOrcamentos(data);
     if(error&&!error.message.includes('does not exist'))setMsg("Erro: "+error.message);
     setLoading(false);
@@ -733,6 +734,22 @@ export default function OrcamentosPage(){
     setTimeout(()=>setMsg(""),3000);
   };
 
+  // #6723 · excluir orçamento (RD-98 critério g): exclusão LÓGICA e rastreável via RPC fn_orcamento_excluir
+  // (SECURITY DEFINER, guarda por empresa, exige motivo, grava em audit_log_global). A RPC recusa orçamento
+  // que já virou pedido — documento financeiro não se apaga. Nunca é DELETE físico (deleted_at + motivo_exclusao).
+  const excluir=async(o:Orcamento)=>{
+    if(o.status==='convertido'||o.pedido_id){setMsg("❌ Orçamento já virou pedido — não pode ser excluído.");setTimeout(()=>setMsg(""),4000);return;}
+    const motivo=window.prompt(`Excluir o orçamento ${o.numero}? Ele sai da lista mas fica no histórico (exclusão rastreável).\n\nInforme o motivo da exclusão:`);
+    if(motivo===null)return;
+    if(!motivo.trim()){setMsg("❌ Informe o motivo da exclusão.");setTimeout(()=>setMsg(""),4000);return;}
+    const{data,error}=await supabase.rpc('fn_orcamento_excluir',{p_orcamento_id:o.id,p_motivo:motivo.trim()});
+    const res=data as {ok:boolean;erro?:string;numero?:string}|null;
+    if(error||!res?.ok){setMsg("❌ "+(res?.erro||error?.message||"Falha ao excluir."));setTimeout(()=>setMsg(""),5000);return;}
+    setMsg(`🗑️ Orçamento ${res.numero||o.numero} excluído.`);
+    loadOrcamentos();
+    setTimeout(()=>setMsg(""),3000);
+  };
+
   const filtrados=useMemo(()=>{
     let r=orcamentos;
     if(filtroStatus!=="todos")r=r.filter(o=>o.status===filtroStatus);
@@ -854,15 +871,20 @@ export default function OrcamentosPage(){
 
           {editing&&infoOport&&(
             <div style={{background:BG3,border:`1px solid ${BD}`,borderRadius:8,padding:"10px 12px",marginBottom:12,fontSize:11,color:TX}}>
-              <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:6}}>Informações da oportunidade</div>
+              <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:6,display:"flex",alignItems:"center",gap:4}}>Informações da oportunidade<AjudaCampo chave="orcamentos.oportunidade.info" rota="/dashboard/orcamentos"/></div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:6}}>
                 <div><span style={{color:TXD}}>Oportunidade: </span>{infoOport.titulo||'—'}</div>
                 <div><span style={{color:TXD}}>Cliente: </span>{infoOport.cliente||'—'}</div>
                 <div><span style={{color:TXD}}>Responsável: </span>{infoOport.responsavel_nome||'—'}</div>
-                <div><span style={{color:TXD}}>Obra: </span>{[infoOport.obra_endereco,infoOport.obra_bairro,infoOport.obra_cidade].filter(Boolean).join(' · ')||'—'}</div>
+                <div><span style={{color:TXD}}>Obra: </span>{(()=>{const end=[infoOport.obra_endereco,infoOport.obra_bairro,infoOport.obra_cidade].filter(Boolean).join(' · ');return end?<a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(end)}`} target="_blank" rel="noopener noreferrer" style={{color:GO,fontWeight:600}} title="Abrir a localização no mapa">{end}</a>:'—';})()}</div>
               </div>
               {infoOport.visita&&<div style={{marginTop:6,whiteSpace:"pre-wrap"}}><span style={{color:TXD}}>Anotações da visita: </span>{infoOport.visita}</div>}
               {infoOport.observacoes&&<div style={{marginTop:6,whiteSpace:"pre-wrap"}}><span style={{color:TXD}}>Observações: </span>{infoOport.observacoes}</div>}
+              {infoOport.oportunidade_id&&editing&&(
+                <div style={{marginTop:8}}>
+                  <AnexosCard companyId={editing.company_id} vinculoTipo="oportunidade" vinculoId={infoOport.oportunidade_id} somenteLeitura/>
+                </div>
+              )}
             </div>
           )}
 
@@ -1243,6 +1265,8 @@ export default function OrcamentosPage(){
                           <button onClick={()=>enviarWhatsApp(o)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:G+"12",color:G,border:`1px solid ${G}25`,cursor:"pointer"}} title="Enviar por WhatsApp">📱</button>
                           <button onClick={()=>verComoCliente(o)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:B+"12",color:B,border:`1px solid ${B}25`,cursor:"pointer"}} title="Ver como cliente (página pública)">👁</button>
                           <button onClick={()=>duplicar(o)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:Y+"12",color:Y,border:`1px solid ${Y}25`,cursor:"pointer"}} title="Duplicar/Nova versão">📋</button>
+                          {o.status!=='convertido'&&!o.pedido_id&&<button onClick={()=>excluir(o)} data-testid="orc-lista-excluir" style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:R+"12",color:R,border:`1px solid ${R}25`,cursor:"pointer"}} title="Excluir orçamento (sai da lista, fica no histórico)">🗑️ Excluir</button>}
+                          <AjudaCampo chave="orcamentos.acao.excluir" rota="/dashboard/orcamentos"/>
                         </div>
                       </td>
                     </tr>

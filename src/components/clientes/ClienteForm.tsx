@@ -1,9 +1,10 @@
 "use client";
 // Form COMPLETO de cliente — fonte ÚNICA (RD-52). Usado como página (aba Clientes) E como drawer
 // (Registrar Visita). Captura IBGE do ViaCEP (obrigatório na NF). Salva direto em erp_clientes (RLS por company).
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { normalizarCep } from "@/lib/cadastro/cep";
+import { cpfValido, soDigitosCpf } from "@/lib/documentos/cpf";
 
 const BG3 = "var(--ps-bg3,#F0ECE3)", TX = "var(--ps-text,#3D2314)", TXD = "var(--ps-text-d,#9C8E80)";
 const BD = "var(--ps-border,#E0D8CC)", GO = "var(--ps-gold,#C8941A)";
@@ -62,6 +63,44 @@ export default function ClienteForm({ companyId, initial, onSaved, onCancel, hid
   const [cnpjLoading, setCnpjLoading] = useState(false);
   const [cepLoading, setCepLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Feedback contextual do documento (PF): valida o CPF e avisa se já existe na própria empresa (chamado #5436).
+  // Enquanto não há fonte aprovada para auto-preencher PF (aguarda aval da Jordana/LGPD), a tela já valida o
+  // número e avisa duplicidade. Não bloqueia o save (mantém só o nome como obrigatório). Espelha o PessoaForm.
+  const [docMsg, setDocMsg] = useState<{ tipo: "erro" | "aviso" | "ok"; texto: string } | null>(null);
+  const [checandoDoc, setChecandoDoc] = useState(false);
+
+  // Ao digitar um CPF (PF), valida o dígito verificador e consulta duplicidade na própria empresa.
+  // Só leitura, filtrada por company_id (RLS) e cadastros ativos — mesmo critério do save. Debounce p/ não
+  // consultar a cada tecla. Não roda para PJ (o CNPJ tem o próprio fluxo de busca pelo 🔍).
+  useEffect(() => {
+    if (form.tipo_pessoa !== "PF") { setDocMsg(null); return; }
+    const d = soDigitosCpf(form.cpf_cnpj);
+    if (d.length === 0) { setDocMsg(null); return; }
+    if (d.length !== 11) { setDocMsg({ tipo: "erro", texto: "CPF precisa ter 11 números." }); return; }
+    if (!cpfValido(d)) { setDocMsg({ tipo: "erro", texto: "CPF inválido — o dígito verificador não confere. Confira os números." }); return; }
+    let cancelado = false;
+    setChecandoDoc(true);
+    const t = setTimeout(async () => {
+      const { data: dup } = await supabase
+        .from("erp_clientes")
+        .select("nome_fantasia, razao_social")
+        .eq("company_id", companyId)
+        .eq("cpf_cnpj", d)
+        .neq("id", initial?.id ?? "00000000-0000-0000-0000-000000000000")
+        .eq("ativo", true)
+        .limit(1);
+      if (cancelado) return;
+      setChecandoDoc(false);
+      if (dup && dup.length > 0) {
+        const ex = dup[0] as { nome_fantasia: string | null; razao_social: string | null };
+        const nomeEx = ex.nome_fantasia || ex.razao_social || "cliente cadastrado";
+        setDocMsg({ tipo: "aviso", texto: `Já existe um cliente com este CPF: ${nomeEx}.` });
+      } else {
+        setDocMsg({ tipo: "ok", texto: "CPF válido." });
+      }
+    }, 500);
+    return () => { cancelado = true; clearTimeout(t); setChecandoDoc(false); };
+  }, [form.cpf_cnpj, form.tipo_pessoa, companyId, initial?.id]);
 
   const buscarCNPJ = async () => {
     const cnpj = (form.cpf_cnpj || '').replace(/\D/g, '');
@@ -196,7 +235,12 @@ export default function ClienteForm({ companyId, initial, onSaved, onCancel, hid
           <div style={{ display: "flex", gap: 4 }}>
             <input value={form.cpf_cnpj} onChange={(e) => set("cpf_cnpj", e.target.value)} placeholder={form.tipo_pessoa === 'PJ' ? '00.000.000/0000-00' : '000.000.000-00'} style={{ ...inp, fontFamily: "monospace" }} />
             {form.tipo_pessoa === 'PJ' && <button onClick={buscarCNPJ} disabled={cnpjLoading} style={{ padding: "0 10px", borderRadius: 6, background: B + "15", color: B, border: `1px solid ${B}40`, fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>{cnpjLoading ? "..." : "🔍"}</button>}
-          </div></div>
+          </div>
+          {form.tipo_pessoa === 'PF' && (checandoDoc || docMsg) && (
+            <div style={{ fontSize: 10, marginTop: 3, color: checandoDoc ? TXD : docMsg?.tipo === 'erro' ? R : docMsg?.tipo === 'aviso' ? '#F59E0B' : G }}>
+              {checandoDoc ? 'Conferindo CPF…' : `${docMsg?.tipo === 'ok' ? '✓ ' : docMsg?.tipo === 'aviso' ? '⚠️ ' : ''}${docMsg?.texto ?? ''}`}
+            </div>
+          )}</div>
         <div><div style={lbl}>Código</div>
           <input value={form.codigo} onChange={(e) => set("codigo", e.target.value)} style={{ ...inp, fontFamily: "monospace" }} /></div>
         <div><div style={lbl}>Inscrição Estadual (NF-e)</div>

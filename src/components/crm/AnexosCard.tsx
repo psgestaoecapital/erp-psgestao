@@ -61,9 +61,11 @@ function novaChave(): string {
   try { return crypto.randomUUID() } catch { return `${Date.now()}_${Math.random().toString(36).slice(2)}` }
 }
 
-type Props = { companyId: string; vinculoTipo: VinculoTipo; vinculoId: string | null }
+// #3272 · somenteLeitura: visão só de abrir/baixar (sem incluir/editar/excluir) — usada em "Editar orçamento"
+// para a orçamentista ver os anexos da oportunidade sem sair da tela. Sem campo de formulário (RD-95).
+type Props = { companyId: string; vinculoTipo: VinculoTipo; vinculoId: string | null; somenteLeitura?: boolean }
 
-const AnexosCard = forwardRef<AnexosCardHandle, Props>(function AnexosCard({ companyId, vinculoTipo, vinculoId }, ref) {
+const AnexosCard = forwardRef<AnexosCardHandle, Props>(function AnexosCard({ companyId, vinculoTipo, vinculoId, somenteLeitura = false }, ref) {
   const [anexos, setAnexos] = useState<Anexo[]>([])          // modo normal (proposta salva)
   const [staging, setStaging] = useState<Staging[]>([])      // modo staging (proposta nova)
   // Tryo #266 · cópia síncrona do staging + o envio em andamento: o CRIAR clicado durante o upload espera o arquivo
@@ -235,6 +237,36 @@ const AnexosCard = forwardRef<AnexosCardHandle, Props>(function AnexosCard({ com
   }), [companyId, vinculoTipo, mudarStaging])
 
   const total = modoStaging ? staging.length : anexos.length
+
+  // #3272 · modo somente leitura: só abrir/baixar cada anexo (URL assinada), sem incluir/editar/excluir.
+  // Nenhum input/select/textarea aqui — a visão serve ao orçamentista dentro de "Editar orçamento".
+  if (somenteLeitura) {
+    return (
+      <div style={card}>
+        <div style={titulo}>📎 Anexos {anexos.length > 0 && <span style={{ color: MUT, fontWeight: 400 }}>({anexos.length})</span>}</div>
+        {anexos.length === 0 ? (
+          <div style={{ fontSize: 11.5, color: MUT, marginTop: 6 }}>Nenhum anexo nesta oportunidade.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+            {anexos.map((a) => (
+              <div key={a.id} style={linhaStyle}>
+                <button type="button" onClick={() => void abrirSalvo(a)} title="Abrir / baixar" style={iconeBtn}>{icone(a.tipo, a.categoria)}</button>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                    <button type="button" onClick={() => void abrirSalvo(a)} style={nomeBtn}>
+                      {a.tipo === 'link' ? (a.url ?? 'link') : (a.nome_arquivo ?? 'arquivo')}
+                    </button>
+                    {a.tamanho_bytes ? <span style={{ fontSize: 10.5, color: MUT, flexShrink: 0 }}>{fmtTam(a.tamanho_bytes)}</span> : null}
+                  </div>
+                  {a.descricao && <div style={{ marginTop: 4, fontSize: 11.5, color: ESP, whiteSpace: 'pre-wrap' }}>{a.descricao}</div>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div style={card}>
