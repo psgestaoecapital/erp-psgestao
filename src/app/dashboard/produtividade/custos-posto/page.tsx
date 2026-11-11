@@ -195,9 +195,9 @@ export default function CustosPostoPage() {
           <label style={{ ...lab, marginBottom: 8 }}>Posto de trabalho <AjudaCampo chave="prod.custos_posto.posto" rota={ROTA} />
             <input style={{ ...inp, marginTop: 4 }} placeholder="Buscar posto…" value={busca} onChange={(e) => setBusca(e.target.value)} />
           </label>
-          <div style={{ display: 'grid', gap: 6, maxHeight: 480, overflowY: 'auto', marginTop: 8 }}>
+          <div data-testid="cp-lista" style={{ display: 'grid', gap: 6, maxHeight: 480, overflowY: 'auto', marginTop: 8 }}>
             {postosFiltrados.map((p) => (
-              <button key={p.id} onClick={() => selecionar(p.id)} style={{
+              <button key={p.id} data-testid={`cp-posto-${p.numero}`} onClick={() => selecionar(p.id)} style={{
                 textAlign: 'left', padding: '9px 11px', borderRadius: 9, cursor: 'pointer',
                 border: `1px solid ${postoSel === p.id ? GOLD : LINE}`, background: postoSel === p.id ? '#FBF3DE' : '#fff',
               }}>
