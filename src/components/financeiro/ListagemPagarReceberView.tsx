@@ -132,6 +132,14 @@ interface Props {
   tipo: Tipo
 }
 
+// RD-98 (critério e) · o usuário NUNCA vê o erro cru do banco/rede. O detalhe técnico vai só
+// para o console (diagnóstico do dev); a tela mostra uma frase em linguagem do usuário, com o
+// que fazer. `acao` entra na frase no infinitivo (ex.: 'excluir' -> "Não foi possível excluir…").
+function erroAmigavel(err: unknown, acao: string): string {
+  if (err) { try { console.error(`[financeiro] falha ao ${acao}:`, err) } catch { /* console indisponível */ } }
+  return `Não foi possível ${acao} agora. Tente de novo em instantes; se continuar, fale com o suporte.`
+}
+
 export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const labels = useMemo(() => labelsPorTipo(tipo), [tipo])
 
@@ -454,7 +462,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         if (!alive) return
         setLoading(false)
         if (error) {
-          setErro(error.message)
+          setErro(erroAmigavel(error, 'carregar os lançamentos'))
           return
         }
         setData(data as Resposta)
@@ -728,7 +736,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     if (motivo === null) return
     if (!motivoValido(motivo)) { alert('Informe o motivo (mínimo 3 caracteres).'); return }
     const { data: j, error } = await supabase.rpc('fn_pagar_bloquear', { p_id: r.id, p_bloquear: bloquear, p_motivo: motivo.trim() })
-    if (error) { alert('Erro: ' + error.message); return }
+    if (error) { alert(erroAmigavel(error, 'alterar o bloqueio')); return }
     const res = j as { sucesso?: boolean; erro?: string } | null
     if (!res?.sucesso) { alert(res?.erro ?? 'Não foi possível alterar o bloqueio.'); return }
     setReloadKey((k) => k + 1)
@@ -793,7 +801,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
 
     const chamar = async (cancelarBaixa: boolean) => {
       const { data, error } = await supabase.rpc(rpc, { p_id: r.id, p_cancelar_baixa: cancelarBaixa })
-      if (error) { alert('Erro ao excluir: ' + error.message); return null }
+      if (error) { alert(erroAmigavel(error, 'excluir')); return null }
       return data as { sucesso?: boolean; erro?: string; orientacao?: string } | null
     }
 
@@ -832,7 +840,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     const motivo = prompt(`CANCELAR o título "${r.descricao}"?\nR$ ${r.valor_documento.toFixed(2)} · venc ${fmtData(r.data_vencimento)}\n\nO título sai de inadimplentes (não é exclusão — fica como cancelado, recuperável).\nMotivo (fica no histórico):`, '')
     if (motivo === null) return
     const { data, error } = await supabase.rpc('fn_receber_cancelar', { p_id: r.id, p_motivo: motivo.trim() || null })
-    if (error) { alert('Erro ao cancelar: ' + error.message); return }
+    if (error) { alert(erroAmigavel(error, 'cancelar o título')); return }
     const j = data as { sucesso?: boolean; erro?: string; ja_cancelado?: boolean } | null
     if (!j?.sucesso) { alert('Não foi possível cancelar: ' + (j?.erro ?? 'desconhecido')); return }
     setReloadKey((k) => k + 1)
@@ -856,7 +864,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     )
     if (motivo === null) return
     const { data, error } = await supabase.rpc(rpc, { p_id: r.id, p_motivo: motivo.trim() || null })
-    if (error) { alert('Erro ao estornar: ' + error.message); return }
+    if (error) { alert(erroAmigavel(error, 'estornar')); return }
     const j = data as { sucesso?: boolean; erro?: string; orientacao?: string; valor_estornado?: number } | null
     if (!j?.sucesso) {
       if (j?.erro === 'bloqueado_conciliado') {
@@ -889,7 +897,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       p_ids: Array.from(selecionados), p_campos: { [massaCampo]: val },
     })
     setMassaBusy(false)
-    if (error) { alert('Erro ao alterar: ' + error.message); return }
+    if (error) { alert(erroAmigavel(error, 'alterar os títulos')); return }
     const j = data as { sucesso?: boolean; erro?: string; alterados?: number; pulados_pago?: number; falhas?: number } | null
     if (j?.sucesso === false) { alert('Não foi possível: ' + (j?.erro ?? 'campo não permitido')); return }
     const extra = [
@@ -909,7 +917,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     const rpc = tipo === 'pagar' ? 'fn_pagar_excluir_massa' : 'fn_receber_excluir_massa'
     const { data, error } = await supabase.rpc(rpc, { p_ids: Array.from(selecionados) })
     setMassaBusy(false)
-    if (error) { alert('Erro ao excluir: ' + error.message); return }
+    if (error) { alert(erroAmigavel(error, 'excluir os títulos')); return }
     const j = data as {
       sucesso?: boolean; erro?: string
       excluidos?: number; ignoradas_pago_conciliado?: number; ignoradas_boleto_ativo?: number
@@ -955,7 +963,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     const { data, error } = await supabase.rpc('fn_lancamento_duplicar', {
       p_tipo: tipo, p_id: r.id,
     })
-    if (error) { alert('Erro ao duplicar: ' + error.message); return }
+    if (error) { alert(erroAmigavel(error, 'duplicar')); return }
     const j = data as { sucesso?: boolean; erro?: string } | null
     if (!j?.sucesso) { alert('Erro ao duplicar: ' + (j?.erro ?? 'desconhecido')); return }
     setReloadKey((k) => k + 1)
@@ -986,7 +994,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       alert(partes.join(' '))
       setReloadKey((k) => k + 1)
     } catch (e) {
-      alert(`Falha ao sincronizar: ${(e as Error).message || 'erro de rede'}`)
+      alert(erroAmigavel(e, 'sincronizar as liquidações'))
     } finally {
       setSincLiqBusy(false)
     }
