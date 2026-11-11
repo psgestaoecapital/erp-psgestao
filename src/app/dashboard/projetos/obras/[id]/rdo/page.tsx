@@ -11,6 +11,10 @@ import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ROTA = '/dashboard/projetos/obras/[id]/rdo'
+// RD-95: os campos do formulário de RDO reusam as chaves de ajuda da tela de OS (projetos.os_obra.rdo_*),
+// gravadas na rota /dashboard/projetos/obras/os. Apontamos esses "?" para lá; o resto (projetos.obra_rdo.*)
+// usa a rota desta tela (ROTA). Sem rota explícita o AjudaCampo cairia no usePathname() (UUID), que não casa.
+const ROTA_OS = '/dashboard/projetos/obras/os'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DED3', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A', VERM = '#B91C1C'
 
@@ -159,7 +163,7 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
           <>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'end', marginBottom: 14 }}>
               <label style={{ ...lab, flex: '1 1 220px' }}>
-                <span style={rot}>Filtrar por OS <AjudaCampo chave="projetos.obra_rdo.filtro_os" /></span>
+                <span style={rot}>Filtrar por OS <AjudaCampo chave="projetos.obra_rdo.filtro_os" rota={ROTA} /></span>
                 <select value={filtroOs} onChange={(e) => setFiltroOs(e.target.value)} style={inp} data-testid="obra-rdo-filtro-os">
                   <option value="">Todas as OS</option>
                   {oss.map((o) => <option key={o.id} value={o.id}>{rotuloOs(o)}</option>)}
@@ -170,7 +174,7 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
                   style={btn(ESP, '#fff')} data-testid="obra-rdo-novo">
                   {editando === 'novo' ? 'Fechar' : '+ Novo diário'}
                 </button>
-                <AjudaCampo chave="projetos.obra_rdo.novo" />
+                <AjudaCampo chave="projetos.obra_rdo.novo" rota={ROTA} />
               </span>
             </div>
             {osLancaveis.length === 0 && (
@@ -182,7 +186,7 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
             {(editando === 'novo' || editando) && (
               <form onSubmit={salvar} data-testid="obra-rdo-form" style={{ ...card, display: 'grid', gap: 10, gridTemplateColumns: '1fr 1fr', marginBottom: 16 }}>
                 <label style={{ ...lab, gridColumn: '1 / -1' }}>
-                  <span style={rot}>OS do diário <AjudaCampo chave="projetos.obra_rdo.os" /></span>
+                  <span style={rot}>OS do diário <AjudaCampo chave="projetos.obra_rdo.os" rota={ROTA} /></span>
                   <select value={fr.os_id} onChange={(e) => setFr({ ...fr, os_id: e.target.value })} disabled={editando !== 'novo'} style={inp} data-testid="obra-rdo-os">
                     {editando !== 'novo'
                       ? <option value={fr.os_id}>{rotuloOs(osMap.get(fr.os_id))}</option>
@@ -191,39 +195,39 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
                   </select>
                 </label>
                 <label style={lab}>
-                  <span style={rot}>Dia <AjudaCampo chave="projetos.os_obra.rdo_data" /></span>
+                  <span style={rot}>Dia <AjudaCampo chave="projetos.os_obra.rdo_data" rota={ROTA_OS} /></span>
                   <input type="date" value={fr.data} max={hoje()} onChange={(e) => setFr({ ...fr, data: e.target.value })} style={inp} data-testid="obra-rdo-data" />
                 </label>
                 <label style={lab}>
-                  <span style={rot}>Clima <AjudaCampo chave="projetos.os_obra.rdo_clima" /></span>
+                  <span style={rot}>Clima <AjudaCampo chave="projetos.os_obra.rdo_clima" rota={ROTA_OS} /></span>
                   <select value={fr.clima} onChange={(e) => setFr({ ...fr, clima: e.target.value as Clima })} style={inp} data-testid="obra-rdo-clima">
                     {CLIMAS.map(([v, r]) => <option key={v} value={v}>{r}</option>)}
                   </select>
                 </label>
                 <label style={lab}>
-                  <span style={rot}>Efetivo (pessoas) <AjudaCampo chave="projetos.os_obra.rdo_efetivo" /></span>
+                  <span style={rot}>Efetivo (pessoas) <AjudaCampo chave="projetos.os_obra.rdo_efetivo" rota={ROTA_OS} /></span>
                   <input inputMode="numeric" value={fr.efetivo} onChange={(e) => setFr({ ...fr, efetivo: e.target.value.replace(/\D/g, '') })} placeholder="Ex.: 4" style={inp} data-testid="obra-rdo-efetivo" />
                 </label>
                 <label style={{ ...lab, alignSelf: 'end' }}>
                   <span style={rot}>
                     <input type="checkbox" checked={fr.praticavel} onChange={(e) => setFr({ ...fr, praticavel: e.target.checked })} style={{ width: 20, height: 20 }} data-testid="obra-rdo-praticavel" />
-                    Deu para trabalhar <AjudaCampo chave="projetos.os_obra.rdo_praticavel" />
+                    Deu para trabalhar <AjudaCampo chave="projetos.os_obra.rdo_praticavel" rota={ROTA_OS} />
                   </span>
                 </label>
                 <label style={{ ...lab, gridColumn: '1 / -1' }}>
-                  <span style={rot}>Quantidade executada no dia <AjudaCampo chave="projetos.os_obra.rdo_quantidade" /></span>
+                  <span style={rot}>Quantidade executada no dia <AjudaCampo chave="projetos.os_obra.rdo_quantidade" rota={ROTA_OS} /></span>
                   <input inputMode="decimal" value={fr.quantidade} onChange={(e) => setFr({ ...fr, quantidade: e.target.value.replace(/[^\d.,]/g, '') })} placeholder="Ex.: 34 (na unidade do serviço, como m²)" style={inp} data-testid="obra-rdo-quantidade" />
                 </label>
                 <label style={{ ...lab, gridColumn: '1 / -1' }}>
-                  <span style={rot}>O que foi feito <AjudaCampo chave="projetos.os_obra.rdo_atividades" /></span>
+                  <span style={rot}>O que foi feito <AjudaCampo chave="projetos.os_obra.rdo_atividades" rota={ROTA_OS} /></span>
                   <textarea value={fr.atividades} onChange={(e) => setFr({ ...fr, atividades: e.target.value })} rows={2} placeholder="Ex.: forro fechado nas salas 201 e 202 (34 m²)" style={{ ...inp, resize: 'vertical' }} data-testid="obra-rdo-atividades" />
                 </label>
                 <label style={{ ...lab, gridColumn: '1 / -1' }}>
-                  <span style={rot}>Ocorrências <AjudaCampo chave="projetos.os_obra.rdo_ocorrencias" /></span>
+                  <span style={rot}>Ocorrências <AjudaCampo chave="projetos.os_obra.rdo_ocorrencias" rota={ROTA_OS} /></span>
                   <textarea value={fr.ocorrencias} onChange={(e) => setFr({ ...fr, ocorrencias: e.target.value })} rows={2} placeholder="Ex.: faltou perfil de 3 m; chuva parou o serviço às 14h" style={{ ...inp, resize: 'vertical' }} data-testid="obra-rdo-ocorrencias" />
                 </label>
                 <label style={{ ...lab, gridColumn: '1 / -1' }}>
-                  <span style={rot}>Fotos ({fr.fotos.length + novasFotos.length}/10) <AjudaCampo chave="projetos.os_obra.rdo_fotos" /></span>
+                  <span style={rot}>Fotos ({fr.fotos.length + novasFotos.length}/10) <AjudaCampo chave="projetos.os_obra.rdo_fotos" rota={ROTA_OS} /></span>
                   <input type="file" accept="image/*" capture="environment" multiple onChange={(e) => setNovasFotos(Array.from(e.target.files ?? []))} style={{ ...inp, padding: 8 }} data-testid="obra-rdo-fotos" />
                 </label>
                 {fr.fotos.length > 0 && (
@@ -233,14 +237,14 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
                 )}
                 <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 8, alignItems: 'center' }}>
                   <button type="submit" disabled={ocupado || !fr.os_id} style={btn(ESP, '#fff')} data-testid="obra-rdo-salvar">{ocupado ? 'Salvando…' : editando === 'novo' ? 'Salvar diário' : 'Atualizar diário'}</button>
-                  <AjudaCampo chave="projetos.os_obra.rdo_salvar" />
+                  <AjudaCampo chave="projetos.os_obra.rdo_salvar" rota={ROTA_OS} />
                   <button type="button" onClick={fechar} style={btn('#fff', ESP)}>Cancelar</button>
                 </div>
               </form>
             )}
 
             <h2 style={{ fontSize: 15, fontWeight: 700, margin: '4px 0 10px', display: 'flex', alignItems: 'center', gap: 4 }}>
-              Histórico de diários <AjudaCampo chave="projetos.obra_rdo.historico" /> <span style={{ color: MUT, fontWeight: 400 }}>({lista.length})</span>
+              Histórico de diários <AjudaCampo chave="projetos.obra_rdo.historico" rota={ROTA} /> <span style={{ color: MUT, fontWeight: 400 }}>({lista.length})</span>
             </h2>
             {lista.length === 0
               ? <p style={{ color: MUT, fontSize: 14 }}>Nenhum diário lançado{filtroOs ? ' para esta OS' : ''} ainda.</p>
@@ -268,10 +272,10 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
                           </div>
                         )}
                         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                          {editavel && <span style={rot}><button type="button" onClick={() => abrirEdicao(r)} style={btn('#fff', ESP)} data-testid="obra-rdo-editar">Editar</button><AjudaCampo chave="projetos.obra_rdo.editar" /></span>}
+                          {editavel && <span style={rot}><button type="button" onClick={() => abrirEdicao(r)} style={btn('#fff', ESP)} data-testid="obra-rdo-editar">Editar</button><AjudaCampo chave="projetos.obra_rdo.editar" rota={ROTA} /></span>}
                           <span style={rot}>
                             <button type="button" onClick={() => excluir(r)} disabled={excluindo === r.id} style={btn('#fff', VERM)} data-testid="obra-rdo-excluir">{excluindo === r.id ? 'Excluindo…' : 'Excluir'}</button>
-                            <AjudaCampo chave="projetos.obra_rdo.excluir" />
+                            <AjudaCampo chave="projetos.obra_rdo.excluir" rota={ROTA} />
                           </span>
                         </div>
                       </div>

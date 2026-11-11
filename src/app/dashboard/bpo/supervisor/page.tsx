@@ -1,8 +1,13 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { PSGC_COLORS } from '@/lib/psgc-tokens'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
+
+const ROTA_AJUDA = '/dashboard/bpo/supervisor'
 
 // Paleta local: usa PSGC_COLORS como fonte de verdade.
 // Mantemos referencias curtas pra preservar legibilidade do codigo original.
@@ -46,22 +51,42 @@ export default function BPOSupervisorPage() {
   const [empresas, setEmpresas] = useState<EmpresaStats[]>([])
   const [operadores, setOperadores] = useState<OperadorStats[]>([])
   const [loading, setLoading] = useState(true)
+  // Estado de ERRO separado do VAZIO (criterio e): se a consulta falha, a tela
+  // mostra "nao foi possivel carregar + tentar de novo", nunca o estado vazio
+  // "Nenhuma empresa sob supervisao" — que mascararia a falha como ausencia de dado.
+  const [erro, setErro] = useState<string | null>(null)
 
-  useEffect(() => {
-    async function load() {
+  async function load() {
+    setLoading(true)
+    setErro(null)
+    try {
       const [empData, opData, ativos] = await Promise.all([
         supabase.rpc('fn_supervisor_dashboard'),
         supabase.rpc('fn_operadores_stats'),
         supabase.from('v_bpo_clientes_ativos').select('id'),
       ])
+      // Qualquer erro das fontes vira estado de ERRO, nao VAZIO
+      if (empData.error) throw empData.error
+      if (opData.error) throw opData.error
+      if (ativos.error) throw ativos.error
       const idsAtivos = new Set((ativos.data ?? []).map((c: { id: string }) => c.id))
       const empresasFiltradas = ((empData.data ?? []) as EmpresaStats[])
         .filter(e => idsAtivos.has(e.company_id))
       setEmpresas(empresasFiltradas)
-      if (opData.data) setOperadores(opData.data as OperadorStats[])
+      setOperadores((opData.data ?? []) as OperadorStats[])
+    } catch (e) {
+      console.error('[bpo/supervisor] load error:', e)
+      setErro(erroAmigavel(e, 'Nao foi possivel carregar o painel do supervisor. Tente de novo.'))
+      setEmpresas([])
+      setOperadores([])
+    } finally {
       setLoading(false)
     }
+  }
+
+  useEffect(() => {
     load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const n = (v: number | null | undefined): number => Number.isFinite(Number(v)) ? Number(v) : 0
@@ -112,10 +137,51 @@ export default function BPOSupervisorPage() {
             marginTop: 4,
             opacity: 0.9,
           }}>
-            {empresas.length} empresas - {operadores.length} operadores
+            {loading ? 'Carregando…' : `${empresas.length} empresas · ${operadores.length} operadores`}
           </div>
         </div>
 
+        {/* ESTADO DE ERRO (criterio e): falha na carga nunca vira "estado vazio" */}
+        {!loading && erro ? (
+          <div style={{
+            background: C.card,
+            borderRadius: 12,
+            padding: '48px 32px',
+            border: `1px solid ${C.atrasado}`,
+            borderLeft: `4px solid ${C.atrasado}`,
+            textAlign: 'center',
+          }}>
+            <div style={{ color: C.txt, fontSize: 18, fontWeight: 700, marginBottom: 6 }}>
+              Nao foi possivel carregar o painel
+            </div>
+            <div style={{ color: C.txtMedio, fontSize: 14, maxWidth: 520, margin: '0 auto 20px' }}>
+              {erro}
+            </div>
+            <button onClick={() => void load()} style={{ ...ctaPrimario, border: 'none', cursor: 'pointer' }}>Tentar de novo</button>
+          </div>
+        ) : /* ESTADO VAZIO: nada configurado ainda (criterios a/c/d) — orienta e oferece o botao que resolve */
+        !loading && empresas.length === 0 && operadores.length === 0 ? (
+          <div style={{
+            background: C.card,
+            borderRadius: 12,
+            padding: '48px 32px',
+            border: `1px solid ${C.border}`,
+            textAlign: 'center',
+          }}>
+            <div style={{ color: C.txt, fontSize: 18, fontWeight: 700, marginBottom: 6 }}>
+              Nenhuma empresa sob supervisão ainda
+            </div>
+            <div style={{ color: C.txtMedio, fontSize: 14, maxWidth: 520, margin: '0 auto 20px' }}>
+              O painel mostra a carga de trabalho por empresa e por operador. Comece adicionando as empresas da
+              carteira e atribuindo um operador a cada uma — os indicadores passam a aparecer automaticamente.
+            </div>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+              <Link href="/dashboard/bpo/empresas" style={ctaPrimario}>+ Adicionar empresas</Link>
+              <Link href="/dashboard/bpo/atribuicao" style={ctaSecundario}>Atribuir operador</Link>
+            </div>
+          </div>
+        ) : (
+        <>
         {/* 6 BIG KPIs */}
         <div style={{
           display: 'grid',
@@ -123,12 +189,12 @@ export default function BPOSupervisorPage() {
           gap: 12,
           marginBottom: 24,
         }}>
-          {BigKpi('Pendentes Total', totals.total, C.txt)}
-          {BigKpi('Atrasados', totals.atrasados, C.atrasado)}
-          {BigKpi('Urgentes', totals.urgentes, C.urgente)}
-          {BigKpi('Hoje', totals.hoje, C.hoje)}
-          {BigKpi('Sem Operador', totals.sem_op, C.atrasado)}
-          {BigKpi('Concluidos Hoje', totals.concluidos, C.ok)}
+          {BigKpi('Pendentes Total', totals.total, C.txt, 'bpo.supervisor.kpi.pendentes')}
+          {BigKpi('Atrasados', totals.atrasados, C.atrasado, 'bpo.supervisor.kpi.atrasados')}
+          {BigKpi('Urgentes', totals.urgentes, C.urgente, 'bpo.supervisor.kpi.urgentes')}
+          {BigKpi('Hoje', totals.hoje, C.hoje, 'bpo.supervisor.kpi.hoje')}
+          {BigKpi('Sem Operador', totals.sem_op, C.atrasado, 'bpo.supervisor.kpi.sem_operador')}
+          {BigKpi('Concluidos Hoje', totals.concluidos, C.ok, 'bpo.supervisor.kpi.concluidos')}
         </div>
 
         {/* TABELA EMPRESAS */}
@@ -147,24 +213,31 @@ export default function BPOSupervisorPage() {
             textTransform: 'uppercase',
             marginTop: 0,
             marginBottom: 16,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
           }}>
-            Visao por Empresa
+            Visao por Empresa<AjudaCampo chave="bpo.supervisor.tabela" rota={ROTA_AJUDA} />
           </h3>
           {loading ? (
             <div style={{ textAlign: 'center', color: C.txtClaro, padding: 40 }}>
               Carregando...
+            </div>
+          ) : empresas.length === 0 ? (
+            <div style={{ textAlign: 'center', color: C.txtMedio, padding: 32, fontSize: 14 }}>
+              Nenhuma empresa com movimento. <Link href="/dashboard/bpo/empresas" style={{ color: C.dourado, fontWeight: 600 }}>Adicionar empresas</Link> para preencher o painel.
             </div>
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ borderBottom: `1px solid ${C.border}` }}>
                   <th style={thStyle}>Empresa</th>
-                  <th style={thStyleRight}>Total</th>
-                  <th style={thStyleRight}>Atraso</th>
-                  <th style={thStyleRight}>Urgente</th>
-                  <th style={thStyleRight}>Hoje</th>
-                  <th style={thStyleRight}>Sem op</th>
-                  <th style={thStyleRight}>Concluidos</th>
+                  <th style={thStyleRight}><span style={thAjuda}>Total<AjudaCampo chave="bpo.supervisor.col.total" rota={ROTA_AJUDA} /></span></th>
+                  <th style={thStyleRight}><span style={thAjuda}>Atraso<AjudaCampo chave="bpo.supervisor.col.atraso" rota={ROTA_AJUDA} /></span></th>
+                  <th style={thStyleRight}><span style={thAjuda}>Urgente<AjudaCampo chave="bpo.supervisor.col.urgente" rota={ROTA_AJUDA} /></span></th>
+                  <th style={thStyleRight}><span style={thAjuda}>Hoje<AjudaCampo chave="bpo.supervisor.col.hoje" rota={ROTA_AJUDA} /></span></th>
+                  <th style={thStyleRight}><span style={thAjuda}>Sem op<AjudaCampo chave="bpo.supervisor.col.sem_op" rota={ROTA_AJUDA} /></span></th>
+                  <th style={thStyleRight}><span style={thAjuda}>Concluidos<AjudaCampo chave="bpo.supervisor.col.concluidos" rota={ROTA_AJUDA} /></span></th>
                 </tr>
               </thead>
               <tbody>
@@ -204,8 +277,11 @@ export default function BPOSupervisorPage() {
               letterSpacing: 2,
               textTransform: 'uppercase',
               marginBottom: 16,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
             }}>
-              Carga por Operador
+              Carga por Operador<AjudaCampo chave="bpo.supervisor.operadores" rota={ROTA_AJUDA} />
             </h3>
             <div style={{
               display: 'grid',
@@ -227,20 +303,22 @@ export default function BPOSupervisorPage() {
                     {op.empresas_atribuidas} empresas atribuidas
                   </div>
                   <div style={{ display: 'flex', gap: 16 }}>
-                    {SmallStat('Pendentes', op.pendentes, C.txt)}
-                    {SmallStat('Atrasados', op.atrasados, op.atrasados > 0 ? C.atrasado : C.txtClaro)}
-                    {SmallStat('Concluidos', op.concluidos_hoje, C.ok)}
+                    {SmallStat('Pendentes', op.pendentes, C.txt, 'bpo.supervisor.op.pendentes')}
+                    {SmallStat('Atrasados', op.atrasados, op.atrasados > 0 ? C.atrasado : C.txtClaro, 'bpo.supervisor.op.atrasados')}
+                    {SmallStat('Concluidos', op.concluidos_hoje, C.ok, 'bpo.supervisor.op.concluidos')}
                   </div>
                 </div>
               ))}
             </div>
           </div>
         )}
+        </>
+        )}
       </div>
     </div>
   )
 
-  function BigKpi(label: string, valor: number, cor: string) {
+  function BigKpi(label: string, valor: number, cor: string, chave: string) {
     return (
       <div key={label} style={{
         background: C.offwhite,
@@ -256,8 +334,11 @@ export default function BPOSupervisorPage() {
           letterSpacing: 0.8,
           textTransform: 'uppercase',
           marginBottom: 6,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 3,
         }}>
-          {label}
+          {label}<AjudaCampo chave={chave} rota={ROTA_AJUDA} />
         </div>
         <div style={{
           color: cor,
@@ -273,7 +354,7 @@ export default function BPOSupervisorPage() {
     )
   }
 
-  function SmallStat(label: string, val: number, cor: string) {
+  function SmallStat(label: string, val: number, cor: string, chave?: string) {
     return (
       <div key={label} style={{ flex: 1 }}>
         <div style={{
@@ -283,8 +364,11 @@ export default function BPOSupervisorPage() {
           letterSpacing: 0.8,
           textTransform: 'uppercase',
           marginBottom: 2,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 2,
         }}>
-          {label}
+          {label}{chave && <AjudaCampo chave={chave} rota={ROTA_AJUDA} />}
         </div>
         <div style={{
           color: cor,
@@ -314,6 +398,14 @@ const thStyleRight: React.CSSProperties = {
   textAlign: 'right',
 }
 
+// "?" (RD-95) ao lado do rotulo da coluna, mantendo o alinhamento a direita do cabecalho
+const thAjuda: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 2,
+  justifyContent: 'flex-end',
+}
+
 const tdStyle: React.CSSProperties = {
   fontSize: 13,
   color: PSGC_COLORS.espresso,
@@ -324,4 +416,25 @@ const tdStyleRight: React.CSSProperties = {
   ...tdStyle,
   textAlign: 'right',
   fontVariantNumeric: 'tabular-nums',
+}
+
+const ctaPrimario: React.CSSProperties = {
+  padding: '11px 20px',
+  borderRadius: 8,
+  background: PSGC_COLORS.dourado,
+  color: 'white',
+  fontSize: 14,
+  fontWeight: 600,
+  textDecoration: 'none',
+}
+
+const ctaSecundario: React.CSSProperties = {
+  padding: '11px 20px',
+  borderRadius: 8,
+  background: 'white',
+  color: PSGC_COLORS.espresso,
+  border: `1px solid ${PSGC_COLORS.offWhiteDarker}`,
+  fontSize: 14,
+  fontWeight: 600,
+  textDecoration: 'none',
 }

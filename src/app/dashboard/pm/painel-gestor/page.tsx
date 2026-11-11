@@ -38,7 +38,7 @@ export default function PainelGestorPage() {
         supabase.rpc("fn_usuarios_da_empresa", { p_company_id: empresa }),
       ]);
       if (!vivo) return;
-      if (j.error) { setErro(j.error.message); setCarregando(false); return; }
+      if (j.error) { console.error("painel-gestor: falha ao carregar jobs", j.error); setErro("Não foi possível carregar os jobs. Tente novamente."); setCarregando(false); return; }
       setJobs((j.data ?? []) as JobPainel[]);
       setHoras((h.data ?? []) as HoraDia[]);
       setEquipe(((eq.data ?? []) as { id: string; full_name: string | null; email: string | null }[]).map((u) => ({ id: u.id, nome: u.full_name || u.email || "Usuário" })));

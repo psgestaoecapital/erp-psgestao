@@ -8,8 +8,10 @@ import React, { useEffect, useState, useRef, useCallback, type CSSProperties } f
 import { useRouter } from 'next/navigation'
 import { Timer, ChevronLeft, Play, Square } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { PlacaInline } from '../_components/PlacaInline'
 import { useOficinaRamo } from '@/lib/oficina/ramo'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'; const RED = '#A32D2D'; const AMBER = '#B45309'
@@ -158,7 +160,7 @@ export default function ApontamentoPage() {
     })
     setBusy(null)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || j?.ok === false) { setMsg('❌ ' + (error?.message || j?.erro)); return }
+    if (error || j?.ok === false) { setMsg('❌ ' + erroAmigavel(error, codigoAmigavel(j?.erro, 'Não foi possível iniciar o apontamento.'))); return }
     await carregarOS(osSel)
   }
 
@@ -174,7 +176,7 @@ export default function ApontamentoPage() {
     })
     setBusy(null)
     const j = data as { ok?: boolean; erro?: string; tempo_real_h?: number; execucao_gravada?: boolean } | null
-    if (error || j?.ok === false) { setMsg('❌ ' + (error?.message || j?.erro)); return }
+    if (error || j?.ok === false) { setMsg('❌ ' + erroAmigavel(error, codigoAmigavel(j?.erro, 'Não foi possível concluir o apontamento.'))); return }
     setTempoManual((p) => { const n = { ...p }; delete n[it.item_id]; return n })
     setObs((p) => { const n = { ...p }; delete n[it.item_id]; return n })
     setAjustando((p) => { const n = new Set(p); n.delete(it.item_id); return n })
@@ -193,7 +195,20 @@ export default function ApontamentoPage() {
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginTop: 6 }}>🔧 Oficina · Apontamento</div>
         <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}><Timer size={22} /> {ramo.automotivo ? 'Em qual carro você vai trabalhar?' : 'Em qual trabalho você vai atuar?'}</h1>
         {eu && <div style={{ fontSize: 13, color: ESP60, marginBottom: 10 }}>Você entrou como <b style={{ color: ESP }}>{eu.nome}</b> — o tempo entra no seu nome.</div>}
-        {lista.length === 0 && <div style={{ color: ESP60, fontSize: 14, padding: '20px 0' }}>Nenhuma OS aprovada ainda. Passe pela Aprovação primeiro.</div>}
+        {lista.length === 0 && (
+          // Estado vazio ACIONÁVEL (RD-98 crit. d): em vez de só mandar "passe pela Aprovação", mostra
+          // o caminho e dá os botões para resolver daqui (abrir OS na Recepção ou ver o Pátio).
+          <div style={{ background: '#fff', border: `1px dashed ${LINE}`, borderRadius: 14, padding: '22px 18px', textAlign: 'center', marginTop: 4 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: ESP, marginBottom: 6 }}>Nenhuma {ramo.objetoLabelCurto} aprovada para trabalhar agora</div>
+            <div style={{ fontSize: 13, color: ESP60, lineHeight: 1.5, marginBottom: 16 }}>
+              O apontamento aparece aqui depois que a {ramo.objetoLabelCurto} passa por <b style={{ color: ESP }}>Recepção → Diagnóstico → Aprovação</b>. Comece abrindo a OS ou acompanhe o que já está em andamento.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <button onClick={() => router.push('/dashboard/oficina/recepcao')} style={btnGrande(GOLD)}>＋ Abrir nova OS (Recepção)</button>
+              <button onClick={() => router.push('/dashboard/oficina/patio')} style={{ ...btnLine, width: '100%' }}>Ver o Pátio (OS em andamento)</button>
+            </div>
+          </div>
+        )}
         {lista.map((os) => (
           <div key={os.id} onClick={() => void abrirOS(os)} style={{ width: '100%', textAlign: 'left', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 16, marginBottom: 10, cursor: 'pointer' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
@@ -219,7 +234,7 @@ export default function ApontamentoPage() {
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: '2px 0 10px' }}>{osSel.placa} · {osSel.marca} {osSel.modelo}</h1>
 
         {/* 3.4 · Executor (quem trabalha) — eu por padrão; trocar por 1 toque; digitar é exceção */}
-        <Sec titulo="Quem está executando">
+        <Sec titulo="Quem está executando" ajuda="oficina.apontamento.executor">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 16, fontWeight: 700, color: ESP }}>
               {execNome || 'Selecione'}{execId ? '' : ' (sem cadastro)'}
@@ -250,7 +265,7 @@ export default function ApontamentoPage() {
           )}
         </Sec>
 
-        <Sec titulo="Serviços aprovados">
+        <Sec titulo="Serviços aprovados" ajuda="oficina.apontamento.servico">
           {itens.map((it) => {
             const ap = it.apontamento
             const rodando = ap?.status === 'em_andamento'
@@ -282,9 +297,10 @@ export default function ApontamentoPage() {
                     <VozNota valor={obs[it.item_id] ?? ''} onChange={(v) => setObs((p) => ({ ...p, [it.item_id]: v }))} />
                     {/* ajuste manual é exceção — atrás de "ajustar" (3.1: o relógio é a fonte) */}
                     {ajusta ? (
-                      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
                         <input value={tempoManual[it.item_id] ?? ''} onChange={(e) => setTempoManual((p) => ({ ...p, [it.item_id]: e.target.value.replace(/[^\d.,]/g, '') }))}
                           placeholder={`Horas (ex.: ${prev || 1})`} inputMode="decimal" style={{ ...inp, flex: 1 }} />
+                        <AjudaCampo chave="oficina.apontamento.ajuste_tempo" />
                         <button onClick={() => setAjustando((p) => { const n = new Set(p); n.delete(it.item_id); return n })} style={btnLine}>Cancelar</button>
                       </div>
                     ) : (
@@ -317,9 +333,9 @@ export default function ApontamentoPage() {
       </div>
 
       <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: '#fff', borderTop: `1px solid ${LINE}`, padding: '10px 14px' }}>
-        <div style={{ maxWidth: 560, margin: '0 auto', display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 700 }}>
-          <span style={{ color: ESP60 }}>Previsto <b style={{ color: ESP }}>{fmtH(totalPrev)}</b></span>
-          <span style={{ color: ESP60 }}>Real <b style={{ color: totalReal > totalPrev && totalPrev > 0 ? RED : OK }}>{fmtH(totalReal)}</b></span>
+        <div style={{ maxWidth: 560, margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, fontWeight: 700 }}>
+          <span style={{ color: ESP60, display: 'inline-flex', alignItems: 'center' }}>Previsto <b style={{ color: ESP, marginLeft: 4 }}>{fmtH(totalPrev)}</b><AjudaCampo chave="oficina.apontamento.previsto" /></span>
+          <span style={{ color: ESP60, display: 'inline-flex', alignItems: 'center' }}>Real <b style={{ color: totalReal > totalPrev && totalPrev > 0 ? RED : OK, marginLeft: 4 }}>{fmtH(totalReal)}</b><AjudaCampo chave="oficina.apontamento.real" /></span>
         </div>
       </div>
       {msg && <Toast>{msg}</Toast>}
@@ -350,6 +366,7 @@ function VozNota({ valor, onChange }: { valor: string; onChange: (v: string) => 
   }, [gravando, valor, onChange])
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+      <AjudaCampo chave="oficina.apontamento.observacao" />
       <textarea value={valor} onChange={(e) => onChange(e.target.value)} rows={2} placeholder="Observação (opcional) — o que achou, o que faltou…"
         style={{ ...inp, flex: 1, resize: 'vertical', border: `1px solid ${gravando ? GOLD : LINE}` }} />
       {suporta && (
@@ -362,10 +379,12 @@ function VozNota({ valor, onChange }: { valor: string; onChange: (v: string) => 
   )
 }
 
-function Sec({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+function Sec({ titulo, children, ajuda }: { titulo: string; children: React.ReactNode; ajuda?: string }) {
   return (
     <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 14, padding: 14, marginBottom: 12 }}>
-      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 10 }}>{titulo}</div>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 10, display: 'flex', alignItems: 'center' }}>
+        {titulo}{ajuda && <AjudaCampo chave={ajuda} />}
+      </div>
       {children}
     </div>
   )

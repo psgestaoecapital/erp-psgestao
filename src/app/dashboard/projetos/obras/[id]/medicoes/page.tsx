@@ -4,8 +4,10 @@
 // Esta fatia: criar / listar / aprovar / excluir (rastreável) medições da obra sobre a camada de
 // dados publicada (#3818: projetos_obra_medicao + _item, RPCs fn_obra_medicao_criar/_listar/
 // _aprovar/_excluir). Chama só RPCs já publicadas e guardadas (fn__guarda_empresa / auth.uid()).
-// A PONTE financeira (medição aprovada -> erp_receber na GE) é fatia SEPARADA e sensível — NÃO entra
-// aqui: aprovar só trava o acumulado no contratado e soma a quantidade medida do item (sem financeiro).
+// A PONTE financeira (medição aprovada -> erp_receber na GE) é fechada no NÚCLEO por trigger
+// (trg_obra_medicao_gerar_receber, #4397): aprovar a medição gera o título a receber. Esta tela NÃO
+// escreve no financeiro — apenas MOSTRA (somente leitura) se a medição aprovada já tem conta a receber
+// gerada, com link para o financeiro (critério b: o dado flui para a etapa seguinte).
 // RD-95: "?" em todo campo / filtro / indicador / ação. RD-96/RD-100: linguagem e layout próprios.
 
 import { use, useCallback, useEffect, useMemo, useState } from 'react'
@@ -62,6 +64,9 @@ export default function MedicoesObraPage({ params }: { params: Promise<{ id: str
   const [emLiberacao, setEmLiberacao] = useState(false)
   const [filtro, setFiltro] = useState<'todas' | 'rascunho' | 'aprovada'>('todas')
   const [expandida, setExpandida] = useState<string | null>(null)
+  // Somente leitura: título a receber gerado pela aprovação da medição (trigger do núcleo, #4397).
+  // Mapa medicao.id -> { valor, status } do erp_receber (ref_externa_sistema='obra_medicao').
+  const [recebiveis, setRecebiveis] = useState<Record<string, { valor: number; status: string }>>({})
 
   // Formulário de nova medição / edição de rascunho (RD-98 p2). editId != null → editando.
   const [abrirForm, setAbrirForm] = useState(false)
@@ -116,7 +121,26 @@ export default function MedicoesObraPage({ params }: { params: Promise<{ id: str
     }
     const r = (data ?? {}) as { ok?: boolean; erro?: string; medicoes?: Medicao[] }
     if (r.ok === false) { setErro(r.erro ?? 'Não foi possível carregar as medições.'); return }
-    setMedicoes(r.medicoes ?? [])
+    const meds = r.medicoes ?? []
+    setMedicoes(meds)
+
+    // Somente leitura: quais medições aprovadas já têm conta a receber gerada (núcleo, #4397).
+    // Falha/ausência aqui NÃO quebra a lista — o indicador é opcional e degrada em silêncio (RD-98).
+    const aprovadasIds = meds.filter((m) => m.status === 'aprovada').map((m) => m.id)
+    if (aprovadasIds.length === 0) { setRecebiveis({}); return }
+    try {
+      const { data: recs, error: er } = await supabase
+        .from('erp_receber')
+        .select('valor, status, ref_externa_id')
+        .eq('ref_externa_sistema', 'obra_medicao')
+        .in('ref_externa_id', aprovadasIds)
+      if (er || !recs) { setRecebiveis({}); return }
+      const mapa: Record<string, { valor: number; status: string }> = {}
+      for (const rec of recs as { valor: number | null; status: string | null; ref_externa_id: string | null }[]) {
+        if (rec.ref_externa_id) mapa[rec.ref_externa_id] = { valor: Number(rec.valor) || 0, status: rec.status ?? 'aberto' }
+      }
+      setRecebiveis(mapa)
+    } catch { setRecebiveis({}) }
   }, [id])
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -347,6 +371,17 @@ export default function MedicoesObraPage({ params }: { params: Promise<{ id: str
                       <strong style={{ color: ESP, fontSize: 15 }}>{brl(med.valor_total)}</strong>
                     </div>
                     {med.observacoes && <p style={{ fontSize: 13, color: MUT, margin: '8px 0 0' }}>{med.observacoes}</p>}
+
+                    {/* Somente leitura: conta a receber gerada pela aprovação (núcleo, #4397). Critério b. */}
+                    {med.status === 'aprovada' && recebiveis[med.id] && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, flexWrap: 'wrap', fontSize: 13 }} data-testid={`med-receber-${med.numero}`}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: VERDE, border: `1px solid ${VERDE}`, borderRadius: 999, padding: '2px 10px' }}>Conta a receber gerada</span>
+                        <span style={{ color: ESP }}>{brl(recebiveis[med.id].valor)}</span>
+                        <span style={{ color: MUT }}>· {recebiveis[med.id].status}</span>
+                        <Link href="/dashboard/financeiro/receber" style={{ color: GOLD, textDecoration: 'none', fontWeight: 600 }}>Ver no financeiro →</Link>
+                        <AjudaCampo chave="projetos.medicao.receber_gerado" rota={ROTA} />
+                      </div>
+                    )}
 
                     <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap', alignItems: 'center' }}>
                       <button onClick={() => setExpandida(aberta ? null : med.id)} style={{ ...btn('transparent', GOLD), padding: '6px 10px', border: `1px solid ${LINE}` }}>

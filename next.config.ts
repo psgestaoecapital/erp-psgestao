@@ -55,6 +55,31 @@ const nextConfig: NextConfig = {
         destination: '/dashboard/pm/importar-sistema-anterior',
         permanent: true,
       },
+      // PDCA GE (Princ.3 menu limpo): /dashboard/produtos era DUPLICATA da tela canônica de produtos
+      // (/dashboard/cadastros/produtos, a única no menu). Consolidado: a canônica absorve o deep-link ?busca
+      // e esta rota passa a redirecionar (query preservada automaticamente).
+      {
+        source: '/dashboard/produtos',
+        destination: '/dashboard/cadastros/produtos',
+        permanent: true,
+      },
+      // PDCA GE (Princ.3 menu limpo · auditor_pdca_2 08/11): /dashboard/cadastros/linhas-negocio renderizava
+      // EXATAMENTE o mesmo <LinhasNegocioList/> que /dashboard/cadastros/divisoes (mesma entidade business_lines),
+      // porém órfã (fora do module_catalog). Consolidado na rota canônica do menu (Divisões); query preservada.
+      {
+        source: '/dashboard/cadastros/linhas-negocio',
+        destination: '/dashboard/cadastros/divisoes',
+        permanent: true,
+      },
+      // PDCA GE (Princ.3 menu limpo · auditor): /dashboard/fornecedores era uma SEGUNDA tela de fornecedores
+      // (CRUD inline, 555 linhas) sobre a MESMA entidade erp_fornecedores, porém órfã (fora do module_catalog).
+      // A tela do menu é /dashboard/cadastros/fornecedores (PessoasList). Consolidado na rota canônica do menu;
+      // o deep-link ?busca= (vindo de remessa-pagamento) é preservado automaticamente.
+      {
+        source: '/dashboard/fornecedores',
+        destination: '/dashboard/cadastros/fornecedores',
+        permanent: true,
+      },
     ]
   },
 }

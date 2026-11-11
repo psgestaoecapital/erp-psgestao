@@ -24,6 +24,17 @@ const PAPEIS: { role: string; nome: string }[] = [
   { role: "financeiro", nome: "Financeiro" }, { role: "contador", nome: "Contador" }, { role: "consultor", nome: "Consultor" },
   { role: "rh_industrial", nome: "RH Industrial" }, { role: "sst", nome: "SST" }, { role: "viewer", nome: "Visualizador" },
 ];
+// Níveis da AGÊNCIA (P&M, CEO 09/11): a empresa de agência não vê os níveis de planta, RH industrial e SST.
+// Os valores são os mesmos níveis de PAPEIS (que o servidor já aceita). O papel de agência (pm_*) é atribuído em P&M › Equipe.
+const PAPEIS_AGENCIA: { role: string; nome: string }[] = [
+  { role: "socio", nome: "Sócio / CEO" }, { role: "diretor", nome: "Diretor" }, { role: "diretor_area", nome: "Diretor de Criação" },
+  { role: "gerente", nome: "Gerente de Projetos / Contas" }, { role: "coordenador", nome: "Atendimento" },
+  { role: "operador", nome: "Produção (Designer)" }, { role: "consultor", nome: "Mídia" }, { role: "comercial", nome: "Comercial" },
+  { role: "financeiro", nome: "Financeiro" }, { role: "viewer", nome: "Visualizador" },
+];
+// Vertical da empresa pela área contratada: agência = P&M contratado e indústria não contratada.
+const ehAgencia = (areas: { slug: string }[]) => areas.some((a) => a.slug === "pm") && !areas.some((a) => a.slug === "industrial");
+const papeisDaEmpresa = (areas: { slug: string }[]) => (ehAgencia(areas) ? PAPEIS_AGENCIA : PAPEIS);
 const DIAS = [{ n: 1, l: "Seg" }, { n: 2, l: "Ter" }, { n: 3, l: "Qua" }, { n: 4, l: "Qui" }, { n: 5, l: "Sex" }, { n: 6, l: "Sáb" }, { n: 7, l: "Dom" }];
 const SIT_LBL: Record<string, string> = { ATIVO: "Ativo", INATIVO_7DIAS: "Inativo 7d+", INATIVO_30DIAS: "Inativo 30d+", NUNCA_LOGOU: "Nunca logou" };
 const SIT_COR: Record<string, string> = { ATIVO: G, INATIVO_7DIAS: "#F59E0B", INATIVO_30DIAS: R, NUNCA_LOGOU: TXD };
@@ -431,7 +442,7 @@ function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, companyId, 
           <div style={{ fontSize: 12, color: TXD }}>{p.email}</div>
           {ultimo && <div data-testid="ultimo-envio" style={{ fontSize: 11, color: TXM, marginTop: 2 }}>{ultimo}</div>}
         </div>
-        <span style={{ fontSize: 10, color: TXD }} title="Nível — o que a pessoa VÊ">👁 {PAPEIS.find((x) => x.role === p.role)?.nome || p.role}</span>
+        <span style={{ fontSize: 10, color: TXD }} title="Nível — o que a pessoa VÊ">👁 {(papeisDaEmpresa(areasContratadas).find((x) => x.role === p.role) ?? PAPEIS.find((x) => x.role === p.role))?.nome || p.role}</span>
         <span style={{ fontSize: 10, fontWeight: 700, color: p.is_master ? GO : BL }} title="Papel na empresa — o que a pessoa PODE GERIR">🛡 {PAPEL_GESTAO_LBL[p.papel_gestao ?? ""] ?? "Visualizador"}</span>
         <span style={{ fontSize: 11, fontWeight: 700, color: SIT_COR[p.situacao] ?? TXD }}>{SIT_LBL[p.situacao] ?? p.situacao}</span>
       </button>
@@ -490,8 +501,8 @@ function PessoaRow({ p, aberto, onToggle, areasContratadas, plantas, companyId, 
           <Field icon={<Users size={14} color={GO} />} label="Papel (nível de acesso)">
             <select value={role} onChange={(e) => setRole(e.target.value)}
               style={{ padding: "8px 12px", borderRadius: 8, border: `1px solid ${BD}`, background: BG, color: TX, fontWeight: 600, maxWidth: 320 }}>
-              {PAPEIS.map((r) => <option key={r.role} value={r.role}>{r.nome}</option>)}
-              {!PAPEIS.some((r) => r.role === role) && <option value={role}>{role} (atual)</option>}
+              {papeisDaEmpresa(areasContratadas).map((r) => <option key={r.role} value={r.role}>{r.nome}</option>)}
+              {!papeisDaEmpresa(areasContratadas).some((r) => r.role === role) && <option value={role}>{role} (atual)</option>}
             </select>
           </Field>
           {/* Plantas */}
@@ -645,7 +656,7 @@ function AdicionarPessoa({ areasContratadas, plantas, companyId, onClose, onSave
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         <Field icon={<Users size={14} color={GO} />} label="Nível de acesso (o que VÊ)">
           <select value={role} onChange={(e) => setRole(e.target.value)} style={{ ...inp, fontWeight: 600, minWidth: 220 }}>
-            {PAPEIS.map((r) => <option key={r.role} value={r.role}>{r.nome}</option>)}
+            {papeisDaEmpresa(areasContratadas).map((r) => <option key={r.role} value={r.role}>{r.nome}</option>)}
           </select>
         </Field>
         <Field icon={<Crown size={14} color={GO} />} label="Papel na empresa (o que PODE GERIR)">

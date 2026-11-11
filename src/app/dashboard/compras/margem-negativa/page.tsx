@@ -27,7 +27,7 @@ export default function MargemNegativaPage() {
     setLoading(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_nfe_produtos_margem_negativa', { p_company_id: empresa })
     setLoading(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro('Não foi possível carregar os produtos com margem negativa. Tente novamente.'); return }
     const r = data as { ok?: boolean; produtos?: Row[]; erro?: string } | null
     if (!r?.ok) { setErro(r?.erro ?? 'Erro ao carregar'); setRows([]); return }
     setRows(r.produtos ?? [])
@@ -84,7 +84,7 @@ export default function MargemNegativaPage() {
                       <div className="text-right"><div className="text-[10px] text-[#3D2314]/50">venda</div><div className="text-[#3D2314] font-medium">{brl(p.venda)}</div></div>
                       <div className="text-right"><div className="text-[10px] text-[#3D2314]/50">custo</div><div className="text-[#3D2314] font-medium">{brl(p.custo)}</div></div>
                       <div className="text-right"><div className="text-[10px] text-[#3D2314]/50">diferença</div><div className="text-[#A32D2D] font-semibold">-{brl(p.diferenca)}</div></div>
-                      <Link href={`/dashboard/produtos?busca=${encodeURIComponent(p.codigo)}`}
+                      <Link href={`/dashboard/cadastros/produtos?busca=${encodeURIComponent(p.codigo)}`}
                         className="text-[11px] px-2.5 py-1 rounded-md bg-[#C8941A] text-white font-medium hover:bg-[#A87810]">Editar</Link>
                     </div>
                   </div>

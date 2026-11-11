@@ -65,9 +65,16 @@ export function validarEdicaoOS(edicoes: EdicaoItemOS[]): string | null {
 }
 
 // Monta o p_dados da fn_oficina_diagnostico_salvar sem perder nada do que já está gravado.
-export function montarDadosDiagnosticoOS(atual: DiagnosticoAtualOS, edicoes: EdicaoItemOS[]) {
+// `removidos` = ids de itens pendentes que o usuário excluiu na edição (a RPC apaga o que não vier; aprovado/recusado nunca sai).
+export function idsRemovidosNaEdicao(itensAbertos: ItemDiagOS[], edicoes: EdicaoItemOS[]): string[] {
+  const mantidos = new Set(edicoes.filter((e) => e.id).map((e) => String(e.id)))
+  return itensAbertos.filter((it) => !!it.id && itemEditavelNaOS(it) && !mantidos.has(String(it.id))).map((it) => String(it.id))
+}
+
+export function montarDadosDiagnosticoOS(atual: DiagnosticoAtualOS, edicoes: EdicaoItemOS[], removidos: string[] = []) {
+  const fora = new Set(removidos)
   const porId = new Map(edicoes.filter((e) => e.id).map((e) => [String(e.id), e]))
-  const itens = atual.itens.filter((it) => !!it.id).map((it) => {
+  const itens = atual.itens.filter((it) => !!it.id && !(fora.has(String(it.id)) && itemEditavelNaOS(it))).map((it) => {
     const e = itemEditavelNaOS(it) ? porId.get(String(it.id)) : undefined
     return {
       id: it.id, tipo: it.tipo ?? null, servico_id: it.servico_id ?? null, produto_id: it.produto_id ?? null,

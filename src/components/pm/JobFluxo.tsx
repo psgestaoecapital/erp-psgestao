@@ -91,6 +91,23 @@ export function JobFluxo({ jobId, motivos, situacoes, onMudou, onSituacao }: {
             ? <button className={btnPri} disabled={ocupado} onClick={() => void chamar("fn_pm_job_retomar", { p_job_id: jobId }, (r) => `Job retomado (ficou parado ${r.dias_parado ? `${r.dias_parado} dia(s)` : "menos de 1 dia"}).`)} data-testid="job-retomar"><PlayCircle size={14} /> Retomar</button>
             : <button className={btn} disabled={ocupado} onClick={() => setForm(form === "aguardar" ? "" : "aguardar")} data-testid="job-aguardar"><PauseCircle size={14} /> Aguardando…</button>}
         </div>
+        {/* Fluxo do designer (CEO 09/11): Não Iniciada -> Em Produção -> Em Aprovação. O banco confere o responsável e a transição. */}
+        {(estado.status === "nao_iniciada" || estado.status === "em_producao") && (
+          <div className="mt-3 flex flex-wrap gap-2" data-testid="job-transicoes">
+            {estado.status === "nao_iniciada" && (
+              <button className={btnPri} disabled={ocupado} data-testid="job-comecar-producao"
+                onClick={() => void chamar("fn_pm_job_mover_status", { p_job_id: jobId, p_status: "em_producao" }, () => "Produção começou: o job está em Em Produção.")}>
+                Começar produção
+              </button>
+            )}
+            {estado.status === "em_producao" && (
+              <button className={btnPri} disabled={ocupado} data-testid="job-enviar-aprovacao"
+                onClick={() => void chamar("fn_pm_job_mover_status", { p_job_id: jobId, p_status: "em_aprovacao" }, () => "Enviado para aprovação: o job está em Em aprovação.")}>
+                Finalizar / Enviar p/ aprovação
+              </button>
+            )}
+          </div>
+        )}
         {estado.status === "aguardando" && (
           <div className="mt-2 flex items-start gap-2 rounded-lg bg-[#FAEEDA] px-2.5 py-2 text-[12.5px]" data-testid="job-aguardando-info">
             <Clock size={14} className="mt-0.5 shrink-0 text-[#C8941A]" />

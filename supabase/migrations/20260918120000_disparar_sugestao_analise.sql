@@ -21,7 +21,7 @@ BEGIN
     url     := 'https://horsymhsinqcimflrtjo.supabase.co/functions/v1/sugestao-analisar',
     headers := jsonb_build_object(
                  'Content-Type', 'application/json',
-                 'x-watcher-secret', 'ps-watcher-2026-9k2mxqp4nv8wzr7y6h3t'
+                 'x-watcher-secret', '<segredo no cofre: screen_watcher_secret>'
                ),
     body    := jsonb_build_object('mensagem_id', p_mensagem_id)
   ) INTO v_req_id;

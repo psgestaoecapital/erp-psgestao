@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ROTA = '/dashboard/pm/integracoes'
 
@@ -87,7 +88,7 @@ export default function IntegracoesPage() {
     const { data, error } = await supabase.rpc('fn_agency_integracao_conectar', { p_company_id: empresa, p_payload: payload })
     setBusy(false)
     const j = data as { id?: string } | null
-    if (error || !j?.id) { setToast(`Erro: ${error?.message ?? 'não foi possível salvar'}`); return }
+    if (error || !j?.id) { setToast(erroAmigavel(error, 'Não foi possível salvar a conexão. Tente de novo.')); return }
     setForm(null); setToast(form.id ? 'Conexão atualizada.' : 'Ferramenta conectada.'); void carregar()
   }
   async function desconectar(l: LinhaCat) {
@@ -98,7 +99,7 @@ export default function IntegracoesPage() {
     const { data, error } = await supabase.rpc('fn_agency_integracao_desconectar', { p_id: l.conexao.id, p_motivo: motivo || null })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setToast(erroAmigavel(error, j?.erro ?? 'Não foi possível desconectar. Tente de novo.')); return }
     setToast('Ferramenta desconectada (registrado na auditoria).'); void carregar()
   }
 

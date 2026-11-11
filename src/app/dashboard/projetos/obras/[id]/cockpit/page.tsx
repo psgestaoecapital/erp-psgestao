@@ -69,6 +69,10 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
   const avancoPct = r && Number(r.receita_prevista) > 0 ? Math.min(100, (receita / Number(r.receita_prevista)) * 100) : null
   const custoPrevisto = r ? Number(r.custo_previsto) : 0
   const estouro = custoPrevisto > 0 && custo > custoPrevisto
+  // Custo a incorrer = o que ainda falta gastar até o previsto (previsto − realizado, nunca negativo). Dá ao gestor
+  // a visão de quanto ainda vai desembolsar. (O "comprometido"/empenhado em OS depende de valor na OS, que hoje não
+  // existe no dado — projetos_obra_os não tem coluna de valor —, então não é exibido para não gerar falso-zero.)
+  const custoAIncorrer = custoPrevisto > 0 ? Math.max(0, custoPrevisto - custo) : null
   // Avanço físico = execução em campo (pct_conclusao do cronograma/medição). Distinto do avanço financeiro (receita realizada).
   const fisicoPct = info && info.pct_conclusao != null ? Math.max(0, Math.min(100, Number(info.pct_conclusao))) : null
   // Prazo: dias até a data prevista de término; vencido só vale enquanto a obra não foi concluída.
@@ -99,7 +103,7 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
     { k: 'receita', ajuda: 'projetos.cockpit.receita', l: 'Receita realizada', v: brl(receita), sub: receita > 0 ? 'Medido e vendido na obra' : 'Nenhuma medição lançada ainda', linhas: [
       { k: 'serv', ajuda: 'projetos.cockpit.receita_servico', l: 'Serviço medido', v: Number(r.receita_servico) },
       { k: 'mat', ajuda: 'projetos.cockpit.receita_material', l: 'Material vendido', v: Number(r.receita_material) }] },
-    { k: 'custo', ajuda: 'projetos.cockpit.custo', l: 'Custo realizado', v: brl(custo), sub: custoPrevisto > 0 ? `Previsto ${brl(custoPrevisto)}` : 'Sem custo previsto', cor: estouro ? VERM : undefined, linhas: [
+    { k: 'custo', ajuda: 'projetos.cockpit.custo', l: 'Custo realizado', v: brl(custo), sub: custoPrevisto > 0 ? `Previsto ${brl(custoPrevisto)} · A incorrer ${brl(custoAIncorrer)}` : 'Sem custo previsto', cor: estouro ? VERM : undefined, linhas: [
       { k: 'mat', ajuda: 'projetos.cockpit.custo_material', l: 'Material', v: Number(r.custo_material) },
       { k: 'via', ajuda: 'projetos.cockpit.custo_viagens', l: 'Viagens', v: Number(r.custo_viagens) },
       { k: 'mo', ajuda: 'projetos.cockpit.custo_mao_obra', l: 'Mão de obra', v: Number(r.custo_mao_obra ?? 0) },
@@ -180,10 +184,17 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
                     <div style={{ fontSize: 11, color: MUT }}>{c.sub}</div>
                   </div>
                 ))}
-                <div data-testid="cockpit-curva-s" style={{ background: '#fff', border: `0.5px dashed ${LINE}`, borderRadius: 12, padding: 14 }}>
+                <div data-testid="cockpit-curva-s" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14 }}>
                   <div style={{ fontSize: 11, color: MUT, textTransform: 'uppercase', letterSpacing: 0.5 }}>Curva S <AjudaCampo chave="projetos.cockpit.curva_s" rota={ROTA} /></div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: ESP, margin: '6px 0' }}>Em construção</div>
-                  <div style={{ fontSize: 11, color: MUT }}>Previsto × realizado acumulado entra quando o cronograma tiver medições mensais.</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: ESP, margin: '6px 0' }}>
+                    {fisicoPct != null && tempoPct != null ? `Físico ${fisicoPct.toFixed(0)}% · Prazo ${tempoPct.toFixed(0)}%` : 'Previsto × realizado'}
+                  </div>
+                  <div style={{ fontSize: 11, color: MUT, marginBottom: 8 }}>
+                    {fisicoPct != null && tempoPct != null
+                      ? (fisicoPct >= tempoPct ? 'Execução acompanha o tempo decorrido.' : 'Execução atrás do tempo decorrido — veja o ritmo.')
+                      : 'O avanço físico acumulado × previsto aparece na curva do cronograma.'}
+                  </div>
+                  <Link href={`/dashboard/projetos/obras/${id}/cronograma?area=hub`} data-testid="link-curva-s-cronograma" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Ver curva S no cronograma →</Link>
                 </div>
               </div>
               <div data-testid="cockpit-pendencias" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>

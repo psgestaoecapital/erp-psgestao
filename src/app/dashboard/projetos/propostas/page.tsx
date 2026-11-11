@@ -27,13 +27,16 @@ import { composicaoPorProposta, diasParaVencer, ganhasComObra, situacaoBdi, obra
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)'
 
 const STATUS: Record<string, { cor: string; label: string }> = {
-  rascunho: { cor: '#9C8E80', label: 'Rascunho' }, enviado: { cor: '#3B82F6', label: 'Enviado' },
+  rascunho: { cor: '#9C8E80', label: 'Rascunho' }, em_elaboracao: { cor: '#3B82F6', label: 'Em elaboração' }, enviado: { cor: '#3B82F6', label: 'Enviado' },
   visualizado: { cor: '#8B5CF6', label: 'Visualizado' }, aprovado: { cor: '#16A34A', label: 'Aprovado' },
   recusado: { cor: '#B91C1C', label: 'Recusado' }, expirado: { cor: '#F59E0B', label: 'Expirado' },
   convertido: { cor: GOLD, label: 'Virou pedido' },
 }
 
 type Proposta = { id: string; company_id: string; numero: string | null; cliente_nome: string | null; status: string; total: number | null; data_emissao: string | null; data_validade: string | null; obra_id: string | null; eh_obra: boolean | null; versao: number | null; orcamento_origem_id: string | null; pdf_anexo_path: string | null; orcamentista_id: string | null; orcamentista_nome: string | null }
+// Situação visível (#3271): rascunho com orçamentista atribuído entra em "Em elaboração"; sem orçamentista volta a rascunho.
+// O status persistido segue 'rascunho' (sem risco na máquina de estados); a derivação vale na lista, no filtro e nos contadores.
+const vstatus = (l: Pick<Proposta, 'status' | 'orcamentista_id'>) => (l.status === 'rascunho' && !!l.orcamentista_id ? 'em_elaboracao' : l.status)
 
 const POR_PAGINA = 25, LIMITE = 100
 
@@ -51,8 +54,11 @@ export default function PropostasHubPage() {
   const [busca, setBusca] = useState('')
   const [filtro, setFiltro] = useState('todos')
   const [meuId, setMeuId] = useState<string | null>(null)
+  const [meuNome, setMeuNome] = useState<string | null>(null)
   const [soMeus, setSoMeus] = useState(false)
   const [usuariosPorEmpresa, setUsuariosPorEmpresa] = useState<Record<string, { id: string; full_name: string | null; email: string | null; is_active?: boolean }[]>>({})
+  // #3270 — última atribuição do orçamentista por proposta (quem atribuiu/trocou/removeu e quando)
+  const [histOrc, setHistOrc] = useState<Record<string, { por: string | null; em: string; acao: string }>>({})
   const [comp, setComp] = useState<Record<string, Composicao>>({})
   const [compErro, setCompErro] = useState(false)
   const [orig, setOrig] = useState<Record<string, Origem>>({})
@@ -133,8 +139,31 @@ export default function PropostasHubPage() {
     } catch { setErro(MSG_CARREGAMENTO_FALHOU) } finally { setLoading(false) }
   }, [companyIds, carregarOrigem])
   useEffect(() => { carregar() }, [carregar])
-  // Quem está logado — para o filtro "meus orçamentos" (compara com orcamentista_id)
-  useEffect(() => { let vivo = true; supabase.auth.getUser().then(({ data }) => { if (vivo) setMeuId(data.user?.id ?? null) }).catch(() => {}); return () => { vivo = false } }, [])
+  // Quem está logado — para o filtro "meus orçamentos" (compara com orcamentista_id) e para o rastro da atribuição (#3270)
+  useEffect(() => { let vivo = true; void supabase.auth.getUser().then(async ({ data }) => {
+    if (!vivo) return
+    const id = data.user?.id ?? null
+    setMeuId(id)
+    if (id) { const { data: u } = await supabase.from('users').select('full_name').eq('id', id).maybeSingle(); if (vivo) setMeuNome(((u as { full_name?: string | null } | null)?.full_name) ?? null) }
+  }).catch(() => {}); return () => { vivo = false } }, [])
+  // #3270 — carrega a última atribuição do orçamentista de cada proposta (RLS por empresa na tabela)
+  useEffect(() => {
+    const ids = linhas.map(l => l.id)
+    if (!ids.length) { setHistOrc({}); return }
+    let vivo = true
+    void (async () => {
+      const { data } = await supabase.from('erp_orcamento_orcamentista_hist')
+        .select('orcamento_id,atribuido_por_nome,acao,criado_em')
+        .in('orcamento_id', ids).order('criado_em', { ascending: false })
+      if (!vivo) return
+      const m: Record<string, { por: string | null; em: string; acao: string }> = {}
+      for (const r of ((data || []) as { orcamento_id: string; atribuido_por_nome: string | null; acao: string; criado_em: string }[])) {
+        if (!m[r.orcamento_id]) m[r.orcamento_id] = { por: r.atribuido_por_nome, em: r.criado_em, acao: r.acao }
+      }
+      setHistOrc(m)
+    })()
+    return () => { vivo = false }
+  }, [linhas])
   // #3270/#3271 — orçamentistas da empresa, para ATRIBUIR na própria linha da lista do Hub (mesma fonte/update de /dashboard/orcamentos, sem sair do Hub)
   useEffect(() => {
     if (!companyIds?.length) return
@@ -152,6 +181,10 @@ export default function PropostasHubPage() {
     const { error } = await supabase.from('erp_orcamentos').update({ orcamentista_id: uid || null, orcamentista_nome: uid ? nome : null }).eq('id', l.id)
     if (error) { setMsgErro(erroAmigavel(error, 'Não foi possível atribuir o orçamentista.')); return }
     setLinhas(ls => ls.map(x => x.id === l.id ? { ...x, orcamentista_id: uid || null, orcamentista_nome: uid ? nome : null } : x))
+    // #3270 — registra quem atribuiu/trocou/removeu (rastro; não bloqueia a atribuição se o log falhar)
+    const acao = uid ? (l.orcamentista_id && l.orcamentista_id !== uid ? 'trocado' : 'atribuido') : 'removido'
+    setHistOrc(h => ({ ...h, [l.id]: { por: meuNome ?? 'você', em: new Date().toISOString(), acao } }))
+    void supabase.rpc('fn_orcamento_orcamentista_log', { p_orcamento_id: l.id, p_orcamentista_id: uid || null, p_orcamentista_nome: uid ? nome : null, p_acao: acao }).then(() => {}, () => {})
     setMsg(uid ? `${nome ?? 'Orçamentista'} agora é o orçamentista de ${l.numero ?? 'proposta'}.` : `Orçamentista removido de ${l.numero ?? 'proposta'}.`); setMsgErro(''); setTimeout(() => setMsg(''), 3000)
   }
 
@@ -170,11 +203,17 @@ export default function PropostasHubPage() {
 
   const vis = useMemo(() => {
     const b = busca.trim().toLowerCase()
-    return linhas.filter(l => (filtro === 'todos' || l.status === filtro)
+    return linhas.filter(l => (filtro === 'todos' || vstatus(l) === filtro)
       && (!soMeus || (!!meuId && l.orcamentista_id === meuId))
       && (!b || (l.numero ?? '').toLowerCase().includes(b) || (l.cliente_nome ?? '').toLowerCase().includes(b) || (l.orcamentista_nome ?? '').toLowerCase().includes(b)))
   }, [linhas, busca, filtro, soMeus, meuId])
   const r = useMemo(() => resumoFunil(linhas), [linhas])
+  // Contadores por situação visível (#3271): separa "Em elaboração" de "Rascunho", igual ao selo e ao filtro.
+  const porStatusVisual = useMemo(() => {
+    const m: Record<string, { n: number; valor: number }> = {}
+    for (const l of linhas) { const s = (m[vstatus(l)] ??= { n: 0, valor: 0 }); s.n++; s.valor += Number(l.total ?? 0) }
+    return m
+  }, [linhas])
   const numeroPorId = useMemo(() => Object.fromEntries(linhas.map(l => [l.id, l.numero])) as Record<string, string | null>, [linhas])
   const comPdf = useMemo(() => linhas.filter(l => !!l.pdf_anexo_path).length, [linhas])
   const revisoes = useMemo(() => linhas.filter(l => (l.versao ?? 1) > 1 || !!l.orcamento_origem_id).length, [linhas])
@@ -286,12 +325,12 @@ export default function PropostasHubPage() {
               {r.total} proposta(s) · {r.abertas} em aberto — toque numa situação para filtrar <AjudaCampo chave="projetos.propostas.funil" />
             </div>
             <div data-testid="hub-propostas-funil" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-              {Object.entries(STATUS).filter(([k]) => r.porStatus[k]).map(([k, v]) => {
+              {Object.entries(STATUS).filter(([k]) => porStatusVisual[k]).map(([k, v]) => {
                 const ativo = filtro === k
                 return (
                   <button key={k} type="button" data-testid="hub-propostas-funil-etapa" aria-pressed={ativo} onClick={() => { setFiltro(ativo ? 'todos' : k); setMostrar(POR_PAGINA) }}
                     style={{ border: `1px solid ${ativo ? v.cor : LINE}`, background: ativo ? `${v.cor}14` : '#fff', borderRadius: 999, padding: '6px 12px', fontSize: 12, color: ESP, cursor: 'pointer', minHeight: 36 }}>
-                    <span style={{ color: v.cor, fontWeight: 700 }}>{v.label}</span> · {r.porStatus[k].n} · {fmtR(r.porStatus[k].valor)}
+                    <span style={{ color: v.cor, fontWeight: 700 }}>{v.label}</span> · {porStatusVisual[k].n} · {fmtR(porStatusVisual[k].valor)}
                   </button>
                 )
               })}
@@ -337,8 +376,7 @@ export default function PropostasHubPage() {
               </tr></thead>
               <tbody>
                 {vis.slice(0, mostrar).map(l => {
-                  const emElaboracao = l.status === 'rascunho' && !!l.orcamentista_id
-                  const st = emElaboracao ? { cor: '#3B82F6', label: 'Em elaboração' } : STATUS[l.status] ?? { cor: MUT, label: l.status }
+                  const st = STATUS[vstatus(l)] ?? { cor: MUT, label: l.status }
                   const dias = ABERTAS.includes(l.status as typeof ABERTAS[number]) ? diasParaVencer(l.data_validade) : null
                   const corVal = dias === null ? ESP : dias < 0 ? '#B91C1C' : dias <= 7 ? '#B45309' : ESP
                   const c = comp[l.id]
@@ -367,6 +405,12 @@ export default function PropostasHubPage() {
                           )
                         })()}
                         {meuId && l.orcamentista_id === meuId && <span style={{ display: 'block', color: GOLD, fontWeight: 600, marginTop: 2 }}>você</span>}
+                        {histOrc[l.id] && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 2, color: MUT, fontSize: 10.5 }} data-testid="hub-proposta-orcamentista-hist">
+                            {histOrc[l.id].acao === 'removido' ? 'removido por' : 'por'} {histOrc[l.id].por || '—'} · {new Date(histOrc[l.id].em).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                            <AjudaCampo chave="projetos.propostas.orcamentista_hist" />
+                          </span>
+                        )}
                       </td>
                       <td style={{ padding: '8px 12px', fontSize: 12, maxWidth: 220 }} data-testid="hub-proposta-origem">
                         {origErro ? '—' : !temOrigem(o) ? <span style={{ color: MUT }}>avulsa</span> : (

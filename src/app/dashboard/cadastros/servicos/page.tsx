@@ -8,11 +8,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import ConfirmarClonar from '@/components/cadastros/ConfirmarClonar'
 import ServicoForm, { type Servico } from '@/components/cadastros/ServicoForm'
-import { Briefcase, Plus, Search, Edit, Loader2, Copy } from 'lucide-react'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { Briefcase, Plus, Search, Edit, Loader2, Copy, Trash2, RotateCcw } from 'lucide-react'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 export const dynamic = 'force-dynamic'
 
+const ROTA = '/dashboard/cadastros/servicos'
 const PAGE_SIZE = 50
+type Situacao = 'ativos' | 'inativos' | 'todos'
 
 // '*' (#286): inclui cst_pis_cofins quando a migration já rodou, sem quebrar enquanto não rodou
 const SELECT_COLS = '*' // antes: 'id,company_id,codigo,descricao_resumida,descricao_detalhada,categoria,categoria_codigo,codigo_nbs,codigo_servico_municipio,codigo_lc116,cnae,cnae_secundario,tipo_tributacao,aliquota_iss,iss_no_local_prestacao,iss_retido,valor_unitario,pct_desconto,aliquota_pis,retem_pis,aliquota_cofins,retem_cofins,aliquota_ir,retem_ir,aliquota_csll,retem_csll,aliquota_inss,retem_inss,rt_cst,rt_classificacao_tributaria,rt_indicador_operacao,rt_aliquota_ibs_municipal,rt_aliquota_ibs_estadual,rt_aliquota_cbs,ativo'
@@ -35,6 +39,11 @@ export default function ServicosPage() {
 
   const [busca, setBusca] = useState('')
   const [buscaDebounced, setBuscaDebounced] = useState('')
+  const [situacao, setSituacao] = useState<Situacao>('ativos')
+
+  const [excluindoServico, setExcluindoServico] = useState<Servico | null>(null)
+  const [acaoBusy, setAcaoBusy] = useState(false)
+  const [acaoErro, setAcaoErro] = useState<string | null>(null)
 
   const [editando, setEditando] = useState<Servico | null>(null)
   const [novoAberto, setNovoAberto] = useState(false)
@@ -76,7 +85,8 @@ export default function ServicosPage() {
           .from('erp_servicos')
           .select(SELECT_COLS, { count: 'exact' })
           .eq('company_id', companyId)
-          .eq('ativo', true)
+        if (situacao === 'ativos') q = q.eq('ativo', true)
+        else if (situacao === 'inativos') q = q.eq('ativo', false)
 
         if (buscaDebounced) {
           const b = buscaDebounced.replace(/[%,()]/g, '')
@@ -93,19 +103,40 @@ export default function ServicosPage() {
         setServicos((prev) => (reset ? rows : [...prev, ...rows]))
         offsetRef.current += rows.length
       } catch (e) {
-        setErro(e instanceof Error ? e.message : 'Erro ao carregar servicos')
+        setErro(erroAmigavel(e, 'Não foi possível carregar os serviços.'))
       } finally {
         setLoading(false)
         setLoadingMore(false)
       }
     },
-    [companyId, buscaDebounced]
+    [companyId, buscaDebounced, situacao]
   )
 
   useEffect(() => {
     if (companyId) carregar(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companyId, buscaDebounced])
+  }, [companyId, buscaDebounced, situacao])
+
+  // Exclusão lógica rastreável (RD-98 p4): soft-delete + audit_log via RPC com guarda de empresa.
+  async function confirmarExcluir() {
+    if (!excluindoServico || !companyId) return
+    setAcaoBusy(true); setAcaoErro(null)
+    const { data, error } = await supabase.rpc('fn_erp_servico_excluir', { p_servico_id: excluindoServico.id, p_company_id: companyId })
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) { setAcaoErro(r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : erroAmigavel(error, 'Não foi possível excluir.')) }
+    else { setExcluindoServico(null); await carregar(true) }
+    setAcaoBusy(false)
+  }
+
+  async function reativar(s: Servico) {
+    if (!companyId) return
+    setAcaoBusy(true); setAcaoErro(null)
+    const { data, error } = await supabase.rpc('fn_erp_servico_reativar', { p_servico_id: s.id, p_company_id: companyId })
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) setAcaoErro(erroAmigavel(error, 'Não foi possível reativar.'))
+    else await carregar(true)
+    setAcaoBusy(false)
+  }
 
   const podeCarregarMais = servicos.length < total
   const buscaAtiva = !!buscaDebounced
@@ -140,19 +171,23 @@ export default function ServicosPage() {
               Catálogo pra emissão de NFS-e · classificação fiscal + retenções federais
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setNovoAberto(true)}
-            data-testid="servico-novo"
-            className="px-4 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] flex items-center gap-2 flex-shrink-0"
-          >
-            <Plus size={15} /> Novo Serviço
-          </button>
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => setNovoAberto(true)}
+              data-testid="servico-novo"
+              className="px-4 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] flex items-center gap-2"
+            >
+              <Plus size={15} /> Novo Serviço
+            </button>
+            <AjudaCampo chave="cadastros.servicos.novo" rota={ROTA} />
+          </div>
         </header>
 
         <div className="bg-white rounded-xl border border-[#3D2314]/10 overflow-hidden">
-          <div className="px-4 py-3 border-b border-[#3D2314]/10 flex items-center gap-2">
+          <div className="px-4 py-3 border-b border-[#3D2314]/10 flex items-center gap-2 flex-wrap">
             <Search size={15} className="text-[#3D2314]/50 flex-shrink-0" />
+            <AjudaCampo chave="cadastros.servicos.busca" rota={ROTA} />
             <input
               type="text"
               value={busca}
@@ -161,6 +196,19 @@ export default function ServicosPage() {
               data-testid="servico-busca"
               className="flex-1 text-[13px] outline-none bg-transparent text-[#3D2314] placeholder:text-[#3D2314]/40 min-w-0"
             />
+            <label className="flex items-center gap-1 text-[11.5px] text-[#3D2314]/70 flex-shrink-0">
+              Situação <AjudaCampo chave="cadastros.servicos.filtro_situacao" rota={ROTA} />
+              <select
+                value={situacao}
+                onChange={(e) => setSituacao(e.target.value as Situacao)}
+                data-testid="servico-situacao"
+                className="text-[12px] rounded-md border border-[#3D2314]/15 bg-white px-1.5 py-1 text-[#3D2314] outline-none"
+              >
+                <option value="ativos">Ativos</option>
+                <option value="inativos">Inativos</option>
+                <option value="todos">Todos</option>
+              </select>
+            </label>
             <span
               className="text-[11px] text-[#3D2314]/70 flex-shrink-0"
               data-testid="servicos-contagem"
@@ -191,12 +239,12 @@ export default function ServicosPage() {
                 <table className="w-full text-[13px] text-[#3D2314]">
                   <thead className="bg-[#3D2314]/5 text-[11.5px] text-[#3D2314]/75 uppercase tracking-[0.5px]">
                     <tr>
-                      <th className="text-left px-4 py-2.5 font-medium">Código</th>
-                      <th className="text-left px-4 py-2.5 font-medium">Descrição</th>
-                      <th className="text-left px-4 py-2.5 font-medium">LC 116</th>
-                      <th className="text-right px-4 py-2.5 font-medium">% ISS</th>
-                      <th className="text-right px-4 py-2.5 font-medium">Valor</th>
-                      <th className="text-right px-4 py-2.5 font-medium">Ações</th>
+                      <th className="text-left px-4 py-2.5 font-medium"><span className="inline-flex items-center gap-1">Código <AjudaCampo chave="cadastros.servicos.col_codigo" rota={ROTA} /></span></th>
+                      <th className="text-left px-4 py-2.5 font-medium"><span className="inline-flex items-center gap-1">Descrição <AjudaCampo chave="cadastros.servicos.col_descricao" rota={ROTA} /></span></th>
+                      <th className="text-left px-4 py-2.5 font-medium"><span className="inline-flex items-center gap-1">LC 116 <AjudaCampo chave="cadastros.servicos.col_lc116" rota={ROTA} /></span></th>
+                      <th className="text-right px-4 py-2.5 font-medium"><span className="inline-flex items-center gap-1 justify-end">% ISS <AjudaCampo chave="cadastros.servicos.col_iss" rota={ROTA} /></span></th>
+                      <th className="text-right px-4 py-2.5 font-medium"><span className="inline-flex items-center gap-1 justify-end">Valor <AjudaCampo chave="cadastros.servicos.col_valor" rota={ROTA} /></span></th>
+                      <th className="text-right px-4 py-2.5 font-medium"><span className="inline-flex items-center gap-1 justify-end">Ações <AjudaCampo chave="cadastros.servicos.col_acoes" rota={ROTA} /></span></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -233,6 +281,28 @@ export default function ServicosPage() {
                           >
                             <Edit size={14} />
                           </button>
+                          {s.ativo === false ? (
+                            <button
+                              type="button"
+                              onClick={() => void reativar(s)}
+                              disabled={acaoBusy}
+                              data-testid="servico-reativar"
+                              className="text-[#5C8D3F] hover:text-[#456b2f] disabled:opacity-40"
+                              title="Reativar serviço"
+                            >
+                              <RotateCcw size={14} />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => { setAcaoErro(null); setExcluindoServico(s) }}
+                              data-testid="servico-excluir"
+                              className="text-[#C44536] hover:text-[#9e3329]"
+                              title="Excluir (exclusão lógica · vai para Inativos)"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -277,6 +347,28 @@ export default function ServicosPage() {
                         >
                           <Edit size={14} />
                         </button>
+                        {s.ativo === false ? (
+                          <button
+                            type="button"
+                            onClick={() => void reativar(s)}
+                            disabled={acaoBusy}
+                            data-testid="servico-reativar-mobile"
+                            className="text-[#5C8D3F] hover:text-[#456b2f] disabled:opacity-40"
+                            title="Reativar"
+                          >
+                            <RotateCcw size={14} />
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => { setAcaoErro(null); setExcluindoServico(s) }}
+                            data-testid="servico-excluir-mobile"
+                            className="text-[#C44536] hover:text-[#9e3329]"
+                            title="Excluir"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -302,6 +394,28 @@ export default function ServicosPage() {
         </div>
 
         <ConfirmarClonar aberto={!!confirmarClone} onConfirmar={confirmarAbrirClone} onCancelar={() => setConfirmarClone(null)} />
+
+        {excluindoServico && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" data-testid="excluir-servico">
+            <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+              <div className="flex items-start justify-between gap-3">
+                <h3 className="text-[16px] font-semibold text-[#3D2314]">Excluir este serviço?</h3>
+                <AjudaCampo chave="cadastros.servicos.excluir" rota={ROTA} />
+              </div>
+              <p className="mt-2 text-[13.5px] text-[#3D2314]/70" data-testid="excluir-servico-confirmar">
+                <strong className="text-[#3D2314]">{excluindoServico.codigo ? `${excluindoServico.codigo} · ` : ''}{excluindoServico.descricao_resumida}</strong> sai da lista
+                de serviços ativos. É exclusão lógica: nada é apagado — fica em <strong>Inativos</strong> e pode ser reativado, com registro de quem e quando.
+              </p>
+              {acaoErro && <p className="mt-3 text-[13px] text-red-700" data-testid="excluir-servico-erro">{acaoErro}</p>}
+              <div className="mt-5 flex justify-end gap-3">
+                <button type="button" onClick={() => setExcluindoServico(null)} data-testid="excluir-servico-cancelar" className="rounded-lg px-4 py-2 text-[13px] text-[#3D2314]/70 hover:bg-stone-100">Cancelar</button>
+                <button type="button" onClick={() => void confirmarExcluir()} disabled={acaoBusy} data-testid="excluir-servico-ok" className="flex items-center gap-2 rounded-lg bg-red-700 px-4 py-2 text-[13px] font-medium text-white hover:bg-red-800 disabled:opacity-50">
+                  {acaoBusy ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />} Excluir serviço
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {(novoAberto || editando || clonando) && (
           <ServicoForm

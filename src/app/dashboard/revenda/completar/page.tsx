@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 
 const C = {
@@ -69,7 +70,7 @@ function Inner() {
       supabase.from('v_veic_patio').select('id,fiscais_faltantes,sugestao_ano_chassi').eq('company_id', companyId),
       supabase.rpc('fn_veic_modelo_listar', { p_company_id: companyId }),
     ])
-    if (vv.error) { setErro(vv.error.message); return }
+    if (vv.error) { setErro(erroAmigavel(vv.error, 'Não foi possível carregar. Tente de novo.')); return }
     const patMap = new Map<string, { fiscais_faltantes: string[]; sugestao_ano_chassi: number | null }>()
     ;((pat.data as { id: string; fiscais_faltantes: string[] | null; sugestao_ano_chassi: number | null }[]) ?? []).forEach((p) => patMap.set(p.id, { fiscais_faltantes: p.fiscais_faltantes ?? [], sugestao_ano_chassi: p.sugestao_ano_chassi }))
     const lista: Row[] = ((vv.data as Omit<Row, 'fiscais_faltantes' | 'sugestao_ano_chassi'>[]) ?? []).map((v) => ({
@@ -108,7 +109,7 @@ function Inner() {
   async function aplicarModelo(m: Modelo) {
     const { data, error } = await supabase.rpc('fn_veic_modelo_aplicar', { p_company_id: companyId, p_modelo_id: m.id, p_veiculo_ids: null, p_user: await uid() })
     const r = data as { ok?: boolean; erro?: string; atualizados?: number } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha'); return }
+    if (error || !r?.ok) { setErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha'))); return }
     setMsg(`${m.marca} ${m.modelo}: ${r.atualizados ?? 0} veículo(s) preenchido(s) pelo modelo.`); void carregar()
   }
 
@@ -177,7 +178,7 @@ function NovoModelo({ companyId, onSaved, onErro }: { companyId: string; onSaved
     const { data, error } = await supabase.rpc('fn_veic_modelo_salvar', { p_company_id: companyId, p_modelo: f, p_user: user?.id ?? null })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { onErro(r?.erro === 'marca_e_modelo_obrigatorios' ? 'Marca e modelo são obrigatórios.' : (error?.message || 'Falha')); return }
+    if (error || !r?.ok) { onErro(r?.erro === 'marca_e_modelo_obrigatorios' ? 'Marca e modelo são obrigatórios.' : erroAmigavel(error, 'Falha')); return }
     setF({ marca: '', modelo: '', versao: '', combustivel: '', potencia_cv: '', cilindradas: '', portas: '', cambio: '' }); onSaved()
   }
   const F = (k: keyof typeof f, ph: string, w?: number) => <input value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} placeholder={ph} style={{ ...inp, width: w }} />
@@ -295,7 +296,7 @@ function LinhaLote({ r, companyId, ncmSugerido, onSaved, onErro }: { r: Row; com
       onErro(e === 'tipo_invalido' ? 'Tipo inválido.' : e === 'sem_acesso' ? 'Sem acesso a esta empresa.'
         : e === 'valor_invalido' ? `Valor inválido em "${ROTULO[rr?.campo ?? ''] ?? rr?.campo ?? 'campo'}"${rr?.valor ? ` ("${rr.valor}")` : ''} — use só números, ex.: 72956 ou 72.956,00.`
         : e === 'ncm_invalido' ? 'NCM inválido — use 8 dígitos.'
-        : (error?.message || e || 'Falha'))
+        : erroAmigavel(error, codigoAmigavel(e, 'Falha')))
       return
     }
     setIaFields(new Set()) // salvou → o destaque "confira e salve" sai

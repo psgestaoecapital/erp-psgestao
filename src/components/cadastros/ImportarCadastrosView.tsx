@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { Download, Upload, Loader2, CheckCircle2, XCircle, AlertTriangle, Search } from 'lucide-react'
 import { CHAVES_CADASTROS, NOME_EXEMPLO, casarColunasCadastros } from '@/lib/cadastros/colunasImportacao'
 import { buscarCNPJ } from '@/lib/cadastros/buscarCNPJ'
@@ -47,7 +48,7 @@ export default function ImportarCadastrosView({ companyId, tipo }: { companyId: 
 
   const rodarPrevia = useCallback(async (ls: Linha[], modoAtual: 'so_novos' | 'criar_e_atualizar' | 'completar_por_nome' = 'criar_e_atualizar') => {
     const { data, error } = await supabase.rpc('fn_cadastro_importar_previa', { p_company: companyId, p_linhas: ls, p_modo: modoAtual })
-    if (error) { setParseErro(error.message); return }
+    if (error) { setParseErro(erroAmigavel(error)); return }
     const d = data as Record<string, unknown>
     if (!d?.ok) { setParseErro((d?.erro as string) ?? 'Falha na prévia'); return }
     setPrevia({
@@ -144,7 +145,7 @@ export default function ImportarCadastrosView({ companyId, tipo }: { companyId: 
     setCarregando(true); setResultado(null)
     const { data, error } = await supabase.rpc('fn_cadastro_importar_aplicar', { p_company: companyId, p_linhas: linhas, p_modo: modo, p_arquivo: nomeArquivo })
     setCarregando(false)
-    if (error) { setParseErro(error.message); return }
+    if (error) { setParseErro(erroAmigavel(error)); return }
     const d = data as Record<string, unknown>
     if (!d?.ok) { setParseErro((d?.erro as string) ?? 'Falha ao importar'); return }
     setResultado({

@@ -6,9 +6,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useEmpresaSelecionada } from '@/lib/agro/usePecuaria'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
+const ROTA = '/dashboard/gestao-empresarial/balanco-patrimonial'
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'
 const ESP60 = 'rgba(61,35,20,0.6)'; const GREEN = '#5C8D3F'; const RED = '#C44536'
+const AMBER = '#9A6A00'
+
+// Chave de ajuda "?" por grupo do balanco (RD-95).
+const AJUDA_GRUPO: Record<string, string> = {
+  'ATIVO CIRCULANTE': 'ge.balanco.grupo.ativo_circ',
+  'ATIVO NÃO CIRCULANTE': 'ge.balanco.grupo.ativo_nao_circ',
+  'PASSIVO CIRCULANTE': 'ge.balanco.grupo.passivo_circ',
+  'PASSIVO NÃO CIRCULANTE': 'ge.balanco.grupo.passivo_nao_circ',
+  'PATRIMÔNIO LÍQUIDO': 'ge.balanco.grupo.pl',
+}
 
 const GRUPOS: { lado: string; grupo: string }[] = [
   { lado: 'ativo', grupo: 'ATIVO CIRCULANTE' },
@@ -132,6 +144,7 @@ export default function BalancoPage() {
     return (
       <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', fontSize: 13 }}>
         <span title="manual" style={{ width: 18 }}>{iconeOrigem(l.origem)}</span>
+        <AjudaCampo chave="ge.balanco.linha" rota={ROTA} />
         <input value={cur.ordem} onChange={(e) => setEd({ ...ed, [k]: { ...cur, ordem: e.target.value } })} title="ordem" style={{ ...ip, width: 34, textAlign: 'center' }} />
         <input value={cur.nome} onChange={(e) => setEd({ ...ed, [k]: { ...cur, nome: e.target.value } })} placeholder={l.origem === 'ausente' ? `${l.nome} (sugestão)` : 'nome'} style={{ ...ip, flex: 1 }} />
         <input value={cur.valor} onChange={(e) => setEd({ ...ed, [k]: { ...cur, valor: e.target.value } })} placeholder="0,00" style={{ ...ip, width: 100, textAlign: 'right' }} />
@@ -146,8 +159,8 @@ export default function BalancoPage() {
     return (
       <div key={g.grupo} style={{ marginBottom: 14 }}>
         <div style={{ fontWeight: 700, fontSize: 12.5, color: ESP, borderBottom: `1px solid ${LINE}`, paddingBottom: 4, marginBottom: 4, display: 'flex', justifyContent: 'space-between' }}>
-          <span>{g.grupo}</span>
-          <button onClick={() => void adicionarLinha(g.lado, g.grupo)} style={miniAdd} title="Adicionar linha manual">+ linha</button>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{g.grupo}{AJUDA_GRUPO[g.grupo] && <AjudaCampo chave={AJUDA_GRUPO[g.grupo]} rota={ROTA} />}</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><button onClick={() => void adicionarLinha(g.lado, g.grupo)} style={miniAdd} title="Adicionar linha manual">+ linha</button><AjudaCampo chave="ge.balanco.add_linha" rota={ROTA} /></span>
         </div>
         {linhas.map(renderLinha)}
       </div>
@@ -159,12 +172,15 @@ export default function BalancoPage() {
   return (
     <div style={{ padding: 24, background: BG, minHeight: '100vh', color: ESP }}>
       <div style={{ fontSize: 22, fontWeight: 800 }}>📊 Balanço Patrimonial</div>
-      <div style={{ fontSize: 13, color: ESP60, marginBottom: 12 }}>🔒 calculado (da fonte, read-only) · ✍️ manual (editável) · ⚠️ ausente. Linhas manuais são por período. A diferença é mostrada, nunca forçada.</div>
+      <div style={{ fontSize: 13, color: ESP60, marginBottom: 12, display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+        <span>🔒 calculado (da fonte, read-only) · ✍️ manual (editável) · ⚠️ ausente. Linhas manuais são por período. A diferença é mostrada, nunca forçada.</span>
+        <AjudaCampo chave="ge.balanco.origem" rota={ROTA} />
+      </div>
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
-        <label style={{ fontSize: 12, color: ESP60 }}>Data-base <input type="date" value={dataRef} onChange={(e) => setDataRef(e.target.value)} style={{ padding: '6px 8px', border: `1px solid ${LINE}`, borderRadius: 6 }} /></label>
-        <span style={{ fontSize: 12, color: ESP60 }}>competência {periodo}</span>
-        <button onClick={() => void copiarPeriodoAnterior()} disabled={busy} style={btnSec}>⧉ Copiar linhas de {periodoAnterior(dataRef)}</button>
+        <label style={{ fontSize: 12, color: ESP60, display: 'inline-flex', alignItems: 'center', gap: 4 }}>Data-base <input type="date" value={dataRef} onChange={(e) => setDataRef(e.target.value)} style={{ padding: '6px 8px', border: `1px solid ${LINE}`, borderRadius: 6 }} /><AjudaCampo chave="ge.balanco.data_base" rota={ROTA} /></label>
+        <span style={{ fontSize: 12, color: ESP60, display: 'inline-flex', alignItems: 'center', gap: 4 }}>competência {periodo} <AjudaCampo chave="ge.balanco.competencia" rota={ROTA} /></span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><button onClick={() => void copiarPeriodoAnterior()} disabled={busy} style={btnSec}>⧉ Copiar linhas de {periodoAnterior(dataRef)}</button><AjudaCampo chave="ge.balanco.copiar_periodo" rota={ROTA} /></span>
         {msg && <span style={{ fontSize: 13, color: msg.startsWith('Erro') ? RED : GREEN }}>{msg}</span>}
       </div>
 
@@ -173,17 +189,34 @@ export default function BalancoPage() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16 }}>
             <div style={card}><div style={{ fontWeight: 800, marginBottom: 10 }}>ATIVO</div>
               {GRUPOS.filter((g) => g.lado === 'ativo').map(renderGrupo)}
-              <div style={{ borderTop: `2px solid ${LINE}`, marginTop: 6, paddingTop: 6, display: 'flex', justifyContent: 'space-between', fontWeight: 800 }}><span>Total do Ativo</span><span>{fmt(bal.ativo_total)}</span></div>
+              <div style={{ borderTop: `2px solid ${LINE}`, marginTop: 6, paddingTop: 6, display: 'flex', justifyContent: 'space-between', fontWeight: 800 }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Total do Ativo <AjudaCampo chave="ge.balanco.total_ativo" rota={ROTA} /></span><span>{fmt(bal.ativo_total)}</span></div>
             </div>
             <div style={card}><div style={{ fontWeight: 800, marginBottom: 10 }}>PASSIVO + PATRIMÔNIO LÍQUIDO</div>
               {GRUPOS.filter((g) => g.lado !== 'ativo').map(renderGrupo)}
-              <div style={{ borderTop: `2px solid ${LINE}`, marginTop: 6, paddingTop: 6, display: 'flex', justifyContent: 'space-between', fontWeight: 800 }}><span>Passivo + PL</span><span>{fmt(bal.passivo_mais_pl)}</span></div>
+              <div style={{ borderTop: `2px solid ${LINE}`, marginTop: 6, paddingTop: 6, display: 'flex', justifyContent: 'space-between', fontWeight: 800 }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Passivo + PL <AjudaCampo chave="ge.balanco.total_passivo_pl" rota={ROTA} /></span><span>{fmt(bal.passivo_mais_pl)}</span></div>
             </div>
           </div>
-          <div style={{ marginTop: 16, padding: '12px 16px', borderRadius: 10, background: bal.fecha ? '#E8F4DC' : '#FCE8E8', border: `1px solid ${bal.fecha ? GREEN : RED}55`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontWeight: 700, color: bal.fecha ? GREEN : RED }}>{bal.fecha ? '✓ Balanço fecha' : '⚠️ Balanço NÃO fecha'}</span>
-            <span style={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: bal.fecha ? GREEN : RED }}>Diferença: R$ {fmt(bal.diferenca)}</span>
-          </div>
+          {bal.fecha ? (
+            <div style={{ marginTop: 16, padding: '12px 16px', borderRadius: 10, background: '#E8F4DC', border: `1px solid ${GREEN}55`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 700, color: GREEN, display: 'inline-flex', alignItems: 'center', gap: 4 }}>✓ Balanço fecha <AjudaCampo chave="ge.balanco.fechamento" rota={ROTA} /></span>
+              <span style={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: GREEN }}>Diferença: R$ {fmt(bal.diferenca)}</span>
+            </div>
+          ) : (
+            // Estado GUIADO (RD-98/criterios d,e): em vez do alarme cru "Balanço NÃO fecha",
+            // a diferença é apresentada como Patrimônio Líquido a apurar, com orientação e CTA.
+            <div style={{ marginTop: 16, padding: '14px 16px', borderRadius: 10, background: '#FFF6E6', border: `1px solid ${AMBER}55` }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                <span style={{ fontWeight: 700, color: AMBER, display: 'inline-flex', alignItems: 'center', gap: 4 }}>⚠️ Patrimônio Líquido a apurar <AjudaCampo chave="ge.balanco.fechamento" rota={ROTA} /></span>
+                <span style={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: AMBER }}>Falta apurar: R$ {fmt(Math.abs(bal.diferenca))}</span>
+              </div>
+              <div style={{ fontSize: 12.5, color: ESP, marginTop: 8, lineHeight: 1.5 }}>
+                O Ativo (R$ {fmt(bal.ativo_total)}) ainda não tem contrapartida completa no Passivo + Patrimônio Líquido (R$ {fmt(bal.passivo_mais_pl)}).
+                Lance no <strong>Patrimônio Líquido</strong> o <strong>Capital Social</strong> e o <strong>Resultado / Lucros (ou Prejuízos) Acumulados</strong> do período para o balanço fechar.
+                A diferença não é forçada — ela é mostrada até você apurar o Patrimônio Líquido.
+              </div>
+              <button onClick={() => void adicionarLinha('pl', 'PATRIMÔNIO LÍQUIDO')} disabled={busy} style={ctaPl}>+ Lançar no Patrimônio Líquido</button>
+            </div>
+          )}
         </>
       )}
     </div>
@@ -196,3 +229,4 @@ const btnSec: React.CSSProperties = { padding: '6px 12px', background: 'transpar
 const miniPri: React.CSSProperties = { padding: '3px 8px', background: GOLD, color: '#3D2314', border: 'none', borderRadius: 5, fontWeight: 700, cursor: 'pointer', fontSize: 12 }
 const miniDel: React.CSSProperties = { padding: '3px 8px', background: 'transparent', color: RED, border: `1px solid ${RED}55`, borderRadius: 5, fontWeight: 700, cursor: 'pointer', fontSize: 12 }
 const miniAdd: React.CSSProperties = { padding: '2px 8px', background: 'transparent', color: GOLD, border: `1px solid ${GOLD}55`, borderRadius: 5, fontWeight: 600, cursor: 'pointer', fontSize: 11 }
+const ctaPl: React.CSSProperties = { marginTop: 10, padding: '7px 14px', background: GOLD, color: '#3D2314', border: 'none', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: 12.5 }

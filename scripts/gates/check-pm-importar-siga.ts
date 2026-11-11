@@ -43,7 +43,11 @@ ok(/REVOKE ALL ON FUNCTION public\.fn_pm_importar_jobs_siga\(uuid, jsonb, boolea
 ok(!/\b(DELETE\s+FROM|CREATE TABLE|DROP\s+(TABLE|COLUMN|FUNCTION))\b/i.test(mig.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')), 'sem tabela nova e nada apagado')
 const tela = readFileSync('src/app/dashboard/pm/importar-sistema-anterior/page.tsx', 'utf8')
 ok(/chamar\(false\)/.test(tela) && /disabled=\{ocupado \|\| !conf \|\| !conf\.novos/.test(tela), 'tela: importar só depois de conferir no sistema')
-for (const k of ['pm.siga.arquivo', 'pm.siga.mapa', 'pm.siga.previa']) ok(tela.includes(`chave="${k}"`) && mig.includes(`'${k}'`), `"?" ${k}`)
+// RD-100: identificador interno renomeado pm.siga.* -> pm.importacao.*; a rota das chaves de ajuda foi
+// repontada para /dashboard/pm/importar-sistema-anterior na migration abaixo (os "?" abriam vazios antes).
+const migAjuda = readFileSync('supabase/migrations/20261111120040_pm_importacao_ajuda_rota_rd100.sql', 'utf8')
+for (const k of ['pm.importacao.arquivo', 'pm.importacao.mapa', 'pm.importacao.previa']) ok(tela.includes(`chave="${k}"`) && migAjuda.includes(`'${k}'`), `"?" ${k}`)
+ok(migAjuda.includes("rota  = '/dashboard/pm/importar-sistema-anterior'") && migAjuda.includes("'pm.importacao.historico'"), 'ajuda repontada para a rota nova na migration')
 ok(readFileSync('src/app/dashboard/pm/pauta/page.tsx', 'utf8').includes('href="/dashboard/pm/importar-sistema-anterior"'), 'Pauta vazia leva ao importador')
 
 // veredito em produção 02/10 (#1991): o CSV lido como bytes trocava os acentos ("NÂº Job") e o mapa não achava número

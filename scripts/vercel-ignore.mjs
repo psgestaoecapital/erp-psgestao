@@ -14,16 +14,12 @@ const BUILDAR = 1
 const PULAR = 0
 export const SO_DOCS = /(\.md$|^docs\/|^\.github\/)/
 
-export function decidir({ env, ref, pr, arquivos }) {
+export function decidir({ env, ref }) {
   if (env === 'production' || ref === 'main') return { codigo: BUILDAR, motivo: 'produção (main) sempre builda' }
-  if (!ref) return { codigo: BUILDAR, motivo: 'sem branch na Vercel (falha segura)' }
-  if (pr === undefined) return { codigo: BUILDAR, motivo: 'consulta da PR falhou (falha segura)' }
-  if (pr === null) return { codigo: PULAR, motivo: `branch ${ref} sem PR aberta` }
-  if (pr.draft) return { codigo: PULAR, motivo: `PR #${pr.number} em rascunho (draft)` }
-  if (arquivos === undefined) return { codigo: BUILDAR, motivo: 'consulta dos arquivos falhou (falha segura)' }
-  if (arquivos.length > 0 && arquivos.every((f) => SO_DOCS.test(f)))
-    return { codigo: PULAR, motivo: `PR #${pr.number} só muda .md/docs/.github (${arquivos.length} arquivo(s))` }
-  return { codigo: BUILDAR, motivo: `PR #${pr.number} pronta com código` }
+  // CEO 10/11 (custo da Vercel): o preview de PR foi DESLIGADO — a compilação por PR (`next build`) passou para o
+  // GitHub Actions (build-pr.yml → check "build-pr"), de graça. A Vercel builda só produção (main). Nenhuma consulta
+  // ao GitHub é feita para ref ≠ main.
+  return { codigo: PULAR, motivo: `preview de PR desligado (CEO 10/11) — compilação no Actions (build-pr.yml)${ref ? ` · ${ref}` : ''}` }
 }
 
 async function api(caminho) {
@@ -66,36 +62,14 @@ async function principal() {
   const ref = process.env.VERCEL_GIT_COMMIT_REF ?? ''
   const dono = process.env.VERCEL_GIT_REPO_OWNER || 'psgestaoecapital'
   const repo = process.env.VERCEL_GIT_REPO_SLUG || 'erp-psgestao'
-  let pr, arquivos
-  if (env !== 'production' && ref && ref !== 'main') {
-    try {
-      const n = process.env.VERCEL_GIT_PULL_REQUEST_ID
-      if (n) {
-        const um = await api(`repos/${dono}/${repo}/pulls/${n}`)
-        pr = um.state === 'open' ? um : null
-      } else {
-        const prs = await api(`repos/${dono}/${repo}/pulls?state=open&head=${encodeURIComponent(`${dono}:${ref}`)}&per_page=5`)
-        pr = prs[0] ?? null
-      }
-    } catch (e) { console.log(`[vercel-ignore] ${e.message}`) }
-    if (pr && !pr.draft) {
-      try {
-        arquivos = []
-        for (let p = 1; p <= 30; p++) {
-          const pag = await api(`repos/${dono}/${repo}/pulls/${pr.number}/files?per_page=100&page=${p}`)
-          arquivos.push(...pag.map((f) => f.filename))
-          if (pag.length < 100) break
-        }
-      } catch (e) { arquivos = undefined; console.log(`[vercel-ignore] ${e.message}`) }
-    }
-  }
+  // Produção (main): espera a migration do mesmo commit (CEO 14/10) antes de liberar o build.
   if (env === 'production' || ref === 'main') {
     try {
-      const dono2 = dono, repo2 = repo
-      console.log(`[vercel-ignore] migration: ${await esperarMigration({ sha: process.env.VERCEL_GIT_COMMIT_SHA, dono: dono2, repo: repo2 })}`)
+      console.log(`[vercel-ignore] migration: ${await esperarMigration({ sha: process.env.VERCEL_GIT_COMMIT_SHA, dono, repo })}`)
     } catch (e) { console.log(`[vercel-ignore] espera da migration falhou (builda): ${e.message}`) }
   }
-  const d = decidir({ env, ref, pr, arquivos })
+  // CEO 10/11: ref ≠ main → preview desligado; NÃO consulta o GitHub (acabou a dependência da cota da API pública).
+  const d = decidir({ env, ref })
   console.log(`[vercel-ignore] ${d.codigo === BUILDAR ? 'BUILDA' : 'NÃO builda'}: ${d.motivo}`)
   process.exit(d.codigo)
 }

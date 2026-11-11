@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 // FIN-R1 · lista de contas com a ORIGEM do saldo (lido × calculado × —). Fonte única:
 // fn_saldos_empresa. saldo_atual saiu da tela; conta bancária sem leitura mostra "—", nunca R$ 0,00.
@@ -63,8 +64,8 @@ export default function ColunaContas({ companyId }: { companyId: string }) {
   return (
     <div style={{ background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 12, padding: '18px 20px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-        <span style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>
-          Contas financeiras
+        <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>
+          Contas financeiras<AjudaCampo chave="ge.hub.contas_financeiras" rota="/dashboard/gestao-empresarial" />
         </span>
         <button
           type="button"

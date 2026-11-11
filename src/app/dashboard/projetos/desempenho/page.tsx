@@ -58,7 +58,7 @@ export default function DesempenhoComercialPage() {
     setLoading(true); setErro('')
     const { r: r0, error } = await buscar(range.de, range.ate)
     if (meu !== seq.current) return
-    if (error) { setLoading(false); setErro(error.message); return }
+    if (error) { setLoading(false); setErro('Não foi possível carregar o desempenho. Tente novamente.'); return }
     if (r0?.erro) { setLoading(false); setErro(r0.erro === 'sem_acesso' ? 'Sem acesso.' : r0.erro); return }
     const fechados = (x: Resp | null) => (x?.resumo?.ganhas_qtd ?? 0) + (x?.resumo?.perdidas_qtd ?? 0)
     if (!autoFeito.current && periodo === 'mes') {
@@ -199,11 +199,11 @@ export default function DesempenhoComercialPage() {
                       <div key={v.responsavel_id ?? i} style={{ border: `0.5px solid ${LINE}`, borderRadius: 10, padding: 12 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
                           <span style={{ color: ESP, fontWeight: 700, fontSize: 13.5, minWidth: 0, overflowWrap: 'anywhere' }}>{i + 1}. {v.responsavel_nome}</span>
-                          <span style={{ color: corConversao(v.conversao_pct), fontWeight: 700, fontSize: 12.5, whiteSpace: 'nowrap' }}>{pct(v.conversao_pct)} · {rotConversao(v.conversao_pct)}</span>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', color: corConversao(v.conversao_pct), fontWeight: 700, fontSize: 12.5, whiteSpace: 'nowrap' }}>{pct(v.conversao_pct)} · {rotConversao(v.conversao_pct)}<AjudaCampo chave="projetos.desempenho.conversao" alinhar="fim" /></span>
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 12px', marginTop: 8 }}>
-                          <Par rot="Valor ganho" val={brl(v.ganhas_valor)} /><Par rot="Comissão" val={brl(v.comissao)} />
-                          <Par rot="Ticket" val={brl(v.ticket)} /><Par rot="Oport. · Prop. · Ganhas" val={`${v.oportunidades} · ${v.propostas} · ${v.ganhas}`} />
+                          <Par rot="Valor ganho" val={brl(v.ganhas_valor)} ajuda="projetos.desempenho.col_valor_ganho" /><Par rot="Comissão" val={brl(v.comissao)} ajuda="projetos.desempenho.comissao" />
+                          <Par rot="Ticket" val={brl(v.ticket)} ajuda="projetos.desempenho.ticket_medio" /><Par rot="Oport. · Prop. · Ganhas" val={`${v.oportunidades} · ${v.propostas} · ${v.ganhas}`} ajuda="projetos.desempenho.col_oportunidades" />
                         </div>
                       </div>
                     ))}
@@ -211,8 +211,14 @@ export default function DesempenhoComercialPage() {
                 <div className="hidden md:block" style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', minWidth: 640, borderCollapse: 'collapse', fontSize: 12.5 }}>
                     <thead><tr style={{ color: MUT, textAlign: 'right' }}>
-                      <th style={{ position: 'sticky', left: 0, background: '#fff', zIndex: 1, textAlign: 'left', padding: '6px 8px' }}>Vendedor</th>
-                      <th style={thR}>Oport.</th><th style={thR}>Propostas</th><th style={thR}>Ganhas</th><th style={thR}>Valor ganho</th><th style={thR}>Conversão</th><th style={thR}>Ticket</th><th style={thR}>Comissão</th>
+                      <th style={{ position: 'sticky', left: 0, background: '#fff', zIndex: 1, textAlign: 'left', padding: '6px 8px' }}>Vendedor<AjudaCampo chave="projetos.desempenho.col_vendedor" /></th>
+                      <th style={thR}>Oport.<AjudaCampo chave="projetos.desempenho.col_oportunidades" alinhar="fim" /></th>
+                      <th style={thR}>Propostas<AjudaCampo chave="projetos.desempenho.col_propostas" alinhar="fim" /></th>
+                      <th style={thR}>Ganhas<AjudaCampo chave="projetos.desempenho.col_ganhas" alinhar="fim" /></th>
+                      <th style={thR}>Valor ganho<AjudaCampo chave="projetos.desempenho.col_valor_ganho" alinhar="fim" /></th>
+                      <th style={thR}>Conversão<AjudaCampo chave="projetos.desempenho.conversao" alinhar="fim" /></th>
+                      <th style={thR}>Ticket<AjudaCampo chave="projetos.desempenho.ticket_medio" alinhar="fim" /></th>
+                      <th style={thR}>Comissão<AjudaCampo chave="projetos.desempenho.comissao" alinhar="fim" /></th>
                     </tr></thead>
                     <tbody>
                       {data.ranking.length === 0 ? <tr><td colSpan={8} style={{ padding: 12, color: MUT, textAlign: 'center' }}>Sem dados no período.</td></tr> :
@@ -272,10 +278,10 @@ function Card({ titulo, valor, cor, sub, ajuda }: { titulo: string; valor: strin
     </div>
   )
 }
-function Par({ rot, val }: { rot: string; val: string }) {
+function Par({ rot, val, ajuda }: { rot: string; val: string; ajuda?: string }) {
   return (
     <div style={{ minWidth: 0 }}>
-      <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.4, color: MUT }}>{rot}</div>
+      <div style={{ display: 'flex', alignItems: 'center', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.4, color: MUT }}>{rot}{ajuda && <AjudaCampo chave={ajuda} />}</div>
       <div style={{ fontSize: 13, color: ESP, fontWeight: 600, overflowWrap: 'anywhere' }}>{val}</div>
     </div>
   )

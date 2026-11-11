@@ -8,6 +8,7 @@ import { ClienteBusca } from '@/components/pm/ClienteBusca'
 import { BriefingEditor } from '@/components/pm/BriefingEditor'
 import { BriefingLigado } from '@/components/pm/BriefingLigado'
 import { CopiarJob, JobsParecidos, type ResultadoCopia } from '@/components/pm/CopiarJob'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 // Identidade Espresso (mesmos tokens do CRM Oportunidades / Financiamentos)
 const ESPRESSO = '#3D2314'
@@ -228,7 +229,7 @@ function ProducaoPageInner() {
     const res = editId
       ? await supabase.from('agency_clientes').update(data).eq('id', editId)
       : await supabase.from('agency_clientes').insert(data)
-    if (res.error) { setToast(`Erro: ${res.error.message}`); return }
+    if (res.error) { setToast(erroAmigavel(res.error)); return }
     setToast(editId ? 'Cliente ALTERADO.' : 'Cliente CRIADO.')
     setShowForm(null); setEditId(null); setForm({}); loadAll()
   }
@@ -239,7 +240,7 @@ function ProducaoPageInner() {
     const res = editId
       ? await supabase.from('agency_jobs').update(data).eq('id', editId)
       : await supabase.from('agency_jobs').insert(data)
-    if (res.error) { setToast(`Erro: ${res.error.message}`); return }
+    if (res.error) { setToast(erroAmigavel(res.error)); return }
     setToast(editId ? 'Job ALTERADO.' : 'Job CRIADO.')
     setShowForm(null); setEditId(null); setForm({}); loadAll()
   }
@@ -270,7 +271,7 @@ function ProducaoPageInner() {
     const res = editId
       ? await supabase.from('agency_timesheet').update(form).eq('id', editId)
       : await supabase.from('agency_timesheet').insert({ ...form, company_id: sel, user_id: user?.id })
-    if (res.error) { setToast(`Erro: ${res.error.message}`); return }
+    if (res.error) { setToast(erroAmigavel(res.error)); return }
     setToast(editId ? 'Horas ALTERADAS.' : 'Horas REGISTRADAS.')
     setShowForm(null); setEditId(null); setForm({}); loadAll()
   }
@@ -282,7 +283,7 @@ function ProducaoPageInner() {
     if (!confirm('EXCLUIR este registro?')) return
     // RD-98 p4: exclusão rastreável (soft-delete + audit_log) — nunca DELETE físico de dado de cliente.
     const { error } = await supabase.rpc('fn_pm_registro_excluir', { p_tabela: table, p_id: id })
-    if (error) { setToast(`Erro: ${error.message}`); return }
+    if (error) { setToast(erroAmigavel(error)); return }
     setToast('Registro EXCLUIDO.')
     loadAll()
   }
@@ -315,7 +316,7 @@ function ProducaoPageInner() {
       ordem: proxOrdem, status: 'pendente',
     })
     setEtapaBusy(null)
-    if (error) { setToast(`Erro: ${error.message}`); return }
+    if (error) { setToast(erroAmigavel(error)); return }
     setNovaEtapa({ titulo: '', responsavel_id: '', data_prazo: '', horas_estimadas: '' })
     await carregarEtapas(jobEtapas.id)
   }
@@ -325,7 +326,7 @@ function ProducaoPageInner() {
     const patch: Record<string, unknown> = { status: novo, updated_at: new Date().toISOString() }
     patch.data_conclusao = novo === 'concluida' ? new Date().toISOString().slice(0, 10) : null
     const { error } = await supabase.from('agency_tarefas').update(patch).eq('id', t.id)
-    if (error) { setEtapaBusy(null); setToast(`Erro: ${error.message}`); return }
+    if (error) { setEtapaBusy(null); setToast(erroAmigavel(error)); return }
     const atualizadas = etapas.map((e) => e.id === t.id ? { ...e, status: novo } : e)
     setEtapas(atualizadas)
     // Concluir a ÚLTIMA etapa move o job (todas concluídas → avança um estágio).
@@ -364,7 +365,7 @@ function ProducaoPageInner() {
     if (!confirm('Excluir esta etapa?')) return
     // RD-98 p4: exclusão rastreável (soft-delete + audit_log) — nunca DELETE físico.
     const { error } = await supabase.rpc('fn_pm_registro_excluir', { p_tabela: 'agency_tarefas', p_id: t.id })
-    if (error) { setToast(`Erro: ${error.message}`); return }
+    if (error) { setToast(erroAmigavel(error)); return }
     await carregarEtapas(jobEtapas.id)
   }
 
@@ -376,9 +377,9 @@ function ProducaoPageInner() {
     setJobs((prev) => prev.map((j) => j.id === jobId ? { ...j, status: novo } : j))
     const { data, error } = await supabase.rpc('fn_pm_job_mover_status', { p_job_id: jobId, p_status: novo })
     setMovendoId(null)
-    if (error) { setToast(`Erro ao mover: ${error.message}`); loadAll(); return }
+    if (error) { setToast(erroAmigavel(error, 'Não foi possível mover o job. Tente de novo.')); loadAll(); return }
     const r = data as { ok?: boolean; erro?: string } | null
-    if (r && r.ok === false) { setToast(`Erro: ${r.erro ?? 'falha'}`); loadAll(); return }
+    if (r && r.ok === false) { setToast(codigoAmigavel(r.erro, 'Não foi possível mover o job. Tente de novo.')); loadAll(); return }
     setToast(`Job movido para ${estagioCfg(novo).l}.`)
     loadAll()
   }

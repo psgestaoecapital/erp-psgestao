@@ -23,6 +23,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { authFetch } from '@/lib/authFetch'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { C, fmtBRL } from '../_components'
 
 type Linha = {
@@ -92,7 +93,8 @@ export default function ConfigurarDREPage() {
       merged.sort((a, b) => a.ordem - b.ordem)
       setItems(merged)
     } catch (e: any) {
-      setErro(e.message)
+      console.error('[dre/configurar] carregar', e)
+      setErro('Não foi possível carregar a configuração da DRE agora. Verifique a conexão e tente novamente.')
     } finally {
       setLoading(false)
     }
@@ -175,13 +177,19 @@ export default function ConfigurarDREPage() {
 
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 24, alignItems: 'flex-start' }} className="config-grid">
           <section style={{ background: 'white', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61,35,20,0.06)' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: C.muted, marginBottom: 12 }}>
-              Linhas da DRE
+            <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: C.muted, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+              Linhas da DRE<AjudaCampo chave="dre.configurar.linhas" />
             </div>
             {loading ? (
               <div style={{ color: C.muted, fontSize: 13, padding: 20 }}>Carregando…</div>
             ) : items.length === 0 ? (
-              <div style={{ color: C.muted, fontSize: 13, padding: 20 }}>Nenhuma linha de negócio cadastrada.</div>
+              <div style={{ color: C.muted, fontSize: 13, padding: '20px 20px 24px', textAlign: 'center' }}>
+                <p style={{ margin: '0 0 4px', fontWeight: 600, color: C.ink }}>Nenhuma linha de negócio cadastrada.</p>
+                <p style={{ margin: '0 0 16px' }}>A DRE divisional separa o resultado por linha de negócio. Cadastre a primeira para começar a configurar.</p>
+                <Link href="/dashboard/linhas-negocio" style={{ display: 'inline-block', background: C.gold, color: C.espresso, padding: '10px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
+                  Cadastrar linha de negócio
+                </Link>
+              </div>
             ) : (
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                 <SortableContext items={items.map((i) => i.linha_id)} strategy={verticalListSortingStrategy}>
@@ -198,6 +206,7 @@ export default function ConfigurarDREPage() {
               <button onClick={salvar} disabled={salvando || loading} style={btnPrimario(salvando || loading)}>
                 {salvando ? 'Salvando…' : 'Salvar configuração'}
               </button>
+              <AjudaCampo chave="dre.configurar.salvar" />
               <button onClick={() => router.push('/dashboard/dre-divisional')} disabled={salvando} style={btnSecundario}>
                 Cancelar
               </button>
@@ -205,6 +214,7 @@ export default function ConfigurarDREPage() {
               <button onClick={restaurarPadrao} disabled={salvando || loading} style={btnSecundario}>
                 Restaurar padrão
               </button>
+              <AjudaCampo chave="dre.configurar.restaurar" />
             </div>
           </section>
 
@@ -221,8 +231,8 @@ export default function ConfigurarDREPage() {
                 <thead>
                   <tr style={{ background: C.offwhite }}>
                     <th style={previewTh}>Linha</th>
-                    <th style={{ ...previewTh, textAlign: 'right' }}>Receita</th>
-                    <th style={{ ...previewTh, textAlign: 'right' }}>EBITDA</th>
+                    <th style={{ ...previewTh, textAlign: 'right' }}>Receita<AjudaCampo chave="dre.configurar.preview_receita" /></th>
+                    <th style={{ ...previewTh, textAlign: 'right' }}>EBITDA<AjudaCampo chave="dre.configurar.preview_ebitda" /></th>
                   </tr>
                 </thead>
                 <tbody>

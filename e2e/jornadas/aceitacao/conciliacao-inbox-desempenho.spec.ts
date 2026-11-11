@@ -40,6 +40,10 @@ test.describe('Conciliação · inbox em lote (Jordana/Gean)', () => {
     const [emp] = await dbSelect<{ is_demo: boolean }>('companies', `id=eq.${DEMO_COMERCIO}&select=is_demo`)
     expect(emp?.is_demo, 'a aceitação só roda na empresa de demonstração').toBe(true)
     token = (JSON.parse(await obterSessionPayload()) as { access_token: string }).access_token
+    // Defensivo: os títulos têm fornecedor_nome FIXO ("ACEITE CONC ..."), mas o afterAll só limpa por descricao com o RUN.
+    // Um run anterior cancelado (vigia/timeout) antes do afterAll deixa esses títulos VIVOS e polui o "1 candidato exato"
+    // (o matcher acha o leftover + o novo = 2). Pré-limpa qualquer leftover de nome fixo antes de inserir os desta rodada.
+    await dbPatch('erp_pagar', `company_id=eq.${DEMO_COMERCIO}&fornecedor_nome=like.ACEITE%20CONC%20*&deleted_at=is.null`, { deleted_at: new Date().toISOString() })
     lote = (await dbInsert<{ id: string }>('conciliacao_lote', {
       company_id: DEMO_COMERCIO, tipo: 'bancario', origem: 'ofx', nome: `Aceitação inbox em lote ${RUN}`,
     })).id

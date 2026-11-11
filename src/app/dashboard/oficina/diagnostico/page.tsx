@@ -19,6 +19,7 @@ import { filtrarOS } from '@/lib/oficina/buscaOS'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { useOficinaModelo } from '@/lib/oficina/modelo'
 import { decimalBanco } from '@/lib/decimalBanco'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 const BUCKET = 'oficina-recepcao'   // RD-26 · mesmo bucket/mecanismo da recepção (#831)
 type FotoDiag = { id: string; foto_path: string; descricao: string | null; criado_por_nome: string | null; diagnostico_item_id?: string | null; anotacao?: unknown; _url?: string | null }
@@ -184,7 +185,7 @@ export default function DiagnosticoPage() {
     const { data, error } = await supabase.rpc('fn_oficina_servico_criar', { p_company_id: companyId, p_nome: nome })
     setCriandoServ(false)
     const r = data as { ok?: boolean; erro?: string; ja_existia?: boolean; id?: string; nome?: string; tempo_padrao_h?: number | null } | null
-    if (error || !r?.ok || !r.id) { setMsg('❌ ' + (error?.message || r?.erro || 'Não deu para cadastrar o serviço')); return }
+    if (error || !r?.ok || !r.id) { setMsg('❌ ' + erroAmigavel(error, codigoAmigavel(r?.erro, 'Não deu para cadastrar o serviço.'))); return }
     addServicoTempario({ id: r.id, codigo: null, nome: r.nome ?? nome, tempo_padrao_h: r.tempo_padrao_h ?? null })
     setMsg(r.ja_existia
       ? `Já existia parecido no catálogo: “${r.nome}” — usei esse (não dupliquei).`
@@ -219,7 +220,7 @@ export default function DiagnosticoPage() {
       p_diagnostico_item_id: itemId,   // DVI: liga a foto ao item quando veio de um item
     })
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) throw new Error(error?.message ?? r?.erro ?? 'Falha ao salvar a foto')
+    if (error || !r?.ok) throw new Error(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao salvar a foto.')))
     return foto
   }
   const fimFotosDiag = (_ok: unknown[], _falhas: unknown[], m: string) => { setMsg(m); if (osSel) void carregarFotos(osSel.id) }
@@ -228,7 +229,7 @@ export default function DiagnosticoPage() {
     if (nova === (f.descricao ?? '').trim()) return
     const { data, error } = await supabase.rpc('fn_oficina_registro_legenda', { p_id: f.id, p_descricao: nova || null })
     const r = data as { ok?: boolean; erro?: string; descricao?: string } | null
-    if (error || !r?.ok) { setMsg('Legenda não salva: ' + (error?.message ?? r?.erro ?? 'falha')); return }
+    if (error || !r?.ok) { setMsg('Legenda não salva: ' + erroAmigavel(error, codigoAmigavel(r?.erro, 'falha ao salvar a legenda.'))); return }
     setFotosDiag((p) => p.map((x) => (x.id === f.id ? { ...x, descricao: r.descricao ?? nova } : x)))
     setLegDiag((p) => ({ ...p, [f.id]: r.descricao ?? nova }))
   }
@@ -242,7 +243,7 @@ export default function DiagnosticoPage() {
     if (error || !r?.sucesso) {
       const m = r?.erro === 'sem_acesso' ? 'Sem permissão para excluir esta foto.'
         : r?.erro === 'foto_inexistente' ? 'Foto já removida.'
-        : (error?.message ?? r?.erro ?? 'Falha ao excluir a foto')
+        : erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao excluir a foto.'))
       setMsg('❌ ' + m); return
     }
     setFotosDiag((prev) => prev.filter((x) => x.id !== f.id)) // some da tela na hora
@@ -259,7 +260,7 @@ export default function DiagnosticoPage() {
     const { data, error } = await supabase.rpc('fn_os_link_publico_gerar', { p_company_id: companyId, p_os_id: osSel.id })
     setEnviandoLink(false)
     const r = data as { ok?: boolean; erro?: string; token?: string; reusado?: boolean } | null
-    if (error || !r?.ok || !r.token) { setMsg('❌ ' + (error?.message || r?.erro || 'Não deu para gerar o link do cliente')); return }
+    if (error || !r?.ok || !r.token) { setMsg('❌ ' + erroAmigavel(error, codigoAmigavel(r?.erro, 'Não deu para gerar o link do cliente.'))); return }
     const url = `${window.location.origin}/os/${r.token}`
     setLinkPub(url)
     const veic = [osSel.placa, [osSel.marca, osSel.modelo].filter(Boolean).join(' ')].filter(Boolean).join(' · ')
@@ -291,7 +292,7 @@ export default function DiagnosticoPage() {
     })
     setSalvando(false)
     const j = data as { ok?: boolean; erro?: string; itens?: number; nao_removidos?: number } | null
-    if (error || j?.ok === false) { setMsg('❌ ' + (error?.message || j?.erro)); return }
+    if (error || j?.ok === false) { setMsg('❌ ' + erroAmigavel(error, codigoAmigavel(j?.erro, 'Não foi possível salvar o diagnóstico.'))); return }
     const bloq = j?.nao_removidos ?? 0
     setMsg(bloq > 0
       ? `✅ Laudo salvo — ${j?.itens ?? 0} item(ns). ⚠️ ${bloq} item(ns) não removido(s): já estão em cotação/apontamento.`
@@ -318,7 +319,7 @@ export default function DiagnosticoPage() {
     const { data, error } = await supabase.rpc('fn_os_diagnostico_gerar_cotacao', { p_os_id: osSel.id, p_itens_ids: ids })
     setGerandoCot(false)
     const j = data as { sucesso?: boolean; erro?: string; msg?: string; cotacao_id?: string; numero?: string; itens?: number } | null
-    if (error || j?.sucesso === false || !j?.cotacao_id) { setMsg('❌ ' + (error?.message || j?.msg || j?.erro || 'falha ao gerar cotação')); return }
+    if (error || j?.sucesso === false || !j?.cotacao_id) { setMsg('❌ ' + erroAmigavel(error, codigoAmigavel(j?.msg || j?.erro, 'Falha ao gerar a cotação.'))); return }
     // Fica no modal e passa à 2ª fase: convidar fornecedores para esta cotação (dispatch [→GE]).
     setCotacaoCriada({ id: j.cotacao_id, numero: j.numero ?? '' })
     setConvidarSel(new Set()); setBuscaFornec('')
@@ -348,7 +349,7 @@ export default function DiagnosticoPage() {
     const { data, error } = await supabase.rpc('fn_cotacao_convidar_fornecedores', { p_cotacao_id: cotacaoCriada.id, p_fornecedor_ids: ids })
     setConvidando(false)
     const j = data as { ok?: boolean; erro?: string; convidados?: number } | null
-    if (error || j?.ok === false) { setMsg('❌ ' + (error?.message || j?.erro || 'falha ao convidar')); return }
+    if (error || j?.ok === false) { setMsg('❌ ' + erroAmigavel(error, codigoAmigavel(j?.erro, 'Falha ao convidar.'))); return }
     fecharCotar()
     setMsg(`✅ ${j?.convidados ?? ids.length} fornecedor(es) convidado(s) para a cotação ${cotacaoCriada.numero}. Compare as propostas em Compras › Cotações.`)
     setTimeout(() => router.push('/dashboard/commerce/compras'), 1000)
@@ -366,7 +367,7 @@ export default function DiagnosticoPage() {
       <div style={{ maxWidth: 560, margin: '0 auto', padding: '16px 14px 40px' }}>
         <button onClick={() => router.push('/dashboard/oficina/patio')} style={linkBtn}><ChevronLeft size={16} /> Pátio</button>
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginTop: 6 }}>🔧 Oficina · Diagnóstico</div>
-        <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}><Stethoscope size={22} /> Qual {ramo.objetoLabelCurto} diagnosticar?</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}><Stethoscope size={22} /> Qual {ramo.objetoLabelCurto} diagnosticar?<AjudaCampo chave="oficina.diagnostico.selecao" rota="/dashboard/oficina/diagnostico" /></h1>
         {lista.length > 0 && (
           <div style={{ marginBottom: 12 }}>
             <label style={{ display: 'block' }}>
@@ -377,6 +378,7 @@ export default function DiagnosticoPage() {
         )}
         {lista.length === 0 && <div style={{ color: ESP60, fontSize: 14, padding: '20px 0' }}>{ramo.automotivo ? 'Nenhum veículo ativo no pátio.' : 'Nada ativo no pátio.'} Faça a recepção primeiro.</div>}
         {lista.length > 0 && buscaOS.trim() && filtrarOS(lista, buscaOS).length === 0 && <div style={{ color: ESP60, fontSize: 14, padding: '12px 0' }}>Nenhuma OS encontrada para “{buscaOS.trim()}”.</div>}
+        {lista.length > 0 && <div style={{ fontSize: 11, color: ESP60, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>Toque num card para abrir o diagnóstico — cada um mostra placa, {ramo.objetoLabelCurto}, cliente e a queixa.<AjudaCampo chave="oficina.diagnostico.lista" rota="/dashboard/oficina/diagnostico" /></div>}
         {filtrarOS(lista, buscaOS).map((os) => (
           <div key={os.id} onClick={() => void abrirOS(os)} style={{ width: '100%', textAlign: 'left', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 10, cursor: 'pointer' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
@@ -385,7 +387,7 @@ export default function DiagnosticoPage() {
             </div>
             <div style={{ fontSize: 13, color: ESP, marginTop: 3 }}>{[os.marca, os.modelo].filter(Boolean).join(' ') || ramo.objetoLabel}{os.cliente_nome ? ` · ${os.cliente_nome}` : ''}</div>
             {os.defeito_relatado && <div style={{ fontSize: 12, color: ESP60, marginTop: 4 }}>“{os.defeito_relatado}”</div>}
-            {os.tem_laudo && <div style={{ fontSize: 11, fontWeight: 700, color: OK, marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Check size={13} /> já tem laudo — toque p/ editar</div>}
+            {os.tem_laudo && <div style={{ fontSize: 11, fontWeight: 700, color: OK, marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 4 }}><Check size={13} /> já tem laudo — toque p/ editar<AjudaCampo chave="oficina.diagnostico.selo_laudo" rota="/dashboard/oficina/diagnostico" /></div>}
           </div>
         ))}
       </div>
@@ -402,12 +404,12 @@ export default function DiagnosticoPage() {
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: '2px 0 4px' }}>{osSel.placa} · {osSel.marca} {osSel.modelo}</h1>
         {osSel.defeito_relatado && <div style={{ fontSize: 13, color: ESP60, marginBottom: 12 }}>Queixa do cliente: “{osSel.defeito_relatado}”</div>}
 
-        <Sec titulo={ramo.automotivo ? 'Causa provável (o que o carro tem)' : 'Causa provável (o que foi constatado)'}>
+        <Sec ajuda="oficina.diagnostico.causa" titulo={ramo.automotivo ? 'Causa provável (o que o carro tem)' : 'Causa provável (o que foi constatado)'}>
           <textarea value={diagnostico} onChange={(e) => setDiagnostico(e.target.value)} rows={3} placeholder="Ex.: barulho ao frear — pastilha dianteira gasta e disco com sulco." style={{ ...inp, resize: 'vertical' }} />
-          <Campo l="KM confirmado"><input value={km} onChange={(e) => setKm(e.target.value.replace(/\D/g, ''))} inputMode="numeric" style={inp} /></Campo>
+          <Campo l="KM confirmado" ajuda="oficina.diagnostico.km"><input value={km} onChange={(e) => setKm(e.target.value.replace(/\D/g, ''))} inputMode="numeric" style={inp} /></Campo>
         </Sec>
 
-        <Sec titulo="Serviços & peças necessárias">
+        <Sec ajuda="oficina.diagnostico.servico_peca" titulo="Serviços & peças necessárias">
           {/* 3.2 · a tela escolhe SERVIÇO ou PEÇA — uma busca por vez. Toque grande (44px), sem ruído. */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
             {([['servico', 'Serviço', Wrench], ['peca', 'Peça', Package]] as const).map(([m, l, Icon]) => (
@@ -507,19 +509,20 @@ export default function DiagnosticoPage() {
               <input value={it.descricao} onChange={(e) => setItem(i, { descricao: e.target.value })} placeholder={it.tipo === 'peca' ? 'Qual peça?' : 'Qual serviço?'} style={{ ...inp, marginBottom: 8 }} />
               <div style={{ display: 'grid', gridTemplateColumns: it.tipo === 'peca' ? '1fr' : '1fr 1fr', gap: 8, marginBottom: 8 }}>
                 {it.tipo === 'peca'
-                  ? <Campo l="Qtd"><input value={it.quantidade} onChange={(e) => setItem(i, { quantidade: e.target.value.replace(/[^\d.,]/g, '') })} inputMode="decimal" data-testid="diag-item-qtd" style={inp} /></Campo>
-                  : <Campo l="Tempo estimado (h)"><input value={it.tempo_estimado_h} onChange={(e) => setItem(i, { tempo_estimado_h: e.target.value.replace(/[^\d.,]/g, '') })} inputMode="decimal" style={inp} /></Campo>}
-                {it.tipo === 'servico' && <Campo l="Qtd"><input value={it.quantidade} onChange={(e) => setItem(i, { quantidade: e.target.value.replace(/[^\d.,]/g, '') })} inputMode="decimal" data-testid="diag-item-qtd" style={inp} /></Campo>}
+                  ? <Campo l="Qtd" ajuda="oficina.diagnostico.quantidade"><input value={it.quantidade} onChange={(e) => setItem(i, { quantidade: e.target.value.replace(/[^\d.,]/g, '') })} inputMode="decimal" data-testid="diag-item-qtd" style={inp} /></Campo>
+                  : <Campo l="Tempo estimado (h)" ajuda="oficina.diagnostico.tempo_estimado"><input value={it.tempo_estimado_h} onChange={(e) => setItem(i, { tempo_estimado_h: e.target.value.replace(/[^\d.,]/g, '') })} inputMode="decimal" style={inp} /></Campo>}
+                {it.tipo === 'servico' && <Campo l="Qtd" ajuda="oficina.diagnostico.quantidade"><input value={it.quantidade} onChange={(e) => setItem(i, { quantidade: e.target.value.replace(/[^\d.,]/g, '') })} inputMode="decimal" data-testid="diag-item-qtd" style={inp} /></Campo>}
               </div>
               {/* #135 · atendimento centralizado: preço unitário já no Diagnóstico (item aprovado/recusado não muda aqui) */}
               {podePreco && it.status_item !== 'aprovado' && it.status_item !== 'recusado' && (
                 <div style={{ marginBottom: 8 }}>
-                  <Campo l="Preço unitário (R$)">
+                  <Campo l="Preço unitário (R$)" ajuda="oficina.diagnostico.preco_unitario">
                     <input value={it._preco ?? ''} onChange={(e) => setItem(i, { _preco: e.target.value.replace(/[^\d.,]/g, '') })}
                       inputMode="decimal" placeholder="0,00" data-testid="diag-item-preco" style={inp} />
                   </Campo>
                 </div>
               )}
+              <div style={{ fontSize: 11, color: ESP60, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>Severidade <AjudaCampo chave="oficina.diagnostico.severidade" /></div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {SEVERIDADES.map((s) => (
                   <button key={s.v} onClick={() => setItem(i, { severidade: s.v })} style={{ ...chip, borderColor: it.severidade === s.v ? s.c : LINE, background: it.severidade === s.v ? s.c : '#fff', color: it.severidade === s.v ? '#fff' : s.c }}>{s.l}</button>
@@ -758,16 +761,16 @@ export default function DiagnosticoPage() {
   )
 }
 
-function Sec({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+function Sec({ titulo, children, ajuda }: { titulo: string; children: React.ReactNode; ajuda?: string }) {
   return (
     <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 14, padding: 14, marginBottom: 12 }}>
-      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 10 }}>{titulo}</div>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 4 }}>{titulo}{ajuda && <AjudaCampo chave={ajuda} />}</div>
       {children}
     </div>
   )
 }
-function Campo({ l, children }: { l: string; children: React.ReactNode }) {
-  return <div><div style={{ fontSize: 11, color: ESP60, marginBottom: 4 }}>{l}</div>{children}</div>
+function Campo({ l, children, ajuda }: { l: string; children: React.ReactNode; ajuda?: string }) {
+  return <div><div style={{ fontSize: 11, color: ESP60, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>{l}{ajuda && <AjudaCampo chave={ajuda} />}</div>{children}</div>
 }
 function Toast({ children }: { children: React.ReactNode }) {
   return <div style={{ position: 'fixed', bottom: 74, left: '50%', transform: 'translateX(-50%)', background: ESP, color: '#fff', padding: '10px 16px', borderRadius: 999, fontSize: 13, zIndex: 70, maxWidth: '92%', textAlign: 'center' }}>{children}</div>

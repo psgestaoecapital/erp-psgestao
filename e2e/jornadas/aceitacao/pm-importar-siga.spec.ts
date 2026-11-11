@@ -38,7 +38,7 @@ test.describe('PM-J — importar jobs do SIGA', () => {
     await expect(page.getByTestId('siga-mapa-cliente')).toHaveValue('2')
     await expect(page.getByTestId('siga-n-entram')).toHaveText('2')
     await expect(page.getByTestId('siga-n-fora')).toHaveText('1')
-    for (const k of ['pm.siga.arquivo', 'pm.siga.mapa', 'pm.siga.previa']) await expect(page.getByTestId(`ajuda-${k}`).first()).toBeVisible()
+    for (const k of ['pm.importacao.arquivo', 'pm.importacao.mapa', 'pm.importacao.previa']) await expect(page.getByTestId(`ajuda-${k}`).first()).toBeVisible()
     await page.getByTestId('siga-conferir').click()
     await expect(page.getByTestId('siga-n-existem')).toHaveText('1', { timeout: 15000 })
     await expect(page.getByTestId('siga-n-novos')).toHaveText('1')

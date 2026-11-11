@@ -217,15 +217,19 @@ export default function TakeoffPage() {
         .eq('company_id', companyId).eq('ativo', true).order('nome').limit(500)
       if (!alive) return
       if (eo || es) setErro(falhaTela(eo ?? es))
-      setOrcamentos((o as Orc[]) ?? [])
-      // 1 só orçamento em aberto: já vem escolhido (destino claro, sem o campo parado em "— selecione —").
-      if (((o as Orc[]) ?? []).length === 1) setOrcId((prev) => prev || (o as Orc[])[0].id)
+      const abertos = (o as Orc[]) ?? []
+      setOrcamentos(abertos)
+      // Sugere o destino já escolhido (lista ordenada por created_at desc → o mais recente em aberto),
+      // para o campo não ficar parado em "— selecione —". O usuário pode trocar.
+      // Exceção: take-off vindo de uma oportunidade — ali o fluxo é CRIAR um orçamento novo vinculado
+      // a ela (banner + botão "Criar novo"), então não pré-seleciona um orçamento existente.
+      if (!oportunidadeIdParam && abertos.length >= 1) setOrcId((prev) => prev || abertos[0].id)
       setServicos((s as Servico[]) ?? [])
       await recarregarRecentes(companyId)
       if (alive) setCarregado(true)
     })()
     return () => { alive = false }
-  }, [companyId, recarregarRecentes])
+  }, [companyId, oportunidadeIdParam, recarregarRecentes])
 
   const abrirPlanta = async (id: string) => {
     setErro(null); setMsg(null); setOrcGerado(false)

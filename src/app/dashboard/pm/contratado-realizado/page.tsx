@@ -4,6 +4,7 @@
 // saldo, % e situação (verde/amarelo/vermelho). O alerta amarelo de ultrapassagem ao criar/mover job usa a RPC
 // fn_pm_contrato_item_previa (nunca bloqueia). Escopo por company_id (RD-45). Tema Espresso (RD-96/RD-99). "?" RD-95.
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
@@ -115,7 +116,17 @@ export default function ContratadoRealizadoPage() {
           <div style={{ ...card, padding: 24, color: RED }}>{erro}</div>
         ) : visiveis.length === 0 ? (
           <div style={{ ...card, padding: 40, textAlign: 'center', color: TEXTM }}>
-            Nenhum item contratado para mostrar neste mês. Cadastre os itens do contrato em P&amp;M › Contratos.
+            <div style={{ marginBottom: 16 }}>Nenhum item contratado para mostrar neste mês.</div>
+            <Link
+              href="/dashboard/pm/contratos"
+              style={{
+                display: 'inline-block', padding: '10px 20px', borderRadius: 8,
+                background: DOURADO, color: '#fff', fontWeight: 600, fontSize: 14,
+                textDecoration: 'none',
+              }}
+            >
+              Cadastrar itens do contrato em P&amp;M › Contratos
+            </Link>
           </div>
         ) : (
           <>

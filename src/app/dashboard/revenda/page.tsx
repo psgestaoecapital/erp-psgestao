@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 
 const C = {
@@ -61,7 +62,7 @@ export default function PainelRevendaPage() {
     if (!companyId) { setP(null); setPatio(null); setCarr(null); setCarregando(false); return }
     setCarregando(true)
     const { data, error } = await supabase.rpc('fn_veic_painel', { p_company_id: companyId })
-    if (error) { setErro(error.message); setCarregando(false); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar. Tente de novo.')); setCarregando(false); return }
     const r = data as Painel
     if (!r?.ok) { setErro(r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : 'Falha ao carregar o painel.'); setCarregando(false); return }
     setErro(null); setP(r)
@@ -348,7 +349,7 @@ function MarcarModal({ ocorrencia, companyId, onClose, onDone, onErro }: { ocorr
     })
     setBusy(false)
     const rr = data as { ok?: boolean; erro?: string } | null
-    if (error || !rr?.ok) { onErro(error?.message || 'Falha ao marcar.'); return }
+    if (error || !rr?.ok) { onErro(erroAmigavel(error, 'Falha ao marcar.')); return }
     onDone()
   }
   void companyId

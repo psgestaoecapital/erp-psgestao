@@ -8,6 +8,7 @@ import React, { useCallback, useEffect, useState, type CSSProperties } from 'rea
 import { useRouter } from 'next/navigation'
 import { ChevronLeft, BellRing, Phone, PhoneOff, Clock, MessageCircle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'; const RED = '#A32D2D'
@@ -86,7 +87,7 @@ export default function PosVendaPage() {
     const { data, error } = await supabase.rpc('fn_oficina_pos_venda_janela_set', { p_company_id: companyId, p_dias: dias })
     setSalvandoJanela(false)
     const r = data as { ok?: boolean; mensagem?: string } | null
-    if (error || !r?.ok) { setMsg(r?.mensagem || error?.message || 'Não foi possível ajustar a janela.'); return }
+    if (error || !r?.ok) { setMsg(r?.mensagem || erroAmigavel(error, 'Não foi possível ajustar a janela.')); return }
     void carregar()
   }
 

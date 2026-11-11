@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import ContratosList from '@/components/ge/ContratosList'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 export default function Page() {
   const router = useRouter()
@@ -21,7 +22,7 @@ export default function Page() {
   return (
     <>
       <div style={{ background: '#FAF7F2', padding: '20px 24px 0' }}>
-        <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', alignItems: 'center' }}>
           <button
             type="button"
             onClick={() => router.push('/dashboard/cadastros/contratos-recorrentes/a-faturar')}
@@ -29,6 +30,7 @@ export default function Page() {
           >
             📋 Contratos a Faturar (próximos 15 dias)
           </button>
+          <AjudaCampo chave="ge.contratos.a_faturar" rota="/dashboard/cadastros/contratos-recorrentes" />
         </div>
       </div>
       <ContratosList companyId={empresaUnica} />

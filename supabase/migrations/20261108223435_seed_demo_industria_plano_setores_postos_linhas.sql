@@ -1,7 +1,8 @@
 -- SEED DEMO Indústria (RD-69: dado FICTÍCIO, só DEMO, nunca real) — destrava o aud8 nas 6 telas de Indústria.
 -- Empresa DEMO Indústria = b0700000-0000-4000-a000-000000000005 (abatedouro fictício).
 -- Tudo ADITIVO e IDEMPOTENTE (WHERE NOT EXISTS). Guarda RD-69: cada bloco só grava se a empresa existir e for is_demo=true.
--- Plant industrial já existente da DEMO: 49a0d5ae-c5f8-4969-a40e-46f800f1a2a1.
+-- Plant industrial da DEMO resolvida pelo codigo_planta 'DEMO-SST' (criada em 20260926340000_demo_industria_sst
+-- com id gerado por default — varia por banco; NUNCA hard-coded, senão quebra a montagem do banco de testes do zero).
 -- Aceite: plano de contas >=50, >=4 setores, >=10 postos, >=2 linhas de negócio.
 
 -- ============================================================ 1) PLANO DE CONTAS
@@ -24,8 +25,10 @@ ORDER BY g.codigo, g.nivel NULLS LAST, g.created_at;
 -- ============================================================ 2) SETORES (prod_setor)
 -- Já existem Abate (1) e Desossa (2); completa Expedição (3) e Quarteio (4). WHERE NOT EXISTS por company_id+nome.
 INSERT INTO public.prod_setor (company_id, plant_id, nome, ordem, ativo)
-SELECT 'b0700000-0000-4000-a000-000000000005'::uuid, '49a0d5ae-c5f8-4969-a40e-46f800f1a2a1'::uuid, v.nome, v.ordem, true
+SELECT 'b0700000-0000-4000-a000-000000000005'::uuid, pl.id, v.nome, v.ordem, true
 FROM (VALUES ('Expedição', 3), ('Quarteio', 4)) AS v(nome, ordem)
+JOIN public.industrial_plants pl
+  ON pl.company_id = 'b0700000-0000-4000-a000-000000000005' AND pl.codigo_planta = 'DEMO-SST'
 WHERE EXISTS (SELECT 1 FROM public.companies c WHERE c.id = 'b0700000-0000-4000-a000-000000000005' AND c.is_demo = true)
   AND NOT EXISTS (
     SELECT 1 FROM public.prod_setor s
@@ -36,7 +39,7 @@ WHERE EXISTS (SELECT 1 FROM public.companies c WHERE c.id = 'b0700000-0000-4000-
 -- numero único por company (WHERE NOT EXISTS por company_id+numero); setor_id resolvido pelo nome do setor.
 -- supervisor_nome genérico/fictício (sem nome de pessoa real). cargo_id/categoria_produto_id ficam nulos.
 INSERT INTO public.prod_posto (company_id, plant_id, setor_id, numero, atividade, descricao_funcao, centro_custo, capacidade_hora, supervisor_nome, ordem_linha, alocacao, ativo)
-SELECT 'b0700000-0000-4000-a000-000000000005'::uuid, '49a0d5ae-c5f8-4969-a40e-46f800f1a2a1'::uuid,
+SELECT 'b0700000-0000-4000-a000-000000000005'::uuid, pl.id,
        s.id, v.numero, v.atividade, v.descricao_funcao, v.centro_custo, v.capacidade_hora::numeric, v.supervisor_nome, v.ordem_linha, 'fixa', true
 FROM (VALUES
   ('Abate',     'P-ABATE-01', 'Insensibilização',      'Condução e insensibilização na entrada da linha', 'CC-ABATE',    60,  'Supervisão Abate',     1),
@@ -54,6 +57,8 @@ FROM (VALUES
 ) AS v(setor_nome, numero, atividade, descricao_funcao, centro_custo, capacidade_hora, supervisor_nome, ordem_linha)
 JOIN public.prod_setor s
   ON s.company_id = 'b0700000-0000-4000-a000-000000000005' AND s.nome = v.setor_nome
+JOIN public.industrial_plants pl
+  ON pl.company_id = 'b0700000-0000-4000-a000-000000000005' AND pl.codigo_planta = 'DEMO-SST'
 WHERE EXISTS (SELECT 1 FROM public.companies c WHERE c.id = 'b0700000-0000-4000-a000-000000000005' AND c.is_demo = true)
   AND NOT EXISTS (
     SELECT 1 FROM public.prod_posto p

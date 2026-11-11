@@ -4,6 +4,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import ContratoForm, { type Contrato as ContratoFull } from './ContratoForm'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
+
+// RD-95: chaves ge.contratos.* cadastradas na rota canônica da tela.
+const ROTA_AJUDA = '/dashboard/cadastros/contratos-recorrentes'
 
 interface Contrato {
   id: string
@@ -43,6 +48,7 @@ export default function ContratosList({ companyId }: { companyId: string }) {
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Contrato | null>(null)
   const [filtroStatus, setFiltroStatus] = useState<'ativo' | 'suspenso' | 'encerrado' | 'todos'>('ativo')
+  const [aviso, setAviso] = useState<string | null>(null)
 
   async function load() {
     setLoading(true)
@@ -50,6 +56,9 @@ export default function ContratosList({ companyId }: { companyId: string }) {
       .from('erp_contratos')
       .select('id, nome, numero, tipo, cliente_id, cliente_nome, valor_mensal, valor_atual, dia_vencimento, periodicidade, data_inicio, data_fim, status')
       .eq('company_id', companyId)
+      // RD-98 p4: cobrança excluída (soft-delete por fn_contrato_excluir) não volta para a lista.
+      .is('excluido_em', null)
+      .neq('status', 'excluido')
       .order('data_inicio', { ascending: false })
     if (data) setContratos(data as Contrato[])
     setLoading(false)
@@ -91,22 +100,33 @@ export default function ContratosList({ companyId }: { companyId: string }) {
             Aluguéis · mensalidades · assinaturas · contratos. Tudo que se repete todo mês.
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setEditing(null)
-            setShowForm(true)
-          }}
-          style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '12px 22px', borderRadius: 6, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
-        >
-          + Nova cobrança
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <button
+            type="button"
+            onClick={() => {
+              setEditing(null)
+              setShowForm(true)
+            }}
+            style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '12px 22px', borderRadius: 6, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+          >
+            + Nova cobrança
+          </button>
+          <AjudaCampo chave="ge.contratos.nova" rota={ROTA_AJUDA} />
+        </div>
       </div>
+
+      {aviso && (
+        <div role="status" style={{ background: 'rgba(59,109,17,0.08)', border: '0.5px solid rgba(59,109,17,0.35)', color: '#3B6D11', padding: '10px 14px', borderRadius: 8, marginBottom: 16, fontSize: 13, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+          <span>{aviso}</span>
+          <button type="button" onClick={() => setAviso(null)} aria-label="Fechar aviso" style={{ background: 'transparent', border: 'none', color: '#3B6D11', cursor: 'pointer', fontSize: 16 }}>×</button>
+        </div>
+      )}
 
       <div style={{ background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 12, padding: '18px 22px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
         <div>
-          <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 1 }}>
+          <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 1, display: 'flex', alignItems: 'center' }}>
             Receita prevista por mês
+            <AjudaCampo chave="ge.contratos.receita_prevista" rota={ROTA_AJUDA} />
           </div>
           <div style={{ fontSize: 26, fontWeight: 600, color: '#3B6D11', fontVariantNumeric: 'tabular-nums', marginTop: 4 }}>
             R$ {fmt(receitaMensal)}
@@ -117,7 +137,7 @@ export default function ContratosList({ companyId }: { companyId: string }) {
             </div>
           )}
         </div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
           {STATUS_OPCOES.map((s) => {
             const ativo = filtroStatus === s
             const qtd = contratos.filter((c) => s === 'todos' || c.status === s).length
@@ -132,14 +152,38 @@ export default function ContratosList({ companyId }: { companyId: string }) {
               </button>
             )
           })}
+          <AjudaCampo chave="ge.contratos.filtro_status" rota={ROTA_AJUDA} />
         </div>
       </div>
 
       {filtrados.length === 0 ? (
         <div style={{ background: '#FFFFFF', borderRadius: 12, padding: 50, textAlign: 'center', color: 'rgba(61,35,20,0.6)', fontSize: 14 }}>
-          {contratos.length === 0
-            ? 'Você ainda não tem cobranças cadastradas. Clique em “+ Nova cobrança” para começar.'
-            : 'Nenhuma cobrança nesse filtro.'}
+          {contratos.length === 0 ? (
+            <>
+              <div style={{ marginBottom: 16 }}>
+                Você ainda não tem cobranças cadastradas. Cadastre aluguéis, mensalidades ou contratos que se repetem e o
+                sistema gera as contas a receber de cada mês.
+              </div>
+              <button
+                type="button"
+                onClick={() => { setEditing(null); setShowForm(true) }}
+                style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '12px 22px', borderRadius: 6, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+              >
+                + Cadastrar a primeira cobrança
+              </button>
+            </>
+          ) : (
+            <>
+              <div style={{ marginBottom: 12 }}>Nenhuma cobrança nesse filtro.</div>
+              <button
+                type="button"
+                onClick={() => setFiltroStatus('todos')}
+                style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.3)', padding: '8px 16px', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}
+              >
+                Ver todas
+              </button>
+            </>
+          )}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -151,6 +195,7 @@ export default function ContratosList({ companyId }: { companyId: string }) {
                 setEditing(c)
                 setShowForm(true)
               }}
+              onAlterado={(texto) => { setAviso(texto); load() }}
             />
           ))}
         </div>
@@ -185,7 +230,38 @@ export default function ContratosList({ companyId }: { companyId: string }) {
   )
 }
 
-function CardContrato({ contrato, onEditar }: { contrato: Contrato; onEditar: () => void }) {
+type AcaoCard = 'encerrar' | 'excluir'
+
+function CardContrato({ contrato, onEditar, onAlterado }: { contrato: Contrato; onEditar: () => void; onAlterado: (texto: string) => void }) {
+  // RD-98 p2: encerrar e excluir visíveis na lista (antes só havia "Editar"). As duas RPCs já existiam e exigem motivo;
+  // excluir é soft-delete rastreável (excluido_em/por + erp_contratos_eventos) e só passa se o contrato permitir.
+  const [acao, setAcao] = useState<AcaoCard | null>(null)
+  const [motivo, setMotivo] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  function abrir(a: AcaoCard) { setAcao(a); setMotivo(''); setErro(null) }
+
+  async function confirmar() {
+    if (!acao) return
+    if (!motivo.trim()) { setErro(acao === 'excluir' ? 'Conte o motivo da exclusão.' : 'Conte o motivo do encerramento.'); return }
+    setSalvando(true); setErro(null)
+    const { data, error } = acao === 'excluir'
+      ? await supabase.rpc('fn_contrato_excluir', { p_id: contrato.id, p_motivo: motivo.trim() })
+      : await supabase.rpc('fn_contrato_encerrar', { p_id: contrato.id, p_motivo: motivo.trim() })
+    setSalvando(false)
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) {
+      // A RPC devolve `erro` em linguagem do usuário (ex.: por que não pode excluir); falha de transporte vira texto amigável.
+      setErro(!error && r?.erro ? r.erro : erroAmigavel(error))
+      return
+    }
+    setAcao(null)
+    onAlterado(acao === 'excluir'
+      ? `Cobrança “${contrato.nome}” excluída. Ela sai da lista e o histórico fica registrado.`
+      : `Cobrança “${contrato.nome}” encerrada. Não gera mais contas a receber.`)
+  }
+
   const corStatus =
     contrato.status === 'ativo' ? '#3B6D11'
     : contrato.status === 'suspenso' ? '#BA7517'
@@ -236,13 +312,53 @@ function CardContrato({ contrato, onEditar }: { contrato: Contrato; onEditar: ()
           R$ {fmt(Number(contrato.valor_atual ?? contrato.valor_mensal))}
         </div>
       </div>
-      <button
-        type="button"
-        onClick={onEditar}
-        style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.25)', padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
-      >
-        Editar
-      </button>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+          <button type="button" onClick={onEditar} style={btnAcao('#3D2314')}>Editar</button>
+          <AjudaCampo chave="ge.contratos.editar" rota={ROTA_AJUDA} />
+        </span>
+        {contrato.status !== 'encerrado' && (
+          <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+            <button type="button" onClick={() => abrir('encerrar')} style={btnAcao('#BA7517')}>Encerrar</button>
+            <AjudaCampo chave="ge.contratos.encerrar" rota={ROTA_AJUDA} />
+          </span>
+        )}
+        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+          <button type="button" onClick={() => abrir('excluir')} style={btnAcao('#A32D2D')}>Excluir</button>
+          <AjudaCampo chave="ge.contratos.excluir" rota={ROTA_AJUDA} />
+        </span>
+      </div>
+
+      {acao && (
+        <div style={{ flexBasis: '100%', background: acao === 'excluir' ? 'rgba(163,45,45,0.05)' : 'rgba(186,117,23,0.06)', border: `0.5px solid ${acao === 'excluir' ? 'rgba(163,45,45,0.3)' : 'rgba(186,117,23,0.35)'}`, borderRadius: 8, padding: '12px 14px' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#3D2314', marginBottom: 8 }}>
+            {acao === 'excluir'
+              ? `Excluir “${contrato.nome}”? Ela sai da lista; o que já foi cobrado continua no financeiro.`
+              : `Encerrar “${contrato.nome}”? Ela para de gerar contas a receber a partir de hoje.`}
+          </div>
+          {erro && <div role="alert" style={{ background: '#FCEBEB', color: '#A32D2D', padding: '8px 12px', borderRadius: 6, marginBottom: 8, fontSize: 12 }}>{erro}</div>}
+          <label style={{ display: 'flex', alignItems: 'center', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>
+            Motivo *
+            <AjudaCampo chave="ge.contratos.motivo" rota={ROTA_AJUDA} />
+          </label>
+          <input
+            value={motivo}
+            onChange={(e) => setMotivo(e.target.value)}
+            placeholder={acao === 'excluir' ? 'Ex.: cadastrada em duplicidade' : 'Ex.: cliente cancelou o serviço'}
+            style={{ width: '100%', padding: '9px 12px', border: '0.5px solid rgba(61,35,20,0.25)', borderRadius: 6, fontSize: 13, color: '#3D2314', background: '#FFFFFF', boxSizing: 'border-box', marginBottom: 10 }}
+          />
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button type="button" onClick={confirmar} disabled={salvando} style={{ background: acao === 'excluir' ? '#A32D2D' : '#BA7517', color: '#FFFFFF', border: 'none', padding: '8px 16px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: salvando ? 'wait' : 'pointer' }}>
+              {salvando ? 'Salvando…' : acao === 'excluir' ? 'Sim, excluir' : 'Sim, encerrar'}
+            </button>
+            <button type="button" onClick={() => setAcao(null)} disabled={salvando} style={btnAcao('#3D2314')}>Cancelar</button>
+          </div>
+        </div>
+      )}
     </div>
   )
+}
+
+function btnAcao(cor: string): React.CSSProperties {
+  return { background: 'transparent', color: cor, border: `0.5px solid ${cor === '#3D2314' ? 'rgba(61,35,20,0.25)' : cor}`, padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }
 }

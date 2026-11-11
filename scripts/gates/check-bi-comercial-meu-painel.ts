@@ -27,7 +27,10 @@ const todasMigs = readdirSync('supabase/migrations').filter((f) => f.endsWith('.
 
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
 ok(!UUID.test(sql) && !UUID.test(tela) && !UUID.test(adm), 'nenhuma empresa fixa (genérico)')
-ok(/rpc\('fn_bi_comercial_painel'/.test(tela) && !/\.from\(/.test(tela), 'tela lê só a fn_bi_comercial_painel')
+// v5 (CEO 07/11): a tela passou a ler a fn_bi_comercial_base (pacote cru + motor-v5), com a MESMA guarda de escopo
+// no banco (fn_bi_comercial_scope / com_vendedor_acesso, provada pelo gate check-bi-comercial-base). Segue proibido
+// ler tabela direto (.from); a fn_bi_comercial_painel continua existindo e guardada (checada abaixo pela migration).
+ok(/rpc\('fn_bi_comercial_base'/.test(tela) && !/\.from\(/.test(tela), 'tela lê só a fn_bi_comercial_base (escopo travado no banco)')
 ok(/REVOKE ALL ON FUNCTION public\.fn_com_venda_item\(uuid, date, date\) FROM PUBLIC, anon, authenticated/.test(sql), 'tradutor de venda fora do alcance da tela')
 ok(/REVOKE ALL ON FUNCTION public\.fn_com_equipe\(uuid\) FROM PUBLIC, anon, authenticated/.test(sql), 'tradutor de equipe fora do alcance da tela')
 ok(/IF v_uid IS NULL THEN RAISE EXCEPTION/.test(sql), 'exige usuário logado')

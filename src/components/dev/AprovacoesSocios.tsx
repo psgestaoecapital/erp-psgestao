@@ -13,7 +13,7 @@ const ESP = '#3D2314', DOU = '#C8941A', BRANCO = '#FFFFFF', BD = '#E7DED3', TXM 
 
 type Item = { pr_numero: number; titulo: string; code: string | null; url: string | null; patch_id: string | null; motivo: string | null; entrou_em: string }
 type Decidida = { pr_numero: number; decisao: string; justificativa: string; aprovado_nome: string; aprovado_em: string; sincronizado_em: string | null; sincronizado_resultado: string | null; titulo: string | null }
-type Nucleo = { id: string; para: string; de: string; assunto: string | null; criado_em: string; corpo: string | null }
+type Nucleo = { id: string; para: string; de: string; assunto: string | null; criado_em: string; corpo: string | null; sensivel?: boolean | null; chamado_numero?: number | null; chamado_titulo?: string | null; empresa?: string | null }
 type Dados = { ok: boolean; eu: string; aguardando: Item[]; decididas: Decidida[]; nucleo: Nucleo[] }
 
 const ERROS: Record<string, string> = {
@@ -96,12 +96,21 @@ export default function AprovacoesSocios() {
 
       {dados.nucleo.length > 0 && (
         <div style={{ borderTop: `1px solid ${BD}`, marginTop: 10, paddingTop: 10 }}>
-          <div style={{ fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center', gap: 4 }}>Pedidos de núcleo da caixa <AjudaCampo chave="dev.aprovar.nucleo" rota={ROTA} /></div>
+          <div style={{ fontWeight: 700, fontSize: 13, display: 'flex', alignItems: 'center', gap: 4 }}>Pedidos de núcleo e chamados sensíveis <AjudaCampo chave="dev.aprovar.nucleo" rota={ROTA} /></div>
           {dados.nucleo.map((m) => (
             <div key={m.id} style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap', marginTop: 6, fontSize: 13 }}>
-              <span style={{ fontWeight: 600 }}>{m.assunto ?? '(sem assunto)'}</span>
-              <span style={{ fontSize: 12, color: TXM }}>{m.de} → {m.para} · {quando(m.criado_em, agora)}</span>
-              <button disabled={enviando} onClick={() => void okNucleo(m)} style={btnPri}>Dar OK</button>
+              {m.chamado_numero != null ? (
+                <span style={{ fontWeight: 600 }}>
+                  Chamado #{m.chamado_numero}{m.chamado_titulo ? ` · ${m.chamado_titulo}` : ''}
+                  {m.sensivel ? <span style={{ marginLeft: 6, fontSize: 11, color: VERM, fontWeight: 700 }}>SENSÍVEL</span> : null}
+                </span>
+              ) : (
+                <span style={{ fontWeight: 600 }}>{m.assunto ?? '(sem assunto)'}</span>
+              )}
+              <span style={{ fontSize: 12, color: TXM }}>
+                {m.empresa ? `${m.empresa} · ` : ''}{m.de} → {m.para} · esperando {quando(m.criado_em, agora)}
+              </span>
+              <button disabled={enviando} onClick={() => void okNucleo(m)} style={btnPri}>Aprovar</button>
             </div>
           ))}
         </div>
