@@ -196,7 +196,20 @@ export default function ApontamentoPage() {
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginTop: 6 }}>🔧 Oficina · Apontamento</div>
         <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 12px', display: 'flex', alignItems: 'center', gap: 8 }}><Timer size={22} /> {ramo.automotivo ? 'Em qual carro você vai trabalhar?' : 'Em qual trabalho você vai atuar?'}</h1>
         {eu && <div style={{ fontSize: 13, color: ESP60, marginBottom: 10 }}>Você entrou como <b style={{ color: ESP }}>{eu.nome}</b> — o tempo entra no seu nome.</div>}
-        {lista.length === 0 && <div style={{ color: ESP60, fontSize: 14, padding: '20px 0' }}>Nenhuma OS aprovada ainda. Passe pela Aprovação primeiro.</div>}
+        {lista.length === 0 && (
+          // Estado vazio ACIONÁVEL (RD-98 crit. d): em vez de só mandar "passe pela Aprovação", mostra
+          // o caminho e dá os botões para resolver daqui (abrir OS na Recepção ou ver o Pátio).
+          <div style={{ background: '#fff', border: `1px dashed ${LINE}`, borderRadius: 14, padding: '22px 18px', textAlign: 'center', marginTop: 4 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: ESP, marginBottom: 6 }}>Nenhuma {ramo.objetoLabelCurto} aprovada para trabalhar agora</div>
+            <div style={{ fontSize: 13, color: ESP60, lineHeight: 1.5, marginBottom: 16 }}>
+              O apontamento aparece aqui depois que a {ramo.objetoLabelCurto} passa por <b style={{ color: ESP }}>Recepção → Diagnóstico → Aprovação</b>. Comece abrindo a OS ou acompanhe o que já está em andamento.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <button onClick={() => router.push('/dashboard/oficina/recepcao')} style={btnGrande(GOLD)}>＋ Abrir nova OS (Recepção)</button>
+              <button onClick={() => router.push('/dashboard/oficina/patio')} style={{ ...btnLine, width: '100%' }}>Ver o Pátio (OS em andamento)</button>
+            </div>
+          </div>
+        )}
         {lista.map((os) => (
           <div key={os.id} onClick={() => void abrirOS(os)} style={{ width: '100%', textAlign: 'left', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 16, marginBottom: 10, cursor: 'pointer' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
