@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { comPrazo } from '@/lib/comPrazo'
 import { useEmpresaSelecionada, usePropriedade, usePainelRebanho } from '@/lib/agro/usePecuaria'
 import { exportToExcel } from '@/lib/export-utils'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { salvarSnapshot, lerSnapshot, type RebanhoSnapshot } from '@/lib/agro/rebanhoOffline'
 import CapacidadeIdealModal, { type Forrageira } from '@/components/agro/CapacidadeIdealModal'
 
@@ -426,7 +427,7 @@ function Animais({
         title: `Rebanho · ${dt} · ${rows.length} animais`,
       })
     } catch (e) {
-      setErro((e as Error).message || 'Falha ao exportar')
+      setErro(erroAmigavel(e, 'Não foi possível exportar o rebanho. Tente de novo.'))
     } finally {
       setExportando(false)
     }
@@ -939,7 +940,7 @@ function AcaoModal({
       }
       onDone()
     } catch (e) {
-      setErro((e as Error).message || String(e))
+      setErro(erroAmigavel(e, 'Não foi possível registrar a movimentação. Tente de novo.'))
     } finally {
       setBusy(false)
     }
