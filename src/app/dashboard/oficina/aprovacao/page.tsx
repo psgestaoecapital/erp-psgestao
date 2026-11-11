@@ -7,6 +7,7 @@ import React, { useEffect, useRef, useState, useCallback, type CSSProperties } f
 import { useRouter } from 'next/navigation'
 import { ClipboardCheck, ChevronLeft, Check, X, Share2, Eraser } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { PlacaInline } from '../_components/PlacaInline'
 import { useOficinaRamo } from '@/lib/oficina/ramo'
 import { filtrarOS } from '@/lib/oficina/buscaOS'
@@ -131,7 +132,7 @@ export default function AprovacaoPage() {
     })
     setSalvando(false)
     const j = data as { ok?: boolean; erro?: string; decisao?: string; itens_aprovados?: number; itens_total?: number; valor_total?: number } | null
-    if (error || j?.ok === false) { setMsg('❌ ' + (error?.message || j?.erro)); return }
+    if (error || j?.ok === false) { setMsg('❌ ' + erroAmigavel(error, codigoAmigavel(j?.erro, 'Não foi possível registrar a aprovação.'))); return }
     // #134 · aprovado/parcial passa a OS para "Aprovada" (gatilho no banco, só se ela ainda não entrou em execução)
     const recus = (Number(j?.itens_total) || 0) - (Number(j?.itens_aprovados) || 0)
     setMsg(`✅ Orçamento registrado (${j?.decisao}) — ${j?.itens_aprovados}/${j?.itens_total} itens · ${brl(Number(j?.valor_total) || 0)}.`

@@ -6,6 +6,7 @@ import React, { useEffect, useState, useCallback, type CSSProperties } from 'rea
 import { useRouter } from 'next/navigation'
 import { Percent, ChevronLeft, Plus, Clock, TrendingUp } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'
@@ -74,7 +75,7 @@ export default function ComissaoPage() {
       p_company_id: companyId, p_dados: { mecanico_nome: rNome || null, tipo: rTipo, valor: rValor.replace(',', '.') || '0' },
     })
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || j?.ok === false) { setMsg('❌ ' + (error?.message || j?.erro)); return }
+    if (error || j?.ok === false) { setMsg('❌ ' + erroAmigavel(error, codigoAmigavel(j?.erro, 'Não foi possível salvar a regra de comissão.'))); return }
     setMsg('✅ Regra salva.'); setRNome(''); setRValor('')
     await calcular()
   }
