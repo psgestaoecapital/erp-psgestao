@@ -156,3 +156,7 @@ BEGIN
     'campos_pendentes', COALESCE(to_jsonb(v_pendentes), '[]'::jsonb)
   );
 END; $function$;
+
+-- SECURITY DEFINER: reafirma a ACL viva (anon nunca teve EXECUTE) — gate check_fn_guards [revoke_anon]
+REVOKE ALL ON FUNCTION public.fn_contrato_modelo_gerar(uuid, uuid, uuid, boolean) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_contrato_modelo_gerar(uuid, uuid, uuid, boolean) TO authenticated, service_role;
