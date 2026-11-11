@@ -11,6 +11,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import AnexosCard, { type AnexosCardHandle } from '@/components/crm/AnexosCard'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { Receipt } from 'lucide-react'
 
 const ESPRESSO = '#3D2314'
@@ -209,7 +210,7 @@ export default function PropostasPage() {
       },
     })
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setBusy(false); setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setBusy(false); setToast(error ? erroAmigavel(error, 'Não foi possível salvar a proposta.') : codigoAmigavel(j?.erro, 'Não foi possível salvar a proposta.')); return }
     // PM-1 PR-D · a TABELA é a fonte: concilia (upsert + soft-delete dos removidos). O espelho reescreve o jsonb.
     await supabase.rpc('fn_agency_proposta_itens_sync', { p_proposta_id: editId, p_itens: itensLimpos })
     setBusy(false)
@@ -224,7 +225,7 @@ export default function PropostasPage() {
     const motivo = (window.prompt('Motivo da exclusão (opcional) — fica no histórico de auditoria:', '') ?? '').trim()
     const { data, error } = await supabase.rpc('fn_agency_proposta_excluir', { p_id: p.id, p_motivo: motivo || null })
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setToast(error ? erroAmigavel(error, 'Não foi possível excluir a proposta.') : codigoAmigavel(j?.erro, 'Não foi possível excluir a proposta.')); return }
     setToast('Proposta EXCLUÍDA.'); void carregar()
   }
 
@@ -333,7 +334,7 @@ export default function PropostasPage() {
       },
     })
     const j = data as { ok?: boolean; erro?: string; id?: string } | null
-    if (error || !j?.ok) { setBusy(false); setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setBusy(false); setToast(error ? erroAmigavel(error, 'Não foi possível criar a proposta.') : codigoAmigavel(j?.erro, 'Não foi possível criar a proposta.')); return }
     // PM-1 PR-D · popula a TABELA (a fonte) com os itens da nova proposta; o espelho reescreve o jsonb.
     if (j.id) await supabase.rpc('fn_agency_proposta_itens_sync', { p_proposta_id: j.id, p_itens: itensLimpos })
     // ANEXO-2 · persiste os anexos em espera (move tmp → proposta/{id}/). Um anexo que falhe não perde a proposta.
@@ -383,7 +384,7 @@ export default function PropostasPage() {
     })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string; contrato_numero?: string } | null
-    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setToast(error ? erroAmigavel(error, 'Não foi possível aprovar a proposta.') : codigoAmigavel(j?.erro, 'Não foi possível aprovar a proposta.')); return }
     setApr(null)
     setToast(j.contrato_numero ? `APROVADA · pedido de contrato ${j.contrato_numero} criado — o financeiro vai elaborar.` : 'Proposta APROVADA.')
     void carregar()
@@ -707,7 +708,7 @@ function ClienteField({ value, onChange, empresa, setToast, nomeLead }: {
     const nome = (nomeDireto ?? (novoNome || q)).trim()
     if (!nome) { setToast('Digite o nome/empresa do cliente.'); return }
     const { data, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: empresa, p_nome: nome, p_cpf_cnpj: null, p_extra: {} })
-    if (error) { setToast(`Erro ao criar cliente: ${error.message}`); return }
+    if (error) { setToast(erroAmigavel(error, 'Não foi possível criar o cliente.')); return }
     const id = data as string | null
     if (id) { onChange(id); setNomeSel(nome) }
     setCriando(false); setNovoNome(''); setOpen(false); setSug([])
