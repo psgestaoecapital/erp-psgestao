@@ -69,6 +69,8 @@ BEGIN
   END IF;
 END;
 $function$;
+REVOKE ALL ON FUNCTION public.fn_rh_pessoa_complemento_salvar(uuid, text, jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_rh_pessoa_complemento_salvar(uuid, text, jsonb) TO authenticated, service_role;
 
 -- 3) lote: repassa a matrícula (resto inalterado)
 CREATE OR REPLACE FUNCTION public.fn_rh_pessoa_complemento_lote(p_company_id uuid, p_linhas jsonb)
@@ -108,6 +110,8 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'gravadas', v_ok, 'rejeitadas', v_rej);
 END;
 $function$;
+REVOKE ALL ON FUNCTION public.fn_rh_pessoa_complemento_lote(uuid, jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_rh_pessoa_complemento_lote(uuid, jsonb) TO authenticated, service_role;
 
 -- 4) fn_rh_quadro_base: casa cp por cpf OU (cpf nulo E matrícula). Mesmo corpo, mantém #variable_conflict.
 CREATE OR REPLACE FUNCTION public.fn_rh_quadro_base(p_company_id uuid, p_competencia date DEFAULT NULL::date)
