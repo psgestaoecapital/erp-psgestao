@@ -10,6 +10,7 @@ import ServicoAutocomplete, { type ServicoSelecionado } from "@/components/comum
 import ServicoEngenhariaAutocomplete, { type ServicoEngSelecionado } from "@/components/comum/ServicoEngenhariaAutocomplete";
 import NumeracaoConfigModal from "@/components/orcamento/NumeracaoConfigModal";
 import AnexosCard from "@/components/crm/AnexosCard";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -419,9 +420,9 @@ export default function OrcamentosPage(){
       const motivo=prompt('Motivo da liberação da edição (opcional):','Revisão solicitada pelo cliente');
       if(motivo===null)return;
       const{data:lib,error}=await supabase.rpc('fn_orcamento_liberar_edicao',{p_orcamento_id:o.id,p_motivo:motivo||null});
-      if(error){setMsg('Erro ao liberar: '+error.message);return;}
+      if(error){setMsg(erroAmigavel(error,'Não foi possível liberar a edição do orçamento. Tente de novo.'));return;}
       const r=lib as {ok:boolean;erro?:string}|null;
-      if(!r||r.ok===false){setMsg('Erro ao liberar: '+(r?.erro||'falha'));return;}
+      if(!r||r.ok===false){setMsg('Não foi possível liberar a edição do orçamento. Tente de novo.');return;}
       const perm2=await carregarPerm(o);
       if(!perm2||!perm2.pode_editar){setMsg('Falha ao reabrir após liberação.');return;}
       setPermEdit(perm2);
