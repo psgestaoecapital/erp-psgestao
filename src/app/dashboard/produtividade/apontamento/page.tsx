@@ -12,6 +12,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ROTA = '/dashboard/produtividade/apontamento'
 const Aj = ({ k }: { k: string }) => <AjudaCampo chave={k} rota={ROTA} />
@@ -123,7 +124,7 @@ function Inner() {
     setCarregando(true)
     try {
       const { data: d, error } = await supabase.rpc('fn_prod_produtividade_hora', { p_company_id: companyId, p_plant_id: plantId, p_fluxo_id: fluxoId, p_data: data })
-      if (error) { flashErr(error.message); setGrid([]); return }
+      if (error) { flashErr(erroAmigavel(error, 'Não foi possível carregar a grade de produtividade. Tente de novo.')); setGrid([]); return }
       const r = d as unknown as GridResp | null
       setGrid(r?.ok ? (r.postos ?? []) : [])
     } finally {
@@ -166,7 +167,7 @@ function Inner() {
         p_data: data, p_hora: h, p_qtd_produzida: q, p_posto_id: postoId, p_etapa_id: null, p_tarefa_id: null,
         p_unidade: unidade.trim() || 'un', p_pessoas_presentes: pessoasNum, p_fonte: fonte,
       })
-      if (error) { flashErr(error.message); return }
+      if (error) { flashErr(erroAmigavel(error, 'Não foi possível lançar o apontamento. Tente de novo.')); return }
       const r = d as unknown as ApontarResp | null
       if (!r?.ok) { flashErr(r?.erro ? (ERROS[r.erro] ?? `Não consegui lançar: ${r.erro}`) : 'Não consegui lançar o apontamento.'); return }
       flash('Produção LANÇADA')
