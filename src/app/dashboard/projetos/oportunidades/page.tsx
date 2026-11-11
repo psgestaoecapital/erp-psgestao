@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { comPrazo } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { labelUsuario } from '@/lib/usuarioLabel'
 import OportunidadeFormModal, { empty as oportunidadeVazia, type OportunidadeRow } from './OportunidadeFormModal'
 import { clienteDaUrl } from '../clientes/clientes-regras'
@@ -146,7 +147,7 @@ export default function OportunidadesPage() {
     if (error) {
       const msg = /permission|rls|policy/i.test(error.message)
         ? 'Sem permissao para excluir esta oportunidade.'
-        : `Erro ao excluir: ${error.message}`
+        : erroAmigavel(error, 'Não foi possível excluir a oportunidade. Tente de novo.')
       setToast(msg)
       return
     }

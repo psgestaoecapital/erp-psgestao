@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useState, Suspense } from 'react'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 
 const C = {
@@ -49,7 +50,7 @@ function Inner() {
       supabase.rpc('fn_veic_demanda_nao_atendida', { p_company_id: companyId, p_dias: dias }),
       supabase.rpc('fn_veic_patio_resumo', { p_company_id: companyId }),
     ])
-    if (d.error) { setErro(d.error.message); setLoading(false); return }
+    if (d.error) { setErro(erroAmigavel(d.error, 'Não foi possível carregar. Tente de novo.')); setLoading(false); return }
     const dr = d.data as { ok?: boolean; itens?: Item[] } | null
     setItens(dr?.ok ? (dr.itens ?? []) : [])
     const rr = r.data as Resumo | null
@@ -285,7 +286,7 @@ function ProcuraModal({ companyId, onClose, onSaved, onErro }: { companyId: stri
     })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { onErro(error?.message || r?.erro || 'Falha ao registrar a procura.'); return }
+    if (error || !r?.ok) { onErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao registrar a procura.'))); return }
     onSaved()
   }
   return (
