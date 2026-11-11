@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { BancosParceiros } from '@/components/revenda/BancosParceiros'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -679,6 +680,8 @@ export default function ConfigGaragemPage() {
           </div>
         )}
       </Bloco>
+
+      <BancosParceiros companyId={companyId} />
 
       <button disabled={salvando} onClick={() => void pedirPrevia()} style={{ marginTop: 8, width: '100%', background: salvando ? C.espL : C.gold, color: '#fff', border: 'none', borderRadius: 12, padding: '14px 22px', fontSize: 16, fontWeight: 800, cursor: salvando ? 'wait' : 'pointer' }}>
         {salvando ? 'Calculando…' : 'Ver efeito e salvar'}
