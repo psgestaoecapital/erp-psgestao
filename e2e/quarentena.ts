@@ -260,6 +260,14 @@ export const QUARENTENA: SpecQuarentenado[] = [
     runs: [0, 0], // falha de ambiente nas vagas (não é regressão de PR), 19/10
     code: 'gilberto-esteira',
   },
+  {
+    spec: 'e2e/jornadas/aceitacao/prod-custos-posto-f3.spec.ts',
+    area: 'custos-posto',
+    motivo: 'timeout 90s ao clicar Excluir (cp-excluir-<id>) na viewport [celular] — salvar e gravação no banco OK (227 passed), só o botão de excluir não fica clicável no celular. Falha IDÊNTICA em @pos #2101 (run 43076427192, head #4660 rh/quadro) e #2104 (run 43078610285, head #4666 orçamentos) — PRs sem relação com custos-posto. Não-crítico (custo industrial). Verificar: bug real de exclusão no mobile ou fragilidade do teste (lista não recarrega / botão fora da viewport).',
+    desde: '2026-11-11T18:55:00Z',
+    runs: [43076427192, 43078610285],
+    code: 'desenvolvedor_4_g',
+  },
   /* quarentena:fim */
 ]
 
