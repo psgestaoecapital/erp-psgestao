@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { RespostaInline } from '@/components/melhorias/RespostaInline'
 import ConversaChamado from '@/components/melhorias/ConversaChamado'
@@ -102,7 +103,7 @@ function Inner() {
     if (!ok) return
     // Fila: os mais recentes ORDENADOS + TODOS os rascunhos (regra do CEO: rascunho nunca some da "Precisa de mim").
     const [{ data, error }, demoIds] = await Promise.all([carregarFila<Item>(supabase), carregarEmpresasDemo(supabase)])
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar a fila de atendimento. Tente de novo.')); return }
     setDemos(demoIds)
     setRows(data)
     // #6930 — marca quem tem a ÚLTIMA mensagem do AUTOR (aberto, não terminal): a conversa já grava a mensagem
@@ -197,7 +198,7 @@ function Inner() {
     const { data, error } = await supabase.rpc(fn, params)
     const r = data as { ok?: boolean; erro?: string; mensagem?: string } | null
     if (error || !r?.ok) {
-      setErro(r?.erro === 'recusa_exige_motivo' ? 'Recusar exige um motivo — o usuário precisa saber por quê.' : (r?.mensagem || error?.message || r?.erro || 'Falha'))
+      setErro(r?.erro === 'recusa_exige_motivo' ? 'Recusar exige um motivo — o usuário precisa saber por quê.' : (r?.mensagem || (error ? erroAmigavel(error, 'Não foi possível concluir a ação. Tente de novo.') : codigoAmigavel(r?.erro, 'Não foi possível concluir a ação. Tente de novo.'))))
       return false
     }
     void carregar(); return true
@@ -238,7 +239,7 @@ function Inner() {
     for (const it of selecionadosLote) {
       const { data, error } = await supabase.rpc('fn_sugestao_aprovar_resposta', { p_id: it.id, p_user: userId })
       const r = data as { ok?: boolean; mensagem?: string; erro?: string } | null
-      if (error || !r?.ok) falhas.push(`#${it.numero}: ${r?.mensagem || r?.erro || error?.message || 'falha'}`); else okN++
+      if (error || !r?.ok) falhas.push(`#${it.numero}: ${r?.mensagem || (error ? erroAmigavel(error, 'não foi possível aprovar') : codigoAmigavel(r?.erro, 'não foi possível aprovar'))}`); else okN++
     }
     setLoteRodando(false); setSelLote(new Set()); setLoteAberto(false)
     if (falhas.length) setErro(`Aprovados ${okN}; não aprovados: ${falhas.join(' · ')}`)
@@ -274,7 +275,7 @@ function Inner() {
   async function rpcTrava(fn: string, p: Record<string, unknown>) {
     const { data, error } = await supabase.rpc(fn, p)
     const r = data as { ok?: boolean; erro?: string; mensagem?: string; precisa_confirmar?: boolean; avisado?: string } | null
-    if (error) { setErro(error.message); return null }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível concluir a ação no chamado. Tente de novo.')); return null }
     return r
   }
   async function assumir(it: Item) {
