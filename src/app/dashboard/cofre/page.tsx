@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Lock, Eye, Plus, Save, Trash2, ShieldAlert, Copy, ExternalLink, History, X } from 'lucide-react'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 type Escopo = 'global' | 'empresa'
 type Tipo = 'sistema' | 'tecnica'
@@ -282,22 +283,34 @@ export default function CofrePage() {
               Sistemas que a <b>PS contratou</b> pra operar o ERP. Valor cifrado no Vault; aqui só metadados.
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {aba === 'sistema' ? (
-              <button type="button" onClick={() => setNovoSistema({ sistema: '', url_login: '', usuario: '', senha: '', observacao: '' })} style={btn}>
-                <Plus size={14} style={{ verticalAlign: '-2px' }} /> Novo sistema
-              </button>
+              <>
+                <button type="button" onClick={() => setNovoSistema({ sistema: '', url_login: '', usuario: '', senha: '', observacao: '' })} style={btn}>
+                  <Plus size={14} style={{ verticalAlign: '-2px' }} /> Novo sistema
+                </button>
+                <AjudaCampo chave="cofre.novo_sistema" alinhar="fim" />
+              </>
             ) : (
-              <button type="button" onClick={() => setEditando({ escopo: 'global' })} style={btn}>
-                <Plus size={14} style={{ verticalAlign: '-2px' }} /> Nova credencial
-              </button>
+              <>
+                <button type="button" onClick={() => setEditando({ escopo: 'global' })} style={btn}>
+                  <Plus size={14} style={{ verticalAlign: '-2px' }} /> Nova credencial
+                </button>
+                <AjudaCampo chave="cofre.nova_credencial" alinhar="fim" />
+              </>
             )}
           </div>
         </header>
 
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-          <button type="button" style={tab(aba === 'sistema')} onClick={() => setAba('sistema')}>Sistemas</button>
-          <button type="button" style={tab(aba === 'tecnica')} onClick={() => setAba('tecnica')}>Técnicas</button>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14, alignItems: 'center' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <button type="button" style={tab(aba === 'sistema')} onClick={() => setAba('sistema')}>Sistemas</button>
+            <AjudaCampo chave="cofre.aba_sistemas" />
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <button type="button" style={tab(aba === 'tecnica')} onClick={() => setAba('tecnica')}>Técnicas</button>
+            <AjudaCampo chave="cofre.aba_tecnicas" />
+          </span>
         </div>
 
         {msg && <div style={{ background: '#DCFCE7', color: '#166534', padding: 10, borderRadius: 6, fontSize: 12, marginBottom: 10 }}>{msg}</div>}
@@ -329,21 +342,24 @@ export default function CofrePage() {
                         {s.escopo}{s.escopo === 'empresa' && s.company_id ? ` · ${nomeEmpresa(s.company_id)}` : ''}
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => (s.senha ? inativar(s.senha, 'a senha') : undefined)}
-                      disabled={busy || !s.senha}
-                      style={{ ...btnGhost, color: '#B45309', borderColor: '#E7C9A0' }}
-                      title="Inativa a credencial (o Vault é preservado)"
-                    >
-                      <Trash2 size={12} />
-                    </button>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <button
+                        type="button"
+                        onClick={() => (s.senha ? inativar(s.senha, 'a senha') : undefined)}
+                        disabled={busy || !s.senha}
+                        style={{ ...btnGhost, color: '#B45309', borderColor: '#E7C9A0' }}
+                        title="Inativa a credencial (o Vault é preservado)"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                      <AjudaCampo chave="cofre.inativar" alinhar="fim" />
+                    </span>
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
                     {/* Usuário */}
                     <div>
-                      <div style={{ fontSize: 10, color: ESP60, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Usuário</div>
+                      <div style={{ display: 'flex', alignItems: 'center', fontSize: 10, color: ESP60, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Usuário<AjudaCampo chave="cofre.revelar" /></div>
                       {revUser ? (
                         <button type="button" onClick={() => { navigator.clipboard.writeText(revUser.valor); setMsg('Usuário copiado.') }} style={{ ...btnGhost, fontFamily: 'monospace', background: '#FEF3C7', borderColor: GOLD }}>
                           <Copy size={11} style={{ verticalAlign: '-1px', marginRight: 4 }} />{revUser.valor}
@@ -356,7 +372,7 @@ export default function CofrePage() {
                     </div>
                     {/* Senha */}
                     <div>
-                      <div style={{ fontSize: 10, color: ESP60, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Senha</div>
+                      <div style={{ display: 'flex', alignItems: 'center', fontSize: 10, color: ESP60, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Senha<AjudaCampo chave="cofre.revelar" /></div>
                       {revSenha ? (
                         <button type="button" onClick={() => { navigator.clipboard.writeText(revSenha.valor); setMsg('Senha copiada — some em 30s.') }} style={{ ...btnGhost, fontFamily: 'monospace', background: '#FEF3C7', borderColor: GOLD, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           <Copy size={11} style={{ verticalAlign: '-1px', marginRight: 4 }} />
@@ -375,15 +391,18 @@ export default function CofrePage() {
                   )}
 
                   {s.senha && (
-                    <button
-                      type="button"
-                      onClick={() => s.senha && abrirHistorico(s.senha)}
-                      style={{ ...btnGhost, marginTop: 10, fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 5 }}
-                    >
-                      <History size={11} />
-                      revelada {s.senha.revelacoes_total ?? 0}{(s.senha.revelacoes_total ?? 0) === 1 ? ' vez' : ' vezes'}
-                      {s.senha.revelado_ultima_vez_em ? ` · última em ${fmtDate(s.senha.revelado_ultima_vez_em)}` : ''}
-                    </button>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 10 }}>
+                      <button
+                        type="button"
+                        onClick={() => s.senha && abrirHistorico(s.senha)}
+                        style={{ ...btnGhost, fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                      >
+                        <History size={11} />
+                        revelada {s.senha.revelacoes_total ?? 0}{(s.senha.revelacoes_total ?? 0) === 1 ? ' vez' : ' vezes'}
+                        {s.senha.revelado_ultima_vez_em ? ` · última em ${fmtDate(s.senha.revelado_ultima_vez_em)}` : ''}
+                      </button>
+                      <AjudaCampo chave="cofre.historico" />
+                    </span>
                   )}
                 </div>
               )
@@ -403,9 +422,13 @@ export default function CofrePage() {
                 <thead>
                   <tr style={{ background: BG, borderBottom: `0.5px solid ${LINE}` }}>
                     {['Provider', 'Chave', 'Escopo', 'Rótulo', 'Status', 'Atualizado'].map((h) => (
-                      <th key={h} style={{ padding: '10px 12px', textAlign: 'left', color: ESP60, fontSize: 10, textTransform: 'uppercase', letterSpacing: 1 }}>{h}</th>
+                      <th key={h} style={{ padding: '10px 12px', textAlign: 'left', color: ESP60, fontSize: 10, textTransform: 'uppercase', letterSpacing: 1 }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{h}{h === 'Status' && <AjudaCampo chave="cofre.status" />}</span>
+                      </th>
                     ))}
-                    <th style={{ padding: '10px 12px', textAlign: 'right', color: ESP60, fontSize: 10, textTransform: 'uppercase', letterSpacing: 1 }}>Ação</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'right', color: ESP60, fontSize: 10, textTransform: 'uppercase', letterSpacing: 1 }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Ação<AjudaCampo chave="cofre.acoes_tecnica" alinhar="fim" /></span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -465,36 +488,36 @@ export default function CofrePage() {
               {/* decoy p/ absorver autofill do Chrome */}
               <input type="text" name="username" autoComplete="username" tabIndex={-1} aria-hidden="true" style={{ position: 'absolute', opacity: 0, height: 0, width: 0, pointerEvents: 'none' }} readOnly />
               <input type="password" name="password" autoComplete="current-password" tabIndex={-1} aria-hidden="true" style={{ position: 'absolute', opacity: 0, height: 0, width: 0, pointerEvents: 'none' }} readOnly />
-              <div>
-                <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 4 }}>Sistema</label>
+              <label style={{ display: 'block' }}>
+                <span style={{ fontSize: 11, color: ESP60, display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>Sistema<AjudaCampo chave="cofre.sistema" /></span>
                 <input list="sistemas-sugeridos" name="cofre-sistema" autoComplete="off" autoFocus
                   value={novoSistema.sistema} onChange={(e) => setNovoSistema({ ...novoSistema, sistema: e.target.value.toLowerCase() })}
                   placeholder="ex.: resend, registro.br, vercel" style={inp} />
                 <datalist id="sistemas-sugeridos">{SISTEMAS_SUGERIDOS.map((p) => <option key={p} value={p} />)}</datalist>
-              </div>
-              <div>
-                <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 4 }}>URL de login</label>
+              </label>
+              <label style={{ display: 'block' }}>
+                <span style={{ fontSize: 11, color: ESP60, display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>URL de login<AjudaCampo chave="cofre.url_login" /></span>
                 <input name="cofre-url" autoComplete="off" value={novoSistema.url_login}
                   onChange={(e) => setNovoSistema({ ...novoSistema, url_login: e.target.value })}
                   placeholder="https://..." style={inp} />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 4 }}>Usuário</label>
+              </label>
+              <label style={{ display: 'block' }}>
+                <span style={{ fontSize: 11, color: ESP60, display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>Usuário<AjudaCampo chave="cofre.usuario" /></span>
                 <input name="cofre-user" autoComplete="off" value={novoSistema.usuario}
                   onChange={(e) => setNovoSistema({ ...novoSistema, usuario: e.target.value })}
                   placeholder="login / e-mail da conta" style={inp} />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 4 }}>Senha (mascarada ao digitar)</label>
+              </label>
+              <label style={{ display: 'block' }}>
+                <span style={{ fontSize: 11, color: ESP60, display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>Senha (mascarada ao digitar)<AjudaCampo chave="cofre.senha" /></span>
                 <input type="password" name="cofre-secret" autoComplete="new-password" value={novoSistema.senha}
                   onChange={(e) => setNovoSistema({ ...novoSistema, senha: e.target.value })} style={inp} />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 4 }}>Observação (2FA, quem contratou, vencimento)</label>
+              </label>
+              <label style={{ display: 'block' }}>
+                <span style={{ fontSize: 11, color: ESP60, display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>Observação (2FA, quem contratou, vencimento)<AjudaCampo chave="cofre.observacao" /></span>
                 <textarea name="cofre-obs" value={novoSistema.observacao}
                   onChange={(e) => setNovoSistema({ ...novoSistema, observacao: e.target.value })}
                   rows={2} style={{ ...inp, resize: 'vertical' }} />
-              </div>
+              </label>
             </div>
             <div style={{ padding: '12px 20px', borderTop: `0.5px solid ${LINE}`, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button type="button" onClick={() => setNovoSistema(null)} style={btnGhost} disabled={busy}>Cancelar</button>
@@ -518,45 +541,45 @@ export default function CofrePage() {
             <div style={{ padding: 20, display: 'grid', gap: 12 }}>
               <input type="text" name="username" autoComplete="username" tabIndex={-1} aria-hidden="true" style={{ position: 'absolute', opacity: 0, height: 0, width: 0, pointerEvents: 'none' }} readOnly />
               <input type="password" name="password" autoComplete="current-password" tabIndex={-1} aria-hidden="true" style={{ position: 'absolute', opacity: 0, height: 0, width: 0, pointerEvents: 'none' }} readOnly />
-              <div>
-                <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 4 }}>Provider</label>
+              <label style={{ display: 'block' }}>
+                <span style={{ fontSize: 11, color: ESP60, display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>Provider<AjudaCampo chave="cofre.provider" /></span>
                 <input list="providers-tecnica" name="cofre-provider" autoComplete="off" autoFocus={!editando.id}
                   value={editando.provider ?? ''} disabled={!!editando.id}
                   onChange={(e) => setEditando({ ...editando, provider: e.target.value.toLowerCase() })} placeholder="ex.: aps" style={inp} />
                 <datalist id="providers-tecnica">{PROVIDERS_TECNICA_SUGERIDOS.map((p) => <option key={p} value={p} />)}</datalist>
-              </div>
-              <div>
-                <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 4 }}>Chave</label>
+              </label>
+              <label style={{ display: 'block' }}>
+                <span style={{ fontSize: 11, color: ESP60, display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>Chave<AjudaCampo chave="cofre.chave" /></span>
                 <input name="cofre-chave" autoComplete="off" value={editando.chave ?? ''} disabled={!!editando.id}
                   onChange={(e) => setEditando({ ...editando, chave: e.target.value.toLowerCase() })} placeholder="ex.: client_id" style={inp} />
-              </div>
+              </label>
               <div style={{ display: 'grid', gridTemplateColumns: editando.provider === 'focus' ? '1fr 1fr' : '1fr', gap: 8 }}>
-                <div>
-                  <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 4 }}>Escopo</label>
+                <label style={{ display: 'block' }}>
+                  <span style={{ fontSize: 11, color: ESP60, display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>Escopo<AjudaCampo chave="cofre.escopo" /></span>
                   <input value={editando.provider === 'focus' ? 'empresa (Focus é por empresa)' : 'global (ferramenta contratada pela PS)'} disabled style={{ ...inp, background: BG, color: ESP60 }} />
-                </div>
+                </label>
                 {editando.provider === 'focus' && (
-                  <div>
-                    <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 4 }}>Empresa</label>
+                  <label style={{ display: 'block' }}>
+                    <span style={{ fontSize: 11, color: ESP60, display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>Empresa<AjudaCampo chave="cofre.empresa" /></span>
                     <select value={editando.company_id ?? ''} disabled={!!editando.id}
                       onChange={(e) => setEditando({ ...editando, company_id: e.target.value || null, escopo: 'empresa' })} style={inp}>
                       <option value="">— selecione —</option>
                       {empresas.map((e) => <option key={e.id} value={e.id}>{e.nome}</option>)}
                     </select>
-                  </div>
+                  </label>
                 )}
               </div>
-              <div>
-                <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 4 }}>Rótulo (opcional)</label>
+              <label style={{ display: 'block' }}>
+                <span style={{ fontSize: 11, color: ESP60, display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>Rótulo (opcional)<AjudaCampo chave="cofre.rotulo" /></span>
                 <input name="cofre-rotulo" autoComplete="off" value={editando.label ?? ''}
                   onChange={(e) => setEditando({ ...editando, label: e.target.value })} placeholder="ex.: Autodesk APS produção" style={inp} />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 4 }}>Valor (secret) · mascarado ao digitar</label>
+              </label>
+              <label style={{ display: 'block' }}>
+                <span style={{ fontSize: 11, color: ESP60, display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>Valor (secret) · mascarado ao digitar<AjudaCampo chave="cofre.valor" /></span>
                 <input type="password" name="cofre-secret" autoComplete="new-password" autoFocus={!!editando.id}
                   value={editando.valor ?? ''} onChange={(e) => setEditando({ ...editando, valor: e.target.value })}
                   placeholder={editando.id ? 'novo valor (deixa vazio p/ manter atual)' : ''} style={inp} />
-              </div>
+              </label>
             </div>
             <div style={{ padding: '12px 20px', borderTop: `0.5px solid ${LINE}`, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button type="button" onClick={() => setEditando(null)} style={btnGhost} disabled={busy}>Cancelar</button>
