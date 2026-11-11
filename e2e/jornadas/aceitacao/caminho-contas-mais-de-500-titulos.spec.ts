@@ -16,7 +16,12 @@ test.describe('Caminho — Contas a Pagar e Receber com mais de 500 títulos', (
     await registrarJornada('caminho-contas-mais-de-500', testInfo.status === testInfo.expectedStatus ? 'verde' : 'vermelho', testInfo.title)
   })
   test.afterAll(async () => {
-    await dbDelete('erp_receber', `company_id=eq.${DEMO_COMERCIO}&descricao=like.${encodeURIComponent(`Contas500 % ${RUN}`)}`).catch(() => {})
+    // Limpeza idempotente: o RUN é único por execução e aparece em TODAS as linhas de teste
+    // ("Contas500 antigo <RUN> <i>" e "Contas500 pendente <RUN>"). No PostgREST o curinga do `like`
+    // é `*` (NÃO `%`): o filtro antigo `like.Contas500 % <RUN>` casava 0 linhas (o `%` virava literal
+    // e o RUN ficava ancorado no fim, mas as linhas "antigo" terminam em " <i>") → 521 títulos vazavam
+    // por run na DEMO. `*${RUN}*` casa os dois padrões e só as linhas deste RUN. Provado RD-38 (0 → 521).
+    await dbDelete('erp_receber', `company_id=eq.${DEMO_COMERCIO}&descricao=like.${encodeURIComponent(`*${RUN}*`)}`).catch(() => {})
   })
 
   test('pendente só nos mais novos aparece, entra nos KPIs e a lista diz "Mostrando X de Y"', async ({ page }) => {

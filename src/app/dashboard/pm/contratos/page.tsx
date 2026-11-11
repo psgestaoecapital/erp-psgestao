@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { mensagemDeResultado, estiloBordaInput } from '@/components/ui/feedback/contratoSalvar'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
 const BORDA = '#E7DED3'; const TEXTM = '#6b5444'; const GREEN = '#1F5A1F'; const RED = '#7A1F1F'; const AMBER = '#8A5A08'
@@ -96,7 +97,7 @@ export default function ContratosPage() {
     const r = data as { ok?: boolean; erro?: string; planejamento_id?: string; itens?: number; ja_existia?: boolean } | null
     if (error || !r?.ok || !r.planejamento_id) {
       const motivo: Record<string, string> = { fee_sem_cliente: 'o fee não tem cliente da Gestão Empresarial', fee_nao_ativo: 'o fee não está ativo', planejamento_de_outro_fee: 'já existe um planejamento deste cliente no mês ligado a outro fee' }
-      setToast(`Não deu para planejar: ${motivo[r?.erro ?? ''] ?? error?.message ?? r?.erro ?? 'erro'}.`); return
+      setToast(error ? erroAmigavel(error, 'Não foi possível planejar o mês. Tente de novo.') : `Não deu para planejar: ${motivo[r?.erro ?? ''] ?? 'confira o fee e tente de novo'}.`); return
     }
     window.location.href = `/dashboard/pm/planejamento?p=${r.planejamento_id}`
   }
@@ -109,7 +110,7 @@ export default function ContratosPage() {
     setExpand((m) => ({ ...m, [id]: { ...(m[id] ?? { itens: [], jobs_sem_servico: [] }), loading: true, ref } }))
     const { data, error } = await supabase.rpc('fn_agency_contrato_realizado', { p_contrato_id: id, p_periodo_ref: ref })
     const j = data as { ok?: boolean; erro?: string; itens?: RealItem[]; jobs_sem_servico?: { tipo: string; qtd: number }[] } | null
-    if (error || !j?.ok) { setExpand((m) => ({ ...m, [id]: { loading: false, itens: [], jobs_sem_servico: [], ref, erro: error?.message ?? j?.erro ?? 'falhou' } })); return }
+    if (error || !j?.ok) { setExpand((m) => ({ ...m, [id]: { loading: false, itens: [], jobs_sem_servico: [], ref, erro: erroAmigavel(error, 'Não foi possível carregar o realizado. Tente de novo.') } })); return }
     setExpand((m) => ({ ...m, [id]: { loading: false, itens: j.itens ?? [], jobs_sem_servico: j.jobs_sem_servico ?? [], ref } }))
   }
   function toggle(id: string) {
@@ -126,7 +127,7 @@ export default function ContratosPage() {
     // RD-98 (rastro): a mudança de status passa por RPC com audit_log_global (não grava direto na tabela).
     const { data, error } = await supabase.rpc('fn_agency_contrato_mudar_status', { p_contrato_id: c.contrato_id, p_status: status })
     if (error) {
-      setToast(/permission|rls|policy|acesso/i.test(error.message) ? 'Sem permissão para alterar o status deste contrato.' : `Erro ao alterar status: ${error.message}`)
+      setToast(/permission|rls|policy|acesso/i.test(error.message) ? 'Sem permissão para alterar o status deste contrato.' : erroAmigavel(error, 'Não foi possível alterar o status do contrato. Tente de novo.'))
       return
     }
     const j = data as { ok?: boolean; erro?: string } | null
@@ -142,7 +143,7 @@ export default function ContratosPage() {
     const { data, error } = await supabase.rpc('fn_agency_contrato_solicitar_financeiro', { p_agency_contrato_id: c.contrato_id })
     setEnviando(null)
     if (error) {
-      setToast(/permission|rls|policy|acesso/i.test(error.message) ? 'Sem permissão para enviar este contrato ao financeiro.' : `Erro ao enviar ao financeiro: ${error.message}`)
+      setToast(/permission|rls|policy|acesso/i.test(error.message) ? 'Sem permissão para enviar este contrato ao financeiro.' : erroAmigavel(error, 'Não foi possível enviar o contrato ao financeiro. Tente de novo.'))
       return
     }
     const j = data as { ok?: boolean; erro?: string; ja_vinculado?: boolean } | null

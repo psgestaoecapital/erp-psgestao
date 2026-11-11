@@ -11,6 +11,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { carregarCustosEquipe } from '@/lib/pm/equipeCustos'
 import { ATALHOS_HORAS, jobDoLink } from '@/lib/pm/apontamentoRapido'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
 const BORDA = '#E7DED3'; const TEXTM = '#6b5444'; const GREEN = '#1F5A1F'
@@ -128,7 +129,7 @@ export default function ApontamentoHorasPage() {
       p_horas: horas, p_descricao: desc || null, p_inicio: ini.toISOString(), p_fim: fim.toISOString(),
     })
     setBusy(false)
-    if (error) { setToast(`Erro: ${error.message}`); return }
+    if (error) { setToast(erroAmigavel(error, 'Não foi possível lançar as horas. Tente de novo.')); return }
     setHorasManual(''); setDesc(''); const custoAp = (ap as { custo_total?: number | null } | null)?.custo_total
     setToast(`Apontamento CRIADO · ${horas}h${custoAp ? ` · ${brl(Number(custoAp))}` : ''}`); void carregar()
   }
@@ -141,7 +142,7 @@ export default function ApontamentoHorasPage() {
     setBusy(true)
     const { error } = await supabase.rpc('fn_pm_timesheet_excluir', { p_company_id: empresa, p_id: l.id })
     setBusy(false)
-    if (error) { setToast(`Erro: ${error.message}`); return }
+    if (error) { setToast(erroAmigavel(error, 'Não foi possível excluir o lançamento. Tente de novo.')); return }
     setToast('Lançamento EXCLUÍDO'); void carregar()
   }
 
