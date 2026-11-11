@@ -132,6 +132,95 @@ interface Props {
   tipo: Tipo
 }
 
+// RD-98 (critério e) · o usuário NUNCA vê o erro cru do banco/rede. O detalhe técnico vai só
+// para o console (diagnóstico do dev); a tela mostra uma frase em linguagem do usuário, com o
+// que fazer. `acao` entra na frase no infinitivo (ex.: 'excluir' -> "Não foi possível excluir…").
+function erroAmigavel(err: unknown, acao: string): string {
+  if (err) { try { console.error(`[financeiro] falha ao ${acao}:`, err) } catch { /* console indisponível */ } }
+  return `Não foi possível ${acao} agora. Tente de novo em instantes; se continuar, fale com o suporte.`
+}
+
+// Gap /dashboard/financeiro/pagar (critério e · auditor 11/11): sem alert() nativo. Aviso em linguagem do
+// usuário, DENTRO da tela e visível no celular (390px). Erro = card central com fundo escurecido e botão
+// "Entendi" (confirmação explícita; RD-58: aviso de ação de dinheiro nunca pode "passar batido" num toast de
+// canto); sucesso/info = faixa no topo que some sozinha. Cores do design system PS (psgc-tokens). Nunca vaza
+// erro cru do banco — o texto já chega amigável de erroAmigavel()/contrato {erro,orientacao}.
+type AvisoTipo = 'erro' | 'sucesso' | 'info'
+type AvisoEstado = { tipo: AvisoTipo; texto: string } | null
+
+function AvisoBox({ aviso, onFechar }: { aviso: AvisoEstado; onFechar: () => void }) {
+  useEffect(() => {
+    if (!aviso || aviso.tipo === 'erro') return
+    const t = setTimeout(onFechar, 6000)
+    return () => clearTimeout(t)
+  }, [aviso, onFechar])
+  if (!aviso) return null
+
+  if (aviso.tipo === 'erro') {
+    return (
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        onClick={onFechar}
+        style={{
+          position: 'fixed', inset: 0, zIndex: 3000, background: 'rgba(42,26,14,0.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+        }}
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            background: '#FFFFFF', borderRadius: 12, maxWidth: 440, width: '100%',
+            boxShadow: '0 12px 40px rgba(42,26,14,0.3)', borderTop: '4px solid #C44536', padding: '20px 22px',
+          }}
+        >
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+            <span aria-hidden="true" style={{ fontSize: 22, lineHeight: '24px' }}>⚠️</span>
+            <div style={{ whiteSpace: 'pre-line', color: '#3D2314', fontSize: 14, lineHeight: 1.5, flex: 1 }}>
+              {aviso.texto}
+            </div>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 18 }}>
+            <button
+              type="button"
+              autoFocus
+              onClick={onFechar}
+              style={{
+                background: '#3D2314', color: '#FAF7F2', border: 'none', padding: '9px 20px',
+                borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+              }}
+            >Entendi</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const cor = aviso.tipo === 'sucesso'
+    ? { bg: '#E8F5DD', fg: '#3C6224', barra: '#5C8D3F' }
+    : { bg: '#E5EEF8', fg: '#294E73', barra: '#3D6FA8' }
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      style={{
+        position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 3000,
+        width: 'calc(100vw - 32px)', maxWidth: 520, background: cor.bg, color: cor.fg,
+        borderLeft: `4px solid ${cor.barra}`, borderRadius: 8, padding: '12px 14px',
+        boxShadow: '0 8px 28px rgba(42,26,14,0.18)', display: 'flex', alignItems: 'flex-start', gap: 10,
+      }}
+    >
+      <div style={{ whiteSpace: 'pre-line', fontSize: 13, lineHeight: 1.5, flex: 1 }}>{aviso.texto}</div>
+      <button
+        type="button"
+        onClick={onFechar}
+        aria-label="Fechar aviso"
+        style={{ background: 'transparent', border: 'none', color: cor.fg, fontSize: 18, lineHeight: '18px', cursor: 'pointer', padding: 0 }}
+      >×</button>
+    </div>
+  )
+}
+
 export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const labels = useMemo(() => labelsPorTipo(tipo), [tipo])
 
@@ -215,6 +304,8 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [loading, setLoading] = useState(false)
   const [sincLiqBusy, setSincLiqBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  // Aviso de ação (sem alert() nativo) — ver AvisoBox. Erro bloqueia até "Entendi"; sucesso some sozinho.
+  const [aviso, setAviso] = useState<AvisoEstado>(null)
   // #584 (aud8 86/95 · RD-98 p1 · estado vazio enganoso): quando o período padrão (mês atual) vem
   // vazio mas a empresa TEM títulos fora dele (vencidos/outros meses), o empty-state antigo dizia só
   // "cadastrar a primeira" e ESCONDIA os vencidos — risco de perder pagamento atrasado em tela de dinheiro.
@@ -454,7 +545,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         if (!alive) return
         setLoading(false)
         if (error) {
-          setErro(error.message)
+          setErro(erroAmigavel(error, 'carregar os lançamentos'))
           return
         }
         setData(data as Resposta)
@@ -726,11 +817,11 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     const bloquear = !(r.id in bloqueioMap)
     const motivo = prompt(bloquear ? `BLOQUEAR o pagamento de "${r.descricao}"?\nInforme o motivo:` : `DESBLOQUEAR o pagamento de "${r.descricao}"?\nInforme o motivo:`)
     if (motivo === null) return
-    if (!motivoValido(motivo)) { alert('Informe o motivo (mínimo 3 caracteres).'); return }
+    if (!motivoValido(motivo)) { setAviso({ tipo: 'erro', texto: 'Informe o motivo (mínimo 3 caracteres).' }); return }
     const { data: j, error } = await supabase.rpc('fn_pagar_bloquear', { p_id: r.id, p_bloquear: bloquear, p_motivo: motivo.trim() })
-    if (error) { alert('Erro: ' + error.message); return }
+    if (error) { setAviso({ tipo: 'erro', texto: erroAmigavel(error, 'alterar o bloqueio') }); return }
     const res = j as { sucesso?: boolean; erro?: string } | null
-    if (!res?.sucesso) { alert(res?.erro ?? 'Não foi possível alterar o bloqueio.'); return }
+    if (!res?.sucesso) { setAviso({ tipo: 'erro', texto: res?.erro ?? 'Não foi possível alterar o bloqueio.' }); return }
     setReloadKey((k) => k + 1)
   }
 
@@ -793,7 +884,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
 
     const chamar = async (cancelarBaixa: boolean) => {
       const { data, error } = await supabase.rpc(rpc, { p_id: r.id, p_cancelar_baixa: cancelarBaixa })
-      if (error) { alert('Erro ao excluir: ' + error.message); return null }
+      if (error) { setAviso({ tipo: 'erro', texto: erroAmigavel(error, 'excluir') }); return null }
       return data as { sucesso?: boolean; erro?: string; orientacao?: string } | null
     }
 
@@ -807,19 +898,17 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     }
     if (!j?.sucesso) {
       if (j?.erro === 'bloqueado_conciliado') {
-        alert(
+        setAviso({ tipo: 'erro', texto:
           `Este lançamento está CONCILIADO com o banco.\n\n` +
           `Excluir agora deixaria um movimento bancário órfão.\n` +
-          `${j.orientacao ?? 'Cancele a conciliação no inbox, depois volte aqui.'}`,
-        )
+          `${j.orientacao ?? 'Cancele a conciliação no inbox, depois volte aqui.'}` })
       } else if (j?.erro === 'bloqueado_boleto_ativo') {
-        alert(
+        setAviso({ tipo: 'erro', texto:
           `Este título tem BOLETO EMITIDO no banco.\n\n` +
           `Se excluir, o banco continua cobrando um boleto de um título que não existe mais.\n` +
-          `${j.orientacao ?? 'Cancele o boleto primeiro, depois exclua.'}`,
-        )
+          `${j.orientacao ?? 'Cancele o boleto primeiro, depois exclua.'}` })
       } else {
-        alert('Não foi possível excluir: ' + (j?.orientacao ?? j?.erro ?? 'desconhecido'))
+        setAviso({ tipo: 'erro', texto: 'Não foi possível excluir: ' + (j?.orientacao ?? j?.erro ?? 'desconhecido') })
       }
       return
     }
@@ -832,9 +921,9 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     const motivo = prompt(`CANCELAR o título "${r.descricao}"?\nR$ ${r.valor_documento.toFixed(2)} · venc ${fmtData(r.data_vencimento)}\n\nO título sai de inadimplentes (não é exclusão — fica como cancelado, recuperável).\nMotivo (fica no histórico):`, '')
     if (motivo === null) return
     const { data, error } = await supabase.rpc('fn_receber_cancelar', { p_id: r.id, p_motivo: motivo.trim() || null })
-    if (error) { alert('Erro ao cancelar: ' + error.message); return }
+    if (error) { setAviso({ tipo: 'erro', texto: erroAmigavel(error, 'cancelar o título') }); return }
     const j = data as { sucesso?: boolean; erro?: string; ja_cancelado?: boolean } | null
-    if (!j?.sucesso) { alert('Não foi possível cancelar: ' + (j?.erro ?? 'desconhecido')); return }
+    if (!j?.sucesso) { setAviso({ tipo: 'erro', texto: 'Não foi possível cancelar: ' + (j?.erro ?? 'desconhecido') }); return }
     setReloadKey((k) => k + 1)
   }
 
@@ -856,17 +945,16 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     )
     if (motivo === null) return
     const { data, error } = await supabase.rpc(rpc, { p_id: r.id, p_motivo: motivo.trim() || null })
-    if (error) { alert('Erro ao estornar: ' + error.message); return }
+    if (error) { setAviso({ tipo: 'erro', texto: erroAmigavel(error, 'estornar') }); return }
     const j = data as { sucesso?: boolean; erro?: string; orientacao?: string; valor_estornado?: number } | null
     if (!j?.sucesso) {
       if (j?.erro === 'bloqueado_conciliado') {
-        alert(
+        setAviso({ tipo: 'erro', texto:
           `Este lançamento está CONCILIADO com o banco.\n\n` +
           `Estornar agora deixaria um movimento bancário órfão.\n` +
-          `${j.orientacao ?? 'Cancele a conciliação no inbox, depois volte aqui.'}`,
-        )
+          `${j.orientacao ?? 'Cancele a conciliação no inbox, depois volte aqui.'}` })
       } else {
-        alert('Não foi possível estornar: ' + (j?.orientacao ?? j?.erro ?? 'desconhecido'))
+        setAviso({ tipo: 'erro', texto: 'Não foi possível estornar: ' + (j?.orientacao ?? j?.erro ?? 'desconhecido') })
       }
       return
     }
@@ -880,7 +968,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     ? parseFloat((massaNovoValor || '').replace(',', '.')) > 0
     : (massaNovoValor || '').trim() !== ''
   const aplicarAlterarValorMassa = async () => {
-    if (!massaValorValido) { alert('Informe o novo valor.'); return }
+    if (!massaValorValido) { setAviso({ tipo: 'erro', texto: 'Informe o novo valor.' }); return }
     const raw = (massaNovoValor || '').trim()
     const val = campoMassaDef.tipo === 'num' ? String(parseFloat(raw.replace(',', '.'))) : raw
     setMassaBusy(true)
@@ -889,9 +977,9 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       p_ids: Array.from(selecionados), p_campos: { [massaCampo]: val },
     })
     setMassaBusy(false)
-    if (error) { alert('Erro ao alterar: ' + error.message); return }
+    if (error) { setAviso({ tipo: 'erro', texto: erroAmigavel(error, 'alterar os títulos') }); return }
     const j = data as { sucesso?: boolean; erro?: string; alterados?: number; pulados_pago?: number; falhas?: number } | null
-    if (j?.sucesso === false) { alert('Não foi possível: ' + (j?.erro ?? 'campo não permitido')); return }
+    if (j?.sucesso === false) { setAviso({ tipo: 'erro', texto: 'Não foi possível: ' + (j?.erro ?? 'campo não permitido') }); return }
     const extra = [
       j?.pulados_pago ? `${j.pulados_pago} paga(s) puladas` : '',
       j?.falhas ? `${j.falhas} falha(s)` : '',
@@ -909,13 +997,13 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     const rpc = tipo === 'pagar' ? 'fn_pagar_excluir_massa' : 'fn_receber_excluir_massa'
     const { data, error } = await supabase.rpc(rpc, { p_ids: Array.from(selecionados) })
     setMassaBusy(false)
-    if (error) { alert('Erro ao excluir: ' + error.message); return }
+    if (error) { setAviso({ tipo: 'erro', texto: erroAmigavel(error, 'excluir os títulos') }); return }
     const j = data as {
       sucesso?: boolean; erro?: string
       excluidos?: number; ignoradas_pago_conciliado?: number; ignoradas_boleto_ativo?: number
       ja_excluidas?: number; outras_falhas?: number
     } | null
-    if (j?.sucesso === false) { alert('Não foi possível excluir: ' + (j?.erro ?? 'desconhecido')); return }
+    if (j?.sucesso === false) { setAviso({ tipo: 'erro', texto: 'Não foi possível excluir: ' + (j?.erro ?? 'desconhecido') }); return }
     setMassaExcluirAberto(false)
 
     const excluidos = j?.excluidos ?? 0
@@ -936,11 +1024,10 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       const motivo = j?.ignoradas_boleto_ativo
         ? 'Cancele o boleto no banco antes de excluir esses títulos.'
         : (j?.ignoradas_pago_conciliado ? 'Contas pagas/conciliadas precisam ser tratadas antes de excluir.' : '')
-      alert(
+      setAviso({ tipo: 'erro', texto:
         `Nenhuma conta foi excluída.` +
         (ignoradas.length ? `\n\nBloqueadas: ${ignoradas.join(' · ')}.` : '') +
-        (motivo ? `\n\n${motivo}` : ''),
-      )
+        (motivo ? `\n\n${motivo}` : '') })
       return
     }
 
@@ -955,9 +1042,9 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     const { data, error } = await supabase.rpc('fn_lancamento_duplicar', {
       p_tipo: tipo, p_id: r.id,
     })
-    if (error) { alert('Erro ao duplicar: ' + error.message); return }
+    if (error) { setAviso({ tipo: 'erro', texto: erroAmigavel(error, 'duplicar') }); return }
     const j = data as { sucesso?: boolean; erro?: string } | null
-    if (!j?.sucesso) { alert('Erro ao duplicar: ' + (j?.erro ?? 'desconhecido')); return }
+    if (!j?.sucesso) { setAviso({ tipo: 'erro', texto: 'Não foi possível duplicar: ' + (j?.erro ?? 'desconhecido') }); return }
     setReloadKey((k) => k + 1)
   }
 
@@ -976,17 +1063,17 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         body: JSON.stringify({ company_id: companyId }),
       })
       const j = await r.json()
-      if (!j.ok) { alert(j.erro || 'Nao foi possivel sincronizar.'); return }
+      if (!j.ok) { setAviso({ tipo: 'erro', texto: j.erro || 'Não foi possível sincronizar as liquidações.' }); return }
       const q = Number(j.liquidados ?? 0)
       const c = Number(j.consultados ?? 0)
       const partes: string[] = []
       partes.push(q === 0 ? 'Nenhum boleto ALTEROU (nada pago desde a ultima sincronizacao).' : `${q} boleto(s) ALTEROU para liquidado.`)
       if (c > 0) partes.push(`${c} consultado(s).`)
       if (Array.isArray(j.erros) && j.erros.length > 0) partes.push(`${j.erros.length} com erro.`)
-      alert(partes.join(' '))
+      setAviso({ tipo: 'sucesso', texto: partes.join(' ') })
       setReloadKey((k) => k + 1)
     } catch (e) {
-      alert(`Falha ao sincronizar: ${(e as Error).message || 'erro de rede'}`)
+      setAviso({ tipo: 'erro', texto: erroAmigavel(e, 'sincronizar as liquidações') })
     } finally {
       setSincLiqBusy(false)
     }
@@ -994,6 +1081,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
 
   return (
     <Wrapper>
+      <AvisoBox aviso={aviso} onFechar={() => setAviso(null)} />
       <Header
         labels={labels}
         onHistorico={() => setHistoricoGlobalAberto(true)}
@@ -1679,7 +1767,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                               <>
                               <button
                                 type="button"
-                                onClick={() => { if (tipo === 'pagar' && r.id in bloqueioMap) { alert('Conta BLOQUEADA para pagamento. Desbloqueie antes de dar baixa.'); return } setPagandoItem(r) }}
+                                onClick={() => { if (tipo === 'pagar' && r.id in bloqueioMap) { setAviso({ tipo: 'erro', texto: 'Conta BLOQUEADA para pagamento. Desbloqueie antes de dar baixa.' }); return } setPagandoItem(r) }}
                                 style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '4px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
                               >
                                 {tipo === 'pagar' ? 'Marcar pago' : 'Marcar recebido'}
@@ -1878,7 +1966,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           companyId={companyId}
           receber={{ id: cartaoItem.id, descricao: cartaoItem.descricao, valor: cartaoItem.valor_documento, cliente: cartaoItem.nome_pessoa }}
           onClose={() => setCartaoItem(null)}
-          onSucesso={(m) => { setCartaoItem(null); alert(m); setReloadKey((k) => k + 1) }}
+          onSucesso={(m) => { setCartaoItem(null); setAviso({ tipo: 'sucesso', texto: m }); setReloadKey((k) => k + 1) }}
         />
       )}
 
