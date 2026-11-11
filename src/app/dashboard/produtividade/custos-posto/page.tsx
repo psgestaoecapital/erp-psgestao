@@ -10,6 +10,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ROTA = '/dashboard/produtividade/custos-posto'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)'
@@ -84,7 +85,7 @@ export default function CustosPostoPage() {
       .select('id, numero, atividade, setor:prod_setor(nome)')
       .eq('company_id', empresa).eq('plant_id', plantId).eq('ativo', true)
       .order('ordem_linha', { ascending: true }).order('numero', { ascending: true })
-    if (error) { flashErr(error.message); return }
+    if (error) { flashErr(erroAmigavel(error, 'Não foi possível carregar os postos. Tente de novo.')); return }
     type Row = { id: string; numero: string; atividade: string | null; setor: { nome: string | null } | { nome: string | null }[] | null }
     const list = ((data ?? []) as Row[]).map((r) => ({
       id: r.id, numero: r.numero, atividade: r.atividade,
@@ -97,7 +98,7 @@ export default function CustosPostoPage() {
   // custos do posto selecionado
   const carregarLancs = useCallback(async (postoId: string) => {
     const { data, error } = await supabase.rpc('fn_prod_posto_custo_listar', { p_posto_id: postoId })
-    if (error) { flashErr(error.message); return }
+    if (error) { flashErr(erroAmigavel(error, 'Não foi possível carregar os custos do posto. Tente de novo.')); return }
     const rows = (data ?? []) as Lanc[]
     setLancs(rows)
     const atual = rows.find((r) => r.atual) ?? rows[0]
@@ -138,7 +139,7 @@ export default function CustosPostoPage() {
     const r = data as { ok?: boolean; erro?: string } | null
     if (error || r?.ok === false) {
       const map: Record<string, string> = { posto_nao_encontrado: 'Posto não encontrado.', sem_acesso: 'Sem acesso a esta empresa.' }
-      flashErr(error?.message || map[r?.erro ?? ''] || 'Não consegui salvar os custos.'); return
+      flashErr(map[r?.erro ?? ''] || erroAmigavel(error, 'Não consegui salvar os custos.')); return
     }
     flash('Custos salvos.'); void carregarLancs(postoSel)
   }
@@ -149,7 +150,7 @@ export default function CustosPostoPage() {
     const r = data as { ok?: boolean; erro?: string } | null
     if (error || r?.ok === false) {
       const map: Record<string, string> = { nao_encontrado: 'Lançamento não encontrado.', sem_acesso: 'Sem acesso.' }
-      flashErr(error?.message || map[r?.erro ?? ''] || 'Não consegui excluir.'); return
+      flashErr(map[r?.erro ?? ''] || erroAmigavel(error, 'Não consegui excluir.')); return
     }
     flash('Lançamento excluído.'); if (postoSel) void carregarLancs(postoSel)
   }
