@@ -10,6 +10,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { CelulaEditavel } from '@/components/produtividade/CelulaEditavel'
 import { ClipboardList, PlugZap } from 'lucide-react'
 
@@ -57,7 +58,7 @@ const erroSalvar = (code: string): string => {
     case 'nome_invalido': return 'O nome é obrigatório — informe o nome do produto.'
     case 'codigo_ja_existe': return 'Já existe um produto com esse código nesta planta — escolha outro código.'
     case 'produto_nao_encontrado': return 'Produto não encontrado — recarregue a lista e tente de novo.'
-    default: return `Não consegui salvar: ${code}`
+    default: return 'Não consegui salvar. Tente de novo.'
   }
 }
 
@@ -112,7 +113,7 @@ function Inner() {
       .select('id,codigo,nome,papel,linha,secao_origem,peso_aprox_kg,conservacao,ativo')
       .eq('company_id', companyId).eq('plant_id', plantId).eq('ativo', true).order('codigo')
     setCarregando(false)
-    if (error) { flashErr(`Não consegui carregar os produtos: ${error.message}`); return }
+    if (error) { flashErr(erroAmigavel(error, 'Não foi possível carregar os produtos. Tente de novo.')); return }
     setProdutos((data as Produto[]) ?? [])
   }, [companyId, plantId, flashErr])
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -145,7 +146,7 @@ function Inner() {
     if (!companyId) return
     if (!window.confirm(`Arquivar o produto "${prod.codigo} — ${prod.nome}"?\n\nEle sai da lista, mas o histórico não é apagado.`)) return
     const { error } = await supabase.rpc('fn_prod_produto_arquivar', { p_company_id: companyId, p_id: prod.id, p_ativo: false })
-    if (error) { flashErr(`Não consegui arquivar: ${error.message}`); return }
+    if (error) { flashErr(erroAmigavel(error, 'Não foi possível arquivar o produto. Tente de novo.')); return }
     flash(`EXCLUIU ${prod.codigo} da lista (arquivado).`); await carregar()
   }
 
@@ -318,7 +319,7 @@ function Arvore({ companyId, plantId, produtoId, flashErr }: { companyId: string
     void (async () => {
       const { data, error } = await supabase.rpc('fn_prod_estrutura_listar', { p_company_id: companyId, p_plant_id: plantId, p_produto_id: produtoId, p_incluir_arquivados: false })
       if (!vivo) return
-      if (error) { flashErr(`Não consegui carregar a árvore: ${error.message}`); setItens([]); return }
+      if (error) { flashErr(erroAmigavel(error, 'Não foi possível carregar a árvore. Tente de novo.')); setItens([]); return }
       const r = data as { ok?: boolean; itens?: ItemArvore[] } | null
       setItens(r?.ok ? (r.itens ?? []) : [])
     })()
@@ -441,7 +442,7 @@ function ColarListaModal({ companyId, plantId, onClose, onGravou }: {
     setBusy(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_prod_produto_colar', { p_company_id: companyId, p_plant_id: plantId, p_linhas: texto, p_gravar: gravar })
     setBusy(false)
-    if (error) { setErro(`Não consegui processar a lista: ${error.message}`); return null }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível processar a lista. Tente de novo.')); return null }
     return (data as PreviaColar) ?? null
   }
 
@@ -574,7 +575,7 @@ function ImportarVinculadoModal({ companyId, plantId, codigosExistentes, onClose
     const linhas = [...sel].map((d) => d.replace(/;/g, ',').trim()).filter(Boolean).map((v) => `${v};${v}`).join('\n')
     const { data, error } = await supabase.rpc('fn_prod_produto_colar', { p_company_id: companyId, p_plant_id: plantId, p_linhas: linhas, p_gravar: true })
     setBusy(false)
-    if (error) { setErro(`Não consegui importar: ${error.message}`); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível importar. Tente de novo.')); return }
     const r = data as { ok?: boolean; gravadas?: number } | null
     if (!r?.ok) { setErro('Não consegui importar agora. Tente de novo.'); return }
     onGravou(r.gravadas ?? sel.size)
