@@ -11,7 +11,9 @@ import { supabase } from '@/lib/supabase'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { PlacaInline } from '../_components/PlacaInline'
 import { useOficinaRamo } from '@/lib/oficina/ramo'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
+const ROTA = '/dashboard/oficina/apontamento'
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'; const RED = '#A32D2D'; const AMBER = '#B45309'
 
@@ -220,7 +222,7 @@ export default function ApontamentoPage() {
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: '2px 0 10px' }}>{osSel.placa} · {osSel.marca} {osSel.modelo}</h1>
 
         {/* 3.4 · Executor (quem trabalha) — eu por padrão; trocar por 1 toque; digitar é exceção */}
-        <Sec titulo="Quem está executando">
+        <Sec titulo="Quem está executando" ajuda="oficina.apontamento.executor">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 16, fontWeight: 700, color: ESP }}>
               {execNome || 'Selecione'}{execId ? '' : ' (sem cadastro)'}
@@ -251,7 +253,7 @@ export default function ApontamentoPage() {
           )}
         </Sec>
 
-        <Sec titulo="Serviços aprovados">
+        <Sec titulo="Serviços aprovados" ajuda="oficina.apontamento.servico">
           {itens.map((it) => {
             const ap = it.apontamento
             const rodando = ap?.status === 'em_andamento'
@@ -289,7 +291,10 @@ export default function ApontamentoPage() {
                         <button onClick={() => setAjustando((p) => { const n = new Set(p); n.delete(it.item_id); return n })} style={btnLine}>Cancelar</button>
                       </div>
                     ) : (
-                      <button onClick={() => setAjustando((p) => new Set(p).add(it.item_id))} style={{ ...linkBtn, marginTop: 6 }}>Esqueci de bater o ponto — ajustar o tempo</button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 6 }}>
+                        <button onClick={() => setAjustando((p) => new Set(p).add(it.item_id))} style={linkBtn}>Esqueci de bater o ponto — ajustar o tempo</button>
+                        <AjudaCampo chave="oficina.apontamento.ajuste_tempo" rota={ROTA} />
+                      </div>
                     )}
                     <button onClick={() => void concluir(it)} disabled={busy === it.item_id} style={btnGrande(ESP)}><Square size={18} /> Concluir</button>
                   </div>
@@ -318,9 +323,9 @@ export default function ApontamentoPage() {
       </div>
 
       <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: '#fff', borderTop: `1px solid ${LINE}`, padding: '10px 14px' }}>
-        <div style={{ maxWidth: 560, margin: '0 auto', display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 700 }}>
+        <div style={{ maxWidth: 560, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 13, fontWeight: 700 }}>
           <span style={{ color: ESP60 }}>Previsto <b style={{ color: ESP }}>{fmtH(totalPrev)}</b></span>
-          <span style={{ color: ESP60 }}>Real <b style={{ color: totalReal > totalPrev && totalPrev > 0 ? RED : OK }}>{fmtH(totalReal)}</b></span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: ESP60 }}>Real <b style={{ color: totalReal > totalPrev && totalPrev > 0 ? RED : OK }}>{fmtH(totalReal)}</b><AjudaCampo chave="oficina.apontamento.total" rota={ROTA} alinhar="fim" /></span>
         </div>
       </div>
       {msg && <Toast>{msg}</Toast>}
@@ -359,14 +364,17 @@ function VozNota({ valor, onChange }: { valor: string; onChange: (v: string) => 
           {gravando ? '■' : '🎙️'}
         </button>
       )}
+      <AjudaCampo chave="oficina.apontamento.observacao" rota={ROTA} />
     </div>
   )
 }
 
-function Sec({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+function Sec({ titulo, children, ajuda }: { titulo: string; children: React.ReactNode; ajuda?: string }) {
   return (
-    <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 14, padding: 14, marginBottom: 12 }}>
-      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 10 }}>{titulo}</div>
+    <div data-ajuda={ajuda} style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 14, padding: 14, marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 10 }}>
+        {titulo}{ajuda && <AjudaCampo chave={ajuda} rota={ROTA} />}
+      </div>
       {children}
     </div>
   )
