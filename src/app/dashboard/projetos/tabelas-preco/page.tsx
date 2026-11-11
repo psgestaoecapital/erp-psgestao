@@ -183,6 +183,16 @@ export default function TabelasPrecoPage() {
   const fmtData = (d: string | null) => (d ? new Date(`${d}T12:00:00`).toLocaleDateString('pt-BR') : 'sem fim')
   const prec = precedenciaPreco({ contratoVigente: selo === 'Vigente' || selo === 'Vence em até 30 dias', tabelaCliente: !!tabelaSel, tabelaPadrao: false, temFaixa: preco != null })
   const usarCelula = (sref: string, de: number, c: string) => { setServico(sref); setQtd(String(de > 0 ? de : 1)); setCondSel(c) }
+  // RD-98 (estado vazio tem o botão para fazer): o admin abre o bloco "Editar contrato" direto do estado vazio
+  // e a tela rola/foca o primeiro campo do caminho escolhido (cadastrar manual × importar planilha).
+  const abrirEditar = (foco: 'nova' | 'importar') => {
+    setEditar(true)
+    setTimeout(() => {
+      document.getElementById('tp-editar')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      const alvo = foco === 'importar' ? 'tp-imp-texto' : 'tp-f-nometab'
+      ;(document.querySelector(`[data-testid="${alvo}"]`) as HTMLElement | null)?.focus()
+    }, 60)
+  }
 
   const campo: React.CSSProperties = { display: 'block', width: '100%', padding: 10, border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 15, background: '#fff', color: ESP }
   const rot: React.CSSProperties = { fontSize: 13, color: MUT, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }
@@ -199,7 +209,19 @@ export default function TabelasPrecoPage() {
           <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 20 }} data-testid="tabelas-vazio">
             <b>Nenhuma tabela de preço cadastrada.</b>
             {podeGravar
-              ? <p style={{ fontSize: 14, color: MUT }} data-testid="tabelas-vazio-admin">Crie a primeira tabela ou importe a planilha do cliente no bloco <b>“Editar contrato”</b> abaixo. A tabela guarda as faixas de quantidade e os adicionais por turno de cada serviço do contrato.</p>
+              ? (<>
+                  <p style={{ fontSize: 14, color: MUT }} data-testid="tabelas-vazio-admin">Comece pelo contrato do cliente: cadastre a primeira tabela à mão ou importe a planilha. A tabela guarda as faixas de quantidade e os adicionais por turno de cada serviço do contrato.</p>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 4 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <button type="button" data-testid="tabelas-vazio-cadastrar" onClick={() => abrirEditar('nova')} style={{ minHeight: 44, padding: '0 18px', fontWeight: 700, background: GOLD, color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>Cadastrar manualmente</button>
+                      <AjudaCampo chave="hub.tabela_preco.nova_tabela" />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <button type="button" data-testid="tabelas-vazio-importar" onClick={() => abrirEditar('importar')} style={{ minHeight: 44, padding: '0 18px', fontWeight: 700, background: '#fff', color: ESP, border: `1px solid ${GOLD}`, borderRadius: 8, cursor: 'pointer' }}>Importar planilha</button>
+                      <AjudaCampo chave="hub.tabela_preco.importar" />
+                    </div>
+                  </div>
+                </>)
               : <p style={{ fontSize: 14, color: MUT }} data-testid="tabelas-vazio-consulta">Ainda não há contrato cadastrado para esta empresa. O cadastro das faixas e adicionais fica com o administrativo; assim que a primeira tabela entrar, os preços aparecem aqui.</p>}
           </div>
         )}
@@ -289,7 +311,7 @@ export default function TabelasPrecoPage() {
           <p role="status" data-testid="tp-consulta" style={{ fontSize: 13, color: MUT, margin: '16px 0 0', display: 'flex', alignItems: 'center', gap: 6 }}>Perfil de consulta: você vê o contrato e as medições; editar fica com o administrativo. <AjudaCampo chave="hub.tabela_preco.perfil_consulta" /></p>
         )}
         {!loading && !erro && podeGravar && (
-          <section data-testid="tp-editar" style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 16, marginTop: 16 }}>
+          <section id="tp-editar" data-testid="tp-editar" style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 16, marginTop: 16 }}>
             <button type="button" data-testid="tp-editar-abrir" onClick={() => setEditar(v => !v)}
               style={{ background: 'none', border: 'none', padding: 0, fontSize: 17, fontWeight: 700, color: ESP, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
               {editar ? '▾' : '▸'} Editar contrato <AjudaCampo chave="hub.tabela_preco.editar" />

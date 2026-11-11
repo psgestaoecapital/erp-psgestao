@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { RespostaInline } from '@/components/melhorias/RespostaInline'
 import ConversaChamado from '@/components/melhorias/ConversaChamado'
@@ -57,6 +58,10 @@ function Inner() {
   const [autorizado, setAutorizado] = useState<boolean | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
   const [rows, setRows] = useState<Item[]>([])
+  // #6930 — chamados cuja ÚLTIMA mensagem é do AUTOR (a bola está com o atendente). Carregado à parte da
+  // consulta da fila (leitura adicional, nunca altera o que a fila lista): deixa o atendente ver, SEM abrir
+  // o chamado, que o autor respondeu e espera retorno.
+  const [autorAguarda, setAutorAguarda] = useState<Set<string>>(new Set())
   const [erro, setErro] = useState<string | null>(null)
   // #7050 Fase 2: visão Quadro (Kanban) da fila de atendimento; a Lista continua sendo a tela de trabalho.
   const [formato, setFormato] = useState<'quadro' | 'lista'>('quadro')
@@ -98,9 +103,32 @@ function Inner() {
     if (!ok) return
     // Fila: os mais recentes ORDENADOS + TODOS os rascunhos (regra do CEO: rascunho nunca some da "Precisa de mim").
     const [{ data, error }, demoIds] = await Promise.all([carregarFila<Item>(supabase), carregarEmpresasDemo(supabase)])
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar a fila de atendimento. Tente de novo.')); return }
     setDemos(demoIds)
     setRows(data)
+    // #6930 — marca quem tem a ÚLTIMA mensagem do AUTOR (aberto, não terminal): a conversa já grava a mensagem
+    // e notifica, mas o chamado não "pulava" na fila. Aqui olhamos só a mensagem mais recente de cada chamado
+    // ABERTO e, se for do autor, acendemos o aviso no card. Leitura extra em lotes (URL curta); se falhar, a fila
+    // segue igual (o aviso é melhoria visual, não trava a tela).
+    try {
+      const idsAbertos = data.filter((r) => estadoFila(r) !== 'terminal').map((r) => r.id)
+      const aguarda = new Set<string>()
+      for (let i = 0; i < idsAbertos.length; i += 150) {
+        const lote = idsAbertos.slice(i, i + 150)
+        if (!lote.length) break
+        const { data: ms } = await supabase.from('sugestao_mensagem')
+          .select('sugestao_id, papel, criado_em')
+          .in('sugestao_id', lote)
+          .order('criado_em', { ascending: false })
+        const visto = new Set<string>()
+        for (const m of (ms as { sugestao_id: string; papel: 'autor' | 'ps' }[] ?? [])) {
+          if (visto.has(m.sugestao_id)) continue   // a 1ª (mais recente) de cada chamado manda
+          visto.add(m.sugestao_id)
+          if (m.papel === 'autor') aguarda.add(m.sugestao_id)
+        }
+      }
+      setAutorAguarda(aguarda)
+    } catch { setAutorAguarda(new Set()) }
     const { data: eq } = await supabase.rpc('fn_chamado_equipe_listar')
     const pessoas = (eq as Pessoa[] | null) ?? []
     setEquipe(pessoas)
@@ -111,12 +139,14 @@ function Inner() {
   useEffect(() => { void carregar() }, [carregar])
 
   // Link do sino: abre o chamado (mesmo de demo) e mostra ele, em qualquer visão/aba.
+  // A Lista é a tela de trabalho onde o card do chamado (trava, Liberar, histórico) aparece; o deep-link
+  // precisa cair nela, não no Quadro (Kanban), que é só panorama e não traz o card individual (#7050 Fase 2).
   useEffect(() => {
     if (!idDaUrl || !rows.length) return
     const it = rows.find((r) => r.id === idDaUrl)
     if (!it) return
     // eslint-disable-next-line react-hooks/set-state-in-effect -- abre o chamado do link uma vez, quando a fila carrega
-    setBusca(String(it.numero)); setVisao('todos'); setAberto(it.id)
+    setFormato('lista'); setBusca(String(it.numero)); setVisao('todos'); setAberto(it.id)
     if (it.company_id && demos.has(it.company_id)) setMostrarDemos(true)
   }, [idDaUrl, rows, demos])
 
@@ -134,8 +164,9 @@ function Inner() {
   // busca: número EXATO ("14" ou "#14" → só o #14) OU trecho do título/descrição (filtrarBusca).
   const buscaLimpa = busca.trim()
   const visiveis = useMemo(() => filtrarBusca(base, busca)
-    .filter((r) => fEmpresa === 'todas' || r.empresa === fEmpresa)
-    .filter((r) => fCategoria === 'todas' || r.categoria === fCategoria)
+    // buscando (nº/título) os filtros de empresa/categoria não escondem o chamado (#7050: busca por 5622 não achava)
+    .filter((r) => buscaLimpa || fEmpresa === 'todas' || r.empresa === fEmpresa)
+    .filter((r) => buscaLimpa || fCategoria === 'todas' || r.categoria === fCategoria)
     // aba = estado da fila. Buscando (nº/título) varre TODAS as abas; senão, mostra só a aba atual.
     .filter((r) => buscaLimpa ? true : estadoFila(r) === aba)
     // dentro da aba: prioridade e idade.
@@ -167,7 +198,7 @@ function Inner() {
     const { data, error } = await supabase.rpc(fn, params)
     const r = data as { ok?: boolean; erro?: string; mensagem?: string } | null
     if (error || !r?.ok) {
-      setErro(r?.erro === 'recusa_exige_motivo' ? 'Recusar exige um motivo — o usuário precisa saber por quê.' : (r?.mensagem || error?.message || r?.erro || 'Falha'))
+      setErro(r?.erro === 'recusa_exige_motivo' ? 'Recusar exige um motivo — o usuário precisa saber por quê.' : (r?.mensagem || (error ? erroAmigavel(error, 'Não foi possível concluir a ação. Tente de novo.') : codigoAmigavel(r?.erro, 'Não foi possível concluir a ação. Tente de novo.'))))
       return false
     }
     void carregar(); return true
@@ -192,6 +223,29 @@ function Inner() {
     const ok = await acao(it.id, 'fn_sugestao_aprovar_resposta', { p_id: it.id, p_user: userId })
     if (ok) setMsg('Resposta aprovada e enviada — o autor foi avisado.')
   }
+  // ── Aprovação em LOTE (#7050): só PS_ADMIN/PS_ADMIN_CVM; cada chamado passa pela MESMA rpc da aprovação individual
+  // (fn_sugestao_aprovar_resposta grava resposta_aprovada_por/em); nada é aprovado sem o clique + confirmação do operador.
+  const [selLote, setSelLote] = useState<Set<string>>(new Set())
+  const [loteAberto, setLoteAberto] = useState(false)
+  const [loteRodando, setLoteRodando] = useState(false)
+  const pendentesLote = useMemo(() => visiveis.filter((r) => estadoFila(r) === 'precisa_mim'), [visiveis])
+  const alternarLote = (id: string) => setSelLote((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  const selecionadosLote = pendentesLote.filter((r) => selLote.has(r.id))
+  async function aprovarLote() {
+    if (!selecionadosLote.length || loteRodando) return
+    if (!window.confirm(`Aprovar e enviar ao autor a resposta de ${selecionadosLote.length} chamado(s)? Cada um fica registrado com você e o horário.`)) return
+    setLoteRodando(true)
+    const falhas: string[] = []; let okN = 0
+    for (const it of selecionadosLote) {
+      const { data, error } = await supabase.rpc('fn_sugestao_aprovar_resposta', { p_id: it.id, p_user: userId })
+      const r = data as { ok?: boolean; mensagem?: string; erro?: string } | null
+      if (error || !r?.ok) falhas.push(`#${it.numero}: ${r?.mensagem || (error ? erroAmigavel(error, 'não foi possível aprovar') : codigoAmigavel(r?.erro, 'não foi possível aprovar'))}`); else okN++
+    }
+    setLoteRodando(false); setSelLote(new Set()); setLoteAberto(false)
+    if (falhas.length) setErro(`Aprovados ${okN}; não aprovados: ${falhas.join(' · ')}`)
+    setMsg(okN ? `${okN} resposta(s) aprovada(s) e enviada(s) — os autores foram avisados.` : '')
+    void carregar()
+  }
   // Reenvia o aviso para os aprovados que o autor ainda não confirmou (os que ficam "no limbo").
   async function reenviar(it: Item) {
     const ok = await acao(it.id, 'fn_sugestao_reenviar_aviso', { p_id: it.id, p_user: userId })
@@ -200,10 +254,14 @@ function Inner() {
   // Contadores dos 3 estados sobre a fila inteira (o que o CEO precisa ver ao abrir a tela).
   const cont = useMemo(() => {
     let precisa = 0, semConf = 0, emCurso = 0, terminal = 0
-    for (const r of base) { const e = estadoFila(r); if (e === 'sem_confirmacao') semConf++; else if (e === 'em_curso') emCurso++; else if (e === 'terminal') terminal++ }
+    // #6930 — quantos chamados de cada aba têm a ÚLTIMA mensagem do AUTOR (a bola está com o atendente). Antes o
+    // aviso "✉️ Autor respondeu" só aparecia no card; agora conta na própria aba, para o atendente ver sem abrir
+    // cada chamado quais abas têm mensagem nova do autor esperando resposta.
+    const autorPorAba: Record<EstadoFila, number> = { precisa_mim: 0, em_curso: 0, sem_confirmacao: 0, terminal: 0 }
+    for (const r of base) { const e = estadoFila(r); if (e === 'sem_confirmacao') semConf++; else if (e === 'em_curso') emCurso++; else if (e === 'terminal') terminal++; if (e !== 'terminal' && autorAguarda.has(r.id)) autorPorAba[e]++ }
     precisa = contarPrecisaDeMim(base)   // a MESMA conta do cabeçalho "N p/ aprovar" (Central de Melhorias), sem demos no padrão
-    return { precisa, semConf, emCurso, terminal }
-  }, [base])
+    return { precisa, semConf, emCurso, terminal, autorPorAba }
+  }, [base, autorAguarda])
 
   // Encerrar sem confirmação (item 4, decisão do CEO): só aprovados há +7 dias sem confirmar.
   async function encerrarSemConfirmacao(it: Item) {
@@ -217,7 +275,7 @@ function Inner() {
   async function rpcTrava(fn: string, p: Record<string, unknown>) {
     const { data, error } = await supabase.rpc(fn, p)
     const r = data as { ok?: boolean; erro?: string; mensagem?: string; precisa_confirmar?: boolean; avisado?: string } | null
-    if (error) { setErro(error.message); return null }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível concluir a ação no chamado. Tente de novo.')); return null }
     return r
   }
   async function assumir(it: Item) {
@@ -319,6 +377,7 @@ function Inner() {
           <button key={k} type="button" onClick={() => setAba(k)}
             style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', padding: '9px 15px', border: 'none', background: 'transparent', borderBottom: `2px solid ${aba === k ? C.gold : 'transparent'}`, marginBottom: -1, fontSize: 13, fontWeight: aba === k ? 800 : 600, color: aba === k ? C.esp : C.espM }}>
             {label} <span style={{ fontSize: 12, fontWeight: 800, padding: '1px 8px', borderRadius: 999, background: aba === k ? C.gold : C.cream, color: aba === k ? '#fff' : C.espM }}>{n}</span>
+            {cont.autorPorAba[k] > 0 && <span data-testid={`aba-autor-respondeu-${k}`} title={`${cont.autorPorAba[k]} chamado(s) com mensagem nova do autor aguardando sua resposta`} style={{ fontSize: 11, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: C.greenBg, color: C.green, border: '1px solid #BFE3C4' }}>✉️ {cont.autorPorAba[k]}</span>}
           </button>
         ))}
         <span style={{ display: 'inline-flex', alignItems: 'center', paddingBottom: 6 }}><AjudaCampo chave="atendimento.abas" rota={ROTA} /></span>
@@ -370,6 +429,30 @@ function Inner() {
         </div>
       ) : (
         <div style={{ display: 'grid', gap: 10 }}>
+          {ehAdmin && aba === 'precisa_mim' && !buscaLimpa && pendentesLote.length > 0 && (
+            <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, marginBottom: 10 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <b style={{ fontSize: 13 }}>Aprovar em lote</b>
+                <button onClick={() => setSelLote(new Set(pendentesLote.map((r) => r.id)))} style={btn(C.gold)}>Selecionar todos do filtro ({pendentesLote.length})</button>
+                <button onClick={() => setSelLote(new Set())} style={btn(C.espM)}>Limpar</button>
+                <button disabled={!selecionadosLote.length} onClick={() => setLoteAberto(true)} style={btn(C.green)}>Conferir e aprovar selecionados ({selecionadosLote.length})</button>
+              </div>
+              {loteAberto && (
+                <div style={{ marginTop: 10, maxHeight: 320, overflow: 'auto', borderTop: `1px solid ${C.border}`, paddingTop: 8 }}>
+                  {selecionadosLote.map((r) => (
+                    <div key={r.id} style={{ fontSize: 12, padding: '5px 0', borderBottom: `1px solid ${C.border}` }}>
+                      <b>#{r.numero}</b> {r.titulo || r.descricao.slice(0, 60)} · {r.pr_numero ? <span style={{ color: C.green }}>PR #{r.pr_numero} vinculada</span> : <span style={{ color: C.amber }}>sem PR vinculada</span>}
+                      <div style={{ color: C.espM, whiteSpace: 'pre-wrap' }}>{(r.resposta || '').slice(0, 160)}{(r.resposta || '').length > 160 ? '…' : ''}</div>
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <button disabled={loteRodando} onClick={() => void aprovarLote()} style={btn(C.green)}>{loteRodando ? 'Aprovando…' : `Aprovar e enviar ao autor (${selecionadosLote.length})`}</button>
+                    <button onClick={() => setLoteAberto(false)} style={btn(C.espM)}>Voltar</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           {visiveis.map((it) => {
             const ia = it.ia_analise as Record<string, string> | null
             const est = estadoFila(it)
@@ -411,9 +494,12 @@ function Inner() {
                   {it.origem_sugestao_id && <span title="desmembrado de outro chamado" style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, background: C.cream, color: C.espM, fontWeight: 700 }}>↳ desmembrado</span>}
                   {it.ultimo_erro_comparacao === 'mesmo' && <span title="o erro reapareceu igual na última tentativa" style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, background: C.redBg, color: C.red, fontWeight: 700 }}>erro igual</span>}
                   {it.ultimo_erro_comparacao === 'mudou' && <span title="o erro mudou entre tentativas" style={{ fontSize: 10, padding: '2px 7px', borderRadius: 999, background: C.greenBg, color: C.green, fontWeight: 700 }}>erro mudou</span>}
+                  {ehAdmin && est === 'precisa_mim' && <label style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}><input type="checkbox" aria-label={`Selecionar #${it.numero} para aprovar em lote`} checked={selLote.has(it.id)} onChange={() => alternarLote(it.id)} /><AjudaCampo chave="atendimento.aprovar_lote" rota={ROTA} /></label>}
                   {est === 'precisa_mim' && <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: C.amberBg, color: C.amber, border: '1px solid #F0DDB0', fontWeight: 800 }}>⏳ Precisa de mim</span>}
                   {est === 'sem_confirmacao' && <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: '#EAF0FA', color: C.blue, border: '1px solid #D2DEF2', fontWeight: 800 }}>📤 Sem confirmação</span>}
                   {est === 'em_curso' && <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: C.cream, color: C.espM, fontWeight: 800 }}>🔵 Em curso</span>}
+                  {/* #6930 — a última mensagem é do autor: a bola está com o atendente (sem precisar abrir o chamado) */}
+                  {est !== 'terminal' && autorAguarda.has(it.id) && <span data-testid={`autor-respondeu-${it.numero}`} title="O autor mandou uma mensagem nova — responda na conversa do chamado" style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: C.greenBg, color: C.green, border: '1px solid #BFE3C4', fontWeight: 800 }}>✉️ Autor respondeu</span>}
                   <span title="status interno" style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: it.status === 'concluida' ? C.greenBg : it.status === 'recusada' ? C.redBg : '#EFEBE4', color: it.status === 'concluida' ? C.green : it.status === 'recusada' ? C.red : C.espL, fontWeight: 600 }}>{it.status.replaceAll('_', ' ')}</span>
                 </div>
               </div>
