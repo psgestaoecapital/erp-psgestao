@@ -52,8 +52,14 @@ export async function carregarRascunhos<T extends ItemFila & { id: string }>(sb:
   return { data: (r.data ?? []) as T[], error: r.error ?? null }
 }
 export async function carregarFila<T extends ItemFila & { id: string }>(sb: ClienteSupabase): Promise<{ data: T[]; error: { message: string } | null }> {
+  // #7050 (prova RD-38): a view tem milhares de chamados ARQUIVADOS com created_at recente. Como o board/lista
+  // nunca mostra arquivado (estado terminal, fora da fila por decisão do CEO), eles só ocupavam a janela de
+  // recentes — a tela carregava ~997 arquivados (escondidos) e sobravam só ~3 chamados ABERTOS e 0 concluídos
+  // no Kanban "Finalizados". Excluindo o arquivado da janela, o LIMIT cobre os chamados que a tela de fato usa
+  // (abertos + concluídos). Rascunho em chamado arquivado continua vindo pela carga de rascunhos abaixo
+  // (RD-30: nada some; aparece marcado "rascunho não enviado — chamado já encerrado").
   const [rec, ras] = await Promise.all([
-    sb.from('v_sugestao_fila').select('*').order('created_at', { ascending: false }).limit(FILA_LIMITE),
+    sb.from('v_sugestao_fila').select('*').neq('status', 'arquivada').order('created_at', { ascending: false }).limit(FILA_LIMITE),
     carregarRascunhos<T>(sb),
   ])
   const error = rec.error ?? ras.error
