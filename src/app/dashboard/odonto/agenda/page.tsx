@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { ChevronLeft, ChevronRight, X, Plus, Check, Clock, Calendar, LayoutGrid, Columns, CalendarDays, Sliders } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 import { ShellOdonto, PageHeaderOdonto, EmptyStateOdonto, ProgressBar, StatusDot, TOK, STATUS_ODONTO, STATUS_FLOW, st } from "@/components/odonto/ui";
 import { ConsumoInsumos } from "@/components/odonto/ConsumoInsumos";
 
@@ -132,7 +133,7 @@ export default function AgendaOdontoPage() {
       p_profissional_id: f.prof || null, p_paciente_nome: f.pac, p_data: novo.data,
       p_hora_inicio: start + ":00", p_hora_fim: idxToTime(endIdx) + ":00", p_paciente_id: null, p_observacao: f.obs || null,
     });
-    if (error) { alert(error.message); return; }
+    if (error) { alert(erroAmigavel(error, "Não foi possível agendar. Tente de novo.")); return; }
     const novoId = (res as { id?: string } | null)?.id;
     if (novoId && f.status && f.status !== "agendado") await supabase.rpc("fn_odonto_agendamento_status", { p_id: novoId, p_status: f.status });
     setNovo(null); load();
