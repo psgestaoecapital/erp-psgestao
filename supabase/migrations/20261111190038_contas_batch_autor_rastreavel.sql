@@ -132,3 +132,9 @@ BEGIN
   RETURN QUERY SELECT array_length(p_lancamento_ids, 1), (v_n1 + v_n2), format('%s titulos cancelados', v_n1 + v_n2)::TEXT;
 END;
 $function$;
+
+-- Guarda RD (check_fn_guards): função SECURITY DEFINER que mexe em dinheiro de cliente nunca fica
+-- aberta ao anon (IDOR por chamada RPC direta). Idempotente: REVOKE de privilégio não concedido é no-op.
+-- Só remove o anon; o GRANT a authenticated já existente (app logado) permanece intacto.
+REVOKE ALL ON FUNCTION public.batch_baixa_titulos(uuid[], date, uuid, character varying, uuid) FROM anon;
+REVOKE ALL ON FUNCTION public.batch_cancelar_titulos(uuid[], text, uuid) FROM anon;
