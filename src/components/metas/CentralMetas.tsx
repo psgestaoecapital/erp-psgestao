@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -55,7 +56,7 @@ export default function CentralMetas() {
     if (!empresaUnica) { setLoading(false); return }
     setLoading(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_meta_listar', { p_company_id: empresaUnica, p_tema: null })
-    if (error) { setErro(error.message); setLoading(false); return }
+    if (error) { setErro(erroAmigavel(error)); setLoading(false); return }
     const r = data as { ok?: boolean; indicadores?: Indicador[] } | null
     setIndicadores(r?.indicadores ?? [])
     setLoading(false)
@@ -74,7 +75,7 @@ export default function CentralMetas() {
     })
     setSalvando(null)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setErro(error?.message || j?.erro || 'Falha ao salvar'); return }
+    if (error || !j?.ok) { setErro(error ? erroAmigavel(error, 'Falha ao salvar') : codigoAmigavel(j?.erro, 'Falha ao salvar')); return }
     setOk(`Meta de ${ind.nome} definida: ${fmtNum(valor)}${ind.unidade ? ` ${ind.unidade}` : ''}.`)
     setRascunho((s) => { const n = { ...s }; delete n[ind.indicador_id]; return n })
     await carregar()
