@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { supabase } from '@/lib/supabase'
 import { PackageCheck, Search, ChevronRight, RefreshCw } from 'lucide-react'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', ESP60 = 'rgba(61,35,20,0.6)', ESP40 = 'rgba(61,35,20,0.45)', WHITE = '#FFFFFF', OK = '#166534', WARN = '#B45309'
 // Onda 4B · custo incompleto: o motivo diz O QUE preencher (não "custo não informado" genérico, que vira ruído)
@@ -60,7 +61,7 @@ export default function EntreguesPage() {
       const { data, error } = await supabase.rpc('fn_oficina_a_faturar', { p_company_id: companyId })
       setLoading(false)
       const r = data as { ok?: boolean; erro?: string; restrito?: boolean; linhas?: AFaturarLinha[]; totais?: AFaturarTotais } | null
-      if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha ao carregar'); return }
+      if (error || !r?.ok) { setErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao carregar. Tente de novo.'))); return }
       setAfLinhas(r.linhas ?? []); setAfTotais(r.totais ?? null); setRestrito(!!r.restrito)
       return
     }
@@ -68,7 +69,7 @@ export default function EntreguesPage() {
       const { data, error } = await supabase.rpc('fn_os_entregue_sem_nota', { p_company_id: companyId })
       setLoading(false)
       const r = data as { ok?: boolean; erro?: string; restrito?: boolean; itens?: SemNotaLinha[]; total_parado?: number | null; qtd?: number } | null
-      if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha ao carregar'); return }
+      if (error || !r?.ok) { setErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao carregar. Tente de novo.'))); return }
       setSnLinhas(r.itens ?? []); setSnTotais({ qtd: r.qtd ?? 0, total_parado: r.total_parado ?? null }); setRestrito(!!r.restrito)
       return
     }
@@ -77,7 +78,7 @@ export default function EntreguesPage() {
     })
     setLoading(false)
     const r = data as { ok?: boolean; erro?: string; restrito?: boolean; linhas?: Linha[]; totais?: Totais } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha ao carregar'); return }
+    if (error || !r?.ok) { setErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao carregar. Tente de novo.'))); return }
     setLinhas(r.linhas ?? []); setTotais(r.totais ?? null); setRestrito(!!r.restrito)
   }, [companyId, dataIni, dataFim, busca, modo])
 

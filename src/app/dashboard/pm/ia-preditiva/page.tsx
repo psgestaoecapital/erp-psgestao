@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
 const BORDA = '#E7DED3'; const TEXTM = '#6b5444'; const YELLOW = '#7A5A0F'; const RED = '#7A1F1F'
@@ -41,7 +42,7 @@ export default function IaPreditivaPage() {
     if (!empresa) { setLoading(false); return }
     setLoading(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_pm_previsoes', { p_company_id: empresa })
-    if (error) { setErro(error.message); setResp(null) } else { setResp(data as Resposta) }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar as previsões. Tente de novo.')); setResp(null) } else { setResp(data as Resposta) }
     setLoading(false)
   }, [empresa])
 

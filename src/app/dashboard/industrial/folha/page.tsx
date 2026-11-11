@@ -31,6 +31,7 @@ export default function FolhaPage() {
   const [erro, setErro] = useState<string | null>(null)
   const [ok, setOk] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const [podeVer, setPodeVer] = useState<boolean | null>(null)
 
   const carregar = useCallback(async () => {
     if (!empresaUnica) return
@@ -40,6 +41,14 @@ export default function FolhaPage() {
     setRows((data ?? []) as CompRow[])
   }, [empresaUnica])
   useEffect(() => { void carregar() }, [carregar])
+
+  // LGPD (contenção da folha): só RH/diretoria vê salário; sem permissão a tela mostra "Acesso restrito ao RH".
+  useEffect(() => {
+    if (!empresaUnica) { setPodeVer(null); return }
+    let alive = true
+    void supabase.rpc('fn__pode_ver_folha', { p_company_id: empresaUnica }).then(({ data }) => { if (alive) setPodeVer(data === true) })
+    return () => { alive = false }
+  }, [empresaUnica])
 
   const competencias = useMemo(() => {
     const m = new Map<string, { n: number; total: number; secoes: string | null }>()
@@ -87,6 +96,10 @@ export default function FolhaPage() {
 
   if (!empresaUnica) {
     return <Casca><Box><b style={{ color: ESP }}>Selecione uma empresa</b><div style={{ color: MUT, fontSize: 13, marginTop: 6 }}>A folha é por empresa. Escolha uma empresa específica no topo.</div></Box></Casca>
+  }
+
+  if (podeVer === false) {
+    return <Casca><Box><b style={{ color: ESP }}>Acesso restrito ao RH</b><div style={{ color: MUT, fontSize: 13, marginTop: 6 }}>Salários e folha de pagamento são visíveis apenas ao RH e à diretoria. Se você precisa deste acesso, fale com o RH.</div></Box></Casca>
   }
 
   return (

@@ -2,6 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Plus, Trash2, Check, Printer, FileText, ChevronLeft, CircleCheck, Receipt, Clock, MessageCircle, Sparkles } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { authFetch } from '@/lib/authFetch'
 import { SaldoBadge } from '@/components/odonto/ui'
 import { PainelPlanos } from '@/components/odonto/PainelPlanos'
@@ -210,7 +211,7 @@ export default function TratamentoPage() {
       p_itens: itens,
       p_plano_id: planoId,
     })
-    if (error) { alert(error.message); return null }
+    if (error) { alert(erroAmigavel(error, 'Não foi possível salvar. Tente de novo.')); return null }
     const id = (data as { id: string })?.id ?? null
     if (id) setPlanoId(id)
     carregarPlanos(pac)
@@ -233,7 +234,7 @@ export default function TratamentoPage() {
       p_forma: forma,
     })
     setBusy(null)
-    if (error) { alert(error.message); return }
+    if (error) { alert(erroAmigavel(error, 'Não foi possível salvar o plano. Tente de novo.')); return }
     setPlanoId(id)
     await Promise.all([carregarExec(id), carregarServicos()])
     setModo('exec')
@@ -261,7 +262,7 @@ export default function TratamentoPage() {
       p_company_id: companyId, p_plano_id: id, p_parcelas: Math.max(1, parcelas), p_entrada: Math.max(0, entrada), p_forma: forma,
     })
     const r = data as { ok?: boolean; token?: string; erro?: string } | null
-    if (error || !r?.ok || !r.token) { setWaBusy(false); alert(r?.erro || error?.message || 'Falha ao gerar o link.'); return }
+    if (error || !r?.ok || !r.token) { setWaBusy(false); alert(codigoAmigavel(r?.erro, erroAmigavel(error, 'Falha ao gerar o link.'))); return }
     const link = `${window.location.origin}/p/orcamento/${r.token}`
     const { data: pd } = await supabase.from('erp_odonto_paciente').select('celular, telefone').eq('id', pac.id).maybeSingle()
     const pf = pd as { celular?: string | null; telefone?: string | null } | null
@@ -303,7 +304,7 @@ export default function TratamentoPage() {
       p_forma: 'PIX',
     })
     setBusy(null)
-    if (error) { alert(error.message); return }
+    if (error) { alert(erroAmigavel(error, 'Não foi possível concluir o procedimento. Tente de novo.')); return }
     const r = data as { titulos_reconhecidos?: number; baixa?: { sucesso?: boolean; erro?: string } | null }
     if (r?.baixa && r.baixa.sucesso === false) alert('Procedimento concluído, mas a baixa não entrou: ' + (r.baixa.erro ?? ''))
     if (planoId) await carregarExec(planoId)
