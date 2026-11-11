@@ -1086,18 +1086,21 @@ for n in $fila; do
     # `db push` recusou — deploy vermelho por horas). Recalcula a última migration da main agora (não usa o check antigo
     # da PR). Com o deploy-migrations verde (estado_main livre), a última da main = a última aplicada em produção.
     ult_main=$(api "repos/$REPO/git/trees/main:supabase/migrations" | jq -r '[.tree[].path | select(test("^[0-9]{14}_")) | .[0:14]] | max')
-    # PISO EFETIVO = maior entre a última da main e o já reservado nesta rodada (Eng. Chefe 11/11). Comparação de string
-    # vale para timestamps de 14 dígitos de largura fixa.
+    # Quais migrations precisam renumerar: as que estão ABAIXO da última da main (detecção por $ult_main — NÃO pelo piso
+    # reservado, que é um timestamp de agora e varreria migrations legítimas acima da main).
+    baixas=$(api "repos/$REPO/pulls/$n/files" --paginate | jq -r --arg u "$ult_main" '.[] | select(.status == "added" and (.filename | test("^supabase/migrations/[0-9]{14}_"))) | .filename | ltrimstr("supabase/migrations/") | select(.[0:14] <= $u)')
+    # PISO EFETIVO (só o CHÃO da renumeração, não a detecção) = maior entre a última da main e o já reservado NESTA rodada
+    # (Eng. Chefe 11/11), para 2 PRs renumeradas na mesma rodada não receberem a mesma versão. Comparação de string vale
+    # para timestamps de 14 dígitos de largura fixa.
     piso_efetivo=$ult_main
     { [ -n "$piso_reservado_rodada" ] && [ "$piso_reservado_rodada" '>' "$piso_efetivo" ]; } && piso_efetivo=$piso_reservado_rodada
-    baixas=$(api "repos/$REPO/pulls/$n/files" --paginate | jq -r --arg u "$piso_efetivo" '.[] | select(.status == "added" and (.filename | test("^supabase/migrations/[0-9]{14}_"))) | .filename | ltrimstr("supabase/migrations/") | select(.[0:14] <= $u)')
     if [ -n "$baixas" ]; then
       # Renumeração AUTOMÁTICA (Eng. Chefe 09/10): em vez de recusar, a fila renomeia a(s) migration(s) da PR com um commit
       # no ramo dela (versão nova = timestamp do momento, mantendo os 2 últimos dígitos = faixa do agente). O commit roda
       # os checks de novo; a PR revisada MANTÉM a autorização: só o nome muda, o patch-id ESTÁVEL do conteúdo não (Eng. Chefe 02/11).
       # Usa o PISO EFETIVO (acima também do que esta rodada já reservou) e reserva o último piso para a próxima PR da rodada.
       if renumerar_migrations "$n" "$pj" "$piso_efetivo" "$baixas" "$via"; then piso_reservado_rodada=$RENUM_PISO_FINAL; continue; fi
-      tirar_da_fila "$n" "migration com versão NÃO maior que o piso da fila ($piso_efetivo): $(tr '\n' ' ' <<< "$baixas") — não consegui renumerar sozinha; renumere para uma versão acima e atualize com a main (o db push recusa versão abaixo da última aplicada)" "$sha"; continue
+      tirar_da_fila "$n" "migration com versão NÃO maior que a última da main ($ult_main): $(tr '\n' ' ' <<< "$baixas") — não consegui renumerar sozinha; renumere para uma versão acima e atualize com a main (o db push recusa versão abaixo da última aplicada)" "$sha"; continue
     fi
   fi
 
