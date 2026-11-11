@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)'
 const VERDE = '#16A34A', VERM = '#B91C1C'
@@ -91,9 +92,9 @@ function AbaAlertas({ empresa }: { empresa: string | null }) {
     // RD-98 p4: salvar rastreável — RPC grava audit_log (quem/quando/antes/depois), em vez da escrita direta.
     const { data, error } = await supabase.rpc('fn_pm_config_alertas_salvar', { p_company_id: empresa, p_dias_amarelo: amarelo, p_dias_vermelho: vermelho })
     setBusy(false)
-    if (error) { setMsg('Erro: ' + error.message); return }
+    if (error) { setMsg(erroAmigavel(error)); return }
     const r = data as { ok: boolean; erro?: string } | null
-    if (!r?.ok) { setMsg('Erro: ' + (r?.erro ?? 'não foi possível salvar a régua.')); return }
+    if (!r?.ok) { setMsg(codigoAmigavel(r?.erro, 'Não foi possível salvar a régua.')); return }
     setMsg('✅ Régua salva. O kanban de leads já reflete (sem recarregar).')
     void carregar()
   }
@@ -135,7 +136,7 @@ function AbaFunil({ empresa }: { empresa: string | null }) {
     const { data, error } = await supabase.rpc('fn_funil_etapa_salvar', { p_campos: { id: e.id, rotulo: e.rotulo, ordem: e.ordem, cor: e.cor, tipo_etapa: e.tipo_etapa, ativo: e.ativo } })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || (j && j.ok === false)) { setMsg('Erro: ' + (error?.message ?? j?.erro ?? 'falhou')); return }
+    if (error || (j && j.ok === false)) { setMsg(error ? erroAmigavel(error) : codigoAmigavel(j?.erro)); return }
     setMsg('✅ Etapa salva.'); void carregar()
   }
   const patch = (id: string, p: Partial<Etapa>) => setEtapas((arr) => arr.map((x) => (x.id === id ? { ...x, ...p } : x)))
@@ -197,7 +198,7 @@ function AbaListas({ empresa }: { empresa: string | null }) {
     const { data, error } = await supabase.rpc('fn_agency_config_salvar', { p_campos: { lista, ...campos } })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || (j && j.ok === false)) { setMsg('Erro: ' + (error?.message ?? j?.erro ?? 'falhou')); return }
+    if (error || (j && j.ok === false)) { setMsg(error ? erroAmigavel(error) : codigoAmigavel(j?.erro)); return }
     void carregar()
   }
   async function excluir(id: string) {
@@ -206,8 +207,8 @@ function AbaListas({ empresa }: { empresa: string | null }) {
     const { data, error } = await supabase.rpc('fn_agency_config_excluir', { p_id: id })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string; mensagem?: string } | null
-    if (error) { setMsg('Erro: ' + error.message); return }
-    if (j && j.ok === false) { setMsg(j.mensagem ?? (j.erro === 'opcao_em_uso' ? 'Opção em uso — oculte em vez de remover.' : 'Erro: ' + (j.erro ?? 'falhou'))); return }
+    if (error) { setMsg(erroAmigavel(error)); return }
+    if (j && j.ok === false) { setMsg(j.mensagem ?? (j.erro === 'opcao_em_uso' ? 'Opção em uso — oculte em vez de remover.' : codigoAmigavel(j.erro, 'Não foi possível remover a opção.'))); return }
     void carregar()
   }
   async function adicionar() {
@@ -275,9 +276,9 @@ function AbaProposta({ empresa }: { empresa: string | null }) {
       p_desconto_max: descMax.trim() === '' ? null : Number(descMax),
     })
     setBusy(false)
-    if (error) { setMsg('Erro: ' + error.message); return }
+    if (error) { setMsg(erroAmigavel(error)); return }
     const r = data as { ok: boolean; erro?: string } | null
-    if (!r?.ok) { setMsg('Erro: ' + (r?.erro ?? 'não foi possível salvar as regras da proposta.')); return }
+    if (!r?.ok) { setMsg(codigoAmigavel(r?.erro, 'Não foi possível salvar as regras da proposta.')); return }
     setMsg('✅ Configuração da proposta salva. Vale no editor de propostas.')
   }
 
@@ -373,7 +374,7 @@ function AbaMedicao({ empresa }: { empresa: string | null }) {
     })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || (j && j.ok === false)) { setMsg('Erro: ' + (error?.message ?? j?.erro ?? 'falhou')); return }
+    if (error || (j && j.ok === false)) { setMsg(error ? erroAmigavel(error) : codigoAmigavel(j?.erro)); return }
     void carregar()
   }
 
