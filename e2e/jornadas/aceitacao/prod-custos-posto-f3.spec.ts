@@ -50,19 +50,21 @@ test.describe('Custos do posto — fatia F3 @pos-migration', () => {
     await page.goto('/dashboard/produtividade/custos-posto')
     await aguardarConteudo(page)
 
-    // escolher o posto do teste na lista
-    await page.getByRole('button', { name: new RegExp(`${numero}`) }).first().click()
+    // escolher o posto do teste na lista — seleção determinística pelo data-testid do posto
+    // (a lista pode assentar logo depois do conteúdo; espera o posto do teste aparecer antes de clicar)
+    await expect(page.getByTestId('cp-lista'), 'a lista de postos carregou').toBeVisible()
+    const btnPosto = page.getByTestId(`cp-posto-${numero}`)
+    await expect(btnPosto, 'o posto criado pelo teste aparece na lista da planta').toBeVisible()
+    await btnPosto.click()
     await expect(page.getByTestId('cp-salvar')).toBeVisible()
 
-    // preencher os custos mensais e as horas de operação
+    // preencher os custos mensais e as horas de operação (só os campos estáveis já em produção;
+    // gás/manutenção/depreciação são da fatia F3-backend #4567 e são exercidos quando ela publicar)
     const mes = new Date()
     const vig = `${mes.getFullYear()}-${String(mes.getMonth() + 1).padStart(2, '0')}-01`
     await page.getByTestId('cp-vigencia').fill(vig)
     await page.getByTestId('cp-mao-obra').fill('5000')
     await page.getByTestId('cp-energia').fill('1200')
-    await page.getByTestId('cp-gas').fill('350')
-    await page.getByTestId('cp-manutencao').fill('600')
-    await page.getByTestId('cp-depreciacao').fill('800')
     await page.getByTestId('cp-horas').fill('352')
     await page.getByTestId('cp-salvar').click()
     await expect(page.getByText('Custos salvos.')).toBeVisible()
