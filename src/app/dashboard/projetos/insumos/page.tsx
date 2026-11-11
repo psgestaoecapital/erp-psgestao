@@ -547,11 +547,15 @@ export default function InsumosPage() {
       render: (i) => (
         <div>
           <div className="font-medium text-[#3D2314]">{i.name}</div>
-          {i.fork_from_publico_id && (
+          {i.source_type === "sinapi" ? (
+            <span className="mt-0.5 inline-block rounded-full bg-[#C8941A]/15 px-2 py-0.5 text-[10px] uppercase tracking-wider text-[#8A6A12]">
+              SINAPI
+            </span>
+          ) : i.fork_from_publico_id ? (
             <span className="mt-0.5 inline-block rounded-full bg-[#3D2314]/8 px-2 py-0.5 text-[10px] uppercase tracking-wider text-[#3D2314]/60">
               biblioteca
             </span>
-          )}
+          ) : null}
         </div>
       ),
     },
