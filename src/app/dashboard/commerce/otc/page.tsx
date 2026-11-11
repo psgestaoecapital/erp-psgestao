@@ -18,6 +18,7 @@ import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import {
   Plus, Search, ShoppingCart, BarChart3,
   X, Info, Send, CheckCircle2, ArrowRight,
@@ -273,9 +274,9 @@ function OTCPageInner() {
       // (defense-in-depth contra falha em .eq / RPC / RLS).
       const orcSafe = ((orc.data ?? []) as Orcamento[]).filter((o) => o.company_id === expected)
       const pedSafe = ((ped.data ?? []) as Pedido[]).filter((p) => p.company_id === expected)
-      if (orc.error) setErro('Falha ao carregar orcamentos: ' + orc.error.message)
+      if (orc.error) setErro(erroAmigavel(orc.error, 'Não foi possível carregar os orçamentos. Tente de novo.'))
       else setOrcamentos(orcSafe)
-      if (ped.error) setErro('Falha ao carregar pedidos: ' + ped.error.message)
+      if (ped.error) setErro(erroAmigavel(ped.error, 'Não foi possível carregar os pedidos. Tente de novo.'))
       else setPedidos(pedSafe)
       setLoading(false)
     }
@@ -996,7 +997,7 @@ function ModalCancelarOrcamento({ orc, onClose, onDone, flash }: {
       .insert({ company_id: orc.company_id, nome, ativo: true, exige_descricao: false })
       .select('id').single()
     setSalvando(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível salvar o motivo.')); return }
     setNovoAberto(false); setNovoNome('')
     await carregarMotivos((data as { id: string }).id)
   }
@@ -1009,7 +1010,7 @@ function ModalCancelarOrcamento({ orc, onClose, onDone, flash }: {
       p_orcamento_id: orc.id, p_motivo_perda_id: motivoId, p_motivo_texto: texto.trim() || null,
     })
     setSalvando(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível cancelar o orçamento.')); return }
     const r = data as { ok?: boolean; erro?: string } | null
     if (!r?.ok) { setErro(r?.erro ?? 'Não foi possível cancelar'); return }
     flash('Orçamento cancelado (perda registrada).')
