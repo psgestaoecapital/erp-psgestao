@@ -73,7 +73,6 @@ function Inner() {
   const [acertoVenda, setAcertoVenda] = useState<Venda | null>(null)
   const [acerto, setAcerto] = useState<Acerto | null>(null)
   const [recebs, setRecebs] = useState<Map<string, Receb[]>>(new Map())
-  const [cancelaTit, setCancelaTit] = useState<{ venda: Venda; motivo: string; abertos: { id: string; valor: number }[] } | null>(null)
   // Motivo (devolução/cancelamento) coletado por Modal/bottom-sheet do design PS — sem window.prompt() nativo.
   const [motivoModal, setMotivoModal] = useState<{ titulo: string; label: string; obrig: boolean; confirmLabel: string; onConfirm: (motivo: string) => void | Promise<void> } | null>(null)
   const [motivoTxt, setMotivoTxt] = useState('')
@@ -243,37 +242,24 @@ function Inner() {
   // #6928: títulos do financeiro (GE) ainda em aberto de uma venda. Pago/cancelado nunca entram.
   const ABERTO = ['aberto', 'vencido', 'pendente']
   const titulosAbertos = (vendaId: string) => (recebs.get(vendaId) ?? []).filter((t) => t.receber_id && t.status && ABERTO.includes(t.status))
-  const titulosPagos = (vendaId: string) => (recebs.get(vendaId) ?? []).filter((t) => t.receber_id && t.status && !ABERTO.includes(t.status) && t.status !== 'cancelado')
 
   function cancelar(v: Venda) {
     setMotivoTxt(''); setMotivoErro(null)
     setMotivoModal({ titulo: `Cancelar venda — ${v.modelo || ''}`, label: 'Motivo do cancelamento (opcional)', obrig: false, confirmLabel: 'Continuar', onConfirm: (motivo) => prosseguirCancelar(v, motivo) })
   }
   async function prosseguirCancelar(v: Venda, motivo: string) {
-    // Releitura do status dos títulos no banco (a lista da tela pode estar velha).
-    const ids = (recebs.get(v.id) ?? []).map((t) => t.receber_id).filter((x): x is string => !!x)
-    let abertos: { id: string; valor: number }[] = []
-    if (ids.length) {
-      const { data: er } = await supabase.from('erp_receber').select('id, valor, status').in('id', ids)
-      abertos = ((er as { id: string; valor: number; status: string | null }[]) ?? []).filter((e) => e.status && ABERTO.includes(e.status)).map((e) => ({ id: e.id, valor: Number(e.valor) || 0 }))
-    }
-    if (abertos.length > 0) { setCancelaTit({ venda: v, motivo, abertos }); return }
-    await executarCancelar(v, motivo, [])
+    // #6928: o bloqueio (NF-e autorizada / título a receber em aberto) é validado no
+    // BACKEND — fn_veic_venda_cancelar recusa com mensagem clara orientando a cancelar a
+    // nota (NF-e emitidas) ou tratar o título (Contas a Receber) antes. Aqui só chamamos.
+    await executarCancelar(v, motivo)
   }
-  async function executarCancelar(v: Venda, motivo: string, cancelarTitulos: { id: string; valor: number }[]) {
+  async function executarCancelar(v: Venda, motivo: string) {
     setBusy(true)
     const { data, error } = await supabase.rpc('fn_veic_venda_cancelar', { p_venda_id: v.id, p_user: await userId(), p_motivo: motivo || null })
     const r = data as { ok?: boolean; erro?: string; mensagem?: string; titulos_nao_excluidos?: number } | null
-    if (error || !r?.ok) { setBusy(false); setErro((error ? msgAmigavel(error.message) : null) || r?.mensagem || r?.erro || 'Falha'); return }
-    // Venda cancelada. Só então cancela os títulos escolhidos, pela função do financeiro (histórico + auditoria).
-    let falhas = 0
-    for (const t of cancelarTitulos) {
-      const { data: cr, error: ce } = await supabase.rpc('fn_receber_cancelar', { p_id: t.id, p_motivo: `Venda cancelada${motivo ? `: ${motivo}` : ''}` })
-      if (ce || !(cr as { sucesso?: boolean } | null)?.sucesso) falhas++
-    }
     setBusy(false)
-    if (falhas > 0) setErro(`Venda cancelada, mas ${falhas} título(s) não puderam ser cancelados. Cancele no Contas a Receber.`)
-    else setMsg(cancelarTitulos.length ? `Venda cancelada e ${cancelarTitulos.length} título(s) do financeiro cancelado(s).` : 'Venda cancelada.')
+    if (error || !r?.ok) { setErro((error ? msgAmigavel(error.message) : null) || r?.mensagem || r?.erro || 'Falha'); return }
+    setMsg('Venda cancelada.')
     void carregar()
   }
 
@@ -440,7 +426,7 @@ function Inner() {
                   {/* Devolução (entregue) no lugar de Cancelar */}
                   {entregue
                     ? <button disabled={busy} onClick={() => void devolver(v)} style={btnDanger}>Registrar devolução</button>
-                    : (!encerrada && <button disabled={busy} onClick={() => void cancelar(v)} style={btnDanger}>Cancelar</button>)}
+                    : (!encerrada && <button disabled={busy} onClick={() => void cancelar(v)} style={btnDanger}>Cancelar venda</button>)}
                 </div>
               </div>
             )
@@ -470,23 +456,6 @@ function Inner() {
               setMotivoModal(null); setMotivoErro(null)
               void cb(t)
             }} style={btnGold}>{motivoModal.confirmLabel}</button>
-          </div>
-        </Modal>
-      )}
-
-      {/* ── Modal #6928: cancelar também o título? ── */}
-      {cancelaTit && (
-        <Modal onClose={() => setCancelaTit(null)} titulo="Cancelar venda">
-          <p style={{ fontSize: 13, color: C.esp, margin: '0 0 8px' }}>
-            Esta venda tem <b>{brl(cancelaTit.abertos.reduce((a, t) => a + t.valor, 0))}</b> em título aberto no financeiro. Cancelar também o título?
-          </p>
-          {titulosPagos(cancelaTit.venda.id).length > 0 && (
-            <p style={{ fontSize: 12, color: C.amber, background: C.amberBg, borderRadius: 8, padding: '6px 10px', margin: '0 0 8px' }}>Título já pago não é cancelado: trate no Contas a Receber.</p>
-          )}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-            <button disabled={busy} style={btnGold} onClick={() => { const c = cancelaTit; setCancelaTit(null); void executarCancelar(c.venda, c.motivo, c.abertos) }}>Sim, cancelar venda e título</button>
-            <button disabled={busy} style={btnDanger} onClick={() => { const c = cancelaTit; setCancelaTit(null); void executarCancelar(c.venda, c.motivo, []) }}>Não, só a venda</button>
-            <button disabled={busy} style={btnGhost} onClick={() => setCancelaTit(null)}>Voltar</button>
           </div>
         </Modal>
       )}
