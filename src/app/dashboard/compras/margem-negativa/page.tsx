@@ -27,7 +27,7 @@ export default function MargemNegativaPage() {
     setLoading(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_nfe_produtos_margem_negativa', { p_company_id: empresa })
     setLoading(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro('Não foi possível carregar os produtos com margem negativa. Tente novamente.'); return }
     const r = data as { ok?: boolean; produtos?: Row[]; erro?: string } | null
     if (!r?.ok) { setErro(r?.erro ?? 'Erro ao carregar'); setRows([]); return }
     setRows(r.produtos ?? [])

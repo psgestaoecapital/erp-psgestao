@@ -79,7 +79,7 @@ export default function PedidosPage(){
     setLoading(true);
     const{data,error}=await supabase.from("erp_pedidos").select("*").in("company_id",companyIds).order("data_pedido",{ascending:false}).limit(200);
     if(data)setPedidos(data);
-    if(error&&!error.message.includes('does not exist'))setMsg("Erro: "+error.message);
+    if(error&&!error.message.includes('does not exist'))setMsg("Não foi possível carregar os pedidos. Tente novamente.");
     setLoading(false);
   };
 
@@ -92,7 +92,7 @@ export default function PedidosPage(){
   const converterOrcamento=async(orcId:string)=>{
     const{data:{user}}=await supabase.auth.getUser();
     const{data,error}=await supabase.rpc('converter_orcamento_pedido',{p_orcamento_id:orcId,p_user_id:user?.id});
-    if(error){setMsg("❌ "+error.message);return;}
+    if(error){setMsg("❌ Não foi possível converter o orçamento em pedido. Tente novamente.");return;}
     setMsg("✅ Orçamento convertido em pedido!");
     setShowConverter(false);
     loadPedidos();loadOrcamentosAprovados();
@@ -166,7 +166,7 @@ export default function PedidosPage(){
       p_itens:itensEdicao,
     });
     setSalvandoItens(false);
-    if(error){setMsg("❌ "+error.message);return;}
+    if(error){setMsg("❌ Não foi possível salvar os itens do pedido. Tente novamente.");return;}
     const r=data as {ok?:boolean;erro?:string;itens?:number;titulos_precisa_revisao?:boolean}|null;
     if(!r||r.ok===false){setMsg("❌ "+(r?.erro||"Falha ao salvar itens do pedido"));return;}
     setEditarItens(null);
@@ -209,7 +209,7 @@ export default function PedidosPage(){
     }
     
     const{error}=await supabase.from("erp_lancamentos").insert(lancamentos);
-    if(error){setMsg("❌ "+error.message);return;}
+    if(error){setMsg("❌ Não foi possível gerar os títulos do pedido. Tente novamente.");return;}
     
     await supabase.from("erp_pedidos").update({titulos_gerados:true}).eq("id",p.id);
     setMsg(`✅ ${parcelas} título(s) gerado(s) no Operacional - Contas a Receber`);
