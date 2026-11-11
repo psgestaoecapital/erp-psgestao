@@ -91,6 +91,10 @@ export default function VincularVariosModal({
   const [desconto, setDesconto] = useState('')
   const [obsAjuste, setObsAjuste] = useState('')
   const [ajusteTouched, setAjusteTouched] = useState(false)
+  // #5672 · a qual título vinculado pertence o acréscimo/desconto (âncora do ajuste). Com 2+ títulos o
+  // operador ESCOLHE; antes o ajuste caía sempre no título de MAIOR valor (fn_conciliacao_fechar_agrupado,
+  // order by valor_vinculado desc), o que errava a quem o encargo/desconto se referia.
+  const [ajusteTitulo, setAjusteTitulo] = useState<string>('')
   // #22 · rateio de PIX/avulso: distribui o valor do movimento entre os títulos vinculados, com baixa
   // parcial no que sobrar (por ordem de vencimento). Só em crédito (recebimento).
   const [modoRateio, setModoRateio] = useState(false)
@@ -221,6 +225,20 @@ export default function VincularVariosModal({
     const somaVinc = resumo?.soma_vinculada ?? 0
     const saldoAjustado = Math.round((Math.abs(valorMovimento) - (somaVinc + acrNum - descNum)) * 100) / 100
     if (!(somaVinc > 0 && Math.abs(saldoAjustado) <= 0.05)) return
+    // #5672 · define a âncora do ajuste. 1 título → ele mesmo; 2+ → o operador precisa ter escolhido.
+    const itens = resumo?.itens ?? []
+    const temAjusteLocal = acrNum > 0 || descNum > 0
+    let ajusteId: string | null = null
+    if (temAjusteLocal) {
+      if (itens.length <= 1) {
+        ajusteId = itens[0]?.lancamento_id ?? null
+      } else if (itens.some((v) => v.lancamento_id === ajusteTitulo)) {
+        ajusteId = ajusteTitulo
+      } else {
+        setErro('Escolha a qual título pertence o acréscimo/desconto antes de conciliar.')
+        return
+      }
+    }
     const nQtd = resumo?.qtd_vinculos ?? resumo?.itens?.length ?? 0
     const linhaAjuste = acrNum > 0 ? `\nAcréscimo (juros/multa) de R$ ${fmt(acrNum)} registrado no título.`
       : descNum > 0 ? `\nDesconto de R$ ${fmt(descNum)} registrado no título.` : ''
@@ -235,7 +253,7 @@ export default function VincularVariosModal({
       p_juros: acrNum,
       p_multa: 0,
       p_desconto: descNum,
-      p_ajuste_lancamento_id: null,
+      p_ajuste_lancamento_id: ajusteId,
       p_observacao: obsAjuste.trim() || null,
     })
     setFechando(false)
@@ -303,6 +321,11 @@ export default function VincularVariosModal({
   const saldoAjustado = Math.round((valorAbs - (somaVinc + acrNum - descNum)) * 100) / 100
   const fechaAjuste = somaVinc > 0 && Math.abs(saldoAjustado) <= 0.05
   const mostrarAjuste = somaVinc > 0 && (Math.abs(diffRaw) > 0.05 || acrNum > 0 || descNum > 0)
+  // #5672 · quando há ajuste e 2+ títulos vinculados, exigir a escolha de a qual título ele pertence.
+  const itensVinc = resumo?.itens ?? []
+  const temAjuste = acrNum > 0 || descNum > 0
+  const ajusteTituloValido = itensVinc.some((v) => v.lancamento_id === ajusteTitulo)
+  const precisaEscolherAjuste = temAjuste && itensVinc.length >= 2 && !ajusteTituloValido
   const pct = fechaAjuste ? 100 : (resumo ? Math.min(100, (somaVinc / valorAbs) * 100) : 0)
   const corBarra = fechaAjuste ? '#3B6D11' : '#C8941A'
   // #22 · rateio
@@ -386,6 +409,30 @@ export default function VincularVariosModal({
                   <input value={desconto} onChange={(e) => { setAjusteTouched(true); setDesconto(e.target.value) }} inputMode="decimal" placeholder="0,00" style={{ ...inputStyle, marginTop: 4, width: '100%' }} />
                 </label>
               </div>
+              {/* #5672 · com 2+ títulos, o operador escolhe a qual deles o ajuste pertence (âncora) */}
+              {itensVinc.length >= 2 && temAjuste && (
+                <label style={{ display: 'block', marginTop: 10, fontSize: 11, color: '#3D2314', fontWeight: 600 }}>
+                  A qual título pertence este ajuste?<AjudaCampo chave="financeiro.conciliacao.vincular_ajuste_titulo" rota={ROTA} />
+                  <select
+                    value={ajusteTitulo}
+                    onChange={(e) => setAjusteTitulo(e.target.value)}
+                    data-testid="vv-ajuste-titulo"
+                    style={{ ...inputStyle, marginTop: 4, width: '100%', cursor: 'pointer' }}
+                  >
+                    <option value="">Selecione o título…</option>
+                    {itensVinc.map((v) => (
+                      <option key={v.vinculo_id} value={v.lancamento_id}>
+                        {(v.descricao ?? '(sem descrição)')} · venc {fmtDate(v.vencimento)} · R$ {fmt(v.valor)}
+                      </option>
+                    ))}
+                  </select>
+                  {!ajusteTituloValido && (
+                    <span style={{ display: 'block', marginTop: 4, fontWeight: 500, color: '#BA7517' }}>
+                      Com 2 ou mais títulos, escolha a qual deles o acréscimo/desconto se refere — senão o ajuste cai no título de maior valor.
+                    </span>
+                  )}
+                </label>
+              )}
               <label style={{ display: 'block', marginTop: 10, fontSize: 11, color: '#3D2314', fontWeight: 600 }}>
                 Observação (opcional)<AjudaCampo chave="financeiro.conciliacao.vincular_obs_ajuste" rota={ROTA} />
                 <input value={obsAjuste} onChange={(e) => setObsAjuste(e.target.value)} placeholder="Observação (opcional)" style={{ ...inputStyle, marginTop: 4, width: '100%' }} />
@@ -608,8 +655,9 @@ export default function VincularVariosModal({
             {!modoRateio && (
               <button
                 onClick={() => void fecharFatura()}
-                disabled={!fechaAjuste || fechando}
+                disabled={!fechaAjuste || fechando || precisaEscolherAjuste}
                 style={primaryBtn(fechando)}
+                title={precisaEscolherAjuste ? 'Escolha a qual título pertence o acréscimo/desconto' : undefined}
               >
                 {fechando ? 'Conciliando…' : '✅ Conciliar fatura'}
               </button>
