@@ -11,6 +11,7 @@ import { COLUNAS_EQUIPE, carregarCustosEquipe } from '@/lib/pm/equipeCustos'
 import { resumirPrevia, type PapelPrevia } from '@/lib/pm/papelAgencia'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CargaEquipe } from '@/components/pm/CargaEquipe'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
 const BORDA = '#E7DED3'; const TEXTM = '#6b5444'; const RED = '#7A1F1F'
@@ -53,7 +54,7 @@ export default function EquipePage() {
   async function verPrevia(userId: string, slug: string) {
     if (!empresa || !slug) { setPrevia(null); return }
     const { data, error } = await supabase.rpc('fn_pm_papel_agencia_previa', { p_company: empresa, p_user: userId, p_slug: slug })
-    setPrevia(error ? { ok: false, erro: error.message } : (data as PapelPrevia))
+    setPrevia(error ? { ok: false, erro: erroAmigavel(error, 'Não foi possível calcular a prévia do papel. Tente de novo.') } : (data as PapelPrevia))
   }
   async function aplicarPapel() {
     if (!empresa || !edit?.user_id || !papelSel) return
@@ -61,7 +62,7 @@ export default function EquipePage() {
     const { data, error } = await supabase.rpc('fn_pm_papel_agencia_aplicar', { p_company: empresa, p_user: edit.user_id, p_slug: papelSel })
     setBusy(false)
     const r = data as PapelPrevia | null
-    if (error || !r?.ok) { setToast(`Erro: ${error?.message ?? r?.erro ?? 'falha'}`); return }
+    if (error || !r?.ok) { setToast(erroAmigavel(error, r?.erro ?? 'Não foi possível gravar o papel na agência. Tente de novo.')); return }
     setToast('Papel na agência GRAVADO.'); setPrevia(null)
   }
   useEffect(() => { void carregar() }, [empresa]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -85,7 +86,7 @@ export default function EquipePage() {
       ? await supabase.from('agency_equipe').update(payload).eq('id', edit.id)
       : await supabase.from('agency_equipe').insert(payload)
     setBusy(false)
-    if (error) { setToast(`Erro: ${error.message}`); return }
+    if (error) { setToast(erroAmigavel(error, 'Não foi possível salvar o membro. Tente de novo.')); return }
     setEdit(null); setToast(edit.id ? 'Membro ALTERADO.' : 'Membro CRIADO.'); void carregar()
   }
 
@@ -99,7 +100,10 @@ export default function EquipePage() {
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string } | null
     if (error || !r?.ok) {
-      setToast(`Erro: ${error?.message ?? (r?.erro === 'sem_acesso' ? 'Você não tem acesso a este membro.' : r?.erro === 'membro_nao_encontrado' ? 'Membro não encontrado (pode já ter sido excluído).' : r?.erro ?? 'Não foi possível excluir.')}`)
+      const amigavel = r?.erro === 'sem_acesso' ? 'Você não tem acesso a este membro.'
+        : r?.erro === 'membro_nao_encontrado' ? 'Membro não encontrado (pode já ter sido excluído).'
+        : 'Não foi possível excluir o membro. Tente de novo.'
+      setToast(erroAmigavel(error, amigavel))
       return
     }
     setEdit(null); setToast('Membro EXCLUÍDO.'); void carregar()
