@@ -11,6 +11,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { authFetch } from '@/lib/authFetch'
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -102,7 +103,7 @@ function Inner() {
   const carregar = useCallback(async () => {
     if (!companyId) { setRows([]); setRecebs(new Map()); setAcResumo(new Map()); return }
     const { data, error } = await supabase.from('v_veic_venda').select('*').eq('company_id', companyId).order('data_venda', { ascending: false })
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar as vendas. Tente de novo.')); return }
     const vs = (data as Venda[]) ?? []
     setRows(vs)
     {
@@ -157,7 +158,7 @@ function Inner() {
     const { data, error } = await supabase.rpc('fn_veic_venda_checklist_materializar', { p_venda_id: v.id, p_user: await userId() })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string; itens?: ChkItem[] } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha ao abrir checklist'); return }
+    if (error || !r?.ok) { setErro(error ? erroAmigavel(error, 'Não foi possível abrir o checklist. Tente de novo.') : codigoAmigavel(r?.erro, 'Não foi possível abrir o checklist. Tente de novo.')); return }
     setChkVenda(v); setChkItens(r.itens ?? []); setChkKm(v.km_entrega ? String(v.km_entrega) : '')
   }
   async function marcarItem(it: ChkItem, feito: boolean) {
@@ -175,7 +176,7 @@ function Inner() {
     const r = data as { ok?: boolean; erro?: string; faltando?: string[]; mensagem?: string } | null
     if (error || !r?.ok) {
       if (r?.erro === 'checklist_incompleto') setErro(`Faltam itens obrigatórios: ${(r.faltando ?? []).join(' · ')}`)
-      else setErro(error?.message || r?.mensagem || r?.erro || 'Falha ao entregar')
+      else setErro(error ? erroAmigavel(error, 'Não foi possível concluir a entrega. Tente de novo.') : (r?.mensagem || codigoAmigavel(r?.erro, 'Não foi possível concluir a entrega. Tente de novo.')))
       return
     }
     setMsg('Veículo entregue.'); setChkVenda(null); void carregar()
@@ -187,7 +188,7 @@ function Inner() {
     const { data, error } = await supabase.rpc('fn_veic_termo_entrega', { p_venda_id: v.id })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string; termo_md?: string } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha ao gerar termo'); return }
+    if (error || !r?.ok) { setErro(error ? erroAmigavel(error, 'Não foi possível gerar o termo. Tente de novo.') : codigoAmigavel(r?.erro, 'Não foi possível gerar o termo. Tente de novo.')); return }
     setTermoVenda(v); setTermoMd(r.termo_md ?? ''); setAssinaNome(v.cliente_nome ?? ''); void carregar()
   }
   async function assinarTermo() {
@@ -197,7 +198,7 @@ function Inner() {
     const { data, error } = await supabase.rpc('fn_veic_termo_assinar', { p_venda_id: termoVenda.id, p_nome: assinaNome.trim(), p_ip: null, p_user: await userId() })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha no aceite'); return }
+    if (error || !r?.ok) { setErro(error ? erroAmigavel(error, 'Não foi possível registrar o aceite. Tente de novo.') : codigoAmigavel(r?.erro, 'Não foi possível registrar o aceite. Tente de novo.')); return }
     setMsg('Aceite registrado.'); setTermoVenda(null); void carregar()
   }
 
@@ -207,7 +208,7 @@ function Inner() {
     const { data, error } = await supabase.rpc('fn_veic_venda_acerto', { p_venda_id: v.id })
     setBusy(false)
     const r = data as ({ ok?: boolean; erro?: string } & Acerto) | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha no acerto'); return }
+    if (error || !r?.ok) { setErro(error ? erroAmigavel(error, 'Não foi possível abrir o acerto. Tente de novo.') : codigoAmigavel(r?.erro, 'Não foi possível abrir o acerto. Tente de novo.')); return }
     setAcertoVenda(v); setAcerto({ previsto: r.previsto, realizado: r.realizado })
   }
 
@@ -220,7 +221,7 @@ function Inner() {
     const { data, error } = await supabase.rpc('fn_veic_venda_devolver', { p_venda_id: v.id, p_motivo: motivo.trim(), p_data: null, p_user: await userId() })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string; titulos_a_estornar?: string[] } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha na devolução'); return }
+    if (error || !r?.ok) { setErro(error ? erroAmigavel(error, 'Não foi possível registrar a devolução. Tente de novo.') : codigoAmigavel(r?.erro, 'Não foi possível registrar a devolução. Tente de novo.')); return }
     const n = (r.titulos_a_estornar ?? []).length
     setMsg(`Devolução registrada. Veículo volta ao pátio. ${n} título(s) marcado(s) a estornar (evento enviado ao financeiro).`)
     void carregar()
@@ -246,7 +247,7 @@ function Inner() {
     setBusy(true)
     const { data, error } = await supabase.rpc('fn_veic_venda_cancelar', { p_venda_id: v.id, p_user: await userId(), p_motivo: motivo || null })
     const r = data as { ok?: boolean; erro?: string; mensagem?: string; titulos_nao_excluidos?: number } | null
-    if (error || !r?.ok) { setBusy(false); setErro(error?.message || r?.mensagem || r?.erro || 'Falha'); return }
+    if (error || !r?.ok) { setBusy(false); setErro(error ? erroAmigavel(error, 'Não foi possível cancelar a venda. Tente de novo.') : (r?.mensagem || codigoAmigavel(r?.erro, 'Não foi possível cancelar a venda. Tente de novo.'))); return }
     // Venda cancelada. Só então cancela os títulos escolhidos, pela função do financeiro (histórico + auditoria).
     let falhas = 0
     for (const t of cancelarTitulos) {
