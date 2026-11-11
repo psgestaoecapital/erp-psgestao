@@ -189,7 +189,7 @@ export default function QuadroPessoalPage() {
               </thead>
               <tbody>
                 {pessoasFiltradas.map((p) => (
-                  <LinhaPessoa key={p.cpf} p={p} pode={pode} cargos={cargos} setores={setores} onSalvar={salvarPessoa} />
+                  <LinhaPessoa key={p.cpf || p.matricula || (p.nome ?? '')} p={p} pode={pode} cargos={cargos} setores={setores} onSalvar={salvarPessoa} />
                 ))}
                 {pessoasFiltradas.length === 0 && <tr><td style={{ ...td, color: MUT }} colSpan={9}>Nenhuma pessoa nesta competência.</td></tr>}
               </tbody>
@@ -242,7 +242,7 @@ function LinhaPessoa({ p, pode, cargos, setores, onSalvar }: { p: Pessoa; pode: 
     // data-ajuda: os campos editáveis da linha são documentados pelo "?" de cada coluna no cabeçalho (RD-95).
     <tr data-ajuda="rh.quadro.cargo">
       <td style={{ ...td, fontWeight: 600 }}>{p.nome ?? '—'}{p.origem !== 'ponto_folha' && <span style={{ fontSize: 10, color: GOLD, marginLeft: 6 }}>{p.origem === 'so_folha' ? 'só folha' : 'só ponto'}</span>}</td>
-      <td style={{ ...td, fontFamily: 'ui-monospace, monospace', color: MUT }}>{p.cpf}</td>
+      <td style={{ ...td, fontFamily: 'ui-monospace, monospace', color: MUT }}>{p.cpf || (p.matricula ? `mat. ${p.matricula}` : '—')}</td>
       <td style={{ ...td, color: MUT }}>{p.funcao ?? '—'}</td>
       <td style={td}>
         {pode ? (
@@ -265,7 +265,7 @@ function LinhaPessoa({ p, pode, cargos, setores, onSalvar }: { p: Pessoa; pode: 
       <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{pode ? brl(p.custo_mensal) : '🔒'}</td>
       <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: GOLD, fontWeight: 700 }}>
         {pode ? brl(p.custo_hora) : '🔒'}
-        {pode && mudou && <button style={{ ...btnGold, padding: '4px 8px', fontSize: 11, marginLeft: 6 }} onClick={() => onSalvar(p.cpf, { cargo_id: cargo, setor_id: setor, supervisor_nome: sup, salario_base: sal })}>Salvar</button>}
+        {pode && mudou && <button style={{ ...btnGold, padding: '4px 8px', fontSize: 11, marginLeft: 6 }} onClick={() => onSalvar(p.cpf ?? '', { cargo_id: cargo, setor_id: setor, supervisor_nome: sup, salario_base: sal, matricula: p.matricula ?? '' })}>Salvar</button>}
       </td>
     </tr>
   )
