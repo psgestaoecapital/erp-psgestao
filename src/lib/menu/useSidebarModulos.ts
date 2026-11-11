@@ -154,6 +154,8 @@ const SECAO_LABEL_OVERRIDE: Record<string, string> = {
   PRODUTIVIDADE: 'Produtividade',
   CRUZAMENTO: 'Indicadores de cruzamento',
   ADMINISTRACAO: 'Administração',
+  // Gestão Empresarial — a seção vem crua "CONTRATOS_VENDAS" da RPC; o usuário lê "Contratos".
+  CONTRATOS_VENDAS: 'Contratos',
 }
 
 function rpcRowsToModulos(rows: RpcRow[], isPS: boolean, areaSlug: string, labelOverride?: Record<string, string>): SidebarModuleNode[] {
