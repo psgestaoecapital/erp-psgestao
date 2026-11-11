@@ -161,3 +161,9 @@ begin
     'valor', v_mov.valor, 'acrescimo', v_acr, 'desconto', v_desc, 'ajuste_lancamento', v_anchor);
 end;
 $function$;
+
+-- check_fn_guards (Regra 1): REVOKE anon na fn SECURITY DEFINER fn_conciliacao_fechar_agrupado.
+-- Espelha a ACL viva de hoje {postgres(owner), authenticated, service_role}; anon/PUBLIC nunca tiveram
+-- acesso — nenhuma mudança de acesso. (fn_conciliacao_aplicar_match é SECURITY INVOKER, fora da regra.)
+REVOKE ALL ON FUNCTION public.fn_conciliacao_fechar_agrupado(uuid, uuid, numeric, numeric, numeric, numeric, uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_conciliacao_fechar_agrupado(uuid, uuid, numeric, numeric, numeric, numeric, uuid, text) TO authenticated, service_role;
