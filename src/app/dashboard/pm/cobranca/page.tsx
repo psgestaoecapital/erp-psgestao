@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'r
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 const ROTA = '/dashboard/pm/cobranca'
 
@@ -79,7 +80,7 @@ export default function CobrancaPage() {
     const { data, error } = await supabase.rpc(rpc, args)
     setBusy(null)
     const r = (data ?? {}) as { ok?: boolean; erro?: string }
-    if (error || !r.ok) { setToast(`Não foi possível: ${r.erro ?? error?.message ?? 'erro'}`); return }
+    if (error || !r.ok) { setToast(r.erro ? codigoAmigavel(r.erro, 'Não foi possível concluir a ação.') : erroAmigavel(error, 'Não foi possível concluir a ação.')); return }
     setToast(ok); await carregar()
   }
   const lancar = (c: Contrato) => chamar('fn_agency_cobranca_lancar', { p_company_id: empresa, p_contrato_id: c.id, p_competencia: comp, p_valor: c.fee_mensal ?? 0 }, 'Cobrança lançada.', `lan-${c.id}`)
