@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'r
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 const ROTA = '/dashboard/pm/health-score'
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
@@ -65,7 +66,7 @@ export default function HealthScorePage() {
     const { data, error } = await supabase.rpc('fn_agency_score_pesos_salvar', { p_company_id: empresa, p_prazo: pesos.prazo, p_margem: pesos.margem, p_pagamento: pesos.pagamento, p_atividade: pesos.atividade })
     setSaving(false)
     const r = (data ?? {}) as { ok?: boolean; erro?: string; soma?: number }
-    if (error || !r.ok) { setToast(r.erro === 'soma_diferente_100' ? `A soma precisa ser 100 (está ${r.soma}).` : `Não foi possível salvar: ${r.erro ?? error?.message ?? 'erro'}`); return }
+    if (error || !r.ok) { setToast(r.erro === 'soma_diferente_100' ? `A soma precisa ser 100 (está ${r.soma}).` : erroAmigavel(error, codigoAmigavel(r.erro, 'Não foi possível salvar. Tente de novo.'))); return }
     setToast('Pesos salvos.'); setEhPadrao(false); await carregar()
   }
   const restaurarPadrao = () => setPesos(PADRAO)
