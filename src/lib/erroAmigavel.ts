@@ -23,7 +23,11 @@ export function erroAmigavel(e: unknown, generica = 'Não foi possível concluir
   const msg = typeof err?.message === 'string' ? err.message.trim() : ''
 
   if (code === 'P0001' && msg) return /^[a-z0-9_]+$/.test(msg) ? codigoAmigavel(msg, generica) : msg
-  if (code === '22P02' || /invalid input syntax for type uuid/i.test(msg)) return MSG_ENDERECO_INVALIDO
+  // 22P02 = "invalid input syntax". Só é "endereço incompleto" quando o valor inválido era um UUID
+  // (ex.: abrir item com id quebrado). Outro 22P02 (ano/número/data mal formatado) ensina o usuário a
+  // corrigir o campo — não manda ele "voltar à lista" (RD-74: nunca uma frase que leve à ação errada).
+  if (/invalid input syntax for type uuid/i.test(msg) || (code === '22P02' && /uuid/i.test(msg))) return MSG_ENDERECO_INVALIDO
+  if (code === '22P02') return 'Algum campo está com formato inválido. Confira os números e as datas.'
   if (code === 'PGRST116') return 'Registro não encontrado ou sem acesso.'
   if (code === '42501' || /permission denied|row-level security/i.test(msg)) return 'Você não tem permissão para esta ação nesta empresa.'
   if (code === '23505') return 'Já existe um registro com esses dados.'
