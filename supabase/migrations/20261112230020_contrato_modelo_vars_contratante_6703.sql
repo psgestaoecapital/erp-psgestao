@@ -178,3 +178,8 @@ BEGIN
     'campos_pendentes', COALESCE(to_jsonb(v_pendentes), '[]'::jsonb)
   );
 END; $function$;
+
+-- check_fn_guards: trava de execução espelhando a ACL viva de hoje
+-- (authenticated, service_role; anon/PUBLIC nunca tiveram acesso — nenhuma mudança de acesso).
+REVOKE ALL ON FUNCTION public.fn_contrato_modelo_gerar(uuid, uuid, uuid, boolean) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_contrato_modelo_gerar(uuid, uuid, uuid, boolean) TO authenticated, service_role;
