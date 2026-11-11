@@ -1,6 +1,7 @@
 'use client'
 import React from 'react'
 import type { DREPorLinha } from '@/types/linhas-negocio'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 // Design system PS premium (RD-96) — mesma paleta das telas irmãs (Divisões / Linhas de negócio).
 // Antes: tokens genéricos do shadcn/tailwind (bg-card, bg-muted, text-muted-foreground, text-green/yellow/red-600).
@@ -22,7 +23,10 @@ export default function BudgetVsRealizado({ linhas }: Props) {
 
   return (
     <div className="rounded-xl p-4" style={{ background: '#fff', border: `1px solid ${BORDA}` }}>
-      <h3 className="text-sm font-semibold mb-3" style={{ color: ESPRESSO, fontFamily: SERIF }}>Budget vs Realizado</h3>
+      <span style={{ display: 'inline-flex', alignItems: 'center' }} className="mb-3">
+        <h3 className="text-sm font-semibold" style={{ color: ESPRESSO, fontFamily: SERIF }}>Budget vs Realizado</h3>
+        <AjudaCampo chave='ge.linhas.budget_realizado' rota='/dashboard/linhas-negocio' />
+      </span>
       <div className="space-y-3">
         {comBudget.map(l => {
           const realizadoPct = l.budget_receita! > 0 ? (l.receita_bruta / l.budget_receita!) * 100 : 0

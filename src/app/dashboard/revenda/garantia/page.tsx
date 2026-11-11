@@ -8,6 +8,9 @@
 import { useCallback, useEffect, useState, Suspense } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA = '/dashboard/revenda/garantia' // RD-95: rota das chaves de ajuda ("?")
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -120,15 +123,15 @@ function Inner() {
           <div style={{ fontSize: 12.5, color: C.espL, fontStyle: 'italic' }}>Todas as vendas já têm garantia registrada (ou não há vendas).</div>
         ) : (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-            <label style={{ fontSize: 11, color: C.espM }}>Venda<br />
+            <label style={{ fontSize: 11, color: C.espM }}><span style={{ display: 'inline-flex', alignItems: 'center' }}>Venda<AjudaCampo chave="revenda.garantia.venda" rota={ROTA} /></span><br />
               <select value={nova.venda_id} onChange={(e) => setNova({ ...nova, venda_id: e.target.value })} style={{ ...inp, minWidth: 260 }}>
                 <option value="">escolha…</option>
                 {semGarantia.map((v) => <option key={v.id} value={v.id}>{brDate(v.data_venda)} · {[v.marca, v.modelo].filter(Boolean).join(' ')} · {v.cliente_nome || 'sem cliente'} · {brl(v.valor_venda)}</option>)}
               </select>
             </label>
-            <label style={{ fontSize: 11, color: C.espM }}>Prazo (meses)<br /><input value={nova.prazo} onChange={(e) => setNova({ ...nova, prazo: e.target.value.replace(/\D/g, '') })} placeholder="config" style={{ ...inp, width: 90 }} /></label>
-            <label style={{ fontSize: 11, color: C.espM }}>KM limite<br /><input value={nova.km} onChange={(e) => setNova({ ...nova, km: e.target.value.replace(/\D/g, '') })} placeholder="opc." style={{ ...inp, width: 100 }} /></label>
-            <label style={{ fontSize: 11, color: C.espM, flex: 1, minWidth: 200 }}>Termo (junto do termo de entrega)<br /><input value={nova.termo} onChange={(e) => setNova({ ...nova, termo: e.target.value })} placeholder="cláusulas da garantia…" style={{ ...inp, width: '100%', boxSizing: 'border-box' }} /></label>
+            <label style={{ fontSize: 11, color: C.espM }}><span style={{ display: 'inline-flex', alignItems: 'center' }}>Prazo (meses)<AjudaCampo chave="revenda.garantia.prazo" rota={ROTA} /></span><br /><input value={nova.prazo} onChange={(e) => setNova({ ...nova, prazo: e.target.value.replace(/\D/g, '') })} placeholder="config" style={{ ...inp, width: 90 }} /></label>
+            <label style={{ fontSize: 11, color: C.espM }}><span style={{ display: 'inline-flex', alignItems: 'center' }}>KM limite<AjudaCampo chave="revenda.garantia.km" rota={ROTA} /></span><br /><input value={nova.km} onChange={(e) => setNova({ ...nova, km: e.target.value.replace(/\D/g, '') })} placeholder="opc." style={{ ...inp, width: 100 }} /></label>
+            <label style={{ fontSize: 11, color: C.espM, flex: 1, minWidth: 200 }}><span style={{ display: 'inline-flex', alignItems: 'center' }}>Termo (junto do termo de entrega)<AjudaCampo chave="revenda.garantia.termo" rota={ROTA} /></span><br /><input value={nova.termo} onChange={(e) => setNova({ ...nova, termo: e.target.value })} placeholder="cláusulas da garantia…" style={{ ...inp, width: '100%', boxSizing: 'border-box' }} /></label>
             <button disabled={busy || !nova.venda_id} onClick={() => void registrar()} style={{ background: (busy || !nova.venda_id) ? C.espL : C.gold, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontWeight: 700, cursor: (busy || !nova.venda_id) ? 'not-allowed' : 'pointer', fontSize: 13 }}>+ Registrar</button>
           </div>
         )}
@@ -138,8 +141,8 @@ function Inner() {
       <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, marginBottom: 14 }}>
         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 8 }}>
           <div style={{ fontSize: 14, fontWeight: 700 }}>Sinistro por modelo</div>
-          <label style={{ fontSize: 11, color: C.espM }}>De<br /><input type="date" value={de} onChange={(e) => setDe(e.target.value)} style={inp} /></label>
-          <label style={{ fontSize: 11, color: C.espM }}>Até<br /><input type="date" value={ate} onChange={(e) => setAte(e.target.value)} style={inp} /></label>
+          <label style={{ fontSize: 11, color: C.espM }}><span style={{ display: 'inline-flex', alignItems: 'center' }}>De<AjudaCampo chave="revenda.garantia.periodo_sinistro" rota={ROTA} /></span><br /><input type="date" value={de} onChange={(e) => setDe(e.target.value)} style={inp} /></label>
+          <label style={{ fontSize: 11, color: C.espM }}><span style={{ display: 'inline-flex', alignItems: 'center' }}>Até<AjudaCampo chave="revenda.garantia.periodo_sinistro" rota={ROTA} /></span><br /><input type="date" value={ate} onChange={(e) => setAte(e.target.value)} style={inp} /></label>
         </div>
         {sinistros.length === 0 ? <div style={{ fontSize: 12.5, color: C.espL, fontStyle: 'italic' }}>Sem acionamentos no período.</div> : (
           <div style={{ display: 'grid', gap: 4, fontSize: 12.5 }}>

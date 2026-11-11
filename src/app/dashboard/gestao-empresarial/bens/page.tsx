@@ -190,6 +190,15 @@ export default function BensPage() {
              : { qtd: 0, valor_aquisicao: 0, deprec_acumulada: 0, valor_contabil: 0, pct_depreciado: 0 }
   }, [ind, fNat])
   const totalComposicao = ind?.consolidado?.valor_aquisicao || 0
+  // Princ.1 (núcleo universal): esta tela é da GE inteira. O conteúdo AGRO/PECUÁRIA
+  // (dedução acelerada rural/LALUR e a nota do rebanho) só aparece quando a empresa
+  // TEM bem rural de fato — presença real de natureza rural (semovente/cultura permanente/
+  // terreno rural). Comércio/indústria não veem o sabor agro.
+  const ehAgro = useMemo(
+    () => bens.some((b) => b.natureza === 'semovente' || b.natureza === 'cultura_permanente')
+      || (ind?.deprec_acelerada_potencial ?? 0) > 0,
+    [bens, ind],
+  )
 
   if (!empresaUnica) return <div style={{ padding: 24, color: ESP60 }}>Selecione UMA empresa específica.</div>
 
@@ -264,7 +273,7 @@ export default function BensPage() {
           {/* 3) Terras em destaque */}
           {ind.terras && ind.terras.qtd > 0 && (
             <div style={{ ...card, marginTop: 12, padding: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', borderLeft: `4px solid ${corNat('terreno')}` }}>
-              <span style={{ fontSize: 22 }}>🌱</span>
+              <span style={{ width: 14, height: 14, borderRadius: 3, background: corNat('terreno'), display: 'inline-block', flexShrink: 0 }} aria-hidden />
               <div style={{ flex: 1, minWidth: 200 }}>
                 <div style={{ fontSize: 12, color: ESP60 }}>Terras (terreno) · {ind.terras.qtd} imóvel(is)</div>
                 <div style={{ fontSize: 18, fontWeight: 800 }}>R$ {fmt(ind.terras.valor)}</div>
@@ -309,7 +318,7 @@ export default function BensPage() {
             </div>
           )}
 
-          {/* 5) Por linha de negócio + Conformidade (agro) lado a lado */}
+          {/* 5) Por linha de negócio + Conformidade (checks genéricos) lado a lado */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px,1fr))', gap: 12, marginTop: 12 }}>
             {(ind.por_linha?.length ?? 0) > 0 && (
               <div style={{ ...card, padding: 12 }}>
@@ -323,7 +332,7 @@ export default function BensPage() {
               </div>
             )}
             <div style={{ ...card, padding: 12, borderLeft: `4px solid ${(ind.conformidade?.length ?? 0) > 0 ? RED : GREEN}` }}>
-              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Conformidade (agro)</div>
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Conformidade</div>
               {(ind.conformidade?.length ?? 0) === 0
                 ? <div style={{ fontSize: 12.5, color: GREEN, fontWeight: 600 }}>✓ Nenhum alerta — taxas, vida útil e terras coerentes.</div>
                 : <ul style={{ margin: 0, paddingLeft: 16 }}>
@@ -331,7 +340,7 @@ export default function BensPage() {
                       <li key={i} style={{ fontSize: 12, color: '#9A6A00', marginBottom: 4 }}><b style={{ color: ESP }}>{c.bem}</b>: {c.alerta}</li>
                     ))}
                   </ul>}
-              {ind.deprec_acelerada_potencial > 0 && (
+              {ehAgro && ind.deprec_acelerada_potencial > 0 && (
                 <div style={{ fontSize: 11, color: ESP60, marginTop: 8, borderTop: `1px solid ${LINE}`, paddingTop: 8 }}>
                   Potencial de dedução acelerada rural no exercício: <b style={{ color: ESP }}>R$ {fmt(ind.deprec_acelerada_potencial)}</b> (benefício fiscal/LALUR — não altera a escrituração contábil).
                 </div>
@@ -339,10 +348,12 @@ export default function BensPage() {
             </div>
           </div>
 
-          {/* 6) Nota fixa — ativo biológico */}
-          <div style={{ fontSize: 11, color: ESP60, marginTop: 10, lineHeight: 1.5 }}>
-            🐂 O rebanho é <b>ativo biológico</b> (CPC 29 / NBC TG 29), mensurado a valor justo no módulo Pecuária — <b>não</b> integra este imobilizado.
-          </div>
+          {/* 6) Nota — ativo biológico (só p/ empresa agro/pecuária; núcleo universal não mostra) */}
+          {ehAgro && (
+            <div style={{ fontSize: 11, color: ESP60, marginTop: 10, lineHeight: 1.5 }}>
+              🐂 O rebanho é <b>ativo biológico</b> (CPC 29 / NBC TG 29), mensurado a valor justo no módulo Pecuária — <b>não</b> integra este imobilizado.
+            </div>
+          )}
         </div>
       )}
 

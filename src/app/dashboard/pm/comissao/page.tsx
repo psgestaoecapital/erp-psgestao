@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 const ROTA = '/dashboard/pm/comissao'
 
@@ -83,7 +84,7 @@ export default function ComissaoPage() {
     const { data, error } = await supabase.rpc('fn_agency_comissao_aprovar', { p_comissao_id: c.id })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setToast(j?.erro ? codigoAmigavel(j.erro, 'Não foi possível aprovar a comissão.') : erroAmigavel(error, 'Não foi possível aprovar a comissão.')); return }
     setToast('Comissão APROVADA → a pagar (lançada no financeiro).'); void carregar()
   }
   async function marcarPaga(c: Comissao) {
@@ -92,7 +93,7 @@ export default function ComissaoPage() {
     const { data, error } = await supabase.rpc('fn_agency_comissao_marcar_paga', { p_comissao_id: c.id })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setToast(j?.erro ? codigoAmigavel(j.erro, 'Não foi possível marcar como paga.') : erroAmigavel(error, 'Não foi possível marcar como paga.')); return }
     setToast('Comissão marcada como PAGA.'); void carregar()
   }
 
@@ -116,7 +117,7 @@ export default function ComissaoPage() {
       : await supabase.rpc('fn_agency_comissao_criar', { p_company_id: empresa, ...args })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setToast(j?.erro ? codigoAmigavel(j.erro, 'Não foi possível salvar a comissão.') : erroAmigavel(error, 'Não foi possível salvar a comissão.')); return }
     setForm(null); setToast(form.id ? 'Comissão atualizada.' : 'Comissão lançada (prevista).'); void carregar()
   }
   async function excluir(c: Comissao) {
@@ -126,7 +127,7 @@ export default function ComissaoPage() {
     const { data, error } = await supabase.rpc('fn_agency_comissao_excluir', { p_id: c.id, p_motivo: motivo || null })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setToast(j?.erro ? codigoAmigavel(j.erro, 'Não foi possível excluir a comissão.') : erroAmigavel(error, 'Não foi possível excluir a comissão.')); return }
     setToast('Comissão excluída (registrada na auditoria).'); void carregar()
   }
 

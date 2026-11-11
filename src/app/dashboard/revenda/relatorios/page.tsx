@@ -8,6 +8,9 @@
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA = '/dashboard/revenda/relatorios' // RD-95: rota das chaves de ajuda ("?")
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -110,8 +113,8 @@ function Inner() {
       <p style={{ color: C.espM, fontSize: 13, margin: '0 0 14px' }}>Lucro real (a conta do carro), comissão pela regra da empresa, encalhe, ROI por modelo e acerto de precificação — no período escolhido.</p>
 
       <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: 14 }}>
-        <label style={{ fontSize: 11, color: C.espM }}>De<br /><input type="date" value={de} onChange={(e) => setDe(e.target.value)} style={inp} /></label>
-        <label style={{ fontSize: 11, color: C.espM }}>Até<br /><input type="date" value={ate} onChange={(e) => setAte(e.target.value)} style={inp} /></label>
+        <label style={{ fontSize: 11, color: C.espM }}><span style={{ display: 'inline-flex', alignItems: 'center' }}>De<AjudaCampo chave="revenda.relatorios.periodo" rota={ROTA} /></span><br /><input type="date" value={de} onChange={(e) => setDe(e.target.value)} style={inp} /></label>
+        <label style={{ fontSize: 11, color: C.espM }}><span style={{ display: 'inline-flex', alignItems: 'center' }}>Até<AjudaCampo chave="revenda.relatorios.periodo" rota={ROTA} /></span><br /><input type="date" value={ate} onChange={(e) => setAte(e.target.value)} style={inp} /></label>
         {carregando && <span style={{ fontSize: 12, color: C.espL }}>carregando…</span>}
       </div>
 

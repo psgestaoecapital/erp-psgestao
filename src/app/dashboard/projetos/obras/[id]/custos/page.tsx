@@ -4,9 +4,9 @@
 // Lança uma despesa da obra (material, mão de obra avulsa, terceiros, equipamento) direto no financeiro da
 // empresa (erp_pagar) com o centro de custo da obra, pelas funções fn_obra_custo_lancar/_listar/_excluir.
 // A despesa soma no "Total de custos da obra" (lista abaixo). A ligação automática desses lançamentos ao
-// "Custo realizado" do Resultado por obra (consolidação de erp_pagar por centro de custo) ainda está sendo
-// montada no núcleo financeiro — por isso esta tela NÃO promete que o lançamento já entra no Resultado sozinho.
-// MO POR HORA continua em "Lançar horas".
+// "Custo realizado" do Resultado por obra agora está FECHADA: v_obra_resultado_alocado consolida erp_pagar
+// POR CENTRO DE CUSTO da obra (coluna custo_contas_pagar) — uma conta a pagar com o centro da obra entra
+// sozinha no custo realizado e reflete na margem. MO POR HORA continua em "Lançar horas".
 import { use, useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
@@ -31,7 +31,7 @@ type Custo = { id: string; data: string; categoria: string; descricao: string; f
 // ONDA 2 Hub — Orçado × Realizado × Saldo da obra, lido de v_obra_resultado_alocado (mesma fonte do Resultado por obra).
 // Realizado = custo real alocado de TODAS as fontes (material, mão de obra, viagem/frota, custo fixo rateado), diferente
 // do "Total de custos" da lista abaixo (só os lançamentos desta tela). Saldo = orçado − realizado (sem orçado → "—").
-type ResumoObra = { custo_previsto: number; realizado: number; material: number; mao_obra: number; viagens: number; rateio: number }
+type ResumoObra = { custo_previsto: number; realizado: number; material: number; mao_obra: number; viagens: number; rateio: number; contas_pagar: number }
 
 export default function CustosObraPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -58,11 +58,11 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
       // Resumo Orçado × Realizado × Saldo da obra (mesma fonte do Resultado por obra). Falha aqui não quebra a lista.
       try {
         const rr = await supabase.from('v_obra_resultado_alocado')
-          .select('custo_previsto,custo_material,custo_viagens,custo_mao_obra,custo_rateio')
+          .select('custo_previsto,custo_material,custo_viagens,custo_mao_obra,custo_rateio,custo_contas_pagar')
           .eq('obra_id', id).in('company_id', companyIds).maybeSingle()
         if (!rr.error && rr.data) {
           const d = rr.data as Record<string, unknown>
-          setResumo({ custo_previsto: n(d.custo_previsto), realizado: n(d.custo_material) + n(d.custo_viagens) + n(d.custo_mao_obra) + n(d.custo_rateio), material: n(d.custo_material), mao_obra: n(d.custo_mao_obra), viagens: n(d.custo_viagens), rateio: n(d.custo_rateio) })
+          setResumo({ custo_previsto: n(d.custo_previsto), realizado: n(d.custo_material) + n(d.custo_viagens) + n(d.custo_mao_obra) + n(d.custo_rateio) + n(d.custo_contas_pagar), material: n(d.custo_material), mao_obra: n(d.custo_mao_obra), viagens: n(d.custo_viagens), rateio: n(d.custo_rateio), contas_pagar: n(d.custo_contas_pagar) })
         } else setResumo(null)
       } catch { setResumo(null) }
     } catch { setErro(MSG_CARREGAMENTO_FALHOU) } finally { setLoading(false) }
@@ -141,13 +141,14 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
         {resumo && (() => {
           const temOrcamento = resumo.custo_previsto > 0
           const saldo = resumo.custo_previsto - resumo.realizado
-          // Composição do "Custo realizado" (mesmas 4 fontes consolidadas de v_obra_resultado_alocado):
+          // Composição do "Custo realizado" (5 fontes consolidadas de v_obra_resultado_alocado):
           // mostrar cada parcela faz o número grande se explicar sozinho e reconciliar com a lista abaixo (auditoria: os dois totais confundiam).
           const comp = [
             { k: 'Material', v: resumo.material },
             { k: 'Mão de obra', v: resumo.mao_obra },
             { k: 'Viagens', v: resumo.viagens },
             { k: 'Rateio', v: resumo.rateio },
+            { k: 'Contas a pagar', v: resumo.contas_pagar },
           ].filter(c => c.v > 0)
           const cardS: React.CSSProperties = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: '10px 14px', flex: '1 1 160px' }
           const rotS: React.CSSProperties = { fontSize: 11, color: MUT, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 2, marginBottom: 2 }
@@ -161,7 +162,7 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
                 <div data-testid="custos-resumo-composicao" style={{ fontSize: 10, color: MUT, marginTop: 3, lineHeight: 1.5 }}>
                   {comp.length > 0
                     ? <>{comp.map((c, i) => <span key={c.k}>{i > 0 ? ' · ' : ''}{c.k} {brl(c.v)}</span>)}</>
-                    : <>Material, mão de obra, viagens e rateio.</>}
+                    : <>Material, mão de obra, viagens, rateio e contas a pagar.</>}
                   <br />Não inclui as despesas diretas da lista abaixo — elas entram aqui conforme são conciliadas no financeiro.
                 </div></div>
               <div style={cardS}><div style={rotS}>Saldo do custo <AjudaCampo chave="projetos.resultado_obra.saldo_custo" rota={ROTA_RESULTADO} /></div>

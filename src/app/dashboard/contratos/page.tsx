@@ -520,7 +520,10 @@ export default function ContratosPage(){
           </div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-          <button onClick={()=>setShowNovo(true)} disabled={empresasNoEscopo.length===0} style={{padding:"8px 16px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:empresasNoEscopo.length===0?"not-allowed":"pointer",opacity:empresasNoEscopo.length===0?0.5:1}}>+ Novo Contrato</button>
+          {/* #6912 — evita dois botões com a mesma função: quando a lista de contratos está vazia, o CTA "+ Primeiro Contrato" do estado vazio já abre o cadastro, então não repetimos "+ Novo Contrato" aqui. */}
+          {!(tab==='contratos'&&!loading&&filtrados.length===0) && (
+            <button onClick={()=>setShowNovo(true)} disabled={empresasNoEscopo.length===0} style={{padding:"8px 16px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:empresasNoEscopo.length===0?"not-allowed":"pointer",opacity:empresasNoEscopo.length===0?0.5:1}}>+ Novo Contrato</button>
+          )}
         </div>
       </div>
 

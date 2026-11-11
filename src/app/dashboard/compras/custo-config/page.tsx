@@ -30,9 +30,10 @@ export default function CustoConfigPage() {
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState<string | null>(null)
   const [novaNat, setNovaNat] = useState('revenda')
-  // imposto (override) e comissão da venda — usados na margem real da precificação
-  const [vImp, setVImp] = useState('')      // erp_oficina_parametros.imposto_venda_pct (branco = usa o regime)
-  const [vCom, setVCom] = useState('')      // erp_oficina_parametros.comissao_venda_pct
+  // imposto (override) e comissão da venda — usados na margem real da precificação.
+  // Núcleo genérico (erp_venda_params, qualquer ramo) via RPC guardada — desacoplado da vertical oficina.
+  const [vImp, setVImp] = useState('')      // erp_venda_params.imposto_venda_pct (branco = usa o regime)
+  const [vCom, setVCom] = useState('')      // erp_venda_params.comissao_venda_pct
   const [vSN, setVSN] = useState<number | null>(null)  // alíquota do Simples lida da config fiscal (informativo)
   const [savingV, setSavingV] = useState(false)
 
@@ -44,10 +45,11 @@ export default function CustoConfigPage() {
   }, [empresa])
   const carregarVenda = useCallback(async () => {
     if (!empresa) { setVImp(''); setVCom(''); setVSN(null); return }
-    const [{ data: op }, { data: fc }] = await Promise.all([
-      supabase.from('erp_oficina_parametros').select('imposto_venda_pct, comissao_venda_pct').eq('company_id', empresa).maybeSingle(),
+    const [{ data: vp }, { data: fc }] = await Promise.all([
+      supabase.rpc('fn_venda_params_obter', { p_company_id: empresa }),
       supabase.from('erp_fiscal_provider_config').select('percentual_total_tributos_sn, regime_tributario').eq('company_id', empresa).eq('ativo', true).order('percentual_total_tributos_sn', { ascending: false, nullsFirst: false }).limit(1).maybeSingle(),
     ])
+    const op = vp as { imposto_venda_pct?: number | null; comissao_venda_pct?: number | null } | null
     setVImp(op?.imposto_venda_pct != null ? String(op.imposto_venda_pct) : '')
     setVCom(op?.comissao_venda_pct != null ? String(op.comissao_venda_pct) : '')
     setVSN(fc?.regime_tributario === 'simples_nacional' && fc?.percentual_total_tributos_sn != null ? Number(fc.percentual_total_tributos_sn) : null)
@@ -66,7 +68,7 @@ export default function CustoConfigPage() {
     if (!empresa) return
     if (foraDaFaixa(vImp) || foraDaFaixa(vCom)) { setToast('Imposto e comissão da venda devem ficar entre 0 e 100%.'); return }
     setSavingV(true)
-    const { data, error } = await supabase.rpc('fn_oficina_venda_params_salvar', {
+    const { data, error } = await supabase.rpc('fn_venda_params_salvar', {
       p_company_id: empresa,
       p_imposto_venda_pct: vImp.trim() === '' ? null : Number(vImp),
       p_comissao_venda_pct: vCom.trim() === '' ? null : Number(vCom),

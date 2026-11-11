@@ -7,6 +7,10 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+// RD-95: toda ajuda desta subtela aponta para a própria rota.
+const ROTA = '/dashboard/compliance/epi/alertas'
 
 const C = {
   espresso: '#3D2314',
@@ -140,19 +144,25 @@ export default function AlertasEpiPage() {
         {erro && <div style={{ background: '#fce8e8', color: C.red, padding: '12px 16px', borderRadius: 8, marginBottom: 16, fontSize: 13 }}>{erro}</div>}
 
         <section style={{ background: '#FFFFFF', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61,35,20,0.06)', marginBottom: 16, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value as any)} style={{ ...inputStyle, minWidth: 160 }}>
-            <option value="ativo">Ativos</option>
-            <option value="resolvido">Resolvidos</option>
-            <option value="ignorado">Ignorados</option>
-            <option value="">Todos</option>
-          </select>
-          <select value={filtroSev} onChange={(e) => setFiltroSev(e.target.value as any)} style={{ ...inputStyle, minWidth: 160 }}>
-            <option value="">Todas as severidades</option>
-            <option value="critica">Crítica</option>
-            <option value="alta">Alta</option>
-            <option value="media">Média</option>
-            <option value="baixa">Baixa</option>
-          </select>
+          <label style={{ minWidth: 160, display: 'block' }}>
+            <span style={labelMini}>Status <AjudaCampo chave="compliance.epi.alertas.filtro_status" rota={ROTA} /></span>
+            <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value as any)} style={{ ...inputStyle, width: '100%' }}>
+              <option value="ativo">Ativos</option>
+              <option value="resolvido">Resolvidos</option>
+              <option value="ignorado">Ignorados</option>
+              <option value="">Todos</option>
+            </select>
+          </label>
+          <label style={{ minWidth: 160, display: 'block' }}>
+            <span style={labelMini}>Severidade <AjudaCampo chave="compliance.epi.alertas.filtro_severidade" rota={ROTA} /></span>
+            <select value={filtroSev} onChange={(e) => setFiltroSev(e.target.value as any)} style={{ ...inputStyle, width: '100%' }}>
+              <option value="">Todas as severidades</option>
+              <option value="critica">Crítica</option>
+              <option value="alta">Alta</option>
+              <option value="media">Média</option>
+              <option value="baixa">Baixa</option>
+            </select>
+          </label>
         </section>
 
         {loading ? (
@@ -223,5 +233,6 @@ function fmtDataHora(s: string | null | undefined): string {
 }
 
 const inputStyle: React.CSSProperties = { padding: '9px 12px', background: '#FAF7F2', border: '1px solid #ece3d2', borderRadius: 8, fontSize: 13, color: '#1a1a1a', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }
+const labelMini: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 }
 const btnSec: React.CSSProperties = { padding: '8px 12px', borderRadius: 8, border: '1px solid #ece3d2', background: '#FFFFFF', color: '#3D2314', fontSize: 12, fontWeight: 600, textDecoration: 'none', cursor: 'pointer' }
 const btnPri: React.CSSProperties = { padding: '8px 12px', borderRadius: 8, border: 'none', background: '#3D2314', color: '#FFFFFF', fontSize: 12, fontWeight: 600, cursor: 'pointer' }

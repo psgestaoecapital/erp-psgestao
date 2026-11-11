@@ -35,11 +35,14 @@ type Props = {
   onFiltro: (f: FiltroKanban) => void
   rotuloStatus: (s: string) => string
   onAbrir: (numero: number, arquivada: boolean) => void
+  // 'operador' = fila de atendimento (#7050): colunas Todos/Pendentes/Em andamento/Aguardando usuário/Finalizados e seletor
+  // "Meu usuário" / "Todos usuários" (sem a coluna extra "Minha carteira"). Padrão 'usuario' = tela de melhorias.
+  modo?: 'usuario' | 'operador'
 }
 
 const COLUNAS: ColunaKanban[] = ['pendentes', 'andamento', 'aguardando', 'finalizados']
 
-export default function QuadroChamados({ itens, meuId, busca, onBusca, filtro, onFiltro, rotuloStatus, onAbrir }: Props) {
+export default function QuadroChamados({ itens, meuId, busca, onBusca, filtro, onFiltro, rotuloStatus, onAbrir, modo = 'usuario' }: Props) {
   const buscando = busca.trim().length > 0
   const ativos = itens.filter((c) => !ehArquivado(c))
 
@@ -53,6 +56,10 @@ export default function QuadroChamados({ itens, meuId, busca, onBusca, filtro, o
   const todos = ativos.filter((c) => passaFiltro(c, filtro, meuId))
   const minhaCarteira = ativos.filter(daCarteira)
 
+  // Finalizados (#7050): o cartão diz COMO terminou — aprovado pelo autor ou finalizado pela equipe.
+  const seloFinal = (c: ItemQuadro): string | null =>
+    colunaDoChamado(c) !== 'finalizados' ? null : c.confirmado_pelo_autor ? 'Aprovado pelo autor' : 'Finalizado pela equipe'
+
   const Cartao = ({ c, mostrarStatus, selo }: { c: ItemQuadro; mostrarStatus: boolean; selo?: 'sem_dono' }) => (
     <div data-testid="kanban-cartao" style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 12px', display: 'grid', gap: 6 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
@@ -64,12 +71,15 @@ export default function QuadroChamados({ itens, meuId, busca, onBusca, filtro, o
           Abrir
         </button>
       </div>
-      {(mostrarStatus || selo) && (
+      {(mostrarStatus || selo || seloFinal(c)) && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {mostrarStatus && (
             <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.cream, color: C.espM, fontWeight: 700 }}>
               {ehArquivado(c) ? 'ARQUIVADA' : rotuloStatus(c.status)}
             </span>
+          )}
+          {seloFinal(c) && (
+            <span data-testid="kanban-selo-final" style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: '#ECFDF5', color: '#166534', fontWeight: 700 }}>{seloFinal(c)}</span>
           )}
           {selo === 'sem_dono' && (
             <span data-testid="kanban-sem-dono" style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.amberBg, color: C.amber, fontWeight: 700 }}>Sem dono</span>
@@ -104,7 +114,7 @@ export default function QuadroChamados({ itens, meuId, busca, onBusca, filtro, o
           {(['gerais', 'minha'] as FiltroKanban[]).map((f) => (
             <button key={f} type="button" data-testid={`kanban-filtro-${f}`} onClick={() => onFiltro(f)}
               style={{ cursor: 'pointer', padding: '5px 12px', borderRadius: 999, border: `1px solid ${filtro === f ? C.gold : C.border}`, background: filtro === f ? C.cream : 'transparent', fontSize: 12, fontWeight: 700, color: filtro === f ? C.esp : C.espM }}>
-              {f === 'gerais' ? 'Gerais' : 'Minha carteira'}
+              {f === 'gerais' ? (modo === 'operador' ? 'Todos usuários' : 'Gerais') : (modo === 'operador' ? 'Meu usuário' : 'Minha carteira')}
             </button>
           ))}
           <AjudaCampo chave="melhorias.kanban.filtro" rota="/dashboard/melhorias" />
@@ -120,7 +130,7 @@ export default function QuadroChamados({ itens, meuId, busca, onBusca, filtro, o
       ) : (
         <div style={{ display: 'flex', gap: 10, overflowX: 'auto', alignItems: 'flex-start', paddingBottom: 6 }}>
           <Coluna titulo="Todos" lista={todos} mostrarStatus />
-          <Coluna titulo="Minha carteira" lista={minhaCarteira} mostrarStatus={false} />
+          {modo === 'usuario' && <Coluna titulo="Minha carteira" lista={minhaCarteira} mostrarStatus={false} />}
           {COLUNAS.map((col) => (
             <Coluna key={col} titulo={ROTULO_COLUNA[col]} lista={porColuna(col)} mostrarStatus={false} selo={col === 'pendentes'} />
           ))}
