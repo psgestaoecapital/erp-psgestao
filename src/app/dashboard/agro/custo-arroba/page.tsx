@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useEmpresaSelecionada, usePropriedade } from '@/lib/agro/usePecuaria'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -100,7 +101,7 @@ export default function CustoProducaoPage() {
       ciclo_ref: fCiclo || null,
       origem: 'manual',
     })
-    if (error) setMsg('Erro: ' + error.message)
+    if (error) setMsg(erroAmigavel(error))
     else { setMsg('Lançamento salvo.'); setFDesc(''); setFValor(''); setFCiclo(''); await carregar() }
     setBusy(false)
   }
@@ -109,7 +110,7 @@ export default function CustoProducaoPage() {
     if (!empresaUnica) return
     setBusy(true); setMsg(null)
     const { data, error } = await supabase.rpc('fn_pec_custo_importar_do_pagar', { p_company: empresaUnica, p_ini: ini, p_fim: fim })
-    if (error) setMsg('Erro ao importar: ' + error.message)
+    if (error) setMsg(erroAmigavel(error, 'Não foi possível importar. Tente de novo.'))
     else { const r = data as any; setMsg(`Importados ${r?.importados ?? 0} lançamento(s) do financeiro (revise o tipo antes de ratear).`); await carregar() }
     setBusy(false)
   }
@@ -118,7 +119,7 @@ export default function CustoProducaoPage() {
     if (!empresaUnica) return
     setBusy(true); setMsg(null)
     const { data, error } = await supabase.rpc('fn_pec_custo_ratear', { p_company: empresaUnica, p_ini: ini, p_fim: fim })
-    if (error) { setMsg('Erro no rateio: ' + error.message); setRateio(null) }
+    if (error) { setMsg(erroAmigavel(error, 'Não foi possível concluir o rateio. Tente de novo.')); setRateio(null) }
     else setRateio(data as RateioResp)
     setBusy(false)
   }

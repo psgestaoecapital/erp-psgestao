@@ -102,7 +102,7 @@ export default function SimuladorPage() {
       const { data, error } = await supabase.rpc("fn_produtividade_por_linha_obter", { p_company_id: companyId, p_categoria: null });
       if (!alive) return;
       setLoadingCat(false);
-      if (error) { setErro(error.message); return; }
+      if (error) { setErro("Não foi possível carregar as montagens. Tente novamente."); return; }
       const j = data as { ok?: boolean; produtos?: Produto[]; linhas?: Linha[] } | null;
       if (!j?.ok) { setErro("Falha ao carregar montagens"); return; }
       setProdutos(j.produtos ?? []); setLinhas(j.linhas ?? []);
@@ -130,7 +130,7 @@ export default function SimuladorPage() {
       p_business_line_id: montagemSel?.business_line_id ?? null, p_area: areaNum,
     });
     setCalculando(false);
-    if (error) { setErro(error.message); setSim(null); return; }
+    if (error) { setErro("Não foi possível simular esta montagem. Tente novamente."); setSim(null); return; }
     const j = data as Sim;
     if (!j?.ok) {
       setFaltaConfig(j?.erro === CHAVE_SEM_CONFIG);
@@ -155,7 +155,7 @@ export default function SimuladorPage() {
     const j = data as { ok?: boolean; erro?: string } | null;
     if (error || !j?.ok) {
       setFaltaConfig(j?.erro === CHAVE_SEM_CONFIG);
-      setErro(error?.message ?? traduzErro(j?.erro, "Não foi possível gerar o orçamento."));
+      setErro(traduzErro(j?.erro, "Não foi possível gerar o orçamento. Tente novamente."));
       return;
     }
     router.push("/dashboard/orcamentos");
@@ -176,7 +176,7 @@ export default function SimuladorPage() {
           p_area: areaNum, p_nome: nomeSim.trim(), p_cliente_id: clienteId || null,
         });
     setSalvando(false);
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(editId ? "Não foi possível atualizar a simulação. Tente novamente." : "Não foi possível salvar a simulação. Tente novamente."); return; }
     setNomeSim(""); setMsg(editId ? "Simulação atualizada." : "Simulação salva."); setEditId(null); await carregarSalvas();
   };
 
@@ -193,7 +193,7 @@ export default function SimuladorPage() {
   const excluirSalva = async () => {
     if (!excluindo) return;
     const { error } = await supabaseBrowser().rpc("fn_simulador_excluir", { p_id: excluindo.id, p_motivo: motivo.trim() });
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro("Não foi possível excluir a simulação. Tente novamente."); return; }
     setExcluindo(null); setMotivo(""); setMsg("Simulação excluída (fica registrada na auditoria)."); await carregarSalvas();
   };
 
