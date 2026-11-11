@@ -95,3 +95,8 @@ BEGIN
   );
 END;
 $function$;
+
+-- check_fn_guards: trava de execução espelhando a ACL viva de hoje
+-- (authenticated, service_role; anon/PUBLIC nunca tiveram acesso — nenhuma mudança de acesso).
+REVOKE ALL ON FUNCTION public.fn_inadimplentes_por_status(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_inadimplentes_por_status(uuid) TO authenticated, service_role;
