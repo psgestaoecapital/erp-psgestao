@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 export const dynamic = 'force-dynamic'
@@ -50,7 +51,7 @@ export default function RelatorioOSPage() {
     setLoading(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_os_relatorio_periodo', { p_company_id: companyId, p_de: de, p_ate: ate, p_base: base })
     const r = data as Rel | null
-    if (error || !r || r.ok === false) { setRel(null); setErro(error?.message || r?.erro || 'Falha ao carregar o relatório') }
+    if (error || !r || r.ok === false) { setRel(null); setErro((error ? erroAmigavel(error) : r?.erro) || 'Falha ao carregar o relatório') }
     else setRel(r)
     setLoading(false)
   }, [companyId, de, ate, base])
