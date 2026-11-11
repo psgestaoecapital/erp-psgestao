@@ -12,6 +12,7 @@ import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import EmpresaNaoResolvida from "@/components/pm/EmpresaNaoResolvida";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { erroAmigavel, codigoAmigavel } from "@/lib/erroAmigavel";
 import { ClienteBusca } from "@/components/pm/ClienteBusca";
 import { JobFluxo } from "@/components/pm/JobFluxo";
 import { JobComentarios } from "@/components/pm/JobComentarios";
@@ -140,7 +141,7 @@ export default function PautaPage() {
       if (vivo) setTemJob(eJobs ? null : (nJobs ?? 0) > 0);
       if (!vivo) return;
       setUserId(uid);
-      if (op.error) { setErro(op.error.message); return; }
+      if (op.error) { setErro(erroAmigavel(op.error, "Não foi possível carregar as opções da pauta.")); return; }
       setSituacoes(((op.data as { situacoes: Opcao[] } | null)?.situacoes) ?? []);
       setMotivos(((op.data as { motivos: Opcao[] | null } | null)?.motivos) ?? []);
       const cls = ((cl.data ?? []) as { id: string; nome: string; nome_fantasia: string | null; grupo_id: string | null }[]).map((c) => ({ id: c.id, nome: c.nome_fantasia || c.nome, grupo_id: c.grupo_id }));
@@ -195,7 +196,7 @@ export default function PautaPage() {
     ]);
     if (minha !== recarga.current) return;
     setCarregando(false);
-    if (ct.error || ls.error) { setErro((ct.error ?? ls.error)!.message); return; }
+    if (ct.error || ls.error) { setErro(erroAmigavel(ct.error ?? ls.error, "Não foi possível carregar a pauta.")); return; }
     setContadores(ct.data as { por_situacao: Record<string, number>; total: number; atrasados: number });
     const nova = ls.data as Lista;
     setLista((ant) => (pag > 1 && ant ? { ...nova, itens: [...ant.itens, ...nova.itens] } : nova));
@@ -246,7 +247,7 @@ export default function PautaPage() {
   }
   async function compartilharVisao(v: Visao) {
     const { error } = await supabase.from("agency_visoes_pauta").update({ compartilhada: true }).eq("id", v.id);
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error, "Não foi possível compartilhar a visão.")); return; }
     const nova = { ...v, compartilhada: true };
     setVisoes((xs) => xs.map((x) => (x.id === v.id ? nova : x))); setVisaoAtual(nova);
     setAviso({ texto: `Visão "${v.nome}" agora é da equipe — o link funciona para todos.` });
@@ -268,7 +269,7 @@ export default function PautaPage() {
     const compartilhada = podeGerir && window.confirm("Compartilhar com a equipe? (OK = da equipe · Cancelar = só sua)");
     const { data: nova, error } = await supabase.from("agency_visoes_pauta").insert({ company_id: empresa, nome, filtros: limparFiltros(rascunho), compartilhada, ordem: visoes.length })
       .select("id, nome, filtros, compartilhada, dono_id").single();
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error, "Não foi possível salvar a visão.")); return; }
     const { data } = await supabase.from("agency_visoes_pauta").select("id, nome, filtros, compartilhada, dono_id").eq("company_id", empresa).is("excluido_em", null).order("ordem");
     setVisoes((data ?? []) as Visao[]);
     aplicar((nova as Visao).filtros, nova as Visao);
@@ -288,14 +289,14 @@ export default function PautaPage() {
   async function acaoMassa(fn: string, args: Record<string, unknown>, texto: string) {
     const { data, error } = await supabase.rpc(fn, args);
     const r = data as { ok?: boolean; erro?: string; mensagem?: string; lote_id?: string; alterados?: number } | null;
-    if (error || !r?.ok) { setErro(r?.mensagem || error?.message || r?.erro || "Não foi possível."); return; }
+    if (error || !r?.ok) { setErro(r?.mensagem || (error ? erroAmigavel(error, "Não foi possível.") : codigoAmigavel(r?.erro, "Não foi possível."))); return; }
     setAviso({ texto: `${texto} (${r.alterados ?? 0} job${r.alterados === 1 ? "" : "s"}).`, lote: r.lote_id });
     setMassa(false); setSel(new Set()); void carregar(1);
   }
   async function desfazer(lote: string) {
     const { data, error } = await supabase.rpc("fn_pauta_desfazer", { p_lote_id: lote });
     const r = data as { ok?: boolean; mensagem?: string; erro?: string; restaurados?: number } | null;
-    if (error || !r?.ok) { setErro(r?.mensagem || error?.message || r?.erro || "Não foi possível desfazer."); return; }
+    if (error || !r?.ok) { setErro(r?.mensagem || (error ? erroAmigavel(error, "Não foi possível desfazer.") : codigoAmigavel(r?.erro, "Não foi possível desfazer."))); return; }
     setAviso({ texto: `Desfeito: ${r.restaurados ?? 0} job(s) voltaram como estavam.` }); void carregar(1);
   }
 
