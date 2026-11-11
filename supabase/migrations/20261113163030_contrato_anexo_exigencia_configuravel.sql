@@ -75,6 +75,12 @@ BEGIN
 END;
 $function$;
 
+-- Guarda RD (check:fn-guards): fecha anon na função SECURITY DEFINER. Faltou no commit original da #4680,
+-- deixando o check_fn_guards vermelho em toda PR nova (o banco de produção já estava sem anon/PUBLIC — é
+-- documentação + garantia no arquivo da migration, idempotente). Conserto-main.
+REVOKE ALL ON FUNCTION public.fn_contrato_mudar_status(uuid, text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_contrato_mudar_status(uuid, text, text) TO authenticated, service_role;
+
 -- 3) P2 (grupo 9d8ad6fb): anexo deixa de ser obrigatório para ativar (pedido do CEO) -------
 -- ON CONFLICT DO NOTHING: não sobrescreve configuração já existente de ninguém.
 INSERT INTO public.erp_contratos_config (company_id, exigir_contrato_anexado)
