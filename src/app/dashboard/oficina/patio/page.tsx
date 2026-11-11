@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { PatioAlertaPecas } from '@/components/oficina/PatioAlertaPecas'
 import { useAcesso } from '@/hooks/useAcesso'
 import VisaoExecucaoModal from '@/components/oficina/VisaoExecucaoModal'
@@ -176,7 +177,7 @@ export default function PatioKanbanPage() {
       .not('status', 'in', '("entregue","cancelada")')  // pátio = carros ativos; entregues recentes entram via coluna própria abaixo
       .order('updated_at', { ascending: true })
       .limit(400)
-    if (error) { setErro(error.message); setLoading(false); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar o pátio. Tente de novo.')); setLoading(false); return }
     // Entregues recentes (a coluna filtra só as de HOJE; o resto vira "ver histórico").
     const { data: entregues } = await supabase
       .from('erp_os')
@@ -209,7 +210,7 @@ export default function PatioKanbanPage() {
     })
     setRemovendo(false)
     const r = data as { ok?: boolean; acao?: string; bloqueada?: boolean; mensagem?: string; precisa_motivo?: boolean; erro?: string } | null
-    if (error) { setToastMsg('❌ ' + error.message); return }
+    if (error) { setToastMsg('❌ ' + erroAmigavel(error, 'Não foi possível remover a OS. Tente de novo.')); return }
     if (r?.bloqueada) { setRemoverBloqueio(r.mensagem ?? 'Esta OS tem vínculo lançado.'); return }
     if (r?.precisa_motivo) { setToastMsg('Informe o motivo do cancelamento.'); return }
     if (!r || r.ok === false) { setToastMsg('❌ ' + (r?.erro ?? 'Falha ao remover')); return }
@@ -265,7 +266,7 @@ export default function PatioKanbanPage() {
     const { data, error } = await supabase.rpc(rpc, { p_os_id: cardAberto.id, p_nome: nome.trim(), p_mecanico_id: mecSelId })
     setSalvandoMec(false)
     const res = data as { ok?: boolean; erro?: string } | null
-    if (error || !res?.ok) { setErro(error?.message || res?.erro || 'Falha ao designar mecânico'); return }
+    if (error || !res?.ok) { setErro(error ? erroAmigavel(error, 'Não foi possível designar o mecânico. Tente de novo.') : codigoAmigavel(res?.erro, 'Não foi possível designar o mecânico. Tente de novo.')); return }
     setNovoMec(''); setMecSelId(null)
     await Promise.all([carregarMecsOS(cardAberto.id), carregarMecanicos(), carregar()])
   }
@@ -275,7 +276,7 @@ export default function PatioKanbanPage() {
     const { data, error } = await supabase.rpc('fn_os_remover_mecanico', { p_os_mecanico_id: id })
     setSalvandoMec(false)
     const res = data as { ok?: boolean; erro?: string } | null
-    if (error || !res?.ok) { setErro(error?.message || res?.erro || 'Falha ao remover'); return }
+    if (error || !res?.ok) { setErro(error ? erroAmigavel(error, 'Não foi possível remover o mecânico. Tente de novo.') : codigoAmigavel(res?.erro, 'Não foi possível remover o mecânico. Tente de novo.')); return }
     await Promise.all([carregarMecsOS(cardAberto.id), carregar()])
   }
 
@@ -289,7 +290,7 @@ export default function PatioKanbanPage() {
       .update({ status: novoStatus, updated_at: new Date().toISOString() })
       .eq('id', os.id).eq('company_id', os.company_id)
     setSalvandoId(null); setCardAberto(null)
-    if (error) { setErro(error.message); void carregar(); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível mover a OS. Tente de novo.')); void carregar(); return }
   }
 
   // OFIC-A (#10) · "Apontar chegada": leva pro recebimento (check-in) pré-preenchido com o agendamento.
