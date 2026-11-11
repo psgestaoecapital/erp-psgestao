@@ -37,6 +37,14 @@ export type SpecQuarentenado = {
 export const QUARENTENA: SpecQuarentenado[] = [
   /* quarentena:inicio */
   {
+    spec: 'e2e/jornadas/aceitacao/prod-custos-posto-f3.spec.ts',
+    area: 'custos-posto',
+    motivo: 'Re-quarentena por ordem do Eng. Chefe (contexto 11d3ec7a): @pos-migration da main vermelho em prod-custos-posto-f3.spec.ts:46 — o posto criado pelo teste NÃO aparece como botão na lista de /dashboard/produtividade/custos-posto. A #4681 (dev7) tirou da quarentena sem o spec passar de fato, travando a publicação de ~41 PRs. SEM RELAÇÃO com as PRs de migration da fila; NÃO-CRÍTICO (custo industrial — não é financeiro/fiscal/RLS/NR-36/LGPD/Wealth). Dono: consertar o fluxo criar-posto → aparecer na lista (ou a fragilidade do teste) e só então remover esta entrada.',
+    desde: '2026-11-11T21:15:00Z',
+    runs: [0, 0], // re-quarentena manual (Eng. Chefe destrava a esteira; @pos da main vermelho em custos-posto-f3:46)
+    code: 'desenvolvedor_4_g',
+  },
+  {
     spec: 'e2e/jornadas/aceitacao/agency-origens-semente.spec.ts',
     area: 'agency-origens',
     motivo: 'asserção da linha 31 falha no banco de testes novo (DEMO da agência sem algum dado da semente); trava o teste da main e ~32 PRs. Conserto: Eng. Chefe msg 8787bb9d, ação 2',
