@@ -8,7 +8,12 @@
 -- RETURNS TABLE e ao SELECT. A tela (nesta mesma PR) carrega o valor no editar() e preserva ao salvar.
 -- Nada destrutivo; não altera dado de cliente.
 
-CREATE OR REPLACE FUNCTION public.fn_bem_listar(p_company_id uuid)
+-- CONSERTO (11/11): esta migration FALHOU no deploy com 42P13 "cannot change return type of existing function"
+-- porque acrescenta a coluna de saída valor_residual e CREATE OR REPLACE não altera as OUT params de uma função
+-- que já existe. Como ela NUNCA chegou a aplicar (não está no ledger), corrige-se o próprio arquivo: DROP + CREATE
+-- (nenhuma view depende de fn_bem_listar; o corpo é idêntico ao provado na #4549).
+DROP FUNCTION IF EXISTS public.fn_bem_listar(uuid);
+CREATE FUNCTION public.fn_bem_listar(p_company_id uuid)
  RETURNS TABLE(id uuid, codigo text, descricao text, natureza text, data_aquisicao date, valor_aquisicao numeric, deprecia boolean, vida_util_meses integer, metodo_depreciacao text, business_line_id uuid, business_line_nome text, centro_custo text, status text, dep_acumulada numeric, valor_contabil numeric, valor_residual numeric, falta_parametro boolean)
  LANGUAGE plpgsql
  STABLE SECURITY DEFINER
