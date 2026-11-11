@@ -11,6 +11,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import CepEndereco from '@/components/comum/CepEndereco'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DED3', MUT = 'rgba(61,35,20,0.55)', VERM = '#B91C1C'
@@ -109,7 +110,7 @@ export default function NovaObraPage() {
       p_valor_previsto: valorNum > 0 ? valorNum : null, p_data_inicio: dataInicio || null, p_data_prevista_fim: fimEfetivo || null,
     })
     setBusy(false)
-    if (error || !data) { setErro(error?.message ?? 'Não foi possível criar a obra.'); return }
+    if (error || !data) { setErro(erroAmigavel(error, 'Não foi possível criar a obra.')); return }
     router.push(`/dashboard/projetos/obras/${data as string}/cockpit?area=hub`)
   }
 
