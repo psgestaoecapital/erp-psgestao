@@ -147,9 +147,10 @@ export const SIDEBAR_GESTAO_EMPRESARIAL: SidebarModuleNode[] = [
     ],
   },
   {
-    // Renomeado (Fix 1 CEO) pra bater com secao_label 'CONTRATOS & VENDAS' da RPC.
+    // Rótulo "Contratos" (CEO 11/11, item 6): a seção não tem mais vendas — bate com o
+    // SECAO_LABEL_OVERRIDE['CONTRATOS_VENDAS'] = 'Contratos' do caminho normal (RPC).
     id: 'contratos-vendas',
-    label: 'Contratos & Vendas',
+    label: 'Contratos',
     status: 'pronto',
     items: [
       { id: 'ativos', label: 'Contratos Ativos', href: '/dashboard/contratos', status: 'pronto' },

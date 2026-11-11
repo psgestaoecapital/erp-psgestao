@@ -109,6 +109,10 @@ function statusFromRpc(s: string | null): SidebarStatus {
 // Labels amigaveis pra secoes que vem cruas da RPC (ex.: PM em 4 blocos).
 // Mantemos no front pra nao precisar de migration por cada apresentacao.
 const SECAO_LABEL_OVERRIDE: Record<string, string> = {
+  // GE · a seção só tem "Gestão de contratos" e "Contratos recorrentes" (vendas migrou
+  // p/ VENDAS e recorrências p/ FINANCEIRO) — rótulo passa a ser só "Contratos".
+  // Chave = UPPER(subgrupo) = fn_modulos_sidebar_por_area.secao (CEO 11/11, item 6).
+  CONTRATOS_VENDAS: 'Contratos',
   PM_COMERCIAL: '1 · Comercial & Entrada',
   PM_BI: 'Inteligência BI',
   PM_PRODUCAO: '2 · Produção & Controle',
