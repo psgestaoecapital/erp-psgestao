@@ -8,6 +8,7 @@
 // corrige o valor, não duplica.
 
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
@@ -210,7 +211,20 @@ function Inner() {
         </label>
       </div>
 
-      {!fluxoId ? (
+      {fluxos.length === 0 ? (
+        // Estado vazio ACIONÁVEL (RD-98 crit. d): sem fluxo cadastrado a tela ficava travada num aviso
+        // que só mandava "cadastre em outra tela". Agora explica e leva direto ao Mapa do fluxo.
+        <div style={{ background: C.white, border: `1px dashed ${C.border}`, borderRadius: 14, padding: '28px 20px', textAlign: 'center', marginTop: 4 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: C.esp, marginBottom: 6 }}>Nenhum fluxo cadastrado nesta planta</div>
+          <div style={{ fontSize: 13.5, color: C.espM, lineHeight: 1.55, maxWidth: 520, margin: '0 auto 16px' }}>
+            O apontamento é por <b style={{ color: C.esp }}>fluxo</b> (as raias da sua linha). Monte o fluxo no <b style={{ color: C.esp }}>Mapa do fluxo</b> — raias, postos e etapas — e volte aqui para lançar o produzido hora a hora.
+          </div>
+          <Link href="/dashboard/produtividade/mapa" data-testid="apont-criar-fluxo"
+            style={{ display: 'inline-block', background: C.gold, color: '#3D2314', border: 'none', borderRadius: 10, padding: '12px 20px', fontSize: 14.5, fontWeight: 800, textDecoration: 'none' }}>
+            Abrir o Mapa do fluxo
+          </Link>
+        </div>
+      ) : !fluxoId ? (
         <Aviso texto="Selecione um fluxo para lançar e ver o confronto do dia." />
       ) : (
         <>

@@ -50,6 +50,10 @@ const corNat = (n: string) => NAT_COR[n] ?? '#B7A78F'
 function fmt(n: number | null | undefined): string { return Number(n ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
 function fmtc(n: number | null | undefined): string { return Number(n ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }
 function mesAtual(): string { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01` }
+// Máscara de moeda BR: digita só números, formata como R$ (centavos à direita).
+function maskMoeda(v: string): string { const d = v.replace(/\D/g, ''); if (!d) return ''; return (Number(d) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
+function parseMoeda(v: string): number { if (!v) return 0; return Number(v.replace(/\./g, '').replace(',', '.')) || 0 }
+const BAIXA_TIPOS: { v: 'venda' | 'baixa' | 'sinistro'; lbl: string }[] = [{ v: 'venda', lbl: 'Venda' }, { v: 'baixa', lbl: 'Baixa (descarte)' }, { v: 'sinistro', lbl: 'Sinistro (perda/dano)' }]
 
 export default function BensPage() {
   // Princ.1 (núcleo universal): seletor GENÉRICO de empresa da GE — antes vinha do hook da pecuária (agro).
@@ -70,6 +74,14 @@ export default function BensPage() {
   const [f, setF] = useState<typeof vazio>({ ...vazio })
   const [editId, setEditId] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
+
+  // Modal premium de baixa/venda/sinistro (substitui os 3 window.prompt — RD-99 #1/#2, critérios a/e)
+  const baixaVazia = { tipo: 'venda' as 'venda' | 'baixa' | 'sinistro', valor: '', data: new Date().toISOString().slice(0, 10), justificativa: '' }
+  const [baixaBem, setBaixaBem] = useState<Bem | null>(null)
+  const [bf, setBf] = useState<typeof baixaVazia>({ ...baixaVazia })
+  const [baixaBusy, setBaixaBusy] = useState(false)
+  const [baixaErro, setBaixaErro] = useState<string | null>(null)
+  const [baixaResultado, setBaixaResultado] = useState<{ tipo: string; valor_contabil: number; resultado: number } | null>(null)
 
   const carregar = useCallback(async () => {
     if (!empresaUnica) return
@@ -124,6 +136,7 @@ export default function BensPage() {
     setEditId(b.id); setShowForm(true)
     setF({ codigo: b.codigo ?? '', descricao: b.descricao, natureza: b.natureza, data_aquisicao: b.data_aquisicao,
       valor_aquisicao: String(b.valor_aquisicao), deprecia: b.deprecia, vida_util_meses: b.vida_util_meses != null ? String(b.vida_util_meses) : '',
+      // RD-98: carrega o residual atual para não zerá-lo silenciosamente ao salvar a edição.
       valor_residual: b.valor_residual != null ? String(b.valor_residual) : '', business_line_id: b.business_line_id ?? '', centro_custo: b.centro_custo ?? '' })
   }
 
@@ -139,20 +152,24 @@ export default function BensPage() {
     } else { setMsg('Bem excluído.'); await carregar() }
   }
 
-  async function baixar(b: Bem) {
-    if (!empresaUnica) return
-    const tipo = window.prompt('Tipo (venda / baixa / sinistro):', 'venda')
-    if (!tipo || !['venda', 'baixa', 'sinistro'].includes(tipo)) return
-    const valorStr = tipo === 'venda' ? window.prompt(`Valor de ${tipo} (R$):`, '0') : '0'
-    if (valorStr === null) return
-    const just = window.prompt('Justificativa:', '') ?? ''
+  // Abre o modal de baixa/venda (RD-99: sem window.prompt — dropdown + máscara + data editável).
+  function abrirBaixa(b: Bem) {
+    setBaixaBem(b); setBf({ ...baixaVazia }); setBaixaErro(null); setBaixaResultado(null)
+  }
+
+  async function confirmarBaixa() {
+    if (!empresaUnica || !baixaBem) return
+    if (bf.tipo === 'venda' && parseMoeda(bf.valor) <= 0) { setBaixaErro('Informe o valor da venda (maior que zero).'); return }
+    if (!bf.data) { setBaixaErro('Informe a data da operação.'); return }
+    setBaixaBusy(true); setBaixaErro(null)
     const { data, error } = await supabase.rpc('fn_bem_baixar', {
-      p_company_id: empresaUnica, p_bem_id: b.id, p_tipo: tipo, p_data: new Date().toISOString().slice(0, 10),
-      p_valor: Number(String(valorStr).replace(',', '.')) || 0, p_justificativa: just,
+      p_company_id: empresaUnica, p_bem_id: baixaBem.id, p_tipo: bf.tipo, p_data: bf.data,
+      p_valor: bf.tipo === 'venda' ? parseMoeda(bf.valor) : 0, p_justificativa: bf.justificativa || '',
     })
-    if (error) { setMsg('Erro: ' + erroAmigavel(error)); return }
+    setBaixaBusy(false)
+    if (error) { setBaixaErro(erroAmigavel(error)); return }
     const r = data as { valor_contabil?: number; resultado?: number }
-    setMsg(`${tipo} registrada · contábil R$ ${fmt(r?.valor_contabil)} · resultado R$ ${fmt(r?.resultado)}.`)
+    setBaixaResultado({ tipo: bf.tipo, valor_contabil: Number(r?.valor_contabil ?? 0), resultado: Number(r?.resultado ?? 0) })
     await carregar()
   }
 
@@ -420,7 +437,7 @@ export default function BensPage() {
                 <td style={td}>
                   <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                     <button onClick={() => editar(b)} style={linkBtn}>editar</button>
-                    {(b.status === 'ativo' || b.status === 'em_construcao') && <button onClick={() => void baixar(b)} style={linkBtn}>baixar</button>}
+                    {(b.status === 'ativo' || b.status === 'em_construcao') && <button onClick={() => abrirBaixa(b)} style={linkBtn}>baixar</button>}
                     {(b.status === 'ativo' || b.status === 'em_construcao') && <button onClick={() => void excluir(b)} style={{ ...linkBtn, color: RED }}>excluir</button>}
                   </div>
                 </td>
@@ -435,6 +452,53 @@ export default function BensPage() {
           </tbody>
         </table>
       </div>
+
+      {/* ── MODAL premium de baixa/venda/sinistro (RD-99: sem window.prompt) ───────────── */}
+      {baixaBem && (
+        <div onClick={() => !baixaBusy && setBaixaBem(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 50 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ ...card, width: '100%', maxWidth: 440, boxShadow: '0 10px 40px rgba(61,35,20,0.25)' }}>
+            <div style={{ fontSize: 16, fontWeight: 800 }}>Baixar / vender bem</div>
+            <div style={{ fontSize: 12.5, color: ESP60, marginTop: 2, marginBottom: 14 }}>{baixaBem.descricao}{baixaBem.codigo ? ` · ${baixaBem.codigo}` : ''}</div>
+
+            {baixaResultado ? (
+              <>
+                <div style={{ background: '#FBF3E0', border: `1px solid ${GOLD}`, borderRadius: 8, padding: 12, fontSize: 13 }}>
+                  <div style={{ fontWeight: 700, color: GREEN, marginBottom: 6 }}>✓ {baixaResultado.tipo === 'venda' ? 'Venda' : baixaResultado.tipo === 'sinistro' ? 'Sinistro' : 'Baixa'} registrada</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}><span style={{ color: ESP60 }}>Valor contábil na baixa</span><b>R$ {fmt(baixaResultado.valor_contabil)}</b></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}><span style={{ color: ESP60 }}>Resultado da operação</span><b style={{ color: baixaResultado.resultado >= 0 ? GREEN : RED }}>R$ {fmt(baixaResultado.resultado)}</b></div>
+                </div>
+                <div style={{ marginTop: 14, textAlign: 'right' }}><button onClick={() => setBaixaBem(null)} style={btnPri}>Fechar</button></div>
+              </>
+            ) : (
+              <>
+                <div style={{ display: 'grid', gap: 10 }}>
+                  <label style={lbl}>Tipo da operação <AjudaCampo chave="ge.bens.baixa_tipo" rota={ROTA} />
+                    <select style={{ ...inp, width: '100%' }} value={bf.tipo} onChange={(e) => setBf({ ...bf, tipo: e.target.value as typeof bf.tipo })}>
+                      {BAIXA_TIPOS.map((t) => <option key={t.v} value={t.v}>{t.lbl}</option>)}
+                    </select>
+                  </label>
+                  {bf.tipo === 'venda' && (
+                    <label style={lbl}>Valor da venda (R$) <AjudaCampo chave="ge.bens.baixa_valor" rota={ROTA} />
+                      <input style={{ ...inp, width: '100%' }} inputMode="numeric" value={bf.valor} onChange={(e) => setBf({ ...bf, valor: maskMoeda(e.target.value) })} placeholder="0,00" />
+                    </label>
+                  )}
+                  <label style={lbl}>Data da operação <AjudaCampo chave="ge.bens.baixa_data" rota={ROTA} />
+                    <input type="date" style={{ ...inp, width: '100%' }} value={bf.data} onChange={(e) => setBf({ ...bf, data: e.target.value })} />
+                  </label>
+                  <label style={lbl}>Justificativa <AjudaCampo chave="ge.bens.baixa_justificativa" rota={ROTA} />
+                    <input style={{ ...inp, width: '100%' }} value={bf.justificativa} onChange={(e) => setBf({ ...bf, justificativa: e.target.value })} placeholder="opcional" />
+                  </label>
+                </div>
+                {baixaErro && <div style={{ marginTop: 10, fontSize: 12.5, color: RED }}>{baixaErro}</div>}
+                <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                  <button onClick={() => setBaixaBem(null)} disabled={baixaBusy} style={btnSec}>Cancelar</button>
+                  <button onClick={() => void confirmarBaixa()} disabled={baixaBusy} style={btnPri}>{baixaBusy ? 'Registrando…' : 'Registrar'}</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
