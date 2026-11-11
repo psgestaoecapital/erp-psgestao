@@ -8,6 +8,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { authFetch } from '@/lib/authFetch'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const C = { bg: '#FAF7F2', card: '#FFFFFF', card2: '#F5EFE4', bd: '#E7DECF', go: '#C8941A', gol: '#A57A15', tx: '#3D2314', txm: '#6B5D4F', txd: '#9C8E80', g: '#16A34A', r: '#B91C1C', y: '#B45309', b: '#2563EB' }
 
@@ -126,7 +127,7 @@ export default function ConectoresIndustrialPage() {
       p_sync_minuto: Number(f.sync_minuto), p_ativo: f.ativo,
     })
     setBusy(null)
-    if (error) { setMsg({ t: 'Erro ao salvar: ' + error.message, ok: false }); return }
+    if (error) { setMsg({ t: erroAmigavel(error, 'Não foi possível salvar a conexão. Tente de novo.'), ok: false }); return }
     const j = data as { tem_senha?: boolean } | null
     setMsg({ t: `Conexão salva.${j?.tem_senha ? ' Senha guardada no Vault.' : ' (sem senha — informe a senha ao menos uma vez)'}`, ok: true })
     setF((p) => ({ ...p, senha: '' }))
@@ -138,7 +139,7 @@ export default function ConectoresIndustrialPage() {
     setBusy('testar'); setMsg(null)
     const { data, error } = await supabase.rpc('fn_atak_testar_conexao', { p_company_id: empresaUnica })
     setBusy(null)
-    if (error) { setMsg({ t: 'Erro: ' + error.message, ok: false }); return }
+    if (error) { setMsg({ t: erroAmigavel(error, 'Não foi possível testar a conexão agora. Tente de novo.'), ok: false }); return }
     const j = data as { mensagem?: string } | null
     setMsg({ t: j?.mensagem ?? 'Teste solicitado.', ok: true })
     await carregar(empresaUnica)
@@ -207,7 +208,7 @@ export default function ConectoresIndustrialPage() {
       baixarBlob(blob, `instalador-${slug(dados?.nome ?? 'empresa')}.zip`)
       setMsg({ t: `Instalador da ${dados?.nome ?? 'empresa'} gerado${links.versao ? ` (agente ${links.versao})` : ''} — envie o .zip pro TI. A senha do SQL o TI digita 1× na máquina (Pilar 2).`, ok: true })
     } catch (e) {
-      setMsg({ t: (e as Error).message, ok: false })
+      setMsg({ t: erroAmigavel(e, 'Não foi possível gerar o instalador. Tente de novo.'), ok: false })
     } finally {
       setBusy(null)
     }
