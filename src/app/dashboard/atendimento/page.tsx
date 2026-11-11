@@ -253,10 +253,14 @@ function Inner() {
   // Contadores dos 3 estados sobre a fila inteira (o que o CEO precisa ver ao abrir a tela).
   const cont = useMemo(() => {
     let precisa = 0, semConf = 0, emCurso = 0, terminal = 0
-    for (const r of base) { const e = estadoFila(r); if (e === 'sem_confirmacao') semConf++; else if (e === 'em_curso') emCurso++; else if (e === 'terminal') terminal++ }
+    // #6930 — quantos chamados de cada aba têm a ÚLTIMA mensagem do AUTOR (a bola está com o atendente). Antes o
+    // aviso "✉️ Autor respondeu" só aparecia no card; agora conta na própria aba, para o atendente ver sem abrir
+    // cada chamado quais abas têm mensagem nova do autor esperando resposta.
+    const autorPorAba: Record<EstadoFila, number> = { precisa_mim: 0, em_curso: 0, sem_confirmacao: 0, terminal: 0 }
+    for (const r of base) { const e = estadoFila(r); if (e === 'sem_confirmacao') semConf++; else if (e === 'em_curso') emCurso++; else if (e === 'terminal') terminal++; if (e !== 'terminal' && autorAguarda.has(r.id)) autorPorAba[e]++ }
     precisa = contarPrecisaDeMim(base)   // a MESMA conta do cabeçalho "N p/ aprovar" (Central de Melhorias), sem demos no padrão
-    return { precisa, semConf, emCurso, terminal }
-  }, [base])
+    return { precisa, semConf, emCurso, terminal, autorPorAba }
+  }, [base, autorAguarda])
 
   // Encerrar sem confirmação (item 4, decisão do CEO): só aprovados há +7 dias sem confirmar.
   async function encerrarSemConfirmacao(it: Item) {
@@ -372,6 +376,7 @@ function Inner() {
           <button key={k} type="button" onClick={() => setAba(k)}
             style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', padding: '9px 15px', border: 'none', background: 'transparent', borderBottom: `2px solid ${aba === k ? C.gold : 'transparent'}`, marginBottom: -1, fontSize: 13, fontWeight: aba === k ? 800 : 600, color: aba === k ? C.esp : C.espM }}>
             {label} <span style={{ fontSize: 12, fontWeight: 800, padding: '1px 8px', borderRadius: 999, background: aba === k ? C.gold : C.cream, color: aba === k ? '#fff' : C.espM }}>{n}</span>
+            {cont.autorPorAba[k] > 0 && <span data-testid={`aba-autor-respondeu-${k}`} title={`${cont.autorPorAba[k]} chamado(s) com mensagem nova do autor aguardando sua resposta`} style={{ fontSize: 11, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: C.greenBg, color: C.green, border: '1px solid #BFE3C4' }}>✉️ {cont.autorPorAba[k]}</span>}
           </button>
         ))}
         <span style={{ display: 'inline-flex', alignItems: 'center', paddingBottom: 6 }}><AjudaCampo chave="atendimento.abas" rota={ROTA} /></span>
