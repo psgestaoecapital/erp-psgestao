@@ -24,7 +24,7 @@ export function CampoComprovante({ empresa, viagemId, valor, onChange }: { empre
     const path = `${empresa}/${viagemId}/${crypto.randomUUID()}.${ext}`
     const { error } = await supabase.storage.from(BUCKET_COMPROVANTE).upload(path, f, { contentType: f.type, upsert: false })
     setEnviando(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro('Não foi possível enviar o comprovante. Tente novamente.'); return }
     onChange(path)
   }
   return (

@@ -150,7 +150,7 @@ export default function BiPlanta() {
     if (minha !== seq.current) return
     setCarregando(false)
     if (!res || (res.error && abortou(res.error))) return
-    if (res.error) { setErro(res.error.message); setP(null); return }
+    if (res.error) { setErro('Não foi possível carregar o painel. Tente novamente.'); setP(null); return }
     setP(res.data as Painel)
   }, [empresa, sexo, cidade, intervalo])
   useEffect(() => { void carregar() }, [carregar])
