@@ -115,6 +115,19 @@ export default function QuadroPessoalPage() {
     flash('Salvo.'); void carregar()
   }
 
+  async function removerPessoa(p: Pessoa) {
+    if (!empresa) return
+    const quem = p.nome || p.cpf || (p.matricula ? `mat. ${p.matricula}` : 'esta pessoa')
+    if (!window.confirm(`Remover ${quem} do quadro desta competência? O ponto e a folha não são afetados; fica registrado quem removeu e quando.`)) return
+    const { data, error } = await supabase.rpc('fn_rh_pessoa_complemento_excluir', { p_company_id: empresa, p_cpf: p.cpf || null, p_matricula: p.matricula || null })
+    const r = data as { ok?: boolean; erro?: string }
+    if (error || r?.ok === false) {
+      const map: Record<string, string> = { sem_permissao_rh: 'Só RH/diretoria/admin alteram o quadro.', sem_acesso: 'Sem acesso.', nao_encontrado: 'Essa pessoa não tem complemento lançado para remover.' }
+      flashErr(error?.message || map[r?.erro ?? ''] || 'Não consegui remover.'); return
+    }
+    flash('Removido do quadro.'); void carregar()
+  }
+
   if (!empresa) return <Casca><div style={card}>Selecione uma empresa específica para ver o quadro de pessoal.</div></Casca>
   if (loading) return <Casca><div style={{ ...card, color: MUT }}>Carregando…</div></Casca>
 
@@ -185,13 +198,14 @@ export default function QuadroPessoalPage() {
                   <th style={th}>Salário <AjudaCampo chave="rh.quadro.salario" rota={ROTA} /></th>
                   <th style={{ ...th, textAlign: 'right' }}>Custo mês <AjudaCampo chave="rh.quadro.custo_mensal" rota={ROTA} /></th>
                   <th style={{ ...th, textAlign: 'right' }}>R$/h <AjudaCampo chave="rh.quadro.custo_hora" rota={ROTA} /></th>
+                  {pode && <th style={{ ...th, textAlign: 'right' }}>Ações <AjudaCampo chave="rh.quadro.remover" rota={ROTA} /></th>}
                 </tr>
               </thead>
               <tbody>
                 {pessoasFiltradas.map((p) => (
-                  <LinhaPessoa key={p.cpf || p.matricula || (p.nome ?? '')} p={p} pode={pode} cargos={cargos} setores={setores} onSalvar={salvarPessoa} />
+                  <LinhaPessoa key={p.cpf || p.matricula || (p.nome ?? '')} p={p} pode={pode} cargos={cargos} setores={setores} onSalvar={salvarPessoa} onRemover={removerPessoa} />
                 ))}
-                {pessoasFiltradas.length === 0 && <tr><td style={{ ...td, color: MUT }} colSpan={9}>Nenhuma pessoa nesta competência.</td></tr>}
+                {pessoasFiltradas.length === 0 && <tr><td style={{ ...td, color: MUT }} colSpan={pode ? 10 : 9}>Nenhuma pessoa nesta competência.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -232,12 +246,14 @@ export default function QuadroPessoalPage() {
   )
 }
 
-function LinhaPessoa({ p, pode, cargos, setores, onSalvar }: { p: Pessoa; pode: boolean; cargos: Opcao[]; setores: Opcao[]; onSalvar: (cpf: string, patch: Record<string, string>) => void }) {
+function LinhaPessoa({ p, pode, cargos, setores, onSalvar, onRemover }: { p: Pessoa; pode: boolean; cargos: Opcao[]; setores: Opcao[]; onSalvar: (cpf: string, patch: Record<string, string>) => void; onRemover: (p: Pessoa) => void }) {
   const [cargo, setCargo] = useState(p.cargo_id ?? '')
   const [setor, setSetor] = useState(p.setor_id ?? '')
   const [sup, setSup] = useState(p.supervisor ?? '')
   const [sal, setSal] = useState(p.salario != null ? String(p.salario) : '')
   const mudou = cargo !== (p.cargo_id ?? '') || setor !== (p.setor_id ?? '') || sup !== (p.supervisor ?? '') || sal !== (p.salario != null ? String(p.salario) : '')
+  // Só há o que remover quando a pessoa tem complemento lançado (cargo/setor/supervisor/salário).
+  const temComplemento = !!(p.cargo_id || p.setor_id || p.supervisor || p.salario != null)
   return (
     // data-ajuda: os campos editáveis da linha são documentados pelo "?" de cada coluna no cabeçalho (RD-95).
     <tr data-ajuda="rh.quadro.cargo">
@@ -267,6 +283,13 @@ function LinhaPessoa({ p, pode, cargos, setores, onSalvar }: { p: Pessoa; pode: 
         {pode ? brl(p.custo_hora) : '🔒'}
         {pode && mudou && <button style={{ ...btnGold, padding: '4px 8px', fontSize: 11, marginLeft: 6 }} onClick={() => onSalvar(p.cpf ?? '', { cargo_id: cargo, setor_id: setor, supervisor_nome: sup, salario_base: sal, matricula: p.matricula ?? '' })}>Salvar</button>}
       </td>
+      {pode && (
+        <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+          {temComplemento ? (
+            <button data-testid="rh-quadro-remover" style={{ padding: '4px 10px', borderRadius: 7, border: `1px solid ${LINE}`, background: '#fff', color: RED, fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }} onClick={() => onRemover(p)}>Remover</button>
+          ) : <span style={{ fontSize: 11, color: MUT }}>—</span>}
+        </td>
+      )}
     </tr>
   )
 }
