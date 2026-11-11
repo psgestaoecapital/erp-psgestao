@@ -5,9 +5,12 @@
 -- A Jordana pediu (chamados #5452/#3? via Canal PS): "Os valores e as parcelas (valor total,
 -- número de parcelas, valor da parcela, vencimentos) também entram no modelo".
 --
--- ADITIVA: só acrescenta duas chaves ao catálogo (fn_contrato_modelo_variaveis) e ao mapa de
--- substituição (fn_contrato_modelo_gerar). Nenhum comportamento existente muda: os 24 campos
--- atuais continuam idênticos; texto que não usa as novas marcações sai igual.
+-- ADITIVA sobre a versão VIVA em produção (que JÁ inclui o #6703 — contratante preenchido do
+-- cadastro do cliente: cliente_endereco/cidade/uf/cep no catálogo e a busca em erp_clientes na
+-- geração). Esta migration PARTE da definição viva (lida com pg_get_functiondef) e só ACRESCENTA
+-- as duas chaves {{valor_total}} e {{valor_parcela}} — NÃO remove nada do #6703. (A versão anterior
+-- desta PR, escrita antes do #6703, reescrevia as funções de uma base antiga e teria regredido os
+-- campos de endereço do contratante; corrigido aqui.)
 --
 -- Derivação conservadora (o texto gerado é editável antes de salvar — idx 14/15 item 2):
 --   valor_parcela = valor_mensal (o valor recorrente/da parcela), vazio se nulo;
@@ -28,6 +31,10 @@ AS $function$
     jsonb_build_object('chave','cliente_cnpj',             'rotulo','CNPJ/CPF do cliente'),
     jsonb_build_object('chave','cliente_email',            'rotulo','E-mail do cliente'),
     jsonb_build_object('chave','cliente_telefone',         'rotulo','Telefone do cliente'),
+    jsonb_build_object('chave','cliente_endereco',         'rotulo','Endereço do cliente'),
+    jsonb_build_object('chave','cliente_cidade',           'rotulo','Cidade do cliente'),
+    jsonb_build_object('chave','cliente_uf',               'rotulo','UF do cliente'),
+    jsonb_build_object('chave','cliente_cep',              'rotulo','CEP do cliente'),
     jsonb_build_object('chave','contrato_numero',          'rotulo','Número do contrato'),
     jsonb_build_object('chave','contrato_nome',            'rotulo','Nome do contrato'),
     jsonb_build_object('chave','contrato_objeto',          'rotulo','Objeto do contrato'),
@@ -63,6 +70,9 @@ DECLARE
   v_modelo    public.erp_contrato_modelo%ROWTYPE;
   v_contrato  public.erp_contratos%ROWTYPE;
   v_empresa   public.companies%ROWTYPE;
+  v_cliente   public.erp_clientes%ROWTYPE;
+  v_tem_cli   boolean := false;
+  v_cli_end   text := '';
   v_vars      jsonb;
   v_texto     text;
   v_k         text;
@@ -90,12 +100,39 @@ BEGIN
 
   SELECT * INTO v_empresa FROM public.companies WHERE id = p_company_id;
 
+  -- #6703: cadastro do cliente (contratante) para preencher endereço/cidade/UF/CEP/e-mail/telefone.
+  -- Escopado por company_id: não vaza cliente de outra empresa.
+  IF v_contrato.cliente_id IS NOT NULL THEN
+    SELECT * INTO v_cliente FROM public.erp_clientes
+     WHERE id = v_contrato.cliente_id AND company_id = p_company_id;
+    v_tem_cli := FOUND;
+  END IF;
+
+  IF v_tem_cli THEN
+    -- endereço completo: usa o campo livre "endereco" quando preenchido (mais limpo no cadastro real);
+    -- senão compõe de logradouro/nº/complemento/bairro.
+    v_cli_end := COALESCE(
+      NULLIF(btrim(COALESCE(v_cliente.endereco, '')), ''),
+      NULLIF(btrim(
+        COALESCE(v_cliente.logradouro, '')
+        || CASE WHEN COALESCE(v_cliente.numero, '') <> '' THEN ', ' || v_cliente.numero ELSE '' END
+        || CASE WHEN COALESCE(v_cliente.complemento, '') <> '' THEN ' - ' || v_cliente.complemento ELSE '' END
+        || CASE WHEN COALESCE(v_cliente.bairro, '') <> '' THEN ', ' || v_cliente.bairro ELSE '' END
+      ), ''),
+      ''
+    );
+  END IF;
+
   -- catálogo chave -> valor já formatado (datas DD/MM/YYYY, dinheiro via fn_brl)
   v_vars := jsonb_build_object(
     'cliente_nome',             COALESCE(v_contrato.cliente_nome, ''),
     'cliente_cnpj',             COALESCE(v_contrato.cliente_cnpj, ''),
-    'cliente_email',            COALESCE(v_contrato.cliente_email, ''),
-    'cliente_telefone',         COALESCE(v_contrato.cliente_telefone, ''),
+    'cliente_email',            COALESCE(NULLIF(v_contrato.cliente_email, ''),    CASE WHEN v_tem_cli THEN v_cliente.email ELSE NULL END, ''),
+    'cliente_telefone',         COALESCE(NULLIF(v_contrato.cliente_telefone, ''), CASE WHEN v_tem_cli THEN v_cliente.telefone ELSE NULL END, ''),
+    'cliente_endereco',         v_cli_end,
+    'cliente_cidade',           CASE WHEN v_tem_cli THEN COALESCE(v_cliente.cidade, '') ELSE '' END,
+    'cliente_uf',               CASE WHEN v_tem_cli THEN COALESCE(v_cliente.uf, '')     ELSE '' END,
+    'cliente_cep',              CASE WHEN v_tem_cli THEN COALESCE(v_cliente.cep, '')    ELSE '' END,
     'contrato_numero',          COALESCE(v_contrato.numero, ''),
     'contrato_nome',            COALESCE(v_contrato.nome, ''),
     'contrato_objeto',          COALESCE(NULLIF(v_contrato.objeto, ''), v_contrato.descricao, ''),
