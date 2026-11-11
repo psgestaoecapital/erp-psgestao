@@ -6,6 +6,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA = '/dashboard/industrial/folha'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', GOLD_D = '#A57A15'
 const LINE = '#E7DECF', CREAM = '#F2EBDF', MUT = 'rgba(61,35,20,0.55)'
@@ -110,8 +113,9 @@ export default function FolhaPage() {
       {/* Upload */}
       <section style={card}>
         <div style={{ fontSize: 14, fontWeight: 700, color: ESP, marginBottom: 8 }}>📤 Subir folha de pagamento</div>
-        <div style={{ fontSize: 11, color: MUT, marginBottom: 12 }}>Planilha "Encargos da Empresa" (Domínio) — .xls ou .xlsx. Uma competência por arquivo (re-upload regrava).</div>
+        <div style={{ fontSize: 11, color: MUT, marginBottom: 12 }}>Planilha "Encargos da Empresa" — .xls ou .xlsx. Uma competência por arquivo (re-upload regrava).</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <AjudaCampo chave="industrial.folha.upload" rota={ROTA} />
           <input ref={fileRef} type="file" accept=".xls,.xlsx" onChange={(e) => { setFileSel(e.target.files?.[0] ?? null); setPreview(null) }} style={{ fontSize: 12 }} />
           <button onClick={() => enviar(false)} disabled={busy || !fileSel} style={{ ...btnOutline, opacity: busy || !fileSel ? 0.5 : 1 }}>{busy ? 'Lendo…' : 'Pré-visualizar'}</button>
         </div>
@@ -129,7 +133,10 @@ export default function FolhaPage() {
 
       {/* Competências importadas */}
       <section style={card}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: ESP, marginBottom: 10 }}>Competências importadas</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: ESP }}>Competências importadas</span>
+          <AjudaCampo chave="industrial.folha.competencias" rota={ROTA} />
+        </div>
         {competencias.length === 0 ? (
           <div style={{ fontSize: 12, color: MUT }}>Nenhuma folha importada ainda.</div>
         ) : (
@@ -152,11 +159,14 @@ export default function FolhaPage() {
           <div style={{ fontSize: 14, fontWeight: 700, color: ESP, marginBottom: 2 }}>Folha {fmtComp(compSel)}</div>
           <div style={{ fontSize: 11, color: MUT, marginBottom: 12 }}>🔒 Dado sensível (RH). O BI de Gente expõe só agregado por setor, sem salário individual.</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 14 }}>
-            <Kpi t="Funcionários" v={String(compRowsSel.length)} />
-            <Kpi t="Custo total" v={brl(totalSel)} destaque />
-            <Kpi t="Custo médio/func" v={brl(compRowsSel.length ? totalSel / compRowsSel.length : 0)} />
+            <Kpi t="Funcionários" v={String(compRowsSel.length)} ajuda="industrial.folha.funcionarios" />
+            <Kpi t="Custo total" v={brl(totalSel)} destaque ajuda="industrial.folha.custo_total" />
+            <Kpi t="Custo médio/func" v={brl(compRowsSel.length ? totalSel / compRowsSel.length : 0)} ajuda="industrial.folha.custo_medio" />
           </div>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT, marginBottom: 6 }}>Por verba</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT }}>Por verba</span>
+            <AjudaCampo chave="industrial.folha.por_verba" rota={ROTA} />
+          </div>
           <div style={{ overflowX: 'auto', border: `0.5px solid ${LINE}`, borderRadius: 8 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 420 }}>
               <thead style={{ background: BG }}><tr><Th>Verba</Th><Th>Tipo</Th><Th>Total</Th></tr></thead>
@@ -191,9 +201,12 @@ function Casca({ children }: { children: React.ReactNode }) {
   )
 }
 function Box({ children }: { children: React.ReactNode }) { return <div style={{ ...card, textAlign: 'center', padding: 28 }}>{children}</div> }
-function Kpi({ t, v, destaque }: { t: string; v: string; destaque?: boolean }) {
+function Kpi({ t, v, destaque, ajuda }: { t: string; v: string; destaque?: boolean; ajuda?: string }) {
   return <div style={{ background: destaque ? 'rgba(200,148,26,0.08)' : BG, border: `0.5px solid ${LINE}`, borderRadius: 10, padding: '10px 12px' }}>
-    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT, fontWeight: 700 }}>{t}</div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+      <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT, fontWeight: 700 }}>{t}</span>
+      {ajuda && <AjudaCampo chave={ajuda} rota={ROTA} />}
+    </div>
     <div style={{ fontSize: 20, fontWeight: 700, color: destaque ? GOLD_D : ESP, marginTop: 2 }}>{v}</div>
   </div>
 }
