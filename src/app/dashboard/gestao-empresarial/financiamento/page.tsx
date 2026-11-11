@@ -495,6 +495,7 @@ function VisaoGeral({ parcelas, loading, kpis }: { parcelas: Parcela[]; loading:
 
   return (
     <div className="space-y-4">
+      <div className="text-[11px] uppercase opacity-60 flex items-center">Indicadores (só contratos em andamento)<AjudaCampo chave="ge.financiamento.kpis" /></div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <KpiCard titulo="Saldo de quitação" valor={brl(kpis?.saldo_quitacao)} destaque />
         <KpiCard titulo="Saldo em parcelas" valor={brl(kpis?.saldo_total_parcelas)} />
@@ -528,7 +529,7 @@ function SaldoChart({ parcelas }: { parcelas: Parcela[] }) {
   }).join(' ')
   return (
     <div className="rounded-xl p-4" style={{ background: '#fff', border: `1px solid ${BORDA}` }}>
-      <div className="text-sm font-semibold mb-2" style={{ color: ESPRESSO }}>Evolução do saldo devedor</div>
+      <div className="text-sm font-semibold mb-2 flex items-center" style={{ color: ESPRESSO }}>Evolução do saldo devedor<AjudaCampo chave="ge.financiamento.evolucao" /></div>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 200 }} preserveAspectRatio="none">
         <polyline points={polyline} fill="none" stroke={DOURADO} strokeWidth="2" />
         <line x1={P} y1={H - P} x2={W - P} y2={H - P} stroke={BORDA} />
@@ -590,7 +591,8 @@ function Cronograma({
             </button>
           ))}
         </div>
-        <span className="text-xs opacity-60 ml-auto">{filtradas.length} parcela(s)</span>
+        <AjudaCampo chave="ge.financiamento.cronograma" />
+        <span className="text-xs opacity-60 ml-auto inline-flex items-center">{filtradas.length} parcela(s)<AjudaCampo chave="ge.financiamento.parcelas" /></span>
       </div>
       <div className="overflow-x-auto rounded-xl border" style={{ borderColor: BORDA, background: '#fff' }}>
         <table className="w-full text-sm">

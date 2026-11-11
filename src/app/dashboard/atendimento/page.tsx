@@ -57,6 +57,10 @@ function Inner() {
   const [autorizado, setAutorizado] = useState<boolean | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
   const [rows, setRows] = useState<Item[]>([])
+  // #6930 — chamados cuja ÚLTIMA mensagem é do AUTOR (a bola está com o atendente). Carregado à parte da
+  // consulta da fila (leitura adicional, nunca altera o que a fila lista): deixa o atendente ver, SEM abrir
+  // o chamado, que o autor respondeu e espera retorno.
+  const [autorAguarda, setAutorAguarda] = useState<Set<string>>(new Set())
   const [erro, setErro] = useState<string | null>(null)
   // #7050 Fase 2: visão Quadro (Kanban) da fila de atendimento; a Lista continua sendo a tela de trabalho.
   const [formato, setFormato] = useState<'quadro' | 'lista'>('quadro')
@@ -101,6 +105,29 @@ function Inner() {
     if (error) { setErro(error.message); return }
     setDemos(demoIds)
     setRows(data)
+    // #6930 — marca quem tem a ÚLTIMA mensagem do AUTOR (aberto, não terminal): a conversa já grava a mensagem
+    // e notifica, mas o chamado não "pulava" na fila. Aqui olhamos só a mensagem mais recente de cada chamado
+    // ABERTO e, se for do autor, acendemos o aviso no card. Leitura extra em lotes (URL curta); se falhar, a fila
+    // segue igual (o aviso é melhoria visual, não trava a tela).
+    try {
+      const idsAbertos = data.filter((r) => estadoFila(r) !== 'terminal').map((r) => r.id)
+      const aguarda = new Set<string>()
+      for (let i = 0; i < idsAbertos.length; i += 150) {
+        const lote = idsAbertos.slice(i, i + 150)
+        if (!lote.length) break
+        const { data: ms } = await supabase.from('sugestao_mensagem')
+          .select('sugestao_id, papel, criado_em')
+          .in('sugestao_id', lote)
+          .order('criado_em', { ascending: false })
+        const visto = new Set<string>()
+        for (const m of (ms as { sugestao_id: string; papel: 'autor' | 'ps' }[] ?? [])) {
+          if (visto.has(m.sugestao_id)) continue   // a 1ª (mais recente) de cada chamado manda
+          visto.add(m.sugestao_id)
+          if (m.papel === 'autor') aguarda.add(m.sugestao_id)
+        }
+      }
+      setAutorAguarda(aguarda)
+    } catch { setAutorAguarda(new Set()) }
     const { data: eq } = await supabase.rpc('fn_chamado_equipe_listar')
     const pessoas = (eq as Pessoa[] | null) ?? []
     setEquipe(pessoas)
@@ -465,6 +492,8 @@ function Inner() {
                   {est === 'precisa_mim' && <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: C.amberBg, color: C.amber, border: '1px solid #F0DDB0', fontWeight: 800 }}>⏳ Precisa de mim</span>}
                   {est === 'sem_confirmacao' && <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: '#EAF0FA', color: C.blue, border: '1px solid #D2DEF2', fontWeight: 800 }}>📤 Sem confirmação</span>}
                   {est === 'em_curso' && <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: C.cream, color: C.espM, fontWeight: 800 }}>🔵 Em curso</span>}
+                  {/* #6930 — a última mensagem é do autor: a bola está com o atendente (sem precisar abrir o chamado) */}
+                  {est !== 'terminal' && autorAguarda.has(it.id) && <span data-testid={`autor-respondeu-${it.numero}`} title="O autor mandou uma mensagem nova — responda na conversa do chamado" style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: C.greenBg, color: C.green, border: '1px solid #BFE3C4', fontWeight: 800 }}>✉️ Autor respondeu</span>}
                   <span title="status interno" style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: it.status === 'concluida' ? C.greenBg : it.status === 'recusada' ? C.redBg : '#EFEBE4', color: it.status === 'concluida' ? C.green : it.status === 'recusada' ? C.red : C.espL, fontWeight: 600 }}>{it.status.replaceAll('_', ' ')}</span>
                 </div>
               </div>
