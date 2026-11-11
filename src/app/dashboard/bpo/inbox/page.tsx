@@ -6,6 +6,7 @@ import { getUsuarioAtual } from '@/lib/AuthProvider'
 import { PSGC_COLORS } from '@/lib/psgc-tokens'
 import PSGCButton from '@/components/psgc/PSGCButton'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ROTA = '/dashboard/bpo/inbox'
 
@@ -172,8 +173,10 @@ export default function BPOInboxPage() {
         p_motivo: null,
       })
 
-      if (error) throw new Error(error.message)
-      if (!data?.sucesso) throw new Error(data?.erro || 'Erro desconhecido ao resolver item')
+      // Preserva o objeto de erro original (com .code do Postgres/PostgREST) para
+      // erroAmigavel mapear a frase do usuário, nunca o texto cru do banco (RD-95/criterio e).
+      if (error) throw error
+      if (!data?.sucesso) throw new Error(data?.erro || 'erro_desconhecido')
 
       const labelAcao = action === 'aprovar' ? 'aprovado' : action === 'rejeitar' ? 'rejeitado' : 'escalado'
       setActionMsg({ tipo: 'ok', texto: `Item ${labelAcao} com sucesso.` })
@@ -182,9 +185,9 @@ export default function BPOInboxPage() {
       await loadInbox()
       setSelectedItem(null)
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      console.error('[inbox] handleAction error:', msg)
-      setActionMsg({ tipo: 'erro', texto: `Falha ao ${action}: ${msg}` })
+      console.error('[inbox] handleAction error:', err)
+      const verbo = action === 'aprovar' ? 'aprovar' : action === 'rejeitar' ? 'rejeitar' : 'escalar'
+      setActionMsg({ tipo: 'erro', texto: erroAmigavel(err, `Não foi possível ${verbo} o item. Tente de novo.`) })
     } finally {
       setActionLoading(null)
     }
@@ -251,15 +254,18 @@ export default function BPOInboxPage() {
                 {item.empresa}
               </span>
               {item.ia_confianca !== null && (
-                <span style={{
-                  fontSize: 10,
-                  padding: '2px 6px',
-                  backgroundColor: corConfianca(item.ia_confianca),
-                  color: C.offwhite,
-                  borderRadius: 4,
-                  fontWeight: 'bold',
-                }}>
-                  IA {item.ia_confianca}%
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                  <span style={{
+                    fontSize: 10,
+                    padding: '2px 6px',
+                    backgroundColor: corConfianca(item.ia_confianca),
+                    color: C.offwhite,
+                    borderRadius: 4,
+                    fontWeight: 'bold',
+                  }}>
+                    IA {item.ia_confianca}%
+                  </span>
+                  <AjudaCampo chave="bpo.inbox.selo.ia" rota={ROTA} />
                 </span>
               )}
             </div>
@@ -273,16 +279,19 @@ export default function BPOInboxPage() {
             )}
           </div>
           <div style={{ textAlign: 'right', flexShrink: 0 }}>
-            <div style={{
-              fontSize: 11,
-              fontWeight: 'bold',
-              color: slaColor(item.status_sla),
-              padding: '4px 8px',
-              backgroundColor: slaColor(item.status_sla) + '15',
-              borderRadius: 4,
-              whiteSpace: 'nowrap',
-            }}>
-              {slaLabel(item.status_sla, item.horas_ate_sla)}
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+              <div style={{
+                fontSize: 11,
+                fontWeight: 'bold',
+                color: slaColor(item.status_sla),
+                padding: '4px 8px',
+                backgroundColor: slaColor(item.status_sla) + '15',
+                borderRadius: 4,
+                whiteSpace: 'nowrap',
+              }}>
+                {slaLabel(item.status_sla, item.horas_ate_sla)}
+              </div>
+              <AjudaCampo chave="bpo.inbox.selo.sla" rota={ROTA} />
             </div>
             {item.ia_acao_sugerida && (
               <div style={{ fontSize: 10, color: C.txtMedio, marginTop: 6, textTransform: 'uppercase', letterSpacing: 1 }}>
@@ -315,11 +324,25 @@ export default function BPOInboxPage() {
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: C.txtClaro }}>✕</button>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
-          <Badge label={item.tipo_origem.toUpperCase()} bg={C.espresso} />
-          <Badge label={item.prioridade.toUpperCase()} bg={prioridadeColor(item.prioridade)} />
-          <Badge label={item.status_sla.toUpperCase()} bg={slaColor(item.status_sla)} />
-          {item.categoria && <Badge label={item.categoria} bg={C.dourado} />}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+            <Badge label={item.tipo_origem.toUpperCase()} bg={C.espresso} />
+            <AjudaCampo chave="bpo.inbox.selo.tipo" rota={ROTA} />
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+            <Badge label={item.prioridade.toUpperCase()} bg={prioridadeColor(item.prioridade)} />
+            <AjudaCampo chave="bpo.inbox.selo.prioridade" rota={ROTA} />
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+            <Badge label={item.status_sla.toUpperCase()} bg={slaColor(item.status_sla)} />
+            <AjudaCampo chave="bpo.inbox.selo.sla" rota={ROTA} />
+          </span>
+          {item.categoria && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+              <Badge label={item.categoria} bg={C.dourado} />
+              <AjudaCampo chave="bpo.inbox.selo.categoria" rota={ROTA} />
+            </span>
+          )}
         </div>
 
         {item.descricao && (
@@ -341,8 +364,9 @@ export default function BPOInboxPage() {
             borderLeft: `3px solid ${C.dourado}`,
             borderRadius: 4,
           }}>
-            <div style={{ fontSize: 10, fontWeight: 'bold', color: C.dourado, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
+            <div style={{ fontSize: 10, fontWeight: 'bold', color: C.dourado, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               Analise da IA {item.ia_confianca !== null && `- Confianca ${item.ia_confianca}%`}
+              <AjudaCampo chave="bpo.inbox.analise_ia" rota={ROTA} />
             </div>
             <div style={{ fontSize: 13, color: C.txt, lineHeight: 1.5 }}>
               {item.ia_contexto}
