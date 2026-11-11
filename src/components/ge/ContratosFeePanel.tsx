@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import SolicitarContratoModal from './SolicitarContratoModal'
 import ContratoFeeModal from './ContratoFeeModal'
+import { SeloContratoSemAnexoChip } from './SeloContratoSemAnexo'
 
 const C = { espresso: '#3D2314', espressoM: '#6B5D4F', cream: '#FAF7F2', border: '#E0D8CC', gold: '#C8941A', white: '#FFFFFF' }
 const CICLO = ['solicitado', 'em_elaboracao', 'aguardando_info', 'em_revisao', 'aguardando_aprovacao']
@@ -41,9 +42,12 @@ export default function ContratosFeePanel({ companyId }: { companyId: string | n
   const [aba, setAba] = useState<Aba>('elaborar')
   const [solicitarAberto, setSolicitarAberto] = useState(false)
   const [feeId, setFeeId] = useState<string | null>(null)
+  // P2 (CEO 11/11): ids de contratos COM anexo assinado ('contrato'/'contrato_assinado'),
+  // para marcar na lista os contratos ativos que ficaram SEM anexo.
+  const [comAnexo, setComAnexo] = useState<Set<string>>(new Set())
 
   const carregar = useCallback(async () => {
-    if (!companyId) { setRows([]); setLoading(false); return }
+    if (!companyId) { setRows([]); setComAnexo(new Set()); setLoading(false); return }
     setLoading(true)
     const { data: u } = await supabase.auth.getUser()
     setUid(u.user?.id ?? null)
@@ -54,7 +58,21 @@ export default function ContratosFeePanel({ companyId }: { companyId: string | n
       .or('solicitante_id.not.is.null,status.in.(solicitado,em_elaboracao,aguardando_info,em_revisao,aguardando_aprovacao)')
       .order('created_at', { ascending: false })
       .limit(300)
-    setRows((data ?? []) as Row[])
+    const linhas = (data ?? []) as Row[]
+    setRows(linhas)
+    // anexos assinados dos contratos ativos (uma consulta só; leitura tolerante)
+    const ativosIds = linhas.filter((r) => r.status === 'ativo').map((r) => r.id)
+    if (ativosIds.length) {
+      const { data: anx } = await supabase
+        .from('erp_contratos_arquivos')
+        .select('contrato_id')
+        .eq('company_id', companyId)
+        .in('contrato_id', ativosIds)
+        .in('tipo', ['contrato', 'contrato_assinado'])
+      setComAnexo(new Set((anx ?? []).map((a: { contrato_id: string }) => a.contrato_id)))
+    } else {
+      setComAnexo(new Set())
+    }
     setLoading(false)
   }, [companyId])
 
@@ -107,8 +125,11 @@ export default function ContratosFeePanel({ companyId }: { companyId: string | n
                   {r.prazo_desejado ? ` · prazo ${r.prazo_desejado.split('-').reverse().join('/')}` : ''}
                 </div>
               </div>
-              <span style={{ fontSize: 11, fontWeight: 700, color: C.white, background: STATUS_COR[r.status ?? ''] ?? C.espressoM, padding: '3px 10px', borderRadius: 12, whiteSpace: 'nowrap' }}>
-                {STATUS_LABEL[r.status ?? ''] ?? r.status}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                {r.status === 'ativo' && !comAnexo.has(r.id) ? <SeloContratoSemAnexoChip /> : null}
+                <span style={{ fontSize: 11, fontWeight: 700, color: C.white, background: STATUS_COR[r.status ?? ''] ?? C.espressoM, padding: '3px 10px', borderRadius: 12, whiteSpace: 'nowrap' }}>
+                  {STATUS_LABEL[r.status ?? ''] ?? r.status}
+                </span>
               </span>
             </button>
           ))}
