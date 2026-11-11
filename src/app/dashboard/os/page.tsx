@@ -134,7 +134,7 @@ export default function OSMecanicoPage() {
       p_limit: 5000,
     })
     const r = data as { ok?: boolean; erro?: string; itens?: OSRow[] } | null
-    if (error || r?.ok === false) setErro(error?.message || r?.erro || 'Falha ao carregar OS')
+    if (error || r?.ok === false) setErro(r?.erro || 'Não foi possível carregar as OS. Tente novamente.')
     // Runtime guard defense-in-depth: dropa qualquer linha divergente
     const safe = ((r?.itens ?? []) as OSRow[]).filter((o) => o.company_id === companyIdAtiva)
     setOss(safe)
@@ -151,7 +151,7 @@ export default function OSMecanicoPage() {
     if (!companyIdAtiva) return
     const { data: r, error } = await supabase.rpc('fn_os_nf_corte_definir', { p_company_id: companyIdAtiva, p_data_corte: data })
     const res = r as { ok?: boolean; erro?: string } | null
-    if (error || !res?.ok) { setErro(error?.message ?? res?.erro ?? 'Não foi possível mudar a data de corte.'); return }
+    if (error || !res?.ok) { setErro(res?.erro ?? 'Não foi possível mudar a data de corte. Tente novamente.'); return }
     setCorteNF(data)
   }, [companyIdAtiva])
 
@@ -160,7 +160,7 @@ export default function OSMecanicoPage() {
     const { data, error } = await supabase.rpc('fn_os_restaurar', { p_os_id: o.id, p_motivo: null })
     setRestaurandoId(null)
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || r?.ok === false) { setErro(error?.message || r?.erro || 'Falha ao restaurar'); return }
+    if (error || r?.ok === false) { setErro(r?.erro || 'Não foi possível restaurar a OS. Tente novamente.'); return }
     setOkMsg(`OS ${o.numero ?? ''} RESTAURADA`.trim()); window.setTimeout(() => setOkMsg(null), 3500)
     void carregar()
   }, [carregar])
@@ -219,7 +219,7 @@ export default function OSMecanicoPage() {
       p_motivo: motivo || null,
     })
     setExcluindo(false)
-    if (error) { setErroExcluir(error.message); return }
+    if (error) { setErroExcluir('Não foi possível excluir a OS. Tente novamente.'); return }
     const r = data as { ok?: boolean; erro?: string; acao?: string; numero?: string } | null
     if (!r?.ok) { setErroExcluir(r?.erro ?? 'Falha ao excluir OS'); return }
     const num = r.numero ?? osExcluir.numero ?? 'OS'
@@ -575,7 +575,7 @@ function ModalNovaOS({
       p_extra: Object.keys(extra).length ? extra : null,
     })
     setCadSalvando(false)
-    if (error) { setCadMsg('❌ ' + error.message); return }
+    if (error) { setCadMsg('❌ Não foi possível salvar o cliente. Confira os dados e tente novamente.'); return }
     setCliente({ id: data as string, razao_social: cadNome.trim(), nome_fantasia: null, cpf_cnpj: doc || null, company_id: companyIdAtiva })
     setResultados([]); setCadAberto(false)
   }
@@ -642,7 +642,7 @@ function ModalNovaOS({
       ...(orcamento ? { p_orcamento: true } : {}),
     })
     setSalvando(false)
-    if (error) { setErroLocal('Erro: ' + error.message); return }
+    if (error) { setErroLocal('Não foi possível salvar a OS. Tente novamente.'); return }
     const r = data as { ok?: boolean; erro?: string; os_id?: string; numero?: string } | null
     if (!r?.ok) {
       const msg = r?.erro ?? 'Falha ao criar OS'
