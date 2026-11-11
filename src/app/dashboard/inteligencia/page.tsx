@@ -7,6 +7,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { usePapelUsuario, ehRhIndustrial } from '@/hooks/usePapelUsuario'
 
@@ -85,7 +86,7 @@ function Hub() {
     if (!companyId) { setLoading(false); return }
     setLoading(true); setErro(null)
     const { data, error } = await supabase.rpc(cfg.rpc, { p_company_id: companyId })
-    if (error) setErro(error.message)
+    if (error) setErro(erroAmigavel(error, 'Não foi possível carregar os indicadores. Tente de novo.'))
     setTemas((data ?? []) as Tema[])
     setLoading(false)
   }, [companyId, cfg.rpc])
