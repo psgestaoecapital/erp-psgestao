@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 
 const C = {
@@ -50,7 +51,7 @@ function Inner() {
       supabase.rpc('fn_veic_preparacao_listar', { p_company_id: companyId, p_veiculo_id: null }),
       supabase.rpc('fn_veic_preparacao_pendentes', { p_company_id: companyId }),
     ])
-    if (l.error) { setErro(l.error.message); setLoading(false); return }
+    if (l.error) { setErro(erroAmigavel(l.error, 'Não foi possível carregar. Tente de novo.')); setLoading(false); return }
     const r = l.data as { ok?: boolean; os?: PrepOS[] } | null
     setOss(r?.ok ? (r.os ?? []) : [])
     const pr = p.data as Pendentes | null
@@ -72,7 +73,7 @@ function Inner() {
     const { data, error } = await supabase.rpc('fn_veic_preparacao_abrir', { p_veiculo_id: veiculoId, p_dados: {}, p_user: user?.id ?? null })
     setAbrindo(null)
     const r = data as { ok?: boolean; erro?: string; numero?: string } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha ao abrir a OS.'); return }
+    if (error || !r?.ok) { setErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao abrir a OS.'))); return }
     void carregar()
   }
 

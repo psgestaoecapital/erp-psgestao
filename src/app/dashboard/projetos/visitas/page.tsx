@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'r
 import Link from 'next/link'
 import { MapPin } from 'lucide-react'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { labelUsuario } from '@/lib/usuarioLabel'
@@ -212,7 +213,7 @@ export default function VisitasPage() {
     setExcluindoVisita(r.id)
     const { data, error } = await supabase.rpc('fn_crm_visita_excluir', { p_id: r.id })
     setExcluindoVisita(null)
-    if (error || !(data as { ok?: boolean } | null)?.ok) { setToast(`Não consegui excluir: ${error?.message ?? (data as { erro?: string } | null)?.erro ?? 'tente de novo'}`); return }
+    if (error || !(data as { ok?: boolean } | null)?.ok) { setToast(erroAmigavel(error, 'Não foi possível excluir a visita. Tente de novo.')); return }
     setDesfazerVisita(r.id)
     reload()
   }
