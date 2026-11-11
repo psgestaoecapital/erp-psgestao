@@ -140,7 +140,7 @@ export default function PlanoAcaoPage() {
     ])
     if (r.data?.ok) setResumo(r.data as Resumo); else setResumo(null)
     if (l.data?.ok) setPlanos((l.data.resultados ?? []) as Plano[])
-    else { setPlanos([]); setErro(l.data?.erro || l.error?.message || 'Não foi possível carregar o plano de ação.') }
+    else { setPlanos([]); setErro(l.data?.erro || 'Não foi possível carregar o plano de ação.') }
     setSetores((s.data ?? []) as Setor[])
     if (reu.data?.ok) setReunioes((reu.data.reunioes ?? []) as Reuniao[])
     setLoading(false)
@@ -206,7 +206,7 @@ export default function PlanoAcaoPage() {
     }
     const { data, error } = await supabase.rpc('fn_plano_acao_salvar', { p_company_id: companyId, p_plano: payload, p_id: editId })
     setSalvando(false)
-    if (error || !data?.ok) { flash(data?.erro === 'titulo_obrigatorio' ? 'O título é obrigatório.' : `Não salvou: ${data?.erro || error?.message || 'erro'}`); return }
+    if (error || !data?.ok) { flash(data?.erro === 'titulo_obrigatorio' ? 'O título é obrigatório.' : `Não salvou: ${data?.erro || 'tente de novo'}`); return }
     setFormAberto(false)
     flash(editId ? 'Ação atualizada.' : `Ação criada (${data.codigo}).`)
     await carregar()
@@ -214,7 +214,7 @@ export default function PlanoAcaoPage() {
 
   async function mudarStatus(p: Plano, novo: Status) {
     const { data, error } = await supabase.rpc('fn_plano_acao_status', { p_id: p.id, p_status: novo })
-    if (error || !data?.ok) { flash(`Não mudou o status: ${data?.erro || error?.message || 'erro'}`); return }
+    if (error || !data?.ok) { flash(`Não mudou o status: ${data?.erro || 'tente de novo'}`); return }
     flash(`"${p.codigo}" → ${STATUS_ROTULO[novo]}.`)
     await carregar()
   }
@@ -223,7 +223,7 @@ export default function PlanoAcaoPage() {
     if (!concluir) return
     if (!resultado.trim()) { flash('Descreva o resultado obtido para concluir.'); return }
     const { data, error } = await supabase.rpc('fn_plano_acao_status', { p_id: concluir.id, p_status: 'concluida', p_resultado: resultado })
-    if (error || !data?.ok) { flash(data?.erro === 'resultado_obrigatorio' ? 'O resultado é obrigatório.' : `Não concluiu: ${data?.erro || error?.message || 'erro'}`); return }
+    if (error || !data?.ok) { flash(data?.erro === 'resultado_obrigatorio' ? 'O resultado é obrigatório.' : `Não concluiu: ${data?.erro || 'tente de novo'}`); return }
     setConcluir(null); setResultado('')
     flash(`"${concluir.codigo}" concluída.`)
     await carregar()
@@ -232,7 +232,7 @@ export default function PlanoAcaoPage() {
   async function excluir(p: Plano) {
     if (!window.confirm(`Excluir a ação ${p.codigo} — "${p.titulo}"? Ela sai do plano (exclusão lógica).`)) return
     const { data, error } = await supabase.rpc('fn_plano_acao_excluir', { p_id: p.id })
-    if (error || !data?.ok) { flash(`Não excluiu: ${data?.erro || error?.message || 'erro'}`); return }
+    if (error || !data?.ok) { flash(`Não excluiu: ${data?.erro || 'tente de novo'}`); return }
     flash(`"${p.codigo}" removida do plano.`)
     await carregar()
   }
@@ -268,7 +268,7 @@ export default function PlanoAcaoPage() {
     }
     const { data, error } = await supabase.rpc('fn_plano_acao_reuniao_salvar', { p_company_id: companyId, p_reuniao: payload, p_id: reuniaoEditId })
     setSalvandoReuniao(false)
-    if (error || !data?.ok) { flash(data?.erro === 'titulo_obrigatorio' ? 'O título é obrigatório.' : `Não salvou: ${data?.erro || error?.message || 'erro'}`); return }
+    if (error || !data?.ok) { flash(data?.erro === 'titulo_obrigatorio' ? 'O título é obrigatório.' : `Não salvou: ${data?.erro || 'tente de novo'}`); return }
     setReuniaoFormAberto(false)
     flash(reuniaoEditId ? 'Reunião atualizada.' : `Reunião criada (${data.codigo}).`)
     if (!reuniaoEditId && data.id) setReuniaoSel(data.id as string)
@@ -277,7 +277,7 @@ export default function PlanoAcaoPage() {
   async function excluirReuniao(r: Reuniao) {
     if (!window.confirm(`Excluir a reunião ${r.codigo} — "${r.titulo}"? As ações dela continuam no plano, só perdem o vínculo.`)) return
     const { data, error } = await supabase.rpc('fn_plano_acao_reuniao_excluir', { p_id: r.id })
-    if (error || !data?.ok) { flash(`Não excluiu: ${data?.erro || error?.message || 'erro'}`); return }
+    if (error || !data?.ok) { flash(`Não excluiu: ${data?.erro || 'tente de novo'}`); return }
     if (reuniaoSel === r.id) setReuniaoSel('')
     flash(`Reunião "${r.codigo}" removida.`)
     await carregar()
