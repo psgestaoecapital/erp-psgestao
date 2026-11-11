@@ -20,8 +20,7 @@ type Bem = {
   id: string; codigo: string | null; descricao: string; natureza: string; data_aquisicao: string
   valor_aquisicao: number; deprecia: boolean; vida_util_meses: number | null; metodo_depreciacao: string
   business_line_id: string | null; business_line_nome: string | null; centro_custo: string | null
-  status: string; dep_acumulada: number; valor_contabil: number; falta_parametro: boolean
-  valor_residual: number | null
+  status: string; dep_acumulada: number; valor_contabil: number; valor_residual: number | null; falta_parametro: boolean
 }
 type BL = { id: string; name: string }
 type NatPadrao = { natureza: string; vida_util_meses: number | null; deprecia: boolean }
@@ -138,8 +137,7 @@ export default function BensPage() {
     setF({ codigo: b.codigo ?? '', descricao: b.descricao, natureza: b.natureza, data_aquisicao: b.data_aquisicao,
       valor_aquisicao: String(b.valor_aquisicao), deprecia: b.deprecia, vida_util_meses: b.vida_util_meses != null ? String(b.vida_util_meses) : '',
       // RD-98: carrega o residual atual para não zerá-lo silenciosamente ao salvar a edição.
-      valor_residual: b.valor_residual != null && b.valor_residual > 0 ? String(b.valor_residual) : '',
-      business_line_id: b.business_line_id ?? '', centro_custo: b.centro_custo ?? '' })
+      valor_residual: b.valor_residual != null ? String(b.valor_residual) : '', business_line_id: b.business_line_id ?? '', centro_custo: b.centro_custo ?? '' })
   }
 
   async function excluir(b: Bem) {
