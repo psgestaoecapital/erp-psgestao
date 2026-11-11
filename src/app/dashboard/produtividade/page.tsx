@@ -12,6 +12,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { CelulaEditavel } from '@/components/produtividade/CelulaEditavel'
 import { PostoPessoas } from '@/components/produtividade/PostoPessoas'
 
@@ -114,7 +115,7 @@ function Inner() {
   const carregarFluxo = useCallback(async () => {
     if (!fluxoId) { setFc(null); return }
     const { data, error } = await supabase.rpc('fn_prod_fluxo_completo', { p_fluxo_id: fluxoId })
-    if (error) { flashErr(error.message); return }
+    if (error) { flashErr(erroAmigavel(error, 'Não foi possível carregar o fluxo. Tente de novo.')); return }
     const r = data as FluxoCompleto
     setFc(r?.ok ? r : null)
     if (r && !r.ok) flashErr(r.erro === 'sem_acesso' ? 'Sem acesso a este fluxo.' : 'Falha ao carregar o fluxo.')
@@ -434,7 +435,7 @@ function LinhaPostoEditavel({ posto, descricao, fc, flash, flashErr, onMudou, ab
     const { error } = await supabase.from('prod_posto').update({ ativo: false, updated_at: new Date().toISOString() }).eq('id', posto.id)
     if (!error) await supabase.from('prod_posto_turno').update({ vigencia_fim: hoje }).eq('posto_id', posto.id).is('vigencia_fim', null)
     setBusy(false)
-    if (error) { flashErr(`Não consegui arquivar o posto: ${error.message}`); return }
+    if (error) { flashErr(erroAmigavel(error, 'Não consegui arquivar o posto. Tente de novo.')); return }
     flash('ARQUIVOU o posto.'); await onMudou()
   }
 
@@ -771,7 +772,7 @@ function useLista(tabela: string, ctx: Ctx, order = 'created_at') {
   const [rows, setRows] = useState<Row[]>([])
   const carregar = useCallback(async () => {
     const { data, error } = await supabase.from(tabela).select('*').eq('company_id', ctx.companyId).eq('plant_id', ctx.plantId).order(order)
-    if (error) { ctx.flashErr(`${tabela}: ${error.message}`); return }
+    if (error) { ctx.flashErr(erroAmigavel(error, 'Não foi possível carregar a lista. Tente de novo.')); return }
     setRows((data as Row[]) ?? [])
   }, [tabela, ctx, order])
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -784,17 +785,17 @@ function ehDuplicado(error: { code?: string; message?: string } | null): boolean
 }
 async function inserir(tabela: string, ctx: Ctx, payload: Record<string, unknown>, msgDup?: string): Promise<boolean> {
   const { error } = await supabase.from(tabela).insert({ company_id: ctx.companyId, plant_id: ctx.plantId, ...payload })
-  if (error) { ctx.flashErr(ehDuplicado(error) && msgDup ? msgDup : error.message); return false }
+  if (error) { ctx.flashErr(ehDuplicado(error) && msgDup ? msgDup : erroAmigavel(error, 'Não foi possível criar. Tente de novo.')); return false }
   ctx.flash('CRIOU.'); return true
 }
 async function renomear(tabela: string, ctx: Ctx, id: string, nome: string): Promise<boolean> {
   const { error } = await supabase.from(tabela).update({ nome }).eq('id', id)
-  if (error) { ctx.flashErr(ehDuplicado(error) ? 'Já existe um item com esse nome.' : error.message); return false }
+  if (error) { ctx.flashErr(ehDuplicado(error) ? 'Já existe um item com esse nome.' : erroAmigavel(error, 'Não foi possível salvar. Tente de novo.')); return false }
   ctx.flash('ALTEROU.'); return true
 }
 async function remover(tabela: string, ctx: Ctx, id: string): Promise<boolean> {
   const { error } = await supabase.from(tabela).delete().eq('id', id)
-  if (error) { ctx.flashErr(/foreign key|violates/i.test(error.message) ? 'Não dá para excluir: item vinculado a um posto/fluxo. Remova o vínculo antes.' : error.message); return false }
+  if (error) { ctx.flashErr(/foreign key|violates/i.test(error.message ?? '') ? 'Não dá para excluir: item vinculado a um posto/fluxo. Remova o vínculo antes.' : erroAmigavel(error, 'Não foi possível excluir. Tente de novo.')); return false }
   ctx.flash('EXCLUIU.'); return true
 }
 
@@ -964,7 +965,7 @@ function SugerirDoPonto({ ctx, rpc, tabela, sugLabel, jaExistentes, onAdd }: { c
     const payloads = selecionados.map((it, i) => ({ company_id: ctx.companyId, plant_id: ctx.plantId, nome: it.nome, ...(tabela === 'prod_setor' ? { ordem: jaExistentes + i + 1 } : {}) }))
     const { error } = await supabase.from(tabela).insert(payloads)
     setBusy(false)
-    if (error) { ctx.flashErr(error.message); return }
+    if (error) { ctx.flashErr(erroAmigavel(error, 'Não foi possível adicionar. Tente de novo.')); return }
     ctx.flash(`CRIOU ${payloads.length} ${sugLabel} do ponto.`); setAberto(false); setItens(null); await onAdd()
   }
   return (
@@ -1136,13 +1137,13 @@ function SalarioBase({ ctx }: { ctx: Ctx }) {
     const n = Number(txt.replace(/\./g, '').replace(',', '.'))
     if (!Number.isFinite(n) || n <= 0) return 'Digite o valor em reais, só números, ex.: 2850,00.'
     const { error } = await supabase.from('prod_salario_base').update({ valor: n, fonte: 'manual' }).eq('id', id)
-    if (error) return `Não consegui salvar o salário: ${error.message}`
+    if (error) return erroAmigavel(error, 'Não consegui salvar o salário. Tente de novo.')
     ctx.flash('ALTEROU o salário base.'); await carregar(); return null
   }
   async function excluir(id: string) {
     if (!window.confirm('Excluir este salário base?')) return
     const { error } = await supabase.from('prod_salario_base').delete().eq('id', id)
-    if (error) { ctx.flashErr(error.message); return }
+    if (error) { ctx.flashErr(erroAmigavel(error, 'Não foi possível excluir o salário. Tente de novo.')); return }
     ctx.flash('EXCLUIU.'); await carregar()
   }
   const jaTem = (mat: number) => rows.some((r) => r.matricula === mat)
