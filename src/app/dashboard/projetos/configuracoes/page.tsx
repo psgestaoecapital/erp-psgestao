@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { comPrazo } from "@/lib/comPrazo";
 import { BdiSlider } from "@/components/projetos/BdiSlider";
@@ -171,7 +172,7 @@ export default function ConfiguracoesPage() {
       // servico" silencioso que engana o usuario (RD-97, chamado #3362): sinalizamos.
       let dadosImp: ImpactoServico[] = [];
       if (impR.error && (impR.error as { code?: string }).code !== "42P01") {
-        setImpactosErro(impR.error.message || "falha ao consultar o impacto");
+        setImpactosErro(erroAmigavel(impR.error, "Não foi possível consultar o impacto nos serviços."));
       } else {
         setImpactosErro(null);
       }
@@ -227,7 +228,7 @@ export default function ConfiguracoesPage() {
       });
       setImpactos(dadosImp);
     } catch (e: any) {
-      setErro(e.message || "Falha ao carregar configurações");
+      setErro(erroAmigavel(e, "Não foi possível carregar as configurações."));
     } finally {
       setLoading(false);
     }
@@ -283,7 +284,7 @@ export default function ConfiguracoesPage() {
         }
       } catch (e: any) {
         setSavingState("error");
-        setErro(e.message || "Falha ao salvar");
+        setErro(erroAmigavel(e, "Não foi possível salvar as configurações."));
       }
     },
     [companyId]
@@ -348,7 +349,7 @@ export default function ConfiguracoesPage() {
       setPresetParaAplicar(null);
       await carregar();
     } catch (e: any) {
-      setErro(e.message || "Falha ao aplicar preset");
+      setErro(erroAmigavel(e, "Não foi possível aplicar o preset."));
     } finally {
       setAplicandoPreset(false);
     }
