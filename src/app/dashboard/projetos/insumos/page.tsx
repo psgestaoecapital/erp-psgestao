@@ -12,6 +12,7 @@ import { CatalogoTable, type CatalogoColumn } from "@/components/projetos/Catalo
 import { CatalogoForm, type FormField } from "@/components/projetos/CatalogoForm";
 import { EmptyStateImportar } from "@/components/projetos/EmptyStateImportar";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { erroAmigavel, codigoAmigavel, ErroUsuario } from "@/lib/erroAmigavel";
 
 interface Insumo {
   id: string;
@@ -184,7 +185,7 @@ export default function InsumosPage() {
       for (const v of ((vinR.data as any)?.vinculos as VinculoGE[]) || []) mapa[v.insumo_id] = v;
       setVinculos(mapa);
     } catch (e: any) {
-      setErro(e.message || "Falha ao carregar insumos");
+      setErro(erroAmigavel(e, "Não foi possível carregar os insumos. Tente de novo."));
     } finally {
       setLoading(false);
     }
@@ -300,7 +301,7 @@ export default function InsumosPage() {
       setDrawerOpen(false);
       await carregar();
     } catch (e: any) {
-      setErroForm(e.message || "Falha ao salvar");
+      setErroForm(erroAmigavel(e, "Não foi possível salvar o insumo. Confira os campos e tente de novo."));
     } finally {
       setSalvando(false);
     }
@@ -315,7 +316,7 @@ export default function InsumosPage() {
       });
       if (error) throw error;
       if (data && data.success === false) {
-        setErro(data.error || "Insumo não pode ser excluído");
+        setErro(codigoAmigavel(data.error, "Este insumo não pode ser excluído."));
         setTimeout(() => setErro(null), 5000);
         return;
       }
@@ -323,7 +324,7 @@ export default function InsumosPage() {
       setTimeout(() => setAviso(null), 5000);
       await carregar();
     } catch (e: any) {
-      setErro(e.message);
+      setErro(erroAmigavel(e, "Não foi possível excluir o insumo. Tente de novo."));
     }
   }
 
@@ -335,7 +336,7 @@ export default function InsumosPage() {
       });
       if (error) throw error;
       if (data && data.success === false) {
-        setErro(data.error || "Insumo não pôde ser restaurado");
+        setErro(codigoAmigavel(data.error, "Este insumo não pôde ser restaurado."));
         setTimeout(() => setErro(null), 5000);
         return;
       }
@@ -343,7 +344,7 @@ export default function InsumosPage() {
       setTimeout(() => setAviso(null), 4000);
       await carregar();
     } catch (e: any) {
-      setErro(e.message);
+      setErro(erroAmigavel(e, "Não foi possível restaurar o insumo. Tente de novo."));
     }
   }
 
@@ -364,7 +365,7 @@ export default function InsumosPage() {
       setNovoPreco("");
       await carregar();
     } catch (e: any) {
-      setErro(e.message);
+      setErro(erroAmigavel(e, "Não foi possível atualizar o preço. Tente de novo."));
     } finally {
       setSalvandoPreco(false);
     }
@@ -389,7 +390,7 @@ export default function InsumosPage() {
         if (error) throw error;
         setProdutosGE(((data as any)?.produtos as ProdutoGE[]) || []);
       } catch (e: any) {
-        setErro(e.message);
+        setErro(erroAmigavel(e, "Não foi possível buscar os produtos do estoque. Tente de novo."));
       } finally {
         setBuscandoGE(false);
       }
@@ -416,7 +417,7 @@ export default function InsumosPage() {
         p_usar_maior_custo: maiorCusto,
       });
       if (vin.error) throw vin.error;
-      if ((vin.data as any)?.ok === false) throw new Error((vin.data as any).erro || "Não foi possível ligar");
+      if ((vin.data as any)?.ok === false) throw new ErroUsuario(codigoAmigavel((vin.data as any).erro, "Não foi possível ligar o insumo ao estoque."));
       const cus = await supabase.rpc("fn_hub_insumo_custo", { p_insumo_id: modalGE.id });
       if (cus.error) throw cus.error;
       const custo = Number((cus.data as any)?.custo);
@@ -433,7 +434,7 @@ export default function InsumosPage() {
       setModalGE(null);
       await carregar();
     } catch (e: any) {
-      setErro(e.message);
+      setErro(erroAmigavel(e, "Não foi possível ligar o insumo ao estoque. Tente de novo."));
     } finally {
       setLigando(false);
     }
@@ -450,7 +451,7 @@ export default function InsumosPage() {
       setModalGE(null);
       await carregar();
     } catch (e: any) {
-      setErro(e.message);
+      setErro(erroAmigavel(e, "Não foi possível desligar o insumo do estoque. Tente de novo."));
     } finally {
       setLigando(false);
     }
@@ -474,7 +475,7 @@ export default function InsumosPage() {
       setTimeout(() => setAviso(null), 6000);
       await carregar();
     } catch (e: any) {
-      setErro(e.message);
+      setErro(erroAmigavel(e, "Não foi possível importar a biblioteca. Tente de novo."));
     } finally {
       setImportando(false);
     }
