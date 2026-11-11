@@ -1,0 +1,22 @@
+-- conserto-main (gilberto-esteira): restaura security_invoker na view v_obra_resultado_alocado.
+--
+-- REGRESSÃO (PR #4388, migration 20261112131000_obra_resultado_custo_contas_pagar.sql):
+-- a view foi criada em 20261017180105 com WITH (security_invoker = true). A #4388 fez
+-- CREATE OR REPLACE VIEW ... AS SEM repetir WITH (security_invoker = true), e o CREATE OR REPLACE
+-- reseta a opção para o padrão (security_invoker = off / direitos do DONO da view). Com direitos do
+-- dono, a RLS das tabelas de origem é IGNORADA: como a view tem GRANT SELECT TO authenticated, qualquer
+-- usuário logado passava a enxergar o resultado/custo de obra de TODAS as empresas (vazamento entre
+-- empresas / LGPD). O teste de segurança e2e/jornadas/aceitacao/seguranca-search-path-prb.spec.ts
+-- (fn_seguranca_rls_auditar -> view_com_direitos_do_dono) pegou a regressão e deixou a main vermelha.
+--
+-- CORREÇÃO: restaurar security_invoker = true (a view volta a respeitar a RLS do usuário que consulta).
+-- Fail-safe: mais restritivo, estado idêntico ao que vigorou de 17/10 até a #4388. Aditivo, idempotente,
+-- não altera nenhum dado de cliente nem o conteúdo/colunas da view.
+--
+-- Prova RD-38 (produção, auditoria fn_seguranca_rls_auditar):
+--   ANTES: ok=false, total_achados=1, view_com_direitos_do_dono=["v_obra_resultado_alocado"]
+--          (pg_class.reloptions sem security_invoker => NULL/off)
+--   DEPOIS: ok=true,  total_achados=0, view_com_direitos_do_dono=[]
+--          (reloptions.security_invoker = true)
+
+ALTER VIEW public.v_obra_resultado_alocado SET (security_invoker = true);

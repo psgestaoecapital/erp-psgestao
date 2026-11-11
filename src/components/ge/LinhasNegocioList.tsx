@@ -6,9 +6,9 @@ import { supabase } from '@/lib/supabase'
 import LdnBudgetForm, { type LDNRef } from './LdnBudgetForm'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
-// Componente compartilhado por /dashboard/cadastros/divisoes e /dashboard/cadastros/linhas-negocio.
-// A ajuda (RD-95 "?") usa chaves cadastradas na rota canônica abaixo, passada explicitamente em cada
-// AjudaCampo para carregar o mesmo texto em qualquer um dos dois pontos de montagem.
+// Tela de Divisões (/dashboard/cadastros/divisoes). A antiga /dashboard/cadastros/linhas-negocio, que
+// duplicava esta tela, agora redireciona para cá (next.config.ts). A ajuda (RD-95 "?") usa as chaves da
+// rota canônica abaixo, passada explicitamente em cada AjudaCampo.
 const ROTA_AJUDA = '/dashboard/cadastros/divisoes'
 
 interface LDN {
@@ -75,6 +75,8 @@ export default function LinhasNegocioList({ companyId }: { companyId: string }) 
   const [confirmarInativar, setConfirmarInativar] = useState<string | null>(null)
   // Permite desfazer a última inativação na hora (rede de segurança).
   const [desfazer, setDesfazer] = useState<{ id: string; nome: string } | null>(null)
+  // Erro ao ativar/inativar uma divisão da lista (em linguagem do usuário).
+  const [erroLista, setErroLista] = useState<string | null>(null)
 
   const anoAtual = new Date().getFullYear()
 
@@ -187,16 +189,32 @@ export default function LinhasNegocioList({ companyId }: { companyId: string }) 
     load()
   }
 
+  // RD-98 p4: ativar/inativar passa pela RPC guardada (empresa do usuário + rastro em audit_log_global).
+  // Antes era UPDATE direto do client, sem rastro e sem checar o resultado (falha sumia em silêncio).
+  async function definirAtiva(id: string, ativo: boolean): Promise<boolean> {
+    setErroLista(null)
+    const { data, error } = await supabase.rpc('fn_divisao_definir_ativa', { p_id: id, p_ativo: ativo })
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) {
+      // A RPC já devolve `erro` em linguagem do usuário; 'sem_acesso' e falha de transporte viram texto amigável.
+      const semAcesso = r?.erro === 'sem_acesso'
+      setErroLista(!error && r?.erro && !semAcesso
+        ? r.erro
+        : mensagemAmigavel(semAcesso ? { code: '42501' } : error, ativo ? 'reativar a divisão' : 'inativar a divisão'))
+      return false
+    }
+    return true
+  }
+
   async function inativar(ldn: LDN) {
-    // RD-52: business_lines usa is_active
-    await supabase.from('business_lines').update({ is_active: false }).eq('id', ldn.id)
     setConfirmarInativar(null)
+    if (!(await definirAtiva(ldn.id, false))) return
     setDesfazer({ id: ldn.id, nome: ldn.nome })
     load()
   }
 
   async function reativar(id: string) {
-    await supabase.from('business_lines').update({ is_active: true }).eq('id', id)
+    if (!(await definirAtiva(id, true))) return
     setDesfazer(null)
     load()
   }
@@ -294,6 +312,13 @@ export default function LinhasNegocioList({ companyId }: { companyId: string }) 
               {salvandoLdn ? 'Salvando…' : form.modo === 'editar' ? 'Salvar alteração' : 'Criar divisão'}
             </button>
           </div>
+        </div>
+      )}
+
+      {erroLista && (
+        <div role="alert" style={{ background: '#FCEBEB', color: '#A32D2D', padding: '10px 14px', borderRadius: 6, marginBottom: 12, fontSize: 13, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+          <span>{erroLista}</span>
+          <button type="button" onClick={() => setErroLista(null)} aria-label="Fechar aviso" style={{ background: 'transparent', border: 'none', color: '#A32D2D', cursor: 'pointer', fontSize: 16 }}>×</button>
         </div>
       )}
 

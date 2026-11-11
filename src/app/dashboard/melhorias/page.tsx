@@ -43,6 +43,10 @@ const STAT_LABEL: Record<string, string> = { nova: 'Nova', em_analise: 'Em anál
 const STATUS_TERMINAL = ['concluida', 'concluido', 'resolvida', 'recusada', 'duplicada', 'arquivada', 'implementado']
 // #63 · abas da Central pela ótica do AUTOR (a Jordana): separar o que ESPERA a equipe do que
 // PRECISA DELA (resposta chegou, falta ela dizer se resolveu) do que já ACABOU. Antes era lista plana.
+// #7050 · "Aguardando sua confirmação" só quando a resposta JÁ foi aprovada e enviada ao autor. Se o chamado está nesse
+// status mas a resposta ainda espera o operador aprovar (nada vai ao cliente sem tratamento), o autor vê "Em análise".
+const rotuloStatusAutor = (m: { status: string; resposta_aprovada: boolean }) =>
+  m.status === 'aguardando_confirmacao' && !m.resposta_aprovada ? 'A equipe está liberando a resposta para você conferir' : (STAT_LABEL[m.status] || m.status)
 type BucketMelhoria = 'precisa_voce' | 'aguardando' | 'concluidas'
 // A aba da Central. 'todos' (padrão) mostra tudo — o quadro nunca abre vazio quando há chamados; as demais filtram por bucket.
 type AbaMelhoria = 'todos' | BucketMelhoria
@@ -131,7 +135,11 @@ function Inner() {
     type Row = Minha & { companies?: { nome_fantasia: string | null; razao_social: string | null } | { nome_fantasia: string | null; razao_social: string | null }[] | null }
     setMinhas(((data as Row[]) ?? []).map(({ companies, ...m }) => {
       const co = Array.isArray(companies) ? companies[0] : companies
-      return { ...m, empresa: co?.nome_fantasia || co?.razao_social || null, tem_ia: !!m.ia_analise, resposta: m.resposta_aprovada ? m.resposta : null }
+      // §2.1: a resposta só chega ao autor depois de aprovada. EXCEÇÃO (#7050 item 2): o operador/admin
+      // que é o PRÓPRIO autor do chamado já vê e aprova a resposta na Fila — mostrá-la aqui não vaza nada e
+      // permite o card combinado "Aprovar e confirmar" sem precisar abrir a Fila.
+      const verRespostaNaoAprovada = sup && m.user_id === user.id
+      return { ...m, empresa: co?.nome_fantasia || co?.razao_social || null, tem_ia: !!m.ia_analise, resposta: (m.resposta_aprovada || verRespostaNaoAprovada) ? m.resposta : null }
     }))
   }, [verArquivadas, companyId, companyIds, busca])
   // debounce da busca: consulta ao banco 300 ms depois da última tecla
@@ -228,6 +236,31 @@ function Inner() {
     if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha ao confirmar'); return }
     setMotivoAberto(null); setNaoResolveuFotos([])
     setMsg(funcionou ? 'Que bom! Chamado concluído. 🎉' : 'Reabrimos — a equipe volta a trabalhar nisso.')
+    void carregar()
+  }, [carregar])
+
+  // #7050 item 2 · CARD COMBINADO: quando o operador/admin é o PRÓPRIO autor do chamado, ele aprova a
+  // resposta E confirma o resultado num passo só, sem precisar ir à Fila de Melhorias. Duas RPCs já existentes,
+  // ambas permitidas ao operador: primeiro aprova (grava aprovador/hora) e só então confirma (funcionou → conclui;
+  // não → reabre com motivo e volta ao Code). Nada é aprovado/concluído sem este clique explícito.
+  const aprovarEConfirmar = useCallback(async (id: string, funcionou: boolean, motivo?: string, fotos?: FotoItem[]) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    if (!funcionou && !(motivo ?? '').trim()) { setErro('Diga o que não resolveu para reabrir.'); return }
+    const ap = await supabase.rpc('fn_sugestao_aprovar_resposta', { p_id: id, p_user: user.id })
+    const ra = ap.data as { ok?: boolean; erro?: string } | null
+    if (ap.error || !ra?.ok) { setErro(ap.error?.message || ra?.erro || 'Falha ao aprovar a resposta'); return }
+    const anexos: { storage_path: string; marcacoes: Marca[] }[] = []
+    for (const ft of (funcionou ? [] : (fotos ?? []))) {
+      const path = await uploadFotoSugestao(ft.file, user.id).catch((e) => { setErro('Falha ao enviar a foto: ' + String(e)); return null })
+      if (path === null) return
+      anexos.push({ storage_path: path, marcacoes: ft.marcas })
+    }
+    const { data, error } = await supabase.rpc('fn_sugestao_confirmar', { p_id: id, p_user: user.id, p_funcionou: funcionou, p_motivo: funcionou ? null : (motivo ?? '').trim(), p_anexos: anexos })
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) { setErro((error?.message || r?.erro || 'Falha ao confirmar') + ' (a resposta foi aprovada; confirme de novo pela aba “Precisa de você”.)'); void carregar(); return }
+    setMotivoAberto(null); setNaoResolveuFotos([])
+    setMsg(funcionou ? 'Resposta aprovada e chamado concluído. 🎉' : 'Resposta aprovada e chamado reaberto — a equipe volta a trabalhar nisso.')
     void carregar()
   }, [carregar])
 
@@ -420,7 +453,7 @@ function Inner() {
             <div key={m.id} id={`chamado-${m.numero}`} style={{ background: C.white, border: `1px solid ${foco === String(m.numero) ? C.gold : C.border}`, borderRadius: 10, padding: 12, boxShadow: foco === String(m.numero) ? `0 0 0 2px ${C.gold}` : 'none', transition: 'box-shadow .3s, border-color .3s' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <b style={{ fontSize: 14 }}><span style={{ color: C.gold, fontWeight: 800 }}>#{m.numero}</span> <span style={{ fontWeight: 600, fontSize: 11.5, color: C.espM }}>· {quando(m.created_at)}</span> {m.titulo || m.descricao.slice(0, 60)}</b>
-                <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: m.status === 'concluida' ? C.greenBg : m.status === 'recusada' ? C.redBg : C.cream, color: m.status === 'concluida' ? C.green : m.status === 'recusada' ? C.red : C.espM, fontWeight: 700 }}>{STAT_LABEL[m.status] || m.status}</span>
+                <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: m.status === 'concluida' ? C.greenBg : m.status === 'recusada' ? C.redBg : C.cream, color: m.status === 'concluida' ? C.green : m.status === 'recusada' ? C.red : C.espM, fontWeight: 700 }}>{rotuloStatusAutor(m)}</span>
               </div>
               {/* de qual empresa é o chamado (útil pra papel de plataforma, que abre nas 10 empresas) */}
               <div style={{ fontSize: 10.5, color: m.empresa ? C.espL : C.amber, marginTop: 2 }}>🏢 {m.empresa || 'Sem empresa (chamado antigo)'}
@@ -429,12 +462,41 @@ function Inner() {
               {/* A resposta só aparece ao autor DEPOIS de aprovada (§2.1) — em carregar já vem null se não aprovada. */}
               {m.resposta && (
                 <div style={{ marginTop: 6, background: C.cream, padding: '8px 10px', borderRadius: 8 }}>
-                  <div style={{ fontSize: 10.5, fontWeight: 700, color: C.esp, textTransform: 'uppercase', letterSpacing: 0.4 }}>Resposta da equipe PS</div>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: C.esp, textTransform: 'uppercase', letterSpacing: 0.4 }}>Resposta da equipe PS
+                    {!m.resposta_aprovada && ehSuporte && m.user_id === userId && (
+                      <span data-testid="resposta-nao-liberada" style={{ marginLeft: 8, fontSize: 9.5, padding: '1px 7px', borderRadius: 999, background: C.amberBg, color: C.amber, border: '1px solid #F0DDB0', letterSpacing: 0.2 }}>ainda não liberada ao autor</span>
+                    )}
+                  </div>
                   <div style={{ fontSize: 12.5, color: C.esp, marginTop: 3, whiteSpace: 'pre-wrap' }}>{m.resposta}</div>
                   {m.status !== 'concluida' && !m.confirmado_pelo_autor && m.user_id !== userId && (
                     <div style={{ fontSize: 11.5, color: C.espM, marginTop: 6, fontStyle: 'italic' }}>Aguardando {m.user_name || 'o autor'} confirmar se resolveu.</div>
                   )}
-                  {m.status !== 'concluida' && !m.confirmado_pelo_autor && m.user_id === userId && (
+                  {/* #7050 item 2 · você abriu e você aprova: um passo só, sem abrir a Fila */}
+                  {m.status !== 'concluida' && !m.confirmado_pelo_autor && m.user_id === userId && !m.resposta_aprovada && ehSuporte && (
+                    <>
+                      <div style={{ fontSize: 11.5, color: C.espM, marginTop: 6 }}>Você abriu este chamado. Pode aprovar a resposta e já dizer se resolveu, sem passar pela Fila.</div>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                        <button data-testid="aprovar-confirmar-ok" onClick={() => void aprovarEConfirmar(m.id, true)} style={{ background: C.green, color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Aprovar e confirmar que funcionou ✓</button>
+                        <button data-testid="aprovar-confirmar-nao" onClick={() => setMotivoAberto((v) => (v === m.id ? null : m.id))} style={{ background: '#fff', color: C.red, border: `1px solid ${C.red}`, borderRadius: 8, padding: '7px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Aprovar e dizer que não funcionou</button>
+                        <AjudaCampo chave="chamado.aprovar_e_confirmar" rota="/dashboard/melhorias" />
+                      </div>
+                      {motivoAberto === m.id && (
+                        <>
+                          <RespostaInline
+                            draftKey={`melhoria:aprovarnao:${m.id}`}
+                            placeholder="O que não resolveu? Ao enviar, a resposta é aprovada e o chamado reabre para a equipe."
+                            submitLabel="Aprovar e reabrir"
+                            onSubmit={(t) => aprovarEConfirmar(m.id, false, t, naoResolveuFotos)}
+                            onCancel={() => { setMotivoAberto(null); setNaoResolveuFotos([]) }}
+                          />
+                          <div style={{ marginTop: 6 }}>
+                            <FotosChamado value={naoResolveuFotos} onChange={setNaoResolveuFotos} compact />
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )}
+                  {m.status !== 'concluida' && !m.confirmado_pelo_autor && m.user_id === userId && (m.resposta_aprovada || !ehSuporte) && (
                     <>
                       <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
                         <button onClick={() => void confirmar(m.id, true)} style={{ background: C.green, color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Funcionou ✓</button>

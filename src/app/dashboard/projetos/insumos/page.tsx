@@ -28,6 +28,9 @@ interface Insumo {
   is_publico: boolean | null;
   fork_from_publico_id: string | null;
   ativo: boolean | null;
+  // Origem real do insumo (v_projetos_insumos_ui.source_type): 'sinapi' (base oficial),
+  // 'fork'/'publico' (biblioteca), 'manual'/'demo' (criado na empresa).
+  source_type?: string | null;
   ncm?: string | null;
   especificacao_tecnica?: string | null;
   observacoes?: string | null;
@@ -80,6 +83,21 @@ function fmtBRL(v: number | null | undefined) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+// Tipo do insumo a partir da categoria: as categorias EQUIP e EPI têm significado próprio; o resto é material de obra.
+type TipoInsumo = "material" | "equipamento" | "epi";
+function tipoDoInsumo(category: string | null | undefined): TipoInsumo {
+  const c = (category || "").toUpperCase();
+  if (c === "EPI") return "epi";
+  if (c === "EQUIP") return "equipamento";
+  return "material";
+}
+const TIPOS: { value: "todos" | TipoInsumo; label: string }[] = [
+  { value: "todos", label: "Todos" },
+  { value: "material", label: "Material" },
+  { value: "equipamento", label: "Equipamento" },
+  { value: "epi", label: "EPI" },
+];
+
 export default function InsumosPage() {
   const { sel, companies } = useCompanyIds();
   const companyId = sel && !sel.startsWith("group_") && sel !== "consolidado" ? sel : null;
@@ -95,7 +113,10 @@ export default function InsumosPage() {
   const [busca, setBusca] = useState("");
   const [filtroCat, setFiltroCat] = useState("");
   const [filtroStatus, setFiltroStatus] = useState<"ativo" | "inativo" | "todos" | "excluido">("ativo");
-  const [filtroOrigem, setFiltroOrigem] = useState<"todos" | "manual" | "fork">("todos");
+  const [filtroOrigem, setFiltroOrigem] = useState<"todos" | "manual" | "fork" | "sinapi">("todos");
+  // Tipo do insumo derivado da categoria: Equipamento (EQUIP), EPI (EPI) ou Material (demais) — separa o
+  // consumo de obra dos equipamentos/ferramentas e dos EPIs de segurança (chamado #3363).
+  const [filtroTipo, setFiltroTipo] = useState<"todos" | "material" | "equipamento" | "epi">("todos");
 
   // Form drawer
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -173,8 +194,8 @@ export default function InsumosPage() {
     carregar();
   }, [carregar]);
 
-  // Filtros aplicados
-  const filtrados = useMemo(() => {
+  // Filtros aplicados (todos menos o Tipo — para o Tipo contar sobre esta base).
+  const baseFiltrados = useMemo(() => {
     return insumos.filter((i) => {
       const excluido = !!i.deleted_at;
       // A aba "Excluídos" mostra só os excluídos; os demais filtros nunca mostram excluídos.
@@ -185,8 +206,14 @@ export default function InsumosPage() {
         if (filtroStatus === "ativo" && i.ativo === false) return false;
         if (filtroStatus === "inativo" && i.ativo !== false) return false;
       }
-      if (filtroOrigem === "fork" && !i.fork_from_publico_id) return false;
-      if (filtroOrigem === "manual" && i.fork_from_publico_id) return false;
+      if (filtroOrigem !== "todos") {
+        // Origem real pela coluna source_type (fallback no vínculo de biblioteca p/ linhas antigas).
+        const origem =
+          i.source_type === "sinapi" ? "sinapi"
+          : i.source_type === "fork" || i.fork_from_publico_id ? "fork"
+          : "manual";
+        if (origem !== filtroOrigem) return false;
+      }
       if (filtroCat && i.category !== filtroCat) return false;
       if (busca) {
         const q = busca.toLowerCase();
@@ -196,6 +223,18 @@ export default function InsumosPage() {
       return true;
     });
   }, [insumos, busca, filtroCat, filtroStatus, filtroOrigem]);
+
+  // Contagem por tipo sobre a base (ignora o próprio filtro de Tipo), para rotular os chips.
+  const contagemTipo = useMemo(() => {
+    const c = { todos: baseFiltrados.length, material: 0, equipamento: 0, epi: 0 };
+    for (const i of baseFiltrados) c[tipoDoInsumo(i.category)]++;
+    return c;
+  }, [baseFiltrados]);
+
+  const filtrados = useMemo(
+    () => (filtroTipo === "todos" ? baseFiltrados : baseFiltrados.filter((i) => tipoDoInsumo(i.category) === filtroTipo)),
+    [baseFiltrados, filtroTipo],
+  );
 
   function abrirNovo() {
     setDrawerInicial({
@@ -538,11 +577,15 @@ export default function InsumosPage() {
       render: (i) => (
         <div>
           <div className="font-medium text-[#3D2314]">{i.name}</div>
-          {i.fork_from_publico_id && (
+          {i.source_type === "sinapi" ? (
+            <span className="mt-0.5 inline-block rounded-full bg-[#C8941A]/15 px-2 py-0.5 text-[10px] uppercase tracking-wider text-[#8A6A12]">
+              SINAPI
+            </span>
+          ) : i.fork_from_publico_id ? (
             <span className="mt-0.5 inline-block rounded-full bg-[#3D2314]/8 px-2 py-0.5 text-[10px] uppercase tracking-wider text-[#3D2314]/60">
               biblioteca
             </span>
-          )}
+          ) : null}
         </div>
       ),
     },
@@ -836,9 +879,36 @@ export default function InsumosPage() {
                   <option value="todos">Todas</option>
                   <option value="manual">Manual</option>
                   <option value="fork">Biblioteca</option>
+                  <option value="sinapi">SINAPI</option>
                 </select>
               </label>
             </div>
+          </div>
+
+          {/* Tipo: separa material de obra, equipamentos/ferramentas e EPI (#3363) */}
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <span className="flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">
+              Tipo <AjudaCampo chave="projetos.insumos.filtro_tipo" />
+            </span>
+            {TIPOS.map((t) => {
+              const ativo = filtroTipo === t.value;
+              return (
+                <button
+                  key={t.value}
+                  type="button"
+                  onClick={() => setFiltroTipo(t.value)}
+                  aria-pressed={ativo}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                    ativo
+                      ? "border-[#3D2314] bg-[#3D2314] text-[#FAF7F2]"
+                      : "border-[#3D2314]/15 bg-white text-[#3D2314]/70 hover:bg-[#3D2314]/5"
+                  }`}
+                >
+                  {t.label}
+                  <span className={ativo ? "text-[#FAF7F2]/70" : "text-[#3D2314]/40"}>{contagemTipo[t.value]}</span>
+                </button>
+              );
+            })}
           </div>
 
           {/* Contador */}

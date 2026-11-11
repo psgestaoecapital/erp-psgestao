@@ -9,6 +9,10 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+// RD-95: toda ajuda desta subtela aponta para a própria rota.
+const ROTA = '/dashboard/compliance/epi/fichas'
 
 const C = {
   espresso: '#3D2314',
@@ -117,23 +121,35 @@ export default function FichasEpiPage() {
         {erro && <div style={{ background: '#fce8e8', color: C.red, padding: '12px 16px', borderRadius: 8, marginBottom: 16, fontSize: 13 }}>{erro}</div>}
 
         <section style={{ background: '#FFFFFF', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61,35,20,0.06)', marginBottom: 16, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <input type="text" placeholder="Buscar por nome, CPF ou matrícula…" value={busca} onChange={(e) => setBusca(e.target.value)} style={{ ...inputStyle, flex: '1 1 240px' }} />
-          <select value={filtroSetor} onChange={(e) => setFiltroSetor(e.target.value)} style={{ ...inputStyle, minWidth: 160 }}>
-            <option value="">Todos os setores</option>
-            {setores.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <select value={filtroVinculo} onChange={(e) => setFiltroVinculo(e.target.value as any)} style={{ ...inputStyle, minWidth: 160 }}>
-            <option value="">Todos os vínculos</option>
-            <option value="direto">Direto</option>
-            <option value="terceirizado">Terceirizado</option>
-          </select>
-          <select value={filtroSituacao} onChange={(e) => setFiltroSituacao(e.target.value as any)} style={{ ...inputStyle, minWidth: 160 }}>
-            <option value="">Todas as situações</option>
-            <option value="sem_epi">⚪ Sem EPI</option>
-            <option value="em_dia">🟢 Em dia</option>
-            <option value="atencao">🟡 Atenção</option>
-            <option value="critico">🔴 Crítico</option>
-          </select>
+          <label style={{ flex: '1 1 240px', display: 'block' }}>
+            <span style={labelMini}>Buscar <AjudaCampo chave="compliance.epi.fichas.busca" rota={ROTA} /></span>
+            <input type="text" placeholder="Buscar por nome, CPF ou matrícula…" value={busca} onChange={(e) => setBusca(e.target.value)} style={{ ...inputStyle, width: '100%' }} />
+          </label>
+          <label style={{ minWidth: 160, display: 'block' }}>
+            <span style={labelMini}>Setor <AjudaCampo chave="compliance.epi.fichas.filtro_setor" rota={ROTA} /></span>
+            <select value={filtroSetor} onChange={(e) => setFiltroSetor(e.target.value)} style={{ ...inputStyle, width: '100%' }}>
+              <option value="">Todos os setores</option>
+              {setores.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
+          <label style={{ minWidth: 160, display: 'block' }}>
+            <span style={labelMini}>Vínculo <AjudaCampo chave="compliance.epi.fichas.filtro_vinculo" rota={ROTA} /></span>
+            <select value={filtroVinculo} onChange={(e) => setFiltroVinculo(e.target.value as any)} style={{ ...inputStyle, width: '100%' }}>
+              <option value="">Todos os vínculos</option>
+              <option value="direto">Direto</option>
+              <option value="terceirizado">Terceirizado</option>
+            </select>
+          </label>
+          <label style={{ minWidth: 160, display: 'block' }}>
+            <span style={labelMini}>Situação <AjudaCampo chave="compliance.epi.fichas.filtro_situacao" rota={ROTA} /></span>
+            <select value={filtroSituacao} onChange={(e) => setFiltroSituacao(e.target.value as any)} style={{ ...inputStyle, width: '100%' }}>
+              <option value="">Todas as situações</option>
+              <option value="sem_epi">⚪ Sem EPI</option>
+              <option value="em_dia">🟢 Em dia</option>
+              <option value="atencao">🟡 Atenção</option>
+              <option value="critico">🔴 Crítico</option>
+            </select>
+          </label>
         </section>
 
         {loading ? (
@@ -194,4 +210,5 @@ export default function FichasEpiPage() {
 }
 
 const inputStyle: React.CSSProperties = { width: '100%', padding: '9px 12px', background: '#FAF7F2', border: '1px solid #ece3d2', borderRadius: 8, fontSize: 13, color: '#1a1a1a', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }
+const labelMini: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 }
 const btnSec: React.CSSProperties = { padding: '10px 14px', borderRadius: 8, border: '1px solid #ece3d2', background: '#FFFFFF', color: '#3D2314', fontSize: 13, fontWeight: 600, textDecoration: 'none', cursor: 'pointer' }
