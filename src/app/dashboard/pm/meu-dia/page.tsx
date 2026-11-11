@@ -12,6 +12,7 @@ import { Sun, AtSign, History, StickyNote, Pin, PinOff, Archive, CalendarClock, 
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 import { Cronometro, type JobCurto } from "@/components/pm/Cronometro";
 import { BotaoPlay } from "@/components/pm/BotaoPlay";
 import { prazoAprovacao, textoAtraso, type ItemPauta } from "@/lib/pm/pauta";
@@ -59,7 +60,7 @@ export default function MeuDiaPage() {
       supabase.from("agency_pauta_lote").select("criado_em, acao, job_ids, desfeito_em").eq("company_id", empresa).eq("user_id", uid).order("criado_em", { ascending: false }).limit(10),
       supabase.from("agency_anotacoes").select("id, texto, fixada, job_id, atualizado_em").eq("company_id", empresa).is("excluido_em", null).order("fixada", { ascending: false }).order("atualizado_em", { ascending: false }).limit(30),
     ]);
-    if (ls.error) { setErro(ls.error.message); setCarregando(false); return; }
+    if (ls.error) { setErro(erroAmigavel(ls.error, "Não foi possível carregar o seu dia. Tente de novo.")); setCarregando(false); return; }
     const pessoas = ((eq.data ?? []) as { id: string; full_name: string | null; email: string | null; is_active: boolean }[])
       .filter((u) => u.is_active).map((u) => ({ id: u.id, nome: u.full_name || u.email || "usuário" }))
       .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
@@ -93,13 +94,13 @@ export default function MeuDiaPage() {
   async function salvarNota() {
     if (!empresa || !userId || !novaNota.trim()) return;
     const { error } = await supabase.from("agency_anotacoes").insert({ company_id: empresa, user_id: userId, texto: novaNota.trim() });
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error, "Não foi possível salvar a anotação. Tente de novo.")); return; }
     setNovaNota(""); void carregar();
   }
   async function fixarNota(n: Nota) {
     // fixar/desafixar não é exclusão: update direto (RLS autor-only já garante a posse)
     const { error } = await supabase.from("agency_anotacoes").update({ fixada: !n.fixada, atualizado_em: new Date().toISOString() }).eq("id", n.id);
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error, "Não foi possível fixar a anotação. Tente de novo.")); return; }
     void carregar();
   }
   async function salvarEdicao(n: Nota) {
@@ -107,13 +108,13 @@ export default function MeuDiaPage() {
     if (!t) return;
     // editar o texto: update direto (RLS autor-only). CRUD completo (RD-98 p2).
     const { error } = await supabase.from("agency_anotacoes").update({ texto: t, atualizado_em: new Date().toISOString() }).eq("id", n.id);
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error, "Não foi possível salvar a edição. Tente de novo.")); return; }
     setEditId(null); setEditTexto(""); void carregar();
   }
   async function arquivarNota(n: Nota) {
     // RD-98 p4: exclusão rastreável — RPC grava excluido_por = auth.uid() + audit_log_global
     const { error } = await supabase.rpc("fn_agency_anotacao_arquivar", { p_id: n.id });
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error, "Não foi possível arquivar a anotação. Tente de novo.")); return; }
     void carregar();
   }
 
