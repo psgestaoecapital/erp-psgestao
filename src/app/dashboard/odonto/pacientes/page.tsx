@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { Plus, Search, X, UploadCloud, User, Pencil, MessageCircle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { SaldoBadge } from '@/components/odonto/ui'
 
 // idade a partir da data de nascimento (RD-51: sem data → null)
@@ -155,7 +156,7 @@ export default function PacientesPage() {
       },
     })
     const r = data as { ok?: boolean; erro?: string; cliente_id?: string | null } | null
-    if (error || !r?.ok) { setMsg(r?.erro || error?.message || 'Falha ao salvar o paciente.'); return }
+    if (error || !r?.ok) { setMsg(erroAmigavel(error, codigoAmigavel(r?.erro, 'Não foi possível salvar o paciente. Tente de novo.'))); return }
     setEdit(null)
     setMsg((isNew ? 'Paciente cadastrado' : 'Paciente atualizado') + (r.cliente_id ? ' · vinculado ao financeiro (GE).' : '.'))
     setTimeout(() => setMsg(null), 3500)
