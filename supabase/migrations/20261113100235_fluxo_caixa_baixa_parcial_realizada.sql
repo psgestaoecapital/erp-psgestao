@@ -174,3 +174,8 @@ BEGIN
   );
 END;
 $function$;
+
+-- Guarda de acesso (régua check_fn_guards / RD-52): função SECURITY DEFINER não pode ser
+-- chamada por quem não está logado. Reafirma o ACL atual (authenticated-only; anon nunca teve).
+REVOKE ALL ON FUNCTION public.fn_fluxo_caixa_diario(uuid, date, date, uuid, text) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_fluxo_caixa_diario(uuid, date, date, uuid, text) TO authenticated;
