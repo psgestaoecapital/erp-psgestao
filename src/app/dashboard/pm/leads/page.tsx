@@ -10,6 +10,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { nomeUsuario } from '@/lib/usuarioLabel'
 import SolicitarContratoModal from '@/components/ge/SolicitarContratoModal'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { TarefasLeadModal, MinhasTarefasModal, SELECT_TAREFA, tipoTarefa, quando, atrasada, whatsappHref, type Tarefa } from '@/components/pm/TarefasLead'
 
 const ESPRESSO = '#3D2314'
@@ -295,7 +296,7 @@ export default function LeadsPage() {
     setBusy(true)
     try {
       const { data, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: empresa, p_nome: nome, p_cpf_cnpj: null, p_extra: { email: form.contato_email || null, telefone: form.contato_telefone || null } })
-      if (error) { setToast(`Erro: ${error.message}`); return }
+      if (error) { setToast(erroAmigavel(error, 'Não foi possível concluir a ação. Tente de novo.')); return }
       const cid = data as string | null
       setForm((f) => ({ ...f, empresa: nome, erp_cliente_id: cid })); setCliSug([]); setCliTermo(nome)
       setToast('Cliente CRIADO na GE e vinculado.')
@@ -317,7 +318,7 @@ export default function LeadsPage() {
       },
     })
     setBusy(false)
-    if (error) { setToast(`Erro: ${error.message}`); return }
+    if (error) { setToast(erroAmigavel(error, 'Não foi possível concluir a ação. Tente de novo.')); return }
     setNovo(false); setForm(FORM0); setCliTermo(''); setCliSug([])
     setToast('Lead CRIADO.'); void carregar()
   }
@@ -334,7 +335,7 @@ export default function LeadsPage() {
     const { data, error } = await supabase.rpc('fn_agency_lead_ganhar', { p_lead_id: l.id })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setToast(erroAmigavel(error, 'Não foi possível concluir a ação. Tente de novo.')); return }
     setToast('GANHOU → proposta pronta.'); void carregar()
     setTimeout(() => router.push('/dashboard/pm/propostas'), 700)
   }
@@ -355,7 +356,7 @@ export default function LeadsPage() {
         const nome = (l.empresa || l.nome || '').trim()
         if (!nome) { setToast('Lead sem empresa/contato para criar cliente.'); return }
         const { data, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: empresa, p_nome: nome, p_cpf_cnpj: null, p_extra: { email: l.contato_email || null, telefone: l.contato_telefone || null } })
-        if (error) { setToast(`Erro: ${error.message}`); return }
+        if (error) { setToast(erroAmigavel(error, 'Não foi possível concluir a ação. Tente de novo.')); return }
         cid = data as string | null
         if (cid) await supabase.from('agency_leads').update({ erp_cliente_id: cid, atualizado_em: new Date().toISOString() }).eq('id', l.id)
       }
@@ -373,7 +374,7 @@ export default function LeadsPage() {
     // cria vinculada + pré-preenchida (grava lead_id sempre; total vem dos itens — trava do PR-B)
     const { data: c, error } = await supabase.rpc('fn_agency_lead_proposta_criar', { p_lead_id: l.id })
     const cr = c as { ok?: boolean; id?: string; erro?: string } | null
-    if (error || !cr?.ok || !cr.id) { setToast('Erro ao criar proposta: ' + (error?.message ?? cr?.erro ?? 'falhou')); return }
+    if (error || !cr?.ok || !cr.id) { setToast(erroAmigavel(error, 'Não foi possível criar a proposta a partir do lead. Tente de novo.')); return }
     // criar proposta = avançar: move o lead pra etapa "proposta" se existir no funil
     const propChave = etapas.find((e) => e.chave === 'proposta')?.chave
     if (propChave && l.etapa !== propChave) {
@@ -410,7 +411,7 @@ export default function LeadsPage() {
       if (error || !r?.ok) {
         setToast(r?.orientacao ?? (r?.erro === 'sem_permissao'
           ? 'Só o responsável, quem criou ou um admin podem excluir este lead.'
-          : 'Erro ao excluir: ' + (error?.message ?? r?.erro ?? 'falhou')))
+          : erroAmigavel(error, 'Não foi possível excluir o lead. Tente de novo.')))
         return
       }
       setToast('Lead excluído.')
@@ -793,7 +794,7 @@ function ConfigFunil({ empresa, etapas, leads, onClose, onChange, setToast }: {
     })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setToast(erroAmigavel(error, 'Não foi possível concluir a ação. Tente de novo.')); return }
     setToast('Etapa SALVA.'); await onChange()
   }
   async function adicionar() {
@@ -805,7 +806,7 @@ function ConfigFunil({ empresa, etapas, leads, onClose, onChange, setToast }: {
     })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setToast(erroAmigavel(error, 'Não foi possível concluir a ação. Tente de novo.')); return }
     setNovoRot(''); setNovoCor('#F0E9DE'); setNovoTipo('normal')
     setToast('Etapa ADICIONADA.'); await onChange()
   }
@@ -819,7 +820,7 @@ function ConfigFunil({ empresa, etapas, leads, onClose, onChange, setToast }: {
     const j = data as { ok?: boolean; erro?: string; qtd?: number } | null
     if (error || !j?.ok) {
       if (j?.erro === 'etapa_com_registros') setToast(`Mova os ${j.qtd} lead(s) antes de excluir "${e.rotulo}".`)
-      else setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`)
+      else setToast(erroAmigavel(error, 'Não foi possível concluir a ação. Tente de novo.'))
       return
     }
     setToast('Etapa EXCLUÍDA.'); await onChange()
@@ -920,7 +921,7 @@ function ConfigOrigens({ empresa, origens, leads, onClose, onChange, setToast }:
     })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setToast(erroAmigavel(error, 'Não foi possível concluir a ação. Tente de novo.')); return }
     await recarregar(); await onChange()
   }
   async function adicionar() {
@@ -932,7 +933,7 @@ function ConfigOrigens({ empresa, origens, leads, onClose, onChange, setToast }:
     })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setToast(erroAmigavel(error, 'Não foi possível concluir a ação. Tente de novo.')); return }
     setNovo(''); setToast('Origem ADICIONADA.'); await recarregar(); await onChange()
   }
   async function excluir(o: Origem) {
@@ -945,7 +946,7 @@ function ConfigOrigens({ empresa, origens, leads, onClose, onChange, setToast }:
     const j = data as { ok?: boolean; erro?: string; qtd?: number } | null
     if (error || !j?.ok) {
       if (j?.erro === 'origem_com_leads') setToast(`${j.qtd} lead(s) usam "${o.nome}". Desative em vez de excluir.`)
-      else setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`)
+      else setToast(erroAmigavel(error, 'Não foi possível concluir a ação. Tente de novo.'))
       return
     }
     setToast('Origem EXCLUÍDA.'); await recarregar(); await onChange()
@@ -1055,7 +1056,7 @@ function ReuniaoModal({ lead, empresa, uid, reuniaoChave, onClose, onSaved, setT
       p_observacao: obs.trim() || null,
     })
     setBusy(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível salvar. Tente de novo.')); return }
     setToast('Reunião AGENDADA.'); onSaved()
   }
 
@@ -1108,7 +1109,7 @@ function EditarLeadModal({ lead, empresa, origens, onClose, onSaved }: {
       observacoes: f.observacoes.trim() || null, atualizado_em: new Date().toISOString(),
     }).eq('id', lead.id).eq('company_id', empresa)
     setBusy(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível salvar. Tente de novo.')); return }
     onSaved()
   }
   return (
