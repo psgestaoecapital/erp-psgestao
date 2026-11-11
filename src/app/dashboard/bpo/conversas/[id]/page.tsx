@@ -7,6 +7,7 @@ import { useEffect, useState, useRef, use } from "react";
 import { useRouter } from "next/navigation";
 import { rpc, supabaseBrowser } from "@/lib/authFetch";
 import { getUsuarioId } from "@/lib/AuthProvider";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 
 interface Mensagem {
   id: string;
@@ -97,7 +98,7 @@ export default function ConversaDetalhePage({ params }: { params: Promise<{ id: 
       // Marcar como lida
       await rpc("fn_bpo_conversa_marcar_lida", { p_conversa_id: id, p_user_id: uid });
     } catch (e: any) {
-      setErro(e.message);
+      setErro(erroAmigavel(e));
     } finally {
       setLoading(false);
     }
@@ -139,7 +140,7 @@ export default function ConversaDetalhePage({ params }: { params: Promise<{ id: 
       setTimeout(() => setAviso(null), 3000);
       await carregar();
     } catch (e: any) {
-      setErro(e.message);
+      setErro(erroAmigavel(e));
     } finally {
       setEnviando(false);
     }
@@ -162,7 +163,7 @@ export default function ConversaDetalhePage({ params }: { params: Promise<{ id: 
       setTimeout(() => setAviso(null), 3000);
       await carregar();
     } catch (e: any) {
-      setErro(e.message);
+      setErro(erroAmigavel(e));
     } finally {
       setEnviando(false);
     }
@@ -174,7 +175,7 @@ export default function ConversaDetalhePage({ params }: { params: Promise<{ id: 
       await rpc("fn_bpo_conversa_resolver", { p_conversa_id: id, p_user_id: userId });
       router.push("/dashboard/bpo/conversas");
     } catch (e: any) {
-      setErro(e.message);
+      setErro(erroAmigavel(e));
     }
   }
 
