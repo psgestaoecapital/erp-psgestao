@@ -12,6 +12,7 @@ import { FileText, Plus, ArrowRight, CheckCircle2, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { ClienteBusca } from '@/components/pm/ClienteBusca'
 import { BriefingEditor, briefingParaJob } from '@/components/pm/BriefingEditor'
 
@@ -93,7 +94,7 @@ export default function BriefingsPage() {
     const { data, error } = await supabase.rpc('fn_pm_planejamento_do_fee', { p_fee_id: b.fee_id, p_mes: mes })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string; planejamento_id?: string } | null
-    if (error || !r?.ok || !r.planejamento_id) { setToast({ texto: `Não deu para planejar: ${error?.message ?? r?.erro ?? 'erro'}.` }); return }
+    if (error || !r?.ok || !r.planejamento_id) { setToast({ texto: error ? erroAmigavel(error, 'Não deu para planejar o briefing.') : codigoAmigavel(r?.erro, 'Não deu para planejar o briefing.') }); return }
     window.location.href = `/dashboard/pm/planejamento?p=${r.planejamento_id}`
   }
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 6000); return () => clearTimeout(t) }, [toast])
@@ -130,7 +131,7 @@ export default function BriefingsPage() {
       const { data, error } = await supabase.rpc('fn_agency_briefing_lancar', { p_id: editId, p_dados: campos })
       setBusy(false)
       const r = data as { ok?: boolean; erro?: string } | null
-      if (error || !r?.ok) { setToast({ texto: `Não deu para lançar: ${error?.message ?? r?.erro ?? 'erro'}.` }); return }
+      if (error || !r?.ok) { setToast({ texto: error ? erroAmigavel(error, 'Não deu para lançar o briefing.') : codigoAmigavel(r?.erro, 'Não deu para lançar o briefing.') }); return }
       fechar()
       setToast({ texto: 'Briefing lançado. Pronto para o planejamento.' }); void carregar()
       return
@@ -139,7 +140,7 @@ export default function BriefingsPage() {
       ? await supabase.from('agency_briefings').update({ ...campos, updated_at: new Date().toISOString() }).eq('id', editId).eq('company_id', empresa)
       : await supabase.from('agency_briefings').insert({ ...campos, company_id: empresa, status: 'novo' })
     setBusy(false)
-    if (error) { setToast({ texto: `Erro: ${error.message}` }); return }
+    if (error) { setToast({ texto: erroAmigavel(error, 'Não foi possível salvar o briefing.') }); return }
     const eraEdicao = !!editId
     fechar()
     setToast({ texto: eraEdicao ? 'Briefing salvo.' : 'Briefing criado.' }); void carregar()
@@ -156,7 +157,7 @@ export default function BriefingsPage() {
     }).select('id').single()
     if (!error) await supabase.from('agency_briefings').update({ status: 'virou_job', updated_at: new Date().toISOString() }).eq('id', b.id)
     setBusy(false)
-    setToast(error ? { texto: `Erro: ${error.message}` } : { texto: 'Job criado com o briefing completo.', jobId: (job as { id: string } | null)?.id })
+    setToast(error ? { texto: erroAmigavel(error, 'Não foi possível criar o job a partir do briefing.') } : { texto: 'Job criado com o briefing completo.', jobId: (job as { id: string } | null)?.id })
     void carregar()
   }
 
@@ -167,7 +168,7 @@ export default function BriefingsPage() {
     const { data, error } = await supabase.rpc('fn_agency_briefing_excluir', { p_id: b.id })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { setToast({ texto: `Não deu para excluir: ${error?.message ?? r?.erro ?? 'erro'}.` }); return }
+    if (error || !r?.ok) { setToast({ texto: error ? erroAmigavel(error, 'Não deu para excluir o briefing.') : codigoAmigavel(r?.erro, 'Não deu para excluir o briefing.') }); return }
     setToast({ texto: 'Briefing excluído.' }); void carregar()
   }
 
