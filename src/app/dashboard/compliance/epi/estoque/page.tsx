@@ -7,6 +7,10 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+// RD-95: toda ajuda desta subtela aponta para a própria rota.
+const ROTA = '/dashboard/compliance/epi/estoque'
 
 const C = {
   espresso: '#3D2314',
@@ -137,7 +141,10 @@ export default function EstoqueEpiPage() {
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <Link href="/dashboard/compliance/epi" style={btnSec}>← EPI</Link>
-            <button onClick={() => setShowEntrada(true)} disabled={!companyAlvo} style={{ ...btnPrim, opacity: companyAlvo ? 1 : 0.5, cursor: companyAlvo ? 'pointer' : 'not-allowed' }}>+ Entrada de Estoque</button>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <button onClick={() => setShowEntrada(true)} disabled={!companyAlvo} style={{ ...btnPrim, opacity: companyAlvo ? 1 : 0.5, cursor: companyAlvo ? 'pointer' : 'not-allowed' }}>+ Entrada de Estoque</button>
+              <AjudaCampo chave="compliance.epi.estoque.nav_entrada" rota={ROTA} />
+            </span>
           </div>
         </header>
 
@@ -145,15 +152,20 @@ export default function EstoqueEpiPage() {
 
         {multiEmpresa && (
           <section style={{ background: '#FFFFFF', borderRadius: 12, padding: 16, marginBottom: 16, boxShadow: '0 1px 3px rgba(61,35,20,0.06)' }}>
-            <label style={labelStyle}>Empresa-alvo (para entradas)</label>
-            <select value={companyAlvo} onChange={(e) => setCompanyAlvo(e.target.value)} style={{ ...inputStyle, minWidth: 240 }}>
-              {(companyIds || []).map((id) => <option key={id} value={id}>{empresaPorId.get(id) || id}</option>)}
-            </select>
+            <label style={{ display: 'block' }}>
+              <span style={{ ...labelStyle, display: 'inline-flex', alignItems: 'center', gap: 6 }}>Empresa-alvo (para entradas) <AjudaCampo chave="compliance.epi.estoque.empresa_alvo" rota={ROTA} /></span>
+              <select value={companyAlvo} onChange={(e) => setCompanyAlvo(e.target.value)} style={{ ...inputStyle, minWidth: 240 }}>
+                {(companyIds || []).map((id) => <option key={id} value={id}>{empresaPorId.get(id) || id}</option>)}
+              </select>
+            </label>
           </section>
         )}
 
         <section style={{ background: '#FFFFFF', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61,35,20,0.06)', marginBottom: 16 }}>
-          <input type="text" placeholder="Buscar por EPI / CA / localização…" value={busca} onChange={(e) => setBusca(e.target.value)} style={{ ...inputStyle, width: '100%' }} />
+          <label style={{ display: 'block' }}>
+            <span style={{ ...labelStyle, display: 'inline-flex', alignItems: 'center', gap: 6 }}>Buscar no estoque <AjudaCampo chave="compliance.epi.estoque.busca" rota={ROTA} /></span>
+            <input type="text" placeholder="Buscar por EPI / CA / localização…" value={busca} onChange={(e) => setBusca(e.target.value)} style={{ ...inputStyle, width: '100%' }} />
+          </label>
         </section>
 
         <section style={{ background: '#FFFFFF', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 3px rgba(61,35,20,0.06)' }}>
@@ -161,15 +173,15 @@ export default function EstoqueEpiPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: C.beigeLt }}>
-                  <Th>EPI</Th>
-                  <Th>CA</Th>
-                  <Th>Localização</Th>
-                  {multiEmpresa && <Th>Empresa</Th>}
-                  <Th align="right">Disp.</Th>
-                  <Th align="right">Reservada</Th>
-                  <Th align="right">Mín.</Th>
-                  <Th align="center">Status</Th>
-                  <Th align="right">Ações</Th>
+                  <Th>EPI <AjudaCampo chave="compliance.epi.estoque.col_epi" rota={ROTA} /></Th>
+                  <Th>CA <AjudaCampo chave="compliance.epi.estoque.col_ca" rota={ROTA} /></Th>
+                  <Th>Localização <AjudaCampo chave="compliance.epi.estoque.col_localizacao" rota={ROTA} /></Th>
+                  {multiEmpresa && <Th>Empresa <AjudaCampo chave="compliance.epi.estoque.col_empresa" rota={ROTA} /></Th>}
+                  <Th align="right">Disp. <AjudaCampo chave="compliance.epi.estoque.col_disponivel" rota={ROTA} /></Th>
+                  <Th align="right">Reservada <AjudaCampo chave="compliance.epi.estoque.col_reservada" rota={ROTA} /></Th>
+                  <Th align="right">Mín. <AjudaCampo chave="compliance.epi.estoque.col_minima" rota={ROTA} /></Th>
+                  <Th align="center">Status <AjudaCampo chave="compliance.epi.estoque.col_status" rota={ROTA} /></Th>
+                  <Th align="right">Ações <AjudaCampo chave="compliance.epi.estoque.col_acoes" rota={ROTA} /></Th>
                 </tr>
               </thead>
               <tbody>
