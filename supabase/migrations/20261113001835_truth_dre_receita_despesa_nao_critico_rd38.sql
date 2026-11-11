@@ -67,6 +67,8 @@ BEGIN
   SELECT COUNT(DISTINCT company_id), COUNT(*) FILTER (WHERE severity='critical') INTO v_empresas, v_criticas FROM erp_truth_alerts WHERE rule_id='dre_receita_bate_nfs' AND status='novo';
   RETURN QUERY SELECT v_alertas, v_empresas, v_criticas;
 END $function$;
+-- detector interno (cron/serviço); nunca chamável por quem não está logado.
+REVOKE ALL ON FUNCTION public.fn_truth_audit_dre() FROM anon, public;
 
 -- 2) DESPESA — fn_truth_audit_dre_despesa: severity capada em 'warn' (remove o ramo 'critical') --------
 CREATE OR REPLACE FUNCTION public.fn_truth_audit_dre_despesa()
@@ -113,6 +115,8 @@ BEGIN
   SELECT COUNT(DISTINCT company_id), COUNT(*) FILTER (WHERE severity='critical') INTO v_empresas, v_criticas FROM erp_truth_alerts WHERE rule_id='dre_despesas_bate_pagamentos' AND status='novo';
   RETURN QUERY SELECT v_alertas, v_empresas, v_criticas;
 END $function$;
+-- detector interno (cron/serviço); nunca chamável por quem não está logado.
+REVOKE ALL ON FUNCTION public.fn_truth_audit_dre_despesa() FROM anon, public;
 
 -- 3) Limpeza imediata (bounded, WITH WHERE, tabela de sistema não-domínio): rebaixa os CRÍTICOS FALSOS
 -- já existentes dessas duas regras para 'warn', tirando-os do briefing do CEO SEM re-rodar o detector
