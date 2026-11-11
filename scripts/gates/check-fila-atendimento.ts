@@ -51,6 +51,10 @@ banco[1] = { ...banco[1], numero: 135, status: 'nova', resposta: 'rascunho', res
 banco[2] = { ...banco[2], numero: 1, status: 'concluida', resposta: 'rascunho', resposta_aprovada: false }
 banco[3] = { ...banco[3], numero: 50, status: 'aguardando_confirmacao', resposta: 'aprovada', resposta_aprovada: true }
 banco[4] = { ...banco[4], numero: 900, company_id: 'demo1', status: 'nova', resposta: 'rascunho do robô', resposta_aprovada: false }   // DEMO
+// #7050: arquivado RECENTE sem rascunho — não pode ocupar a janela de recentes (board/lista nunca o mostram)
+banco[398] = { ...banco[398], numero: 777, status: 'arquivada', resposta: null, resposta_aprovada: false }
+// #7050 / RD-30: arquivado RECENTE COM rascunho não aprovado continua carregado (via carga de rascunhos)
+banco[397] = { ...banco[397], numero: 778, status: 'arquivada', resposta: 'rascunho', resposta_aprovada: false }
 const empresas = [{ id: 'demo1', is_demo: true }, { id: 'real', is_demo: false }]
 function fake(limite: number) {
   return { from: (tabela: string) => {
@@ -59,6 +63,7 @@ function fake(limite: number) {
     const q = {
       select: () => q,
       eq: (c: string, v: unknown) => { rows = rows.filter((r) => r[c] === v); return q },
+      neq: (c: string, v: unknown) => { rows = rows.filter((r) => r[c] !== v); return q },
       not: (c: string, _op: string, v: unknown) => { rows = rows.filter((r) => r[c] !== v); return q },
       order: () => { rows.sort((a, b) => b.created_at.localeCompare(a.created_at)); return q },
       limit: (n: number) => Promise.resolve({ data: rows.slice(0, Math.min(n, limite)), error: null }),
@@ -77,6 +82,8 @@ function fake(limite: number) {
   ok(contarPrecisaDeMim(fila.data) === 3, 'com "mostrar demos" o rascunho do robô (#900) aparece na aba')
   ok(fila.data.some((r) => r.numero === 1 && rascunhoNaoEnviado(r)), '#1 (concluída) continua carregado, marcado "rascunho não enviado"')
   ok(fila.data.some((r) => r.numero === 286) && fila.data.some((r) => r.numero === 135), '#286 e #135 estão na carga da fila mesmo fora dos recentes')
+  ok(!fila.data.some((r) => r.numero === 777), '#7050: arquivado sem rascunho fica FORA da janela de recentes (não ocupa o LIMIT escondendo abertos/concluídos)')
+  ok(fila.data.some((r) => r.numero === 778 && rascunhoNaoEnviado(r)), '#7050/RD-30: arquivado COM rascunho não aprovado continua na carga, marcado "rascunho não enviado"')
   if (falhas > 0) { console.error(`\n[check-fila-atendimento] ${falhas} regra(s) quebrada(s) — build bloqueado.`); process.exit(1) }
 console.log('\n[check-fila-atendimento] fila de chamados conferida.')
 })()
