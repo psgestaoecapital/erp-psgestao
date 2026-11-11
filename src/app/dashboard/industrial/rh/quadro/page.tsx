@@ -239,7 +239,8 @@ function LinhaPessoa({ p, pode, cargos, setores, onSalvar }: { p: Pessoa; pode: 
   const [sal, setSal] = useState(p.salario != null ? String(p.salario) : '')
   const mudou = cargo !== (p.cargo_id ?? '') || setor !== (p.setor_id ?? '') || sup !== (p.supervisor ?? '') || sal !== (p.salario != null ? String(p.salario) : '')
   return (
-    <tr>
+    // data-ajuda: os campos editáveis da linha são documentados pelo "?" de cada coluna no cabeçalho (RD-95).
+    <tr data-ajuda="rh.quadro.cargo">
       <td style={{ ...td, fontWeight: 600 }}>{p.nome ?? '—'}{p.origem !== 'ponto_folha' && <span style={{ fontSize: 10, color: GOLD, marginLeft: 6 }}>{p.origem === 'so_folha' ? 'só folha' : 'só ponto'}</span>}</td>
       <td style={{ ...td, fontFamily: 'ui-monospace, monospace', color: MUT }}>{p.cpf}</td>
       <td style={{ ...td, color: MUT }}>{p.funcao ?? '—'}</td>
