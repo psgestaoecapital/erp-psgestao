@@ -92,7 +92,7 @@ export default function VagasPage() {
       supabase.from('prod_cargo').select('id, nome').eq('company_id', companyId).eq('ativo', true).order('nome'),
       supabase.from('prod_posto').select('id, numero, atividade, setor_id').eq('company_id', companyId).eq('ativo', true).order('numero'),
     ])
-    if (v.error) { setErro(v.error.message || 'Não foi possível carregar as vagas.'); setVagas([]) }
+    if (v.error) { setErro('Não foi possível carregar as vagas.'); setVagas([]) }
     else { setVagas((v.data?.itens ?? []) as Vaga[]); setPodeDecidir(!!v.data?.pode_decidir) }
     setSetores((s.data ?? []) as Setor[])
     setCargos((c.data ?? []) as Cargo[])
@@ -132,7 +132,7 @@ export default function VagasPage() {
     }
     const { data, error } = await supabase.rpc('fn_rh_vaga_abrir', { p_company_id: companyId, p_payload: payload })
     setSalvando(false)
-    if (error || !data?.sucesso) { flash(data?.erro || error?.message || 'Não foi possível abrir a vaga.'); return }
+    if (error || !data?.sucesso) { flash(data?.erro || 'Não foi possível abrir a vaga.'); return }
     setFormAberto(false); setForm(FORM_VAZIO)
     flash(data.status === 'aprovada' ? 'Vaga de reposição registrada (aprovada).' : 'Vaga enviada para análise da diretoria.')
     void carregar()
@@ -146,7 +146,7 @@ export default function VagasPage() {
     else res = await supabase.rpc('fn_rh_vaga_decidir', { p_vaga_id: acao.vaga.id, p_decisao: acao.tipo === 'aprovar' ? 'aprovada' : 'recusada', p_motivo: motivo.trim() || null })
     setDecidindo(false)
     const data = res.data
-    if (res.error || !data?.sucesso) { flash(data?.erro || res.error?.message || 'Não foi possível concluir a ação.'); return }
+    if (res.error || !data?.sucesso) { flash(data?.erro || 'Não foi possível concluir a ação.'); return }
     setAcao(null); setMotivo('')
     flash(acao.tipo === 'aprovar' ? 'Vaga aprovada.' : acao.tipo === 'recusar' ? 'Vaga recusada.' : 'Vaga cancelada.')
     void carregar()
