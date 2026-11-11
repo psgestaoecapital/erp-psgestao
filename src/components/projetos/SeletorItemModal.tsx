@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Search, X, Package, HardHat, Wrench } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 
 // RD-95: abre dentro da ficha do serviço (rota dinâmica) → textos do "?" na rota fixa dela
 const ROTA_AJUDA_SERVICO = "/dashboard/projetos/catalogo/[id]";
@@ -94,7 +95,7 @@ export function SeletorItemModal({
         setInsumos((insR.data as InsumoRow[]) || []);
         setMos((moR.data as MoRow[]) || []);
       } catch (e: any) {
-        if (!cancel) setErro(e.message);
+        if (!cancel) setErro(erroAmigavel(e));
       } finally {
         if (!cancel) setLoading(false);
       }
