@@ -159,7 +159,7 @@ export default function NegociacaoPage() {
     const p = parceiros.find(x => x.nome === nome)
     const fin = numOrNull(f.financiado ?? '')
     setF(s => {
-      const prox = { ...s, banco_nome: nome }
+      const prox: Record<string, string> = { ...s, banco_nome: nome }
       if (p && p.retorno_pct != null && fin != null) prox.retorno_banco = String(Math.round(fin * p.retorno_pct) / 100)
       return prox
     })
