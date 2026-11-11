@@ -9,6 +9,7 @@ import { useCompanyIds } from "@/lib/useCompanyIds";
 import ServicoAutocomplete, { type ServicoSelecionado } from "@/components/comum/ServicoAutocomplete";
 import ServicoEngenhariaAutocomplete, { type ServicoEngSelecionado } from "@/components/comum/ServicoEngenhariaAutocomplete";
 import NumeracaoConfigModal from "@/components/orcamento/NumeracaoConfigModal";
+import AnexosCard from "@/components/crm/AnexosCard";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -118,7 +119,7 @@ export default function OrcamentosPage(){
   const [meuId,setMeuId]=useState<string|null>(null);
   const [filtroMeus,setFiltroMeus]=useState(false);
   // #3272 · oportunidade de origem do orçamento aberto em edição.
-  const [infoOport,setInfoOport]=useState<{titulo:string|null;obra_endereco:string|null;obra_cidade:string|null;obra_bairro:string|null;responsavel_nome:string|null;observacoes:string|null;cliente:string|null;visita:string|null}|null>(null);
+  const [infoOport,setInfoOport]=useState<{oportunidade_id:string|null;titulo:string|null;obra_endereco:string|null;obra_cidade:string|null;obra_bairro:string|null;responsavel_nome:string|null;observacoes:string|null;cliente:string|null;visita:string|null}|null>(null);
   const [linkedOrcIds,setLinkedOrcIds]=useState<Set<string>>(new Set());
   const [oportFiltroOrcIds,setOportFiltroOrcIds]=useState<string[]|null>(null);
   const [oportFiltroAtivo,setOportFiltroAtivo]=useState(false);
@@ -192,7 +193,7 @@ export default function OrcamentosPage(){
       if(!op||!vivo)return;
       const{data:vis}=await supabase.from('erp_crm_visita').select('anotacoes').eq('oportunidade_id',op.id).eq('status','realizada').order('data_visita',{ascending:false}).limit(1).maybeSingle();
       const cli=(op as any).erp_clientes;
-      if(vivo)setInfoOport({titulo:op.titulo,obra_endereco:op.obra_endereco,obra_cidade:op.obra_cidade,obra_bairro:op.obra_bairro,responsavel_nome:op.responsavel_nome,observacoes:op.observacoes,cliente:cli?(cli.nome_fantasia||cli.razao_social):null,visita:vis?.anotacoes??null});
+      if(vivo)setInfoOport({oportunidade_id:op.id,titulo:op.titulo,obra_endereco:op.obra_endereco,obra_cidade:op.obra_cidade,obra_bairro:op.obra_bairro,responsavel_nome:op.responsavel_nome,observacoes:op.observacoes,cliente:cli?(cli.nome_fantasia||cli.razao_social):null,visita:vis?.anotacoes??null});
     })();
     return()=>{vivo=false;};
   },[showForm,editing?.id]);
@@ -870,15 +871,20 @@ export default function OrcamentosPage(){
 
           {editing&&infoOport&&(
             <div style={{background:BG3,border:`1px solid ${BD}`,borderRadius:8,padding:"10px 12px",marginBottom:12,fontSize:11,color:TX}}>
-              <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:6}}>Informações da oportunidade</div>
+              <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:6,display:"flex",alignItems:"center",gap:4}}>Informações da oportunidade<AjudaCampo chave="orcamentos.oportunidade.info" rota="/dashboard/orcamentos"/></div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:6}}>
                 <div><span style={{color:TXD}}>Oportunidade: </span>{infoOport.titulo||'—'}</div>
                 <div><span style={{color:TXD}}>Cliente: </span>{infoOport.cliente||'—'}</div>
                 <div><span style={{color:TXD}}>Responsável: </span>{infoOport.responsavel_nome||'—'}</div>
-                <div><span style={{color:TXD}}>Obra: </span>{[infoOport.obra_endereco,infoOport.obra_bairro,infoOport.obra_cidade].filter(Boolean).join(' · ')||'—'}</div>
+                <div><span style={{color:TXD}}>Obra: </span>{(()=>{const end=[infoOport.obra_endereco,infoOport.obra_bairro,infoOport.obra_cidade].filter(Boolean).join(' · ');return end?<a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(end)}`} target="_blank" rel="noopener noreferrer" style={{color:GO,fontWeight:600}} title="Abrir a localização no mapa">{end}</a>:'—';})()}</div>
               </div>
               {infoOport.visita&&<div style={{marginTop:6,whiteSpace:"pre-wrap"}}><span style={{color:TXD}}>Anotações da visita: </span>{infoOport.visita}</div>}
               {infoOport.observacoes&&<div style={{marginTop:6,whiteSpace:"pre-wrap"}}><span style={{color:TXD}}>Observações: </span>{infoOport.observacoes}</div>}
+              {infoOport.oportunidade_id&&editing&&(
+                <div style={{marginTop:8}}>
+                  <AnexosCard companyId={editing.company_id} vinculoTipo="oportunidade" vinculoId={infoOport.oportunidade_id} somenteLeitura/>
+                </div>
+              )}
             </div>
           )}
 
