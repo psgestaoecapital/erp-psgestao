@@ -13,6 +13,7 @@ import { type Marca } from './FotoMarcador'
 import FotosChamado, { type FotoItem } from './FotosChamado'
 import { BotaoDitar } from './BotaoDitar'
 import PedidoOkSocio from './PedidoOkSocio'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', white: '#FFFFFF', cream: '#F0ECE3',
@@ -213,8 +214,18 @@ export default function ConversaChamado({ sugestaoId, userId, ehSuporte, onAfter
         </div>
       ) : (
       <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: 10 }}>
-        <textarea value={texto} onChange={(e) => setTexto(e.target.value)} placeholder={ehSuporte && autorChamadoId !== userId ? 'Responder ao autor…' : autorChamadoId === userId ? 'Enviar mensagem para quem está atendendo… (escreva ou mande uma foto de um novo erro)' : 'Escreva ou mande uma foto de um novo erro — o chamado volta pra equipe sem encerrar.'} rows={2}
-          style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, outline: 'none', resize: 'vertical' }} />
+        {/* #6930 — o rótulo do compositor segue QUEM FALA, não o papel de suporte: só quem responde um
+            chamado de OUTRA pessoa (a Fila de Atendimento) vê "Responder ao autor…". O próprio autor
+            (mesmo sendo da equipe PS) vê sempre o compositor do seu lado. Enquanto o autor não carregou,
+            assume o lado do autor para nunca rotular errado na tela de Melhorias. */}
+        <label style={{ display: 'block' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, color: C.espM, marginBottom: 6 }}>
+            {autorChamadoId && autorChamadoId !== userId ? 'Responder ao autor' : 'Sua mensagem'}
+            <AjudaCampo chave="chamados.conversa.mensagem" rota="/dashboard/melhorias" />
+          </span>
+          <textarea value={texto} onChange={(e) => setTexto(e.target.value)} placeholder={autorChamadoId && autorChamadoId !== userId ? 'Responder ao autor…' : 'Enviar mensagem para quem está atendendo… (escreva ou mande uma foto de um novo erro)'} rows={2}
+            style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, outline: 'none', resize: 'vertical', marginTop: 6 }} />
+        </label>
         <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
           <FotosChamado value={fotos} onChange={setFotos} compact />
           {/* #63 · ditar a mensagem por voz (fala→texto, editável antes de enviar) */}
