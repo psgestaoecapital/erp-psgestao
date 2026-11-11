@@ -540,7 +540,10 @@ export default function PedidosPage(){
                       </td>
                       <td style={{padding:"8px",textAlign:"right",color:G,fontWeight:600}}>{fmtR(p.total)}</td>
                       <td style={{padding:"8px",textAlign:"right"}}>
-                        <button onClick={()=>abrirDetalhes(p)} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>Detalhes →</button>
+                        <span style={{display:"inline-flex",alignItems:"center",gap:4,justifyContent:"flex-end"}}>
+                          <button onClick={()=>abrirDetalhes(p)} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>Detalhes →</button>
+                          <AjudaCampo chave="pedidos.acao_detalhes" alinhar="fim" />
+                        </span>
                       </td>
                     </tr>
                   );
