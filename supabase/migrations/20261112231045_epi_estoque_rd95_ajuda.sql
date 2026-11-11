@@ -1,7 +1,10 @@
--- Compliance · EPI — Estoque (/dashboard/compliance/epi/estoque) · RD-95
--- A subtela de Estoque de EPI não tinha nenhum "?" (AjudaCampo). Esta migration (ADITIVA, idempotente,
--- NÃO altera dado de cliente) cadastra as chaves de ajuda do filtro, da ação de entrada, do seletor de
--- empresa-alvo e de todas as colunas da lista. O front passa a renderizar o "?" com estas chaves.
+-- Compliance · EPI — subtelas Estoque, Fichas e Alertas · RD-95
+-- Nenhuma das 3 subtelas tinha "?" (AjudaCampo). Esta migration (ADITIVA, idempotente, NÃO altera dado de
+-- cliente) cadastra as chaves de ajuda dos filtros, ações e colunas de cada subtela. O front passa a
+-- renderizar o "?" com estas chaves.
+--   /epi/estoque  — empresa-alvo, busca, + Entrada, colunas da lista
+--   /epi/fichas   — busca, filtros (setor, vínculo, situação)
+--   /epi/alertas  — filtros (status, severidade)
 -- Faixa de migration do desenvolvedor_4_g (segundos :45), acima da main.
 
 INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
@@ -19,6 +22,28 @@ FROM (VALUES
  ('compliance.epi.estoque.col_minima','Colunas','Mínima','Nada a preencher: saldo mínimo de alerta configurado para o item (edite em "Editar mínimo").','Dispara o alerta de estoque baixo/crítico quando o disponível chega perto dela.','Mínimo 10: abaixo disso o item vira alerta.','Mínimo 0: o item nunca alerta e pode faltar sem aviso.',10),
  ('compliance.epi.estoque.col_status','Colunas','Status','Nada a preencher: sinal de saúde do saldo — normal, alerta ou crítico — calculado contra o mínimo.','Mostra de relance o que precisa de reposição.','"crítico" quando o disponível fica em metade do mínimo ou menos.','Ignorar "alerta": ele vira "crítico" se o saldo cair mais.',11),
  ('compliance.epi.estoque.col_acoes','Colunas','Ações','Nada a preencher: aqui ficam as ações da linha, como "Editar mínimo" de alerta.','Ajusta o mínimo de alerta sem sair da lista.','Clique em "Editar mínimo" para mudar de 5 para 10.','Mudar o mínimo não altera o saldo disponível — só o gatilho do alerta.',12)
+) AS v(chave, grupo, rotulo, o_que, para_que, exemplo, erro, ordem)
+WHERE EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='erp_ajuda_campo')
+ON CONFLICT (chave) DO NOTHING;
+
+-- Fichas de EPI (/dashboard/compliance/epi/fichas) — filtros da lista.
+INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
+SELECT v.chave, v.grupo, v.rotulo, v.o_que, v.para_que, v.exemplo, v.erro, v.ordem, '/dashboard/compliance/epi/fichas', 'compliance', 'publicado'
+FROM (VALUES
+ ('compliance.epi.fichas.busca','Filtros','Buscar','Digite parte do nome, do CPF ou da matrícula do funcionário para filtrar os cards.','Encontra a ficha de uma pessoa sem rolar a lista inteira.','Digite "Maria" ou um trecho do CPF/matrícula.','Buscar pelo cargo: a busca é por nome, CPF ou matrícula.',1),
+ ('compliance.epi.fichas.filtro_setor','Filtros','Setor','Escolha um setor para ver só os funcionários dele.','Separa a conformidade de EPI por área da empresa.','"Produção" para ver só quem trabalha na produção.','A lista de setores vem dos funcionários; setor vazio no cadastro não aparece aqui.',2),
+ ('compliance.epi.fichas.filtro_vinculo','Filtros','Vínculo','Filtre por tipo de vínculo: direto (CLT) ou terceirizado.','Ajuda a cobrar o EPI do terceirizado, que também precisa de proteção.','"Terceirizado" para conferir quem é de prestador.','Vínculo em branco no cadastro não cai em nenhum dos dois filtros.',3),
+ ('compliance.epi.fichas.filtro_situacao','Filtros','Situação','Filtre pela saúde da ficha: Sem EPI, Em dia, Atenção ou Crítico.','Mostra de relance quem está irregular e precisa de ação.','"Crítico" para atacar primeiro quem tem troca atrasada.','"Sem EPI" pode ser cargo que não exige EPI — confira o cargo.',4)
+) AS v(chave, grupo, rotulo, o_que, para_que, exemplo, erro, ordem)
+WHERE EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='erp_ajuda_campo')
+ON CONFLICT (chave) DO NOTHING;
+
+-- Alertas de EPI (/dashboard/compliance/epi/alertas) — filtros da lista.
+INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
+SELECT v.chave, v.grupo, v.rotulo, v.o_que, v.para_que, v.exemplo, v.erro, v.ordem, '/dashboard/compliance/epi/alertas', 'compliance', 'publicado'
+FROM (VALUES
+ ('compliance.epi.alertas.filtro_status','Filtros','Status','Escolha quais alertas ver: Ativos, Resolvidos, Ignorados ou Todos.','Foca no que precisa de ação (Ativos) ou revê o histórico.','"Ativos" para ver só o que ainda está em aberto.','Ficar em "Resolvidos" e achar que não há alerta ativo — troque para "Ativos".',1),
+ ('compliance.epi.alertas.filtro_severidade','Filtros','Severidade','Filtre pela gravidade do alerta: Crítica, Alta, Média ou Baixa.','Prioriza o atendimento do risco mais grave primeiro.','"Crítica" para tratar primeiro o que é urgente.','Severidade em branco não entra em nenhum filtro de severidade.',2)
 ) AS v(chave, grupo, rotulo, o_que, para_que, exemplo, erro, ordem)
 WHERE EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='erp_ajuda_campo')
 ON CONFLICT (chave) DO NOTHING;
