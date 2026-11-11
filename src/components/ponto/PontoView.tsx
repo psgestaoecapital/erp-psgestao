@@ -448,6 +448,9 @@ export default function PontoView({ lente }: { lente: Lente }) {
         <button onClick={() => setAba('horas')} style={aba === 'horas' ? tabOn : tabOff}>
           🕐 Histórico de horas ({horas.length})
         </button>
+        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+          <AjudaCampo chave="ponto.abas" rota={AJUDA_ROTA} />
+        </span>
       </div>
 
       {aba === 'painel' ? (
@@ -474,7 +477,7 @@ export default function PontoView({ lente }: { lente: Lente }) {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 760 }}>
                 <thead style={{ background: BG }}>
                   <tr>
-                    <Th>Nome</Th><Th>Matrícula</Th><Th>Função</Th><Th>Departamento</Th><Th>Admissão</Th><Th>Sync</Th>
+                    <Th>Nome <AjudaCampo chave="ponto.col_nome" rota={AJUDA_ROTA} /></Th><Th>Matrícula <AjudaCampo chave="ponto.col_matricula" rota={AJUDA_ROTA} /></Th><Th>Função <AjudaCampo chave="ponto.col_funcao" rota={AJUDA_ROTA} /></Th><Th>Departamento <AjudaCampo chave="ponto.col_departamento" rota={AJUDA_ROTA} /></Th><Th>Admissão <AjudaCampo chave="ponto.col_admissao" rota={AJUDA_ROTA} /></Th><Th>Sync <AjudaCampo chave="ponto.col_sync" rota={AJUDA_ROTA} /></Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -504,7 +507,7 @@ export default function PontoView({ lente }: { lente: Lente }) {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 680 }}>
                 <thead style={{ background: BG }}>
                   <tr>
-                    <Th>Colaborador</Th><Th>Período</Th><Th>Total horas</Th><Th>Função</Th><Th>Departamento</Th><Th>Sync</Th>
+                    <Th>Colaborador <AjudaCampo chave="ponto.col_colaborador" rota={AJUDA_ROTA} /></Th><Th>Período <AjudaCampo chave="ponto.col_periodo" rota={AJUDA_ROTA} /></Th><Th>Total horas <AjudaCampo chave="ponto.col_total_horas" rota={AJUDA_ROTA} /></Th><Th>Função <AjudaCampo chave="ponto.col_funcao" rota={AJUDA_ROTA} /></Th><Th>Departamento <AjudaCampo chave="ponto.col_departamento" rota={AJUDA_ROTA} /></Th><Th>Sync <AjudaCampo chave="ponto.col_sync" rota={AJUDA_ROTA} /></Th>
                   </tr>
                 </thead>
                 <tbody>
