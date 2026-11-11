@@ -26,7 +26,13 @@ interface Props {
   // conta para ativar (fn_contrato_mudar_status), então o anexo da solicitação nunca libera a ativação.
   tipo?: 'contrato_assinado' | 'outro'
   titulo?: string
+  // P2 (CEO 11/11): informa quantos anexos ASSINADOS ('contrato'/'contrato_assinado') existem,
+  // para o modal mostrar/esconder o selo "Contrato não anexado" em tempo real.
+  onContagemAssinados?: (n: number) => void
 }
+
+// anexos que contam como "contrato assinado" (mesmo critério do fn_contrato_mudar_status)
+const TIPOS_ASSINADO = ['contrato', 'contrato_assinado']
 
 const BUCKET = 'contratos-assinados'
 const MIME_OK = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp']
@@ -48,7 +54,7 @@ function sanitizar(nome: string): string {
   return nome.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120)
 }
 
-export default function ContratoArquivos({ companyId, contratoId, tipo = 'contrato_assinado', titulo }: Props) {
+export default function ContratoArquivos({ companyId, contratoId, tipo = 'contrato_assinado', titulo, onContagemAssinados }: Props) {
   const [lista, setLista] = useState<ArquivoRow[]>([])
   const [carregando, setCarregando] = useState(true)
   const [enviando, setEnviando] = useState(false)
@@ -66,8 +72,10 @@ export default function ContratoArquivos({ companyId, contratoId, tipo = 'contra
       .order('enviado_em', { ascending: false })
     setCarregando(false)
     if (error) { setErro(error.message); return }
-    setLista((data as ArquivoRow[]) ?? [])
-  }, [contratoId])
+    const rows = (data as ArquivoRow[]) ?? []
+    setLista(rows)
+    onContagemAssinados?.(rows.filter((r) => TIPOS_ASSINADO.includes(r.tipo)).length)
+  }, [contratoId, onContagemAssinados])
 
   useEffect(() => { void carregar() }, [carregar])
 
