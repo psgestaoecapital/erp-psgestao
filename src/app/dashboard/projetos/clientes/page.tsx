@@ -314,12 +314,16 @@ export default function ClientesPage() {
         <Indicador rotulo="Em negociação" valor={loading ? '…' : brlCurto(resumo.emAberto)} ajuda="projetos.clientes.kpi.em_aberto" dica={!loading && resumo.emAberto === 0 ? 'Sem proposta ou oportunidade em aberto neste recorte' : undefined} />
       </div>
 
-      {/* Toolbar */}
+      {/* Toolbar — cada "?" fica colado ao seu controle (busca e ação), sem ficar solto no meio da barra */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10, alignItems: 'center' }}>
-        <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por nome, documento, cidade, contato…" style={{ ...inp, flex: 1, minWidth: 200 }} />
-        <AjudaCampo chave="projetos.clientes.busca" />
-        <button onClick={() => { setCepMsg(null); setDocMsg(null); setForm({ ...VAZIO }) }} style={btnGold}>+ Novo cliente</button>
-        <AjudaCampo chave="projetos.clientes.acao.novo" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1, minWidth: 200 }}>
+          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar por nome, documento, cidade, contato…" style={{ ...inp, flex: 1, minWidth: 0 }} />
+          <AjudaCampo chave="projetos.clientes.busca" />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <button onClick={() => { setCepMsg(null); setDocMsg(null); setForm({ ...VAZIO }) }} style={btnGold}>+ Novo cliente</button>
+          <AjudaCampo chave="projetos.clientes.acao.novo" />
+        </div>
       </div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
         {([['', 'Todos'], ['PJ', 'Pessoa jurídica'], ['PF', 'Pessoa física']] as const).map(([v, r]) => (
