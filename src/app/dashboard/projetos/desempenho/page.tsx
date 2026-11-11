@@ -58,7 +58,7 @@ export default function DesempenhoComercialPage() {
     setLoading(true); setErro('')
     const { r: r0, error } = await buscar(range.de, range.ate)
     if (meu !== seq.current) return
-    if (error) { setLoading(false); setErro(error.message); return }
+    if (error) { setLoading(false); setErro('Não foi possível carregar o desempenho. Tente novamente.'); return }
     if (r0?.erro) { setLoading(false); setErro(r0.erro === 'sem_acesso' ? 'Sem acesso.' : r0.erro); return }
     const fechados = (x: Resp | null) => (x?.resumo?.ganhas_qtd ?? 0) + (x?.resumo?.perdidas_qtd ?? 0)
     if (!autoFeito.current && periodo === 'mes') {

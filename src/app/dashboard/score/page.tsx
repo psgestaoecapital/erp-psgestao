@@ -49,7 +49,7 @@ export default function ScorePage(){
     setLoading(true);
     const{data,error}=await supabase.from("erp_clientes").select("*").eq("company_id",sel).eq("ativo",true).order("score_inadimplencia",{ascending:false,nullsFirst:false});
     if(data)setClientes(data);
-    if(error&&!error.message.includes('does not exist'))setMsg("Erro: "+error.message);
+    if(error&&!error.message.includes('does not exist'))setMsg("Não foi possível carregar os clientes. Tente novamente.");
     setLoading(false);
   };
 
@@ -57,7 +57,7 @@ export default function ScorePage(){
     if(!confirm("Recalcular o score de TODOS os clientes desta empresa? Pode levar alguns segundos."))return;
     setRecalculando(true);
     const{data,error}=await supabase.rpc('recalcular_scores_empresa',{p_company_id:sel});
-    if(error){setMsg("❌ "+error.message);setRecalculando(false);return;}
+    if(error){setMsg("❌ Não foi possível recalcular os scores. Tente novamente.");setRecalculando(false);return;}
     const r=data?.[0];
     setMsg(`✅ ${r?.processados||0} clientes atualizados · ${r?.alto_risco||0} alto · ${r?.medio_risco||0} médio · ${r?.baixo_risco||0} baixo`);
     setRecalculando(false);
@@ -67,7 +67,7 @@ export default function ScorePage(){
 
   const recalcularUm=async(clienteId:string)=>{
     const{error}=await supabase.rpc('atualizar_score_cliente',{p_cliente_id:clienteId});
-    if(error){setMsg("❌ "+error.message);return;}
+    if(error){setMsg("❌ Não foi possível atualizar o score. Tente novamente.");return;}
     setMsg("✅ Score atualizado");
     loadClientes();
     if(detalhe?.id===clienteId)abrirDetalhe(clienteId);
