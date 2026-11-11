@@ -16,6 +16,7 @@ import { useSalvar } from '@/components/ui/feedback/useSalvar'
 import { estiloBordaInput } from '@/components/ui/feedback/contratoSalvar'
 // #71 · modo edição: a mesma tela da inclusão abre o lançamento existente
 import { useEdicaoLancamento, ReplicaParcelasDialog, SituacaoEdicao, type Campos } from './edicaoLancamento'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 // RD-95: textos do "?" (erp_ajuda_campo) ficam na rota da tela; o formulário também abre em modal noutras telas.
 const ROTA_AJUDA = '/dashboard/financeiro/nova-despesa'
@@ -609,7 +610,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
     if (ids.length > 0 && centroCustoId) {
       const { error: eCc } = await supabase.from('erp_pagar').update({ centro_custo_id: centroCustoId }).in('id', ids)
       if (eCc) {
-        setFeedback({ tipo: 'erro', texto: `Despesa CRIOU, mas o centro de custo NÃO foi gravado: ${eCc.message}. Edite a despesa e escolha de novo.` })
+        setFeedback({ tipo: 'erro', texto: `A despesa foi criada, mas o centro de custo não foi gravado: ${erroAmigavel(eCc, 'não foi possível gravar o centro de custo')}. Edite a despesa e escolha de novo.` })
         return
       }
     }
@@ -642,7 +643,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
       if (baixaErr || baixaRet?.sucesso === false) {
         setFeedback({
           tipo: 'erro',
-          texto: `Despesa CRIOU, mas o pagamento NÃO foi registrado: ${baixaErr?.message || baixaRet?.erro || 'erro desconhecido'}. Marque como paga na lista.`,
+          texto: `A despesa foi criada, mas o pagamento não foi registrado: ${baixaErr ? erroAmigavel(baixaErr, 'não foi possível registrar o pagamento') : codigoAmigavel(baixaRet?.erro, 'não foi possível registrar o pagamento')}. Marque como paga na lista.`,
         })
         return
       }
