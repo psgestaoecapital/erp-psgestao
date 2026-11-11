@@ -158,7 +158,7 @@ export default function ContratosPage(){
       .in('company_id', ids)
       .order('created_at', { ascending: false });
     if (error && !error.message.includes('does not exist')) {
-      setMsg("Erro: "+error.message);
+      setMsg("Não foi possível carregar os contratos. Tente novamente.");
     }
     setContratos((data as any) || []);
     setLoading(false);
@@ -288,7 +288,7 @@ export default function ContratosPage(){
       created_by:user?.id,
     });
 
-    if(error){setMsg("❌ "+error.message);return;}
+    if(error){setMsg("❌ Não foi possível criar o contrato. Tente novamente.");return;}
     setMsg(`✅ Contrato ${numero} criado com sucesso`);
     setShowNovo(false); setServicoSel("");
     setNovoContrato({cliente_id:'',cliente_nome:'',cliente_cnpj:'',cliente_email:'',tipo:'bpo_financeiro',nome:'',descricao:'',escopo:'',valor_mensal:0,data_inicio:hoje(),data_fim:'',dia_vencimento:10,periodicidade:'mensal',tipo_reajuste:'ipca',reajuste_percentual:0,mes_reajuste:1,forma_pagamento:'boleto'});
@@ -305,7 +305,7 @@ export default function ContratosPage(){
     setProcessando(true);
     const dataRef = new Date().toISOString().split('T')[0];
     const { data, error } = await supabase.rpc('fn_contrato_processar_lote_diario', { p_data_referencia: dataRef });
-    if(error){setMsg("❌ "+error.message);setProcessando(false);return;}
+    if(error){setMsg("❌ Não foi possível gerar os títulos do mês. Tente novamente.");setProcessando(false);return;}
     const r:any = Array.isArray(data) ? (data[0]||{}) : (data||{});
     const sucesso = r.total_sucesso ?? r.gerados ?? 0;
     const idemp = r.total_idempotente ?? r.ja_existentes ?? 0;
@@ -325,7 +325,7 @@ export default function ContratosPage(){
       p_contrato_id: c.id,
       p_indice_aplicado: null,
     });
-    if(error){setMsg("❌ "+error.message);setProcessando(false);return;}
+    if(error){setMsg("❌ Não foi possível aplicar o reajuste. Tente novamente.");setProcessando(false);return;}
     setMsg(`✅ Reajuste aplicado em ${c.cliente_nome}`);
     setProcessando(false);
     refetchAll();
@@ -339,7 +339,7 @@ export default function ContratosPage(){
       p_contrato_id: showReajuste.id,
       p_indice_aplicado: pctReajuste,
     });
-    if(error){setMsg("❌ "+error.message);setProcessando(false);return;}
+    if(error){setMsg("❌ Não foi possível aplicar o reajuste. Tente novamente.");setProcessando(false);return;}
     setMsg(`✅ Reajuste de ${pctReajuste}% aplicado`);
     setShowReajuste(null);
     setPctReajuste(0);
