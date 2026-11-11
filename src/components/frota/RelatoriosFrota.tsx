@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { supabase } from "@/lib/supabase";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 
 const ROTA = "/dashboard/projetos/frota";
 const ESP = "#3D2314", BRANCO = "#FFFFFF", BD = "#E7DED3", TXM = "#6B5D4F";
@@ -86,7 +87,7 @@ export function RelatoriosFrota({ companyId, veiculos }: { companyId: string; ve
     const { fn, args } = chamadas[tipo];
     const { data, error } = await supabase.rpc(fn, args);
     setCarregando(false);
-    if (error) { setErro(error.message); setDados(null); return; }
+    if (error) { setErro(erroAmigavel(error)); setDados(null); return; }
     setDados(data as Linha);
   }, [companyId, tipo, de, ate, veiculoId, agrupar]);
 
