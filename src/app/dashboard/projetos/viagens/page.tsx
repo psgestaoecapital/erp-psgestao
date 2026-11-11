@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Lock, Filter, ExternalLink, MapPin } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { ConsumoVeiculo } from './ConsumoVeiculo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { FORMAS_PAGAMENTO_VIAGEM } from '@/lib/viagem/modeloPlanilha'
@@ -92,7 +93,7 @@ export default function ViagensPage() {
       supabase.from('erp_viagem_ge_titulo').select('viagem_id,situacao,valor').eq('company_id', empresa).order('valor', { ascending: false }).limit(5000),
       supabase.from('erp_viagem_lancamento').select('viagem_id,valor,categoria').eq('company_id', empresa).is('excluido_em', null).limit(20000),
     ])
-    if (v.error) setMsg(v.error.message)
+    if (v.error) setMsg(erroAmigavel(v.error, 'Não foi possível carregar as viagens. Tente de novo.'))
     setViagens((v.data ?? []) as Viagem[]); setObras((o.data ?? []) as Obra[]); setCats((c.data ?? []) as Cat[])
     setPodeGravar(g.data === true)
     const ge: Record<string, number> = {}
