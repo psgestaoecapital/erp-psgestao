@@ -135,11 +135,12 @@ export default function MaoObraIndustriaPage() {
                 {competencias.map((k) => <option key={k} value={k}>competência {fmtComp(k)}</option>)}
               </select>
               <Link href="/dashboard/industrial/folha" style={{ ...btnOutline, textDecoration: 'none', marginLeft: 'auto' }}>📤 Importar / atualizar folha</Link>
+              <AjudaCampo chave="industrial.mao_obra.importar" rota={ROTA} />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
               <Kpi t="Colaboradores" v={String(totalPessoas)} ajuda="industrial.mao_obra.pessoas" />
               <Kpi t="Custo total (com encargos)" v={brl(totalCusto)} destaque ajuda="industrial.mao_obra.total" />
-              <Kpi t="Setores" v={String(grupos.filter((g) => !g.especial).length)} />
+              <Kpi t="Setores" v={String(grupos.filter((g) => !g.especial).length)} ajuda="industrial.mao_obra.setores" />
             </div>
           </section>
 
