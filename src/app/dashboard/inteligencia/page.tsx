@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { usePapelUsuario, ehRhIndustrial } from '@/hooks/usePapelUsuario'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF'
 const MUT = 'rgba(61,35,20,0.55)', VERDE = '#2E8B57'
@@ -110,7 +111,10 @@ function Hub() {
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
         <header style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700 }}>{cfg.kicker}</div>
-          <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 28, fontWeight: 400, color: ESP, margin: '2px 0 0' }}>Análise de dados</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 28, fontWeight: 400, color: ESP, margin: '2px 0 0' }}>Análise de dados</h1>
+            <AjudaCampo chave="bi.hub_como_funciona" rota="/dashboard/inteligencia" />
+          </div>
           <p style={{ fontSize: 13, color: MUT, margin: '4px 0 0' }}>{cfg.subtitulo}</p>
         </header>
 
@@ -131,8 +135,9 @@ function Hub() {
                 </section>
               )
             })}
-            <div style={{ marginTop: 8, fontSize: 11, color: MUT }}>
+            <div style={{ marginTop: 8, fontSize: 11, color: MUT, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               ● card aceso = a fonte já tem dado (acende sozinho) · ○ em breve = aparece mas ainda sem dado
+              <AjudaCampo chave="bi.card_estado" rota="/dashboard/inteligencia" />
             </div>
           </>
         )}
