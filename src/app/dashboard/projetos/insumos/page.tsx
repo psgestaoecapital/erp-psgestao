@@ -28,6 +28,9 @@ interface Insumo {
   is_publico: boolean | null;
   fork_from_publico_id: string | null;
   ativo: boolean | null;
+  // Origem real do insumo (v_projetos_insumos_ui.source_type): 'sinapi' (base oficial),
+  // 'fork'/'publico' (biblioteca), 'manual'/'demo' (criado na empresa).
+  source_type?: string | null;
   ncm?: string | null;
   especificacao_tecnica?: string | null;
   observacoes?: string | null;
@@ -95,7 +98,7 @@ export default function InsumosPage() {
   const [busca, setBusca] = useState("");
   const [filtroCat, setFiltroCat] = useState("");
   const [filtroStatus, setFiltroStatus] = useState<"ativo" | "inativo" | "todos" | "excluido">("ativo");
-  const [filtroOrigem, setFiltroOrigem] = useState<"todos" | "manual" | "fork">("todos");
+  const [filtroOrigem, setFiltroOrigem] = useState<"todos" | "manual" | "fork" | "sinapi">("todos");
 
   // Form drawer
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -185,8 +188,14 @@ export default function InsumosPage() {
         if (filtroStatus === "ativo" && i.ativo === false) return false;
         if (filtroStatus === "inativo" && i.ativo !== false) return false;
       }
-      if (filtroOrigem === "fork" && !i.fork_from_publico_id) return false;
-      if (filtroOrigem === "manual" && i.fork_from_publico_id) return false;
+      if (filtroOrigem !== "todos") {
+        // Origem real pela coluna source_type (fallback no vínculo de biblioteca p/ linhas antigas).
+        const origem =
+          i.source_type === "sinapi" ? "sinapi"
+          : i.source_type === "fork" || i.fork_from_publico_id ? "fork"
+          : "manual";
+        if (origem !== filtroOrigem) return false;
+      }
       if (filtroCat && i.category !== filtroCat) return false;
       if (busca) {
         const q = busca.toLowerCase();
@@ -538,11 +547,15 @@ export default function InsumosPage() {
       render: (i) => (
         <div>
           <div className="font-medium text-[#3D2314]">{i.name}</div>
-          {i.fork_from_publico_id && (
+          {i.source_type === "sinapi" ? (
+            <span className="mt-0.5 inline-block rounded-full bg-[#C8941A]/15 px-2 py-0.5 text-[10px] uppercase tracking-wider text-[#8A6A12]">
+              SINAPI
+            </span>
+          ) : i.fork_from_publico_id ? (
             <span className="mt-0.5 inline-block rounded-full bg-[#3D2314]/8 px-2 py-0.5 text-[10px] uppercase tracking-wider text-[#3D2314]/60">
               biblioteca
             </span>
-          )}
+          ) : null}
         </div>
       ),
     },
@@ -836,6 +849,7 @@ export default function InsumosPage() {
                   <option value="todos">Todas</option>
                   <option value="manual">Manual</option>
                   <option value="fork">Biblioteca</option>
+                  <option value="sinapi">SINAPI</option>
                 </select>
               </label>
             </div>
