@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import SeletorUsuario from '@/components/crm/SeletorUsuario'
 import AnexosCard, { type AnexosCardHandle } from '@/components/crm/AnexosCard'
 import { telefoneDoCliente, tituloOportunidade, erroOportunidade } from '@/lib/crm/oportunidadeCliente'
@@ -193,7 +194,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
       .select('id, nome_fantasia, cpf_cnpj, telefone')
       .single()
     setNovoCliSaving(false)
-    if (error) { setErr(`Erro ao criar cliente: ${error.message}`); return }
+    if (error) { setErr(erroAmigavel(error, 'Não foi possível criar o cliente. Tente de novo.')); return }
     const d = data as { id: string; nome_fantasia: string | null; cpf_cnpj: string | null; telefone: string | null }
     escolherCliente({ id: d.id, nome: d.nome_fantasia ?? novoCliNome.trim(), cpf_cnpj: d.cpf_cnpj, telefone: d.telefone })
     setNovoCliOpen(false)
@@ -242,7 +243,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
       })
       .select('id')
       .single()
-    if (error) { setErr(`Erro ao cadastrar o cliente: ${error.message}`); return null }
+    if (error) { setErr(erroAmigavel(error, 'Não foi possível cadastrar o cliente. Tente de novo.')); return null }
     setTelCliOrig(telCli.trim())
     return (data as { id: string }).id
   }
@@ -253,7 +254,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
     if (form.etapa !== 'orcando') return undefined
     const { data, error } = await supabase.rpc('fn_oportunidade_gerar_orcamento', { p_oportunidade_id: id })
     const j = data as { ok?: boolean; erro?: string; mensagem?: string; numero?: string; ja_existia?: boolean } | null
-    if (error || !j?.ok) return `Orçamento não gerado: ${j?.mensagem ?? error?.message ?? j?.erro ?? 'falha'}`
+    if (error || !j?.ok) return j?.mensagem ?? erroAmigavel(error, 'Não foi possível gerar o orçamento. Tente de novo.')
     return j.ja_existia ? undefined : `Orçamento ${j.numero} criado na lista de orçamentos.`
   }
 
@@ -317,7 +318,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
     }
     if (isEdit && initial?.id) {
       const { error } = await supabase.from('erp_crm_oportunidade').update(payload).eq('id', initial.id)
-      if (error) { setSaving(false); setErr(error.message); return }
+      if (error) { setSaving(false); setErr(erroAmigavel(error, 'Não foi possível salvar a oportunidade. Tente de novo.')); return }
       const avisoOrc = await garantirOrcamento(initial.id)
       setSaving(false)
       onSaved(initial.id, avisoOrc)
@@ -327,7 +328,7 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
         .insert(payload)
         .select('id')
         .single()
-      if (error) { setSaving(false); setErr(error.message); return }
+      if (error) { setSaving(false); setErr(erroAmigavel(error, 'Não foi possível salvar a oportunidade. Tente de novo.')); return }
       const novoId = (data as { id: string }).id
       // #266 · anexos em espera (tmp/) passam a pertencer à oportunidade; um que falhe não perde a oportunidade
       if (anexosRef.current?.temPendentes()) {
