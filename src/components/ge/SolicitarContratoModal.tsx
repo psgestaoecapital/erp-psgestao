@@ -184,6 +184,13 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
     const dia = diaVenc ? Number(diaVenc) : null
     if (dia != null && (!Number.isInteger(dia) || dia < 1 || dia > 28)) { setErro('Dia de vencimento: de 1 a 28.'); return }
     if (inicio && fim && fim < inicio) { setErro('O fim da vigência não pode ser antes do início.'); return }
+    // Novos obrigatórios (CEO 11/11, item 4A): título, vigência De/Até, nº parcelas, dia venc e 1º venc.
+    if (!titulo.trim()) { setErro('Informe o título do contrato.'); return }
+    if (!inicio) { setErro('Informe o início da vigência (De).'); return }
+    if (!fim) { setErro('Informe o fim da vigência (Até).'); return }
+    if (!nParcelas || !Number.isInteger(Number(nParcelas)) || Number(nParcelas) < 1) { setErro('Informe o nº de parcelas (1 ou mais).'); return }
+    if (dia == null) { setErro('Informe o dia do vencimento (de 1 a 28).'); return }
+    if (!primeiroVenc) { setErro('Informe o 1º vencimento.'); return }
     const dados: Record<string, unknown> = {
       cliente_cnpj: doc.trim() || null,
       responsavel: responsavel.trim() || null,
@@ -227,6 +234,18 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
   }
 
   const concluir = () => { if (criado) onSolicitado?.(criado); else onClose() }
+
+  // Coerência (CEO 11/11, item 4A): para periodicidade mensal, o nº de parcelas deve bater com os meses
+  // entre De e Até. Apenas AVISA (não bloqueia) — o financeiro ajusta na elaboração se for o caso.
+  const coerenciaAviso: string | null = (() => {
+    if (periodicidade !== 'mensal' || !inicio || !fim || !nParcelas) return null
+    const a = new Date(inicio + 'T00:00:00'), b = new Date(fim + 'T00:00:00')
+    if (isNaN(a.getTime()) || isNaN(b.getTime()) || b < a) return null
+    const meses = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth()) + 1
+    const n = Number(nParcelas)
+    if (!Number.isInteger(n) || n < 1 || n === meses) return null
+    return `A vigência cobre ${meses} ${meses === 1 ? 'mês' : 'meses'}, mas foram informadas ${n} parcelas (mensal). Confira se o nº de parcelas está certo.`
+  })()
 
   return (
     <div onClick={criado ? concluir : onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: 16 }}>
@@ -383,8 +402,13 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
                   <textarea style={{ ...inp, minHeight: 70, fontFamily: 'inherit' }} value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Contexto, pedidos do cliente, etc." />
                 </Campo>
                 <div style={{ fontSize: 11, color: C.espressoM, marginTop: -6, marginBottom: 12 }}>
-                  Obrigatórios para enviar ao financeiro: cliente, CPF/CNPJ, objeto, valor e periodicidade. O resto o financeiro pode completar.
+                  Obrigatórios para enviar ao financeiro: título, cliente, CPF/CNPJ, objeto, valor, periodicidade, vigência (De e Até), nº de parcelas, dia do vencimento e 1º vencimento.
                 </div>
+                {coerenciaAviso && (
+                  <div style={{ fontSize: 12, color: '#8A5A12', background: '#FCF4E6', border: '1px solid #E8C784', borderRadius: 6, padding: '8px 12px', marginBottom: 12 }}>
+                    ⚠️ {coerenciaAviso}
+                  </div>
+                )}
               </Secao>
 
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8, flexWrap: 'wrap' }}>
@@ -436,6 +460,12 @@ function traduz(e?: string): string {
     case 'dia_vencimento_invalido': return 'Dia de vencimento: de 1 a 28.'
     case 'numero_parcelas_invalido': return 'Nº de parcelas precisa ser pelo menos 1.'
     case 'vigencia_invalida': return 'O fim da vigência não pode ser antes do início.'
+    case 'titulo_obrigatorio': return 'Informe o título do contrato.'
+    case 'vigencia_inicio_obrigatoria': return 'Informe o início da vigência (De).'
+    case 'vigencia_fim_obrigatoria': return 'Informe o fim da vigência (Até).'
+    case 'numero_parcelas_obrigatorio': return 'Informe o nº de parcelas.'
+    case 'dia_vencimento_obrigatorio': return 'Informe o dia do vencimento (de 1 a 28).'
+    case 'primeiro_vencimento_obrigatorio': return 'Informe o 1º vencimento.'
     default: return e || 'Não foi possível solicitar o contrato.'
   }
 }
