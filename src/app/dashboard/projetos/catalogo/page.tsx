@@ -23,6 +23,7 @@ import { CatalogoTable, type CatalogoColumn } from "@/components/projetos/Catalo
 import { EmptyStateImportar } from "@/components/projetos/EmptyStateImportar";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { ComposicaoCpu } from "@/components/projetos/ComposicaoCpu";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 
 const ROTA = "/dashboard/projetos/catalogo";
 
@@ -203,7 +204,7 @@ export default function CatalogoServicosPage() {
       }
       setPrecos(mapa);
     } catch (e: any) {
-      setErro(e.message || "Falha ao carregar catálogo");
+      setErro(erroAmigavel(e, "Não foi possível carregar o catálogo. Tente de novo."));
     } finally {
       setLoading(false);
     }
@@ -277,7 +278,7 @@ export default function CatalogoServicosPage() {
       setNovoAberto(false);
       router.push(`/dashboard/projetos/catalogo/${data.id}`);
     } catch (e: any) {
-      setErro(e.message);
+      setErro(erroAmigavel(e, "Não consegui criar o serviço. Confira o código (pode já existir) e tente de novo."));
       setCriando(false);
     }
   }
@@ -301,7 +302,7 @@ export default function CatalogoServicosPage() {
         await carregar();
       }
     } catch (e: any) {
-      setErro(e.message);
+      setErro(erroAmigavel(e, "Não consegui duplicar o serviço. Tente de novo."));
     }
   }
 
@@ -334,7 +335,7 @@ export default function CatalogoServicosPage() {
       setExcluindo(null);
       await carregar();
     } catch (e: any) {
-      setErro(e.message);
+      setErro(erroAmigavel(e, "Não consegui excluir o serviço. Tente de novo."));
     } finally {
       setExcluindoOcupado(false);
     }
@@ -351,7 +352,7 @@ export default function CatalogoServicosPage() {
       if (error) throw error;
       setInsumosEst(((data as any)?.insumos ?? []) as InsumoEstoque[]);
     } catch (e: any) {
-      setErro(e.message);
+      setErro(erroAmigavel(e, "Não consegui carregar os insumos deste serviço."));
     } finally {
       setCarregandoEst(false);
     }
@@ -388,7 +389,7 @@ export default function CatalogoServicosPage() {
       if (estoqueDe) await abrirEstoque(estoqueDe);
       await carregar();
     } catch (e: any) {
-      setErro(e.message);
+      setErro(erroAmigavel(e, "Não consegui ligar o insumo ao estoque."));
     }
   }
 
@@ -410,7 +411,7 @@ export default function CatalogoServicosPage() {
       setTimeout(() => setAviso(null), 6000);
       await carregar();
     } catch (e: any) {
-      setErro(e.message);
+      setErro(erroAmigavel(e, "Não consegui importar a biblioteca. Tente de novo."));
     } finally {
       setImportando(false);
     }
@@ -643,7 +644,7 @@ export default function CatalogoServicosPage() {
         .select("id,numero")
         .single();
       if (e1 || !novo) {
-        setErro("Não consegui criar o orçamento: " + (e1?.message ?? "erro desconhecido"));
+        setErro(erroAmigavel(e1, "Não consegui criar o orçamento. Tente de novo."));
         return;
       }
       const { error: e2 } = await sb.from("erp_orcamentos_itens").insert({
@@ -662,7 +663,7 @@ export default function CatalogoServicosPage() {
         subtotal: precoVenda,
       });
       if (e2) {
-        setErro(`Orçamento ${novo.numero ?? ""} criado, mas não consegui incluir o serviço: ${e2.message}`);
+        setErro(`Orçamento ${novo.numero ?? ""} criado, mas não consegui incluir o serviço. ${erroAmigavel(e2, "Abra o orçamento e adicione o serviço manualmente.")}`);
         return;
       }
       router.push("/dashboard/orcamento");
