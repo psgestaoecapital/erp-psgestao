@@ -304,8 +304,8 @@ export default function CustosPostoPage() {
                 {lancs.length === 0 ? (
                   <div style={{ fontSize: 12.5, color: MUT }}>Ainda não há custos lançados para este posto. Preencha acima e clique em “Salvar custos”.</div>
                 ) : (
-                  <div className="cp-hist-wrap" style={{ overflowX: 'auto', border: `0.5px solid ${LINE}`, borderRadius: 10 }}>
-                    <table className="cp-hist-table" style={{ width: '100%', borderCollapse: 'collapse', minWidth: 520 }}>
+                  <div style={{ overflowX: 'auto', border: `0.5px solid ${LINE}`, borderRadius: 10 }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 520 }}>
                       <thead style={{ background: BG }}>
                         <tr>
                           <th style={th}>Vigência</th>
@@ -320,12 +320,12 @@ export default function CustosPostoPage() {
                           const d = l.dados
                           const en = d.energia_mes ?? (((d.energia_kwh_mes ?? 0) * (d.energia_tarifa_kwh ?? 0)) || null)
                           return (
-                            <tr key={l.id} className="cp-hist-row" style={l.atual ? { background: '#FCFaf4' } : undefined}>
-                              <td style={td} data-label="Vigência">{fmtComp(l.vigencia_inicio)}{l.atual && <span style={{ fontSize: 10, color: GREEN, marginLeft: 6, fontWeight: 700 }}>atual</span>}{l.vigencia_fim && <span style={{ fontSize: 10, color: MUT, marginLeft: 6 }}>até {fmtComp(l.vigencia_fim)}</span>}</td>
-                              <td style={{ ...td, textAlign: 'right' }} data-label="Mão de obra">{brl(d.mao_obra_mes)}</td>
-                              <td style={{ ...td, textAlign: 'right' }} data-label="Energia">{brl(en)}</td>
-                              <td style={{ ...td, textAlign: 'right' }} data-label="Horas/mês">{d.horas_operacao_mes ?? '—'}</td>
-                              <td style={{ ...td, textAlign: 'right' }} data-label="Excluir">
+                            <tr key={l.id} style={l.atual ? { background: '#FCFaf4' } : undefined}>
+                              <td style={td}>{fmtComp(l.vigencia_inicio)}{l.atual && <span style={{ fontSize: 10, color: GREEN, marginLeft: 6, fontWeight: 700 }}>atual</span>}{l.vigencia_fim && <span style={{ fontSize: 10, color: MUT, marginLeft: 6 }}>até {fmtComp(l.vigencia_fim)}</span>}</td>
+                              <td style={{ ...td, textAlign: 'right' }}>{brl(d.mao_obra_mes)}</td>
+                              <td style={{ ...td, textAlign: 'right' }}>{brl(en)}</td>
+                              <td style={{ ...td, textAlign: 'right' }}>{d.horas_operacao_mes ?? '—'}</td>
+                              <td style={{ ...td, textAlign: 'right' }}>
                                 <button style={{ ...btnOut, padding: '4px 10px', fontSize: 11, color: RED, borderColor: '#E7C9C4' }} onClick={() => void excluir(l.id)} data-testid={`cp-excluir-${l.id}`}>Excluir</button>
                               </td>
                             </tr>
@@ -342,23 +342,7 @@ export default function CustosPostoPage() {
         </div>
       </div>
 
-      <style>{`
-        @media (max-width: 720px){
-          .cp-grid{ grid-template-columns: 1fr !important; }
-          /* histórico vira cartões no celular: cada lançamento empilha e a ação Excluir fica no fluxo vertical,
-             sempre visível (sem rolagem horizontal) — RD-96 mobile 390px */
-          .cp-hist-wrap{ overflow-x: visible !important; border: none !important; border-radius: 0 !important; }
-          .cp-hist-table{ min-width: 0 !important; }
-          .cp-hist-table thead{ display: none; }
-          .cp-hist-table, .cp-hist-table tbody, .cp-hist-row, .cp-hist-table tbody td{ display: block; width: 100%; box-sizing: border-box; }
-          .cp-hist-row{ border: 0.5px solid ${LINE}; border-radius: 10px; margin-bottom: 10px; padding: 2px 12px 8px; }
-          .cp-hist-table tbody td{ text-align: left !important; border-top: none !important; display: flex !important; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; }
-          .cp-hist-table tbody td::before{ content: attr(data-label); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: ${MUT}; }
-          .cp-hist-table tbody td[data-label="Excluir"]{ display: block !important; padding-top: 10px; }
-          .cp-hist-table tbody td[data-label="Excluir"]::before{ display: none; }
-          .cp-hist-table tbody td[data-label="Excluir"] button{ width: 100%; padding: 11px !important; font-size: 13px !important; }
-        }
-      `}</style>
+      <style>{`@media (max-width: 720px){ .cp-grid{ grid-template-columns: 1fr !important; } }`}</style>
     </Casca>
   )
 }
