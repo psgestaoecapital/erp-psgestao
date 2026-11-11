@@ -61,7 +61,7 @@ export default function PrevisaoPage(){
       setPessimista(p||[]);
       setOtimista(o||[]);
       setMsg(`✅ Previsão calculada para ${periodo} dias`);
-    }catch(e:any){setMsg("❌ "+e.message);}
+    }catch(e:any){setMsg("❌ Não foi possível calcular a previsão. Tente novamente.");}
     setCalculando(false);
     setTimeout(()=>setMsg(""),3000);
   };
@@ -109,7 +109,7 @@ export default function PrevisaoPage(){
       const d=await r.json();
       if(d.error)setMsg("❌ "+d.error);
       else setParecer(d.parecer);
-    }catch(e:any){setMsg("❌ "+e.message);}
+    }catch(e:any){setMsg("❌ Não foi possível gerar o parecer. Tente novamente.");}
     setAnalisando(false);
   };
 
