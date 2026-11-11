@@ -9,6 +9,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ESPRESSO = '#3D2314', OFFWHITE = '#FAF7F2', DOURADO = '#C8941A', BORDA = '#E7DED3', TEXTM = '#6b5444', GREEN = '#1F5A1F'
 const brl = (v: number | null | undefined) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -60,7 +61,7 @@ export default function HubComercialPage() {
       ])
       if (!alive) return
       const err = l.error || p.error || c.error || ct.error
-      if (err) { setErro(err.message); setLoading(false); return }
+      if (err) { setErro(erroAmigavel(err, 'Não foi possível carregar o painel comercial. Tente de novo.')); setLoading(false); return }
       setLeads((l.data ?? []) as Lead[]); setProps((p.data ?? []) as Prop[])
       setComs((c.data ?? []) as Com[]); setCtrs((ct.data ?? []) as Ctr[])
       // Funil é enriquecimento: se não carregar, o fallback canônico cobre (não derruba a tela).
