@@ -46,7 +46,7 @@ function Inner() {
     if (!companyId) return
     setErro(null)
     const { data, error } = await supabase.rpc('fn_prod_indicadores', { p_company_id: companyId, p_de: de, p_ate: ate, p_setor: null, p_base: base })
-    if (error) { setErro(error.message); setR(null); return }
+    if (error) { setErro('Não foi possível carregar os indicadores. Tente novamente.'); setR(null); return }
     setR(data as Resp)
   }, [companyId, de, ate, base])
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -72,7 +72,7 @@ function Inner() {
     const n = txt.trim() === '' ? null : Number(txt.replace(',', '.'))
     if (n !== null && !(n > 0)) { setErro('Meta deve ser maior que zero.'); return }
     const { error } = await supabase.rpc('fn_prod_indicador_meta_salvar', { p_company_id: companyId, p_setor: setor, p_meta: n })
-    if (error) setErro(error.message); else void carregar()
+    if (error) setErro('Não foi possível salvar a meta. Tente novamente.'); else void carregar()
   }
 
   return (
