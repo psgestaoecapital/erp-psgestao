@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useEmpresaSelecionada, usePropriedade } from '@/lib/agro/usePecuaria'
 import { parseNumBR, parseDataBR } from '@/lib/num'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -293,7 +294,7 @@ function Pesagem({ companyId, propriedadeId, onDone }: { companyId: string; prop
         p_company_id: companyId, p_propriedade_id: propriedadeId, p_animal_id: a.id,
         p_data: data, p_peso_kg: Number(pesos[a.id]), p_metodo: metodo, p_observacao: null, p_id: null,
       })
-      if (error) erros.push(`${a.identificacao || 'sem id'}: ${error.message}`)
+      if (error) erros.push(`${a.identificacao || 'sem id'}: ${erroAmigavel(error)}`)
       else criados++
     }
     setBusy(false)
@@ -605,7 +606,7 @@ function ImportarPesagem({
         p_data: l.data, p_peso_kg: l.pesoNum, p_metodo: l.metodo,
         p_observacao: l.observacao || null, p_id: null,
       })
-      if (error) { ignoradas++; erros.push({ linha: l.n, brinco: l.brinco, motivo: error.message }) }
+      if (error) { ignoradas++; erros.push({ linha: l.n, brinco: l.brinco, motivo: erroAmigavel(error) }) }
       else criadas++
     }
     setImportando(false)
@@ -737,7 +738,7 @@ function Reproducao({ companyId, propriedadeId, onDone }: { companyId: string; p
         p_data: data, p_estado: estado, p_dg_metodo: dgMetodo, p_touro_id: null,
         p_previsao_parto: previsao || null, p_observacao: null, p_id: null,
       })
-      if (error) erros.push(`${animalId.slice(0, 8)}: ${error.message}`); else criados++
+      if (error) erros.push(`${animalId.slice(0, 8)}: ${erroAmigavel(error)}`); else criados++
     }
     setBusy(false)
     if (criados > 0) {
