@@ -8,6 +8,7 @@ import { Send } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { buscaMencao, extrairMencoes, inserirMencao, partesComMencao, sugerirPessoas, type Pessoa } from "@/lib/pm/meuDia";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 
 type Comentario = { id: string; autor_id: string | null; texto: string; criado_em: string; mencoes: string[] };
 const quando = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -42,7 +43,7 @@ export function JobComentarios({ empresa, jobId, userId, equipe }: { empresa: st
       company_id: empresa, job_id: jobId, autor_id: userId, texto: texto.trim(), mencoes: extrairMencoes(texto, equipe),
     });
     setOcupado(false);
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error)); return; }
     setTexto(""); await carregar();
   }
 
