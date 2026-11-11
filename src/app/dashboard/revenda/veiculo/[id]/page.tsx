@@ -518,6 +518,17 @@ function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onS
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [campo, setCampo] = useState<string | null>(null)
+  // #8162 etapa 2c: bancos parceiros cadastrados (Configuração da garagem) para seleção na venda.
+  // Leitura tolerante: se a empresa ainda não cadastrou nenhum (ou a tabela ainda não existe no
+  // ambiente), a lista fica vazia e o campo "banco" segue como texto livre (compatibilidade total).
+  const [parceiros, setParceiros] = useState<{ id: string; nome: string; retorno_pct: number | null }[]>([])
+  useEffect(() => {
+    if (!companyId) { setParceiros([]); return }
+    let vivo = true
+    void supabase.from('veic_banco_parceiro').select('id, nome, retorno_pct').eq('company_id', companyId).eq('ativo', true).order('nome')
+      .then(({ data }) => { if (vivo) setParceiros((data ?? []) as { id: string; nome: string; retorno_pct: number | null }[]) })
+    return () => { vivo = false }
+  }, [companyId])
   // Simulador ao vivo (§3.2): o vendedor vê as duas margens recalcularem ANTES de fechar — o momento
   // em que a decisão ainda pode mudar. Mesma conta da fn_veic_venda_composicao, só que client-side.
   const n = (s: string): number => moedaNum(s) ?? 0
@@ -537,6 +548,22 @@ function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onS
   const vvNum = moedaNum(f.valor_venda) ?? NaN
   const vvOk = f.valor_venda.trim() !== '' && Number.isFinite(vvNum) && vvNum > 0
   const podeEnviar = !!f.cliente_nome.trim() && vvOk && !busy
+  // #8162 etapa 2c: retorno previsto = % do banco parceiro × valor financiado (editável pelo operador).
+  const parceiroSel = parceiros.find((p) => p.nome === (f.banco_nome ?? ''))
+  const financiadoNum = moedaNum(f.valor_financiado)
+  const retornoPrevisto = parceiroSel && parceiroSel.retorno_pct != null && financiadoNum != null
+    ? Math.round(financiadoNum * parceiroSel.retorno_pct) / 100
+    : null
+  const escolherBanco = (nome: string) => {
+    const p = parceiros.find((x) => x.nome === nome)
+    const fin = moedaNum(f.valor_financiado)
+    setF((s) => {
+      const prox = { ...s, banco_nome: nome }
+      // retorno em centavos = financiado(reais) × pct (ex.: 50000 × 2 = 100000 cent = R$ 1.000,00)
+      if (p && p.retorno_pct != null && fin != null) prox.retorno_banco = moedaMascara(String(Math.round(fin * p.retorno_pct)))
+      return prox
+    })
+  }
   async function salvar() {
     setErro(null); setCampo(null)
     if (!f.cliente_nome.trim()) { setErro('Informe o nome do cliente.'); setCampo('cliente_nome'); return }
@@ -586,9 +613,31 @@ function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onS
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         <InputMoeda value={f.valor_entrada} onChange={(v) => setF({ ...f, valor_entrada: v })} placeholder="entrada (cliente)" ajuda="revenda.venda.entrada" style={inp} />
         <InputMoeda value={f.valor_financiado} onChange={(v) => setF({ ...f, valor_financiado: v })} placeholder="financiado (banco)" ajuda="revenda.venda.financiado" style={inp} />
-        <input value={f.banco_nome} onChange={(e) => setF({ ...f, banco_nome: e.target.value })} placeholder="banco" style={inp} />
+        {parceiros.length === 0 ? (
+          <input value={f.banco_nome} onChange={(e) => setF({ ...f, banco_nome: e.target.value })} placeholder="banco" style={inp} />
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <select value={f.banco_nome} onChange={(e) => escolherBanco(e.target.value)} style={{ ...inp, flex: 1, minWidth: 0 }} aria-label="banco parceiro (financiamento)">
+              <option value="">— banco (financiamento) —</option>
+              {parceiros.map((p) => <option key={p.id} value={p.nome}>{p.nome}{p.retorno_pct != null ? ` (${p.retorno_pct}%)` : ''}</option>)}
+              {f.banco_nome && !parceiros.some((p) => p.nome === f.banco_nome) && <option value={f.banco_nome}>{f.banco_nome} (cadastro antigo)</option>}
+            </select>
+            <AjudaCampo chave="revenda.venda.banco_parceiro" rota="/dashboard/revenda/veiculo" />
+          </div>
+        )}
         <InputMoeda value={f.retorno_banco} onChange={(v) => setF({ ...f, retorno_banco: v })} placeholder="retorno do banco (receita)" ajuda="revenda.venda.retorno_banco" style={inp} />
       </div>
+      {parceiroSel && parceiroSel.retorno_pct != null && (
+        <div style={{ marginTop: 6, fontSize: 12, color: C.espM, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span>Retorno previsto ({parceiroSel.retorno_pct}% × financiado): <b style={{ color: C.esp }}>{retornoPrevisto == null ? 'informe o financiado' : brl(retornoPrevisto)}</b>. Valor editável acima.</span>
+          {retornoPrevisto != null && (moedaNum(f.retorno_banco) ?? 0) !== retornoPrevisto && (
+            <button type="button" onClick={() => setF((s) => ({ ...s, retorno_banco: moedaMascara(String(Math.round(retornoPrevisto * 100))) }))}
+              style={{ border: `1px solid ${C.gold}`, background: C.white, color: C.gold, borderRadius: 6, padding: '3px 10px', cursor: 'pointer', fontSize: 11.5, fontWeight: 700 }}>
+              aplicar retorno previsto
+            </button>
+          )}
+        </div>
+      )}
       <div style={{ fontSize: 11, color: C.espL, marginTop: 4 }}>O financiado é cobrado do banco; a entrada, do cliente. Cada um vira um título em contas a receber com o devedor certo. Se a tabela acima tiver linhas, ela vale no lugar do resumo.</div>
 
       <label style={{ fontSize: 13, color: C.esp, display: 'inline-flex', alignItems: 'center', gap: 6, margin: '12px 0 4px', fontWeight: 700 }}>
