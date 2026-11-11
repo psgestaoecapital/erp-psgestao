@@ -744,7 +744,7 @@ export default function OrcamentosPage(){
     if(!motivo.trim()){setMsg("❌ Informe o motivo da exclusão.");setTimeout(()=>setMsg(""),4000);return;}
     const{data,error}=await supabase.rpc('fn_orcamento_excluir',{p_orcamento_id:o.id,p_motivo:motivo.trim()});
     const res=data as {ok:boolean;erro?:string;numero?:string}|null;
-    if(error||!res?.ok){setMsg("❌ "+(res?.erro||error?.message||"Falha ao excluir."));setTimeout(()=>setMsg(""),5000);return;}
+    if(error||!res?.ok){setMsg("❌ "+(res?.erro||"Não foi possível excluir. Tente de novo; se continuar, fale com o suporte."));setTimeout(()=>setMsg(""),5000);return;}
     setMsg(`🗑️ Orçamento ${res.numero||o.numero} excluído.`);
     loadOrcamentos();
     setTimeout(()=>setMsg(""),3000);
