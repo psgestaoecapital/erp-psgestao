@@ -10,6 +10,7 @@ import FotosMultiplas from '@/components/oficina/FotosMultiplas'   // #135 item 
 import Modal from '@/components/ui/Modal'
 import { useOficinaRamo } from '@/lib/oficina/ramo'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'; const RED = '#A32D2D'
@@ -107,7 +108,7 @@ export default function RecepcaoPage() {
     const { data, error } = await supabase.rpc('fn_oficina_orcamento_para_os', { p_orcamento_id: orcId })
     setConvertendoOrc(null)
     const r = data as { ok?: boolean; erro?: string; os_id?: string; numero?: string; ja_existia?: boolean } | null
-    if (error || !r?.ok) { setMsg('❌ ' + (error?.message || r?.erro || 'Falha ao converter em OS')); return }
+    if (error || !r?.ok) { setMsg('❌ ' + erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao converter em OS.'))); return }
     setMsg(`✅ OS ${r.numero ?? ''} ${r.ja_existia ? 'já existia (aberta)' : 'CRIOU'} — do orçamento. Abrindo o pátio…`)
     setTimeout(() => router.push('/dashboard/oficina/patio'), 1200)
   }
@@ -145,7 +146,7 @@ export default function RecepcaoPage() {
     setBuscandoDoc(true)
     const { data, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: companyId, p_nome: nome || 'Cliente', p_cpf_cnpj: docDigits })
     setBuscandoDoc(false)
-    if (error) { setMsg('❌ ' + error.message); return }
+    if (error) { setMsg('❌ ' + erroAmigavel(error, 'Não foi possível vincular o cliente. Tente de novo.')); return }
     setClienteId(data as string); if (nome) setClienteNome(nome)
     setDocStatus({ tipo: 'cliente', razao: nome }); setMsg('✅ Cliente vinculado.')
   }
@@ -200,7 +201,7 @@ export default function RecepcaoPage() {
       p_extra: Object.keys(extra).length ? extra : null,
     })
     setCadSalvando(false)
-    if (error) { setCadMsg('❌ ' + error.message); return }
+    if (error) { setCadMsg('❌ ' + erroAmigavel(error, 'Não foi possível cadastrar o cliente. Tente de novo.')); return }
     setClienteId(data as string); setClienteNome(cadNome.trim())
     setDocStatus({ tipo: 'cliente', razao: cadNome.trim() })
     setCadAberto(false); setMsg('✅ Cliente cadastrado e vinculado.')
@@ -235,7 +236,7 @@ export default function RecepcaoPage() {
       })
       setSalvando(false)
       const r = data as { ok?: boolean; erro?: string; orcamento_id?: string } | null
-      if (error || !r?.ok) { setMsg('❌ ' + (error?.message || r?.erro || 'Falha ao criar orçamento')); return }
+      if (error || !r?.ok) { setMsg('❌ ' + erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao criar orçamento.'))); return }
       await salvarContatoCliente()
       setMsg('✅ Orçamento CRIOU — abra para adicionar itens e enviar o link ao cliente. Abrindo…')
       setTimeout(() => router.push('/dashboard/orcamentos'), 1200)
@@ -271,7 +272,7 @@ export default function RecepcaoPage() {
       p_dados,
     })
     const j = data as { ok?: boolean; erro?: string; numero?: string; os_id?: string } | null
-    if (error || j?.ok === false) { setSalvando(false); setMsg('❌ ' + (error?.message || j?.erro)); return }
+    if (error || j?.ok === false) { setSalvando(false); setMsg('❌ ' + erroAmigavel(error, codigoAmigavel(j?.erro, 'Falha ao registrar a recepção.'))); return }
     // mecânico responsável opcional no check-in → reusa fn_os_designar_responsavel (trilha)
     if (j?.os_id && mecanico.trim()) {
       await supabase.rpc('fn_os_designar_responsavel', { p_os_id: j.os_id, p_nome: mecanico.trim(), p_mecanico_id: mecSelId })

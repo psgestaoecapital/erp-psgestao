@@ -19,6 +19,7 @@ import { filtrarOS } from '@/lib/oficina/buscaOS'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { useOficinaModelo } from '@/lib/oficina/modelo'
 import { decimalBanco } from '@/lib/decimalBanco'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 const BUCKET = 'oficina-recepcao'   // RD-26 · mesmo bucket/mecanismo da recepção (#831)
 type FotoDiag = { id: string; foto_path: string; descricao: string | null; criado_por_nome: string | null; diagnostico_item_id?: string | null; anotacao?: unknown; _url?: string | null }
@@ -184,7 +185,7 @@ export default function DiagnosticoPage() {
     const { data, error } = await supabase.rpc('fn_oficina_servico_criar', { p_company_id: companyId, p_nome: nome })
     setCriandoServ(false)
     const r = data as { ok?: boolean; erro?: string; ja_existia?: boolean; id?: string; nome?: string; tempo_padrao_h?: number | null } | null
-    if (error || !r?.ok || !r.id) { setMsg('❌ ' + (error?.message || r?.erro || 'Não deu para cadastrar o serviço')); return }
+    if (error || !r?.ok || !r.id) { setMsg('❌ ' + erroAmigavel(error, codigoAmigavel(r?.erro, 'Não deu para cadastrar o serviço.'))); return }
     addServicoTempario({ id: r.id, codigo: null, nome: r.nome ?? nome, tempo_padrao_h: r.tempo_padrao_h ?? null })
     setMsg(r.ja_existia
       ? `Já existia parecido no catálogo: “${r.nome}” — usei esse (não dupliquei).`
@@ -219,7 +220,7 @@ export default function DiagnosticoPage() {
       p_diagnostico_item_id: itemId,   // DVI: liga a foto ao item quando veio de um item
     })
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) throw new Error(error?.message ?? r?.erro ?? 'Falha ao salvar a foto')
+    if (error || !r?.ok) throw new Error(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao salvar a foto.')))
     return foto
   }
   const fimFotosDiag = (_ok: unknown[], _falhas: unknown[], m: string) => { setMsg(m); if (osSel) void carregarFotos(osSel.id) }
@@ -228,7 +229,7 @@ export default function DiagnosticoPage() {
     if (nova === (f.descricao ?? '').trim()) return
     const { data, error } = await supabase.rpc('fn_oficina_registro_legenda', { p_id: f.id, p_descricao: nova || null })
     const r = data as { ok?: boolean; erro?: string; descricao?: string } | null
-    if (error || !r?.ok) { setMsg('Legenda não salva: ' + (error?.message ?? r?.erro ?? 'falha')); return }
+    if (error || !r?.ok) { setMsg('Legenda não salva: ' + erroAmigavel(error, codigoAmigavel(r?.erro, 'falha ao salvar a legenda.'))); return }
     setFotosDiag((p) => p.map((x) => (x.id === f.id ? { ...x, descricao: r.descricao ?? nova } : x)))
     setLegDiag((p) => ({ ...p, [f.id]: r.descricao ?? nova }))
   }
@@ -242,7 +243,7 @@ export default function DiagnosticoPage() {
     if (error || !r?.sucesso) {
       const m = r?.erro === 'sem_acesso' ? 'Sem permissão para excluir esta foto.'
         : r?.erro === 'foto_inexistente' ? 'Foto já removida.'
-        : (error?.message ?? r?.erro ?? 'Falha ao excluir a foto')
+        : erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao excluir a foto.'))
       setMsg('❌ ' + m); return
     }
     setFotosDiag((prev) => prev.filter((x) => x.id !== f.id)) // some da tela na hora
@@ -259,7 +260,7 @@ export default function DiagnosticoPage() {
     const { data, error } = await supabase.rpc('fn_os_link_publico_gerar', { p_company_id: companyId, p_os_id: osSel.id })
     setEnviandoLink(false)
     const r = data as { ok?: boolean; erro?: string; token?: string; reusado?: boolean } | null
-    if (error || !r?.ok || !r.token) { setMsg('❌ ' + (error?.message || r?.erro || 'Não deu para gerar o link do cliente')); return }
+    if (error || !r?.ok || !r.token) { setMsg('❌ ' + erroAmigavel(error, codigoAmigavel(r?.erro, 'Não deu para gerar o link do cliente.'))); return }
     const url = `${window.location.origin}/os/${r.token}`
     setLinkPub(url)
     const veic = [osSel.placa, [osSel.marca, osSel.modelo].filter(Boolean).join(' ')].filter(Boolean).join(' · ')
@@ -291,7 +292,7 @@ export default function DiagnosticoPage() {
     })
     setSalvando(false)
     const j = data as { ok?: boolean; erro?: string; itens?: number; nao_removidos?: number } | null
-    if (error || j?.ok === false) { setMsg('❌ ' + (error?.message || j?.erro)); return }
+    if (error || j?.ok === false) { setMsg('❌ ' + erroAmigavel(error, codigoAmigavel(j?.erro, 'Não foi possível salvar o diagnóstico.'))); return }
     const bloq = j?.nao_removidos ?? 0
     setMsg(bloq > 0
       ? `✅ Laudo salvo — ${j?.itens ?? 0} item(ns). ⚠️ ${bloq} item(ns) não removido(s): já estão em cotação/apontamento.`
@@ -318,7 +319,7 @@ export default function DiagnosticoPage() {
     const { data, error } = await supabase.rpc('fn_os_diagnostico_gerar_cotacao', { p_os_id: osSel.id, p_itens_ids: ids })
     setGerandoCot(false)
     const j = data as { sucesso?: boolean; erro?: string; msg?: string; cotacao_id?: string; numero?: string; itens?: number } | null
-    if (error || j?.sucesso === false || !j?.cotacao_id) { setMsg('❌ ' + (error?.message || j?.msg || j?.erro || 'falha ao gerar cotação')); return }
+    if (error || j?.sucesso === false || !j?.cotacao_id) { setMsg('❌ ' + erroAmigavel(error, codigoAmigavel(j?.msg || j?.erro, 'Falha ao gerar a cotação.'))); return }
     // Fica no modal e passa à 2ª fase: convidar fornecedores para esta cotação (dispatch [→GE]).
     setCotacaoCriada({ id: j.cotacao_id, numero: j.numero ?? '' })
     setConvidarSel(new Set()); setBuscaFornec('')
@@ -348,7 +349,7 @@ export default function DiagnosticoPage() {
     const { data, error } = await supabase.rpc('fn_cotacao_convidar_fornecedores', { p_cotacao_id: cotacaoCriada.id, p_fornecedor_ids: ids })
     setConvidando(false)
     const j = data as { ok?: boolean; erro?: string; convidados?: number } | null
-    if (error || j?.ok === false) { setMsg('❌ ' + (error?.message || j?.erro || 'falha ao convidar')); return }
+    if (error || j?.ok === false) { setMsg('❌ ' + erroAmigavel(error, codigoAmigavel(j?.erro, 'Falha ao convidar.'))); return }
     fecharCotar()
     setMsg(`✅ ${j?.convidados ?? ids.length} fornecedor(es) convidado(s) para a cotação ${cotacaoCriada.numero}. Compare as propostas em Compras › Cotações.`)
     setTimeout(() => router.push('/dashboard/commerce/compras'), 1000)
