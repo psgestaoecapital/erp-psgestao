@@ -9,6 +9,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 const ROTA = '/dashboard/revenda/patio' // RD-95: rota das chaves de ajuda ("?")
 
@@ -103,7 +104,7 @@ function Inner() {
   const carregar = useCallback(async () => {
     if (!companyId) { setRows([]); return }
     const { data, error } = await supabase.from('v_veic_patio').select('*').eq('company_id', companyId).order('dias_patio', { ascending: false })
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar o pátio. Tente de novo.')); return }
     const lista = (data as Veic[]) ?? []
     setRows(lista)
     // foto_url guarda o storage_path da principal (bucket privado) — assina para exibir.
@@ -527,7 +528,7 @@ function LoteModal({ companyId, ids, onClose, onAplicado, onErro }: { companyId:
       p_company_id: companyId, p_veiculo_ids: ids, p_modo: modo, p_valor: valorNum, p_aplicar: aplicar, p_user: null,
     })
     const r = data as { ok?: boolean; erro?: string; resultados?: LoteResultado[] } | null
-    if (error || !r?.ok) { onErro(error?.message || r?.erro || 'Falha na reprecificação em lote'); return null }
+    if (error || !r?.ok) { onErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Não foi possível reprecificar em lote. Tente de novo.'))); return null }
     return r.resultados ?? []
   }
   async function previsualizar() { if (!valorOk) return; setBusy(true); const r = await chamar(false); setBusy(false); if (r) setPrev(r) }
@@ -617,7 +618,7 @@ function NovoVeiculo({ companyId, onClose, onSaved, onErro }: { companyId: strin
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string; id?: string; campo?: string; valor?: string } | null
     const ROT: Record<string, string> = { ano_modelo: 'ano modelo', valor_aquisicao: 'valor de aquisição', km_entrada: 'KM', km_atual: 'KM' }
-    if (error || !r?.ok) { onErro(r?.erro === 'chassi_ja_cadastrado' ? 'Chassi já cadastrado nesta empresa.' : r?.erro === 'chassi_obrigatorio' ? 'Chassi é obrigatório.' : r?.erro === 'valor_invalido' ? `Valor inválido em "${ROT[r.campo ?? ''] ?? r.campo}"${r.valor ? ` ("${r.valor}")` : ''} — use só números, ex.: 72956 ou 72.956,00.` : (error?.message || 'Falha ao salvar')); return }
+    if (error || !r?.ok) { onErro(r?.erro === 'chassi_ja_cadastrado' ? 'Chassi já cadastrado nesta empresa.' : r?.erro === 'chassi_obrigatorio' ? 'Chassi é obrigatório.' : r?.erro === 'valor_invalido' ? `Valor inválido em "${ROT[r.campo ?? ''] ?? r.campo}"${r.valor ? ` ("${r.valor}")` : ''} — use só números, ex.: 72956 ou 72.956,00.` : erroAmigavel(error, 'Não foi possível salvar. Tente de novo.')); return }
     onSaved(r.id)
   }
   return (
