@@ -60,6 +60,8 @@ BEGIN
   RETURN NEW;
 END;
 $fn$;
+-- função de gatilho (disparada pelo UPDATE); nunca chamável por quem não está logado.
+REVOKE ALL ON FUNCTION public.trg_agency_job_status_hist() FROM anon, public;
 
 DROP TRIGGER IF EXISTS trg_agency_job_status_hist ON public.agency_jobs;
 CREATE TRIGGER trg_agency_job_status_hist
