@@ -267,7 +267,7 @@ export default function BPOInboxPage() {
                   }}>
                     IA {item.ia_confianca}%
                   </span>
-                  <AjudaCampo chave="bpo.inbox.item.ia" rota={ROTA} />
+                  <AjudaCampo chave="bpo.inbox.selo.ia" rota={ROTA} />
                 </span>
               )}
             </div>
@@ -293,7 +293,7 @@ export default function BPOInboxPage() {
               }}>
                 {slaLabel(item.status_sla, item.horas_ate_sla)}
               </div>
-              <AjudaCampo chave="bpo.inbox.item.sla" rota={ROTA} />
+              <AjudaCampo chave="bpo.inbox.selo.sla" rota={ROTA} />
             </div>
             {item.ia_acao_sugerida && (
               <div style={{ fontSize: 10, color: C.txtMedio, marginTop: 6, textTransform: 'uppercase', letterSpacing: 1 }}>
@@ -327,10 +327,10 @@ export default function BPOInboxPage() {
         </div>
 
         <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
-          <Badge label={item.tipo_origem.toUpperCase()} bg={C.espresso} ajuda="bpo.inbox.detail.tipo" />
-          <Badge label={item.prioridade.toUpperCase()} bg={prioridadeColor(item.prioridade)} ajuda="bpo.inbox.detail.prioridade" />
-          <Badge label={item.status_sla.toUpperCase()} bg={slaColor(item.status_sla)} ajuda="bpo.inbox.detail.sla" />
-          {item.categoria && <Badge label={item.categoria} bg={C.dourado} ajuda="bpo.inbox.detail.categoria" />}
+          <Badge label={item.tipo_origem.toUpperCase()} bg={C.espresso} ajuda="bpo.inbox.selo.tipo" />
+          <Badge label={item.prioridade.toUpperCase()} bg={prioridadeColor(item.prioridade)} ajuda="bpo.inbox.selo.prioridade" />
+          <Badge label={item.status_sla.toUpperCase()} bg={slaColor(item.status_sla)} ajuda="bpo.inbox.selo.sla" />
+          {item.categoria && <Badge label={item.categoria} bg={C.dourado} ajuda="bpo.inbox.selo.categoria" />}
         </div>
 
         {item.descricao && (
@@ -354,7 +354,7 @@ export default function BPOInboxPage() {
           }}>
             <div style={{ fontSize: 10, fontWeight: 'bold', color: C.dourado, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               Analise da IA {item.ia_confianca !== null && `- Confianca ${item.ia_confianca}%`}
-              <AjudaCampo chave="bpo.inbox.detail.ia" rota={ROTA} />
+              <AjudaCampo chave="bpo.inbox.analise_ia" rota={ROTA} />
             </div>
             <div style={{ fontSize: 13, color: C.txt, lineHeight: 1.5 }}>
               {item.ia_contexto}
