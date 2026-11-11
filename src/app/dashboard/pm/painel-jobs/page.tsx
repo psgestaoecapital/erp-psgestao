@@ -10,6 +10,7 @@ import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import EmpresaNaoResolvida from "@/components/pm/EmpresaNaoResolvida";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 import { exportarPDF, type Coluna } from "@/lib/export/relatorioLista";
 import {
   CABECALHO_FLUXO, SITUACOES, contarFiltroPainel, filtrarJobs, graficos, indicadores, legado, limparFiltroPainel, linhaParaArray, linhasFluxo, resumoParaIA,
@@ -105,7 +106,7 @@ export default function PainelJobsPage() {
         supabase.rpc("fn_usuarios_da_empresa", { p_company_id: empresa }),
       ]);
       if (!vivo) return;
-      if (j.error) { setErro(j.error.message); setCarregando(false); return; }
+      if (j.error) { setErro(erroAmigavel(j.error, "Não foi possível carregar o painel de jobs. Tente de novo.")); setCarregando(false); return; }
       const clientes = ((cl.data ?? []) as { id: string; nome: string; nome_fantasia: string | null; grupo_id: string | null }[]);
       const equipe = ((eq.data ?? []) as { id: string; full_name: string | null; email: string | null }[]).map((u) => ({ id: u.id, nome: u.full_name || u.email || "Usuário" }));
       const servicos = (sv.data ?? []) as Nome[];
@@ -142,12 +143,12 @@ export default function PainelJobsPage() {
     const nome = nomeOpcao.trim();
     if (!empresa || !nome) return;
     const { error } = await supabase.from("agency_painel_opcao").insert({ company_id: empresa, nome, filtros: limparFiltroPainel(rascunho) });
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error, "Não foi possível salvar a visão. Tente de novo.")); return; }
     setNomeOpcao(""); await carregarOpcoes();
   }
   async function apagarOpcao(o: Opcao) {
     const { error } = await supabase.from("agency_painel_opcao").update({ excluido_em: new Date().toISOString() }).eq("id", o.id);
-    if (error) setErro(error.message); else await carregarOpcoes();
+    if (error) setErro(erroAmigavel(error, "Não foi possível apagar a visão. Tente de novo.")); else await carregarOpcoes();
   }
   async function excel() {
     const XLSX = await import("xlsx");

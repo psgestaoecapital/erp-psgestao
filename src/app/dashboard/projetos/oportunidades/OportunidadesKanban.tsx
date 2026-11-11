@@ -7,6 +7,7 @@ import { comPrazo } from '@/lib/comPrazo'
 import { labelUsuario } from '@/lib/usuarioLabel'
 import { linkTelefone } from '@/lib/crm/oportunidadeCliente'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 type UsuarioOpt = { id: string; email: string | null; full_name?: string | null }
 type Fechada = {
@@ -188,7 +189,7 @@ export default function OportunidadesKanban({
     setGerandoId(null)
     const j = data as { ok?: boolean; erro?: string; mensagem?: string; orcamento_id?: string; numero?: string; ja_existia?: boolean } | null
     if (error || !j?.ok) {
-      onError(`Erro ao gerar orçamento: ${j?.mensagem ?? (j?.erro === 'sem_cliente' ? 'informe o cliente da oportunidade antes.' : (error?.message ?? j?.erro ?? 'falha'))}`)
+      onError((j?.mensagem ?? (j?.erro === 'sem_cliente' ? 'Informe o cliente da oportunidade antes de gerar o orçamento.' : erroAmigavel(error, 'Não foi possível gerar o orçamento. Tente de novo.'))))
       return
     }
     onMoved(j.ja_existia ? `Orçamento ${j.numero} já existia — abrindo.` : `Orçamento ${j.numero} criado da oportunidade.`)
@@ -315,7 +316,7 @@ export default function OportunidadesKanban({
       setGerandoId(null)
       const j = data as { ok?: boolean; erro?: string; mensagem?: string; orcamento_id?: string; numero?: string; ja_existia?: boolean } | null
       if (error || !j?.ok) {
-        onError(`Erro ao gerar orçamento: ${j?.mensagem ?? (j?.erro === 'sem_cliente' ? 'informe o cliente da oportunidade antes.' : (error?.message ?? j?.erro ?? 'falha'))}`)
+        onError((j?.mensagem ?? (j?.erro === 'sem_cliente' ? 'Informe o cliente da oportunidade antes de gerar o orçamento.' : erroAmigavel(error, 'Não foi possível gerar o orçamento. Tente de novo.'))))
         return
       }
       await aplicarMove(cardId, 'orcando', etapaAtual, null)
@@ -361,7 +362,7 @@ export default function OportunidadesKanban({
     })
     setMovendoId(null)
     if (error) {
-      onError(`Erro ao mover: ${error.message}`)
+      onError(erroAmigavel(error, 'Não foi possível mover a oportunidade. Tente de novo.'))
       carregar() // sincroniza com a verdade
       return
     }
@@ -400,7 +401,7 @@ export default function OportunidadesKanban({
     setMovendoId(null)
     const j = data as { ok?: boolean; erro?: string; numero?: string; ja_existia?: boolean } | null
     if (error || !j?.ok) {
-      onError(`Erro ao marcar como ganho: ${error?.message ?? j?.erro ?? 'falha'}`)
+      onError(erroAmigavel(error, 'Não foi possível marcar como ganho. Tente de novo.'))
       carregar() // desfaz o otimista pela verdade do banco
       return
     }
