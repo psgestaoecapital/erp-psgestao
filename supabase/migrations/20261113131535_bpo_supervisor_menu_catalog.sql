@@ -9,7 +9,7 @@
 -- links/bookmarks antigos. Aditiva no sentido de nao apagar linha nem tocar dado de cliente; so
 -- ajusta o destino de 1 linha de catalogo de menu. Idempotente: a 2a execucao nao encontra a origem
 -- (ja repontada) e nao faz nada; guarda contra a rota canonica ja existir no catalogo.
--- Faixa do agente code-desenvolvedor-3 (segundos :35).
+-- Faixa do agente code-desenvolvedor-3 (segundos :35; versao acima da main).
 UPDATE public.module_catalog
    SET rota = '/dashboard/bpo/supervisor'
  WHERE rota = '/dashboard/bpo/supervisao'
