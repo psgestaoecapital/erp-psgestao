@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'r
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ROTA = '/dashboard/pm/benchmark'
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
@@ -67,7 +68,7 @@ export default function BenchmarkPage() {
     if (!companyIds.length) { setLoading(false); return }
     setLoading(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_pm_benchmark', { p_company_ids: companyIds, p_dias: dias })
-    if (error) { setErro(error.message); setResp(null) } else { setResp((data ?? {}) as Resp) }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar o benchmark. Tente de novo.')); setResp(null) } else { setResp((data ?? {}) as Resp) }
     setLoading(false)
   }, [companyIds, dias])
   useEffect(() => { void carregar() }, [carregar])
