@@ -173,3 +173,13 @@ BEGIN
     'pendentes_restantes', (SELECT count(*) FROM sugestao_notificacao WHERE tipo='resposta' AND email_enviado_em IS NULL AND email_status='pendente'),
     'falhou_total', (SELECT count(*) FROM sugestao_notificacao WHERE tipo='resposta' AND email_status='falhou'));
 END; $function$;
+
+-- ============================================================================================
+-- Guardas (check-fn-guards): REVOKE anon (ACL atual já é {authenticated,service_role} /
+-- {service_role}; CREATE OR REPLACE preserva privilégios, então o REVOKE é no-op seguro) e
+-- escapes de guarda-por-empresa, pois a autorização destas funções não é por empresa:
+--   ci-sem-guarda: fn_sugestao_confirmar — ação do próprio autor (auth.uid() = sugestoes.user_id); não é por empresa.
+--   ci-sem-guarda: fn_sugestao_email_fila — fila global; guarda por cron/PS_ADMIN (RAISE EXCEPTION se não service_role/PS_ADMIN), não por empresa.
+REVOKE ALL ON FUNCTION public.fn_sugestao_confirmar(uuid,uuid,boolean,text,jsonb) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_sugestao_confirmar(uuid,uuid,boolean,text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_sugestao_email_fila(integer) FROM PUBLIC, anon;
