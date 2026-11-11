@@ -354,13 +354,16 @@ export default function ContratosPage(){
   };
 
   // ── CRUD com GUARDA FISCAL (RD-41) — a UI OBEDECE a fn_contrato_acoes_permitidas ──
-  const abrirMenu=async(c:Contrato)=>{
-    if(menuAberto===c.id){setMenuAberto(null);return;}
-    setMenuAberto(c.id);
-    if(!guardCache[c.id]){
+  // Carrega a guarda ANTES de abrir o modal de exclusão (o modal decide pelo pode_excluir:
+  // só confirma a exclusão de quem pode; bloqueado, explica e oferece Encerrar).
+  const abrirExcluir=async(c:Contrato)=>{
+    setMenuAberto(null); setMotivoAcao('');
+    let guard=guardCache[c.id];
+    if(!guard){
       const {data}=await supabase.rpc('fn_contrato_acoes_permitidas',{p_contrato_id:c.id});
-      setGuardCache(g=>({...g,[c.id]:data}));
+      guard=data; setGuardCache(g=>({...g,[c.id]:data}));
     }
+    setAcaoModal({tipo:'excluir',c,guard});
   };
   const abrirEditar=(c:Contrato)=>{
     setMenuAberto(null);
@@ -749,28 +752,15 @@ export default function ContratosPage(){
                           <td style={{padding:"8px",textAlign:"center"}}>
                             <span style={{fontSize:9,padding:"3px 10px",borderRadius:6,background:cfg.cor+"15",color:cfg.cor,fontWeight:600,whiteSpace:"nowrap"}}>{cfg.icon} {cfg.label}</span>
                           </td>
-                          <td style={{padding:"8px",textAlign:"right",position:"relative"}} onClick={e=>e.stopPropagation()}>
-                            <div style={{display:"inline-flex",gap:4,alignItems:"center"}}>
-                              <button onClick={()=>abrirDetalhe(c)} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>Ver →</button>
-                              <button onClick={()=>abrirMenu(c)} title="Ações" style={{fontSize:14,lineHeight:1,padding:"3px 9px",borderRadius:6,background:BG3,color:TXM,border:`1px solid ${BD}`,cursor:"pointer",fontWeight:700}}>⋯</button>
+                          {/* Ações visíveis em cada linha (RD-98 · CEO 11/11 item 6): Editar e Excluir
+                              sem esconder no "…". Excluir carrega a guarda e o modal decide (soft-delete
+                              com motivo + auditoria via fn_contrato_excluir; bloqueado, oferece Encerrar). */}
+                          <td style={{padding:"8px",textAlign:"right"}} onClick={e=>e.stopPropagation()}>
+                            <div style={{display:"inline-flex",gap:4,alignItems:"center",flexWrap:"wrap",justifyContent:"flex-end"}}>
+                              <button onClick={()=>abrirDetalhe(c)} title="Ver detalhes" style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>Ver →</button>
+                              <button onClick={()=>abrirEditar(c)} title="Editar contrato" style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:B+"12",color:B,border:`1px solid ${B}40`,cursor:"pointer",fontWeight:600}}>✏️ Editar</button>
+                              <button onClick={()=>abrirExcluir(c)} title="Excluir contrato" style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:R+"12",color:R,border:`1px solid ${R}40`,cursor:"pointer",fontWeight:600}}>🗑️ Excluir</button>
                             </div>
-                            {menuAberto===c.id&&(
-                              <div style={{position:"absolute",right:8,top:"100%",marginTop:2,background:BG2,border:`1px solid ${BD}`,borderRadius:8,boxShadow:"0 6px 20px rgba(0,0,0,0.18)",zIndex:50,minWidth:220,textAlign:"left",overflow:"hidden"}}>
-                                <button onClick={()=>abrirEditar(c)} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 12px",background:"transparent",border:"none",borderBottom:`1px solid ${BD}`,color:TX,fontSize:12,cursor:"pointer",fontWeight:500}}>✏️ Editar</button>
-                                {!guardCache[c.id]&&<div style={{padding:"9px 12px",fontSize:11,color:TXD}}>Verificando cobranças…</div>}
-                                {guardCache[c.id]?.pode_encerrar&&(
-                                  <button onClick={()=>abrirAcao('encerrar',c)} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 12px",background:"transparent",border:"none",borderBottom:`1px solid ${BD}`,color:TX,fontSize:12,cursor:"pointer",fontWeight:500}}>⏸️ Encerrar</button>
-                                )}
-                                {guardCache[c.id]?.pode_excluir&&(
-                                  <button onClick={()=>abrirAcao('excluir',c)} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 12px",background:"transparent",border:"none",color:R,fontSize:12,cursor:"pointer",fontWeight:600}}>🗑️ Excluir</button>
-                                )}
-                                {guardCache[c.id]&&!guardCache[c.id].pode_excluir&&(
-                                  <div style={{padding:"8px 12px",fontSize:10,color:TXM,background:BG3,display:"flex",gap:6,alignItems:"flex-start"}}>
-                                    <span>ℹ️</span><span>{guardCache[c.id].motivo_bloqueio}</span>
-                                  </div>
-                                )}
-                              </div>
-                            )}
                           </td>
                         </tr>
                       );
@@ -1202,6 +1192,15 @@ export default function ContratosPage(){
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:120,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setAcaoModal(null)}>
           <div style={{background:BG2,borderRadius:16,padding:24,maxWidth:520,width:"100%"}} onClick={e=>e.stopPropagation()}>
             {acaoModal.tipo==='excluir'?(
+              acaoModal.guard&&acaoModal.guard.pode_excluir===false?(
+                <>
+                  <div style={{fontSize:18,fontWeight:700,color:R,marginBottom:4}}>🗑️ Excluir contrato {acaoModal.c.numero}</div>
+                  <div style={{fontSize:12,color:TXM,marginBottom:14}}>{acaoModal.c.cliente_nome} · {fmtR(acaoModal.c.valor_atual||acaoModal.c.valor_mensal)}/mês</div>
+                  <div style={{background:R+"10",border:`1px solid ${R}40`,borderRadius:8,padding:12,marginBottom:4,fontSize:12,color:TX,display:"flex",gap:8,alignItems:"flex-start"}}>
+                    <span>⛔</span><span>Este contrato não pode ser excluído: {acaoModal.guard.motivo_bloqueio||'há cobrança ou histórico vinculado.'}{acaoModal.guard.pode_encerrar?' Em vez de excluir, você pode encerrá-lo — para de gerar cobrança e mantém toda a história.':''}</span>
+                  </div>
+                </>
+              ):(
               <>
                 <div style={{fontSize:18,fontWeight:700,color:R,marginBottom:4}}>🗑️ Excluir contrato {acaoModal.c.numero}?</div>
                 <div style={{fontSize:12,color:TXM,marginBottom:14}}>{acaoModal.c.cliente_nome} · {fmtR(acaoModal.c.valor_atual||acaoModal.c.valor_mensal)}/mês</div>
@@ -1219,6 +1218,7 @@ export default function ContratosPage(){
                 </div>
                 <input value={motivoAcao} onChange={e=>setMotivoAcao(e.target.value)} placeholder="descreva o motivo…" style={inp}/>
               </>
+              )
             ):(
               <>
                 <div style={{fontSize:18,fontWeight:700,color:R,marginBottom:4}}>🏁 Encerrar contrato {acaoModal.c.numero}?</div>
@@ -1232,7 +1232,13 @@ export default function ContratosPage(){
             )}
             <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:18}}>
               <button onClick={()=>setAcaoModal(null)} disabled={processando} style={{padding:"10px 20px",borderRadius:8,background:"transparent",border:`1px solid ${BD}`,color:TX,fontSize:12,cursor:"pointer"}}>Cancelar</button>
-              <button onClick={confirmarAcao} disabled={processando||!motivoAcao.trim()} style={{padding:"10px 24px",borderRadius:8,background:R,color:"#FFF",fontSize:13,fontWeight:600,border:"none",cursor:processando?"wait":"pointer",opacity:!motivoAcao.trim()?0.5:1}}>{processando?"⏳":acaoModal.tipo==='excluir'?"🗑️ Excluir":"🏁 Encerrar"}</button>
+              {acaoModal.tipo==='excluir'&&acaoModal.guard&&acaoModal.guard.pode_excluir===false?(
+                acaoModal.guard.pode_encerrar&&(
+                  <button onClick={()=>abrirAcao('encerrar',acaoModal.c)} disabled={processando} style={{padding:"10px 24px",borderRadius:8,background:B,color:"#FFF",fontSize:13,fontWeight:600,border:"none",cursor:"pointer"}}>🏁 Encerrar em vez disso</button>
+                )
+              ):(
+                <button onClick={confirmarAcao} disabled={processando||!motivoAcao.trim()} style={{padding:"10px 24px",borderRadius:8,background:R,color:"#FFF",fontSize:13,fontWeight:600,border:"none",cursor:processando?"wait":"pointer",opacity:!motivoAcao.trim()?0.5:1}}>{processando?"⏳":acaoModal.tipo==='excluir'?"🗑️ Excluir":"🏁 Encerrar"}</button>
+              )}
             </div>
           </div>
         </div>
