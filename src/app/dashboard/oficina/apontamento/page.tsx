@@ -8,6 +8,7 @@ import React, { useEffect, useState, useRef, useCallback, type CSSProperties } f
 import { useRouter } from 'next/navigation'
 import { Timer, ChevronLeft, Play, Square } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { PlacaInline } from '../_components/PlacaInline'
 import { useOficinaRamo } from '@/lib/oficina/ramo'
 
@@ -158,7 +159,7 @@ export default function ApontamentoPage() {
     })
     setBusy(null)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || j?.ok === false) { setMsg('❌ ' + (error?.message || j?.erro)); return }
+    if (error || j?.ok === false) { setMsg('❌ ' + erroAmigavel(error, codigoAmigavel(j?.erro, 'Não foi possível iniciar o apontamento.'))); return }
     await carregarOS(osSel)
   }
 
@@ -174,7 +175,7 @@ export default function ApontamentoPage() {
     })
     setBusy(null)
     const j = data as { ok?: boolean; erro?: string; tempo_real_h?: number; execucao_gravada?: boolean } | null
-    if (error || j?.ok === false) { setMsg('❌ ' + (error?.message || j?.erro)); return }
+    if (error || j?.ok === false) { setMsg('❌ ' + erroAmigavel(error, codigoAmigavel(j?.erro, 'Não foi possível concluir o apontamento.'))); return }
     setTempoManual((p) => { const n = { ...p }; delete n[it.item_id]; return n })
     setObs((p) => { const n = { ...p }; delete n[it.item_id]; return n })
     setAjustando((p) => { const n = new Set(p); n.delete(it.item_id); return n })
