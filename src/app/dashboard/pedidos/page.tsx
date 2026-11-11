@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -254,7 +255,10 @@ export default function PedidosPage(){
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
           {orcamentosAprovados.length>0&&(
-            <button onClick={()=>setShowConverter(true)} style={{padding:"8px 16px",borderRadius:8,background:G+"15",color:G,fontSize:12,fontWeight:600,border:`1px solid ${G}40`,cursor:"pointer"}}>✅ Converter Orçamento ({orcamentosAprovados.length})</button>
+            <span style={{display:"inline-flex",alignItems:"center",gap:4}}>
+              <button onClick={()=>setShowConverter(true)} style={{padding:"8px 16px",borderRadius:8,background:G+"15",color:G,fontSize:12,fontWeight:600,border:`1px solid ${G}40`,cursor:"pointer"}}>✅ Converter Orçamento ({orcamentosAprovados.length})</button>
+              <AjudaCampo chave="pedidos.acao_converter" />
+            </span>
           )}
         </div>
       </div>
@@ -264,14 +268,14 @@ export default function PedidosPage(){
       {/* KPIs */}
       <div className="no-print" style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:16}}>
         {[
-          {l:"Pedidos Ativos",v:String(kpiTotal),c:B,icon:"🎯"},
-          {l:"Em Produção",v:String(kpiProducao),c:P,icon:"🔨"},
-          {l:"Em Entrega",v:String(kpiEntrega),c:Y,icon:"🚚"},
-          {l:"Valor em Aberto",v:fmtR(kpiValorAberto),c:GO,icon:"💰"},
-          {l:"Faturado 30d",v:fmtR(kpiFaturado30d),c:G,icon:"📊"},
+          {l:"Pedidos Ativos",v:String(kpiTotal),c:B,icon:"🎯",a:"pedidos.kpi_ativos"},
+          {l:"Em Produção",v:String(kpiProducao),c:P,icon:"🔨",a:"pedidos.kpi_producao"},
+          {l:"Em Entrega",v:String(kpiEntrega),c:Y,icon:"🚚",a:"pedidos.kpi_entrega"},
+          {l:"Valor em Aberto",v:fmtR(kpiValorAberto),c:GO,icon:"💰",a:"pedidos.kpi_valor_aberto"},
+          {l:"Faturado 30d",v:fmtR(kpiFaturado30d),c:G,icon:"📊",a:"pedidos.kpi_faturado30d"},
         ].map((k,i)=>(
           <div key={i} style={{background:BG2,borderRadius:10,padding:"10px 14px",border:`1px solid ${BD}`}}>
-            <div style={{fontSize:8,color:TXD,textTransform:"uppercase",letterSpacing:0.5}}>{k.icon} {k.l}</div>
+            <div style={{display:"flex",alignItems:"center",fontSize:8,color:TXD,textTransform:"uppercase",letterSpacing:0.5}}>{k.icon} {k.l}<AjudaCampo chave={k.a} /></div>
             <div style={{fontSize:15,fontWeight:700,color:k.c,marginTop:2}}>{k.v}</div>
           </div>
         ))}
@@ -279,11 +283,13 @@ export default function PedidosPage(){
 
       {/* Filtros */}
       <div className="no-print" style={{display:"flex",gap:8,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
-        <div style={{flex:1,minWidth:200,position:"relative"}}>
+        <div style={{flex:1,minWidth:200,position:"relative",display:"flex",alignItems:"center",gap:4}}>
           <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por número, cliente, CNPJ..." style={{...inp,paddingLeft:32}}/>
           <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:TXD}}>🔍</span>
+          <AjudaCampo chave="pedidos.busca" />
         </div>
-        <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+        <div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
+          <AjudaCampo chave="pedidos.filtro_status" />
           <button onClick={()=>setFiltroStatus("todos")} style={{padding:"6px 10px",borderRadius:6,fontSize:10,border:`1px solid ${filtroStatus==="todos"?GO:BD}`,background:filtroStatus==="todos"?GO+"12":"transparent",color:filtroStatus==="todos"?GO:TXM,cursor:"pointer",fontWeight:filtroStatus==="todos"?600:400}}>Todos</button>
           {Object.entries(STATUS_CFG).map(([k,cfg])=>(
             <button key={k} onClick={()=>setFiltroStatus(k)} style={{padding:"6px 10px",borderRadius:6,fontSize:10,border:`1px solid ${filtroStatus===k?cfg.cor:BD}`,background:filtroStatus===k?cfg.cor+"12":"transparent",color:filtroStatus===k?cfg.cor:TXM,cursor:"pointer",fontWeight:filtroStatus===k?600:400}}>{cfg.icon} {cfg.label}</button>
@@ -365,7 +371,10 @@ export default function PedidosPage(){
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
               <div style={{fontSize:11,fontWeight:600,color:GO}}>📦 Itens</div>
               {pedidoEditavel(showDetalhes)?(
-                <button className="no-print" onClick={()=>{abrirEditarItens(showDetalhes);setShowDetalhes(null);}} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:B+"15",color:B,border:`1px solid ${B}40`,cursor:"pointer",fontWeight:600}}>✏️ Editar Itens</button>
+                <span style={{display:"inline-flex",alignItems:"center",gap:4}}>
+                  <button className="no-print" onClick={()=>{abrirEditarItens(showDetalhes);setShowDetalhes(null);}} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:B+"15",color:B,border:`1px solid ${B}40`,cursor:"pointer",fontWeight:600}}>✏️ Editar Itens</button>
+                  <AjudaCampo chave="pedidos.acao_editar_itens" alinhar="fim" />
+                </span>
               ):showDetalhes.nf_emitida?(
                 <span title="NF emitida — pedido imutável" style={{fontSize:9,padding:"3px 8px",borderRadius:6,background:GO+"18",color:GO,fontWeight:600}}>🔒 Faturado (NF) — crie um novo pedido p/ demanda extra</span>
               ):null}
@@ -396,7 +405,7 @@ export default function PedidosPage(){
 
             {/* Ações */}
             <div className="no-print" style={{background:BG3,borderRadius:10,padding:14,marginBottom:12}}>
-              <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:10}}>🔄 Atualizar Status</div>
+              <div style={{display:"flex",alignItems:"center",fontSize:11,fontWeight:600,color:GO,marginBottom:10}}>🔄 Atualizar Status<AjudaCampo chave="pedidos.acao_status" /></div>
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                 {Object.entries(STATUS_CFG).filter(([k])=>k!==showDetalhes.status).map(([k,cfg])=>(
                   <button key={k} onClick={()=>{mudarStatus(showDetalhes,k);setShowDetalhes(null);}} style={{padding:"6px 12px",borderRadius:6,fontSize:10,background:cfg.cor+"12",color:cfg.cor,border:`1px solid ${cfg.cor}30`,cursor:"pointer",fontWeight:600}}>{cfg.icon} {cfg.label}</button>
@@ -405,9 +414,12 @@ export default function PedidosPage(){
             </div>
 
             {!showDetalhes.titulos_gerados&&(
-              <button onClick={()=>setShowGerarTitulos(showDetalhes)} style={{width:"100%",padding:"12px",borderRadius:10,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontSize:13,fontWeight:600}}>
-                💸 Gerar Contas a Receber no Operacional
-              </button>
+              <div style={{display:"flex",alignItems:"center",gap:6}}>
+                <button onClick={()=>setShowGerarTitulos(showDetalhes)} style={{flex:1,padding:"12px",borderRadius:10,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontSize:13,fontWeight:600}}>
+                  💸 Gerar Contas a Receber no Operacional
+                </button>
+                <AjudaCampo chave="pedidos.acao_gerar_titulos" alinhar="fim" />
+              </div>
             )}
             {showDetalhes.titulos_gerados&&(
               <div style={{padding:"10px",borderRadius:8,background:G+"15",color:G,textAlign:"center",fontSize:11,fontWeight:600}}>✅ Títulos já foram gerados no Operacional</div>
@@ -499,13 +511,13 @@ export default function PedidosPage(){
           ):(
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
               <thead><tr style={{borderBottom:`2px solid ${BD}`,background:BG3}}>
-                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Número</th>
-                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Cliente</th>
-                <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Emissão</th>
-                <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Entrega Prev.</th>
-                <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Status</th>
-                <th style={{padding:"8px",textAlign:"right",color:TXD,fontSize:10}}>Total</th>
-                <th style={{padding:"8px",textAlign:"right",color:TXD,fontSize:10}}>Ações</th>
+                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Número<AjudaCampo chave="pedidos.col_numero" /></th>
+                <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Cliente<AjudaCampo chave="pedidos.col_cliente" /></th>
+                <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Emissão<AjudaCampo chave="pedidos.col_emissao" /></th>
+                <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Entrega Prev.<AjudaCampo chave="pedidos.col_entrega_prev" /></th>
+                <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Status<AjudaCampo chave="pedidos.col_status" /></th>
+                <th style={{padding:"8px",textAlign:"right",color:TXD,fontSize:10}}>Total<AjudaCampo chave="pedidos.col_total" alinhar="fim" /></th>
+                <th style={{padding:"8px",textAlign:"right",color:TXD,fontSize:10}}>Ações<AjudaCampo chave="pedidos.col_acoes" alinhar="fim" /></th>
               </tr></thead>
               <tbody>
                 {filtrados.map(p=>{
