@@ -14,6 +14,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import {
   Plus, Search, FileText, X, Trash2,
   Package, Calculator, ListChecks, Info,
@@ -189,7 +190,7 @@ export default function FichasCommercePage() {
       .select()
       .single()
     if (error) {
-      flash('Erro: ' + error.message)
+      flash(erroAmigavel(error, 'Não foi possível criar a ficha. Tente de novo.'))
       return
     }
     if (data) {
@@ -206,7 +207,7 @@ export default function FichasCommercePage() {
       .update({ ...patch, updated_at: new Date().toISOString() })
       .eq('id', id)
     if (error) {
-      flash('Erro ao salvar: ' + error.message)
+      flash(erroAmigavel(error, 'Não foi possível salvar a ficha. Tente de novo.'))
       return
     }
     setFichas((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)))
@@ -216,7 +217,7 @@ export default function FichasCommercePage() {
     if (!confirm('Excluir esta ficha e todos os itens? Esta ação não pode ser desfeita.')) return
     const { error } = await supabase.from('fichas_tecnicas').delete().eq('id', id)
     if (error) {
-      flash('Erro: ' + error.message)
+      flash(erroAmigavel(error, 'Não foi possível excluir a ficha. Tente de novo.'))
       return
     }
     setFichas((prev) => prev.filter((f) => f.id !== id))
@@ -232,7 +233,7 @@ export default function FichasCommercePage() {
       .select()
       .single()
     if (error) {
-      flash('Erro: ' + error.message)
+      flash(erroAmigavel(error, 'Não foi possível adicionar o item. Tente de novo.'))
       return
     }
     if (data) {
@@ -246,7 +247,7 @@ export default function FichasCommercePage() {
   async function atualizarItem(itemId: string, fichaId: string, patch: Partial<FichaItem>) {
     const { error } = await supabase.from('ficha_itens').update(patch).eq('id', itemId)
     if (error) {
-      flash('Erro: ' + error.message)
+      flash(erroAmigavel(error, 'Não foi possível salvar o item. Tente de novo.'))
       return
     }
     setItensCache((prev) => ({
@@ -258,7 +259,7 @@ export default function FichasCommercePage() {
   async function excluirItem(itemId: string, fichaId: string) {
     const { error } = await supabase.from('ficha_itens').delete().eq('id', itemId)
     if (error) {
-      flash('Erro: ' + error.message)
+      flash(erroAmigavel(error, 'Não foi possível excluir o item. Tente de novo.'))
       return
     }
     setItensCache((prev) => ({
