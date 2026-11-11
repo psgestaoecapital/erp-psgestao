@@ -83,7 +83,7 @@ export function codigoCombustivel(txt: string | null | undefined): string | null
 export function fraseReducaoBaseIcms(cst: string, reducaoBasePct: number | null | undefined): string | null {
   const r = Number(reducaoBasePct ?? 0)
   if (cst !== '20' || !(r > 0)) return null
-  return `Redução da base de cálculo do ICMS de ${String(Number(r.toFixed(2))).replace('.', ',')}%`
+  return `Redução da base de cálculo do ICMS de ${String(Number(r.toFixed(2))).replace('.', ',')}%, Cfe art. 8º, II, Anexo 2, do RICMS-SC/01`
 }
 
 export function infComplementarVeiculo(v: DadosVendaVeiculo['veiculo'], textoPerfil?: string | null, reducaoFrase?: string | null): string {

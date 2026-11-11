@@ -59,8 +59,8 @@ ok(nomeDestinatarioNFe(null, 'Fantasia SA', '11222333000181') === '' && nomeDest
 
 // #7641 (Alliance): frase da redução de base nas informações complementares — só com CST 20 e % > 0, % vindo do perfil.
 const itemRed = montarItemVeiculo(base, 'SC', 'SC', false)
-ok(/Redução da base de cálculo do ICMS de 95%/.test(itemRed.observacoes ?? '') && /Chassi: /.test(itemRed.observacoes ?? ''), 'infCpl: frase de redução 95% + dados do veículo preservados')
-ok(fraseReducaoBaseIcms('20', 12.5) === 'Redução da base de cálculo do ICMS de 12,5%', 'infCpl: percentual vem do parâmetro (12,5%)')
+ok(/Redução da base de cálculo do ICMS de 95%, Cfe art\. 8º, II, Anexo 2, do RICMS-SC\/01/.test(itemRed.observacoes ?? '') && /Chassi: /.test(itemRed.observacoes ?? ''), 'infCpl: frase de redução 95% + citação legal (RICMS-SC/01) + dados do veículo preservados')
+ok(fraseReducaoBaseIcms('20', 12.5) === 'Redução da base de cálculo do ICMS de 12,5%, Cfe art. 8º, II, Anexo 2, do RICMS-SC/01', 'infCpl: percentual vem do parâmetro (12,5%) + citação legal')
 ok(fraseReducaoBaseIcms('20', 0) === null && fraseReducaoBaseIcms('20', null) === null && fraseReducaoBaseIcms('00', 95) === null, 'infCpl: sem redução/CST≠20 não recebe a frase')
 ok((infComplementarVeiculo(base.veiculo, 'Redução da base de cálculo do ICMS de 95%', 'Redução da base de cálculo do ICMS de 95%').match(/Redução da base/g) ?? []).length === 1, 'infCpl: não duplica se o texto do perfil já traz a frase')
 
