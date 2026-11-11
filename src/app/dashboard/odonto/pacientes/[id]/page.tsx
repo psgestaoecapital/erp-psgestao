@@ -308,7 +308,7 @@ function AprovarPlanoModal({ plano, onClose, onOk }: { plano: Plano; onClose: ()
     })
     setSalvando(false)
     const r = data as { ok?: boolean; erro?: string; titulos?: number; valor?: number } | null
-    if (error || !r?.ok) { setErro(r?.erro || error?.message || 'Falha ao aprovar o plano.'); return }
+    if (error || !r?.ok) { setErro(r?.erro || 'Não foi possível aprovar o plano. Confira os dados e tente de novo; se continuar, fale com o suporte.'); return }
     onOk(r.titulos ?? 0, r.valor ?? 0)
   }
   return (
@@ -377,7 +377,7 @@ function ReceberModal({ companyId, titulo, onClose, onOk }: { companyId: string;
     })
     setSalvando(false)
     const r = res as { sucesso?: boolean; erro?: string; valor_baixa?: number } | null
-    if (error || !r?.sucesso) { setErro(r?.erro || error?.message || 'Falha ao registrar o recebimento.'); return }
+    if (error || !r?.sucesso) { setErro(r?.erro || 'Não foi possível registrar o recebimento. Confira a conta e o valor e tente de novo; se continuar, fale com o suporte.'); return }
     onOk(r.valor_baixa ?? (parseFloat(valor.replace(',', '.')) || 0))
   }
   return (
