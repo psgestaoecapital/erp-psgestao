@@ -14,6 +14,7 @@ import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { contarPendentesAprovacao } from '@/lib/sugestoes/filaAtendimento'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { RespostaInline } from '@/components/melhorias/RespostaInline'
 import { BotaoDitar } from '@/components/melhorias/BotaoDitar'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -233,7 +234,7 @@ function Inner() {
     }
     const { data, error } = await supabase.rpc('fn_sugestao_confirmar', { p_id: id, p_user: user.id, p_funcionou: funcionou, p_motivo: funcionou ? null : (motivo ?? '').trim(), p_anexos: anexos })
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha ao confirmar'); return }
+    if (error || !r?.ok) { setErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao confirmar'))); return }
     setMotivoAberto(null); setNaoResolveuFotos([])
     setMsg(funcionou ? 'Que bom! Chamado concluído. 🎉' : 'Reabrimos — a equipe volta a trabalhar nisso.')
     void carregar()
@@ -249,7 +250,7 @@ function Inner() {
     if (!funcionou && !(motivo ?? '').trim()) { setErro('Diga o que não resolveu para reabrir.'); return }
     const ap = await supabase.rpc('fn_sugestao_aprovar_resposta', { p_id: id, p_user: user.id })
     const ra = ap.data as { ok?: boolean; erro?: string } | null
-    if (ap.error || !ra?.ok) { setErro(ap.error?.message || ra?.erro || 'Falha ao aprovar a resposta'); return }
+    if (ap.error || !ra?.ok) { setErro(erroAmigavel(ap.error, codigoAmigavel(ra?.erro, 'Falha ao aprovar a resposta'))); return }
     const anexos: { storage_path: string; marcacoes: Marca[] }[] = []
     for (const ft of (funcionou ? [] : (fotos ?? []))) {
       const path = await uploadFotoSugestao(ft.file, user.id).catch((e) => { setErro('Falha ao enviar a foto: ' + String(e)); return null })
@@ -258,7 +259,7 @@ function Inner() {
     }
     const { data, error } = await supabase.rpc('fn_sugestao_confirmar', { p_id: id, p_user: user.id, p_funcionou: funcionou, p_motivo: funcionou ? null : (motivo ?? '').trim(), p_anexos: anexos })
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { setErro((error?.message || r?.erro || 'Falha ao confirmar') + ' (a resposta foi aprovada; confirme de novo pela aba “Precisa de você”.)'); void carregar(); return }
+    if (error || !r?.ok) { setErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao confirmar')) + ' (a resposta foi aprovada; confirme de novo pela aba “Precisa de você”.)'); void carregar(); return }
     setMotivoAberto(null); setNaoResolveuFotos([])
     setMsg(funcionou ? 'Resposta aprovada e chamado concluído. 🎉' : 'Resposta aprovada e chamado reaberto — a equipe volta a trabalhar nisso.')
     void carregar()
@@ -268,7 +269,7 @@ function Inner() {
   const reabrir = useCallback(async (id: string) => {
     const { data, error } = await supabase.rpc('fn_sugestao_reabrir', { p_id: id })
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { setErro(error?.message || (r?.erro === 'prazo_de_30_dias_vencido' ? 'Passaram mais de 30 dias: abra um novo chamado.' : r?.erro) || 'Falha ao reabrir'); return }
+    if (error || !r?.ok) { setErro(erroAmigavel(error, r?.erro === 'prazo_de_30_dias_vencido' ? 'Passaram mais de 30 dias: abra um novo chamado.' : codigoAmigavel(r?.erro, 'Falha ao reabrir'))); return }
     setMsg('Reabrimos — a equipe volta a trabalhar nisso.')
     void carregar()
   }, [carregar])
@@ -297,7 +298,7 @@ function Inner() {
         p_user: user.id,
       })
       const r = data as { ok?: boolean; id?: string; erro?: string } | null
-      if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha ao registrar'); setBusy(false); return }
+      if (error || !r?.ok) { setErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao registrar'))); setBusy(false); return }
 
       // dispara a IA sem bloquear (se falhar, a sugestão continua válida)
       void supabase.functions.invoke('sugestao-analisar', { body: { sugestao_id: r.id } }).catch(() => {})
