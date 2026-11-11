@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { useOficinaRamo, labelCategoria, type Categoria } from '@/lib/oficina/ramo'
 
@@ -124,7 +125,7 @@ export default function TemparioPage() {
         .select('company_id, horas_produtivas_mes, margem_alvo_mao_obra_pct, margem_alvo_peca_pct, custo_hora_manual, modelo_atendimento')
         .eq('company_id', companyIdAtiva).maybeSingle(),
     ])
-    if (e1) setErro(e1.message)
+    if (e1) setErro(erroAmigavel(e1, 'Não foi possível carregar os serviços. Tente de novo.'))
     setServicos(((srv ?? []) as Servico[]).filter((s) => s.company_id === companyIdAtiva))
     setParams((par as Parametros) ?? {
       company_id: companyIdAtiva, horas_produtivas_mes: 160,
@@ -169,7 +170,7 @@ export default function TemparioPage() {
     const { error } = await supabase.from('erp_oficina_servicos')
       .update({ excluida: true, excluida_em: new Date().toISOString(), excluida_motivo: motivo || null })
       .eq('id', excluir.id).eq('company_id', excluir.company_id)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível excluir o serviço. Tente de novo.')); return }
     setExcluir(null)
     flash(`Serviço "${excluir.nome}" EXCLUÍDO`)
     void carregar()
@@ -453,7 +454,7 @@ function ModalServico({
         .insert({ company_id: companyId, nome: nome.trim(), categoria, tempo_padrao_h: tempo, origem_tempo: 'manual', criado_por: user?.id ?? null }))
     }
     setSalvando(false)
-    if (error) { setErroLocal('Erro: ' + error.message); onErro(error.message); return }
+    if (error) { const msg = erroAmigavel(error, 'Não foi possível salvar o serviço. Tente de novo.'); setErroLocal(msg); onErro(msg); return }
     onSalvo(servico ? `Serviço "${nome.trim()}" ALTERADO` : `Serviço "${nome.trim()}" CRIADO`)
   }
 
@@ -535,7 +536,7 @@ function ModalParametros({
       alterado_em: new Date().toISOString(),
     }, { onConflict: 'company_id' })
     setSalvando(false)
-    if (error) { onErro(error.message); return }
+    if (error) { onErro(erroAmigavel(error, 'Não foi possível salvar os parâmetros. Tente de novo.')); return }
     onSalvo()
   }
 
