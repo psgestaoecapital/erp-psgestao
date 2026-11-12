@@ -30,6 +30,9 @@
 -- RLS/grant/RPC nova; usa só tabelas prod_* já existentes (RLS por company_id). Delete
 -- físico das linhas da DEMO sob o mesmo guard app.permitir_delete_fisico já ligado na
 -- função (RD-30). ADITIVA ao reset, IDEMPOTENTE (zera e recria as linhas da DEMO).
+-- ci-sem-guarda: fn_demo_seed_industria_postos — seed de manutenção da DEMO, não é escrita
+-- por usuário: trava hard no tenant DEMO de indústria (is_demo IS TRUE; recusa outro
+-- p_company_id) e só service_role executa; o lock is_demo é o próprio guard, não fn__guarda_empresa.
 
 CREATE OR REPLACE FUNCTION public.fn_demo_seed_industria_postos(p_company_id uuid)
  RETURNS jsonb
