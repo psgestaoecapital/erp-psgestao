@@ -84,3 +84,8 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'pode_salario', v_pode_salario, 'kpis', v_kpis, 'lista', v_lista);
 END;
 $function$;
+
+-- Segurança (check_fn_guards): SECURITY DEFINER só para usuário logado — anon nunca chama a RPC.
+-- CREATE OR REPLACE preserva os grants; estas linhas apenas re-afirmam o estado já vigente (no-op funcional).
+REVOKE ALL ON FUNCTION public.fn_rh_quadro_lotacao(uuid) FROM anon, public;
+GRANT EXECUTE ON FUNCTION public.fn_rh_quadro_lotacao(uuid) TO authenticated;
