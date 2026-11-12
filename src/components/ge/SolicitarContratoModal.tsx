@@ -197,6 +197,14 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
     const dia = diaVenc ? Number(diaVenc) : null
     if (dia != null && (!Number.isInteger(dia) || dia < 1 || dia > 28)) { setErro('Dia de vencimento: de 1 a 28.'); return }
     if (inicio && fim && fim < inicio) { setErro('O fim da vigência não pode ser antes do início.'); return }
+    // Novos obrigatórios (CEO 11/11, item 4A): título, vigência De/Até, nº parcelas, dia venc e 1º venc.
+    // Vêm pré-preenchidos da proposta aprovada; aqui a tela exige que cheguem (a régua do backend é igual, fail-closed).
+    if (!titulo.trim()) { setErro('Informe o título do contrato.'); return }
+    if (!inicio) { setErro('Informe o início da vigência (De).'); return }
+    if (!fim) { setErro('Informe o fim da vigência (Até).'); return }
+    if (!nParcelas || !Number.isInteger(Number(nParcelas)) || Number(nParcelas) < 1) { setErro('Informe o nº de parcelas (1 ou mais).'); return }
+    if (dia == null) { setErro('Informe o dia do vencimento (de 1 a 28).'); return }
+    if (!primeiroVenc) { setErro('Informe o 1º vencimento.'); return }
     const dados: Record<string, unknown> = {
       cliente_cnpj: doc.trim() || null,
       responsavel: responsavel.trim() || null,
@@ -412,7 +420,7 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
                   <textarea style={{ ...inp, minHeight: 70, fontFamily: 'inherit' }} value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Contexto, pedidos do cliente, etc." />
                 </Campo>
                 <div style={{ fontSize: 11, color: C.espressoM, marginTop: -6, marginBottom: 12 }}>
-                  Obrigatórios para enviar ao financeiro: cliente, CPF/CNPJ, objeto, valor e periodicidade. O resto o financeiro pode completar.
+                  Obrigatórios para enviar ao financeiro: título, cliente, CPF/CNPJ, objeto, valor, periodicidade, vigência (De e Até), nº de parcelas, dia do vencimento e 1º vencimento. Vêm pré-preenchidos da proposta aprovada.
                 </div>
               </Secao>
 
@@ -472,6 +480,12 @@ function traduz(e?: string): string {
     case 'dia_vencimento_invalido': return 'Dia de vencimento: de 1 a 28.'
     case 'numero_parcelas_invalido': return 'Nº de parcelas precisa ser pelo menos 1.'
     case 'vigencia_invalida': return 'O fim da vigência não pode ser antes do início.'
+    case 'titulo_obrigatorio': return 'Informe o título do contrato.'
+    case 'vigencia_inicio_obrigatoria': return 'Informe o início da vigência (De).'
+    case 'vigencia_fim_obrigatoria': return 'Informe o fim da vigência (Até).'
+    case 'numero_parcelas_obrigatorio': return 'Informe o nº de parcelas.'
+    case 'dia_vencimento_obrigatorio': return 'Informe o dia do vencimento (de 1 a 28).'
+    case 'primeiro_vencimento_obrigatorio': return 'Informe o 1º vencimento.'
     default: return e || 'Não foi possível solicitar o contrato.'
   }
 }
