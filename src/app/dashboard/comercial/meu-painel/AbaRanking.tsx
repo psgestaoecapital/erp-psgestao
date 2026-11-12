@@ -14,10 +14,13 @@ const nota = (v: number | null | undefined) => v == null ? '—' : new Intl.Numb
 const pct = (v: number | null | undefined) => v == null ? '—' : `${v > 0 ? '+' : ''}${new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 }).format(v)}%`
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 
-type Indic = { faturamento: number; volume_kg: number; clientes: number; cidades: number; preco_kg: number | null; desconto_pct: number | null; devolucao_pct: number | null; crescimento_fat_pct: number | null; crescimento_vol_pct: number | null }
+type Indic = { faturamento: number; volume_kg: number; clientes: number; cidades: number; preco_kg: number | null; desconto_pct: number | null; acrescimo_pct: number | null; devolucao_pct: number | null; crescimento_fat_pct: number | null; crescimento_vol_pct: number | null }
 type Notas = { faturamento: number; volume: number; clientes: number; cidades: number; preco: number; desconto: number; devolucao: number; crescimento_fat: number; crescimento_vol: number }
 type Vend = { cod: string; nome: string; abaixo_minimo: boolean; indicadores: Indic; notas: Notas; bloco_crescimento: number; bloco_margem: number; nota_final: number }
 type Resp = { ok: boolean; erro?: string; pesos?: { crescimento: number; margem: number }; piso_kg?: number; vendedores?: Vend[]; podio?: { pos: number; cod: string; nome: string; nota_final: number }[] }
+// Seção "Participantes do ranking": quem o gestor marca/desmarca. Desmarcado sai do pódio e da tabela, mas segue no BI.
+type Part = { cod: string; nome: string; volume_kg: number; faturamento: number; incluido: boolean; motivo: string | null }
+type RespParts = { ok: boolean; erro?: string; participantes?: Part[] }
 
 // Mês = 1º do mês até hoje, comparado ao mês anterior (mesma quantidade de dias). Ano = 1º de janeiro até hoje, vs ano anterior.
 function ranges(modo: 'mes' | 'ano') {
@@ -47,6 +50,11 @@ export function AbaRanking({ empresa }: { empresa: string | null }) {
   const [erro, setErro] = useState<string | null>(null)
   const r = useMemo(() => ranges(modo), [modo])
 
+  // Participantes do ranking (seção de gestão): lista e marca/desmarca quem entra.
+  const [parts, setParts] = useState<Part[] | null>(null)
+  const [partsAberto, setPartsAberto] = useState(false)
+  const [salvando, setSalvando] = useState<string | null>(null)
+
   const carregar = useCallback(async (cid: string) => {
     setCarregando(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_bi_comercial_ranking_pontuacao', {
@@ -56,8 +64,23 @@ export function AbaRanking({ empresa }: { empresa: string | null }) {
     else { const d = data as Resp; setResp(d); if (!d?.ok) setErro(d?.erro === 'sem_acesso_comercial' ? 'Só diretores/gestores comerciais veem o ranking.' : (d?.erro ?? null)) }
     setCarregando(false)
   }, [r])
+
+  const carregarParts = useCallback(async (cid: string) => {
+    const { data } = await supabase.rpc('fn_com_ranking_participantes_listar', { p_company_id: cid, p_dt_ini: r.de, p_dt_fim: r.ate })
+    const d = data as RespParts | null
+    setParts(d?.ok ? (d.participantes ?? []) : [])
+  }, [r])
+
+  const togglePart = useCallback(async (cod: string, incluido: boolean) => {
+    if (!empresa) return
+    setSalvando(cod)
+    const { error } = await supabase.rpc('fn_com_ranking_participante_definir', { p_company_id: empresa, p_cod_vendedor: cod, p_incluido: incluido, p_motivo: null })
+    if (!error) { await Promise.all([carregarParts(empresa), carregar(empresa)]) }
+    setSalvando(null)
+  }, [empresa, carregar, carregarParts])
+
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (empresa) void carregar(empresa) }, [empresa, carregar])
+  useEffect(() => { if (empresa) { void carregar(empresa); void carregarParts(empresa) } }, [empresa, carregar, carregarParts])
 
   if (!empresa) return <Aviso t="Escolha uma empresa" l="Selecione uma empresa específica no topo para ver o ranking." />
   if (erro) return <Aviso t="Ranking" l={erro} />
@@ -125,7 +148,7 @@ export function AbaRanking({ empresa }: { empresa: string | null }) {
               <tr style={{ background: C.off }}>
                 <th style={thL} colSpan={5}></th>
                 <th style={thR}></th><th style={thR}></th>
-                {COLS.map(c => <th key={c.k} style={thRmini}>{c.rot}</th>)}
+                {COLS.map(c => <th key={c.k} style={thRmini}>{c.k === 'desconto' ? <span style={{ display: 'inline-flex', alignItems: 'center' }}>{c.rot}<AjudaCampo chave="comercial.ranking.acrescimo" rota={ROTA} /></span> : c.rot}</th>)}
               </tr>
             </thead>
             <tbody>
@@ -134,6 +157,7 @@ export function AbaRanking({ empresa }: { empresa: string | null }) {
                   <td style={{ ...tdL, color: C.m, fontWeight: 700 }}>{v.abaixo_minimo ? '—' : i + 1}</td>
                   <td style={tdL}>
                     <span style={{ fontWeight: 700, color: C.esp }}>{v.nome}</span>
+                    {v.indicadores.acrescimo_pct != null && <span title="Vendeu acima da tabela — acréscimo conta a favor da margem" style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: C.verde, background: '#E6F1E9', borderRadius: 999, padding: '1px 7px' }}>acréscimo +{nota(v.indicadores.acrescimo_pct)}%</span>}
                     {v.abaixo_minimo && <span title="Volume de carteira abaixo do mínimo — fora do pódio" style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#8A6A1E', background: '#F3E6C9', borderRadius: 999, padding: '1px 7px' }}>abaixo do mínimo<AjudaCampo chave="comercial.ranking.piso" rota={ROTA} /></span>}
                   </td>
                   <td style={tdR}>{brl0(v.indicadores.faturamento)}</td>
@@ -149,6 +173,33 @@ export function AbaRanking({ empresa }: { empresa: string | null }) {
           </table>
         </div>
       </div>
+      {/* Participantes do ranking — o gestor marca/desmarca quem entra (ex. sócio/diretor que vende sai da disputa) */}
+      <div style={{ background: '#fff', border: `0.5px solid ${C.bd}`, borderRadius: 14, overflow: 'hidden' }}>
+        <button type="button" onClick={() => setPartsAberto(v => !v)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 6, padding: '11px 14px', background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+          <strong style={{ fontSize: 13.5, color: C.esp }}>Participantes do ranking</strong>
+          <AjudaCampo chave="comercial.ranking.participantes" rota={ROTA} />
+          <span style={{ fontSize: 11, color: C.m }}>· marque quem entra na disputa</span>
+          <span style={{ flex: 1 }} />
+          <span style={{ fontSize: 16, color: C.m, transform: partsAberto ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>›</span>
+        </button>
+        {partsAberto && (
+          <div style={{ borderTop: `0.5px solid ${C.bd}`, padding: '4px 0' }}>
+            {parts == null && <div style={{ padding: 12, fontSize: 12, color: C.m }}>Carregando participantes…</div>}
+            {parts && parts.length === 0 && <div style={{ padding: 12, fontSize: 12, color: C.m }}>Sem vendedores com venda no período.</div>}
+            {parts && parts.map(p => (
+              <label key={p.cod} data-ajuda="comercial.ranking.participantes" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderTop: `0.5px solid ${C.bg2}`, cursor: 'pointer' }}>
+                <input type="checkbox" checked={p.incluido} disabled={salvando === p.cod} onChange={e => void togglePart(p.cod, e.target.checked)} style={{ width: 16, height: 16, accentColor: C.gold, cursor: 'pointer' }} />
+                <span style={{ fontWeight: 700, color: p.incluido ? C.esp : C.d, fontSize: 13 }}>{p.nome}</span>
+                <span style={{ fontSize: 11, color: C.m }}>{brl0(p.faturamento)}</span>
+                {!p.incluido && <span style={{ fontSize: 10, fontWeight: 700, color: C.m, background: C.bg2, borderRadius: 999, padding: '1px 7px' }}>fora do ranking</span>}
+                {salvando === p.cod && <span style={{ fontSize: 11, color: C.d }}>salvando…</span>}
+              </label>
+            ))}
+            {parts && parts.length > 0 && <div style={{ padding: '8px 14px', fontSize: 11, color: C.m }}>Quem sai do ranking continua normalmente no restante do painel comercial.</div>}
+          </div>
+        )}
+      </div>
+
       <div style={{ fontSize: 11, color: C.m }}>
         Ainda não entram na nota (chegam na próxima versão): mix nobre × comum e prazo médio de pagamento.
       </div>
