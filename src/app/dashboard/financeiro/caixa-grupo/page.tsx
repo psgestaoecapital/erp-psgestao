@@ -6,6 +6,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { ParaTratarHoje } from "@/components/financeiro/ParaTratarHoje";
 
 const ROTA = "/dashboard/financeiro/caixa-grupo";
 const BG = "var(--ps-bg,#FAF7F2)", BG2 = "var(--ps-bg2,#FFFFFF)", BG3 = "var(--ps-bg3,#F0ECE3)";
@@ -15,24 +16,44 @@ const VERDE = "#3B6D11", VERM = "#A32D2D", AZUL = "#2563EB";
 
 const brl = (v: unknown) => `R$ ${(Number(v) || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const hojeISO = () => new Date().toISOString().slice(0, 10);
+// Saldo do banco (extrato): data curta dd/mm e idade em dias (para avisar quando o extrato está velho).
+const diaMes = (iso?: string | null) => { if (!iso) return ""; const d = new Date(iso); return isNaN(d.getTime()) ? "" : d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }); };
+const diasAtras = (iso?: string | null) => { if (!iso) return Infinity; const d = new Date(iso); return isNaN(d.getTime()) ? Infinity : Math.floor((Date.now() - d.getTime()) / 86400000); };
 
-type Conta = { conta_id: string | null; nome: string; saldo_inicial: number; entradas: number; saidas: number; transf: number; saldo_final: number };
-type Empresa = { company_id: string; nome: string; contas: Conta[]; saldo_inicial: number; entradas: number; saidas: number; transf: number; saldo_final: number };
+type Conta = { conta_id: string | null; nome: string; saldo_inicial: number; entradas: number; saidas: number; transf: number; saldo_final: number;
+  soma_no_saldo?: boolean; saldo_extrato?: number | null; saldo_extrato_em?: string | null; saldo_extrato_origem?: string | null };
+type Empresa = { company_id: string; nome: string; contas: Conta[]; saldo_inicial: number; entradas: number; saidas: number; transf: number; saldo_final: number; sem_conta_n?: number };
 type Totais = { saldo_inicial: number; entradas: number; saidas: number; transf: number; saldo_final: number };
 type Vence = { receber: { hoje: number; atrasado: number; proximos7: number }; pagar: { hoje: number; atrasado: number; proximos7: number } };
 type Resp = { ok: boolean; data: string; empresas: Empresa[]; consolidado: Totais; vence: Vence; atrasados_n: number; resumo: string };
 type Titulo = { id: string; nome: string; descricao: string | null; valor: number; data: string };
 
 export default function CaixaGrupoPage() {
-  const { companyIds, selInfo } = useCompanyIds();
-  const companyIdsKey = useMemo(() => [...(companyIds ?? [])].sort().join(","), [companyIds]);
+  const { companyIds, selInfo, companies } = useCompanyIds();
+  // Caixa do dia do GRUPO: se uma empresa de um grupo está selecionada, trazer TODAS as irmãs do mesmo
+  // group_id às quais o usuário tem acesso (companies já vem filtrado por acesso; a RPC fail-closed refiltra).
+  // Empresa sem grupo = só ela. Consolidado/grupo já vêm com o conjunto certo em companyIds.
+  const effectiveIds = useMemo<string[]>(() => {
+    const base = companyIds ?? [];
+    if (!companies?.length) return base;
+    const sel = new Set(base);
+    const gruposSel = new Set(
+      companies.filter((c) => sel.has(c.id) && c.group_id).map((c) => c.group_id as string)
+    );
+    if (gruposSel.size === 0) return base;
+    const ids = new Set(base);
+    companies.forEach((c) => { if (c.group_id && gruposSel.has(c.group_id)) ids.add(c.id); });
+    return [...ids];
+  }, [companyIds, companies]);
+  const companyIdsKey = useMemo(() => [...effectiveIds].sort().join(","), [effectiveIds]);
   const [data, setData] = useState<string>(hojeISO());
   const [resp, setResp] = useState<Resp | null>(null);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [drill, setDrill] = useState<{ titulo: string; bucket: string; companyId: string | null } | null>(null);
   const [titulos, setTitulos] = useState<Titulo[] | null>(null);
-  const [expandida, setExpandida] = useState<string | null>(null);
+  // Contas de cada empresa ABERTAS por padrão (CEO 12/11): guardamos as empresas COLAPSADAS manualmente.
+  const [colapsadas, setColapsadas] = useState<Set<string>>(new Set());
 
   const carregar = useCallback(async () => {
     if (!companyIdsKey) { setResp(null); setLoading(false); return; }
@@ -95,6 +116,9 @@ export default function CaixaGrupoPage() {
 
       {erro && <div role="alert" style={{ background: "#FCEBEB", color: VERM, padding: "10px 14px", borderRadius: 8, marginBottom: 14, fontSize: 13 }}>{erro}</div>}
 
+      {/* Para tratar hoje — o que o financeiro precisa resolver no dia (CEO 12/11) */}
+      <ParaTratarHoje companyIds={effectiveIds} data={data} multiEmpresa={multi} />
+
       {/* Resumo do dia */}
       {resp?.resumo && (
         <div style={{ background: `linear-gradient(90deg, ${GO}14, transparent)`, border: `1px solid ${GO}40`, borderRadius: 12, padding: "14px 18px", marginBottom: 16, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -156,41 +180,114 @@ export default function CaixaGrupoPage() {
               Por conta bancária<AjudaCampo chave="financeiro.caixa_grupo.conta" rota={ROTA} />
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {empresas.map((e) => (
+              {empresas.map((e) => {
+                const aberta = !colapsadas.has(e.company_id);
+                // Contas que SOMAM no caixa (soma_no_saldo != false, exclui a linha sintética "Sem conta"),
+                // contas de CONTROLE (soma_no_saldo === false, não entram no caixa) e o aviso "Sem conta".
+                const somam = e.contas.filter((c) => c.conta_id && c.soma_no_saldo !== false);
+                const controle = e.contas.filter((c) => c.soma_no_saldo === false);
+                const semN = Number(e.sem_conta_n) || 0;
+                return (
                 <div key={e.company_id} style={{ background: BG2, border: `1px solid ${BD}`, borderRadius: 10, overflow: "hidden" }}>
-                  <button onClick={() => setExpandida(expandida === e.company_id ? null : e.company_id)}
+                  <button onClick={() => setColapsadas((prev) => { const n = new Set(prev); if (n.has(e.company_id)) n.delete(e.company_id); else n.add(e.company_id); return n; })}
                     style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "12px 16px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: TX }}>{expandida === e.company_id ? "▾" : "▸"} {e.nome}</span>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: TX }}>{aberta ? "▾" : "▸"} {e.nome}</span>
                     <span style={{ fontSize: 13, color: Number(e.saldo_final) < 0 ? VERM : VERDE, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{brl(e.saldo_final)}</span>
                   </button>
-                  {expandida === e.company_id && (
-                    <div style={{ overflowX: "auto", borderTop: `1px solid ${BD}` }}>
-                      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 480 }}>
+                  {aberta && (
+                    <div style={{ borderTop: `1px solid ${BD}` }}>
+                      <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
                         <thead>
                           <tr style={{ borderBottom: `0.5px solid ${BD}` }}>
                             <th style={{ ...th, textAlign: "left" }}>Conta</th>
                             <th style={th}>Saldo inicial</th><th style={{ ...th, color: VERDE }}>Entradas</th>
-                            <th style={{ ...th, color: VERM }}>Saídas</th><th style={th}>Saldo final</th>
+                            <th style={{ ...th, color: VERM }}>Saídas</th><th style={th}>Saldo (sistema)</th>
+                            <th style={th}><span style={{ display: "inline-flex", alignItems: "center", justifyContent: "flex-end" }}>Banco (extrato)<AjudaCampo chave="financeiro.caixa_grupo.saldo_banco" rota={ROTA} /></span></th>
+                            <th style={th}><span style={{ display: "inline-flex", alignItems: "center", justifyContent: "flex-end" }}>Diferença<AjudaCampo chave="financeiro.caixa_grupo.diferenca" rota={ROTA} /></span></th>
                           </tr>
                         </thead>
                         <tbody>
-                          {e.contas.length === 0 ? (
-                            <tr><td colSpan={5} style={{ padding: 16, textAlign: "center", color: TXD, fontSize: 12 }}>Sem conta bancária cadastrada nesta empresa.</td></tr>
-                          ) : e.contas.map((ct, i) => (
-                            <tr key={ct.conta_id ?? `sem-${i}`} style={{ borderBottom: `0.5px solid ${BD}` }}>
-                              <td style={{ padding: "9px 12px", fontSize: 12, color: ct.conta_id ? TX : TXD, textAlign: "left", fontStyle: ct.conta_id ? "normal" : "italic" }}>{ct.nome}</td>
+                          {somam.length === 0 ? (
+                            <tr><td colSpan={7} style={{ padding: 16, textAlign: "center", color: TXD, fontSize: 12 }}>Sem conta bancária que some no caixa nesta empresa.</td></tr>
+                          ) : somam.map((ct, i) => {
+                            const temExtrato = ct.saldo_extrato !== null && ct.saldo_extrato !== undefined;
+                            const velho = temExtrato && diasAtras(ct.saldo_extrato_em) > 3;
+                            const dif = temExtrato ? Number(ct.saldo_final) - Number(ct.saldo_extrato) : 0;
+                            const zerado = Math.abs(dif) < 0.005;
+                            return (
+                            <tr key={ct.conta_id ?? `som-${i}`} style={{ borderBottom: `0.5px solid ${BD}` }}>
+                              <td style={{ padding: "9px 12px", fontSize: 12, color: TX, textAlign: "left" }}>{ct.nome}</td>
                               <td style={td}>{brl(ct.saldo_inicial)}</td>
                               <td style={{ ...td, color: VERDE }}>{brl(ct.entradas)}</td>
                               <td style={{ ...td, color: VERM }}>{brl(ct.saidas)}</td>
                               <td style={{ ...td, fontWeight: 600 }}>{brl(ct.saldo_final)}</td>
+                              <td style={td}>
+                                {!temExtrato ? <span style={{ color: TXD }}>— sem extrato</span> : (
+                                  <div>
+                                    <div style={{ fontWeight: 500 }}>{brl(ct.saldo_extrato)}</div>
+                                    <div style={{ fontSize: 10, color: velho ? VERM : TXD }}>
+                                      {velho ? `extrato de ${diaMes(ct.saldo_extrato_em)} — importe o extrato` : `extrato ${diaMes(ct.saldo_extrato_em)}${ct.saldo_extrato_origem ? ` · ${ct.saldo_extrato_origem}` : ""}`}
+                                    </div>
+                                  </div>
+                                )}
+                              </td>
+                              <td style={{ ...td, color: !temExtrato ? TXD : (zerado ? VERDE : VERM), fontWeight: 600 }}>
+                                {!temExtrato ? "—" : zerado ? "OK" : brl(dif)}
+                              </td>
                             </tr>
-                          ))}
+                            );
+                          })}
                         </tbody>
                       </table>
+                      </div>
+
+                      {/* Lançamentos sem conta: aviso clicável para atribuir a conta certa */}
+                      {semN > 0 && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 16px", borderTop: `0.5px solid ${BD}`, background: "#FCF6E8" }}>
+                          <button onClick={() => abrirTitulos(`Lançamentos sem conta · ${e.nome}`, "sem_conta", e.company_id)}
+                            style={{ background: "transparent", border: "none", color: GO, fontSize: 12.5, fontWeight: 600, cursor: "pointer", textAlign: "left", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            ⚠ {semN} lançamento{semN > 1 ? "s" : ""} sem conta — atribuir
+                          </button>
+                          <AjudaCampo chave="financeiro.caixa_grupo.sem_conta" rota={ROTA} />
+                        </div>
+                      )}
+
+                      {/* Contas de controle: não somam no caixa (permuta, adiantamentos, aplicações de controle) */}
+                      {controle.length > 0 && (
+                        <div style={{ borderTop: `0.5px solid ${BD}` }}>
+                          <div style={{ display: "inline-flex", alignItems: "center", padding: "8px 16px 2px", fontSize: 10.5, color: TXD, textTransform: "uppercase", letterSpacing: 0.4 }}>
+                            Contas de controle (não somam no caixa)<AjudaCampo chave="financeiro.caixa_grupo.contas_controle" rota={ROTA} />
+                          </div>
+                          <div style={{ overflowX: "auto" }}>
+                            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 480 }}>
+                              <thead>
+                                <tr style={{ borderBottom: `0.5px solid ${BD}` }}>
+                                  <th style={{ ...th, textAlign: "left" }}>Conta</th>
+                                  <th style={th}>Saldo inicial</th><th style={{ ...th, color: VERDE }}>Entradas</th>
+                                  <th style={{ ...th, color: VERM }}>Saídas</th><th style={th}>Saldo</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {controle.map((ct, i) => (
+                                  <tr key={ct.conta_id ?? `ctr-${i}`} style={{ borderBottom: `0.5px solid ${BD}`, opacity: 0.8 }}>
+                                    <td style={{ padding: "9px 12px", fontSize: 12, color: TXM, textAlign: "left" }}>{ct.nome}</td>
+                                    <td style={td}>{brl(ct.saldo_inicial)}</td>
+                                    <td style={{ ...td, color: VERDE }}>{brl(ct.entradas)}</td>
+                                    <td style={{ ...td, color: VERM }}>{brl(ct.saidas)}</td>
+                                    <td style={{ ...td, fontWeight: 600 }}>{brl(ct.saldo_final)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 

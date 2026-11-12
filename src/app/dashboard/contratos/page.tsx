@@ -5,6 +5,7 @@ import { useCompanyIds } from "@/lib/useCompanyIds";
 import ContratosFeePanel from "@/components/ge/ContratosFeePanel";
 import ContratosModelosPanel from "@/components/ge/ContratosModelosPanel";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -386,7 +387,7 @@ export default function ContratosPage(){
     if(editForm.data_fim) patch.data_fim=editForm.data_fim;
     const {data,error}=await supabase.rpc('fn_contrato_editar',{p_id:showEditar.id,p_patch:patch});
     setProcessando(false);
-    if(error||(data&&data.ok===false)){setMsg("❌ "+(error?.message||data?.erro));return;}
+    if(error||(data&&data.ok===false)){setMsg("❌ "+(error?erroAmigavel(error,"Não foi possível concluir. Tente de novo."):(data?.erro||"Não foi possível concluir. Tente de novo.")));return;}
     setMsg("✅ Contrato alterado"); setShowEditar(null);
     setGuardCache(g=>{const n={...g};delete n[showEditar.id];return n;});
     refetchAll(); setTimeout(()=>setMsg(""),3000);
@@ -420,7 +421,7 @@ export default function ContratosPage(){
       ? await supabase.rpc('fn_contrato_excluir',{p_id:c.id,p_motivo:motivoAcao.trim()})
       : await supabase.rpc('fn_contrato_encerrar',{p_id:c.id,p_motivo:motivoAcao.trim()});
     setProcessando(false);
-    if(error||(data&&data.ok===false)){setMsg("❌ "+(error?.message||data?.erro));return;}
+    if(error||(data&&data.ok===false)){setMsg("❌ "+(error?erroAmigavel(error,"Não foi possível concluir. Tente de novo."):(data?.erro||"Não foi possível concluir. Tente de novo.")));return;}
     setMsg(tipo==='excluir'?"✅ Contrato excluído":"✅ Contrato encerrado");
     setAcaoModal(null);
     setGuardCache(g=>{const n={...g};delete n[c.id];return n;});
@@ -459,7 +460,7 @@ export default function ContratosPage(){
       p_contrato_id:showGerarModelo.id, p_gravar:gravar,
     });
     setGerandoModelo(false);
-    if(error){ setErroGerar(error.message||"Não foi possível gerar o contrato. Tente de novo."); return; }
+    if(error){ setErroGerar(erroAmigavel(error, "Não foi possível gerar o contrato. Tente de novo.")); return; }
     const r=data as any;
     setPreviewGerar({texto:r?.texto||"",campos_pendentes:(r?.campos_pendentes||[]) as string[]});
     if(gravar){
@@ -526,7 +527,7 @@ export default function ContratosPage(){
     <div style={{minHeight:"100vh",background:BG,padding:20}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
         <div>
-          <div style={{fontSize:22,fontWeight:700,color:TX}}>🔄 Contratos Recorrentes</div>
+          <div style={{fontSize:22,fontWeight:700,color:TX}}>🔄 Gestão de contratos</div>
           <div style={{fontSize:11,color:TXD}}>
             BPO · Consultoria · SaaS · Serviços mensais · Geração automática · MRR/Churn/LTV
             {selInfo && (
