@@ -1,5 +1,5 @@
 -- Ranking de vendedores — correção V1 apresentável (CEO 12/11). Corpo FINAL unificado da função: aplica SOBRE a
--- #4814 (20261114121345, participantes + acréscimo). Esta migration (faixa 30, acima do ledger) roda DEPOIS da
+-- #4814 (20261114121350, participantes + acréscimo). Esta migration (faixa 30, acima do ledger) roda DEPOIS da
 -- #4814, então o corpo abaixo é o que vale — ele mantém TUDO da #4814 (exclusão dos desmarcados em
 -- com_ranking_participante + acrescimo_pct) e acrescenta as correções provadas no dado real da Frioeste (RD-82/RD-38).
 --

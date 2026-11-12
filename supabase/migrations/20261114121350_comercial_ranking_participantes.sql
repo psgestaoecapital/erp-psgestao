@@ -39,6 +39,9 @@ GRANT ALL ON public.com_ranking_participante TO service_role;
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 -- 2) RPC: marcar/desmarcar um vendedor do ranking (só líder — diretor/gestor comercial). Fail-closed.
 -- ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+-- ci-sem-guarda: fn_com_ranking_participante_definir — acesso à empresa do registro (p_company_id) já conferido por
+--   fn_bi_comercial_scope: retorna sem_acesso quando a empresa não está em get_user_company_ids e exige modo='lider'
+--   (mais restritivo que fn__guarda_empresa). A autoria grava auth.uid(), nunca p_user do cliente.
 CREATE OR REPLACE FUNCTION public.fn_com_ranking_participante_definir(
   p_company_id uuid, p_cod_vendedor text, p_incluido boolean, p_motivo text DEFAULT NULL)
  RETURNS jsonb
