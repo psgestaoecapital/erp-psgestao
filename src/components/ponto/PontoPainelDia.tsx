@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -66,7 +67,7 @@ export default function PontoPainelDia({ companyId }: { companyId: string }) {
     const { data: res, error } = await supabase.rpc('fn_ponto_bi_dia', {
       p_company_id: companyId, p_ano: ano, p_mes: mes,
     })
-    if (error) { setErro(error.message); setData(null) }
+    if (error) { setErro(erroAmigavel(error)); setData(null) }
     else setData(res as BiDia)
     setLoading(false)
   }, [companyId, ano, mes])
