@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314', GOLD = '#C8941A', LINE = '#E7DECF'
@@ -31,7 +32,7 @@ export function IndicadoresViagem({ empresa }: { empresa: string }) {
     let vivo = true
     supabase.rpc('fn_viagem_indicadores', { p_company_id: empresa, p_obra_id: null, p_limite_pct: pct }).then(({ data, error }) => {
       if (!vivo) return
-      setErro(error?.message ?? ''); setInd((data as Ind) ?? null)
+      setErro(error ? erroAmigavel(error, 'Não foi possível carregar os indicadores.') : ''); setInd((data as Ind) ?? null)
     })
     return () => { vivo = false }
   }, [empresa, limite])
