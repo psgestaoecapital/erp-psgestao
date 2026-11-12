@@ -15,6 +15,7 @@ import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { CelulaEditavel } from '@/components/produtividade/CelulaEditavel'
 import { PostoPessoas } from '@/components/produtividade/PostoPessoas'
+import { QuadroView } from '@/components/produtividade/QuadroView'
 
 const ROTA = '/dashboard/produtividade'
 const Aj = ({ k }: { k: string }) => <AjudaCampo chave={k} rota={ROTA} />
@@ -124,6 +125,9 @@ function Inner() {
   useEffect(() => { void carregarFluxo() }, [carregarFluxo])
 
   const recarregar = useCallback(async () => { await Promise.all([carregarFluxo(), carregarPlanta()]) }, [carregarFluxo, carregarPlanta])
+  // Duas visões do MESMO quadro de postos: "Quadro" (posto a posto, pedido do CEO 11/11) é o padrão; "Cadastro por
+  // fluxo" é o cadastro por planta/fluxo. O toggle não quebra o fluxo — só troca o que é desenhado.
+  const [vista, setVista] = useState<'quadro' | 'fluxo'>('quadro')
 
   if (!companyId) return <Aviso texto="Selecione uma empresa específica no topo — o cadastro é por planta." />
   if (plants.length === 0) return <Aviso texto="Esta empresa não tem planta industrial cadastrada. Cadastre a planta antes." />
@@ -131,13 +135,31 @@ function Inner() {
   return (
     <div style={{ background: C.bg, minHeight: '100vh', padding: '22px 16px 60px', maxWidth: 1120, margin: '0 auto', color: C.esp }}>
       <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700 }}>🏭 Indústria · Produtividade</div>
-      <div style={{ display: 'flex', gap: 14, fontSize: 14, margin: '6px 0' }}><b style={{ borderBottom: `2px solid ${C.gold}` }}>Cadastro</b><Link href="/dashboard/produtividade/indicadores" style={{ color: C.espM }}>Indicadores</Link><Link href="/dashboard/produtividade/custos-posto" style={{ color: C.espM }}>Custos do posto</Link></div>
-      <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 0' }}>Cadastro por fluxo</h1>
-      <p style={{ color: C.espM, fontSize: 13, margin: '6px 0 12px' }}>O fluxo é o contexto. Cada linha é um posto — clique para editar. O turno vem do ponto.</p>
+      {/* Sub-navegação explícita das telas de Produtividade (drill-down de Postos): Cadastro (aqui),
+          Indicadores e Custos do posto. Custos do posto não tem item próprio no menu — é alcançada daqui
+          em 3 toques (menu → Postos → Custos do posto), por isso o link é visível como aba. */}
+      <nav aria-label="Seções de Produtividade" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '8px 0 4px' }}>
+        <span aria-current="page" style={{ fontSize: 13, fontWeight: 700, color: C.esp, background: C.goldBg, border: `1px solid ${C.gold}`, borderRadius: 999, padding: '5px 12px' }}>Cadastro de postos</span>
+        <Link href="/dashboard/produtividade/indicadores" style={{ fontSize: 13, fontWeight: 600, color: C.espM, background: C.white, border: `1px solid ${C.border}`, borderRadius: 999, padding: '5px 12px', textDecoration: 'none' }}>Indicadores</Link>
+        <Link href="/dashboard/produtividade/custos-posto" style={{ fontSize: 13, fontWeight: 600, color: C.espM, background: C.white, border: `1px solid ${C.border}`, borderRadius: 999, padding: '5px 12px', textDecoration: 'none' }}>Custos do posto</Link>
+      </nav>
+      <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 0' }}>{vista === 'quadro' ? 'Postos de trabalho' : 'Cadastro por fluxo'}</h1>
+      <p style={{ color: C.espM, fontSize: 13, margin: '6px 0 10px' }}>{vista === 'quadro' ? 'O quadro posto a posto: projetado × real, vagas e custo por setor. Mesma base do cadastro por fluxo.' : 'O fluxo é o contexto. Cada linha é um posto — clique para editar. O turno vem do ponto.'}</p>
+
+      {/* Toggle das duas visões do mesmo quadro (CEO 11/11) */}
+      <div role="tablist" aria-label="Visão do quadro de postos" style={{ display: 'inline-flex', gap: 2, background: C.cream, borderRadius: 10, padding: 3, marginBottom: 12 }}>
+        {([['quadro', 'Quadro (posto a posto)'], ['fluxo', 'Cadastro por fluxo']] as const).map(([k, rot]) => (
+          <button key={k} role="tab" aria-selected={vista === k} onClick={() => setVista(k)}
+            style={{ padding: '7px 14px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', cursor: 'pointer', background: vista === k ? C.white : 'transparent', color: vista === k ? C.esp : C.espM, boxShadow: vista === k ? '0 1px 3px rgba(0,0,0,0.08)' : 'none' }}>{rot}</button>
+        ))}
+      </div>
 
       {msg && <div style={{ background: C.greenBg, color: C.green, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 12 }}>{msg}</div>}
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 12 }}>{erro}</div>}
 
+      {vista === 'quadro' && <QuadroView companyId={companyId} />}
+
+      {vista === 'fluxo' && (<>
       {/* Faixa: o que falta para medir */}
       {pront && <FaixaProntidao pront={pront} temPostos={(fc?.postos.length ?? 0) > 0} onIr={(tipo) => setFoco({ tipo, n: Date.now() })} />}
 
@@ -183,6 +205,7 @@ function Inner() {
         </button>
         {salAberto && plantId && <SalarioBase ctx={{ companyId, plantId, flash, flashErr }} />}
       </div>
+      </>)}
 
       {novoFluxo && plantId && <NovoFluxoModal companyId={companyId} plantId={plantId} onClose={() => setNovoFluxo(false)} onSaved={(id) => { setNovoFluxo(false); setFluxoId(id); void carregarPlanta() }} onErro={flashErr} />}
       {configAberto && plantId && <ConfigModal ctx={{ companyId, plantId, flash, flashErr }} onClose={() => setConfigAberto(false)} onMudou={recarregar} />}
