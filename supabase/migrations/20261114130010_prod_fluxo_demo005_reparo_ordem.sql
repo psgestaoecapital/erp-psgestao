@@ -12,7 +12,8 @@
 -- ADITIVO e IDEMPOTENTE: raia por (empresa/planta/nome), etapa por (fluxo/posto), estrutura ligada só se ainda
 -- estiver sem raia. Guarda is_demo (RD-69): NUNCA roda em dado de cliente. Sem DDL, sem RLS/grant/RPC. Usa só
 -- tabelas já existentes (prod_fluxo/prod_fluxo_etapa/prod_estrutura/prod_posto/prod_setor), todas com RLS por
--- empresa. Faixa de segundos do dev7claudeps (:15), acima do ledger.
+-- empresa. Faixa de segundos do dev7claudeps (:10), acima do ledger (renumerada de :15 — a versão anterior
+-- 20261114130015 caiu fora da janela de 2 dias do check 1b quando o run rodou cedo; conteúdo idêntico).
 
 DO $$
 DECLARE
