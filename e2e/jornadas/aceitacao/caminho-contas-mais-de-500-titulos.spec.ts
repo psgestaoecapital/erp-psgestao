@@ -4,7 +4,7 @@
 // Não depende de migration (roda no preview). Demonstração Comércio, nunca empresa real; títulos de teste apagados no fim.
 
 import { test, expect, aguardarConteudo } from '../../support/fixtures'
-import { dbSelect, dbInsert, dbInsertMany, dbDelete, registrarJornada } from '../../support/api'
+import { dbSelect, dbInsert, dbInsertMany, dbPatch, registrarJornada } from '../../support/api'
 
 const DEMO_COMERCIO = 'b0700000-0000-4000-a000-000000000004'
 const RUN = `${process.env.GITHUB_RUN_ID ?? 'local'}-${Date.now().toString(36)}`
@@ -16,12 +16,16 @@ test.describe('Caminho — Contas a Pagar e Receber com mais de 500 títulos', (
     await registrarJornada('caminho-contas-mais-de-500', testInfo.status === testInfo.expectedStatus ? 'verde' : 'vermelho', testInfo.title)
   })
   test.afterAll(async () => {
-    // Limpeza idempotente: o RUN é único por execução e aparece em TODAS as linhas de teste
-    // ("Contas500 antigo <RUN> <i>" e "Contas500 pendente <RUN>"). No PostgREST o curinga do `like`
-    // é `*` (NÃO `%`): o filtro antigo `like.Contas500 % <RUN>` casava 0 linhas (o `%` virava literal
-    // e o RUN ficava ancorado no fim, mas as linhas "antigo" terminam em " <i>") → 521 títulos vazavam
-    // por run na DEMO. `*${RUN}*` casa os dois padrões e só as linhas deste RUN. Provado RD-38 (0 → 521).
-    await dbDelete('erp_receber', `company_id=eq.${DEMO_COMERCIO}&descricao=like.${encodeURIComponent(`*${RUN}*`)}`).catch(() => {})
+    // Limpeza idempotente POR SOFT-DELETE (RD-30/RD-38): erp_receber tem a trava BEFORE DELETE
+    // trg_bloqueia_delete_fisico → fn_bloqueia_delete_fisico() que faz RAISE EXCEPTION em TODO delete
+    // físico (documento financeiro não se apaga), salvo com o GUC app.permitir_delete_fisico='on' — que
+    // o usuário-robô do e2e NÃO seta. Por isso o dbDelete ANTERIOR sempre lançava exceção e o .catch a
+    // engolia: a limpeza nunca rodava e vazavam 521 títulos por run na DEMO (provado RD-38: 26k+ órfãos).
+    // O UPDATE passa pela RLS (erp_receber_modify_strict) e NÃO dispara a trava de DELETE. Marcar
+    // deleted_at tira as linhas de "vivos" e da view v_lancamentos_consolidado (WHERE deleted_at IS NULL),
+    // limpando a tela /contas. O RUN é único e aparece em TODAS as linhas ("...antigo <RUN> <i>" e
+    // "...pendente <RUN>"); `*${RUN}*` (curinga do PostgREST) casa só as linhas deste run (idempotente).
+    await dbPatch('erp_receber', `company_id=eq.${DEMO_COMERCIO}&descricao=like.${encodeURIComponent(`*${RUN}*`)}`, { deleted_at: new Date().toISOString() }).catch(() => {})
   })
 
   test('pendente só nos mais novos aparece, entra nos KPIs e a lista diz "Mostrando X de Y"', async ({ page }) => {
