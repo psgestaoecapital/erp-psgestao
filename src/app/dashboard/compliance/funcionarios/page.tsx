@@ -143,7 +143,7 @@ export default function FuncionariosPage() {
             {companyAtiva && (
               <button
                 onClick={async () => {
-                  if (!window.confirm('Importar colaboradores do IO Point pra ficha do Compliance?\n\nO que já foi preenchido à mão (RG, endereço, salário, ASO, observações) NÃO será sobrescrito — só completa os campos vazios.')) return
+                  if (!window.confirm('Importar colaboradores do ponto eletrônico pra ficha do Compliance?\n\nO que já foi preenchido à mão (RG, endereço, salário, ASO, observações) NÃO será sobrescrito — só completa os campos vazios.')) return
                   setImportando(true); setMsgImport(null); setErro(null)
                   const { data, error } = await supabase.rpc('fn_compliance_projetar_de_ind_ponto', { p_company_id: companyAtiva })
                   setImportando(false)
@@ -155,9 +155,9 @@ export default function FuncionariosPage() {
                 }}
                 disabled={importando}
                 style={{ padding: '10px 14px', borderRadius: 8, border: `1px solid ${C.gold}`, backgroundColor: 'transparent', color: C.gold, fontSize: 13, fontWeight: 600, cursor: importando ? 'not-allowed' : 'pointer', opacity: importando ? 0.6 : 1 }}
-                title="Importa/atualiza a partir de ind_ponto_colaborador (IO Point). Preserva metadados manuais."
+                title="Importa/atualiza a partir do ponto eletrônico (ind_ponto_colaborador). Preserva metadados manuais."
               >
-                {importando ? 'Importando…' : '⬇ Importar do IO Point'}
+                {importando ? 'Importando…' : '⬇ Importar do ponto eletrônico'}
               </button>
             )}
             <button
