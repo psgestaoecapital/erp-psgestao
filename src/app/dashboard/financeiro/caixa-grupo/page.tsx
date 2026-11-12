@@ -24,15 +24,31 @@ type Resp = { ok: boolean; data: string; empresas: Empresa[]; consolidado: Totai
 type Titulo = { id: string; nome: string; descricao: string | null; valor: number; data: string };
 
 export default function CaixaGrupoPage() {
-  const { companyIds, selInfo } = useCompanyIds();
-  const companyIdsKey = useMemo(() => [...(companyIds ?? [])].sort().join(","), [companyIds]);
+  const { companyIds, selInfo, companies } = useCompanyIds();
+  // Caixa do dia do GRUPO: se uma empresa de um grupo está selecionada, trazer TODAS as irmãs do mesmo
+  // group_id às quais o usuário tem acesso (companies já vem filtrado por acesso; a RPC fail-closed refiltra).
+  // Empresa sem grupo = só ela. Consolidado/grupo já vêm com o conjunto certo em companyIds.
+  const effectiveIds = useMemo<string[]>(() => {
+    const base = companyIds ?? [];
+    if (!companies?.length) return base;
+    const sel = new Set(base);
+    const gruposSel = new Set(
+      companies.filter((c) => sel.has(c.id) && c.group_id).map((c) => c.group_id as string)
+    );
+    if (gruposSel.size === 0) return base;
+    const ids = new Set(base);
+    companies.forEach((c) => { if (c.group_id && gruposSel.has(c.group_id)) ids.add(c.id); });
+    return [...ids];
+  }, [companyIds, companies]);
+  const companyIdsKey = useMemo(() => [...effectiveIds].sort().join(","), [effectiveIds]);
   const [data, setData] = useState<string>(hojeISO());
   const [resp, setResp] = useState<Resp | null>(null);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [drill, setDrill] = useState<{ titulo: string; bucket: string; companyId: string | null } | null>(null);
   const [titulos, setTitulos] = useState<Titulo[] | null>(null);
-  const [expandida, setExpandida] = useState<string | null>(null);
+  // Contas de cada empresa ABERTAS por padrão (CEO 12/11): guardamos as empresas COLAPSADAS manualmente.
+  const [colapsadas, setColapsadas] = useState<Set<string>>(new Set());
 
   const carregar = useCallback(async () => {
     if (!companyIdsKey) { setResp(null); setLoading(false); return; }
@@ -156,14 +172,16 @@ export default function CaixaGrupoPage() {
               Por conta bancária<AjudaCampo chave="financeiro.caixa_grupo.conta" rota={ROTA} />
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {empresas.map((e) => (
+              {empresas.map((e) => {
+                const aberta = !colapsadas.has(e.company_id);
+                return (
                 <div key={e.company_id} style={{ background: BG2, border: `1px solid ${BD}`, borderRadius: 10, overflow: "hidden" }}>
-                  <button onClick={() => setExpandida(expandida === e.company_id ? null : e.company_id)}
+                  <button onClick={() => setColapsadas((prev) => { const n = new Set(prev); if (n.has(e.company_id)) n.delete(e.company_id); else n.add(e.company_id); return n; })}
                     style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "12px 16px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: TX }}>{expandida === e.company_id ? "▾" : "▸"} {e.nome}</span>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: TX }}>{aberta ? "▾" : "▸"} {e.nome}</span>
                     <span style={{ fontSize: 13, color: Number(e.saldo_final) < 0 ? VERM : VERDE, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{brl(e.saldo_final)}</span>
                   </button>
-                  {expandida === e.company_id && (
+                  {aberta && (
                     <div style={{ overflowX: "auto", borderTop: `1px solid ${BD}` }}>
                       <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 480 }}>
                         <thead>
@@ -190,7 +208,8 @@ export default function CaixaGrupoPage() {
                     </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
