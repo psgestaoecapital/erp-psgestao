@@ -8,6 +8,8 @@
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero } from '@/lib/moeda-mascara'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -178,8 +180,8 @@ function NovoCusto({ veiculoId, onSaved, onErro }: { veiculoId: string; onSaved:
   const [f, setF] = useState(vazio)
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
-  const valorNum = Number(String(f.valor).replace(',', '.'))
-  const valorOk = f.valor.trim() !== '' && Number.isFinite(valorNum) && valorNum > 0
+  const valorNum = moedaParaNumero(f.valor)
+  const valorOk = f.valor.trim() !== '' && valorNum != null && valorNum > 0
   const podeEnviar = valorOk && !!f.categoria.trim() && !!f.descricao.trim() && (!f.gerar || !!f.vencimento) && !busy
   async function salvar() {
     setErro(null)
@@ -201,7 +203,7 @@ function NovoCusto({ veiculoId, onSaved, onErro }: { veiculoId: string; onSaved:
     <div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
         <select value={f.categoria} onChange={(e) => setF({ ...f, categoria: e.target.value })} style={inp}>{CATS.map((c) => <option key={c} value={c}>{c.replace('_', ' ')}</option>)}</select>
-        <input value={f.valor} onChange={(e) => setF({ ...f, valor: e.target.value })} placeholder="valor *" inputMode="decimal" style={{ ...inp, width: 90 }} />
+        <CampoMoeda value={f.valor} onChange={(v) => setF({ ...f, valor: v })} placeholder="valor *" testId="custo-valor" style={{ ...inp, width: 110 }} />
         <input value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} placeholder="descrição *" style={{ ...inp, width: 170 }} />
         <input value={f.fornecedor_nome} onChange={(e) => setF({ ...f, fornecedor_nome: e.target.value })} placeholder="fornecedor" style={{ ...inp, width: 130 }} />
         <input type="date" value={f.data_custo} onChange={(e) => setF({ ...f, data_custo: e.target.value })} style={inp} />

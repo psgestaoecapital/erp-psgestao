@@ -4,14 +4,17 @@
 // (#552). Passos 1–5 dependem do funil de leads da demo, que só nasce com a correção 20261001220000 (o funil padrão
 // quebrava com "chave is ambiguous") → @pos-migration: no preview informativo, veredito em produção após o deploy.
 // Limpeza sem apagar (RD-30): lead de teste vai para a lixeira (deleted_at); tarefa fica "feita" (é o próprio roteiro).
+// Os títulos semeados NÃO usam marca de automação ("E2E"/"[BOT]"/…): o filtro de ruído da agenda (#4817) esconde
+// títulos com essas marcas, então o compromisso do roteiro precisa ser um título comercial realista para o passo 5
+// ("Minha agenda") enxergá-lo. O afterAll remove o compromisso gerado para não acumular ruído na DEMO.
 
 import { test, expect, aguardarConteudo } from '../../support/fixtures'
 import { dbPatch, dbSelect, obterSessionPayload, registrarJornada } from '../../support/api'
 
 const DEMO_AG = 'b0700000-0000-4000-a000-000000000002'
 const RUN = Date.now().toString(36).toUpperCase()
-const EMPRESA = `E2E Roteiro ${RUN}`
-const TAREFA = `E2E mandar proposta ${RUN}`
+const EMPRESA = `Lead Roteiro ${RUN}`
+const TAREFA = `Mandar proposta ${RUN}`
 const hojeSP = () => new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10)
 let robo = ''
 let leadId = ''
@@ -31,7 +34,12 @@ test.describe('Roteiro da Pdois: lead com WhatsApp → tarefa → Minhas tarefas
     await registrarJornada('aceitacao-pdois-roteiro-teste', testInfo.status === testInfo.expectedStatus ? 'verde' : 'vermelho', testInfo.title)
   })
   test.afterAll(async () => {
-    if (leadId) await dbPatch('agency_leads', `id=eq.${leadId}`, { deleted_at: new Date().toISOString() }).catch(() => {})
+    if (leadId) {
+      await dbPatch('agency_leads', `id=eq.${leadId}`, { deleted_at: new Date().toISOString() }).catch(() => {})
+      // remove o compromisso que o roteiro criou na agenda, para não deixar ruído na DEMO (ref. #4817)
+      await dbPatch('erp_agendamento', `dados->>lead_id=eq.${leadId}&excluido_em=is.null`,
+        { excluido_em: new Date().toISOString(), excluido_motivo: 'cleanup roteiro e2e Pdois' }).catch(() => {})
+    }
   })
 
   test('1-2 · novo lead pela tela com origem WhatsApp; "Meus leads" no filtro', { tag: '@pos-migration' }, async ({ page }) => {
