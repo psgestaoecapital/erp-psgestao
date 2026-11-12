@@ -143,7 +143,16 @@ export default function RelatorioOSPage() {
               <div style={{ ...card, overflowX: 'auto' }}>
                 <div style={lbl}>Ordens do período<AjudaCampo chave="os.relatorio.ordens_periodo" rota="/dashboard/os/relatorio" /></div>
                 <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
-                  <thead><tr style={{ textAlign: 'left', color: '#6B5D4F' }}><th>Nº</th><th>Data</th><th>Cliente</th><th>Placa</th><th>Situação</th><th>Serviços</th><th>Peças</th><th>Total</th></tr></thead>
+                  <thead><tr style={{ textAlign: 'left', color: '#6B5D4F' }}>
+                    <th>Nº<AjudaCampo chave="os.relatorio.col_numero" rota="/dashboard/os/relatorio" /></th>
+                    <th>Data<AjudaCampo chave="os.relatorio.col_data" rota="/dashboard/os/relatorio" /></th>
+                    <th>Cliente<AjudaCampo chave="os.relatorio.col_cliente" rota="/dashboard/os/relatorio" /></th>
+                    <th>Placa<AjudaCampo chave="os.relatorio.col_placa" rota="/dashboard/os/relatorio" /></th>
+                    <th>Situação<AjudaCampo chave="os.relatorio.col_situacao" rota="/dashboard/os/relatorio" /></th>
+                    <th>Serviços<AjudaCampo chave="os.relatorio.col_servicos" rota="/dashboard/os/relatorio" /></th>
+                    <th>Peças<AjudaCampo chave="os.relatorio.col_pecas" rota="/dashboard/os/relatorio" /></th>
+                    <th>Total<AjudaCampo chave="os.relatorio.col_total" rota="/dashboard/os/relatorio" /></th>
+                  </tr></thead>
                   <tbody>
                     {rel.itens.map((o) => (
                       <tr key={o.id}>
