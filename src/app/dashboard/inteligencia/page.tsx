@@ -141,7 +141,10 @@ function Hub() {
               const faixa = s.key === 'transversais' || s.key === 'cruzamento'
               return (
                 <section key={s.key} style={{ marginBottom: 18, ...(faixa ? { background: SURF1, borderRadius: 12, padding: '14px 14px 4px' } : {}) }}>
-                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.8, color: MUT, fontWeight: 700, marginBottom: 10 }}>{s.label}</div>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 10 }}>
+                    <span style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.8, color: MUT, fontWeight: 700 }}>{s.label}</span>
+                    <AjudaCampo chave={`bi.secao.${area}.${s.key}`} rota="/dashboard/inteligencia" />
+                  </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(196px, 1fr))', gap: 12 }}>
                     {(porSecao[s.key] ?? []).map((t) => <Card key={t.codigo} t={t} onOpen={() => t.rota_detalhe && router.push(t.rota_detalhe)} />)}
                   </div>
