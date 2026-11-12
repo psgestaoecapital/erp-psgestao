@@ -944,7 +944,9 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange, onConcluida }: Pr
 
 // NFE-F2 · E3 · bloco de parcelas (duplicatas): editar valor/vencimento, adicionar/remover, refazer N×.
 // A soma tem que bater com o valor da nota — o botão salvar avisa/bloqueia se não bater.
-type Parcela = { id?: string; numero_dup: string | null; data_vencimento: string | null; valor: number | null; pagar_id?: string | null; forma_pagamento?: string | null; conta_bancaria_id?: string | null; codigo_barras?: string | null }
+type Parcela = { id?: string; numero_dup: string | null; data_vencimento: string | null; valor: number | null; pagar_id?: string | null; forma_pagamento?: string | null; conta_bancaria_id?: string | null; codigo_barras?: string | null; valorTexto?: string }
+// #5660 · aceita vírgula pt-BR em valor monetário: texto + replace(',', '.') (padrão do Perfil fiscal da revenda)
+const numOrNull = (s: string): number | null => { const n = Number(String(s).replace(',', '.')); return String(s).trim() !== '' && Number.isFinite(n) ? n : null }
 const FORMAS_PAGTO = ['boleto', 'pix', 'transferencia', 'cartao_credito', 'cartao_debito', 'dinheiro', 'cheque']
 function ParcelasBlock({ parcelas, valorNota, contas, onRefazer, onSalvar }: {
   parcelas: Parcela[]; valorNota: number | null; contas: { id: string; nome: string }[]
@@ -980,7 +982,7 @@ function ParcelasBlock({ parcelas, valorNota, contas, onRefazer, onSalvar }: {
           <div key={p.id ?? i} data-ajuda="compras.docs_recebidos.parcela_vencimento" className="flex flex-wrap items-center gap-2 text-[11px] border-b border-[#3D2314]/6 pb-1.5">
             <span className="text-[#3D2314]/45 w-5">{i + 1}</span>
             <input type="date" value={p.data_vencimento ?? ''} onChange={(e) => patch(i, { data_vencimento: e.target.value })} className="border border-[#3D2314]/15 rounded px-1 py-0.5 text-[#3D2314]" />
-            <input type="number" step="0.01" value={p.valor ?? ''} onChange={(e) => patch(i, { valor: Number(e.target.value) })} placeholder="valor" className="w-24 border border-[#3D2314]/15 rounded px-1 py-0.5 text-right text-[#3D2314]" />
+            <input type="text" inputMode="decimal" value={p.valorTexto ?? (p.valor != null ? String(p.valor).replace('.', ',') : '')} onChange={(e) => patch(i, { valorTexto: e.target.value, valor: numOrNull(e.target.value) })} onBlur={() => patch(i, { valorTexto: undefined })} placeholder="valor" className="w-24 border border-[#3D2314]/15 rounded px-1 py-0.5 text-right text-[#3D2314]" />
             {/* §5 · forma, conta e código de barras — opcionais; chegam completos no contas a pagar */}
             <select value={p.forma_pagamento ?? ''} onChange={(e) => patch(i, { forma_pagamento: e.target.value || null })} title="Forma de pagamento" className="border border-[#3D2314]/15 rounded px-1 py-0.5 text-[#3D2314] min-h-[30px]">
               <option value="">forma…</option>
@@ -999,7 +1001,7 @@ function ParcelasBlock({ parcelas, valorNota, contas, onRefazer, onSalvar }: {
       <div className="flex items-center justify-between mt-2 gap-2 flex-wrap">
         <button type="button" onClick={() => setLista((a) => [...a, { numero_dup: null, data_vencimento: null, valor: null }])} className="text-[11px] text-[#3F7012] font-medium hover:underline">+ adicionar parcela</button>
         <span className={'text-[11px] font-medium ' + (bate ? 'text-[#3F7012]' : 'text-[#A32D2D]')}>soma {brl(soma)} {bate ? '= nota ✅' : `≠ nota ${brl(valorNota ?? 0)}`}</span>
-        <button type="button" disabled={!bate} onClick={() => void onSalvar(lista)} className="px-3 py-1.5 rounded-md bg-[#3F7012] text-white font-medium text-[11px] disabled:opacity-40">Salvar parcelas</button>
+        <button type="button" disabled={!bate} onClick={() => void onSalvar(lista.map((p) => { const { valorTexto: _vt, ...rest } = p; return rest }))} className="px-3 py-1.5 rounded-md bg-[#3F7012] text-white font-medium text-[11px] disabled:opacity-40">Salvar parcelas</button>
       </div>
     </div>
   )

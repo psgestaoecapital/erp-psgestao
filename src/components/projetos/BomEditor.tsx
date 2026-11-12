@@ -9,6 +9,7 @@ import { Plus, Trash2, Package, HardHat, Wrench, Loader2 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { SeletorItemModal, type ItemEscolhido, type TipoItem } from "./SeletorItemModal";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 
 // RD-95: o "?" lê os textos da ficha do serviço (rota dinâmica → rota fixa em erp_ajuda_campo)
 const ROTA_AJUDA_SERVICO = "/dashboard/projetos/catalogo/[id]";
@@ -115,7 +116,7 @@ export function BomEditor({ servicoId, companyId, bom, onChange }: Props) {
       });
       await onChange();
     } catch (e: any) {
-      setErro(e.message || "Falha ao salvar");
+      setErro(erroAmigavel(e, "Falha ao salvar"));
     } finally {
       setSalvandoLinha(null);
     }
@@ -143,7 +144,7 @@ export function BomEditor({ servicoId, companyId, bom, onChange }: Props) {
       await supabase.rpc("fn_projetos_atualizar_cache_bom", { p_servico_id: servicoId });
       await onChange();
     } catch (e: any) {
-      setErro(e.message);
+      setErro(erroAmigavel(e));
     } finally {
       setSalvandoLinha(null);
     }
@@ -163,7 +164,7 @@ export function BomEditor({ servicoId, companyId, bom, onChange }: Props) {
       await supabase.rpc("fn_projetos_atualizar_cache_bom", { p_servico_id: servicoId });
       await onChange();
     } catch (e: any) {
-      setErro(e.message);
+      setErro(erroAmigavel(e));
     } finally {
       setSalvandoLinha(null);
     }

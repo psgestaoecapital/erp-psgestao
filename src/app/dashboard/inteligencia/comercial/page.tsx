@@ -37,7 +37,10 @@ const perLabel = (s: string, gran: string) => { try { const d = new Date(s + 'T0
 const diasAtras = (s: string | null): number | null => { if (!s) return null; try { const d = new Date(s + 'T00:00:00'); const h = new Date(); h.setHours(0, 0, 0, 0); return Math.max(0, Math.round((h.getTime() - d.getTime()) / 86400000)) } catch { return null } }
 const dataBr = (s: string | null) => { if (!s) return '—'; try { return new Date(s + 'T00:00:00').toLocaleDateString('pt-BR') } catch { return s } }
 
-type Kpis = { ok: boolean; erro?: string; escopo?: string; vendedor?: string | null; volume_kg: number; faturamento: number; clientes: number; cidades?: number; ticket_kg: number | null; ticket_cliente: number | null; faturamento_com_selecao?: number; volume_kg_com_selecao?: number; ticket_kg_com_selecao?: number | null; lucro: number | null; margem_pct: number | null; lucro_status: string }
+type DevTipo = { cod: string; valor: number; kg: number }
+type DescarteQ = { produto?: string; vendedor?: string; linha?: string; valor: number; kg: number }
+type Descarte = { status: 'ok' | 'aguardando_integracao'; tipos: string[]; total_valor: number; total_kg: number; por_produto?: DescarteQ[]; por_vendedor?: DescarteQ[]; por_linha?: DescarteQ[] }
+type Kpis = { ok: boolean; erro?: string; escopo?: string; vendedor?: string | null; volume_kg: number; faturamento: number; clientes: number; cidades?: number; ticket_kg: number | null; ticket_cliente: number | null; faturamento_com_selecao?: number; volume_kg_com_selecao?: number; ticket_kg_com_selecao?: number | null; lucro: number | null; margem_pct: number | null; lucro_status: string; devolucoes_valor?: number; devolucoes_kg?: number; devolucoes_por_tipo?: DevTipo[]; tipos_devolucao?: string[]; faturamento_liquido?: number; volume_kg_liquido?: number; descarte?: Descarte }
 type SerieP = { periodo: string; volume_kg: number; faturamento: number; margem_pct: number | null }
 type Serie = { ok: boolean; granularidade: string; serie: SerieP[]; lucro_status: string }
 type ParetoItem = { rotulo: string; valor: number; pct: number; pct_acumulado: number }
@@ -271,11 +274,16 @@ function Inner() {
       {aba === 'geral' && (
         loading && !kpis ? <div style={{ color: MUT, fontSize: 13 }}>Carregando os números…</div> : (
         <>
-          {/* DOIS TOTAIS no topo (CEO): "com seleção" (preço/margem limpos) × "faturamento total" (tudo, despojo não some) */}
+          {/* TOTAIS no topo (CEO): "com seleção" (preço/margem limpos) × "faturamento total" (BRUTO, tudo) ×
+              "faturamento líquido" (bruto − devoluções do período; só exibição, a venda continua bruta). */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 10, marginBottom: 14 }}>
             <TotalTopo chave="comercial.bi.total_com_selecao" rotulo="Faturamento com seleção" valor={brl(kpis?.faturamento_com_selecao ?? null)} sub={`${nf(kpis?.volume_kg_com_selecao ?? null, 0)} kg · só produtos marcados “entra”`} destaque />
             <TotalTopo chave="comercial.bi.total_faturamento" rotulo="Faturamento total" valor={brl(kpis?.faturamento ?? null)} sub={`${nf(kpis?.volume_kg ?? null, 0)} kg · tudo, inclusive despojos${kpis && kpis.faturamento_com_selecao != null && kpis.faturamento > kpis.faturamento_com_selecao ? ` (despojos/a classificar: ${brl(kpis.faturamento - kpis.faturamento_com_selecao)})` : ''}`} />
+            <TotalTopo chave="comercial.bi.faturamento_liquido" rotulo="Faturamento líquido" valor={brl(kpis?.faturamento_liquido ?? null)} sub={`Bruto − devoluções ${brl(kpis?.devolucoes_valor ?? 0)}${kpis?.tipos_devolucao && kpis.tipos_devolucao.length ? ` (${kpis.tipos_devolucao.join(', ')})` : ''}`} />
           </div>
+
+          {/* DESCARTE / PERDA (T131) — indicador separado; NÃO abate do faturamento (RD-102). */}
+          <DescarteCard d={kpis?.descarte} />
 
           {ehLider && <PainelProdutos produtos={produtos} aberto={painelAberto} setAberto={setPainelAberto} aClassificar={aClassificar} salvandoCod={salvandoCod} classificar={classificar} />}
 
@@ -730,6 +738,34 @@ function KpiPendente({ label }: { label: string }) {
       <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 800, color: '#8A6A1E', textTransform: 'uppercase', letterSpacing: 0.3 }}><Clock size={11} /> aguardando</div>
       <div style={{ fontSize: 13, fontWeight: 700, color: ESP, marginTop: 4 }}>{label}</div>
       <div style={{ fontSize: 10.5, color: MUT, marginTop: 2 }}>LUCRO da origem ATAK inconsistente — sem número falso.</div>
+    </div>
+  )
+}
+
+// Descarte / Perda (T131): produto devolvido e inutilizado por qualidade. NÃO entra no faturamento.
+// Enquanto o tipo não é coletado pelo conector do sistema de origem, mostra "aguardando integração".
+function DescarteCard({ d }: { d: Descarte | undefined }) {
+  const aguardando = !d || d.status !== 'ok'
+  const topProd = (d?.por_produto ?? [])[0]
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 10, marginBottom: 14 }}>
+      <div style={{ background: aguardando ? '#FBF3DE' : '#fff', border: `${aguardando ? 0.5 : 0.5}px ${aguardando ? 'dashed' : 'solid'} ${aguardando ? GOLD : LINE}`, borderRadius: 14, padding: '15px 17px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: aguardando ? '#8A6A1E' : MUT, textTransform: 'uppercase', letterSpacing: 0.3 }}>Descarte / Perda</span>
+          <AjudaCampo chave="comercial.bi.descarte" rota={ROTA} />
+        </div>
+        {aguardando ? (
+          <>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, fontWeight: 700, color: '#8A6A1E' }}><Clock size={13} /> Aguardando integração</div>
+            <div style={{ fontSize: 11.5, color: MUT, marginTop: 4 }}>A perda por descarte ({(d?.tipos ?? []).join(', ') || 'T131'}) ainda não é enviada pelo sistema de origem. Assim que vier, aparece aqui em kg e R$ por produto, vendedor e linha.</div>
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 26, fontWeight: 700, color: ESP, lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{brl(d!.total_valor)}</div>
+            <div style={{ fontSize: 11.5, color: MUT, marginTop: 4 }}>{nf(d!.total_kg, 0)} kg descartados{topProd ? ` · maior: ${topProd.produto} (${brl(topProd.valor)})` : ''}</div>
+          </>
+        )}
+      </div>
     </div>
   )
 }
