@@ -136,7 +136,7 @@ export default function AreasPropriedadePage() {
     }
     const { data, error } = await supabase.rpc('fn_propriedade_area_salvar', { p_company_id: empresaUnica, p_dados: dados })
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || r?.ok === false) setMsg('Erro: ' + (error?.message || r?.erro || 'falha ao salvar'))
+    if (error || r?.ok === false) setMsg(error ? erroAmigavel(error, 'Não foi possível salvar. Tente de novo.') : 'Erro: ' + (r?.erro || 'falha ao salvar'))
     else { setMsg(editId ? 'Área ALTERADA.' : 'Área criada.'); setF({ ...vazio }); setEditId(null); await carregar() }
     setBusy(false)
   }
