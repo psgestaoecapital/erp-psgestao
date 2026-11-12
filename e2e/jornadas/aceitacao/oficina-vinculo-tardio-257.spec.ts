@@ -80,7 +80,7 @@ test.describe('#257 · peça digitada → produto do estoque, também com a OS f
     // exceção sem o GUC app.permitir_delete_fisico=on (que o robô e2e não seta). O limpar() engolia a
     // exceção e a linha vazava na DEMO. Cai para soft-delete (UPDATE deleted_at) — passa pela RLS, não
     // dispara a trava e tira a linha da view v_lancamentos_consolidado (WHERE deleted_at IS NULL).
-    for (const rid of criadas.receber) await limpar(() => dbDelete('erp_receber', `id=eq.${rid}`).catch(() => dbPatch('erp_receber', `id=eq.${rid}`, { deleted_at: new Date().toISOString() })))
+    for (const rid of criadas.receber) await limpar(() => dbPatch('erp_receber', `id=eq.${rid}`, { deleted_at: new Date().toISOString() }))
     for (const osId of criadas.os) {
       await limpar(() => dbDelete('erp_os_diagnostico_item', `os_id=eq.${osId}`))
       await limpar(() => dbDelete('erp_os', `id=eq.${osId}`))
