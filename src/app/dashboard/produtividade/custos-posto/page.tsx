@@ -375,10 +375,14 @@ function Casca({ children }: { children: React.ReactNode }) {
           <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: GOLD, margin: 0 }}>Indústria · Custos</p>
           <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 28, fontWeight: 400, color: ESP, margin: '4px 0 0' }}>Custos do posto</h1>
           <p style={{ fontSize: 12.5, color: MUT, margin: '6px 0 0', lineHeight: 1.5 }}>Os custos mensais de cada posto (mão de obra, energia, água, vapor, frio, ar, gás, manutenção, depreciação, outros) e as horas de operação — a base do custo por hora e do custo por kg do produto final.</p>
-          <div style={{ fontSize: 12.5, margin: '8px 0 0' }}>
-            <Link href="/dashboard/produtividade/rateio" data-testid="link-rateio-admin" style={{ color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Rateio administrativo →</Link>
-            <span style={{ color: MUT }}> distribui a despesa administrativa do mês pelos postos (R$/h administrativo).</span>
-          </div>
+          {/* Sub-navegação das telas de Produtividade: esta (Custos do posto) é drill-down de Postos. */}
+          <nav aria-label="Seções de Produtividade" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+            <Link href="/dashboard/produtividade" style={{ fontSize: 13, fontWeight: 600, color: MUT, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 999, padding: '5px 12px', textDecoration: 'none' }}>Cadastro de postos</Link>
+            <Link href="/dashboard/produtividade/indicadores" style={{ fontSize: 13, fontWeight: 600, color: MUT, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 999, padding: '5px 12px', textDecoration: 'none' }}>Indicadores</Link>
+            <span aria-current="page" style={{ fontSize: 13, fontWeight: 700, color: ESP, background: '#FBF3DE', border: `1px solid ${GOLD}`, borderRadius: 999, padding: '5px 12px' }}>Custos do posto</span>
+            <Link href="/dashboard/produtividade/rateio" data-testid="link-rateio-admin" style={{ fontSize: 13, fontWeight: 600, color: MUT, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 999, padding: '5px 12px', textDecoration: 'none' }}>Rateio administrativo</Link>
+          </nav>
+
         </header>
         {children}
       </div>

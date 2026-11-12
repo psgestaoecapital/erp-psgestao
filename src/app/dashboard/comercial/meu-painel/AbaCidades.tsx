@@ -81,7 +81,7 @@ export function AbaCidades({ cidades, base, modelo }: Props) {
               <Pie data={donut} dataKey="val" nameKey="nome" innerRadius={55} outerRadius={90} paddingAngle={2}>
                 {donut.map((_, i) => <Cell key={i} fill={CORES[i % CORES.length]} />)}
               </Pie>
-              <Tooltip formatter={(v) => brl0(Number(v))} />
+              <Tooltip allowEscapeViewBox={{ x: false, y: false }} formatter={(v, n) => [brl0(Number(v)), n]} />
             </PieChart>
           </ResponsiveContainer>
         </div>
