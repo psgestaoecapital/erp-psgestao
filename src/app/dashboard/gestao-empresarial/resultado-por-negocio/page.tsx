@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useEmpresaSelecionada } from '@/lib/agro/usePecuaria'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'
 const ESP60 = 'rgba(61,35,20,0.6)'; const GREEN = '#4E7D34'; const RED = '#B23A2E'
@@ -58,7 +59,7 @@ export default function ResultadoPorNegocioPage() {
       p_company_id: empresa, p_ini: `${ini}-01`, p_fim: fimDoMes(fim), p_regime: regime,
     })
     setCarregando(false)
-    if (error) { setErro(error.message); setDados(null); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar o resultado por negócio. Tente de novo.')); setDados(null); return }
     setDados(data as Dados)
   }, [empresa, ini, fim, regime])
 

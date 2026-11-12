@@ -7,6 +7,7 @@ import { mesclarRegras, regrasReferencia, type SistemaCalc } from "@/lib/calcula
 import { BITOLAS, ESPACAMENTOS, MAX_FAIXAS, faixasIguais, faixasParaForm, montarFaixas, type FaixaForm } from "@/lib/calculadora/faixas-editor";
 import type { RegrasParede } from "@/lib/calculadora/motor";
 import { CAMPOS_REGRA, chaveAjudaRegra, lerCampo, montarRegras } from "@/lib/calculadora/campos-regras";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 
 const ROTA = "/dashboard/projetos/calculadora";
 
@@ -49,7 +50,7 @@ export default function EditorRegras({ companyId, sistema, regraSalva, aoSalvar 
     const { data, error } = await supabaseBrowser().rpc("fn_calc_regra_salvar", { p_company_id: companyId, p_sistema: sistema, p_regras: regras, p_validada: validada });
     setOcupado(false);
     const d = data as { ok?: boolean; erro?: string } | null;
-    if (error || !d?.ok) { setMsg({ ok: false, texto: "Não consegui salvar: " + (error?.message ?? d?.erro ?? "erro") }); return; }
+    if (error || !d?.ok) { setMsg({ ok: false, texto: error ? erroAmigavel(error, "Não consegui salvar as regras. Tente de novo.") : (d?.erro || "Não consegui salvar as regras. Tente de novo.") }); return; }
     setMsg({ ok: true, texto: "Regras da sua empresa salvas." }); aoSalvar();
   }
   async function restaurar() {
@@ -57,7 +58,7 @@ export default function EditorRegras({ companyId, sistema, regraSalva, aoSalvar 
     const { data, error } = await supabaseBrowser().rpc("fn_calc_regra_restaurar", { p_company_id: companyId, p_sistema: sistema });
     setOcupado(false);
     const d = data as { ok?: boolean; erro?: string } | null;
-    if (error || !d?.ok) { setMsg({ ok: false, texto: "Não consegui restaurar: " + (error?.message ?? d?.erro ?? "erro") }); return; }
+    if (error || !d?.ok) { setMsg({ ok: false, texto: error ? erroAmigavel(error, "Não consegui restaurar. Tente de novo.") : (d?.erro || "Não consegui restaurar. Tente de novo.") }); return; }
     setMsg({ ok: true, texto: "Voltou ao valor de referência de mercado." }); aoSalvar();
   }
 

@@ -51,7 +51,11 @@ interface ItemRem {
   quantidade: number
   valorUnitarioOverride?: number
   cfop?: string
+  valorUnitarioTexto?: string // #5660 · buffer de digitação (pt-BR vírgula); não vai ao payload
 }
+
+// #5660 · aceita vírgula pt-BR em campo monetário: texto + replace(',', '.') (padrão do Perfil fiscal da revenda)
+const numOrNull = (s: string): number | null => { const n = Number(String(s).replace(',', '.')); return String(s).trim() !== '' && Number.isFinite(n) ? n : null }
 
 function resolveCompanyId(): string | null {
   if (typeof window === 'undefined') return null
@@ -106,6 +110,7 @@ export default function RemessaClient() {
   const [icmsCodigo, setIcmsCodigo] = useState('')
   const [modalidadeFrete, setModalidadeFrete] = useState(9)
   const [valorFrete, setValorFrete] = useState(0)
+  const [valorFreteTexto, setValorFreteTexto] = useState<string | null>(null) // #5660 · buffer de digitação pt-BR
   const [observacoes, setObservacoes] = useState('')
 
   const [produtosFiltrados, setProdutosFiltrados] = useState<Produto[]>([])
@@ -729,9 +734,10 @@ export default function RemessaClient() {
                       </td>
                       <td className="px-2 py-1.5 text-right">
                         <input
-                          type="number" min="0" step="0.01"
-                          value={it.valorUnitarioOverride ?? 0}
-                          onChange={(e) => atualizarItem(idx, { valorUnitarioOverride: Number(e.target.value) })}
+                          type="text" inputMode="decimal"
+                          value={it.valorUnitarioTexto ?? (it.valorUnitarioOverride != null ? String(it.valorUnitarioOverride).replace('.', ',') : '')}
+                          onChange={(e) => atualizarItem(idx, { valorUnitarioTexto: e.target.value, valorUnitarioOverride: numOrNull(e.target.value) ?? 0 })}
+                          onBlur={() => atualizarItem(idx, { valorUnitarioTexto: undefined })}
                           className="w-24 px-2 py-1 text-right text-[12px] border border-[#3D2314]/15 rounded"
                         />
                       </td>
@@ -771,7 +777,7 @@ export default function RemessaClient() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <label className="block">
             <span className={rotuloCls}>Frete <AjudaCampo chave="fiscal.nfe_avulsa.modalidade_frete" /></span>
-            <select value={modalidadeFrete} onChange={(e) => { const m = Number(e.target.value); setModalidadeFrete(m); if (m === 9) setValorFrete(0) }} className={inputCls}>
+            <select value={modalidadeFrete} onChange={(e) => { const m = Number(e.target.value); setModalidadeFrete(m); if (m === 9) { setValorFrete(0); setValorFreteTexto(null) } }} className={inputCls}>
               <option value={9}>Sem frete</option>
               <option value={0}>Por conta do emitente (CIF)</option>
               <option value={1}>Por conta do destinatário (FOB)</option>
@@ -780,8 +786,10 @@ export default function RemessaClient() {
           </label>
           <label className="block">
             <span className={rotuloCls}>Valor do frete <AjudaCampo chave="fiscal.nfe_avulsa.valor_frete" /></span>
-            <input type="number" min="0" step="0.01" value={valorFrete} disabled={modalidadeFrete === 9}
-              onChange={(e) => setValorFrete(Math.max(0, Number(e.target.value)))} className={`${inputCls} disabled:bg-[#FAF7F2]`} />
+            <input type="text" inputMode="decimal" disabled={modalidadeFrete === 9}
+              value={valorFreteTexto ?? (valorFrete ? String(valorFrete).replace('.', ',') : '')}
+              onChange={(e) => { setValorFreteTexto(e.target.value); setValorFrete(Math.max(0, numOrNull(e.target.value) ?? 0)) }}
+              onBlur={() => setValorFreteTexto(null)} className={`${inputCls} disabled:bg-[#FAF7F2]`} />
           </label>
           <label className="block sm:col-span-2">
             <span className={rotuloCls}>Informações complementares <AjudaCampo chave="fiscal.nfe_avulsa.observacoes" /></span>

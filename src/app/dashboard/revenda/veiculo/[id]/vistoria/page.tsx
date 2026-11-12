@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'react'
 import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -239,7 +240,7 @@ function Inner() {
     // (#21/#22/#33 do Fábio: "não sobe a foto no pátio"). company_id primeiro reusa a policy provada.
     const path = `${companyId}/vistorias/${vistoriaId}/${rg.regiao_id}/${Date.now()}.${ext}`
     const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, { contentType: file.type || 'image/jpeg', upsert: false })
-    if (upErr) { setErro('Falha no upload da foto: ' + upErr.message); return }
+    if (upErr) { setErro(erroAmigavel(upErr, 'Não foi possível enviar a foto. Verifique a conexão e tente de novo.')); return }
     const { data: j } = await supabase.rpc('fn_insp_foto_registrar', { p_vistoria_id: vistoriaId, p_regiao_id: rg.regiao_id, p_storage_path: path, p_legenda: rg.foto_rotulo, p_user: await userId() })
     const r = j as { ok?: boolean; erro?: string } | null
     if (!r?.ok) { setErro(r?.erro || 'Falha ao registrar a foto.'); await supabase.storage.from(BUCKET).remove([path]); return }

@@ -9,6 +9,7 @@ import Link from "next/link";
 import { Gauge, Loader2, CheckCircle2, AlertTriangle, Plus, Trash2 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 
 type Linha = { id: string; nome: string };
 type Produto = {
@@ -43,7 +44,7 @@ export default function ProdutividadePanel({ companyId }: { companyId: string })
     const supabase = supabaseBrowser();
     const { data, error } = await supabase.rpc("fn_produtividade_por_linha_obter", { p_company_id: companyId, p_categoria: null });
     setLoading(false);
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error)); return; }
     const j = data as { ok?: boolean; erro?: string; produtos?: Produto[]; linhas?: Linha[] } | null;
     if (!j?.ok) { setErro(j?.erro ?? "Falha ao carregar produtos"); return; }
     setProdutos(j.produtos ?? []); setLinhas(j.linhas ?? []); setRowEdits({});
@@ -84,7 +85,7 @@ export default function ProdutividadePanel({ companyId }: { companyId: string })
     const supabase = supabaseBrowser();
     const { data, error } = await supabase.rpc("fn_servico_atualizar", { p_servico_id: p.servico_id, p_company_id: companyId, p_campos: campos });
     setBusyId(null);
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error)); return; }
     if (!(data as { ok?: boolean } | null)?.ok) { setErro("Não foi possível alterar."); return; }
     setToast("Produto ALTERADO"); await carregar();
   }
@@ -95,7 +96,7 @@ export default function ProdutividadePanel({ companyId }: { companyId: string })
     const supabase = supabaseBrowser();
     const { data, error } = await supabase.rpc("fn_servico_excluir", { p_servico_id: p.servico_id, p_company_id: companyId });
     setBusyId(null);
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error)); return; }
     if (!(data as { ok?: boolean } | null)?.ok) { setErro("Não foi possível excluir."); return; }
     setToast("Produto EXCLUÍDO"); await carregar();
   }
@@ -111,7 +112,7 @@ export default function ProdutividadePanel({ companyId }: { companyId: string })
       p_equipe: novo.equipe || null,
     });
     setCriando(false);
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error)); return; }
     if (!(data as { ok?: boolean } | null)?.ok) { setErro("Não foi possível criar."); return; }
     setToast("Produto CRIADO");
     setNovo({ nome: "", unidade: "m2", categoria: "", business_line_id: "", produtividade: "", equipe: "" });

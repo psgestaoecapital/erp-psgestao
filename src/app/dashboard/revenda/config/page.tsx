@@ -8,6 +8,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { erroAmigavel } from '@/lib/erroAmigavel'
+import { BancosParceiros } from '@/components/revenda/BancosParceiros'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -296,7 +298,7 @@ export default function ConfigGaragemPage() {
       const ext = ((file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '')) || 'png'
       const path = `${companyId}/_config/logo-${Date.now()}.${ext}`
       const { error: upErr } = await supabase.storage.from('revenda-veiculos').upload(path, file, { contentType: file.type || 'image/png', upsert: false })
-      if (upErr) { setErro('Falha no upload do logo: ' + upErr.message); return }
+      if (upErr) { setErro(erroAmigavel(upErr, 'Não foi possível enviar o logo. Tente um arquivo menor ou de novo.')); return }
       setLogoPath(path)
       const { data: ls } = await supabase.storage.from('revenda-veiculos').createSignedUrl(path, 3600)
       setLogoUrl(ls?.signedUrl ?? null)
@@ -679,6 +681,8 @@ export default function ConfigGaragemPage() {
           </div>
         )}
       </Bloco>
+
+      <BancosParceiros companyId={companyId} />
 
       <button disabled={salvando} onClick={() => void pedirPrevia()} style={{ marginTop: 8, width: '100%', background: salvando ? C.espL : C.gold, color: '#fff', border: 'none', borderRadius: 12, padding: '14px 22px', fontSize: 16, fontWeight: 800, cursor: salvando ? 'wait' : 'pointer' }}>
         {salvando ? 'Calculando…' : 'Ver efeito e salvar'}

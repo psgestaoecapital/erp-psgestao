@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { comPrazo } from '@/lib/comPrazo'
 import { useEmpresaSelecionada, usePropriedade, usePainelRebanho } from '@/lib/agro/usePecuaria'
 import { exportToExcel } from '@/lib/export-utils'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { salvarSnapshot, lerSnapshot, type RebanhoSnapshot } from '@/lib/agro/rebanhoOffline'
 import CapacidadeIdealModal, { type Forrageira } from '@/components/agro/CapacidadeIdealModal'
 
@@ -404,7 +405,7 @@ function Animais({
       if (fPiq !== 'todos') q = q.eq('area_atual_id', fPiq)
       if (buscaDebounced) { const like = `%${buscaDebounced}%`; q = q.or(`identificacao.ilike.${like},sisbov.ilike.${like}`) }
       const { data, error } = await q.order('identificacao', { ascending: true, nullsFirst: false }).limit(5000)
-      if (error) { setErro(error.message); return }
+      if (error) { setErro('Não foi possível carregar os animais. Tente novamente.'); return }
       const linhas = (data ?? []) as Animal[]
       const rows = linhas.map((a) => ({
         'Identificação': a.identificacao ?? '',
@@ -426,7 +427,7 @@ function Animais({
         title: `Rebanho · ${dt} · ${rows.length} animais`,
       })
     } catch (e) {
-      setErro((e as Error).message || 'Falha ao exportar')
+      setErro(erroAmigavel(e, 'Não foi possível exportar o rebanho. Tente de novo.'))
     } finally {
       setExportando(false)
     }
@@ -512,7 +513,7 @@ function Animais({
       const fim = inicio + PAGE_SIZE - 1
       const { data, error, count } = await q.range(inicio, fim)
       if (!alive) return
-      if (error) { setErro(error.message); setAnimais([]); setTotal(0) }
+      if (error) { setErro('Não foi possível carregar os animais. Tente novamente.'); setAnimais([]); setTotal(0) }
       else {
         setAnimais((data ?? []) as Animal[])
         setTotal(count ?? 0)
@@ -563,7 +564,7 @@ function Animais({
       if (fPiq !== 'todos') q = q.eq('area_atual_id', fPiq)
       if (buscaDebounced) { const like = `%${buscaDebounced}%`; q = q.or(`identificacao.ilike.${like},sisbov.ilike.${like}`) }
       const { data, error } = await q.limit(5000)
-      if (error) { setErro(error.message); return }
+      if (error) { setErro('Não foi possível selecionar os animais. Tente novamente.'); return }
       setSel(new Set((data ?? []).map((r) => (r as { id: string }).id)))
     } finally {
       setSelecionandoTodos(false)
@@ -812,7 +813,7 @@ function AcaoModal({
       const { data, error } = await supabase.from('erp_pec_animal')
         .select(COLS_FULL).eq('company_id', companyId).in('id', ids)
       if (!alive) return
-      if (error) { setErro(error.message); return }
+      if (error) { setErro('Não foi possível carregar os detalhes do animal. Tente novamente.'); return }
       const rows = (data ?? []) as AnimalFull[]
       setFull(rows)
       if (acao.tipo === 'editar' && rows[0]) {
@@ -829,7 +830,7 @@ function AcaoModal({
   async function criarComprador() {
     if (!novoNome.trim()) return
     const { data, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: companyId, p_nome: novoNome.trim(), p_cpf_cnpj: novoDoc.trim() || null })
-    if (error) { setErro(error.message); return }
+    if (error) { setErro('Não foi possível cadastrar o comprador. Tente novamente.'); return }
     const id = data as string
     setClientes((cs) => [...cs, { id, nome_fantasia: novoNome.trim() }])
     setCompradorId(id); setNovoComp(false); setNovoNome(''); setNovoDoc('')
@@ -939,7 +940,7 @@ function AcaoModal({
       }
       onDone()
     } catch (e) {
-      setErro((e as Error).message || String(e))
+      setErro(erroAmigavel(e, 'Não foi possível registrar a movimentação. Tente de novo.'))
     } finally {
       setBusy(false)
     }

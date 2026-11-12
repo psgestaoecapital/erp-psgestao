@@ -100,7 +100,7 @@ export default function PrecificacaoPage() {
       p_modo: comPrevia ? modo : null, p_valor: comPrevia ? (num(valor) ?? 0) : null, p_arredondar: arred,
     })
     setLoading(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro('Não foi possível carregar os preços dos produtos. Tente novamente.'); return }
     const r = data as Painel | null
     if (!r?.ok) { setErro(r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : (r?.erro ?? 'Erro ao carregar')); setP(null); return }
     setP(r); setPrevia(comPrevia)

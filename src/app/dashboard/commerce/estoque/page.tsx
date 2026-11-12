@@ -17,6 +17,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
 import { selecionarTodas } from '@/lib/selecionarTodas'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import TabVeiculosRevenda, { type EstoqueVeiculos } from '@/components/estoque/TabVeiculosRevenda'
 import { BaixarPlanilhaContagemModal, SubirContagemModal } from '@/components/estoque/PlanilhaContagemInventario'
 import {
@@ -304,15 +305,15 @@ function EstoqueInner() {
         // Bloco D · reserva por produto (estado; só produtos com reserva voltam)
         supabase.rpc('fn_estoque_reservas', { p_company_ids: [companyIdUnico] }),
       ])
-      if (loc.error) setErro('Locais: ' + loc.error.message)
+      if (loc.error) setErro('Locais: ' + erroAmigavel(loc.error))
       else setLocais((loc.data ?? []) as Local[])
-      if (prod.error) setErro('Produtos: ' + prod.error.message)
+      if (prod.error) setErro('Produtos: ' + erroAmigavel(prod.error))
       else setProdutos((prod.data ?? []) as Produto[])
-      if (mov.error) setErro('Movimentações: ' + mov.error.message)
+      if (mov.error) setErro('Movimentações: ' + erroAmigavel(mov.error))
       else setMovimentacoes((mov.data ?? []) as Movimentacao[])
-      if (abc.error) setErro('Curva ABC: ' + abc.error.message)
+      if (abc.error) setErro('Curva ABC: ' + erroAmigavel(abc.error))
       else setCurva((abc.data ?? []) as CurvaABCRow[])
-      if (inv.error) setErro('Inventários: ' + inv.error.message)
+      if (inv.error) setErro('Inventários: ' + erroAmigavel(inv.error))
       else setInventarios((inv.data ?? []) as Inventario[])
       // reserva é auxiliar: se falhar, o resto da tela segue (disponível = físico)
       if (!rsv.error) {
@@ -352,7 +353,7 @@ function EstoqueInner() {
         responsavel: payload.responsavel, principal: payload.principal, ativo: payload.ativo,
         updated_at: new Date().toISOString(),
       }).eq('id', payload.id)
-      if (error) { flashErr('Erro: ' + error.message); return }
+      if (error) { flashErr(erroAmigavel(error)); return }
       flash('Local atualizado.')
     } else {
       const { error } = await supabase.from('erp_estoque_locais').insert({
@@ -360,7 +361,7 @@ function EstoqueInner() {
         nome: payload.nome, descricao: payload.descricao, endereco: payload.endereco,
         responsavel: payload.responsavel, principal: payload.principal ?? false, ativo: true,
       })
-      if (error) { flashErr('Erro: ' + error.message); return }
+      if (error) { flashErr(erroAmigavel(error)); return }
       flash('Local criado.')
     }
     setLocalEdit(null)
@@ -370,7 +371,7 @@ function EstoqueInner() {
   async function deletarLocal(id: string) {
     if (!confirm('Excluir este local? Movimentações já registradas serão preservadas.')) return
     const { error } = await supabase.from('erp_estoque_locais').delete().eq('id', id)
-    if (error) { flashErr('Erro: ' + error.message); return }
+    if (error) { flashErr(erroAmigavel(error)); return }
     flash('Local excluído.')
     void carregar()
   }
@@ -397,7 +398,7 @@ function EstoqueInner() {
       p_local_id: args.local_id,
     })
     if (error) {
-      flashErr('Não foi possível registrar a movimentação: ' + error.message)
+      flashErr(erroAmigavel(error, 'Não foi possível registrar a movimentação. Tente de novo.'))
       return false
     }
     flash('Movimentação criada · estoque atualizado.')
@@ -425,7 +426,7 @@ function EstoqueInner() {
       p_local_id: args.local_id,
     })
     if (error) {
-      flashErr('Não foi possível criar o ajuste: ' + error.message)
+      flashErr(erroAmigavel(error, 'Não foi possível criar o ajuste. Tente de novo.'))
       return false
     }
     flash('Ajuste CRIADO · saldo atualizado.')
@@ -516,7 +517,7 @@ function EstoqueInner() {
           setProdutosSrvTotal(Math.max(porNome.count ?? 0, porCodigo.count ?? 0, merged.length))
         }
       } catch (err) {
-        setErro(err instanceof Error ? `Produtos: ${err.message}` : 'Erro ao buscar produtos')
+        setErro(erroAmigavel(err, 'Erro ao buscar produtos.'))
       } finally {
         setProdutosSrvLoading(false)
       }
@@ -2085,7 +2086,7 @@ function ModalNovoInventario({ companyId, locais, onClose, onCreated, flashErr }
       if (e2) throw new Error(e2.message)
       await onCreated(inv.id)
     } catch (err) {
-      flashErr(err instanceof Error ? err.message : 'Erro ao criar inventário')
+      flashErr(erroAmigavel(err, 'Erro ao criar inventário.'))
     } finally {
       setSalvando(false)
     }
@@ -2190,7 +2191,7 @@ function DrawerInventario({ inventario, produtos, locaisPorId, onClose, onFechad
       p_usuario: user?.email ?? null,
     })
     if (error) {
-      flashErr('Não foi possível salvar a contagem: ' + error.message)
+      flashErr(erroAmigavel(error, 'Não foi possível salvar a contagem. Tente de novo.'))
       setSalvandoIdx(null)
       return
     }
@@ -2211,7 +2212,7 @@ function DrawerInventario({ inventario, produtos, locaisPorId, onClose, onFechad
       p_usuario_id: user?.id ?? null,
     })
     if (error) {
-      flashErr('Falha ao fechar: ' + error.message)
+      flashErr(erroAmigavel(error, 'Não foi possível fechar o inventário. Tente de novo.'))
       setFechando(false)
       return
     }

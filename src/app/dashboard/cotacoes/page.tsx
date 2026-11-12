@@ -61,7 +61,7 @@ export default function CotacoesPage(){
     setLoading(true);
     const{data,error}=await supabase.from("erp_cotacoes").select("*").eq("company_id",sel).order("data_abertura",{ascending:false}).limit(100);
     if(data)setCotacoes(data);
-    if(error&&!error.message.includes('does not exist'))setMsg("Erro: "+error.message);
+    if(error&&!error.message.includes('does not exist'))setMsg("Não foi possível carregar as cotações. Tente novamente.");
     setLoading(false);
   };
 
@@ -92,8 +92,8 @@ export default function CotacoesPage(){
       created_by:user?.id,
     }).select().single();
     
-    if(error){setMsg("❌ "+error.message);return;}
-    
+    if(error){setMsg("❌ Não foi possível criar a cotação. Tente novamente.");return;}
+
     // Insere itens
     const itens=novaCot.itens.map((it:any,idx:number)=>({
       cotacao_id:cot.id,
@@ -194,7 +194,7 @@ export default function CotacoesPage(){
       p_user_id:user?.id,
     });
     
-    if(error){setMsg("❌ "+error.message);return;}
+    if(error){setMsg("❌ Não foi possível aprovar a cotação. Tente novamente.");return;}
     setMsg("✅ Cotação aprovada e pedido de compra gerado!");
     setShowComparar(null);
     loadCotacoes();
