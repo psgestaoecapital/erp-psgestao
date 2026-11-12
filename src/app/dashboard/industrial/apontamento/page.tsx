@@ -2,6 +2,7 @@
 import React, { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { erroAmigavel } from '@/lib/erroAmigavel'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 export default function ApontamentoPage() {
   const router = useRouter()
@@ -39,11 +40,11 @@ export default function ApontamentoPage() {
   }
 
   const campo = (k: string, l: string, t='number', obrig=false) => (
-    <div key={k}>
-      <label className='text-xs text-muted-foreground uppercase tracking-wide block mb-1'>{l}{obrig?' *':''}</label>
+    <label key={k} className='block'>
+      <span className='text-xs text-muted-foreground uppercase tracking-wide mb-1 flex items-center'>{l}{obrig?' *':''}<AjudaCampo chave={'industria.apontamento.'+k} /></span>
       <input type={t} value={(form as any)[k]} onChange={e=>set(k,e.target.value)}
         className='w-full border rounded px-3 py-2 text-sm' />
-    </div>
+    </label>
   )
 
   return (
@@ -53,16 +54,16 @@ export default function ApontamentoPage() {
 
       <div className='space-y-4'>
         <div className='grid grid-cols-3 gap-3'>
-          <div>
-            <label className='text-xs text-muted-foreground uppercase tracking-wide block mb-1'>Data *</label>
+          <label className='block'>
+            <span className='text-xs text-muted-foreground uppercase tracking-wide mb-1 flex items-center'>Data *<AjudaCampo chave='industria.apontamento.data' /></span>
             <input type='date' value={form.data} onChange={e=>set('data',e.target.value)} className='w-full border rounded px-3 py-2 text-sm'/>
-          </div>
-          <div>
-            <label className='text-xs text-muted-foreground uppercase tracking-wide block mb-1'>Turno *</label>
+          </label>
+          <label className='block'>
+            <span className='text-xs text-muted-foreground uppercase tracking-wide mb-1 flex items-center'>Turno *<AjudaCampo chave='industria.apontamento.turno' /></span>
             <select value={form.turno} onChange={e=>set('turno',e.target.value)} className='w-full border rounded px-3 py-2 text-sm bg-background'>
               <option value='A'>A (manhã)</option><option value='B'>B (tarde)</option><option value='C'>C (noite)</option>
             </select>
-          </div>
+          </label>
           {campo('operadores','Operadores')}
         </div>
 

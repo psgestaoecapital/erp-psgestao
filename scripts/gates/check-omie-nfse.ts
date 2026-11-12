@@ -1,6 +1,6 @@
 // Gate (#2712) — importação de NFS-e emitidas do OMIE: mapeamento puro (sem rede) + rota protegida e idempotente.
 import { readFileSync } from 'node:fs'
-import { mapearNfseOmie, extrairLista, numero, dataIso } from '../../src/lib/omie/nfse'
+import { mapearNfseOmie, motivoPulo, extrairLista, numero, dataIso } from '../../src/lib/omie/nfse'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗', m) } else console.log('✓', m) }
@@ -26,6 +26,16 @@ ok(mapearNfseOmie({ Cabecalho: {} }, prest) === null, 'sem referência/data = pu
 ok(extrairLista({ nfseEncontradas: [item] }).length === 1, 'extrai lista')
 ok(numero('273,81') === 273.81 && numero('1,234.56') === 1234.56 && numero(5) === 5, 'números')
 ok(dataIso('2026-10-02T00:00:00') === '2026-10-02', 'data ISO')
+// #2712: formatos de data que o OMIE pode devolver e que antes derrubavam a nota (puladas)
+ok(dataIso('02-10-2026') === '2026-10-02', 'data dd-mm-aaaa')
+ok(dataIso('2026/10/02') === '2026-10-02', 'data aaaa/mm/dd')
+ok(dataIso('02102026') === '2026-10-02', 'data ddmmaaaa (8 díg.)')
+ok(dataIso('20261002') === '2026-10-02', 'data aaaammdd (8 díg.)')
+// #2712: diagnóstico de nota pulada — só nomes de chave (LGPD), nunca valores
+const diag = motivoPulo({ Cabecalho: { nCodNF: 9 }, Emissao: {} })
+ok(diag.tem_ref === true && diag.tem_data === false, 'motivoPulo: tem ref, falta data')
+ok(diag.chaves.includes('nCodNF') && diag.chaves.includes('Cabecalho') && !diag.chaves.some((k) => /^\d/.test(k)), 'motivoPulo: lista chaves, sem valores')
+ok(motivoPulo(item).tem_ref === true && motivoPulo(item).tem_data === true, 'motivoPulo: amostra válida mapeia')
 
 const rota = readFileSync('src/app/api/omie/nfse/importar/route.ts', 'utf8')
 ok(/exigirUsuario\(req, \{ admin: true \}\)/.test(rota), 'rota só equipe PS')
