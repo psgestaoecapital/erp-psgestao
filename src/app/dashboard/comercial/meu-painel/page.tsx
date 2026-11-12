@@ -456,7 +456,8 @@ export default function MeuPainelV6() {
 
           {/* 8 cards KPI (SPEC §2.1) */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 16 }}>
-            <Cartao rot="Faturamento" chave="com.painel.faturado" valor={brl0(r.totalValor)} />
+            <Cartao rot="Faturamento" chave="com.painel.faturado" valor={brl0(r.totalValor)} sub="bruto (antes das devoluções)" />
+            <Cartao rot="Faturamento líquido" chave="com.painel.faturado_liquido" valor={brl0(r.totalValor - devR)} sub={`bruto − ${brl0(devR)} de devoluções`} />
             <Cartao rot="Volume sem despojo" chave="com.painel.volume" valor={ton(modelo.tot.kgP)} sub={`total com despojo ${ton(modelo.tot.kg)}`} />
             <Cartao rot="Preço médio" chave="com.painel.preco" valor={brl2(r.precoPorKg)} sub="R$/kg sem despojo" />
             <Cartao rot="Ticket por nota" chave="com.painel.ticket" valor={brl0(ticketNota)} sub={`${int(notas)} notas`} />
