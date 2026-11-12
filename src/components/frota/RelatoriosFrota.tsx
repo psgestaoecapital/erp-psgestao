@@ -281,7 +281,17 @@ function exportar(tipo: Tipo, dados: Linha | null, agrupar: Agrupar) {
     const linhas = (dados.linhas as Linha[]) ?? [];
     baixarCsv("frota-multas", ["Data", "Veículo", "Motorista", "Descrição", "Valor"], linhas.map((l) => [String(l.data), String(l.placa), String(l.motorista), String(l.descricao ?? ""), Number(l.valor)]));
   } else {
+    // Manutenção: o CSV espelha as DUAS tabelas da tela (#5214) — realizadas no período E programadas
+    // (próxima por km). Antes só saíam as realizadas, e as próximas que o usuário via na tela sumiam no export.
     const realizadas = (dados.realizadas as Linha[]) ?? [];
-    baixarCsv("frota-manutencao", ["Data", "Veículo", "Tipo", "Km", "Valor", "Fornecedor"], realizadas.map((r) => [String(r.data), String(r.placa), String(r.tipo), Number(r.km), r.valor == null ? null : Number(r.valor), String(r.fornecedor ?? "")]));
+    const programadas = (dados.programadas as Linha[]) ?? [];
+    const linhas: (string | number | null)[][] = [
+      ...realizadas.map((r) => [String(r.data), String(r.placa), String(r.tipo), Number(r.km), r.valor == null ? null : Number(r.valor), String(r.fornecedor ?? "")]),
+      [],
+      ["Programadas (próxima por km)"],
+      ["Veículo", "Tipo", "Km atual", "Última vez", "Próxima", "Falta (km)"],
+      ...programadas.map((p) => [String(p.placa), String(p.tipo), p.km_atual == null ? null : Number(p.km_atual), p.ultimo_km == null ? null : Number(p.ultimo_km), p.proxima_km == null ? null : Number(p.proxima_km), p.km_para_proxima == null ? null : Number(p.km_para_proxima)]),
+    ];
+    baixarCsv("frota-manutencao", ["Data", "Veículo", "Tipo", "Km", "Valor", "Fornecedor"], linhas);
   }
 }
