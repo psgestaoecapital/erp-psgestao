@@ -21,7 +21,7 @@ export const GET = withAuth(async (req: NextRequest, { userId }) => {
     const negado = await guardaEmpresaFiscal({ userId, companyId, papelMinimo: 'membro', log: { notaTipo: 'nfe', operacao: 'diagnostico', endpoint: 'nfe/diagnostico' } })
     if (negado) return negado
 
-    const svc = await createFiscalService(companyId)
+    const svc = await createFiscalService(companyId, { tipo: 'nfe' })
     const diag = await svc.diagnosticoEmpresas()
     const alvo = diag.empresas.find((e) => e.cnpj.replace(/\D/g, '') === '55081828000103') ?? null
     return NextResponse.json(
