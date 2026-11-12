@@ -10,7 +10,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
   try {
     const body = await req.json()
     const {
-      companyId, apiKey, ambiente,
+      companyId, apiKey, ambiente, ambienteNfe,
       serieNfsePadrao, proximaNumeracaoNfse,
       serieNfePadrao, proximaNumeracaoNfe,
       cnaePadrao, regimeTributario,
@@ -88,6 +88,19 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       }
     }
 
+    // #5666 · grava o ambiente SÓ da NF-e em UPDATE separado e TOLERANTE: se a coluna ambiente_nfe
+    // ainda não existir (preview antes da migration), o erro é ignorado e o resto da config é salvo normalmente.
+    const ambienteNfeValido = ambienteNfe === 'homologacao' || ambienteNfe === 'producao'
+    const gravarAmbienteNfe = async (configId: string) => {
+      if (!ambienteNfeValido) return
+      try {
+        await supabaseAdmin
+          .from('erp_fiscal_provider_config')
+          .update({ ambiente_nfe: ambienteNfe })
+          .eq('id', configId)
+      } catch { /* coluna ainda não existe → ignora (nada muda no comportamento atual) */ }
+    }
+
     if (existente) {
       const { data, error } = await supabaseAdmin
         .from('erp_fiscal_provider_config')
@@ -96,6 +109,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         .select('id')
         .single()
       if (error) return NextResponse.json({ ok: false, erro: error.message }, { status: 500 })
+      await gravarAmbienteNfe(data.id)
       return NextResponse.json({ ok: true, configId: data.id })
     }
 
@@ -106,6 +120,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       .select('id')
       .single()
     if (error) return NextResponse.json({ ok: false, erro: error.message }, { status: 500 })
+    await gravarAmbienteNfe(data.id)
     return NextResponse.json({ ok: true, configId: data.id })
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Erro'

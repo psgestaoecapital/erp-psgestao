@@ -227,7 +227,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       return NextResponse.json({ ok: false, mensagem: mensagemLimiteInfCpl(tamanhoInfCpl) }, { status: 400 })
     }
 
-    const svc = await createFiscalService(body.companyId, { ambienteOverride: body.ambiente })
+    const svc = await createFiscalService(body.companyId, { ambienteOverride: body.ambiente, tipo: 'nfe' })
     let resposta
     try {
       resposta = await svc.emitirNFe(nfeReq)
