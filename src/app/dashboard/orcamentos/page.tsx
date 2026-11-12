@@ -10,6 +10,7 @@ import ServicoAutocomplete, { type ServicoSelecionado } from "@/components/comum
 import ServicoEngenhariaAutocomplete, { type ServicoEngSelecionado } from "@/components/comum/ServicoEngenhariaAutocomplete";
 import NumeracaoConfigModal from "@/components/orcamento/NumeracaoConfigModal";
 import AnexosCard from "@/components/crm/AnexosCard";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -281,7 +282,7 @@ export default function OrcamentosPage(){
     setLoading(true);
     const{data,error}=await supabase.from("erp_orcamentos").select("*").in("company_id",companyIds).is("deleted_at",null).order("data_emissao",{ascending:false}).order("created_at",{ascending:false}).limit(100);
     if(data)setOrcamentos(data);
-    if(error&&!error.message.includes('does not exist'))setMsg("Erro: "+error.message);
+    if(error&&!error.message.includes('does not exist'))setMsg("Não foi possível carregar os orçamentos. Tente novamente.");
     setLoading(false);
   };
 
@@ -419,9 +420,9 @@ export default function OrcamentosPage(){
       const motivo=prompt('Motivo da liberação da edição (opcional):','Revisão solicitada pelo cliente');
       if(motivo===null)return;
       const{data:lib,error}=await supabase.rpc('fn_orcamento_liberar_edicao',{p_orcamento_id:o.id,p_motivo:motivo||null});
-      if(error){setMsg('Erro ao liberar: '+error.message);return;}
+      if(error){setMsg(erroAmigavel(error,'Não foi possível liberar a edição do orçamento. Tente de novo.'));return;}
       const r=lib as {ok:boolean;erro?:string}|null;
-      if(!r||r.ok===false){setMsg('Erro ao liberar: '+(r?.erro||'falha'));return;}
+      if(!r||r.ok===false){setMsg('Não foi possível liberar a edição do orçamento. Tente de novo.');return;}
       const perm2=await carregarPerm(o);
       if(!perm2||!perm2.pode_editar){setMsg('Falha ao reabrir após liberação.');return;}
       setPermEdit(perm2);
@@ -594,10 +595,10 @@ export default function OrcamentosPage(){
       const dadosUpd:Record<string,unknown>={...dadosOrc};
       if(somentePdfSemItens){delete dadosUpd.subtotal;delete dadosUpd.total;}
       const{error}=await supabase.from("erp_orcamentos").update(dadosUpd).eq("id",editing.id);
-      if(error){setMsg("Erro: "+error.message);return;}
+      if(error){setMsg("Não foi possível salvar o orçamento. Tente novamente.");return;}
     }else{
       const{data,error}=await supabase.from("erp_orcamentos").insert(dadosOrc).select().single();
-      if(error){setMsg("Erro: "+error.message);return;}
+      if(error){setMsg("Não foi possível salvar o orçamento. Tente novamente.");return;}
       orcId=data.id;
     }
 
@@ -722,7 +723,7 @@ export default function OrcamentosPage(){
     const validadeDias=await getValidadeDias(o.company_id);
     const novoOrc={...o,id:undefined,numero,versao:(o.versao||1)+1,status:'rascunho',data_emissao:new Date().toISOString().slice(0,10),data_validade:addDias(validadeDias),data_aprovacao:null,data_recusa:null,pedido_id:null,convertido_em:null,created_at:undefined,updated_at:undefined};
     const{data:novo,error}=await supabase.from("erp_orcamentos").insert(novoOrc).select().single();
-    if(error){setMsg("Erro: "+error.message);return;}
+    if(error){setMsg("Não foi possível duplicar o orçamento. Tente novamente.");return;}
     // Copiar itens
     const{data:itensAnt}=await supabase.from("erp_orcamentos_itens").select("*").eq("orcamento_id",o.id);
     if(itensAnt&&itensAnt.length>0){
@@ -1260,7 +1261,7 @@ export default function OrcamentosPage(){
                           {['rascunho','enviado_aprovacao'].includes(o.status)&&<button onClick={()=>mudarStatus(o,'enviado')} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:B+"12",color:B,border:`1px solid ${B}25`,cursor:"pointer"}}>📨 Enviar</button>}
                           {['enviado','visualizado'].includes(o.status)&&<button onClick={()=>mudarStatus(o,'aprovado')} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:G+"12",color:G,border:`1px solid ${G}25`,cursor:"pointer"}}>✅ Aprovar</button>}
                           {['enviado','visualizado'].includes(o.status)&&<button onClick={()=>mudarStatus(o,'recusado')} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:R+"12",color:R,border:`1px solid ${R}25`,cursor:"pointer"}}>❌ Recusar</button>}
-                          {o.status==='aprovado'&&<button onClick={async()=>{const{data:{user}}=await supabase.auth.getUser();const{data,error}=await supabase.rpc('converter_orcamento_pedido',{p_orcamento_id:o.id,p_user_id:user?.id});if(error){setMsg("❌ "+error.message);return;}setMsg("✅ Convertido em pedido!");loadOrcamentos();setTimeout(()=>setMsg(""),3000);}} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>🎯 → Pedido</button>}
+                          {o.status==='aprovado'&&<button onClick={async()=>{const{data:{user}}=await supabase.auth.getUser();const{data,error}=await supabase.rpc('converter_orcamento_pedido',{p_orcamento_id:o.id,p_user_id:user?.id});if(error){setMsg("❌ Não foi possível converter o orçamento em pedido. Tente novamente.");return;}setMsg("✅ Convertido em pedido!");loadOrcamentos();setTimeout(()=>setMsg(""),3000);}} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>🎯 → Pedido</button>}
                           <button onClick={()=>copiarLinkPublico(o)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:P+"12",color:P,border:`1px solid ${P}25`,cursor:"pointer"}} title="Copiar link público">🔗</button>
                           <button onClick={()=>enviarWhatsApp(o)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:G+"12",color:G,border:`1px solid ${G}25`,cursor:"pointer"}} title="Enviar por WhatsApp">📱</button>
                           <button onClick={()=>verComoCliente(o)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:B+"12",color:B,border:`1px solid ${B}25`,cursor:"pointer"}} title="Ver como cliente (página pública)">👁</button>
