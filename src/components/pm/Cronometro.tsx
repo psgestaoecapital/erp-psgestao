@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Play, Square, Timer } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { horasDoCronometro, horasTexto, relogio } from "@/lib/pm/meuDia";
 import { EVENTO_CRONOMETRO, avisarCronometro } from "@/lib/pm/cronometroGlobal";
@@ -48,7 +49,7 @@ export function Cronometro({ empresa, userId, jobs, jobFixo, onMudou }: {
     const horas = horasDoCronometro(aberto.inicio_em, fim);
     const { error } = await supabase.from("agency_timesheet").update({ fim_em: fim.toISOString(), horas }).eq("id", aberto.id);
     setOcupado(false);
-    if (error) { setMsg(`Não foi possível parar: ${error.message}`); return false; }
+    if (error) { setMsg(erroAmigavel(error, "Não foi possível parar o cronômetro. Tente de novo.")); return false; }
     if (!silencioso) setMsg(`Parado — ${horasTexto(horas)} apontadas.`);
     setAberto(null);
     avisarCronometro();
@@ -66,7 +67,7 @@ export function Cronometro({ empresa, userId, jobs, jobFixo, onMudou }: {
       inicio_em: ini.toISOString(), descricao: "cronômetro", // custo/hora da pessoa: o servidor preenche (LGPD, gatilho trg_agency_timesheet_custo_auto)
     });
     setOcupado(false);
-    if (error) { setMsg(`Não foi possível iniciar: ${error.message}`); return; }
+    if (error) { setMsg(erroAmigavel(error, "Não foi possível iniciar o cronômetro. Tente de novo.")); return; }
     setMsg(null); setAgora(Date.now());
     await carregar();
     avisarCronometro();
