@@ -12,6 +12,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import SolicitarContratoModal from './SolicitarContratoModal'
 import ContratoFeeModal from './ContratoFeeModal'
+import { SeloContratoSemAnexoChip } from './SeloContratoSemAnexo'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const C = { espresso: '#3D2314', espressoM: '#6B5D4F', cream: '#FAF7F2', border: '#E0D8CC', gold: '#C8941A', white: '#FFFFFF' }
 const CICLO = ['solicitado', 'em_elaboracao', 'aguardando_info', 'em_revisao', 'aguardando_aprovacao']
@@ -41,9 +43,16 @@ export default function ContratosFeePanel({ companyId }: { companyId: string | n
   const [aba, setAba] = useState<Aba>('elaborar')
   const [solicitarAberto, setSolicitarAberto] = useState(false)
   const [feeId, setFeeId] = useState<string | null>(null)
+  // P2 (CEO 11/11): ids de contratos COM anexo assinado ('contrato'/'contrato_assinado'),
+  // para marcar na lista os contratos ativos que ficaram SEM anexo.
+  const [comAnexo, setComAnexo] = useState<Set<string>>(new Set())
+  // P2 item 2 (CEO 11/11): parâmetro por empresa "exigir contrato anexado para ativar"
+  // (erp_contratos_config, backend #4680). Padrão true quando não há linha; leitura tolerante.
+  const [exigirAnexo, setExigirAnexo] = useState<boolean>(true)
+  const [salvandoCfg, setSalvandoCfg] = useState(false)
 
   const carregar = useCallback(async () => {
-    if (!companyId) { setRows([]); setLoading(false); return }
+    if (!companyId) { setRows([]); setComAnexo(new Set()); setLoading(false); return }
     setLoading(true)
     const { data: u } = await supabase.auth.getUser()
     setUid(u.user?.id ?? null)
@@ -54,11 +63,48 @@ export default function ContratosFeePanel({ companyId }: { companyId: string | n
       .or('solicitante_id.not.is.null,status.in.(solicitado,em_elaboracao,aguardando_info,em_revisao,aguardando_aprovacao)')
       .order('created_at', { ascending: false })
       .limit(300)
-    setRows((data ?? []) as Row[])
+    const linhas = (data ?? []) as Row[]
+    setRows(linhas)
+    // anexos assinados dos contratos ativos (uma consulta só; leitura tolerante)
+    const ativosIds = linhas.filter((r) => r.status === 'ativo').map((r) => r.id)
+    if (ativosIds.length) {
+      const { data: anx } = await supabase
+        .from('erp_contratos_arquivos')
+        .select('contrato_id')
+        .eq('company_id', companyId)
+        .in('contrato_id', ativosIds)
+        .in('tipo', ['contrato', 'contrato_assinado'])
+      setComAnexo(new Set((anx ?? []).map((a: { contrato_id: string }) => a.contrato_id)))
+    } else {
+      setComAnexo(new Set())
+    }
+    // parâmetro "exigir contrato anexado" da empresa (padrão true; leitura tolerante)
+    const { data: cfg } = await supabase
+      .from('erp_contratos_config')
+      .select('exigir_contrato_anexado')
+      .eq('company_id', companyId)
+      .maybeSingle()
+    setExigirAnexo((cfg?.exigir_contrato_anexado ?? true) as boolean)
     setLoading(false)
   }, [companyId])
 
   useEffect(() => { void carregar() }, [carregar])
+
+  // Liga/desliga a exigência do anexo na ativação, só para a empresa selecionada (upsert guardado por RLS).
+  const mudarExigirAnexo = useCallback(async (valor: boolean) => {
+    if (!companyId || salvandoCfg) return
+    const anterior = exigirAnexo
+    setExigirAnexo(valor) // otimista
+    setSalvandoCfg(true)
+    const { error } = await supabase
+      .from('erp_contratos_config')
+      .upsert(
+        { company_id: companyId, exigir_contrato_anexado: valor, updated_by: uid, updated_at: new Date().toISOString() },
+        { onConflict: 'company_id' },
+      )
+    if (error) setExigirAnexo(anterior) // reverte se falhar
+    setSalvandoCfg(false)
+  }, [companyId, uid, exigirAnexo, salvandoCfg])
 
   // ?c=<id> abre o contrato direto (atalho do pm/contratos)
   useEffect(() => {
@@ -85,6 +131,25 @@ export default function ContratosFeePanel({ companyId }: { companyId: string | n
         </button>
       </div>
 
+      {companyId && !loading && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: C.cream, border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 12px', marginBottom: 12 }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: salvandoCfg ? 'wait' : 'pointer', fontSize: 12.5, color: C.espresso, fontWeight: 600 }}>
+            <input
+              type="checkbox"
+              checked={exigirAnexo}
+              disabled={salvandoCfg}
+              onChange={(e) => void mudarExigirAnexo(e.target.checked)}
+              style={{ width: 16, height: 16, cursor: salvandoCfg ? 'wait' : 'pointer', accentColor: C.gold }}
+            />
+            Exigir contrato assinado anexado para ativar
+          </label>
+          <AjudaCampo chave="ge.contratos.exigir_anexo" rota="/dashboard/contratos" />
+          <span style={{ fontSize: 11.5, color: C.espressoM }}>
+            {exigirAnexo ? 'Ativar só com o anexo do contrato.' : 'Pode ativar sem anexo — o aviso “Contrato não anexado” lembra de anexar depois.'}
+          </span>
+        </div>
+      )}
+
       {!companyId ? (
         <p style={{ fontSize: 13, color: C.espressoM }}>Selecione uma empresa específica para ver os contratos.</p>
       ) : loading ? (
@@ -107,8 +172,11 @@ export default function ContratosFeePanel({ companyId }: { companyId: string | n
                   {r.prazo_desejado ? ` · prazo ${r.prazo_desejado.split('-').reverse().join('/')}` : ''}
                 </div>
               </div>
-              <span style={{ fontSize: 11, fontWeight: 700, color: C.white, background: STATUS_COR[r.status ?? ''] ?? C.espressoM, padding: '3px 10px', borderRadius: 12, whiteSpace: 'nowrap' }}>
-                {STATUS_LABEL[r.status ?? ''] ?? r.status}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                {r.status === 'ativo' && !comAnexo.has(r.id) ? <SeloContratoSemAnexoChip /> : null}
+                <span style={{ fontSize: 11, fontWeight: 700, color: C.white, background: STATUS_COR[r.status ?? ''] ?? C.espressoM, padding: '3px 10px', borderRadius: 12, whiteSpace: 'nowrap' }}>
+                  {STATUS_LABEL[r.status ?? ''] ?? r.status}
+                </span>
               </span>
             </button>
           ))}

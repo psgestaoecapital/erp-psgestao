@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { rpc, supabaseBrowser } from "@/lib/authFetch";
 import { getUsuarioId } from "@/lib/AuthProvider";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 
 interface Empresa {
   id: string;
@@ -53,7 +54,7 @@ export default function NovaConversaPage() {
         if (error) throw error;
         setEmpresas((data || []) as Empresa[]);
       } catch (e: any) {
-        setErro(e.message);
+        setErro(erroAmigavel(e));
       }
     })();
     // eslint-disable-next-line
@@ -103,7 +104,7 @@ export default function NovaConversaPage() {
 
       router.push(`/dashboard/bpo/conversas/${r.conversa_id}`);
     } catch (e: any) {
-      setErro(e.message);
+      setErro(erroAmigavel(e));
     } finally {
       setEnviando(false);
     }
