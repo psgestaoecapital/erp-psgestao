@@ -355,7 +355,7 @@ SELECT v.chave, v.grupo, v.rotulo, v.o_que, v.para_que, v.exemplo, v.erro, v.ord
        '/dashboard/financeiro/caixa-grupo', 'gestao_empresarial', 'publicado'
 FROM (VALUES
  ('financeiro.caixa_grupo.saldo_banco', 'Indicadores', 'Saldo do banco (extrato)',
-  'Não se preenche: é o saldo que veio do extrato bancário importado (OFX/Pluggy) da conta, com a data dele.',
+  'Não se preenche: é o saldo que veio do extrato bancário importado (arquivo OFX ou conexão com o banco) da conta, com a data dele.',
   'Comparar o que o sistema calculou com o que o banco diz de verdade, para fechar a conta.',
   'Extrato de 11/11 trouxe R$ 3.990,65 na conta corrente.',
   'Achar que é automático: o extrato só atualiza quando você importa. Data antiga = importe de novo.', 11),
