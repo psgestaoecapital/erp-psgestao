@@ -155,3 +155,7 @@ BEGIN
     'campos_vazios', v_campos_vazios
   );
 END; $function$;
+
+-- Guarda de acesso (RD-51): SECURITY DEFINER nunca exposta a anon.
+REVOKE ALL ON FUNCTION public.fn_contrato_modelo_gerar(uuid, uuid, uuid, boolean) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_contrato_modelo_gerar(uuid, uuid, uuid, boolean) TO authenticated, service_role;
