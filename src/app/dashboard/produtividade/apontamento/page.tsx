@@ -8,9 +8,11 @@
 // corrige o valor, não duplica.
 
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ROTA = '/dashboard/produtividade/apontamento'
 const Aj = ({ k }: { k: string }) => <AjudaCampo chave={k} rota={ROTA} />
@@ -122,7 +124,7 @@ function Inner() {
     setCarregando(true)
     try {
       const { data: d, error } = await supabase.rpc('fn_prod_produtividade_hora', { p_company_id: companyId, p_plant_id: plantId, p_fluxo_id: fluxoId, p_data: data })
-      if (error) { flashErr(error.message); setGrid([]); return }
+      if (error) { flashErr(erroAmigavel(error, 'Não foi possível carregar a grade de produtividade. Tente de novo.')); setGrid([]); return }
       const r = d as unknown as GridResp | null
       setGrid(r?.ok ? (r.postos ?? []) : [])
     } finally {
@@ -165,7 +167,7 @@ function Inner() {
         p_data: data, p_hora: h, p_qtd_produzida: q, p_posto_id: postoId, p_etapa_id: null, p_tarefa_id: null,
         p_unidade: unidade.trim() || 'un', p_pessoas_presentes: pessoasNum, p_fonte: fonte,
       })
-      if (error) { flashErr(error.message); return }
+      if (error) { flashErr(erroAmigavel(error, 'Não foi possível lançar o apontamento. Tente de novo.')); return }
       const r = d as unknown as ApontarResp | null
       if (!r?.ok) { flashErr(r?.erro ? (ERROS[r.erro] ?? `Não consegui lançar: ${r.erro}`) : 'Não consegui lançar o apontamento.'); return }
       flash('Produção LANÇADA')
@@ -210,7 +212,20 @@ function Inner() {
         </label>
       </div>
 
-      {!fluxoId ? (
+      {fluxos.length === 0 ? (
+        // Estado vazio ACIONÁVEL (RD-98 crit. d): sem fluxo cadastrado a tela ficava travada num aviso
+        // que só mandava "cadastre em outra tela". Agora explica e leva direto ao Mapa do fluxo.
+        <div style={{ background: C.white, border: `1px dashed ${C.border}`, borderRadius: 14, padding: '28px 20px', textAlign: 'center', marginTop: 4 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: C.esp, marginBottom: 6 }}>Nenhum fluxo cadastrado nesta planta</div>
+          <div style={{ fontSize: 13.5, color: C.espM, lineHeight: 1.55, maxWidth: 520, margin: '0 auto 16px' }}>
+            O apontamento é por <b style={{ color: C.esp }}>fluxo</b> (as raias da sua linha). Monte o fluxo no <b style={{ color: C.esp }}>Mapa do fluxo</b> — raias, postos e etapas — e volte aqui para lançar o produzido hora a hora.
+          </div>
+          <Link href="/dashboard/produtividade/mapa" data-testid="apont-criar-fluxo"
+            style={{ display: 'inline-block', background: C.gold, color: '#3D2314', border: 'none', borderRadius: 10, padding: '12px 20px', fontSize: 14.5, fontWeight: 800, textDecoration: 'none' }}>
+            Abrir o Mapa do fluxo
+          </Link>
+        </div>
+      ) : !fluxoId ? (
         <Aviso texto="Selecione um fluxo para lançar e ver o confronto do dia." />
       ) : (
         <>

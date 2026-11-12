@@ -48,6 +48,14 @@ type Acerto = {
 }
 type NfeVenda = { id: string; numero: string | null; chave: string | null; status: string; danfe_url: string | null; xml_url: string | null; motivo_rejeicao: string | null }
 type Receb = { venda_id: string; tipo: string; devedor: string; valor: number; receber_id: string | null; numero: string | null; status: string | null }
+// #7641 etapa 2 · resumo da nota montada (apenasPrevia) para o card de conferência.
+type PreviaItem = { descricao: string; ncm: string | null; cfop: string | null; cst: string | null; cBenef: string | null; chassi: string | null; icmsBase: number | null; icmsValor: number | null; ibsCbs: { base: number; cbs: number; ibs: number } | null; valorTotal: number }
+type PreviaNota = {
+  naturezaOperacao: string; serie: string; finalidade: string; consumidorFinal: boolean | null
+  destinatario: { razaoSocial: string; documento: string | null; tipoDocumento: string | null; email: string | null; endereco: string | null }
+  itens: PreviaItem[]
+  totais: { produtos: number; ibsCbs: { base: number; cbs: number; ibs: number } | null }
+}
 
 export default function VendasPage() {
   return <Suspense fallback={<div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>}><Inner /></Suspense>
@@ -79,6 +87,10 @@ function Inner() {
   const [motivoErro, setMotivoErro] = useState<string | null>(null)
   // #6928 · aviso de bloqueio do cancelamento mostrado ANTES de pedir o motivo (NF-e autorizada / título em aberto).
   const [cancelBloqueio, setCancelBloqueio] = useState<{ v: Venda; temNfe: boolean; titulos: Receb[] } | null>(null)
+  // #7641 etapa 2 · card de conferência da NF-e (confere/edita antes de emitir; mantém aberto p/ reenviar em rejeição).
+  const [nfeCard, setNfeCard] = useState<{ v: Venda; nota: PreviaNota; infoCpl: string; limite: number; aviso: string | null } | null>(null)
+  const [nfeCardBusy, setNfeCardBusy] = useState(false)
+  const [nfeCardErro, setNfeCardErro] = useState<string | null>(null)
   // #7641 · status real da NF-e de cada venda (veic_venda.nfe_id → erp_nfe_emitidas).
   const [nfes, setNfes] = useState<Map<string, NfeVenda>>(new Map())
   const [acResumo, setAcResumo] = useState<Map<string, { previsto: number | null; realizado: number | null }>>(new Map())
@@ -92,24 +104,49 @@ function Inner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nfeProcessando])
 
-  const emitirNfe = async (v: Venda) => {
+  // #7641 etapa 2 · Emitir NF-e passa a abrir um CARD DE CONFERÊNCIA (monta a nota sem emitir, via
+  // apenasPrevia), o operador confere/edita o permitido e só então confirma. Reusa o status real da NF-e,
+  // DANFE/XML e o link para NFes emitidas (etapa 1) — não duplica.
+  const abrirCardEmissao = async (v: Venda) => {
     if (!companyId) return
     setBusy(true); setErro(null); setMsg(null)
     try {
-      const res = await authFetch('/api/fiscal/nfe/emitir', { method: 'POST', body: JSON.stringify({ companyId, vendaVeiculoId: v.id }) })
+      const res = await authFetch('/api/fiscal/nfe/emitir', { method: 'POST', body: JSON.stringify({ companyId, vendaVeiculoId: v.id, apenasPrevia: true }) })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok || j?.ok === false || !j?.previa?.nota) {
+        setErro(`Não foi possível montar a nota para conferência: ${j?.motivoRejeicao ?? j?.mensagem ?? j?.message ?? `erro ${res.status}`}.`)
+        return
+      }
+      setNfeCardErro(null)
+      setNfeCard({ v, nota: j.previa.nota as PreviaNota, infoCpl: j.previa.informacoesComplementares ?? '', limite: j.previa.limite ?? 5000, aviso: j.previa.avisoIbpt ?? null })
+    } catch (e) {
+      setErro(e instanceof Error ? msgAmigavel(e.message) : 'Falha ao montar a nota para conferência')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const confirmarEmissao = async () => {
+    if (!companyId || !nfeCard) return
+    const v = nfeCard.v
+    setNfeCardBusy(true); setNfeCardErro(null)
+    try {
+      const res = await authFetch('/api/fiscal/nfe/emitir', { method: 'POST', body: JSON.stringify({ companyId, vendaVeiculoId: v.id, informacoesComplementares: nfeCard.infoCpl }) })
       const j = await res.json().catch(() => ({}))
       if (j?.status === 'processando') {
+        setNfeCard(null)
         setMsg('NF-e enviada à SEFAZ. Aguarde: o status aparece no card da venda.')
-      } else if (!res.ok || j?.ok === false) {
-        setErro(`NF-e não emitida: ${j?.motivoRejeicao ?? j?.mensagem ?? j?.message ?? `erro ${res.status}`}. Corrija e clique em Emitir NF-e para reenviar.`)
+      } else if (!res.ok || j?.ok === false || j?.status === 'rejeitada') {
+        // Mantém o card ABERTO para corrigir e reenviar sem sair (motivo em português).
+        setNfeCardErro(`Nota rejeitada: ${j?.motivoRejeicao ?? j?.mensagem ?? j?.message ?? `erro ${res.status}`}. Ajuste as Informações Complementares se for o caso e clique em Reenviar; se o problema estiver no cadastro (destinatário, produto), corrija lá e reenvie.`)
       } else {
+        setNfeCard(null)
         const avisos: string[] = Array.isArray(j.avisosVeiculo) ? j.avisosVeiculo : []
         setMsg(`NF-e ${j.numero ?? ''} — ${j.status}${j.ambiente ? ` (${j.ambiente})` : ''}.${avisos.length ? ' Atenção: ' + avisos.join(' ') : ''}`)
       }
     } catch (e) {
-      setErro(e instanceof Error ? msgAmigavel(e.message) : 'Falha ao emitir a NF-e')
+      setNfeCardErro(e instanceof Error ? msgAmigavel(e.message) : 'Falha ao emitir a NF-e')
     } finally {
-      setBusy(false)
+      setNfeCardBusy(false)
       await carregar()
     }
   }
@@ -421,7 +458,7 @@ function Inner() {
                       ? <button disabled={busy} onClick={() => void abrirChecklist(v)} style={btnGold}>Entregar</button>
                       : <>
                           <span style={{ padding: '6px 12px', borderRadius: 8, background: C.amberBg, color: '#8A4B08', fontSize: 11.5, fontWeight: 600 }}>Emitir nota antes de entregar</span>
-                          <button disabled={busy || nfes.get(v.id)?.status === 'processando'} onClick={() => void emitirNfe(v)} style={btnGold}>Emitir NF-e</button>
+                          <button disabled={busy || nfes.get(v.id)?.status === 'processando'} onClick={() => void abrirCardEmissao(v)} style={btnGold}>Emitir NF-e</button>
                           <AjudaCampo chave="revenda.vendas.emitir_nfe" rota="/dashboard/revenda/vendas" />
                         </>
                   )}
@@ -504,6 +541,72 @@ function Inner() {
           </div>
         </Modal>
       )}
+
+      {/* ── #7641 etapa 2 · Card de conferência da NF-e (confira os dados antes de emitir) ── */}
+      {nfeCard && (() => {
+        const n = nfeCard.nota
+        const linha = (rot: string, val: React.ReactNode) => (
+          <div style={{ display: 'flex', gap: 8, fontSize: 12.5, padding: '3px 0' }}>
+            <span style={{ color: C.espM, minWidth: 128 }}>{rot}</span>
+            <span style={{ color: C.esp, fontWeight: 500 }}>{val ?? '—'}</span>
+          </div>
+        )
+        const secTit: React.CSSProperties = { fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: C.gold, fontWeight: 700, margin: '12px 0 4px' }
+        return (
+          <Modal onClose={() => { if (!nfeCardBusy) setNfeCard(null) }} titulo={`Conferir NF-e antes de emitir — ${nfeCard.v.modelo || ''}`}>
+            <div style={{ fontSize: 12.5, color: C.espM, marginBottom: 6 }}>Confira os dados abaixo. Nada foi enviado ainda — a nota só sai ao clicar em <b>Confirmar e emitir</b>.</div>
+
+            <div style={secTit}>Operação</div>
+            {linha('Natureza', n.naturezaOperacao)}
+            {linha('Série / Finalidade', `${n.serie || '—'} · ${n.finalidade}`)}
+            {linha('Consumidor final', n.consumidorFinal == null ? '—' : (n.consumidorFinal ? 'Sim' : 'Não'))}
+
+            <div style={secTit}>Destinatário</div>
+            {linha('Nome', n.destinatario.razaoSocial)}
+            {linha(n.destinatario.tipoDocumento || 'Documento', n.destinatario.documento)}
+            {linha('E-mail', n.destinatario.email)}
+            {linha('Endereço', n.destinatario.endereco)}
+
+            <div style={secTit}>Itens e tributos</div>
+            {nfeCard.v.placa && linha('Placa', nfeCard.v.placa)}
+            {n.itens.map((it, i) => (
+              <div key={i} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: 10, marginBottom: 8 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: C.esp, marginBottom: 2 }}>{it.descricao}</div>
+                {it.chassi && linha('Chassi', it.chassi)}
+                {linha('NCM / CFOP', `${it.ncm || '—'} · CFOP ${it.cfop || '—'}`)}
+                {linha('CST / cBenef', `${it.cst || '—'}${it.cBenef ? ` · benef. ${it.cBenef}` : ''}`)}
+                {linha('Base / ICMS', `${it.icmsBase != null ? brl(it.icmsBase) : '—'} · ${it.icmsValor != null ? brl(it.icmsValor) : '—'}`)}
+                {it.ibsCbs && linha('IBS/CBS', `base ${brl(it.ibsCbs.base)} · CBS ${brl(it.ibsCbs.cbs)} · IBS ${brl(it.ibsCbs.ibs)}`)}
+                {linha('Valor', brl(it.valorTotal))}
+              </div>
+            ))}
+            {linha('Total produtos', brl(n.totais.produtos))}
+            {n.totais.ibsCbs && linha('Total IBS/CBS', `base ${brl(n.totais.ibsCbs.base)} · CBS ${brl(n.totais.ibsCbs.cbs)} · IBS ${brl(n.totais.ibsCbs.ibs)}`)}
+
+            <div style={secTit}>
+              Informações complementares <AjudaCampo chave="revenda.vendas.nfe_info_complementares" rota="/dashboard/revenda/vendas" />
+            </div>
+            <textarea
+              value={nfeCard.infoCpl}
+              onChange={(e) => setNfeCard((c) => c ? { ...c, infoCpl: e.target.value } : c)}
+              rows={4}
+              style={{ ...inp, display: 'block', width: '100%', resize: 'vertical', fontFamily: 'inherit', minHeight: 84 }}
+            />
+            <div style={{ fontSize: 11, color: nfeCard.infoCpl.length > nfeCard.limite ? C.red : C.espM, marginTop: 4 }}>
+              {nfeCard.infoCpl.length}/{nfeCard.limite} caracteres{nfeCard.infoCpl.length > nfeCard.limite ? ' — acima do limite; a nota não sai' : ''}
+            </div>
+            {nfeCard.aviso && <div style={{ fontSize: 12, color: '#8A4B08', background: C.amberBg, borderRadius: 8, padding: '6px 10px', marginTop: 8 }}>{nfeCard.aviso}</div>}
+            {nfeCardErro && <div style={{ fontSize: 12.5, color: C.red, background: C.redBg, borderRadius: 8, padding: '8px 10px', marginTop: 8 }}>{nfeCardErro}</div>}
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
+              <button disabled={nfeCardBusy} onClick={() => setNfeCard(null)} style={btnGhost}>Cancelar</button>
+              <button disabled={nfeCardBusy || nfeCard.infoCpl.length > nfeCard.limite} onClick={() => void confirmarEmissao()} style={btnGold}>
+                {nfeCardBusy ? 'Enviando…' : (nfeCardErro ? 'Reenviar' : 'Confirmar e emitir')}
+              </button>
+            </div>
+          </Modal>
+        )
+      })()}
 
       {/* ── Modal checklist ── */}
       {chkVenda && (

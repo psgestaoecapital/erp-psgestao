@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ROTA = '/dashboard/produtividade'
 const Aj = ({ k }: { k: string }) => <AjudaCampo chave={k} rota={ROTA} />
@@ -44,7 +45,7 @@ export function PostoPessoas({ postoId, capacidade, turnos, onChange }: {
 
   const carregar = useCallback(async () => {
     const { data, error } = await supabase.rpc('fn_prod_posto_pessoas_listar', { p_posto_id: postoId })
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error)); return }
     const r = data as { ok?: boolean; pessoas?: Pessoa[]; erro?: string } | null
     if (r?.ok) { setPessoas(r.pessoas ?? []); setErro(null) }
     else setErro(r?.erro === 'sem_acesso' ? 'Sem acesso a este posto.' : 'Não consegui carregar as pessoas do posto.')
@@ -60,7 +61,7 @@ export function PostoPessoas({ postoId, capacidade, turnos, onChange }: {
     const { data, error } = await supabase.rpc('fn_prod_posto_pessoa_alocar', { p_dados: { posto_id: postoId, cpf: d, turno_id: turnoId || null } })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { setErro(error?.message ?? traduz(r?.erro)); return }
+    if (error || !r?.ok) { setErro(error ? erroAmigavel(error) : traduz(r?.erro)); return }
     setCpf(''); setTurnoId(''); setErro(null)
     await carregar(); onChange?.()
   }
@@ -70,7 +71,7 @@ export function PostoPessoas({ postoId, capacidade, turnos, onChange }: {
     const { data, error } = await supabase.rpc('fn_prod_posto_pessoa_desalocar', { p_id: id })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { setErro(error?.message ?? traduz(r?.erro)); return }
+    if (error || !r?.ok) { setErro(error ? erroAmigavel(error) : traduz(r?.erro)); return }
     setErro(null); await carregar(); onChange?.()
   }
 
