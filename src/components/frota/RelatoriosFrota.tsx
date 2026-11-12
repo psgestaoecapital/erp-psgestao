@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { supabase } from "@/lib/supabase";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 
 const ROTA = "/dashboard/projetos/frota";
 const ESP = "#3D2314", BRANCO = "#FFFFFF", BD = "#E7DED3", TXM = "#6B5D4F";
@@ -86,7 +87,7 @@ export function RelatoriosFrota({ companyId, veiculos }: { companyId: string; ve
     const { fn, args } = chamadas[tipo];
     const { data, error } = await supabase.rpc(fn, args);
     setCarregando(false);
-    if (error) { setErro(error.message); setDados(null); return; }
+    if (error) { setErro(erroAmigavel(error)); setDados(null); return; }
     setDados(data as Linha);
   }, [companyId, tipo, de, ate, veiculoId, agrupar]);
 
@@ -141,7 +142,9 @@ export function RelatoriosFrota({ companyId, veiculos }: { companyId: string; ve
 
       <div className="flex flex-wrap items-center gap-2 print:hidden">
         <button onClick={() => window.print()} className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: ESP, color: ESP }}>Imprimir</button>
+        <AjudaCampo chave="projetos.frota.rel_imprimir" rota={ROTA} />
         <button onClick={() => exportar(tipo, dados, agrupar)} disabled={!dados} className="rounded-lg border px-3 py-2 text-sm disabled:opacity-40" style={{ borderColor: ESP, color: ESP }}>Exportar CSV</button>
+        <AjudaCampo chave="projetos.frota.rel_exportar" rota={ROTA} />
         {carregando && <span className="text-xs" style={{ color: TXM }}>Carregando…</span>}
         {!periodoValido && <span role="alert" className="text-xs text-red-700">O período “até” precisa ser igual ou depois do “de”.</span>}
       </div>
