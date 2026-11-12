@@ -5,10 +5,14 @@
 // A variação mês a mês é mix de compras, NÃO "adoção da Reforma" — mostramos o número, não a leitura.
 
 import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
 import { Landmark, Loader2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA = '/dashboard/commerce/reforma'
 
 type Mes = { mes: string; ibs: number; cbs: number; ibs_cbs: number; notas_com_valor: number }
 type Painel = {
@@ -60,21 +64,50 @@ export default function PainelReformaPage() {
           <div className="mt-6 px-4 py-16 text-center text-[#3D2314]/55 flex items-center justify-center gap-2 text-[13px]"><Loader2 className="animate-spin" size={15} /> Carregando…</div>
         ) : erro ? (
           <div className="mt-6 px-4 py-6 text-[12px] text-[#A32D2D] bg-white border border-[#3D2314]/10 rounded-xl">Não consegui carregar: {erro}</div>
+        ) : dados && dados.notas_com_campo === 0 ? (
+          // Estado vazio que ORIENTA e AGE (RD-98 critério d): com tudo zerado, os cards de R$0 não dizem
+          // nada ao usuário. Explicamos o porquê (honesto, RD-51: é informativo) e damos um caminho.
+          <div className="mt-6 bg-white border border-[#3D2314]/10 rounded-xl p-6 sm:p-8 text-center">
+            <Landmark size={28} className="text-[#C8941A] mx-auto" />
+            <div className="text-[15px] font-medium text-[#3D2314] mt-3">
+              {dados.notas_total === 0 ? 'Ainda não há compras registradas' : 'Nenhuma compra com IBS/CBS destacado ainda'}
+            </div>
+            <p className="text-[13px] text-[#3D2314]/65 mt-2 max-w-md mx-auto leading-relaxed">
+              {dados.notas_total === 0
+                ? 'Quando você registrar ou importar notas de compra, o IBS e a CBS que vierem destacados aparecem aqui automaticamente.'
+                : `Suas ${dados.notas_total} nota(s) de compra ainda não trazem o grupo IBS/CBS. Isso aparece aqui sozinho conforme seus fornecedores passarem a destacar IBS/CBS na NF-e — nada a fazer além de continuar recebendo as notas.`}
+            </p>
+            <div className="mt-5 flex flex-wrap gap-2 justify-center">
+              <span className="inline-flex items-center">
+                <Link href="/dashboard/commerce/compras" className="inline-flex items-center px-4 py-2 rounded-lg text-[13px] font-medium text-white bg-[#C8941A] hover:bg-[#b5841a] no-underline">
+                  Ver compras
+                </Link>
+                <AjudaCampo chave="commerce.reforma.acao_ver_compras" rota={ROTA} />
+              </span>
+              <span className="inline-flex items-center">
+                <Link href="/dashboard/fiscal/nfe" className="inline-flex items-center px-4 py-2 rounded-lg text-[13px] font-medium text-[#3D2314] bg-white border border-[#3D2314]/20 hover:bg-[#3D2314]/5 no-underline">
+                  NF-e recebidas
+                </Link>
+                <AjudaCampo chave="commerce.reforma.acao_nfe_recebidas" rota={ROTA} />
+              </span>
+            </div>
+            <p className="mt-4 text-[11px] text-[#3D2314]/55">{dados.aviso}</p>
+          </div>
         ) : dados ? (
           <>
             <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="bg-white border border-[#3D2314]/10 rounded-xl p-4">
-                <div className="text-[11px] text-[#3D2314]/55 uppercase tracking-[0.5px]">IBS + CBS recebidos</div>
+                <div className="text-[11px] text-[#3D2314]/55 uppercase tracking-[0.5px] flex items-center">IBS + CBS recebidos<AjudaCampo chave="commerce.reforma.ibs_cbs_recebidos" rota={ROTA} /></div>
                 <div className="text-[26px] font-semibold text-[#3F7012] tabular-nums mt-1">{brl(dados.ibs_cbs_total)}</div>
                 <div className="text-[11px] text-[#3D2314]/55 mt-1">IBS {brl(dados.ibs_total)} · CBS {brl(dados.cbs_total)}</div>
               </div>
               <div className="bg-white border border-[#3D2314]/10 rounded-xl p-4">
-                <div className="text-[11px] text-[#3D2314]/55 uppercase tracking-[0.5px]">Notas com os campos novos</div>
+                <div className="text-[11px] text-[#3D2314]/55 uppercase tracking-[0.5px] flex items-center">Notas com os campos novos<AjudaCampo chave="commerce.reforma.notas_campos_novos" rota={ROTA} /></div>
                 <div className="text-[26px] font-semibold text-[#3D2314] tabular-nums mt-1">{dados.notas_com_campo}<span className="text-[15px] text-[#3D2314]/45"> / {dados.notas_total}</span></div>
                 <div className="text-[11px] text-[#3D2314]/55 mt-1">têm o grupo IBS/CBS · <strong>{dados.notas_com_valor}</strong> com valor &gt; 0</div>
               </div>
               <div className="bg-white border border-[#3D2314]/10 rounded-xl p-4">
-                <div className="text-[11px] text-[#3D2314]/55 uppercase tracking-[0.5px]">Fornecedores já emitindo</div>
+                <div className="text-[11px] text-[#3D2314]/55 uppercase tracking-[0.5px] flex items-center">Fornecedores já emitindo<AjudaCampo chave="commerce.reforma.fornecedores_emitindo" rota={ROTA} /></div>
                 <div className="text-[26px] font-semibold text-[#3D2314] tabular-nums mt-1">{dados.fornecedores_com_campo}<span className="text-[15px] text-[#3D2314]/45"> / {dados.fornecedores_total}</span></div>
                 <div className="text-[11px] text-[#3D2314]/55 mt-1">com IBS/CBS na nota</div>
               </div>
@@ -82,7 +115,7 @@ export default function PainelReformaPage() {
 
             <div className="mt-4 bg-white border border-[#3D2314]/10 rounded-xl p-4">
               <div className="flex items-baseline justify-between mb-3">
-                <div className="text-[13px] font-medium text-[#3D2314]">IBS + CBS por mês</div>
+                <div className="text-[13px] font-medium text-[#3D2314] flex items-center">IBS + CBS por mês<AjudaCampo chave="commerce.reforma.por_mes" rota={ROTA} /></div>
                 <div className="text-[11px] text-[#3D2314]/50">variação = mix de compras, não adoção</div>
               </div>
               {dados.por_mes.length === 0 ? (
