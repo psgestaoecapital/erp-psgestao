@@ -88,7 +88,7 @@ $function$;
 DROP FUNCTION IF EXISTS public.fn_contrato_mudar_status(uuid, text, text);
 
 -- grants iguais à versão anterior: nada para PUBLIC/anon
-REVOKE ALL ON FUNCTION public.fn_contrato_mudar_status(uuid, text, text, boolean) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_contrato_mudar_status(uuid, text, text, boolean) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_contrato_mudar_status(uuid, text, text, boolean) TO authenticated, service_role;
 
 -- (3) "?" (RD-95) do interruptor novo
