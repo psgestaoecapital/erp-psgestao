@@ -58,7 +58,7 @@ export function AbaPrecoV7({ preco }: Props) {
               <CartesianGrid horizontal={false} stroke={C.bd} />
               <XAxis type="number" tick={{ fontSize: 11, fill: C.m }} />
               <YAxis type="category" dataKey="nome" width={130} tick={{ fontSize: 12, fill: C.esp }} />
-              <Tooltip allowEscapeViewBox={{ x: false, y: false }} labelFormatter={(l) => String(l)} formatter={(v, _n, p) => [`índice ${nf({ maximumFractionDigits: 1 }).format(Number((p as any)?.payload?.idx ?? 0))}`, Vendedor]} />
+              <Tooltip allowEscapeViewBox={{ x: false, y: false }} labelFormatter={(l) => String(l)} formatter={(v, _n, p) => [`índice ${nf({ maximumFractionDigits: 1 }).format(Number((p as any)?.payload?.idx ?? 0))}`, 'Vendedor']} />
               <Bar dataKey="desvio" radius={[0, 4, 4, 0]}>
                 {preco.vendedores.map((v, i) => <Cell key={i} fill={(v.desvio ?? 0) >= 0 ? C.ok : C.bad} />)}
               </Bar>
