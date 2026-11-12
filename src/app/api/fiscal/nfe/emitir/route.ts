@@ -218,9 +218,43 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     nfeReq.observacoes = textoInformacoesComplementares(nfeReq.observacoes, body.informacoesComplementares)
     const tamanhoInfCpl = (nfeReq.observacoes ?? '').length
     if (body.apenasPrevia) {
+      // #7641 etapa 2 · card de conferência: além do texto das Informações Complementares, devolve um
+      // RESUMO estruturado da nota montada (sem emitir, sem gravar) para o operador conferir antes de enviar.
+      // Puramente aditivo — não altera a emissão nem a regra de cálculo.
+      const d = nfeReq.destinatario
+      const end = d.endereco
+      const nota = {
+        naturezaOperacao: nfeReq.naturezaOperacao,
+        serie: nfeReq.serie,
+        finalidade: nfeReq.finalidade,
+        consumidorFinal: nfeReq.consumidorFinal ?? null,
+        destinatario: {
+          razaoSocial: d.razaoSocial,
+          documento: d.cnpj || d.cpf || null,
+          tipoDocumento: d.cnpj ? 'CNPJ' : (d.cpf ? 'CPF' : null),
+          email: d.email ?? null,
+          endereco: end ? [end.logradouro, end.numero, end.bairro, end.cidade, end.uf, end.cep].filter(Boolean).join(', ') : null,
+        },
+        itens: nfeReq.itens.map((it) => ({
+          descricao: it.descricao,
+          ncm: it.ncm ?? null,
+          cfop: it.cfop ?? null,
+          cst: it.icms?.cst ?? null,
+          cBenef: it.icms?.cBenef ?? null,
+          chassi: it.veiculo?.chassi ?? null,
+          icmsBase: it.icms?.base ?? null,
+          icmsValor: it.icms?.valor ?? null,
+          ibsCbs: it.ibsCbs ? { base: it.ibsCbs.baseCalculo, cbs: it.ibsCbs.cbsValor, ibs: it.ibsCbs.ibsValorTotal } : null,
+          valorTotal: it.valorTotal,
+        })),
+        totais: {
+          produtos: valorProdutos,
+          ibsCbs: nfeReq.ibsCbsTotais ? { base: nfeReq.ibsCbsTotais.baseCalculo, cbs: nfeReq.ibsCbsTotais.cbsValor, ibs: nfeReq.ibsCbsTotais.ibsValor } : null,
+        },
+      }
       return NextResponse.json({
         ok: true,
-        previa: { informacoesComplementares: nfeReq.observacoes ?? '', tamanho: tamanhoInfCpl, limite: LIMITE_INF_CPL, avisoIbpt },
+        previa: { informacoesComplementares: nfeReq.observacoes ?? '', tamanho: tamanhoInfCpl, limite: LIMITE_INF_CPL, avisoIbpt, nota },
       })
     }
     if (excedeLimiteInfCpl(nfeReq.observacoes)) {
