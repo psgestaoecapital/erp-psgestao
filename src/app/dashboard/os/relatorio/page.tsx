@@ -59,6 +59,7 @@ export default function RelatorioOSPage() {
   useEffect(() => { void carregar() }, [carregar])
 
   const atalho = (delta: number) => { const m = mes(delta); setDe(m.de); setAte(m.ate) }
+  const verTudo = () => { const h = new Date(); setDe(iso(new Date(h.getFullYear() - 20, 0, 1))); setAte(iso(h)) }
 
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto', padding: 16, display: 'grid', gap: 16 }}>
@@ -98,7 +99,21 @@ export default function RelatorioOSPage() {
           {loading && <div style={card}>Carregando…</div>}
           {erro && <div style={{ ...card, color: '#B91C1C', background: '#FEE2E2' }}>{erro}</div>}
 
-          {rel && !loading && (
+          {rel && !loading && rel.totais.qtd === 0 && (
+            <div style={{ ...card, textAlign: 'center', padding: 28 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#3D2314' }}>Nenhuma ordem de serviço neste período</div>
+              <p style={{ fontSize: 13, color: '#6B5D4F', margin: '8px auto 0', maxWidth: 440, lineHeight: 1.5 }}>
+                Não há ordens entre {fmtD(de)} e {fmtD(ate)} pela “{BASES.find((b) => b.v === base)?.l}”.
+                Pode ser o período escolhido — amplie para todo o histórico — ou ainda não há OS cadastrada.
+              </p>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap', marginTop: 16 }}>
+                <button type="button" style={{ ...inp, cursor: 'pointer', fontWeight: 600 }} onClick={verTudo}>Ver todo o histórico</button>
+                <Link href="/dashboard/os" style={{ ...inp, cursor: 'pointer', fontWeight: 600, textDecoration: 'none', color: '#3D2314', display: 'inline-flex', alignItems: 'center' }}>Abrir ordem de serviço</Link>
+              </div>
+            </div>
+          )}
+
+          {rel && !loading && rel.totais.qtd > 0 && (
             <>
               <div style={{ ...card, display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12 }}>
                 <div><div style={lbl}>Totais do período<AjudaCampo chave="os.relatorio.totais" rota="/dashboard/os/relatorio" /></div><div style={{ fontSize: 13 }}>{rel.totais.qtd} ordem(ns)</div></div>
