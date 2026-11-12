@@ -172,3 +172,9 @@ BEGIN
   );
 END
 $function$;
+
+-- Guarda de acesso (check-fn-guards): SECURITY DEFINER sem exposição a anon/PUBLIC.
+-- Preserva o ACL vivo (authenticated + service_role executam; a própria RPC já é
+-- fail-closed por fn_pm_pode_ver_margem). Sem mudança de acesso.
+REVOKE ALL ON FUNCTION public.fn_pm_indiretas_rateio(uuid, date, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_pm_indiretas_rateio(uuid, date, date) TO authenticated, service_role;
