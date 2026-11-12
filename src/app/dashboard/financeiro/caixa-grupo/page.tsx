@@ -6,6 +6,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { ParaTratarHoje } from "@/components/financeiro/ParaTratarHoje";
 
 const ROTA = "/dashboard/financeiro/caixa-grupo";
 const BG = "var(--ps-bg,#FAF7F2)", BG2 = "var(--ps-bg2,#FFFFFF)", BG3 = "var(--ps-bg3,#F0ECE3)";
@@ -114,6 +115,9 @@ export default function CaixaGrupoPage() {
       </div>
 
       {erro && <div role="alert" style={{ background: "#FCEBEB", color: VERM, padding: "10px 14px", borderRadius: 8, marginBottom: 14, fontSize: 13 }}>{erro}</div>}
+
+      {/* Para tratar hoje — o que o financeiro precisa resolver no dia (CEO 12/11) */}
+      <ParaTratarHoje companyIds={effectiveIds} data={data} multiEmpresa={multi} />
 
       {/* Resumo do dia */}
       {resp?.resumo && (
