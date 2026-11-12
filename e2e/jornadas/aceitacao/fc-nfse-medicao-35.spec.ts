@@ -49,8 +49,10 @@ test.describe('Vender e Faturar — NFS-e por medição (#35)', () => {
 
   test.afterAll(async () => {
     if (!pedidoId) return
-    await dbDelete('erp_receber', `pedido_id=eq.${pedidoId}`)
-      .catch(() => dbPatch('erp_receber', `pedido_id=eq.${pedidoId}`, { deleted_at: new Date().toISOString() }).catch(() => {}))
+    // erp_receber tem a trava BEFORE DELETE trg_bloqueia_delete_fisico (RD-30): o DELETE físico lança
+    // exceção sem o GUC app.permitir_delete_fisico=on (que o robô e2e não seta). Soft-delete direto
+    // (UPDATE deleted_at) passa pela RLS, não dispara a trava e tira a linha das views — sem vazar na DEMO.
+    await dbPatch('erp_receber', `pedido_id=eq.${pedidoId}`, { deleted_at: new Date().toISOString() }).catch(() => {})
     await dbDelete('erp_pedidos_parcelas', `pedido_id=eq.${pedidoId}`).catch(() => {})
     await dbDelete('erp_pedidos_itens', `pedido_id=eq.${pedidoId}`).catch(() => {})
     await dbDelete('erp_pedidos', `id=eq.${pedidoId}`).catch(() => {})
