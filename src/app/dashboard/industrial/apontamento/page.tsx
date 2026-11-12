@@ -1,6 +1,7 @@
 'use client'
 import React, { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 export default function ApontamentoPage() {
   const router = useRouter()
@@ -34,7 +35,7 @@ export default function ApontamentoPage() {
       if (!r.ok) throw new Error(d.error)
       setMsg('✓ Turno registrado! Custo/kg: R$ '+d.custo_kg?.toFixed(4))
       setTimeout(()=>router.push('/dashboard/industrial/ceo'), 1500)
-    } catch(e:any) { setMsg('✗ '+e.message) } finally { setLoading(false) }
+    } catch(e:any) { setMsg('✗ '+erroAmigavel(e, 'Não foi possível registrar o turno agora.')) } finally { setLoading(false) }
   }
 
   const campo = (k: string, l: string, t='number', obrig=false) => (

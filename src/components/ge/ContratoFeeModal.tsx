@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import ContratoArquivos from './ContratoArquivos'
+import { SeloContratoSemAnexoBanner } from './SeloContratoSemAnexo'
 import ClientePickerInline from './ClientePickerInline'
 import ParcelasContratoEditor from './ParcelasContratoEditor'
 import { FORMAS_PAGAMENTO, PERIODICIDADES_CONTRATO, TIPOS_REAJUSTE_CONTRATO, gradeContrato } from './contratoOpcoes'
@@ -59,6 +60,8 @@ export default function ContratoFeeModal({ companyId, contratoId, onClose, onSav
   const [salvandoCab, setSalvandoCab] = useState(false)
   const [mudando, setMudando] = useState(false)
   const [abaTexto, setAbaTexto] = useState<'obs' | 'legal'>('obs')
+  // P2 (CEO 11/11): nº de anexos assinados, para o selo "Contrato não anexado". null = ainda carregando.
+  const [anexosAssinados, setAnexosAssinados] = useState<number | null>(null)
 
   // campos do cabeçalho
   const [titulo, setTitulo] = useState('')
@@ -116,6 +119,13 @@ export default function ContratoFeeModal({ companyId, contratoId, onClose, onSav
     const n = mesesEntre(de, ate)
     if (n > 0) setNParcelas(String(n))
   }, [de, ate])
+
+  // P2 (CEO 12/11): "Única (evento/avulso)" → 1 parcela, Até = De (vigência de 1 dia)
+  useEffect(() => {
+    if (periodicidade !== 'unica') return
+    if (de) setAte(de)
+    else setNParcelas('1')
+  }, [periodicidade, de])
 
   const ativo = row?.status === 'ativo'
 
@@ -216,6 +226,12 @@ export default function ContratoFeeModal({ companyId, contratoId, onClose, onSav
             <>
               {erro && <div style={{ background: C.redBg, color: C.red, padding: '10px 14px', borderRadius: 6, marginBottom: 14, fontSize: 13 }}>{erro}</div>}
               {toast && <div style={{ background: C.greenBg, color: C.green, padding: '10px 14px', borderRadius: 6, marginBottom: 14, fontSize: 13 }}>{toast}</div>}
+              {/* P2 (CEO 11/11): contrato ativo sem anexo assinado → aviso permanente com atalho para anexar */}
+              {ativo && anexosAssinados === 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <SeloContratoSemAnexoBanner onAnexar={() => document.getElementById('contrato-anexos')?.scrollIntoView({ behavior: 'smooth', block: 'center' })} />
+                </div>
+              )}
 
               {/* Cabeçalho do fee */}
               <Campo label="Cliente">
@@ -305,9 +321,11 @@ export default function ContratoFeeModal({ companyId, contratoId, onClose, onSav
               </Secao>
 
               {/* Anexo do contrato assinado */}
-              <Secao titulo="Contrato assinado e referências (anexos)">
-                <ContratoArquivos companyId={companyId} contratoId={contratoId} />
-              </Secao>
+              <div id="contrato-anexos">
+                <Secao titulo="Contrato assinado e referências (anexos)">
+                  <ContratoArquivos companyId={companyId} contratoId={contratoId} onContagemAssinados={setAnexosAssinados} />
+                </Secao>
+              </div>
 
               {/* Ações de status */}
               <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${C.border}`, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>

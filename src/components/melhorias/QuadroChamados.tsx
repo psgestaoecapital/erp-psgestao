@@ -90,18 +90,34 @@ export default function QuadroChamados({ itens, meuId, busca, onBusca, filtro, o
   )
 
   const Coluna = ({ titulo, lista, mostrarStatus, selo }: { titulo: string; lista: ItemQuadro[]; mostrarStatus: boolean; selo?: boolean }) => (
-    <section style={{ minWidth: 230, flex: '1 0 230px', background: C.cream, borderRadius: 12, padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '2px 4px' }}>
+    // flex: cresce para ocupar a largura útil quando as colunas cabem (sem sobra branca) e tem piso de 240px
+    // (não encolhe abaixo disso) para forçar a rolagem lateral quando não couberem. No celular empilha (CSS .qc-col).
+    <section className="qc-col" style={{ minWidth: 240, maxWidth: 360, flex: '1 1 240px', background: C.cream, borderRadius: 12, display: 'flex', flexDirection: 'column', maxHeight: 'calc(100vh - 210px)', overflow: 'hidden' }}>
+      {/* cabeçalho fixo ao rolar a coluna */}
+      <header style={{ flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px 8px', borderBottom: `1px solid ${C.border}` }}>
         <b style={{ fontSize: 13, color: C.esp }}>{titulo}</b>
         <span style={{ fontSize: 11.5, fontWeight: 800, color: C.espM }}>{lista.length}</span>
       </header>
-      {lista.length === 0 && <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic', padding: '4px' }}>Nada aqui.</div>}
-      {lista.map((c) => <Cartao key={c.id} c={c} mostrarStatus={mostrarStatus} selo={selo && semDono(c) ? 'sem_dono' : undefined} />)}
+      <div className="qc-scroll" style={{ overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {lista.length === 0 && <div style={{ fontSize: 12, color: C.espL, fontStyle: 'italic', padding: '4px' }}>Nada aqui.</div>}
+        {lista.map((c) => <Cartao key={c.id} c={c} mostrarStatus={mostrarStatus} selo={selo && semDono(c) ? 'sem_dono' : undefined} />)}
+      </div>
     </section>
   )
 
   return (
     <div data-testid="quadro-chamados" style={{ display: 'grid', gap: 12 }}>
+      {/* Rolagem lateral sempre visível (quando as colunas não cabem) e empilhamento no celular */}
+      <style>{`
+        .qc-scroll { scrollbar-width: thin; scrollbar-color: ${C.gold} transparent; }
+        .qc-scroll::-webkit-scrollbar { height: 10px; width: 10px; }
+        .qc-scroll::-webkit-scrollbar-thumb { background: ${C.gold}; border-radius: 999px; }
+        .qc-scroll::-webkit-scrollbar-track { background: transparent; }
+        @media (max-width: 760px) {
+          .qc-board { flex-wrap: wrap; overflow-x: visible; }
+          .qc-col { flex: 1 1 100% !important; max-width: none !important; min-width: 0 !important; max-height: none !important; }
+        }
+      `}</style>
       {/* Busca fixa no topo + filtro Minha carteira / Gerais */}
       <div style={{ position: 'sticky', top: 0, zIndex: 2, background: '#FAF7F2', paddingBottom: 6, display: 'grid', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -128,7 +144,7 @@ export default function QuadroChamados({ itens, meuId, busca, onBusca, filtro, o
           {resultados.length === 0 && <div style={{ fontSize: 13, color: C.espL, fontStyle: 'italic' }}>Nenhum chamado encontrado.</div>}
         </div>
       ) : (
-        <div style={{ display: 'flex', gap: 10, overflowX: 'auto', alignItems: 'flex-start', paddingBottom: 6 }}>
+        <div className="qc-board qc-scroll" style={{ display: 'flex', gap: 10, overflowX: 'auto', WebkitOverflowScrolling: 'touch', alignItems: 'stretch', width: '100%', paddingBottom: 8 }}>
           <Coluna titulo="Todos" lista={todos} mostrarStatus />
           {modo === 'usuario' && <Coluna titulo="Minha carteira" lista={minhaCarteira} mostrarStatus={false} />}
           {COLUNAS.map((col) => (
