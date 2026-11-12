@@ -12,6 +12,7 @@ import { supabase } from '@/lib/supabase'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { Download, Upload, Loader2, CheckCircle2, XCircle, AlertTriangle, Search } from 'lucide-react'
 import { CHAVES_CADASTROS, NOME_EXEMPLO, casarColunasCadastros } from '@/lib/cadastros/colunasImportacao'
+import { extrairCodigo } from '@/lib/importacao/codigoDescricao'
 import { buscarCNPJ } from '@/lib/cadastros/buscarCNPJ'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
@@ -84,6 +85,8 @@ export default function ImportarCadastrosView({ companyId, tipo }: { companyId: 
         if (get('nome_fantasia') === NOME_EXEMPLO) continue // linha de exemplo do modelo
         const l: Linha = {}
         for (const k of CHAVES_CADASTROS) l[k] = get(k)
+        // #8439: campos codificados aceitam "código - descrição" (menu novo) e o código puro (planilha antiga)
+        for (const k of ['tipo_pessoa', 'contribuinte_icms']) l[k] = extrairCodigo(l[k])
         if (!l.tipo) l.tipo = tipoSugerido    // tela de clientes sugere Cliente; fornecedores, Fornecedor
         parsed.push(l)
       }
