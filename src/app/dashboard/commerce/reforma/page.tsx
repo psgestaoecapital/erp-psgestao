@@ -5,6 +5,7 @@
 // A variação mês a mês é mix de compras, NÃO "adoção da Reforma" — mostramos o número, não a leitura.
 
 import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
 import { Landmark, Loader2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -60,6 +61,29 @@ export default function PainelReformaPage() {
           <div className="mt-6 px-4 py-16 text-center text-[#3D2314]/55 flex items-center justify-center gap-2 text-[13px]"><Loader2 className="animate-spin" size={15} /> Carregando…</div>
         ) : erro ? (
           <div className="mt-6 px-4 py-6 text-[12px] text-[#A32D2D] bg-white border border-[#3D2314]/10 rounded-xl">Não consegui carregar: {erro}</div>
+        ) : dados && dados.notas_com_campo === 0 ? (
+          // Estado vazio que ORIENTA e AGE (RD-98 critério d): com tudo zerado, os cards de R$0 não dizem
+          // nada ao usuário. Explicamos o porquê (honesto, RD-51: é informativo) e damos um caminho.
+          <div className="mt-6 bg-white border border-[#3D2314]/10 rounded-xl p-6 sm:p-8 text-center">
+            <Landmark size={28} className="text-[#C8941A] mx-auto" />
+            <div className="text-[15px] font-medium text-[#3D2314] mt-3">
+              {dados.notas_total === 0 ? 'Ainda não há compras registradas' : 'Nenhuma compra com IBS/CBS destacado ainda'}
+            </div>
+            <p className="text-[13px] text-[#3D2314]/65 mt-2 max-w-md mx-auto leading-relaxed">
+              {dados.notas_total === 0
+                ? 'Quando você registrar ou importar notas de compra, o IBS e a CBS que vierem destacados aparecem aqui automaticamente.'
+                : `Suas ${dados.notas_total} nota(s) de compra ainda não trazem o grupo IBS/CBS. Isso aparece aqui sozinho conforme seus fornecedores passarem a destacar IBS/CBS na NF-e — nada a fazer além de continuar recebendo as notas.`}
+            </p>
+            <div className="mt-5 flex flex-wrap gap-2 justify-center">
+              <Link href="/dashboard/commerce/compras" className="inline-flex items-center px-4 py-2 rounded-lg text-[13px] font-medium text-white bg-[#C8941A] hover:bg-[#b5841a] no-underline">
+                Ver compras
+              </Link>
+              <Link href="/dashboard/fiscal/nfe" className="inline-flex items-center px-4 py-2 rounded-lg text-[13px] font-medium text-[#3D2314] bg-white border border-[#3D2314]/20 hover:bg-[#3D2314]/5 no-underline">
+                NF-e recebidas
+              </Link>
+            </div>
+            <p className="mt-4 text-[11px] text-[#3D2314]/55">{dados.aviso}</p>
+          </div>
         ) : dados ? (
           <>
             <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
