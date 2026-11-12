@@ -1,4 +1,4 @@
--- Chamado #3865 / auditoria RD-95 · Relatório de OS (/dashboard/os/relatorio).
+-- Auditoria RD-95 · Relatório de OS (/dashboard/os/relatorio).
 -- O auditor apontou que a tabela "Ordens do período" (lista detalhada Nº/Data/Cliente/
 -- Placa/Situação/Serviços/Peças/Total) não tinha o "?" (RD-95). Esta migration é ADITIVA e
 -- idempotente: cadastra apenas 1 chave de ajuda explicando as colunas dessa lista. Nenhuma
