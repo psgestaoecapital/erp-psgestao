@@ -77,6 +77,8 @@ function Inner() {
   const [motivoModal, setMotivoModal] = useState<{ titulo: string; label: string; obrig: boolean; confirmLabel: string; onConfirm: (motivo: string) => void | Promise<void> } | null>(null)
   const [motivoTxt, setMotivoTxt] = useState('')
   const [motivoErro, setMotivoErro] = useState<string | null>(null)
+  // #6928 · aviso de bloqueio do cancelamento mostrado ANTES de pedir o motivo (NF-e autorizada / título em aberto).
+  const [cancelBloqueio, setCancelBloqueio] = useState<{ v: Venda; temNfe: boolean; titulos: Receb[] } | null>(null)
   // #7641 · status real da NF-e de cada venda (veic_venda.nfe_id → erp_nfe_emitidas).
   const [nfes, setNfes] = useState<Map<string, NfeVenda>>(new Map())
   const [acResumo, setAcResumo] = useState<Map<string, { previsto: number | null; realizado: number | null }>>(new Map())
@@ -244,13 +246,21 @@ function Inner() {
   const titulosAbertos = (vendaId: string) => (recebs.get(vendaId) ?? []).filter((t) => t.receber_id && t.status && ABERTO.includes(t.status))
 
   function cancelar(v: Venda) {
+    // #6928: checar o bloqueio NO CLIQUE (antes de pedir o motivo). Se houver NF-e autorizada ou
+    // título a receber em aberto, mostrar o aviso na hora — com atalho para cancelar a nota / tratar
+    // o título — e NÃO abrir o campo de motivo (o usuário não digita à toa). Só quando estiver limpo
+    // é que abrimos o modal de motivo. O backend (fn_veic_venda_cancelar) mantém a mesma validação
+    // como defesa em profundidade.
+    const titulos = titulosAbertos(v.id)
+    if (v.nfe_autorizada || titulos.length > 0) {
+      setCancelBloqueio({ v, temNfe: v.nfe_autorizada, titulos })
+      return
+    }
     setMotivoTxt(''); setMotivoErro(null)
     setMotivoModal({ titulo: `Cancelar venda — ${v.modelo || ''}`, label: 'Motivo do cancelamento (opcional)', obrig: false, confirmLabel: 'Continuar', onConfirm: (motivo) => prosseguirCancelar(v, motivo) })
   }
   async function prosseguirCancelar(v: Venda, motivo: string) {
-    // #6928: o bloqueio (NF-e autorizada / título a receber em aberto) é validado no
-    // BACKEND — fn_veic_venda_cancelar recusa com mensagem clara orientando a cancelar a
-    // nota (NF-e emitidas) ou tratar o título (Contas a Receber) antes. Aqui só chamamos.
+    // O bloqueio já foi checado na UI (cancelar). O backend valida de novo (defesa em profundidade).
     await executarCancelar(v, motivo)
   }
   async function executarCancelar(v: Venda, motivo: string) {
@@ -460,6 +470,41 @@ function Inner() {
         </Modal>
       )}
 
+      {/* ── #6928 · Aviso de bloqueio do cancelamento (mostrado no clique, antes do motivo) ── */}
+      {cancelBloqueio && (
+        <Modal onClose={() => setCancelBloqueio(null)} titulo={`Não é possível cancelar — ${cancelBloqueio.v.modelo || ''}`}>
+          <div style={{ fontSize: 13, color: C.esp, marginBottom: 10 }}>
+            Esta venda ainda tem pendências que impedem o cancelamento. Resolva os itens abaixo e tente de novo.
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {cancelBloqueio.temNfe && (
+              <div style={{ background: C.amberBg, borderRadius: 8, padding: '10px 12px' }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: '#8A4B08' }}>NF-e autorizada</div>
+                <div style={{ fontSize: 12, color: C.espM, margin: '2px 0 8px' }}>Existe uma nota fiscal autorizada para esta venda. Cancele a nota na SEFAZ antes de cancelar a venda.</div>
+                <button onClick={() => { setCancelBloqueio(null); router.push('/dashboard/fiscal/nfe') }} style={btnGhost}>Cancelar nota (NF-e emitidas)</button>
+              </div>
+            )}
+            {cancelBloqueio.titulos.length > 0 && (
+              <div style={{ background: C.amberBg, borderRadius: 8, padding: '10px 12px' }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: '#8A4B08' }}>Título a receber em aberto</div>
+                <div style={{ fontSize: 12, color: C.espM, margin: '2px 0 6px' }}>
+                  {cancelBloqueio.titulos.length} título(s) em aberto no financeiro. Baixe ou cancele o(s) título(s) antes de cancelar a venda.
+                </div>
+                <ul style={{ margin: '0 0 8px', paddingLeft: 18, fontSize: 12, color: C.espM }}>
+                  {cancelBloqueio.titulos.map((t, i) => (
+                    <li key={t.receber_id || i}>{t.numero ? `Nº ${t.numero}` : t.tipo} — {t.devedor} — {brl(t.valor)}</li>
+                  ))}
+                </ul>
+                <button onClick={() => { setCancelBloqueio(null); router.push('/dashboard/financeiro/receber') }} style={btnGhost}>Ir para Contas a Receber</button>
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
+            <button onClick={() => setCancelBloqueio(null)} style={btnGold}>Entendi</button>
+          </div>
+        </Modal>
+      )}
+
       {/* ── Modal checklist ── */}
       {chkVenda && (
         <Modal onClose={() => setChkVenda(null)} titulo={`Entrega — ${chkVenda.modelo || ''} ${chkVenda.placa || ''}`}>
@@ -557,9 +602,11 @@ function Linha({ k, v, destaque, testid }: { k: string; v: number | null; destaq
 }
 
 function Modal({ titulo, children, onClose }: { titulo: string; children: React.ReactNode; onClose: () => void }) {
+  // Centralizado e padronizado com o <Modal> central do sistema (regra da Jordana: NÃO fecha no clique-fora;
+  // só por X). Em telas pequenas vira painel inferior arredondado. Antes aparecia deslocado/sobreposto (#6928).
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.45)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 50, padding: '0' }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, width: '100%', maxWidth: 560, borderRadius: '16px 16px 0 0', padding: 18, maxHeight: '88vh', overflow: 'auto' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, width: '100%', maxWidth: 560, borderRadius: 16, padding: 18, maxHeight: '88vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div style={{ fontWeight: 700, fontSize: 16 }}>{titulo}</div>
           <button onClick={onClose} style={{ ...btnGhost, padding: '4px 10px' }}>✕</button>
