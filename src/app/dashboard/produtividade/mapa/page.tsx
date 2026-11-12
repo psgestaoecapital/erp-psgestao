@@ -13,6 +13,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CelulaEditavel } from '@/components/produtividade/CelulaEditavel'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 const ROTA = '/dashboard/produtividade/mapa'
 const Aj = ({ k }: { k: string }) => <AjudaCampo chave={k} rota={ROTA} />
@@ -121,9 +122,9 @@ function Inner() {
 
   const chamar = useCallback(async (fn: string, args: Record<string, unknown>): Promise<string | null> => {
     const { data, error } = await supabase.rpc(fn, args)
-    if (error) return error.message
+    if (error) return erroAmigavel(error)
     const r = data as { ok?: boolean; erro?: string } | null
-    if (!r?.ok) return r?.erro ?? 'Não foi possível concluir.'
+    if (!r?.ok) return codigoAmigavel(r?.erro, 'Não foi possível concluir.')
     return null
   }, [])
 

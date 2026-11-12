@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { authFetch } from "@/lib/authFetch";
+import { erroAmigavel, codigoAmigavel } from "@/lib/erroAmigavel";
 
 const GO="#C6973F",GOL="#E8C872",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
     G="#34D399",R="#F87171",Y="#FBBF24",B="#60A5FA",P="#A78BFA",
@@ -269,8 +270,8 @@ export default function FichaTecnicaPage(){
       const res=await authFetch("/api/ficha-tecnica/seed",{method:"POST",body:JSON.stringify({company_id:resolvedCompId})});
       const d=await res.json();
       if(d.success){setMsg(`✅ ${d.fichas_criadas} fichas + ${d.itens_criados} itens criados! (${d.total_materiais} materiais base)`);loadFichas();}
-      else setMsg(`❌ ${d.error}`);
-    }catch(e:any){setMsg(`❌ ${e.message}`);}
+      else setMsg(`❌ ${codigoAmigavel(d.error, "Não foi possível gerar os exemplos agora.")}`);
+    }catch(e:any){setMsg(`❌ ${erroAmigavel(e)}`);}
     setSeeding(false);setTimeout(()=>setMsg(""),5000);
   };
 
