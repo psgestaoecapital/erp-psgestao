@@ -77,6 +77,16 @@ export default function AgendaComercialPage() {
       .eq('company_id', empresa).eq('origem_modulo', 'comercial')
       // defeito (Pdois · 01/10): evento excluído (soft delete) continuava aparecendo na agenda
       .is('excluido_em', null)
+      // PDCA aud8 12/11 (critério f / RD-98 p1): a empresa DEMO acumula milhares de
+      // compromissos gravados por automação (E2E/ScreenshotBot/Visual Watcher), com marca
+      // inequívoca no título ("[BOT] …", "… E2E …"), deixando a agenda ilegível. Escondemos
+      // esse ruído técnico — são marcas que nenhum compromisso comercial real usa, então o
+      // filtro é seguro em qualquer empresa. (A limpeza física/prevenção na origem é a
+      // tarefa sistêmica de vazamento de e2e na DEMO.)
+      .not('titulo', 'ilike', '%[BOT]%')
+      .not('titulo', 'ilike', '%E2E%')
+      .not('titulo', 'ilike', '%ScreenshotBot%')
+      .not('titulo', 'ilike', '%Visual Watcher%')
       .gte('data', range.de).lte('data', range.ate)
     if (quem === 'minha' && uid) q = q.or(`responsavel_id.eq.${uid},and(responsavel_id.is.null,created_by.eq.${uid})`)
     const { data, error } = await q.order('data').order('hora_inicio')
