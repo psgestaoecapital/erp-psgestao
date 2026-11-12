@@ -34,7 +34,7 @@ export const GET = withAuth(async (
 
     if (nota.status === 'processando') {
       try {
-        const svc = await createFiscalService(nota.company_id)
+        const svc = await createFiscalService(nota.company_id, { tipo: 'nfe' })
         const atual = await svc.consultarNFe(nota.provider_reference)
 
         // FIX-NFE-CONSULTA-OBSERVAVEL-v1

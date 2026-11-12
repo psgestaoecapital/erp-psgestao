@@ -9,6 +9,7 @@ import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import EmpresaNaoResolvida from "@/components/pm/EmpresaNaoResolvida";
 import { exportarPDF, type Coluna } from "@/lib/export/relatorioLista";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 import { COLUNAS, MAX_COLUNAS, colunasValidas, deContrato, dePropostas, filtrarDocs, linhasCsv, totais, type Documento, type FiltroDoc } from "@/lib/pm/relatorioDocumentos";
 
 const CHAVE = "pm-relatorio-documentos-colunas";
@@ -48,7 +49,7 @@ export default function RelatorioDocumentosPage() {
         supabase.from("agency_equipe").select("user_id, nome").eq("company_id", empresa).limit(500),
       ]);
       if (!vivo) return;
-      if (c.error || p.error) { setErro((c.error ?? p.error)!.message); setCarregando(false); return; }
+      if (c.error || p.error) { setErro(erroAmigavel(c.error ?? p.error, "Não foi possível carregar os documentos agora. Tente de novo.")); setCarregando(false); return; }
       setDocs([...(c.data ?? []).map(deContrato), ...(p.data ?? []).map(dePropostas)]);
       setClientes(Object.fromEntries((cl.data ?? []).map((x: { id: string; nome: string; nome_fantasia: string | null }) => [x.id, x.nome_fantasia || x.nome])));
       setResponsaveis(Object.fromEntries((eq.data ?? []).map((x: { user_id: string; nome: string | null }) => [x.user_id, x.nome ?? ""])));
@@ -143,7 +144,7 @@ export default function RelatorioDocumentosPage() {
         ))}
       </div>
 
-      {erro ? <p className="text-[13px] text-red-700">Não foi possível carregar: {erro}</p> : carregando ? <p className="text-[13px] text-[#6b5444]">Carregando…</p> : vis.length === 0 ? (
+      {erro ? <p className="text-[13px] text-red-700">{erro}</p> : carregando ? <p className="text-[13px] text-[#6b5444]">Carregando…</p> : vis.length === 0 ? (
         <p className="py-8 text-center text-[13px] text-[#6b5444]">Nenhum documento no filtro.</p>
       ) : (
         <div className="overflow-x-auto rounded-2xl border border-[#3D2314]/10 bg-white">
