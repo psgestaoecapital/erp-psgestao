@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { exigirUsuario, exigirEmpresas, negar } from '@/lib/auth/guardaApi'
 import { credencialEmpresa } from '@/lib/credenciais/servidor'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
-import { mapearNfseOmie, extrairLista, type NfseOmie } from '@/lib/omie/nfse'
+import { mapearNfseOmie, motivoPulo, extrairLista, type NfseOmie } from '@/lib/omie/nfse'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -70,6 +70,8 @@ export async function POST(req: NextRequest) {
   const r = { paginas: 0, total_omie: 0, lidas: 0, inseridas: 0, atualizadas: 0, xml_ok: 0, xml_sem: 0, puladas: 0, erros: [] as string[] }
   let amostra: unknown = null
   let proxima: number | null = null
+  // Diagnóstico de notas puladas (#2712): por que cada uma não mapeou — só NOMES de chave (LGPD), nunca valores.
+  const pulos: ReturnType<typeof motivoPulo>[] = []
 
   for (let pag = inicio; pag <= fim; pag++) {
     const resp = await omieNfse(appKey, appSecret, 'ListarNFSEs', { nPagina: pag, nRegPorPagina: POR_PAGINA })
@@ -84,7 +86,7 @@ export async function POST(req: NextRequest) {
     if (!dry) {
       for (const item of lista as NfseOmie[]) {
         const m = mapearNfseOmie(item, { cnpj: emp.cnpj, razao: emp.razao_social ?? '', im: emp.inscricao_municipal ?? null })
-        if (!m) { r.puladas++; continue }
+        if (!m) { r.puladas++; if (pulos.length < 5) pulos.push(motivoPulo(item)); continue }
         const { data: ja } = await supabaseAdmin
           .from('erp_nfse_emitidas')
           .select('id, xml_storage_path')
@@ -115,5 +117,15 @@ export async function POST(req: NextRequest) {
     proxima = pag + 1
   }
 
-  return NextResponse.json({ ok: r.erros.length === 0, dry_run: dry, ...r, proxima_pagina: proxima, amostra: dry ? amostra : undefined })
+  // Em dry_run, diagnostica a 1ª nota (mapeia? quais chaves tem?) sem gravar — pin do nome real dos campos do OMIE.
+  const amostra_diag = dry && amostra ? motivoPulo(amostra as NfseOmie) : undefined
+  return NextResponse.json({
+    ok: r.erros.length === 0,
+    dry_run: dry,
+    ...r,
+    proxima_pagina: proxima,
+    amostra: dry ? amostra : undefined,
+    amostra_diag,
+    pulos: pulos.length ? pulos : undefined,
+  })
 }
