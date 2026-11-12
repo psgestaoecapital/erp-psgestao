@@ -184,3 +184,8 @@ BEGIN
     'rendimentos',   (SELECT count(*) FROM prod_estrutura WHERE company_id = c),
     'tarefas',       (SELECT count(*) FROM prod_tarefa WHERE company_id = c));
 END $function$;
+
+-- Guarda estática do check-fn-guards (ACL viva já segura; CREATE OR REPLACE preserva a ACL).
+-- Função de seed só da DEMO, chamada pela conexão de serviço no fn_demo_reset.
+REVOKE ALL ON FUNCTION public.fn_demo_seed_industria_postos(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_demo_seed_industria_postos(uuid) TO service_role;
