@@ -59,6 +59,10 @@ END
 $function$;
 
 -- Guarda de função (RD: SECURITY DEFINER só para autenticados; REVOKE anon) — régua check-fn-guards.
+-- ci-sem-guarda: fn_demo_agendamento_expurgar_teste — guarda ESTRUTURAL por companies.is_demo IS TRUE no
+--   WHERE (NUNCA toca empresa real, is_demo=false); função de manutenção reutilizável por infra de
+--   teste/reset/cron com p_company_id NULL (varre todas as DEMO), por isso não usa fn__guarda_empresa
+--   (que exigiria empresa única do usuário e quebraria a varredura de serviço). REVOKE anon abaixo.
 REVOKE ALL ON FUNCTION public.fn_demo_agendamento_expurgar_teste(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_demo_agendamento_expurgar_teste(uuid) TO authenticated, service_role;
 
