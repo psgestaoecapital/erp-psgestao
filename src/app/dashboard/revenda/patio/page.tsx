@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
 
 const ROTA = '/dashboard/revenda/patio' // RD-95: rota das chaves de ajuda ("?")
 
@@ -649,7 +650,7 @@ function NovoVeiculo({ companyId, onClose, onSaved, onErro }: { companyId: strin
               <option value="compra_pf">compra PF</option><option value="compra_pj">compra PJ</option><option value="consignacao">consignação</option><option value="troca">troca</option>
             </select>
           </Rot>
-          <Rot t="Valor de aquisição"><input value={f.valor_aquisicao} onChange={(e) => setF({ ...f, valor_aquisicao: e.target.value })} inputMode="decimal" placeholder="ex.: 72.956,00" style={inpW} /></Rot>
+          <Rot t="Valor de aquisição"><CampoMoeda value={f.valor_aquisicao} onChange={(v) => setF({ ...f, valor_aquisicao: v })} placeholder="ex.: R$ 72.956,00" style={inpW} /></Rot>
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ padding: '8px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.espM, cursor: 'pointer' }}>Cancelar</button>

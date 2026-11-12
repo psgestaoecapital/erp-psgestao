@@ -9,6 +9,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
+import { BancosParceiros } from '@/components/revenda/BancosParceiros'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -229,7 +232,7 @@ export default function ConfigGaragemPage() {
     if (!r?.ok) return
     setRegras((r.regras ?? []).map((x) => ({
       tipo_atendimento: x.tipo_atendimento ?? '', base: (x.base as RegraComissao['base']) ?? '',
-      percentual: x.percentual == null ? '' : String(x.percentual), valor_fixo: x.valor_fixo == null ? '' : String(x.valor_fixo),
+      percentual: x.percentual == null ? '' : String(x.percentual), valor_fixo: numeroParaMoeda(x.valor_fixo),
       rotulo: x.rotulo ?? '', usar_na_precificacao: !!x.usar_na_precificacao, ativo: x.ativo !== false,
     })))
   }, [companyId])
@@ -240,7 +243,9 @@ export default function ConfigGaragemPage() {
     if (!companyId) return
     setRegrasSalvando(true); setErro(null)
     const { data: { session } } = await supabase.auth.getSession()
+    // valor_fixo vem mascarado (CampoMoeda); a RPC casta direto (::numeric, sem tirar "R$") → envia número puro
     const payload = regras.filter((r) => r.tipo_atendimento.trim() && r.base)
+      .map((r) => ({ ...r, valor_fixo: moedaParaNumero(r.valor_fixo) }))
     const { data } = await supabase.rpc('fn_veic_comissao_regras_salvar', { p_company_id: companyId, p_regras: payload, p_user: session?.user?.id ?? null })
     setRegrasSalvando(false)
     const r = data as { ok?: boolean; erro?: string } | null
@@ -483,7 +488,7 @@ export default function ConfigGaragemPage() {
                     <option value="lucro">% do lucro</option>
                   </select>
                   {r.base === 'fixo'
-                    ? <input value={r.valor_fixo} onChange={(e) => upd({ valor_fixo: e.target.value })} inputMode="decimal" placeholder="R$ fixo" style={{ flex: '1 1 90px', boxSizing: 'border-box', padding: 8, fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, color: C.esp, background: C.white }} />
+                    ? <CampoMoeda value={r.valor_fixo} onChange={(v) => upd({ valor_fixo: v })} placeholder="R$ fixo" style={{ flex: '1 1 90px', boxSizing: 'border-box', padding: 8, fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, color: C.esp, background: C.white }} />
                     : <input value={r.percentual} onChange={(e) => upd({ percentual: e.target.value })} inputMode="decimal" placeholder="%" disabled={!r.base} style={{ flex: '1 1 90px', boxSizing: 'border-box', padding: 8, fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, color: C.esp, background: r.base ? C.white : C.cream }} />}
                   <label style={{ fontSize: 11.5, color: C.esp, display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
                     <input type="radio" name="usar_precifica" checked={r.usar_na_precificacao} onChange={() => marcarPrecifica(i)} style={{ accentColor: C.gold }} />usa no preço mínimo
@@ -680,6 +685,8 @@ export default function ConfigGaragemPage() {
           </div>
         )}
       </Bloco>
+
+      <BancosParceiros companyId={companyId} />
 
       <button disabled={salvando} onClick={() => void pedirPrevia()} style={{ marginTop: 8, width: '100%', background: salvando ? C.espL : C.gold, color: '#fff', border: 'none', borderRadius: 12, padding: '14px 22px', fontSize: 16, fontWeight: 800, cursor: salvando ? 'wait' : 'pointer' }}>
         {salvando ? 'Calculando…' : 'Ver efeito e salvar'}
