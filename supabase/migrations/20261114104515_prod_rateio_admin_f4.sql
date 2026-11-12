@@ -11,7 +11,7 @@
 --
 -- ADITIVO (RD-97/RD-71): CRIA a tabela prod_rateio_admin (config mensal por planta) e 3 funções novas. NÃO altera
 -- tabela, função, RLS nem dado existente. RLS por company_id, REVOKE anon, acesso só por RPC SECURITY DEFINER (padrão
--- das irmãs prod_posto_custo). Prova RD-38 no PR (BEGIN/ROLLBACK). Faixa de segundos do dev7claudeps (:15), acima do ledger.
+-- das irmãs prod_posto_custo). Prova RD-38 no PR (BEGIN/ROLLBACK). Faixa de segundos do dev7claudeps (:15); versão dentro da janela (agora+2d) e acima do ledger aplicado.
 
 -- =========================================================== 1) Tabela de configuração do rateio (mês × planta)
 CREATE TABLE IF NOT EXISTS public.prod_rateio_admin (
