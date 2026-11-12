@@ -144,6 +144,9 @@ export default function MeuPainelV6() {
 
   const notas = modelo?.tot.notas.size ?? 0
   const ticketNota = notas ? (modelo?.tot.val ?? 0) / notas : null
+  // Sem vendas no período (RD-98 p1): com a base carregada mas nenhuma nota/valor/volume, a tela não desenha R$0 cru —
+  // mostra o estado vazio com o que fazer (ampliar período / limpar filtros), em vez de KPIs e gráficos mortos.
+  const semVendas = !!modelo && (modelo.tot.notas.size ?? 0) === 0 && (modelo.tot.val ?? 0) === 0 && (modelo.tot.kg ?? 0) === 0
 
   // Bloco 2 — linhas de produto (mesma agregação do motor, por linha, com a análise padrão).
   const linhas = useMemo(() => {
@@ -428,7 +431,24 @@ export default function MeuPainelV6() {
       {aba === 'geral' && (<>
       <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 8px' }}>Como a Frioeste está vendendo</h2>
 
-      {r && modelo && (
+      {modelo && semVendas && (
+        <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: '36px 24px', textAlign: 'center', color: C.m }}>
+          <div style={{ fontSize: 40, lineHeight: 1, marginBottom: 10 }} aria-hidden>📊</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: C.esp, marginBottom: 6 }}>Nenhuma venda neste período</div>
+          <div style={{ fontSize: 14, lineHeight: 1.5, maxWidth: 460, margin: '0 auto 18px' }}>
+            Não encontramos vendas{base ? ` entre ${dataBR(base.de)} e ${dataBR(base.ate)}` : ' no período'}{(estado && estado.ven !== 'todos') || (estado && estado.lin !== 'todas') || nFora ? ', com os filtros atuais' : ''}. Amplie o período ou limpe os filtros para ver o histórico de vendas.
+          </div>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <button type="button" onClick={() => { setPer('ano'); setVen('todos'); setLin('todas') }}
+              style={{ padding: '8px 18px', minHeight: 36, borderRadius: 999, border: 'none', background: C.gold, color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+              Ver o ano todo
+            </button>
+            <AjudaCampo chave="com.painel.periodo" rota={ROTA} />
+          </span>
+        </div>
+      )}
+
+      {r && modelo && !semVendas && (
         <>
           <p style={{ fontSize: 16, lineHeight: 1.5, margin: '0 0 16px' }}>
             Faturou <b>{brl0(r.totalValor)}</b> em <b>{ton(modelo.tot.kg)}</b>, para <b>{int(r.clientes)} clientes</b>. Sem o despojo, o quilo sai a <b>{brl2(r.precoPorKg)}</b>. <b>{nf({ maximumFractionDigits: 1 }).format(itensAbaixoPct)}%</b> dos itens saíram abaixo do preço de tabela, somando <b>{brl0(descR)}</b> de desconto.
