@@ -45,13 +45,46 @@ export function numero(v: unknown): number {
   return Number.isFinite(n) ? n : 0
 }
 
-// dd/mm/aaaa (OMIE) ou aaaa-mm-dd -> aaaa-mm-dd
+// Normaliza data do OMIE para aaaa-mm-dd. Tolerante ao que a API realmente devolve:
+// dd/mm/aaaa, dd-mm-aaaa, aaaa-mm-dd(Thh...), aaaa/mm/dd e 8 dígitos (ddmmaaaa | aaaammdd).
 export function dataIso(v: unknown): string | null {
-  if (typeof v !== 'string') return null
-  const br = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(v.trim())
-  if (br) return `${br[3]}-${br[2]}-${br[1]}`
-  const iso = /^(\d{4}-\d{2}-\d{2})/.exec(v.trim())
-  return iso ? iso[1] : null
+  const s = typeof v === 'number' ? String(v) : typeof v === 'string' ? v.trim() : ''
+  if (!s) return null
+  let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s) // aaaa-mm-dd (com ou sem hora)
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`
+  m = /^(\d{2})[/\-](\d{2})[/\-](\d{4})/.exec(s) // dd/mm/aaaa ou dd-mm-aaaa
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`
+  m = /^(\d{4})\/(\d{2})\/(\d{2})/.exec(s) // aaaa/mm/dd
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`
+  m = /^(\d{8})$/.exec(s) // 8 dígitos sem separador
+  if (m) {
+    const d = m[1]
+    if (/^(19|20)/.test(d)) return `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}` // aaaammdd
+    return `${d.slice(4, 8)}-${d.slice(2, 4)}-${d.slice(0, 2)}` // ddmmaaaa
+  }
+  return null
+}
+
+// Nomes conhecidos/tolerados do OMIE para o identificador e a data de emissão da NFS-e.
+const CHAVES_REF = ['nCodNF', 'nCodNFSe', 'nIdNFSe', 'nIdNF', 'cCodIntNF']
+const CHAVES_EMISSAO = ['dEmissao', 'dDtEmissao', 'dEmiss', 'dDataEmissao', 'dDataEmi', 'dDtEmi', 'dEmi', 'dRegistro']
+
+// Diagnóstico (LGPD: só NOMES de chave, nunca valores) de por que uma nota não mapeia.
+// Serve para a rota dizer EXATAMENTE o que falta quando a nota é pulada, sem depender de dry_run.
+export function motivoPulo(item: NfseOmie): { tem_ref: boolean; tem_data: boolean; chaves: string[] } {
+  const ref = txt(item, CHAVES_REF)
+  const emissao = dataIso(achar(item, CHAVES_EMISSAO))
+  const chaves = new Set<string>()
+  const colher = (o: unknown, prof = 0) => {
+    if (!isObj(o) || prof > 4) return
+    for (const [k, val] of Object.entries(o)) {
+      chaves.add(k)
+      if (Array.isArray(val)) colher(val[0], prof + 1)
+      else if (isObj(val)) colher(val, prof + 1)
+    }
+  }
+  colher(item)
+  return { tem_ref: !!ref, tem_data: !!emissao, chaves: [...chaves].sort() }
 }
 
 const soDigitos = (s: string | null) => (s ? s.replace(/\D/g, '') : '')
@@ -65,8 +98,8 @@ export function mapearNfseOmie(
   item: NfseOmie,
   prestador: { cnpj: string; razao: string; im: string | null }
 ): NfseMapeada | null {
-  const ref = txt(item, ['nCodNF', 'nCodNFSe', 'nIdNFSe', 'nIdNF'])
-  const emissao = dataIso(achar(item, ['dEmissao', 'dDtEmissao', 'dEmiss']))
+  const ref = txt(item, CHAVES_REF)
+  const emissao = dataIso(achar(item, CHAVES_EMISSAO))
   if (!ref || !emissao) return null
 
   const hora = txt(item, ['hEmissao']) ?? '00:00:00'
