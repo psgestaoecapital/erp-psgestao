@@ -37,6 +37,14 @@ export type SpecQuarentenado = {
 export const QUARENTENA: SpecQuarentenado[] = [
   /* quarentena:inicio */
   {
+    spec: 'e2e/jornadas/aceitacao/prod-custos-posto-f3.spec.ts',
+    area: 'custos-posto',
+    motivo: 'Re-quarentena por ordem do Eng. Chefe (contexto 11d3ec7a): @pos-migration da main vermelho em prod-custos-posto-f3.spec.ts:46 — o posto criado pelo teste NÃO aparece como botão na lista de /dashboard/produtividade/custos-posto. A #4681 (dev7) tirou da quarentena sem o spec passar de fato, travando a publicação de ~41 PRs. SEM RELAÇÃO com as PRs de migration da fila; NÃO-CRÍTICO (custo industrial — não é financeiro/fiscal/RLS/NR-36/LGPD/Wealth). Dono: consertar o fluxo criar-posto → aparecer na lista (ou a fragilidade do teste) e só então remover esta entrada.',
+    desde: '2026-11-11T21:15:00Z',
+    runs: [0, 0], // re-quarentena manual (Eng. Chefe destrava a esteira; @pos da main vermelho em custos-posto-f3:46)
+    code: 'desenvolvedor_4_g',
+  },
+  {
     spec: 'e2e/jornadas/aceitacao/agency-origens-semente.spec.ts',
     area: 'agency-origens',
     motivo: 'asserção da linha 31 falha no banco de testes novo (DEMO da agência sem algum dado da semente); trava o teste da main e ~32 PRs. Conserto: Eng. Chefe msg 8787bb9d, ação 2',
@@ -259,14 +267,6 @@ export const QUARENTENA: SpecQuarentenado[] = [
     desde: '2026-10-19T10:00:00Z',
     runs: [0, 0], // falha de ambiente nas vagas (não é regressão de PR), 19/10
     code: 'gilberto-esteira',
-  },
-  {
-    spec: 'e2e/jornadas/aceitacao/prod-custos-posto-f3.spec.ts',
-    area: 'custos-posto',
-    motivo: 'timeout 90s ao clicar Excluir (cp-excluir-<id>) na viewport [celular] — salvar e gravação no banco OK (227 passed), só o botão de excluir não fica clicável no celular. Falha IDÊNTICA em @pos #2101 (run 43076427192, head #4660 rh/quadro) e #2104 (run 43078610285, head #4666 orçamentos) — PRs sem relação com custos-posto. Não-crítico (custo industrial). Verificar: bug real de exclusão no mobile ou fragilidade do teste (lista não recarrega / botão fora da viewport).',
-    desde: '2026-11-11T18:55:00Z',
-    runs: [43076427192, 43078610285],
-    code: 'desenvolvedor_4_g',
   },
   /* quarentena:fim */
 ]

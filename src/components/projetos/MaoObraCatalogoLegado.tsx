@@ -11,6 +11,7 @@ import { CatalogoTable, type CatalogoColumn } from "@/components/projetos/Catalo
 import { CatalogoForm, type FormField } from "@/components/projetos/CatalogoForm";
 import { EmptyStateImportar } from "@/components/projetos/EmptyStateImportar";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 
 interface MaoObra {
   id: string;
@@ -83,7 +84,7 @@ export default function MaoObraCatalogoLegado() {
       if (error) throw error;
       setItems((data as MaoObra[]) || []);
     } catch (e: any) {
-      setErro(e.message);
+      setErro(erroAmigavel(e));
     } finally {
       setLoading(false);
     }
@@ -176,7 +177,7 @@ export default function MaoObraCatalogoLegado() {
       setDrawerOpen(false);
       await carregar();
     } catch (e: any) {
-      setErroForm(e.message);
+      setErroForm(erroAmigavel(e));
     } finally {
       setSalvando(false);
     }
@@ -199,7 +200,7 @@ export default function MaoObraCatalogoLegado() {
       setTimeout(() => setAviso(null), 4000);
       await carregar();
     } catch (e: any) {
-      setErro(e.message);
+      setErro(erroAmigavel(e));
     }
   }
 
@@ -221,7 +222,7 @@ export default function MaoObraCatalogoLegado() {
       setTimeout(() => setAviso(null), 6000);
       await carregar();
     } catch (e: any) {
-      setErro(e.message);
+      setErro(erroAmigavel(e));
     } finally {
       setImportando(false);
     }

@@ -9,6 +9,7 @@ import { ClipboardList, Loader2, Plus, Trash2, Paperclip, Check, X, Send } from 
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import type { AlcadaConfig } from '@/lib/compras/alcada'
 import {
   ITEM_VAZIO, STATUS_ROTULO, caminhoOrcamento, lerQuantidade, pendenciasEnvio, validarSolicitacaoForm, type ItemForm,
@@ -291,7 +292,7 @@ function Detalhe({ s, empresa, alcada, rpc, editar, setMsg }: {
       if (arquivo.size > 10 * 1024 * 1024) { setOcupado(false); setMsg({ tipo: 'erro', texto: 'Arquivo maior que 10 MB.' }); return }
       path = caminhoOrcamento(empresa, s.id, arquivo.name)
       const { error } = await supabase.storage.from(BUCKET).upload(path, arquivo, { contentType: arquivo.type || undefined })
-      if (error) { setOcupado(false); setMsg({ tipo: 'erro', texto: `Não foi possível enviar o arquivo: ${error.message}` }); return }
+      if (error) { setOcupado(false); setMsg({ tipo: 'erro', texto: erroAmigavel(error, 'Não foi possível enviar o arquivo. Tente de novo.') }); return }
     }
     const r = await rpc('fn_compras_solicitacao_orcamento_adicionar', {
       p_solicitacao_id: s.id,
