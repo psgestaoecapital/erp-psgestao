@@ -377,10 +377,20 @@ export default function MeuPainelV6() {
             </div>
           )}
 
-          <div style={{ marginLeft: 'auto', fontSize: 12, color: C.m, whiteSpace: 'nowrap' }}>
-            {base ? <>De {dataBR(base.de)} a {dataBR(base.ate)}</> : null}
-            {carregando ? ' · Carregando…' : null}
-            {erro ? <span style={{ color: '#C0392B' }}> · {erro}</span> : null}
+          <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+            {/* Abrir no celular (CEO 12/11): leva à tela de QR/instalação (reusa <InstalarApp>). */}
+            <span style={pill}>
+              <a href="/dashboard/comercial/instalar-app" aria-label="Abrir o painel no celular"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 10px', minHeight: 32, borderRadius: 999, border: `1px solid ${C.bd}`, background: '#fff', color: C.esp, fontSize: 13, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+                📱 No celular
+              </a>
+              <AjudaCampo chave="com.painel.app_celular" rota={ROTA} />
+            </span>
+            <div style={{ fontSize: 12, color: C.m, whiteSpace: 'nowrap' }}>
+              {base ? <>De {dataBR(base.de)} a {dataBR(base.ate)}</> : null}
+              {carregando ? ' · Carregando…' : null}
+              {erro ? <span style={{ color: '#C0392B' }}> · {erro}</span> : null}
+            </div>
           </div>
         </div>
 
