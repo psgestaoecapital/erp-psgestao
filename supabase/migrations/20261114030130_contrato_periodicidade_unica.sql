@@ -79,3 +79,9 @@ BEGIN
     'total_erro', v_total_erro, 'erros', v_erros, 'executado_em', now());
 END;
 $function$;
+
+-- Guardas (check_fn_guards): função SECURITY DEFINER de lote diário — executada só pelo
+-- agendador/serviço (ACL viva: service_role apenas). NÃO abrir a authenticated (qualquer
+-- usuário logado dispararia o processamento de TODOS os contratos da empresa).
+REVOKE ALL ON FUNCTION public.fn_contrato_processar_lote_diario(date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_contrato_processar_lote_diario(date) TO service_role;
