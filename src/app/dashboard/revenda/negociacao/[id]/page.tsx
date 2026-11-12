@@ -10,6 +10,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -65,10 +67,10 @@ export default function NegociacaoPage() {
       setNeg(n)
       setF({
         cliente_nome: n.cliente_nome ?? '', cliente_doc: n.cliente_doc ?? '', vendedor_nome: n.vendedor_nome ?? '', validade: n.validade ?? '', origem_lead: (n as { origem_lead?: string | null }).origem_lead ?? '',
-        preco_pedido: n.preco_pedido?.toString() ?? '', desconto: n.desconto?.toString() ?? '',
-        entrada: n.entrada?.toString() ?? '', financiado: n.financiado?.toString() ?? '', banco_nome: n.banco_nome ?? '', parcelas: n.parcelas?.toString() ?? '', retorno_banco: n.retorno_banco?.toString() ?? '',
-        troca_avaliacao: n.troca_avaliacao?.toString() ?? '', troca_valor_dado: n.troca_valor_dado?.toString() ?? '', troca_marca: n.troca_marca ?? '', troca_modelo: n.troca_modelo ?? '', troca_ano: n.troca_ano?.toString() ?? '', troca_km: n.troca_km?.toString() ?? '', troca_chassi: n.troca_chassi ?? '',
-        outros_debitos: n.outros_debitos?.toString() ?? '', outros_debitos_desc: n.outros_debitos_desc ?? '', especie_valor: n.especie_valor?.toString() ?? '', observacao: n.observacao ?? '',
+        preco_pedido: numeroParaMoeda(n.preco_pedido), desconto: numeroParaMoeda(n.desconto),
+        entrada: numeroParaMoeda(n.entrada), financiado: numeroParaMoeda(n.financiado), banco_nome: n.banco_nome ?? '', parcelas: n.parcelas?.toString() ?? '', retorno_banco: numeroParaMoeda(n.retorno_banco),
+        troca_avaliacao: numeroParaMoeda(n.troca_avaliacao), troca_valor_dado: numeroParaMoeda(n.troca_valor_dado), troca_marca: n.troca_marca ?? '', troca_modelo: n.troca_modelo ?? '', troca_ano: n.troca_ano?.toString() ?? '', troca_km: n.troca_km?.toString() ?? '', troca_chassi: n.troca_chassi ?? '',
+        outros_debitos: numeroParaMoeda(n.outros_debitos), outros_debitos_desc: n.outros_debitos_desc ?? '', especie_valor: numeroParaMoeda(n.especie_valor), observacao: n.observacao ?? '',
       })
       const { data: s } = await supabase.rpc('fn_veic_negociacao_simular', { p_neg_id: id })
       setSim(s as Sim)
@@ -83,10 +85,10 @@ export default function NegociacaoPage() {
     const patch = {
       cliente_nome: f.cliente_nome || null, cliente_doc: f.cliente_doc || null, vendedor_nome: f.vendedor_nome || null, validade: f.validade || null,
       origem_lead: f.origem_lead?.trim() || null,
-      preco_pedido: numOrNull(f.preco_pedido), desconto: numOrNull(f.desconto) ?? 0,
-      entrada: numOrNull(f.entrada) ?? 0, financiado: numOrNull(f.financiado) ?? 0, banco_nome: f.banco_nome || null, parcelas: numOrNull(f.parcelas), retorno_banco: numOrNull(f.retorno_banco) ?? 0,
-      troca_avaliacao: numOrNull(f.troca_avaliacao), troca_valor_dado: numOrNull(f.troca_valor_dado), troca_marca: f.troca_marca || null, troca_modelo: f.troca_modelo || null, troca_ano: numOrNull(f.troca_ano), troca_km: numOrNull(f.troca_km), troca_chassi: f.troca_chassi || null,
-      outros_debitos: numOrNull(f.outros_debitos) ?? 0, outros_debitos_desc: f.outros_debitos_desc || null, especie_valor: numOrNull(f.especie_valor) ?? 0, observacao: f.observacao || null,
+      preco_pedido: moedaParaNumero(f.preco_pedido), desconto: moedaParaNumero(f.desconto) ?? 0,
+      entrada: moedaParaNumero(f.entrada) ?? 0, financiado: moedaParaNumero(f.financiado) ?? 0, banco_nome: f.banco_nome || null, parcelas: numOrNull(f.parcelas), retorno_banco: moedaParaNumero(f.retorno_banco) ?? 0,
+      troca_avaliacao: moedaParaNumero(f.troca_avaliacao), troca_valor_dado: moedaParaNumero(f.troca_valor_dado), troca_marca: f.troca_marca || null, troca_modelo: f.troca_modelo || null, troca_ano: numOrNull(f.troca_ano), troca_km: numOrNull(f.troca_km), troca_chassi: f.troca_chassi || null,
+      outros_debitos: moedaParaNumero(f.outros_debitos) ?? 0, outros_debitos_desc: f.outros_debitos_desc || null, especie_valor: moedaParaNumero(f.especie_valor) ?? 0, observacao: f.observacao || null,
       updated_at: new Date().toISOString(),
     }
     const { error } = await supabase.from('veic_negociacao').update(patch).eq('id', id)
@@ -136,6 +138,15 @@ export default function NegociacaoPage() {
     </label>
   )
 
+  // #6874 — campos de dinheiro com máscara R$ (formata enquanto digita)
+  const CampoM = (label: string, key: string) => (
+    <label style={{ display: 'block' }}>
+      <span style={{ display: 'block', fontSize: 11, color: C.espM, marginBottom: 3, fontWeight: 600 }}>{label}</span>
+      <CampoMoeda value={f[key] ?? ''} placeholder="R$" disabled={!aberta}
+        onChange={(v) => setF(s => ({ ...s, [key]: v }))} style={{ ...inp, background: aberta ? C.white : C.cream }} />
+    </label>
+  )
+
   return (
     <div style={{ background: C.bg, minHeight: '100vh', padding: '18px 16px 70px' }}>
       <div style={{ maxWidth: 880, margin: '0 auto' }}>
@@ -163,14 +174,14 @@ export default function NegociacaoPage() {
               {Campo('Vendedor', 'vendedor_nome')}
               {Campo('Vale até', 'validade', '', 'date')}
               {Campo('Origem do lead', 'origem_lead', 'ex.: OLX, WhatsApp, indicação')}
-              {Campo('Preço pedido', 'preco_pedido', 'R$')}
-              {Campo('Desconto', 'desconto', 'R$')}
-              {Campo('Entrada', 'entrada', 'R$')}
-              {Campo('Financiado (banco)', 'financiado', 'R$')}
+              {CampoM('Preço pedido', 'preco_pedido')}
+              {CampoM('Desconto', 'desconto')}
+              {CampoM('Entrada', 'entrada')}
+              {CampoM('Financiado (banco)', 'financiado')}
               {Campo('Banco', 'banco_nome')}
               {Campo('Parcelas', 'parcelas')}
-              {Campo('Retorno do banco', 'retorno_banco', 'R$')}
-              {Campo('Espécie (dinheiro)', 'especie_valor', 'R$')}
+              {CampoM('Retorno do banco', 'retorno_banco')}
+              {CampoM('Espécie (dinheiro)', 'especie_valor')}
             </div>
             <h3 style={{ fontSize: 12, fontWeight: 800, color: C.espM, margin: '16px 0 8px', textTransform: 'uppercase', letterSpacing: 0.4 }}>Troca na entrada</h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
@@ -179,8 +190,8 @@ export default function NegociacaoPage() {
               {Campo('Ano', 'troca_ano')}
               {Campo('KM', 'troca_km')}
               {Campo('Chassi', 'troca_chassi')}
-              {Campo('Avaliação (real)', 'troca_avaliacao', 'R$')}
-              {Campo('Valor dado ao cliente', 'troca_valor_dado', 'R$')}
+              {CampoM('Avaliação (real)', 'troca_avaliacao')}
+              {CampoM('Valor dado ao cliente', 'troca_valor_dado')}
             </div>
             <label style={{ display: 'block', marginTop: 12 }}>
               <span style={{ display: 'block', fontSize: 11, color: C.espM, marginBottom: 3, fontWeight: 600 }}>Observação</span>
