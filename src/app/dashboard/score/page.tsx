@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { authFetch } from '@/lib/authFetch';
+import { erroAmigavel, codigoAmigavel } from "@/lib/erroAmigavel";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -91,9 +92,9 @@ export default function ScorePage(){
     try{
       const r=await authFetch("/api/analise-cliente-ia",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({cliente_id:detalhe.id})});
       const d=await r.json();
-      if(d.error){setMsg("❌ "+d.error);}
+      if(d.error){setMsg("❌ "+codigoAmigavel(d.error,"Não foi possível gerar o parecer com IA. Tente de novo."));}
       else{setParecer(d.parecer);}
-    }catch(err:any){setMsg("❌ "+err.message);}
+    }catch(err:any){setMsg("❌ "+erroAmigavel(err,"Não foi possível gerar o parecer com IA. Tente de novo."));}
     setAnalisando(false);
   };
 
