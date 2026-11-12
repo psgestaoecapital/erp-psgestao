@@ -33,7 +33,9 @@ test.describe('Bradesco — baixa automática (#297)', () => {
       const linhas = await dbSelect<{ id: string }>('erp_receber', `company_id=eq.${DEMO_GE}&boleto_nosso_numero=eq.${nn}&select=id`).catch(() => [])
       for (const l of linhas) {
         await dbDelete('erp_receber_baixa', `receber_id=eq.${l.id}`).catch(() => {})
-        await dbDelete('erp_receber', `id=eq.${l.id}`).catch(() => dbPatch('erp_receber', `id=eq.${l.id}`, { deleted_at: new Date().toISOString() }).catch(() => {}))
+        // erp_receber tem a trava BEFORE DELETE trg_bloqueia_delete_fisico (RD-30): DELETE físico lança
+        // sem o GUC. Soft-delete direto (UPDATE deleted_at) tira a linha das views sem vazar na DEMO.
+        await dbPatch('erp_receber', `id=eq.${l.id}`, { deleted_at: new Date().toISOString() }).catch(() => {})
       }
     }
   })
