@@ -112,16 +112,17 @@ CHAVES = [c[0] for c in COLS]
 
 TIPOS = ["Cliente", "Fornecedor", "Ambos"]
 PESSOA = ["PF", "PJ"]
+PESSOA_NOME = {"PF": "Pessoa Física", "PJ": "Pessoa Jurídica"}
 SIMNAO = ["Sim", "Não"]
 CONTRIB = [("1", "Contribuinte de ICMS"), ("2", "Contribuinte isento de IE"), ("9", "Não contribuinte")]
 UFS = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR",
        "PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"]
 
 EXEMPLO = {
-    "tipo": "Ambos", "tipo_pessoa": "PJ", "nome_fantasia": "Cliente de exemplo — APAGUE esta linha",
+    "tipo": "Ambos", "tipo_pessoa": "PJ - Pessoa Jurídica", "nome_fantasia": "Cliente de exemplo — APAGUE esta linha",
     "razao_social": "Empresa Exemplo LTDA", "cpf_cnpj": "11222333000181",
     "codigo_sistema_anterior": "CAD-1234", "sistema_origem": "Omie", "ie": "ISENTO", "im": "",
-    "contribuinte_icms": "9", "rg": "", "data_nasc_abertura": "10/03/2015",
+    "contribuinte_icms": "9 - Não contribuinte", "rg": "", "data_nasc_abertura": "10/03/2015",
     "email": "contato@exemplo.com.br", "telefone": "(47) 3000-0000", "celular": "(47) 99999-0000",
     "site": "www.exemplo.com.br", "cep": "89000-000", "logradouro": "Rua Exemplo", "numero": "100",
     "complemento": "Sala 2", "bairro": "Centro", "cidade": "Blumenau", "uf": "SC", "pais": "Brasil",
@@ -198,8 +199,10 @@ def _aba_cadastros(ws, tipo_sugerido):
     faixa = lambda ch: f"{colmap[ch]}{DATA_INI}:{colmap[ch]}{DATA_FIM}"
     # validações de lista (Listas!): Tipo A4:A6, Pessoa C4:C5, Contribuinte E4:E6, Sim/Não G4:G5, UF I4:I30
     dv_tipo = DataValidation(type="list", formula1="=Listas!$A$4:$A$6", allow_blank=True)
-    dv_pessoa = DataValidation(type="list", formula1="=Listas!$C$4:$C$5", allow_blank=True)
-    dv_contrib = DataValidation(type="list", formula1="=Listas!$E$4:$E$6", allow_blank=True)
+    # #8439: Tipo de pessoa e Contribuinte ICMS mostram "código - descrição" (colunas D e H da aba Listas).
+    # O importador extrai só o código (src/lib/importacao/codigoDescricao.ts); planilhas antigas seguem válidas.
+    dv_pessoa = DataValidation(type="list", formula1="=Listas!$D$4:$D$5", allow_blank=True)
+    dv_contrib = DataValidation(type="list", formula1="=Listas!$H$4:$H$6", allow_blank=True)
     dv_sim = DataValidation(type="list", formula1="=Listas!$G$4:$G$5", allow_blank=True)
     dv_uf = DataValidation(type="list", formula1="=Listas!$I$4:$I$30", allow_blank=True)
     for dv in (dv_tipo, dv_pessoa, dv_contrib, dv_sim, dv_uf):
@@ -255,18 +258,24 @@ def _aba_listas(ws):
     ws["E3"] = "Contribuinte ICMS"; ws["E3"].font = _title_font(11, ESPRESSO)
     ws["G3"] = "Sim/Não"; ws["G3"].font = _title_font(11, ESPRESSO)
     ws["I3"] = "UF"; ws["I3"].font = _title_font(11, ESPRESSO)
+    # Colunas D e H: "código - descrição" (#8439) — é o que os menus suspensos exibem (Tipo de pessoa,
+    # Contribuinte ICMS). O importador extrai só o código.
+    ws["D3"] = "Tipo de pessoa — menu (código + descrição)"; ws["D3"].font = _title_font(11, ESPRESSO)
+    ws["H3"] = "Contribuinte — menu (código + descrição)"; ws["H3"].font = _title_font(11, ESPRESSO)
     for i, t in enumerate(TIPOS):
         ws.cell(row=4 + i, column=1, value=t)
     for i, t in enumerate(PESSOA):
         ws.cell(row=4 + i, column=3, value=t).number_format = "@"
+        ws.cell(row=4 + i, column=4, value=f"{t} - {PESSOA_NOME[t]}").number_format = "@"   # D: menu
     for i, (cod, sig) in enumerate(CONTRIB):
         ws.cell(row=4 + i, column=5, value=cod).number_format = "@"
         ws.cell(row=4 + i, column=6, value=sig)
+        ws.cell(row=4 + i, column=8, value=f"{cod} - {sig}").number_format = "@"   # H: menu
     for i, t in enumerate(SIMNAO):
         ws.cell(row=4 + i, column=7, value=t)
     for i, uf in enumerate(UFS):
         ws.cell(row=4 + i, column=9, value=uf).number_format = "@"
-    for col, w in (("A", 14), ("C", 8), ("E", 8), ("F", 26), ("G", 10), ("I", 8)):
+    for col, w in (("A", 14), ("C", 8), ("D", 28), ("E", 8), ("F", 26), ("G", 10), ("H", 30), ("I", 8)):
         ws.column_dimensions[col].width = w
 
 

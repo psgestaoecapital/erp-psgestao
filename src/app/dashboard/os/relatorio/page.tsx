@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 export const dynamic = 'force-dynamic'
@@ -30,6 +31,9 @@ const mes = (delta: number) => {
   const h = new Date()
   return { de: iso(new Date(h.getFullYear(), h.getMonth() + delta, 1)), ate: iso(new Date(h.getFullYear(), h.getMonth() + delta + 1, 0)) }
 }
+// Janela padrão inteligente: últimos 12 meses (≤ 400 dias, limite da RPC), para cair num período com movimento
+// em vez do mês anterior fixo (que costuma vir vazio). O usuário ainda pode estreitar por Este mês / Mês passado.
+const ultimos12 = () => { const h = new Date(); return { de: iso(new Date(h.getFullYear(), h.getMonth() - 11, 1)), ate: iso(h) } }
 
 const card: React.CSSProperties = { background: '#fff', border: '1px solid #E0D8CC', borderRadius: 12, padding: 16 }
 const inp: React.CSSProperties = { minHeight: 44, padding: '10px 12px', border: '1px solid #E0D8CC', borderRadius: 8, fontSize: 14, background: '#fff' }
@@ -38,8 +42,8 @@ const lbl: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 6
 export default function RelatorioOSPage() {
   const { sel } = useCompanyIds()
   const companyId = useMemo<string | null>(() => (!sel || sel === 'consolidado' || sel.startsWith('group_') ? null : sel), [sel])
-  const [de, setDe] = useState(mes(-1).de)
-  const [ate, setAte] = useState(mes(-1).ate)
+  const [de, setDe] = useState(ultimos12().de)
+  const [ate, setAte] = useState(ultimos12().ate)
   const [base, setBase] = useState<Base>('abertura')
   const [rel, setRel] = useState<Rel | null>(null)
   const [loading, setLoading] = useState(false)
@@ -50,7 +54,7 @@ export default function RelatorioOSPage() {
     setLoading(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_os_relatorio_periodo', { p_company_id: companyId, p_de: de, p_ate: ate, p_base: base })
     const r = data as Rel | null
-    if (error || !r || r.ok === false) { setRel(null); setErro(error?.message || r?.erro || 'Falha ao carregar o relatório') }
+    if (error || !r || r.ok === false) { setRel(null); setErro((error ? erroAmigavel(error) : r?.erro) || 'Falha ao carregar o relatório') }
     else setRel(r)
     setLoading(false)
   }, [companyId, de, ate, base])
@@ -58,6 +62,27 @@ export default function RelatorioOSPage() {
   useEffect(() => { void carregar() }, [carregar])
 
   const atalho = (delta: number) => { const m = mes(delta); setDe(m.de); setAte(m.ate) }
+  // "Últimos 12 meses" respeita o teto de 400 dias da RPC (o span de 20 anos antigo estourava o limite e dava erro).
+  const ver12 = () => { const m = ultimos12(); setDe(m.de); setAte(m.ate) }
+
+  // Exportar CSV das ordens do período — só o que já está na tela (read-only, sem nova chamada ao banco).
+  // Separador ";" e BOM UTF-8 para o Excel em pt-BR abrir com acentos e colunas certos; valores em pt-BR (vírgula decimal).
+  const exportarCsv = useCallback(() => {
+    if (!rel || !rel.itens.length) return
+    const num = (v: number) => Number(v ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const esc = (v: string | number) => { const s = String(v ?? ''); return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s }
+    const cab = ['Número', 'Data', 'Cliente', 'Placa', 'Situação', 'Serviços', 'Peças', 'Total']
+    const linhas = rel.itens.map((o) => [
+      o.numero ?? '—', fmtD(o.data_ref), o.cliente_nome ?? '—', o.placa ?? '—',
+      STATUS[o.status] ?? o.status, num(o.servico), num(o.pecas), num(o.total),
+    ].map(esc).join(';'))
+    const csv = '﻿' + [cab.join(';'), ...linhas].join('\r\n')
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }))
+    const a = document.createElement('a')
+    a.href = url; a.download = `relatorio-os_${de}_a_${ate}.csv`
+    document.body.appendChild(a); a.click(); a.remove()
+    URL.revokeObjectURL(url)
+  }, [rel, de, ate])
 
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto', padding: 16, display: 'grid', gap: 16 }}>
@@ -88,7 +113,8 @@ export default function RelatorioOSPage() {
                 {BASES.map((b) => <option key={b.v} value={b.v}>{b.l}</option>)}
               </select>
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button type="button" style={{ ...inp, cursor: 'pointer' }} onClick={ver12}>Últimos 12 meses</button>
               <button type="button" style={{ ...inp, cursor: 'pointer' }} onClick={() => atalho(-1)}>Mês passado</button>
               <button type="button" style={{ ...inp, cursor: 'pointer' }} onClick={() => atalho(0)}>Este mês</button>
             </div>
@@ -97,8 +123,34 @@ export default function RelatorioOSPage() {
           {loading && <div style={card}>Carregando…</div>}
           {erro && <div style={{ ...card, color: '#B91C1C', background: '#FEE2E2' }}>{erro}</div>}
 
-          {rel && !loading && (
+          {rel && !loading && rel.totais.qtd === 0 && (
+            <div style={{ ...card, textAlign: 'center', padding: 28 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#3D2314' }}>Nenhuma ordem de serviço neste período</div>
+              <p style={{ fontSize: 13, color: '#6B5D4F', margin: '8px auto 0', maxWidth: 440, lineHeight: 1.5 }}>
+                Não há ordens entre {fmtD(de)} e {fmtD(ate)} pela “{BASES.find((b) => b.v === base)?.l}”.
+                Pode ser o período escolhido — amplie para os últimos 12 meses — ou ainda não há OS cadastrada.
+              </p>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap', marginTop: 16 }}>
+                <button type="button" style={{ ...inp, cursor: 'pointer', fontWeight: 600 }} onClick={ver12}>Ver últimos 12 meses</button>
+                <Link href="/dashboard/os" style={{ ...inp, cursor: 'pointer', fontWeight: 600, textDecoration: 'none', color: '#3D2314', display: 'inline-flex', alignItems: 'center' }}>Abrir ordem de serviço</Link>
+              </div>
+            </div>
+          )}
+
+          {rel && !loading && rel.totais.qtd > 0 && (
             <>
+              {/* Ações de saída (RD-98): levar o relatório para fora — planilha (CSV) ou impressão/PDF. */}
+              <div className="no-print" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                  <button type="button" data-testid="os-rel-exportar-csv" style={{ ...inp, cursor: 'pointer', fontWeight: 600 }} onClick={exportarCsv}>Exportar CSV</button>
+                  <AjudaCampo chave="os.relatorio.exportar_csv" rota="/dashboard/os/relatorio" />
+                </span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                  <button type="button" data-testid="os-rel-imprimir" style={{ ...inp, cursor: 'pointer', fontWeight: 600 }} onClick={() => window.print()}>Imprimir / PDF</button>
+                  <AjudaCampo chave="os.relatorio.imprimir" rota="/dashboard/os/relatorio" />
+                </span>
+              </div>
+
               <div style={{ ...card, display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12 }}>
                 <div><div style={lbl}>Totais do período<AjudaCampo chave="os.relatorio.totais" rota="/dashboard/os/relatorio" /></div><div style={{ fontSize: 13 }}>{rel.totais.qtd} ordem(ns)</div></div>
                 <div><div style={lbl}>Serviços</div><strong>{brl(rel.totais.servico)}</strong></div>
@@ -120,9 +172,18 @@ export default function RelatorioOSPage() {
               </div>
 
               <div style={{ ...card, overflowX: 'auto' }}>
-                <div style={lbl}>Ordens do período</div>
+                <div style={lbl}>Ordens do período<AjudaCampo chave="os.relatorio.ordens_periodo" rota="/dashboard/os/relatorio" /></div>
                 <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
-                  <thead><tr style={{ textAlign: 'left', color: '#6B5D4F' }}><th>Nº</th><th>Data</th><th>Cliente</th><th>Placa</th><th>Situação</th><th>Serviços</th><th>Peças</th><th>Total</th></tr></thead>
+                  <thead><tr style={{ textAlign: 'left', color: '#6B5D4F' }}>
+                    <th>Nº<AjudaCampo chave="os.relatorio.col_numero" rota="/dashboard/os/relatorio" /></th>
+                    <th>Data<AjudaCampo chave="os.relatorio.col_data" rota="/dashboard/os/relatorio" /></th>
+                    <th>Cliente<AjudaCampo chave="os.relatorio.col_cliente" rota="/dashboard/os/relatorio" /></th>
+                    <th>Placa<AjudaCampo chave="os.relatorio.col_placa" rota="/dashboard/os/relatorio" /></th>
+                    <th>Situação<AjudaCampo chave="os.relatorio.col_situacao" rota="/dashboard/os/relatorio" /></th>
+                    <th>Serviços<AjudaCampo chave="os.relatorio.col_servicos" rota="/dashboard/os/relatorio" /></th>
+                    <th>Peças<AjudaCampo chave="os.relatorio.col_pecas" rota="/dashboard/os/relatorio" /></th>
+                    <th>Total<AjudaCampo chave="os.relatorio.col_total" rota="/dashboard/os/relatorio" /></th>
+                  </tr></thead>
                   <tbody>
                     {rel.itens.map((o) => (
                       <tr key={o.id}>

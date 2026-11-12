@@ -23,6 +23,9 @@ import {
 } from 'lucide-react'
 import CotacaoWhatsAppModal from '@/components/comum/CotacaoWhatsAppModal'
 import OrdemFornecimentoCard, { type CondicoesOF } from '@/components/compras/OrdemFornecimento'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA_AJUDA = '/dashboard/commerce/compras'
 
 export const dynamic = 'force-dynamic'
 
@@ -338,22 +341,30 @@ function ComprasInner() {
           </div>
         </div>
         {tab === 'cotacoes' && (
-          <button onClick={() => setShowNova(true)} disabled={!canCreate} title={canCreate ? '' : 'Selecione uma empresa específica'}
-            style={btnPrincipal(canCreate)}>
-            <Plus size={14} /> Nova Cotação
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button onClick={() => setShowNova(true)} disabled={!canCreate} title={canCreate ? '' : 'Selecione uma empresa específica'}
+              style={btnPrincipal(canCreate)}>
+              <Plus size={14} /> Nova Cotação
+            </button>
+            <AjudaCampo chave="commerce.compras.nova_cotacao" rota={ROTA_AJUDA} />
+          </div>
         )}
         {tab === 'compras' && (
-          <button onClick={() => setShowNovaCompra(true)} disabled={!canCreate} title={canCreate ? '' : 'Selecione uma empresa específica'}
-            style={btnPrincipal(canCreate)} data-testid="commerce-nova-compra">
-            <Plus size={14} /> Nova compra
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button onClick={() => setShowNovaCompra(true)} disabled={!canCreate} title={canCreate ? '' : 'Selecione uma empresa específica'}
+              style={btnPrincipal(canCreate)} data-testid="commerce-nova-compra">
+              <Plus size={14} /> Nova compra
+            </button>
+            <AjudaCampo chave="commerce.compras.nova_compra" rota={ROTA_AJUDA} />
+          </div>
         )}
       </header>
 
-      <div style={{ display: 'flex', gap: 4, marginBottom: 14, borderBottom: `1px solid ${C.border}` }}>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 14, borderBottom: `1px solid ${C.border}`, alignItems: 'center' }}>
         <TabBtn ativo={tab === 'cotacoes'} onClick={() => setTab('cotacoes')} icon={<FileText size={14} />} label="Cotações" count={cotacoes.length} />
+        <AjudaCampo chave="commerce.compras.aba_cotacoes" rota={ROTA_AJUDA} />
         <TabBtn ativo={tab === 'compras'} onClick={() => setTab('compras')} icon={<ShoppingCart size={14} />} label="Pedidos de Compra" count={compras.length} />
+        <AjudaCampo chave="commerce.compras.aba_pedidos" rota={ROTA_AJUDA} />
       </div>
 
       {/* FIX-VAZAMENTO-JORDANA (07/07): NAO consolida multi-empresa */}
@@ -369,18 +380,22 @@ function ComprasInner() {
 
       {/* Filtros */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, marginBottom: 12 }}>
-        <div style={{ position: 'relative', flex: '1 1 220px', minWidth: 180 }}>
+        <div style={{ position: 'relative', flex: '1 1 220px', minWidth: 180, display: 'flex', alignItems: 'center', gap: 6 }}>
           <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.espressoL }} />
           <input type="text" placeholder={tab === 'cotacoes' ? 'Buscar por número, descrição, solicitante…' : 'Buscar por número, fornecedor, NF…'}
             value={filtroBusca} onChange={(e) => setFiltroBusca(e.target.value)}
             style={{ width: '100%', padding: '8px 10px 8px 32px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.white, color: C.espresso, outline: 'none' }} />
+          <AjudaCampo chave="commerce.compras.busca" rota={ROTA_AJUDA} />
         </div>
-        <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)} style={selInpStyle}>
-          <option value="">Todos os status</option>
-          {Object.keys(tab === 'cotacoes' ? STATUS_COT : STATUS_COMP).map((s) => (
-            <option key={s} value={s}>{(tab === 'cotacoes' ? STATUS_COT : STATUS_COMP)[s].label}</option>
-          ))}
-        </select>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)} style={selInpStyle}>
+            <option value="">Todos os status</option>
+            {Object.keys(tab === 'cotacoes' ? STATUS_COT : STATUS_COMP).map((s) => (
+              <option key={s} value={s}>{(tab === 'cotacoes' ? STATUS_COT : STATUS_COMP)[s].label}</option>
+            ))}
+          </select>
+          <AjudaCampo chave="commerce.compras.filtro_status" rota={ROTA_AJUDA} />
+        </div>
         <span style={{ marginLeft: 'auto', fontSize: 11, color: C.espressoM }}>
           {tab === 'cotacoes' ? cotFiltradas.length : compFiltradas.length} de {tab === 'cotacoes' ? cotacoes.length : compras.length}
         </span>
