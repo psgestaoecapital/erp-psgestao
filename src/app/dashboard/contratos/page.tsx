@@ -134,7 +134,7 @@ export default function ContratosPage(){
   const [showGerarModelo,setShowGerarModelo]=useState<Contrato|null>(null);
   const [modelosGerar,setModelosGerar]=useState<{id:string;nome:string;versao:number}[]>([]);
   const [modeloSelGerar,setModeloSelGerar]=useState<string>("");
-  const [previewGerar,setPreviewGerar]=useState<{texto:string;campos_pendentes:string[]}|null>(null);
+  const [previewGerar,setPreviewGerar]=useState<{texto:string;campos_pendentes:string[];campos_vazios:{chave:string;rotulo:string}[]}|null>(null);
   const [gerandoModelo,setGerandoModelo]=useState(false);
   const [erroGerar,setErroGerar]=useState("");
 
@@ -462,7 +462,7 @@ export default function ContratosPage(){
     setGerandoModelo(false);
     if(error){ setErroGerar(erroAmigavel(error, "Não foi possível gerar o contrato. Tente de novo.")); return; }
     const r=data as any;
-    setPreviewGerar({texto:r?.texto||"",campos_pendentes:(r?.campos_pendentes||[]) as string[]});
+    setPreviewGerar({texto:r?.texto||"",campos_pendentes:(r?.campos_pendentes||[]) as string[],campos_vazios:(r?.campos_vazios||[]) as {chave:string;rotulo:string}[]});
     if(gravar){
       setTextoLegalDetalhe(r?.texto||"");
       setShowGerarModelo(null);
@@ -1115,9 +1115,14 @@ export default function ContratosPage(){
 
             {previewGerar&&(
               <div style={{marginBottom:14}}>
+                {previewGerar.campos_vazios.length>0&&(
+                  <div style={{background:Y+"15",color:Y,borderRadius:8,padding:10,fontSize:11,marginBottom:8}}>
+                    ⚠ Faltam dados neste contrato — estes campos do modelo sairão em branco: {previewGerar.campos_vazios.map(c=>c.rotulo).join(", ")}. Clique em “Editar” no contrato para preencher antes de gerar.
+                  </div>
+                )}
                 {previewGerar.campos_pendentes.length>0&&(
                   <div style={{background:Y+"15",color:Y,borderRadius:8,padding:10,fontSize:11,marginBottom:8}}>
-                    ⚠ Campos ainda sem valor neste contrato (sairão em branco): {previewGerar.campos_pendentes.join(", ")}. Preencha o contrato (Editar) se quiser que apareçam.
+                    ⚠ Campos do modelo não reconhecidos pelo sistema (ficam como {"{{campo}}"} no texto): {previewGerar.campos_pendentes.join(", ")}. Confira o nome entre chaves duplas no modelo.
                   </div>
                 )}
                 <div style={{fontSize:10,color:TXD,marginBottom:4,textTransform:"uppercase"}}>Pré-visualização</div>
