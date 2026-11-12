@@ -4,9 +4,9 @@
 -- valor = soma |valor| dos movimentos pendentes; link para /dashboard/financeiro/conciliacao.
 --
 -- CUMULATIVA: reescreve a definição VIVA mantendo TODAS as pendências (1..6b, 8, 9, 10a/10b)
--- idênticas e só acrescenta o bloco (7). Inclui o bloco (9) (slice 5, migration 20261114130020)
+-- idênticas e só acrescenta o bloco (7). Inclui o bloco (9) (slice 5, migration 20261114165020)
 -- de propósito, para que a aplicação em ORDEM DE VERSÃO nunca remova (9) caso as fatias
--- entrem na main fora de ordem de merge — db push aplica por versão (…130020 antes de …140020).
+-- entrem na main fora de ordem de merge — db push aplica por versão (…165020 antes de …170020).
 --
 -- SECURITY DEFINER, fail-closed por get_user_company_ids(), SET search_path=public,
 -- SÓ LEITURA (nenhum UPDATE/DELETE, nenhum dado de cliente é alterado). REVOKE anon reaplicado.
