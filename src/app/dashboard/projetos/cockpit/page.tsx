@@ -60,7 +60,7 @@ export default function CockpitEscolherObraPage() {
           { ms: 8000, tentativas: 1, label: 'cockpit-obras' },
         )
         if (!vivo) return
-        if (error) { setErro(error.message); return }
+        if (error) { setErro('Não foi possível carregar o cockpit de obras. Tente novamente.'); return }
         let lista = (data ?? []) as ObraLinha[]
         // obra excluída (soft-delete, deleted_at) não aparece; se a consulta de apoio falhar, mantém a lista como veio
         const ids = lista.map(o => o.obra_id)

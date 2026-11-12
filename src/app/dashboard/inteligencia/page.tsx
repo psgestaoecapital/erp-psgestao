@@ -7,6 +7,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { usePapelUsuario, ehRhIndustrial } from '@/hooks/usePapelUsuario'
 
@@ -85,7 +86,7 @@ function Hub() {
     if (!companyId) { setLoading(false); return }
     setLoading(true); setErro(null)
     const { data, error } = await supabase.rpc(cfg.rpc, { p_company_id: companyId })
-    if (error) setErro(error.message)
+    if (error) setErro(erroAmigavel(error, 'Não foi possível carregar os indicadores. Tente de novo.'))
     setTemas((data ?? []) as Tema[])
     setLoading(false)
   }, [companyId, cfg.rpc])
@@ -101,7 +102,20 @@ function Hub() {
   }, [visiveis])
 
   if (!companyId) {
-    return <div style={{ background: BG, minHeight: '100vh', padding: 32, color: MUT, fontSize: 14 }}>Selecione uma empresa específica no topo para ver a Inteligência.</div>
+    return (
+      <div style={{ background: BG, minHeight: '100vh', padding: '48px 20px', display: 'flex', justifyContent: 'center' }}>
+        <div style={{ maxWidth: 460, background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 14, padding: 28, textAlign: 'center' }}>
+          <div style={{ width: 48, height: 48, borderRadius: 12, background: ACCENT_BG, color: GOLD, fontSize: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>📊</div>
+          <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 22, fontWeight: 400, color: ESP, margin: '0 0 8px' }}>Escolha uma empresa</h1>
+          <p style={{ fontSize: 13, color: MUT, lineHeight: 1.5, margin: 0 }}>
+            A Análise de dados é <strong style={{ color: ESP }}>por empresa</strong>. No <strong style={{ color: ESP }}>seletor de empresa, no topo da tela</strong>, escolha uma empresa específica — não funciona com o consolidado nem com um grupo.
+          </p>
+          <p style={{ fontSize: 12, color: MUT, lineHeight: 1.5, margin: '10px 0 0' }}>
+            Assim que selecionar, os cards dos indicadores da operação (industrial ou agro) aparecem aqui e acendem sozinhos conforme a empresa tem dado.
+          </p>
+        </div>
+      </div>
+    )
   }
 
   return (

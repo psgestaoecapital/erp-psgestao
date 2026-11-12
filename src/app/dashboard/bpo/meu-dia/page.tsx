@@ -8,6 +8,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { rpc } from "@/lib/authFetch";
 import { getUsuarioId } from "@/lib/AuthProvider";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 import FiltroEmpresas from "@/components/bpo/FiltroEmpresas";
 
 interface Item {
@@ -105,7 +106,7 @@ export default function MeuDiaPage() {
       const r = await rpc<MeuDiaData>("fn_bpo_meu_dia_v2", { p_user_id: uid });
       setData(r);
     } catch (e: any) {
-      setErro(e.message || "Não foi possível carregar seu dia");
+      setErro(erroAmigavel(e, "Não foi possível carregar seu dia."));
     } finally {
       setLoading(false);
     }
@@ -157,7 +158,7 @@ export default function MeuDiaPage() {
         }
         inicioRef.current = Date.now();
       } catch (e: any) {
-        setErro(e.message || "Não foi possível executar a ação");
+        setErro(erroAmigavel(e, "Não foi possível executar a ação."));
       } finally {
         setAcaoAtiva(null);
       }
