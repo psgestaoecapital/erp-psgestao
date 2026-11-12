@@ -14,6 +14,7 @@ import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 const ROTA = '/dashboard/produtividade/importar'
 
@@ -132,7 +133,7 @@ export function ImportarPostosView() {
       if (parsed.length === 0) { setErro('Nenhuma linha de dados (fora o exemplo do modelo).'); return }
       setLinhas(parsed); setNomeArquivo(file.name)
     } catch (e) {
-      setErro((e as Error)?.message ?? 'Falha ao ler o arquivo.')
+      setErro(erroAmigavel(e, 'Falha ao ler o arquivo.'))
     }
   }
 
@@ -141,9 +142,9 @@ export function ImportarPostosView() {
     setBusy(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_rh_importar_postos', { p_company_id: companyId, p_linhas: linhas })
     setBusy(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Falha na importação.')); return }
     const r = data as Resultado
-    if (!r?.ok) { setErro(r?.erro === 'sem_permissao' ? 'Sem permissão: só RH, sócio ou admin importam o quadro.' : (r?.erro ?? 'Falha na importação.')); return }
+    if (!r?.ok) { setErro(r?.erro === 'sem_permissao' ? 'Sem permissão: só RH, sócio ou admin importam o quadro.' : codigoAmigavel(r?.erro, 'Falha na importação.')); return }
     setResultado(r); setLinhas([]); setNomeArquivo('')
   }
 

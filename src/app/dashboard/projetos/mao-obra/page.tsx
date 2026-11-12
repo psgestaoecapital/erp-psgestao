@@ -17,6 +17,7 @@ import {
 } from "@/lib/hub/custoMaoObra";
 import { cpfValido, mascaraCpf } from "@/lib/documentos/cpf";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { erroAmigavel, codigoAmigavel } from "@/lib/erroAmigavel";
 
 type CustoFuncao = { usa_he?: "sem" | "com"; custo_hora_sem_he?: number | null; custo_hora_com_he?: number | null; custo_hora: number | null; custo_m2: number | null; custo_unidade?: number | null; unidade?: string | null; origem: "media_grupo" | "manual" | "sem_dado"; pessoas_conferidas: number; empresas: number; nao_conferidas: number };
 type Funcao = { id: string; nome: string; cbo: string | null; forma_pagamento: string; unidade_producao?: string | null; custo_hora_manual: number | null; he50_horas_padrao?: number; he100_horas_padrao?: number; custo_hora_usa_he?: "sem" | "com"; unida_a_id: string | null; unida_a_nome: string | null; ativo: boolean; migrada_de: string | null; custo: CustoFuncao | null;
@@ -66,7 +67,7 @@ export default function MaoObraPage() {
     if (!companyId) return;
     setErro(null);
     const { data, error } = await supabase.rpc("fn_mao_obra_listar", { p_company_id: companyId });
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error, "Não foi possível carregar a mão de obra.")); return; }
     setDados(data as Lista);
   }, [companyId]);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial vinda do banco
@@ -77,9 +78,9 @@ export default function MaoObraPage() {
 
   async function rpc(fn: string, args: Record<string, unknown>, ok: string) {
     const { data, error } = await supabase.rpc(fn, args);
-    if (error) { setErro(error.message); return false; }
+    if (error) { setErro(erroAmigavel(error, "Não foi possível salvar.")); return false; }
     const r = data as { ok?: boolean; erro?: string } | null;
-    if (r && r.ok === false) { setErro(r.erro ?? "Não foi possível salvar."); return false; }
+    if (r && r.ok === false) { setErro(codigoAmigavel(r.erro, "Não foi possível salvar.")); return false; }
     setAviso(ok); setErro(null); await carregar(); return true;
   }
 
@@ -932,7 +933,7 @@ function ModalHistorico({ item, onClose }: { item: ItemEquipe; onClose: () => vo
   const [linhas, setLinhas] = useState<{ vigencia_inicio: string; vigencia_fim: string | null; salario: number; motivo: string | null; conferido: boolean; custo: { custo_mensal: number | null; custo_hora: number | null } }[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   useEffect(() => {
-    void supabase.rpc("fn_mao_obra_ficha_historico", { p_grupo_id: item.grupo_id }).then(({ data, error }) => { if (error) setErro(error.message); else setLinhas((data as typeof linhas) ?? []); });
+    void supabase.rpc("fn_mao_obra_ficha_historico", { p_grupo_id: item.grupo_id }).then(({ data, error }) => { if (error) setErro(erroAmigavel(error, "Não foi possível carregar o histórico.")); else setLinhas((data as typeof linhas) ?? []); });
   }, [item.grupo_id]);
   return (
     <Janela titulo={`Histórico · ${item.nome}`} onClose={onClose} testid="mao-obra-modal-historico">

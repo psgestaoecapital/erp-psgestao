@@ -22,6 +22,14 @@ type Lote = { id: string; codigo: string; fase: string | null }
 type Draft = { tipo: string; bl: string; lote: string }
 type FiltroStatus = 'todos' | 'nao' | 'map' | 'inativo'
 
+// RD-98 critério (e): nunca mostrar o erro CRU do banco ao usuário. Loga o técnico no console (suporte)
+// e devolve uma frase amigável/acionável. Os erros de negócio (contrato {ok,erro}) já chegam amigáveis
+// da função e são mantidos. Mesmo padrão de ListagemPagarReceberView.tsx.
+function erroAmigavel(err: unknown, acao: string): string {
+  if (err) { try { console.error(`[centros-custo] falha ao ${acao}:`, err) } catch { /* console indisponível */ } }
+  return `não foi possível ${acao} agora. Tente de novo em instantes; se continuar, fale com o suporte.`
+}
+
 export default function CentrosCustoPage() {
   const { companyIds, selInfo } = useCompanyIds()
   const empresaUnica = selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : null
@@ -71,8 +79,8 @@ export default function CentrosCustoPage() {
       p_business_line_id: d.bl || null,
       p_lote_id: d.tipo === 'direto' ? (d.lote || null) : null,
     })
-    if (error) return error.message
-    if (data && data.ok === false) return data.erro || 'falha ao mapear'
+    if (error) return erroAmigavel(error, 'salvar o centro de custo')
+    if (data && data.ok === false) return data.erro || 'não foi possível salvar o mapeamento. Confira os dados e tente de novo.'
     return null
   }
 
@@ -96,8 +104,8 @@ export default function CentrosCustoPage() {
     const { data, error } = await supabase.rpc('fn_centro_custo_excluir', {
       p_company_id: empresaUnica, p_source_key: r.valor_origem, p_motivo: null,
     })
-    if (error) setMsg('Erro: ' + error.message)
-    else if (data && data.ok === false) setMsg('Erro: ' + (data.erro || 'falha ao inativar'))
+    if (error) setMsg('Erro: ' + erroAmigavel(error, 'inativar o centro de custo'))
+    else if (data && data.ok === false) setMsg('Erro: ' + (data.erro || 'não foi possível inativar o mapeamento.'))
     else { setMsg(`"${r.valor_origem}" inativado.`); await carregar() }
   }
 
@@ -107,8 +115,8 @@ export default function CentrosCustoPage() {
     const { data, error } = await supabase.rpc('fn_centro_custo_reativar', {
       p_company_id: empresaUnica, p_source_key: r.valor_origem,
     })
-    if (error) setMsg('Erro: ' + error.message)
-    else if (data && data.ok === false) setMsg('Erro: ' + (data.erro || 'falha ao reativar'))
+    if (error) setMsg('Erro: ' + erroAmigavel(error, 'reativar o centro de custo'))
+    else if (data && data.ok === false) setMsg('Erro: ' + (data.erro || 'não foi possível reativar o mapeamento.'))
     else { setMsg(`"${r.valor_origem}" reativado.`); await carregar() }
   }
 

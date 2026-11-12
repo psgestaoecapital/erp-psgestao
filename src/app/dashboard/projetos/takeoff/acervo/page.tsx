@@ -116,7 +116,7 @@ export default function AcervoTakeoffPage() {
     setExcluindo(p.id); setErro(null)
     const { error } = await supabase.rpc('fn_takeoff_planta_excluir', { p_planta_id: p.id, p_motivo: motivo.trim() })
     setExcluindo(null)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro('Não foi possível excluir a planta. Tente novamente.'); return }
     setPlantas((prev) => prev.filter((x) => x.id !== p.id))
   }
 
@@ -128,7 +128,7 @@ export default function AcervoTakeoffPage() {
     setBaixando(p.id); setErro(null)
     const { data, error } = await supabase.storage.from('projetos-plantas').download(p.arquivo_path)
     setBaixando(null)
-    if (error || !data) { setErro(error?.message ?? 'Não foi possível baixar o arquivo desta planta.'); return }
+    if (error || !data) { setErro('Não foi possível baixar o arquivo desta planta.'); return }
     const ext = (p.arquivo_path.split('.').pop() || p.arquivo_tipo || 'dat').toLowerCase()
     const base = (p.nome || 'planta').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'planta'
     const nomeArq = base.toLowerCase().endsWith('.' + ext) ? base : `${base}.${ext}`
@@ -152,7 +152,7 @@ export default function AcervoTakeoffPage() {
       .then(({ data, error }) => {
         if (!alive) return
         setLoading(false)
-        if (error) { setErro(error.message); return }
+        if (error) { setErro('Não foi possível carregar o acervo de plantas. Tente novamente.'); return }
         const lista = (data as PlantaAcervo[]) ?? []
         setPlantas(lista)
         // resolve o nome de quem enviou/analisou numa busca à parte; erro/RLS → segue sem nome
