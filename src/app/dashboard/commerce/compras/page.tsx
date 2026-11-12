@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'rea
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
 import {
   Plus, Search, FileText, ShoppingCart, BarChart3, X, Info, Trash2,
@@ -205,9 +206,9 @@ function ComprasInner() {
       supabase.from('erp_cotacoes').select('*').eq('company_id', companyIdUnico).order('created_at', { ascending: false }).limit(200),
       supabase.from('erp_compras').select('*').eq('company_id', companyIdUnico).order('created_at', { ascending: false }).limit(200),
     ])
-    if (cot.error) setErro('Cotações: ' + cot.error.message)
+    if (cot.error) setErro('Cotações: ' + erroAmigavel(cot.error))
     else setCotacoes((cot.data ?? []) as Cotacao[])
-    if (comp.error) setErro('Compras: ' + comp.error.message)
+    if (comp.error) setErro('Compras: ' + erroAmigavel(comp.error))
     else setCompras((comp.data ?? []) as Compra[])
     setLoading(false)
   }, [companyIdUnico])
@@ -233,7 +234,7 @@ function ComprasInner() {
 
   async function enviarCotacao(id: string) {
     const { error } = await supabase.from('erp_cotacoes').update({ status: 'enviada', updated_at: new Date().toISOString() }).eq('id', id)
-    if (error) { flashErr('Erro: ' + error.message); return }
+    if (error) { flashErr(erroAmigavel(error)); return }
     setCotacoes((prev) => prev.map((c) => (c.id === id ? { ...c, status: 'enviada' } : c)))
     if (cotSel?.id === id) setCotSel({ ...cotSel, status: 'enviada' })
     flash('Cotação marcada como enviada.')
@@ -242,7 +243,7 @@ function ComprasInner() {
   async function cancelarCotacao(id: string) {
     if (!confirm('Cancelar esta cotação?')) return
     const { error } = await supabase.from('erp_cotacoes').update({ status: 'cancelada', updated_at: new Date().toISOString() }).eq('id', id)
-    if (error) { flashErr('Erro: ' + error.message); return }
+    if (error) { flashErr(erroAmigavel(error)); return }
     setCotacoes((prev) => prev.map((c) => (c.id === id ? { ...c, status: 'cancelada' } : c)))
     if (cotSel?.id === id) setCotSel(null)
     flash('Cotação cancelada.')
@@ -253,7 +254,7 @@ function ComprasInner() {
       p_cotacao_id: cotacaoId,
       p_fornecedor_vencedor_id: fornecedorId,
     })
-    if (error) { flashErr('Erro: ' + error.message); return }
+    if (error) { flashErr(erroAmigavel(error)); return }
     flash('Cotação aprovada e pedido de compra gerado!')
     setShowCompare(null)
     setCotSel(null)
@@ -268,7 +269,7 @@ function ComprasInner() {
     }
     if (novoStatus === 'recebida_total') patch.data_recebimento = new Date().toISOString().slice(0, 10)
     const { error } = await supabase.from('erp_compras').update(patch).eq('id', compraId)
-    if (error) { flashErr('Erro: ' + error.message); return }
+    if (error) { flashErr(erroAmigavel(error)); return }
     setCompras((prev) => prev.map((c) => (c.id === compraId ? { ...c, ...patch } : c)))
     if (compSel?.id === compraId) setCompSel({ ...compSel, ...patch })
     flash('Status atualizado.')
@@ -277,7 +278,7 @@ function ComprasInner() {
   async function receberCompra(compraId: string) {
     if (!confirm('Receber esta compra? O estoque vai ser atualizado e o custo médio recalculado.')) return
     const { data, error } = await supabase.rpc('fn_compra_receber', { p_compra_id: compraId })
-    if (error) { flashErr('Erro: ' + error.message); return }
+    if (error) { flashErr(erroAmigavel(error)); return }
     const resp = data as { ok?: boolean; qtd_itens?: number } | null
     flash(`Mercadoria recebida · estoque atualizado em ${resp?.qtd_itens ?? 0} itens.`)
     await carregar()
@@ -290,7 +291,7 @@ function ComprasInner() {
   async function gerarTitulosCompra(compraId: string) {
     if (!confirm('Gerar os títulos a pagar a partir desta compra?')) return
     const { data, error } = await supabase.rpc('fn_compra_gerar_titulos', { p_compra_id: compraId })
-    if (error) { flashErr('Erro: ' + error.message); return }
+    if (error) { flashErr(erroAmigavel(error)); return }
     const resp = data as { ok?: boolean; qtd_parcelas?: number } | null
     flash(`Títulos gerados · ${resp?.qtd_parcelas ?? 0} parcela(s) em contas a pagar.`)
     await carregar()
@@ -1575,8 +1576,8 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
       flash('Compra criada.')
       await onCreated(compraRow.id)
     } catch (err) {
-      flashErr(err instanceof Error ? err.message : 'Erro ao salvar')
-      setErroLocal(err instanceof Error ? err.message : 'Erro ao salvar')
+      flashErr(erroAmigavel(err, 'Não foi possível salvar. Tente de novo.'))
+      setErroLocal(erroAmigavel(err, 'Não foi possível salvar. Tente de novo.'))
     } finally {
       setSalvando(false)
     }

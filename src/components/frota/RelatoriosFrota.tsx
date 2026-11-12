@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { supabase } from "@/lib/supabase";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 
 const ROTA = "/dashboard/projetos/frota";
 const ESP = "#3D2314", BRANCO = "#FFFFFF", BD = "#E7DED3", TXM = "#6B5D4F";
@@ -86,7 +87,7 @@ export function RelatoriosFrota({ companyId, veiculos }: { companyId: string; ve
     const { fn, args } = chamadas[tipo];
     const { data, error } = await supabase.rpc(fn, args);
     setCarregando(false);
-    if (error) { setErro(error.message); setDados(null); return; }
+    if (error) { setErro(erroAmigavel(error)); setDados(null); return; }
     setDados(data as Linha);
   }, [companyId, tipo, de, ate, veiculoId, agrupar]);
 
@@ -141,7 +142,9 @@ export function RelatoriosFrota({ companyId, veiculos }: { companyId: string; ve
 
       <div className="flex flex-wrap items-center gap-2 print:hidden">
         <button onClick={() => window.print()} className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: ESP, color: ESP }}>Imprimir</button>
+        <AjudaCampo chave="projetos.frota.rel_imprimir" rota={ROTA} />
         <button onClick={() => exportar(tipo, dados, agrupar)} disabled={!dados} className="rounded-lg border px-3 py-2 text-sm disabled:opacity-40" style={{ borderColor: ESP, color: ESP }}>Exportar CSV</button>
+        <AjudaCampo chave="projetos.frota.rel_exportar" rota={ROTA} />
         {carregando && <span className="text-xs" style={{ color: TXM }}>Carregando…</span>}
         {!periodoValido && <span role="alert" className="text-xs text-red-700">O período “até” precisa ser igual ou depois do “de”.</span>}
       </div>
@@ -278,7 +281,17 @@ function exportar(tipo: Tipo, dados: Linha | null, agrupar: Agrupar) {
     const linhas = (dados.linhas as Linha[]) ?? [];
     baixarCsv("frota-multas", ["Data", "Veículo", "Motorista", "Descrição", "Valor"], linhas.map((l) => [String(l.data), String(l.placa), String(l.motorista), String(l.descricao ?? ""), Number(l.valor)]));
   } else {
+    // Manutenção: o CSV espelha as DUAS tabelas da tela (#5214) — realizadas no período E programadas
+    // (próxima por km). Antes só saíam as realizadas, e as próximas que o usuário via na tela sumiam no export.
     const realizadas = (dados.realizadas as Linha[]) ?? [];
-    baixarCsv("frota-manutencao", ["Data", "Veículo", "Tipo", "Km", "Valor", "Fornecedor"], realizadas.map((r) => [String(r.data), String(r.placa), String(r.tipo), Number(r.km), r.valor == null ? null : Number(r.valor), String(r.fornecedor ?? "")]));
+    const programadas = (dados.programadas as Linha[]) ?? [];
+    const linhas: (string | number | null)[][] = [
+      ...realizadas.map((r) => [String(r.data), String(r.placa), String(r.tipo), Number(r.km), r.valor == null ? null : Number(r.valor), String(r.fornecedor ?? "")]),
+      [],
+      ["Programadas (próxima por km)"],
+      ["Veículo", "Tipo", "Km atual", "Última vez", "Próxima", "Falta (km)"],
+      ...programadas.map((p) => [String(p.placa), String(p.tipo), p.km_atual == null ? null : Number(p.km_atual), p.ultimo_km == null ? null : Number(p.ultimo_km), p.proxima_km == null ? null : Number(p.proxima_km), p.km_para_proxima == null ? null : Number(p.km_para_proxima)]),
+    ];
+    baixarCsv("frota-manutencao", ["Data", "Veículo", "Tipo", "Km", "Valor", "Fornecedor"], linhas);
   }
 }

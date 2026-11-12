@@ -121,7 +121,7 @@ export default function CusteioPage(){
       }else{
         alert("Erro: "+(d.error||"Falha no processamento"));
       }
-    }catch(e:any){alert("Erro: "+e.message);}
+    }catch(e:any){alert("Não foi possível processar o custeio. Tente novamente.");}
     setProcessing(false);
   };
 

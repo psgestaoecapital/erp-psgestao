@@ -3,7 +3,7 @@
 // e mostra o custo da folha POR CARGO / SETOR / SUPERVISOR, base do custo/hora do cargo (regra do CEO).
 // LGPD: salário/custo/CPF só para RH/diretoria/admin (flag pode_custo que vem do backend); grupo < 3 pessoas agrega.
 // Casa com o padrão das telas industriais (mao-obra / produtividade): paleta plana, useCompanyIds, RPC {ok,erro}, RD-95.
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -53,12 +53,14 @@ export default function QuadroPessoalPage() {
   const [aba, setAba] = useState<Aba>('quadro')
   const [custoPor, setCustoPor] = useState<CustoPor | null>(null)
   const [loteAberto, setLoteAberto] = useState(false)
+  const reqSeq = useRef(0) // descarta resposta obsoleta: load antigo não sobrescreve a competência atual (seletor × grade)
 
   const flash = (m: string) => { setMsg(m); setErro(null); window.setTimeout(() => setMsg(null), 3500) }
   const flashErr = (m: string) => { setErro(m); window.setTimeout(() => setErro(null), 6000) }
 
   const carregar = useCallback(async () => {
     if (!empresa) { setLoading(false); return }
+    const seq = ++reqSeq.current
     setLoading(true); setErro(null)
     const [q, comps, par, cg, st] = await Promise.all([
       supabase.rpc('fn_rh_quadro_pessoas', { p_company_id: empresa, p_competencia: competencia || null }),
@@ -67,6 +69,7 @@ export default function QuadroPessoalPage() {
       supabase.from('prod_cargo').select('id, nome').eq('company_id', empresa).eq('ativo', true).order('nome'),
       supabase.from('prod_setor').select('id, nome').eq('company_id', empresa).eq('ativo', true).order('nome'),
     ])
+    if (seq !== reqSeq.current) return // resposta obsoleta: descarta — seletor e grade ficam na MESMA competência
     if (q.error) { setErro(q.error.message); setLoading(false); return }
     const r = q.data as Quadro
     if (r && !r.ok) { setErro(r.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : 'Falha ao carregar o quadro.'); setLoading(false); return }
@@ -189,7 +192,7 @@ export default function QuadroPessoalPage() {
               </thead>
               <tbody>
                 {pessoasFiltradas.map((p) => (
-                  <LinhaPessoa key={p.cpf} p={p} pode={pode} cargos={cargos} setores={setores} onSalvar={salvarPessoa} />
+                  <LinhaPessoa key={p.cpf || p.matricula || (p.nome ?? '')} p={p} pode={pode} cargos={cargos} setores={setores} onSalvar={salvarPessoa} />
                 ))}
                 {pessoasFiltradas.length === 0 && <tr><td style={{ ...td, color: MUT }} colSpan={9}>Nenhuma pessoa nesta competência.</td></tr>}
               </tbody>
@@ -242,7 +245,7 @@ function LinhaPessoa({ p, pode, cargos, setores, onSalvar }: { p: Pessoa; pode: 
     // data-ajuda: os campos editáveis da linha são documentados pelo "?" de cada coluna no cabeçalho (RD-95).
     <tr data-ajuda="rh.quadro.cargo">
       <td style={{ ...td, fontWeight: 600 }}>{p.nome ?? '—'}{p.origem !== 'ponto_folha' && <span style={{ fontSize: 10, color: GOLD, marginLeft: 6 }}>{p.origem === 'so_folha' ? 'só folha' : 'só ponto'}</span>}</td>
-      <td style={{ ...td, fontFamily: 'ui-monospace, monospace', color: MUT }}>{p.cpf}</td>
+      <td style={{ ...td, fontFamily: 'ui-monospace, monospace', color: MUT }}>{p.cpf || (p.matricula ? `mat. ${p.matricula}` : '—')}</td>
       <td style={{ ...td, color: MUT }}>{p.funcao ?? '—'}</td>
       <td style={td}>
         {pode ? (
@@ -265,7 +268,7 @@ function LinhaPessoa({ p, pode, cargos, setores, onSalvar }: { p: Pessoa; pode: 
       <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{pode ? brl(p.custo_mensal) : '🔒'}</td>
       <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: GOLD, fontWeight: 700 }}>
         {pode ? brl(p.custo_hora) : '🔒'}
-        {pode && mudou && <button style={{ ...btnGold, padding: '4px 8px', fontSize: 11, marginLeft: 6 }} onClick={() => onSalvar(p.cpf, { cargo_id: cargo, setor_id: setor, supervisor_nome: sup, salario_base: sal })}>Salvar</button>}
+        {pode && mudou && <button style={{ ...btnGold, padding: '4px 8px', fontSize: 11, marginLeft: 6 }} onClick={() => onSalvar(p.cpf ?? '', { cargo_id: cargo, setor_id: setor, supervisor_nome: sup, salario_base: sal, matricula: p.matricula ?? '' })}>Salvar</button>}
       </td>
     </tr>
   )

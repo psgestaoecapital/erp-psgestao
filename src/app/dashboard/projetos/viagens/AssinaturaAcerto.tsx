@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { CheckCircle2, PenLine } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314', GOLD = '#C8941A', LINE = '#E7DECF'
@@ -29,7 +30,7 @@ export function AssinaturaAcerto({ viagemId, colaborador, podeGravar, versao }: 
 
   const ler = useCallback(async () => {
     const { data, error } = await supabase.rpc('fn_viagem_assinaturas', { p_viagem_id: viagemId })
-    if (error) setMsg(error.message)
+    if (error) setMsg(erroAmigavel(error, 'Não foi possível registrar a assinatura. Tente de novo.'))
     setS((data as Situacao) ?? null)
   }, [viagemId])
   // eslint-disable-next-line react-hooks/set-state-in-effect -- relê a situação quando a viagem ou os cupons mudam
@@ -40,7 +41,7 @@ export function AssinaturaAcerto({ viagemId, colaborador, podeGravar, versao }: 
     const { data, error } = await supabase.rpc('fn_viagem_assinar', { p_viagem_id: viagemId, p_papel: papel, p_nome: nome })
     setBusy(false)
     const d = data as { ok?: boolean; erro?: string } | null
-    if (error || !d?.ok) { setMsg(error?.message ?? d?.erro ?? 'Não foi possível assinar'); return }
+    if (error || !d?.ok) { setMsg(erroAmigavel(error, codigoAmigavel(d?.erro, 'Não foi possível assinar'))); return }
     setNome(''); await ler()
   }
 

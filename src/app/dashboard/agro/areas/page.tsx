@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useEmpresaSelecionada, usePropriedade } from '@/lib/agro/usePecuaria'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'
 const ESP60 = 'rgba(61,35,20,0.6)'; const GREEN = '#5C8D3F'; const RED = '#C44536'
@@ -73,7 +74,7 @@ export default function AreasPropriedadePage() {
       .update({ business_line_id: blLote || null })
       .in('id', Array.from(selec))
       .eq('company_id', empresaUnica)
-    if (error) setMsg('Erro na atribuição em lote: ' + error.message)
+    if (error) setMsg(erroAmigavel(error, 'Não foi possível concluir a atribuição em lote. Tente de novo.'))
     else {
       setMsg(`${selec.size} área(s) → ${blLote ? (bls.find((b) => b.id === blLote)?.name ?? 'linha') : 'não alocada'}.`)
       setSelec(new Set())
@@ -103,7 +104,7 @@ export default function AreasPropriedadePage() {
   const calcularBase = useCallback(async () => {
     if (!empresaUnica) return
     const { data, error } = await supabase.rpc('fn_rateio_base', { p_company_id: empresaUnica, p_data_ref: hoje() })
-    if (error) { setMsg('Erro no cálculo: ' + error.message); setBase([]) }
+    if (error) { setMsg(erroAmigavel(error, 'Não foi possível calcular. Tente de novo.')); setBase([]) }
     else setBase((data ?? []) as BaseRow[])
   }, [empresaUnica])
 
@@ -135,7 +136,7 @@ export default function AreasPropriedadePage() {
     }
     const { data, error } = await supabase.rpc('fn_propriedade_area_salvar', { p_company_id: empresaUnica, p_dados: dados })
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || r?.ok === false) setMsg('Erro: ' + (error?.message || r?.erro || 'falha ao salvar'))
+    if (error || r?.ok === false) setMsg(error ? erroAmigavel(error, 'Não foi possível salvar. Tente de novo.') : 'Erro: ' + (r?.erro || 'falha ao salvar'))
     else { setMsg(editId ? 'Área ALTERADA.' : 'Área criada.'); setF({ ...vazio }); setEditId(null); await carregar() }
     setBusy(false)
   }
@@ -166,14 +167,14 @@ export default function AreasPropriedadePage() {
     const { error } = emUso > 0
       ? await supabase.from('erp_propriedade_area').update({ ativo: false }).eq('id', a.id).eq('company_id', empresaUnica)
       : await supabase.from('erp_propriedade_area').delete().eq('id', a.id).eq('company_id', empresaUnica)
-    if (error) setMsg('Erro: ' + error.message)
+    if (error) setMsg(erroAmigavel(error))
     else { setMsg(emUso > 0 ? `"${a.nome}" inativada (estava em uso).` : `"${a.nome}" excluída.`); await carregar() }
   }
 
   async function reativarArea(a: Area) {
     if (!empresaUnica) return
     const { error } = await supabase.from('erp_propriedade_area').update({ ativo: true }).eq('id', a.id).eq('company_id', empresaUnica)
-    if (error) setMsg('Erro: ' + error.message); else await carregar()
+    if (error) setMsg(erroAmigavel(error)); else await carregar()
   }
 
   const resumo = useMemo(() => {

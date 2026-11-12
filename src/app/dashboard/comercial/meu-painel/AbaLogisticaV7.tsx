@@ -62,7 +62,7 @@ export function AbaLogisticaV7({ log }: Props) {
                 <CartesianGrid vertical={false} stroke={C.bd} />
                 <XAxis dataKey="rot" tick={{ fontSize: 11, fill: C.m }} interval={0} />
                 <YAxis tick={{ fontSize: 11, fill: C.m }} width={40} />
-                <Tooltip formatter={(v) => `${int(Number(v))} cargas`} />
+                <Tooltip allowEscapeViewBox={{ x: false, y: false }} formatter={(v, n) => [`${int(Number(v))} cargas`, n]} />
                 <Bar dataKey="n" fill={C.esp} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -78,7 +78,7 @@ export function AbaLogisticaV7({ log }: Props) {
                 <CartesianGrid vertical={false} stroke={C.bd} />
                 <XAxis dataKey="rot" tick={{ fontSize: 12, fill: C.m }} />
                 <YAxis tick={{ fontSize: 11, fill: C.m }} width={40} />
-                <Tooltip formatter={(v) => `${int(Number(v))} cargas`} />
+                <Tooltip allowEscapeViewBox={{ x: false, y: false }} formatter={(v, n) => [`${int(Number(v))} cargas`, n]} />
                 <Bar dataKey="n" fill={C.gold} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>

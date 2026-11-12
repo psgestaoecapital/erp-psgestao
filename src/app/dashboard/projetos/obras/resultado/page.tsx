@@ -104,7 +104,7 @@ export default function ResultadoObrasPage() {
       )
       let r = await ler('v_obra_resultado_alocado')
       if (r.error) r = await ler('v_obra_resultado')
-      if (r.error) { setErro(r.error.message); return }
+      if (r.error) { setErro('Não foi possível carregar o resultado das obras. Tente novamente.'); return }
       const base = (r.data ?? []) as Linha[]
       // Faturado por obra (não bloqueia a tela se falhar).
       const fat = await supabase.rpc('fn_obras_receita', { p_company_ids: companyIds })
