@@ -5,7 +5,7 @@
 // alimentado pela RPC fn_bi_comercial_base, que trava o escopo no banco (líder vê a empresa; vendedor só o próprio).
 // Fonte: fn_com_venda_item / bi_comercial_venda_item_mv (R$ 13.983.740 no aceite). Nunca a MV inflada.
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
-import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from 'recharts'
+import { Bar, BarChart, CartesianGrid, Cell, LabelList, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from 'recharts'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
@@ -460,7 +460,7 @@ export default function MeuPainelV6() {
                     <Pie data={linhasTab} dataKey={donutMetrica === 'val' ? 'val' : 'kg'} nameKey="nome" innerRadius={55} outerRadius={85} paddingAngle={2}>
                       {linhasTab.map((l, i) => <Cell key={l.nome} fill={CORES_LINHA[i % CORES_LINHA.length]} />)}
                     </Pie>
-                    <Tooltip formatter={(v) => donutMetrica === 'val' ? brl0(Number(v)) : `${int(Number(v))} kg`} />
+                    <Tooltip allowEscapeViewBox={{ x: false, y: false }} formatter={(v, n) => [donutMetrica === 'val' ? brl0(Number(v)) : `${int(Number(v))} kg`, n]} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
@@ -483,7 +483,7 @@ export default function MeuPainelV6() {
                     <CartesianGrid vertical={false} stroke={C.bd} />
                     <XAxis dataKey="rot" tick={{ fontSize: 12, fill: C.m }} />
                     <YAxis tickFormatter={(v: number) => brl0(v)} tick={{ fontSize: 11, fill: C.m }} width={84} />
-                    <Tooltip formatter={(v) => brl0(Number(v))} />
+                    <Tooltip allowEscapeViewBox={{ x: false, y: false }} formatter={(v, n) => [brl0(Number(v)), n]} />
                     <Bar dataKey="val" fill={C.esp} radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -498,7 +498,7 @@ export default function MeuPainelV6() {
                   <BarChart data={[{ rot: 'Realizado', val: r.totalValor }, { rot: 'Projetado', val: projecaoMes ?? 0 }]} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                     <XAxis dataKey="rot" tick={{ fontSize: 12, fill: C.m }} />
                     <YAxis tickFormatter={(v: number) => brl0(v)} tick={{ fontSize: 11, fill: C.m }} width={84} />
-                    <Tooltip formatter={(v) => brl0(Number(v))} />
+                    <Tooltip allowEscapeViewBox={{ x: false, y: false }} formatter={(v, n) => [brl0(Number(v)), n]} />
                     <Bar dataKey="val" radius={[4, 4, 0, 0]}>
                       <Cell fill={C.esp} />
                       <Cell fill={C.gold} />
@@ -530,7 +530,7 @@ export default function MeuPainelV6() {
                     <CartesianGrid vertical={false} stroke={C.bd} />
                     <XAxis dataKey="rot" tick={{ fontSize: 11, fill: C.m }} interval="preserveStartEnd" />
                     <YAxis domain={['auto', 'auto']} tickFormatter={(v: number) => brl2(v)} tick={{ fontSize: 11, fill: C.m }} width={70} />
-                    <Tooltip formatter={(v) => brl2(Number(v))} />
+                    <Tooltip allowEscapeViewBox={{ x: false, y: false }} formatter={(v, n) => [brl2(Number(v)), n]} />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
                     <Line type="monotone" dataKey="t" name="Toda a análise" stroke={C.esp} dot={false} connectNulls />
                     <Line type="monotone" dataKey="g0" name="Desossados" stroke={C.gold} dot={false} connectNulls />
@@ -550,7 +550,7 @@ export default function MeuPainelV6() {
                   <CartesianGrid vertical={false} stroke={C.bd} />
                   <XAxis dataKey="rot" tick={{ fontSize: 11, fill: C.m }} interval="preserveStartEnd" />
                   <YAxis tickFormatter={(v: number) => brl0(v)} tick={{ fontSize: 11, fill: C.m }} width={84} />
-                  <Tooltip formatter={(v) => brl0(Number(v))} labelFormatter={(_, p) => dataBR(String(p?.[0]?.payload?.dia ?? ''))} />
+                  <Tooltip allowEscapeViewBox={{ x: false, y: false }} formatter={(v, n) => [brl0(Number(v)), n]} labelFormatter={(_, p) => dataBR(String(p?.[0]?.payload?.dia ?? ''))} />
                   <Bar dataKey="val" fill={C.gold} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -613,7 +613,7 @@ export default function MeuPainelV6() {
                     <CartesianGrid horizontal={false} stroke={C.bd} />
                     <XAxis type="number" tickFormatter={(v: number) => brl0(v)} tick={{ fontSize: 11, fill: C.m }} />
                     <YAxis type="category" dataKey="nome" width={130} tick={{ fontSize: 12, fill: C.esp }} />
-                    <Tooltip formatter={(v) => brl0(Number(v))} />
+                    <Tooltip allowEscapeViewBox={{ x: false, y: false }} formatter={(v, n) => [brl0(Number(v)), n]} />
                     <Bar dataKey="val" fill={C.gold} radius={[0, 4, 4, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -629,8 +629,21 @@ export default function MeuPainelV6() {
                     <XAxis type="number" dataKey="desc" name="Desconto" unit="%" tick={{ fontSize: 11, fill: C.m }} />
                     <YAxis type="number" dataKey="devPct" name="Devolução" unit="%" tick={{ fontSize: 11, fill: C.m }} width={48} />
                     <ZAxis range={[80, 80]} />
-                    <Tooltip cursor={{ strokeDasharray: '3 3' }} formatter={(v, n) => `${nf({ maximumFractionDigits: 2 }).format(Number(v))}${n === 'Desconto' || n === 'Devolução' ? '%' : ''}`} />
-                    <Scatter data={vendedores} fill={C.esp} />
+                    <Tooltip cursor={{ strokeDasharray: '3 3' }} allowEscapeViewBox={{ x: false, y: false }}
+                      content={({ active, payload }) => {
+                        if (!active || !payload?.length) return null
+                        const d = payload[0].payload as VendRow
+                        return (
+                          <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 8, padding: '6px 10px', fontSize: 12, color: C.esp, boxShadow: '0 2px 8px rgba(0,0,0,.12)' }}>
+                            <div style={{ fontWeight: 700, marginBottom: 2 }}>{d.nome}</div>
+                            <div style={{ color: C.m }}>Desconto: {nf({ maximumFractionDigits: 2 }).format(d.desc)}%</div>
+                            <div style={{ color: C.m }}>Devolução: {nf({ maximumFractionDigits: 2 }).format(d.devPct)}%</div>
+                          </div>
+                        )
+                      }} />
+                    <Scatter data={vendedores} fill={C.esp}>
+                      {vendedores.length <= 14 && <LabelList dataKey="nome" position="top" style={{ fontSize: 10, fill: C.m }} />}
+                    </Scatter>
                   </ScatterChart>
                 </ResponsiveContainer>
               </div>
@@ -644,8 +657,8 @@ export default function MeuPainelV6() {
                   <BarChart data={mixVendedor.rows} layout="vertical" stackOffset="expand" margin={{ top: 4, right: 16, left: 8, bottom: 0 }}>
                     <XAxis type="number" hide />
                     <YAxis type="category" dataKey="nome" width={130} tick={{ fontSize: 12, fill: C.esp }} />
-                    <Tooltip formatter={(v) => brl0(Number(v))} />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Tooltip allowEscapeViewBox={{ x: false, y: false }} wrapperStyle={{ zIndex: 30 }} formatter={(v, n) => [brl0(Number(v)), n]} />
+                    <Legend verticalAlign="top" wrapperStyle={{ fontSize: 11, paddingBottom: 8 }} />
                     {mixVendedor.linhas.map((l, i) => (
                       <Bar key={l} dataKey={l} stackId="mix" fill={CORES_LINHA[i % CORES_LINHA.length]} />
                     ))}
