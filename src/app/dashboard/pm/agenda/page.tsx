@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DED3', TEXTM = '#6b5444', GREEN = '#1F5A1F', RED = '#7A1F1F'
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -80,7 +81,7 @@ export default function AgendaComercialPage() {
     if (quem === 'minha' && uid) q = q.or(`responsavel_id.eq.${uid},and(responsavel_id.is.null,created_by.eq.${uid})`)
     const { data, error } = await q.order('data').order('hora_inicio')
     setLoading(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar a agenda. Tente de novo.')); return }
     setAgs((data as Ag[]) ?? [])
   }, [empresa, range.de, range.ate, quem, uid])
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -119,7 +120,7 @@ export default function AgendaComercialPage() {
     // #2244: p_motivo explícito — no banco há duas versões (2 e 3 args, a de 3 com DEFAULT) e a chamada
     // só com 2 parâmetros dava "could not choose the best candidate function". Motivo nulo = mesmo efeito.
     const { error } = await supabase.rpc('fn_agendamento_mudar_status', { p_id: a.id, p_status: status, p_motivo: null })
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível mudar o status do evento.')); return }
     void carregar()
   }
 
@@ -334,7 +335,7 @@ function EventoModal({ empresa, uid, nomeUsuario, dataInicial, ag, leads, membro
         ...(lead ? { cliente_id: lead.erp_cliente_id ?? null, cliente_nome: lead.empresa || lead.nome } : {}),
       }).eq('id', ag.id).eq('company_id', empresa)
       setBusy(false)
-      if (error) { setErro(error.message); return }
+      if (error) { setErro(erroAmigavel(error, 'Não foi possível salvar o evento.')); return }
       onSaved(); return
     }
     const { error } = await supabase.rpc('fn_agendamento_criar', {
@@ -346,7 +347,7 @@ function EventoModal({ empresa, uid, nomeUsuario, dataInicial, ag, leads, membro
       p_observacao: obs.trim() || null,
     })
     setBusy(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível salvar o evento.')); return }
     onSaved()
   }
 
@@ -360,11 +361,11 @@ function EventoModal({ empresa, uid, nomeUsuario, dataInicial, ag, leads, membro
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string } | null
     if (error || !r?.ok) {
-      setErro(error?.message
-        ?? (r?.erro === 'ja_virou_os' ? 'Este evento já virou uma Ordem de Serviço — não pode ser excluído pela agenda; trate pela OS.'
+      setErro(erroAmigavel(error,
+        r?.erro === 'ja_virou_os' ? 'Este evento já virou uma Ordem de Serviço — não pode ser excluído pela agenda; trate pela OS.'
           : r?.erro === 'sem_acesso' ? 'Você não tem acesso a este evento.'
           : r?.erro === 'agendamento_nao_encontrado' ? 'Evento não encontrado (pode já ter sido excluído).'
-          : r?.erro ?? 'Não foi possível excluir o evento.'))
+          : codigoAmigavel(r?.erro, 'Não foi possível excluir o evento.')))
       return
     }
     onSaved()
