@@ -118,6 +118,23 @@ export default function QuadroPessoalPage() {
     flash('Salvo.'); void carregar()
   }
 
+  // RD-98 p2 (auditor): excluir rastreável do complemento da pessoa (cargo/setor/supervisor/salário).
+  // Exclusão lógica (recuperável) com motivo obrigatório; o ponto/folha da pessoa continua intacto.
+  async function excluirPessoa(cpf: string, matricula: string, nome: string) {
+    if (!empresa) return
+    if (!window.confirm(`Excluir o complemento de ${nome || 'esta pessoa'}?\nCargo, setor, supervisor e salário saem do custo da folha. É recuperável e fica registrado; o ponto/folha continua.`)) return
+    const motivo = window.prompt('Motivo da exclusão (fica no histórico):')
+    if (motivo === null) return
+    if (motivo.trim().length < 3) { flashErr('Informe o motivo (mínimo 3 caracteres).'); return }
+    const { data, error } = await supabase.rpc('fn_rh_pessoa_complemento_excluir', { p_company_id: empresa, p_cpf: cpf, p_matricula: matricula, p_motivo: motivo.trim() })
+    const r = data as { ok?: boolean; erro?: string }
+    if (error || r?.ok === false) {
+      const map: Record<string, string> = { sem_permissao_rh: 'Só RH/diretoria/admin editam o quadro.', sem_acesso: 'Sem acesso.', motivo_obrigatorio: 'Informe o motivo (mínimo 3 caracteres).', nao_encontrado: 'Esta pessoa não tem complemento para excluir.', identificacao_invalida: 'Não foi possível identificar a pessoa (sem CPF nem matrícula).' }
+      flashErr(error?.message || map[r?.erro ?? ''] || 'Não consegui excluir.'); return
+    }
+    flash('Complemento excluído.'); void carregar()
+  }
+
   if (!empresa) return <Casca><div style={card}>Selecione uma empresa específica para ver o quadro de pessoal.</div></Casca>
   if (loading) return <Casca><div style={{ ...card, color: MUT }}>Carregando…</div></Casca>
 
@@ -192,7 +209,7 @@ export default function QuadroPessoalPage() {
               </thead>
               <tbody>
                 {pessoasFiltradas.map((p) => (
-                  <LinhaPessoa key={p.cpf || p.matricula || (p.nome ?? '')} p={p} pode={pode} cargos={cargos} setores={setores} onSalvar={salvarPessoa} />
+                  <LinhaPessoa key={p.cpf || p.matricula || (p.nome ?? '')} p={p} pode={pode} cargos={cargos} setores={setores} onSalvar={salvarPessoa} onExcluir={excluirPessoa} />
                 ))}
                 {pessoasFiltradas.length === 0 && <tr><td style={{ ...td, color: MUT }} colSpan={9}>Nenhuma pessoa nesta competência.</td></tr>}
               </tbody>
@@ -235,12 +252,14 @@ export default function QuadroPessoalPage() {
   )
 }
 
-function LinhaPessoa({ p, pode, cargos, setores, onSalvar }: { p: Pessoa; pode: boolean; cargos: Opcao[]; setores: Opcao[]; onSalvar: (cpf: string, patch: Record<string, string>) => void }) {
+function LinhaPessoa({ p, pode, cargos, setores, onSalvar, onExcluir }: { p: Pessoa; pode: boolean; cargos: Opcao[]; setores: Opcao[]; onSalvar: (cpf: string, patch: Record<string, string>) => void; onExcluir: (cpf: string, matricula: string, nome: string) => void }) {
   const [cargo, setCargo] = useState(p.cargo_id ?? '')
   const [setor, setSetor] = useState(p.setor_id ?? '')
   const [sup, setSup] = useState(p.supervisor ?? '')
   const [sal, setSal] = useState(p.salario != null ? String(p.salario) : '')
   const mudou = cargo !== (p.cargo_id ?? '') || setor !== (p.setor_id ?? '') || sup !== (p.supervisor ?? '') || sal !== (p.salario != null ? String(p.salario) : '')
+  // Só há complemento para excluir quando a pessoa tem cargo/setor/supervisor/salário lançados (origem com complemento).
+  const temComplemento = !!(p.cargo_id || p.setor_id || (p.supervisor && p.supervisor.trim()) || p.salario != null)
   return (
     // data-ajuda: os campos editáveis da linha são documentados pelo "?" de cada coluna no cabeçalho (RD-95).
     <tr data-ajuda="rh.quadro.cargo">
@@ -269,6 +288,8 @@ function LinhaPessoa({ p, pode, cargos, setores, onSalvar }: { p: Pessoa; pode: 
       <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: GOLD, fontWeight: 700 }}>
         {pode ? brl(p.custo_hora) : '🔒'}
         {pode && mudou && <button style={{ ...btnGold, padding: '4px 8px', fontSize: 11, marginLeft: 6 }} onClick={() => onSalvar(p.cpf ?? '', { cargo_id: cargo, setor_id: setor, supervisor_nome: sup, salario_base: sal, matricula: p.matricula ?? '' })}>Salvar</button>}
+        {pode && temComplemento && !mudou && <button style={{ ...btnOut, padding: '4px 8px', fontSize: 11, marginLeft: 6, borderColor: RED, color: RED }} onClick={() => onExcluir(p.cpf ?? '', p.matricula ?? '', p.nome ?? '')}>Excluir</button>}
+        {pode && temComplemento && !mudou && <AjudaCampo chave="rh.quadro.excluir" rota={ROTA} />}
       </td>
     </tr>
   )
