@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import AjudaCampo from "@/components/ajuda/AjudaCampo";
 import { precedenciaPreco } from "@/lib/hub/precedenciaPreco";
+import { erroAmigavel, codigoAmigavel } from "@/lib/erroAmigavel";
 
 const ROTA = "/dashboard/hub/orcamento-itens";
 type Orc = { id: string; numero: string; cliente_nome: string | null; status: string; total: number | null; escopo_congelado_em: string | null };
@@ -52,7 +53,7 @@ export default function OrcamentoItensPage() {
       .then(({ data, error }) => {
         const l = (data as Orc[]) ?? [];
         setOrcs(l);
-        if (error) setMsg({ tipo: "erro", texto: error.message });
+        if (error) setMsg({ tipo: "erro", texto: erroAmigavel(error, "Não foi possível carregar os orçamentos.") });
         else if (l.length > 0) setOrcId((atual) => atual || escolherOrc(l));
       }, () => setOrcs([]))
       .finally(() => setCarregandoOrcs(false));
@@ -80,9 +81,9 @@ export default function OrcamentoItensPage() {
   const carregar = useCallback(async (id: string) => {
     if (!id) { setLista(null); return; }
     const { data, error } = await supabase.rpc("fn_orcamento_item_listar", { p_orcamento_id: id });
-    if (error) { setMsg({ tipo: "erro", texto: error.message }); return; }
+    if (error) { setMsg({ tipo: "erro", texto: erroAmigavel(error, "Não foi possível carregar o orçamento.") }); return; }
     const l = data as Lista;
-    if (!l.ok) { setMsg({ tipo: "erro", texto: l.erro ?? "Erro ao listar" }); setLista(null); return; }
+    if (!l.ok) { setMsg({ tipo: "erro", texto: codigoAmigavel(l.erro, "Não foi possível listar os itens.") }); setLista(null); return; }
     setLista(l);
   }, []);
   // Aviso de flutuação: itens de catálogo cujo custo no estoque mudou desde que entraram no orçamento (RPC read-only).
@@ -101,7 +102,7 @@ export default function OrcamentoItensPage() {
       ? await supabase.rpc("fn_orcamento_item_editar", { p_item_id: form.id, p_item: corpo })
       : await supabase.rpc("fn_orcamento_item_adicionar", { p_orcamento_id: orcId, p_item: corpo });
     const r = data as { ok: boolean; erro?: string } | null;
-    if (error || !r?.ok) { setMsg({ tipo: "erro", texto: error?.message ?? r?.erro ?? "Não foi possível salvar" }); return; }
+    if (error || !r?.ok) { setMsg({ tipo: "erro", texto: erroAmigavel(error, codigoAmigavel(r?.erro, "Não foi possível salvar o item.")) }); return; }
     setMsg({ tipo: "ok", texto: form.id ? "Item atualizado." : "Item incluído." });
     setForm(null); await carregar(orcId); await revisarCustos(orcId);
   }
@@ -109,14 +110,14 @@ export default function OrcamentoItensPage() {
     if (!window.confirm(`Excluir o item "${it.produto_nome}"?`)) return;
     const { data, error } = await supabase.rpc("fn_orcamento_item_excluir", { p_item_id: it.id });
     const r = data as { ok: boolean; erro?: string } | null;
-    if (error || !r?.ok) { setMsg({ tipo: "erro", texto: error?.message ?? r?.erro ?? "Não foi possível excluir" }); return; }
+    if (error || !r?.ok) { setMsg({ tipo: "erro", texto: erroAmigavel(error, codigoAmigavel(r?.erro, "Não foi possível excluir o item.")) }); return; }
     setMsg({ tipo: "ok", texto: "Item excluído." }); await carregar(orcId); await revisarCustos(orcId);
   }
   // Atualizar em 1 toque o custo de referência do item para o custo atual do estoque (reusa fn_orcamento_item_editar).
   async function atualizarCusto(f: FlutuaItem) {
     const { data, error } = await supabase.rpc("fn_orcamento_item_editar", { p_item_id: f.item_id, p_item: { preco_custo: String(f.custo_atual) } });
     const r = data as { ok: boolean; erro?: string } | null;
-    if (error || !r?.ok) { setMsg({ tipo: "erro", texto: error?.message ?? r?.erro ?? "Não foi possível atualizar o custo" }); return; }
+    if (error || !r?.ok) { setMsg({ tipo: "erro", texto: erroAmigavel(error, codigoAmigavel(r?.erro, "Não foi possível atualizar o custo.")) }); return; }
     setMsg({ tipo: "ok", texto: `Custo de "${f.produto_nome}" atualizado para ${brl(f.custo_atual)}.` });
     await carregar(orcId); await revisarCustos(orcId);
   }
@@ -126,7 +127,7 @@ export default function OrcamentoItensPage() {
     if (!window.confirm(`Cadastrar "${it.produto_nome}" no catálogo de produtos? Ele vira um produto com código próprio e passa a ser um item de catálogo deste orçamento.`)) return;
     const { data, error } = await supabase.rpc("fn_orcamento_item_promover_produto", { p_item_id: it.id });
     const r = data as { ok: boolean; erro?: string; codigo?: string } | null;
-    if (error || !r?.ok) { setMsg({ tipo: "erro", texto: error?.message ?? r?.erro ?? "Não foi possível cadastrar o item no catálogo" }); return; }
+    if (error || !r?.ok) { setMsg({ tipo: "erro", texto: erroAmigavel(error, codigoAmigavel(r?.erro, "Não foi possível cadastrar o item no catálogo.")) }); return; }
     setMsg({ tipo: "ok", texto: `Item cadastrado no catálogo (código ${r.codigo}). Já pode ser buscado nos próximos orçamentos.` });
     await carregar(orcId);
   }
