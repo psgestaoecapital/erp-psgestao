@@ -25,6 +25,7 @@ import { AbaPrecoV7 } from './AbaPrecoV7'
 import { calcularLogisticaV7 } from './logisticaV7'
 import { AbaLogisticaV7 } from './AbaLogisticaV7'
 import { MetasV7 } from './MetasV7'
+import { AbaRanking } from './AbaRanking'
 import { ModalAnalise, lerEscolhaSalva, type EscopoAnalise } from './ModalAnalise'
 
 const C = { esp: '#3D2314', off: '#FAF7F2', gold: '#C8941A', gold2: '#E0B048', verde: '#3f7d4e', bd: '#E7DED3', bg2: '#F0ECE3', m: '#6B5D4F', d: '#9C8E80' }
@@ -45,13 +46,13 @@ const diaISO = (base: string, n: number) => {
 const dataBR = (isoDia: string) => { const [y, m, d] = isoDia.split('-'); return `${d}/${m}/${y}` }
 
 type PerKey = 'hoje' | 'semana' | '30' | 'mes' | 'ano' | 'custom'
-type AbaKey = 'geral' | 'vendedores' | 'clientes' | 'cidades' | 'produtos' | 'preco' | 'logistica' | 'metas'
+type AbaKey = 'geral' | 'vendedores' | 'clientes' | 'cidades' | 'produtos' | 'preco' | 'logistica' | 'metas' | 'ranking'
 
 // As 8 abas do protótipo, na mesma ordem. Só a Visão geral tem conteúdo neste chassi; as outras entram em blocos próprios.
 const ABAS: { k: AbaKey; rot: string }[] = [
   { k: 'geral', rot: 'Visão geral' }, { k: 'vendedores', rot: 'Vendedores' }, { k: 'clientes', rot: 'Clientes' },
   { k: 'cidades', rot: 'Cidades' }, { k: 'produtos', rot: 'Produtos' }, { k: 'preco', rot: 'Preço e desconto' },
-  { k: 'logistica', rot: 'Logística' }, { k: 'metas', rot: 'Metas' },
+  { k: 'logistica', rot: 'Logística' }, { k: 'metas', rot: 'Metas' }, { k: 'ranking', rot: 'Ranking' },
 ]
 const PERIODOS: { k: PerKey; rot: string }[] = [
   { k: 'hoje', rot: 'Hoje' }, { k: 'semana', rot: 'Semana' }, { k: '30', rot: '30 dias' },
@@ -735,6 +736,9 @@ export default function MeuPainelV6() {
       )}
       {aba === 'metas' && (
         <MetasV7 empresa={empresa} />
+      )}
+      {aba === 'ranking' && (
+        <AbaRanking empresa={empresa} />
       )}
       {aba === 'logistica' && logisticaV7 && (
         <AbaLogisticaV7 log={logisticaV7} />
