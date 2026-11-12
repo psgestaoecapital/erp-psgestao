@@ -7,6 +7,7 @@ import type { Opcao } from '@/lib/financeiro/formasPagamento'
 export { FORMAS_PAGAMENTO } from '@/lib/financeiro/formasPagamento'
 
 export const PERIODICIDADES_CONTRATO: Opcao[] = [
+  { v: 'unica', l: 'Única (evento/avulso)' },
   { v: 'mensal', l: 'Todo mês' },
   { v: 'bimestral', l: 'A cada 2 meses' },
   { v: 'trimestral', l: 'A cada 3 meses' },
