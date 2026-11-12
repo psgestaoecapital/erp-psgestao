@@ -109,11 +109,12 @@ export function AbaClientes({ clientes, base, modelo }: Props) {
         </div>
         <div style={{ width: '100%', height: 200 }}>
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={pareto.linhas.map((l, i) => ({ i: i + 1, acum: l.acum }))} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+            <LineChart data={pareto.linhas.map((l, i) => ({ i: i + 1, acum: l.acum, nome: l.nome }))} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid vertical={false} stroke={C.bd} />
               <XAxis dataKey="i" tick={{ fontSize: 11, fill: C.m }} />
               <YAxis domain={[0, 100]} tickFormatter={(v: number) => `${v}%`} tick={{ fontSize: 11, fill: C.m }} width={48} />
-              <Tooltip formatter={(v) => pct(Number(v))} labelFormatter={(i) => `${i}º de ${pareto.linhas.length}`} />
+              <Tooltip allowEscapeViewBox={{ x: false, y: false }} formatter={(v) => [pct(Number(v)), 'Acumulado']}
+                labelFormatter={(i, p) => { const nm = (p?.[0]?.payload as { nome?: string })?.nome; return nm ? `${i}º — ${nm}` : `${i}º de ${pareto.linhas.length}` }} />
               <Line type="monotone" dataKey="acum" name="Acumulado" stroke={C.gold} dot={false} />
             </LineChart>
           </ResponsiveContainer>
@@ -150,7 +151,7 @@ export function AbaClientes({ clientes, base, modelo }: Props) {
               <CartesianGrid vertical={false} stroke={C.bd} />
               <XAxis dataKey="rot" tick={{ fontSize: 12, fill: C.m }} />
               <YAxis tickFormatter={(v: number) => brl0(v)} tick={{ fontSize: 11, fill: C.m }} width={84} />
-              <Tooltip formatter={(v) => brl0(Number(v))} />
+              <Tooltip allowEscapeViewBox={{ x: false, y: false }} formatter={(v, n) => [brl0(Number(v)), n]} />
               <Bar dataKey="media" fill={C.gold} radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -183,7 +184,7 @@ export function AbaClientes({ clientes, base, modelo }: Props) {
               <CartesianGrid vertical={false} stroke={C.bd} />
               <XAxis dataKey="rot" tick={{ fontSize: 11, fill: C.m }} interval={0} />
               <YAxis tick={{ fontSize: 11, fill: C.m }} width={48} />
-              <Tooltip formatter={(v) => `${int(Number(v))} notas`} />
+              <Tooltip allowEscapeViewBox={{ x: false, y: false }} formatter={(v, n) => [`${int(Number(v))} notas`, n]} />
               <Bar dataKey="n" fill={C.esp} radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -215,7 +216,7 @@ export function AbaClientes({ clientes, base, modelo }: Props) {
               <CartesianGrid vertical={false} stroke={C.bd} />
               <XAxis dataKey="rot" tick={{ fontSize: 11, fill: C.m }} />
               <YAxis tick={{ fontSize: 11, fill: C.m }} width={48} />
-              <Tooltip formatter={(v) => `${int(Number(v))} clientes`} />
+              <Tooltip allowEscapeViewBox={{ x: false, y: false }} formatter={(v, n) => [`${int(Number(v))} clientes`, n]} />
               <Bar dataKey="n" radius={[4, 4, 0, 0]}>
                 {clientes.carteira.map((_, i) => <Cell key={i} fill={[C.ok, C.gold, C.warn, C.bad][i]} />)}
               </Bar>
