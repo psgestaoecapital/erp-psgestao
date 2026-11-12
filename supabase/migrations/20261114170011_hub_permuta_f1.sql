@@ -176,6 +176,7 @@ BEGIN
     GROUP BY m.permuta_id
   ), calc AS (
     SELECT b.id, b.company_id, b.contratante, b.ativo_descr, b.tipo_contrato, b.obra_id,
+      b.pct_permuta,
       b.valor_permuta, b.valor_dinheiro, b.indice_reajuste, b.data_base, b.intragrupo,
       round(b.valor_atualizado, 2) AS valor_atualizado,
       round(COALESCE(mv.quitado, 0), 2) AS quitado,
@@ -191,7 +192,7 @@ BEGIN
     COALESCE(jsonb_agg(jsonb_build_object(
       'id', id, 'company_id', company_id, 'empresa_nome', empresa_nome,
       'contratante', contratante, 'ativo_descr', ativo_descr, 'tipo_contrato', tipo_contrato,
-      'obra_id', obra_id, 'obra_nome', obra_nome,
+      'obra_id', obra_id, 'obra_nome', obra_nome, 'pct_permuta', pct_permuta,
       'valor_permuta', valor_permuta, 'valor_dinheiro', valor_dinheiro,
       'indice_reajuste', indice_reajuste, 'data_base', data_base, 'intragrupo', intragrupo,
       'valor_atualizado', valor_atualizado, 'quitado', quitado, 'saldo', saldo,

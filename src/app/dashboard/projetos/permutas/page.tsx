@@ -19,6 +19,7 @@ const GREEN = '#166534', RED = '#B42318', REDBG = '#FCEBEB', AMBER = '#BA7517'
 type Permuta = {
   id: string; company_id: string; empresa_nome: string | null; contratante: string; ativo_descr: string
   tipo_contrato: string; obra_id: string | null; obra_nome: string | null
+  pct_permuta: number | null
   valor_permuta: number; valor_dinheiro: number; indice_reajuste: string | null; data_base: string | null
   intragrupo: boolean; valor_atualizado: number; quitado: number; saldo: number; pct_quitado: number; status: string
 }
