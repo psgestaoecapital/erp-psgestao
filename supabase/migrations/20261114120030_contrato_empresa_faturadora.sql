@@ -174,6 +174,9 @@ BEGIN
 END;
 $function$;
 
+REVOKE ALL ON FUNCTION public.fn_contrato_gerar_parcelas(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_contrato_gerar_parcelas(uuid) TO authenticated, service_role;
+
 CREATE OR REPLACE FUNCTION public.fn_contrato_gerar_receber(p_contrato_id uuid, p_mes_referencia date)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -236,6 +239,9 @@ BEGIN
     'valor', COALESCE(v_contrato.valor_atual, v_contrato.valor_mensal), 'data_vencimento', v_data_vencimento);
 END;
 $function$;
+
+REVOKE ALL ON FUNCTION public.fn_contrato_gerar_receber(uuid, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_contrato_gerar_receber(uuid, date) TO authenticated, service_role;
 
 -- 5) RD-95: "?" do campo "Empresa que fatura" --------------------------------------------
 INSERT INTO public.erp_ajuda_campo
