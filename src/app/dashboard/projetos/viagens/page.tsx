@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Lock, Filter, ExternalLink, MapPin } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
-import { erroAmigavel } from '@/lib/erroAmigavel'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { ConsumoVeiculo } from './ConsumoVeiculo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { FORMAS_PAGAMENTO_VIAGEM } from '@/lib/viagem/modeloPlanilha'
@@ -142,7 +142,7 @@ export default function ViagensPage() {
     const { data, error } = await supabase.rpc(fn, args)
     setBusy(false)
     const d = data as { ok?: boolean; erro?: string; erros?: string[]; titulos?: number; total?: number; reembolso_colaborador?: number; a_devolver?: number } | null
-    if (error || !d?.ok) { setMsg(error?.message ?? d?.erro ?? (d?.erros ?? []).join(' · ') ?? 'Não foi possível salvar'); return null }
+    if (error || !d?.ok) { const cod = d?.erro ? codigoAmigavel(d.erro, 'Não foi possível salvar') : ((d?.erros ?? []).join(' · ') || 'Não foi possível salvar'); setMsg(erroAmigavel(error, cod)); return null }
     return d
   }
   const obraNome = (id: string) => { const o = obras.find((x) => x.id === id); return o ? `${o.numero} · ${o.nome}` : '—' }
