@@ -85,6 +85,7 @@ function Inner() {
   const [pessoas, setPessoas] = useState<string>('')
   const [fonte, setFonte] = useState<Fonte>('manual')
   const [salvando, setSalvando] = useState(false)
+  const [excluindo, setExcluindo] = useState<string | null>(null)
 
   const [msg, setMsg] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
@@ -178,6 +179,39 @@ function Inner() {
     }
   }
 
+  // Corrigir: reabre o formulário já com o posto e a hora desta linha. O produto e a quantidade
+  // o usuário ajusta e relança — relançar a mesma hora/posto/produto é upsert (corrige, não duplica).
+  function corrigir(l: LinhaProd) {
+    setPostoId(l.posto_id)
+    setHora(String(l.hora))
+    setQtd('')
+    try { document.getElementById('apont-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' }) } catch { /* */ }
+    flash('Ajuste o produto e a quantidade e lance de novo para corrigir.')
+  }
+
+  // Excluir: remove (soft-delete rastreável) todos os lançamentos do posto nesta hora. Pede confirmação;
+  // fica registrado quem excluiu (audit_log_global). Relançar a mesma hora desfaz a exclusão.
+  async function excluir(l: LinhaProd) {
+    if (!companyId || !plantId || !fluxoId) return
+    const chave = `${l.posto_id}-${l.hora}`
+    const ok = window.confirm(`Excluir os lançamentos do posto ${l.posto_numero} às ${String(l.hora).padStart(2, '0')}h deste dia? Isso tira da grade (fica registrado quem excluiu).`)
+    if (!ok) return
+    setExcluindo(chave)
+    try {
+      const { data: d, error } = await supabase.rpc('fn_prod_apontamento_hora_excluir', {
+        p_company_id: companyId, p_plant_id: plantId, p_fluxo_id: fluxoId,
+        p_posto_id: l.posto_id, p_data: data, p_hora: l.hora,
+      })
+      if (error) { flashErr(erroAmigavel(error, 'Não foi possível excluir o apontamento. Tente de novo.')); return }
+      const r = d as unknown as { ok?: boolean; removidos?: number } | null
+      if (!r?.ok) { flashErr('Não consegui excluir o apontamento.'); return }
+      flash(r.removidos && r.removidos > 0 ? 'Apontamento EXCLUÍDO' : 'Nada para excluir nesta hora.')
+      await carregarGrid()
+    } finally {
+      setExcluindo(null)
+    }
+  }
+
   if (!companyId) return <Aviso texto="Selecione uma empresa específica no topo — o apontamento é por planta." />
   if (plants.length === 0) return <Aviso texto="Esta empresa não tem planta industrial cadastrada. Cadastre a planta antes de apontar." />
 
@@ -230,7 +264,7 @@ function Inner() {
       ) : (
         <>
           {/* Formulário de lançamento */}
-          <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 16px 18px', marginBottom: 18 }}>
+          <div id="apont-form" style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 14, padding: '16px 16px 18px', marginBottom: 18 }}>
             <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Lançar apontamento</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
               <label data-ajuda="prod.apont.posto" style={{ fontSize: 12, color: C.espM }}>Posto<Aj k="prod.apont.posto" />
@@ -306,6 +340,7 @@ function Inner() {
                     <Th right>Produtividade<Aj k="prod.apont.produtividade" /></Th>
                     <Th right>Ociosidade</Th>
                     <Th right>Pessoas<Aj k="prod.apont.pessoas" /></Th>
+                    <Th center>Ações<Aj k="prod.apont.corrigir" /><Aj k="prod.apont.excluir" /></Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -327,6 +362,18 @@ function Inner() {
                         </Td>
                         <Td right>{semCap || l.ociosidade_pct == null ? <span style={{ color: C.espL }}>—</span> : num(l.ociosidade_pct, '%')}</Td>
                         <Td right>{l.pessoas_presentes == null ? <span style={{ color: C.espL }}>—</span> : l.pessoas_presentes.toLocaleString('pt-BR')}</Td>
+                        <Td center>
+                          <div style={{ display: 'inline-flex', gap: 8, alignItems: 'center', whiteSpace: 'nowrap' }}>
+                            <button data-testid="apont-corrigir" onClick={() => corrigir(l)}
+                              style={{ padding: '4px 10px', fontSize: 12, fontWeight: 700, borderRadius: 7, border: `1px solid ${C.border}`, background: C.white, color: C.esp, cursor: 'pointer' }}>
+                              Corrigir
+                            </button>
+                            <button data-testid="apont-excluir" onClick={() => void excluir(l)} disabled={excluindo === `${l.posto_id}-${l.hora}`}
+                              style={{ padding: '4px 10px', fontSize: 12, fontWeight: 700, borderRadius: 7, border: `1px solid ${C.red}33`, background: C.redBg, color: C.red, cursor: excluindo === `${l.posto_id}-${l.hora}` ? 'not-allowed' : 'pointer' }}>
+                              {excluindo === `${l.posto_id}-${l.hora}` ? 'Excluindo…' : 'Excluir'}
+                            </button>
+                          </div>
+                        </Td>
                       </tr>
                     )
                   })}
