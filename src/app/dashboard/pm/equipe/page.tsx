@@ -68,10 +68,18 @@ export default function EquipePage() {
   useEffect(() => { void carregar() }, [empresa]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3000); return () => clearTimeout(t) }, [toast])
 
-  const kpis = useMemo(() => ({
-    total: membros.filter((m) => m.ativo).length,
-    custoMedio: membros.length ? membros.reduce((s, m) => s + Number(m.custo_hora ?? 0), 0) / membros.length : 0,
-  }), [membros])
+  // Membros ativos = cadastro da equipe (agency_equipe). A "Carga × capacidade" abaixo é outra coisa:
+  // lista quem TEM trabalho atribuído (pode incluir pessoas ainda fora do cadastro). O custo/hora médio
+  // só faz sentido sobre quem TEM custo/hora definido — média sobre inativos/zeros mascarava o R$ 0.
+  const kpis = useMemo(() => {
+    const ativos = membros.filter((m) => m.ativo)
+    const comCusto = ativos.filter((m) => Number(m.custo_hora ?? 0) > 0)
+    return {
+      total: ativos.length,
+      comCusto: comCusto.length,
+      custoMedio: comCusto.length ? comCusto.reduce((s, m) => s + Number(m.custo_hora ?? 0), 0) / comCusto.length : 0,
+    }
+  }, [membros])
 
   async function salvar() {
     if (!empresa || !edit) return
@@ -124,9 +132,14 @@ export default function EquipePage() {
         </header>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px,1fr))', gap: 10, marginBottom: 14 }}>
-          <Kpi l="Membros ativos" v={String(kpis.total)} ajuda="pm.equipe.kpi_membros_ativos" />
-          <Kpi l="Custo/hora médio" v={podeVer ? brl(kpis.custoMedio) : 'restrito'} ajuda="pm.equipe.kpi_custo_medio" />
+          <Kpi l="Membros ativos" v={String(kpis.total)} sub={podeVer && kpis.total ? `${kpis.comCusto} com custo/hora` : undefined} ajuda="pm.equipe.kpi_membros_ativos" />
+          <Kpi l="Custo/hora médio" v={podeVer ? brl(kpis.custoMedio) : 'restrito'} sub={podeVer && kpis.total ? `${kpis.comCusto} de ${kpis.total} com custo/hora` : undefined} ajuda="pm.equipe.kpi_custo_medio" />
         </div>
+
+        <p style={{ fontSize: 12, color: TEXTM, margin: '-4px 0 14px' }}>
+          &quot;Membros ativos&quot; conta a equipe cadastrada aqui. A &quot;Carga × capacidade&quot; abaixo pode listar
+          pessoas com trabalho atribuído que ainda não estão na equipe — cadastre-as para definir o custo/hora e a margem.
+        </p>
 
         <CargaEquipe empresa={empresa} versao={versao} />
 
@@ -207,11 +220,12 @@ export default function EquipePage() {
   )
 }
 
-function Kpi({ l, v, ajuda }: { l: string; v: string; ajuda: string }) {
+function Kpi({ l, v, sub, ajuda }: { l: string; v: string; sub?: string; ajuda: string }) {
   return (
     <div style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: '12px 14px' }}>
       <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700, display: 'flex', alignItems: 'center' }}>{l}<AjudaCampo chave={ajuda} /></div>
       <div style={{ fontSize: 22, fontWeight: 700, color: ESPRESSO, marginTop: 2 }}>{v}</div>
+      {sub && <div style={{ fontSize: 11, color: TEXTM, marginTop: 2 }}>{sub}</div>}
     </div>
   )
 }
