@@ -42,6 +42,9 @@ export default function ContratosModelosPanel({ companyId }: { companyId: string
   const [inativando, setInativando] = useState<Modelo | null>(null)
   const [motivo, setMotivo] = useState('')
   const [variaveis, setVariaveis] = useState<Variavel[]>([])
+  const [sugerindoIA, setSugerindoIA] = useState(false)
+  const [sugestaoIA, setSugestaoIA] = useState<{ texto: string; campos: { chave: string; rotulo: string; trecho?: string }[] } | null>(null)
+  const [avisoIA, setAvisoIA] = useState('')
   const textoRef = useRef<HTMLTextAreaElement>(null)
 
   const carregar = useCallback(async () => {
@@ -84,16 +87,45 @@ export default function ContratosModelosPanel({ companyId }: { companyId: string
     }
   }
 
-  const abrirNovo = () => { setErro(''); setForm({ ...FORM_VAZIO }) }
+  const limparSugestaoIA = () => { setSugestaoIA(null); setAvisoIA('') }
+  const abrirNovo = () => { setErro(''); limparSugestaoIA(); setForm({ ...FORM_VAZIO }) }
   const abrirEdicao = (m: Modelo) => {
-    setErro('')
+    setErro(''); limparSugestaoIA()
     setForm({ id: m.id, nome: m.nome, descricao: m.descricao ?? '', texto: m.texto ?? '' })
   }
   // Duplicar: abre "Novo modelo" pré-preenchido com o texto/descrição deste (id null → cria um NOVO ao salvar,
   // reusando fn_contrato_modelo_salvar). O original não muda.
   const abrirDuplicacao = (m: Modelo) => {
-    setErro('')
+    setErro(''); limparSugestaoIA()
     setForm({ id: null, nome: `${m.nome} (cópia)`, descricao: m.descricao ?? '', texto: m.texto ?? '' })
+  }
+
+  // F1 (#5452) · "Sugerir campos com IA": manda o TEXTO atual do editor ao servidor, que propõe onde entram
+  // os {{campos}} variáveis (só chaves válidas). Assistivo: nada é salvo; a pessoa confere e aplica. Se a IA
+  // estiver indisponível/bloqueada por orçamento, mostra aviso honesto e os botões de campo seguem valendo (RD-102).
+  const sugerirCamposIA = async () => {
+    if (!form || !companyId) return
+    const texto = (form.texto ?? '').trim()
+    if (texto.length < 20) { setAvisoIA('Escreva ou cole o texto do modelo antes de pedir a sugestão.'); setSugestaoIA(null); return }
+    setSugerindoIA(true); setAvisoIA(''); setSugestaoIA(null)
+    try {
+      const { data: s } = await supabase.auth.getSession()
+      const r = await fetch('/api/contratos/modelo/sugerir-campos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.session?.access_token ?? ''}` },
+        body: JSON.stringify({ companyId, texto }),
+      })
+      const j = await r.json().catch(() => ({ ok: false, erro: 'Falha de comunicação com o servidor.' }))
+      if (!j.ok) { setAvisoIA(j.erro || 'Não consegui gerar a sugestão. Marque os campos manualmente abaixo.'); return }
+      setSugestaoIA({ texto: j.texto_sugerido as string, campos: (j.campos ?? []) as { chave: string; rotulo: string; trecho?: string }[] })
+    } catch {
+      setAvisoIA('Não consegui falar com o servidor. Marque os campos manualmente abaixo.')
+    } finally { setSugerindoIA(false) }
+  }
+  const aplicarSugestaoIA = () => {
+    if (!form || !sugestaoIA) return
+    setForm({ ...form, texto: sugestaoIA.texto })
+    setSugestaoIA(null); setAvisoIA('')
   }
 
   const salvar = async () => {
@@ -252,6 +284,34 @@ export default function ContratosModelosPanel({ companyId }: { companyId: string
                       {v.rotulo}
                     </button>
                   ))}
+                </div>
+              </div>
+            )}
+
+            <div style={{ marginTop: 12 }}>
+              <button type="button" onClick={() => void sugerirCamposIA()} disabled={sugerindoIA} style={{ ...btnSec, borderColor: C.gold, cursor: sugerindoIA ? 'wait' : 'pointer' }}>
+                {sugerindoIA ? 'Analisando o texto…' : '✨ Sugerir campos com IA'}
+              </button>
+              <span style={{ marginLeft: 6, display: 'inline-flex', verticalAlign: 'middle' }}><AjudaCampo chave="ge.contrato.modelo.sugerir_ia" /></span>
+            </div>
+            {avisoIA && <div style={{ marginTop: 8, padding: '8px 12px', fontSize: 12, color: C.espressoM, background: C.cream, border: `1px solid ${C.border}`, borderRadius: 8 }}>{avisoIA}</div>}
+            {sugestaoIA && (
+              <div style={{ marginTop: 10, padding: 12, border: `1px solid ${C.gold}`, borderRadius: 8, background: 'rgba(200,148,26,0.06)' }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: C.espresso, marginBottom: 6 }}>
+                  {sugestaoIA.campos.length > 0 ? `Encontrei ${sugestaoIA.campos.length} campo(s) para marcar:` : 'Nenhum campo variável identificado — o texto já parece sem dados que mudam por contrato.'}
+                </div>
+                {sugestaoIA.campos.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                    {sugestaoIA.campos.map((c, i) => (
+                      <span key={i} style={{ ...chipVar, cursor: 'default' }} title={c.trecho ? `No texto: ${c.trecho}` : undefined}>{c.rotulo}</span>
+                    ))}
+                  </div>
+                )}
+                <div style={{ fontSize: 11.5, color: C.espressoM, marginBottom: 8 }}>Confira a prévia abaixo. Nada é salvo até você clicar em “Aplicar ao texto” e depois em “Salvar”.</div>
+                <div style={{ maxHeight: 140, overflow: 'auto', whiteSpace: 'pre-wrap', fontSize: 12, color: C.espresso, background: C.white, border: `1px solid ${C.border}`, borderRadius: 6, padding: 10, lineHeight: 1.5 }}>{sugestaoIA.texto}</div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                  <button type="button" onClick={aplicarSugestaoIA} style={btnPrimary}>Aplicar ao texto</button>
+                  <button type="button" onClick={() => setSugestaoIA(null)} style={btnSec}>Descartar</button>
                 </div>
               </div>
             )}
