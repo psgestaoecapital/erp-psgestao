@@ -80,6 +80,17 @@ export default function MeuPainelV6() {
   const [deC, setDeC] = useState(hojeISO)
   const [ateC, setAteC] = useState(hojeISO)
   const [aba, setAba] = useState<AbaKey>('geral')
+  // Barra compacta: no celular os filtros recolhem num botão "Filtros (n)".
+  const [isMobile, setIsMobile] = useState(false)
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false)
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return
+    const mq = window.matchMedia('(max-width: 640px)')
+    const ap = (m: MediaQueryList | MediaQueryListEvent) => setIsMobile(m.matches)
+    ap(mq)
+    mq.addEventListener?.('change', ap)
+    return () => mq.removeEventListener?.('change', ap)
+  }, [])
 
   const intervalo = useMemo(() => {
     const hoje = new Date(); const ate = iso(hoje)
@@ -311,67 +322,79 @@ export default function MeuPainelV6() {
     return <div style={{ padding: 16, color: C.m }}>Escolha uma empresa para ver o painel.</div>
   }
 
-  const selStyle: CSSProperties = { padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.bd}`, background: '#fff', color: C.esp, fontSize: 14, minHeight: 40 }
+  // Controles compactos da barra única. "?" discreto segue junto (RD-95).
+  const selCompact: CSSProperties = { padding: '5px 8px', borderRadius: 7, border: `1px solid ${C.bd}`, background: '#fff', color: C.esp, fontSize: 13, minHeight: 32, maxWidth: 190 }
+  const pill: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: C.m, whiteSpace: 'nowrap' }
+  const nFiltros = (per !== '30' ? 1 : 0) + (estado && estado.ven !== 'todos' ? 1 : 0) + (estado && estado.lin !== 'todas' ? 1 : 0)
+  const mostrarFiltros = !isMobile || filtrosAbertos
 
   return (
-    <div style={{ padding: '16px clamp(16px, 2vw, 28px)', background: C.off, color: C.esp, minHeight: '100vh', boxSizing: 'border-box', width: '100%', maxWidth: 1400, marginLeft: 'auto', marginRight: 'auto', overflowX: 'hidden' }}>
-      <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 4px' }}>Painel de vendas</h1>
-      <p style={{ fontSize: 14, color: C.m, margin: '0 0 12px' }}>
-        {base ? <>De {dataBR(base.de)} a {dataBR(base.ate)}.</> : null}
-        {carregando ? ' Carregando…' : null}
-        {erro ? <span style={{ color: '#C0392B' }}> {erro}</span> : null}
-      </p>
+    <div style={{ padding: '16px clamp(16px, 2vw, 28px)', background: C.off, color: C.esp, minHeight: '100vh', boxSizing: 'border-box', width: '100%', maxWidth: 1680, marginLeft: 'auto', marginRight: 'auto', overflowX: 'hidden' }}>
+      {/* Barra única, fina e fixa ao rolar: título + filtros compactos + resumo, com as abas logo abaixo. */}
+      <div style={{ position: 'sticky', top: 0, zIndex: 20, background: C.off, marginBottom: 14, borderBottom: `1px solid ${C.bd}`, paddingTop: 2 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', minHeight: 44, paddingBottom: 8 }}>
+          <h1 style={{ fontSize: 16, fontWeight: 700, margin: 0, whiteSpace: 'nowrap' }}>Painel de vendas</h1>
 
-      {/* Filtros: período, vendedor, linha */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 12 }}>
-        <div role="group" aria-label="Período" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-          <AjudaCampo chave="com.painel.periodo" rota={ROTA} />
-          {PERIODOS.map((p) => (
-            <button key={p.k} type="button" onClick={() => setPer(p.k)} aria-pressed={per === p.k}
-              style={{ padding: '8px 12px', minHeight: 40, borderRadius: 999, fontSize: 13, cursor: 'pointer',
-                border: `1px solid ${per === p.k ? C.gold : C.bd}`, background: per === p.k ? C.gold : '#fff', color: per === p.k ? '#fff' : C.esp }}>
-              {p.rot}
+          {isMobile && (
+            <button type="button" onClick={() => setFiltrosAbertos((v) => !v)} aria-expanded={filtrosAbertos}
+              style={{ padding: '5px 12px', minHeight: 32, borderRadius: 999, fontSize: 13, cursor: 'pointer', border: `1px solid ${nFiltros ? C.gold : C.bd}`, background: nFiltros ? C.gold : '#fff', color: nFiltros ? '#fff' : C.esp }}>
+              Filtros{nFiltros ? ` (${nFiltros})` : ''} {filtrosAbertos ? '▴' : '▾'}
+            </button>
+          )}
+
+          {mostrarFiltros && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={pill}>
+                <AjudaCampo chave="com.painel.periodo" rota={ROTA} />
+                <select aria-label="Período" value={per} onChange={(e) => setPer(e.target.value as PerKey)} style={selCompact}>
+                  {PERIODOS.map((p) => <option key={p.k} value={p.k}>{p.rot}</option>)}
+                </select>
+              </span>
+              {per === 'custom' && (
+                <span style={pill}>
+                  <input type="date" aria-label="De" value={deC} onChange={(e) => setDeC(e.target.value)} style={selCompact} />
+                  <span style={{ color: C.m }}>até</span>
+                  <input type="date" aria-label="Até" value={ateC} onChange={(e) => setAteC(e.target.value)} style={selCompact} />
+                  <AjudaCampo chave="com.painel.datas" rota={ROTA} />
+                </span>
+              )}
+              <span style={pill}>
+                Vendedor:
+                <select aria-label="Vendedor" value={String(estado?.ven ?? 'todos')} onChange={(e) => setVen(e.target.value === 'todos' ? 'todos' : Number(e.target.value))} style={selCompact} disabled={!base}>
+                  <option value="todos">Todos</option>
+                  {(base?.ven ?? []).map(([cod, nome], i) => <option key={cod + i} value={i}>{nome || cod}</option>)}
+                </select>
+                <AjudaCampo chave="com.painel.equipe" rota={ROTA} />
+              </span>
+              <span style={pill}>
+                Linha:
+                <select aria-label="Linha" value={String(estado?.lin ?? 'todas')} onChange={(e) => setLin(e.target.value === 'todas' ? 'todas' : Number(e.target.value))} style={selCompact} disabled={!base}>
+                  <option value="todas">Todas</option>
+                  {LINHAS_OPC.map((nome, i) => <option key={i} value={i}>{nome}</option>)}
+                </select>
+                <AjudaCampo chave="com.painel.produtos" rota={ROTA} />
+              </span>
+            </div>
+          )}
+
+          <div style={{ marginLeft: 'auto', fontSize: 12, color: C.m, whiteSpace: 'nowrap' }}>
+            {base ? <>De {dataBR(base.de)} a {dataBR(base.ate)}</> : null}
+            {carregando ? ' · Carregando…' : null}
+            {erro ? <span style={{ color: '#C0392B' }}> · {erro}</span> : null}
+          </div>
+        </div>
+
+        {/* Abas na mesma barra, logo abaixo, altura menor; rolam de lado no celular. */}
+        <nav aria-label="Abas" style={{ display: 'flex', gap: 4, overflowX: 'auto' }}>
+          {ABAS.map((a) => (
+            <button key={a.k} type="button" onClick={() => setAba(a.k)} aria-current={aba === a.k ? 'page' : undefined}
+              style={{ flex: '0 0 auto', padding: '6px 10px', minHeight: 34, background: 'none', border: 'none', cursor: 'pointer', fontSize: 13,
+                borderBottom: `2px solid ${aba === a.k ? C.gold : 'transparent'}`, color: aba === a.k ? C.esp : C.m, fontWeight: aba === a.k ? 700 : 500, whiteSpace: 'nowrap' }}>
+              {a.rot}
             </button>
           ))}
-        </div>
-        {per === 'custom' && (
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-            <AjudaCampo chave="com.painel.periodo" rota={ROTA} />
-            <input type="date" aria-label="De" value={deC} onChange={(e) => setDeC(e.target.value)} style={selStyle} />
-            <AjudaCampo chave="com.painel.datas" rota={ROTA} />
-            <span style={{ color: C.m, fontSize: 13 }}>até</span>
-            <input type="date" aria-label="Até" value={ateC} onChange={(e) => setAteC(e.target.value)} style={selStyle} />
-            <AjudaCampo chave="com.painel.datas" rota={ROTA} />
-          </div>
-        )}
+        </nav>
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 12, color: C.m }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Vendedor<AjudaCampo chave="com.painel.equipe" rota={ROTA} /></span>
-          <select aria-label="Vendedor" value={String(estado?.ven ?? 'todos')} onChange={(e) => setVen(e.target.value === 'todos' ? 'todos' : Number(e.target.value))} style={selStyle} disabled={!base}>
-            <option value="todos">Todos</option>
-            {(base?.ven ?? []).map(([cod, nome], i) => <option key={cod + i} value={i}>{nome || cod}</option>)}
-          </select>
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: 12, color: C.m }}>
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Linha<AjudaCampo chave="com.painel.produtos" rota={ROTA} /></span>
-          <select aria-label="Linha" value={String(estado?.lin ?? 'todas')} onChange={(e) => setLin(e.target.value === 'todas' ? 'todas' : Number(e.target.value))} style={selStyle} disabled={!base}>
-            <option value="todas">Todas</option>
-            {LINHAS_OPC.map((nome, i) => <option key={i} value={i}>{nome}</option>)}
-          </select>
-        </label>
-      </div>
-
-      {/* Navegação das 8 abas */}
-      <nav aria-label="Abas" style={{ display: 'flex', gap: 6, overflowX: 'auto', borderBottom: `1px solid ${C.bd}`, marginBottom: 16, paddingBottom: 2 }}>
-        {ABAS.map((a) => (
-          <button key={a.k} type="button" onClick={() => setAba(a.k)} aria-current={aba === a.k ? 'page' : undefined}
-            style={{ flex: '0 0 auto', padding: '10px 12px', minHeight: 40, background: 'none', border: 'none', cursor: 'pointer', fontSize: 14,
-              borderBottom: `3px solid ${aba === a.k ? C.gold : 'transparent'}`, color: aba === a.k ? C.esp : C.m, fontWeight: aba === a.k ? 700 : 500, whiteSpace: 'nowrap' }}>
-            {a.rot}
-          </button>
-        ))}
-      </nav>
 
       {aba !== 'geral' && aba !== 'vendedores' && aba !== 'clientes' && aba !== 'cidades' && aba !== 'produtos' && aba !== 'preco' && aba !== 'logistica' && aba !== 'metas' && (
         <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16, color: C.m, fontSize: 14 }}>
