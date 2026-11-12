@@ -45,7 +45,7 @@ export default function ContratosModelosPanel({ companyId }: { companyId: string
   const [sugerindoIA, setSugerindoIA] = useState(false)
   const [sugestaoIA, setSugestaoIA] = useState<{ texto: string; campos: { chave: string; rotulo: string; trecho?: string }[] } | null>(null)
   const [avisoIA, setAvisoIA] = useState('')
-  // F1b (#5452) · subir modelo em PDF: extrai o texto no navegador (pdfjs) e preenche o editor.
+  // F1b/F1c (#5452) · subir modelo em PDF ou Word (.docx): extrai o texto no navegador e preenche o editor.
   const [extraindoPdf, setExtraindoPdf] = useState(false)
   const [avisoPdf, setAvisoPdf] = useState('')
   const textoRef = useRef<HTMLTextAreaElement>(null)
@@ -132,49 +132,95 @@ export default function ContratosModelosPanel({ companyId }: { companyId: string
     setSugestaoIA(null); setAvisoIA('')
   }
 
-  // F1b (#5452) · "Subir modelo (PDF)": lê o PDF que a pessoa já usa e extrai o texto NO NAVEGADOR
-  // (pdfjs-dist, mesma lib do take-off — worker em /pdf.worker.min.mjs). O texto cai no editor para a
-  // pessoa conferir e marcar os campos variáveis. RD-102: PDF escaneado (sem texto) → aviso honesto
-  // para colar à mão; nada é enviado a servidor nem salvo. Só .pdf (Word → salvar como PDF antes).
-  const MAX_PDF_BYTES = 20 * 1024 * 1024 // 20 MB
-  const extrairTextoDoPdf = async (file: File) => {
+  // F1b/F1c (#5452) · "Subir modelo (PDF ou Word)": lê o arquivo que a pessoa já usa e extrai o texto
+  // NO NAVEGADOR — PDF por pdfjs-dist (worker em /pdf.worker.min.mjs) e Word (.docx) por jszip (o .docx
+  // é um .zip com word/document.xml). O texto cai no editor para a pessoa conferir e marcar os campos
+  // variáveis. RD-102: arquivo sem texto extraível → aviso honesto para colar à mão; nada é enviado a
+  // servidor nem salvo. .doc antigo (binário) não é suportado — salvar como .docx ou PDF antes.
+  const MAX_ARQUIVO_BYTES = 20 * 1024 * 1024 // 20 MB
+
+  // PDF → texto (pdfjs). Extrator puro: devolve só o texto (o tratamento comum fica no dispatcher).
+  const extrairTextoDePdf = async (file: File): Promise<string> => {
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    const pdfjs = await import('pdfjs-dist')
+    if (!pdfjs.GlobalWorkerOptions.workerSrc) {
+      pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
+    }
+    const loadingTask = pdfjs.getDocument({
+      data: bytes,
+      isEvalSupported: false,
+    } as unknown as Parameters<typeof pdfjs.getDocument>[0])
+    const pdf = await loadingTask.promise
+    const partes: string[] = []
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const page = await pdf.getPage(p)
+      const content = await page.getTextContent()
+      const linha = (content.items as Array<{ str?: string }>)
+        .map((it) => (typeof it.str === 'string' ? it.str : ''))
+        .join(' ')
+        .replace(/[ \t]+/g, ' ')
+        .trim()
+      if (linha) partes.push(linha)
+    }
+    return partes.join('\n\n').trim()
+  }
+
+  // Word (.docx) → texto (jszip, já no projeto — RD-26). Preserva parágrafos (<w:p>) e quebras (<w:br>,
+  // <w:tab>); títulos viram linhas próprias. Lê só word/document.xml; decodifica as entidades XML.
+  const extrairTextoDeDocx = async (file: File): Promise<string> => {
+    const JSZip = (await import('jszip')).default
+    const zip = await JSZip.loadAsync(await file.arrayBuffer())
+    const docXml = zip.file('word/document.xml')
+    if (!docXml) return ''
+    const xml = await docXml.async('string')
+    const decodeEntidades = (s: string) =>
+      s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+        .replace(/&apos;/g, "'").replace(/&amp;/g, '&')
+    const paragrafos = xml
+      .split(/<\/w:p>/) // cada <w:p> é um parágrafo
+      .map((bloco) => {
+        const comQuebras = bloco
+          .replace(/<w:tab\b[^>]*\/?>/g, '\t')
+          .replace(/<w:br\b[^>]*\/?>/g, '\n')
+        const textos = comQuebras.match(/<w:t\b[^>]*>([\s\S]*?)<\/w:t>/g) ?? []
+        return decodeEntidades(
+          textos.map((t) => t.replace(/<[^>]+>/g, '')).join(''),
+        ).replace(/[ \t]+/g, ' ').trim()
+      })
+      .filter((linha) => linha.length > 0)
+    return paragrafos.join('\n').trim()
+  }
+
+  // Dispatcher: valida tamanho/formato, chama o extrator certo e trata o resultado de forma única.
+  const extrairTextoDoArquivo = async (file: File) => {
     setAvisoPdf('')
     const nome = (file.name || '').toLowerCase()
-    if (file.type !== 'application/pdf' && !nome.endsWith('.pdf')) {
-      setAvisoPdf('Por enquanto só PDF. Se o seu modelo está em Word (.doc/.docx), salve como PDF e suba de novo.')
+    const ehPdf = file.type === 'application/pdf' || nome.endsWith('.pdf')
+    const ehDocx =
+      file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      nome.endsWith('.docx')
+    if (!ehPdf && !ehDocx) {
+      setAvisoPdf(
+        nome.endsWith('.doc')
+          ? 'Word antigo (.doc) não é lido direto. Abra no Word e salve como .docx (ou PDF) e suba de novo.'
+          : 'Formato não suportado. Suba um PDF ou um Word (.docx).',
+      )
       return
     }
-    if (file.size > MAX_PDF_BYTES) {
-      setAvisoPdf('Arquivo muito grande (máx. 20 MB). Suba um PDF menor ou cole o texto à mão.')
+    if (file.size > MAX_ARQUIVO_BYTES) {
+      setAvisoPdf('Arquivo muito grande (máx. 20 MB). Suba um arquivo menor ou cole o texto à mão.')
       return
     }
     setExtraindoPdf(true)
     try {
-      const bytes = new Uint8Array(await file.arrayBuffer())
-      const pdfjs = await import('pdfjs-dist')
-      if (!pdfjs.GlobalWorkerOptions.workerSrc) {
-        pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
-      }
-      const loadingTask = pdfjs.getDocument({
-        data: bytes,
-        isEvalSupported: false,
-      } as unknown as Parameters<typeof pdfjs.getDocument>[0])
-      const pdf = await loadingTask.promise
-      const partes: string[] = []
-      for (let p = 1; p <= pdf.numPages; p++) {
-        const page = await pdf.getPage(p)
-        const content = await page.getTextContent()
-        const linha = (content.items as Array<{ str?: string }>)
-          .map((it) => (typeof it.str === 'string' ? it.str : ''))
-          .join(' ')
-          .replace(/[ \t]+/g, ' ')
-          .trim()
-        if (linha) partes.push(linha)
-      }
-      const texto = partes.join('\n\n').trim()
+      const texto = ehPdf ? await extrairTextoDePdf(file) : await extrairTextoDeDocx(file)
       if (!texto) {
-        // RD-102 · PDF sem texto selecionável (digitalizado): a extração automática não resolve.
-        setAvisoPdf('Este PDF não tem texto selecionável (parece digitalizado/foto). Cole o texto do contrato à mão no campo abaixo.')
+        // RD-102 · sem texto extraível (PDF digitalizado/foto, ou .docx só com imagem).
+        setAvisoPdf(
+          ehPdf
+            ? 'Este PDF não tem texto selecionável (parece digitalizado/foto). Cole o texto do contrato à mão no campo abaixo.'
+            : 'Não encontrei texto neste Word. Se o contrato for só imagem, cole o texto à mão no campo abaixo.',
+        )
         return
       }
       setForm((f) => {
@@ -184,9 +230,9 @@ export default function ContratosModelosPanel({ companyId }: { companyId: string
         const novo = atual ? `${atual}\n\n${texto}` : texto
         return { ...f, texto: novo }
       })
-      setAvisoPdf(`Texto extraído de "${file.name}" (${pdf.numPages} página(s)). Confira abaixo e marque os campos variáveis.`)
+      setAvisoPdf(`Texto extraído de "${file.name}". Confira abaixo e marque os campos variáveis.`)
     } catch {
-      setAvisoPdf('Não consegui ler este PDF. Verifique o arquivo ou cole o texto do contrato à mão.')
+      setAvisoPdf('Não consegui ler este arquivo. Verifique se é um PDF ou Word (.docx) válido, ou cole o texto à mão.')
     } finally {
       setExtraindoPdf(false)
       if (pdfInputRef.current) pdfInputRef.current.value = '' // permite subir o mesmo arquivo de novo
@@ -357,13 +403,13 @@ export default function ContratosModelosPanel({ companyId }: { companyId: string
               <input
                 ref={pdfInputRef}
                 type="file"
-                accept="application/pdf,.pdf"
+                accept="application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx"
                 style={{ display: 'none' }}
-                onChange={(e) => { const fl = e.target.files?.[0]; if (fl) void extrairTextoDoPdf(fl) }}
+                onChange={(e) => { const fl = e.target.files?.[0]; if (fl) void extrairTextoDoArquivo(fl) }}
               />
               <span style={{ display: 'inline-flex', alignItems: 'center' }}>
                 <button type="button" onClick={() => pdfInputRef.current?.click()} disabled={extraindoPdf} style={{ ...btnSec, cursor: extraindoPdf ? 'wait' : 'pointer' }}>
-                  {extraindoPdf ? 'Lendo o PDF…' : '📄 Subir modelo (PDF)'}
+                  {extraindoPdf ? 'Lendo o arquivo…' : '📄 Subir modelo (PDF ou Word)'}
                 </button>
                 <span style={{ marginLeft: 6, display: 'inline-flex', verticalAlign: 'middle' }}><AjudaCampo chave="ge.contrato.modelo.subir_arquivo" /></span>
               </span>
