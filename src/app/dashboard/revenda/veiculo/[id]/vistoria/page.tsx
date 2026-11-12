@@ -9,6 +9,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'rea
 import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { erroAmigavel } from '@/lib/erroAmigavel'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -427,7 +429,7 @@ function ItemCard({ item, idx, total, regiaoNome, companyId, save, onResponder, 
 }) {
   const [expandido, setExpandido] = useState<null | 'reparo' | 'troca'>(item.estado === 'reparo' || item.estado === 'troca' ? item.estado : null)
   const [desc, setDesc] = useState(item.descricao ?? '')
-  const [valor, setValor] = useState(item.gasto_previsto != null ? String(item.gasto_previsto) : '')
+  const [valor, setValor] = useState(numeroParaMoeda(item.gasto_previsto))
   const [sug, setSug] = useState<{ tem_historico?: boolean; ocorrencias?: number; min?: number; max?: number } | null>(null)
 
   useEffect(() => {
@@ -445,8 +447,8 @@ function ItemCard({ item, idx, total, regiaoNome, companyId, save, onResponder, 
   }
   const salvarValor = () => {
     if (!expandido) return
-    const n = Number(String(valor).replace(',', '.'))
-    onResponder(expandido, desc.trim() || null, Number.isFinite(n) && n > 0 ? n : null, true)
+    const n = moedaParaNumero(valor)
+    onResponder(expandido, desc.trim() || null, n != null && n > 0 ? n : null, true)
   }
 
   const cor = item.estado ? ESTADO_COR[item.estado] : null
@@ -485,7 +487,7 @@ function ItemCard({ item, idx, total, regiaoNome, companyId, save, onResponder, 
           <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="ex.: Reparo tecido/couro"
             style={{ width: '100%', boxSizing: 'border-box', marginTop: 6, padding: 12, fontSize: 15, border: `1px solid ${C.border}`, borderRadius: 10, color: C.esp }} />
           <div style={{ fontSize: 12.5, color: C.espM, fontWeight: 700, marginTop: 12 }}>Quanto vai custar?</div>
-          <input value={valor} onChange={(e) => setValor(e.target.value)} inputMode="decimal" placeholder="R$ 0,00"
+          <CampoMoeda value={valor} onChange={setValor} placeholder="R$ 0,00"
             style={{ width: '100%', boxSizing: 'border-box', marginTop: 6, padding: 12, fontSize: 18, border: `1px solid ${C.border}`, borderRadius: 10, color: C.esp }} />
           {/* sugestão só com histórico real (§2.3) — nunca faixa inventada */}
           {sug?.tem_historico && sug.min != null && sug.max != null && (
