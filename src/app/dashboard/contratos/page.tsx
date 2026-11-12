@@ -5,6 +5,7 @@ import { useCompanyIds } from "@/lib/useCompanyIds";
 import ContratosFeePanel from "@/components/ge/ContratosFeePanel";
 import ContratosModelosPanel from "@/components/ge/ContratosModelosPanel";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -158,7 +159,7 @@ export default function ContratosPage(){
       .in('company_id', ids)
       .order('created_at', { ascending: false });
     if (error && !error.message.includes('does not exist')) {
-      setMsg("Erro: "+error.message);
+      setMsg("Não foi possível carregar os contratos. Tente novamente.");
     }
     setContratos((data as any) || []);
     setLoading(false);
@@ -288,7 +289,7 @@ export default function ContratosPage(){
       created_by:user?.id,
     });
 
-    if(error){setMsg("❌ "+error.message);return;}
+    if(error){setMsg("❌ Não foi possível criar o contrato. Tente novamente.");return;}
     setMsg(`✅ Contrato ${numero} criado com sucesso`);
     setShowNovo(false); setServicoSel("");
     setNovoContrato({cliente_id:'',cliente_nome:'',cliente_cnpj:'',cliente_email:'',tipo:'bpo_financeiro',nome:'',descricao:'',escopo:'',valor_mensal:0,data_inicio:hoje(),data_fim:'',dia_vencimento:10,periodicidade:'mensal',tipo_reajuste:'ipca',reajuste_percentual:0,mes_reajuste:1,forma_pagamento:'boleto'});
@@ -305,7 +306,7 @@ export default function ContratosPage(){
     setProcessando(true);
     const dataRef = new Date().toISOString().split('T')[0];
     const { data, error } = await supabase.rpc('fn_contrato_processar_lote_diario', { p_data_referencia: dataRef });
-    if(error){setMsg("❌ "+error.message);setProcessando(false);return;}
+    if(error){setMsg("❌ Não foi possível gerar os títulos do mês. Tente novamente.");setProcessando(false);return;}
     const r:any = Array.isArray(data) ? (data[0]||{}) : (data||{});
     const sucesso = r.total_sucesso ?? r.gerados ?? 0;
     const idemp = r.total_idempotente ?? r.ja_existentes ?? 0;
@@ -325,7 +326,7 @@ export default function ContratosPage(){
       p_contrato_id: c.id,
       p_indice_aplicado: null,
     });
-    if(error){setMsg("❌ "+error.message);setProcessando(false);return;}
+    if(error){setMsg("❌ Não foi possível aplicar o reajuste. Tente novamente.");setProcessando(false);return;}
     setMsg(`✅ Reajuste aplicado em ${c.cliente_nome}`);
     setProcessando(false);
     refetchAll();
@@ -339,7 +340,7 @@ export default function ContratosPage(){
       p_contrato_id: showReajuste.id,
       p_indice_aplicado: pctReajuste,
     });
-    if(error){setMsg("❌ "+error.message);setProcessando(false);return;}
+    if(error){setMsg("❌ Não foi possível aplicar o reajuste. Tente novamente.");setProcessando(false);return;}
     setMsg(`✅ Reajuste de ${pctReajuste}% aplicado`);
     setShowReajuste(null);
     setPctReajuste(0);
@@ -386,7 +387,7 @@ export default function ContratosPage(){
     if(editForm.data_fim) patch.data_fim=editForm.data_fim;
     const {data,error}=await supabase.rpc('fn_contrato_editar',{p_id:showEditar.id,p_patch:patch});
     setProcessando(false);
-    if(error||(data&&data.ok===false)){setMsg("❌ "+(error?.message||data?.erro));return;}
+    if(error||(data&&data.ok===false)){setMsg("❌ "+(error?erroAmigavel(error,"Não foi possível concluir. Tente de novo."):(data?.erro||"Não foi possível concluir. Tente de novo.")));return;}
     setMsg("✅ Contrato alterado"); setShowEditar(null);
     setGuardCache(g=>{const n={...g};delete n[showEditar.id];return n;});
     refetchAll(); setTimeout(()=>setMsg(""),3000);
@@ -394,6 +395,23 @@ export default function ContratosPage(){
   const abrirAcao=(tipo:'excluir'|'encerrar',c:Contrato)=>{
     setMenuAberto(null); setMotivoAcao('');
     setAcaoModal({tipo,c,guard:guardCache[c.id]});
+  };
+  // RD-98 g: "Excluir" visível na linha (fora do "…"). Carrega a guarda fiscal (fn_contrato_acoes_permitidas)
+  // só quando o usuário clica; se o contrato não pode ser excluído, explica o motivo em vez de abrir o modal.
+  // Reusa a MESMA exclusão (fn_contrato_excluir, soft-delete com motivo + auditoria) via o acaoModal existente.
+  const excluirDireto=async(c:Contrato)=>{
+    setMenuAberto(null);
+    let g=guardCache[c.id];
+    if(!g){
+      const {data}=await supabase.rpc('fn_contrato_acoes_permitidas',{p_contrato_id:c.id});
+      g=data; setGuardCache(gc=>({...gc,[c.id]:data}));
+    }
+    if(g && g.pode_excluir===false){
+      setMsg("ℹ️ "+(g.motivo_bloqueio||"Este contrato não pode ser excluído agora."));
+      setTimeout(()=>setMsg(""),5000);
+      return;
+    }
+    setMotivoAcao(''); setAcaoModal({tipo:'excluir',c,guard:g});
   };
   const confirmarAcao=async()=>{
     if(!acaoModal||!motivoAcao.trim())return;
@@ -403,7 +421,7 @@ export default function ContratosPage(){
       ? await supabase.rpc('fn_contrato_excluir',{p_id:c.id,p_motivo:motivoAcao.trim()})
       : await supabase.rpc('fn_contrato_encerrar',{p_id:c.id,p_motivo:motivoAcao.trim()});
     setProcessando(false);
-    if(error||(data&&data.ok===false)){setMsg("❌ "+(error?.message||data?.erro));return;}
+    if(error||(data&&data.ok===false)){setMsg("❌ "+(error?erroAmigavel(error,"Não foi possível concluir. Tente de novo."):(data?.erro||"Não foi possível concluir. Tente de novo.")));return;}
     setMsg(tipo==='excluir'?"✅ Contrato excluído":"✅ Contrato encerrado");
     setAcaoModal(null);
     setGuardCache(g=>{const n={...g};delete n[c.id];return n;});
@@ -442,7 +460,7 @@ export default function ContratosPage(){
       p_contrato_id:showGerarModelo.id, p_gravar:gravar,
     });
     setGerandoModelo(false);
-    if(error){ setErroGerar(error.message||"Não foi possível gerar o contrato. Tente de novo."); return; }
+    if(error){ setErroGerar(erroAmigavel(error, "Não foi possível gerar o contrato. Tente de novo.")); return; }
     const r=data as any;
     setPreviewGerar({texto:r?.texto||"",campos_pendentes:(r?.campos_pendentes||[]) as string[]});
     if(gravar){
@@ -509,7 +527,7 @@ export default function ContratosPage(){
     <div style={{minHeight:"100vh",background:BG,padding:20}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
         <div>
-          <div style={{fontSize:22,fontWeight:700,color:TX}}>🔄 Contratos Recorrentes</div>
+          <div style={{fontSize:22,fontWeight:700,color:TX}}>🔄 Gestão de contratos</div>
           <div style={{fontSize:11,color:TXD}}>
             BPO · Consultoria · SaaS · Serviços mensais · Geração automática · MRR/Churn/LTV
             {selInfo && (
@@ -522,7 +540,7 @@ export default function ContratosPage(){
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
           {/* #6912 — evita dois botões com a mesma função: quando a lista de contratos está vazia, o CTA "+ Primeiro Contrato" do estado vazio já abre o cadastro, então não repetimos "+ Novo Contrato" aqui. */}
           {!(tab==='contratos'&&!loading&&filtrados.length===0) && (
-            <button onClick={()=>setShowNovo(true)} disabled={empresasNoEscopo.length===0} style={{padding:"8px 16px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:empresasNoEscopo.length===0?"not-allowed":"pointer",opacity:empresasNoEscopo.length===0?0.5:1}}>+ Novo Contrato</button>
+            <button onClick={()=>setShowNovo(true)} disabled={empresasNoEscopo.length===0} style={{padding:"8px 16px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:empresasNoEscopo.length===0?"not-allowed":"pointer",opacity:empresasNoEscopo.length===0?0.5:1}}>+ Incluir contrato</button>
           )}
         </div>
       </div>
@@ -750,24 +768,21 @@ export default function ContratosPage(){
                             <span style={{fontSize:9,padding:"3px 10px",borderRadius:6,background:cfg.cor+"15",color:cfg.cor,fontWeight:600,whiteSpace:"nowrap"}}>{cfg.icon} {cfg.label}</span>
                           </td>
                           <td style={{padding:"8px",textAlign:"right",position:"relative"}} onClick={e=>e.stopPropagation()}>
-                            <div style={{display:"inline-flex",gap:4,alignItems:"center"}}>
+                            <div style={{display:"inline-flex",gap:4,alignItems:"center",flexWrap:"wrap",justifyContent:"flex-end"}}>
                               <button onClick={()=>abrirDetalhe(c)} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>Ver →</button>
-                              <button onClick={()=>abrirMenu(c)} title="Ações" style={{fontSize:14,lineHeight:1,padding:"3px 9px",borderRadius:6,background:BG3,color:TXM,border:`1px solid ${BD}`,cursor:"pointer",fontWeight:700}}>⋯</button>
+                              {/* RD-98 g: Editar e Excluir visíveis na linha (antes só no menu "…"). */}
+                              <button onClick={()=>abrirEditar(c)} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:BG3,color:TX,border:`1px solid ${BD}`,cursor:"pointer",fontWeight:600}}>Editar</button>
+                              <button onClick={()=>excluirDireto(c)} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:R+"12",color:R,border:`1px solid ${R}40`,cursor:"pointer",fontWeight:600}}>Excluir</button>
+                              <button onClick={()=>abrirMenu(c)} title="Mais ações" style={{fontSize:14,lineHeight:1,padding:"3px 9px",borderRadius:6,background:BG3,color:TXM,border:`1px solid ${BD}`,cursor:"pointer",fontWeight:700}}>⋯</button>
                             </div>
                             {menuAberto===c.id&&(
                               <div style={{position:"absolute",right:8,top:"100%",marginTop:2,background:BG2,border:`1px solid ${BD}`,borderRadius:8,boxShadow:"0 6px 20px rgba(0,0,0,0.18)",zIndex:50,minWidth:220,textAlign:"left",overflow:"hidden"}}>
-                                <button onClick={()=>abrirEditar(c)} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 12px",background:"transparent",border:"none",borderBottom:`1px solid ${BD}`,color:TX,fontSize:12,cursor:"pointer",fontWeight:500}}>✏️ Editar</button>
                                 {!guardCache[c.id]&&<div style={{padding:"9px 12px",fontSize:11,color:TXD}}>Verificando cobranças…</div>}
                                 {guardCache[c.id]?.pode_encerrar&&(
-                                  <button onClick={()=>abrirAcao('encerrar',c)} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 12px",background:"transparent",border:"none",borderBottom:`1px solid ${BD}`,color:TX,fontSize:12,cursor:"pointer",fontWeight:500}}>⏸️ Encerrar</button>
+                                  <button onClick={()=>abrirAcao('encerrar',c)} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 12px",background:"transparent",border:"none",color:TX,fontSize:12,cursor:"pointer",fontWeight:500}}>⏸️ Encerrar</button>
                                 )}
-                                {guardCache[c.id]?.pode_excluir&&(
-                                  <button onClick={()=>abrirAcao('excluir',c)} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 12px",background:"transparent",border:"none",color:R,fontSize:12,cursor:"pointer",fontWeight:600}}>🗑️ Excluir</button>
-                                )}
-                                {guardCache[c.id]&&!guardCache[c.id].pode_excluir&&(
-                                  <div style={{padding:"8px 12px",fontSize:10,color:TXM,background:BG3,display:"flex",gap:6,alignItems:"flex-start"}}>
-                                    <span>ℹ️</span><span>{guardCache[c.id].motivo_bloqueio}</span>
-                                  </div>
+                                {guardCache[c.id]&&!guardCache[c.id].pode_encerrar&&(
+                                  <div style={{padding:"9px 12px",fontSize:11,color:TXD}}>Encerrar indisponível para este contrato.</div>
                                 )}
                               </div>
                             )}

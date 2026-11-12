@@ -16,6 +16,12 @@ type Regra = { id: string; source_type: string; source_key: string; business_lin
 type BL = { id: string; name: string }
 type Conta = { codigo: string; descricao: string }
 
+// RD-98 critério (e): o erro CRU do banco nunca vai à tela. Loga o técnico e devolve frase amigável.
+function erroAmigavel(err: unknown, acao: string): string {
+  if (err) { try { console.error(`[centros-custo/rateio] falha ao ${acao}:`, err) } catch { /* console indisponível */ } }
+  return `não foi possível ${acao} agora. Tente de novo em instantes; se continuar, fale com o suporte.`
+}
+
 export default function RegrasRateio({ companyId, bls }: { companyId: string; bls: BL[] }) {
   const [regras, setRegras] = useState<Regra[]>([])
   const [contas, setContas] = useState<Conta[]>([])
@@ -61,7 +67,7 @@ export default function RegrasRateio({ companyId, bls }: { companyId: string; bl
       business_line_id: comum ? null : novo.bl, tipo_apropriacao: comum ? 'comum' : 'direto',
       allocation_pct: pct, cost_scope: 'todos', priority: 0, ativo: true,
     })
-    if (error) { setMsg('Erro: ' + error.message); return }
+    if (error) { setMsg('Erro: ' + erroAmigavel(error, 'gravar a regra de rateio')); return }
     setMsg(`Regra gravada: ${novo.tipo} "${chave}" → ${comum ? 'Comum (rateio)' : nomeBl.get(novo.bl)} ${pct}%.`)
     setNovo({ ...novo, chave: '', pct: ja + pct < 100 ? String(100 - ja - pct) : '100' })
     await carregar()
@@ -72,7 +78,7 @@ export default function RegrasRateio({ companyId, bls }: { companyId: string; bl
     setMsg(null)
     // regra de conta/texto não está gravada em nenhum lançamento: tirar não quebra histórico (o cálculo é sempre na hora)
     const { error } = await supabase.from('cost_center_map').delete().eq('id', r.id).eq('company_id', companyId)
-    if (error) setMsg('Erro: ' + error.message)
+    if (error) setMsg('Erro: ' + erroAmigavel(error, 'retirar a regra de rateio'))
     else { setMsg('Regra retirada.'); await carregar() }
   }
 

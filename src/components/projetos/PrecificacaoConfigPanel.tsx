@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import { DollarSign, Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { erroAmigavel, codigoAmigavel } from "@/lib/erroAmigavel";
 
 type Linha = { id: string; nome: string };
 type Cfg = Record<string, number | string | null> & { business_line_id: string | null };
@@ -74,9 +75,9 @@ export default function PrecificacaoConfigPanel({ companyId }: { companyId: stri
     const supabase = supabaseBrowser();
     const { data, error } = await supabase.rpc("fn_precificacao_config_obter", { p_company_id: companyId });
     setLoading(false);
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error, "Falha ao carregar premissas")); return; }
     const j = data as Obter;
-    if (!j?.ok) { setErro(j?.erro ?? "Falha ao carregar premissas"); return; }
+    if (!j?.ok) { setErro(codigoAmigavel(j?.erro, "Falha ao carregar premissas")); return; }
     setLinhas(j.linhas ?? []);
     setConfigs(j.config ?? []);
   }, [companyId]);
@@ -113,9 +114,9 @@ export default function PrecificacaoConfigPanel({ companyId }: { companyId: stri
       p_company_id: companyId, p_business_line_id: escopoBlId, p_premissas: premissas,
     });
     setSalvando(false);
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error, "Falha ao salvar")); return; }
     const j = data as { ok?: boolean; erro?: string } | null;
-    if (!j?.ok) { setErro(j?.erro ?? "Falha ao salvar"); return; }
+    if (!j?.ok) { setErro(codigoAmigavel(j?.erro, "Falha ao salvar")); return; }
     setToast("Premissas ALTERADAS");
     await carregar();
   }

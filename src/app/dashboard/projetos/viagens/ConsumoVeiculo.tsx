@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const LINE = '#E7DECF'
@@ -23,7 +24,7 @@ export function ConsumoVeiculo({ empresa, placa }: { empresa: string; placa: str
     let vivo = true
     supabase.rpc('fn_viagem_consumo', { p_company_id: empresa, p_placa: placa }).then(({ data, error }) => {
       if (!vivo) return
-      setErro(error?.message ?? ''); setC((data as Consumo) ?? null)
+      setErro(error ? erroAmigavel(error, 'Não foi possível carregar o consumo do veículo.') : ''); setC((data as Consumo) ?? null)
     })
     return () => { vivo = false }
   }, [empresa, placa])
