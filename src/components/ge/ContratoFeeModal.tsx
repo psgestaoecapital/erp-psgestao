@@ -120,6 +120,13 @@ export default function ContratoFeeModal({ companyId, contratoId, onClose, onSav
     if (n > 0) setNParcelas(String(n))
   }, [de, ate])
 
+  // P2 (CEO 12/11): "Única (evento/avulso)" → 1 parcela, Até = De (vigência de 1 dia)
+  useEffect(() => {
+    if (periodicidade !== 'unica') return
+    if (de) setAte(de)
+    else setNParcelas('1')
+  }, [periodicidade, de])
+
   const ativo = row?.status === 'ativo'
 
   // #6703 · ao escolher o cliente, o CPF/CNPJ do contratante vem do cadastro do cliente (erp_clientes),
