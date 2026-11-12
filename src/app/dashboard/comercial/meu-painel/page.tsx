@@ -325,11 +325,15 @@ export default function MeuPainelV6() {
   // Controles compactos da barra única. "?" discreto segue junto (RD-95).
   const selCompact: CSSProperties = { padding: '5px 8px', borderRadius: 7, border: `1px solid ${C.bd}`, background: '#fff', color: C.esp, fontSize: 13, minHeight: 32, maxWidth: 190 }
   const pill: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: C.m, whiteSpace: 'nowrap' }
-  const nFiltros = (per !== '30' ? 1 : 0) + (estado && estado.ven !== 'todos' ? 1 : 0) + (estado && estado.lin !== 'todas' ? 1 : 0)
+  // Produtos fora da análise (escolha do ModalAnalise, salva por empresa) — conta para o botão compacto e para o nº de filtros.
+  const nFora = estado ? Object.values(estado.excl).filter(Boolean).length : 0
+  const nFiltros = (per !== '30' ? 1 : 0) + (estado && estado.ven !== 'todos' ? 1 : 0) + (estado && estado.lin !== 'todas' ? 1 : 0) + (nFora ? 1 : 0)
   const mostrarFiltros = !isMobile || filtrosAbertos
 
+  // Enquadramento (CEO 12/11): sem maxWidth nem centralização — o conteúdo cola no menu e ocupa a largura útil.
+  // O respiro lateral vem do DashboardMain (px-4 sm:px-6), igual aos outros painéis; aqui fica só o respiro vertical.
   return (
-    <div style={{ padding: '16px clamp(16px, 2vw, 28px)', background: C.off, color: C.esp, minHeight: '100vh', boxSizing: 'border-box', width: '100%', maxWidth: 1680, marginLeft: 'auto', marginRight: 'auto', overflowX: 'hidden' }}>
+    <div style={{ padding: '2px 0 16px', background: C.off, color: C.esp, minHeight: '100vh', boxSizing: 'border-box', width: '100%', overflowX: 'hidden' }}>
       {/* Barra única, fina e fixa ao rolar: título + filtros compactos + resumo, com as abas logo abaixo. */}
       <div style={{ position: 'sticky', top: 0, zIndex: 20, background: C.off, marginBottom: 14, borderBottom: `1px solid ${C.bd}`, paddingTop: 2 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', minHeight: 44, paddingBottom: 8 }}>
@@ -374,6 +378,14 @@ export default function MeuPainelV6() {
                 </select>
                 <AjudaCampo chave="com.painel.produtos" rota={ROTA} />
               </span>
+              {/* Produtos na análise (CEO 12/11): botão compacto na barra abre o mesmo ModalAnalise, valendo p/ TODAS as abas. */}
+              <span style={pill}>
+                <button type="button" onClick={() => setModalAnalise(true)} disabled={!base} aria-label="Configurar produtos da análise"
+                  style={{ ...selCompact, cursor: base ? 'pointer' : 'not-allowed', display: 'inline-flex', alignItems: 'center', gap: 4, border: `1px solid ${nFora ? C.gold : C.bd}`, color: C.esp, fontWeight: nFora ? 700 : 400 }}>
+                  Produtos: {nFora ? `${nFora} fora` : 'todos'} ▾
+                </button>
+                <AjudaCampo chave="com.painel.analise" rota={ROTA} />
+              </span>
             </div>
           )}
 
@@ -414,7 +426,7 @@ export default function MeuPainelV6() {
           {/* 8 cards KPI (SPEC §2.1) */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 16 }}>
             <Cartao rot="Faturamento" chave="com.painel.faturado" valor={brl0(r.totalValor)} />
-            <Cartao rot="Volume na análise" chave="com.painel.volume" valor={ton(modelo.tot.kgP)} />
+            <Cartao rot="Volume sem despojo" chave="com.painel.volume" valor={ton(modelo.tot.kgP)} sub={`total com despojo ${ton(modelo.tot.kg)}`} />
             <Cartao rot="Preço médio" chave="com.painel.preco" valor={brl2(r.precoPorKg)} sub="R$/kg sem despojo" />
             <Cartao rot="Ticket por nota" chave="com.painel.ticket" valor={brl0(ticketNota)} sub={`${int(notas)} notas`} />
             <Cartao rot="Desconto na tabela" chave="com.painel.desconto" valor={`${nf({ maximumFractionDigits: 2 }).format(descPct)}%`} sub={brl0(descR)} />
