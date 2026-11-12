@@ -14,34 +14,45 @@ const nota = (v: number | null | undefined) => v == null ? '—' : new Intl.Numb
 const pct = (v: number | null | undefined) => v == null ? '—' : `${v > 0 ? '+' : ''}${new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 }).format(v)}%`
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 
-type Indic = { faturamento: number; volume_kg: number; clientes: number; cidades: number; preco_kg: number | null; desconto_pct: number | null; acrescimo_pct: number | null; devolucao_pct: number | null; crescimento_fat_pct: number | null; crescimento_vol_pct: number | null }
-type Notas = { faturamento: number; volume: number; clientes: number; cidades: number; preco: number; desconto: number; devolucao: number; crescimento_fat: number; crescimento_vol: number }
-type Vend = { cod: string; nome: string; abaixo_minimo: boolean; indicadores: Indic; notas: Notas; bloco_crescimento: number; bloco_margem: number; nota_final: number }
-type Resp = { ok: boolean; erro?: string; pesos?: { crescimento: number; margem: number }; piso_kg?: number; vendedores?: Vend[]; podio?: { pos: number; cod: string; nome: string; nota_final: number }[] }
+type Indic = { faturamento: number; volume_kg: number; clientes: number; clientes_novos: number; cidades: number; cidades_novas: number; preco_kg: number | null; indice_preco: number | null; desconto_pct: number | null; acrescimo_pct: number | null; devolucao_pct: number | null; crescimento_fat_pct: number | null; crescimento_vol_pct: number | null }
+// Notas 0-100: faturamento e volume ABSOLUTOS + crescimento de cada um (CEO 12/11: pontuar quem mais vende E quem mais cresce).
+type Notas = { faturamento: number; volume: number; crescimento_fat: number; crescimento_vol: number; clientes: number; cidades: number; preco: number; desconto: number; devolucao: number }
+type Vend = { cod: string; nome: string; abaixo_minimo: boolean; indicadores: Indic; notas: Notas; bloco_crescimento: number | null; bloco_margem: number | null; nota_final: number | null }
+type Resp = { ok: boolean; erro?: string; base?: string; periodo?: { de: string; ate: string; de_ant: string; ate_ant: string }; pesos?: { crescimento: number; margem: number }; piso_kg?: number; vendedores?: Vend[]; podio?: { pos: number; cod: string; nome: string; nota_final: number }[] }
 // Seção "Participantes do ranking": quem o gestor marca/desmarca. Desmarcado sai do pódio e da tabela, mas segue no BI.
 type Part = { cod: string; nome: string; volume_kg: number; faturamento: number; incluido: boolean; motivo: string | null }
 type RespParts = { ok: boolean; erro?: string; participantes?: Part[] }
 
-// Mês = 1º do mês até hoje, comparado ao mês anterior (mesma quantidade de dias). Ano = 1º de janeiro até hoje, vs ano anterior.
+// Mês = último mês FECHADO × o mês anterior (fechado × fechado). Ano = 1º de janeiro do ano do mês fechado até o
+// fim dele × o mesmo intervalo do ano anterior. Nunca usa o mês corrente parcial (comparável, igual com igual).
 function ranges(modo: 'mes' | 'ano') {
-  const h = new Date(); const y = h.getFullYear(); const m = h.getMonth(); const d = h.getDate()
+  const h = new Date()
+  const fimMes = new Date(h.getFullYear(), h.getMonth(), 0) // último dia do último mês fechado
+  const Y = fimMes.getFullYear(), M = fimMes.getMonth()
   if (modo === 'mes') {
-    const de = new Date(y, m, 1), ate = h
-    const diasMesAnt = new Date(y, m, 0).getDate()
-    const deAnt = new Date(y, m - 1, 1), ateAnt = new Date(y, m - 1, Math.min(d, diasMesAnt))
+    const de = new Date(Y, M, 1), ate = fimMes
+    const deAnt = new Date(Y, M - 1, 1), ateAnt = new Date(Y, M, 0)
     return { de: iso(de), ate: iso(ate), deAnt: iso(deAnt), ateAnt: iso(ateAnt) }
   }
-  const de = new Date(y, 0, 1), ate = h
-  const deAnt = new Date(y - 1, 0, 1), ateAnt = new Date(y - 1, m, d)
+  const de = new Date(Y, 0, 1), ate = fimMes
+  const deAnt = new Date(Y - 1, 0, 1), ateAnt = new Date(Y - 1, M + 1, 0)
   return { de: iso(de), ate: iso(ate), deAnt: iso(deAnt), ateAnt: iso(ateAnt) }
 }
+const MES_PT = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+function rotuloPeriodo(modo: 'mes' | 'ano', p?: { de: string; ate: string }) {
+  if (!p) return ''
+  const d = new Date(p.ate + 'T00:00:00')
+  return modo === 'mes' ? `${MES_PT[d.getMonth()]}/${d.getFullYear()}` : `${d.getFullYear()} até ${MES_PT[d.getMonth()]}`
+}
 
+// Colunas de nota: faturamento e volume ABSOLUTOS lado a lado com o crescimento de cada um (transparência pedida pelo CEO).
 const COLS: { k: keyof Notas; rot: string }[] = [
-  { k: 'faturamento', rot: 'Fatur.' }, { k: 'crescimento_fat', rot: 'Cresc.' }, { k: 'volume', rot: 'Volume' },
-  { k: 'clientes', rot: 'Client.' }, { k: 'cidades', rot: 'Cidades' }, { k: 'preco', rot: 'Preço' },
+  { k: 'faturamento', rot: 'Fatur.' }, { k: 'crescimento_fat', rot: 'Cresc. R$' },
+  { k: 'volume', rot: 'Volume' }, { k: 'crescimento_vol', rot: 'Cresc. kg' },
+  { k: 'clientes', rot: 'Clientes' }, { k: 'cidades', rot: 'Cidades' }, { k: 'preco', rot: 'Preço' },
   { k: 'desconto', rot: 'Desc.' }, { k: 'devolucao', rot: 'Devol.' },
 ]
-const notaCor = (n: number) => n >= 75 ? C.verde : n >= 45 ? C.gold : C.red
+const notaCor = (n: number | null | undefined) => n == null ? C.m : n >= 75 ? C.verde : n >= 45 ? C.gold : C.red
 
 export function AbaRanking({ empresa }: { empresa: string | null }) {
   const [modo, setModo] = useState<'mes' | 'ano'>('mes')
@@ -88,7 +99,6 @@ export function AbaRanking({ empresa }: { empresa: string | null }) {
 
   const vend = resp?.vendedores ?? []
   const podio = resp?.podio ?? []
-  const nomePorCod = new Map(vend.map(v => [v.cod, v.nome]))
   // ordem do pódio para o visual: 2º, 1º, 3º (degrau central mais alto)
   const ordemPodio = [podio.find(p => p.pos === 2), podio.find(p => p.pos === 1), podio.find(p => p.pos === 3)].filter(Boolean) as typeof podio
 
@@ -107,6 +117,13 @@ export function AbaRanking({ empresa }: { empresa: string | null }) {
         <span style={{ flex: 1 }} />
         <span style={{ fontSize: 11, color: C.m }}>Pesos {Math.round((resp?.pesos?.crescimento ?? 0.5) * 100)}% crescimento · {Math.round((resp?.pesos?.margem ?? 0.5) * 100)}% margem · <em>edição em breve</em></span>
       </div>
+
+      {resp?.periodo && (
+        <div style={{ fontSize: 11.5, color: C.m, marginTop: -4 }}>
+          {modo === 'mes' ? 'Mês fechado' : 'Ano'}: <strong style={{ color: C.esp }}>{rotuloPeriodo(modo, resp.periodo)}</strong>
+          {' '}· sobre vendas de carne (sem despojo/subproduto){resp.piso_kg ? ` · mínimo ${new Intl.NumberFormat('pt-BR').format(resp.piso_kg)} kg` : ''}
+        </div>
+      )}
 
       {/* pódio */}
       {ordemPodio.length > 0 && (
@@ -148,7 +165,10 @@ export function AbaRanking({ empresa }: { empresa: string | null }) {
               <tr style={{ background: C.off }}>
                 <th style={thL} colSpan={5}></th>
                 <th style={thR}></th><th style={thR}></th>
-                {COLS.map(c => <th key={c.k} style={thRmini}>{c.k === 'desconto' ? <span style={{ display: 'inline-flex', alignItems: 'center' }}>{c.rot}<AjudaCampo chave="comercial.ranking.acrescimo" rota={ROTA} /></span> : c.rot}</th>)}
+                {COLS.map(c => <th key={c.k} style={thRmini}>{
+                  c.k === 'desconto' ? <span style={{ display: 'inline-flex', alignItems: 'center' }}>{c.rot}<AjudaCampo chave="comercial.ranking.acrescimo" rota={ROTA} /></span>
+                  : c.k === 'preco' ? <span style={{ display: 'inline-flex', alignItems: 'center' }}>{c.rot}<AjudaCampo chave="comercial.ranking.preco" rota={ROTA} /></span>
+                  : c.rot}</th>)}
               </tr>
             </thead>
             <tbody>
