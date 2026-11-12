@@ -1758,7 +1758,7 @@ function FotosVeiculo({ veiculoId, companyId, onErro, onMsg }: { veiculoId: stri
         const ext = ((file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '')) || 'jpg'
         const path = `${companyId}/${veiculoId}/${Date.now()}-${i}.${ext}`
         const { error: upErr } = await supabase.storage.from('revenda-veiculos').upload(path, file, { contentType: file.type || 'image/jpeg', upsert: false })
-        if (upErr) { falhas++; ultimoErro = 'Falha no upload: ' + upErr.message; onErro(ultimoErro); continue }
+        if (upErr) { falhas++; ultimoErro = erroAmigavel(upErr, 'Não foi possível enviar a foto. Verifique a conexão e tente de novo.'); onErro(ultimoErro); continue }
         const { data, error } = await supabase.rpc('fn_veic_foto_registrar', { p_veiculo_id: veiculoId, p_storage_path: path, p_user: user })
         const r = data as { ok?: boolean; erro?: string } | null
         if (error || !r?.ok) {
@@ -1990,7 +1990,7 @@ function CrlvVeiculo({ veiculoId, companyId, crlvPath, onErro, onMsg, onChange }
       const ext = ((file.name.split('.').pop() || 'pdf').toLowerCase().replace(/[^a-z0-9]/g, '')) || 'pdf'
       const path = `${companyId}/${veiculoId}/crlv-${Date.now()}.${ext}`
       const { error: upErr } = await supabase.storage.from('revenda-veiculos').upload(path, file, { contentType: file.type || 'application/pdf', upsert: false })
-      if (upErr) { onErro('Falha no upload: ' + upErr.message); return }
+      if (upErr) { onErro(erroAmigavel(upErr, 'Não foi possível enviar o arquivo. Verifique a conexão e tente de novo.')); return }
       const { data, error } = await supabase.rpc('fn_veic_atualizar_dados', { p_veiculo_id: veiculoId, p_dados: { crlv_storage_path: path }, p_user: await uid() })
       const r = data as { ok?: boolean; erro?: string } | null
       if (error || !r?.ok) {

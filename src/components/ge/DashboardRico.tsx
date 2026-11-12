@@ -13,6 +13,7 @@ import AtalhosRapidos from './AtalhosRapidos'
 import HeroSaldoBancario from './HeroSaldoBancario'
 import CardConciliacoesPendentes from './CardConciliacoesPendentes'
 import FaixaAlertas from './FaixaAlertas'
+import { ParaTratarHoje } from '@/components/financeiro/ParaTratarHoje'
 import OnboardingStepper from '@/components/onboarding/OnboardingStepper'
 import { useDashboardOperacional } from '@/hooks/useDashboardOperacional'
 import { supabase } from '@/lib/supabase'
@@ -52,6 +53,11 @@ export default function DashboardRico({ companyId, companyName, userName }: Prop
       <HeaderGE companyId={companyId} companyName={companyName} userName={userName} />
 
       <div style={{ padding: '32px 28px 24px', maxWidth: 1400, margin: '0 auto' }}>
+        {/* P2/CEO 12/11 — "Para tratar hoje" no topo do Painel da GE (mesmo card do Caixa do grupo).
+            Só leitura (fn_ge_pendencias_dia), fail-closed por empresa; some sozinho se não houver
+            pendência ou se a RPC não existir no ambiente. Empresa única → [companyId]. */}
+        <ParaTratarHoje companyIds={[companyId]} data={new Date().toISOString().slice(0, 10)} />
+
         {maturidade && !maturidade.eh_madura && (
           <OnboardingStepper
             companyId={companyId}
