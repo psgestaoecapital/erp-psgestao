@@ -5,6 +5,7 @@
 // empresa (RLS) + tela operacional de RH. O BI final expõe só agregado por setor.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
@@ -35,6 +36,8 @@ export default function FolhaPage() {
   const [ok, setOk] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const [podeVer, setPodeVer] = useState<boolean | null>(null)
+  const [confirmExcluir, setConfirmExcluir] = useState(false)
+  const [excluindo, setExcluindo] = useState(false)
 
   const carregar = useCallback(async () => {
     if (!empresaUnica) return
@@ -76,6 +79,19 @@ export default function FolhaPage() {
 
   const compRowsSel = useMemo(() => rows.filter((r) => r.competencia === compSel), [rows, compSel])
   const totalSel = compRowsSel.reduce((s, r) => s + (Number(r.total_geral) || 0), 0)
+
+  async function excluirCompetencia() {
+    if (!empresaUnica || !compSel) return
+    setExcluindo(true); setErro(null); setOk(null)
+    try {
+      const { data, error } = await supabase.rpc('fn_folha_competencia_excluir', { p_company_id: empresaUnica, p_competencia: compSel })
+      const res = (data ?? {}) as { ok?: boolean; erro?: string; funcionarios?: number; verbas?: number }
+      if (error || !res.ok) { setErro(error ? erroAmigavel(error, 'Não foi possível excluir a competência.') : (res.erro || 'Não foi possível excluir a competência.')); return }
+      setOk(`EXCLUÍDA a folha ${fmtComp(compSel)} · ${res.funcionarios ?? 0} funcionários · ${res.verbas ?? 0} verbas. Para corrigir, basta reimportar o arquivo certo.`)
+      setConfirmExcluir(false); setCompSel(null)
+      await carregar()
+    } catch (e) { setErro((e as Error).message) } finally { setExcluindo(false) }
+  }
 
   async function enviar(confirmar: boolean) {
     if (!empresaUnica || !fileSel) { setErro('Selecione o arquivo da folha.'); return }
@@ -142,7 +158,7 @@ export default function FolhaPage() {
         ) : (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {competencias.map((c) => (
-              <button key={c.competencia} onClick={() => setCompSel(compSel === c.competencia ? null : c.competencia)}
+              <button key={c.competencia} onClick={() => { setConfirmExcluir(false); setCompSel(compSel === c.competencia ? null : c.competencia) }}
                 style={{ textAlign: 'left', cursor: 'pointer', borderRadius: 10, padding: '10px 12px', border: `1px solid ${compSel === c.competencia ? GOLD : LINE}`, background: compSel === c.competencia ? 'rgba(200,148,26,0.10)' : '#FFF' }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: ESP }}>{fmtComp(c.competencia)}</div>
                 <div style={{ fontSize: 11, color: MUT }}>{c.n} func · {brl(c.total)}</div>
@@ -156,7 +172,30 @@ export default function FolhaPage() {
       {/* Detalhe da competência selecionada */}
       {compSel && (
         <section style={card}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: ESP, marginBottom: 2 }}>Folha {fmtComp(compSel)}</div>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: ESP, marginBottom: 2 }}>Folha {fmtComp(compSel)}</div>
+            {!confirmExcluir ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <AjudaCampo chave="industrial.folha.excluir" rota={ROTA} />
+                <button onClick={() => setConfirmExcluir(true)} disabled={excluindo}
+                  style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${RED}`, background: '#FFF', color: RED, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                  Excluir competência
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: RED_BG, borderRadius: 8, padding: '8px 10px' }}>
+                <span style={{ fontSize: 12, color: RED, fontWeight: 600 }}>Excluir a folha {fmtComp(compSel)} ({compRowsSel.length} func · {brl(totalSel)})? É rastreável; reimporte para corrigir.</span>
+                <button onClick={() => void excluirCompetencia()} disabled={excluindo}
+                  style={{ padding: '7px 12px', borderRadius: 8, border: 'none', background: RED, color: '#FFF', fontSize: 12, fontWeight: 700, cursor: 'pointer', opacity: excluindo ? 0.6 : 1 }}>
+                  {excluindo ? 'Excluindo…' : 'Sim, excluir'}
+                </button>
+                <button onClick={() => setConfirmExcluir(false)} disabled={excluindo}
+                  style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${LINE}`, background: '#FFF', color: ESP, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                  Cancelar
+                </button>
+              </div>
+            )}
+          </div>
           <div style={{ fontSize: 11, color: MUT, marginBottom: 12 }}>🔒 Dado sensível (RH). O BI de Gente expõe só agregado por setor, sem salário individual.</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 14 }}>
             <Kpi t="Funcionários" v={String(compRowsSel.length)} ajuda="industrial.folha.funcionarios" />
