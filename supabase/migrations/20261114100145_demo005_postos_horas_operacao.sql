@@ -14,6 +14,9 @@
 -- que já valida is_demo e recria tudo a cada chamada). Sem DDL, sem RLS, sem dado de cliente.
 -- Preserva todo o resto da função.
 --
+-- ci-sem-guarda: fn_demo_seed_industria_postos — seed de manutenção da DEMO, não é escrita por usuário:
+--   trava ao id fixo da 005 (p_company_id IS DISTINCT FROM c) + is_demo IS TRUE; grant só a service_role.
+--
 -- RD-38 (prova no dado, antes/depois — após o próximo fn_demo_reset da 005):
 --   -- ANTES (produção, 11/11): SELECT count(*) FILTER (WHERE horas_operacao_mes IS NULL)
 --   --   FROM prod_posto_custo WHERE company_id='b0700000-0000-4000-a000-000000000005'; => 11
@@ -114,3 +117,8 @@ BEGIN
     'pessoas',       (SELECT count(*) FROM prod_posto_pessoa WHERE company_id = c),
     'custos',        (SELECT count(*) FROM prod_posto_custo WHERE company_id = c));
 END $function$;
+
+-- Guarda de função (REVOKE anon + grant mínimo): CREATE OR REPLACE preserva a ACL, mas a régua
+-- de CI exige a declaração explícita na migration que recria a SECURITY DEFINER.
+REVOKE ALL ON FUNCTION public.fn_demo_seed_industria_postos(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_demo_seed_industria_postos(uuid) TO service_role;
