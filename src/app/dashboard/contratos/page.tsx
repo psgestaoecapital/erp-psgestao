@@ -527,7 +527,7 @@ export default function ContratosPage(){
     <div style={{minHeight:"100vh",background:BG,padding:20}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
         <div>
-          <div style={{fontSize:22,fontWeight:700,color:TX}}>🔄 Contratos Recorrentes</div>
+          <div style={{fontSize:22,fontWeight:700,color:TX}}>🔄 Gestão de contratos</div>
           <div style={{fontSize:11,color:TXD}}>
             BPO · Consultoria · SaaS · Serviços mensais · Geração automática · MRR/Churn/LTV
             {selInfo && (
