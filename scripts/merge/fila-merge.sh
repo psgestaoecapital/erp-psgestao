@@ -825,6 +825,7 @@ renumerar_migrations() {
   comentar "$n" "🔢 **Fila de merge:** a migration desta PR estava com versão NÃO maior que a última da main (\`$ult\`); renumerei sozinha (commit no ramo, conteúdo idêntico):$lista
 
 Os checks rodam de novo no commit novo.$([ "$via" = revisada ] && echo " **Via revisada: autorização mantida — só renumeração; o patch-id do conteúdo é estável, não precisa de nova revisão.**")"
+  RENUM_PISO_FINAL=$piso   # último piso atribuído: a rodada reserva isto para a próxima PR com migration (Eng. Chefe 11/11)
   return 0
 }
 
@@ -866,6 +867,12 @@ merges=0
 LOTE_MIG_MAX=${LOTE_MIG_MAX:-6}
 LOTE_MIG_CRIT_MAX=${LOTE_MIG_CRIT_MAX:-5}
 lote_mig_n=0; lote_mig_crit_n=0; lote_mig_sqls=()
+# Eng. Chefe 11/11: PISO de versão RESERVADO na rodada. A renumeração automática calcula a versão nova a partir da
+# última da MAIN, mas a main NÃO reflete as versões que a própria rodada já atribuiu aos ramos de outras PRs. Logo duas
+# PRs renumeradas na MESMA rodada recebiam a MESMA versão (incidente 20261113140220: #4606 e #4608 → db push pulou uma
+# em silêncio e o deploy-migrations ficou vermelho). Agora cada renumeração incrementa sobre o MAIOR entre a última da
+# main e as versões já reservadas nesta rodada; renumerar_migrations devolve o seu último piso em RENUM_PISO_FINAL.
+piso_reservado_rodada=''
 mkdir -p "$TMPF/mig"
 # SQL das migrations da PR no SHA conferido → $TMPF/mig/<n>.sql (vazio/falha = dúvida na checagem de independência)
 baixar_sql_migrations() {
@@ -1079,12 +1086,20 @@ for n in $fila; do
     # `db push` recusou — deploy vermelho por horas). Recalcula a última migration da main agora (não usa o check antigo
     # da PR). Com o deploy-migrations verde (estado_main livre), a última da main = a última aplicada em produção.
     ult_main=$(api "repos/$REPO/git/trees/main:supabase/migrations" | jq -r '[.tree[].path | select(test("^[0-9]{14}_")) | .[0:14]] | max')
+    # Quais migrations precisam renumerar: as que estão ABAIXO da última da main (detecção por $ult_main — NÃO pelo piso
+    # reservado, que é um timestamp de agora e varreria migrations legítimas acima da main).
     baixas=$(api "repos/$REPO/pulls/$n/files" --paginate | jq -r --arg u "$ult_main" '.[] | select(.status == "added" and (.filename | test("^supabase/migrations/[0-9]{14}_"))) | .filename | ltrimstr("supabase/migrations/") | select(.[0:14] <= $u)')
+    # PISO EFETIVO (só o CHÃO da renumeração, não a detecção) = maior entre a última da main e o já reservado NESTA rodada
+    # (Eng. Chefe 11/11), para 2 PRs renumeradas na mesma rodada não receberem a mesma versão. Comparação de string vale
+    # para timestamps de 14 dígitos de largura fixa.
+    piso_efetivo=$ult_main
+    { [ -n "$piso_reservado_rodada" ] && [ "$piso_reservado_rodada" '>' "$piso_efetivo" ]; } && piso_efetivo=$piso_reservado_rodada
     if [ -n "$baixas" ]; then
       # Renumeração AUTOMÁTICA (Eng. Chefe 09/10): em vez de recusar, a fila renomeia a(s) migration(s) da PR com um commit
       # no ramo dela (versão nova = timestamp do momento, mantendo os 2 últimos dígitos = faixa do agente). O commit roda
       # os checks de novo; a PR revisada MANTÉM a autorização: só o nome muda, o patch-id ESTÁVEL do conteúdo não (Eng. Chefe 02/11).
-      if renumerar_migrations "$n" "$pj" "$ult_main" "$baixas" "$via"; then continue; fi
+      # Usa o PISO EFETIVO (acima também do que esta rodada já reservou) e reserva o último piso para a próxima PR da rodada.
+      if renumerar_migrations "$n" "$pj" "$piso_efetivo" "$baixas" "$via"; then piso_reservado_rodada=$RENUM_PISO_FINAL; continue; fi
       tirar_da_fila "$n" "migration com versão NÃO maior que a última da main ($ult_main): $(tr '\n' ' ' <<< "$baixas") — não consegui renumerar sozinha; renumere para uma versão acima e atualize com a main (o db push recusa versão abaixo da última aplicada)" "$sha"; continue
     fi
   fi

@@ -42,7 +42,14 @@ export default function ContratosModelosPanel({ companyId }: { companyId: string
   const [inativando, setInativando] = useState<Modelo | null>(null)
   const [motivo, setMotivo] = useState('')
   const [variaveis, setVariaveis] = useState<Variavel[]>([])
+  const [sugerindoIA, setSugerindoIA] = useState(false)
+  const [sugestaoIA, setSugestaoIA] = useState<{ texto: string; campos: { chave: string; rotulo: string; trecho?: string }[] } | null>(null)
+  const [avisoIA, setAvisoIA] = useState('')
+  // F1b/F1c (#5452) · subir modelo em PDF ou Word (.docx): extrai o texto no navegador e preenche o editor.
+  const [extraindoPdf, setExtraindoPdf] = useState(false)
+  const [avisoPdf, setAvisoPdf] = useState('')
   const textoRef = useRef<HTMLTextAreaElement>(null)
+  const pdfInputRef = useRef<HTMLInputElement>(null)
 
   const carregar = useCallback(async () => {
     if (!companyId) { setModelos([]); setLoading(false); return }
@@ -84,16 +91,152 @@ export default function ContratosModelosPanel({ companyId }: { companyId: string
     }
   }
 
-  const abrirNovo = () => { setErro(''); setForm({ ...FORM_VAZIO }) }
+  const limparSugestaoIA = () => { setSugestaoIA(null); setAvisoIA(''); setAvisoPdf('') }
+  const abrirNovo = () => { setErro(''); limparSugestaoIA(); setForm({ ...FORM_VAZIO }) }
   const abrirEdicao = (m: Modelo) => {
-    setErro('')
+    setErro(''); limparSugestaoIA()
     setForm({ id: m.id, nome: m.nome, descricao: m.descricao ?? '', texto: m.texto ?? '' })
   }
   // Duplicar: abre "Novo modelo" pré-preenchido com o texto/descrição deste (id null → cria um NOVO ao salvar,
   // reusando fn_contrato_modelo_salvar). O original não muda.
   const abrirDuplicacao = (m: Modelo) => {
-    setErro('')
+    setErro(''); limparSugestaoIA()
     setForm({ id: null, nome: `${m.nome} (cópia)`, descricao: m.descricao ?? '', texto: m.texto ?? '' })
+  }
+
+  // F1 (#5452) · "Sugerir campos com IA": manda o TEXTO atual do editor ao servidor, que propõe onde entram
+  // os {{campos}} variáveis (só chaves válidas). Assistivo: nada é salvo; a pessoa confere e aplica. Se a IA
+  // estiver indisponível/bloqueada por orçamento, mostra aviso honesto e os botões de campo seguem valendo (RD-102).
+  const sugerirCamposIA = async () => {
+    if (!form || !companyId) return
+    const texto = (form.texto ?? '').trim()
+    if (texto.length < 20) { setAvisoIA('Escreva ou cole o texto do modelo antes de pedir a sugestão.'); setSugestaoIA(null); return }
+    setSugerindoIA(true); setAvisoIA(''); setSugestaoIA(null)
+    try {
+      const { data: s } = await supabase.auth.getSession()
+      const r = await fetch('/api/contratos/modelo/sugerir-campos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.session?.access_token ?? ''}` },
+        body: JSON.stringify({ companyId, texto }),
+      })
+      const j = await r.json().catch(() => ({ ok: false, erro: 'Falha de comunicação com o servidor.' }))
+      if (!j.ok) { setAvisoIA(j.erro || 'Não consegui gerar a sugestão. Marque os campos manualmente abaixo.'); return }
+      setSugestaoIA({ texto: j.texto_sugerido as string, campos: (j.campos ?? []) as { chave: string; rotulo: string; trecho?: string }[] })
+    } catch {
+      setAvisoIA('Não consegui falar com o servidor. Marque os campos manualmente abaixo.')
+    } finally { setSugerindoIA(false) }
+  }
+  const aplicarSugestaoIA = () => {
+    if (!form || !sugestaoIA) return
+    setForm({ ...form, texto: sugestaoIA.texto })
+    setSugestaoIA(null); setAvisoIA('')
+  }
+
+  // F1b/F1c (#5452) · "Subir modelo (PDF ou Word)": lê o arquivo que a pessoa já usa e extrai o texto
+  // NO NAVEGADOR — PDF por pdfjs-dist (worker em /pdf.worker.min.mjs) e Word (.docx) por jszip (o .docx
+  // é um .zip com word/document.xml). O texto cai no editor para a pessoa conferir e marcar os campos
+  // variáveis. RD-102: arquivo sem texto extraível → aviso honesto para colar à mão; nada é enviado a
+  // servidor nem salvo. .doc antigo (binário) não é suportado — salvar como .docx ou PDF antes.
+  const MAX_ARQUIVO_BYTES = 20 * 1024 * 1024 // 20 MB
+
+  // PDF → texto (pdfjs). Extrator puro: devolve só o texto (o tratamento comum fica no dispatcher).
+  const extrairTextoDePdf = async (file: File): Promise<string> => {
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    const pdfjs = await import('pdfjs-dist')
+    if (!pdfjs.GlobalWorkerOptions.workerSrc) {
+      pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
+    }
+    const loadingTask = pdfjs.getDocument({
+      data: bytes,
+      isEvalSupported: false,
+    } as unknown as Parameters<typeof pdfjs.getDocument>[0])
+    const pdf = await loadingTask.promise
+    const partes: string[] = []
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const page = await pdf.getPage(p)
+      const content = await page.getTextContent()
+      const linha = (content.items as Array<{ str?: string }>)
+        .map((it) => (typeof it.str === 'string' ? it.str : ''))
+        .join(' ')
+        .replace(/[ \t]+/g, ' ')
+        .trim()
+      if (linha) partes.push(linha)
+    }
+    return partes.join('\n\n').trim()
+  }
+
+  // Word (.docx) → texto (jszip, já no projeto — RD-26). Preserva parágrafos (<w:p>) e quebras (<w:br>,
+  // <w:tab>); títulos viram linhas próprias. Lê só word/document.xml; decodifica as entidades XML.
+  const extrairTextoDeDocx = async (file: File): Promise<string> => {
+    const JSZip = (await import('jszip')).default
+    const zip = await JSZip.loadAsync(await file.arrayBuffer())
+    const docXml = zip.file('word/document.xml')
+    if (!docXml) return ''
+    const xml = await docXml.async('string')
+    const decodeEntidades = (s: string) =>
+      s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+        .replace(/&apos;/g, "'").replace(/&amp;/g, '&')
+    const paragrafos = xml
+      .split(/<\/w:p>/) // cada <w:p> é um parágrafo
+      .map((bloco) => {
+        const comQuebras = bloco
+          .replace(/<w:tab\b[^>]*\/?>/g, '\t')
+          .replace(/<w:br\b[^>]*\/?>/g, '\n')
+        const textos = comQuebras.match(/<w:t\b[^>]*>([\s\S]*?)<\/w:t>/g) ?? []
+        return decodeEntidades(
+          textos.map((t) => t.replace(/<[^>]+>/g, '')).join(''),
+        ).replace(/[ \t]+/g, ' ').trim()
+      })
+      .filter((linha) => linha.length > 0)
+    return paragrafos.join('\n').trim()
+  }
+
+  // Dispatcher: valida tamanho/formato, chama o extrator certo e trata o resultado de forma única.
+  const extrairTextoDoArquivo = async (file: File) => {
+    setAvisoPdf('')
+    const nome = (file.name || '').toLowerCase()
+    const ehPdf = file.type === 'application/pdf' || nome.endsWith('.pdf')
+    const ehDocx =
+      file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      nome.endsWith('.docx')
+    if (!ehPdf && !ehDocx) {
+      setAvisoPdf(
+        nome.endsWith('.doc')
+          ? 'Word antigo (.doc) não é lido direto. Abra no Word e salve como .docx (ou PDF) e suba de novo.'
+          : 'Formato não suportado. Suba um PDF ou um Word (.docx).',
+      )
+      return
+    }
+    if (file.size > MAX_ARQUIVO_BYTES) {
+      setAvisoPdf('Arquivo muito grande (máx. 20 MB). Suba um arquivo menor ou cole o texto à mão.')
+      return
+    }
+    setExtraindoPdf(true)
+    try {
+      const texto = ehPdf ? await extrairTextoDePdf(file) : await extrairTextoDeDocx(file)
+      if (!texto) {
+        // RD-102 · sem texto extraível (PDF digitalizado/foto, ou .docx só com imagem).
+        setAvisoPdf(
+          ehPdf
+            ? 'Este PDF não tem texto selecionável (parece digitalizado/foto). Cole o texto do contrato à mão no campo abaixo.'
+            : 'Não encontrei texto neste Word. Se o contrato for só imagem, cole o texto à mão no campo abaixo.',
+        )
+        return
+      }
+      setForm((f) => {
+        if (!f) return f
+        const atual = (f.texto ?? '').trim()
+        // Não apaga o que já estava escrito: anexa ao final com uma separação.
+        const novo = atual ? `${atual}\n\n${texto}` : texto
+        return { ...f, texto: novo }
+      })
+      setAvisoPdf(`Texto extraído de "${file.name}". Confira abaixo e marque os campos variáveis.`)
+    } catch {
+      setAvisoPdf('Não consegui ler este arquivo. Verifique se é um PDF ou Word (.docx) válido, ou cole o texto à mão.')
+    } finally {
+      setExtraindoPdf(false)
+      if (pdfInputRef.current) pdfInputRef.current.value = '' // permite subir o mesmo arquivo de novo
+    }
   }
 
   const salvar = async () => {
@@ -252,6 +395,50 @@ export default function ContratosModelosPanel({ companyId }: { companyId: string
                       {v.rotulo}
                     </button>
                   ))}
+                </div>
+              </div>
+            )}
+
+            <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <input
+                ref={pdfInputRef}
+                type="file"
+                accept="application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx"
+                style={{ display: 'none' }}
+                onChange={(e) => { const fl = e.target.files?.[0]; if (fl) void extrairTextoDoArquivo(fl) }}
+              />
+              <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                <button type="button" onClick={() => pdfInputRef.current?.click()} disabled={extraindoPdf} style={{ ...btnSec, cursor: extraindoPdf ? 'wait' : 'pointer' }}>
+                  {extraindoPdf ? 'Lendo o arquivo…' : '📄 Subir modelo (PDF ou Word)'}
+                </button>
+                <span style={{ marginLeft: 6, display: 'inline-flex', verticalAlign: 'middle' }}><AjudaCampo chave="ge.contrato.modelo.subir_arquivo" /></span>
+              </span>
+              <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                <button type="button" onClick={() => void sugerirCamposIA()} disabled={sugerindoIA} style={{ ...btnSec, borderColor: C.gold, cursor: sugerindoIA ? 'wait' : 'pointer' }}>
+                  {sugerindoIA ? 'Analisando o texto…' : '✨ Sugerir campos com IA'}
+                </button>
+                <span style={{ marginLeft: 6, display: 'inline-flex', verticalAlign: 'middle' }}><AjudaCampo chave="ge.contrato.modelo.sugerir_ia" /></span>
+              </span>
+            </div>
+            {avisoPdf && <div style={{ marginTop: 8, padding: '8px 12px', fontSize: 12, color: C.espressoM, background: C.cream, border: `1px solid ${C.border}`, borderRadius: 8 }}>{avisoPdf}</div>}
+            {avisoIA && <div style={{ marginTop: 8, padding: '8px 12px', fontSize: 12, color: C.espressoM, background: C.cream, border: `1px solid ${C.border}`, borderRadius: 8 }}>{avisoIA}</div>}
+            {sugestaoIA && (
+              <div style={{ marginTop: 10, padding: 12, border: `1px solid ${C.gold}`, borderRadius: 8, background: 'rgba(200,148,26,0.06)' }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: C.espresso, marginBottom: 6 }}>
+                  {sugestaoIA.campos.length > 0 ? `Encontrei ${sugestaoIA.campos.length} campo(s) para marcar:` : 'Nenhum campo variável identificado — o texto já parece sem dados que mudam por contrato.'}
+                </div>
+                {sugestaoIA.campos.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                    {sugestaoIA.campos.map((c, i) => (
+                      <span key={i} style={{ ...chipVar, cursor: 'default' }} title={c.trecho ? `No texto: ${c.trecho}` : undefined}>{c.rotulo}</span>
+                    ))}
+                  </div>
+                )}
+                <div style={{ fontSize: 11.5, color: C.espressoM, marginBottom: 8 }}>Confira a prévia abaixo. Nada é salvo até você clicar em “Aplicar ao texto” e depois em “Salvar”.</div>
+                <div style={{ maxHeight: 140, overflow: 'auto', whiteSpace: 'pre-wrap', fontSize: 12, color: C.espresso, background: C.white, border: `1px solid ${C.border}`, borderRadius: 6, padding: 10, lineHeight: 1.5 }}>{sugestaoIA.texto}</div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                  <button type="button" onClick={aplicarSugestaoIA} style={btnPrimary}>Aplicar ao texto</button>
+                  <button type="button" onClick={() => setSugestaoIA(null)} style={btnSec}>Descartar</button>
                 </div>
               </div>
             )}
