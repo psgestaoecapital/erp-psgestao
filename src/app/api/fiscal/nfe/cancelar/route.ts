@@ -81,7 +81,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       )
     }
 
-    const svc = await createFiscalService(nfe.company_id, { ambienteOverride: body.ambiente })
+    const svc = await createFiscalService(nfe.company_id, { ambienteOverride: body.ambiente, tipo: 'nfe' })
     let resposta
     try {
       resposta = await svc.cancelarNFe(referenciaFocus, justificativa)

@@ -76,7 +76,11 @@ test.describe('#257 · peça digitada → produto do estoque, também com a OS f
   test.afterAll(async () => {
     const limpar = async (f: () => Promise<void>) => { await f().catch(() => {}) }
     for (const pid of criadas.produtos) await limpar(() => dbDelete('erp_estoque_movimentacoes', `produto_id=eq.${pid}`))
-    for (const rid of criadas.receber) await limpar(() => dbDelete('erp_receber', `id=eq.${rid}`))
+    // erp_receber tem a trava BEFORE DELETE trg_bloqueia_delete_fisico (RD-30): o DELETE físico lança
+    // exceção sem o GUC app.permitir_delete_fisico=on (que o robô e2e não seta). O limpar() engolia a
+    // exceção e a linha vazava na DEMO. Cai para soft-delete (UPDATE deleted_at) — passa pela RLS, não
+    // dispara a trava e tira a linha da view v_lancamentos_consolidado (WHERE deleted_at IS NULL).
+    for (const rid of criadas.receber) await limpar(() => dbPatch('erp_receber', `id=eq.${rid}`, { deleted_at: new Date().toISOString() }))
     for (const osId of criadas.os) {
       await limpar(() => dbDelete('erp_os_diagnostico_item', `os_id=eq.${osId}`))
       await limpar(() => dbDelete('erp_os', `id=eq.${osId}`))
