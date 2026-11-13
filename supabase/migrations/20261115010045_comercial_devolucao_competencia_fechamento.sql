@@ -1,20 +1,40 @@
--- Painel de vendas / KPIs comerciais — devolução do faturamento líquido POR COMPETÊNCIA (CEO 12/11, caixa d31f1966).
--- Problema (achado no dado): a devolução do faturamento líquido era casada pela DATA_MOVTO (data de LANÇAMENTO).
--- Há 45 devoluções T582 lançadas no INÍCIO de NOVEMBRO que são de vendas de OUTUBRO; pela data de lançamento elas
--- não entravam no fechamento de outubro, afastando o líquido do relatório do ATAK.
+-- Faturamento líquido — devolução casada pela COMPETÊNCIA do fechamento (EMERGÊNCIA CEO 12/11, caixa d31f1966).
 --
--- Correção (aditiva, só reescreve a função de leitura; não toca dado de cliente):
--- a devolução passa a ser atribuída por COMPETÊNCIA — devoluções lançadas nos primeiros N dias de um mês contam no
--- fechamento do MÊS ANTERIOR. Regra uniforme (não assimétrica): assim uma mesma devolução nunca conta em dois meses.
---   eff := se dia(DATA_MOVTO) <= N  -> último dia do mês anterior ;  senão -> a própria DATA_MOVTO
---   a devolução entra no período [p_dt_ini, p_dt_fim] quando eff cai dentro do período.
--- N (dia de corte) é um parâmetro do cálculo (constante nomeada v_dia_corte; default 5). Vira configurável por empresa
--- numa próxima rodada, se o Eng. Chefe confirmar — aqui fica o default para a leitura de outubro/2026 da Frioeste.
+-- PROBLEMA (prova RD-38 no dado da Frioeste, 975365cc): o painel abate as devoluções pela DATA_MOVTO (data de
+-- lançamento). Há 45 devoluções T582 lançadas em NOV/2026 (R$ 224.118,52, todas nos dias 03–10) que se referem ao
+-- fechamento de OUT/2026 e hoje não entram no líquido de outubro — aproximando o líquido do relatório de mercado.
 --
--- Só a DEVOLUÇÃO que abate o faturamento muda. O DESCARTE (T131, ainda não integrado) e todo o resto da função
--- (venda bruta, seleção, sem-despojo, tickets) seguem IDÊNTICOS. Fonte, escopo e filtros de vendedor inalterados.
--- RD-52 (migration só em arquivo) · RD-38 (auditado contra o corpo vivo) · RD-97 (aditiva).
+-- NÃO EXISTE referência à nota de origem no raw (auditado, RD-38): `CHAVE_FATO_ORIG_UN` está VAZIA em todas as 45 e
+-- `DATA_V1`/`DATA_V2` vêm no mesmo mês da DATA_MOVTO (= novembro), então NÃO dá para "casar pela data da venda
+-- original". Resta a regra de COMPETÊNCIA configurável que o Eng. Chefe autorizou como fallback: a devolução
+-- considerada no fechamento de um mês = as lançadas DENTRO do mês + as lançadas no INÍCIO do mês seguinte referentes
+-- a este (até o dia X, padrão 10 — captura as 45). Semântica exatamente como pede o "?" do card:
+-- "devolução considerada: lançadas no mês + do mês seguinte referentes a este".
+--
+-- Aditiva (RD-97): só adiciona a tabela de config e troca a JANELA da devolução dentro de fn_bi_comercial_kpis
+-- (SÓ LEITURA do BI; nenhum dado de cliente alterado). REVOKE/GRANT no arquivo (RD-52). Faixa 45 (desenvolvedor_5_g).
 
+-- ── Config por empresa: dias do mês seguinte que entram no fechamento do mês anterior. ───────────────────────────
+-- Ausência de linha = padrão 10 dias, ativo. ativo=false desliga a regra (volta ao comportamento por DATA_MOVTO puro).
+CREATE TABLE IF NOT EXISTS public.com_fechamento_devolucao_cfg (
+  company_id        uuid PRIMARY KEY REFERENCES public.companies(id) ON DELETE CASCADE,
+  dias_mes_seguinte int NOT NULL DEFAULT 10 CHECK (dias_mes_seguinte BETWEEN 0 AND 28),
+  ativo             boolean NOT NULL DEFAULT true,
+  motivo            text,
+  atualizado_por    uuid,
+  atualizado_em     timestamptz NOT NULL DEFAULT now()
+);
+COMMENT ON TABLE public.com_fechamento_devolucao_cfg IS 'Comercial: quantos dias do início do mês seguinte contam como devolução do fechamento do mês anterior (faturamento líquido). Sem linha = 10 dias, ativo. Só config; nunca altera dado de cliente nem o ATAK.';
+
+ALTER TABLE public.com_fechamento_devolucao_cfg ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.com_fechamento_devolucao_cfg FROM PUBLIC, anon, authenticated;
+DROP POLICY IF EXISTS com_fechamento_devolucao_cfg_sel ON public.com_fechamento_devolucao_cfg;
+CREATE POLICY com_fechamento_devolucao_cfg_sel ON public.com_fechamento_devolucao_cfg FOR SELECT TO authenticated
+  USING (company_id IN (SELECT public.get_user_company_ids()) OR public.is_admin());
+GRANT SELECT ON public.com_fechamento_devolucao_cfg TO authenticated;
+GRANT ALL ON public.com_fechamento_devolucao_cfg TO service_role;
+
+-- ── fn_bi_comercial_kpis: devolução pela competência do fechamento (único trecho alterado: a JANELA da devolução). ─
 CREATE OR REPLACE FUNCTION public.fn_bi_comercial_kpis(p_company_id uuid, p_dt_ini date, p_dt_fim date, p_vendedor text DEFAULT NULL::text)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -25,6 +45,7 @@ DECLARE
   v_scope jsonb; v_vend text; r RECORD;
   v_tipos_dev  text[];
   v_tipos_desc text[];
+  v_dev_grace_dias int;              -- NOVO: dias do mês seguinte que entram no fechamento deste mês (config; padrão 10)
   v_dev_valor  numeric := 0;
   v_dev_kg     numeric := 0;
   v_dev_tipos  jsonb   := '[]'::jsonb;
@@ -34,7 +55,6 @@ DECLARE
   v_desc_prod  jsonb   := '[]'::jsonb;
   v_desc_vend  jsonb   := '[]'::jsonb;
   v_desc_linha jsonb   := '[]'::jsonb;
-  v_dia_corte  int     := 5;  -- competência: devolução lançada até o dia N conta no mês anterior.
 BEGIN
   v_scope := public.fn_bi_comercial_scope(p_company_id);
   IF v_scope->>'modo' = 'sem_acesso' THEN RETURN jsonb_build_object('ok', false, 'erro', 'sem_acesso_comercial'); END IF;
@@ -61,9 +81,17 @@ BEGIN
   SELECT array_agg(cod_tipo_mv) INTO v_tipos_desc
     FROM public.fn_comercial_tipos_efetivos(p_company_id, 'descarte');
 
-  -- DEVOLUÇÕES que abatem (domínio comercial_devolucao). Mesmos filtros do BI + MESMO escopo de vendedor.
-  -- MUDANÇA (d31f1966): o período passa a casar por COMPETÊNCIA (eff), não pela data de lançamento crua.
-  -- valor = VALOR_LIQUIDO_ITEM, kg = QTDE_PRI quando KG; STATUS<>'C' inalterado.
+  -- NOVO: dias de competência do mês seguinte (config por empresa; sem linha = 10; ativo=false desliga).
+  SELECT CASE WHEN cfg.ativo THEN cfg.dias_mes_seguinte ELSE 0 END
+    INTO v_dev_grace_dias
+    FROM public.com_fechamento_devolucao_cfg cfg
+   WHERE cfg.company_id = p_company_id;
+  IF NOT FOUND THEN v_dev_grace_dias := 10; END IF;
+
+  -- DEVOLUÇÕES que abatem (domínio comercial_devolucao). Mesmos filtros do BI + MESMO escopo de vendedor:
+  -- STATUS<>'C', valor = VALOR_LIQUIDO_ITEM, kg = QTDE_PRI quando KG. JANELA = COMPETÊNCIA do fechamento:
+  -- lançadas DENTRO do período + as lançadas no início do mês seguinte ao fim do período (até o dia v_dev_grace_dias),
+  -- que se referem a este fechamento (a devolução que chega poucos dias depois entra no mês certo).
   IF v_tipos_dev IS NOT NULL AND cardinality(v_tipos_dev) > 0 THEN
     WITH d AS (
       SELECT f.raw->>'COD_TIPO_MV' AS cod,
@@ -71,22 +99,22 @@ BEGIN
              CASE WHEN trim(f.raw->>'COD_UNIDADE_PRI') = 'KG'
                   THEN COALESCE((f.raw->>'QTDE_PRI')::numeric, 0) ELSE 0 END AS kg
       FROM public.ind_atak_fato f
-      CROSS JOIN LATERAL (
-        SELECT CASE WHEN left(f.raw->>'DATA_MOVTO', 10) ~ '^\d{4}-\d{2}-\d{2}$'
-                    THEN (left(f.raw->>'DATA_MOVTO', 10))::date END AS dm
-      ) g
-      CROSS JOIN LATERAL (
-        SELECT CASE
-                 WHEN g.dm IS NULL THEN NULL
-                 WHEN extract(day FROM g.dm) <= v_dia_corte THEN (date_trunc('month', g.dm)::date - 1)
-                 ELSE g.dm END AS eff
-      ) e
       WHERE f.company_id = p_company_id AND f.dominio = 'comercial_devolucao'
         AND trim(f.raw->>'STATUS') <> 'C'
-        AND e.eff IS NOT NULL
-        AND e.eff >= p_dt_ini AND e.eff <= p_dt_fim
         AND f.raw->>'COD_TIPO_MV' = ANY (v_tipos_dev)
         AND (v_vend IS NULL OR COALESCE(NULLIF(trim(f.raw->>'COD_VEND_COMP'), ''), 's/v') = v_vend)
+        AND (
+          -- lançadas dentro do período
+          ( left(f.raw->>'DATA_MOVTO', 10) >= to_char(p_dt_ini, 'YYYY-MM-DD')
+            AND left(f.raw->>'DATA_MOVTO', 10) <= to_char(p_dt_fim, 'YYYY-MM-DD') )
+          OR
+          -- lançadas no início do mês SEGUINTE ao fim do período, referentes a este fechamento
+          ( v_dev_grace_dias > 0
+            AND (left(f.raw->>'DATA_MOVTO', 10))::date > p_dt_fim
+            AND date_trunc('month', (left(f.raw->>'DATA_MOVTO', 10))::date)
+                = date_trunc('month', (p_dt_fim + 1))
+            AND extract(day FROM (left(f.raw->>'DATA_MOVTO', 10))::date) <= v_dev_grace_dias )
+        )
     )
     SELECT round(COALESCE(sum(valor), 0), 2),
            round(COALESCE(sum(kg), 0), 3),
@@ -95,7 +123,7 @@ BEGIN
       FROM (SELECT cod, round(sum(valor), 2) valor, round(sum(kg), 3) kg FROM d GROUP BY cod) z;
   END IF;
 
-  -- DESCARTE / PERDA (indicador separado — NÃO abate do faturamento). Hoje T131 ainda não vem. INALTERADO (data de lançamento).
+  -- DESCARTE / PERDA (indicador separado — NÃO abate do faturamento). Hoje T131 ainda não vem.
   IF v_tipos_desc IS NOT NULL AND cardinality(v_tipos_desc) > 0 THEN
     SELECT COALESCE(round(sum((f.raw->>'VALOR_LIQUIDO_ITEM')::numeric), 2), 0),
            COALESCE(round(sum(CASE WHEN trim(f.raw->>'COD_UNIDADE_PRI') = 'KG' THEN COALESCE((f.raw->>'QTDE_PRI')::numeric, 0) ELSE 0 END), 3), 0),
@@ -157,11 +185,11 @@ BEGIN
     'volume_kg_sem_despojo', r.volume_kg_sem_despojo,
     'ticket_kg_sem_despojo', ROUND(r.faturamento_sem_despojo / NULLIF(r.volume_kg_sem_despojo, 0), 4),
     'lucro', NULL, 'margem_pct', NULL, 'lucro_status', 'aguardando_dado_confiavel', 'fonte', 'venda_item_aceite',
-    -- NOVOS (faturamento líquido + descarte). O card "Faturamento total" segue sendo o BRUTO (r.faturamento).
+    -- faturamento líquido + descarte. O card "Faturamento total" segue sendo o BRUTO (r.faturamento).
     'devolucoes_valor',    v_dev_valor,
     'devolucoes_kg',       v_dev_kg,
     'devolucoes_por_tipo', v_dev_tipos,
-    'devolucoes_competencia_dia', v_dia_corte,   -- transparência: até o dia N conta no mês anterior.
+    'devolucoes_competencia_dias', v_dev_grace_dias,   -- NOVO: transparência da regra de competência aplicada
     'tipos_devolucao',     COALESCE(to_jsonb(v_tipos_dev), '[]'::jsonb),
     'faturamento_liquido', round(COALESCE(r.faturamento, 0) - v_dev_valor, 2),
     'volume_kg_liquido',   round(COALESCE(r.volume_kg, 0) - v_dev_kg, 3),
@@ -176,19 +204,8 @@ BEGIN
 END
 $function$;
 
--- Guarda da função de leitura (fail-closed, inalterada em relação ao estado vivo): nunca anon/PUBLIC.
-REVOKE ALL ON FUNCTION public.fn_bi_comercial_kpis(uuid, date, date, text) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.fn_bi_comercial_kpis(uuid, date, date, text) FROM anon;
-GRANT EXECUTE ON FUNCTION public.fn_bi_comercial_kpis(uuid, date, date, text) TO authenticated, service_role;
-
--- "?" (RD-95): deixar explícito no card qual devolução é considerada. Idempotente (atualiza só o texto da chave já criada na #4850).
+-- ── Ajuda RD-95: deixar explícito no "?" do card a regra de competência da devolução. ────────────────────────────
 UPDATE public.erp_ajuda_campo
-   SET para_que_serve = 'É o faturamento bruto menos as devoluções reais (tipos T582 e T583) do período, por COMPETÊNCIA. '
-                     || 'Devolução considerada: a lançada dentro do mês mais a lançada nos primeiros dias do mês seguinte que se refere a este mês '
-                     || '(regra de fechamento: devolução lançada até o dia 5 conta no mês anterior). Assim o número bate melhor com o relatório do ATAK — '
-                     || 'o que de fato entrou, depois de tirar o que voltou. O card "Faturamento" ao lado continua mostrando o bruto (antes das devoluções).',
-       erro_comum   = 'Estranhar a devolução de uma venda aparecer no mês da venda e não no mês em que foi lançada: é de propósito (competência), '
-                     || 'para o fechamento do mês bater com o faturamento daquele mês.',
-       versao       = COALESCE(versao, 1) + 1,
+   SET para_que_serve = 'É o faturamento bruto menos as devoluções reais (tipos T582 e T583) do período. É o número que bate com o relatório do seu sistema de origem — o que de fato entrou, depois de tirar o que voltou. A devolução considerada é a lançada no mês + a do início do mês seguinte referente a este (até o dia 10, configurável por empresa), para que a devolução que chega poucos dias depois entre no fechamento do mês certo. O card "Faturamento" ao lado continua mostrando o bruto (antes das devoluções).',
        atualizado_em = now()
- WHERE chave = 'com.painel.faturado_liquido' AND rota = '/dashboard/comercial/meu-painel';
+ WHERE chave = 'com.painel.faturado_liquido';
