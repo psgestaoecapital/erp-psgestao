@@ -237,6 +237,12 @@ BEGIN
 END
 $function$;
 
+-- Grants (gate check-fn-guards): re-afirma o padrão da função SECURITY DEFINER. CREATE OR REPLACE preserva a ACL
+-- atual ({authenticated, service_role}); estas linhas só a tornam explícita no arquivo (idempotentes). anon NUNCA
+-- executa (a função exige auth.uid()).
+REVOKE ALL ON FUNCTION public.fn_bi_comercial_base(uuid, date, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_bi_comercial_base(uuid, date, date) TO authenticated, service_role;
+
 -- 2) SEMENTE só da Frioeste (RD-102): contas administrativas fora da análise de vendedores. Idempotente.
 --    Franciele (80005) e Carine (80012) são administrativas: continuam no total, saem da comparação/média.
 INSERT INTO public.com_ranking_participante (company_id, cod_vendedor, incluido, motivo)

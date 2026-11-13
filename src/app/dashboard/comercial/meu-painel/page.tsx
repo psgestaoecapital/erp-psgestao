@@ -721,7 +721,7 @@ export default function MeuPainelV6() {
                 {base.ven.map((v) => {
                   const cod = v[0]; const nome = v[1] || cod; const incluido = v[2] !== 0
                   return (
-                    <label key={cod} title={incluido ? 'Na comparação e na média' : 'Só no total geral'}
+                    <label key={cod} data-ajuda="com.painel.analise" title={incluido ? 'Na comparação e na média' : 'Só no total geral'}
                       style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: C.esp, border: `1px solid ${C.bd}`, borderRadius: 999, padding: '5px 12px', background: incluido ? '#fff' : C.bg2, cursor: salvandoVen ? 'wait' : 'pointer', opacity: salvandoVen && salvandoVen !== cod ? 0.55 : 1 }}>
                       <input type="checkbox" checked={incluido} disabled={!!salvandoVen} onChange={() => void toggleVenAnalise(cod, !incluido)} style={{ accentColor: C.gold }} />
                       {nome}{!incluido && <span style={{ fontSize: 11, color: C.d }}>só no total</span>}
