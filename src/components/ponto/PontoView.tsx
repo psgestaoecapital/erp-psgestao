@@ -355,9 +355,12 @@ export default function PontoView({ lente }: { lente: Lente }) {
         {loading ? (
           <div style={{ fontSize: 13, color: MUT }}>Carregando…</div>
         ) : !config ? (
+          // RD-100: nome de sistema de terceiro não aparece em texto visível; o
+          // usuário escolhe o fornecedor na Central de Conectores (seleção de integração,
+          // onde nomeá-lo é legítimo). Aqui mantemos o termo genérico.
           <EmptyBox
             titulo="Nenhum provider de ponto conectado"
-            texto="Conecte um fornecedor de ponto eletrônico (IO Point, Pontotel, Domínio) pra esta empresa."
+            texto="Conecte o seu fornecedor de ponto eletrônico pra esta empresa na Central de Conectores."
             cta={{ label: 'Ir pra Central de Conectores →', href: '/dashboard/conectores' }}
           />
         ) : (
@@ -540,7 +543,8 @@ function Casca({ rotulo, children }: { rotulo: string; children: React.ReactNode
         <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: GOLD, margin: 0 }}>{rotulo}</p>
         <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 28, fontWeight: 400, color: ESP, margin: '4px 0 4px' }}>Ponto Eletrônico</h1>
         <p style={{ fontSize: 12, color: MUT, margin: '0 0 18px' }}>
-          Colaboradores e horas do provider de ponto (IO Point, Pontotel, Domínio) — mesma fonte pra Industrial e Compliance.
+          {/* RD-100: sem nome de terceiro em texto visível — o fornecedor é escolhido na Central de Conectores. */}
+          Colaboradores e horas do seu fornecedor de ponto conectado — mesma fonte pra Industrial e Compliance.
         </p>
         {children}
       </div>
