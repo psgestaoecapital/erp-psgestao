@@ -107,3 +107,8 @@ begin
     'valor', v_mov.valor, 'acrescimo', v_acr, 'desconto', v_desc, 'ajuste_lancamento', v_anchor);
 end;
 $function$;
+
+-- Guarda da régua check-fn-guards (regra 1): SECURITY DEFINER nunca exposta a quem não está logado.
+-- Idempotente — a ACL viva (RD-38, 13/11) já tem só authenticated/postgres/service_role; CREATE OR REPLACE
+-- preserva esses grants, o REVOKE só reforça que PUBLIC/anon não têm EXECUTE.
+REVOKE ALL ON FUNCTION public.fn_conciliacao_fechar_agrupado(uuid, uuid, numeric, numeric, numeric, numeric, uuid, text) FROM PUBLIC, anon;
