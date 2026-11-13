@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero } from '@/lib/moeda-mascara'
 
 const ROTA_AJUDA = '/dashboard/financeiro/inadimplentes'
 
@@ -591,7 +593,7 @@ function RenegociarModal({ open, ids, onClose, onSucesso }: { open: boolean; ids
     const { error } = await supabase.rpc('fn_renegociar_inadimplencia', {
       p_receber_ids: ids,
       p_nova_data_vencimento: novaData,
-      p_novo_valor_total: novoValor ? Number(novoValor) : null,
+      p_novo_valor_total: moedaParaNumero(novoValor),
       p_observacao: obs || 'Renegociado',
     })
     setLoading(false)
@@ -618,7 +620,7 @@ function RenegociarModal({ open, ids, onClose, onSucesso }: { open: boolean; ids
           </label>
           <label>
             <span style={fieldLabel}>Novo valor total (opcional)</span>
-            <input type="number" step="0.01" min="0" value={novoValor} onChange={(e) => setNovoValor(e.target.value)} placeholder="Deixe vazio pra manter" style={input} />
+            <CampoMoeda value={novoValor} onChange={setNovoValor} placeholder="Deixe vazio pra manter" style={input} />
           </label>
           <label>
             <span style={fieldLabel}>Observação</span>
