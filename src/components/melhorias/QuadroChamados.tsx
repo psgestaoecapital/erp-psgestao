@@ -1,8 +1,12 @@
 'use client'
 
-// Quadro de chamados (Fase 2 do #7050, CEO 09/11). Colunas: Todos, Minha carteira, Pendentes, Em andamento,
-// Aguardando usuário e Finalizados. O cartão mostra só número, título e "Abrir" (o detalhe — descrição, anexos,
-// fotos, histórico e respostas — continua na lista). A etiqueta de status aparece só em "Todos" e na busca.
+// Quadro de chamados (Fase 2 do #7050, CEO 09/11). Colunas por status: Pendentes, Em andamento, Aguardando
+// usuário e Finalizados (no modo usuário, antes delas a coluna "Minha carteira"). O ESCOPO (minha carteira ×
+// gerais / meu usuário × todos) é dado pelo FILTRO no topo — a antiga coluna "Todos" duplicava as colunas de
+// status (todo chamado ativo já cai em uma delas) e, no teste do CEO (12/11), comia largura e empurrava a última
+// coluna para fora da tela; por isso virou filtro em vez de coluna e foi removida. O cartão mostra só número,
+// título e "Abrir" (o detalhe — descrição, anexos, fotos, histórico e respostas — continua na lista). A etiqueta
+// de status aparece na busca (nas colunas, o cabeçalho da coluna já diz o status).
 // A busca fica fixa no topo e acha finalizados e arquivados (estes com a etiqueta ARQUIVADA).
 // Regras de coluna e de busca: src/lib/melhorias/kanban.ts (puras, com gate). Filtro Minha carteira / Gerais.
 //
@@ -41,8 +45,8 @@ type Props = {
   onFiltro: (f: FiltroKanban) => void
   rotuloStatus: (s: string) => string
   onAbrir: (numero: number, arquivada: boolean) => void
-  // 'operador' = fila de atendimento (#7050): colunas Todos/Pendentes/Em andamento/Aguardando usuário/Finalizados e seletor
-  // "Meu usuário" / "Todos usuários" (sem a coluna extra "Minha carteira"). Padrão 'usuario' = tela de melhorias.
+  // 'operador' = fila de atendimento (#7050): colunas de status (Pendentes/Em andamento/Aguardando usuário/Finalizados) e
+  // seletor "Meu usuário" / "Todos usuários" (sem a coluna extra "Minha carteira"). Padrão 'usuario' = tela de melhorias.
   modo?: 'usuario' | 'operador'
   // #7050 Fase 3: arrastar o cartão. Quando presente, os cartões das colunas de status ficam arrastáveis e as colunas
   // de status viram alvo de soltura. A PÁGINA decide o que cada transição faz (hoje só Pendentes → Em andamento =
@@ -186,7 +190,6 @@ export default function QuadroChamados({ itens, meuId, busca, onBusca, filtro, o
 
   const daCarteira = (c: ChamadoKanban) => passaFiltro(c, 'minha', meuId)
   const porColuna = (col: ColunaKanban) => ativos.filter((c) => colunaDoChamado(c) === col && passaFiltro(c, filtro, meuId))
-  const todos = ativos.filter((c) => passaFiltro(c, filtro, meuId))
   const minhaCarteira = ativos.filter(daCarteira)
 
   // Cartão para uma coluna. col indefinido = cartão não arrastável (colunas "Todos"/"Minha carteira" e busca).
@@ -237,9 +240,6 @@ export default function QuadroChamados({ itens, meuId, busca, onBusca, filtro, o
         </div>
       ) : (
         <div className="qc-board qc-scroll" style={{ display: 'flex', gap: 10, overflowX: 'auto', WebkitOverflowScrolling: 'touch', alignItems: 'stretch', width: '100%', paddingBottom: 8 }}>
-          <Coluna titulo="Todos" count={todos.length} destacar={false} vazio={todos.length === 0}>
-            {todos.map((c) => card(c, true))}
-          </Coluna>
           {modo === 'usuario' && (
             <Coluna titulo="Minha carteira" count={minhaCarteira.length} destacar={false} vazio={minhaCarteira.length === 0}>
               {minhaCarteira.map((c) => card(c, false))}
