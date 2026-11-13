@@ -3,10 +3,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import {
   Receipt, FileText, AlertTriangle, Settings, Archive, Loader2, AlertCircle,
   CheckCircle2, ArrowRight,
 } from 'lucide-react'
+
+const ROTA = '/dashboard/fiscal'
 
 interface ResumoFiscal {
   nfse_emitidas?: {
@@ -146,6 +149,7 @@ export default function HubFiscalClient() {
             testId="hub-fiscal-card-nfse"
             icon={<Receipt className="text-[#C8941A]" size={22} />}
             label="NFSes Emitidas"
+            ajudaChave="ge.fiscal.hub.nfse_emitidas"
             valor={String(nfse.autorizadas_mes ?? 0)}
             sufixo="no mês"
             sub={fmtBRL(nfse.valor_mes ?? 0)}
@@ -161,6 +165,7 @@ export default function HubFiscalClient() {
             testId="hub-fiscal-card-nfe"
             icon={<FileText className="text-[#C8941A]" size={22} />}
             label="NFes Emitidas"
+            ajudaChave="ge.fiscal.hub.nfe_emitidas"
             valor={String(nfe.autorizadas_mes ?? 0)}
             sufixo="no mês"
             sub={fmtBRL(nfe.valor_mes ?? 0)}
@@ -187,8 +192,8 @@ export default function HubFiscalClient() {
                 }
               />
             </div>
-            <div className="text-[10.5px] text-[#3D2314]/55 uppercase tracking-[0.8px] font-medium mb-1">
-              Pendências
+            <div className="text-[10.5px] text-[#3D2314]/55 uppercase tracking-[0.8px] font-medium mb-1 flex items-center">
+              Pendências<AjudaCampo chave="ge.fiscal.hub.pendencias" rota={ROTA} />
             </div>
             <div className="text-[28px] font-medium text-[#3D2314] leading-none mb-2">
               {totalPendencias}
@@ -212,8 +217,8 @@ export default function HubFiscalClient() {
                 EDITAR <ArrowRight size={11} />
               </span>
             </div>
-            <div className="text-[10.5px] text-[#3D2314]/55 uppercase tracking-[0.8px] font-medium mb-1">
-              Configuração
+            <div className="text-[10.5px] text-[#3D2314]/55 uppercase tracking-[0.8px] font-medium mb-1 flex items-center">
+              Configuração<AjudaCampo chave="ge.fiscal.hub.config" rota={ROTA} />
             </div>
             <div className="text-[14px] font-medium mb-1.5 flex items-center gap-1.5">
               {focusOk ? (
@@ -228,13 +233,13 @@ export default function HubFiscalClient() {
             </div>
             {focusOk ? (
               <div className="text-[11px] text-[#3D2314]/70 space-y-0.5">
-                <div>Ambiente: {config.ambiente ?? '—'}</div>
-                <div>Próx NFSe nº {config.proxima_numeracao_nfse ?? '—'}</div>
-                <div>Próx NFe nº {config.proxima_numeracao_nfe ?? '—'}</div>
+                <div className="flex items-center">Ambiente: {config.ambiente ?? '—'}<AjudaCampo chave="ge.fiscal.hub.config_ambiente" rota={ROTA} /></div>
+                <div className="flex items-center">Próx NFSe nº {config.proxima_numeracao_nfse ?? '—'}<AjudaCampo chave="ge.fiscal.hub.config_prox_nfse" rota={ROTA} /></div>
+                <div className="flex items-center">Próx NFe nº {config.proxima_numeracao_nfe ?? '—'}<AjudaCampo chave="ge.fiscal.hub.config_prox_nfe" rota={ROTA} /></div>
               </div>
             ) : (
               <div className="text-[11px] text-[#633806]">
-                Configure A1 + Focus NFe pra emitir
+                Configure A1 + provedor de NF-e pra emitir
               </div>
             )}
           </Link>
@@ -251,10 +256,11 @@ export default function HubFiscalClient() {
                 Arquivos guardados em bucket privado · compliance Receita Federal.
               </p>
               <div className="grid grid-cols-3 gap-4 text-[12px]">
-                <Metric label="NFSes armazenadas" value={String(storage.nfse_armazenadas ?? 0)} />
-                <Metric label="NFes armazenadas" value={String(storage.nfe_armazenadas ?? 0)} />
+                <Metric label="NFSes armazenadas" ajudaChave="ge.fiscal.hub.storage_nfse" value={String(storage.nfse_armazenadas ?? 0)} />
+                <Metric label="NFes armazenadas" ajudaChave="ge.fiscal.hub.storage_nfe" value={String(storage.nfe_armazenadas ?? 0)} />
                 <Metric
                   label="Fila pendente"
+                  ajudaChave="ge.fiscal.hub.storage_fila"
                   value={String(storage.pendentes_fila ?? 0)}
                   highlight={(storage.pendentes_fila ?? 0) > 0}
                 />
@@ -266,7 +272,7 @@ export default function HubFiscalClient() {
         {!focusOk && (
           <div className="bg-[#FAEEDA] border border-[#E8C387] rounded-xl p-4 text-[12.5px] text-[#633806]">
             <strong className="font-medium">Sistema pronto pra emitir notas.</strong>{' '}
-            Falta configurar o certificado A1 e a API key Focus NFe em{' '}
+            Falta configurar o certificado A1 e a API key do provedor de NF-e em{' '}
             <Link href="/dashboard/configuracoes/fiscal" className="text-[#BA7517] underline font-medium">
               Configurações › Fiscal
             </Link>
@@ -283,12 +289,13 @@ interface CardProps {
   testId: string
   icon: React.ReactNode
   label: string
+  ajudaChave: string
   valor: string
   sufixo?: string
   sub?: string
   pill?: { color: 'amber' | 'red'; text: string } | null
 }
-function Card({ href, testId, icon, label, valor, sufixo, sub, pill }: CardProps) {
+function Card({ href, testId, icon, label, ajudaChave, valor, sufixo, sub, pill }: CardProps) {
   return (
     <Link
       href={href}
@@ -301,8 +308,8 @@ function Card({ href, testId, icon, label, valor, sufixo, sub, pill }: CardProps
           VER <ArrowRight size={11} />
         </span>
       </div>
-      <div className="text-[10.5px] text-[#3D2314]/55 uppercase tracking-[0.8px] font-medium mb-1">
-        {label}
+      <div className="text-[10.5px] text-[#3D2314]/55 uppercase tracking-[0.8px] font-medium mb-1 flex items-center">
+        {label}<AjudaCampo chave={ajudaChave} rota={ROTA} />
       </div>
       <div className="text-[28px] font-medium text-[#3D2314] leading-none mb-1.5">
         {valor}
@@ -324,10 +331,12 @@ function Card({ href, testId, icon, label, valor, sufixo, sub, pill }: CardProps
   )
 }
 
-function Metric({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+function Metric({ label, ajudaChave, value, highlight }: { label: string; ajudaChave: string; value: string; highlight?: boolean }) {
   return (
     <div>
-      <div className="text-[10.5px] text-[#3D2314]/55 uppercase tracking-[0.8px] font-medium">{label}</div>
+      <div className="text-[10.5px] text-[#3D2314]/55 uppercase tracking-[0.8px] font-medium flex items-center">
+        {label}<AjudaCampo chave={ajudaChave} rota={ROTA} />
+      </div>
       <div className={`text-[20px] font-medium ${highlight ? 'text-[#633806]' : 'text-[#3D2314]'}`}>
         {value}
       </div>
