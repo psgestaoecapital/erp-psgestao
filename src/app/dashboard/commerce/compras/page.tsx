@@ -491,7 +491,7 @@ function TabelaCotacoes({ rows, total, onSelect, onCompare, canCreate, onCreate 
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 860 }}>
           <thead style={{ background: C.cream }}>
-            <tr><Th>Número</Th><Th>Descrição</Th><Th>Solicitante</Th><Th>Abertura</Th><Th>Limite</Th><Th>Status</Th><Th align="right">Ações</Th></tr>
+            <tr><Th ajuda="commerce.compras.col_numero">Número</Th><Th ajuda="commerce.compras.col_descricao">Descrição</Th><Th ajuda="commerce.compras.col_solicitante">Solicitante</Th><Th ajuda="commerce.compras.col_abertura">Abertura</Th><Th ajuda="commerce.compras.col_limite">Limite</Th><Th ajuda="commerce.compras.col_status">Status</Th><Th align="right" ajuda="commerce.compras.col_acoes">Ações</Th></tr>
           </thead>
           <tbody>
             {rows.map((c) => (
@@ -528,7 +528,7 @@ function TabelaCompras({ rows, total, cotacoes, onSelect }: { rows: Compra[]; to
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 880 }}>
           <thead style={{ background: C.cream }}>
-            <tr><Th>Número</Th><Th>Fornecedor</Th><Th>Pedido</Th><Th>Prev. entrega</Th><Th align="right">Total</Th><Th>Status</Th><Th>NF</Th></tr>
+            <tr><Th ajuda="commerce.compras.col_numero">Número</Th><Th ajuda="commerce.compras.col_fornecedor">Fornecedor</Th><Th ajuda="commerce.compras.col_pedido">Pedido</Th><Th ajuda="commerce.compras.col_prev_entrega">Prev. entrega</Th><Th align="right" ajuda="commerce.compras.col_total">Total</Th><Th ajuda="commerce.compras.col_status">Status</Th><Th ajuda="commerce.compras.col_nf">NF</Th></tr>
           </thead>
           <tbody>
             {rows.map((p) => {
@@ -1403,8 +1403,14 @@ function StatusBadge({ status, mapa }: { status: string; mapa: Record<string, { 
   return <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: s.bg, color: s.fg, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, whiteSpace: 'nowrap' }}>{s.label}</span>
 }
 
-function Th({ children, align = 'left' }: { children?: React.ReactNode; align?: 'left' | 'right' }) {
-  return <th style={{ padding: '10px 14px', textAlign: align, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: C.espressoM }}>{children}</th>
+function Th({ children, align = 'left', ajuda }: { children?: React.ReactNode; align?: 'left' | 'right'; ajuda?: string }) {
+  return (
+    <th style={{ padding: '10px 14px', textAlign: align, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: C.espressoM }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, justifyContent: align === 'right' ? 'flex-end' : 'flex-start' }}>
+        {children}{ajuda && <AjudaCampo chave={ajuda} rota={ROTA_AJUDA} />}
+      </span>
+    </th>
+  )
 }
 function Td({ children, align = 'left', onClick }: { children?: React.ReactNode; align?: 'left' | 'right'; onClick?: () => void }) {
   return <td onClick={onClick} style={{ padding: '10px 14px', textAlign: align, verticalAlign: 'middle', color: C.espresso }}>{children}</td>

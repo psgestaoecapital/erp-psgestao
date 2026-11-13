@@ -140,7 +140,7 @@ export default function ContasPage(){
     setProcessando(true);
     try{
       const{data,error}=await supabase.rpc('batch_baixa_titulos',{
-        p_titulos_ids:Array.from(selecionados),
+        p_lancamento_ids:Array.from(selecionados),
         p_data_pagamento:baixaData,
         p_banco_conta_id:baixaConta||null,
         p_forma_pagamento:baixaForma,
@@ -160,7 +160,7 @@ export default function ContasPage(){
     if(!confirm(`Cancelar ${selecionados.size} título(s)?`))return;
     setProcessando(true);
     try{
-      const{error}=await supabase.rpc('batch_cancelar_titulos',{p_titulos_ids:Array.from(selecionados)});
+      const{error}=await supabase.rpc('batch_cancelar_titulos',{p_lancamento_ids:Array.from(selecionados)});
       if(error){setMsg("❌ "+error.message);setProcessando(false);return;}
       setMsg(`✅ ${selecionados.size} título(s) cancelado(s)`);
       setSelecionados(new Set());
