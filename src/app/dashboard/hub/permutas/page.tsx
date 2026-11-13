@@ -7,6 +7,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero } from '@/lib/moeda-mascara'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ROTA = '/dashboard/hub/permutas'
@@ -175,7 +177,7 @@ function CadastroModal({ empresas, onClose, onSalvo }: { empresas: Empresa[]; on
     const { data, error } = await supabase.rpc('fn_permuta_salvar', {
       p_id: null, p_company_id: f.company_id, p_obra_id: f.obra_id || null, p_contratante: f.contratante || null,
       p_ativo_descr: f.ativo_descr, p_tipo_contrato: f.tipo_contrato, p_pct_permuta: f.pct_permuta ? Number(f.pct_permuta) : null,
-      p_valor_permuta: f.valor_permuta ? Number(f.valor_permuta) : 0, p_valor_dinheiro: f.valor_dinheiro ? Number(f.valor_dinheiro) : 0,
+      p_valor_permuta: moedaParaNumero(f.valor_permuta) ?? 0, p_valor_dinheiro: moedaParaNumero(f.valor_dinheiro) ?? 0,
       p_indice_reajuste: f.indice_reajuste || null, p_data_base: f.data_base || null, p_contrato_anexo: f.contrato_anexo || null, p_intragrupo: f.intragrupo,
     })
     setSalvando(false)
@@ -190,8 +192,8 @@ function CadastroModal({ empresas, onClose, onSalvo }: { empresas: Empresa[]; on
       <Campo data-ajuda="hub.permutas.contratante" chave="hub.permutas.contratante" rot="Contratante"><input style={inp} value={f.contratante} onChange={e => set('contratante', e.target.value)} placeholder="Incorporadora…" /></Campo>
       <Campo data-ajuda="hub.permutas.tipo_contrato" chave="hub.permutas.tipo_contrato" rot="Tipo de contrato"><select style={inp} value={f.tipo_contrato} onChange={e => set('tipo_contrato', e.target.value)}><option value="100_permuta">100% permuta</option><option value="misto">Misto</option><option value="100_dinheiro">100% dinheiro</option></select></Campo>
       <Campo data-ajuda="hub.permutas.pct_permuta" chave="hub.permutas.pct_permuta" rot="% de permuta"><input style={inp} type="number" value={f.pct_permuta} onChange={e => set('pct_permuta', e.target.value)} placeholder="40" /></Campo>
-      <Campo data-ajuda="hub.permutas.valor_permuta" chave="hub.permutas.valor_permuta" rot="Valor da permuta (R$)"><input style={inp} type="number" value={f.valor_permuta} onChange={e => set('valor_permuta', e.target.value)} placeholder="100000" /></Campo>
-      <Campo data-ajuda="hub.permutas.valor_dinheiro" chave="hub.permutas.valor_dinheiro" rot="Valor em dinheiro (R$)"><input style={inp} type="number" value={f.valor_dinheiro} onChange={e => set('valor_dinheiro', e.target.value)} placeholder="0" /></Campo>
+      <Campo data-ajuda="hub.permutas.valor_permuta" chave="hub.permutas.valor_permuta" rot="Valor da permuta (R$)"><CampoMoeda style={inp} value={f.valor_permuta} onChange={v => set('valor_permuta', v)} placeholder="0,00" /></Campo>
+      <Campo data-ajuda="hub.permutas.valor_dinheiro" chave="hub.permutas.valor_dinheiro" rot="Valor em dinheiro (R$)"><CampoMoeda style={inp} value={f.valor_dinheiro} onChange={v => set('valor_dinheiro', v)} placeholder="0,00" /></Campo>
       <Campo data-ajuda="hub.permutas.indice_reajuste" chave="hub.permutas.indice_reajuste" rot="Índice de reajuste"><input style={inp} value={f.indice_reajuste} onChange={e => set('indice_reajuste', e.target.value)} placeholder="CUB-SC" /></Campo>
       <Campo data-ajuda="hub.permutas.data_base" chave="hub.permutas.data_base" rot="Data base"><input style={inp} type="date" value={f.data_base} onChange={e => set('data_base', e.target.value)} /></Campo>
       <Campo data-ajuda="hub.permutas.anexo" chave="hub.permutas.anexo" rot="Contrato (link)"><input style={inp} value={f.contrato_anexo} onChange={e => set('contrato_anexo', e.target.value)} placeholder="link do PDF (upload na próxima fatia)" /></Campo>
@@ -215,7 +217,7 @@ function MovimentoModal({ permutaId, empresas, onClose, onSalvo }: { permutaId: 
   const salvarMov = async () => {
     setSalvando(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_permuta_movimento_add', {
-      p_permuta_id: permutaId, p_tipo: m.tipo, p_competencia: compDate(m.competencia), p_valor: m.valor ? Number(m.valor) : 0,
+      p_permuta_id: permutaId, p_tipo: m.tipo, p_competencia: compDate(m.competencia), p_valor: moedaParaNumero(m.valor) ?? 0,
       p_data: m.data || null, p_num_nota: m.num_nota || null, p_cnpj_emissor: m.cnpj_emissor || null,
       p_empresa_emissora_id: m.empresa_emissora_id || null, p_ref_tipo: null, p_ref_id: null, p_obs: m.obs || null,
     })
@@ -225,7 +227,7 @@ function MovimentoModal({ permutaId, empresas, onClose, onSalvo }: { permutaId: 
   const salvarCub = async () => {
     setSalvando(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_permuta_reajuste_add', {
-      p_permuta_id: permutaId, p_competencia: compDate(r.competencia), p_indice_valor: r.indice_valor ? Number(r.indice_valor) : null, p_valor_reajuste: r.valor_reajuste ? Number(r.valor_reajuste) : 0,
+      p_permuta_id: permutaId, p_competencia: compDate(r.competencia), p_indice_valor: r.indice_valor ? Number(r.indice_valor) : null, p_valor_reajuste: moedaParaNumero(r.valor_reajuste) ?? 0,
     })
     setSalvando(false); const d = data as { ok: boolean; erro?: string } | null
     if (error) setErro(erroAmigavel(error)); else if (!d?.ok) setErro(d?.erro ?? 'Erro'); else onSalvo()
@@ -239,7 +241,7 @@ function MovimentoModal({ permutaId, empresas, onClose, onSalvo }: { permutaId: 
       <Grid>
         <Campo data-ajuda="hub.permutas.mov_tipo" chave="hub.permutas.mov_tipo" rot="Tipo"><select style={inp} value={m.tipo} onChange={e => setM(p => ({ ...p, tipo: e.target.value }))}>{TIPO_MOV.map(t => <option key={t.v} value={t.v}>{t.l}</option>)}</select></Campo>
         <Campo data-ajuda="hub.permutas.mov_competencia" chave="hub.permutas.mov_competencia" rot="Competência (mês)"><input style={inp} type="month" value={m.competencia} onChange={e => setM(p => ({ ...p, competencia: e.target.value }))} /></Campo>
-        <Campo data-ajuda="hub.permutas.mov_valor" chave="hub.permutas.mov_valor" rot="Valor (R$)"><input style={inp} type="number" value={m.valor} onChange={e => setM(p => ({ ...p, valor: e.target.value }))} placeholder="30000" /></Campo>
+        <Campo data-ajuda="hub.permutas.mov_valor" chave="hub.permutas.mov_valor" rot="Valor (R$)"><CampoMoeda style={inp} value={m.valor} onChange={v => setM(p => ({ ...p, valor: v }))} placeholder="0,00" /></Campo>
         <Campo data-ajuda="hub.permutas.mov_data" chave="hub.permutas.mov_data" rot="Data"><input style={inp} type="date" value={m.data} onChange={e => setM(p => ({ ...p, data: e.target.value }))} /></Campo>
         <Campo data-ajuda="hub.permutas.mov_num_nota" chave="hub.permutas.mov_num_nota" rot="Nº da nota"><input style={inp} value={m.num_nota} onChange={e => setM(p => ({ ...p, num_nota: e.target.value }))} placeholder="NF 123" /></Campo>
         <Campo data-ajuda="hub.permutas.mov_cnpj" chave="hub.permutas.mov_cnpj" rot="CNPJ emissor"><input style={inp} value={m.cnpj_emissor} onChange={e => setM(p => ({ ...p, cnpj_emissor: e.target.value }))} placeholder="00.000.000/0001-00" /></Campo>
@@ -252,7 +254,7 @@ function MovimentoModal({ permutaId, empresas, onClose, onSalvo }: { permutaId: 
       <Grid>
         <Campo data-ajuda="hub.permutas.reaj_competencia" chave="hub.permutas.reaj_competencia" rot="Competência do CUB"><input style={inp} type="month" value={r.competencia} onChange={e => setR(p => ({ ...p, competencia: e.target.value }))} /></Campo>
         <Campo data-ajuda="hub.permutas.reaj_indice" chave="hub.permutas.reaj_indice" rot="Valor do índice"><input style={inp} type="number" value={r.indice_valor} onChange={e => setR(p => ({ ...p, indice_valor: e.target.value }))} placeholder="2950" /></Campo>
-        <Campo data-ajuda="hub.permutas.reaj_valor" chave="hub.permutas.reaj_valor" rot="Reajuste do mês (R$)"><input style={inp} type="number" value={r.valor_reajuste} onChange={e => setR(p => ({ ...p, valor_reajuste: e.target.value }))} placeholder="5000" /></Campo>
+        <Campo data-ajuda="hub.permutas.reaj_valor" chave="hub.permutas.reaj_valor" rot="Reajuste do mês (R$)"><CampoMoeda style={inp} value={r.valor_reajuste} onChange={v => setR(p => ({ ...p, valor_reajuste: v }))} placeholder="0,00" /></Campo>
       </Grid>
       {erro && <div style={{ color: C.verm, fontSize: 12, marginTop: 8 }}>{erro}</div>}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}><button type="button" onClick={onClose} style={btnGhost}>Cancelar</button><button type="button" onClick={() => void salvarCub()} disabled={salvando} style={btnGold}>{salvando ? 'Salvando…' : 'Lançar CUB'}</button></div>
