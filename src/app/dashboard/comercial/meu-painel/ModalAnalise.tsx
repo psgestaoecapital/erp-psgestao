@@ -37,7 +37,11 @@ export function ModalAnalise({ open, onClose, empresa, base, modelo, estado, onA
   const [rascunho, setRascunho] = useState<Record<number, boolean>>(estado.excl)
   const [escopo, setEscopo] = useState<EscopoAnalise>(estado.escopo)
   const [busca, setBusca] = useState('')
-  if (!open) return null
+
+  // IMPORTANTE (regras dos Hooks): TODOS os hooks (useState/useMemo) vêm ANTES de qualquer return condicional.
+  // Antes, o `if (!open) return null` ficava aqui, no meio — ao abrir o modal (open false→true) a quantidade de
+  // hooks mudava entre renders e o React lançava "Rendered more hooks than during the previous render", o que
+  // derrubava a ROTA INTEIRA (error boundary: "This page couldn't load"). O `return null` agora está após os hooks.
 
   // Produtos que existem no período (motor), com totais para a lista.
   const porProd = useMemo(() => {
@@ -68,6 +72,9 @@ export function ModalAnalise({ open, onClose, empresa, base, modelo, estado, onA
       pis: pis.filter((pi) => !q || (base.prod[pi]?.[0] ?? '').toLowerCase().includes(q)).sort((a, b) => (porProd.get(b)!.val - porProd.get(a)!.val)),
     })).filter((g) => g.pis.length).sort((a, b) => a.linha.localeCompare(b.linha))
   }, [porProd, base, busca])
+
+  // Todos os hooks já rodaram — agora sim é seguro sair cedo quando o modal está fechado.
+  if (!open) return null
 
   const presets = [
     { k: 'padrao', rot: 'Padrão: só carne', fn: () => ({ ...exclusaoPadrao }) },
