@@ -11,6 +11,7 @@ import { supabase } from '@/lib/supabase'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { useOficinaRamo, labelCategoria, type Categoria } from '@/lib/oficina/ramo'
+import { parseNumBR } from '@/lib/num'
 
 export const dynamic = 'force-dynamic'
 
@@ -433,14 +434,14 @@ function ModalServico({
   const [erroLocal, setErroLocal] = useState<string | null>(null)
 
   // prévia do preço em tempo real (feedback imediato)
-  const tempoPrev = Number((tempoStr || '0').replace(',', '.'))
+  const tempoPrev = parseNumBR(tempoStr || '0') ?? 0 // aceita vírgula e milhar BR (#5660)
   const custoTotalPrev = custoHora != null && tempoPrev > 0 ? tempoPrev * custoHora : null
   const precoPrev = custoTotalPrev != null ? custoTotalPrev * (1 + margemMo / 100) : null
 
   async function salvar() {
     setErroLocal(null)
     if (!nome.trim()) { setErroLocal('Nome do serviço é obrigatório.'); return }
-    const tempo = Number((tempoStr || '0').replace(',', '.'))
+    const tempo = parseNumBR(tempoStr || '0') ?? NaN // aceita vírgula e milhar BR (#5660)
     if (!(tempo >= 0)) { setErroLocal('Tempo inválido.'); return }
     setSalvando(true)
     const { data: { user } } = await supabase.auth.getUser()
