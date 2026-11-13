@@ -28,6 +28,17 @@ type Grupo = { grupo: string; pessoas: number; custo_total: number; custo_medio:
 type CustoPor = { ok: boolean; pode_detalhe?: boolean; horas_mes?: number; grupos?: Grupo[] }
 type Param = { encargos_pct: number; horas_mes: number; fonte_custo: string; competencia_ref: string | null }
 type Aba = 'quadro' | 'cargo' | 'setor' | 'supervisor'
+type Jornada = {
+  id: string | null; cpf: string | null; matricula: string | null
+  escala_nome: string | null; tipo_escala: string | null
+  horas_semana: number | null; horas_mes: number | null
+  hora_entrada: string | null; hora_saida: string | null; intervalo_min: number | null
+  vigencia_inicio: string | null; vigencia_fim: string | null
+  fonte: string | null; sincronizado_em: string | null
+}
+const chaveJornada = (cpf?: string | null, mat?: string | null) =>
+  (cpf && cpf.trim()) ? `c:${cpf.trim().toLowerCase()}` : (mat && mat.trim()) ? `m:${mat.trim().toLowerCase()}` : ''
+const hhmm = (t: string | null | undefined) => (t ? t.slice(0, 5) : '')
 
 const inp: React.CSSProperties = { padding: '7px 9px', fontSize: 13, border: `1px solid ${LINE}`, borderRadius: 7, background: '#fff', color: ESP, width: '100%', boxSizing: 'border-box' }
 const th: React.CSSProperties = { padding: '9px 10px', textAlign: 'left', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT, whiteSpace: 'nowrap' }
@@ -53,6 +64,8 @@ export default function QuadroPessoalPage() {
   const [aba, setAba] = useState<Aba>('quadro')
   const [custoPor, setCustoPor] = useState<CustoPor | null>(null)
   const [loteAberto, setLoteAberto] = useState(false)
+  const [jornadas, setJornadas] = useState<Record<string, Jornada>>({})
+  const [jornadaEdit, setJornadaEdit] = useState<Pessoa | null>(null)
   const reqSeq = useRef(0) // descarta resposta obsoleta: load antigo não sobrescreve a competência atual (seletor × grade)
 
   const flash = (m: string) => { setMsg(m); setErro(null); window.setTimeout(() => setMsg(null), 3500) }
@@ -62,12 +75,13 @@ export default function QuadroPessoalPage() {
     if (!empresa) { setLoading(false); return }
     const seq = ++reqSeq.current
     setLoading(true); setErro(null)
-    const [q, comps, par, cg, st] = await Promise.all([
+    const [q, comps, par, cg, st, jr] = await Promise.all([
       supabase.rpc('fn_rh_quadro_pessoas', { p_company_id: empresa, p_competencia: competencia || null }),
       supabase.from('folha_competencia').select('competencia').eq('company_id', empresa),
       supabase.from('rh_parametro_custo').select('encargos_pct, horas_mes, fonte_custo, competencia_ref').eq('company_id', empresa).maybeSingle(),
       supabase.from('prod_cargo').select('id, nome').eq('company_id', empresa).eq('ativo', true).order('nome'),
       supabase.from('prod_setor').select('id, nome').eq('company_id', empresa).eq('ativo', true).order('nome'),
+      supabase.rpc('fn_ind_ponto_jornada_listar', { p_company_id: empresa }),
     ])
     if (seq !== reqSeq.current) return // resposta obsoleta: descarta — seletor e grade ficam na MESMA competência
     if (q.error) { setErro(q.error.message); setLoading(false); return }
@@ -80,6 +94,12 @@ export default function QuadroPessoalPage() {
     if (par.data) setParam(par.data as Param)
     setCargos((cg.data ?? []) as Opcao[])
     setSetores((st.data ?? []) as Opcao[])
+    const jrr = jr.data as { ok?: boolean; jornadas?: Jornada[] } | null
+    const jmap: Record<string, Jornada> = {}
+    for (const j of (jrr?.jornadas ?? [])) {
+      const k = chaveJornada(j.cpf, j.matricula); if (k) jmap[k] = j
+    }
+    setJornadas(jmap)
     setLoading(false)
   }, [empresa, competencia])
   useEffect(() => { void carregar() }, [carregar])
@@ -129,6 +149,14 @@ export default function QuadroPessoalPage() {
       flashErr(error?.message || map[r?.erro ?? ''] || 'Não consegui remover.'); return
     }
     flash('Removido do quadro.'); void carregar()
+  }
+
+  async function salvarJornada(payload: Record<string, unknown>) {
+    if (!empresa) return false
+    const { data, error } = await supabase.rpc('fn_ind_ponto_jornada_salvar', { p_company_id: empresa, ...payload, p_fonte: 'manual' })
+    const r = data as { ok?: boolean; erro?: string }
+    if (error || r?.ok === false) { flashErr(error?.message || r?.erro || 'Não consegui salvar a jornada.'); return false }
+    flash('Jornada salva.'); void carregar(); return true
   }
 
   if (!empresa) return <Casca><div style={card}>Selecione uma empresa específica para ver o quadro de pessoal.</div></Casca>
@@ -189,7 +217,7 @@ export default function QuadroPessoalPage() {
             <Link href="/dashboard/produtividade" style={{ ...btnOut, textDecoration: 'none' }}>Ligar funções aos cargos <AjudaCampo chave="rh.quadro.ligar_cargos" rota={ROTA} /></Link>
           </div>
           <div style={{ overflowX: 'auto', border: `0.5px solid ${LINE}`, borderRadius: 10 }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 860 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 1040 }}>
               <thead style={{ background: BG }}>
                 <tr>
                   <th style={th}>Nome</th>
@@ -198,6 +226,8 @@ export default function QuadroPessoalPage() {
                   <th style={th}>Cargo <AjudaCampo chave="rh.quadro.cargo" rota={ROTA} /></th>
                   <th style={th}>Setor <AjudaCampo chave="rh.quadro.setor" rota={ROTA} /></th>
                   <th style={th}>Supervisor <AjudaCampo chave="rh.quadro.supervisor" rota={ROTA} /></th>
+                  <th style={th}>Escala <AjudaCampo chave="rh.quadro.escala" rota={ROTA} /></th>
+                  <th style={th}>Carga horária <AjudaCampo chave="rh.quadro.carga_horaria" rota={ROTA} /></th>
                   <th style={th}>Salário <AjudaCampo chave="rh.quadro.salario" rota={ROTA} /></th>
                   <th style={{ ...th, textAlign: 'right' }}>Custo mês <AjudaCampo chave="rh.quadro.custo_mensal" rota={ROTA} /></th>
                   <th style={{ ...th, textAlign: 'right' }}>R$/h <AjudaCampo chave="rh.quadro.custo_hora" rota={ROTA} /></th>
@@ -206,9 +236,10 @@ export default function QuadroPessoalPage() {
               </thead>
               <tbody>
                 {pessoasFiltradas.map((p) => (
-                  <LinhaPessoa key={p.cpf || p.matricula || (p.nome ?? '')} p={p} pode={pode} cargos={cargos} setores={setores} onSalvar={salvarPessoa} onRemover={removerPessoa} />
+                  <LinhaPessoa key={p.cpf || p.matricula || (p.nome ?? '')} p={p} pode={pode} cargos={cargos} setores={setores} onSalvar={salvarPessoa} onRemover={removerPessoa}
+                    jornada={jornadas[chaveJornada(p.cpf, p.matricula)] ?? null} onEditarJornada={() => setJornadaEdit(p)} />
                 ))}
-                {pessoasFiltradas.length === 0 && <tr><td style={{ ...td, color: MUT }} colSpan={pode ? 10 : 9}>Nenhuma pessoa nesta competência.</td></tr>}
+                {pessoasFiltradas.length === 0 && <tr><td style={{ ...td, color: MUT }} colSpan={pode ? 12 : 11}>Nenhuma pessoa nesta competência.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -245,11 +276,12 @@ export default function QuadroPessoalPage() {
       )}
 
       {loteAberto && empresa && <LoteModal empresa={empresa} onClose={() => setLoteAberto(false)} onGravou={() => { setLoteAberto(false); flash('Lote gravado.'); void carregar() }} />}
+      {jornadaEdit && <JornadaModal pessoa={jornadaEdit} jornada={jornadas[chaveJornada(jornadaEdit.cpf, jornadaEdit.matricula)] ?? null} onClose={() => setJornadaEdit(null)} onSalvar={salvarJornada} />}
     </Casca>
   )
 }
 
-function LinhaPessoa({ p, pode, cargos, setores, onSalvar, onRemover }: { p: Pessoa; pode: boolean; cargos: Opcao[]; setores: Opcao[]; onSalvar: (cpf: string, patch: Record<string, string>) => void; onRemover: (p: Pessoa) => void }) {
+function LinhaPessoa({ p, pode, cargos, setores, onSalvar, onRemover, jornada, onEditarJornada }: { p: Pessoa; pode: boolean; cargos: Opcao[]; setores: Opcao[]; onSalvar: (cpf: string, patch: Record<string, string>) => void; onRemover: (p: Pessoa) => void; jornada: Jornada | null; onEditarJornada: () => void }) {
   const [cargo, setCargo] = useState(p.cargo_id ?? '')
   const [setor, setSetor] = useState(p.setor_id ?? '')
   const [sup, setSup] = useState(p.supervisor ?? '')
@@ -280,6 +312,21 @@ function LinhaPessoa({ p, pode, cargos, setores, onSalvar, onRemover }: { p: Pes
         ) : (p.setor ?? '—')}
       </td>
       <td style={td}>{pode ? <input style={{ ...inp, minWidth: 120 }} value={sup} onChange={(e) => setSup(e.target.value)} /> : (p.supervisor ?? '—')}</td>
+      <td style={td}>
+        {jornada?.escala_nome || jornada?.tipo_escala ? (
+          <span>{jornada.escala_nome || jornada.tipo_escala}
+            {jornada.escala_nome && jornada.tipo_escala && <span style={{ color: MUT }}> · {jornada.tipo_escala}</span>}
+            {jornada.fonte === 'sync' && <span title={`sincronizado do ponto${jornada.sincronizado_em ? ' em ' + new Date(jornada.sincronizado_em).toLocaleDateString('pt-BR') : ''}`} style={{ fontSize: 10, color: GREEN, marginLeft: 6 }}>do ponto</span>}
+          </span>
+        ) : <span style={{ color: MUT }}>—</span>}
+      </td>
+      <td style={td}>
+        <span style={{ whiteSpace: 'nowrap' }}>
+          {jornada?.horas_semana != null ? `${num(jornada.horas_semana)}h/sem` : jornada?.horas_mes != null ? `${num(jornada.horas_mes)}h/mês` : <span style={{ color: MUT }}>—</span>}
+          {(jornada?.hora_entrada || jornada?.hora_saida) && <span style={{ color: MUT, fontSize: 11, display: 'block' }}>{hhmm(jornada.hora_entrada)}–{hhmm(jornada.hora_saida)}</span>}
+        </span>
+        {pode && <button style={{ ...btnOut, padding: '3px 8px', fontSize: 11, marginLeft: 6 }} onClick={onEditarJornada}>{jornada ? 'Editar' : 'Definir'}</button>}
+      </td>
       <td style={td}>{pode ? <input style={{ ...inp, minWidth: 90 }} inputMode="decimal" value={sal} onChange={(e) => setSal(e.target.value)} /> : brl(p.salario)}</td>
       <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{pode ? brl(p.custo_mensal) : '🔒'}</td>
       <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: GOLD, fontWeight: 700 }}>
@@ -338,6 +385,69 @@ function LoteModal({ empresa, onClose, onGravou }: { empresa: string; onClose: (
         <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
           <button style={btnOut} onClick={onClose}>Cancelar</button>
           <button style={btnGold} onClick={() => void gravar()} disabled={busy}>{busy ? 'Gravando…' : 'Gravar'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function JornadaModal({ pessoa, jornada, onClose, onSalvar }: { pessoa: Pessoa; jornada: Jornada | null; onClose: () => void; onSalvar: (payload: Record<string, unknown>) => Promise<boolean> }) {
+  const [f, setF] = useState({
+    escala_nome: jornada?.escala_nome ?? '', tipo_escala: jornada?.tipo_escala ?? '',
+    horas_semana: jornada?.horas_semana != null ? String(jornada.horas_semana) : '',
+    horas_mes: jornada?.horas_mes != null ? String(jornada.horas_mes) : '',
+    hora_entrada: hhmm(jornada?.hora_entrada), hora_saida: hhmm(jornada?.hora_saida),
+    intervalo_min: jornada?.intervalo_min != null ? String(jornada.intervalo_min) : '',
+    vigencia_inicio: jornada?.vigencia_inicio ?? '', vigencia_fim: jornada?.vigencia_fim ?? '',
+  })
+  const [busy, setBusy] = useState(false)
+  const set = (k: keyof typeof f, v: string) => setF((o) => ({ ...o, [k]: v }))
+  const nn = (s: string) => { const v = Number((s || '').replace(',', '.')); return s.trim() === '' || !isFinite(v) ? null : v }
+  const tn = (s: string) => (s && s.trim() ? s : null)
+
+  async function gravar() {
+    setBusy(true)
+    const ok = await onSalvar({
+      p_cpf: pessoa.cpf || null, p_registration_number: pessoa.matricula || null,
+      p_escala_nome: tn(f.escala_nome), p_tipo_escala: tn(f.tipo_escala),
+      p_horas_semana: nn(f.horas_semana), p_horas_mes: nn(f.horas_mes),
+      p_hora_entrada: tn(f.hora_entrada), p_hora_saida: tn(f.hora_saida), p_intervalo_min: nn(f.intervalo_min),
+      p_vigencia_inicio: tn(f.vigencia_inicio), p_vigencia_fim: tn(f.vigencia_fim),
+    })
+    setBusy(false)
+    if (ok) onClose()
+  }
+  const lbl: React.CSSProperties = { fontSize: 12, color: MUT, display: 'block' }
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 1000 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 520, padding: 20, maxHeight: '92vh', overflowY: 'auto' }}>
+        <div style={{ fontSize: 16, fontWeight: 800, color: ESP }}>Jornada e escala</div>
+        <div style={{ fontSize: 12.5, color: MUT, margin: '2px 0 14px' }}>{pessoa.nome ?? pessoa.cpf ?? pessoa.matricula ?? '—'} — carga horária e escala de trabalho. Quando vem do ponto é atualizada no sync; aqui o RH ajusta ou preenche quando não há integração.</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+          <label style={{ ...lbl, gridColumn: '1 / -1' }}>Escala (nome) <AjudaCampo chave="rh.quadro.escala" rota={ROTA} />
+            <input style={inp} value={f.escala_nome} onChange={(e) => set('escala_nome', e.target.value)} placeholder="ex.: Comercial 44h" /></label>
+          <label style={lbl}>Tipo de escala <AjudaCampo chave="rh.quadro.tipo_escala" rota={ROTA} />
+            <input style={inp} list="jornada-tipos" value={f.tipo_escala} onChange={(e) => set('tipo_escala', e.target.value)} placeholder="ex.: 5x2" />
+            <datalist id="jornada-tipos"><option value="5x2" /><option value="6x1" /><option value="12x36" /><option value="Administrativo" /><option value="Turno" /><option value="Parcial" /></datalist></label>
+          <label style={lbl}>Horas/semana <AjudaCampo chave="rh.quadro.carga_horaria" rota={ROTA} />
+            <input style={inp} inputMode="decimal" value={f.horas_semana} onChange={(e) => set('horas_semana', e.target.value)} placeholder="44" /></label>
+          <label style={lbl}>Horas/mês <AjudaCampo chave="rh.quadro.carga_horaria" rota={ROTA} />
+            <input style={inp} inputMode="decimal" value={f.horas_mes} onChange={(e) => set('horas_mes', e.target.value)} placeholder="220" /></label>
+          <label style={lbl}>Entrada <AjudaCampo chave="rh.quadro.jornada_horario" rota={ROTA} />
+            <input style={inp} type="time" value={f.hora_entrada} onChange={(e) => set('hora_entrada', e.target.value)} /></label>
+          <label style={lbl}>Saída <AjudaCampo chave="rh.quadro.jornada_horario" rota={ROTA} />
+            <input style={inp} type="time" value={f.hora_saida} onChange={(e) => set('hora_saida', e.target.value)} /></label>
+          <label style={lbl}>Intervalo (min) <AjudaCampo chave="rh.quadro.jornada_horario" rota={ROTA} />
+            <input style={inp} inputMode="numeric" value={f.intervalo_min} onChange={(e) => set('intervalo_min', e.target.value)} placeholder="60" /></label>
+          <label style={lbl}>Vigência início <AjudaCampo chave="rh.quadro.jornada_vigencia" rota={ROTA} />
+            <input style={inp} type="date" value={f.vigencia_inicio} onChange={(e) => set('vigencia_inicio', e.target.value)} /></label>
+          <label style={lbl}>Vigência fim <AjudaCampo chave="rh.quadro.jornada_vigencia" rota={ROTA} />
+            <input style={inp} type="date" value={f.vigencia_fim} onChange={(e) => set('vigencia_fim', e.target.value)} /></label>
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 18, justifyContent: 'flex-end' }}>
+          <button style={btnOut} onClick={onClose}>Cancelar</button>
+          <button style={btnGold} onClick={() => void gravar()} disabled={busy}>{busy ? 'Salvando…' : 'Salvar jornada'}</button>
         </div>
       </div>
     </div>
