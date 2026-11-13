@@ -13,6 +13,8 @@ import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 import { dataBrasil } from '@/lib/fiscal/dataBrasil'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERM = '#B91C1C', VERDE = '#15803D'
@@ -208,13 +210,13 @@ export default function OSObraPage() {
   const abrirHoras = (o: OS) => { setFh({ ...VAZIO_H, data: hoje() }); setErro(''); setDiario(null); setApontando(apontando === o.id ? null : o.id) }
   const escolherFuncao = (fid: string) => {
     const x = funcoes.find(q => q.id === fid)
-    setFh(p => ({ ...p, funcao_id: fid, custo_hora: x?.custo_hora_manual != null && !p.custo_hora ? String(x.custo_hora_manual).replace('.', ',') : p.custo_hora }))
+    setFh(p => ({ ...p, funcao_id: fid, custo_hora: x?.custo_hora_manual != null && !p.custo_hora ? numeroParaMoeda(x.custo_hora_manual) : p.custo_hora }))
   }
   const lancarHoras = async (e: React.FormEvent, o: OS) => {
     e.preventDefault(); setErro('')
-    const horas = num(fh.horas), custo = num(fh.custo_hora)
+    const horas = num(fh.horas), custo = moedaParaNumero(fh.custo_hora) // #6874: custo/hora mascarado (R$)
     if (!(horas > 0)) { setErro('Informe as horas trabalhadas (maior que zero).'); return }
-    if (fh.custo_hora === '' || !(custo >= 0)) { setErro('Informe o custo da hora.'); return }
+    if (custo == null || custo < 0) { setErro('Informe o custo da hora.'); return }
     setOcupado(o.id)
     const { error } = await supabase.rpc('fn_obra_os_apontar_horas', { p_os_id: o.id, p_dados: { data: fh.data, funcao_id: fh.funcao_id, horas, custo_hora: custo } })
     setOcupado(null)
@@ -429,10 +431,10 @@ export default function OSObraPage() {
                         <label style={lab}><span style={rot}>Horas <AjudaCampo chave="projetos.os_obra.apontar_horas" /></span>
                           <input inputMode="decimal" value={fh.horas} onChange={e => setFh({ ...fh, horas: e.target.value })} placeholder="Ex.: 16" style={inp} data-testid="os-obra-horas-horas" /></label>
                         <label style={lab}><span style={rot}>R$/hora <AjudaCampo chave="projetos.os_obra.apontar_custo_hora" /></span>
-                          <input inputMode="decimal" value={fh.custo_hora} onChange={e => setFh({ ...fh, custo_hora: e.target.value })} placeholder="Ex.: 45,00" style={inp} data-testid="os-obra-horas-custo" /></label>
+                          <CampoMoeda value={fh.custo_hora} onChange={v => setFh({ ...fh, custo_hora: v })} placeholder="R$ 0,00" style={inp} testId="os-obra-horas-custo" /></label>
                         <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                           <button type="submit" disabled={!!ocupado} style={btn(ESP, '#fff')} data-testid="os-obra-horas-lancar">
-                            Lançar{num(fh.horas) > 0 && num(fh.custo_hora) >= 0 && fh.custo_hora !== '' ? ` ${brl(Math.round(num(fh.horas) * num(fh.custo_hora) * 100) / 100)}` : ''}</button>
+                            Lançar{num(fh.horas) > 0 && (moedaParaNumero(fh.custo_hora) ?? -1) >= 0 ? ` ${brl(Math.round(num(fh.horas) * (moedaParaNumero(fh.custo_hora) ?? 0) * 100) / 100)}` : ''}</button>
                           <AjudaCampo chave="projetos.os_obra.apontar_lancar" />
                           <button type="button" onClick={() => setApontando(null)} style={btn('#fff', ESP)}>Fechar</button>
                         </div>
