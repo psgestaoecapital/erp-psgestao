@@ -139,12 +139,21 @@ export const DELETE = exigirLogin(async (req: NextRequest, u) => {
       return NextResponse.json({ ok: false, mensagem: mensagemBloqueio(vinculos), vinculos }, { status: 409 })
     }
 
+    // RD-98 p4 — exclusão RASTREÁVEL: além de ativo=false, grava quem/quando no próprio registro
+    // (deleted_at/deleted_by) e uma linha em audit_log_global. O trilho no registro é o durável;
+    // o audit_log_global é o histórico central (best-effort, não bloqueia a exclusão já efetuada).
     const { error } = await supabaseAdmin
       .from('erp_produtos')
-      .update({ ativo: false })
+      .update({ ativo: false, deleted_at: new Date().toISOString(), deleted_by: u.userId })
       .eq('id', body.id)
       .eq('company_id', body.company_id)
     if (error) return NextResponse.json({ ok: false, mensagem: error.message }, { status: 500 })
+
+    await supabaseAdmin.from('audit_log_global').insert({
+      company_id: body.company_id, user_id: u.userId, tabela: 'erp_produtos', registro_id: body.id,
+      acao: 'EXCLUSAO_LOGICA', valor_anterior: { ativo: true }, valor_novo: { ativo: false },
+    }).then(() => {}, () => { /* audit é best-effort: o trilho no registro (deleted_at/by) já persiste */ })
+
     return NextResponse.json({ ok: true, id: body.id })
   } catch (err) {
     return NextResponse.json({ ok: false, mensagem: (err as Error)?.message ?? 'Erro' }, { status: 500 })
