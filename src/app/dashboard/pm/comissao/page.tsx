@@ -8,6 +8,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
 import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
+import { parseNumBR } from '@/lib/num'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 const ROTA = '/dashboard/pm/comissao'
@@ -67,7 +68,7 @@ export default function ComissaoPage() {
 
   const valorPrevia = useMemo(() => {
     if (!form) return 0
-    const b = moedaParaNumero(form.base_valor) ?? 0; const p = Number(form.percentual.replace(',', '.')) || 0
+    const b = moedaParaNumero(form.base_valor) ?? 0; const p = parseNumBR(form.percentual) ?? 0 // #5660: % aceita vírgula/milhar
     return Math.round(b * p) / 100
   }, [form])
 
@@ -107,7 +108,7 @@ export default function ComissaoPage() {
     if (!empresa || !form) return
     if (!form.vendedor_id) { setToast('Escolha o vendedor.'); return }
     if (!form.competencia) { setToast('Informe a competência.'); return }
-    const base = moedaParaNumero(form.base_valor) ?? 0; const pct = Number(form.percentual.replace(',', '.'))
+    const base = moedaParaNumero(form.base_valor) ?? 0; const pct = parseNumBR(form.percentual) ?? 0 // #5660: % aceita vírgula/milhar
     if (!(base >= 0) || !(pct >= 0)) { setToast('Base e percentual não podem ser negativos.'); return }
     setBusy(true)
     const args = {
