@@ -11,6 +11,8 @@ import { nomeUsuario } from '@/lib/usuarioLabel'
 import SolicitarContratoModal from '@/components/ge/SolicitarContratoModal'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 import { TarefasLeadModal, MinhasTarefasModal, SELECT_TAREFA, tipoTarefa, quando, atrasada, whatsappHref, type Tarefa } from '@/components/pm/TarefasLead'
 
 const ESPRESSO = '#3D2314'
@@ -312,7 +314,7 @@ export default function LeadsPage() {
         company_id: empresa, empresa: form.empresa.trim() || null, nome: form.nome.trim() || null,
         contato_email: form.contato_email.trim() || null, contato_telefone: form.contato_telefone.trim() || null,
         canal_contato: form.canal_contato.trim() || null, origem: form.origem,
-        valor_estimado: form.valor_estimado || null,
+        valor_estimado: moedaParaNumero(form.valor_estimado), // #6874: campo mascarado (R$) -> número
         erp_cliente_id: form.erp_cliente_id, cliente_id: null, responsavel_id: uid,
         observacoes: form.observacoes.trim() || null,
       },
@@ -678,7 +680,7 @@ export default function LeadsPage() {
                 ⚙️ Gerenciar origens
               </button>
             </label>
-            <label style={lbl}>Valor Total Estimado do Contrato (R$)<input style={inp} type="number" inputMode="decimal" value={form.valor_estimado} onChange={(e) => setForm({ ...form, valor_estimado: e.target.value })} /></label>
+            <label style={lbl}>Valor Total Estimado do Contrato (R$)<CampoMoeda style={inp} value={form.valor_estimado} onChange={(v) => setForm({ ...form, valor_estimado: v })} placeholder="R$ 0,00" /></label>
             {/* #912 Pdois: observação já na criação (antes só dava para pôr editando o lead depois) */}
             <label style={lbl}>Observações<textarea style={{ ...inp, minHeight: 64, resize: 'vertical', fontFamily: 'inherit' }} rows={3} value={form.observacoes} onChange={(e) => setForm({ ...form, observacoes: e.target.value })} data-testid="lead-observacoes" /></label>
 
@@ -1095,7 +1097,7 @@ function EditarLeadModal({ lead, empresa, origens, onClose, onSaved }: {
   const [f, setF] = useState({
     empresa: lead.empresa ?? '', nome: lead.nome ?? '',
     contato_email: lead.contato_email ?? '', contato_telefone: lead.contato_telefone ?? '',
-    origem: lead.origem ?? '', valor_estimado: lead.valor_estimado != null ? String(lead.valor_estimado) : '',
+    origem: lead.origem ?? '', valor_estimado: numeroParaMoeda(lead.valor_estimado), // #6874: máscara R$
     observacoes: lead.observacoes ?? '',
   })
   const [busy, setBusy] = useState(false)
@@ -1105,7 +1107,7 @@ function EditarLeadModal({ lead, empresa, origens, onClose, onSaved }: {
     const { error } = await supabase.from('agency_leads').update({
       empresa: f.empresa.trim() || null, nome: f.nome.trim() || null,
       contato_email: f.contato_email.trim() || null, contato_telefone: f.contato_telefone.trim() || null,
-      origem: f.origem || lead.origem, valor_estimado: f.valor_estimado.trim() ? Number(f.valor_estimado) : null,
+      origem: f.origem || lead.origem, valor_estimado: moedaParaNumero(f.valor_estimado), // #6874: máscara R$ -> número
       observacoes: f.observacoes.trim() || null, atualizado_em: new Date().toISOString(),
     }).eq('id', lead.id).eq('company_id', empresa)
     setBusy(false)
@@ -1131,7 +1133,7 @@ function EditarLeadModal({ lead, empresa, origens, onClose, onSaved }: {
             {origens.map((o) => <option key={o.chave} value={o.chave}>{o.nome}</option>)}
           </select>
         </label>
-        <label style={lbl}>Valor Total Estimado do Contrato (R$)<input style={inp} type="number" inputMode="decimal" value={f.valor_estimado} onChange={(e) => setF({ ...f, valor_estimado: e.target.value })} /></label>
+        <label style={lbl}>Valor Total Estimado do Contrato (R$)<CampoMoeda style={inp} value={f.valor_estimado} onChange={(v) => setF({ ...f, valor_estimado: v })} placeholder="R$ 0,00" /></label>
         <label style={lbl}>Observações<input style={inp} value={f.observacoes} onChange={(e) => setF({ ...f, observacoes: e.target.value })} /></label>
         {erro && <div style={{ background: '#FCEBEB', color: RED, padding: '7px 10px', borderRadius: 6, fontSize: 12, marginTop: 8 }}>{erro}</div>}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
