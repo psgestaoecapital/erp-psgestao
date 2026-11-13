@@ -116,8 +116,9 @@ BEGIN
     RETURNING id INTO v_posto;
 
     -- custo do posto (salário FAKE + encargos). Base do custo de produção por posto na tela.
-    INSERT INTO prod_posto_custo (company_id, plant_id, posto_id, vigencia_inicio, mao_obra_mes, encargos_pct)
-    VALUES (c, v_planta, v_posto, current_date, r.salario, r.encargos);
+    -- horas_operacao_mes = 176 (jornada industrial padrão ~44 h/semana) para o R$/h calcular.
+    INSERT INTO prod_posto_custo (company_id, plant_id, posto_id, vigencia_inicio, mao_obra_mes, encargos_pct, horas_operacao_mes)
+    VALUES (c, v_planta, v_posto, current_date, r.salario, r.encargos, 176);
 
     -- pessoa com CPF MANUAL (sem funcionário real): demonstra o caso "RH preenche na tela".
     IF r.ocupa THEN
@@ -190,5 +191,5 @@ END $function$;
 
 -- Guarda estática do check-fn-guards (ACL viva já segura; CREATE OR REPLACE preserva a ACL).
 -- Função de seed só da DEMO, chamada pela conexão de serviço no fn_demo_reset.
-REVOKE ALL ON FUNCTION public.fn_demo_seed_industria_postos(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_demo_seed_industria_postos(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_demo_seed_industria_postos(uuid) TO service_role;
