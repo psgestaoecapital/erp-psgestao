@@ -54,10 +54,14 @@ jobs:
       group: demo-e2e
       cancel-in-progress: false
       queue: max
-    # 40 min (CEO 06/10, regra e): a espera na fila demo-e2e é FORA do runner e não conta; dentro do job, até 12 min
-    # esperando a Vercel servir o commit + até 10 min pela trava. Preso além disso, o vigia-runs.yml cancela aos 45 e a
-    # fila de merge re-roda o run cancelado (regra a: cancelado não é vermelho).
-    timeout-minutes: 40
+    # 45 min (Eng. Chefe 13/11): a espera na fila demo-e2e é FORA do runner e não conta; dentro do job, até ~26 min
+    # esperando a Vercel servir o commit (ela tem demorado mais que os 12 min antigos, o que fazia TODO @pos-migration
+    # falhar antes de julgar — nenhum ficava verde e as PRs com migration crítica empilhavam) + a suíte + até 10 min
+    # pela trava. Alinhado ao vigia-runs.yml, que cancela o job executando aos 45 min; a fila de merge re-roda o run
+    # cancelado (regra a: cancelado não é vermelho). A concurrency demo-e2e já é cancel-in-progress:false, então um
+    # commit novo não derruba este run pela concorrência; o job `superados` só cancela runs MAIS ANTIGOS esperando a
+    # vez (o run mais novo julga a mesma produção) — com a janela maior, esse run mais novo agora tem tempo de concluir.
+    timeout-minutes: 45
     env:
       PROD_BASE_URL: https://erp-psgestao.vercel.app
       COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
@@ -68,19 +72,23 @@ jobs:
           fetch-depth: 0
       # A migration já está no banco (este job só roda após o deploy-migrations verde); falta a Vercel servir o
       # código do MESMO commit (ou um posterior). /sw.js traz "ps-shell-<VERCEL_GIT_COMMIT_SHA>" (RD-78, #1819).
-      # Fail-closed (RD-51): sem confirmar o build em até ~12 min, o job falha em vez de julgar o build errado.
+      # Fail-closed (RD-51): sem confirmar o build em até ~26 min, o job falha em vez de julgar o build errado.
+      # Eng. Chefe 13/11: a janela subiu de ~12 para ~26 min (78 × 20 s) porque a Vercel vinha servindo o commit
+      # DEPOIS dos 12 min antigos; com isso o @pos-migration falhava no "produção não passou a servir" antes de julgar
+      # e NENHUM ficava verde, prendendo as PRs com migration crítica. A espera já é um retry (checa /sw.js a cada 20 s);
+      # a janela maior = mais tentativas, mantendo o fail-closed (RD-51) só quando a Vercel realmente não serviu.
       - name: Esperar a produção servir o commit
         run: |
-          for i in $(seq 1 36); do
+          for i in $(seq 1 78); do
             servido=$(curl -fsS "$PROD_BASE_URL/sw.js" 2>/dev/null | grep -oE 'ps-shell-[0-9a-f]{7,40}' | head -1 | sed 's/^ps-shell-//')
             # commit mais novo que o checkout (outro merge no meio) → busca a main antes de comparar
             [ -n "$servido" ] && ! git cat-file -e "$servido^{commit}" 2>/dev/null && git fetch -q origin main
             if [ -n "$servido" ] && git merge-base --is-ancestor "$COMMIT" "$servido" 2>/dev/null; then
               echo "produção serve $servido (contém $COMMIT)"; exit 0
             fi
-            echo "tentativa $i: produção serve '${servido:-?}', esperando $COMMIT…"; sleep 20
+            echo "tentativa $i/78: produção serve '${servido:-?}', esperando $COMMIT…"; sleep 20
           done
-          echo "::error::produção não passou a servir $COMMIT em ~12 min — não dá para julgar os @pos-migration"; exit 1
+          echo "::error::produção não passou a servir $COMMIT em ~26 min — não dá para julgar os @pos-migration"; exit 1
       - uses: actions/setup-node@v4
         with:
           node-version: 20
