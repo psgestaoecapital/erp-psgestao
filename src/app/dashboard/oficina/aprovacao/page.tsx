@@ -13,6 +13,7 @@ import { useOficinaRamo } from '@/lib/oficina/ramo'
 import { filtrarOS } from '@/lib/oficina/buscaOS'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { useOficinaModelo } from '@/lib/oficina/modelo'
+import { parseNumBR } from '@/lib/num'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'; const RED = '#A32D2D'; const AMBER = '#B45309'
@@ -103,10 +104,10 @@ export default function AprovacaoPage() {
   }
   const toggle = (id: string) => { invalidarAssinatura(); setItens((p) => p.map((i) => (i.item_id === id ? { ...i, aprovado: !i.aprovado } : i))) }
   const setPreco = (id: string, v: string) => { invalidarAssinatura(); setItens((p) => p.map((i) => (i.item_id === id ? { ...i, _preco: v.replace(/[^\d.,]/g, '') } : i))) }
-  const precoNum = (l: Linha) => Number((l._preco || '0').replace(',', '.')) || 0
+  const precoNum = (l: Linha) => parseNumBR(l._preco) || 0 // aceita vírgula e milhar BR (#5660)
   // RD-55 · preço p/ salvar: vazio → null (backend MANTÉM o valor atual, nunca zera);
   // preenchido → string numérica (inclui "0" intencional, que o backend só aceita com confirmação).
-  const precoRaw = (l: Linha): string | null => { const s = (l._preco ?? '').trim(); return s === '' ? null : s.replace(',', '.') }
+  const precoRaw = (l: Linha): string | null => { const s = (l._preco ?? '').trim(); if (s === '') return null; const n = parseNumBR(s); return n == null ? null : String(n) } // aceita vírgula e milhar BR (#5660)
   // #1447 · item aprovado SEM preço não entra no total (não vira R$ 0,00 calado — decisão errada). É declarado.
   const aprovSemPreco = itens.filter((i) => i.aprovado && precoNum(i) <= 0)
   // #132 · o preço digitado é UNITÁRIO (contrato do banco: diag.preco × quantidade = linha). Antes o total somava
@@ -117,8 +118,8 @@ export default function AprovacaoPage() {
   // Onda 4B (#1434) · custo por peça (a margem vira verdade). Mudar custo NÃO mexe na assinatura (não muda o
   // valor autorizado pelo cliente) — por isso setCusto não chama invalidarAssinatura.
   const setCusto = (id: string, v: string) => setItens((p) => p.map((i) => (i.item_id === id ? { ...i, _custo: v.replace(/[^\d.,]/g, '') } : i)))
-  const custoRaw = (l: Linha): string | null => { const s = (l._custo ?? '').trim(); return s === '' ? null : s.replace(',', '.') }
-  const custoNum = (l: Linha) => Number((l._custo || '0').replace(',', '.')) || 0
+  const custoRaw = (l: Linha): string | null => { const s = (l._custo ?? '').trim(); if (s === '') return null; const n = parseNumBR(s); return n == null ? null : String(n) } // aceita vírgula e milhar BR (#5660)
+  const custoNum = (l: Linha) => parseNumBR(l._custo) || 0 // aceita vírgula e milhar BR (#5660)
   const margemPct = (l: Linha): number | null => { const p = precoNum(l), c = custoNum(l); return p > 0 && l._custo.trim() !== '' ? Math.round((1 - c / p) * 1000) / 10 : null }
 
   const salvar = async () => {
