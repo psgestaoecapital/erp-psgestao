@@ -46,6 +46,8 @@ export default function PermutasPage() {
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [cadastro, setCadastro] = useState<boolean>(false)
+  const [editarId, setEditarId] = useState<string | null>(null)      // RD-98 p2: editar permuta na UI
+  const [excluir, setExcluir] = useState<Permuta | null>(null)        // RD-98 p2: excluir permuta na UI
   const [extratoId, setExtratoId] = useState<string | null>(null)
   const [movDe, setMovDe] = useState<string | null>(null)
 
@@ -119,6 +121,7 @@ export default function PermutasPage() {
               <th style={thR}>Valor atualizado</th><th style={thR}>Quitado</th><th style={thR}>Saldo</th>
               <th style={{ ...thL, width: 160 }}>Progresso</th>
               <th style={thL}><span style={{ display: 'inline-flex', alignItems: 'center' }}>Status<AjudaCampo chave="hub.permutas.status_col" rota={ROTA} /></span></th>
+              <th style={{ ...thR, width: 150 }}>Ações</th>
             </tr></thead>
             <tbody>
               {permutas.map(p => {
@@ -135,17 +138,29 @@ export default function PermutasPage() {
                       <span style={{ fontSize: 10.5, color: C.txd }}>{p.pct}%</span>
                     </td>
                     <td style={tdL}><span style={{ fontSize: 11, fontWeight: 700, color: st.cor, border: `1px solid ${st.cor}`, borderRadius: 999, padding: '2px 10px', whiteSpace: 'nowrap' }}>{st.l}</span></td>
+                    <td style={{ ...tdR, whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                        <button type="button" onClick={() => setEditarId(p.id)} style={btnMini(C.tx)}>Editar</button>
+                        <AjudaCampo chave="hub.permutas.editar" rota={ROTA} />
+                      </span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                        <button type="button" onClick={() => setExcluir(p)} style={btnMini(C.verm)}>Excluir</button>
+                        <AjudaCampo chave="hub.permutas.excluir" rota={ROTA} />
+                      </span>
+                    </td>
                   </tr>
                 )
               })}
-              {!carregando && permutas.length === 0 && <tr><td colSpan={7} style={{ padding: 22, textAlign: 'center', color: C.txm }}>Nenhuma permuta ainda. Use <strong>+ Incluir permuta</strong> para cadastrar a primeira.</td></tr>}
-              {carregando && <tr><td colSpan={7} style={{ padding: 18, textAlign: 'center', color: C.txm }}>Carregando…</td></tr>}
+              {!carregando && permutas.length === 0 && <tr><td colSpan={8} style={{ padding: 22, textAlign: 'center', color: C.txm }}>Nenhuma permuta ainda. Use <strong>+ Incluir permuta</strong> para cadastrar a primeira.</td></tr>}
+              {carregando && <tr><td colSpan={8} style={{ padding: 18, textAlign: 'center', color: C.txm }}>Carregando…</td></tr>}
             </tbody>
           </table>
         </div>
       </div>
 
       {cadastro && <CadastroModal empresas={empresasGrupo} onClose={() => setCadastro(false)} onSalvo={() => { setCadastro(false); void carregar() }} />}
+      {editarId && <CadastroModal permutaId={editarId} empresas={empresasGrupo} onClose={() => setEditarId(null)} onSalvo={() => { setEditarId(null); void carregar() }} />}
+      {excluir && <ExcluirModal permuta={excluir} onClose={() => setExcluir(null)} onExcluido={() => { setExcluir(null); void carregar() }} />}
       {extratoId && <ExtratoModal id={extratoId} onClose={() => setExtratoId(null)} onMovimento={() => { setMovDe(extratoId); }} onMudou={() => void carregar()} />}
       {movDe && <MovimentoModal permutaId={movDe} empresas={empresasGrupo} onClose={() => setMovDe(null)} onSalvo={() => { setMovDe(null); void carregar() }} />}
     </div>
@@ -159,11 +174,31 @@ function Cartao({ rot, chave, valor, cor }: { rot: string; chave: string; valor:
   </div>
 }
 
-function CadastroModal({ empresas, onClose, onSalvo }: { empresas: Empresa[]; onClose: () => void; onSalvo: () => void }) {
+function CadastroModal({ empresas, permutaId, onClose, onSalvo }: { empresas: Empresa[]; permutaId?: string | null; onClose: () => void; onSalvo: () => void }) {
+  const edit = !!permutaId
   const [f, setF] = useState({ company_id: empresas[0]?.id ?? '', obra_id: '', contratante: '', ativo_descr: '', tipo_contrato: 'misto', pct_permuta: '', valor_permuta: '', valor_dinheiro: '', indice_reajuste: 'CUB-SC', data_base: '', contrato_anexo: '', intragrupo: false })
+  const [statusAtual, setStatusAtual] = useState<string | null>(null)
+  const [carregandoEdit, setCarregandoEdit] = useState<boolean>(edit)
   const [obras, setObras] = useState<{ id: string; nome: string }[]>([])
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  // Edição: pré-preenche o formulário com os dados crus da permuta (fn_permuta_obter, RPC guardada).
+  useEffect(() => {
+    if (!permutaId) return
+    let vivo = true
+    // eslint-disable-next-line @typescript-eslint/no-floating-promises
+    supabase.rpc('fn_permuta_obter', { p_id: permutaId }).then(({ data, error }) => {
+      if (!vivo) return
+      const d = data as { ok: boolean; erro?: string; permuta?: Record<string, unknown> } | null
+      if (error || !d?.ok || !d.permuta) { setErro(error ? erroAmigavel(error) : (d?.erro ?? 'Não consegui carregar a permuta.')); setCarregandoEdit(false); return }
+      const p = d.permuta
+      const s = (k: string) => p[k] == null ? '' : String(p[k])
+      setF({ company_id: s('company_id'), obra_id: s('obra_id'), contratante: s('contratante'), ativo_descr: s('ativo_descr'), tipo_contrato: s('tipo_contrato') || 'misto', pct_permuta: s('pct_permuta'), valor_permuta: s('valor_permuta'), valor_dinheiro: s('valor_dinheiro'), indice_reajuste: s('indice_reajuste') || 'CUB-SC', data_base: s('data_base'), contrato_anexo: s('contrato_anexo'), intragrupo: p.intragrupo === true })
+      setStatusAtual((p.status as string) ?? null)
+      setCarregandoEdit(false)
+    })
+    return () => { vivo = false }
+  }, [permutaId])
   useEffect(() => { if (!f.company_id) { setObras([]); return }
     // eslint-disable-next-line @typescript-eslint/no-floating-promises
     supabase.from('projetos_obras').select('id,nome').eq('company_id', f.company_id).is('deleted_at', null).order('nome').then(({ data }) => setObras((data as { id: string; nome: string }[]) ?? []))
@@ -173,16 +208,18 @@ function CadastroModal({ empresas, onClose, onSalvo }: { empresas: Empresa[]; on
     if (!f.ativo_descr.trim()) { setErro('Informe o ativo (imóvel).'); return }
     setSalvando(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_permuta_salvar', {
-      p_id: null, p_company_id: f.company_id, p_obra_id: f.obra_id || null, p_contratante: f.contratante || null,
+      p_id: permutaId ?? null, p_company_id: f.company_id, p_obra_id: f.obra_id || null, p_contratante: f.contratante || null,
       p_ativo_descr: f.ativo_descr, p_tipo_contrato: f.tipo_contrato, p_pct_permuta: f.pct_permuta ? Number(f.pct_permuta) : null,
       p_valor_permuta: f.valor_permuta ? Number(f.valor_permuta) : 0, p_valor_dinheiro: f.valor_dinheiro ? Number(f.valor_dinheiro) : 0,
-      p_indice_reajuste: f.indice_reajuste || null, p_data_base: f.data_base || null, p_contrato_anexo: f.contrato_anexo || null, p_intragrupo: f.intragrupo,
+      p_indice_reajuste: f.indice_reajuste || null, p_data_base: f.data_base || null, p_contrato_anexo: f.contrato_anexo || null,
+      p_status: statusAtual, p_intragrupo: f.intragrupo,
     })
     setSalvando(false)
     const d = data as { ok: boolean; erro?: string } | null
     if (error) setErro(erroAmigavel(error)); else if (!d?.ok) setErro(d?.erro ?? 'Erro'); else onSalvo()
   }
-  return <Modal titulo="Incluir permuta" onClose={onClose}>
+  return <Modal titulo={edit ? 'Editar permuta' : 'Incluir permuta'} onClose={onClose}>
+    {carregandoEdit && <div style={{ color: C.txm, fontSize: 13, padding: '4px 0 10px' }}>Carregando dados da permuta…</div>}
     <Grid>
       <Campo data-ajuda="hub.permutas.empresa" chave="hub.permutas.empresa" rot="Empresa"><select style={inp} value={f.company_id} onChange={e => set('company_id', e.target.value)}>{empresas.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}</select></Campo>
       <Campo data-ajuda="hub.permutas.obra" chave="hub.permutas.obra" rot="Obra (opcional)"><select style={inp} value={f.obra_id} onChange={e => set('obra_id', e.target.value)}><option value="">—</option>{obras.map(o => <option key={o.id} value={o.id}>{o.nome}</option>)}</select></Campo>
@@ -200,7 +237,35 @@ function CadastroModal({ empresas, onClose, onSalvo }: { empresas: Empresa[]; on
     {erro && <div style={{ color: C.verm, fontSize: 12, marginTop: 8 }}>{erro}</div>}
     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
       <button type="button" onClick={onClose} style={btnGhost}>Cancelar</button>
-      <button type="button" onClick={() => void salvar()} disabled={salvando} style={btnGold}>{salvando ? 'Salvando…' : 'Salvar permuta'}</button>
+      <button type="button" onClick={() => void salvar()} disabled={salvando || carregandoEdit} style={btnGold}>{salvando ? 'Salvando…' : edit ? 'Salvar alterações' : 'Salvar permuta'}</button>
+    </div>
+  </Modal>
+}
+
+// RD-98 p2: excluir permuta (soft-delete rastreável via fn_permuta_excluir) com motivo.
+function ExcluirModal({ permuta, onClose, onExcluido }: { permuta: Permuta; onClose: () => void; onExcluido: () => void }) {
+  const [motivo, setMotivo] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+  const excluir = async () => {
+    setSalvando(true); setErro(null)
+    const { data, error } = await supabase.rpc('fn_permuta_excluir', { p_id: permuta.id, p_motivo: motivo.trim() || null })
+    setSalvando(false)
+    const d = data as { ok: boolean; erro?: string } | null
+    if (error || !d?.ok) { setErro(error ? erroAmigavel(error) : (d?.erro === 'permuta_nao_encontrada' ? 'Permuta não encontrada.' : (d?.erro ?? 'Não consegui excluir.'))); return }
+    onExcluido()
+  }
+  return <Modal titulo="Excluir permuta" onClose={onClose}>
+    <div style={{ fontSize: 13.5, color: C.tx, marginBottom: 10 }}>
+      Excluir <strong>{permuta.ativo_descr}</strong>? Ela sai da lista; o histórico fica registrado (exclusão rastreável, não apaga de verdade).
+    </div>
+    <Campo data-ajuda="hub.permutas.excluir" chave="hub.permutas.excluir" rot="Motivo (opcional)">
+      <input style={inp} value={motivo} onChange={e => setMotivo(e.target.value)} placeholder="Ex.: cadastrada em duplicidade" />
+    </Campo>
+    {erro && <div style={{ color: C.verm, fontSize: 12, marginTop: 8 }}>{erro}</div>}
+    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
+      <button type="button" onClick={onClose} style={btnGhost}>Cancelar</button>
+      <button type="button" onClick={() => void excluir()} disabled={salvando} style={{ ...btnGold, background: C.verm }}>{salvando ? 'Excluindo…' : 'Sim, excluir'}</button>
     </div>
   </Modal>
 }
@@ -261,18 +326,29 @@ function MovimentoModal({ permutaId, empresas, onClose, onSalvo }: { permutaId: 
 }
 
 type ExtCab = { ativo_descr: string; valor_permuta: number; reajuste_acum: number; valor_atualizado: number; quitado: number; saldo: number; status: string }
-type ExtMes = { competencia: string; total: number; movimentos: { tipo: string; num_nota: string | null; valor: number }[] }
+type ExtMov = { id: string; tipo: string; num_nota: string | null; valor: number }
+type ExtMes = { competencia: string; total: number; movimentos: ExtMov[] }
 function ExtratoModal({ id, onClose, onMovimento, onMudou }: { id: string; onClose: () => void; onMovimento: () => void; onMudou: () => void }) {
   const [cab, setCab] = useState<ExtCab | null>(null)
   const [meses, setMeses] = useState<ExtMes[]>([])
   const [carregando, setCarregando] = useState(true)
-  useEffect(() => { let vivo = true
-    // eslint-disable-next-line @typescript-eslint/no-floating-promises
-    supabase.rpc('fn_permuta_extrato', { p_permuta_id: id }).then(({ data }) => { if (!vivo) return
-      const d = data as { ok: boolean; cabecalho?: ExtCab; meses?: ExtMes[] } | null
-      setCab(d?.cabecalho ?? null); setMeses(d?.meses ?? []); setCarregando(false) })
-    return () => { vivo = false }
+  const [excluindo, setExcluindo] = useState<string | null>(null)
+  const [erro, setErro] = useState<string | null>(null)
+  const carregar = useCallback(async () => {
+    const { data } = await supabase.rpc('fn_permuta_extrato', { p_permuta_id: id })
+    const d = data as { ok: boolean; cabecalho?: ExtCab; meses?: ExtMes[] } | null
+    setCab(d?.cabecalho ?? null); setMeses(d?.meses ?? []); setCarregando(false)
   }, [id])
+  useEffect(() => { void carregar() }, [carregar])
+  // RD-98 p2: excluir movimento lançado errado (soft-delete via fn_permuta_movimento_excluir); recalcula o saldo.
+  const excluirMov = async (movId: string) => {
+    setExcluindo(movId); setErro(null)
+    const { data, error } = await supabase.rpc('fn_permuta_movimento_excluir', { p_id: movId, p_motivo: null })
+    setExcluindo(null)
+    const d = data as { ok: boolean; erro?: string } | null
+    if (error || !d?.ok) { setErro(error ? erroAmigavel(error) : (d?.erro ?? 'Não consegui excluir o movimento.')); return }
+    await carregar(); onMudou()
+  }
   const tipoL = (t: string) => TIPO_MOV.find(x => x.v === t)?.l ?? t
   return <Modal titulo={cab?.ativo_descr ?? 'Extrato'} onClose={onClose} larga>
     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: C.txm, marginBottom: 8 }}>Extrato<AjudaCampo chave="hub.permutas.extrato" rota={ROTA} /></div>
@@ -287,19 +363,23 @@ function ExtratoModal({ id, onClose, onMovimento, onMudou }: { id: string; onClo
         <div key={mes.competencia} style={{ marginBottom: 10 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: C.tx, textTransform: 'capitalize', borderBottom: `0.5px solid ${C.bd}`, paddingBottom: 3, marginBottom: 4 }}>{mesPt(mes.competencia)} · total {brl(mes.total)}</div>
           {mes.movimentos.map((mv, i) => (
-            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, padding: '2px 0', color: C.txm }}>
+            <div key={mv.id ?? i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: 12.5, padding: '2px 0', color: C.txm }}>
               <span>{tipoL(mv.tipo)}{mv.num_nota ? ` · ${mv.num_nota}` : ''}</span>
-              <span style={{ color: C.verde, fontVariantNumeric: 'tabular-nums' }}>− {brl(mv.valor)}</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ color: C.verde, fontVariantNumeric: 'tabular-nums' }}>− {brl(mv.valor)}</span>
+                <button type="button" title="Excluir movimento" onClick={() => void excluirMov(mv.id)} disabled={excluindo === mv.id} style={{ border: 'none', background: 'transparent', color: C.verm, cursor: excluindo === mv.id ? 'wait' : 'pointer', fontSize: 12, fontWeight: 700, padding: '0 2px' }}>{excluindo === mv.id ? '…' : '×'}</button>
+                <AjudaCampo chave="hub.permutas.mov_excluir" rota={ROTA} />
+              </span>
             </div>
           ))}
         </div>
       ))}
+      {erro && <div style={{ color: C.verm, fontSize: 12, margin: '4px 0 8px' }}>{erro}</div>}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: `1px solid ${C.bd}`, paddingTop: 10, marginTop: 6 }}>
         <span style={{ fontSize: 13 }}>Quitado <strong style={{ color: C.verde }}>{brl(cab.quitado)}</strong> · Saldo <strong style={{ color: cab.saldo < 0 ? C.verm : C.tx }}>{brl(cab.saldo)}</strong>{cab.saldo < 0 && <span style={{ color: C.verm }}> (pagou a mais)</span>}</span>
         <button type="button" onClick={() => { onMovimento(); }} style={btnGold}>+ Lançar na permuta</button>
       </div>
     </>}
-    <span style={{ display: 'none' }} onClick={onMudou} />
   </Modal>
 }
 
@@ -320,6 +400,7 @@ const chip = (on: boolean, cons?: boolean): React.CSSProperties => ({ fontSize: 
 const pill = (on: boolean): React.CSSProperties => ({ fontSize: 12, fontWeight: 700, padding: '5px 12px', borderRadius: 999, cursor: 'pointer', border: 'none', background: on ? C.gold : 'transparent', color: on ? '#fff' : C.txm })
 const btnGold: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', fontSize: 13, fontWeight: 700, padding: '7px 14px', borderRadius: 10, border: 'none', background: C.gold, color: '#fff', cursor: 'pointer' }
 const btnGhost: React.CSSProperties = { fontSize: 13, fontWeight: 600, padding: '7px 14px', borderRadius: 10, border: `0.5px solid ${C.bd}`, background: '#fff', color: C.txm, cursor: 'pointer' }
+const btnMini = (cor: string): React.CSSProperties => ({ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 8, border: `0.5px solid ${cor}`, background: '#fff', color: cor, cursor: 'pointer' })
 const inp: React.CSSProperties = { fontSize: 13, padding: '7px 10px', borderRadius: 8, border: `0.5px solid ${C.bd}`, background: '#fff', color: C.tx, width: '100%', boxSizing: 'border-box' }
 const thL: React.CSSProperties = { textAlign: 'left', padding: '8px 12px', fontSize: 11, fontWeight: 700, color: C.txm, whiteSpace: 'nowrap' }
 const thR: React.CSSProperties = { ...thL, textAlign: 'right' }
