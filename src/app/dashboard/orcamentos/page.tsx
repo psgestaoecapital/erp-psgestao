@@ -3,6 +3,8 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { CampoMoeda } from "@/components/comum/CampoMoeda";
+import { moedaParaNumero, numeroParaMoeda } from "@/lib/moeda-mascara";
 import { APP_URL } from "@/lib/appUrl";
 import { orFiltroClienteBusca } from "@/lib/clienteBusca";
 import { useCompanyIds } from "@/lib/useCompanyIds";
@@ -1120,12 +1122,12 @@ export default function OrcamentosPage(){
               <select value={form.frete_tipo} onChange={e=>setForm({...form,frete_tipo:e.target.value})} style={{...inp,cursor:"pointer"}}>
                 <option value="">—</option>{FRETES.map(f=><option key={f} value={f}>{f}</option>)}
               </select></div>
-            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Valor Frete (R$)</div>
-              <input type="number" step="0.01" value={form.frete_valor||''} onChange={e=>setForm({...form,frete_valor:parseFloat(e.target.value)||0})} style={inp}/></div>
+            <div><div style={{fontSize:10,color:TXD,marginBottom:3,display:"flex",alignItems:"center",gap:4}}>Valor Frete (R$)<AjudaCampo chave="orcamentos.campo.frete_valor" rota="/dashboard/orcamentos"/></div>
+              <CampoMoeda value={form.frete_valor?numeroParaMoeda(form.frete_valor):''} onChange={m=>setForm({...form,frete_valor:moedaParaNumero(m)??0})} placeholder="R$ 0,00" style={inp}/></div>
             <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Desc. Geral (%)</div>
               <input type="number" step="0.1" value={form.desconto_percentual||''} onChange={e=>setForm({...form,desconto_percentual:parseFloat(e.target.value)||0})} style={inp}/></div>
-            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Desc. Geral (R$)</div>
-              <input type="number" step="0.01" value={form.desconto_valor||''} onChange={e=>setForm({...form,desconto_valor:parseFloat(e.target.value)||0})} style={inp}/></div>
+            <div><div style={{fontSize:10,color:TXD,marginBottom:3,display:"flex",alignItems:"center",gap:4}}>Desc. Geral (R$)<AjudaCampo chave="orcamentos.campo.desconto_valor" rota="/dashboard/orcamentos"/></div>
+              <CampoMoeda value={form.desconto_valor?numeroParaMoeda(form.desconto_valor):''} onChange={m=>setForm({...form,desconto_valor:moedaParaNumero(m)??0})} placeholder="R$ 0,00" style={inp}/></div>
           </div>
 
           {/* Totais · FEAT-ONDA-4-ORCAMENTO-PEDIDO-UX-v1: composicao Servicos/Produtos/Total */}
