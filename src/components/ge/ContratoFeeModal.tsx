@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 import ContratoArquivos from './ContratoArquivos'
 import { SeloContratoSemAnexoBanner } from './SeloContratoSemAnexo'
 import ClientePickerInline from './ClientePickerInline'
@@ -63,6 +64,8 @@ export default function ContratoFeeModal({ companyId, contratoId, onClose, onSav
   const [abaTexto, setAbaTexto] = useState<'obs' | 'legal'>('obs')
   // P2 (CEO 11/11): nº de anexos assinados, para o selo "Contrato não anexado". null = ainda carregando.
   const [anexosAssinados, setAnexosAssinados] = useState<number | null>(null)
+  // P2 (CEO 12/11): gerar contas a receber ao ativar — ligado por padrão; desligue p/ cobrança externa/permuta/manual.
+  const [gerarReceber, setGerarReceber] = useState(true)
 
   // campos do cabeçalho
   const [titulo, setTitulo] = useState('')
@@ -223,14 +226,18 @@ export default function ContratoFeeModal({ companyId, contratoId, onClose, onSav
       if (!mensagem.trim()) { setErro('Para pedir informação, escreva a mensagem.'); return }
     }
     setErro(null); setToast(null); setMudando(true)
-    const { data, error } = await supabase.rpc('fn_contrato_mudar_status', { p_contrato_id: contratoId, p_status: status, p_mensagem: mensagem })
+    const { data, error } = await supabase.rpc('fn_contrato_mudar_status', { p_contrato_id: contratoId, p_status: status, p_mensagem: mensagem, p_gerar_receber: status === 'ativo' ? gerarReceber : true })
     setMudando(false)
     if (error) { setErro(error.message); return }
     const r = data as { ok?: boolean; erro?: string; gerador?: { gerados?: number; total?: number } }
     if (!r?.ok) { setErro(traduz(r?.erro)); return }
     if (status === 'ativo') {
-      const g = r.gerador
-      setToast(`Contrato ativado. ${g?.gerados ?? 0} título(s) lançado(s) no financeiro${g?.total ? ` (de ${g.total})` : ''}.`)
+      if (!gerarReceber) {
+        setToast('Contrato ativado sem gerar contas a receber. Use "Gerar agora" no contrato quando quiser lançar as parcelas.')
+      } else {
+        const g = r.gerador
+        setToast(`Contrato ativado. ${g?.gerados ?? 0} título(s) lançado(s) no financeiro${g?.total ? ` (de ${g.total})` : ''}.`)
+      }
     } else {
       setToast(`Status alterado para "${STATUS_LABEL[status] ?? status}".`)
     }
@@ -377,6 +384,22 @@ export default function ContratoFeeModal({ companyId, contratoId, onClose, onSav
                   <ContratoArquivos companyId={companyId} contratoId={contratoId} onContagemAssinados={setAnexosAssinados} />
                 </Secao>
               </div>
+
+              {/* P2 (CEO 12/11): gerar contas a receber ao ativar é opcional (ligado por padrão) */}
+              {!ativo && (
+                <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${C.border}` }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: C.espresso, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={gerarReceber} onChange={(e) => setGerarReceber(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
+                    <span style={{ fontWeight: 600 }}>Gerar contas a receber ao ativar</span>
+                    <AjudaCampo chave="ge.contrato.ativar.gerar_receber" rota="/dashboard/contratos" />
+                  </label>
+                  {!gerarReceber && (
+                    <div style={{ fontSize: 12, color: C.espressoM, marginTop: 6, marginLeft: 24 }}>
+                      Vai ativar <strong>sem lançar</strong> títulos no financeiro (cobrança por fora, permuta ou lançamento manual). Depois dá para gerar pelo botão “Gerar agora” no contrato.
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Ações de status */}
               <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${C.border}`, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
