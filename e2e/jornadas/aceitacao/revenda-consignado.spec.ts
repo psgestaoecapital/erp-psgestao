@@ -64,7 +64,10 @@ test.describe('Aceitação — consignado: só valor de venda (#115)', () => {
     // nada da conta de carro comprado: custo, piso, preço mínimo, margem, teto de compra
     await expect(page.getByText(/Preço mínimo|Piso sem margem|Teto de compra|Margem projetada|O que este carro já custou/)).toHaveCount(0)
 
-    await campo.fill('79500')
+    // CampoMoeda (#6874) usa máscara de centavos: os dígitos entram pela direita (últimos 2 = centavos).
+    // Para gravar R$ 79.500,00 o usuário digita "7950000"; "79500" resultaria em R$ 795,00. (#115/@pos)
+    await campo.fill('7950000')
+    await expect(campo).toHaveValue(/79\.500,00/)
     await page.getByPlaceholder('observação (opcional)').fill(OBS)
     await page.getByRole('button', { name: /SALVAR VALOR DE VENDA/ }).click()
 

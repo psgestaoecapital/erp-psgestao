@@ -66,6 +66,9 @@ function baixarCsv(nome: string, cab: string[], linhas: (string | number | null)
 
 export function RelatoriosFrota({ companyId, veiculos }: { companyId: string; veiculos: Veic[] }) {
   const [tipo, setTipo] = useState<Tipo>("consumo");
+  // #5214 (extra): na Manutenção, filtrar por tipo de manutenção (preventiva, troca de óleo, pneus…), para a
+  // logística monitorar um tipo específico. "" = Todos. É um recorte da tela atual — não chama o banco de novo.
+  const [tipoManut, setTipoManut] = useState<string>("");
   const [de, setDe] = useState(inicioMesIso);
   const [ate, setAte] = useState(hojeIso);
   const [veiculoId, setVeiculoId] = useState("");
@@ -76,7 +79,7 @@ export function RelatoriosFrota({ companyId, veiculos }: { companyId: string; ve
   const [carregando, setCarregando] = useState(false);
 
   const carregar = useCallback(async () => {
-    setCarregando(true); setErro(null);
+    setCarregando(true); setErro(null); setTipoManut("");
     const veic = veiculoId || null;
     const chamadas: Record<Tipo, { fn: string; args: Record<string, unknown> }> = {
       consumo: { fn: "fn_hub_frota_relatorio_consumo", args: { p_company_id: companyId, p_de: de, p_ate: ate, p_veiculo_id: veic } },
@@ -124,6 +127,16 @@ export function RelatoriosFrota({ companyId, veiculos }: { companyId: string; ve
             {veiculos.map((v) => <option key={v.id} value={v.id}>{v.placa}{v.modelo ? ` · ${v.modelo}` : ""}</option>)}
           </select>
         </label>
+        {tipo === "manutencao" && (
+          <label className="block text-xs">
+            <span className="mb-1 block font-semibold" style={{ color: TXM }}>Tipo de manutenção</span>
+            <AjudaCampo chave="projetos.frota.rel_tipo_manutencao" rota={ROTA} />
+            <select aria-label="Tipo de manutenção" className={inp} value={tipoManut} onChange={(e) => setTipoManut(e.target.value)}>
+              <option value="">Todos</option>
+              {tiposManutencao(dados).map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </label>
+        )}
         {tipo === "rodagem" && (
           <label className="block text-xs">
             <span className="mb-1 block font-semibold" style={{ color: TXM }}>Agrupar por</span>
@@ -143,7 +156,7 @@ export function RelatoriosFrota({ companyId, veiculos }: { companyId: string; ve
       <div className="flex flex-wrap items-center gap-2 print:hidden">
         <button onClick={() => window.print()} className="rounded-lg border px-3 py-2 text-sm" style={{ borderColor: ESP, color: ESP }}>Imprimir</button>
         <AjudaCampo chave="projetos.frota.rel_imprimir" rota={ROTA} />
-        <button onClick={() => exportar(tipo, dados, agrupar)} disabled={!dados} className="rounded-lg border px-3 py-2 text-sm disabled:opacity-40" style={{ borderColor: ESP, color: ESP }}>Exportar CSV</button>
+        <button onClick={() => exportar(tipo, dados, agrupar, tipoManut)} disabled={!dados} className="rounded-lg border px-3 py-2 text-sm disabled:opacity-40" style={{ borderColor: ESP, color: ESP }}>Exportar CSV</button>
         <AjudaCampo chave="projetos.frota.rel_exportar" rota={ROTA} />
         {carregando && <span className="text-xs" style={{ color: TXM }}>Carregando…</span>}
         {!periodoValido && <span role="alert" className="text-xs text-red-700">O período “até” precisa ser igual ou depois do “de”.</span>}
@@ -159,7 +172,7 @@ export function RelatoriosFrota({ companyId, veiculos }: { companyId: string; ve
           {tipo === "consumo" && <Consumo dados={dados} grafico={grafico} />}
           {tipo === "rodagem" && <Rodagem dados={dados} grafico={grafico} agrupar={agrupar} />}
           {tipo === "multas" && <Multas dados={dados} grafico={grafico} />}
-          {tipo === "manutencao" && <Manutencao dados={dados} grafico={grafico} />}
+          {tipo === "manutencao" && <Manutencao dados={dados} grafico={grafico} filtroTipo={tipoManut} />}
         </div>
       )}
     </div>
@@ -208,19 +221,46 @@ function Multas({ dados, grafico }: { dados: Linha; grafico: boolean }) {
   );
 }
 
-function Manutencao({ dados, grafico }: { dados: Linha; grafico: boolean }) {
-  const realizadas = (dados.realizadas as Linha[]) ?? [];
-  const programadas = (dados.programadas as Linha[]) ?? [];
-  const serie = (dados.serie as Linha[]) ?? [];
+// #5214 (extra): tipos de manutenção presentes nos dados (realizadas + programadas), para alimentar o filtro.
+function tiposManutencao(dados: Linha | null): string[] {
+  if (!dados) return [];
+  const linhas = [...((dados.realizadas as Linha[]) ?? []), ...((dados.programadas as Linha[]) ?? [])];
+  const set = new Set<string>();
+  for (const x of linhas) { const t = x.tipo == null ? "" : String(x.tipo).trim(); if (t) set.add(t); }
+  return [...set].sort((a, b) => a.localeCompare(b, "pt-BR"));
+}
+
+// Recalcula a série mensal (R$ por mês) a partir das realizadas filtradas, no formato que o gráfico espera
+// (uma linha por mês, campos `mes` e `valor`). Só é usada quando há filtro de tipo — sem filtro usa a série do banco.
+function serieDeRealizadas(realizadas: Linha[]): Linha[] {
+  const porMes = new Map<string, number>();
+  for (const r of realizadas) {
+    const mes = String(r.data ?? "").slice(0, 7);
+    if (!mes) continue;
+    porMes.set(mes, (porMes.get(mes) ?? 0) + (r.valor == null ? 0 : Number(r.valor)));
+  }
+  return [...porMes.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([mes, valor]) => ({ mes, valor }));
+}
+
+function Manutencao({ dados, grafico, filtroTipo }: { dados: Linha; grafico: boolean; filtroTipo: string }) {
+  const casa = (t: unknown) => !filtroTipo || String(t ?? "").trim() === filtroTipo;
+  const realizadas = ((dados.realizadas as Linha[]) ?? []).filter((r) => casa(r.tipo));
+  const programadas = ((dados.programadas as Linha[]) ?? []).filter((p) => casa(p.tipo));
+  // Com filtro de tipo, total/quantidade e gráfico são recalculados sobre as linhas filtradas, para a tela nunca
+  // mostrar um total que não bate com a lista. Sem filtro, mantém os números já calculados no banco (exatos).
+  const qtd = filtroTipo ? realizadas.length : Number(dados.realizadas_quantidade ?? realizadas.length);
+  const total = filtroTipo ? realizadas.reduce((s, r) => s + (r.valor == null ? 0 : Number(r.valor)), 0) : dados.realizadas_total;
+  const serie = filtroTipo ? serieDeRealizadas(realizadas) : ((dados.serie as Linha[]) ?? []);
   const pv = pivotar(serie.map((s) => ({ ...s, chave: "Manutenções (R$)" })), "chave", "valor");
+  const sufixo = filtroTipo ? ` · ${filtroTipo}` : "";
   return (
     <>
-      <div className="text-sm font-semibold">Realizadas no período</div>
+      <div className="text-sm font-semibold">Realizadas no período{sufixo}</div>
       <Tabela cab={["Data", "Veículo", "Tipo", "Km", "Valor", "Fornecedor"]}
         linhas={realizadas.map((r) => [dataBR(r.data), String(r.placa), String(r.tipo), num(r.km), moeda(r.valor), String(r.fornecedor ?? "—")])}
-        rodape={["Total", `${num(dados.realizadas_quantidade)} manutenção(ões)`, "", "", moeda(dados.realizadas_total), ""]} />
+        rodape={["Total", `${num(qtd)} manutenção(ões)`, "", "", moeda(total), ""]} />
       {grafico && <Grafico data={pv.data} keys={pv.keys} unidade="R$" />}
-      <div className="text-sm font-semibold">Programadas (próxima por km)</div>
+      <div className="text-sm font-semibold">Programadas (próxima por km){sufixo}</div>
       <Tabela cab={["Veículo", "Tipo", "Km atual", "Última vez", "Próxima", "Falta"]}
         linhas={programadas.map((p) => [String(p.placa), String(p.tipo), num(p.km_atual), num(p.ultimo_km), num(p.proxima_km),
           Number(p.km_para_proxima) <= 0 ? `vencida há ${num(-Number(p.km_para_proxima))} km` : `${num(p.km_para_proxima)} km`])} />
@@ -269,7 +309,7 @@ function Grafico({ data, keys, unidade }: { data: Record<string, string | number
   );
 }
 
-function exportar(tipo: Tipo, dados: Linha | null, agrupar: Agrupar) {
+function exportar(tipo: Tipo, dados: Linha | null, agrupar: Agrupar, filtroTipo = "") {
   if (!dados) return;
   if (tipo === "consumo") {
     const veiculos = (dados.veiculos as Linha[]) ?? [];
@@ -281,7 +321,19 @@ function exportar(tipo: Tipo, dados: Linha | null, agrupar: Agrupar) {
     const linhas = (dados.linhas as Linha[]) ?? [];
     baixarCsv("frota-multas", ["Data", "Veículo", "Motorista", "Descrição", "Valor"], linhas.map((l) => [String(l.data), String(l.placa), String(l.motorista), String(l.descricao ?? ""), Number(l.valor)]));
   } else {
-    const realizadas = (dados.realizadas as Linha[]) ?? [];
-    baixarCsv("frota-manutencao", ["Data", "Veículo", "Tipo", "Km", "Valor", "Fornecedor"], realizadas.map((r) => [String(r.data), String(r.placa), String(r.tipo), Number(r.km), r.valor == null ? null : Number(r.valor), String(r.fornecedor ?? "")]));
+    // Manutenção: o CSV espelha as DUAS tabelas da tela (#5214) — realizadas no período E programadas
+    // (próxima por km). Antes só saíam as realizadas, e as próximas que o usuário via na tela sumiam no export.
+    // Respeita o filtro de tipo de manutenção quando houver, igual à tela.
+    const casa = (t: unknown) => !filtroTipo || String(t ?? "").trim() === filtroTipo;
+    const realizadas = ((dados.realizadas as Linha[]) ?? []).filter((r) => casa(r.tipo));
+    const programadas = ((dados.programadas as Linha[]) ?? []).filter((p) => casa(p.tipo));
+    const linhas: (string | number | null)[][] = [
+      ...realizadas.map((r) => [String(r.data), String(r.placa), String(r.tipo), Number(r.km), r.valor == null ? null : Number(r.valor), String(r.fornecedor ?? "")]),
+      [],
+      ["Programadas (próxima por km)"],
+      ["Veículo", "Tipo", "Km atual", "Última vez", "Próxima", "Falta (km)"],
+      ...programadas.map((p) => [String(p.placa), String(p.tipo), p.km_atual == null ? null : Number(p.km_atual), p.ultimo_km == null ? null : Number(p.ultimo_km), p.proxima_km == null ? null : Number(p.proxima_km), p.km_para_proxima == null ? null : Number(p.km_para_proxima)]),
+    ];
+    baixarCsv("frota-manutencao", ["Data", "Veículo", "Tipo", "Km", "Valor", "Fornecedor"], linhas);
   }
 }

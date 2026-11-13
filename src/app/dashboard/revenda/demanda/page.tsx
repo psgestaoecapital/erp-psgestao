@@ -8,6 +8,8 @@ import { useCallback, useEffect, useState, Suspense } from 'react'
 import { supabase } from '@/lib/supabase'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero } from '@/lib/moeda-mascara'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -281,7 +283,7 @@ function ProcuraModal({ companyId, onClose, onSaved, onErro }: { companyId: stri
     const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { data, error } = await supabase.rpc('fn_veic_procura_registrar', {
       p_company_id: companyId,
-      p_dados: { cliente_nome: f.cliente_nome.trim() || null, contato: f.contato.trim() || null, marca: f.marca.trim() || null, modelo: f.modelo.trim() || null, ano_min: f.ano_min || null, ano_max: f.ano_max || null, valor_ate: f.valor_ate || null, cambio: f.cambio.trim() || null, observacao: f.observacao.trim() || null },
+      p_dados: { cliente_nome: f.cliente_nome.trim() || null, contato: f.contato.trim() || null, marca: f.marca.trim() || null, modelo: f.modelo.trim() || null, ano_min: f.ano_min || null, ano_max: f.ano_max || null, valor_ate: moedaParaNumero(f.valor_ate), cambio: f.cambio.trim() || null, observacao: f.observacao.trim() || null },
       p_user: user?.id ?? null,
     })
     setBusy(false)
@@ -302,7 +304,7 @@ function ProcuraModal({ companyId, onClose, onSaved, onErro }: { companyId: stri
           <input value={f.modelo} onChange={(e) => setF({ ...f, modelo: e.target.value })} placeholder="modelo *" style={inp} />
           <input value={f.ano_min} onChange={(e) => setF({ ...f, ano_min: e.target.value })} placeholder="ano de" inputMode="numeric" style={inp} />
           <input value={f.ano_max} onChange={(e) => setF({ ...f, ano_max: e.target.value })} placeholder="ano até" inputMode="numeric" style={inp} />
-          <input value={f.valor_ate} onChange={(e) => setF({ ...f, valor_ate: e.target.value })} placeholder="até R$" inputMode="decimal" style={inp} />
+          <CampoMoeda value={f.valor_ate} onChange={(v) => setF({ ...f, valor_ate: v })} placeholder="até R$" style={inp} />
           <input value={f.cambio} onChange={(e) => setF({ ...f, cambio: e.target.value })} placeholder="câmbio" style={inp} />
           <input value={f.observacao} onChange={(e) => setF({ ...f, observacao: e.target.value })} placeholder="observação" style={{ ...inp, gridColumn: '1 / -1' }} />
         </div>

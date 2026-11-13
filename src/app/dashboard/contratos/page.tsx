@@ -298,6 +298,27 @@ export default function ContratosPage(){
     setTimeout(()=>setMsg(""),3000);
   };
 
+  // #8384 — Refazer contrato: um contrato encerrado/cancelado/excluído (ex.: perdido) não tinha caminho para ser
+  // recriado. Este botão abre o formulário "Incluir contrato" JÁ PREENCHIDO com os dados deste contrato (cliente,
+  // tipo, valor, periodicidade, reajuste, pagamento), começando hoje. Nada é alterado no contrato antigo — o usuário
+  // revisa e clica em "Incluir contrato" para criar uma CÓPIA NOVA pelo mesmo fluxo de criação.
+  const refazerContrato=(c:Contrato)=>{
+    setNovoCompanyId(c.company_id);
+    setNovoContrato({
+      cliente_id:c.cliente_id||'', cliente_nome:c.cliente_nome||'', cliente_cnpj:c.cliente_cnpj||'', cliente_email:c.cliente_email||'',
+      tipo:c.tipo||'bpo_financeiro', nome:c.nome||'', descricao:c.descricao||'', escopo:c.escopo||'',
+      valor_mensal:Number(c.valor_atual||c.valor_mensal)||0,
+      data_inicio:hoje(), data_fim:'',
+      dia_vencimento:c.dia_vencimento||10, periodicidade:c.periodicidade||'mensal',
+      tipo_reajuste:c.tipo_reajuste||'ipca', reajuste_percentual:Number(c.reajuste_percentual)||0, mes_reajuste:c.mes_reajuste||1,
+      forma_pagamento:c.forma_pagamento||'boleto',
+    });
+    setBuscaCli("");
+    setShowDetalhe(null);
+    setShowNovo(true);
+    setMsg('Revise os dados e clique em "Incluir contrato" para criar uma cópia nova deste contrato.');
+  };
+
   // RPC nova: fn_contrato_processar_lote_diario(p_data_referencia date)
   // Retorna jsonb { success, total_processado, total_sucesso, total_idempotente, total_erro, erros }
   const gerarTitulosMes=async()=>{
@@ -527,7 +548,7 @@ export default function ContratosPage(){
     <div style={{minHeight:"100vh",background:BG,padding:20}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
         <div>
-          <div style={{fontSize:22,fontWeight:700,color:TX}}>🔄 Contratos Recorrentes</div>
+          <div style={{fontSize:22,fontWeight:700,color:TX}}>🔄 Gestão de contratos</div>
           <div style={{fontSize:11,color:TXD}}>
             BPO · Consultoria · SaaS · Serviços mensais · Geração automática · MRR/Churn/LTV
             {selInfo && (
@@ -1078,11 +1099,18 @@ export default function ContratosPage(){
             </div>
 
             <div style={{display:"flex",gap:8,justifyContent:"space-between",flexWrap:"wrap",paddingTop:14,borderTop:`1px solid ${BD}`}}>
-              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
                 {showDetalhe.status==='ativo'&&(
                   <>
                     <button onClick={()=>{setShowReajuste(showDetalhe);setPctReajuste(Number(showDetalhe.reajuste_percentual)||5);}} style={{padding:"8px 14px",borderRadius:8,background:Y+"15",color:Y,fontSize:11,fontWeight:600,border:`1px solid ${Y}40`,cursor:"pointer"}}>📈 Reajustar</button>
                     <button onClick={()=>encerrarContrato(showDetalhe)} style={{padding:"8px 14px",borderRadius:8,background:R+"15",color:R,fontSize:11,fontWeight:600,border:`1px solid ${R}40`,cursor:"pointer"}}>🏁 Encerrar</button>
+                  </>
+                )}
+                {/* #8384 — contrato encerrado/cancelado/excluído (ex.: perdido): refazer = criar uma cópia nova pelo fluxo de inclusão */}
+                {(showDetalhe.status==='encerrado'||showDetalhe.status==='cancelado'||showDetalhe.status==='excluido')&&(
+                  <>
+                    <button onClick={()=>refazerContrato(showDetalhe)} style={{padding:"8px 14px",borderRadius:8,background:P+"15",color:P,fontSize:11,fontWeight:600,border:`1px solid ${P}40`,cursor:"pointer"}}>🔁 Refazer este contrato</button>
+                    <AjudaCampo chave="ge.contrato.refazer" />
                   </>
                 )}
               </div>
