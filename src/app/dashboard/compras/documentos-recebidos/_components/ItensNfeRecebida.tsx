@@ -425,8 +425,31 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange, onConcluida }: Pr
     const livres = todos
       .map((d) => d.produto_id ? { ...d, saldo: Number(d.quantidade ?? 0) - (usado[d.id] ?? 0) } : d)
       .filter((d) => !d.produto_id || (d.saldo ?? 0) > 0)
-    if (livres.length === 0) { await vincularOS(it.item_id, o.id, null); return }
+    // #5933 · mesmo sem peça livre, abre o painel: o operador pode ADICIONAR o produto da nota
+    // como nova peça da OS (antes caía num vínculo genérico silencioso e o produto não entrava).
     setOsSel({ itemId: it.item_id, os: o }); setDiagLivres(livres)
+  }
+
+  // #5933 · cria o produto da NF como nova peça da OS (quando ela ainda não descreve esse item).
+  async function adicionarPecaOS(itemId: string, osId: string) {
+    setBusy(true)
+    setErro(null)
+    const { data, error } = await supabase.rpc('fn_nfe_item_adicionar_peca_os', { p_item_id: itemId, p_os_id: osId })
+    setBusy(false)
+    if (error) { setErro(error.message); return }
+    const r = data as { ok?: boolean; erro?: string; os_numero?: string; descricao?: string; quantidade?: number } | null
+    if (!r?.ok) {
+      setErro(
+        r?.erro === 'os_faturada' ? 'Esta OS já está faturada — não dá para adicionar peça nova por aqui (mudaria o valor do documento). Ajuste a peça direto na OS.'
+        : r?.erro === 'vincule_produto_antes' ? 'Vincule o item da nota a um produto do estoque antes de adicioná-lo à OS.'
+        : r?.erro === 'os_cancelada' ? 'OS cancelada — não é possível adicionar peça.'
+        : r?.erro ?? 'Não consegui adicionar a peça à OS.')
+      return
+    }
+    setMsg(`✅ Peça "${r.descricao ?? ''}" (${Number(r.quantidade ?? 0).toLocaleString('pt-BR')}×) adicionada à OS ${r.os_numero ?? ''} apontando para o produto do estoque.`)
+    setBuscaOS(null); setQOS(''); setResOS([]); setOsSel(null); setDiagLivres([])
+    await carregar()
+    onChange?.()
   }
 
   async function vincularOS(itemId: string, osId: string, diagItemId: string | null) {
@@ -858,12 +881,28 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange, onConcluida }: Pr
                         {d.saldo != null ? <span className="text-[10.5px] text-[#2F5AA8]"> · já ligada ao estoque · falta {Number(d.saldo).toLocaleString('pt-BR')}</span> : null}
                       </button>
                     ))}
+                    {/* #5933 · estado vazio: a OS não descreve esse produto (comprado em NF diferente, etc.) */}
+                    {diagLivres.length === 0 && (
+                      <div className="text-[10.5px] text-[#3D2314]/55 px-1 py-0.5">
+                        Esta OS ainda não tem uma peça para <span className="font-medium">{it.produto_nome ?? 'este produto'}</span>. Adicione como nova peça abaixo.
+                      </div>
+                    )}
                   </div>
+                  {/* #5933 · adicionar o produto da nota como nova peça da OS (quando ela não o descreve) */}
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void adicionarPecaOS(it.item_id, osSel.os.id)}
+                    className="w-full text-left text-[12px] px-2 py-1 mt-1 rounded text-[#1F7A4D] bg-[#EAF6EF] hover:bg-[#DCF0E4] font-medium disabled:opacity-50"
+                  >
+                    ➕ Adicionar <span className="font-semibold">{it.produto_nome ?? 'o produto'}</span> como nova peça desta OS
+                  </button>
+                  <span className="inline-flex items-center"><AjudaCampo chave="nfe_recebida.os_adicionar_peca" /></span>
                   <button
                     type="button"
                     disabled={busy}
                     onClick={() => void vincularOS(it.item_id, osSel.os.id, null)}
-                    className="text-[10.5px] text-[#3D2314]/60 mt-1 hover:underline disabled:opacity-50"
+                    className="block text-[10.5px] text-[#3D2314]/60 mt-1 hover:underline disabled:opacity-50"
                   >
                     só vincular à OS (sem peça específica)
                   </button>
@@ -944,7 +983,9 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange, onConcluida }: Pr
 
 // NFE-F2 · E3 · bloco de parcelas (duplicatas): editar valor/vencimento, adicionar/remover, refazer N×.
 // A soma tem que bater com o valor da nota — o botão salvar avisa/bloqueia se não bater.
-type Parcela = { id?: string; numero_dup: string | null; data_vencimento: string | null; valor: number | null; pagar_id?: string | null; forma_pagamento?: string | null; conta_bancaria_id?: string | null; codigo_barras?: string | null }
+type Parcela = { id?: string; numero_dup: string | null; data_vencimento: string | null; valor: number | null; pagar_id?: string | null; forma_pagamento?: string | null; conta_bancaria_id?: string | null; codigo_barras?: string | null; valorTexto?: string }
+// #5660 · aceita vírgula pt-BR em valor monetário: texto + replace(',', '.') (padrão do Perfil fiscal da revenda)
+const numOrNull = (s: string): number | null => { const n = Number(String(s).replace(',', '.')); return String(s).trim() !== '' && Number.isFinite(n) ? n : null }
 const FORMAS_PAGTO = ['boleto', 'pix', 'transferencia', 'cartao_credito', 'cartao_debito', 'dinheiro', 'cheque']
 function ParcelasBlock({ parcelas, valorNota, contas, onRefazer, onSalvar }: {
   parcelas: Parcela[]; valorNota: number | null; contas: { id: string; nome: string }[]
@@ -980,7 +1021,7 @@ function ParcelasBlock({ parcelas, valorNota, contas, onRefazer, onSalvar }: {
           <div key={p.id ?? i} data-ajuda="compras.docs_recebidos.parcela_vencimento" className="flex flex-wrap items-center gap-2 text-[11px] border-b border-[#3D2314]/6 pb-1.5">
             <span className="text-[#3D2314]/45 w-5">{i + 1}</span>
             <input type="date" value={p.data_vencimento ?? ''} onChange={(e) => patch(i, { data_vencimento: e.target.value })} className="border border-[#3D2314]/15 rounded px-1 py-0.5 text-[#3D2314]" />
-            <input type="number" step="0.01" value={p.valor ?? ''} onChange={(e) => patch(i, { valor: Number(e.target.value) })} placeholder="valor" className="w-24 border border-[#3D2314]/15 rounded px-1 py-0.5 text-right text-[#3D2314]" />
+            <input type="text" inputMode="decimal" value={p.valorTexto ?? (p.valor != null ? String(p.valor).replace('.', ',') : '')} onChange={(e) => patch(i, { valorTexto: e.target.value, valor: numOrNull(e.target.value) })} onBlur={() => patch(i, { valorTexto: undefined })} placeholder="valor" className="w-24 border border-[#3D2314]/15 rounded px-1 py-0.5 text-right text-[#3D2314]" />
             {/* §5 · forma, conta e código de barras — opcionais; chegam completos no contas a pagar */}
             <select value={p.forma_pagamento ?? ''} onChange={(e) => patch(i, { forma_pagamento: e.target.value || null })} title="Forma de pagamento" className="border border-[#3D2314]/15 rounded px-1 py-0.5 text-[#3D2314] min-h-[30px]">
               <option value="">forma…</option>
@@ -999,7 +1040,7 @@ function ParcelasBlock({ parcelas, valorNota, contas, onRefazer, onSalvar }: {
       <div className="flex items-center justify-between mt-2 gap-2 flex-wrap">
         <button type="button" onClick={() => setLista((a) => [...a, { numero_dup: null, data_vencimento: null, valor: null }])} className="text-[11px] text-[#3F7012] font-medium hover:underline">+ adicionar parcela</button>
         <span className={'text-[11px] font-medium ' + (bate ? 'text-[#3F7012]' : 'text-[#A32D2D]')}>soma {brl(soma)} {bate ? '= nota ✅' : `≠ nota ${brl(valorNota ?? 0)}`}</span>
-        <button type="button" disabled={!bate} onClick={() => void onSalvar(lista)} className="px-3 py-1.5 rounded-md bg-[#3F7012] text-white font-medium text-[11px] disabled:opacity-40">Salvar parcelas</button>
+        <button type="button" disabled={!bate} onClick={() => void onSalvar(lista.map((p) => { const { valorTexto: _vt, ...rest } = p; return rest }))} className="px-3 py-1.5 rounded-md bg-[#3F7012] text-white font-medium text-[11px] disabled:opacity-40">Salvar parcelas</button>
       </div>
     </div>
   )

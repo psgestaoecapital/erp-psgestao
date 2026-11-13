@@ -12,6 +12,7 @@ import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import { Package, Download, Upload, Loader2, CheckCircle2, AlertTriangle, XCircle, History } from 'lucide-react'
 import { COLUNAS_ESTOQUE, TIPOS_SPED, TIPOS_EXIGEM_NCM, ORIGENS, CODIGO_EXEMPLO } from '@/lib/estoque/colunasImportacao'
+import { extrairCodigo } from '@/lib/importacao/codigoDescricao'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 export const dynamic = 'force-dynamic'
@@ -23,10 +24,27 @@ interface LinhaParse { n: number; dados: Record<string, string>; nivel: Nivel; m
 interface ImportRow { id: string; arquivo_nome: string | null; registros_total: number | null; registros_novos: number | null; registros_erro: number | null; status: string | null; iniciado_em: string | null }
 
 const soDig = (s: string) => (s || '').replace(/\D/g, '')
+// #8621 · leitor de número robusto a locale. O separador DECIMAL é o que aparece por ÚLTIMO
+// ("1.234,56" pt-BR e "1,234.56" US dão ambos 1234.56); só vírgula = decimal (28,56); só ponto,
+// uma ocorrência = decimal (28.56 — era o que inflava: o parse antigo removia o "." como milhar).
 function parseNum(s: string): number | null {
   const t = (s ?? '').trim()
   if (!t) return null
-  const n = Number(t.replace(/\./g, '').replace(',', '.').replace(/[^\d.\-]/g, ''))
+  let str = t.replace(/[^\d.,\-]/g, '')
+  const neg = str.startsWith('-')
+  str = str.replace(/-/g, '')
+  if (!str) return null
+  const lastDot = str.lastIndexOf('.')
+  const lastComma = str.lastIndexOf(',')
+  if (lastDot >= 0 && lastComma >= 0) {
+    if (lastComma > lastDot) str = str.replace(/\./g, '').replace(',', '.')   // 1.234.567,89
+    else str = str.replace(/,/g, '')                                          // 1,234,567.89
+  } else if (lastComma >= 0) {
+    str = str.split(',').length > 2 ? str.replace(/,/g, '') : str.replace(',', '.')  // 28,56 / 1,234,567
+  } else if (str.split('.').length > 2) {
+    str = str.replace(/\./g, '')                                              // 1.234.567 (só milhar)
+  }
+  const n = Number(neg ? '-' + str : str)
   return Number.isFinite(n) ? n : null
 }
 const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -95,6 +113,9 @@ export default function ImportarEstoquePage() {
       const wsName = wb.SheetNames.find((n) => n.toLowerCase().startsWith('estoque')) ?? wb.SheetNames[0]
       const ws = wb.Sheets[wsName]
       const matriz = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, raw: false, defval: '' })
+      // #8621 · matriz BRUTA (raw) em paralelo: quando a célula é um NÚMERO de verdade, usamos o valor
+      // nativo e não a string formatada (o raw:false exibia "28.5598" e o parse tratava "." como milhar).
+      const matrizRaw = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: true, defval: '' })
       // cabeçalho = linha que contém 'codigo' E 'nome' (chaves técnicas, linha 4 do modelo)
       const idxHeader = matriz.findIndex((row) => {
         const low = row.map((c) => String(c).trim().toLowerCase())
@@ -116,6 +137,16 @@ export default function ImportarEstoquePage() {
 
         const dados: Record<string, string> = {}
         for (const c of COLUNAS_ESTOQUE) dados[c.key] = get(c.key)
+        // #8621 · colunas numéricas: se a célula do xlsx é NÚMERO, canoniza pelo valor bruto (sem locale).
+        // Texto (código, NCM, barras...) continua pelo raw:false, preservando zeros à esquerda.
+        const rowRaw = matrizRaw[i] ?? []
+        for (const k of ['estoque_atual', 'custo_medio', 'preco_venda', 'estoque_minimo']) {
+          const j = colIndex[k]
+          const rv = j >= 0 ? rowRaw[j] : undefined
+          if (typeof rv === 'number' && Number.isFinite(rv)) dados[k] = String(rv)
+        }
+        // #8439: campos codificados aceitam "código - descrição" (menu novo) e o código puro (planilha antiga)
+        for (const k of ['tipo_item_sped', 'origem', 'cest']) dados[k] = extrairCodigo(dados[k])
         if (!dados.unidade) dados.unidade = 'UN'
         if (!dados.tipo_item_sped) dados.tipo_item_sped = '00'   // vazio = 00 (revenda)
         if (!dados.origem) dados.origem = '0'                     // vazio = 0 (nacional)
@@ -309,14 +340,16 @@ export default function ImportarEstoquePage() {
             </div>
             <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
               <table className="w-full text-[12px]">
-                <thead className="bg-[#3D2314]/5 text-[11px] text-[#3D2314]/70 sticky top-0"><tr>
-                  <th className="text-left px-3 py-2 font-medium">#</th>
-                  <th className="text-left px-3 py-2 font-medium">status<AjudaCampo chave="cadastros.produtos.importar.col_status" /></th>
-                  <th className="text-left px-3 py-2 font-medium">codigo<AjudaCampo chave="cadastros.produtos.importar.col_codigo" /></th>
-                  <th className="text-left px-3 py-2 font-medium">descrição<AjudaCampo chave="cadastros.produtos.importar.col_descricao" /></th>
-                  <th className="text-right px-3 py-2 font-medium">qtd<AjudaCampo chave="cadastros.produtos.importar.col_qtd" /></th>
-                  <th className="text-right px-3 py-2 font-medium">custo<AjudaCampo chave="cadastros.produtos.importar.col_custo" /></th>
-                  <th className="text-left px-3 py-2 font-medium">mensagens<AjudaCampo chave="cadastros.produtos.importar.col_mensagens" /></th>
+                {/* #8622 · sticky no <th> (não no <thead>, que não gruda em todos os navegadores) + fundo
+                   OPACO para as linhas não aparecerem por baixo ao rolar. */}
+                <thead className="text-[11px] text-[#3D2314]/70"><tr>
+                  <th className="text-left px-3 py-2 font-medium sticky top-0 z-10 bg-[#EDE7DF]">#</th>
+                  <th className="text-left px-3 py-2 font-medium sticky top-0 z-10 bg-[#EDE7DF]">status<AjudaCampo chave="cadastros.produtos.importar.col_status" /></th>
+                  <th className="text-left px-3 py-2 font-medium sticky top-0 z-10 bg-[#EDE7DF]">codigo<AjudaCampo chave="cadastros.produtos.importar.col_codigo" /></th>
+                  <th className="text-left px-3 py-2 font-medium sticky top-0 z-10 bg-[#EDE7DF]">descrição<AjudaCampo chave="cadastros.produtos.importar.col_descricao" /></th>
+                  <th className="text-right px-3 py-2 font-medium sticky top-0 z-10 bg-[#EDE7DF]">qtd<AjudaCampo chave="cadastros.produtos.importar.col_qtd" /></th>
+                  <th className="text-right px-3 py-2 font-medium sticky top-0 z-10 bg-[#EDE7DF]">custo<AjudaCampo chave="cadastros.produtos.importar.col_custo" /></th>
+                  <th className="text-left px-3 py-2 font-medium sticky top-0 z-10 bg-[#EDE7DF]">mensagens<AjudaCampo chave="cadastros.produtos.importar.col_mensagens" /></th>
                 </tr></thead>
                 <tbody>
                   {linhas.map((l, i) => (

@@ -281,7 +281,7 @@ export default function CadastrarRebanho() {
         p_animais: animais, p_peso_medio_kg: pesoMedio, p_observacao: null,
       })
       const r = data as { ok?: boolean; erro?: string; criados?: number } | null
-      if (error || !r?.ok) { setMsg({ tipo: 'erro', texto: error?.message || r?.erro || 'Falha ao cadastrar o lote' }); return }
+      if (error || !r?.ok) { setMsg({ tipo: 'erro', texto: error ? erroAmigavel(error, 'Falha ao cadastrar o lote') : (r?.erro || 'Falha ao cadastrar o lote') }); return }
       const loteCodigo = lotes.find((l) => l.id === cab.lote_id)?.codigo
       setMsg({ tipo: 'ok', texto: `${r.criados} animais cadastrados${loteCodigo ? ` no lote ${loteCodigo}` : ''}.` })
       setLoteQtd(''); setPesoLote(''); setGridLote([]); setLoteRaca('')

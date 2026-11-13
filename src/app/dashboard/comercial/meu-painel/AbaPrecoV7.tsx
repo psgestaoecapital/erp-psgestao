@@ -28,7 +28,7 @@ export function AbaPrecoV7({ preco }: Props) {
   return (
     <div style={{ display: 'grid', gap: 14 }}>
       <p style={{ fontSize: 15, lineHeight: 1.5, margin: 0 }}>
-        No período, <b>{brl0(preco.descR)}</b> de desconto concedido (<b>{pct(preco.descPct)}</b> sobre a tabela), em <b>{pct(preco.itensAbaixoPct)}</b> dos itens. Onde o preço mais cai — por vendedor, produto e cliente.
+        O preço por vendedor é medido pelo <b>índice vs a média da empresa</b> (100 = média): acima é acréscimo (conta a favor), abaixo é desconto real — veja abaixo. A comparação com a <b>tabela de referência do sistema de origem</b> (<b>{brl0(preco.descR)}</b>, <b>{pct(preco.descPct)}</b> sobre a tabela, em <b>{pct(preco.itensAbaixoPct)}</b> dos itens) é secundária e pode estar desatualizada.
       </p>
 
       {/* Faixas de desconto */}
@@ -45,20 +45,20 @@ export function AbaPrecoV7({ preco }: Props) {
             </div>
           ))}
         </div>
-        <div style={{ fontSize: 12, color: C.m, marginTop: 8 }}>Faixas somam o faturamento total; itens em verde estão na tabela ou acima dela.</div>
+        <div style={{ fontSize: 12, color: C.m, marginTop: 8 }}>Faixas somam o faturamento total; itens em verde estão na tabela ou acima dela. Comparação com a tabela de referência do sistema de origem — pode estar desatualizada; o indicador principal de preço é o índice vs a média da empresa (abaixo).</div>
       </div>
 
       {/* Quem vende mais caro e mais barato: barras divergentes em relação à média */}
       <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16 }}>
         <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>Quem vende mais caro e mais barato<AjudaCampo chave="com.painel.indice" rota={ROTA} /></div>
-        <div style={{ fontSize: 12, color: C.m, marginBottom: 8 }}>Índice de preço por vendedor, em relação à média (100 = média da empresa{preco.mediaIdx != null ? `; média: ${nf({ maximumFractionDigits: 1 }).format(preco.mediaIdx)}` : ''}).</div>
+        <div style={{ fontSize: 12, color: C.m, marginBottom: 8 }}>Índice de preço por vendedor, em relação à média (100 = média da empresa{preco.mediaIdx != null ? `; média: ${nf({ maximumFractionDigits: 1 }).format(preco.mediaIdx)}` : ''}). Acima de 100 = acréscimo (vende acima da média, conta a favor, verde); abaixo = desconto real (vermelho).</div>
         <div style={{ width: '100%', height: Math.max(180, preco.vendedores.length * 30) }}>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={preco.vendedores.map((v) => ({ nome: v.nome, desvio: v.desvio ?? 0, idx: v.idx }))} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 0 }}>
               <CartesianGrid horizontal={false} stroke={C.bd} />
               <XAxis type="number" tick={{ fontSize: 11, fill: C.m }} />
               <YAxis type="category" dataKey="nome" width={130} tick={{ fontSize: 12, fill: C.esp }} />
-              <Tooltip formatter={(v, _n, p) => `índice ${nf({ maximumFractionDigits: 1 }).format(Number((p as any)?.payload?.idx ?? 0))}`} />
+              <Tooltip allowEscapeViewBox={{ x: false, y: false }} labelFormatter={(l) => String(l)} formatter={(v, _n, p) => [`índice ${nf({ maximumFractionDigits: 1 }).format(Number((p as any)?.payload?.idx ?? 0))}`, 'Vendedor']} />
               <Bar dataKey="desvio" radius={[0, 4, 4, 0]}>
                 {preco.vendedores.map((v, i) => <Cell key={i} fill={(v.desvio ?? 0) >= 0 ? C.ok : C.bad} />)}
               </Bar>
@@ -70,7 +70,7 @@ export function AbaPrecoV7({ preco }: Props) {
       {/* Desconto por cliente: TODOS os clientes, ordenável */}
       <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16 }}>
         <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Desconto por cliente ({int(tabela.length)})</div>
-        <div style={{ fontSize: 12, color: C.m, marginBottom: 8 }}>Onde está o dinheiro que ficou na mesa. Vendedor = quem mais vendeu para o cliente no período.</div>
+        <div style={{ fontSize: 12, color: C.m, marginBottom: 8 }}>Onde está o dinheiro que ficou na mesa. Vendedor = quem mais vendeu para o cliente no período. Desconto medido sobre a tabela de referência do sistema de origem (secundária — pode estar desatualizada).</div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 820 }}>
             <thead>

@@ -18,6 +18,18 @@ import AjudaCampo from '@/components/ajuda/AjudaCampo'
 import ClientePickerInline from './ClientePickerInline'
 import ContratoArquivos from './ContratoArquivos'
 import { FORMAS_PAGAMENTO, PERIODICIDADES_CONTRATO, TIPOS_REAJUSTE_CONTRATO, gradeContrato } from './contratoOpcoes'
+import { cpfValido, soDigitosCpf, mascaraCpf } from '@/lib/documentos/cpf'
+import { cnpjValido, mascaraCnpj } from '@/lib/documentos/cnpj'
+
+// CPF (11 díg) ou CNPJ (14 díg) válido — bloqueia texto livre tipo "conforme cadastro" (CEO P2 12/11).
+function docValido(v: string): boolean {
+  const d = soDigitosCpf(v)
+  return d.length === 14 ? cnpjValido(v) : cpfValido(v)
+}
+// aplica a máscara certa conforme a quantidade de dígitos já digitada (<=11 trata como CPF)
+function mascaraDoc(v: string): string {
+  return soDigitosCpf(v).length > 11 ? mascaraCnpj(v) : mascaraCpf(v)
+}
 
 const ROTA = '/dashboard/pm/propostas'
 const C = { espresso: '#3D2314', espressoM: '#6B5D4F', cream: '#FAF7F2', border: '#E0D8CC', gold: '#C8941A', white: '#FFFFFF', red: '#A32D2D', redBg: '#FCEBEB', green: '#1E7A46', greenBg: '#EAF6EE', amber: '#8A6A1E', amberBg: '#FBF4E6' }
@@ -178,12 +190,21 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
     const temCliente = modo === 'proposta' ? !!(cliInfo && cliInfo.nome) : !!cli
     if (!temCliente) { setErro('Esta proposta não tem cliente — escolha ou cadastre um cliente antes de pedir o contrato.'); return }
     if (!doc.trim()) { setErro('Informe o CPF/CNPJ do cliente.'); return }
+    if (!docValido(doc)) { setErro('CPF/CNPJ do cliente inválido — informe os números do documento (do cadastro do cliente), não um texto.'); return }
     if (!objeto.trim()) { setErro('Informe o objeto do contrato (o que está sendo contratado).'); return }
     if (num(valorMensal) == null || (num(valorMensal) ?? 0) <= 0) { setErro('Informe o valor (por parcela).'); return }
     if (!periodicidade) { setErro('Escolha a periodicidade.'); return }
     const dia = diaVenc ? Number(diaVenc) : null
     if (dia != null && (!Number.isInteger(dia) || dia < 1 || dia > 28)) { setErro('Dia de vencimento: de 1 a 28.'); return }
     if (inicio && fim && fim < inicio) { setErro('O fim da vigência não pode ser antes do início.'); return }
+    // Novos obrigatórios (CEO 11/11, item 4A): título, vigência De/Até, nº parcelas, dia venc e 1º venc.
+    // Vêm pré-preenchidos da proposta aprovada; aqui a tela exige que cheguem (a régua do backend é igual, fail-closed).
+    if (!titulo.trim()) { setErro('Informe o título do contrato.'); return }
+    if (!inicio) { setErro('Informe o início da vigência (De).'); return }
+    if (!fim) { setErro('Informe o fim da vigência (Até).'); return }
+    if (!nParcelas || !Number.isInteger(Number(nParcelas)) || Number(nParcelas) < 1) { setErro('Informe o nº de parcelas (1 ou mais).'); return }
+    if (dia == null) { setErro('Informe o dia do vencimento (de 1 a 28).'); return }
+    if (!primeiroVenc) { setErro('Informe o 1º vencimento.'); return }
     const dados: Record<string, unknown> = {
       cliente_cnpj: doc.trim() || null,
       responsavel: responsavel.trim() || null,
@@ -191,12 +212,13 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
       escopo: escopo.trim() || null,
       forma_pagamento: forma || null,
       condicao_pagamento: condicao.trim() || null,
-      numero_parcelas: nParcelas ? Number(nParcelas) : null,
+      numero_parcelas: periodicidade === 'unica' ? 1 : (nParcelas ? Number(nParcelas) : null),
       periodicidade: periodicidade || null,
       dia_vencimento: dia,
       data_primeiro_vencimento: primeiroVenc || null,
       data_inicio: inicio || null,
-      data_fim: fim || null,
+      // 'Única' (evento/avulso): vigência de 1 dia — Até = De quando não informado
+      data_fim: (periodicidade === 'unica' && !fim) ? (inicio || null) : (fim || null),
       tipo_reajuste: reajuste || null,
       reajuste_percentual: reajuste !== 'nenhum' ? num(reajustePct) : null,
       condicoes_especificas: especificas.trim() || null,
@@ -227,6 +249,21 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
   }
 
   const concluir = () => { if (criado) onSolicitado?.(criado); else onClose() }
+
+  // Avisos de coerência (não bloqueiam) — pegam os erros vistos no teste real do CEO (CTR-2026-0012):
+  // mensal com 1 parcela só, 1º vencimento no passado, dia do vencimento ≠ dia do 1º vencimento.
+  const coerenciaAvisos = (): string[] => {
+    const av: string[] = []
+    const np = nParcelas ? Number(nParcelas) : null
+    if (np === 1 && periodicidade === 'mensal') av.push('Periodicidade "Todo mês" com apenas 1 parcela — para evento único/avulso, confira a periodicidade e o nº de parcelas.')
+    if (primeiroVenc && primeiroVenc < new Date().toISOString().slice(0, 10)) av.push('O 1º vencimento já passou (está em data no passado).')
+    if (diaVenc && primeiroVenc) {
+      const diaPv = Number(primeiroVenc.slice(8, 10))
+      if (Number(diaVenc) !== diaPv) av.push(`O dia do vencimento (${diaVenc}) é diferente do dia do 1º vencimento (${diaPv}).`)
+    }
+    return av
+  }
+  const avisos = coerenciaAvisos()
 
   return (
     <div onClick={criado ? concluir : onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: 16 }}>
@@ -303,7 +340,8 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
                 )}
                 <div style={gradeContrato}>
                   <Campo label="CPF/CNPJ do cliente" chave="pm.solicitar_contrato.cpf_cnpj" ajuda>
-                    <input style={inp} value={doc} onChange={(e) => setDoc(e.target.value)} placeholder="Obrigatório" />
+                    <input style={{ ...inp, ...(doc.trim() && !docValido(doc) ? { borderColor: C.red } : {}) }} inputMode="numeric" maxLength={18} value={doc} onChange={(e) => setDoc(mascaraDoc(e.target.value))} placeholder="Obrigatório (só números do documento)" />
+                    {doc.trim() && !docValido(doc) ? <div style={{ fontSize: 11, color: C.red, marginTop: 4 }}>CPF/CNPJ inválido — confira os números do cadastro do cliente.</div> : null}
                   </Campo>
                   <Campo label="Responsável pelo contrato" chave="pm.solicitar_contrato.responsavel" ajuda>
                     <input style={inp} value={responsavel} onChange={(e) => setResponsavel(e.target.value)} placeholder="Quem assina / contato no cliente" />
@@ -343,7 +381,7 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
                     <input style={inp} type="number" min={1} value={nParcelas} onChange={(e) => setNParcelas(e.target.value)} />
                   </Campo>
                   <Campo label="Periodicidade" chave="pm.solicitar_contrato.periodicidade" ajuda>
-                    <select style={inp} value={periodicidade} onChange={(e) => setPeriodicidade(e.target.value)}>
+                    <select style={inp} value={periodicidade} onChange={(e) => { const v = e.target.value; setPeriodicidade(v); if (v === 'unica') { setNParcelas('1'); if (inicio && !fim) setFim(inicio) } }}>
                       {PERIODICIDADES_CONTRATO.map((p) => <option key={p.v} value={p.v}>{p.l}</option>)}
                     </select>
                   </Campo>
@@ -383,9 +421,16 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
                   <textarea style={{ ...inp, minHeight: 70, fontFamily: 'inherit' }} value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Contexto, pedidos do cliente, etc." />
                 </Campo>
                 <div style={{ fontSize: 11, color: C.espressoM, marginTop: -6, marginBottom: 12 }}>
-                  Obrigatórios para enviar ao financeiro: cliente, CPF/CNPJ, objeto, valor e periodicidade. O resto o financeiro pode completar.
+                  Obrigatórios para enviar ao financeiro: título, cliente, CPF/CNPJ, objeto, valor, periodicidade, vigência (De e Até), nº de parcelas, dia do vencimento e 1º vencimento. Vêm pré-preenchidos da proposta aprovada.
                 </div>
               </Secao>
+
+              {avisos.length > 0 && (
+                <div style={{ background: C.amberBg, color: C.amber, padding: '10px 14px', borderRadius: 6, marginBottom: 4, marginTop: 4, fontSize: 12.5, lineHeight: 1.5 }}>
+                  <strong>Confira antes de enviar:</strong>
+                  <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>{avisos.map((a, i) => <li key={i}>{a}</li>)}</ul>
+                </div>
+              )}
 
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8, flexWrap: 'wrap' }}>
                 <button type="button" onClick={onClose} disabled={salvando} style={{ background: 'transparent', color: C.espresso, border: `1px solid ${C.border}`, padding: '10px 20px', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
@@ -436,6 +481,12 @@ function traduz(e?: string): string {
     case 'dia_vencimento_invalido': return 'Dia de vencimento: de 1 a 28.'
     case 'numero_parcelas_invalido': return 'Nº de parcelas precisa ser pelo menos 1.'
     case 'vigencia_invalida': return 'O fim da vigência não pode ser antes do início.'
+    case 'titulo_obrigatorio': return 'Informe o título do contrato.'
+    case 'vigencia_inicio_obrigatoria': return 'Informe o início da vigência (De).'
+    case 'vigencia_fim_obrigatoria': return 'Informe o fim da vigência (Até).'
+    case 'numero_parcelas_obrigatorio': return 'Informe o nº de parcelas.'
+    case 'dia_vencimento_obrigatorio': return 'Informe o dia do vencimento (de 1 a 28).'
+    case 'primeiro_vencimento_obrigatorio': return 'Informe o 1º vencimento.'
     default: return e || 'Não foi possível solicitar o contrato.'
   }
 }

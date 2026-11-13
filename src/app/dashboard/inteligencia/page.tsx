@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { usePapelUsuario, ehRhIndustrial } from '@/hooks/usePapelUsuario'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF'
 const MUT = 'rgba(61,35,20,0.55)', VERDE = '#2E8B57'
@@ -31,6 +32,16 @@ const ICONE: Record<string, string> = {
   // agro
   plant: '🌱', 'chart-line': '📈', heart: '❤️', vaccine: '💉', 'building-warehouse': '🏬',
   milk: '🥛', 'report-money': '💰', 'building-bank': '🏦', 'trending-up': '💹',
+}
+
+// Onde LANÇAR o dado que acende cada tema (critério d do PDCA: card "sem dados" indica o caminho).
+// Só rotas operacionais REAIS e verificadas; tema sem origem conhecida cai no texto genérico do card.
+const ORIGEM: Record<string, { rota: string; label: string }> = {
+  producao:    { rota: '/dashboard/industrial/producao', label: 'Produção (abate)' },
+  tipificacao: { rota: '/dashboard/industrial/producao', label: 'Produção (abate)' },
+  rendimentos: { rota: '/dashboard/industrial/producao', label: 'Produção (abate)' },
+  rh:          { rota: '/dashboard/industrial/ponto',     label: 'Registro de ponto' },
+  produtividade: { rota: '/dashboard/produtividade',      label: 'Produtividade' },
 }
 
 type AreaCfg = { rpc: string; kicker: string; subtitulo: string; secoes: { key: string; label: string }[]; soRh: boolean }
@@ -102,7 +113,20 @@ function Hub() {
   }, [visiveis])
 
   if (!companyId) {
-    return <div style={{ background: BG, minHeight: '100vh', padding: 32, color: MUT, fontSize: 14 }}>Selecione uma empresa específica no topo para ver a Inteligência.</div>
+    return (
+      <div style={{ background: BG, minHeight: '100vh', padding: '48px 20px', display: 'flex', justifyContent: 'center' }}>
+        <div style={{ maxWidth: 460, background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 14, padding: 28, textAlign: 'center' }}>
+          <div style={{ width: 48, height: 48, borderRadius: 12, background: ACCENT_BG, color: GOLD, fontSize: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>📊</div>
+          <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 22, fontWeight: 400, color: ESP, margin: '0 0 8px' }}>Escolha uma empresa</h1>
+          <p style={{ fontSize: 13, color: MUT, lineHeight: 1.5, margin: 0 }}>
+            A Análise de dados é <strong style={{ color: ESP }}>por empresa</strong>. No <strong style={{ color: ESP }}>seletor de empresa, no topo da tela</strong>, escolha uma empresa específica — não funciona com o consolidado nem com um grupo.
+          </p>
+          <p style={{ fontSize: 12, color: MUT, lineHeight: 1.5, margin: '10px 0 0' }}>
+            Assim que selecionar, os cards dos indicadores da operação (industrial ou agro) aparecem aqui e acendem sozinhos conforme a empresa tem dado.
+          </p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -110,7 +134,10 @@ function Hub() {
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
         <header style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700 }}>{cfg.kicker}</div>
-          <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 28, fontWeight: 400, color: ESP, margin: '2px 0 0' }}>Análise de dados</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 28, fontWeight: 400, color: ESP, margin: '2px 0 0' }}>Análise de dados</h1>
+            <AjudaCampo chave="bi.hub_como_funciona" rota="/dashboard/inteligencia" />
+          </div>
           <p style={{ fontSize: 13, color: MUT, margin: '4px 0 0' }}>{cfg.subtitulo}</p>
         </header>
 
@@ -124,15 +151,19 @@ function Hub() {
               const faixa = s.key === 'transversais' || s.key === 'cruzamento'
               return (
                 <section key={s.key} style={{ marginBottom: 18, ...(faixa ? { background: SURF1, borderRadius: 12, padding: '14px 14px 4px' } : {}) }}>
-                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.8, color: MUT, fontWeight: 700, marginBottom: 10 }}>{s.label}</div>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 10 }}>
+                    <span style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.8, color: MUT, fontWeight: 700 }}>{s.label}</span>
+                    <AjudaCampo chave={`bi.secao.${area}.${s.key}`} rota="/dashboard/inteligencia" />
+                  </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(196px, 1fr))', gap: 12 }}>
-                    {(porSecao[s.key] ?? []).map((t) => <Card key={t.codigo} t={t} onOpen={() => t.rota_detalhe && router.push(t.rota_detalhe)} />)}
+                    {(porSecao[s.key] ?? []).map((t) => <Card key={t.codigo} t={t} onOpen={() => t.rota_detalhe && router.push(t.rota_detalhe)} onOrigem={(rota) => router.push(rota)} />)}
                   </div>
                 </section>
               )
             })}
-            <div style={{ marginTop: 8, fontSize: 11, color: MUT }}>
+            <div style={{ marginTop: 8, fontSize: 11, color: MUT, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               ● card aceso = a fonte já tem dado (acende sozinho) · ○ em breve = aparece mas ainda sem dado
+              <AjudaCampo chave="bi.card_estado" rota="/dashboard/inteligencia" />
             </div>
           </>
         )}
@@ -141,7 +172,7 @@ function Hub() {
   )
 }
 
-function Card({ t, onOpen }: { t: Tema; onOpen: () => void }) {
+function Card({ t, onOpen, onOrigem }: { t: Tema; onOpen: () => void; onOrigem: (rota: string) => void }) {
   const fase1 = t.destaque === 'fase1' && t.tem_dado
   const novo = t.destaque === 'novo'
   const pill = t.tem_dado
@@ -150,6 +181,7 @@ function Card({ t, onOpen }: { t: Tema; onOpen: () => void }) {
     : novo ? { txt: 'novo', cor: GOLD, bg: ACCENT_BG }
     : { txt: 'em breve', cor: MUT, bg: 'rgba(61,35,20,0.06)' }
   const rodape = t.tem_dado && t.metrica ? t.metrica : 'aguarda dados'
+  const origem = !t.tem_dado ? ORIGEM[t.codigo] : undefined
   return (
     <div
       role="button" tabIndex={0}
@@ -172,6 +204,21 @@ function Card({ t, onOpen }: { t: Tema; onOpen: () => void }) {
       <div style={{ marginTop: 10, fontSize: 14, fontWeight: 500, color: ESP }}>{t.nome}</div>
       <div style={{ fontSize: 12, color: MUT, marginTop: 2 }}>{t.subtitulo}</div>
       <div style={{ marginTop: 'auto', paddingTop: 10, fontSize: 12, color: t.tem_dado ? VERDE : MUT, fontWeight: t.tem_dado ? 600 : 400 }}>{rodape}</div>
+      {!t.tem_dado && (
+        origem ? (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onOrigem(origem.rota) }}
+            style={{ marginTop: 8, alignSelf: 'flex-start', background: 'transparent', border: 'none', padding: 0, color: GOLD, fontSize: 11, fontWeight: 600, cursor: 'pointer', textAlign: 'left' }}
+          >
+            ▸ Ativar: lançar em {origem.label} →
+          </button>
+        ) : (
+          <div style={{ marginTop: 8, fontSize: 11, color: MUT, lineHeight: 1.4 }}>
+            Acende sozinho quando a operação for registrada no sistema.
+          </div>
+        )
+      )}
     </div>
   )
 }
