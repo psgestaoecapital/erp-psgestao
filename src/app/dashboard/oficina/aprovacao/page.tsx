@@ -174,6 +174,11 @@ export default function AprovacaoPage() {
           </div>
         )}
         {lista.length === 0 && <div style={{ color: ESP60, fontSize: 14, padding: '20px 0' }}>Nenhuma OS com laudo ainda. Faça o Diagnóstico primeiro.</div>}
+        {lista.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, margin: '2px 0 8px' }}>
+            Laudos para orçar<AjudaCampo chave="oficina.aprovacao.lista" rota="/dashboard/oficina/aprovacao" />
+          </div>
+        )}
         {lista.length > 0 && buscaOS.trim() && filtrarOS(lista, buscaOS).length === 0 && <div style={{ color: ESP60, fontSize: 14, padding: '12px 0' }}>Nenhuma OS encontrada para “{buscaOS.trim()}”.</div>}
         {filtrarOS(lista, buscaOS).map((os) => (
           <div key={os.id} onClick={() => void abrirOS(os)} style={{ width: '100%', textAlign: 'left', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 10, cursor: 'pointer' }}>
@@ -198,7 +203,7 @@ export default function AprovacaoPage() {
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginTop: 6 }}>🔧 Oficina · Orçamento · {osSel.numero}</div>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: '2px 0 10px' }}>{osSel.placa} · {osSel.marca} {osSel.modelo}</h1>
 
-        <Sec titulo={`Itens do orçamento (${nAprov}/${itens.length})`}>
+        <Sec titulo={`Itens do orçamento (${nAprov}/${itens.length})`} ajuda="oficina.aprovacao.itens">
           {itens.map((i) => (
             <div key={i.item_id} style={{ border: `1px solid ${i.aprovado ? OK : LINE}`, borderRadius: 12, padding: 12, marginBottom: 8, background: i.aprovado ? 'rgba(22,101,52,0.04)' : '#fff' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
@@ -350,10 +355,12 @@ function AssinaturaPad({ onChange }: { onChange: (b64: string | null) => void })
   )
 }
 
-function Sec({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+function Sec({ titulo, ajuda, children }: { titulo: string; ajuda?: string; children: React.ReactNode }) {
   return (
     <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 14, padding: 14, marginBottom: 12 }}>
-      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 10 }}>{titulo}</div>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
+        {titulo}{ajuda && <AjudaCampo chave={ajuda} rota="/dashboard/oficina/aprovacao" />}
+      </div>
       {children}
     </div>
   )

@@ -155,6 +155,18 @@ export default function BiPlanta() {
   }, [empresa, sexo, cidade, intervalo])
   useEffect(() => { void carregar() }, [carregar])
 
+  // RD-98 (PDCA): primeira carga não pode abrir vazia. Se o período padrão ("Este mês") não tem abate
+  // mas a planta tem histórico, amplia UMA vez para 12 meses — automático só enquanto o usuário não
+  // escolheu um período (depois disso respeita a escolha dele).
+  const autoAjustado = useRef(false)
+  const tocouPeriodo = useRef(false)
+  useEffect(() => {
+    if (autoAjustado.current || tocouPeriodo.current) return
+    if (per !== 'mes' || !p?.ok || !p.resumo || p.resumo.cabecas !== 0) return
+    const temHistorico = (p.meses ?? []).some((m) => m.cab > 0)
+    if (temHistorico) { autoAjustado.current = true; setPer('365') }
+  }, [p, per])
+
   const r = p?.resumo; const c = p?.compra; const a = p?.anterior
   const femPct = r && r.cabecas ? 100 * r.femeas / r.cabecas : null
   const vArroba = varp(c?.rs_arroba, a?.rs_arroba)
@@ -218,7 +230,7 @@ export default function BiPlanta() {
             <span style={{ fontSize: 12, color: C.m, display: 'flex', alignItems: 'center', gap: 4 }}>Período<AjudaCampo chave="planta.periodo" rota={ROTA} /></span>
             <div role="group" aria-label="Período" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {PERIODOS.map((x) => (
-                <button key={x.k} type="button" onClick={() => setPer(x.k)} aria-pressed={per === x.k}
+                <button key={x.k} type="button" onClick={() => { tocouPeriodo.current = true; setPer(x.k) }} aria-pressed={per === x.k}
                   style={{ font: 'inherit', fontSize: 13, padding: '7px 12px', borderRadius: 999, cursor: 'pointer', border: `1px solid ${per === x.k ? C.esp : C.bd}`, background: per === x.k ? C.esp : '#fff', color: per === x.k ? '#fff' : C.esp }}>{x.rot}</button>
               ))}
             </div>
