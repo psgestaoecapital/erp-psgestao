@@ -7,7 +7,7 @@ INSERT INTO public.module_catalog (id, nome, grupo, icone, rota, ordem, ativo, d
   rbac_isento, rbac_isento_motivo, so_ps, so_demo)
 VALUES ('hub_permutas', 'Permutas', 'hub', 'ArrowLeftRight', '/dashboard/hub/permutas', 60, true,
   'Gestão de permutas da obra: cada permuta é uma conta-corrente de imóvel — valor do contrato + reajuste CUB = valor atualizado, quitado por material, serviço, dinheiro ou imóvel, e o saldo em aberto. Multi-CNPJ e consolidado do grupo.',
-  null, null, true, '[]'::jsonb, false, 'financeiro', '[]'::jsonb, false, null, null, false, null, false, false)
+  null, null, true, '{}'::text[], false, 'financeiro', '{}'::text[], false, null, null, false, null, false, false)
 ON CONFLICT (id) DO NOTHING;
 
 -- Liga a todo plano que já tem um módulo do Hub (reusa as associações do hub_orcamento_itens).
