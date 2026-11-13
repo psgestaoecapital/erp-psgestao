@@ -10,6 +10,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { CampoMoeda } from "@/components/comum/CampoMoeda";
+import { numeroParaMoeda } from "@/lib/moeda-mascara";
 import { RelatoriosFrota } from "@/components/frota/RelatoriosFrota";
 import { erroAmigavel, ErroUsuario } from "@/lib/erroAmigavel";
 
@@ -72,7 +74,8 @@ const kmL = (n: number | null) => (n == null ? "—" : `${n.toLocaleString("pt-B
 const moeda = (n: number | null | undefined) => (n == null ? "—" : Number(n).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
 const dataBR = (d: string | null) => (d ? d.split("-").reverse().join("/") : "—");
 // Valor digitado em reais ("1.250,00") vira o decimal que o banco aceita ("1250.00").
-const decimal = (s: string) => (s.trim() ? s.replace(/\./g, "").replace(",", ".") : "");
+// #6874: aceita o campo mascarado (R$) — tira "R$"/espaços antes de normalizar milhar/decimal BR.
+const decimal = (s: string) => { const t = (s ?? "").replace(/[^\d,.-]/g, ""); return t ? t.replace(/\./g, "").replace(",", ".") : ""; };
 
 // Placa normalizada igual à do banco (fn_hub_frota_veiculo_salvar: tira o que não é letra/número, maiúsculas).
 const normalizarPlaca = (s: string) => (s ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
@@ -317,7 +320,7 @@ function PainelVeiculo({ companyId, veic, veiculos, onAbrir, onFechar, onSalvo }
       const s = (k: string) => (r[k] == null ? "" : String(r[k]));
       setX({
         versao: s("versao"), cor: s("cor"), combustivel: s("combustivel"), cambio: s("cambio"), potencia_cv: s("potencia_cv"),
-        lugares: s("lugares"), ncm: s("ncm"), valor_aquisicao: s("valor_aquisicao"), data_entrada: s("data_entrada"),
+        lugares: s("lugares"), ncm: s("ncm"), valor_aquisicao: r.valor_aquisicao == null ? "" : numeroParaMoeda(Number(r.valor_aquisicao)), data_entrada: s("data_entrada"),
         fornecedor_nome: s("fornecedor_nome"), crlv_path: s("crlv_path"), tem_manual: r.tem_manual === true, tem_chave_reserva: r.tem_chave_reserva === true,
       });
     })();
@@ -450,7 +453,7 @@ function PainelVeiculo({ companyId, veic, veiculos, onAbrir, onFechar, onSalvo }
                   <Campo rotulo="NCM"><AjudaCampo chave="projetos.frota.ncm" rota={ROTA} /><input aria-label="NCM" className={inp} value={x.ncm} onChange={(e) => setX({ ...x, ncm: e.target.value })} /></Campo>
                 </Secao>
                 <Secao titulo="Compra e entrada">
-                  <Campo rotulo="Valor de aquisição"><AjudaCampo chave="projetos.frota.valor_aquisicao" rota={ROTA} /><input aria-label="Valor de aquisição" inputMode="decimal" className={inp} value={x.valor_aquisicao} onChange={(e) => setX({ ...x, valor_aquisicao: e.target.value })} /></Campo>
+                  <Campo rotulo="Valor de aquisição"><AjudaCampo chave="projetos.frota.valor_aquisicao" rota={ROTA} /><CampoMoeda testId="frota-valor-aquisicao" className={inp} value={x.valor_aquisicao} onChange={(v) => setX({ ...x, valor_aquisicao: v })} placeholder="R$ 0,00" /></Campo>
                   <Campo rotulo="Data de entrada na frota"><AjudaCampo chave="projetos.frota.data_entrada" rota={ROTA} /><input aria-label="Data de entrada na frota" type="date" className={inp} value={x.data_entrada} onChange={(e) => setX({ ...x, data_entrada: e.target.value })} /></Campo>
                   <Campo rotulo="Fornecedor do veículo"><AjudaCampo chave="projetos.frota.fornecedor_veiculo" rota={ROTA} /><input aria-label="Fornecedor do veículo" className={inp} value={x.fornecedor_nome} onChange={(e) => setX({ ...x, fornecedor_nome: e.target.value })} /></Campo>
                   <Campo rotulo="CRLV (arquivo)"><AjudaCampo chave="projetos.frota.crlv" rota={ROTA} />
@@ -611,7 +614,7 @@ function AbaCustos({ companyId, veiculo }: { companyId: string; veiculo: Veiculo
               {CATEGORIAS.map(([v, n]) => <option key={v} value={v}>{n}</option>)}
             </select>
           </Campo>
-          <Campo rotulo="Valor"><AjudaCampo chave="projetos.frota.custo_valor" rota={ROTA} /><input aria-label="Valor do custo" inputMode="decimal" className={inp} value={f.valor} onChange={(e) => setF({ ...f, valor: e.target.value })} /></Campo>
+          <Campo rotulo="Valor"><AjudaCampo chave="projetos.frota.custo_valor" rota={ROTA} /><CampoMoeda testId="frota-custo-valor" className={inp} value={f.valor} onChange={(v) => setF({ ...f, valor: v })} placeholder="R$ 0,00" /></Campo>
           <Campo rotulo="Data"><AjudaCampo chave="projetos.frota.custo_data" rota={ROTA} /><input aria-label="Data do custo" type="date" className={inp} value={f.data_custo} onChange={(e) => setF({ ...f, data_custo: e.target.value })} /></Campo>
           <Campo rotulo="Descrição (opcional)"><AjudaCampo chave="projetos.frota.custo_descricao" rota={ROTA} /><input aria-label="Descrição do custo" className={inp} value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} /></Campo>
           <Campo rotulo="Fornecedor (opcional)"><AjudaCampo chave="projetos.frota.custo_fornecedor" rota={ROTA} /><input aria-label="Fornecedor do custo" className={inp} value={f.fornecedor_nome} onChange={(e) => setF({ ...f, fornecedor_nome: e.target.value })} /></Campo>
@@ -692,7 +695,7 @@ function AbaDocumentos({ companyId, veiculo, onFeito }: { companyId: string; vei
             </select>
           </Campo>
           <Campo rotulo="Vencimento"><AjudaCampo chave="projetos.frota.doc_vencimento" rota={ROTA} /><input aria-label="Vencimento" type="date" className={inp} value={f.vencimento} onChange={(e) => setF({ ...f, vencimento: e.target.value })} /></Campo>
-          <Campo rotulo="Valor (opcional)"><AjudaCampo chave="projetos.frota.doc_valor" rota={ROTA} /><input aria-label="Valor do documento" inputMode="decimal" className={inp} value={f.valor} onChange={(e) => setF({ ...f, valor: e.target.value })} /></Campo>
+          <Campo rotulo="Valor (opcional)"><AjudaCampo chave="projetos.frota.doc_valor" rota={ROTA} /><CampoMoeda testId="frota-doc-valor" className={inp} value={f.valor} onChange={(v) => setF({ ...f, valor: v })} placeholder="R$ 0,00" /></Campo>
           <Campo rotulo="Anexo do documento"><AjudaCampo chave="projetos.frota.doc_anexo" rota={ROTA} />
             <input aria-label="Anexo do documento" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" className="text-xs" onChange={(e) => setArquivo(e.target.files?.[0] ?? null)} />
           </Campo>
@@ -788,7 +791,7 @@ function AbaManutencoes({ companyId, veiculo }: { companyId: string; veiculo: Ve
     setErro(null); setEnviando(true);
     try {
       const anexo = arquivo ? await enviarAnexo(companyId, `frota/${veiculo.id}`, arquivo) : null;
-      const { error } = await supabase.rpc("fn_hub_frota_manutencao_registrar", { p_veiculo_id: veiculo.id, p_dados: { ...r, anexo_path: anexo } });
+      const { error } = await supabase.rpc("fn_hub_frota_manutencao_registrar", { p_veiculo_id: veiculo.id, p_dados: { ...r, valor: decimal(r.valor), anexo_path: anexo } });
       if (error) { setErro(erroAmigavel(error)); return; }
       setR({ ...r, data: "", km: "", valor: "", fornecedor: "", descricao: "" });
       setArquivo(null);
@@ -816,7 +819,7 @@ function AbaManutencoes({ companyId, veiculo }: { companyId: string; veiculo: Ve
           <Campo rotulo="Tipo"><AjudaCampo chave="projetos.frota.tipo_manutencao" rota={ROTA} /><input aria-label="Tipo da manutenção" className={inp} value={r.tipo} onChange={(e) => setR({ ...r, tipo: e.target.value })} /></Campo>
           <Campo rotulo="Data"><AjudaCampo chave="projetos.frota.data_manutencao" rota={ROTA} /><input aria-label="Data" type="date" className={inp} value={r.data} onChange={(e) => setR({ ...r, data: e.target.value })} /></Campo>
           <Campo rotulo="Km na manutenção"><AjudaCampo chave="projetos.frota.km_manutencao" rota={ROTA} /><input aria-label="Km na manutenção" inputMode="numeric" className={inp} value={r.km} onChange={(e) => setR({ ...r, km: e.target.value })} /></Campo>
-          <Campo rotulo="Valor (opcional)"><AjudaCampo chave="projetos.frota.valor" rota={ROTA} /><input aria-label="Valor" inputMode="decimal" className={inp} value={r.valor} onChange={(e) => setR({ ...r, valor: e.target.value })} /></Campo>
+          <Campo rotulo="Valor (opcional)"><AjudaCampo chave="projetos.frota.valor" rota={ROTA} /><CampoMoeda testId="frota-manut-valor" className={inp} value={r.valor} onChange={(v) => setR({ ...r, valor: v })} placeholder="R$ 0,00" /></Campo>
           <Campo rotulo="Fornecedor (opcional)"><AjudaCampo chave="projetos.frota.fornecedor" rota={ROTA} /><input aria-label="Fornecedor" className={inp} value={r.fornecedor} onChange={(e) => setR({ ...r, fornecedor: e.target.value })} /></Campo>
           <Campo rotulo="Descrição (opcional)"><AjudaCampo chave="projetos.frota.descricao" rota={ROTA} /><input aria-label="Descrição" className={inp} value={r.descricao} onChange={(e) => setR({ ...r, descricao: e.target.value })} /></Campo>
           <Campo rotulo="Anexo (nota ou laudo)"><AjudaCampo chave="projetos.frota.manutencao_anexo" rota={ROTA} />
