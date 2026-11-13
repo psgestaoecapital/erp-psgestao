@@ -234,7 +234,7 @@ export default function HubFiscalClient() {
               </div>
             ) : (
               <div className="text-[11px] text-[#633806]">
-                Configure A1 + Focus NFe pra emitir
+                Configure A1 + provedor de NF-e pra emitir
               </div>
             )}
           </Link>
@@ -266,7 +266,7 @@ export default function HubFiscalClient() {
         {!focusOk && (
           <div className="bg-[#FAEEDA] border border-[#E8C387] rounded-xl p-4 text-[12.5px] text-[#633806]">
             <strong className="font-medium">Sistema pronto pra emitir notas.</strong>{' '}
-            Falta configurar o certificado A1 e a API key Focus NFe em{' '}
+            Falta configurar o certificado A1 e a API key do provedor de NF-e em{' '}
             <Link href="/dashboard/configuracoes/fiscal" className="text-[#BA7517] underline font-medium">
               Configurações › Fiscal
             </Link>
