@@ -550,22 +550,26 @@ export default function DocumentosRecebidosPage() {
               </span>
             )}
             {habilitado === true && (
-              <button
-                type="button"
-                onClick={() => { if (confirm('Desabilitar recebimento DF-e desta empresa?')) void habilitarDfe(false) }}
-                disabled={habilitando}
-                title="Pausa o recebimento automatico para esta empresa (controle nao e apagado)"
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[#3D2314]/15 text-[12px] font-medium text-[#3D2314]/65 hover:bg-[#3D2314]/5 disabled:opacity-50 min-h-[44px]"
-              >
-                <PowerOff size={14} />
-                Desabilitar
-              </button>
+              <span className="inline-flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => { if (confirm('Desabilitar recebimento DF-e desta empresa?')) void habilitarDfe(false) }}
+                  disabled={habilitando}
+                  title="Pausa o recebimento automatico para esta empresa (controle nao e apagado)"
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[#3D2314]/15 text-[12px] font-medium text-[#3D2314]/65 hover:bg-[#3D2314]/5 disabled:opacity-50 min-h-[44px]"
+                >
+                  <PowerOff size={14} />
+                  Desabilitar
+                </button>
+                <AjudaCampo chave="compras.docs_recebidos.acao_desabilitar" />
+              </span>
             )}
             {/* NFE-F3 · mutirão (fila + casamento exato em lote) */}
             <Link href="/dashboard/compras/mutirao"
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-[#3D2314]/15 text-[#3D2314] text-[13px] font-medium hover:bg-[#3D2314]/5 min-h-[44px]">
               🗂️ Mutirão de notas
             </Link>
+            <AjudaCampo chave="compras.docs_recebidos.acao_mutirao" />
             {/* NFE-F3 · §1 · sincronizar manifestação (só leitura, nada à SEFAZ) */}
             <button
               type="button"
@@ -580,6 +584,7 @@ export default function DocumentosRecebidosPage() {
             <UploadXmlRecebidaButton companyId={empresaUnica} onDone={() => void carregar()} />
             {/* GF4 · vários XMLs (ou .zip) de uma vez, pela mesma função do envio de um arquivo */}
             <UploadXmlLoteRecebidas companyId={empresaUnica} onDone={() => void carregar()} />
+            <AjudaCampo chave="compras.docs_recebidos.acao_upload_xml" />
             <button
               type="button"
               onClick={() => void buscarAgora()}

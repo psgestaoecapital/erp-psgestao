@@ -59,5 +59,26 @@ VALUES
   'Clique para abrir a NF-e de devolução ao fornecedor já pré-preenchida com a chave, o fornecedor e os itens desta nota.',
   'Agiliza a devolução: você não redigita os dados da nota original.',
   'Recebeu mercadoria errada? Use Devolver para emitir a NF-e de devolução a partir desta nota.',
-  'A devolução abre a emissão de NF-e; confira itens e quantidades antes de emitir.', 23)
+  'A devolução abre a emissão de NF-e; confira itens e quantidades antes de emitir.', 23),
+
+ ('compras.docs_recebidos.acao_desabilitar', '/dashboard/compras/documentos-recebidos', 'Recebimento DF-e', 'gestao_empresarial',
+  'Desabilitar',
+  'Clique para pausar o recebimento automático de notas desta empresa. O controle não é apagado — dá para reativar depois.',
+  'Para quando a empresa deixa de precisar da busca automática, sem perder a configuração.',
+  'Vai migrar o recebimento de empresa: desabilite aqui para parar a busca automática.',
+  'Desabilitar não apaga as notas já recebidas; só interrompe a busca de novas.', 24),
+
+ ('compras.docs_recebidos.acao_mutirao', '/dashboard/compras/documentos-recebidos', 'Recebimento DF-e', 'gestao_empresarial',
+  'Mutirão de notas',
+  'Abre a tela de mutirão para tratar muitas notas de uma vez (fila + casamento exato em lote).',
+  'Acelera o fechamento quando há um volume grande de notas acumuladas para conferir e lançar.',
+  'Começo de mês com dezenas de notas: use o Mutirão para resolver em lote.',
+  'O mutirão é uma tela separada; você volta para cá ao terminar.', 25),
+
+ ('compras.docs_recebidos.acao_upload_xml', '/dashboard/compras/documentos-recebidos', 'Recebimento DF-e', 'gestao_empresarial',
+  'Subir XML (um ou em lote)',
+  'Clique para enviar o arquivo XML da nota (ou vários XMLs/.zip de uma vez) direto do seu computador, sem esperar a SEFAZ.',
+  'Útil quando o fornecedor já lhe mandou o XML: a nota completa na hora, com itens e duplicatas.',
+  'Recebeu o XML por e-mail? Suba aqui e a nota aparece pronta para lançar.',
+  'O arquivo tem de ser o XML da NF-e (não o PDF/DANFE). Para muitos, use o envio em lote.', 26)
 ON CONFLICT (chave) DO NOTHING;
