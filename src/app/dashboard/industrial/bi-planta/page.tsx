@@ -238,19 +238,25 @@ export default function BiPlanta() {
         {p && !p.ok && <div style={{ ...card, borderLeft: `5px solid ${C.warn}` }}>{p.mensagem}</div>}
         {carregando && !p && <div style={card}>Carregando…</div>}
 
-        {/* RD-98 critério d: período sem abate não é tela morta — orienta e dá o atalho para o histórico. */}
-        {p?.ok && r && r.cabecas === 0 && (
+        {/* RD-98 critério d: período sem abate não é tela morta — orienta, aponta o último abate e dá o atalho para o histórico. */}
+        {p?.ok && r && r.cabecas === 0 && (() => {
+          // meses vem dos últimos 15 meses (independe do início do período), então aponta o último mês COM abate.
+          const ultimoAbate = [...(p.meses ?? [])].reverse().find((m) => m.cab > 0)
+          return (
           <div style={{ ...card, borderLeft: `5px solid ${C.warn}`, gap: 10 }}>
             <div style={{ fontSize: 15, fontWeight: 600 }}>Sem abate no período de {dataBR(p.periodo.de)} a {dataBR(p.periodo.ate)}</div>
             <div style={{ fontSize: 14, color: C.m, maxWidth: '72ch' }}>
-              Nenhum evento de abate foi registrado para {(PERIODOS.find((x) => x.k === per)?.rot ?? 'este período').toLowerCase()}. Amplie o período para ver o histórico da planta.
+              {ultimoAbate
+                ? <>O último abate registrado foi em <b style={{ color: C.esp }}>{mesRot(ultimoAbate.mes)}</b> ({int(ultimoAbate.cab)} cabeças). Amplie o período para ver o histórico da planta.</>
+                : <>Nenhum evento de abate foi registrado para {(PERIODOS.find((x) => x.k === per)?.rot ?? 'este período').toLowerCase()}. Amplie o período para ver o histórico da planta.</>}
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {per !== '365' && <button type="button" onClick={() => setPer('365')} style={{ font: 'inherit', fontSize: 13, padding: '8px 14px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${C.esp}`, background: C.esp, color: '#fff' }}>Ver 12 meses</button>}
               {per !== '90' && <button type="button" onClick={() => setPer('90')} style={{ font: 'inherit', fontSize: 13, padding: '8px 14px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${C.bd}`, background: '#fff', color: C.esp }}>Ver 90 dias</button>}
             </div>
           </div>
-        )}
+          )
+        })()}
 
         {p?.ok && r && c && a && (
           <>
