@@ -154,17 +154,25 @@ BEGIN
     v_res := COALESCE(v_res, '{}'::jsonb) || jsonb_build_object('simulacoes', public.fn_demo_seed_construtora_simulacoes(p_company_id));
   END IF;
 
-  -- NOVO (PDCA permutas 13/11): a jornada Hub › Financeiro › Permutas precisa de dado na DEMO Construtora.
-  IF p_company_id = 'b0700000-0000-4000-a000-000000000006'::uuid THEN
-    v_res := COALESCE(v_res, '{}'::jsonb) || jsonb_build_object('permutas', public.fn_demo_seed_construtora_permutas(p_company_id));
-  END IF;
-
   IF p_company_id = 'b0700000-0000-4000-a000-000000000005'::uuid THEN
     v_res := COALESCE(v_res, '{}'::jsonb) || jsonb_build_object('postos', public.fn_demo_seed_industria_postos(p_company_id));
   END IF;
 
   IF p_company_id = 'b0700000-0000-4000-a000-000000000005'::uuid THEN
     v_res := COALESCE(v_res, '{}'::jsonb) || jsonb_build_object('rh_quadro', public.fn_demo_seed_industria_rh_quadro(p_company_id));
+  END IF;
+
+  -- Seeds PDCA 13/11 — chamadas GUARDADAS (merge-order-safe entre PRs que tocam fn_demo_reset):
+  -- cada seed só roda se a função já existe no banco (to_regprocedure); assim, publicar as PRs em
+  -- qualquer ordem NUNCA remove o bloco da outra nem erra chamando função ainda não publicada.
+  IF p_company_id = 'b0700000-0000-4000-a000-000000000006'::uuid
+     AND to_regprocedure('public.fn_demo_seed_construtora_permutas(uuid)') IS NOT NULL THEN
+    v_res := COALESCE(v_res, '{}'::jsonb) || jsonb_build_object('permutas', public.fn_demo_seed_construtora_permutas(p_company_id));
+  END IF;
+
+  IF p_company_id = 'b0700000-0000-4000-a000-000000000004'::uuid
+     AND to_regprocedure('public.fn_demo_seed_ge_financiamento(uuid)') IS NOT NULL THEN
+    v_res := COALESCE(v_res, '{}'::jsonb) || jsonb_build_object('financiamento', public.fn_demo_seed_ge_financiamento(p_company_id));
   END IF;
 
   v_res := COALESCE(v_res, '{}'::jsonb) || jsonb_build_object('plano', public.fn_demo_garantir_plano(p_company_id));
