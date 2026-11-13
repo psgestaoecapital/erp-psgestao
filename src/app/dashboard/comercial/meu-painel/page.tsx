@@ -25,6 +25,7 @@ import { AbaPrecoV7 } from './AbaPrecoV7'
 import { calcularLogisticaV7 } from './logisticaV7'
 import { AbaLogisticaV7 } from './AbaLogisticaV7'
 import { MetasV7 } from './MetasV7'
+import { AbaRanking } from './AbaRanking'
 import { ModalAnalise, lerEscolhaSalva, type EscopoAnalise } from './ModalAnalise'
 
 const C = { esp: '#3D2314', off: '#FAF7F2', gold: '#C8941A', gold2: '#E0B048', verde: '#3f7d4e', bd: '#E7DED3', bg2: '#F0ECE3', m: '#6B5D4F', d: '#9C8E80' }
@@ -45,13 +46,13 @@ const diaISO = (base: string, n: number) => {
 const dataBR = (isoDia: string) => { const [y, m, d] = isoDia.split('-'); return `${d}/${m}/${y}` }
 
 type PerKey = 'hoje' | 'semana' | '30' | 'mes' | 'ano' | 'custom'
-type AbaKey = 'geral' | 'vendedores' | 'clientes' | 'cidades' | 'produtos' | 'preco' | 'logistica' | 'metas'
+type AbaKey = 'geral' | 'vendedores' | 'clientes' | 'cidades' | 'produtos' | 'preco' | 'logistica' | 'metas' | 'ranking'
 
 // As 8 abas do protótipo, na mesma ordem. Só a Visão geral tem conteúdo neste chassi; as outras entram em blocos próprios.
 const ABAS: { k: AbaKey; rot: string }[] = [
   { k: 'geral', rot: 'Visão geral' }, { k: 'vendedores', rot: 'Vendedores' }, { k: 'clientes', rot: 'Clientes' },
   { k: 'cidades', rot: 'Cidades' }, { k: 'produtos', rot: 'Produtos' }, { k: 'preco', rot: 'Preço e desconto' },
-  { k: 'logistica', rot: 'Logística' }, { k: 'metas', rot: 'Metas' },
+  { k: 'logistica', rot: 'Logística' }, { k: 'metas', rot: 'Metas' }, { k: 'ranking', rot: 'Ranking' },
 ]
 const PERIODOS: { k: PerKey; rot: string }[] = [
   { k: 'hoje', rot: 'Hoje' }, { k: 'semana', rot: 'Semana' }, { k: '30', rot: '30 dias' },
@@ -152,6 +153,9 @@ export default function MeuPainelV6() {
 
   const notas = modelo?.tot.notas.size ?? 0
   const ticketNota = notas ? (modelo?.tot.val ?? 0) / notas : null
+  // Sem vendas no período (RD-98 p1): com a base carregada mas nenhuma nota/valor/volume, a tela não desenha R$0 cru —
+  // mostra o estado vazio com o que fazer (ampliar período / limpar filtros), em vez de KPIs e gráficos mortos.
+  const semVendas = !!modelo && (modelo.tot.notas.size ?? 0) === 0 && (modelo.tot.val ?? 0) === 0 && (modelo.tot.kg ?? 0) === 0
 
   // Bloco 2 — linhas de produto (mesma agregação do motor, por linha, com a análise padrão).
   const linhas = useMemo(() => {
@@ -351,11 +355,15 @@ export default function MeuPainelV6() {
   // Controles compactos da barra única. "?" discreto segue junto (RD-95).
   const selCompact: CSSProperties = { padding: '5px 8px', borderRadius: 7, border: `1px solid ${C.bd}`, background: '#fff', color: C.esp, fontSize: 13, minHeight: 32, maxWidth: 190 }
   const pill: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: C.m, whiteSpace: 'nowrap' }
-  const nFiltros = (per !== '30' ? 1 : 0) + (estado && estado.ven !== 'todos' ? 1 : 0) + (estado && estado.lin !== 'todas' ? 1 : 0)
+  // Produtos fora da análise (escolha do ModalAnalise, salva por empresa) — conta para o botão compacto e para o nº de filtros.
+  const nFora = estado ? Object.values(estado.excl).filter(Boolean).length : 0
+  const nFiltros = (per !== '30' ? 1 : 0) + (estado && estado.ven !== 'todos' ? 1 : 0) + (estado && estado.lin !== 'todas' ? 1 : 0) + (nFora ? 1 : 0)
   const mostrarFiltros = !isMobile || filtrosAbertos
 
+  // Enquadramento (CEO 12/11): sem maxWidth nem centralização — o conteúdo cola no menu e ocupa a largura útil.
+  // O respiro lateral vem do DashboardMain (px-4 sm:px-6), igual aos outros painéis; aqui fica só o respiro vertical.
   return (
-    <div style={{ padding: '16px clamp(16px, 2vw, 28px)', background: C.off, color: C.esp, minHeight: '100vh', boxSizing: 'border-box', width: '100%', maxWidth: 1680, marginLeft: 'auto', marginRight: 'auto', overflowX: 'hidden' }}>
+    <div style={{ padding: '2px 0 16px', background: C.off, color: C.esp, minHeight: '100vh', boxSizing: 'border-box', width: '100%', overflowX: 'hidden' }}>
       {/* Barra única, fina e fixa ao rolar: título + filtros compactos + resumo, com as abas logo abaixo. */}
       <div style={{ position: 'sticky', top: 0, zIndex: 20, background: C.off, marginBottom: 14, borderBottom: `1px solid ${C.bd}`, paddingTop: 2 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', minHeight: 44, paddingBottom: 8 }}>
@@ -400,13 +408,31 @@ export default function MeuPainelV6() {
                 </select>
                 <AjudaCampo chave="com.painel.produtos" rota={ROTA} />
               </span>
+              {/* Produtos na análise (CEO 12/11): botão compacto na barra abre o mesmo ModalAnalise, valendo p/ TODAS as abas. */}
+              <span style={pill}>
+                <button type="button" onClick={() => setModalAnalise(true)} disabled={!base} aria-label="Configurar produtos da análise"
+                  style={{ ...selCompact, cursor: base ? 'pointer' : 'not-allowed', display: 'inline-flex', alignItems: 'center', gap: 4, border: `1px solid ${nFora ? C.gold : C.bd}`, color: C.esp, fontWeight: nFora ? 700 : 400 }}>
+                  Produtos: {nFora ? `${nFora} fora` : 'todos'} ▾
+                </button>
+                <AjudaCampo chave="com.painel.analise" rota={ROTA} />
+              </span>
             </div>
           )}
 
-          <div style={{ marginLeft: 'auto', fontSize: 12, color: C.m, whiteSpace: 'nowrap' }}>
-            {base ? <>De {dataBR(base.de)} a {dataBR(base.ate)}</> : null}
-            {carregando ? ' · Carregando…' : null}
-            {erro ? <span style={{ color: '#C0392B' }}> · {erro}</span> : null}
+          <div style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+            {/* Abrir no celular (CEO 12/11): leva à tela de QR/instalação (reusa <InstalarApp>). */}
+            <span style={pill}>
+              <a href="/dashboard/comercial/instalar-app" aria-label="Abrir o painel no celular"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '5px 10px', minHeight: 32, borderRadius: 999, border: `1px solid ${C.bd}`, background: '#fff', color: C.esp, fontSize: 13, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+                📱 No celular
+              </a>
+              <AjudaCampo chave="com.painel.app_celular" rota={ROTA} />
+            </span>
+            <div style={{ fontSize: 12, color: C.m, whiteSpace: 'nowrap' }}>
+              {base ? <>De {dataBR(base.de)} a {dataBR(base.ate)}</> : null}
+              {carregando ? ' · Carregando…' : null}
+              {erro ? <span style={{ color: '#C0392B' }}> · {erro}</span> : null}
+            </div>
           </div>
         </div>
 
@@ -431,7 +457,24 @@ export default function MeuPainelV6() {
       {aba === 'geral' && (<>
       <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 8px' }}>Como a Frioeste está vendendo</h2>
 
-      {r && modelo && (
+      {modelo && semVendas && (
+        <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: '36px 24px', textAlign: 'center', color: C.m }}>
+          <div style={{ fontSize: 40, lineHeight: 1, marginBottom: 10 }} aria-hidden>📊</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: C.esp, marginBottom: 6 }}>Nenhuma venda neste período</div>
+          <div style={{ fontSize: 14, lineHeight: 1.5, maxWidth: 460, margin: '0 auto 18px' }}>
+            Não encontramos vendas{base ? ` entre ${dataBR(base.de)} e ${dataBR(base.ate)}` : ' no período'}{(estado && estado.ven !== 'todos') || (estado && estado.lin !== 'todas') || nFora ? ', com os filtros atuais' : ''}. Amplie o período ou limpe os filtros para ver o histórico de vendas.
+          </div>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <button type="button" onClick={() => { setPer('ano'); setVen('todos'); setLin('todas') }}
+              style={{ padding: '8px 18px', minHeight: 36, borderRadius: 999, border: 'none', background: C.gold, color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+              Ver o ano todo
+            </button>
+            <AjudaCampo chave="com.painel.periodo" rota={ROTA} />
+          </span>
+        </div>
+      )}
+
+      {r && modelo && !semVendas && (
         <>
           <p style={{ fontSize: 16, lineHeight: 1.5, margin: '0 0 16px' }}>
             Faturou <b>{brl0(r.totalValor)}</b> em <b>{ton(modelo.tot.kg)}</b>, para <b>{int(r.clientes)} clientes</b>. Sem o despojo, o quilo sai a <b>{brl2(r.precoPorKg)}</b>. <b>{nf({ maximumFractionDigits: 1 }).format(itensAbaixoPct)}%</b> dos itens saíram abaixo do preço de tabela, somando <b>{brl0(descR)}</b> de desconto.
@@ -439,8 +482,9 @@ export default function MeuPainelV6() {
 
           {/* 8 cards KPI (SPEC §2.1) */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 16 }}>
-            <Cartao rot="Faturamento" chave="com.painel.faturado" valor={brl0(r.totalValor)} />
-            <Cartao rot="Volume na análise" chave="com.painel.volume" valor={ton(modelo.tot.kgP)} />
+            <Cartao rot="Faturamento" chave="com.painel.faturado" valor={brl0(r.totalValor)} sub="bruto (antes das devoluções)" />
+            <Cartao rot="Faturamento líquido" chave="com.painel.faturado_liquido" valor={brl0(r.totalValor - devR)} sub={`bruto − ${brl0(devR)} de devoluções`} />
+            <Cartao rot="Volume sem despojo" chave="com.painel.volume" valor={ton(modelo.tot.kgP)} sub={`total com despojo ${ton(modelo.tot.kg)}`} />
             <Cartao rot="Preço médio" chave="com.painel.preco" valor={brl2(r.precoPorKg)} sub="R$/kg sem despojo" />
             <Cartao rot="Ticket por nota" chave="com.painel.ticket" valor={brl0(ticketNota)} sub={`${int(notas)} notas`} />
             <Cartao rot="Desconto na tabela" chave="com.painel.desconto" valor={`${nf({ maximumFractionDigits: 2 }).format(descPct)}%`} sub={brl0(descR)} />
@@ -739,6 +783,9 @@ export default function MeuPainelV6() {
       )}
       {aba === 'metas' && (
         <MetasV7 empresa={empresa} />
+      )}
+      {aba === 'ranking' && (
+        <AbaRanking empresa={empresa} />
       )}
       {aba === 'logistica' && logisticaV7 && (
         <AbaLogisticaV7 log={logisticaV7} />

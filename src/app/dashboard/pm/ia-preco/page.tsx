@@ -108,6 +108,8 @@ export default function IaPrecoPage() {
   }, [router, resultado, servicoSel])
 
   const nomeServicoSel = useMemo(() => servicos.find((s) => s.id === servicoSel)?.nome ?? 'Toda a carteira', [servicos, servicoSel])
+  // Já existe margem-alvo cadastrada para o alvo escolhido (serviço ou geral)? Então o form abaixo está editando, não incluindo.
+  const margemEmEdicao = useMemo(() => margens.some((m) => (m.servico_id ?? '') === (servicoSel || '')), [margens, servicoSel])
 
   if (!empresa) return <div style={{ padding: 32, color: TEXTM, background: OFFWHITE, minHeight: '100vh' }}>Selecione uma empresa no topo.</div>
 
@@ -181,14 +183,38 @@ export default function IaPrecoPage() {
 
         {/* Margens-alvo (CRUD) */}
         <section style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 14, padding: '16px', marginBottom: 24 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-            <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, display: 'inline-flex', alignItems: 'center' }}>Margens-alvo<AjudaCampo chave="pm.ia_preco.margem_alvo_lista" /></h2>
-            <button type="button" onClick={() => void salvarMargem()} disabled={salvando} data-testid="iapreco-salvar-margem"
-              style={{ display: 'inline-flex', alignItems: 'center', background: ESPRESSO, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 14px', fontWeight: 700, fontSize: 13, cursor: salvando ? 'default' : 'pointer', opacity: salvando ? 0.6 : 1, minHeight: 40 }}>
-              {salvando ? 'Salvando…' : `Salvar ${servicoSel ? 'do serviço' : 'geral'} (${margemInput || '—'}%)`}<AjudaCampo chave="pm.ia_preco.margem_alvo_salvar" />
-            </button>
+          <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, display: 'inline-flex', alignItems: 'center' }}>Margens-alvo<AjudaCampo chave="pm.ia_preco.margem_alvo_lista" /></h2>
+          {/* Incluir/editar margem-alvo — form próprio do card, afordância explícita (RD-98 p2) */}
+          <div style={{ border: `1px solid ${BORDA}`, borderRadius: 10, padding: 12, margin: '10px 0 14px', background: OFFWHITE }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: TEXTM, marginBottom: 8 }}>{margemEmEdicao ? `Editar margem-alvo de ${servicoSel ? nomeServicoSel : 'Padrão da empresa (geral)'}` : 'Incluir margem-alvo'}</div>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <label style={{ flex: '1 1 220px', minWidth: 180 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: TEXTM, display: 'inline-flex', alignItems: 'center' }}>Serviço<AjudaCampo chave="pm.ia_preco.servico" /></span>
+                <select value={servicoSel} onChange={(e) => setServicoSel(e.target.value)} data-testid="iapreco-incluir-servico"
+                  style={{ width: '100%', minHeight: 42, border: `1px solid ${BORDA}`, borderRadius: 8, padding: '6px 10px', fontSize: 14, background: '#fff', marginTop: 4 }}>
+                  <option value="">Padrão da empresa (geral)</option>
+                  {servicos.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                </select>
+              </label>
+              <label style={{ flex: '0 1 160px', minWidth: 130 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: TEXTM, display: 'inline-flex', alignItems: 'center' }}>Margem-alvo (%)<AjudaCampo chave="pm.ia_preco.margem" /></span>
+                <input type="number" inputMode="decimal" min={0} max={99.9} step="0.5" placeholder="ex.: 30" value={margemInput}
+                  onChange={(e) => setMargemInput(e.target.value)} data-testid="iapreco-incluir-margem"
+                  style={{ width: '100%', minHeight: 42, border: `1px solid ${BORDA}`, borderRadius: 8, padding: '6px 10px', fontSize: 14, marginTop: 4 }} />
+              </label>
+              <button type="button" onClick={() => void salvarMargem()} disabled={salvando} data-testid="iapreco-salvar-margem"
+                style={{ display: 'inline-flex', alignItems: 'center', background: ESPRESSO, color: '#fff', border: 'none', borderRadius: 8, padding: '0 16px', minHeight: 42, fontWeight: 700, fontSize: 13, cursor: salvando ? 'default' : 'pointer', opacity: salvando ? 0.6 : 1 }}>
+                {salvando ? 'Salvando…' : margemEmEdicao ? 'Salvar alteração' : (servicoSel ? 'Incluir margem do serviço' : 'Incluir margem geral')}<AjudaCampo chave="pm.ia_preco.margem_alvo_salvar" />
+              </button>
+              {margemEmEdicao && (
+                <button type="button" onClick={() => { setServicoSel(''); setMargemInput('') }} data-testid="iapreco-incluir-limpar"
+                  style={{ background: 'none', border: `1px solid ${BORDA}`, borderRadius: 8, padding: '0 14px', minHeight: 42, fontWeight: 600, fontSize: 13, color: TEXTM, cursor: 'pointer' }}>
+                  Cancelar edição
+                </button>
+              )}
+            </div>
+            <p style={{ fontSize: 12, color: TEXTM, margin: '8px 0 0' }}>Escolha o serviço (ou deixe no padrão geral), informe a margem e clique em <b>{margemEmEdicao ? 'Salvar alteração' : 'Incluir'}</b>. Sem serviço, vale como padrão da empresa.</p>
           </div>
-          <p style={{ fontSize: 12, color: TEXTM, margin: '6px 0 12px' }}>Escolha o serviço e a margem acima; &quot;Salvar&quot; grava para aquele serviço (ou para a empresa toda, se nenhum serviço estiver escolhido).</p>
           {loading ? <div style={{ color: TEXTM, padding: 12 }}>Carregando…</div>
             : margens.length === 0 ? <div style={{ color: TEXTM, fontSize: 13, padding: 12, border: `1px dashed ${BORDA}`, borderRadius: 10 }}>Nenhuma margem-alvo cadastrada — a tela usa 30% como padrão.</div>
             : (

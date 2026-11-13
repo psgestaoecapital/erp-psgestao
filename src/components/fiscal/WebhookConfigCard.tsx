@@ -175,7 +175,7 @@ export default function WebhookConfigCard({ companyId, habilitado }: Props) {
                 className="px-4 py-2.5 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] disabled:opacity-40 flex items-center justify-center gap-2"
               >
                 {configurando ? <Loader2 size={15} className="animate-spin" /> : <Zap size={15} />}
-                {config.webhookAtivo ? 'Reconfigurar aviso automático' : 'Ativar aviso automático na Focus NFe'}
+                {config.webhookAtivo ? 'Reconfigurar aviso automático' : 'Ativar aviso automático no provedor de NF-e'}
               </button>
             </div>
 

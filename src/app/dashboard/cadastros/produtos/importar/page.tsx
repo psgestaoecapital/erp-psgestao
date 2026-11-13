@@ -12,6 +12,7 @@ import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import { Package, Download, Upload, Loader2, CheckCircle2, AlertTriangle, XCircle, History } from 'lucide-react'
 import { COLUNAS_ESTOQUE, TIPOS_SPED, TIPOS_EXIGEM_NCM, ORIGENS, CODIGO_EXEMPLO } from '@/lib/estoque/colunasImportacao'
+import { extrairCodigo } from '@/lib/importacao/codigoDescricao'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 export const dynamic = 'force-dynamic'
@@ -116,6 +117,8 @@ export default function ImportarEstoquePage() {
 
         const dados: Record<string, string> = {}
         for (const c of COLUNAS_ESTOQUE) dados[c.key] = get(c.key)
+        // #8439: campos codificados aceitam "código - descrição" (menu novo) e o código puro (planilha antiga)
+        for (const k of ['tipo_item_sped', 'origem', 'cest']) dados[k] = extrairCodigo(dados[k])
         if (!dados.unidade) dados.unidade = 'UN'
         if (!dados.tipo_item_sped) dados.tipo_item_sped = '00'   // vazio = 00 (revenda)
         if (!dados.origem) dados.origem = '0'                     // vazio = 0 (nacional)
