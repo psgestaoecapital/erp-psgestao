@@ -6,6 +6,7 @@ import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 
 type Unidade = { id: string; nome: string }
+type Turno = { turno_id: string; data: string; turno: string; unidade_id: string; unidade_nome: string; custo_por_kg: number | null; kg_produzido: number | null; margem_bruta: number | null }
 
 export default function ApontamentoPage() {
   const router = useRouter()
@@ -25,8 +26,27 @@ export default function ApontamentoPage() {
   const [msg, setMsg] = useState('')
   const [unidades, setUnidades] = useState<Unidade[]>([])
   const [carregandoUni, setCarregandoUni] = useState(false)
+  const [turnos, setTurnos] = useState<Turno[]>([])
 
   const set = (k: string, v: string) => setForm(f => ({...f,[k]:v}))
+
+  // Últimos turnos JÁ registrados da empresa (ver o que salvou / corrigir) — RD-98 p2.
+  const recarregarTurnos = React.useCallback(() => {
+    if (!companyId) { setTurnos([]); return }
+    fetch('/api/industrial/bovinos/apontamento?company_id='+encodeURIComponent(companyId), { credentials:'include' })
+      .then(r => r.json())
+      .then(d => setTurnos(Array.isArray(d?.turnos) ? d.turnos : []))
+      .catch(() => {})
+  }, [companyId])
+  /* eslint-disable-next-line react-hooks/set-state-in-effect */
+  useEffect(() => { recarregarTurnos() }, [recarregarTurnos])
+
+  // Carrega um turno salvo no formulário para CORRIGIR (o POST faz upsert por unidade+data+turno).
+  const corrigir = (t: Turno) => {
+    setForm(f => ({ ...f, unidade_id: t.unidade_id, data: t.data, turno: t.turno }))
+    setMsg('✎ Corrigindo o turno '+t.turno+' de '+t.data.split('-').reverse().join('/')+' — revise os números e clique em Registrar para substituir.')
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
 
   // Carrega as unidades/plantas ativas da empresa selecionada (via API com guarda de empresa).
   // Sem este seletor, unidade_id ia sempre vazio e o POST voltava 400 (RD-98 p1, critério c).
@@ -66,6 +86,7 @@ export default function ApontamentoPage() {
       const d = await r.json()
       if (!r.ok) throw new Error(d.error)
       setMsg('✓ Turno registrado! Custo/kg: R$ '+d.custo_kg?.toFixed(4))
+      recarregarTurnos()
       setTimeout(()=>router.push('/dashboard/industrial/ceo'), 1500)
     } catch(e:any) { setMsg('✗ '+erroAmigavel(e, 'Não foi possível registrar o turno agora.')) } finally { setLoading(false) }
   }
@@ -154,6 +175,47 @@ export default function ApontamentoPage() {
         className='w-full bg-primary text-primary-foreground py-3 rounded font-medium disabled:opacity-50'>
         {loading ? 'Salvando...' : 'Registrar Turno →'}
       </button>
+
+      {!!companyId && (
+        <div className='space-y-2 pt-2'>
+          <div className='flex items-center'>
+            <span className='text-xs font-bold text-muted-foreground uppercase tracking-wider'>Últimos turnos registrados</span>
+            <AjudaCampo chave='industria.apontamento.ultimos_turnos' />
+          </div>
+          {turnos.length === 0 ? (
+            <div className='text-sm text-muted-foreground p-3 border rounded bg-muted/30'>
+              Nenhum turno registrado ainda nesta empresa. Preencha o formulário acima e clique em <strong>Registrar Turno</strong> — os turnos aparecem aqui para conferência e correção.
+            </div>
+          ) : (
+            <table className='w-full text-sm border rounded overflow-hidden'>
+              <thead>
+                <tr className='bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground'>
+                  <th className='px-3 py-2'>Data</th>
+                  <th className='px-3 py-2'>Turno</th>
+                  <th className='px-3 py-2'>Unidade</th>
+                  <th className='px-3 py-2 text-right'>Kg produzido</th>
+                  <th className='px-3 py-2 text-right'>Custo/kg</th>
+                  <th className='px-3 py-2'></th>
+                </tr>
+              </thead>
+              <tbody>
+                {turnos.map(t => (
+                  <tr key={t.turno_id} className='border-t'>
+                    <td className='px-3 py-2'>{t.data.split('-').reverse().join('/')}</td>
+                    <td className='px-3 py-2'>{t.turno}</td>
+                    <td className='px-3 py-2'>{t.unidade_nome}</td>
+                    <td className='px-3 py-2 text-right'>{t.kg_produzido != null ? t.kg_produzido.toLocaleString('pt-BR') : '—'}</td>
+                    <td className='px-3 py-2 text-right'>{t.custo_por_kg != null ? 'R$ '+t.custo_por_kg.toFixed(4) : '—'}</td>
+                    <td className='px-3 py-2 text-right'>
+                      <button onClick={() => corrigir(t)} className='text-xs text-primary underline underline-offset-2'>Corrigir</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
     </div>
   )
 }
