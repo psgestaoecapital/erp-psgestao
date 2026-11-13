@@ -423,7 +423,7 @@ export default function NFePreviewModal(props: Props) {
             <div className="py-8 text-center">
               <Loader2 className="animate-spin mx-auto text-[#C8941A]" size={32} />
               <p className="mt-3 text-[13px] text-[#3D2314]">
-                {status === 'enviando' ? 'Enviando ao Focus NFe...' : 'Aguardando autorizacao SEFAZ...'}
+                {status === 'enviando' ? 'Enviando ao provedor de NF-e...' : 'Aguardando autorizacao SEFAZ...'}
               </p>
               <p className="mt-1 text-[11px] text-[#3D2314]/60">Normalmente em segundos; pode levar ate 2 min</p>
             </div>

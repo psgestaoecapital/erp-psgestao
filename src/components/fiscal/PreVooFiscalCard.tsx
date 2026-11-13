@@ -202,10 +202,10 @@ export default function PreVooFiscalCard({ companyId }: { companyId: string }) {
                 />
                 <div className={`text-[12.5px] font-medium ${(focusConf.divergencias ?? 0) > 0 ? 'text-[#791F1F]' : 'text-[#3D2314]'}`}>
                   {!focusConf.presente
-                    ? 'Cadastro da empresa no Focus não encontrado'
+                    ? 'Cadastro da empresa no provedor de NF-e não encontrado'
                     : (focusConf.divergencias ?? 0) > 0
-                      ? `Config da Focus DIVERGE da local em ${focusConf.divergencias} campo(s) — impede a emissão`
-                      : 'Config da Focus confere com a local'}
+                      ? `Config do provedor DIVERGE da local em ${focusConf.divergencias} campo(s) — impede a emissão`
+                      : 'Config do provedor confere com a local'}
                 </div>
               </div>
               {!focusConf.presente && focusConf.erro && (
@@ -220,10 +220,10 @@ export default function PreVooFiscalCard({ companyId }: { companyId: string }) {
                         : <CheckCircle2 className="text-[#3F7012] flex-shrink-0 self-center" size={13} />}
                       <span className={`font-medium ${c.diverge ? 'text-[#791F1F]' : 'text-[#3D2314]/80'}`}>{c.rotulo}:</span>
                       {c.diverge ? (
-                        <span className="text-[#791F1F]">local <b>{c.local ?? '—'}</b> ≠ Focus <b>{c.focus ?? '—'}</b></span>
+                        <span className="text-[#791F1F]">local <b>{c.local ?? '—'}</b> ≠ provedor <b>{c.focus ?? '—'}</b></span>
                       ) : (
                         <span className="text-[#3D2314]/60">
-                          {c.observacao ? c.observacao : `local ${c.local ?? '—'} = Focus ${c.focus ?? '—'}`}
+                          {c.observacao ? c.observacao : `local ${c.local ?? '—'} = provedor ${c.focus ?? '—'}`}
                         </span>
                       )}
                     </li>
@@ -232,7 +232,7 @@ export default function PreVooFiscalCard({ companyId }: { companyId: string }) {
               )}
               {(focusConf.divergencias ?? 0) > 0 && (
                 <div className="text-[11px] text-[#3D2314]/65 ml-[23px] mt-1">
-                  Ajuste o cadastro da empresa no painel do Focus (app-v2.focusnfe.com.br) para bater com a config local — ou corrija a config local, o que estiver errado.
+                  Ajuste o cadastro da empresa no painel do provedor de NF-e para bater com a config local — ou corrija a config local, o que estiver errado.
                 </div>
               )}
             </div>
