@@ -37,7 +37,11 @@ export function ModalAnalise({ open, onClose, empresa, base, modelo, estado, onA
   const [rascunho, setRascunho] = useState<Record<number, boolean>>(estado.excl)
   const [escopo, setEscopo] = useState<EscopoAnalise>(estado.escopo)
   const [busca, setBusca] = useState('')
-  if (!open) return null
+
+  // IMPORTANTE (regras dos Hooks): TODOS os hooks (useState/useMemo) vêm ANTES de qualquer return condicional.
+  // Antes, o `if (!open) return null` ficava aqui, no meio — ao abrir o modal (open false→true) a quantidade de
+  // hooks mudava entre renders e o React lançava "Rendered more hooks than during the previous render", o que
+  // derrubava a ROTA INTEIRA (error boundary: "This page couldn't load"). O `return null` agora está após os hooks.
 
   // Produtos que existem no período (motor), com totais para a lista.
   const porProd = useMemo(() => {
@@ -69,6 +73,9 @@ export function ModalAnalise({ open, onClose, empresa, base, modelo, estado, onA
     })).filter((g) => g.pis.length).sort((a, b) => a.linha.localeCompare(b.linha))
   }, [porProd, base, busca])
 
+  // Todos os hooks já rodaram — agora sim é seguro sair cedo quando o modal está fechado.
+  if (!open) return null
+
   const presets = [
     { k: 'padrao', rot: 'Padrão: só carne', fn: () => ({ ...exclusaoPadrao }) },
     { k: 'todos', rot: 'Todos os produtos', fn: () => ({}) },
@@ -99,6 +106,17 @@ export function ModalAnalise({ open, onClose, empresa, base, modelo, estado, onA
           <button type="button" onClick={onClose} aria-label="Fechar" style={{ minHeight: 40, minWidth: 40, background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: C.m }}>×</button>
         </div>
         <p style={{ fontSize: 13, color: C.m, margin: '6px 0 10px' }}>Despojo, couro, osso, sebo e itens inativos baixam o preço médio. Escolha o que entra; o painel recalcula na hora.</p>
+
+        {/* Transparência da fórmula (CEO 13/11): o que entra no faturamento, o que entra só no volume, o que fica fora. */}
+        <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 10, padding: '10px 12px', marginBottom: 10 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>Como o faturamento é formado<AjudaCampo chave="com.painel.faturado" rota={ROTA} /></div>
+          <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 5, fontSize: 13, color: C.esp }}>
+            <li><b>Faturamento (R$):</b> só a venda de mercado interno (notas de venda). É o número que bate com o relatório oficial.</li>
+            <li><b>Volume (kg):</b> inclui <b>despojo e couro</b> no peso — eles entram no volume, <b>não</b> no faturamento.</li>
+            <li><b>Fora de tudo:</b> a <b>venda balcão</b> (vai num indicador separado) e a <b>perda</b> (nota de perda) — não somam no faturamento.</li>
+          </ul>
+          <div style={{ fontSize: 12, color: C.m, marginTop: 6 }}>Abaixo você escolhe, dentro da venda, quais produtos entram no <b>preço médio</b> (o despojo costuma ficar fora).</div>
+        </div>
 
         {/* Escopo */}
         <div role="radiogroup" aria-label="Escopo da exclusão" style={{ display: 'grid', gap: 6, marginBottom: 10 }}>
