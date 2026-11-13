@@ -18,13 +18,13 @@ WHERE pm.module_id = 'hub_orcamento_itens'
   AND NOT EXISTS (SELECT 1 FROM public.plan_modules x WHERE x.plan_id = pm.plan_id AND x.module_id = 'hub_permutas');
 
 -- Origem do dado (RD-98 p3): a tela aparece em system_screens, com RPCs/tabelas consumidas.
-INSERT INTO public.system_screens (rota, area, titulo, descricao_funcional, componentes_principais, views_consumidas, rpcs_chamadas, estado_real, modulo)
-VALUES ('/dashboard/hub/permutas', 'hub', 'Permutas',
+INSERT INTO public.system_screens (id, rota, area, titulo, descricao_funcional, componentes_principais, views_consumidas, rpcs_chamadas, estado_real, modulo)
+VALUES ('dashboard.hub_permutas', '/dashboard/hub/permutas', 'hub', 'Permutas',
   'Gestão de permutas (conta-corrente de imóvel): cartões do grupo, lista por permuta com progresso e status, extrato (contrato + reajuste CUB = atualizado; movimentos por mês; saldo), cadastro e movimento manual, consolidado multi-CNPJ.',
-  '["ChipsEmpresa","CartoesKPI","ListaPermutas","ExtratoModal","CadastroModal","MovimentoModal"]'::jsonb,
-  '["hub_permuta","hub_permuta_movimento","hub_permuta_reajuste","projetos_obras","companies"]'::jsonb,
-  '["fn_permuta_listar","fn_permuta_salvar","fn_permuta_movimento_add","fn_permuta_reajuste_add","fn_permuta_excluir","fn_permuta_extrato","fn_permuta_consolidado_grupo"]'::jsonb,
-  'ativo', 'hub_permutas')
+  ARRAY['ChipsEmpresa','CartoesKPI','ListaPermutas','ExtratoModal','CadastroModal','MovimentoModal']::text[],
+  ARRAY['hub_permuta','hub_permuta_movimento','hub_permuta_reajuste','projetos_obras','companies']::text[],
+  ARRAY['fn_permuta_listar','fn_permuta_salvar','fn_permuta_movimento_add','fn_permuta_reajuste_add','fn_permuta_excluir','fn_permuta_extrato','fn_permuta_consolidado_grupo']::text[],
+  'pronto', 'hub_permutas')
 ON CONFLICT (rota) DO UPDATE SET views_consumidas = EXCLUDED.views_consumidas, rpcs_chamadas = EXCLUDED.rpcs_chamadas, atualizado_em = now();
 
 -- Ajuda de campo (RD-95): "?" em cada campo, filtro, indicador e ação da tela.
