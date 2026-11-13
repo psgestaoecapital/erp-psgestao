@@ -84,6 +84,37 @@ export const POST = exigirLogin(async (req: NextRequest, u) => {
   return NextResponse.json({ success: true, turno_id, custo_kg, margem })
 })
 
+// Lista os últimos turnos JÁ registrados da empresa — para o usuário VER o que salvou e
+// poder CORRIGIR (o POST faz upsert por unidade+data+turno). RD-98 p2 (incluir/ver/corrigir visíveis).
+export const GET = exigirLogin(async (req: NextRequest, u) => {
+  const companyId = req.nextUrl.searchParams.get('company_id') || ''
+  if (!companyId) return NextResponse.json({ error: 'company_id é obrigatório' }, { status: 400 })
+  const negado = await exigirEmpresas(u, [companyId])
+  if (negado) return negado
+
+  const { data: turnos, error } = await supabaseAdmin
+    .from('ind_turnos')
+    .select('id, data, turno, unidade_id, ind_unidades(nome), ind_custos_turno(custo_por_kg, kg_produzido, margem_bruta)')
+    .eq('company_id', companyId)
+    .order('data', { ascending: false })
+    .order('turno', { ascending: true })
+    .limit(15)
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+
+  const um = (x: any) => (Array.isArray(x) ? x[0] : x) || {}
+  const lista = (turnos || []).map((t: any) => {
+    const c = um(t.ind_custos_turno)
+    return {
+      turno_id: t.id, data: t.data, turno: t.turno, unidade_id: t.unidade_id,
+      unidade_nome: um(t.ind_unidades).nome || '—',
+      custo_por_kg: c.custo_por_kg ?? null,
+      kg_produzido: c.kg_produzido ?? null,
+      margem_bruta: c.margem_bruta ?? null,
+    }
+  })
+  return NextResponse.json({ turnos: lista })
+})
+
 async function recalcularKpiDiario(unidade_id: string, data: string) {
   const { data: turnos } = await supabaseAdmin
     .from('ind_turnos').select('id')
