@@ -28,7 +28,7 @@ BEGIN
 
   -- Obra opcional (link solto): usa a 1ª obra da construtora se existir; senão NULL (coluna NULLable).
   SELECT id INTO v_obra FROM public.projetos_obras
-   WHERE company_id = p_company_id ORDER BY criado_em NULLS LAST LIMIT 1;
+   WHERE company_id = p_company_id ORDER BY created_at NULLS LAST LIMIT 1;
 
   -- ── Permuta 1: EM ANDAMENTO (parcialmente quitada por material + serviço) ──────────────────────────
   INSERT INTO public.hub_permuta (company_id, obra_id, contratante, ativo_descr, tipo_contrato,
