@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import { Percent, ChevronLeft, Plus, Clock, TrendingUp } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
+import { parseNumBR } from '@/lib/num'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'
@@ -72,7 +73,7 @@ export default function ComissaoPage() {
   const salvarRegra = async () => {
     if (!companyId) return
     const { data, error } = await supabase.rpc('fn_oficina_comissao_regra_salvar', {
-      p_company_id: companyId, p_dados: { mecanico_nome: rNome || null, tipo: rTipo, valor: rValor.replace(',', '.') || '0' },
+      p_company_id: companyId, p_dados: { mecanico_nome: rNome || null, tipo: rTipo, valor: String(parseNumBR(rValor) ?? 0) }, // valor aceita vírgula e milhar BR (#5660)
     })
     const j = data as { ok?: boolean; erro?: string } | null
     if (error || j?.ok === false) { setMsg('❌ ' + erroAmigavel(error, codigoAmigavel(j?.erro, 'Não foi possível salvar a regra de comissão.'))); return }
