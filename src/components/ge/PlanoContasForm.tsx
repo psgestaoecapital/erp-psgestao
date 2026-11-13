@@ -51,6 +51,22 @@ function grupoDefault(tipo: TipoConta): string {
   return GRUPOS_POR_TIPO[tipo][0].value
 }
 
+// Mensagem de negócio quando a RPC recusa sem mensagem própria (RD-99: sem erro cru do banco).
+function mensagemErro(codigo?: string): string {
+  switch (codigo) {
+    case 'codigo_duplicado': return 'Já existe uma conta com este código neste plano.'
+    case 'codigo_obrigatorio': return 'Informe o código da conta.'
+    case 'descricao_obrigatoria': return 'Informe a descrição da conta.'
+    case 'grupo_obrigatorio': return 'Selecione o grupo DRE da conta.'
+    case 'tipo_obrigatorio': return 'Selecione o tipo da conta.'
+    case 'sem_acesso': return 'Você não tem acesso a esta empresa.'
+    case 'conta_global_nao_editavel': return 'Contas do modelo padrão não podem ser editadas.'
+    case 'nao_encontrado': return 'Conta não encontrada. Recarregue a página e tente de novo.'
+    case 'nao_autenticado': return 'Sessão expirada. Entre novamente para salvar.'
+    default: return 'Não foi possível salvar a conta. Verifique os dados e tente novamente.'
+  }
+}
+
 export interface ContaPlano {
   id: string
   codigo: string
@@ -119,25 +135,35 @@ export default function PlanoContasForm({ companyId, conta, contasExistentes, on
     setSalvando(true)
     setErro(null)
 
-    const payload = {
-      company_id: companyId,
-      codigo: codigo.trim(),
-      descricao: descricao.trim(),
-      tipo,
-      grupo,
-      pai_codigo: paiCodigo || null,
-      nivel,
-      ativo: conta?.ativo ?? true,
-      is_totalizador: isTotalizador,
-    }
-
-    const result = conta?.id
-      ? await supabase.from('erp_plano_contas').update(payload).eq('id', conta.id)
-      : await supabase.from('erp_plano_contas').insert(payload)
+    // Escrita guardada por RPC (fn_plano_contas_salvar): valida código único com
+    // mensagem amigável, respeita RLS/multi-tenant e grava audit_log_global (RD-98 p4).
+    const { data, error } = await supabase.rpc('fn_plano_contas_salvar', {
+      p_id: conta?.id ?? null,
+      p_company_id: companyId,
+      p_codigo: codigo.trim(),
+      p_descricao: descricao.trim(),
+      p_tipo: tipo,
+      p_grupo: grupo,
+      p_pai_codigo: paiCodigo || null,
+      p_nivel: nivel,
+      p_is_totalizador: isTotalizador,
+    })
 
     setSalvando(false)
-    if (result.error) setErro('Erro: ' + result.error.message)
-    else onSaved()
+
+    if (error) {
+      // Nunca vaza o texto cru do banco (RD-99): mensagem em linguagem do usuário.
+      setErro('Não foi possível salvar a conta agora. Tente novamente em instantes.')
+      return
+    }
+
+    const res = (data ?? {}) as { ok?: boolean; erro?: string; mensagem?: string }
+    if (res.ok === false) {
+      setErro(res.mensagem ?? mensagemErro(res.erro))
+      return
+    }
+
+    onSaved()
   }
 
   return (
