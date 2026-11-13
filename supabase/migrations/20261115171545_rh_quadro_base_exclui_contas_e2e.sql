@@ -55,3 +55,9 @@ BEGIN
   CROSS JOIN LATERAL (SELECT COALESCE(cp.salario_base, fo.remuneracao) AS salario) sal;
 END;
 $function$;
+
+-- Guarda de função (RD-30 / check-fn-guards): fn_rh_quadro_base é SECURITY DEFINER.
+-- CREATE OR REPLACE preserva a ACL viva (EXECUTE só para postgres owner e service_role),
+-- mas o gate estático exige a declaração explícita. Espelha a ACL viva; não amplia acesso.
+REVOKE ALL ON FUNCTION public.fn_rh_quadro_base(uuid, date) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_rh_quadro_base(uuid, date) TO service_role;
