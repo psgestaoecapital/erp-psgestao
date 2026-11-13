@@ -1,13 +1,28 @@
 -- PDCA GE · /dashboard/financeiro/extrato
--- BUG 2 (correção de saldo — dinheiro): fn_ge_extrato_conta tinha LIMIT 500 na CTE de movimentos ANTES
--- da janela de saldo. Em período com >500 baixas a tabela era SILENCIOSAMENTE truncada e o
--- saldo_acumulado era calculado só sobre o conjunto cortado, enquanto os 4 totalizadores somavam o
--- conjunto completo — tabela e cartões DIVERGIAM e o saldo final da tabela ficava errado.
--- Correção: remove o LIMIT 500 → o saldo acumulado é calculado sobre TODOS os movimentos do período
--- (bounded por data_pagamento BETWEEN início E fim), fechando com os totalizadores. A exibição é
--- paginada no front (seletor "Por página" + Anterior/Próxima), sem cortar o acumulado.
--- Único ponto alterado vs. a versão viva: a linha "LIMIT 500" sai da CTE movimentos. Demais lógicas
--- (guarda de empresa, gate de plano, saldo-âncora, totalizadores, ordenação) permanecem idênticas.
+--
+-- BUG 1 (CRÍTICO · cálculo por conta · dinheiro de cliente): fn_ge_extrato_conta IGNORAVA a conta
+-- selecionada nos MOVIMENTOS. Só o saldo de ABERTURA (v_saldo_base, lido de erp_banco_contas) era
+-- filtrado por conta; TODOS os blocos de movimento (v_c_inicio, v_c_ancora, v_total_entradas,
+-- v_total_saidas e a CTE `movimentos`) filtravam só por company_id. Efeito: ao escolher uma conta
+-- específica, entradas/saídas/saldo_acumulado/saldo_atual continuavam da EMPRESA INTEIRA — o extrato
+-- por conta ficava ERRADO em empresa com mais de uma conta. Correção: aplicar o filtro de conta aos
+-- MESMOS blocos quando p_conta_id IS NOT NULL (abertura, âncora, totais e CTE), mantendo a coerência
+-- do saldo_acumulado. Vínculo por conta:
+--   · erp_receber tem conta_bancaria_id (uuid) → filtra por id; cai no nome (conta_bancaria TEXT) só
+--     quando o id está ausente (dado legado), sem dupla contagem.
+--   · erp_pagar NÃO tem coluna de id (só conta_bancaria TEXT = nome da conta) → resolve o nome da
+--     conta em erp_banco_contas por p_conta_id e filtra por esse nome.
+-- Compatibilidade: p_conta_id NULL = comportamento atual (empresa inteira). Aditivo: nenhuma coluna
+-- nova, nenhum dado de cliente alterado.
+--
+-- BUG 2 (correção de saldo — dinheiro): a CTE de movimentos tinha LIMIT 500 ANTES da janela de saldo.
+-- Em período com >500 baixas a tabela era SILENCIOSAMENTE truncada e o saldo_acumulado era calculado
+-- só sobre o conjunto cortado, enquanto os 4 totalizadores somavam o conjunto completo — tabela e
+-- cartões DIVERGIAM. Correção: remove o LIMIT 500 → o saldo acumulado é calculado sobre TODOS os
+-- movimentos do período (bounded por data_pagamento BETWEEN início E fim), fechando com os
+-- totalizadores. A exibição é paginada no front (seletor "Por página" + Anterior/Próxima).
+--
+-- Guarda de empresa, gate de plano, saldo-âncora e ordenação permanecem idênticos.
 CREATE OR REPLACE FUNCTION public.fn_ge_extrato_conta(p_company_id uuid, p_conta_id uuid DEFAULT NULL::uuid, p_data_inicio date DEFAULT NULL::date, p_data_fim date DEFAULT NULL::date)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -24,6 +39,7 @@ DECLARE
   v_total_saidas numeric := 0;
   v_c_inicio numeric := 0;
   v_c_ancora numeric := 0;
+  v_conta_nome text := NULL;
   v_resultados jsonb;
 BEGIN
   PERFORM public.fn__guarda_empresa(p_company_id);
@@ -32,6 +48,14 @@ BEGIN
     WHERE company_id = p_company_id AND plan_id = 'v15_gestao_empresarial_pro' AND status = 'active'
   ) THEN
     RETURN jsonb_build_object('sem_plano', true);
+  END IF;
+
+  -- Conta selecionada: resolve o NOME (vínculo de erp_pagar.conta_bancaria é por nome) e já valida
+  -- que a conta pertence à empresa. p_conta_id NULL = empresa inteira (v_conta_nome permanece NULL).
+  IF p_conta_id IS NOT NULL THEN
+    SELECT nome INTO v_conta_nome
+      FROM erp_banco_contas
+      WHERE id = p_conta_id AND company_id = p_company_id;
   END IF;
 
   SELECT COALESCE(SUM(saldo_inicial),0), MIN(data_saldo_inicial)
@@ -45,32 +69,40 @@ BEGIN
     -- abertura + (recebidos antes do início) − (pagos antes do início).
     SELECT COALESCE(SUM(COALESCE(valor_pago, valor)),0) INTO v_c_inicio
       FROM erp_receber
-      WHERE company_id = p_company_id AND status IN ('recebido','pago') AND data_pagamento < v_data_inicio;
+      WHERE company_id = p_company_id AND status IN ('recebido','pago') AND data_pagamento < v_data_inicio
+        AND (p_conta_id IS NULL OR conta_bancaria_id = p_conta_id OR (conta_bancaria_id IS NULL AND conta_bancaria = v_conta_nome));
     SELECT v_saldo_base + v_c_inicio - COALESCE(SUM(COALESCE(valor_pago, valor)),0) INTO v_saldo_anterior
       FROM erp_pagar
-      WHERE company_id = p_company_id AND status = 'pago' AND data_pagamento < v_data_inicio;
+      WHERE company_id = p_company_id AND status = 'pago' AND data_pagamento < v_data_inicio
+        AND (p_conta_id IS NULL OR conta_bancaria = v_conta_nome);
   ELSE
     v_c_inicio :=
         (SELECT COALESCE(SUM(COALESCE(valor_pago, valor)),0) FROM erp_receber
-          WHERE company_id=p_company_id AND status IN ('recebido','pago') AND data_pagamento <= v_data_inicio - 1)
+          WHERE company_id=p_company_id AND status IN ('recebido','pago') AND data_pagamento <= v_data_inicio - 1
+            AND (p_conta_id IS NULL OR conta_bancaria_id = p_conta_id OR (conta_bancaria_id IS NULL AND conta_bancaria = v_conta_nome)))
       - (SELECT COALESCE(SUM(COALESCE(valor_pago, valor)),0) FROM erp_pagar
-          WHERE company_id=p_company_id AND status='pago' AND data_pagamento <= v_data_inicio - 1);
+          WHERE company_id=p_company_id AND status='pago' AND data_pagamento <= v_data_inicio - 1
+            AND (p_conta_id IS NULL OR conta_bancaria = v_conta_nome));
     v_c_ancora :=
         (SELECT COALESCE(SUM(COALESCE(valor_pago, valor)),0) FROM erp_receber
-          WHERE company_id=p_company_id AND status IN ('recebido','pago') AND data_pagamento <= v_data_ancora)
+          WHERE company_id=p_company_id AND status IN ('recebido','pago') AND data_pagamento <= v_data_ancora
+            AND (p_conta_id IS NULL OR conta_bancaria_id = p_conta_id OR (conta_bancaria_id IS NULL AND conta_bancaria = v_conta_nome)))
       - (SELECT COALESCE(SUM(COALESCE(valor_pago, valor)),0) FROM erp_pagar
-          WHERE company_id=p_company_id AND status='pago' AND data_pagamento <= v_data_ancora);
+          WHERE company_id=p_company_id AND status='pago' AND data_pagamento <= v_data_ancora
+            AND (p_conta_id IS NULL OR conta_bancaria = v_conta_nome));
     v_saldo_anterior := v_saldo_base + v_c_inicio - v_c_ancora;
   END IF;
 
   SELECT COALESCE(SUM(COALESCE(valor_pago, valor)),0) INTO v_total_entradas
     FROM erp_receber
     WHERE company_id = p_company_id AND status IN ('recebido','pago')
-      AND data_pagamento BETWEEN v_data_inicio AND v_data_fim;
+      AND data_pagamento BETWEEN v_data_inicio AND v_data_fim
+      AND (p_conta_id IS NULL OR conta_bancaria_id = p_conta_id OR (conta_bancaria_id IS NULL AND conta_bancaria = v_conta_nome));
   SELECT COALESCE(SUM(COALESCE(valor_pago, valor)),0) INTO v_total_saidas
     FROM erp_pagar
     WHERE company_id = p_company_id AND status = 'pago'
-      AND data_pagamento BETWEEN v_data_inicio AND v_data_fim;
+      AND data_pagamento BETWEEN v_data_inicio AND v_data_fim
+      AND (p_conta_id IS NULL OR conta_bancaria = v_conta_nome);
 
   WITH movimentos AS (
     SELECT id, 'receita' AS tipo, descricao, cliente_nome AS nome_pessoa, categoria, numero_documento,
@@ -80,6 +112,7 @@ BEGIN
     WHERE company_id = p_company_id AND status IN ('recebido','pago')
       AND data_pagamento BETWEEN v_data_inicio AND v_data_fim
       AND COALESCE(valor_pago, valor) <> 0
+      AND (p_conta_id IS NULL OR conta_bancaria_id = p_conta_id OR (conta_bancaria_id IS NULL AND conta_bancaria = v_conta_nome))
     UNION ALL
     SELECT id, 'despesa', descricao, fornecedor_nome, categoria, numero_documento,
       forma_pagamento, status, parcela, COALESCE(valor_pago, valor),
@@ -88,6 +121,7 @@ BEGIN
     WHERE company_id = p_company_id AND status = 'pago'
       AND data_pagamento BETWEEN v_data_inicio AND v_data_fim
       AND COALESCE(valor_pago, valor) <> 0
+      AND (p_conta_id IS NULL OR conta_bancaria = v_conta_nome)
   ),
   com_saldo AS (
     SELECT *, v_saldo_anterior + SUM(sinal) OVER (ORDER BY data, id ROWS UNBOUNDED PRECEDING) AS saldo_acumulado
