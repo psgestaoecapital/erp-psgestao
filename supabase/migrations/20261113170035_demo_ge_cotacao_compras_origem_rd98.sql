@@ -34,6 +34,9 @@ UPDATE system_screens
 --     para a jornada cotação -> comparativo -> pedido ficar demonstrável.
 --     Idempotente por marcador em erp_cotacoes.observacoes. Só DEMO Comércio GE.
 -- ===========================================================================
+-- ci-sem-guarda: fn_demo_seed_ge_cotacao — seeder DEMO-only; grava só na empresa
+--   DEMO Comércio GE fixa (b0700000-0000-4000-a000-000000000004), travada logo no
+--   início (IF p_company <> v_bot THEN RETURN). Não toca dado de cliente real.
 CREATE OR REPLACE FUNCTION public.fn_demo_seed_ge_cotacao(p_company uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -157,6 +160,9 @@ $seed$;
 -- (fn_demo_seed_ge_comercial é chamado por fn_demo_reset), para a cotação
 -- sobreviver a cada reset da DEMO. Corpo idêntico ao vivo + PERFORM do novo bloco.
 -- ===========================================================================
+-- ci-sem-guarda: fn_demo_seed_ge_comercial — seeder DEMO-only; grava só na empresa
+--   DEMO Comércio GE fixa (b0700000-0000-4000-a000-000000000004), travada logo no
+--   início (IF p_company <> v_bot THEN RETURN). Não toca dado de cliente real.
 CREATE OR REPLACE FUNCTION public.fn_demo_seed_ge_comercial(p_company uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -271,3 +277,5 @@ BEGIN
     'cotacoes_exemplo', (SELECT count(*) FROM erp_cotacoes WHERE company_id=v_bot AND observacoes='seed:ge-comercial-cotacao')
   );
 END $function$;
+
+REVOKE ALL ON FUNCTION public.fn_demo_seed_ge_comercial(uuid) FROM PUBLIC, anon;
