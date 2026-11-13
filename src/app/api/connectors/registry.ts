@@ -245,6 +245,11 @@ export const CONNECTORS: Connector[] = [
 
   // ═══════════════════════════════════════════════════════════
   // RH / PONTO ELETRONICO
+  // RD-100 (exceção técnica): os nomes abaixo (IO Point, Pontotel, Domínio Sistemas)
+  // são ALVOS DE INTEGRAÇÃO que o cliente escolhe na Central de Conectores — o
+  // sistema de ponto/folha que ELE já usa e quer conectar. Nomear o provedor é
+  // necessário para a seleção da integração (mesma exceção de banco/OAuth), não é
+  // posicionar o produto por um concorrente. Mantidos de propósito.
   // ═══════════════════════════════════════════════════════════
   {
     id: "iopoint", nome: "IO Point", categoria: "rh_ponto", status: "em_breve", icon: "IO", cor: "#2563EB",
