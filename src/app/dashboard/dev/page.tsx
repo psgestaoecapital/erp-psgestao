@@ -149,7 +149,7 @@ type BarraRow = {
   automacao_rotulo:string|null; automacao_empresas:number|null;
 };
 const NOME_VERTICAL:Record<string,string>={
-  agro:'Agro / Pecuária', bpo:'BPO', compliance:'Compliance', custeio_a:'Custeio A', custeio_b:'Custeio B',
+  agro:'Agro / Pecuária', bpo:'BPO', compliance:'PS EHS', custeio_a:'Custeio A', custeio_b:'Custeio B',
   gestao_empresarial:'Gestão Empresarial', hub:'Hub (Construção)', industrial:'Industrial', medica:'Médica',
   odonto:'Odonto', oficina:'Oficina', pm:'P&M (Agência)', revenda_veiculos:'Revenda de Veículos', wealth:'Wealth',
   estrela_polar:'Estrela Polar',

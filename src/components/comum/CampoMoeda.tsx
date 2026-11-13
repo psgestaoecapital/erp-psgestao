@@ -4,11 +4,12 @@
 import type { CSSProperties } from 'react'
 import { moedaMascara } from '@/lib/moeda-mascara'
 
-export function CampoMoeda({ value, onChange, placeholder, style, id, disabled, testId }: {
+export function CampoMoeda({ value, onChange, placeholder, style, className, id, disabled, testId }: {
   value: string
   onChange: (mascarado: string) => void
   placeholder?: string
   style?: CSSProperties
+  className?: string
   id?: string
   disabled?: boolean
   testId?: string
@@ -23,6 +24,7 @@ export function CampoMoeda({ value, onChange, placeholder, style, id, disabled, 
       placeholder={placeholder}
       inputMode="numeric"
       autoComplete="off"
+      className={className}
       style={style}
     />
   )
