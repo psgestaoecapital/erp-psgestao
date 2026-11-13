@@ -34,6 +34,16 @@ const ICONE: Record<string, string> = {
   milk: '🥛', 'report-money': '💰', 'building-bank': '🏦', 'trending-up': '💹',
 }
 
+// Onde LANÇAR o dado que acende cada tema (critério d do PDCA: card "sem dados" indica o caminho).
+// Só rotas operacionais REAIS e verificadas; tema sem origem conhecida cai no texto genérico do card.
+const ORIGEM: Record<string, { rota: string; label: string }> = {
+  producao:    { rota: '/dashboard/industrial/producao', label: 'Produção (abate)' },
+  tipificacao: { rota: '/dashboard/industrial/producao', label: 'Produção (abate)' },
+  rendimentos: { rota: '/dashboard/industrial/producao', label: 'Produção (abate)' },
+  rh:          { rota: '/dashboard/industrial/ponto',     label: 'Registro de ponto' },
+  produtividade: { rota: '/dashboard/produtividade',      label: 'Produtividade' },
+}
+
 type AreaCfg = { rpc: string; kicker: string; subtitulo: string; secoes: { key: string; label: string }[]; soRh: boolean }
 const AREAS: Record<string, AreaCfg> = {
   industrial: {
@@ -146,7 +156,7 @@ function Hub() {
                     <AjudaCampo chave={`bi.secao.${area}.${s.key}`} rota="/dashboard/inteligencia" />
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(196px, 1fr))', gap: 12 }}>
-                    {(porSecao[s.key] ?? []).map((t) => <Card key={t.codigo} t={t} onOpen={() => t.rota_detalhe && router.push(t.rota_detalhe)} />)}
+                    {(porSecao[s.key] ?? []).map((t) => <Card key={t.codigo} t={t} onOpen={() => t.rota_detalhe && router.push(t.rota_detalhe)} onOrigem={(rota) => router.push(rota)} />)}
                   </div>
                 </section>
               )
@@ -162,7 +172,7 @@ function Hub() {
   )
 }
 
-function Card({ t, onOpen }: { t: Tema; onOpen: () => void }) {
+function Card({ t, onOpen, onOrigem }: { t: Tema; onOpen: () => void; onOrigem: (rota: string) => void }) {
   const fase1 = t.destaque === 'fase1' && t.tem_dado
   const novo = t.destaque === 'novo'
   const pill = t.tem_dado
@@ -171,6 +181,7 @@ function Card({ t, onOpen }: { t: Tema; onOpen: () => void }) {
     : novo ? { txt: 'novo', cor: GOLD, bg: ACCENT_BG }
     : { txt: 'em breve', cor: MUT, bg: 'rgba(61,35,20,0.06)' }
   const rodape = t.tem_dado && t.metrica ? t.metrica : 'aguarda dados'
+  const origem = !t.tem_dado ? ORIGEM[t.codigo] : undefined
   return (
     <div
       role="button" tabIndex={0}
@@ -193,6 +204,21 @@ function Card({ t, onOpen }: { t: Tema; onOpen: () => void }) {
       <div style={{ marginTop: 10, fontSize: 14, fontWeight: 500, color: ESP }}>{t.nome}</div>
       <div style={{ fontSize: 12, color: MUT, marginTop: 2 }}>{t.subtitulo}</div>
       <div style={{ marginTop: 'auto', paddingTop: 10, fontSize: 12, color: t.tem_dado ? VERDE : MUT, fontWeight: t.tem_dado ? 600 : 400 }}>{rodape}</div>
+      {!t.tem_dado && (
+        origem ? (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onOrigem(origem.rota) }}
+            style={{ marginTop: 8, alignSelf: 'flex-start', background: 'transparent', border: 'none', padding: 0, color: GOLD, fontSize: 11, fontWeight: 600, cursor: 'pointer', textAlign: 'left' }}
+          >
+            ▸ Ativar: lançar em {origem.label} →
+          </button>
+        ) : (
+          <div style={{ marginTop: 8, fontSize: 11, color: MUT, lineHeight: 1.4 }}>
+            Acende sozinho quando a operação for registrada no sistema.
+          </div>
+        )
+      )}
     </div>
   )
 }
