@@ -276,3 +276,7 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'criou', v_criou, 'titulos', v_tit, 'ligacoes', v_lig,
     'contrato_ge', v_erp_contr, 'jobs', jsonb_build_array(v_job1, v_job2));
 END $function$;
+
+-- Guarda da régua check_fn_guards (Regra 1): função SECURITY DEFINER não fica exposta a quem não está logado.
+-- Idempotente e no-op em produção (ACL viva = {postgres,service_role}); roda pelo fn_demo_reset (service_role), que não é afetado.
+REVOKE ALL ON FUNCTION public.fn_demo_seed_pm_jornada(uuid) FROM PUBLIC, anon;
