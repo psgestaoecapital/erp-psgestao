@@ -6,6 +6,8 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero } from '@/lib/moeda-mascara'
 
 interface Cliente { id: string; nome_fantasia: string | null; razao_social: string | null }
 interface Categoria { id: string; codigo: string; descricao: string }
@@ -61,7 +63,8 @@ export default function NovaVendaModal({ open, onClose, companyId }: Props) {
     setErro(null)
     if (!clienteId) { setErro('Selecione um cliente'); return }
     if (!descricao.trim()) { setErro('Descreva a venda'); return }
-    if (!valor || Number(valor) <= 0) { setErro('Informe o valor'); return }
+    const valorNum = moedaParaNumero(valor)
+    if (valorNum === null || valorNum <= 0) { setErro('Informe o valor'); return }
 
     setLoading(true)
     const { data, error } = await supabase.rpc('fn_orcamento_criar_venda', {
@@ -70,7 +73,7 @@ export default function NovaVendaModal({ open, onClose, companyId }: Props) {
       p_tipo_venda: tipo,
       p_situacao: tipo === 'orcamento' ? 'pendente' : 'aprovado',
       p_descricao: descricao.trim(),
-      p_valor: Number(valor),
+      p_valor: valorNum,
       p_data_venda: new Date().toISOString().split('T')[0],
       p_vencimento: vencimento,
       p_categoria_codigo: categoria || null,
@@ -118,7 +121,7 @@ export default function NovaVendaModal({ open, onClose, companyId }: Props) {
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8 }}>
             <Field label="Valor R$">
-              <input type="number" step="0.01" min="0" value={valor} onChange={(e) => setValor(e.target.value)} style={input} />
+              <CampoMoeda value={valor} onChange={setValor} placeholder="R$ 0,00" style={input} />
             </Field>
             <Field label="Vencimento">
               <input type="date" value={vencimento} onChange={(e) => setVencimento(e.target.value)} style={input} />
