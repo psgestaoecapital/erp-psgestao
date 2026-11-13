@@ -169,7 +169,11 @@ export default function FolhaPage() {
           </div>
           <div style={{ overflowX: 'auto', border: `0.5px solid ${LINE}`, borderRadius: 8 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 420 }}>
-              <thead style={{ background: BG }}><tr><Th>Verba</Th><Th>Tipo</Th><Th>Total</Th></tr></thead>
+              <thead style={{ background: BG }}><tr>
+                <Th><span style={thAjuda}>Verba<AjudaCampo chave="industrial.folha.col_verba" rota={ROTA} /></span></Th>
+                <Th><span style={thAjuda}>Tipo<AjudaCampo chave="industrial.folha.col_tipo" rota={ROTA} /></span></Th>
+                <Th><span style={thAjuda}>Total<AjudaCampo chave="industrial.folha.col_total" rota={ROTA} /></span></Th>
+              </tr></thead>
               <tbody>
                 {verbasResumo.map((v) => (
                   <tr key={v.codigo} style={{ borderTop: `0.5px solid ${LINE}` }}>
@@ -212,6 +216,7 @@ function Kpi({ t, v, destaque, ajuda }: { t: string; v: string; destaque?: boole
 }
 function Th({ children }: { children?: React.ReactNode }) { return <th style={{ padding: '10px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT }}>{children}</th> }
 function Td({ children, style }: { children?: React.ReactNode; style?: React.CSSProperties }) { return <td style={{ padding: '10px 14px', color: ESP, fontVariantNumeric: 'tabular-nums', ...style }}>{children}</td> }
+const thAjuda: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4 }
 const card: React.CSSProperties = { background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16 }
 const aviso = (fg: string, bg: string): React.CSSProperties => ({ background: bg, color: fg, padding: '10px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600 })
 const btnGold: React.CSSProperties = { padding: '9px 16px', borderRadius: 8, border: 'none', background: GOLD, color: '#FFF', fontSize: 13, fontWeight: 700, cursor: 'pointer' }
