@@ -9,6 +9,8 @@ import { ehUuid, erroAmigavel } from '@/lib/erroAmigavel'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERM = '#B91C1C'
 // RD-95: a ajuda "?" é carregada por rota (fn_ajuda_campo_listar filtra rota exata). Esta tela é rota dinâmica
@@ -57,14 +59,14 @@ export default function LancarHorasPage({ params }: { params: Promise<{ id: stri
 
   const escolherFuncao = (fid: string) => {
     const fn = funcoes.find(x => x.id === fid)
-    setF(p => ({ ...p, funcao_id: fid, custo_hora: fn?.custo_hora_manual != null && !p.custo_hora ? String(fn.custo_hora_manual) : p.custo_hora }))
+    setF(p => ({ ...p, funcao_id: fid, custo_hora: fn?.custo_hora_manual != null && !p.custo_hora ? numeroParaMoeda(fn.custo_hora_manual) : p.custo_hora }))
   }
 
   const lancar = async (e: React.FormEvent) => {
     e.preventDefault(); setErro('')
-    const horas = Number(f.horas.replace(',', '.')), custo = Number(f.custo_hora.replace(',', '.'))
+    const horas = Number(f.horas.replace(',', '.')), custo = moedaParaNumero(f.custo_hora) // #6874: custo/hora mascarado (R$)
     if (!(horas > 0)) { setErro('Informe as horas trabalhadas (maior que zero).'); return }
-    if (!(custo >= 0) || f.custo_hora === '') { setErro('Informe o custo da hora.'); return }
+    if (custo == null || custo < 0) { setErro('Informe o custo da hora.'); return }
     setSalvando(true)
     const { error } = await supabase.rpc('fn_obra_mao_obra_apontar', { p_obra_id: id, p_dados: { data: f.data, funcao_id: f.funcao_id, descricao: f.descricao || null, horas, custo_hora: custo } })
     setSalvando(false)
@@ -88,7 +90,7 @@ export default function LancarHorasPage({ params }: { params: Promise<{ id: stri
       funcao_id: a.funcao_id ?? '',
       descricao: a.descricao ?? '',
       horas: String(a.horas ?? ''),
-      custo_hora: String(a.custo_hora ?? ''),
+      custo_hora: numeroParaMoeda(a.custo_hora),
     })
     setEd(a)
   }
@@ -96,9 +98,9 @@ export default function LancarHorasPage({ params }: { params: Promise<{ id: stri
     e.preventDefault()
     if (!ed) return
     setErro('')
-    const horas = Number(ef.horas.replace(',', '.')), custo = Number(ef.custo_hora.replace(',', '.'))
+    const horas = Number(ef.horas.replace(',', '.')), custo = moedaParaNumero(ef.custo_hora) // #6874: custo/hora mascarado (R$)
     if (!(horas > 0)) { setErro('Informe as horas trabalhadas (maior que zero).'); return }
-    if (!(custo >= 0) || ef.custo_hora === '') { setErro('Informe o custo da hora.'); return }
+    if (custo == null || custo < 0) { setErro('Informe o custo da hora.'); return }
     setSalvandoEd(true)
     const { error } = await supabase.rpc('fn_obra_mao_obra_editar', {
       p_id: ed.id,
@@ -131,7 +133,7 @@ export default function LancarHorasPage({ params }: { params: Promise<{ id: stri
           <div><label style={lab}>Horas</label>
             <input inputMode="decimal" value={f.horas} onChange={e => setF({ ...f, horas: e.target.value })} style={inp} data-testid="horas-horas" /> <AjudaCampo chave="projetos.horas_obra.horas" rota={ROTA} /></div>
           <div><label style={lab}>Custo da hora (R$)</label>
-            <input inputMode="decimal" value={f.custo_hora} onChange={e => setF({ ...f, custo_hora: e.target.value })} style={inp} data-testid="horas-custo" /> <AjudaCampo chave="projetos.horas_obra.custo_hora" rota={ROTA} /></div>
+            <CampoMoeda value={f.custo_hora} onChange={v => setF({ ...f, custo_hora: v })} style={inp} testId="horas-custo" placeholder="R$ 0,00" /> <AjudaCampo chave="projetos.horas_obra.custo_hora" rota={ROTA} /></div>
           <div style={{ gridColumn: '1 / -1' }}><label style={lab}>O que foi feito</label>
             <input value={f.descricao} onChange={e => setF({ ...f, descricao: e.target.value })} style={inp} data-testid="horas-descricao" /> <AjudaCampo chave="projetos.horas_obra.descricao" rota={ROTA} /></div>
           <div><button type="submit" disabled={salvando} data-testid="horas-lancar" style={{ padding: '9px 16px', background: ESP, color: '#fff', border: 0, borderRadius: 8, fontWeight: 600 }}>{salvando ? 'Lançando…' : 'Lançar horas'}</button>
@@ -180,7 +182,7 @@ export default function LancarHorasPage({ params }: { params: Promise<{ id: stri
             <div><label style={lab}>Horas</label>
               <input inputMode="decimal" value={ef.horas} onChange={e => setEf({ ...ef, horas: e.target.value })} style={inp} data-testid="horas-editar-horas" /> <AjudaCampo chave="projetos.horas_obra.horas" rota={ROTA} /></div>
             <div><label style={lab}>Custo da hora (R$)</label>
-              <input inputMode="decimal" value={ef.custo_hora} onChange={e => setEf({ ...ef, custo_hora: e.target.value })} style={inp} data-testid="horas-editar-custo" /> <AjudaCampo chave="projetos.horas_obra.custo_hora" rota={ROTA} /></div>
+              <CampoMoeda value={ef.custo_hora} onChange={v => setEf({ ...ef, custo_hora: v })} style={inp} testId="horas-editar-custo" placeholder="R$ 0,00" /> <AjudaCampo chave="projetos.horas_obra.custo_hora" rota={ROTA} /></div>
             <div><label style={lab}>O que foi feito</label>
               <input value={ef.descricao} onChange={e => setEf({ ...ef, descricao: e.target.value })} style={inp} data-testid="horas-editar-descricao" /> <AjudaCampo chave="projetos.horas_obra.descricao" rota={ROTA} /></div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
