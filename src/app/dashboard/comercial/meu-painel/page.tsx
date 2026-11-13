@@ -27,6 +27,7 @@ import { AbaLogisticaV7 } from './AbaLogisticaV7'
 import { MetasV7 } from './MetasV7'
 import { AbaRanking } from './AbaRanking'
 import { ModalAnalise, lerEscolhaSalva, type EscopoAnalise } from './ModalAnalise'
+import { BlocoSeguro } from '@/components/dev/BlocoSeguro'
 
 const C = { esp: '#3D2314', off: '#FAF7F2', gold: '#C8941A', gold2: '#E0B048', verde: '#3f7d4e', vermelho: '#C0392B', bd: '#E7DED3', bg2: '#F0ECE3', m: '#6B5D4F', d: '#9C8E80' }
 const ROTA = '/dashboard/comercial/meu-painel'
@@ -817,8 +818,13 @@ export default function MeuPainelV6() {
         <AbaProdutosV7 produtos={produtosV7} base={base} modelo={modelo} onAbrirAnalise={() => setModalAnalise(true)} />
       )}
       {base && modelo && estado && empresa && (
-        <ModalAnalise open={modalAnalise} onClose={() => setModalAnalise(false)} empresa={empresa} base={base} modelo={modelo} estado={estado}
-          onAplicar={aplicarAnalise} exclusaoPadrao={exclusaoPadrao(base)} />
+        // Rede de segurança (CEO 13/11): se o modal lançar um erro de render, o BlocoSeguro o contém e a ROTA
+        // não cai (nada de "This page couldn't load"). A causa-raiz (hooks após return condicional) já foi
+        // corrigida no ModalAnalise; este limite é a garantia de que a tela nunca mais é derrubada pelo modal.
+        <BlocoSeguro nome="Configurar a análise">
+          <ModalAnalise open={modalAnalise} onClose={() => setModalAnalise(false)} empresa={empresa} base={base} modelo={modelo} estado={estado}
+            onAplicar={aplicarAnalise} exclusaoPadrao={exclusaoPadrao(base)} />
+        </BlocoSeguro>
       )}
 
       <div style={{ marginTop: 16, fontSize: 12, color: C.d }}>
