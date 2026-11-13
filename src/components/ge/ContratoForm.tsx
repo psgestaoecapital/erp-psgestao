@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import ContratoArquivos from './ContratoArquivos'
 import ContratoAssinatura from './ContratoAssinatura'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
@@ -60,10 +61,12 @@ const PERIODICIDADES = [
   { value: 'anual', label: 'Uma vez por ano' },
 ]
 
+// RD-38: sem % estimado no rótulo (o índice não é lido de fonte real aqui); o % anual
+// é o que o usuário informa no campo ao lado.
 const TIPOS_REAJUSTE = [
   { value: 'nenhum', label: 'Sem reajuste' },
-  { value: 'ipca', label: 'Anual IPCA (~4,5%)' },
-  { value: 'igpm', label: 'Anual IGPM (~6%)' },
+  { value: 'ipca', label: 'Anual pelo IPCA' },
+  { value: 'igpm', label: 'Anual pelo IGP-M' },
   { value: 'personalizado', label: 'Personalizado' },
 ]
 
@@ -148,37 +151,38 @@ export default function ContratoForm({ companyId, contrato, onClose, onSaved }: 
 
     const clienteSel = clientes.find((c) => c.id === clienteId) ?? null
 
-    const payload = {
-      company_id: companyId,
-      numero: contrato?.numero || `CTR-${Date.now().toString().slice(-6)}`,
-      nome: nome.trim(),
-      tipo,
-      cliente_id: clienteId || null,
-      cliente_nome: clienteSel ? nomeDoCliente(clienteSel) : null,
-      cliente_cnpj: clienteSel?.cnpj_cpf ?? null,
-      cliente_email: clienteSel?.email ?? null,
-      cliente_telefone: clienteSel?.telefone ?? null,
-      valor_mensal: parseFloat(valorMensal),
-      valor_atual: parseFloat(valorMensal),
-      data_inicio: dataInicio,
-      data_fim: dataFim || null,
-      data_primeiro_vencimento: dataInicio,
-      dia_vencimento: parseInt(diaVencimento, 10) || 10,
-      periodicidade,
-      tipo_reajuste: tipoReajuste,
-      reajuste_percentual: parseFloat(reajustePercentual) || 0,
-      descricao: descricao.trim() || null,
-      status,
-      updated_at: new Date().toISOString(),
-    }
-
-    const result = contrato?.id
-      ? await supabase.from('erp_contratos').update(payload).eq('id', contrato.id)
-      : await supabase.from('erp_contratos').insert(payload)
+    // RD-98 (consistência/segurança): grava por RPC guardada (fn_contrato_salvar), no mesmo
+    // padrão de excluir/encerrar — valida no servidor, confere a empresa e gera o número
+    // único por empresa (nada de CTR-<timestamp> do client, que podia colidir).
+    const { data, error } = await supabase.rpc('fn_contrato_salvar', {
+      p_company_id: companyId,
+      p_id: contrato?.id ?? null,
+      p_nome: nome.trim(),
+      p_tipo: tipo,
+      p_cliente_id: clienteId || null,
+      p_cliente_nome: clienteSel ? nomeDoCliente(clienteSel) : null,
+      p_cliente_cnpj: clienteSel?.cnpj_cpf ?? null,
+      p_cliente_email: clienteSel?.email ?? null,
+      p_cliente_telefone: clienteSel?.telefone ?? null,
+      p_valor_mensal: parseFloat(valorMensal),
+      p_data_inicio: dataInicio,
+      p_data_fim: dataFim || null,
+      p_dia_vencimento: parseInt(diaVencimento, 10) || 10,
+      p_periodicidade: periodicidade,
+      p_tipo_reajuste: tipoReajuste,
+      p_reajuste_percentual: parseFloat(reajustePercentual) || 0,
+      p_descricao: descricao.trim() || null,
+      p_status: status,
+    })
 
     setSalvando(false)
-    if (result.error) setErro('Não consegui salvar: ' + result.error.message)
-    else onSaved()
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) {
+      // erro em linguagem do usuário (RD-99) — nunca a mensagem crua do banco
+      setErro(!error && r?.erro ? r.erro : erroAmigavel(error, 'Não consegui salvar a cobrança agora.'))
+      return
+    }
+    onSaved()
   }
 
   return (
