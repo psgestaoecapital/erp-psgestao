@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { parseNumBR } from '@/lib/num'
 import type { Conta } from './ContasBancariasForm'
 
 const ESP = '#3D2314'
@@ -158,10 +159,11 @@ export default function BancoIntegracaoPanel({
     if (r1.error) { setBusy(false); setMsg({ tipo: 'erro', texto: r1.error.message }); return }
     const { error } = await supabase.rpc('fn_banco_boleto_params_salvar', {
       p_company_id: companyId, p_banco_codigo: bancoCodigo, p_ambiente: ambiente,
-      p_juros_pct: jurosPct === '' ? null : Number(jurosPct),
-      p_multa_pct: multaPct === '' ? null : Number(multaPct),
-      p_dias_compensacao: diasCompens === '' ? null : Number(diasCompens),
-      p_dias_protesto: diasProtesto === '' ? null : Number(diasProtesto),
+      // #5660 — aceitar vírgula como decimal (1,5 → 1.5); parseNumBR devolve null p/ vazio/ilegível.
+      p_juros_pct: parseNumBR(jurosPct),
+      p_multa_pct: parseNumBR(multaPct),
+      p_dias_compensacao: parseNumBR(diasCompens),
+      p_dias_protesto: parseNumBR(diasProtesto),
       p_instrucao_linha1: instr1 || null,
       p_instrucao_linha2: instr2 || null,
       p_instrucao_linha3: instr3 || null,

@@ -294,7 +294,7 @@ function EstoqueInner() {
     // setLoading(false) nunca rodava. try/finally garante que a tela SEMPRE sai do "Carregando…".
     try {
       const [loc, prod, mov, abc, inv, rsv] = await Promise.all([
-        supabase.from('erp_estoque_locais').select('*').eq('company_id', companyIdUnico).order('principal', { ascending: false }).order('nome'),
+        supabase.from('erp_estoque_locais').select('*').eq('company_id', companyIdUnico).eq('ativo', true).order('principal', { ascending: false }).order('nome'),
         // #126: .limit(5000) voltava só 1000 (teto do PostgREST) → 1485 importados, 1000 na tela. Busca em páginas.
         selecionarTodas<Produto>((de, ate) => supabase.from('erp_produtos').select('id,company_id,codigo,nome,categoria,unidade,preco_venda,preco_custo,preco_custo_medio,estoque_atual,estoque_minimo,estoque_maximo,localizacao,ativo')
           .eq('company_id', companyIdUnico).eq('ativo', true).order('nome').order('id').range(de, ate)),
@@ -369,8 +369,10 @@ function EstoqueInner() {
   }
 
   async function deletarLocal(id: string) {
-    if (!confirm('Excluir este local? Movimentações já registradas serão preservadas.')) return
-    const { error } = await supabase.from('erp_estoque_locais').delete().eq('id', id)
+    if (!confirm('Excluir este local? Ele será inativado e as movimentações já registradas serão preservadas.')) return
+    // RD-98 p4: soft-delete via RPC guardada (nunca HARD DELETE direto, que deixaria
+    // as movimentações com local_id órfão). A RPC bloqueia o local principal.
+    const { error } = await supabase.rpc('fn_estoque_local_excluir', { p_id: id })
     if (error) { flashErr(erroAmigavel(error)); return }
     flash('Local excluído.')
     void carregar()
