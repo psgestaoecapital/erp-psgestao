@@ -13,6 +13,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
+import { parseNumBR } from '@/lib/num'
 import { CelulaEditavel, type OpcaoCelula } from '@/components/produtividade/CelulaEditavel'
 import { Video, Timer } from 'lucide-react'
 
@@ -364,8 +365,8 @@ function BlocoCronometro({ ctx, tarefa, onMudou }: { ctx: Ctx; tarefa: Tarefa; o
 
   async function gravar() {
     setErro(null)
-    const ts = Number(tempo.trim().replace(',', '.'))
-    const qp = Number((pecas.trim() || '1').replace(',', '.'))
+    const ts = parseNumBR(tempo) ?? NaN // aceita vírgula e milhar BR (#5660)
+    const qp = parseNumBR(pecas.trim() || '1') ?? NaN // aceita vírgula e milhar BR (#5660)
     if (!(ts > 0)) { setErro('Informe o tempo medido em segundos (maior que zero).'); return }
     if (!(qp > 0)) { setErro('Nº de peças deve ser maior que zero.'); return }
     setSalvando(true)
