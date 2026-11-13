@@ -157,9 +157,11 @@ export default function MaoObraIndustriaPage() {
           <Box>
             <div style={{ fontSize: 34, marginBottom: 8 }}>👥</div>
             <b style={{ color: ESP, fontSize: 15 }}>Sem folha importada ainda</b>
-            <div style={{ color: MUT, fontSize: 13, margin: '8px 0 0', lineHeight: 1.5 }}>
-              O custo por setor aparece assim que o RH importar a folha de pagamento.
+            <div style={{ color: MUT, fontSize: 13, margin: '8px 0 16px', lineHeight: 1.5 }}>
+              O custo por setor aparece assim que a folha de pagamento for importada. A importação é feita pelo RH, na tela da folha.
             </div>
+            {/* RD-98 · estado vazio com ação: leva à tela da folha (as permissões de importação são aplicadas lá). */}
+            <Link href="/dashboard/industrial/folha" style={{ ...btnGold, textDecoration: 'none', display: 'inline-block' }}>📤 Ir para a folha</Link>
           </Box>
         ) : (
           <>
