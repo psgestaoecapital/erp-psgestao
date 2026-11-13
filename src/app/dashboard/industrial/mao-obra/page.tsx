@@ -77,12 +77,13 @@ export default function MaoObraIndustriaPage() {
     return () => { alive = false }
   }, [empresaUnica])
 
-  // Gestor/diretoria (owner, sócio, diretor, gerente, financeiro, admin) pode ver o agregado por setor,
-  // mesmo sem papel RH. O salário individual segue restrito ao RH (fn__pode_ver_folha).
+  // Gestor/diretoria (RH, owner, sócio, diretor, gerente, financeiro) e as camadas gerenciais do
+  // escopo industrial podem ver o custo AGREGADO por setor (número gerencial), mesmo sem papel RH.
+  // O salário INDIVIDUAL segue restrito ao RH/diretoria por guarda própria (fn__mao_obra_pode_ver_individual).
   useEffect(() => {
     if (!empresaUnica) { setPodeAgregado(null); return }
     let alive = true
-    void supabase.rpc('fn__mao_obra_pode_ver_individual', { p_company_id: empresaUnica }).then(({ data }) => { if (alive) setPodeAgregado(data === true) })
+    void supabase.rpc('fn__mao_obra_pode_ver_agregado', { p_company_id: empresaUnica }).then(({ data }) => { if (alive) setPodeAgregado(data === true) })
     return () => { alive = false }
   }, [empresaUnica])
 
