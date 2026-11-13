@@ -19,6 +19,9 @@
 -- Persistência ao reset: fn_demo_reset NÃO toca ind_pessoa/folha_* (conferido),
 -- então o seed de uma vez sobrevive aos resets da DEMO.
 
+-- ci-sem-guarda: fn_demo_seed_industria_folha — seed DEMO controlado, company fixa
+--   b0700000-0000-4000-a000-000000000005 (a função trava p_company_id IS DISTINCT FROM c e
+--   exige companies.is_demo IS TRUE; escreve SÓ nas tabelas da DEMO, nunca em dado de cliente).
 CREATE OR REPLACE FUNCTION public.fn_demo_seed_industria_folha(p_company_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -93,7 +96,8 @@ BEGIN
     'custo_total',  (SELECT COALESCE(sum(total_geral),0) FROM folha_competencia WHERE company_id = c));
 END $function$;
 
-REVOKE ALL ON FUNCTION public.fn_demo_seed_industria_folha(uuid) FROM anon;
+REVOKE ALL ON FUNCTION public.fn_demo_seed_industria_folha(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_demo_seed_industria_folha(uuid) TO authenticated, service_role;
 
 -- Semeia agora na DEMO (deploy-migrations aplica na main → produção).
 SELECT public.fn_demo_seed_industria_folha('b0700000-0000-4000-a000-000000000005');
