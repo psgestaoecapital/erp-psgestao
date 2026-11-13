@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA_AJUDA = '/dashboard/cadastros/plano-contas'
 
 export type TipoConta = 'receita' | 'despesa' | 'custo' | 'financeiro' | 'investimento'
 
@@ -185,7 +188,7 @@ export default function PlanoContasForm({ companyId, conta, contasExistentes, on
             <div style={{ background: '#FCEBEB', color: '#A32D2D', padding: '10px 14px', borderRadius: 6, marginBottom: 16, fontSize: 13 }}>{erro}</div>
           )}
 
-          <Campo label="Tipo *">
+          <Campo label="Tipo *" ajuda="plano_contas.tipo">
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {TIPOS.map((t) => {
                 const ativo = tipo === t.value
@@ -221,22 +224,22 @@ export default function PlanoContasForm({ companyId, conta, contasExistentes, on
           </Campo>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12 }}>
-            <Campo label="Código *" hint="Ex: 3.1 · 4.3.06">
+            <Campo label="Código *" hint="Ex: 3.1 · 4.3.06" ajuda="plano_contas.codigo">
               <input value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="x.x.xx" style={inputStyle} />
             </Campo>
-            <Campo label="Descrição *">
+            <Campo label="Descrição *" ajuda="plano_contas.descricao">
               <input value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Ex: Aluguel" style={inputStyle} />
             </Campo>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Campo label="Nível">
+            <Campo label="Nível" ajuda="plano_contas.nivel">
               <select value={nivel} onChange={(e) => setNivel(parseInt(e.target.value, 10))} style={inputStyle}>
                 <option value={1}>1 (Grupo principal)</option>
                 <option value={2}>2 (Subconta)</option>
               </select>
             </Campo>
-            <Campo label="Grupo DRE *" hint="Obrigatório (NOT NULL)">
+            <Campo label="Grupo DRE *" hint="Obrigatório (NOT NULL)" ajuda="plano_contas.grupo_dre">
               <select value={grupo} onChange={(e) => setGrupo(e.target.value)} style={inputStyle}>
                 {opcoesGrupo.map((g) => (
                   <option key={g.value} value={g.value}>{g.label}</option>
@@ -246,7 +249,7 @@ export default function PlanoContasForm({ companyId, conta, contasExistentes, on
           </div>
 
           {nivel === 2 && opcoesPai.length > 0 && (
-            <Campo label="Conta-pai" hint="Grupo onde essa subconta entra">
+            <Campo label="Conta-pai" hint="Grupo onde essa subconta entra" ajuda="plano_contas.conta_pai">
               <select value={paiCodigo} onChange={(e) => setPaiCodigo(e.target.value)} style={inputStyle}>
                 <option value="">— Sem pai —</option>
                 {opcoesPai.map((p) => (
@@ -262,7 +265,7 @@ export default function PlanoContasForm({ companyId, conta, contasExistentes, on
             <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
               <input type="checkbox" checked={isTotalizador} onChange={(e) => setIsTotalizador(e.target.checked)} style={{ width: 16, height: 16, accentColor: '#C8941A', marginTop: 2 }} />
               <span>
-                <span style={{ fontSize: 13, fontWeight: 600, color: '#3D2314' }}>Σ É linha totalizadora</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#3D2314' }}>Σ É linha totalizadora <AjudaCampo chave="plano_contas.totalizadora" rota={ROTA_AJUDA} /></span>
                 <small style={{ display: 'block', fontSize: 11, color: 'rgba(61,35,20,0.6)', marginTop: 2 }}>
                   Soma os filhos automaticamente · não recebe lançamentos diretos.
                 </small>
@@ -294,11 +297,11 @@ export default function PlanoContasForm({ companyId, conta, contasExistentes, on
   )
 }
 
-function Campo({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+function Campo({ label, hint, ajuda, children }: { label: string; hint?: string; ajuda?: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 14 }}>
       <label style={{ display: 'block', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>
-        {label}
+        {label}{ajuda && <> <AjudaCampo chave={ajuda} rota={ROTA_AJUDA} /></>}
       </label>
       {children}
       {hint && <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.5)', marginTop: 4 }}>{hint}</div>}
