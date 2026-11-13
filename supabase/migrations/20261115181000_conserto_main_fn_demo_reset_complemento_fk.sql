@@ -50,6 +50,7 @@ BEGIN
   -- complementos da rodada ANTERIOR ainda apontavam para os setores antigos → FK rh_pessoa_complemento_setor_id_fkey
   -- (23503), quebrando TODO reset da 005 e, com ele, o @pos-migration. Limpar o complemento ANTES do seed;
   -- fn_demo_seed_industria_rh_quadro recria no fim, íntegro. Só DEMO 005 (is_demo, fictício — RD-69/LGPD).
+  -- ci-sem-guarda: fn_demo_reset — só opera em empresa is_demo (dados fictícios RD-69); DELETE restrito a company_id = DEMO 005; o lock is_demo é o guard, não fn__guarda_empresa
   IF p_company_id = 'b0700000-0000-4000-a000-000000000005'::uuid THEN
     DELETE FROM public.rh_pessoa_complemento WHERE company_id = p_company_id;
   END IF;
