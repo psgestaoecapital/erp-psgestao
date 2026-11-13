@@ -13,6 +13,7 @@ import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { CelulaEditavel } from '@/components/produtividade/CelulaEditavel'
 import { ClipboardList, PlugZap } from 'lucide-react'
+import { parseNumBR } from '@/lib/num'
 
 const ROTA = '/dashboard/produtividade/produtos'
 const Aj = ({ k }: { k: string }) => <AjudaCampo chave={k} rota={ROTA} />
@@ -292,9 +293,10 @@ function LinhaProduto({ p, expandido, onExpandir, onSalvar, onArquivar, companyI
           <CelulaEditavel testid={`produto-peso-${p.codigo}`} tipo="numero" valor={p.peso_aprox_kg != null ? String(p.peso_aprox_kg) : ''} vazio="— kg"
             rotuloValor={(v) => `${v} kg`}
             onSalvar={(v) => {
-              const t = v.replace(',', '.').trim()
-              if (t && Number.isNaN(Number(t))) return Promise.resolve('Peso inválido — informe um número (ex.: 12,5) ou deixe em branco.')
-              return onSalvar(p, { peso_aprox_kg: t ? Number(t) : null }, `o peso de ${p.codigo}`)
+              const t = v.trim()
+              const n = parseNumBR(t) // aceita vírgula e milhar BR (#5660)
+              if (t && n == null) return Promise.resolve('Peso inválido — informe um número (ex.: 12,5) ou deixe em branco.')
+              return onSalvar(p, { peso_aprox_kg: n }, `o peso de ${p.codigo}`)
             }} />
         </td>
         <td style={td}>
@@ -361,13 +363,14 @@ function NovoProdutoModal({ companyId, plantId, onClose, onSalvo }: {
   const [erro, setErro] = useState<string | null>(null)
 
   async function salvar() {
-    const peso = f.peso.replace(',', '.').trim()
-    if (peso && Number.isNaN(Number(peso))) { setErro('Peso inválido — informe um número (ex.: 12,5) ou deixe em branco.'); return }
+    const pesoStr = f.peso.trim()
+    const pesoNum = parseNumBR(pesoStr) // aceita vírgula e milhar BR (#5660)
+    if (pesoStr && pesoNum == null) { setErro('Peso inválido — informe um número (ex.: 12,5) ou deixe em branco.'); return }
     setBusy(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_prod_produto_f1_salvar', {
       p_company_id: companyId, p_plant_id: plantId, p_id: null,
       p_codigo: f.codigo.trim(), p_nome: f.nome.trim(), p_papel: f.papel || null, p_linha: f.linha || null,
-      p_secao_origem: f.secao.trim() || null, p_peso_aprox_kg: peso ? Number(peso) : null, p_conservacao: f.conservacao || null,
+      p_secao_origem: f.secao.trim() || null, p_peso_aprox_kg: pesoNum, p_conservacao: f.conservacao || null,
     })
     setBusy(false)
     if (error) { setErro(erroSalvar(error.message)); return }
