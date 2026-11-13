@@ -310,10 +310,13 @@ export default function BensPage() {
             <div style={{ ...card, marginTop: 12, overflowX: 'auto', padding: 0 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
                 <thead><tr style={{ color: ESP60, textAlign: 'left' }}>
-                  <th style={th}>Natureza</th><th style={{ ...th, textAlign: 'right' }}>Qtd</th>
-                  <th style={{ ...th, textAlign: 'right' }}>Aquisição</th><th style={{ ...th, textAlign: 'right' }}>Deprec. acum.</th>
-                  <th style={{ ...th, textAlign: 'right' }}>Líquido</th><th style={{ ...th, textAlign: 'right' }}>% deprec.</th>
-                  <th style={{ ...th, textAlign: 'right' }}>Taxa a.a. média</th>
+                  <th style={th}><span style={thWrap}>Natureza <AjudaCampo chave="ge.bens.resumo_natureza" rota={ROTA} /></span></th>
+                  <th style={{ ...th, textAlign: 'right' }}><span style={{ ...thWrap, justifyContent: 'flex-end' }}>Qtd <AjudaCampo chave="ge.bens.resumo_qtd" rota={ROTA} /></span></th>
+                  <th style={{ ...th, textAlign: 'right' }}><span style={{ ...thWrap, justifyContent: 'flex-end' }}>Aquisição <AjudaCampo chave="ge.bens.resumo_aquisicao" rota={ROTA} /></span></th>
+                  <th style={{ ...th, textAlign: 'right' }}><span style={{ ...thWrap, justifyContent: 'flex-end' }}>Deprec. acum. <AjudaCampo chave="ge.bens.resumo_deprec_acum" rota={ROTA} /></span></th>
+                  <th style={{ ...th, textAlign: 'right' }}><span style={{ ...thWrap, justifyContent: 'flex-end' }}>Líquido <AjudaCampo chave="ge.bens.resumo_liquido" rota={ROTA} /></span></th>
+                  <th style={{ ...th, textAlign: 'right' }}><span style={{ ...thWrap, justifyContent: 'flex-end' }}>% deprec. <AjudaCampo chave="ge.bens.resumo_pct_deprec" rota={ROTA} /></span></th>
+                  <th style={{ ...th, textAlign: 'right' }}><span style={{ ...thWrap, justifyContent: 'flex-end' }}>Taxa a.a. média <AjudaCampo chave="ge.bens.resumo_taxa_aa" rota={ROTA} /></span></th>
                 </tr></thead>
                 <tbody>
                   {natRows.map((n) => (

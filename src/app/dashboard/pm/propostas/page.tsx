@@ -11,6 +11,8 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import AnexosCard, { type AnexosCardHandle } from '@/components/crm/AnexosCard'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { Receipt } from 'lucide-react'
 
@@ -274,7 +276,7 @@ export default function PropostasPage() {
 
   // totais ao vivo
   const somaItens = useMemo(() => itens.reduce((s, it) => s + num(it.valor_total), 0), [itens])
-  const descNum = num(fDesconto)
+  const descNum = moedaParaNumero(fDesconto) ?? 0
   const valorFinal = Math.max(somaItens - descNum, 0)
   const propEdit = editId ? (propostas.find((x) => x.id === editId) ?? null) : null   // PM-QW #15 · proposta em edição
 
@@ -365,7 +367,7 @@ export default function PropostasPage() {
   }
 
   function abrirAprovar(p: Proposta) {
-    setAprForm({ fee: String(p.valor_final ?? p.valor_total ?? ''), dia: '10', periodicidade: 'mensal', comPct: '', comBase: 'fee', comTipo: 'unica' })
+    setAprForm({ fee: numeroParaMoeda(p.valor_final ?? p.valor_total), dia: '10', periodicidade: 'mensal', comPct: '', comBase: 'fee', comTipo: 'unica' })
     setApr(p)
   }
 
@@ -374,7 +376,7 @@ export default function PropostasPage() {
     setBusy(true)
     const { data, error } = await supabase.rpc('fn_agency_proposta_aprovar', {
       p_proposta_id: apr.id,
-      p_fee_mensal: aprForm.fee ? Number(aprForm.fee) : null,
+      p_fee_mensal: moedaParaNumero(aprForm.fee),
       p_dia_vencimento: Number(aprForm.dia) || 10,
       p_periodicidade: aprForm.periodicidade,
       p_data_inicio: new Date().toISOString().slice(0, 10),
@@ -586,7 +588,7 @@ export default function PropostasPage() {
             })()}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
-              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Desconto (R$)<AjudaCampo chave="pm.propostas.desconto" /></span><input style={inp} type="number" min={0} step="0.01" value={fDesconto} onChange={(e) => setFDesconto(e.target.value)} placeholder="0" /></label>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Desconto (R$)<AjudaCampo chave="pm.propostas.desconto" /></span><CampoMoeda value={fDesconto} onChange={setFDesconto} placeholder="R$ 0,00" style={inp} /></label>
               <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Condição<AjudaCampo chave="pm.propostas.condicao" /></span>
                 <select style={inp} value={fCondicao} onChange={(e) => setFCondicao(e.target.value)}>
                   <option>Mensal</option><option>Projeto (à vista)</option><option>Projeto (parcelado)</option>
@@ -624,7 +626,7 @@ export default function PropostasPage() {
             </div>
             <div style={{ fontSize: 11, fontWeight: 700, color: DOURADO, textTransform: 'uppercase', letterSpacing: 0.5, margin: '4px 0' }}>Contrato (fee recorrente)</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Fee mensal (R$)<AjudaCampo chave="pm.propostas.fee" /></span><input style={inp} type="number" value={aprForm.fee} onChange={(e) => setAprForm({ ...aprForm, fee: e.target.value })} placeholder="0 = sem contrato" /></label>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Fee mensal (R$)<AjudaCampo chave="pm.propostas.fee" /></span><CampoMoeda value={aprForm.fee} onChange={(v) => setAprForm({ ...aprForm, fee: v })} placeholder="R$ 0,00 = sem contrato" style={inp} /></label>
               <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Dia venc.<AjudaCampo chave="pm.propostas.dia_venc" /></span><input style={inp} type="number" min={1} max={28} value={aprForm.dia} onChange={(e) => setAprForm({ ...aprForm, dia: e.target.value })} /></label>
               <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Periodicidade<AjudaCampo chave="pm.propostas.periodicidade" /></span>
                 <select style={inp} value={aprForm.periodicidade} onChange={(e) => setAprForm({ ...aprForm, periodicidade: e.target.value })}>
