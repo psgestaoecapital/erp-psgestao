@@ -9,6 +9,7 @@ import { AlertTriangle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { parseNumBR } from '@/lib/num'
 
 const ESP = '#3D2314', GOLD = '#C8941A', LINE = '#E7DECF'
 type IndObra = { obra_id: string; numero: string; nome: string; viagens: number; custo_viagens: number; confere: boolean; m2_executado: number; custo_m2: number | null; custo_km: number | null; custo_dia: number | null; pct_orcado: number | null; alerta: boolean; preco_mobilizacao: number | null; mobilizacao_tabela: string | null; mobilizacao_pct: number | null; mobilizacao_alerta: boolean | null }
@@ -27,8 +28,8 @@ export function IndicadoresViagem({ empresa }: { empresa: string }) {
   const [erro, setErro] = useState('')
 
   useEffect(() => {
-    const pct = Number(limite.replace(',', '.'))
-    if (!Number.isFinite(pct) || pct < 0) return
+    const pct = parseNumBR(limite) // aceita vírgula e milhar BR (#5660)
+    if (pct == null || pct < 0) return // vazio/inválido -> mantém o último resultado (não consulta com 0)
     let vivo = true
     supabase.rpc('fn_viagem_indicadores', { p_company_id: empresa, p_obra_id: null, p_limite_pct: pct }).then(({ data, error }) => {
       if (!vivo) return
