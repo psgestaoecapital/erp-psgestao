@@ -8,6 +8,8 @@
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero } from '@/lib/moeda-mascara'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -74,6 +76,12 @@ function Inner() {
     custos.forEach((c) => { m[c.categoria] = (m[c.categoria] || 0) + (Number(c.valor) || 0) })
     return m
   }, [custos])
+  // Resumo "fora da curva" sempre visível: compara cada custo com 2× a mediana da categoria (histórico da empresa).
+  const curvaResumo = useMemo(() => {
+    const comBase = Object.keys(medianas).length
+    const fora = custos.filter((c) => { const md = medianas[c.categoria]; return md != null && (Number(c.valor) || 0) > 2 * md })
+    return { comBase, foraCount: fora.length }
+  }, [custos, medianas])
 
   if (!veic) return <div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>{erro ?? 'Carregando custos…'}</div>
 
@@ -117,6 +125,14 @@ function Inner() {
 
       {/* CUSTOS LANÇADOS */}
       <Bloco titulo="Custos lançados" hint="⚠️ Custo acima de 2× a mediana da categoria (no histórico da empresa) é sinalizado como “fora da curva”.">
+        {/* Indicação de comparação com a curva — sempre visível (RD-98: estado honesto do que foi avaliado). */}
+        {custos.length > 0 && (
+          curvaResumo.comBase === 0
+            ? <div data-testid="curva-resumo" style={{ fontSize: 12, color: C.espM, background: C.cream, padding: '7px 11px', borderRadius: 8, marginBottom: 10 }}>Comparação com a curva disponível a partir de 3 lançamentos na mesma categoria (histórico da empresa).</div>
+            : curvaResumo.foraCount > 0
+              ? <div data-testid="curva-resumo" style={{ fontSize: 12.5, fontWeight: 700, color: C.red, background: C.redBg, padding: '7px 11px', borderRadius: 8, marginBottom: 10 }}>⚠️ {curvaResumo.foraCount} {curvaResumo.foraCount === 1 ? 'custo' : 'custos'} fora da curva (acima de 2× a mediana da categoria).</div>
+              : <div data-testid="curva-resumo" style={{ fontSize: 12.5, fontWeight: 600, color: C.green, background: C.greenBg, padding: '7px 11px', borderRadius: 8, marginBottom: 10 }}>Todos os custos estão dentro da curva da categoria.</div>
+        )}
         {custos.length === 0 ? <div style={{ fontSize: 12.5, color: C.espL, fontStyle: 'italic' }}>Nenhum custo ainda.</div> : (
           <div>
             {custos.map((c) => {
@@ -178,8 +194,8 @@ function NovoCusto({ veiculoId, onSaved, onErro }: { veiculoId: string; onSaved:
   const [f, setF] = useState(vazio)
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
-  const valorNum = Number(String(f.valor).replace(',', '.'))
-  const valorOk = f.valor.trim() !== '' && Number.isFinite(valorNum) && valorNum > 0
+  const valorNum = moedaParaNumero(f.valor)
+  const valorOk = f.valor.trim() !== '' && valorNum != null && valorNum > 0
   const podeEnviar = valorOk && !!f.categoria.trim() && !!f.descricao.trim() && (!f.gerar || !!f.vencimento) && !busy
   async function salvar() {
     setErro(null)
@@ -201,7 +217,7 @@ function NovoCusto({ veiculoId, onSaved, onErro }: { veiculoId: string; onSaved:
     <div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
         <select value={f.categoria} onChange={(e) => setF({ ...f, categoria: e.target.value })} style={inp}>{CATS.map((c) => <option key={c} value={c}>{c.replace('_', ' ')}</option>)}</select>
-        <input value={f.valor} onChange={(e) => setF({ ...f, valor: e.target.value })} placeholder="valor *" inputMode="decimal" style={{ ...inp, width: 90 }} />
+        <CampoMoeda value={f.valor} onChange={(v) => setF({ ...f, valor: v })} placeholder="valor *" testId="custo-valor" style={{ ...inp, width: 110 }} />
         <input value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} placeholder="descrição *" style={{ ...inp, width: 170 }} />
         <input value={f.fornecedor_nome} onChange={(e) => setF({ ...f, fornecedor_nome: e.target.value })} placeholder="fornecedor" style={{ ...inp, width: 130 }} />
         <input type="date" value={f.data_custo} onChange={(e) => setF({ ...f, data_custo: e.target.value })} style={inp} />

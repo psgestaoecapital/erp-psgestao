@@ -28,7 +28,7 @@ import { MetasV7 } from './MetasV7'
 import { AbaRanking } from './AbaRanking'
 import { ModalAnalise, lerEscolhaSalva, type EscopoAnalise } from './ModalAnalise'
 
-const C = { esp: '#3D2314', off: '#FAF7F2', gold: '#C8941A', gold2: '#E0B048', verde: '#3f7d4e', bd: '#E7DED3', bg2: '#F0ECE3', m: '#6B5D4F', d: '#9C8E80' }
+const C = { esp: '#3D2314', off: '#FAF7F2', gold: '#C8941A', gold2: '#E0B048', verde: '#3f7d4e', vermelho: '#C0392B', bd: '#E7DED3', bg2: '#F0ECE3', m: '#6B5D4F', d: '#9C8E80' }
 const ROTA = '/dashboard/comercial/meu-painel'
 
 const nf = (o: Intl.NumberFormatOptions) => new Intl.NumberFormat('pt-BR', o)
@@ -63,7 +63,7 @@ const LINHAS_OPC = ['Desossado (s/osso)', 'Com osso', 'Miúdo', 'Subprodutos e o
 
 type VendRow = {
   nome: string; val: number; part: number; cli: number; notas: number; ticket: number | null; rpkg: number | null
-  idx: number | null; desc: number; dev: number; devPct: number; prazo: number | null
+  idx: number | null; vsMedia: number | null; desc: number; dev: number; devPct: number; prazo: number | null
 }
 
 export default function MeuPainelV6() {
@@ -238,11 +238,14 @@ export default function MeuPainelV6() {
     const riscos: string[] = []; const oport: string[] = []; const acoes: string[] = []
     if (!modelo || !base) return { riscos, oport, acoes }
     const nomeVen = (vi: number) => base.ven[vi]?.[1] || base.ven[vi]?.[0] || 'Sem vendedor'
-    const abusivos = [...modelo.venM].filter(([, a]) => a.tab > 0 && (100 * a.desc / a.tab) > 1.5 * descPct)
-    abusivos.forEach(([vi, a]) => {
-      const p = 100 * a.desc / a.tab
-      riscos.push(`Desconto de ${nomeVen(vi)} acima do normal: ${nf({ maximumFractionDigits: 2 }).format(p)}% (empresa ${nf({ maximumFractionDigits: 2 }).format(descPct)}%)`)
-      acoes.push(`Revisar o desconto de ${nomeVen(vi)}`)
+    // Preço por vendedor medido contra a MÉDIA DA EMPRESA (índice; 100 = média), não contra a tabela de
+    // referência do sistema de origem — que pode estar desatualizada e gerava "descontos monstruosos" falsos.
+    // Acima da média = acréscimo (conta a favor); abaixo = desconto real. Margem para destacar: 5 pontos de índice.
+    const MARGEM_INDICE = 5
+    const idxVen = [...modelo.venM].filter(([, a]) => a.exp > 0).map(([vi, a]) => ({ vi, idx: 100 * a.valP / a.exp }))
+    idxVen.filter((v) => v.idx < 100 - MARGEM_INDICE).sort((a, b) => a.idx - b.idx).forEach((v) => {
+      riscos.push(`Preço de ${nomeVen(v.vi)} abaixo da média da empresa: índice ${nf({ maximumFractionDigits: 0 }).format(v.idx)} (100 = média)`)
+      acoes.push(`Revisar o preço de ${nomeVen(v.vi)} (abaixo da média da empresa)`)
     })
     const cliVals = [...modelo.cliM].map(([ci, a]) => ({ ci, val: a.val })).sort((a, b) => b.val - a.val)
     const tot = modelo.tot.val || 1
@@ -251,9 +254,14 @@ export default function MeuPainelV6() {
     if (nA) riscos.push(`Concentração: ${nA} clientes = ${nf({ maximumFractionDigits: 1 }).format(100 * acc / tot)}% do faturamento`)
     const inat = modelo.linM.get('INATIVOS')
     if (inat && inat.val > 0) riscos.push(`Vendas de produtos inativos: ${brl0(inat.val)}`)
-    const melhor = [...modelo.venM].filter(([, a]) => a.exp > 0).map(([vi, a]) => ({ vi, idx: 100 * a.valP / a.exp }))
-      .sort((a, b) => b.idx - a.idx)[0]
-    if (melhor) oport.push(`Melhor preço médio: ${nomeVen(melhor.vi)} (índice ${nf({ maximumFractionDigits: 0 }).format(melhor.idx)})`)
+    // Acréscimo = vender ACIMA da média da empresa: conta a favor (oportunidade), nunca risco.
+    const acrescimo = idxVen.filter((v) => v.idx > 100 + MARGEM_INDICE).sort((a, b) => b.idx - a.idx)
+    if (acrescimo.length) {
+      acrescimo.forEach((v) => oport.push(`${nomeVen(v.vi)} vende acima da média (acréscimo): índice ${nf({ maximumFractionDigits: 0 }).format(v.idx)}`))
+    } else {
+      const melhor = [...idxVen].sort((a, b) => b.idx - a.idx)[0]
+      if (melhor) oport.push(`Melhor preço médio: ${nomeVen(melhor.vi)} (índice ${nf({ maximumFractionDigits: 0 }).format(melhor.idx)})`)
+    }
     const topLinha = [...modelo.linM].sort((a, b) => b[1].val - a[1].val)[0]
     if (topLinha) oport.push(`Linha que mais fatura: ${topLinha[0]} (${nf({ maximumFractionDigits: 1 }).format(100 * topLinha[1].val / tot)}%)`)
     const topDev = [...modelo.devProd].sort((a, b) => b[1] - a[1])[0]
@@ -294,6 +302,9 @@ export default function MeuPainelV6() {
         rpkg: a.kgP ? a.valP / a.kgP : null,
         // Índice na base da análise (valP, só o que entra na conta) contra o esperado (exp), mesma base do R$/kg.
         idx: a.exp > 0 ? 100 * a.valP / a.exp : null,
+        // Preço vs média da empresa, em pontos (índice − 100): >0 acréscimo (vende acima da média, conta a favor), <0 desconto real.
+        vsMedia: a.exp > 0 ? 100 * a.valP / a.exp - 100 : null,
+        // Secundário: desconto sobre a tabela de referência do sistema de origem (pode estar desatualizada).
         desc: a.tab > 0 ? 100 * a.desc / a.tab : 0,
         dev,
         devPct: a.val ? 100 * dev / a.val : 0,
@@ -451,16 +462,17 @@ export default function MeuPainelV6() {
       {r && modelo && !semVendas && (
         <>
           <p style={{ fontSize: 16, lineHeight: 1.5, margin: '0 0 16px' }}>
-            Faturou <b>{brl0(r.totalValor)}</b> em <b>{ton(modelo.tot.kg)}</b>, para <b>{int(r.clientes)} clientes</b>. Sem o despojo, o quilo sai a <b>{brl2(r.precoPorKg)}</b>. <b>{nf({ maximumFractionDigits: 1 }).format(itensAbaixoPct)}%</b> dos itens saíram abaixo do preço de tabela, somando <b>{brl0(descR)}</b> de desconto.
+            Faturou <b>{brl0(r.totalValor)}</b> em <b>{ton(modelo.tot.kg)}</b>, para <b>{int(r.clientes)} clientes</b>. Sem o despojo, o quilo sai a <b>{brl2(r.precoPorKg)}</b>. O preço por vendedor é medido pelo <b>índice vs a média da empresa</b> (100 = média): acima é acréscimo (conta a favor), abaixo é desconto real. A comparação com a tabela de referência do sistema de origem (<b>{nf({ maximumFractionDigits: 1 }).format(itensAbaixoPct)}%</b> dos itens abaixo dela, <b>{brl0(descR)}</b>) é secundária e pode estar desatualizada.
           </p>
 
           {/* 8 cards KPI (SPEC §2.1) */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 16 }}>
-            <Cartao rot="Faturamento" chave="com.painel.faturado" valor={brl0(r.totalValor)} />
+            <Cartao rot="Faturamento" chave="com.painel.faturado" valor={brl0(r.totalValor)} sub="bruto (antes das devoluções)" />
+            <Cartao rot="Faturamento líquido" chave="com.painel.faturado_liquido" valor={brl0(r.totalValor - devR)} sub={`bruto − ${brl0(devR)} de devoluções`} />
             <Cartao rot="Volume sem despojo" chave="com.painel.volume" valor={ton(modelo.tot.kgP)} sub={`total com despojo ${ton(modelo.tot.kg)}`} />
             <Cartao rot="Preço médio" chave="com.painel.preco" valor={brl2(r.precoPorKg)} sub="R$/kg sem despojo" />
             <Cartao rot="Ticket por nota" chave="com.painel.ticket" valor={brl0(ticketNota)} sub={`${int(notas)} notas`} />
-            <Cartao rot="Desconto na tabela" chave="com.painel.desconto" valor={`${nf({ maximumFractionDigits: 2 }).format(descPct)}%`} sub={brl0(descR)} />
+            <Cartao rot="Desconto vs tabela (ref.)" chave="com.painel.desconto" valor={`${nf({ maximumFractionDigits: 2 }).format(descPct)}%`} sub={`${brl0(descR)} · ref. pode estar desatualizada`} />
             <Cartao rot="Devoluções" chave="com.painel.devolucao" valor={`${nf({ maximumFractionDigits: 2 }).format(devPct)}%`} sub={brl0(devR)} />
             <Cartao rot="Clientes que compraram" chave="com.painel.clientes" valor={int(r.clientes)} />
             <Cartao rot="Prazo médio" chave="com.painel.visao" valor={prazo == null ? '—' : `${nf({ maximumFractionDigits: 1 }).format(prazo)} dias`} sub="ponderado pelo valor" />
@@ -664,12 +676,12 @@ export default function MeuPainelV6() {
             </div>
 
             <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: C.m, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>Desconto × devolução<AjudaCampo chave="com.painel.desconto" rota={ROTA} /></div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: C.m, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>Preço vs média × devolução<AjudaCampo chave="com.painel.desconto" rota={ROTA} /></div>
               <div style={{ width: '100%', height: 260 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <ScatterChart margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
                     <CartesianGrid stroke={C.bd} />
-                    <XAxis type="number" dataKey="desc" name="Desconto" unit="%" tick={{ fontSize: 11, fill: C.m }} />
+                    <XAxis type="number" dataKey="vsMedia" name="Preço vs média" unit="%" tick={{ fontSize: 11, fill: C.m }} />
                     <YAxis type="number" dataKey="devPct" name="Devolução" unit="%" tick={{ fontSize: 11, fill: C.m }} width={48} />
                     <ZAxis range={[80, 80]} />
                     <Tooltip cursor={{ strokeDasharray: '3 3' }} allowEscapeViewBox={{ x: false, y: false }}
@@ -679,7 +691,7 @@ export default function MeuPainelV6() {
                         return (
                           <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 8, padding: '6px 10px', fontSize: 12, color: C.esp, boxShadow: '0 2px 8px rgba(0,0,0,.12)' }}>
                             <div style={{ fontWeight: 700, marginBottom: 2 }}>{d.nome}</div>
-                            <div style={{ color: C.m }}>Desconto: {nf({ maximumFractionDigits: 2 }).format(d.desc)}%</div>
+                            <div style={{ color: d.vsMedia == null ? C.m : d.vsMedia >= 0 ? C.verde : C.vermelho }}>Preço vs média: {d.vsMedia == null ? '—' : `${d.vsMedia >= 0 ? '+' : '−'}${nf({ maximumFractionDigits: 1 }).format(Math.abs(d.vsMedia))}%`}</div>
                             <div style={{ color: C.m }}>Devolução: {nf({ maximumFractionDigits: 2 }).format(d.devPct)}%</div>
                           </div>
                         )
@@ -690,7 +702,7 @@ export default function MeuPainelV6() {
                   </ScatterChart>
                 </ResponsiveContainer>
               </div>
-              <div style={{ fontSize: 12, color: C.m, marginTop: 4 }}>Cada ponto é um vendedor: à direita, mais desconto; acima, mais devolução.</div>
+              <div style={{ fontSize: 12, color: C.m, marginTop: 4 }}>Cada ponto é um vendedor: à direita, vende acima da média (acréscimo); à esquerda, abaixo (desconto real); acima, mais devolução.</div>
             </div>
 
             <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16 }}>
@@ -723,7 +735,7 @@ export default function MeuPainelV6() {
                   <th style={{ padding: '6px 4px', textAlign: 'right' }}>Ticket</th>
                   <th style={{ padding: '6px 4px', textAlign: 'right' }}>R$/kg</th>
                   <th style={{ padding: '6px 4px', textAlign: 'right' }}>Índice</th>
-                  <th style={{ padding: '6px 4px', textAlign: 'right' }}>Desconto</th>
+                  <th style={{ padding: '6px 4px', textAlign: 'right' }}>Acrésc./Desc. (vs média)</th>
                   <th style={{ padding: '6px 4px', textAlign: 'right' }}>Devolução</th>
                   <th style={{ padding: '6px 4px', textAlign: 'right' }}>Prazo</th>
                 </tr>
@@ -738,7 +750,7 @@ export default function MeuPainelV6() {
                     <td style={{ padding: '6px 4px', textAlign: 'right' }}>{brl0(v.ticket)}</td>
                     <td style={{ padding: '6px 4px', textAlign: 'right' }}>{brl2(v.rpkg)}</td>
                     <td style={{ padding: '6px 4px', textAlign: 'right' }}>{v.idx == null ? '—' : nf({ maximumFractionDigits: 0 }).format(v.idx)}</td>
-                    <td style={{ padding: '6px 4px', textAlign: 'right' }}>{nf({ maximumFractionDigits: 2 }).format(v.desc)}%</td>
+                    <td style={{ padding: '6px 4px', textAlign: 'right', fontWeight: 600, color: v.vsMedia == null ? C.m : v.vsMedia >= 0 ? C.verde : C.vermelho }}>{v.vsMedia == null ? '—' : `${v.vsMedia >= 0 ? '+' : '−'}${nf({ maximumFractionDigits: 1 }).format(Math.abs(v.vsMedia))}%`}</td>
                     <td style={{ padding: '6px 4px', textAlign: 'right' }}>{brl0(v.dev)} · {nf({ maximumFractionDigits: 2 }).format(v.devPct)}%</td>
                     <td style={{ padding: '6px 4px', textAlign: 'right' }}>{v.prazo == null ? '—' : `${nf({ maximumFractionDigits: 0 }).format(v.prazo)} dias`}</td>
                   </tr>
