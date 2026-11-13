@@ -229,7 +229,7 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
               <div className="flex-1 min-w-0">
                 <div className="text-[13px] font-medium text-[#3D2314] flex items-center gap-1.5">
                   <Radio size={13} className="text-[#C8941A] flex-shrink-0" />
-                  Focus NFe (alternativo)
+                  Provedor de NF-e (alternativo)
                 </div>
                 <div className="text-[12px] text-[#3D2314]/75 mt-1">
                   Provider terceirizado · R$ 89-548/mês · útil pra prefeituras que ainda não aderiram ao NFSe Nacional.
@@ -295,7 +295,7 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
                     </>
                   ) : municipioStatus.aderido === false ? (
                     <>
-                      <strong>{municipioStatus.nome ?? 'Município'}</strong> ainda não aderiu ao SN NFS-e · considere Focus NFe
+                      <strong>{municipioStatus.nome ?? 'Município'}</strong> ainda não aderiu ao SN NFS-e · considere um provedor de NF-e
                     </>
                   ) : (
                     // RD-51: desconhecido ≠ não aderido — não alarma, e a emissão checa o cadastro oficial na hora
@@ -315,7 +315,7 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
         {provider === 'focusnfe' && (
           <div>
             <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">
-              API Key Focus NFe{' '}
+              API Key do provedor de NF-e{' '}
               {temApiKey && <span className="text-[#3D2314]/50 font-normal">(deixe vazio para manter a atual)</span>}
             </label>
             <input
@@ -323,11 +323,11 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               disabled={!podeEditar}
-              placeholder={temApiKey ? '•••••••••••••••• (já configurada — só preencha para trocar)' : 'Token gerado em focusnfe.com.br'}
+              placeholder={temApiKey ? '•••••••••••••••• (já configurada — só preencha para trocar)' : 'Token gerado no painel do provedor'}
               className="block w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 focus:border-[#C8941A]/40 font-mono disabled:bg-[#3D2314]/5"
             />
             <p className={`text-[11px] mt-1 flex items-center gap-1 ${temApiKey ? 'text-[#1F7A4D]' : 'text-[#B4471F]'}`}>
-              {temApiKey ? '✓ chave já configurada' : '⚠ sem chave — obrigatória para emitir com Focus NFe'}
+              {temApiKey ? '✓ chave já configurada' : '⚠ sem chave — obrigatória para emitir com o provedor de NF-e'}
             </p>
           </div>
         )}
