@@ -812,7 +812,7 @@ export default function ContratosPage(){
                             <span style={{fontSize:9,padding:"3px 10px",borderRadius:6,background:cfg.cor+"15",color:cfg.cor,fontWeight:600,whiteSpace:"nowrap"}}>{cfg.icon} {cfg.label}</span>
                             {/* #2de35307 · selo quando ativado sem lançar contas a receber */}
                             {c.status==='ativo'&&c.sem_contas_receber&&(
-                              <div title="Ativado sem lançar as contas a receber" style={{marginTop:4,fontSize:8.5,padding:"2px 7px",borderRadius:5,background:Y+"18",color:Y,fontWeight:600,whiteSpace:"nowrap",display:"inline-block"}}>⚠ Sem contas a receber</div>
+                              <div title="Ativado sem lançar as contas a receber" style={{marginTop:4,fontSize:8.5,padding:"2px 7px",borderRadius:5,background:Y+"18",color:Y,fontWeight:600,whiteSpace:"nowrap",display:"inline-flex",alignItems:"center",gap:3}}>⚠ Sem contas a receber <AjudaCampo chave="ge.contrato.sem_contas_receber" /></div>
                             )}
                           </td>
                           <td style={{padding:"8px",textAlign:"right",position:"relative"}} onClick={e=>e.stopPropagation()}>
@@ -1067,10 +1067,14 @@ export default function ContratosPage(){
             {/* #2de35307 · aviso permanente quando o contrato foi ativado sem gerar contas a receber */}
             {showDetalhe.status==='ativo'&&showDetalhe.sem_contas_receber&&(
               <div style={{background:Y+"12",border:`1px solid ${Y}55`,borderRadius:10,padding:"10px 12px",marginBottom:16,display:"flex",gap:10,alignItems:"center",justifyContent:"space-between",flexWrap:"wrap"}}>
-                <div style={{fontSize:12,color:TX}}>
-                  <strong style={{color:Y}}>⚠ Sem contas a receber.</strong> Este contrato foi ativado sem lançar títulos no financeiro (cobrança por fora, permuta ou lançamento manual).
+                <div style={{fontSize:12,color:TX,display:"flex",alignItems:"center",gap:4}}>
+                  <span><strong style={{color:Y}}>⚠ Sem contas a receber.</strong> Este contrato foi ativado sem lançar títulos no financeiro (cobrança por fora, permuta ou lançamento manual).</span>
+                  <AjudaCampo chave="ge.contrato.sem_contas_receber" />
                 </div>
-                <button onClick={()=>gerarContasAgora(showDetalhe)} disabled={processando} style={{padding:"7px 14px",borderRadius:8,background:G+"18",color:G,fontSize:11,fontWeight:700,border:`1px solid ${G}55`,cursor:processando?"wait":"pointer",whiteSpace:"nowrap"}}>💸 Gerar agora</button>
+                <div style={{display:"inline-flex",alignItems:"center",gap:3}}>
+                  <button onClick={()=>gerarContasAgora(showDetalhe)} disabled={processando} style={{padding:"7px 14px",borderRadius:8,background:G+"18",color:G,fontSize:11,fontWeight:700,border:`1px solid ${G}55`,cursor:processando?"wait":"pointer",whiteSpace:"nowrap"}}>💸 Gerar agora</button>
+                  <AjudaCampo chave="ge.contrato.gerar_contas_agora" />
+                </div>
               </div>
             )}
 
