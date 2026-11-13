@@ -11,6 +11,7 @@ import { fmtR } from '@/lib/psgc-tokens'
 import { supabase } from '@/lib/supabase'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
+import { parseNumBR } from '@/lib/num'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import CepEndereco from '@/components/comum/CepEndereco'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
@@ -407,7 +408,7 @@ function EscopoModal({ obra, onClose, onChanged }: { obra: Obra; onClose: () => 
     setBusy(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_obra_item_adicionar', {
       p_obra_id: obra.id, p_descricao: form.descricao.trim(), p_unidade: form.unidade.trim() || 'un',
-      p_quantidade: Number(form.quantidade.replace(',', '.')) || 0, p_preco_unit: Number(form.preco_unit.replace(',', '.')) || 0,
+      p_quantidade: parseNumBR(form.quantidade) || 0, p_preco_unit: parseNumBR(form.preco_unit) || 0,
     })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string; mensagem?: string } | null
