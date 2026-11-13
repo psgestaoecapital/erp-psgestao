@@ -121,6 +121,12 @@ test.describe('Aceitação #59 — pedido de contrato com pagamento, vigência e
     await campo(page, 'Nº de parcelas').fill('3')
     await campo(page, 'Dia do vencimento').fill('10')
     await campo(page, 'Condições específicas').fill('sem fidelidade')
+    // Vigência e 1º vencimento viraram OBRIGATÓRIOS na tela (#4789, CEO 11/11 item 4A — "dados obrigatórios do
+    // comercial ao pedir o contrato"). Sem eles a tela bloqueia o envio e 'solicitacao-criada' não abre. Preenche
+    // os mesmos campos reais que o teste do robô já passa (conserto-main).
+    await campo(page, 'Início previsto').fill('2026-10-01')
+    await campo(page, 'Fim da vigência').fill('2027-03-31')
+    await campo(page, '1º vencimento').fill('2026-10-05')
     await page.getByTestId('solicitar-contrato').click()
     await expect(page.getByTestId('solicitacao-criada')).toBeVisible({ timeout: 20000 })
     await expect(page.getByText('Modelos e documentos de referência')).toBeVisible()
