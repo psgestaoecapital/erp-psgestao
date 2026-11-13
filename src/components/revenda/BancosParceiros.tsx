@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { parseNumBR } from '@/lib/num'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const C = {
@@ -30,10 +31,10 @@ type Banco = {
 type Form = { nome: string; retorno_pct: string; prazo_dias: string; ativo: boolean }
 const VAZIO: Form = { nome: '', retorno_pct: '', prazo_dias: '', ativo: true }
 
-const decOrNull = (s: string): number | null => {
-  const n = Number(String(s).replace(',', '.'))
-  return String(s).trim() !== '' && Number.isFinite(n) ? n : null
-}
+// Chamado #5660: aceitar vírgula como separador decimal (e ponto de milhar) no % de
+// retorno. Reusa a fonte única parseNumBR (src/lib/num.ts): "2,5"→2.5, "1.234,56"→1234.56.
+// Antes, Number("1.234,56".replace(',','.'))="1.234.56"→NaN zerava o valor silenciosamente.
+const decOrNull = (s: string): number | null => parseNumBR(s)
 const intOrNull = (s: string): number | null => {
   const n = parseInt(String(s).replace(/[^\d-]/g, ''), 10)
   return Number.isFinite(n) ? n : null
