@@ -15,6 +15,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
 import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
+import { parseNumBR } from '@/lib/num'
 import { dataBrasil } from '@/lib/fiscal/dataBrasil'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERM = '#B91C1C', VERDE = '#15803D'
@@ -47,7 +48,7 @@ const VAZIO = { obra_id: '', tarefa_id: '', obra_item_id: '', descricao: '', equ
 const hoje = () => dataBrasil()
 const dataBR = (d: string | null) => (d ? d.split('-').reverse().join('/') : '')
 const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-const num = (v: string) => Number(v.replace(',', '.'))
+const num = (v: string) => parseNumBR(v) ?? NaN // horas: aceita vírgula e milhar BR (#5660)
 const VAZIO_H = { data: '', funcao_id: '', horas: '', custo_hora: '' }
 const CLIMAS: [Clima, string][] = [['sol', 'Sol'], ['nublado', 'Nublado'], ['chuva', 'Chuva'], ['chuva_forte', 'Chuva forte']]
 const VAZIO_R = { data: '', clima: 'sol' as Clima, praticavel: true, efetivo: '', quantidade: '', atividades: '', ocorrencias: '', fotos: [] as string[] }
