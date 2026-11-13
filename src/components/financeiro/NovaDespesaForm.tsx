@@ -144,6 +144,12 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
   // 01/10 · centro de custo de verdade (erp_pagar.centro_custo_id). Cada obra do Hub tem o seu → liga a despesa à obra.
   const [centros, setCentros] = useState<{ id: string; nome: string }[]>([])
   const [centroCustoId, setCentroCustoId] = useState('')
+  // Criação INLINE de centro de custo (igual ao fornecedor/plano de contas): digita um centro
+  // que ainda não existe sem sair do lançamento. fn_centro_custo_criar_inline acha/reusa ou cria.
+  const [criandoCentro, setCriandoCentro] = useState(false)
+  const [novoCentroNome, setNovoCentroNome] = useState('')
+  const [salvandoCentro, setSalvandoCentro] = useState(false)
+  const [erroCentroNovo, setErroCentroNovo] = useState<string | null>(null)
   const [numeroDocumento, setNumeroDocumento] = useState('')
   const [formaPagamento, setFormaPagamento] = useState('pix')
   const [tipoChavePix, setTipoChavePix] = useState('cpf_cnpj')
@@ -477,6 +483,25 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
       : [...lista, { id: data, nome_fantasia: nome, razao_social: nome, cpf_cnpj: null }]
         .sort((x, y) => exibirNomeFornecedor(x).localeCompare(exibirNomeFornecedor(y), 'pt-BR')))
     return data
+  }
+
+  // Centro de custo DIGITADO vira cadastro de verdade na hora (acha/reusa ou cria) e já fica
+  // selecionado — sem sair do lançamento para o cadastro de centros.
+  async function criarCentroInline() {
+    const nome = novoCentroNome.trim()
+    if (!nome) { setErroCentroNovo('Digite o nome do centro de custo.'); return }
+    setSalvandoCentro(true); setErroCentroNovo(null)
+    const { data, error } = await supabase.rpc('fn_centro_custo_criar_inline', { p_company_id: companyId, p_nome: nome })
+    setSalvandoCentro(false)
+    if (error || typeof data !== 'string') {
+      setErroCentroNovo(erroAmigavel(error, 'não foi possível criar o centro de custo agora'))
+      return
+    }
+    setCentros((lista) => lista.some((c) => c.id === data) ? lista
+      : [...lista, { id: data, nome }].sort((x, y) => x.nome.localeCompare(y.nome, 'pt-BR')))
+    setCentroCustoId(data)
+    setNovoCentroNome(''); setCriandoCentro(false)
+    setToast(`Centro de custo "${nome}" pronto e selecionado`)
   }
 
   // Descrição OPCIONAL (pedido Jordana/BPO): se vazia, geramos a partir de
@@ -872,7 +897,50 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
               Despesa de obra? Escolha a obra: o custo aparece na ficha da obra no Hub.
               {editando && !centroCustoId && String(ed.linha?.centro_custo ?? '').trim() !== '' && <> Hoje está só como texto: “{String(ed.linha?.centro_custo)}”.</>}
             </small>
+            {!criandoCentro && (
+              <button
+                type="button"
+                data-testid="despesa-centro-custo-novo-abrir"
+                onClick={() => { setCriandoCentro(true); setErroCentroNovo(null) }}
+                style={{ marginTop: 6, background: 'none', border: 'none', padding: 0, color: '#8a6d00', fontWeight: 600, fontSize: 13, cursor: 'pointer', textAlign: 'left' }}
+              >
+                + Criar novo centro de custo
+              </button>
+            )}
           </Campo>
+
+          {criandoCentro && (
+            <Campo ajuda="financeiro.despesa.centro_custo_novo" ajudaRota={ROTA_AJUDA} label="Novo centro de custo">
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <input
+                  data-testid="despesa-centro-custo-novo-nome"
+                  autoFocus
+                  value={novoCentroNome}
+                  onChange={(e) => { setNovoCentroNome(e.target.value); if (erroCentroNovo) setErroCentroNovo(null) }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void criarCentroInline() } }}
+                  placeholder="Ex.: Obra Residencial Ipê"
+                  style={{ ...inputStyle, flex: '1 1 200px' }}
+                />
+                <button
+                  type="button"
+                  data-testid="despesa-centro-custo-novo-criar"
+                  onClick={() => void criarCentroInline()}
+                  disabled={salvandoCentro || !novoCentroNome.trim()}
+                  style={{ padding: '0 16px', borderRadius: 8, border: 'none', background: '#1f2937', color: '#fff', fontWeight: 600, cursor: salvandoCentro || !novoCentroNome.trim() ? 'default' : 'pointer', opacity: salvandoCentro || !novoCentroNome.trim() ? 0.6 : 1 }}
+                >
+                  {salvandoCentro ? 'Criando…' : 'Criar'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setCriandoCentro(false); setNovoCentroNome(''); setErroCentroNovo(null) }}
+                  style={{ padding: '0 12px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', color: '#374151', cursor: 'pointer' }}
+                >
+                  Cancelar
+                </button>
+              </div>
+              {erroCentroNovo && <small style={{ ...helperStyle, color: '#b91c1c' }}>{erroCentroNovo}</small>}
+            </Campo>
+          )}
 
           {!editando && (
           <Campo ajuda="financeiro.despesa.parcelas" ajudaRota={ROTA_AJUDA} label="Quantas parcelas?" erro={erroCampo === 'parcelas' ? 'Revise as parcelas' : null}>

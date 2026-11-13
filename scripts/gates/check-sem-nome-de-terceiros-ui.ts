@@ -19,6 +19,10 @@ const MARCAS_CI = [
   'omie', 'sienge', 'conta ?azul', 'contaazul', 'nibo', 'totvs', 'protheus', 'bling', 'olist',
   'obra ?prima', 'procore', 'buildertrend', 'jobtread', 'coconstruct', 'knowify', 'assembly',
   'dotise', 'quickbooks', 'mobuss', 'prevision', 'aplix',
+  // "Focus NFe"/"focusnfe" é provedor de NF-e — nome não pode aparecer em texto visível (RD-100, aud8 13/11).
+  // Casa só a MARCA de duas palavras (com ou sem espaço): não pega "onFocus"/"autoFocus"/"focus:" do React/Tailwind,
+  // que nunca são a palavra "focus nfe". O valor técnico provider='focusnfe' vive em código, fora dos vetores visíveis.
+  'focus ?nfe',
 ]
 // Ambíguos com palavra comum (cargo "senior", verbo "siga") → só casam na grafia de MARCA (case-sensitive).
 const MARCAS_CS = ['SIGA', 'Senior']
@@ -86,6 +90,8 @@ const amostrasRuins = [
   `  if (m === 'gerida_omie') return { cor: 'x', bg: 'y', texto: 'Gerida no OMIE' }`,
   '    setToast(`... ${r.gerida_omie ?? 0} geridas no OMIE. Nada enviado à SEFAZ.`)',
   `              title="... (o OMIE faz a manifestação)."`,
+  `              placeholder="Token gerado em focusnfe.com.br"`,
+  `              placeholder="API Key Focus NFe"`,
 ]
 for (const amostra of amostrasRuins) {
   let pegou = false
@@ -101,6 +107,8 @@ const amostrasBoas = [
   `  if (m === 'gerida_omie') return // chave técnica de status`,
   `  const r = data as { gerida_omie?: number } | null`,
   `import { OmieConnector } from './omie'`,
+  `                onChange={() => setProvider('focusnfe')}`,
+  `              className="focus:outline-none focus:ring-2" onFocus={abrir}`,
 ]
 for (const amostra of amostrasBoas) {
   for (const { re } of VETORES) {
