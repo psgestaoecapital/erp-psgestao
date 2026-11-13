@@ -100,6 +100,17 @@ export function ModalAnalise({ open, onClose, empresa, base, modelo, estado, onA
         </div>
         <p style={{ fontSize: 13, color: C.m, margin: '6px 0 10px' }}>Despojo, couro, osso, sebo e itens inativos baixam o preço médio. Escolha o que entra; o painel recalcula na hora.</p>
 
+        {/* Transparência da fórmula (CEO 13/11): o que entra no faturamento, o que entra só no volume, o que fica fora. */}
+        <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 10, padding: '10px 12px', marginBottom: 10 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>Como o faturamento é formado<AjudaCampo chave="com.painel.faturado" rota={ROTA} /></div>
+          <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 5, fontSize: 13, color: C.esp }}>
+            <li><b>Faturamento (R$):</b> só a venda de mercado interno (notas de venda). É o número que bate com o relatório oficial.</li>
+            <li><b>Volume (kg):</b> inclui <b>despojo e couro</b> no peso — eles entram no volume, <b>não</b> no faturamento.</li>
+            <li><b>Fora de tudo:</b> a <b>venda balcão</b> (vai num indicador separado) e a <b>perda</b> (nota de perda) — não somam no faturamento.</li>
+          </ul>
+          <div style={{ fontSize: 12, color: C.m, marginTop: 6 }}>Abaixo você escolhe, dentro da venda, quais produtos entram no <b>preço médio</b> (o despojo costuma ficar fora).</div>
+        </div>
+
         {/* Escopo */}
         <div role="radiogroup" aria-label="Escopo da exclusão" style={{ display: 'grid', gap: 6, marginBottom: 10 }}>
           {([['preco', 'Só do preço médio e R$/kg (faturamento continua com tudo)'], ['tudo', 'De todo o painel (faturamento, volume, clientes e preço)']] as [EscopoAnalise, string][]).map(([k, rot]) => (
