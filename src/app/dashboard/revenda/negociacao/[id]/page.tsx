@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
 import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 
@@ -55,6 +56,18 @@ export default function NegociacaoPage() {
   const [aprMotivo, setAprMotivo] = useState('')
   const [perdaMotivo, setPerdaMotivo] = useState('')
   const [perdaOpen, setPerdaOpen] = useState(false)
+  // #8162 etapa 2b: bancos parceiros cadastrados (etapa 1) para seleção na negociação
+  const [parceiros, setParceiros] = useState<{ id: string; nome: string; retorno_pct: number | null }[]>([])
+
+  // carrega os bancos parceiros ATIVOS da empresa da negociação (RLS por company_id)
+  useEffect(() => {
+    const cid = neg?.company_id
+    if (!cid) { setParceiros([]); return }
+    let vivo = true
+    void supabase.from('veic_banco_parceiro').select('id, nome, retorno_pct').eq('company_id', cid).eq('ativo', true).order('nome')
+      .then(({ data }) => { if (vivo) setParceiros((data ?? []) as { id: string; nome: string; retorno_pct: number | null }[]) })
+    return () => { vivo = false }
+  }, [neg?.company_id])
 
   const carregar = useCallback(async () => {
     if (!id) return
@@ -138,6 +151,40 @@ export default function NegociacaoPage() {
     </label>
   )
 
+  // #8162 etapa 2b: retorno previsto do banco parceiro = % do banco × valor financiado (editável)
+  const parceiroSel = parceiros.find(p => p.nome === (f.banco_nome ?? ''))
+  const financiadoNum = numOrNull(f.financiado ?? '')
+  const retornoPrevisto = parceiroSel && parceiroSel.retorno_pct != null && financiadoNum != null
+    ? Math.round(financiadoNum * parceiroSel.retorno_pct) / 100
+    : null
+  const escolherBanco = (nome: string) => {
+    const p = parceiros.find(x => x.nome === nome)
+    const fin = numOrNull(f.financiado ?? '')
+    setF(s => {
+      const prox: Record<string, string> = { ...s, banco_nome: nome }
+      // retorno_banco é campo mascarado (R$) — grava texto mascarado, não número cru
+      if (p && p.retorno_pct != null && fin != null) prox.retorno_banco = numeroParaMoeda(Math.round(fin * p.retorno_pct) / 100)
+      return prox
+    })
+  }
+  // Seleção do banco parceiro; se a empresa ainda não cadastrou nenhum, mantém o campo de texto livre (compatibilidade).
+  const bancoCampo = () => {
+    if (parceiros.length === 0) return Campo('Banco', 'banco_nome')
+    const atual = f.banco_nome ?? ''
+    const legado = atual && !parceiros.some(p => p.nome === atual)
+    return (
+      <label style={{ display: 'block' }}>
+        <span style={{ fontSize: 11, color: C.espM, marginBottom: 3, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+          Banco (financiamento)<AjudaCampo chave="revenda.negociacao.banco_parceiro" rota="/dashboard/revenda/negociacao" />
+        </span>
+        <select value={atual} disabled={!aberta} onChange={e => escolherBanco(e.target.value)} style={{ ...inp, background: aberta ? C.white : C.cream }}>
+          <option value="">— selecione —</option>
+          {parceiros.map(p => <option key={p.id} value={p.nome}>{p.nome}{p.retorno_pct != null ? ` (${p.retorno_pct}%)` : ''}</option>)}
+          {legado && <option value={atual}>{atual} (cadastro antigo)</option>}
+        </select>
+      </label>
+    )
+  }
   // #6874 — campos de dinheiro com máscara R$ (formata enquanto digita)
   const CampoM = (label: string, key: string) => (
     <label style={{ display: 'block' }}>
@@ -178,11 +225,22 @@ export default function NegociacaoPage() {
               {CampoM('Desconto', 'desconto')}
               {CampoM('Entrada', 'entrada')}
               {CampoM('Financiado (banco)', 'financiado')}
-              {Campo('Banco', 'banco_nome')}
+              {bancoCampo()}
               {Campo('Parcelas', 'parcelas')}
               {CampoM('Retorno do banco', 'retorno_banco')}
               {CampoM('Espécie (dinheiro)', 'especie_valor')}
             </div>
+            {parceiroSel && parceiroSel.retorno_pct != null && (
+              <div style={{ marginTop: 8, fontSize: 12, color: C.espM, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span>Retorno previsto ({parceiroSel.retorno_pct}% × financiado): <b style={{ color: C.esp }}>{retornoPrevisto == null ? 'informe o financiado' : brl(retornoPrevisto)}</b>. Valor editável acima.</span>
+                {aberta && retornoPrevisto != null && (numOrNull(f.retorno_banco ?? '') ?? 0) !== retornoPrevisto && (
+                  <button type="button" onClick={() => setF(s => ({ ...s, retorno_banco: numeroParaMoeda(retornoPrevisto) }))}
+                    style={{ border: `1px solid ${C.gold}`, background: C.white, color: C.gold, borderRadius: 6, padding: '3px 10px', cursor: 'pointer', fontSize: 11.5, fontWeight: 700 }}>
+                    aplicar retorno previsto
+                  </button>
+                )}
+              </div>
+            )}
             <h3 style={{ fontSize: 12, fontWeight: 800, color: C.espM, margin: '16px 0 8px', textTransform: 'uppercase', letterSpacing: 0.4 }}>Troca na entrada</h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
               {Campo('Marca', 'troca_marca')}
