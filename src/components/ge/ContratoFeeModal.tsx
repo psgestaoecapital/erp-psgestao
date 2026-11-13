@@ -12,6 +12,7 @@ import { supabase } from '@/lib/supabase'
 import ContratoArquivos from './ContratoArquivos'
 import { SeloContratoSemAnexoBanner } from './SeloContratoSemAnexo'
 import ClientePickerInline from './ClientePickerInline'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import ParcelasContratoEditor from './ParcelasContratoEditor'
 import { FORMAS_PAGAMENTO, PERIODICIDADES_CONTRATO, TIPOS_REAJUSTE_CONTRATO, gradeContrato } from './contratoOpcoes'
 
@@ -86,6 +87,10 @@ export default function ContratoFeeModal({ companyId, contratoId, onClose, onSav
   const [reajuste, setReajuste] = useState('nenhum')
   const [reajustePct, setReajustePct] = useState('')
   const [especificas, setEspecificas] = useState('')
+  // P2 (CEO 11/11): empresa que fatura (escolha do financeiro). Lista = empresas do mesmo grupo com acesso.
+  const [empresasFat, setEmpresasFat] = useState<{ company_id: string; nome: string; atual: boolean }[]>([])
+  const [empresaFatId, setEmpresaFatId] = useState<string>('')
+  const [salvandoFat, setSalvandoFat] = useState(false)
 
   const carregar = useCallback(async () => {
     setLoading(true); setErro(null)
@@ -113,6 +118,31 @@ export default function ContratoFeeModal({ companyId, contratoId, onClose, onSav
   }, [contratoId])
 
   useEffect(() => { void carregar() }, [carregar])
+
+  // P2 (CEO 11/11): carrega as empresas que podem faturar (mesmo grupo + acesso do usuário)
+  const carregarEmpresasFat = useCallback(async () => {
+    const { data } = await supabase.rpc('fn_contrato_empresas_faturadoras', { p_contrato_id: contratoId })
+    const lista = (data ?? []) as { company_id: string; nome: string; atual: boolean }[]
+    setEmpresasFat(lista)
+    const atual = lista.find((e) => e.atual)
+    setEmpresaFatId(atual?.company_id ?? lista[0]?.company_id ?? '')
+  }, [contratoId])
+  useEffect(() => { void carregarEmpresasFat() }, [carregarEmpresasFat])
+
+  async function definirEmpresaFat(id: string) {
+    const anterior = empresaFatId
+    setEmpresaFatId(id)
+    setSalvandoFat(true)
+    const { data, error } = await supabase.rpc('fn_contrato_definir_empresa_faturadora', { p_contrato_id: contratoId, p_empresa_id: id })
+    setSalvandoFat(false)
+    const res = data as { ok?: boolean; erro?: string } | null
+    if (error || !res?.ok) {
+      setEmpresaFatId(anterior)
+      setErro(error?.message ?? traduz(res?.erro))
+      return
+    }
+    setToast('Empresa que fatura atualizada.')
+  }
 
   // Nº parcelas recalcula de De/Até (editável depois)
   useEffect(() => {
@@ -290,6 +320,27 @@ export default function ContratoFeeModal({ companyId, contratoId, onClose, onSav
                 </button>
               </div>
 
+              {/* P2 (CEO 11/11): empresa que fatura — escolha do financeiro, só empresas do mesmo grupo com acesso */}
+              {empresasFat.length > 0 && (
+                <Secao titulo="Faturamento">
+                  <Campo label={<>Empresa que fatura <AjudaCampo chave="contrato.empresa_faturadora" rota="/dashboard/contratos" /></>}>
+                    <select
+                      style={inp}
+                      value={empresaFatId}
+                      disabled={ativo || salvandoFat || empresasFat.length < 2}
+                      onChange={(e) => void definirEmpresaFat(e.target.value)}
+                    >
+                      {empresasFat.map((e) => <option key={e.company_id} value={e.company_id}>{e.nome}</option>)}
+                    </select>
+                    <p style={{ fontSize: 11, color: C.espressoM, marginTop: 6 }}>
+                      As parcelas, as contas a receber e a nota fiscal nascem nesta empresa. O contrato e a produção seguem na empresa de origem.
+                      {empresasFat.length < 2 ? ' Não há outra empresa do mesmo grupo com o seu acesso.' : ''}
+                      {ativo ? ' Contrato ativo: não é mais possível trocar.' : ''}
+                    </p>
+                  </Campo>
+                </Secao>
+              )}
+
               {/* Parcelas */}
               <Secao titulo="Parcelas do fee">
                 <ParcelasContratoEditor
@@ -363,7 +414,7 @@ export default function ContratoFeeModal({ companyId, contratoId, onClose, onSav
 function tabStyle(active: boolean): React.CSSProperties {
   return { flex: 1, minHeight: 34, border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer', background: active ? '#FFFFFF' : 'transparent', color: active ? '#3D2314' : '#6B5D4F', boxShadow: active ? '0 1px 3px rgba(0,0,0,.08)' : 'none' }
 }
-function Campo({ label, children }: { label: string; children: React.ReactNode }) {
+function Campo({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 14 }}>
       <label style={{ display: 'block', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>{label}</label>
@@ -387,6 +438,9 @@ function traduz(e?: string): string {
     case 'status_invalido': return 'Status inválido.'
     case 'contrato_nao_encontrado': return 'Contrato não encontrado.'
     case 'sem_acesso': return 'Você não tem acesso a esta empresa.'
+    case 'contrato_ja_ativo': return 'O contrato já está ativo — a empresa que fatura não pode mais ser trocada.'
+    case 'empresa_fora_do_grupo': return 'Essa empresa não é do mesmo grupo econômico do contrato.'
+    case 'sem_acesso_empresa_faturadora': return 'Você não tem acesso à empresa escolhida para faturar.'
     default: return e || 'Não foi possível mudar o status.'
   }
 }
