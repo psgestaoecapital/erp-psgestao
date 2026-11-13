@@ -17,6 +17,9 @@
 --   CUSTO TOTAL = R$ 12.110, CONSUMO MÉDIO ≈ 4,95 km/L, CUSTO POR KM ≈ R$ 2,63.
 
 -- 1) Seed FICTÍCIO da frota da DEMO 005 (idempotente, travado em is_demo).
+-- ci-sem-guarda: fn_demo_seed_industria_frota — seed de manutenção da DEMO, não é escrita por usuário: trava
+-- hard no ÚNICO tenant DEMO de indústria (p_company_id = c fixo; só companies.is_demo) e é chamada só pelo
+-- fn_demo_reset (service_role); nenhum company_id de registro vem do chamador, logo não há empresa a conferir.
 CREATE OR REPLACE FUNCTION public.fn_demo_seed_industria_frota(p_company_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -122,7 +125,8 @@ BEGIN
     'abastecimentos', (SELECT count(*) FROM public.erp_viagem_lancamento WHERE company_id = c AND origem_registro = 'demo_frota' AND excluido_em IS NULL));
 END $function$;
 
-REVOKE ALL ON FUNCTION public.fn_demo_seed_industria_frota(uuid) FROM anon;
+REVOKE ALL ON FUNCTION public.fn_demo_seed_industria_frota(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_demo_seed_industria_frota(uuid) TO service_role;
 
 -- 2) Liga o seed da frota ao reset da DEMO 005 (mesmo padrão do bloco de postos).
 CREATE OR REPLACE FUNCTION public.fn_demo_reset(p_company_id uuid)
@@ -228,3 +232,6 @@ BEGIN
 
   RETURN jsonb_build_object('ok', true, 'empresa', v_nome, 'seed', v_seed, 'resultado', v_res);
 END $function$;
+
+REVOKE ALL ON FUNCTION public.fn_demo_reset(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_demo_reset(uuid) TO authenticated, service_role;
