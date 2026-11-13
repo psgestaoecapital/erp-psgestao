@@ -119,3 +119,9 @@ BEGIN
 
   RETURN jsonb_build_object('ok', true, 'empresa', v_nome, 'seed', v_seed, 'resultado', v_res);
 END $function$;
+
+-- Guarda de função (RD-30 / check-fn-guards): fn_demo_reset é SECURITY DEFINER.
+-- CREATE OR REPLACE preserva a ACL viva (EXECUTE para owner, authenticated e service_role),
+-- mas o gate estático exige a declaração explícita. Espelha a ACL viva; não amplia acesso.
+REVOKE ALL ON FUNCTION public.fn_demo_reset(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_demo_reset(uuid) TO authenticated, service_role;
