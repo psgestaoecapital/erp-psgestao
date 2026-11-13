@@ -126,3 +126,9 @@ FROM (VALUES
  ('ge.extrato.acao.importar_ofx', 'Importar OFX', 'Abre a Conciliação para subir o arquivo OFX do banco quando ainda não há movimentos no período.', 'Traz os lançamentos do extrato bancário para começar a conciliar.', 'Importar o OFX do mês para popular o extrato de uma empresa nova.', 'Tentar importar um PDF do banco: o formato aceito é o OFX.', 46)
 ) AS v(chave, rotulo, o_que, para_que, exemplo, erro, ordem)
 ON CONFLICT (chave) DO NOTHING;
+
+-- ACL explícita da função SECURITY DEFINER recriada (check_fn_guards · revoke_anon):
+-- o CREATE OR REPLACE reescreve a função, então reafirmamos a ACL viva
+-- (authenticated/service_role; nunca anon/PUBLIC).
+REVOKE ALL ON FUNCTION public.fn_ge_extrato_conta(uuid, uuid, date, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ge_extrato_conta(uuid, uuid, date, date) TO authenticated, service_role;
