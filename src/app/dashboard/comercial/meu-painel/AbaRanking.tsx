@@ -17,7 +17,9 @@ const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart
 type Indic = { faturamento: number; volume_kg: number; clientes: number; clientes_novos: number; cidades: number; cidades_novas: number; preco_kg: number | null; indice_preco: number | null; desconto_pct: number | null; acrescimo_pct: number | null; devolucao_pct: number | null; crescimento_fat_pct: number | null; crescimento_vol_pct: number | null }
 // Notas 0-100: faturamento e volume ABSOLUTOS + crescimento de cada um (CEO 12/11: pontuar quem mais vende E quem mais cresce).
 type Notas = { faturamento: number; volume: number; crescimento_fat: number; crescimento_vol: number; clientes: number; cidades: number; preco: number; desconto: number; devolucao: number }
-type Vend = { cod: string; nome: string; abaixo_minimo: boolean; indicadores: Indic; notas: Notas; bloco_crescimento: number | null; bloco_margem: number | null; nota_final: number | null }
+// indicadores/notas opcionais de propósito: se a função do banco devolver um formato antigo/incompleto
+// (ex. migration do ranking pulada), a tela degrada para "—" em vez de quebrar inteira (RD-51: nunca tela quebrada).
+type Vend = { cod: string; nome: string; abaixo_minimo: boolean; indicadores?: Indic; notas?: Notas; bloco_crescimento: number | null; bloco_margem: number | null; nota_final: number | null }
 type Resp = { ok: boolean; erro?: string; base?: string; periodo?: { de: string; ate: string; de_ant: string; ate_ant: string }; pesos?: { crescimento: number; margem: number }; piso_kg?: number; vendedores?: Vend[]; podio?: { pos: number; cod: string; nome: string; nota_final: number }[] }
 // Seção "Participantes do ranking": quem o gestor marca/desmarca. Desmarcado sai do pódio e da tabela, mas segue no BI.
 type Part = { cod: string; nome: string; volume_kg: number; faturamento: number; incluido: boolean; motivo: string | null }
@@ -177,15 +179,15 @@ export function AbaRanking({ empresa }: { empresa: string | null }) {
                   <td style={{ ...tdL, color: C.m, fontWeight: 700 }}>{v.abaixo_minimo ? '—' : i + 1}</td>
                   <td style={tdL}>
                     <span style={{ fontWeight: 700, color: C.esp }}>{v.nome}</span>
-                    {v.indicadores.acrescimo_pct != null && <span title="Vendeu acima da tabela — acréscimo conta a favor da margem" style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: C.verde, background: '#E6F1E9', borderRadius: 999, padding: '1px 7px' }}>acréscimo +{nota(v.indicadores.acrescimo_pct)}%</span>}
+                    {v.indicadores?.acrescimo_pct != null && <span title="Vendeu acima da tabela — acréscimo conta a favor da margem" style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: C.verde, background: '#E6F1E9', borderRadius: 999, padding: '1px 7px' }}>acréscimo +{nota(v.indicadores.acrescimo_pct)}%</span>}
                     {v.abaixo_minimo && <span title="Volume de carteira abaixo do mínimo — fora do pódio" style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#8A6A1E', background: '#F3E6C9', borderRadius: 999, padding: '1px 7px' }}>abaixo do mínimo<AjudaCampo chave="comercial.ranking.piso" rota={ROTA} /></span>}
                   </td>
-                  <td style={tdR}>{brl0(v.indicadores.faturamento)}</td>
-                  <td style={{ ...tdR, color: (v.indicadores.crescimento_fat_pct ?? 0) >= 0 ? C.verde : C.red }}>{pct(v.indicadores.crescimento_fat_pct)}</td>
+                  <td style={tdR}>{brl0(v.indicadores?.faturamento)}</td>
+                  <td style={{ ...tdR, color: (v.indicadores?.crescimento_fat_pct ?? 0) >= 0 ? C.verde : C.red }}>{pct(v.indicadores?.crescimento_fat_pct)}</td>
                   <td style={{ ...tdR, fontWeight: 800, fontSize: 14, color: notaCor(v.nota_final) }}>{nota(v.nota_final)}</td>
                   <td style={tdR}>{nota(v.bloco_crescimento)}</td>
                   <td style={tdR}>{nota(v.bloco_margem)}</td>
-                  {COLS.map(c => <td key={c.k} style={{ ...tdRmini, color: notaCor(v.notas[c.k]) }}>{nota(v.notas[c.k])}</td>)}
+                  {COLS.map(c => <td key={c.k} style={{ ...tdRmini, color: notaCor(v.notas?.[c.k]) }}>{nota(v.notas?.[c.k])}</td>)}
                 </tr>
               ))}
               {vend.length === 0 && <tr><td colSpan={7 + COLS.length} style={{ padding: 18, textAlign: 'center', color: C.m }}>Sem vendas no período.</td></tr>}
