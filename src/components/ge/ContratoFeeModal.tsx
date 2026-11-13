@@ -9,7 +9,6 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import AjudaCampo from '@/components/ajuda/AjudaCampo'
 import ContratoArquivos from './ContratoArquivos'
 import { SeloContratoSemAnexoBanner } from './SeloContratoSemAnexo'
 import ClientePickerInline from './ClientePickerInline'
