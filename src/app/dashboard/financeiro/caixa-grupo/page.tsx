@@ -6,6 +6,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { ParaTratarHoje } from "@/components/financeiro/ParaTratarHoje";
 
 const ROTA = "/dashboard/financeiro/caixa-grupo";
 const BG = "var(--ps-bg,#FAF7F2)", BG2 = "var(--ps-bg2,#FFFFFF)", BG3 = "var(--ps-bg3,#F0ECE3)";
@@ -18,6 +19,13 @@ const hojeISO = () => new Date().toISOString().slice(0, 10);
 // Saldo do banco (extrato): data curta dd/mm e idade em dias (para avisar quando o extrato está velho).
 const diaMes = (iso?: string | null) => { if (!iso) return ""; const d = new Date(iso); return isNaN(d.getTime()) ? "" : d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }); };
 const diasAtras = (iso?: string | null) => { if (!iso) return Infinity; const d = new Date(iso); return isNaN(d.getTime()) ? Infinity : Math.floor((Date.now() - d.getTime()) / 86400000); };
+// Navegação por dia e por mês (v2, cd8f31c5) — monta a data a partir dos componentes locais (sem fuso).
+const p2 = (n: number) => String(n).padStart(2, "0");
+const isoDe = (dt: Date) => `${dt.getFullYear()}-${p2(dt.getMonth() + 1)}-${p2(dt.getDate())}`;
+const shiftDia = (iso: string, days: number) => { const [y, m, d] = iso.split("-").map(Number); return isoDe(new Date(y, m - 1, d + days)); };
+// Mês: mantém o dia; se o mês de destino for mais curto, usa o último dia dele (não "vaza" para o mês seguinte).
+const shiftMes = (iso: string, months: number) => { const [y, m, d] = iso.split("-").map(Number); const alvo = new Date(y, m - 1 + months, 1); const ultimo = new Date(alvo.getFullYear(), alvo.getMonth() + 1, 0).getDate(); return isoDe(new Date(alvo.getFullYear(), alvo.getMonth(), Math.min(d, ultimo))); };
+const rotuloDia = (iso: string) => { const dt = new Date(iso + "T00:00:00"); return isNaN(dt.getTime()) ? "" : dt.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" }); };
 
 type Conta = { conta_id: string | null; nome: string; saldo_inicial: number; entradas: number; saidas: number; transf: number; saldo_final: number;
   soma_no_saldo?: boolean; saldo_extrato?: number | null; saldo_extrato_em?: string | null; saldo_extrato_origem?: string | null };
@@ -92,6 +100,7 @@ export default function CaixaGrupoPage() {
     { chave: "saldo_final", rotulo: "Saldo final", ajuda: "financeiro.caixa_grupo.saldo_final" },
   ];
 
+  const navBtn: React.CSSProperties = { width: 32, height: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", background: BG2, border: `1px solid ${BD}`, color: TX, borderRadius: 8, fontSize: 15, cursor: "pointer", lineHeight: 1 };
   const th: React.CSSProperties = { padding: "10px 12px", fontSize: 11, color: TXD, textTransform: "uppercase", letterSpacing: 0.5, textAlign: "right", whiteSpace: "nowrap" };
   const td: React.CSSProperties = { padding: "10px 12px", fontSize: 13, textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" };
 
@@ -105,15 +114,27 @@ export default function CaixaGrupoPage() {
             {selInfo?.nome ?? "Grupo"}{empresas.length ? ` · ${empresas.length} empresa${empresas.length > 1 ? "s" : ""}` : ""}
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <label style={{ fontSize: 12, color: TXM }}>Dia</label>
-          <input type="date" value={data} onChange={(e) => setData(e.target.value || hojeISO())}
-            style={{ background: BG2, border: `1px solid ${BD}`, color: TX, borderRadius: 8, padding: "8px 10px", fontSize: 13 }} />
-          <AjudaCampo chave="financeiro.caixa_grupo.data" rota={ROTA} />
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <label style={{ fontSize: 12, color: TXM, marginRight: 2 }}>Dia</label>
+            <button type="button" aria-label="Mês anterior" title="Mês anterior" onClick={() => setData((d) => shiftMes(d, -1))} style={navBtn}>«</button>
+            <button type="button" aria-label="Dia anterior" title="Dia anterior" onClick={() => setData((d) => shiftDia(d, -1))} style={navBtn}>‹</button>
+            <input type="date" value={data} onChange={(e) => setData(e.target.value || hojeISO())}
+              style={{ background: BG2, border: `1px solid ${BD}`, color: TX, borderRadius: 8, padding: "8px 10px", fontSize: 13 }} />
+            <button type="button" aria-label="Próximo dia" title="Próximo dia" onClick={() => setData((d) => shiftDia(d, 1))} style={navBtn}>›</button>
+            <button type="button" aria-label="Próximo mês" title="Próximo mês" onClick={() => setData((d) => shiftMes(d, 1))} style={navBtn}>»</button>
+            <button type="button" onClick={() => setData(hojeISO())} disabled={data === hojeISO()}
+              style={{ ...navBtn, width: "auto", padding: "0 12px", fontWeight: 600, opacity: data === hojeISO() ? 0.5 : 1, cursor: data === hojeISO() ? "default" : "pointer" }}>Hoje</button>
+            <AjudaCampo chave="financeiro.caixa_grupo.data" rota={ROTA} />
+          </div>
+          <div style={{ fontSize: 12, color: TXM, textTransform: "capitalize" }}>{rotuloDia(data)}</div>
         </div>
       </div>
 
       {erro && <div role="alert" style={{ background: "#FCEBEB", color: VERM, padding: "10px 14px", borderRadius: 8, marginBottom: 14, fontSize: 13 }}>{erro}</div>}
+
+      {/* Para tratar hoje — o que o financeiro precisa resolver no dia (CEO 12/11) */}
+      <ParaTratarHoje companyIds={effectiveIds} data={data} multiEmpresa={multi} />
 
       {/* Resumo do dia */}
       {resp?.resumo && (

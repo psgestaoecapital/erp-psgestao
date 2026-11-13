@@ -212,12 +212,13 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
       escopo: escopo.trim() || null,
       forma_pagamento: forma || null,
       condicao_pagamento: condicao.trim() || null,
-      numero_parcelas: nParcelas ? Number(nParcelas) : null,
+      numero_parcelas: periodicidade === 'unica' ? 1 : (nParcelas ? Number(nParcelas) : null),
       periodicidade: periodicidade || null,
       dia_vencimento: dia,
       data_primeiro_vencimento: primeiroVenc || null,
       data_inicio: inicio || null,
-      data_fim: fim || null,
+      // 'Única' (evento/avulso): vigência de 1 dia — Até = De quando não informado
+      data_fim: (periodicidade === 'unica' && !fim) ? (inicio || null) : (fim || null),
       tipo_reajuste: reajuste || null,
       reajuste_percentual: reajuste !== 'nenhum' ? num(reajustePct) : null,
       condicoes_especificas: especificas.trim() || null,
@@ -380,7 +381,7 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
                     <input style={inp} type="number" min={1} value={nParcelas} onChange={(e) => setNParcelas(e.target.value)} />
                   </Campo>
                   <Campo label="Periodicidade" chave="pm.solicitar_contrato.periodicidade" ajuda>
-                    <select style={inp} value={periodicidade} onChange={(e) => setPeriodicidade(e.target.value)}>
+                    <select style={inp} value={periodicidade} onChange={(e) => { const v = e.target.value; setPeriodicidade(v); if (v === 'unica') { setNParcelas('1'); if (inicio && !fim) setFim(inicio) } }}>
                       {PERIODICIDADES_CONTRATO.map((p) => <option key={p.v} value={p.v}>{p.l}</option>)}
                     </select>
                   </Campo>
