@@ -9,6 +9,8 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 const ROTA = '/dashboard/pm/eventos'
@@ -107,7 +109,7 @@ export default function EventosPage() {
 
   function abrirNovo() { setForm({ ...FORM_VAZIO }) }
   function abrirEditar(e: Evento) {
-    setForm({ id: e.id, nome: e.nome, cliente_id: e.cliente_id ?? '', tipo: e.tipo ?? '', data_inicio: e.data_inicio ?? '', data_fim: e.data_fim ?? '', local: e.local ?? '', status: e.status, orcamento_previsto: e.orcamento_previsto != null ? String(e.orcamento_previsto) : '', responsavel_id: e.responsavel_id ?? '', observacoes: e.observacoes ?? '' })
+    setForm({ id: e.id, nome: e.nome, cliente_id: e.cliente_id ?? '', tipo: e.tipo ?? '', data_inicio: e.data_inicio ?? '', data_fim: e.data_fim ?? '', local: e.local ?? '', status: e.status, orcamento_previsto: numeroParaMoeda(e.orcamento_previsto), responsavel_id: e.responsavel_id ?? '', observacoes: e.observacoes ?? '' })
   }
   async function salvar() {
     if (!empresa || !form) return
@@ -116,7 +118,7 @@ export default function EventosPage() {
     const dados = {
       nome: form.nome.trim(), cliente_id: form.cliente_id || null, tipo: form.tipo || null,
       data_inicio: form.data_inicio || null, data_fim: form.data_fim || null, local: form.local || null,
-      status: form.status, orcamento_previsto: form.orcamento_previsto.replace(',', '.') || null,
+      status: form.status, orcamento_previsto: moedaParaNumero(form.orcamento_previsto),
       responsavel_id: form.responsavel_id || null, observacoes: form.observacoes || null,
     }
     const { data, error } = await supabase.rpc('fn_pm_evento_salvar', { p_company_id: empresa, p_id: form.id, p_dados: dados })
@@ -194,7 +196,7 @@ export default function EventosPage() {
     setBusy(true)
     const dados = {
       descricao: itemForm.descricao.trim(), categoria: itemForm.categoria || null, fornecedor: itemForm.fornecedor || null,
-      quantidade: itemForm.quantidade.replace(',', '.') || '1', valor_unitario: itemForm.valor_unitario.replace(',', '.') || '0',
+      quantidade: itemForm.quantidade.replace(',', '.') || '1', valor_unitario: moedaParaNumero(itemForm.valor_unitario) ?? 0,
       status: itemForm.status, observacao: itemForm.observacao || null,
     }
     const { data, error } = await supabase.rpc('fn_pm_evento_item_salvar', { p_evento_id: detalhe.id, p_id: itemForm.id, p_dados: dados })
@@ -352,7 +354,7 @@ export default function EventosPage() {
                   {STATUS.map((s) => <option key={s.v} value={s.v}>{s.l}</option>)}
                 </select>
               </Campo>
-              <Campo label="Orçamento previsto (R$)" chave="pm.eventos.campo_orcamento" flex><input type="number" min="0" step="0.01" value={form.orcamento_previsto} onChange={(e) => setForm({ ...form, orcamento_previsto: e.target.value })} style={inp} data-testid="evento-f-orcamento" /></Campo>
+              <Campo label="Orçamento previsto (R$)" chave="pm.eventos.campo_orcamento" flex><CampoMoeda value={form.orcamento_previsto} onChange={(v) => setForm({ ...form, orcamento_previsto: v })} placeholder="R$ 0,00" style={inp} testId="evento-f-orcamento" /></Campo>
             </div>
             <Campo label="Responsável" chave="pm.eventos.campo_responsavel">
               <select value={form.responsavel_id} onChange={(e) => setForm({ ...form, responsavel_id: e.target.value })} style={inp} data-testid="evento-f-responsavel">
@@ -451,7 +453,7 @@ export default function EventosPage() {
                             <Td><span style={{ fontSize: 10.5, fontWeight: 700, background: itCfg(it.status).cor, padding: '2px 7px', borderRadius: 999 }}>{itCfg(it.status).l}</span></Td>
                             <Td>
                               <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                <button disabled={busy} onClick={() => setItemForm({ id: it.id, descricao: it.descricao, categoria: it.categoria ?? '', fornecedor: it.fornecedor ?? '', quantidade: String(it.quantidade), valor_unitario: String(it.valor_unitario), status: it.status, observacao: it.observacao ?? '' })} style={btnGhost} data-testid={`evento-item-editar-${it.id}`}>Editar</button>
+                                <button disabled={busy} onClick={() => setItemForm({ id: it.id, descricao: it.descricao, categoria: it.categoria ?? '', fornecedor: it.fornecedor ?? '', quantidade: String(it.quantidade), valor_unitario: numeroParaMoeda(it.valor_unitario), status: it.status, observacao: it.observacao ?? '' })} style={btnGhost} data-testid={`evento-item-editar-${it.id}`}>Editar</button>
                                 <button disabled={busy} onClick={() => void excluirItem(it)} style={btnDel} data-testid={`evento-item-excluir-${it.id}`}>Excluir</button>
                               </div>
                             </Td>
@@ -471,7 +473,7 @@ export default function EventosPage() {
                   </div>
                   <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                     <Campo label="Qtd." chave="pm.eventos.item_quantidade" flex><input type="number" min="0" step="0.01" value={itemForm.quantidade} onChange={(e) => setItemForm({ ...itemForm, quantidade: e.target.value })} style={inp} data-testid="evento-item-f-quantidade" /></Campo>
-                    <Campo label="Valor unit. (R$)" chave="pm.eventos.item_valor_unitario" flex><input type="number" min="0" step="0.01" value={itemForm.valor_unitario} onChange={(e) => setItemForm({ ...itemForm, valor_unitario: e.target.value })} style={inp} data-testid="evento-item-f-valor" /></Campo>
+                    <Campo label="Valor unit. (R$)" chave="pm.eventos.item_valor_unitario" flex><CampoMoeda value={itemForm.valor_unitario} onChange={(v) => setItemForm({ ...itemForm, valor_unitario: v })} placeholder="R$ 0,00" style={inp} testId="evento-item-f-valor" /></Campo>
                     <Campo label="Situação" chave="pm.eventos.item_status" flex>
                       <select value={itemForm.status} onChange={(e) => setItemForm({ ...itemForm, status: e.target.value })} style={inp} data-testid="evento-item-f-status">
                         {ITEM_STATUS.map((s) => <option key={s.v} value={s.v}>{s.l}</option>)}
