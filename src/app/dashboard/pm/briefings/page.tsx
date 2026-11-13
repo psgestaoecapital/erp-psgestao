@@ -29,8 +29,17 @@ type Briefing = {
   referencias: string | null; tipo_servico: string | null; prioridade: string | null
   prazo_desejado: string | null; status: string; created_at: string; fee_id?: string | null
 }
-type Form = { cliente_id: string; cliente_nome: string; titulo: string; objetivo: string; descricao: string; publico_alvo: string; referencias: string; tipo_servico: string; prazo_desejado: string; fee_id: string }
-const VAZIO: Form = { cliente_id: '', cliente_nome: '', titulo: '', objetivo: '', descricao: '', publico_alvo: '', referencias: '', tipo_servico: '', prazo_desejado: '', fee_id: '' }
+type Form = { cliente_id: string; cliente_nome: string; titulo: string; objetivo: string; descricao: string; publico_alvo: string; referencias: string; tipo_servico: string; prazo_desejado: string; fee_id: string; proposta_origem_id: string }
+const VAZIO: Form = { cliente_id: '', cliente_nome: '', titulo: '', objetivo: '', descricao: '', publico_alvo: '', referencias: '', tipo_servico: '', prazo_desejado: '', fee_id: '', proposta_origem_id: '' }
+// #5461 · item "Disponível para briefing": serviço vendido de um contrato recorrente ativo (fn_pm_briefing_disponiveis).
+type Disponivel = {
+  proposta_id: string; proposta_numero: string | null; contrato_id: string | null; contrato_numero: string | null
+  cliente_id: string | null; cliente_nome: string | null; item_id: string | null; servico: string | null
+  unidade: string | null; periodicidade: string | null; quantidade: number | null; valor_unitario: number | null
+  valor_total: number | null; data_inicio: string | null; data_fim: string | null; objeto: string | null
+  escopo: string | null; condicoes: string | null; briefings_feitos: number | null
+}
+const brl = (n: number | null | undefined) => (n ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const inp = 'w-full rounded-xl border border-[#3D2314]/15 bg-white px-3 py-2 text-[13.5px] text-[#3D2314] focus:border-[#C8941A] focus:outline-none'
 const rot = 'mb-1 flex items-center text-[12px] font-semibold text-[#3D2314]'
 const resumo = (t: string | null) => (t ?? '').replace(/[*_#>`[\]()]/g, '').replace(/\s+/g, ' ').trim().slice(0, 160)
@@ -40,6 +49,8 @@ export default function BriefingsPage() {
   const empresa = selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : (companyIds[0] ?? null)
 
   const [briefings, setBriefings] = useState<Briefing[]>([])
+  const [disponiveis, setDisponiveis] = useState<Disponivel[]>([])
+  const [aba, setAba] = useState<'disponivel' | 'realizado'>('realizado')
   const [nomes, setNomes] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [novo, setNovo] = useState(false)
@@ -61,6 +72,9 @@ export default function BriefingsPage() {
       const { data: cl } = await supabase.from('agency_clientes').select('id, nome, nome_fantasia').in('id', ids)
       setNomes(Object.fromEntries(((cl ?? []) as { id: string; nome: string; nome_fantasia: string | null }[]).map((c) => [c.id, c.nome_fantasia || c.nome])))
     }
+    // #5461 · serviços vendidos de contratos recorrentes ativos, disponíveis para briefing (sem dados financeiros).
+    const { data: disp } = await supabase.rpc('fn_pm_briefing_disponiveis', { p_company_id: empresa })
+    setDisponiveis((disp ?? []) as Disponivel[])
     setLoading(false)
   }
   // eslint-disable-next-line react-hooks/set-state-in-effect -- carrega os briefings quando a empresa muda
@@ -109,9 +123,24 @@ export default function BriefingsPage() {
     setForm({
       cliente_id: b.cliente_id ?? '', cliente_nome: b.cliente_id ? (nomes[b.cliente_id] ?? '') : '', titulo: b.titulo,
       objetivo: b.objetivo ?? '', descricao: b.descricao ?? '', publico_alvo: b.publico_alvo ?? '', referencias: b.referencias ?? '',
-      tipo_servico: b.tipo_servico ?? '', prazo_desejado: b.prazo_desejado?.slice(0, 10) ?? '', fee_id: b.fee_id ?? '',
+      tipo_servico: b.tipo_servico ?? '', prazo_desejado: b.prazo_desejado?.slice(0, 10) ?? '', fee_id: b.fee_id ?? '', proposta_origem_id: '',
     })
     setEditId(b.id); setEditStatus(b.status); setNovo(true)
+  }
+  // #5461 · "Iniciar briefing" a partir de um serviço vendido: abre o modal já preenchido com os dados do contrato.
+  function iniciarBriefing(d: Disponivel) {
+    const cliente = d.cliente_nome ?? ''
+    const contrato = d.contrato_numero ? ` · ${d.contrato_numero}` : ''
+    setForm({
+      ...VAZIO,
+      cliente_id: d.cliente_id ?? '', cliente_nome: cliente,
+      titulo: `Briefing — ${d.servico ?? 'serviço'}${cliente ? ` · ${cliente}` : ''}`.slice(0, 140),
+      objetivo: (d.objeto || d.escopo || '').slice(0, 2000),
+      tipo_servico: d.servico ?? '',
+      descricao: d.condicoes ? `Condições do contrato${contrato}: ${d.condicoes}` : '',
+      proposta_origem_id: d.proposta_id,
+    })
+    setEditId(null); setEditStatus(null); setNovo(true)
   }
   function fechar() { setNovo(false); setEditId(null); setEditStatus(null); setForm(VAZIO) }
 
@@ -138,7 +167,7 @@ export default function BriefingsPage() {
     }
     const { error } = editId
       ? await supabase.from('agency_briefings').update({ ...campos, updated_at: new Date().toISOString() }).eq('id', editId).eq('company_id', empresa)
-      : await supabase.from('agency_briefings').insert({ ...campos, company_id: empresa, status: 'novo' })
+      : await supabase.from('agency_briefings').insert({ ...campos, company_id: empresa, status: 'novo', ...(form.proposta_origem_id ? { proposta_origem_id: form.proposta_origem_id } : {}) })
     setBusy(false)
     if (error) { setToast({ texto: erroAmigavel(error, 'Não foi possível salvar o briefing.') }); return }
     const eraEdicao = !!editId
@@ -195,7 +224,49 @@ export default function BriefingsPage() {
           ))}
         </div>
 
+        {/* #5461 · abas: o que foi vendido (Disponível) × o que já virou briefing (Realizado). */}
+        <div className="mb-3 flex items-center gap-1 border-b border-[#3D2314]/12">
+          {([['disponivel', 'Disponível para briefing', disponiveis.length, 'pm.briefing.aba_disponivel'], ['realizado', 'Briefing realizado', briefings.length, 'pm.briefing.aba_realizado']] as [typeof aba, string, number, string][]).map(([k, l, n, chave]) => (
+            <span key={k} className="inline-flex items-center">
+              <button onClick={() => setAba(k)} data-testid={`aba-${k}`}
+                className={`-mb-px rounded-t-lg px-3.5 py-2 text-[13px] font-medium ${aba === k ? 'border-b-2 border-[#C8941A] text-[#3D2314]' : 'text-[#3D2314]/55 hover:text-[#3D2314]'}`}>
+                {l} <span className={`ml-1 rounded-full px-1.5 py-0.5 text-[11px] ${aba === k ? 'bg-[#FCE9C2] text-[#6B4A0E]' : 'bg-[#3D2314]/8 text-[#3D2314]/60'}`}>{n}</span>
+              </button>
+              <AjudaCampo chave={chave} />
+            </span>
+          ))}
+        </div>
+
         {loading ? <div className="p-10 text-center text-[13px] text-[#3D2314]/55">Carregando…</div>
+          : aba === 'disponivel' ? (
+            disponiveis.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-[#3D2314]/20 bg-white p-10 text-center">
+                <div className="text-[15px] font-medium">Nada disponível para briefing</div>
+                <p className="mt-1 text-[13px] text-[#3D2314]/60">Quando um contrato recorrente é ativado no financeiro, os serviços vendidos aparecem aqui para iniciar o briefing.</p>
+              </div>
+            ) : (
+              <div className="grid gap-2" data-testid="disponiveis-lista">
+                {disponiveis.map((d, i) => (
+                  <div key={`${d.proposta_id}-${d.item_id ?? i}`} className="flex flex-wrap items-center gap-3 rounded-2xl border border-[#3D2314]/10 bg-white px-4 py-3" data-testid="disponivel-item">
+                    <div className="min-w-[220px] flex-1">
+                      <div className="font-medium">{d.servico || 'Serviço'}<span className="font-normal text-[#3D2314]/55"> · {d.cliente_nome || 'cliente'}</span></div>
+                      <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[12px] text-[#3D2314]/60">
+                        {d.contrato_numero && <span>contrato {d.contrato_numero}</span>}
+                        {(d.quantidade ?? 0) > 0 && <span>{Number(d.quantidade)}{d.unidade ? ` ${d.unidade}` : ''}{d.periodicidade ? ` · ${d.periodicidade}` : ''}</span>}
+                        {d.valor_total != null && <span>{brl(Number(d.valor_total))}</span>}
+                        {d.data_inicio && <span>início {d.data_inicio.split('-').reverse().join('/')}</span>}
+                      </div>
+                    </div>
+                    {(d.briefings_feitos ?? 0) > 0 && <span className="rounded-full bg-[#DCEFD7] px-2.5 py-0.5 text-[11px] font-semibold text-[#2F5A1F]">{d.briefings_feitos} briefing{(d.briefings_feitos ?? 0) > 1 ? 's' : ''} feito{(d.briefings_feitos ?? 0) > 1 ? 's' : ''}</span>}
+                    <span className="inline-flex items-center">
+                      <button onClick={() => iniciarBriefing(d)} className="inline-flex items-center gap-1.5 rounded-xl bg-[#3D2314] px-3.5 py-1.5 text-[12.5px] font-medium text-white hover:bg-[#3D2314]/90" data-testid="disponivel-iniciar"><Plus size={14} /> Iniciar briefing</button>
+                      <AjudaCampo chave="pm.briefing.iniciar_do_contrato" />
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )
+          )
           : briefings.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-[#3D2314]/20 bg-white p-10 text-center">
               <div className="text-[15px] font-medium">Nenhum briefing ainda</div>

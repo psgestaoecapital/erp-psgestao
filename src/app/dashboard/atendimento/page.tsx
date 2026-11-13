@@ -14,7 +14,7 @@ import { RespostaInline } from '@/components/melhorias/RespostaInline'
 import ConversaChamado from '@/components/melhorias/ConversaChamado'
 import AprovacoesPendentes from '@/components/melhorias/AprovacoesPendentes'
 import QuadroChamados from '@/components/melhorias/QuadroChamados'
-import { type FiltroKanban } from '@/lib/melhorias/kanban'
+import { type FiltroKanban, type ColunaKanban } from '@/lib/melhorias/kanban'
 import { estadoFila, carregarFila, contarPrecisaDeMim, rascunhoNaoEnviado, RASCUNHO_NAO_ENVIADO, filtrarBusca, carregarEmpresasDemo, semDemos, filtrarVisao, trava, type EstadoFila, type Visao } from '@/lib/sugestoes/filaAtendimento'
 
 const C = {
@@ -282,6 +282,17 @@ function Inner() {
     const r = await rpcTrava('fn_chamado_assumir', { p_id: it.id, p_agente: null })
     if (r?.ok) { setMsg(`Você assumiu o #${it.numero}.`); void carregar() } else if (r) setErro(r.mensagem || r.erro || 'Falha')
   }
+  // #7050 Fase 3: arrastar o cartão no Quadro. Hoje só Pendentes → Em andamento = assumir (vira atendente, histórico,
+  // SEM mensagem ao cliente). As demais colunas (Aguardando/Finalizados) precisam ser confirmadas com a usuária antes
+  // de construir (regra do chamado) — por ora o quadro avisa que ainda não movem.
+  async function moverNoQuadro(card: { id: string; numero: number }, de: ColunaKanban, para: ColunaKanban) {
+    if (de === 'pendentes' && para === 'andamento') {
+      const it = semDemo.find((i) => i.id === card.id)
+      if (it) await assumir(it)
+      return
+    }
+    setErro(`Por enquanto o quadro só move de Pendentes para Em andamento (assumir). Para "${para === 'finalizados' ? 'Finalizados' : para === 'aguardando' ? 'Aguardando usuário' : para}", use as ações do chamado na Lista.`)
+  }
   async function liberar(it: Item) {
     const motivo = window.prompt(`Liberar o #${it.numero}? Ele volta para a fila do responsável. Motivo (opcional):`)
     if (motivo === null) return
@@ -343,6 +354,7 @@ function Inner() {
           onFiltro={setFiltroQuadro}
           rotuloStatus={(st) => st.replace(/_/g, ' ')}
           onAbrir={(numero) => { setBusca(String(numero)); setVisao('todos'); setFormato('lista') }}
+          onMover={(card, de, para) => void moverNoQuadro(card, de, para)}
         />
       )}
       {formato === 'lista' && (<>
