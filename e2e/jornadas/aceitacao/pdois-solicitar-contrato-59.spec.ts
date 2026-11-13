@@ -110,7 +110,9 @@ test.describe('Aceitação #59 — pedido de contrato com pagamento, vigência e
     await page.getByPlaceholder('Nome do cliente').fill(nomeCliente)
     await page.getByRole('button', { name: 'Criar' }).click()
     await expect(page.getByRole('button', { name: 'Trocar' })).toBeVisible({ timeout: 15000 })
-    await campo(page, 'CPF/CNPJ do cliente').fill('12.345.678/0001-90')
+    // CPF/CNPJ passou a ser validado por dígito verificador na tela (#4775, regra CEO P2 12/11): o antigo
+    // '12.345.678/0001-90' tem DV inválido e a tela agora bloqueia o envio. Usa um CNPJ VÁLIDO de teste.
+    await campo(page, 'CPF/CNPJ do cliente').fill('11.222.333/0001-81')
     await campo(page, 'Objeto do contrato').fill('Serviços de marketing (aceitação #59)')
     await campo(page, 'Valor (por parcela)').fill('1500,50')
     await campo(page, 'Título do contrato').fill(titulo)
