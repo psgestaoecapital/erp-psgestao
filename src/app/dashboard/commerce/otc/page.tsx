@@ -642,6 +642,11 @@ function KanbanBoard({
   const [dropCol, setDropCol] = useState<'ped' | 'fat' | 'orc' | null>(null)
   const [busca, setBusca] = useState('')
   const q = busca.trim().toLowerCase()
+  // Coluna não enche a tela com centenas de cards (usabilidade): mostra os primeiros
+  // e oferece "ver todos". Reseta ao buscar (a busca já reduz a lista).
+  const LIMITE_COL = 50
+  const [verTudo, setVerTudo] = useState<Record<'orc' | 'ped' | 'fat', boolean>>({ orc: false, ped: false, fat: false })
+  useEffect(() => { setVerTudo({ orc: false, ped: false, fat: false }) }, [q])
 
   // Busca migrada da aba removida (nada se perde): filtra por número ou cliente.
   const colOrc = useMemo(
@@ -710,6 +715,21 @@ function KanbanBoard({
     </div>
   )
 
+  // Limita quantos cards a coluna renderiza; rodapé "ver todos" expande.
+  function limitar<T>(key: 'orc' | 'ped' | 'fat', col: T[]): T[] {
+    return verTudo[key] ? col : col.slice(0, LIMITE_COL)
+  }
+  function maisFooter(key: 'orc' | 'ped' | 'fat', total: number, cor: string) {
+    const restantes = total - LIMITE_COL
+    if (verTudo[key] || restantes <= 0) return null
+    return (
+      <button type="button" onClick={() => setVerTudo((s) => ({ ...s, [key]: true }))}
+        style={{ marginTop: 2, background: C.white, color: cor, border: `1px dashed ${cor}`, borderRadius: 8, padding: '7px 10px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>
+        +{restantes} {restantes === 1 ? 'restante' : 'restantes'} · ver todos
+      </button>
+    )
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
@@ -743,7 +763,7 @@ function KanbanBoard({
                 Soltar para voltar a orçamento
               </div>
             )}
-            {colOrc.length === 0 && dropCol !== 'orc' ? <KanbanVazio texto="Nenhum orçamento em aberto." /> : colOrc.map(cardOrc)}
+            {colOrc.length === 0 && dropCol !== 'orc' ? <KanbanVazio texto="Nenhum orçamento em aberto." /> : <>{limitar('orc', colOrc).map(cardOrc)}{maisFooter('orc', colOrc.length, C.gold)}</>}
           </KanbanColuna>
         </div>
 
@@ -765,7 +785,7 @@ function KanbanBoard({
                 Soltar para converter em pedido
               </div>
             )}
-            {colPed.length === 0 && dropCol !== 'ped' ? <KanbanVazio texto="Nenhum pedido em aberto. Arraste um orçamento para cá." /> : colPed.map(cardPed)}
+            {colPed.length === 0 && dropCol !== 'ped' ? <KanbanVazio texto="Nenhum pedido em aberto. Arraste um orçamento para cá." /> : <>{limitar('ped', colPed).map(cardPed)}{maisFooter('ped', colPed.length, C.blue)}</>}
           </KanbanColuna>
         </div>
 
@@ -789,7 +809,7 @@ function KanbanBoard({
                 Soltar para faturar
               </div>
             )}
-            {colFat.length === 0 && dropCol !== 'fat' ? <KanbanVazio texto="Nada faturado ainda. Arraste um pedido (ou orçamento) para cá." /> : colFat.map((p) => (
+            {colFat.length === 0 && dropCol !== 'fat' ? <KanbanVazio texto="Nada faturado ainda. Arraste um pedido (ou orçamento) para cá." /> : <>{limitar('fat', colFat).map((p) => (
               <div key={p.id} onClick={() => onAbrirPed(p)}
                 style={{ cursor: 'pointer', background: C.white, border: `1px solid ${C.border}`, borderLeft: `3px solid ${C.purple}`, borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <KanbanCardTopo numero={p.numero} status={p.status} mapa={STATUS_PED} />
@@ -799,7 +819,7 @@ function KanbanBoard({
                   <strong style={{ color: C.purple }}>{fmtBRL(p.total)}</strong>
                 </div>
               </div>
-            ))}
+            ))}{maisFooter('fat', colFat.length, C.purple)}</>}
           </KanbanColuna>
         </div>
       </div>
