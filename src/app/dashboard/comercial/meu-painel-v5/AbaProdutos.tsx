@@ -19,8 +19,12 @@ const kg0 = (v: number | null | undefined) => v == null ? '—' : nf({ maximumFr
 const pct = (v: number | null | undefined, d = 1) => v == null ? '—' : nf({ minimumFractionDigits: d, maximumFractionDigits: d }).format(v) + '%'
 const cap = (s: string) => (s || '').toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase())
 
-type Prod = { cod_produto: string; desc_produto: string; status: string; kg: number; valor_total: number }
+type Prod = { cod_produto: string; desc_produto: string; status: string; kg: number; valor_total: number; valor_liquido?: number; kg_liquido?: number; preco_medio_liquido?: number | null }
 type Resp = { ok: boolean; erro?: string; produtos?: Prod[] }
+// Faturamento LÍQUIDO por produto (venda − devolução do produto, floor) — bate produto a produto com o relatório do
+// sistema de origem. Mantém o bruto como referência secundária. RPC antiga sem o campo → cai no bruto (compatível).
+const liqV = (p: Prod) => p.valor_liquido ?? p.valor_total
+const liqKg = (p: Prod) => p.kg_liquido ?? p.kg
 
 const STATUS: Record<string, { rot: string; cor: string }> = {
   entra: { rot: 'Na análise', cor: C.verde },
@@ -54,9 +58,9 @@ export function AbaProdutos({ empresa, de, ate }: { empresa: string; de: string;
     return () => { vivo = false }
   }, [empresa, de, ate])
 
-  const linhas = useMemo(() => (resp?.produtos ?? []).slice().sort((a, b) => b.valor_total - a.valor_total), [resp])
-  const total = useMemo(() => linhas.reduce((s, l) => s + (l.valor_total || 0), 0), [linhas])
-  const maxFat = useMemo(() => Math.max(1, ...linhas.map((l) => l.valor_total || 0)), [linhas])
+  const linhas = useMemo(() => (resp?.produtos ?? []).slice().sort((a, b) => liqV(b) - liqV(a)), [resp])
+  const total = useMemo(() => linhas.reduce((s, l) => s + (liqV(l) || 0), 0), [linhas])
+  const maxFat = useMemo(() => Math.max(1, ...linhas.map((l) => liqV(l) || 0)), [linhas])
   const top = linhas[0]
 
   return (
@@ -64,7 +68,7 @@ export function AbaProdutos({ empresa, de, ate }: { empresa: string; de: string;
       <div style={{ ...card, gap: 4 }}>
         <div style={{ fontSize: 15, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>Produtos<AjudaCampo chave="com.painel.produtos" rota={ROTA} /></div>
         <div style={{ fontSize: 12, color: C.m }}>
-          Faturamento por produto no período, direto do banco (RD-38).
+          Faturamento <b>líquido</b> por produto (já descontada a devolução daquele produto), direto do banco (RD-38) — bate produto a produto com o relatório do sistema de origem. O bruto fica como referência.
           {top ? <> O que mais fatura é <b>{cap(top.desc_produto)}</b>.</> : null} A situação na análise (carne/despojo) é a marcada na engrenagem. A aba <b>Cortes</b> abre a análise de preço e desconto.
         </div>
       </div>
@@ -84,16 +88,19 @@ export function AbaProdutos({ empresa, de, ate }: { empresa: string; de: string;
                 <tr>
                   <th style={{ ...th, textAlign: 'left' }}>Produto</th>
                   <th style={{ ...th, textAlign: 'left' }}>Situação<AjudaCampo chave="com.painel.analise" rota={ROTA} /></th>
-                  <th style={th}>Faturamento<AjudaCampo chave="com.painel.faturado" rota={ROTA} /></th>
+                  <th style={th}>Faturamento líquido<AjudaCampo chave="com.painel.faturado" rota={ROTA} /></th>
                   <th style={th}>Participação<AjudaCampo chave="com.painel.participacao" rota={ROTA} /></th>
-                  <th style={th}>Volume<AjudaCampo chave="com.painel.volume" rota={ROTA} /></th>
-                  <th style={th}>R$/kg<AjudaCampo chave="com.painel.rpkg" rota={ROTA} /></th>
+                  <th style={th}>Volume líquido<AjudaCampo chave="com.painel.volume" rota={ROTA} /></th>
+                  <th style={th}>R$/kg líquido<AjudaCampo chave="com.painel.rpkg" rota={ROTA} /></th>
                 </tr>
               </thead>
               <tbody>
                 {linhas.map((l) => {
-                  const rpkg = l.kg ? l.valor_total / l.kg : null
-                  const part = total ? 100 * l.valor_total / total : 0
+                  const liq = liqV(l)
+                  const lkg = liqKg(l)
+                  const rpkg = l.preco_medio_liquido ?? (lkg ? liq / lkg : null)
+                  const part = total ? 100 * liq / total : 0
+                  const temBruto = l.valor_total != null && Math.round(l.valor_total) !== Math.round(liq)
                   const st = STATUS[l.status] ?? { rot: l.status, cor: C.m }
                   return (
                     <tr key={l.cod_produto}>
@@ -106,12 +113,13 @@ export function AbaProdutos({ empresa, de, ate }: { empresa: string; de: string;
                       </td>
                       <td style={td}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-end' }}>
-                          <span>{brl0(l.valor_total)}</span>
-                          <i style={{ display: 'block', width: `${Math.max(4, 100 * l.valor_total / maxFat)}%`, height: 5, borderRadius: 3, background: `linear-gradient(90deg, ${C.gold2}, ${C.gold})` }} />
+                          <span>{brl0(liq)}</span>
+                          {temBruto ? <span style={{ fontSize: 11, color: C.m }}>bruto {brl0(l.valor_total)}</span> : null}
+                          <i style={{ display: 'block', width: `${Math.max(4, 100 * liq / maxFat)}%`, height: 5, borderRadius: 3, background: `linear-gradient(90deg, ${C.gold2}, ${C.gold})` }} />
                         </div>
                       </td>
                       <td style={td}>{pct(part)}</td>
-                      <td style={td}>{kg0(l.kg)}</td>
+                      <td style={td}>{kg0(lkg)}</td>
                       <td style={td}>{brl2(rpkg)}</td>
                     </tr>
                   )
@@ -119,7 +127,7 @@ export function AbaProdutos({ empresa, de, ate }: { empresa: string; de: string;
               </tbody>
             </table>
           </div>
-          <div style={{ fontSize: 12, color: C.m }}>{int(linhas.length)} produtos no período · faturamento total {brl0(total)}. Sem margem: o custo do ERP de origem vem zerado — não inventamos número.</div>
+          <div style={{ fontSize: 12, color: C.m }}>{int(linhas.length)} produtos no período · faturamento líquido total {brl0(total)}. Sem margem: o custo do ERP de origem vem zerado — não inventamos número.</div>
         </section>
       )}
     </section>
