@@ -540,7 +540,16 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
         // valor_taxa/valor_liquido são do TOTAL — só gravo quando é 1 recebível (evita total em cada parcela).
         if (parcelas === 1) { patch.valor_taxa = cartaoCalc.valor_taxa; patch.valor_liquido = cartaoCalc.valor_liquido }
       }
-      if (Object.keys(patch).length) await supabase.from('erp_receber').update(patch).in('id', ids)
+      // RD-98 pilar 3: o que se salva FICA salvo. Confere o retorno e avisa em vez de sucesso falso
+      // (competência/conta/centro/PIX/cartão não podem sumir em silêncio por RLS ou erro de write).
+      if (Object.keys(patch).length) {
+        const { error: ePatch } = await supabase.from('erp_receber').update(patch).in('id', ids)
+        if (ePatch) {
+          setLoading(false)
+          setFeedback({ tipo: 'erro', texto: 'A receita foi criada, mas alguns dados (competência, conta, centro de custo ou PIX) não foram gravados. Abra o título e complete os campos.' })
+          return
+        }
+      }
     }
 
     // #3740 · venda no cartão: quita o cliente e gera um título da operadora por parcela (bruto, taxa,
