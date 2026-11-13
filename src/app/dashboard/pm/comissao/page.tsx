@@ -6,6 +6,8 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 const ROTA = '/dashboard/pm/comissao'
@@ -65,7 +67,7 @@ export default function ComissaoPage() {
 
   const valorPrevia = useMemo(() => {
     if (!form) return 0
-    const b = Number(form.base_valor.replace(',', '.')) || 0; const p = Number(form.percentual.replace(',', '.')) || 0
+    const b = moedaParaNumero(form.base_valor) ?? 0; const p = Number(form.percentual.replace(',', '.')) || 0
     return Math.round(b * p) / 100
   }, [form])
 
@@ -99,13 +101,13 @@ export default function ComissaoPage() {
 
   function abrirNovo() { setForm({ ...FORM_VAZIO, competencia: toMonth(new Date().toISOString()) }) }
   function abrirEditar(c: Comissao) {
-    setForm({ id: c.id, vendedor_id: c.vendedor_id ?? '', job_id: c.job_id ?? '', base_valor: String(c.base_valor ?? ''), percentual: String(c.percentual ?? ''), competencia: toMonth(c.competencia) })
+    setForm({ id: c.id, vendedor_id: c.vendedor_id ?? '', job_id: c.job_id ?? '', base_valor: numeroParaMoeda(c.base_valor), percentual: String(c.percentual ?? ''), competencia: toMonth(c.competencia) })
   }
   async function salvar() {
     if (!empresa || !form) return
     if (!form.vendedor_id) { setToast('Escolha o vendedor.'); return }
     if (!form.competencia) { setToast('Informe a competência.'); return }
-    const base = Number(form.base_valor.replace(',', '.')); const pct = Number(form.percentual.replace(',', '.'))
+    const base = moedaParaNumero(form.base_valor) ?? 0; const pct = Number(form.percentual.replace(',', '.'))
     if (!(base >= 0) || !(pct >= 0)) { setToast('Base e percentual não podem ser negativos.'); return }
     setBusy(true)
     const args = {
@@ -212,7 +214,7 @@ export default function ComissaoPage() {
             </Campo>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               <Campo label="Base (R$)" chave="pm.comissao.campo_base" flex>
-                <input type="number" min="0" step="0.01" value={form.base_valor} onChange={(e) => setForm({ ...form, base_valor: e.target.value })} style={inp} data-testid="comissao-f-base" />
+                <CampoMoeda value={form.base_valor} onChange={(v) => setForm({ ...form, base_valor: v })} placeholder="R$ 0,00" style={inp} testId="comissao-f-base" />
               </Campo>
               <Campo label="Percentual (%)" chave="pm.comissao.campo_percentual" flex>
                 <input type="number" min="0" step="0.01" value={form.percentual} onChange={(e) => setForm({ ...form, percentual: e.target.value })} style={inp} data-testid="comissao-f-percentual" />
