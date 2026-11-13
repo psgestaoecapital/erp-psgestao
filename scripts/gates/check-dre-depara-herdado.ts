@@ -14,7 +14,12 @@ ok(/REVOKE ALL ON FUNCTION public\.fn_psgc_contas_sem_vinculo\(uuid\) FROM PUBLI
 ok(!/\bDELETE\b|\bUPDATE\b/.test(mig.replace(/--.*$/gm, '')), 'migration sem UPDATE/DELETE em dado')
 
 const tela = readFileSync('src/app/dashboard/dre-divisional/page.tsx', 'utf8')
-ok(tela.includes("fn_psgc_contas_sem_vinculo") && tela.includes('dre-aviso-sem-vinculo') && tela.includes('Configurar DRE'),
-  'tela DRE avisa "N contas sem vínculo" com link Configurar DRE')
+// O aviso precisa existir (fn + testid) E ter um link de AÇÃO para resolver o vínculo.
+// O rótulo do CTA evoluiu de "Configurar DRE" para "Vincular contas agora →" (#4787),
+// apontando para o Plano de Contas da DRE — conferimos o destino + um CTA de vínculo,
+// não o texto exato antigo.
+ok(tela.includes("fn_psgc_contas_sem_vinculo") && tela.includes('dre-aviso-sem-vinculo')
+    && tela.includes('/dashboard/dre-divisional/plano-contas') && /Vincular contas/.test(tela),
+  'tela DRE avisa "N contas sem vínculo" com link para resolver o vínculo')
 
 if (falhas) { console.error(`\n${falhas} falha(s)`); process.exit(1) }
