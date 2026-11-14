@@ -11,6 +11,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
 import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
+import { parseNumBR } from '@/lib/num'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 const ROTA = '/dashboard/pm/eventos'
@@ -196,7 +197,7 @@ export default function EventosPage() {
     setBusy(true)
     const dados = {
       descricao: itemForm.descricao.trim(), categoria: itemForm.categoria || null, fornecedor: itemForm.fornecedor || null,
-      quantidade: itemForm.quantidade.replace(',', '.') || '1', valor_unitario: moedaParaNumero(itemForm.valor_unitario) ?? 0,
+      quantidade: String(parseNumBR(itemForm.quantidade) ?? 1), valor_unitario: moedaParaNumero(itemForm.valor_unitario) ?? 0, // qtd aceita vírgula e milhar BR (#5660)
       status: itemForm.status, observacao: itemForm.observacao || null,
     }
     const { data, error } = await supabase.rpc('fn_pm_evento_item_salvar', { p_evento_id: detalhe.id, p_id: itemForm.id, p_dados: dados })

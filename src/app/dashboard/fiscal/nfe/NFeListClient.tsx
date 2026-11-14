@@ -87,6 +87,20 @@ const fmtDoc = (cnpj: string | null, cpf: string | null) => {
 const fmtData = (iso: string | null) => { if (!iso) return '—'; try { return new Date(iso).toLocaleDateString('pt-BR') } catch { return '—' } }
 const fmtDataHora = (iso: string | null) => { if (!iso) return '—'; try { return new Date(iso).toLocaleString('pt-BR') } catch { return '—' } }
 
+// criterio-e (RD-98): nunca mostrar o erro cru do banco/rede ao usuário. Traduz os casos comuns e, para
+// qualquer coisa técnica (código, SQL, stack), devolve uma frase curta e acionável no lugar do texto bruto.
+function mensagemAmigavel(e: unknown, fallback: string): string {
+  const raw = e instanceof Error ? e.message : typeof e === 'string' ? e : ''
+  if (!raw) return fallback
+  const m = raw.toLowerCase()
+  if (m.includes('sem_acesso') || m.includes('permission') || m.includes('row-level') || m.includes('rls')) return 'Você não tem acesso às notas desta empresa.'
+  if (m.includes('failed to fetch') || m.includes('networkerror') || m.includes('network') || m.includes('timeout') || m.includes('fetch')) return 'Falha de conexão ao falar com o servidor. Verifique a internet e tente de novo.'
+  if (m.includes('jwt') || m.includes('expired') || m.includes('token')) return 'Sua sessão expirou. Entre novamente para continuar.'
+  // mensagens já amigáveis (curtas, em português, sem termos técnicos) passam direto
+  if (raw.length <= 120 && !/[_{}]|error|exception|null|undefined|\bsql\b|pgrst|constraint|violat/i.test(raw)) return raw
+  return fallback
+}
+
 const FINALIDADE_BADGE: Record<string, string> = { devolucao: 'DEVOLUÇÃO', complementar: 'COMPLEMENTAR', ajuste: 'AJUSTE' }
 const RESULTADO_ROTULO: Record<string, { t: string; cor: string }> = {
   ok: { t: 'confirmado', cor: '#166534' }, ja_cancelada: { t: 'já cancelada (sincronizada)', cor: '#166534' },
@@ -158,7 +172,7 @@ export default function NFeListClient() {
       setDocumentos(r.documentos ?? [])
       setTotal(r.total ?? 0)
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro ao carregar')
+      setErro(mensagemAmigavel(e, 'Não foi possível carregar as notas agora. Tente novamente em instantes.'))
     } finally {
       setLoading(false)
     }
@@ -249,7 +263,7 @@ export default function NFeListClient() {
       if (signed.error || !signed.data?.signedUrl) throw new Error(signed.error?.message ?? 'Erro ao gerar URL assinada')
       await baixarUrlComNome(signed.data.signedUrl, nome)
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Erro ao baixar')
+      alert(mensagemAmigavel(e, 'Não foi possível baixar o arquivo agora. Tente novamente em instantes.'))
     } finally {
       setBaixando(null)
     }
@@ -350,17 +364,17 @@ export default function NFeListClient() {
 
         <div className="bg-white border border-[#3D2314]/10 rounded-xl p-4 mb-4">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
-            <div className="lg:col-span-2">
-              <label className="text-[11px] font-medium text-[#3D2314]/70 block mb-1">Buscar destinatário / número / natureza</label>
+            <label className="lg:col-span-2 block">
+              <span className="text-[11px] font-medium text-[#3D2314]/70 mb-1 flex items-center gap-1">Buscar destinatário / número / natureza <AjudaCampo chave="fiscal.nfe.busca" /></span>
               <div className="relative">
                 <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#3D2314]/40" />
                 <input type="text" value={busca} onChange={(e) => setBusca(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && aplicarBusca()}
                   placeholder="XYZ Eireli, 000001, venda..."
                   className="w-full pl-8 pr-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40" />
               </div>
-            </div>
-            <div>
-              <label className="text-[11px] font-medium text-[#3D2314]/70 block mb-1">Status (principal)</label>
+            </label>
+            <label className="block">
+              <span className="text-[11px] font-medium text-[#3D2314]/70 mb-1 flex items-center gap-1">Status (principal) <AjudaCampo chave="fiscal.nfe.status" /></span>
               <select value={statusFiltro} onChange={(e) => { setStatusFiltro(e.target.value); setPagina(1) }}
                 className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg bg-white">
                 <option value="">Todos</option>
@@ -370,9 +384,9 @@ export default function NFeListClient() {
                 <option value="cancelada">Cancelada</option>
                 <option value="denegada">Denegada</option>
               </select>
-            </div>
-            <div>
-              <label className="text-[11px] font-medium text-[#3D2314]/70 block mb-1">Finalidade</label>
+            </label>
+            <label className="block">
+              <span className="text-[11px] font-medium text-[#3D2314]/70 mb-1 flex items-center gap-1">Finalidade <AjudaCampo chave="fiscal.nfe.finalidade" /></span>
               <select value={finalidadeFiltro} onChange={(e) => { setFinalidadeFiltro(e.target.value); setPagina(1) }}
                 className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg bg-white">
                 <option value="">Todas</option>
@@ -381,25 +395,25 @@ export default function NFeListClient() {
                 <option value="complementar">Complementar</option>
                 <option value="ajuste">Ajuste</option>
               </select>
-            </div>
-            <div>
-              <label className="text-[11px] font-medium text-[#3D2314]/70 block mb-1">De</label>
+            </label>
+            <label className="block">
+              <span className="text-[11px] font-medium text-[#3D2314]/70 mb-1 flex items-center gap-1">De <AjudaCampo chave="fiscal.nfe.data_inicio" /></span>
               <input type="date" value={dataInicio} onChange={(e) => { setDataInicio(e.target.value); setPagina(1) }}
                 className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg" />
-            </div>
+            </label>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 mt-3">
-            <div>
-              <label className="text-[11px] font-medium text-[#3D2314]/70 block mb-1">Até</label>
+            <label className="block">
+              <span className="text-[11px] font-medium text-[#3D2314]/70 mb-1 flex items-center gap-1">Até <AjudaCampo chave="fiscal.nfe.data_fim" /></span>
               <input type="date" value={dataFim} onChange={(e) => { setDataFim(e.target.value); setPagina(1) }}
                 className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg" />
-            </div>
+            </label>
           </div>
           <div className="flex items-center justify-between gap-2 mt-3 flex-wrap">
             <label className="inline-flex items-center gap-2 text-[12px] text-[#3D2314]/80 cursor-pointer select-none">
               <input type="checkbox" checked={mostrarRecusadas} onChange={(e) => { setMostrarRecusadas(e.target.checked); setPagina(1) }}
                 data-testid="nfe-mostrar-recusadas" className="accent-[#C8941A]" />
-              Mostrar tentativas recusadas (visão antiga)
+              <span className="flex items-center gap-1">Mostrar tentativas recusadas (visão antiga) <AjudaCampo chave="fiscal.nfe.mostrar_recusadas" /></span>
             </label>
             <div className="flex gap-2">
               <button type="button" onClick={resetFiltros} className="px-3 py-1.5 text-[12px] font-medium rounded-lg border border-[#3D2314]/15 text-[#3D2314] hover:bg-[#3D2314]/5">Limpar</button>
@@ -422,7 +436,21 @@ export default function NFeListClient() {
           {loading ? (
             <div className="py-12 flex justify-center"><Loader2 className="animate-spin text-[#C8941A]" size={24} /></div>
           ) : documentos.length === 0 ? (
-            <div className="py-12 text-center text-[12.5px] text-[#3D2314]/60">Nenhum documento encontrado com esses filtros.</div>
+            <div className="py-12 flex flex-col items-center gap-3 text-center px-4">
+              <FileText size={28} className="text-[#3D2314]/25" />
+              <div className="text-[13px] text-[#3D2314]/70">Nenhuma NF-e emitida ainda.</div>
+              <div className="text-[12px] text-[#3D2314]/55 max-w-sm">Emita sua primeira nota (modelo 55) ou ajuste os filtros acima para encontrar o que procura.</div>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <Link href="/dashboard/fiscal/nfe/remessa" data-testid="nfe-empty-emitir"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-[12.5px] font-semibold rounded-lg bg-[#C8941A] text-white hover:bg-[#A77A12]">
+                  <FileText size={13} /> Emitir NF-e
+                </Link>
+                <button type="button" onClick={resetFiltros}
+                  className="px-3 py-2 text-[12.5px] font-medium rounded-lg border border-[#3D2314]/15 text-[#3D2314] hover:bg-[#3D2314]/5">
+                  Limpar filtros
+                </button>
+              </div>
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-[13px]">
@@ -495,11 +523,13 @@ export default function NFeListClient() {
               </div>
             </div>
             <div className="mb-3">
-              <label className="block text-[11.5px] font-medium text-[#3D2314] mb-1.5">Texto da correção (15-1000 caracteres) <span className="text-[#A32D2D]">*</span></label>
-              <textarea value={ccCorrecao} onChange={(e) => setCcCorrecao(e.target.value)} rows={5} maxLength={1000}
-                placeholder="Ex: Onde se lê 'Av. das Flores 123', leia-se 'Av. das Flores 132'."
-                className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A] resize-none"
-                disabled={enviandoCC} data-testid="nfe-cc-texto" />
+              <label className="block">
+                <span className="block text-[11.5px] font-medium text-[#3D2314] mb-1.5 flex items-center gap-1">Texto da correção (15-1000 caracteres) <span className="text-[#A32D2D]">*</span> <AjudaCampo chave="fiscal.nfe.acao_carta_correcao" /></span>
+                <textarea value={ccCorrecao} onChange={(e) => setCcCorrecao(e.target.value)} rows={5} maxLength={1000}
+                  placeholder="Ex: Onde se lê 'Av. das Flores 123', leia-se 'Av. das Flores 132'."
+                  className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A] resize-none"
+                  disabled={enviandoCC} data-testid="nfe-cc-texto" />
+              </label>
               <div className="flex justify-between mt-1 text-[10.5px]">
                 <span className={ccCorrecao.length < 15 ? 'text-[#A32D2D]' : 'text-[#3D2314]/55'}>{ccCorrecao.length}/15 mínimo</span>
                 <span className={ccCorrecao.length > 1000 ? 'text-[#A32D2D]' : 'text-[#3D2314]/55'}>{ccCorrecao.length}/1000</span>
@@ -530,11 +560,13 @@ export default function NFeListClient() {
               </div>
             </div>
             <div className="mb-3">
-              <label className="block text-[11.5px] font-medium text-[#3D2314] mb-1.5">Justificativa (mínimo 15 caracteres) <span className="text-[#A32D2D]">*</span></label>
-              <textarea value={justifCancel} onChange={(e) => setJustifCancel(e.target.value)} rows={3} maxLength={255}
-                placeholder="Ex: Erro no destinatário · Reemissão necessária"
-                className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#A32D2D] resize-none"
-                disabled={enviandoCancel} data-testid="nfe-cancelar-justificativa" />
+              <label className="block">
+                <span className="block text-[11.5px] font-medium text-[#3D2314] mb-1.5 flex items-center gap-1">Justificativa (mínimo 15 caracteres) <span className="text-[#A32D2D]">*</span> <AjudaCampo chave="fiscal.nfe.acao_cancelar" /></span>
+                <textarea value={justifCancel} onChange={(e) => setJustifCancel(e.target.value)} rows={3} maxLength={255}
+                  placeholder="Ex: Erro no destinatário · Reemissão necessária"
+                  className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#A32D2D] resize-none"
+                  disabled={enviandoCancel} data-testid="nfe-cancelar-justificativa" />
+              </label>
               <div className="flex justify-between mt-1 text-[10.5px]">
                 <span className={justifCancel.length < 15 ? 'text-[#A32D2D]' : 'text-[#3D2314]/55'}>{justifCancel.length}/15 mínimo</span>
                 <span className="text-[#3D2314]/55">{justifCancel.length}/255</span>
@@ -622,6 +654,7 @@ function DocumentoLinhas(props: {
                   {consultando === doc.principal_id ? <Loader2 size={12} className="animate-spin" /> : <Clock size={12} />} Consultar agora
                 </button>
               )}
+              {doc.status_principal === 'processando' && <AjudaCampo chave="fiscal.nfe.acao_consultar" />}
               {doc.pode_reenviar && (
                 <button type="button" onClick={onReenviar} disabled={reabrindo === doc.grupo_chave}
                   data-testid="nfe-corrigir-reenviar"
@@ -649,10 +682,12 @@ function DocumentoLinhas(props: {
                     className="px-3 py-1.5 text-[11.5px] font-medium rounded-lg border border-[#C8941A]/40 text-[#3D2314] hover:bg-[#C8941A]/10 flex items-center gap-1.5">
                     <Edit3 size={12} /> Carta de correção
                   </button>
+                  <AjudaCampo chave="fiscal.nfe.acao_carta_correcao" />
                   <button type="button" onClick={onCancelar} data-testid="nfe-cancelar"
                     className="px-3 py-1.5 text-[11.5px] font-medium rounded-lg border border-[#3D2314]/25 text-[#3D2314] hover:bg-[#3D2314]/5 flex items-center gap-1.5">
                     <Ban size={12} /> Cancelar nota
                   </button>
+                  <AjudaCampo chave="fiscal.nfe.acao_cancelar" />
                 </>
               )}
             </div>
@@ -727,7 +762,7 @@ function TimelineItem({ ev, onBaixar, baixando }: {
         <span style={{ color: meta.cor }} className="inline-flex items-center gap-1 text-[12px] font-semibold">{meta.icon} {meta.titulo}</span>
         <span className="text-[10.5px] text-[#3D2314]/70 font-mono">{fmtDataHora(ev.quando)}</span>
         {ev.http_status != null && <span className="text-[10.5px] text-[#3D2314]/65 font-mono">HTTP {ev.http_status}</span>}
-        {ev.provider_codigo && <span className="text-[10.5px] text-[#3D2314]/75 font-mono">{ev.provider_codigo}</span>}
+        {/* RD-100: código técnico do provedor NÃO é exibido ao usuário (poderia revelar nome de terceiro); fica só no registro interno. */}
       </div>
       {ev.detalhe && <div className="text-[11.5px] text-[#3D2314]/75 mt-0.5">{ev.detalhe}</div>}
       {ev.chave && <div className="text-[10.5px] text-[#3D2314]/70 font-mono mt-0.5 break-all">chave: {ev.chave}</div>}

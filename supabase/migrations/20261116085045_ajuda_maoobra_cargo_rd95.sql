@@ -1,0 +1,50 @@
+-- RD-95: "?" dos campos/filtros/indicadores/ações da aba Cargos da tela Indústria › RH › Mão de obra.
+-- PR2 do scaffold "Gestão de Mão de Obra" (CADASTRO de CARGO), agnóstico de ramo (serve frigorífico E fábrica de monte).
+-- Reaproveita os RPCs existentes fn_prod_cargo_salvar / fn_prod_cargo_excluir (RLS por company_id, soft-delete RD-98).
+-- Aditivo: só INSERT de texto de ajuda (ON CONFLICT (chave) DO NOTHING), nunca altera dado de cliente.
+-- Agente desenvolvedor_4_g (faixa de segundos :45–:54, acima da main).
+INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
+VALUES
+  ('maoobra.cargo.busca', 'Mão de obra · Cargos', 'Buscar cargo',
+   'Digite parte do nome do cargo para filtrar a lista.',
+   'Encontra rápido um cargo quando a empresa tem muitos — a lista abaixo mostra só os que casam com o texto.',
+   'Digitar "operador" para ver só os cargos de Operador.',
+   'Esperar que a busca crie um cargo: ela só filtra; para criar use "+ Novo cargo".',
+   0, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado'),
+  ('maoobra.cargo.nome', 'Mão de obra · Cargos', 'Nome do cargo',
+   'O nome do cargo como a empresa o chama (ex.: Operador de produção, Encarregado, Auxiliar, Faqueiro, Montador).',
+   'O cargo classifica as pessoas e os postos de trabalho — é a base para definir salário por cargo e comparar custo e produtividade por função.',
+   'Operador de produção',
+   'Repetir um nome que já existe na empresa: o sistema recusa nomes duplicados. Ajuste o nome ou reative o cargo inativo.',
+   1, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado'),
+  ('maoobra.cargo.mostrar_inativos', 'Mão de obra · Cargos', 'Mostrar inativos',
+   'Marque para ver também os cargos arquivados (inativos), além dos ativos.',
+   'Um cargo excluído é apenas arquivado (o histórico fica guardado); ligue esta opção para encontrá-lo e, se precisar, voltar a usá-lo.',
+   'Marcar para localizar o cargo "Ajudante" arquivado por engano.',
+   'Achar que o cargo sumiu: ele foi arquivado, não apagado — marque "Mostrar inativos" para vê-lo.',
+   2, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado'),
+  ('maoobra.cargo.novo', 'Mão de obra · Cargos', 'Novo cargo',
+   'Abre o campo para cadastrar um novo cargo.',
+   'Cadastra o cargo que vai classificar as pessoas e os postos; depois você define o salário base do cargo e liga os postos a ele.',
+   'Criar o cargo "Encarregado de turno" antes de cadastrar os postos de liderança.',
+   'Criar cargos duplicados com grafias diferentes (ex.: "Operador" e "operador de prod."): padronize o nome.',
+   3, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado'),
+  ('maoobra.cargo.editar', 'Mão de obra · Cargos', 'Editar cargo',
+   'Renomeia o cargo. Os postos e as pessoas já ligados a ele continuam ligados.',
+   'Corrige um nome digitado errado ou padroniza a nomenclatura sem perder os vínculos existentes.',
+   'Renomear "Operador" para "Operador de produção".',
+   'Usar a edição para "mover" postos de cargo: a edição só troca o nome; para mudar o cargo de um posto, altere o posto.',
+   4, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado'),
+  ('maoobra.cargo.excluir', 'Mão de obra · Cargos', 'Excluir cargo',
+   'Arquiva o cargo (exclusão rastreável): ele sai da lista, mas o histórico é preservado.',
+   'Tira da operação um cargo que não existe mais, sem apagar os dados antigos que dependem dele.',
+   'Arquivar o cargo "Estagiário de linha" depois que a função deixou de existir.',
+   'Tentar excluir um cargo que ainda tem postos ativos: o sistema recusa e avisa quantos postos usam o cargo — mova ou arquive os postos antes.',
+   5, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado'),
+  ('maoobra.cargo.postos', 'Mão de obra · Cargos', 'Postos no cargo',
+   'Indicador (não editável): quantos postos de trabalho ativos estão ligados a este cargo.',
+   'Mostra o uso do cargo e avisa que ele está em operação — um cargo com postos ativos não pode ser arquivado.',
+   '"3 postos" no cargo de Faqueiro.',
+   'Esperar incluir posto por aqui: os postos são cadastrados na aba de Postos; aqui você só vê a contagem.',
+   6, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado')
+ON CONFLICT (chave) DO NOTHING;

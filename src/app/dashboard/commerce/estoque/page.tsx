@@ -16,10 +16,12 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { selecionarTodas } from '@/lib/selecionarTodas'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import TabVeiculosRevenda, { type EstoqueVeiculos } from '@/components/estoque/TabVeiculosRevenda'
 import { BaixarPlanilhaContagemModal, SubirContagemModal } from '@/components/estoque/PlanilhaContagemInventario'
+import ProdutoForm, { type Produto as ProdutoFicha } from '@/components/cadastros/ProdutoForm'
 import {
   Plus, Search, Boxes, Package, ArrowRightLeft, BarChart3,
   X, Info, Trash2, Pencil, Download, Upload, Car,
@@ -136,7 +138,6 @@ type Movimentacao = {
   lote: string | null
   validade: string | null
   observacoes: string | null
-  usuario_nome: string | null            // §6 · coluna órfã (cópia vazia) — não usar; ver usuario_nome_resolvido
   usuario_id: string | null
   produto_nome: string | null            // §6 · resolvido na view v_estoque_movimentacoes
   produto_codigo: string | null
@@ -230,6 +231,11 @@ function EstoqueInner() {
   // Bloco D · reserva de estoque como ESTADO (fonte: fn_estoque_reservas). Mapa produto_id → reservado.
   // Só produtos COM reserva vêm no mapa; disponível = físico − (reservado ?? 0). Nada muda de lugar.
   const [reservas, setReservas] = useState<Record<string, number>>({})
+  // F2.3 · saldo POR LOCAL (fonte: fn_estoque_saldo_por_local, reconstruído dos
+  // movimentos). Mapa produto_id → [{ local_id, saldo }]. Só produtos com movimento
+  // localizado vêm aqui; o restante (não localizado) a UI joga no local principal
+  // reconciliando com erp_produtos.estoque_atual (fonte da verdade do total).
+  const [saldoPorLocal, setSaldoPorLocal] = useState<Record<string, { local_id: string; saldo: number }[]>>({})
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
   const [erro, setErro] = useState('')
@@ -285,7 +291,7 @@ function EstoqueInner() {
   // multi-empresa. Gate estrito em companyIdUnico + .eq (era .in(companyIds)).
   const carregar = useCallback(async () => {
     if (!companyIdUnico) {
-      setLocais([]); setProdutos([]); setMovimentacoes([]); setCurva([]); setInventarios([]); setReservas({})
+      setLocais([]); setProdutos([]); setMovimentacoes([]); setCurva([]); setInventarios([]); setReservas({}); setSaldoPorLocal({})
       return
     }
     setLoading(true)
@@ -293,8 +299,8 @@ function EstoqueInner() {
     // FIX cf980ce1 · "Carregando" preso: qualquer falha de rede fazia o Promise.all rejeitar e o
     // setLoading(false) nunca rodava. try/finally garante que a tela SEMPRE sai do "Carregando…".
     try {
-      const [loc, prod, mov, abc, inv, rsv] = await Promise.all([
-        supabase.from('erp_estoque_locais').select('*').eq('company_id', companyIdUnico).order('principal', { ascending: false }).order('nome'),
+      const [loc, prod, mov, abc, inv, rsv, spl] = await Promise.all([
+        supabase.from('erp_estoque_locais').select('*').eq('company_id', companyIdUnico).eq('ativo', true).order('principal', { ascending: false }).order('nome'),
         // #126: .limit(5000) voltava só 1000 (teto do PostgREST) → 1485 importados, 1000 na tela. Busca em páginas.
         selecionarTodas<Produto>((de, ate) => supabase.from('erp_produtos').select('id,company_id,codigo,nome,categoria,unidade,preco_venda,preco_custo,preco_custo_medio,estoque_atual,estoque_minimo,estoque_maximo,localizacao,ativo')
           .eq('company_id', companyIdUnico).eq('ativo', true).order('nome').order('id').range(de, ate)),
@@ -304,6 +310,8 @@ function EstoqueInner() {
         supabase.from('erp_inventarios').select('*').eq('company_id', companyIdUnico).order('created_at', { ascending: false }).limit(50),
         // Bloco D · reserva por produto (estado; só produtos com reserva voltam)
         supabase.rpc('fn_estoque_reservas', { p_company_ids: [companyIdUnico] }),
+        // F2.3 · saldo por local/depósito (reconstruído dos movimentos)
+        supabase.rpc('fn_estoque_saldo_por_local', { p_company_ids: [companyIdUnico] }),
       ])
       if (loc.error) setErro('Locais: ' + erroAmigavel(loc.error))
       else setLocais((loc.data ?? []) as Local[])
@@ -321,6 +329,15 @@ function EstoqueInner() {
         for (const r of ((rsv.data ?? []) as { produto_id: string; reservado: number }[])) m[r.produto_id] = Number(r.reservado ?? 0)
         setReservas(m)
       } else setReservas({})
+      // saldo por local é auxiliar: se falhar, a UI cai no total no local principal
+      if (!spl.error) {
+        const porProd: Record<string, { local_id: string; saldo: number }[]> = {}
+        for (const r of ((spl.data ?? []) as { produto_id: string; local_id: string; saldo: number }[])) {
+          if (!r.produto_id || !r.local_id) continue
+          ;(porProd[r.produto_id] ??= []).push({ local_id: r.local_id, saldo: Number(r.saldo ?? 0) })
+        }
+        setSaldoPorLocal(porProd)
+      } else setSaldoPorLocal({})
     } catch (e) {
       setErro('Não conseguimos carregar os dados do estoque. Tente de novo. ' + ((e as Error)?.message ?? ''))
     } finally {
@@ -369,8 +386,10 @@ function EstoqueInner() {
   }
 
   async function deletarLocal(id: string) {
-    if (!confirm('Excluir este local? Movimentações já registradas serão preservadas.')) return
-    const { error } = await supabase.from('erp_estoque_locais').delete().eq('id', id)
+    if (!confirm('Excluir este local? Ele será inativado e as movimentações já registradas serão preservadas.')) return
+    // RD-98 p4: soft-delete via RPC guardada (nunca HARD DELETE direto, que deixaria
+    // as movimentações com local_id órfão). A RPC bloqueia o local principal.
+    const { error } = await supabase.rpc('fn_estoque_local_excluir', { p_id: id })
     if (error) { flashErr(erroAmigavel(error)); return }
     flash('Local excluído.')
     void carregar()
@@ -382,8 +401,8 @@ function EstoqueInner() {
     observacoes: string | null; lote: string | null; validade: string | null;
   }) {
     // F2.2 · usa RPC eleita (com usuario_id pra rastreio LGPD).
-    // fn_movimentar_estoque ficou [DEPRECATED]. Lote/validade nao sao
-    // passados aqui ainda (gap conhecido F2.3).
+    // fn_movimentar_estoque ficou [DEPRECATED]. F2.3: lote/validade agora
+    // persistem (registrar_movimento_estoque recebe p_lote/p_validade).
     if (!companyIdUnico) { flashErr('Selecione uma empresa específica.'); return false }
     const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { error } = await supabase.rpc('registrar_movimento_estoque', {
@@ -396,6 +415,8 @@ function EstoqueInner() {
       p_observacoes: args.observacoes,
       p_usuario_id: user?.id ?? null,
       p_local_id: args.local_id,
+      p_lote: args.lote,
+      p_validade: args.validade,
     })
     if (error) {
       flashErr(erroAmigavel(error, 'Não foi possível registrar a movimentação. Tente de novo.'))
@@ -469,6 +490,30 @@ function EstoqueInner() {
   const [produtosSrvTotal, setProdutosSrvTotal] = useState(0)
   const [produtosSrvLoading, setProdutosSrvLoading] = useState(false)
   const [produtosSrvPage, setProdutosSrvPage] = useState(1)
+  // Gap 5 (aud8 14/11): editar o produto SEM sair da tela de Estoque — a ficha abre aqui mesmo (ProdutoForm
+  // compartilhado, o mesmo da tela de Cadastros). `produtoFichaEdit` guarda a linha completa (select '*')
+  // pra o form não perder campo fiscal; `carregandoFicha` cobre o tempo da busca; bump de `recarregarProdutosSeq`
+  // recarrega a lista após salvar.
+  const [produtoFichaEdit, setProdutoFichaEdit] = useState<ProdutoFicha | null>(null)
+  const [carregandoFicha, setCarregandoFicha] = useState(false)
+  const [recarregarProdutosSeq, setRecarregarProdutosSeq] = useState(0)
+
+  const abrirFichaProduto = useCallback(async (id: string) => {
+    if (!companyIdUnico) { flashErr('Selecione uma empresa específica.'); return }
+    setCarregandoFicha(true)
+    try {
+      const { data, error } = await supabase
+        .from('erp_produtos').select('*')
+        .eq('company_id', companyIdUnico).eq('id', id).maybeSingle()
+      if (error) throw error
+      if (data) setProdutoFichaEdit(data as unknown as ProdutoFicha)
+      else flashErr('Produto não encontrado.')
+    } catch (err) {
+      setErro(erroAmigavel(err, 'Erro ao abrir a ficha do produto.'))
+    } finally {
+      setCarregandoFicha(false)
+    }
+  }, [companyIdUnico]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reset pagina quando filtros mudam
   useEffect(() => { setProdutosSrvPage(1) }, [filtroBusca, filtroCategoria, companyIdUnico])
@@ -523,7 +568,7 @@ function EstoqueInner() {
       }
     }, 300)
     return () => window.clearTimeout(handle)
-  }, [companyIdUnico, filtroBusca, filtroCategoria, produtosSrvPage]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [companyIdUnico, filtroBusca, filtroCategoria, produtosSrvPage, recarregarProdutosSeq]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Filtro estoque aplicado client-side na pagina exibida
   const produtosSrvFiltradosEstoque = useMemo(() => {
@@ -577,32 +622,61 @@ function EstoqueInner() {
   }, [curva])
   const saldoRows = useMemo<SaldoRow[]>(() => {
     const principal = locais.find((l) => l.principal) ?? locais[0] ?? null
-    return produtos.map((p) => {
-      const saldo = Number(p.estoque_atual ?? 0)
+    const pidPrincipal = principal?.id ?? null
+    const out: SaldoRow[] = []
+    for (const p of produtos) {
+      const total = Number(p.estoque_atual ?? 0)                 // fonte da verdade do total
       const custo = Number(p.preco_custo_medio ?? p.preco_custo ?? 0)
-      const reservado = Number(reservas[p.id] ?? 0)
-      return {
-        produto_id: p.id,
-        produto_nome: p.nome,
-        produto_codigo: p.codigo,
-        local_id: principal?.id ?? null,
-        local_nome: principal?.nome ?? 'Estoque Principal',
-        saldo,
-        custo_medio: custo,
-        valor_total: saldo * custo,   // pode ser negativo se o saldo for negativo — honesto
-        classe_abc: classeAbcMap[p.id] ?? null,
-        reservado,
-        disponivel: saldo - reservado,
+      const reservado = Number(reservas[p.id] ?? 0)              // reserva é por produto
+      // F2.3 · agrega o saldo localizado (dos movimentos) por local
+      const porLocal = new Map<string | null, number>()
+      for (const x of (saldoPorLocal[p.id] ?? [])) {
+        porLocal.set(x.local_id, (porLocal.get(x.local_id) ?? 0) + x.saldo)
       }
-    })
-  }, [produtos, locais, reservas, classeAbcMap])
+      const somaLocais = Array.from(porLocal.values()).reduce((s, v) => s + v, 0)
+      const resto = total - somaLocais   // não localizado → vai no principal (reconcilia c/ estoque_atual)
+      if (resto !== 0 || porLocal.size === 0) {
+        porLocal.set(pidPrincipal, (porLocal.get(pidPrincipal) ?? 0) + resto)
+      }
+      for (const [localId, saldo] of porLocal) {
+        const isPrincipal = localId === pidPrincipal
+        const localNome = (localId && locaisPorId[localId]?.nome) || (isPrincipal ? (principal?.nome ?? 'Estoque Principal') : 'Outro local')
+        const reservadoRow = isPrincipal ? reservado : 0          // reserva só aparece no principal
+        out.push({
+          produto_id: p.id,
+          produto_nome: p.nome,
+          produto_codigo: p.codigo,
+          local_id: localId,
+          local_nome: localNome,
+          saldo,
+          custo_medio: custo,
+          valor_total: saldo * custo,   // pode ser negativo se o saldo for negativo — honesto
+          classe_abc: classeAbcMap[p.id] ?? null,
+          reservado: reservadoRow,
+          disponivel: saldo - reservadoRow,
+        })
+      }
+    }
+    return out
+  }, [produtos, locais, locaisPorId, reservas, classeAbcMap, saldoPorLocal])
+
+  // saldo total por produto (fonte da verdade = erp_produtos.estoque_atual) — usado
+  // pela situação dos chips (com/zero/neg) e pelos KPIs, por SKU e não por linha de local.
+  const produtoTotalSaldo = useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const p of produtos) m[p.id] = Number(p.estoque_atual ?? 0)
+    return m
+  }, [produtos])
 
   const saldoFiltrado = useMemo(() => {
     const q = filtroSaldoProduto.trim().toLowerCase()
     return saldoRows.filter((r) => {
-      if (filtroSaldoTipo === 'com' && !(r.saldo > 0)) return false
-      if (filtroSaldoTipo === 'zero' && !(r.saldo === 0)) return false
-      if (filtroSaldoTipo === 'neg' && !(r.saldo < 0)) return false
+      // situação (com/zero/neg) é por PRODUTO (saldo total), não pela linha de local,
+      // pra bater com os contadores dos chips (KPIs por SKU).
+      const tot = Number(produtoTotalSaldo[r.produto_id] ?? 0)
+      if (filtroSaldoTipo === 'com' && !(tot > 0)) return false
+      if (filtroSaldoTipo === 'zero' && !(tot === 0)) return false
+      if (filtroSaldoTipo === 'neg' && !(tot < 0)) return false
       if (filtroSaldoLocal && r.local_id !== filtroSaldoLocal) return false
       if (q) {
         const hay = `${r.produto_nome} ${r.produto_codigo ?? ''}`.toLowerCase()
@@ -610,18 +684,25 @@ function EstoqueInner() {
       }
       return true
     })
-  }, [saldoRows, filtroSaldoProduto, filtroSaldoLocal, filtroSaldoTipo])
+  }, [saldoRows, produtoTotalSaldo, filtroSaldoProduto, filtroSaldoLocal, filtroSaldoTipo])
 
+  // KPIs por SKU (produto), independentes do split por local — o total por produto é
+  // erp_produtos.estoque_atual (fonte da verdade); o split por local não altera estes números.
   const saldoKpis = useMemo(() => {
-    const totalSku = saldoRows.length
-    const skusComSaldo = saldoRows.filter((r) => r.saldo > 0).length
-    const skusZerados = saldoRows.filter((r) => r.saldo === 0).length
-    const skusNegativos = saldoRows.filter((r) => r.saldo < 0).length
-    const qtdLiquida = saldoRows.reduce((s, r) => s + r.saldo, 0)
-    const valorLiquido = saldoRows.reduce((s, r) => s + r.valor_total, 0)
-    const skusReservados = saldoRows.filter((r) => r.reservado > 0).length
+    const totalSku = produtos.length
+    let skusComSaldo = 0, skusZerados = 0, skusNegativos = 0, qtdLiquida = 0, valorLiquido = 0, skusReservados = 0
+    for (const p of produtos) {
+      const saldo = Number(p.estoque_atual ?? 0)
+      const custo = Number(p.preco_custo_medio ?? p.preco_custo ?? 0)
+      if (saldo > 0) skusComSaldo++
+      else if (saldo === 0) skusZerados++
+      else skusNegativos++
+      qtdLiquida += saldo
+      valorLiquido += saldo * custo
+      if (Number(reservas[p.id] ?? 0) > 0) skusReservados++
+    }
     return { totalSku, skusComSaldo, skusZerados, skusNegativos, qtdLiquida, valorLiquido, skusReservados }
-  }, [saldoRows])
+  }, [produtos, reservas])
 
   // F2.1 · ref_tipos unicos pro filtro de movimentacoes
   const refTiposUnicos = useMemo(() => {
@@ -757,7 +838,7 @@ function EstoqueInner() {
           buscando={filtroBusca.trim().length >= 2}
           reservas={reservas}
           onSelect={setProdutoSel}
-          onEditar={(id) => router.push(`/dashboard/cadastros/produtos?edit=${id}`)}
+          onEditar={(id) => { void abrirFichaProduto(id) }}
         />
       ) : tab === 'movimentacoes' ? (
         <TabMovimentacoes
@@ -894,6 +975,25 @@ function EstoqueInner() {
           onSubmit={movimentar}
         />
       )}
+
+      {/* Gap 5 (aud8 14/11): ficha do produto editável SEM sair do Estoque — mesmo ProdutoForm de Cadastros */}
+      {carregandoFicha && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center" aria-live="polite">
+          <div className="bg-white rounded-xl px-5 py-4 shadow-2xl text-[13px] text-[#3D2314]">Abrindo ficha do produto…</div>
+        </div>
+      )}
+      {produtoFichaEdit && companyIdUnico && (
+        <ProdutoForm
+          companyId={companyIdUnico}
+          produto={produtoFichaEdit}
+          onClose={() => setProdutoFichaEdit(null)}
+          onSalvo={() => {
+            setProdutoFichaEdit(null)
+            setRecarregarProdutosSeq((n) => n + 1)
+            void carregar()
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -953,21 +1053,28 @@ function TabProdutos({ rows, total, loading, categorias, filtroBusca, setFiltroB
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
-        <div style={{ position: 'relative', flex: '1 1 220px', minWidth: 180 }}>
+        <div data-ajuda="commerce.estoque.busca" style={{ position: 'relative', flex: '1 1 220px', minWidth: 180 }}>
           <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.espressoL }} />
           <input type="text" placeholder="Buscar por nome ou código (busca em todo cadastro)…" value={filtroBusca} onChange={(e) => setFiltroBusca(e.target.value)}
             data-testid="produtos-busca" style={{ width: '100%', padding: '8px 10px 8px 32px', minHeight: 44, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.white, color: C.espresso, outline: 'none' }} />
+          <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)' }}><AjudaCampo chave="commerce.estoque.busca" /></span>
         </div>
-        <select value={filtroCategoria} onChange={(e) => setFiltroCategoria(e.target.value)} style={{ ...selInpStyle, minHeight: 44 }}>
-          <option value="">Todas as categorias</option>
-          {categorias.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <select value={filtroEstoque} onChange={(e) => setFiltroEstoque(e.target.value as 'todos' | 'baixo' | 'zero' | 'excedente')} style={{ ...selInpStyle, minHeight: 44 }}>
-          <option value="todos">Todos os estoques</option>
-          <option value="baixo">Abaixo do mínimo</option>
-          <option value="zero">Estoque zerado</option>
-          <option value="excedente">Acima do máximo</option>
-        </select>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <AjudaCampo chave="commerce.estoque.filtro_categoria" />
+          <select value={filtroCategoria} onChange={(e) => setFiltroCategoria(e.target.value)} style={{ ...selInpStyle, minHeight: 44 }}>
+            <option value="">Todas as categorias</option>
+            {categorias.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </label>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <AjudaCampo chave="commerce.estoque.filtro_estoque" />
+          <select value={filtroEstoque} onChange={(e) => setFiltroEstoque(e.target.value as 'todos' | 'baixo' | 'zero' | 'excedente')} style={{ ...selInpStyle, minHeight: 44 }}>
+            <option value="todos">Todos os estoques</option>
+            <option value="baixo">Abaixo do mínimo</option>
+            <option value="zero">Estoque zerado</option>
+            <option value="excedente">Acima do máximo</option>
+          </select>
+        </label>
         <span data-testid="produtos-contador" style={{ marginLeft: 'auto', fontSize: 11, color: C.espressoM, fontWeight: 600 }}>
           {loading ? 'Buscando…' : buscando
             ? `${rows.length} resultado(s) de busca`
@@ -1074,36 +1181,36 @@ function TabMovimentacoes({ rows, total, filtroTipo, setFiltroTipo, locaisPorId,
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
         <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          De
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>De <AjudaCampo chave="commerce.estoque.mov.de" /></span>
           <input type="date" value={filtroMovInicio} onChange={(e) => setFiltroMovInicio(e.target.value)} style={selInpStyle} />
         </label>
         <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          Até
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Até <AjudaCampo chave="commerce.estoque.mov.ate" /></span>
           <input type="date" value={filtroMovFim} onChange={(e) => setFiltroMovFim(e.target.value)} style={selInpStyle} />
         </label>
         <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          Tipo
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Tipo <AjudaCampo chave="commerce.estoque.mov.tipo" /></span>
           <select value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)} style={selInpStyle}>
             <option value="">Todos</option>
             {TIPOS_MOV.map((t) => <option key={t.value} value={t.value}>{t.sinal} {t.label}</option>)}
           </select>
         </label>
         <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          Produto
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Produto <AjudaCampo chave="commerce.estoque.mov.produto" /></span>
           <select value={filtroMovProduto} onChange={(e) => setFiltroMovProduto(e.target.value)} style={selInpStyle}>
             <option value="">Todos</option>
             {produtos.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
           </select>
         </label>
         <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          Local
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Local <AjudaCampo chave="commerce.estoque.mov.local" /></span>
           <select value={filtroMovLocal} onChange={(e) => setFiltroMovLocal(e.target.value)} style={selInpStyle}>
             <option value="">Todos</option>
             {locais.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
           </select>
         </label>
         <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          Origem
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Origem <AjudaCampo chave="commerce.estoque.mov.origem" /></span>
           <select value={filtroMovRefTipo} onChange={(e) => setFiltroMovRefTipo(e.target.value)} style={selInpStyle}>
             <option value="">Todas</option>
             {refTiposUnicos.map((t) => <option key={t} value={t}>{t}</option>)}
@@ -1227,7 +1334,7 @@ function TabSaldo({
       {/* Filtros */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
         <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          Produto
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Produto <AjudaCampo chave="commerce.estoque.saldo.produto" /></span>
           <input
             type="text"
             value={filtroSaldoProduto}
@@ -1242,7 +1349,7 @@ function TabSaldo({
           </datalist>
         </label>
         <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          Local
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Local <AjudaCampo chave="commerce.estoque.saldo.local" /></span>
           <select value={filtroSaldoLocal} onChange={(e) => setFiltroSaldoLocal(e.target.value)} style={selInpStyle} data-testid="saldo-filtro-local">
             <option value="">Todos os locais</option>
             {locais.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
@@ -1534,18 +1641,18 @@ function ModalLocal({ local, onClose, onSave }: { local: Local | null; onClose: 
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.espressoM }}><X size={18} /></button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <Field label="Nome *"><input autoFocus value={form.nome ?? ''} onChange={(e) => setForm({ ...form, nome: e.target.value })} style={inp} /></Field>
-          <Field label="Descrição"><input value={form.descricao ?? ''} onChange={(e) => setForm({ ...form, descricao: e.target.value })} style={inp} /></Field>
-          <Field label="Endereço"><input value={form.endereco ?? ''} onChange={(e) => setForm({ ...form, endereco: e.target.value })} style={inp} /></Field>
-          <Field label="Responsável"><input value={form.responsavel ?? ''} onChange={(e) => setForm({ ...form, responsavel: e.target.value })} style={inp} /></Field>
+          <Field label="Nome *" ajuda="commerce.estoque.local.nome"><input autoFocus value={form.nome ?? ''} onChange={(e) => setForm({ ...form, nome: e.target.value })} style={inp} /></Field>
+          <Field label="Descrição" ajuda="commerce.estoque.local.descricao"><input value={form.descricao ?? ''} onChange={(e) => setForm({ ...form, descricao: e.target.value })} style={inp} /></Field>
+          <Field label="Endereço" ajuda="commerce.estoque.local.endereco"><input value={form.endereco ?? ''} onChange={(e) => setForm({ ...form, endereco: e.target.value })} style={inp} /></Field>
+          <Field label="Responsável" ajuda="commerce.estoque.local.responsavel"><input value={form.responsavel ?? ''} onChange={(e) => setForm({ ...form, responsavel: e.target.value })} style={inp} /></Field>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.espresso, cursor: 'pointer' }}>
             <input type="checkbox" checked={!!form.principal} onChange={(e) => setForm({ ...form, principal: e.target.checked })} />
-            Local principal (padrão para movimentações)
+            Local principal (padrão para movimentações) <AjudaCampo chave="commerce.estoque.local.principal" />
           </label>
           {local && (
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.espresso, cursor: 'pointer' }}>
               <input type="checkbox" checked={!!form.ativo} onChange={(e) => setForm({ ...form, ativo: e.target.checked })} />
-              Ativo
+              Ativo <AjudaCampo chave="commerce.estoque.local.ativo" />
             </label>
           )}
         </div>
@@ -1619,12 +1726,12 @@ function ModalMovimentar({ produtos, locais, produtoInicial, onClose, onSubmit }
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.espressoM }}><X size={18} /></button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <Field label="Tipo *">
+          <Field label="Tipo *" ajuda="commerce.estoque.movf.tipo">
             <select value={tipo} onChange={(e) => setTipo(e.target.value)} style={inp}>
               {TIPOS_MOV.map((t) => <option key={t.value} value={t.value}>{t.sinal} {t.label}</option>)}
             </select>
           </Field>
-          <Field label="Produto *">
+          <Field label="Produto *" ajuda="commerce.estoque.movf.produto">
             {produtoSel ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', border: `1px solid ${C.border}`, borderRadius: 6, background: C.goldBg }}>
                 <span style={{ flex: 1, fontWeight: 600 }}>{produtoSel.nome}</span>
@@ -1648,7 +1755,7 @@ function ModalMovimentar({ produtos, locais, produtoInicial, onClose, onSubmit }
             )}
           </Field>
           {locais.length > 0 && (
-            <Field label="Local">
+            <Field label="Local" ajuda="commerce.estoque.movf.local">
               <select value={localId} onChange={(e) => setLocalId(e.target.value)} style={inp}>
                 <option value="">— Sem local específico —</option>
                 {locais.filter((l) => l.ativo !== false).map((l) => <option key={l.id} value={l.id}>{l.nome}{l.principal ? ' ★' : ''}</option>)}
@@ -1656,17 +1763,17 @@ function ModalMovimentar({ produtos, locais, produtoInicial, onClose, onSubmit }
             </Field>
           )}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <Field label="Quantidade *"><input type="number" step="0.01" value={quantidade} onChange={(e) => setQuantidade(e.target.value)} style={inp} /></Field>
-            {isEntrada && <Field label="Custo unitário"><input type="number" step="0.01" value={custo} onChange={(e) => setCusto(e.target.value)} style={inp} /></Field>}
+            <Field label="Quantidade *" ajuda="commerce.estoque.movf.quantidade"><input type="number" step="0.01" value={quantidade} onChange={(e) => setQuantidade(e.target.value)} style={inp} /></Field>
+            {isEntrada && <Field label="Custo unitário" ajuda="commerce.estoque.movf.custo"><input type="number" step="0.01" value={custo} onChange={(e) => setCusto(e.target.value)} style={inp} /></Field>}
           </div>
-          <Field label="Motivo"><input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder={isEntrada ? 'Ex: Compra fornecedor X' : 'Ex: Venda balcão #4521'} style={inp} /></Field>
+          <Field label="Motivo" ajuda="commerce.estoque.movf.motivo"><input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder={isEntrada ? 'Ex: Compra fornecedor X' : 'Ex: Venda balcão #4521'} style={inp} /></Field>
           {isEntrada && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <Field label="Lote (opcional)"><input value={lote} onChange={(e) => setLote(e.target.value)} style={inp} /></Field>
-              <Field label="Validade (opcional)"><input type="date" value={validade} onChange={(e) => setValidade(e.target.value)} style={inp} /></Field>
+              <Field label="Lote (opcional)" ajuda="commerce.estoque.movf.lote"><input value={lote} onChange={(e) => setLote(e.target.value)} style={inp} /></Field>
+              <Field label="Validade (opcional)" ajuda="commerce.estoque.movf.validade"><input type="date" value={validade} onChange={(e) => setValidade(e.target.value)} style={inp} /></Field>
             </div>
           )}
-          <Field label="Observações"><textarea rows={2} value={observacoes} onChange={(e) => setObservacoes(e.target.value)} style={{ ...inp, resize: 'vertical' }} /></Field>
+          <Field label="Observações" ajuda="commerce.estoque.movf.observacoes"><textarea rows={2} value={observacoes} onChange={(e) => setObservacoes(e.target.value)} style={{ ...inp, resize: 'vertical' }} /></Field>
         </div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
           <button onClick={onClose} style={btnSec}>Cancelar</button>
@@ -1721,10 +1828,12 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
   )
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children, ajuda }: { label: string; children: React.ReactNode; ajuda?: string }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <span style={{ fontSize: 10, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>{label}</span>
+      <span style={{ fontSize: 10, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        {label}{ajuda && <AjudaCampo chave={ajuda} />}
+      </span>
       {children}
     </label>
   )
@@ -1877,6 +1986,7 @@ function ModalAjuste({ companyId, locais, movimentacoes, onClose, onSubmit }: {
           {/* Local */}
           <div>
             <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Local *</label>
+            <AjudaCampo chave="commerce.estoque.ajuste.local" />
             <select value={localId} onChange={(e) => setLocalId(e.target.value)} data-testid="ajuste-local"
               style={{ ...selInpStyle, marginTop: 4, width: '100%' }}>
               {locais.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
@@ -1908,11 +2018,13 @@ function ModalAjuste({ companyId, locais, movimentacoes, onClose, onSubmit }: {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <div>
               <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Quantidade *</label>
+              <AjudaCampo chave="commerce.estoque.ajuste.quantidade" />
               <input type="text" inputMode="decimal" value={quantidade} onChange={(e) => setQuantidade(e.target.value)} placeholder="0"
                 data-testid="ajuste-qtd" style={{ ...selInpStyle, marginTop: 4, width: '100%', textAlign: 'right' }} />
             </div>
             <div>
               <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Custo unitário</label>
+              <AjudaCampo chave="commerce.estoque.ajuste.custo" />
               <input type="text" inputMode="decimal" value={custo} onChange={(e) => setCusto(e.target.value)} placeholder="0,00"
                 data-testid="ajuste-custo" style={{ ...selInpStyle, marginTop: 4, width: '100%', textAlign: 'right' }} />
             </div>
@@ -1928,6 +2040,7 @@ function ModalAjuste({ companyId, locais, movimentacoes, onClose, onSubmit }: {
           {/* Motivo */}
           <div>
             <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Motivo *</label>
+            <AjudaCampo chave="commerce.estoque.ajuste.motivo" />
             <input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex: avaria · encontrado no fundo · contagem física"
               data-testid="ajuste-motivo" style={{ ...selInpStyle, marginTop: 4, width: '100%' }} />
           </div>
@@ -1935,6 +2048,7 @@ function ModalAjuste({ companyId, locais, movimentacoes, onClose, onSubmit }: {
           {/* Observacoes */}
           <div>
             <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Observações</label>
+            <AjudaCampo chave="commerce.estoque.ajuste.observacoes" />
             <textarea value={obs} onChange={(e) => setObs(e.target.value)} rows={2}
               style={{ ...selInpStyle, marginTop: 4, width: '100%', resize: 'vertical' }} />
           </div>
@@ -2103,6 +2217,7 @@ function ModalNovoInventario({ companyId, locais, onClose, onCreated, flashErr }
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
             <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Local *</label>
+            <AjudaCampo chave="commerce.estoque.inv.local" />
             <select value={localId} onChange={(e) => setLocalId(e.target.value)} style={{ ...selInpStyle, marginTop: 4, width: '100%' }}>
               {locais.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
             </select>
@@ -2111,6 +2226,7 @@ function ModalNovoInventario({ companyId, locais, onClose, onCreated, flashErr }
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               <div>
                 <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Filtrar categoria (opc.)</label>
+                <AjudaCampo chave="commerce.estoque.inv.categoria" />
                 <select value={categoria} onChange={(e) => setCategoria(e.target.value)} style={{ ...selInpStyle, marginTop: 4, width: '100%' }}>
                   <option value="">Todas</option>
                   {categorias.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -2118,6 +2234,7 @@ function ModalNovoInventario({ companyId, locais, onClose, onCreated, flashErr }
               </div>
               <div>
                 <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Filtrar marca (opc.)</label>
+                <AjudaCampo chave="commerce.estoque.inv.marca" />
                 <select value={marca} onChange={(e) => setMarca(e.target.value)} style={{ ...selInpStyle, marginTop: 4, width: '100%' }}>
                   <option value="">Todas</option>
                   {marcasUnique.map((m) => <option key={m} value={m}>{m}</option>)}
@@ -2127,6 +2244,7 @@ function ModalNovoInventario({ companyId, locais, onClose, onCreated, flashErr }
           )}
           <div>
             <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Observações</label>
+            <AjudaCampo chave="commerce.estoque.inv.observacoes" />
             <textarea value={obs} onChange={(e) => setObs(e.target.value)} rows={2}
               style={{ ...selInpStyle, marginTop: 4, width: '100%', resize: 'vertical' }} />
           </div>
@@ -2249,7 +2367,7 @@ function DrawerInventario({ inventario, produtos, locaisPorId, onClose, onFechad
             <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead style={{ background: C.cream }}>
-                  <tr><Th>Produto</Th><Th align="right">Sistema</Th><Th align="right">Contado</Th><Th align="right">Diferença</Th></tr>
+                  <tr><Th>Produto</Th><Th align="right">Sistema</Th><Th align="right">Contado <AjudaCampo chave="commerce.estoque.inv.contado" /></Th><Th align="right">Diferença</Th></tr>
                 </thead>
                 <tbody>
                   {itens.map((it) => {

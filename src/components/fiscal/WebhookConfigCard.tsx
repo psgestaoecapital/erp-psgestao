@@ -112,7 +112,7 @@ export default function WebhookConfigCard({ companyId, habilitado }: Props) {
 
       <div className="p-5 space-y-4">
         <p className="text-[12.5px] text-[#3D2314]/70 leading-relaxed">
-          Com o aviso automático ativo, a Focus NFe avisa o sistema assim que uma nota muda de status
+          Com o aviso automático ativo, o provedor de NF-e avisa o sistema assim que uma nota muda de status
           (autorizada/recusada) e a atualização acontece sozinha. Sem ele, é preciso usar “Consultar na
           prefeitura” manualmente.
         </p>
@@ -141,7 +141,7 @@ export default function WebhookConfigCard({ companyId, habilitado }: Props) {
           <>
             <div>
               <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">
-                URL do webhook (a Focus chama esta URL)
+                URL do webhook (o provedor chama esta URL)
               </label>
               <div className="flex gap-2">
                 <input

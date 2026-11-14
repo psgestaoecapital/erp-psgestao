@@ -1,13 +1,17 @@
 'use client'
 
-// VincularLinhasDREModal · Bloco 6.3b · GE rodar-como-ContaAzul
+// VincularLinhasDREModal · Bloco 6.3b · GE (ref. mercado)
 // Espelho do VincularCategoriasModal: parte da categoria do plano de contas
 // e seleciona N linhas DRE (linhas_negocio) para vincular.
 // Chama fn_dre_vincular_categoria_linha(ldn_id, categoria_codigo, tipo) por linha.
 
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel } from '@/lib/erroAmigavel'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import type { ContaPlano } from './PlanoContasForm'
+
+const ROTA_AJUDA = '/dashboard/cadastros/plano-contas'
 
 interface Props {
   open: boolean
@@ -97,11 +101,11 @@ export default function VincularLinhasDREModal({ open, onClose, onSucesso, compa
         p_categoria_codigo: categoria.codigo,
         p_tipo: categoria.tipo,
       })
-      if (error) { falhas++; ultimoErro = error.message }
+      if (error) { falhas++; ultimoErro = erroAmigavel(error, 'Não foi possível vincular a linha do DRE. Tente de novo.') }
     }
     setSalvando(false)
     if (falhas === selecionadas.size) {
-      setErro(ultimoErro ?? 'Falha ao vincular linhas DRE')
+      setErro(ultimoErro ?? 'Não foi possível vincular as linhas do DRE. Tente de novo.')
       return
     }
     onSucesso()
@@ -136,6 +140,9 @@ export default function VincularLinhasDREModal({ open, onClose, onSucesso, compa
           </div>
         )}
 
+        <label style={{ display: 'block', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>
+          Buscar linha DRE <AjudaCampo chave="plano_contas.buscar_linha_dre" rota={ROTA_AJUDA} />
+        </label>
         <input
           value={filtro}
           onChange={(e) => setFiltro(e.target.value)}

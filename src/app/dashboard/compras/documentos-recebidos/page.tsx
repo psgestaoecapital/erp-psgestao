@@ -151,7 +151,7 @@ export default function DocumentosRecebidosPage() {
     })
     if (anexar) setCarregandoMais(false)
     else if (!silencioso) setLoading(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro('Não foi possível carregar os documentos recebidos agora. Tente novamente em instantes.'); return }
     const r = data as ListaResp
     if (!r.ok) { setErro(r.erro ?? 'Erro ao carregar'); return }
     const itens = r.itens ?? []
@@ -192,7 +192,7 @@ export default function DocumentosRecebidosPage() {
     const { data, error } = await supabase.rpc('fn_nfe_recebida_solicitar_xml', { p_nfe_id: nfeId })
     setPuxando((p) => ({ ...p, [nfeId]: false }))
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { setErro('Não consegui solicitar o XML: ' + (error?.message ?? r?.erro ?? 'falhou')); return }
+    if (error || !r?.ok) { setErro('Não foi possível solicitar o XML desta nota agora. Tente novamente em instantes.'); return }
     setToast('Na fila da SEFAZ — o XML (itens) chega no próximo ciclo (até 30 min).')
     setTimeout(() => setToast(null), 6000)
     void carregar(true)
@@ -207,7 +207,7 @@ export default function DocumentosRecebidosPage() {
     const { data, error } = await supabase.rpc('fn_nfe_recebida_retentar_xml', { p_nfe_id: nfeId })
     setPuxando((p) => ({ ...p, [nfeId]: false }))
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { setErro('Não consegui reiniciar a busca do XML: ' + (error?.message ?? r?.erro ?? 'falhou')); return }
+    if (error || !r?.ok) { setErro('Não foi possível reiniciar a busca do XML agora. Tente novamente em instantes.'); return }
     setToast('Busca reiniciada — o XML (itens) chega no próximo ciclo da SEFAZ (até 30 min).')
     setTimeout(() => setToast(null), 6000)
     void carregar(true)
@@ -236,13 +236,13 @@ export default function DocumentosRecebidosPage() {
       p_auto: novo,
     })
     if (error) {
-      setErro('Não foi possível alterar a ciência automática: ' + error.message)
+      setErro('Não foi possível alterar a ciência automática agora. Tente novamente em instantes.')
       setAutoCiencia(anterior)
       return
     }
     const r = data as { ok: boolean; auto_ciencia?: boolean; erro?: string } | null
     if (!r?.ok) {
-      setErro('Não foi possível alterar a ciência automática: ' + (r?.erro ?? 'sem retorno'))
+      setErro('Não foi possível alterar a ciência automática. Verifique se você tem acesso a esta empresa e tente de novo.')
       setAutoCiencia(anterior)
       return
     }
@@ -277,7 +277,7 @@ export default function DocumentosRecebidosPage() {
       p_habilitar: novo,
     })
     setHabilitando(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro('Não foi possível habilitar o recebimento agora. Tente novamente em instantes.'); return }
     const r = data as { ok: boolean; habilitado: boolean; motivo?: string } | null
     if (!r || !r.ok) {
       const motivo = r?.motivo === 'cert_a1_ausente_ou_expirado'
@@ -300,7 +300,7 @@ export default function DocumentosRecebidosPage() {
     setErro(null); setToast(null)
     const { data, error } = await supabase.rpc('fn_dfe_sincronizar_manifestacao', { p_company_id: empresaUnica })
     const r = data as { ok?: boolean; com_evento?: number; gerida_omie?: number; erro?: string } | null
-    if (error || !r?.ok) { setErro('Não consegui sincronizar: ' + (error?.message ?? r?.erro ?? 'falhou')); return }
+    if (error || !r?.ok) { setErro('Não foi possível sincronizar a manifestação agora. Tente novamente em instantes.'); return }
     setToast(`Manifestação sincronizada (só leitura) · ${r.com_evento ?? 0} com evento real · ${r.gerida_omie ?? 0} geridas em outro sistema. Nada enviado à SEFAZ.`)
     await carregar()
     setTimeout(() => setToast(null), 6000)
@@ -324,7 +324,7 @@ export default function DocumentosRecebidosPage() {
       })
       const json = (await r.json()) as BuscaResp
       if (!r.ok || !json.ok) {
-        setErro(json.erro ?? `Erro HTTP ${r.status}`)
+        setErro(json.erro ?? 'Não foi possível buscar as notas na SEFAZ agora. Tente novamente em instantes.')
         return
       }
       setToast(
@@ -333,7 +333,7 @@ export default function DocumentosRecebidosPage() {
       await carregar()
       setTimeout(() => setToast(null), 4000)
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro de rede')
+      setErro('Não foi possível concluir a ação agora. Verifique sua conexão e tente de novo.')
     } finally {
       setBuscando(false)
     }
@@ -346,7 +346,7 @@ export default function DocumentosRecebidosPage() {
     const { data, error } = await supabase.rpc('fn_nfe_recebida_lancar', {
       p_nfe_recebida_id: nfeId,
     })
-    if (error) return { ok: false, msg: `Não consegui lançar: ${error.message}` }
+    if (error) return { ok: false, msg: 'Não foi possível lançar esta nota em Contas a Pagar agora. Tente novamente em instantes.' }
     const r = data as {
       ok: boolean
       erro?: string
@@ -364,7 +364,7 @@ export default function DocumentosRecebidosPage() {
         valor_entrada?: number
       }
     } | null
-    if (!r?.ok) return { ok: false, msg: `Não consegui lançar: ${r?.erro ?? 'sem retorno'}` }
+    if (!r?.ok) return { ok: false, msg: 'Não foi possível lançar esta nota em Contas a Pagar. Verifique o fornecedor e os itens e tente de novo.' }
 
     const linha = lista.find((l) => l.id === nfeId)
     const forn = linha?.fornecedor ?? 'fornecedor'
@@ -454,10 +454,10 @@ export default function DocumentosRecebidosPage() {
       })
       const json = (await r.json()) as { ok: boolean; etapa?: string; body_preview?: string }
       if (!r.ok || !json.ok) {
-        // Focus recusou / offline → status NÃO muda (não mente)
+        // Provedor recusou / offline → status NÃO muda (não mente)
         const detalhe = json.etapa === 'focus_manifestacao'
-          ? `SEFAZ/Focus recusou o evento${json.body_preview ? ' · ' + json.body_preview : ''}`
-          : (json.etapa ?? `Erro HTTP ${r.status}`)
+          ? 'a SEFAZ recusou o evento. Tente de novo em instantes.'
+          : 'não foi possível concluir agora. Tente novamente em instantes.'
         setErro(`Não foi possível registrar a ${rotulo}: ${detalhe}`)
         return
       }
@@ -469,7 +469,7 @@ export default function DocumentosRecebidosPage() {
       await carregar(true)
       setTimeout(() => setToast(null), 4000)
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro de rede')
+      setErro('Não foi possível concluir a ação agora. Verifique sua conexão e tente de novo.')
     } finally {
       setManifestando((p) => ({ ...p, [nfeId]: false }))
     }
@@ -535,34 +535,41 @@ export default function DocumentosRecebidosPage() {
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {habilitado === false && (
-              <button
-                type="button"
-                onClick={() => void habilitarDfe(true)}
-                disabled={habilitando}
-                title="Cria/ativa o controle de Distribuicao DF-e para esta empresa (valida cert A1 + token)"
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#3F7012] text-white text-[13px] font-medium hover:bg-[#2F5510] disabled:opacity-50 min-h-[44px]"
-              >
-                {habilitando ? <Loader2 className="animate-spin" size={15} /> : <Power size={15} />}
-                {habilitando ? 'Habilitando…' : 'Habilitar recebimento'}
-              </button>
+              <span className="inline-flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => void habilitarDfe(true)}
+                  disabled={habilitando}
+                  title="Cria/ativa o controle de Distribuicao DF-e para esta empresa (valida cert A1 + token)"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#3F7012] text-white text-[13px] font-medium hover:bg-[#2F5510] disabled:opacity-50 min-h-[44px]"
+                >
+                  {habilitando ? <Loader2 className="animate-spin" size={15} /> : <Power size={15} />}
+                  {habilitando ? 'Habilitando…' : 'Habilitar recebimento'}
+                </button>
+                <AjudaCampo chave="compras.docs_recebidos.acao_habilitar" />
+              </span>
             )}
             {habilitado === true && (
-              <button
-                type="button"
-                onClick={() => { if (confirm('Desabilitar recebimento DF-e desta empresa?')) void habilitarDfe(false) }}
-                disabled={habilitando}
-                title="Pausa o recebimento automatico para esta empresa (controle nao e apagado)"
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[#3D2314]/15 text-[12px] font-medium text-[#3D2314]/65 hover:bg-[#3D2314]/5 disabled:opacity-50 min-h-[44px]"
-              >
-                <PowerOff size={14} />
-                Desabilitar
-              </button>
+              <span className="inline-flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => { if (confirm('Desabilitar recebimento DF-e desta empresa?')) void habilitarDfe(false) }}
+                  disabled={habilitando}
+                  title="Pausa o recebimento automatico para esta empresa (controle nao e apagado)"
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[#3D2314]/15 text-[12px] font-medium text-[#3D2314]/65 hover:bg-[#3D2314]/5 disabled:opacity-50 min-h-[44px]"
+                >
+                  <PowerOff size={14} />
+                  Desabilitar
+                </button>
+                <AjudaCampo chave="compras.docs_recebidos.acao_desabilitar" />
+              </span>
             )}
             {/* NFE-F3 · mutirão (fila + casamento exato em lote) */}
             <Link href="/dashboard/compras/mutirao"
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-[#3D2314]/15 text-[#3D2314] text-[13px] font-medium hover:bg-[#3D2314]/5 min-h-[44px]">
               🗂️ Mutirão de notas
             </Link>
+            <AjudaCampo chave="compras.docs_recebidos.acao_mutirao" />
             {/* NFE-F3 · §1 · sincronizar manifestação (só leitura, nada à SEFAZ) */}
             <button
               type="button"
@@ -572,10 +579,12 @@ export default function DocumentosRecebidosPage() {
             >
               <RefreshCw size={14} /> Sincronizar manifestação
             </button>
+            <AjudaCampo chave="compras.docs_recebidos.acao_sincronizar" />
             {/* nfe-recebida-upload-xml · sobe o XML do fornecedor sem esperar a SEFAZ (cria a nota se preciso) */}
             <UploadXmlRecebidaButton companyId={empresaUnica} onDone={() => void carregar()} />
             {/* GF4 · vários XMLs (ou .zip) de uma vez, pela mesma função do envio de um arquivo */}
             <UploadXmlLoteRecebidas companyId={empresaUnica} onDone={() => void carregar()} />
+            <AjudaCampo chave="compras.docs_recebidos.acao_upload_xml" />
             <button
               type="button"
               onClick={() => void buscarAgora()}
@@ -586,6 +595,7 @@ export default function DocumentosRecebidosPage() {
               {buscando ? <Loader2 className="animate-spin" size={15} /> : <RefreshCw size={15} />}
               {buscando ? 'Buscando…' : 'Buscar agora'}
             </button>
+            <AjudaCampo chave="compras.docs_recebidos.acao_buscar_agora" />
             {habilitado === true && lista.some((l) => l.status === 'resumo' && !l.lancado_pagar) && (
               <button
                 type="button"
@@ -600,6 +610,7 @@ export default function DocumentosRecebidosPage() {
                   : 'Processar pendentes'}
               </button>
             )}
+            <AjudaCampo chave="compras.docs_recebidos.acao_processar_pendentes" />
           </div>
         </header>
 
@@ -761,20 +772,24 @@ export default function DocumentosRecebidosPage() {
                               <Ban size={11} />
                               Recusar
                             </button>
+                            <AjudaCampo chave="compras.docs_recebidos.acao_manifestar" />
                           </div>
                         )}
                         {/* NFE-4 · nota só-resumo: puxar o XML completo (itens/duplicatas) via DF-e. */}
                         {n.status === 'resumo' && (
-                          <button
-                            type="button"
-                            onClick={() => void solicitarXml(n.id)}
-                            disabled={!!puxando[n.id]}
-                            title="Puxa o XML completo (itens + duplicatas) pela distribuição DF-e. Não depende de manifestação; o XML chega no próximo ciclo (até 30 min)."
-                            className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border border-[#BA7517]/40 text-[#A77A12] font-medium hover:bg-[#FBF3E0] disabled:opacity-50"
-                          >
-                            {puxando[n.id] ? <Loader2 className="animate-spin" size={11} /> : <RotateCcw size={11} />}
-                            Puxar XML
-                          </button>
+                          <span className="inline-flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => void solicitarXml(n.id)}
+                              disabled={!!puxando[n.id]}
+                              title="Puxa o XML completo (itens + duplicatas) pela distribuição DF-e. Não depende de manifestação; o XML chega no próximo ciclo (até 30 min)."
+                              className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border border-[#BA7517]/40 text-[#A77A12] font-medium hover:bg-[#FBF3E0] disabled:opacity-50"
+                            >
+                              {puxando[n.id] ? <Loader2 className="animate-spin" size={11} /> : <RotateCcw size={11} />}
+                              Puxar XML
+                            </button>
+                            <AjudaCampo chave="compras.docs_recebidos.acao_puxar_xml" />
+                          </span>
                         )}
                         {n.lancado_pagar || n.status === 'lancada' ? (
                           <span className="text-[11px] px-2.5 py-1 rounded-md bg-[#E8F4DC] text-[#3F7012] font-medium">
@@ -815,20 +830,23 @@ export default function DocumentosRecebidosPage() {
                             Aguardando SEFAZ
                           </span>
                         ) : (
-                          <button
-                            type="button"
-                            onClick={() => void lancarUma(n.id)}
-                            disabled={!!processando[n.id] || processandoTodos}
-                            title={
-                              n.status === 'completa'
-                                ? 'Gera contas a pagar + dá entrada no estoque dos itens elegíveis (CFOP + produto vinculado).'
-                                : 'Gera contas a pagar pela total (sem itens vinculados ainda).'
-                            }
-                            className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md bg-[#3D2314] text-[#FAF7F2] font-medium hover:bg-[#5A3520] disabled:opacity-50"
-                          >
-                            {processando[n.id] ? <Loader2 className="animate-spin" size={11} /> : <Zap size={11} />}
-                            {processando[n.id] ? 'Lançando…' : 'Lançar em Contas a Pagar'}
-                          </button>
+                          <span className="inline-flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => void lancarUma(n.id)}
+                              disabled={!!processando[n.id] || processandoTodos}
+                              title={
+                                n.status === 'completa'
+                                  ? 'Gera contas a pagar + dá entrada no estoque dos itens elegíveis (CFOP + produto vinculado).'
+                                  : 'Gera contas a pagar pela total (sem itens vinculados ainda).'
+                              }
+                              className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md bg-[#3D2314] text-[#FAF7F2] font-medium hover:bg-[#5A3520] disabled:opacity-50"
+                            >
+                              {processando[n.id] ? <Loader2 className="animate-spin" size={11} /> : <Zap size={11} />}
+                              {processando[n.id] ? 'Lançando…' : 'Lançar em Contas a Pagar'}
+                            </button>
+                            <AjudaCampo chave="compras.docs_recebidos.acao_lancar_pagar" />
+                          </span>
                         )}
                         {/* NFE-F0 · E2 · ver o XML e a DANFE (conferência) */}
                         <button
@@ -855,6 +873,7 @@ export default function DocumentosRecebidosPage() {
                         >
                           <RotateCcw size={11} /> Devolver
                         </Link>
+                        <AjudaCampo chave="compras.docs_recebidos.acao_devolver" />
                       </div>
                     </div>
                     {isExpandido && empresaUnica && (

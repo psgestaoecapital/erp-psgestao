@@ -14,6 +14,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
+import { parseNumBR } from '@/lib/num'
 
 const ROTA = '/dashboard/projetos/obras/[id]/subempreiteiros'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = 'rgba(61,35,20,0.18)', MUT = 'rgba(61,35,20,0.55)', VERM = '#A32D2D', VERDE = '#2E7D32'
@@ -126,8 +127,8 @@ export default function SubempreiteirosObraPage({ params }: { params: Promise<{ 
   const previaTotal = useMemo(() => {
     let total = 0
     for (const l of form.itens) {
-      const q = Number((l.quantidade || '').replace(',', '.'))
-      const p = Number((l.preco_unitario || '').replace(',', '.'))
+      const q = parseNumBR(l.quantidade) ?? NaN
+      const p = parseNumBR(l.preco_unitario) ?? NaN
       if (l.descricao.trim() && isFinite(q) && isFinite(p)) total += q * p
     }
     return total
@@ -178,13 +179,13 @@ export default function SubempreiteirosObraPage({ params }: { params: Promise<{ 
         return {
           descricao: l.descricao.trim(),
           unidade: l.unidade.trim() || null,
-          quantidade: Number((l.quantidade || '0').replace(',', '.')) || 0,
-          preco_unitario: Number((l.preco_unitario || '0').replace(',', '.')) || 0,
+          quantidade: parseNumBR(l.quantidade) || 0,
+          preco_unitario: parseNumBR(l.preco_unitario) || 0,
           ordem: i,
         }
       })
       .filter(Boolean)
-    const retencao = Number((form.retencao_pct || '0').replace(',', '.')) || 0
+    const retencao = parseNumBR(form.retencao_pct) || 0
     if (retencao < 0 || retencao > 100) { setErro('A retenção deve estar entre 0 e 100%.'); return }
 
     setSalvando(true); setErro(null)
@@ -345,8 +346,8 @@ export default function SubempreiteirosObraPage({ params }: { params: Promise<{ 
                     </thead>
                     <tbody>
                       {form.itens.map((l, i) => {
-                        const q = Number((l.quantidade || '').replace(',', '.'))
-                        const p = Number((l.preco_unitario || '').replace(',', '.'))
+                        const q = parseNumBR(l.quantidade) ?? NaN
+                        const p = parseNumBR(l.preco_unitario) ?? NaN
                         const v = isFinite(q) && isFinite(p) ? q * p : 0
                         return (
                           <tr key={i} style={{ borderTop: `1px solid ${LINE}` }}>

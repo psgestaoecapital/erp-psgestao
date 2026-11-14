@@ -189,10 +189,22 @@ function ProducaoPageInner() {
   }
 
   async function loadAll() {
-    const [cl, jb, ts, us, ct, sv, ac] = await Promise.all([
+    // Janela do mês atual para o KPI "Horas no mês" — calculada ANTES do fetch para
+    // consultar o somatório direto no banco (filtrado por data), sem depender da lista
+    // de timesheet da aba, que é limitada (teto padrão do PostgREST). Com muitos
+    // lançamentos, o teto cortava linhas do mês e o KPI zerava falsamente (falso-zero).
+    const now = new Date()
+    const mesAtual = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    const inicioMes = `${mesAtual}-01`
+    const prox = new Date(now.getFullYear(), now.getMonth() + 1, 1)
+    const inicioProxMes = `${prox.getFullYear()}-${String(prox.getMonth() + 1).padStart(2, '0')}-01`
+
+    const [cl, jb, ts, tsMes, us, ct, sv, ac] = await Promise.all([
       supabase.from('agency_clientes').select('*').eq('company_id', sel).is('excluido_em', null).order('nome'),
       supabase.from('agency_jobs').select('*').eq('company_id', sel).is('excluido_em', null).order('created_at', { ascending: false }),
       supabase.from('agency_timesheet').select('id, company_id, job_id, tarefa_id, user_id, data, horas, descricao, tipo_atividade, aprovado, aprovado_por, created_at, inicio_em, fim_em, etapa_tipo, cliente_id').eq('company_id', sel).is('excluido_em', null).order('data', { ascending: false }),
+      // Somatório do mês: só a coluna horas, filtrado por data no servidor (fonte do KPI).
+      supabase.from('agency_timesheet').select('horas').eq('company_id', sel).is('excluido_em', null).gte('data', inicioMes).lt('data', inicioProxMes).limit(20000),
       supabase.rpc('fn_usuarios_da_empresa', { p_company_id: sel }),
       supabase.from('erp_contratos').select('id,numero,nome,valor_mensal,status').eq('company_id', sel).order('numero', { ascending: false }),
       supabase.rpc('fn_agency_servico_listar_proposta', { p_company_id: sel }),
@@ -206,8 +218,6 @@ function ProducaoPageInner() {
     setContratos((ct.data ?? []) as ContratoOpt[])
     setServicos(((sv.data as { servicos?: ServicoOpt[] } | null)?.servicos ?? []) as ServicoOpt[])
 
-    const now = new Date()
-    const mesAtual = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
     // Receita recorrente (MRR): mesma fonte de verdade de /dashboard/pm/contratos
     // (fn_agency_contrato_listar + idêntica fórmula): contratos recorrentes ATIVOS,
     // usando o valor da GE quando o fee está vinculado, senão o fee local. Antes somava
@@ -216,10 +226,11 @@ function ProducaoPageInner() {
     const mrr = ((ac.data ?? []) as ContratoMrr[])
       .filter((c) => c.status === 'ativo' && c.tipo === 'recorrente')
       .reduce((s, c) => s + Number((c.tem_contrato_ge ? c.ge_valor_mensal : c.fee_mensal) ?? 0), 0)
+    const horasMes = ((tsMes.data ?? []) as Array<{ horas?: number }>).reduce((s, t) => s + (t.horas ?? 0), 0)
     setMetrics({
       clientes: (cl.data ?? []).filter((c: { status?: string }) => c.status === 'ativo').length,
       jobs_ativos: (jb.data ?? []).filter((j: { status?: string }) => !['concluida', 'publicado', 'cancelado'].includes(j.status ?? '')).length,
-      horas_mes: (ts.data ?? []).filter((t: { data?: string }) => t.data?.startsWith(mesAtual)).reduce((s: number, t: { horas?: number }) => s + (t.horas ?? 0), 0),
+      horas_mes: horasMes,
       receita_mes: mrr,
     })
   }
@@ -446,6 +457,7 @@ function ProducaoPageInner() {
             {id === 'kanban' ? 'Kanban' : id === 'jobs' ? 'Jobs (lista)' : id === 'clientes' ? 'Clientes' : 'Timesheet'}
           </button>
         ))}
+        <span style={{ display: 'inline-flex', alignItems: 'center', marginLeft: 4 }}><AjudaCampo chave="pm.jobs.abas" /></span>
       </nav>
 
       {/* ─── TAB: KANBAN ─── */}

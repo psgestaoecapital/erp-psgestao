@@ -42,6 +42,13 @@ const iso = (d: Date) => d.toISOString().slice(0, 10)
 const cap = (s: string) => s.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase())
 const MES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 const mesRot = (m: string) => MES[Number(m.slice(5, 7)) - 1] + '/' + m.slice(2, 4)
+// Intervalo que cobre o mês inteiro de 'YYYY-MM' (fim limitado a hoje) — usado para cair no último mês COM abate,
+// mesmo que seja mais antigo que os períodos prontos (que vão só até 12 meses).
+const mesRange = (mes: string) => {
+  const y = Number(mes.slice(0, 4)), m = Number(mes.slice(5, 7))
+  const fim = new Date(y, m, 0), hoje = new Date()
+  return { de: iso(new Date(y, m - 1, 1)), ate: iso(fim < hoje ? fim : hoje), rot: mesRot(mes) }
+}
 
 const PERIODOS = [{ k: '7', rot: '7 dias' }, { k: '30', rot: '30 dias' }, { k: 'mes', rot: 'Este mês' }, { k: '90', rot: '90 dias' }, { k: '365', rot: '12 meses' }] as const
 const VISOES = [{ k: '', rot: 'Toda a planta' }, { k: 'F', rot: 'Fêmeas' }, { k: 'M', rot: 'Machos' }] as const
@@ -59,11 +66,21 @@ function Titulo({ t, nota, ajuda }: { t: string; nota?: string; ajuda?: string }
     </div>
   )
 }
-function BarrasH({ dados, cor, fmt, ref, onPick }: { dados: { rot: string; v: number; sel?: boolean }[]; cor: string; fmt: (v: number) => string; ref?: number | null; onPick?: (rot: string) => void }) {
+// Estado vazio de cada painel: além do texto "Sem dado…", oferece o próximo passo (ampliar o período)
+// para o usuário não ficar diante de um painel em branco sem saber o que fazer (RD-98 p4 · chamado #3337/bi-planta).
+function VazioPainel({ onAmpliar, texto = 'Sem dado no período.' }: { onAmpliar?: () => void; texto?: string }) {
+  return (
+    <div style={{ display: 'grid', gap: 8, justifyItems: 'start' }} data-testid="bi-planta-painel-vazio">
+      <span style={{ fontSize: 13, color: C.m }}>{texto}</span>
+      {onAmpliar && <button type="button" onClick={onAmpliar} style={{ font: 'inherit', fontSize: 12.5, padding: '6px 12px', borderRadius: 8, cursor: 'pointer', border: `1px solid ${C.esp}`, background: '#fff', color: C.esp }}>Ampliar para 12 meses</button>}
+    </div>
+  )
+}
+function BarrasH({ dados, cor, fmt, ref, onPick, onAmpliar }: { dados: { rot: string; v: number; sel?: boolean }[]; cor: string; fmt: (v: number) => string; ref?: number | null; onPick?: (rot: string) => void; onAmpliar?: () => void }) {
   const max = Math.max(1e-9, ...dados.map((d) => d.v), ref ?? 0)
   return (
     <div style={{ display: 'grid', gap: 7 }}>
-      {dados.length === 0 && <span style={{ fontSize: 13, color: C.m }}>Sem dado no período.</span>}
+      {dados.length === 0 && <VazioPainel onAmpliar={onAmpliar} />}
       {dados.map((d) => (
         <button key={d.rot} type="button" disabled={!onPick} onClick={onPick ? () => onPick(d.rot) : undefined} title={onPick ? `Ver só ${d.rot}` : d.rot}
           style={{ display: 'grid', gridTemplateColumns: 'minmax(96px, 38%) 1fr auto', gap: 8, alignItems: 'center', fontSize: 12, background: 'none', border: 0, padding: 0, font: 'inherit', color: C.esp, cursor: onPick ? 'pointer' : 'default', textAlign: 'left' }}>
@@ -78,11 +95,11 @@ function BarrasH({ dados, cor, fmt, ref, onPick }: { dados: { rot: string; v: nu
     </div>
   )
 }
-function Colunas({ dados, cor, corForte, onPick, fmtTopo }: { dados: { rot: string; v: number; forte?: boolean; dica: string }[]; cor: string; corForte?: string; onPick: (dica: string) => void; fmtTopo: (v: number) => string }) {
+function Colunas({ dados, cor, corForte, onPick, fmtTopo, onAmpliar }: { dados: { rot: string; v: number; forte?: boolean; dica: string }[]; cor: string; corForte?: string; onPick: (dica: string) => void; fmtTopo: (v: number) => string; onAmpliar?: () => void }) {
   const max = Math.max(1, ...dados.map((d) => d.v))
   return (
     <div style={{ display: 'flex', alignItems: 'flex-end', gap: 5, height: 190, paddingTop: 18, overflowX: 'auto' }}>
-      {dados.length === 0 && <span style={{ fontSize: 13, color: C.m }}>Sem dado no período.</span>}
+      {dados.length === 0 && <VazioPainel onAmpliar={onAmpliar} />}
       {dados.map((d, i) => (
         <button key={d.rot + i} type="button" onClick={() => onPick(d.dica)} title={d.dica}
           style={{ flex: '1 0 24px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, fontSize: 10, color: C.m, background: 'none', border: 0, padding: 0, cursor: 'pointer', font: 'inherit' }}>
@@ -94,8 +111,8 @@ function Colunas({ dados, cor, corForte, onPick, fmtTopo }: { dados: { rot: stri
     </div>
   )
 }
-function Linha({ dados, cor, fmt }: { dados: { rot: string; v: number }[]; cor: string; fmt: (v: number) => string }) {
-  if (dados.length < 2) return <span style={{ fontSize: 13, color: C.m }}>Poucos meses para desenhar a linha.</span>
+function Linha({ dados, cor, fmt, onAmpliar }: { dados: { rot: string; v: number }[]; cor: string; fmt: (v: number) => string; onAmpliar?: () => void }) {
+  if (dados.length < 2) return <VazioPainel onAmpliar={onAmpliar} texto="Poucos meses para desenhar a linha." />
   const W = 520, H = 190, L = 44, B = 22, T = 16
   const vs = dados.map((d) => d.v)
   const lo = Math.floor(Math.min(...vs) / 10) * 10 - 10, hi = Math.ceil(Math.max(...vs) / 10) * 10 + 10
@@ -120,16 +137,19 @@ export default function BiPlanta() {
   const [sexo, setSexo] = useState<string>('')
   const [cidade, setCidade] = useState<string>('')
   const [per, setPer] = useState<string>('mes')
+  // Intervalo manual (ex.: "último mês com abate"), fora dos períodos prontos; qualquer período pronto o limpa.
+  const [override, setOverride] = useState<{ de: string; ate: string; rot: string } | null>(null)
   const [p, setP] = useState<Painel | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [dica, setDica] = useState<string | null>(null)
 
   const intervalo = useMemo(() => {
+    if (override) return { de: override.de, ate: override.ate }
     const hoje = new Date(); const ate = iso(hoje)
     if (per === 'mes') return { de: iso(new Date(hoje.getFullYear(), hoje.getMonth(), 1)), ate }
     const d = new Date(hoje); d.setDate(d.getDate() - (Number(per) - 1)); return { de: iso(d), ate }
-  }, [per])
+  }, [per, override])
 
   // Só a última requisição vale: troca rápida de filtro não deixa resposta velha sobrescrever a nova.
   // AbortError ("Lock broken by another request with the 'steal' option") é cancelamento do refresh
@@ -154,6 +174,22 @@ export default function BiPlanta() {
     setP(res.data as Painel)
   }, [empresa, sexo, cidade, intervalo])
   useEffect(() => { void carregar() }, [carregar])
+
+  // RD-98 (PDCA): primeira carga não pode abrir vazia. Se o período padrão ("Este mês") não tem abate
+  // mas a planta tem histórico, cai UMA vez no ÚLTIMO mês COM abate — mesmo que seja mais antigo que 12
+  // meses (os períodos prontos vão só até lá). Automático só enquanto o usuário não escolheu um período.
+  const autoAjustado = useRef(false)
+  const tocouPeriodo = useRef(false)
+  // "Ampliar para 12 meses": ação de recuperação do estado vazio de cada painel (RD-98 p4). Só é oferecida
+  // quando não se está já nos 12 meses; marca que o usuário tocou o período (desliga o auto-ajuste).
+  const ampliar = useCallback(() => { tocouPeriodo.current = true; setOverride(null); setPer('365') }, [])
+  const ampliarPainel = per !== '365' ? ampliar : undefined
+  useEffect(() => {
+    if (autoAjustado.current || tocouPeriodo.current || override) return
+    if (per !== 'mes' || !p?.ok || !p.resumo || p.resumo.cabecas !== 0) return
+    const ultimo = [...(p.meses ?? [])].reverse().find((m) => m.cab > 0)
+    if (ultimo) { autoAjustado.current = true; setOverride(mesRange(ultimo.mes)) }
+  }, [p, per, override])
 
   const r = p?.resumo; const c = p?.compra; const a = p?.anterior
   const femPct = r && r.cabecas ? 100 * r.femeas / r.cabecas : null
@@ -207,7 +243,7 @@ export default function BiPlanta() {
             </div>
           </div>
           <label style={{ display: 'grid', gap: 2, fontSize: 12, color: C.m }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Cidade de origem<AjudaCampo chave="planta.visao" rota={ROTA} /></span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Cidade de origem<AjudaCampo chave="planta.cidade" rota={ROTA} /></span>
             <select value={cidade} onChange={(e) => setCidade(e.target.value)} aria-label="Cidade de origem"
               style={{ font: 'inherit', fontSize: 14, padding: '8px 10px', borderRadius: 10, border: `1px solid ${C.bd}`, background: '#fff', color: C.esp, minWidth: 200, maxWidth: '80vw' }}>
               <option value="">Todas as cidades</option>
@@ -218,10 +254,11 @@ export default function BiPlanta() {
             <span style={{ fontSize: 12, color: C.m, display: 'flex', alignItems: 'center', gap: 4 }}>Período<AjudaCampo chave="planta.periodo" rota={ROTA} /></span>
             <div role="group" aria-label="Período" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {PERIODOS.map((x) => (
-                <button key={x.k} type="button" onClick={() => setPer(x.k)} aria-pressed={per === x.k}
-                  style={{ font: 'inherit', fontSize: 13, padding: '7px 12px', borderRadius: 999, cursor: 'pointer', border: `1px solid ${per === x.k ? C.esp : C.bd}`, background: per === x.k ? C.esp : '#fff', color: per === x.k ? '#fff' : C.esp }}>{x.rot}</button>
+                <button key={x.k} type="button" onClick={() => { tocouPeriodo.current = true; setOverride(null); setPer(x.k) }} aria-pressed={!override && per === x.k}
+                  style={{ font: 'inherit', fontSize: 13, padding: '7px 12px', borderRadius: 999, cursor: 'pointer', border: `1px solid ${!override && per === x.k ? C.esp : C.bd}`, background: !override && per === x.k ? C.esp : '#fff', color: !override && per === x.k ? '#fff' : C.esp }}>{x.rot}</button>
               ))}
             </div>
+            {override && <span style={{ fontSize: 12, color: C.m }}>Mostrando <b style={{ color: C.esp }}>{override.rot}</b> — último mês com abate; este mês ainda não tem registros.</span>}
           </div>
           {(sexo || cidade) && (
             <nav aria-label="Trilha da visão" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, fontSize: 12 }}>
@@ -251,8 +288,9 @@ export default function BiPlanta() {
                 : <>Nenhum evento de abate foi registrado para {(PERIODOS.find((x) => x.k === per)?.rot ?? 'este período').toLowerCase()}. Amplie o período para ver o histórico da planta.</>}
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {per !== '365' && <button type="button" onClick={() => setPer('365')} style={{ font: 'inherit', fontSize: 13, padding: '8px 14px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${C.esp}`, background: C.esp, color: '#fff' }}>Ver 12 meses</button>}
-              {per !== '90' && <button type="button" onClick={() => setPer('90')} style={{ font: 'inherit', fontSize: 13, padding: '8px 14px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${C.bd}`, background: '#fff', color: C.esp }}>Ver 90 dias</button>}
+              {ultimoAbate && <button type="button" onClick={() => { tocouPeriodo.current = true; setOverride(mesRange(ultimoAbate.mes)) }} style={{ font: 'inherit', fontSize: 13, padding: '8px 14px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${C.esp}`, background: C.esp, color: '#fff' }}>Ver {mesRot(ultimoAbate.mes)} (último com abate)</button>}
+              {per !== '365' && <button type="button" onClick={() => { tocouPeriodo.current = true; setOverride(null); setPer('365') }} style={{ font: 'inherit', fontSize: 13, padding: '8px 14px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${ultimoAbate ? C.bd : C.esp}`, background: ultimoAbate ? '#fff' : C.esp, color: ultimoAbate ? C.esp : '#fff' }}>Ver 12 meses</button>}
+              {per !== '90' && <button type="button" onClick={() => { tocouPeriodo.current = true; setOverride(null); setPer('90') }} style={{ font: 'inherit', fontSize: 13, padding: '8px 14px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${C.bd}`, background: '#fff', color: C.esp }}>Ver 90 dias</button>}
             </div>
           </div>
           )
@@ -283,7 +321,7 @@ export default function BiPlanta() {
             <section style={grade(380)} aria-label="Abate">
               <div style={card}>
                 <Titulo t="Cabeças abatidas por dia" nota="Barra escura = mais da metade fêmeas. Toque numa barra para ver o detalhe." ajuda="planta.cabecas" />
-                <Colunas cor={C.gold2} corForte={C.gold} onPick={setDica} fmtTopo={(v) => int(v)}
+                <Colunas cor={C.gold2} corForte={C.gold} onPick={setDica} onAmpliar={ampliarPainel} fmtTopo={(v) => int(v)}
                   dados={p.dia.map((d) => ({ rot: dataBR(d.dia).slice(0, 5), v: d.cab, forte: d.femeas / d.cab > 0.5, dica: `${dataBR(d.dia)} · ${d.cab} cabeças · ${d.femeas} fêmeas · carcaça média ${n1(d.peso)} kg` }))} />
                 {dica && <div role="status" style={{ fontSize: 12, color: C.esp, background: C.bg2, borderRadius: 8, padding: '6px 10px' }}>{dica}</div>}
               </div>
@@ -297,11 +335,11 @@ export default function BiPlanta() {
             <section style={grade(380)} aria-label="Compra de gado">
               <div style={card}>
                 <Titulo t="Preço da arroba mês a mês" nota={mesesArroba.fora.length ? 'Meses fora do padrão ficam fora da linha (ver leituras).' : 'R$ por arroba de carcaça paga ao produtor.'} ajuda="planta.arroba" />
-                <Linha cor={C.verde} fmt={(v) => brl(v)} dados={mesesArroba.bons.map((m) => ({ rot: mesRot(m.mes).slice(0, 3), v: m.rs_arroba }))} />
+                <Linha cor={C.verde} fmt={(v) => brl(v)} onAmpliar={ampliarPainel} dados={mesesArroba.bons.map((m) => ({ rot: mesRot(m.mes).slice(0, 3), v: m.rs_arroba }))} />
               </div>
               <div style={card}>
                 <Titulo t="Preço da arroba por categoria" nota="O traço é a média do período." ajuda="planta.arroba" />
-                <BarrasH cor={C.gold} fmt={(v) => brl2(v)} ref={c.rs_arroba}
+                <BarrasH cor={C.gold} fmt={(v) => brl2(v)} ref={c.rs_arroba} onAmpliar={ampliarPainel}
                   dados={p.categorias.filter((x) => x.rs_arroba != null).sort((x, y) => (y.rs_arroba ?? 0) - (x.rs_arroba ?? 0)).map((x) => ({ rot: cap(x.categoria.replace(/ PARA ABATE/i, '')), v: x.rs_arroba ?? 0 }))} />
                 <div style={{ fontSize: 12, color: C.m }}>{p.categorias.map((x) => `${cap(x.categoria.replace(/ PARA ABATE/i, ''))}: ${int(x.cab)} cab.`).join(' · ')}</div>
               </div>
@@ -309,13 +347,13 @@ export default function BiPlanta() {
 
             <section style={grade(420)} aria-label="Origem do gado">
               <div style={card}>
-                <Titulo t="De onde veio o gado" nota="Valor comprado por cidade do produtor. Toque numa cidade para ver só ela." ajuda="planta.visao" />
-                <BarrasH cor={C.verde} fmt={(v) => brlc(v)} onPick={(x) => setCidade(cidade === x ? '' : x)}
+                <Titulo t="De onde veio o gado" nota="Valor comprado por cidade do produtor. Toque numa cidade para ver só ela." ajuda="planta.cidade" />
+                <BarrasH cor={C.verde} fmt={(v) => brlc(v)} onPick={(x) => setCidade(cidade === x ? '' : x)} onAmpliar={ampliarPainel}
                   dados={p.cidades.map((x) => ({ rot: x.cidade, v: x.valor, sel: cidade ? x.cidade === cidade : undefined }))} />
               </div>
               <div style={card}>
                 <Titulo t="Horas trabalhadas por setor" nota="Ponto eletrônico no período, sem nomes." ajuda="planta.horas" />
-                <BarrasH cor={C.azul} fmt={(v) => `${int(v)} h`} dados={p.setores.map((x) => ({ rot: cap(x.setor), v: x.horas }))} />
+                <BarrasH cor={C.azul} fmt={(v) => `${int(v)} h`} onAmpliar={ampliarPainel} dados={p.setores.map((x) => ({ rot: cap(x.setor), v: x.horas }))} />
               </div>
             </section>
 
@@ -323,7 +361,14 @@ export default function BiPlanta() {
               <Titulo t={`Os ${p.produtores.length} produtores que mais venderam`} nota="Cabeças, carcaça média e preço da arroba de cada um no período." ajuda="planta.produtores" />
               <div style={{ overflow: 'auto', maxHeight: 520 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead><tr><th style={{ ...th, textAlign: 'left' }}>Produtor</th><th style={{ ...th, textAlign: 'left' }}>Cidade</th><th style={th}>Cabeças</th><th style={th}>Carcaça média</th><th style={th}>Valor pago</th><th style={th}>R$ por arroba</th></tr></thead>
+                  <thead><tr>
+                    <th style={{ ...th, textAlign: 'left' }}>Produtor <AjudaCampo chave="planta.prod_produtor" rota={ROTA} /></th>
+                    <th style={{ ...th, textAlign: 'left' }}>Cidade <AjudaCampo chave="planta.prod_cidade" rota={ROTA} /></th>
+                    <th style={th}>Cabeças <AjudaCampo chave="planta.prod_cabecas" rota={ROTA} /></th>
+                    <th style={th}>Carcaça média <AjudaCampo chave="planta.prod_carcaca" rota={ROTA} /></th>
+                    <th style={th}>Valor pago <AjudaCampo chave="planta.prod_valor" rota={ROTA} /></th>
+                    <th style={th}>R$ por arroba <AjudaCampo chave="planta.prod_arroba" rota={ROTA} /></th>
+                  </tr></thead>
                   <tbody>
                     {p.produtores.map((x) => {
                       const d = varp(x.rs_arroba, c.rs_arroba)

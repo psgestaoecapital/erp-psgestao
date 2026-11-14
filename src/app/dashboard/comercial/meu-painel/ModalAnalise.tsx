@@ -34,8 +34,11 @@ type Props = {
 }
 
 export function ModalAnalise({ open, onClose, empresa, base, modelo, estado, onAplicar, exclusaoPadrao }: Props) {
-  const [rascunho, setRascunho] = useState<Record<number, boolean>>(estado.excl)
-  const [escopo, setEscopo] = useState<EscopoAnalise>(estado.escopo)
+  // Guardas (CEO 13/11): o modal NUNCA pode derrubar a página. Mesmo com o BlocoSeguro em volta, normalizamos aqui
+  // as entradas para, no pior caso, o modal abrir VAZIO em vez de lançar (estado/base/modelo com formato inesperado,
+  // ex. mudança de config de tipos de movimento que altere a forma de modelo.its).
+  const [rascunho, setRascunho] = useState<Record<number, boolean>>(estado?.excl ?? {})
+  const [escopo, setEscopo] = useState<EscopoAnalise>(estado?.escopo ?? 'preco')
   const [busca, setBusca] = useState('')
 
   // IMPORTANTE (regras dos Hooks): TODOS os hooks (useState/useMemo) vêm ANTES de qualquer return condicional.
@@ -46,9 +49,11 @@ export function ModalAnalise({ open, onClose, empresa, base, modelo, estado, onA
   // Produtos que existem no período (motor), com totais para a lista.
   const porProd = useMemo(() => {
     const m = new Map<number, { val: number; kg: number; valDentro: number; kgDentro: number }>()
-    modelo.its.forEach((x) => {
+    const its = Array.isArray(modelo?.its) ? modelo.its : []
+    its.forEach((x) => {
+      if (!Array.isArray(x) || x[4] == null) return
       let a = m.get(x[4]); if (!a) { a = { val: 0, kg: 0, valDentro: 0, kgDentro: 0 }; m.set(x[4], a) }
-      a.val += x[6]; a.kg += x[5]
+      a.val += Number(x[6]) || 0; a.kg += Number(x[5]) || 0
     })
     return m
   }, [modelo])
@@ -62,14 +67,14 @@ export function ModalAnalise({ open, onClose, empresa, base, modelo, estado, onA
   const grupos = useMemo(() => {
     const porLinha = new Map<string, number[]>()
     porProd.forEach((_, pi) => {
-      const linha = base.prod[pi]?.[1] ?? '—'
+      const linha = base?.prod?.[pi]?.[1] ?? '—'
       let arr = porLinha.get(linha); if (!arr) { arr = []; porLinha.set(linha, arr) }
       arr.push(pi)
     })
     const q = busca.trim().toLowerCase()
     return [...porLinha].map(([linha, pis]) => ({
       linha,
-      pis: pis.filter((pi) => !q || (base.prod[pi]?.[0] ?? '').toLowerCase().includes(q)).sort((a, b) => (porProd.get(b)!.val - porProd.get(a)!.val)),
+      pis: pis.filter((pi) => !q || (base?.prod?.[pi]?.[0] ?? '').toLowerCase().includes(q)).sort((a, b) => (porProd.get(b)!.val - porProd.get(a)!.val)),
     })).filter((g) => g.pis.length).sort((a, b) => a.linha.localeCompare(b.linha))
   }, [porProd, base, busca])
 
@@ -77,11 +82,11 @@ export function ModalAnalise({ open, onClose, empresa, base, modelo, estado, onA
   if (!open) return null
 
   const presets = [
-    { k: 'padrao', rot: 'Padrão: só carne', fn: () => ({ ...exclusaoPadrao }) },
+    { k: 'padrao', rot: 'Padrão: só carne', fn: () => ({ ...(exclusaoPadrao ?? {}) }) },
     { k: 'todos', rot: 'Todos os produtos', fn: () => ({}) },
     { k: 'inativos', rot: 'Tirar também os inativos', fn: () => {
-      const r = { ...exclusaoPadrao }
-      porProd.forEach((_, pi) => { if ((base.prod[pi]?.[1] ?? '').toUpperCase().startsWith('INATIVO')) r[pi] = true })
+      const r = { ...(exclusaoPadrao ?? {}) }
+      porProd.forEach((_, pi) => { if ((base?.prod?.[pi]?.[1] ?? '').toUpperCase().startsWith('INATIVO')) r[pi] = true })
       return r
     } },
   ]
@@ -94,7 +99,7 @@ export function ModalAnalise({ open, onClose, empresa, base, modelo, estado, onA
 
   const aplicar = () => {
     onAplicar(rascunho, escopo)
-    salvarEscolha(empresa, Object.keys(rascunho).filter((k) => rascunho[+k]).map((k) => base.prod[+k]?.[0] ?? k), escopo)
+    salvarEscolha(empresa, Object.keys(rascunho).filter((k) => rascunho[+k]).map((k) => base?.prod?.[+k]?.[0] ?? k), escopo)
     onClose()
   }
 
@@ -159,8 +164,8 @@ export function ModalAnalise({ open, onClose, empresa, base, modelo, estado, onA
                 const a = porProd.get(pi)!
                 return (
                   <label key={pi} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 8, alignItems: 'center', fontSize: 13, minHeight: 40, padding: '4px 4px', borderTop: `1px solid ${C.bg2}` }}>
-                    <input type="checkbox" aria-label={base.prod[pi]?.[0]} checked={!rascunho[pi]} onChange={(e) => setRascunho((r) => { const n = { ...r }; if (e.target.checked) delete n[pi]; else n[pi] = true; return n })} />
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>{base.prod[pi]?.[0]}<AjudaCampo chave="com.painel.produtos" rota={ROTA} /></span>
+                    <input type="checkbox" aria-label={base?.prod?.[pi]?.[0]} checked={!rascunho[pi]} onChange={(e) => setRascunho((r) => { const n = { ...r }; if (e.target.checked) delete n[pi]; else n[pi] = true; return n })} />
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>{base?.prod?.[pi]?.[0]}<AjudaCampo chave="com.painel.produtos" rota={ROTA} /></span>
                     <span style={{ color: C.m, textAlign: 'right' }}>{brl0(a.val)} · {nf({ maximumFractionDigits: 0 }).format(a.kg)} kg · {a.kg > 0 && !rascunho[pi] ? brl2(a.val / a.kg) : '—'}/kg</span>
                   </label>
                 )

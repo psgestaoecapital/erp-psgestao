@@ -44,10 +44,28 @@ function basicValidate(p: Partial<ProdutoPayload>): string | null {
   return null
 }
 
-// #3255: código repetido (índice único company_id+codigo) vira mensagem clara, não o texto do Postgres.
-function mensagemErro(error: { code?: string; message: string }, codigo?: string): string {
-  if (error.code === '23505') return `Já existe um produto com o código ${String(codigo ?? '').trim()} nesta empresa. Use outro código.`
-  return error.message
+// RD-98 (critério e): o usuário nunca vê o texto cru do Postgres — todo código de erro conhecido
+// vira frase em português; o que não mapeamos cai numa mensagem genérica amigável (nunca o SQLSTATE cru).
+function mensagemErro(error: { code?: string; message?: string }, codigo?: string): string {
+  switch (error?.code) {
+    case '23505': // índice único company_id+codigo (#3255)
+      return `Já existe um produto com o código ${String(codigo ?? '').trim()} nesta empresa. Use outro código.`
+    case '23503': // foreign key
+      return 'Este produto está vinculado a outros registros (notas, pedidos ou estoque) e não pode ser salvo ou excluído assim. Remova os vínculos primeiro.'
+    case '23502': // not null
+      return 'Há campos obrigatórios em branco. Preencha-os e salve novamente.'
+    case '23514': // check constraint
+      return 'Algum valor informado não é aceito pela regra do cadastro. Revise os campos e tente de novo.'
+    case '22P02': // invalid text representation
+    case '22003': // numeric out of range
+      return 'Algum número ou data está em formato inválido. Confira os campos e tente de novo.'
+    case '42501': // insufficient privilege
+      return 'Você não tem permissão para esta ação nesta empresa.'
+    case 'P0001': // RAISE EXCEPTION das funções guardadas — já vem em português
+      return error.message || 'Não foi possível concluir a operação.'
+    default:
+      return 'Não foi possível salvar o produto agora. Confira os dados e tente novamente.'
+  }
 }
 
 export const POST = exigirLogin(async (req: NextRequest, u) => {
@@ -86,7 +104,7 @@ async function contarVinculo(alvo: AlvoVinculo, companyId: string, produto: { id
     ? base.eq('company_id', companyId).contains(alvo.coluna, [{ codigo: produto.codigo }])
     : base.eq(alvo.coluna, produto.id)
   const { count, error } = await consulta
-  if (error) throw new Error(`Não foi possível verificar vínculos (${alvo.rotulo}): ${error.message}`)
+  if (error) throw new Error(`Não foi possível verificar os vínculos do produto (${alvo.rotulo}) agora. Tente de novo em instantes.`)
   return count ?? 0
 }
 
@@ -147,7 +165,7 @@ export const DELETE = exigirLogin(async (req: NextRequest, u) => {
       .update({ ativo: false, deleted_at: new Date().toISOString(), deleted_by: u.userId })
       .eq('id', body.id)
       .eq('company_id', body.company_id)
-    if (error) return NextResponse.json({ ok: false, mensagem: error.message }, { status: 500 })
+    if (error) return NextResponse.json({ ok: false, mensagem: mensagemErro(error) }, { status: error.code === '23503' ? 409 : 500 })
 
     await supabaseAdmin.from('audit_log_global').insert({
       company_id: body.company_id, user_id: u.userId, tabela: 'erp_produtos', registro_id: body.id,

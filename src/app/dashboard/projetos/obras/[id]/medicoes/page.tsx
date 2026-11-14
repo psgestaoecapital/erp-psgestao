@@ -15,6 +15,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
+import { parseNumBR } from '@/lib/num'
 
 const ROTA = '/dashboard/projetos/obras/[id]/medicoes'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = 'rgba(61,35,20,0.18)', MUT = 'rgba(61,35,20,0.55)', VERM = '#A32D2D', VERDE = '#2E7D32'
@@ -161,10 +162,8 @@ export default function MedicoesObraPage({ params }: { params: Promise<{ id: str
   const previaValor = useMemo(() => {
     let total = 0
     for (const it of itens) {
-      const raw = (linhas[it.id] ?? '').replace(',', '.').trim()
-      if (!raw) continue
-      const n = Number(raw)
-      if (!isFinite(n) || n === 0) continue
+      const n = parseNumBR(linhas[it.id]) // aceita vírgula decimal e ponto de milhar BR (#5660)
+      if (n == null || n === 0) continue
       const contr = Number(it.valor_contratado) || (Number(it.preco_unitario) || 0) * (Number(it.quantidade_contratada) || 0)
       total += tipo === 'percentual' ? (n / 100) * contr : n * (Number(it.preco_unitario) || 0)
     }
@@ -177,10 +176,8 @@ export default function MedicoesObraPage({ params }: { params: Promise<{ id: str
     if (!obra) return
     const payload = itens
       .map((it) => {
-        const raw = (linhas[it.id] ?? '').replace(',', '.').trim()
-        if (!raw) return null
-        const n = Number(raw)
-        if (!isFinite(n) || n === 0) return null
+        const n = parseNumBR(linhas[it.id]) // aceita vírgula decimal e ponto de milhar BR (#5660)
+        if (n == null || n === 0) return null
         return tipo === 'percentual'
           ? { obra_item_id: it.id, percentual: n }
           : { obra_item_id: it.id, quantidade: n }

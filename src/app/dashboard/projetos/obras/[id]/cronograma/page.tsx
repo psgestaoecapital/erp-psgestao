@@ -15,6 +15,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { parseNumBR } from '@/lib/num'
 import { curvaS, curvaRealizada, type AvancoHist, type PontoRealizado } from '@/lib/hub/curvaS'
 import { fisicoFinanceiro } from '@/lib/hub/fisicoFinanceiro'
 import { caminhoCritico } from '@/lib/hub/caminhoCritico'
@@ -161,9 +162,9 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
     if (form.fim < form.inicio) { setErro('O fim não pode ser antes do início.'); return }
     const pct = Number(form.percentual)
     if (!Number.isFinite(pct) || pct < 0 || pct > 100) { setErro('O avanço deve ficar entre 0 e 100.'); return }
-    const custo = form.custo.trim() === '' ? null : Number(form.custo.replace(',', '.'))
+    const custo = form.custo.trim() === '' ? null : (parseNumBR(form.custo) ?? NaN) // aceita vírgula e milhar BR (#5660)
     if (custo !== null && (!Number.isFinite(custo) || custo < 0)) { setErro('O custo previsto deve ser um valor maior ou igual a zero.'); return }
-    const itens = Object.entries(form.itens).map(([obra_item_id, v]) => ({ obra_item_id, participacao_pct: Number(v.replace(',', '.')) }))
+    const itens = Object.entries(form.itens).map(([obra_item_id, v]) => ({ obra_item_id, participacao_pct: parseNumBR(v) ?? NaN }))
     if (itens.some((x) => !Number.isFinite(x.participacao_pct) || x.participacao_pct <= 0 || x.participacao_pct > 100)) { setErro('A participação de cada item deve ficar entre 1 e 100%.'); return }
     const estouro = itens.find((x) => x.participacao_pct + usadoFora(x.obra_item_id, form.id) > 100)
     if (estouro) { setErro(`O item "${itensObra.find((i) => i.id === estouro.obra_item_id)?.descricao ?? ''}" passaria de 100% somando as tarefas.`); return }

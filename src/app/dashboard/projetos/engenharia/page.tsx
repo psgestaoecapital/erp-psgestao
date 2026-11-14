@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Ruler, Plus, Check, Sparkles, AlertTriangle, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { comPrazo } from '@/lib/comPrazo'
+import { parseNumBR } from '@/lib/num'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 
@@ -35,7 +36,9 @@ function useEmpresaSelecionada(): { companyId: string | null } {
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const money = (n: number) => (n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-const num = (v: string) => (v.trim() ? Number(v.replace(',', '.')) : null)
+// #5660: aceita vírgula decimal e ponto de milhar (fonte única parseNumBR, src/lib/num.ts).
+// Garbage (ex.: "abc") vira null em vez de NaN — valor opcional não informado.
+const num = (v: string) => parseNumBR(v)
 
 type Orc = { id: string; numero: string | null; cliente_nome: string | null; status: string }
 type Servico = { id: string; codigo: string | null; nome: string; unidade: string | null; custo_unitario_total: number | null }

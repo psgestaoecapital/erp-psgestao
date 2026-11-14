@@ -1008,7 +1008,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
           {parcelas >= 2 && (
             <div style={{ gridColumn: '1 / -1' }}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 12, color: 'rgba(61,35,20,0.65)', fontWeight: 500 }}>O valor informado é:</span>
+                <span style={{ fontSize: 12, color: 'rgba(61,35,20,0.65)', fontWeight: 500 }}>O valor informado é: <AjudaCampo chave="financeiro.despesa.modo_valor" rota={ROTA_AJUDA} /></span>
                 <div style={{ display: 'inline-flex', border: '0.5px solid rgba(61,35,20,0.25)', borderRadius: 6, overflow: 'hidden' }}>
                   {([['total', 'Total da conta'], ['parcela', 'Valor de cada parcela']] as const).map(([m, rot]) => (
                     <button key={m} type="button" onClick={() => setModoValor(m)}
@@ -1339,6 +1339,9 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
             >
               ▾
             </button>
+            <span style={{ display: 'inline-flex', alignItems: 'center', marginLeft: 6 }}>
+              <AjudaCampo chave="financeiro.despesa.salvar_opcoes" rota={ROTA_AJUDA} />
+            </span>
             {salvarMenu && !loading && (
               <div style={{ position: 'absolute', bottom: '100%', right: 0, marginBottom: 6, background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.15)', borderRadius: 8, boxShadow: '0 8px 24px rgba(61,35,20,0.15)', zIndex: 20, minWidth: 200, overflow: 'hidden' }}>
                 <button type="button" onClick={() => void salvar('nova')} style={menuItemStyle}>Salvar e lançar nova</button>
