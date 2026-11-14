@@ -22,7 +22,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import {
   ArrowLeft, Plus, RefreshCw, Loader2, AlertCircle, CheckCircle2,
-  Banknote, X, Lock,
+  Banknote, X, Lock, Trash2,
 } from 'lucide-react'
 
 type Ambiente = 'producao' | 'homologacao'
@@ -184,6 +184,8 @@ export default function ConexoesBancariasPage() {
   // editar-config-existente · reabre o modal pré-preenchido pra um banco JÁ conectado
   const [editando, setEditando] = useState<{ banco: BancoDef; cfg: ProviderConfig } | null>(null)
   const [cnabEdit, setCnabEdit] = useState<ProviderConfig | null>(null)   // editor de identidade CNAB (sem credenciais)
+  const [removendo, setRemovendo] = useState<ProviderConfig | null>(null)   // confirmação de remover/revogar conexão
+  const [removeBusy, setRemoveBusy] = useState(false)
   // #1736: bancos em piloto (BB) só aparecem para o admin PS — is_admin() no banco, não um flag de tela.
   const [adminPS, setAdminPS] = useState(false)
   useEffect(() => {
@@ -197,6 +199,17 @@ export default function ConexoesBancariasPage() {
     const r = data as { ok?: boolean; erro?: string } | null
     if (error || !r?.ok) { setErro(error?.message ?? r?.erro ?? 'Não foi possível definir o responsável.'); return }
     setErro(null)
+    await carregar()
+  }
+
+  // RD-98 p2/p4: remover/revogar conexão — soft-delete rastreável + revoga segredos no Vault (RPC guardada)
+  async function removerConexao(cfg: ProviderConfig) {
+    setRemoveBusy(true)
+    const { data, error } = await supabase.rpc('fn_banco_conexao_remover', { p_config_id: cfg.id })
+    const r = data as { ok?: boolean; erro?: string } | null
+    setRemoveBusy(false)
+    if (error || !r?.ok) { setErro(error?.message ?? r?.erro ?? 'Não foi possível remover a conexão.'); return }
+    setErro(null); setRemovendo(null); setMsg('Conexão removida — segredos revogados no cofre.')
     await carregar()
   }
 
@@ -220,7 +233,8 @@ export default function ConexoesBancariasPage() {
         .select('provider, codigo, titulo, o_que_e, o_que_fazer, quem_contatar, pedir_ao_banco'),
     ])
     if (cfgRes.error) setErro(cfgRes.error.message)
-    else setConfigs((cfgRes.data ?? []) as ProviderConfig[])
+    // conexões revogadas (removidas) somem da lista; o histórico fica no banco (soft-delete + audit)
+    else setConfigs(((cfgRes.data ?? []) as ProviderConfig[]).filter((c) => c.estado_conexao !== 'revogado'))
     if (!contasRes.error) setContas((contasRes.data ?? []) as BancoConta[])
     if (!testesRes.error) {
       const mapa: Record<string, UltimoTeste> = {}
@@ -507,6 +521,21 @@ export default function ConexoesBancariasPage() {
                             <AjudaCampo chave="banco.responsavel_boleto" />
                           </span>
                         )}
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <button
+                            type="button"
+                            data-testid={`remover-conexao-${cfg.provider}`}
+                            onClick={() => setRemovendo(cfg)}
+                            title="Encerrar a conexão com este banco e revogar as credenciais no cofre"
+                            style={{
+                              background: 'transparent', color: '#B91C1C', border: '1px solid #E4B7B7',
+                              padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                              cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
+                            }}>
+                            <Trash2 size={12} /> Remover / Revogar
+                          </button>
+                          <AjudaCampo chave="banco.remover_conexao" />
+                        </span>
                         {cfg.ativo && botaoTestar(cfg)}
                         {cfg.cap_extrato && cfg.ativo && !temConectorExtrato(cfg.provider) && (
                           <span data-testid={`extrato-sem-conector-${cfg.provider}`} style={{ fontSize: 10, color: ESP60, maxWidth: 220 }}>
@@ -622,6 +651,18 @@ export default function ConexoesBancariasPage() {
                           }}>
                           🧭 Roteiro (guia)
                         </Link>
+                        <button
+                          type="button"
+                          data-testid={`remover-conexao-emconfig-${cfg.provider}`}
+                          onClick={() => setRemovendo(cfg)}
+                          title="Encerrar a conexão com este banco e revogar as credenciais no cofre"
+                          style={{
+                            background: 'transparent', color: '#B91C1C', border: '1px solid #E4B7B7',
+                            padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                            cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
+                          }}>
+                          <Trash2 size={12} /> Remover / Revogar
+                        </button>
                         {botaoTestar(cfg)}
                         </div>
                         {feedbackTeste(cfg)}
@@ -710,6 +751,36 @@ export default function ConexoesBancariasPage() {
           onClose={() => setCnabEdit(null)}
           onSucesso={() => { setCnabEdit(null); setMsg('Dados CNAB ALTERADOS.'); void carregar() }}
         />
+      )}
+
+      {removendo && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60, padding: 16 }} onClick={() => !removeBusy && setRemovendo(null)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: '#FFF', borderRadius: 14, padding: 24, maxWidth: 440, width: '100%', border: `0.5px solid ${LINE}` }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <Trash2 size={18} style={{ color: '#B91C1C' }} />
+              <h3 style={{ fontSize: 16, fontWeight: 800, color: ESP, margin: 0 }}>Remover / Revogar conexão</h3>
+            </div>
+            <p style={{ fontSize: 13.5, color: ESP, lineHeight: 1.55, margin: '0 0 10px' }}>
+              Você vai encerrar a conexão com <b>{BANCOS.find((b) => removendo.provider.includes(b.sigla))?.nome ?? removendo.provider}</b> ({removendo.ambiente}).
+              As credenciais guardadas no cofre (Vault) serão <b>revogadas</b> e a conexão sai da lista e para de sincronizar.
+            </p>
+            <p style={{ fontSize: 12.5, color: ESP60, lineHeight: 1.5, margin: '0 0 16px' }}>
+              Seus extratos e boletos já importados <b>não</b> são apagados. Fica registrado quem removeu e quando.
+              Para voltar a usar este banco depois, basta Conectar de novo e informar as credenciais.
+            </p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button type="button" onClick={() => setRemovendo(null)} disabled={removeBusy}
+                style={{ background: 'transparent', color: ESP, border: `1px solid ${LINE}`, padding: '8px 14px', borderRadius: 6, fontSize: 12.5, fontWeight: 600, cursor: removeBusy ? 'default' : 'pointer' }}>
+                Cancelar
+              </button>
+              <button type="button" data-testid="confirmar-remover-conexao" onClick={() => void removerConexao(removendo)} disabled={removeBusy}
+                style={{ background: '#B91C1C', color: '#FFF', border: 'none', padding: '8px 14px', borderRadius: 6, fontSize: 12.5, fontWeight: 700, cursor: removeBusy ? 'wait' : 'pointer', opacity: removeBusy ? 0.6 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {removeBusy ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Trash2 size={13} />}
+                {removeBusy ? 'Removendo…' : 'Remover e revogar'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
