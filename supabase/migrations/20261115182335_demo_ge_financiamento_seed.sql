@@ -10,6 +10,7 @@
 -- auth.uid(); a guarda real das RPCs de usuário permanece intacta.
 
 -- ── Helper service-only: gera cronograma + recalcula derivados de UM financiamento (DEMO) ────────────
+-- ci-sem-guarda: fn__demo_financiamento_cronograma — helper service-only de seed DEMO; roda como service_role sem auth.uid() e grava apenas em empresa is_demo (o seed já conferiu is_demo antes de chamar). Não há dado de cliente real.
 CREATE OR REPLACE FUNCTION public.fn__demo_financiamento_cronograma(p_id uuid)
  RETURNS void
  LANGUAGE plpgsql
@@ -102,6 +103,7 @@ REVOKE ALL ON FUNCTION public.fn__demo_financiamento_cronograma(uuid) FROM PUBLI
 GRANT EXECUTE ON FUNCTION public.fn__demo_financiamento_cronograma(uuid) TO service_role;
 
 -- ── Seed idempotente dos financiamentos da DEMO Comércio GE ──────────────────────────────────────────
+-- ci-sem-guarda: fn_demo_seed_ge_financiamento — seed DEMO; confere is_demo (companies.is_demo) antes de gravar e retorna 'nao_e_demo' em empresa real; sem auth.uid(). Não toca dado de cliente real.
 CREATE OR REPLACE FUNCTION public.fn_demo_seed_ge_financiamento(p_company_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -155,6 +157,7 @@ GRANT EXECUTE ON FUNCTION public.fn_demo_seed_ge_financiamento(uuid) TO authenti
 
 -- ── Integra ao fn_demo_reset (sobrevive ao reset) — bloco novo para a DEMO Comércio GE (b07…0004) ────
 -- (reproduz a definição viva; única mudança: +bloco 'financiamento' logo após o bloco de GE existente.)
+-- ci-sem-guarda: fn_demo_reset — reset de empresa DEMO; confere is_demo e aborta ('nao_e_demo') em empresa real; só repopula seeds de demonstração, nunca dado de cliente real.
 CREATE OR REPLACE FUNCTION public.fn_demo_reset(p_company_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -261,3 +264,6 @@ BEGIN
 
   RETURN jsonb_build_object('ok', true, 'empresa', v_nome, 'seed', v_seed, 'resultado', v_res);
 END $function$;
+-- Reafirma as permissões vivas de fn_demo_reset (CREATE OR REPLACE não altera grants; linhas idempotentes p/ o gate check-fn-guards).
+REVOKE ALL ON FUNCTION public.fn_demo_reset(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_demo_reset(uuid) TO authenticated, service_role;
