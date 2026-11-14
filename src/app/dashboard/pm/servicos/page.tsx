@@ -6,6 +6,8 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { PackageOpen, Plus, Pencil, Copy, Trash2, X, GripVertical } from 'lucide-react'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ESPRESSO = '#3D2314', OFFWHITE = '#FAF7F2', DOURADO = '#C8941A', BORDA = '#E7DED3', TEXTM = '#6b5444', RED = '#7A1F1F'
@@ -169,7 +171,7 @@ function FormServico({ edit, setEdit, equipe, servicos, onSalvar, erro, opcoes, 
       </div>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
         <Campo label="Modelo de preço" ajuda="pm.servico.modelo_preco"><select style={inp} value={edit.modelo_preco ?? 'fixo'} onChange={e => setEdit({ ...edit, modelo_preco: e.target.value })}>{MODELOS.map(m => <option key={m.v} value={m.v}>{m.l}</option>)}</select></Campo>
-        <Campo label="Valor base (R$)" ajuda="pm.servico.valor_base"><input type="number" style={inp} value={edit.valor_base ?? ''} onChange={e => setEdit({ ...edit, valor_base: e.target.value === '' ? null : Number(e.target.value) })} /></Campo>
+        <Campo label="Valor base (R$)" ajuda="pm.servico.valor_base"><CampoMoeda style={inp} value={numeroParaMoeda(edit.valor_base)} onChange={v => setEdit({ ...edit, valor_base: moedaParaNumero(v) })} placeholder="0,00" /></Campo>
         <Campo label="Unidade" ajuda="pm.servico.unidade"><SelectConfig lista="unidade" opcoes={opcoes} value={edit.unidade ?? ''} onChange={v => setEdit({ ...edit, unidade: v || null })} onGerenciar={onGerenciar} /></Campo>
       </div>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>

@@ -16,6 +16,7 @@ import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { selecionarTodas } from '@/lib/selecionarTodas'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import TabVeiculosRevenda, { type EstoqueVeiculos } from '@/components/estoque/TabVeiculosRevenda'
@@ -136,7 +137,6 @@ type Movimentacao = {
   lote: string | null
   validade: string | null
   observacoes: string | null
-  usuario_nome: string | null            // §6 · coluna órfã (cópia vazia) — não usar; ver usuario_nome_resolvido
   usuario_id: string | null
   produto_nome: string | null            // §6 · resolvido na view v_estoque_movimentacoes
   produto_codigo: string | null
@@ -384,8 +384,8 @@ function EstoqueInner() {
     observacoes: string | null; lote: string | null; validade: string | null;
   }) {
     // F2.2 · usa RPC eleita (com usuario_id pra rastreio LGPD).
-    // fn_movimentar_estoque ficou [DEPRECATED]. Lote/validade nao sao
-    // passados aqui ainda (gap conhecido F2.3).
+    // fn_movimentar_estoque ficou [DEPRECATED]. F2.3: lote/validade agora
+    // persistem (registrar_movimento_estoque recebe p_lote/p_validade).
     if (!companyIdUnico) { flashErr('Selecione uma empresa específica.'); return false }
     const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { error } = await supabase.rpc('registrar_movimento_estoque', {
@@ -398,6 +398,8 @@ function EstoqueInner() {
       p_observacoes: args.observacoes,
       p_usuario_id: user?.id ?? null,
       p_local_id: args.local_id,
+      p_lote: args.lote,
+      p_validade: args.validade,
     })
     if (error) {
       flashErr(erroAmigavel(error, 'Não foi possível registrar a movimentação. Tente de novo.'))
@@ -959,17 +961,24 @@ function TabProdutos({ rows, total, loading, categorias, filtroBusca, setFiltroB
           <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.espressoL }} />
           <input type="text" placeholder="Buscar por nome ou código (busca em todo cadastro)…" value={filtroBusca} onChange={(e) => setFiltroBusca(e.target.value)}
             data-testid="produtos-busca" style={{ width: '100%', padding: '8px 10px 8px 32px', minHeight: 44, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.white, color: C.espresso, outline: 'none' }} />
+          <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)' }}><AjudaCampo chave="commerce.estoque.busca" /></span>
         </div>
-        <select value={filtroCategoria} onChange={(e) => setFiltroCategoria(e.target.value)} style={{ ...selInpStyle, minHeight: 44 }}>
-          <option value="">Todas as categorias</option>
-          {categorias.map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
-        <select value={filtroEstoque} onChange={(e) => setFiltroEstoque(e.target.value as 'todos' | 'baixo' | 'zero' | 'excedente')} style={{ ...selInpStyle, minHeight: 44 }}>
-          <option value="todos">Todos os estoques</option>
-          <option value="baixo">Abaixo do mínimo</option>
-          <option value="zero">Estoque zerado</option>
-          <option value="excedente">Acima do máximo</option>
-        </select>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <AjudaCampo chave="commerce.estoque.filtro_categoria" />
+          <select value={filtroCategoria} onChange={(e) => setFiltroCategoria(e.target.value)} style={{ ...selInpStyle, minHeight: 44 }}>
+            <option value="">Todas as categorias</option>
+            {categorias.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </label>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <AjudaCampo chave="commerce.estoque.filtro_estoque" />
+          <select value={filtroEstoque} onChange={(e) => setFiltroEstoque(e.target.value as 'todos' | 'baixo' | 'zero' | 'excedente')} style={{ ...selInpStyle, minHeight: 44 }}>
+            <option value="todos">Todos os estoques</option>
+            <option value="baixo">Abaixo do mínimo</option>
+            <option value="zero">Estoque zerado</option>
+            <option value="excedente">Acima do máximo</option>
+          </select>
+        </label>
         <span data-testid="produtos-contador" style={{ marginLeft: 'auto', fontSize: 11, color: C.espressoM, fontWeight: 600 }}>
           {loading ? 'Buscando…' : buscando
             ? `${rows.length} resultado(s) de busca`
@@ -1076,36 +1085,36 @@ function TabMovimentacoes({ rows, total, filtroTipo, setFiltroTipo, locaisPorId,
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
         <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          De
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>De <AjudaCampo chave="commerce.estoque.mov.de" /></span>
           <input type="date" value={filtroMovInicio} onChange={(e) => setFiltroMovInicio(e.target.value)} style={selInpStyle} />
         </label>
         <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          Até
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Até <AjudaCampo chave="commerce.estoque.mov.ate" /></span>
           <input type="date" value={filtroMovFim} onChange={(e) => setFiltroMovFim(e.target.value)} style={selInpStyle} />
         </label>
         <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          Tipo
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Tipo <AjudaCampo chave="commerce.estoque.mov.tipo" /></span>
           <select value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)} style={selInpStyle}>
             <option value="">Todos</option>
             {TIPOS_MOV.map((t) => <option key={t.value} value={t.value}>{t.sinal} {t.label}</option>)}
           </select>
         </label>
         <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          Produto
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Produto <AjudaCampo chave="commerce.estoque.mov.produto" /></span>
           <select value={filtroMovProduto} onChange={(e) => setFiltroMovProduto(e.target.value)} style={selInpStyle}>
             <option value="">Todos</option>
             {produtos.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
           </select>
         </label>
         <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          Local
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Local <AjudaCampo chave="commerce.estoque.mov.local" /></span>
           <select value={filtroMovLocal} onChange={(e) => setFiltroMovLocal(e.target.value)} style={selInpStyle}>
             <option value="">Todos</option>
             {locais.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
           </select>
         </label>
         <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          Origem
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Origem <AjudaCampo chave="commerce.estoque.mov.origem" /></span>
           <select value={filtroMovRefTipo} onChange={(e) => setFiltroMovRefTipo(e.target.value)} style={selInpStyle}>
             <option value="">Todas</option>
             {refTiposUnicos.map((t) => <option key={t} value={t}>{t}</option>)}
@@ -1229,7 +1238,7 @@ function TabSaldo({
       {/* Filtros */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
         <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          Produto
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Produto <AjudaCampo chave="commerce.estoque.saldo.produto" /></span>
           <input
             type="text"
             value={filtroSaldoProduto}
@@ -1244,7 +1253,7 @@ function TabSaldo({
           </datalist>
         </label>
         <label style={{ fontSize: 11, color: C.espressoM, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          Local
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Local <AjudaCampo chave="commerce.estoque.saldo.local" /></span>
           <select value={filtroSaldoLocal} onChange={(e) => setFiltroSaldoLocal(e.target.value)} style={selInpStyle} data-testid="saldo-filtro-local">
             <option value="">Todos os locais</option>
             {locais.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
@@ -1536,18 +1545,18 @@ function ModalLocal({ local, onClose, onSave }: { local: Local | null; onClose: 
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.espressoM }}><X size={18} /></button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <Field label="Nome *"><input autoFocus value={form.nome ?? ''} onChange={(e) => setForm({ ...form, nome: e.target.value })} style={inp} /></Field>
-          <Field label="Descrição"><input value={form.descricao ?? ''} onChange={(e) => setForm({ ...form, descricao: e.target.value })} style={inp} /></Field>
-          <Field label="Endereço"><input value={form.endereco ?? ''} onChange={(e) => setForm({ ...form, endereco: e.target.value })} style={inp} /></Field>
-          <Field label="Responsável"><input value={form.responsavel ?? ''} onChange={(e) => setForm({ ...form, responsavel: e.target.value })} style={inp} /></Field>
+          <Field label="Nome *" ajuda="commerce.estoque.local.nome"><input autoFocus value={form.nome ?? ''} onChange={(e) => setForm({ ...form, nome: e.target.value })} style={inp} /></Field>
+          <Field label="Descrição" ajuda="commerce.estoque.local.descricao"><input value={form.descricao ?? ''} onChange={(e) => setForm({ ...form, descricao: e.target.value })} style={inp} /></Field>
+          <Field label="Endereço" ajuda="commerce.estoque.local.endereco"><input value={form.endereco ?? ''} onChange={(e) => setForm({ ...form, endereco: e.target.value })} style={inp} /></Field>
+          <Field label="Responsável" ajuda="commerce.estoque.local.responsavel"><input value={form.responsavel ?? ''} onChange={(e) => setForm({ ...form, responsavel: e.target.value })} style={inp} /></Field>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.espresso, cursor: 'pointer' }}>
             <input type="checkbox" checked={!!form.principal} onChange={(e) => setForm({ ...form, principal: e.target.checked })} />
-            Local principal (padrão para movimentações)
+            Local principal (padrão para movimentações) <AjudaCampo chave="commerce.estoque.local.principal" />
           </label>
           {local && (
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.espresso, cursor: 'pointer' }}>
               <input type="checkbox" checked={!!form.ativo} onChange={(e) => setForm({ ...form, ativo: e.target.checked })} />
-              Ativo
+              Ativo <AjudaCampo chave="commerce.estoque.local.ativo" />
             </label>
           )}
         </div>
@@ -1621,12 +1630,12 @@ function ModalMovimentar({ produtos, locais, produtoInicial, onClose, onSubmit }
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.espressoM }}><X size={18} /></button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <Field label="Tipo *">
+          <Field label="Tipo *" ajuda="commerce.estoque.movf.tipo">
             <select value={tipo} onChange={(e) => setTipo(e.target.value)} style={inp}>
               {TIPOS_MOV.map((t) => <option key={t.value} value={t.value}>{t.sinal} {t.label}</option>)}
             </select>
           </Field>
-          <Field label="Produto *">
+          <Field label="Produto *" ajuda="commerce.estoque.movf.produto">
             {produtoSel ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', border: `1px solid ${C.border}`, borderRadius: 6, background: C.goldBg }}>
                 <span style={{ flex: 1, fontWeight: 600 }}>{produtoSel.nome}</span>
@@ -1650,7 +1659,7 @@ function ModalMovimentar({ produtos, locais, produtoInicial, onClose, onSubmit }
             )}
           </Field>
           {locais.length > 0 && (
-            <Field label="Local">
+            <Field label="Local" ajuda="commerce.estoque.movf.local">
               <select value={localId} onChange={(e) => setLocalId(e.target.value)} style={inp}>
                 <option value="">— Sem local específico —</option>
                 {locais.filter((l) => l.ativo !== false).map((l) => <option key={l.id} value={l.id}>{l.nome}{l.principal ? ' ★' : ''}</option>)}
@@ -1658,17 +1667,17 @@ function ModalMovimentar({ produtos, locais, produtoInicial, onClose, onSubmit }
             </Field>
           )}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <Field label="Quantidade *"><input type="number" step="0.01" value={quantidade} onChange={(e) => setQuantidade(e.target.value)} style={inp} /></Field>
-            {isEntrada && <Field label="Custo unitário"><input type="number" step="0.01" value={custo} onChange={(e) => setCusto(e.target.value)} style={inp} /></Field>}
+            <Field label="Quantidade *" ajuda="commerce.estoque.movf.quantidade"><input type="number" step="0.01" value={quantidade} onChange={(e) => setQuantidade(e.target.value)} style={inp} /></Field>
+            {isEntrada && <Field label="Custo unitário" ajuda="commerce.estoque.movf.custo"><input type="number" step="0.01" value={custo} onChange={(e) => setCusto(e.target.value)} style={inp} /></Field>}
           </div>
-          <Field label="Motivo"><input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder={isEntrada ? 'Ex: Compra fornecedor X' : 'Ex: Venda balcão #4521'} style={inp} /></Field>
+          <Field label="Motivo" ajuda="commerce.estoque.movf.motivo"><input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder={isEntrada ? 'Ex: Compra fornecedor X' : 'Ex: Venda balcão #4521'} style={inp} /></Field>
           {isEntrada && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <Field label="Lote (opcional)"><input value={lote} onChange={(e) => setLote(e.target.value)} style={inp} /></Field>
-              <Field label="Validade (opcional)"><input type="date" value={validade} onChange={(e) => setValidade(e.target.value)} style={inp} /></Field>
+              <Field label="Lote (opcional)" ajuda="commerce.estoque.movf.lote"><input value={lote} onChange={(e) => setLote(e.target.value)} style={inp} /></Field>
+              <Field label="Validade (opcional)" ajuda="commerce.estoque.movf.validade"><input type="date" value={validade} onChange={(e) => setValidade(e.target.value)} style={inp} /></Field>
             </div>
           )}
-          <Field label="Observações"><textarea rows={2} value={observacoes} onChange={(e) => setObservacoes(e.target.value)} style={{ ...inp, resize: 'vertical' }} /></Field>
+          <Field label="Observações" ajuda="commerce.estoque.movf.observacoes"><textarea rows={2} value={observacoes} onChange={(e) => setObservacoes(e.target.value)} style={{ ...inp, resize: 'vertical' }} /></Field>
         </div>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
           <button onClick={onClose} style={btnSec}>Cancelar</button>
@@ -1723,10 +1732,12 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
   )
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children, ajuda }: { label: string; children: React.ReactNode; ajuda?: string }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <span style={{ fontSize: 10, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>{label}</span>
+      <span style={{ fontSize: 10, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        {label}{ajuda && <AjudaCampo chave={ajuda} />}
+      </span>
       {children}
     </label>
   )
@@ -1879,6 +1890,7 @@ function ModalAjuste({ companyId, locais, movimentacoes, onClose, onSubmit }: {
           {/* Local */}
           <div>
             <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Local *</label>
+            <AjudaCampo chave="commerce.estoque.ajuste.local" />
             <select value={localId} onChange={(e) => setLocalId(e.target.value)} data-testid="ajuste-local"
               style={{ ...selInpStyle, marginTop: 4, width: '100%' }}>
               {locais.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
@@ -1910,11 +1922,13 @@ function ModalAjuste({ companyId, locais, movimentacoes, onClose, onSubmit }: {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <div>
               <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Quantidade *</label>
+              <AjudaCampo chave="commerce.estoque.ajuste.quantidade" />
               <input type="text" inputMode="decimal" value={quantidade} onChange={(e) => setQuantidade(e.target.value)} placeholder="0"
                 data-testid="ajuste-qtd" style={{ ...selInpStyle, marginTop: 4, width: '100%', textAlign: 'right' }} />
             </div>
             <div>
               <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Custo unitário</label>
+              <AjudaCampo chave="commerce.estoque.ajuste.custo" />
               <input type="text" inputMode="decimal" value={custo} onChange={(e) => setCusto(e.target.value)} placeholder="0,00"
                 data-testid="ajuste-custo" style={{ ...selInpStyle, marginTop: 4, width: '100%', textAlign: 'right' }} />
             </div>
@@ -1930,6 +1944,7 @@ function ModalAjuste({ companyId, locais, movimentacoes, onClose, onSubmit }: {
           {/* Motivo */}
           <div>
             <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Motivo *</label>
+            <AjudaCampo chave="commerce.estoque.ajuste.motivo" />
             <input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex: avaria · encontrado no fundo · contagem física"
               data-testid="ajuste-motivo" style={{ ...selInpStyle, marginTop: 4, width: '100%' }} />
           </div>
@@ -1937,6 +1952,7 @@ function ModalAjuste({ companyId, locais, movimentacoes, onClose, onSubmit }: {
           {/* Observacoes */}
           <div>
             <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Observações</label>
+            <AjudaCampo chave="commerce.estoque.ajuste.observacoes" />
             <textarea value={obs} onChange={(e) => setObs(e.target.value)} rows={2}
               style={{ ...selInpStyle, marginTop: 4, width: '100%', resize: 'vertical' }} />
           </div>
@@ -2105,6 +2121,7 @@ function ModalNovoInventario({ companyId, locais, onClose, onCreated, flashErr }
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
             <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Local *</label>
+            <AjudaCampo chave="commerce.estoque.inv.local" />
             <select value={localId} onChange={(e) => setLocalId(e.target.value)} style={{ ...selInpStyle, marginTop: 4, width: '100%' }}>
               {locais.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
             </select>
@@ -2113,6 +2130,7 @@ function ModalNovoInventario({ companyId, locais, onClose, onCreated, flashErr }
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               <div>
                 <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Filtrar categoria (opc.)</label>
+                <AjudaCampo chave="commerce.estoque.inv.categoria" />
                 <select value={categoria} onChange={(e) => setCategoria(e.target.value)} style={{ ...selInpStyle, marginTop: 4, width: '100%' }}>
                   <option value="">Todas</option>
                   {categorias.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -2120,6 +2138,7 @@ function ModalNovoInventario({ companyId, locais, onClose, onCreated, flashErr }
               </div>
               <div>
                 <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Filtrar marca (opc.)</label>
+                <AjudaCampo chave="commerce.estoque.inv.marca" />
                 <select value={marca} onChange={(e) => setMarca(e.target.value)} style={{ ...selInpStyle, marginTop: 4, width: '100%' }}>
                   <option value="">Todas</option>
                   {marcasUnique.map((m) => <option key={m} value={m}>{m}</option>)}
@@ -2129,6 +2148,7 @@ function ModalNovoInventario({ companyId, locais, onClose, onCreated, flashErr }
           )}
           <div>
             <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Observações</label>
+            <AjudaCampo chave="commerce.estoque.inv.observacoes" />
             <textarea value={obs} onChange={(e) => setObs(e.target.value)} rows={2}
               style={{ ...selInpStyle, marginTop: 4, width: '100%', resize: 'vertical' }} />
           </div>
@@ -2251,7 +2271,7 @@ function DrawerInventario({ inventario, produtos, locaisPorId, onClose, onFechad
             <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, overflow: 'hidden' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead style={{ background: C.cream }}>
-                  <tr><Th>Produto</Th><Th align="right">Sistema</Th><Th align="right">Contado</Th><Th align="right">Diferença</Th></tr>
+                  <tr><Th>Produto</Th><Th align="right">Sistema</Th><Th align="right">Contado <AjudaCampo chave="commerce.estoque.inv.contado" /></Th><Th align="right">Diferença</Th></tr>
                 </thead>
                 <tbody>
                   {itens.map((it) => {

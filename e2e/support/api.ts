@@ -181,6 +181,42 @@ export async function purgarReceberDemo(): Promise<void> {
   console.log(`[purga-receber] marcadores soft-deletados: ${total} (de ${DEMOS_PURGA.length * MARCADORES_RECEBER_E2E.length} varreduras)`)
 }
 
+// Purga durável do lixo de E2E em erp_produtos das demos (PDCA GE 14/11, tarefas 0c3345df/26111304).
+// PROBLEMA (provado RD-38 no banco prod, DEMO Comércio GE b0700000-...-0004): ~20 mil produtos de teste
+// vivos poluem /cadastros/produtos (RD-98 "listas só da empresa"). Os specs que os criam deveriam limpar no
+// afterAll, mas ele NÃO roda quando o run é cancelado/estoura timeout (igual ao caso de erp_receber), e aí os
+// produtos vazam. erp_produtos NÃO tem a trava RD-30, mas a purga é por SOFT-DELETE (dbPatch deleted_at) para
+// não quebrar referência de títulos/NF-e que apontem para o produto. Roda no passo "sempre" (e2e-trava-soltar).
+// Marcador DEDICADO e2e, inconfundível: prefixo "E2E " — nenhum produto real da DEMO começa com isso
+// (conferido RD-38: 10.038 linhas "E2E *", nenhuma legítima). Os demais rótulos de teste ("… teste <código>")
+// ficam para uma auditoria de marcador dedicada (risco de casar palavra "teste" de produto real).
+// Idempotente (só pega deleted_at IS NULL). Nunca lança: a purga é higiene, não pode derrubar o run.
+const MARCADORES_PRODUTOS_E2E = ['E2E *']
+export async function purgarProdutosDemo(): Promise<void> {
+  const agora = new Date().toISOString()
+  let total = 0
+  for (const company of DEMOS_PURGA) {
+    for (const marca of MARCADORES_PRODUTOS_E2E) {
+      try {
+        const vivos = await dbSelect<{ id: string }>(
+          'erp_produtos',
+          `company_id=eq.${company}&deleted_at=is.null&nome=like.${encodeURIComponent(marca)}&select=id&limit=1`,
+        )
+        if (!vivos.length) continue
+        await dbPatch(
+          'erp_produtos',
+          `company_id=eq.${company}&deleted_at=is.null&nome=like.${encodeURIComponent(marca)}`,
+          { deleted_at: agora },
+        )
+        total++
+      } catch (e) {
+        console.warn(`[purga-produtos] ${company}/${marca} falhou (segue):`, e instanceof Error ? e.message : String(e))
+      }
+    }
+  }
+  console.log(`[purga-produtos] marcadores soft-deletados: ${total} (de ${DEMOS_PURGA.length * MARCADORES_PRODUTOS_E2E.length} varreduras)`)
+}
+
 // Reset da demo ao FIM da suíte (a demo pode ser mexida à vontade e volta ao seed).
 export async function resetarDemo(): Promise<void> {
   await rpc('fn_demo_reset', { p_company_id: DEMO_REVENDA })
