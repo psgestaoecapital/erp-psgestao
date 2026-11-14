@@ -42,6 +42,13 @@ const iso = (d: Date) => d.toISOString().slice(0, 10)
 const cap = (s: string) => s.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase())
 const MES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 const mesRot = (m: string) => MES[Number(m.slice(5, 7)) - 1] + '/' + m.slice(2, 4)
+// Intervalo que cobre o mês inteiro de 'YYYY-MM' (fim limitado a hoje) — usado para cair no último mês COM abate,
+// mesmo que seja mais antigo que os períodos prontos (que vão só até 12 meses).
+const mesRange = (mes: string) => {
+  const y = Number(mes.slice(0, 4)), m = Number(mes.slice(5, 7))
+  const fim = new Date(y, m, 0), hoje = new Date()
+  return { de: iso(new Date(y, m - 1, 1)), ate: iso(fim < hoje ? fim : hoje), rot: mesRot(mes) }
+}
 
 const PERIODOS = [{ k: '7', rot: '7 dias' }, { k: '30', rot: '30 dias' }, { k: 'mes', rot: 'Este mês' }, { k: '90', rot: '90 dias' }, { k: '365', rot: '12 meses' }] as const
 const VISOES = [{ k: '', rot: 'Toda a planta' }, { k: 'F', rot: 'Fêmeas' }, { k: 'M', rot: 'Machos' }] as const
@@ -120,16 +127,19 @@ export default function BiPlanta() {
   const [sexo, setSexo] = useState<string>('')
   const [cidade, setCidade] = useState<string>('')
   const [per, setPer] = useState<string>('mes')
+  // Intervalo manual (ex.: "último mês com abate"), fora dos períodos prontos; qualquer período pronto o limpa.
+  const [override, setOverride] = useState<{ de: string; ate: string; rot: string } | null>(null)
   const [p, setP] = useState<Painel | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [dica, setDica] = useState<string | null>(null)
 
   const intervalo = useMemo(() => {
+    if (override) return { de: override.de, ate: override.ate }
     const hoje = new Date(); const ate = iso(hoje)
     if (per === 'mes') return { de: iso(new Date(hoje.getFullYear(), hoje.getMonth(), 1)), ate }
     const d = new Date(hoje); d.setDate(d.getDate() - (Number(per) - 1)); return { de: iso(d), ate }
-  }, [per])
+  }, [per, override])
 
   // Só a última requisição vale: troca rápida de filtro não deixa resposta velha sobrescrever a nova.
   // AbortError ("Lock broken by another request with the 'steal' option") é cancelamento do refresh
@@ -154,6 +164,18 @@ export default function BiPlanta() {
     setP(res.data as Painel)
   }, [empresa, sexo, cidade, intervalo])
   useEffect(() => { void carregar() }, [carregar])
+
+  // RD-98 (PDCA): primeira carga não pode abrir vazia. Se o período padrão ("Este mês") não tem abate
+  // mas a planta tem histórico, cai UMA vez no ÚLTIMO mês COM abate — mesmo que seja mais antigo que 12
+  // meses (os períodos prontos vão só até lá). Automático só enquanto o usuário não escolheu um período.
+  const autoAjustado = useRef(false)
+  const tocouPeriodo = useRef(false)
+  useEffect(() => {
+    if (autoAjustado.current || tocouPeriodo.current || override) return
+    if (per !== 'mes' || !p?.ok || !p.resumo || p.resumo.cabecas !== 0) return
+    const ultimo = [...(p.meses ?? [])].reverse().find((m) => m.cab > 0)
+    if (ultimo) { autoAjustado.current = true; setOverride(mesRange(ultimo.mes)) }
+  }, [p, per, override])
 
   const r = p?.resumo; const c = p?.compra; const a = p?.anterior
   const femPct = r && r.cabecas ? 100 * r.femeas / r.cabecas : null
@@ -218,10 +240,11 @@ export default function BiPlanta() {
             <span style={{ fontSize: 12, color: C.m, display: 'flex', alignItems: 'center', gap: 4 }}>Período<AjudaCampo chave="planta.periodo" rota={ROTA} /></span>
             <div role="group" aria-label="Período" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {PERIODOS.map((x) => (
-                <button key={x.k} type="button" onClick={() => setPer(x.k)} aria-pressed={per === x.k}
-                  style={{ font: 'inherit', fontSize: 13, padding: '7px 12px', borderRadius: 999, cursor: 'pointer', border: `1px solid ${per === x.k ? C.esp : C.bd}`, background: per === x.k ? C.esp : '#fff', color: per === x.k ? '#fff' : C.esp }}>{x.rot}</button>
+                <button key={x.k} type="button" onClick={() => { tocouPeriodo.current = true; setOverride(null); setPer(x.k) }} aria-pressed={!override && per === x.k}
+                  style={{ font: 'inherit', fontSize: 13, padding: '7px 12px', borderRadius: 999, cursor: 'pointer', border: `1px solid ${!override && per === x.k ? C.esp : C.bd}`, background: !override && per === x.k ? C.esp : '#fff', color: !override && per === x.k ? '#fff' : C.esp }}>{x.rot}</button>
               ))}
             </div>
+            {override && <span style={{ fontSize: 12, color: C.m }}>Mostrando <b style={{ color: C.esp }}>{override.rot}</b> — último mês com abate; este mês ainda não tem registros.</span>}
           </div>
           {(sexo || cidade) && (
             <nav aria-label="Trilha da visão" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, fontSize: 12 }}>
@@ -251,8 +274,9 @@ export default function BiPlanta() {
                 : <>Nenhum evento de abate foi registrado para {(PERIODOS.find((x) => x.k === per)?.rot ?? 'este período').toLowerCase()}. Amplie o período para ver o histórico da planta.</>}
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {per !== '365' && <button type="button" onClick={() => setPer('365')} style={{ font: 'inherit', fontSize: 13, padding: '8px 14px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${C.esp}`, background: C.esp, color: '#fff' }}>Ver 12 meses</button>}
-              {per !== '90' && <button type="button" onClick={() => setPer('90')} style={{ font: 'inherit', fontSize: 13, padding: '8px 14px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${C.bd}`, background: '#fff', color: C.esp }}>Ver 90 dias</button>}
+              {ultimoAbate && <button type="button" onClick={() => { tocouPeriodo.current = true; setOverride(mesRange(ultimoAbate.mes)) }} style={{ font: 'inherit', fontSize: 13, padding: '8px 14px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${C.esp}`, background: C.esp, color: '#fff' }}>Ver {mesRot(ultimoAbate.mes)} (último com abate)</button>}
+              {per !== '365' && <button type="button" onClick={() => { tocouPeriodo.current = true; setOverride(null); setPer('365') }} style={{ font: 'inherit', fontSize: 13, padding: '8px 14px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${ultimoAbate ? C.bd : C.esp}`, background: ultimoAbate ? '#fff' : C.esp, color: ultimoAbate ? C.esp : '#fff' }}>Ver 12 meses</button>}
+              {per !== '90' && <button type="button" onClick={() => { tocouPeriodo.current = true; setOverride(null); setPer('90') }} style={{ font: 'inherit', fontSize: 13, padding: '8px 14px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${C.bd}`, background: '#fff', color: C.esp }}>Ver 90 dias</button>}
             </div>
           </div>
           )
