@@ -17,6 +17,7 @@ import {
   type FiltroVinculo, type LinhaVinculoTela,
 } from '@/lib/contabil/vinculosTela'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 export const dynamic = 'force-dynamic'
 
@@ -159,10 +160,12 @@ export default function Page() {
               ))}
               <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar código ou descrição…" data-testid="vinc-busca"
                 style={{ flex: '1 1 220px', minWidth: 180, padding: '8px 10px', border: '1px solid rgba(61,35,20,0.25)', borderRadius: PSGC_RADIUS.sm, fontSize: 12.5, color: INK, background: '#fff' }} />
+              <AjudaCampo chave="plano_contas_vinc.busca" />
             </div>
 
             <div data-testid="vinc-massa" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12, padding: '10px 12px', background: '#fff', border: '1px solid rgba(61,35,20,0.15)', borderRadius: PSGC_RADIUS.md }}>
               <span style={{ fontSize: 12.5, color: INK, fontWeight: 600 }}>{sel.size} selecionada(s)</span>
+              <AjudaCampo chave="plano_contas_vinc.massa_gerencial" />
               <select value={gerMassa} onChange={(e) => setGerMassa(e.target.value)} data-testid="vinc-massa-gerencial"
                 style={{ flex: '1 1 240px', padding: '8px 10px', border: '1px solid rgba(61,35,20,0.25)', borderRadius: PSGC_RADIUS.sm, fontSize: 12.5, color: INK, background: '#fff' }}>
                 <option value="">— conta gerencial para as selecionadas —</option>
@@ -181,8 +184,9 @@ export default function Page() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: C.offWhiteDark, color: INK, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                 <input type="checkbox" aria-label="Selecionar todas as visíveis" data-testid="vinc-sel-todas" checked={todasMarcadas} disabled={selecionaveis.length === 0}
                   onChange={() => setSel(todasMarcadas ? new Set() : new Set(selecionaveis.map((l) => l.conta_contabil_id)))} />
+                <AjudaCampo chave="plano_contas_vinc.selecao" />
                 <span style={{ flex: '1 1 300px' }}>Conta contábil</span>
-                <span style={{ flex: '1 1 300px' }}>Conta gerencial</span>
+                <span style={{ flex: '1 1 300px', display: 'inline-flex', alignItems: 'center', gap: 4 }}>Conta gerencial<AjudaCampo chave="plano_contas_vinc.vincular" /></span>
                 <span style={{ width: 96 }}>Situação</span>
               </div>
               {visiveis.length === 0 ? (
@@ -191,7 +195,7 @@ export default function Page() {
                 const st = statusDaLinha(l)
                 const pode = editavel(l)
                 return (
-                  <div key={l.conta_contabil_id} data-testid={`vinc-linha-${l.cont_codigo}`} data-status={st}
+                  <div key={l.conta_contabil_id} data-testid={`vinc-linha-${l.cont_codigo}`} data-status={st} data-ajuda="plano_contas_vinc.vincular"
                     style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '8px 12px', borderTop: '1px solid rgba(61,35,20,0.1)' }}>
                     <input type="checkbox" aria-label={`Selecionar ${l.cont_codigo}`} disabled={!pode} checked={sel.has(l.conta_contabil_id)} onChange={() => alternar(l.conta_contabil_id)} />
                     <div style={{ flex: '1 1 300px', minWidth: 220 }}>
