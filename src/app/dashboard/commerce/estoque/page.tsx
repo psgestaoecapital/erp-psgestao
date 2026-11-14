@@ -137,7 +137,6 @@ type Movimentacao = {
   lote: string | null
   validade: string | null
   observacoes: string | null
-  usuario_nome: string | null            // §6 · coluna órfã (cópia vazia) — não usar; ver usuario_nome_resolvido
   usuario_id: string | null
   produto_nome: string | null            // §6 · resolvido na view v_estoque_movimentacoes
   produto_codigo: string | null
@@ -385,8 +384,8 @@ function EstoqueInner() {
     observacoes: string | null; lote: string | null; validade: string | null;
   }) {
     // F2.2 · usa RPC eleita (com usuario_id pra rastreio LGPD).
-    // fn_movimentar_estoque ficou [DEPRECATED]. Lote/validade nao sao
-    // passados aqui ainda (gap conhecido F2.3).
+    // fn_movimentar_estoque ficou [DEPRECATED]. F2.3: lote/validade agora
+    // persistem (registrar_movimento_estoque recebe p_lote/p_validade).
     if (!companyIdUnico) { flashErr('Selecione uma empresa específica.'); return false }
     const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { error } = await supabase.rpc('registrar_movimento_estoque', {
@@ -399,6 +398,8 @@ function EstoqueInner() {
       p_observacoes: args.observacoes,
       p_usuario_id: user?.id ?? null,
       p_local_id: args.local_id,
+      p_lote: args.lote,
+      p_validade: args.validade,
     })
     if (error) {
       flashErr(erroAmigavel(error, 'Não foi possível registrar a movimentação. Tente de novo.'))
