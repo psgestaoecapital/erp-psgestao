@@ -4,7 +4,7 @@
 // 🚫 SEM folha/pagamento/lançamento — é só o CÁLCULO. A GE paga (fronteira financeira).
 import React, { useEffect, useState, useCallback, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
-import { Percent, ChevronLeft, Plus, Clock, TrendingUp } from 'lucide-react'
+import { Percent, ChevronLeft, Plus, Clock, TrendingUp, Pencil, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { parseNumBR } from '@/lib/num'
@@ -84,6 +84,26 @@ export default function ComissaoPage() {
     await calcular()
   }
 
+  // RD-98 p2 · Editar: traz a regra para o formulário (o salvar já substitui a regra ativa do mesmo mecânico).
+  const editarRegra = (r: Regra) => {
+    setRNome(r.mecanico_nome || '')
+    setRTipo(r.tipo)
+    setRValor(String(r.valor).replace('.', ','))
+    setMsg('✏️ Regra carregada no formulário abaixo — ajuste o valor e toque em "Salvar regra".')
+  }
+
+  // RD-98 p4 · Excluir rastreável: soft-delete (ativo=false) com trilha em audit_log_global.
+  const excluirRegra = async (r: Regra) => {
+    if (!companyId) return
+    const quem = r.mecanico_nome || 'Padrão (todos)'
+    if (!window.confirm(`Excluir a regra de "${quem}"?\n\nEla sai do cálculo a partir de agora. O histórico fica guardado (a regra é desativada, não apagada).`)) return
+    const { data, error } = await supabase.rpc('fn_oficina_comissao_regra_desativar', { p_company_id: companyId, p_id: r.id })
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || j?.ok === false) { setMsg('❌ ' + erroAmigavel(error, codigoAmigavel(j?.erro, 'Não foi possível excluir a regra.'))); return }
+    setMsg('✅ Regra excluída.')
+    await calcular()
+  }
+
   useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg(null), 4000); return () => clearTimeout(t) }, [msg])
 
   if (!companyId) return <div style={{ padding: 24, color: ESP60, background: BG, minHeight: '100vh' }}>Selecione uma empresa específica no topo para abrir a Comissão.</div>
@@ -147,10 +167,21 @@ export default function ComissaoPage() {
         </Sec>
 
         <Sec titulo="Regras de comissão">
+          {regras.length === 0 && (
+            <div style={{ fontSize: 13, color: ESP60, padding: '4px 0 10px' }}>Nenhuma regra cadastrada ainda. Cadastre a regra padrão (deixe o mecânico em branco) ou uma regra por mecânico no formulário abaixo.</div>
+          )}
           {regras.map((r) => (
-            <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${LINE}` }}>
-              <span style={{ fontSize: 14, fontWeight: 600 }}>{r.mecanico_nome || 'Padrão (todos)'}</span>
-              <span style={{ fontSize: 13, color: ESP60 }}>{descRegra(r)}</span>
+            <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: `1px solid ${LINE}`, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                <span style={{ fontSize: 14, fontWeight: 600 }}>{r.mecanico_nome || 'Padrão (todos)'}</span>
+                <span style={{ fontSize: 13, color: ESP60 }}>{descRegra(r)}</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <button type="button" data-testid={`comissao-regra-editar-${r.id}`} onClick={() => editarRegra(r)} style={btnAcao}><Pencil size={13} strokeWidth={1.8} /> Editar</button>
+                <AjudaCampo chave="oficina.comissao.regra_editar" rota={ROTA} />
+                <button type="button" data-testid={`comissao-regra-excluir-${r.id}`} onClick={() => void excluirRegra(r)} style={{ ...btnAcao, color: '#B91C1C', borderColor: 'rgba(185,28,28,0.28)' }}><Trash2 size={13} strokeWidth={1.8} /> Excluir</button>
+                <AjudaCampo chave="oficina.comissao.regra_excluir" rota={ROTA} />
+              </div>
             </div>
           ))}
           <div style={{ marginTop: 12 }}>
@@ -194,4 +225,5 @@ function Toast({ children }: { children: React.ReactNode }) {
 }
 const inp: CSSProperties = { width: '100%', padding: '10px 12px', border: `1px solid ${LINE}`, borderRadius: 10, fontSize: 15, background: '#fff', color: ESP, outline: 'none', fontFamily: 'inherit' }
 const btnGold: CSSProperties = { background: GOLD, color: '#3D2314', border: 'none', borderRadius: 10, padding: '10px 16px', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }
+const btnAcao: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4, background: '#fff', border: `1px solid ${LINE}`, color: ESP, borderRadius: 8, padding: '5px 10px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }
 const linkBtn: CSSProperties = { background: 'none', border: 'none', color: ESP60, fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', padding: 0 }
