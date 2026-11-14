@@ -446,6 +446,7 @@ function ProducaoPageInner() {
             {id === 'kanban' ? 'Kanban' : id === 'jobs' ? 'Jobs (lista)' : id === 'clientes' ? 'Clientes' : 'Timesheet'}
           </button>
         ))}
+        <span style={{ display: 'inline-flex', alignItems: 'center', marginLeft: 4 }}><AjudaCampo chave="pm.jobs.abas" /></span>
       </nav>
 
       {/* ─── TAB: KANBAN ─── */}
