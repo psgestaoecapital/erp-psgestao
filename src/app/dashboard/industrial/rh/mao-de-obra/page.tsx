@@ -10,9 +10,11 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import CargosPanel from '@/components/industrial/CargosPanel'
+import PostosPanel from '@/components/industrial/PostosPanel'
 import SalariosPanel from '@/components/industrial/SalariosPanel'
+import PessoasPanel from '@/components/industrial/PessoasPanel'
 
-type Aba = 'setores' | 'cargos' | 'salarios'
+type Aba = 'setores' | 'cargos' | 'postos' | 'salarios' | 'pessoas'
 
 const ROTA = '/dashboard/industrial/rh/mao-de-obra'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)'
@@ -132,7 +134,7 @@ export default function MaoDeObraSetoresPage() {
           <div style={{ fontSize: 12, color: MUT }}>Indústria · RH</div>
           <h1 style={{ margin: 0, fontSize: 'clamp(22px, 3vw, 28px)', fontWeight: 700 }}>Gestão de mão de obra</h1>
           <p style={{ margin: 0, fontSize: 14, color: MUT, maxWidth: '70ch' }}>
-            Cadastre os setores e os cargos que organizam a produção. São a base do custo e das horas por área e por função no quadro de pessoal e nos painéis.
+            Cadastre os setores, os cargos e os postos que organizam a produção. São a base do custo e das horas por área, por função e por atividade no quadro de pessoal e nos painéis.
           </p>
         </header>
 
@@ -140,7 +142,7 @@ export default function MaoDeObraSetoresPage() {
 
         {empresa && (
           <div role="tablist" aria-label="Seções da mão de obra" style={{ display: 'flex', gap: 6, borderBottom: `1px solid ${LINE}`, flexWrap: 'wrap' }}>
-            {([['setores', 'Setores'], ['cargos', 'Cargos'], ['salarios', 'Salário']] as [Aba, string][]).map(([k, lbl]) => (
+            {([['setores', 'Setores'], ['cargos', 'Cargos'], ['postos', 'Postos'], ['salarios', 'Salário'], ['pessoas', 'Pessoas']] as [Aba, string][]).map(([k, lbl]) => (
               <button key={k} role="tab" aria-selected={aba === k} data-testid={`aba-${k}`} onClick={() => setAba(k)}
                 style={{ padding: '9px 14px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 14, fontWeight: aba === k ? 700 : 500, color: aba === k ? ESP : MUT, borderBottom: aba === k ? `2px solid ${GOLD}` : '2px solid transparent', marginBottom: -1 }}>
                 {lbl}
@@ -151,7 +153,11 @@ export default function MaoDeObraSetoresPage() {
 
         {empresa && aba === 'cargos' && <CargosPanel empresa={empresa} />}
 
+        {empresa && aba === 'postos' && <PostosPanel empresa={empresa} />}
+
         {empresa && aba === 'salarios' && <SalariosPanel empresa={empresa} />}
+
+        {empresa && aba === 'pessoas' && <PessoasPanel empresa={empresa} />}
 
         {empresa && aba === 'setores' && (
           <>
