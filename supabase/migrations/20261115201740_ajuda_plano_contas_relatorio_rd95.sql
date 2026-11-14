@@ -1,0 +1,24 @@
+-- RD-95: "?" em todo indicador, filtro e ação da tela "Plano de Contas · Gerencial × Contábil"
+-- (/dashboard/cadastros/plano-contas/relatorio). A tela não tinha nenhuma ajuda de campo (0 AjudaCampo).
+-- Este migration cadastra o texto de cada "?" adicionado no page.tsx: os 4 KPIs do topo, o filtro
+-- (Todas/Só vinculadas/Sem vínculo), e as ações Vincular, Importar validação do contador, Excel e PDF.
+-- Aditivo: só INSERT de texto (ON CONFLICT (chave) DO NOTHING), nunca altera dado de cliente.
+-- Agente code-desenvolvedor-3 (faixa de segundos :35–:44).
+INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
+SELECT v.chave, v.grupo, v.rotulo, v.o_que, v.para_que, v.exemplo, v.erro, v.ordem,
+       '/dashboard/cadastros/plano-contas/relatorio', 'gestao_empresarial', 'publicado'
+FROM (VALUES
+ -- KPIs do topo
+ ('plano_contas_rel.kpi_gerenciais', 'Plano × Contábil', 'Contas gerenciais', 'Quantas contas do seu plano gerencial existem (a estrutura que você usa para ler o resultado).', 'Mostra o tamanho do seu plano de gestão — é por essas contas que o relatório e o DRE são organizados.', '34 contas gerenciais.', 'Confundir com as contas contábeis: a gerencial é a sua visão de gestão; a contábil é a da contabilidade.', 1),
+ ('plano_contas_rel.kpi_contabeis', 'Plano × Contábil', 'Contas contábeis analíticas', 'Quantas contas contábeis analíticas (as de lançamento, não as totalizadoras) existem no período.', 'Indica o volume de contas que a contabilidade usa e que precisam estar ligadas a uma conta gerencial.', '121 contas contábeis analíticas.', 'Somar as totalizadoras — aqui contam só as analíticas, que recebem lançamento.', 2),
+ ('plano_contas_rel.kpi_vinculadas', 'Plano × Contábil', 'Vinculadas', 'Quantas contas contábeis já estão ligadas a uma conta gerencial.', 'Quanto mais vinculadas, mais completo fica o relatório gerencial e o DRE — nada fica "solto".', '98 vinculadas.', 'Achar que vincular muda o lançamento: o vínculo só organiza; não altera valor nenhum.', 3),
+ ('plano_contas_rel.kpi_orfas', 'Plano × Contábil', 'Sem vínculo', 'Quantas contas contábeis ainda não têm conta gerencial — ou seja, ainda não aparecem na sua visão de gestão.', 'É o que falta ligar: enquanto houver contas sem vínculo, parte do resultado fica fora do relatório gerencial.', '23 sem vínculo → vincule pelo filtro "Sem vínculo".', 'Ignorar esse número alto: contas sem vínculo não entram no DRE gerencial.', 4),
+ -- Filtro
+ ('plano_contas_rel.filtro', 'Plano × Contábil', 'Filtrar contas', 'Escolha o que ver: Todas, Só vinculadas (as já ligadas) ou Sem vínculo (as que faltam ligar).', 'Ajuda a focar: use "Sem vínculo" para fazer os vínculos pendentes; "Só vinculadas" para conferir o que já está pronto.', 'Selecionar "Sem vínculo" para resolver as pendências.', 'Deixar um filtro ligado e achar que sumiram contas — volte para "Todas" para ver tudo.', 5),
+ -- Ações
+ ('plano_contas_rel.vincular', 'Plano × Contábil', 'Vincular conta contábil', 'Escolha a conta gerencial e confirme para ligar a conta contábil a ela.', 'É o que faz a conta contábil passar a aparecer na visão de gestão (relatório e DRE). O vínculo é definitivo — depois de gravado não dá para trocar.', 'Ligar "3.1.01 Receita de vendas" (contábil) à conta gerencial "Receita operacional".', 'Vincular à conta gerencial errada: como o vínculo não pode ser alterado, confira antes de confirmar.', 6),
+ ('plano_contas_rel.importar', 'Plano × Contábil', 'Importar validação do contador', 'Envie a planilha (.xlsx, .xls ou .csv) que o contador devolveu, com a coluna "Conta contabil" e a coluna "Validacao".', 'Traz de uma vez a conferência do contador, casando as contas automaticamente em vez de digitar uma a uma.', 'Subir a planilha com "Conta contabil" = 3.1.01 e "Validacao" = o código estruturado conferido.', 'Enviar um arquivo sem a coluna "Conta contabil" preenchida — nada é importado.', 7),
+ ('plano_contas_rel.exportar_excel', 'Plano × Contábil', 'Exportar Excel', 'Baixa a planilha com duas abas: "Gerencial x Contabil" (tudo) e "Sem vinculo" (as pendentes).', 'Serve para mandar à contabilidade conferir e devolver a validação, ou para guardar o retrato do plano.', 'Baixar e enviar por e-mail ao contador para validação.', 'Editar a planilha baixada achando que altera o sistema — a exportação é só uma cópia para fora.', 8),
+ ('plano_contas_rel.exportar_pdf', 'Plano × Contábil', 'Exportar PDF', 'Gera a versão para impressão/PDF do relatório (tudo em preto, pronto para imprimir ou salvar).', 'Serve para apresentar ou arquivar o plano de contas num documento fixo.', 'Clicar e escolher "Salvar como PDF" na janela de impressão.', 'Esperar os botões e filtros no PDF — a versão impressa mostra só o relatório, sem os controles da tela.', 9)
+) AS v(chave, grupo, rotulo, o_que, para_que, exemplo, erro, ordem)
+ON CONFLICT (chave) DO NOTHING;
