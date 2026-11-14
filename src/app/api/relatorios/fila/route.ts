@@ -11,6 +11,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { comGuarda } from '@/lib/auth/guardaApi'
 import { montarPlanilhaMovimentacao, type LinhaMovimentacao } from '@/lib/relatorios/movimentacaoExcel'
 import { montarPlanilhaTitulos, type LinhaTitulo } from '@/lib/relatorios/titulosExcel'
+import { relatorioEhGerado } from '@/lib/relatorios/gerados'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -34,8 +35,9 @@ async function atualizar(supa: SupabaseClient, id: string, campos: Record<string
   await supa.rpc('fn_relatorio_fila_atualizar', { p_id: id, ...campos })
 }
 
-// Tipos que o gerador já monta (todos em Excel); os demais do pedido voltam com erro explicado.
-const GERADOS = new Set(['financeiro_movimentacao', 'financeiro_pagar', 'financeiro_receber'])
+// Tipos/formatos que o gerador já monta (fonte única compartilhada com a tela — @/lib/relatorios/gerados);
+// os demais do pedido voltam com erro explicado. A tela deriva o select DESTA mesma lista, então nunca
+// oferece o que aqui não é gerado.
 
 function periodo(p: Pedido): { ini: string; fim: string } {
   const ini = String(p.parametros?.data_inicio ?? '').slice(0, 10)
@@ -150,7 +152,7 @@ export const POST = comGuarda({ cron: true, servico: true }, async () => {
     const p = (data as { ok: boolean; pedido: Pedido | null } | null)?.pedido
     if (!p) break
 
-    if (!GERADOS.has(p.tipo) || p.formato !== 'excel') {
+    if (!relatorioEhGerado(p.tipo, p.formato)) {
       await atualizar(supa, p.id, {
         p_status: 'erro',
         p_erro: 'Este relatório ainda não é gerado em segundo plano. Por enquanto: Movimentação financeira, Contas a pagar e Contas a receber, em Excel.',
