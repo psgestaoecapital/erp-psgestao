@@ -118,8 +118,32 @@ export default function FichasCommercePage() {
         .order('categoria', { ascending: true, nullsFirst: true })
         .order('nome', { ascending: true })
       if (!alive) return
-      setFichas((data ?? []) as FichaTec[])
+      const lista = (data ?? []) as FichaTec[]
+      setFichas(lista)
       setLoadingFichas(false)
+
+      // Carrega os itens de TODAS as fichas de uma vez para que a LISTA mostre
+      // Custo total e Preço de venda em cada linha (a razão-de-ser da tela),
+      // sem exigir abrir ficha a ficha. Tela operacional = 1 empresa por vez,
+      // então o volume é limitado. Prefila o itensCache (o clique na ficha
+      // reaproveita o mesmo cache).
+      if (lista.length > 0) {
+        const ids = lista.map((f) => f.id)
+        const { data: itensData } = await supabase
+          .from('ficha_itens')
+          .select('*')
+          .in('ficha_id', ids)
+          .order('ordem', { ascending: true, nullsFirst: true })
+        if (!alive) return
+        const porFicha: Record<string, FichaItem[]> = {}
+        for (const id of ids) porFicha[id] = []
+        for (const it of (itensData ?? []) as FichaItem[]) {
+          ;(porFicha[it.ficha_id] ??= []).push(it)
+        }
+        setItensCache(porFicha)
+      } else {
+        setItensCache({})
+      }
     })()
     return () => { alive = false }
   }, [companyIdUnico, companiesLoading])
