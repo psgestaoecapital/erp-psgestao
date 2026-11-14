@@ -1,0 +1,80 @@
+name: Portão de semente (PR)
+
+# INFRA-TESTES slice 1 (erp_contexto_projeto f076af2d; Eng. Chefe/CEO 20-22/10) — detecção PRECOCE, ADITIVA.
+# Numa Postgres EFÊMERO do próprio runner (nunca vaga, nunca produção, fora da fila aceitacao-testes), monta o banco só
+# com migrations (supabase db push --include-all) + catálogos globais (cópia read-only da produção, mesma whitelist do
+# montar) + semente + fn_demo_reset + smoke (scripts/banco-testes/smoke.sh). PR que quebra a semente é barrada ANTES do
+# merge, em vez de só aparecer na aceitação da main.
+# ESTÁGIO 1 (informativo): continue-on-error — o resultado aparece como anotação/aviso e NÃO derruba a PR até o Eng. Chefe
+# promover o portão a obrigatório (tirar o continue-on-error) depois de 1-2 dias de runs verdes.
+# Só roda em PR do próprio repo (PR de fork não tem segredos) e só quando a PR toca migration/semente/banco-testes.
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/**'
+      - 'scripts/banco-testes/**'
+      - '.github/workflows/portao-semente-pr.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: portao-semente-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  portao:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+      DESTINO_EFEMERO_LOCAL: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.118.0
+      - name: Postgres efêmero (só o banco; imagem do próprio CLI do Supabase)
+        run: |
+          set -euo pipefail
+          supabase db start
+          for i in $(seq 1 30); do pg_isready -h 127.0.0.1 -p 54322 && break; sleep 2; done
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -tAc 'select version()' | cut -c1-60
+      - name: Extensões que as migrations assumem
+        run: |
+          psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto; CREATE EXTENSION IF NOT EXISTS "uuid-ossp"; CREATE EXTENSION IF NOT EXISTS unaccent WITH SCHEMA public; CREATE EXTENSION IF NOT EXISTS pg_trgm; CREATE EXTENSION IF NOT EXISTS btree_gist; CREATE EXTENSION IF NOT EXISTS citext;'
+      - name: Schema por migrations (db push --include-all num banco vazio)
+        run: |
+          set -euo pipefail
+          supabase db push --include-all --db-url "$TEST_DATABASE_URL"
+          repo_max=$(ls supabase/migrations/*.sql | sed -E 's#.*/([0-9]+)_.*#\1#' | sort | tail -1)
+          led_max=$(psql "$TEST_DATABASE_URL" -tAc "select max(version) from supabase_migrations.schema_migrations" | tr -d '[:space:]')
+          echo "ledger_max=$led_max repo_max=$repo_max"
+          [ "$led_max" = "$repo_max" ] || { echo "::error::ledger ($led_max) != última migration do repo ($repo_max)"; exit 1; }
+      - name: Catálogos globais (produção só leitura → banco efêmero)
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SEED_INTERSECAO: '1'
+        run: |
+          set -euo pipefail
+          pgdg=/usr/share/postgresql-common/pgdg/apt.postgresql.org.sh
+          [ -x "$pgdg" ] || sudo apt-get install -y -qq postgresql-common > /dev/null
+          sudo "$pgdg" -y > /dev/null
+          sudo apt-get install -y -qq postgresql-client-17 > /dev/null
+          export PG_DUMP=/usr/lib/postgresql/17/bin/pg_dump PSQL=/usr/lib/postgresql/17/bin/psql
+          pool=$(curl -fsS -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            https://api.supabase.com/v1/projects/horsymhsinqcimflrtjo/config/database/pooler)
+          host=$(jq -r '[.[] | select(.database_type == "PRIMARY")][0].db_host // empty' <<< "$pool")
+          user=$(jq -r '[.[] | select(.database_type == "PRIMARY")][0].db_user // empty' <<< "$pool")
+          [ -n "$host" ] && [ -n "$user" ] || { echo "::error::não achei o pooler da produção na API de gestão"; exit 1; }
+          senha=$(jq -rn --arg s "$SUPABASE_DB_PASSWORD" '$s | @uri')
+          echo "::add-mask::$senha"
+          PROD_DATABASE_URL="postgresql://$user:$senha@$host:5432/postgres"
+          echo "::add-mask::$PROD_DATABASE_URL"
+          PROD_DATABASE_URL="$PROD_DATABASE_URL" scripts/banco-testes/catalogos.sh
+      - name: Semente + fn_demo_reset + smoke por vertical
+        run: scripts/banco-testes/smoke.sh
