@@ -79,6 +79,8 @@ export default function DevolucaoCompraClient() {
   const [outras, setOutras] = useState(0)
   const [descontoNota, setDescontoNota] = useState(0)
   const [modalidadeFrete, setModalidadeFrete] = useState<number>(9)
+  // #5722 · transportador (opcional; obrigatório só quando a modalidade do frete não é "sem frete")
+  const [transp, setTransp] = useState({ nome: '', doc: '', ie: '', uf: '', placa: '', ufVeiculo: '' })
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [sucesso, setSucesso] = useState<{ numero: string; chave?: string; nfeId?: string } | null>(null)
@@ -281,6 +283,12 @@ export default function DevolucaoCompraClient() {
           csosnIcms: csosnDevol.trim() || '900',
           // Lei Kandir: frete/seguro/outras/desconto compõem o total e a base do ICMS.
           frete, seguro, outrasDespesas: outras, desconto: descontoNota, modalidadeFrete,
+          transportador: modalidadeFrete !== 9 && (transp.nome.trim() || transp.doc.trim())
+            ? {
+                nome: transp.nome, inscricaoEstadual: transp.ie, uf: transp.uf, placa: transp.placa, ufVeiculo: transp.ufVeiculo,
+                ...(transp.doc.replace(/\D/g, '').length > 11 ? { cnpj: transp.doc } : { cpf: transp.doc }),
+              }
+            : undefined,
           itens: itens.map((it) => {
             const base = it.icmsBase != null ? Number(it.icmsBase) : undefined
             const aliq = it.icmsAliquota != null ? Number(it.icmsAliquota) : undefined
@@ -525,6 +533,31 @@ export default function DevolucaoCompraClient() {
                 </select>
               </label>
             </div>
+            {modalidadeFrete !== 9 && (
+              <div className="mt-3" data-testid="devolucao-transportador">
+                <div className="text-[11px] font-semibold text-[#3D2314] mb-2">Transportador <span className="font-normal text-[#3D2314]/60">(quem leva a mercadoria de volta ao fornecedor)</span> <AjudaCampo chave="fiscal.nfe.devolucao.transportador" /></div>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  <label className="block text-[10.5px] text-[#3D2314]/70">Nome / razão social
+                    <input value={transp.nome} onChange={(e) => setTransp({ ...transp, nome: e.target.value })} className="w-full mt-1 px-2 py-1.5 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]" />
+                  </label>
+                  <label className="block text-[10.5px] text-[#3D2314]/70">CNPJ ou CPF
+                    <input value={transp.doc} onChange={(e) => setTransp({ ...transp, doc: e.target.value })} className="w-full mt-1 px-2 py-1.5 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]" />
+                  </label>
+                  <label className="block text-[10.5px] text-[#3D2314]/70">Inscrição estadual
+                    <input value={transp.ie} onChange={(e) => setTransp({ ...transp, ie: e.target.value })} className="w-full mt-1 px-2 py-1.5 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]" />
+                  </label>
+                  <label className="block text-[10.5px] text-[#3D2314]/70">UF do transportador
+                    <input maxLength={2} value={transp.uf} onChange={(e) => setTransp({ ...transp, uf: e.target.value.toUpperCase() })} className="w-full mt-1 px-2 py-1.5 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]" />
+                  </label>
+                  <label className="block text-[10.5px] text-[#3D2314]/70">Placa do veículo
+                    <input value={transp.placa} onChange={(e) => setTransp({ ...transp, placa: e.target.value.toUpperCase() })} className="w-full mt-1 px-2 py-1.5 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]" />
+                  </label>
+                  <label className="block text-[10.5px] text-[#3D2314]/70">UF da placa
+                    <input maxLength={2} value={transp.ufVeiculo} onChange={(e) => setTransp({ ...transp, ufVeiculo: e.target.value.toUpperCase() })} className="w-full mt-1 px-2 py-1.5 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]" />
+                  </label>
+                </div>
+              </div>
+            )}
             <div className="text-[11px] mt-2 text-[#3D2314]/75">
               Total da devolução: <strong className="tabular-nums">{fmtBRL(totalNota)}</strong> = produtos {fmtBRL(totalItens)} + frete {fmtBRL(frete)} + seguro {fmtBRL(seguro)} + outras {fmtBRL(outras)} − desconto {fmtBRL(descontoNota)}.
               {baseIcmsTotal > 0 && (

@@ -554,6 +554,8 @@ export class FocusNFeProvider implements FiscalProvider {
       ...(req.totais?.seguro ? { valor_seguro: req.totais.seguro } : {}),
       ...(req.totais?.outrasDespesas ? { valor_outras_despesas: req.totais.outrasDespesas } : {}),
       ...(req.totais?.desconto ? { desconto: req.totais.desconto } : {}),
+      // #5722 · transportador (campos Focus do grupo transp). Só saem os preenchidos.
+      ...camposTransportadorFocus(req.transportador),
       // FIX-NFE-SERIE-PAYLOAD-v1
       // Sem este campo, Focus numerava na sua serie padrao (1) ·
       // colidia com numeracao Omie historica → rejeicao SEFAZ 539
@@ -959,4 +961,22 @@ export class FocusNFeProvider implements FiscalProvider {
       clearTimeout(timer)
     }
   }
+}
+
+/** #5722 · mapeia o transportador da NF-e para os campos da Focus; vazio → nada é enviado. */
+export function camposTransportadorFocus(t?: NFeRequest['transportador']): Record<string, string> {
+  if (!t) return {}
+  const dig = (v?: string) => (v ?? '').replace(/\D/g, '')
+  const out: Record<string, string> = {}
+  const doc = dig(t.cnpj) || dig(t.cpf)
+  if (doc.length === 14) out.cnpj_transportador = doc
+  else if (doc.length === 11) out.cpf_transportador = doc
+  if (t.nome?.trim()) out.nome_transportador = t.nome.trim()
+  if (t.inscricaoEstadual?.trim()) out.inscricao_estadual_transportador = t.inscricaoEstadual.trim()
+  if (t.endereco?.trim()) out.endereco_transportador = t.endereco.trim()
+  if (t.municipio?.trim()) out.municipio_transportador = t.municipio.trim()
+  if (t.uf?.trim()) out.uf_transportador = t.uf.trim().toUpperCase()
+  if (t.placa?.trim()) out.placa_veiculo = t.placa.replace(/[^A-Za-z0-9]/g, '').toUpperCase()
+  if (t.ufVeiculo?.trim()) out.uf_veiculo = t.ufVeiculo.trim().toUpperCase()
+  return out
 }
