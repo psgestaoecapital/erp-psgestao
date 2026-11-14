@@ -221,7 +221,7 @@ export default function Page() {
             </div>
 
             {filtro === 'sem_vinculo' ? (
-              <div style={{ border: '1px solid rgba(61,35,20,0.12)', borderRadius: PSGC_RADIUS.lg, background: '#fff', overflow: 'hidden' }}>
+              <div data-ajuda="plano_contas_rel.vincular" style={{ border: '1px solid rgba(61,35,20,0.12)', borderRadius: PSGC_RADIUS.lg, background: '#fff', overflow: 'hidden' }}>
                 <div style={{ display: 'flex', alignItems: 'center', padding: '10px 12px', background: C.offWhiteDark, color: INK, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                   Vincular conta contábil à conta gerencial<AjudaCampo chave="plano_contas_rel.vincular" />
                 </div>

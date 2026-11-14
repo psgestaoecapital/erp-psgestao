@@ -9,8 +9,10 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import PainelGente from '@/components/inteligencia/PainelGente'
 import { usePapelUsuario, ehRhIndustrial } from '@/hooks/usePapelUsuario'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314'
+const ROTA = '/dashboard/industrial/producao'
 const BG = '#FAF7F2'
 const GOLD = '#C8941A'
 const LINE = '#E7DECF'
@@ -181,6 +183,7 @@ export default function ProducaoIndustrialPage() {
           <span style={{ fontSize: 12, color: MUT }}>{fmtDDMM(dataIni)} – {fmtDDMM(dataFim)}</span>
           <button onClick={() => { setMostraCustom((v) => !v); setAtalho('custom') }} title="Datas personalizadas"
             style={{ ...pill(atalho === 'custom'), padding: '6px 10px' }}>🗓️</button>
+          <AjudaCampo chave="industrial.producao.filtro_periodo" rota={ROTA} />
           {mostraCustom && (
             <>
               <input type="date" value={dataIni} onChange={(e) => { setDataIni(e.target.value); setAtalho('custom') }}
@@ -287,10 +290,12 @@ function Abate({ ag, porDiaSem, lotes, camaras, fLote, fCamara, setFLote, setFCa
           <option value="">Todos os lotes ({lotes.length})</option>
           {lotes.map((l) => <option key={l} value={l}>Lote {l}</option>)}
         </select>
+        <AjudaCampo chave="industrial.producao.filtro_lote" rota={ROTA} />
         <select value={fCamara} onChange={(e) => setFCamara(e.target.value)} style={sel}>
           <option value="">Todas as câmaras ({camaras.length})</option>
           {camaras.map((c) => <option key={c} value={c}>Câmara {c}</option>)}
         </select>
+        <AjudaCampo chave="industrial.producao.filtro_camara" rota={ROTA} />
         <span style={{ fontSize: 12, color: MUT }}>{fmtN(n)} cabeças no recorte</span>
       </div>
 
