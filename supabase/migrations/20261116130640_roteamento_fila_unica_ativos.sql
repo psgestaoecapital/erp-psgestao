@@ -12,8 +12,9 @@
 --      (dev7claudeps, code-desenvolvedor-3, desenvolvedor_4_g, desenvolvedor_6_g,
 --       rodrigo-code, jordana-code). Remove desenvolvedor_5_g (emergência) e passa a
 --      não depender mais da membership de erp_agente_papel.
---   2) fn_dev_ativo(agente, horas=4): dev está ativo se teve execução
+--   2) fn_dev_ativo(agente, horas=2): dev está ativo se teve execução
 --      (erp_code_execucao_log) OU lease renovada (erp_agente_sessao_lease) na janela.
+--      Janela fixada pelo CEO 14/11 em 2 HORAS; recalculada a cada chamada (sem lista fixa).
 --   3) fn_dev_mais_vazio(): escolhe, ENTRE OS ATIVOS do pool, o de menor carga
 --      (tarefas abertas na caixa). Empate -> aleatório. NULL se NENHUM ativo.
 --   4) fn_chamados_rotear(): usa o pool/ativo acima; se nenhum dev ativo, a tarefa fica
@@ -44,8 +45,8 @@ $function$;
 REVOKE ALL ON FUNCTION public.fn_devs_pool() FROM anon;
 GRANT EXECUTE ON FUNCTION public.fn_devs_pool() TO authenticated, service_role;
 
--- (2) Dev ativo = execução recente OU lease renovada na janela (parametrizável, padrão 4 h).
-CREATE OR REPLACE FUNCTION public.fn_dev_ativo(p_agente text, p_horas integer DEFAULT 4)
+-- (2) Dev ativo = execução recente OU lease renovada na janela (parametrizável, padrão 2 h — CEO 14/11).
+CREATE OR REPLACE FUNCTION public.fn_dev_ativo(p_agente text, p_horas integer DEFAULT 2)
  RETURNS boolean
  LANGUAGE sql
  STABLE
@@ -74,7 +75,7 @@ CREATE OR REPLACE FUNCTION public.fn_dev_mais_vazio()
 AS $function$
   SELECT q.agente
     FROM public.fn_devs_pool() q
-   WHERE public.fn_dev_ativo(q.agente, 4)
+   WHERE public.fn_dev_ativo(q.agente, 2)  -- janela de atividade: 2 h (CEO 14/11)
    ORDER BY (SELECT count(*) FROM public.erp_agente_mensagem m
               WHERE m.para = q.agente
                 AND m.status IN ('nova', 'recebida', 'em_andamento')
@@ -90,9 +91,9 @@ CREATE OR REPLACE VIEW public.v_devs_carga AS
            WHERE m.para = d.agente
              AND m.status IN ('nova', 'recebida', 'em_andamento')
              AND coalesce(m.arquivada, false) = false) AS tarefas_abertas,
-         public.fn_dev_ativo(d.agente, 4) AS ativo
+         public.fn_dev_ativo(d.agente, 2) AS ativo
     FROM public.fn_devs_pool() d
-   ORDER BY public.fn_dev_ativo(d.agente, 4) DESC,
+   ORDER BY public.fn_dev_ativo(d.agente, 2) DESC,
             (SELECT count(*) FROM public.erp_agente_mensagem m
               WHERE m.para = d.agente
                 AND m.status IN ('nova', 'recebida', 'em_andamento')
@@ -110,6 +111,7 @@ CREATE OR REPLACE FUNCTION public.fn_chamados_rotear(p_limite integer DEFAULT 10
  SET search_path TO 'public'
 AS $function$
 DECLARE
+  v_janela_ativo constant integer := 2;  -- janela de atividade do dev em HORAS (CEO 14/11). Ajuste aqui.
   c record; m record; v_dev text; v_res jsonb; v_msg uuid;
   v_rot int := 0; v_sens int := 0; v_dev_n int := 0; v_sem int := 0; v_sync int := 0;
   v_dedup int := 0; v_rede int := 0;
@@ -179,7 +181,7 @@ BEGIN
        AND x.criado_em < now() - interval '6 hours'
        AND greatest(x.recebida_em, x.iniciada_em, x.atualizado_em, x.criado_em) < now() - interval '6 hours'
        AND public.fn_chamado_agente_dono(x.sugestao_id) IS NULL
-       AND NOT public.fn_dev_ativo(x.para, 4)
+       AND NOT public.fn_dev_ativo(x.para, v_janela_ativo)
   LOOP
     PERFORM public.fn_agente_mensagem_arquivar(m.id);
     IF m.sugestao_id IS NOT NULL THEN
@@ -264,7 +266,7 @@ BEGIN
     -- (1) dono de escopo de sócio tem prioridade (chamado do sócio vai para o Code do sócio)
     v_dev := public.fn_chamado_agente_dono(c.id);
     -- (2) senão, o agente já marcado SE estiver ATIVO
-    IF v_dev IS NULL AND c.agente IS NOT NULL AND c.agente <> '' AND public.fn_dev_ativo(c.agente, 4) THEN
+    IF v_dev IS NULL AND c.agente IS NOT NULL AND c.agente <> '' AND public.fn_dev_ativo(c.agente, v_janela_ativo) THEN
       v_dev := c.agente;
     END IF;
     -- (3) senão, menor carga da fila única ENTRE OS ATIVOS (NULL se nenhum ativo)
