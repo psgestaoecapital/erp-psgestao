@@ -31,6 +31,7 @@ export default function GraficosHistoricoCodes({ periodo }: { periodo: Periodo }
   const [snaps, setSnaps] = useState<Snapshot[] | null>(null)
   const [erro, setErro] = useState<string | null>(null)
   const [chamados, setChamados] = useState<{ dia: string; ps: number; cliente: number; automaticos: number }[]>([])
+  const [blocos, setBlocos] = useState<{ cliAbertos: number; cliAcima: number; cliAntigoMin: number; audAbertos: number; audCorrigidos: number; audTotal: number } | null>(null)
   const [espera, setEspera] = useState<{ esperando: number; antigo: number } | null>(null)
 
   const carregar = useCallback(async () => {
@@ -46,6 +47,9 @@ export default function GraficosHistoricoCodes({ periodo }: { periodo: Periodo }
     const es = await supabase.rpc('fn_dev_codes_chamados_esperando_cliente')
     const e0 = (es.data ?? [])[0] as { esperando: number; mais_antigo_dias: number } | undefined
     if (!es.error && e0) setEspera({ esperando: e0.esperando, antigo: e0.mais_antigo_dias })
+    const bl = await supabase.rpc('fn_dev_codes_chamados_clientes_x_auditor')
+    const b0 = (bl.data ?? [])[0] as { clientes_abertos: number; clientes_acima_meta: number; clientes_mais_antigo_min: number; auditor_abertos: number; auditor_corrigidos: number; auditor_total: number } | undefined
+    if (!bl.error && b0) setBlocos({ cliAbertos: b0.clientes_abertos, cliAcima: b0.clientes_acima_meta, cliAntigoMin: b0.clientes_mais_antigo_min, audAbertos: b0.auditor_abertos, audCorrigidos: b0.auditor_corrigidos, audTotal: b0.auditor_total })
   }, [periodo])
 
   useEffect(() => {
@@ -107,6 +111,26 @@ export default function GraficosHistoricoCodes({ periodo }: { periodo: Periodo }
           </BarChart>
         </ResponsiveContainer>
       </Cartao>
+      {blocos && (
+        <section data-testid="chamados-clientes" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 12, padding: 14, minWidth: 0 }}>
+          <header style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: ESP }}>Chamados de clientes</h3>
+            <AjudaCampo chave="dev.codes.graficos.chamados_clientes" rota={ROTA} />
+          </header>
+          <div style={{ fontSize: 28, fontWeight: 700, color: ESP, marginTop: 6 }}>{blocos.cliAbertos}</div>
+          <div style={{ fontSize: 12, color: TXM }}>abertos · meta de 20 min: {blocos.cliAcima} acima da meta · o mais antigo sem resposta há {blocos.cliAntigoMin} min</div>
+        </section>
+      )}
+      {blocos && (
+        <section data-testid="achados-auditor" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 12, padding: 14, minWidth: 0 }}>
+          <header style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: ESP }}>Achados do auditor (PDCA do Hub)</h3>
+            <AjudaCampo chave="dev.codes.graficos.achados_auditor" rota={ROTA} />
+          </header>
+          <div style={{ fontSize: 28, fontWeight: 700, color: ESP, marginTop: 6 }}>{blocos.audAbertos}</div>
+          <div style={{ fontSize: 12, color: TXM }}>abertos · {blocos.audCorrigidos} corrigidos · {blocos.audTotal} no total (empresa DEMO, fora do atendimento de clientes)</div>
+        </section>
+      )}
       {espera && (
         <section data-testid="chamados-esperando-cliente" style={{ background: BRANCO, border: `1px solid ${BD}`, borderRadius: 12, padding: 14, minWidth: 0 }}>
           <header style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
