@@ -4,7 +4,7 @@
 // 🚫 SEM folha/pagamento/lançamento — é só o CÁLCULO. A GE paga (fronteira financeira).
 import React, { useEffect, useState, useCallback, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
-import { Percent, ChevronLeft, Plus, Clock, TrendingUp } from 'lucide-react'
+import { Percent, ChevronLeft, Plus, Clock, TrendingUp, Pencil, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { parseNumBR } from '@/lib/num'
@@ -84,6 +84,27 @@ export default function ComissaoPage() {
     await calcular()
   }
 
+  // RD-98: Editar = traz os valores da regra ao formulário (o _salvar já substitui a regra ativa do mesmo mecânico).
+  const editarRegra = (r: Regra) => {
+    setRNome(r.mecanico_nome || '')
+    setRTipo(r.tipo)
+    setRValor(String(Number(r.valor)).replace('.', ','))
+    setMsg('✏️ Edite os valores abaixo e clique em "Salvar regra" para substituir.')
+    if (typeof document !== 'undefined') document.getElementById('form-regra')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+
+  // RD-98: Excluir = desativa a regra (não apaga histórico; o cálculo de período já fechado não muda).
+  const excluirRegra = async (r: Regra) => {
+    if (!companyId) return
+    const quem = r.mecanico_nome || 'Padrão (todos)'
+    if (typeof window !== 'undefined' && !window.confirm(`Excluir a regra de comissão de "${quem}"? Ela deixa de valer no cálculo.`)) return
+    const { data, error } = await supabase.rpc('fn_oficina_comissao_regra_excluir', { p_company_id: companyId, p_id: r.id })
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (error || j?.ok === false) { setMsg('❌ ' + erroAmigavel(error, codigoAmigavel(j?.erro, 'Não foi possível excluir a regra.'))); return }
+    setMsg('✅ Regra excluída.')
+    await calcular()
+  }
+
   useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg(null), 4000); return () => clearTimeout(t) }, [msg])
 
   if (!companyId) return <div style={{ padding: 24, color: ESP60, background: BG, minHeight: '100vh' }}>Selecione uma empresa específica no topo para abrir a Comissão.</div>
@@ -146,14 +167,21 @@ export default function ComissaoPage() {
           )}
         </Sec>
 
-        <Sec titulo="Regras de comissão">
+        <Sec titulo="Regras de comissão" ajuda="oficina.comissao.regras_lista">
+          {regras.length === 0 && (
+            <div style={{ color: ESP60, fontSize: 13, marginBottom: 8 }}>Nenhuma regra cadastrada ainda. Cadastre a primeira abaixo.</div>
+          )}
           {regras.map((r) => (
-            <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${LINE}` }}>
-              <span style={{ fontSize: 14, fontWeight: 600 }}>{r.mecanico_nome || 'Padrão (todos)'}</span>
+            <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: `1px solid ${LINE}` }}>
+              <span style={{ fontSize: 14, fontWeight: 600, flex: 1, minWidth: 0 }}>{r.mecanico_nome || 'Padrão (todos)'}</span>
               <span style={{ fontSize: 13, color: ESP60 }}>{descRegra(r)}</span>
+              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                <button onClick={() => editarRegra(r)} title="Editar regra" aria-label={`Editar regra de ${r.mecanico_nome || 'Padrão (todos)'}`} style={iconBtn}><Pencil size={15} /></button>
+                <button onClick={() => void excluirRegra(r)} title="Excluir regra" aria-label={`Excluir regra de ${r.mecanico_nome || 'Padrão (todos)'}`} style={{ ...iconBtn, color: '#B4231A' }}><Trash2 size={15} /></button>
+              </div>
             </div>
           ))}
-          <div style={{ marginTop: 12 }}>
+          <div id="form-regra" style={{ marginTop: 12 }}>
             <Campo l="Mecânico (em branco = regra padrão da empresa)" ajuda="oficina.comissao.regra_mecanico"><input value={rNome} onChange={(e) => setRNome(e.target.value)} placeholder="Nome do mecânico" style={inp} /></Campo>
             <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
               <Campo l="Tipo" ajuda="oficina.comissao.regra_tipo">
@@ -195,3 +223,4 @@ function Toast({ children }: { children: React.ReactNode }) {
 const inp: CSSProperties = { width: '100%', padding: '10px 12px', border: `1px solid ${LINE}`, borderRadius: 10, fontSize: 15, background: '#fff', color: ESP, outline: 'none', fontFamily: 'inherit' }
 const btnGold: CSSProperties = { background: GOLD, color: '#3D2314', border: 'none', borderRadius: 10, padding: '10px 16px', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }
 const linkBtn: CSSProperties = { background: 'none', border: 'none', color: ESP60, fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', padding: 0 }
+const iconBtn: CSSProperties = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 8, padding: 6, color: ESP, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 0 }
