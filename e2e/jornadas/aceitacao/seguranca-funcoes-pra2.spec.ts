@@ -16,7 +16,7 @@ const TELAS = [
   { id: 'b0700000-0000-4000-a000-000000000004', rota: '/dashboard/gestao-empresarial' },
   { id: 'b0700000-0000-4000-a000-000000000001', rota: '/dashboard/oficina/patio' },
   { id: 'b0700000-0000-4000-a000-000000000003', rota: '/dashboard/revenda/patio' },
-  { id: 'b0700000-0000-4000-a000-000000000005', rota: '/dashboard/compliance' },
+  { id: 'b0700000-0000-4000-a000-000000000005', rota: '/dashboard/ehs' },
   { id: 'b0700000-0000-4000-a000-000000000002', rota: '/dashboard/pm' },
 ]
 
