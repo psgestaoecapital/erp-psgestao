@@ -136,12 +136,13 @@ function Inner() {
     <div style={{ background: C.bg, minHeight: '100vh', padding: '22px 16px 60px', maxWidth: 1120, margin: '0 auto', color: C.esp }}>
       <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700 }}>🏭 Indústria · Produtividade</div>
       {/* Sub-navegação explícita das telas de Produtividade (drill-down de Postos): Cadastro (aqui),
-          Indicadores e Custos do posto. Custos do posto não tem item próprio no menu — é alcançada daqui
-          em 3 toques (menu → Postos → Custos do posto), por isso o link é visível como aba. */}
+          Indicadores, Custos do posto e Rendimentos. Custos do posto e Rendimentos não têm item próprio no
+          menu — são alcançadas daqui em 3 toques (menu → Postos → aba), por isso os links são visíveis como abas. */}
       <nav aria-label="Seções de Produtividade" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '8px 0 4px' }}>
         <span aria-current="page" style={{ fontSize: 13, fontWeight: 700, color: C.esp, background: C.goldBg, border: `1px solid ${C.gold}`, borderRadius: 999, padding: '5px 12px' }}>Cadastro de postos</span>
         <Link href="/dashboard/produtividade/indicadores" style={{ fontSize: 13, fontWeight: 600, color: C.espM, background: C.white, border: `1px solid ${C.border}`, borderRadius: 999, padding: '5px 12px', textDecoration: 'none' }}>Indicadores</Link>
         <Link href="/dashboard/produtividade/custos-posto" style={{ fontSize: 13, fontWeight: 600, color: C.espM, background: C.white, border: `1px solid ${C.border}`, borderRadius: 999, padding: '5px 12px', textDecoration: 'none' }}>Custos do posto</Link>
+        <Link href="/dashboard/produtividade/rendimento" style={{ fontSize: 13, fontWeight: 600, color: C.espM, background: C.white, border: `1px solid ${C.border}`, borderRadius: 999, padding: '5px 12px', textDecoration: 'none' }}>Rendimentos</Link>
       </nav>
       <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 0' }}>{vista === 'quadro' ? 'Postos de trabalho' : 'Cadastro por fluxo'}</h1>
       <p style={{ color: C.espM, fontSize: 13, margin: '6px 0 10px' }}>{vista === 'quadro' ? 'O quadro posto a posto: projetado × real, vagas e custo por setor. Mesma base do cadastro por fluxo.' : 'O fluxo é o contexto. Cada linha é um posto — clique para editar. O turno vem do ponto.'}</p>
