@@ -277,7 +277,7 @@ export default function AdminPage(){
     hub:"Hub Projetos",
     wealth:"Wealth",
     agro:"Agro",
-    compliance:"Compliance",
+    compliance:"PS EHS",
     custeio:"Custeio",
     odonto:"Clínica Odontológica",
     medica:"Clínica Médica",
@@ -809,7 +809,7 @@ export default function AdminPage(){
       const VERT_LABELS:Record<string,string>={
         gestao_empresarial:"Gestão Empresarial",bpo:"BPO Financeiro",oficina:"Oficina",
         pm:"P&M",industrial:"Industrial",hub:"Hub Projetos",wealth:"Wealth MFO",
-        agro:"Agro",compliance:"Compliance",custeio:"Custeio",odonto:"Clínica Odontológica",medica:"Clínica Médica",
+        agro:"Agro",compliance:"PS EHS",custeio:"Custeio",odonto:"Clínica Odontológica",medica:"Clínica Médica",
       };
       const VERT_COLOR="#C8941A";
       // agrupa planos por vertical
@@ -840,7 +840,7 @@ export default function AdminPage(){
       const GRUPO_LABELS:Record<string,string>={
         erp_core:"CORE",erp_ext:"GESTÃO",gestao_empresarial:"Gestão Empresarial",
         industrial:"Industrial",pm:"P&M",hub:"Hub Projetos",oficina:"Oficina",
-        bpo:"BPO Financeiro",wealth:"Wealth",compliance:"Compliance",
+        bpo:"BPO Financeiro",wealth:"Wealth",compliance:"PS EHS",
         custeio_a:"Custeio Sub-A",custeio_b:"Custeio Sub-B",agro:"Agro",
         odonto:"Clínica Odontológica",medica:"Clínica Médica",
         contador:"Contador",assessor:"Assessor",fiscal:"Fiscal",admin:"Admin",dev:"Dev",
