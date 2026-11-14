@@ -623,7 +623,33 @@ export default function NFSeListClient() {
           {loading ? (
             <div className="py-12 flex justify-center"><Loader2 className="animate-spin text-[#C8941A]" size={24} /></div>
           ) : documentos.length === 0 ? (
-            <div className="py-12 text-center text-[12.5px] text-[#3D2314]/60">Nenhum documento encontrado com esses filtros.</div>
+            (statusFiltro || dataInicio || dataFim || buscaSubmit) ? (
+              // Lista vazia POR CAUSA de filtro: mensagem de filtro + atalho para limpar.
+              <div className="py-12 text-center text-[12.5px] text-[#3D2314]/60">
+                Nenhum documento encontrado com esses filtros.
+                <div className="mt-3">
+                  <button type="button" onClick={resetFiltros} data-testid="nfse-vazio-limpar"
+                    className="px-3 py-1.5 text-[12px] font-medium rounded-lg border border-[#3D2314]/15 text-[#3D2314] hover:bg-[#3D2314]/5">
+                    Limpar filtros
+                  </button>
+                </div>
+              </div>
+            ) : (
+              // Empresa ainda não emitiu nenhuma NFS-e: onboarding com o próximo passo (critério d do PDCA).
+              <div className="py-14 px-6 text-center" data-testid="nfse-onboarding">
+                <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-[#C8941A]/10 mb-3">
+                  <FileText size={22} className="text-[#C8941A]" />
+                </div>
+                <div className="text-[14px] font-semibold text-[#3D2314]">Você ainda não emitiu NFS-e</div>
+                <div className="mt-1.5 text-[12.5px] text-[#3D2314]/60 max-w-md mx-auto leading-relaxed">
+                  As notas fiscais de serviço que você emitir aparecem aqui, com status, valor e tomador. Comece emitindo a primeira.
+                </div>
+                <button type="button" onClick={() => { setReemitir(null); setEmitirAberto(true) }} data-testid="nfse-onboarding-emitir"
+                  className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] text-[12.5px] font-medium">
+                  <Plus size={14} /> Emitir NFS-e
+                </button>
+              </div>
+            )
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-[13px]">
