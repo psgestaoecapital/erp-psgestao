@@ -11,6 +11,9 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import AnexosCard, { type AnexosCardHandle } from '@/components/crm/AnexosCard'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { Receipt } from 'lucide-react'
 
 const ESPRESSO = '#3D2314'
@@ -73,6 +76,8 @@ export default function PropostasPage() {
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const prefill = useRef<{ cliente_id?: string; briefing_id?: string; titulo?: string }>({})
+  // Hand-off de "Preço sugerido" (ia-preco): abre a proposta já com 1 item do serviço e o valor sugerido (?preco&?servico_id)
+  const precoPrefill = useRef<{ preco: number; servico_id?: string } | null>(null)
   const anexosRef = useRef<AnexosCardHandle>(null)   // ANEXO-2 · confirmar/limpar o staging da proposta nova
 
   // formulário da nova proposta (com editor de itens)
@@ -207,7 +212,7 @@ export default function PropostasPage() {
       },
     })
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setBusy(false); setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setBusy(false); setToast(error ? erroAmigavel(error, 'Não foi possível salvar a proposta.') : codigoAmigavel(j?.erro, 'Não foi possível salvar a proposta.')); return }
     // PM-1 PR-D · a TABELA é a fonte: concilia (upsert + soft-delete dos removidos). O espelho reescreve o jsonb.
     await supabase.rpc('fn_agency_proposta_itens_sync', { p_proposta_id: editId, p_itens: itensLimpos })
     setBusy(false)
@@ -218,9 +223,11 @@ export default function PropostasPage() {
 
   async function excluir(p: Proposta) {
     if (!window.confirm(`Excluir a proposta "${p.titulo}"? Ela sai da lista (exclusão reversível, nada é apagado de vez).`)) return
-    const { data, error } = await supabase.rpc('fn_agency_proposta_excluir', { p_id: p.id })
+    // RD-98 p4 · exclusão rastreável: o motivo (opcional) fica no histórico de auditoria junto de quem/quando excluiu.
+    const motivo = (window.prompt('Motivo da exclusão (opcional) — fica no histórico de auditoria:', '') ?? '').trim()
+    const { data, error } = await supabase.rpc('fn_agency_proposta_excluir', { p_id: p.id, p_motivo: motivo || null })
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setToast(error ? erroAmigavel(error, 'Não foi possível excluir a proposta.') : codigoAmigavel(j?.erro, 'Não foi possível excluir a proposta.')); return }
     setToast('Proposta EXCLUÍDA.'); void carregar()
   }
 
@@ -234,11 +241,30 @@ export default function PropostasPage() {
     const cli = q.get('erp_cliente_id') || q.get('cliente_id') || undefined
     const brf = q.get('briefing_id') || undefined
     const tit = q.get('titulo') || undefined
-    if (!(cli || brf || tit)) return
+    // Hand-off do Preço sugerido: ?preco=<valor>&servico_id=<id> → abre a proposta já com o item preenchido
+    const pre = num(q.get('preco'))
+    const sid = q.get('servico_id') || undefined
+    if (pre > 0) precoPrefill.current = { preco: pre, servico_id: sid }
+    if (!(cli || brf || tit || pre > 0)) return
     prefill.current = { cliente_id: cli, briefing_id: brf, titulo: tit }
     const t = setTimeout(() => abrirNovo(cli, tit), 0) // fora do ciclo do effect (evita setState síncrono)
     return () => clearTimeout(t)
   }, [])
+
+  // Aplica o item do Preço sugerido assim que o catálogo terminar de carregar (resolve serviço → item; senão, item avulso)
+  useEffect(() => {
+    if (!novo || loading || !precoPrefill.current) return
+    const { preco, servico_id } = precoPrefill.current
+    precoPrefill.current = null
+    const s = servico_id ? catalogo.find((x) => x.id === servico_id) : undefined
+    const item: Item = s
+      ? { servico_id: s.id, tipo_servico: s.nome, descricao: s.nome, unidade: s.unidade ?? 'un',
+          periodicidade: s.periodicidade, quantidade: 1, valor_unitario: preco, valor_total: preco,
+          entregaveis: s.entregaveis ?? undefined, preco_catalogo: s.valor_base ?? null }
+      : { ...itemVazio(), valor_unitario: preco, valor_total: preco }
+    setItens([item])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [novo, loading, catalogo])
 
   const nomeCliente = (id: string | null) => { const c = clientes.find((x) => x.id === id); return c ? (c.nome_fantasia ?? c.nome) : '—' }
   const kpis = useMemo(() => ({
@@ -250,7 +276,7 @@ export default function PropostasPage() {
 
   // totais ao vivo
   const somaItens = useMemo(() => itens.reduce((s, it) => s + num(it.valor_total), 0), [itens])
-  const descNum = num(fDesconto)
+  const descNum = moedaParaNumero(fDesconto) ?? 0
   const valorFinal = Math.max(somaItens - descNum, 0)
   const propEdit = editId ? (propostas.find((x) => x.id === editId) ?? null) : null   // PM-QW #15 · proposta em edição
 
@@ -310,7 +336,7 @@ export default function PropostasPage() {
       },
     })
     const j = data as { ok?: boolean; erro?: string; id?: string } | null
-    if (error || !j?.ok) { setBusy(false); setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setBusy(false); setToast(error ? erroAmigavel(error, 'Não foi possível criar a proposta.') : codigoAmigavel(j?.erro, 'Não foi possível criar a proposta.')); return }
     // PM-1 PR-D · popula a TABELA (a fonte) com os itens da nova proposta; o espelho reescreve o jsonb.
     if (j.id) await supabase.rpc('fn_agency_proposta_itens_sync', { p_proposta_id: j.id, p_itens: itensLimpos })
     // ANEXO-2 · persiste os anexos em espera (move tmp → proposta/{id}/). Um anexo que falhe não perde a proposta.
@@ -341,7 +367,7 @@ export default function PropostasPage() {
   }
 
   function abrirAprovar(p: Proposta) {
-    setAprForm({ fee: String(p.valor_final ?? p.valor_total ?? ''), dia: '10', periodicidade: 'mensal', comPct: '', comBase: 'fee', comTipo: 'unica' })
+    setAprForm({ fee: numeroParaMoeda(p.valor_final ?? p.valor_total), dia: '10', periodicidade: 'mensal', comPct: '', comBase: 'fee', comTipo: 'unica' })
     setApr(p)
   }
 
@@ -350,7 +376,7 @@ export default function PropostasPage() {
     setBusy(true)
     const { data, error } = await supabase.rpc('fn_agency_proposta_aprovar', {
       p_proposta_id: apr.id,
-      p_fee_mensal: aprForm.fee ? Number(aprForm.fee) : null,
+      p_fee_mensal: moedaParaNumero(aprForm.fee),
       p_dia_vencimento: Number(aprForm.dia) || 10,
       p_periodicidade: aprForm.periodicidade,
       p_data_inicio: new Date().toISOString().slice(0, 10),
@@ -360,7 +386,7 @@ export default function PropostasPage() {
     })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string; contrato_numero?: string } | null
-    if (error || !j?.ok) { setToast(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setToast(error ? erroAmigavel(error, 'Não foi possível aprovar a proposta.') : codigoAmigavel(j?.erro, 'Não foi possível aprovar a proposta.')); return }
     setApr(null)
     setToast(j.contrato_numero ? `APROVADA · pedido de contrato ${j.contrato_numero} criado — o financeiro vai elaborar.` : 'Proposta APROVADA.')
     void carregar()
@@ -562,7 +588,7 @@ export default function PropostasPage() {
             })()}
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
-              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Desconto (R$)<AjudaCampo chave="pm.propostas.desconto" /></span><input style={inp} type="number" min={0} step="0.01" value={fDesconto} onChange={(e) => setFDesconto(e.target.value)} placeholder="0" /></label>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Desconto (R$)<AjudaCampo chave="pm.propostas.desconto" /></span><CampoMoeda value={fDesconto} onChange={setFDesconto} placeholder="R$ 0,00" style={inp} /></label>
               <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Condição<AjudaCampo chave="pm.propostas.condicao" /></span>
                 <select style={inp} value={fCondicao} onChange={(e) => setFCondicao(e.target.value)}>
                   <option>Mensal</option><option>Projeto (à vista)</option><option>Projeto (parcelado)</option>
@@ -600,7 +626,7 @@ export default function PropostasPage() {
             </div>
             <div style={{ fontSize: 11, fontWeight: 700, color: DOURADO, textTransform: 'uppercase', letterSpacing: 0.5, margin: '4px 0' }}>Contrato (fee recorrente)</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Fee mensal (R$)<AjudaCampo chave="pm.propostas.fee" /></span><input style={inp} type="number" value={aprForm.fee} onChange={(e) => setAprForm({ ...aprForm, fee: e.target.value })} placeholder="0 = sem contrato" /></label>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Fee mensal (R$)<AjudaCampo chave="pm.propostas.fee" /></span><CampoMoeda value={aprForm.fee} onChange={(v) => setAprForm({ ...aprForm, fee: v })} placeholder="R$ 0,00 = sem contrato" style={inp} /></label>
               <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Dia venc.<AjudaCampo chave="pm.propostas.dia_venc" /></span><input style={inp} type="number" min={1} max={28} value={aprForm.dia} onChange={(e) => setAprForm({ ...aprForm, dia: e.target.value })} /></label>
               <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Periodicidade<AjudaCampo chave="pm.propostas.periodicidade" /></span>
                 <select style={inp} value={aprForm.periodicidade} onChange={(e) => setAprForm({ ...aprForm, periodicidade: e.target.value })}>
@@ -684,7 +710,7 @@ function ClienteField({ value, onChange, empresa, setToast, nomeLead }: {
     const nome = (nomeDireto ?? (novoNome || q)).trim()
     if (!nome) { setToast('Digite o nome/empresa do cliente.'); return }
     const { data, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: empresa, p_nome: nome, p_cpf_cnpj: null, p_extra: {} })
-    if (error) { setToast(`Erro ao criar cliente: ${error.message}`); return }
+    if (error) { setToast(erroAmigavel(error, 'Não foi possível criar o cliente.')); return }
     const id = data as string | null
     if (id) { onChange(id); setNomeSel(nome) }
     setCriando(false); setNovoNome(''); setOpen(false); setSug([])

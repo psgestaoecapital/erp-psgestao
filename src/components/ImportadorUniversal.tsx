@@ -227,7 +227,7 @@ export default function ImportadorUniversal({ companyId, onImportComplete }: Imp
         <div style={{ ...card, textAlign: "center", padding: 40 }}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>📄</div>
           <div style={{ fontSize: 14, color: TX, marginBottom: 8 }}>Arraste ou selecione o arquivo financeiro</div>
-          <div style={{ fontSize: 11, color: TXD, marginBottom: 20 }}>Aceita: CSV, TXT, TSV, XLSX — de qualquer sistema (SIGA, Omie, ContaAzul, Excel genérico)</div>
+          <div style={{ fontSize: 11, color: TXD, marginBottom: 20 }}>Aceita: CSV, TXT, TSV, XLSX — de qualquer sistema (planilha ou exportação do seu sistema atual)</div>
           <input ref={fileRef} type="file" accept=".csv,.txt,.tsv,.xlsx,.xls" onChange={handleFile} style={{ display: "none" }} />
           <button style={btn} onClick={() => fileRef.current?.click()}>Selecionar arquivo</button>
           <div style={{ fontSize: 10, color: TXD, marginTop: 16 }}>O sistema detecta automaticamente: separador, formato de número, formato de data e encoding</div>

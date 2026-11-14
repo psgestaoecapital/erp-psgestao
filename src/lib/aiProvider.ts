@@ -5,7 +5,7 @@
  * Fallback: Google Gemini 2.0 Flash
  */
 
-import { modeloPara, registrarFalhaIA } from './aiModel'
+import { modeloPara, registrarFalhaIA, assertIAPermitida } from './aiModel'
 
 export interface AIRequest {
   system: string
@@ -78,6 +78,10 @@ async function callGemini(req: AIRequest): Promise<string> {
 
 // ── Circuit breaker principal ─────────────────────────────────
 export async function callAI(req: AIRequest): Promise<AIResponse> {
+  // P0 CUSTO (CEO 01/11): porteiro de orçamento ANTES de qualquer chamada. Bloqueia AMBOS os
+  // providers (Anthropic e o fallback Gemini vivem dentro deste callAI), então nenhuma chamada
+  // paga sai com o freeze ligado. Lança IABloqueadaError — a rota traduz em mensagem honesta.
+  await assertIAPermitida()
   // Tenta Anthropic primeiro
   try {
     const text = await callAnthropic(req)

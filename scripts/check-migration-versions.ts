@@ -6,10 +6,14 @@
  * entra e ninguém vê (dívida invisível). Nenhum gate cobria isso; foi pego à mão.
  *
  * 1) OFFLINE (sempre, sem segredo): duas migrations no repo com a mesma versão → falha.
+ * 1c) OFFLINE (aviso): dois arquivos no MESMO minuto (12 díg.) → aviso (duas PRs/agentes podem colidir na ordem).
  * 2) ONLINE (precisa de SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY): versão de arquivo local já presente no ledger
  *    com OUTRO nome → falha. Lê o ledger pela RPC `fn_migrations_ledger()` (service_role only; a tabela não é
  *    exposta pelo PostgREST). Sem credenciais: LOCAL = SKIP da regra 2; CI (GITHUB_ACTIONS/CI) = fail-closed.
  *    Se a RPC ainda não existe (primeiro deploy após 20260926160000) → aviso + SKIP, nunca trava o próprio deploy.
+ * 3) ONLINE (GUARDIÃO anti-órfã, 04/11): migration local NÃO aplicada cuja versão é MENOR que a última da main
+ *    (ledger) → falha. É a órfã 20261104002141: o `db push --include-all` aborta ("to be inserted before the last
+ *    migration on remote") e trava o deploy em silêncio. Pega no PR, com instrução clara de renumeração.
  *
  * Uso: npm run check:migrations
  */
@@ -43,6 +47,44 @@ export function colisoesComLedger(locaisArr: Local[], ledgerRows: LedgerRow[]): 
   return { problemas, semNomeReal }
 }
 
+// Regra 3 (GUARDIÃO anti-órfã) · migration fora de ordem contra o ledger da main. Pura e testável.
+// Uma migration local AINDA NÃO aplicada cuja versão é MENOR que a maior versão já aplicada faz o
+// `db push --include-all` abortar e travar o deploy em silêncio (órfã 20261104002141, 04/11).
+export function foraDeOrdem(locaisArr: Local[], ledgerRows: LedgerRow[]): string[] {
+  const aplicadas = new Set<string>()
+  let maxVer = ''
+  for (const r of ledgerRows) {
+    const v = String(r.version)
+    if (!/^\d{14}$/.test(v)) continue
+    aplicadas.add(v)
+    if (v > maxVer) maxVer = v
+  }
+  if (!maxVer) return []
+  const problemas: string[] = []
+  for (const l of locaisArr) {
+    if (aplicadas.has(l.version)) continue // já aplicada na main — não é nova
+    if (l.version < maxVer) {
+      problemas.push(`migration ${l.version} (${l.arquivo}) fora de ordem: número anterior à última da main (${maxVer}). Renumere para depois de ${maxVer}.`)
+    }
+  }
+  return problemas
+}
+
+// Aviso (não falha): dois arquivos de migration no MESMO minuto (12 díg.), segundos diferentes. A faixa de segundos
+// por agente evita a duplicata exata (regra 1), mas o mesmo minuto entre PRs/agentes merece atenção na ordem.
+export function colisaoMesmoMinuto(locaisArr: Local[]): string[] {
+  const porMinuto = new Map<string, Local[]>()
+  for (const l of locaisArr) {
+    const min = l.version.slice(0, 12)
+    porMinuto.set(min, [...(porMinuto.get(min) ?? []), l])
+  }
+  const avisos: string[] = []
+  for (const [min, ls] of porMinuto) {
+    if (ls.length > 1) avisos.push(`mesmo minuto ${min}: ${ls.map((l) => l.arquivo).join(' · ')} — confirme que não há colisão de ordem entre PRs`)
+  }
+  return avisos
+}
+
 function locais(): Local[] {
   let files: string[]
   try { files = readdirSync(MIG_DIR) } catch { return [] }
@@ -74,6 +116,9 @@ async function main() {
     if (l.version > limite) problemas.push(`versão ${l.version} (${l.arquivo}) está no futuro (limite ${limite}) — use o timestamp de agora`)
   }
 
+  // ── Regra 1c · aviso de colisão no mesmo minuto (offline, não falha) ─────────────────────────────
+  colisaoMesmoMinuto(all).forEach((a) => console.warn('⚠️  check:migrations — ' + a))
+
   // ── Regra 2 · colisão com o ledger (online) ────────────────────────────────────────────────────
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -102,6 +147,8 @@ async function main() {
       const rows = (data ?? []) as LedgerRow[]
       const r2 = colisoesComLedger(all, rows)
       problemas.push(...r2.problemas)
+      // Regra 3 · guardião anti-órfã: migration nova com versão anterior à última da main.
+      problemas.push(...foraDeOrdem(all, rows))
       if (r2.semNomeReal) console.log(`ℹ️  ${r2.semNomeReal} versão(ões) do ledger sem nome real (legado: name = versão) — não comparadas por nome; protegidas pela regra de duplicata.`)
       const orfaos = rows.filter((r) => !porVersao.has(String(r.version))).length
       if (orfaos) console.log(`ℹ️  ${orfaos} versão(ões) no ledger sem arquivo no repo (órfãs — ver CLAUDE.md "reconciliação"; não falha aqui).`)

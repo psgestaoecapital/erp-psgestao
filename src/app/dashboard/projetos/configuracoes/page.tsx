@@ -1,6 +1,6 @@
 // src/app/dashboard/projetos/configuracoes/page.tsx
 // Configuracoes do modulo Projetos: BDI interativo + margens + defaults operacionais
-// Autosave com debounce 800ms; trigger backend recalcula bdi_total_pct
+// Autosave com debounce 800ms; a RPC fn_projetos_config_salvar recalcula e persiste bdi_total_pct (fórmula AEC) — #3362
 
 "use client";
 
@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { comPrazo } from "@/lib/comPrazo";
 import { BdiSlider } from "@/components/projetos/BdiSlider";
@@ -62,8 +63,8 @@ interface Config {
 // Recursos planejados (não ativos): ficam numa seção "No roadmap", fora do caminho principal de configuração.
 const ROADMAP: Array<{ label: string; ajuda: string; hint: string }> = [
   { label: "Exige aprovação do engenheiro", ajuda: "projetos.config.exige_engenheiro", hint: "O fluxo de aprovação por engenheiro não bloqueia a proposta por enquanto." },
-  { label: "Sincronizar estoque com Omie", ajuda: "projetos.config.omie_estoque", hint: "A saída de material da obra já movimenta o estoque do PS; o envio ao Omie virá com a integração." },
-  { label: "Sincronizar contas a pagar com Omie", ajuda: "projetos.config.omie_pagar", hint: "Os títulos a pagar da obra ficam no financeiro do PS; o envio ao Omie virá com a integração." },
+  { label: "Sincronizar estoque com sistema externo", ajuda: "projetos.config.omie_estoque", hint: "A saída de material da obra já movimenta o estoque do PS; o envio a um sistema externo virá com a integração." },
+  { label: "Sincronizar contas a pagar com sistema externo", ajuda: "projetos.config.omie_pagar", hint: "Os títulos a pagar da obra ficam no financeiro do PS; o envio a um sistema externo virá com a integração." },
 ];
 
 const PRESETS: Array<{ id: string; label: string; descricao: string }> = [
@@ -125,6 +126,7 @@ export default function ConfiguracoesPage() {
   const [config, setConfig] = useState<Config | null>(null);
   const [salvo, setSalvo] = useState(false); // empresa já tem linha de config gravada
   const [impactos, setImpactos] = useState<ImpactoServico[]>([]);
+  const [impactosErro, setImpactosErro] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -165,8 +167,15 @@ export default function ConfiguracoesPage() {
           .limit(10),
       ]), { ms: 8000, tentativas: 1, label: 'projetos_configuracoes' });
       if (cfgR.error && cfgR.error.code !== "PGRST116") throw cfgR.error;
-      // Impactos: view pode nao existir em todos ambientes; ignora erro silenciosamente
+      // Impactos: a view pode nao existir em ambientes antigos (42P01) — nesse caso
+      // seguimos sem card. Mas um erro REAL (rede/RLS) nao pode virar um "nenhum
+      // servico" silencioso que engana o usuario (RD-97, chamado #3362): sinalizamos.
       let dadosImp: ImpactoServico[] = [];
+      if (impR.error && (impR.error as { code?: string }).code !== "42P01") {
+        setImpactosErro(erroAmigavel(impR.error, "Não foi possível consultar o impacto nos serviços."));
+      } else {
+        setImpactosErro(null);
+      }
       if (!impR.error && Array.isArray(impR.data)) {
         dadosImp = (impR.data as any[]).map((r) => ({
           servico_id: r.servico_id ?? r.id,
@@ -219,7 +228,7 @@ export default function ConfiguracoesPage() {
       });
       setImpactos(dadosImp);
     } catch (e: any) {
-      setErro(e.message || "Falha ao carregar configurações");
+      setErro(erroAmigavel(e, "Não foi possível carregar as configurações."));
     } finally {
       setLoading(false);
     }
@@ -275,7 +284,7 @@ export default function ConfiguracoesPage() {
         }
       } catch (e: any) {
         setSavingState("error");
-        setErro(e.message || "Falha ao salvar");
+        setErro(erroAmigavel(e, "Não foi possível salvar as configurações."));
       }
     },
     [companyId]
@@ -340,7 +349,7 @@ export default function ConfiguracoesPage() {
       setPresetParaAplicar(null);
       await carregar();
     } catch (e: any) {
-      setErro(e.message || "Falha ao aplicar preset");
+      setErro(erroAmigavel(e, "Não foi possível aplicar o preset."));
     } finally {
       setAplicandoPreset(false);
     }
@@ -532,6 +541,7 @@ export default function ConfiguracoesPage() {
             impactos={impactos}
             margemAlvoPct={config.margem_alvo_pct}
             margemMinimaPct={config.margem_minima_pct}
+            impactosErro={impactosErro}
           />
         </div>
       </section>

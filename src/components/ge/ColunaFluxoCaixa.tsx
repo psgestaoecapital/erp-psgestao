@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 interface Widget {
   empty_state: boolean
@@ -41,8 +42,8 @@ export default function ColunaFluxoCaixa({ companyId }: { companyId: string }) {
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go() } }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-        <span style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>
-          Fluxo de Caixa
+        <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>
+          Fluxo de Caixa<AjudaCampo chave="ge.hub.fluxo_caixa" rota="/dashboard/gestao-empresarial" />
         </span>
         {!data.empty_state && data.subtitulo && (
           <span style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)' }}>{data.subtitulo}</span>

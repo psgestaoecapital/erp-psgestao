@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { situacaoCertificado } from './certificadoValidade'
 import { FocusNFeProvider } from './providers/focusnfe'
 import { decryptApiKey } from './decrypt'
 import { FiscalError } from './errors'
@@ -56,6 +57,9 @@ interface CreateFiscalServiceOpts {
   // FEAT-NFE-PRODUTO-2-CARD-PEDIDO-v1 · override SO desce pra homologacao
   // body NUNCA consegue subir pra producao a partir desta opcao
   ambienteOverride?: 'homologacao' | 'producao'
+  // #5666 · tipo do documento: 'nfe' usa erp_fiscal_provider_config.ambiente_nfe (se preenchido);
+  // NFS-e/NFC-e e qualquer chamada sem tipo seguem o `ambiente` da empresa (comportamento anterior).
+  tipo?: 'nfe' | 'nfse' | 'nfce'
 }
 
 export async function createFiscalService(
@@ -105,7 +109,19 @@ export async function createFiscalService(
   // FEAT-NFE-PRODUTO-2-CARD-PEDIDO-v1
   // ambiente da config + override anti-engano: SO desce pra homologacao;
   // body NUNCA consegue subir pra producao
-  const configAmbiente = (configRow.ambiente ?? 'homologacao') as FiscalAmbiente
+  let configAmbiente = (configRow.ambiente ?? 'homologacao') as FiscalAmbiente
+  if (opts.tipo === 'nfe') {
+    // coluna separada: erro (ex.: migration ainda nao aplicada) cai no ambiente da empresa
+    const { data: amb } = await supabaseAdmin
+      .from('erp_fiscal_provider_config')
+      .select('ambiente_nfe')
+      .eq('company_id', companyId)
+      .eq('provider', 'focusnfe')
+      .eq('ativo', true)
+      .maybeSingle()
+    const ambNfe = (amb as { ambiente_nfe?: string | null } | null)?.ambiente_nfe
+    if (ambNfe === 'homologacao' || ambNfe === 'producao') configAmbiente = ambNfe
+  }
   const ambiente: FiscalAmbiente =
     opts.ambienteOverride === 'homologacao' ? 'homologacao' : configAmbiente
 
@@ -146,6 +162,12 @@ export async function createFiscalService(
   const diasParaExpirar = validadeFim
     ? Math.floor((validadeFim.getTime() - Date.now()) / 86_400_000)
     : undefined
+
+  // #5661: certificado vencido bloqueia a emissão com mensagem clara (em vez de falhar no emissor).
+  const sitCert = situacaoCertificado(payload.certificado?.validade_fim)
+  if (sitCert.estado === 'vencido') {
+    throw new FiscalError('CERTIFICADO_EXPIRADO', sitCert.mensagem ?? 'Certificado A1 vencido · envie um novo em /dashboard/configuracoes/fiscal')
+  }
 
   const provider: FiscalProvider = new FocusNFeProvider({
     apiKey,

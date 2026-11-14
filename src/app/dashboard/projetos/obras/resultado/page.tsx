@@ -39,6 +39,10 @@ const custo = (l: Linha) => n(l.custo_material) + n(l.custo_viagens) + n(l.custo
 // Sem receita não há margem: mostrar -custo como prejuízo seria alarme falso (falta lançar a medição, não estouro de custo).
 const semMedicao = (l: Linha) => receita(l) <= 0
 const margem = (l: Linha) => (semMedicao(l) ? 0 : receita(l) - custo(l))
+// Saldo do custo (ONDA 2 Hub): orçado − realizado. Positivo = dentro do orçamento; negativo = estouro.
+// Sem custo previsto não há saldo (mostra "—"): seria alarme falso de estouro.
+const temOrcamentoCusto = (l: Linha) => n(l.custo_previsto) > 0
+const saldoCusto = (l: Linha) => n(l.custo_previsto) - custo(l)
 const pctPrevisto = (l: Linha) => (n(l.receita_prevista) > 0 ? Math.min(100, (receita(l) / n(l.receita_prevista)) * 100) : null)
 // Margem % sobre a receita realizada. Sem receita ainda → null (mostra "—"), para não dividir por zero.
 // Sem receita a margem % não existe: "N/A" ("—" parece dado que falhou ao carregar).
@@ -53,6 +57,13 @@ const situacaoObra = (l: Linha): { rot: string; cor: string } => {
   if (p == null || p < 0) return { rot: 'Margem negativa', cor: VERM }
   return p < 10 ? { rot: 'Margem baixa', cor: AMBAR } : { rot: 'Margem saudável', cor: VERDE }
 }
+// Mesmo critério de situacaoObra, mas como chave estável para contar/filtrar (alerta de desvio de margem).
+const bucketMargem = (l: Linha): 'saudavel' | 'baixa' | 'negativa' | 'sem' => {
+  if (semMedicao(l)) return 'sem'
+  const p = margemPct(receita(l), margem(l))
+  if (p == null || p < 0) return 'negativa'
+  return p < 10 ? 'baixa' : 'saudavel'
+}
 const POR_PAGINA = 20
 const cockpit = (obraId: string) => `/dashboard/projetos/obras/${obraId}/cockpit`
 
@@ -63,6 +74,7 @@ export default function ResultadoObrasPage() {
   const [erro, setErro] = useState('')
   const [busca, setBusca] = useState('')
   const [status, setStatus] = useState('')
+  const [sitFiltro, setSitFiltro] = useState<'' | 'saudavel' | 'baixa' | 'negativa' | 'sem'>('')
   const [pagina, setPagina] = useState(0)
   // Drilldown por item de escopo: quais obras estão abertas e o escopo já carregado (lazy, só ao expandir).
   const [aberta, setAberta] = useState<Set<string>>(new Set())
@@ -92,7 +104,7 @@ export default function ResultadoObrasPage() {
       )
       let r = await ler('v_obra_resultado_alocado')
       if (r.error) r = await ler('v_obra_resultado')
-      if (r.error) { setErro(r.error.message); return }
+      if (r.error) { setErro('Não foi possível carregar o resultado das obras. Tente novamente.'); return }
       const base = (r.data ?? []) as Linha[]
       // Faturado por obra (não bloqueia a tela se falhar).
       const fat = await supabase.rpc('fn_obras_receita', { p_company_ids: companyIds })
@@ -103,15 +115,29 @@ export default function ResultadoObrasPage() {
   useEffect(() => { carregar() }, [carregar])
 
   const statusLista = useMemo(() => Array.from(new Set(linhas.map(l => l.status).filter(Boolean))).sort(), [linhas])
-  const visiveis = useMemo(() => {
+  // filtradas = busca + situação da obra (status). O resumo e os alertas no topo somam SEMPRE sobre essas, para dar
+  // o panorama estável da seleção; o chip de margem (sitFiltro) só afunila a lista/consolidado logo abaixo.
+  const filtradas = useMemo(() => {
     const q = busca.trim().toLowerCase()
     return linhas.filter(l => (!status || l.status === status) && (!q || `${l.numero} ${l.nome}`.toLowerCase().includes(q)))
   }, [linhas, busca, status])
+  const visiveis = useMemo(() => (sitFiltro ? filtradas.filter(l => bucketMargem(l) === sitFiltro) : filtradas), [filtradas, sitFiltro])
   // Paginação da lista (20 por página): o Consolidado soma SEMPRE todas as obras do filtro, não só a página.
   const totalPaginas = Math.max(1, Math.ceil(visiveis.length / POR_PAGINA))
   const paginaAtual = Math.min(pagina, totalPaginas - 1)
   const daPagina = useMemo(() => visiveis.slice(paginaAtual * POR_PAGINA, (paginaAtual + 1) * POR_PAGINA), [visiveis, paginaAtual])
-  const semReceitaComCusto = visiveis.filter(l => semMedicao(l) && custo(l) > 0).length
+  const semReceitaComCusto = filtradas.filter(l => semMedicao(l) && custo(l) > 0).length
+
+  // Resumo consolidado do topo (sobre filtradas, independe do chip de margem).
+  const resumo = useMemo(() => filtradas.reduce((a, l) => ({
+    receita: a.receita + receita(l), custo: a.custo + custo(l), margem: a.margem + margem(l),
+    prevista: a.prevista + n(l.receita_prevista), custoPrev: a.custoPrev + n(l.custo_previsto),
+  }), { receita: 0, custo: 0, margem: 0, prevista: 0, custoPrev: 0 }), [filtradas])
+  // Contagem por situação de margem (alerta de desvio): quantas obras saudáveis / baixa / negativa / sem medição.
+  const contagem = useMemo(() => filtradas.reduce((a, l) => { a[bucketMargem(l)] += 1; return a },
+    { saudavel: 0, baixa: 0, negativa: 0, sem: 0 } as Record<'saudavel' | 'baixa' | 'negativa' | 'sem', number>), [filtradas])
+  const avancoReceita = resumo.prevista > 0 ? Math.min(100, (resumo.receita / resumo.prevista) * 100) : null
+  const avancoCusto = resumo.custoPrev > 0 ? (resumo.custo / resumo.custoPrev) * 100 : null
 
   const total = useMemo(() => visiveis.reduce((a, l) => ({
     receita: a.receita + receita(l), custo: a.custo + custo(l), margem: a.margem + margem(l),
@@ -119,8 +145,8 @@ export default function ResultadoObrasPage() {
   }), { receita: 0, custo: 0, margem: 0, prevista: 0, custoPrev: 0 }), [visiveis])
 
   const baixarCsv = () => {
-    const cab = ['Obra', 'Nome', 'Receita serviço', 'Receita material', 'Custo material', 'Custo viagens', 'Mão de obra', 'Custo fixo rateado', 'Situação', 'Margem', 'Margem %', 'Receita prevista', 'Custo previsto']
-    const rows = visiveis.map(l => { const p = margemPct(receita(l), margem(l)); return [l.numero, l.nome, l.receita_servico, l.receita_material, l.custo_material, l.custo_viagens, n(l.custo_mao_obra), n(l.custo_rateio), situacaoObra(l).rot, margem(l), p === null ? '' : p.toFixed(1), l.receita_prevista, l.custo_previsto] })
+    const cab = ['Obra', 'Nome', 'Receita serviço', 'Receita material', 'Custo material', 'Custo viagens', 'Mão de obra', 'Custo fixo rateado', 'Situação', 'Margem', 'Margem %', 'Receita prevista', 'Custo previsto', 'Saldo do custo']
+    const rows = visiveis.map(l => { const p = margemPct(receita(l), margem(l)); return [l.numero, l.nome, l.receita_servico, l.receita_material, l.custo_material, l.custo_viagens, n(l.custo_mao_obra), n(l.custo_rateio), situacaoObra(l).rot, margem(l), p === null ? '' : p.toFixed(1), l.receita_prevista, l.custo_previsto, temOrcamentoCusto(l) ? saldoCusto(l) : ''] })
     const csv = [cab, ...rows].map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(';')).join('\n')
     const a = document.createElement('a')
     a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }))
@@ -145,6 +171,39 @@ export default function ResultadoObrasPage() {
         )}
         {!loading && !erro && linhas.length > 0 && (
           <>
+            {/* Resumo consolidado + alerta de desvio de margem (PDCA aud8 · profundidade HB1). Soma sobre o filtro de busca/situação. */}
+            <div data-testid="resultado-resumo" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 12 }}>
+              <Kpi rotulo="Receita realizada" chave="projetos.resultado_obra.kpi_receita" valor={fmtR(resumo.receita)} />
+              <Kpi rotulo="Custo realizado" chave="projetos.resultado_obra.kpi_custo" valor={fmtR(resumo.custo)} />
+              <Kpi rotulo="Margem consolidada" chave="projetos.resultado_obra.kpi_margem" valor={fmtR(resumo.margem)}
+                sub={fmtPct(margemPct(resumo.receita, resumo.margem))} subCor={resumo.margem < 0 ? VERM : VERDE} destaque />
+              <Kpi rotulo="Avanço financeiro" chave="projetos.resultado_obra.kpi_avanco"
+                valor={avancoReceita == null ? 'N/A' : `Receita ${avancoReceita.toFixed(0)}%`}
+                sub={avancoCusto == null ? 'Custo N/A' : `Custo ${avancoCusto.toFixed(0)}%`}
+                subCor={avancoCusto != null && avancoReceita != null && avancoCusto > avancoReceita ? AMBAR : MUT} />
+            </div>
+            <div data-testid="resultado-alerta-situacao" className="no-print" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+              <span style={{ fontSize: 12, color: MUT, display: 'flex', alignItems: 'center', gap: 2 }}>Situação das obras <AjudaCampo chave="projetos.resultado_obra.alerta_situacao" /></span>
+              {([
+                { k: 'saudavel', rot: 'Margem saudável', cor: VERDE, nn: contagem.saudavel },
+                { k: 'baixa', rot: 'Margem baixa', cor: AMBAR, nn: contagem.baixa },
+                { k: 'negativa', rot: 'Margem negativa', cor: VERM, nn: contagem.negativa },
+                { k: 'sem', rot: 'Sem medição', cor: MUT, nn: contagem.sem },
+              ] as const).map(c => {
+                const ativo = sitFiltro === c.k
+                return (
+                  <button key={c.k} data-testid={`resultado-chip-${c.k}`} disabled={c.nn === 0}
+                    onClick={() => { setSitFiltro(ativo ? '' : c.k); setPagina(0) }}
+                    aria-pressed={ativo} title={c.nn === 0 ? 'Nenhuma obra nesta situação' : `Ver obras com ${c.rot.toLowerCase()}`}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 999, cursor: c.nn === 0 ? 'default' : 'pointer',
+                      border: `1px solid ${ativo ? c.cor : LINE}`, background: ativo ? `${c.cor}14` : '#fff', opacity: c.nn === 0 ? 0.45 : 1, fontSize: 12.5, color: ESP }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 999, background: c.cor, display: 'inline-block' }} />
+                    <strong style={{ fontWeight: 700 }}>{c.nn}</strong> {c.rot}
+                  </button>
+                )
+              })}
+              {sitFiltro && <button data-testid="resultado-chip-limpar" onClick={() => { setSitFiltro(''); setPagina(0) }} style={{ border: 'none', background: 'none', color: GOLD, fontSize: 12.5, cursor: 'pointer', textDecoration: 'underline' }}>Limpar filtro de situação</button>}
+            </div>
             <div className="no-print" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
               <input data-testid="resultado-busca" value={busca} onChange={e => { setBusca(e.target.value); setPagina(0) }} placeholder="Buscar obra por número ou nome" aria-label="Buscar obra" style={{ padding: '6px 10px', border: `1px solid ${LINE}`, borderRadius: 8, minWidth: 220 }} />
               <AjudaCampo chave="projetos.resultado_obra.busca" />
@@ -194,7 +253,7 @@ export default function ResultadoObrasPage() {
                 <thead><tr style={{ borderBottom: `1px solid ${LINE}` }}>
                   <th style={{ ...th, ...fixa, textAlign: 'left' }}>Obra</th><th style={th}>Receita <AjudaCampo chave="projetos.resultado_obra.receita" /></th><th style={th}>Custo <AjudaCampo chave="projetos.resultado_obra.custo" /></th>
                   <th style={th}>Materiais <AjudaCampo chave="projetos.resultado_obra.custo_material" /></th><th style={th}>Viagens <AjudaCampo chave="projetos.resultado_obra.custo_viagens" /></th>
-                  <th style={th}>Mão de obra <AjudaCampo chave="projetos.resultado_obra.mao_obra" /></th><th style={th}>Custo fixo rateado <AjudaCampo chave="projetos.resultado_obra.custo_rateio" /></th><th style={th}>Situação <AjudaCampo chave="projetos.resultado_obra.situacao" /></th><th style={th}>Margem <AjudaCampo chave="projetos.resultado_obra.margem" /></th><th style={th}>Margem % <AjudaCampo chave="projetos.resultado_obra.margem_pct" /></th><th style={th}>Receita prevista <AjudaCampo chave="projetos.resultado_obra.receita_prevista" /></th><th style={th}>Custo previsto <AjudaCampo chave="projetos.resultado_obra.custo_previsto" /></th>
+                  <th style={th}>Mão de obra <AjudaCampo chave="projetos.resultado_obra.mao_obra" /></th><th style={th}>Custo fixo rateado <AjudaCampo chave="projetos.resultado_obra.custo_rateio" /></th><th style={th}>Situação <AjudaCampo chave="projetos.resultado_obra.situacao" /></th><th style={th}>Margem <AjudaCampo chave="projetos.resultado_obra.margem" /></th><th style={th}>Margem % <AjudaCampo chave="projetos.resultado_obra.margem_pct" /></th><th style={th}>Receita prevista <AjudaCampo chave="projetos.resultado_obra.receita_prevista" /></th><th style={th}>Custo previsto <AjudaCampo chave="projetos.resultado_obra.custo_previsto" /></th><th style={th}>Saldo do custo <AjudaCampo chave="projetos.resultado_obra.saldo_custo" /></th>
                 </tr></thead>
                 <tbody>
                   {daPagina.map(l => {
@@ -216,10 +275,13 @@ export default function ResultadoObrasPage() {
                         : <><td style={{ ...td, color: cor(margem(l)), fontWeight: 600 }}>{fmtR(margem(l))}</td>
                           <td style={{ ...td, color: cor(margem(l)) }}>{fmtPct(margemPct(receita(l), margem(l)))}</td></>}
                       <td style={td}>{fmtR(n(l.receita_prevista))}<Barra pct={pctPrevisto(l)} /></td><td style={td}>{fmtR(n(l.custo_previsto))}</td>
+                      {temOrcamentoCusto(l)
+                        ? <td style={{ ...td, color: saldoCusto(l) < 0 ? VERM : VERDE, fontWeight: 600 }}>{fmtR(saldoCusto(l))}</td>
+                        : <td style={{ ...td, color: MUT, fontSize: 12 }}>—</td>}
                     </tr>
                     {open && (
                       <tr data-testid="resultado-itens-linha">
-                        <td colSpan={12} style={{ padding: 0, background: '#FBF9F5', borderBottom: `1px solid ${LINE}` }}>
+                        <td colSpan={13} style={{ padding: 0, background: '#FBF9F5', borderBottom: `1px solid ${LINE}` }}>
                           <DrilldownEscopo estado={escopo[l.obra_id]} onRecarregar={() => alternarItens(l.obra_id)} />
                         </td>
                       </tr>
@@ -236,6 +298,9 @@ export default function ResultadoObrasPage() {
                     <td style={{ ...td, color: cor(total.margem) }}>{fmtR(total.margem)}</td>
                     <td style={{ ...td, color: cor(total.margem) }}>{fmtPct(margemPct(total.receita, total.margem))}</td>
                     <td style={td}>{fmtR(total.prevista)}</td><td style={td}>{fmtR(total.custoPrev)}</td>
+                    {total.custoPrev > 0
+                      ? <td style={{ ...td, color: (total.custoPrev - total.custo) < 0 ? VERM : VERDE }}>{fmtR(total.custoPrev - total.custo)}</td>
+                      : <td style={{ ...td, color: MUT }}>—</td>}
                   </tr>
                 </tbody>
               </table>
@@ -277,6 +342,12 @@ function CartaoObra({ obraId, titulo, receita, custo, material, viagens, maoObra
         {par('Materiais', material, 'projetos.resultado_obra.custo_material')}{par('Viagens', viagens, 'projetos.resultado_obra.custo_viagens')}
         {par('Mão de obra', maoObra, 'projetos.resultado_obra.mao_obra')}{par('Custo fixo rateado', rateio, 'projetos.resultado_obra.custo_rateio')}
         {par('Receita prevista', prevista, 'projetos.resultado_obra.receita_prevista')}{par('Custo previsto', custoPrev, 'projetos.resultado_obra.custo_previsto')}
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 11, color: MUT, display: 'flex', alignItems: 'center', gap: 2 }}>Saldo do custo{destaque && <AjudaCampo chave="projetos.resultado_obra.saldo_custo" />}</div>
+          {custoPrev > 0
+            ? <div style={{ fontSize: 13.5, fontWeight: 600, color: (custoPrev - custo) < 0 ? VERM : VERDE }}>{fmtR(custoPrev - custo)}</div>
+            : <div style={{ fontSize: 13.5, fontWeight: 600, color: MUT }}>—</div>}
+        </div>
       </div>
       {sit && <div data-testid="resultado-situacao-cartao" style={{ fontSize: 12, fontWeight: 600, color: sit.cor, marginTop: 8 }}>{sit.rot}</div>}
       {pctPrev != null && <Barra pct={pctPrev} />}
@@ -304,6 +375,7 @@ function DrilldownEscopo({ estado, onRecarregar, mobile }: { estado?: EstadoEsco
   )
   const d = estado.dados
   const itens = d?.itens ?? []
+  const lgd: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 2 }
   const titulo = (
     <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12.5, fontWeight: 700, marginBottom: 8 }}>
       Itens do escopo <AjudaCampo chave="projetos.resultado_obra.itens" />
@@ -320,11 +392,19 @@ function DrilldownEscopo({ estado, onRecarregar, mobile }: { estado?: EstadoEsco
   if (mobile) return (
     <div data-testid="resultado-itens-lista" style={{ background: '#FBF9F5', border: `1px solid ${LINE}`, borderRadius: 12, padding: pad }}>
       {titulo}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: MUT, flexWrap: 'wrap', marginBottom: 6 }}>
-        <AjudaCampo chave="projetos.resultado_obra.item_qtd_contratada" /><AjudaCampo chave="projetos.resultado_obra.item_qtd_medida" />
-        <AjudaCampo chave="projetos.resultado_obra.item_pct_medido" /><AjudaCampo chave="projetos.resultado_obra.item_preco_unit" />
-        <AjudaCampo chave="projetos.resultado_obra.item_valor_contratado" /><AjudaCampo chave="projetos.resultado_obra.item_valor_medido" />
-        <AjudaCampo chave="projetos.resultado_obra.item_custo_previsto" />
+      {/* Legenda das colunas do cartão: cada "?" fica junto do NOME do campo (RD-95) — antes os "?" apareciam
+          soltos, sem rótulo, e o auditor via "interrogação isolada sem contexto". */}
+      <div style={{ fontSize: 11, color: MUT, marginBottom: 6 }}>
+        <span style={{ fontWeight: 600 }}>O que cada número quer dizer:</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginTop: 4 }}>
+          <span style={lgd}>Contratada <AjudaCampo chave="projetos.resultado_obra.item_qtd_contratada" /></span>
+          <span style={lgd}>Medida <AjudaCampo chave="projetos.resultado_obra.item_qtd_medida" /></span>
+          <span style={lgd}>% medido <AjudaCampo chave="projetos.resultado_obra.item_pct_medido" /></span>
+          <span style={lgd}>Preço unit. <AjudaCampo chave="projetos.resultado_obra.item_preco_unit" /></span>
+          <span style={lgd}>Contratado <AjudaCampo chave="projetos.resultado_obra.item_valor_contratado" /></span>
+          <span style={lgd}>Medido <AjudaCampo chave="projetos.resultado_obra.item_valor_medido" /></span>
+          <span style={lgd}>Custo previsto <AjudaCampo chave="projetos.resultado_obra.item_custo_previsto" /></span>
+        </div>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {itens.map(it => (
@@ -386,6 +466,17 @@ function DrilldownEscopo({ estado, onRecarregar, mobile }: { estado?: EstadoEsco
           </tbody>
         </table>
       </div>
+    </div>
+  )
+}
+
+// Cartão de KPI do resumo consolidado (topo). Rótulo + "?" (RD-95), valor em destaque e um sub opcional (margem % / avanço).
+function Kpi({ rotulo, chave, valor, sub, subCor, destaque }: { rotulo: string; chave: string; valor: string; sub?: string; subCor?: string; destaque?: boolean }) {
+  return (
+    <div style={{ background: '#fff', border: `1px solid ${destaque ? GOLD : LINE}`, borderRadius: 12, padding: '12px 14px' }}>
+      <div style={{ fontSize: 11.5, color: MUT, display: 'flex', alignItems: 'center', gap: 2 }}>{rotulo} <AjudaCampo chave={chave} /></div>
+      <div style={{ fontSize: 19, fontWeight: 700, marginTop: 2, overflowWrap: 'anywhere' }}>{valor}</div>
+      {sub != null && <div style={{ fontSize: 12.5, fontWeight: 600, marginTop: 2, color: subCor ?? MUT }}>{sub}</div>}
     </div>
   )
 }

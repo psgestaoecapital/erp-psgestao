@@ -7,7 +7,7 @@ const src = readFileSync('src/app/dashboard/projetos/obras/resultado/page.tsx', 
 
 ok(/ler\('v_obra_resultado_alocado'\)/.test(src) && /ler\('v_obra_resultado'\)/.test(src), 'lê v_obra_resultado_alocado (fallback v_obra_resultado)')
 ok(/\.in\('company_id', companyIds\)/.test(src), 'filtra por empresa selecionada')
-ok(!/\.(insert|update|delete|upsert)\(/.test(src), 'só leitura')
+ok(!/\.from\([^)]*\)\s*\.(insert|update|upsert|delete)\(/.test(src), 'só leitura (sem escrita direta em tabela; Set.delete/leitura .select não contam)')
 ok(/resultado-vazio/.test(src) && /role="alert"/.test(src), 'estados vazio e erro')
 ok(/resultado-consolidado/.test(src), 'linha consolidada')
 ok(/v_obra_resultado_alocado/.test(src) && /projetos\.resultado_obra\.mao_obra/.test(src), 'coluna mão de obra (RPC + "?")')

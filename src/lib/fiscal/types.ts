@@ -150,7 +150,16 @@ export interface NFeProdutoItem {
     // VALORES (já multiplicados pela quantidade no builder); pst é ALÍQUOTA (não multiplica). NT 2018.005.
     stRet?: { vBcstRet?: number; pst?: number; vIcmsSubstituto?: number; vIcmsStRet?: number }
     // #2876 · CSOSN 101: crédito de ICMS do Simples (pCredSN = aliquota, vCredICMSSN = valor do item).
-    creditoSN?: { aliquota: number; valor: number } }
+    creditoSN?: { aliquota: number; valor: number }
+    // #5684 · CST 20 (redução de base: pRedBC em %) e benefício fiscal (cBenef). Opcionais — ausentes = comportamento atual.
+    reducaoBase?: number; cBenef?: string }
+  // #5684 · IBS/CBS por item (reforma tributária). Opcional; ausente = a nota sai como antes.
+  ibsCbs?: { cst: string; cClassTrib: string; baseCalculo: number
+    cbsAliquota: number; cbsValor: number; ibsUfAliquota: number; ibsUfValor: number
+    ibsMunAliquota: number; ibsMunValor: number; ibsValorTotal: number }
+  // #5684 · bloco do veículo (veicProd). Opcional; só a venda de veículo preenche. Nomes Focus em providers/focusnfe.ts.
+  veiculo?: { tipoOperacao?: string; chassi: string; descricaoCor?: string; potenciaMotor?: string; cm3?: string
+    tipoCombustivel?: string; anoModelo?: number; anoFabricacao?: number; condicao?: string; lotacao?: number }
   ipi?: { cst?: string; aliquota?: number; valor?: number }
   pis?: { cst?: string; aliquota?: number; valor?: number }
   cofins?: { cst?: string; aliquota?: number; valor?: number }
@@ -196,6 +205,8 @@ export interface NFeRequest {
   // indIEDest no builder. Usado no gate da Lei 12.741 (só a consumidor final) e no XML (consumidor_final).
   consumidorFinal?: boolean
   observacoes?: string
+  // #5684 · totais IBS/CBS da nota (opcional; só quando algum item traz ibsCbs)
+  ibsCbsTotais?: { baseCalculo: number; cbsValor: number; ibsUfValor: number; ibsMunValor: number; ibsValor: number }
   // fiscal-devolucao-compra-v1: chave 44 digitos da NF-e original
   // (usado em finalidade='devolucao'/'ajuste' · grupo NFref/refNFe)
   chaveReferenciada?: string

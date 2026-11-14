@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { exigirLogin, exigirEmpresas, type UsuarioApi } from "@/lib/auth/guardaApi";
-import { modeloPara, registrarFalhaIA } from "@/lib/aiModel";
+import { modeloPara, registrarFalhaIA, assertIAPermitida, IABloqueadaError } from "@/lib/aiModel";
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -49,6 +49,11 @@ async function handler(req: NextRequest, user: UsuarioApi) {
     if (!company_id) return NextResponse.json({ error: "company_id obrigatorio" }, { status: 400 });
     const negado = await exigirEmpresas(user, [company_id]);
     if (negado) return negado;
+    // P0 CUSTO (CEO 01/11): porteiro do bloqueio global de IA paga, antes de qualquer custo.
+    try { await assertIAPermitida(); } catch (e) {
+      if (e instanceof IABloqueadaError) return NextResponse.json({ error: e.motivo, ia_bloqueada: true }, { status: 503 });
+      throw e;
+    }
     const supabase = supabaseAdmin;
     const apiKey = process.env.ANTHROPIC_API_KEY;
 

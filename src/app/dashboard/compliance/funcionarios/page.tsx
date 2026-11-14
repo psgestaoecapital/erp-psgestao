@@ -3,10 +3,14 @@
 import Link from 'next/link'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { CSSProperties } from 'react'
 import { authFetch } from '@/lib/authFetch'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import NovoFuncionarioModal from '../_components/NovoFuncionarioModal'
+
+const ROTA = '/dashboard/compliance/funcionarios'
 
 const C = {
   espresso: '#3D2314',
@@ -56,6 +60,8 @@ export default function FuncionariosPage() {
   const [modalAberto, setModalAberto] = useState(false)
   const [importando, setImportando] = useState(false)
   const [msgImport, setMsgImport] = useState<string | null>(null)
+  // id do funcionário cuja ação (desligar/reativar) está em andamento — desabilita o botão da própria linha
+  const [acaoBusy, setAcaoBusy] = useState<string | null>(null)
 
   // useCompanyIds devolve um array novo a cada render — estabiliza pelo CSV ordenado.
   const companyIdsKey = useMemo(() => [...(companyIds ?? [])].sort().join(','), [companyIds])
@@ -105,6 +111,39 @@ export default function FuncionariosPage() {
     carregar()
   }, [carregar])
 
+  // RD-98 p2/g: desligar/reativar direto na lista. Reusa a API existente (DELETE = soft-delete ativo=false + data_demissao;
+  // PATCH ativo=true = reativa), que já valida o acesso à empresa do registro. Soft-delete rastreável e reversível.
+  async function desligar(f: Funcionario) {
+    if (!window.confirm(`Desligar ${f.nome_completo}?\n\nA ficha e o histórico de compliance ficam guardados e dá para reativar depois. Registra a data de desligamento.`)) return
+    setAcaoBusy(f.id)
+    setErro(null)
+    try {
+      const res = await authFetch(`/api/compliance/funcionarios/${f.id}`, { method: 'DELETE' })
+      const j = await res.json()
+      if (!j.ok) throw new Error(j.error || 'falha')
+      await carregar()
+    } catch (e: any) {
+      setErro(e.message)
+    } finally {
+      setAcaoBusy(null)
+    }
+  }
+  async function reativar(f: Funcionario) {
+    if (!window.confirm(`Reativar ${f.nome_completo}?\n\nEle volta para a lista de ativos e a data de desligamento é limpa.`)) return
+    setAcaoBusy(f.id)
+    setErro(null)
+    try {
+      const res = await authFetch(`/api/compliance/funcionarios/${f.id}`, { method: 'PATCH', body: JSON.stringify({ ativo: true, data_demissao: null }) })
+      const j = await res.json()
+      if (!j.ok) throw new Error(j.error || 'falha')
+      await carregar()
+    } catch (e: any) {
+      setErro(e.message)
+    } finally {
+      setAcaoBusy(null)
+    }
+  }
+
   const funcsFiltrados = useMemo(() => {
     return funcs.filter((f: Funcionario) => {
       if (!fStatus) return true
@@ -115,6 +154,11 @@ export default function FuncionariosPage() {
       return true
     })
   }, [funcs, fStatus])
+
+  const temFiltro = Boolean(busca || fCargo || fSetor || fEmp || fVinculo || fStatus || mostrarDesligados)
+  const limparFiltros = useCallback(() => {
+    setBusca(''); setFCargo(''); setFSetor(''); setFEmp(''); setFVinculo(''); setFStatus(''); setMostrarDesligados(false)
+  }, [])
 
   const cargos = useMemo(() => Array.from(new Set(funcs.map((f: Funcionario) => f.cargo).filter(Boolean) as string[])).sort(), [funcs])
   const setores = useMemo(() => Array.from(new Set(funcs.map((f: Funcionario) => f.setor).filter(Boolean) as string[])).sort(), [funcs])
@@ -136,18 +180,20 @@ export default function FuncionariosPage() {
             >
               ← Voltar
             </Link>
-            {/* FIX-IRRIGAR-IOPOINT-COMPLIANCE (07/07): botao pra importar
-                colaboradores do ponto eletronico (IO Point / provider ativo)
+            {/* FIX-IRRIGAR-PONTO-COMPLIANCE (07/07): botao pra importar
+                colaboradores do ponto eletronico (provider ativo)
                 pra ficha de compliance. So aparece se empresa unica selecionada.
-                Preserva metadados manuais via COALESCE (Pilar 1 LGPD). */}
+                Preserva metadados manuais via COALESCE (Pilar 1 LGPD).
+                RD-100: rotulo visivel sem nome de terceiro. */}
             {companyAtiva && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <button
                 onClick={async () => {
-                  if (!window.confirm('Importar colaboradores do IO Point pra ficha do Compliance?\n\nO que já foi preenchido à mão (RG, endereço, salário, ASO, observações) NÃO será sobrescrito — só completa os campos vazios.')) return
+                  if (!window.confirm('Importar colaboradores do ponto eletrônico pra ficha do Compliance?\n\nO que já foi preenchido à mão (RG, endereço, salário, ASO, observações) NÃO será sobrescrito — só completa os campos vazios.')) return
                   setImportando(true); setMsgImport(null); setErro(null)
                   const { data, error } = await supabase.rpc('fn_compliance_projetar_de_ind_ponto', { p_company_id: companyAtiva })
                   setImportando(false)
-                  if (error) { setErro('Erro na importação: ' + error.message); return }
+                  if (error) { setErro(erroAmigavel(error, 'Não foi possível importar do ponto eletrônico. Verifique a conexão e tente de novo.')); return }
                   const j = data as { criados?: number; atualizados?: number; ignorados_sem_cpf?: number; total_processados?: number } | null
                   setMsgImport(`IMPORTOU ${j?.total_processados ?? 0} colaboradores · ${j?.criados ?? 0} novos · ${j?.atualizados ?? 0} atualizados${j?.ignorados_sem_cpf ? ` · ${j.ignorados_sem_cpf} sem CPF (ignorados)` : ''}`)
                   await carregar()
@@ -155,17 +201,22 @@ export default function FuncionariosPage() {
                 }}
                 disabled={importando}
                 style={{ padding: '10px 14px', borderRadius: 8, border: `1px solid ${C.gold}`, backgroundColor: 'transparent', color: C.gold, fontSize: 13, fontWeight: 600, cursor: importando ? 'not-allowed' : 'pointer', opacity: importando ? 0.6 : 1 }}
-                title="Importa/atualiza a partir de ind_ponto_colaborador (IO Point). Preserva metadados manuais."
+                title="Importa/atualiza a partir do ponto eletrônico. Preserva os dados preenchidos à mão."
               >
-                {importando ? 'Importando…' : '⬇ Importar do IO Point'}
+                {importando ? 'Importando…' : '⬇ Importar do ponto eletrônico'}
               </button>
+              <AjudaCampo chave="compliance.funcionarios.acao_importar_ponto" rota={ROTA} />
+              </span>
             )}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
             <button
               onClick={() => setModalAberto(true)}
               style={{ padding: '10px 14px', borderRadius: 8, border: 'none', backgroundColor: C.espresso, color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
             >
               + Novo funcionário
             </button>
+            <AjudaCampo chave="compliance.funcionarios.acao_novo" rota={ROTA} />
+            </span>
           </div>
         </header>
 
@@ -181,42 +232,60 @@ export default function FuncionariosPage() {
           </div>
         )}
 
-        <section style={{ backgroundColor: 'white', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)', display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
-          <input
-            type="text"
-            placeholder="Buscar por nome, CPF, matrícula…"
-            value={busca}
-            onChange={(e: any) => setBusca(e.target.value)}
-            style={{ flex: '1 1 240px', padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.borderLt}`, fontSize: 13, backgroundColor: C.offwhite }}
-          />
-          <select value={fEmp} onChange={(e: any) => setFEmp(e.target.value)} style={selectStyle()}>
-            <option value="">Todas as tomadoras</option>
-            {empresas.map((s: string) => (<option key={s} value={s}>{s}</option>))}
-          </select>
+        <section style={{ backgroundColor: 'white', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)', display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, alignItems: 'flex-end' }}>
+          <label style={{ flex: '1 1 240px', ...filtroLbl }}>
+            <span style={filtroCap}>Buscar <AjudaCampo chave="compliance.funcionarios.busca" rota={ROTA} /></span>
+            <input
+              type="text"
+              placeholder="Buscar por nome, CPF, matrícula…"
+              value={busca}
+              onChange={(e: any) => setBusca(e.target.value)}
+              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.borderLt}`, fontSize: 13, backgroundColor: C.offwhite }}
+            />
+          </label>
+          <label style={filtroLbl}>
+            <span style={filtroCap}>Tomadora <AjudaCampo chave="compliance.funcionarios.filtro_tomadora" rota={ROTA} /></span>
+            <select value={fEmp} onChange={(e: any) => setFEmp(e.target.value)} style={selectStyle()}>
+              <option value="">Todas as tomadoras</option>
+              {empresas.map((s: string) => (<option key={s} value={s}>{s}</option>))}
+            </select>
+          </label>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: C.muted }}>
             <input type="checkbox" checked={mostrarDesligados} onChange={(e: any) => setMostrarDesligados(e.target.checked)} />
             Mostrar desligados
-            <AjudaCampo chave="compliance.funcionarios.mostrar_desligados" />
+            <AjudaCampo chave="compliance.funcionarios.mostrar_desligados" rota={ROTA} />
           </label>
-          <select value={fVinculo} onChange={(e: any) => setFVinculo(e.target.value as any)} style={selectStyle()}>
-            <option value="">Todos os vínculos</option>
-            <option value="direto">Diretos</option>
-            <option value="terceirizado">Terceirizados</option>
-          </select>
-          <select value={fCargo} onChange={(e: any) => setFCargo(e.target.value)} style={selectStyle()}>
-            <option value="">Todos os cargos</option>
-            {cargos.map((s: string) => (<option key={s} value={s}>{s}</option>))}
-          </select>
-          <select value={fSetor} onChange={(e: any) => setFSetor(e.target.value)} style={selectStyle()}>
-            <option value="">Todos os setores</option>
-            {setores.map((s: string) => (<option key={s} value={s}>{s}</option>))}
-          </select>
-          <select value={fStatus} onChange={(e: any) => setFStatus(e.target.value as any)} style={selectStyle()}>
-            <option value="">Todos os status</option>
-            <option value="ok">100% em dia</option>
-            <option value="pendente">Pendências</option>
-            <option value="critico">0% em dia</option>
-          </select>
+          <label style={filtroLbl}>
+            <span style={filtroCap}>Vínculo <AjudaCampo chave="compliance.funcionarios.filtro_vinculo" rota={ROTA} /></span>
+            <select value={fVinculo} onChange={(e: any) => setFVinculo(e.target.value as any)} style={selectStyle()}>
+              <option value="">Todos os vínculos</option>
+              <option value="direto">Diretos</option>
+              <option value="terceirizado">Terceirizados</option>
+            </select>
+          </label>
+          <label style={filtroLbl}>
+            <span style={filtroCap}>Cargo <AjudaCampo chave="compliance.funcionarios.filtro_cargo" rota={ROTA} /></span>
+            <select value={fCargo} onChange={(e: any) => setFCargo(e.target.value)} style={selectStyle()}>
+              <option value="">Todos os cargos</option>
+              {cargos.map((s: string) => (<option key={s} value={s}>{s}</option>))}
+            </select>
+          </label>
+          <label style={filtroLbl}>
+            <span style={filtroCap}>Setor <AjudaCampo chave="compliance.funcionarios.filtro_setor" rota={ROTA} /></span>
+            <select value={fSetor} onChange={(e: any) => setFSetor(e.target.value)} style={selectStyle()}>
+              <option value="">Todos os setores</option>
+              {setores.map((s: string) => (<option key={s} value={s}>{s}</option>))}
+            </select>
+          </label>
+          <label style={filtroLbl}>
+            <span style={filtroCap}>Status <AjudaCampo chave="compliance.funcionarios.filtro_status" rota={ROTA} /></span>
+            <select value={fStatus} onChange={(e: any) => setFStatus(e.target.value as any)} style={selectStyle()}>
+              <option value="">Todos os status</option>
+              <option value="ok">100% em dia</option>
+              <option value="pendente">Pendências</option>
+              <option value="critico">0% em dia</option>
+            </select>
+          </label>
         </section>
 
         <section style={{ backgroundColor: 'white', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)' }}>
@@ -230,13 +299,41 @@ export default function FuncionariosPage() {
                   <Th>Cargo / Setor</Th>
                   {multiEmpresa && <Th>Empresa</Th>}
                   <Th>Tomadora</Th>
-                  <Th>Compliance</Th>
-                  <Th>Ações</Th>
+                  <Th>Compliance <AjudaCampo chave="compliance.funcionarios.col_compliance" rota={ROTA} /></Th>
+                  <Th>Ações <AjudaCampo chave="compliance.funcionarios.col_acoes" rota={ROTA} /></Th>
                 </tr>
               </thead>
               <tbody>
                 {loading && (<tr><td colSpan={multiEmpresa ? 8 : 7} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Carregando…</td></tr>)}
-                {!loading && funcsFiltrados.length === 0 && (<tr><td colSpan={multiEmpresa ? 8 : 7} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Nenhum funcionário</td></tr>)}
+                {!loading && funcsFiltrados.length === 0 && (
+                  <tr><td colSpan={multiEmpresa ? 8 : 7} style={{ padding: '40px 24px', textAlign: 'center' }}>
+                    {temFiltro ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: C.espresso }}>Nenhum funcionário com esses filtros</div>
+                        <div style={{ fontSize: 13, color: C.muted, maxWidth: 420 }}>Ajuste ou limpe os filtros para ver os demais funcionários desta empresa.</div>
+                        <button
+                          onClick={limparFiltros}
+                          style={{ padding: '9px 16px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          Limpar filtros
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+                        <div style={{ fontSize: 15, fontWeight: 600, color: C.espresso }}>Nenhum funcionário cadastrado ainda</div>
+                        <div style={{ fontSize: 13, color: C.muted, maxWidth: 460 }}>
+                          Cadastre o primeiro funcionário para começar o acompanhamento de compliance (documentos, ASO e vínculos){companyAtiva ? ' — ou use “Importar do ponto eletrônico” acima para trazer quem já bate ponto' : ''}.
+                        </div>
+                        <button
+                          onClick={() => setModalAberto(true)}
+                          style={{ padding: '10px 18px', borderRadius: 8, border: 'none', backgroundColor: C.espresso, color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          + Novo funcionário
+                        </button>
+                      </div>
+                    )}
+                  </td></tr>
+                )}
                 {funcsFiltrados.map((f: Funcionario, i: number) => {
                   const pct = f.compliance_resumo?.pct ?? 0
                   const barColor = pct === 100 ? C.green : pct >= 50 ? C.amber : C.red
@@ -272,9 +369,34 @@ export default function FuncionariosPage() {
                         <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{f.compliance_resumo?.em_dia ?? 0} / {f.compliance_resumo?.total ?? 0} em dia</div>
                       </Td>
                       <Td>
-                        <Link href={`/dashboard/compliance/funcionarios/${f.id}`} style={{ padding: '6px 12px', borderRadius: 6, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 12, fontWeight: 600, textDecoration: 'none' }}>
-                          Abrir
-                        </Link>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <Link href={`/dashboard/compliance/funcionarios/${f.id}`} style={{ padding: '6px 12px', borderRadius: 6, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 12, fontWeight: 600, textDecoration: 'none' }}>
+                            Abrir
+                          </Link>
+                          {f.ativo ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                              <button
+                                onClick={() => desligar(f)}
+                                disabled={acaoBusy === f.id}
+                                style={{ padding: '6px 12px', borderRadius: 6, border: `1px solid ${C.red}`, backgroundColor: 'white', color: C.red, fontSize: 12, fontWeight: 600, cursor: acaoBusy === f.id ? 'not-allowed' : 'pointer', opacity: acaoBusy === f.id ? 0.6 : 1 }}
+                              >
+                                {acaoBusy === f.id ? '…' : 'Desligar'}
+                              </button>
+                              <AjudaCampo chave="compliance.funcionarios.acao_desligar" rota={ROTA} />
+                            </span>
+                          ) : (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                              <button
+                                onClick={() => reativar(f)}
+                                disabled={acaoBusy === f.id}
+                                style={{ padding: '6px 12px', borderRadius: 6, border: `1px solid ${C.green}`, backgroundColor: 'white', color: C.green, fontSize: 12, fontWeight: 600, cursor: acaoBusy === f.id ? 'not-allowed' : 'pointer', opacity: acaoBusy === f.id ? 0.6 : 1 }}
+                              >
+                                {acaoBusy === f.id ? '…' : 'Reativar'}
+                              </button>
+                              <AjudaCampo chave="compliance.funcionarios.acao_reativar" rota={ROTA} />
+                            </span>
+                          )}
+                        </div>
                       </Td>
                     </tr>
                   )
@@ -321,6 +443,9 @@ function VinculoBadge({ vinculo, prestadorNome }: { vinculo: 'direto' | 'terceir
 function selectStyle() {
   return { padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.borderLt}`, fontSize: 13, backgroundColor: 'white', minWidth: 140 } as any
 }
+
+const filtroLbl: CSSProperties = { display: 'inline-flex', flexDirection: 'column', gap: 3 }
+const filtroCap: CSSProperties = { fontSize: 10, fontWeight: 700, color: 'rgba(61, 35, 20, 0.6)', textTransform: 'uppercase', letterSpacing: 1, display: 'inline-flex', alignItems: 'center', gap: 3 }
 
 function Th({ children }: { children: any }) {
   return (<th style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'rgba(61, 35, 20, 0.65)' }}>{children}</th>)

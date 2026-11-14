@@ -3,7 +3,9 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import ContratosFeePanel from "@/components/ge/ContratosFeePanel";
+import ContratosModelosPanel from "@/components/ge/ContratosModelosPanel";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -78,7 +80,7 @@ export default function ContratosPage(){
 
   const [contratos,setContratos]=useState<Contrato[]>([]);
   const [clientes,setClientes]=useState<any[]>([]);
-  const [tab,setTab]=useState<'contratos'|'dashboard'|'acoes'|'fee'>('dashboard');
+  const [tab,setTab]=useState<'contratos'|'dashboard'|'acoes'|'fee'|'modelos'>('dashboard');
   // #59 PDOIS parte 2: atalho ?tab=fee (usado pelo /dashboard/pm/contratos) abre direto a fila de fee
   useEffect(()=>{ if(typeof window!=='undefined'){ const q=new URLSearchParams(window.location.search); if(q.get('tab')==='fee'||q.get('aba')==='fee') setTab('fee'); } },[]);
   const [loading,setLoading]=useState(true);
@@ -127,6 +129,15 @@ export default function ContratosPage(){
   const [showEditar,setShowEditar]=useState<Contrato|null>(null);
   const [editForm,setEditForm]=useState<any>({});
 
+  // #5452 — Gerar o texto do contrato a partir de um modelo cadastrado (fn_contrato_modelo_gerar).
+  const [textoLegalDetalhe,setTextoLegalDetalhe]=useState<string>("");
+  const [showGerarModelo,setShowGerarModelo]=useState<Contrato|null>(null);
+  const [modelosGerar,setModelosGerar]=useState<{id:string;nome:string;versao:number}[]>([]);
+  const [modeloSelGerar,setModeloSelGerar]=useState<string>("");
+  const [previewGerar,setPreviewGerar]=useState<{texto:string;campos_pendentes:string[]}|null>(null);
+  const [gerandoModelo,setGerandoModelo]=useState(false);
+  const [erroGerar,setErroGerar]=useState("");
+
   // Define empresa-alvo padrao do modal sempre que escopo muda
   useEffect(()=>{
     if (empresaUnica) setNovoCompanyId(empresaUnica);
@@ -148,7 +159,7 @@ export default function ContratosPage(){
       .in('company_id', ids)
       .order('created_at', { ascending: false });
     if (error && !error.message.includes('does not exist')) {
-      setMsg("Erro: "+error.message);
+      setMsg("Não foi possível carregar os contratos. Tente novamente.");
     }
     setContratos((data as any) || []);
     setLoading(false);
@@ -278,13 +289,34 @@ export default function ContratosPage(){
       created_by:user?.id,
     });
 
-    if(error){setMsg("❌ "+error.message);return;}
+    if(error){setMsg("❌ Não foi possível criar o contrato. Tente novamente.");return;}
     setMsg(`✅ Contrato ${numero} criado com sucesso`);
     setShowNovo(false); setServicoSel("");
     setNovoContrato({cliente_id:'',cliente_nome:'',cliente_cnpj:'',cliente_email:'',tipo:'bpo_financeiro',nome:'',descricao:'',escopo:'',valor_mensal:0,data_inicio:hoje(),data_fim:'',dia_vencimento:10,periodicidade:'mensal',tipo_reajuste:'ipca',reajuste_percentual:0,mes_reajuste:1,forma_pagamento:'boleto'});
     setBuscaCli("");
     refetchAll();
     setTimeout(()=>setMsg(""),3000);
+  };
+
+  // #8384 — Refazer contrato: um contrato encerrado/cancelado/excluído (ex.: perdido) não tinha caminho para ser
+  // recriado. Este botão abre o formulário "Incluir contrato" JÁ PREENCHIDO com os dados deste contrato (cliente,
+  // tipo, valor, periodicidade, reajuste, pagamento), começando hoje. Nada é alterado no contrato antigo — o usuário
+  // revisa e clica em "Incluir contrato" para criar uma CÓPIA NOVA pelo mesmo fluxo de criação.
+  const refazerContrato=(c:Contrato)=>{
+    setNovoCompanyId(c.company_id);
+    setNovoContrato({
+      cliente_id:c.cliente_id||'', cliente_nome:c.cliente_nome||'', cliente_cnpj:c.cliente_cnpj||'', cliente_email:c.cliente_email||'',
+      tipo:c.tipo||'bpo_financeiro', nome:c.nome||'', descricao:c.descricao||'', escopo:c.escopo||'',
+      valor_mensal:Number(c.valor_atual||c.valor_mensal)||0,
+      data_inicio:hoje(), data_fim:'',
+      dia_vencimento:c.dia_vencimento||10, periodicidade:c.periodicidade||'mensal',
+      tipo_reajuste:c.tipo_reajuste||'ipca', reajuste_percentual:Number(c.reajuste_percentual)||0, mes_reajuste:c.mes_reajuste||1,
+      forma_pagamento:c.forma_pagamento||'boleto',
+    });
+    setBuscaCli("");
+    setShowDetalhe(null);
+    setShowNovo(true);
+    setMsg('Revise os dados e clique em "Incluir contrato" para criar uma cópia nova deste contrato.');
   };
 
   // RPC nova: fn_contrato_processar_lote_diario(p_data_referencia date)
@@ -295,7 +327,7 @@ export default function ContratosPage(){
     setProcessando(true);
     const dataRef = new Date().toISOString().split('T')[0];
     const { data, error } = await supabase.rpc('fn_contrato_processar_lote_diario', { p_data_referencia: dataRef });
-    if(error){setMsg("❌ "+error.message);setProcessando(false);return;}
+    if(error){setMsg("❌ Não foi possível gerar os títulos do mês. Tente novamente.");setProcessando(false);return;}
     const r:any = Array.isArray(data) ? (data[0]||{}) : (data||{});
     const sucesso = r.total_sucesso ?? r.gerados ?? 0;
     const idemp = r.total_idempotente ?? r.ja_existentes ?? 0;
@@ -315,7 +347,7 @@ export default function ContratosPage(){
       p_contrato_id: c.id,
       p_indice_aplicado: null,
     });
-    if(error){setMsg("❌ "+error.message);setProcessando(false);return;}
+    if(error){setMsg("❌ Não foi possível aplicar o reajuste. Tente novamente.");setProcessando(false);return;}
     setMsg(`✅ Reajuste aplicado em ${c.cliente_nome}`);
     setProcessando(false);
     refetchAll();
@@ -329,7 +361,7 @@ export default function ContratosPage(){
       p_contrato_id: showReajuste.id,
       p_indice_aplicado: pctReajuste,
     });
-    if(error){setMsg("❌ "+error.message);setProcessando(false);return;}
+    if(error){setMsg("❌ Não foi possível aplicar o reajuste. Tente novamente.");setProcessando(false);return;}
     setMsg(`✅ Reajuste de ${pctReajuste}% aplicado`);
     setShowReajuste(null);
     setPctReajuste(0);
@@ -376,7 +408,7 @@ export default function ContratosPage(){
     if(editForm.data_fim) patch.data_fim=editForm.data_fim;
     const {data,error}=await supabase.rpc('fn_contrato_editar',{p_id:showEditar.id,p_patch:patch});
     setProcessando(false);
-    if(error||(data&&data.ok===false)){setMsg("❌ "+(error?.message||data?.erro));return;}
+    if(error||(data&&data.ok===false)){setMsg("❌ "+(error?erroAmigavel(error,"Não foi possível concluir. Tente de novo."):(data?.erro||"Não foi possível concluir. Tente de novo.")));return;}
     setMsg("✅ Contrato alterado"); setShowEditar(null);
     setGuardCache(g=>{const n={...g};delete n[showEditar.id];return n;});
     refetchAll(); setTimeout(()=>setMsg(""),3000);
@@ -384,6 +416,23 @@ export default function ContratosPage(){
   const abrirAcao=(tipo:'excluir'|'encerrar',c:Contrato)=>{
     setMenuAberto(null); setMotivoAcao('');
     setAcaoModal({tipo,c,guard:guardCache[c.id]});
+  };
+  // RD-98 g: "Excluir" visível na linha (fora do "…"). Carrega a guarda fiscal (fn_contrato_acoes_permitidas)
+  // só quando o usuário clica; se o contrato não pode ser excluído, explica o motivo em vez de abrir o modal.
+  // Reusa a MESMA exclusão (fn_contrato_excluir, soft-delete com motivo + auditoria) via o acaoModal existente.
+  const excluirDireto=async(c:Contrato)=>{
+    setMenuAberto(null);
+    let g=guardCache[c.id];
+    if(!g){
+      const {data}=await supabase.rpc('fn_contrato_acoes_permitidas',{p_contrato_id:c.id});
+      g=data; setGuardCache(gc=>({...gc,[c.id]:data}));
+    }
+    if(g && g.pode_excluir===false){
+      setMsg("ℹ️ "+(g.motivo_bloqueio||"Este contrato não pode ser excluído agora."));
+      setTimeout(()=>setMsg(""),5000);
+      return;
+    }
+    setMotivoAcao(''); setAcaoModal({tipo:'excluir',c,guard:g});
   };
   const confirmarAcao=async()=>{
     if(!acaoModal||!motivoAcao.trim())return;
@@ -393,7 +442,7 @@ export default function ContratosPage(){
       ? await supabase.rpc('fn_contrato_excluir',{p_id:c.id,p_motivo:motivoAcao.trim()})
       : await supabase.rpc('fn_contrato_encerrar',{p_id:c.id,p_motivo:motivoAcao.trim()});
     setProcessando(false);
-    if(error||(data&&data.ok===false)){setMsg("❌ "+(error?.message||data?.erro));return;}
+    if(error||(data&&data.ok===false)){setMsg("❌ "+(error?erroAmigavel(error,"Não foi possível concluir. Tente de novo."):(data?.erro||"Não foi possível concluir. Tente de novo.")));return;}
     setMsg(tipo==='excluir'?"✅ Contrato excluído":"✅ Contrato encerrado");
     setAcaoModal(null);
     setGuardCache(g=>{const n={...g};delete n[c.id];return n;});
@@ -402,12 +451,44 @@ export default function ContratosPage(){
 
   const abrirDetalhe=async(c:Contrato)=>{
     setShowDetalhe(c);
-    const[{data:ev},{data:rj}]=await Promise.all([
+    setTextoLegalDetalhe("");
+    const[{data:ev},{data:rj},{data:ct}]=await Promise.all([
       supabase.from("erp_contratos_eventos").select("*").eq("contrato_id",c.id).order("created_at",{ascending:false}).limit(20),
       supabase.from("erp_contratos_reajustes").select("*").eq("contrato_id",c.id).order("data_reajuste",{ascending:false}),
+      supabase.from("erp_contratos").select("texto_legal").eq("id",c.id).maybeSingle(),
     ]);
     setEventosDetalhe(ev||[]);
     setReajustesDetalhe(rj||[]);
+    setTextoLegalDetalhe((ct as any)?.texto_legal||"");
+  };
+
+  // #5452 — abrir o modal "Gerar a partir de modelo": carrega os modelos ativos da empresa do contrato.
+  const abrirGerarModelo=async(c:Contrato)=>{
+    setShowGerarModelo(c); setModelosGerar([]); setModeloSelGerar(""); setPreviewGerar(null); setErroGerar("");
+    const{data,error}=await supabase.rpc("fn_contrato_modelo_listar",{p_company_id:c.company_id,p_incluir_inativos:false});
+    if(error){ setErroGerar("Não foi possível carregar os modelos. Tente de novo."); return; }
+    const lista=((data as any)?.modelos||[]) as {id:string;nome:string;versao:number}[];
+    setModelosGerar(lista);
+    if(lista.length===1) setModeloSelGerar(lista[0].id);
+  };
+
+  // Pré-visualiza (p_gravar=false) ou grava (p_gravar=true) o texto montado do modelo no contrato.
+  const gerarDoModelo=async(gravar:boolean)=>{
+    if(!showGerarModelo||!modeloSelGerar) return;
+    setGerandoModelo(true); setErroGerar("");
+    const{data,error}=await supabase.rpc("fn_contrato_modelo_gerar",{
+      p_company_id:showGerarModelo.company_id, p_modelo_id:modeloSelGerar,
+      p_contrato_id:showGerarModelo.id, p_gravar:gravar,
+    });
+    setGerandoModelo(false);
+    if(error){ setErroGerar(erroAmigavel(error, "Não foi possível gerar o contrato. Tente de novo.")); return; }
+    const r=data as any;
+    setPreviewGerar({texto:r?.texto||"",campos_pendentes:(r?.campos_pendentes||[]) as string[]});
+    if(gravar){
+      setTextoLegalDetalhe(r?.texto||"");
+      setShowGerarModelo(null);
+      setMsg("✅ Texto do contrato gerado a partir do modelo");
+    }
   };
 
   const filtrados=useMemo(()=>{
@@ -467,7 +548,7 @@ export default function ContratosPage(){
     <div style={{minHeight:"100vh",background:BG,padding:20}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
         <div>
-          <div style={{fontSize:22,fontWeight:700,color:TX}}>🔄 Contratos Recorrentes</div>
+          <div style={{fontSize:22,fontWeight:700,color:TX}}>🔄 Gestão de contratos</div>
           <div style={{fontSize:11,color:TXD}}>
             BPO · Consultoria · SaaS · Serviços mensais · Geração automática · MRR/Churn/LTV
             {selInfo && (
@@ -478,7 +559,10 @@ export default function ContratosPage(){
           </div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-          <button onClick={()=>setShowNovo(true)} disabled={empresasNoEscopo.length===0} style={{padding:"8px 16px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:empresasNoEscopo.length===0?"not-allowed":"pointer",opacity:empresasNoEscopo.length===0?0.5:1}}>+ Novo Contrato</button>
+          {/* #6912 — evita dois botões com a mesma função: quando a lista de contratos está vazia, o CTA "+ Primeiro Contrato" do estado vazio já abre o cadastro, então não repetimos "+ Novo Contrato" aqui. */}
+          {!(tab==='contratos'&&!loading&&filtrados.length===0) && (
+            <button onClick={()=>setShowNovo(true)} disabled={empresasNoEscopo.length===0} style={{padding:"8px 16px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:empresasNoEscopo.length===0?"not-allowed":"pointer",opacity:empresasNoEscopo.length===0?0.5:1}}>+ Incluir contrato</button>
+          )}
         </div>
       </div>
 
@@ -486,14 +570,20 @@ export default function ContratosPage(){
 
       {/* Tabs */}
       <div style={{display:"flex",gap:6,marginBottom:16,borderBottom:`1px solid ${BD}`}}>
-        {[{k:'dashboard',l:'📊 Dashboard SaaS'},{k:'contratos',l:'📋 Contratos'},{k:'fee',l:'🧾 Solicitações & Fee'},{k:'acoes',l:'⚡ Ações'}].map(t=>(
+        {[{k:'dashboard',l:'📊 Dashboard SaaS'},{k:'contratos',l:'📋 Contratos'},{k:'fee',l:'🧾 Solicitações & Fee'},{k:'modelos',l:'📝 Modelos'},{k:'acoes',l:'⚡ Ações'}].map(t=>(
           <button key={t.k} onClick={()=>setTab(t.k as any)} style={{padding:"10px 20px",fontSize:12,fontWeight:tab===t.k?700:500,background:"transparent",border:"none",color:tab===t.k?GO:TXM,borderBottom:`3px solid ${tab===t.k?GO:"transparent"}`,cursor:"pointer",marginBottom:-1}}>{t.l}</button>
         ))}
+        <span style={{display:"flex",alignItems:"center",paddingLeft:4}}><AjudaCampo chave="ge.contrato.abas" /></span>
       </div>
 
       {/* TAB SOLICITAÇÕES & FEE (#59 PDOIS parte 2) */}
       {tab==='fee'&&(
         <ContratosFeePanel companyId={empresaUnica} />
+      )}
+
+      {/* TAB MODELOS DE CONTRATO (#5452 Pdois/P&M · slice 2) */}
+      {tab==='modelos'&&(
+        <ContratosModelosPanel companyId={empresaUnica} />
       )}
 
       {/* TAB DASHBOARD SAAS */}
@@ -513,34 +603,34 @@ export default function ContratosPage(){
             <>
               <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8,marginBottom:16}}>
                 <div style={{background:BG2,borderRadius:10,padding:12,border:`1px solid ${BD}`}}>
-                  <div style={{fontSize:9,color:TXD,textTransform:"uppercase",letterSpacing:0.5}}>💎 MRR Mensal</div>
+                  <div style={{fontSize:9,color:TXD,textTransform:"uppercase",letterSpacing:0.5}}>💎 MRR Mensal <AjudaCampo chave="ge.contrato.kpi_mrr" /></div>
                   <div style={{fontSize:20,fontWeight:800,color:GO,marginTop:2,fontFamily:"monospace"}}>{fmtR(metricas.mrr)}</div>
                   <div style={{fontSize:9,color:TXD,marginTop:2}}>ARR: {fmtR(metricas.arr)}</div>
                 </div>
                 <div style={{background:BG2,borderRadius:10,padding:12,border:`1px solid ${BD}`}}>
-                  <div style={{fontSize:9,color:TXD,textTransform:"uppercase",letterSpacing:0.5}}>👥 Clientes Ativos</div>
+                  <div style={{fontSize:9,color:TXD,textTransform:"uppercase",letterSpacing:0.5}}>👥 Clientes Ativos <AjudaCampo chave="ge.contrato.kpi_clientes_ativos" /></div>
                   <div style={{fontSize:20,fontWeight:800,color:B,marginTop:2}}>{metricas.total_clientes_ativos}</div>
                   <div style={{fontSize:9,color:TXD,marginTop:2}}>Ticket: {fmtR(metricas.ticket_medio)}</div>
                 </div>
                 <div style={{background:BG2,borderRadius:10,padding:12,border:`1px solid ${BD}`}}>
-                  <div style={{fontSize:9,color:TXD,textTransform:"uppercase",letterSpacing:0.5}}>📉 Churn Rate (12m)</div>
+                  <div style={{fontSize:9,color:TXD,textTransform:"uppercase",letterSpacing:0.5}}>📉 Churn Rate (12m) <AjudaCampo chave="ge.contrato.kpi_churn" /></div>
                   <div style={{fontSize:20,fontWeight:800,color:Number(metricas.churn_rate_12m)>10?R:Number(metricas.churn_rate_12m)>5?Y:G,marginTop:2}}>{Number(metricas.churn_rate_12m||0).toFixed(1)}%</div>
                   <div style={{fontSize:9,color:TXD,marginTop:2}}>LTV: {fmtR(metricas.ltv)}</div>
                 </div>
                 <div style={{background:BG2,borderRadius:10,padding:12,border:`1px solid ${BD}`}}>
-                  <div style={{fontSize:9,color:TXD,textTransform:"uppercase",letterSpacing:0.5}}>📈 Novo MRR (30d)</div>
+                  <div style={{fontSize:9,color:TXD,textTransform:"uppercase",letterSpacing:0.5}}>📈 Novo MRR (30d) <AjudaCampo chave="ge.contrato.kpi_novo_mrr" /></div>
                   <div style={{fontSize:20,fontWeight:800,color:G,marginTop:2}}>+{fmtR(metricas.novo_mrr_30d)}</div>
                   <div style={{fontSize:9,color:R,marginTop:2}}>-{fmtR(metricas.churned_mrr_30d)} churn</div>
                 </div>
                 <div style={{background:BG2,borderRadius:10,padding:12,border:`1px solid ${BD}`}}>
-                  <div style={{fontSize:9,color:TXD,textTransform:"uppercase",letterSpacing:0.5}}>📅 Renovações 60d</div>
+                  <div style={{fontSize:9,color:TXD,textTransform:"uppercase",letterSpacing:0.5}}>📅 Renovações 60d <AjudaCampo chave="ge.contrato.kpi_renovacoes" /></div>
                   <div style={{fontSize:20,fontWeight:800,color:metricas.proximas_renovacoes_60d>0?Y:G,marginTop:2}}>{metricas.proximas_renovacoes_60d}</div>
                 </div>
               </div>
 
               {/* Gráfico de evolução MRR */}
               <div style={{background:BG2,borderRadius:12,padding:16,marginBottom:16,border:`1px solid ${BD}`}}>
-                <div style={{fontSize:12,fontWeight:600,color:GO,marginBottom:10,textTransform:"uppercase",letterSpacing:0.5}}>📈 Evolução do MRR (últimos 12 meses)</div>
+                <div style={{fontSize:12,fontWeight:600,color:GO,marginBottom:10,textTransform:"uppercase",letterSpacing:0.5}}>📈 Evolução do MRR (últimos 12 meses) <AjudaCampo chave="ge.contrato.grafico_mrr" /></div>
                 {graficoMRR||<div style={{padding:40,textAlign:"center",color:TXD}}>Sem dados históricos ainda</div>}
               </div>
             </>
@@ -551,7 +641,7 @@ export default function ContratosPage(){
           {/* Splits MRR por Tipo + Top 5 (multi-tenant via views) */}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
             <div style={{background:BG2,borderRadius:12,padding:16,border:`1px solid ${BD}`}}>
-              <div style={{fontSize:12,fontWeight:600,color:GO,marginBottom:10,textTransform:"uppercase",letterSpacing:0.5}}>💼 MRR por Tipo de Serviço</div>
+              <div style={{fontSize:12,fontWeight:600,color:GO,marginBottom:10,textTransform:"uppercase",letterSpacing:0.5}}>💼 MRR por Tipo de Serviço <AjudaCampo chave="ge.contrato.painel_mrr_tipo" /></div>
               {(()=>{
                 // Agrega view (varias linhas por empresa) por tipo
                 const porTipo:Record<string,{count:number,mrr:number}>={};
@@ -589,7 +679,7 @@ export default function ContratosPage(){
             </div>
 
             <div style={{background:BG2,borderRadius:12,padding:16,border:`1px solid ${BD}`}}>
-              <div style={{fontSize:12,fontWeight:600,color:GO,marginBottom:10,textTransform:"uppercase",letterSpacing:0.5}}>🏆 Top 5 Clientes por MRR</div>
+              <div style={{fontSize:12,fontWeight:600,color:GO,marginBottom:10,textTransform:"uppercase",letterSpacing:0.5}}>🏆 Top 5 Clientes por MRR <AjudaCampo chave="ge.contrato.painel_top_clientes" /></div>
               {(()=>{
                 // Ordena view por mrr desc; aceita variacoes de nome
                 const top = [...(topClientes||[])].map((r:any)=>({
@@ -699,24 +789,21 @@ export default function ContratosPage(){
                             <span style={{fontSize:9,padding:"3px 10px",borderRadius:6,background:cfg.cor+"15",color:cfg.cor,fontWeight:600,whiteSpace:"nowrap"}}>{cfg.icon} {cfg.label}</span>
                           </td>
                           <td style={{padding:"8px",textAlign:"right",position:"relative"}} onClick={e=>e.stopPropagation()}>
-                            <div style={{display:"inline-flex",gap:4,alignItems:"center"}}>
+                            <div style={{display:"inline-flex",gap:4,alignItems:"center",flexWrap:"wrap",justifyContent:"flex-end"}}>
                               <button onClick={()=>abrirDetalhe(c)} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>Ver →</button>
-                              <button onClick={()=>abrirMenu(c)} title="Ações" style={{fontSize:14,lineHeight:1,padding:"3px 9px",borderRadius:6,background:BG3,color:TXM,border:`1px solid ${BD}`,cursor:"pointer",fontWeight:700}}>⋯</button>
+                              {/* RD-98 g: Editar e Excluir visíveis na linha (antes só no menu "…"). */}
+                              <button onClick={()=>abrirEditar(c)} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:BG3,color:TX,border:`1px solid ${BD}`,cursor:"pointer",fontWeight:600}}>Editar</button>
+                              <button onClick={()=>excluirDireto(c)} style={{fontSize:10,padding:"4px 10px",borderRadius:6,background:R+"12",color:R,border:`1px solid ${R}40`,cursor:"pointer",fontWeight:600}}>Excluir</button>
+                              <button onClick={()=>abrirMenu(c)} title="Mais ações" style={{fontSize:14,lineHeight:1,padding:"3px 9px",borderRadius:6,background:BG3,color:TXM,border:`1px solid ${BD}`,cursor:"pointer",fontWeight:700}}>⋯</button>
                             </div>
                             {menuAberto===c.id&&(
                               <div style={{position:"absolute",right:8,top:"100%",marginTop:2,background:BG2,border:`1px solid ${BD}`,borderRadius:8,boxShadow:"0 6px 20px rgba(0,0,0,0.18)",zIndex:50,minWidth:220,textAlign:"left",overflow:"hidden"}}>
-                                <button onClick={()=>abrirEditar(c)} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 12px",background:"transparent",border:"none",borderBottom:`1px solid ${BD}`,color:TX,fontSize:12,cursor:"pointer",fontWeight:500}}>✏️ Editar</button>
                                 {!guardCache[c.id]&&<div style={{padding:"9px 12px",fontSize:11,color:TXD}}>Verificando cobranças…</div>}
                                 {guardCache[c.id]?.pode_encerrar&&(
-                                  <button onClick={()=>abrirAcao('encerrar',c)} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 12px",background:"transparent",border:"none",borderBottom:`1px solid ${BD}`,color:TX,fontSize:12,cursor:"pointer",fontWeight:500}}>⏸️ Encerrar</button>
+                                  <button onClick={()=>abrirAcao('encerrar',c)} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 12px",background:"transparent",border:"none",color:TX,fontSize:12,cursor:"pointer",fontWeight:500}}>⏸️ Encerrar</button>
                                 )}
-                                {guardCache[c.id]?.pode_excluir&&(
-                                  <button onClick={()=>abrirAcao('excluir',c)} style={{display:"block",width:"100%",textAlign:"left",padding:"9px 12px",background:"transparent",border:"none",color:R,fontSize:12,cursor:"pointer",fontWeight:600}}>🗑️ Excluir</button>
-                                )}
-                                {guardCache[c.id]&&!guardCache[c.id].pode_excluir&&(
-                                  <div style={{padding:"8px 12px",fontSize:10,color:TXM,background:BG3,display:"flex",gap:6,alignItems:"flex-start"}}>
-                                    <span>ℹ️</span><span>{guardCache[c.id].motivo_bloqueio}</span>
-                                  </div>
+                                {guardCache[c.id]&&!guardCache[c.id].pode_encerrar&&(
+                                  <div style={{padding:"9px 12px",fontSize:11,color:TXD}}>Encerrar indisponível para este contrato.</div>
                                 )}
                               </div>
                             )}
@@ -1000,16 +1087,76 @@ export default function ContratosPage(){
               </div>
             )}
 
+            {/* #5452 — Texto legal gerado a partir de um modelo. Mostra o que já existe e permite (re)gerar. */}
+            <div style={{background:BG3,borderRadius:10,padding:12,marginBottom:16,borderLeft:`3px solid ${P}`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8,marginBottom:textoLegalDetalhe?8:0}}>
+                <div style={{fontSize:10,color:TXD,textTransform:"uppercase"}}>Texto do contrato (modelo)</div>
+                <button onClick={()=>abrirGerarModelo(showDetalhe)} style={{padding:"6px 12px",borderRadius:8,background:P+"15",color:P,fontSize:11,fontWeight:600,border:`1px solid ${P}40`,cursor:"pointer"}}>📝 {textoLegalDetalhe?"Gerar de novo":"Gerar a partir de modelo"}</button>
+              </div>
+              {textoLegalDetalhe
+                ? <div style={{fontSize:12,color:TX,whiteSpace:"pre-wrap",maxHeight:220,overflowY:"auto",lineHeight:1.5}}>{textoLegalDetalhe}</div>
+                : <div style={{fontSize:11,color:TXD,marginTop:6}}>Ainda não há texto gerado. Escolha um modelo da sua empresa para montar o contrato com os dados deste cliente.</div>}
+            </div>
+
             <div style={{display:"flex",gap:8,justifyContent:"space-between",flexWrap:"wrap",paddingTop:14,borderTop:`1px solid ${BD}`}}>
-              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
                 {showDetalhe.status==='ativo'&&(
                   <>
                     <button onClick={()=>{setShowReajuste(showDetalhe);setPctReajuste(Number(showDetalhe.reajuste_percentual)||5);}} style={{padding:"8px 14px",borderRadius:8,background:Y+"15",color:Y,fontSize:11,fontWeight:600,border:`1px solid ${Y}40`,cursor:"pointer"}}>📈 Reajustar</button>
                     <button onClick={()=>encerrarContrato(showDetalhe)} style={{padding:"8px 14px",borderRadius:8,background:R+"15",color:R,fontSize:11,fontWeight:600,border:`1px solid ${R}40`,cursor:"pointer"}}>🏁 Encerrar</button>
                   </>
                 )}
+                {/* #8384 — contrato encerrado/cancelado/excluído (ex.: perdido): refazer = criar uma cópia nova pelo fluxo de inclusão */}
+                {(showDetalhe.status==='encerrado'||showDetalhe.status==='cancelado'||showDetalhe.status==='excluido')&&(
+                  <>
+                    <button onClick={()=>refazerContrato(showDetalhe)} style={{padding:"8px 14px",borderRadius:8,background:P+"15",color:P,fontSize:11,fontWeight:600,border:`1px solid ${P}40`,cursor:"pointer"}}>🔁 Refazer este contrato</button>
+                    <AjudaCampo chave="ge.contrato.refazer" />
+                  </>
+                )}
               </div>
               <button onClick={()=>setShowDetalhe(null)} style={{padding:"8px 20px",borderRadius:8,background:"transparent",border:`1px solid ${BD}`,color:TX,fontSize:12,cursor:"pointer"}}>Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* #5452 — Modal "Gerar contrato a partir de modelo" */}
+      {showGerarModelo&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:120,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setShowGerarModelo(null)}>
+          <div style={{background:BG2,borderRadius:16,padding:24,maxWidth:700,width:"100%",maxHeight:"90vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:18,fontWeight:700,color:P,marginBottom:4}}>📝 Gerar contrato a partir de modelo</div>
+            <div style={{fontSize:12,color:TXM,marginBottom:16}}>{showGerarModelo.cliente_nome} · {showGerarModelo.nome}</div>
+
+            {erroGerar&&<div style={{background:R+"15",color:R,borderRadius:8,padding:10,fontSize:12,marginBottom:12}}>{erroGerar}</div>}
+
+            {modelosGerar.length===0&&!erroGerar
+              ? <div style={{fontSize:12,color:TXD,background:BG3,borderRadius:8,padding:14,marginBottom:12}}>Nenhum modelo ativo cadastrado para esta empresa. Cadastre um na aba <b>Modelos</b> e volte aqui.</div>
+              : (
+                <label style={{display:"block",marginBottom:14}}>
+                  <div style={{fontSize:10,color:TXD,marginBottom:4}}>Modelo de contrato * <AjudaCampo chave="ge.contrato.gerar_modelo.modelo" /></div>
+                  <select value={modeloSelGerar} onChange={e=>{setModeloSelGerar(e.target.value);setPreviewGerar(null);}} style={{width:"100%",padding:"9px 10px",borderRadius:8,background:BG3,border:`1px solid ${BD}`,color:TX,fontSize:13}}>
+                    <option value="">Escolha um modelo…</option>
+                    {modelosGerar.map(m=>(<option key={m.id} value={m.id}>{m.nome} (v{m.versao})</option>))}
+                  </select>
+                </label>
+              )}
+
+            {previewGerar&&(
+              <div style={{marginBottom:14}}>
+                {previewGerar.campos_pendentes.length>0&&(
+                  <div style={{background:Y+"15",color:Y,borderRadius:8,padding:10,fontSize:11,marginBottom:8}}>
+                    ⚠ Campos ainda sem valor neste contrato (sairão em branco): {previewGerar.campos_pendentes.join(", ")}. Preencha o contrato (Editar) se quiser que apareçam.
+                  </div>
+                )}
+                <div style={{fontSize:10,color:TXD,marginBottom:4,textTransform:"uppercase"}}>Pré-visualização</div>
+                <div style={{background:BG3,borderRadius:8,padding:12,fontSize:12,color:TX,whiteSpace:"pre-wrap",maxHeight:300,overflowY:"auto",lineHeight:1.5,border:`1px solid ${BD}`}}>{previewGerar.texto||"(modelo vazio)"}</div>
+              </div>
+            )}
+
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end",flexWrap:"wrap",paddingTop:14,borderTop:`1px solid ${BD}`}}>
+              <button onClick={()=>setShowGerarModelo(null)} style={{padding:"8px 18px",borderRadius:8,background:"transparent",border:`1px solid ${BD}`,color:TX,fontSize:12,cursor:"pointer"}}>Cancelar</button>
+              <button disabled={!modeloSelGerar||gerandoModelo} onClick={()=>gerarDoModelo(false)} style={{padding:"8px 18px",borderRadius:8,background:B+"15",color:B,fontSize:12,fontWeight:600,border:`1px solid ${B}40`,cursor:modeloSelGerar&&!gerandoModelo?"pointer":"not-allowed",opacity:modeloSelGerar&&!gerandoModelo?1:0.5}}>👁 Pré-visualizar</button>
+              <button disabled={!modeloSelGerar||gerandoModelo} onClick={()=>gerarDoModelo(true)} style={{padding:"8px 18px",borderRadius:8,background:G+"15",color:G,fontSize:12,fontWeight:700,border:`1px solid ${G}40`,cursor:modeloSelGerar&&!gerandoModelo?"pointer":"not-allowed",opacity:modeloSelGerar&&!gerandoModelo?1:0.5}}>{gerandoModelo?"Gerando…":"✓ Salvar no contrato"}</button>
             </div>
           </div>
         </div>

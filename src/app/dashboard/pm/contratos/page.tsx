@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { mensagemDeResultado, estiloBordaInput } from '@/components/ui/feedback/contratoSalvar'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
 const BORDA = '#E7DED3'; const TEXTM = '#6b5444'; const GREEN = '#1F5A1F'; const RED = '#7A1F1F'; const AMBER = '#8A5A08'
@@ -34,7 +35,7 @@ type Contrato = {
   itens_total: number; itens_a_mais: number; escopo_status: string
 }
 type Servico = { id: string; nome: string; unidade: string | null; periodicidade: string | null }
-type GeContrato = { id: string; numero: string | null; cliente_nome: string | null; valor_atual: number | null }
+type GeContrato = { id: string; numero: string | null; cliente_nome: string | null; valor_atual: number | null; status: string | null }
 type RealItem = {
   item_id: string; servico_id: string | null; tipo_servico: string; servico_nome: string
   quantidade_contratada: number | null; unidade: string | null; periodicidade: string | null; sem_limite: boolean
@@ -55,6 +56,7 @@ export default function ContratosPage() {
   const [vincular, setVincular] = useState<Contrato | null>(null)
   const [esteira, setEsteira] = useState<Record<string, Esteira>>({})
   const [planejando, setPlanejando] = useState<string | null>(null)
+  const [enviando, setEnviando] = useState<string | null>(null)
 
   const carregar = async () => {
     if (!empresa) { setLoading(false); return }
@@ -62,7 +64,7 @@ export default function ContratosPage() {
     const [c, sv, ge] = await Promise.all([
       supabase.rpc('fn_agency_contrato_listar', { p_company_id: empresa }),
       supabase.from('agency_servico').select('id, nome, unidade, periodicidade').eq('company_id', empresa).eq('ativo', true).order('ordem'),
-      supabase.from('erp_contratos').select('id, numero, cliente_nome, valor_atual').eq('company_id', empresa).order('data_inicio', { ascending: false }),
+      supabase.from('erp_contratos').select('id, numero, cliente_nome, valor_atual, status').eq('company_id', empresa).order('data_inicio', { ascending: false }),
     ])
     const lista = (c.data ?? []) as Contrato[]
     setContratos(lista)
@@ -95,7 +97,7 @@ export default function ContratosPage() {
     const r = data as { ok?: boolean; erro?: string; planejamento_id?: string; itens?: number; ja_existia?: boolean } | null
     if (error || !r?.ok || !r.planejamento_id) {
       const motivo: Record<string, string> = { fee_sem_cliente: 'o fee não tem cliente da Gestão Empresarial', fee_nao_ativo: 'o fee não está ativo', planejamento_de_outro_fee: 'já existe um planejamento deste cliente no mês ligado a outro fee' }
-      setToast(`Não deu para planejar: ${motivo[r?.erro ?? ''] ?? error?.message ?? r?.erro ?? 'erro'}.`); return
+      setToast(error ? erroAmigavel(error, 'Não foi possível planejar o mês. Tente de novo.') : `Não deu para planejar: ${motivo[r?.erro ?? ''] ?? 'confira o fee e tente de novo'}.`); return
     }
     window.location.href = `/dashboard/pm/planejamento?p=${r.planejamento_id}`
   }
@@ -108,7 +110,7 @@ export default function ContratosPage() {
     setExpand((m) => ({ ...m, [id]: { ...(m[id] ?? { itens: [], jobs_sem_servico: [] }), loading: true, ref } }))
     const { data, error } = await supabase.rpc('fn_agency_contrato_realizado', { p_contrato_id: id, p_periodo_ref: ref })
     const j = data as { ok?: boolean; erro?: string; itens?: RealItem[]; jobs_sem_servico?: { tipo: string; qtd: number }[] } | null
-    if (error || !j?.ok) { setExpand((m) => ({ ...m, [id]: { loading: false, itens: [], jobs_sem_servico: [], ref, erro: error?.message ?? j?.erro ?? 'falhou' } })); return }
+    if (error || !j?.ok) { setExpand((m) => ({ ...m, [id]: { loading: false, itens: [], jobs_sem_servico: [], ref, erro: erroAmigavel(error, 'Não foi possível carregar o realizado. Tente de novo.') } })); return }
     setExpand((m) => ({ ...m, [id]: { loading: false, itens: j.itens ?? [], jobs_sem_servico: j.jobs_sem_servico ?? [], ref } }))
   }
   function toggle(id: string) {
@@ -122,9 +124,50 @@ export default function ContratosPage() {
   const rotuloMes = (ref: string) => { const [y, mo] = ref.split('-').map(Number); return `${MESES[mo - 1]}/${y}` }
 
   async function mudarStatus(c: Contrato, status: string) {
-    await supabase.from('agency_contratos').update({ status, atualizado_em: new Date().toISOString() }).eq('id', c.contrato_id)
+    // RD-98 (rastro): a mudança de status passa por RPC com audit_log_global (não grava direto na tabela).
+    const { data, error } = await supabase.rpc('fn_agency_contrato_mudar_status', { p_contrato_id: c.contrato_id, p_status: status })
+    if (error) {
+      setToast(/permission|rls|policy|acesso/i.test(error.message) ? 'Sem permissão para alterar o status deste contrato.' : erroAmigavel(error, 'Não foi possível alterar o status do contrato. Tente de novo.'))
+      return
+    }
+    const j = data as { ok?: boolean; erro?: string } | null
+    if (j && j.ok === false) { setToast(`Erro ao alterar status: ${j.erro ?? 'falha'}`); return }
     setToast(`Contrato ALTERADO para ${stCfg(status).l}.`); void carregar()
   }
+
+  // Elo contrato → financeiro (PDCA 06/11): um clique envia o fee recorrente ao financeiro (GE), que
+  // RECEBE a solicitação (erp_contratos status 'solicitado', cliente+valor já carregados) e ativa sem
+  // redigitar. Reusa fn_agency_contrato_solicitar_financeiro (idempotente: não duplica se já houver elo).
+  async function enviarFinanceiro(c: Contrato) {
+    setEnviando(c.contrato_id)
+    const { data, error } = await supabase.rpc('fn_agency_contrato_solicitar_financeiro', { p_agency_contrato_id: c.contrato_id })
+    setEnviando(null)
+    if (error) {
+      setToast(/permission|rls|policy|acesso/i.test(error.message) ? 'Sem permissão para enviar este contrato ao financeiro.' : erroAmigavel(error, 'Não foi possível enviar o contrato ao financeiro. Tente de novo.'))
+      return
+    }
+    const j = data as { ok?: boolean; erro?: string; ja_vinculado?: boolean } | null
+    if (j && j.ok === false) {
+      const motivo: Record<string, string> = {
+        nao_recorrente: 'Só contratos recorrentes geram cobrança no financeiro. Para projeto, vincule a um contrato da GE.',
+        sem_fee_mensal: 'Defina o fee mensal do contrato antes de enviar ao financeiro.',
+        sem_cliente_financeiro: 'Vincule o cliente à Gestão Empresarial antes de enviar ao financeiro.',
+        contrato_nao_encontrado: 'Contrato não encontrado.',
+        sem_acesso: 'Sem permissão para enviar este contrato ao financeiro.',
+      }
+      setToast(motivo[j.erro ?? ''] ?? `Não foi possível enviar: ${j.erro ?? 'falha'}`)
+      return
+    }
+    setToast(j?.ja_vinculado ? 'Este contrato já está no financeiro.' : 'Solicitação enviada ao financeiro — aguardando a equipe financeira ativar a cobrança.')
+    void carregar()
+  }
+
+  // Status do contrato espelhado no financeiro (GE), por id, para o selo "aguardando ativar" × "ativo".
+  const erpStatusById = useMemo(() => {
+    const m = new Map<string, string | null>()
+    for (const g of geContratos) m.set(g.id, g.status)
+    return m
+  }, [geContratos])
 
   const kpis = useMemo(() => ({
     ativos: contratos.filter((c) => c.status === 'ativo').length,
@@ -142,15 +185,18 @@ export default function ContratosPage() {
           <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Fees</h1>
           <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>Cada contrato ativo na Gestão Empresarial vira um fee: o resumo do que foi contratado. A produção de cada fee segue <b>Briefing → Planejamento do mês → Jobs</b>, e aqui você vê o contratado × realizado por serviço.</p>
           {/* #59 PDOIS parte 2: atalho para solicitar/elaborar contratos de fee (fluxo na GE) */}
-          <a href="/dashboard/contratos?tab=fee" style={{ display: 'inline-block', marginTop: 10, background: DOURADO, color: '#fff', fontSize: 12, fontWeight: 700, textDecoration: 'none', padding: '8px 14px', borderRadius: 8 }}>
-            🧾 Solicitar / elaborar contrato de fee →
-          </a>
+          <span style={{ display: 'inline-flex', alignItems: 'center', marginTop: 10 }}>
+            <a href="/dashboard/contratos?tab=fee" style={{ display: 'inline-block', background: DOURADO, color: '#fff', fontSize: 12, fontWeight: 700, textDecoration: 'none', padding: '8px 14px', borderRadius: 8 }}>
+              🧾 Solicitar / elaborar contrato de fee →
+            </a>
+            <AjudaCampo chave="pm.contratos.acao_solicitar_contrato" />
+          </span>
         </header>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px,1fr))', gap: 10, marginBottom: 14 }}>
-          <Kpi l="Contratos ativos" v={String(kpis.ativos)} />
-          <Kpi l="MRR (fee da GE)" v={brl(kpis.mrr)} cor={DOURADO} />
-          {kpis.semGe > 0 && <Kpi l="Sem contrato na GE" v={String(kpis.semGe)} cor={RED} />}
+          <Kpi l="Contratos ativos" v={String(kpis.ativos)} chave="pm.contratos.kpi_ativos" />
+          <Kpi l="MRR (fee da GE)" v={brl(kpis.mrr)} cor={DOURADO} chave="pm.contratos.kpi_mrr" />
+          {kpis.semGe > 0 && <Kpi l="Sem contrato na GE" v={String(kpis.semGe)} cor={RED} chave="pm.contratos.kpi_sem_ge" />}
         </div>
 
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: TEXTM }}>Carregando…</div>
@@ -170,6 +216,7 @@ export default function ContratosPage() {
               {contratos.map((c) => {
                 const exp = expand[c.contrato_id]
                 const feeMostrar = c.tem_contrato_ge ? c.ge_valor_mensal : c.fee_mensal
+                const erpSt = c.erp_contrato_id ? (erpStatusById.get(c.erp_contrato_id) ?? null) : null
                 return (
                   <div key={c.contrato_id} style={{ background: '#fff', border: `1px solid ${c.itens_a_mais > 0 ? RED : BORDA}`, borderRadius: 12, padding: '12px 14px' }}>
                     <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -179,21 +226,60 @@ export default function ContratosPage() {
                           {c.tipo === 'recorrente' ? `${brl(Number(feeMostrar ?? 0))}/mês` : brl(Number(c.ge_valor_mensal ?? c.fee_mensal ?? 0))}
                           {c.data_inicio ? ` · desde ${c.data_inicio}` : ''}
                         </div>
-                        {!c.tem_contrato_ge && (
-                          <button onClick={() => setVincular(c)} style={{ marginTop: 4, fontSize: 11, color: RED, background: '#F9E4E4', border: `1px solid ${RED}`, borderRadius: 8, padding: '3px 8px', cursor: 'pointer', fontWeight: 600 }}>
-                            ⚠️ sem contrato na GE — não gera faturamento · vincular
-                          </button>
+                        {/* Elo contrato → financeiro (PDCA 06/11): recorrente sem elo envia em 1 clique; projeto segue o vínculo manual. */}
+                        {!c.erp_contrato_id && c.tipo === 'recorrente' && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                            <button data-testid="contrato-enviar-financeiro" disabled={enviando === c.contrato_id} onClick={() => void enviarFinanceiro(c)}
+                              style={{ fontSize: 11, color: '#fff', background: enviando === c.contrato_id ? '#caa94f' : DOURADO, border: 'none', borderRadius: 8, padding: '4px 10px', cursor: 'pointer', fontWeight: 700 }}>
+                              {enviando === c.contrato_id ? 'Enviando…' : '📤 Enviar ao financeiro'}
+                            </button>
+                            <AjudaCampo chave="pm.contratos.acao_enviar_financeiro" />
+                            <button onClick={() => setVincular(c)} style={{ fontSize: 11, color: TEXTM, background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer' }}>
+                              ou vincular a um contrato já criado
+                            </button>
+                            <AjudaCampo chave="pm.contratos.acao_vincular_ge" />
+                          </span>
+                        )}
+                        {!c.erp_contrato_id && c.tipo !== 'recorrente' && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', marginTop: 4 }}>
+                            <button onClick={() => setVincular(c)} style={{ fontSize: 11, color: RED, background: '#F9E4E4', border: `1px solid ${RED}`, borderRadius: 8, padding: '3px 8px', cursor: 'pointer', fontWeight: 600 }}>
+                              ⚠️ sem contrato na GE — não gera faturamento · vincular
+                            </button>
+                            <AjudaCampo chave="pm.contratos.acao_vincular_ge" />
+                          </span>
+                        )}
+                        {c.erp_contrato_id && erpSt === 'solicitado' && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', marginTop: 4 }} data-testid="contrato-aguardando-financeiro">
+                            <span style={{ fontSize: 11, color: '#8a6d1a', background: '#FFF3D6', border: `1px solid ${AMBER}`, borderRadius: 8, padding: '3px 8px', fontWeight: 600 }}>
+                              ⏳ enviado ao financeiro — aguardando ativar a cobrança
+                            </span>
+                            <AjudaCampo chave="pm.contratos.status_financeiro" />
+                          </span>
+                        )}
+                        {c.erp_contrato_id && erpSt === 'ativo' && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', marginTop: 4 }} data-testid="contrato-financeiro-ativo">
+                            <span style={{ fontSize: 11, color: GREEN, background: '#DCEFD7', border: `1px solid ${GREEN}`, borderRadius: 8, padding: '3px 8px', fontWeight: 600 }}>
+                              ✅ ativo no financeiro — gera faturamento
+                            </span>
+                            <AjudaCampo chave="pm.contratos.status_financeiro" />
+                          </span>
                         )}
                       </div>
-                      <button onClick={() => toggle(c.contrato_id)}
-                        style={{ fontSize: 11, fontWeight: 700, color: c.escopo_status === 'sem_escopo' ? TEXTM : (c.itens_a_mais > 0 ? RED : GREEN), background: c.escopo_status === 'sem_escopo' ? '#F0E9DE' : (c.itens_a_mais > 0 ? '#F9E4E4' : '#DCEFD7'), border: `1px solid ${c.escopo_status === 'sem_escopo' ? BORDA : (c.itens_a_mais > 0 ? RED : GREEN)}`, borderRadius: 999, padding: '3px 10px', cursor: 'pointer' }}>
-                        {exp ? '▾ ' : '▸ '}{c.escopo_status === 'sem_escopo' ? 'escopo não cadastrado' : c.itens_a_mais > 0 ? `${c.itens_a_mais} item(ns) a mais neste mês` : `escopo · ${c.itens_total} ${c.itens_total === 1 ? 'item' : 'itens'}`}
-                      </button>
-                      <button onClick={() => setEditEscopo(c)} style={btnSec}>Editar escopo</button>
+                      <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                        <button onClick={() => toggle(c.contrato_id)}
+                          style={{ fontSize: 11, fontWeight: 700, color: c.escopo_status === 'sem_escopo' ? TEXTM : (c.itens_a_mais > 0 ? RED : GREEN), background: c.escopo_status === 'sem_escopo' ? '#F0E9DE' : (c.itens_a_mais > 0 ? '#F9E4E4' : '#DCEFD7'), border: `1px solid ${c.escopo_status === 'sem_escopo' ? BORDA : (c.itens_a_mais > 0 ? RED : GREEN)}`, borderRadius: 999, padding: '3px 10px', cursor: 'pointer' }}>
+                          {exp ? '▾ ' : '▸ '}{c.escopo_status === 'sem_escopo' ? 'escopo não cadastrado' : c.itens_a_mais > 0 ? `${c.itens_a_mais} item(ns) a mais neste mês` : `escopo · ${c.itens_total} ${c.itens_total === 1 ? 'item' : 'itens'}`}
+                        </button>
+                        <AjudaCampo chave="pm.contratos.acao_ver_escopo" />
+                      </span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center' }}><button onClick={() => setEditEscopo(c)} style={btnSec}>Editar escopo</button><AjudaCampo chave="pm.contratos.acao_editar_escopo" /></span>
                       <span style={{ fontSize: 11, fontWeight: 700, color: ESPRESSO, background: stCfg(c.status).cor, padding: '3px 10px', borderRadius: 999 }}>{stCfg(c.status).l}</span>
-                      {c.status === 'ativo' ? <button onClick={() => mudarStatus(c, 'suspenso')} style={btnSec}>Suspender</button>
-                        : c.status === 'suspenso' ? <button onClick={() => mudarStatus(c, 'ativo')} style={btnOk}>Reativar</button>
-                        : c.status === 'rascunho' ? <button onClick={() => mudarStatus(c, 'ativo')} style={btnOk}>Ativar</button> : null}
+                      <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                        {c.status === 'ativo' ? <button onClick={() => mudarStatus(c, 'suspenso')} style={btnSec}>Suspender</button>
+                          : c.status === 'suspenso' ? <button onClick={() => mudarStatus(c, 'ativo')} style={btnOk}>Reativar</button>
+                          : c.status === 'rascunho' ? <button onClick={() => mudarStatus(c, 'ativo')} style={btnOk}>Ativar</button> : null}
+                        {c.status !== 'encerrado' && <AjudaCampo chave="pm.contratos.acao_status" />}
+                      </span>
                     </div>
 
                     {c.status === 'ativo' && (() => {
@@ -230,6 +316,7 @@ export default function ContratosPage() {
                             <button onClick={() => mudarMes(c.contrato_id, -1)} style={arrow}>◀</button>
                             <span style={{ fontSize: 12, fontWeight: 700, minWidth: 74, textAlign: 'center' }}>{rotuloMes(exp.ref)}</span>
                             <button onClick={() => mudarMes(c.contrato_id, 1)} style={arrow}>▶</button>
+                            <AjudaCampo chave="pm.contratos.acao_navegar_mes" alinhar="fim" />
                           </div>
                         </div>
                         {exp.loading ? <div style={{ fontSize: 12, color: TEXTM }}>Carregando…</div>
@@ -238,7 +325,7 @@ export default function ContratosPage() {
                           : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                               <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px 70px 70px 130px', gap: 8, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.3, color: TEXTM, fontWeight: 700, padding: '2px 0' }}>
-                                <span>serviço</span><span style={{ textAlign: 'right' }}>contratado</span><span style={{ textAlign: 'right' }}>criados</span><span style={{ textAlign: 'right' }}>entregues</span><span style={{ textAlign: 'right' }}>situação</span>
+                                <span style={{ display: 'inline-flex', alignItems: 'center' }}>serviço<AjudaCampo chave="pm.contratos.col_servico" /></span><span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end' }}>contratado<AjudaCampo chave="pm.contratos.col_contratado" alinhar="fim" /></span><span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end' }}>criados<AjudaCampo chave="pm.contratos.col_criados" alinhar="fim" /></span><span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end' }}>entregues<AjudaCampo chave="pm.contratos.col_entregues" alinhar="fim" /></span><span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end' }}>situação<AjudaCampo chave="pm.contratos.col_situacao" alinhar="fim" /></span>
                               </div>
                               {exp.itens.map((it) => {
                                 const s = SIT[it.situacao] ?? SIT.sem_limite
@@ -283,6 +370,12 @@ function EscopoModal({ contrato, servicos, onClose, onChanged, onToast }: { cont
   const [novo, setNovo] = useState({ servico_id: '', tipo_servico: '', quantidade_contratada: '', unidade: '', periodicidade: 'mensal' })
   const [erro, setErro] = useState<string | null>(null); const [campo, setCampo] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // RD-98 p4: exclusão rastreável (soft-delete via RPC guardada) com "desfazer" do último item excluído nesta sessão.
+  const [desfazer, setDesfazer] = useState<string | null>(null); const [restaurando, setRestaurando] = useState(false)
+  // PDCA pm/contratos gap3: editar item de escopo já cadastrado (reusa a MESMA RPC — ramo UPDATE quando vem `id`).
+  // valor_unitario é relido do item e reenviado para NÃO zerar o valor extraído do contrato (a RPC grava NULL
+  // quando a chave não vem no payload). RLS do item já restringe por company_id.
+  const [editId, setEditId] = useState<string | null>(null); const [valorUnit, setValorUnit] = useState('')
 
   const load = async () => {
     setLoading(true)
@@ -301,16 +394,55 @@ function EscopoModal({ contrato, servicos, onClose, onChanged, onToast }: { cont
     if (!novo.tipo_servico.trim()) { setErro('Escolha ou nomeie o serviço.'); setCampo('tipo_servico'); return }
     setBusy(true)
     const { data: { user } } = await supabase.auth.getUser()
-    const { data, error } = await supabase.rpc('fn_agency_contrato_item_salvar', { p_contrato_id: contrato.contrato_id, p_item: novo, p_user: user?.id ?? null })
+    // Edição: reenvia `id` (ramo UPDATE) + valor_unitario relido (não perder o valor já extraído do contrato).
+    const p_item = editId ? { ...novo, id: editId, valor_unitario: valorUnit } : novo
+    const { data, error } = await supabase.rpc('fn_agency_contrato_item_salvar', { p_contrato_id: contrato.contrato_id, p_item, p_user: user?.id ?? null })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string; campo?: string } | null
     if (error || !r?.ok) { if (error && !r) { onToast('Não foi possível salvar agora.'); return } setErro(mensagemDeResultado(r)); setCampo(r?.campo ?? null); return }
-    setNovo({ servico_id: '', tipo_servico: '', quantidade_contratada: '', unidade: '', periodicidade: 'mensal' }); onToast('Item ALTERADO.'); void load(); onChanged()
+    const eraEdicao = editId != null
+    setEditId(null); setValorUnit('')
+    setNovo({ servico_id: '', tipo_servico: '', quantidade_contratada: '', unidade: '', periodicidade: 'mensal' }); onToast(eraEdicao ? 'Item ALTERADO.' : 'Item adicionado.'); void load(); onChanged()
   }
   async function excluir(item_id: string) {
+    if (!confirm('Excluir este item do escopo?\n\nEle sai da lista e fica o registro de quem e quando (auditoria). Dá para desfazer.')) return
     const { data: { user } } = await supabase.auth.getUser()
     const { data } = await supabase.rpc('fn_agency_contrato_item_excluir', { p_item_id: item_id, p_user: user?.id ?? null })
-    if ((data as { ok?: boolean } | null)?.ok) { onToast('Item EXCLUÍDO.'); void load(); onChanged() }
+    if ((data as { ok?: boolean } | null)?.ok) { setDesfazer(item_id); onToast('Item EXCLUÍDO.'); void load(); onChanged() }
+    else onToast('Não consegui excluir agora. Tente de novo em instantes.')
+  }
+  async function desfazerExclusao() {
+    if (!desfazer) return
+    setRestaurando(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data } = await supabase.rpc('fn_agency_contrato_item_restaurar', { p_item_id: desfazer, p_user: user?.id ?? null })
+    setRestaurando(false)
+    if ((data as { ok?: boolean } | null)?.ok) { setDesfazer(null); onToast('Item RESTAURADO.'); void load(); onChanged() }
+    else onToast('Não consegui desfazer agora. Tente de novo em instantes.')
+  }
+  // gap3: abre o item no formulário (modo edição). Relê os valores atuais da tabela (inclui valor_unitario,
+  // que a lista não devolve) para reenviar sem perder dado. RLS do item já restringe por empresa.
+  async function iniciarEdicao(it: RealItem) {
+    setErro(null); setCampo(null)
+    const { data } = await supabase
+      .from('agency_contrato_itens')
+      .select('servico_id, tipo_servico, quantidade_contratada, unidade, periodicidade, valor_unitario')
+      .eq('id', it.item_id).maybeSingle()
+    const row = (data ?? null) as { servico_id: string | null; tipo_servico: string | null; quantidade_contratada: number | null; unidade: string | null; periodicidade: string | null; valor_unitario: number | null } | null
+    if (!row) { onToast('Não foi possível abrir o item para edição.'); return }
+    setEditId(it.item_id)
+    setValorUnit(row.valor_unitario != null ? String(row.valor_unitario) : '')
+    setNovo({
+      servico_id: row.servico_id ?? '',
+      tipo_servico: row.tipo_servico ?? it.servico_nome ?? '',
+      quantidade_contratada: row.quantidade_contratada != null ? String(row.quantidade_contratada) : '',
+      unidade: row.unidade ?? '',
+      periodicidade: row.periodicidade ?? 'mensal',
+    })
+  }
+  function cancelarEdicao() {
+    setEditId(null); setValorUnit(''); setErro(null); setCampo(null)
+    setNovo({ servico_id: '', tipo_servico: '', quantidade_contratada: '', unidade: '', periodicidade: 'mensal' })
   }
 
   return (
@@ -320,15 +452,27 @@ function EscopoModal({ contrato, servicos, onClose, onChanged, onToast }: { cont
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 12 }}>
           {itens.length === 0 && <div style={{ fontSize: 12, color: TEXTM, fontStyle: 'italic' }}>Nenhum item ainda.</div>}
           {itens.map((it) => (
-            <div key={it.item_id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, borderTop: `1px solid ${OFFWHITE}`, padding: '5px 0' }}>
+            <div key={it.item_id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, borderTop: `1px solid ${OFFWHITE}`, padding: '5px 6px', borderRadius: 6, background: editId === it.item_id ? '#FBF4E4' : 'transparent' }}>
               <span style={{ flex: 1 }}>{it.servico_id ? '🔗' : '⚠️'} {it.servico_nome} <span style={{ color: TEXTM }}>· {it.sem_limite ? 'sem limite' : `${it.quantidade_contratada}${it.unidade ? ' ' + it.unidade : ''}`}{it.periodicidade ? ` · ${it.periodicidade}` : ''}</span></span>
-              <button onClick={() => void excluir(it.item_id)} style={{ border: 'none', background: 'none', color: RED, cursor: 'pointer', fontSize: 12 }}>excluir</button>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                <button onClick={() => void iniciarEdicao(it)} style={{ border: 'none', background: 'none', color: DOURADO, cursor: 'pointer', fontSize: 12 }}>editar</button>
+                <AjudaCampo chave="pm.contratos.acao_editar_escopo" />
+                <button onClick={() => void excluir(it.item_id)} style={{ border: 'none', background: 'none', color: RED, cursor: 'pointer', fontSize: 12 }}>excluir</button>
+                <AjudaCampo chave="pm.contratos.escopo_excluir" alinhar="fim" />
+              </span>
             </div>
           ))}
         </div>
       )}
+      {desfazer && (
+        <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: ESPRESSO, background: '#fff', border: `1px solid ${DOURADO}`, borderRadius: 8, padding: '7px 10px', marginBottom: 10 }}>
+          Item excluído.
+          <button onClick={() => void desfazerExclusao()} disabled={restaurando} style={{ border: 'none', background: 'none', color: DOURADO, fontWeight: 700, cursor: 'pointer', textDecoration: 'underline' }}>{restaurando ? 'Desfazendo…' : 'Desfazer'}</button>
+          <AjudaCampo chave="pm.contratos.escopo_desfazer" />
+        </div>
+      )}
       <div style={{ borderTop: `1px solid ${BORDA}`, paddingTop: 10 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: TEXTM, marginBottom: 6 }}>Adicionar item</div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: TEXTM, marginBottom: 6 }}>{editId ? 'Editar item' : 'Adicionar item'}</div>
         {erro && <div style={{ background: '#F9E4E4', color: RED, padding: '6px 10px', borderRadius: 7, fontSize: 12, marginBottom: 8 }}>{erro}</div>}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <label style={{ ...campoLbl, gridColumn: '1 / -1' }}>
@@ -352,8 +496,10 @@ function EscopoModal({ contrato, servicos, onClose, onChanged, onToast }: { cont
             </select><AjudaCampo chave="pm.contratos.escopo_periodicidade" />
           </label>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
-          <button disabled={busy || !novo.tipo_servico.trim()} onClick={() => void salvar()} style={{ ...btnOk, background: busy || !novo.tipo_servico.trim() ? '#ccc' : DOURADO, color: '#fff', border: 'none', fontWeight: 700 }}>{busy ? 'Salvando…' : '+ Adicionar item'}</button>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginTop: 10 }}>
+          {editId && <button onClick={cancelarEdicao} style={btnSec}>Cancelar edição</button>}
+          <button disabled={busy || !novo.tipo_servico.trim()} onClick={() => void salvar()} style={{ ...btnOk, background: busy || !novo.tipo_servico.trim() ? '#ccc' : DOURADO, color: '#fff', border: 'none', fontWeight: 700 }}>{busy ? 'Salvando…' : editId ? 'Salvar alterações' : '+ Adicionar item'}</button>
+          <AjudaCampo chave="pm.contratos.escopo_adicionar" alinhar="fim" />
         </div>
       </div>
     </Modal>
@@ -407,9 +553,9 @@ function Modal({ titulo, children, onClose }: { titulo: string; children: React.
     </div>
   )
 }
-function Kpi({ l, v, cor }: { l: string; v: string; cor?: string }) {
+function Kpi({ l, v, cor, chave }: { l: string; v: string; cor?: string; chave?: string }) {
   return <div style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: '12px 14px' }}>
-    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700 }}>{l}</div>
+    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700, display: 'flex', alignItems: 'center' }}>{l}{chave && <AjudaCampo chave={chave} />}</div>
     <div style={{ fontSize: 22, fontWeight: 700, color: cor ?? ESPRESSO, marginTop: 2 }}>{v}</div>
   </div>
 }

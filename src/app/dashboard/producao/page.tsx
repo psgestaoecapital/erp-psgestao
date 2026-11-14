@@ -8,6 +8,7 @@ import { ClienteBusca } from '@/components/pm/ClienteBusca'
 import { BriefingEditor } from '@/components/pm/BriefingEditor'
 import { BriefingLigado } from '@/components/pm/BriefingLigado'
 import { CopiarJob, JobsParecidos, type ResultadoCopia } from '@/components/pm/CopiarJob'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 // Identidade Espresso (mesmos tokens do CRM Oportunidades / Financiamentos)
 const ESPRESSO = '#3D2314'
@@ -116,11 +117,25 @@ function ProducaoPageInner() {
   const [novaEtapa, setNovaEtapa] = useState<{ titulo: string; responsavel_id: string; data_prazo: string; horas_estimadas: string }>({ titulo: '', responsavel_id: '', data_prazo: '', horas_estimadas: '' })
   const [etapaBusy, setEtapaBusy] = useState<string | null>(null)
   const [maisDetalhesJob, setMaisDetalhesJob] = useState(false)
+  // Alerta amarelo (nunca bloqueia) quando o job novo ultrapassa o contratado do item (RD-38, blueprint)
+  const [previaContratado, setPreviaContratado] = useState<string | null>(null)
   // "Copiar de um job pronto" (CEO 03/10): null = fechado; '' = busca; id = já na prévia desse job
   const [copiar, setCopiar] = useState<string | null>(null)
 
   useEffect(() => { void loadCompanies() }, [])
   useEffect(() => { if (sel) void loadAll() }, [sel]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Prévia do contratado ao montar um job novo: avisa (sem bloquear) se o job ultrapassa o contratado do item.
+  useEffect(() => {
+    if (showForm !== 'job' || editId || !sel || !form.cliente_id || !form.tipo) { setPreviaContratado(null); return }
+    let cancel = false
+    void (async () => {
+      const { data } = await supabase.rpc('fn_pm_job_previa_contratado', { p_company_id: sel, p_cliente_id: form.cliente_id as string, p_tipo: form.tipo as string, p_servico_id: null })
+      if (cancel) return
+      const r = data as { estouraria?: boolean; mensagem?: string } | null
+      setPreviaContratado(r?.estouraria ? (r.mensagem ?? 'Atenção: este job ultrapassa o contratado do item no período. Segue permitido.') : null)
+    })()
+    return () => { cancel = true }
+  }, [showForm, editId, sel, form.cliente_id, form.tipo]) // eslint-disable-line react-hooks/exhaustive-deps
   // Bloco 1: /dashboard/producao?novo=job (botão "Novo job" da Pauta) já abre o formulário
   const novoDoLink = useRef(false)
   useEffect(() => {
@@ -146,22 +161,42 @@ function ProducaoPageInner() {
       const r = await supabase.from('user_companies').select('companies(id,nome_fantasia,razao_social)').eq('user_id', user.id)
       d = ((r.data ?? []) as unknown as Array<{ companies: { id: string; nome_fantasia: string | null; razao_social: string | null } | null }>)
         .map((u) => u.companies).filter(Boolean) as typeof d
+      // determinístico: ordena a lista do usuário não-admin (o banco não garante ordem)
+      d.sort((a, b) => (a.nome_fantasia ?? a.razao_social ?? '').localeCompare(b.nome_fantasia ?? b.razao_social ?? ''))
     }
     setCompanies(d)
     const s = empresaParam || (typeof window !== 'undefined' ? localStorage.getItem('ps_empresa_sel') : '') || ''
     const m = s ? d.find((c) => c.id === s) : null
-    setSel(m ? m.id : (d[0]?.id ?? ''))
+    // Sem escolha explícita (param/localStorage): preferir a empresa que TEM dado de agência
+    // nesta tela, em vez de cair no primeiro da lista (conta com muitas empresas abria o
+    // Workspace zerado numa empresa sem jobs, apesar de haver jobs reais noutra). RD-98 pilar 1.
+    let padrao = d[0]?.id ?? ''
+    if (!m && d.length > 1) {
+      const ids = d.map((c) => c.id)
+      const { data: jrows } = await supabase.from('agency_jobs').select('company_id').is('excluido_em', null).in('company_id', ids).limit(2000)
+      const comJobs = new Set((jrows ?? []).map((r: { company_id: string }) => r.company_id))
+      const comData = d.find((c) => comJobs.has(c.id))
+      if (comData) {
+        padrao = comData.id
+      } else {
+        const { data: crows } = await supabase.from('agency_clientes').select('company_id').is('excluido_em', null).in('company_id', ids).limit(2000)
+        const comCli = new Set((crows ?? []).map((r: { company_id: string }) => r.company_id))
+        padrao = d.find((c) => comCli.has(c.id))?.id ?? padrao
+      }
+    }
+    setSel(m ? m.id : padrao)
     setLoading(false)
   }
 
   async function loadAll() {
-    const [cl, jb, ts, us, ct, sv] = await Promise.all([
-      supabase.from('agency_clientes').select('*').eq('company_id', sel).order('nome'),
-      supabase.from('agency_jobs').select('*').eq('company_id', sel).order('created_at', { ascending: false }),
-      supabase.from('agency_timesheet').select('id, company_id, job_id, tarefa_id, user_id, data, horas, descricao, tipo_atividade, aprovado, aprovado_por, created_at, inicio_em, fim_em, etapa_tipo, cliente_id').eq('company_id', sel).order('data', { ascending: false }),
+    const [cl, jb, ts, us, ct, sv, ac] = await Promise.all([
+      supabase.from('agency_clientes').select('*').eq('company_id', sel).is('excluido_em', null).order('nome'),
+      supabase.from('agency_jobs').select('*').eq('company_id', sel).is('excluido_em', null).order('created_at', { ascending: false }),
+      supabase.from('agency_timesheet').select('id, company_id, job_id, tarefa_id, user_id, data, horas, descricao, tipo_atividade, aprovado, aprovado_por, created_at, inicio_em, fim_em, etapa_tipo, cliente_id').eq('company_id', sel).is('excluido_em', null).order('data', { ascending: false }),
       supabase.rpc('fn_usuarios_da_empresa', { p_company_id: sel }),
       supabase.from('erp_contratos').select('id,numero,nome,valor_mensal,status').eq('company_id', sel).order('numero', { ascending: false }),
       supabase.rpc('fn_agency_servico_listar_proposta', { p_company_id: sel }),
+      supabase.rpc('fn_agency_contrato_listar', { p_company_id: sel }),
     ])
     setClientes((cl.data ?? []) as Cliente[])
     setJobs((jb.data ?? []) as Job[])
@@ -173,11 +208,19 @@ function ProducaoPageInner() {
 
     const now = new Date()
     const mesAtual = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    // Receita recorrente (MRR): mesma fonte de verdade de /dashboard/pm/contratos
+    // (fn_agency_contrato_listar + idêntica fórmula): contratos recorrentes ATIVOS,
+    // usando o valor da GE quando o fee está vinculado, senão o fee local. Antes somava
+    // agency_clientes.fee_mensal, divergindo do Hub/Contratos (RD-38: 41.000 vs 17.300).
+    type ContratoMrr = { status?: string; tipo?: string; tem_contrato_ge?: boolean; fee_mensal?: number | null; ge_valor_mensal?: number | null }
+    const mrr = ((ac.data ?? []) as ContratoMrr[])
+      .filter((c) => c.status === 'ativo' && c.tipo === 'recorrente')
+      .reduce((s, c) => s + Number((c.tem_contrato_ge ? c.ge_valor_mensal : c.fee_mensal) ?? 0), 0)
     setMetrics({
       clientes: (cl.data ?? []).filter((c: { status?: string }) => c.status === 'ativo').length,
       jobs_ativos: (jb.data ?? []).filter((j: { status?: string }) => !['concluida', 'publicado', 'cancelado'].includes(j.status ?? '')).length,
       horas_mes: (ts.data ?? []).filter((t: { data?: string }) => t.data?.startsWith(mesAtual)).reduce((s: number, t: { horas?: number }) => s + (t.horas ?? 0), 0),
-      receita_mes: (cl.data ?? []).filter((c: { status?: string }) => c.status === 'ativo').reduce((s: number, c: { fee_mensal?: number }) => s + (c.fee_mensal ?? 0), 0),
+      receita_mes: mrr,
     })
   }
 
@@ -186,7 +229,7 @@ function ProducaoPageInner() {
     const res = editId
       ? await supabase.from('agency_clientes').update(data).eq('id', editId)
       : await supabase.from('agency_clientes').insert(data)
-    if (res.error) { setToast(`Erro: ${res.error.message}`); return }
+    if (res.error) { setToast(erroAmigavel(res.error)); return }
     setToast(editId ? 'Cliente ALTERADO.' : 'Cliente CRIADO.')
     setShowForm(null); setEditId(null); setForm({}); loadAll()
   }
@@ -197,7 +240,7 @@ function ProducaoPageInner() {
     const res = editId
       ? await supabase.from('agency_jobs').update(data).eq('id', editId)
       : await supabase.from('agency_jobs').insert(data)
-    if (res.error) { setToast(`Erro: ${res.error.message}`); return }
+    if (res.error) { setToast(erroAmigavel(res.error)); return }
     setToast(editId ? 'Job ALTERADO.' : 'Job CRIADO.')
     setShowForm(null); setEditId(null); setForm({}); loadAll()
   }
@@ -223,16 +266,24 @@ function ProducaoPageInner() {
   }
   async function saveTimesheet() {
     const { data: { user } } = await supabase.auth.getUser()
-    const data = { ...form, company_id: sel, user_id: user?.id }
-    const res = await supabase.from('agency_timesheet').insert(data)
-    if (res.error) { setToast(`Erro: ${res.error.message}`); return }
-    setToast('Horas REGISTRADAS.')
-    setShowForm(null); setForm({}); loadAll()
+    // RD-98 p2: Timesheet tem Incluir/Editar/Excluir — edição altera só os campos do form (RLS por empresa),
+    // preservando autor (user_id) e empresa do registro original.
+    const res = editId
+      ? await supabase.from('agency_timesheet').update(form).eq('id', editId)
+      : await supabase.from('agency_timesheet').insert({ ...form, company_id: sel, user_id: user?.id })
+    if (res.error) { setToast(erroAmigavel(res.error)); return }
+    setToast(editId ? 'Horas ALTERADAS.' : 'Horas REGISTRADAS.')
+    setShowForm(null); setEditId(null); setForm({}); loadAll()
+  }
+  function abrirEdicaoTimesheet(t: Timesheet) {
+    setForm({ job_id: t.job_id, data: t.data, horas: t.horas, tipo_atividade: t.tipo_atividade, descricao: t.descricao })
+    setEditId(t.id); setShowForm('timesheet')
   }
   async function excluir(table: string, id: string) {
     if (!confirm('EXCLUIR este registro?')) return
-    const { error } = await supabase.from(table).delete().eq('id', id)
-    if (error) { setToast(`Erro: ${error.message}`); return }
+    // RD-98 p4: exclusão rastreável (soft-delete + audit_log) — nunca DELETE físico de dado de cliente.
+    const { error } = await supabase.rpc('fn_pm_registro_excluir', { p_tabela: table, p_id: id })
+    if (error) { setToast(erroAmigavel(error)); return }
     setToast('Registro EXCLUIDO.')
     loadAll()
   }
@@ -248,7 +299,7 @@ function ProducaoPageInner() {
     const { data } = await supabase
       .from('agency_tarefas')
       .select('id, job_id, titulo, descricao, responsavel_id, status, prioridade, ordem, data_prazo, data_conclusao, horas_estimadas, horas_realizadas')
-      .eq('company_id', sel).eq('job_id', jobId)
+      .eq('company_id', sel).eq('job_id', jobId).is('excluido_em', null)
       .order('ordem', { ascending: true }).order('created_at', { ascending: true })
     setEtapas((data ?? []) as Tarefa[])
     setEtapasLoading(false)
@@ -265,7 +316,7 @@ function ProducaoPageInner() {
       ordem: proxOrdem, status: 'pendente',
     })
     setEtapaBusy(null)
-    if (error) { setToast(`Erro: ${error.message}`); return }
+    if (error) { setToast(erroAmigavel(error)); return }
     setNovaEtapa({ titulo: '', responsavel_id: '', data_prazo: '', horas_estimadas: '' })
     await carregarEtapas(jobEtapas.id)
   }
@@ -275,7 +326,7 @@ function ProducaoPageInner() {
     const patch: Record<string, unknown> = { status: novo, updated_at: new Date().toISOString() }
     patch.data_conclusao = novo === 'concluida' ? new Date().toISOString().slice(0, 10) : null
     const { error } = await supabase.from('agency_tarefas').update(patch).eq('id', t.id)
-    if (error) { setEtapaBusy(null); setToast(`Erro: ${error.message}`); return }
+    if (error) { setEtapaBusy(null); setToast(erroAmigavel(error)); return }
     const atualizadas = etapas.map((e) => e.id === t.id ? { ...e, status: novo } : e)
     setEtapas(atualizadas)
     // Concluir a ÚLTIMA etapa move o job (todas concluídas → avança um estágio).
@@ -312,8 +363,9 @@ function ProducaoPageInner() {
   async function excluirEtapa(t: Tarefa) {
     if (!jobEtapas) return
     if (!confirm('Excluir esta etapa?')) return
-    const { error } = await supabase.from('agency_tarefas').delete().eq('id', t.id)
-    if (error) { setToast(`Erro: ${error.message}`); return }
+    // RD-98 p4: exclusão rastreável (soft-delete + audit_log) — nunca DELETE físico.
+    const { error } = await supabase.rpc('fn_pm_registro_excluir', { p_tabela: 'agency_tarefas', p_id: t.id })
+    if (error) { setToast(erroAmigavel(error)); return }
     await carregarEtapas(jobEtapas.id)
   }
 
@@ -325,9 +377,9 @@ function ProducaoPageInner() {
     setJobs((prev) => prev.map((j) => j.id === jobId ? { ...j, status: novo } : j))
     const { data, error } = await supabase.rpc('fn_pm_job_mover_status', { p_job_id: jobId, p_status: novo })
     setMovendoId(null)
-    if (error) { setToast(`Erro ao mover: ${error.message}`); loadAll(); return }
+    if (error) { setToast(erroAmigavel(error, 'Não foi possível mover o job. Tente de novo.')); loadAll(); return }
     const r = data as { ok?: boolean; erro?: string } | null
-    if (r && r.ok === false) { setToast(`Erro: ${r.erro ?? 'falha'}`); loadAll(); return }
+    if (r && r.ok === false) { setToast(codigoAmigavel(r.erro, 'Não foi possível mover o job. Tente de novo.')); loadAll(); return }
     setToast(`Job movido para ${estagioCfg(novo).l}.`)
     loadAll()
   }
@@ -410,6 +462,8 @@ function ProducaoPageInner() {
           onDrop={onDrop}
           onMover={moverEstagio}
           onEtapas={abrirEtapas}
+          onEditar={abrirEdicaoJob}
+          onExcluir={(j) => excluir('agency_jobs', j.id)}
           onAdd={() => { setForm({ status: 'nao_iniciada', prioridade: 'normal' }); setEditId(null); setShowForm('job') }}
         />
       )}
@@ -451,7 +505,9 @@ function ProducaoPageInner() {
         <TimesheetTabela
           timesheets={timesheets}
           jobs={jobs}
-          onNovo={() => { setForm({ data: new Date().toISOString().slice(0, 10) }); setShowForm('timesheet') }}
+          responsaveis={responsaveis}
+          onNovo={() => { setEditId(null); setForm({ data: new Date().toISOString().slice(0, 10) }); setShowForm('timesheet') }}
+          onEditar={abrirEdicaoTimesheet}
           onExcluir={(t) => excluir('agency_timesheet', t.id)}
         />
       )}
@@ -509,6 +565,13 @@ function ProducaoPageInner() {
               onLimpar={() => setForm({ ...form, cliente_id: null, cliente_nome_tmp: '' })} />
             <Select label="Peça / tipo" testId="job-tipo" v={(form.tipo as string) ?? ''} on={(v) => setForm({ ...form, tipo: v || null })}
               opts={[['', '— que peça vai ser feita —'], ...TIPOS_PECA]} />
+            {previaContratado && (
+              <div data-testid="job-alerta-contratado" style={{ display: 'flex', alignItems: 'flex-start', gap: 8, background: '#FFF7E3', border: `1px solid #E7C96A`, borderRadius: 10, padding: '9px 12px', color: YELLOW, fontSize: 12.5 }}>
+                <span style={{ fontSize: 15, lineHeight: 1 }}>⚠️</span>
+                <span style={{ flex: 1 }}>{previaContratado} <b>Você pode criar o job mesmo assim.</b></span>
+                <AjudaCampo chave="pm.producao.alerta_contratado" />
+              </div>
+            )}
             <label style={lbl}>
               <span style={{ display: 'flex', alignItems: 'center' }}>Título *<AjudaCampo chave="pm.job.titulo" /></span>
               <textarea data-testid="job-titulo" rows={2} value={(form.titulo as string) ?? ''}
@@ -581,23 +644,23 @@ function ProducaoPageInner() {
 
       {/* ─── FORM modal: timesheet ─── */}
       {showForm === 'timesheet' && (
-        <Modal titulo="Registrar horas" onClose={() => { setShowForm(null); setForm({}) }}>
+        <Modal titulo={editId ? 'Editar horas' : 'Registrar horas'} onClose={() => { setShowForm(null); setEditId(null); setForm({}) }}>
           <div style={grid2}>
-            <Select label="Job *" v={(form.job_id as string) ?? ''} on={(v) => setForm({ ...form, job_id: v || null })}
+            <Select label="Job *" ajuda="pm.timesheet.job" v={(form.job_id as string) ?? ''} on={(v) => setForm({ ...form, job_id: v || null })}
               opts={[['', '— selecionar —'], ...jobs
                 .filter((j) => !['concluida', 'publicado', 'cancelado'].includes(j.status))
                 .map((j) => [j.id, j.titulo] as [string, string])]} />
-            <Field label="Data *" type="date" v={form.data} on={(v) => setForm({ ...form, data: v })} />
-            <Field label="Horas *" type="number" v={form.horas} on={(v) => setForm({ ...form, horas: parseFloat(v) || 0 })} />
-            <Select label="Atividade" v={(form.tipo_atividade as string) ?? ''} on={(v) => setForm({ ...form, tipo_atividade: v || null })}
+            <Field label="Data *" ajuda="pm.timesheet.data" type="date" v={form.data} on={(v) => setForm({ ...form, data: v })} />
+            <Field label="Horas *" ajuda="pm.timesheet.horas" type="number" v={form.horas} on={(v) => setForm({ ...form, horas: parseFloat(v) || 0 })} />
+            <Select label="Atividade" ajuda="pm.timesheet.atividade" v={(form.tipo_atividade as string) ?? ''} on={(v) => setForm({ ...form, tipo_atividade: v || null })}
               opts={[['', '— tipo —'], ['criacao', 'Criação'], ['atendimento', 'Atendimento'],
                 ['producao', 'Produção'], ['edicao', 'Edição'], ['revisao', 'Revisão'],
                 ['reuniao', 'Reunião'], ['planejamento', 'Planejamento']]} />
           </div>
-          <Field label="Descrição" v={form.descricao} on={(v) => setForm({ ...form, descricao: v })} />
+          <Field label="Descrição" ajuda="pm.timesheet.descricao" v={form.descricao} on={(v) => setForm({ ...form, descricao: v })} />
           <div style={actions}>
-            <button onClick={() => { setShowForm(null); setForm({}) }} style={btnGhost}>Cancelar</button>
-            <button onClick={saveTimesheet} style={btnPrimary}>REGISTRAR</button>
+            <button onClick={() => { setShowForm(null); setEditId(null); setForm({}) }} style={btnGhost}>Cancelar</button>
+            <button onClick={saveTimesheet} style={btnPrimary}>{editId ? 'SALVAR' : 'REGISTRAR'}</button>
           </div>
         </Modal>
       )}
@@ -680,7 +743,7 @@ function ProducaoPageInner() {
 // ─────────────────────────────────────────────────────────────
 function KanbanBoard({
   jobs, clientes, dragId, hoverCol, movendoId,
-  onDragStart, onDragOver, onDragLeave, onDrop, onMover, onEtapas, onAdd,
+  onDragStart, onDragOver, onDragLeave, onDrop, onMover, onEtapas, onAdd, onEditar, onExcluir,
 }: {
   jobs: Job[]; clientes: Cliente[]; dragId: string | null; hoverCol: string | null; movendoId: string | null
   onDragStart: (e: DragEvent<HTMLDivElement>, id: string) => void
@@ -690,11 +753,23 @@ function KanbanBoard({
   onMover: (id: string, novo: string, atual: string | null) => void
   onEtapas: (job: Job) => void
   onAdd: () => void
+  onEditar: (job: Job) => void
+  onExcluir: (job: Job) => void
 }) {
   const cliNome = (id: string) => {
     const c = clientes.find((x) => x.id === id)
     return c?.nome_fantasia || c?.nome || null
   }
+  // RD-98 p1: nenhum job real pode sumir do board. Jobs com status fora dos 5 estágios
+  // oficiais (ex.: 'aguardando', legado) não apareciam em nenhuma coluna. Mostramos uma
+  // coluna extra para esses status; ela NÃO é destino de arraste (fn_pm_job_mover_status
+  // só aceita os 5 oficiais), mas o seletor do card deixa mover o job para um estágio válido.
+  const ESTAGIO_VS = ESTAGIOS.map((e) => e.v)
+  const EXTRA_LABEL: Record<string, string> = { aguardando: 'Aguardando' }
+  const extras = Array.from(new Set(jobs.map((j) => j.status)))
+    .filter((s) => !!s && s !== 'cancelado' && !ESTAGIO_VS.includes(s))
+  const colunasExtra = extras.map((s) => ({ v: s, l: EXTRA_LABEL[s] ?? s, bg: '#FBE4D8', fg: ESPRESSO, extra: true }))
+  const colunas: { v: string; l: string; bg: string; fg: string; extra?: boolean }[] = [...colunasExtra, ...ESTAGIOS]
   return (
     <div>
       <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
@@ -703,7 +778,7 @@ function KanbanBoard({
       </div>
       <div style={boardWrap}>
         <div style={board}>
-          {ESTAGIOS.map((et) => {
+          {colunas.map((et) => {
             const cards = jobs.filter((j) => j.status === et.v)
             const valor = cards.reduce((s, j) => s + (j.valor_job ?? 0), 0)
             const hover = hoverCol === et.v
@@ -711,9 +786,9 @@ function KanbanBoard({
               <div
                 key={et.v}
                 style={{ ...col, ...(hover ? colHover : {}) }}
-                onDragOver={(e) => onDragOver(e, et.v)}
-                onDragLeave={() => onDragLeave(et.v)}
-                onDrop={(e) => onDrop(e, et.v)}
+                onDragOver={et.extra ? undefined : (e) => onDragOver(e, et.v)}
+                onDragLeave={et.extra ? undefined : () => onDragLeave(et.v)}
+                onDrop={et.extra ? undefined : (e) => onDrop(e, et.v)}
               >
                 <div style={colHead}>
                   <span style={{ ...etapaChip, background: et.bg, color: et.fg }}>{et.l}</span>
@@ -773,6 +848,9 @@ function KanbanBoard({
                             aria-label="Mover para outro estágio"
                             style={moverSel}
                           >
+                            {et.extra && (
+                              <option value={et.v} disabled>· {et.l} (atual)</option>
+                            )}
                             {ESTAGIOS.map((d) => (
                               <option key={d.v} value={d.v}>
                                 {d.v === et.v ? `· ${d.l} (atual)` : `↳ ${d.l}`}
@@ -780,6 +858,10 @@ function KanbanBoard({
                             ))}
                           </select>
                           <button onClick={() => onEtapas(j)} style={etapasBtn}>Etapas do job</button>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button onClick={() => onEditar(j)} style={{ ...btnSec, flex: 1, minHeight: 36 }}>Editar</button>
+                            <button onClick={() => onExcluir(j)} style={{ ...btnDanger, minHeight: 36 }} aria-label={`Excluir job ${j.titulo}`}>Excluir</button>
+                          </div>
                         </div>
                       </div>
                     )
@@ -800,14 +882,48 @@ function JobsTabela({
   jobs: Job[]; clientes: Cliente[]; responsaveis: Array<{ id: string; email: string | null; full_name?: string | null }>
   onNovo: () => void; onEditar: (j: Job) => void; onEtapas: (j: Job) => void; onExcluir: (j: Job) => void
 }) {
+  // Busca + filtros (RD-99 "achar um job em <=3 toques"): a lista crua de dezenas/centenas de jobs
+  // vira pesquisável por texto (título/cliente) e filtrável por cliente, responsável e estágio.
+  const [q, setQ] = useState('')
+  const [fCli, setFCli] = useState('')
+  const [fResp, setFResp] = useState('')
+  const [fEst, setFEst] = useState('')
+  const termo = q.trim().toLowerCase()
+  const cliById = (id: string) => clientes.find((c) => c.id === id)
+  const filtrados = jobs.filter((j) => {
+    if (fCli && j.cliente_id !== fCli) return false
+    if (fResp && j.responsavel_id !== fResp) return false
+    if (fEst && j.status !== fEst) return false
+    if (termo) {
+      const c = cliById(j.cliente_id)
+      const alvo = `${j.titulo ?? ''} ${j.numero ?? ''} ${c?.nome_fantasia ?? ''} ${c?.nome ?? ''}`.toLowerCase()
+      if (!alvo.includes(termo)) return false
+    }
+    return true
+  })
+  const filtrando = !!(termo || fCli || fResp || fEst)
+  const limpar = () => { setQ(''); setFCli(''); setFResp(''); setFEst('') }
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold">Jobs ({jobs.length})</h2>
+        <h2 className="text-sm font-semibold">Jobs ({filtrando ? `${filtrados.length} de ${jobs.length}` : jobs.length})</h2>
         <button onClick={onNovo} style={btnPrimary}>+ Novo job</button>
       </div>
+      {jobs.length > 0 && (
+        <FiltroBarra onLimpar={filtrando ? limpar : undefined}>
+          <BuscaCampo chave="pm.jobs.filtro_busca" valor={q} on={setQ} placeholder="Buscar por título ou cliente…" />
+          <Select label="Cliente" ajuda="pm.jobs.filtro_cliente" v={fCli} on={setFCli}
+            opts={[['', 'Todos os clientes'], ...clientes.map((c) => [c.id, c.nome_fantasia || c.nome] as [string, string])]} />
+          <Select label="Responsável" ajuda="pm.jobs.filtro_responsavel" v={fResp} on={setFResp}
+            opts={[['', 'Todos os responsáveis'], ...responsaveis.map((u) => [u.id, labelUsuario(u, responsaveis)] as [string, string])]} />
+          <Select label="Estágio" ajuda="pm.jobs.filtro_estagio" v={fEst} on={setFEst}
+            opts={[['', 'Todos os estágios'], ...ESTAGIOS.map((e) => [e.v, e.l] as [string, string])]} />
+        </FiltroBarra>
+      )}
       {jobs.length === 0 ? (
         <EmptyBox titulo="Nenhum job ainda" sub="Comece criando o primeiro." />
+      ) : filtrados.length === 0 ? (
+        <EmptyBox titulo="Nenhum job com esse filtro" sub="Ajuste a busca ou limpe os filtros para ver todos." />
       ) : (
         <div style={tableWrap}>
           <table style={tableSt}>
@@ -819,7 +935,7 @@ function JobsTabela({
               </tr>
             </thead>
             <tbody>
-              {jobs.map((j) => {
+              {filtrados.map((j) => {
                 const cli = clientes.find((c) => c.id === j.cliente_id)
                 const resp = responsaveis.find((u) => u.id === j.responsavel_id)
                 const cfg = estagioCfg(j.status)
@@ -854,14 +970,37 @@ function ClientesTabela({
   clientes: Cliente[]; contratos: ContratoOpt[]
   onNovo: () => void; onEditar: (c: Cliente) => void; onExcluir: (c: Cliente) => void
 }) {
+  // Busca + filtro de status (RD-99): achar 1 cliente por nome em <=3 toques, mesmo com centenas na lista.
+  const [q, setQ] = useState('')
+  const [fStatus, setFStatus] = useState('')
+  const termo = q.trim().toLowerCase()
+  const filtrados = clientes.filter((c) => {
+    if (fStatus && c.status !== fStatus) return false
+    if (termo) {
+      const alvo = `${c.nome ?? ''} ${c.nome_fantasia ?? ''} ${c.contato_principal ?? ''} ${c.cnpj_cpf ?? ''} ${c.email ?? ''} ${c.segmento ?? ''}`.toLowerCase()
+      if (!alvo.includes(termo)) return false
+    }
+    return true
+  })
+  const filtrando = !!(termo || fStatus)
+  const limpar = () => { setQ(''); setFStatus('') }
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold">Clientes da agência ({clientes.length})</h2>
+        <h2 className="text-sm font-semibold">Clientes da agência ({filtrando ? `${filtrados.length} de ${clientes.length}` : clientes.length})</h2>
         <button onClick={onNovo} style={btnPrimary}>+ Novo cliente</button>
       </div>
+      {clientes.length > 0 && (
+        <FiltroBarra onLimpar={filtrando ? limpar : undefined}>
+          <BuscaCampo chave="pm.clientes.filtro_busca" valor={q} on={setQ} placeholder="Buscar por nome, contato ou CNPJ/CPF…" />
+          <Select label="Status" ajuda="pm.clientes.filtro_status" v={fStatus} on={setFStatus}
+            opts={[['', 'Todos os status'], ['ativo', 'Ativo'], ['prospect', 'Prospect'], ['inativo', 'Inativo']]} />
+        </FiltroBarra>
+      )}
       {clientes.length === 0 ? (
         <EmptyBox titulo="Nenhum cliente ainda" sub="Cadastre os clientes da agência para começar." />
+      ) : filtrados.length === 0 ? (
+        <EmptyBox titulo="Nenhum cliente com esse filtro" sub="Ajuste a busca ou limpe os filtros para ver todos." />
       ) : (
         <div style={tableWrap}>
           <table style={tableSt}>
@@ -873,7 +1012,7 @@ function ClientesTabela({
               </tr>
             </thead>
             <tbody>
-              {clientes.map((c) => {
+              {filtrados.map((c) => {
                 const ct = contratos.find((x) => x.id === c.contrato_id)
                 return (
                   <tr key={c.id} style={{ borderTop: `1px solid ${BORDA}` }}>
@@ -906,16 +1045,45 @@ function ClientesTabela({
 }
 
 function TimesheetTabela({
-  timesheets, jobs, onNovo, onExcluir,
-}: { timesheets: Timesheet[]; jobs: Job[]; onNovo: () => void; onExcluir: (t: Timesheet) => void }) {
+  timesheets, jobs, responsaveis, onNovo, onEditar, onExcluir,
+}: { timesheets: Timesheet[]; jobs: Job[]; responsaveis: Array<{ id: string; email: string | null; full_name?: string | null }>; onNovo: () => void; onEditar: (t: Timesheet) => void; onExcluir: (t: Timesheet) => void }) {
+  // Busca + filtros (RD-99): achar os lançamentos de um job/responsável sem rolar centenas de linhas.
+  const [q, setQ] = useState('')
+  const [fJob, setFJob] = useState('')
+  const [fResp, setFResp] = useState('')
+  const termo = q.trim().toLowerCase()
+  const jobById = (id: string) => jobs.find((j) => j.id === id)
+  const filtrados = timesheets.filter((t) => {
+    if (fJob && t.job_id !== fJob) return false
+    if (fResp && t.user_id !== fResp) return false
+    if (termo) {
+      const j = jobById(t.job_id)
+      const alvo = `${j?.titulo ?? ''} ${t.descricao ?? ''} ${t.tipo_atividade ?? ''}`.toLowerCase()
+      if (!alvo.includes(termo)) return false
+    }
+    return true
+  })
+  const filtrando = !!(termo || fJob || fResp)
+  const limpar = () => { setQ(''); setFJob(''); setFResp('') }
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold">Timesheet</h2>
+        <h2 className="text-sm font-semibold">Timesheet{filtrando ? ` (${filtrados.length} de ${timesheets.length})` : ''}</h2>
         <button onClick={onNovo} style={btnPrimary}>+ Registrar horas</button>
       </div>
+      {timesheets.length > 0 && (
+        <FiltroBarra onLimpar={filtrando ? limpar : undefined}>
+          <BuscaCampo chave="pm.timesheet.filtro_busca" valor={q} on={setQ} placeholder="Buscar por job, atividade ou descrição…" />
+          <Select label="Job" ajuda="pm.timesheet.filtro_job" v={fJob} on={setFJob}
+            opts={[['', 'Todos os jobs'], ...jobs.map((j) => [j.id, j.titulo] as [string, string])]} />
+          <Select label="Responsável" ajuda="pm.timesheet.filtro_responsavel" v={fResp} on={setFResp}
+            opts={[['', 'Todos os responsáveis'], ...responsaveis.map((u) => [u.id, labelUsuario(u, responsaveis)] as [string, string])]} />
+        </FiltroBarra>
+      )}
       {timesheets.length === 0 ? (
         <EmptyBox titulo="Nenhum registro de horas" sub="Registre as horas pra calcular rentabilidade." />
+      ) : filtrados.length === 0 ? (
+        <EmptyBox titulo="Nenhum lançamento com esse filtro" sub="Ajuste a busca ou limpe os filtros para ver todos." />
       ) : (
         <div style={tableWrap}>
           <table style={tableSt}>
@@ -926,7 +1094,7 @@ function TimesheetTabela({
               </tr>
             </thead>
             <tbody>
-              {timesheets.slice(0, 100).map((t) => {
+              {filtrados.slice(0, 100).map((t) => {
                 const job = jobs.find((j) => j.id === t.job_id)
                 return (
                   <tr key={t.id} style={{ borderTop: `1px solid ${BORDA}` }}>
@@ -935,7 +1103,10 @@ function TimesheetTabela({
                     <Td>{t.tipo_atividade || '—'}</Td>
                     <Td>{t.descricao || '—'}</Td>
                     <Td align="right"><b style={{ color: DOURADO }}>{t.horas}h</b></Td>
-                    <Td align="center"><button onClick={() => onExcluir(t)} style={btnDanger}>X</button></Td>
+                    <Td align="center">
+                      <button onClick={() => onEditar(t)} style={btnSec}>Editar</button>
+                      <button onClick={() => onExcluir(t)} style={{ ...btnDanger, marginLeft: 4 }} aria-label="Excluir registro de horas">X</button>
+                    </Td>
                   </tr>
                 )
               })}
@@ -980,10 +1151,10 @@ function Modal({ titulo, children, onClose }: { titulo: string; children: React.
     </div>
   )
 }
-function Field({ label, v, on, type = 'text', multiline, testId }: { label: string; v: unknown; on: (v: string) => void; type?: string; multiline?: boolean; testId?: string }) {
+function Field({ label, v, on, type = 'text', multiline, testId, ajuda }: { label: string; v: unknown; on: (v: string) => void; type?: string; multiline?: boolean; testId?: string; ajuda?: string }) {
   return (
     <label style={lbl}>
-      {label}
+      <span style={{ display: 'flex', alignItems: 'center' }}>{label}{ajuda && <AjudaCampo chave={ajuda} />}</span>
       {multiline ? (
         <textarea rows={3} value={(v as string) ?? ''} onChange={(e) => on(e.target.value)} data-testid={testId} style={{ ...inp, resize: 'vertical' }} />
       ) : (
@@ -999,6 +1170,26 @@ function Select({ label, v, on, opts, testId, ajuda }: { label: string; v: strin
       <select value={v} onChange={(e) => on(e.target.value)} data-testid={testId} style={inp}>
         {opts.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
       </select>
+    </label>
+  )
+}
+// Barra de busca/filtros das listas (Jobs, Clientes, Timesheet). Em coluna no celular (390px), em linha no desktop.
+function FiltroBarra({ children, onLimpar }: { children: React.ReactNode; onLimpar?: () => void }) {
+  return (
+    <div style={filtroBarra}>
+      {children}
+      {onLimpar && (
+        <button onClick={onLimpar} style={filtroLimpar} aria-label="Limpar filtros">✕ Limpar</button>
+      )}
+    </div>
+  )
+}
+// Campo de busca por texto, com o "?" padrão (RD-95).
+function BuscaCampo({ chave, valor, on, placeholder }: { chave: string; valor: string; on: (v: string) => void; placeholder: string }) {
+  return (
+    <label style={{ ...lbl, minWidth: 0 }}>
+      <span style={{ display: 'flex', alignItems: 'center' }}>Buscar<AjudaCampo chave={chave} /></span>
+      <input type="search" value={valor} onChange={(e) => on(e.target.value)} placeholder={placeholder} style={inp} />
     </label>
   )
 }
@@ -1117,6 +1308,15 @@ const toastStyle: CSSProperties = {
   position: 'fixed', bottom: 16, left: '50%', transform: 'translateX(-50%)',
   background: ESPRESSO, color: '#fff', padding: '10px 16px', borderRadius: 10,
   fontSize: 13, zIndex: 60, maxWidth: '90vw',
+}
+const filtroBarra: CSSProperties = {
+  display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+  gap: 10, alignItems: 'end', marginBottom: 12,
+  background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: 12,
+}
+const filtroLimpar: CSSProperties = {
+  border: `1px solid ${BORDA}`, background: OFFWHITE, color: TEXTM,
+  borderRadius: 8, padding: '8px 10px', fontSize: 12, cursor: 'pointer', minHeight: 40,
 }
 const statusChip: CSSProperties = {
   fontSize: 11, padding: '2px 10px', borderRadius: 999, fontWeight: 600, textTransform: 'uppercase',

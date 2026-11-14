@@ -9,8 +9,14 @@ import { ehUuid, erroAmigavel } from '@/lib/erroAmigavel'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERM = '#B91C1C'
+// RD-95: a ajuda "?" é carregada por rota (fn_ajuda_campo_listar filtra rota exata). Esta tela é rota dinâmica
+// (/obras/[id]/horas); usePathname() traria o UUID real, que nunca casa com a linha de ajuda. Fixamos a rota no
+// padrão [id] (igual às telas irmãs subempreiteiros/revisões), onde as 9 chaves projetos.horas_obra.* estão gravadas.
+const ROTA = '/dashboard/projetos/obras/[id]/horas'
 // Moeda com centavos (padrão das telas irmãs de obra: Obras lista e Resultado) — R$ 100,00
 const brl = (v: number | null | undefined) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
@@ -28,6 +34,10 @@ export default function LancarHorasPage({ params }: { params: Promise<{ id: stri
   const [erro, setErro] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [f, setF] = useState({ data: hoje(), funcao_id: '', descricao: '', horas: '', custo_hora: '' })
+  // RD-98 p2 · editar um lançamento sem excluir e relançar. `ed` = lançamento em edição; `ef` = o form.
+  const [ed, setEd] = useState<Apont | null>(null)
+  const [ef, setEf] = useState({ data: hoje(), funcao_id: '', descricao: '', horas: '', custo_hora: '' })
+  const [salvandoEd, setSalvandoEd] = useState(false)
 
   const carregar = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
@@ -49,14 +59,14 @@ export default function LancarHorasPage({ params }: { params: Promise<{ id: stri
 
   const escolherFuncao = (fid: string) => {
     const fn = funcoes.find(x => x.id === fid)
-    setF(p => ({ ...p, funcao_id: fid, custo_hora: fn?.custo_hora_manual != null && !p.custo_hora ? String(fn.custo_hora_manual) : p.custo_hora }))
+    setF(p => ({ ...p, funcao_id: fid, custo_hora: fn?.custo_hora_manual != null && !p.custo_hora ? numeroParaMoeda(fn.custo_hora_manual) : p.custo_hora }))
   }
 
   const lancar = async (e: React.FormEvent) => {
     e.preventDefault(); setErro('')
-    const horas = Number(f.horas.replace(',', '.')), custo = Number(f.custo_hora.replace(',', '.'))
+    const horas = Number(f.horas.replace(',', '.')), custo = moedaParaNumero(f.custo_hora) // #6874: custo/hora mascarado (R$)
     if (!(horas > 0)) { setErro('Informe as horas trabalhadas (maior que zero).'); return }
-    if (!(custo >= 0) || f.custo_hora === '') { setErro('Informe o custo da hora.'); return }
+    if (custo == null || custo < 0) { setErro('Informe o custo da hora.'); return }
     setSalvando(true)
     const { error } = await supabase.rpc('fn_obra_mao_obra_apontar', { p_obra_id: id, p_dados: { data: f.data, funcao_id: f.funcao_id, descricao: f.descricao || null, horas, custo_hora: custo } })
     setSalvando(false)
@@ -69,6 +79,36 @@ export default function LancarHorasPage({ params }: { params: Promise<{ id: stri
     if (!window.confirm(`Excluir o lançamento de ${a.horas} h em ${a.data}? Ele sai do custo da obra.`)) return
     const { error } = await supabase.rpc('fn_obra_mao_obra_excluir', { p_id: a.id })
     if (error) { setErro(erroAmigavel(error)); return }
+    carregar()
+  }
+
+  // RD-98 p2 · abre o editor pré-preenchido com o lançamento (horas/custo em número simples).
+  const abrirEditar = (a: Apont) => {
+    setErro('')
+    setEf({
+      data: (a.data ?? hoje()).slice(0, 10),
+      funcao_id: a.funcao_id ?? '',
+      descricao: a.descricao ?? '',
+      horas: String(a.horas ?? ''),
+      custo_hora: numeroParaMoeda(a.custo_hora),
+    })
+    setEd(a)
+  }
+  const salvarEditar = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!ed) return
+    setErro('')
+    const horas = Number(ef.horas.replace(',', '.')), custo = moedaParaNumero(ef.custo_hora) // #6874: custo/hora mascarado (R$)
+    if (!(horas > 0)) { setErro('Informe as horas trabalhadas (maior que zero).'); return }
+    if (custo == null || custo < 0) { setErro('Informe o custo da hora.'); return }
+    setSalvandoEd(true)
+    const { error } = await supabase.rpc('fn_obra_mao_obra_editar', {
+      p_id: ed.id,
+      p_dados: { data: ef.data, funcao_id: ef.funcao_id, descricao: ef.descricao || null, horas, custo_hora: custo },
+    })
+    setSalvandoEd(false)
+    if (error) { setErro(erroAmigavel(error)); return }
+    setEd(null)
     carregar()
   }
 
@@ -86,18 +126,18 @@ export default function LancarHorasPage({ params }: { params: Promise<{ id: stri
 
         <form onSubmit={lancar} data-testid="horas-form" style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 12, display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))' }}>
           <div><label style={lab}>Data</label>
-            <input type="date" value={f.data} onChange={e => setF({ ...f, data: e.target.value })} style={inp} data-testid="horas-data" /> <AjudaCampo chave="projetos.horas_obra.data" /></div>
+            <input type="date" value={f.data} onChange={e => setF({ ...f, data: e.target.value })} style={inp} data-testid="horas-data" /> <AjudaCampo chave="projetos.horas_obra.data" rota={ROTA} /></div>
           <div><label style={lab}>Função</label>
-            <AjudaCampo chave="projetos.horas_obra.funcao" /> <select value={f.funcao_id} onChange={e => escolherFuncao(e.target.value)} style={inp} data-testid="horas-funcao">
+            <AjudaCampo chave="projetos.horas_obra.funcao" rota={ROTA} /> <select value={f.funcao_id} onChange={e => escolherFuncao(e.target.value)} style={inp} data-testid="horas-funcao">
               <option value="">Sem função</option>{funcoes.map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}</select></div>
           <div><label style={lab}>Horas</label>
-            <input inputMode="decimal" value={f.horas} onChange={e => setF({ ...f, horas: e.target.value })} style={inp} data-testid="horas-horas" /> <AjudaCampo chave="projetos.horas_obra.horas" /></div>
+            <input inputMode="decimal" value={f.horas} onChange={e => setF({ ...f, horas: e.target.value })} style={inp} data-testid="horas-horas" /> <AjudaCampo chave="projetos.horas_obra.horas" rota={ROTA} /></div>
           <div><label style={lab}>Custo da hora (R$)</label>
-            <input inputMode="decimal" value={f.custo_hora} onChange={e => setF({ ...f, custo_hora: e.target.value })} style={inp} data-testid="horas-custo" /> <AjudaCampo chave="projetos.horas_obra.custo_hora" /></div>
+            <CampoMoeda value={f.custo_hora} onChange={v => setF({ ...f, custo_hora: v })} style={inp} testId="horas-custo" placeholder="R$ 0,00" /> <AjudaCampo chave="projetos.horas_obra.custo_hora" rota={ROTA} /></div>
           <div style={{ gridColumn: '1 / -1' }}><label style={lab}>O que foi feito</label>
-            <input value={f.descricao} onChange={e => setF({ ...f, descricao: e.target.value })} style={inp} data-testid="horas-descricao" /> <AjudaCampo chave="projetos.horas_obra.descricao" /></div>
+            <input value={f.descricao} onChange={e => setF({ ...f, descricao: e.target.value })} style={inp} data-testid="horas-descricao" /> <AjudaCampo chave="projetos.horas_obra.descricao" rota={ROTA} /></div>
           <div><button type="submit" disabled={salvando} data-testid="horas-lancar" style={{ padding: '9px 16px', background: ESP, color: '#fff', border: 0, borderRadius: 8, fontWeight: 600 }}>{salvando ? 'Lançando…' : 'Lançar horas'}</button>
-            <AjudaCampo chave="projetos.horas_obra.lancar" /></div>
+            <AjudaCampo chave="projetos.horas_obra.lancar" rota={ROTA} /></div>
         </form>
 
         {erro && <p role="alert" style={{ color: VERM }}>{erro}</p>}
@@ -115,13 +155,42 @@ export default function LancarHorasPage({ params }: { params: Promise<{ id: stri
                     <td style={{ padding: 8 }}>{a.data}</td><td style={{ padding: 8 }}>{nomeFn(a.funcao_id)}</td><td style={{ padding: 8 }}>{a.descricao ?? ''}</td>
                     <td style={{ padding: 8, textAlign: 'right' }}>{a.horas}</td><td style={{ padding: 8, textAlign: 'right' }}>{brl(Number(a.custo_hora))}</td>
                     <td style={{ padding: 8, textAlign: 'right' }}>{brl(Number(a.valor))}</td>
-                    <td style={{ padding: 8 }}><button onClick={() => excluir(a)} data-testid="horas-excluir" style={{ color: VERM, background: 'none', border: 0, cursor: 'pointer' }}>Excluir</button></td>
+                    <td style={{ padding: 8 }}>
+                      <span style={{ display: 'inline-flex', gap: 10, alignItems: 'center' }}>
+                        <button onClick={() => abrirEditar(a)} data-testid="horas-editar" style={{ color: ESP, background: 'none', border: 0, cursor: 'pointer' }}>Editar <AjudaCampo chave="projetos.horas_obra.editar" rota={ROTA} /></button>
+                        <button onClick={() => excluir(a)} data-testid="horas-excluir" style={{ color: VERM, background: 'none', border: 0, cursor: 'pointer' }}>Excluir <AjudaCampo chave="projetos.horas_obra.excluir" rota={ROTA} /></button>
+                      </span>
+                    </td>
                   </tr>))}
-                <tr style={{ fontWeight: 700 }}><td colSpan={5} style={{ padding: 8 }}>Total de mão de obra</td><td style={{ padding: 8, textAlign: 'right' }} data-testid="horas-total">{brl(total)}</td><td /></tr>
+                <tr style={{ fontWeight: 700 }}><td colSpan={5} style={{ padding: 8 }}>Total de mão de obra <AjudaCampo chave="projetos.horas_obra.total" rota={ROTA} /></td><td style={{ padding: 8, textAlign: 'right' }} data-testid="horas-total">{brl(total)}</td><td /></tr>
               </tbody>
             </table>
           </div>)}
       </div>
+
+      {ed && (
+        <div role="dialog" aria-label="Editar lançamento de horas" onClick={() => !salvandoEd && setEd(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 80, padding: 16 }}>
+          <form onSubmit={salvarEditar} onClick={e => e.stopPropagation()} data-testid="horas-editar-form"
+            style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 16, width: '100%', maxWidth: 460, display: 'grid', gap: 10 }}>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>Editar lançamento de horas</div>
+            <div><label style={lab}>Data</label>
+              <input type="date" value={ef.data} onChange={e => setEf({ ...ef, data: e.target.value })} style={inp} data-testid="horas-editar-data" /> <AjudaCampo chave="projetos.horas_obra.data" rota={ROTA} /></div>
+            <div><label style={lab}>Função</label>
+              <AjudaCampo chave="projetos.horas_obra.funcao" rota={ROTA} /> <select value={ef.funcao_id} onChange={e => setEf({ ...ef, funcao_id: e.target.value })} style={inp} data-testid="horas-editar-funcao">
+                <option value="">Sem função</option>{funcoes.map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}</select></div>
+            <div><label style={lab}>Horas</label>
+              <input inputMode="decimal" value={ef.horas} onChange={e => setEf({ ...ef, horas: e.target.value })} style={inp} data-testid="horas-editar-horas" /> <AjudaCampo chave="projetos.horas_obra.horas" rota={ROTA} /></div>
+            <div><label style={lab}>Custo da hora (R$)</label>
+              <CampoMoeda value={ef.custo_hora} onChange={v => setEf({ ...ef, custo_hora: v })} style={inp} testId="horas-editar-custo" placeholder="R$ 0,00" /> <AjudaCampo chave="projetos.horas_obra.custo_hora" rota={ROTA} /></div>
+            <div><label style={lab}>O que foi feito</label>
+              <input value={ef.descricao} onChange={e => setEf({ ...ef, descricao: e.target.value })} style={inp} data-testid="horas-editar-descricao" /> <AjudaCampo chave="projetos.horas_obra.descricao" rota={ROTA} /></div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
+              <button type="button" onClick={() => setEd(null)} disabled={salvandoEd} style={{ padding: '9px 16px', background: '#fff', color: ESP, border: `1px solid ${LINE}`, borderRadius: 8, cursor: 'pointer' }}>Cancelar</button>
+              <button type="submit" disabled={salvandoEd} data-testid="horas-editar-salvar" style={{ padding: '9px 16px', background: ESP, color: '#fff', border: 0, borderRadius: 8, fontWeight: 600, cursor: salvandoEd ? 'wait' : 'pointer' }}>{salvandoEd ? 'Salvando…' : 'Salvar'}</button>
+            </div>
+          </form>
+        </div>)}
     </div>
   )
 }

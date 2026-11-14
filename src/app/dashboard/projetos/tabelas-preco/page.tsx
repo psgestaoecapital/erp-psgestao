@@ -18,6 +18,7 @@ import { VinculoCatalogo, type VinculoCpu } from './_componentes/VinculoCatalogo
 import { lerPlanilhaFaixas } from '@/lib/hub/tabelaPrecoImportar'
 import { precedenciaPreco } from '@/lib/hub/precedenciaPreco'
 import { escolherFaixa, margemContraCusto, precoUnitario, type Condicao, type ItemFaixa } from '@/lib/hub/tabelaPreco'
+import { parseNumBR } from '@/lib/num'
 
 // Preço unitário nunca arredonda centavo (22,50 não vira 23); inteiro segue sem casas.
 const fmtPreco = (v: number) => (Number.isInteger(v) ? fmtR(v) : `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)
@@ -60,7 +61,7 @@ export default function TabelasPrecoPage() {
   }, [companyIds])
   const [fm, setFm] = useState({ nomeTab: '', ref: '', nome: '', un: 'm²', de: '', ate: '', preco: '', cond: '', pct: '', cCond: 'normal', cod: '', fixo: '' })
   const setF = (k: keyof typeof fm, v: string) => setFm(f => ({ ...f, [k]: v }))
-  const num = (v: string) => (v.trim() === '' ? null : Number(v.replace(',', '.')))
+  const num = (v: string) => parseNumBR(v) // aceita vírgula decimal e ponto de milhar BR (#5660)
   const salvar = async (fn: string, args: Record<string, unknown>, ok: string) => {
     setMsg('')
     const { data, error } = await supabase.rpc(fn, args)
@@ -95,6 +96,7 @@ export default function TabelasPrecoPage() {
     setMsg(`${gravadas} faixa(s) importada(s).`); setPlanilha(''); setRev(r => r + 1)
   }
   const excluirFaixa = async (id: string) => { if (window.confirm('Excluir esta faixa do contrato? Ela sai do cálculo, do orçamento e do saldo. A exclusão é rastreável (fica o registro de quem excluiu e quando).')) await salvar('fn_tabela_preco_faixa_excluir', { p_id: id }, 'Faixa excluída.') }
+  const excluirCond = async (cond: string) => { if (window.confirm(`Excluir a condição "${cond}" deste contrato? Ela deixa de ser oferecida no cálculo e na medição. A exclusão é rastreável (fica o registro de quem excluiu e quando). Se houver código de cliente ou preço fixo usando esta condição, remova-os antes.`)) await salvar('fn_tabela_preco_condicao_excluir', { p_tabela_id: tabelaId, p_condicao: cond }, 'Condição excluída.') }
 
   const carregarTabelas = useCallback(async () => {
     if (!companyIds?.length) { setLoading(false); return }
@@ -124,7 +126,13 @@ export default function TabelasPrecoPage() {
           // Ambiente ainda sem a coluna deleted_at (preview antes da migração): lê sem o filtro para não quebrar a tela.
           return r.error && /deleted_at/i.test(r.error.message ?? '') ? await base() : r
         })(),
-        supabase.from('erp_tabela_preco_condicao').select('condicao,percentual').eq('tabela_id', tabelaId).order('condicao'),
+        (async () => {
+          // Condições excluídas (soft-delete rastreável) saem da lista, do cálculo e da medição.
+          const baseC = () => supabase.from('erp_tabela_preco_condicao').select('condicao,percentual').eq('tabela_id', tabelaId).order('condicao')
+          const r = await baseC().is('deleted_at', null)
+          // Ambiente ainda sem a coluna deleted_at (preview antes da migração): lê sem o filtro para não quebrar a tela.
+          return r.error && /deleted_at/i.test(r.error.message ?? '') ? await baseC() : r
+        })(),
         supabase.from('erp_tabela_preco_codigo').select('servico_ref,condicao,codigo_externo,preco_fixo').eq('tabela_id', tabelaId),
       ])
       if (!vivo) return
@@ -148,7 +156,7 @@ export default function TabelasPrecoPage() {
     return [...m.values()]
   }, [itens])
   const faixas = useMemo(() => itens.filter(i => i.servico_ref === servico), [itens, servico])
-  const q = Number(qtd.replace(',', '.')) || 0
+  const q = parseNumBR(qtd) || 0
   const cond: Condicao | null = useMemo(() => {
     if (condSel === 'normal') return null
     const c = conds.find(x => x.condicao === condSel)
@@ -159,7 +167,7 @@ export default function TabelasPrecoPage() {
   const preco = precoUnitario(faixas, q, cond)
   const codigo = cods.find(x => x.servico_ref === servico && x.condicao === condSel)?.codigo_externo
   const cpuCatalogo = cpus.find(x => x.servico_ref === servico)?.custo_unitario ?? null
-  const custoN = Number(custo.replace(',', '.')) || cpuCatalogo || 0
+  const custoN = parseNumBR(custo) || cpuCatalogo || 0
   // De-para PS ↔ cliente: serviço da tabela sem nenhum código, e código que aponta para serviço que não está na tabela.
   const semCodigo = useMemo(() => servicos.filter(s => !cods.some(k => k.servico_ref === s.servico_ref)), [servicos, cods])
   const codigoOrfao = useMemo(() => [...new Set(cods.filter(k => !servicos.some(s => s.servico_ref === k.servico_ref)).map(k => k.servico_ref))], [servicos, cods])
@@ -176,6 +184,16 @@ export default function TabelasPrecoPage() {
   const fmtData = (d: string | null) => (d ? new Date(`${d}T12:00:00`).toLocaleDateString('pt-BR') : 'sem fim')
   const prec = precedenciaPreco({ contratoVigente: selo === 'Vigente' || selo === 'Vence em até 30 dias', tabelaCliente: !!tabelaSel, tabelaPadrao: false, temFaixa: preco != null })
   const usarCelula = (sref: string, de: number, c: string) => { setServico(sref); setQtd(String(de > 0 ? de : 1)); setCondSel(c) }
+  // RD-98 (estado vazio tem o botão para fazer): o admin abre o bloco "Editar contrato" direto do estado vazio
+  // e a tela rola/foca o primeiro campo do caminho escolhido (cadastrar manual × importar planilha).
+  const abrirEditar = (foco: 'nova' | 'importar') => {
+    setEditar(true)
+    setTimeout(() => {
+      document.getElementById('tp-editar')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      const alvo = foco === 'importar' ? 'tp-imp-texto' : 'tp-f-nometab'
+      ;(document.querySelector(`[data-testid="${alvo}"]`) as HTMLElement | null)?.focus()
+    }, 60)
+  }
 
   const campo: React.CSSProperties = { display: 'block', width: '100%', padding: 10, border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 15, background: '#fff', color: ESP }
   const rot: React.CSSProperties = { fontSize: 13, color: MUT, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }
@@ -191,7 +209,21 @@ export default function TabelasPrecoPage() {
         {!loading && !erro && tabelas.length === 0 && (
           <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 20 }} data-testid="tabelas-vazio">
             <b>Nenhuma tabela de preço cadastrada.</b>
-            <p style={{ fontSize: 14, color: MUT }}>A tabela do cliente (faixas de quantidade e adicionais por turno) entra pela importação de planilha, na próxima entrega. Enquanto isso, o Eng. Chefe carrega a primeira tabela.</p>
+            {podeGravar
+              ? (<>
+                  <p style={{ fontSize: 14, color: MUT }} data-testid="tabelas-vazio-admin">Comece pelo contrato do cliente: cadastre a primeira tabela à mão ou importe a planilha. A tabela guarda as faixas de quantidade e os adicionais por turno de cada serviço do contrato.</p>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 4 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <button type="button" data-testid="tabelas-vazio-cadastrar" onClick={() => abrirEditar('nova')} style={{ minHeight: 44, padding: '0 18px', fontWeight: 700, background: GOLD, color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>Cadastrar manualmente</button>
+                      <AjudaCampo chave="hub.tabela_preco.nova_tabela" />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <button type="button" data-testid="tabelas-vazio-importar" onClick={() => abrirEditar('importar')} style={{ minHeight: 44, padding: '0 18px', fontWeight: 700, background: '#fff', color: ESP, border: `1px solid ${GOLD}`, borderRadius: 8, cursor: 'pointer' }}>Importar planilha</button>
+                      <AjudaCampo chave="hub.tabela_preco.importar" />
+                    </div>
+                  </div>
+                </>)
+              : <p style={{ fontSize: 14, color: MUT }} data-testid="tabelas-vazio-consulta">Ainda não há contrato cadastrado para esta empresa. O cadastro das faixas e adicionais fica com o administrativo; assim que a primeira tabela entrar, os preços aparecem aqui.</p>}
           </div>
         )}
         {!loading && !erro && tabelas.length > 0 && (
@@ -280,7 +312,7 @@ export default function TabelasPrecoPage() {
           <p role="status" data-testid="tp-consulta" style={{ fontSize: 13, color: MUT, margin: '16px 0 0', display: 'flex', alignItems: 'center', gap: 6 }}>Perfil de consulta: você vê o contrato e as medições; editar fica com o administrativo. <AjudaCampo chave="hub.tabela_preco.perfil_consulta" /></p>
         )}
         {!loading && !erro && podeGravar && (
-          <section data-testid="tp-editar" style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 16, marginTop: 16 }}>
+          <section id="tp-editar" data-testid="tp-editar" style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 16, marginTop: 16 }}>
             <button type="button" data-testid="tp-editar-abrir" onClick={() => setEditar(v => !v)}
               style={{ background: 'none', border: 'none', padding: 0, fontSize: 17, fontWeight: 700, color: ESP, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
               {editar ? '▾' : '▸'} Editar contrato <AjudaCampo chave="hub.tabela_preco.editar" />
@@ -359,6 +391,20 @@ export default function TabelasPrecoPage() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}><input data-testid="tp-f-pct" inputMode="decimal" style={campo} value={fm.pct} onChange={e => setF('pct', e.target.value)} placeholder="50" aria-label="Adicional em porcentagem" /> <AjudaCampo chave="hub.tabela_preco.f_adicional_pct" /></div>
                     </div>
                     <button type="button" data-testid="tp-f-salvar-cond" onClick={salvarCond} disabled={!fm.cond.trim() || num(fm.pct) == null} style={{ ...campo, width: 'auto', cursor: 'pointer', fontWeight: 700, background: GOLD, color: '#fff', border: 'none' }}>Salvar condição</button>
+                    {conds.length > 0 && (
+                      <div style={{ display: 'grid', gap: 4 }}>
+                        <span style={{ fontSize: 12, color: MUT }}>Condições cadastradas</span>
+                        {conds.map(c => (
+                          <div key={c.condicao} data-testid="tp-cond-linha" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: 13, borderTop: `1px solid ${LINE}`, paddingTop: 4 }}>
+                            <span>{c.condicao}{c.percentual != null ? ` (+${c.percentual}%)` : ''}</span>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <button type="button" data-testid="tp-cond-excluir" onClick={() => excluirCond(c.condicao)} style={{ color: '#B91C1C', background: 'none', border: 'none', cursor: 'pointer' }}>Excluir</button>
+                              <AjudaCampo chave="hub.tabela_preco.condicao_excluir" />
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div style={{ display: 'grid', gap: 8, borderTop: `1px solid ${LINE}`, paddingTop: 12 }}>
                     <span style={rot}>Código no cliente (serviço escolhido acima) <AjudaCampo chave="hub.tabela_preco.codigo_cadastro" /></span>

@@ -1,6 +1,8 @@
 "use client";
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
+import { CampoMoeda } from "@/components/comum/CampoMoeda";
+import { moedaParaNumero, numeroParaMoeda } from "@/lib/moeda-mascara";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -61,7 +63,7 @@ export default function CotacoesPage(){
     setLoading(true);
     const{data,error}=await supabase.from("erp_cotacoes").select("*").eq("company_id",sel).order("data_abertura",{ascending:false}).limit(100);
     if(data)setCotacoes(data);
-    if(error&&!error.message.includes('does not exist'))setMsg("Erro: "+error.message);
+    if(error&&!error.message.includes('does not exist'))setMsg("Não foi possível carregar as cotações. Tente novamente.");
     setLoading(false);
   };
 
@@ -92,8 +94,8 @@ export default function CotacoesPage(){
       created_by:user?.id,
     }).select().single();
     
-    if(error){setMsg("❌ "+error.message);return;}
-    
+    if(error){setMsg("❌ Não foi possível criar a cotação. Tente novamente.");return;}
+
     // Insere itens
     const itens=novaCot.itens.map((it:any,idx:number)=>({
       cotacao_id:cot.id,
@@ -194,7 +196,7 @@ export default function CotacoesPage(){
       p_user_id:user?.id,
     });
     
-    if(error){setMsg("❌ "+error.message);return;}
+    if(error){setMsg("❌ Não foi possível aprovar a cotação. Tente novamente.");return;}
     setMsg("✅ Cotação aprovada e pedido de compra gerado!");
     setShowComparar(null);
     loadCotacoes();
@@ -455,7 +457,7 @@ export default function CotacoesPage(){
                     <td colSpan={2} style={{padding:"8px",textAlign:"right",color:TXM,fontWeight:600,fontSize:10,background:BG3}}>Frete:</td>
                     {dadosComparar.fornecedores.map((f:any)=>(
                       <td key={f.id} style={{padding:"6px",textAlign:"center",background:BG3,borderLeft:`1px solid ${BD}`}}>
-                        {showComparar.status==='aprovada'?fmtR(f.frete_valor):<input type="number" step="0.01" value={f.frete_valor||''} onChange={e=>atualizarCampoFornecedor(f.id,'frete_valor',parseFloat(e.target.value)||0)} placeholder="R$ 0" style={{...inp,padding:"4px 6px",fontSize:10,textAlign:"right"}}/>}
+                        {showComparar.status==='aprovada'?fmtR(f.frete_valor):<CampoMoeda value={f.frete_valor?numeroParaMoeda(f.frete_valor):''} onChange={m=>atualizarCampoFornecedor(f.id,'frete_valor',moedaParaNumero(m)??0)} placeholder="R$ 0,00" style={{...inp,padding:"4px 6px",fontSize:10,textAlign:"right"}}/>}
                       </td>
                     ))}
                   </tr>

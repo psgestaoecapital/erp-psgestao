@@ -9,8 +9,11 @@ import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, us
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, rectSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { mensagemDeResultado, estiloBordaInput } from '@/components/ui/feedback/contratoSalvar'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaMascara, numeroParaMoeda } from '@/lib/moeda-mascara'
 import { buscarClientesErp, nomeErp, type ErpCliente } from '@/components/pm/ClienteBusca'
 import { parseNumBR } from '@/lib/num'
 
@@ -77,7 +80,7 @@ function Inner() {
   const carregar = useCallback(async () => {
     if (!id) return
     const { data: vd, error: ve } = await supabase.from('veic_veiculo').select('*').eq('id', id).is('deleted_at', null).maybeSingle()
-    if (ve) { setErro(ve.message); return }
+    if (ve) { setErro(erroAmigavel(ve, 'Não foi possível carregar o veículo. Tente de novo.')); return }
     setV(vd as Veic | null)
     const comp = (vd as Veic | null)?.company_id
     const [cs, es, cfg, rs, vs, cp] = await Promise.all([
@@ -135,13 +138,13 @@ function Inner() {
     if (nova === 'vendido' && !venda) { setModal('venda'); return }
     const { data, error } = await supabase.rpc('fn_veic_mudar_situacao', { p_veiculo_id: id, p_nova: nova, p_user: await userId(), p_obs: null })
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha'); return }
+    if (error || !r?.ok) { setErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha.'))); return }
     setMsg('Situação atualizada.'); void carregar()
   }
   async function excluirCusto(custoId: string) {
     const { data, error } = await supabase.rpc('fn_veic_custo_excluir', { p_custo_id: custoId, p_user: await userId() })
     const r = data as { ok?: boolean; erro?: string; tinha_titulo?: boolean } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha'); return }
+    if (error || !r?.ok) { setErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha.'))); return }
     setMsg(r.tinha_titulo ? '⚠️ Custo excluído. O título em Contas a Pagar NÃO foi excluído — trate-o no financeiro.' : 'Custo excluído.')
     void carregar()
   }
@@ -149,7 +152,7 @@ function Inner() {
     if (!reserva) return
     const { data, error } = await supabase.rpc('fn_veic_reserva_cancelar', { p_reserva_id: reserva.id, p_user: await userId() })
     const r = data as { ok?: boolean; erro?: string; tinha_sinal?: boolean } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha'); return }
+    if (error || !r?.ok) { setErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha.'))); return }
     setMsg(r.tinha_sinal ? '⚠️ Reserva cancelada. O título do sinal NÃO foi excluído — trate-o no financeiro.' : 'Reserva cancelada.')
     void carregar()
   }
@@ -157,14 +160,14 @@ function Inner() {
     if (!venda) return
     const { data, error } = await supabase.rpc('fn_veic_venda_entregar', { p_venda_id: venda.id, p_user: await userId(), p_obs: null })
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha'); return }
+    if (error || !r?.ok) { setErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha.'))); return }
     setMsg('Veículo entregue.'); void carregar()
   }
   async function cancelarVenda() {
     if (!venda) return
     const { data, error } = await supabase.rpc('fn_veic_venda_cancelar', { p_venda_id: venda.id, p_user: await userId(), p_motivo: null })
     const r = data as { ok?: boolean; erro?: string; titulos_nao_excluidos?: number } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha'); return }
+    if (error || !r?.ok) { setErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha.'))); return }
     setMsg(r.titulos_nao_excluidos ? `⚠️ Venda cancelada. ${r.titulos_nao_excluidos} título(s) em Contas a Receber NÃO foram excluídos — trate-os no financeiro.` : 'Venda cancelada.')
     void carregar()
   }
@@ -410,17 +413,12 @@ function ReservaModal({ companyId, veiculoId, onClose, onSaved, onErro }: { comp
 }
 
 // #5678 — dinheiro digitado: mostra "R$ 100.000,00" enquanto digita; guarda só o número (parseNumBR aceita vírgula e ponto).
-const moedaMascara = (s: string): string => {
-  const d = s.replace(/\D/g, '')
-  if (!d) return ''
-  return (Number(d) / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-}
 const moedaNum = (s: string): number | null => parseNumBR(String(s).replace(/[R$\s.]/g, '').replace(',', '.'))
 function InputMoeda({ value, onChange, placeholder, style, ajuda }: { value: string; onChange: (v: string) => void; placeholder: string; style?: React.CSSProperties; ajuda: string }) {
   const { gridColumn, ...resto } = style ?? {}
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 4, gridColumn }}>
-      <input value={value} onChange={(e) => onChange(moedaMascara(e.target.value))} placeholder={placeholder} inputMode="numeric" style={{ ...resto, flex: 1, minWidth: 0 }} />
+      <CampoMoeda value={value} onChange={onChange} placeholder={placeholder} style={{ ...resto, flex: 1, minWidth: 0 }} />
       <AjudaCampo chave={ajuda} rota="/dashboard/revenda/veiculo" />
     </div>
   )
@@ -455,13 +453,82 @@ function ClienteVendaBusca({ companyId, nome, onNome, onEscolher, invalido }: { 
   )
 }
 
+// #5680 — tabela de recebimentos da venda: cada linha vira um título em contas a receber (GE) com forma, vencimento e conta.
+type RecLinha = { tipo: string; devedor: 'cliente' | 'banco'; valor: string; data: string; forma: string; conta: string }
+const REC_TIPOS: { v: string; l: string }[] = [{ v: 'entrada', l: 'Entrada' }, { v: 'sinal', l: 'Sinal' }, { v: 'parcela', l: 'Parcela' }, { v: 'financiamento', l: 'Financiamento (banco)' }, { v: 'retorno_banco', l: 'Retorno do banco' }]
+const REC_FORMAS = ['PIX', 'Dinheiro', 'Cheque', 'Promissória', 'Boleto', 'Cartão de Crédito', 'Cartão de Débito', 'Transferência']
+const hojeIso = () => new Date().toISOString().slice(0, 10)
+const maisDias = (iso: string, d: number) => { const x = new Date(iso + 'T12:00:00'); x.setDate(x.getDate() + d); return x.toISOString().slice(0, 10) }
+function RecebimentosTabela({ companyId, linhas, onChange, totalVenda }: { companyId: string; linhas: RecLinha[]; onChange: (l: RecLinha[]) => void; totalVenda: number }) {
+  const [contas, setContas] = useState<{ id: string; nome: string }[]>([])
+  const [nParc, setNParc] = useState('3')
+  const [intervalo, setIntervalo] = useState('30')
+  useEffect(() => {
+    void supabase.from('erp_banco_contas').select('id,nome').eq('company_id', companyId).eq('ativo', true).order('nome').then(({ data }) => setContas((data as { id: string; nome: string }[] | null) ?? []))
+  }, [companyId])
+  const soma = linhas.reduce((a, l) => a + (moedaNum(l.valor) ?? 0), 0)
+  const dif = Math.round((totalVenda - soma) * 100) / 100
+  const nova = (p: Partial<RecLinha> = {}): RecLinha => ({ tipo: 'parcela', devedor: 'cliente', valor: '', data: hojeIso(), forma: 'PIX', conta: '', ...p })
+  const set = (i: number, p: Partial<RecLinha>) => onChange(linhas.map((l, k) => k === i ? { ...l, ...p } : l))
+  const fmt = (v: number) => moedaMascara(String(Math.round(v * 100)))
+  const aVista = () => onChange([nova({ tipo: 'parcela', valor: fmt(totalVenda) })])
+  const gerar = () => {
+    const q = Math.max(1, Math.min(120, parseInt(nParc, 10) || 1)); const iv = Math.max(1, parseInt(intervalo, 10) || 30)
+    const base = Math.floor((totalVenda / q) * 100) / 100
+    onChange(Array.from({ length: q }, (_, k) => nova({ valor: fmt(k === q - 1 ? Math.round((totalVenda - base * (q - 1)) * 100) / 100 : base), data: maisDias(hojeIso(), iv * (k + 1)) })))
+  }
+  const btn: React.CSSProperties = { padding: '6px 10px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.espM, cursor: 'pointer', fontSize: 12 }
+  return (
+    <div data-testid="venda-recebimentos">
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 6 }}>
+        <button type="button" style={btn} data-testid="rec-avista" onClick={aVista} disabled={totalVenda <= 0}>À vista</button>
+        <button type="button" style={btn} onClick={gerar} disabled={totalVenda <= 0}>Gerar parcelas iguais</button>
+        <input value={nParc} onChange={(e) => setNParc(e.target.value.replace(/\D/g, ''))} inputMode="numeric" style={{ ...inp, width: 52, padding: '5px 8px' }} aria-label="número de parcelas" />
+        <span style={{ fontSize: 11.5, color: C.espL }}>parcelas a cada</span>
+        <input value={intervalo} onChange={(e) => setIntervalo(e.target.value.replace(/\D/g, ''))} inputMode="numeric" style={{ ...inp, width: 52, padding: '5px 8px' }} aria-label="intervalo em dias" />
+        <span style={{ fontSize: 11.5, color: C.espL }}>dias</span>
+        <AjudaCampo chave="revenda.venda.recebimentos" rota="/dashboard/revenda/veiculo" />
+      </div>
+      {linhas.map((l, i) => (
+        <div key={i} data-testid={`rec-linha-${i}`} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 6, marginBottom: 6, paddingBottom: 6, borderBottom: `1px dashed ${C.border}` }}>
+          <select value={l.tipo} onChange={(e) => set(i, { tipo: e.target.value, devedor: e.target.value === 'financiamento' || e.target.value === 'retorno_banco' ? 'banco' : 'cliente' })} style={inp} aria-label="tipo">{REC_TIPOS.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}</select>
+          <CampoMoeda value={l.valor} onChange={(v) => set(i, { valor: v })} placeholder="valor" style={inp} testId={`rec-valor-${i}`} />
+          <input type="date" value={l.data} onChange={(e) => set(i, { data: e.target.value })} style={inp} aria-label="vencimento" />
+          <select value={l.forma} onChange={(e) => set(i, { forma: e.target.value })} style={inp} aria-label="forma de pagamento">{REC_FORMAS.map((f) => <option key={f} value={f}>{f}</option>)}</select>
+          <select value={l.conta} onChange={(e) => set(i, { conta: e.target.value })} style={inp} aria-label="conta de destino"><option value="">conta de destino</option>{contas.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select>
+          <AjudaCampo chave="revenda.venda.recebimentos" rota="/dashboard/revenda/veiculo" />
+          <button type="button" style={btn} onClick={() => onChange(linhas.filter((_, k) => k !== i))} aria-label="remover linha">Remover</button>
+        </div>
+      ))}
+      <button type="button" style={btn} data-testid="rec-add" onClick={() => onChange([...linhas, nova()])}>+ Adicionar linha</button>
+      {linhas.length > 0 && (
+        <div style={{ fontSize: 12, marginTop: 6, color: Math.abs(dif) < 0.01 ? C.green : C.amber }}>
+          Soma dos recebimentos {brl(soma)} de {brl(totalVenda)}{Math.abs(dif) < 0.01 ? ' — confere.' : dif > 0 ? ` — faltam ${brl(dif)}.` : ` — passa ${brl(-dif)}.`}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onSaved, onErro }: { companyId: string; veiculoId: string; custoTotal: number; margemAlvo: number; onClose: () => void; onSaved: () => void; onErro: (m: string) => void }) {
   const [clienteSel, setClienteSel] = useState<ErpCliente | null>(null)
   const [f, setF] = useState({ cliente_nome: '', vendedor_nome: '', valor_venda: '', valor_entrada: '', valor_financiado: '', banco_nome: '', retorno_banco: '' })
   const [troca, setTroca] = useState({ on: false, chassi: '', modelo: '', valor_troca: '', valor_avaliacao: '' })
+  const [recs, setRecs] = useState<RecLinha[]>([])
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [campo, setCampo] = useState<string | null>(null)
+  // #8162 etapa 2c: bancos parceiros cadastrados (Configuração da garagem) para seleção na venda.
+  // Leitura tolerante: se a empresa ainda não cadastrou nenhum (ou a tabela ainda não existe no
+  // ambiente), a lista fica vazia e o campo "banco" segue como texto livre (compatibilidade total).
+  const [parceiros, setParceiros] = useState<{ id: string; nome: string; retorno_pct: number | null }[]>([])
+  useEffect(() => {
+    if (!companyId) { setParceiros([]); return }
+    let vivo = true
+    void supabase.from('veic_banco_parceiro').select('id, nome, retorno_pct').eq('company_id', companyId).eq('ativo', true).order('nome')
+      .then(({ data }) => { if (vivo) setParceiros((data ?? []) as { id: string; nome: string; retorno_pct: number | null }[]) })
+    return () => { vivo = false }
+  }, [companyId])
   // Simulador ao vivo (§3.2): o vendedor vê as duas margens recalcularem ANTES de fechar — o momento
   // em que a decisão ainda pode mudar. Mesma conta da fn_veic_venda_composicao, só que client-side.
   const n = (s: string): number => moedaNum(s) ?? 0
@@ -481,21 +548,44 @@ function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onS
   const vvNum = moedaNum(f.valor_venda) ?? NaN
   const vvOk = f.valor_venda.trim() !== '' && Number.isFinite(vvNum) && vvNum > 0
   const podeEnviar = !!f.cliente_nome.trim() && vvOk && !busy
+  // #8162 etapa 2c: retorno previsto = % do banco parceiro × valor financiado (editável pelo operador).
+  const parceiroSel = parceiros.find((p) => p.nome === (f.banco_nome ?? ''))
+  const financiadoNum = moedaNum(f.valor_financiado)
+  const retornoPrevisto = parceiroSel && parceiroSel.retorno_pct != null && financiadoNum != null
+    ? Math.round(financiadoNum * parceiroSel.retorno_pct) / 100
+    : null
+  const escolherBanco = (nome: string) => {
+    const p = parceiros.find((x) => x.nome === nome)
+    const fin = moedaNum(f.valor_financiado)
+    setF((s) => {
+      const prox = { ...s, banco_nome: nome }
+      // retorno em centavos = financiado(reais) × pct (ex.: 50000 × 2 = 100000 cent = R$ 1.000,00)
+      if (p && p.retorno_pct != null && fin != null) prox.retorno_banco = moedaMascara(String(Math.round(fin * p.retorno_pct)))
+      return prox
+    })
+  }
   async function salvar() {
     setErro(null); setCampo(null)
     if (!f.cliente_nome.trim()) { setErro('Informe o nome do cliente.'); setCampo('cliente_nome'); return }
     if (!vvOk) { setErro('Informe o valor da venda (maior que zero).'); setCampo('valor_venda'); return }
     setBusy(true)
     const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
-    const recebimentos: { tipo: string; devedor: string; valor: number }[] = []
-    if (n(f.valor_entrada) > 0) recebimentos.push({ tipo: 'entrada', devedor: 'cliente', valor: n(f.valor_entrada) })
-    if (n(f.valor_financiado) > 0) recebimentos.push({ tipo: 'financiamento', devedor: 'banco', valor: n(f.valor_financiado) })
-    if (n(f.retorno_banco) > 0) recebimentos.push({ tipo: 'retorno_banco', devedor: 'banco', valor: n(f.retorno_banco) })
+    const recebimentos: { tipo: string; devedor: string; valor: number; data_prevista?: string; forma_pagamento?: string; conta_bancaria_id?: string }[] = []
+    const recsOk = recs.filter((r) => (moedaNum(r.valor) ?? 0) > 0)
+    for (const r of recsOk) recebimentos.push({ tipo: r.tipo, devedor: r.devedor, valor: n(r.valor), data_prevista: r.data || undefined, forma_pagamento: r.forma || undefined, conta_bancaria_id: r.conta || undefined })
+    const somaTipo = (t: string) => recsOk.filter((r) => r.tipo === t).reduce((a, r) => a + n(r.valor), 0)
+    const usaTabela = recsOk.length > 0
+    const vEntrada = usaTabela ? somaTipo('entrada') : n(f.valor_entrada)
+    const vFinanc = usaTabela ? somaTipo('financiamento') : n(f.valor_financiado)
+    const vRetorno = usaTabela ? somaTipo('retorno_banco') : n(f.retorno_banco)
+    if (!usaTabela && n(f.valor_entrada) > 0) recebimentos.push({ tipo: 'entrada', devedor: 'cliente', valor: n(f.valor_entrada) })
+    if (!usaTabela && n(f.valor_financiado) > 0) recebimentos.push({ tipo: 'financiamento', devedor: 'banco', valor: n(f.valor_financiado) })
+    if (!usaTabela && n(f.retorno_banco) > 0) recebimentos.push({ tipo: 'retorno_banco', devedor: 'banco', valor: n(f.retorno_banco) })
     // sem entrada/financiamento explícitos: à vista, o cliente deve o valor da venda
     if (recebimentos.length === 0 && n(f.valor_venda) > 0) recebimentos.push({ tipo: 'parcela', devedor: 'cliente', valor: n(f.valor_venda) })
     const { data, error } = await supabase.rpc('fn_veic_venda_registrar', {
       p_company_id: companyId, p_veiculo_id: veiculoId,
-      p_venda: { cliente_nome: f.cliente_nome.trim() || null, cliente_id: clienteSel?.id ?? null, cliente_doc: clienteSel ? (clienteSel.cpf_cnpj || clienteSel.cnpj_cpf || null) : null, vendedor_nome: f.vendedor_nome.trim() || null, valor_venda: f.valor_venda ? n(f.valor_venda) : null, valor_entrada: f.valor_entrada ? n(f.valor_entrada) : null, valor_financiado: f.valor_financiado ? n(f.valor_financiado) : null, banco_nome: f.banco_nome.trim() || null, retorno_banco: f.retorno_banco ? n(f.retorno_banco) : null },
+      p_venda: { cliente_nome: f.cliente_nome.trim() || null, cliente_id: clienteSel?.id ?? null, cliente_doc: clienteSel ? (clienteSel.cpf_cnpj || clienteSel.cnpj_cpf || null) : null, vendedor_nome: f.vendedor_nome.trim() || null, valor_venda: f.valor_venda ? n(f.valor_venda) : null, valor_entrada: vEntrada > 0 ? vEntrada : null, valor_financiado: vFinanc > 0 ? vFinanc : null, banco_nome: f.banco_nome.trim() || null, retorno_banco: vRetorno > 0 ? vRetorno : null },
       p_recebimentos: recebimentos,
       p_troca: troca.on ? { chassi: troca.chassi.trim() || null, modelo: troca.modelo.trim() || null, valor_troca: troca.valor_troca ? n(troca.valor_troca) : null, valor_avaliacao: troca.valor_avaliacao ? n(troca.valor_avaliacao) : null } : null,
       p_user: user?.id ?? null,
@@ -517,14 +607,38 @@ function VendaModal({ companyId, veiculoId, custoTotal, margemAlvo, onClose, onS
         <InputMoeda value={f.valor_venda} onChange={(v) => setF({ ...f, valor_venda: v })} placeholder="valor da venda *" ajuda="revenda.venda.valor_venda" style={{ ...inp, gridColumn: '1 / -1', ...estiloBordaInput(campo === 'valor_venda' ? 'x' : null) }} />
       </div>
 
-      <div style={{ fontSize: 12, fontWeight: 700, color: C.espM, margin: '12px 0 4px' }}>Pagamento</div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: C.espM, margin: '12px 0 4px' }}>Recebimentos</div>
+      <RecebimentosTabela companyId={companyId} linhas={recs} onChange={setRecs} totalVenda={Math.max(0, vendaN - (troca.on ? n(troca.valor_troca) : 0))} />
+      <div style={{ fontSize: 12, fontWeight: 700, color: C.espM, margin: '12px 0 4px' }}>Ou resumo rápido (sem tabela)</div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         <InputMoeda value={f.valor_entrada} onChange={(v) => setF({ ...f, valor_entrada: v })} placeholder="entrada (cliente)" ajuda="revenda.venda.entrada" style={inp} />
         <InputMoeda value={f.valor_financiado} onChange={(v) => setF({ ...f, valor_financiado: v })} placeholder="financiado (banco)" ajuda="revenda.venda.financiado" style={inp} />
-        <input value={f.banco_nome} onChange={(e) => setF({ ...f, banco_nome: e.target.value })} placeholder="banco" style={inp} />
+        {parceiros.length === 0 ? (
+          <input value={f.banco_nome} onChange={(e) => setF({ ...f, banco_nome: e.target.value })} placeholder="banco" style={inp} />
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <select value={f.banco_nome} onChange={(e) => escolherBanco(e.target.value)} style={{ ...inp, flex: 1, minWidth: 0 }} aria-label="banco parceiro (financiamento)">
+              <option value="">— banco (financiamento) —</option>
+              {parceiros.map((p) => <option key={p.id} value={p.nome}>{p.nome}{p.retorno_pct != null ? ` (${p.retorno_pct}%)` : ''}</option>)}
+              {f.banco_nome && !parceiros.some((p) => p.nome === f.banco_nome) && <option value={f.banco_nome}>{f.banco_nome} (cadastro antigo)</option>}
+            </select>
+            <AjudaCampo chave="revenda.venda.banco_parceiro" rota="/dashboard/revenda/veiculo" />
+          </div>
+        )}
         <InputMoeda value={f.retorno_banco} onChange={(v) => setF({ ...f, retorno_banco: v })} placeholder="retorno do banco (receita)" ajuda="revenda.venda.retorno_banco" style={inp} />
       </div>
-      <div style={{ fontSize: 11, color: C.espL, marginTop: 4 }}>O financiado é cobrado do banco; a entrada, do cliente. Cada um vira um título em contas a receber com o devedor certo.</div>
+      {parceiroSel && parceiroSel.retorno_pct != null && (
+        <div style={{ marginTop: 6, fontSize: 12, color: C.espM, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span>Retorno previsto ({parceiroSel.retorno_pct}% × financiado): <b style={{ color: C.esp }}>{retornoPrevisto == null ? 'informe o financiado' : brl(retornoPrevisto)}</b>. Valor editável acima.</span>
+          {retornoPrevisto != null && (moedaNum(f.retorno_banco) ?? 0) !== retornoPrevisto && (
+            <button type="button" onClick={() => setF((s) => ({ ...s, retorno_banco: moedaMascara(String(Math.round(retornoPrevisto * 100))) }))}
+              style={{ border: `1px solid ${C.gold}`, background: C.white, color: C.gold, borderRadius: 6, padding: '3px 10px', cursor: 'pointer', fontSize: 11.5, fontWeight: 700 }}>
+              aplicar retorno previsto
+            </button>
+          )}
+        </div>
+      )}
+      <div style={{ fontSize: 11, color: C.espL, marginTop: 4 }}>O financiado é cobrado do banco; a entrada, do cliente. Cada um vira um título em contas a receber com o devedor certo. Se a tabela acima tiver linhas, ela vale no lugar do resumo.</div>
 
       <label style={{ fontSize: 13, color: C.esp, display: 'inline-flex', alignItems: 'center', gap: 6, margin: '12px 0 4px', fontWeight: 700 }}>
         <input type="checkbox" checked={troca.on} onChange={(e) => setTroca({ ...troca, on: e.target.checked })} /> Tem veículo na troca
@@ -944,7 +1058,7 @@ function PreparacaoBloco({ veiculoId, companyId, onMsg, onErro, onChange }: { ve
     const { data, error } = await supabase.rpc('fn_veic_preparacao_concluir', { p_os_id: os.os_id, p_user: user?.id ?? null })
     setBusy(null)
     const r = data as { ok?: boolean; erro?: string; ja_lancado?: boolean; valor?: number; sem_custo?: boolean } | null
-    if (error || !r?.ok) { onErro(error?.message || r?.erro || 'Falha ao concluir a OS.'); return }
+    if (error || !r?.ok) { onErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao concluir a OS.'))); return }
     if (r.ja_lancado) onMsg(`OS ${os.numero} já estava lançada — nenhum custo duplicado.`)
     else if (r.sem_custo) onMsg(`OS ${os.numero} concluída (sem valor lançado — nenhum custo criado).`)
     else onMsg(`OS ${os.numero} concluída. CRIOU o custo de ${brl(r.valor ?? 0)} no veículo. A conta a pagar é opcional: lance em "Custos no chassi" quando tiver fornecedor e vencimento.`)
@@ -1020,7 +1134,7 @@ function PreparacaoModal({ veiculoId, onClose, onSaved, onErro }: { veiculoId: s
     })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string; numero?: string } | null
-    if (error || !r?.ok) { onErro(error?.message || r?.erro || 'Falha ao abrir a OS.'); return }
+    if (error || !r?.ok) { onErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao abrir a OS.'))); return }
     onSaved(r.numero ?? '')
   }
   return (
@@ -1120,7 +1234,7 @@ function RegistrarInteresseModal({ veiculoId, companyId, onClose, onSaved, onErr
       p_user: uid,
     })
     const r = data as { ok?: boolean; erro?: string; oportunidade_id?: string } | null
-    if (error || !r?.ok) { setBusy(false); onErro(error?.message || r?.erro || 'Falha ao registrar o interesse.'); return }
+    if (error || !r?.ok) { setBusy(false); onErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao registrar o interesse.'))); return }
     if (proc.on && (proc.marca.trim() || proc.modelo.trim())) {
       await supabase.rpc('fn_veic_procura_registrar', {
         p_company_id: companyId,
@@ -1349,16 +1463,17 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
     observacao: v.observacao ?? '',
     // R7b (Tela 5): tipo do veículo — também alimenta a sugestão de NCM
     tipo: v.tipo ?? '',
-    // #5671: valor de aquisição editável (custo da compra)
-    valor_aquisicao: v.valor_aquisicao == null ? '' : String(v.valor_aquisicao),
-    // item 2c-c: fiscal do veículo
-    valor_fipe: vf.valor_fipe == null ? '' : String(vf.valor_fipe), ncm: vf.ncm ?? '', lugares: vf.lugares == null ? '' : String(vf.lugares),
+    // #5671: valor de aquisição editável (custo da compra) · #6874: máscara R$ ao digitar (CampoMoeda)
+    valor_aquisicao: numeroParaMoeda(v.valor_aquisicao),
+    // item 2c-c: fiscal do veículo · #6874: FIPE com máscara R$
+    valor_fipe: numeroParaMoeda(vf.valor_fipe), ncm: vf.ncm ?? '', lugares: vf.lugares == null ? '' : String(vf.lugares),
   })
   // Chamado #34 (Alliance): veículo consignado — dono e valor combinado (comissão da loja NÃO entra: é do acerto na venda)
   const vc = v as unknown as { consignado?: boolean | null; consignante_nome?: string | null; consignante_documento?: string | null; consignante_valor_combinado?: number | null }
   const [cons, setCons] = useState({
     consignado: !!vc.consignado, nome: vc.consignante_nome ?? '', documento: vc.consignante_documento ?? '',
-    valor: vc.consignante_valor_combinado == null ? '' : String(vc.consignante_valor_combinado).replace('.', ','),
+    // #6874: valor combinado com máscara R$ ao digitar (CampoMoeda)
+    valor: numeroParaMoeda(vc.consignante_valor_combinado),
   })
   const [consBusy, setConsBusy] = useState(false)
   const [consMsg, setConsMsg] = useState<{ ok: boolean; t: string } | null>(null)
@@ -1369,9 +1484,9 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
     if (cons.documento.trim() && doc.length !== 11 && doc.length !== 14) { setConsMsg({ ok: false, t: 'CPF/CNPJ inválido — use 11 ou 14 dígitos.' }); return }
     let valor: number | null = null
     if (cons.valor.trim()) {
-      const bruto = cons.valor.trim()
-      const n = Number(bruto.includes(',') ? bruto.replace(/\./g, '').replace(',', '.') : bruto)
-      if (!Number.isFinite(n) || n < 0) { setConsMsg({ ok: false, t: 'Valor combinado inválido — ex.: 58000 ou 58.000,00.' }); return }
+      // #6874: o campo agora é mascarado (R$) — moedaNum interpreta "R$ 58.000,00", "58000" ou "58.000,00"
+      const n = moedaNum(cons.valor)
+      if (n == null || !Number.isFinite(n) || n < 0) { setConsMsg({ ok: false, t: 'Valor combinado inválido — ex.: 58000 ou 58.000,00.' }); return }
       valor = n
     }
     setConsBusy(true)
@@ -1425,7 +1540,7 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
     </CampoRot>
   )
   // #5662: avisos (não bloqueiam) para valores implausíveis
-  const nCil = numBR(f.cilindradas), nAq = numBR(f.valor_aquisicao)
+  const nCil = numBR(f.cilindradas), nAq = moedaNum(f.valor_aquisicao)
   const avisoCil = nCil != null && nCil > 0 && nCil < 50 ? `Parece pouco: cilindradas se informa em cc (ex.: 1800), não em litros nem em número de cilindros.` : null
   const avisoAq = nAq != null && nAq > 0 && v.preco_venda != null && v.preco_venda > 0 && nAq < v.preco_venda * 0.25
     ? `Aquisição muito abaixo do preço de venda (${brl(v.preco_venda)}). Confira se não falta um zero.` : null
@@ -1475,9 +1590,8 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
         {F('portas', 'portas', 70)}{F('cambio', 'câmbio', 100)}
         {F('ano_fabricacao', 'ano fab.', 80)}{F('ano_modelo', 'ano mod.', 80)}{F('renavam', 'renavam', 120)}
         <CampoRot id="campo-valor_aquisicao" ajuda="revenda.veiculo.valor_aquisicao" rotulo="Valor de aquisição (R$)" dica="Pago na compra, ex.: 72.956,00" aviso={avisoAq}>
-          <input id="campo-valor_aquisicao" value={f.valor_aquisicao} onChange={(e) => setF({ ...f, valor_aquisicao: e.target.value })} inputMode="decimal" placeholder="aquisição (R$)" style={{ ...inp, width: 130, ...estiloBordaInput(campo === 'valor_aquisicao' ? 'x' : null) }} />
+          <CampoMoeda id="campo-valor_aquisicao" value={f.valor_aquisicao} onChange={(v) => setF({ ...f, valor_aquisicao: v })} placeholder="aquisição (R$)" style={{ ...inp, width: 130, ...estiloBordaInput(campo === 'valor_aquisicao' ? 'x' : null) }} />
         </CampoRot>
-        <button disabled={busy} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: busy ? C.espL : C.gold, color: C.white, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer' }}>{busy ? 'Salvando…' : 'Salvar dados'}</button>
       </div>
       {pareceAno(f.modelo) && (
         <div style={{ background: C.amberBg, color: '#8A4B08', padding: '6px 10px', borderRadius: 7, fontSize: 12, marginTop: 6, display: 'inline-block' }}>
@@ -1493,7 +1607,7 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
           {F('potencia_cv', 'potência (cv)', 110)}{F('cilindradas', f.tipo === 'moto' ? 'cilindradas (moto: define o NCM)' : 'cilindradas', f.tipo === 'moto' ? 210 : 110, { dica: 'Em cc, ex.: 1800. Define o NCM sugerido', aviso: avisoCil })}
           <CampoRot id="campo-valor_fipe" ajuda="revenda.veiculo.valor_fipe" rotulo="Valor FIPE (R$)" dica="Tabela FIPE, ex.: 72.956,00">
-            <input id="campo-valor_fipe" value={f.valor_fipe} onChange={(e) => setF({ ...f, valor_fipe: e.target.value })} inputMode="decimal" placeholder="valor FIPE (R$)" style={{ ...inp, width: 130, ...estiloBordaInput(campo === 'valor_fipe' ? 'x' : null) }} />
+            <CampoMoeda id="campo-valor_fipe" value={f.valor_fipe} onChange={(v) => setF({ ...f, valor_fipe: v })} placeholder="valor FIPE (R$)" style={{ ...inp, width: 130, ...estiloBordaInput(campo === 'valor_fipe' ? 'x' : null) }} />
           </CampoRot>
           <CampoRot id="campo-ncm" ajuda="revenda.veiculo.ncm" rotulo="NCM" dica="8 dígitos, ex.: 87032310">
             <input id="campo-ncm" value={f.ncm} onChange={(e) => setF({ ...f, ncm: e.target.value })} inputMode="numeric" placeholder="NCM (8 dígitos)" style={{ ...inp, width: 130, fontFamily: 'monospace', ...estiloBordaInput(campo === 'ncm' ? 'x' : null) }} />
@@ -1528,7 +1642,7 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
               <AjudaCampo chave="revenda.veiculo.consignante_documento" rota="/dashboard/revenda/veiculo" />
             </label>
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <input id="campo-consignante_valor_combinado" value={cons.valor} onChange={(e) => setCons({ ...cons, valor: e.target.value })} inputMode="decimal" placeholder="valor combinado (R$)" style={{ ...inp, width: 160 }} />
+              <CampoMoeda id="campo-consignante_valor_combinado" value={cons.valor} onChange={(v) => setCons({ ...cons, valor: v })} placeholder="valor combinado (R$)" style={{ ...inp, width: 160 }} />
               <AjudaCampo chave="revenda.veiculo.consignante_valor_combinado" rota="/dashboard/revenda/veiculo" />
             </label>
           </>)}
@@ -1645,13 +1759,13 @@ function FotosVeiculo({ veiculoId, companyId, onErro, onMsg }: { veiculoId: stri
         const ext = ((file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '')) || 'jpg'
         const path = `${companyId}/${veiculoId}/${Date.now()}-${i}.${ext}`
         const { error: upErr } = await supabase.storage.from('revenda-veiculos').upload(path, file, { contentType: file.type || 'image/jpeg', upsert: false })
-        if (upErr) { falhas++; ultimoErro = 'Falha no upload: ' + upErr.message; onErro(ultimoErro); continue }
+        if (upErr) { falhas++; ultimoErro = erroAmigavel(upErr, 'Não foi possível enviar a foto. Verifique a conexão e tente de novo.'); onErro(ultimoErro); continue }
         const { data, error } = await supabase.rpc('fn_veic_foto_registrar', { p_veiculo_id: veiculoId, p_storage_path: path, p_user: user })
         const r = data as { ok?: boolean; erro?: string } | null
         if (error || !r?.ok) {
           // upload subiu mas o registro falhou → remove o objeto órfão (mesmo padrão provado na vistoria)
           falhas++
-          ultimoErro = r?.erro || error?.message || 'Falha ao registrar foto'
+          ultimoErro = erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao registrar foto.'))
           onErro(ultimoErro)
           await supabase.storage.from('revenda-veiculos').remove([path])
           continue
@@ -1804,7 +1918,7 @@ function AnuncioVeiculo({ v, onErro, onMsg, onSaved }: { v: Veic; onErro: (m: st
     const { data, error } = await supabase.rpc('fn_veic_anuncio_salvar', { p_veiculo_id: v.id, p_texto: texto })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { onErro(r?.erro === 'sem_acesso' ? 'Sem acesso a este veículo.' : (error?.message || 'Falha ao salvar o anúncio.')); return }
+    if (error || !r?.ok) { onErro(r?.erro === 'sem_acesso' ? 'Sem acesso a este veículo.' : erroAmigavel(error, 'Falha ao salvar o anúncio.')); return }
     onMsg('Anúncio salvo.'); onSaved()
   }
 
@@ -1877,12 +1991,12 @@ function CrlvVeiculo({ veiculoId, companyId, crlvPath, onErro, onMsg, onChange }
       const ext = ((file.name.split('.').pop() || 'pdf').toLowerCase().replace(/[^a-z0-9]/g, '')) || 'pdf'
       const path = `${companyId}/${veiculoId}/crlv-${Date.now()}.${ext}`
       const { error: upErr } = await supabase.storage.from('revenda-veiculos').upload(path, file, { contentType: file.type || 'application/pdf', upsert: false })
-      if (upErr) { onErro('Falha no upload: ' + upErr.message); return }
+      if (upErr) { onErro(erroAmigavel(upErr, 'Não foi possível enviar o arquivo. Verifique a conexão e tente de novo.')); return }
       const { data, error } = await supabase.rpc('fn_veic_atualizar_dados', { p_veiculo_id: veiculoId, p_dados: { crlv_storage_path: path }, p_user: await uid() })
       const r = data as { ok?: boolean; erro?: string } | null
       if (error || !r?.ok) {
         // registro falhou → remove o objeto órfão (mesmo padrão das fotos/vistoria)
-        onErro(r?.erro === 'sem_acesso' ? 'Sem acesso a este veículo.' : (r?.erro || error?.message || 'Falha ao registrar o CRLV'))
+        onErro(r?.erro === 'sem_acesso' ? 'Sem acesso a este veículo.' : erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao registrar o CRLV.')))
         await supabase.storage.from('revenda-veiculos').remove([path])
         return
       }
@@ -1898,7 +2012,7 @@ function CrlvVeiculo({ veiculoId, companyId, crlvPath, onErro, onMsg, onChange }
     try {
       const { data, error } = await supabase.rpc('fn_veic_atualizar_dados', { p_veiculo_id: veiculoId, p_dados: { crlv_storage_path: '' }, p_user: await uid() })
       const r = data as { ok?: boolean; erro?: string } | null
-      if (error || !r?.ok) { onErro(r?.erro || error?.message || 'Falha ao remover o CRLV'); return }
+      if (error || !r?.ok) { onErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao remover o CRLV.'))); return }
       await supabase.storage.from('revenda-veiculos').remove([crlvPath])
       onMsg('CRLV removido.'); onChange()
     } finally { setBusy(false) }

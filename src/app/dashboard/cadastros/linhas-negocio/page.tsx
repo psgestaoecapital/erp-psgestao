@@ -1,20 +1,20 @@
-'use client'
+// PDCA GE (Princ.3 menu limpo · auditor_pdca_2 08/11) · stub de redirect 308 (defesa em profundidade).
+// Esta rota renderizava o MESMO <LinhasNegocioList/> que /dashboard/cadastros/divisoes (mesma entidade
+// business_lines) e era órfã (fora do module_catalog). Consolidada na rota canônica do menu (Divisões).
+// O 308 oficial vem do next.config.ts; mantém a rota antiga com página real (satisfaz o check_menu) e
+// preserva a query string.
+import { permanentRedirect } from 'next/navigation'
 
-import { useCompanyIds } from '@/lib/useCompanyIds'
-import LinhasNegocioList from '@/components/ge/LinhasNegocioList'
-
-export default function Page() {
-  const { companyIds, selInfo } = useCompanyIds()
-  const empresaUnica =
-    selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : null
-
-  if (!empresaUnica) {
-    return (
-      <div style={{ padding: 40, textAlign: 'center', background: '#FAF7F2', minHeight: '100vh' }}>
-        <p style={{ color: '#3D2314' }}>Selecione uma empresa para gerenciar divisões.</p>
-      </div>
-    )
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}) {
+  const params = await searchParams
+  const qs = new URLSearchParams()
+  for (const [k, v] of Object.entries(params)) {
+    if (Array.isArray(v)) v.forEach((x) => qs.append(k, x))
+    else if (v != null) qs.append(k, v)
   }
-
-  return <LinhasNegocioList companyId={empresaUnica} />
+  permanentRedirect(`/dashboard/cadastros/divisoes${qs.size ? '?' + qs.toString() : ''}`)
 }

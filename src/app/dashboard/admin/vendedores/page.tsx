@@ -5,9 +5,15 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const C = { esp: '#3D2314', off: '#FAF7F2', gold: '#C8941A', bd: '#E7DED3', m: '#6B5D4F', ok: '#1a8f63', bad: '#C0392B', bg2: '#F0ECE3' }
 const ROTA = '/dashboard/admin/vendedores'
+// Códigos de retorno da RPC fn_com_vendedor_acesso_salvar → frase do usuário (nunca mostrar o código cru).
+const ERRO_SALVAR: Record<string, string> = {
+  codigo_inexistente: 'Esse código de vendedor não está mais na equipe que vem do ERP de origem.',
+  usuario_fora_da_empresa: 'Esse usuário não faz parte desta empresa. Convide-o em Administração › Acessos antes de ligar.',
+}
 type Membro = { codigo: string; nome: string; cargo: string; superior: string | null; user_id: string | null; ativo: boolean | null; usuario: string | null; email: string | null }
 type Usuario = { user_id: string; nome: string; email: string; papel: string }
 
@@ -23,7 +29,7 @@ export default function VendedoresAcesso() {
   const carregar = useCallback(async () => {
     if (!empresa) return
     const { data, error } = await supabase.rpc('fn_com_vendedor_acesso_listar', { p_company_id: empresa })
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar os vendedores. Tente de novo.')); return }
     setErro(null)
     const d = data as { equipe: Membro[]; usuarios: Usuario[] }
     setEquipe(d.equipe ?? []); setUsuarios(d.usuarios ?? [])
@@ -34,7 +40,8 @@ export default function VendedoresAcesso() {
   async function salvar(m: Membro) {
     const { data, error } = await supabase.rpc('fn_com_vendedor_acesso_salvar', { p_company_id: empresa, p_codigo: m.codigo, p_user_id: escolha[m.codigo] || null })
     const r = data as { ok: boolean; erro?: string; acao?: string } | null
-    setMsg(error ? `Não salvou: ${error.message}` : r?.ok ? `${m.nome}: ${r.acao === 'vinculado' ? 'acesso liberado' : 'acesso retirado'}.` : `Não salvou: ${r?.erro}`)
+    const motivo = r?.erro ? (ERRO_SALVAR[r.erro] ?? 'Não foi possível concluir. Confira os dados e tente de novo.') : ''
+    setMsg(error ? `Não salvou: ${erroAmigavel(error)}` : r?.ok ? `${m.nome}: ${r.acao === 'vinculado' ? 'acesso liberado' : 'acesso retirado'}.` : `Não salvou: ${motivo}`)
     void carregar()
   }
 
@@ -50,13 +57,13 @@ export default function VendedoresAcesso() {
           </p>
         </div>
         {!empresa && <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 14 }}>Escolha uma empresa no topo.</div>}
-        {erro && <div role="alert" style={{ color: C.bad }}>Sem acesso: {erro}</div>}
-        {msg && <div role="status" style={{ fontSize: 13, color: C.ok }}>{msg}</div>}
+        {erro && <div role="alert" style={{ color: C.bad }}>{erro}</div>}
+        {msg && <div role="status" style={{ fontSize: 13, color: msg.startsWith('Não salvou') ? C.bad : C.ok }}>{msg}</div>}
         {empresa && !erro && (
           <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 14, padding: 14, overflowX: 'auto' }}>
-            <div style={{ fontSize: 13, color: C.m, marginBottom: 8 }}>{ligados} de {equipe.length} pessoas com acesso liberado</div>
+            <div style={{ fontSize: 13, color: C.m, marginBottom: 8, display: 'inline-flex', alignItems: 'center' }}>{ligados} de {equipe.length} pessoas com acesso liberado<AjudaCampo chave="com.vendedores.acesso" rota={ROTA} /></div>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead><tr style={{ color: C.m, textAlign: 'left' }}><th style={{ padding: 6 }}>Código</th><th style={{ padding: 6 }}>Nome no ERP</th><th style={{ padding: 6 }}>Cargo</th><th style={{ padding: 6 }}>Usuário do PS Gestão<AjudaCampo chave="com.vendedores.vinculo" rota={ROTA} /></th><th style={{ padding: 6 }} /></tr></thead>
+              <thead><tr style={{ color: C.m, textAlign: 'left' }}><th style={{ padding: 6 }}>Código</th><th style={{ padding: 6 }}>Nome no ERP</th><th style={{ padding: 6 }}>Cargo</th><th style={{ padding: 6 }}>Usuário do PS Gestão<AjudaCampo chave="com.vendedores.vinculo" rota={ROTA} /></th><th style={{ padding: 6 }}>Ação<AjudaCampo chave="com.vendedores.salvar" rota={ROTA} /></th></tr></thead>
               <tbody>
                 {equipe.map((m) => (
                   <tr key={m.codigo} style={{ borderTop: `1px solid ${C.bg2}` }}>

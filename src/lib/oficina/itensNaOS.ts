@@ -21,9 +21,20 @@ export type DiagnosticoAtualOS = { diagnostico?: string | null; km?: number | st
 
 const txt = (v: unknown): string => (v == null ? '' : String(v))
 
-// Mesma janela do botão "Aprovar orçamento": centralizado, quem pode lançar valor, OS antes da execução.
-export function podeEditarItensNaOS(modelo: ModeloAtendimento, podePreco: boolean, status: string): boolean {
-  return modelo === 'centralizado' && podePreco && ['aberta', 'aguardando_aprovacao'].includes(status)
+// #135 ajuste 21/10: no centralizado a OS é editável em QUALQUER status antes de "Entregue" (inclusive a OS criada
+// como orçamento). Entregue, cancelada ou faturada → bloqueada (faturada só com estorno/cancelamento da nota).
+export const STATUS_ANTES_DA_ENTREGA = ['orcamento', 'aberta', 'aguardando_aprovacao', 'aprovada', 'em_execucao', 'aguardando_peca', 'pronta']
+
+export function podeEditarItensNaOS(modelo: ModeloAtendimento, podePreco: boolean, status: string, faturada = false): boolean {
+  return modelo === 'centralizado' && podePreco && !faturada && STATUS_ANTES_DA_ENTREGA.includes(status)
+}
+
+// Mensagem clara de por que a edição está fechada (null = não mostrar nada).
+export function motivoItensBloqueadosOS(modelo: ModeloAtendimento, status: string, faturada: boolean): string | null {
+  if (modelo !== 'centralizado') return null
+  if (faturada) return 'OS faturada: para mudar itens ou valores, estorne o faturamento ou cancele a nota primeiro.'
+  if (status === 'entregue') return 'OS entregue: os itens não podem mais ser editados aqui. Para ajustar, reabra a OS.'
+  return null
 }
 
 // Só item sem decisão do cliente muda. Aprovado/recusado fica como está (RD-55).
@@ -54,9 +65,16 @@ export function validarEdicaoOS(edicoes: EdicaoItemOS[]): string | null {
 }
 
 // Monta o p_dados da fn_oficina_diagnostico_salvar sem perder nada do que já está gravado.
-export function montarDadosDiagnosticoOS(atual: DiagnosticoAtualOS, edicoes: EdicaoItemOS[]) {
+// `removidos` = ids de itens pendentes que o usuário excluiu na edição (a RPC apaga o que não vier; aprovado/recusado nunca sai).
+export function idsRemovidosNaEdicao(itensAbertos: ItemDiagOS[], edicoes: EdicaoItemOS[]): string[] {
+  const mantidos = new Set(edicoes.filter((e) => e.id).map((e) => String(e.id)))
+  return itensAbertos.filter((it) => !!it.id && itemEditavelNaOS(it) && !mantidos.has(String(it.id))).map((it) => String(it.id))
+}
+
+export function montarDadosDiagnosticoOS(atual: DiagnosticoAtualOS, edicoes: EdicaoItemOS[], removidos: string[] = []) {
+  const fora = new Set(removidos)
   const porId = new Map(edicoes.filter((e) => e.id).map((e) => [String(e.id), e]))
-  const itens = atual.itens.filter((it) => !!it.id).map((it) => {
+  const itens = atual.itens.filter((it) => !!it.id && !(fora.has(String(it.id)) && itemEditavelNaOS(it))).map((it) => {
     const e = itemEditavelNaOS(it) ? porId.get(String(it.id)) : undefined
     return {
       id: it.id, tipo: it.tipo ?? null, servico_id: it.servico_id ?? null, produto_id: it.produto_id ?? null,

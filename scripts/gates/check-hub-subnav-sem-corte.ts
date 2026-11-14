@@ -21,11 +21,11 @@ ok(/\}, \[pathname\]\);/.test(src), 'a rolagem acompanha a troca de rota')
 ok(/className="ml-auto shrink-0 pl-3"/.test(src), 'Configurações não encolhe nem corta')
 ok((src.match(/whitespace-nowrap/g) ?? []).length >= 1, 'rótulo da aba não quebra no meio da palavra')
 
-// as 15 abas continuam lá (nenhuma sumiu com a mudança)
+// as abas continuam lá (nenhuma sumiu com a mudança) — 16 desde a aba Frota (#4050, chamado #5166)
 const abas = [...src.matchAll(/\{ href: "(\/dashboard\/projetos[^"]*)",\s+label: "([^"]+)"/g)].map(m => m[2])
-ok(abas.length === 15, `15 abas nos grupos (achou ${abas.length})`)
+ok(abas.length === 16, `16 abas nos grupos (achou ${abas.length})`)
 ok(/label: "Configurações"/.test(src), 'aba Configurações presente')
-for (const l of ['Insumos', 'Mão de obra', 'Calculadora', 'Obras', 'Viagens', 'Resultado', 'Cockpit']) ok(abas.includes(l), `aba "${l}" presente`)
+for (const l of ['Insumos', 'Mão de obra', 'Calculadora', 'Obras', 'Viagens', 'Resultado', 'Cockpit', 'Frota']) ok(abas.includes(l), `aba "${l}" presente`)
 
 if (falhas) { console.error(`check-hub-subnav-sem-corte: ${falhas} falha(s)`); process.exit(1) }
 console.log('check-hub-subnav-sem-corte: OK')

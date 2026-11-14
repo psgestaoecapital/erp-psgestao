@@ -110,6 +110,7 @@ function statusFromRpc(s: string | null): SidebarStatus {
 // Mantemos no front pra nao precisar de migration por cada apresentacao.
 const SECAO_LABEL_OVERRIDE: Record<string, string> = {
   PM_COMERCIAL: '1 · Comercial & Entrada',
+  PM_BI: 'Inteligência BI',
   PM_PRODUCAO: '2 · Produção & Controle',
   PM_FINANCEIRO: '3 · Financeiro da Produção',
   PM_INTELIGENCIA: '4 · Inteligência & IA',
@@ -130,6 +131,31 @@ const SECAO_LABEL_OVERRIDE: Record<string, string> = {
   VISAO_EXECUTIVA: 'Visão Executiva',
   INTELIGENCIA_PROTECAO: 'Inteligência & Proteção',
   INTELIGENCIA_BI: 'Inteligência (BI)',
+  // Industrial — reorganização por áreas (Eng. Chefe, contexto 668e61ab): acentos que o código do subgrupo não traz.
+  INICIO: 'Início',
+  RECEPCAO_CURRAL: 'Recepção e curral',
+  PRODUCAO: 'Produção',
+  INSPECAO_SIF: 'Inspeção SIF',
+  TIPIFICACAO: 'Tipificação',
+  CAMARAS_ESTOQUE: 'Câmaras e estoque',
+  DESOSSA: 'Desossa · RPS',
+  MIUDOS: 'Miúdos · 5º quarto',
+  EXPEDICAO: 'Expedição',
+  COMERCIAL: 'Comercial',
+  QUALIDADE: 'Qualidade',
+  SEGURANCA_TRABALHO: 'Segurança do trabalho',
+  RECURSOS_HUMANOS: 'Recursos humanos',
+  UTILIDADES: 'Utilidades',
+  MANUTENCAO: 'Manutenção',
+  IND_FINANCEIRO: 'Financeiro',
+  AGROPECUARIA: 'Agropecuária',
+  RENDIMENTOS: 'Rendimentos',
+  EMBALAGENS: 'Embalagens',
+  PRODUTIVIDADE: 'Produtividade',
+  CRUZAMENTO: 'Indicadores de cruzamento',
+  ADMINISTRACAO: 'Administração',
+  // Gestão Empresarial — a seção vem crua "CONTRATOS_VENDAS" da RPC; o usuário lê "Contratos".
+  CONTRATOS_VENDAS: 'Contratos',
 }
 
 function rpcRowsToModulos(rows: RpcRow[], isPS: boolean, areaSlug: string, labelOverride?: Record<string, string>): SidebarModuleNode[] {

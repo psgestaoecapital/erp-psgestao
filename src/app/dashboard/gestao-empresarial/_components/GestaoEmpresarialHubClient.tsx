@@ -10,6 +10,10 @@ import { GestaoEmpresarialHubSkeleton } from './GestaoEmpresarialHubSkeleton'
 import { ModuleCard, type ModuloHub } from './ModuleCard'
 import { FluxoCaixaWidget } from './FluxoCaixaWidget'
 
+// Rota das chaves de ajuda (RD-95) deste hub — fixa, pois o componente também
+// renderiza como fallback de outras seleções (o pathname pode não ser a rota da chave).
+const ROTA_AJUDA = '/dashboard/gestao-empresarial'
+
 interface HubData {
   empty_state: boolean
   mensagem?: string
@@ -138,10 +142,10 @@ export default function GestaoEmpresarialHubClient() {
 
         {/* KPIs sumários */}
         <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 40 }}>
-          <PSGCMetric label="Módulos totais" valor={data.kpis?.total_modulos ?? 0} icon="📦" />
-          <PSGCMetric label="Em construção" valor={data.kpis?.modulos_em_construcao ?? 0} icon="🛠️" cor={PSGC_COLORS.dourado} destaque />
-          <PSGCMetric label="Previstos" valor={data.kpis?.modulos_previstos ?? 0} icon="🗺️" />
-          <PSGCMetric label="Evolução média" valor={`${data.kpis?.pct_evolucao_media ?? 0}%`} icon="📈" />
+          <PSGCMetric label="Módulos totais" valor={data.kpis?.total_modulos ?? 0} icon="📦" ajuda="ge.hub.modulos_totais" ajudaRota={ROTA_AJUDA} />
+          <PSGCMetric label="Em construção" valor={data.kpis?.modulos_em_construcao ?? 0} icon="🛠️" cor={PSGC_COLORS.dourado} destaque ajuda="ge.hub.modulos_em_construcao" ajudaRota={ROTA_AJUDA} />
+          <PSGCMetric label="Previstos" valor={data.kpis?.modulos_previstos ?? 0} icon="🗺️" ajuda="ge.hub.modulos_previstos" ajudaRota={ROTA_AJUDA} />
+          <PSGCMetric label="Evolução média" valor={`${data.kpis?.pct_evolucao_media ?? 0}%`} icon="📈" ajuda="ge.hub.evolucao_media" ajudaRota={ROTA_AJUDA} />
         </section>
 
         {/* Widget Fluxo de Caixa — projeção 30 dias */}
@@ -167,11 +171,11 @@ export default function GestaoEmpresarialHubClient() {
             Base operacional ({data.empresa_nome})
           </h2>
           <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
-            <PSGCMetric label="Fluxo realizado" valor={(data.kpis?.registros_fluxo ?? 0).toLocaleString('pt-BR')} pequeno />
-            <PSGCMetric label="DRE divisional" valor={(data.kpis?.registros_dre ?? 0).toLocaleString('pt-BR')} pequeno />
-            <PSGCMetric label="Financiamentos" valor={(data.kpis?.registros_financiamentos ?? 0).toLocaleString('pt-BR')} pequeno />
-            <PSGCMetric label="Contas a pagar" valor={(data.kpis?.registros_pagar ?? 0).toLocaleString('pt-BR')} pequeno />
-            <PSGCMetric label="Contas a receber" valor={(data.kpis?.registros_receber ?? 0).toLocaleString('pt-BR')} pequeno />
+            <PSGCMetric label="Fluxo realizado" valor={(data.kpis?.registros_fluxo ?? 0).toLocaleString('pt-BR')} pequeno ajuda="ge.hub.fluxo_realizado" ajudaRota={ROTA_AJUDA} />
+            <PSGCMetric label="DRE divisional" valor={(data.kpis?.registros_dre ?? 0).toLocaleString('pt-BR')} pequeno ajuda="ge.hub.dre_divisional" ajudaRota={ROTA_AJUDA} />
+            <PSGCMetric label="Financiamentos" valor={(data.kpis?.registros_financiamentos ?? 0).toLocaleString('pt-BR')} pequeno ajuda="ge.hub.financiamentos" ajudaRota={ROTA_AJUDA} />
+            <PSGCMetric label="Contas a pagar" valor={(data.kpis?.registros_pagar ?? 0).toLocaleString('pt-BR')} pequeno ajuda="ge.hub.contas_pagar" ajudaRota={ROTA_AJUDA} />
+            <PSGCMetric label="Contas a receber" valor={(data.kpis?.registros_receber ?? 0).toLocaleString('pt-BR')} pequeno ajuda="ge.hub.contas_receber" ajudaRota={ROTA_AJUDA} />
           </section>
         </div>
       </div>

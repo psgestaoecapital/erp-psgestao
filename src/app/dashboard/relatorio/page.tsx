@@ -125,12 +125,12 @@ export default function RelatorioPage(){
       }
       // Fallback: read latest from Supabase
       try{
-        const{data}=await supabase.from("ai_reports").select("*").eq("report_type","v19_ceo").order("created_at",{ascending:false}).limit(1);
+        const{data}=await supabase.from("ai_reports").select("*").eq("report_type","ceo_edition").order("created_at",{ascending:false}).limit(1);
         if(data&&data.length>0){
           const r=data[0];
-          const content=typeof r.report_content==="string"?r.report_content:JSON.stringify(r.report_content);
+          const content=typeof r.output_content==="string"?r.output_content:JSON.stringify(r.output_content);
           setReport(content);
-          const m=r.metadata||{};
+          const m=r.input_data||{};
           setEmpresa(m.empresa||"");
           setPeriodo(m.periodo||"");
         }

@@ -113,7 +113,7 @@ export default function DashboardCEOPage() {
     if (resultado < 0) alerts.push({ tipo: 'critico', msg: 'Resultado negativo: despesas superam receitas em ' + fmt(Math.abs(resultado)), acao: 'Revisar estrutura de custos e precificacao' })
     if (margem < 5 && margem >= 0) alerts.push({ tipo: 'atencao', msg: 'Margem muito baixa: ' + margem.toFixed(1) + '%', acao: 'Aumentar precos ou reduzir custos variaveis' })
     if (inadimplencia > 3) alerts.push({ tipo: 'atencao', msg: 'Inadimplencia em ' + inadimplencia.toFixed(1) + '% (meta: abaixo de 3%)', acao: 'Politica de credito mais rigorosa' })
-    if (totalRec === 0 && totalDesp === 0) alerts.push({ tipo: 'info', msg: 'Nenhum dado financeiro encontrado', acao: 'Importe dados via Omie ou CSV' })
+    if (totalRec === 0 && totalDesp === 0) alerts.push({ tipo: 'info', msg: 'Nenhum dado financeiro encontrado', acao: 'Importe dados via integração ou CSV' })
 
     // ABC
     const abc = Object.entries(clienteMap).map(([nome, valor]) => {

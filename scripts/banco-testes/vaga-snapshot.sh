@@ -154,11 +154,11 @@ comm -12 "$dir/mud.all" "$dir/foto.keys" | comm -12 - "$dir/agora.keys" > "$dir/
 { grep '^func ' "$dir/sumiu.keys" || true; } > "$dir/sumiu.func"
 { grep -v '^func ' "$dir/sumiu.keys" || true; } > "$dir/sumiu.outros"
 if [ -s "$dir/sumiu.outros" ]; then
-  echo "a PR removeu objeto(s) que havia na foto (não restauramos recriação por aqui):"; sed 's/^/  - /' "$dir/sumiu.outros" | head
+  echo "a PR removeu objeto(s) que havia na foto (não restauramos recriação por aqui):"; { sed 's/^/  - /' "$dir/sumiu.outros" | head; } || true
   recriar "a PR fez DROP/rename de objeto aprovado — restauração parcial seria insegura; rode o Montar (recriar)"
 fi
 if grep -qvE '^(func|view|constraint|index|trigger) ' "$dir/mud.keys" 2>/dev/null; then
-  echo "objeto MODIFICADO de classe não restaurável por aqui (só função/view/constraint/índice/trigger):"; grep -vE '^(func|view|constraint|index|trigger) ' "$dir/mud.keys" | sed 's/^/  - /' | head
+  echo "objeto MODIFICADO de classe não restaurável por aqui (só função/view/constraint/índice/trigger):"; { grep -vE '^(func|view|constraint|index|trigger) ' "$dir/mud.keys" | sed 's/^/  - /' | head; } || true
   recriar "objeto modificado de classe não restaurável (policy/coluna/grant/tipo/rls)"
 fi
 

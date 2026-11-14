@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { selecionarTodas } from '@/lib/selecionarTodas'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import MarcarPagoModal from './MarcarPagoModal'
 import MarcarPagoLoteModal from './MarcarPagoLoteModal'
 import EmitirNFSeButton from './EmitirNFSeButton'
@@ -75,6 +76,7 @@ type Resposta = {
     pagos: KpiBlock
     total: number
   }
+  total_rows?: number   // total de linhas do período (pré-LIMIT 5000) — p/ o card Total e aviso de truncagem
   resultados: Resultado[]
 }
 
@@ -130,6 +132,161 @@ interface Props {
   tipo: Tipo
 }
 
+// RD-98 (critério e) · o usuário NUNCA vê o erro cru do banco/rede. O detalhe técnico vai só
+// para o console (diagnóstico do dev); a tela mostra uma frase em linguagem do usuário, com o
+// que fazer. `acao` entra na frase no infinitivo (ex.: 'excluir' -> "Não foi possível excluir…").
+function erroAmigavel(err: unknown, acao: string): string {
+  if (err) { try { console.error(`[financeiro] falha ao ${acao}:`, err) } catch { /* console indisponível */ } }
+  return `Não foi possível ${acao} agora. Tente de novo em instantes; se continuar, fale com o suporte.`
+}
+
+// Gap /dashboard/financeiro/pagar (critério e · auditor 11/11): sem alert() nativo. Aviso em linguagem do
+// usuário, DENTRO da tela e visível no celular (390px). Erro = card central com fundo escurecido e botão
+// "Entendi" (confirmação explícita; RD-58: aviso de ação de dinheiro nunca pode "passar batido" num toast de
+// canto); sucesso/info = faixa no topo que some sozinha. Cores do design system PS (psgc-tokens). Nunca vaza
+// erro cru do banco — o texto já chega amigável de erroAmigavel()/contrato {erro,orientacao}.
+type AvisoTipo = 'erro' | 'sucesso' | 'info'
+type AvisoEstado = { tipo: AvisoTipo; texto: string } | null
+
+function AvisoBox({ aviso, onFechar }: { aviso: AvisoEstado; onFechar: () => void }) {
+  useEffect(() => {
+    if (!aviso || aviso.tipo === 'erro') return
+    const t = setTimeout(onFechar, 6000)
+    return () => clearTimeout(t)
+  }, [aviso, onFechar])
+  if (!aviso) return null
+
+  if (aviso.tipo === 'erro') {
+    return (
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        onClick={onFechar}
+        style={{
+          position: 'fixed', inset: 0, zIndex: 3000, background: 'rgba(42,26,14,0.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+        }}
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            background: '#FFFFFF', borderRadius: 12, maxWidth: 440, width: '100%',
+            boxShadow: '0 12px 40px rgba(42,26,14,0.3)', borderTop: '4px solid #C44536', padding: '20px 22px',
+          }}
+        >
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+            <span aria-hidden="true" style={{ fontSize: 22, lineHeight: '24px' }}>⚠️</span>
+            <div style={{ whiteSpace: 'pre-line', color: '#3D2314', fontSize: 14, lineHeight: 1.5, flex: 1 }}>
+              {aviso.texto}
+            </div>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 18 }}>
+            <button
+              type="button"
+              autoFocus
+              onClick={onFechar}
+              style={{
+                background: '#3D2314', color: '#FAF7F2', border: 'none', padding: '9px 20px',
+                borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer',
+              }}
+            >Entendi</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const cor = aviso.tipo === 'sucesso'
+    ? { bg: '#E8F5DD', fg: '#3C6224', barra: '#5C8D3F' }
+    : { bg: '#E5EEF8', fg: '#294E73', barra: '#3D6FA8' }
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      style={{
+        position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 3000,
+        width: 'calc(100vw - 32px)', maxWidth: 520, background: cor.bg, color: cor.fg,
+        borderLeft: `4px solid ${cor.barra}`, borderRadius: 8, padding: '12px 14px',
+        boxShadow: '0 8px 28px rgba(42,26,14,0.18)', display: 'flex', alignItems: 'flex-start', gap: 10,
+      }}
+    >
+      <div style={{ whiteSpace: 'pre-line', fontSize: 13, lineHeight: 1.5, flex: 1 }}>{aviso.texto}</div>
+      <button
+        type="button"
+        onClick={onFechar}
+        aria-label="Fechar aviso"
+        style={{ background: 'transparent', border: 'none', color: cor.fg, fontSize: 18, lineHeight: '18px', cursor: 'pointer', padding: 0 }}
+      >×</button>
+    </div>
+  )
+}
+
+// Confirmação de ação de DINHEIRO (bloquear/excluir/cancelar/estornar) SEM diálogo nativo do navegador
+// (prompt()/confirm()) — RD-99/RD-58: card central com fundo escurecido, confirmação explícita, visível no
+// celular (390px). Quando a ação pede um motivo, mostra um textarea (com "?") no mesmo card, em vez do prompt().
+type ConfirmAcao = {
+  titulo: string
+  mensagem: string
+  detalhe?: string
+  perigo?: boolean
+  confirmLabel: string
+  motivoLabel?: string
+  motivoObrigatorio?: boolean
+  placeholderMotivo?: string
+  rotaAjuda?: string
+  motivoChave?: string
+  executar: (motivo: string) => Promise<void>
+}
+
+function ConfirmAcaoModal({ acao, onFechar }: { acao: ConfirmAcao | null; onFechar: () => void }) {
+  const [motivo, setMotivo] = useState('')
+  const [erroMotivo, setErroMotivo] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { setMotivo(''); setErroMotivo(null); setBusy(false) }, [acao])
+  if (!acao) return null
+  const barra = acao.perigo ? '#C44536' : '#3D6FA8'
+  const confirmar = async () => {
+    if (acao.motivoObrigatorio && !motivoValido(motivo)) { setErroMotivo('Informe o motivo (mínimo 3 caracteres).'); return }
+    setErroMotivo(null); setBusy(true)
+    try { await acao.executar(motivo.trim()) } finally { setBusy(false) }
+  }
+  return (
+    <div
+      role="alertdialog"
+      aria-modal="true"
+      onClick={() => { if (!busy) onFechar() }}
+      style={{ position: 'fixed', inset: 0, zIndex: 3100, background: 'rgba(42,26,14,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: '#FFFFFF', borderRadius: 12, maxWidth: 460, width: '100%', boxShadow: '0 12px 40px rgba(42,26,14,0.3)', borderTop: `4px solid ${barra}`, padding: '20px 22px' }}
+      >
+        <div style={{ fontSize: 16, fontWeight: 700, color: '#3D2314', marginBottom: 8 }}>{acao.titulo}</div>
+        <div style={{ whiteSpace: 'pre-line', color: '#3D2314', fontSize: 14, lineHeight: 1.5 }}>{acao.mensagem}</div>
+        {acao.detalhe && <div style={{ marginTop: 8, fontSize: 13, color: 'rgba(61,35,20,0.65)', fontVariantNumeric: 'tabular-nums' }}>{acao.detalhe}</div>}
+        {acao.motivoLabel && (
+          <label style={{ display: 'block', marginTop: 14 }}>
+            <span style={{ display: 'block', fontSize: 12, color: 'rgba(61,35,20,0.6)', marginBottom: 6 }}>{acao.motivoLabel}{acao.motivoObrigatorio ? ' *' : ''}{acao.motivoChave && <> <AjudaCampo chave={acao.motivoChave} rota={acao.rotaAjuda} /></>}</span>
+            <textarea
+              value={motivo}
+              onChange={(e) => setMotivo(e.target.value)}
+              placeholder={acao.placeholderMotivo}
+              rows={3}
+              autoFocus
+              style={{ width: '100%', resize: 'vertical', border: '0.5px solid rgba(61,35,20,0.25)', borderRadius: 8, padding: '8px 10px', fontSize: 13, fontFamily: 'inherit', color: '#3D2314', boxSizing: 'border-box' }}
+            />
+          </label>
+        )}
+        {erroMotivo && <div style={{ marginTop: 8, fontSize: 12, color: '#C44536' }}>{erroMotivo}</div>}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
+          <button type="button" disabled={busy} onClick={onFechar} style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.3)', padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: busy ? 'wait' : 'pointer' }}>Voltar</button>
+          <button type="button" disabled={busy} onClick={() => void confirmar()} style={{ background: acao.perigo ? '#C44536' : '#3D2314', color: '#FAF7F2', border: 'none', padding: '9px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: busy ? 'wait' : 'pointer', opacity: busy ? 0.7 : 1 }}>{busy ? 'Processando…' : acao.confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const labels = useMemo(() => labelsPorTipo(tipo), [tipo])
 
@@ -182,6 +339,17 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   }, [companyId])
   const rotuloCategoria = (c: string | null | undefined) => (c ? (nomeCategoria[c] ? `${c} · ${nomeCategoria[c]}` : c) : '')
   const [busca, setBusca] = useState('')
+  // #5427 · deep-link da Oficina ("Faturada — ver na GE"): a OS manda ?busca=OS-2026-0242
+  // (e revenda manda ?q=...). Pré-preenche o campo de busca ao abrir, pra a tela já mostrar
+  // só o lançamento daquela OS. Uma vez, no mount; não atrapalha quem digita depois.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      const sp = new URLSearchParams(window.location.search)
+      const q = (sp.get('busca') || sp.get('q') || '').trim()
+      if (q) setBusca(q)
+    } catch { /* URL indisponível */ }
+  }, [])
   // RD-41 · filtros por coluna (client-side, sobre as linhas já carregadas do período)
   const [filtrosAbertos, setFiltrosAbertos] = useState(false)
   const [fPessoa, setFPessoa] = useState('')
@@ -202,6 +370,18 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [loading, setLoading] = useState(false)
   const [sincLiqBusy, setSincLiqBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  // Aviso de ação (sem alert() nativo) — ver AvisoBox. Erro bloqueia até "Entendi"; sucesso some sozinho.
+  const [aviso, setAviso] = useState<AvisoEstado>(null)
+  // Confirmação de ação de dinheiro (sem prompt()/confirm() nativos) — ver ConfirmAcaoModal.
+  const [confirmAcao, setConfirmAcao] = useState<ConfirmAcao | null>(null)
+  const rotaAjuda = tipo === 'pagar' ? '/dashboard/financeiro/pagar' : '/dashboard/financeiro/receber'
+  // GAP2 (consistência): "+ Nova despesa/receita" abre o MESMO modal in-place da edição, sem pulo de tela.
+  const [criandoNovo, setCriandoNovo] = useState(false)
+  // #584 (aud8 86/95 · RD-98 p1 · estado vazio enganoso): quando o período padrão (mês atual) vem
+  // vazio mas a empresa TEM títulos fora dele (vencidos/outros meses), o empty-state antigo dizia só
+  // "cadastrar a primeira" e ESCONDIA os vencidos — risco de perder pagamento atrasado em tela de dinheiro.
+  // Aqui guardamos o resumo do que existe fora do período para o EmptyState oferecer "Ver vencidas".
+  const [foraPeriodo, setForaPeriodo] = useState<{ vencidasQtd: number; vencidasValor: number; totalFora: number } | null>(null)
   const [nfseMap, setNfseMap] = useState<Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada'>>({})
   const [nfseDocMap, setNfseDocMap] = useState<Record<string, { pdf?: string | null; xml?: string | null; notaId?: string }>>({})
   const [nfeMap, setNfeMap] = useState<Record<string, 'autorizada' | 'processando' | 'rejeitada' | 'cancelada' | 'denegada'>>({})
@@ -436,7 +616,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         if (!alive) return
         setLoading(false)
         if (error) {
-          setErro(error.message)
+          setErro(erroAmigavel(error, 'carregar os lançamentos'))
           return
         }
         setData(data as Resposta)
@@ -446,6 +626,54 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       alive = false
     }
   }, [companyId, tipo, dataInicio, dataFim, statusSel, reloadKey])
+
+  // #584 · empty-state honesto: só investigamos "fora do período" quando o período PADRÃO (mês atual)
+  // veio vazio e o usuário não aplicou nenhum filtro — assim não disparamos a consulta larga à toa.
+  const semResultadoPeriodo = !!data && !data.sem_plano && (data.resultados?.length ?? 0) === 0
+  const periodoPadraoMesAtual = periodoChoice === 'mes_atual'
+  const semFiltrosUsuario =
+    statusSel.length === 0 && !busca.trim() && !categoria && !soBloqueadas &&
+    contasSel.size === 0 && !fPessoa.trim() && !fForma && !fValorMin.trim() && !fValorMax.trim()
+  useEffect(() => {
+    if (!companyId || !(semResultadoPeriodo && periodoPadraoMesAtual && semFiltrosUsuario)) {
+      setForaPeriodo(null)
+      return
+    }
+    let alive = true
+    const ano = new Date().getFullYear()
+    // Uma única chamada larga (janela ±5 anos) quando o mês atual está vazio: devolve os KPIs
+    // (vencidos: qtd+valor) e o total de linhas do período amplo para a mensagem.
+    supabase
+      .rpc('fn_ge_listagem_v2', {
+        p_company_id: companyId,
+        p_tipo: tipo,
+        p_data_inicio: `${ano - 5}-01-01`,
+        p_data_fim: `${ano + 5}-12-31`,
+        p_status_filtros: null,
+      })
+      .then(({ data: amplo, error }) => {
+        if (!alive) return
+        if (error || !amplo) { setForaPeriodo(null); return }
+        const a = amplo as Resposta
+        const totalFora = a.total_rows ?? a.resultados?.length ?? 0
+        setForaPeriodo({
+          vencidasQtd: a.kpis?.vencidos?.qtd ?? 0,
+          vencidasValor: a.kpis?.vencidos?.valor ?? 0,
+          totalFora,
+        })
+      })
+    return () => { alive = false }
+  }, [companyId, tipo, semResultadoPeriodo, periodoPadraoMesAtual, semFiltrosUsuario, reloadKey])
+
+  // Ações do empty-state honesto (#584): reusam o fluxo ?status=vencido já existente (período largo até hoje).
+  const verVencidas = () => {
+    const ano = new Date().getFullYear()
+    setStatusSel(['vencidos'])
+    setPeriodoChoice('personalizado')
+    setDataInicio(`${ano - 5}-01-01`)
+    setDataFim(fimMesAtual())
+    setPage(1)
+  }
 
   const resultadosFiltrados = useMemo(() => {
     const base = data?.resultados ?? []
@@ -515,6 +743,27 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       totalQtd: rows.length,
     }
   }, [resultadosFiltrados])
+
+  // GAP PDCA (auditor_pdca_2): quando NÃO há filtro client-side nem status selecionado, os cards
+  // devem vir do `kpis` do SERVIDOR (calculado sobre TODAS as linhas do período, pré-LIMIT 5000) —
+  // senão, em empresa com >5000 títulos, o recálculo a partir das 5000 linhas SUBCONTA (ex.: Total
+  // R$248.560,01 virava o somatório só das 5000). Com filtro ativo, mantém o kpisFiltrados (bug André).
+  const semFiltroClient = !busca.trim() && !categoria && contasSel.size === 0 && !fPessoa.trim()
+    && !fForma && !fValorMin.trim() && !fValorMax.trim() && !soBloqueadas
+    && statusSel.length === 0   // [] = todos (StatusOpt não tem 'todos')
+  const cardsKpis = (semFiltroClient && data && !data.sem_plano)
+    ? {
+        vencidos: data.kpis.vencidos,
+        hoje: data.kpis.hoje,
+        avencer: data.kpis.avencer,
+        pagos: data.kpis.pagos,
+        total: data.kpis.total,
+        totalQtd: data.total_rows ?? resultadosFiltrados.length,
+      }
+    : kpisFiltrados
+  // Lista truncada no teto de 5000 do servidor: avisar (RD-98 pilar 1 — dado não some em silêncio).
+  const totalReal = data?.total_rows ?? 0
+  const listaTruncada = !!data && !data.sem_plano && totalReal > (data.resultados?.length ?? 0)
 
   const idsSelecionaveis = useMemo(
     () => resultadosFiltrados.filter((r) => r.situacao !== 'pago').map((r) => r.id),
@@ -637,14 +886,25 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
 
   async function alternarBloqueio(r: Resultado) {
     const bloquear = !(r.id in bloqueioMap)
-    const motivo = prompt(bloquear ? `BLOQUEAR o pagamento de "${r.descricao}"?\nInforme o motivo:` : `DESBLOQUEAR o pagamento de "${r.descricao}"?\nInforme o motivo:`)
-    if (motivo === null) return
-    if (!motivoValido(motivo)) { alert('Informe o motivo (mínimo 3 caracteres).'); return }
-    const { data: j, error } = await supabase.rpc('fn_pagar_bloquear', { p_id: r.id, p_bloquear: bloquear, p_motivo: motivo.trim() })
-    if (error) { alert('Erro: ' + error.message); return }
-    const res = j as { sucesso?: boolean; erro?: string } | null
-    if (!res?.sucesso) { alert(res?.erro ?? 'Não foi possível alterar o bloqueio.'); return }
-    setReloadKey((k) => k + 1)
+    setConfirmAcao({
+      titulo: bloquear ? 'Bloquear pagamento' : 'Desbloquear pagamento',
+      mensagem: `${bloquear ? 'Bloquear' : 'Desbloquear'} o pagamento de "${r.descricao}".`,
+      perigo: bloquear,
+      confirmLabel: bloquear ? 'Bloquear' : 'Desbloquear',
+      motivoLabel: 'Motivo (fica no histórico)',
+      motivoObrigatorio: true,
+      placeholderMotivo: 'Ex.: aguardando conferência da nota',
+      rotaAjuda,
+      motivoChave: `financeiro.${tipo}.acao_motivo`,
+      executar: async (motivo) => {
+        const { data: j, error } = await supabase.rpc('fn_pagar_bloquear', { p_id: r.id, p_bloquear: bloquear, p_motivo: motivo })
+        setConfirmAcao(null)
+        if (error) { setAviso({ tipo: 'erro', texto: erroAmigavel(error, 'alterar o bloqueio') }); return }
+        const res = j as { sucesso?: boolean; erro?: string } | null
+        if (!res?.sucesso) { setAviso({ tipo: 'erro', texto: res?.erro ?? 'Não foi possível alterar o bloqueio.' }); return }
+        setReloadKey((k) => k + 1)
+      },
+    })
   }
 
   // PR3b (Jordana #106/#38): busca as baixas dos títulos de receber visíveis e agrega por título em
@@ -701,54 +961,126 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   // há conciliação REAL (vínculo no banco); se o título só está baixado (pago), oferece cancelar a baixa e
   // excluir. Mensagem honesta do motivo real (RD-51). Auditoria em erp_lancamento_log.
   const excluir = async (r: Resultado) => {
-    if (!confirm(`EXCLUIR "${r.descricao}"?\nR$ ${(r.valor_documento).toFixed(2)} · venc ${fmtData(r.data_vencimento)}\n\nEsta ação fica registrada no histórico (imutável).`)) return
     const rpc = tipo === 'pagar' ? 'fn_pagar_excluir' : 'fn_receber_excluir'
 
     const chamar = async (cancelarBaixa: boolean) => {
       const { data, error } = await supabase.rpc(rpc, { p_id: r.id, p_cancelar_baixa: cancelarBaixa })
-      if (error) { alert('Erro ao excluir: ' + error.message); return null }
+      if (error) { setAviso({ tipo: 'erro', texto: erroAmigavel(error, 'excluir') }); return null }
       return data as { sucesso?: boolean; erro?: string; orientacao?: string } | null
     }
 
-    let j = await chamar(false)
-    if (j === null) return
-    // Só baixado (pago), sem conciliação: pergunta se cancela a baixa e exclui.
-    if (!j?.sucesso && j?.erro === 'requer_cancelar_baixa') {
-      if (!confirm(`${j.orientacao ?? 'Este lançamento está baixado (pago). Cancelar a baixa e excluir?'}\n\nA baixa será cancelada e o lançamento excluído (fica registrado no histórico).`)) return
-      j = await chamar(true)
-      if (j === null) return
-    }
-    if (!j?.sucesso) {
-      if (j?.erro === 'bloqueado_conciliado') {
-        alert(
-          `Este lançamento está CONCILIADO com o banco.\n\n` +
-          `Excluir agora deixaria um movimento bancário órfão.\n` +
-          `${j.orientacao ?? 'Cancele a conciliação no inbox, depois volte aqui.'}`,
-        )
-      } else if (j?.erro === 'bloqueado_boleto_ativo') {
-        alert(
-          `Este título tem BOLETO EMITIDO no banco.\n\n` +
-          `Se excluir, o banco continua cobrando um boleto de um título que não existe mais.\n` +
-          `${j.orientacao ?? 'Cancele o boleto primeiro, depois exclua.'}`,
-        )
-      } else {
-        alert('Não foi possível excluir: ' + (j?.orientacao ?? j?.erro ?? 'desconhecido'))
+    const finalizar = (j: { sucesso?: boolean; erro?: string; orientacao?: string } | null) => {
+      if (!j?.sucesso) {
+        if (j?.erro === 'bloqueado_conciliado') {
+          setAviso({ tipo: 'erro', texto:
+            `Este lançamento está CONCILIADO com o banco.\n\n` +
+            `Excluir agora deixaria um movimento bancário órfão.\n` +
+            `${j.orientacao ?? 'Cancele a conciliação no inbox, depois volte aqui.'}` })
+        } else if (j?.erro === 'bloqueado_boleto_ativo') {
+          setAviso({ tipo: 'erro', texto:
+            `Este título tem BOLETO EMITIDO no banco.\n\n` +
+            `Se excluir, o banco continua cobrando um boleto de um título que não existe mais.\n` +
+            `${j.orientacao ?? 'Cancele o boleto primeiro, depois exclua.'}` })
+        } else {
+          setAviso({ tipo: 'erro', texto: 'Não foi possível excluir: ' + (j?.orientacao ?? j?.erro ?? 'desconhecido') })
+        }
+        return
       }
-      return
+      setReloadKey((k) => k + 1)
     }
-    setReloadKey((k) => k + 1)
+
+    setConfirmAcao({
+      titulo: 'Excluir lançamento',
+      mensagem: `Excluir "${r.descricao}". Esta ação fica registrada no histórico (imutável).`,
+      detalhe: `R$ ${(r.valor_documento).toFixed(2)} · venc ${fmtData(r.data_vencimento)}`,
+      perigo: true,
+      confirmLabel: 'Excluir',
+      executar: async () => {
+        const j = await chamar(false)
+        if (j === null) { setConfirmAcao(null); return }
+        // Só baixado (pago), sem conciliação: abre um 2º card pedindo confirmação de cancelar a baixa.
+        if (!j?.sucesso && j?.erro === 'requer_cancelar_baixa') {
+          setConfirmAcao({
+            titulo: 'Cancelar baixa e excluir',
+            mensagem: `${j.orientacao ?? 'Este lançamento está baixado (pago).'}\n\nA baixa será cancelada e o lançamento excluído (fica registrado no histórico).`,
+            perigo: true,
+            confirmLabel: 'Cancelar baixa e excluir',
+            executar: async () => {
+              const j2 = await chamar(true)
+              setConfirmAcao(null)
+              if (j2 !== null) finalizar(j2)
+            },
+          })
+          return
+        }
+        setConfirmAcao(null)
+        finalizar(j)
+      },
+    })
   }
 
   // BUG #13b · cancelar título manualmente (defensivo): status='cancelado' com motivo + histórico.
   // Sai de inadimplentes na hora. Cobre título sem vínculo OMIE / falha de sync. Só recebíveis.
   const cancelarTitulo = async (r: Resultado) => {
-    const motivo = prompt(`CANCELAR o título "${r.descricao}"?\nR$ ${r.valor_documento.toFixed(2)} · venc ${fmtData(r.data_vencimento)}\n\nO título sai de inadimplentes (não é exclusão — fica como cancelado, recuperável).\nMotivo (fica no histórico):`, '')
-    if (motivo === null) return
-    const { data, error } = await supabase.rpc('fn_receber_cancelar', { p_id: r.id, p_motivo: motivo.trim() || null })
-    if (error) { alert('Erro ao cancelar: ' + error.message); return }
-    const j = data as { sucesso?: boolean; erro?: string; ja_cancelado?: boolean } | null
-    if (!j?.sucesso) { alert('Não foi possível cancelar: ' + (j?.erro ?? 'desconhecido')); return }
-    setReloadKey((k) => k + 1)
+    setConfirmAcao({
+      titulo: 'Cancelar título',
+      mensagem: `Cancelar o título "${r.descricao}". O título sai de inadimplentes (não é exclusão — fica como cancelado, recuperável).`,
+      detalhe: `R$ ${r.valor_documento.toFixed(2)} · venc ${fmtData(r.data_vencimento)}`,
+      perigo: true,
+      confirmLabel: 'Cancelar título',
+      motivoLabel: 'Motivo (fica no histórico)',
+      rotaAjuda,
+      motivoChave: `financeiro.${tipo}.acao_motivo`,
+      executar: async (motivo) => {
+        const { data, error } = await supabase.rpc('fn_receber_cancelar', { p_id: r.id, p_motivo: motivo || null })
+        setConfirmAcao(null)
+        if (error) { setAviso({ tipo: 'erro', texto: erroAmigavel(error, 'cancelar o título') }); return }
+        const j = data as { sucesso?: boolean; erro?: string; ja_cancelado?: boolean } | null
+        if (!j?.sucesso) { setAviso({ tipo: 'erro', texto: 'Não foi possível cancelar: ' + (j?.erro ?? 'desconhecido') }); return }
+        setReloadKey((k) => k + 1)
+      },
+    })
+  }
+
+  // Chamado #6713 (Jordana): estornar o recebimento/pagamento para CORRIGIR o valor e lançar de novo —
+  // sem excluir o título. Desfaz a baixa (volta para EM ABERTO) via RPC guardada (fn_receber_estornar_baixa /
+  // fn_pagar_cancelar_pagamento): bloqueia se conciliado (avisa p/ desconciliar no inbox antes) e registra
+  // quem/quando/motivo no histórico. Depois é só Editar o valor e Marcar recebido/pago de novo.
+  const estornarBaixa = async (r: Resultado) => {
+    const rpc = tipo === 'pagar' ? 'fn_pagar_cancelar_pagamento' : 'fn_receber_estornar_baixa'
+    const acao = tipo === 'pagar' ? 'o pagamento' : 'o recebimento'
+    const verbo = tipo === 'pagar' ? 'pagar' : 'receber'
+    setConfirmAcao({
+      titulo: `Estornar ${tipo === 'pagar' ? 'pagamento' : 'recebimento'}`,
+      mensagem:
+        `Estornar ${acao} de "${r.descricao}". A baixa é desfeita e o título volta para EM ABERTO. ` +
+        `Depois você pode corrigir o valor (Editar) e ${verbo} de novo. ` +
+        `O título NÃO é excluído e fica tudo registrado no histórico.`,
+      detalhe: `R$ ${r.valor_documento.toFixed(2)} · venc ${fmtData(r.data_vencimento)}`,
+      perigo: true,
+      confirmLabel: 'Estornar',
+      motivoLabel: 'Motivo (fica no histórico)',
+      rotaAjuda,
+      motivoChave: `financeiro.${tipo}.acao_motivo`,
+      executar: async (motivo) => {
+        const { data, error } = await supabase.rpc(rpc, { p_id: r.id, p_motivo: motivo || null })
+        setConfirmAcao(null)
+        if (error) { setAviso({ tipo: 'erro', texto: erroAmigavel(error, 'estornar') }); return }
+        const j = data as { sucesso?: boolean; erro?: string; orientacao?: string; valor_estornado?: number } | null
+        if (!j?.sucesso) {
+          if (j?.erro === 'bloqueado_conciliado') {
+            setAviso({ tipo: 'erro', texto:
+              `Este lançamento está CONCILIADO com o banco.\n\n` +
+              `Estornar agora deixaria um movimento bancário órfão.\n` +
+              `${j.orientacao ?? 'Cancele a conciliação no inbox, depois volte aqui.'}` })
+          } else {
+            setAviso({ tipo: 'erro', texto: 'Não foi possível estornar: ' + (j?.orientacao ?? j?.erro ?? 'desconhecido') })
+          }
+          return
+        }
+        setReloadKey((k) => k + 1)
+      },
+    })
   }
 
   // Edição em massa (Jordana #6) · aplica o MESMO valor do CAMPO escolhido a N selecionados. Reusa a RPC
@@ -758,7 +1090,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     ? parseFloat((massaNovoValor || '').replace(',', '.')) > 0
     : (massaNovoValor || '').trim() !== ''
   const aplicarAlterarValorMassa = async () => {
-    if (!massaValorValido) { alert('Informe o novo valor.'); return }
+    if (!massaValorValido) { setAviso({ tipo: 'erro', texto: 'Informe o novo valor.' }); return }
     const raw = (massaNovoValor || '').trim()
     const val = campoMassaDef.tipo === 'num' ? String(parseFloat(raw.replace(',', '.'))) : raw
     setMassaBusy(true)
@@ -767,9 +1099,9 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       p_ids: Array.from(selecionados), p_campos: { [massaCampo]: val },
     })
     setMassaBusy(false)
-    if (error) { alert('Erro ao alterar: ' + error.message); return }
+    if (error) { setAviso({ tipo: 'erro', texto: erroAmigavel(error, 'alterar os títulos') }); return }
     const j = data as { sucesso?: boolean; erro?: string; alterados?: number; pulados_pago?: number; falhas?: number } | null
-    if (j?.sucesso === false) { alert('Não foi possível: ' + (j?.erro ?? 'campo não permitido')); return }
+    if (j?.sucesso === false) { setAviso({ tipo: 'erro', texto: 'Não foi possível: ' + (j?.erro ?? 'campo não permitido') }); return }
     const extra = [
       j?.pulados_pago ? `${j.pulados_pago} paga(s) puladas` : '',
       j?.falhas ? `${j.falhas} falha(s)` : '',
@@ -787,13 +1119,13 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     const rpc = tipo === 'pagar' ? 'fn_pagar_excluir_massa' : 'fn_receber_excluir_massa'
     const { data, error } = await supabase.rpc(rpc, { p_ids: Array.from(selecionados) })
     setMassaBusy(false)
-    if (error) { alert('Erro ao excluir: ' + error.message); return }
+    if (error) { setAviso({ tipo: 'erro', texto: erroAmigavel(error, 'excluir os títulos') }); return }
     const j = data as {
       sucesso?: boolean; erro?: string
       excluidos?: number; ignoradas_pago_conciliado?: number; ignoradas_boleto_ativo?: number
       ja_excluidas?: number; outras_falhas?: number
     } | null
-    if (j?.sucesso === false) { alert('Não foi possível excluir: ' + (j?.erro ?? 'desconhecido')); return }
+    if (j?.sucesso === false) { setAviso({ tipo: 'erro', texto: 'Não foi possível excluir: ' + (j?.erro ?? 'desconhecido') }); return }
     setMassaExcluirAberto(false)
 
     const excluidos = j?.excluidos ?? 0
@@ -814,11 +1146,10 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       const motivo = j?.ignoradas_boleto_ativo
         ? 'Cancele o boleto no banco antes de excluir esses títulos.'
         : (j?.ignoradas_pago_conciliado ? 'Contas pagas/conciliadas precisam ser tratadas antes de excluir.' : '')
-      alert(
+      setAviso({ tipo: 'erro', texto:
         `Nenhuma conta foi excluída.` +
         (ignoradas.length ? `\n\nBloqueadas: ${ignoradas.join(' · ')}.` : '') +
-        (motivo ? `\n\n${motivo}` : ''),
-      )
+        (motivo ? `\n\n${motivo}` : '') })
       return
     }
 
@@ -833,9 +1164,9 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     const { data, error } = await supabase.rpc('fn_lancamento_duplicar', {
       p_tipo: tipo, p_id: r.id,
     })
-    if (error) { alert('Erro ao duplicar: ' + error.message); return }
+    if (error) { setAviso({ tipo: 'erro', texto: erroAmigavel(error, 'duplicar') }); return }
     const j = data as { sucesso?: boolean; erro?: string } | null
-    if (!j?.sucesso) { alert('Erro ao duplicar: ' + (j?.erro ?? 'desconhecido')); return }
+    if (!j?.sucesso) { setAviso({ tipo: 'erro', texto: 'Não foi possível duplicar: ' + (j?.erro ?? 'desconhecido') }); return }
     setReloadKey((k) => k + 1)
   }
 
@@ -854,17 +1185,17 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         body: JSON.stringify({ company_id: companyId }),
       })
       const j = await r.json()
-      if (!j.ok) { alert(j.erro || 'Nao foi possivel sincronizar.'); return }
+      if (!j.ok) { setAviso({ tipo: 'erro', texto: j.erro || 'Não foi possível sincronizar as liquidações.' }); return }
       const q = Number(j.liquidados ?? 0)
       const c = Number(j.consultados ?? 0)
       const partes: string[] = []
       partes.push(q === 0 ? 'Nenhum boleto ALTEROU (nada pago desde a ultima sincronizacao).' : `${q} boleto(s) ALTEROU para liquidado.`)
       if (c > 0) partes.push(`${c} consultado(s).`)
       if (Array.isArray(j.erros) && j.erros.length > 0) partes.push(`${j.erros.length} com erro.`)
-      alert(partes.join(' '))
+      setAviso({ tipo: 'sucesso', texto: partes.join(' ') })
       setReloadKey((k) => k + 1)
     } catch (e) {
-      alert(`Falha ao sincronizar: ${(e as Error).message || 'erro de rede'}`)
+      setAviso({ tipo: 'erro', texto: erroAmigavel(e, 'sincronizar as liquidações') })
     } finally {
       setSincLiqBusy(false)
     }
@@ -872,9 +1203,12 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
 
   return (
     <Wrapper>
+      <AvisoBox aviso={aviso} onFechar={() => setAviso(null)} />
+      <ConfirmAcaoModal acao={confirmAcao} onFechar={() => setConfirmAcao(null)} />
       <Header
         labels={labels}
         onHistorico={() => setHistoricoGlobalAberto(true)}
+        onNovo={() => setCriandoNovo(true)}
         acaoExtra={
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <Link
@@ -887,14 +1221,18 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
               }}>
               📥 Importar em massa
             </Link>
-            <ExportarListaButton
-              companyId={companyId}
-              tipo={tipo}
-              titulo={labels.titulo}
-              filtros={filtrosDesc}
-              kpis={kpisExport}
-              linhas={resultadosFiltrados}
-            />
+            <AjudaCampo chave={`financeiro.${tipo}.acao_importar`} />
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+              <ExportarListaButton
+                companyId={companyId}
+                tipo={tipo}
+                titulo={labels.titulo}
+                filtros={filtrosDesc}
+                kpis={kpisExport}
+                linhas={resultadosFiltrados}
+              />
+              <AjudaCampo chave={`financeiro.${tipo}.acao_exportar`} />
+            </span>
             {/* #3281: período longo sem esperar na tela — o Excel chega em Meus relatórios */}
             <GerarSegundoPlanoButton
               companyId={companyId}
@@ -960,47 +1298,78 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         >
           <KpiCard
             titulo={labels.vencidosLabel}
-            valor={kpisFiltrados.vencidos.valor}
-            qtd={kpisFiltrados.vencidos.qtd}
+            valor={cardsKpis.vencidos.valor}
+            qtd={cardsKpis.vencidos.qtd}
             cor="#DC2626"
-            destaque={kpisFiltrados.vencidos.qtd > 0}
+            destaque={cardsKpis.vencidos.qtd > 0}
             ativo={statusSel.includes('vencidos')}
             onClick={() => toggleStatus('vencidos')}
+            chave={`financeiro.${tipo}.kpi_vencidos`}
           />
           <KpiCard
             titulo={labels.hojeLabel}
-            valor={kpisFiltrados.hoje.valor}
-            qtd={kpisFiltrados.hoje.qtd}
+            valor={cardsKpis.hoje.valor}
+            qtd={cardsKpis.hoje.qtd}
             cor="#C8941A"
             ativo={statusSel.includes('hoje')}
             onClick={() => toggleStatus('hoje')}
+            chave={`financeiro.${tipo}.kpi_hoje`}
           />
           <KpiCard
             titulo="A vencer"
-            valor={kpisFiltrados.avencer.valor}
-            qtd={kpisFiltrados.avencer.qtd}
+            valor={cardsKpis.avencer.valor}
+            qtd={cardsKpis.avencer.qtd}
             cor="#3D2314"
             ativo={statusSel.includes('avencer')}
             onClick={() => toggleStatus('avencer')}
+            chave={`financeiro.${tipo}.kpi_avencer`}
           />
           <KpiCard
             titulo={labels.pagosLabel}
-            valor={kpisFiltrados.pagos.valor}
-            qtd={kpisFiltrados.pagos.qtd}
+            valor={cardsKpis.pagos.valor}
+            qtd={cardsKpis.pagos.qtd}
             cor="#16A34A"
             ativo={statusSel.includes('pagos')}
             onClick={() => toggleStatus('pagos')}
+            chave={`financeiro.${tipo}.kpi_pagos`}
           />
           <KpiCard
             titulo="Total"
-            valor={kpisFiltrados.total}
-            qtd={kpisFiltrados.totalQtd}
+            valor={cardsKpis.total}
+            qtd={cardsKpis.totalQtd}
             cor="#3D2314"
             ativo={statusSel.length === 0}
             onClick={() => setStatusSel([])}
+            chave={`financeiro.${tipo}.kpi_total`}
           />
         </div>
       </div>
+
+      {listaTruncada && (
+        <div
+          role="status"
+          style={{
+            background: '#FDF6E3',
+            border: '0.5px solid #E6CE8F',
+            borderRadius: 12,
+            padding: '10px 16px',
+            marginBottom: 16,
+            fontSize: 13,
+            color: '#7A5A12',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <span aria-hidden="true">ℹ️</span>
+          <span>
+            Este período tem <b>{totalReal.toLocaleString('pt-BR')}</b> lançamentos; a lista mostra os
+            primeiros <b>{(data?.resultados?.length ?? 0).toLocaleString('pt-BR')}</b>. Os indicadores
+            no topo já consideram <b>todos</b> — para navegar o restante na lista, estreite o período ou
+            use a busca e os filtros.
+          </span>
+        </div>
+      )}
 
       {/* Filtros */}
       <div
@@ -1015,7 +1384,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           gap: 12,
         }}
       >
-        <Campo label="Período">
+        <Campo label="Período" ajuda={`financeiro.${tipo}.filtro_periodo`}>
           <select value={periodoChoice} onChange={(e) => aplicarPeriodo(e.target.value as PeriodoChoice)} style={inputStyle}>
             <option value="mes_atual">Mês atual ({MESES[hoje.getMonth()]})</option>
             <option value="mes_passado">Mês passado</option>
@@ -1045,7 +1414,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           </>
         )}
 
-        <Campo label="Status (múltiplo)">
+        <Campo label="Status (múltiplo)" ajuda={`financeiro.${tipo}.filtro_status`}>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
             {/* Vocabulário da Jordana (RD-41): Aberto = A vencer + Hoje (não pago, não vencido). Multi-select preservado.
                 'Incluído na remessa' e 'Agendado' vêm da remessa (só a pagar) — na lista como os demais, sem 2ª classe. */}
@@ -1086,7 +1455,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           </div>
         </Campo>
 
-        <Campo label="Categoria">
+        <Campo label="Categoria" ajuda={`financeiro.${tipo}.filtro_categoria`}>
           <select value={categoria} onChange={(e) => { setCategoria(e.target.value); setPage(1) }} style={inputStyle}>
             <option value="">Todas</option>
             {categoriasDistinct.map((c) => (
@@ -1095,7 +1464,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           </select>
         </Campo>
 
-        <Campo label="Buscar">
+        <Campo label="Buscar" ajuda={`financeiro.${tipo}.filtro_busca`}>
           <input
             value={busca}
             onChange={(e) => { setBusca(e.target.value); setPage(1) }}
@@ -1206,7 +1575,14 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
             Carregando...
           </div>
         ) : pageItems.length === 0 ? (
-          <EmptyState labels={labels} />
+          <EmptyState
+            labels={labels}
+            foraPeriodo={foraPeriodo}
+            filtrosOcultaram={(data?.resultados?.length ?? 0) > 0}
+            onVerVencidas={verVencidas}
+            onAmpliarPeriodo={() => aplicarPeriodo('ano_atual')}
+            onNovo={() => setCriandoNovo(true)}
+          />
         ) : (
           <>
             {selecionados.size > 0 && (
@@ -1271,10 +1647,10 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                 return { qtd: rows.length, valor: rows.reduce((a, r) => a + (r.valor_documento || 0), 0) }
               }
               const info: Record<StatusOpt, { label: string; cor: string; valor: number; qtd: number }> = {
-                vencidos: { label: labels.vencidosLabel, cor: '#DC2626', valor: kpisFiltrados.vencidos.valor, qtd: kpisFiltrados.vencidos.qtd },
-                hoje: { label: labels.hojeLabel, cor: '#C8941A', valor: kpisFiltrados.hoje.valor, qtd: kpisFiltrados.hoje.qtd },
-                avencer: { label: 'A vencer', cor: '#3D2314', valor: kpisFiltrados.avencer.valor, qtd: kpisFiltrados.avencer.qtd },
-                pagos: { label: labels.pagosLabel, cor: '#16A34A', valor: kpisFiltrados.pagos.valor, qtd: kpisFiltrados.pagos.qtd },
+                vencidos: { label: labels.vencidosLabel, cor: '#DC2626', valor: cardsKpis.vencidos.valor, qtd: cardsKpis.vencidos.qtd },
+                hoje: { label: labels.hojeLabel, cor: '#C8941A', valor: cardsKpis.hoje.valor, qtd: cardsKpis.hoje.qtd },
+                avencer: { label: 'A vencer', cor: '#3D2314', valor: cardsKpis.avencer.valor, qtd: cardsKpis.avencer.qtd },
+                pagos: { label: labels.pagosLabel, cor: '#16A34A', valor: cardsKpis.pagos.valor, qtd: cardsKpis.pagos.qtd },
                 conciliado: { label: 'Conciliado', cor: '#0D9488', ...derivar('conciliado') },
                 agendado: { label: 'Agendado', cor: '#2F5AA8', ...derivar('agendado') },
                 incluido_remessa: { label: 'Incluído na remessa', cor: '#4F46E5', ...derivar('incluido_remessa') },
@@ -1309,11 +1685,11 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                         aria-label="Selecionar todos não pagos"
                       />
                     </Th>
-                    <Th>Descrição</Th>
-                    <Th>Quem</Th>
-                    <Th>Categoria</Th>
-                    <Th>Vencimento</Th>
-                    <Th>
+                    <Th chave={`financeiro.${tipo}.col_descricao`}>Descrição</Th>
+                    <Th chave={`financeiro.${tipo}.col_quem`}>Quem</Th>
+                    <Th chave={`financeiro.${tipo}.col_categoria`}>Categoria</Th>
+                    <Th chave={`financeiro.${tipo}.col_vencimento`}>Vencimento</Th>
+                    <Th chave={`financeiro.${tipo}.col_pagamento`}>
                       <span
                         onClick={() => setPagSort((s) => (s === 'off' ? 'asc' : s === 'asc' ? 'desc' : 'off'))}
                         style={{ cursor: 'pointer', userSelect: 'none' }}
@@ -1323,10 +1699,10 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                         Pagamento {pagSort === 'asc' ? '▲' : pagSort === 'desc' ? '▼' : '⇅'}
                       </span>
                     </Th>
-                    <Th align="right">Valor</Th>
-                    <Th>Status</Th>
-                    {tipo === 'receber' && <Th>Fiscal</Th>}
-                    <Th align="right">Ação</Th>
+                    <Th align="right" chave={`financeiro.${tipo}.col_valor`}>Valor</Th>
+                    <Th chave={`financeiro.${tipo}.col_status`}>Status</Th>
+                    {tipo === 'receber' && <Th chave="financeiro.receber.col_fiscal">Fiscal</Th>}
+                    <Th align="right" chave={`financeiro.${tipo}.col_acao`}>Ação</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1513,15 +1889,19 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                               </button>
                             )}
                             {!pago && (
+                              <>
                               <button
                                 type="button"
-                                onClick={() => { if (tipo === 'pagar' && r.id in bloqueioMap) { alert('Conta BLOQUEADA para pagamento. Desbloqueie antes de dar baixa.'); return } setPagandoItem(r) }}
+                                onClick={() => { if (tipo === 'pagar' && r.id in bloqueioMap) { setAviso({ tipo: 'erro', texto: 'Conta BLOQUEADA para pagamento. Desbloqueie antes de dar baixa.' }); return } setPagandoItem(r) }}
                                 style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '4px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
                               >
                                 {tipo === 'pagar' ? 'Marcar pago' : 'Marcar recebido'}
                               </button>
+                              <AjudaCampo chave={tipo === 'pagar' ? 'financeiro.pagar.acao_marcar_pago' : 'financeiro.receber.acao_marcar_recebido'} alinhar="fim" />
+                              </>
                             )}
                             {tipo === 'pagar' && ehMaster && !pago && (
+                              <>
                               <button
                                 type="button"
                                 onClick={() => void alternarBloqueio(r)}
@@ -1530,8 +1910,26 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                               >
                                 {r.id in bloqueioMap ? '🔓 Desbloquear' : '🔒 Bloquear'}
                               </button>
+                              <AjudaCampo chave="financeiro.pagar.acao_bloquear" alinhar="fim" />
+                              </>
                             )}
-                            {pago && <span style={{ fontSize: 10, color: 'rgba(61,35,20,0.4)', marginRight: 6 }}>✓ baixado</span>}
+                            {pago && (
+                              <>
+                                <span style={{ fontSize: 10, color: 'rgba(61,35,20,0.4)', marginRight: 2 }}>✓ baixado</span>
+                                <button
+                                  type="button"
+                                  onClick={() => void estornarBaixa(r)}
+                                  title={tipo === 'pagar'
+                                    ? 'Cancelar pagamento: desfaz a baixa e volta o título para EM ABERTO (p/ corrigir o valor e pagar de novo). Bloqueado se conciliado.'
+                                    : 'Estornar recebimento: desfaz a baixa e volta o título para EM ABERTO (p/ corrigir o valor e receber de novo). Bloqueado se conciliado.'}
+                                  aria-label={tipo === 'pagar' ? 'Cancelar pagamento' : 'Estornar recebimento'}
+                                  style={{ background: 'transparent', color: '#8A5A00', border: '0.5px solid rgba(200,148,26,0.45)', padding: '4px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', marginRight: 2 }}
+                                >
+                                  ↩️ {tipo === 'pagar' ? 'Cancelar pagto' : 'Estornar'}
+                                </button>
+                                <AjudaCampo chave={tipo === 'pagar' ? 'financeiro.pagar.cancelar_pagamento' : 'financeiro.receber.estornar_baixa'} />
+                              </>
+                            )}
                             <button
                               type="button"
                               onClick={() => setEditandoItem(r)}
@@ -1541,6 +1939,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                             >
                               ✏️
                             </button>
+                            <AjudaCampo chave={tipo === 'pagar' ? 'financeiro.pagar.acao_editar' : 'financeiro.receber.acao_editar'} alinhar="fim" />
                             <button
                               type="button"
                               onClick={() => setHistoricoItem(r)}
@@ -1550,6 +1949,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                             >
                               🕐
                             </button>
+                            <AjudaCampo chave={tipo === 'pagar' ? 'financeiro.pagar.acao_historico' : 'financeiro.receber.acao_historico'} alinhar="fim" />
                             <button
                               type="button"
                               onClick={() => void duplicar(r)}
@@ -1605,6 +2005,11 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                 <span>
                   Mostrando {pageStart + 1}–{Math.min(pageStart + pageSize, resultadosFiltrados.length)} de {resultadosFiltrados.length}
+                  {listaTruncada && (
+                    <span style={{ color: '#C8941A', fontWeight: 600 }}>
+                      {' '}(lista limitada a {resultadosFiltrados.length.toLocaleString('pt-BR')} de {totalReal.toLocaleString('pt-BR')} no período)
+                    </span>
+                  )}
                 </span>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span>Itens por página:</span>
@@ -1665,18 +2070,18 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
 
       {tipo === 'pagar' ? (
         <NovaDespesaModal
-          aberto={!!editandoItem}
+          aberto={!!editandoItem || criandoNovo}
           editarId={editandoItem?.id}
           companyId={companyId}
-          onFechar={() => setEditandoItem(null)}
+          onFechar={() => { setEditandoItem(null); setCriandoNovo(false) }}
           onSucesso={() => setReloadKey((k) => k + 1)}
         />
       ) : (
         <NovaReceitaModal
-          aberto={!!editandoItem}
+          aberto={!!editandoItem || criandoNovo}
           editarId={editandoItem?.id}
           companyId={companyId}
-          onFechar={() => setEditandoItem(null)}
+          onFechar={() => { setEditandoItem(null); setCriandoNovo(false) }}
           onSucesso={() => setReloadKey((k) => k + 1)}
         />
       )}
@@ -1686,7 +2091,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           companyId={companyId}
           receber={{ id: cartaoItem.id, descricao: cartaoItem.descricao, valor: cartaoItem.valor_documento, cliente: cartaoItem.nome_pessoa }}
           onClose={() => setCartaoItem(null)}
-          onSucesso={(m) => { setCartaoItem(null); alert(m); setReloadKey((k) => k + 1) }}
+          onSucesso={(m) => { setCartaoItem(null); setAviso({ tipo: 'sucesso', texto: m }); setReloadKey((k) => k + 1) }}
         />
       )}
 
@@ -1848,11 +2253,16 @@ function Wrapper({ children }: { children: React.ReactNode }) {
   )
 }
 
-function Header({ labels, onHistorico, acaoExtra }: {
+function Header({ labels, onHistorico, acaoExtra, onNovo }: {
   labels: ReturnType<typeof labelsPorTipo>
   onHistorico?: () => void
   acaoExtra?: React.ReactNode
+  onNovo?: () => void
 }) {
+  const ctaStyle: React.CSSProperties = {
+    background: '#C8941A', color: '#3D2314', padding: '10px 22px', borderRadius: 6,
+    fontSize: 13, fontWeight: 500, textDecoration: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+  }
   return (
     <div
       style={{
@@ -1896,27 +2306,18 @@ function Header({ labels, onHistorico, acaoExtra }: {
             🕐 Histórico
           </button>
         )}
-        <Link
-          href={labels.rotaNovo + '?area=gestao_empresarial'}
-          style={{
-            background: '#C8941A',
-            color: '#3D2314',
-            padding: '10px 22px',
-            borderRadius: 6,
-            fontSize: 13,
-            fontWeight: 500,
-            textDecoration: 'none',
-          }}
-        >
-          + {labels.ctaNovo}
-        </Link>
+        {onNovo ? (
+          <button type="button" onClick={onNovo} style={ctaStyle}>+ {labels.ctaNovo}</button>
+        ) : (
+          <Link href={labels.rotaNovo + '?area=gestao_empresarial'} style={ctaStyle}>+ {labels.ctaNovo}</Link>
+        )}
       </div>
     </div>
   )
 }
 
-function KpiCard({ titulo, valor, qtd, cor, destaque = false, onClick, ativo = false }: {
-  titulo: string; valor: number; qtd: number; cor: string; destaque?: boolean; onClick?: () => void; ativo?: boolean
+function KpiCard({ titulo, valor, qtd, cor, destaque = false, onClick, ativo = false, chave }: {
+  titulo: string; valor: number; qtd: number; cor: string; destaque?: boolean; onClick?: () => void; ativo?: boolean; chave?: string
 }) {
   const clicavel = !!onClick
   return (
@@ -1945,7 +2346,9 @@ function KpiCard({ titulo, valor, qtd, cor, destaque = false, onClick, ativo = f
           marginBottom: 8,
         }}
       >
-        {titulo}{ativo ? ' · filtrando' : ''}
+        <span style={{ display: 'inline-flex', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+          {titulo}{ativo ? ' · filtrando' : ''}{chave && <AjudaCampo chave={chave} />}
+        </span>
       </div>
       <div style={{ fontSize: 20, color: ativo ? '#FFFFFF' : cor, fontWeight: 600 }}>{fmtBRL(valor)}</div>
       <div style={{ fontSize: 11, color: ativo ? 'rgba(255,255,255,0.85)' : 'rgba(61,35,20,0.55)', marginTop: 4 }}>
@@ -1984,28 +2387,99 @@ function Pill({ situacao, tipo }: { situacao: Situacao; tipo?: Tipo }) {
   )
 }
 
-function EmptyState({ labels }: { labels: ReturnType<typeof labelsPorTipo> }) {
+function EmptyState({
+  labels,
+  foraPeriodo,
+  filtrosOcultaram,
+  onVerVencidas,
+  onAmpliarPeriodo,
+  onNovo,
+}: {
+  labels: ReturnType<typeof labelsPorTipo>
+  foraPeriodo?: { vencidasQtd: number; vencidasValor: number; totalFora: number } | null
+  filtrosOcultaram?: boolean
+  onVerVencidas?: () => void
+  onAmpliarPeriodo?: () => void
+  onNovo?: () => void
+}) {
+  const singular = labels.tipoPlural === 'despesas' ? 'despesa' : 'receita'
+  const ctaNovoStyle: React.CSSProperties = {
+    display: 'inline-block', background: '#C8941A', color: '#3D2314', padding: '10px 22px',
+    borderRadius: 6, fontSize: 13, fontWeight: 500, textDecoration: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+  }
+  const ctaNovo = onNovo ? (
+    <button type="button" onClick={onNovo} style={ctaNovoStyle}>+ {labels.ctaNovo}</button>
+  ) : (
+    <Link href={labels.rotaNovo + '?area=gestao_empresarial'} style={ctaNovoStyle}>+ {labels.ctaNovo}</Link>
+  )
+  const btnSecundario: React.CSSProperties = {
+    background: '#FFFFFF',
+    color: '#3D2314',
+    border: '0.5px solid rgba(61,35,20,0.3)',
+    padding: '10px 18px',
+    borderRadius: 6,
+    fontSize: 13,
+    fontWeight: 500,
+    cursor: 'pointer',
+  }
+
+  // #584 · a empresa TEM títulos fora do mês atual (vencidos/outros meses): não dizer "cadastre o primeiro".
+  // Mostrar o que existe e levar aos vencidos — nunca esconder atraso numa tela de dinheiro.
+  if (foraPeriodo && foraPeriodo.totalFora > 0) {
+    const temVencidas = foraPeriodo.vencidasQtd > 0
+    const mesAtual = new Date().toLocaleDateString('pt-BR', { month: 'long' })
+    const partes: string[] = []
+    if (temVencidas) {
+      partes.push(
+        `${foraPeriodo.vencidasQtd} vencida${foraPeriodo.vencidasQtd > 1 ? 's' : ''} (${fmtBRL(foraPeriodo.vencidasValor)})`,
+      )
+    }
+    const outros = foraPeriodo.totalFora - foraPeriodo.vencidasQtd
+    if (outros > 0) partes.push(`${outros} em outros meses`)
+    return (
+      <div style={{ padding: 32, textAlign: 'center' }}>
+        <div style={{ fontSize: 14, color: '#3D2314', fontWeight: 600, marginBottom: 6 }}>
+          Nenhuma {singular} vence em {mesAtual}.
+        </div>
+        <div style={{ fontSize: 13, color: 'rgba(61,35,20,0.7)', marginBottom: 16 }}>
+          {partes.length ? `Você tem ${partes.join(' e ')}.` : 'Há títulos fora deste período.'}
+        </div>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+          {temVencidas && onVerVencidas && (
+            <button type="button" onClick={onVerVencidas} style={{ ...btnSecundario, borderColor: '#DC2626', color: '#DC2626' }}>
+              Ver vencidas
+            </button>
+          )}
+          {onAmpliarPeriodo && (
+            <button type="button" onClick={onAmpliarPeriodo} style={btnSecundario}>
+              Ampliar período
+            </button>
+          )}
+          {ctaNovo}
+        </div>
+      </div>
+    )
+  }
+
+  // Há títulos no período, mas os filtros aplicados esconderam todos.
+  if (filtrosOcultaram) {
+    return (
+      <div style={{ padding: 32, textAlign: 'center' }}>
+        <div style={{ fontSize: 14, color: 'rgba(61,35,20,0.7)', marginBottom: 12 }}>
+          Nenhuma {singular} encontrada com os filtros aplicados. Ajuste ou limpe os filtros acima.
+        </div>
+        {ctaNovo}
+      </div>
+    )
+  }
+
+  // Empresa realmente sem nenhum título: convidar a cadastrar o primeiro.
   return (
     <div style={{ padding: 32, textAlign: 'center' }}>
       <div style={{ fontSize: 14, color: 'rgba(61,35,20,0.7)', marginBottom: 12 }}>
-        Nenhuma {labels.tipoPlural === 'despesas' ? 'despesa' : 'receita'} encontrada neste período.
-        Que tal cadastrar a primeira?
+        Nenhuma {singular} encontrada neste período. Que tal cadastrar a primeira?
       </div>
-      <Link
-        href={labels.rotaNovo + '?area=gestao_empresarial'}
-        style={{
-          display: 'inline-block',
-          background: '#C8941A',
-          color: '#3D2314',
-          padding: '10px 22px',
-          borderRadius: 6,
-          fontSize: 13,
-          fontWeight: 500,
-          textDecoration: 'none',
-        }}
-      >
-        + {labels.ctaNovo}
-      </Link>
+      {ctaNovo}
     </div>
   )
 }
@@ -2020,26 +2494,27 @@ function FiltroChip({ label, onX }: { label: string; onX: () => void }) {
   )
 }
 
-function Campo({ label, children }: { label: string; children: React.ReactNode }) {
+function Campo({ label, children, ajuda }: { label: string; children: React.ReactNode; ajuda?: string }) {
   return (
     <div>
       <label
         style={{
-          display: 'block',
+          display: 'flex',
+          alignItems: 'center',
           fontSize: 11,
           color: 'rgba(61,35,20,0.65)',
           marginBottom: 4,
           fontWeight: 500,
         }}
       >
-        {label}
+        {label}{ajuda && <AjudaCampo chave={ajuda} />}
       </label>
       {children}
     </div>
   )
 }
 
-function Th({ children, align = 'left' }: { children: React.ReactNode; align?: 'left' | 'right' }) {
+function Th({ children, align = 'left', chave }: { children: React.ReactNode; align?: 'left' | 'right'; chave?: string }) {
   return (
     <th
       style={{
@@ -2052,7 +2527,9 @@ function Th({ children, align = 'left' }: { children: React.ReactNode; align?: '
         fontWeight: 500,
       }}
     >
-      {children}
+      {chave
+        ? <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: align === 'right' ? 'flex-end' : 'flex-start' }}>{children}<AjudaCampo chave={chave} /></span>
+        : children}
     </th>
   )
 }

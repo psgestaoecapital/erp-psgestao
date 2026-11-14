@@ -6,6 +6,8 @@ name: Acionar revisor
 # lida como dado (git fetch + diff para o patch-id, sem checkout e sem executar nada dela).
 #  · rajada de eventos na mesma PR = 1 acionamento (concurrency cancela o anterior; espera 120 s antes de acionar);
 #  · se a PR já tem "MERGE AUTORIZADO #N — gilberto-revisor · patch-id <hex>" com o patch-id do conteúdo atual, não aciona;
+#  · CEO 07/11: a etiqueta ceo-aprovado (OK de sócio da bandeja) também acorda — antes a PR esperava a varredura,
+#    que o GitHub atrasa por horas sob carga;
 #  · segredos REVISOR_ROTINA_URL / REVISOR_ROTINA_TOKEN ausentes = ::warning com o passo a passo, sem falhar a PR.
 on:
   pull_request_target:
@@ -33,7 +35,7 @@ jobs:
       !github.event.pull_request.draft &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       contains(github.event.pull_request.labels.*.name, 'revisao-eng-chefe') &&
-      (github.event.action != 'labeled' || github.event.label.name == 'revisao-eng-chefe')
+      (github.event.action != 'labeled' || github.event.label.name == 'revisao-eng-chefe' || github.event.label.name == 'ceo-aprovado')
     runs-on: ubuntu-latest
     timeout-minutes: 6
     env:

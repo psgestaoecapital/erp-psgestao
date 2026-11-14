@@ -9,11 +9,14 @@ const tela = readFileSync('src/app/dashboard/projetos/configuracoes/page.tsx', '
 ok(!/bdi_administracao_central_pct|bdi_garantia_pct\b/.test(tela), 'a tela não usa nomes de coluna inexistentes')
 ok(!/from\("projetos_modulo_config"\)\s*\.update\(/.test(tela), 'a tela não faz UPDATE direto (a tabela só tem policy de leitura)')
 ok(/rpc\("fn_projetos_config_salvar"/.test(tela), 'o autosave grava pela RPC fn_projetos_config_salvar')
-// Omie e aprovação do engenheiro ainda não têm consumidor: desde o #3374 (RD-96) saíram do caminho principal e foram
-// para a seção "No roadmap · em breve" (array ROADMAP), como itens informativos — NÃO como toggle que finge salvar.
+// As integrações de estoque e contas a pagar com sistema externo, e a aprovação do engenheiro, ainda não têm
+// consumidor: desde o #3374 (RD-96) saíram do caminho principal e foram para a seção "No roadmap · em breve"
+// (array ROADMAP), como itens informativos — NÃO como toggle que finge salvar. RD-100: o rótulo visível não cita
+// nome de sistema de terceiros; identificamos os 2 itens de integração pelas CHAVES DE AJUDA (identificador técnico
+// não visível, fora do alcance do RD-100), não pelo texto da tela.
 const roadmap = tela.match(/const ROADMAP[^=]*=\s*\[([\s\S]*?)\];/)?.[1] ?? ''
-const omieRoadmap = [...roadmap.matchAll(/label:\s*"([^"]*\bOmie\b[^"]*)"/g)].map((m) => m[1])
-ok(/No roadmap[\s\S]{0,80}?em breve/i.test(tela) && omieRoadmap.length === 2, `integrações Omie (sem consumidor) ficam no roadmap "em breve", não como toggle (${omieRoadmap.length})`)
+const integRoadmap = [...roadmap.matchAll(/ajuda:\s*"(projetos\.config\.omie_(?:estoque|pagar))"/g)].map((m) => m[1])
+ok(/No roadmap[\s\S]{0,80}?em breve/i.test(tela) && integRoadmap.length === 2, `integrações sem consumidor (estoque e contas a pagar) ficam no roadmap "em breve", não como toggle (${integRoadmap.length})`)
 
 const migs = readdirSync('supabase/migrations').filter((f) => f.endsWith('.sql')).sort()
 const sql = migs.map((f) => readFileSync(`supabase/migrations/${f}`, 'utf8')).join('\n')

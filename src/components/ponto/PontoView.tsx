@@ -16,6 +16,13 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { hhmmParaDecimal } from '@/lib/ponto/hhmm'
 import PontoPainelDia from './PontoPainelDia'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+// RD-95: componente de ponto compartilhado pelas lentes Industrial e Compliance.
+// A ajuda "?" é registrada na rota industrial (erp_ajuda_campo) e lida com rota
+// fixa para que os dois modos mostrem o mesmo texto.
+const AJUDA_ROTA = '/dashboard/industrial/ponto'
+const ajudaLbl: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4 }
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -348,9 +355,12 @@ export default function PontoView({ lente }: { lente: Lente }) {
         {loading ? (
           <div style={{ fontSize: 13, color: MUT }}>Carregando…</div>
         ) : !config ? (
+          // RD-100: nome de sistema de terceiro não aparece em texto visível; o
+          // usuário escolhe o fornecedor na Central de Conectores (seleção de integração,
+          // onde nomeá-lo é legítimo). Aqui mantemos o termo genérico.
           <EmptyBox
             titulo="Nenhum provider de ponto conectado"
-            texto="Conecte um fornecedor de ponto eletrônico (IO Point, Pontotel, Domínio) pra esta empresa."
+            texto="Conecte o seu fornecedor de ponto eletrônico pra esta empresa na Central de Conectores."
             cta={{ label: 'Ir pra Central de Conectores →', href: '/dashboard/conectores' }}
           />
         ) : (
@@ -363,47 +373,57 @@ export default function PontoView({ lente }: { lente: Lente }) {
                   🔒 VAULT OK
                 </span>
               )}
-              <span style={{ fontSize: 11, color: MUT, marginLeft: 'auto' }}>
+              <span style={{ fontSize: 11, color: MUT, marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 Última sync: <b style={{ color: ultimaSync ? ESP : RED }}>{ultimaSync ?? 'Nunca'}</b>
+                <AjudaCampo chave="ponto.ultima_sync" rota={AJUDA_ROTA} />
               </span>
             </div>
 
             <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-              <div>
-                <label style={lbl}>Início do período</label>
+              <label style={{ display: 'block' }}>
+                <span style={{ ...lbl, ...ajudaLbl }}>Início do período <AjudaCampo chave="ponto.filtro_inicio" rota={AJUDA_ROTA} /></span>
                 <input type="date" value={beginDate} onChange={(e) => setBeginDate(e.target.value)} style={inp} />
-              </div>
-              <div>
-                <label style={lbl}>Fim do período</label>
+              </label>
+              <label style={{ display: 'block' }}>
+                <span style={{ ...lbl, ...ajudaLbl }}>Fim do período <AjudaCampo chave="ponto.filtro_fim" rota={AJUDA_ROTA} /></span>
                 <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} style={inp} />
-              </div>
-              <button
-                type="button"
-                onClick={sincronizar}
-                disabled={sincronizando}
-                style={{ ...btnGold, opacity: sincronizando ? 0.6 : 1, cursor: sincronizando ? 'not-allowed' : 'pointer' }}
-              >
-                {sincronizando ? 'Sincronizando…' : '⟳ Sincronizar (período)'}
-              </button>
-              <button
-                type="button"
-                onClick={sincronizarDiario}
-                disabled={sincronizandoDiario}
-                title="Puxa a marcação por DIA em lotes de 15 dias (habilita o Painel por dia e o filtro por dia no BI)"
-                style={{ ...btnOutlineGold, opacity: sincronizandoDiario ? 0.6 : 1, cursor: sincronizandoDiario ? 'not-allowed' : 'pointer' }}
-              >
-                {sincronizandoDiario ? (sincDiarioProg ?? 'Sincronizando dia a dia…') : '📅 Sincronizar dia a dia'}
-              </button>
-              {lente === 'compliance' && (
+              </label>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 <button
                   type="button"
-                  onClick={importarCompliance}
-                  disabled={importando || colabs.length === 0}
-                  title={colabs.length === 0 ? 'Sincronize primeiro pra ter colaboradores' : 'Projeta em compliance_funcionarios preservando dados manuais'}
-                  style={{ ...btnOutlineGold, opacity: importando || colabs.length === 0 ? 0.5 : 1, cursor: importando || colabs.length === 0 ? 'not-allowed' : 'pointer' }}
+                  onClick={sincronizar}
+                  disabled={sincronizando}
+                  style={{ ...btnGold, opacity: sincronizando ? 0.6 : 1, cursor: sincronizando ? 'not-allowed' : 'pointer' }}
                 >
-                  {importando ? 'Importando…' : `⬇ Importar pro Compliance (${colabs.length})`}
+                  {sincronizando ? 'Sincronizando…' : '⟳ Sincronizar (período)'}
                 </button>
+                <AjudaCampo chave="ponto.sincronizar_periodo" rota={AJUDA_ROTA} />
+              </span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <button
+                  type="button"
+                  onClick={sincronizarDiario}
+                  disabled={sincronizandoDiario}
+                  title="Puxa a marcação por DIA em lotes de 15 dias (habilita o Painel por dia e o filtro por dia no BI)"
+                  style={{ ...btnOutlineGold, opacity: sincronizandoDiario ? 0.6 : 1, cursor: sincronizandoDiario ? 'not-allowed' : 'pointer' }}
+                >
+                  {sincronizandoDiario ? (sincDiarioProg ?? 'Sincronizando dia a dia…') : '📅 Sincronizar dia a dia'}
+                </button>
+                <AjudaCampo chave="ponto.sincronizar_diario" rota={AJUDA_ROTA} />
+              </span>
+              {lente === 'compliance' && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <button
+                    type="button"
+                    onClick={importarCompliance}
+                    disabled={importando || colabs.length === 0}
+                    title={colabs.length === 0 ? 'Sincronize primeiro pra ter colaboradores' : 'Projeta em compliance_funcionarios preservando dados manuais'}
+                    style={{ ...btnOutlineGold, opacity: importando || colabs.length === 0 ? 0.5 : 1, cursor: importando || colabs.length === 0 ? 'not-allowed' : 'pointer' }}
+                  >
+                    {importando ? 'Importando…' : `⬇ Importar pro Compliance (${colabs.length})`}
+                  </button>
+                  <AjudaCampo chave="ponto.importar_compliance" rota={AJUDA_ROTA} />
+                </span>
               )}
             </div>
             <p style={{ fontSize: 10, color: MUT, margin: '8px 0 0' }}>
@@ -431,6 +451,9 @@ export default function PontoView({ lente }: { lente: Lente }) {
         <button onClick={() => setAba('horas')} style={aba === 'horas' ? tabOn : tabOff}>
           🕐 Histórico de horas ({horas.length})
         </button>
+        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+          <AjudaCampo chave="ponto.abas" rota={AJUDA_ROTA} />
+        </span>
       </div>
 
       {aba === 'painel' ? (
@@ -438,12 +461,15 @@ export default function PontoView({ lente }: { lente: Lente }) {
       ) : aba === 'colaboradores' ? (
         <section style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 10, overflow: 'hidden' }}>
           <div style={{ padding: 12, borderBottom: `0.5px solid ${LINE}` }}>
-            <input
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar por nome, matrícula, função, departamento…"
-              style={{ ...inp, width: '100%' }}
-            />
+            <label style={{ display: 'block' }}>
+              <span style={{ ...lbl, ...ajudaLbl }}>Buscar colaborador <AjudaCampo chave="ponto.busca_colaborador" rota={AJUDA_ROTA} /></span>
+              <input
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                placeholder="Buscar por nome, matrícula, função, departamento…"
+                style={{ ...inp, width: '100%' }}
+              />
+            </label>
           </div>
           {colabs.length === 0 ? (
             <div style={{ padding: 32, textAlign: 'center', fontSize: 13, color: MUT }}>
@@ -454,7 +480,7 @@ export default function PontoView({ lente }: { lente: Lente }) {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 760 }}>
                 <thead style={{ background: BG }}>
                   <tr>
-                    <Th>Nome</Th><Th>Matrícula</Th><Th>Função</Th><Th>Departamento</Th><Th>Admissão</Th><Th>Sync</Th>
+                    <Th>Nome <AjudaCampo chave="ponto.col_nome" rota={AJUDA_ROTA} /></Th><Th>Matrícula <AjudaCampo chave="ponto.col_matricula" rota={AJUDA_ROTA} /></Th><Th>Função <AjudaCampo chave="ponto.col_funcao" rota={AJUDA_ROTA} /></Th><Th>Departamento <AjudaCampo chave="ponto.col_departamento" rota={AJUDA_ROTA} /></Th><Th>Admissão <AjudaCampo chave="ponto.col_admissao" rota={AJUDA_ROTA} /></Th><Th>Sync <AjudaCampo chave="ponto.col_sync" rota={AJUDA_ROTA} /></Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -484,7 +510,7 @@ export default function PontoView({ lente }: { lente: Lente }) {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 680 }}>
                 <thead style={{ background: BG }}>
                   <tr>
-                    <Th>Colaborador</Th><Th>Período</Th><Th>Total horas</Th><Th>Função</Th><Th>Departamento</Th><Th>Sync</Th>
+                    <Th>Colaborador <AjudaCampo chave="ponto.col_colaborador" rota={AJUDA_ROTA} /></Th><Th>Período <AjudaCampo chave="ponto.col_periodo" rota={AJUDA_ROTA} /></Th><Th>Total horas <AjudaCampo chave="ponto.col_total_horas" rota={AJUDA_ROTA} /></Th><Th>Função <AjudaCampo chave="ponto.col_funcao" rota={AJUDA_ROTA} /></Th><Th>Departamento <AjudaCampo chave="ponto.col_departamento" rota={AJUDA_ROTA} /></Th><Th>Sync <AjudaCampo chave="ponto.col_sync" rota={AJUDA_ROTA} /></Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -517,7 +543,8 @@ function Casca({ rotulo, children }: { rotulo: string; children: React.ReactNode
         <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: GOLD, margin: 0 }}>{rotulo}</p>
         <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 28, fontWeight: 400, color: ESP, margin: '4px 0 4px' }}>Ponto Eletrônico</h1>
         <p style={{ fontSize: 12, color: MUT, margin: '0 0 18px' }}>
-          Colaboradores e horas do provider de ponto (IO Point, Pontotel, Domínio) — mesma fonte pra Industrial e Compliance.
+          {/* RD-100: sem nome de terceiro em texto visível — o fornecedor é escolhido na Central de Conectores. */}
+          Colaboradores e horas do seu fornecedor de ponto conectado — mesma fonte pra Industrial e Compliance.
         </p>
         {children}
       </div>

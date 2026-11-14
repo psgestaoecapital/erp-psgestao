@@ -13,6 +13,8 @@ export const ANON_APROVADAS: readonly string[] = [
   'fn_nr36_ciencia_marcar_visualizado', 'fn_nr36_ciencia_confirmar_assinatura',
   'fn_convite_ler',
   'fn_portal_cliente_obter',
+  // aprovação do job pelo cliente por link (/p/aprovacao/[token]) — token conferido no corpo, só o job do token
+  'fn_pm_job_aprovacao_por_token', 'fn_pm_job_aprovar_publico', 'fn_pm_job_solicitar_ajustes_publico',
   // telemetria sem sessão — limite de 20/min por IP ou usuário
   'fn_registrar_evento_auth', 'fn_registrar_travamento',
   // agente ATAK (token do agente conferido no corpo)

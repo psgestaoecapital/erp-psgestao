@@ -1,0 +1,45 @@
+name: Aprovações dos sócios (bandeja)
+
+# CEO 06/11/2026: "nada deve ficar parado; deve fluir com OK de qualquer um de nós" (Gilberto, Rodrigo, Jordana).
+# A cada 15 min (mesmo ritmo da varredura do revisor; ~1 chamada por PR na bandeja): espelha no banco as PRs na "BANDEJA DO CEO" do revisor (erp_pr_bandeja) e entrega no GitHub as decisões
+# que um sócio tomou no ERP (aba Codes › Aprovações): comentário com quem/quando/justificativa/patch-id e, se aprovada,
+# a etiqueta `ceo-aprovado` (com o PAT, para o acionar-revisor acordar o revisor). Código da MAIN; sem checkout de PR.
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: bandeja-socios
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+jobs:
+  bandeja:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: scripts/dev
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Espelha a bandeja e entrega as decisões dos sócios
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          FILA_MERGE_TOKEN: ${{ secrets.FILA_MERGE_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "::warning::SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY ausentes — bandeja dos sócios não sincronizada"; exit 0
+          fi
+          node scripts/dev/bandeja-socios.mjs

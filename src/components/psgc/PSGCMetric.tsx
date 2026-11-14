@@ -1,6 +1,7 @@
 'use client';
 
 import { PSGC_COLORS, PSGC_RADIUS } from '@/lib/psgc-tokens';
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo';
 
 interface PSGCMetricProps {
   label: string;
@@ -12,6 +13,10 @@ interface PSGCMetricProps {
   destaque?: boolean;
   pequeno?: boolean;
   onClick?: () => void;
+  // RD-95: "?" do indicador. `ajuda` = chave em erp_ajuda_campo; `ajudaRota` força a rota
+  // (quando o indicador não fica na própria página da chave). Sem `ajuda`, nada muda.
+  ajuda?: string;
+  ajudaRota?: string;
 }
 
 export default function PSGCMetric({
@@ -24,6 +29,8 @@ export default function PSGCMetric({
   destaque = false,
   pequeno = false,
   onClick,
+  ajuda,
+  ajudaRota,
 }: PSGCMetricProps) {
   return (
     <div
@@ -50,6 +57,7 @@ export default function PSGCMetric({
       }}>
         {icon && <span>{icon}</span>}
         {label}
+        {ajuda && <AjudaCampo chave={ajuda} rota={ajudaRota} />}
       </div>
       <div style={{
         fontSize: pequeno ? 18 : 22,

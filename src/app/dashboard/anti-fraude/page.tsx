@@ -346,7 +346,7 @@ export default function AntiFraudePage() {
         <div>
           <div style={{ fontSize: 9, color: C.r, letterSpacing: 2, textTransform: 'uppercase' }}>Motor Proprietario</div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: C.tx, margin: '2px 0 0' }}>Anti-Fraude — 11 Camadas</h1>
-          <div style={{ fontSize: 11, color: C.txd }}>Score 0-100 por pagamento | Dados reais do Omie | Patente INPI</div>
+          <div style={{ fontSize: 11, color: C.txd }}>Score 0-100 por pagamento | Dados reais importados | Patente INPI</div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <select value={empresaSel} onChange={e => { setEmpresaSel(e.target.value); setAnalisado(false) }} style={{ background: C.card, border: '1px solid ' + C.bd, color: C.tx, padding: '8px 12px', borderRadius: 6, fontSize: 12, maxWidth: 250 }}>
@@ -480,7 +480,7 @@ export default function AntiFraudePage() {
         <div style={{ textAlign: 'center', padding: '60px 20px', color: C.txm }}>
           <div style={{ fontSize: 48, marginBottom: 10 }}>🛡️</div>
           <div style={{ fontSize: 14 }}>Selecione uma empresa e clique Executar Anti-Fraude</div>
-          <div style={{ fontSize: 11, color: C.txd, marginTop: 6 }}>11 camadas de verificacao | Score 0-100 por pagamento | Dados reais do Omie</div>
+          <div style={{ fontSize: 11, color: C.txd, marginTop: 6 }}>11 camadas de verificacao | Score 0-100 por pagamento | Dados reais importados</div>
         </div>
       )}
     </div>

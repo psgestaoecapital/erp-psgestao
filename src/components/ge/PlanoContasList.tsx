@@ -5,7 +5,10 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import PlanoContasForm, { type ContaPlano, type TipoConta, TIPOS } from './PlanoContasForm'
 import VincularLinhasDREModal from './VincularLinhasDREModal'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
+const ROTA_AJUDA = '/dashboard/cadastros/plano-contas'
 const TIPO_VISUAL = TIPOS.reduce((acc, t) => { acc[t.value] = t; return acc }, {} as Record<TipoConta, typeof TIPOS[number]>)
 
 export default function PlanoContasList({ companyId }: { companyId: string }) {
@@ -35,14 +38,14 @@ export default function PlanoContasList({ companyId }: { companyId: string }) {
   }, [companyId])
 
   async function handleAplicarPadrao() {
-    if (!confirm('Aplicar 15 contas padrão DRE? Contas já existentes não duplicam.')) return
+    if (!confirm('Aplicar o plano de contas padrão do DRE? Contas já existentes não duplicam.')) return
     setAplicando(true)
     const { data, error } = await supabase.rpc('fn_plano_contas_aplicar_sugestoes_padrao', {
       p_company_id: companyId,
     })
     setAplicando(false)
     if (error) {
-      alert('Erro: ' + error.message)
+      alert(erroAmigavel(error, 'Não foi possível aplicar o plano padrão. Tente de novo.'))
       return
     }
     const result = data as { sem_plano?: boolean; mensagem?: string } | null
@@ -55,7 +58,28 @@ export default function PlanoContasList({ companyId }: { companyId: string }) {
   }
 
   async function handleToggleAtivo(c: ContaPlano) {
-    await supabase.from('erp_plano_contas').update({ ativo: !c.ativo }).eq('id', c.id)
+    // RD-98 pilar 4: toggle auditado — registra QUEM inativou/reativou e grava audit_log_global.
+    // Nunca escreve direto na tabela (ignorava erro de RLS e mostrava sucesso falso).
+    const { data, error } = await supabase.rpc('fn_plano_contas_toggle_ativo', {
+      p_categoria_id: c.id,
+      p_ativo: !c.ativo,
+    })
+    if (error) {
+      alert(erroAmigavel(error, 'Não foi possível alterar a conta. Tente de novo.'))
+      return
+    }
+    const result = data as { ok?: boolean; erro?: string } | null
+    if (result && result.ok === false) {
+      const motivos: Record<string, string> = {
+        sem_acesso: 'Você não tem acesso a esta empresa.',
+        nao_encontrado: 'Conta não encontrada.',
+        conta_global_nao_editavel: 'Conta do modelo global não pode ser inativada por empresa.',
+        nao_autenticado: 'Sessão expirada. Faça login novamente.',
+        parametros_invalidos: 'Dados inválidos.',
+      }
+      alert(motivos[result.erro ?? ''] ?? ('Não foi possível alterar a conta: ' + (result.erro ?? 'erro')))
+      return
+    }
     load()
   }
 
@@ -85,44 +109,59 @@ export default function PlanoContasList({ companyId }: { companyId: string }) {
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {contas.length === 0 && (
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={handleAplicarPadrao}
+                disabled={aplicando}
+                style={{ background: 'transparent', color: '#C8941A', border: '0.5px solid #C8941A', padding: '10px 16px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: aplicando ? 'wait' : 'pointer' }}
+              >
+                {aplicando ? 'Aplicando…' : '✨ Aplicar plano padrão'}
+              </button>
+              <AjudaCampo chave="ge.plano_contas.aplicar_padrao" rota={ROTA_AJUDA} />
+            </span>
+          )}
+          <span style={{ display: 'inline-flex', alignItems: 'center' }}>
             <button
               type="button"
-              onClick={handleAplicarPadrao}
-              disabled={aplicando}
-              style={{ background: 'transparent', color: '#C8941A', border: '0.5px solid #C8941A', padding: '10px 16px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: aplicando ? 'wait' : 'pointer' }}
+              onClick={() => router.push('/dashboard/cadastros/plano-contas/relatorio')}
+              style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.3)', padding: '10px 16px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
             >
-              {aplicando ? 'Aplicando…' : '✨ Aplicar plano padrão'}
+              Relatório gerencial × contábil
             </button>
-          )}
-          <button
-            type="button"
-            onClick={() => router.push('/dashboard/cadastros/plano-contas/relatorio')}
-            style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.3)', padding: '10px 16px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-          >
-            Relatório gerencial × contábil
-          </button>
-          <button
-            type="button"
-            data-testid="plano-vinculos"
-            onClick={() => router.push('/dashboard/cadastros/plano-contas/vinculos')}
-            style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.3)', padding: '10px 16px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-          >
-            Vínculos gerencial × contábil
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setEditing(null)
-              setShowForm(true)
-            }}
-            style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '10px 20px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-          >
-            + Nova conta
-          </button>
+            <AjudaCampo chave="ge.plano_contas.relatorio" rota={ROTA_AJUDA} />
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+            <button
+              type="button"
+              data-testid="plano-vinculos"
+              onClick={() => router.push('/dashboard/cadastros/plano-contas/vinculos')}
+              style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.3)', padding: '10px 16px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >
+              Vínculos gerencial × contábil
+            </button>
+            <AjudaCampo chave="ge.plano_contas.vinculos" rota={ROTA_AJUDA} />
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+            <button
+              type="button"
+              onClick={() => {
+                setEditing(null)
+                setShowForm(true)
+              }}
+              style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '10px 20px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >
+              + Nova conta
+            </button>
+            <AjudaCampo chave="ge.plano_contas.nova" rota={ROTA_AJUDA} />
+          </span>
         </div>
       </div>
 
-      <div style={{ background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 12, padding: '14px 18px', marginBottom: 20, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+      <div style={{ background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 12, padding: '14px 18px', marginBottom: 20, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 700, marginRight: 2 }}>
+          Filtrar por tipo<AjudaCampo chave="ge.plano_contas.filtro_tipo" rota={ROTA_AJUDA} />
+        </span>
         <Tab label={`Todas (${contas.filter((c) => c.ativo).length})`} ativo={filtroTipo === 'todos'} onClick={() => setFiltroTipo('todos')} cor="#3D2314" />
         {TIPOS.map((t) => (
           <Tab
@@ -150,12 +189,19 @@ export default function PlanoContasList({ companyId }: { companyId: string }) {
               disabled={aplicando}
               style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '10px 24px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: aplicando ? 'wait' : 'pointer' }}
             >
-              {aplicando ? 'Aplicando…' : '✨ Aplicar 15 contas padrão (DRE)'}
+              {aplicando ? 'Aplicando…' : '✨ Aplicar contas padrão (DRE)'}
             </button>
           )}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', padding: '4px 14px 8px', fontSize: 11, color: 'rgba(61,35,20,0.5)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 700 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>Código<AjudaCampo chave="ge.plano_contas.col_codigo" rota={ROTA_AJUDA} /></span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>Conta<AjudaCampo chave="ge.plano_contas.col_conta" rota={ROTA_AJUDA} /></span>
+            <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center' }}>Vincular DRE<AjudaCampo chave="ge.plano_contas.col_vinculo" rota={ROTA_AJUDA} /></span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>Editar<AjudaCampo chave="ge.plano_contas.editar" rota={ROTA_AJUDA} /></span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>Inativar / Reativar<AjudaCampo chave="ge.plano_contas.inativar" rota={ROTA_AJUDA} /></span>
+          </div>
           {filtradas.map((c) => (
             <CardConta
               key={c.id}

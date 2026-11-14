@@ -13,6 +13,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CelulaEditavel } from '@/components/produtividade/CelulaEditavel'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 const ROTA = '/dashboard/produtividade/mapa'
 const Aj = ({ k }: { k: string }) => <AjudaCampo chave={k} rota={ROTA} />
@@ -30,6 +31,9 @@ type Plant = { id: string; nome_planta: string }
 type Setor = { id: string; nome: string }
 type Modelo = { modelo: string; modelo_nome: string; segmento: string | null }
 type ProdLado = { produto_id: string; codigo: string | null; nome: string | null; tipo_saida?: string; rendimento_padrao_pct?: number | null }
+type Produto = { id: string; codigo: string | null; nome: string | null }
+// Uma ligação Entra→Sai da raia (prod_estrutura): origem → saída, com rendimento padrão %.
+type Ligacao = { id: string; origem_produto_id: string; produto_id: string; tipo_saida: string; rendimento_padrao_pct: number | null }
 type Atividade = {
   id: string; ordem: number; nome: string | null; tipo: string | null;
   tempo_ciclo_seg: number | null; pessoas: number | null; unidade: string | null;
@@ -94,6 +98,18 @@ function Inner() {
     return () => { vivo = false }
   }, [companyId, plantId])
 
+  // produtos da planta (para o editor Entra/Sai da raia)
+  const [produtos, setProdutos] = useState<Produto[]>([])
+  useEffect(() => {
+    let vivo = true
+    void (async () => {
+      if (!companyId || !plantId) { if (vivo) setProdutos([]); return }
+      const { data } = await supabase.from('prod_produto').select('id, codigo, nome').eq('company_id', companyId).eq('plant_id', plantId).eq('ativo', true).order('codigo')
+      if (vivo) setProdutos((data ?? []) as Produto[])
+    })()
+    return () => { vivo = false }
+  }, [companyId, plantId])
+
   const carregar = useCallback(async () => {
     if (!companyId || !plantId) { setMapa(null); return }
     setCarregando(true)
@@ -106,9 +122,9 @@ function Inner() {
 
   const chamar = useCallback(async (fn: string, args: Record<string, unknown>): Promise<string | null> => {
     const { data, error } = await supabase.rpc(fn, args)
-    if (error) return error.message
+    if (error) return erroAmigavel(error)
     const r = data as { ok?: boolean; erro?: string } | null
-    if (!r?.ok) return r?.erro ?? 'Não foi possível concluir.'
+    if (!r?.ok) return codigoAmigavel(r?.erro, 'Não foi possível concluir.')
     return null
   }, [])
 
@@ -171,7 +187,11 @@ function Inner() {
   const aplicarModelo = useCallback(async () => {
     if (!companyId || !plantId || !modeloSel) return
     const setor = setores[0]?.id ?? null
-    const e = await chamar('fn_prod_modelo_aplicar', { p_company_id: companyId, p_plant_id: plantId, p_modelo: modeloSel, p_setor_id: setor })
+    let e = await chamar('fn_prod_modelo_aplicar', { p_company_id: companyId, p_plant_id: plantId, p_modelo: modeloSel, p_setor_id: setor })
+    if (e === 'modelo_ja_aplicado') {
+      if (!window.confirm('Já existem raias nesta planta. Aplicar o modelo mesmo assim vai acrescentar novas raias (pode duplicar). Continuar?')) return
+      e = await chamar('fn_prod_modelo_aplicar', { p_company_id: companyId, p_plant_id: plantId, p_modelo: modeloSel, p_setor_id: setor, p_forcar: true })
+    }
     if (e) aviso('erro', e); else { aviso('ok', 'Modelo aplicado — edite as raias e atividades à vontade.'); setModeloSel(''); await carregar() }
   }, [companyId, plantId, modeloSel, setores, chamar, carregar, aviso])
 
@@ -231,6 +251,7 @@ function Inner() {
             <div style={{ display: 'grid', gap: 14 }}>
               {raias.map((r, i) => (
                 <RaiaCard key={r.id} raia={r} primeira={i === 0} ultima={i === raias.length - 1}
+                  companyId={companyId} plantId={plantId} produtos={produtos} onRecarregar={carregar}
                   onNome={(v) => salvarRaiaCampo(r, { nome: v })}
                   onDirecao={(v) => salvarRaiaCampo(r, { direcao: v })}
                   onMover={(d) => void moverRaia(r, d)}
@@ -252,8 +273,9 @@ function Inner() {
   )
 }
 
-function RaiaCard({ raia, primeira, ultima, onNome, onDirecao, onMover, onExcluir, onNovaAtiv, onAtivCampo, onAtivMover, onAtivExcluir }: {
+function RaiaCard({ raia, primeira, ultima, companyId, plantId, produtos, onRecarregar, onNome, onDirecao, onMover, onExcluir, onNovaAtiv, onAtivCampo, onAtivMover, onAtivExcluir }: {
   raia: Raia; primeira: boolean; ultima: boolean
+  companyId: string | null; plantId: string | null; produtos: Produto[]; onRecarregar: () => Promise<void>
   onNome: (v: string) => Promise<string | null>
   onDirecao: (v: string) => Promise<string | null>
   onMover: (d: 'cima' | 'baixo') => void
@@ -263,6 +285,7 @@ function RaiaCard({ raia, primeira, ultima, onNome, onDirecao, onMover, onExclui
   onAtivMover: (at: Atividade, d: 'cima' | 'baixo') => void
   onAtivExcluir: (at: Atividade) => void
 }) {
+  const [editandoES, setEditandoES] = useState(false)
   const ladoTexto = (p: ProdLado) => `${p.codigo ? p.codigo + ' · ' : ''}${p.nome ?? 'produto'}${p.rendimento_padrao_pct != null ? ` (${p.rendimento_padrao_pct}%)` : ''}`
   const ativ = raia.atividades.slice().sort((a, b) => a.ordem - b.ordem)
   return (
@@ -293,7 +316,12 @@ function RaiaCard({ raia, primeira, ultima, onNome, onDirecao, onMover, onExclui
         <span style={{ color: C.espL }}>→</span>
         <span style={{ fontWeight: 700, color: C.esp }}>Sai:</span> {raia.sai.length ? raia.sai.map(ladoTexto).join(', ') : '—'}
         <Aj k="prod.mapa.entra_sai" />
+        <button type="button" style={{ ...btnGhost, padding: '3px 9px' }} onClick={() => setEditandoES((v) => !v)} data-testid="prod-raia-entra-sai-editar">
+          {editandoES ? 'Fechar' : 'Entra / Sai'}
+        </button>
+        <Aj k="prod.mapa.entra_sai_editar" />
       </div>
+      {editandoES && <EntraSaiEditor companyId={companyId} plantId={plantId} raia={raia} produtos={produtos} onRecarregar={onRecarregar} />}
 
       <div style={{ borderTop: `1px solid ${C.cream}`, paddingTop: 8 }}>
         {ativ.length === 0 && <div style={{ fontSize: 12, color: C.espL, marginBottom: 6 }}>Sem atividades nesta raia ainda.</div>}
@@ -335,6 +363,165 @@ function RaiaCard({ raia, primeira, ultima, onNome, onDirecao, onMover, onExclui
         </div>
       </div>
     </section>
+  )
+}
+
+// Editor Entra/Sai da raia (CEO 11/11 · Frioeste): monta prod_estrutura (origem → saída + rendimento padrão %)
+// pela raia (fluxo_id). Várias origens para a mesma saída e vários produtos de saída por origem. Editar o
+// rendimento e excluir (soft delete via fn_prod_estrutura_arquivar). Lê prod_estrutura direto (RLS por empresa).
+function mensagemErroES(msg: string | null | undefined): string {
+  const m = (msg ?? '').toLowerCase()
+  if (m.includes('ligacao_ja_existe')) return 'Essa ligação já existe nesta raia.'
+  if (m.includes('ciclo_na_estrutura')) return 'Isso criaria um ciclo (a saída voltaria à origem).'
+  if (m.includes('rendimento_invalido')) return 'O rendimento deve ser maior que 0 e até 100%.'
+  if (m.includes('produto_invalido')) return 'Escolha produtos desta planta.'
+  if (m.includes('produto_obrigatorio')) return 'Informe o produto que entra e o que sai.'
+  if (m.includes('fluxo_invalido')) return 'Raia inválida — recarregue a página.'
+  return 'Não foi possível salvar agora. Tente de novo.'
+}
+
+function EntraSaiEditor({ companyId, plantId, raia, produtos, onRecarregar }: {
+  companyId: string | null; plantId: string | null; raia: Raia; produtos: Produto[]; onRecarregar: () => Promise<void>
+}) {
+  const [ligacoes, setLigacoes] = useState<Ligacao[]>([])
+  const [erro, setErro] = useState<string | null>(null)
+  const [aviso, setAviso] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [origem, setOrigem] = useState('')
+  const [saida, setSaida] = useState('')
+  const [tipo, setTipo] = useState('principal')
+  const [rend, setRend] = useState('')
+  const [buscaO, setBuscaO] = useState('')
+  const [buscaS, setBuscaS] = useState('')
+
+  const nomeProd = useCallback((pid: string) => {
+    const p = produtos.find((x) => x.id === pid)
+    return p ? `${p.codigo ? p.codigo + ' · ' : ''}${p.nome ?? 'produto'}` : 'produto'
+  }, [produtos])
+
+  const carregar = useCallback(async () => {
+    if (!companyId || !plantId) return
+    const { data } = await supabase.from('prod_estrutura')
+      .select('id, origem_produto_id, produto_id, tipo_saida, rendimento_padrao_pct')
+      .eq('company_id', companyId).eq('plant_id', plantId).eq('fluxo_id', raia.id).eq('ativo', true)
+      .order('origem_produto_id')
+    setLigacoes((data ?? []) as Ligacao[])
+  }, [companyId, plantId, raia.id])
+  useEffect(() => { void carregar() }, [carregar])
+
+  const filtrar = (q: string): Produto[] => {
+    const b = q.trim().toLowerCase()
+    return produtos.filter((p) => !b || (p.codigo ?? '').toLowerCase().includes(b) || (p.nome ?? '').toLowerCase().includes(b)).slice(0, 50)
+  }
+
+  async function adicionar() {
+    setErro(null); setAviso(null)
+    if (!origem || !saida) { setErro('Escolha o produto que ENTRA e o que SAI.'); return }
+    if (origem === saida) { setErro('Entra e sai não podem ser o mesmo produto.'); return }
+    const pct = rend.trim() ? Number(rend.replace(',', '.')) : null
+    if (pct != null && (!(pct > 0) || pct > 100)) { setErro('O rendimento deve ser maior que 0 e até 100%.'); return }
+    setBusy(true)
+    const { data, error } = await supabase.rpc('fn_prod_estrutura_salvar', {
+      p_company_id: companyId, p_plant_id: plantId, p_id: null,
+      p_origem_produto_id: origem, p_produto_id: saida, p_fluxo_id: raia.id,
+      p_tipo_saida: tipo, p_rendimento_pct: pct, p_status: 'validado',
+    })
+    setBusy(false)
+    const r = data as { ok?: boolean; avisos?: { tipo: string; soma_pct?: number }[] } | null
+    if (error || !r?.ok) { setErro(mensagemErroES(error?.message)); return }
+    if (r.avisos?.some((a) => a.tipo === 'soma_acima_100')) setAviso('Atenção: a soma dos rendimentos desta origem passou de 100%.')
+    setOrigem(''); setSaida(''); setRend(''); setBuscaO(''); setBuscaS('')
+    await carregar(); await onRecarregar()
+  }
+
+  async function editarRend(l: Ligacao, valor: string) {
+    setErro(null); setAviso(null)
+    const pct = valor.trim() ? Number(valor.replace(',', '.')) : null
+    if (pct != null && (!(pct > 0) || pct > 100)) { setErro('O rendimento deve ser maior que 0 e até 100%.'); return }
+    setBusy(true)
+    const { data, error } = await supabase.rpc('fn_prod_estrutura_salvar', {
+      p_company_id: companyId, p_plant_id: plantId, p_id: l.id,
+      p_origem_produto_id: l.origem_produto_id, p_produto_id: l.produto_id, p_fluxo_id: raia.id,
+      p_tipo_saida: l.tipo_saida, p_rendimento_pct: pct, p_status: 'validado',
+    })
+    setBusy(false)
+    const r = data as { ok?: boolean; avisos?: { tipo: string }[] } | null
+    if (error || !r?.ok) { setErro(mensagemErroES(error?.message)); return }
+    if (r.avisos?.some((a) => a.tipo === 'soma_acima_100')) setAviso('Atenção: a soma dos rendimentos desta origem passou de 100%.')
+    await carregar(); await onRecarregar()
+  }
+
+  async function excluir(l: Ligacao) {
+    if (!window.confirm(`Remover ${nomeProd(l.origem_produto_id)} → ${nomeProd(l.produto_id)}?`)) return
+    setErro(null)
+    setBusy(true)
+    const { data, error } = await supabase.rpc('fn_prod_estrutura_arquivar', { p_company_id: companyId, p_id: l.id, p_ativo: false })
+    setBusy(false)
+    const r = data as { ok?: boolean } | null
+    if (error || !r?.ok) { setErro('Não foi possível remover agora.'); return }
+    await carregar(); await onRecarregar()
+  }
+
+  return (
+    <div style={{ background: C.bg, border: `1px solid ${C.cream}`, borderRadius: 10, padding: '10px 12px', marginBottom: 8 }} data-testid="prod-entra-sai-editor">
+      <div style={{ fontSize: 11, fontWeight: 800, color: C.espM, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 8 }}>
+        O que entra e o que sai nesta raia
+      </div>
+      {produtos.length === 0
+        ? <div style={{ fontSize: 12.5, color: C.espM }}>Cadastre os produtos da planta (em <b>Produtos</b>) para ligar origem e saída aqui.</div>
+        : (
+          <>
+            {ligacoes.length === 0 && <div style={{ fontSize: 12.5, color: C.espL, marginBottom: 8 }}>Nenhuma ligação ainda. Diga o que entra, o que sai e o rendimento abaixo.</div>}
+            {ligacoes.length > 0 && (
+              <div style={{ display: 'grid', gap: 6, marginBottom: 10 }}>
+                {ligacoes.map((l) => (
+                  <div key={l.id} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', background: C.white, border: `1px solid ${C.cream}`, borderRadius: 8, padding: '6px 10px' }} data-testid="prod-es-ligacao">
+                    <span style={{ fontSize: 12.5, color: C.esp }}><b>{nomeProd(l.origem_produto_id)}</b> <span style={{ color: C.espL }}>→</span> <b>{nomeProd(l.produto_id)}</b></span>
+                    <span style={{ fontSize: 11, color: C.espM }}>rendimento</span>
+                    <CelulaEditavel testid="prod-es-rendimento" valor={l.rendimento_padrao_pct != null ? String(l.rendimento_padrao_pct) : ''} tipo="numero" vazio="a medir %"
+                      onSalvar={async (v) => { await editarRend(l, v); return null }} />
+                    <span style={{ fontSize: 12, color: C.espL }}>%</span>
+                    <button type="button" style={{ ...btnGhost, color: C.red, marginLeft: 'auto' }} disabled={busy} onClick={() => void excluir(l)} data-testid="prod-es-excluir">Remover</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div data-ajuda="prod.mapa.entra_sai_editar" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 8, alignItems: 'start' }}>
+              <Campo rotulo="Entra (origem)" ajuda="prod.mapa.es_origem">
+                <input value={buscaO} onChange={(e) => setBuscaO(e.target.value)} placeholder="buscar…" style={{ ...inp, width: '100%', marginBottom: 4 }} data-testid="prod-es-origem-busca" />
+                <select value={origem} onChange={(e) => setOrigem(e.target.value)} style={{ ...inp, width: '100%' }} data-testid="prod-es-origem">
+                  <option value="">— escolher —</option>
+                  {filtrar(buscaO).map((p) => <option key={p.id} value={p.id}>{p.codigo ? p.codigo + ' · ' : ''}{p.nome ?? 'produto'}</option>)}
+                </select>
+              </Campo>
+              <Campo rotulo="Sai (saída)" ajuda="prod.mapa.es_saida">
+                <input value={buscaS} onChange={(e) => setBuscaS(e.target.value)} placeholder="buscar…" style={{ ...inp, width: '100%', marginBottom: 4 }} data-testid="prod-es-saida-busca" />
+                <select value={saida} onChange={(e) => setSaida(e.target.value)} style={{ ...inp, width: '100%' }} data-testid="prod-es-saida">
+                  <option value="">— escolher —</option>
+                  {filtrar(buscaS).map((p) => <option key={p.id} value={p.id}>{p.codigo ? p.codigo + ' · ' : ''}{p.nome ?? 'produto'}</option>)}
+                </select>
+              </Campo>
+              <Campo rotulo="Tipo de saída" ajuda="prod.mapa.es_tipo">
+                <select value={tipo} onChange={(e) => setTipo(e.target.value)} style={{ ...inp, width: '100%' }} data-testid="prod-es-tipo">
+                  <option value="principal">Principal</option>
+                  <option value="coproduto">Coproduto</option>
+                  <option value="subproduto">Subproduto</option>
+                </select>
+              </Campo>
+              <Campo rotulo="Rendimento padrão (%)" ajuda="prod.mapa.es_rendimento">
+                <input value={rend} onChange={(e) => setRend(e.target.value.replace(/[^\d.,]/g, ''))} placeholder="ex.: 47" inputMode="decimal" style={{ ...inp, width: '100%' }} data-testid="prod-es-rend" />
+              </Campo>
+            </div>
+            <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <button type="button" style={btn(!busy)} disabled={busy} onClick={() => void adicionar()} data-testid="prod-es-adicionar">{busy ? 'Salvando…' : '+ Ligar entra → sai'}</button>
+              <span style={{ fontSize: 11, color: C.espL }}>Várias origens podem gerar a mesma saída (rendimentos diferentes).</span>
+            </div>
+            {erro && <div style={{ marginTop: 8, fontSize: 12.5, color: C.red, background: C.redBg, borderRadius: 7, padding: '6px 10px' }}>{erro}</div>}
+            {aviso && <div style={{ marginTop: 8, fontSize: 12.5, color: C.amber, background: C.amberBg, borderRadius: 7, padding: '6px 10px' }}>{aviso}</div>}
+          </>
+        )}
+    </div>
   )
 }
 

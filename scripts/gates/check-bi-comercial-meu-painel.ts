@@ -21,10 +21,16 @@ const migC = arqC.length ? readFileSync(`supabase/migrations/${arqC[0]}`, 'utf8'
 const sqlC = migC.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
 const tela = readFileSync('src/app/dashboard/comercial/meu-painel/page.tsx', 'utf8')
 const adm = readFileSync('src/app/dashboard/admin/vendedores/page.tsx', 'utf8')
+// chaves de ajuda podem ser semeadas em QUALQUER migration (ex.: *_bi_comercial_painel_abas_mostrar_tudo.sql,
+// não só nas duas que recriam a fn) — a "?" exige a chave cadastrada no banco, onde quer que o seed esteja.
+const todasMigs = readdirSync('supabase/migrations').filter((f) => f.endsWith('.sql')).map((f) => readFileSync(`supabase/migrations/${f}`, 'utf8')).join('\n')
 
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
 ok(!UUID.test(sql) && !UUID.test(tela) && !UUID.test(adm), 'nenhuma empresa fixa (genérico)')
-ok(/rpc\('fn_bi_comercial_painel'/.test(tela) && !/\.from\(/.test(tela), 'tela lê só a fn_bi_comercial_painel')
+// v5 (CEO 07/11): a tela passou a ler a fn_bi_comercial_base (pacote cru + motor-v5), com a MESMA guarda de escopo
+// no banco (fn_bi_comercial_scope / com_vendedor_acesso, provada pelo gate check-bi-comercial-base). Segue proibido
+// ler tabela direto (.from); a fn_bi_comercial_painel continua existindo e guardada (checada abaixo pela migration).
+ok(/rpc\('fn_bi_comercial_base'/.test(tela) && !/\.from\(/.test(tela), 'tela lê só a fn_bi_comercial_base (escopo travado no banco)')
 ok(/REVOKE ALL ON FUNCTION public\.fn_com_venda_item\(uuid, date, date\) FROM PUBLIC, anon, authenticated/.test(sql), 'tradutor de venda fora do alcance da tela')
 ok(/REVOKE ALL ON FUNCTION public\.fn_com_equipe\(uuid\) FROM PUBLIC, anon, authenticated/.test(sql), 'tradutor de equipe fora do alcance da tela')
 ok(/IF v_uid IS NULL THEN RAISE EXCEPTION/.test(sql), 'exige usuário logado')
@@ -52,7 +58,7 @@ ok(recriadas.every((n) => novas.includes(n)), 'só funções novas')
 for (const [nome, txt] of [['meu-painel', tela], ['vendedores', adm]] as const) {
   const chaves = [...txt.matchAll(/AjudaCampo chave="([^"]+)"/g)].map((m) => m[1])
   ok(chaves.length > 0, `"?" na tela ${nome}`)
-  for (const k of new Set(chaves)) ok(mig.includes(`('${k}',`) || migC.includes(`('${k}',`), `chave de ajuda cadastrada: ${k}`)
+  for (const k of new Set(chaves)) ok(todasMigs.includes(`('${k}',`), `chave de ajuda cadastrada: ${k}`)
 }
 
 if (falhas) { console.error(`\n${falhas} falha(s) — Meu painel de vendas`); process.exit(1) }

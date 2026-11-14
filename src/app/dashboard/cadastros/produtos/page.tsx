@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import ExcluirProdutoModal from '@/components/cadastros/ExcluirProdutoModal'
 import { exportarProdutosXlsx, type ExportProdutosResult } from '@/lib/produtos/exportarProdutos'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 export const dynamic = 'force-dynamic'
 
@@ -106,10 +107,10 @@ export default function ProdutosPage() {
         p_unidade: unidade || null,
       })
       const res = data as ExportProdutosResult | null
-      if (error || !res?.ok) { setErro(error?.message ?? 'Não consegui baixar os produtos agora.'); return }
+      if (error || !res?.ok) { setErro(erroAmigavel(error, 'Não consegui baixar os produtos agora.')); return }
       await exportarProdutosXlsx(res)
     } catch (e) {
-      setErro((e as Error)?.message ?? 'Não consegui baixar os produtos agora.')
+      setErro(erroAmigavel(e, 'Não consegui baixar os produtos agora.'))
     } finally {
       setExportando(false)
     }
@@ -184,6 +185,13 @@ export default function ProdutosPage() {
     return () => { alive = false }
   }, [companyId])
 
+  // Deep-link ?busca=<texto>: preenche o campo de busca já filtrando (ex.: "Editar" vindo de
+  // /compras/margem-negativa e /compras/custo-simulacao). Consolidação da duplicata /dashboard/produtos.
+  useEffect(() => {
+    const b = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('busca') : null
+    if (b) setBusca(b)
+  }, [])
+
   // Carrega grupos distintos (uma vez por empresa)
   useEffect(() => {
     if (!companyId) return
@@ -256,7 +264,7 @@ export default function ProdutosPage() {
         setProdutos((prev) => (reset ? rows : [...prev, ...rows]))
         offsetRef.current += rows.length
       } catch (e) {
-        setErro(e instanceof Error ? e.message : 'Erro ao carregar produtos')
+        setErro(erroAmigavel(e, 'Não foi possível carregar os produtos.'))
       } finally {
         setLoading(false)
         setLoadingMore(false)
@@ -277,7 +285,7 @@ export default function ProdutosPage() {
   async function abrirEdicao(id: string) {
     if (!companyId) return
     const { data, error } = await supabase.from('erp_produtos').select('*').eq('company_id', companyId).eq('id', id).maybeSingle()
-    if (error || !data) { setErro(error?.message ?? 'Produto não encontrado'); return }
+    if (error || !data) { setErro(erroAmigavel(error, 'Produto não encontrado.')); return }
     setEditando(data as unknown as Produto)
   }
 
@@ -287,7 +295,7 @@ export default function ProdutosPage() {
   async function clonarProduto(id: string) {
     if (!companyId) return
     const { data, error } = await supabase.from('erp_produtos').select('*').eq('company_id', companyId).eq('id', id).maybeSingle()
-    if (error || !data) { setErro(error?.message ?? 'Produto não encontrado'); return }
+    if (error || !data) { setErro(erroAmigavel(error, 'Produto não encontrado.')); return }
     setEditando(null)
     setNovoAberto(false)
     setClonando(data as unknown as Produto)
@@ -374,47 +382,62 @@ export default function ProdutosPage() {
               </button>
               <AjudaCampo chave="cadastros.produtos.novo" />
             </span>
-            <button
-              type="button"
-              onClick={() => setEtiquetasAberto(true)}
-              disabled={selecionados.length === 0}
-              title={selecionados.length === 0 ? 'Marque os produtos na lista' : undefined}
-              data-testid="etiquetas-abrir"
-              className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] disabled:opacity-45 disabled:hover:bg-transparent flex items-center gap-2"
-            >
-              <Printer size={15} /> Etiquetas A4{selecionados.length > 0 ? ` (${selecionados.length})` : ''}
-            </button>
-            <button
-              type="button"
-              onClick={() => setFiscalMassaAberto(true)}
-              data-testid="fiscal-massa-abrir"
-              className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
-            >
-              <ListChecks size={15} /> Edição fiscal em massa
-            </button>
-            <button
-              type="button"
-              onClick={() => setAutoclassificarAberto(true)}
-              data-testid="produto-autoclassificar"
-              className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
-            >
-              <Sparkles size={15} /> Auto-classificar pela base PS
-            </button>
-            <button
-              type="button"
-              onClick={() => setImportarFiscalAberto(true)}
-              data-testid="produto-importar-fiscal"
-              className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
-            >
-              <Upload size={15} /> Importar planilha fiscal
-            </button>
-            <a
-              href="/dashboard/cadastros/produtos/importar"
-              data-testid="produto-importar-estoque"
-              className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
-            >
-              <Upload size={15} /> Importar estoque (planilha)
-            </a>
+            <span className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setEtiquetasAberto(true)}
+                disabled={selecionados.length === 0}
+                title={selecionados.length === 0 ? 'Marque os produtos na lista' : undefined}
+                data-testid="etiquetas-abrir"
+                className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] disabled:opacity-45 disabled:hover:bg-transparent flex items-center gap-2"
+              >
+                <Printer size={15} /> Etiquetas A4{selecionados.length > 0 ? ` (${selecionados.length})` : ''}
+              </button>
+              <AjudaCampo chave="cadastros.produtos.etiquetas" />
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setFiscalMassaAberto(true)}
+                data-testid="fiscal-massa-abrir"
+                className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
+              >
+                <ListChecks size={15} /> Edição fiscal em massa
+              </button>
+              <AjudaCampo chave="cadastros.produtos.fiscal_massa" />
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setAutoclassificarAberto(true)}
+                data-testid="produto-autoclassificar"
+                className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
+              >
+                <Sparkles size={15} /> Auto-classificar pela base PS
+              </button>
+              <AjudaCampo chave="cadastros.produtos.autoclassificar" />
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setImportarFiscalAberto(true)}
+                data-testid="produto-importar-fiscal"
+                className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
+              >
+                <Upload size={15} /> Importar planilha fiscal
+              </button>
+              <AjudaCampo chave="cadastros.produtos.importar_fiscal" />
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <a
+                href="/dashboard/cadastros/produtos/importar"
+                data-testid="produto-importar-estoque"
+                className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
+              >
+                <Upload size={15} /> Importar estoque (planilha)
+              </a>
+              <AjudaCampo chave="cadastros.produtos.importar_estoque" />
+            </span>
             <span className="inline-flex items-center gap-1">
               <button
                 type="button"
@@ -427,34 +450,41 @@ export default function ProdutosPage() {
               </button>
               <AjudaCampo chave="cadastros.produtos.exportar" />
             </span>
-            <a
-              href="/dashboard/compras/precificacao"
-              data-testid="produto-formar-precos"
-              className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
-            >
-              <Tags size={15} /> Formar preços
-            </a>
+            <span className="inline-flex items-center gap-1">
+              <a
+                href="/dashboard/compras/precificacao"
+                data-testid="produto-formar-precos"
+                className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
+              >
+                <Tags size={15} /> Formar preços
+              </a>
+              <AjudaCampo chave="cadastros.produtos.formar_precos" />
+            </span>
           </div>
         </header>
 
         {/* Banner: produtos sem preço travam a venda → leva para Formar preços na Precificação */}
         {semPrecoCount > 0 && (
-          <a href="/dashboard/compras/precificacao" data-testid="produto-sem-preco-banner"
-             className="mb-4 flex items-start gap-2.5 bg-[#FBEDD6] border border-[#C8941A]/35 rounded-xl px-4 py-3 hover:bg-[#F9E6C8] transition-colors">
-            <AlertTriangle size={18} className="text-[#B06A00] shrink-0 mt-0.5" />
-            <div className="text-[13px] text-[#5A3A12]">
-              <strong>{semPrecoCount} produto(s) ativo(s) sem preço de venda</strong> — eles travam a venda.
-              {' '}<span className="underline text-[#A2600B] font-medium">Formar preços agora →</span>
-            </div>
-          </a>
+          <div className="mb-4 flex items-start gap-1">
+            <a href="/dashboard/compras/precificacao" data-testid="produto-sem-preco-banner"
+               className="flex-1 flex items-start gap-2.5 bg-[#FBEDD6] border border-[#C8941A]/35 rounded-xl px-4 py-3 hover:bg-[#F9E6C8] transition-colors">
+              <AlertTriangle size={18} className="text-[#B06A00] shrink-0 mt-0.5" />
+              <div className="text-[13px] text-[#5A3A12]">
+                <strong>{semPrecoCount} produto(s) ativo(s) sem preço de venda</strong> — eles travam a venda.
+                {' '}<span className="underline text-[#A2600B] font-medium">Formar preços agora →</span>
+              </div>
+            </a>
+            <span className="mt-2.5"><AjudaCampo chave="cadastros.produtos.banner_sem_preco" /></span>
+          </div>
         )}
 
         {/* Pendências fiscais (SPED 0200) — pro contador completar (tipo do item / NCM) */}
         {pendencias.length > 0 && (
           <div className="mb-4 rounded-xl border border-[#C8941A]/40 bg-[#FBF4E4] p-4">
             <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="text-[13px] text-[#3D2314]">
-                <b>⚠ {pendencias.length} produto(s) com pendência fiscal</b> (SPED 0200) — falta tipo do item ou NCM. O contador completa antes da apuração.
+              <div className="text-[13px] text-[#3D2314] flex items-center gap-1">
+                <span><b>⚠ {pendencias.length} produto(s) com pendência fiscal</b> (SPED 0200) — falta tipo do item ou NCM. O contador completa antes da apuração.</span>
+                <AjudaCampo chave="cadastros.produtos.banner_pendencia_fiscal" />
               </div>
               <button
                 type="button"
@@ -492,6 +522,7 @@ export default function ProdutosPage() {
               placeholder="Buscar por nome, codigo ou NCM..."
               className="flex-1 text-[13px] outline-none bg-transparent text-[#3D2314] placeholder:text-[#3D2314]/40 min-w-0"
             />
+            <AjudaCampo chave="cadastros.produtos.busca" />
             <button
               type="button"
               onClick={() => setFiltrosAbertos((o) => !o)}
@@ -532,8 +563,8 @@ export default function ProdutosPage() {
             <div className="px-4 py-3 border-b border-[#3D2314]/10 bg-[#FAF7F2]/40">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <div>
-                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
-                    Unidade
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 mb-1 font-medium flex items-center gap-1">
+                    Unidade<AjudaCampo chave="cadastros.produtos.filtro.unidade" />
                   </label>
                   <select
                     value={unidade}
@@ -551,8 +582,8 @@ export default function ProdutosPage() {
                 </div>
 
                 <div>
-                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
-                    Grupo
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 mb-1 font-medium flex items-center gap-1">
+                    Grupo<AjudaCampo chave="cadastros.produtos.filtro.grupo" />
                   </label>
                   <select
                     value={grupo}
@@ -568,8 +599,8 @@ export default function ProdutosPage() {
                 </div>
 
                 <div>
-                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
-                    Estoque
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 mb-1 font-medium flex items-center gap-1">
+                    Estoque<AjudaCampo chave="cadastros.produtos.filtro.estoque" />
                   </label>
                   <select
                     value={statusEstoque}
@@ -585,8 +616,8 @@ export default function ProdutosPage() {
                 </div>
 
                 <div>
-                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
-                    Situação
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 mb-1 font-medium flex items-center gap-1">
+                    Situação<AjudaCampo chave="cadastros.produtos.filtro.situacao" />
                   </label>
                   <select
                     value={situacao}
@@ -601,8 +632,8 @@ export default function ProdutosPage() {
                 </div>
 
                 <div>
-                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
-                    Preço entre (R$)
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 mb-1 font-medium flex items-center gap-1">
+                    Preço entre (R$)<AjudaCampo chave="cadastros.produtos.filtro.preco" />
                   </label>
                   <div className="flex items-center gap-1.5">
                     <input
@@ -628,8 +659,8 @@ export default function ProdutosPage() {
                 </div>
 
                 <div>
-                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
-                    EAN (cód. barras)
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 mb-1 font-medium flex items-center gap-1">
+                    EAN (cód. barras)<AjudaCampo chave="cadastros.produtos.filtro.ean" />
                   </label>
                   <select
                     value={comEan}
@@ -644,8 +675,8 @@ export default function ProdutosPage() {
                 </div>
 
                 <div>
-                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
-                    Origem
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 mb-1 font-medium flex items-center gap-1">
+                    Origem<AjudaCampo chave="cadastros.produtos.filtro.origem" />
                   </label>
                   <select
                     value={origem}
@@ -654,14 +685,16 @@ export default function ProdutosPage() {
                     className="w-full px-2 py-1.5 text-[12.5px] border border-[#3D2314]/15 rounded bg-white text-[#3D2314]"
                   >
                     <option value="todos">Todas</option>
-                    <option value="omie">OMIE</option>
+                    {/* RD-100: rótulo genérico visível; o value "omie" e o ref_externa_sistema "OMIE" (L228) são
+                        identificadores técnicos da integração (não visíveis) — mantidos para não quebrar o filtro. */}
+                    <option value="omie">Sistema anterior</option>
                     <option value="manual">Manual / Importado</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 block mb-1 font-medium">
-                    Outros
+                  <label className="text-[10.5px] uppercase tracking-wide text-[#3D2314]/65 mb-1 font-medium flex items-center gap-1">
+                    Outros<AjudaCampo chave="cadastros.produtos.filtro.outros" />
                   </label>
                   <label className="flex items-center gap-2 px-2 py-1.5 border border-[#3D2314]/15 rounded bg-white cursor-pointer text-[12.5px] text-[#3D2314]">
                     <input
@@ -703,9 +736,32 @@ export default function ProdutosPage() {
             </div>
           ) : produtos.length === 0 ? (
             <div className="py-12 text-center text-[#3D2314]/70 text-[13px]">
-              {buscaOuFiltroAtivo
-                ? 'Nenhum produto corresponde à busca + filtros · ajuste ou limpe pra ver mais.'
-                : 'Nenhum produto cadastrado · clique em "Novo Produto" pra começar'}
+              <p className="mb-3">
+                {buscaOuFiltroAtivo
+                  ? 'Nenhum produto corresponde à busca + filtros · ajuste ou limpe pra ver mais.'
+                  : 'Nenhum produto cadastrado · comece cadastrando o primeiro.'}
+              </p>
+              {buscaOuFiltroAtivo ? (
+                filtrosAtivos > 0 && (
+                  <button
+                    type="button"
+                    onClick={limparFiltros}
+                    data-testid="produto-vazio-limpar"
+                    className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] inline-flex items-center gap-2"
+                  >
+                    <X size={15} /> Limpar filtros
+                  </button>
+                )
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setNovoAberto(true)}
+                  data-testid="produto-vazio-novo"
+                  className="px-4 py-2 text-[13px] font-semibold rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] inline-flex items-center gap-2"
+                >
+                  <Plus size={15} /> Novo produto
+                </button>
+              )}
             </div>
           ) : (
             <>

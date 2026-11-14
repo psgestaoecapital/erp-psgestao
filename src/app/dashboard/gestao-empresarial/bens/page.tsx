@@ -4,7 +4,11 @@
 // Vida útil SUGERIDA pela natureza (editável). Sem vida útil => alerta "falta parâmetro" (RD-51).
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { useEmpresaSelecionada } from '@/lib/agro/usePecuaria'
+import { useCompanyIds } from '@/lib/useCompanyIds'
+import { erroAmigavel } from '@/lib/erroAmigavel'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA = '/dashboard/gestao-empresarial/bens'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'
 const ESP60 = 'rgba(61,35,20,0.6)'; const GREEN = '#5C8D3F'; const RED = '#C44536'
@@ -16,7 +20,7 @@ type Bem = {
   id: string; codigo: string | null; descricao: string; natureza: string; data_aquisicao: string
   valor_aquisicao: number; deprecia: boolean; vida_util_meses: number | null; metodo_depreciacao: string
   business_line_id: string | null; business_line_nome: string | null; centro_custo: string | null
-  status: string; dep_acumulada: number; valor_contabil: number; falta_parametro: boolean
+  status: string; dep_acumulada: number; valor_contabil: number; valor_residual: number | null; falta_parametro: boolean
 }
 type BL = { id: string; name: string }
 type NatPadrao = { natureza: string; vida_util_meses: number | null; deprecia: boolean }
@@ -46,10 +50,15 @@ const corNat = (n: string) => NAT_COR[n] ?? '#B7A78F'
 function fmt(n: number | null | undefined): string { return Number(n ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
 function fmtc(n: number | null | undefined): string { return Number(n ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }
 function mesAtual(): string { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01` }
+// Máscara de moeda BR: digita só números, formata como R$ (centavos à direita).
+function maskMoeda(v: string): string { const d = v.replace(/\D/g, ''); if (!d) return ''; return (Number(d) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
+function parseMoeda(v: string): number { if (!v) return 0; return Number(v.replace(/\./g, '').replace(',', '.')) || 0 }
+const BAIXA_TIPOS: { v: 'venda' | 'baixa' | 'sinistro'; lbl: string }[] = [{ v: 'venda', lbl: 'Venda' }, { v: 'baixa', lbl: 'Baixa (descarte)' }, { v: 'sinistro', lbl: 'Sinistro (perda/dano)' }]
 
 export default function BensPage() {
-  const { companyId } = useEmpresaSelecionada()
-  const empresaUnica = companyId && !companyId.startsWith('group_') && companyId !== 'consolidado' ? companyId : null
+  // Princ.1 (núcleo universal): seletor GENÉRICO de empresa da GE — antes vinha do hook da pecuária (agro).
+  const { companyIds, selInfo } = useCompanyIds()
+  const empresaUnica = selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : null
 
   const [bens, setBens] = useState<Bem[]>([])
   const [bls, setBls] = useState<BL[]>([])
@@ -65,6 +74,14 @@ export default function BensPage() {
   const [f, setF] = useState<typeof vazio>({ ...vazio })
   const [editId, setEditId] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
+
+  // Modal premium de baixa/venda/sinistro (substitui os 3 window.prompt — RD-99 #1/#2, critérios a/e)
+  const baixaVazia = { tipo: 'venda' as 'venda' | 'baixa' | 'sinistro', valor: '', data: new Date().toISOString().slice(0, 10), justificativa: '' }
+  const [baixaBem, setBaixaBem] = useState<Bem | null>(null)
+  const [bf, setBf] = useState<typeof baixaVazia>({ ...baixaVazia })
+  const [baixaBusy, setBaixaBusy] = useState(false)
+  const [baixaErro, setBaixaErro] = useState<string | null>(null)
+  const [baixaResultado, setBaixaResultado] = useState<{ tipo: string; valor_contabil: number; resultado: number } | null>(null)
 
   const carregar = useCallback(async () => {
     if (!empresaUnica) return
@@ -110,7 +127,7 @@ export default function BensPage() {
     const { error } = editId
       ? await supabase.from('erp_bem').update(payload).eq('id', editId)
       : await supabase.from('erp_bem').insert(payload)
-    if (error) setMsg('Erro: ' + error.message)
+    if (error) setMsg('Erro: ' + erroAmigavel(error))
     else { setMsg('Bem salvo.'); setF({ ...vazio }); setEditId(null); setShowForm(false); await carregar() }
     setBusy(false)
   }
@@ -119,31 +136,40 @@ export default function BensPage() {
     setEditId(b.id); setShowForm(true)
     setF({ codigo: b.codigo ?? '', descricao: b.descricao, natureza: b.natureza, data_aquisicao: b.data_aquisicao,
       valor_aquisicao: String(b.valor_aquisicao), deprecia: b.deprecia, vida_util_meses: b.vida_util_meses != null ? String(b.vida_util_meses) : '',
-      valor_residual: '', business_line_id: b.business_line_id ?? '', centro_custo: b.centro_custo ?? '' })
+      // RD-98: carrega o residual atual para não zerá-lo silenciosamente ao salvar a edição.
+      valor_residual: b.valor_residual != null ? String(b.valor_residual) : '', business_line_id: b.business_line_id ?? '', centro_custo: b.centro_custo ?? '' })
   }
 
   async function excluir(b: Bem) {
     if (!empresaUnica) return
     if (b.dep_acumulada > 0) { window.alert(`"${b.descricao}" já tem depreciação lançada. Não pode ser excluído — use "Baixar/Vender".`); return }
-    if (!window.confirm(`Excluir o bem "${b.descricao}"? Esta ação não pode ser desfeita.`)) return
-    const { error } = await supabase.from('erp_bem').delete().eq('id', b.id).eq('company_id', empresaUnica)
-    if (error) setMsg('Erro: ' + error.message); else { setMsg('Bem excluído.'); await carregar() }
+    if (!window.confirm(`Excluir o bem "${b.descricao}"? Ele sai da lista.`)) return
+    // RD-98 p4: exclusão rastreável via RPC guardada (soft-delete + audit_log), no lugar do DELETE físico do client.
+    const { data, error } = await supabase.rpc('fn_bem_excluir', { p_bem_id: b.id, p_company_id: empresaUnica, p_motivo: null })
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) {
+      setMsg('Erro: ' + (error ? erroAmigavel(error) : (r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : r?.erro === 'tem_depreciacao' ? 'Bem com depreciação lançada — use Baixar/Vender.' : r?.erro === 'nao_encontrado' ? 'Bem não encontrado.' : 'Não foi possível excluir.')))
+    } else { setMsg('Bem excluído.'); await carregar() }
   }
 
-  async function baixar(b: Bem) {
-    if (!empresaUnica) return
-    const tipo = window.prompt('Tipo (venda / baixa / sinistro):', 'venda')
-    if (!tipo || !['venda', 'baixa', 'sinistro'].includes(tipo)) return
-    const valorStr = tipo === 'venda' ? window.prompt(`Valor de ${tipo} (R$):`, '0') : '0'
-    if (valorStr === null) return
-    const just = window.prompt('Justificativa:', '') ?? ''
+  // Abre o modal de baixa/venda (RD-99: sem window.prompt — dropdown + máscara + data editável).
+  function abrirBaixa(b: Bem) {
+    setBaixaBem(b); setBf({ ...baixaVazia }); setBaixaErro(null); setBaixaResultado(null)
+  }
+
+  async function confirmarBaixa() {
+    if (!empresaUnica || !baixaBem) return
+    if (bf.tipo === 'venda' && parseMoeda(bf.valor) <= 0) { setBaixaErro('Informe o valor da venda (maior que zero).'); return }
+    if (!bf.data) { setBaixaErro('Informe a data da operação.'); return }
+    setBaixaBusy(true); setBaixaErro(null)
     const { data, error } = await supabase.rpc('fn_bem_baixar', {
-      p_company_id: empresaUnica, p_bem_id: b.id, p_tipo: tipo, p_data: new Date().toISOString().slice(0, 10),
-      p_valor: Number(String(valorStr).replace(',', '.')) || 0, p_justificativa: just,
+      p_company_id: empresaUnica, p_bem_id: baixaBem.id, p_tipo: bf.tipo, p_data: bf.data,
+      p_valor: bf.tipo === 'venda' ? parseMoeda(bf.valor) : 0, p_justificativa: bf.justificativa || '',
     })
-    if (error) { setMsg('Erro: ' + error.message); return }
+    setBaixaBusy(false)
+    if (error) { setBaixaErro(erroAmigavel(error)); return }
     const r = data as { valor_contabil?: number; resultado?: number }
-    setMsg(`${tipo} registrada · contábil R$ ${fmt(r?.valor_contabil)} · resultado R$ ${fmt(r?.resultado)}.`)
+    setBaixaResultado({ tipo: bf.tipo, valor_contabil: Number(r?.valor_contabil ?? 0), resultado: Number(r?.resultado ?? 0) })
     await carregar()
   }
 
@@ -151,7 +177,7 @@ export default function BensPage() {
     if (!empresaUnica) return
     setBusy(true); setMsg(null)
     const { data, error } = await supabase.rpc('fn_bem_calcular_depreciacao', { p_company_id: empresaUnica, p_competencia: compDep })
-    if (error) setMsg('Erro: ' + error.message)
+    if (error) setMsg('Erro: ' + erroAmigavel(error))
     else {
       const r = data as { bens_depreciados?: number; depreciacao_total?: number; faltando_parametro?: unknown[] }
       const falt = Array.isArray(r?.faltando_parametro) ? r.faltando_parametro.length : 0
@@ -163,6 +189,9 @@ export default function BensPage() {
 
   const lista = useMemo(() => bens.filter((b) => (!fNat || b.natureza === fNat) && (!fStatus || b.status === fStatus)), [bens, fNat, fStatus])
   const faltando = useMemo(() => bens.filter((b) => b.falta_parametro && b.status === 'ativo'), [bens])
+  const semBens = bens.length === 0   // empresa ainda não cadastrou nenhum bem — estado vazio orientado (RD-98 p4)
+
+  function novoBem() { setShowForm(true); setEditId(null); setF({ ...vazio }) }
 
   // Filtro de natureza recalcula os cards de topo a partir do próprio por_natureza do indicador
   // (fonte única). Sem filtro → consolidado geral. O painel sempre reflete o imobilizado ATIVO.
@@ -178,6 +207,15 @@ export default function BensPage() {
              : { qtd: 0, valor_aquisicao: 0, deprec_acumulada: 0, valor_contabil: 0, pct_depreciado: 0 }
   }, [ind, fNat])
   const totalComposicao = ind?.consolidado?.valor_aquisicao || 0
+  // Princ.1 (núcleo universal): esta tela é da GE inteira. O conteúdo AGRO/PECUÁRIA
+  // (dedução acelerada rural/LALUR e a nota do rebanho) só aparece quando a empresa
+  // TEM bem rural de fato — presença real de natureza rural (semovente/cultura permanente/
+  // terreno rural). Comércio/indústria não veem o sabor agro.
+  const ehAgro = useMemo(
+    () => bens.some((b) => b.natureza === 'semovente' || b.natureza === 'cultura_permanente')
+      || (ind?.deprec_acelerada_potencial ?? 0) > 0,
+    [bens, ind],
+  )
 
   if (!empresaUnica) return <div style={{ padding: 24, color: ESP60 }}>Selecione UMA empresa específica.</div>
 
@@ -192,8 +230,27 @@ export default function BensPage() {
         </div>
       )}
 
+      {/* ── ESTADO VAZIO (nenhum bem cadastrado) — orienta o 1º cadastro (RD-98 p4) ───── */}
+      {semBens && (
+        <div style={{ ...card, marginBottom: 18, textAlign: 'center', padding: '32px 20px' }}>
+          <div style={{ fontSize: 34 }}>🏢</div>
+          <div style={{ fontSize: 16, fontWeight: 800, marginTop: 6 }}>Nenhum bem cadastrado ainda</div>
+          <div style={{ fontSize: 13, color: ESP60, maxWidth: 520, margin: '8px auto 0', lineHeight: 1.5 }}>
+            Cadastre aqui os bens do imobilizado da empresa (terrenos, máquinas, veículos, equipamentos, móveis…).
+            A partir deles o sistema calcula a <b>depreciação gerencial</b>, o <b>valor contábil líquido</b> e a
+            composição do patrimônio — sem precisar de planilha à parte.
+          </div>
+          <div style={{ marginTop: 16 }}>
+            <button onClick={novoBem} style={btnPri}>+ Cadastrar primeiro bem</button>
+          </div>
+          <div style={{ fontSize: 11.5, color: ESP60, marginTop: 12 }}>
+            Dica: ao escolher a <b>natureza</b> (máquina, veículo…), a vida útil é sugerida automaticamente — você só ajusta se precisar.
+          </div>
+        </div>
+      )}
+
       {/* ── INDICADORES (imobilizado ativo) ─────────────────────────────────────────── */}
-      {consol && ind && (
+      {!semBens && consol && ind && (
         <div style={{ marginBottom: 18 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
             <div style={{ fontSize: 15, fontWeight: 800 }}>Indicadores</div>
@@ -202,11 +259,11 @@ export default function BensPage() {
 
           {/* 1) Cards consolidados */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px,1fr))', gap: 10 }}>
-            <Tile titulo="Valor de aquisição" valor={`R$ ${fmt(consol.valor_aquisicao)}`} sub={`${consol.qtd} bem(ns)`} />
-            <Tile titulo="Depreciação acumulada" valor={`R$ ${fmt(consol.deprec_acumulada)}`} />
-            <Tile titulo="Valor contábil líquido" valor={`R$ ${fmt(consol.valor_contabil)}`} destaque />
-            <Tile titulo="% depreciado" valor={`${fmt(consol.pct_depreciado)}%`} />
-            <Tile titulo="Depreciação do exercício" valor={`R$ ${fmt(ind.deprec_exercicio)}`} sub={`${new Date().getFullYear()}`} />
+            <Tile titulo="Valor de aquisição" valor={`R$ ${fmt(consol.valor_aquisicao)}`} sub={`${consol.qtd} bem(ns)`} ajuda="ge.bens.ind_aquisicao" />
+            <Tile titulo="Depreciação acumulada" valor={`R$ ${fmt(consol.deprec_acumulada)}`} ajuda="ge.bens.ind_deprec_acumulada" />
+            <Tile titulo="Valor contábil líquido" valor={`R$ ${fmt(consol.valor_contabil)}`} destaque ajuda="ge.bens.ind_valor_contabil" />
+            <Tile titulo="% depreciado" valor={`${fmt(consol.pct_depreciado)}%`} ajuda="ge.bens.ind_pct_depreciado" />
+            <Tile titulo="Depreciação do exercício" valor={`R$ ${fmt(ind.deprec_exercicio)}`} sub={`${new Date().getFullYear()}`} ajuda="ge.bens.ind_deprec_exercicio" />
           </div>
 
           {/* 2) Barra de composição por natureza (terras dominam — item 3) */}
@@ -233,7 +290,7 @@ export default function BensPage() {
           {/* 3) Terras em destaque */}
           {ind.terras && ind.terras.qtd > 0 && (
             <div style={{ ...card, marginTop: 12, padding: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', borderLeft: `4px solid ${corNat('terreno')}` }}>
-              <span style={{ fontSize: 22 }}>🌱</span>
+              <span style={{ width: 14, height: 14, borderRadius: 3, background: corNat('terreno'), display: 'inline-block', flexShrink: 0 }} aria-hidden />
               <div style={{ flex: 1, minWidth: 200 }}>
                 <div style={{ fontSize: 12, color: ESP60 }}>Terras (terreno) · {ind.terras.qtd} imóvel(is)</div>
                 <div style={{ fontSize: 18, fontWeight: 800 }}>R$ {fmt(ind.terras.valor)}</div>
@@ -253,10 +310,13 @@ export default function BensPage() {
             <div style={{ ...card, marginTop: 12, overflowX: 'auto', padding: 0 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
                 <thead><tr style={{ color: ESP60, textAlign: 'left' }}>
-                  <th style={th}>Natureza</th><th style={{ ...th, textAlign: 'right' }}>Qtd</th>
-                  <th style={{ ...th, textAlign: 'right' }}>Aquisição</th><th style={{ ...th, textAlign: 'right' }}>Deprec. acum.</th>
-                  <th style={{ ...th, textAlign: 'right' }}>Líquido</th><th style={{ ...th, textAlign: 'right' }}>% deprec.</th>
-                  <th style={{ ...th, textAlign: 'right' }}>Taxa a.a. média</th>
+                  <th style={th}><span style={thWrap}>Natureza <AjudaCampo chave="ge.bens.resumo_natureza" rota={ROTA} /></span></th>
+                  <th style={{ ...th, textAlign: 'right' }}><span style={{ ...thWrap, justifyContent: 'flex-end' }}>Qtd <AjudaCampo chave="ge.bens.resumo_qtd" rota={ROTA} /></span></th>
+                  <th style={{ ...th, textAlign: 'right' }}><span style={{ ...thWrap, justifyContent: 'flex-end' }}>Aquisição <AjudaCampo chave="ge.bens.resumo_aquisicao" rota={ROTA} /></span></th>
+                  <th style={{ ...th, textAlign: 'right' }}><span style={{ ...thWrap, justifyContent: 'flex-end' }}>Deprec. acum. <AjudaCampo chave="ge.bens.resumo_deprec_acum" rota={ROTA} /></span></th>
+                  <th style={{ ...th, textAlign: 'right' }}><span style={{ ...thWrap, justifyContent: 'flex-end' }}>Líquido <AjudaCampo chave="ge.bens.resumo_liquido" rota={ROTA} /></span></th>
+                  <th style={{ ...th, textAlign: 'right' }}><span style={{ ...thWrap, justifyContent: 'flex-end' }}>% deprec. <AjudaCampo chave="ge.bens.resumo_pct_deprec" rota={ROTA} /></span></th>
+                  <th style={{ ...th, textAlign: 'right' }}><span style={{ ...thWrap, justifyContent: 'flex-end' }}>Taxa a.a. média <AjudaCampo chave="ge.bens.resumo_taxa_aa" rota={ROTA} /></span></th>
                 </tr></thead>
                 <tbody>
                   {natRows.map((n) => (
@@ -278,7 +338,7 @@ export default function BensPage() {
             </div>
           )}
 
-          {/* 5) Por linha de negócio + Conformidade (agro) lado a lado */}
+          {/* 5) Por linha de negócio + Conformidade (checks genéricos) lado a lado */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px,1fr))', gap: 12, marginTop: 12 }}>
             {(ind.por_linha?.length ?? 0) > 0 && (
               <div style={{ ...card, padding: 12 }}>
@@ -292,7 +352,7 @@ export default function BensPage() {
               </div>
             )}
             <div style={{ ...card, padding: 12, borderLeft: `4px solid ${(ind.conformidade?.length ?? 0) > 0 ? RED : GREEN}` }}>
-              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Conformidade (agro)</div>
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Conformidade</div>
               {(ind.conformidade?.length ?? 0) === 0
                 ? <div style={{ fontSize: 12.5, color: GREEN, fontWeight: 600 }}>✓ Nenhum alerta — taxas, vida útil e terras coerentes.</div>
                 : <ul style={{ margin: 0, paddingLeft: 16 }}>
@@ -300,7 +360,7 @@ export default function BensPage() {
                       <li key={i} style={{ fontSize: 12, color: '#9A6A00', marginBottom: 4 }}><b style={{ color: ESP }}>{c.bem}</b>: {c.alerta}</li>
                     ))}
                   </ul>}
-              {ind.deprec_acelerada_potencial > 0 && (
+              {ehAgro && ind.deprec_acelerada_potencial > 0 && (
                 <div style={{ fontSize: 11, color: ESP60, marginTop: 8, borderTop: `1px solid ${LINE}`, paddingTop: 8 }}>
                   Potencial de dedução acelerada rural no exercício: <b style={{ color: ESP }}>R$ {fmt(ind.deprec_acelerada_potencial)}</b> (benefício fiscal/LALUR — não altera a escrituração contábil).
                 </div>
@@ -308,50 +368,62 @@ export default function BensPage() {
             </div>
           </div>
 
-          {/* 6) Nota fixa — ativo biológico */}
-          <div style={{ fontSize: 11, color: ESP60, marginTop: 10, lineHeight: 1.5 }}>
-            🐂 O rebanho é <b>ativo biológico</b> (CPC 29 / NBC TG 29), mensurado a valor justo no módulo Pecuária — <b>não</b> integra este imobilizado.
-          </div>
+          {/* 6) Nota — ativo biológico (só p/ empresa agro/pecuária; núcleo universal não mostra) */}
+          {ehAgro && (
+            <div style={{ fontSize: 11, color: ESP60, marginTop: 10, lineHeight: 1.5 }}>
+              🐂 O rebanho é <b>ativo biológico</b> (CPC 29 / NBC TG 29), mensurado a valor justo no módulo Pecuária — <b>não</b> integra este imobilizado.
+            </div>
+          )}
         </div>
       )}
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
         <button onClick={() => { setShowForm(!showForm); setEditId(null); setF({ ...vazio }) }} style={btnPri}>{showForm ? 'Fechar' : '+ Novo bem'}</button>
         <span style={{ flex: 1 }} />
-        <label style={{ fontSize: 12, color: ESP60 }}>Depreciar mês <input type="date" value={compDep} onChange={(e) => setCompDep(e.target.value)} style={inp} /></label>
-        <button onClick={() => void gerarDepreciacao()} disabled={busy} style={btnSec}>⚙️ Gerar depreciação do mês</button>
+        <label style={{ fontSize: 12, color: ESP60, display: 'inline-flex', alignItems: 'center', gap: 4 }}>Depreciar mês <AjudaCampo chave="ge.bens.depreciar_mes" rota={ROTA} /><input type="date" value={compDep} onChange={(e) => setCompDep(e.target.value)} style={inp} /></label>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <button onClick={() => void gerarDepreciacao()} disabled={busy} style={btnSec}>⚙️ Gerar depreciação do mês</button>
+          <AjudaCampo chave="ge.bens.acao_gerar_depreciacao" rota={ROTA} />
+        </span>
       </div>
 
       {showForm && (
         <div style={{ ...card, marginBottom: 16 }}>
           <div style={{ fontWeight: 700, marginBottom: 10 }}>{editId ? 'Editar bem' : 'Novo bem'}</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px,1fr))', gap: 10 }}>
-            <label style={lbl}>Código/plaqueta<input style={inp} value={f.codigo} onChange={(e) => setF({ ...f, codigo: e.target.value })} /></label>
-            <label style={lbl}>Descrição<input style={inp} value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} /></label>
-            <label style={lbl}>Natureza<select style={inp} value={f.natureza} onChange={(e) => setNatureza(e.target.value)}>{NATUREZAS.map((n) => <option key={n} value={n}>{n}</option>)}</select></label>
-            <label style={lbl}>Aquisição<input type="date" style={inp} value={f.data_aquisicao} onChange={(e) => setF({ ...f, data_aquisicao: e.target.value })} /></label>
-            <label style={lbl}>Valor (R$)<input style={inp} value={f.valor_aquisicao} onChange={(e) => setF({ ...f, valor_aquisicao: e.target.value })} placeholder="0,00" /></label>
-            <label style={{ ...lbl, display: 'flex', alignItems: 'center', gap: 6, marginTop: 18 }}><input type="checkbox" checked={f.deprecia} onChange={(e) => setF({ ...f, deprecia: e.target.checked })} /> Deprecia</label>
-            {f.deprecia && <label style={lbl}>Vida útil (meses){!f.vida_util_meses && <span style={{ color: RED }}> *falta</span>}<input style={inp} value={f.vida_util_meses} onChange={(e) => setF({ ...f, vida_util_meses: e.target.value })} /></label>}
-            {f.deprecia && <label style={lbl}>Valor residual<input style={inp} value={f.valor_residual} onChange={(e) => setF({ ...f, valor_residual: e.target.value })} placeholder="0,00" /></label>}
-            <label style={lbl}>Linha de negócio<select style={inp} value={f.business_line_id} onChange={(e) => setF({ ...f, business_line_id: e.target.value })}><option value="">—</option>{bls.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
-            <label style={lbl}>Centro de custo<input style={inp} value={f.centro_custo} onChange={(e) => setF({ ...f, centro_custo: e.target.value })} placeholder="ex.: COMUM" /></label>
+            <label style={lbl}>Código/plaqueta <AjudaCampo chave="ge.bens.form_codigo" rota={ROTA} /><input style={inp} value={f.codigo} onChange={(e) => setF({ ...f, codigo: e.target.value })} /></label>
+            <label style={lbl}>Descrição <AjudaCampo chave="ge.bens.form_descricao" rota={ROTA} /><input style={inp} value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} /></label>
+            <label style={lbl}>Natureza <AjudaCampo chave="ge.bens.form_natureza" rota={ROTA} /><select style={inp} value={f.natureza} onChange={(e) => setNatureza(e.target.value)}>{NATUREZAS.map((n) => <option key={n} value={n}>{n}</option>)}</select></label>
+            <label style={lbl}>Aquisição <AjudaCampo chave="ge.bens.form_aquisicao" rota={ROTA} /><input type="date" style={inp} value={f.data_aquisicao} onChange={(e) => setF({ ...f, data_aquisicao: e.target.value })} /></label>
+            <label style={lbl}>Valor (R$) <AjudaCampo chave="ge.bens.form_valor" rota={ROTA} /><input style={inp} value={f.valor_aquisicao} onChange={(e) => setF({ ...f, valor_aquisicao: e.target.value })} placeholder="0,00" /></label>
+            <label style={{ ...lbl, display: 'flex', alignItems: 'center', gap: 6, marginTop: 18 }}><input type="checkbox" checked={f.deprecia} onChange={(e) => setF({ ...f, deprecia: e.target.checked })} /> Deprecia <AjudaCampo chave="ge.bens.form_deprecia" rota={ROTA} /></label>
+            {f.deprecia && <label style={lbl}>Vida útil (meses) <AjudaCampo chave="ge.bens.form_vida_util" rota={ROTA} />{!f.vida_util_meses && <span style={{ color: RED }}> *falta</span>}<input style={inp} value={f.vida_util_meses} onChange={(e) => setF({ ...f, vida_util_meses: e.target.value })} /></label>}
+            {f.deprecia && <label style={lbl}>Valor residual <AjudaCampo chave="ge.bens.form_residual" rota={ROTA} /><input style={inp} value={f.valor_residual} onChange={(e) => setF({ ...f, valor_residual: e.target.value })} placeholder="0,00" /></label>}
+            <label style={lbl}>Linha de negócio <AjudaCampo chave="ge.bens.form_linha" rota={ROTA} /><select style={inp} value={f.business_line_id} onChange={(e) => setF({ ...f, business_line_id: e.target.value })}><option value="">—</option>{bls.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
+            <label style={lbl}>Centro de custo <AjudaCampo chave="ge.bens.form_centro_custo" rota={ROTA} /><input style={inp} value={f.centro_custo} onChange={(e) => setF({ ...f, centro_custo: e.target.value })} placeholder="ex.: COMUM" /></label>
           </div>
           <div style={{ marginTop: 12 }}><button onClick={() => void salvar()} disabled={busy} style={btnPri}>{editId ? 'Salvar' : 'Adicionar bem'}</button></div>
         </div>
       )}
 
       <div style={{ display: 'flex', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-        <label style={{ fontSize: 12, color: ESP60 }}>Natureza <select value={fNat} onChange={(e) => setFNat(e.target.value)} style={inp}><option value="">todas</option>{NATUREZAS.map((n) => <option key={n} value={n}>{n}</option>)}</select></label>
-        <label style={{ fontSize: 12, color: ESP60 }}>Status <select value={fStatus} onChange={(e) => setFStatus(e.target.value)} style={inp}><option value="">todos</option>{STATUS.map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
+        <label style={{ fontSize: 12, color: ESP60, display: 'inline-flex', alignItems: 'center', gap: 4 }}>Natureza <AjudaCampo chave="ge.bens.filtro_natureza" rota={ROTA} /><select value={fNat} onChange={(e) => setFNat(e.target.value)} style={inp}><option value="">todas</option>{NATUREZAS.map((n) => <option key={n} value={n}>{n}</option>)}</select></label>
+        <label style={{ fontSize: 12, color: ESP60, display: 'inline-flex', alignItems: 'center', gap: 4 }}>Status <AjudaCampo chave="ge.bens.filtro_status" rota={ROTA} /><select value={fStatus} onChange={(e) => setFStatus(e.target.value)} style={inp}><option value="">todos</option>{STATUS.map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
       </div>
 
       <div style={{ ...card, overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
           <thead><tr style={{ color: ESP60, textAlign: 'left' }}>
-            <th style={th}>Código</th><th style={th}>Descrição</th><th style={th}>Natureza</th><th style={th}>Aquisição</th>
-            <th style={{ ...th, textAlign: 'right' }}>Valor</th><th style={{ ...th, textAlign: 'right' }}>Deprec. acum.</th><th style={{ ...th, textAlign: 'right' }}>Valor contábil</th>
-            <th style={th}>Linha</th><th style={th}>Status</th><th style={th}></th>
+            <th style={th}><span style={thWrap}>Código <AjudaCampo chave="ge.bens.col_codigo" rota={ROTA} /></span></th>
+            <th style={th}><span style={thWrap}>Descrição <AjudaCampo chave="ge.bens.col_descricao" rota={ROTA} /></span></th>
+            <th style={th}><span style={thWrap}>Natureza <AjudaCampo chave="ge.bens.col_natureza" rota={ROTA} /></span></th>
+            <th style={th}><span style={thWrap}>Aquisição <AjudaCampo chave="ge.bens.col_aquisicao" rota={ROTA} /></span></th>
+            <th style={{ ...th, textAlign: 'right' }}><span style={{ ...thWrap, justifyContent: 'flex-end' }}>Valor <AjudaCampo chave="ge.bens.col_valor" rota={ROTA} /></span></th>
+            <th style={{ ...th, textAlign: 'right' }}><span style={{ ...thWrap, justifyContent: 'flex-end' }}>Deprec. acum. <AjudaCampo chave="ge.bens.col_deprec_acum" rota={ROTA} /></span></th>
+            <th style={{ ...th, textAlign: 'right' }}><span style={{ ...thWrap, justifyContent: 'flex-end' }}>Valor contábil <AjudaCampo chave="ge.bens.col_valor_contabil" rota={ROTA} /></span></th>
+            <th style={th}><span style={thWrap}>Linha <AjudaCampo chave="ge.bens.col_linha" rota={ROTA} /></span></th>
+            <th style={th}><span style={thWrap}>Status <AjudaCampo chave="ge.bens.col_status" rota={ROTA} /></span></th>
+            <th style={th}><span style={thWrap}>Ações <AjudaCampo chave="ge.bens.col_acoes" rota={ROTA} /></span></th>
           </tr></thead>
           <tbody>
             {lista.map((b) => (
@@ -368,24 +440,76 @@ export default function BensPage() {
                 <td style={td}>
                   <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                     <button onClick={() => editar(b)} style={linkBtn}>editar</button>
-                    {(b.status === 'ativo' || b.status === 'em_construcao') && <button onClick={() => void baixar(b)} style={linkBtn}>baixar</button>}
+                    {(b.status === 'ativo' || b.status === 'em_construcao') && <button onClick={() => abrirBaixa(b)} style={linkBtn}>baixar</button>}
                     {(b.status === 'ativo' || b.status === 'em_construcao') && <button onClick={() => void excluir(b)} style={{ ...linkBtn, color: RED }}>excluir</button>}
                   </div>
                 </td>
               </tr>
             ))}
-            {lista.length === 0 && <tr><td style={td} colSpan={10}>Nenhum bem neste filtro.</td></tr>}
+            {lista.length === 0 && (
+              <tr><td style={{ ...td, color: ESP60 }} colSpan={10}>
+                Nenhum bem com este filtro{fStatus ? ` (status "${fStatus}"${fNat ? `, natureza "${fNat}"` : ''})` : fNat ? ` (natureza "${fNat}")` : ''}.{' '}
+                <button onClick={() => { setFNat(''); setFStatus('') }} style={linkBtn}>limpar filtros</button>
+              </td></tr>
+            )}
           </tbody>
         </table>
       </div>
+
+      {/* ── MODAL premium de baixa/venda/sinistro (RD-99: sem window.prompt) ───────────── */}
+      {baixaBem && (
+        <div onClick={() => !baixaBusy && setBaixaBem(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 50 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ ...card, width: '100%', maxWidth: 440, boxShadow: '0 10px 40px rgba(61,35,20,0.25)' }}>
+            <div style={{ fontSize: 16, fontWeight: 800 }}>Baixar / vender bem</div>
+            <div style={{ fontSize: 12.5, color: ESP60, marginTop: 2, marginBottom: 14 }}>{baixaBem.descricao}{baixaBem.codigo ? ` · ${baixaBem.codigo}` : ''}</div>
+
+            {baixaResultado ? (
+              <>
+                <div style={{ background: '#FBF3E0', border: `1px solid ${GOLD}`, borderRadius: 8, padding: 12, fontSize: 13 }}>
+                  <div style={{ fontWeight: 700, color: GREEN, marginBottom: 6 }}>✓ {baixaResultado.tipo === 'venda' ? 'Venda' : baixaResultado.tipo === 'sinistro' ? 'Sinistro' : 'Baixa'} registrada</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}><span style={{ color: ESP60 }}>Valor contábil na baixa</span><b>R$ {fmt(baixaResultado.valor_contabil)}</b></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0' }}><span style={{ color: ESP60 }}>Resultado da operação</span><b style={{ color: baixaResultado.resultado >= 0 ? GREEN : RED }}>R$ {fmt(baixaResultado.resultado)}</b></div>
+                </div>
+                <div style={{ marginTop: 14, textAlign: 'right' }}><button onClick={() => setBaixaBem(null)} style={btnPri}>Fechar</button></div>
+              </>
+            ) : (
+              <>
+                <div style={{ display: 'grid', gap: 10 }}>
+                  <label style={lbl}>Tipo da operação <AjudaCampo chave="ge.bens.baixa_tipo" rota={ROTA} />
+                    <select style={{ ...inp, width: '100%' }} value={bf.tipo} onChange={(e) => setBf({ ...bf, tipo: e.target.value as typeof bf.tipo })}>
+                      {BAIXA_TIPOS.map((t) => <option key={t.v} value={t.v}>{t.lbl}</option>)}
+                    </select>
+                  </label>
+                  {bf.tipo === 'venda' && (
+                    <label style={lbl}>Valor da venda (R$) <AjudaCampo chave="ge.bens.baixa_valor" rota={ROTA} />
+                      <input style={{ ...inp, width: '100%' }} inputMode="numeric" value={bf.valor} onChange={(e) => setBf({ ...bf, valor: maskMoeda(e.target.value) })} placeholder="0,00" />
+                    </label>
+                  )}
+                  <label style={lbl}>Data da operação <AjudaCampo chave="ge.bens.baixa_data" rota={ROTA} />
+                    <input type="date" style={{ ...inp, width: '100%' }} value={bf.data} onChange={(e) => setBf({ ...bf, data: e.target.value })} />
+                  </label>
+                  <label style={lbl}>Justificativa <AjudaCampo chave="ge.bens.baixa_justificativa" rota={ROTA} />
+                    <input style={{ ...inp, width: '100%' }} value={bf.justificativa} onChange={(e) => setBf({ ...bf, justificativa: e.target.value })} placeholder="opcional" />
+                  </label>
+                </div>
+                {baixaErro && <div style={{ marginTop: 10, fontSize: 12.5, color: RED }}>{baixaErro}</div>}
+                <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                  <button onClick={() => setBaixaBem(null)} disabled={baixaBusy} style={btnSec}>Cancelar</button>
+                  <button onClick={() => void confirmarBaixa()} disabled={baixaBusy} style={btnPri}>{baixaBusy ? 'Registrando…' : 'Registrar'}</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
-function Tile({ titulo, valor, sub, destaque }: { titulo: string; valor: string; sub?: string; destaque?: boolean }) {
+function Tile({ titulo, valor, sub, destaque, ajuda }: { titulo: string; valor: string; sub?: string; destaque?: boolean; ajuda?: string }) {
   return (
     <div style={{ background: destaque ? '#FBF3E0' : '#fff', border: `1px solid ${destaque ? GOLD : LINE}`, borderRadius: 10, padding: '10px 12px' }}>
-      <div style={{ fontSize: 11, color: ESP60 }}>{titulo}</div>
+      <div style={{ fontSize: 11, color: ESP60, display: 'inline-flex', alignItems: 'center', gap: 3 }}>{titulo}{ajuda && <AjudaCampo chave={ajuda} rota={ROTA} />}</div>
       <div style={{ fontSize: 17, fontWeight: 800, marginTop: 2, color: ESP }}>{valor}</div>
       {sub && <div style={{ fontSize: 10.5, color: ESP60, marginTop: 1 }}>{sub}</div>}
     </div>
@@ -396,6 +520,7 @@ const inp: React.CSSProperties = { display: 'inline-block', padding: '5px 7px', 
 const lbl: React.CSSProperties = { fontSize: 12, color: ESP60, display: 'block' }
 const card: React.CSSProperties = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10, padding: 16 }
 const th: React.CSSProperties = { padding: '6px 8px', fontWeight: 600, whiteSpace: 'nowrap' }
+const thWrap: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4 }
 const td: React.CSSProperties = { padding: '6px 8px', verticalAlign: 'middle' }
 const linkBtn: React.CSSProperties = { background: 'none', border: 'none', color: GOLD, cursor: 'pointer', fontSize: 12, fontWeight: 600 }
 const btnPri: React.CSSProperties = { padding: '8px 14px', background: GOLD, color: '#3D2314', border: 'none', borderRadius: 6, fontWeight: 600, cursor: 'pointer', fontSize: 13 }

@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import FotoMarcador, { type FotoSel, type Marca } from './FotoMarcador'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 
 export type FotoItem = { file: File; marcas: Marca[] }
 
@@ -45,25 +46,35 @@ async function comprimir(file: File): Promise<File> {
 }
 
 const fmtMB = (b: number) => (b / (1024 * 1024)).toFixed(1) + ' MB'
+export const ehPdf = (f: File) => f.type === 'application/pdf'
 
 function Miniatura({ item, n, ativo, onSelecionar, onRemover }: {
   item: FotoItem; n: number; ativo: boolean; onSelecionar: () => void; onRemover: () => void
 }) {
   const [url, setUrl] = useState<string | null>(null)
+  const pdf = ehPdf(item.file)
   // object URL segue o arquivo — criar/revogar é sincronizar com uma API do browser (mesmo padrão do
-  // FotoMarcador), daí o disable.
+  // FotoMarcador), daí o disable. PDF não vira miniatura de imagem: mostra um cartão com o nome.
   useEffect(() => {
+    if (pdf) return
     const u = URL.createObjectURL(item.file)
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setUrl(u)
     return () => URL.revokeObjectURL(u)
-  }, [item.file])
+  }, [item.file, pdf])
   return (
     <div style={{ position: 'relative', flexShrink: 0 }}>
-      <button type="button" onClick={onSelecionar} title={`Imagem ${n}`}
-        style={{ padding: 0, border: `2px solid ${ativo ? C.gold : C.border}`, borderRadius: 8, cursor: 'pointer', background: C.white, width: 64, height: 64, overflow: 'hidden', display: 'block' }}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        {url && <img src={url} alt={`anexo ${n}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+      <button type="button" onClick={onSelecionar} title={pdf ? `PDF ${n}: ${item.file.name}` : `Imagem ${n}`}
+        style={{ padding: 0, border: `2px solid ${ativo ? C.gold : C.border}`, borderRadius: 8, cursor: 'pointer', background: pdf ? C.cream : C.white, width: 64, height: 64, overflow: 'hidden', display: 'block' }}>
+        {pdf ? (
+          <span style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, padding: '2px 3px' }}>
+            <span style={{ fontSize: 22, lineHeight: 1 }}>📄</span>
+            <span style={{ fontSize: 8.5, fontWeight: 700, color: C.espM, width: '100%', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.file.name}</span>
+          </span>
+        ) : (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          url && <img src={url} alt={`anexo ${n}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+        )}
       </button>
       <span style={{ position: 'absolute', top: -6, left: -6, width: 18, height: 18, borderRadius: 999, background: ativo ? C.amber : C.espM, color: '#fff', fontSize: 10.5, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #fff' }}>{n}</span>
       <button type="button" onClick={onRemover} title="remover imagem"
@@ -87,24 +98,26 @@ export default function FotosChamado({ value, onChange, max = MAX_PADRAO, compac
   const [dragOver, setDragOver] = useState(false)
 
   const addFiles = useCallback(async (arquivos: File[]) => {
-    const imgs = arquivos.filter((f) => f.type.startsWith('image/'))
-    if (!imgs.length) return
+    const aceitos = arquivos.filter((f) => f.type.startsWith('image/') || ehPdf(f))
+    const rejeitados = arquivos.length - aceitos.length
+    if (!aceitos.length) { if (arquivos.length) setAviso('Só dá para anexar imagens ou arquivos PDF.'); return }
     const espaco = max - value.length
-    if (espaco <= 0) { setAviso(`Limite de ${max} imagens por chamado.`); return }
-    const aProcessar = imgs.slice(0, espaco)
+    if (espaco <= 0) { setAviso(`Limite de ${max} anexos por chamado.`); return }
+    const aProcessar = aceitos.slice(0, espaco)
     const avisos: string[] = []
-    if (imgs.length > espaco) avisos.push(`Só cabiam mais ${espaco} (limite ${max}); o restante foi ignorado.`)
+    if (rejeitados > 0) avisos.push('Alguns arquivos não são imagem nem PDF e foram ignorados.')
+    if (aceitos.length > espaco) avisos.push(`Só cabiam mais ${espaco} (limite ${max}); o restante foi ignorado.`)
 
     setProcessando(true)
     const novos: FotoItem[] = []
     const grandes: string[] = []
     for (const f of aProcessar) {
-      const out = await comprimir(f)
+      const out = await comprimir(f) // comprimir só mexe em imagem; PDF passa intacto
       if (out.size > MAX_BYTES_HARD) { grandes.push(`${f.name} (${fmtMB(out.size)})`); continue }
       novos.push({ file: out, marcas: [] })
     }
     setProcessando(false)
-    if (grandes.length) avisos.push(`Imagem grande demais, não anexada: ${grandes.join(', ')}. Reduza e tente de novo.`)
+    if (grandes.length) avisos.push(`Arquivo grande demais, não anexado: ${grandes.join(', ')}. Reduza e tente de novo.`)
     setAviso(avisos.length ? avisos.join(' ') : null)
     if (novos.length) {
       onChange([...value, ...novos])
@@ -151,12 +164,13 @@ export default function FotosChamado({ value, onChange, max = MAX_PADRAO, compac
           style={{ border: `1.5px dashed ${dragOver ? C.gold : C.border}`, background: dragOver ? C.amberBg : C.cream, borderRadius: 10, padding: compact ? '10px 12px' : '14px', textAlign: 'center', transition: 'all .12s' }}
         >
           <div style={{ fontSize: compact ? 12 : 13, color: C.espM, fontWeight: 600 }}>
-            Cole com <b style={{ color: C.esp }}>Ctrl+V</b>, arraste imagens aqui {value.length > 0 ? '(acrescenta à lista)' : ''}
+            Cole com <b style={{ color: C.esp }}>Ctrl+V</b>, arraste imagens ou PDF aqui {value.length > 0 ? '(acrescenta à lista)' : ''}
           </div>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap', marginTop: 8 }}>
-            <label style={{ ...inp, cursor: 'pointer', fontWeight: 600, color: C.esp }}>
-              🖼️ Escolher arquivo(s)
-              <input type="file" accept="image/*" multiple onChange={(e) => { void addFiles(Array.from(e.target.files || [])); e.currentTarget.value = '' }} style={{ display: 'none' }} />
+            <label style={{ ...inp, cursor: 'pointer', fontWeight: 600, color: C.esp, display: 'inline-flex', alignItems: 'center' }}>
+              📎 Escolher arquivo(s) (imagem ou PDF)
+              <AjudaCampo chave="melhorias.anexo" />
+              <input type="file" accept="image/*,application/pdf" multiple onChange={(e) => { void addFiles(Array.from(e.target.files || [])); e.currentTarget.value = '' }} style={{ display: 'none' }} />
             </label>
             <label style={{ ...inp, cursor: 'pointer', fontWeight: 600, color: C.esp }}>
               📷 Tirar foto
@@ -170,8 +184,8 @@ export default function FotosChamado({ value, onChange, max = MAX_PADRAO, compac
       {value.length > 0 && (
         <div style={{ marginTop: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: cheio ? C.amber : C.espM }}>{value.length} de {max}</span>
-            {processando && <span style={{ fontSize: 11.5, color: C.espL }}>processando imagem…</span>}
+            <span style={{ fontSize: 12, fontWeight: 700, color: cheio ? C.amber : C.espM }}>{value.length} de {max} anexo(s)</span>
+            {processando && <span style={{ fontSize: 11.5, color: C.espL }}>processando anexo…</span>}
             {cheio && <span style={{ fontSize: 11, color: C.amber }}>limite atingido</span>}
           </div>
           <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 4, paddingTop: 2 }}>
@@ -189,13 +203,18 @@ export default function FotosChamado({ value, onChange, max = MAX_PADRAO, compac
         </div>
       )}
 
-      {/* Editor da imagem ativa (marcação preservada, por imagem) */}
-      {value[idxAtivo] && (
+      {/* Editor da imagem ativa (marcação preservada, por imagem). PDF não se marca: mostra só um aviso. */}
+      {value[idxAtivo] && !ehPdf(value[idxAtivo].file) && (
         <div style={{ marginTop: 12 }}>
           <div style={{ fontSize: 11.5, color: C.espM, fontWeight: 600, marginBottom: 6 }}>
             Marcando a imagem <b style={{ color: C.esp }}>{idxAtivo + 1}</b> de {value.length} — aponte onde está o problema.
           </div>
           <FotoMarcador value={value[idxAtivo]} onChange={onEditarAtivo} hideAcquire compact={compact} />
+        </div>
+      )}
+      {value[idxAtivo] && ehPdf(value[idxAtivo].file) && (
+        <div style={{ marginTop: 12, fontSize: 11.5, color: C.espM, fontWeight: 600 }}>
+          📄 PDF <b style={{ color: C.esp }}>{value[idxAtivo].file.name}</b> anexado — PDF não tem marcação. Para apontar o problema, anexe também um print.
         </div>
       )}
     </div>

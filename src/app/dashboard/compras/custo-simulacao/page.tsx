@@ -8,6 +8,7 @@ import Link from 'next/link'
 import { Calculator, Loader2, AlertTriangle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 type Row = {
   produto_id: string; codigo: string; nome: string
@@ -30,9 +31,9 @@ export default function CustoSimulacaoPage() {
     setLoading(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_nfe_custo_simular', { p_company_id: empresa })
     setLoading(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível simular o custo agora. Tente de novo.')); return }
     const r = data as { ok?: boolean; produtos?: Row[]; erro?: string } | null
-    if (!r?.ok) { setErro(r?.erro ?? 'Erro ao simular'); setRows([]); return }
+    if (!r?.ok) { setErro(codigoAmigavel(r?.erro, 'Não foi possível simular o custo agora. Tente de novo.')); setRows([]); return }
     setRows(r.produtos ?? [])
   }, [empresa])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
@@ -98,7 +99,7 @@ export default function CustoSimulacaoPage() {
                         <td className="px-3 py-2 text-right tabular-nums text-[#3D2314]/70">{brl(r.preco_venda)}</td>
                         <td className="px-3 py-2 text-right tabular-nums text-[#3D2314]/70">{pct(r.margem_hoje_pct)}</td>
                         <td className={'px-3 py-2 text-right tabular-nums font-medium ' + ((r.margem_real_pct ?? 0) < 0 ? 'text-[#A32D2D]' : 'text-[#3D2314]')}>{pct(r.margem_real_pct)}</td>
-                        <td className="px-3 py-2 text-right"><Link href={`/dashboard/produtos?busca=${encodeURIComponent(r.codigo)}`} className="text-[11px] text-[#BA7517] font-medium hover:underline">editar</Link></td>
+                        <td className="px-3 py-2 text-right"><Link href={`/dashboard/cadastros/produtos?busca=${encodeURIComponent(r.codigo)}`} className="text-[11px] text-[#BA7517] font-medium hover:underline">editar</Link></td>
                       </tr>
                     ))}
                   </tbody>

@@ -8,15 +8,26 @@ export const ehUuid = (v: unknown): v is string => typeof v === 'string' && UUID
 
 export const MSG_ENDERECO_INVALIDO = 'Registro não encontrado: o endereço desta página está incompleto. Volte à lista e abra o item de novo.'
 
+// Erro que a própria tela lança JÁ em linguagem do usuário (ex.: "O anexo passa de 10 MB.").
+// erroAmigavel devolve a mensagem como está, sem cair na frase genérica.
+export class ErroUsuario extends Error {
+  constructor(message: string) { super(message); this.name = 'ErroUsuario' }
+}
+
 type ErroLike = { code?: unknown; message?: unknown } | null | undefined
 
 export function erroAmigavel(e: unknown, generica = 'Não foi possível concluir. Tente de novo.'): string {
+  if (e instanceof ErroUsuario && e.message.trim()) return e.message.trim()
   const err = (e && typeof e === 'object' ? e : { message: e }) as ErroLike
   const code = typeof err?.code === 'string' ? err.code : ''
   const msg = typeof err?.message === 'string' ? err.message.trim() : ''
 
   if (code === 'P0001' && msg) return /^[a-z0-9_]+$/.test(msg) ? codigoAmigavel(msg, generica) : msg
-  if (code === '22P02' || /invalid input syntax for type uuid/i.test(msg)) return MSG_ENDERECO_INVALIDO
+  // 22P02 = "invalid input syntax". Só é "endereço incompleto" quando o valor inválido era um UUID
+  // (ex.: abrir item com id quebrado). Outro 22P02 (ano/número/data mal formatado) ensina o usuário a
+  // corrigir o campo — não manda ele "voltar à lista" (RD-74: nunca uma frase que leve à ação errada).
+  if (/invalid input syntax for type uuid/i.test(msg) || (code === '22P02' && /uuid/i.test(msg))) return MSG_ENDERECO_INVALIDO
+  if (code === '22P02') return 'Algum campo está com formato inválido. Confira os números e as datas.'
   if (code === 'PGRST116') return 'Registro não encontrado ou sem acesso.'
   if (code === '42501' || /permission denied|row-level security/i.test(msg)) return 'Você não tem permissão para esta ação nesta empresa.'
   if (code === '23505') return 'Já existe um registro com esses dados.'

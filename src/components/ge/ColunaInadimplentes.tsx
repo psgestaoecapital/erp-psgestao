@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 interface Inad {
   cliente_id: string | null
@@ -41,8 +42,8 @@ export default function ColunaInadimplentes({ companyId }: { companyId: string }
   return (
     <div style={{ background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 12, padding: '18px 20px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-        <span style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>
-          Maiores inadimplentes
+        <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>
+          Maiores inadimplentes<AjudaCampo chave="ge.hub.inadimplentes" rota="/dashboard/gestao-empresarial" />
         </span>
         {(data.qtd_total_clientes_atrasados ?? 0) > 0 && (
           <button
@@ -73,7 +74,7 @@ export default function ColunaInadimplentes({ companyId }: { companyId: string }
                 {c.iniciais || '?'}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#3D2314', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nome || 'Sem nome'}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#3D2314', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.nome || 'Cliente sem cadastro'}</div>
                 <div style={{ fontSize: 11, color: '#A32D2D' }}>Atrasado {c.dias_atraso} dias · {c.qtd_lancamentos} lanç.</div>
               </div>
               <div style={{ fontSize: 13, fontWeight: 600, color: '#A32D2D', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>R$ {fmt(c.valor_total)}</div>

@@ -12,6 +12,8 @@ import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import { Package, Download, Upload, Loader2, CheckCircle2, AlertTriangle, XCircle, History } from 'lucide-react'
 import { COLUNAS_ESTOQUE, TIPOS_SPED, TIPOS_EXIGEM_NCM, ORIGENS, CODIGO_EXEMPLO } from '@/lib/estoque/colunasImportacao'
+import { extrairCodigo } from '@/lib/importacao/codigoDescricao'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,10 +24,27 @@ interface LinhaParse { n: number; dados: Record<string, string>; nivel: Nivel; m
 interface ImportRow { id: string; arquivo_nome: string | null; registros_total: number | null; registros_novos: number | null; registros_erro: number | null; status: string | null; iniciado_em: string | null }
 
 const soDig = (s: string) => (s || '').replace(/\D/g, '')
+// #8621 · leitor de número robusto a locale. O separador DECIMAL é o que aparece por ÚLTIMO
+// ("1.234,56" pt-BR e "1,234.56" US dão ambos 1234.56); só vírgula = decimal (28,56); só ponto,
+// uma ocorrência = decimal (28.56 — era o que inflava: o parse antigo removia o "." como milhar).
 function parseNum(s: string): number | null {
   const t = (s ?? '').trim()
   if (!t) return null
-  const n = Number(t.replace(/\./g, '').replace(',', '.').replace(/[^\d.\-]/g, ''))
+  let str = t.replace(/[^\d.,\-]/g, '')
+  const neg = str.startsWith('-')
+  str = str.replace(/-/g, '')
+  if (!str) return null
+  const lastDot = str.lastIndexOf('.')
+  const lastComma = str.lastIndexOf(',')
+  if (lastDot >= 0 && lastComma >= 0) {
+    if (lastComma > lastDot) str = str.replace(/\./g, '').replace(',', '.')   // 1.234.567,89
+    else str = str.replace(/,/g, '')                                          // 1,234,567.89
+  } else if (lastComma >= 0) {
+    str = str.split(',').length > 2 ? str.replace(/,/g, '') : str.replace(',', '.')  // 28,56 / 1,234,567
+  } else if (str.split('.').length > 2) {
+    str = str.replace(/\./g, '')                                              // 1.234.567 (só milhar)
+  }
+  const n = Number(neg ? '-' + str : str)
   return Number.isFinite(n) ? n : null
 }
 const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -94,6 +113,9 @@ export default function ImportarEstoquePage() {
       const wsName = wb.SheetNames.find((n) => n.toLowerCase().startsWith('estoque')) ?? wb.SheetNames[0]
       const ws = wb.Sheets[wsName]
       const matriz = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, raw: false, defval: '' })
+      // #8621 · matriz BRUTA (raw) em paralelo: quando a célula é um NÚMERO de verdade, usamos o valor
+      // nativo e não a string formatada (o raw:false exibia "28.5598" e o parse tratava "." como milhar).
+      const matrizRaw = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: true, defval: '' })
       // cabeçalho = linha que contém 'codigo' E 'nome' (chaves técnicas, linha 4 do modelo)
       const idxHeader = matriz.findIndex((row) => {
         const low = row.map((c) => String(c).trim().toLowerCase())
@@ -115,6 +137,16 @@ export default function ImportarEstoquePage() {
 
         const dados: Record<string, string> = {}
         for (const c of COLUNAS_ESTOQUE) dados[c.key] = get(c.key)
+        // #8621 · colunas numéricas: se a célula do xlsx é NÚMERO, canoniza pelo valor bruto (sem locale).
+        // Texto (código, NCM, barras...) continua pelo raw:false, preservando zeros à esquerda.
+        const rowRaw = matrizRaw[i] ?? []
+        for (const k of ['estoque_atual', 'custo_medio', 'preco_venda', 'estoque_minimo']) {
+          const j = colIndex[k]
+          const rv = j >= 0 ? rowRaw[j] : undefined
+          if (typeof rv === 'number' && Number.isFinite(rv)) dados[k] = String(rv)
+        }
+        // #8439: campos codificados aceitam "código - descrição" (menu novo) e o código puro (planilha antiga)
+        for (const k of ['tipo_item_sped', 'origem', 'cest']) dados[k] = extrairCodigo(dados[k])
         if (!dados.unidade) dados.unidade = 'UN'
         if (!dados.tipo_item_sped) dados.tipo_item_sped = '00'   // vazio = 00 (revenda)
         if (!dados.origem) dados.origem = '0'                     // vazio = 0 (nacional)
@@ -241,9 +273,9 @@ export default function ImportarEstoquePage() {
   }
 
   const podeCarregar = linhas.length > 0 && !carregando && (soValidas ? contagem.ok + contagem.aviso > 0 : contagem.erro === 0)
-  const Card = ({ l, v, cor }: { l: string; v: string; cor?: string }) => (
+  const Card = ({ l, v, cor, ajuda }: { l: string; v: string; cor?: string; ajuda?: string }) => (
     <div className="rounded-lg border border-[#3D2314]/10 bg-white px-3 py-2">
-      <div className="text-[11px] text-[#3D2314]/60">{l}</div>
+      <div className="text-[11px] text-[#3D2314]/60 inline-flex items-center">{l}{ajuda && <AjudaCampo chave={ajuda} />}</div>
       <div className={`text-[16px] font-medium tabular-nums ${cor ?? 'text-[#3D2314]'}`}>{v}</div>
     </div>
   )
@@ -263,10 +295,13 @@ export default function ImportarEstoquePage() {
           className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2">
           <Download size={15} /> Baixar planilha padrão
         </a>
-        <button type="button" onClick={() => inputRef.current?.click()}
-          className="px-4 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] flex items-center gap-2">
-          <Upload size={15} /> {nomeArquivo ? 'Trocar arquivo' : 'Subir planilha'}
-        </button>
+        <span className="inline-flex items-center">
+          <button type="button" onClick={() => inputRef.current?.click()}
+            className="px-4 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] flex items-center gap-2">
+            <Upload size={15} /> {nomeArquivo ? 'Trocar arquivo' : 'Subir planilha'}
+          </button>
+          <AjudaCampo chave="cadastros.produtos.importar.arquivo" />
+        </span>
         <input ref={inputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
           onChange={(e) => { const f = e.target.files?.[0]; if (f) void onArquivo(f); e.target.value = '' }} />
         {nomeArquivo && <span className="text-[12px] text-[#3D2314]/60">{nomeArquivo} · {linhas.length} linha(s)</span>}
@@ -278,14 +313,14 @@ export default function ImportarEstoquePage() {
         <>
           {/* 8 indicadores (iguais à aba Conferência) */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
-            <Card l="Itens" v={numBR(totais.itens)} />
-            <Card l="Quantidade líquida" v={numBR(totais.soma_qtd)} />
-            <Card l="Com saldo positivo" v={numBR(totais.positivos)} />
-            <Card l="Zerados/vazios" v={numBR(totais.zerados)} />
-            <Card l="NEGATIVOS" v={numBR(totais.negativos)} cor={totais.negativos > 0 ? 'text-[#A32D2D]' : undefined} />
-            <Card l="Soma dos custos" v={brl(totais.soma_custo)} />
-            <Card l="Valor do estoque líquido" v={brl(totais.valor_liquido)} />
-            <Card l="Códigos repetidos" v={numBR(totais.repetidos)} cor={totais.repetidos > 0 ? 'text-[#A32D2D]' : undefined} />
+            <Card l="Itens" v={numBR(totais.itens)} ajuda="cadastros.produtos.importar.ind_itens" />
+            <Card l="Quantidade líquida" v={numBR(totais.soma_qtd)} ajuda="cadastros.produtos.importar.ind_qtd_liquida" />
+            <Card l="Com saldo positivo" v={numBR(totais.positivos)} ajuda="cadastros.produtos.importar.ind_positivos" />
+            <Card l="Zerados/vazios" v={numBR(totais.zerados)} ajuda="cadastros.produtos.importar.ind_zerados" />
+            <Card l="NEGATIVOS" v={numBR(totais.negativos)} cor={totais.negativos > 0 ? 'text-[#A32D2D]' : undefined} ajuda="cadastros.produtos.importar.ind_negativos" />
+            <Card l="Soma dos custos" v={brl(totais.soma_custo)} ajuda="cadastros.produtos.importar.ind_soma_custo" />
+            <Card l="Valor do estoque líquido" v={brl(totais.valor_liquido)} ajuda="cadastros.produtos.importar.ind_valor_liquido" />
+            <Card l="Códigos repetidos" v={numBR(totais.repetidos)} cor={totais.repetidos > 0 ? 'text-[#A32D2D]' : undefined} ajuda="cadastros.produtos.importar.ind_repetidos" />
           </div>
 
           <div className="bg-white rounded-xl border border-[#3D2314]/10 overflow-hidden mb-4">
@@ -299,19 +334,22 @@ export default function ImportarEstoquePage() {
                 <label className="flex items-center gap-1.5 text-[12px] text-[#3D2314]/75 cursor-pointer">
                   <input type="checkbox" checked={soValidas} onChange={(e) => setSoValidas(e.target.checked)} className="accent-[#C8941A]" />
                   Carregar só as válidas ({contagem.ok + contagem.aviso})
+                  <AjudaCampo chave="cadastros.produtos.importar.so_validas" />
                 </label>
               )}
             </div>
             <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
               <table className="w-full text-[12px]">
-                <thead className="bg-[#3D2314]/5 text-[11px] text-[#3D2314]/70 sticky top-0"><tr>
-                  <th className="text-left px-3 py-2 font-medium">#</th>
-                  <th className="text-left px-3 py-2 font-medium">status</th>
-                  <th className="text-left px-3 py-2 font-medium">codigo</th>
-                  <th className="text-left px-3 py-2 font-medium">descrição</th>
-                  <th className="text-right px-3 py-2 font-medium">qtd</th>
-                  <th className="text-right px-3 py-2 font-medium">custo</th>
-                  <th className="text-left px-3 py-2 font-medium">mensagens</th>
+                {/* #8622 · sticky no <th> (não no <thead>, que não gruda em todos os navegadores) + fundo
+                   OPACO para as linhas não aparecerem por baixo ao rolar. */}
+                <thead className="text-[11px] text-[#3D2314]/70"><tr>
+                  <th className="text-left px-3 py-2 font-medium sticky top-0 z-10 bg-[#EDE7DF]">#</th>
+                  <th className="text-left px-3 py-2 font-medium sticky top-0 z-10 bg-[#EDE7DF]">status<AjudaCampo chave="cadastros.produtos.importar.col_status" /></th>
+                  <th className="text-left px-3 py-2 font-medium sticky top-0 z-10 bg-[#EDE7DF]">codigo<AjudaCampo chave="cadastros.produtos.importar.col_codigo" /></th>
+                  <th className="text-left px-3 py-2 font-medium sticky top-0 z-10 bg-[#EDE7DF]">descrição<AjudaCampo chave="cadastros.produtos.importar.col_descricao" /></th>
+                  <th className="text-right px-3 py-2 font-medium sticky top-0 z-10 bg-[#EDE7DF]">qtd<AjudaCampo chave="cadastros.produtos.importar.col_qtd" /></th>
+                  <th className="text-right px-3 py-2 font-medium sticky top-0 z-10 bg-[#EDE7DF]">custo<AjudaCampo chave="cadastros.produtos.importar.col_custo" /></th>
+                  <th className="text-left px-3 py-2 font-medium sticky top-0 z-10 bg-[#EDE7DF]">mensagens<AjudaCampo chave="cadastros.produtos.importar.col_mensagens" /></th>
                 </tr></thead>
                 <tbody>
                   {linhas.map((l, i) => (
@@ -330,11 +368,14 @@ export default function ImportarEstoquePage() {
             </div>
             <div className="px-4 py-3 border-t border-[#3D2314]/10 flex items-center justify-between gap-3 flex-wrap">
               <span className="text-[12px] text-[#3D2314]/60">{contagem.erro > 0 && !soValidas ? 'Corrija os erros ou marque "carregar só as válidas".' : 'Pronto para carregar.'}</span>
-              <button type="button" onClick={() => void carregar()} disabled={!podeCarregar}
-                className="px-5 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] disabled:opacity-40 flex items-center gap-2">
-                {carregando ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
-                {carregando && progresso ? `Carregando ${progresso.feito}/${progresso.total}…` : 'Carregar'}
-              </button>
+              <span className="inline-flex items-center">
+                <button type="button" onClick={() => void carregar()} disabled={!podeCarregar}
+                  className="px-5 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] disabled:opacity-40 flex items-center gap-2">
+                  {carregando ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
+                  {carregando && progresso ? `Carregando ${progresso.feito}/${progresso.total}…` : 'Carregar'}
+                </button>
+                <AjudaCampo chave="cadastros.produtos.importar.carregar" />
+              </span>
             </div>
           </div>
         </>

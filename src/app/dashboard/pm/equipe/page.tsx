@@ -11,6 +11,7 @@ import { COLUNAS_EQUIPE, carregarCustosEquipe } from '@/lib/pm/equipeCustos'
 import { resumirPrevia, type PapelPrevia } from '@/lib/pm/papelAgencia'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CargaEquipe } from '@/components/pm/CargaEquipe'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
 const BORDA = '#E7DED3'; const TEXTM = '#6b5444'; const RED = '#7A1F1F'
@@ -39,7 +40,7 @@ export default function EquipePage() {
     if (!empresa) { setMembros([]); setLoading(false); return }
     setLoading(true)
     const [{ data }, c] = await Promise.all([
-      supabase.from('agency_equipe').select(COLUNAS_EQUIPE).eq('company_id', empresa).order('nome'),
+      supabase.from('agency_equipe').select(COLUNAS_EQUIPE).eq('company_id', empresa).is('excluido_em', null).order('nome'),
       carregarCustosEquipe(supabase, empresa),
     ])
     setPodeVer(c.podeVer)
@@ -53,7 +54,7 @@ export default function EquipePage() {
   async function verPrevia(userId: string, slug: string) {
     if (!empresa || !slug) { setPrevia(null); return }
     const { data, error } = await supabase.rpc('fn_pm_papel_agencia_previa', { p_company: empresa, p_user: userId, p_slug: slug })
-    setPrevia(error ? { ok: false, erro: error.message } : (data as PapelPrevia))
+    setPrevia(error ? { ok: false, erro: erroAmigavel(error, 'Não foi possível calcular a prévia do papel. Tente de novo.') } : (data as PapelPrevia))
   }
   async function aplicarPapel() {
     if (!empresa || !edit?.user_id || !papelSel) return
@@ -61,16 +62,24 @@ export default function EquipePage() {
     const { data, error } = await supabase.rpc('fn_pm_papel_agencia_aplicar', { p_company: empresa, p_user: edit.user_id, p_slug: papelSel })
     setBusy(false)
     const r = data as PapelPrevia | null
-    if (error || !r?.ok) { setToast(`Erro: ${error?.message ?? r?.erro ?? 'falha'}`); return }
+    if (error || !r?.ok) { setToast(erroAmigavel(error, r?.erro ?? 'Não foi possível gravar o papel na agência. Tente de novo.')); return }
     setToast('Papel na agência GRAVADO.'); setPrevia(null)
   }
   useEffect(() => { void carregar() }, [empresa]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 3000); return () => clearTimeout(t) }, [toast])
 
-  const kpis = useMemo(() => ({
-    total: membros.filter((m) => m.ativo).length,
-    custoMedio: membros.length ? membros.reduce((s, m) => s + Number(m.custo_hora ?? 0), 0) / membros.length : 0,
-  }), [membros])
+  // Membros ativos = cadastro da equipe (agency_equipe). A "Carga × capacidade" abaixo é outra coisa:
+  // lista quem TEM trabalho atribuído (pode incluir pessoas ainda fora do cadastro). O custo/hora médio
+  // só faz sentido sobre quem TEM custo/hora definido — média sobre inativos/zeros mascarava o R$ 0.
+  const kpis = useMemo(() => {
+    const ativos = membros.filter((m) => m.ativo)
+    const comCusto = ativos.filter((m) => Number(m.custo_hora ?? 0) > 0)
+    return {
+      total: ativos.length,
+      comCusto: comCusto.length,
+      custoMedio: comCusto.length ? comCusto.reduce((s, m) => s + Number(m.custo_hora ?? 0), 0) / comCusto.length : 0,
+    }
+  }, [membros])
 
   async function salvar() {
     if (!empresa || !edit) return
@@ -85,8 +94,27 @@ export default function EquipePage() {
       ? await supabase.from('agency_equipe').update(payload).eq('id', edit.id)
       : await supabase.from('agency_equipe').insert(payload)
     setBusy(false)
-    if (error) { setToast(`Erro: ${error.message}`); return }
+    if (error) { setToast(erroAmigavel(error, 'Não foi possível salvar o membro. Tente de novo.')); return }
     setEdit(null); setToast(edit.id ? 'Membro ALTERADO.' : 'Membro CRIADO.'); void carregar()
+  }
+
+  // RD-98 pilar 4 · exclusão RASTREÁVEL: soft-delete auditado por fn_agency_equipe_excluir (grava
+  // excluido_em/por/motivo + audit_log; a lista filtra excluido_em IS NULL). Reversível pela auditoria.
+  async function excluir() {
+    if (!edit?.id) return
+    if (!window.confirm(`Excluir ${edit.nome ?? 'este membro'} da equipe? Ele sai da lista e deixa de contar na margem (exclusão rastreável: guarda quem excluiu e quando, reversível pela auditoria). Para afastamento temporário, use "Ativo" em vez de excluir.`)) return
+    setBusy(true)
+    const { data, error } = await supabase.rpc('fn_agency_equipe_excluir', { p_id: edit.id, p_motivo: null })
+    setBusy(false)
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (error || !r?.ok) {
+      const amigavel = r?.erro === 'sem_acesso' ? 'Você não tem acesso a este membro.'
+        : r?.erro === 'membro_nao_encontrado' ? 'Membro não encontrado (pode já ter sido excluído).'
+        : 'Não foi possível excluir o membro. Tente de novo.'
+      setToast(erroAmigavel(error, amigavel))
+      return
+    }
+    setEdit(null); setToast('Membro EXCLUÍDO.'); void carregar()
   }
 
   if (!empresa) return <div style={{ padding: 32, color: TEXTM, background: OFFWHITE, minHeight: '100vh' }}>Selecione uma empresa no topo.</div>
@@ -104,9 +132,14 @@ export default function EquipePage() {
         </header>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px,1fr))', gap: 10, marginBottom: 14 }}>
-          <Kpi l="Membros ativos" v={String(kpis.total)} ajuda="pm.equipe.kpi_membros_ativos" />
-          <Kpi l="Custo/hora médio" v={podeVer ? brl(kpis.custoMedio) : 'restrito'} ajuda="pm.equipe.kpi_custo_medio" />
+          <Kpi l="Membros ativos" v={String(kpis.total)} sub={podeVer && kpis.total ? `${kpis.comCusto} com custo/hora` : undefined} ajuda="pm.equipe.kpi_membros_ativos" />
+          <Kpi l="Custo/hora médio" v={podeVer ? brl(kpis.custoMedio) : 'restrito'} sub={podeVer && kpis.total ? `${kpis.comCusto} de ${kpis.total} com custo/hora` : undefined} ajuda="pm.equipe.kpi_custo_medio" />
         </div>
+
+        <p style={{ fontSize: 12, color: TEXTM, margin: '-4px 0 14px' }}>
+          &quot;Membros ativos&quot; conta a equipe cadastrada aqui. A &quot;Carga × capacidade&quot; abaixo pode listar
+          pessoas com trabalho atribuído que ainda não estão na equipe — cadastre-as para definir o custo/hora e a margem.
+        </p>
 
         <CargaEquipe empresa={empresa} versao={versao} />
 
@@ -167,9 +200,17 @@ export default function EquipePage() {
                 {previa?.ok && <button disabled={busy} onClick={aplicarPapel} style={{ ...btnSec, marginTop: 8 }}>Aplicar papel</button>}
               </div>
             )}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
+            <div style={{ display: 'flex', justifyContent: edit.id ? 'space-between' : 'flex-end', gap: 8, marginTop: 14, alignItems: 'center' }}>
+              {edit.id && (
+                <span style={rot}>
+                  <button disabled={busy} onClick={() => void excluir()} data-testid="equipe-excluir" style={{ ...btnGhost, color: RED, borderColor: RED }}>🗑️ Excluir</button>
+                  <AjudaCampo chave="pm.equipe.excluir" />
+                </span>
+              )}
+              <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => setEdit(null)} style={btnGhost}>Cancelar</button>
               <button disabled={busy} onClick={salvar} style={btnPri}>{busy ? 'Salvando…' : (edit.id ? 'SALVAR' : 'CRIAR')}</button>
+              </div>
             </div>
           </div>
         </div>
@@ -179,11 +220,12 @@ export default function EquipePage() {
   )
 }
 
-function Kpi({ l, v, ajuda }: { l: string; v: string; ajuda: string }) {
+function Kpi({ l, v, sub, ajuda }: { l: string; v: string; sub?: string; ajuda: string }) {
   return (
     <div style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: '12px 14px' }}>
       <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: TEXTM, fontWeight: 700, display: 'flex', alignItems: 'center' }}>{l}<AjudaCampo chave={ajuda} /></div>
       <div style={{ fontSize: 22, fontWeight: 700, color: ESPRESSO, marginTop: 2 }}>{v}</div>
+      {sub && <div style={{ fontSize: 11, color: TEXTM, marginTop: 2 }}>{sub}</div>}
     </div>
   )
 }

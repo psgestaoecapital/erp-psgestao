@@ -20,8 +20,8 @@ type Visao = "semana" | "mes";
 
 const inp = "w-full rounded-xl border border-[#3D2314]/15 bg-white px-3 py-2 text-[13.5px] text-[#3D2314] focus:border-[#C8941A] focus:outline-none";
 const rot = "mb-1 flex items-center text-[11.5px] font-semibold text-[#3D2314]/75";
-const BORDA: Record<StatusPost, string> = { rascunho: "border-l-[#3D2314]/30", em_aprovacao: "border-l-[#C8941A]", aprovado: "border-l-[#2F5A1F]", publicado: "border-l-[#3D2314]" };
-const PONTO: Record<StatusPost, string> = { rascunho: "bg-[#3D2314]/30", em_aprovacao: "bg-[#C8941A]", aprovado: "bg-[#2F5A1F]", publicado: "bg-[#3D2314]" };
+const BORDA: Record<StatusPost, string> = { nao_iniciada: "border-l-[#3D2314]/30", em_producao: "border-l-[#1F4E8C]", em_aprovacao: "border-l-[#C8941A]", concluida: "border-l-[#2F5A1F]", publicado: "border-l-[#3D2314]" };
+const PONTO: Record<StatusPost, string> = { nao_iniciada: "bg-[#3D2314]/30", em_producao: "bg-[#1F4E8C]", em_aprovacao: "bg-[#C8941A]", concluida: "bg-[#2F5A1F]", publicado: "bg-[#3D2314]" };
 
 export default function CalendarioPage() {
   const { selInfo, companyIds } = useCompanyIds();

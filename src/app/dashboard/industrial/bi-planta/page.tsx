@@ -150,10 +150,22 @@ export default function BiPlanta() {
     if (minha !== seq.current) return
     setCarregando(false)
     if (!res || (res.error && abortou(res.error))) return
-    if (res.error) { setErro(res.error.message); setP(null); return }
+    if (res.error) { setErro('Não foi possível carregar o painel. Tente novamente.'); setP(null); return }
     setP(res.data as Painel)
   }, [empresa, sexo, cidade, intervalo])
   useEffect(() => { void carregar() }, [carregar])
+
+  // RD-98 (PDCA): primeira carga não pode abrir vazia. Se o período padrão ("Este mês") não tem abate
+  // mas a planta tem histórico, amplia UMA vez para 12 meses — automático só enquanto o usuário não
+  // escolheu um período (depois disso respeita a escolha dele).
+  const autoAjustado = useRef(false)
+  const tocouPeriodo = useRef(false)
+  useEffect(() => {
+    if (autoAjustado.current || tocouPeriodo.current) return
+    if (per !== 'mes' || !p?.ok || !p.resumo || p.resumo.cabecas !== 0) return
+    const temHistorico = (p.meses ?? []).some((m) => m.cab > 0)
+    if (temHistorico) { autoAjustado.current = true; setPer('365') }
+  }, [p, per])
 
   const r = p?.resumo; const c = p?.compra; const a = p?.anterior
   const femPct = r && r.cabecas ? 100 * r.femeas / r.cabecas : null
@@ -218,7 +230,7 @@ export default function BiPlanta() {
             <span style={{ fontSize: 12, color: C.m, display: 'flex', alignItems: 'center', gap: 4 }}>Período<AjudaCampo chave="planta.periodo" rota={ROTA} /></span>
             <div role="group" aria-label="Período" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {PERIODOS.map((x) => (
-                <button key={x.k} type="button" onClick={() => setPer(x.k)} aria-pressed={per === x.k}
+                <button key={x.k} type="button" onClick={() => { tocouPeriodo.current = true; setPer(x.k) }} aria-pressed={per === x.k}
                   style={{ font: 'inherit', fontSize: 13, padding: '7px 12px', borderRadius: 999, cursor: 'pointer', border: `1px solid ${per === x.k ? C.esp : C.bd}`, background: per === x.k ? C.esp : '#fff', color: per === x.k ? '#fff' : C.esp }}>{x.rot}</button>
               ))}
             </div>
@@ -237,6 +249,26 @@ export default function BiPlanta() {
         {erro && <div role="alert" style={{ ...card, borderColor: C.bad, color: C.bad }}>Não foi possível carregar: {erro}</div>}
         {p && !p.ok && <div style={{ ...card, borderLeft: `5px solid ${C.warn}` }}>{p.mensagem}</div>}
         {carregando && !p && <div style={card}>Carregando…</div>}
+
+        {/* RD-98 critério d: período sem abate não é tela morta — orienta, aponta o último abate e dá o atalho para o histórico. */}
+        {p?.ok && r && r.cabecas === 0 && (() => {
+          // meses vem dos últimos 15 meses (independe do início do período), então aponta o último mês COM abate.
+          const ultimoAbate = [...(p.meses ?? [])].reverse().find((m) => m.cab > 0)
+          return (
+          <div style={{ ...card, borderLeft: `5px solid ${C.warn}`, gap: 10 }}>
+            <div style={{ fontSize: 15, fontWeight: 600 }}>Sem abate no período de {dataBR(p.periodo.de)} a {dataBR(p.periodo.ate)}</div>
+            <div style={{ fontSize: 14, color: C.m, maxWidth: '72ch' }}>
+              {ultimoAbate
+                ? <>O último abate registrado foi em <b style={{ color: C.esp }}>{mesRot(ultimoAbate.mes)}</b> ({int(ultimoAbate.cab)} cabeças). Amplie o período para ver o histórico da planta.</>
+                : <>Nenhum evento de abate foi registrado para {(PERIODOS.find((x) => x.k === per)?.rot ?? 'este período').toLowerCase()}. Amplie o período para ver o histórico da planta.</>}
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {per !== '365' && <button type="button" onClick={() => setPer('365')} style={{ font: 'inherit', fontSize: 13, padding: '8px 14px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${C.esp}`, background: C.esp, color: '#fff' }}>Ver 12 meses</button>}
+              {per !== '90' && <button type="button" onClick={() => setPer('90')} style={{ font: 'inherit', fontSize: 13, padding: '8px 14px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${C.bd}`, background: '#fff', color: C.esp }}>Ver 90 dias</button>}
+            </div>
+          </div>
+          )
+        })()}
 
         {p?.ok && r && c && a && (
           <>

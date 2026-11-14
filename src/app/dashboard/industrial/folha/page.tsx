@@ -5,7 +5,11 @@
 // empresa (RLS) + tela operacional de RH. O BI final expõe só agregado por setor.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA = '/dashboard/industrial/folha'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', GOLD_D = '#A57A15'
 const LINE = '#E7DECF', CREAM = '#F2EBDF', MUT = 'rgba(61,35,20,0.55)'
@@ -31,6 +35,9 @@ export default function FolhaPage() {
   const [erro, setErro] = useState<string | null>(null)
   const [ok, setOk] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const [podeVer, setPodeVer] = useState<boolean | null>(null)
+  const [confirmExcluir, setConfirmExcluir] = useState(false)
+  const [excluindo, setExcluindo] = useState(false)
 
   const carregar = useCallback(async () => {
     if (!empresaUnica) return
@@ -40,6 +47,14 @@ export default function FolhaPage() {
     setRows((data ?? []) as CompRow[])
   }, [empresaUnica])
   useEffect(() => { void carregar() }, [carregar])
+
+  // LGPD (contenção da folha): só RH/diretoria vê salário; sem permissão a tela mostra "Acesso restrito ao RH".
+  useEffect(() => {
+    if (!empresaUnica) { setPodeVer(null); return }
+    let alive = true
+    void supabase.rpc('fn__pode_ver_folha', { p_company_id: empresaUnica }).then(({ data }) => { if (alive) setPodeVer(data === true) })
+    return () => { alive = false }
+  }, [empresaUnica])
 
   const competencias = useMemo(() => {
     const m = new Map<string, { n: number; total: number; secoes: string | null }>()
@@ -65,6 +80,19 @@ export default function FolhaPage() {
   const compRowsSel = useMemo(() => rows.filter((r) => r.competencia === compSel), [rows, compSel])
   const totalSel = compRowsSel.reduce((s, r) => s + (Number(r.total_geral) || 0), 0)
 
+  async function excluirCompetencia() {
+    if (!empresaUnica || !compSel) return
+    setExcluindo(true); setErro(null); setOk(null)
+    try {
+      const { data, error } = await supabase.rpc('fn_folha_competencia_excluir', { p_company_id: empresaUnica, p_competencia: compSel })
+      const res = (data ?? {}) as { ok?: boolean; erro?: string; funcionarios?: number; verbas?: number }
+      if (error || !res.ok) { setErro(error ? erroAmigavel(error, 'Não foi possível excluir a competência.') : (res.erro || 'Não foi possível excluir a competência.')); return }
+      setOk(`EXCLUÍDA a folha ${fmtComp(compSel)} · ${res.funcionarios ?? 0} funcionários · ${res.verbas ?? 0} verbas. Para corrigir, basta reimportar o arquivo certo.`)
+      setConfirmExcluir(false); setCompSel(null)
+      await carregar()
+    } catch (e) { setErro((e as Error).message) } finally { setExcluindo(false) }
+  }
+
   async function enviar(confirmar: boolean) {
     if (!empresaUnica || !fileSel) { setErro('Selecione o arquivo da folha.'); return }
     setBusy(true); setErro(null); setOk(null)
@@ -89,6 +117,10 @@ export default function FolhaPage() {
     return <Casca><Box><b style={{ color: ESP }}>Selecione uma empresa</b><div style={{ color: MUT, fontSize: 13, marginTop: 6 }}>A folha é por empresa. Escolha uma empresa específica no topo.</div></Box></Casca>
   }
 
+  if (podeVer === false) {
+    return <Casca><Box><b style={{ color: ESP }}>Acesso restrito ao RH</b><div style={{ color: MUT, fontSize: 13, marginTop: 6 }}>Salários e folha de pagamento são visíveis apenas ao RH e à diretoria. Se você precisa deste acesso, fale com o RH.</div></Box></Casca>
+  }
+
   return (
     <Casca>
       {erro && <div style={aviso(RED, RED_BG)}>{erro}</div>}
@@ -97,8 +129,9 @@ export default function FolhaPage() {
       {/* Upload */}
       <section style={card}>
         <div style={{ fontSize: 14, fontWeight: 700, color: ESP, marginBottom: 8 }}>📤 Subir folha de pagamento</div>
-        <div style={{ fontSize: 11, color: MUT, marginBottom: 12 }}>Planilha "Encargos da Empresa" (Domínio) — .xls ou .xlsx. Uma competência por arquivo (re-upload regrava).</div>
+        <div style={{ fontSize: 11, color: MUT, marginBottom: 12 }}>Planilha "Encargos da Empresa" — .xls ou .xlsx. Uma competência por arquivo (re-upload regrava).</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <AjudaCampo chave="industrial.folha.upload" rota={ROTA} />
           <input ref={fileRef} type="file" accept=".xls,.xlsx" onChange={(e) => { setFileSel(e.target.files?.[0] ?? null); setPreview(null) }} style={{ fontSize: 12 }} />
           <button onClick={() => enviar(false)} disabled={busy || !fileSel} style={{ ...btnOutline, opacity: busy || !fileSel ? 0.5 : 1 }}>{busy ? 'Lendo…' : 'Pré-visualizar'}</button>
         </div>
@@ -116,13 +149,16 @@ export default function FolhaPage() {
 
       {/* Competências importadas */}
       <section style={card}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: ESP, marginBottom: 10 }}>Competências importadas</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: ESP }}>Competências importadas</span>
+          <AjudaCampo chave="industrial.folha.competencias" rota={ROTA} />
+        </div>
         {competencias.length === 0 ? (
           <div style={{ fontSize: 12, color: MUT }}>Nenhuma folha importada ainda.</div>
         ) : (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {competencias.map((c) => (
-              <button key={c.competencia} onClick={() => setCompSel(compSel === c.competencia ? null : c.competencia)}
+              <button key={c.competencia} onClick={() => { setConfirmExcluir(false); setCompSel(compSel === c.competencia ? null : c.competencia) }}
                 style={{ textAlign: 'left', cursor: 'pointer', borderRadius: 10, padding: '10px 12px', border: `1px solid ${compSel === c.competencia ? GOLD : LINE}`, background: compSel === c.competencia ? 'rgba(200,148,26,0.10)' : '#FFF' }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: ESP }}>{fmtComp(c.competencia)}</div>
                 <div style={{ fontSize: 11, color: MUT }}>{c.n} func · {brl(c.total)}</div>
@@ -136,17 +172,47 @@ export default function FolhaPage() {
       {/* Detalhe da competência selecionada */}
       {compSel && (
         <section style={card}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: ESP, marginBottom: 2 }}>Folha {fmtComp(compSel)}</div>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: ESP, marginBottom: 2 }}>Folha {fmtComp(compSel)}</div>
+            {!confirmExcluir ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <AjudaCampo chave="industrial.folha.excluir" rota={ROTA} />
+                <button onClick={() => setConfirmExcluir(true)} disabled={excluindo}
+                  style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${RED}`, background: '#FFF', color: RED, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                  Excluir competência
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: RED_BG, borderRadius: 8, padding: '8px 10px' }}>
+                <span style={{ fontSize: 12, color: RED, fontWeight: 600 }}>Excluir a folha {fmtComp(compSel)} ({compRowsSel.length} func · {brl(totalSel)})? É rastreável; reimporte para corrigir.</span>
+                <button onClick={() => void excluirCompetencia()} disabled={excluindo}
+                  style={{ padding: '7px 12px', borderRadius: 8, border: 'none', background: RED, color: '#FFF', fontSize: 12, fontWeight: 700, cursor: 'pointer', opacity: excluindo ? 0.6 : 1 }}>
+                  {excluindo ? 'Excluindo…' : 'Sim, excluir'}
+                </button>
+                <button onClick={() => setConfirmExcluir(false)} disabled={excluindo}
+                  style={{ padding: '7px 12px', borderRadius: 8, border: `1px solid ${LINE}`, background: '#FFF', color: ESP, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                  Cancelar
+                </button>
+              </div>
+            )}
+          </div>
           <div style={{ fontSize: 11, color: MUT, marginBottom: 12 }}>🔒 Dado sensível (RH). O BI de Gente expõe só agregado por setor, sem salário individual.</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 14 }}>
-            <Kpi t="Funcionários" v={String(compRowsSel.length)} />
-            <Kpi t="Custo total" v={brl(totalSel)} destaque />
-            <Kpi t="Custo médio/func" v={brl(compRowsSel.length ? totalSel / compRowsSel.length : 0)} />
+            <Kpi t="Funcionários" v={String(compRowsSel.length)} ajuda="industrial.folha.funcionarios" />
+            <Kpi t="Custo total" v={brl(totalSel)} destaque ajuda="industrial.folha.custo_total" />
+            <Kpi t="Custo médio/func" v={brl(compRowsSel.length ? totalSel / compRowsSel.length : 0)} ajuda="industrial.folha.custo_medio" />
           </div>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT, marginBottom: 6 }}>Por verba</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT }}>Por verba</span>
+            <AjudaCampo chave="industrial.folha.por_verba" rota={ROTA} />
+          </div>
           <div style={{ overflowX: 'auto', border: `0.5px solid ${LINE}`, borderRadius: 8 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 420 }}>
-              <thead style={{ background: BG }}><tr><Th>Verba</Th><Th>Tipo</Th><Th>Total</Th></tr></thead>
+              <thead style={{ background: BG }}><tr>
+                <Th><span style={thAjuda}>Verba<AjudaCampo chave="industrial.folha.col_verba" rota={ROTA} /></span></Th>
+                <Th><span style={thAjuda}>Tipo<AjudaCampo chave="industrial.folha.col_tipo" rota={ROTA} /></span></Th>
+                <Th><span style={thAjuda}>Total<AjudaCampo chave="industrial.folha.col_total" rota={ROTA} /></span></Th>
+              </tr></thead>
               <tbody>
                 {verbasResumo.map((v) => (
                   <tr key={v.codigo} style={{ borderTop: `0.5px solid ${LINE}` }}>
@@ -178,14 +244,18 @@ function Casca({ children }: { children: React.ReactNode }) {
   )
 }
 function Box({ children }: { children: React.ReactNode }) { return <div style={{ ...card, textAlign: 'center', padding: 28 }}>{children}</div> }
-function Kpi({ t, v, destaque }: { t: string; v: string; destaque?: boolean }) {
+function Kpi({ t, v, destaque, ajuda }: { t: string; v: string; destaque?: boolean; ajuda?: string }) {
   return <div style={{ background: destaque ? 'rgba(200,148,26,0.08)' : BG, border: `0.5px solid ${LINE}`, borderRadius: 10, padding: '10px 12px' }}>
-    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT, fontWeight: 700 }}>{t}</div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+      <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT, fontWeight: 700 }}>{t}</span>
+      {ajuda && <AjudaCampo chave={ajuda} rota={ROTA} />}
+    </div>
     <div style={{ fontSize: 20, fontWeight: 700, color: destaque ? GOLD_D : ESP, marginTop: 2 }}>{v}</div>
   </div>
 }
 function Th({ children }: { children?: React.ReactNode }) { return <th style={{ padding: '10px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT }}>{children}</th> }
 function Td({ children, style }: { children?: React.ReactNode; style?: React.CSSProperties }) { return <td style={{ padding: '10px 14px', color: ESP, fontVariantNumeric: 'tabular-nums', ...style }}>{children}</td> }
+const thAjuda: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4 }
 const card: React.CSSProperties = { background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16 }
 const aviso = (fg: string, bg: string): React.CSSProperties => ({ background: bg, color: fg, padding: '10px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600 })
 const btnGold: React.CSSProperties = { padding: '9px 16px', borderRadius: 8, border: 'none', background: GOLD, color: '#FFF', fontSize: 13, fontWeight: 700, cursor: 'pointer' }

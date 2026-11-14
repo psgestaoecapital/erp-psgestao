@@ -8,6 +8,7 @@ import Link from "next/link";
 import { Briefcase, Play } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 import EmpresaNaoResolvida from "@/components/pm/EmpresaNaoResolvida";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { BotaoPlay } from "@/components/pm/BotaoPlay";
@@ -40,7 +41,8 @@ export default function MeusTrabalhosPage() {
       supabase.rpc("fn_pauta_contadores", { p_company_id: empresa, p_filtros: {} }),
     ]);
     setTotalEmpresa(ct.error ? null : Number((ct.data as { total?: number } | null)?.total ?? 0));
-    if (ls.error) { setErro(ls.error.message); setCarregando(false); return; }
+    // RD-98 critério e: nunca o erro cru do banco ao usuário — mensagem em linguagem dele.
+    if (ls.error) { setErro(erroAmigavel(ls.error, "Não foi possível carregar seus trabalhos. Tente de novo.")); setCarregando(false); return; }
     const itens = ((ls.data as { itens: ItemPauta[] } | null)?.itens ?? []);
     const ids = itens.map((i) => i.id);
     const [ini, ta] = await Promise.all([
@@ -79,7 +81,7 @@ export default function MeusTrabalhosPage() {
           <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#C8941A]"><Briefcase size={13} /> Meus trabalhos<AjudaCampo chave="pm.meus_trabalhos.tela" /></div>
           <h1 className="text-[24px] font-medium leading-tight">O que é meu, em ordem</h1>
         </div>
-        <Link href="/dashboard/pm/meu-dia" className="rounded-lg border border-[#3D2314]/15 bg-white px-3 py-2 text-[12.5px]">Meu dia</Link>
+        <span className="inline-flex items-center"><Link href="/dashboard/pm/meu-dia" className="rounded-lg border border-[#3D2314]/15 bg-white px-3 py-2 text-[12.5px]">Meu dia</Link><AjudaCampo chave="pm.meus_trabalhos.meu_dia" /></span>
       </header>
       {erro && <div className="mb-3 rounded-lg bg-[#F7E1E1] px-3 py-2 text-[12.5px] text-[#791F1F]" onClick={() => setErro(null)}>{erro}</div>}
       {carregando && <div className="text-[12.5px] text-[#3D2314]/55">carregando…</div>}
@@ -104,7 +106,7 @@ export default function MeusTrabalhosPage() {
           {!grupos.length && !carregando && !erro && (
             <div className="text-[12.5px] text-[#3D2314]/70" data-testid="mt-vazio">
               Nenhum job em andamento está com você como responsável.
-              {totalEmpresa !== null && totalEmpresa > 0 && <> A pauta da empresa tem {totalEmpresa} job(s) com outras pessoas — <Link href="/dashboard/pm/pauta" className="font-medium text-[#C8941A] underline" data-testid="mt-ver-pauta">ver na Pauta</Link>.</>}
+              {totalEmpresa !== null && totalEmpresa > 0 && <> A pauta da empresa tem {totalEmpresa} job(s) com outras pessoas — <Link href="/dashboard/pm/pauta" className="font-medium text-[#C8941A] underline" data-testid="mt-ver-pauta">ver na Pauta</Link><AjudaCampo chave="pm.meus_trabalhos.ver_pauta" />.</>}
               {totalEmpresa === 0 && <> A empresa ainda não tem jobs na pauta.</>}
             </div>
           )}

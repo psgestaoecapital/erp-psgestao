@@ -21,6 +21,7 @@ import {
 import { authFetch } from '@/lib/authFetch'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { AVISO_PROCESSANDO, resumoConsulta } from '@/lib/fiscal/consultaRetorno'
+import RemessaAtivoControle from './RemessaAtivoControle'
 
 interface Documento {
   grupo_chave: string
@@ -343,6 +344,9 @@ export default function NFeListClient() {
             <AjudaCampo chave="fiscal.nfe.emitir_avulsa" />
           </div>
         </header>
+
+        {/* #5167 etapa (b) · controle "em remessa" de ativo imobilizado (saiu e não voltou) */}
+        <RemessaAtivoControle companyId={companyId} />
 
         <div className="bg-white border border-[#3D2314]/10 rounded-xl p-4 mb-4">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">

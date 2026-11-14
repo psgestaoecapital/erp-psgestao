@@ -9,6 +9,8 @@ import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { authFetch } from '@/lib/authFetch'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -18,6 +20,16 @@ const inp: React.CSSProperties = { padding: '8px 10px', fontSize: 13, border: `1
 const brl = (v: number) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const brDate = (d: string) => d ? String(d).slice(0, 10).split('-').reverse().join('/') : ''
 const SIT = ['aberta', 'faturada', 'entregue', 'devolvida', 'cancelada']
+
+// Traduz erro cru do banco/transporte para linguagem do usuário (nunca vaza mensagem técnica).
+function msgAmigavel(raw?: string | null): string {
+  const s = (raw || '').toLowerCase()
+  if (!s) return 'Não foi possível concluir a ação. Tente novamente; se continuar, avise o suporte.'
+  if (s.includes('jwt') || s.includes('token') || s.includes('session') || s.includes('expired') || s.includes('refresh')) return 'Sua sessão expirou. Entre novamente para continuar.'
+  if (s.includes('permission') || s.includes('row-level') || s.includes('rls') || s.includes('not authorized') || s.includes('denied') || s.includes('policy')) return 'Você não tem acesso a esta informação nesta empresa.'
+  if (s.includes('network') || s.includes('failed to fetch') || s.includes('fetch') || s.includes('timeout') || s.includes('timed out')) return 'Falha de conexão. Verifique sua internet e tente novamente.'
+  return 'Não foi possível concluir a ação. Tente novamente; se continuar, avise o suporte.'
+}
 
 type Venda = {
   id: string; veiculo_id: string; chassi: string; modelo: string | null; placa: string | null; cliente_nome: string | null
@@ -34,7 +46,16 @@ type Acerto = {
   previsto: { preco_venda: number | null; custo_real_total: number | null; lucro_projetado: number | null }
   realizado: { recebido: number; em_aberto: number; em_aberto_cliente: number; em_aberto_banco: number; custos_pos_venda: number; lucro_real: number | null }
 }
+type NfeVenda = { id: string; numero: string | null; chave: string | null; status: string; danfe_url: string | null; xml_url: string | null; motivo_rejeicao: string | null }
 type Receb = { venda_id: string; tipo: string; devedor: string; valor: number; receber_id: string | null; numero: string | null; status: string | null }
+// #7641 etapa 2 · resumo da nota montada (apenasPrevia) para o card de conferência.
+type PreviaItem = { descricao: string; ncm: string | null; cfop: string | null; cst: string | null; cBenef: string | null; chassi: string | null; icmsBase: number | null; icmsValor: number | null; ibsCbs: { base: number; cbs: number; ibs: number } | null; valorTotal: number }
+type PreviaNota = {
+  naturezaOperacao: string; serie: string; finalidade: string; consumidorFinal: boolean | null
+  destinatario: { razaoSocial: string; documento: string | null; tipoDocumento: string | null; email: string | null; endereco: string | null }
+  itens: PreviaItem[]
+  totais: { produtos: number; ibsCbs: { base: number; cbs: number; ibs: number } | null }
+}
 
 export default function VendasPage() {
   return <Suspense fallback={<div style={{ padding: 40, color: C.espM, background: C.bg, minHeight: '100vh' }}>Carregando…</div>}><Inner /></Suspense>
@@ -60,14 +81,93 @@ function Inner() {
   const [acertoVenda, setAcertoVenda] = useState<Venda | null>(null)
   const [acerto, setAcerto] = useState<Acerto | null>(null)
   const [recebs, setRecebs] = useState<Map<string, Receb[]>>(new Map())
+  // Motivo (devolução/cancelamento) coletado por Modal/bottom-sheet do design PS — sem window.prompt() nativo.
+  const [motivoModal, setMotivoModal] = useState<{ titulo: string; label: string; obrig: boolean; confirmLabel: string; onConfirm: (motivo: string) => void | Promise<void> } | null>(null)
+  const [motivoTxt, setMotivoTxt] = useState('')
+  const [motivoErro, setMotivoErro] = useState<string | null>(null)
+  // #6928 · aviso de bloqueio do cancelamento mostrado ANTES de pedir o motivo (NF-e autorizada / título em aberto).
+  const [cancelBloqueio, setCancelBloqueio] = useState<{ v: Venda; temNfe: boolean; titulos: Receb[] } | null>(null)
+  // #7641 etapa 2 · card de conferência da NF-e (confere/edita antes de emitir; mantém aberto p/ reenviar em rejeição).
+  const [nfeCard, setNfeCard] = useState<{ v: Venda; nota: PreviaNota; infoCpl: string; limite: number; aviso: string | null } | null>(null)
+  const [nfeCardBusy, setNfeCardBusy] = useState(false)
+  const [nfeCardErro, setNfeCardErro] = useState<string | null>(null)
+  // #7641 · status real da NF-e de cada venda (veic_venda.nfe_id → erp_nfe_emitidas).
+  const [nfes, setNfes] = useState<Map<string, NfeVenda>>(new Map())
   const [acResumo, setAcResumo] = useState<Map<string, { previsto: number | null; realizado: number | null }>>(new Map())
+
+  // #5684 · Emitir NF-e da venda (Caminho A: mesmo emissor do GE, ligada ao título da venda, grava veic_venda.nfe_id).
+  const nfeProcessando = Array.from(nfes.values()).some((n) => n.status === 'processando')
+  useEffect(() => {
+    if (!nfeProcessando) return
+    const t = setInterval(() => { void carregar() }, 8000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nfeProcessando])
+
+  // #7641 etapa 2 · Emitir NF-e passa a abrir um CARD DE CONFERÊNCIA (monta a nota sem emitir, via
+  // apenasPrevia), o operador confere/edita o permitido e só então confirma. Reusa o status real da NF-e,
+  // DANFE/XML e o link para NFes emitidas (etapa 1) — não duplica.
+  const abrirCardEmissao = async (v: Venda) => {
+    if (!companyId) return
+    setBusy(true); setErro(null); setMsg(null)
+    try {
+      const res = await authFetch('/api/fiscal/nfe/emitir', { method: 'POST', body: JSON.stringify({ companyId, vendaVeiculoId: v.id, apenasPrevia: true }) })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok || j?.ok === false || !j?.previa?.nota) {
+        setErro(`Não foi possível montar a nota para conferência: ${j?.motivoRejeicao ?? j?.mensagem ?? j?.message ?? `erro ${res.status}`}.`)
+        return
+      }
+      setNfeCardErro(null)
+      setNfeCard({ v, nota: j.previa.nota as PreviaNota, infoCpl: j.previa.informacoesComplementares ?? '', limite: j.previa.limite ?? 5000, aviso: j.previa.avisoIbpt ?? null })
+    } catch (e) {
+      setErro(e instanceof Error ? msgAmigavel(e.message) : 'Falha ao montar a nota para conferência')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const confirmarEmissao = async () => {
+    if (!companyId || !nfeCard) return
+    const v = nfeCard.v
+    setNfeCardBusy(true); setNfeCardErro(null)
+    try {
+      const res = await authFetch('/api/fiscal/nfe/emitir', { method: 'POST', body: JSON.stringify({ companyId, vendaVeiculoId: v.id, informacoesComplementares: nfeCard.infoCpl }) })
+      const j = await res.json().catch(() => ({}))
+      if (j?.status === 'processando') {
+        setNfeCard(null)
+        setMsg('NF-e enviada à SEFAZ. Aguarde: o status aparece no card da venda.')
+      } else if (!res.ok || j?.ok === false || j?.status === 'rejeitada') {
+        // Mantém o card ABERTO para corrigir e reenviar sem sair (motivo em português).
+        setNfeCardErro(`Nota rejeitada: ${j?.motivoRejeicao ?? j?.mensagem ?? j?.message ?? `erro ${res.status}`}. Ajuste as Informações Complementares se for o caso e clique em Reenviar; se o problema estiver no cadastro (destinatário, produto), corrija lá e reenvie.`)
+      } else {
+        setNfeCard(null)
+        const avisos: string[] = Array.isArray(j.avisosVeiculo) ? j.avisosVeiculo : []
+        setMsg(`NF-e ${j.numero ?? ''} — ${j.status}${j.ambiente ? ` (${j.ambiente})` : ''}.${avisos.length ? ' Atenção: ' + avisos.join(' ') : ''}`)
+      }
+    } catch (e) {
+      setNfeCardErro(e instanceof Error ? msgAmigavel(e.message) : 'Falha ao emitir a NF-e')
+    } finally {
+      setNfeCardBusy(false)
+      await carregar()
+    }
+  }
 
   const carregar = useCallback(async () => {
     if (!companyId) { setRows([]); setRecebs(new Map()); setAcResumo(new Map()); return }
     const { data, error } = await supabase.from('v_veic_venda').select('*').eq('company_id', companyId).order('data_venda', { ascending: false })
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(msgAmigavel(error.message)); return }
     const vs = (data as Venda[]) ?? []
     setRows(vs)
+    {
+      const { data: vn } = await supabase.from('veic_venda').select('id, nfe_id').in('id', vs.map((v) => v.id)).not('nfe_id', 'is', null)
+      const link = (vn as { id: string; nfe_id: string }[]) ?? []
+      const nm = new Map<string, NfeVenda>()
+      if (link.length) {
+        const { data: nn } = await supabase.from('erp_nfe_emitidas').select('id, numero, chave, status, danfe_url, xml_url, motivo_rejeicao').in('id', link.map((l) => l.nfe_id))
+        const byId = new Map(((nn as NfeVenda[]) ?? []).map((n) => [n.id, n]))
+        link.forEach((l) => { const n = byId.get(l.nfe_id); if (n) nm.set(l.id, n) })
+      }
+      setNfes(nm)
+    }
     // Títulos na GE por venda: recebimento ↔ erp_receber (rastreabilidade ponta a ponta, RD-65).
     const ids = vs.map((v) => v.id)
     const m = new Map<string, Receb[]>()
@@ -109,7 +209,7 @@ function Inner() {
     const { data, error } = await supabase.rpc('fn_veic_venda_checklist_materializar', { p_venda_id: v.id, p_user: await userId() })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string; itens?: ChkItem[] } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha ao abrir checklist'); return }
+    if (error || !r?.ok) { setErro((error ? msgAmigavel(error.message) : null) || r?.erro || 'Falha ao abrir checklist'); return }
     setChkVenda(v); setChkItens(r.itens ?? []); setChkKm(v.km_entrega ? String(v.km_entrega) : '')
   }
   async function marcarItem(it: ChkItem, feito: boolean) {
@@ -127,7 +227,7 @@ function Inner() {
     const r = data as { ok?: boolean; erro?: string; faltando?: string[]; mensagem?: string } | null
     if (error || !r?.ok) {
       if (r?.erro === 'checklist_incompleto') setErro(`Faltam itens obrigatórios: ${(r.faltando ?? []).join(' · ')}`)
-      else setErro(error?.message || r?.mensagem || r?.erro || 'Falha ao entregar')
+      else setErro((error ? msgAmigavel(error.message) : null) || r?.mensagem || r?.erro || 'Falha ao entregar')
       return
     }
     setMsg('Veículo entregue.'); setChkVenda(null); void carregar()
@@ -139,7 +239,7 @@ function Inner() {
     const { data, error } = await supabase.rpc('fn_veic_termo_entrega', { p_venda_id: v.id })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string; termo_md?: string } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha ao gerar termo'); return }
+    if (error || !r?.ok) { setErro((error ? msgAmigavel(error.message) : null) || r?.erro || 'Falha ao gerar termo'); return }
     setTermoVenda(v); setTermoMd(r.termo_md ?? ''); setAssinaNome(v.cliente_nome ?? ''); void carregar()
   }
   async function assinarTermo() {
@@ -149,7 +249,7 @@ function Inner() {
     const { data, error } = await supabase.rpc('fn_veic_termo_assinar', { p_venda_id: termoVenda.id, p_nome: assinaNome.trim(), p_ip: null, p_user: await userId() })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha no aceite'); return }
+    if (error || !r?.ok) { setErro((error ? msgAmigavel(error.message) : null) || r?.erro || 'Falha no aceite'); return }
     setMsg('Aceite registrado.'); setTermoVenda(null); void carregar()
   }
 
@@ -159,32 +259,55 @@ function Inner() {
     const { data, error } = await supabase.rpc('fn_veic_venda_acerto', { p_venda_id: v.id })
     setBusy(false)
     const r = data as ({ ok?: boolean; erro?: string } & Acerto) | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha no acerto'); return }
+    if (error || !r?.ok) { setErro((error ? msgAmigavel(error.message) : null) || r?.erro || 'Falha no acerto'); return }
     setAcertoVenda(v); setAcerto({ previsto: r.previsto, realizado: r.realizado })
   }
 
   // ── Devolução / cancelamento ───────────────────────────────────────────────────────────────
-  async function devolver(v: Venda) {
-    const motivo = window.prompt('Motivo da devolução (obrigatório):')
-    if (motivo == null) return
-    if (!motivo.trim()) { setErro('A devolução exige um motivo.'); return }
+  function devolver(v: Venda) {
+    setMotivoTxt(''); setMotivoErro(null)
+    setMotivoModal({ titulo: `Registrar devolução — ${v.modelo || ''}`, label: 'Motivo da devolução', obrig: true, confirmLabel: 'Registrar devolução', onConfirm: (motivo) => executarDevolver(v, motivo) })
+  }
+  async function executarDevolver(v: Venda, motivo: string) {
     setBusy(true)
-    const { data, error } = await supabase.rpc('fn_veic_venda_devolver', { p_venda_id: v.id, p_motivo: motivo.trim(), p_data: null, p_user: await userId() })
+    const { data, error } = await supabase.rpc('fn_veic_venda_devolver', { p_venda_id: v.id, p_motivo: motivo, p_data: null, p_user: await userId() })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string; titulos_a_estornar?: string[] } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha na devolução'); return }
+    if (error || !r?.ok) { setErro((error ? msgAmigavel(error.message) : null) || r?.erro || 'Falha na devolução'); return }
     const n = (r.titulos_a_estornar ?? []).length
     setMsg(`Devolução registrada. Veículo volta ao pátio. ${n} título(s) marcado(s) a estornar (evento enviado ao financeiro).`)
     void carregar()
   }
-  async function cancelar(v: Venda) {
-    const motivo = window.prompt('Motivo do cancelamento:') ?? ''
+  // #6928: títulos do financeiro (GE) ainda em aberto de uma venda. Pago/cancelado nunca entram.
+  const ABERTO = ['aberto', 'vencido', 'pendente']
+  const titulosAbertos = (vendaId: string) => (recebs.get(vendaId) ?? []).filter((t) => t.receber_id && t.status && ABERTO.includes(t.status))
+
+  function cancelar(v: Venda) {
+    // #6928: checar o bloqueio NO CLIQUE (antes de pedir o motivo). Se houver NF-e autorizada ou
+    // título a receber em aberto, mostrar o aviso na hora — com atalho para cancelar a nota / tratar
+    // o título — e NÃO abrir o campo de motivo (o usuário não digita à toa). Só quando estiver limpo
+    // é que abrimos o modal de motivo. O backend (fn_veic_venda_cancelar) mantém a mesma validação
+    // como defesa em profundidade.
+    const titulos = titulosAbertos(v.id)
+    if (v.nfe_autorizada || titulos.length > 0) {
+      setCancelBloqueio({ v, temNfe: v.nfe_autorizada, titulos })
+      return
+    }
+    setMotivoTxt(''); setMotivoErro(null)
+    setMotivoModal({ titulo: `Cancelar venda — ${v.modelo || ''}`, label: 'Motivo do cancelamento (opcional)', obrig: false, confirmLabel: 'Continuar', onConfirm: (motivo) => prosseguirCancelar(v, motivo) })
+  }
+  async function prosseguirCancelar(v: Venda, motivo: string) {
+    // O bloqueio já foi checado na UI (cancelar). O backend valida de novo (defesa em profundidade).
+    await executarCancelar(v, motivo)
+  }
+  async function executarCancelar(v: Venda, motivo: string) {
     setBusy(true)
     const { data, error } = await supabase.rpc('fn_veic_venda_cancelar', { p_venda_id: v.id, p_user: await userId(), p_motivo: motivo || null })
-    setBusy(false)
     const r = data as { ok?: boolean; erro?: string; mensagem?: string; titulos_nao_excluidos?: number } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.mensagem || r?.erro || 'Falha'); return }
-    setMsg('Venda cancelada.'); void carregar()
+    setBusy(false)
+    if (error || !r?.ok) { setErro((error ? msgAmigavel(error.message) : null) || r?.mensagem || r?.erro || 'Falha'); return }
+    setMsg('Venda cancelada.')
+    void carregar()
   }
 
   if (!companyId) return <div style={{ padding: 28, color: C.espM, background: C.bg, minHeight: '100vh' }}>Selecione uma empresa específica no topo.</div>
@@ -199,17 +322,32 @@ function Inner() {
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 12, cursor: 'pointer' }} onClick={() => setErro(null)}>{erro}</div>}
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, alignItems: 'center' }}>
-        <label style={{ fontSize: 12, color: C.espM }}>Situação&nbsp;
+        <label style={{ fontSize: 12, color: C.espM, display: 'inline-flex', alignItems: 'center' }}>Situação&nbsp;
           <select value={filtro} onChange={(e) => setFiltro(e.target.value)} style={inp}>
             <option value="todos">todas</option>
             {SIT.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
+          <AjudaCampo chave="revenda.vendas.filtro_situacao" rota="/dashboard/revenda/vendas" />
         </label>
         <span style={{ fontSize: 12, color: C.espM }}>{visiveis.length} venda(s)</span>
       </div>
 
       {visiveis.length === 0 ? (
-        <div style={{ background: C.white, border: `1px dashed ${C.border}`, borderRadius: 12, padding: '30px 16px', textAlign: 'center', color: C.espM }}>Nenhuma venda registrada. Registre a venda pela ficha do veículo.</div>
+        <div style={{ background: C.white, border: `1px dashed ${C.border}`, borderRadius: 12, padding: '30px 16px', textAlign: 'center', color: C.espM }}>
+          {filtro === 'todos' ? (
+            <>
+              <div style={{ fontSize: 14, color: C.esp, fontWeight: 600 }}>Nenhuma venda registrada ainda.</div>
+              <div style={{ fontSize: 12.5, marginTop: 4 }}>A venda começa na ficha do veículo, lá no pátio.</div>
+              <button onClick={() => router.push('/dashboard/revenda/patio')} style={{ ...btnGold, marginTop: 14 }}>Registrar venda no pátio</button>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: 14, color: C.esp, fontWeight: 600 }}>Nenhuma venda {filtro}.</div>
+              <div style={{ fontSize: 12.5, marginTop: 4 }}>Há vendas registradas, mas nenhuma neste filtro de situação.</div>
+              <button onClick={() => setFiltro('todos')} style={{ ...btnGhost, marginTop: 14 }}>Ver todas as vendas</button>
+            </>
+          )}
+        </div>
       ) : (
         <div style={{ display: 'grid', gap: 10 }}>
           {visiveis.map((v) => {
@@ -237,12 +375,14 @@ function Inner() {
                   {v.recebido > 0 ? <span>recebido <b style={{ color: C.green }}>{brl(v.recebido)}</b></span> : null}
                   {v.retorno_banco ? <span>retorno banco {brl(v.retorno_banco)}</span> : null}
                   {v.desconto_embutido_troca ? <span style={{ color: C.amber }} title="valor de troca − valor de avaliação">desconto embutido na troca {brl(v.desconto_embutido_troca)}</span> : null}
+                  {(v.retorno_banco || v.desconto_embutido_troca) ? <AjudaCampo chave="revenda.vendas.financiamento" rota="/dashboard/revenda/vendas" /> : null}
+                  <AjudaCampo chave="revenda.vendas.em_aberto" rota="/dashboard/revenda/vendas" />
                 </div>
 
                 {/* Títulos no financeiro (GE): cada recebimento aponta o título gerado no Contas a Receber (RD-65). */}
                 {(recebs.get(v.id)?.length ?? 0) > 0 && (
                   <div style={{ marginTop: 8, borderTop: `1px solid ${C.cream}`, paddingTop: 8 }}>
-                    <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.6, color: C.espL, fontWeight: 700, marginBottom: 4 }}>Títulos no financeiro (GE)</div>
+                    <div style={{ display: 'flex', alignItems: 'center', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.6, color: C.espL, fontWeight: 700, marginBottom: 4 }}>Títulos no financeiro (GE)<AjudaCampo chave="revenda.vendas.titulos_ge" rota="/dashboard/revenda/vendas" /></div>
                     <div style={{ display: 'grid', gap: 4 }}>
                       {recebs.get(v.id)!.map((t, i) => (
                         <div key={i} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', fontSize: 12, color: C.espM }}>
@@ -261,6 +401,13 @@ function Inner() {
                   </div>
                 )}
 
+                {/* #6928: venda cancelada com título ainda aberto no financeiro — aviso em destaque. */}
+                {v.situacao === 'cancelada' && titulosAbertos(v.id).length > 0 && (
+                  <div style={{ marginTop: 8, fontSize: 12.5, color: C.red, background: C.redBg, borderRadius: 8, padding: '8px 10px', fontWeight: 600 }}>
+                    Venda cancelada, mas o título do financeiro continua em aberto ({brl(titulosAbertos(v.id).reduce((a, t) => a + (t.valor || 0), 0))}). Use o &quot;ver&quot; acima para tratar no Contas a Receber.
+                  </div>
+                )}
+
                 {/* Acerto resumo no card entregue — sem exigir clique (o detalhe fica no botão "Acerto de contas"). */}
                 {entregue && acResumo.get(v.id) && (
                   <div style={{ marginTop: 6, fontSize: 12 }}>
@@ -268,6 +415,7 @@ function Inner() {
                     <b>{acResumo.get(v.id)!.previsto != null ? brl(acResumo.get(v.id)!.previsto!) : '—'}</b>
                     <span style={{ color: C.espM }}> · realizado </span>
                     <b style={{ color: (acResumo.get(v.id)!.realizado ?? 0) < 0 ? C.red : C.green }}>{acResumo.get(v.id)!.realizado != null ? brl(acResumo.get(v.id)!.realizado!) : '—'}</b>
+                    <AjudaCampo chave="revenda.vendas.acerto_resumo" rota="/dashboard/revenda/vendas" />
                   </div>
                 )}
 
@@ -275,14 +423,44 @@ function Inner() {
                   <div style={{ marginTop: 8, fontSize: 12, color: C.amber, background: C.amberBg, borderRadius: 8, padding: '6px 10px' }}>Devolvida{v.devolvido_em ? ` em ${brDate(v.devolvido_em)}` : ''}: {v.devolucao_motivo}</div>
                 ) : null}
 
-                <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                   <button onClick={() => router.push(`/dashboard/revenda/veiculo/${v.veiculo_id}`)} style={btnGhost}>ver veículo</button>
+                  <AjudaCampo chave="revenda.vendas.acoes" rota="/dashboard/revenda/vendas" />
+
+                  {/* #7641 · status real da NF-e (lido de erp_nfe_emitidas), sem aviso de erro enquanto processa */}
+                  {nfes.get(v.id) && (() => {
+                    const n = nfes.get(v.id)!
+                    const lnk: React.CSSProperties = { color: C.gold, fontWeight: 700, textDecoration: 'none', fontSize: 12 }
+                    const ajuda = <AjudaCampo chave="revenda.vendas.nfe_status" rota="/dashboard/revenda/vendas" />
+                    if (n.status === 'autorizada') return (
+                      <span style={{ display: 'inline-flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', padding: '4px 10px', borderRadius: 8, background: C.greenBg, color: C.green, fontSize: 12, fontWeight: 600 }} data-testid="venda-nfe-status">
+                        Autorizada{n.numero ? ` — nº ${n.numero}` : ''}
+                        {n.danfe_url && <a href={n.danfe_url} target="_blank" rel="noreferrer" style={lnk}>Imprimir DANFE</a>}
+                        {n.xml_url && <a href={n.xml_url} target="_blank" rel="noreferrer" style={lnk}>Baixar XML</a>}
+                        <a href="/dashboard/fiscal/nfe" style={lnk}>Ver em NF-e emitidas</a>
+                        {ajuda}
+                      </span>
+                    )
+                    if (n.status === 'processando') return (
+                      <span style={{ padding: '4px 10px', borderRadius: 8, background: C.amberBg, color: '#8A4B08', fontSize: 12, fontWeight: 600 }} data-testid="venda-nfe-status">Enviando à SEFAZ… aguarde, a tela atualiza sozinha.{ajuda}</span>
+                    )
+                    if (n.status === 'rejeitada') return (
+                      <span style={{ padding: '4px 10px', borderRadius: 8, background: C.redBg, color: C.red, fontSize: 12, fontWeight: 600 }} data-testid="venda-nfe-status">
+                        Nota rejeitada: {n.motivo_rejeicao ?? 'motivo não informado'}. Corrija o cadastro e emita de novo. <a href="/dashboard/fiscal/nfe" style={lnk}>Ver nota</a>{ajuda}
+                      </span>
+                    )
+                    return null
+                  })()}
 
                   {/* Entregar (via checklist) — R0.2/R0.2b travas de NF mantidas na função */}
                   {!encerrada && (
                     v.nfe_autorizada || (v.is_demo && v.situacao === 'faturada')
                       ? <button disabled={busy} onClick={() => void abrirChecklist(v)} style={btnGold}>Entregar</button>
-                      : <span style={{ padding: '6px 12px', borderRadius: 8, background: C.amberBg, color: '#8A4B08', fontSize: 11.5, fontWeight: 600 }}>Emitir nota antes de entregar</span>
+                      : <>
+                          <span style={{ padding: '6px 12px', borderRadius: 8, background: C.amberBg, color: '#8A4B08', fontSize: 11.5, fontWeight: 600 }}>Emitir nota antes de entregar</span>
+                          <button disabled={busy || nfes.get(v.id)?.status === 'processando'} onClick={() => void abrirCardEmissao(v)} style={btnGold}>Emitir NF-e</button>
+                          <AjudaCampo chave="revenda.vendas.emitir_nfe" rota="/dashboard/revenda/vendas" />
+                        </>
                   )}
                   {v.is_demo && !encerrada && (v.nfe_autorizada ? null : <span style={{ padding: '3px 8px', borderRadius: 999, background: C.amberBg, color: '#8A4B08', fontSize: 10.5, fontWeight: 700, alignSelf: 'center' }} title="Empresa de demonstração — sem emissão fiscal real">Demonstração — sem nota fiscal real</span>)}
 
@@ -295,13 +473,140 @@ function Inner() {
                   {/* Devolução (entregue) no lugar de Cancelar */}
                   {entregue
                     ? <button disabled={busy} onClick={() => void devolver(v)} style={btnDanger}>Registrar devolução</button>
-                    : (!encerrada && <button disabled={busy} onClick={() => void cancelar(v)} style={btnDanger}>Cancelar</button>)}
+                    : (!encerrada && <button disabled={busy} onClick={() => void cancelar(v)} style={btnDanger}>Cancelar venda</button>)}
                 </div>
               </div>
             )
           })}
         </div>
       )}
+
+      {/* ── Modal de motivo (devolução / cancelamento) — bottom sheet PS no lugar do window.prompt() ── */}
+      {motivoModal && (
+        <Modal onClose={() => { setMotivoModal(null); setMotivoErro(null) }} titulo={motivoModal.titulo}>
+          <label style={{ display: 'block', fontSize: 12.5, color: C.espM, marginBottom: 6 }}>{motivoModal.label}</label>
+          <textarea
+            value={motivoTxt}
+            onChange={(e) => { setMotivoTxt(e.target.value); if (motivoErro) setMotivoErro(null) }}
+            rows={3}
+            autoFocus
+            placeholder="Descreva o motivo…"
+            style={{ ...inp, display: 'block', width: '100%', resize: 'vertical', fontFamily: 'inherit', minHeight: 72 }}
+          />
+          {motivoErro && <div style={{ fontSize: 12, color: C.red, marginTop: 6 }}>{motivoErro}</div>}
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
+            <button onClick={() => { setMotivoModal(null); setMotivoErro(null) }} style={btnGhost}>Voltar</button>
+            <button disabled={busy} onClick={() => {
+              const t = motivoTxt.trim()
+              if (motivoModal.obrig && !t) { setMotivoErro('Informe o motivo para continuar.'); return }
+              const cb = motivoModal.onConfirm
+              setMotivoModal(null); setMotivoErro(null)
+              void cb(t)
+            }} style={btnGold}>{motivoModal.confirmLabel}</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── #6928 · Aviso de bloqueio do cancelamento (mostrado no clique, antes do motivo) ── */}
+      {cancelBloqueio && (
+        <Modal onClose={() => setCancelBloqueio(null)} titulo={`Não é possível cancelar — ${cancelBloqueio.v.modelo || ''}`}>
+          <div style={{ fontSize: 13, color: C.esp, marginBottom: 10 }}>
+            Esta venda ainda tem pendências que impedem o cancelamento. Resolva os itens abaixo e tente de novo.
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {cancelBloqueio.temNfe && (
+              <div style={{ background: C.amberBg, borderRadius: 8, padding: '10px 12px' }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: '#8A4B08' }}>NF-e autorizada</div>
+                <div style={{ fontSize: 12, color: C.espM, margin: '2px 0 8px' }}>Existe uma nota fiscal autorizada para esta venda. Cancele a nota na SEFAZ antes de cancelar a venda.</div>
+                <button onClick={() => { setCancelBloqueio(null); router.push('/dashboard/fiscal/nfe') }} style={btnGhost}>Cancelar nota (NF-e emitidas)</button>
+              </div>
+            )}
+            {cancelBloqueio.titulos.length > 0 && (
+              <div style={{ background: C.amberBg, borderRadius: 8, padding: '10px 12px' }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: '#8A4B08' }}>Título a receber em aberto</div>
+                <div style={{ fontSize: 12, color: C.espM, margin: '2px 0 6px' }}>
+                  {cancelBloqueio.titulos.length} título(s) em aberto no financeiro. Baixe ou cancele o(s) título(s) antes de cancelar a venda.
+                </div>
+                <ul style={{ margin: '0 0 8px', paddingLeft: 18, fontSize: 12, color: C.espM }}>
+                  {cancelBloqueio.titulos.map((t, i) => (
+                    <li key={t.receber_id || i}>{t.numero ? `Nº ${t.numero}` : t.tipo} — {t.devedor} — {brl(t.valor)}</li>
+                  ))}
+                </ul>
+                <button onClick={() => { setCancelBloqueio(null); router.push('/dashboard/financeiro/receber') }} style={btnGhost}>Ir para Contas a Receber</button>
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
+            <button onClick={() => setCancelBloqueio(null)} style={btnGold}>Entendi</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ── #7641 etapa 2 · Card de conferência da NF-e (confira os dados antes de emitir) ── */}
+      {nfeCard && (() => {
+        const n = nfeCard.nota
+        const linha = (rot: string, val: React.ReactNode) => (
+          <div style={{ display: 'flex', gap: 8, fontSize: 12.5, padding: '3px 0' }}>
+            <span style={{ color: C.espM, minWidth: 128 }}>{rot}</span>
+            <span style={{ color: C.esp, fontWeight: 500 }}>{val ?? '—'}</span>
+          </div>
+        )
+        const secTit: React.CSSProperties = { fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: C.gold, fontWeight: 700, margin: '12px 0 4px' }
+        return (
+          <Modal onClose={() => { if (!nfeCardBusy) setNfeCard(null) }} titulo={`Conferir NF-e antes de emitir — ${nfeCard.v.modelo || ''}`}>
+            <div style={{ fontSize: 12.5, color: C.espM, marginBottom: 6 }}>Confira os dados abaixo. Nada foi enviado ainda — a nota só sai ao clicar em <b>Confirmar e emitir</b>.</div>
+
+            <div style={secTit}>Operação</div>
+            {linha('Natureza', n.naturezaOperacao)}
+            {linha('Série / Finalidade', `${n.serie || '—'} · ${n.finalidade}`)}
+            {linha('Consumidor final', n.consumidorFinal == null ? '—' : (n.consumidorFinal ? 'Sim' : 'Não'))}
+
+            <div style={secTit}>Destinatário</div>
+            {linha('Nome', n.destinatario.razaoSocial)}
+            {linha(n.destinatario.tipoDocumento || 'Documento', n.destinatario.documento)}
+            {linha('E-mail', n.destinatario.email)}
+            {linha('Endereço', n.destinatario.endereco)}
+
+            <div style={secTit}>Itens e tributos</div>
+            {nfeCard.v.placa && linha('Placa', nfeCard.v.placa)}
+            {n.itens.map((it, i) => (
+              <div key={i} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: 10, marginBottom: 8 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: C.esp, marginBottom: 2 }}>{it.descricao}</div>
+                {it.chassi && linha('Chassi', it.chassi)}
+                {linha('NCM / CFOP', `${it.ncm || '—'} · CFOP ${it.cfop || '—'}`)}
+                {linha('CST / cBenef', `${it.cst || '—'}${it.cBenef ? ` · benef. ${it.cBenef}` : ''}`)}
+                {linha('Base / ICMS', `${it.icmsBase != null ? brl(it.icmsBase) : '—'} · ${it.icmsValor != null ? brl(it.icmsValor) : '—'}`)}
+                {it.ibsCbs && linha('IBS/CBS', `base ${brl(it.ibsCbs.base)} · CBS ${brl(it.ibsCbs.cbs)} · IBS ${brl(it.ibsCbs.ibs)}`)}
+                {linha('Valor', brl(it.valorTotal))}
+              </div>
+            ))}
+            {linha('Total produtos', brl(n.totais.produtos))}
+            {n.totais.ibsCbs && linha('Total IBS/CBS', `base ${brl(n.totais.ibsCbs.base)} · CBS ${brl(n.totais.ibsCbs.cbs)} · IBS ${brl(n.totais.ibsCbs.ibs)}`)}
+
+            <div style={secTit}>
+              Informações complementares <AjudaCampo chave="revenda.vendas.nfe_info_complementares" rota="/dashboard/revenda/vendas" />
+            </div>
+            <textarea
+              value={nfeCard.infoCpl}
+              onChange={(e) => setNfeCard((c) => c ? { ...c, infoCpl: e.target.value } : c)}
+              rows={4}
+              style={{ ...inp, display: 'block', width: '100%', resize: 'vertical', fontFamily: 'inherit', minHeight: 84 }}
+            />
+            <div style={{ fontSize: 11, color: nfeCard.infoCpl.length > nfeCard.limite ? C.red : C.espM, marginTop: 4 }}>
+              {nfeCard.infoCpl.length}/{nfeCard.limite} caracteres{nfeCard.infoCpl.length > nfeCard.limite ? ' — acima do limite; a nota não sai' : ''}
+            </div>
+            {nfeCard.aviso && <div style={{ fontSize: 12, color: '#8A4B08', background: C.amberBg, borderRadius: 8, padding: '6px 10px', marginTop: 8 }}>{nfeCard.aviso}</div>}
+            {nfeCardErro && <div style={{ fontSize: 12.5, color: C.red, background: C.redBg, borderRadius: 8, padding: '8px 10px', marginTop: 8 }}>{nfeCardErro}</div>}
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
+              <button disabled={nfeCardBusy} onClick={() => setNfeCard(null)} style={btnGhost}>Cancelar</button>
+              <button disabled={nfeCardBusy || nfeCard.infoCpl.length > nfeCard.limite} onClick={() => void confirmarEmissao()} style={btnGold}>
+                {nfeCardBusy ? 'Enviando…' : (nfeCardErro ? 'Reenviar' : 'Confirmar e emitir')}
+              </button>
+            </div>
+          </Modal>
+        )
+      })()}
 
       {/* ── Modal checklist ── */}
       {chkVenda && (
@@ -346,13 +651,13 @@ function Inner() {
         <Modal onClose={() => { setAcertoVenda(null); setAcerto(null) }} titulo={`Acerto de contas — ${acertoVenda.modelo || ''}`}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div style={{ background: C.cream, borderRadius: 8, padding: 12 }}>
-              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.espM, fontWeight: 700, marginBottom: 6 }}>Previsto</div>
+              <div style={{ display: 'flex', alignItems: 'center', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.espM, fontWeight: 700, marginBottom: 6 }}>Previsto<AjudaCampo chave="revenda.vendas.acerto_previsto" rota="/dashboard/revenda/vendas" /></div>
               <Linha k="Preço de venda" v={acerto.previsto.preco_venda} />
               <Linha k="Custo real" v={acerto.previsto.custo_real_total} />
               <Linha k="Lucro projetado" v={acerto.previsto.lucro_projetado} destaque />
             </div>
             <div style={{ background: C.cream, borderRadius: 8, padding: 12 }}>
-              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.espM, fontWeight: 700, marginBottom: 6 }}>Realizado</div>
+              <div style={{ display: 'flex', alignItems: 'center', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.espM, fontWeight: 700, marginBottom: 6 }}>Realizado<AjudaCampo chave="revenda.vendas.acerto_realizado" rota="/dashboard/revenda/vendas" /></div>
               <Linha k="Recebido" v={acerto.realizado.recebido} />
               <Linha k="Em aberto — cliente" v={acerto.realizado.em_aberto_cliente} />
               <Linha k="Em aberto — banco" v={acerto.realizado.em_aberto_banco} />
@@ -385,6 +690,7 @@ function Passos({ v }: { v: Venda }) {
           <span>{p.feito ? '✓' : p.atual ? '•' : '○'}</span>{p.nome}
         </span>
       ))}
+      <AjudaCampo chave="revenda.vendas.passos" rota="/dashboard/revenda/vendas" />
     </div>
   )
 }
@@ -399,9 +705,11 @@ function Linha({ k, v, destaque, testid }: { k: string; v: number | null; destaq
 }
 
 function Modal({ titulo, children, onClose }: { titulo: string; children: React.ReactNode; onClose: () => void }) {
+  // Centralizado e padronizado com o <Modal> central do sistema (regra da Jordana: NÃO fecha no clique-fora;
+  // só por X). Em telas pequenas vira painel inferior arredondado. Antes aparecia deslocado/sobreposto (#6928).
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.45)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 50, padding: '0' }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, width: '100%', maxWidth: 560, borderRadius: '16px 16px 0 0', padding: 18, maxHeight: '88vh', overflow: 'auto' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, width: '100%', maxWidth: 560, borderRadius: 16, padding: 18, maxHeight: '88vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div style={{ fontWeight: 700, fontSize: 16 }}>{titulo}</div>
           <button onClick={onClose} style={{ ...btnGhost, padding: '4px 10px' }}>✕</button>

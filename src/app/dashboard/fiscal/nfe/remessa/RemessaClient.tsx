@@ -51,7 +51,11 @@ interface ItemRem {
   quantidade: number
   valorUnitarioOverride?: number
   cfop?: string
+  valorUnitarioTexto?: string // #5660 · buffer de digitação (pt-BR vírgula); não vai ao payload
 }
+
+// #5660 · aceita vírgula pt-BR em campo monetário: texto + replace(',', '.') (padrão do Perfil fiscal da revenda)
+const numOrNull = (s: string): number | null => { const n = Number(String(s).replace(',', '.')); return String(s).trim() !== '' && Number.isFinite(n) ? n : null }
 
 function resolveCompanyId(): string | null {
   if (typeof window === 'undefined') return null
@@ -106,6 +110,7 @@ export default function RemessaClient() {
   const [icmsCodigo, setIcmsCodigo] = useState('')
   const [modalidadeFrete, setModalidadeFrete] = useState(9)
   const [valorFrete, setValorFrete] = useState(0)
+  const [valorFreteTexto, setValorFreteTexto] = useState<string | null>(null) // #5660 · buffer de digitação pt-BR
   const [observacoes, setObservacoes] = useState('')
 
   const [produtosFiltrados, setProdutosFiltrados] = useState<Produto[]>([])
@@ -244,6 +249,21 @@ export default function RemessaClient() {
   }, [companyId, destTabela, destPendente])
 
   const destinatario = pessoas.find((p) => p.id === destinatarioId)
+  const [destBusca, setDestBusca] = useState('')
+  const [destAberto, setDestAberto] = useState(false)
+  const textoDest = (p: DestPessoa) =>
+    `${p.razao_social ?? p.nome_fantasia ?? p.id}${p.cnpj_cpf || p.cpf_cnpj ? ` · ${p.cnpj_cpf ?? p.cpf_cnpj}` : ''}${p.uf ? ` · ${p.uf}` : ''}`
+  // busca por qualquer parte do nome/razão/fantasia (sem acento) e por CPF/CNPJ com ou sem pontuação
+  const pessoasFiltradas = useMemo(() => {
+    const norm = (v: string) => v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+    const q = norm(destBusca)
+    const d = soDigitos(destBusca)
+    if (!q) return pessoas.slice(0, 50)
+    return pessoas.filter((p) => {
+      if (norm(`${p.razao_social ?? ''} ${p.nome_fantasia ?? ''}`).includes(q)) return true
+      return d.length > 0 && soDigitos(p.cnpj_cpf ?? p.cpf_cnpj).includes(d)
+    }).slice(0, 50)
+  }, [pessoas, destBusca])
   const ufDest = ufDestino(destinatario?.uf)
 
   function escolherCfop(codigo: string) {
@@ -512,21 +532,33 @@ export default function RemessaClient() {
               <option value="erp_fornecedores">Fornecedor</option>
             </select>
           </label>
-          <label className="block">
+          <label className="block relative">
             <span className={rotuloCls}>{destTabela === 'erp_clientes' ? 'Cliente' : 'Fornecedor'} * <AjudaCampo chave="fiscal.nfe_avulsa.destinatario" /></span>
-            <select
-              value={destinatarioId}
-              onChange={(e) => setDestinatarioId(e.target.value)}
+            <input
+              type="text"
+              value={destAberto ? destBusca : (destinatario ? textoDest(destinatario) : '')}
+              onFocus={() => { setDestAberto(true); setDestBusca('') }}
+              onBlur={() => setTimeout(() => setDestAberto(false), 150)}
+              onChange={(e) => setDestBusca(e.target.value)}
+              placeholder="Digite parte do nome ou o CPF/CNPJ"
               className={inputCls}
+              autoComplete="off"
               data-testid="nfe-avulsa-destinatario"
-            >
-              <option value="">Selecione...</option>
-              {pessoas.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.razao_social ?? p.nome_fantasia ?? p.id} {p.cnpj_cpf || p.cpf_cnpj ? `· ${p.cnpj_cpf ?? p.cpf_cnpj}` : ''}{p.uf ? ` · ${p.uf}` : ''}
-                </option>
-              ))}
-            </select>
+            />
+            {destAberto && (
+              <div className="absolute z-20 left-0 right-0 mt-1 max-h-72 overflow-y-auto bg-white border border-[#3D2314]/15 rounded-lg shadow-lg">
+                {pessoasFiltradas.map((p) => (
+                  <button key={p.id} type="button"
+                    onMouseDown={() => { setDestinatarioId(p.id); setDestAberto(false) }}
+                    className="w-full text-left px-3 py-2 hover:bg-[#FAF7F2] border-b border-[#3D2314]/5 last:border-0 text-[12px] text-[#3D2314]">
+                    {textoDest(p)}
+                  </button>
+                ))}
+                {pessoasFiltradas.length === 0 && (
+                  <div className="px-3 py-2 text-[12px] text-[#3D2314]/55">Nenhum cadastro encontrado.</div>
+                )}
+              </div>
+            )}
             {destinatario && !ufDest && (
               <span className="block text-[10.5px] text-[#A32D2D] mt-1">Cadastro sem UF: complete o endereço antes de emitir.</span>
             )}
@@ -702,9 +734,10 @@ export default function RemessaClient() {
                       </td>
                       <td className="px-2 py-1.5 text-right">
                         <input
-                          type="number" min="0" step="0.01"
-                          value={it.valorUnitarioOverride ?? 0}
-                          onChange={(e) => atualizarItem(idx, { valorUnitarioOverride: Number(e.target.value) })}
+                          type="text" inputMode="decimal"
+                          value={it.valorUnitarioTexto ?? (it.valorUnitarioOverride != null ? String(it.valorUnitarioOverride).replace('.', ',') : '')}
+                          onChange={(e) => atualizarItem(idx, { valorUnitarioTexto: e.target.value, valorUnitarioOverride: numOrNull(e.target.value) ?? 0 })}
+                          onBlur={() => atualizarItem(idx, { valorUnitarioTexto: undefined })}
                           className="w-24 px-2 py-1 text-right text-[12px] border border-[#3D2314]/15 rounded"
                         />
                       </td>
@@ -744,7 +777,7 @@ export default function RemessaClient() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <label className="block">
             <span className={rotuloCls}>Frete <AjudaCampo chave="fiscal.nfe_avulsa.modalidade_frete" /></span>
-            <select value={modalidadeFrete} onChange={(e) => { const m = Number(e.target.value); setModalidadeFrete(m); if (m === 9) setValorFrete(0) }} className={inputCls}>
+            <select value={modalidadeFrete} onChange={(e) => { const m = Number(e.target.value); setModalidadeFrete(m); if (m === 9) { setValorFrete(0); setValorFreteTexto(null) } }} className={inputCls}>
               <option value={9}>Sem frete</option>
               <option value={0}>Por conta do emitente (CIF)</option>
               <option value={1}>Por conta do destinatário (FOB)</option>
@@ -753,8 +786,10 @@ export default function RemessaClient() {
           </label>
           <label className="block">
             <span className={rotuloCls}>Valor do frete <AjudaCampo chave="fiscal.nfe_avulsa.valor_frete" /></span>
-            <input type="number" min="0" step="0.01" value={valorFrete} disabled={modalidadeFrete === 9}
-              onChange={(e) => setValorFrete(Math.max(0, Number(e.target.value)))} className={`${inputCls} disabled:bg-[#FAF7F2]`} />
+            <input type="text" inputMode="decimal" disabled={modalidadeFrete === 9}
+              value={valorFreteTexto ?? (valorFrete ? String(valorFrete).replace('.', ',') : '')}
+              onChange={(e) => { setValorFreteTexto(e.target.value); setValorFrete(Math.max(0, numOrNull(e.target.value) ?? 0)) }}
+              onBlur={() => setValorFreteTexto(null)} className={`${inputCls} disabled:bg-[#FAF7F2]`} />
           </label>
           <label className="block sm:col-span-2">
             <span className={rotuloCls}>Informações complementares <AjudaCampo chave="fiscal.nfe_avulsa.observacoes" /></span>

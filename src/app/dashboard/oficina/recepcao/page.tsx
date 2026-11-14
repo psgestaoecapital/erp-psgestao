@@ -3,39 +3,21 @@
 // Busca por placa → prefill do histórico → cliente/veículo/km/queixa + checklist + FOTOS → cria OS (pátio).
 import React, { useEffect, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, Camera, Car, Package, ChevronLeft, Check, X } from 'lucide-react'
+import { Search, Car, Package, ChevronLeft, Check, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import AssinaturaModal from '@/components/oficina/AssinaturaModal'
+import FotosMultiplas from '@/components/oficina/FotosMultiplas'   // #135 item 6 · fotos em lote
 import Modal from '@/components/ui/Modal'
 import { useOficinaRamo } from '@/lib/oficina/ramo'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'; const RED = '#A32D2D'
-const BUCKET = 'oficina-recepcao'
 const CHECK_ITENS = ['Pneus', 'Estepe', 'Faróis / lanternas', 'Retrovisores', 'Vidros', 'Documentos', 'Tapetes / objetos']
 const COMBUSTIVEL = [{ v: 'vazio', l: 'Vazio' }, { v: '1_4', l: '1/4' }, { v: 'meio', l: '1/2' }, { v: '3_4', l: '3/4' }, { v: 'cheio', l: 'Cheio' }]
 
 type Foto = { path: string; legenda: string; url?: string }
-
-// Comprime a foto no celular antes de subir (box com 4G ruim): redimensiona p/ máx 1600px e JPEG 0.7.
-async function comprimirImagem(file: File): Promise<Blob> {
-  if (!file.type.startsWith('image/')) return file
-  try {
-    const bitmap = await createImageBitmap(file)
-    const MAX = 1600
-    let { width, height } = bitmap
-    if (width > MAX || height > MAX) {
-      const r = Math.min(MAX / width, MAX / height)
-      width = Math.round(width * r); height = Math.round(height * r)
-    }
-    const canvas = document.createElement('canvas')
-    canvas.width = width; canvas.height = height
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return file
-    ctx.drawImage(bitmap, 0, 0, width, height)
-    return await new Promise<Blob>((resolve) => canvas.toBlob((b) => resolve(b ?? file), 'image/jpeg', 0.7))
-  } catch { return file }
-}
 
 function useCompanyId(): string | null {
   const [id, setId] = useState<string | null>(null)
@@ -90,7 +72,7 @@ export default function RecepcaoPage() {
   const [mecCadastrados, setMecCadastrados] = useState<{ id: string; nome: string; papel: string }[]>([])
   const [mecSelId, setMecSelId] = useState<string | null>(null)
   const [check, setCheck] = useState<Record<string, 'ok' | 'avaria'>>({}); const [avarias, setAvarias] = useState(''); const [objetos, setObjetos] = useState('')
-  const [fotos, setFotos] = useState<Foto[]>([]); const [subindoFoto, setSubindoFoto] = useState(false)
+  const [fotos, setFotos] = useState<Foto[]>([])
   const [salvando, setSalvando] = useState(false); const [msg, setMsg] = useState<string | null>(null)
   const [assinarOsId, setAssinarOsId] = useState<string | null>(null)  // RD-41 · assinatura "ciente do checklist"
   // OFIC-B (#11) · "Somente orçamento": cria um orçamento (sem OS/pátio) e leva pro editor.
@@ -126,7 +108,7 @@ export default function RecepcaoPage() {
     const { data, error } = await supabase.rpc('fn_oficina_orcamento_para_os', { p_orcamento_id: orcId })
     setConvertendoOrc(null)
     const r = data as { ok?: boolean; erro?: string; os_id?: string; numero?: string; ja_existia?: boolean } | null
-    if (error || !r?.ok) { setMsg('❌ ' + (error?.message || r?.erro || 'Falha ao converter em OS')); return }
+    if (error || !r?.ok) { setMsg('❌ ' + erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao converter em OS.'))); return }
     setMsg(`✅ OS ${r.numero ?? ''} ${r.ja_existia ? 'já existia (aberta)' : 'CRIOU'} — do orçamento. Abrindo o pátio…`)
     setTimeout(() => router.push('/dashboard/oficina/patio'), 1200)
   }
@@ -164,7 +146,7 @@ export default function RecepcaoPage() {
     setBuscandoDoc(true)
     const { data, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: companyId, p_nome: nome || 'Cliente', p_cpf_cnpj: docDigits })
     setBuscandoDoc(false)
-    if (error) { setMsg('❌ ' + error.message); return }
+    if (error) { setMsg('❌ ' + erroAmigavel(error, 'Não foi possível vincular o cliente. Tente de novo.')); return }
     setClienteId(data as string); if (nome) setClienteNome(nome)
     setDocStatus({ tipo: 'cliente', razao: nome }); setMsg('✅ Cliente vinculado.')
   }
@@ -219,30 +201,12 @@ export default function RecepcaoPage() {
       p_extra: Object.keys(extra).length ? extra : null,
     })
     setCadSalvando(false)
-    if (error) { setCadMsg('❌ ' + error.message); return }
+    if (error) { setCadMsg('❌ ' + erroAmigavel(error, 'Não foi possível cadastrar o cliente. Tente de novo.')); return }
     setClienteId(data as string); setClienteNome(cadNome.trim())
     setDocStatus({ tipo: 'cliente', razao: cadNome.trim() })
     setCadAberto(false); setMsg('✅ Cliente cadastrado e vinculado.')
   }
 
-  const onFotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []).filter((f) => f.type.startsWith('image/'))
-    if (!files.length || !companyId) return
-    setSubindoFoto(true)
-    const novos: Foto[] = []
-    for (const f of files) {
-      const blob = await comprimirImagem(f)
-      const path = `${companyId}/recepcao/${crypto.randomUUID()}.jpg`
-      const { error } = await supabase.storage.from(BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: false })
-      if (error) continue
-      // gera signed URL já aqui: se o thumbnail renderiza, a LEITURA do bucket privado está OK (o ⚠️ do CEO)
-      const { data: signed } = await supabase.storage.from(BUCKET).createSignedUrl(path, 3600)
-      novos.push({ path, legenda: '', url: signed?.signedUrl })
-    }
-    setFotos((p) => [...p, ...novos]); setSubindoFoto(false)
-    if (novos.length < files.length) setMsg('Algumas fotos não subiram — tente de novo.')
-    e.target.value = '' // permite re-selecionar o mesmo arquivo / tirar outra foto
-  }
   const setLegenda = (i: number, v: string) => setFotos((p) => p.map((f, idx) => (idx === i ? { ...f, legenda: v } : f)))
   const removerFoto = (i: number) => setFotos((p) => p.filter((_, idx) => idx !== i))
 
@@ -272,7 +236,7 @@ export default function RecepcaoPage() {
       })
       setSalvando(false)
       const r = data as { ok?: boolean; erro?: string; orcamento_id?: string } | null
-      if (error || !r?.ok) { setMsg('❌ ' + (error?.message || r?.erro || 'Falha ao criar orçamento')); return }
+      if (error || !r?.ok) { setMsg('❌ ' + erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha ao criar orçamento.'))); return }
       await salvarContatoCliente()
       setMsg('✅ Orçamento CRIOU — abra para adicionar itens e enviar o link ao cliente. Abrindo…')
       setTimeout(() => router.push('/dashboard/orcamentos'), 1200)
@@ -308,7 +272,7 @@ export default function RecepcaoPage() {
       p_dados,
     })
     const j = data as { ok?: boolean; erro?: string; numero?: string; os_id?: string } | null
-    if (error || j?.ok === false) { setSalvando(false); setMsg('❌ ' + (error?.message || j?.erro)); return }
+    if (error || j?.ok === false) { setSalvando(false); setMsg('❌ ' + erroAmigavel(error, codigoAmigavel(j?.erro, 'Falha ao registrar a recepção.'))); return }
     // mecânico responsável opcional no check-in → reusa fn_os_designar_responsavel (trilha)
     if (j?.os_id && mecanico.trim()) {
       await supabase.rpc('fn_os_designar_responsavel', { p_os_id: j.os_id, p_nome: mecanico.trim(), p_mecanico_id: mecSelId })
@@ -382,7 +346,7 @@ export default function RecepcaoPage() {
 
         {/* PLACA + busca — só na automotiva (a peça/trabalho não tem placa) */}
         {ramo.pedeVeiculo && (
-          <Sec titulo="Placa">
+          <Sec titulo="Placa" ajuda="oficina.recepcao.placa">
             <div style={{ display: 'flex', gap: 8 }}>
               <input value={placa} onChange={(e) => setPlaca(e.target.value.toUpperCase())} onBlur={buscarPlaca}
                 placeholder="ABC1D23" inputMode="text" autoCapitalize="characters"
@@ -412,8 +376,8 @@ export default function RecepcaoPage() {
         )}
 
         {/* CLIENTE + OBJETO (veículo OU peça/trabalho) */}
-        <Sec titulo={ramo.automotivo ? 'Cliente & veículo' : `Cliente & ${ramo.objetoLabelCurto}`}>
-          <Campo l="Cliente">
+        <Sec titulo={ramo.automotivo ? 'Cliente & veículo' : `Cliente & ${ramo.objetoLabelCurto}`} ajuda="oficina.recepcao.cliente_veiculo">
+          <Campo l="Cliente" ajuda="oficina.recepcao.cliente">
             <div style={{ display: 'flex', gap: 8 }}>
               <input value={clienteNome} onChange={(e) => onClienteNomeChange(e.target.value)}
                 placeholder="Nome do cliente — digite pra buscar" style={inp} />
@@ -444,7 +408,7 @@ export default function RecepcaoPage() {
               <div style={selOk}>✓ Cliente selecionado: {clienteNome}</div>
             )}
           </Campo>
-          <Campo l="CPF/CNPJ (opcional)">
+          <Campo l="CPF/CNPJ (opcional)" ajuda="oficina.recepcao.documento">
             <div style={{ display: 'flex', gap: 8 }}>
               <input value={clienteCnpj}
                 onChange={(e) => { setClienteCnpj(e.target.value); setDocStatus(null); setClienteId('') }}
@@ -475,7 +439,7 @@ export default function RecepcaoPage() {
             {!buscandoDoc && docStatus?.tipo === 'erro' && <div style={selMut}>Não consegui buscar agora — pode digitar o nome manualmente.</div>}
           </Campo>
           {/* Onda 10 · A — WhatsApp/telefone + consentimento (LGPD). Exige de leve (RD-51): avisa, não trava. */}
-          <Campo l="WhatsApp / telefone">
+          <Campo l="WhatsApp / telefone" ajuda="oficina.recepcao.whatsapp">
             <input value={whatsapp} disabled={naoQuisTelefone}
               onChange={(e) => setWhatsapp(e.target.value)}
               onFocus={() => { if (naoQuisTelefone) setNaoQuisTelefone(false) }}
@@ -502,15 +466,15 @@ export default function RecepcaoPage() {
           {ramo.automotivo ? (
             <>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                <Campo l="Marca"><input value={marca} onChange={(e) => setMarca(e.target.value)} style={inp} /></Campo>
-                <Campo l="Modelo"><input value={modelo} onChange={(e) => setModelo(e.target.value)} style={inp} /></Campo>
-                <Campo l="Ano"><input value={ano} onChange={(e) => setAno(e.target.value.replace(/\D/g, ''))} inputMode="numeric" maxLength={4} style={inp} /></Campo>
+                <Campo l="Marca" ajuda="oficina.recepcao.marca"><input value={marca} onChange={(e) => setMarca(e.target.value)} style={inp} /></Campo>
+                <Campo l="Modelo" ajuda="oficina.recepcao.modelo"><input value={modelo} onChange={(e) => setModelo(e.target.value)} style={inp} /></Campo>
+                <Campo l="Ano" ajuda="oficina.recepcao.ano"><input value={ano} onChange={(e) => setAno(e.target.value.replace(/\D/g, ''))} inputMode="numeric" maxLength={4} style={inp} /></Campo>
               </div>
               {/* Onda 6 · KM em destaque. Exigir de leve (RD-51): avisa quando tem placa e sem km, mas não trava.
                   "KM não disponível" é explícito → separa "esqueceu" (NULL) de "não deu pra ler o painel" (flag). */}
               <div style={{ marginTop: 8, padding: 10, border: `1px solid ${kmIndisponivel ? LINE : (placa.trim() && !km ? GOLD : LINE)}`, borderRadius: 10, background: '#fff' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: ESP60, minWidth: 64 }}>KM atual</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: ESP60, minWidth: 64 }} className="inline-flex items-center">KM atual<AjudaCampo chave="oficina.recepcao.km" /></span>
                   <input value={km} disabled={kmIndisponivel}
                     onChange={(e) => setKm(e.target.value.replace(/\D/g, ''))} inputMode="numeric"
                     placeholder={kmIndisponivel ? '— não disponível —' : 'Hodômetro'}
@@ -527,11 +491,11 @@ export default function RecepcaoPage() {
                   </div>
                 )}
               </div>
-              <Campo l="Chassi (opcional)"><input value={chassi} onChange={(e) => setChassi(e.target.value.toUpperCase())} style={inp} /></Campo>
+              <Campo l="Chassi (opcional)" ajuda="oficina.recepcao.chassi"><input value={chassi} onChange={(e) => setChassi(e.target.value.toUpperCase())} style={inp} /></Campo>
             </>
           ) : (
             <>
-              <Campo l={ramo.objetoLabel}>
+              <Campo l={ramo.objetoLabel} ajuda="oficina.recepcao.objeto">
                 <input value={itemDesc} onChange={(e) => setItemDesc(e.target.value)} placeholder={ramo.identPlaceholder} style={inp} />
                 {!itemDesc.trim() && (
                   <div style={{ fontSize: 11, color: GOLD, marginTop: 6 }}>
@@ -539,14 +503,14 @@ export default function RecepcaoPage() {
                   </div>
                 )}
               </Campo>
-              <Campo l="Material (opcional)"><input value={material} onChange={(e) => setMaterial(e.target.value)} placeholder="Ex.: alumínio / ferro fundido" style={inp} /></Campo>
+              <Campo l="Material (opcional)" ajuda="oficina.recepcao.material"><input value={material} onChange={(e) => setMaterial(e.target.value)} placeholder="Ex.: alumínio / ferro fundido" style={inp} /></Campo>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 110px', gap: 8 }}>
-                <Campo l="Medidas / specs (opcional)"><input value={medidas} onChange={(e) => setMedidas(e.target.value)} placeholder="Ex.: Ø 82,00mm" style={inp} /></Campo>
-                <Campo l="Quantidade (opcional)"><input value={quantidade} onChange={(e) => setQuantidade(e.target.value.replace(/[^\d.,]/g, ''))} inputMode="decimal" placeholder="1" style={inp} /></Campo>
+                <Campo l="Medidas / specs (opcional)" ajuda="oficina.recepcao.medidas"><input value={medidas} onChange={(e) => setMedidas(e.target.value)} placeholder="Ex.: Ø 82,00mm" style={inp} /></Campo>
+                <Campo l="Quantidade (opcional)" ajuda="oficina.recepcao.quantidade"><input value={quantidade} onChange={(e) => setQuantidade(e.target.value.replace(/[^\d.,]/g, ''))} inputMode="decimal" placeholder="1" style={inp} /></Campo>
               </div>
               {/* Motor/veículo de origem — colapsado (rastreio opcional de qual carro veio a peça) */}
               {origemAberta ? (
-                <Campo l="Motor / veículo de origem (opcional)"><input value={marca} onChange={(e) => setMarca(e.target.value)} placeholder="Ex.: motor AP 1.8 / Gol G4" style={inp} autoFocus /></Campo>
+                <Campo l="Motor / veículo de origem (opcional)" ajuda="oficina.recepcao.motor_origem"><input value={marca} onChange={(e) => setMarca(e.target.value)} placeholder="Ex.: motor AP 1.8 / Gol G4" style={inp} autoFocus /></Campo>
               ) : (
                 <button onClick={() => setOrigemAberta(true)} style={{ background: 'none', border: 'none', color: GOLD, fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: '2px 0', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                   + Motor / veículo de origem
@@ -557,14 +521,14 @@ export default function RecepcaoPage() {
         </Sec>
 
         {/* SERVIÇO / O QUE FAZER */}
-        <Sec titulo={ramo.servicoLabel}>
+        <Sec titulo={ramo.servicoLabel} ajuda="oficina.recepcao.servico">
           <textarea value={queixa} onChange={(e) => setQueixa(e.target.value)} rows={3}
             placeholder={ramo.automotivo ? 'Ex.: barulho na frente ao frear, luz do motor acesa…' : 'Ex.: retífica de cabeçote, plaina, brunimento…'}
             style={{ ...inp, resize: 'vertical' }} />
         </Sec>
 
         {/* MECÂNICO RESPONSÁVEL (opcional no check-in; pode designar depois no Pátio) */}
-        <Sec titulo="Mecânico responsável (opcional)">
+        <Sec titulo="Mecânico responsável (opcional)" ajuda="oficina.recepcao.mecanico">
           {/* seletor de 1 toque: cadastrados (com id → designação grava mecanico_id, enche a fila do 3.3) */}
           {mecCadastrados.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
@@ -588,7 +552,7 @@ export default function RecepcaoPage() {
 
         {/* CHECKLIST DE ENTRADA — só automotiva (combustível/retrovisores/pneus não fazem sentido p/ peça) */}
         {ramo.pedeCheckinAutomotivo && (
-          <Sec titulo="Como o carro chegou (checklist)">
+          <Sec titulo="Como o carro chegou (checklist)" ajuda="oficina.recepcao.checklist">
             <div style={{ display: 'flex', gap: 10, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
               <span style={{ fontSize: 12, color: ESP60 }}>Combustível:</span>
               {COMBUSTIVEL.map((c) => (
@@ -608,17 +572,16 @@ export default function RecepcaoPage() {
                 </button>
               )
             })}
-            <Campo l="Avarias na entrada (riscos, amassados…)"><textarea value={avarias} onChange={(e) => setAvarias(e.target.value)} rows={2} placeholder="Ex.: risco na porta esquerda" style={{ ...inp, resize: 'vertical' }} /></Campo>
-            <Campo l="Objetos deixados no veículo"><input value={objetos} onChange={(e) => setObjetos(e.target.value)} placeholder="Ex.: documento no porta-luvas" style={inp} /></Campo>
+            <Campo l="Avarias na entrada (riscos, amassados…)" ajuda="oficina.recepcao.avarias"><textarea value={avarias} onChange={(e) => setAvarias(e.target.value)} rows={2} placeholder="Ex.: risco na porta esquerda" style={{ ...inp, resize: 'vertical' }} /></Campo>
+            <Campo l="Objetos deixados no veículo" ajuda="oficina.recepcao.objetos"><input value={objetos} onChange={(e) => setObjetos(e.target.value)} placeholder="Ex.: documento no porta-luvas" style={inp} /></Campo>
           </Sec>
         )}
 
         {/* FOTOS */}
         <Sec titulo={ramo.automotivo ? 'Fotos de como o carro chegou' : `Fotos da ${ramo.objetoLabelCurto}`}>
-          <label style={{ ...btnGold, display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', width: 'auto' }}>
-            <Camera size={18} /> {subindoFoto ? 'Enviando…' : 'Tirar / anexar fotos'}
-            <input type="file" accept="image/*" capture="environment" multiple onChange={onFotos} style={{ display: 'none' }} />
-          </label>
+          {/* #135 item 6 · várias fotos de uma vez (galeria), em paralelo, com progresso e aviso de qual não subiu */}
+          <FotosMultiplas companyId={companyId} pasta="recepcao" rotulo="Fotos" chaveAjuda="oficina.recepcao.fotos_enviar" testId="recepcao-fotos"
+            aoTerminar={(ok) => setFotos((p) => [...p, ...ok.map((f) => ({ path: f.path, legenda: '', url: f.url ?? undefined }))])} />
           {fotos.length > 0 && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 10, marginTop: 12 }}>
               {fotos.map((f, i) => (
@@ -673,9 +636,9 @@ export default function RecepcaoPage() {
           </button>
         </>}
       >
-        <Campo l="Nome / Razão social *"><input value={cadNome} onChange={(e) => setCadNome(e.target.value)} style={inp} autoFocus /></Campo>
-        <Campo l="Documento"><input value={clienteCnpj} readOnly style={{ ...inp, background: '#F0EADE', color: ESP60 }} /></Campo>
-        <Campo l="Telefone (opcional)"><input value={cadTelefone} onChange={(e) => setCadTelefone(e.target.value)} inputMode="tel" style={inp} /></Campo>
+        <Campo l="Nome / Razão social *" ajuda="oficina.recepcao.cad_nome"><input value={cadNome} onChange={(e) => setCadNome(e.target.value)} style={inp} autoFocus /></Campo>
+        <Campo l="Documento" ajuda="oficina.recepcao.cad_documento"><input value={clienteCnpj} readOnly style={{ ...inp, background: '#F0EADE', color: ESP60 }} /></Campo>
+        <Campo l="Telefone (opcional)" ajuda="oficina.recepcao.cad_telefone"><input value={cadTelefone} onChange={(e) => setCadTelefone(e.target.value)} inputMode="tel" style={inp} /></Campo>
         {isCnpj && (
           <button type="button" onClick={() => void enriquecerCnpj()} disabled={cadEnriq} style={{ ...btnGold, width: 'auto', opacity: cadEnriq ? 0.6 : 1 }}>
             <Search size={16} /> {cadEnriq ? 'Buscando…' : 'Buscar dados públicos'}
@@ -691,16 +654,16 @@ export default function RecepcaoPage() {
   )
 }
 
-function Sec({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+function Sec({ titulo, children, ajuda }: { titulo: string; children: React.ReactNode; ajuda?: string }) {
   return (
     <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 14, padding: 14, marginBottom: 12 }}>
-      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 10 }}>{titulo}</div>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 10 }} className="inline-flex items-center">{titulo}{ajuda && <AjudaCampo chave={ajuda} />}</div>
       {children}
     </div>
   )
 }
-function Campo({ l, children }: { l: string; children: React.ReactNode }) {
-  return <div style={{ marginBottom: 10 }}><div style={{ fontSize: 11, color: ESP60, marginBottom: 4 }}>{l}</div>{children}</div>
+function Campo({ l, children, ajuda }: { l: string; children: React.ReactNode; ajuda?: string }) {
+  return <div style={{ marginBottom: 10 }}><div style={{ fontSize: 11, color: ESP60, marginBottom: 4 }} className="inline-flex items-center">{l}{ajuda && <AjudaCampo chave={ajuda} />}</div>{children}</div>
 }
 const inp: CSSProperties = { width: '100%', padding: '11px 12px', border: `1px solid ${LINE}`, borderRadius: 10, fontSize: 15, background: '#fff', color: ESP, outline: 'none', fontFamily: 'inherit' }
 const btnGold: CSSProperties = { background: GOLD, color: '#3D2314', border: 'none', borderRadius: 10, padding: '11px 16px', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }

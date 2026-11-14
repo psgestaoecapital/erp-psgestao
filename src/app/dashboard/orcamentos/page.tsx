@@ -3,12 +3,16 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { CampoMoeda } from "@/components/comum/CampoMoeda";
+import { moedaParaNumero, numeroParaMoeda } from "@/lib/moeda-mascara";
 import { APP_URL } from "@/lib/appUrl";
 import { orFiltroClienteBusca } from "@/lib/clienteBusca";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import ServicoAutocomplete, { type ServicoSelecionado } from "@/components/comum/ServicoAutocomplete";
 import ServicoEngenhariaAutocomplete, { type ServicoEngSelecionado } from "@/components/comum/ServicoEngenhariaAutocomplete";
 import NumeracaoConfigModal from "@/components/orcamento/NumeracaoConfigModal";
+import AnexosCard from "@/components/crm/AnexosCard";
+import { erroAmigavel } from "@/lib/erroAmigavel";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -61,6 +65,14 @@ type Orcamento = {
   itens?:ItemOrc[];
 };
 
+// ONDA 1 (Hub) · item de catálogo cujo custo de estoque mudou desde a inclusão no orçamento.
+// Fonte = fn_orcamento_custos_revisar (slice 1, #3880): só leitura, respeita acesso/congelamento.
+type FlutuacaoItem = {
+  item_id:string; produto_id:string|null; produto_codigo:string|null; produto_nome:string|null;
+  unidade:string|null; quantidade:number|null; custo_registrado:number; custo_atual:number;
+  variacao_valor:number; variacao_pct:number|null; subiu:boolean;
+};
+
 const CONDS = ['À vista','7 dias','14 dias','21 dias','30 dias','30/60 dias','30/60/90 dias','45 dias','60 dias','90 dias'];
 const FORMAS = ['PIX','Boleto','Transferência','Cartão Crédito','Cartão Débito','Dinheiro','Cheque','Múltiplas'];
 const FRETES = ['CIF (por conta do fornecedor)','FOB (por conta do cliente)','Retira','Incluso no valor','Combinar'];
@@ -101,6 +113,11 @@ export default function OrcamentosPage(){
   const { companyIds, selInfo, companies, sel } = useCompanyIds();
   const [orcamentos,setOrcamentos]=useState<Orcamento[]>([]);
   const [loading,setLoading]=useState(true);
+  // #6723 (Tryo/Angélica) · exclusão em lote: seleção por linha + "Excluir selecionados".
+  const [selExcluir,setSelExcluir]=useState<Set<string>>(new Set());
+  const [confirmaExcluir,setConfirmaExcluir]=useState(false);
+  const [motivoLote,setMotivoLote]=useState("");
+  const [excluindoLote,setExcluindoLote]=useState(false);
   const [busca,setBusca]=useState("");
   const [filtroStatus,setFiltroStatus]=useState("todos");
   // F2.7 · vínculo com oportunidade: filtro "Sem oportunidade" + recorte por ?oportunidades= (link da coluna do Kanban).
@@ -110,7 +127,7 @@ export default function OrcamentosPage(){
   const [meuId,setMeuId]=useState<string|null>(null);
   const [filtroMeus,setFiltroMeus]=useState(false);
   // #3272 · oportunidade de origem do orçamento aberto em edição.
-  const [infoOport,setInfoOport]=useState<{titulo:string|null;obra_endereco:string|null;obra_cidade:string|null;obra_bairro:string|null;responsavel_nome:string|null;observacoes:string|null;cliente:string|null;visita:string|null}|null>(null);
+  const [infoOport,setInfoOport]=useState<{oportunidade_id:string|null;titulo:string|null;obra_endereco:string|null;obra_cidade:string|null;obra_bairro:string|null;responsavel_nome:string|null;observacoes:string|null;cliente:string|null;visita:string|null}|null>(null);
   const [linkedOrcIds,setLinkedOrcIds]=useState<Set<string>>(new Set());
   const [oportFiltroOrcIds,setOportFiltroOrcIds]=useState<string[]|null>(null);
   const [oportFiltroAtivo,setOportFiltroAtivo]=useState(false);
@@ -121,6 +138,9 @@ export default function OrcamentosPage(){
   const [pdfNovo,setPdfNovo]=useState<File|null>(null);
   const [pdfValor,setPdfValor]=useState<string>("");
   const [permEdit,setPermEdit]=useState<{pode_editar:boolean;precisa_liberacao:boolean;edicao_liberada:boolean;pode_liberar:boolean;motivo:string;status:string}|null>(null);
+  // ONDA 1 (Hub) · aviso de flutuação de custo (itens de catálogo com custo de estoque alterado).
+  const [flutuacao,setFlutuacao]=useState<FlutuacaoItem[]>([]);
+  const [flutuacaoAberta,setFlutuacaoAberta]=useState(false);
   const [msg,setMsg]=useState("");
 
   // Form state
@@ -181,7 +201,22 @@ export default function OrcamentosPage(){
       if(!op||!vivo)return;
       const{data:vis}=await supabase.from('erp_crm_visita').select('anotacoes').eq('oportunidade_id',op.id).eq('status','realizada').order('data_visita',{ascending:false}).limit(1).maybeSingle();
       const cli=(op as any).erp_clientes;
-      if(vivo)setInfoOport({titulo:op.titulo,obra_endereco:op.obra_endereco,obra_cidade:op.obra_cidade,obra_bairro:op.obra_bairro,responsavel_nome:op.responsavel_nome,observacoes:op.observacoes,cliente:cli?(cli.nome_fantasia||cli.razao_social):null,visita:vis?.anotacoes??null});
+      if(vivo)setInfoOport({oportunidade_id:op.id,titulo:op.titulo,obra_endereco:op.obra_endereco,obra_cidade:op.obra_cidade,obra_bairro:op.obra_bairro,responsavel_nome:op.responsavel_nome,observacoes:op.observacoes,cliente:cli?(cli.nome_fantasia||cli.razao_social):null,visita:vis?.anotacoes??null});
+    })();
+    return()=>{vivo=false;};
+  },[showForm,editing?.id]);
+  // ONDA 1 (Hub) · ao abrir um orçamento ABERTO existente, busca os itens de catálogo cujo custo
+  // de estoque mudou desde a inclusão (fn_orcamento_custos_revisar — só leitura). Orçamento
+  // aprovado/congelado devolve revisavel=false (custo congelado) → sem faixa.
+  useEffect(()=>{
+    setFlutuacao([]);setFlutuacaoAberta(false);
+    const oid=editing?.id;
+    if(!showForm||!oid){return;}
+    let vivo=true;
+    (async()=>{
+      const{data}=await supabase.rpc('fn_orcamento_custos_revisar',{p_orcamento_id:oid});
+      const j=data as {ok?:boolean;revisavel?:boolean;itens?:FlutuacaoItem[]}|null;
+      if(vivo&&j?.ok&&j.revisavel&&Array.isArray(j.itens))setFlutuacao(j.itens);
     })();
     return()=>{vivo=false;};
   },[showForm,editing?.id]);
@@ -252,9 +287,9 @@ export default function OrcamentosPage(){
   const loadOrcamentos=async()=>{
     if(companyIds.length===0){setLoading(false);return;}
     setLoading(true);
-    const{data,error}=await supabase.from("erp_orcamentos").select("*").in("company_id",companyIds).order("data_emissao",{ascending:false}).order("created_at",{ascending:false}).limit(100);
+    const{data,error}=await supabase.from("erp_orcamentos").select("*").in("company_id",companyIds).is("deleted_at",null).order("data_emissao",{ascending:false}).order("created_at",{ascending:false}).limit(100);
     if(data)setOrcamentos(data);
-    if(error&&!error.message.includes('does not exist'))setMsg("Erro: "+error.message);
+    if(error&&!error.message.includes('does not exist'))setMsg("Não foi possível carregar os orçamentos. Tente novamente.");
     setLoading(false);
   };
 
@@ -318,30 +353,49 @@ export default function OrcamentosPage(){
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[companyIds.join(",")]);
 
-  const abrirNovo=async()=>{
+  // clientePrefill (opcional): quando vem da ficha do cliente no Hub ("Nova proposta"), o novo orçamento já
+  // nasce com o cliente preenchido — o orçamento "inicia direto" do cliente (jornada cliente → orçamento).
+  const abrirNovo=async(clientePrefill?:{id:string;nome_fantasia?:string|null;razao_social?:string|null;cpf_cnpj?:string|null;email?:string|null;telefone?:string|null})=>{
     if(!companyIdParaCadastro){setMsg("❌ Selecione uma empresa");return;}
-    
+
     if(sel==="consolidado" || sel.startsWith("group_")){
       const empresaNome = companies.find(c=>c.id===companyIdParaCadastro)?.nome_fantasia || "primeira empresa";
       if(!confirm(`Novo orçamento será criado em "${empresaNome}". Continuar?`))return;
     }
-    
+
     setEditing(null);setPdfNovo(null);setPdfValor("");
     // Gera número automático
     const{data}=await supabase.rpc('next_orcamento_numero',{p_company_id:companyIdParaCadastro});
     const numero=data||`ORC-${new Date().getFullYear()}-0001`;
     const validadeDias=await getValidadeDias(companyIdParaCadastro);
+    const nomeCli=clientePrefill?(clientePrefill.nome_fantasia||clientePrefill.razao_social||''):'';
     setForm({
       numero,data_emissao:new Date().toISOString().slice(0,10),data_validade:addDias(validadeDias),
       status:'rascunho',versao:1,
       condicao_pagamento:'30 dias',prazo_entrega_dias:10,
       subtotal:0,desconto_percentual:0,desconto_valor:0,acrescimo_valor:0,frete_valor:0,total:0,
       observacoes:OBS_PADRAO,
+      ...(clientePrefill?{cliente_id:clientePrefill.id,cliente_nome:nomeCli,cliente_cnpj:clientePrefill.cpf_cnpj||'',cliente_email:clientePrefill.email||'',cliente_telefone:clientePrefill.telefone||''}:{}),
     });
     setItens([{...EMPTY_ITEM,ordem:1}]);
-    setBuscaCliente("");
+    setBuscaCliente(nomeCli);
     setShowForm(true);
   };
+
+  // Deep-link ?cliente=<id> (vem de "Nova proposta" da ficha do cliente no Hub): abre um NOVO orçamento já com o
+  // cliente preenchido. Dispara 1x quando as empresas carregam. (window.location evita o Suspense do useSearchParams.)
+  const deepLinkClienteAberto=useRef(false);
+  useEffect(()=>{
+    if(deepLinkClienteAberto.current || companyIds.length===0) return;
+    const cid=typeof window!=='undefined' ? new URLSearchParams(window.location.search).get('cliente') : null;
+    if(!cid) return;
+    deepLinkClienteAberto.current=true;
+    void(async()=>{
+      const{data}=await supabase.from('erp_clientes').select('id,razao_social,nome_fantasia,cpf_cnpj,email,telefone,company_id').in('company_id',companyIds).eq('id',cid).eq('ativo',true).maybeSingle();
+      await abrirNovo(data?{id:data.id,nome_fantasia:data.nome_fantasia,razao_social:data.razao_social,cpf_cnpj:data.cpf_cnpj,email:data.email,telefone:data.telefone}:undefined);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[companyIds.join(',')]);
 
   const carregarPerm=async(o:Orcamento)=>{
     const{data}=await supabase.rpc('fn_orcamento_pode_editar',{p_orcamento_id:o.id});
@@ -373,9 +427,9 @@ export default function OrcamentosPage(){
       const motivo=prompt('Motivo da liberação da edição (opcional):','Revisão solicitada pelo cliente');
       if(motivo===null)return;
       const{data:lib,error}=await supabase.rpc('fn_orcamento_liberar_edicao',{p_orcamento_id:o.id,p_motivo:motivo||null});
-      if(error){setMsg('Erro ao liberar: '+error.message);return;}
+      if(error){setMsg(erroAmigavel(error,'Não foi possível liberar a edição do orçamento. Tente de novo.'));return;}
       const r=lib as {ok:boolean;erro?:string}|null;
-      if(!r||r.ok===false){setMsg('Erro ao liberar: '+(r?.erro||'falha'));return;}
+      if(!r||r.ok===false){setMsg('Não foi possível liberar a edição do orçamento. Tente de novo.');return;}
       const perm2=await carregarPerm(o);
       if(!perm2||!perm2.pode_editar){setMsg('Falha ao reabrir após liberação.');return;}
       setPermEdit(perm2);
@@ -542,11 +596,16 @@ export default function OrcamentosPage(){
 
     let orcId=editing?.id;
     if(editing){
-      const{error}=await supabase.from("erp_orcamentos").update(dadosOrc).eq("id",editing.id);
-      if(error){setMsg("Erro: "+error.message);return;}
+      // #6730 · orçamento feito FORA (só PDF, sem itens): o valor vem do "Salvar valor" do anexo (fn_orcamento_anexar_pdf).
+      // O total calculado dos itens seria 0 e apagaria esse valor — então, sem itens, não regrava subtotal/total.
+      const somentePdfSemItens = itensValidosCheck.length===0 && !!editing.pdf_anexo_path;
+      const dadosUpd:Record<string,unknown>={...dadosOrc};
+      if(somentePdfSemItens){delete dadosUpd.subtotal;delete dadosUpd.total;}
+      const{error}=await supabase.from("erp_orcamentos").update(dadosUpd).eq("id",editing.id);
+      if(error){setMsg("Não foi possível salvar o orçamento. Tente novamente.");return;}
     }else{
       const{data,error}=await supabase.from("erp_orcamentos").insert(dadosOrc).select().single();
-      if(error){setMsg("Erro: "+error.message);return;}
+      if(error){setMsg("Não foi possível salvar o orçamento. Tente novamente.");return;}
       orcId=data.id;
     }
 
@@ -666,9 +725,12 @@ export default function OrcamentosPage(){
 
   const duplicar=async(o:Orcamento)=>{
     const{data:numero}=await supabase.rpc('next_orcamento_numero',{p_company_id:o.company_id});
-    const novoOrc={...o,id:undefined,numero,versao:(o.versao||1)+1,status:'rascunho',data_emissao:new Date().toISOString().slice(0,10),data_validade:addDias(15),data_aprovacao:null,data_recusa:null,pedido_id:null,convertido_em:null,created_at:undefined,updated_at:undefined};
+    // #3269/Tryo: a nova versão também segue a validade padrão DA EMPRESA (orcamento_config_empresa.validade_dias),
+    // não um fixo de 15 dias — mesma regra do cadastro de um orçamento novo.
+    const validadeDias=await getValidadeDias(o.company_id);
+    const novoOrc={...o,id:undefined,numero,versao:(o.versao||1)+1,status:'rascunho',data_emissao:new Date().toISOString().slice(0,10),data_validade:addDias(validadeDias),data_aprovacao:null,data_recusa:null,pedido_id:null,convertido_em:null,created_at:undefined,updated_at:undefined};
     const{data:novo,error}=await supabase.from("erp_orcamentos").insert(novoOrc).select().single();
-    if(error){setMsg("Erro: "+error.message);return;}
+    if(error){setMsg("Não foi possível duplicar o orçamento. Tente novamente.");return;}
     // Copiar itens
     const{data:itensAnt}=await supabase.from("erp_orcamentos_itens").select("*").eq("orcamento_id",o.id);
     if(itensAnt&&itensAnt.length>0){
@@ -678,6 +740,44 @@ export default function OrcamentosPage(){
     setMsg(`✅ Orçamento duplicado como ${numero}`);
     loadOrcamentos();
     setTimeout(()=>setMsg(""),3000);
+  };
+
+  // #6723 · excluir orçamento (RD-98 critério g): exclusão LÓGICA e rastreável via RPC fn_orcamento_excluir
+  // (SECURITY DEFINER, guarda por empresa, exige motivo, grava em audit_log_global). A RPC recusa orçamento
+  // que já virou pedido — documento financeiro não se apaga. Nunca é DELETE físico (deleted_at + motivo_exclusao).
+  const excluir=async(o:Orcamento)=>{
+    if(o.status==='convertido'||o.pedido_id){setMsg("❌ Orçamento já virou pedido — não pode ser excluído.");setTimeout(()=>setMsg(""),4000);return;}
+    const motivo=window.prompt(`Excluir o orçamento ${o.numero}? Ele sai da lista mas fica no histórico (exclusão rastreável).\n\nInforme o motivo da exclusão:`);
+    if(motivo===null)return;
+    if(!motivo.trim()){setMsg("❌ Informe o motivo da exclusão.");setTimeout(()=>setMsg(""),4000);return;}
+    const{data,error}=await supabase.rpc('fn_orcamento_excluir',{p_orcamento_id:o.id,p_motivo:motivo.trim()});
+    const res=data as {ok:boolean;erro?:string;numero?:string}|null;
+    if(error||!res?.ok){setMsg("❌ "+(res?.erro||"Não foi possível excluir. Tente de novo; se continuar, fale com o suporte."));setTimeout(()=>setMsg(""),5000);return;}
+    setMsg(`🗑️ Orçamento ${res.numero||o.numero} excluído.`);
+    loadOrcamentos();
+    setTimeout(()=>setMsg(""),3000);
+  };
+
+  // #6723 · exclui em lote reusando a MESMA RPC guardada fn_orcamento_excluir (soft-delete rastreável, por empresa).
+  // Cada orçamento é tratado individualmente: o que já virou pedido/obra fica de fora e a tela mostra o motivo.
+  const excluirSelecionados=async()=>{
+    const ids=Array.from(selExcluir);
+    if(ids.length===0)return;
+    const motivo=motivoLote.trim();
+    if(!motivo){setMsg("❌ Informe o motivo da exclusão.");setTimeout(()=>setMsg(""),4000);return;}
+    setExcluindoLote(true);
+    let apagados=0; const ignorados:string[]=[];
+    for(const o of filtrados.filter(x=>selExcluir.has(x.id))){
+      const{data,error}=await supabase.rpc('fn_orcamento_excluir',{p_orcamento_id:o.id,p_motivo:motivo});
+      const res=data as {ok:boolean;erro?:string}|null;
+      if(error||!res?.ok){ignorados.push(`${o.numero} (${res?.erro||"erro"})`);}
+      else{apagados++;}
+    }
+    setExcluindoLote(false);setConfirmaExcluir(false);setMotivoLote("");
+    setSelExcluir(new Set());
+    setMsg(`🗑️ ${apagados} orçamento(s) excluído(s).`+(ignorados.length?` Ficaram de fora ${ignorados.length}: ${ignorados.join('; ')}`:''));
+    loadOrcamentos();
+    setTimeout(()=>setMsg(""),6000);
   };
 
   const filtrados=useMemo(()=>{
@@ -726,7 +826,7 @@ export default function OrcamentosPage(){
             <button onClick={()=>setShowNumeracao(true)} title="Configurar a numeração dos orçamentos"
               style={{padding:"8px 12px",borderRadius:8,background:"transparent",color:"#3D2314",fontSize:12,fontWeight:600,border:"1px solid rgba(61,35,20,0.15)",cursor:"pointer"}}>⚙ Numeração</button>
           )}
-          <button onClick={abrirNovo} style={{padding:"8px 16px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>+ Novo Orçamento</button>
+          <button onClick={()=>abrirNovo()} style={{padding:"8px 16px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>+ Novo Orçamento</button>
         </div>
       </div>
       {showNumeracao && companyIdParaCadastro && (
@@ -801,15 +901,20 @@ export default function OrcamentosPage(){
 
           {editing&&infoOport&&(
             <div style={{background:BG3,border:`1px solid ${BD}`,borderRadius:8,padding:"10px 12px",marginBottom:12,fontSize:11,color:TX}}>
-              <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:6}}>Informações da oportunidade</div>
+              <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:6,display:"flex",alignItems:"center",gap:4}}>Informações da oportunidade<AjudaCampo chave="orcamentos.oportunidade.info" rota="/dashboard/orcamentos"/></div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:6}}>
                 <div><span style={{color:TXD}}>Oportunidade: </span>{infoOport.titulo||'—'}</div>
                 <div><span style={{color:TXD}}>Cliente: </span>{infoOport.cliente||'—'}</div>
                 <div><span style={{color:TXD}}>Responsável: </span>{infoOport.responsavel_nome||'—'}</div>
-                <div><span style={{color:TXD}}>Obra: </span>{[infoOport.obra_endereco,infoOport.obra_bairro,infoOport.obra_cidade].filter(Boolean).join(' · ')||'—'}</div>
+                <div><span style={{color:TXD}}>Obra: </span>{(()=>{const end=[infoOport.obra_endereco,infoOport.obra_bairro,infoOport.obra_cidade].filter(Boolean).join(' · ');return end?<a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(end)}`} target="_blank" rel="noopener noreferrer" style={{color:GO,fontWeight:600}} title="Abrir a localização no mapa">{end}</a>:'—';})()}</div>
               </div>
               {infoOport.visita&&<div style={{marginTop:6,whiteSpace:"pre-wrap"}}><span style={{color:TXD}}>Anotações da visita: </span>{infoOport.visita}</div>}
               {infoOport.observacoes&&<div style={{marginTop:6,whiteSpace:"pre-wrap"}}><span style={{color:TXD}}>Observações: </span>{infoOport.observacoes}</div>}
+              {infoOport.oportunidade_id&&editing&&(
+                <div style={{marginTop:8}}>
+                  <AnexosCard companyId={editing.company_id} vinculoTipo="oportunidade" vinculoId={infoOport.oportunidade_id} somenteLeitura/>
+                </div>
+              )}
             </div>
           )}
 
@@ -871,6 +976,41 @@ export default function OrcamentosPage(){
               </label>
             )}
           </div>
+
+          {/* ONDA 1 (Hub) · faixa de flutuação de custo: itens de catálogo cujo custo de estoque
+              mudou desde a inclusão. Não-intrusiva (só aparece com itens afetados), só leitura:
+              aponta quais itens revisar antes de enviar/aprovar. */}
+          {editing?.id && flutuacao.length>0 && (
+            <div data-testid="orc-flutuacao-custo" style={{background:"#FBF3E0",border:`1px solid #E6CE97`,borderRadius:8,padding:"10px 12px",marginBottom:12}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>
+                <div style={{display:"inline-flex",alignItems:"center",gap:6,fontSize:12,fontWeight:700,color:"#8A5A00"}}>
+                  <span aria-hidden>⚠</span>
+                  {flutuacao.length===1
+                    ? "1 item do catálogo teve o custo do estoque alterado desde a inclusão"
+                    : `${flutuacao.length} itens do catálogo tiveram o custo do estoque alterado desde a inclusão`}
+                  <AjudaCampo chave="orcamentos.flutuacao_custo" rota="/dashboard/orcamentos"/>
+                </div>
+                <button type="button" onClick={()=>setFlutuacaoAberta(a=>!a)}
+                  style={{fontSize:11,fontWeight:600,padding:"4px 10px",borderRadius:6,border:`1px solid #D9A441`,background:"#FFF",color:"#8A5A00",cursor:"pointer"}}>
+                  {flutuacaoAberta?"Ocultar":"Revisar"}
+                </button>
+              </div>
+              {flutuacaoAberta && (
+                <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:6}}>
+                  {flutuacao.map(f=>(
+                    <div key={f.item_id} style={{fontSize:11.5,color:TX,display:"flex",flexWrap:"wrap",alignItems:"center",gap:6}}>
+                      <span style={{fontWeight:600}}>{f.produto_nome||f.produto_codigo||"Item"}</span>
+                      <span style={{color:TXM}}>custo {f.subiu?"subiu":"caiu"} de {fmtR(f.custo_registrado)} para {fmtR(f.custo_atual)}</span>
+                      <span style={{fontWeight:700,color:f.subiu?"#B45309":"#1F5A1F"}}>
+                        ({f.variacao_valor>0?"+":""}{fmtR(f.variacao_valor)}{f.variacao_pct!=null?` · ${f.variacao_pct>0?"+":""}${f.variacao_pct}%`:""})
+                      </span>
+                    </div>
+                  ))}
+                  <div style={{fontSize:10.5,color:TXD,marginTop:2}}>Abra o item para atualizar o custo, se quiser aplicar o valor atual do estoque.</div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Itens */}
           <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
@@ -1009,12 +1149,12 @@ export default function OrcamentosPage(){
               <select value={form.frete_tipo} onChange={e=>setForm({...form,frete_tipo:e.target.value})} style={{...inp,cursor:"pointer"}}>
                 <option value="">—</option>{FRETES.map(f=><option key={f} value={f}>{f}</option>)}
               </select></div>
-            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Valor Frete (R$)</div>
-              <input type="number" step="0.01" value={form.frete_valor||''} onChange={e=>setForm({...form,frete_valor:parseFloat(e.target.value)||0})} style={inp}/></div>
+            <div><div style={{fontSize:10,color:TXD,marginBottom:3,display:"flex",alignItems:"center",gap:4}}>Valor Frete (R$)<AjudaCampo chave="orcamentos.campo.frete_valor" rota="/dashboard/orcamentos"/></div>
+              <CampoMoeda value={form.frete_valor?numeroParaMoeda(form.frete_valor):''} onChange={m=>setForm({...form,frete_valor:moedaParaNumero(m)??0})} placeholder="R$ 0,00" style={inp}/></div>
             <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Desc. Geral (%)</div>
               <input type="number" step="0.1" value={form.desconto_percentual||''} onChange={e=>setForm({...form,desconto_percentual:parseFloat(e.target.value)||0})} style={inp}/></div>
-            <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Desc. Geral (R$)</div>
-              <input type="number" step="0.01" value={form.desconto_valor||''} onChange={e=>setForm({...form,desconto_valor:parseFloat(e.target.value)||0})} style={inp}/></div>
+            <div><div style={{fontSize:10,color:TXD,marginBottom:3,display:"flex",alignItems:"center",gap:4}}>Desc. Geral (R$)<AjudaCampo chave="orcamentos.campo.desconto_valor" rota="/dashboard/orcamentos"/></div>
+              <CampoMoeda value={form.desconto_valor?numeroParaMoeda(form.desconto_valor):''} onChange={m=>setForm({...form,desconto_valor:moedaParaNumero(m)??0})} placeholder="R$ 0,00" style={inp}/></div>
           </div>
 
           {/* Totais · FEAT-ONDA-4-ORCAMENTO-PEDIDO-UX-v1: composicao Servicos/Produtos/Total */}
@@ -1096,11 +1236,26 @@ export default function OrcamentosPage(){
               <div style={{fontSize:40,marginBottom:8}}>💰</div>
               <div style={{fontSize:14,fontWeight:600,color:TX,marginBottom:4}}>Nenhum orçamento ainda</div>
               <div style={{fontSize:11,color:TXD,marginBottom:16}}>Crie seu primeiro orçamento e acompanhe o ciclo de vendas.</div>
-              <button onClick={abrirNovo} style={{padding:"10px 20px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>+ Primeiro Orçamento</button>
+              <button onClick={()=>abrirNovo()} style={{padding:"10px 20px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>+ Primeiro Orçamento</button>
             </div>
           ):(
+            <>
+            {selExcluir.size>0&&(
+              <div data-testid="orc-barra-excluir" style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:R+"10",borderBottom:`1px solid ${BD}`,flexWrap:"wrap"}}>
+                <span style={{fontSize:12,color:TX,fontWeight:600}}>{selExcluir.size} selecionado(s)</span>
+                <button data-testid="orc-excluir-selecionados" onClick={()=>{setMotivoLote("");setConfirmaExcluir(true);}} style={{fontSize:11,padding:"6px 12px",borderRadius:6,background:R,color:"#FFF",border:"none",cursor:"pointer",fontWeight:600}}>🗑️ Excluir selecionados</button>
+                <AjudaCampo chave="orcamentos.lista.excluir_selecionados" rota="/dashboard/orcamentos"/>
+                <button onClick={()=>setSelExcluir(new Set())} style={{fontSize:11,padding:"6px 12px",borderRadius:6,background:"transparent",color:TXM,border:`1px solid ${BD}`,cursor:"pointer"}}>Limpar seleção</button>
+              </div>
+            )}
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
               <thead><tr style={{borderBottom:`2px solid ${BD}`,background:BG3}}>
+                <th style={{padding:"8px",width:28,textAlign:"center"}}>
+                  <input type="checkbox" aria-label="Selecionar todos os orçamentos da lista" data-testid="orc-sel-todos"
+                    checked={filtrados.length>0&&filtrados.every(x=>selExcluir.has(x.id))}
+                    onChange={e=>setSelExcluir(e.target.checked?new Set(filtrados.map(x=>x.id)):new Set())}/>
+                  <AjudaCampo chave="orcamentos.lista.selecionar" rota="/dashboard/orcamentos"/>
+                </th>
                 <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Número</th>
                 <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Cliente</th>
                 <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Emissão</th>
@@ -1115,7 +1270,11 @@ export default function OrcamentosPage(){
                   const cfg=STATUS_CFG[o.status]||STATUS_CFG.rascunho;
                   const expirado=o.data_validade&&new Date(o.data_validade)<new Date()&&!['aprovado','recusado','convertido'].includes(o.status);
                   return(
-                    <tr key={o.id} style={{borderBottom:`0.5px solid ${BD}`,background:expirado?R+"06":"transparent"}}>
+                    <tr key={o.id} style={{borderBottom:`0.5px solid ${BD}`,background:selExcluir.has(o.id)?R+"0C":expirado?R+"06":"transparent"}}>
+                      <td style={{padding:"8px",textAlign:"center"}}>
+                        <input type="checkbox" aria-label={`Selecionar orçamento ${o.numero}`} data-testid="orc-sel-linha" checked={selExcluir.has(o.id)}
+                          onChange={e=>setSelExcluir(prev=>{const n=new Set(prev);if(e.target.checked)n.add(o.id);else n.delete(o.id);return n;})}/>
+                      </td>
                       <td style={{padding:"8px"}}>
                         <div style={{fontFamily:"monospace",fontWeight:600,color:GO}}>{o.numero}</div>
                         {(o.versao||1)>1&&<div style={{fontSize:9,color:TXD}}>v{o.versao}</div>}
@@ -1150,11 +1309,13 @@ export default function OrcamentosPage(){
                           {['rascunho','enviado_aprovacao'].includes(o.status)&&<button onClick={()=>mudarStatus(o,'enviado')} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:B+"12",color:B,border:`1px solid ${B}25`,cursor:"pointer"}}>📨 Enviar</button>}
                           {['enviado','visualizado'].includes(o.status)&&<button onClick={()=>mudarStatus(o,'aprovado')} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:G+"12",color:G,border:`1px solid ${G}25`,cursor:"pointer"}}>✅ Aprovar</button>}
                           {['enviado','visualizado'].includes(o.status)&&<button onClick={()=>mudarStatus(o,'recusado')} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:R+"12",color:R,border:`1px solid ${R}25`,cursor:"pointer"}}>❌ Recusar</button>}
-                          {o.status==='aprovado'&&<button onClick={async()=>{const{data:{user}}=await supabase.auth.getUser();const{data,error}=await supabase.rpc('converter_orcamento_pedido',{p_orcamento_id:o.id,p_user_id:user?.id});if(error){setMsg("❌ "+error.message);return;}setMsg("✅ Convertido em pedido!");loadOrcamentos();setTimeout(()=>setMsg(""),3000);}} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>🎯 → Pedido</button>}
+                          {o.status==='aprovado'&&<button onClick={async()=>{const{data:{user}}=await supabase.auth.getUser();const{data,error}=await supabase.rpc('converter_orcamento_pedido',{p_orcamento_id:o.id,p_user_id:user?.id});if(error){setMsg("❌ Não foi possível converter o orçamento em pedido. Tente novamente.");return;}setMsg("✅ Convertido em pedido!");loadOrcamentos();setTimeout(()=>setMsg(""),3000);}} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:GO+"15",color:GO,border:`1px solid ${GO}40`,cursor:"pointer",fontWeight:600}}>🎯 → Pedido</button>}
                           <button onClick={()=>copiarLinkPublico(o)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:P+"12",color:P,border:`1px solid ${P}25`,cursor:"pointer"}} title="Copiar link público">🔗</button>
                           <button onClick={()=>enviarWhatsApp(o)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:G+"12",color:G,border:`1px solid ${G}25`,cursor:"pointer"}} title="Enviar por WhatsApp">📱</button>
                           <button onClick={()=>verComoCliente(o)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:B+"12",color:B,border:`1px solid ${B}25`,cursor:"pointer"}} title="Ver como cliente (página pública)">👁</button>
                           <button onClick={()=>duplicar(o)} style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:Y+"12",color:Y,border:`1px solid ${Y}25`,cursor:"pointer"}} title="Duplicar/Nova versão">📋</button>
+                          {o.status!=='convertido'&&!o.pedido_id&&<button onClick={()=>excluir(o)} data-testid="orc-lista-excluir" style={{fontSize:9,padding:"3px 8px",borderRadius:4,background:R+"12",color:R,border:`1px solid ${R}25`,cursor:"pointer"}} title="Excluir orçamento (sai da lista, fica no histórico)">🗑️ Excluir</button>}
+                          <AjudaCampo chave="orcamentos.acao.excluir" rota="/dashboard/orcamentos"/>
                         </div>
                       </td>
                     </tr>
@@ -1162,6 +1323,23 @@ export default function OrcamentosPage(){
                 })}
               </tbody>
             </table>
+            {confirmaExcluir&&(
+              <div role="dialog" aria-modal="true" data-testid="orc-confirma-excluir" style={{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:16}}>
+                <div style={{background:BG2,border:`1px solid ${BD}`,borderRadius:12,padding:20,maxWidth:440,width:"100%"}}>
+                  <div style={{fontSize:15,fontWeight:700,color:TX,marginBottom:8}}>Excluir {selExcluir.size} orçamento(s)?</div>
+                  <div style={{fontSize:12,color:TXM,marginBottom:12,lineHeight:1.5}}>Eles saem da lista mas ficam no histórico (exclusão rastreável). Orçamentos que já viraram pedido não são excluídos — a tela mostra quais ficaram de fora e por quê.</div>
+                  <label style={{display:"block",marginBottom:16}}>
+                    <span style={{fontSize:11,color:TXD,display:"inline-flex",alignItems:"center",gap:4,marginBottom:4}}>Motivo da exclusão *<AjudaCampo chave="orcamentos.lista.excluir_selecionados" rota="/dashboard/orcamentos"/></span>
+                    <textarea data-testid="orc-motivo-lote" value={motivoLote} onChange={e=>setMotivoLote(e.target.value)} rows={2} placeholder="Ex.: limpeza de orçamentos antigos que não viraram negócio" style={{width:"100%",fontSize:12,padding:"8px 10px",borderRadius:6,border:`1px solid ${BD}`,background:BG3,color:TX,resize:"vertical"}}/>
+                  </label>
+                  <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                    <button onClick={()=>{setConfirmaExcluir(false);setMotivoLote("");}} disabled={excluindoLote} style={{fontSize:12,padding:"8px 14px",borderRadius:6,background:"transparent",color:TXM,border:`1px solid ${BD}`,cursor:"pointer"}}>Cancelar</button>
+                    <button data-testid="orc-confirmar-excluir" onClick={excluirSelecionados} disabled={excluindoLote||!motivoLote.trim()} style={{fontSize:12,padding:"8px 14px",borderRadius:6,background:R,color:"#FFF",border:"none",cursor:excluindoLote||!motivoLote.trim()?"default":"pointer",opacity:excluindoLote||!motivoLote.trim()?0.6:1,fontWeight:600}}>{excluindoLote?"Excluindo…":"Excluir selecionados"}</button>
+                  </div>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </div>
       )}

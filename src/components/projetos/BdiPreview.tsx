@@ -7,6 +7,7 @@ import { CheckCircle2, AlertTriangle, AlertOctagon } from "lucide-react";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
 const ROTA_CFG = "/dashboard/projetos/configuracoes";
+const ROTA_CATALOGO = "/dashboard/projetos/catalogo";
 
 export interface BdiComponentes {
   ac: number; // administracao central
@@ -33,6 +34,9 @@ interface Props {
   impactos: ImpactoServico[];
   margemAlvoPct: number | null;
   margemMinimaPct: number | null;
+  // Quando o carregamento do impacto falhou de verdade (view/rede), mostramos erro
+  // honesto em vez de fingir "nenhum serviço" — não enganar o usuário (RD-97, chamado #3362).
+  impactosErro?: string | null;
 }
 
 function fmtBRL(v: number | null | undefined) {
@@ -78,6 +82,7 @@ export function BdiPreview({
   impactos,
   margemAlvoPct,
   margemMinimaPct,
+  impactosErro = null,
 }: Props) {
   const bdiCalc = calcularBdiAec(componentes);
   // O numero grande e sempre o calculo ao vivo (fonte da verdade do que o usuario ve).
@@ -155,19 +160,44 @@ export function BdiPreview({
 
       {/* Impacto nos servicos */}
       <div className="rounded-2xl border border-[#3D2314]/8 bg-white p-5 shadow-sm">
-        <h3
-          className="mb-3 flex items-center gap-1 text-sm font-medium uppercase tracking-wider text-[#3D2314]/60"
-          style={{ fontFamily: "var(--ps-font-body)", fontStyle: "normal" }}
-        >
-          Impacto nos serviços
-          <AjudaCampo chave="projetos.bdi.impacto" rota={ROTA_CFG} />
-        </h3>
-        {impactos.length === 0 ? (
-          <p className="text-xs text-[#3D2314]/50">
-            Nenhum serviço cadastrado. Adicione serviços ao catálogo para ver o
-            impacto.
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h3
+            className="flex items-center gap-1 text-sm font-medium uppercase tracking-wider text-[#3D2314]/60"
+            style={{ fontFamily: "var(--ps-font-body)", fontStyle: "normal" }}
+          >
+            Impacto nos serviços
+            <AjudaCampo chave="projetos.bdi.impacto" rota={ROTA_CFG} />
+          </h3>
+          {impactos.length > 0 && (
+            <a
+              href={ROTA_CATALOGO}
+              className="shrink-0 text-xs font-medium text-[#C8941A] hover:underline"
+              title="Abrir o catálogo de serviços — é onde o BDI configurado aqui vira preço de venda"
+            >
+              Ver no catálogo →
+            </a>
+          )}
+        </div>
+        {impactosErro ? (
+          <p className="text-xs text-red-700" data-testid="bdi-impacto-erro">
+            Não foi possível carregar o impacto nos serviços agora. {impactosErro}
           </p>
+        ) : impactos.length === 0 ? (
+          <div className="text-xs text-[#3D2314]/60" data-testid="bdi-impacto-vazio">
+            <p>
+              Nenhum serviço cadastrado ainda — por isso ainda não há impacto do
+              BDI para mostrar.
+            </p>
+            <a
+              href={ROTA_CATALOGO}
+              className="mt-2 inline-block font-medium text-[#C8941A] hover:underline"
+              title="Cadastre serviços no catálogo: o BDI configurado aqui vira preço de venda deles"
+            >
+              Cadastrar serviços no catálogo →
+            </a>
+          </div>
         ) : (
+          <>
           <ul className="divide-y divide-[#3D2314]/8">
             {impactos.slice(0, 5).map((s, idx) => {
               const st = statusMargem(
@@ -207,6 +237,15 @@ export function BdiPreview({
               );
             })}
           </ul>
+          {impactos.length > 5 && (
+            <a
+              href={ROTA_CATALOGO}
+              className="mt-2 block text-xs font-medium text-[#C8941A] hover:underline"
+            >
+              +{impactos.length - 5} serviço{impactos.length - 5 !== 1 ? "s" : ""} — ver todos no catálogo →
+            </a>
+          )}
+          </>
         )}
       </div>
 

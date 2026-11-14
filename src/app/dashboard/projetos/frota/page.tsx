@@ -10,7 +10,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { CampoMoeda } from "@/components/comum/CampoMoeda";
+import { numeroParaMoeda } from "@/lib/moeda-mascara";
 import { RelatoriosFrota } from "@/components/frota/RelatoriosFrota";
+import { erroAmigavel, ErroUsuario } from "@/lib/erroAmigavel";
 
 const ROTA = "/dashboard/projetos/frota";
 const BUCKET_ANEXOS = "frota-anexos";
@@ -71,15 +74,34 @@ const kmL = (n: number | null) => (n == null ? "—" : `${n.toLocaleString("pt-B
 const moeda = (n: number | null | undefined) => (n == null ? "—" : Number(n).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
 const dataBR = (d: string | null) => (d ? d.split("-").reverse().join("/") : "—");
 // Valor digitado em reais ("1.250,00") vira o decimal que o banco aceita ("1250.00").
-const decimal = (s: string) => (s.trim() ? s.replace(/\./g, "").replace(",", ".") : "");
+// #6874: aceita o campo mascarado (R$) — tira "R$"/espaços antes de normalizar milhar/decimal BR.
+const decimal = (s: string) => { const t = (s ?? "").replace(/[^\d,.-]/g, ""); return t ? t.replace(/\./g, "").replace(",", ".") : ""; };
+
+// Placa normalizada igual à do banco (fn_hub_frota_veiculo_salvar: tira o que não é letra/número, maiúsculas).
+const normalizarPlaca = (s: string) => (s ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+
+// Ano aceita "2022", "2022/2022" ou "2022/2023" (fabricação/modelo, padrão brasileiro). Guarda o ano MODELO
+// (o 2º quando houver). Valida 1950–2100 e ensina ANTES de chamar o banco — assim o usuário nunca vê o erro
+// cru 22P02. Ano é opcional (vazio = sem ano).
+function parseAnoModelo(bruto: string): { ano: string; erro: string | null } {
+  const t = (bruto ?? "").trim();
+  if (!t) return { ano: "", erro: null };
+  const partes = t.split("/").map((p) => p.trim()).filter(Boolean);
+  if (partes.length > 2 || partes.some((p) => !/^\d{4}$/.test(p)))
+    return { ano: "", erro: "Informe o ano com 4 dígitos. Ex.: 2022 ou 2022/2023 (fabricação/modelo)." };
+  const modelo = Number(partes[partes.length - 1]);
+  if (modelo < 1950 || modelo > 2100)
+    return { ano: "", erro: "O ano do veículo deve estar entre 1950 e 2100. Confira o número digitado." };
+  return { ano: String(modelo), erro: null };
+}
 
 async function enviarAnexo(companyId: string, pasta: string, arquivo: File): Promise<string> {
-  if (!ANEXO_TIPOS.includes(arquivo.type)) throw new Error("O anexo precisa ser PDF, JPG, PNG ou WEBP.");
-  if (arquivo.size > ANEXO_MAX) throw new Error("O anexo passa de 10 MB.");
+  if (!ANEXO_TIPOS.includes(arquivo.type)) throw new ErroUsuario("O anexo precisa ser PDF, JPG, PNG ou WEBP.");
+  if (arquivo.size > ANEXO_MAX) throw new ErroUsuario("O anexo passa de 10 MB.");
   const nome = arquivo.name.replace(/[^A-Za-z0-9._-]/g, "_");
   const path = `${companyId}/${pasta}/${Date.now()}-${nome}`;
   const { error } = await supabase.storage.from(BUCKET_ANEXOS).upload(path, arquivo, { contentType: arquivo.type, upsert: false });
-  if (error) throw new Error(error.message);
+  if (error) throw error;
   return path;
 }
 
@@ -103,7 +125,7 @@ export default function FrotaPage() {
   const carregar = useCallback(async () => {
     if (!companyId) return;
     const { data, error } = await supabase.rpc("fn_hub_frota_indicadores", { p_company_id: companyId, p_veiculo_id: null });
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error)); return; }
     setErro(null);
     const d = data as { resumo: Resumo; veiculos: Veiculo[] };
     setResumo(d.resumo); setVeiculos(d.veiculos ?? []);
@@ -134,6 +156,12 @@ export default function FrotaPage() {
                 {v === "frota" ? "Frota" : "Relatórios"}
               </button>
             ))}
+          </div>
+          {/* Rastreabilidade do km/consumo: a frota não digita km nem litros — eles vêm das viagens. */}
+          <div className="flex items-center gap-1">
+            <a href="/dashboard/projetos/viagens" className="rounded-lg border px-3 py-2 text-sm font-medium"
+              style={{ borderColor: BD, color: ESP }}>Ver viagens →</a>
+            <AjudaCampo chave="projetos.frota.ver_viagens" rota={ROTA} />
           </div>
           {visao === "frota" && (
             <button data-testid="frota-novo-veiculo" onClick={() => setAberto("novo")}
@@ -175,7 +203,8 @@ export default function FrotaPage() {
                 <div className="font-mono text-base font-bold">{v.placa}</div>
                 <div className="text-xs" style={{ color: TXM }}>{[v.marca, v.modelo].filter(Boolean).join(" ") || "sem modelo"}</div>
               </div>
-              <span className="rounded px-2 py-0.5 text-[11px] font-semibold" style={{ background: FUNDO[v.status_geral], color: COR[v.status_geral] }}>
+              <span className="flex flex-col items-end rounded px-2 py-0.5 text-[11px] font-semibold" style={{ background: FUNDO[v.status_geral], color: COR[v.status_geral] }}>
+                <span className="text-[9px] font-bold uppercase opacity-70">Manutenção</span>
                 {ROTULO[v.status_geral]}
               </span>
             </div>
@@ -202,6 +231,10 @@ export default function FrotaPage() {
                 </div>
               )}
             </div>
+            {/* Sinaliza no 1º paint que o card abre o detalhe completo do veículo. */}
+            <div className="mt-3 border-t pt-2 text-[11px] font-medium" style={{ borderColor: BD, color: ESP }}>
+              Toque para custos, documentos e manutenções →
+            </div>
           </button>
         ))}
       </div>
@@ -225,10 +258,10 @@ export default function FrotaPage() {
       )}
 
       {aberto === "novo" && (
-        <PainelVeiculo key="novo" companyId={companyId} veic={null} onFechar={() => setAberto(null)} onSalvo={carregar} />
+        <PainelVeiculo key="novo" companyId={companyId} veic={null} veiculos={veiculos} onAbrir={(id) => setAberto(id)} onFechar={() => setAberto(null)} onSalvo={carregar} />
       )}
       {veic && (
-        <PainelVeiculo key={veic.id} companyId={companyId} veic={veic} onFechar={() => setAberto(null)} onSalvo={carregar} />
+        <PainelVeiculo key={veic.id} companyId={companyId} veic={veic} veiculos={veiculos} onAbrir={(id) => setAberto(id)} onFechar={() => setAberto(null)} onSalvo={carregar} />
       )}
     </div>
   );
@@ -249,7 +282,7 @@ function ExcluidoLinha({ x, companyId, onFeito }: { x: { id: string; placa: stri
   const [erro, setErro] = useState<string | null>(null);
   async function restaurar() {
     const { error } = await supabase.rpc("fn_hub_frota_veiculo_restaurar", { p_id: x.id, p_motivo: "restaurado pela tela" });
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error)); return; }
     onFeito();
   }
   return (
@@ -261,8 +294,8 @@ function ExcluidoLinha({ x, companyId, onFeito }: { x: { id: string; placa: stri
   );
 }
 
-function PainelVeiculo({ companyId, veic, onFechar, onSalvo }: {
-  companyId: string; veic: Veiculo | null; onFechar: () => void; onSalvo: () => void;
+function PainelVeiculo({ companyId, veic, veiculos, onAbrir, onFechar, onSalvo }: {
+  companyId: string; veic: Veiculo | null; veiculos: Veiculo[]; onAbrir: (id: string) => void; onFechar: () => void; onSalvo: () => void;
 }) {
   const [f, setF] = useState<Form>(() => (veic ? { ...FORM_VAZIO, placa: veic.placa, modelo: veic.modelo ?? "", marca: veic.marca ?? "", ano: veic.ano ? String(veic.ano) : "", tipo: veic.tipo, km_inicial: "" } : FORM_VAZIO));
   const [x, setX] = useState<Extra>(EXTRA_VAZIO);
@@ -270,6 +303,7 @@ function PainelVeiculo({ companyId, veic, onFechar, onSalvo }: {
   const [planos, setPlanos] = useState<PlanoForm[]>(() => (veic?.planos ?? []).map((p) => ({ id: p.id, tipo: p.tipo, intervalo_km: String(p.intervalo_km), ultimo_km: String(p.ultimo_km) })));
   const [novoPlano, setNovoPlano] = useState<PlanoForm>({ tipo: "", intervalo_km: "", ultimo_km: "" });
   const [erro, setErro] = useState<string | null>(null);
+  const [dupId, setDupId] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [aba, setAba] = useState<"dados" | "custos" | "documentos" | "manutencoes">("dados");
   const vid = veic?.id;
@@ -286,31 +320,50 @@ function PainelVeiculo({ companyId, veic, onFechar, onSalvo }: {
       const s = (k: string) => (r[k] == null ? "" : String(r[k]));
       setX({
         versao: s("versao"), cor: s("cor"), combustivel: s("combustivel"), cambio: s("cambio"), potencia_cv: s("potencia_cv"),
-        lugares: s("lugares"), ncm: s("ncm"), valor_aquisicao: s("valor_aquisicao"), data_entrada: s("data_entrada"),
+        lugares: s("lugares"), ncm: s("ncm"), valor_aquisicao: r.valor_aquisicao == null ? "" : numeroParaMoeda(Number(r.valor_aquisicao)), data_entrada: s("data_entrada"),
         fornecedor_nome: s("fornecedor_nome"), crlv_path: s("crlv_path"), tem_manual: r.tem_manual === true, tem_chave_reserva: r.tem_chave_reserva === true,
       });
     })();
   }, [vid]);
 
   async function salvarVeiculo(crlv: string | null): Promise<string | null> {
+    const a = parseAnoModelo(f.ano);
+    if (a.erro) { setDupId(null); setErro(a.erro); return null; }
     const { data, error } = await supabase.rpc("fn_hub_frota_veiculo_salvar", {
       p_company_id: companyId, p_id: veic?.id ?? null,
       p_dados: {
-        placa: f.placa, modelo: f.modelo, marca: f.marca, ano: f.ano, tipo: f.tipo, km_inicial: f.km_inicial,
+        placa: f.placa, modelo: f.modelo, marca: f.marca, ano: a.ano, tipo: f.tipo, km_inicial: f.km_inicial,
         chassi: f.chassi, renavam: f.renavam, observacao: f.observacao,
         ...x, valor_aquisicao: decimal(x.valor_aquisicao), crlv_path: crlv ?? x.crlv_path,
       },
     });
-    if (error) { setErro(error.message); return null; }
+    if (error) {
+      // Placa repetida (índice único ux_hub_frota_veiculo_placa): em vez de "já existe um registro",
+      // diz QUAL placa e oferece abrir o veículo já cadastrado para atualizar o km lá.
+      if ((error as { code?: string })?.code === "23505") {
+        const norm = normalizarPlaca(f.placa);
+        const ja = veiculos.find((v) => normalizarPlaca(v.placa) === norm && v.id !== veic?.id);
+        setDupId(ja?.id ?? null);
+        setErro(`A placa ${norm} já está cadastrada na frota desta empresa.`);
+        return null;
+      }
+      setDupId(null); setErro(erroAmigavel(error)); return null;
+    }
     return data as string;
   }
 
   async function salvarTudo() {
-    setErro(null); setMsg(null);
+    setErro(null); setDupId(null); setMsg(null);
+    // Antes de subir anexo e chamar o banco, avisa cedo quando a placa já existe (dá o link para abrir).
+    if (!veic) {
+      const norm = normalizarPlaca(f.placa);
+      const ja = veiculos.find((v) => normalizarPlaca(v.placa) === norm);
+      if (ja) { setDupId(ja.id); setErro(`A placa ${norm} já está cadastrada na frota desta empresa.`); return; }
+    }
     let crlv: string | null = null;
     try {
       if (crlvArquivo) crlv = await enviarAnexo(companyId, veic ? `frota/${veic.id}` : "frota/cadastro", crlvArquivo);
-    } catch (e) { setErro((e as Error).message); return; }
+    } catch (e) { setErro(erroAmigavel(e)); return; }
     const id = await salvarVeiculo(crlv);
     if (!id) return;
     const pendentes = [...planos, ...(novoPlano.tipo.trim() ? [novoPlano] : [])];
@@ -320,7 +373,7 @@ function PainelVeiculo({ companyId, veic, onFechar, onSalvo }: {
         p_veiculo_id: id, p_tipo: p.tipo, p_intervalo_km: Number(p.intervalo_km),
         p_observacao: null, p_ultimo_km: p.ultimo_km ? Number(p.ultimo_km) : null, p_id: p.id ?? null,
       });
-      if (error) { setErro(error.message); return; }
+      if (error) { setErro(erroAmigavel(error)); return; }
     }
     setMsg("Salvo.");
     setCrlvArquivo(null);
@@ -348,7 +401,16 @@ function PainelVeiculo({ companyId, veic, onFechar, onSalvo }: {
           </div>
         )}
 
-        {erro && <div role="alert" className="mt-3 rounded bg-red-50 p-2 text-sm text-red-700">{erro}</div>}
+        {erro && (
+          <div role="alert" className="mt-3 rounded bg-red-50 p-2 text-sm text-red-700">
+            {erro}
+            {dupId && (
+              <button type="button" onClick={() => onAbrir(dupId)} className="ml-2 font-semibold underline">
+                Abrir o veículo já cadastrado →
+              </button>
+            )}
+          </div>
+        )}
         {msg && <div className="mt-3 rounded bg-green-50 p-2 text-sm text-green-700">{msg}</div>}
 
         {aba === "dados" && (
@@ -357,7 +419,7 @@ function PainelVeiculo({ companyId, veic, onFechar, onSalvo }: {
               <Campo rotulo="Placa"><AjudaCampo chave="projetos.frota.placa" rota={ROTA} /><input aria-label="Placa" className={inp} value={f.placa} onChange={(e) => setF({ ...f, placa: e.target.value })} placeholder="DEM1A01" /></Campo>
               <Campo rotulo="Modelo"><AjudaCampo chave="projetos.frota.modelo" rota={ROTA} /><input aria-label="Modelo" className={inp} value={f.modelo} onChange={(e) => setF({ ...f, modelo: e.target.value })} /></Campo>
               <Campo rotulo="Marca"><AjudaCampo chave="projetos.frota.marca" rota={ROTA} /><input aria-label="Marca" className={inp} value={f.marca} onChange={(e) => setF({ ...f, marca: e.target.value })} /></Campo>
-              <Campo rotulo="Ano"><AjudaCampo chave="projetos.frota.ano" rota={ROTA} /><input aria-label="Ano" inputMode="numeric" className={inp} value={f.ano} onChange={(e) => setF({ ...f, ano: e.target.value })} /></Campo>
+              <Campo rotulo="Ano"><AjudaCampo chave="projetos.frota.ano" rota={ROTA} /><input aria-label="Ano" inputMode="numeric" className={inp} value={f.ano} onChange={(e) => setF({ ...f, ano: e.target.value })} placeholder="2022 ou 2022/2023" /></Campo>
               <Campo rotulo="Tipo"><AjudaCampo chave="projetos.frota.tipo" rota={ROTA} />
                 <select aria-label="Tipo" className={inp} value={f.tipo} onChange={(e) => setF({ ...f, tipo: e.target.value })}>
                   {TIPOS.map(([v, n]) => <option key={v} value={v}>{n}</option>)}
@@ -391,7 +453,7 @@ function PainelVeiculo({ companyId, veic, onFechar, onSalvo }: {
                   <Campo rotulo="NCM"><AjudaCampo chave="projetos.frota.ncm" rota={ROTA} /><input aria-label="NCM" className={inp} value={x.ncm} onChange={(e) => setX({ ...x, ncm: e.target.value })} /></Campo>
                 </Secao>
                 <Secao titulo="Compra e entrada">
-                  <Campo rotulo="Valor de aquisição"><AjudaCampo chave="projetos.frota.valor_aquisicao" rota={ROTA} /><input aria-label="Valor de aquisição" inputMode="decimal" className={inp} value={x.valor_aquisicao} onChange={(e) => setX({ ...x, valor_aquisicao: e.target.value })} /></Campo>
+                  <Campo rotulo="Valor de aquisição"><AjudaCampo chave="projetos.frota.valor_aquisicao" rota={ROTA} /><CampoMoeda testId="frota-valor-aquisicao" className={inp} value={x.valor_aquisicao} onChange={(v) => setX({ ...x, valor_aquisicao: v })} placeholder="R$ 0,00" /></Campo>
                   <Campo rotulo="Data de entrada na frota"><AjudaCampo chave="projetos.frota.data_entrada" rota={ROTA} /><input aria-label="Data de entrada na frota" type="date" className={inp} value={x.data_entrada} onChange={(e) => setX({ ...x, data_entrada: e.target.value })} /></Campo>
                   <Campo rotulo="Fornecedor do veículo"><AjudaCampo chave="projetos.frota.fornecedor_veiculo" rota={ROTA} /><input aria-label="Fornecedor do veículo" className={inp} value={x.fornecedor_nome} onChange={(e) => setX({ ...x, fornecedor_nome: e.target.value })} /></Campo>
                   <Campo rotulo="CRLV (arquivo)"><AjudaCampo chave="projetos.frota.crlv" rota={ROTA} />
@@ -483,7 +545,7 @@ function ExcluirVeiculo({ id, onFeito }: { id: string; onFeito: () => void }) {
   const [erro, setErro] = useState<string | null>(null);
   async function excluir() {
     const { error } = await supabase.rpc("fn_hub_frota_veiculo_excluir", { p_id: id, p_motivo: motivo });
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error)); return; }
     onFeito();
   }
   return (
@@ -509,7 +571,7 @@ function AbaCustos({ companyId, veiculo }: { companyId: string; veiculo: Veiculo
     const { data, error } = await supabase.from("erp_hub_frota_custo")
       .select("id, categoria, descricao, valor, fornecedor_nome, data_custo, documento, anexo_path, entra_base_fiscal")
       .eq("veiculo_id", veiculo.id).is("excluido_em", null).order("data_custo", { ascending: false });
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error)); return; }
     setLista((data ?? []) as Custo[]);
   }, [veiculo.id]);
   useEffect(() => { void carregar(); }, [carregar]);
@@ -522,11 +584,11 @@ function AbaCustos({ companyId, veiculo }: { companyId: string; veiculo: Veiculo
         p_company_id: companyId, p_id: null,
         p_dados: { veiculo_id: veiculo.id, ...f, valor: decimal(f.valor), anexo_path: anexo },
       });
-      if (error) { setErro(error.message); return; }
+      if (error) { setErro(erroAmigavel(error)); return; }
       setF(CUSTO_VAZIO); setArquivo(null);
       void carregar();
     } catch (e) {
-      setErro((e as Error).message);
+      setErro(erroAmigavel(e));
     } finally {
       setEnviando(false);
     }
@@ -536,7 +598,7 @@ function AbaCustos({ companyId, veiculo }: { companyId: string; veiculo: Veiculo
     const motivo = window.prompt("Motivo da exclusão deste custo:");
     if (!motivo) return;
     const { error } = await supabase.rpc("fn_hub_frota_custo_excluir", { p_id: id, p_motivo: motivo });
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error)); return; }
     void carregar();
   }
 
@@ -552,7 +614,7 @@ function AbaCustos({ companyId, veiculo }: { companyId: string; veiculo: Veiculo
               {CATEGORIAS.map(([v, n]) => <option key={v} value={v}>{n}</option>)}
             </select>
           </Campo>
-          <Campo rotulo="Valor"><AjudaCampo chave="projetos.frota.custo_valor" rota={ROTA} /><input aria-label="Valor do custo" inputMode="decimal" className={inp} value={f.valor} onChange={(e) => setF({ ...f, valor: e.target.value })} /></Campo>
+          <Campo rotulo="Valor"><AjudaCampo chave="projetos.frota.custo_valor" rota={ROTA} /><CampoMoeda testId="frota-custo-valor" className={inp} value={f.valor} onChange={(v) => setF({ ...f, valor: v })} placeholder="R$ 0,00" /></Campo>
           <Campo rotulo="Data"><AjudaCampo chave="projetos.frota.custo_data" rota={ROTA} /><input aria-label="Data do custo" type="date" className={inp} value={f.data_custo} onChange={(e) => setF({ ...f, data_custo: e.target.value })} /></Campo>
           <Campo rotulo="Descrição (opcional)"><AjudaCampo chave="projetos.frota.custo_descricao" rota={ROTA} /><input aria-label="Descrição do custo" className={inp} value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} /></Campo>
           <Campo rotulo="Fornecedor (opcional)"><AjudaCampo chave="projetos.frota.custo_fornecedor" rota={ROTA} /><input aria-label="Fornecedor do custo" className={inp} value={f.fornecedor_nome} onChange={(e) => setF({ ...f, fornecedor_nome: e.target.value })} /></Campo>
@@ -612,11 +674,11 @@ function AbaDocumentos({ companyId, veiculo, onFeito }: { companyId: string; vei
         p_company_id: companyId, p_id: null,
         p_dados: { veiculo_id: veiculo.id, tipo: f.tipo, vencimento: f.vencimento, valor: decimal(f.valor), anexo_path: anexo },
       });
-      if (error) { setErro(error.message); return; }
+      if (error) { setErro(erroAmigavel(error)); return; }
       setF(DOC_VAZIO); setArquivo(null);
       onFeito();
     } catch (e) {
-      setErro((e as Error).message);
+      setErro(erroAmigavel(e));
     } finally {
       setEnviando(false);
     }
@@ -633,7 +695,7 @@ function AbaDocumentos({ companyId, veiculo, onFeito }: { companyId: string; vei
             </select>
           </Campo>
           <Campo rotulo="Vencimento"><AjudaCampo chave="projetos.frota.doc_vencimento" rota={ROTA} /><input aria-label="Vencimento" type="date" className={inp} value={f.vencimento} onChange={(e) => setF({ ...f, vencimento: e.target.value })} /></Campo>
-          <Campo rotulo="Valor (opcional)"><AjudaCampo chave="projetos.frota.doc_valor" rota={ROTA} /><input aria-label="Valor do documento" inputMode="decimal" className={inp} value={f.valor} onChange={(e) => setF({ ...f, valor: e.target.value })} /></Campo>
+          <Campo rotulo="Valor (opcional)"><AjudaCampo chave="projetos.frota.doc_valor" rota={ROTA} /><CampoMoeda testId="frota-doc-valor" className={inp} value={f.valor} onChange={(v) => setF({ ...f, valor: v })} placeholder="R$ 0,00" /></Campo>
           <Campo rotulo="Anexo do documento"><AjudaCampo chave="projetos.frota.doc_anexo" rota={ROTA} />
             <input aria-label="Anexo do documento" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" className="text-xs" onChange={(e) => setArquivo(e.target.files?.[0] ?? null)} />
           </Campo>
@@ -667,7 +729,7 @@ function LinhaDoc({ d, onFeito }: { d: Doc; onFeito: () => void }) {
     setErro(null);
     if (!novo) { setErro("Informe o novo vencimento."); return; }
     const { error } = await supabase.rpc("fn_hub_frota_documento_renovar", { p_id: d.id, p_vencimento: novo, p_valor: null, p_anexo: null });
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error)); return; }
     setRenovando(false); setNovo("");
     onFeito();
   }
@@ -676,7 +738,7 @@ function LinhaDoc({ d, onFeito }: { d: Doc; onFeito: () => void }) {
     const motivo = window.prompt("Motivo da exclusão deste documento:");
     if (!motivo) return;
     const { error } = await supabase.rpc("fn_hub_frota_documento_excluir", { p_id: d.id, p_motivo: motivo });
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error)); return; }
     onFeito();
   }
 
@@ -729,13 +791,13 @@ function AbaManutencoes({ companyId, veiculo }: { companyId: string; veiculo: Ve
     setErro(null); setEnviando(true);
     try {
       const anexo = arquivo ? await enviarAnexo(companyId, `frota/${veiculo.id}`, arquivo) : null;
-      const { error } = await supabase.rpc("fn_hub_frota_manutencao_registrar", { p_veiculo_id: veiculo.id, p_dados: { ...r, anexo_path: anexo } });
-      if (error) { setErro(error.message); return; }
+      const { error } = await supabase.rpc("fn_hub_frota_manutencao_registrar", { p_veiculo_id: veiculo.id, p_dados: { ...r, valor: decimal(r.valor), anexo_path: anexo } });
+      if (error) { setErro(erroAmigavel(error)); return; }
       setR({ ...r, data: "", km: "", valor: "", fornecedor: "", descricao: "" });
       setArquivo(null);
       void carregar();
     } catch (e) {
-      setErro(e instanceof Error ? e.message : "Não foi possível registrar a manutenção.");
+      setErro(erroAmigavel(e, "Não foi possível registrar a manutenção. Tente de novo."));
     } finally {
       setEnviando(false);
     }
@@ -745,7 +807,7 @@ function AbaManutencoes({ companyId, veiculo }: { companyId: string; veiculo: Ve
     const motivo = window.prompt("Motivo da exclusão desta manutenção:");
     if (!motivo) return;
     const { error } = await supabase.rpc("fn_hub_frota_manutencao_excluir", { p_registro_id: id, p_motivo: motivo });
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error)); return; }
     void carregar();
   }
 
@@ -757,7 +819,7 @@ function AbaManutencoes({ companyId, veiculo }: { companyId: string; veiculo: Ve
           <Campo rotulo="Tipo"><AjudaCampo chave="projetos.frota.tipo_manutencao" rota={ROTA} /><input aria-label="Tipo da manutenção" className={inp} value={r.tipo} onChange={(e) => setR({ ...r, tipo: e.target.value })} /></Campo>
           <Campo rotulo="Data"><AjudaCampo chave="projetos.frota.data_manutencao" rota={ROTA} /><input aria-label="Data" type="date" className={inp} value={r.data} onChange={(e) => setR({ ...r, data: e.target.value })} /></Campo>
           <Campo rotulo="Km na manutenção"><AjudaCampo chave="projetos.frota.km_manutencao" rota={ROTA} /><input aria-label="Km na manutenção" inputMode="numeric" className={inp} value={r.km} onChange={(e) => setR({ ...r, km: e.target.value })} /></Campo>
-          <Campo rotulo="Valor (opcional)"><AjudaCampo chave="projetos.frota.valor" rota={ROTA} /><input aria-label="Valor" inputMode="decimal" className={inp} value={r.valor} onChange={(e) => setR({ ...r, valor: e.target.value })} /></Campo>
+          <Campo rotulo="Valor (opcional)"><AjudaCampo chave="projetos.frota.valor" rota={ROTA} /><CampoMoeda testId="frota-manut-valor" className={inp} value={r.valor} onChange={(v) => setR({ ...r, valor: v })} placeholder="R$ 0,00" /></Campo>
           <Campo rotulo="Fornecedor (opcional)"><AjudaCampo chave="projetos.frota.fornecedor" rota={ROTA} /><input aria-label="Fornecedor" className={inp} value={r.fornecedor} onChange={(e) => setR({ ...r, fornecedor: e.target.value })} /></Campo>
           <Campo rotulo="Descrição (opcional)"><AjudaCampo chave="projetos.frota.descricao" rota={ROTA} /><input aria-label="Descrição" className={inp} value={r.descricao} onChange={(e) => setR({ ...r, descricao: e.target.value })} /></Campo>
           <Campo rotulo="Anexo (nota ou laudo)"><AjudaCampo chave="projetos.frota.manutencao_anexo" rota={ROTA} />

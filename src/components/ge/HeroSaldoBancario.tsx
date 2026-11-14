@@ -219,14 +219,14 @@ export default function HeroSaldoBancario({ companyId }: { companyId: string }) 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginTop: 12 }}>
           {d.caixa.contas > 0 && (
             <div style={cardMini}>
-              <div style={rotuloMini}>💵 Caixa (espécie)</div>
+              <div style={{ ...rotuloMini, display: 'flex', alignItems: 'center', gap: 4 }}>💵 Caixa (espécie)<AjudaCampo chave="ge.saldo.caixa_especie" rota={ROTA_AJUDA_SALDO} /></div>
               <div style={valorMini}>{fmt(d.caixa.total)}</div>
               <div style={legendaMini}>{d.caixa.contas} {d.caixa.contas === 1 ? 'conta' : 'contas'}</div>
             </div>
           )}
           {d.cartao.contas > 0 && (
             <div style={cardMini}>
-              <div style={rotuloMini}>💳 Cartão (fatura)</div>
+              <div style={{ ...rotuloMini, display: 'flex', alignItems: 'center', gap: 4 }}>💳 Cartão (fatura)<AjudaCampo chave="ge.saldo.cartao_fatura" rota={ROTA_AJUDA_SALDO} /></div>
               <div style={valorMini}>{fmt(d.cartao.total)}</div>
               <div style={legendaMini}>{d.cartao.contas} {d.cartao.contas === 1 ? 'cartão' : 'cartões'} · não soma no banco</div>
             </div>

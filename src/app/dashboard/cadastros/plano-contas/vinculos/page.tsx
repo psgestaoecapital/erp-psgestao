@@ -16,6 +16,7 @@ import {
   FILTRO_PADRAO, MSG_IMUTAVEL, alvosDaSelecao, contarVinculos, editavel, filtrarVinculos, statusDaLinha,
   type FiltroVinculo, type LinhaVinculoTela,
 } from '@/lib/contabil/vinculosTela'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 export const dynamic = 'force-dynamic'
 
@@ -51,7 +52,7 @@ export default function Page() {
       supabase.from('erp_plano_contas').select('id, codigo, descricao, grupo, tipo, pai_codigo, nivel, ativo, is_totalizador')
         .eq('company_id', empresa).order('codigo'),
     ])
-    if (tela.error) setErro(tela.error.message)
+    if (tela.error) setErro(erroAmigavel(tela.error, 'Não foi possível carregar os vínculos.'))
     setLinhas((tela.data ?? []) as LinhaVinculoTela[])
     setGerenciais((ger.data ?? []) as ContaPlano[])
     setSel(new Set())
@@ -72,8 +73,8 @@ export default function Page() {
     try {
       const { data, error } = await fn()
       const d = (data ?? {}) as Record<string, number> & { ok?: boolean; erro?: string; mensagem?: string }
-      if (error) setMsg({ tipo: 'erro', texto: error.message })
-      else if (d.ok === false) setMsg({ tipo: 'erro', texto: d.mensagem ?? (d.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : String(d.erro)) })
+      if (error) setMsg({ tipo: 'erro', texto: erroAmigavel(error, 'Não foi possível concluir a ação.') })
+      else if (d.ok === false) setMsg({ tipo: 'erro', texto: d.mensagem ?? (d.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : codigoAmigavel(d.erro, 'Não foi possível concluir a ação.')) })
       else { setMsg({ tipo: 'ok', texto: okMsg(d) }); await carregar() }
     } finally { setOcupado(false) }
   }

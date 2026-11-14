@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 
 type IssRow = {
   id: string
@@ -155,7 +156,7 @@ export default function IssMunicipiosPage() {
           <div className="text-[13px] font-medium text-[#3D2314] mb-3">Cadastrar alíquota</div>
           <div className="grid sm:grid-cols-2 gap-3">
             <div className="relative">
-              <label className="block text-[11px] text-[#3D2314]/60 mb-1">Município da execução</label>
+              <label className="block text-[11px] text-[#3D2314]/60 mb-1">Município da execução<AjudaCampo chave="fiscal.iss.municipio" /></label>
               {munSel ? (
                 <div className="flex items-center justify-between bg-[#FAF7F2] border border-[#E7DECF] rounded-md px-3 py-2 text-[13px] text-[#3D2314]">
                   <span>{munSel.nome_municipio}/{munSel.uf} <span className="text-[#3D2314]/50">· IBGE {munSel.codigo_ibge}</span></span>
@@ -179,43 +180,44 @@ export default function IssMunicipiosPage() {
               )}
             </div>
             <div>
-              <label className="block text-[11px] text-[#3D2314]/60 mb-1">Código LC 116 (subitem)</label>
+              <label className="block text-[11px] text-[#3D2314]/60 mb-1">Código LC 116 (subitem)<AjudaCampo chave="fiscal.iss.lc116" /></label>
               <input value={lc116} onChange={(e) => setLc116(e.target.value)} placeholder="ex.: 07.02"
                 className="w-full bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]" />
             </div>
             <div>
-              <label className="block text-[11px] text-[#3D2314]/60 mb-1">Alíquota (%)</label>
+              <label className="block text-[11px] text-[#3D2314]/60 mb-1">Alíquota (%)<AjudaCampo chave="fiscal.iss.aliquota" /></label>
               <input value={aliq} onChange={(e) => setAliq(e.target.value)} inputMode="decimal" placeholder="ex.: 3,00"
                 className="w-full bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]" />
             </div>
             <div>
-              <label className="block text-[11px] text-[#3D2314]/60 mb-1">Origem do número</label>
+              <label className="block text-[11px] text-[#3D2314]/60 mb-1">Origem do número<AjudaCampo chave="fiscal.iss.fonte" /></label>
               <select value={fonte} onChange={(e) => setFonte(e.target.value)}
                 className="w-full bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]">
                 {FONTES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-[11px] text-[#3D2314]/60 mb-1">Vigência a partir de</label>
+              <label className="block text-[11px] text-[#3D2314]/60 mb-1">Vigência a partir de<AjudaCampo chave="fiscal.iss.vigencia" /></label>
               <input type="date" value={vigencia} onChange={(e) => setVigencia(e.target.value)}
                 className="w-full bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]" />
             </div>
             <div>
-              <label className="block text-[11px] text-[#3D2314]/60 mb-1">Quem informou (opcional)</label>
+              <label className="block text-[11px] text-[#3D2314]/60 mb-1">Quem informou (opcional)<AjudaCampo chave="fiscal.iss.informado_por" /></label>
               <input value={informado} onChange={(e) => setInformado(e.target.value)} placeholder="ex.: Ervin (contador)"
                 className="w-full bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]" />
             </div>
             <label className="flex items-center gap-2 text-[12.5px] text-[#3D2314] sm:col-span-2">
               <input type="checkbox" checked={retido} onChange={(e) => setRetido(e.target.checked)} />
-              ISS retido na fonte pelo tomador neste município
+              ISS retido na fonte pelo tomador neste município<AjudaCampo chave="fiscal.iss.retido" />
             </label>
             <div className="sm:col-span-2">
-              <label className="block text-[11px] text-[#3D2314]/60 mb-1">Observação (opcional)</label>
+              <label className="block text-[11px] text-[#3D2314]/60 mb-1">Observação (opcional)<AjudaCampo chave="fiscal.iss.observacao" /></label>
               <input value={obs} onChange={(e) => setObs(e.target.value)} placeholder="ex.: lei municipal, ofício do contador…"
                 className="w-full bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]" />
             </div>
           </div>
-          <div className="flex justify-end mt-4">
+          <div className="flex justify-end items-center gap-1 mt-4">
+            <AjudaCampo chave="fiscal.iss.cadastrar" />
             <button type="button" onClick={salvar} disabled={salvando}
               className="px-4 py-2.5 rounded-md bg-[#C8941A] text-[#3D2314] font-medium text-[13px] hover:bg-[#B07F12] disabled:opacity-50">
               {salvando ? 'Salvando…' : 'Cadastrar alíquota'}
@@ -226,7 +228,7 @@ export default function IssMunicipiosPage() {
         {/* lista */}
         <div className="bg-white border border-[#E7DECF] rounded-xl overflow-hidden">
           <div className="px-4 py-3 border-b border-[#E7DECF] text-[13px] font-medium text-[#3D2314]">
-            Cadastradas {loading ? '' : `(${vigentes.length} vigente${vigentes.length === 1 ? '' : 's'}${rows.length > vigentes.length ? ` · ${rows.length - vigentes.length} histórico` : ''})`}
+            Cadastradas {loading ? '' : `(${vigentes.length} vigente${vigentes.length === 1 ? '' : 's'}${rows.length > vigentes.length ? ` · ${rows.length - vigentes.length} histórico` : ''})`}<AjudaCampo chave="fiscal.iss.lista" />
           </div>
           {loading ? (
             <div className="px-4 py-6 text-[13px] text-[#3D2314]/55">Carregando…</div>

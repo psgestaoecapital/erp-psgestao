@@ -7,6 +7,7 @@ import { comPrazo } from '@/lib/comPrazo'
 import { labelUsuario } from '@/lib/usuarioLabel'
 import { linkTelefone } from '@/lib/crm/oportunidadeCliente'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 type UsuarioOpt = { id: string; email: string | null; full_name?: string | null }
 type Fechada = {
@@ -128,6 +129,8 @@ export default function OportunidadesKanban({
   const [quemMap, setQuemMap] = useState<Record<string, QuemRow>>({})
   // F2.7 · orçamento vinculado por oportunidade_id.
   const [orcMap, setOrcMap] = useState<Record<string, OrcRow>>({})
+  // #6729 · orçamentos do card que já têm PDF anexado (a RPC do card não devolve o anexo)
+  const [pdfOrc, setPdfOrc] = useState<Record<string, boolean>>({})
   const [gerandoId, setGerandoId] = useState<string | null>(null)
   // Affordance de rolagem horizontal (auditor PDCA: "coluna cortada / scroll não óbvio"): quando o board
   // tem mais etapas do que cabem, aparece um degradê + seta de cada lado com conteúdo oculto; clicar rola.
@@ -186,7 +189,7 @@ export default function OportunidadesKanban({
     setGerandoId(null)
     const j = data as { ok?: boolean; erro?: string; mensagem?: string; orcamento_id?: string; numero?: string; ja_existia?: boolean } | null
     if (error || !j?.ok) {
-      onError(`Erro ao gerar orçamento: ${j?.mensagem ?? (j?.erro === 'sem_cliente' ? 'informe o cliente da oportunidade antes.' : (error?.message ?? j?.erro ?? 'falha'))}`)
+      onError((j?.mensagem ?? (j?.erro === 'sem_cliente' ? 'Informe o cliente da oportunidade antes de gerar o orçamento.' : erroAmigavel(error, 'Não foi possível gerar o orçamento. Tente de novo.'))))
       return
     }
     onMoved(j.ja_existia ? `Orçamento ${j.numero} já existia — abrindo.` : `Orçamento ${j.numero} criado da oportunidade.`)
@@ -219,6 +222,13 @@ export default function OportunidadesKanban({
       const om: Record<string, OrcRow> = {}
       for (const r of ((orc.data ?? []) as OrcRow[])) om[r.oportunidade_id] = r
       setOrcMap(om)
+      const orcIds = Object.values(om).map((r) => r.orcamento_id)
+      if (orcIds.length > 0) {
+        const { data: pdfs } = await supabase.from('erp_orcamentos').select('id').in('id', orcIds).not('pdf_anexo_path', 'is', null)
+        const pm: Record<string, boolean> = {}
+        for (const r of ((pdfs ?? []) as Array<{ id: string }>)) pm[r.id] = true
+        setPdfOrc(pm)
+      } else setPdfOrc({})
       const rows = (gp.data ?? []) as Array<{ etapa: string; valor_estimado: number | null }>
       const g = rows.filter((r) => r.etapa === 'ganho')
       const pd = rows.filter((r) => r.etapa === 'perdido')
@@ -306,7 +316,7 @@ export default function OportunidadesKanban({
       setGerandoId(null)
       const j = data as { ok?: boolean; erro?: string; mensagem?: string; orcamento_id?: string; numero?: string; ja_existia?: boolean } | null
       if (error || !j?.ok) {
-        onError(`Erro ao gerar orçamento: ${j?.mensagem ?? (j?.erro === 'sem_cliente' ? 'informe o cliente da oportunidade antes.' : (error?.message ?? j?.erro ?? 'falha'))}`)
+        onError((j?.mensagem ?? (j?.erro === 'sem_cliente' ? 'Informe o cliente da oportunidade antes de gerar o orçamento.' : erroAmigavel(error, 'Não foi possível gerar o orçamento. Tente de novo.'))))
         return
       }
       await aplicarMove(cardId, 'orcando', etapaAtual, null)
@@ -364,7 +374,7 @@ export default function OportunidadesKanban({
     })
     setMovendoId(null)
     if (error) {
-      onError(`Erro ao mover: ${error.message}`)
+      onError(erroAmigavel(error, 'Não foi possível mover a oportunidade. Tente de novo.'))
       carregar() // sincroniza com a verdade
       return
     }
@@ -403,7 +413,7 @@ export default function OportunidadesKanban({
     setMovendoId(null)
     const j = data as { ok?: boolean; erro?: string; numero?: string; ja_existia?: boolean } | null
     if (error || !j?.ok) {
-      onError(`Erro ao marcar como ganho: ${error?.message ?? j?.erro ?? 'falha'}`)
+      onError(erroAmigavel(error, 'Não foi possível marcar como ganho. Tente de novo.'))
       carregar() // desfaz o otimista pela verdade do banco
       return
     }
@@ -598,7 +608,7 @@ export default function OportunidadesKanban({
                             }}>
                             <FileText size={12} aria-hidden style={{ display: 'inline', verticalAlign: '-2px' }} /> {orcMap[c.id].numero} · {orcMap[c.id].itens > 0
                               ? `${brl(orcMap[c.id].total)} · ${orcMap[c.id].itens} ${orcMap[c.id].itens === 1 ? 'item' : 'itens'}`
-                              : (Number(orcMap[c.id].total) > 0 ? `PDF · ${brl(orcMap[c.id].total)}` : 'aguardando o PDF do orçamento')}
+                              : (Number(orcMap[c.id].total) > 0 ? `PDF · ${brl(orcMap[c.id].total)}` : (pdfOrc[orcMap[c.id].orcamento_id] ? 'PDF anexado · informe o valor' : 'aguardando o PDF do orçamento'))}
                           </button>
                         ) : (
                           <button

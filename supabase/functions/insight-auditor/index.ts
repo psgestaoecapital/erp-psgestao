@@ -17,7 +17,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { modeloPara, registrarFalhaIA } from "../_shared/aiModel.ts";
+import { modeloPara, registrarFalhaIA, iaBudgetStatus } from "../_shared/aiModel.ts";
 import { capturaFresca, ESPERA_CAPTURA_MS, INTERVALO_CAPTURA_MS } from "../_shared/capturaFresca.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -53,6 +53,13 @@ Deno.serve(async (req: Request) => {
   }
 
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
+  // P0 CUSTO (CEO 01/11): porteiro do bloqueio global (sub-teto Gold incluso) ANTES de capturar a tela
+  // e chamar a IA. Fail-closed → 503 sem gastar; o auditor não roda com o orçamento pausado.
+  {
+    const _b = await iaBudgetStatus({ gold: true });
+    if (_b.bloqueado) return new Response(JSON.stringify({ error: _b.motivo, ia_bloqueada: true }), { status: 503, headers: { "Content-Type": "application/json" } });
+  }
 
   let body: any = {};
   const inicioPedidoMs = Date.now();

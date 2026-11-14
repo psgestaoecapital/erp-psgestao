@@ -9,6 +9,7 @@ import AnexosCard from '@/components/crm/AnexosCard'
 import { UNIDADES_ESTOQUE } from '@/lib/produtos/unidades'
 import PrecoVendaEntradaNota from '@/components/precificacao/PrecoVendaEntradaNota'
 import { custoProdutoDaNota } from '@/lib/precificacao/entradaNota'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 type Sugestao = {
   produto_id: string
@@ -74,7 +75,7 @@ type OSLite = {
 }
 
 // Bloco A Path 1 · peça DIGITADA (texto-livre, sem produto) da OS que a NF pode "ensinar"
-type DiagLite = { id: string; descricao: string; quantidade: number | null }
+type DiagLite = { id: string; descricao: string; quantidade: number | null; saldo?: number | null }
 
 interface SugerirResp {
   ok: boolean
@@ -401,15 +402,54 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange, onConcluida }: Pr
     if (!it.produto_id) { await vincularOS(it.item_id, o.id, null); return }
     const { data } = await supabase
       .from('erp_os_diagnostico_item')
-      .select('id, descricao, quantidade')
+      .select('id, descricao, quantidade, produto_id')
       .eq('os_id', o.id)
       .eq('company_id', companyId)
       .in('tipo', ['peca', 'peça'])
-      .is('produto_id', null)
+      .or(`produto_id.is.null,produto_id.eq.${it.produto_id}`)
       .order('descricao')
-    const livres = (data as DiagLite[]) ?? []
-    if (livres.length === 0) { await vincularOS(it.item_id, o.id, null); return }
+    const todos = (data as (DiagLite & { produto_id: string | null })[]) ?? []
+    // #5933 · peça da OS com 2 un. comprada em 2 NF-e: a peça já ligada a ESTE produto continua na lista
+    // enquanto a soma das notas vinculadas a ela for menor que a quantidade da OS (vínculo parcial).
+    const jaLigados = todos.filter((d) => d.produto_id)
+    const usado: Record<string, number> = {}
+    if (jaLigados.length > 0) {
+      const { data: vs } = await supabase.from('erp_nfe_recebidas_itens')
+        .select('id, quantidade, vinculo_origem').like('vinculo_origem', `os:${o.id}:diag:%`)
+      for (const v of (vs ?? []) as { id: string; quantidade: number | null; vinculo_origem: string | null }[]) {
+        if (v.id === it.item_id) continue
+        const did = String(v.vinculo_origem ?? '').split(':diag:')[1]
+        if (did) usado[did] = (usado[did] ?? 0) + Number(v.quantidade ?? 0)
+      }
+    }
+    const livres = todos
+      .map((d) => d.produto_id ? { ...d, saldo: Number(d.quantidade ?? 0) - (usado[d.id] ?? 0) } : d)
+      .filter((d) => !d.produto_id || (d.saldo ?? 0) > 0)
+    // #5933 · mesmo sem peça livre, abre o painel: o operador pode ADICIONAR o produto da nota
+    // como nova peça da OS (antes caía num vínculo genérico silencioso e o produto não entrava).
     setOsSel({ itemId: it.item_id, os: o }); setDiagLivres(livres)
+  }
+
+  // #5933 · cria o produto da NF como nova peça da OS (quando ela ainda não descreve esse item).
+  async function adicionarPecaOS(itemId: string, osId: string) {
+    setBusy(true)
+    setErro(null)
+    const { data, error } = await supabase.rpc('fn_nfe_item_adicionar_peca_os', { p_item_id: itemId, p_os_id: osId })
+    setBusy(false)
+    if (error) { setErro(error.message); return }
+    const r = data as { ok?: boolean; erro?: string; os_numero?: string; descricao?: string; quantidade?: number } | null
+    if (!r?.ok) {
+      setErro(
+        r?.erro === 'os_faturada' ? 'Esta OS já está faturada — não dá para adicionar peça nova por aqui (mudaria o valor do documento). Ajuste a peça direto na OS.'
+        : r?.erro === 'vincule_produto_antes' ? 'Vincule o item da nota a um produto do estoque antes de adicioná-lo à OS.'
+        : r?.erro === 'os_cancelada' ? 'OS cancelada — não é possível adicionar peça.'
+        : r?.erro ?? 'Não consegui adicionar a peça à OS.')
+      return
+    }
+    setMsg(`✅ Peça "${r.descricao ?? ''}" (${Number(r.quantidade ?? 0).toLocaleString('pt-BR')}×) adicionada à OS ${r.os_numero ?? ''} apontando para o produto do estoque.`)
+    setBuscaOS(null); setQOS(''); setResOS([]); setOsSel(null); setDiagLivres([])
+    await carregar()
+    onChange?.()
   }
 
   async function vincularOS(itemId: string, osId: string, diagItemId: string | null) {
@@ -576,14 +616,14 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange, onConcluida }: Pr
                 const div = Number(rec) !== Number(it.quantidade)
                 return (
                   <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10.5px] text-[#3D2314]/70">
-                    <span className="flex items-center gap-1">recebido
+                    <span className="flex items-center gap-1">recebido<AjudaCampo chave="compras.docs_recebidos.item_qtd_recebida" />
                       <input type="number" step="any" defaultValue={rec}
                         onBlur={(e) => { const q = Number(e.target.value); if (q !== Number(rec)) void conferir(it.item_id, { qtd: q, motivo: div ? ex.divergencia_motivo : null }) }}
                         className="w-16 border border-[#3D2314]/15 rounded px-1 py-0.5 text-[11px] text-[#3D2314]" />
                       <span className="text-[#3D2314]/45">de {Number(it.quantidade).toLocaleString('pt-BR')}</span>
                     </span>
                     {div && (
-                      <span className="flex items-center gap-1 text-[#BA7517] font-medium">⚠️ divergência
+                      <span className="flex items-center gap-1 text-[#BA7517] font-medium">⚠️ divergência<AjudaCampo chave="compras.docs_recebidos.item_divergencia_motivo" />
                         <select defaultValue={ex.divergencia_motivo ?? ''} onChange={(e) => void conferir(it.item_id, { qtd: rec, motivo: e.target.value })}
                           className="border border-[#BA7517]/40 rounded px-1 py-0.5 text-[10.5px] text-[#3D2314]">
                           <option value="">motivo…</option>
@@ -592,16 +632,17 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange, onConcluida }: Pr
                       </span>
                     )}
                     <label className="flex items-center gap-1 cursor-pointer">
-                      <input type="checkbox" checked={ex.gera_financeiro !== false} onChange={(e) => void conferir(it.item_id, { gera: e.target.checked })} /> gera financeiro
+                      <input type="checkbox" checked={ex.gera_financeiro !== false} onChange={(e) => void conferir(it.item_id, { gera: e.target.checked })} /> gera financeiro<AjudaCampo chave="compras.docs_recebidos.item_gera_financeiro" />
                     </label>
                     {/* E2 · fator de conversão (CX→UN) — pergunta uma vez, vale sempre */}
-                    <span className="flex items-center gap-1" data-testid={`nfe-conversao-${it.item_id}`}>1 {ex.unidade || 'emb.'} da nota =
+                    <span className="flex items-center gap-1" data-testid={`nfe-conversao-${it.item_id}`}>1 {ex.unidade || 'emb.'} da nota =<AjudaCampo chave="compras.docs_recebidos.item_fator_conversao" />
                       <input key={`f-${it.produto_id}-${fatorSalvo[it.produto_id ?? ''] ?? 1}`} type="number" step="any" min="0.000001"
                         defaultValue={fatorSalvo[it.produto_id ?? ''] ?? 1} data-testid={`nfe-fator-${it.item_id}`}
                         title="Quantas unidades do seu produto vêm em 1 unidade da nota (ex.: 1 CX = 12 LT → 12)"
                         onBlur={(e) => { const f = Number(e.target.value); if (f > 0 && f !== (fatorSalvo[it.produto_id ?? ''] ?? 1)) void salvarFator(it.item_id, it.produto_id, ex.unidade, f) }}
                         className="w-14 border border-[#3D2314]/15 rounded px-1 py-0.5 text-[11px] text-[#3D2314]" />
                       {/* #573 · unidade de estoque do produto (litro, metro, pacote…) */}
+                      <AjudaCampo chave="compras.docs_recebidos.item_unidade_estoque" />
                       <select key={`u-${it.produto_id}-${unidadeProd[it.produto_id ?? ''] ?? ''}`} defaultValue={unidadeProd[it.produto_id ?? ''] ?? ''}
                         disabled={!it.produto_id} data-testid={`nfe-unidade-${it.item_id}`} title={it.produto_id ? 'Unidade de estoque do produto' : 'Vincule o produto primeiro'}
                         onChange={(e) => void salvarUnidade(it.produto_id, it.produto_nome, e.target.value)}
@@ -747,6 +788,8 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange, onConcluida }: Pr
 
           {buscaItem === it.item_id && (
             <div className="mt-2 rounded-md bg-white border border-[#3D2314]/10 p-2">
+              <div className="flex items-center gap-1 text-[10.5px] text-[#3D2314]/55 mb-1">Buscar produto</div>
+              <AjudaCampo chave="compras.docs_recebidos.item_buscar_produto" />
               <input
                 autoFocus
                 value={q}
@@ -787,6 +830,8 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange, onConcluida }: Pr
 
           {buscaOS === it.item_id && (
             <div className="mt-2 rounded-md bg-white border border-[#2F5AA8]/30 p-2">
+              <div className="flex items-center gap-1 text-[10.5px] text-[#3D2314]/55 mb-1">Buscar ordem de serviço</div>
+              <AjudaCampo chave="compras.docs_recebidos.item_buscar_os" />
               <input
                 autoFocus
                 value={qOS}
@@ -833,14 +878,31 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange, onConcluida }: Pr
                       >
                         🔧 {d.descricao}
                         {d.quantidade ? <span className="text-[10.5px] text-[#3D2314]/50"> · {Number(d.quantidade).toLocaleString('pt-BR')}×</span> : null}
+                        {d.saldo != null ? <span className="text-[10.5px] text-[#2F5AA8]"> · já ligada ao estoque · falta {Number(d.saldo).toLocaleString('pt-BR')}</span> : null}
                       </button>
                     ))}
+                    {/* #5933 · estado vazio: a OS não descreve esse produto (comprado em NF diferente, etc.) */}
+                    {diagLivres.length === 0 && (
+                      <div className="text-[10.5px] text-[#3D2314]/55 px-1 py-0.5">
+                        Esta OS ainda não tem uma peça para <span className="font-medium">{it.produto_nome ?? 'este produto'}</span>. Adicione como nova peça abaixo.
+                      </div>
+                    )}
                   </div>
+                  {/* #5933 · adicionar o produto da nota como nova peça da OS (quando ela não o descreve) */}
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void adicionarPecaOS(it.item_id, osSel.os.id)}
+                    className="w-full text-left text-[12px] px-2 py-1 mt-1 rounded text-[#1F7A4D] bg-[#EAF6EF] hover:bg-[#DCF0E4] font-medium disabled:opacity-50"
+                  >
+                    ➕ Adicionar <span className="font-semibold">{it.produto_nome ?? 'o produto'}</span> como nova peça desta OS
+                  </button>
+                  <span className="inline-flex items-center"><AjudaCampo chave="nfe_recebida.os_adicionar_peca" /></span>
                   <button
                     type="button"
                     disabled={busy}
                     onClick={() => void vincularOS(it.item_id, osSel.os.id, null)}
-                    className="text-[10.5px] text-[#3D2314]/60 mt-1 hover:underline disabled:opacity-50"
+                    className="block text-[10.5px] text-[#3D2314]/60 mt-1 hover:underline disabled:opacity-50"
                   >
                     só vincular à OS (sem peça específica)
                   </button>
@@ -921,7 +983,9 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange, onConcluida }: Pr
 
 // NFE-F2 · E3 · bloco de parcelas (duplicatas): editar valor/vencimento, adicionar/remover, refazer N×.
 // A soma tem que bater com o valor da nota — o botão salvar avisa/bloqueia se não bater.
-type Parcela = { id?: string; numero_dup: string | null; data_vencimento: string | null; valor: number | null; pagar_id?: string | null; forma_pagamento?: string | null; conta_bancaria_id?: string | null; codigo_barras?: string | null }
+type Parcela = { id?: string; numero_dup: string | null; data_vencimento: string | null; valor: number | null; pagar_id?: string | null; forma_pagamento?: string | null; conta_bancaria_id?: string | null; codigo_barras?: string | null; valorTexto?: string }
+// #5660 · aceita vírgula pt-BR em valor monetário: texto + replace(',', '.') (padrão do Perfil fiscal da revenda)
+const numOrNull = (s: string): number | null => { const n = Number(String(s).replace(',', '.')); return String(s).trim() !== '' && Number.isFinite(n) ? n : null }
 const FORMAS_PAGTO = ['boleto', 'pix', 'transferencia', 'cartao_credito', 'cartao_debito', 'dinheiro', 'cheque']
 function ParcelasBlock({ parcelas, valorNota, contas, onRefazer, onSalvar }: {
   parcelas: Parcela[]; valorNota: number | null; contas: { id: string; nome: string }[]
@@ -940,16 +1004,24 @@ function ParcelasBlock({ parcelas, valorNota, contas, onRefazer, onSalvar }: {
     <div className="mt-3 rounded-lg border border-[#3D2314]/12 p-3 bg-white">
       <div className="text-[12px] font-medium text-[#3D2314] mb-2">🧾 Parcelas do financeiro <span className="text-[10.5px] text-[#3D2314]/55 font-normal">(edite antes de gerar; a soma tem que bater com a nota)</span></div>
       <div className="flex flex-wrap items-end gap-2 mb-2 text-[11px] text-[#3D2314]/70">
-        <span className="flex items-center gap-1">refazer <input type="number" min="1" value={num} onChange={(e) => setNum(e.target.value)} className="w-14 border border-[#3D2314]/15 rounded px-1 py-0.5" />×</span>
-        <span className="flex items-center gap-1">1º venc <input type="date" value={primeiro} onChange={(e) => setPrimeiro(e.target.value)} className="border border-[#3D2314]/15 rounded px-1 py-0.5" /></span>
+        <span className="flex items-center gap-1">refazer<AjudaCampo chave="compras.docs_recebidos.parcela_refazer_qtd" /> <input type="number" min="1" value={num} onChange={(e) => setNum(e.target.value)} className="w-14 border border-[#3D2314]/15 rounded px-1 py-0.5" />×</span>
+        <span className="flex items-center gap-1">1º venc<AjudaCampo chave="compras.docs_recebidos.parcela_primeiro_venc" /> <input type="date" value={primeiro} onChange={(e) => setPrimeiro(e.target.value)} className="border border-[#3D2314]/15 rounded px-1 py-0.5" /></span>
         <button type="button" onClick={() => onRefazer(Math.max(1, Number(num) || 1), primeiro)} className="px-2.5 py-1 rounded-md bg-[#C8941A] text-white font-medium text-[11px]">Refazer</button>
+      </div>
+      {/* RD-95 · legenda das colunas editáveis da parcela com "?" (ação principal em até 3 toques) */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-[#3D2314]/55 mb-1 pl-5">
+        <span className="flex items-center gap-0.5">Vencimento<AjudaCampo chave="compras.docs_recebidos.parcela_vencimento" /></span>
+        <span className="flex items-center gap-0.5">Valor<AjudaCampo chave="compras.docs_recebidos.parcela_valor" /></span>
+        <span className="flex items-center gap-0.5">Forma<AjudaCampo chave="compras.docs_recebidos.parcela_forma" /></span>
+        <span className="flex items-center gap-0.5">Conta<AjudaCampo chave="compras.docs_recebidos.parcela_conta" /></span>
+        <span className="flex items-center gap-0.5">Código de barras<AjudaCampo chave="compras.docs_recebidos.parcela_codigo_barras" /></span>
       </div>
       <div className="space-y-1">
         {lista.map((p, i) => (
-          <div key={p.id ?? i} className="flex flex-wrap items-center gap-2 text-[11px] border-b border-[#3D2314]/6 pb-1.5">
+          <div key={p.id ?? i} data-ajuda="compras.docs_recebidos.parcela_vencimento" className="flex flex-wrap items-center gap-2 text-[11px] border-b border-[#3D2314]/6 pb-1.5">
             <span className="text-[#3D2314]/45 w-5">{i + 1}</span>
             <input type="date" value={p.data_vencimento ?? ''} onChange={(e) => patch(i, { data_vencimento: e.target.value })} className="border border-[#3D2314]/15 rounded px-1 py-0.5 text-[#3D2314]" />
-            <input type="number" step="0.01" value={p.valor ?? ''} onChange={(e) => patch(i, { valor: Number(e.target.value) })} placeholder="valor" className="w-24 border border-[#3D2314]/15 rounded px-1 py-0.5 text-right text-[#3D2314]" />
+            <input type="text" inputMode="decimal" value={p.valorTexto ?? (p.valor != null ? String(p.valor).replace('.', ',') : '')} onChange={(e) => patch(i, { valorTexto: e.target.value, valor: numOrNull(e.target.value) })} onBlur={() => patch(i, { valorTexto: undefined })} placeholder="valor" className="w-24 border border-[#3D2314]/15 rounded px-1 py-0.5 text-right text-[#3D2314]" />
             {/* §5 · forma, conta e código de barras — opcionais; chegam completos no contas a pagar */}
             <select value={p.forma_pagamento ?? ''} onChange={(e) => patch(i, { forma_pagamento: e.target.value || null })} title="Forma de pagamento" className="border border-[#3D2314]/15 rounded px-1 py-0.5 text-[#3D2314] min-h-[30px]">
               <option value="">forma…</option>
@@ -968,7 +1040,7 @@ function ParcelasBlock({ parcelas, valorNota, contas, onRefazer, onSalvar }: {
       <div className="flex items-center justify-between mt-2 gap-2 flex-wrap">
         <button type="button" onClick={() => setLista((a) => [...a, { numero_dup: null, data_vencimento: null, valor: null }])} className="text-[11px] text-[#3F7012] font-medium hover:underline">+ adicionar parcela</button>
         <span className={'text-[11px] font-medium ' + (bate ? 'text-[#3F7012]' : 'text-[#A32D2D]')}>soma {brl(soma)} {bate ? '= nota ✅' : `≠ nota ${brl(valorNota ?? 0)}`}</span>
-        <button type="button" disabled={!bate} onClick={() => void onSalvar(lista)} className="px-3 py-1.5 rounded-md bg-[#3F7012] text-white font-medium text-[11px] disabled:opacity-40">Salvar parcelas</button>
+        <button type="button" disabled={!bate} onClick={() => void onSalvar(lista.map((p) => { const { valorTexto: _vt, ...rest } = p; return rest }))} className="px-3 py-1.5 rounded-md bg-[#3F7012] text-white font-medium text-[11px] disabled:opacity-40">Salvar parcelas</button>
       </div>
     </div>
   )

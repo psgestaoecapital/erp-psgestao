@@ -6,6 +6,7 @@ import { ChevronLeft, Plus, Trash2, Check } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { comPrazo } from '@/lib/comPrazo'
 import { useEmpresaSelecionada, usePropriedade } from '@/lib/agro/usePecuaria'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -186,7 +187,7 @@ export default function CadastrarRebanho() {
       p_id: loteForm.id,
     })
     setSalvandoLote(false)
-    if (error) { setErroLote(error.message); return }   // RPC valida código duplicado → exibe
+    if (error) { setErroLote(erroAmigavel(error)); return }   // RPC valida código duplicado → exibe
     const novoId = (data as string | null) ?? loteForm.id
     await recarregarLotes()
     if (novoId) setCab((c) => ({ ...c, lote_id: novoId }))   // já deixa selecionado, pronto pra usar
@@ -240,7 +241,7 @@ export default function CadastrarRebanho() {
           p_observacao: montarObservacao(it),
           p_id: null,
         })
-        if (error) erros.push(`${it.identificacao || 'sem id'}: ${error.message}`)
+        if (error) erros.push(`${it.identificacao || 'sem id'}: ${erroAmigavel(error)}`)
         else criados++
       }
       if (criados > 0) {
@@ -280,7 +281,7 @@ export default function CadastrarRebanho() {
         p_animais: animais, p_peso_medio_kg: pesoMedio, p_observacao: null,
       })
       const r = data as { ok?: boolean; erro?: string; criados?: number } | null
-      if (error || !r?.ok) { setMsg({ tipo: 'erro', texto: error?.message || r?.erro || 'Falha ao cadastrar o lote' }); return }
+      if (error || !r?.ok) { setMsg({ tipo: 'erro', texto: error ? erroAmigavel(error, 'Falha ao cadastrar o lote') : (r?.erro || 'Falha ao cadastrar o lote') }); return }
       const loteCodigo = lotes.find((l) => l.id === cab.lote_id)?.codigo
       setMsg({ tipo: 'ok', texto: `${r.criados} animais cadastrados${loteCodigo ? ` no lote ${loteCodigo}` : ''}.` })
       setLoteQtd(''); setPesoLote(''); setGridLote([]); setLoteRaca('')

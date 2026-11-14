@@ -83,6 +83,12 @@ ok(/fn_demo_seed_pm_social\(p_company_id\)/.test(sql) && /ancora 28\/09 nao enco
 // telas
 const PL = 'src/app/dashboard/pm/planejamento/page.tsx', CA = 'src/app/dashboard/pm/calendario/page.tsx', PF = 'src/components/pm/social/PostForm.tsx'
 for (const f of [PL, CA, PF, 'src/components/pm/social/ClienteErpBusca.tsx']) ok(existsSync(f), `tela ${f}`)
+// Fase 2 (CEO 09/11): o vocabulário do post e o botão Gerar job estão na migration 20261111160010 (o gatilho de outubro é histórico).
+const F2 = ler('supabase/migrations/20261111160010_pm_post_status_fase2.sql')
+ok(/CHECK \(status = ANY \(ARRAY\['nao_iniciada'::text, 'em_producao'::text, 'em_aprovacao'::text, 'concluida'::text, 'publicado'::text\]\)\)/.test(F2), 'e) CHECK do post aceita exatamente os 5 status (Não Iniciada, Em Produção, Em aprovação, Concluído, Publicado)')
+ok(/IF NEW\.status IN \('em_producao', 'concluida', 'publicado'\) AND \(NEW\.servico_id IS NULL OR NEW\.publicar_em IS NULL\)/.test(F2), 'e) andamento e publicação exigem peça e data')
+ok(/current_setting\('agency\.gerar_job', true\) = '1' AND NEW\.status = 'nao_iniciada' AND NEW\.job_id IS NULL/.test(F2), 'e) job só é criado pela flag do botão, com o post em nao_iniciada')
+ok(!/UPDATE agency_posts SET status = 'nao_iniciada' WHERE id = p_post_id;\s*$/m.test(F2) && /SET status = 'nao_iniciada', updated_at = now\(\) WHERE id = p_post_id/.test(F2), 'e) a RPC Gerar job deixa o post em nao_iniciada')
 const pl = ler(PL), ca = ler(CA), pf = ler(PF), cb = ler('src/components/pm/social/ClienteErpBusca.tsx')
 ok(/buscarClientesErp/.test(cb) && !/fn_pm_cliente_garantir/.test(cb) && /<ClienteErpBusca[\s\S]{0,120}ajuda="pm\.planejamento\.cliente"/.test(pl), 'a) tela escolhe o cliente no cadastro (erp_clientes), sem criar perfil')
 ok(/from\("agency_planejamentos"\)/.test(pl) && /from\("agency_posts"\)/.test(pl) && /fn_agency_config_listar", \{ p_company_id: empresa, p_lista: "rede_social" \}/.test(pl), 'tela usa as tabelas novas e a lista de redes da empresa')
@@ -93,7 +99,7 @@ for (const k of ['pm.post.assunto', 'pm.post.publicar_em', 'pm.post.redes', 'pm.
 for (const k of ['pm.calendario.visao', 'pm.calendario.data', 'pm.calendario.cliente', 'pm.calendario.status']) ok(ca.includes(`"${k}"`), `"?" ${k}`)
 ok(/prazoDoPost\(f\.publicar_em, peca\?\.antecedencia_dias\)/.test(pf), 'd) formulário mostra o prazo do job antes de gravar')
 ok(/calendario-semana-lista/.test(ca) && /calendario-mes-celular/.test(ca) && /md:grid/.test(ca), 'calendário: semana e mês, com versão de celular')
-ok(/excluido_em: new Date\(\)\.toISOString\(\)/.test(pl) && !/\.delete\(\)/.test(pl), 'tela manda para a lixeira (nunca apaga)')
+ok(/fn_pm_planejamento_excluir/.test(pl) && !/\.delete\(\)/.test(pl), 'tela manda para a lixeira pela RPC rastreável fn_pm_planejamento_excluir (RD-98 p4; nunca apaga)')
 ok(/'rede_social', label: 'Redes sociais'/.test(ler('src/app/dashboard/pm/configuracoes/page.tsx')), 'c) redes gerenciáveis em P&M › Configurações › Listas')
 ok(/chave="pm\.servico\.antecedencia"/.test(ler('src/app/dashboard/pm/servicos/page.tsx')), 'd) antecedência editável no catálogo, com "?"')
 

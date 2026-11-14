@@ -7,7 +7,10 @@
 
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { numeroParaMoeda } from '@/lib/moeda-mascara'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -69,7 +72,7 @@ function Inner() {
       supabase.from('v_veic_patio').select('id,fiscais_faltantes,sugestao_ano_chassi').eq('company_id', companyId),
       supabase.rpc('fn_veic_modelo_listar', { p_company_id: companyId }),
     ])
-    if (vv.error) { setErro(vv.error.message); return }
+    if (vv.error) { setErro(erroAmigavel(vv.error, 'Não foi possível carregar. Tente de novo.')); return }
     const patMap = new Map<string, { fiscais_faltantes: string[]; sugestao_ano_chassi: number | null }>()
     ;((pat.data as { id: string; fiscais_faltantes: string[] | null; sugestao_ano_chassi: number | null }[]) ?? []).forEach((p) => patMap.set(p.id, { fiscais_faltantes: p.fiscais_faltantes ?? [], sugestao_ano_chassi: p.sugestao_ano_chassi }))
     const lista: Row[] = ((vv.data as Omit<Row, 'fiscais_faltantes' | 'sugestao_ano_chassi'>[]) ?? []).map((v) => ({
@@ -108,7 +111,7 @@ function Inner() {
   async function aplicarModelo(m: Modelo) {
     const { data, error } = await supabase.rpc('fn_veic_modelo_aplicar', { p_company_id: companyId, p_modelo_id: m.id, p_veiculo_ids: null, p_user: await uid() })
     const r = data as { ok?: boolean; erro?: string; atualizados?: number } | null
-    if (error || !r?.ok) { setErro(error?.message || r?.erro || 'Falha'); return }
+    if (error || !r?.ok) { setErro(erroAmigavel(error, codigoAmigavel(r?.erro, 'Falha'))); return }
     setMsg(`${m.marca} ${m.modelo}: ${r.atualizados ?? 0} veículo(s) preenchido(s) pelo modelo.`); void carregar()
   }
 
@@ -177,7 +180,7 @@ function NovoModelo({ companyId, onSaved, onErro }: { companyId: string; onSaved
     const { data, error } = await supabase.rpc('fn_veic_modelo_salvar', { p_company_id: companyId, p_modelo: f, p_user: user?.id ?? null })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { onErro(r?.erro === 'marca_e_modelo_obrigatorios' ? 'Marca e modelo são obrigatórios.' : (error?.message || 'Falha')); return }
+    if (error || !r?.ok) { onErro(r?.erro === 'marca_e_modelo_obrigatorios' ? 'Marca e modelo são obrigatórios.' : erroAmigavel(error, 'Falha')); return }
     setF({ marca: '', modelo: '', versao: '', combustivel: '', potencia_cv: '', cilindradas: '', portas: '', cambio: '' }); onSaved()
   }
   const F = (k: keyof typeof f, ph: string, w?: number) => <input value={f[k]} onChange={(e) => setF({ ...f, [k]: e.target.value })} placeholder={ph} style={{ ...inp, width: w }} />
@@ -217,7 +220,7 @@ function LinhaLote({ r, companyId, ncmSugerido, onSaved, onErro }: { r: Row; com
     // R7b-2 · identificação/documento
     tipo: r.tipo ?? '', placa: r.placa ?? '', renavam: r.renavam ?? '', chassi: r.chassi ?? '', cor: r.cor ?? '', portas: num(r.portas),
     // técnicos (já existiam)
-    combustivel: r.combustivel ?? '', potencia_cv: num(r.potencia_cv), cilindradas: num(r.cilindradas), ano_fabricacao: num(r.ano_fabricacao), ano_modelo: num(r.ano_modelo), valor_aquisicao: num(r.valor_aquisicao),
+    combustivel: r.combustivel ?? '', potencia_cv: num(r.potencia_cv), cilindradas: num(r.cilindradas), ano_fabricacao: num(r.ano_fabricacao), ano_modelo: num(r.ano_modelo), valor_aquisicao: numeroParaMoeda(r.valor_aquisicao),
     // B2 · NCM (classificação fiscal) — sugerido pela fn_veic_ncm_sugerido, editável
     ncm: r.ncm ?? '',
     km_atual: num(r.km_atual), tem_manual: simNao(r.tem_manual), tem_chave_reserva: simNao(r.tem_chave_reserva),
@@ -295,7 +298,7 @@ function LinhaLote({ r, companyId, ncmSugerido, onSaved, onErro }: { r: Row; com
       onErro(e === 'tipo_invalido' ? 'Tipo inválido.' : e === 'sem_acesso' ? 'Sem acesso a esta empresa.'
         : e === 'valor_invalido' ? `Valor inválido em "${ROTULO[rr?.campo ?? ''] ?? rr?.campo ?? 'campo'}"${rr?.valor ? ` ("${rr.valor}")` : ''} — use só números, ex.: 72956 ou 72.956,00.`
         : e === 'ncm_invalido' ? 'NCM inválido — use 8 dígitos.'
-        : (error?.message || e || 'Falha'))
+        : erroAmigavel(error, codigoAmigavel(e, 'Falha')))
       return
     }
     setIaFields(new Set()) // salvou → o destaque "confira e salve" sai
@@ -424,7 +427,7 @@ function LinhaLote({ r, companyId, ncmSugerido, onSaved, onErro }: { r: Row; com
         {mostraCil && <Campo label="cilindr. (nota)" w={95}><input value={f.cilindradas} onChange={(e) => setF({ ...f, cilindradas: e.target.value })} placeholder="cc" style={inp} /></Campo>}
         <Campo label="ano fab" w={80}><input value={f.ano_fabricacao} onChange={(e) => setF({ ...f, ano_fabricacao: e.target.value })} placeholder={r.sugestao_ano_chassi ? `${r.sugestao_ano_chassi}?` : 'ano'} style={{ ...inp, ...hi('ano_fabricacao') }} /></Campo>
         <Campo label="ano mod" w={80}><input value={f.ano_modelo} onChange={(e) => setF({ ...f, ano_modelo: e.target.value })} placeholder={r.sugestao_ano_chassi ? `${r.sugestao_ano_chassi}?` : 'ano'} style={{ ...inp, ...hi('ano_modelo') }} /></Campo>
-        <Campo label="aquisição" w={110}><input value={f.valor_aquisicao} onChange={(e) => setF({ ...f, valor_aquisicao: e.target.value })} placeholder="R$" style={inp} /></Campo>
+        <Campo label="aquisição" w={110}><CampoMoeda value={f.valor_aquisicao} onChange={(v) => setF({ ...f, valor_aquisicao: v })} placeholder="R$" style={inp} /></Campo>
         <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
           {r.sugestao_ano_chassi != null && (!f.ano_modelo || !f.ano_fabricacao) && (
             <button title={`sugestão pelo chassi: ${r.sugestao_ano_chassi}`} onClick={() => setF({ ...f, ano_modelo: f.ano_modelo || String(r.sugestao_ano_chassi), ano_fabricacao: f.ano_fabricacao || String(r.sugestao_ano_chassi) })}

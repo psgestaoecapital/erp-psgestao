@@ -11,6 +11,11 @@ type Chamado = { id: string }
 test.describe('Escopo de agente de sócio e OK do sócio', () => {
   const criadas: string[] = []
   let rodrigo = ''
+  // socio_user_id de TODOS os escopos ativos (não só rodrigo): desde a #4004 (CEO 06/11
+  // "Aprovação pelos sócios") jordana-code também tem escopo, então um chamado "de outro"
+  // escolhido só por "não é do rodrigo" pode pertencer ao escopo da jordana (dono = jordana-code).
+  // Para provar "de ninguém, dono null" o "outro" precisa estar FORA de todo escopo de sócio.
+  let socios: string[] = []
   test.afterEach(async ({}, testInfo) => {
     await registrarJornada('aceitacao-agente-socio-escopo', testInfo.status === testInfo.expectedStatus ? 'verde' : 'vermelho', testInfo.title)
   })
@@ -26,6 +31,8 @@ test.describe('Escopo de agente de sócio e OK do sócio', () => {
     const e = await dbSelect<{ socio_user_id: string; ativo: boolean }>('erp_agente_escopo', 'agente=eq.rodrigo-code&select=socio_user_id,ativo')
     expect(e.length, 'rodrigo-code tem escopo').toBe(1)
     rodrigo = e[0].socio_user_id
+    const ativos = await dbSelect<{ socio_user_id: string }>('erp_agente_escopo', 'ativo=eq.true&select=socio_user_id')
+    socios = ativos.map((s) => s.socio_user_id)
   })
 
   const msg = async (para: string, extra: Record<string, unknown> = {}) => {
@@ -40,7 +47,8 @@ test.describe('Escopo de agente de sócio e OK do sócio', () => {
   test('escopo: aberto pelo sócio ou com ele de responsável; de outro, não', { tag: '@pos-migration' }, async () => {
     const meu = await dbSelect<Chamado>('sugestoes', `user_id=eq.${rodrigo}&select=id&limit=1`)
     const resp = await dbSelect<Chamado>('sugestoes', `responsavel_id=eq.${rodrigo}&user_id=neq.${rodrigo}&select=id&limit=1`)
-    const outro = await dbSelect<Chamado>('sugestoes', `responsavel_id=neq.${rodrigo}&user_id=neq.${rodrigo}&select=id&limit=1`)
+    const foraEscopo = `(${socios.join(',')})`
+    const outro = await dbSelect<Chamado>('sugestoes', `user_id=not.in.${foraEscopo}&responsavel_id=not.in.${foraEscopo}&select=id&limit=1`)
     for (const c of [meu[0], resp[0]]) {
       expect(await rpc<boolean>('fn_agente_escopo_chamado', { p_agente: 'rodrigo-code', p_chamado: c.id })).toBe(true)
       expect(await rpc<string>('fn_chamado_agente_dono', { p_chamado: c.id })).toBe('rodrigo-code')

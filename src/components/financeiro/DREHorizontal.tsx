@@ -9,6 +9,7 @@
 // - árvore colapsável; sticky; valor sempre cheio (R$ 1.234,56), negativo em vermelho.
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import Modal from '@/components/ui/Modal'
@@ -45,6 +46,10 @@ type Linha = {
   valores: Record<string, number>
 }
 type Uni = { regime: string; empresas: number; modo: 'mes' | 'dia'; colunas: Coluna[]; linhas: Linha[]; saldoInicial?: number; diaNegativo?: string | null }
+// Saúde do DRE (CEO 28/10 · detalhe × DRE, Parte 3): fn_psgc_dre_conciliacao reconcilia TODAS as contas de uma vez —
+// por conta, soma do detalhe (erp_pagar+erp_receber via de-para, com sinal) × linha do DRE (psgc_dre com sinal).
+type ContaConc = { codigo: string; conta_nome: string | null; grupo: string | null; is_receita: boolean; total_detalhe: number; dre_periodo: number; diferenca: number; concilia: boolean }
+type ConcResult = { ok: boolean; erro?: string; regime: string; contas: ContaConc[]; resumo: { n_contas: number; n_conciliam: number; n_diferem: number; maior_diff_abs: number; soma_diff_abs: number } }
 
 type RawLinha = Omit<Linha, 'valores'> & { valores_mes?: Record<string, number>; valores_dia?: Record<string, number> }
 type MesRaw = { ym: string; label: string; projecao: boolean }
@@ -72,6 +77,7 @@ export default function DREHorizontal() {
   const [membros, setMembros] = useState<string[]>([])
   const [grupoNome, setGrupoNome] = useState<string>('')
   const [data, setData] = useState<Uni | null>(null)
+  const [conc, setConc] = useState<ConcResult | null>(null) // Saúde do DRE (reconciliação por conta)
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
 
@@ -145,6 +151,22 @@ export default function DREHorizontal() {
     setColapsados(new Set(data.linhas.filter((l) => l.kind === 'grupo').map((l) => l.codigo)))
   }, [data, tudoAberto])
 
+  // Saúde do DRE: reconcilia todas as contas do período/regime (só no consolidado, por intervalo de meses — onde o
+  // detalhe da conta é LANÇAMENTOS). Previsto é fluxo de caixa por vencimento, não entra nesta reconciliação.
+  useEffect(() => {
+    if (visao !== 'consolidado' || !data || data.modo !== 'mes' || regime === 'previsto' || !membros.length) { setConc(null); return }
+    let vivo = true
+    void supabase.rpc('fn_psgc_dre_conciliacao', {
+      p_company_ids: membros, p_mes_ini: `${ano}-${pad2(selIni)}-01`, p_mes_fim: `${ano}-${pad2(selFim)}-01`, p_regime: regime,
+    }).then(({ data: res, error }) => {
+      if (!vivo) return
+      const r = res as ConcResult | null
+      if (error || !r || r.ok === false) { setConc(null); return }
+      setConc(r)
+    })
+    return () => { vivo = false }
+  }, [data, membros, ano, selIni, selFim, regime, visao])
+
   function toggleGrupo(codigo: string) {
     setColapsados((prev) => { const n = new Set(prev); if (n.has(codigo)) n.delete(codigo); else n.add(codigo); return n })
   }
@@ -164,6 +186,8 @@ export default function DREHorizontal() {
     return data.linhas.filter((l) => l.kind !== 'conta' || !colapsados.has(l.grupo_ref ?? ''))
   }, [data, colapsados])
   const totalLinha = useCallback((l: Linha) => colunas.reduce((s, c) => s + (l.valores[c.key] ?? 0), 0), [colunas])
+  // contas cujo detalhe NÃO bate com a linha do DRE → ⚠ na linha
+  const concDiferem = useMemo(() => new Set((conc?.contas ?? []).filter((c) => !c.concilia).map((c) => c.codigo)), [conc])
 
   // Muitos meses no cabeçalho → modo compacto (fonte/espaçamento menores; valor SEMPRE completo — RD do formato de moeda).
   const compacto = data?.modo === 'mes' && colunas.length >= 8
@@ -271,6 +295,21 @@ export default function DREHorizontal() {
           </div>
         )}
 
+        {/* Saúde do DRE (Parte 3): quantas contas têm o detalhe batendo com a linha; ⚠ marca a que não bate. */}
+        {conc && conc.resumo.n_contas > 0 && (
+          <div className="dre-noprint" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12, padding: '10px 14px', borderRadius: 8, fontSize: 13,
+              background: conc.resumo.n_diferem === 0 ? '#E8F6EC' : '#FFF6E6', border: `1px solid ${conc.resumo.n_diferem === 0 ? '#BFE4CB' : '#E7C98A'}` }}>
+            <span style={{ fontWeight: 800, color: conc.resumo.n_diferem === 0 ? GREEN : '#A5730F' }}>
+              {conc.resumo.n_diferem === 0 ? '✓' : '⚠'} Saúde do DRE
+            </span>
+            <span style={{ color: ESP }}>
+              {conc.resumo.n_conciliam} de {conc.resumo.n_contas} contas conciliam (o detalhe bate com a linha do DRE)
+              {conc.resumo.n_diferem > 0 && <> · <b style={{ color: '#A5730F' }}>{conc.resumo.n_diferem} não bate{conc.resumo.n_diferem > 1 ? 'm' : ''}</b> — clique no ⚠ da conta pra ver o detalhe</>}
+            </span>
+            <AjudaCampo chave="financeiro.dre_consolidado.saude_dre" rota={ROTA_DRE} />
+          </div>
+        )}
+
         {visao === 'ln' ? (
           <DREPorLN membros={membros} ano={ano} selIni={selIni} selFim={selFim}
             regime={regime === 'previsto' ? 'competencia' : regime} grupoNome={grupoNome} />
@@ -347,6 +386,10 @@ export default function DREHorizontal() {
                           <span style={{ ...caret, display: 'inline-block' }} aria-hidden>{aberta ? '▾' : '▸'}</span>
                         ) : <span style={{ display: 'inline-block', width: 16 }} />}
                         {l.nome}
+                        {isConta && concDiferem.has(l.codigo) && (
+                          <span title="O detalhe desta conta não bate com o DRE — abra a conta pra ver os títulos (categoria faltando, sem a data do regime, ou DRE a recalcular)."
+                            aria-label="detalhe não bate com o DRE" style={{ marginLeft: 6, color: '#A5730F', fontWeight: 800 }}>⚠</span>
+                        )}
                       </td>
                       {colunas.map((c) => {
                         const v = l.valores[c.key]
@@ -791,8 +834,17 @@ function DrillLancamentos({ membros, codigo, nome, mesIni, mesFim, regime, colSp
             <AjudaCampo chave="financeiro.dre_consolidado.drill_lancamentos" rota={ROTA_DRE} />
             {Math.abs(diff) < 0.01
               ? <span style={{ color: GREEN, marginLeft: 6, fontWeight: 700 }}>✓ fecha com o DRE</span>
-              : <span style={{ color: RED, marginLeft: 6, fontWeight: 700 }}>⚠ não bate com o DRE ({cheio(d.dre_periodo ?? 0)}): diferença de {cheio(diff)}. Revise títulos sem categoria ou sem a data do regime, ou recalcule o DRE.</span>}
+              : <span style={{ color: RED, marginLeft: 6, fontWeight: 700 }}>⚠ não bate com o DRE ({cheio(d.dre_periodo ?? 0)}): diferença de {cheio(diff)}</span>}
           </div>
+
+          {/* Parte 2 (detalhe × DRE): quando a soma dos títulos NÃO fecha com a linha do DRE, um quadro explica a
+              causa provável, o que fazer e leva à aba/campo certo — no lugar de só o aviso de uma linha (Parte 1/3). */}
+          {Math.abs(diff) >= 0.01 && (
+            <QuadroNaoBate diff={diff} drePeriodo={d.dre_periodo ?? 0}
+              semComp={d.orfaos.length + d.lancamentos.filter((x) => x.sem_competencia).length}
+              nEmpresas={membros.length} />
+          )}
+
           {tabela(d.lancamentos, 'Nenhum lançamento desta conta no período.')}
           {d.orfaos.length > 0 && (
             <div style={{ marginTop: 10 }}>
@@ -806,6 +858,72 @@ function DrillLancamentos({ membros, codigo, nome, mesIni, mesFim, regime, colSp
         </div>
       </td>
     </tr>
+  )
+}
+
+// ── Parte 2 (detalhe × DRE): "Por que não bate?" — causa provável + o que fazer + link para a aba/campo certo.
+// Reaproveita o que a fn_psgc_dre_lancamentos já devolve (órfãos / sem competência / diferença) e a correção de
+// mapeamento do Plano de contas (que recalcula o DRE). SEM número inventado: a IA/UI só explica o que o dado mostra.
+type Causa = { titulo: string; oque: string; fazer: string; ajuda?: string; link?: { href: string; label: string } }
+
+function QuadroNaoBate({ diff, drePeriodo, semComp, nEmpresas }: {
+  diff: number; drePeriodo: number; semComp: number; nEmpresas: number
+}) {
+  // diff = soma dos títulos − linha guardada no DRE. >0: há título que o DRE ainda não conta; <0: o DRE conta algo que não aparece aqui.
+  const causas: Causa[] = []
+  if (semComp > 0) causas.push({
+    titulo: `${semComp} título(s) sem data de competência`,
+    oque: 'Sem a data de competência (o mês do resultado), o título não entra no mês certo — por isso a linha não fecha.',
+    fazer: 'Abra cada título destacado em vermelho abaixo (em Contas a pagar / a receber) e informe a data de competência.',
+    ajuda: 'financeiro.dre_consolidado.sem_competencia',
+  })
+  causas.push({
+    titulo: 'Categoria ainda não ligada a uma conta do DRE',
+    oque: 'Quando a categoria do lançamento não está mapeada para uma conta do DRE (de-para), o valor fica de fora desta linha.',
+    fazer: 'Ligue a categoria à conta certa no Plano de contas. Ao salvar, o DRE é recalculado automaticamente.',
+    link: { href: '/dashboard/dre-divisional/plano-contas', label: 'Abrir Plano de contas →' },
+  })
+  causas.push({
+    titulo: 'DRE guardado pode estar desatualizado',
+    oque: 'O DRE é calculado e guardado. Se você lançou ou alterou títulos depois, o valor guardado pode estar velho.',
+    fazer: 'Revise/confirme o mapeamento no Plano de contas — isso dispara o recálculo dos últimos 12 meses.',
+    link: { href: '/dashboard/dre-divisional/plano-contas', label: 'Revisar mapeamento →' },
+  })
+  if (nEmpresas > 1) causas.push({
+    titulo: `Consolidado de ${nEmpresas} empresas`,
+    oque: 'O total soma todas as empresas do grupo. Se faltar alguma no consolidado, o valor diverge.',
+    fazer: 'Confira o seletor de empresa/grupo no topo da tela.',
+  })
+
+  return (
+    <div data-testid="dre-por-que-nao-bate" style={{ border: `1px solid ${GOLD}`, borderRadius: 10, background: '#FEFBF4', padding: '12px 14px', margin: '0 0 10px' }}>
+      <div style={{ fontSize: 12.5, fontWeight: 800, color: '#8A6A1E', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+        Por que não bate?
+        <AjudaCampo chave="financeiro.dre_consolidado.drill_lancamentos" rota={ROTA_DRE} />
+      </div>
+      <p style={{ fontSize: 12, color: ESP, margin: '0 0 10px' }}>
+        A soma dos títulos difere do DRE guardado ({cheio(drePeriodo)}) em <b style={{ color: RED }}>{cheio(diff)}</b>
+        {diff > 0 ? ' a mais nos títulos' : ' a menos nos títulos'}. Verifique, nesta ordem:
+      </p>
+      <ol style={{ margin: 0, paddingLeft: 0, listStyle: 'none', display: 'grid', gap: 8 }}>
+        {causas.map((c, i) => (
+          <li key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+            <span style={{ flex: '0 0 auto', width: 20, height: 20, borderRadius: 999, background: GOLD, color: '#fff', fontSize: 11, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>{i + 1}</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: ESP, display: 'flex', alignItems: 'center', gap: 4 }}>
+                {c.titulo}
+                {c.ajuda && <AjudaCampo chave={c.ajuda} rota={ROTA_DRE} />}
+              </div>
+              <div style={{ fontSize: 12, color: MUT, marginTop: 1 }}>{c.oque}</div>
+              <div style={{ fontSize: 12, color: ESP, marginTop: 3 }}><b>O que fazer:</b> {c.fazer}</div>
+              {c.link && (
+                <Link href={c.link.href} style={{ display: 'inline-block', marginTop: 5, fontSize: 12, fontWeight: 700, color: GOLD, textDecoration: 'none' }}>{c.link.label}</Link>
+              )}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </div>
   )
 }
 

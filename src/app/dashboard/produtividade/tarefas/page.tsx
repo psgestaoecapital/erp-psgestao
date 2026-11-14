@@ -12,6 +12,8 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
+import { parseNumBR } from '@/lib/num'
 import { CelulaEditavel, type OpcaoCelula } from '@/components/produtividade/CelulaEditavel'
 import { Video, Timer } from 'lucide-react'
 
@@ -135,7 +137,7 @@ function Inner() {
     setCarregandoTarefas(true)
     const { data, error } = await supabase.rpc('fn_prod_tarefa_listar', { p_company_id: companyId, p_plant_id: plantId, p_etapa_id: etapaId })
     setCarregandoTarefas(false)
-    if (error) { flashErr(error.message); return }
+    if (error) { flashErr(erroAmigavel(error, 'Não foi possível carregar as tarefas. Tente de novo.')); return }
     const r = data as { ok: boolean; itens?: Tarefa[] } | null
     setTarefas(r?.ok ? (r.itens ?? []).filter((t) => t.ativo) : [])
   }, [companyId, plantId, etapaId, flashErr])
@@ -224,7 +226,7 @@ function TabelaTarefas({ ctx, etapaId, tarefas, carregando, cargosOpt, proximaOr
       p_id: next.id || null, p_ordem: next.ordem, p_cargo_id: next.cargo_id,
       p_cap_hora: next.cap_hora, p_unidade_cap: next.unidade_cap, p_estado: next.estado,
     })
-    if (error) return error.message
+    if (error) return erroAmigavel(error, 'Não foi possível salvar a tarefa. Tente de novo.')
     const r = data as { ok: boolean; id?: string; erro?: string } | null
     if (!r?.ok) return ERRS_TAREFA[r?.erro ?? ''] ?? 'Não consegui salvar a tarefa agora.'
     await onMudou()
@@ -234,7 +236,7 @@ function TabelaTarefas({ ctx, etapaId, tarefas, carregando, cargosOpt, proximaOr
   async function arquivar(t: Tarefa) {
     if (!window.confirm(`Arquivar a tarefa "${t.nome}"?\n\nEla sai da etapa (não é apagada). Os vídeos registrados ficam guardados.`)) return
     const { error } = await supabase.rpc('fn_prod_tarefa_arquivar', { p_company_id: ctx.companyId, p_plant_id: ctx.plantId, p_id: t.id, p_ativo: false })
-    if (error) { ctx.flashErr(`Não consegui arquivar: ${error.message}`); return }
+    if (error) { ctx.flashErr(erroAmigavel(error, 'Não foi possível arquivar a tarefa. Tente de novo.')); return }
     ctx.flash(`EXCLUIU (arquivou) a tarefa "${t.nome}".`)
     await onMudou()
   }
@@ -363,8 +365,8 @@ function BlocoCronometro({ ctx, tarefa, onMudou }: { ctx: Ctx; tarefa: Tarefa; o
 
   async function gravar() {
     setErro(null)
-    const ts = Number(tempo.trim().replace(',', '.'))
-    const qp = Number((pecas.trim() || '1').replace(',', '.'))
+    const ts = parseNumBR(tempo) ?? NaN // aceita vírgula e milhar BR (#5660)
+    const qp = parseNumBR(pecas.trim() || '1') ?? NaN // aceita vírgula e milhar BR (#5660)
     if (!(ts > 0)) { setErro('Informe o tempo medido em segundos (maior que zero).'); return }
     if (!(qp > 0)) { setErro('Nº de peças deve ser maior que zero.'); return }
     setSalvando(true)
@@ -374,7 +376,7 @@ function BlocoCronometro({ ctx, tarefa, onMudou }: { ctx: Ctx; tarefa: Tarefa; o
     })
     setSalvando(false)
     const r = data as { ok?: boolean; cap_hora?: number; n_medicoes?: number } | null
-    if (error || !r?.ok) { setErro(error?.message ?? 'Não consegui gravar a medição agora.'); return }
+    if (error || !r?.ok) { setErro(erroAmigavel(error, 'Não foi possível gravar a medição agora. Tente de novo.')); return }
     ctx.flash(`Medição gravada — Cap./h recalculada: ${r.cap_hora} peças/h (${r.n_medicoes} ciclo(s)).`)
     setTempo(''); setPecas('1'); setObs('')
     await carregar()
@@ -522,14 +524,14 @@ function BlocoVideos({ ctx, tarefa }: { ctx: Ctx; tarefa: Tarefa }) {
     setBusy(true)
     const path = `${ctx.companyId}/${tarefa.id}/${Date.now()}-${file.name}`
     const up = await supabase.storage.from(BUCKET).upload(path, file)
-    if (up.error) { setBusy(false); setErroLocal(`Falha ao enviar o arquivo: ${up.error.message}`); return }
+    if (up.error) { setBusy(false); setErroLocal(erroAmigavel(up.error, 'Não foi possível enviar o arquivo. Tente de novo.')); return }
     const { data, error } = await supabase.rpc('fn_prod_video_subir', {
       p_company_id: ctx.companyId, p_plant_id: ctx.plantId, p_tarefa_id: tarefa.id, p_storage_path: path,
       p_consentimento_id: consentId, p_duracao_seg: duracao.trim() ? Number(duracao.trim()) : null,
       p_protocolo_ok: protocoloOk, p_guardar_ate: guardarAte || null,
     })
     setBusy(false)
-    if (error) { setErroLocal(error.message); return }
+    if (error) { setErroLocal(erroAmigavel(error, 'Não foi possível salvar. Tente de novo.')); return }
     const r = data as { ok: boolean; id?: string; status?: string; erro?: string } | null
     if (!r?.ok) { setErroLocal(ERRS_VIDEO[r?.erro ?? ''] ?? 'Não consegui registrar o vídeo.'); return }
     ctx.flash('CRIOU o vídeo da tarefa — status: aguardando análise.')
@@ -647,7 +649,7 @@ function NovoConsentimento({ ctx, onCriado }: { ctx: Ctx; onCriado: (id: string)
       p_termo_versao: termo.trim(), p_id: null, p_colaborador_documento: doc.trim() || null, p_consentido: true,
     })
     setBusy(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível salvar. Tente de novo.')); return }
     const r = data as { ok: boolean; id?: string } | null
     if (!r?.ok || !r.id) { setErro('Não consegui registrar o consentimento.'); return }
     ctx.flash(`CRIOU o consentimento de ${nome.trim()}.`)

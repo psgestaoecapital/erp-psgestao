@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from 'rea
 import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
 import {
   Plus, Search, FileText, ShoppingCart, BarChart3, X, Info, Trash2,
@@ -22,6 +23,9 @@ import {
 } from 'lucide-react'
 import CotacaoWhatsAppModal from '@/components/comum/CotacaoWhatsAppModal'
 import OrdemFornecimentoCard, { type CondicoesOF } from '@/components/compras/OrdemFornecimento'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA_AJUDA = '/dashboard/commerce/compras'
 
 export const dynamic = 'force-dynamic'
 
@@ -205,9 +209,9 @@ function ComprasInner() {
       supabase.from('erp_cotacoes').select('*').eq('company_id', companyIdUnico).order('created_at', { ascending: false }).limit(200),
       supabase.from('erp_compras').select('*').eq('company_id', companyIdUnico).order('created_at', { ascending: false }).limit(200),
     ])
-    if (cot.error) setErro('Cotações: ' + cot.error.message)
+    if (cot.error) setErro('Cotações: ' + erroAmigavel(cot.error))
     else setCotacoes((cot.data ?? []) as Cotacao[])
-    if (comp.error) setErro('Compras: ' + comp.error.message)
+    if (comp.error) setErro('Compras: ' + erroAmigavel(comp.error))
     else setCompras((comp.data ?? []) as Compra[])
     setLoading(false)
   }, [companyIdUnico])
@@ -233,7 +237,7 @@ function ComprasInner() {
 
   async function enviarCotacao(id: string) {
     const { error } = await supabase.from('erp_cotacoes').update({ status: 'enviada', updated_at: new Date().toISOString() }).eq('id', id)
-    if (error) { flashErr('Erro: ' + error.message); return }
+    if (error) { flashErr(erroAmigavel(error)); return }
     setCotacoes((prev) => prev.map((c) => (c.id === id ? { ...c, status: 'enviada' } : c)))
     if (cotSel?.id === id) setCotSel({ ...cotSel, status: 'enviada' })
     flash('Cotação marcada como enviada.')
@@ -242,7 +246,7 @@ function ComprasInner() {
   async function cancelarCotacao(id: string) {
     if (!confirm('Cancelar esta cotação?')) return
     const { error } = await supabase.from('erp_cotacoes').update({ status: 'cancelada', updated_at: new Date().toISOString() }).eq('id', id)
-    if (error) { flashErr('Erro: ' + error.message); return }
+    if (error) { flashErr(erroAmigavel(error)); return }
     setCotacoes((prev) => prev.map((c) => (c.id === id ? { ...c, status: 'cancelada' } : c)))
     if (cotSel?.id === id) setCotSel(null)
     flash('Cotação cancelada.')
@@ -253,7 +257,7 @@ function ComprasInner() {
       p_cotacao_id: cotacaoId,
       p_fornecedor_vencedor_id: fornecedorId,
     })
-    if (error) { flashErr('Erro: ' + error.message); return }
+    if (error) { flashErr(erroAmigavel(error)); return }
     flash('Cotação aprovada e pedido de compra gerado!')
     setShowCompare(null)
     setCotSel(null)
@@ -268,7 +272,7 @@ function ComprasInner() {
     }
     if (novoStatus === 'recebida_total') patch.data_recebimento = new Date().toISOString().slice(0, 10)
     const { error } = await supabase.from('erp_compras').update(patch).eq('id', compraId)
-    if (error) { flashErr('Erro: ' + error.message); return }
+    if (error) { flashErr(erroAmigavel(error)); return }
     setCompras((prev) => prev.map((c) => (c.id === compraId ? { ...c, ...patch } : c)))
     if (compSel?.id === compraId) setCompSel({ ...compSel, ...patch })
     flash('Status atualizado.')
@@ -277,7 +281,7 @@ function ComprasInner() {
   async function receberCompra(compraId: string) {
     if (!confirm('Receber esta compra? O estoque vai ser atualizado e o custo médio recalculado.')) return
     const { data, error } = await supabase.rpc('fn_compra_receber', { p_compra_id: compraId })
-    if (error) { flashErr('Erro: ' + error.message); return }
+    if (error) { flashErr(erroAmigavel(error)); return }
     const resp = data as { ok?: boolean; qtd_itens?: number } | null
     flash(`Mercadoria recebida · estoque atualizado em ${resp?.qtd_itens ?? 0} itens.`)
     await carregar()
@@ -290,7 +294,7 @@ function ComprasInner() {
   async function gerarTitulosCompra(compraId: string) {
     if (!confirm('Gerar os títulos a pagar a partir desta compra?')) return
     const { data, error } = await supabase.rpc('fn_compra_gerar_titulos', { p_compra_id: compraId })
-    if (error) { flashErr('Erro: ' + error.message); return }
+    if (error) { flashErr(erroAmigavel(error)); return }
     const resp = data as { ok?: boolean; qtd_parcelas?: number } | null
     flash(`Títulos gerados · ${resp?.qtd_parcelas ?? 0} parcela(s) em contas a pagar.`)
     await carregar()
@@ -337,22 +341,30 @@ function ComprasInner() {
           </div>
         </div>
         {tab === 'cotacoes' && (
-          <button onClick={() => setShowNova(true)} disabled={!canCreate} title={canCreate ? '' : 'Selecione uma empresa específica'}
-            style={btnPrincipal(canCreate)}>
-            <Plus size={14} /> Nova Cotação
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button onClick={() => setShowNova(true)} disabled={!canCreate} title={canCreate ? '' : 'Selecione uma empresa específica'}
+              style={btnPrincipal(canCreate)}>
+              <Plus size={14} /> Nova Cotação
+            </button>
+            <AjudaCampo chave="commerce.compras.nova_cotacao" rota={ROTA_AJUDA} />
+          </div>
         )}
         {tab === 'compras' && (
-          <button onClick={() => setShowNovaCompra(true)} disabled={!canCreate} title={canCreate ? '' : 'Selecione uma empresa específica'}
-            style={btnPrincipal(canCreate)} data-testid="commerce-nova-compra">
-            <Plus size={14} /> Nova compra
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button onClick={() => setShowNovaCompra(true)} disabled={!canCreate} title={canCreate ? '' : 'Selecione uma empresa específica'}
+              style={btnPrincipal(canCreate)} data-testid="commerce-nova-compra">
+              <Plus size={14} /> Nova compra
+            </button>
+            <AjudaCampo chave="commerce.compras.nova_compra" rota={ROTA_AJUDA} />
+          </div>
         )}
       </header>
 
-      <div style={{ display: 'flex', gap: 4, marginBottom: 14, borderBottom: `1px solid ${C.border}` }}>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 14, borderBottom: `1px solid ${C.border}`, alignItems: 'center' }}>
         <TabBtn ativo={tab === 'cotacoes'} onClick={() => setTab('cotacoes')} icon={<FileText size={14} />} label="Cotações" count={cotacoes.length} />
+        <AjudaCampo chave="commerce.compras.aba_cotacoes" rota={ROTA_AJUDA} />
         <TabBtn ativo={tab === 'compras'} onClick={() => setTab('compras')} icon={<ShoppingCart size={14} />} label="Pedidos de Compra" count={compras.length} />
+        <AjudaCampo chave="commerce.compras.aba_pedidos" rota={ROTA_AJUDA} />
       </div>
 
       {/* FIX-VAZAMENTO-JORDANA (07/07): NAO consolida multi-empresa */}
@@ -368,18 +380,22 @@ function ComprasInner() {
 
       {/* Filtros */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, marginBottom: 12 }}>
-        <div style={{ position: 'relative', flex: '1 1 220px', minWidth: 180 }}>
+        <div style={{ position: 'relative', flex: '1 1 220px', minWidth: 180, display: 'flex', alignItems: 'center', gap: 6 }}>
           <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.espressoL }} />
           <input type="text" placeholder={tab === 'cotacoes' ? 'Buscar por número, descrição, solicitante…' : 'Buscar por número, fornecedor, NF…'}
             value={filtroBusca} onChange={(e) => setFiltroBusca(e.target.value)}
             style={{ width: '100%', padding: '8px 10px 8px 32px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.white, color: C.espresso, outline: 'none' }} />
+          <AjudaCampo chave="commerce.compras.busca" rota={ROTA_AJUDA} />
         </div>
-        <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)} style={selInpStyle}>
-          <option value="">Todos os status</option>
-          {Object.keys(tab === 'cotacoes' ? STATUS_COT : STATUS_COMP).map((s) => (
-            <option key={s} value={s}>{(tab === 'cotacoes' ? STATUS_COT : STATUS_COMP)[s].label}</option>
-          ))}
-        </select>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)} style={selInpStyle}>
+            <option value="">Todos os status</option>
+            {Object.keys(tab === 'cotacoes' ? STATUS_COT : STATUS_COMP).map((s) => (
+              <option key={s} value={s}>{(tab === 'cotacoes' ? STATUS_COT : STATUS_COMP)[s].label}</option>
+            ))}
+          </select>
+          <AjudaCampo chave="commerce.compras.filtro_status" rota={ROTA_AJUDA} />
+        </div>
         <span style={{ marginLeft: 'auto', fontSize: 11, color: C.espressoM }}>
           {tab === 'cotacoes' ? cotFiltradas.length : compFiltradas.length} de {tab === 'cotacoes' ? cotacoes.length : compras.length}
         </span>
@@ -475,7 +491,7 @@ function TabelaCotacoes({ rows, total, onSelect, onCompare, canCreate, onCreate 
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 860 }}>
           <thead style={{ background: C.cream }}>
-            <tr><Th>Número</Th><Th>Descrição</Th><Th>Solicitante</Th><Th>Abertura</Th><Th>Limite</Th><Th>Status</Th><Th align="right">Ações</Th></tr>
+            <tr><Th ajuda="commerce.compras.col_numero">Número</Th><Th ajuda="commerce.compras.col_descricao">Descrição</Th><Th ajuda="commerce.compras.col_solicitante">Solicitante</Th><Th ajuda="commerce.compras.col_abertura">Abertura</Th><Th ajuda="commerce.compras.col_limite">Limite</Th><Th ajuda="commerce.compras.col_status">Status</Th><Th align="right" ajuda="commerce.compras.col_acoes">Ações</Th></tr>
           </thead>
           <tbody>
             {rows.map((c) => (
@@ -512,7 +528,7 @@ function TabelaCompras({ rows, total, cotacoes, onSelect }: { rows: Compra[]; to
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 880 }}>
           <thead style={{ background: C.cream }}>
-            <tr><Th>Número</Th><Th>Fornecedor</Th><Th>Pedido</Th><Th>Prev. entrega</Th><Th align="right">Total</Th><Th>Status</Th><Th>NF</Th></tr>
+            <tr><Th ajuda="commerce.compras.col_numero">Número</Th><Th ajuda="commerce.compras.col_fornecedor">Fornecedor</Th><Th ajuda="commerce.compras.col_pedido">Pedido</Th><Th ajuda="commerce.compras.col_prev_entrega">Prev. entrega</Th><Th align="right" ajuda="commerce.compras.col_total">Total</Th><Th ajuda="commerce.compras.col_status">Status</Th><Th ajuda="commerce.compras.col_nf">NF</Th></tr>
           </thead>
           <tbody>
             {rows.map((p) => {
@@ -1387,8 +1403,14 @@ function StatusBadge({ status, mapa }: { status: string; mapa: Record<string, { 
   return <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: s.bg, color: s.fg, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, whiteSpace: 'nowrap' }}>{s.label}</span>
 }
 
-function Th({ children, align = 'left' }: { children?: React.ReactNode; align?: 'left' | 'right' }) {
-  return <th style={{ padding: '10px 14px', textAlign: align, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: C.espressoM }}>{children}</th>
+function Th({ children, align = 'left', ajuda }: { children?: React.ReactNode; align?: 'left' | 'right'; ajuda?: string }) {
+  return (
+    <th style={{ padding: '10px 14px', textAlign: align, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: C.espressoM }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, justifyContent: align === 'right' ? 'flex-end' : 'flex-start' }}>
+        {children}{ajuda && <AjudaCampo chave={ajuda} rota={ROTA_AJUDA} />}
+      </span>
+    </th>
+  )
 }
 function Td({ children, align = 'left', onClick }: { children?: React.ReactNode; align?: 'left' | 'right'; onClick?: () => void }) {
   return <td onClick={onClick} style={{ padding: '10px 14px', textAlign: align, verticalAlign: 'middle', color: C.espresso }}>{children}</td>
@@ -1575,8 +1597,8 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
       flash('Compra criada.')
       await onCreated(compraRow.id)
     } catch (err) {
-      flashErr(err instanceof Error ? err.message : 'Erro ao salvar')
-      setErroLocal(err instanceof Error ? err.message : 'Erro ao salvar')
+      flashErr(erroAmigavel(err, 'Não foi possível salvar. Tente de novo.'))
+      setErroLocal(erroAmigavel(err, 'Não foi possível salvar. Tente de novo.'))
     } finally {
       setSalvando(false)
     }

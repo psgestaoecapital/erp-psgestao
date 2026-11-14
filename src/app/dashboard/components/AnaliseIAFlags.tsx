@@ -105,8 +105,8 @@ export default function AnaliseIAFlags({realData,empresaId,periodo}:{realData:an
 
   useEffect(()=>{
     const load=async()=>{setLoading(true);try{
-      const{data}=await supabase.from("ai_reports").select("report_content").eq("report_type","contexto_humano").order("created_at",{ascending:false}).limit(1).single();
-      if(data?.report_content){setContexto(typeof data.report_content==="string"?data.report_content:JSON.stringify(data.report_content));}
+      const{data}=await supabase.from("ai_reports").select("output_content").eq("report_type","contexto_humano").order("created_at",{ascending:false}).limit(1).single();
+      if(data?.output_content){setContexto(typeof data.output_content==="string"?data.output_content:JSON.stringify(data.output_content));}
     }catch{}setLoading(false);};load();
   },[empresaId]);
 

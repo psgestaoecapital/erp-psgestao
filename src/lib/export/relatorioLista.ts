@@ -31,10 +31,14 @@ const ansi = (s: string) => (s ?? '')
   .replace(/[‒–—―]/g, '-').replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/•/g, '·').replace(/…/g, '...')
   .replace(/[^\x00-\xFF]/g, '?')
 
+// Data como número serial do Excel (dia exato, sem fuso). Com `Date` local o SheetJS desloca pelo fuso e a
+// célula saía no dia anterior às 23:59 (chamado #6713/fb74757d: pago 06/10 aparecia 05/10 23:59).
+export const dataSerialExcel = (y: number, m: number, d: number): number => Date.UTC(y, m - 1, d) / 86400000 + 25569
+
 function cell<T>(col: Coluna<T>, row: T): string | number | Date | null {
   const raw = col.get(row)
   if (raw == null || raw === '') return col.tipo === 'texto' || !col.tipo ? '' : null
-  if (col.tipo === 'data') { const iso = String(raw).slice(0, 10); const [y, m, d] = iso.split('-'); return new Date(Number(y), Number(m) - 1, Number(d)) }
+  if (col.tipo === 'data') { const iso = String(raw).slice(0, 10); const [y, m, d] = iso.split('-'); return dataSerialExcel(Number(y), Number(m), Number(d)) }
   if (col.tipo === 'moeda' || col.tipo === 'numero') return Number(raw)
   return String(raw)
 }
@@ -85,7 +89,7 @@ export function exportarExcel<T>(meta: RelatorioMeta, colunas: Coluna<T>[], linh
       const addr = XLSX.utils.encode_cell({ r: headerRowIdx + 1 + r, c: ci })
       const cObj = ws[addr]; if (!cObj) continue
       if (colunas[ci].tipo === 'moeda' && typeof cObj.v === 'number') cObj.z = 'R$ #,##0.00'
-      else if (colunas[ci].tipo === 'data' && cObj.v instanceof Date) cObj.z = 'dd/mm/yyyy'
+      else if (colunas[ci].tipo === 'data' && typeof cObj.v === 'number') cObj.z = 'dd/mm/yyyy'
     }
   }
   const wb = XLSX.utils.book_new()

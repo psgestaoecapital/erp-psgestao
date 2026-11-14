@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js'
 import { Buffer } from 'node:buffer'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { faltasCredencialBb } from '@/lib/banco/bb'
-import { faltasCobrancaBb, nossoNumeroBb, registrarBoletoBb } from '@/lib/banco/bb/cobranca'
+import { faltasCobrancaBb, nossoNumeroBb, nossoNumeroJaIncluidoBb, registrarBoletoBb, seuNumeroBb, sequencialHomologacaoBb } from '@/lib/banco/bb/cobranca'
 import { BB_BANCO, carregarCredBb, logSyncBb } from '@/lib/banco/bb/servidor'
 import { gerarPdfBoleto } from '@/lib/boleto/gerarPdfBoleto'
 import { salvarPdfBoletoNoBucket } from '@/lib/boleto/salvarPdfBoleto'
@@ -89,22 +89,35 @@ export async function POST(req: NextRequest) {
     const emissaoPretendida = rec.data_emissao ?? hojeSP
     const emissaoISO = emissaoPretendida > hojeSP ? hojeSP : emissaoPretendida
     const vencimentoISO = rec.data_vencimento < emissaoISO ? emissaoISO : rec.data_vencimento
-    const seuNumero = (rec.numero_documento ?? rec.id).toString().replace(/[^0-9A-Za-z]/g, '').slice(0, 15)
 
-    // sequencial atômico por config (o mesmo contador do seu número dos demais bancos); só os 10 últimos dígitos entram no nosso número
-    const { data: seq, error: seqErr } = await supabaseAdmin.rpc('fn_banco_proximo_seu_numero', {
-      p_company_id: companyId, p_banco_codigo: BB_BANCO, p_ambiente: c.cred.ambiente,
-    })
-    if (seqErr || !seq) {
-      await logSyncBb(companyId, 'boleto_registrar', 'erro', `sequencial do nosso numero falhou: ${seqErr?.message ?? 'vazio'}`, { receber_id })
-      return NextResponse.json({ ok: false, erro: 'Não foi possível reservar o nosso número do boleto. Tente de novo.' }, { status: 500 })
+    // sequencial atômico por config (o mesmo contador do seu número dos demais bancos); só os 10 últimos dígitos entram no nosso número.
+    // "Nosso Número já incluído" (chamado #5404): cada tentativa usa um número NOVO; até 5 tentativas na mesma chamada.
+    const seuNumeroDoc = String(rec.numero_documento ?? '')
+    const yy = hojeSP.slice(2, 4)
+    let nossoNumero = ''
+    let seuNumero = ''
+    let result!: Awaited<ReturnType<typeof registrarBoletoBb>>
+    for (let tentativa = 1; tentativa <= 5; tentativa++) {
+      const { data: seq, error: seqErr } = await supabaseAdmin.rpc('fn_banco_proximo_seu_numero', {
+        p_company_id: companyId, p_banco_codigo: BB_BANCO, p_ambiente: c.cred.ambiente,
+      })
+      if (seqErr || !seq) {
+        await logSyncBb(companyId, 'boleto_registrar', 'erro', `sequencial do nosso numero falhou: ${seqErr?.message ?? 'vazio'}`, { receber_id })
+        return NextResponse.json({ ok: false, erro: 'Não foi possível reservar o nosso número do boleto. Tente de novo.' }, { status: 500 })
+      }
+      // homologação: convênio compartilhado → número ao acaso; produção: o contador
+      nossoNumero = nossoNumeroBb(c.cfg.convenio, c.cred.ambiente === 'homologacao' ? sequencialHomologacaoBb(yy) : String(seq))
+      seuNumero = seuNumeroBb(seuNumeroDoc, nossoNumero) // só número: o BB recusa alfanumérico (chamado #5404)
+      result = await registrarBoletoBb(c.cred, {
+        cfg: c.cfg, nossoNumero, seuNumero, valor: Number(rec.valor), emissaoISO, vencimentoISO, pagador,
+        juros_pct: c.juros_pct, multa_pct: c.multa_pct, mensagem: c.instrucao,
+      })
+      if (result.status === 400 && nossoNumeroJaIncluidoBb(result.raw) && tentativa < 5) {
+        await logSyncBb(companyId, 'boleto_registrar', 'erro', `nosso numero ${nossoNumero} ja incluido no BB; tentando outro (${tentativa}/5)`, { receber_id, ambiente: c.cred.ambiente })
+        continue
+      }
+      break
     }
-    const nossoNumero = nossoNumeroBb(c.cfg.convenio, String(seq))
-
-    const result = await registrarBoletoBb(c.cred, {
-      cfg: c.cfg, nossoNumero, seuNumero, valor: Number(rec.valor), emissaoISO, vencimentoISO, pagador,
-      juros_pct: c.juros_pct, multa_pct: c.multa_pct, mensagem: c.instrucao,
-    })
     if (result.status < 200 || result.status >= 300 || !result.nossoNumero || !result.linhaDigitavel || !result.codigoBarras) {
       await logSyncBb(companyId, 'boleto_registrar', 'erro', `registro falhou: status ${result.status}`, { receber_id, ambiente: c.cred.ambiente, raw: result.raw, payload_enviado: result.corpo_enviado })
       const msgBanco = extractBankMessage(result.raw)
@@ -115,6 +128,13 @@ export async function POST(req: NextRequest) {
         : msgBanco ? `Banco do Brasil nao registrou o boleto: ${msgBanco}` : 'Banco do Brasil recusou o registro do boleto.'
       return NextResponse.json({ ok: false, erro, ambiente: c.cred.ambiente, detalhes: result.raw }, { status: 502 })
     }
+
+    // grava NA HORA que o BB aceitou (chamado #5404): se o PDF falhar, o nosso número não se perde
+    await supabaseAdmin.from('erp_receber').update({
+      boleto_nosso_numero: result.nossoNumero, boleto_linha_digitavel: result.linhaDigitavel, boleto_codigo_barras: result.codigoBarras,
+      boleto_qr_code: result.qrCode ?? null, boleto_banco_codigo: BB_BANCO,
+      boleto_status: 'registrado', boleto_emitido_em: new Date().toISOString(), boleto_id_externo: result.txid ?? result.nossoNumero,
+    }).eq('id', receber_id)
 
     // PDF: o BB não entrega PDF na Cobrança v2 → gerador FEBRABAN local (banco 001), como nos demais fallbacks
     let boletoUrl: string | null = null
@@ -136,11 +156,7 @@ export async function POST(req: NextRequest) {
       await logSyncBb(companyId, 'boleto_registrar', 'erro', `PDF BB falhou: ${e instanceof Error ? e.message : String(e)}`, { receber_id })
     }
 
-    await supabaseAdmin.from('erp_receber').update({
-      boleto_nosso_numero: result.nossoNumero, boleto_linha_digitavel: result.linhaDigitavel, boleto_codigo_barras: result.codigoBarras,
-      boleto_qr_code: result.qrCode ?? null, boleto_url: boletoUrl, boleto_banco_codigo: BB_BANCO,
-      boleto_status: 'registrado', boleto_emitido_em: new Date().toISOString(), boleto_id_externo: result.txid ?? result.nossoNumero,
-    }).eq('id', receber_id)
+    if (boletoUrl) await supabaseAdmin.from('erp_receber').update({ boleto_url: boletoUrl }).eq('id', receber_id)
 
     await logSyncBb(companyId, 'boleto_registrar', 'ok', `boleto BB registrado nu=${result.nossoNumero} (${c.cred.ambiente})${boletoUrl ? ' (PDF salvo)' : ' (sem PDF)'}`, { receber_id, ambiente: c.cred.ambiente, por: user.id })
     return NextResponse.json({

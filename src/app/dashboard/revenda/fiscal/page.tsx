@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 import { CAMPOS_NUM, numParaBanco, numParaTela } from './num-pt'
 
 const C = {
@@ -35,6 +36,7 @@ type Obter = {
   ok?: boolean; erro?: string
   vigente?: { status: string; vigente_desde?: string; aprovado_em?: string; regime?: string }
   editavel?: Editavel | null
+  aprovado?: (Editavel & { aprovado_por_nome?: string | null; aprovado_em?: string | null; vigente_desde?: string | null; versao?: number; ncm_padrao?: string | null }) | null
   historico?: { versao: number; status: string; vigente_desde?: string; aprovado_em?: string; aprovado_por_nome?: string | null; preenchido_por?: string | null; observacao?: string | null }[]
   convite?: { email: string | null; status: string; criado_em: string; expira_em: string | null; usado_em: string | null; expirado: boolean } | null
 }
@@ -61,9 +63,10 @@ export default function FiscalPage() {
     const r = data as Obter | null
     if (!r?.ok) { setErro(r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : 'Falha ao carregar o perfil.'); setCarregando(false); return }
     setErro(null); setObter(r)
-    const e = r.editavel
+    const e = r.editavel ?? r.aprovado ?? null  // #5659 · sem rascunho, mostra o aprovado (bloqueado)
     const base: Record<string, unknown> = e ? { ...e } : {}
-    if (e?.id) {
+    if (r.aprovado && !r.editavel) base.ncm_padrao = r.aprovado.ncm_padrao ?? ''
+    else if (e?.id) {
       // #5622 · o obter não devolve o NCM padrão; lê direto do perfil (RLS por empresa)
       const { data: nc } = await supabase.from('veic_perfil_fiscal').select('ncm_padrao').eq('id', e.id).maybeSingle()
       base.ncm_padrao = (nc as { ncm_padrao?: string | null } | null)?.ncm_padrao ?? ''
@@ -97,6 +100,16 @@ export default function FiscalPage() {
     const r = data as { ok?: boolean; erro?: string; perfil_id?: string } | null
     if (!r?.ok) { setErro(r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : (r?.erro || 'Falha ao salvar.')); return null }
     setMsg('Rascunho salvo.'); await carregar(); return r.perfil_id ?? null
+  }
+  // #5659 · "Alterar": cria a próxima versão em rascunho copiando a aprovada (a aprovada segue vigente)
+  async function alterar() {
+    if (!companyId || busy) return
+    setBusy(true); setErro(null)
+    const { data, error: rpcErro } = await supabase.rpc('fn_veic_perfil_fiscal_nova_versao', { p_company_id: companyId, p_user: await userId() })
+    setBusy(false)
+    const r = data as { ok?: boolean; erro?: string } | null
+    if (rpcErro || !r?.ok) { setErro(r?.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : 'Não foi possível abrir a nova versão.'); return }
+    setMsg('Nova versão aberta em rascunho. A versão aprovada continua valendo até a nova ser aprovada.'); void carregar()
   }
   async function enviar() {
     const id = obter?.editavel?.id ?? await salvar()
@@ -156,6 +169,7 @@ export default function FiscalPage() {
 
   const vig = obter?.vigente
   const edit = obter?.editavel
+  const somenteLeitura = !edit && !!obter?.aprovado  // #5659
   const estado = vig?.status === 'aprovado' ? `Aprovado — vigente desde ${brDate(vig.vigente_desde)}`
     : edit?.status === 'aguardando_aprovacao' ? 'Aguardando sua aprovação'
     : edit?.status === 'rascunho' ? 'Rascunho em edição' : 'Não configurado'
@@ -204,7 +218,18 @@ export default function FiscalPage() {
         ⚠️ Reforma tributária: as regras de transição mudam a vigência. Quando uma regra mudar de data, revise o perfil com o contador e aprove uma nova versão com a nova <b>vigência</b> — a atual continua valendo até lá.
       </div>
 
+      {somenteLeitura && (
+        <div style={{ background: C.cream, border: `1px solid ${C.border}`, borderRadius: 10, padding: '10px 13px', marginBottom: 14, fontSize: 12.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span>Perfil aprovado (v{obter?.aprovado?.versao}) — somente leitura{obter?.aprovado?.aprovado_por_nome ? <>, aprovado por <b>{obter.aprovado.aprovado_por_nome}</b></> : null}{obter?.aprovado?.aprovado_em ? ` em ${brDate(obter.aprovado.aprovado_em)}` : ''}.</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <button disabled={busy} onClick={() => void alterar()} style={btnGold} data-testid="perfil-fiscal-alterar">Alterar</button>
+            <AjudaCampo chave="revenda.fiscal.alterar" rota="/dashboard/revenda/fiscal" />
+          </span>
+        </div>
+      )}
+
       {/* FORMULÁRIO */}
+      <fieldset disabled={somenteLeitura} style={{ border: 'none', padding: 0, margin: 0, minWidth: 0 }}>
       <Bloco titulo="Regime e tributação">
         <Sel l="Regime" v={f.regime as string} onC={(x) => set('regime', x)} opts={[['','—'],['simples','Simples'],['presumido','Presumido'],['real','Real']]} />
         <Campo l="Anexo / faixa (se Simples)" v={f.anexo_faixa as string} onC={(x) => set('anexo_faixa', x)} />
@@ -273,11 +298,13 @@ export default function FiscalPage() {
         </div>
       </Bloco>
 
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+      </fieldset>
+
+      {!somenteLeitura && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
         <button disabled={busy} onClick={() => void salvar()} style={btnGhost}>Salvar rascunho</button>
         <button disabled={busy} onClick={() => void enviar()} style={btnGhost}>Enviar para aprovação</button>
         <button disabled={busy} onClick={() => void aprovar()} style={btnGold}>Revisar e aprovar</button>
-      </div>
+      </div>}
 
       {/* HISTÓRICO */}
       {(obter?.historico?.length ?? 0) > 0 && (

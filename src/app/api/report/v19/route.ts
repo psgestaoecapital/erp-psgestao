@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { modeloPara, registrarFalhaIA } from "@/lib/aiModel";
+import { modeloPara, registrarFalhaIA, assertIAPermitida, IABloqueadaError } from "@/lib/aiModel";
 import { exigirUsuario, empresasPermitidas } from "@/lib/auth/guardaApi";
 
 export const dynamic = 'force-dynamic';
@@ -14,6 +14,11 @@ const pct = (v: number, t: number) => t > 0 ? (v / t * 100).toFixed(1) + "%" : "
 export async function POST(req: NextRequest) {
   const guarda = await exigirUsuario(req);
   if (guarda instanceof NextResponse) return guarda;
+  // P0 CUSTO (CEO 01/11): porteiro do bloqueio global de IA paga, antes de qualquer custo.
+  try { await assertIAPermitida(); } catch (e) {
+    if (e instanceof IABloqueadaError) return NextResponse.json({ error: e.motivo, ia_bloqueada: true }, { status: 503 });
+    throw e;
+  }
   try {
     const { company_ids, periodo_inicio, periodo_fim, empresa_nome, contexto_humano } = await req.json();
     const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -280,9 +285,9 @@ export async function POST(req: NextRequest) {
     if (concData && concData.length > 0) concText = concData.map(c => `${c.operadora || "Cartão"} | ${c.periodo} | ${c.status}`).join("\n");
 
     // 14. CONTEXTO HUMANO
-    const { data: ctxData } = await supabase.from("ai_reports").select("report_content").eq("report_type", "contexto_humano").order("created_at", { ascending: false }).limit(1);
+    const { data: ctxData } = await supabase.from("ai_reports").select("output_content").eq("report_type", "contexto_humano").order("created_at", { ascending: false }).limit(1);
     let ctxText = contexto_humano || "";
-    if (ctxData && ctxData.length > 0 && ctxData[0].report_content) { const ct = ctxData[0].report_content; ctxText = typeof ct === "string" ? ct : JSON.stringify(ct); }
+    if (ctxData && ctxData.length > 0 && ctxData[0].output_content) { const ct = ctxData[0].output_content; ctxText = typeof ct === "string" ? ct : JSON.stringify(ct); }
 
     // 15. FLUXO DE CAIXA
     const recFut = contasReceber.filter(c => c.status !== "RECEBIDO" && c.status !== "PAGO" && c.status !== "CANCELADO");
@@ -479,14 +484,25 @@ REGRA FINAL: Gere TODOS os 20 slides sem exceção. Nunca pule. Nunca resuma. Se
 
     const reportText = data.content?.map((c: any) => c.text || "").join("") || "Erro ao gerar.";
 
-    // Auto-save to ai_reports for premium view
+    // Auto-save to ai_reports for premium view (histórico "abrir de novo").
+    // Colunas e domínios REAIS da tabela (conferidos no banco): conteúdo em output_content (não report_content);
+    // metadados em input_data jsonb (não metadata); period_start/period_end e input_data são NOT NULL;
+    // report_type restrito por CHECK a ('ceo_edition','flash','valuation','custom') -> este relatório é 'ceo_edition'
+    // (mesmo valor lido por relatorio/page.tsx e noc/route.ts); status restrito a (...,'completed',...).
+    // generated_by só quando há usuário real (uuid), nunca cron/serviço.
     try {
-      await supabase.from("ai_reports").insert({
-        company_id: compIds[0],
-        report_type: "v20_ceo",
-        report_content: reportText,
-        metadata: { empresa: empresa_nome, periodo: `${periodo_inicio} a ${periodo_fim}`, slides: 20, fontes: 17, generated_at: new Date().toISOString() },
-      });
+      if (periodo_inicio && periodo_fim) {
+        await supabase.from("ai_reports").insert({
+          company_id: compIds[0],
+          generated_by: guarda.maquina ? null : guarda.userId,
+          report_type: "ceo_edition",
+          period_start: periodo_inicio,
+          period_end: periodo_fim,
+          output_content: reportText,
+          status: "completed",
+          input_data: { empresa: empresa_nome, periodo: `${periodo_inicio} a ${periodo_fim}`, slides: 20, fontes: 17, generated_at: new Date().toISOString() },
+        });
+      }
     } catch {}
 
     return NextResponse.json({

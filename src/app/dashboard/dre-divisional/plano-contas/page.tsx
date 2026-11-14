@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -65,7 +66,7 @@ export default function PlanoContasPage() {
         ? supabase.from('psgc_contas_custom').select('id,codigo,nome,pai_psgc_codigo,natureza,dre_grupo,dre_ordem,descricao').eq('company_id', companyId).eq('ativo', true)
         : Promise.resolve({ data: [], error: null }),
     ])
-    if (padraoRes.error) { setErro(padraoRes.error.message); setLoading(false); return }
+    if (padraoRes.error) { console.error('[plano-contas] carregar', padraoRes.error); setErro('Não foi possível carregar o plano de contas agora. Verifique a conexão e tente novamente.'); setLoading(false); return }
     setErro(null)
     const padrao: Conta[] = (padraoRes.data ?? []).map((c) => ({
       codigo: c.codigo, nome: c.nome, pai: c.pai_codigo, natureza: c.natureza, dre_grupo: c.dre_grupo, dre_ordem: c.dre_ordem, custom: false, id: null, descricao: c.descricao,
@@ -91,7 +92,7 @@ export default function PlanoContasPage() {
       p_company_id: companyId, p_pai_psgc_codigo: criarSob.codigo, p_nome: nome.trim(), p_descricao: desc.trim() || null,
     })
     setBusy(false)
-    if (error) { setErro(error.message); return }
+    if (error) { console.error('[plano-contas] criar', error); setErro('Não foi possível criar a subconta. Confira o nome e tente novamente.'); return }
     setOk(`CRIOU subconta "${nome.trim()}" sob ${criarSob.nome}`); setCriarSob(null); setNome(''); setDesc(''); void carregar()
   }
   async function salvarEditar() {
@@ -101,14 +102,14 @@ export default function PlanoContasPage() {
       p_id: editar.id, p_company_id: companyId, p_nome: nome.trim(), p_descricao: desc.trim() || null,
     })
     setBusy(false)
-    if (error) { setErro(error.message); return }
+    if (error) { console.error('[plano-contas] editar', error); setErro('Não foi possível salvar as alterações. Tente novamente.'); return }
     setOk(`ALTEROU "${nome.trim()}"`); setEditar(null); setNome(''); setDesc(''); void carregar()
   }
   async function excluir(c: Conta) {
     if (!companyId || !c.id) return
     if (!window.confirm(`Remover a conta custom "${c.nome}"? (some da árvore; histórico da DRE é preservado)`)) return
     const { error } = await supabase.rpc('fn_psgc_contas_custom_excluir', { p_id: c.id, p_company_id: companyId })
-    if (error) { setErro(error.message); return }
+    if (error) { console.error('[plano-contas] excluir', error); setErro('Não foi possível remover a conta. Tente novamente.'); return }
     setOk(`REMOVEU "${c.nome}"`); void carregar()
   }
 
@@ -134,6 +135,11 @@ export default function PlanoContasPage() {
           <div className="text-sm" style={{ color: ESP60 }}>Carregando…</div>
         ) : (
           <div className="rounded-2xl overflow-hidden" style={{ background: '#fff', border: `1px solid ${LINE}` }}>
+            <div className="flex items-center gap-2 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide" style={{ background: BG, color: ESP60 }}>
+              <span className="shrink-0 inline-flex items-center" style={{ minWidth: 56 }}>Código<AjudaCampo chave="dre.plano_contas.codigo" /></span>
+              <span className="flex-1 inline-flex items-center">Conta<AjudaCampo chave="dre.plano_contas.conta" /></span>
+              <span className="inline-flex items-center">Tipo<AjudaCampo chave="dre.plano_contas.tipo" /></span>
+            </div>
             {ordenadas.map((c) => {
               const nivel = Math.max(0, c.codigo.split('.').length - 1)
               return (
@@ -144,6 +150,7 @@ export default function PlanoContasPage() {
                     ? <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold" style={{ background: '#FAEEDA', color: '#854F0B' }}>custom</span>
                     : <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: BG, color: ESP60 }}>padrão</span>}
                   <button onClick={() => { setCriarSob(c); setNome(''); setDesc('') }} title="Adicionar subconta" className="text-[10px] px-2 py-1 rounded" style={{ border: `1px solid ${GOLD}`, color: GOLD }}>+ sub</button>
+                  {c.codigo === ordenadas[0]?.codigo && <AjudaCampo chave="dre.plano_contas.add_sub" />}
                   {c.custom && (<>
                     <button onClick={() => { setEditar(c); setNome(c.nome); setDesc(c.descricao ?? '') }} className="text-[10px] px-2 py-1 rounded" style={{ background: BG, color: ESP }}>Editar</button>
                     <button onClick={() => void excluir(c)} className="text-[10px] px-2 py-1 rounded" style={{ background: '#fff', border: `1px solid ${RED}`, color: RED }}>Remover</button>
@@ -163,8 +170,14 @@ export default function PlanoContasPage() {
             </h3>
             {criarSob && <div className="text-xs mb-3" style={{ color: ESP60 }}>Sob: <b>{criarSob.codigo} · {criarSob.nome}</b> ({GRUPO_LABEL[criarSob.dre_grupo] ?? criarSob.dre_grupo})</div>}
             <div className="space-y-2">
-              <input autoFocus value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome da conta (ex.: Cartão de Crédito)" className="w-full rounded-xl border border-[#E7DECF] bg-white px-3 py-2 text-sm text-[#3D2314]" />
-              <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Descrição (opcional)" className="w-full rounded-xl border border-[#E7DECF] bg-white px-3 py-2 text-sm text-[#3D2314]" />
+              <div className="flex items-center gap-1">
+                <input autoFocus value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome da conta (ex.: Cartão de Crédito)" className="w-full rounded-xl border border-[#E7DECF] bg-white px-3 py-2 text-sm text-[#3D2314]" />
+                <AjudaCampo chave="dre.plano_contas.nome" />
+              </div>
+              <div className="flex items-center gap-1">
+                <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Descrição (opcional)" className="w-full rounded-xl border border-[#E7DECF] bg-white px-3 py-2 text-sm text-[#3D2314]" />
+                <AjudaCampo chave="dre.plano_contas.descricao" />
+              </div>
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <button onClick={() => { setCriarSob(null); setEditar(null) }} className="px-4 py-2 rounded-xl text-sm" style={{ background: '#fff', border: `1px solid ${LINE}`, color: ESP }}>Cancelar</button>

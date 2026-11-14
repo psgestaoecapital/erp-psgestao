@@ -12,7 +12,10 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { CelulaEditavel } from '@/components/produtividade/CelulaEditavel'
+import { PostoPessoas } from '@/components/produtividade/PostoPessoas'
+import { QuadroView } from '@/components/produtividade/QuadroView'
 
 const ROTA = '/dashboard/produtividade'
 const Aj = ({ k }: { k: string }) => <AjudaCampo chave={k} rota={ROTA} />
@@ -113,7 +116,7 @@ function Inner() {
   const carregarFluxo = useCallback(async () => {
     if (!fluxoId) { setFc(null); return }
     const { data, error } = await supabase.rpc('fn_prod_fluxo_completo', { p_fluxo_id: fluxoId })
-    if (error) { flashErr(error.message); return }
+    if (error) { flashErr(erroAmigavel(error, 'Não foi possível carregar o fluxo. Tente de novo.')); return }
     const r = data as FluxoCompleto
     setFc(r?.ok ? r : null)
     if (r && !r.ok) flashErr(r.erro === 'sem_acesso' ? 'Sem acesso a este fluxo.' : 'Falha ao carregar o fluxo.')
@@ -122,6 +125,9 @@ function Inner() {
   useEffect(() => { void carregarFluxo() }, [carregarFluxo])
 
   const recarregar = useCallback(async () => { await Promise.all([carregarFluxo(), carregarPlanta()]) }, [carregarFluxo, carregarPlanta])
+  // Duas visões do MESMO quadro de postos: "Quadro" (posto a posto, pedido do CEO 11/11) é o padrão; "Cadastro por
+  // fluxo" é o cadastro por planta/fluxo. O toggle não quebra o fluxo — só troca o que é desenhado.
+  const [vista, setVista] = useState<'quadro' | 'fluxo'>('quadro')
 
   if (!companyId) return <Aviso texto="Selecione uma empresa específica no topo — o cadastro é por planta." />
   if (plants.length === 0) return <Aviso texto="Esta empresa não tem planta industrial cadastrada. Cadastre a planta antes." />
@@ -129,13 +135,31 @@ function Inner() {
   return (
     <div style={{ background: C.bg, minHeight: '100vh', padding: '22px 16px 60px', maxWidth: 1120, margin: '0 auto', color: C.esp }}>
       <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: C.gold, fontWeight: 700 }}>🏭 Indústria · Produtividade</div>
-      <div style={{ display: 'flex', gap: 14, fontSize: 14, margin: '6px 0' }}><b style={{ borderBottom: `2px solid ${C.gold}` }}>Cadastro</b><Link href="/dashboard/produtividade/indicadores" style={{ color: C.espM }}>Indicadores</Link></div>
-      <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 0' }}>Cadastro por fluxo</h1>
-      <p style={{ color: C.espM, fontSize: 13, margin: '6px 0 12px' }}>O fluxo é o contexto. Cada linha é um posto — clique para editar. O turno vem do ponto.</p>
+      {/* Sub-navegação explícita das telas de Produtividade (drill-down de Postos): Cadastro (aqui),
+          Indicadores e Custos do posto. Custos do posto não tem item próprio no menu — é alcançada daqui
+          em 3 toques (menu → Postos → Custos do posto), por isso o link é visível como aba. */}
+      <nav aria-label="Seções de Produtividade" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '8px 0 4px' }}>
+        <span aria-current="page" style={{ fontSize: 13, fontWeight: 700, color: C.esp, background: C.goldBg, border: `1px solid ${C.gold}`, borderRadius: 999, padding: '5px 12px' }}>Cadastro de postos</span>
+        <Link href="/dashboard/produtividade/indicadores" style={{ fontSize: 13, fontWeight: 600, color: C.espM, background: C.white, border: `1px solid ${C.border}`, borderRadius: 999, padding: '5px 12px', textDecoration: 'none' }}>Indicadores</Link>
+        <Link href="/dashboard/produtividade/custos-posto" style={{ fontSize: 13, fontWeight: 600, color: C.espM, background: C.white, border: `1px solid ${C.border}`, borderRadius: 999, padding: '5px 12px', textDecoration: 'none' }}>Custos do posto</Link>
+      </nav>
+      <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 0' }}>{vista === 'quadro' ? 'Postos de trabalho' : 'Cadastro por fluxo'}</h1>
+      <p style={{ color: C.espM, fontSize: 13, margin: '6px 0 10px' }}>{vista === 'quadro' ? 'O quadro posto a posto: projetado × real, vagas e custo por setor. Mesma base do cadastro por fluxo.' : 'O fluxo é o contexto. Cada linha é um posto — clique para editar. O turno vem do ponto.'}</p>
+
+      {/* Toggle das duas visões do mesmo quadro (CEO 11/11) */}
+      <div role="tablist" aria-label="Visão do quadro de postos" style={{ display: 'inline-flex', gap: 2, background: C.cream, borderRadius: 10, padding: 3, marginBottom: 12 }}>
+        {([['quadro', 'Quadro (posto a posto)'], ['fluxo', 'Cadastro por fluxo']] as const).map(([k, rot]) => (
+          <button key={k} role="tab" aria-selected={vista === k} onClick={() => setVista(k)}
+            style={{ padding: '7px 14px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', cursor: 'pointer', background: vista === k ? C.white : 'transparent', color: vista === k ? C.esp : C.espM, boxShadow: vista === k ? '0 1px 3px rgba(0,0,0,0.08)' : 'none' }}>{rot}</button>
+        ))}
+      </div>
 
       {msg && <div style={{ background: C.greenBg, color: C.green, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 12 }}>{msg}</div>}
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '9px 13px', borderRadius: 8, fontSize: 13, marginBottom: 12 }}>{erro}</div>}
 
+      {vista === 'quadro' && <QuadroView companyId={companyId} />}
+
+      {vista === 'fluxo' && (<>
       {/* Faixa: o que falta para medir */}
       {pront && <FaixaProntidao pront={pront} temPostos={(fc?.postos.length ?? 0) > 0} onIr={(tipo) => setFoco({ tipo, n: Date.now() })} />}
 
@@ -156,6 +180,7 @@ function Inner() {
         </label>
         <button data-testid="novo-fluxo" onClick={() => setNovoFluxo(true)} style={{ ...btn(true), padding: '7px 12px', fontSize: 12.5 }}>+ Novo fluxo</button>
         <button onClick={() => setConfigAberto(true)} style={{ ...btn(true), background: 'transparent', color: C.esp, border: `1px solid ${C.border}`, padding: '7px 12px', fontSize: 12.5 }}>⚙ Cadastros</button>
+        <Link href="/dashboard/produtividade/importar" data-testid="link-importar-postos" style={{ ...btn(true), textDecoration: 'none', background: 'transparent', color: C.esp, border: `1px solid ${C.border}`, padding: '7px 12px', fontSize: 12.5 }}>⬆ Importar por planilha</Link>
       </div>
 
       {fluxos.length === 0 ? (
@@ -180,6 +205,7 @@ function Inner() {
         </button>
         {salAberto && plantId && <SalarioBase ctx={{ companyId, plantId, flash, flashErr }} />}
       </div>
+      </>)}
 
       {novoFluxo && plantId && <NovoFluxoModal companyId={companyId} plantId={plantId} onClose={() => setNovoFluxo(false)} onSaved={(id) => { setNovoFluxo(false); setFluxoId(id); void carregarPlanta() }} onErro={flashErr} />}
       {configAberto && plantId && <ConfigModal ctx={{ companyId, plantId, flash, flashErr }} onClose={() => setConfigAberto(false)} onMudou={recarregar} />}
@@ -231,7 +257,7 @@ function ContextoFluxo({ fc, setores, flash, onMudou }: { fc: FluxoCompleto; set
   const f = fc.fluxo
   async function gravar(patch: Record<string, unknown>, msg: string): Promise<string | null> {
     const { error } = await supabase.from('prod_fluxo').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', f.id)
-    if (error) return ehDuplicado(error) ? 'Já existe um fluxo com esse nome nesta planta — escolha outro nome.' : `Não consegui salvar: ${error.message}`
+    if (error) return ehDuplicado(error) ? 'Já existe um fluxo com esse nome nesta planta — escolha outro nome.' : erroAmigavel(error, 'Não consegui salvar o fluxo. Tente de novo.')
     flash(msg); await onMudou(); return null
   }
   const sets = setores.map((s) => ({ value: s.id, label: s.nome }))
@@ -303,7 +329,7 @@ function useCargosPonto(companyId: string, plantId: string, cargos: Opt[], flash
     const { data, error } = await supabase.rpc('fn_prod_cargo_do_ponto_vincular', { p_company_id: companyId, p_plant_id: plantId, p_funcao: o.nome })
     const r = data as { ok?: boolean; erro?: string; cargo_id?: string } | null
     if (error || !r?.ok || !r.cargo_id) {
-      const msg = r?.erro === 'sem_fonte_ponto' ? 'Esta planta não tem o ponto conectado — conecte o ponto antes de escolher o cargo.' : r?.erro === 'funcao_nao_esta_no_ponto' ? 'Essa função não está mais no ponto. Atualize a página.' : (error?.message || 'Não consegui ligar o cargo ao ponto. Tente de novo.')
+      const msg = r?.erro === 'sem_fonte_ponto' ? 'Esta planta não tem o ponto conectado — conecte o ponto antes de escolher o cargo.' : r?.erro === 'funcao_nao_esta_no_ponto' ? 'Essa função não está mais no ponto. Atualize a página.' : erroAmigavel(error, 'Não consegui ligar o cargo ao ponto. Tente de novo.')
       flashErr(msg); return { id: '', erro: msg }
     }
     void carregar()
@@ -397,7 +423,7 @@ function LinhaPostoEditavel({ posto, descricao, fc, flash, flashErr, onMudou, ab
       return res?.erro === 'numero_duplicado' ? `Já existe um posto com o número ${res?.numero} neste setor — escolha outro número.`
         : res?.erro === 'atividade_obrigatoria' ? 'A atividade é obrigatória.'
         : res?.erro === 'sem_acesso' ? 'Sem acesso a este posto.'
-        : (error?.message || 'Não consegui salvar. Confira o valor e tente de novo.')
+        : erroAmigavel(error, 'Não consegui salvar. Confira o valor e tente de novo.')
     }
     if (mexeuTurno && dados.turno) await fecharQuadrosAntigos(posto.id, r)
     await onMudou()
@@ -432,13 +458,13 @@ function LinhaPostoEditavel({ posto, descricao, fc, flash, flashErr, onMudou, ab
     const { error } = await supabase.from('prod_posto').update({ ativo: false, updated_at: new Date().toISOString() }).eq('id', posto.id)
     if (!error) await supabase.from('prod_posto_turno').update({ vigencia_fim: hoje }).eq('posto_id', posto.id).is('vigencia_fim', null)
     setBusy(false)
-    if (error) { flashErr(`Não consegui arquivar o posto: ${error.message}`); return }
+    if (error) { flashErr(erroAmigavel(error, 'Não consegui arquivar o posto. Tente de novo.')); return }
     flash('ARQUIVOU o posto.'); await onMudou()
   }
 
   async function gravarDescricao(v: string): Promise<string | null> {
     const { error } = await supabase.from('prod_posto').update({ descricao_funcao: v || null, updated_at: new Date().toISOString() }).eq('id', posto.id)
-    if (error) return error.message
+    if (error) return erroAmigavel(error, 'Não consegui salvar a descrição. Tente de novo.')
     await onMudou(); return null
   }
 
@@ -506,6 +532,11 @@ function LinhaPostoEditavel({ posto, descricao, fc, flash, flashErr, onMudou, ab
           {posto.capacidade_hora == null && <span style={{ fontSize: 11.5, color: C.espM, marginLeft: 10 }}>Capacidade em branco = <b>a medir</b> (nunca zero).</span>}
         </td>
       </tr>
+      <tr>
+        <td /><td colSpan={6} style={{ padding: '0 9px 12px' }}>
+          <PostoPessoas postoId={posto.id} capacidade={posto.quadro?.pessoas ?? null} turnos={fc.listas.turnos} onChange={() => { void onMudou() }} />
+        </td>
+      </tr>
     </>
   )
 }
@@ -570,7 +601,7 @@ function LinhaPosto({ posto, novo, fc, companyId, plantId, setor_id, flash, flas
         res?.erro === 'numero_duplicado' ? `Já existe um posto com o número ${res?.numero} neste setor.`
         : res?.erro === 'atividade_obrigatoria' ? 'A atividade é obrigatória.'
         : res?.erro === 'sem_acesso' ? 'Sem acesso.'
-        : (error?.message || 'Falha ao salvar a linha.'))
+        : erroAmigavel(error, 'Falha ao salvar a linha.'))
       return
     }
     flash(res.criou ? `CRIOU o posto nº ${res.numero}.` : 'ALTEROU a linha.')
@@ -593,7 +624,7 @@ function LinhaPosto({ posto, novo, fc, companyId, plantId, setor_id, flash, flas
     const { data, error } = await supabase.rpc('fn_prod_posto_excluir', { p_posto_id: posto.id, p_confirmar: true, p_user: user?.id ?? null })
     setBusy(false)
     const res = data as { ok?: boolean; erro?: string } | null
-    if (error || !res?.ok) { flashErr(error?.message || 'Falha ao excluir.'); return }
+    if (error || !res?.ok) { flashErr(erroAmigavel(error, 'Falha ao excluir.')); return }
     flash('EXCLUIU o posto.'); await onMudou()
   }
 
@@ -732,7 +763,7 @@ function NovoFluxoModal({ companyId, plantId, onClose, onSaved, onErro }: { comp
     setBusy(true)
     const { data, error } = await supabase.from('prod_fluxo').insert({ company_id: companyId, plant_id: plantId, setor_id: f.setor_id, nome: f.nome.trim(), modo: 'compartilhado', produto_id: null, unidade_entrada_id: f.unidade_entrada_id || null }).select('id').single()
     setBusy(false)
-    if (error || !data) { onErro(error?.message || 'Falha ao criar fluxo.'); return }
+    if (error || !data) { onErro(erroAmigavel(error, 'Falha ao criar fluxo.')); return }
     onSaved((data as { id: string }).id)
   }
   const pode = f.nome.trim() && f.setor_id
@@ -764,7 +795,7 @@ function useLista(tabela: string, ctx: Ctx, order = 'created_at') {
   const [rows, setRows] = useState<Row[]>([])
   const carregar = useCallback(async () => {
     const { data, error } = await supabase.from(tabela).select('*').eq('company_id', ctx.companyId).eq('plant_id', ctx.plantId).order(order)
-    if (error) { ctx.flashErr(`${tabela}: ${error.message}`); return }
+    if (error) { ctx.flashErr(erroAmigavel(error, 'Não foi possível carregar a lista. Tente de novo.')); return }
     setRows((data as Row[]) ?? [])
   }, [tabela, ctx, order])
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -777,17 +808,17 @@ function ehDuplicado(error: { code?: string; message?: string } | null): boolean
 }
 async function inserir(tabela: string, ctx: Ctx, payload: Record<string, unknown>, msgDup?: string): Promise<boolean> {
   const { error } = await supabase.from(tabela).insert({ company_id: ctx.companyId, plant_id: ctx.plantId, ...payload })
-  if (error) { ctx.flashErr(ehDuplicado(error) && msgDup ? msgDup : error.message); return false }
+  if (error) { ctx.flashErr(ehDuplicado(error) && msgDup ? msgDup : erroAmigavel(error, 'Não foi possível criar. Tente de novo.')); return false }
   ctx.flash('CRIOU.'); return true
 }
 async function renomear(tabela: string, ctx: Ctx, id: string, nome: string): Promise<boolean> {
   const { error } = await supabase.from(tabela).update({ nome }).eq('id', id)
-  if (error) { ctx.flashErr(ehDuplicado(error) ? 'Já existe um item com esse nome.' : error.message); return false }
+  if (error) { ctx.flashErr(ehDuplicado(error) ? 'Já existe um item com esse nome.' : erroAmigavel(error, 'Não foi possível salvar. Tente de novo.')); return false }
   ctx.flash('ALTEROU.'); return true
 }
 async function remover(tabela: string, ctx: Ctx, id: string): Promise<boolean> {
   const { error } = await supabase.from(tabela).delete().eq('id', id)
-  if (error) { ctx.flashErr(/foreign key|violates/i.test(error.message) ? 'Não dá para excluir: item vinculado a um posto/fluxo. Remova o vínculo antes.' : error.message); return false }
+  if (error) { ctx.flashErr(/foreign key|violates/i.test(error.message ?? '') ? 'Não dá para excluir: item vinculado a um posto/fluxo. Remova o vínculo antes.' : erroAmigavel(error, 'Não foi possível excluir. Tente de novo.')); return false }
   ctx.flash('EXCLUIU.'); return true
 }
 
@@ -943,7 +974,7 @@ function SugerirDoPonto({ ctx, rpc, tabela, sugLabel, jaExistentes, onAdd }: { c
     const { data, error } = await supabase.rpc(rpc, { p_company_id: ctx.companyId, p_plant_id: ctx.plantId })
     setBusy(false)
     const r = data as { ok?: boolean; erro?: string; itens?: ItemSug[] } | null
-    if (error || !r?.ok) { ctx.flashErr(error?.message || (r?.erro === 'sem_acesso' ? 'Sem acesso.' : r?.erro) || 'Falha ao buscar do ponto'); setAberto(false); return }
+    if (error || !r?.ok) { ctx.flashErr(error ? erroAmigavel(error, 'Falha ao buscar do ponto') : ((r?.erro === 'sem_acesso' ? 'Sem acesso.' : r?.erro) || 'Falha ao buscar do ponto')); setAberto(false); return }
     const its = r.itens ?? []
     setItens(its)
     const s: Record<string, boolean> = {}; its.forEach((it) => { if (!it.ja_cadastrado) s[it.nome] = true }) // pre-marca os novos; o usuario desmarca RH/TI etc.
@@ -957,7 +988,7 @@ function SugerirDoPonto({ ctx, rpc, tabela, sugLabel, jaExistentes, onAdd }: { c
     const payloads = selecionados.map((it, i) => ({ company_id: ctx.companyId, plant_id: ctx.plantId, nome: it.nome, ...(tabela === 'prod_setor' ? { ordem: jaExistentes + i + 1 } : {}) }))
     const { error } = await supabase.from(tabela).insert(payloads)
     setBusy(false)
-    if (error) { ctx.flashErr(error.message); return }
+    if (error) { ctx.flashErr(erroAmigavel(error, 'Não foi possível adicionar. Tente de novo.')); return }
     ctx.flash(`CRIOU ${payloads.length} ${sugLabel} do ponto.`); setAberto(false); setItens(null); await onAdd()
   }
   return (
@@ -1114,14 +1145,14 @@ function SalarioBase({ ctx }: { ctx: Ctx }) {
     const { data, error } = await supabase.rpc('fn_prod_salario_sugerir_da_folha', { p_company_id: ctx.companyId, p_competencia: comp })
     setBusy(false)
     const r = data as { ok?: boolean; itens?: SalSug[] } | null
-    if (error || !r?.ok) { ctx.flashErr(error?.message || 'Falha ao buscar da folha.'); return }
+    if (error || !r?.ok) { ctx.flashErr(erroAmigavel(error, 'Falha ao buscar da folha.')); return }
     setSug(r.itens ?? [])
   }
   async function salvar(dados: Record<string, unknown>): Promise<boolean> {
     const { data: { user } } = await supabase.auth.getUser()
     const { data, error } = await supabase.rpc('fn_prod_salario_salvar', { p_dados: { company_id: ctx.companyId, plant_id: ctx.plantId, ...dados }, p_user: user?.id ?? null })
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) { ctx.flashErr(r?.erro === 'sem_alvo' ? 'Sem cadastro de funcionário para esta matrícula — use o salário por cargo.' : r?.erro === 'valor_invalido' ? 'Valor inválido.' : (error?.message || 'Falha ao salvar salário.')); return false }
+    if (error || !r?.ok) { ctx.flashErr(r?.erro === 'sem_alvo' ? 'Sem cadastro de funcionário para esta matrícula — use o salário por cargo.' : r?.erro === 'valor_invalido' ? 'Valor inválido.' : erroAmigavel(error, 'Falha ao salvar salário.')); return false }
     ctx.flash('CRIOU salário base.'); await carregar(); return true
   }
   // corrige o valor no lugar; como passou a ser digitado, a fonte vira "digitado" (a folha não confirma mais esse número)
@@ -1129,13 +1160,13 @@ function SalarioBase({ ctx }: { ctx: Ctx }) {
     const n = Number(txt.replace(/\./g, '').replace(',', '.'))
     if (!Number.isFinite(n) || n <= 0) return 'Digite o valor em reais, só números, ex.: 2850,00.'
     const { error } = await supabase.from('prod_salario_base').update({ valor: n, fonte: 'manual' }).eq('id', id)
-    if (error) return `Não consegui salvar o salário: ${error.message}`
+    if (error) return erroAmigavel(error, 'Não consegui salvar o salário. Tente de novo.')
     ctx.flash('ALTEROU o salário base.'); await carregar(); return null
   }
   async function excluir(id: string) {
     if (!window.confirm('Excluir este salário base?')) return
     const { error } = await supabase.from('prod_salario_base').delete().eq('id', id)
-    if (error) { ctx.flashErr(error.message); return }
+    if (error) { ctx.flashErr(erroAmigavel(error, 'Não foi possível excluir o salário. Tente de novo.')); return }
     ctx.flash('EXCLUIU.'); await carregar()
   }
   const jaTem = (mat: number) => rows.some((r) => r.matricula === mat)

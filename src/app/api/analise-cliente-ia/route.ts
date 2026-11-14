@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { modeloPara, registrarFalhaIA } from '@/lib/aiModel';
+import { modeloPara, registrarFalhaIA, assertIAPermitida, IABloqueadaError } from '@/lib/aiModel';
 import { exigirUsuario, exigirEmpresas } from '@/lib/auth/guardaApi';
 
 function getAdmin() {
@@ -33,6 +33,11 @@ export async function POST(req: NextRequest) {
     // Empresa REAL do cliente (lida com service_role acima) — antes de ler qualquer outra coisa.
     const negado = await exigirEmpresas(guarda, [cliente.company_id]);
     if (negado) return negado;
+    // P0 CUSTO (CEO 01/11): porteiro do bloqueio global de IA paga, antes de qualquer custo.
+    try { await assertIAPermitida(); } catch (e) {
+      if (e instanceof IABloqueadaError) return NextResponse.json({ error: e.motivo, ia_bloqueada: true }, { status: 503 });
+      throw e;
+    }
 
     // Busca histórico de score (últimos 6 registros)
     const { data: historico } = await sb

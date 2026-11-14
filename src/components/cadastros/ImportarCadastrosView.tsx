@@ -9,9 +9,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { Download, Upload, Loader2, CheckCircle2, XCircle, AlertTriangle, Search } from 'lucide-react'
-import { CHAVES_CADASTROS, NOME_EXEMPLO, casarColunasCadastros } from '@/lib/cadastros/colunasImportacao'
+import { CHAVES_CADASTROS, NOME_EXEMPLO, casarColunasCadastros, normHeaderCadastro } from '@/lib/cadastros/colunasImportacao'
+import { extrairCodigo } from '@/lib/importacao/codigoDescricao'
 import { buscarCNPJ } from '@/lib/cadastros/buscarCNPJ'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+// Componente compartilhado por /dashboard/cadastros/{clientes,fornecedores}/importar.
+// Rota canônica de ajuda (RD-95): uma única lista de chaves em erp_ajuda_campo serve as duas telas.
+const ROTA_AJUDA = '/dashboard/cadastros/importar'
 
 type Tipo = 'cliente' | 'fornecedor'
 type Linha = Record<string, string>
@@ -42,7 +49,7 @@ export default function ImportarCadastrosView({ companyId, tipo }: { companyId: 
 
   const rodarPrevia = useCallback(async (ls: Linha[], modoAtual: 'so_novos' | 'criar_e_atualizar' | 'completar_por_nome' = 'criar_e_atualizar') => {
     const { data, error } = await supabase.rpc('fn_cadastro_importar_previa', { p_company: companyId, p_linhas: ls, p_modo: modoAtual })
-    if (error) { setParseErro(error.message); return }
+    if (error) { setParseErro(erroAmigavel(error)); return }
     const d = data as Record<string, unknown>
     if (!d?.ok) { setParseErro((d?.erro as string) ?? 'Falha na prévia'); return }
     setPrevia({
@@ -76,8 +83,16 @@ export default function ImportarCadastrosView({ companyId, tipo }: { companyId: 
         if (!row || row.every((c) => String(c ?? '').trim() === '')) continue
         const get = (k: string) => { const j = colIndex[k]; return j >= 0 ? String(row[j] ?? '').trim() : '' }
         if (get('nome_fantasia') === NOME_EXEMPLO) continue // linha de exemplo do modelo
+        // #8622: o modelo PS tem 2 linhas de cabeçalho (rótulos humanos na linha 3, chaves técnicas na 4).
+        // O detector casa a linha humana e a técnica (tipo/nome_fantasia/cpf_cnpj…) escapava como registro,
+        // virando "tipo inválido / sem CPF-CNPJ". Pula a linha técnica: células iguais às PRÓPRIAS chaves.
+        const ehLinhaTecnica = CHAVES_CADASTROS.filter((k) => colIndex[k] >= 0
+          && normHeaderCadastro(String(row[colIndex[k]] ?? '')) === normHeaderCadastro(k)).length >= 3
+        if (ehLinhaTecnica) continue
         const l: Linha = {}
         for (const k of CHAVES_CADASTROS) l[k] = get(k)
+        // #8439: campos codificados aceitam "código - descrição" (menu novo) e o código puro (planilha antiga)
+        for (const k of ['tipo_pessoa', 'contribuinte_icms']) l[k] = extrairCodigo(l[k])
         if (!l.tipo) l.tipo = tipoSugerido    // tela de clientes sugere Cliente; fornecedores, Fornecedor
         parsed.push(l)
       }
@@ -139,7 +154,7 @@ export default function ImportarCadastrosView({ companyId, tipo }: { companyId: 
     setCarregando(true); setResultado(null)
     const { data, error } = await supabase.rpc('fn_cadastro_importar_aplicar', { p_company: companyId, p_linhas: linhas, p_modo: modo, p_arquivo: nomeArquivo })
     setCarregando(false)
-    if (error) { setParseErro(error.message); return }
+    if (error) { setParseErro(erroAmigavel(error)); return }
     const d = data as Record<string, unknown>
     if (!d?.ok) { setParseErro((d?.erro as string) ?? 'Falha ao importar'); return }
     setResultado({
@@ -171,9 +186,12 @@ export default function ImportarCadastrosView({ companyId, tipo }: { companyId: 
         <a href={modeloUrl} download className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2">
           <Download size={15} /> Baixar planilha modelo
         </a>
-        <button type="button" onClick={() => inputRef.current?.click()} className="px-4 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] flex items-center gap-2">
-          <Upload size={15} /> {nomeArquivo ? 'Trocar arquivo' : 'Subir planilha'}
-        </button>
+        <span className="inline-flex items-center">
+          <button type="button" onClick={() => inputRef.current?.click()} className="px-4 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] flex items-center gap-2">
+            <Upload size={15} /> {nomeArquivo ? 'Trocar arquivo' : 'Subir planilha'}
+          </button>
+          <AjudaCampo rota={ROTA_AJUDA} chave="cadastros.importar.arquivo" />
+        </span>
         <input ref={inputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
           onChange={(e) => { const f = e.target.files?.[0]; if (f) void onArquivo(f); e.target.value = '' }} />
         {nomeArquivo && <span className="text-[12px] text-[#3D2314]/60">{nomeArquivo} · {linhas.length} linha(s)</span>}
@@ -225,9 +243,11 @@ export default function ImportarCadastrosView({ companyId, tipo }: { companyId: 
                 {previa.erro_ > 0 && (
                   <label className="flex items-center gap-1.5 text-[12px] text-[#3D2314]/75 cursor-pointer">
                     <input type="checkbox" checked={soErros} onChange={(e) => setSoErros(e.target.checked)} className="accent-[#C8941A]" /> Só erros
+                    <AjudaCampo rota={ROTA_AJUDA} chave="cadastros.importar.so_erros" />
                   </label>
                 )}
                 <label className="flex items-center gap-1.5 text-[12px] text-[#3D2314]/75">
+                  <span className="inline-flex items-center">Modo<AjudaCampo rota={ROTA_AJUDA} chave="cadastros.importar.modo" /></span>
                   <select value={modo}
                     onChange={(e) => { const m = e.target.value as 'so_novos' | 'criar_e_atualizar' | 'completar_por_nome'; setModo(m); void rodarPrevia(linhas, m) }}
                     className="border border-[#3D2314]/20 rounded px-2 py-1 text-[12px] bg-white">
@@ -247,13 +267,14 @@ export default function ImportarCadastrosView({ companyId, tipo }: { companyId: 
             )}
             <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
               <table className="w-full text-[12px]">
-                <thead className="bg-[#3D2314]/5 text-[11px] text-[#3D2314]/70 sticky top-0"><tr>
-                  <th className="text-left px-3 py-2 font-medium">#</th>
-                  <th className="text-left px-3 py-2 font-medium">ação</th>
-                  <th className="text-left px-3 py-2 font-medium">tipo</th>
-                  <th className="text-left px-3 py-2 font-medium">nome</th>
-                  <th className="text-left px-3 py-2 font-medium">CPF/CNPJ</th>
-                  <th className="text-left px-3 py-2 font-medium">motivo</th>
+                {/* #8622 · sticky no <th> (não no <thead>, que não gruda em todos os navegadores) + fundo opaco. */}
+                <thead className="text-[11px] text-[#3D2314]/70"><tr>
+                  <th className="text-left px-3 py-2 font-medium sticky top-0 z-10 bg-[#EDE7DF]">#</th>
+                  <th className="text-left px-3 py-2 font-medium sticky top-0 z-10 bg-[#EDE7DF]">ação<AjudaCampo rota={ROTA_AJUDA} chave="cadastros.importar.col_acao" /></th>
+                  <th className="text-left px-3 py-2 font-medium sticky top-0 z-10 bg-[#EDE7DF]">tipo<AjudaCampo rota={ROTA_AJUDA} chave="cadastros.importar.col_tipo" /></th>
+                  <th className="text-left px-3 py-2 font-medium sticky top-0 z-10 bg-[#EDE7DF]">nome<AjudaCampo rota={ROTA_AJUDA} chave="cadastros.importar.col_nome" /></th>
+                  <th className="text-left px-3 py-2 font-medium sticky top-0 z-10 bg-[#EDE7DF]">CPF/CNPJ<AjudaCampo rota={ROTA_AJUDA} chave="cadastros.importar.col_documento" /></th>
+                  <th className="text-left px-3 py-2 font-medium sticky top-0 z-10 bg-[#EDE7DF]">motivo<AjudaCampo rota={ROTA_AJUDA} chave="cadastros.importar.col_motivo" /></th>
                 </tr></thead>
                 <tbody>
                   {linhasView.map((l) => {
@@ -274,11 +295,14 @@ export default function ImportarCadastrosView({ companyId, tipo }: { companyId: 
             </div>
             <div className="px-4 py-3 border-t border-[#3D2314]/10 flex items-center justify-between gap-3 flex-wrap">
               <span className="text-[12px] text-[#3D2314]/60">{previa.erro_ > 0 ? 'Linhas com erro são ignoradas na importação.' : 'Pronto para importar.'}</span>
-              <button type="button" onClick={() => void aplicar()} disabled={!podeImportar}
-                className="px-5 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] disabled:opacity-40 flex items-center gap-2">
-                {carregando ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
-                Importar {previa.criar + previa.atualizar} cadastro(s)
-              </button>
+              <span className="inline-flex items-center">
+                <button type="button" onClick={() => void aplicar()} disabled={!podeImportar}
+                  className="px-5 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] disabled:opacity-40 flex items-center gap-2">
+                  {carregando ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
+                  Importar {previa.criar + previa.atualizar} cadastro(s)
+                </button>
+                <AjudaCampo rota={ROTA_AJUDA} chave="cadastros.importar.acao_importar" />
+              </span>
             </div>
           </div>
         </>

@@ -58,7 +58,7 @@ export default function DesempenhoComercialPage() {
     setLoading(true); setErro('')
     const { r: r0, error } = await buscar(range.de, range.ate)
     if (meu !== seq.current) return
-    if (error) { setLoading(false); setErro(error.message); return }
+    if (error) { setLoading(false); setErro('Não foi possível carregar o desempenho. Tente novamente.'); return }
     if (r0?.erro) { setLoading(false); setErro(r0.erro === 'sem_acesso' ? 'Sem acesso.' : r0.erro); return }
     const fechados = (x: Resp | null) => (x?.resumo?.ganhas_qtd ?? 0) + (x?.resumo?.perdidas_qtd ?? 0)
     if (!autoFeito.current && periodo === 'mes') {
@@ -90,6 +90,25 @@ export default function DesempenhoComercialPage() {
 
   const r = data?.resumo
   const maxFunil = useMemo(() => Math.max(1, ...(data?.funil ?? []).map((f) => f.qtd)), [data])
+  // Contador honesto do funil (#3331): total e abertura em andamento/ganhas/perdidas, derivados do
+  // próprio funil exibido logo abaixo (RD-38: nada fixo; coerente com as barras).
+  const funilResumo = useMemo(() => {
+    const fun = data?.funil ?? []
+    const total = fun.reduce((s, f) => s + (f.qtd ?? 0), 0)
+    const ganhas = fun.find((f) => f.etapa === 'ganho')?.qtd ?? 0
+    const perdidas = fun.find((f) => f.etapa === 'perdido')?.qtd ?? 0
+    return { total, ganhas, perdidas, andamento: Math.max(0, total - ganhas - perdidas) }
+  }, [data])
+  // Perdas por motivo em Pareto (#3331 "detalhamento do motivo de perda"): ordena do maior valor
+  // perdido para o menor e deriva a participação de cada motivo no total perdido, para a seção mostrar
+  // ONDE a perda se concentra — não só a lista. RD-38: tudo vem de data.perdas (nada fixo).
+  const perdas = useMemo(() => {
+    const lista = [...(data?.perdas ?? [])].sort((a, b) => (b.valor ?? 0) - (a.valor ?? 0))
+    const totalValor = lista.reduce((s, p) => s + (p.valor ?? 0), 0)
+    const totalQtd = lista.reduce((s, p) => s + (p.qtd ?? 0), 0)
+    const maxValor = Math.max(1, ...lista.map((p) => p.valor ?? 0))
+    return { lista, totalValor, totalQtd, maxValor }
+  }, [data])
   // período sem nenhum registro → aviso honesto em vez de parede de zeros (RD-98)
   const vazio = periodoVazio(r)
 
@@ -151,6 +170,12 @@ export default function DesempenhoComercialPage() {
 
             {/* Bloco B · funil */}
             <Secao titulo="Funil por fase" ajuda="projetos.desempenho.funil">
+              <div data-testid="desempenho-funil-contador" style={{ fontSize: 12.5, color: MUT, marginBottom: 12, lineHeight: 1.6 }}>
+                <b style={{ color: ESP }}>{funilResumo.total}</b> oportunidade{funilResumo.total === 1 ? '' : 's'} no período ·{' '}
+                <b style={{ color: ROXO }}>{funilResumo.andamento}</b> em andamento ·{' '}
+                <b style={{ color: VERDE }}>{funilResumo.ganhas}</b> ganha{funilResumo.ganhas === 1 ? '' : 's'} ·{' '}
+                <b style={{ color: VERM }}>{funilResumo.perdidas}</b> perdida{funilResumo.perdidas === 1 ? '' : 's'}
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {data.funil.map((f) => (
                   <div key={f.etapa} style={{ display: 'grid', gridTemplateColumns: '110px 1fr auto', alignItems: 'center', gap: 10 }}>
@@ -174,11 +199,11 @@ export default function DesempenhoComercialPage() {
                       <div key={v.responsavel_id ?? i} style={{ border: `0.5px solid ${LINE}`, borderRadius: 10, padding: 12 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
                           <span style={{ color: ESP, fontWeight: 700, fontSize: 13.5, minWidth: 0, overflowWrap: 'anywhere' }}>{i + 1}. {v.responsavel_nome}</span>
-                          <span style={{ color: corConversao(v.conversao_pct), fontWeight: 700, fontSize: 12.5, whiteSpace: 'nowrap' }}>{pct(v.conversao_pct)} · {rotConversao(v.conversao_pct)}</span>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', color: corConversao(v.conversao_pct), fontWeight: 700, fontSize: 12.5, whiteSpace: 'nowrap' }}>{pct(v.conversao_pct)} · {rotConversao(v.conversao_pct)}<AjudaCampo chave="projetos.desempenho.conversao" alinhar="fim" /></span>
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 12px', marginTop: 8 }}>
-                          <Par rot="Valor ganho" val={brl(v.ganhas_valor)} /><Par rot="Comissão" val={brl(v.comissao)} />
-                          <Par rot="Ticket" val={brl(v.ticket)} /><Par rot="Oport. · Prop. · Ganhas" val={`${v.oportunidades} · ${v.propostas} · ${v.ganhas}`} />
+                          <Par rot="Valor ganho" val={brl(v.ganhas_valor)} ajuda="projetos.desempenho.col_valor_ganho" /><Par rot="Comissão" val={brl(v.comissao)} ajuda="projetos.desempenho.comissao" />
+                          <Par rot="Ticket" val={brl(v.ticket)} ajuda="projetos.desempenho.ticket_medio" /><Par rot="Oport. · Prop. · Ganhas" val={`${v.oportunidades} · ${v.propostas} · ${v.ganhas}`} ajuda="projetos.desempenho.col_oportunidades" />
                         </div>
                       </div>
                     ))}
@@ -186,8 +211,14 @@ export default function DesempenhoComercialPage() {
                 <div className="hidden md:block" style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', minWidth: 640, borderCollapse: 'collapse', fontSize: 12.5 }}>
                     <thead><tr style={{ color: MUT, textAlign: 'right' }}>
-                      <th style={{ position: 'sticky', left: 0, background: '#fff', zIndex: 1, textAlign: 'left', padding: '6px 8px' }}>Vendedor</th>
-                      <th style={thR}>Oport.</th><th style={thR}>Propostas</th><th style={thR}>Ganhas</th><th style={thR}>Valor ganho</th><th style={thR}>Conversão</th><th style={thR}>Ticket</th><th style={thR}>Comissão</th>
+                      <th style={{ position: 'sticky', left: 0, background: '#fff', zIndex: 1, textAlign: 'left', padding: '6px 8px' }}>Vendedor<AjudaCampo chave="projetos.desempenho.col_vendedor" /></th>
+                      <th style={thR}>Oport.<AjudaCampo chave="projetos.desempenho.col_oportunidades" alinhar="fim" /></th>
+                      <th style={thR}>Propostas<AjudaCampo chave="projetos.desempenho.col_propostas" alinhar="fim" /></th>
+                      <th style={thR}>Ganhas<AjudaCampo chave="projetos.desempenho.col_ganhas" alinhar="fim" /></th>
+                      <th style={thR}>Valor ganho<AjudaCampo chave="projetos.desempenho.col_valor_ganho" alinhar="fim" /></th>
+                      <th style={thR}>Conversão<AjudaCampo chave="projetos.desempenho.conversao" alinhar="fim" /></th>
+                      <th style={thR}>Ticket<AjudaCampo chave="projetos.desempenho.ticket_medio" alinhar="fim" /></th>
+                      <th style={thR}>Comissão<AjudaCampo chave="projetos.desempenho.comissao" alinhar="fim" /></th>
                     </tr></thead>
                     <tbody>
                       {data.ranking.length === 0 ? <tr><td colSpan={8} style={{ padding: 12, color: MUT, textAlign: 'center' }}>Sem dados no período.</td></tr> :
@@ -206,17 +237,30 @@ export default function DesempenhoComercialPage() {
               </Secao>
             )}
 
-            {/* Bloco D · perdas por motivo */}
+            {/* Bloco D · perdas por motivo (Pareto: maior → menor, com barra e participação no total perdido) */}
             <Secao titulo="Por que não fechou (perdas por motivo)" ajuda="projetos.desempenho.perdas">
-              {data.perdas.length === 0 ? <div style={{ color: MUT, fontSize: 12.5 }}>Nenhuma perda registrada no período.</div> :
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {data.perdas.map((p) => (
-                    <div key={p.motivo} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, padding: '6px 0', borderBottom: `0.5px solid ${BG}` }}>
-                      <span style={{ color: ESP, textTransform: 'capitalize' }}>{p.motivo}</span>
-                      <span style={{ color: MUT }}><b style={{ color: VERM }}>{brl(p.valor)}</b> · {p.qtd}</span>
-                    </div>
-                  ))}
-                </div>}
+              {perdas.lista.length === 0 ? <div style={{ color: MUT, fontSize: 12.5 }}>Nenhuma perda registrada no período.</div> :
+                <>
+                  <div style={{ fontSize: 12.5, color: MUT, marginBottom: 10, lineHeight: 1.6 }}>
+                    <b style={{ color: VERM }}>{brl(perdas.totalValor)}</b> perdidos em{' '}
+                    <b style={{ color: ESP }}>{perdas.totalQtd}</b> oportunidade{perdas.totalQtd === 1 ? '' : 's'} ·{' '}
+                    maior ofensor: <b style={{ color: ESP, textTransform: 'capitalize' }}>{perdas.lista[0].motivo}</b>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {perdas.lista.map((p) => {
+                      const share = perdas.totalValor > 0 ? Math.round(((p.valor ?? 0) / perdas.totalValor) * 100) : 0
+                      return (
+                        <div key={p.motivo} data-testid="desempenho-perda-linha" style={{ display: 'grid', gridTemplateColumns: '150px 1fr auto', alignItems: 'center', gap: 10, padding: '4px 0', borderBottom: `0.5px solid ${BG}` }}>
+                          <span style={{ fontSize: 12.5, color: ESP, textTransform: 'capitalize', overflowWrap: 'anywhere' }}>{p.motivo}</span>
+                          <div style={{ background: BG, borderRadius: 6, height: 20, position: 'relative', overflow: 'hidden' }}>
+                            <div style={{ width: `${((p.valor ?? 0) / perdas.maxValor) * 100}%`, height: '100%', background: VERM, opacity: 0.8, borderRadius: 6, minWidth: (p.valor ?? 0) > 0 ? 3 : 0 }} />
+                          </div>
+                          <span style={{ fontSize: 12, color: MUT, whiteSpace: 'nowrap' }}><b style={{ color: VERM }}>{brl(p.valor)}</b> · {p.qtd} · {share}%</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </>}
             </Secao>
           </>
         )}
@@ -234,10 +278,10 @@ function Card({ titulo, valor, cor, sub, ajuda }: { titulo: string; valor: strin
     </div>
   )
 }
-function Par({ rot, val }: { rot: string; val: string }) {
+function Par({ rot, val, ajuda }: { rot: string; val: string; ajuda?: string }) {
   return (
     <div style={{ minWidth: 0 }}>
-      <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.4, color: MUT }}>{rot}</div>
+      <div style={{ display: 'flex', alignItems: 'center', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.4, color: MUT }}>{rot}{ajuda && <AjudaCampo chave={ajuda} />}</div>
       <div style={{ fontSize: 13, color: ESP, fontWeight: 600, overflowWrap: 'anywhere' }}>{val}</div>
     </div>
   )

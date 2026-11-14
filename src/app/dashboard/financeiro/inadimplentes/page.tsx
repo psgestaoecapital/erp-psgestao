@@ -4,6 +4,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero } from '@/lib/moeda-mascara'
+
+const ROTA_AJUDA = '/dashboard/financeiro/inadimplentes'
 
 // PR-FIX-INADIMPLENTES-3-TABS (CEO 27/05/2026)
 // Substitui fn_ge_inadimplentes_agrupado por fn_inadimplentes_por_status
@@ -236,8 +241,9 @@ export default function InadimplentesPage() {
             <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 28, fontWeight: 400, color: '#3D2314', margin: '0 0 6px' }}>
               Inadimplentes
             </h1>
-            <p style={{ color: 'rgba(61,35,20,0.65)', fontSize: 13, margin: 0 }}>
+            <p style={{ color: 'rgba(61,35,20,0.65)', fontSize: 13, margin: 0, display: 'inline-flex', alignItems: 'center' }}>
               Atrasadas · Em renegociação · Resolvidas
+              <AjudaCampo chave="ge.inadimplentes.abas" rota={ROTA_AJUDA} />
             </p>
           </div>
           {tab === 'atrasadas' && selecionados.size > 0 && (
@@ -344,7 +350,7 @@ function ConteudoAtrasadas({
     <>
       <div style={{ background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderLeft: '3px solid #A32D2D', borderRadius: 8, padding: '12px 16px', marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600 }}>Total atrasado</div>
+          <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600, display: 'inline-flex', alignItems: 'center' }}>Total atrasado<AjudaCampo chave="ge.inadimplentes.total_atrasado" rota={ROTA_AJUDA} /></div>
           <div style={{ fontSize: 20, fontWeight: 600, color: '#A32D2D', fontVariantNumeric: 'tabular-nums' }}>R$ {fmt(totalValor)}</div>
         </div>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#3D2314', cursor: 'pointer' }}>
@@ -359,7 +365,7 @@ function ConteudoAtrasadas({
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          <span style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600 }}>Ordenar:</span>
+          <span style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600, display: 'inline-flex', alignItems: 'center' }}>Ordenar:<AjudaCampo chave="ge.inadimplentes.ordenar" rota={ROTA_AJUDA} /></span>
           <button type="button" onClick={() => onOrdemChange('valor')} style={ordemBtnStyle(ordem === 'valor')}>Maior valor</button>
           <button type="button" onClick={() => onOrdemChange('atraso')} style={ordemBtnStyle(ordem === 'atraso')}>Maior atraso</button>
         </div>
@@ -379,10 +385,10 @@ function ConteudoAtrasadas({
               <div style={clienteHeaderStyle(open)} role="button" tabIndex={0} onClick={() => onToggleCliente(key)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggleCliente(key) } }}>
                 <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
                   <div style={{ fontSize: 14, fontWeight: 600, color: '#3D2314', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {c.cliente_nome ?? '(sem nome)'}
+                    {c.cliente_nome ?? 'Cliente sem cadastro'}
                   </div>
-                  <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', marginTop: 2 }}>
-                    {c.qtd_contas} {c.qtd_contas === 1 ? 'conta' : 'contas'}
+                  <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', marginTop: 2, display: 'inline-flex', alignItems: 'center' }}>
+                    {c.qtd_contas} {c.qtd_contas === 1 ? 'conta' : 'contas'}<AjudaCampo chave="ge.inadimplentes.card.contas" rota={ROTA_AJUDA} />
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6, marginRight: 12, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
@@ -398,8 +404,8 @@ function ConteudoAtrasadas({
                   )}
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 4 }}>
-                  <div style={{ fontSize: 15, fontWeight: 600, color: '#A32D2D', fontVariantNumeric: 'tabular-nums' }}>
-                    R$ {fmt(c.total_valor)}
+                  <div style={{ fontSize: 15, fontWeight: 600, color: '#A32D2D', fontVariantNumeric: 'tabular-nums', display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                    R$ {fmt(c.total_valor)}<AjudaCampo chave="ge.inadimplentes.card.valor" rota={ROTA_AJUDA} />
                   </div>
                 </div>
                 <div style={{ fontSize: 16, color: 'rgba(61,35,20,0.4)', marginLeft: 12 }}>{open ? '−' : '+'}</div>
@@ -422,13 +428,14 @@ function ConteudoAtrasadas({
                         <div style={{ fontSize: 13, fontWeight: 600, color: '#A32D2D', minWidth: 100, textAlign: 'right' }}>
                           R$ {fmt(conta.valor)}
                         </div>
-                        <div style={{ display: 'flex', gap: 6 }}>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                           <button onClick={() => onMarcarPago(conta.id)} disabled={acaoLoading} style={smallBtn('#C8941A', acaoLoading)}>
                             Marcar pago
                           </button>
                           <button onClick={() => onRenegociar(conta.id)} disabled={acaoLoading} style={smallBtn('transparent', acaoLoading, '#3D2314')}>
                             Renegociar
                           </button>
+                          <AjudaCampo chave="ge.inadimplentes.acao" rota={ROTA_AJUDA} />
                         </div>
                       </div>
                     )
@@ -586,7 +593,7 @@ function RenegociarModal({ open, ids, onClose, onSucesso }: { open: boolean; ids
     const { error } = await supabase.rpc('fn_renegociar_inadimplencia', {
       p_receber_ids: ids,
       p_nova_data_vencimento: novaData,
-      p_novo_valor_total: novoValor ? Number(novoValor) : null,
+      p_novo_valor_total: moedaParaNumero(novoValor),
       p_observacao: obs || 'Renegociado',
     })
     setLoading(false)
@@ -613,7 +620,7 @@ function RenegociarModal({ open, ids, onClose, onSucesso }: { open: boolean; ids
           </label>
           <label>
             <span style={fieldLabel}>Novo valor total (opcional)</span>
-            <input type="number" step="0.01" min="0" value={novoValor} onChange={(e) => setNovoValor(e.target.value)} placeholder="Deixe vazio pra manter" style={input} />
+            <CampoMoeda value={novoValor} onChange={setNovoValor} placeholder="Deixe vazio pra manter" style={input} />
           </label>
           <label>
             <span style={fieldLabel}>Observação</span>

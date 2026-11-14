@@ -10,6 +10,7 @@ import { ListChecks, Loader2, Zap } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { ItensNfeRecebida } from '../documentos-recebidos/_components/ItensNfeRecebida'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 type FilaNota = {
   id: string; numero: string | null; fornecedor: string | null; cnpj: string | null
@@ -95,23 +96,27 @@ export default function MutiraoPage() {
         {/* E6 · progresso */}
         <div className="mt-4 bg-white border border-[#3D2314]/10 rounded-xl p-4">
           <div className="flex items-center justify-between text-[12px] text-[#3D2314]/70 mb-1.5">
-            <span className="font-medium text-[#3D2314]">Fila de trabalho</span>
+            <span className="font-medium text-[#3D2314] inline-flex items-center">Fila de trabalho<AjudaCampo chave="compras.mutirao.progresso" /></span>
             <span>{prog.prontas} prontas · faltam {prog.total - prog.prontas} notas · {prog.itensRestantes} itens</span>
           </div>
           <div className="h-2.5 rounded-full bg-[#3D2314]/8 overflow-hidden">
             <div className="h-full bg-[#3F7012]" style={{ width: `${prog.total ? Math.round((prog.prontas / prog.total) * 100) : 0}%` }} />
           </div>
           <div className="mt-2 flex items-center gap-2 flex-wrap">
-            <button type="button" disabled={busy || prog.comExato === 0} onClick={() => void abrirPrevia()}
-              className="inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-md bg-[#C8941A] text-white font-medium hover:bg-[#A87810] disabled:opacity-40">
-              <Zap size={13} /> Casamento exato em lote{prog.comExato > 0 ? ` (${prog.comExato} itens)` : ''}
-            </button>
+            <span className="inline-flex items-center">
+              <button type="button" disabled={busy || prog.comExato === 0} onClick={() => void abrirPrevia()}
+                className="inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-md bg-[#C8941A] text-white font-medium hover:bg-[#A87810] disabled:opacity-40">
+                <Zap size={13} /> Casamento exato em lote{prog.comExato > 0 ? ` (${prog.comExato} itens)` : ''}
+              </button>
+              <AjudaCampo chave="compras.mutirao.casamento_lote" />
+            </span>
             {(['todas', 'prontas', 'com_exato', 'sem_vinculo'] as const).map((f) => (
               <button key={f} type="button" onClick={() => { setFiltro(f); setAberta(null) }}
                 className={'text-[11.5px] px-2.5 py-1 rounded-md border ' + (filtro === f ? 'border-[#C8941A] text-[#A87810] bg-[#FBF3E0]' : 'border-[#3D2314]/15 text-[#3D2314]/60')}>
                 {f === 'todas' ? 'Todas' : f === 'prontas' ? 'Prontas' : f === 'com_exato' ? 'Com casamento exato' : 'Sem nenhum vínculo'}
               </button>
             ))}
+            <AjudaCampo chave="compras.mutirao.filtros" />
           </div>
         </div>
 
@@ -151,10 +156,17 @@ export default function MutiraoPage() {
                   {/* E3 · conferência em série: reusa o componente; ao resolver, a fila reordena */}
                   {aberta === n.id && (
                     <div className="px-4 pb-4">
+                      <div className="mb-1.5 text-[11px] font-medium text-[#3D2314]/60 inline-flex items-center">Conferência da nota<AjudaCampo chave="compras.mutirao.conferir" /></div>
                       <ItensNfeRecebida nfeId={n.id} companyId={empresa} onChange={() => void carregar()} />
                       <div className="mt-2 flex items-center gap-2">
-                        <button type="button" onClick={() => proximaNota(n.id)} className="text-[11px] px-3 py-1.5 rounded-md bg-[#3F7012] text-white font-medium hover:bg-[#2F5510]">Próxima nota →</button>
-                        <button type="button" onClick={() => setAberta(null)} className="text-[11px] px-3 py-1.5 rounded-md border border-[#3D2314]/15 text-[#3D2314]/70">Pular</button>
+                        <span className="inline-flex items-center">
+                          <button type="button" onClick={() => proximaNota(n.id)} className="text-[11px] px-3 py-1.5 rounded-md bg-[#3F7012] text-white font-medium hover:bg-[#2F5510]">Próxima nota →</button>
+                          <AjudaCampo chave="compras.mutirao.proxima" />
+                        </span>
+                        <span className="inline-flex items-center">
+                          <button type="button" onClick={() => setAberta(null)} className="text-[11px] px-3 py-1.5 rounded-md border border-[#3D2314]/15 text-[#3D2314]/70">Pular</button>
+                          <AjudaCampo chave="compras.mutirao.pular" />
+                        </span>
                       </div>
                     </div>
                   )}
@@ -186,7 +198,10 @@ export default function MutiraoPage() {
             </div>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setPrevia(null)} className="px-3 py-1.5 rounded-md border border-[#3D2314]/15 text-[12px] text-[#3D2314]/70">Cancelar</button>
-              <button type="button" disabled={busy} onClick={() => void aplicarLote()} className="px-4 py-1.5 rounded-md bg-[#3F7012] text-white text-[12px] font-medium disabled:opacity-50">Aplicar {previa.vinculos.length} vínculos</button>
+              <span className="inline-flex items-center">
+                <button type="button" disabled={busy} onClick={() => void aplicarLote()} className="px-4 py-1.5 rounded-md bg-[#3F7012] text-white text-[12px] font-medium disabled:opacity-50">Aplicar {previa.vinculos.length} vínculos</button>
+                <AjudaCampo chave="compras.mutirao.previa_aplicar" />
+              </span>
             </div>
           </div>
         </div>

@@ -18,6 +18,7 @@ import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import {
   Plus, Search, ShoppingCart, BarChart3,
   X, Info, Send, CheckCircle2, ArrowRight,
@@ -26,6 +27,7 @@ import {
 } from 'lucide-react'
 import OrcamentoItensEditor, { type EditorItem } from '@/components/comum/OrcamentoItensEditor'
 import BlocoObraFiscal, { type ObraFiscalState, obraFiscalStateInicial, resolverObraFiscal } from '@/components/comum/BlocoObraFiscal'
+import { obraPreenchidaDoOrcamento, OBRA_PREENCHIDA_SELECT, type OrcamentoObra, type ObraSalva } from '@/lib/fiscal/obraPreenchida'
 import ParcelasEditor from '@/components/comum/ParcelasEditor'
 import MedicoesNFSeCard, { type MedicaoEscolhida } from '@/components/comum/MedicoesNFSeCard'
 import NFSeEmitirGovModal from '@/components/fiscal/NFSeEmitirGovModal'
@@ -126,6 +128,13 @@ type Orcamento = {
   observacoes: string | null
   observacoes_internas: string | null
   created_at: string | null
+  obra_id?: string | null
+  obra_cno?: string | null
+  obra_logradouro?: string | null
+  obra_numero?: string | null
+  obra_bairro?: string | null
+  obra_cidade?: string | null
+  obra_uf?: string | null
 }
 
 type Pedido = {
@@ -265,9 +274,9 @@ function OTCPageInner() {
       // (defense-in-depth contra falha em .eq / RPC / RLS).
       const orcSafe = ((orc.data ?? []) as Orcamento[]).filter((o) => o.company_id === expected)
       const pedSafe = ((ped.data ?? []) as Pedido[]).filter((p) => p.company_id === expected)
-      if (orc.error) setErro('Falha ao carregar orcamentos: ' + orc.error.message)
+      if (orc.error) setErro(erroAmigavel(orc.error, 'Não foi possível carregar os orçamentos. Tente de novo.'))
       else setOrcamentos(orcSafe)
-      if (ped.error) setErro('Falha ao carregar pedidos: ' + ped.error.message)
+      if (ped.error) setErro(erroAmigavel(ped.error, 'Não foi possível carregar os pedidos. Tente de novo.'))
       else setPedidos(pedSafe)
       setLoading(false)
     }
@@ -414,7 +423,7 @@ function OTCPageInner() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <ShoppingCart size={26} style={{ color: C.gold }} />
           <div>
-            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>OTC — Order-to-Cash</h1>
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>Vendas — do orçamento ao faturamento</h1>
             <p style={{ margin: 0, fontSize: 12, color: C.espressoM }}>Orçamento → Pedido → Faturamento</p>
           </div>
         </div>
@@ -447,7 +456,7 @@ function OTCPageInner() {
       {selInfo.tipo !== 'empresa' && companyIds.length > 0 && (
         <div style={{ marginBottom: 12, padding: '10px 14px', background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 8, color: C.amber, fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Info size={14} />
-          <span>Selecione uma empresa específica no menu superior. OTC é operacional por empresa — não exibe dados consolidados.</span>
+          <span>Selecione uma empresa específica no menu superior. Esta tela é operacional por empresa — não exibe dados consolidados.</span>
         </div>
       )}
 
@@ -461,7 +470,7 @@ function OTCPageInner() {
       ) : companyIds.length === 0 ? (
         <EmptyState titulo="Nenhuma empresa disponível" texto="Você ainda não tem empresas vinculadas. Peça ao administrador para te vincular ou selecione uma no menu superior." />
       ) : !companyIdUnico ? (
-        <EmptyState titulo="Selecione uma empresa" texto="OTC é operacional por empresa. Escolha uma empresa específica no menu superior para ver orçamentos e pedidos." />
+        <EmptyState titulo="Selecione uma empresa" texto="Esta tela é operacional por empresa. Escolha uma empresa específica no menu superior para ver orçamentos e pedidos." />
       ) : tab === 'visao' ? (
         <VisaoGeralKPIs kpis={kpis} />
       ) : (
@@ -483,6 +492,8 @@ function OTCPageInner() {
           orc={orcSel}
           itens={orcItens}
           onClose={() => setOrcSel(null)}
+          onObraSalva={(patch) => { setOrcSel((o) => (o ? { ...o, ...patch } : o)); setOrcamentos((l) => l.map((x) => (x.id === orcSel.id ? { ...x, ...patch } : x))) }}
+          flash={flash}
           onEnviar={() => enviarOrcamento(orcSel.id)}
           onAprovar={() => aprovarOrcamento(orcSel.id)}
           // PEDIDO 2 · um caminho: card, arrastar e drawer passam TODOS pela mesma confirmação →
@@ -631,6 +642,11 @@ function KanbanBoard({
   const [dropCol, setDropCol] = useState<'ped' | 'fat' | 'orc' | null>(null)
   const [busca, setBusca] = useState('')
   const q = busca.trim().toLowerCase()
+  // Coluna não enche a tela com centenas de cards (usabilidade): mostra os primeiros
+  // e oferece "ver todos". Reseta ao buscar (a busca já reduz a lista).
+  const LIMITE_COL = 50
+  const [verTudo, setVerTudo] = useState<Record<'orc' | 'ped' | 'fat', boolean>>({ orc: false, ped: false, fat: false })
+  useEffect(() => { setVerTudo({ orc: false, ped: false, fat: false }) }, [q])
 
   // Busca migrada da aba removida (nada se perde): filtra por número ou cliente.
   const colOrc = useMemo(
@@ -699,6 +715,21 @@ function KanbanBoard({
     </div>
   )
 
+  // Limita quantos cards a coluna renderiza; rodapé "ver todos" expande.
+  function limitar<T>(key: 'orc' | 'ped' | 'fat', col: T[]): T[] {
+    return verTudo[key] ? col : col.slice(0, LIMITE_COL)
+  }
+  function maisFooter(key: 'orc' | 'ped' | 'fat', total: number, cor: string) {
+    const restantes = total - LIMITE_COL
+    if (verTudo[key] || restantes <= 0) return null
+    return (
+      <button type="button" onClick={() => setVerTudo((s) => ({ ...s, [key]: true }))}
+        style={{ marginTop: 2, background: C.white, color: cor, border: `1px dashed ${cor}`, borderRadius: 8, padding: '7px 10px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>
+        +{restantes} {restantes === 1 ? 'restante' : 'restantes'} · ver todos
+      </button>
+    )
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
@@ -732,7 +763,7 @@ function KanbanBoard({
                 Soltar para voltar a orçamento
               </div>
             )}
-            {colOrc.length === 0 && dropCol !== 'orc' ? <KanbanVazio texto="Nenhum orçamento em aberto." /> : colOrc.map(cardOrc)}
+            {colOrc.length === 0 && dropCol !== 'orc' ? <KanbanVazio texto="Nenhum orçamento em aberto." /> : <>{limitar('orc', colOrc).map(cardOrc)}{maisFooter('orc', colOrc.length, C.gold)}</>}
           </KanbanColuna>
         </div>
 
@@ -754,7 +785,7 @@ function KanbanBoard({
                 Soltar para converter em pedido
               </div>
             )}
-            {colPed.length === 0 && dropCol !== 'ped' ? <KanbanVazio texto="Nenhum pedido em aberto. Arraste um orçamento para cá." /> : colPed.map(cardPed)}
+            {colPed.length === 0 && dropCol !== 'ped' ? <KanbanVazio texto="Nenhum pedido em aberto. Arraste um orçamento para cá." /> : <>{limitar('ped', colPed).map(cardPed)}{maisFooter('ped', colPed.length, C.blue)}</>}
           </KanbanColuna>
         </div>
 
@@ -778,7 +809,7 @@ function KanbanBoard({
                 Soltar para faturar
               </div>
             )}
-            {colFat.length === 0 && dropCol !== 'fat' ? <KanbanVazio texto="Nada faturado ainda. Arraste um pedido (ou orçamento) para cá." /> : colFat.map((p) => (
+            {colFat.length === 0 && dropCol !== 'fat' ? <KanbanVazio texto="Nada faturado ainda. Arraste um pedido (ou orçamento) para cá." /> : <>{limitar('fat', colFat).map((p) => (
               <div key={p.id} onClick={() => onAbrirPed(p)}
                 style={{ cursor: 'pointer', background: C.white, border: `1px solid ${C.border}`, borderLeft: `3px solid ${C.purple}`, borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <KanbanCardTopo numero={p.numero} status={p.status} mapa={STATUS_PED} />
@@ -788,7 +819,7 @@ function KanbanBoard({
                   <strong style={{ color: C.purple }}>{fmtBRL(p.total)}</strong>
                 </div>
               </div>
-            ))}
+            ))}{maisFooter('fat', colFat.length, C.purple)}</>}
           </KanbanColuna>
         </div>
       </div>
@@ -986,7 +1017,7 @@ function ModalCancelarOrcamento({ orc, onClose, onDone, flash }: {
       .insert({ company_id: orc.company_id, nome, ativo: true, exige_descricao: false })
       .select('id').single()
     setSalvando(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível salvar o motivo.')); return }
     setNovoAberto(false); setNovoNome('')
     await carregarMotivos((data as { id: string }).id)
   }
@@ -999,7 +1030,7 @@ function ModalCancelarOrcamento({ orc, onClose, onDone, flash }: {
       p_orcamento_id: orc.id, p_motivo_perda_id: motivoId, p_motivo_texto: texto.trim() || null,
     })
     setSalvando(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível cancelar o orçamento.')); return }
     const r = data as { ok?: boolean; erro?: string } | null
     if (!r?.ok) { setErro(r?.erro ?? 'Não foi possível cancelar'); return }
     flash('Orçamento cancelado (perda registrada).')
@@ -1115,8 +1146,78 @@ function KpiCard({ label, valor, sub, accent }: { label: string; valor: string; 
   )
 }
 
-function DrawerOrcamento({ orc, itens, onClose, onEnviar, onAprovar, onConverter, onCancelar }: {
+// #3862/#3863 etapa 1 · editar a obra do orçamento JÁ SALVO (antes só dava para informar ao criar).
+// Mesmo componente único BlocoObraFiscal; grava no próprio orçamento (obra_* congelados + obra_id) e a
+// NFS-e de obra abre pré-preenchida com isso. Só aparece em orçamento aberto e de serviço de obra (E0370).
+function CardObraOrcamento({ orc, onSalva, flash }: {
+  orc: Orcamento; onSalva: (patch: Record<string, unknown>) => void; flash: (m: string) => void;
+}) {
+  const [exige, setExige] = useState(false)
+  const [editando, setEditando] = useState(false)
+  const [salvando, setSalvando] = useState(false)
+  const [st, setSt] = useState<ObraFiscalState>(obraFiscalStateInicial)
+  const o = orc as unknown as OrcamentoObra
+  const resumo = [o.obra_logradouro, o.obra_numero, o.obra_bairro, o.obra_cidade, o.obra_uf].filter(Boolean).join(', ')
+
+  useEffect(() => {
+    let cancel = false
+    supabase.rpc('fn_orcamento_exige_obra', { p_orcamento_id: orc.id })
+      .then(({ data }) => { if (!cancel) setExige(data === true) })
+    return () => { cancel = true }
+  }, [orc.id])
+
+  async function abrir() {
+    let salva: ObraSalva | null = null
+    if (o.obra_id) {
+      const { data } = await supabase.from('projetos_obras').select(OBRA_PREENCHIDA_SELECT).eq('id', o.obra_id).maybeSingle()
+      salva = (data as ObraSalva | null) ?? null
+    }
+    const p = obraPreenchidaDoOrcamento(o, salva)
+    setSt(p ? { ...obraFiscalStateInicial, modo: p.modo, obraSel: p.obraSel, obraCno: p.obraCno,
+      obraEnd: p.obraEnd ?? obraFiscalStateInicial.obraEnd } : obraFiscalStateInicial)
+    setEditando(true)
+  }
+
+  async function salvar() {
+    setSalvando(true)
+    const r = await resolverObraFiscal(st, { companyId: orc.company_id, clienteId: orc.cliente_id, clienteNome: orc.cliente_nome })
+    if (!r.ok) { flash(r.erro); setSalvando(false); return }
+    const { error } = await supabase.from('erp_orcamentos').update(r.obra as unknown as Record<string, unknown>).eq('id', orc.id)
+    setSalvando(false)
+    if (error) { flash('Erro ao salvar a obra: ' + error.message); return }
+    onSalva(r.obra as unknown as Record<string, unknown>)
+    setEditando(false)
+    flash('Dados da obra salvos no orçamento.')
+  }
+
+  if (!exige) return null
+  return (
+    <Card titulo="Dados da obra (nota fiscal)">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+        <span style={{ fontSize: 11, color: C.espressoM }}>Endereço da obra usado na NFS-e</span>
+        <AjudaCampo chave="otc.orcamento.dados_obra" rota="/dashboard/commerce/otc" />
+      </div>
+      {!editando ? (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, color: resumo ? C.espresso : C.espressoM }}>{resumo || 'Obra ainda não informada.'}</span>
+          <button onClick={abrir} style={btnSec}>{resumo ? 'Editar obra' : 'Informar obra'}</button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <BlocoObraFiscal companyId={orc.company_id} value={st} onChange={setSt} />
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button onClick={() => setEditando(false)} style={btnSec} disabled={salvando}>Cancelar</button>
+            <button onClick={salvar} style={btnPri} disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar obra'}</button>
+          </div>
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function DrawerOrcamento({ orc, itens, onClose, onObraSalva, flash, onEnviar, onAprovar, onConverter, onCancelar }: {
   orc: Orcamento; itens: OrcamentoItem[]; onClose: () => void;
+  onObraSalva: (patch: Record<string, unknown>) => void; flash: (m: string) => void;
   onEnviar: () => void; onAprovar: () => void; onConverter: () => void; onCancelar: () => void;
 }) {
   const canEnviar = orc.status === 'rascunho'
@@ -1175,6 +1276,8 @@ function DrawerOrcamento({ orc, itens, onClose, onEnviar, onAprovar, onConverter
               </table>
             )}
           </Card>
+
+          {canCancelar && <CardObraOrcamento orc={orc} onSalva={onObraSalva} flash={flash} />}
 
           {/* Totais */}
           <Card titulo="Totais">

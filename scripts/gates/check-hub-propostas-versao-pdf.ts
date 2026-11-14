@@ -9,7 +9,11 @@ const src = readFileSync('src/app/dashboard/projetos/propostas/page.tsx', 'utf8'
 ok(src.includes('versao,orcamento_origem_id,pdf_anexo_path'), 'tela lê versao, orcamento_origem_id e pdf_anexo_path')
 ok(src.includes("{ count: 'exact' }") && src.includes('totalBanco > linhas.length'), 'avisa quando a lista é cortada (total do banco × exibidas)')
 ok(src.includes('vis.slice(0, mostrar)') && src.includes('POR_PAGINA'), 'lista pagina de 25 em 25')
-ok(!/erp_orcamentos'\)[^\n]*\.(update|upsert|insert)\(/.test(src), 'só leitura: a tela não grava proposta')
+// #4014/#4015 (Tryo): a lista atribui o ORÇAMENTISTA (orcamentista_id/_nome) in-place — única escrita permitida.
+// Nenhum insert/upsert/delete de proposta e nenhum update que toque outros campos (status/total/cliente/datas…).
+const escritasProp = [...src.matchAll(/erp_orcamentos'\)\.(update|upsert|insert|delete)\((\{[^}]*\})?/g)]
+ok(escritasProp.every((m) => m[1] === 'update' && !!m[2] && /orcamentista_id/.test(m[2]) && /orcamentista_nome/.test(m[2]) && !/\b(status|total|valor|cliente_nome|numero|data_\w+|obra_id|eh_obra|versao|pdf_anexo_path|company_id)\b/.test(m[2])),
+  'só leitura da proposta (única escrita: atribuir orçamentista)')
 for (const id of ['hub-proposta-versao', 'hub-proposta-pdf', 'hub-propostas-com-pdf', 'hub-propostas-revisoes', 'hub-proposta-calculadora', 'hub-propostas-mostrar-mais', 'hub-propostas-truncado']) ok(src.includes(`data-testid="${id}"`), `tela tem ${id}`)
 
 const mig = readdirSync('supabase/migrations').filter(f => f.endsWith('.sql')).map(f => readFileSync(`supabase/migrations/${f}`, 'utf8')).join('\n')

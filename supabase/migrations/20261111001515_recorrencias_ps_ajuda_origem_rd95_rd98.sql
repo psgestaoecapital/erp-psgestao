@@ -1,0 +1,36 @@
+-- Recorrências PS (/dashboard/contratos/recorrencias-ps): fecha os gaps do auditor (matriz 09/11, score 84):
+--   (RD-95) 0 "?" nos KPIs, filtros e cards;
+--   (RD-98 p3) system_screens.views_consumidas / rpcs_chamadas NULL (origem do dado não registrada).
+-- ADITIVA e idempotente: só insere chaves de ajuda (ON CONFLICT DO NOTHING) e preenche a origem da tela em
+-- system_screens (WHERE rota, sem sobrescrever dado existente). Não toca tabela de contrato nem dado de cliente.
+
+-- 1) RD-95 · "?" (AjudaCampo) em todo KPI, filtro, ação e card da tela.
+INSERT INTO public.erp_ajuda_campo (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, status)
+VALUES
+ ('recorrencias_ps.kpi_mrr_receita','/dashboard/contratos/recorrencias-ps','Recorrências','MRR receita','Nada a preencher — é a soma da receita recorrente mensal equivalente (MRR) dos contratos de receita ATIVOS.','Mostra quanto entra, por mês, de forma recorrente — a base previsível do faturamento.','R$ 12.500,00','Confundir com o faturado do mês: o MRR é o valor recorrente normalizado para 1 mês, não o que já foi cobrado.',10,'publicado'),
+ ('recorrencias_ps.kpi_mrr_despesa','/dashboard/contratos/recorrencias-ps','Recorrências','MRR despesa','Nada a preencher — é a soma da despesa recorrente mensal equivalente dos contratos de despesa ATIVOS (aluguel, salário, diarista, BPO).','Mostra quanto sai, por mês, de forma recorrente — ajuda a medir o custo fixo contratado.','R$ 4.300,00','Achar que inclui despesas avulsas: aqui entra só o que tem contrato recorrente cadastrado.',20,'publicado'),
+ ('recorrencias_ps.kpi_a_gerar_30','/dashboard/contratos/recorrencias-ps','Recorrências','A gerar (30d)','Nada a preencher — soma dos valores cuja próxima geração cai nos próximos 30 dias.','Antecipa o caixa: o quanto de parcela (a receber ou a pagar) o sistema vai gerar no próximo mês.','R$ 9.800,00','Esperar que seja o total do contrato: é só o que vence/gera na janela de 30 dias.',30,'publicado'),
+ ('recorrencias_ps.kpi_proximo_reajuste','/dashboard/contratos/recorrencias-ps','Recorrências','Próximo reajuste','Nada a preencher — a data do reajuste mais próximo entre os contratos ativos com reajuste automático.','Avisa quando o próximo valor muda por índice (IPCA/IGPM), para não ser pego de surpresa.','10/03/2027','Ver "—" e achar que nenhum contrato reajusta: significa que nenhum ativo tem reajuste automático configurado.',40,'publicado'),
+ ('recorrencias_ps.filtro_natureza','/dashboard/contratos/recorrencias-ps','Recorrências','Filtro receita/despesa','Escolha "Tudo", "Receita" (o que entra) ou "Despesa" (o que sai) para focar a lista.','Separa rapidamente a visão de entradas e saídas recorrentes sem sair da tela.','Receita','Deixar o filtro em "Despesa" e achar que não há recorrências de receita — volte para "Tudo".',50,'publicado'),
+ ('recorrencias_ps.nova','/dashboard/contratos/recorrencias-ps','Recorrências','Nova recorrência','Abre o assistente de 4 passos para criar um contrato recorrente (tipo e cliente, periodicidade, item e valor, automação e prévia do cronograma).','Cria o contrato e deixa o sistema gerar as parcelas sozinho (a receber ou a pagar), sem lançar à mão.','+ Nova recorrência','Pular a prévia do cronograma: confira as próximas competências antes de confirmar.',60,'publicado'),
+ ('recorrencias_ps.card','/dashboard/contratos/recorrencias-ps','Recorrências','Card da recorrência','Nada a preencher — cada card mostra cliente, número, periodicidade, valor mensal, próxima geração e selos (reajuste, faturas vencidas).','Dá o retrato de cada contrato em um cartão; a borda colorida sinaliza a saúde (verde vigente, âmbar atenção, vermelho com vencidas).','Cliente X · mensal · R$ 1.200,00','Ignorar o selo vermelho "N vencida(s)": indica cobranças em atraso ligadas ao contrato.',70,'publicado'),
+ ('recorrencias_ps.acoes','/dashboard/contratos/recorrencias-ps','Recorrências','Editar / Encerrar / Excluir','Use "Editar" para corrigir nome, valor, periodicidade ou dia de geração; "Encerrar" para parar de gerar cobranças (guardando o histórico); "Excluir" só quando o contrato não tem cobrança viva, paga ou nota emitida.','Mantém o contrato sob controle com rastro: toda alteração, encerramento e exclusão fica registrada no histórico do contrato.','Encerrar','Tentar Excluir um contrato com cobrança paga/viva: o sistema bloqueia e orienta a Encerrar, para o financeiro não mentir.',80,'publicado'),
+ ('recorrencias_ps.edit_nome','/dashboard/contratos/recorrencias-ps','Recorrências','Nome do contrato (editar)','O nome que identifica a recorrência na lista e nos relatórios.','Deixe o contrato reconhecível (cliente + serviço); não muda os valores já gerados.','BPO Financeiro mensal','Deixar em branco e perder a referência — use um nome que diga do que se trata.',90,'publicado'),
+ ('recorrencias_ps.edit_valor','/dashboard/contratos/recorrencias-ps','Recorrências','Valor mensal (editar)','O novo valor mensal da recorrência (base da próxima geração).','Atualiza quanto será cobrado/pago nas PRÓXIMAS competências; não altera cobranças já emitidas.','1.200,00','Esperar que mude parcelas já geradas — a edição vale para as próximas, não para o passado.',100,'publicado'),
+ ('recorrencias_ps.edit_periodicidade','/dashboard/contratos/recorrencias-ps','Recorrências','Periodicidade (editar)','De quanto em quanto tempo o sistema gera a cobrança: mensal, bimestral, trimestral, semestral ou anual.','Define o ritmo das próximas gerações do contrato.','Mensal','Trocar a periodicidade e achar que reemite o passado — só afeta as próximas competências.',110,'publicado'),
+ ('recorrencias_ps.motivo_encerrar','/dashboard/contratos/recorrencias-ps','Recorrências','Motivo do encerramento','Por que o contrato está sendo encerrado (fica no histórico, obrigatório).','Registra a razão do fim para auditoria; encerrar para de gerar novas cobranças sem apagar o histórico.','Fim do contrato / cliente cancelou','Encerrar sem motivo — o sistema exige o motivo para manter o rastro.',120,'publicado'),
+ ('recorrencias_ps.motivo_excluir','/dashboard/contratos/recorrencias-ps','Recorrências','Motivo da exclusão','Por que o contrato está sendo excluído (fica no histórico, obrigatório).','Registra a razão da exclusão; só é permitida sem cobrança viva, paga ou nota emitida — caso contrário, encerre.','Criado por engano / duplicado','Tentar excluir um contrato com cobrança: use Encerrar; a exclusão é só para contrato sem movimento financeiro.',130,'publicado')
+ON CONFLICT (chave) DO NOTHING;
+
+-- 2) RD-98 p3 · registra a ORIGEM do dado da tela (views e RPCs consumidas), sem sobrescrever se já houver.
+UPDATE public.system_screens
+   SET views_consumidas = COALESCE(views_consumidas, ARRAY[
+         'v_contratos_dashboard','erp_contratos','erp_clientes','erp_contratos_eventos'
+       ]::text[]),
+       rpcs_chamadas = COALESCE(rpcs_chamadas, ARRAY[
+         'fn_contrato_recorrencia_criar','fn_contrato_preview_cronograma',
+         'fn_contrato_editar','fn_contrato_encerrar','fn_contrato_excluir',
+         'fn_contrato_acoes_permitidas','fn_ajuda_campo_listar'
+       ]::text[]),
+       atualizado_em = now()
+ WHERE rota = '/dashboard/contratos/recorrencias-ps';

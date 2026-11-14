@@ -23,8 +23,11 @@ ok(podeAprovarNaOS('centralizado', true, 'aguardando_aprovacao', 2), 'centraliza
 ok(podeAprovarNaOS('centralizado', true, 'aberta', 1), 'centralizado + OS recebida → mostra o botão')
 ok(!podeAprovarNaOS('tablet', true, 'aguardando_aprovacao', 2), 'modelo com tablet → não mostra (aprovação segue na tela própria)')
 ok(!podeAprovarNaOS('centralizado', false, 'aguardando_aprovacao', 2), 'perfil sem permissão de valor (mecânico/operador) → não mostra')
-ok(!podeAprovarNaOS('centralizado', true, 'em_execucao', 2), 'OS já em execução → não mostra')
-ok(!podeAprovarNaOS('centralizado', true, 'aprovada', 2), 'OS já aprovada → não mostra')
+// #135 ajuste 21/10: OS criada como orçamento e item incluído depois de iniciar também se aprovam na ficha
+ok(podeAprovarNaOS('centralizado', true, 'orcamento', 1), 'OS criada como orçamento → mostra o botão')
+ok(podeAprovarNaOS('centralizado', true, 'em_execucao', 1), 'item novo com a OS em execução → mostra o botão')
+ok(!podeAprovarNaOS('centralizado', true, 'entregue', 2), 'OS entregue → não mostra')
+ok(!podeAprovarNaOS('centralizado', true, 'cancelada', 2), 'OS cancelada → não mostra')
 ok(!podeAprovarNaOS('centralizado', true, 'aguardando_aprovacao', 0), 'sem item pendente → não mostra')
 
 const card = readFileSync('src/components/comum/OrdemServicoCard.tsx', 'utf8')

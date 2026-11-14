@@ -23,5 +23,6 @@ ok(/::warning[^\n]*\n?[^\n]*REVISOR_ROTINA/.test(semComentario) && /exit 0/.test
 ok(/cron: '\*\/15 \* \* \* \*'/.test(semComentario) && /varredura:/.test(semComentario) && /'varredura'/.test(semComentario) && /cancel-in-progress: \$\{\{ github\.event_name == 'pull_request_target' \}\}/.test(semComentario), 'varredura a cada 15 min, grupo próprio, sem auto-cancelamento')
 ok(/acionar-revisor\.yml/.test(readFileSync('AGENTS.md', 'utf8')), 'AGENTS.md documenta o acionar-revisor.yml')
 
+ok(/github\.event\.label\.name == 'ceo-aprovado'/.test(semComentario), 'OK de sócio (ceo-aprovado) acorda o revisor na hora (CEO 07/11)')
 if (falhas) { console.error(`\n${falhas} falha(s) em acionar-revisor`); process.exit(1) }
 console.log('\nAcionar revisor: ok')

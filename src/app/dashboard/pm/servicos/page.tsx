@@ -6,6 +6,9 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { PackageOpen, Plus, Pencil, Copy, Trash2, X, GripVertical } from 'lucide-react'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ESPRESSO = '#3D2314', OFFWHITE = '#FAF7F2', DOURADO = '#C8941A', BORDA = '#E7DED3', TEXTM = '#6b5444', RED = '#7A1F1F'
 const brl = (n: number | null | undefined) => n == null ? '—' : Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -24,7 +27,7 @@ type Servico = {
 
 async function rpc<T = unknown>(fn: string, args: Record<string, unknown>): Promise<T> {
   const { data, error } = await supabase.rpc(fn, args)
-  if (error) throw new Error(error.hint || error.details || error.message)
+  if (error) throw error // preserva code/message p/ erroAmigavel na tela
   return data as T
 }
 
@@ -60,7 +63,7 @@ export default function ServicosPage() {
         supabase.from('agency_equipe').select('id,nome').eq('company_id', companyId).eq('ativo', true).order('nome'),
       ])
       setServicos(r.servicos || []); setEquipe((eq.data as Equipe[]) || [])
-    } catch (e) { setErro((e as Error).message) } finally { setLoading(false) }
+    } catch (e) { setErro(erroAmigavel(e, 'Não foi possível carregar os serviços. Tente de novo.')) } finally { setLoading(false) }
   }, [companyId])
   useEffect(() => { void carregar() }, [carregar])
   useEffect(() => { void carregarOpcoes() }, [carregarOpcoes])
@@ -82,10 +85,10 @@ export default function ServicosPage() {
       const antecedencia = edit.antecedencia_dias ?? 2
       if (salvo?.id && salvo.antecedencia_dias !== antecedencia) {
         const { error } = await supabase.from('agency_servico').update({ antecedencia_dias: antecedencia }).eq('id', salvo.id).eq('company_id', companyId)
-        if (error) throw new Error(error.message)
+        if (error) throw error
       }
       setEdit(null); void carregar()
-    } catch (e) { setErro((e as Error).message) }
+    } catch (e) { setErro(erroAmigavel(e, 'Não foi possível salvar o serviço. Tente de novo.')) }
   }
   // Duplicar (Luzardo #1): abre uma CÓPIA editável no formulário; ao Salvar cria novo registro
   // via fn_agency_servico_salvar (id nulo = insert), pronto pra ajustar os pequenos pontos.
@@ -94,7 +97,7 @@ export default function ServicosPage() {
   const duplicar = (s: Servico) => { setErro(''); setEdit({ ...s, id: undefined, nome: `Cópia de ${s.nome}` }) }
   const excluir = async (s: Servico) => {
     if (!confirm(`Excluir "${s.nome}"?${s.usos > 0 ? ' (em uso — será desativado)' : ''}`)) return
-    try { await rpc('fn_agency_servico_excluir', { p_company_id: companyId, p_id: s.id }); void carregar() } catch (e) { alert((e as Error).message) }
+    try { await rpc('fn_agency_servico_excluir', { p_company_id: companyId, p_id: s.id }); void carregar() } catch (e) { alert(erroAmigavel(e, 'Não foi possível excluir o serviço. Tente de novo.')) }
   }
 
   if (!companyId) return <Shell><Vazio t="Selecione uma empresa" l="O catálogo de serviços é por empresa. Escolha uma empresa específica no topo." /></Shell>
@@ -168,7 +171,7 @@ function FormServico({ edit, setEdit, equipe, servicos, onSalvar, erro, opcoes, 
       </div>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
         <Campo label="Modelo de preço" ajuda="pm.servico.modelo_preco"><select style={inp} value={edit.modelo_preco ?? 'fixo'} onChange={e => setEdit({ ...edit, modelo_preco: e.target.value })}>{MODELOS.map(m => <option key={m.v} value={m.v}>{m.l}</option>)}</select></Campo>
-        <Campo label="Valor base (R$)" ajuda="pm.servico.valor_base"><input type="number" style={inp} value={edit.valor_base ?? ''} onChange={e => setEdit({ ...edit, valor_base: e.target.value === '' ? null : Number(e.target.value) })} /></Campo>
+        <Campo label="Valor base (R$)" ajuda="pm.servico.valor_base"><CampoMoeda style={inp} value={numeroParaMoeda(edit.valor_base)} onChange={v => setEdit({ ...edit, valor_base: moedaParaNumero(v) })} placeholder="0,00" /></Campo>
         <Campo label="Unidade" ajuda="pm.servico.unidade"><SelectConfig lista="unidade" opcoes={opcoes} value={edit.unidade ?? ''} onChange={v => setEdit({ ...edit, unidade: v || null })} onGerenciar={onGerenciar} /></Campo>
       </div>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
@@ -272,7 +275,7 @@ function ConfigOpcoesModal({ companyId, lista, servicos, onClose, onChange }: {
     const { data, error } = await supabase.rpc('fn_agency_config_salvar', { p_campos: { id: o.id, rotulo: o.rotulo, ordem: o.ordem, ativo: o.ativo } })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setMsg(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setMsg(erroAmigavel(error, j?.erro ?? 'Não foi possível salvar a opção. Tente de novo.')); return }
     await recarregar(); onChange()
   }
   async function adicionar() {
@@ -282,7 +285,7 @@ function ConfigOpcoesModal({ companyId, lista, servicos, onClose, onChange }: {
     const { data, error } = await supabase.rpc('fn_agency_config_salvar', { p_campos: { company_id: companyId, lista, rotulo: novo.trim(), ordem: maxOrdem + 10 } })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string } | null
-    if (error || !j?.ok) { setMsg(`Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setMsg(erroAmigavel(error, j?.erro ?? 'Não foi possível adicionar a opção. Tente de novo.')); return }
     setNovo(''); await recarregar(); onChange()
   }
   async function excluir(o: Opcao) {
@@ -293,7 +296,7 @@ function ConfigOpcoesModal({ companyId, lista, servicos, onClose, onChange }: {
     const { data, error } = await supabase.rpc('fn_agency_config_excluir', { p_id: o.id })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string; qtd?: number } | null
-    if (error || !j?.ok) { setMsg(j?.erro === 'opcao_em_uso' ? `${j.qtd} serviço(s) usam esta opção. Desative.` : `Erro: ${error?.message ?? j?.erro ?? 'falhou'}`); return }
+    if (error || !j?.ok) { setMsg(j?.erro === 'opcao_em_uso' ? `${j.qtd} serviço(s) usam esta opção. Desative.` : erroAmigavel(error, 'Não foi possível excluir a opção. Tente de novo.')); return }
     await recarregar(); onChange()
   }
   function patch(id: string, p: Partial<Opcao>) { setRows(arr => arr.map(r => r.id === id ? { ...r, ...p } : r)) }

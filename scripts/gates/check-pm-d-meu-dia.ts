@@ -35,7 +35,7 @@ const com = readFileSync('src/components/pm/JobComentarios.tsx', 'utf8')
 ok(/autor_id: userId/.test(com) && /mencoes: extrairMencoes\(texto, equipe\)/.test(com), 'comentário em nome de quem escreve, com as menções')
 const dia = readFileSync('src/app/dashboard/pm/meu-dia/page.tsx', 'utf8')
 ok(/\.contains\("mencoes", \[uid\]\)/.test(dia) && /p_filtros: \{ atalho: "meus" \}/.test(dia), 'Meu dia: menções para mim e a mesma regra "Meus" da Pauta')
-ok(/insert\(\{ company_id: empresa, user_id: userId, texto/.test(dia) && /excluido_em: new Date\(\)\.toISOString\(\)/.test(dia), 'anotação da própria pessoa; arquivar é lógico (RD-30)')
+ok(/insert\(\{ company_id: empresa, user_id: userId, texto/.test(dia) && /fn_agency_anotacao_arquivar/.test(dia), 'anotação da própria pessoa; arquivar pela RPC rastreável fn_agency_anotacao_arquivar (RD-98 p4 · RD-30)')
 const pauta = readFileSync('src/app/dashboard/pm/pauta/page.tsx', 'utf8')
 ok(/<JobComentarios key=/.test(pauta) && /<Cronometro key=/.test(pauta) && /get\("job"\)/.test(pauta), 'job aberto da Pauta com comentários, cronômetro e link ?job=')
 

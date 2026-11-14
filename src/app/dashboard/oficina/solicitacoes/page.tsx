@@ -9,7 +9,10 @@ import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Package, Check, ShoppingCart, X, RefreshCw, Wrench } from 'lucide-react'
 import { useAcesso } from '@/hooks/useAcesso'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
+const ROTA = '/dashboard/oficina/solicitacoes'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534', RED = '#A32D2D', BLUE = '#1D4ED8', TEAL = '#0F766E'
 const BUCKET = 'oficina-recepcao'
@@ -86,7 +89,7 @@ export default function SolicitacoesPecaPage() {
     const { data, error } = await supabase.rpc('fn_oficina_peca_decidir', { p_company_id: companyId, p_solicitacao_id: id, p_status: status, p_decidido_por: null })
     setSalvandoId(null)
     const res = data as { ok?: boolean; erro?: string } | null
-    if (error || !res?.ok) { alert(error?.message || res?.erro || 'Falha'); return }
+    if (error || !res?.ok) { alert(error ? erroAmigavel(error, 'Não foi possível registrar a decisão. Tente de novo.') : codigoAmigavel(res?.erro, 'Não foi possível registrar a decisão. Tente de novo.')); return }
     setLista((prev) => prev.map((s) => (s.id === id ? { ...s, status } : s)))
   }
   async function marcarTrocada(id: string) {
@@ -95,7 +98,7 @@ export default function SolicitacoesPecaPage() {
     const { data, error } = await supabase.rpc('fn_oficina_peca_marcar_trocada', { p_company_id: companyId, p_solicitacao_id: id })
     setSalvandoId(null)
     const res = data as { ok?: boolean; erro?: string } | null
-    if (error || !res?.ok) { alert(error?.message || res?.erro || 'Falha'); return }
+    if (error || !res?.ok) { alert(error ? erroAmigavel(error, 'Não foi possível marcar como trocada. Tente de novo.') : codigoAmigavel(res?.erro, 'Não foi possível marcar como trocada. Tente de novo.')); return }
     setLista((prev) => prev.map((s) => (s.id === id ? { ...s, status: 'trocada' } : s)))
   }
 
@@ -120,13 +123,19 @@ export default function SolicitacoesPecaPage() {
 
       {/* Filtros: OS + status */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-        <select value={fOs} onChange={(e) => setFOs(e.target.value)} style={sel}>
-          <option value="todos">🚗 Todas as OS</option>
-          {osOpcoes.map(([id, lbl]) => <option key={id} value={id}>{lbl}</option>)}
-        </select>
-        <select value={fStatus} onChange={(e) => setFStatus(e.target.value)} style={sel}>
-          {FILTRO_STATUS.map((f) => <option key={f.v} value={f.v}>{f.l}</option>)}
-        </select>
+        <div data-ajuda="oficina.solicitacoes.filtro_os" style={{ display: 'flex', alignItems: 'center', gap: 4, flex: '1 1 160px' }}>
+          <select value={fOs} onChange={(e) => setFOs(e.target.value)} style={sel}>
+            <option value="todos">🚗 Todas as OS</option>
+            {osOpcoes.map(([id, lbl]) => <option key={id} value={id}>{lbl}</option>)}
+          </select>
+          <AjudaCampo chave="oficina.solicitacoes.filtro_os" rota={ROTA} />
+        </div>
+        <div data-ajuda="oficina.solicitacoes.filtro_status" style={{ display: 'flex', alignItems: 'center', gap: 4, flex: '1 1 160px' }}>
+          <select value={fStatus} onChange={(e) => setFStatus(e.target.value)} style={sel}>
+            {FILTRO_STATUS.map((f) => <option key={f.v} value={f.v}>{f.l}</option>)}
+          </select>
+          <AjudaCampo chave="oficina.solicitacoes.filtro_status" rota={ROTA} />
+        </div>
       </div>
 
       {loading ? <div style={{ color: ESP60 }}>Carregando…</div> : filtrada.length === 0 ? (

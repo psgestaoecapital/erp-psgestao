@@ -27,13 +27,16 @@ import { composicaoPorProposta, diasParaVencer, ganhasComObra, situacaoBdi, obra
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)'
 
 const STATUS: Record<string, { cor: string; label: string }> = {
-  rascunho: { cor: '#9C8E80', label: 'Rascunho' }, enviado: { cor: '#3B82F6', label: 'Enviado' },
+  rascunho: { cor: '#9C8E80', label: 'Rascunho' }, em_elaboracao: { cor: '#3B82F6', label: 'Em elaboração' }, enviado: { cor: '#3B82F6', label: 'Enviado' },
   visualizado: { cor: '#8B5CF6', label: 'Visualizado' }, aprovado: { cor: '#16A34A', label: 'Aprovado' },
   recusado: { cor: '#B91C1C', label: 'Recusado' }, expirado: { cor: '#F59E0B', label: 'Expirado' },
   convertido: { cor: GOLD, label: 'Virou pedido' },
 }
 
-type Proposta = { id: string; company_id: string; numero: string | null; cliente_nome: string | null; status: string; total: number | null; data_emissao: string | null; data_validade: string | null; obra_id: string | null; eh_obra: boolean | null; versao: number | null; orcamento_origem_id: string | null; pdf_anexo_path: string | null }
+type Proposta = { id: string; company_id: string; numero: string | null; cliente_nome: string | null; status: string; total: number | null; data_emissao: string | null; data_validade: string | null; obra_id: string | null; eh_obra: boolean | null; versao: number | null; orcamento_origem_id: string | null; pdf_anexo_path: string | null; orcamentista_id: string | null; orcamentista_nome: string | null }
+// Situação visível (#3271): rascunho com orçamentista atribuído entra em "Em elaboração"; sem orçamentista volta a rascunho.
+// O status persistido segue 'rascunho' (sem risco na máquina de estados); a derivação vale na lista, no filtro e nos contadores.
+const vstatus = (l: Pick<Proposta, 'status' | 'orcamentista_id'>) => (l.status === 'rascunho' && !!l.orcamentista_id ? 'em_elaboracao' : l.status)
 
 const POR_PAGINA = 25, LIMITE = 100
 
@@ -50,6 +53,12 @@ export default function PropostasHubPage() {
   const [erro, setErro] = useState('')
   const [busca, setBusca] = useState('')
   const [filtro, setFiltro] = useState('todos')
+  const [meuId, setMeuId] = useState<string | null>(null)
+  const [meuNome, setMeuNome] = useState<string | null>(null)
+  const [soMeus, setSoMeus] = useState(false)
+  const [usuariosPorEmpresa, setUsuariosPorEmpresa] = useState<Record<string, { id: string; full_name: string | null; email: string | null; is_active?: boolean }[]>>({})
+  // #3270 — última atribuição do orçamentista por proposta (quem atribuiu/trocou/removeu e quando)
+  const [histOrc, setHistOrc] = useState<Record<string, { por: string | null; em: string; acao: string }>>({})
   const [comp, setComp] = useState<Record<string, Composicao>>({})
   const [compErro, setCompErro] = useState(false)
   const [orig, setOrig] = useState<Record<string, Origem>>({})
@@ -87,7 +96,7 @@ export default function PropostasHubPage() {
     setLoading(true); setErro('')
     try {
       const { data, error, count } = await comPrazo(
-        async () => await supabase.from('erp_orcamentos').select('id,company_id,numero,cliente_nome,status,total,data_emissao,data_validade,obra_id,eh_obra,versao,orcamento_origem_id,pdf_anexo_path', { count: 'exact' })
+        async () => await supabase.from('erp_orcamentos').select('id,company_id,numero,cliente_nome,status,total,data_emissao,data_validade,obra_id,eh_obra,versao,orcamento_origem_id,pdf_anexo_path,orcamentista_id,orcamentista_nome', { count: 'exact' })
           .in('company_id', companyIds).is('deleted_at', null).order('data_emissao', { ascending: false }).limit(LIMITE),
         { ms: 8000, tentativas: 1, label: 'propostas_hub' },
       )
@@ -130,6 +139,54 @@ export default function PropostasHubPage() {
     } catch { setErro(MSG_CARREGAMENTO_FALHOU) } finally { setLoading(false) }
   }, [companyIds, carregarOrigem])
   useEffect(() => { carregar() }, [carregar])
+  // Quem está logado — para o filtro "meus orçamentos" (compara com orcamentista_id) e para o rastro da atribuição (#3270)
+  useEffect(() => { let vivo = true; void supabase.auth.getUser().then(async ({ data }) => {
+    if (!vivo) return
+    const id = data.user?.id ?? null
+    setMeuId(id)
+    if (id) { const { data: u } = await supabase.from('users').select('full_name').eq('id', id).maybeSingle(); if (vivo) setMeuNome(((u as { full_name?: string | null } | null)?.full_name) ?? null) }
+  }).catch(() => {}); return () => { vivo = false } }, [])
+  // #3270 — carrega a última atribuição do orçamentista de cada proposta (RLS por empresa na tabela)
+  useEffect(() => {
+    const ids = linhas.map(l => l.id)
+    if (!ids.length) { setHistOrc({}); return }
+    let vivo = true
+    void (async () => {
+      const { data } = await supabase.from('erp_orcamento_orcamentista_hist')
+        .select('orcamento_id,atribuido_por_nome,acao,criado_em')
+        .in('orcamento_id', ids).order('criado_em', { ascending: false })
+      if (!vivo) return
+      const m: Record<string, { por: string | null; em: string; acao: string }> = {}
+      for (const r of ((data || []) as { orcamento_id: string; atribuido_por_nome: string | null; acao: string; criado_em: string }[])) {
+        if (!m[r.orcamento_id]) m[r.orcamento_id] = { por: r.atribuido_por_nome, em: r.criado_em, acao: r.acao }
+      }
+      setHistOrc(m)
+    })()
+    return () => { vivo = false }
+  }, [linhas])
+  // #3270/#3271 — orçamentistas da empresa, para ATRIBUIR na própria linha da lista do Hub (mesma fonte/update de /dashboard/orcamentos, sem sair do Hub)
+  useEffect(() => {
+    if (!companyIds?.length) return
+    let vivo = true
+    Promise.all(companyIds.map(async cid => {
+      const { data } = await supabase.rpc('fn_usuarios_da_empresa', { p_company_id: cid })
+      return [cid, ((data || []) as { id: string; full_name: string | null; email: string | null; is_active?: boolean }[]).filter(u => u.is_active !== false)] as const
+    })).then(r => { if (vivo) setUsuariosPorEmpresa(Object.fromEntries(r)) }).catch(() => {})
+    return () => { vivo = false }
+  }, [companyIds])
+  // Atribuir/remover orçamentista direto na lista do Hub (muda rascunho → "Em elaboração"; remover volta a rascunho)
+  async function atribuirOrcamentista(l: Proposta, uid: string) {
+    const u = (usuariosPorEmpresa[l.company_id] || []).find(x => x.id === uid)
+    const nome = u ? (u.full_name || u.email || null) : null
+    const { error } = await supabase.from('erp_orcamentos').update({ orcamentista_id: uid || null, orcamentista_nome: uid ? nome : null }).eq('id', l.id)
+    if (error) { setMsgErro(erroAmigavel(error, 'Não foi possível atribuir o orçamentista.')); return }
+    setLinhas(ls => ls.map(x => x.id === l.id ? { ...x, orcamentista_id: uid || null, orcamentista_nome: uid ? nome : null } : x))
+    // #3270 — registra quem atribuiu/trocou/removeu (rastro; não bloqueia a atribuição se o log falhar)
+    const acao = uid ? (l.orcamentista_id && l.orcamentista_id !== uid ? 'trocado' : 'atribuido') : 'removido'
+    setHistOrc(h => ({ ...h, [l.id]: { por: meuNome ?? 'você', em: new Date().toISOString(), acao } }))
+    void supabase.rpc('fn_orcamento_orcamentista_log', { p_orcamento_id: l.id, p_orcamentista_id: uid || null, p_orcamentista_nome: uid ? nome : null, p_acao: acao }).then(() => {}, () => {})
+    setMsg(uid ? `${nome ?? 'Orçamentista'} agora é o orçamentista de ${l.numero ?? 'proposta'}.` : `Orçamentista removido de ${l.numero ?? 'proposta'}.`); setMsgErro(''); setTimeout(() => setMsg(''), 3000)
+  }
 
   // Só proposta que não virou negócio pode sair (o banco confere de novo)
   const podeExcluir = (l: Proposta) => ['rascunho', 'enviado', 'visualizado', 'recusado', 'expirado'].includes(l.status) && !l.obra_id
@@ -146,10 +203,17 @@ export default function PropostasHubPage() {
 
   const vis = useMemo(() => {
     const b = busca.trim().toLowerCase()
-    return linhas.filter(l => (filtro === 'todos' || l.status === filtro)
-      && (!b || (l.numero ?? '').toLowerCase().includes(b) || (l.cliente_nome ?? '').toLowerCase().includes(b)))
-  }, [linhas, busca, filtro])
+    return linhas.filter(l => (filtro === 'todos' || vstatus(l) === filtro)
+      && (!soMeus || (!!meuId && l.orcamentista_id === meuId))
+      && (!b || (l.numero ?? '').toLowerCase().includes(b) || (l.cliente_nome ?? '').toLowerCase().includes(b) || (l.orcamentista_nome ?? '').toLowerCase().includes(b)))
+  }, [linhas, busca, filtro, soMeus, meuId])
   const r = useMemo(() => resumoFunil(linhas), [linhas])
+  // Contadores por situação visível (#3271): separa "Em elaboração" de "Rascunho", igual ao selo e ao filtro.
+  const porStatusVisual = useMemo(() => {
+    const m: Record<string, { n: number; valor: number }> = {}
+    for (const l of linhas) { const s = (m[vstatus(l)] ??= { n: 0, valor: 0 }); s.n++; s.valor += Number(l.total ?? 0) }
+    return m
+  }, [linhas])
   const numeroPorId = useMemo(() => Object.fromEntries(linhas.map(l => [l.id, l.numero])) as Record<string, string | null>, [linhas])
   const comPdf = useMemo(() => linhas.filter(l => !!l.pdf_anexo_path).length, [linhas])
   const revisoes = useMemo(() => linhas.filter(l => (l.versao ?? 1) > 1 || !!l.orcamento_origem_id).length, [linhas])
@@ -261,12 +325,12 @@ export default function PropostasHubPage() {
               {r.total} proposta(s) · {r.abertas} em aberto — toque numa situação para filtrar <AjudaCampo chave="projetos.propostas.funil" />
             </div>
             <div data-testid="hub-propostas-funil" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-              {Object.entries(STATUS).filter(([k]) => r.porStatus[k]).map(([k, v]) => {
+              {Object.entries(STATUS).filter(([k]) => porStatusVisual[k]).map(([k, v]) => {
                 const ativo = filtro === k
                 return (
                   <button key={k} type="button" data-testid="hub-propostas-funil-etapa" aria-pressed={ativo} onClick={() => { setFiltro(ativo ? 'todos' : k); setMostrar(POR_PAGINA) }}
                     style={{ border: `1px solid ${ativo ? v.cor : LINE}`, background: ativo ? `${v.cor}14` : '#fff', borderRadius: 999, padding: '6px 12px', fontSize: 12, color: ESP, cursor: 'pointer', minHeight: 36 }}>
-                    <span style={{ color: v.cor, fontWeight: 700 }}>{v.label}</span> · {r.porStatus[k].n} · {fmtR(r.porStatus[k].valor)}
+                    <span style={{ color: v.cor, fontWeight: 700 }}>{v.label}</span> · {porStatusVisual[k].n} · {fmtR(porStatusVisual[k].valor)}
                   </button>
                 )
               })}
@@ -275,7 +339,7 @@ export default function PropostasHubPage() {
           {totalBanco > linhas.length && <div role="status" data-testid="hub-propostas-truncado" style={{ marginTop: 12, fontSize: 12, color: '#B45309' }}>Mostrando as {linhas.length} mais recentes de {totalBanco} propostas — os indicadores valem para estas.</div>}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
             <div style={{ flex: '1 1 220px', display: 'flex', alignItems: 'center', gap: 4 }}>
-              <input value={busca} onChange={e => { setBusca(e.target.value); setMostrar(POR_PAGINA) }} placeholder="Buscar por número ou cliente"
+              <input value={busca} onChange={e => { setBusca(e.target.value); setMostrar(POR_PAGINA) }} placeholder="Buscar por número, cliente ou orçamentista"
                 style={{ flex: 1, padding: '8px 12px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 13 }} />
               <AjudaCampo chave="projetos.propostas.busca" />
             </div>
@@ -286,11 +350,20 @@ export default function PropostasHubPage() {
               </select>
               <AjudaCampo chave="projetos.propostas.status" />
             </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <button type="button" data-testid="hub-propostas-meus" aria-pressed={soMeus} onClick={() => { setSoMeus(v => !v); setMostrar(POR_PAGINA) }} disabled={!meuId}
+                title={!meuId ? 'Entre para filtrar seus orçamentos' : undefined}
+                style={{ border: `1px solid ${soMeus ? GOLD : LINE}`, background: soMeus ? `${GOLD}14` : '#fff', color: soMeus ? GOLD : ESP, borderRadius: 8, padding: '8px 12px', fontSize: 13, fontWeight: 600, cursor: meuId ? 'pointer' : 'not-allowed', opacity: meuId ? 1 : 0.5, minHeight: 36 }}>
+                Meus orçamentos
+              </button>
+              <AjudaCampo chave="projetos.propostas.filtro_meus" />
+            </div>
           </div>
           <div style={{ overflowX: 'auto', marginTop: 12, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12 }}>
-            <table style={{ width: '100%', minWidth: 1220, borderCollapse: 'collapse' }}>
+            <table style={{ width: '100%', minWidth: 1360, borderCollapse: 'collapse' }}>
               <thead><tr style={{ textAlign: 'left', fontSize: 12, color: MUT }}>
                 <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Número <AjudaCampo chave="projetos.propostas.col_numero" /></span></th><th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Versão <AjudaCampo chave="projetos.propostas.versao" /></span></th><th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Cliente <AjudaCampo chave="projetos.propostas.col_cliente" /></span></th>
+                <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Orçamentista <AjudaCampo chave="projetos.propostas.orcamentista" /></span></th>
                 <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Origem <AjudaCampo chave="projetos.propostas.origem" /></span></th>
                 <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Status <AjudaCampo chave="projetos.propostas.col_status" /></span></th><th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Emissão <AjudaCampo chave="projetos.propostas.col_emissao" /></span></th>
                 <th style={{ padding: '8px 12px' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Validade <AjudaCampo chave="projetos.propostas.validade" /></span></th>
@@ -303,7 +376,7 @@ export default function PropostasHubPage() {
               </tr></thead>
               <tbody>
                 {vis.slice(0, mostrar).map(l => {
-                  const st = STATUS[l.status] ?? { cor: MUT, label: l.status }
+                  const st = STATUS[vstatus(l)] ?? { cor: MUT, label: l.status }
                   const dias = ABERTAS.includes(l.status as typeof ABERTAS[number]) ? diasParaVencer(l.data_validade) : null
                   const corVal = dias === null ? ESP : dias < 0 ? '#B91C1C' : dias <= 7 ? '#B45309' : ESP
                   const c = comp[l.id]
@@ -318,6 +391,27 @@ export default function PropostasHubPage() {
                         {l.pdf_anexo_path && <span data-testid="hub-proposta-pdf" style={{ display: 'block', color: '#16A34A' }}>PDF anexo</span>}
                       </td>
                       <td style={{ padding: '8px 12px' }}>{l.cliente_nome ?? '—'}</td>
+                      <td style={{ padding: '8px 12px', fontSize: 12 }} data-testid="hub-proposta-orcamentista">
+                        {(() => {
+                          const users = usuariosPorEmpresa[l.company_id] || []
+                          const falta = !!l.orcamentista_id && !users.some(u => u.id === l.orcamentista_id)
+                          return (
+                            <select aria-label="Orçamentista" data-testid="hub-proposta-orcamentista-select" value={l.orcamentista_id || ''} onChange={e => void atribuirOrcamentista(l, e.target.value)}
+                              style={{ fontSize: 12, padding: '4px 6px', borderRadius: 6, border: `1px solid ${LINE}`, background: '#fff', color: l.orcamentista_id ? ESP : '#B45309', maxWidth: 160, cursor: 'pointer' }}>
+                              <option value="">sem orçamentista</option>
+                              {falta && <option value={l.orcamentista_id!}>{l.orcamentista_nome || 'orçamentista atual'}</option>}
+                              {users.map(u => <option key={u.id} value={u.id}>{u.full_name || u.email || 'usuário'}</option>)}
+                            </select>
+                          )
+                        })()}
+                        {meuId && l.orcamentista_id === meuId && <span style={{ display: 'block', color: GOLD, fontWeight: 600, marginTop: 2 }}>você</span>}
+                        {histOrc[l.id] && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 2, color: MUT, fontSize: 10.5 }} data-testid="hub-proposta-orcamentista-hist">
+                            {histOrc[l.id].acao === 'removido' ? 'removido por' : 'por'} {histOrc[l.id].por || '—'} · {new Date(histOrc[l.id].em).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                            <AjudaCampo chave="projetos.propostas.orcamentista_hist" />
+                          </span>
+                        )}
+                      </td>
                       <td style={{ padding: '8px 12px', fontSize: 12, maxWidth: 220 }} data-testid="hub-proposta-origem">
                         {origErro ? '—' : !temOrigem(o) ? <span style={{ color: MUT }}>avulsa</span> : (
                           <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -379,7 +473,7 @@ export default function PropostasHubPage() {
                     </tr>
                   )
                 })}
-                {vis.length === 0 && <tr><td colSpan={13} style={{ padding: 16, color: MUT, fontSize: 13 }}>Nenhuma proposta com esse filtro.</td></tr>}
+                {vis.length === 0 && <tr><td colSpan={14} style={{ padding: 16, color: MUT, fontSize: 13 }}>Nenhuma proposta com esse filtro.</td></tr>}
               </tbody>
             </table>
           </div>

@@ -42,8 +42,8 @@ export async function GET(req: NextRequest) {
     });
 
     // 4. RELATÓRIOS IA
-    const { data: aiReports } = await sb.from("ai_reports").select("id, company_id, report_type, created_at, metadata");
-    const totalV19 = (aiReports || []).filter((r: any) => r.report_type === "v19_ceo").length;
+    const { data: aiReports } = await sb.from("ai_reports").select("id, company_id, report_type, created_at");
+    const totalV19 = (aiReports || []).filter((r: any) => r.report_type === "ceo_edition").length;
     const totalRelatorios = aiReports?.length || 0;
 
     // 5. BPO
@@ -82,7 +82,7 @@ export async function GET(req: NextRequest) {
         tiposImport: imp.tipos,
         registrosImportados: imp.registros,
         ultimaSync: imp.ultimaSync,
-        v19Gerados: reports.filter((r: any) => r.report_type === "v19_ceo").length,
+        v19Gerados: reports.filter((r: any) => r.report_type === "ceo_edition").length,
         relatoriosTotal: reports.length,
         bpoRuns: bpo.length,
         usuariosVinculados: usersEmpresa.length,

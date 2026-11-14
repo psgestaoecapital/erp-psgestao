@@ -2,6 +2,8 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import NovaVendaModal from "@/components/orcamento/NovaVendaModal";
+import { CampoMoeda } from "@/components/comum/CampoMoeda";
+import { moedaParaNumero, numeroParaMoeda } from "@/lib/moeda-mascara";
 
 const GO="#C6973F",GOL="#E8C872",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
     G="#34D399",R="#F87171",Y="#FBBF24",B="#60A5FA",P="#A78BFA",
@@ -127,7 +129,7 @@ export default function OrcamentoPage(){
     setSaving(true);
     let count=0;
     for(const item of items){
-      const val=parseFloat(editValues[item.categoria]?.replace(/\./g,"").replace(",","."))||0;
+      const val=moedaParaNumero(editValues[item.categoria]) ?? 0;
       if(val>0||item.valor_orcado>0){
         await supabase.from("orcamento").upsert({
           company_id:selectedComp,periodo,categoria:item.categoria,tipo:item.tipo,valor_orcado:val,
@@ -147,7 +149,7 @@ export default function OrcamentoPage(){
     if(!prevOrc||prevOrc.length===0){setMsg(`Sem orçamento em ${prev} para copiar.`);setTimeout(()=>setMsg(""),3000);return;}
     const ev={...editValues};
     for(const p of prevOrc){
-      ev[p.categoria]=p.valor_orcado.toString();
+      ev[p.categoria]=numeroParaMoeda(p.valor_orcado);
     }
     setEditValues(ev);
     setMsg(`${prevOrc.length} categorias copiadas de ${prev}. Clique "Salvar" para confirmar.`);
@@ -159,7 +161,7 @@ export default function OrcamentoPage(){
     const ev={...editValues};
     for(const item of items){
       if(item.valor_real>0){
-        ev[item.categoria]=Math.round(item.valor_real*fator).toString();
+        ev[item.categoria]=numeroParaMoeda(Math.round(item.valor_real*fator));
       }
     }
     setEditValues(ev);setShowImport(false);
@@ -167,8 +169,8 @@ export default function OrcamentoPage(){
     setTimeout(()=>setMsg(""),4000);
   };
 
-  const totalOrcRec=items.filter(i=>i.tipo==="receita").reduce((s,i)=>s+(parseFloat(editValues[i.categoria])||0),0);
-  const totalOrcDesp=items.filter(i=>i.tipo==="despesa").reduce((s,i)=>s+(parseFloat(editValues[i.categoria])||0),0);
+  const totalOrcRec=items.filter(i=>i.tipo==="receita").reduce((s,i)=>s+(moedaParaNumero(editValues[i.categoria]) ?? 0),0);
+  const totalOrcDesp=items.filter(i=>i.tipo==="despesa").reduce((s,i)=>s+(moedaParaNumero(editValues[i.categoria]) ?? 0),0);
   const totalRealRec=items.filter(i=>i.tipo==="receita").reduce((s,i)=>s+i.valor_real,0);
   const totalRealDesp=items.filter(i=>i.tipo==="despesa").reduce((s,i)=>s+i.valor_real,0);
 
@@ -285,7 +287,7 @@ export default function OrcamentoPage(){
               </thead>
               <tbody>
                 {filtered.map((item,i)=>{
-                  const orcVal=parseFloat(editValues[item.categoria])||0;
+                  const orcVal=moedaParaNumero(editValues[item.categoria]) ?? 0;
                   const desvio=item.valor_real-orcVal;
                   const desvioPct=orcVal>0?(desvio/orcVal*100):0;
                   // For revenue: positive deviation = good. For expense: positive deviation = bad
@@ -314,9 +316,9 @@ export default function OrcamentoPage(){
                         </td>
                         <td style={{padding:"8px",textAlign:"right",color:item.valor_real>0?TX:TXD,fontWeight:item.valor_real>0?500:400}}>{item.valor_real>0?fmtR(item.valor_real):"—"}</td>
                         <td style={{padding:"8px",textAlign:"right"}}>
-                          <input value={editValues[item.categoria]||""} onChange={e=>{
-                            setEditValues({...editValues,[item.categoria]:e.target.value});
-                          }} placeholder="0" type="number" style={{
+                          <CampoMoeda value={editValues[item.categoria]||""} onChange={(m)=>{
+                            setEditValues({...editValues,[item.categoria]:m});
+                          }} placeholder="R$ 0,00" style={{
                             background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:6,
                             padding:"5px 8px",fontSize:12,outline:"none",width:120,textAlign:"right",fontWeight:600,fontFamily:"inherit",
                           }}/>
@@ -368,7 +370,7 @@ export default function OrcamentoPage(){
       {items.length===0&&!loading&&(
         <div style={{background:BG2,borderRadius:12,padding:24,border:`1px solid ${BD}`,textAlign:"center",marginTop:12}}>
           <div style={{fontSize:14,color:TX}}>Nenhuma categoria encontrada para este mês.</div>
-          <div style={{fontSize:11,color:TXM,marginTop:4}}>Importe dados do Omie/ContaAzul primeiro, ou selecione um mês com dados.</div>
+          <div style={{fontSize:11,color:TXM,marginTop:4}}>Importe dados do seu sistema anterior primeiro, ou selecione um mês com dados.</div>
         </div>
       )}
 

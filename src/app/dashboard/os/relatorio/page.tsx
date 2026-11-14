@@ -1,0 +1,203 @@
+'use client'
+
+// Chamado #6724 · Relatório de Ordens de Serviço por período (só leitura).
+// Usa fn_os_relatorio_periodo (guarda por empresa; o perfil mecânico não vê valores).
+
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
+import { supabase } from '@/lib/supabase'
+import { useCompanyIds } from '@/lib/useCompanyIds'
+import { erroAmigavel } from '@/lib/erroAmigavel'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+export const dynamic = 'force-dynamic'
+
+type Base = 'abertura' | 'conclusao' | 'entrega'
+interface Linha { qtd?: number; servico: number; pecas: number; total: number }
+interface Item { id: string; numero: string | null; cliente_nome: string | null; placa: string | null; status: string; data_ref: string | null; servico: number; pecas: number; total: number }
+interface Rel { ok: boolean; erro?: string; totais: Linha & { qtd: number }; por_status: (Linha & { status: string; qtd: number })[]; itens: Item[] }
+
+const STATUS: Record<string, string> = {
+  orcamento: 'Orçamento', aberta: 'Aberta', em_execucao: 'Em execução', aguardando_peca: 'Aguardando peça',
+  aguardando_aprovacao: 'Aguardando aprovação', aprovada: 'Aprovada', pronta: 'Pronta', entregue: 'Entregue', cancelada: 'Cancelada',
+}
+const BASES: { v: Base; l: string }[] = [
+  { v: 'abertura', l: 'Data de abertura' }, { v: 'conclusao', l: 'Data de conclusão' }, { v: 'entrega', l: 'Data de entrega' },
+]
+const brl = (v: number) => 'R$ ' + Number(v ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const fmtD = (s: string | null) => (s ? new Date(s + 'T00:00:00').toLocaleDateString('pt-BR') : '—')
+const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const mes = (delta: number) => {
+  const h = new Date()
+  return { de: iso(new Date(h.getFullYear(), h.getMonth() + delta, 1)), ate: iso(new Date(h.getFullYear(), h.getMonth() + delta + 1, 0)) }
+}
+// Janela padrão inteligente: últimos 12 meses (≤ 400 dias, limite da RPC), para cair num período com movimento
+// em vez do mês anterior fixo (que costuma vir vazio). O usuário ainda pode estreitar por Este mês / Mês passado.
+const ultimos12 = () => { const h = new Date(); return { de: iso(new Date(h.getFullYear(), h.getMonth() - 11, 1)), ate: iso(h) } }
+
+const card: React.CSSProperties = { background: '#fff', border: '1px solid #E0D8CC', borderRadius: 12, padding: 16 }
+const inp: React.CSSProperties = { minHeight: 44, padding: '10px 12px', border: '1px solid #E0D8CC', borderRadius: 8, fontSize: 14, background: '#fff' }
+const lbl: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 600, color: '#6B5D4F', marginBottom: 4 }
+
+export default function RelatorioOSPage() {
+  const { sel } = useCompanyIds()
+  const companyId = useMemo<string | null>(() => (!sel || sel === 'consolidado' || sel.startsWith('group_') ? null : sel), [sel])
+  const [de, setDe] = useState(ultimos12().de)
+  const [ate, setAte] = useState(ultimos12().ate)
+  const [base, setBase] = useState<Base>('abertura')
+  const [rel, setRel] = useState<Rel | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  const carregar = useCallback(async () => {
+    if (!companyId) { setRel(null); return }
+    setLoading(true); setErro(null)
+    const { data, error } = await supabase.rpc('fn_os_relatorio_periodo', { p_company_id: companyId, p_de: de, p_ate: ate, p_base: base })
+    const r = data as Rel | null
+    if (error || !r || r.ok === false) { setRel(null); setErro((error ? erroAmigavel(error) : r?.erro) || 'Falha ao carregar o relatório') }
+    else setRel(r)
+    setLoading(false)
+  }, [companyId, de, ate, base])
+
+  useEffect(() => { void carregar() }, [carregar])
+
+  const atalho = (delta: number) => { const m = mes(delta); setDe(m.de); setAte(m.ate) }
+  // "Últimos 12 meses" respeita o teto de 400 dias da RPC (o span de 20 anos antigo estourava o limite e dava erro).
+  const ver12 = () => { const m = ultimos12(); setDe(m.de); setAte(m.ate) }
+
+  // Exportar CSV das ordens do período — só o que já está na tela (read-only, sem nova chamada ao banco).
+  // Separador ";" e BOM UTF-8 para o Excel em pt-BR abrir com acentos e colunas certos; valores em pt-BR (vírgula decimal).
+  const exportarCsv = useCallback(() => {
+    if (!rel || !rel.itens.length) return
+    const num = (v: number) => Number(v ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    const esc = (v: string | number) => { const s = String(v ?? ''); return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s }
+    const cab = ['Número', 'Data', 'Cliente', 'Placa', 'Situação', 'Serviços', 'Peças', 'Total']
+    const linhas = rel.itens.map((o) => [
+      o.numero ?? '—', fmtD(o.data_ref), o.cliente_nome ?? '—', o.placa ?? '—',
+      STATUS[o.status] ?? o.status, num(o.servico), num(o.pecas), num(o.total),
+    ].map(esc).join(';'))
+    const csv = '﻿' + [cab.join(';'), ...linhas].join('\r\n')
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }))
+    const a = document.createElement('a')
+    a.href = url; a.download = `relatorio-os_${de}_a_${ate}.csv`
+    document.body.appendChild(a); a.click(); a.remove()
+    URL.revokeObjectURL(url)
+  }, [rel, de, ate])
+
+  return (
+    <div style={{ maxWidth: 1000, margin: '0 auto', padding: 16, display: 'grid', gap: 16 }}>
+      <div>
+        <Link href="/dashboard/os" style={{ fontSize: 13, color: '#6B5D4F' }}>← Ordens de serviço</Link>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: '#3D2314', margin: '6px 0 0' }}>Relatório de ordens de serviço</h1>
+        <p style={{ fontSize: 13, color: '#6B5D4F', margin: '4px 0 0' }}>
+          Soma de serviços, peças e total no período. Não entram ordens excluídas nem canceladas.
+        </p>
+      </div>
+
+      {!companyId ? (
+        <div style={card}>Selecione uma empresa para ver o relatório.</div>
+      ) : (
+        <>
+          <div style={{ ...card, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
+            <div>
+              <label style={lbl}>De<AjudaCampo chave="os.relatorio.periodo" rota="/dashboard/os/relatorio" /></label>
+              <input type="date" style={inp} value={de} onChange={(e) => setDe(e.target.value)} />
+            </div>
+            <div>
+              <label style={lbl}>Até</label>
+              <input type="date" style={inp} value={ate} onChange={(e) => setAte(e.target.value)} />
+            </div>
+            <div>
+              <label style={lbl}>Data usada<AjudaCampo chave="os.relatorio.base_data" rota="/dashboard/os/relatorio" /></label>
+              <select style={inp} value={base} onChange={(e) => setBase(e.target.value as Base)}>
+                {BASES.map((b) => <option key={b.v} value={b.v}>{b.l}</option>)}
+              </select>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button type="button" style={{ ...inp, cursor: 'pointer' }} onClick={ver12}>Últimos 12 meses</button>
+              <button type="button" style={{ ...inp, cursor: 'pointer' }} onClick={() => atalho(-1)}>Mês passado</button>
+              <button type="button" style={{ ...inp, cursor: 'pointer' }} onClick={() => atalho(0)}>Este mês</button>
+            </div>
+          </div>
+
+          {loading && <div style={card}>Carregando…</div>}
+          {erro && <div style={{ ...card, color: '#B91C1C', background: '#FEE2E2' }}>{erro}</div>}
+
+          {rel && !loading && rel.totais.qtd === 0 && (
+            <div style={{ ...card, textAlign: 'center', padding: 28 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#3D2314' }}>Nenhuma ordem de serviço neste período</div>
+              <p style={{ fontSize: 13, color: '#6B5D4F', margin: '8px auto 0', maxWidth: 440, lineHeight: 1.5 }}>
+                Não há ordens entre {fmtD(de)} e {fmtD(ate)} pela “{BASES.find((b) => b.v === base)?.l}”.
+                Pode ser o período escolhido — amplie para os últimos 12 meses — ou ainda não há OS cadastrada.
+              </p>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap', marginTop: 16 }}>
+                <button type="button" style={{ ...inp, cursor: 'pointer', fontWeight: 600 }} onClick={ver12}>Ver últimos 12 meses</button>
+                <Link href="/dashboard/os" style={{ ...inp, cursor: 'pointer', fontWeight: 600, textDecoration: 'none', color: '#3D2314', display: 'inline-flex', alignItems: 'center' }}>Abrir ordem de serviço</Link>
+              </div>
+            </div>
+          )}
+
+          {rel && !loading && rel.totais.qtd > 0 && (
+            <>
+              {/* Ações de saída (RD-98): levar o relatório para fora — planilha (CSV) ou impressão/PDF. */}
+              <div className="no-print" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                  <button type="button" data-testid="os-rel-exportar-csv" style={{ ...inp, cursor: 'pointer', fontWeight: 600 }} onClick={exportarCsv}>Exportar CSV</button>
+                  <AjudaCampo chave="os.relatorio.exportar_csv" rota="/dashboard/os/relatorio" />
+                </span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                  <button type="button" data-testid="os-rel-imprimir" style={{ ...inp, cursor: 'pointer', fontWeight: 600 }} onClick={() => window.print()}>Imprimir / PDF</button>
+                  <AjudaCampo chave="os.relatorio.imprimir" rota="/dashboard/os/relatorio" />
+                </span>
+              </div>
+
+              <div style={{ ...card, display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12 }}>
+                <div><div style={lbl}>Totais do período<AjudaCampo chave="os.relatorio.totais" rota="/dashboard/os/relatorio" /></div><div style={{ fontSize: 13 }}>{rel.totais.qtd} ordem(ns)</div></div>
+                <div><div style={lbl}>Serviços</div><strong>{brl(rel.totais.servico)}</strong></div>
+                <div><div style={lbl}>Peças</div><strong>{brl(rel.totais.pecas)}</strong></div>
+                <div><div style={lbl}>Total</div><strong style={{ fontSize: 18 }}>{brl(rel.totais.total)}</strong></div>
+              </div>
+
+              <div style={{ ...card, overflowX: 'auto' }}>
+                <div style={lbl}>Por situação<AjudaCampo chave="os.relatorio.por_situacao" rota="/dashboard/os/relatorio" /></div>
+                <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+                  <thead><tr style={{ textAlign: 'left', color: '#6B5D4F' }}><th>Situação</th><th>Qtd</th><th>Serviços</th><th>Peças</th><th>Total</th></tr></thead>
+                  <tbody>
+                    {rel.por_status.length === 0 && <tr><td colSpan={5} style={{ padding: 8 }}>Nenhuma ordem no período.</td></tr>}
+                    {rel.por_status.map((s) => (
+                      <tr key={s.status}><td style={{ padding: '6px 0' }}>{STATUS[s.status] ?? s.status}</td><td>{s.qtd}</td><td>{brl(s.servico)}</td><td>{brl(s.pecas)}</td><td>{brl(s.total)}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div style={{ ...card, overflowX: 'auto' }}>
+                <div style={lbl}>Ordens do período<AjudaCampo chave="os.relatorio.ordens_periodo" rota="/dashboard/os/relatorio" /></div>
+                <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+                  <thead><tr style={{ textAlign: 'left', color: '#6B5D4F' }}>
+                    <th>Nº<AjudaCampo chave="os.relatorio.col_numero" rota="/dashboard/os/relatorio" /></th>
+                    <th>Data<AjudaCampo chave="os.relatorio.col_data" rota="/dashboard/os/relatorio" /></th>
+                    <th>Cliente<AjudaCampo chave="os.relatorio.col_cliente" rota="/dashboard/os/relatorio" /></th>
+                    <th>Placa<AjudaCampo chave="os.relatorio.col_placa" rota="/dashboard/os/relatorio" /></th>
+                    <th>Situação<AjudaCampo chave="os.relatorio.col_situacao" rota="/dashboard/os/relatorio" /></th>
+                    <th>Serviços<AjudaCampo chave="os.relatorio.col_servicos" rota="/dashboard/os/relatorio" /></th>
+                    <th>Peças<AjudaCampo chave="os.relatorio.col_pecas" rota="/dashboard/os/relatorio" /></th>
+                    <th>Total<AjudaCampo chave="os.relatorio.col_total" rota="/dashboard/os/relatorio" /></th>
+                  </tr></thead>
+                  <tbody>
+                    {rel.itens.map((o) => (
+                      <tr key={o.id}>
+                        <td style={{ padding: '6px 0' }}>{o.numero ?? '—'}</td><td>{fmtD(o.data_ref)}</td><td>{o.cliente_nome ?? '—'}</td>
+                        <td>{o.placa ?? '—'}</td><td>{STATUS[o.status] ?? o.status}</td><td>{brl(o.servico)}</td><td>{brl(o.pecas)}</td><td>{brl(o.total)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  )
+}

@@ -15,6 +15,7 @@ import { supabase } from '@/lib/supabase'
 import PSGCMetric from '@/components/psgc/PSGCMetric'
 import { PSGC_COLORS, PSGC_RADIUS } from '@/lib/psgc-tokens'
 import { contarKpis, montarRelatorioPlano, soVinculadas, type LinhaRelatorioPlano } from '@/lib/contabil/relatorioPlano'
+import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 export const dynamic = 'force-dynamic'
 
@@ -57,7 +58,7 @@ export default function Page() {
       supabase.from('erp_plano_contas').select('id, codigo, descricao, is_totalizador').eq('company_id', empresaUnica).eq('ativo', true).order('codigo'),
       supabase.from('erp_conta_contabil').select('id, codigo').eq('company_id', empresaUnica).eq('ativo', true),
     ])
-    if (error) { setErro(error.message); setLinhas([]) }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar o relatório.')); setLinhas([]) }
     else setLinhas((data ?? []) as LinhaRelatorio[])
     setEmpresaNome((emp.data?.razao_social as string) ?? '')
     setEmpresaCnpj((emp.data?.cnpj as string) ?? '')
@@ -83,7 +84,7 @@ export default function Page() {
       const { data, error } = await supabase.rpc('fn_conta_contabil_vincular', {
         p_company_id: empresaUnica, p_plano_conta_id: planoId, p_conta_contabil_id: contId, p_observacao: null,
       })
-      if (error) { setVincMsg(error.message); return }
+      if (error) { setVincMsg(erroAmigavel(error, 'Não foi possível vincular.')); return }
       const r = (data ?? {}) as { ok?: boolean; erro?: string; mensagem?: string }
       if (r.ok) { setVincMsg(null); await carregar() }
       else if (r.erro === 'vinculo_imutavel') { setVincMsg(r.mensagem ?? 'Vínculo imutável — crie uma nova conta gerencial.') }
@@ -111,11 +112,11 @@ export default function Page() {
       const { data, error } = await supabase.rpc('fn_contabil_depara_importar', {
         p_company_id: empresaUnica, p_escritorio_id: null, p_rows: payload,
       })
-      if (error) { setImpMsg(error.message); return }
+      if (error) { setImpMsg(erroAmigavel(error, 'Não foi possível importar a validação.')); return }
       const r = (data ?? {}) as { ok?: boolean; erro?: string; importadas?: number; casadas_exato?: number; pendentes?: number }
-      if (r.ok === false) { setImpMsg(r.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : (r.erro ?? 'Falha ao importar.')); return }
+      if (r.ok === false) { setImpMsg(r.erro === 'sem_acesso' ? 'Sem acesso a esta empresa.' : codigoAmigavel(r.erro, 'Não foi possível importar a validação.')); return }
       setImpMsg(`Importadas ${r.importadas ?? 0} · casadas ${r.casadas_exato ?? 0} · pendentes ${r.pendentes ?? 0}.`)
-    } catch (e) { setImpMsg(e instanceof Error ? e.message : 'Falha ao ler a planilha.') }
+    } catch { setImpMsg('Não consegui ler esta planilha. Confira se o arquivo é .xlsx, .xls ou .csv e se não está corrompido ou protegido por senha.') }
     finally { setImpBusy(false); if (fileRef.current) fileRef.current.value = '' }
   }
 

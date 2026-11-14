@@ -511,7 +511,7 @@ Continuam obrigatórios: gates, guarda de funções, réguas, compilação, prev
 
 # Verificação de checks do commit de cabeça. $2 = rapida | revisada. Ecoa: ok | esperar:<motivo> | vermelho:<motivo>
 estado_checks() {
-  local sha=$1 via=${2:-revisada} so_docs=${3:-0} n=${4:-} regime_disp=${5:-0} acc_quar=0 base_main falhos quar_novos linhas pend verm canc acc esgotou id vercel_ok vercel_ruim acc_conc acc_url acc_run proprios
+  local sha=$1 via=${2:-revisada} so_docs=${3:-0} n=${4:-} regime_disp=${5:-0} acc_quar=0 base_main falhos quar_novos linhas pend verm canc acc esgotou id vercel_ok bp acc_conc acc_url acc_run proprios
   linhas=$(api "repos/$REPO/commits/$sha/check-runs?per_page=100" --paginate \
     --jq '.check_runs[] | select(.name != "fila") | [.name, .status, (.conclusion // "-"), .details_url] | @tsv')
   # REGRA DO TESTE PRÓPRIO (CEO 16/10): dentro da janela da aceitação revisada (#2665) a aceitação é informativa — MAS se um
@@ -681,14 +681,20 @@ estado_checks() {
     acc=$(awk -F'\t' '$1 == "aceitacao" {print $3}' <<< "$linhas" | tail -1)
     case "$acc" in success|skipped|neutral) ;; '') echo "esperar:aceitação (preview) ainda não rodou"; return;; *) echo "vermelho:aceitação $acc"; return;; esac
   fi
-  # Vercel (preview): status de commit ou check-run cujo nome começa com Vercel — só build REAL conta como verde
-  # (build pulado aparece como success "Canceled by Ignored Build Step": conta como pendente)
+  # COMPILAÇÃO (CEO 10/11, custo da Vercel): o `next build` SAIU do preview da Vercel (desligado em
+  # scripts/vercel-ignore.mjs) e roda no GitHub Actions (build-pr.yml → check "build-pr"), de graça. O check "build-pr"
+  # já entra no cálculo geral de pendentes/vermelhos acima (pendente = espera; failure = vermelho); aqui exigimos que ele
+  # EXISTA e esteja verde — como se exigia o preview da Vercel. Preview pulado ("Canceled by Ignored Build Step") nunca
+  # contou e segue sem contar. TRANSIÇÃO: aceita também um preview REAL da Vercel já verde (head antigo, aberto antes
+  # desta mudança, que ainda não ganhou o build-pr — ao sincronizar com a main ele passa a ter o build-pr). Gate:
+  # check-vercel-build.ts.
+  bp=$(awk -F'\t' '$1 == "build-pr" {print $3}' <<< "$linhas" | tail -1)
+  [ "$bp" = success ] && { echo ok; return; }
   vercel_ok=$( { api "repos/$REPO/commits/$sha/status" --jq '.statuses[] | select(.context | startswith("Vercel"))
-                   | if (.state == "success" and ((.description // "") | test("cancel|ignor"; "i"))) then "pending" else .state end'
+                   | if (.state == "success" and ((.description // "") | test("cancel|ignor"; "i"))) then "pending" else .state end' 2> /dev/null
                  awk -F'\t' '$1 ~ /^Vercel/ {print $3}' <<< "$linhas"; } | sort -u)
-  vercel_ruim=$(grep -vE '^(success)$' <<< "$vercel_ok" | grep -v '^$' || true)
-  [ -n "$vercel_ok" ] || { echo "esperar:Vercel ainda não respondeu"; return; }
-  case "$vercel_ruim" in '') echo ok;; *pending*) echo "esperar:Vercel em andamento";; *) echo "vermelho:Vercel $vercel_ruim";; esac
+  grep -qx success <<< "$vercel_ok" && { echo ok; return; }
+  echo "esperar:compilação (build-pr) ainda não rodou"; return
 }
 
 # (c) autorização pelo conteúdo. Ecoa: ok | vermelho:<motivo>
@@ -773,8 +779,9 @@ proxima_versao() {
 # Retorna 0 se renumerou (a PR segue no próximo commit) e 1 se não pôde (quem chama recusa como antes). Não renumera se
 # outro arquivo da PR cita a versão antiga (gate/spec que lê a migration pelo nome): aí a decisão é de quem fez a PR.
 renumerar_migrations() {
-  local n=$1 pj=$2 ult=$3 baixas=$4 via=$5 ref piso f v rest novo c b64 fsha lista=''
-  ref=$(jq -r .head.ref <<< "$pj"); piso=$ult
+  local n=$1 pj=$2 ult=$3 baixas=$4 via=$5 ref head tree tree_novo commit piso f v rest novo c fsha lista='' resumo='' entradas='[]'
+  ref=$(jq -r .head.ref <<< "$pj"); head=$(jq -r .head.sha <<< "$pj"); piso=$ult
+  { [ -n "$head" ] && [ "$head" != null ]; } || return 1
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     v=${f:0:14}
@@ -782,26 +789,43 @@ renumerar_migrations() {
       log "#$n: outro arquivo da PR cita a versão $v: não renumero sozinha"; return 1
     fi
   done <<< "$baixas"
+  # CEO 09/11 (corte de build da Vercel): UM commit só, com o rename (árvore nova = nome novo + nome antigo removido,
+  # mesmo blob). O par PUT+DELETE pelo contents gerava 2 commits = 2 builds de preview por renumeração. Base é o head da
+  # PR (`pj`) e a ref avança sem force: se a branch andou no meio, o PATCH recusa e a rodada não renumera nada.
+  tree=$(api "repos/$REPO/git/commits/$head" --jq .tree.sha) || return 1
+  { [ -n "$tree" ] && [ "$tree" != null ]; } || return 1
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     v=${f:0:14}; rest=${f:15}
     novo=$(proxima_versao "$piso" "${v:12:2}"); piso=$novo
-    c=$(api "repos/$REPO/contents/supabase/migrations/$f?ref=$ref") || return 1
-    b64=$(jq -r .content <<< "$c" | tr -d '\n'); fsha=$(jq -r .sha <<< "$c")
-    { [ -n "$b64" ] && [ "$fsha" != null ]; } || return 1
-    api -X PUT "repos/$REPO/contents/supabase/migrations/${novo}_$rest" -f message="fila: renumera migration $v para $novo (acima da última da main $ult)" -f content="$b64" -f branch="$ref" > /dev/null || return 1
-    api -X DELETE "repos/$REPO/contents/supabase/migrations/$f" -f message="fila: remove migration $v (renumerada para $novo)" -f sha="$fsha" -f branch="$ref" > /dev/null || return 1
+    c=$(api "repos/$REPO/contents/supabase/migrations/$f?ref=$head") || return 1
+    fsha=$(jq -r .sha <<< "$c")   # sha do BLOB: o conteúdo não muda, só o nome do arquivo
+    { [ -n "$fsha" ] && [ "$fsha" != null ]; } || return 1
+    entradas=$(jq --arg nw "supabase/migrations/${novo}_$rest" --arg old "supabase/migrations/$f" --arg b "$fsha" \
+      '. + [{path: $nw, mode: "100644", type: "blob", sha: $b}, {path: $old, mode: "100644", type: "blob", sha: null}]' <<< "$entradas") || return 1
     lista="$lista
 - \`${v}_$rest\` → \`${novo}_$rest\`"
+    resumo="$resumo ${v} → ${novo};"
   done <<< "$baixas"
-  log "#$n: migration(s) renumerada(s) pela fila"
+  tree_novo=$(jq -n --arg base "$tree" --argjson t "$entradas" '{base_tree: $base, tree: $t}' \
+    | api -X POST "repos/$REPO/git/trees" --input - --jq .sha) || return 1
+  { [ -n "$tree_novo" ] && [ "$tree_novo" != null ]; } || return 1
+  commit=$(jq -n --arg m "fila: renumera migration(s) acima da última da main $ult (conteúdo idêntico):$resumo" \
+    --arg t "$tree_novo" --arg p "$head" '{message: $m, tree: $t, parents: [$p]}' \
+    | api -X POST "repos/$REPO/git/commits" --input - --jq .sha) || return 1
+  { [ -n "$commit" ] && [ "$commit" != null ]; } || return 1
+  jq -n --arg s "$commit" '{sha: $s}' | api -X PATCH "repos/$REPO/git/refs/heads/$ref" --input - > /dev/null || return 1
+  log "#$n: migration(s) renumerada(s) pela fila (1 commit:$resumo)"
+  # Eng. Chefe 02/11: a renumeração só troca o NOME do arquivo (conteúdo idêntico — e esta função recusa acima se outro
+  # arquivo cita a versão). O patch-id ESTÁVEL (patch-id-lib.sh normaliza supabase/migrations/<14 díg>_) NÃO muda, então
+  # a autorização do revisor CONTINUA VALENDO (provado em check-fila-patchid-estavel). Por isso NÃO tiramos/recolocamos a
+  # etiqueta nem pedimos nova revisão: fazer isso acordava o revisor à toa e devolvia a PR para a espera do revisor
+  # (horário) — o ciclo que prendia dezenas de PRs com migration. Mudança REAL de conteúdo muda o patch-id e `autorizacao`
+  # já exige nova revisão sozinha.
   comentar "$n" "🔢 **Fila de merge:** a migration desta PR estava com versão NÃO maior que a última da main (\`$ult\`); renumerei sozinha (commit no ramo, conteúdo idêntico):$lista
 
-Os checks rodam de novo no commit novo.$([ "$via" = revisada ] && echo " **Via revisada: o patch-id mudou — o gilberto-revisor precisa autorizar de novo (a etiqueta \`$SENSIVEL\` é tirada e recolocada para acordá-lo).")"
-  if [ "$via" = revisada ]; then
-    api -X DELETE "repos/$REPO/issues/$n/labels/$SENSIVEL" > /dev/null 2>&1 || true
-    api -X POST "repos/$REPO/issues/$n/labels" -f "labels[]=$SENSIVEL" > /dev/null 2>&1 || true
-  fi
+Os checks rodam de novo no commit novo.$([ "$via" = revisada ] && echo " **Via revisada: autorização mantida — só renumeração; o patch-id do conteúdo é estável, não precisa de nova revisão.**")"
+  RENUM_PISO_FINAL=$piso   # último piso atribuído: a rodada reserva isto para a próxima PR com migration (Eng. Chefe 11/11)
   return 0
 }
 
@@ -833,11 +857,22 @@ merges=0
 # INDEPENDENTES entre si (scripts/merge/migrations-independentes.ts; qualquer dúvida → 1 por rodada, como antes).
 # O @pos-migration da main roda uma vez para o lote. LOTE_MIG_MAX=1 desliga (comportamento antigo).
 # ESCALA NO ADITIVO, CAUTELA NO CRÍTICO (CEO 23/10): o teto geral do lote (LOTE_MIG_MAX) sobe para drenar o backlog de
-# migrations ADITIVAS mais rápido; mas a migration CRÍTICA (via revisada) tem um teto PRÓPRIO e baixo (LOTE_MIG_CRIT_MAX),
-# para nunca batelar muitas críticas num mesmo @pos. Assim o aditivo ganha vazão sem afrouxar a cautela no crítico.
+# migrations ADITIVAS mais rápido; a migration CRÍTICA (via revisada) tem um teto PRÓPRIO (LOTE_MIG_CRIT_MAX).
+# LOTE DE CRÍTICAS (CEO 01/11): a fila crítica chegou a 44 com vazão de 2-3/h (cada crítica saía sozinha e esperava ~20 min
+# de @pos). O CEO aprovou batelar até LOTE_MIG_CRIT_MAX=5 migrations CRÍTICAS num MESMO @pos. CARVE-OUT: as categorias
+# perigosas demais (NR-36, fiscal, financeiro de cliente, RLS/permissão/LGPD) e qualquer conserto-main continuam SOZINHAS
+# (1 por @pos) — classificador critica-solo.ts, viés de segurança (dúvida → SOLO). Se o @pos do lote falhar, o guardião
+# (gilberto-esteira) BISSECTA: reverte metade, roda o @pos, repete até isolar a PR culpada, reverte só ela e republica as
+# inocentes (procedimento no AGENTS.md / PROTOCOLO DE MAIN VERMELHA). LOTE_MIG_CRIT_MAX=1 volta ao comportamento antigo.
 LOTE_MIG_MAX=${LOTE_MIG_MAX:-6}
-LOTE_MIG_CRIT_MAX=${LOTE_MIG_CRIT_MAX:-1}
+LOTE_MIG_CRIT_MAX=${LOTE_MIG_CRIT_MAX:-5}
 lote_mig_n=0; lote_mig_crit_n=0; lote_mig_sqls=()
+# Eng. Chefe 11/11: PISO de versão RESERVADO na rodada. A renumeração automática calcula a versão nova a partir da
+# última da MAIN, mas a main NÃO reflete as versões que a própria rodada já atribuiu aos ramos de outras PRs. Logo duas
+# PRs renumeradas na MESMA rodada recebiam a MESMA versão (incidente 20261113140220: #4606 e #4608 → db push pulou uma
+# em silêncio e o deploy-migrations ficou vermelho). Agora cada renumeração incrementa sobre o MAIOR entre a última da
+# main e as versões já reservadas nesta rodada; renumerar_migrations devolve o seu último piso em RENUM_PISO_FINAL.
+piso_reservado_rodada=''
 mkdir -p "$TMPF/mig"
 # SQL das migrations da PR no SHA conferido → $TMPF/mig/<n>.sql (vazio/falha = dúvida na checagem de independência)
 baixar_sql_migrations() {
@@ -896,11 +931,38 @@ for n in $fila; do
         log "#$n: etiqueta $SENSIVEL (tela), mas a migration só grava catálogo de ajuda/metadado — ADITIVA p/ serialização do @pos (segue via revisada p/ a tela)"
       fi
     fi
+    # CARVE-OUT do LOTE DE CRÍTICAS (CEO 01/11): migration crítica de categoria PERIGOSA (NR-36, fiscal, financeiro de
+    # cliente, RLS/permissão/LGPD) e qualquer conserto-main publicam SOZINHAS (1 por @pos), fora do lote. Classificador
+    # puro e testado (critica-solo.ts), viés de segurança: migration ilegível/dúvida → SOLO.
+    n_critica_solo=0
+    if [ "$n_critica" = 1 ]; then
+      if jq -e '.labels | map(.name) | index("conserto-main")' <<< "$pj" > /dev/null 2>&1; then
+        n_critica_solo=1
+      else
+        # alimenta o critica-solo.ts com: os caminhos NÃO-migration da PR (detecção por caminho: tela fiscal etc.) + o
+        # SQL concatenado da(s) migration(s) no SHA conferido (mesma fonte do baixar_sql_migrations). Não consegui ler o
+        # SQL → DÚVIDA → SOLO (viés de segurança, como o exige-via-revisada).
+        [ -s "$TMPF/mig/$n.sql" ] || baixar_sql_migrations "$n" "$sha" || true
+        if [ ! -s "$TMPF/mig/$n.sql" ]; then
+          n_critica_solo=1
+        else
+          solo_b64=$(base64 -w0 < "$TMPF/mig/$n.sql" 2> /dev/null || base64 < "$TMPF/mig/$n.sql" 2> /dev/null | tr -d '\n')
+          solo_json=$({ grep -vE '^supabase/migrations/.*\.sql$' <<< "$arquivos"; printf 'supabase/migrations/_lote_%s.sql\t%s\n' "$n" "$solo_b64"; } | npx --yes tsx "$(dirname "${BASH_SOURCE[0]}")/critica-solo.ts" 2> /dev/null)
+          # viés de segurança: SÓ é batelável (não-solo) quando o classificador diz .solo==false EXPLÍCITO. Ausente,
+          # saída vazia (crash) ou qualquer dúvida → SOLO. (Não use `.solo // true`: no jq, `false // true` vale true.)
+          [ "$(jq -r 'if .solo == false then "nao" else "sim" end' <<< "$solo_json" 2> /dev/null)" = nao ] || n_critica_solo=1
+        fi
+      fi
+      [ "$n_critica_solo" = 1 ] && log "#$n: migration CRÍTICA de categoria SOLO (NR-36/fiscal/financeiro/RLS/LGPD/conserto-main) — publica sozinha (1 por @pos), fora do lote de críticas"
+    fi
     if [ "$deploy_travado" = 1 ]; then log "#$n tem migration: deploy-migrations da main não está verde — espera (todas as migrations)"; continue; fi
     if [ "$critica_na_main" = 1 ] && [ "$n_critica" = 1 ]; then log "#$n tem migration CRÍTICA: espera o @pos da crítica anterior (aditivas seguem)"; continue; fi
-    # cautela no crítico (CEO 23/10): no MESMO lote, no máximo LOTE_MIG_CRIT_MAX migration(s) crítica(s). O aditivo bate até
-    # LOTE_MIG_MAX; a crítica excedente espera a próxima rodada (cada crítica tem o veredito do @pos sem se misturar com as outras).
-    if [ "$n_critica" = 1 ] && [ "$lote_mig_crit_n" -ge "$LOTE_MIG_CRIT_MAX" ]; then log "#$n tem migration CRÍTICA: já há $lote_mig_crit_n no lote (teto LOTE_MIG_CRIT_MAX=$LOTE_MIG_CRIT_MAX) — cautela no crítico, espera a próxima rodada"; continue; fi
+    # SOLO: só começa com o lote de migrations VAZIO (publica sozinha); ao publicar, ENCERRA a rodada (nada batela com ela).
+    if [ "$n_critica_solo" = 1 ] && [ "$lote_mig_n" -gt 0 ]; then log "#$n tem migration CRÍTICA SOLO: já há migration(s) no lote desta rodada — publica sozinha, espera a próxima rodada"; continue; fi
+    # cautela no crítico (CEO 23/10; lote de críticas CEO 01/11): no MESMO lote, no máximo LOTE_MIG_CRIT_MAX migration(s)
+    # CRÍTICA(s) BATELÁVEIS. O aditivo bate até LOTE_MIG_MAX; a crítica excedente espera a próxima rodada (cada lote de
+    # críticas tem o seu veredito de @pos; se falhar, o guardião bisseta para isolar a culpada — ver AGENTS.md).
+    if [ "$n_critica" = 1 ] && [ "$n_critica_solo" = 0 ] && [ "$lote_mig_crit_n" -ge "$LOTE_MIG_CRIT_MAX" ]; then log "#$n tem migration CRÍTICA: já há $lote_mig_crit_n crítica(s) no lote (teto LOTE_MIG_CRIT_MAX=$LOTE_MIG_CRIT_MAX) — espera a próxima rodada"; continue; fi
     if [ "$merges" -gt 0 ] && [ "$lote_mig_n" = 0 ]; then log "#$n tem migration: espera a main (atrás da anterior)"; continue; fi
     if [ "$lote_mig_n" -gt 0 ]; then
       baixar_sql_migrations "$n" "$sha" || true
@@ -1024,12 +1086,20 @@ for n in $fila; do
     # `db push` recusou — deploy vermelho por horas). Recalcula a última migration da main agora (não usa o check antigo
     # da PR). Com o deploy-migrations verde (estado_main livre), a última da main = a última aplicada em produção.
     ult_main=$(api "repos/$REPO/git/trees/main:supabase/migrations" | jq -r '[.tree[].path | select(test("^[0-9]{14}_")) | .[0:14]] | max')
+    # Quais migrations precisam renumerar: as que estão ABAIXO da última da main (detecção por $ult_main — NÃO pelo piso
+    # reservado, que é um timestamp de agora e varreria migrations legítimas acima da main).
     baixas=$(api "repos/$REPO/pulls/$n/files" --paginate | jq -r --arg u "$ult_main" '.[] | select(.status == "added" and (.filename | test("^supabase/migrations/[0-9]{14}_"))) | .filename | ltrimstr("supabase/migrations/") | select(.[0:14] <= $u)')
+    # PISO EFETIVO (só o CHÃO da renumeração, não a detecção) = maior entre a última da main e o já reservado NESTA rodada
+    # (Eng. Chefe 11/11), para 2 PRs renumeradas na mesma rodada não receberem a mesma versão. Comparação de string vale
+    # para timestamps de 14 dígitos de largura fixa.
+    piso_efetivo=$ult_main
+    { [ -n "$piso_reservado_rodada" ] && [ "$piso_reservado_rodada" '>' "$piso_efetivo" ]; } && piso_efetivo=$piso_reservado_rodada
     if [ -n "$baixas" ]; then
       # Renumeração AUTOMÁTICA (Eng. Chefe 09/10): em vez de recusar, a fila renomeia a(s) migration(s) da PR com um commit
       # no ramo dela (versão nova = timestamp do momento, mantendo os 2 últimos dígitos = faixa do agente). O commit roda
-      # os checks de novo; PR revisada precisa de NOVA autorização do revisor (o patch-id muda).
-      if renumerar_migrations "$n" "$pj" "$ult_main" "$baixas" "$via"; then continue; fi
+      # os checks de novo; a PR revisada MANTÉM a autorização: só o nome muda, o patch-id ESTÁVEL do conteúdo não (Eng. Chefe 02/11).
+      # Usa o PISO EFETIVO (acima também do que esta rodada já reservou) e reserva o último piso para a próxima PR da rodada.
+      if renumerar_migrations "$n" "$pj" "$piso_efetivo" "$baixas" "$via"; then piso_reservado_rodada=$RENUM_PISO_FINAL; continue; fi
       tirar_da_fila "$n" "migration com versão NÃO maior que a última da main ($ult_main): $(tr '\n' ' ' <<< "$baixas") — não consegui renumerar sozinha; renumere para uma versão acima e atualize com a main (o db push recusa versão abaixo da última aplicada)" "$sha"; continue
     fi
   fi
@@ -1044,8 +1114,10 @@ for n in $fila; do
       [ "$n_critica" = 1 ] && lote_mig_crit_n=$((lote_mig_crit_n + 1))   # cautela no crítico: conta as críticas do lote (teto LOTE_MIG_CRIT_MAX)
       [ -s "$TMPF/mig/$n.sql" ] || baixar_sql_migrations "$n" "$sha" || true
       lote_mig_sqls+=("$TMPF/mig/$n.sql")
-      log "#$n MERGEADA (squash, ${sha:0:7}) pela via $([ "$via" = rapida ] && echo rápida || echo revisada) — tem migration: lote de migrations $lote_mig_n/$LOTE_MIG_MAX"
+      log "#$n MERGEADA (squash, ${sha:0:7}) pela via $([ "$via" = rapida ] && echo rápida || echo revisada) — tem migration: lote de migrations $lote_mig_n/$LOTE_MIG_MAX (críticas $lote_mig_crit_n/$LOTE_MIG_CRIT_MAX)"
       comentar "$n" "✅ **Fila de merge:** mergeada (squash) no commit conferido \`${sha:0:7}\` pela **via $([ "$via" = rapida ] && echo 'rápida**' || echo 'revisada**'). Tem migration (lote $lote_mig_n/$LOTE_MIG_MAX de migrations independentes): veredito no @pos-migration da main (vermelho = reverter a PR que quebrou)."
+      # CARVE-OUT (CEO 01/11): migration crítica SOLO publica sozinha — ENCERRA a rodada para nada batelar no @pos dela.
+      if [ "$n_critica_solo" = 1 ]; then log "#$n era migration CRÍTICA SOLO: encerra a rodada (publica sozinha, @pos só dela)"; exit 0; fi
       if [ "$lote_mig_n" -ge "$LOTE_MIG_MAX" ] || [ "$merges" -ge "$LOTE_MAX" ]; then exit 0; fi
       continue
     fi

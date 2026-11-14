@@ -10,7 +10,7 @@ const f = readFileSync('src/app/dashboard/pm/agenda/page.tsx', 'utf8')
 ok(/from\('erp_agendamento'\)[\s\S]{0,500}\.is\('excluido_em', null\)/.test(f), 'lista da agenda ignora evento excluído')
 ok(/if \(ag\) \{[\s\S]{0,600}from\('erp_agendamento'\)\.update\(/.test(f) && /\.eq\('id', ag\.id\)\.eq\('company_id', empresa\)/.test(f), 'salvar evento existente atualiza o próprio evento')
 ok(/if \(ag\) \{[\s\S]*?onSaved\(\); return\s*\}\s*const \{ error \} = await supabase\.rpc\('fn_agendamento_criar'/.test(f), 'criar só acontece para evento novo')
-ok(/p_responsavel_nome: nomeUsuario/.test(f) && !/p_responsavel_nome: null/.test(f), 'evento novo grava o nome do responsável')
+ok(/p_responsavel_nome: respNome \?\? nomeUsuario/.test(f) && !/p_responsavel_nome: null/.test(f), 'evento novo grava o nome do responsável (o selecionado, com fallback ao próprio usuário)')
 
 if (falhas) { console.error(`\n${falhas} falha(s) na agenda comercial`); process.exit(1) }
 console.log('\nAgenda comercial (defeitos Pdois): ok')

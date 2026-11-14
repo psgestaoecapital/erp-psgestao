@@ -19,10 +19,12 @@
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import FornecedorContatosCard from './FornecedorContatosCard'
 import { consultarCNPJ } from '@/lib/cadastros/buscarCNPJ'
 import { buscarCEP } from '@/lib/cadastros/buscarCEP'
 import { deveConferirDuplicidade } from '@/lib/cadastros/duplicidadeDocumento'
+import { cpfValido, soDigitosCpf } from '@/lib/documentos/cpf'
 
 export interface Pessoa {
   id: string
@@ -130,6 +132,11 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [aviso, setAviso] = useState<string | null>(null)
+  // Feedback contextual do documento (PF): valida o CPF e avisa se já existe na própria empresa.
+  // Chamado #5436: enquanto não há fonte aprovada para auto-preencher PF, a tela já valida o número
+  // e avisa duplicidade. Não bloqueia o save (mantém a validação "soft": só o nome é obrigatório).
+  const [docMsg, setDocMsg] = useState<{ tipo: 'erro' | 'aviso' | 'ok'; texto: string } | null>(null)
+  const [checandoDoc, setChecandoDoc] = useState(false)
 
   function adicionarTag(t: string) {
     const limpa = t.trim()
@@ -176,6 +183,33 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
     if (ehCliente && !ibgeManual && !cidade && dados.cidade && dados.uf) {
       const cod = await ibgePorCidadeUf(dados.cidade, dados.uf)
       if (cod) setIbge(cod)
+    }
+  }
+
+  // PF: ao sair do campo CPF, valida o número e avisa se já existe na própria empresa (chamado #5436).
+  // Só leitura, filtrada por company_id (RLS) e cadastros ativos — mesmo critério do save.
+  async function checarDocumentoCpf() {
+    if (tipoPessoa !== 'PF') return
+    const d = soDigitosCpf(cnpjCpf)
+    if (d.length === 0) { setDocMsg(null); return }
+    if (d.length !== 11) { setDocMsg({ tipo: 'erro', texto: 'CPF precisa ter 11 números.' }); return }
+    if (!cpfValido(d)) { setDocMsg({ tipo: 'erro', texto: 'CPF inválido — o dígito verificador não confere. Confira os números.' }); return }
+    setChecandoDoc(true)
+    const { data: dup } = await supabase
+      .from(tabela)
+      .select('nome_fantasia, razao_social')
+      .eq('company_id', companyId)
+      .eq('cnpj_cpf', d)
+      .neq('id', pessoa?.id ?? '00000000-0000-0000-0000-000000000000')
+      .eq('ativo', true)
+      .limit(1)
+    setChecandoDoc(false)
+    if (dup && dup.length > 0) {
+      const ex = dup[0] as { nome_fantasia: string | null; razao_social: string | null }
+      const nomeEx = ex.nome_fantasia || ex.razao_social || `${label} cadastrado`
+      setDocMsg({ tipo: 'aviso', texto: `Já existe um ${label} com este CPF: ${nomeEx}.` })
+    } else {
+      setDocMsg({ tipo: 'ok', texto: 'CPF válido.' })
     }
   }
 
@@ -334,7 +368,7 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
 
     setSalvando(false)
     if (result.error) {
-      setErro('Erro: ' + result.error.message)
+      setErro(erroAmigavel(result.error))
       return
     }
     onSaved()
@@ -372,7 +406,7 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
                   <button
                     key={t}
                     type="button"
-                    onClick={() => setTipoPessoa(t)}
+                    onClick={() => { setTipoPessoa(t); setDocMsg(null) }}
                     style={{
                       flex: 1,
                       padding: '8px',
@@ -399,7 +433,8 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
             <div style={{ display: 'flex', gap: 8 }}>
               <input
                 value={cnpjCpf}
-                onChange={(e) => setCnpjCpf(e.target.value)}
+                onChange={(e) => { setCnpjCpf(e.target.value); if (docMsg) setDocMsg(null) }}
+                onBlur={() => { if (tipoPessoa === 'PF') checarDocumentoCpf() }}
                 placeholder={tipoPessoa === 'PJ' ? '00.000.000/0000-00' : '000.000.000-00'}
                 style={{ ...inputStyle, flex: 1 }}
               />
@@ -414,6 +449,17 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
                 </button>
               )}
             </div>
+            {tipoPessoa === 'PF' && (checandoDoc || docMsg) && (
+              <div
+                style={{
+                  marginTop: 6,
+                  fontSize: 12,
+                  color: checandoDoc ? 'rgba(61,35,20,0.6)' : docMsg?.tipo === 'erro' ? '#A32D2D' : docMsg?.tipo === 'aviso' ? '#7A5A0F' : '#2E7D32',
+                }}
+              >
+                {checandoDoc ? 'Conferindo CPF…' : `${docMsg?.tipo === 'ok' ? '✓ ' : docMsg?.tipo === 'aviso' ? '⚠️ ' : ''}${docMsg?.texto}`}
+              </div>
+            )}
           </Campo>
 
           <Campo ajuda="cadastros.pessoa.nome" label="Nome / Apelido *" hint={`Como você identifica esse ${label} no dia-a-dia`}>

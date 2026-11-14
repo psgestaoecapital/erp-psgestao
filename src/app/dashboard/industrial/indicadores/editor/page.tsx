@@ -8,6 +8,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { erroAmigavel } from '@/lib/erroAmigavel'
+import { parseNumBR } from '@/lib/num'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -129,7 +131,7 @@ export default function IndicadoresEditorPage() {
     setSalvando(true); setMsg('')
     const { data, error } = await supabase.rpc('fn_ind_semear_catalogo', { p_company_id: companyId })
     setSalvando(false)
-    if (error) { setMsg('Erro ao semear: ' + error.message); return }
+    if (error) { setMsg(erroAmigavel(error, 'Não foi possível semear os indicadores. Tente de novo.')); return }
     setMsg(`Semeadura concluída — ${data ?? 0} indicadores adicionados.`)
     void carregar()
   }
@@ -143,7 +145,7 @@ export default function IndicadoresEditorPage() {
     const { error } = await supabase.from('ind_indicador_catalogo')
       .update({ ...rascunho, atualizado_em: new Date().toISOString() }).eq('id', id)
     setSalvando(false)
-    if (error) { setMsg('Erro ao salvar: ' + error.message); return }
+    if (error) { setMsg(erroAmigavel(error, 'Não foi possível salvar o indicador. Tente de novo.')); return }
     setEditId(null); void carregar()
   }
   async function toggleAtivo(i: Indicador) {
@@ -151,7 +153,7 @@ export default function IndicadoresEditorPage() {
     const { error } = await supabase.from('ind_indicador_catalogo')
       .update({ ativo: !i.ativo, atualizado_em: new Date().toISOString() }).eq('id', i.id)
     setSalvando(false)
-    if (error) { setMsg('Erro: ' + error.message); return }
+    if (error) { setMsg(erroAmigavel(error, 'Não foi possível ativar ou desativar o indicador. Tente de novo.')); return }
     void carregar()
   }
   async function adicionar(area: Indicador) {
@@ -167,13 +169,13 @@ export default function IndicadoresEditorPage() {
       regra_agregacao: novo.regra, direcao_boa: novo.direcao, sugerido_global: false, ordem, editavel: true,
     })
     setSalvando(false)
-    if (error) { setMsg(error.message.includes('uq_ind_cat') ? `Já existe um indicador com código ${codigo}.` : 'Erro: ' + error.message); return }
+    if (error) { setMsg(error.message?.includes('uq_ind_cat') ? `Já existe um indicador com código ${codigo}.` : erroAmigavel(error, 'Não foi possível adicionar o indicador. Tente de novo.')); return }
     setNovoSob(null); setNovo({ sigla: '', nome: '', unidade: '', regra: 'soma', direcao: 'maior' })
     void carregar()
   }
   async function salvarMeta(ind: Indicador) {
     if (!companyId) return
-    const ano = parseInt(novoMeta.ano, 10); const valor = parseFloat(novoMeta.valor.replace(',', '.'))
+    const ano = parseInt(novoMeta.ano, 10); const valor = parseNumBR(novoMeta.valor) ?? NaN // valor aceita vírgula e milhar BR (#5660)
     if (!ano || Number.isNaN(valor)) { setMsg('Informe ano e valor da meta.'); return }
     const mes = novoMeta.mes ? parseInt(novoMeta.mes, 10) : null
     if (mes !== null && (mes < 1 || mes > 12)) { setMsg('Mês deve ser entre 1 e 12.'); return }
@@ -196,7 +198,7 @@ export default function IndicadoresEditorPage() {
           periodo_ano: ano, periodo_mes: mes, meta_valor: valor, ativo: true,
         })
     setSalvando(false)
-    if (error) { setMsg('Erro ao gravar meta: ' + error.message); return }
+    if (error) { setMsg(erroAmigavel(error, 'Não foi possível gravar a meta. Tente de novo.')); return }
     setNovoMeta({ tipo, ref: '', ano: String(ano), mes: '', valor: '' })
     void carregar()
   }

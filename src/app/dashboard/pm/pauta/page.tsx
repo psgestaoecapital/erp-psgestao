@@ -12,6 +12,7 @@ import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import EmpresaNaoResolvida from "@/components/pm/EmpresaNaoResolvida";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { erroAmigavel, codigoAmigavel } from "@/lib/erroAmigavel";
 import { ClienteBusca } from "@/components/pm/ClienteBusca";
 import { JobFluxo } from "@/components/pm/JobFluxo";
 import { JobComentarios } from "@/components/pm/JobComentarios";
@@ -102,6 +103,8 @@ export default function PautaPage() {
   const [aviso, setAviso] = useState<{ texto: string; lote?: string } | null>(null);
   const [massa, setMassa] = useState(false);
   const [aberto, setAberto] = useState<ItemPauta | null>(null);
+  // briefing do job aberto (descricao montada pelo banco a partir do post): null = carregando; "" = sem briefing
+  const [briefingJob, setBriefingJob] = useState<string | null>(null);
   const [frase, setFrase] = useState("");
   const [sugestaoIA, setSugestaoIA] = useState<{ filtros: FiltrosPauta; explicacao: string } | null>(null);
   const [prefCarregada, setPrefCarregada] = useState(false);
@@ -138,7 +141,7 @@ export default function PautaPage() {
       if (vivo) setTemJob(eJobs ? null : (nJobs ?? 0) > 0);
       if (!vivo) return;
       setUserId(uid);
-      if (op.error) { setErro(op.error.message); return; }
+      if (op.error) { setErro(erroAmigavel(op.error, "Não foi possível carregar as opções da pauta.")); return; }
       setSituacoes(((op.data as { situacoes: Opcao[] } | null)?.situacoes) ?? []);
       setMotivos(((op.data as { motivos: Opcao[] | null } | null)?.motivos) ?? []);
       const cls = ((cl.data ?? []) as { id: string; nome: string; nome_fantasia: string | null; grupo_id: string | null }[]).map((c) => ({ id: c.id, nome: c.nome_fantasia || c.nome, grupo_id: c.grupo_id }));
@@ -193,7 +196,7 @@ export default function PautaPage() {
     ]);
     if (minha !== recarga.current) return;
     setCarregando(false);
-    if (ct.error || ls.error) { setErro((ct.error ?? ls.error)!.message); return; }
+    if (ct.error || ls.error) { setErro(erroAmigavel(ct.error ?? ls.error, "Não foi possível carregar a pauta.")); return; }
     setContadores(ct.data as { por_situacao: Record<string, number>; total: number; atrasados: number });
     const nova = ls.data as Lista;
     setLista((ant) => (pag > 1 && ant ? { ...nova, itens: [...ant.itens, ...nova.itens] } : nova));
@@ -244,7 +247,7 @@ export default function PautaPage() {
   }
   async function compartilharVisao(v: Visao) {
     const { error } = await supabase.from("agency_visoes_pauta").update({ compartilhada: true }).eq("id", v.id);
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error, "Não foi possível compartilhar a visão.")); return; }
     const nova = { ...v, compartilhada: true };
     setVisoes((xs) => xs.map((x) => (x.id === v.id ? nova : x))); setVisaoAtual(nova);
     setAviso({ texto: `Visão "${v.nome}" agora é da equipe — o link funciona para todos.` });
@@ -266,7 +269,7 @@ export default function PautaPage() {
     const compartilhada = podeGerir && window.confirm("Compartilhar com a equipe? (OK = da equipe · Cancelar = só sua)");
     const { data: nova, error } = await supabase.from("agency_visoes_pauta").insert({ company_id: empresa, nome, filtros: limparFiltros(rascunho), compartilhada, ordem: visoes.length })
       .select("id, nome, filtros, compartilhada, dono_id").single();
-    if (error) { setErro(error.message); return; }
+    if (error) { setErro(erroAmigavel(error, "Não foi possível salvar a visão.")); return; }
     const { data } = await supabase.from("agency_visoes_pauta").select("id, nome, filtros, compartilhada, dono_id").eq("company_id", empresa).is("excluido_em", null).order("ordem");
     setVisoes((data ?? []) as Visao[]);
     aplicar((nova as Visao).filtros, nova as Visao);
@@ -286,14 +289,14 @@ export default function PautaPage() {
   async function acaoMassa(fn: string, args: Record<string, unknown>, texto: string) {
     const { data, error } = await supabase.rpc(fn, args);
     const r = data as { ok?: boolean; erro?: string; mensagem?: string; lote_id?: string; alterados?: number } | null;
-    if (error || !r?.ok) { setErro(r?.mensagem || error?.message || r?.erro || "Não foi possível."); return; }
+    if (error || !r?.ok) { setErro(r?.mensagem || (error ? erroAmigavel(error, "Não foi possível.") : codigoAmigavel(r?.erro, "Não foi possível."))); return; }
     setAviso({ texto: `${texto} (${r.alterados ?? 0} job${r.alterados === 1 ? "" : "s"}).`, lote: r.lote_id });
     setMassa(false); setSel(new Set()); void carregar(1);
   }
   async function desfazer(lote: string) {
     const { data, error } = await supabase.rpc("fn_pauta_desfazer", { p_lote_id: lote });
     const r = data as { ok?: boolean; mensagem?: string; erro?: string; restaurados?: number } | null;
-    if (error || !r?.ok) { setErro(r?.mensagem || error?.message || r?.erro || "Não foi possível desfazer."); return; }
+    if (error || !r?.ok) { setErro(r?.mensagem || (error ? erroAmigavel(error, "Não foi possível desfazer.") : codigoAmigavel(r?.erro, "Não foi possível desfazer."))); return; }
     setAviso({ texto: `Desfeito: ${r.restaurados ?? 0} job(s) voltaram como estavam.` }); void carregar(1);
   }
 
@@ -306,6 +309,9 @@ export default function PautaPage() {
 
   async function abrirJob(it: ItemPauta) {
     setAberto(it);
+    setBriefingJob(null);
+    const { data: bj } = await supabase.from("agency_jobs").select("descricao").eq("id", it.id).maybeSingle();
+    setBriefingJob((((bj as { descricao: string | null } | null)?.descricao) ?? "").trim());
     if (empresa && userId) {
       await supabase.from("agency_job_visto").upsert({ company_id: empresa, user_id: userId, job_id: it.id, visto_em: new Date().toISOString() }, { onConflict: "user_id,job_id" });
     }
@@ -473,10 +479,10 @@ export default function PautaPage() {
         {!itens.length && !carregando && temJob === false && !naLixeira && (
           <div className="rounded-2xl border border-[#C8941A]/40 bg-gradient-to-br from-white to-[#FAEEDA] p-8 text-center" data-testid="pauta-vazia">
             <div className="text-[18px] font-medium">A pauta ainda está vazia</div>
-            <p className="mx-auto mt-1 max-w-md text-[13.5px] text-[#3D2314]/70">Os jobs do SIGA ainda não foram trazidos — a importação entra assim que a exportação chegar. Enquanto isso, já dá para criar jobs novos aqui.</p>
+            <p className="mx-auto mt-1 max-w-md text-[13.5px] text-[#3D2314]/70">Os jobs do sistema anterior ainda não foram trazidos — a importação entra assim que a exportação chegar. Enquanto isso, já dá para criar jobs novos aqui.</p>
             <div className="mt-4 flex flex-wrap justify-center gap-2">
               <Link href="/dashboard/producao?novo=job" className="inline-flex items-center gap-2 rounded-xl bg-[#3D2314] px-5 py-3 text-[14px] font-medium text-white shadow-md hover:bg-[#3D2314]/90" data-testid="pauta-vazia-novo-job"><Plus size={16} /> Novo job</Link>
-              <Link href="/dashboard/pm/importar-siga" className="inline-flex items-center gap-2 rounded-xl border border-[#3D2314]/20 bg-white px-5 py-3 text-[14px] font-medium text-[#3D2314] hover:bg-[#FAF7F2]" data-testid="pauta-vazia-importar-siga">Importar jobs do SIGA</Link>
+              <Link href="/dashboard/pm/importar-sistema-anterior" className="inline-flex items-center gap-2 rounded-xl border border-[#3D2314]/20 bg-white px-5 py-3 text-[14px] font-medium text-[#3D2314] hover:bg-[#FAF7F2]" data-testid="pauta-vazia-importar-siga">Importar jobs do sistema anterior</Link>
             </div>
             <div className="mt-2 flex items-center justify-center text-[12px] text-[#3D2314]/55">como funciona<AjudaCampo chave="pm.pauta.vazia" /></div>
           </div>
@@ -514,7 +520,7 @@ export default function PautaPage() {
                     </span>
                     <span className="col-span-2 md:col-span-1">
                       {it.nota ? <span className="mr-1 inline-flex text-[#C8941A]" title={`nota ${it.nota}`}>{Array.from({ length: it.nota }).map((_, i) => <Star key={i} size={11} fill="currentColor" />)}</span> : null}
-                      {it.titulo}
+                      <button className="text-left underline-offset-2 hover:underline" onClick={() => void abrirJob(it)} data-testid={`pauta-titulo-${it.numero}`}>{it.titulo}</button>
                       {it.rodada > 0 && <span className="ml-1 rounded bg-[#3D2314]/8 px-1 text-[10.5px]">rodada {it.rodada}</span>}
                       {it.status === "aguardando" && <span className="ml-1 rounded bg-[#FAEEDA] px-1 text-[10.5px]" data-testid="pauta-selo-aguardando">{textoAguardando(it.aguardando_de, it.aguardando_dias, motivos.find((m) => m.valor === it.aguardando_motivo)?.rotulo)}</span>}
                       {prazos[it.id] && (() => { const pr = prazoAprovacao(prazos[it.id]); return (
@@ -613,6 +619,15 @@ export default function PautaPage() {
               <dt className="text-[#3D2314]/60">Escopo</dt><dd>{seloEscopo(aberto) ?? "sem limite de ajustes"}</dd>
               {lista?.pode_ver_margem && <><dt className="text-[#3D2314]/60">Valor · margem</dt><dd>{brl(aberto.valor_job)} · {brl(aberto.margem)}</dd></>}
             </dl>
+            {/* briefing do post (arte, texto da arte, legenda, hashtags, redes) — o que o designer precisa para produzir */}
+            <div className="mt-3 rounded-lg border border-[#3D2314]/10 bg-[#FAF7F2] p-3" data-testid="pauta-job-briefing">
+              <div className="mb-1 text-[11px] uppercase tracking-wider text-[#3D2314]/50">Briefing</div>
+              {briefingJob === null
+                ? <div className="text-[12.5px] text-[#3D2314]/50">carregando briefing…</div>
+                : briefingJob
+                  ? <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed text-[#3D2314]">{briefingJob.replace(/\*\*/g, "")}</pre>
+                  : <div className="text-[12.5px] text-[#3D2314]/50">Este job não tem briefing.</div>}
+            </div>
             {userId && empresa && <div className="mt-3"><Cronometro key={`c-${aberto.id}`} empresa={empresa} userId={userId} jobFixo={{ id: aberto.id, codigo: aberto.codigo, titulo: aberto.titulo }} /></div>}
             {sugCron && sugCron.jobId === aberto.id && userId && empresa && <SugestaoCronometroAviso empresa={empresa} userId={userId} jobId={sugCron.jobId} sugestao={sugCron.sugestao} situacao={sugCron.situacao} onFechar={() => setSugCron(null)} />}
             {semHorasJob === aberto.id && <AvisoSemHoras jobId={aberto.id} onFechar={() => setSemHorasJob(null)} />}

@@ -62,6 +62,50 @@ function clienteAlarme() {
   }
 }
 
+/**
+ * P0 CUSTO (CEO 01/11): porteiro ÚNICO de orçamento de IA.
+ * Consulta anthropic_budget_control (singleton id=1) ANTES de qualquer chamada paga.
+ * Bloqueia quando `pausado` (freeze global), `gold_pausado` (sub-teto Gold) ou um limite
+ * POSITIVO de custo (dia/mês) já foi atingido. FAIL-CLOSED por segurança de custo: se o
+ * controle não pode ser lido (sem credencial de serviço, erro de rede), trata como BLOQUEADO
+ * — o CEO quer gasto ZERO; bloquear não quebra nada, só desliga a IA com mensagem honesta.
+ */
+export interface IABudgetStatus { bloqueado: boolean; motivo: string }
+
+export async function iaBudgetStatus(opts?: { gold?: boolean }): Promise<IABudgetStatus> {
+  try {
+    const sb = clienteAlarme()
+    if (!sb) return { bloqueado: true, motivo: 'Controle de orçamento de IA indisponível; IA bloqueada por segurança de custo.' }
+    const { data, error } = await sb
+      .from('anthropic_budget_control')
+      .select('pausado,motivo_pausa,gold_pausado,gold_motivo_pausa,limite_max_custo_usd_dia,limite_max_custo_usd_mes,custo_usd_hoje,custo_usd_mes_atual')
+      .eq('id', 1)
+      .maybeSingle()
+    if (error || !data) return { bloqueado: true, motivo: 'Controle de orçamento de IA indisponível; IA bloqueada por segurança de custo.' }
+    if (data.pausado) return { bloqueado: true, motivo: data.motivo_pausa || 'Gasto de IA pausado pelo controle de orçamento.' }
+    if (opts?.gold && data.gold_pausado) return { bloqueado: true, motivo: data.gold_motivo_pausa || 'Sub-teto Gold de IA atingido.' }
+    const limDia = Number(data.limite_max_custo_usd_dia)
+    const limMes = Number(data.limite_max_custo_usd_mes)
+    if (limDia > 0 && Number(data.custo_usd_hoje) >= limDia) return { bloqueado: true, motivo: 'Limite diário de custo de IA atingido.' }
+    if (limMes > 0 && Number(data.custo_usd_mes_atual) >= limMes) return { bloqueado: true, motivo: 'Limite mensal de custo de IA atingido.' }
+    return { bloqueado: false, motivo: '' }
+  } catch {
+    return { bloqueado: true, motivo: 'Falha ao consultar o controle de orçamento de IA; IA bloqueada por segurança de custo.' }
+  }
+}
+
+/** Erro padrão quando a IA está bloqueada por orçamento. A rota traduz para HTTP 503 + mensagem honesta. */
+export class IABloqueadaError extends Error {
+  readonly bloqueadaIA = true
+  constructor(public motivo: string) { super('IA_BLOQUEADA: ' + motivo) }
+}
+
+/** Lança IABloqueadaError se a IA estiver bloqueada. Use no topo de todo ponto que chama Anthropic/Gemini. */
+export async function assertIAPermitida(opts?: { gold?: boolean }): Promise<void> {
+  const s = await iaBudgetStatus(opts)
+  if (s.bloqueado) throw new IABloqueadaError(s.motivo)
+}
+
 export interface FalhaIA {
   endpoint: string                 // ex.: '/api/gold/auditar-rota'
   finalidade: FinalidadeIA | string
@@ -105,6 +149,9 @@ export async function chamarClaude(opts: {
   companyId?: string | null
   timeoutMs?: number
 }): Promise<any> {
+  // P0 CUSTO: porteiro de orçamento ANTES de qualquer chamada paga. Finalidades de auditoria
+  // (gold camada 2/3 e insight-auditor) respeitam também o sub-teto Gold.
+  await assertIAPermitida({ gold: String(opts.finalidade).startsWith('auditoria') })
   const modelo = modeloPara(opts.finalidade)
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {

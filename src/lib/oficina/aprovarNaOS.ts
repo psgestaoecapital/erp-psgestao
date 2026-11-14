@@ -1,6 +1,7 @@
 // #135 (Triches) · aprovar o orçamento na própria Ordem de Serviço (atendimento centralizado, sem tablet).
 // Regra única usada pela ficha da OS (OrdemServicoCard) e conferida pelo gate check-os-aprovar-orcamento.
 import type { ModeloAtendimento } from './modelo'
+import { STATUS_ANTES_DA_ENTREGA } from './itensNaOS'
 
 export type ItemOS = { id?: string | null; status_item?: string | null; preco?: number | null; subtotal?: number | null }
 
@@ -9,7 +10,8 @@ export function itensPendentesOS<T extends ItemOS>(itens: T[]): T[] {
   return itens.filter((it) => !!it.id && (it.status_item ?? 'pendente') === 'pendente')
 }
 
-// O botão aparece só no atendimento centralizado, para quem pode lançar valor, com a OS antes da execução.
+// O botão aparece só no atendimento centralizado, para quem pode lançar valor, com a OS antes da entrega e item
+// sem decisão (#135 ajuste 21/10: inclusive OS criada como orçamento e item incluído depois de iniciar).
 export function podeAprovarNaOS(modelo: ModeloAtendimento, podePreco: boolean, status: string, pendentes: number): boolean {
-  return modelo === 'centralizado' && podePreco && ['aberta', 'aguardando_aprovacao'].includes(status) && pendentes > 0
+  return modelo === 'centralizado' && podePreco && STATUS_ANTES_DA_ENTREGA.includes(status) && pendentes > 0
 }

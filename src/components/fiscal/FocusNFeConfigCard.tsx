@@ -5,6 +5,7 @@ import { authFetch } from '@/lib/authFetch'
 import { supabase } from '@/lib/supabase'
 import { Loader2, Save, AlertCircle, CheckCircle2, Landmark, Radio } from 'lucide-react'
 import { verificarMunicipioAderido, type GovNFSeMunicipioStatus } from '@/lib/fiscal/gov-nfse-provider'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 type Ambiente = 'homologacao' | 'producao'
 type Regime = 'simples_nacional' | 'simples_nacional_excesso' | 'regime_normal' | 'mei'
@@ -26,6 +27,8 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
 
   const [apiKey, setApiKey] = useState('')
   const [ambiente, setAmbiente] = useState<Ambiente>('homologacao')
+  // #5666 · ambiente SÓ da NF-e (modelo 55): emitir NF-e em homologação sem tirar a NFS-e de produção.
+  const [ambienteNfe, setAmbienteNfe] = useState<Ambiente>('homologacao')
   const [serieNfse, setSerieNfse] = useState('1')
   const [proxNumNfse, setProxNumNfse] = useState('1')
   const [serieNfe, setSerieNfe] = useState('1')
@@ -53,7 +56,30 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
     setProxNumNfe(String(c.proxima_numeracao_nfe ?? '1'))
     setCnaePadrao((c.cnae_padrao as string) ?? '')
     setRegime(((c.regime_tributario as Regime) ?? 'simples_nacional'))
+    // default: NF-e segue o ambiente da empresa até ter valor próprio (refinado pelo efeito abaixo).
+    setAmbienteNfe((((c.ambiente_nfe as Ambiente) ?? (c.ambiente as Ambiente)) ?? 'homologacao'))
   }, [configAtual])
+
+  // #5666 · lê o ambiente_nfe gravado de forma TOLERANTE: se a coluna ainda não existir (preview antes da
+  // migration), o erro é ignorado e a NF-e segue o `ambiente` da empresa (nenhum comportamento muda).
+  useEffect(() => {
+    if (!companyId) return
+    let vivo = true
+    void (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('erp_fiscal_provider_config')
+          .select('ambiente_nfe')
+          .eq('company_id', companyId)
+          .eq('ativo', true)
+          .maybeSingle()
+        if (!vivo || error) return
+        const v = (data as { ambiente_nfe?: string | null } | null)?.ambiente_nfe
+        if (v === 'homologacao' || v === 'producao') setAmbienteNfe(v)
+      } catch { /* coluna ainda não existe → mantém o default (ambiente) */ }
+    })()
+    return () => { vivo = false }
+  }, [companyId])
 
   async function verificarAdesao() {
     setMunicipioStatus(null)
@@ -83,6 +109,7 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
         companyId,
         provider,
         ambiente,
+        ambienteNfe,
         serieNfsePadrao: serieNfse,
         proximaNumeracaoNfse: parseInt(proxNumNfse, 10) || 1,
         serieNfePadrao: serieNfe,
@@ -202,7 +229,7 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
               <div className="flex-1 min-w-0">
                 <div className="text-[13px] font-medium text-[#3D2314] flex items-center gap-1.5">
                   <Radio size={13} className="text-[#C8941A] flex-shrink-0" />
-                  Focus NFe (alternativo)
+                  Provedor de NF-e (alternativo)
                 </div>
                 <div className="text-[12px] text-[#3D2314]/75 mt-1">
                   Provider terceirizado · R$ 89-548/mês · útil pra prefeituras que ainda não aderiram ao NFSe Nacional.
@@ -268,7 +295,7 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
                     </>
                   ) : municipioStatus.aderido === false ? (
                     <>
-                      <strong>{municipioStatus.nome ?? 'Município'}</strong> ainda não aderiu ao SN NFS-e · considere Focus NFe
+                      <strong>{municipioStatus.nome ?? 'Município'}</strong> ainda não aderiu ao SN NFS-e · considere um provedor de NF-e
                     </>
                   ) : (
                     // RD-51: desconhecido ≠ não aderido — não alarma, e a emissão checa o cadastro oficial na hora
@@ -288,7 +315,7 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
         {provider === 'focusnfe' && (
           <div>
             <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">
-              API Key Focus NFe{' '}
+              API Key do provedor de NF-e{' '}
               {temApiKey && <span className="text-[#3D2314]/50 font-normal">(deixe vazio para manter a atual)</span>}
             </label>
             <input
@@ -296,11 +323,11 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               disabled={!podeEditar}
-              placeholder={temApiKey ? '•••••••••••••••• (já configurada — só preencha para trocar)' : 'Token gerado em focusnfe.com.br'}
+              placeholder={temApiKey ? '•••••••••••••••• (já configurada — só preencha para trocar)' : 'Token gerado no painel do provedor'}
               className="block w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 focus:border-[#C8941A]/40 font-mono disabled:bg-[#3D2314]/5"
             />
             <p className={`text-[11px] mt-1 flex items-center gap-1 ${temApiKey ? 'text-[#1F7A4D]' : 'text-[#B4471F]'}`}>
-              {temApiKey ? '✓ chave já configurada' : '⚠ sem chave — obrigatória para emitir com Focus NFe'}
+              {temApiKey ? '✓ chave já configurada' : '⚠ sem chave — obrigatória para emitir com o provedor de NF-e'}
             </p>
           </div>
         )}
@@ -324,6 +351,41 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
               </button>
             ))}
           </div>
+        </div>
+
+        {/* #5666 · ambiente SÓ da NF-e (modelo 55) — separado da NFS-e/NFC-e, que seguem o Ambiente acima */}
+        <div className="border border-[#C8941A]/25 rounded-lg p-3 bg-[#C8941A]/[0.04]">
+          <label className="text-[12px] font-medium text-[#3D2314] mb-1.5 flex items-center gap-1">
+            Ambiente da NF-e (modelo 55)
+            <AjudaCampo chave="fiscal.ambiente_nfe" rota="/dashboard/configuracoes/fiscal" />
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            {(['homologacao', 'producao'] as const).map((amb) => (
+              <button
+                key={amb}
+                type="button"
+                disabled={!podeEditar}
+                onClick={() => setAmbienteNfe(amb)}
+                data-testid={`nfe-ambiente-${amb}`}
+                className={`px-3 py-2.5 text-[12.5px] font-medium rounded-lg border transition-colors disabled:opacity-50 ${
+                  ambienteNfe === amb
+                    ? 'bg-[#C8941A]/10 border-[#C8941A]/45 text-[#633806]'
+                    : 'bg-white border-[#3D2314]/15 text-[#3D2314] hover:bg-[#3D2314]/5'
+                }`}
+              >
+                {amb === 'homologacao' ? 'Homologação' : 'Produção'}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-[#633806] mt-2">
+            Vale <strong>só para a NF-e</strong>. A NFS-e e a NFC-e seguem o <strong>Ambiente</strong> acima.
+            {ambienteNfe !== ambiente && (
+              <> Assim a NF-e fica em <strong>{ambienteNfe === 'producao' ? 'Produção' : 'Homologação'}</strong> enquanto a NFS-e segue em <strong>{ambiente === 'producao' ? 'Produção' : 'Homologação'}</strong>.</>
+            )}
+          </p>
+          <p className="text-[11px] text-[#3D2314]/60 mt-1" data-testid="nfe-chave-em-uso">
+            Chave em uso na NF-e: token de <strong>{ambienteNfe === 'producao' ? 'Produção' : 'Homologação'}</strong>. Confira que ele está cadastrado (Passo 2 › Ambiente › API Key) antes de emitir.
+          </p>
         </div>
 
         <div className="grid grid-cols-2 gap-3">

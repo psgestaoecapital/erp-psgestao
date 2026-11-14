@@ -194,7 +194,7 @@ export default function DiagnosticosPage() {
         }
         allRows.push(...extract(imp || []))
       }
-      if (allRows.length === 0) { setErr('Nenhum lancamento. Importe dados via Omie ou CSV.'); setLoading(false); return }
+      if (allRows.length === 0) { setErr('Nenhum lancamento. Importe dados via integração ou CSV.'); setLoading(false); return }
       const nomes = multi ? [...sel].map(id => empresas.find(e => e.id === id)?.nome || '').filter(Boolean) : [empresas.find(e => e.id === empresaSel)?.nome || '']
       setNomeAn(nomes.join(', ') + (ids.length > 1 ? ' (Consolidado)' : ''))
       setDiag(calcDiag(allRows))

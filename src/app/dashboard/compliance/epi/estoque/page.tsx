@@ -7,6 +7,11 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { ModalEntregarEPI } from '../_components/ModalEntregarEPI'
+
+// RD-95: toda ajuda desta subtela aponta para a própria rota.
+const ROTA = '/dashboard/compliance/epi/estoque'
 
 const C = {
   espresso: '#3D2314',
@@ -43,6 +48,14 @@ interface CatalogoOption {
   is_global?: boolean
 }
 
+interface FuncionarioEntrega {
+  id: string
+  nome_completo: string
+  cpf: string | null
+  cargo: string | null
+  setor: string | null
+}
+
 export default function EstoqueEpiPage() {
   const { companyIds, companies } = useCompanyIds()
   const companyIdsKey = useMemo(() => [...(companyIds ?? [])].sort().join(','), [companyIds])
@@ -64,6 +77,11 @@ export default function EstoqueEpiPage() {
   const [busca, setBusca] = useState('')
   const [showEntrada, setShowEntrada] = useState(false)
   const [editandoMinimo, setEditandoMinimo] = useState<EstoqueRow | null>(null)
+  // #3865 — Requisição/baixa de EPI: entrega ao funcionário dá baixa no estoque (fn_epi_registrar_entrega).
+  const [funcionarios, setFuncionarios] = useState<FuncionarioEntrega[]>([])
+  const [funcEntregaId, setFuncEntregaId] = useState('')
+  const [showEntrega, setShowEntrega] = useState(false)
+  const funcEntregaSel = useMemo(() => funcionarios.find((f) => f.id === funcEntregaId) || null, [funcionarios, funcEntregaId])
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -113,6 +131,30 @@ export default function EstoqueEpiPage() {
 
   useEffect(() => { carregar() }, [carregar])
 
+  // Funcionários ativos da empresa-alvo, para a entrega/baixa de EPI (#3865).
+  useEffect(() => {
+    let cancelado = false
+    setFuncEntregaId('')
+    if (!companyAlvo) { setFuncionarios([]); return }
+    ;(async () => {
+      const { data, error } = await supabase
+        .from('v_epi_funcionarios_consolidado')
+        .select('funcionario_id, nome_completo, cpf, cargo, setor')
+        .eq('company_id', companyAlvo)
+        .order('nome_completo')
+      if (cancelado) return
+      if (error || !data) { setFuncionarios([]); return }
+      setFuncionarios((data as any[]).map((r) => ({
+        id: r.funcionario_id,
+        nome_completo: r.nome_completo,
+        cpf: r.cpf ?? null,
+        cargo: r.cargo ?? null,
+        setor: r.setor ?? null,
+      })))
+    })()
+    return () => { cancelado = true }
+  }, [companyAlvo])
+
   const estoqueFiltrado = useMemo(() => {
     const q = busca.toLowerCase().trim()
     if (!q) return estoque
@@ -137,7 +179,10 @@ export default function EstoqueEpiPage() {
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <Link href="/dashboard/compliance/epi" style={btnSec}>← EPI</Link>
-            <button onClick={() => setShowEntrada(true)} disabled={!companyAlvo} style={{ ...btnPrim, opacity: companyAlvo ? 1 : 0.5, cursor: companyAlvo ? 'pointer' : 'not-allowed' }}>+ Entrada de Estoque</button>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <button onClick={() => setShowEntrada(true)} disabled={!companyAlvo} style={{ ...btnPrim, opacity: companyAlvo ? 1 : 0.5, cursor: companyAlvo ? 'pointer' : 'not-allowed' }}>+ Entrada de Estoque</button>
+              <AjudaCampo chave="compliance.epi.estoque.nav_entrada" rota={ROTA} />
+            </span>
           </div>
         </header>
 
@@ -145,15 +190,50 @@ export default function EstoqueEpiPage() {
 
         {multiEmpresa && (
           <section style={{ background: '#FFFFFF', borderRadius: 12, padding: 16, marginBottom: 16, boxShadow: '0 1px 3px rgba(61,35,20,0.06)' }}>
-            <label style={labelStyle}>Empresa-alvo (para entradas)</label>
-            <select value={companyAlvo} onChange={(e) => setCompanyAlvo(e.target.value)} style={{ ...inputStyle, minWidth: 240 }}>
-              {(companyIds || []).map((id) => <option key={id} value={id}>{empresaPorId.get(id) || id}</option>)}
-            </select>
+            <label style={{ display: 'block' }}>
+              <span style={{ ...labelStyle, display: 'inline-flex', alignItems: 'center', gap: 6 }}>Empresa-alvo (para entradas) <AjudaCampo chave="compliance.epi.estoque.empresa_alvo" rota={ROTA} /></span>
+              <select value={companyAlvo} onChange={(e) => setCompanyAlvo(e.target.value)} style={{ ...inputStyle, minWidth: 240 }}>
+                {(companyIds || []).map((id) => <option key={id} value={id}>{empresaPorId.get(id) || id}</option>)}
+              </select>
+            </label>
           </section>
         )}
 
         <section style={{ background: '#FFFFFF', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61,35,20,0.06)', marginBottom: 16 }}>
-          <input type="text" placeholder="Buscar por EPI / CA / localização…" value={busca} onChange={(e) => setBusca(e.target.value)} style={{ ...inputStyle, width: '100%' }} />
+          <label style={{ display: 'block' }}>
+            <span style={{ ...labelStyle, display: 'inline-flex', alignItems: 'center', gap: 6 }}>Buscar no estoque <AjudaCampo chave="compliance.epi.estoque.busca" rota={ROTA} /></span>
+            <input type="text" placeholder="Buscar por EPI / CA / localização…" value={busca} onChange={(e) => setBusca(e.target.value)} style={{ ...inputStyle, width: '100%' }} />
+          </label>
+        </section>
+
+        <section style={{ background: '#FFFFFF', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61,35,20,0.06)', marginBottom: 16 }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <label style={{ flex: '1 1 280px' }}>
+              <span style={{ ...labelStyle, display: 'inline-flex', alignItems: 'center', gap: 6 }}>Entregar EPI a um funcionário (dar baixa) <AjudaCampo chave="compliance.epi.estoque.entrega_funcionario" rota={ROTA} /></span>
+              <select
+                value={funcEntregaId}
+                onChange={(e) => setFuncEntregaId(e.target.value)}
+                disabled={!companyAlvo || funcionarios.length === 0}
+                style={{ ...inputStyle, width: '100%', opacity: (!companyAlvo || funcionarios.length === 0) ? 0.6 : 1 }}
+              >
+                <option value="">{funcionarios.length === 0 ? 'Nenhum funcionário ativo nesta empresa' : 'Selecione o funcionário…'}</option>
+                {funcionarios.map((f) => (
+                  <option key={f.id} value={f.id}>{f.nome_completo}{f.cpf ? ` · ${f.cpf}` : ''}{f.setor ? ` — ${f.setor}` : ''}</option>
+                ))}
+              </select>
+            </label>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <button
+                onClick={() => setShowEntrega(true)}
+                disabled={!funcEntregaId}
+                style={{ ...btnPrim, opacity: funcEntregaId ? 1 : 0.5, cursor: funcEntregaId ? 'pointer' : 'not-allowed' }}
+              >Entregar EPI</button>
+              <AjudaCampo chave="compliance.epi.estoque.nav_entrega_func" rota={ROTA} />
+            </span>
+          </div>
+          <p style={{ fontSize: 11, color: C.muted, margin: '8px 0 0', lineHeight: 1.5 }}>
+            A entrega dá baixa automática no estoque (sai do disponível), registra o movimento com data, operador e motivo, e coleta a assinatura do funcionário (NR-6). O EPI e a quantidade são escolhidos na próxima etapa.
+          </p>
         </section>
 
         <section style={{ background: '#FFFFFF', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 3px rgba(61,35,20,0.06)' }}>
@@ -161,15 +241,15 @@ export default function EstoqueEpiPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: C.beigeLt }}>
-                  <Th>EPI</Th>
-                  <Th>CA</Th>
-                  <Th>Localização</Th>
-                  {multiEmpresa && <Th>Empresa</Th>}
-                  <Th align="right">Disp.</Th>
-                  <Th align="right">Reservada</Th>
-                  <Th align="right">Mín.</Th>
-                  <Th align="center">Status</Th>
-                  <Th align="right">Ações</Th>
+                  <Th>EPI <AjudaCampo chave="compliance.epi.estoque.col_epi" rota={ROTA} /></Th>
+                  <Th>CA <AjudaCampo chave="compliance.epi.estoque.col_ca" rota={ROTA} /></Th>
+                  <Th>Localização <AjudaCampo chave="compliance.epi.estoque.col_localizacao" rota={ROTA} /></Th>
+                  {multiEmpresa && <Th>Empresa <AjudaCampo chave="compliance.epi.estoque.col_empresa" rota={ROTA} /></Th>}
+                  <Th align="right">Disp. <AjudaCampo chave="compliance.epi.estoque.col_disponivel" rota={ROTA} /></Th>
+                  <Th align="right">Reservada <AjudaCampo chave="compliance.epi.estoque.col_reservada" rota={ROTA} /></Th>
+                  <Th align="right">Mín. <AjudaCampo chave="compliance.epi.estoque.col_minima" rota={ROTA} /></Th>
+                  <Th align="center">Status <AjudaCampo chave="compliance.epi.estoque.col_status" rota={ROTA} /></Th>
+                  <Th align="right">Ações <AjudaCampo chave="compliance.epi.estoque.col_acoes" rota={ROTA} /></Th>
                 </tr>
               </thead>
               <tbody>
@@ -206,6 +286,15 @@ export default function EstoqueEpiPage() {
       )}
       {editandoMinimo && (
         <ModalEditarMinimo row={editandoMinimo} onClose={() => setEditandoMinimo(null)} onSaved={() => { setEditandoMinimo(null); carregar() }} />
+      )}
+      {showEntrega && companyAlvo && funcEntregaSel && (
+        <ModalEntregarEPI
+          isOpen={true}
+          companyId={companyAlvo}
+          funcionario={funcEntregaSel}
+          onClose={() => setShowEntrega(false)}
+          onSuccess={() => { setShowEntrega(false); setFuncEntregaId(''); carregar() }}
+        />
       )}
     </div>
   )

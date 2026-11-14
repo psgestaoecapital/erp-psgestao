@@ -18,6 +18,17 @@ ok(/patch-id \[0-9a-f\]\{8,40\}/.test(sh), 'fila aceita autorização com prefix
 ok(/não consegui calcular o patch-id/.test(sh) && /\[ -n "\$pid" \] \|\| \{ echo "vermelho:/.test(sh), '(d) PR sem patch-id: a fila diz o motivo (vermelho), não pula em silêncio')
 ok(/patch_id_estavel/.test(readFileSync('scripts/merge/patch-id.sh', 'utf8')), 'patch-id.sh (o do revisor) calcula o mesmo id estável')
 
+// Eng. Chefe 02/11: a renumeração NÃO pode derrubar a autorização do revisor (o patch-id é estável à renumeração, acima).
+// renumerar_migrations não tira/recoloca a etiqueta sensível (isso só acordava o revisor à toa e devolvia a PR para a
+// espera do revisor — o ciclo que prendia dezenas de PRs) e registra "autorização mantida: só renumeração".
+const iRenum = sh.indexOf('renumerar_migrations()')
+const renum = sh.slice(iRenum, sh.indexOf('\n}', iRenum))
+ok(iRenum >= 0, 'renumerar_migrations existe')
+ok(!/issues\/\$n\/labels\/\$SENSIVEL/.test(renum) && !/labels\[\]=\$SENSIVEL/.test(renum),
+  'renumeração NÃO tira/recoloca a etiqueta sensível (não acorda o revisor à toa)')
+ok(/autoriza[çc][ãa]o mantida/i.test(renum) && !/o patch-id mudou/.test(renum),
+  'renumeração registra "autorização mantida: só renumeração" (não diz que o patch-id mudou)')
+
 const raiz = mkdtempSync(join(tmpdir(), 'pid-'))
 try {
   const g = (...a: string[]) => execFileSync('git', a, { cwd: raiz, encoding: 'utf8' }).trim()
