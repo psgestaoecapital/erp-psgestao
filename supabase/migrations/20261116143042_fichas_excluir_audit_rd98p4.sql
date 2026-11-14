@@ -71,3 +71,11 @@ BEGIN
   DELETE FROM public.ficha_itens WHERE id = p_id;
 END
 $function$;
+
+-- Guarda de acesso (régua 1 / check-fn-guards): função SECURITY DEFINER não é chamável por anônimo.
+-- ACL idêntica à viva em produção (authenticated, service_role).
+REVOKE ALL ON FUNCTION public.fn_ficha_tecnica_excluir(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ficha_tecnica_excluir(uuid) TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.fn_ficha_item_excluir(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ficha_item_excluir(uuid) TO authenticated, service_role;
