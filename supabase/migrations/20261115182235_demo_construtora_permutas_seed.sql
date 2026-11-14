@@ -7,6 +7,7 @@
 -- Aditivo · só DEMO (is_demo, guardado) · nenhum dado de cliente real tocado · sem cron novo (RD-101).
 
 -- ── Seed idempotente das permutas da DEMO Construtora ────────────────────────────────────────────────
+-- ci-sem-guarda: fn_demo_seed_construtora_permutas — seed DEMO; confere is_demo (companies.is_demo) antes de gravar e aborta em empresa real; sem auth.uid(). Não toca dado de cliente real.
 CREATE OR REPLACE FUNCTION public.fn_demo_seed_construtora_permutas(p_company_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -73,6 +74,7 @@ GRANT EXECUTE ON FUNCTION public.fn_demo_seed_construtora_permutas(uuid) TO auth
 
 -- ── Integra ao fn_demo_reset (sobrevive ao reset) — CREATE OR REPLACE da versão viva + 1 bloco novo ──
 -- (reproduz a definição viva; única mudança: o bloco 'permutas' após 'simulacoes' para a Construtora.)
+-- ci-sem-guarda: fn_demo_reset — reset de empresa DEMO; confere is_demo e aborta ('nao_e_demo') em empresa real; só repopula seeds de demonstração, nunca dado de cliente real.
 CREATE OR REPLACE FUNCTION public.fn_demo_reset(p_company_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -179,3 +181,6 @@ BEGIN
 
   RETURN jsonb_build_object('ok', true, 'empresa', v_nome, 'seed', v_seed, 'resultado', v_res);
 END $function$;
+-- Reafirma as permissões vivas de fn_demo_reset (CREATE OR REPLACE não altera grants; linhas idempotentes p/ o gate check-fn-guards).
+REVOKE ALL ON FUNCTION public.fn_demo_reset(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_demo_reset(uuid) TO authenticated, service_role;
