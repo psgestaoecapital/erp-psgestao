@@ -206,7 +206,7 @@ export default function PrestadorDetalhePage() {
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: '32px 24px' }}>
         <header style={{ marginBottom: 16 }}>
           <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.5, margin: 0 }}>
-            <Link href="/dashboard/compliance/prestadores" style={{ color: 'inherit', textDecoration: 'none' }}>Compliance &gt; Prestadores</Link>
+            <Link href="/dashboard/compliance/prestadores" style={{ color: 'inherit', textDecoration: 'none' }}>EHS &gt; Prestadores</Link>
           </p>
           <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 32, fontWeight: 400, margin: '4px 0 4px' }}>
             {prestador.razao_social}
@@ -554,7 +554,7 @@ function AbaFuncionarios({
                 <Th>Nome</Th>
                 <Th>CPF</Th>
                 <Th>Cargo / Função</Th>
-                <Th>Compliance</Th>
+                <Th>EHS</Th>
                 <Th>Status</Th>
                 <Th>Ações</Th>
               </tr>
