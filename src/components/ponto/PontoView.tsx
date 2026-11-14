@@ -281,14 +281,14 @@ export default function PontoView({ lente }: { lente: Lente }) {
 
   async function importarCompliance() {
     if (!empresaUnica) return
-    if (!window.confirm('Importar colaboradores do ponto pra ficha do Compliance?\n\nCampos já preenchidos à mão (RG, endereço, salário, ASO…) NÃO serão sobrescritos — só completa o que está vazio.')) return
+    if (!window.confirm('Importar colaboradores do ponto pra ficha do EHS?\n\nCampos já preenchidos à mão (RG, endereço, salário, ASO…) NÃO serão sobrescritos — só completa o que está vazio.')) return
     setImportando(true)
     setErro(null); setOk(null)
     const { data, error } = await supabase.rpc('fn_compliance_projetar_de_ind_ponto', { p_company_id: empresaUnica })
     setImportando(false)
     if (error) { setErro('Erro na importação: ' + error.message); return }
     const j = data as { criados?: number; atualizados?: number; ignorados_sem_cpf?: number; total_processados?: number } | null
-    setOk(`IMPORTOU ${j?.total_processados ?? 0} colaboradores pro Compliance · ${j?.criados ?? 0} novos · ${j?.atualizados ?? 0} atualizados${j?.ignorados_sem_cpf ? ` · ${j.ignorados_sem_cpf} sem CPF (ignorados)` : ''}`)
+    setOk(`IMPORTOU ${j?.total_processados ?? 0} colaboradores pro EHS · ${j?.criados ?? 0} novos · ${j?.atualizados ?? 0} atualizados${j?.ignorados_sem_cpf ? ` · ${j.ignorados_sem_cpf} sem CPF (ignorados)` : ''}`)
   }
 
   // GATE LGPD (diretriz CEO): o Ponto mostra NOMES (dado pessoal) → só quem opera o ponto.
@@ -325,7 +325,7 @@ export default function PontoView({ lente }: { lente: Lente }) {
     return m
   }, [colabs])
 
-  const rotuloArea = lente === 'industrial' ? 'Industrial · RH / Ponto' : 'Compliance · SST'
+  const rotuloArea = lente === 'industrial' ? 'Industrial · RH / Ponto' : 'EHS · SST'
 
   // ── Gates ──────────────────────────────────────────────────────────
   if (!empresaUnica) {
@@ -420,7 +420,7 @@ export default function PontoView({ lente }: { lente: Lente }) {
                     title={colabs.length === 0 ? 'Sincronize primeiro pra ter colaboradores' : 'Projeta em compliance_funcionarios preservando dados manuais'}
                     style={{ ...btnOutlineGold, opacity: importando || colabs.length === 0 ? 0.5 : 1, cursor: importando || colabs.length === 0 ? 'not-allowed' : 'pointer' }}
                   >
-                    {importando ? 'Importando…' : `⬇ Importar pro Compliance (${colabs.length})`}
+                    {importando ? 'Importando…' : `⬇ Importar pro EHS (${colabs.length})`}
                   </button>
                   <AjudaCampo chave="ponto.importar_compliance" rota={AJUDA_ROTA} />
                 </span>
@@ -544,7 +544,7 @@ function Casca({ rotulo, children }: { rotulo: string; children: React.ReactNode
         <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 28, fontWeight: 400, color: ESP, margin: '4px 0 4px' }}>Ponto Eletrônico</h1>
         <p style={{ fontSize: 12, color: MUT, margin: '0 0 18px' }}>
           {/* RD-100: sem nome de terceiro em texto visível — o fornecedor é escolhido na Central de Conectores. */}
-          Colaboradores e horas do seu fornecedor de ponto conectado — mesma fonte pra Industrial e Compliance.
+          Colaboradores e horas do seu fornecedor de ponto conectado — mesma fonte pra Industrial e EHS.
         </p>
         {children}
       </div>

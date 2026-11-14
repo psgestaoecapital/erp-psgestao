@@ -15,11 +15,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import {
   Plus, Search, FileText, X, Trash2,
   Package, Calculator, ListChecks, Info,
 } from 'lucide-react'
 
+const ROTA = '/dashboard/commerce/fichas'
 const C = {
   espresso: '#3D2314',
   espressoM: '#6B5D4F',
@@ -116,8 +118,32 @@ export default function FichasCommercePage() {
         .order('categoria', { ascending: true, nullsFirst: true })
         .order('nome', { ascending: true })
       if (!alive) return
-      setFichas((data ?? []) as FichaTec[])
+      const lista = (data ?? []) as FichaTec[]
+      setFichas(lista)
       setLoadingFichas(false)
+
+      // Carrega os itens de TODAS as fichas de uma vez para que a LISTA mostre
+      // Custo total e Preço de venda em cada linha (a razão-de-ser da tela),
+      // sem exigir abrir ficha a ficha. Tela operacional = 1 empresa por vez,
+      // então o volume é limitado. Prefila o itensCache (o clique na ficha
+      // reaproveita o mesmo cache).
+      if (lista.length > 0) {
+        const ids = lista.map((f) => f.id)
+        const { data: itensData } = await supabase
+          .from('ficha_itens')
+          .select('*')
+          .in('ficha_id', ids)
+          .order('ordem', { ascending: true, nullsFirst: true })
+        if (!alive) return
+        const porFicha: Record<string, FichaItem[]> = {}
+        for (const id of ids) porFicha[id] = []
+        for (const it of (itensData ?? []) as FichaItem[]) {
+          ;(porFicha[it.ficha_id] ??= []).push(it)
+        }
+        setItensCache(porFicha)
+      } else {
+        setItensCache({})
+      }
     })()
     return () => { alive = false }
   }, [companyIdUnico, companiesLoading])
@@ -410,7 +436,7 @@ export default function FichasCommercePage() {
           alignItems: 'center',
         }}
       >
-        <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 180 }}>
+        <div data-ajuda="commerce.fichas.busca" style={{ position: 'relative', flex: '1 1 240px', minWidth: 180 }}>
           <Search
             size={14}
             style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.espressoL }}
@@ -431,6 +457,9 @@ export default function FichasCommercePage() {
               outline: 'none',
             }}
           />
+          <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)' }}>
+            <AjudaCampo chave="commerce.fichas.busca" rota={ROTA} />
+          </span>
         </div>
         <select
           value={filtroCat}
@@ -451,6 +480,7 @@ export default function FichasCommercePage() {
             <option key={c} value={c}>{c}</option>
           ))}
         </select>
+        <AjudaCampo chave="commerce.fichas.filtro_categoria" rota={ROTA} />
         <span style={{ marginLeft: 'auto', fontSize: 11, color: C.espressoM }}>
           {fichasFiltradas.length} de {fichas.length}
         </span>
@@ -685,7 +715,7 @@ function ModalNovaFicha({ onClose, onCreate }: { onClose: () => void; onCreate: 
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Nome *</span>
+            <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>Nome *<AjudaCampo chave="commerce.fichas.nome" rota={ROTA} /></span>
             <input
               autoFocus
               value={nome}
@@ -695,7 +725,7 @@ function ModalNovaFicha({ onClose, onCreate }: { onClose: () => void; onCreate: 
             />
           </label>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Categoria</span>
+            <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>Categoria<AjudaCampo chave="commerce.fichas.categoria" rota={ROTA} /></span>
             <select
               value={cat}
               onChange={(e) => setCat(e.target.value)}
@@ -801,7 +831,7 @@ function Drawer({
             aberto={aberto.ident}
             onToggle={() => setAberto((p) => ({ ...p, ident: !p.ident }))}
           >
-            <Field label="Código">
+            <Field label="Código" ajuda="commerce.fichas.codigo">
               <input
                 defaultValue={ficha.codigo ?? ''}
                 onBlur={(e) => onUpdate({ codigo: e.target.value || null })}
@@ -809,24 +839,24 @@ function Drawer({
                 style={inp}
               />
             </Field>
-            <Field label="Nome">
+            <Field label="Nome" ajuda="commerce.fichas.nome">
               <input defaultValue={ficha.nome} onBlur={(e) => onUpdate({ nome: e.target.value })} style={inp} />
             </Field>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
-              <Field label="Categoria">
+              <Field label="Categoria" ajuda="commerce.fichas.categoria">
                 <select defaultValue={ficha.categoria ?? ''} onChange={(e) => onUpdate({ categoria: e.target.value || null })} style={inp}>
                   <option value="">—</option>
                   {CATEGORIAS.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               </Field>
-              <Field label="Unidade">
+              <Field label="Unidade" ajuda="commerce.fichas.unidade">
                 <select defaultValue={ficha.unidade ?? ''} onChange={(e) => onUpdate({ unidade: e.target.value || null })} style={inp}>
                   <option value="">—</option>
                   {UNIDADES.map((u) => <option key={u} value={u}>{u}</option>)}
                 </select>
               </Field>
             </div>
-            <Field label="Descrição">
+            <Field label="Descrição" ajuda="commerce.fichas.descricao">
               <textarea
                 defaultValue={ficha.descricao ?? ''}
                 onBlur={(e) => onUpdate({ descricao: e.target.value || null })}
@@ -860,10 +890,10 @@ function Drawer({
                 <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
                   <thead style={{ background: C.cream }}>
                     <tr>
-                      <Th>Nome</Th>
-                      <Th>Unid.</Th>
-                      <Th align="right">Qtd</Th>
-                      <Th align="right">Preço un.</Th>
+                      <Th>Nome <AjudaCampo chave="commerce.fichas.item_nome" rota={ROTA} /></Th>
+                      <Th>Unid. <AjudaCampo chave="commerce.fichas.item_unidade" rota={ROTA} /></Th>
+                      <Th align="right">Qtd <AjudaCampo chave="commerce.fichas.item_qtd" rota={ROTA} /></Th>
+                      <Th align="right">Preço un. <AjudaCampo chave="commerce.fichas.item_preco" rota={ROTA} /></Th>
                       <Th align="right">Subtotal</Th>
                       <Th />
                     </tr>
@@ -934,7 +964,7 @@ function Drawer({
             onToggle={() => setAberto((p) => ({ ...p, custos: !p.custos }))}
           >
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
-              <Field label="Mão de obra direta (R$)">
+              <Field label="Mão de obra direta (R$)" ajuda="commerce.fichas.mao_obra_direta">
                 <input
                   type="number"
                   step="0.01"
@@ -943,7 +973,7 @@ function Drawer({
                   style={inp}
                 />
               </Field>
-              <Field label="Custos indiretos (%)">
+              <Field label="Custos indiretos (%)" ajuda="commerce.fichas.custos_indiretos_pct">
                 <input
                   type="number"
                   step="0.01"
@@ -952,7 +982,7 @@ function Drawer({
                   style={inp}
                 />
               </Field>
-              <Field label="Impostos (%)">
+              <Field label="Impostos (%)" ajuda="commerce.fichas.impostos_pct">
                 <input
                   type="number"
                   step="0.01"
@@ -961,7 +991,7 @@ function Drawer({
                   style={inp}
                 />
               </Field>
-              <Field label="Markup (%)">
+              <Field label="Markup (%)" ajuda="commerce.fichas.markup_pct">
                 <input
                   type="number"
                   step="0.01"
@@ -1032,10 +1062,10 @@ function Secao({ titulo, icon, aberto, onToggle, action, children }: {
   )
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children, ajuda }: { label: string; children: React.ReactNode; ajuda?: string }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <span style={{ fontSize: 10, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>{label}</span>
+      <span style={{ fontSize: 10, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>{label}{ajuda && <AjudaCampo chave={ajuda} rota={ROTA} />}</span>
       {children}
     </label>
   )

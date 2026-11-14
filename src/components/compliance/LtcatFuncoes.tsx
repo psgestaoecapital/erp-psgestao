@@ -213,7 +213,7 @@ export default function LtcatFuncoes({ companyId, recarregarChave }: { companyId
               </Rotulo>
 
               <Rotulo texto="EPIs obrigatórios">
-                {listas.epis.length === 0 ? <div style={{ fontSize: 12, color: C.gray }}>Nenhum EPI no catálogo. Cadastre em Compliance → EPI → Catálogo.</div> : (
+                {listas.epis.length === 0 ? <div style={{ fontSize: 12, color: C.gray }}>Nenhum EPI no catálogo. Cadastre em EHS → EPI → Catálogo.</div> : (
                   <div style={lista}>
                     {listas.epis.map((e) => (
                       <label key={e.id} style={item}>
@@ -226,7 +226,7 @@ export default function LtcatFuncoes({ companyId, recarregarChave }: { companyId
               </Rotulo>
 
               <Rotulo texto="Treinamentos obrigatórios">
-                {listas.treinamentos.length === 0 ? <div style={{ fontSize: 12, color: C.gray }}>Nenhum treinamento cadastrado. Cadastre em Compliance → Treinamentos.</div> : (
+                {listas.treinamentos.length === 0 ? <div style={{ fontSize: 12, color: C.gray }}>Nenhum treinamento cadastrado. Cadastre em EHS → Treinamentos.</div> : (
                   <div style={lista}>
                     {listas.treinamentos.map((t) => (
                       <label key={t.id} style={item}>
