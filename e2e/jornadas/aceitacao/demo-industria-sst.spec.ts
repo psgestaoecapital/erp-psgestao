@@ -48,11 +48,11 @@ test.describe('Demonstração Indústria (SST)', () => {
   })
 
   test('Matriz de Conformidade e SST (LTCAT) abrem com os dados da demo @pos-migration', async ({ page }) => {
-    await abrir(page, '/dashboard/compliance/matriz')
+    await abrir(page, '/dashboard/ehs/matriz')
     await expect(page.getByText('Ana Paula Demo').first(), 'funcionário da demo na matriz').toBeVisible({ timeout: 20000 })
     await expect(page.getByText('Zeca Terceiro Demo').first(), 'terceirizado da demo na matriz').toBeVisible()
 
-    await abrir(page, '/dashboard/compliance/sst')
+    await abrir(page, '/dashboard/ehs/sst')
     await expect(page.getByText('Câmara Fria').first(), 'setor do ponto aparece no LTCAT').toBeVisible({ timeout: 20000 })
   })
 })
