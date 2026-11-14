@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import GerarSegundoPlanoButton from '@/components/relatorios/GerarSegundoPlanoButton'
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ROTA_AJUDA = '/dashboard/financeiro/extrato'
 
@@ -108,6 +109,8 @@ export default function ExtratoPage() {
 
   const [extrato, setExtrato] = useState<Extrato | null>(null)
   const [loading, setLoading] = useState(true)
+  const [erro, setErro] = useState<string | null>(null)
+  const [semPlano, setSemPlano] = useState(false)
 
   useEffect(() => {
     let ignore = false
@@ -127,14 +130,23 @@ export default function ExtratoPage() {
     if (!empresaUnica) return
     ;(async () => {
       setLoading(true)
-      const { data } = await supabase.rpc('fn_ge_extrato_conta', {
+      const { data, error } = await supabase.rpc('fn_ge_extrato_conta', {
         p_company_id: empresaUnica,
         p_conta_id: contaId || null,
         p_data_inicio: dataInicio,
         p_data_fim: dataFim,
       })
       if (!ignore) {
-        setExtrato(data as Extrato)
+        if (error) {
+          // BUG3: antes o erro era ignorado e a tela mostrava "Nenhum movimento" (falha disfarçada de vazio).
+          setErro(erroAmigavel(error, 'Não foi possível carregar o extrato. Tente de novo.'))
+          setExtrato(null); setSemPlano(false)
+        } else if (data && (data as { sem_plano?: boolean }).sem_plano) {
+          // BUG1: a RPC devolve { sem_plano:true } SEM 'resultados'; tratar sem crashar (TELA BRANCA).
+          setSemPlano(true); setExtrato(null); setErro(null)
+        } else {
+          setExtrato(data as Extrato); setSemPlano(false); setErro(null)
+        }
         setPagina(1)
         setLoading(false)
       }
@@ -145,7 +157,7 @@ export default function ExtratoPage() {
   const linhasFiltradas = useMemo<Linha[]>(() => {
     if (!extrato) return []
     const buscaLow = busca.trim().toLowerCase()
-    return extrato.resultados.filter((l) => {
+    return (extrato.resultados ?? []).filter((l) => {
       if (tipo === 'entradas' && l.sinal <= 0) return false
       if (tipo === 'saidas' && l.sinal >= 0) return false
       if (!buscaLow) return true
@@ -212,7 +224,8 @@ export default function ExtratoPage() {
         </div>
 
         <div style={{ position: 'sticky', top: 0, zIndex: 10, background: '#FAF7F2', padding: '8px 0 16px', marginBottom: 16, borderBottom: '0.5px solid rgba(61,35,20,0.08)' }}>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8, alignItems: 'center' }}>
+            <span style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', display: 'inline-flex', alignItems: 'center', gap: 2 }}>Período rápido<AjudaCampo chave="ge.extrato.acao.periodo_rapido" rota={ROTA_AJUDA} /></span>
             <button type="button" onClick={() => { setDataInicio(isoToday()); setDataFim(isoToday()) }} style={quickBtn}>Hoje</button>
             <button type="button" onClick={() => { setDataInicio(isoMinus(7)); setDataFim(isoToday()) }} style={quickBtn}>7 dias</button>
             <button type="button" onClick={() => { setDataInicio(isoMinus(30)); setDataFim(isoToday()) }} style={quickBtn}>30 dias</button>
@@ -253,6 +266,7 @@ export default function ExtratoPage() {
 
         {/* RD-95/#2634: os 4 cartões FECHAM sob o mesmo período/conta — saldo inicial do período + entradas − saídas = saldo final.
             O saldo inicial é o saldo_anterior (saldo no início do período filtrado), não a abertura histórica da conta. */}
+        {!erro && !semPlano && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 20 }}>
           <Card
             label="Saldo inicial do período"
@@ -272,18 +286,37 @@ export default function ExtratoPage() {
             destaque
           />
         </div>
+        )}
 
         {loading ? (
           <div style={{ ...emptyBox, color: 'rgba(61,35,20,0.55)' }}>Carregando lançamentos…</div>
+        ) : erro ? (
+          <div style={emptyBox}>
+            <div style={{ fontSize: 14, color: '#A32D2D', marginBottom: 6, fontWeight: 600 }}>Não foi possível carregar o extrato</div>
+            <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.6)' }}>{erro}</div>
+          </div>
+        ) : semPlano ? (
+          <div style={emptyBox}>
+            <div style={{ fontSize: 14, color: '#3D2314', marginBottom: 6, fontWeight: 600 }}>Extrato indisponível para esta empresa</div>
+            <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.6)', marginBottom: 16 }}>
+              O Extrato Conta Corrente faz parte da Gestão Empresarial, que ainda não está ativa nesta empresa. Fale com o responsável pelo plano para liberar.
+            </div>
+            <button onClick={() => router.push('/dashboard/gestao-empresarial')} style={primaryBtn}>
+              Ver Gestão Empresarial
+            </button>
+          </div>
         ) : linhasFiltradas.length === 0 ? (
           <div style={emptyBox}>
             <div style={{ fontSize: 14, color: '#3D2314', marginBottom: 6, fontWeight: 600 }}>Nenhum movimento no período</div>
             <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)', marginBottom: 16 }}>
               Importe seu extrato ou aguarde primeiros lançamentos.
             </div>
-            <button onClick={() => router.push('/dashboard/financeiro/conciliacao')} style={primaryBtn}>
-              Importar OFX
-            </button>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <button onClick={() => router.push('/dashboard/financeiro/conciliacao')} style={primaryBtn}>
+                Importar OFX
+              </button>
+              <AjudaCampo chave="ge.extrato.acao.importar_ofx" rota={ROTA_AJUDA} />
+            </span>
           </div>
         ) : (
           <>
@@ -298,7 +331,7 @@ export default function ExtratoPage() {
                     <th style={{ ...th, textAlign: 'right' }}>Valor<AjudaCampo chave="ge.extrato.col.valor" rota={ROTA_AJUDA} /></th>
                     <th style={{ ...th, textAlign: 'right' }}>Saldo<AjudaCampo chave="ge.extrato.col.saldo" rota={ROTA_AJUDA} /></th>
                     <th style={th}>Status<AjudaCampo chave="ge.extrato.col.status" rota={ROTA_AJUDA} /></th>
-                    <th style={{ ...th, width: 36 }} aria-label="Editar"></th>
+                    <th style={{ ...th, width: 36 }} aria-label="Abrir registro"><AjudaCampo chave="ge.extrato.acao.abrir_registro" rota={ROTA_AJUDA} /></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -352,7 +385,7 @@ export default function ExtratoPage() {
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, flexWrap: 'wrap', gap: 12 }}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <span style={{ fontSize: 12, color: 'rgba(61,35,20,0.65)' }}>Por página:</span>
+                <span style={{ fontSize: 12, color: 'rgba(61,35,20,0.65)', display: 'inline-flex', alignItems: 'center', gap: 2 }}>Por página:<AjudaCampo chave="ge.extrato.filtro.por_pagina" rota={ROTA_AJUDA} /></span>
                 <select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPagina(1) }} style={{ ...input, width: 80 }}>
                   <option value={50}>50</option>
                   <option value={100}>100</option>
@@ -363,10 +396,12 @@ export default function ExtratoPage() {
                 </span>
               </div>
 
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <AjudaCampo chave="ge.extrato.acao.paginacao" rota={ROTA_AJUDA} />
                 <button onClick={() => setPagina(Math.max(1, paginaAtual - 1))} disabled={paginaAtual <= 1} style={secondaryBtn(paginaAtual <= 1)}>← Anterior</button>
                 <button onClick={() => setPagina(Math.min(totalPaginas, paginaAtual + 1))} disabled={paginaAtual >= totalPaginas} style={secondaryBtn(paginaAtual >= totalPaginas)}>Próxima →</button>
-                <button onClick={exportarCSV} style={primaryBtn}>Exportar CSV</button>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}><AjudaCampo chave="ge.extrato.acao.conciliar" rota={ROTA_AJUDA} /><button onClick={() => router.push('/dashboard/financeiro/conciliacao')} style={secondaryBtn(false)}>Conciliar</button></span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}><AjudaCampo chave="ge.extrato.acao.exportar_csv" rota={ROTA_AJUDA} /><button onClick={exportarCSV} style={primaryBtn}>Exportar CSV</button></span>
               </div>
             </div>
           </>
