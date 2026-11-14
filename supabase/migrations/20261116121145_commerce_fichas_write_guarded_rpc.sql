@@ -218,8 +218,8 @@ END
 $fn$;
 
 -- Grants: fechado ao anon/PUBLIC (SECURITY DEFINER), aberto só a usuário logado.
-REVOKE ALL ON FUNCTION public.fn_ficha_tecnica_salvar(uuid,uuid,text,text,text,text,numeric,numeric,numeric,numeric,boolean) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.fn_ficha_tecnica_salvar(uuid,uuid,text,text,text,text,numeric,numeric,numeric,numeric,boolean) TO authenticated;
+REVOKE ALL ON FUNCTION public.fn_ficha_tecnica_salvar(uuid,uuid,text,text,text,text,text,numeric,numeric,numeric,numeric,boolean) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ficha_tecnica_salvar(uuid,uuid,text,text,text,text,text,numeric,numeric,numeric,numeric,boolean) TO authenticated;
 
 REVOKE ALL ON FUNCTION public.fn_ficha_tecnica_excluir(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_ficha_tecnica_excluir(uuid) TO authenticated;
