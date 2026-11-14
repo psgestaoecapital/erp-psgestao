@@ -80,3 +80,9 @@ BEGIN
   RETURN jsonb_build_object('gestor', v_gestor, 'de', p_de, 'ate', p_ate, 'vendedor', v_vend,
     'resumo', v_resumo, 'funil', v_funil, 'ranking', v_ranking, 'perdas', v_perdas, 'velocidade_dias', v_veloc);
 END; $function$;
+
+-- Guarda de acesso (check-fn-guards regra 1): fecha a RPC ao anon e mantém só o authenticated,
+-- espelhando os grants vigentes da função (authenticated/postgres/service_role). CREATE OR REPLACE
+-- preserva grants, mas o gate exige o REVOKE explícito na própria migration.
+REVOKE ALL ON FUNCTION public.fn_crm_desempenho(uuid[], date, date, uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_crm_desempenho(uuid[], date, date, uuid) TO authenticated;
