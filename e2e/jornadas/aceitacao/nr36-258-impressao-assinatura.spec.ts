@@ -44,7 +44,7 @@ test.describe('Documento de pausas para assinatura — impressão (#258)', () =>
 
   test('impressão: sem fundo fixo, sem corte, com a assinatura e só o documento', async ({ page }) => {
     await page.addInitScript((id) => { try { window.localStorage.setItem('ps_empresa_sel', id) } catch { /* noop */ } }, DEMO_SST)
-    await page.goto('/dashboard/compliance/pausas-tecnicas')
+    await page.goto('/dashboard/ehs/pausas-tecnicas')
     await aguardarConteudo(page)
     await page.getByRole('button', { name: 'Ciência' }).click()
     await page.locator('input[type="month"]').fill(COMP)
