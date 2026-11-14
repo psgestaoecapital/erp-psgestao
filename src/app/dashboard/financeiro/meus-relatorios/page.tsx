@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { RELATORIOS_GERADOS, FORMATOS_GERADOS } from '@/lib/relatorios/gerados'
 
 type Status = 'na_fila' | 'gerando' | 'pronto' | 'erro' | 'cancelado' | 'expirado'
 interface Pedido {
@@ -25,13 +26,9 @@ interface Pedido {
   concluido_em: string | null
 }
 
-const TIPOS: { id: string; nome: string }[] = [
-  { id: 'financeiro_movimentacao', nome: 'Movimentação financeira' },
-  { id: 'financeiro_pagar', nome: 'Contas a pagar' },
-  { id: 'financeiro_receber', nome: 'Contas a receber' },
-  { id: 'dre', nome: 'DRE' },
-  { id: 'fluxo_caixa', nome: 'Fluxo de caixa' },
-]
+// A tela só OFERECE o que o gerador entrega fim-a-fim (fonte única: @/lib/relatorios/gerados). Assim o
+// toast de "sucesso" é sempre verdadeiro — nada de DRE/Fluxo/PDF virar "erro" silencioso (PDCA GE).
+const TIPOS = RELATORIOS_GERADOS
 
 const STATUS: Record<Status, { rotulo: string; fg: string; bg: string }> = {
   na_fila: { rotulo: 'Na fila', fg: '#5C4A3D', bg: '#F1ECE4' },
@@ -170,8 +167,7 @@ export default function MeusRelatoriosPage() {
             <label style={{ display: 'block' }}>
               <span style={rotulo}>Formato <AjudaCampo chave="financeiro.meus_relatorios.formato" /></span>
               <select style={campo} value={formato} onChange={(e) => setFormato(e.target.value as 'excel' | 'pdf')}>
-                <option value="excel">Excel</option>
-                <option value="pdf">PDF</option>
+                {FORMATOS_GERADOS.map((f) => <option key={f.id} value={f.id}>{f.nome}</option>)}
               </select>
             </label>
           </div>

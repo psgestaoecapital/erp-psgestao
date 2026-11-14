@@ -9,6 +9,9 @@ import { useRouter } from 'next/navigation'
 import { ChevronLeft, BellRing, Phone, PhoneOff, Clock, MessageCircle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { erroAmigavel } from '@/lib/erroAmigavel'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA = '/dashboard/oficina/pos-venda'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'; const RED = '#A32D2D'
@@ -143,7 +146,7 @@ export default function PosVendaPage() {
         </div>
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 12, color: ESP60 }}>Contato após:</span>
+          <span style={{ fontSize: 12, color: ESP60, display: 'inline-flex', alignItems: 'center', gap: 4 }}>Contato após:<AjudaCampo chave="oficina.posvenda.janela" rota={ROTA} /></span>
           {[60, 90, 120].map((d) => (
             <button key={d} onClick={() => void setJanela(d)} disabled={salvandoJanela}
               style={{ ...chip, background: d === janela ? ESP : '#fff', color: d === janela ? '#fff' : ESP, cursor: salvandoJanela ? 'wait' : 'pointer' }}>
@@ -158,7 +161,7 @@ export default function PosVendaPage() {
 
         {!carregando && lista.length > 0 && (
           <>
-            <Grupo titulo={`A contatar agora (${aContatar.length})`}>
+            <Grupo titulo={`A contatar agora (${aContatar.length})`} ajuda="oficina.posvenda.a_contatar">
               {aContatar.length === 0
                 ? <div style={{ fontSize: 13, color: ESP60, padding: '2px 2px 6px' }}>
                     Nenhum ainda{primeiro ? ` — o primeiro entra em ${primeiro.dias_faltantes} dias.` : '.'}
@@ -167,13 +170,13 @@ export default function PosVendaPage() {
             </Grupo>
 
             {emBreve.length > 0 && (
-              <Grupo titulo={`Entram em breve (${emBreve.length})`} sub="próximos ~2 meses">
+              <Grupo titulo={`Entram em breve (${emBreve.length})`} sub="próximos ~2 meses" ajuda="oficina.posvenda.acompanhamento">
                 {emBreve.map((l) => <Card key={l.placa} {...cardProps(l)} />)}
               </Grupo>
             )}
 
             {acompanhando.length > 0 && (
-              <Grupo titulo={`Acompanhando (${acompanhando.length})`}>
+              <Grupo titulo={`Acompanhando (${acompanhando.length})`} ajuda="oficina.posvenda.acompanhamento">
                 {acompanhando.map((l) => <Card key={l.placa} {...cardProps(l)} />)}
               </Grupo>
             )}
@@ -235,10 +238,13 @@ function Card({ l, janela, chamando, desfechoContatoId, onChamar, onDesfecho }: 
           </div>
         </div>
       ) : temTel ? (
-        <button onClick={onChamar} disabled={chamando}
-          style={{ marginTop: 10, width: '100%', minHeight: 42, borderRadius: 10, border: 'none', background: '#25D366', color: '#0b3d1f', fontWeight: 800, fontSize: 13.5, cursor: chamando ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-          <MessageCircle size={16} /> {chamando ? 'Abrindo…' : 'Chamar no WhatsApp'}
-        </button>
+        <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button onClick={onChamar} disabled={chamando}
+            style={{ flex: 1, minHeight: 42, borderRadius: 10, border: 'none', background: '#25D366', color: '#0b3d1f', fontWeight: 800, fontSize: 13.5, cursor: chamando ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            <MessageCircle size={16} /> {chamando ? 'Abrindo…' : 'Chamar no WhatsApp'}
+          </button>
+          <AjudaCampo chave="oficina.posvenda.chamar" rota={ROTA} />
+        </div>
       ) : (
         <div style={{ fontSize: 11.5, color: GOLD, marginTop: 10 }}>Sem WhatsApp no cadastro — pegue na próxima passada pela recepção.</div>
       )}
@@ -246,11 +252,11 @@ function Card({ l, janela, chamando, desfechoContatoId, onChamar, onDesfecho }: 
   )
 }
 
-function Grupo({ titulo, sub, children }: { titulo: string; sub?: string; children: React.ReactNode }) {
+function Grupo({ titulo, sub, ajuda, children }: { titulo: string; sub?: string; ajuda?: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 18 }}>
-      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 8 }}>
-        {titulo}{sub ? <span style={{ textTransform: 'none', fontWeight: 400, marginLeft: 6 }}>· {sub}</span> : null}
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+        {titulo}{sub ? <span style={{ textTransform: 'none', fontWeight: 400, marginLeft: 6 }}>· {sub}</span> : null}{ajuda && <AjudaCampo chave={ajuda} rota={ROTA} />}
       </div>
       {children}
     </div>

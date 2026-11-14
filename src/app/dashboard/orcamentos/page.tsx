@@ -113,6 +113,11 @@ export default function OrcamentosPage(){
   const { companyIds, selInfo, companies, sel } = useCompanyIds();
   const [orcamentos,setOrcamentos]=useState<Orcamento[]>([]);
   const [loading,setLoading]=useState(true);
+  // #6723 (Tryo/Angélica) · exclusão em lote: seleção por linha + "Excluir selecionados".
+  const [selExcluir,setSelExcluir]=useState<Set<string>>(new Set());
+  const [confirmaExcluir,setConfirmaExcluir]=useState(false);
+  const [motivoLote,setMotivoLote]=useState("");
+  const [excluindoLote,setExcluindoLote]=useState(false);
   const [busca,setBusca]=useState("");
   const [filtroStatus,setFiltroStatus]=useState("todos");
   // F2.7 · vínculo com oportunidade: filtro "Sem oportunidade" + recorte por ?oportunidades= (link da coluna do Kanban).
@@ -753,6 +758,28 @@ export default function OrcamentosPage(){
     setTimeout(()=>setMsg(""),3000);
   };
 
+  // #6723 · exclui em lote reusando a MESMA RPC guardada fn_orcamento_excluir (soft-delete rastreável, por empresa).
+  // Cada orçamento é tratado individualmente: o que já virou pedido/obra fica de fora e a tela mostra o motivo.
+  const excluirSelecionados=async()=>{
+    const ids=Array.from(selExcluir);
+    if(ids.length===0)return;
+    const motivo=motivoLote.trim();
+    if(!motivo){setMsg("❌ Informe o motivo da exclusão.");setTimeout(()=>setMsg(""),4000);return;}
+    setExcluindoLote(true);
+    let apagados=0; const ignorados:string[]=[];
+    for(const o of filtrados.filter(x=>selExcluir.has(x.id))){
+      const{data,error}=await supabase.rpc('fn_orcamento_excluir',{p_orcamento_id:o.id,p_motivo:motivo});
+      const res=data as {ok:boolean;erro?:string}|null;
+      if(error||!res?.ok){ignorados.push(`${o.numero} (${res?.erro||"erro"})`);}
+      else{apagados++;}
+    }
+    setExcluindoLote(false);setConfirmaExcluir(false);setMotivoLote("");
+    setSelExcluir(new Set());
+    setMsg(`🗑️ ${apagados} orçamento(s) excluído(s).`+(ignorados.length?` Ficaram de fora ${ignorados.length}: ${ignorados.join('; ')}`:''));
+    loadOrcamentos();
+    setTimeout(()=>setMsg(""),6000);
+  };
+
   const filtrados=useMemo(()=>{
     let r=orcamentos;
     if(filtroStatus!=="todos")r=r.filter(o=>o.status===filtroStatus);
@@ -1212,8 +1239,23 @@ export default function OrcamentosPage(){
               <button onClick={()=>abrirNovo()} style={{padding:"10px 20px",borderRadius:8,background:"#C8941A",color:"#FFF",fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>+ Primeiro Orçamento</button>
             </div>
           ):(
+            <>
+            {selExcluir.size>0&&(
+              <div data-testid="orc-barra-excluir" style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",background:R+"10",borderBottom:`1px solid ${BD}`,flexWrap:"wrap"}}>
+                <span style={{fontSize:12,color:TX,fontWeight:600}}>{selExcluir.size} selecionado(s)</span>
+                <button data-testid="orc-excluir-selecionados" onClick={()=>{setMotivoLote("");setConfirmaExcluir(true);}} style={{fontSize:11,padding:"6px 12px",borderRadius:6,background:R,color:"#FFF",border:"none",cursor:"pointer",fontWeight:600}}>🗑️ Excluir selecionados</button>
+                <AjudaCampo chave="orcamentos.lista.excluir_selecionados" rota="/dashboard/orcamentos"/>
+                <button onClick={()=>setSelExcluir(new Set())} style={{fontSize:11,padding:"6px 12px",borderRadius:6,background:"transparent",color:TXM,border:`1px solid ${BD}`,cursor:"pointer"}}>Limpar seleção</button>
+              </div>
+            )}
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
               <thead><tr style={{borderBottom:`2px solid ${BD}`,background:BG3}}>
+                <th style={{padding:"8px",width:28,textAlign:"center"}}>
+                  <input type="checkbox" aria-label="Selecionar todos os orçamentos da lista" data-testid="orc-sel-todos"
+                    checked={filtrados.length>0&&filtrados.every(x=>selExcluir.has(x.id))}
+                    onChange={e=>setSelExcluir(e.target.checked?new Set(filtrados.map(x=>x.id)):new Set())}/>
+                  <AjudaCampo chave="orcamentos.lista.selecionar" rota="/dashboard/orcamentos"/>
+                </th>
                 <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Número</th>
                 <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10}}>Cliente</th>
                 <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10}}>Emissão</th>
@@ -1228,7 +1270,11 @@ export default function OrcamentosPage(){
                   const cfg=STATUS_CFG[o.status]||STATUS_CFG.rascunho;
                   const expirado=o.data_validade&&new Date(o.data_validade)<new Date()&&!['aprovado','recusado','convertido'].includes(o.status);
                   return(
-                    <tr key={o.id} style={{borderBottom:`0.5px solid ${BD}`,background:expirado?R+"06":"transparent"}}>
+                    <tr key={o.id} style={{borderBottom:`0.5px solid ${BD}`,background:selExcluir.has(o.id)?R+"0C":expirado?R+"06":"transparent"}}>
+                      <td style={{padding:"8px",textAlign:"center"}}>
+                        <input type="checkbox" aria-label={`Selecionar orçamento ${o.numero}`} data-testid="orc-sel-linha" checked={selExcluir.has(o.id)}
+                          onChange={e=>setSelExcluir(prev=>{const n=new Set(prev);if(e.target.checked)n.add(o.id);else n.delete(o.id);return n;})}/>
+                      </td>
                       <td style={{padding:"8px"}}>
                         <div style={{fontFamily:"monospace",fontWeight:600,color:GO}}>{o.numero}</div>
                         {(o.versao||1)>1&&<div style={{fontSize:9,color:TXD}}>v{o.versao}</div>}
@@ -1277,6 +1323,23 @@ export default function OrcamentosPage(){
                 })}
               </tbody>
             </table>
+            {confirmaExcluir&&(
+              <div role="dialog" aria-modal="true" data-testid="orc-confirma-excluir" style={{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,padding:16}}>
+                <div style={{background:BG2,border:`1px solid ${BD}`,borderRadius:12,padding:20,maxWidth:440,width:"100%"}}>
+                  <div style={{fontSize:15,fontWeight:700,color:TX,marginBottom:8}}>Excluir {selExcluir.size} orçamento(s)?</div>
+                  <div style={{fontSize:12,color:TXM,marginBottom:12,lineHeight:1.5}}>Eles saem da lista mas ficam no histórico (exclusão rastreável). Orçamentos que já viraram pedido não são excluídos — a tela mostra quais ficaram de fora e por quê.</div>
+                  <label style={{display:"block",marginBottom:16}}>
+                    <span style={{fontSize:11,color:TXD,display:"inline-flex",alignItems:"center",gap:4,marginBottom:4}}>Motivo da exclusão *<AjudaCampo chave="orcamentos.lista.excluir_selecionados" rota="/dashboard/orcamentos"/></span>
+                    <textarea data-testid="orc-motivo-lote" value={motivoLote} onChange={e=>setMotivoLote(e.target.value)} rows={2} placeholder="Ex.: limpeza de orçamentos antigos que não viraram negócio" style={{width:"100%",fontSize:12,padding:"8px 10px",borderRadius:6,border:`1px solid ${BD}`,background:BG3,color:TX,resize:"vertical"}}/>
+                  </label>
+                  <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                    <button onClick={()=>{setConfirmaExcluir(false);setMotivoLote("");}} disabled={excluindoLote} style={{fontSize:12,padding:"8px 14px",borderRadius:6,background:"transparent",color:TXM,border:`1px solid ${BD}`,cursor:"pointer"}}>Cancelar</button>
+                    <button data-testid="orc-confirmar-excluir" onClick={excluirSelecionados} disabled={excluindoLote||!motivoLote.trim()} style={{fontSize:12,padding:"8px 14px",borderRadius:6,background:R,color:"#FFF",border:"none",cursor:excluindoLote||!motivoLote.trim()?"default":"pointer",opacity:excluindoLote||!motivoLote.trim()?0.6:1,fontWeight:600}}>{excluindoLote?"Excluindo…":"Excluir selecionados"}</button>
+                  </div>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </div>
       )}

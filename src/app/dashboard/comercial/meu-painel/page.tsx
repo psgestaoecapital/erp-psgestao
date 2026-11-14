@@ -74,6 +74,8 @@ export default function MeuPainelV6() {
   const [estado, setEstado] = useState<EstadoV5 | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  // Fail-closed do escopo: usuário com papel comercial, mas sem vínculo a um código de vendedor (ef00dac6).
+  const [semVinculo, setSemVinculo] = useState(false)
 
   // Chassi: período, abas e seletores. O período recarrega a base (fn_bi_comercial_base com p_de/p_ate);
   // vendedor e linha filtram o motor (estado.ven e estado.lin), então todas as abas recalculam juntas.
@@ -109,7 +111,14 @@ export default function MeuPainelV6() {
     setCarregando(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_bi_comercial_base', { p_company_id: empresa, p_de: intervalo.de, p_ate: intervalo.ate })
     setCarregando(false)
-    if (error) { setErro(erroAmigavel(error)); setBase(null); return }
+    if (error) {
+      // Escopo fail-closed: sem vínculo de vendedor → estado próprio, nunca a empresa inteira (ef00dac6).
+      const alvo = `${error.message ?? ''} ${(error as { details?: string }).details ?? ''}`
+      const semAcesso = /sem_acesso_comercial|sem_acesso/.test(alvo)
+      setSemVinculo(semAcesso)
+      setErro(semAcesso ? null : erroAmigavel(error)); setBase(null); return
+    }
+    setSemVinculo(false)
     setBase(data as BaseV5)
   }, [empresa, intervalo])
   useEffect(() => { void carregar() }, [carregar])
@@ -337,6 +346,23 @@ export default function MeuPainelV6() {
 
   if (!empresa) {
     return <div style={{ padding: 16, color: C.m }}>Escolha uma empresa para ver o painel.</div>
+  }
+
+  // Fail-closed: papel comercial sem vínculo a um código de vendedor. Nunca mostra a empresa inteira.
+  if (semVinculo) {
+    return (
+      <div style={{ padding: '24px 0', color: C.esp }}>
+        <div style={{ maxWidth: 520, background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 20 }}>
+          <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 8 }}>Painel ainda não liberado para o seu usuário</div>
+          <p style={{ fontSize: 14, lineHeight: 1.5, color: C.m, margin: '0 0 6px' }}>
+            Seu usuário ainda não está ligado a um código de vendedor. Enquanto não estiver, você não vê as vendas da empresa.
+          </p>
+          <p style={{ fontSize: 14, lineHeight: 1.5, color: C.m, margin: 0 }}>
+            Peça a um administrador para ligar o seu usuário em <b>Administração › Vendedores</b>. Feito o vínculo, o vendedor passa a ver a própria venda, o supervisor a equipe dele e o gerente a empresa toda.
+          </p>
+        </div>
+      </div>
+    )
   }
 
   // Controles compactos da barra única. "?" discreto segue junto (RD-95).
@@ -826,10 +852,6 @@ export default function MeuPainelV6() {
             onAplicar={aplicarAnalise} exclusaoPadrao={exclusaoPadrao(base)} />
         </BlocoSeguro>
       )}
-
-      <div style={{ marginTop: 16, fontSize: 12, color: C.d }}>
-        <AjudaCampo chave="com.painel.faturado" rota={ROTA} /> Esta é a versão nova do painel. O painel atual continua disponível.
-      </div>
     </div>
   )
 }

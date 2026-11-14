@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
+import { parseNumBR } from '@/lib/num'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -174,7 +175,7 @@ export default function IndicadoresEditorPage() {
   }
   async function salvarMeta(ind: Indicador) {
     if (!companyId) return
-    const ano = parseInt(novoMeta.ano, 10); const valor = parseFloat(novoMeta.valor.replace(',', '.'))
+    const ano = parseInt(novoMeta.ano, 10); const valor = parseNumBR(novoMeta.valor) ?? NaN // valor aceita vírgula e milhar BR (#5660)
     if (!ano || Number.isNaN(valor)) { setMsg('Informe ano e valor da meta.'); return }
     const mes = novoMeta.mes ? parseInt(novoMeta.mes, 10) : null
     if (mes !== null && (mes < 1 || mes > 12)) { setMsg('Mês deve ser entre 1 e 12.'); return }

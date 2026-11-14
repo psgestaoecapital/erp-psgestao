@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { ShellOdonto, PageHeaderOdonto, CardOdonto, EmptyStateOdonto, TOK } from '@/components/odonto/ui'
+import { parseNumBR } from '@/lib/num'
 import { Calculator, Search, Plus, Trash2, ChevronLeft, AlertTriangle, Package, Clock, Settings2, ChevronDown } from 'lucide-react'
 
 const brl = (n: number) => (n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -202,8 +203,8 @@ function FichaTecnica({ companyId, proc, onVoltar }: { companyId: string; proc: 
 
   const flash = (t: string) => { setMsg(t); setTimeout(() => setMsg(null), 2500) }
   const addInsumo = async (p: Produto) => {
-    const q = Number((qtd[p.id] ?? '1').replace(',', '.'))
-    const { data, error } = await supabase.rpc('fn_odonto_ficha_insumo_salvar', { p_company_id: companyId, p_procedimento_id: proc.id, p_produto_id: p.id, p_quantidade: isFinite(q) && q > 0 ? q : 1 })
+    const q = parseNumBR(qtd[p.id] ?? '1') // aceita vírgula e milhar BR (#5660)
+    const { data, error } = await supabase.rpc('fn_odonto_ficha_insumo_salvar', { p_company_id: companyId, p_procedimento_id: proc.id, p_produto_id: p.id, p_quantidade: q != null && q > 0 ? q : 1 })
     if (error || (data as { ok?: boolean })?.ok === false) { flash('Falha ao adicionar.'); return }
     setBusca(''); setAchados([]); void carregar()
   }

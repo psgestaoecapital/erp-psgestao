@@ -14,6 +14,7 @@ import { Briefcase, CheckCircle2, XCircle, Clock, Search, Plus } from 'lucide-re
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { parseNumBR } from '@/lib/num'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -127,7 +128,7 @@ export default function VagasPage() {
       origem: form.origem, setor_id: form.setor_id, cargo_id: form.cargo_id,
       posto_id: form.posto_id || null,
       quantidade: Math.max(1, parseInt(form.quantidade || '1', 10) || 1),
-      custo_estimado: form.custo_estimado ? Number(form.custo_estimado.replace(',', '.')) : null,
+      custo_estimado: form.custo_estimado ? parseNumBR(form.custo_estimado) : null, // aceita vírgula e milhar BR (#5660)
       justificativa: form.justificativa.trim() || null,
     }
     const { data, error } = await supabase.rpc('fn_rh_vaga_abrir', { p_company_id: companyId, p_payload: payload })

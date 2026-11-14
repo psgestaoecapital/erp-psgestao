@@ -149,7 +149,14 @@ export default function ContratosAFaturarPage() {
           <div style={{ background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.12)', borderRadius: 12, padding: 40, textAlign: 'center' }}>
             <div style={{ fontSize: 32, marginBottom: 8 }} aria-hidden>✅</div>
             <div style={{ fontSize: 14, color: '#3D2314', marginBottom: 4 }}>Nenhum contrato a faturar nos próximos 15 dias.</div>
-            <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)' }}>Cadastre contratos recorrentes ativos para ver aqui.</div>
+            <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)', marginBottom: 16 }}>Cadastre contratos recorrentes ativos para ver aqui.</div>
+            {/* RD-98 p4: estado vazio com botão de ação (antes era só texto). */}
+            <Link
+              href="/dashboard/cadastros/contratos-recorrentes"
+              style={{ display: 'inline-block', background: '#C8941A', color: '#3D2314', border: 'none', padding: '12px 22px', borderRadius: 6, fontSize: 14, fontWeight: 600, textDecoration: 'none' }}
+            >
+              + Cadastrar cobrança recorrente
+            </Link>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

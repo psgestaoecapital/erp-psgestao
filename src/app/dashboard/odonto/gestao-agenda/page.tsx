@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase'
 import { ShellOdonto, PageHeaderOdonto, CardOdonto, EmptyStateOdonto, BrandIcon, TOK } from '@/components/odonto/ui'
 import { IndicadoresAgenda } from '@/components/odonto/IndicadoresAgenda'
 import { CalendarCog, Plus, Pencil, Archive, ChevronUp, ChevronDown, Armchair, UserRound, ChevronLeft, Settings2, BarChart3 } from 'lucide-react'
+import { parseNumBR } from '@/lib/num'
 
 const CORES = ['#3D2314', '#C8941A', '#2F6F7E', '#3A5A8C', '#A65A3A', '#6C6480', '#166534', '#A32D2D']
 const DIAS = [{ n: 1, l: 'Seg' }, { n: 2, l: 'Ter' }, { n: 3, l: 'Qua' }, { n: 4, l: 'Qui' }, { n: 5, l: 'Sex' }, { n: 6, l: 'Sáb' }, { n: 0, l: 'Dom' }]
@@ -273,7 +274,7 @@ function ModalProf({ companyId, prof, usuarios, onClose, onSalvo, onErro }: { co
     setSalvando(true)
     const { data } = await supabase.rpc('fn_odonto_profissional_salvar', {
       p_company_id: companyId, p_id: prof?.id ?? null, p_nome: nome.trim(), p_cro: cro || null, p_especialidade: esp || null,
-      p_cor: cor, p_user_id: userId || null, p_comissao_pct: comissao.trim() ? Number(comissao.replace(',', '.')) : null,
+      p_cor: cor, p_user_id: userId || null, p_comissao_pct: parseNumBR(comissao), // aceita vírgula e milhar BR; vazio/inválido -> null (#5660)
       p_horario: { dias, inicio, fim }, p_avatar_url: avatar || null, p_ativo: prof?.ativo ?? true,
     })
     setSalvando(false)
