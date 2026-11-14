@@ -3,6 +3,8 @@
 // Regras de rateio por CONTA e por TEXTO (CEO 06/11/2026). Gravam em cost_center_map (source_type 'conta' | 'texto') e são
 // lidas pela fn_ge_resultado_por_negocio (tela Resultado por negócio). Não mexem em nenhum lançamento.
 // Ordem de força: linha de negócio escrita na receita > centro de custo do lançamento > texto > conta (a mais específica).
+// RD-98: criar/editar/excluir passam por RPCs guardadas (fn_ge_regra_rateio_salvar/_excluir): guarda de empresa,
+// validação server-side, soft-delete (ativo=false) + rastro em audit_log_global. Edição in-place por linha.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
@@ -15,6 +17,7 @@ const COMUM = '__comum__'
 type Regra = { id: string; source_type: string; source_key: string; business_line_id: string | null; allocation_pct: number; tipo_apropriacao: string | null }
 type BL = { id: string; name: string }
 type Conta = { codigo: string; descricao: string }
+type RpcResp = { ok?: boolean; erro?: string; id?: string }
 
 // RD-98 critério (e): o erro CRU do banco nunca vai à tela. Loga o técnico e devolve frase amigável.
 function erroAmigavel(err: unknown, acao: string): string {
@@ -27,6 +30,9 @@ export default function RegrasRateio({ companyId, bls }: { companyId: string; bl
   const [contas, setContas] = useState<Conta[]>([])
   const [msg, setMsg] = useState<string | null>(null)
   const [novo, setNovo] = useState({ tipo: 'conta', chave: '', bl: '', pct: '100' })
+  // Edição in-place de uma linha (RD-98 p2): id em edição + rascunho de negócio/%.
+  const [editId, setEditId] = useState<string | null>(null)
+  const [edit, setEdit] = useState({ bl: '', pct: '' })
 
   const carregar = useCallback(async () => {
     const [r, c] = await Promise.all([
@@ -62,23 +68,47 @@ export default function RegrasRateio({ companyId, bls }: { companyId: string; bl
     const ja = soma.get(`${novo.tipo}|${chave.toLowerCase()}`) ?? 0
     if (ja + pct > 100.0001) { setMsg(`Erro: "${chave}" já tem ${ja}% — com mais ${pct}% passa de 100%.`); return }
     const comum = novo.bl === COMUM
-    const { error } = await supabase.from('cost_center_map').insert({
-      company_id: companyId, source_type: novo.tipo, source_key: chave,
-      business_line_id: comum ? null : novo.bl, tipo_apropriacao: comum ? 'comum' : 'direto',
-      allocation_pct: pct, cost_scope: 'todos', priority: 0, ativo: true,
+    const { data, error } = await supabase.rpc('fn_ge_regra_rateio_salvar', {
+      p_company_id: companyId, p_source_type: novo.tipo, p_source_key: chave,
+      p_business_line_id: comum ? null : novo.bl, p_allocation_pct: pct, p_id: null,
     })
-    if (error) { setMsg('Erro: ' + erroAmigavel(error, 'gravar a regra de rateio')); return }
+    const res = data as RpcResp | null
+    if (error || !res?.ok) { setMsg('Erro: ' + (res?.erro ?? erroAmigavel(error, 'gravar a regra de rateio'))); return }
     setMsg(`Regra gravada: ${novo.tipo} "${chave}" → ${comum ? 'Comum (rateio)' : nomeBl.get(novo.bl)} ${pct}%.`)
     setNovo({ ...novo, chave: '', pct: ja + pct < 100 ? String(100 - ja - pct) : '100' })
+    await carregar()
+  }
+
+  function iniciarEdicao(r: Regra) {
+    setMsg(null)
+    setEditId(r.id)
+    setEdit({ bl: r.business_line_id ?? COMUM, pct: String(Number(r.allocation_pct)) })
+  }
+
+  async function salvarEdicao(r: Regra) {
+    setMsg(null)
+    const pct = Number(edit.pct.replace(',', '.'))
+    if (!edit.bl) { setMsg('Erro: escolha o negócio (ou Comum).'); return }
+    if (!(pct > 0 && pct <= 100)) { setMsg('Erro: o % vai de 1 a 100.'); return }
+    const comum = edit.bl === COMUM
+    const { data, error } = await supabase.rpc('fn_ge_regra_rateio_salvar', {
+      p_company_id: companyId, p_source_type: r.source_type, p_source_key: r.source_key,
+      p_business_line_id: comum ? null : edit.bl, p_allocation_pct: pct, p_id: r.id,
+    })
+    const res = data as RpcResp | null
+    if (error || !res?.ok) { setMsg('Erro: ' + (res?.erro ?? erroAmigavel(error, 'salvar a regra de rateio'))); return }
+    setMsg('Regra atualizada.')
+    setEditId(null)
     await carregar()
   }
 
   async function remover(r: Regra) {
     if (!window.confirm(`Tirar a regra ${r.source_type} "${r.source_key}" → ${r.business_line_id ? nomeBl.get(r.business_line_id) : 'Comum'} ${r.allocation_pct}%?`)) return
     setMsg(null)
-    // regra de conta/texto não está gravada em nenhum lançamento: tirar não quebra histórico (o cálculo é sempre na hora)
-    const { error } = await supabase.from('cost_center_map').delete().eq('id', r.id).eq('company_id', companyId)
-    if (error) setMsg('Erro: ' + erroAmigavel(error, 'retirar a regra de rateio'))
+    // soft-delete guardado: a regra sai do cálculo mas fica o rastro de auditoria (não quebra histórico).
+    const { data, error } = await supabase.rpc('fn_ge_regra_rateio_excluir', { p_company_id: companyId, p_id: r.id })
+    const res = data as RpcResp | null
+    if (error || !res?.ok) setMsg('Erro: ' + (res?.erro ?? erroAmigavel(error, 'retirar a regra de rateio')))
     else { setMsg('Regra retirada.'); await carregar() }
   }
 
@@ -128,11 +158,16 @@ export default function RegrasRateio({ companyId, bls }: { companyId: string; bl
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead><tr style={{ color: ESP60, textAlign: 'left' }}>
-            <th style={th}>Tipo</th><th style={th}>Chave</th><th style={th}>Negócio</th><th style={{ ...th, textAlign: 'right' }}>%</th><th style={th}></th>
+            <th style={th}>Tipo</th>
+            <th style={th}>Chave</th>
+            <th style={th}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Negócio <AjudaCampo chave="cc.regra_negocio" rota={ROTA} /></span></th>
+            <th style={{ ...th, textAlign: 'right' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>% <AjudaCampo chave="cc.regra_pct" rota={ROTA} /></span></th>
+            <th style={th}></th>
           </tr></thead>
           <tbody>
             {regras.map((r) => {
               const total = soma.get(`${r.source_type}|${r.source_key.trim().toLowerCase()}`) ?? 0
+              const emEdicao = editId === r.id
               return (
                 <tr key={r.id} style={{ borderTop: `1px solid ${LINE}` }}>
                   <td style={td}>{r.source_type === 'conta' ? 'Conta' : 'Texto'}</td>
@@ -140,9 +175,33 @@ export default function RegrasRateio({ companyId, bls }: { companyId: string; bl
                     {r.source_type === 'conta' ? `${r.source_key} ${nomeConta.get(r.source_key) ?? ''}` : `"${r.source_key}"`}
                     {total < 99.99 && <span style={{ color: RED, fontWeight: 400, fontSize: 11 }}> · soma {total}% (o resto vai para o rateio)</span>}
                   </td>
-                  <td style={td}>{r.business_line_id ? nomeBl.get(r.business_line_id) ?? '—' : 'Comum (rateio)'}</td>
-                  <td style={{ ...td, textAlign: 'right' }}>{Number(r.allocation_pct)}%</td>
-                  <td style={td}><button onClick={() => void remover(r)} style={btnDel}>Tirar</button></td>
+                  <td style={td}>
+                    {emEdicao ? (
+                      <select style={{ ...inp, minWidth: 150 }} value={edit.bl} onChange={(e) => setEdit({ ...edit, bl: e.target.value })} aria-label="Negócio da regra">
+                        {bls.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                        <option value={COMUM}>Comum (rateio pela receita)</option>
+                      </select>
+                    ) : (r.business_line_id ? nomeBl.get(r.business_line_id) ?? '—' : 'Comum (rateio)')}
+                  </td>
+                  <td style={{ ...td, textAlign: 'right' }}>
+                    {emEdicao ? (
+                      <input style={{ ...inp, minWidth: 60, width: 70, textAlign: 'right' }} inputMode="decimal" value={edit.pct}
+                        onChange={(e) => setEdit({ ...edit, pct: e.target.value })} aria-label="% da regra" />
+                    ) : `${Number(r.allocation_pct)}%`}
+                  </td>
+                  <td style={td}>
+                    {emEdicao ? (
+                      <span style={{ display: 'inline-flex', gap: 6 }}>
+                        <button onClick={() => void salvarEdicao(r)} style={btnPriSm}>Salvar</button>
+                        <button onClick={() => { setEditId(null); setMsg(null) }} style={btnGhost}>Cancelar</button>
+                      </span>
+                    ) : (
+                      <span style={{ display: 'inline-flex', gap: 6 }}>
+                        <button onClick={() => iniciarEdicao(r)} style={btnEdit}>Editar</button>
+                        <button onClick={() => void remover(r)} style={btnDel}>Tirar</button>
+                      </span>
+                    )}
+                  </td>
                 </tr>
               )
             })}
@@ -160,4 +219,7 @@ const lblTxt: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: ESP6
 const th: React.CSSProperties = { padding: '6px 8px', fontWeight: 600, whiteSpace: 'nowrap' }
 const td: React.CSSProperties = { padding: '6px 8px', verticalAlign: 'middle' }
 const btnPri: React.CSSProperties = { padding: '8px 14px', background: GOLD, color: '#3D2314', border: 'none', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: 13 }
+const btnPriSm: React.CSSProperties = { padding: '5px 10px', background: GOLD, color: '#3D2314', border: 'none', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: 12 }
+const btnGhost: React.CSSProperties = { padding: '5px 10px', background: 'transparent', color: ESP60, border: `1px solid ${LINE}`, borderRadius: 6, fontWeight: 600, cursor: 'pointer', fontSize: 12 }
+const btnEdit: React.CSSProperties = { padding: '5px 10px', background: 'transparent', color: ESP, border: `1px solid ${LINE}`, borderRadius: 6, fontWeight: 600, cursor: 'pointer', fontSize: 12 }
 const btnDel: React.CSSProperties = { padding: '5px 10px', background: 'transparent', color: RED, border: `1px solid ${RED}55`, borderRadius: 6, fontWeight: 600, cursor: 'pointer', fontSize: 12 }
