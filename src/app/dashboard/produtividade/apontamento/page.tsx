@@ -13,6 +13,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
+import { parseNumBR } from '@/lib/num'
 
 const ROTA = '/dashboard/produtividade/apontamento'
 const Aj = ({ k }: { k: string }) => <AjudaCampo chave={k} rota={ROTA} />
@@ -167,7 +168,7 @@ function Inner() {
     if (!produtoId) { flashErr('Escolha o produto.'); return }
     const h = Number(hora)
     if (!Number.isInteger(h) || h < 0 || h > 23) { flashErr('A hora deve ser um inteiro de 0 a 23.'); return }
-    const q = Number(qtd.replace(',', '.'))
+    const q = parseNumBR(qtd) ?? NaN // aceita vírgula e milhar BR (#5660)
     if (!(q > 0)) { flashErr('A quantidade produzida deve ser maior que zero.'); return }
     const pessoasNum = pessoas.trim() === '' ? null : Number(pessoas)
     if (pessoasNum != null && (!Number.isInteger(pessoasNum) || pessoasNum < 0)) { flashErr('Pessoas presentes deve ser uma contagem inteira (ou em branco).'); return }
