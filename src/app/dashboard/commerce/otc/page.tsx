@@ -1053,7 +1053,7 @@ function ModalCancelarOrcamento({ orc, onClose, onDone, flash }: {
           ) : (
             <>
               <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Motivo da perda</span>
+                <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>Motivo da perda<AjudaCampo chave="otc.perda.motivo" rota="/dashboard/commerce/otc" /></span>
                 <select value={motivoId} onChange={(e) => setMotivoId(e.target.value)}
                   style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.white, color: C.espresso }}>
                   <option value="">{motivos.length === 0 ? 'Nenhum motivo cadastrado' : 'Selecione…'}</option>
@@ -1069,7 +1069,7 @@ function ModalCancelarOrcamento({ orc, onClose, onDone, flash }: {
               ) : (
                 <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end', background: C.cream, borderRadius: 8, padding: 8 }}>
                   <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
-                    <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Novo motivo</span>
+                    <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>Novo motivo<AjudaCampo chave="otc.perda.novo_motivo" rota="/dashboard/commerce/otc" /></span>
                     <input value={novoNome} onChange={(e) => setNovoNome(e.target.value)} placeholder="Ex.: Preço, Prazo, Concorrência…"
                       style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.white, color: C.espresso }} />
                   </label>
@@ -1079,7 +1079,7 @@ function ModalCancelarOrcamento({ orc, onClose, onDone, flash }: {
               )}
 
               <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Descrição {exigeTexto ? '(obrigatória)' : '(opcional)'}</span>
+                <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>Descrição {exigeTexto ? '(obrigatória)' : '(opcional)'}<AjudaCampo chave="otc.perda.descricao" rota="/dashboard/commerce/otc" /></span>
                 <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={2} placeholder="O que aconteceu?"
                   style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.white, color: C.espresso, resize: 'vertical' }} />
               </label>
