@@ -46,7 +46,7 @@ test.describe('Conferência de pausas — pausa com saída no relatório não é
 
   async function abrirConferencia(page: import('@playwright/test').Page) {
     await page.addInitScript((id) => { try { window.localStorage.setItem('ps_empresa_sel', id) } catch { /* noop */ } }, DEMO_SST)
-    await page.goto('/dashboard/compliance/pausas-tecnicas')
+    await page.goto('/dashboard/ehs/pausas-tecnicas')
     await aguardarConteudo(page)
     await page.getByRole('button', { name: 'Conferência' }).click()
     // #3843 · a Conferência agora abre com o fluxo único "Conferência do mês" (revisar + confirmar/corrigir juntos)
