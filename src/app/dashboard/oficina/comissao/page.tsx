@@ -7,6 +7,10 @@ import { useRouter } from 'next/navigation'
 import { Percent, ChevronLeft, Plus, Clock, TrendingUp } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
+import { parseNumBR } from '@/lib/num'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA = '/dashboard/oficina/comissao'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'
@@ -72,7 +76,7 @@ export default function ComissaoPage() {
   const salvarRegra = async () => {
     if (!companyId) return
     const { data, error } = await supabase.rpc('fn_oficina_comissao_regra_salvar', {
-      p_company_id: companyId, p_dados: { mecanico_nome: rNome || null, tipo: rTipo, valor: rValor.replace(',', '.') || '0' },
+      p_company_id: companyId, p_dados: { mecanico_nome: rNome || null, tipo: rTipo, valor: String(parseNumBR(rValor) ?? 0) }, // valor aceita vírgula e milhar BR (#5660)
     })
     const j = data as { ok?: boolean; erro?: string } | null
     if (error || j?.ok === false) { setMsg('❌ ' + erroAmigavel(error, codigoAmigavel(j?.erro, 'Não foi possível salvar a regra de comissão.'))); return }
@@ -96,13 +100,16 @@ export default function ComissaoPage() {
 
         <Sec titulo="Período">
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-            <Campo l="De"><input type="date" value={ini} onChange={(e) => setIni(e.target.value)} style={inp} /></Campo>
-            <Campo l="Até"><input type="date" value={fim} onChange={(e) => setFim(e.target.value)} style={inp} /></Campo>
-            <button onClick={() => void calcular()} disabled={carregando} style={{ ...btnGold, height: 42 }}>{carregando ? 'Calculando…' : 'Calcular'}</button>
+            <Campo l="De" ajuda="oficina.comissao.periodo_de"><input type="date" value={ini} onChange={(e) => setIni(e.target.value)} style={inp} /></Campo>
+            <Campo l="Até" ajuda="oficina.comissao.periodo_ate"><input type="date" value={fim} onChange={(e) => setFim(e.target.value)} style={inp} /></Campo>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <button onClick={() => void calcular()} disabled={carregando} style={{ ...btnGold, height: 42 }}>{carregando ? 'Calculando…' : 'Calcular'}</button>
+              <AjudaCampo chave="oficina.comissao.calcular" rota={ROTA} />
+            </div>
           </div>
         </Sec>
 
-        <Sec titulo={`Comissão por mecânico · total ${brl(total)}`}>
+        <Sec titulo={`Comissão por mecânico · total ${brl(total)}`} ajuda="oficina.comissao.resultado">
           {mecs.length === 0 && semRegra.length === 0 && (
             <div style={{ color: ESP60, fontSize: 13 }}>
               Nenhum serviço apontado no período. Assim que os mecânicos apontarem horas nas OS, o cálculo aparece aqui.
@@ -147,16 +154,19 @@ export default function ComissaoPage() {
             </div>
           ))}
           <div style={{ marginTop: 12 }}>
-            <Campo l="Mecânico (em branco = regra padrão da empresa)"><input value={rNome} onChange={(e) => setRNome(e.target.value)} placeholder="Nome do mecânico" style={inp} /></Campo>
+            <Campo l="Mecânico (em branco = regra padrão da empresa)" ajuda="oficina.comissao.regra_mecanico"><input value={rNome} onChange={(e) => setRNome(e.target.value)} placeholder="Nome do mecânico" style={inp} /></Campo>
             <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-              <Campo l="Tipo">
+              <Campo l="Tipo" ajuda="oficina.comissao.regra_tipo">
                 <select value={rTipo} onChange={(e) => setRTipo(e.target.value)} style={{ ...inp, minWidth: 180 }}>
                   <option value="percentual_mo">% da mão de obra</option>
                   <option value="por_hora">R$ por hora</option>
                 </select>
               </Campo>
-              <Campo l={rTipo === 'por_hora' ? 'R$/hora' : '% (percentual)'}><input value={rValor} onChange={(e) => setRValor(e.target.value.replace(/[^\d.,]/g, ''))} inputMode="decimal" placeholder={rTipo === 'por_hora' ? '30' : '10'} style={{ ...inp, maxWidth: 120 }} /></Campo>
-              <button onClick={() => void salvarRegra()} style={{ ...btnGold, height: 42, gap: 4 }}><Plus size={15} /> Salvar regra</button>
+              <Campo l={rTipo === 'por_hora' ? 'R$/hora' : '% (percentual)'} ajuda="oficina.comissao.regra_valor"><input value={rValor} onChange={(e) => setRValor(e.target.value.replace(/[^\d.,]/g, ''))} inputMode="decimal" placeholder={rTipo === 'por_hora' ? '30' : '10'} style={{ ...inp, maxWidth: 120 }} /></Campo>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <button onClick={() => void salvarRegra()} style={{ ...btnGold, height: 42, gap: 4 }}><Plus size={15} /> Salvar regra</button>
+                <AjudaCampo chave="oficina.comissao.regra_salvar" rota={ROTA} />
+              </div>
             </div>
           </div>
         </Sec>
@@ -166,16 +176,18 @@ export default function ComissaoPage() {
   )
 }
 
-function Sec({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+function Sec({ titulo, ajuda, children }: { titulo: string; ajuda?: string; children: React.ReactNode }) {
   return (
     <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 14, padding: 14, marginBottom: 12 }}>
-      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 10 }}>{titulo}</div>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
+        {titulo}{ajuda && <AjudaCampo chave={ajuda} rota={ROTA} />}
+      </div>
       {children}
     </div>
   )
 }
-function Campo({ l, children }: { l: string; children: React.ReactNode }) {
-  return <div style={{ marginBottom: 10 }}><div style={{ fontSize: 11, color: ESP60, marginBottom: 4 }}>{l}</div>{children}</div>
+function Campo({ l, ajuda, children }: { l: string; ajuda?: string; children: React.ReactNode }) {
+  return <div style={{ marginBottom: 10 }}><div style={{ fontSize: 11, color: ESP60, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>{l}{ajuda && <AjudaCampo chave={ajuda} rota={ROTA} />}</div>{children}</div>
 }
 function Toast({ children }: { children: React.ReactNode }) {
   return <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: ESP, color: '#fff', padding: '10px 16px', borderRadius: 999, fontSize: 13, zIndex: 70, maxWidth: '92%', textAlign: 'center' }}>{children}</div>

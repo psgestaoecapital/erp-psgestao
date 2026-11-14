@@ -27,6 +27,7 @@ import { AbaLogisticaV7 } from './AbaLogisticaV7'
 import { MetasV7 } from './MetasV7'
 import { AbaRanking } from './AbaRanking'
 import { ModalAnalise, lerEscolhaSalva, type EscopoAnalise } from './ModalAnalise'
+import { BlocoSeguro } from '@/components/dev/BlocoSeguro'
 
 const C = { esp: '#3D2314', off: '#FAF7F2', gold: '#C8941A', gold2: '#E0B048', verde: '#3f7d4e', vermelho: '#C0392B', bd: '#E7DED3', bg2: '#F0ECE3', m: '#6B5D4F', d: '#9C8E80' }
 const ROTA = '/dashboard/comercial/meu-painel'
@@ -73,6 +74,8 @@ export default function MeuPainelV6() {
   const [estado, setEstado] = useState<EstadoV5 | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  // Fail-closed do escopo: usuário com papel comercial, mas sem vínculo a um código de vendedor (ef00dac6).
+  const [semVinculo, setSemVinculo] = useState(false)
 
   // Chassi: período, abas e seletores. O período recarrega a base (fn_bi_comercial_base com p_de/p_ate);
   // vendedor e linha filtram o motor (estado.ven e estado.lin), então todas as abas recalculam juntas.
@@ -108,7 +111,14 @@ export default function MeuPainelV6() {
     setCarregando(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_bi_comercial_base', { p_company_id: empresa, p_de: intervalo.de, p_ate: intervalo.ate })
     setCarregando(false)
-    if (error) { setErro(erroAmigavel(error)); setBase(null); return }
+    if (error) {
+      // Escopo fail-closed: sem vínculo de vendedor → estado próprio, nunca a empresa inteira (ef00dac6).
+      const alvo = `${error.message ?? ''} ${(error as { details?: string }).details ?? ''}`
+      const semAcesso = /sem_acesso_comercial|sem_acesso/.test(alvo)
+      setSemVinculo(semAcesso)
+      setErro(semAcesso ? null : erroAmigavel(error)); setBase(null); return
+    }
+    setSemVinculo(false)
     setBase(data as BaseV5)
   }, [empresa, intervalo])
   useEffect(() => { void carregar() }, [carregar])
@@ -126,6 +136,7 @@ export default function MeuPainelV6() {
     })
   }, [base, empresa])
   const [modalAnalise, setModalAnalise] = useState(false)
+  const [vendAberto, setVendAberto] = useState(false)
   const aplicarAnalise = (excl: Record<number, boolean>, escopo: EscopoAnalise) => setEstado((e) => e ? { ...e, excl, escopo } : e)
   const setVen = (v: EstadoV5['ven']) => setEstado((e) => e ? { ...e, ven: v } : e)
   const setLin = (v: EstadoV5['lin']) => setEstado((e) => e ? { ...e, lin: v } : e)
@@ -337,6 +348,23 @@ export default function MeuPainelV6() {
     return <div style={{ padding: 16, color: C.m }}>Escolha uma empresa para ver o painel.</div>
   }
 
+  // Fail-closed: papel comercial sem vínculo a um código de vendedor. Nunca mostra a empresa inteira.
+  if (semVinculo) {
+    return (
+      <div style={{ padding: '24px 0', color: C.esp }}>
+        <div style={{ maxWidth: 520, background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 20 }}>
+          <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 8 }}>Painel ainda não liberado para o seu usuário</div>
+          <p style={{ fontSize: 14, lineHeight: 1.5, color: C.m, margin: '0 0 6px' }}>
+            Seu usuário ainda não está ligado a um código de vendedor. Enquanto não estiver, você não vê as vendas da empresa.
+          </p>
+          <p style={{ fontSize: 14, lineHeight: 1.5, color: C.m, margin: 0 }}>
+            Peça a um administrador para ligar o seu usuário em <b>Administração › Vendedores</b>. Feito o vínculo, o vendedor passa a ver a própria venda, o supervisor a equipe dele e o gerente a empresa toda.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   // Controles compactos da barra única. "?" discreto segue junto (RD-95).
   const selCompact: CSSProperties = { padding: '5px 8px', borderRadius: 7, border: `1px solid ${C.bd}`, background: '#fff', color: C.esp, fontSize: 13, minHeight: 32, maxWidth: 190 }
   const pill: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: C.m, whiteSpace: 'nowrap' }
@@ -377,12 +405,46 @@ export default function MeuPainelV6() {
                   <AjudaCampo chave="com.painel.datas" rota={ROTA} />
                 </span>
               )}
-              <span style={pill}>
-                Vendedor:
-                <select aria-label="Vendedor" value={String(estado?.ven ?? 'todos')} onChange={(e) => setVen(e.target.value === 'todos' ? 'todos' : Number(e.target.value))} style={selCompact} disabled={!base}>
-                  <option value="todos">Todos</option>
-                  {(base?.ven ?? []).map(([cod, nome], i) => <option key={cod + i} value={i}>{nome || cod}</option>)}
-                </select>
+              {/* Vendedores — multi-seleção (CEO 13/11): marcar vários, com Marcar/Desmarcar todos. */}
+              <span style={{ ...pill, position: 'relative' }}>
+                Vendedores:
+                {(() => {
+                  const todosV = base?.ven ?? []
+                  const selArr: number[] = estado?.ven === 'todos' || estado?.ven == null ? todosV.map((_, i) => i)
+                    : Array.isArray(estado.ven) ? estado.ven : [Number(estado.ven)]
+                  const ehTodos = estado?.ven === 'todos' || selArr.length === todosV.length
+                  const rotulo = ehTodos ? 'Todos' : selArr.length === 0 ? 'Nenhum'
+                    : selArr.length === 1 ? (todosV[selArr[0]]?.[1] || todosV[selArr[0]]?.[0] || '1') : `${selArr.length} selecionados`
+                  const toggle = (i: number) => {
+                    const cur = ehTodos ? todosV.map((_, k) => k) : selArr.slice()
+                    const next = cur.includes(i) ? cur.filter((x) => x !== i) : [...cur, i]
+                    setVen(next.length === todosV.length ? 'todos' : next)
+                  }
+                  return (
+                    <>
+                      <button type="button" onClick={() => setVendAberto((v) => !v)} disabled={!base} aria-label="Escolher vendedores"
+                        style={{ ...selCompact, cursor: base ? 'pointer' : 'not-allowed', display: 'inline-flex', alignItems: 'center', gap: 4, border: `1px solid ${ehTodos ? C.bd : C.gold}`, color: C.esp, fontWeight: ehTodos ? 400 : 700 }}>
+                        {rotulo} ▾
+                      </button>
+                      {vendAberto && base && (
+                        <>
+                          <div onClick={() => setVendAberto(false)} style={{ position: 'fixed', inset: 0, zIndex: 29 }} />
+                          <div role="menu" aria-label="Vendedores" data-ajuda="com.painel.equipe" style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 30, background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 10, boxShadow: '0 8px 24px rgba(61,35,20,.18)', padding: 8, minWidth: 220, maxHeight: 320, overflowY: 'auto' }}>
+                            <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                              <button type="button" onClick={() => setVen('todos')} style={{ flex: 1, padding: '6px 8px', fontSize: 12, borderRadius: 7, border: `1px solid ${C.bd}`, background: '#fff', cursor: 'pointer', color: C.esp }}>Marcar todos</button>
+                              <button type="button" onClick={() => setVen([])} style={{ flex: 1, padding: '6px 8px', fontSize: 12, borderRadius: 7, border: `1px solid ${C.bd}`, background: '#fff', cursor: 'pointer', color: C.esp }}>Desmarcar todos</button>
+                            </div>
+                            {todosV.map(([cod, nome], i) => (
+                              <label key={cod + i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px', fontSize: 13, minHeight: 36, cursor: 'pointer', borderTop: `1px solid ${C.bg2}` }}>
+                                <input type="checkbox" checked={selArr.includes(i)} onChange={() => toggle(i)} /> {nome || cod}
+                              </label>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </>
+                  )
+                })()}
                 <AjudaCampo chave="com.painel.equipe" rota={ROTA} />
               </span>
               <span style={pill}>
@@ -782,13 +844,14 @@ export default function MeuPainelV6() {
         <AbaProdutosV7 produtos={produtosV7} base={base} modelo={modelo} onAbrirAnalise={() => setModalAnalise(true)} />
       )}
       {base && modelo && estado && empresa && (
-        <ModalAnalise open={modalAnalise} onClose={() => setModalAnalise(false)} empresa={empresa} base={base} modelo={modelo} estado={estado}
-          onAplicar={aplicarAnalise} exclusaoPadrao={exclusaoPadrao(base)} />
+        // Rede de segurança (CEO 13/11): se o modal lançar um erro de render, o BlocoSeguro o contém e a ROTA
+        // não cai (nada de "This page couldn't load"). A causa-raiz (hooks após return condicional) já foi
+        // corrigida no ModalAnalise; este limite é a garantia de que a tela nunca mais é derrubada pelo modal.
+        <BlocoSeguro nome="Configurar a análise">
+          <ModalAnalise open={modalAnalise} onClose={() => setModalAnalise(false)} empresa={empresa} base={base} modelo={modelo} estado={estado}
+            onAplicar={aplicarAnalise} exclusaoPadrao={exclusaoPadrao(base)} />
+        </BlocoSeguro>
       )}
-
-      <div style={{ marginTop: 16, fontSize: 12, color: C.d }}>
-        <AjudaCampo chave="com.painel.faturado" rota={ROTA} /> Esta é a versão nova do painel. O painel atual continua disponível.
-      </div>
     </div>
   )
 }

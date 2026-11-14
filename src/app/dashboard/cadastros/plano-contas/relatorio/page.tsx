@@ -16,6 +16,7 @@ import PSGCMetric from '@/components/psgc/PSGCMetric'
 import { PSGC_COLORS, PSGC_RADIUS } from '@/lib/psgc-tokens'
 import { contarKpis, montarRelatorioPlano, soVinculadas, type LinhaRelatorioPlano } from '@/lib/contabil/relatorioPlano'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 export const dynamic = 'force-dynamic'
 
@@ -175,13 +176,22 @@ export default function Page() {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button type="button" onClick={() => fileRef.current?.click()} disabled={impBusy || loading || !!erro}
-              style={{ background: 'transparent', color: C.espresso, border: '0.5px solid rgba(61,35,20,0.3)', padding: '10px 16px', borderRadius: PSGC_RADIUS.md, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>{impBusy ? 'Importando…' : '⬆ Importar validação do contador'}</button>
-            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) void importarValidacao(f) }} />
-            <button type="button" onClick={baixarExcel} disabled={loading || !!erro}
-              style={{ background: 'transparent', color: C.dourado, border: `0.5px solid ${C.dourado}`, padding: '10px 16px', borderRadius: PSGC_RADIUS.md, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>⬇ Excel</button>
-            <button type="button" onClick={() => window.print()} disabled={loading || !!erro}
-              style={{ background: C.espresso, color: '#fff', border: 'none', padding: '10px 16px', borderRadius: PSGC_RADIUS.md, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>⬇ PDF</button>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+              <button type="button" onClick={() => fileRef.current?.click()} disabled={impBusy || loading || !!erro}
+                style={{ background: 'transparent', color: C.espresso, border: '0.5px solid rgba(61,35,20,0.3)', padding: '10px 16px', borderRadius: PSGC_RADIUS.md, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>{impBusy ? 'Importando…' : '⬆ Importar validação do contador'}</button>
+              <AjudaCampo chave="plano_contas_rel.importar" />
+              <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f) void importarValidacao(f) }} />
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+              <button type="button" onClick={baixarExcel} disabled={loading || !!erro}
+                style={{ background: 'transparent', color: C.dourado, border: `0.5px solid ${C.dourado}`, padding: '10px 16px', borderRadius: PSGC_RADIUS.md, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>⬇ Excel</button>
+              <AjudaCampo chave="plano_contas_rel.exportar_excel" />
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+              <button type="button" onClick={() => window.print()} disabled={loading || !!erro}
+                style={{ background: C.espresso, color: '#fff', border: 'none', padding: '10px 16px', borderRadius: PSGC_RADIUS.md, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>⬇ PDF</button>
+              <AjudaCampo chave="plano_contas_rel.exportar_pdf" />
+            </span>
           </div>
         </div>
         {impMsg && <div className="no-print" style={{ marginBottom: 12, padding: '8px 12px', borderRadius: PSGC_RADIUS.md, background: C.verdeSoft, color: '#234D08', fontSize: 12.5 }}>{impMsg}</div>}
@@ -194,13 +204,14 @@ export default function Page() {
         ) : (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 20 }}>
-              <div data-testid="kpi-gerenciais"><PSGCMetric label="Contas gerenciais" valor={kpis.gerenciais} cor={C.espresso} /></div>
-              <PSGCMetric label="Contas contábeis analíticas" valor={kpis.contabeis} cor={C.espresso} />
-              <PSGCMetric label="Vinculadas" valor={kpis.vinculadas} cor={C.baixa} />
-              <PSGCMetric label="Sem vínculo" valor={kpis.orfas} cor={kpis.orfas > 0 ? C.alta : C.baixa} destaque={kpis.orfas > 0} />
+              <div data-testid="kpi-gerenciais"><PSGCMetric label="Contas gerenciais" valor={kpis.gerenciais} cor={C.espresso} ajuda="plano_contas_rel.kpi_gerenciais" /></div>
+              <PSGCMetric label="Contas contábeis analíticas" valor={kpis.contabeis} cor={C.espresso} ajuda="plano_contas_rel.kpi_contabeis" />
+              <PSGCMetric label="Vinculadas" valor={kpis.vinculadas} cor={C.baixa} ajuda="plano_contas_rel.kpi_vinculadas" />
+              <PSGCMetric label="Sem vínculo" valor={kpis.orfas} cor={kpis.orfas > 0 ? C.alta : C.baixa} destaque={kpis.orfas > 0} ajuda="plano_contas_rel.kpi_orfas" />
             </div>
 
-            <div className="no-print" style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+            <div className="no-print" style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 12.5, fontWeight: 600, color: C.espresso, marginRight: 2 }}>Mostrar<AjudaCampo chave="plano_contas_rel.filtro" /></span>
               {([['todas', 'Todas'], ['vinculadas', 'Só vinculadas'], ['sem_vinculo', 'Sem vínculo']] as const).map(([k, label]) => (
                 <button key={k} type="button" onClick={() => setFiltro(k)}
                   style={{ padding: '7px 14px', borderRadius: PSGC_RADIUS.sm, fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
@@ -210,7 +221,10 @@ export default function Page() {
             </div>
 
             {filtro === 'sem_vinculo' ? (
-              <div style={{ border: '1px solid rgba(61,35,20,0.12)', borderRadius: PSGC_RADIUS.lg, background: '#fff', overflow: 'hidden' }}>
+              <div data-ajuda="plano_contas_rel.vincular" style={{ border: '1px solid rgba(61,35,20,0.12)', borderRadius: PSGC_RADIUS.lg, background: '#fff', overflow: 'hidden' }}>
+                <div style={{ display: 'flex', alignItems: 'center', padding: '10px 12px', background: C.offWhiteDark, color: INK, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  Vincular conta contábil à conta gerencial<AjudaCampo chave="plano_contas_rel.vincular" />
+                </div>
                 {linhasFiltradas.length === 0 ? (
                   <div style={{ padding: 24, textAlign: 'center', color: INK }}>Nenhuma conta contábil pendente de vínculo. 🎉</div>
                 ) : linhasFiltradas.map((l, i) => (
