@@ -89,7 +89,7 @@ export default function ComplianceListaPrestadoresPage() {
         <header style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 24 }}>
           <div>
             <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.5, margin: 0 }}>
-              Compliance &gt; Prestadores
+              EHS &gt; Prestadores
             </p>
             <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 32, fontWeight: 400, margin: '4px 0 6px' }}>
               Prestadores PJ/MEI
@@ -129,7 +129,7 @@ export default function ComplianceListaPrestadoresPage() {
                   {multiEmpresa && <Th>Empresa</Th>}
                   <Th>Responsável</Th>
                   <Th>Valor mensal</Th>
-                  <Th>Compliance</Th>
+                  <Th>EHS</Th>
                   <Th>Ações</Th>
                 </tr>
               </thead>
@@ -298,7 +298,7 @@ function NovoPrestadorModal({
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
       <div onClick={(e: any) => e.stopPropagation()} style={{ background: 'white', borderRadius: 12, padding: 24, width: 'min(620px, 92vw)', maxHeight: '90vh', overflowY: 'auto' }}>
-        <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.5, margin: 0 }}>Compliance</p>
+        <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.5, margin: 0 }}>EHS</p>
         <h2 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 22, fontWeight: 400, margin: '4px 0 16px' }}>Novo Prestador PJ/MEI</h2>
 
         {exigeEscolha && (

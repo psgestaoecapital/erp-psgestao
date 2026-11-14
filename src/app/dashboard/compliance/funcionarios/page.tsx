@@ -169,7 +169,7 @@ export default function FuncionariosPage() {
       <div style={{ maxWidth: 1400, margin: '0 auto', padding: '32px 24px' }}>
         <header style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 24 }}>
           <div>
-            <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.5, margin: 0 }}>Compliance</p>
+            <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.5, margin: 0 }}>EHS</p>
             <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 32, fontWeight: 400, margin: '4px 0 6px' }}>Funcionários</h1>
             <p style={{ margin: 0, fontSize: 14, color: C.muted }}>{funcsFiltrados.length} de {funcs.length}</p>
           </div>
@@ -189,7 +189,7 @@ export default function FuncionariosPage() {
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <button
                 onClick={async () => {
-                  if (!window.confirm('Importar colaboradores do ponto eletrônico pra ficha do Compliance?\n\nO que já foi preenchido à mão (RG, endereço, salário, ASO, observações) NÃO será sobrescrito — só completa os campos vazios.')) return
+                  if (!window.confirm('Importar colaboradores do ponto eletrônico pra ficha do EHS?\n\nO que já foi preenchido à mão (RG, endereço, salário, ASO, observações) NÃO será sobrescrito — só completa os campos vazios.')) return
                   setImportando(true); setMsgImport(null); setErro(null)
                   const { data, error } = await supabase.rpc('fn_compliance_projetar_de_ind_ponto', { p_company_id: companyAtiva })
                   setImportando(false)
@@ -299,7 +299,7 @@ export default function FuncionariosPage() {
                   <Th>Cargo / Setor</Th>
                   {multiEmpresa && <Th>Empresa</Th>}
                   <Th>Tomadora</Th>
-                  <Th>Compliance <AjudaCampo chave="compliance.funcionarios.col_compliance" rota={ROTA} /></Th>
+                  <Th>EHS <AjudaCampo chave="compliance.funcionarios.col_compliance" rota={ROTA} /></Th>
                   <Th>Ações <AjudaCampo chave="compliance.funcionarios.col_acoes" rota={ROTA} /></Th>
                 </tr>
               </thead>
