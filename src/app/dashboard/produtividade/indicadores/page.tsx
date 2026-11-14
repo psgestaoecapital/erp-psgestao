@@ -9,6 +9,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { parseNumBR } from '@/lib/num'
 
 const ROTA = '/dashboard/produtividade/indicadores'
 const C = { esp: '#3D2314', espM: '#6B5D4F', bg: '#FAF7F2', white: '#FFFFFF', border: '#E0D8CC', gold: '#C8941A', green: '#166534', amber: '#BA7517', red: '#B42318' }
@@ -69,7 +70,7 @@ function Inner() {
 
   async function salvarMeta(txt: string) {
     if (!companyId) return
-    const n = txt.trim() === '' ? null : Number(txt.replace(',', '.'))
+    const n = txt.trim() === '' ? null : (parseNumBR(txt) ?? NaN) // aceita vírgula e milhar BR (#5660)
     if (n !== null && !(n > 0)) { setErro('Meta deve ser maior que zero.'); return }
     const { error } = await supabase.rpc('fn_prod_indicador_meta_salvar', { p_company_id: companyId, p_setor: setor, p_meta: n })
     if (error) setErro('Não foi possível salvar a meta. Tente novamente.'); else void carregar()
