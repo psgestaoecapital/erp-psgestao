@@ -325,3 +325,8 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.fn_chamados_rotear(integer) FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_chamados_rotear(integer) TO service_role;
+
+-- ci-sem-guarda: fn_chamados_rotear — roteador de sistema (daemon), executado só como service_role
+--   (REVOKE anon, authenticated acima). Distribui chamados de TODAS as empresas entre os devs pela
+--   menor carga; não há empresa de sessão a conferir — a função opera no pool global, não a pedido
+--   de um usuário de empresa. A guarda por company_id não se aplica a roteamento cross-empresa.
