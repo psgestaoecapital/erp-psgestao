@@ -52,3 +52,9 @@ BEGIN
   DELETE FROM public.ficha_itens WHERE id = p_id;
 END
 $function$;
+
+-- Guarda de acesso (RD): função SECURITY DEFINER não fica aberta ao público/anon.
+REVOKE ALL ON FUNCTION public.fn_ficha_tecnica_excluir(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ficha_tecnica_excluir(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_ficha_item_excluir(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ficha_item_excluir(uuid) TO authenticated, service_role;
