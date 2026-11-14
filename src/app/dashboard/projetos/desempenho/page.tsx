@@ -165,7 +165,7 @@ export default function DesempenhoComercialPage() {
               <Card titulo="Ticket médio" valor={brl(r!.ticket_medio)} cor={ESP} ajuda="projetos.desempenho.ticket_medio" />
               <Card titulo="Comissão gerada" valor={brl(r!.comissao)} cor={GOLD} ajuda="projetos.desempenho.comissao" />
               <Card titulo="Pipeline aberto" valor={brl(r!.valor_pipeline)} cor={ROXO} sub={`${r!.oportunidades} oport. · ${r!.propostas} propostas`} ajuda="projetos.desempenho.pipeline" />
-              <Card titulo="Velocidade" valor={data.velocidade_dias != null ? `${data.velocidade_dias} d` : '—'} cor={ESP} sub="média até fechar" ajuda="projetos.desempenho.velocidade" />
+              <Card titulo="Velocidade" valor={data.velocidade_dias != null && data.velocidade_dias >= 0 ? `${data.velocidade_dias} d` : '—'} cor={ESP} sub="média até fechar" ajuda="projetos.desempenho.velocidade" />
             </div>
 
             {/* Bloco B · funil */}
