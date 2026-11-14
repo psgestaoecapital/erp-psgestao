@@ -55,7 +55,28 @@ VALUES
   ('commerce.fichas.markup_pct', '/dashboard/commerce/fichas', 'Custos & Markup', 'Markup (%)',
    'A margem que você quer aplicar SOBRE o custo total para chegar ao preço de venda.',
    'É o que define o lucro do item: preço de venda = custo total + markup (e impostos).',
-   '30', 'Markup não é a mesma coisa que margem sobre a venda — 30% de markup dá menos de 30% de margem.', 'gestao_empresarial', 90)
+   '30', 'Markup não é a mesma coisa que margem sobre a venda — 30% de markup dá menos de 30% de margem.', 'gestao_empresarial', 90),
+
+  -- Composição (BOM): colunas da tabela de itens/materiais da ficha
+  ('commerce.fichas.item_nome', '/dashboard/commerce/fichas', 'Composição', 'Item · Nome',
+   'O nome do material ou insumo que compõe esta ficha.',
+   'Identifica cada item que entra no custo; a soma dos itens forma o custo de materiais.',
+   'Placa de gesso ST 12,5mm', 'Nome vago ("material 1") dificulta revisar a composição depois.', 'gestao_empresarial', 100),
+
+  ('commerce.fichas.item_unidade', '/dashboard/commerce/fichas', 'Composição', 'Item · Unidade',
+   'A unidade de compra/consumo do item (un, m², kg, saco etc.).',
+   'Garante que quantidade e preço unitário estejam na mesma base para o subtotal bater.',
+   'm²', 'Misturar unidade do item com a unidade de venda da ficha distorce o custo.', 'gestao_empresarial', 110),
+
+  ('commerce.fichas.item_qtd', '/dashboard/commerce/fichas', 'Composição', 'Item · Quantidade',
+   'Quanto deste item é consumido para produzir UMA unidade da ficha.',
+   'Multiplica pelo preço unitário para gerar o subtotal do item no custo de materiais.',
+   '2,1', 'Informar a quantidade do lote inteiro (e não por unidade da ficha) infla o custo.', 'gestao_empresarial', 120),
+
+  ('commerce.fichas.item_preco', '/dashboard/commerce/fichas', 'Composição', 'Item · Preço unitário',
+   'O preço de compra de UMA unidade do item, em reais.',
+   'Base do subtotal (quantidade × preço) e, somado aos demais, do custo de materiais.',
+   '18,90', 'Usar preço com imposto quando o resto é sem imposto (ou vice-versa) descasa o custo.', 'gestao_empresarial', 130)
 ON CONFLICT (chave) DO UPDATE SET
   rota = EXCLUDED.rota, grupo = EXCLUDED.grupo, rotulo = EXCLUDED.rotulo,
   o_que_preencher = EXCLUDED.o_que_preencher, para_que_serve = EXCLUDED.para_que_serve,

@@ -691,7 +691,7 @@ function ModalNovaFicha({ onClose, onCreate }: { onClose: () => void; onCreate: 
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Nome *</span>
+            <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>Nome *<AjudaCampo chave="commerce.fichas.nome" rota={ROTA} /></span>
             <input
               autoFocus
               value={nome}
@@ -701,7 +701,7 @@ function ModalNovaFicha({ onClose, onCreate }: { onClose: () => void; onCreate: 
             />
           </label>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Categoria</span>
+            <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>Categoria<AjudaCampo chave="commerce.fichas.categoria" rota={ROTA} /></span>
             <select
               value={cat}
               onChange={(e) => setCat(e.target.value)}
@@ -866,10 +866,10 @@ function Drawer({
                 <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
                   <thead style={{ background: C.cream }}>
                     <tr>
-                      <Th>Nome</Th>
-                      <Th>Unid.</Th>
-                      <Th align="right">Qtd</Th>
-                      <Th align="right">Preço un.</Th>
+                      <Th>Nome <AjudaCampo chave="commerce.fichas.item_nome" rota={ROTA} /></Th>
+                      <Th>Unid. <AjudaCampo chave="commerce.fichas.item_unidade" rota={ROTA} /></Th>
+                      <Th align="right">Qtd <AjudaCampo chave="commerce.fichas.item_qtd" rota={ROTA} /></Th>
+                      <Th align="right">Preço un. <AjudaCampo chave="commerce.fichas.item_preco" rota={ROTA} /></Th>
                       <Th align="right">Subtotal</Th>
                       <Th />
                     </tr>
