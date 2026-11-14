@@ -11,7 +11,7 @@ const arq = readdirSync('supabase/migrations').find(f => f.endsWith('_nr36_3842_
 ok(!!arq, 'migration do anexo existe')
 const sql = readFileSync('supabase/migrations/' + arq, 'utf8')
 const fn = (nome: string) => sql.slice(sql.indexOf('FUNCTION public.' + nome), sql.indexOf('END $function$', sql.indexOf('FUNCTION public.' + nome)))
-const tela = readFileSync('src/app/dashboard/compliance/pausas-tecnicas/page.tsx', 'utf8')
+const tela = readFileSync('src/app/dashboard/ehs/pausas-tecnicas/page.tsx', 'utf8')
 
 ok(/ENABLE ROW LEVEL SECURITY/.test(sql) && /REVOKE ALL ON public\.nr36_conferencia_anexo FROM PUBLIC, anon, authenticated/.test(sql), 'tabela com RLS ligada e REVOKE de anon')
 ok(!/GRANT[^;]*(INSERT|UPDATE|DELETE)[^;]*nr36_conferencia_anexo/i.test(sql) && !/DELETE FROM public\.nr36_conferencia_anexo/i.test(sql), 'tabela sem DELETE físico nem escrita direta (só pelas funções)')

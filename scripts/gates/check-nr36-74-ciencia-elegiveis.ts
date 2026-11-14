@@ -12,7 +12,7 @@ ok(/'sem_documento'/.test(mig) && /'sem_apuracao'/.test(mig) && /'com_documento'
 ok(/REVOKE ALL ON FUNCTION public\.fn_nr36_ciencia_painel\(uuid, date\) FROM PUBLIC, anon/.test(mig), 'fechada para quem não está logado')
 ok(!/\b(INSERT INTO|UPDATE|DELETE FROM)\b/.test(mig), 'a migration não grava nada')
 
-const tela = readFileSync('src/app/dashboard/compliance/pausas-tecnicas/page.tsx', 'utf8')
+const tela = readFileSync('src/app/dashboard/ehs/pausas-tecnicas/page.tsx', 'utf8')
 // a leitura antiga (só documentos) fica apenas como volta quando o banco ainda não tem o painel (preview antes da migration)
 const semVolta = tela.replace(/banco ainda sem o painel[\s\S]*?catch \(e2\)/, '')
 ok(/rpc<[^>]*>\('fn_nr36_ciencia_painel'/.test(tela) && !/fn_nr36_ciencia_listar/.test(semVolta), 'a aba lê o painel de elegíveis (a leitura só de documentos é só a volta sem o painel)')
