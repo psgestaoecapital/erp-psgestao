@@ -807,7 +807,7 @@ function Drawer({
             aberto={aberto.ident}
             onToggle={() => setAberto((p) => ({ ...p, ident: !p.ident }))}
           >
-            <Field label="Código">
+            <Field label="Código" ajuda="commerce.fichas.codigo">
               <input
                 defaultValue={ficha.codigo ?? ''}
                 onBlur={(e) => onUpdate({ codigo: e.target.value || null })}
@@ -815,24 +815,24 @@ function Drawer({
                 style={inp}
               />
             </Field>
-            <Field label="Nome">
+            <Field label="Nome" ajuda="commerce.fichas.nome">
               <input defaultValue={ficha.nome} onBlur={(e) => onUpdate({ nome: e.target.value })} style={inp} />
             </Field>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
-              <Field label="Categoria">
+              <Field label="Categoria" ajuda="commerce.fichas.categoria">
                 <select defaultValue={ficha.categoria ?? ''} onChange={(e) => onUpdate({ categoria: e.target.value || null })} style={inp}>
                   <option value="">—</option>
                   {CATEGORIAS.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               </Field>
-              <Field label="Unidade">
+              <Field label="Unidade" ajuda="commerce.fichas.unidade">
                 <select defaultValue={ficha.unidade ?? ''} onChange={(e) => onUpdate({ unidade: e.target.value || null })} style={inp}>
                   <option value="">—</option>
                   {UNIDADES.map((u) => <option key={u} value={u}>{u}</option>)}
                 </select>
               </Field>
             </div>
-            <Field label="Descrição">
+            <Field label="Descrição" ajuda="commerce.fichas.descricao">
               <textarea
                 defaultValue={ficha.descricao ?? ''}
                 onBlur={(e) => onUpdate({ descricao: e.target.value || null })}
@@ -940,7 +940,7 @@ function Drawer({
             onToggle={() => setAberto((p) => ({ ...p, custos: !p.custos }))}
           >
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
-              <Field label="Mão de obra direta (R$)">
+              <Field label="Mão de obra direta (R$)" ajuda="commerce.fichas.mao_obra_direta">
                 <input
                   type="number"
                   step="0.01"
@@ -949,7 +949,7 @@ function Drawer({
                   style={inp}
                 />
               </Field>
-              <Field label="Custos indiretos (%)">
+              <Field label="Custos indiretos (%)" ajuda="commerce.fichas.custos_indiretos_pct">
                 <input
                   type="number"
                   step="0.01"
@@ -958,7 +958,7 @@ function Drawer({
                   style={inp}
                 />
               </Field>
-              <Field label="Impostos (%)">
+              <Field label="Impostos (%)" ajuda="commerce.fichas.impostos_pct">
                 <input
                   type="number"
                   step="0.01"
@@ -967,7 +967,7 @@ function Drawer({
                   style={inp}
                 />
               </Field>
-              <Field label="Markup (%)">
+              <Field label="Markup (%)" ajuda="commerce.fichas.markup_pct">
                 <input
                   type="number"
                   step="0.01"
@@ -1038,10 +1038,10 @@ function Secao({ titulo, icon, aberto, onToggle, action, children }: {
   )
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children, ajuda }: { label: string; children: React.ReactNode; ajuda?: string }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <span style={{ fontSize: 10, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>{label}</span>
+      <span style={{ fontSize: 10, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>{label}{ajuda && <AjudaCampo chave={ajuda} rota={ROTA} />}</span>
       {children}
     </label>
   )
