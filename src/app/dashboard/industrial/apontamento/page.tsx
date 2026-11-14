@@ -27,6 +27,8 @@ export default function ApontamentoPage() {
   const [unidades, setUnidades] = useState<Unidade[]>([])
   const [carregandoUni, setCarregandoUni] = useState(false)
   const [turnos, setTurnos] = useState<Turno[]>([])
+  const [novaUnidadeNome, setNovaUnidadeNome] = useState('')
+  const [criandoUnidade, setCriandoUnidade] = useState(false)
 
   const set = (k: string, v: string) => setForm(f => ({...f,[k]:v}))
 
@@ -69,6 +71,31 @@ export default function ApontamentoPage() {
       .finally(() => { if (vivo) setCarregandoUni(false) })
     return () => { vivo = false }
   }, [companyId])
+
+  // Cadastro rápido da unidade no próprio estado vazio (critério d do PDCA): quem ainda não tem planta
+  // cadastrada cria uma aqui mesmo e já libera o apontamento, sem precisar sair da tela procurar onde cadastrar.
+  async function criarUnidade() {
+    if (!companyId) { setMsg('✗ Escolha uma empresa específica no topo antes de cadastrar a unidade.'); return }
+    const nome = novaUnidadeNome.trim()
+    if (!nome) { setMsg('✗ Dê um nome para a unidade/planta antes de cadastrar.'); return }
+    setCriandoUnidade(true); setMsg('')
+    try {
+      const r = await fetch('/api/industrial/unidades', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ company_id: companyId, nome }),
+      })
+      const d = await r.json()
+      if (!r.ok || !d?.unidade) throw new Error(d?.error)
+      const nova: Unidade = { id: d.unidade.id, nome: d.unidade.nome }
+      setUnidades(us => [...us, nova].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')))
+      setForm(f => ({ ...f, unidade_id: nova.id }))
+      setNovaUnidadeNome('')
+      setMsg('✓ Unidade “' + nova.nome + '” cadastrada. Já pode apontar a produção do turno.')
+    } catch (e: any) {
+      setMsg('✗ ' + erroAmigavel(e, 'Não foi possível cadastrar a unidade agora.'))
+    } finally { setCriandoUnidade(false) }
+  }
 
   async function salvar() {
     if (!form.unidade_id) { setMsg('✗ Escolha a unidade/planta antes de registrar o turno.'); return }
@@ -113,9 +140,26 @@ export default function ApontamentoPage() {
         </div>
       )}
       {semUnidade && (
-        <div className='p-4 rounded text-sm bg-amber-50 text-amber-900 space-y-1'>
-          <div className='font-medium'>Nenhuma unidade/planta cadastrada nesta empresa.</div>
-          <div>O apontamento é sempre por unidade (planta/frigorífico). Cadastre ao menos uma unidade da empresa para liberar o apontamento de produção.</div>
+        <div className='p-4 rounded text-sm bg-amber-50 text-amber-900 space-y-3'>
+          <div className='space-y-1'>
+            <div className='font-medium'>Nenhuma unidade/planta cadastrada nesta empresa.</div>
+            <div>O apontamento é sempre por unidade (planta/frigorífico). Cadastre a primeira unidade abaixo para liberar o apontamento de produção.</div>
+          </div>
+          <div className='flex flex-wrap gap-2 items-end'>
+            <label className='flex-1 min-w-[200px] block'>
+              <span className='text-xs uppercase tracking-wide flex items-center mb-1'>Nome da unidade / planta<AjudaCampo chave='industria.apontamento.nova_unidade' /></span>
+              <input
+                value={novaUnidadeNome}
+                onChange={e => setNovaUnidadeNome(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); criarUnidade() } }}
+                placeholder='Ex.: Planta Matriz — Abate'
+                className='w-full border rounded px-3 py-2 text-sm bg-white' />
+            </label>
+            <button type='button' onClick={criarUnidade} disabled={criandoUnidade || !novaUnidadeNome.trim()}
+              className='rounded px-4 py-2 text-sm font-medium bg-amber-700 text-white disabled:opacity-50'>
+              {criandoUnidade ? 'Cadastrando…' : 'Cadastrar unidade'}
+            </button>
+          </div>
         </div>
       )}
 
