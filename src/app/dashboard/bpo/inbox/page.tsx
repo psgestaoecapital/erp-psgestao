@@ -269,8 +269,9 @@ export default function BPOInboxPage() {
                 </span>
               )}
             </div>
-            <div style={{ fontSize: 14, fontWeight: 'bold', color: C.txt, marginBottom: 4 }}>
+            <div style={{ fontSize: 14, fontWeight: 'bold', color: C.txt, marginBottom: 4, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
               {item.titulo}
+              <AjudaCampo chave="bpo.inbox.linha" rota={ROTA} />
             </div>
             {item.descricao && (
               <div style={{ fontSize: 12, color: C.txtMedio, lineHeight: 1.4 }}>
