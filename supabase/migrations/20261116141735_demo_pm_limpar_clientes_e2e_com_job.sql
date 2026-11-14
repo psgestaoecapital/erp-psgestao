@@ -63,3 +63,10 @@ BEGIN
   GET DIAGNOSTICS v_n = ROW_COUNT;
   RETURN v_n;
 END $function$;
+
+-- ci-sem-guarda: fn_demo_pm_limpar_clientes_teste — helper de reset da DEMO, chamado por fn_demo_reset
+--   como conexão de serviço (sem sessão de usuário/empresa a conferir). A trava dura is_demo acima
+--   garante que só toca empresa DEMO (is_demo = true), nunca empresa real de cliente.
+-- Guarda de acesso (RD): função SECURITY DEFINER não é chamável por anônimo.
+REVOKE ALL ON FUNCTION public.fn_demo_pm_limpar_clientes_teste(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_demo_pm_limpar_clientes_teste(uuid) TO authenticated, service_role;
