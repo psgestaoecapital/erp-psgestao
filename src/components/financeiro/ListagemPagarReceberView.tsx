@@ -398,6 +398,10 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [conciliandoItem, setConciliandoItem] = useState<Resultado | null>(null)
   const [cartaoItem, setCartaoItem] = useState<Resultado | null>(null)   // F2 · registrar recebimento em cartão
   const [editandoItem, setEditandoItem] = useState<Resultado | null>(null)
+  // Deep-link do Fluxo de Caixa (RD-98 g): ?abrir=<id> abre a ficha daquele título (e ?excluir=1
+  // dispara a exclusão rastreável), para a tabela de Movimentações do fluxo ter Editar/Excluir por linha.
+  const [abrirId, setAbrirId] = useState<string | null>(null)
+  const [abrirAcao, setAbrirAcao] = useState<'editar' | 'excluir'>('editar')
   const [historicoItem, setHistoricoItem] = useState<Resultado | null>(null)
   const [historicoGlobalAberto, setHistoricoGlobalAberto] = useState(false)
   // Camada1/Fatia2 estabilizacao contas a pagar (08/07):
@@ -418,7 +422,25 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     // Chamado #5427 · "Faturada - ver na GE" (OS) chega com ?busca=<nº da OS>: abre a busca já preenchida e o período
     // largo (a OS pode ter parcelas fora do mês atual). Limpar o campo volta a lista ao normal.
     const buscaUrl = (qs.get('busca') ?? '').trim().slice(0, 80)
-    if (buscaUrl) {
+    // Fluxo de Caixa → ?abrir=<id do título> (+ ?excluir=1): abre a ficha (ou a exclusão) daquele
+    // lançamento. Precisa de período largo porque o título pode estar fora do mês atual; a paginação é
+    // client-side (todos os títulos do período já vêm do fn_ge_listagem_v2), então o alvo é encontrado
+    // em memória independentemente da página. Limpa a URL para não reabrir ao navegar/atualizar.
+    const abrirUrl = (qs.get('abrir') ?? '').trim().slice(0, 64)
+    if (abrirUrl) {
+      const ano = new Date().getFullYear()
+      setAbrirId(abrirUrl)
+      setAbrirAcao(qs.get('excluir') === '1' ? 'excluir' : 'editar')
+      setPeriodoChoice('personalizado')
+      setDataInicio(`${ano - 5}-01-01`)
+      setDataFim(`${ano + 5}-12-31`)
+      try {
+        const limpa = new URL(window.location.href)
+        limpa.searchParams.delete('abrir')
+        limpa.searchParams.delete('excluir')
+        window.history.replaceState(null, '', limpa.pathname + limpa.search)
+      } catch { /* history indisponível */ }
+    } else if (buscaUrl) {
       const ano = new Date().getFullYear()
       setBusca(buscaUrl)
       setPeriodoChoice('personalizado')
@@ -1082,6 +1104,18 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       },
     })
   }
+
+  // Deep-link do Fluxo de Caixa: quando ?abrir chegou e a lista (período largo) já carregou, localiza o
+  // título por id e abre a ficha — ou dispara a exclusão rastreável se veio ?excluir=1. Uma vez só.
+  useEffect(() => {
+    if (!abrirId) return
+    const alvo = (data?.resultados ?? []).find((r) => r.id === abrirId)
+    if (!alvo) return
+    setAbrirId(null)
+    if (abrirAcao === 'excluir') void excluir(alvo)
+    else setEditandoItem(alvo)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [abrirId, abrirAcao, data])
 
   // Edição em massa (Jordana #6) · aplica o MESMO valor do CAMPO escolhido a N selecionados. Reusa a RPC
   // do domínio (whitelist + pula pagos p/ valor/vencimento + RLS + log — RD-55/RD-57).

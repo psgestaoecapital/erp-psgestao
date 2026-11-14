@@ -1,0 +1,51 @@
+-- RD-95: "?" dos campos/filtros/ações da aba Pessoas da tela Indústria › RH › Gestão de Mão de Obra.
+-- PR5 do scaffold "Gestão de Mão de Obra" (ALOCAR PESSOA ao posto), agnóstico de ramo.
+-- Reaproveita os RPCs existentes fn_prod_posto_pessoa_alocar / fn_prod_posto_pessoa_desalocar (RLS por company_id,
+-- amarração por CPF ao cadastro da própria empresa). A fonte de pessoas é ind_pessoa (quadro industrial).
+-- Aditivo: só INSERT de texto de ajuda (ON CONFLICT (chave) DO NOTHING), nunca altera dado de cliente.
+-- Agente desenvolvedor_4_g (faixa de segundos :45–:54, acima da main).
+INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
+VALUES
+  ('maoobra.pessoa.posto', 'Mão de obra · Pessoas', 'Posto',
+   'Escolha o posto de trabalho para ver e gerenciar quem trabalha nele.',
+   'Alocar pessoas é sempre por posto — é assim que as horas e o custo de mão de obra sobem por posto e, depois, por produto.',
+   'Escolher "Desossa do dianteiro · Desossa" para ver quem está nesse posto.',
+   'Procurar a pessoa sem escolher o posto antes: a lista de pessoas só aparece depois de selecionar o posto.',
+   0, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado'),
+  ('maoobra.pessoa.busca', 'Mão de obra · Pessoas', 'Buscar pessoa',
+   'Digite parte do nome ou o CPF para filtrar o quadro de pessoas da empresa.',
+   'Encontra rápido quem você quer alocar quando a empresa tem muitos funcionários.',
+   'Digitar "silva" ou os primeiros números do CPF.',
+   'Esperar que a busca aloque a pessoa: ela só filtra a lista; a alocação é no botão "Alocar ao posto".',
+   1, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado'),
+  ('maoobra.pessoa.pessoa', 'Mão de obra · Pessoas', 'Pessoa',
+   'Escolha, no quadro da empresa, a pessoa que vai ocupar este posto.',
+   'Liga a pessoa ao posto; se o CPF casar com o cadastro da empresa, a alocação fica amarrada ao funcionário.',
+   'Escolher "Maria Silva — 123.456.789-00 (Desossa)".',
+   'Não achar a pessoa na lista: confirme que ela está ativa no quadro e com CPF; sem CPF não dá para alocar.',
+   2, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado'),
+  ('maoobra.pessoa.vigencia', 'Mão de obra · Pessoas', 'Início da alocação',
+   'A data em que a pessoa passou (ou vai passar) a trabalhar neste posto. Em branco = hoje.',
+   'Define desde quando contam as horas e o custo da pessoa neste posto; alocar de novo encerra a alocação anterior na véspera.',
+   'Deixar em branco para começar hoje, ou escolher o primeiro dia do mês de uma mudança de função.',
+   'Usar uma data futura achando que já vale hoje: a contagem começa na data informada.',
+   3, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado'),
+  ('maoobra.pessoa.alocar', 'Mão de obra · Pessoas', 'Alocar ao posto',
+   'Confirma a alocação da pessoa escolhida ao posto, a partir da data de início.',
+   'Registra quem trabalha no posto; é a base das horas e do custo de mão de obra por posto e por produto.',
+   'Escolher a pessoa e clicar em "Alocar ao posto".',
+   'Alocar a mesma pessoa duas vezes: o sistema encerra a alocação anterior e abre a nova, não duplica.',
+   4, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado'),
+  ('maoobra.pessoa.desalocar', 'Mão de obra · Pessoas', 'Encerrar alocação',
+   'Encerra a alocação da pessoa neste posto a partir de hoje.',
+   'Tira a pessoa do posto sem apagar o histórico — as horas e o custo até hoje continuam registrados.',
+   'Encerrar quando a pessoa muda de posto ou sai da empresa.',
+   'Esperar que apague o registro: ele é guardado; a pessoa só deixa de contar como ativa no posto.',
+   5, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado'),
+  ('maoobra.pessoa.mostrar_encerradas', 'Mão de obra · Pessoas', 'Mostrar encerradas',
+   'Marque para ver também as alocações já encerradas deste posto, além das vigentes.',
+   'Permite conferir o histórico de quem já passou pelo posto, sem poluir a visão do dia a dia.',
+   'Ligar para auditar quem trabalhou no posto no trimestre passado.',
+   'Achar que faltam pessoas: por padrão a lista mostra só quem está no posto agora; ligue aqui para ver as encerradas.',
+   6, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado')
+ON CONFLICT (chave) DO NOTHING;

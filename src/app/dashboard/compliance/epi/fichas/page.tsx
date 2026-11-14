@@ -157,7 +157,7 @@ export default function FichasEpiPage() {
         ) : filtradas.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 32, color: C.muted, background: '#FFFFFF', borderRadius: 12 }}>
             {linhas.length === 0
-              ? 'Nenhum funcionário ativo cadastrado. Use o módulo Funcionários do Compliance.'
+              ? 'Nenhum funcionário ativo cadastrado. Use o módulo Funcionários do EHS.'
               : 'Nenhum funcionário corresponde aos filtros selecionados.'}
           </div>
         ) : (
