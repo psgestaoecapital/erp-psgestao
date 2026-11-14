@@ -66,11 +66,21 @@ function Titulo({ t, nota, ajuda }: { t: string; nota?: string; ajuda?: string }
     </div>
   )
 }
-function BarrasH({ dados, cor, fmt, ref, onPick }: { dados: { rot: string; v: number; sel?: boolean }[]; cor: string; fmt: (v: number) => string; ref?: number | null; onPick?: (rot: string) => void }) {
+// Estado vazio de cada painel: além do texto "Sem dado…", oferece o próximo passo (ampliar o período)
+// para o usuário não ficar diante de um painel em branco sem saber o que fazer (RD-98 p4 · chamado #3337/bi-planta).
+function VazioPainel({ onAmpliar, texto = 'Sem dado no período.' }: { onAmpliar?: () => void; texto?: string }) {
+  return (
+    <div style={{ display: 'grid', gap: 8, justifyItems: 'start' }} data-testid="bi-planta-painel-vazio">
+      <span style={{ fontSize: 13, color: C.m }}>{texto}</span>
+      {onAmpliar && <button type="button" onClick={onAmpliar} style={{ font: 'inherit', fontSize: 12.5, padding: '6px 12px', borderRadius: 8, cursor: 'pointer', border: `1px solid ${C.esp}`, background: '#fff', color: C.esp }}>Ampliar para 12 meses</button>}
+    </div>
+  )
+}
+function BarrasH({ dados, cor, fmt, ref, onPick, onAmpliar }: { dados: { rot: string; v: number; sel?: boolean }[]; cor: string; fmt: (v: number) => string; ref?: number | null; onPick?: (rot: string) => void; onAmpliar?: () => void }) {
   const max = Math.max(1e-9, ...dados.map((d) => d.v), ref ?? 0)
   return (
     <div style={{ display: 'grid', gap: 7 }}>
-      {dados.length === 0 && <span style={{ fontSize: 13, color: C.m }}>Sem dado no período.</span>}
+      {dados.length === 0 && <VazioPainel onAmpliar={onAmpliar} />}
       {dados.map((d) => (
         <button key={d.rot} type="button" disabled={!onPick} onClick={onPick ? () => onPick(d.rot) : undefined} title={onPick ? `Ver só ${d.rot}` : d.rot}
           style={{ display: 'grid', gridTemplateColumns: 'minmax(96px, 38%) 1fr auto', gap: 8, alignItems: 'center', fontSize: 12, background: 'none', border: 0, padding: 0, font: 'inherit', color: C.esp, cursor: onPick ? 'pointer' : 'default', textAlign: 'left' }}>
@@ -85,11 +95,11 @@ function BarrasH({ dados, cor, fmt, ref, onPick }: { dados: { rot: string; v: nu
     </div>
   )
 }
-function Colunas({ dados, cor, corForte, onPick, fmtTopo }: { dados: { rot: string; v: number; forte?: boolean; dica: string }[]; cor: string; corForte?: string; onPick: (dica: string) => void; fmtTopo: (v: number) => string }) {
+function Colunas({ dados, cor, corForte, onPick, fmtTopo, onAmpliar }: { dados: { rot: string; v: number; forte?: boolean; dica: string }[]; cor: string; corForte?: string; onPick: (dica: string) => void; fmtTopo: (v: number) => string; onAmpliar?: () => void }) {
   const max = Math.max(1, ...dados.map((d) => d.v))
   return (
     <div style={{ display: 'flex', alignItems: 'flex-end', gap: 5, height: 190, paddingTop: 18, overflowX: 'auto' }}>
-      {dados.length === 0 && <span style={{ fontSize: 13, color: C.m }}>Sem dado no período.</span>}
+      {dados.length === 0 && <VazioPainel onAmpliar={onAmpliar} />}
       {dados.map((d, i) => (
         <button key={d.rot + i} type="button" onClick={() => onPick(d.dica)} title={d.dica}
           style={{ flex: '1 0 24px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, fontSize: 10, color: C.m, background: 'none', border: 0, padding: 0, cursor: 'pointer', font: 'inherit' }}>
@@ -101,8 +111,8 @@ function Colunas({ dados, cor, corForte, onPick, fmtTopo }: { dados: { rot: stri
     </div>
   )
 }
-function Linha({ dados, cor, fmt }: { dados: { rot: string; v: number }[]; cor: string; fmt: (v: number) => string }) {
-  if (dados.length < 2) return <span style={{ fontSize: 13, color: C.m }}>Poucos meses para desenhar a linha.</span>
+function Linha({ dados, cor, fmt, onAmpliar }: { dados: { rot: string; v: number }[]; cor: string; fmt: (v: number) => string; onAmpliar?: () => void }) {
+  if (dados.length < 2) return <VazioPainel onAmpliar={onAmpliar} texto="Poucos meses para desenhar a linha." />
   const W = 520, H = 190, L = 44, B = 22, T = 16
   const vs = dados.map((d) => d.v)
   const lo = Math.floor(Math.min(...vs) / 10) * 10 - 10, hi = Math.ceil(Math.max(...vs) / 10) * 10 + 10
@@ -170,6 +180,10 @@ export default function BiPlanta() {
   // meses (os períodos prontos vão só até lá). Automático só enquanto o usuário não escolheu um período.
   const autoAjustado = useRef(false)
   const tocouPeriodo = useRef(false)
+  // "Ampliar para 12 meses": ação de recuperação do estado vazio de cada painel (RD-98 p4). Só é oferecida
+  // quando não se está já nos 12 meses; marca que o usuário tocou o período (desliga o auto-ajuste).
+  const ampliar = useCallback(() => { tocouPeriodo.current = true; setOverride(null); setPer('365') }, [])
+  const ampliarPainel = per !== '365' ? ampliar : undefined
   useEffect(() => {
     if (autoAjustado.current || tocouPeriodo.current || override) return
     if (per !== 'mes' || !p?.ok || !p.resumo || p.resumo.cabecas !== 0) return
@@ -307,7 +321,7 @@ export default function BiPlanta() {
             <section style={grade(380)} aria-label="Abate">
               <div style={card}>
                 <Titulo t="Cabeças abatidas por dia" nota="Barra escura = mais da metade fêmeas. Toque numa barra para ver o detalhe." ajuda="planta.cabecas" />
-                <Colunas cor={C.gold2} corForte={C.gold} onPick={setDica} fmtTopo={(v) => int(v)}
+                <Colunas cor={C.gold2} corForte={C.gold} onPick={setDica} onAmpliar={ampliarPainel} fmtTopo={(v) => int(v)}
                   dados={p.dia.map((d) => ({ rot: dataBR(d.dia).slice(0, 5), v: d.cab, forte: d.femeas / d.cab > 0.5, dica: `${dataBR(d.dia)} · ${d.cab} cabeças · ${d.femeas} fêmeas · carcaça média ${n1(d.peso)} kg` }))} />
                 {dica && <div role="status" style={{ fontSize: 12, color: C.esp, background: C.bg2, borderRadius: 8, padding: '6px 10px' }}>{dica}</div>}
               </div>
@@ -321,11 +335,11 @@ export default function BiPlanta() {
             <section style={grade(380)} aria-label="Compra de gado">
               <div style={card}>
                 <Titulo t="Preço da arroba mês a mês" nota={mesesArroba.fora.length ? 'Meses fora do padrão ficam fora da linha (ver leituras).' : 'R$ por arroba de carcaça paga ao produtor.'} ajuda="planta.arroba" />
-                <Linha cor={C.verde} fmt={(v) => brl(v)} dados={mesesArroba.bons.map((m) => ({ rot: mesRot(m.mes).slice(0, 3), v: m.rs_arroba }))} />
+                <Linha cor={C.verde} fmt={(v) => brl(v)} onAmpliar={ampliarPainel} dados={mesesArroba.bons.map((m) => ({ rot: mesRot(m.mes).slice(0, 3), v: m.rs_arroba }))} />
               </div>
               <div style={card}>
                 <Titulo t="Preço da arroba por categoria" nota="O traço é a média do período." ajuda="planta.arroba" />
-                <BarrasH cor={C.gold} fmt={(v) => brl2(v)} ref={c.rs_arroba}
+                <BarrasH cor={C.gold} fmt={(v) => brl2(v)} ref={c.rs_arroba} onAmpliar={ampliarPainel}
                   dados={p.categorias.filter((x) => x.rs_arroba != null).sort((x, y) => (y.rs_arroba ?? 0) - (x.rs_arroba ?? 0)).map((x) => ({ rot: cap(x.categoria.replace(/ PARA ABATE/i, '')), v: x.rs_arroba ?? 0 }))} />
                 <div style={{ fontSize: 12, color: C.m }}>{p.categorias.map((x) => `${cap(x.categoria.replace(/ PARA ABATE/i, ''))}: ${int(x.cab)} cab.`).join(' · ')}</div>
               </div>
@@ -334,12 +348,12 @@ export default function BiPlanta() {
             <section style={grade(420)} aria-label="Origem do gado">
               <div style={card}>
                 <Titulo t="De onde veio o gado" nota="Valor comprado por cidade do produtor. Toque numa cidade para ver só ela." ajuda="planta.cidade" />
-                <BarrasH cor={C.verde} fmt={(v) => brlc(v)} onPick={(x) => setCidade(cidade === x ? '' : x)}
+                <BarrasH cor={C.verde} fmt={(v) => brlc(v)} onPick={(x) => setCidade(cidade === x ? '' : x)} onAmpliar={ampliarPainel}
                   dados={p.cidades.map((x) => ({ rot: x.cidade, v: x.valor, sel: cidade ? x.cidade === cidade : undefined }))} />
               </div>
               <div style={card}>
                 <Titulo t="Horas trabalhadas por setor" nota="Ponto eletrônico no período, sem nomes." ajuda="planta.horas" />
-                <BarrasH cor={C.azul} fmt={(v) => `${int(v)} h`} dados={p.setores.map((x) => ({ rot: cap(x.setor), v: x.horas }))} />
+                <BarrasH cor={C.azul} fmt={(v) => `${int(v)} h`} onAmpliar={ampliarPainel} dados={p.setores.map((x) => ({ rot: cap(x.setor), v: x.horas }))} />
               </div>
             </section>
 
