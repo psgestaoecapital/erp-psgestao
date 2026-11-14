@@ -826,10 +826,6 @@ export default function MeuPainelV6() {
             onAplicar={aplicarAnalise} exclusaoPadrao={exclusaoPadrao(base)} />
         </BlocoSeguro>
       )}
-
-      <div style={{ marginTop: 16, fontSize: 12, color: C.d }}>
-        <AjudaCampo chave="com.painel.faturado" rota={ROTA} /> Esta é a versão nova do painel. O painel atual continua disponível.
-      </div>
     </div>
   )
 }
