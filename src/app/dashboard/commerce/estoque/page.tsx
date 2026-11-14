@@ -21,6 +21,7 @@ import { selecionarTodas } from '@/lib/selecionarTodas'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import TabVeiculosRevenda, { type EstoqueVeiculos } from '@/components/estoque/TabVeiculosRevenda'
 import { BaixarPlanilhaContagemModal, SubirContagemModal } from '@/components/estoque/PlanilhaContagemInventario'
+import ProdutoForm, { type Produto as ProdutoFicha } from '@/components/cadastros/ProdutoForm'
 import {
   Plus, Search, Boxes, Package, ArrowRightLeft, BarChart3,
   X, Info, Trash2, Pencil, Download, Upload, Car,
@@ -489,6 +490,30 @@ function EstoqueInner() {
   const [produtosSrvTotal, setProdutosSrvTotal] = useState(0)
   const [produtosSrvLoading, setProdutosSrvLoading] = useState(false)
   const [produtosSrvPage, setProdutosSrvPage] = useState(1)
+  // Gap 5 (aud8 14/11): editar o produto SEM sair da tela de Estoque — a ficha abre aqui mesmo (ProdutoForm
+  // compartilhado, o mesmo da tela de Cadastros). `produtoFichaEdit` guarda a linha completa (select '*')
+  // pra o form não perder campo fiscal; `carregandoFicha` cobre o tempo da busca; bump de `recarregarProdutosSeq`
+  // recarrega a lista após salvar.
+  const [produtoFichaEdit, setProdutoFichaEdit] = useState<ProdutoFicha | null>(null)
+  const [carregandoFicha, setCarregandoFicha] = useState(false)
+  const [recarregarProdutosSeq, setRecarregarProdutosSeq] = useState(0)
+
+  const abrirFichaProduto = useCallback(async (id: string) => {
+    if (!companyIdUnico) { flashErr('Selecione uma empresa específica.'); return }
+    setCarregandoFicha(true)
+    try {
+      const { data, error } = await supabase
+        .from('erp_produtos').select('*')
+        .eq('company_id', companyIdUnico).eq('id', id).maybeSingle()
+      if (error) throw error
+      if (data) setProdutoFichaEdit(data as unknown as ProdutoFicha)
+      else flashErr('Produto não encontrado.')
+    } catch (err) {
+      setErro(erroAmigavel(err, 'Erro ao abrir a ficha do produto.'))
+    } finally {
+      setCarregandoFicha(false)
+    }
+  }, [companyIdUnico]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reset pagina quando filtros mudam
   useEffect(() => { setProdutosSrvPage(1) }, [filtroBusca, filtroCategoria, companyIdUnico])
@@ -543,7 +568,7 @@ function EstoqueInner() {
       }
     }, 300)
     return () => window.clearTimeout(handle)
-  }, [companyIdUnico, filtroBusca, filtroCategoria, produtosSrvPage]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [companyIdUnico, filtroBusca, filtroCategoria, produtosSrvPage, recarregarProdutosSeq]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Filtro estoque aplicado client-side na pagina exibida
   const produtosSrvFiltradosEstoque = useMemo(() => {
@@ -813,7 +838,7 @@ function EstoqueInner() {
           buscando={filtroBusca.trim().length >= 2}
           reservas={reservas}
           onSelect={setProdutoSel}
-          onEditar={(id) => router.push(`/dashboard/cadastros/produtos?edit=${id}`)}
+          onEditar={(id) => { void abrirFichaProduto(id) }}
         />
       ) : tab === 'movimentacoes' ? (
         <TabMovimentacoes
@@ -948,6 +973,25 @@ function EstoqueInner() {
           produtoInicial={showMovimentar.produto ?? null}
           onClose={() => setShowMovimentar(null)}
           onSubmit={movimentar}
+        />
+      )}
+
+      {/* Gap 5 (aud8 14/11): ficha do produto editável SEM sair do Estoque — mesmo ProdutoForm de Cadastros */}
+      {carregandoFicha && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center" aria-live="polite">
+          <div className="bg-white rounded-xl px-5 py-4 shadow-2xl text-[13px] text-[#3D2314]">Abrindo ficha do produto…</div>
+        </div>
+      )}
+      {produtoFichaEdit && companyIdUnico && (
+        <ProdutoForm
+          companyId={companyIdUnico}
+          produto={produtoFichaEdit}
+          onClose={() => setProdutoFichaEdit(null)}
+          onSalvo={() => {
+            setProdutoFichaEdit(null)
+            setRecarregarProdutosSeq((n) => n + 1)
+            void carregar()
+          }}
         />
       )}
     </div>
