@@ -42,8 +42,8 @@ export type GrupoProduto = 0 | 1 | 2 | 3
 export interface EstadoV5 {
   de: number
   ate: number
-  /** 'todos' ou índice do vendedor (number ou string numérica, como no protótipo). */
-  ven: 'todos' | number | string
+  /** 'todos', índice único (number/string) ou MULTI-SELEÇÃO (lista de índices). Lista vazia = nenhum. */
+  ven: 'todos' | number | string | number[]
   /** 'todas' ou grupo de produto (0..3). */
   lin: 'todas' | number | string
   /** 'preco' = exclusões afetam só preço/R$-por-kg; 'tudo' = exclusões saem de todo o painel. */
@@ -160,6 +160,16 @@ export function estadoPadrao(base: BaseV5): EstadoV5 {
   return { de: 0, ate: maxDia(base), ven: 'todos', lin: 'todas', escopo: 'preco', excl: exclusaoPadrao(base) }
 }
 
+/**
+ * Um item/devolução entra no recorte do filtro de vendedor? Aceita 'todos', um índice único (compat) ou uma
+ * LISTA de índices (multi-seleção). Lista vazia = nenhum vendedor marcado (recorte vazio).
+ */
+export function venInclui(sel: EstadoV5['ven'], vi: number): boolean {
+  if (sel === 'todos') return true
+  if (Array.isArray(sel)) return sel.includes(vi)
+  return +sel === vi
+}
+
 function novoAgregado(): Agregado {
   return {
     val: 0, kg: 0, valP: 0, kgP: 0, tab: 0, desc: 0, acima: 0, n: 0, ab: 0,
@@ -182,14 +192,14 @@ export function calcularModelo(base: BaseV5, estado: EstadoV5, pg?: GrupoProduto
   const its = B.items.filter(
     (x) =>
       x[0] >= st.de && x[0] <= st.ate &&
-      (st.ven === 'todos' || x[2] === +st.ven) &&
+      venInclui(st.ven, x[2]) &&
       (st.lin === 'todas' || PG[x[4]] === +st.lin) &&
       (st.escopo !== 'tudo' || inc(x[4])),
   )
   const devs = B.dev.filter(
     (x) =>
       (x[0] as number) >= st.de && (x[0] as number) <= st.ate &&
-      (st.ven === 'todos' || x[1] === +st.ven) &&
+      venInclui(st.ven, x[1] as number) &&
       (st.lin === 'todas' || ((x[3] as number) >= 0 && PG[x[3] as number] === +st.lin)) &&
       (st.escopo !== 'tudo' || (x[3] as number) < 0 || inc(x[3] as number)),
   )

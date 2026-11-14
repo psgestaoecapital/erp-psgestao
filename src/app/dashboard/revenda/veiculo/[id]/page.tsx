@@ -13,7 +13,7 @@ import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { mensagemDeResultado, estiloBordaInput } from '@/components/ui/feedback/contratoSalvar'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
-import { moedaMascara } from '@/lib/moeda-mascara'
+import { moedaMascara, numeroParaMoeda } from '@/lib/moeda-mascara'
 import { buscarClientesErp, nomeErp, type ErpCliente } from '@/components/pm/ClienteBusca'
 import { parseNumBR } from '@/lib/num'
 
@@ -1463,16 +1463,17 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
     observacao: v.observacao ?? '',
     // R7b (Tela 5): tipo do veículo — também alimenta a sugestão de NCM
     tipo: v.tipo ?? '',
-    // #5671: valor de aquisição editável (custo da compra)
-    valor_aquisicao: v.valor_aquisicao == null ? '' : String(v.valor_aquisicao),
-    // item 2c-c: fiscal do veículo
-    valor_fipe: vf.valor_fipe == null ? '' : String(vf.valor_fipe), ncm: vf.ncm ?? '', lugares: vf.lugares == null ? '' : String(vf.lugares),
+    // #5671: valor de aquisição editável (custo da compra) · #6874: máscara R$ ao digitar (CampoMoeda)
+    valor_aquisicao: numeroParaMoeda(v.valor_aquisicao),
+    // item 2c-c: fiscal do veículo · #6874: FIPE com máscara R$
+    valor_fipe: numeroParaMoeda(vf.valor_fipe), ncm: vf.ncm ?? '', lugares: vf.lugares == null ? '' : String(vf.lugares),
   })
   // Chamado #34 (Alliance): veículo consignado — dono e valor combinado (comissão da loja NÃO entra: é do acerto na venda)
   const vc = v as unknown as { consignado?: boolean | null; consignante_nome?: string | null; consignante_documento?: string | null; consignante_valor_combinado?: number | null }
   const [cons, setCons] = useState({
     consignado: !!vc.consignado, nome: vc.consignante_nome ?? '', documento: vc.consignante_documento ?? '',
-    valor: vc.consignante_valor_combinado == null ? '' : String(vc.consignante_valor_combinado).replace('.', ','),
+    // #6874: valor combinado com máscara R$ ao digitar (CampoMoeda)
+    valor: numeroParaMoeda(vc.consignante_valor_combinado),
   })
   const [consBusy, setConsBusy] = useState(false)
   const [consMsg, setConsMsg] = useState<{ ok: boolean; t: string } | null>(null)
@@ -1483,9 +1484,9 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
     if (cons.documento.trim() && doc.length !== 11 && doc.length !== 14) { setConsMsg({ ok: false, t: 'CPF/CNPJ inválido — use 11 ou 14 dígitos.' }); return }
     let valor: number | null = null
     if (cons.valor.trim()) {
-      const bruto = cons.valor.trim()
-      const n = Number(bruto.includes(',') ? bruto.replace(/\./g, '').replace(',', '.') : bruto)
-      if (!Number.isFinite(n) || n < 0) { setConsMsg({ ok: false, t: 'Valor combinado inválido — ex.: 58000 ou 58.000,00.' }); return }
+      // #6874: o campo agora é mascarado (R$) — moedaNum interpreta "R$ 58.000,00", "58000" ou "58.000,00"
+      const n = moedaNum(cons.valor)
+      if (n == null || !Number.isFinite(n) || n < 0) { setConsMsg({ ok: false, t: 'Valor combinado inválido — ex.: 58000 ou 58.000,00.' }); return }
       valor = n
     }
     setConsBusy(true)
@@ -1539,7 +1540,7 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
     </CampoRot>
   )
   // #5662: avisos (não bloqueiam) para valores implausíveis
-  const nCil = numBR(f.cilindradas), nAq = numBR(f.valor_aquisicao)
+  const nCil = numBR(f.cilindradas), nAq = moedaNum(f.valor_aquisicao)
   const avisoCil = nCil != null && nCil > 0 && nCil < 50 ? `Parece pouco: cilindradas se informa em cc (ex.: 1800), não em litros nem em número de cilindros.` : null
   const avisoAq = nAq != null && nAq > 0 && v.preco_venda != null && v.preco_venda > 0 && nAq < v.preco_venda * 0.25
     ? `Aquisição muito abaixo do preço de venda (${brl(v.preco_venda)}). Confira se não falta um zero.` : null
@@ -1589,7 +1590,7 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
         {F('portas', 'portas', 70)}{F('cambio', 'câmbio', 100)}
         {F('ano_fabricacao', 'ano fab.', 80)}{F('ano_modelo', 'ano mod.', 80)}{F('renavam', 'renavam', 120)}
         <CampoRot id="campo-valor_aquisicao" ajuda="revenda.veiculo.valor_aquisicao" rotulo="Valor de aquisição (R$)" dica="Pago na compra, ex.: 72.956,00" aviso={avisoAq}>
-          <input id="campo-valor_aquisicao" value={f.valor_aquisicao} onChange={(e) => setF({ ...f, valor_aquisicao: e.target.value })} inputMode="decimal" placeholder="aquisição (R$)" style={{ ...inp, width: 130, ...estiloBordaInput(campo === 'valor_aquisicao' ? 'x' : null) }} />
+          <CampoMoeda id="campo-valor_aquisicao" value={f.valor_aquisicao} onChange={(v) => setF({ ...f, valor_aquisicao: v })} placeholder="aquisição (R$)" style={{ ...inp, width: 130, ...estiloBordaInput(campo === 'valor_aquisicao' ? 'x' : null) }} />
         </CampoRot>
       </div>
       {pareceAno(f.modelo) && (
@@ -1606,7 +1607,7 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
           {F('potencia_cv', 'potência (cv)', 110)}{F('cilindradas', f.tipo === 'moto' ? 'cilindradas (moto: define o NCM)' : 'cilindradas', f.tipo === 'moto' ? 210 : 110, { dica: 'Em cc, ex.: 1800. Define o NCM sugerido', aviso: avisoCil })}
           <CampoRot id="campo-valor_fipe" ajuda="revenda.veiculo.valor_fipe" rotulo="Valor FIPE (R$)" dica="Tabela FIPE, ex.: 72.956,00">
-            <input id="campo-valor_fipe" value={f.valor_fipe} onChange={(e) => setF({ ...f, valor_fipe: e.target.value })} inputMode="decimal" placeholder="valor FIPE (R$)" style={{ ...inp, width: 130, ...estiloBordaInput(campo === 'valor_fipe' ? 'x' : null) }} />
+            <CampoMoeda id="campo-valor_fipe" value={f.valor_fipe} onChange={(v) => setF({ ...f, valor_fipe: v })} placeholder="valor FIPE (R$)" style={{ ...inp, width: 130, ...estiloBordaInput(campo === 'valor_fipe' ? 'x' : null) }} />
           </CampoRot>
           <CampoRot id="campo-ncm" ajuda="revenda.veiculo.ncm" rotulo="NCM" dica="8 dígitos, ex.: 87032310">
             <input id="campo-ncm" value={f.ncm} onChange={(e) => setF({ ...f, ncm: e.target.value })} inputMode="numeric" placeholder="NCM (8 dígitos)" style={{ ...inp, width: 130, fontFamily: 'monospace', ...estiloBordaInput(campo === 'ncm' ? 'x' : null) }} />
@@ -1641,7 +1642,7 @@ function DadosVeiculo({ v, faltantes, sugestaoAno, onSaved, onErro }: { v: Veic;
               <AjudaCampo chave="revenda.veiculo.consignante_documento" rota="/dashboard/revenda/veiculo" />
             </label>
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <input id="campo-consignante_valor_combinado" value={cons.valor} onChange={(e) => setCons({ ...cons, valor: e.target.value })} inputMode="decimal" placeholder="valor combinado (R$)" style={{ ...inp, width: 160 }} />
+              <CampoMoeda id="campo-consignante_valor_combinado" value={cons.valor} onChange={(v) => setCons({ ...cons, valor: v })} placeholder="valor combinado (R$)" style={{ ...inp, width: 160 }} />
               <AjudaCampo chave="revenda.veiculo.consignante_valor_combinado" rota="/dashboard/revenda/veiculo" />
             </label>
           </>)}
