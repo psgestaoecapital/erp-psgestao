@@ -11,6 +11,11 @@
 -- `incluido` (1 = entra na comparação/média; 0 = fica só no total). O motor do painel (motor-v5.ts) lê esse
 -- flag; versões antigas do front ignoram o elemento extra do array (o total nunca muda). O escopo (RD-82),
 -- os índices das dimensões, os `items`/`dev` e o restante do retorno ficam BYTE A BYTE iguais.
+--
+-- AJUSTE DE REVISÃO (gilberto-revisor, 14/11): este CREATE OR REPLACE parte da DEFINIÇÃO VIVA em produção
+-- (migration 20261116091815_bi_comercial_scope_vinculo_unico_hierarquia), que tem a HIERARQUIA de equipe
+-- (`v_cods` = próprio código + toda a equipe abaixo; filtros `v_modo='lider' OR ... = ANY(v_cods)`). A única
+-- mudança sobre essa base é o 3º elemento `incluido` no `ven`. A hierarquia de líder é PRESERVADA.
 
 -- 1) BASE: `ven` passa a carregar [cod, nome, incluido]. Default incluido=1; só vira 0 quando houver linha
 --    em com_ranking_participante com incluido=false para aquele (empresa, vendedor).
@@ -25,6 +30,7 @@ DECLARE
   v_scope jsonb;
   v_modo  text;
   v_cod   text;
+  v_cods  text[];
   v_ate   date := COALESCE(p_ate, current_date);
   v_de    date := COALESCE(p_de, v_ate - 30);
   v_out   jsonb;
@@ -40,10 +46,12 @@ BEGIN
   v_scope := public.fn_bi_comercial_scope(p_company_id);
   v_modo  := v_scope->>'modo';
   v_cod   := v_scope->>'cod';
+  -- cods = próprio código + toda a equipe abaixo (scope já expandiu a hierarquia); vazio p/ líder.
+  v_cods  := ARRAY(SELECT jsonb_array_elements_text(COALESCE(v_scope->'cods', '[]'::jsonb)));
   IF v_modo IS NULL OR v_modo = 'sem_acesso' THEN
     RAISE EXCEPTION 'sem_acesso_comercial';
   END IF;
-  -- v_modo ∈ ('lider','vendedor'); 'vendedor' => só o próprio código.
+  -- v_modo ∈ ('lider','vendedor'); 'vendedor' => o próprio código + a equipe abaixo (v_cods).
 
   WITH
   -- Espinho de venda (reuso), já filtrado por escopo.
@@ -52,7 +60,7 @@ BEGIN
            i.produto_cod, i.produto, i.linha, i.carne,
            i.kg, i.valor, i.valor_tabela, i.carga, i.transportador
     FROM public.fn_com_venda_item(p_company_id, v_de, v_ate) i
-    WHERE (v_modo = 'lider' OR i.vendedor = v_cod)
+    WHERE (v_modo = 'lider' OR i.vendedor = ANY(v_cods))
   ),
   -- Campos extras por chave, do raw de venda (mesmos filtros da fn_com_venda_item).
   raw AS (
@@ -69,7 +77,7 @@ BEGIN
       AND trim(f.raw->>'COD_PRODUTO') <> '10'
       AND left(f.raw->>'DATA_MOVTO', 10) >= to_char(v_de, 'YYYY-MM-DD')
       AND left(f.raw->>'DATA_MOVTO', 10) <= to_char(v_ate, 'YYYY-MM-DD')
-      AND (v_modo = 'lider' OR COALESCE(NULLIF(trim(f.raw->>'COD_VEND_COMP'), ''), 's/v') = v_cod)
+      AND (v_modo = 'lider' OR COALESCE(NULLIF(trim(f.raw->>'COD_VEND_COMP'), ''), 's/v') = ANY(v_cods))
   ),
   ven_nome AS (SELECT ven AS cod, max(vnome) AS nome FROM raw GROUP BY ven),
   cli_cpf  AS (SELECT cli AS cod, max(cpf)   AS cpf  FROM raw WHERE cli IS NOT NULL GROUP BY cli),
@@ -91,7 +99,7 @@ BEGIN
       AND trim(f.raw->>'STATUS') <> 'C'
       AND left(f.raw->>'DATA_MOVTO', 10) >= to_char(v_de, 'YYYY-MM-DD')
       AND left(f.raw->>'DATA_MOVTO', 10) <= to_char(v_ate, 'YYYY-MM-DD')
-      AND (v_modo = 'lider' OR COALESCE(NULLIF(trim(f.raw->>'COD_VEND_COMP'), ''), 's/v') = v_cod)
+      AND (v_modo = 'lider' OR COALESCE(NULLIF(trim(f.raw->>'COD_VEND_COMP'), ''), 's/v') = ANY(v_cods))
   ),
   -- Dimensão VENDEDOR (venda ∪ devolução), índice estável por código.
   ven_d AS (
