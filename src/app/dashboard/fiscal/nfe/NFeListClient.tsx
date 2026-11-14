@@ -413,7 +413,7 @@ export default function NFeListClient() {
             <label className="inline-flex items-center gap-2 text-[12px] text-[#3D2314]/80 cursor-pointer select-none">
               <input type="checkbox" checked={mostrarRecusadas} onChange={(e) => { setMostrarRecusadas(e.target.checked); setPagina(1) }}
                 data-testid="nfe-mostrar-recusadas" className="accent-[#C8941A]" />
-              Mostrar tentativas recusadas (visão antiga)
+              <span className="flex items-center gap-1">Mostrar tentativas recusadas (visão antiga) <AjudaCampo chave="fiscal.nfe.mostrar_recusadas" /></span>
             </label>
             <div className="flex gap-2">
               <button type="button" onClick={resetFiltros} className="px-3 py-1.5 text-[12px] font-medium rounded-lg border border-[#3D2314]/15 text-[#3D2314] hover:bg-[#3D2314]/5">Limpar</button>
@@ -523,11 +523,13 @@ export default function NFeListClient() {
               </div>
             </div>
             <div className="mb-3">
-              <label className="block text-[11.5px] font-medium text-[#3D2314] mb-1.5">Texto da correção (15-1000 caracteres) <span className="text-[#A32D2D]">*</span></label>
-              <textarea value={ccCorrecao} onChange={(e) => setCcCorrecao(e.target.value)} rows={5} maxLength={1000}
-                placeholder="Ex: Onde se lê 'Av. das Flores 123', leia-se 'Av. das Flores 132'."
-                className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A] resize-none"
-                disabled={enviandoCC} data-testid="nfe-cc-texto" />
+              <label className="block">
+                <span className="block text-[11.5px] font-medium text-[#3D2314] mb-1.5 flex items-center gap-1">Texto da correção (15-1000 caracteres) <span className="text-[#A32D2D]">*</span> <AjudaCampo chave="fiscal.nfe.acao_carta_correcao" /></span>
+                <textarea value={ccCorrecao} onChange={(e) => setCcCorrecao(e.target.value)} rows={5} maxLength={1000}
+                  placeholder="Ex: Onde se lê 'Av. das Flores 123', leia-se 'Av. das Flores 132'."
+                  className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A] resize-none"
+                  disabled={enviandoCC} data-testid="nfe-cc-texto" />
+              </label>
               <div className="flex justify-between mt-1 text-[10.5px]">
                 <span className={ccCorrecao.length < 15 ? 'text-[#A32D2D]' : 'text-[#3D2314]/55'}>{ccCorrecao.length}/15 mínimo</span>
                 <span className={ccCorrecao.length > 1000 ? 'text-[#A32D2D]' : 'text-[#3D2314]/55'}>{ccCorrecao.length}/1000</span>
@@ -558,11 +560,13 @@ export default function NFeListClient() {
               </div>
             </div>
             <div className="mb-3">
-              <label className="block text-[11.5px] font-medium text-[#3D2314] mb-1.5">Justificativa (mínimo 15 caracteres) <span className="text-[#A32D2D]">*</span></label>
-              <textarea value={justifCancel} onChange={(e) => setJustifCancel(e.target.value)} rows={3} maxLength={255}
-                placeholder="Ex: Erro no destinatário · Reemissão necessária"
-                className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#A32D2D] resize-none"
-                disabled={enviandoCancel} data-testid="nfe-cancelar-justificativa" />
+              <label className="block">
+                <span className="block text-[11.5px] font-medium text-[#3D2314] mb-1.5 flex items-center gap-1">Justificativa (mínimo 15 caracteres) <span className="text-[#A32D2D]">*</span> <AjudaCampo chave="fiscal.nfe.acao_cancelar" /></span>
+                <textarea value={justifCancel} onChange={(e) => setJustifCancel(e.target.value)} rows={3} maxLength={255}
+                  placeholder="Ex: Erro no destinatário · Reemissão necessária"
+                  className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#A32D2D] resize-none"
+                  disabled={enviandoCancel} data-testid="nfe-cancelar-justificativa" />
+              </label>
               <div className="flex justify-between mt-1 text-[10.5px]">
                 <span className={justifCancel.length < 15 ? 'text-[#A32D2D]' : 'text-[#3D2314]/55'}>{justifCancel.length}/15 mínimo</span>
                 <span className="text-[#3D2314]/55">{justifCancel.length}/255</span>

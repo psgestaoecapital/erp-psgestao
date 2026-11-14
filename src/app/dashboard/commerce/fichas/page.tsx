@@ -21,6 +21,7 @@ import {
   Package, Calculator, ListChecks, Info,
 } from 'lucide-react'
 
+const ROTA = '/dashboard/commerce/fichas'
 const C = {
   espresso: '#3D2314',
   espressoM: '#6B5D4F',
@@ -59,10 +60,6 @@ type FichaTec = {
   ativo: boolean | null
   created_at: string | null
   updated_at: string | null
-  // Derivados da view v_ficha_resumo (custo/preço por ficha já na listagem):
-  materiais?: number | null
-  custo_total?: number | null
-  preco_venda?: number | null
 }
 
 type FichaItem = {
@@ -114,10 +111,8 @@ export default function FichasCommercePage() {
     let alive = true
     setLoadingFichas(true)
     ;(async () => {
-      // v_ficha_resumo: traz as colunas da ficha + custo_total/preco_venda calculados por ficha
-      // (jornada: o preço aparece na lista sem abrir cada uma) e já exclui fichas com deleted_at.
       const { data } = await supabase
-        .from('v_ficha_resumo')
+        .from('fichas_tecnicas')
         .select('*')
         .eq('company_id', companyIdUnico)
         .order('categoria', { ascending: true, nullsFirst: true })
@@ -139,7 +134,6 @@ export default function FichasCommercePage() {
         .from('ficha_itens')
         .select('*')
         .eq('ficha_id', selFichaId)
-        .is('deleted_at', null)
         .order('ordem', { ascending: true, nullsFirst: true })
       if (alive) setItensCache((prev) => ({ ...prev, [selFichaId]: (data ?? []) as FichaItem[] }))
     })()
@@ -182,21 +176,20 @@ export default function FichasCommercePage() {
       flash('Selecione uma empresa especifica no menu para criar fichas.')
       return
     }
+    // RD-98 p3 · escrita rastreável e guardada no servidor (fn_ficha_tecnica_salvar
+    // confere o acesso à empresa via get_user_company_ids()/is_admin()). Sem p_id = INSERT.
     const { data, error } = await supabase
-      .from('fichas_tecnicas')
-      .insert({
-        company_id: companyIdUnico,
-        nome: nome.trim(),
-        categoria,
-        unidade: 'm²',
-        mao_obra_direta: 0,
-        custos_indiretos_pct: 15,
-        impostos_pct: 8.65,
-        markup_pct: 30,
-        ativo: true,
+      .rpc('fn_ficha_tecnica_salvar', {
+        p_company_id: companyIdUnico,
+        p_nome: nome.trim(),
+        p_categoria: categoria,
+        p_unidade: 'm²',
+        p_mao_obra_direta: 0,
+        p_custos_indiretos_pct: 15,
+        p_impostos_pct: 8.65,
+        p_markup_pct: 30,
+        p_ativo: true,
       })
-      .select()
-      .single()
     if (error) {
       flash(erroAmigavel(error, 'Não foi possível criar a ficha. Tente de novo.'))
       return
@@ -210,10 +203,19 @@ export default function FichasCommercePage() {
   }
 
   async function atualizarFicha(id: string, patch: Partial<FichaTec>) {
-    const { error } = await supabase
-      .from('fichas_tecnicas')
-      .update({ ...patch, updated_at: new Date().toISOString() })
-      .eq('id', id)
+    // Update PARCIAL: só manda os campos tocados; a RPC usa COALESCE e preserva o resto.
+    const args: Record<string, unknown> = { p_id: id }
+    if (patch.nome !== undefined) args.p_nome = patch.nome
+    if (patch.categoria !== undefined) args.p_categoria = patch.categoria
+    if (patch.descricao !== undefined) args.p_descricao = patch.descricao
+    if (patch.unidade !== undefined) args.p_unidade = patch.unidade
+    if (patch.codigo !== undefined) args.p_codigo = patch.codigo
+    if (patch.mao_obra_direta !== undefined) args.p_mao_obra_direta = patch.mao_obra_direta
+    if (patch.custos_indiretos_pct !== undefined) args.p_custos_indiretos_pct = patch.custos_indiretos_pct
+    if (patch.impostos_pct !== undefined) args.p_impostos_pct = patch.impostos_pct
+    if (patch.markup_pct !== undefined) args.p_markup_pct = patch.markup_pct
+    if (patch.ativo !== undefined) args.p_ativo = patch.ativo
+    const { error } = await supabase.rpc('fn_ficha_tecnica_salvar', args)
     if (error) {
       flash(erroAmigavel(error, 'Não foi possível salvar a ficha. Tente de novo.'))
       return
@@ -222,12 +224,10 @@ export default function FichasCommercePage() {
   }
 
   async function excluirFicha(id: string) {
-    if (!confirm('Excluir esta ficha e seus itens? A exclusão fica registrada (quem e quando).')) return
-    // RD-98 p4: exclusão RASTREÁVEL via RPC guardada (soft-delete), nunca DELETE físico.
-    const { data, error } = await supabase.rpc('fn_ficha_excluir', { p_id: id, p_motivo: null })
-    const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) {
-      flash(r?.erro ?? erroAmigavel(error, 'Não foi possível excluir a ficha. Tente de novo.'))
+    if (!confirm('Excluir esta ficha e todos os itens? Esta ação não pode ser desfeita.')) return
+    const { error } = await supabase.rpc('fn_ficha_tecnica_excluir', { p_id: id })
+    if (error) {
+      flash(erroAmigavel(error, 'Não foi possível excluir a ficha. Tente de novo.'))
       return
     }
     setFichas((prev) => prev.filter((f) => f.id !== id))
@@ -238,10 +238,7 @@ export default function FichasCommercePage() {
   async function addItem(fichaId: string) {
     const ordemNova = (itensCache[fichaId]?.length ?? 0) + 1
     const { data, error } = await supabase
-      .from('ficha_itens')
-      .insert({ ficha_id: fichaId, ordem: ordemNova, nome: 'Novo item', unidade: 'un', quantidade: 1, preco_unitario: 0 })
-      .select()
-      .single()
+      .rpc('fn_ficha_item_salvar', { p_ficha_id: fichaId, p_ordem: ordemNova, p_nome: 'Novo item', p_unidade: 'un', p_quantidade: 1, p_preco_unitario: 0 })
     if (error) {
       flash(erroAmigavel(error, 'Não foi possível adicionar o item. Tente de novo.'))
       return
@@ -255,7 +252,16 @@ export default function FichasCommercePage() {
   }
 
   async function atualizarItem(itemId: string, fichaId: string, patch: Partial<FichaItem>) {
-    const { error } = await supabase.from('ficha_itens').update(patch).eq('id', itemId)
+    const args: Record<string, unknown> = { p_id: itemId }
+    if (patch.ordem !== undefined) args.p_ordem = patch.ordem
+    if (patch.codigo !== undefined) args.p_codigo = patch.codigo
+    if (patch.nome !== undefined) args.p_nome = patch.nome
+    if (patch.unidade !== undefined) args.p_unidade = patch.unidade
+    if (patch.quantidade !== undefined) args.p_quantidade = patch.quantidade
+    if (patch.preco_unitario !== undefined) args.p_preco_unitario = patch.preco_unitario
+    if (patch.fornecedor !== undefined) args.p_fornecedor = patch.fornecedor
+    if (patch.obs !== undefined) args.p_obs = patch.obs
+    const { error } = await supabase.rpc('fn_ficha_item_salvar', args)
     if (error) {
       flash(erroAmigavel(error, 'Não foi possível salvar o item. Tente de novo.'))
       return
@@ -267,11 +273,9 @@ export default function FichasCommercePage() {
   }
 
   async function excluirItem(itemId: string, fichaId: string) {
-    // RD-98 p4: exclusão RASTREÁVEL via RPC guardada (soft-delete), nunca DELETE físico.
-    const { data, error } = await supabase.rpc('fn_ficha_item_excluir', { p_item_id: itemId })
-    const r = data as { ok?: boolean; erro?: string } | null
-    if (error || !r?.ok) {
-      flash(r?.erro ?? erroAmigavel(error, 'Não foi possível excluir o item. Tente de novo.'))
+    const { error } = await supabase.rpc('fn_ficha_item_excluir', { p_id: itemId })
+    if (error) {
+      flash(erroAmigavel(error, 'Não foi possível excluir o item. Tente de novo.'))
       return
     }
     setItensCache((prev) => ({
@@ -312,6 +316,23 @@ export default function FichasCommercePage() {
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button
             type="button"
+            disabled
+            title="Em breve"
+            style={{
+              padding: '8px 14px',
+              borderRadius: 8,
+              border: `1px solid ${C.border}`,
+              background: C.cream,
+              color: C.espressoL,
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: 'not-allowed',
+            }}
+          >
+            Importar CSV (em breve)
+          </button>
+          <button
+            type="button"
             onClick={() => setShowNova(true)}
             disabled={!canCreate}
             title={canCreate ? 'Criar nova ficha tecnica' : 'Selecione uma empresa especifica para criar fichas'}
@@ -331,7 +352,6 @@ export default function FichasCommercePage() {
           >
             <Plus size={14} /> Nova Ficha Técnica
           </button>
-          <AjudaCampo chave="commerce.fichas.acao.nova" />
         </div>
       </header>
 
@@ -392,10 +412,10 @@ export default function FichasCommercePage() {
           alignItems: 'center',
         }}
       >
-        <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 180, display: 'flex', alignItems: 'center', gap: 4 }}>
+        <div data-ajuda="commerce.fichas.busca" style={{ position: 'relative', flex: '1 1 240px', minWidth: 180 }}>
           <Search
             size={14}
-            style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.espressoL, zIndex: 1 }}
+            style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.espressoL }}
           />
           <input
             type="text"
@@ -403,7 +423,7 @@ export default function FichasCommercePage() {
             value={filtroBusca}
             onChange={(e) => setFiltroBusca(e.target.value)}
             style={{
-              flex: 1,
+              width: '100%',
               padding: '8px 10px 8px 32px',
               border: `1px solid ${C.border}`,
               borderRadius: 8,
@@ -413,30 +433,30 @@ export default function FichasCommercePage() {
               outline: 'none',
             }}
           />
-          <AjudaCampo chave="commerce.fichas.filtro.busca" />
+          <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)' }}>
+            <AjudaCampo chave="commerce.fichas.busca" rota={ROTA} />
+          </span>
         </div>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-          <select
-            value={filtroCat}
-            onChange={(e) => setFiltroCat(e.target.value)}
-            style={{
-              padding: '8px 10px',
-              border: `1px solid ${C.border}`,
-              borderRadius: 8,
-              fontSize: 12,
-              background: C.white,
-              color: C.espresso,
-              cursor: 'pointer',
-              minWidth: 140,
-            }}
-          >
-            <option value="">Todas as categorias</option>
-            {CATEGORIAS.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-          <AjudaCampo chave="commerce.fichas.filtro.categoria" />
-        </div>
+        <select
+          value={filtroCat}
+          onChange={(e) => setFiltroCat(e.target.value)}
+          style={{
+            padding: '8px 10px',
+            border: `1px solid ${C.border}`,
+            borderRadius: 8,
+            fontSize: 12,
+            background: C.white,
+            color: C.espresso,
+            cursor: 'pointer',
+            minWidth: 140,
+          }}
+        >
+          <option value="">Todas as categorias</option>
+          {CATEGORIAS.map((c) => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
+        <AjudaCampo chave="commerce.fichas.filtro_categoria" rota={ROTA} />
         <span style={{ marginLeft: 'auto', fontSize: 11, color: C.espressoM }}>
           {fichasFiltradas.length} de {fichas.length}
         </span>
@@ -473,21 +493,18 @@ export default function FichasCommercePage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 720 }}>
               <thead style={{ background: C.cream }}>
                 <tr>
-                  <Th>Código <AjudaCampo chave="commerce.fichas.col.codigo" /></Th>
-                  <Th>Nome <AjudaCampo chave="commerce.fichas.col.nome" /></Th>
-                  <Th>Categoria <AjudaCampo chave="commerce.fichas.col.categoria" /></Th>
-                  <Th>Unid. <AjudaCampo chave="commerce.fichas.col.unidade" /></Th>
-                  <Th align="right">Custo total <AjudaCampo chave="commerce.fichas.col.custo_total" /></Th>
-                  <Th align="right">Preço venda <AjudaCampo chave="commerce.fichas.col.preco_venda" /></Th>
+                  <Th>Código</Th>
+                  <Th>Nome</Th>
+                  <Th>Categoria</Th>
+                  <Th>Unid.</Th>
+                  <Th align="right">Custo total</Th>
+                  <Th align="right">Preço venda</Th>
                 </tr>
               </thead>
               <tbody>
                 {fichasFiltradas.map((f) => {
                   const items = itensCache[f.id] ?? null
-                  // Itens carregados (ficha aberta) → cálculo ao vivo; senão, o valor já calculado pela view.
                   const calc = items ? calcular(f, items) : null
-                  const custoTotal = calc ? calc.custoTotal : (f.custo_total ?? null)
-                  const precoVenda = calc ? calc.precoVenda : (f.preco_venda ?? null)
                   return (
                     <tr
                       key={f.id}
@@ -508,8 +525,8 @@ export default function FichasCommercePage() {
                       <Td><span style={{ fontWeight: 600 }}>{f.nome}</span></Td>
                       <Td>{f.categoria ?? '—'}</Td>
                       <Td>{f.unidade ?? '—'}</Td>
-                      <Td align="right">{custoTotal != null ? fmtBRL(custoTotal) : '—'}</Td>
-                      <Td align="right"><strong style={{ color: C.gold }}>{precoVenda != null ? fmtBRL(precoVenda) : '—'}</strong></Td>
+                      <Td align="right">{calc ? fmtBRL(calc.custoTotal) : '—'}</Td>
+                      <Td align="right"><strong style={{ color: C.gold }}>{calc ? fmtBRL(calc.precoVenda) : '—'}</strong></Td>
                     </tr>
                   )
                 })}
@@ -674,7 +691,7 @@ function ModalNovaFicha({ onClose, onCreate }: { onClose: () => void; onCreate: 
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Nome *</span>
+            <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>Nome *<AjudaCampo chave="commerce.fichas.nome" rota={ROTA} /></span>
             <input
               autoFocus
               value={nome}
@@ -684,7 +701,7 @@ function ModalNovaFicha({ onClose, onCreate }: { onClose: () => void; onCreate: 
             />
           </label>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Categoria</span>
+            <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>Categoria<AjudaCampo chave="commerce.fichas.categoria" rota={ROTA} /></span>
             <select
               value={cat}
               onChange={(e) => setCat(e.target.value)}
@@ -790,7 +807,7 @@ function Drawer({
             aberto={aberto.ident}
             onToggle={() => setAberto((p) => ({ ...p, ident: !p.ident }))}
           >
-            <Field label="Código" ajuda="commerce.fichas.campo.codigo">
+            <Field label="Código" ajuda="commerce.fichas.codigo">
               <input
                 defaultValue={ficha.codigo ?? ''}
                 onBlur={(e) => onUpdate({ codigo: e.target.value || null })}
@@ -798,24 +815,24 @@ function Drawer({
                 style={inp}
               />
             </Field>
-            <Field label="Nome" ajuda="commerce.fichas.campo.nome">
+            <Field label="Nome" ajuda="commerce.fichas.nome">
               <input defaultValue={ficha.nome} onBlur={(e) => onUpdate({ nome: e.target.value })} style={inp} />
             </Field>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
-              <Field label="Categoria" ajuda="commerce.fichas.campo.categoria">
+              <Field label="Categoria" ajuda="commerce.fichas.categoria">
                 <select defaultValue={ficha.categoria ?? ''} onChange={(e) => onUpdate({ categoria: e.target.value || null })} style={inp}>
                   <option value="">—</option>
                   {CATEGORIAS.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               </Field>
-              <Field label="Unidade" ajuda="commerce.fichas.campo.unidade">
+              <Field label="Unidade" ajuda="commerce.fichas.unidade">
                 <select defaultValue={ficha.unidade ?? ''} onChange={(e) => onUpdate({ unidade: e.target.value || null })} style={inp}>
                   <option value="">—</option>
                   {UNIDADES.map((u) => <option key={u} value={u}>{u}</option>)}
                 </select>
               </Field>
             </div>
-            <Field label="Descrição" ajuda="commerce.fichas.campo.descricao">
+            <Field label="Descrição" ajuda="commerce.fichas.descricao">
               <textarea
                 defaultValue={ficha.descricao ?? ''}
                 onBlur={(e) => onUpdate({ descricao: e.target.value || null })}
@@ -849,12 +866,12 @@ function Drawer({
                 <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
                   <thead style={{ background: C.cream }}>
                     <tr>
-                      <Th>Nome <AjudaCampo chave="commerce.fichas.item.nome" /></Th>
-                      <Th>Unid. <AjudaCampo chave="commerce.fichas.item.unidade" /></Th>
-                      <Th align="right">Qtd <AjudaCampo chave="commerce.fichas.item.quantidade" /></Th>
-                      <Th align="right">Preço un. <AjudaCampo chave="commerce.fichas.item.preco_unitario" /></Th>
-                      <Th align="right">Subtotal <AjudaCampo chave="commerce.fichas.item.subtotal" /></Th>
-                      <Th><AjudaCampo chave="commerce.fichas.item.excluir" /></Th>
+                      <Th>Nome <AjudaCampo chave="commerce.fichas.item_nome" rota={ROTA} /></Th>
+                      <Th>Unid. <AjudaCampo chave="commerce.fichas.item_unidade" rota={ROTA} /></Th>
+                      <Th align="right">Qtd <AjudaCampo chave="commerce.fichas.item_qtd" rota={ROTA} /></Th>
+                      <Th align="right">Preço un. <AjudaCampo chave="commerce.fichas.item_preco" rota={ROTA} /></Th>
+                      <Th align="right">Subtotal</Th>
+                      <Th />
                     </tr>
                   </thead>
                   <tbody>
@@ -923,7 +940,7 @@ function Drawer({
             onToggle={() => setAberto((p) => ({ ...p, custos: !p.custos }))}
           >
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
-              <Field label="Mão de obra direta (R$)" ajuda="commerce.fichas.campo.mao_obra">
+              <Field label="Mão de obra direta (R$)" ajuda="commerce.fichas.mao_obra_direta">
                 <input
                   type="number"
                   step="0.01"
@@ -932,7 +949,7 @@ function Drawer({
                   style={inp}
                 />
               </Field>
-              <Field label="Custos indiretos (%)" ajuda="commerce.fichas.campo.indiretos_pct">
+              <Field label="Custos indiretos (%)" ajuda="commerce.fichas.custos_indiretos_pct">
                 <input
                   type="number"
                   step="0.01"
@@ -941,7 +958,7 @@ function Drawer({
                   style={inp}
                 />
               </Field>
-              <Field label="Impostos (%)" ajuda="commerce.fichas.campo.impostos_pct">
+              <Field label="Impostos (%)" ajuda="commerce.fichas.impostos_pct">
                 <input
                   type="number"
                   step="0.01"
@@ -950,7 +967,7 @@ function Drawer({
                   style={inp}
                 />
               </Field>
-              <Field label="Markup (%)" ajuda="commerce.fichas.campo.markup_pct">
+              <Field label="Markup (%)" ajuda="commerce.fichas.markup_pct">
                 <input
                   type="number"
                   step="0.01"
@@ -967,9 +984,9 @@ function Drawer({
               <CalcRow label="Mão de obra direta" value={calc.mo} />
               <CalcRow label="Custos indiretos" value={calc.indiretos} />
               <CalcRow label="Impostos" value={calc.impostos} />
-              <CalcRow label="Custo total" value={calc.custoTotal} bold ajuda="commerce.fichas.resumo.custo_total" />
+              <CalcRow label="Custo total" value={calc.custoTotal} bold />
               <CalcRow label="Markup" value={calc.markup} />
-              <CalcRow label="Preço de venda" value={calc.precoVenda} accent ajuda="commerce.fichas.resumo.preco_venda" />
+              <CalcRow label="Preço de venda" value={calc.precoVenda} accent />
             </div>
           </Secao>
 
@@ -978,15 +995,12 @@ function Drawer({
             <span style={{ fontSize: 11, color: C.espressoL }}>
               Alterações são salvas automaticamente ao sair do campo.
             </span>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <button
-                onClick={onDelete}
-                style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.red}`, background: 'transparent', color: C.red, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
-              >
-                <Trash2 size={14} /> Excluir ficha
-              </button>
-              <AjudaCampo chave="commerce.fichas.acao.excluir" />
-            </span>
+            <button
+              onClick={onDelete}
+              style={{ padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.red}`, background: 'transparent', color: C.red, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            >
+              <Trash2 size={14} /> Excluir ficha
+            </button>
           </div>
         </div>
       </aside>
@@ -1027,18 +1041,16 @@ function Secao({ titulo, icon, aberto, onToggle, action, children }: {
 function Field({ label, children, ajuda }: { label: string; children: React.ReactNode; ajuda?: string }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <span style={{ fontSize: 10, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-        {label}{ajuda && <AjudaCampo chave={ajuda} />}
-      </span>
+      <span style={{ fontSize: 10, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>{label}{ajuda && <AjudaCampo chave={ajuda} rota={ROTA} />}</span>
       {children}
     </label>
   )
 }
 
-function CalcRow({ label, value, bold, accent, ajuda }: { label: string; value: number; bold?: boolean; accent?: boolean; ajuda?: string }) {
+function CalcRow({ label, value, bold, accent }: { label: string; value: number; bold?: boolean; accent?: boolean }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-      <span style={{ color: accent ? C.gold : C.espressoM, fontWeight: bold || accent ? 700 : 500, display: 'inline-flex', alignItems: 'center', gap: 4 }}>{label}{ajuda && <AjudaCampo chave={ajuda} />}</span>
+      <span style={{ color: accent ? C.gold : C.espressoM, fontWeight: bold || accent ? 700 : 500 }}>{label}</span>
       <span style={{ color: accent ? C.gold : C.espresso, fontWeight: bold || accent ? 700 : 500, fontSize: accent ? 14 : 12 }}>
         {fmtBRL(value)}
       </span>
