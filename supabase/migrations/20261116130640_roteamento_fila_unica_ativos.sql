@@ -84,6 +84,9 @@ AS $function$
    LIMIT 1;
 $function$;
 
+REVOKE ALL ON FUNCTION public.fn_dev_mais_vazio() FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_dev_mais_vazio() TO service_role;
+
 -- (5) Carga por dev para o Eng. Chefe / painel (balanceamento da fila única).
 CREATE OR REPLACE VIEW public.v_devs_carga AS
   SELECT d.agente,
@@ -307,7 +310,7 @@ BEGIN
     PERFORM public.fn_agente_mensagem_enviar(
       'eng_chefe', 'eng_chefe', 'aviso',
       'ROTEADOR: sem dev ativo — ' || v_sem || ' tarefa(s) em espera',
-      'A fila única não encontrou nenhum dev ATIVO (execução/lease nas últimas 4 h) para '
+      'A fila única não encontrou nenhum dev ATIVO (execução/lease nas últimas 2 h) para '
       || v_sem || ' chamado(s) ativo(s). Eles ficam em ESPERA GERAL (não atribuídos) e o primeiro '
       || 'dev que voltar a ficar ativo puxa no próximo ciclo do roteador.' || E'\n'
       || 'Pool: dev7claudeps, code-desenvolvedor-3, desenvolvedor_4_g, desenvolvedor_6_g, rodrigo-code, jordana-code.',
@@ -319,3 +322,6 @@ BEGIN
                             'sem_dev_vivo', v_sem, 'em', now());
 END;
 $function$;
+
+REVOKE ALL ON FUNCTION public.fn_chamados_rotear(integer) FROM anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_chamados_rotear(integer) TO service_role;
