@@ -72,7 +72,7 @@ BEGIN
     v_i := v_i + 1;
 
     INSERT INTO ind_pessoa (company_id, matricula, cpf, nome, vinculo, setor, setor_origem, ativo, origem)
-    VALUES (c, r.matricula, fn_demo_cpf_valido(557000000 + v_i), r.nome, 'clt', r.setor, 'manual', true, 'demo');
+    VALUES (c, r.matricula, fn_demo_cpf_valido(557000000 + v_i), r.nome, 'clt', r.setor, 'manual', true, 'manual');
 
     FOREACH comp IN ARRAY competencias LOOP
       v_comp := comp;
