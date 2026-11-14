@@ -15,8 +15,8 @@ export interface BaseV5 {
   modo: 'lider' | 'vendedor'
   de: string
   ate: string
-  /** [codigo, nome] do vendedor. */
-  ven: [string, string][]
+  /** [codigo, nome, incluido?] do vendedor. incluido=0 => fica só no TOTAL (fora da comparação e da média); ausente/1 => entra. */
+  ven: [string, string, number?][]
   /** nome da cidade. */
   cid: string[]
   /** nome do transportador. */
@@ -168,6 +168,15 @@ export function venInclui(sel: EstadoV5['ven'], vi: number): boolean {
   if (sel === 'todos') return true
   if (Array.isArray(sel)) return sel.includes(vi)
   return +sel === vi
+}
+
+/**
+ * O vendedor entra nos GRÁFICOS DE COMPARAÇÃO e na MÉDIA da empresa? (AJUSTE 2, CEO 13/11). `incluido=0`
+ * (vindo de com_ranking_participante, na dimensão `ven` da base) deixa o vendedor FORA da comparação/média,
+ * mas o faturamento/volume dele continua no TOTAL GERAL (o motor não o remove de `items`/`tot`). Default: entra.
+ */
+export function venAnalise(base: BaseV5, vi: number): boolean {
+  return base.ven[vi]?.[2] !== 0
 }
 
 function novoAgregado(): Agregado {

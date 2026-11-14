@@ -1,4 +1,4 @@
-// PS EHS · E0 regressão — toda rota de /dashboard/compliance/* existente hoje continua abrindo (não 404, sem erro de
+// PS EHS · E0 regressão — toda rota de /dashboard/ehs/* existente hoje continua abrindo (não 404, sem erro de
 // aplicação). Inventário em docs/ehs/E0-inventario-telas-compliance.md. Demonstração Indústria (SST); só leitura.
 
 import { test, expect, aguardarConteudo } from '../../support/fixtures'
@@ -17,11 +17,11 @@ test.describe('PS EHS E0 — regressão: as telas de Compliance continuam abrind
   })
 
   for (const rota of ROTAS) {
-    test(`abre /dashboard/compliance${rota}`, async ({ page }) => {
+    test(`abre /dashboard/ehs${rota}`, async ({ page }) => {
       const [emp] = await dbSelect<{ is_demo: boolean }>('companies', `id=eq.${DEMO_SST}&select=is_demo`)
       expect(emp?.is_demo, 'só na demonstração').toBe(true)
       await page.addInitScript((id) => { try { window.localStorage.setItem('ps_empresa_sel', id) } catch { /* noop */ } }, DEMO_SST)
-      const resp = await page.goto(`/dashboard/compliance${rota}`)
+      const resp = await page.goto(`/dashboard/ehs${rota}`)
       expect(resp?.status(), 'rota existe').toBeLessThan(400)
       await aguardarConteudo(page)
       await expect(page.getByText(/application error|This page could not be found|Algo deu errado/i)).toHaveCount(0)
@@ -31,7 +31,7 @@ test.describe('PS EHS E0 — regressão: as telas de Compliance continuam abrind
   test('ficha de EPI e ficha do funcionário abrem', async ({ page }) => {
     const [f] = await dbSelect<{ id: string }>('compliance_funcionarios', `company_id=eq.${DEMO_SST}&ativo=eq.true&select=id&limit=1`)
     await page.addInitScript((id) => { try { window.localStorage.setItem('ps_empresa_sel', id) } catch { /* noop */ } }, DEMO_SST)
-    for (const url of [`/dashboard/compliance/funcionarios/${f.id}`, `/dashboard/compliance/epi/ficha/${f.id}`]) {
+    for (const url of [`/dashboard/ehs/funcionarios/${f.id}`, `/dashboard/ehs/epi/ficha/${f.id}`]) {
       const resp = await page.goto(url)
       expect(resp?.status(), url).toBeLessThan(400)
       await aguardarConteudo(page)
