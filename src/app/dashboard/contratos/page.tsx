@@ -134,7 +134,7 @@ export default function ContratosPage(){
   const [showGerarModelo,setShowGerarModelo]=useState<Contrato|null>(null);
   const [modelosGerar,setModelosGerar]=useState<{id:string;nome:string;versao:number}[]>([]);
   const [modeloSelGerar,setModeloSelGerar]=useState<string>("");
-  const [previewGerar,setPreviewGerar]=useState<{texto:string;campos_pendentes:string[]}|null>(null);
+  const [previewGerar,setPreviewGerar]=useState<{texto:string;campos_pendentes:string[];campos_obrigatorios_vazios:string[]}|null>(null);
   const [gerandoModelo,setGerandoModelo]=useState(false);
   const [erroGerar,setErroGerar]=useState("");
 
@@ -483,7 +483,7 @@ export default function ContratosPage(){
     setGerandoModelo(false);
     if(error){ setErroGerar(erroAmigavel(error, "Não foi possível gerar o contrato. Tente de novo.")); return; }
     const r=data as any;
-    setPreviewGerar({texto:r?.texto||"",campos_pendentes:(r?.campos_pendentes||[]) as string[]});
+    setPreviewGerar({texto:r?.texto||"",campos_pendentes:(r?.campos_pendentes||[]) as string[],campos_obrigatorios_vazios:(r?.campos_obrigatorios_vazios||[]) as string[]});
     if(gravar){
       setTextoLegalDetalhe(r?.texto||"");
       setShowGerarModelo(null);
@@ -1143,6 +1143,12 @@ export default function ContratosPage(){
 
             {previewGerar&&(
               <div style={{marginBottom:14}}>
+                {/* F2 (#5452): campos marcados como obrigatórios no modelo que estão sem valor neste contrato. */}
+                {previewGerar.campos_obrigatorios_vazios.length>0&&(
+                  <div style={{background:R+"15",color:R,borderRadius:8,padding:10,fontSize:11,marginBottom:8,fontWeight:600}}>
+                    ⚠ Campos obrigatórios do modelo ainda sem valor: {previewGerar.campos_obrigatorios_vazios.join(", ")}. Preencha o contrato (Editar) antes de usá-lo — foram marcados como obrigatórios neste modelo.
+                  </div>
+                )}
                 {previewGerar.campos_pendentes.length>0&&(
                   <div style={{background:Y+"15",color:Y,borderRadius:8,padding:10,fontSize:11,marginBottom:8}}>
                     ⚠ Campos ainda sem valor neste contrato (sairão em branco): {previewGerar.campos_pendentes.join(", ")}. Preencha o contrato (Editar) se quiser que apareçam.
