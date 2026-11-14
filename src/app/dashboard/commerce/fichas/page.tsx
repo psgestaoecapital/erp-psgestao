@@ -15,11 +15,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import {
   Plus, Search, FileText, X, Trash2,
   Package, Calculator, ListChecks, Info,
 } from 'lucide-react'
 
+const ROTA = '/dashboard/commerce/fichas'
 const C = {
   espresso: '#3D2314',
   espressoM: '#6B5D4F',
@@ -410,7 +412,7 @@ export default function FichasCommercePage() {
           alignItems: 'center',
         }}
       >
-        <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 180 }}>
+        <div data-ajuda="commerce.fichas.busca" style={{ position: 'relative', flex: '1 1 240px', minWidth: 180 }}>
           <Search
             size={14}
             style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.espressoL }}
@@ -431,6 +433,9 @@ export default function FichasCommercePage() {
               outline: 'none',
             }}
           />
+          <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)' }}>
+            <AjudaCampo chave="commerce.fichas.busca" rota={ROTA} />
+          </span>
         </div>
         <select
           value={filtroCat}
@@ -451,6 +456,7 @@ export default function FichasCommercePage() {
             <option key={c} value={c}>{c}</option>
           ))}
         </select>
+        <AjudaCampo chave="commerce.fichas.filtro_categoria" rota={ROTA} />
         <span style={{ marginLeft: 'auto', fontSize: 11, color: C.espressoM }}>
           {fichasFiltradas.length} de {fichas.length}
         </span>
