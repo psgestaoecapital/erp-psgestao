@@ -9,7 +9,7 @@ else {
   if (g.label !== 'PS EHS') erros.push('rótulo do menu deve ser "PS EHS"')
   if (g.subtitle !== 'Saúde, Segurança e Meio Ambiente') erros.push('subtítulo ausente')
   if (g.items.length < 7) erros.push('itens do menu foram removidos')
-  if (!g.items.some((i) => i.href === '/dashboard/compliance')) erros.push('rota /dashboard/compliance mudou')
+  if (!g.items.some((i) => i.href === '/dashboard/ehs')) erros.push('rota /dashboard/ehs mudou')
 }
 for (const c of ehsChaves()) for (const l of EHS_IDIOMAS) if (!tEhs(c, l).trim()) erros.push(`tradução vazia: ${c}/${l}`)
 if (erros.length) { console.error('check-ps-ehs-e0 FALHOU:\n' + erros.join('\n')); process.exit(1) }

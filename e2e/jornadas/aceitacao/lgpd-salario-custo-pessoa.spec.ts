@@ -162,7 +162,7 @@ test.describe('LGPD · salário_base e custo por pessoa protegidos', () => {
   test('ficha do funcionário: quem vê salário vê o campo e grava', { tag: '@pos-migration' }, async ({ page }) => {
     expect((await chamar('fn_compliance_funcionario_salario_salvar', { p_id: funcId, p_valor: 4321.5 })).ok).toBe(true)
     await page.addInitScript((id) => { try { window.localStorage.setItem('ps_empresa_sel', id) } catch { /* noop */ } }, DEMO_SST)
-    await page.goto(`/dashboard/compliance/funcionarios/${funcId}`)
+    await page.goto(`/dashboard/ehs/funcionarios/${funcId}`)
     await aguardarConteudo(page)
     const campo = page.locator(`xpath=//label[normalize-space(.)="Salário base (R$)"]/following-sibling::input[1]`).first()
     await expect(campo, 'quem vê salário vê o campo').toBeVisible({ timeout: 20000 })

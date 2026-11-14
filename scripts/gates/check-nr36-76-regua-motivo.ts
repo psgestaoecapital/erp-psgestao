@@ -27,7 +27,7 @@ ok(/#76 limite inferior/.test(mig) && /fn_nr36_classificar_eventos/.test(mig) &&
 ok(/COALESCE\(\(v_par->>''limite_inferior_min''\)::numeric, v_pmin\)/.test(mig) && /COALESCE\(\(v_param->>''limite_inferior_min''\)::numeric, v_pausa_min\)/.test(mig), 'vazio = a própria pausa (resultado idêntico ao de hoje)')
 ok(!/\b(INSERT INTO|DELETE FROM)\b|\bUPDATE public\./.test(mig), 'a migration não grava dado')
 
-const tela = readFileSync('src/app/dashboard/compliance/pausas-tecnicas/page.tsx', 'utf8')
+const tela = readFileSync('src/app/dashboard/ehs/pausas-tecnicas/page.tsx', 'utf8')
 ok(/data-testid="sup-regua"/.test(tela) && /frasesChao\(d, regua, segMap\)/.test(tela), 'Supervisão mostra a régua e o motivo de cada desvio')
 ok(/data-testid="rel-regua"/.test(tela) && /rotuloDesvio\(dv, c\.cpf, d\.data\)/.test(tela), 'relatório de Auditoria com a régua e o motivo')
 ok(/data-testid="regua-limite-inferior"/.test(tela) && /data-testid="regua-excesso"/.test(tela), 'Configuração: excesso e limite inferior editáveis')

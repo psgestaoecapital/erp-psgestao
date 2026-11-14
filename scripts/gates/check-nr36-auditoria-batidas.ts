@@ -31,7 +31,7 @@ ok(/REVOKE ALL ON public\.nr36_releitura_justificativa FROM PUBLIC, anon, authen
 ok(!/\bUPDATE public\.ind_ponto_pausa\b|\bDELETE FROM public\.ind_ponto_pausa\b/.test(mig), 'a migration não mexe em pausa existente')
 
 // 4) tela: sugere, mostra antes/depois, exige justificativa
-const tela = readFileSync('src/app/dashboard/compliance/pausas-tecnicas/page.tsx', 'utf8')
+const tela = readFileSync('src/app/dashboard/ehs/pausas-tecnicas/page.tsx', 'utf8')
 ok(/data-testid="auditoria-batidas"/.test(tela) && /fn_nr36_auditoria_batidas_dias/.test(tela), 'Conferência tem a Auditoria de batidas')
 ok(/data-testid="marcas-antes"/.test(tela) && /data-testid="marcas-previa"/.test(tela), 'editor mostra ANTES e DEPOIS')
 ok(/data-testid="marcas-justificativa"/.test(tela) && /fn_nr36_reler_dia_justificado/.test(tela) && !/rpc<[^>]*>\('fn_nr36_reler_dia', /.test(tela), 'gravar exige justificativa (sem atalho sem justificativa)')

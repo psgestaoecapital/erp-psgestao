@@ -5,7 +5,7 @@
 // (ind_ponto_colaborador / ind_ponto_horas / ind_ponto_provider_config —
 // qualquer fornecedor: IO Point, Pontotel, Dominio), expostos em DUAS lentes:
 //   - /dashboard/industrial/ponto  (lente='industrial')  · sync + operacao
-//   - /dashboard/compliance/ponto  (lente='compliance')  · mesmos dados +
+//   - /dashboard/ehs/ponto  (lente='compliance')  · mesmos dados +
 //     botao "Importar pro Compliance" (fn_compliance_projetar_de_ind_ponto)
 // Mesma fonte, duas lentes, todo o historico. Gating por plan_modules.
 
