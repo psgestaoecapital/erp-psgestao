@@ -220,6 +220,7 @@ export default function DREHorizontal() {
       <div style={{ maxWidth: 'none', margin: '0 auto' }}>
         <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: GOLD, margin: 0 }}>Financeiro · Grupo</p>
         <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 28, fontWeight: 400, color: ESP, margin: '4px 0 4px' }}>DRE Consolidado</h1>
+        <Link href="/dashboard/financeiro/dre-analise" className="dre-noprint" style={{ display: 'inline-block', fontSize: 12.5, fontWeight: 700, color: GOLD, textDecoration: 'none', margin: '0 0 6px' }}>Análise do DRE (variação, evolução e por pessoa) →</Link>
         <p className="dre-printonly" style={{ fontSize: 12, color: ESP, margin: '0 0 10px' }}>
           {grupoNome || '—'}{membros.length > 1 ? ` · ${membros.length} CNPJs` : ''} · {data?.modo === 'dia' ? `${MESES_LBL[selIni - 1]}/${ano} (dias)` : `${MESES_LBL[selIni - 1]}–${MESES_LBL[selFim - 1]}/${ano}`} · {regime}
         </p>
