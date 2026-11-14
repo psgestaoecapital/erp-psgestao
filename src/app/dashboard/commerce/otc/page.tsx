@@ -423,7 +423,7 @@ function OTCPageInner() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <ShoppingCart size={26} style={{ color: C.gold }} />
           <div>
-            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>OTC — Order-to-Cash</h1>
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>Vendas — do orçamento ao faturamento</h1>
             <p style={{ margin: 0, fontSize: 12, color: C.espressoM }}>Orçamento → Pedido → Faturamento</p>
           </div>
         </div>
@@ -456,7 +456,7 @@ function OTCPageInner() {
       {selInfo.tipo !== 'empresa' && companyIds.length > 0 && (
         <div style={{ marginBottom: 12, padding: '10px 14px', background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 8, color: C.amber, fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Info size={14} />
-          <span>Selecione uma empresa específica no menu superior. OTC é operacional por empresa — não exibe dados consolidados.</span>
+          <span>Selecione uma empresa específica no menu superior. Esta tela é operacional por empresa — não exibe dados consolidados.</span>
         </div>
       )}
 
@@ -470,7 +470,7 @@ function OTCPageInner() {
       ) : companyIds.length === 0 ? (
         <EmptyState titulo="Nenhuma empresa disponível" texto="Você ainda não tem empresas vinculadas. Peça ao administrador para te vincular ou selecione uma no menu superior." />
       ) : !companyIdUnico ? (
-        <EmptyState titulo="Selecione uma empresa" texto="OTC é operacional por empresa. Escolha uma empresa específica no menu superior para ver orçamentos e pedidos." />
+        <EmptyState titulo="Selecione uma empresa" texto="Esta tela é operacional por empresa. Escolha uma empresa específica no menu superior para ver orçamentos e pedidos." />
       ) : tab === 'visao' ? (
         <VisaoGeralKPIs kpis={kpis} />
       ) : (
