@@ -13,6 +13,7 @@
 -- Reverter: restaurar a definição anterior de fn_gold_oficina_seed_reparar (bloco de peças removido) e,
 -- se quiser, DELETE FROM erp_os_peca_solicitacao WHERE company_id='b0700000-…-0001' AND descricao LIKE '[BOT]%'.
 
+-- ci-sem-guarda: fn_gold_oficina_seed_reparar — seed de manutenção da DEMO, não é escrita por usuário: trava em p_company_id = empresa-bot da oficina (b0700000-…-0001) e retorna erro para qualquer outra empresa.
 CREATE OR REPLACE FUNCTION public.fn_gold_oficina_seed_reparar(p_company_id uuid)
  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
 AS $function$
@@ -88,7 +89,8 @@ BEGIN
 
   RETURN jsonb_build_object('ok', true, 'criou', v_criou);
 END $function$;
-GRANT EXECUTE ON FUNCTION public.fn_gold_oficina_seed_reparar(uuid) TO authenticated;
+REVOKE ALL ON FUNCTION public.fn_gold_oficina_seed_reparar(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_gold_oficina_seed_reparar(uuid) TO authenticated, service_role;
 
 -- Semeia agora (deploy).
 SELECT public.fn_gold_oficina_seed_reparar('b0700000-0000-4000-a000-000000000001');
