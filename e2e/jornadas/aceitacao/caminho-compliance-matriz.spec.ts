@@ -23,7 +23,7 @@ test.describe('Caminho principal — Matriz de Conformidade no celular (#75)', (
 
     await page.setViewportSize({ width: 390, height: 844 })
     await page.addInitScript((id) => { try { window.localStorage.setItem('ps_empresa_sel', id) } catch { /* noop */ } }, DEMO_SST)
-    await page.goto('/dashboard/compliance/matriz')
+    await page.goto('/dashboard/ehs/matriz')
     await aguardarConteudo(page)
 
     const contagem = page.getByTestId('matriz-contagem')

@@ -47,7 +47,7 @@ ok(/'ajustados'/.test(mig) && /fn__nr36_ajustes_dia\(r\.company_id, r\.cpf, r\.d
 ok(/#587 sem_saida/.test(mig), 'apuração marca o retorno sem saída no detalhe')
 
 // 4) telas
-const tela = readFileSync('src/app/dashboard/compliance/pausas-tecnicas/page.tsx', 'utf8')
+const tela = readFileSync('src/app/dashboard/ehs/pausas-tecnicas/page.tsx', 'utf8')
 const sign = readFileSync('src/app/sign/nr36/[token]/page.tsx', 'utf8')
 ok(/data-testid="marca-nova-origem"/.test(tela) && /De onde veio\?/.test(tela), 'editor: horário digitado pede a origem')
 ok(/data-testid="marcas-pendencia-ciente"/.test(tela) && /p_pendencia_ciente/.test(tela) && /bloqueadoPend/.test(tela), 'editor: não salva retorno sem saída sem "não sei o horário"')
