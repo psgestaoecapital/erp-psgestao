@@ -15,3 +15,12 @@
 UPDATE public.system_screens
    SET rota = replace(rota, '/dashboard/compliance', '/dashboard/ehs')
  WHERE rota LIKE '/dashboard/compliance%';
+
+-- O menu lateral é sintetizado de module_catalog.rota (fn_modulos_sidebar_por_area). Movido junto para o
+-- caminho novo, para o menu apontar /dashboard/ehs/* (as telas já estão lá). module_catalog.rota NÃO é
+-- única (há itens repetidos), então o replace é seguro; o gate check:menu lê o banco VIVO (ainda /compliance
+-- até o deploy desta migration), por isso as rotas antigas ficam no baseline (scripts/menu-rotas-baseline.json)
+-- cobertas pelo redirect 308 — removidas quando o deploy aplicar este UPDATE.
+UPDATE public.module_catalog
+   SET rota = replace(rota, '/dashboard/compliance', '/dashboard/ehs')
+ WHERE rota LIKE '/dashboard/compliance%';
