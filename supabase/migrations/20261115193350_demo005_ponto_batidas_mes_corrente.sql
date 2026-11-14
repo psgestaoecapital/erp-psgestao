@@ -109,6 +109,7 @@ GRANT EXECUTE ON FUNCTION public.fn_demo_seed_industria_ponto(uuid) TO service_r
 -- 2) fn_demo_reset: encadeia o seed de ponto no braço 005 — GUARDADO por to_regprocedure (merge-order-safe,
 --    mesmo padrão dos seeds PDCA 13/11). Reproduz a versão VIVA (lida via pg_get_functiondef) e só ADICIONA o bloco.
 -- ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+-- ci-sem-guarda: fn_demo_reset — reset de empresa DEMO; confere is_demo e aborta ('nao_e_demo') em empresa real; só repopula seeds de demonstração, nunca dado de cliente real.
 CREATE OR REPLACE FUNCTION public.fn_demo_reset(p_company_id uuid)
  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
 AS $function$
