@@ -40,3 +40,7 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'id', p_id, 'ativo', false);
 END;
 $function$;
+
+-- Guarda de acesso (RD): função SECURITY DEFINER não é chamável por anônimo.
+REVOKE ALL ON FUNCTION public.fn_estoque_local_excluir(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_estoque_local_excluir(uuid) TO authenticated, service_role;
