@@ -229,7 +229,7 @@ export default function BiPlanta() {
             </div>
           </div>
           <label style={{ display: 'grid', gap: 2, fontSize: 12, color: C.m }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Cidade de origem<AjudaCampo chave="planta.visao" rota={ROTA} /></span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Cidade de origem<AjudaCampo chave="planta.cidade" rota={ROTA} /></span>
             <select value={cidade} onChange={(e) => setCidade(e.target.value)} aria-label="Cidade de origem"
               style={{ font: 'inherit', fontSize: 14, padding: '8px 10px', borderRadius: 10, border: `1px solid ${C.bd}`, background: '#fff', color: C.esp, minWidth: 200, maxWidth: '80vw' }}>
               <option value="">Todas as cidades</option>
@@ -333,7 +333,7 @@ export default function BiPlanta() {
 
             <section style={grade(420)} aria-label="Origem do gado">
               <div style={card}>
-                <Titulo t="De onde veio o gado" nota="Valor comprado por cidade do produtor. Toque numa cidade para ver só ela." ajuda="planta.visao" />
+                <Titulo t="De onde veio o gado" nota="Valor comprado por cidade do produtor. Toque numa cidade para ver só ela." ajuda="planta.cidade" />
                 <BarrasH cor={C.verde} fmt={(v) => brlc(v)} onPick={(x) => setCidade(cidade === x ? '' : x)}
                   dados={p.cidades.map((x) => ({ rot: x.cidade, v: x.valor, sel: cidade ? x.cidade === cidade : undefined }))} />
               </div>
@@ -347,7 +347,14 @@ export default function BiPlanta() {
               <Titulo t={`Os ${p.produtores.length} produtores que mais venderam`} nota="Cabeças, carcaça média e preço da arroba de cada um no período." ajuda="planta.produtores" />
               <div style={{ overflow: 'auto', maxHeight: 520 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead><tr><th style={{ ...th, textAlign: 'left' }}>Produtor</th><th style={{ ...th, textAlign: 'left' }}>Cidade</th><th style={th}>Cabeças</th><th style={th}>Carcaça média</th><th style={th}>Valor pago</th><th style={th}>R$ por arroba</th></tr></thead>
+                  <thead><tr>
+                    <th style={{ ...th, textAlign: 'left' }}>Produtor <AjudaCampo chave="planta.prod_produtor" rota={ROTA} /></th>
+                    <th style={{ ...th, textAlign: 'left' }}>Cidade <AjudaCampo chave="planta.prod_cidade" rota={ROTA} /></th>
+                    <th style={th}>Cabeças <AjudaCampo chave="planta.prod_cabecas" rota={ROTA} /></th>
+                    <th style={th}>Carcaça média <AjudaCampo chave="planta.prod_carcaca" rota={ROTA} /></th>
+                    <th style={th}>Valor pago <AjudaCampo chave="planta.prod_valor" rota={ROTA} /></th>
+                    <th style={th}>R$ por arroba <AjudaCampo chave="planta.prod_arroba" rota={ROTA} /></th>
+                  </tr></thead>
                   <tbody>
                     {p.produtores.map((x) => {
                       const d = varp(x.rs_arroba, c.rs_arroba)
