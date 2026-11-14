@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 import { nomeArquivoNota } from '@/lib/download/nomeArquivo'
 import { baixarUrlComNome } from '@/lib/download/baixarArquivo'
 import { fantasiaClientePorDoc } from '@/lib/download/fantasiaCliente'
@@ -527,7 +528,7 @@ export default function NFSeListClient() {
                 <AlertTriangle size={14} className="mt-0.5 shrink-0" />
                 <span>O cancelamento depende do prazo da prefeitura. Se o prazo já venceu, ela pode recusar — o motivo aparece aqui e na linha do tempo da nota.</span>
               </div>
-              <label className="block mt-3 text-[11.5px] text-[#6B5D4F]">Justificativa (mínimo 15 caracteres)
+              <label className="block mt-3 text-[11.5px] text-[#6B5D4F]">Justificativa (mínimo 15 caracteres)<AjudaCampo chave="fiscal.nfse.lista.cancelar_justificativa" rota="/dashboard/fiscal/nfse" />
                 <textarea value={cancelJust} onChange={(e) => { setCancelJust(e.target.value); if (cancelErro) setCancelErro(null) }} rows={3}
                   data-testid="nfse-cancelar-justificativa"
                   placeholder="Ex.: nota emitida em duplicidade para o mesmo serviço"
@@ -561,8 +562,8 @@ export default function NFSeListClient() {
 
         <div className="bg-white border border-[#3D2314]/10 rounded-xl p-4 mb-4">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
-            <div className="lg:col-span-2">
-              <label className="text-[11px] font-medium text-[#3D2314]/70 block mb-1">Buscar tomador / número / documento</label>
+            <div className="lg:col-span-2" data-ajuda="fiscal.nfse.lista.busca">
+              <label className="text-[11px] font-medium text-[#3D2314]/70 block mb-1">Buscar tomador / número / documento<AjudaCampo chave="fiscal.nfse.lista.busca" rota="/dashboard/fiscal/nfse" /></label>
               <div className="relative">
                 <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#3D2314]/40" />
                 <input type="text" value={busca} onChange={(e) => setBusca(e.target.value)}
@@ -571,8 +572,8 @@ export default function NFSeListClient() {
                   className="w-full pl-8 pr-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40" />
               </div>
             </div>
-            <div>
-              <label className="text-[11px] font-medium text-[#3D2314]/70 block mb-1">Status (principal)</label>
+            <div data-ajuda="fiscal.nfse.lista.status">
+              <label className="text-[11px] font-medium text-[#3D2314]/70 block mb-1">Status (principal)<AjudaCampo chave="fiscal.nfse.lista.status" rota="/dashboard/fiscal/nfse" /></label>
               <select value={statusFiltro} onChange={(e) => { setStatusFiltro(e.target.value); setPagina(1) }}
                 className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg bg-white">
                 <option value="">Todos</option>
@@ -582,13 +583,13 @@ export default function NFSeListClient() {
                 <option value="cancelada">Cancelada</option>
               </select>
             </div>
-            <div>
-              <label className="text-[11px] font-medium text-[#3D2314]/70 block mb-1">De</label>
+            <div data-ajuda="fiscal.nfse.lista.data_inicio">
+              <label className="text-[11px] font-medium text-[#3D2314]/70 block mb-1">De<AjudaCampo chave="fiscal.nfse.lista.data_inicio" rota="/dashboard/fiscal/nfse" /></label>
               <input type="date" value={dataInicio} onChange={(e) => { setDataInicio(e.target.value); setPagina(1) }}
                 className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg" />
             </div>
-            <div>
-              <label className="text-[11px] font-medium text-[#3D2314]/70 block mb-1">Até</label>
+            <div data-ajuda="fiscal.nfse.lista.data_fim">
+              <label className="text-[11px] font-medium text-[#3D2314]/70 block mb-1">Até<AjudaCampo chave="fiscal.nfse.lista.data_fim" rota="/dashboard/fiscal/nfse" /></label>
               <input type="date" value={dataFim} onChange={(e) => { setDataFim(e.target.value); setPagina(1) }}
                 className="w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg" />
             </div>
@@ -598,6 +599,7 @@ export default function NFSeListClient() {
               <input type="checkbox" checked={mostrarRecusadas} onChange={(e) => { setMostrarRecusadas(e.target.checked); setPagina(1) }}
                 data-testid="nfse-mostrar-recusadas" className="accent-[#C8941A]" />
               Mostrar tentativas recusadas (visão antiga)
+              <AjudaCampo chave="fiscal.nfse.lista.mostrar_recusadas" rota="/dashboard/fiscal/nfse" />
             </label>
             <div className="flex gap-2">
               <button type="button" onClick={resetFiltros}
@@ -621,7 +623,33 @@ export default function NFSeListClient() {
           {loading ? (
             <div className="py-12 flex justify-center"><Loader2 className="animate-spin text-[#C8941A]" size={24} /></div>
           ) : documentos.length === 0 ? (
-            <div className="py-12 text-center text-[12.5px] text-[#3D2314]/60">Nenhum documento encontrado com esses filtros.</div>
+            (statusFiltro || dataInicio || dataFim || buscaSubmit) ? (
+              // Lista vazia POR CAUSA de filtro: mensagem de filtro + atalho para limpar.
+              <div className="py-12 text-center text-[12.5px] text-[#3D2314]/60">
+                Nenhum documento encontrado com esses filtros.
+                <div className="mt-3">
+                  <button type="button" onClick={resetFiltros} data-testid="nfse-vazio-limpar"
+                    className="px-3 py-1.5 text-[12px] font-medium rounded-lg border border-[#3D2314]/15 text-[#3D2314] hover:bg-[#3D2314]/5">
+                    Limpar filtros
+                  </button>
+                </div>
+              </div>
+            ) : (
+              // Empresa ainda não emitiu nenhuma NFS-e: onboarding com o próximo passo (critério d do PDCA).
+              <div className="py-14 px-6 text-center" data-testid="nfse-onboarding">
+                <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-[#C8941A]/10 mb-3">
+                  <FileText size={22} className="text-[#C8941A]" />
+                </div>
+                <div className="text-[14px] font-semibold text-[#3D2314]">Você ainda não emitiu NFS-e</div>
+                <div className="mt-1.5 text-[12.5px] text-[#3D2314]/60 max-w-md mx-auto leading-relaxed">
+                  As notas fiscais de serviço que você emitir aparecem aqui, com status, valor e tomador. Comece emitindo a primeira.
+                </div>
+                <button type="button" onClick={() => { setReemitir(null); setEmitirAberto(true) }} data-testid="nfse-onboarding-emitir"
+                  className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] text-[12.5px] font-medium">
+                  <Plus size={14} /> Emitir NFS-e
+                </button>
+              </div>
+            )
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-[13px]">
@@ -836,11 +864,12 @@ function DocumentoLinhas(props: {
                   <div className="flex items-center gap-2 text-[12px]">
                     <span className="text-[#3D2314]/60">Nenhuma obra vinculada.</span>
                     <button type="button" onClick={() => onSetObraPicker(!obraPickerOpen)} data-testid="nfse-vincular-obra" className="text-[11.5px] font-medium text-[#BA7517] hover:text-[#8B5612] underline underline-offset-2">Vincular obra</button>
+                    <AjudaCampo chave="fiscal.nfse.lista.vincular_obra" rota="/dashboard/fiscal/nfse" />
                   </div>
                 )}
                 {obraPickerOpen && (
                   <div className="mt-2 border border-[#3D2314]/12 rounded-lg bg-white p-2">
-                    <div className="relative mb-2">
+                    <div className="relative mb-2" data-ajuda="fiscal.nfse.lista.vincular_obra">
                       <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#3D2314]/40" />
                       <input type="text" value={obraBusca} onChange={(e) => onObraBusca(e.target.value)}
                         placeholder="Buscar obra por número, nome, cidade ou endereço"
