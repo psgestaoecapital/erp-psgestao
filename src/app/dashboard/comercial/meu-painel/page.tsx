@@ -11,7 +11,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import {
-  calcularModelo, estadoPadrao, exclusaoPadrao, gruposProduto, resumo,
+  calcularModelo, estadoPadrao, exclusaoPadrao, gruposProduto, resumo, venAnalise,
   type BaseV5, type EstadoV5, type GrupoProduto, type ModeloV5,
 } from './motor-v5'
 import { calcularClientesV7 } from './clientes-v7'
@@ -131,6 +131,21 @@ export default function MeuPainelV6() {
   const aplicarAnalise = (excl: Record<number, boolean>, escopo: EscopoAnalise) => setEstado((e) => e ? { ...e, excl, escopo } : e)
   const setVen = (v: EstadoV5['ven']) => setEstado((e) => e ? { ...e, ven: v } : e)
   const setLin = (v: EstadoV5['lin']) => setEstado((e) => e ? { ...e, lin: v } : e)
+  // AJUSTE 2 (CEO 13/11): "Vendedores na análise" — líder marca/desmarca quem entra na comparação e na média
+  // (config por empresa em com_ranking_participante). Desmarcar NÃO tira do total geral. Após gravar, recarrega
+  // a base (que recalcula o flag `incluido` na dimensão `ven`).
+  const [salvandoVen, setSalvandoVen] = useState<string | null>(null)
+  const toggleVenAnalise = useCallback(async (cod: string, incluir: boolean) => {
+    if (!empresa || !cod) return
+    setSalvandoVen(cod); setErro(null)
+    const { error } = await supabase.rpc('fn_com_ranking_participante_definir', {
+      p_company_id: empresa, p_cod_vendedor: cod, p_incluido: incluir,
+      p_motivo: incluir ? 'Reincluído na comparação/média pelo painel' : 'Fora da comparação/média (segue no total geral)',
+    })
+    if (error) { setSalvandoVen(null); setErro(erroAmigavel(error)); return }
+    await carregar()
+    setSalvandoVen(null)
+  }, [empresa, carregar])
 
   const pg = useMemo<GrupoProduto[] | null>(() => base ? gruposProduto(base) : null, [base])
   const modelo = useMemo<ModeloV5 | null>(() => base && estado && pg ? calcularModelo(base, estado, pg) : null, [base, estado, pg])
@@ -244,7 +259,7 @@ export default function MeuPainelV6() {
     // referência do sistema de origem — que pode estar desatualizada e gerava "descontos monstruosos" falsos.
     // Acima da média = acréscimo (conta a favor); abaixo = desconto real. Margem para destacar: 5 pontos de índice.
     const MARGEM_INDICE = 5
-    const idxVen = [...modelo.venM].filter(([, a]) => a.exp > 0).map(([vi, a]) => ({ vi, idx: 100 * a.valP / a.exp }))
+    const idxVen = [...modelo.venM].filter(([vi, a]) => a.exp > 0 && venAnalise(base, vi)).map(([vi, a]) => ({ vi, idx: 100 * a.valP / a.exp }))
     idxVen.filter((v) => v.idx < 100 - MARGEM_INDICE).sort((a, b) => a.idx - b.idx).forEach((v) => {
       riscos.push(`Preço de ${nomeVen(v.vi)} abaixo da média da empresa: índice ${nf({ maximumFractionDigits: 0 }).format(v.idx)} (100 = média)`)
       acoes.push(`Revisar o preço de ${nomeVen(v.vi)} (abaixo da média da empresa)`)
@@ -291,7 +306,9 @@ export default function MeuPainelV6() {
   // desconto = soma (tabela − praticado) ÷ tabela; devolução = devoluções ÷ faturamento.
   const vendedores = useMemo(() => {
     if (!modelo || !base) return [] as VendRow[]
-    return [...modelo.venM].map(([vi, a]) => {
+    // AJUSTE 2 (CEO 13/11): a comparação entre vendedores exclui quem está fora da análise (ex.: contas
+    // administrativas). O faturamento deles segue no TOTAL GERAL (modelo.tot) — por isso `part` usa tot.val.
+    return [...modelo.venM].filter(([vi]) => venAnalise(base, vi)).map(([vi, a]) => {
       const dev = modelo.devVen.get(vi) || 0
       const pz = modelo.venPz.get(vi)
       return {
@@ -327,7 +344,8 @@ export default function MeuPainelV6() {
       m.set(linha, (m.get(linha) || 0) + x[6])
     })
     const linhas = [...linhasSet].sort()
-    const rows = [...porVen].map(([vi, m]) => {
+    // AJUSTE 2: só vendedores da análise entram no gráfico de comparação do mix.
+    const rows = [...porVen].filter(([vi]) => venAnalise(base, vi)).map(([vi, m]) => {
       const row: Record<string, string | number> = { nome: base.ven[vi]?.[1] || base.ven[vi]?.[0] || 'Sem vendedor' }
       linhas.forEach((l) => { row[l] = m.get(l) || 0 })
       return row
@@ -692,8 +710,27 @@ export default function MeuPainelV6() {
       )}
       </>)}
 
-      {aba === 'vendedores' && r && modelo && (<>
+      {aba === 'vendedores' && r && modelo && base && (<>
           <div style={{ marginTop: 24, fontSize: 18, fontWeight: 700 }}>Vendedores</div>
+
+          {base.modo === 'lider' && (
+            <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16, marginTop: 8 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: C.m, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>Vendedores na análise<AjudaCampo chave="com.painel.analise" rota={ROTA} /></div>
+              <div style={{ fontSize: 12, color: C.m, marginBottom: 10 }}>Desmarque quem não deve entrar na comparação nem na média da equipe (ex.: contas administrativas). O faturamento e o volume de quem sai continuam no total geral.</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {base.ven.map((v) => {
+                  const cod = v[0]; const nome = v[1] || cod; const incluido = v[2] !== 0
+                  return (
+                    <label key={cod} data-ajuda="com.painel.analise" title={incluido ? 'Na comparação e na média' : 'Só no total geral'}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: C.esp, border: `1px solid ${C.bd}`, borderRadius: 999, padding: '5px 12px', background: incluido ? '#fff' : C.bg2, cursor: salvandoVen ? 'wait' : 'pointer', opacity: salvandoVen && salvandoVen !== cod ? 0.55 : 1 }}>
+                      <input type="checkbox" checked={incluido} disabled={!!salvandoVen} onChange={() => void toggleVenAnalise(cod, !incluido)} style={{ accentColor: C.gold }} />
+                      {nome}{!incluido && <span style={{ fontSize: 11, color: C.d }}>só no total</span>}
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12, marginTop: 8 }}>
             <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16 }}>
