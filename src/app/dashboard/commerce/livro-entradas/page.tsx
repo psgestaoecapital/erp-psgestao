@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { BookText, Loader2, Download, Printer } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 type Linha = {
   cfop: string; data_emissao: string | null; numero: string | null; serie: string | null; chave: string | null
@@ -23,6 +24,7 @@ type Livro = {
 }
 const brl = (v: number | null | undefined) => 'R$ ' + Number(v ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
 const mesAtual = () => new Date().toISOString().slice(0, 7)
+const ROTA = '/dashboard/commerce/livro-entradas'
 
 export default function LivroEntradasPage() {
   const { companyIds, selInfo } = useCompanyIds()
@@ -87,19 +89,25 @@ export default function LivroEntradasPage() {
         </p>
 
         <div className="mt-4 flex items-end gap-2 flex-wrap bg-white border border-[#3D2314]/10 rounded-xl p-3 print:hidden">
-          <label className="text-[12px] text-[#3D2314]/70">Competência
+          <label className="text-[12px] text-[#3D2314]/70 inline-flex items-center gap-1">Competência <AjudaCampo chave="commerce.livro_entradas.filtro_competencia" rota={ROTA} />
             <div className="mt-0.5">
               <input type="month" value={competencia} disabled={todas} onChange={(e) => setCompetencia(e.target.value)}
                 className="border border-[#3D2314]/15 rounded-md px-2 py-1 text-[13px] text-[#3D2314] disabled:opacity-40" />
             </div>
           </label>
           <label className="text-[12px] text-[#3D2314]/70 inline-flex items-center gap-1.5 pb-1.5">
-            <input type="checkbox" checked={todas} onChange={(e) => setTodas(e.target.checked)} /> Todas (trimestre)
+            <input type="checkbox" checked={todas} onChange={(e) => setTodas(e.target.checked)} /> Todas (trimestre) <AjudaCampo chave="commerce.livro_entradas.filtro_todas" rota={ROTA} />
           </label>
-          <button type="button" onClick={exportarCsv} disabled={!dados || dados.linhas.length === 0}
-            className="inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-md bg-[#C8941A] text-white font-medium hover:bg-[#A87810] disabled:opacity-40 ml-auto"><Download size={13} /> Exportar CSV</button>
-          <button type="button" onClick={() => window.print()} disabled={!dados}
-            className="inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-md border border-[#3D2314]/15 text-[#3D2314]/70 hover:bg-[#3D2314]/5 disabled:opacity-40"><Printer size={13} /> PDF</button>
+          <span className="inline-flex items-center gap-1 ml-auto">
+            <button type="button" onClick={exportarCsv} disabled={!dados || dados.linhas.length === 0}
+              className="inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-md bg-[#C8941A] text-white font-medium hover:bg-[#A87810] disabled:opacity-40"><Download size={13} /> Exportar CSV</button>
+            <AjudaCampo chave="commerce.livro_entradas.exportar_csv" rota={ROTA} />
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <button type="button" onClick={() => window.print()} disabled={!dados}
+              className="inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-md border border-[#3D2314]/15 text-[#3D2314]/70 hover:bg-[#3D2314]/5 disabled:opacity-40"><Printer size={13} /> PDF</button>
+            <AjudaCampo chave="commerce.livro_entradas.imprimir_pdf" rota={ROTA} />
+          </span>
         </div>
 
         {toast && <div className="mt-3 text-[12px] px-3 py-2 rounded-md bg-[#E8F4DC] text-[#1B3608] border border-[#3F7012]/20 print:hidden">{toast}</div>}
