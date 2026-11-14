@@ -32,7 +32,7 @@ type ObraLinha = {
   custo_previsto: number; custo_material: number; custo_viagens: number; margem_realizada: number
   custo_mao_obra: number | null; custo_rateio: number | null; margem_alocada: number | null
 }
-type ObraInfo = { id: string; cliente_nome: string | null; cidade: string | null; pct_conclusao: number | null; data_prevista_fim: string | null }
+type ObraInfo = { id: string; cliente_nome: string | null; endereco: string | null; cidade: string | null; pct_conclusao: number | null; data_prevista_fim: string | null }
 
 const brl = (v: number) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
 const num = (v: unknown) => Number(v) || 0
@@ -65,7 +65,7 @@ export default function CockpitEscolherObraPage() {
         // obra excluída (soft-delete, deleted_at) não aparece; se a consulta de apoio falhar, mantém a lista como veio
         const ids = lista.map(o => o.obra_id)
         if (ids.length) {
-          const r = await supabase.from('projetos_obras').select('id,cliente_nome,cidade,pct_conclusao,data_prevista_fim').in('id', ids).is('deleted_at', null)
+          const r = await supabase.from('projetos_obras').select('id,cliente_nome,endereco,cidade,pct_conclusao,data_prevista_fim').in('id', ids).is('deleted_at', null)
           if (!vivo) return
           if (!r.error) {
             const vivas = Object.fromEntries(((r.data ?? []) as ObraInfo[]).map(x => [x.id, x]))
@@ -175,6 +175,8 @@ export default function CockpitEscolherObraPage() {
           const temMedicao = receita > 0
           const vencida = o.status === 'em_andamento' && !!i?.data_prevista_fim && i.data_prevista_fim < hoje
           const st = situacao(o.status)
+          // Nome da obra: o cadastrado; se não houver, cai para o endereço/cidade (chamado #3337: "nome da obra pelo endereço").
+          const nomeObra = (o.nome?.trim()) || [i?.endereco?.trim(), i?.cidade?.trim()].filter(Boolean).join(' · ') || 'Sem nome'
           return (
             <div key={o.obra_id} style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10, padding: '12px 14px' }}>
             <Link href={`/dashboard/projetos/obras/${o.obra_id}/cockpit?area=hub`} data-testid="cockpit-obra-link"
@@ -183,7 +185,7 @@ export default function CockpitEscolherObraPage() {
                 <div style={{ fontWeight: 700, fontSize: 14, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', letterSpacing: 0.3 }} title={o.numero}>{codigoPadrao(o.numero)}</div>
                 <span style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.3, color: st.cor, background: st.fundo, border: `1.5px solid ${st.cor}`, borderRadius: 999, padding: '2px 9px' }}>{st.rotulo}</span>
               </div>
-              <div style={{ fontSize: 13, color: MUT, marginTop: 2 }}>{o.nome || 'Sem nome'}{i?.cliente_nome ? ` · ${i.cliente_nome}` : ''}</div>
+              <div style={{ fontSize: 13, color: MUT, marginTop: 2 }}>{nomeObra}{i?.cliente_nome ? ` · ${i.cliente_nome}` : ''}</div>
             </Link>
               {/* Os campos com "?" (RD-95) ficam FORA do <Link>: o AjudaCampo faz preventDefault/stopPropagation; no card estreito do celular o toque no centro do link caía no "?" do Custo e abria a ajuda em vez de navegar (@pos vermelho pós #3396). O link cobre o cabeçalho (código + nome), que não tem "?", então o toque sempre abre o cockpit. */}
               <div style={{ marginTop: 10 }}>

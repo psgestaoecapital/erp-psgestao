@@ -1,0 +1,50 @@
+-- RD-95: "?" dos campos/filtros/indicadores/ações da aba Salário por cargo da tela Indústria › RH › Mão de obra.
+-- PR4 do scaffold "Gestão de Mão de Obra" (SALÁRIO BASE por cargo), agnóstico de ramo.
+-- Reaproveita os RPCs existentes fn_prod_salario_salvar / fn_prod_salario_excluir (LGPD: leitura passa por fn__pode_ver_folha).
+-- Aditivo: só INSERT de texto de ajuda (ON CONFLICT (chave) DO NOTHING), nunca altera dado de cliente.
+-- Agente desenvolvedor_4_g (faixa de segundos :45–:54, acima da main).
+INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
+VALUES
+  ('maoobra.salario.busca', 'Mão de obra · Salário por cargo', 'Buscar cargo',
+   'Digite parte do nome do cargo para filtrar a lista.',
+   'Encontra rápido um cargo quando a empresa tem muitos — a lista abaixo mostra só os que casam com o texto.',
+   'Digitar "operador" para ver só os cargos de Operador.',
+   'Esperar que a busca defina salário: ela só filtra; para definir o valor use "Definir" na linha do cargo.',
+   0, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado'),
+  ('maoobra.salario.atual', 'Mão de obra · Salário por cargo', 'Salário base atual',
+   'Indicador (não editável): o salário base vigente do cargo e desde quando vale.',
+   'Mostra quanto custa, em salário base, uma pessoa neste cargo — é a referência para o custo de mão de obra por posto e por produto.',
+   '"R$ 2.400,00 · desde 01/11/2026" no cargo de Operador.',
+   'Confundir com o salário de uma pessoa: aqui é a referência do CARGO; o salário individual fica na folha.',
+   1, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado'),
+  ('maoobra.salario.definir', 'Mão de obra · Salário por cargo', 'Definir / Atualizar salário',
+   'Abre o formulário para informar o salário base do cargo.',
+   'Registra o salário base vigente do cargo; ao atualizar, a vigência anterior é encerrada automaticamente e a nova passa a valer.',
+   'Definir R$ 2.400,00 para o cargo de Operador a partir de hoje.',
+   'Digitar o valor com separador errado: use número (ex.: 2400,00) e confira antes de salvar.',
+   2, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado'),
+  ('maoobra.salario.valor', 'Mão de obra · Salário por cargo', 'Valor do salário base',
+   'O valor do salário base mensal do cargo, em reais (maior que zero).',
+   'É a base do custo de mão de obra por hora e por posto; com os encargos do posto, forma o custo real da função.',
+   '2400,00',
+   'Informar zero ou vazio: o sistema recusa. O valor precisa ser maior que zero.',
+   3, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado'),
+  ('maoobra.salario.fonte', 'Mão de obra · Salário por cargo', 'Fonte do valor',
+   'De onde veio o valor: Manual (você digitou), Folha (importado da folha) ou Acordo coletivo.',
+   'Deixa rastreável a origem do salário base — útil para auditoria e para saber o que atualizar quando mudar.',
+   'Escolher "Acordo coletivo" quando o piso vem da convenção da categoria.',
+   'Marcar "Folha" para um valor digitado à mão: use "Manual" nesse caso.',
+   4, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado'),
+  ('maoobra.salario.vigencia', 'Mão de obra · Salário por cargo', 'Vigência início',
+   'A data a partir da qual este salário base passa a valer (padrão: hoje).',
+   'Permite registrar reajustes com a data certa; a vigência anterior é encerrada no dia anterior a esta.',
+   '01/11/2026 para um reajuste que começou no mês.',
+   'Informar uma data futura achando que já vale hoje: o valor só passa a valer na data escolhida.',
+   5, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado'),
+  ('maoobra.salario.excluir', 'Mão de obra · Salário por cargo', 'Excluir salário',
+   'Remove (exclusão rastreável) o registro de salário base vigente do cargo.',
+   'Corrige um valor lançado por engano sem apagar o histórico; o cargo volta a ficar "sem salário definido".',
+   'Excluir um valor digitado no cargo errado e lançar de novo no cargo certo.',
+   'Usar excluir para "zerar" um reajuste: para trocar o valor use "Atualizar" — assim a vigência fica correta.',
+   6, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado')
+ON CONFLICT (chave) DO NOTHING;

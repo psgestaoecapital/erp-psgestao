@@ -17,6 +17,7 @@ import {
   type FiltroVinculo, type LinhaVinculoTela,
 } from '@/lib/contabil/vinculosTela'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 export const dynamic = 'force-dynamic'
 
@@ -159,6 +160,7 @@ export default function Page() {
               ))}
               <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar código ou descrição…" data-testid="vinc-busca"
                 style={{ flex: '1 1 220px', minWidth: 180, padding: '8px 10px', border: '1px solid rgba(61,35,20,0.25)', borderRadius: PSGC_RADIUS.sm, fontSize: 12.5, color: INK, background: '#fff' }} />
+              <AjudaCampo chave="plano_contas_vinc.busca" />
             </div>
 
             <div data-testid="vinc-massa" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12, padding: '10px 12px', background: '#fff', border: '1px solid rgba(61,35,20,0.15)', borderRadius: PSGC_RADIUS.md }}>
@@ -168,6 +170,7 @@ export default function Page() {
                 <option value="">— conta gerencial para as selecionadas —</option>
                 {opcoesGer.map((g) => <option key={g.id} value={g.id}>{g.codigo} · {g.descricao}</option>)}
               </select>
+              <AjudaCampo chave="plano_contas_vinc.massa_gerencial" />
               <button type="button" data-testid="vinc-massa-propor" disabled={ocupado || !gerMassa || alvos.proporContabilIds.length === 0}
                 onClick={() => void propor(alvos.proporContabilIds, gerMassa)}
                 style={botao(C.espresso, '#fff', ocupado || !gerMassa || alvos.proporContabilIds.length === 0)}>Propor ({alvos.proporContabilIds.length})</button>
@@ -177,12 +180,12 @@ export default function Page() {
                 style={botao('transparent', INK, ocupado || alvos.descartarVinculoIds.length === 0, true)}>Descartar proposta ({alvos.descartarVinculoIds.length})</button>
             </div>
 
-            <div style={{ border: '1px solid rgba(61,35,20,0.2)', borderRadius: PSGC_RADIUS.lg, background: '#fff', overflow: 'hidden' }}>
+            <div data-ajuda="plano_contas_vinc.vincular" style={{ border: '1px solid rgba(61,35,20,0.2)', borderRadius: PSGC_RADIUS.lg, background: '#fff', overflow: 'hidden' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: C.offWhiteDark, color: INK, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                 <input type="checkbox" aria-label="Selecionar todas as visíveis" data-testid="vinc-sel-todas" checked={todasMarcadas} disabled={selecionaveis.length === 0}
                   onChange={() => setSel(todasMarcadas ? new Set() : new Set(selecionaveis.map((l) => l.conta_contabil_id)))} />
                 <span style={{ flex: '1 1 300px' }}>Conta contábil</span>
-                <span style={{ flex: '1 1 300px' }}>Conta gerencial</span>
+                <span style={{ flex: '1 1 300px', display: 'inline-flex', alignItems: 'center', gap: 4 }}>Conta gerencial <AjudaCampo chave="plano_contas_vinc.vincular" /></span>
                 <span style={{ width: 96 }}>Situação</span>
               </div>
               {visiveis.length === 0 ? (
