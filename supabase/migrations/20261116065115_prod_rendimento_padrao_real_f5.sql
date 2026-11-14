@@ -182,7 +182,7 @@ SELECT gen_random_uuid(), '/dashboard/produtividade/rendimento', 'industria', 'R
        'Compara, por produto de origem, o rendimento PADRÃO de cada saída (prod_estrutura, editado no Mapa) com o rendimento REAL do período (produção apontada em prod_apontamento_hora), mostrando a diferença em kg e em R$ (preço de referência) e avisando quando as saídas de uma origem não somam ~100%. Genérico para qualquer indústria (RD-102).',
        ARRAY['prod_estrutura','prod_apontamento_hora','prod_produto','industrial_plants'],
        ARRAY['fn_prod_rendimento_comparativo'],
-       'produtividade', 'real'
+       'produtividade', 'pronto'
 WHERE EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='system_screens')
   AND NOT EXISTS (SELECT 1 FROM public.system_screens WHERE rota = '/dashboard/produtividade/rendimento');
 
