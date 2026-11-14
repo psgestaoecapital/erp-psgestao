@@ -217,6 +217,41 @@ export async function purgarProdutosDemo(): Promise<void> {
   console.log(`[purga-produtos] marcadores soft-deletados: ${total} (de ${DEMOS_PURGA.length * MARCADORES_PRODUTOS_E2E.length} varreduras)`)
 }
 
+// Purga durável do lixo de E2E em erp_orcamentos das demos (PDCA GE 14/11, tarefas 0c3345df/26111304).
+// PROBLEMA (provado RD-38 no banco prod, DEMO Comércio GE b0700000-...-0004): ~1,4 mil orçamentos de teste
+// vivos soterram o kanban de /dashboard/commerce/otc (Order-to-Cash) e a lista de orçamentos. O spec que os cria
+// deveria limpar no afterAll, que NÃO roda em cancel/timeout do run (igual a erp_receber/erp_produtos), e aí vazam.
+// erp_orcamentos tem deleted_at/deleted_by (exclusão do app é soft) — a purga é por SOFT-DELETE (dbPatch deleted_at),
+// que passa pela RLS e NÃO dispara o trigger trg_orcamento_gera_obra (só reage a mudança de status, não de deleted_at).
+// Marcador DEDICADO e2e, inconfundível: cliente_nome "Cliente Aceitação <N>" — o MESMO marcador "Aceitação" já usado
+// na purga de erp_receber. Conferido RD-38 (14/11): 1.380 vivos casam, 0 orçamentos reais (todos têm numero "A<N>-*"
+// gerado pelo spec; os reais são "ORC-2026-*", cliente comum). Idempotente (só pega deleted_at IS NULL). Nunca lança.
+const MARCADORES_ORCAMENTOS_E2E = ['Cliente Aceitação *']
+export async function purgarOrcamentosDemo(): Promise<void> {
+  const agora = new Date().toISOString()
+  let total = 0
+  for (const company of DEMOS_PURGA) {
+    for (const marca of MARCADORES_ORCAMENTOS_E2E) {
+      try {
+        const vivos = await dbSelect<{ id: string }>(
+          'erp_orcamentos',
+          `company_id=eq.${company}&deleted_at=is.null&cliente_nome=like.${encodeURIComponent(marca)}&select=id&limit=1`,
+        )
+        if (!vivos.length) continue
+        await dbPatch(
+          'erp_orcamentos',
+          `company_id=eq.${company}&deleted_at=is.null&cliente_nome=like.${encodeURIComponent(marca)}`,
+          { deleted_at: agora },
+        )
+        total++
+      } catch (e) {
+        console.warn(`[purga-orcamentos] ${company}/${marca} falhou (segue):`, e instanceof Error ? e.message : String(e))
+      }
+    }
+  }
+  console.log(`[purga-orcamentos] marcadores soft-deletados: ${total} (de ${DEMOS_PURGA.length * MARCADORES_ORCAMENTOS_E2E.length} varreduras)`)
+}
+
 // Reset da demo ao FIM da suíte (a demo pode ser mexida à vontade e volta ao seed).
 export async function resetarDemo(): Promise<void> {
   await rpc('fn_demo_reset', { p_company_id: DEMO_REVENDA })
