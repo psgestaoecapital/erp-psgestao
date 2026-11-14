@@ -174,6 +174,11 @@ export default function AprovacaoPage() {
           </div>
         )}
         {lista.length === 0 && <div style={{ color: ESP60, fontSize: 14, padding: '20px 0' }}>Nenhuma OS com laudo ainda. Faça o Diagnóstico primeiro.</div>}
+        {lista.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, margin: '2px 0 8px' }}>
+            Laudos para orçar<AjudaCampo chave="oficina.aprovacao.lista" rota="/dashboard/oficina/aprovacao" />
+          </div>
+        )}
         {lista.length > 0 && buscaOS.trim() && filtrarOS(lista, buscaOS).length === 0 && <div style={{ color: ESP60, fontSize: 14, padding: '12px 0' }}>Nenhuma OS encontrada para “{buscaOS.trim()}”.</div>}
         {filtrarOS(lista, buscaOS).map((os) => (
           <div key={os.id} onClick={() => void abrirOS(os)} style={{ width: '100%', textAlign: 'left', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 10, cursor: 'pointer' }}>
@@ -198,7 +203,7 @@ export default function AprovacaoPage() {
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginTop: 6 }}>🔧 Oficina · Orçamento · {osSel.numero}</div>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: '2px 0 10px' }}>{osSel.placa} · {osSel.marca} {osSel.modelo}</h1>
 
-        <Sec titulo={`Itens do orçamento (${nAprov}/${itens.length})`}>
+        <Sec titulo={`Itens do orçamento (${nAprov}/${itens.length})`} ajuda="oficina.aprovacao.itens">
           {itens.map((i) => (
             <div key={i.item_id} style={{ border: `1px solid ${i.aprovado ? OK : LINE}`, borderRadius: 12, padding: 12, marginBottom: 8, background: i.aprovado ? 'rgba(22,101,52,0.04)' : '#fff' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
@@ -218,6 +223,7 @@ export default function AprovacaoPage() {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
                 <span style={{ fontSize: 12, color: ESP60 }}>{qtdNum(i) !== 1 ? 'R$ unit.' : 'R$'}</span>
+                <AjudaCampo chave="oficina.aprovacao.preco" rota="/dashboard/oficina/aprovacao" />
                 <input value={i._preco} onChange={(e) => setPreco(i.item_id, e.target.value)} inputMode="decimal" placeholder="0,00"
                   data-testid="aprov-item-preco" readOnly={precoFixo(i)}
                   title={precoFixo(i) ? 'Valor definido no Diagnóstico (atendimento centralizado)' : undefined}
@@ -243,6 +249,7 @@ export default function AprovacaoPage() {
               {i.tipo === 'peca' && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
                   <span style={{ fontSize: 12, color: ESP60 }}>Custo R$</span>
+                  <AjudaCampo chave="oficina.aprovacao.custo" rota="/dashboard/oficina/aprovacao" />
                   <input value={i._custo} onChange={(e) => setCusto(i.item_id, e.target.value)} inputMode="decimal" placeholder="quanto a peça custou"
                     style={{ ...inp, maxWidth: 160, padding: '8px 10px' }} />
                   {(() => { const m = margemPct(i); return m != null
@@ -255,13 +262,14 @@ export default function AprovacaoPage() {
         </Sec>
 
         <Sec titulo="Quem autorizou">
-          <Campo l="Nome de quem autorizou"><input value={aprovadorNome} onChange={(e) => setAprovadorNome(e.target.value)} placeholder="Nome do cliente" style={inp} /></Campo>
+          <Campo l="Nome de quem autorizou" ajuda="oficina.aprovacao.aprovador_nome"><input value={aprovadorNome} onChange={(e) => setAprovadorNome(e.target.value)} placeholder="Nome do cliente" style={inp} /></Campo>
+          <div style={{ fontSize: 11, color: ESP60, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>Canal de aprovação<AjudaCampo chave="oficina.aprovacao.canal" rota="/dashboard/oficina/aprovacao" /></div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
             {CANAIS.map((c) => (
               <button key={c.v} onClick={() => escolherCanal(c.v)} style={{ ...chip, background: canal === c.v ? ESP : '#fff', color: canal === c.v ? '#fff' : ESP, borderColor: canal === c.v ? ESP : LINE }}>{c.l}</button>
             ))}
           </div>
-          <Campo l="Observação (opcional)"><textarea value={observacao} onChange={(e) => setObservacao(e.target.value)} rows={2} placeholder="Ex.: cliente pediu para adiar a retífica." style={{ ...inp, resize: 'vertical' }} /></Campo>
+          <Campo l="Observação (opcional)" ajuda="oficina.aprovacao.observacao"><textarea value={observacao} onChange={(e) => setObservacao(e.target.value)} rows={2} placeholder="Ex.: cliente pediu para adiar a retífica." style={{ ...inp, resize: 'vertical' }} /></Campo>
           <button onClick={compartilharWhatsApp} style={{ ...btnLine, width: '100%', gap: 6, marginTop: 4 }}><Share2 size={15} /> Compartilhar orçamento no WhatsApp</button>
 
           {/* Onda 3 · assinatura é o ÚLTIMO gesto: vem DEPOIS de conferir os itens (o cliente assina o
@@ -350,16 +358,18 @@ function AssinaturaPad({ onChange }: { onChange: (b64: string | null) => void })
   )
 }
 
-function Sec({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+function Sec({ titulo, ajuda, children }: { titulo: string; ajuda?: string; children: React.ReactNode }) {
   return (
     <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 14, padding: 14, marginBottom: 12 }}>
-      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 10 }}>{titulo}</div>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
+        {titulo}{ajuda && <AjudaCampo chave={ajuda} rota="/dashboard/oficina/aprovacao" />}
+      </div>
       {children}
     </div>
   )
 }
-function Campo({ l, children }: { l: string; children: React.ReactNode }) {
-  return <div style={{ marginBottom: 10 }}><div style={{ fontSize: 11, color: ESP60, marginBottom: 4 }}>{l}</div>{children}</div>
+function Campo({ l, ajuda, children }: { l: string; ajuda?: string; children: React.ReactNode }) {
+  return <div style={{ marginBottom: 10 }}><div style={{ fontSize: 11, color: ESP60, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>{l}{ajuda && <AjudaCampo chave={ajuda} rota="/dashboard/oficina/aprovacao" />}</div>{children}</div>
 }
 function Toast({ children }: { children: React.ReactNode }) {
   return <div style={{ position: 'fixed', bottom: 96, left: '50%', transform: 'translateX(-50%)', background: ESP, color: '#fff', padding: '10px 16px', borderRadius: 999, fontSize: 13, zIndex: 70, maxWidth: '92%', textAlign: 'center' }}>{children}</div>
