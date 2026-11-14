@@ -39,6 +39,7 @@ END $$;
 
 -- CORREÇÃO DURÁVEL: o seed comercial do GE-DEMO passa a purgar o vazamento "Cliente Aceita%" no início
 -- (antes de recriar o próprio bloco). Idêntico à definição viva, só acrescentando o bloco de purga marcado.
+-- ci-sem-guarda: fn_demo_seed_ge_comercial — seeder DEMO-only; grava só na empresa DEMO (p_company <> v_bot aborta)
 CREATE OR REPLACE FUNCTION public.fn_demo_seed_ge_comercial(p_company uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -173,3 +174,6 @@ BEGIN
     'cotacoes_exemplo', (SELECT count(*) FROM erp_cotacoes WHERE company_id=v_bot AND observacoes='seed:ge-comercial-cotacao')
   );
 END $function$;
+
+-- Guarda RD (REVOKE anon): função SECURITY DEFINER recriada — fecha chamada RPC direta por não-logado.
+REVOKE ALL ON FUNCTION public.fn_demo_seed_ge_comercial(uuid) FROM PUBLIC, anon;
