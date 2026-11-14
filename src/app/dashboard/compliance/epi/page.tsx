@@ -122,11 +122,11 @@ export default function EpiDashboardPage() {
         {/* Header */}
         <header style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 24 }}>
           <div>
-            <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.5, margin: 0 }}>Compliance · EPI</p>
+            <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.5, margin: 0 }}>EHS · EPI</p>
             <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 32, fontWeight: 400, margin: '4px 0 6px' }}>Gestão de EPI</h1>
             <p style={{ margin: 0, fontSize: 14, color: C.muted }}>NR-6 · Lei 14.063/2020 · eSocial</p>
           </div>
-          <Link href="/dashboard/compliance" style={btnSec}>← Compliance</Link>
+          <Link href="/dashboard/compliance" style={btnSec}>← EHS</Link>
         </header>
 
         {erro && <Erro msg={erro} />}
