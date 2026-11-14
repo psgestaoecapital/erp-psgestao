@@ -124,7 +124,7 @@ export default function SetoresPage() {
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: '32px 24px' }}>
         <header style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 24 }}>
           <div>
-            <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.5, margin: 0 }}>Compliance</p>
+            <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.5, margin: 0 }}>EHS</p>
             <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 32, fontWeight: 400, margin: '4px 0 6px' }}>Setores</h1>
             <p style={{ margin: 0, fontSize: 14, color: C.muted }}>
               Setores globais PS Gestão + setores personalizados da empresa

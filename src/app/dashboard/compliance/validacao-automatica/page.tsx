@@ -377,7 +377,7 @@ function Shell({ children }: { children: React.ReactNode }) {
       <div style={{ maxWidth: 1100, margin: '0 auto', padding: '32px 16px' }}>
         <header style={{ marginBottom: 20 }}>
           <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.2, textTransform: 'uppercase', opacity: 0.5, margin: 0 }}>
-            <Link href="/dashboard/compliance" style={{ color: 'inherit', textDecoration: 'none' }}>Compliance</Link>
+            <Link href="/dashboard/compliance" style={{ color: 'inherit', textDecoration: 'none' }}>EHS</Link>
             {' '}&gt;{' '}Validação Automática
           </p>
           <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 30, fontWeight: 400, margin: '4px 0 6px' }}>
