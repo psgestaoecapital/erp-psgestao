@@ -77,12 +77,13 @@ export default function MaoObraIndustriaPage() {
     return () => { alive = false }
   }, [empresaUnica])
 
-  // Gestor/diretoria (owner, sócio, diretor, gerente, financeiro, admin) pode ver o agregado por setor,
-  // mesmo sem papel RH. O salário individual segue restrito ao RH (fn__pode_ver_folha).
+  // Gestor/diretoria (RH, owner, sócio, diretor, gerente, financeiro) e as camadas gerenciais do
+  // escopo industrial podem ver o custo AGREGADO por setor (número gerencial), mesmo sem papel RH.
+  // O salário INDIVIDUAL segue restrito ao RH/diretoria por guarda própria (fn__mao_obra_pode_ver_individual).
   useEffect(() => {
     if (!empresaUnica) { setPodeAgregado(null); return }
     let alive = true
-    void supabase.rpc('fn__mao_obra_pode_ver_individual', { p_company_id: empresaUnica }).then(({ data }) => { if (alive) setPodeAgregado(data === true) })
+    void supabase.rpc('fn__mao_obra_pode_ver_agregado', { p_company_id: empresaUnica }).then(({ data }) => { if (alive) setPodeAgregado(data === true) })
     return () => { alive = false }
   }, [empresaUnica])
 
@@ -156,9 +157,11 @@ export default function MaoObraIndustriaPage() {
           <Box>
             <div style={{ fontSize: 34, marginBottom: 8 }}>👥</div>
             <b style={{ color: ESP, fontSize: 15 }}>Sem folha importada ainda</b>
-            <div style={{ color: MUT, fontSize: 13, margin: '8px 0 0', lineHeight: 1.5 }}>
-              O custo por setor aparece assim que o RH importar a folha de pagamento.
+            <div style={{ color: MUT, fontSize: 13, margin: '8px 0 16px', lineHeight: 1.5 }}>
+              O custo por setor aparece assim que a folha de pagamento for importada. A importação é feita pelo RH, na tela da folha.
             </div>
+            {/* RD-98 · estado vazio com ação: leva à tela da folha (as permissões de importação são aplicadas lá). */}
+            <Link href="/dashboard/industrial/folha" style={{ ...btnGold, textDecoration: 'none', display: 'inline-block' }}>📤 Ir para a folha</Link>
           </Box>
         ) : (
           <>
