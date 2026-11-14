@@ -1,0 +1,45 @@
+name: PDCA jornadas (noturno)
+
+# PDCA automático, fatia D (CEO 09/10): executa as jornadas das DEMOs toda noite e a pedido.
+# Chama fn_pdca_jornadas_executar (service_role) — só leitura da DEMO + grava pdca_jornada_resultado.
+# O robô de tela (Playwright) entra na fatia seguinte, sobre o auditor-playwright.yml.
+# Code: gilberto-chamados
+
+on:
+  schedule:
+    - cron: '30 5 * * *'
+  workflow_dispatch:
+    inputs:
+      vertical:
+        description: 'Vertical (vazio = todas)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  jornadas:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Executar jornadas e ligações
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          VERTICAL: ${{ github.event.inputs.vertical }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "::warning::segredos do Supabase ausentes — nada executado"; exit 0
+          fi
+          if [ -n "$VERTICAL" ]; then BODY=$(jq -nc --arg v "$VERTICAL" '{p_vertical:$v}'); else BODY='{}'; fi
+          for fn in fn_pdca_jornadas_executar fn_pdca_ligacoes_executar; do
+            echo "== $fn"
+            OUT=$(curl -sS --max-time 60 -X POST "$SUPABASE_URL/rest/v1/rpc/$fn" \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Content-Type: application/json" -d "$BODY") || { echo "::error::$fn falhou"; exit 1; }
+            echo "$OUT"
+            echo "$OUT" | jq -e '.ok == true' >/dev/null || { echo "::error::$fn não retornou ok"; exit 1; }
+            V=$(echo "$OUT" | jq -r '.vermelho // 0')
+            [ "$V" != "0" ] && echo "::warning::$fn: $V item(ns) vermelho(s) — diagnóstico em pdca_jornada_resultado"
+          done
