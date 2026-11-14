@@ -256,19 +256,19 @@ export default function FluxoCaixaPage() {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12, marginBottom: 20 }}>
         <PSGCMetric label={rotuloSaldo} valor={brl(saldoHoje)} destaque
-          icon="wallet" cor={PSGC_COLORS.espresso} ajuda="ge.fluxo_caixa.kpi.saldo_atual" ajudaRota={ROTA_AJUDA} />
+          icon="💰" cor={PSGC_COLORS.espresso} ajuda="ge.fluxo_caixa.kpi.saldo_atual" ajudaRota={ROTA_AJUDA} />
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <PSGCMetric label="Entradas realizadas no período" valor={brl(dados?.total_recebimentos ?? 0)}
-            icon="arrow-up" cor={PSGC_COLORS.baixa} pequeno ajuda="ge.fluxo_caixa.kpi.entradas" ajudaRota={ROTA_AJUDA} />
+            icon="↑" cor={PSGC_COLORS.baixa} pequeno ajuda="ge.fluxo_caixa.kpi.entradas" ajudaRota={ROTA_AJUDA} />
           <PSGCMetric label="Saídas realizadas no período" valor={brl(dados?.total_pagamentos ?? 0)}
-            icon="arrow-down" cor={PSGC_COLORS.alta} pequeno ajuda="ge.fluxo_caixa.kpi.saidas" ajudaRota={ROTA_AJUDA} />
+            icon="↓" cor={PSGC_COLORS.alta} pequeno ajuda="ge.fluxo_caixa.kpi.saidas" ajudaRota={ROTA_AJUDA} />
         </div>
         {(previstoEntrar > 0 || previstoSair > 0) && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <PSGCMetric label="Previsto a entrar" valor={brl(previstoEntrar)}
-              icon="arrow-up" cor={PSGC_COLORS.dourado} pequeno ajuda="ge.fluxo_caixa.kpi.previsto_entrar" ajudaRota={ROTA_AJUDA} />
+              icon="↑" cor={PSGC_COLORS.dourado} pequeno ajuda="ge.fluxo_caixa.kpi.previsto_entrar" ajudaRota={ROTA_AJUDA} />
             <PSGCMetric label="Previsto a sair" valor={brl(previstoSair)}
-              icon="arrow-down" cor={PSGC_COLORS.dourado} pequeno ajuda="ge.fluxo_caixa.kpi.previsto_sair" ajudaRota={ROTA_AJUDA} />
+              icon="↓" cor={PSGC_COLORS.dourado} pequeno ajuda="ge.fluxo_caixa.kpi.previsto_sair" ajudaRota={ROTA_AJUDA} />
           </div>
         )}
       </div>

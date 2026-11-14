@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import PlanoContasForm, { type ContaPlano, type TipoConta, TIPOS } from './PlanoContasForm'
 import VincularLinhasDREModal from './VincularLinhasDREModal'
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ROTA_AJUDA = '/dashboard/cadastros/plano-contas'
 const TIPO_VISUAL = TIPOS.reduce((acc, t) => { acc[t.value] = t; return acc }, {} as Record<TipoConta, typeof TIPOS[number]>)
@@ -37,14 +38,14 @@ export default function PlanoContasList({ companyId }: { companyId: string }) {
   }, [companyId])
 
   async function handleAplicarPadrao() {
-    if (!confirm('Aplicar 15 contas padrão DRE? Contas já existentes não duplicam.')) return
+    if (!confirm('Aplicar o plano de contas padrão do DRE? Contas já existentes não duplicam.')) return
     setAplicando(true)
     const { data, error } = await supabase.rpc('fn_plano_contas_aplicar_sugestoes_padrao', {
       p_company_id: companyId,
     })
     setAplicando(false)
     if (error) {
-      alert('Erro: ' + error.message)
+      alert(erroAmigavel(error, 'Não foi possível aplicar o plano padrão. Tente de novo.'))
       return
     }
     const result = data as { sem_plano?: boolean; mensagem?: string } | null
@@ -64,7 +65,7 @@ export default function PlanoContasList({ companyId }: { companyId: string }) {
       p_ativo: !c.ativo,
     })
     if (error) {
-      alert('Não foi possível alterar a conta: ' + error.message)
+      alert(erroAmigavel(error, 'Não foi possível alterar a conta. Tente de novo.'))
       return
     }
     const result = data as { ok?: boolean; erro?: string } | null
@@ -188,7 +189,7 @@ export default function PlanoContasList({ companyId }: { companyId: string }) {
               disabled={aplicando}
               style={{ background: '#C8941A', color: '#3D2314', border: 'none', padding: '10px 24px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: aplicando ? 'wait' : 'pointer' }}
             >
-              {aplicando ? 'Aplicando…' : '✨ Aplicar 15 contas padrão (DRE)'}
+              {aplicando ? 'Aplicando…' : '✨ Aplicar contas padrão (DRE)'}
             </button>
           )}
         </div>

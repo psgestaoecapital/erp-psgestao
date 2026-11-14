@@ -101,10 +101,12 @@ export default function DREHorizontal() {
   }, [empresaUnica, companyIds, selInfo.nome])
 
   const carregar = useCallback(async () => {
-    if (!membros.length) return
+    // RD-98/99 robustez: nunca travar no spinner. Grupo ainda não resolvido (membros vazio) → sai do loading.
+    if (!membros.length) { setLoading(false); return }
     // Visão "por linha de negócio" tem carregamento próprio (componente DREPorLN).
     if (visao === 'ln') { setLoading(false); return }
     setLoading(true); setErro(null)
+    try {
     // Previsto (fluxo por vencimento) é sempre por DIA — mesmo se um intervalo estiver selecionado, usa o 1º mês.
     if (selIni === selFim || regime === 'previsto') {
       // 1 mês → DIAS no cabeçalho
@@ -134,7 +136,12 @@ export default function DREHorizontal() {
         linhas: (r.linhas ?? []).map((l) => ({ ...l, valores: l.valores_mes ?? {} })),
       })
     }
-    setLoading(false)
+    } catch (e) {
+      // erro inesperado (rede/parse) não pode deixar o DRE "Carregando…" para sempre
+      setErro(e instanceof Error ? e.message : 'Falha ao carregar o DRE'); setData(null)
+    } finally {
+      setLoading(false)
+    }
   }, [membros, ano, selIni, selFim, regime, visao])
 
   useEffect(() => { void carregar() }, [carregar])
