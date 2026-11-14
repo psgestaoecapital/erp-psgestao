@@ -187,7 +187,10 @@ function Inner() {
             {papelFiltroOpts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </label>
-        <button data-testid="produtos-novo" onClick={() => setNovoAberto(true)} style={{ ...btn(true), padding: '7px 12px', fontSize: 12.5 }}>+ Novo produto</button>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+          <button data-testid="produtos-novo" onClick={() => setNovoAberto(true)} style={{ ...btn(true), padding: '7px 12px', fontSize: 12.5 }}>+ Novo produto</button>
+          <Aj k="prod.produto.novo" />
+        </span>
         <button data-testid="produtos-colar" onClick={() => setColarAberto(true)} style={{ ...btn(true), background: 'transparent', color: C.esp, border: `1px solid ${C.border}`, padding: '7px 12px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><ClipboardList size={14} strokeWidth={1.5} />Colar lista</button>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
           <button data-testid="produtos-importar-vinculado" onClick={() => setImportarAberto(true)} style={{ ...btn(true), background: 'transparent', color: C.esp, border: `1px solid ${C.border}`, padding: '7px 12px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><PlugZap size={14} strokeWidth={1.5} />Importar do sistema vinculado</button>
@@ -295,8 +298,11 @@ function LinhaProduto({ p, expandido, onExpandir, onSalvar, onArquivar, companyI
             }} />
         </td>
         <td style={td}>
-          <button type="button" data-testid={`produto-arquivar-${p.codigo}`} onClick={onArquivar}
-            style={{ background: 'none', border: `1px solid ${C.border}`, color: C.red, borderRadius: 7, padding: '4px 9px', fontSize: 12, cursor: 'pointer', fontWeight: 700 }}>Arquivar</button>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+            <button type="button" data-testid={`produto-arquivar-${p.codigo}`} onClick={onArquivar}
+              style={{ background: 'none', border: `1px solid ${C.border}`, color: C.red, borderRadius: 7, padding: '4px 9px', fontSize: 12, cursor: 'pointer', fontWeight: 700 }}>Arquivar</button>
+            <Aj k="prod.produto.arquivar" />
+          </span>
         </td>
       </tr>
       {expandido && (
