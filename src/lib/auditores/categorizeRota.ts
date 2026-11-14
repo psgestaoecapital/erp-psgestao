@@ -21,7 +21,7 @@ export function categorizeRota(rota: string): CategoriaArea {
   if (rota.startsWith('/dashboard/hub')) return 'Hub Projetos'
   if (rota.startsWith('/dashboard/industrial')) return 'Industrial'
   if (rota.startsWith('/dashboard/pm')) return 'P&M'
-  if (rota.startsWith('/dashboard/compliance')) return 'Compliance'
+  if (rota.startsWith('/dashboard/ehs')) return 'Compliance'
   if (rota.startsWith('/dashboard/bpo')) return 'BPO'
   if (rota.startsWith('/dashboard/wealth') || rota.startsWith('/wealth')) return 'Wealth'
   if (rota.startsWith('/dashboard/commerce')) return 'Commerce'

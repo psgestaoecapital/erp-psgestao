@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
 
-const tela = readFileSync('src/app/dashboard/compliance/pausas-tecnicas/page.tsx', 'utf8')
+const tela = readFileSync('src/app/dashboard/ehs/pausas-tecnicas/page.tsx', 'utf8')
 ok(/rpc<[^>]*>\('fn_nr36_upload_substituir', \{ p_upload_id_novo: novo\.id, p_upload_id_antigo: antigoId/.test(tela), 'o histórico chama fn_nr36_upload_substituir (novo, antigo)')
 ok(/window\.confirm\([^)]*continua guardado/.test(tela), 'pede confirmação e avisa que o arquivo antigo continua guardado')
 ok(/Substituir outro por este/.test(tela), 'a linha do upload processado oferece "Substituir outro por este"')
