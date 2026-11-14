@@ -192,7 +192,10 @@ function Inner() {
           <button data-testid="produtos-novo" onClick={() => setNovoAberto(true)} style={{ ...btn(true), padding: '7px 12px', fontSize: 12.5 }}>+ Novo produto</button>
           <Aj k="prod.produto.novo" />
         </span>
-        <button data-testid="produtos-colar" onClick={() => setColarAberto(true)} style={{ ...btn(true), background: 'transparent', color: C.esp, border: `1px solid ${C.border}`, padding: '7px 12px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><ClipboardList size={14} strokeWidth={1.5} />Colar lista</button>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+          <button data-testid="produtos-colar" onClick={() => setColarAberto(true)} style={{ ...btn(true), background: 'transparent', color: C.esp, border: `1px solid ${C.border}`, padding: '7px 12px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><ClipboardList size={14} strokeWidth={1.5} />Colar lista</button>
+          <Aj k="prod.produto.colar_lista" />
+        </span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
           <button data-testid="produtos-importar-vinculado" onClick={() => setImportarAberto(true)} style={{ ...btn(true), background: 'transparent', color: C.esp, border: `1px solid ${C.border}`, padding: '7px 12px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><PlugZap size={14} strokeWidth={1.5} />Importar do sistema vinculado</button>
           <Aj k="prod.produto.importar_vinculado" />
