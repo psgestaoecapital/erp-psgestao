@@ -230,11 +230,19 @@ export default function ContratosList({ companyId }: { companyId: string }) {
   )
 }
 
-type AcaoCard = 'encerrar' | 'excluir'
+type AcaoCard = 'encerrar' | 'excluir' | 'faturar'
+
+// Referência do mês corrente (1º dia) para gerar a conta a receber. fn_contrato_gerar_receber é idempotente
+// (dedup por contrato+mês), então reclicar não duplica.
+function mesReferenciaISO(): string {
+  const h = new Date()
+  return new Date(h.getFullYear(), h.getMonth(), 1).toISOString().slice(0, 10)
+}
 
 function CardContrato({ contrato, onEditar, onAlterado }: { contrato: Contrato; onEditar: () => void; onAlterado: (texto: string) => void }) {
   // RD-98 p2: encerrar e excluir visíveis na lista (antes só havia "Editar"). As duas RPCs já existiam e exigem motivo;
   // excluir é soft-delete rastreável (excluido_em/por + erp_contratos_eventos) e só passa se o contrato permitir.
+  // Faturar (anti-pulo-de-tela): gera a conta a receber do mês direto da lista, sem ir à tela "a faturar".
   const [acao, setAcao] = useState<AcaoCard | null>(null)
   const [motivo, setMotivo] = useState('')
   const [salvando, setSalvando] = useState(false)
@@ -244,6 +252,23 @@ function CardContrato({ contrato, onEditar, onAlterado }: { contrato: Contrato; 
 
   async function confirmar() {
     if (!acao) return
+    if (acao === 'faturar') {
+      setSalvando(true); setErro(null)
+      const { data, error } = await supabase.rpc('fn_contrato_gerar_receber', {
+        p_contrato_id: contrato.id,
+        p_mes_referencia: mesReferenciaISO(),
+      })
+      setSalvando(false)
+      const r = data as { success?: boolean; error?: string; idempotente?: boolean } | null
+      if (error || !r?.success) {
+        if (!error && r?.idempotente) { setErro('A cobrança deste mês já foi gerada.'); return }
+        setErro(!error && r?.error ? r.error : erroAmigavel(error, 'Não consegui gerar a cobrança. Tente de novo.'))
+        return
+      }
+      setAcao(null)
+      onAlterado(`Conta a receber gerada para “${contrato.nome}”. Acompanhe em Contas a Receber.`)
+      return
+    }
     if (!motivo.trim()) { setErro(acao === 'excluir' ? 'Conte o motivo da exclusão.' : 'Conte o motivo do encerramento.'); return }
     setSalvando(true); setErro(null)
     const { data, error } = acao === 'excluir'
@@ -317,6 +342,12 @@ function CardContrato({ contrato, onEditar, onAlterado }: { contrato: Contrato; 
           <button type="button" onClick={onEditar} style={btnAcao('#3D2314')}>Editar</button>
           <AjudaCampo chave="ge.contratos.editar" rota={ROTA_AJUDA} />
         </span>
+        {contrato.status === 'ativo' && (
+          <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+            <button type="button" onClick={() => abrir('faturar')} style={btnAcao('#3B6D11')}>Faturar</button>
+            <AjudaCampo chave="ge.contratos.faturar_lista" rota={ROTA_AJUDA} />
+          </span>
+        )}
         {contrato.status !== 'encerrado' && (
           <span style={{ display: 'inline-flex', alignItems: 'center' }}>
             <button type="button" onClick={() => abrir('encerrar')} style={btnAcao('#BA7517')}>Encerrar</button>
@@ -330,26 +361,32 @@ function CardContrato({ contrato, onEditar, onAlterado }: { contrato: Contrato; 
       </div>
 
       {acao && (
-        <div style={{ flexBasis: '100%', background: acao === 'excluir' ? 'rgba(163,45,45,0.05)' : 'rgba(186,117,23,0.06)', border: `0.5px solid ${acao === 'excluir' ? 'rgba(163,45,45,0.3)' : 'rgba(186,117,23,0.35)'}`, borderRadius: 8, padding: '12px 14px' }}>
+        <div style={{ flexBasis: '100%', background: acao === 'excluir' ? 'rgba(163,45,45,0.05)' : acao === 'faturar' ? 'rgba(59,109,17,0.06)' : 'rgba(186,117,23,0.06)', border: `0.5px solid ${acao === 'excluir' ? 'rgba(163,45,45,0.3)' : acao === 'faturar' ? 'rgba(59,109,17,0.35)' : 'rgba(186,117,23,0.35)'}`, borderRadius: 8, padding: '12px 14px' }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#3D2314', marginBottom: 8 }}>
             {acao === 'excluir'
               ? `Excluir “${contrato.nome}”? Ela sai da lista; o que já foi cobrado continua no financeiro.`
+              : acao === 'faturar'
+              ? `Gerar a conta a receber deste mês para “${contrato.nome}” (R$ ${fmt(Number(contrato.valor_atual ?? contrato.valor_mensal))})? Ela aparece em Contas a Receber. Se já foi gerada neste mês, nada é duplicado.`
               : `Encerrar “${contrato.nome}”? Ela para de gerar contas a receber a partir de hoje.`}
           </div>
           {erro && <div role="alert" style={{ background: '#FCEBEB', color: '#A32D2D', padding: '8px 12px', borderRadius: 6, marginBottom: 8, fontSize: 12 }}>{erro}</div>}
-          <label style={{ display: 'flex', alignItems: 'center', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>
-            Motivo *
-            <AjudaCampo chave="ge.contratos.motivo" rota={ROTA_AJUDA} />
-          </label>
-          <input
-            value={motivo}
-            onChange={(e) => setMotivo(e.target.value)}
-            placeholder={acao === 'excluir' ? 'Ex.: cadastrada em duplicidade' : 'Ex.: cliente cancelou o serviço'}
-            style={{ width: '100%', padding: '9px 12px', border: '0.5px solid rgba(61,35,20,0.25)', borderRadius: 6, fontSize: 13, color: '#3D2314', background: '#FFFFFF', boxSizing: 'border-box', marginBottom: 10 }}
-          />
+          {acao !== 'faturar' && (
+            <>
+              <label style={{ display: 'flex', alignItems: 'center', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>
+                Motivo *
+                <AjudaCampo chave="ge.contratos.motivo" rota={ROTA_AJUDA} />
+              </label>
+              <input
+                value={motivo}
+                onChange={(e) => setMotivo(e.target.value)}
+                placeholder={acao === 'excluir' ? 'Ex.: cadastrada em duplicidade' : 'Ex.: cliente cancelou o serviço'}
+                style={{ width: '100%', padding: '9px 12px', border: '0.5px solid rgba(61,35,20,0.25)', borderRadius: 6, fontSize: 13, color: '#3D2314', background: '#FFFFFF', boxSizing: 'border-box', marginBottom: 10 }}
+              />
+            </>
+          )}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button type="button" onClick={confirmar} disabled={salvando} style={{ background: acao === 'excluir' ? '#A32D2D' : '#BA7517', color: '#FFFFFF', border: 'none', padding: '8px 16px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: salvando ? 'wait' : 'pointer' }}>
-              {salvando ? 'Salvando…' : acao === 'excluir' ? 'Sim, excluir' : 'Sim, encerrar'}
+            <button type="button" onClick={confirmar} disabled={salvando} style={{ background: acao === 'excluir' ? '#A32D2D' : acao === 'faturar' ? '#3B6D11' : '#BA7517', color: '#FFFFFF', border: 'none', padding: '8px 16px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: salvando ? 'wait' : 'pointer' }}>
+              {salvando ? 'Salvando…' : acao === 'excluir' ? 'Sim, excluir' : acao === 'faturar' ? 'Sim, gerar cobrança' : 'Sim, encerrar'}
             </button>
             <button type="button" onClick={() => setAcao(null)} disabled={salvando} style={btnAcao('#3D2314')}>Cancelar</button>
           </div>

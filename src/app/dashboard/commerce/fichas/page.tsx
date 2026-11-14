@@ -15,11 +15,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import {
   Plus, Search, FileText, X, Trash2,
   Package, Calculator, ListChecks, Info,
 } from 'lucide-react'
 
+const ROTA = '/dashboard/commerce/fichas'
 const C = {
   espresso: '#3D2314',
   espressoM: '#6B5D4F',
@@ -116,8 +118,32 @@ export default function FichasCommercePage() {
         .order('categoria', { ascending: true, nullsFirst: true })
         .order('nome', { ascending: true })
       if (!alive) return
-      setFichas((data ?? []) as FichaTec[])
+      const lista = (data ?? []) as FichaTec[]
+      setFichas(lista)
       setLoadingFichas(false)
+
+      // Carrega os itens de TODAS as fichas de uma vez para que a LISTA mostre
+      // Custo total e Preço de venda em cada linha (a razão-de-ser da tela),
+      // sem exigir abrir ficha a ficha. Tela operacional = 1 empresa por vez,
+      // então o volume é limitado. Prefila o itensCache (o clique na ficha
+      // reaproveita o mesmo cache).
+      if (lista.length > 0) {
+        const ids = lista.map((f) => f.id)
+        const { data: itensData } = await supabase
+          .from('ficha_itens')
+          .select('*')
+          .in('ficha_id', ids)
+          .order('ordem', { ascending: true, nullsFirst: true })
+        if (!alive) return
+        const porFicha: Record<string, FichaItem[]> = {}
+        for (const id of ids) porFicha[id] = []
+        for (const it of (itensData ?? []) as FichaItem[]) {
+          ;(porFicha[it.ficha_id] ??= []).push(it)
+        }
+        setItensCache(porFicha)
+      } else {
+        setItensCache({})
+      }
     })()
     return () => { alive = false }
   }, [companyIdUnico, companiesLoading])
@@ -174,21 +200,20 @@ export default function FichasCommercePage() {
       flash('Selecione uma empresa especifica no menu para criar fichas.')
       return
     }
+    // RD-98 p3 · escrita rastreável e guardada no servidor (fn_ficha_tecnica_salvar
+    // confere o acesso à empresa via get_user_company_ids()/is_admin()). Sem p_id = INSERT.
     const { data, error } = await supabase
-      .from('fichas_tecnicas')
-      .insert({
-        company_id: companyIdUnico,
-        nome: nome.trim(),
-        categoria,
-        unidade: 'm²',
-        mao_obra_direta: 0,
-        custos_indiretos_pct: 15,
-        impostos_pct: 8.65,
-        markup_pct: 30,
-        ativo: true,
+      .rpc('fn_ficha_tecnica_salvar', {
+        p_company_id: companyIdUnico,
+        p_nome: nome.trim(),
+        p_categoria: categoria,
+        p_unidade: 'm²',
+        p_mao_obra_direta: 0,
+        p_custos_indiretos_pct: 15,
+        p_impostos_pct: 8.65,
+        p_markup_pct: 30,
+        p_ativo: true,
       })
-      .select()
-      .single()
     if (error) {
       flash(erroAmigavel(error, 'Não foi possível criar a ficha. Tente de novo.'))
       return
@@ -202,10 +227,19 @@ export default function FichasCommercePage() {
   }
 
   async function atualizarFicha(id: string, patch: Partial<FichaTec>) {
-    const { error } = await supabase
-      .from('fichas_tecnicas')
-      .update({ ...patch, updated_at: new Date().toISOString() })
-      .eq('id', id)
+    // Update PARCIAL: só manda os campos tocados; a RPC usa COALESCE e preserva o resto.
+    const args: Record<string, unknown> = { p_id: id }
+    if (patch.nome !== undefined) args.p_nome = patch.nome
+    if (patch.categoria !== undefined) args.p_categoria = patch.categoria
+    if (patch.descricao !== undefined) args.p_descricao = patch.descricao
+    if (patch.unidade !== undefined) args.p_unidade = patch.unidade
+    if (patch.codigo !== undefined) args.p_codigo = patch.codigo
+    if (patch.mao_obra_direta !== undefined) args.p_mao_obra_direta = patch.mao_obra_direta
+    if (patch.custos_indiretos_pct !== undefined) args.p_custos_indiretos_pct = patch.custos_indiretos_pct
+    if (patch.impostos_pct !== undefined) args.p_impostos_pct = patch.impostos_pct
+    if (patch.markup_pct !== undefined) args.p_markup_pct = patch.markup_pct
+    if (patch.ativo !== undefined) args.p_ativo = patch.ativo
+    const { error } = await supabase.rpc('fn_ficha_tecnica_salvar', args)
     if (error) {
       flash(erroAmigavel(error, 'Não foi possível salvar a ficha. Tente de novo.'))
       return
@@ -215,7 +249,7 @@ export default function FichasCommercePage() {
 
   async function excluirFicha(id: string) {
     if (!confirm('Excluir esta ficha e todos os itens? Esta ação não pode ser desfeita.')) return
-    const { error } = await supabase.from('fichas_tecnicas').delete().eq('id', id)
+    const { error } = await supabase.rpc('fn_ficha_tecnica_excluir', { p_id: id })
     if (error) {
       flash(erroAmigavel(error, 'Não foi possível excluir a ficha. Tente de novo.'))
       return
@@ -228,10 +262,7 @@ export default function FichasCommercePage() {
   async function addItem(fichaId: string) {
     const ordemNova = (itensCache[fichaId]?.length ?? 0) + 1
     const { data, error } = await supabase
-      .from('ficha_itens')
-      .insert({ ficha_id: fichaId, ordem: ordemNova, nome: 'Novo item', unidade: 'un', quantidade: 1, preco_unitario: 0 })
-      .select()
-      .single()
+      .rpc('fn_ficha_item_salvar', { p_ficha_id: fichaId, p_ordem: ordemNova, p_nome: 'Novo item', p_unidade: 'un', p_quantidade: 1, p_preco_unitario: 0 })
     if (error) {
       flash(erroAmigavel(error, 'Não foi possível adicionar o item. Tente de novo.'))
       return
@@ -245,7 +276,16 @@ export default function FichasCommercePage() {
   }
 
   async function atualizarItem(itemId: string, fichaId: string, patch: Partial<FichaItem>) {
-    const { error } = await supabase.from('ficha_itens').update(patch).eq('id', itemId)
+    const args: Record<string, unknown> = { p_id: itemId }
+    if (patch.ordem !== undefined) args.p_ordem = patch.ordem
+    if (patch.codigo !== undefined) args.p_codigo = patch.codigo
+    if (patch.nome !== undefined) args.p_nome = patch.nome
+    if (patch.unidade !== undefined) args.p_unidade = patch.unidade
+    if (patch.quantidade !== undefined) args.p_quantidade = patch.quantidade
+    if (patch.preco_unitario !== undefined) args.p_preco_unitario = patch.preco_unitario
+    if (patch.fornecedor !== undefined) args.p_fornecedor = patch.fornecedor
+    if (patch.obs !== undefined) args.p_obs = patch.obs
+    const { error } = await supabase.rpc('fn_ficha_item_salvar', args)
     if (error) {
       flash(erroAmigavel(error, 'Não foi possível salvar o item. Tente de novo.'))
       return
@@ -257,7 +297,7 @@ export default function FichasCommercePage() {
   }
 
   async function excluirItem(itemId: string, fichaId: string) {
-    const { error } = await supabase.from('ficha_itens').delete().eq('id', itemId)
+    const { error } = await supabase.rpc('fn_ficha_item_excluir', { p_id: itemId })
     if (error) {
       flash(erroAmigavel(error, 'Não foi possível excluir o item. Tente de novo.'))
       return
@@ -396,7 +436,7 @@ export default function FichasCommercePage() {
           alignItems: 'center',
         }}
       >
-        <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 180 }}>
+        <div data-ajuda="commerce.fichas.busca" style={{ position: 'relative', flex: '1 1 240px', minWidth: 180 }}>
           <Search
             size={14}
             style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.espressoL }}
@@ -417,6 +457,9 @@ export default function FichasCommercePage() {
               outline: 'none',
             }}
           />
+          <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)' }}>
+            <AjudaCampo chave="commerce.fichas.busca" rota={ROTA} />
+          </span>
         </div>
         <select
           value={filtroCat}
@@ -437,6 +480,7 @@ export default function FichasCommercePage() {
             <option key={c} value={c}>{c}</option>
           ))}
         </select>
+        <AjudaCampo chave="commerce.fichas.filtro_categoria" rota={ROTA} />
         <span style={{ marginLeft: 'auto', fontSize: 11, color: C.espressoM }}>
           {fichasFiltradas.length} de {fichas.length}
         </span>
@@ -671,7 +715,7 @@ function ModalNovaFicha({ onClose, onCreate }: { onClose: () => void; onCreate: 
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Nome *</span>
+            <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>Nome *<AjudaCampo chave="commerce.fichas.nome" rota={ROTA} /></span>
             <input
               autoFocus
               value={nome}
@@ -681,7 +725,7 @@ function ModalNovaFicha({ onClose, onCreate }: { onClose: () => void; onCreate: 
             />
           </label>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Categoria</span>
+            <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>Categoria<AjudaCampo chave="commerce.fichas.categoria" rota={ROTA} /></span>
             <select
               value={cat}
               onChange={(e) => setCat(e.target.value)}
@@ -787,7 +831,7 @@ function Drawer({
             aberto={aberto.ident}
             onToggle={() => setAberto((p) => ({ ...p, ident: !p.ident }))}
           >
-            <Field label="Código">
+            <Field label="Código" ajuda="commerce.fichas.codigo">
               <input
                 defaultValue={ficha.codigo ?? ''}
                 onBlur={(e) => onUpdate({ codigo: e.target.value || null })}
@@ -795,24 +839,24 @@ function Drawer({
                 style={inp}
               />
             </Field>
-            <Field label="Nome">
+            <Field label="Nome" ajuda="commerce.fichas.nome">
               <input defaultValue={ficha.nome} onBlur={(e) => onUpdate({ nome: e.target.value })} style={inp} />
             </Field>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
-              <Field label="Categoria">
+              <Field label="Categoria" ajuda="commerce.fichas.categoria">
                 <select defaultValue={ficha.categoria ?? ''} onChange={(e) => onUpdate({ categoria: e.target.value || null })} style={inp}>
                   <option value="">—</option>
                   {CATEGORIAS.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               </Field>
-              <Field label="Unidade">
+              <Field label="Unidade" ajuda="commerce.fichas.unidade">
                 <select defaultValue={ficha.unidade ?? ''} onChange={(e) => onUpdate({ unidade: e.target.value || null })} style={inp}>
                   <option value="">—</option>
                   {UNIDADES.map((u) => <option key={u} value={u}>{u}</option>)}
                 </select>
               </Field>
             </div>
-            <Field label="Descrição">
+            <Field label="Descrição" ajuda="commerce.fichas.descricao">
               <textarea
                 defaultValue={ficha.descricao ?? ''}
                 onBlur={(e) => onUpdate({ descricao: e.target.value || null })}
@@ -846,10 +890,10 @@ function Drawer({
                 <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
                   <thead style={{ background: C.cream }}>
                     <tr>
-                      <Th>Nome</Th>
-                      <Th>Unid.</Th>
-                      <Th align="right">Qtd</Th>
-                      <Th align="right">Preço un.</Th>
+                      <Th>Nome <AjudaCampo chave="commerce.fichas.item_nome" rota={ROTA} /></Th>
+                      <Th>Unid. <AjudaCampo chave="commerce.fichas.item_unidade" rota={ROTA} /></Th>
+                      <Th align="right">Qtd <AjudaCampo chave="commerce.fichas.item_qtd" rota={ROTA} /></Th>
+                      <Th align="right">Preço un. <AjudaCampo chave="commerce.fichas.item_preco" rota={ROTA} /></Th>
                       <Th align="right">Subtotal</Th>
                       <Th />
                     </tr>
@@ -920,7 +964,7 @@ function Drawer({
             onToggle={() => setAberto((p) => ({ ...p, custos: !p.custos }))}
           >
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
-              <Field label="Mão de obra direta (R$)">
+              <Field label="Mão de obra direta (R$)" ajuda="commerce.fichas.mao_obra_direta">
                 <input
                   type="number"
                   step="0.01"
@@ -929,7 +973,7 @@ function Drawer({
                   style={inp}
                 />
               </Field>
-              <Field label="Custos indiretos (%)">
+              <Field label="Custos indiretos (%)" ajuda="commerce.fichas.custos_indiretos_pct">
                 <input
                   type="number"
                   step="0.01"
@@ -938,7 +982,7 @@ function Drawer({
                   style={inp}
                 />
               </Field>
-              <Field label="Impostos (%)">
+              <Field label="Impostos (%)" ajuda="commerce.fichas.impostos_pct">
                 <input
                   type="number"
                   step="0.01"
@@ -947,7 +991,7 @@ function Drawer({
                   style={inp}
                 />
               </Field>
-              <Field label="Markup (%)">
+              <Field label="Markup (%)" ajuda="commerce.fichas.markup_pct">
                 <input
                   type="number"
                   step="0.01"
@@ -1018,10 +1062,10 @@ function Secao({ titulo, icon, aberto, onToggle, action, children }: {
   )
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children, ajuda }: { label: string; children: React.ReactNode; ajuda?: string }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <span style={{ fontSize: 10, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>{label}</span>
+      <span style={{ fontSize: 10, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>{label}{ajuda && <AjudaCampo chave={ajuda} rota={ROTA} />}</span>
       {children}
     </label>
   )

@@ -289,7 +289,7 @@ export default function CalendarioCompliancePage() {
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <Link href="/dashboard/compliance" style={btnSec}>
-              ← Compliance
+              ← EHS
             </Link>
             <button onClick={gerarTarefas} disabled={gerando} style={{ ...btnPri, opacity: gerando ? 0.6 : 1 }}>
               {gerando ? '⏳ Gerando…' : '✨ Gerar tarefas do periodo'}

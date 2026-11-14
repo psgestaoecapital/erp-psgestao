@@ -688,7 +688,7 @@ function AbaImportar({ companyId }: { companyId: string }) {
     if (!file || linhas.length === 0) return
     // envia só as linhas com CPF resolvido; nomes sem cadastro ficam na prévia (não vão pro banco)
     const payload = linhas.filter(l => l.cpf).map(l => ({ cpf: l.cpf, data: l.data, inicio: l.inicio, fim: l.fim, duracao_seg: l.duracao_seg, tipo: l.tipo }))
-    if (payload.length === 0) { setErro('Nenhum nome do arquivo casou com o cadastro de colaboradores — nada a importar. Cadastre-os em Compliance › Funcionários e tente de novo.'); return }
+    if (payload.length === 0) { setErro('Nenhum nome do arquivo casou com o cadastro de colaboradores — nada a importar. Cadastre-os em EHS › Funcionários e tente de novo.'); return }
     setBusy(true); setErro(''); setResultado(null)
     try {
       const buf = await file.arrayBuffer()
@@ -716,7 +716,7 @@ function AbaImportar({ companyId }: { companyId: string }) {
     <div style={{ background: '#fff', border: `1px dashed ${C.borderLt}`, borderRadius: 14, padding: '32px 20px', textAlign: 'center' }}>
       <ShieldAlert size={34} style={{ color: C.amber, margin: '0 auto' }} />
       <div style={{ fontSize: 15, fontWeight: 600, color: C.espresso, marginTop: 10 }}>Você não tem permissão para importar</div>
-      <div style={{ fontSize: 13, color: C.gray, marginTop: 5 }}>A importação de relatórios de pausa é restrita ao Técnico de Segurança do Trabalho ou ao responsável pelo Compliance. Fale com o responsável pelo compliance.</div>
+      <div style={{ fontSize: 13, color: C.gray, marginTop: 5 }}>A importação de relatórios de pausa é restrita ao Técnico de Segurança do Trabalho ou ao responsável pelo EHS. Fale com o responsável pelo EHS.</div>
     </div>
   )
 
@@ -742,7 +742,7 @@ function AbaImportar({ companyId }: { companyId: string }) {
               <div style={{ fontSize: 12.5, color: C.espresso, marginBottom: 6 }}><b>{linhas.length}</b> linha(s) lidas. Confira o mapeamento antes de importar (as colunas são detectadas pelo cabeçalho do arquivo; se o relatório da IOPoint tiver nomes diferentes, me avise para ajustar).</div>
               {naoCasados.length > 0 && (
                 <div style={{ background: C.amberBg, border: `1px solid ${C.amber}33`, borderRadius: 8, padding: '8px 10px', fontSize: 12, color: C.espresso, marginBottom: 8 }}>
-                  <b>{naoCasados.length} nome(s) sem CPF no cadastro</b> (serão rejeitados; cadastre em Compliance › Funcionários): {naoCasados.slice(0, 8).join(' · ')}{naoCasados.length > 8 ? '…' : ''}
+                  <b>{naoCasados.length} nome(s) sem CPF no cadastro</b> (serão rejeitados; cadastre em EHS › Funcionários): {naoCasados.slice(0, 8).join(' · ')}{naoCasados.length > 8 ? '…' : ''}
                 </div>
               )}
               {alertaEleg && alertaEleg.naoEleg > 0 && (
@@ -1436,7 +1436,7 @@ function EditorMarcasDia({ companyId, cpf, data, colaborador, marcasIniciais, on
     try {
       // papel conferido ANTES do upload (sem papel não sobe arquivo nenhum); o nome leva UUID — CPF é dado pessoal e fica só na tabela
       const pode = await rpc<boolean>('fn_nr36_pode_subir', { p_company_id: companyId })
-      if (!pode) throw new Error('Só o Técnico de Segurança do Trabalho ou o responsável pelo Compliance pode anexar o documento da conferência.')
+      if (!pode) throw new Error('Só o Técnico de Segurança do Trabalho ou o responsável pelo EHS pode anexar o documento da conferência.')
       const ext = (f.name.split('.').pop() || 'pdf').toLowerCase().replace(/[^a-z0-9]/g, '')
       const path = `${companyId}/conferencia/${crypto.randomUUID()}.${ext}`
       const up = await supabase.storage.from('compliance-pausas').upload(path, f, { upsert: false, contentType: f.type || 'application/octet-stream' })
