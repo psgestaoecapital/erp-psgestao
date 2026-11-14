@@ -223,6 +223,7 @@ export default function AprovacaoPage() {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
                 <span style={{ fontSize: 12, color: ESP60 }}>{qtdNum(i) !== 1 ? 'R$ unit.' : 'R$'}</span>
+                <AjudaCampo chave="oficina.aprovacao.preco" rota="/dashboard/oficina/aprovacao" />
                 <input value={i._preco} onChange={(e) => setPreco(i.item_id, e.target.value)} inputMode="decimal" placeholder="0,00"
                   data-testid="aprov-item-preco" readOnly={precoFixo(i)}
                   title={precoFixo(i) ? 'Valor definido no Diagnóstico (atendimento centralizado)' : undefined}
@@ -248,6 +249,7 @@ export default function AprovacaoPage() {
               {i.tipo === 'peca' && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
                   <span style={{ fontSize: 12, color: ESP60 }}>Custo R$</span>
+                  <AjudaCampo chave="oficina.aprovacao.custo" rota="/dashboard/oficina/aprovacao" />
                   <input value={i._custo} onChange={(e) => setCusto(i.item_id, e.target.value)} inputMode="decimal" placeholder="quanto a peça custou"
                     style={{ ...inp, maxWidth: 160, padding: '8px 10px' }} />
                   {(() => { const m = margemPct(i); return m != null
@@ -260,13 +262,14 @@ export default function AprovacaoPage() {
         </Sec>
 
         <Sec titulo="Quem autorizou">
-          <Campo l="Nome de quem autorizou"><input value={aprovadorNome} onChange={(e) => setAprovadorNome(e.target.value)} placeholder="Nome do cliente" style={inp} /></Campo>
+          <Campo l="Nome de quem autorizou" ajuda="oficina.aprovacao.aprovador_nome"><input value={aprovadorNome} onChange={(e) => setAprovadorNome(e.target.value)} placeholder="Nome do cliente" style={inp} /></Campo>
+          <div style={{ fontSize: 11, color: ESP60, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>Canal de aprovação<AjudaCampo chave="oficina.aprovacao.canal" rota="/dashboard/oficina/aprovacao" /></div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
             {CANAIS.map((c) => (
               <button key={c.v} onClick={() => escolherCanal(c.v)} style={{ ...chip, background: canal === c.v ? ESP : '#fff', color: canal === c.v ? '#fff' : ESP, borderColor: canal === c.v ? ESP : LINE }}>{c.l}</button>
             ))}
           </div>
-          <Campo l="Observação (opcional)"><textarea value={observacao} onChange={(e) => setObservacao(e.target.value)} rows={2} placeholder="Ex.: cliente pediu para adiar a retífica." style={{ ...inp, resize: 'vertical' }} /></Campo>
+          <Campo l="Observação (opcional)" ajuda="oficina.aprovacao.observacao"><textarea value={observacao} onChange={(e) => setObservacao(e.target.value)} rows={2} placeholder="Ex.: cliente pediu para adiar a retífica." style={{ ...inp, resize: 'vertical' }} /></Campo>
           <button onClick={compartilharWhatsApp} style={{ ...btnLine, width: '100%', gap: 6, marginTop: 4 }}><Share2 size={15} /> Compartilhar orçamento no WhatsApp</button>
 
           {/* Onda 3 · assinatura é o ÚLTIMO gesto: vem DEPOIS de conferir os itens (o cliente assina o
@@ -365,8 +368,8 @@ function Sec({ titulo, ajuda, children }: { titulo: string; ajuda?: string; chil
     </div>
   )
 }
-function Campo({ l, children }: { l: string; children: React.ReactNode }) {
-  return <div style={{ marginBottom: 10 }}><div style={{ fontSize: 11, color: ESP60, marginBottom: 4 }}>{l}</div>{children}</div>
+function Campo({ l, ajuda, children }: { l: string; ajuda?: string; children: React.ReactNode }) {
+  return <div style={{ marginBottom: 10 }}><div style={{ fontSize: 11, color: ESP60, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>{l}{ajuda && <AjudaCampo chave={ajuda} rota="/dashboard/oficina/aprovacao" />}</div>{children}</div>
 }
 function Toast({ children }: { children: React.ReactNode }) {
   return <div style={{ position: 'fixed', bottom: 96, left: '50%', transform: 'translateX(-50%)', background: ESP, color: '#fff', padding: '10px 16px', borderRadius: 999, fontSize: 13, zIndex: 70, maxWidth: '92%', textAlign: 'center' }}>{children}</div>
