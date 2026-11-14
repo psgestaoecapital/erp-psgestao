@@ -5,6 +5,7 @@
 // Foto reusa o bucket privado oficina-recepcao, caminho {companyId}/pecas/{osId}/{uuid}.jpg (passa na RLS).
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
+import { parseNumBR } from '@/lib/num'
 import { X, Camera, Search, Loader2, Package } from 'lucide-react'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', ESP60 = 'rgba(61,35,20,0.55)', OK = '#166534'
@@ -69,8 +70,9 @@ export default function SolicitarPecaModal({ companyId, osId, mecanicoNome, aber
 
   const enviar = async () => {
     if (!descricao) { setErro('Escolha a peça (ou escreva o nome).'); return }
-    const q = Number(qtd.replace(',', '.'))
-    if (!isFinite(q) || q <= 0) { setErro('Quantidade inválida.'); return }
+    // Chamado #5660: quantidade aceita vírgula e ponto de milhar (fonte única parseNumBR).
+    const q = parseNumBR(qtd)
+    if (q == null || q <= 0) { setErro('Quantidade inválida.'); return }
     setSalvando(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_oficina_peca_solicitar', {
       p_company_id: companyId, p_os_id: osId, p_descricao: descricao, p_quantidade: q,

@@ -9,6 +9,9 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { supabase } from '@/lib/supabase'
 import { PackageCheck, Search, ChevronRight, RefreshCw } from 'lucide-react'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA = '/dashboard/oficina/entregues'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', ESP60 = 'rgba(61,35,20,0.6)', ESP40 = 'rgba(61,35,20,0.45)', WHITE = '#FFFFFF', OK = '#166534', WARN = '#B45309'
 // Onda 4B · custo incompleto: o motivo diz O QUE preencher (não "custo não informado" genérico, que vira ruído)
@@ -99,18 +102,21 @@ export default function EntreguesPage() {
       <p style={{ color: ESP60, fontSize: 13, marginTop: 6, marginBottom: 12 }}>Histórico do que já saiu. Custos são reais; receita/lucro aguardam o faturamento pela OS.</p>
 
       {/* Modo: histórico por período · a faturar (não faturadas por idade — dinheiro esquecido) */}
-      <div style={{ display: 'inline-flex', gap: 4, marginBottom: 12, background: WHITE, border: `1px solid ${LINE}`, borderRadius: 10, padding: 4 }}>
-        <button onClick={() => setModo('historico')} style={segBtn(modo === 'historico')}>Histórico</button>
-        <button onClick={() => setModo('afaturar')} style={segBtn(modo === 'afaturar')}>💰 A faturar</button>
-        <button onClick={() => setModo('semnota')} style={segBtn(modo === 'semnota')}>🧾 Sem nota</button>
+      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+        <div style={{ display: 'inline-flex', gap: 4, background: WHITE, border: `1px solid ${LINE}`, borderRadius: 10, padding: 4 }}>
+          <button onClick={() => setModo('historico')} style={segBtn(modo === 'historico')}>Histórico</button>
+          <button onClick={() => setModo('afaturar')} style={segBtn(modo === 'afaturar')}>💰 A faturar</button>
+          <button onClick={() => setModo('semnota')} style={segBtn(modo === 'semnota')}>🧾 Sem nota</button>
+        </div>
+        <AjudaCampo chave="oficina.entregues.abas" rota={ROTA} />
       </div>
 
       {/* Filtros (só no histórico por período) */}
       {modo === 'historico' && (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8, marginBottom: 14 }}>
-        <label style={{ display: 'block' }}><span style={lbl}>De (entrega)</span><input type="date" value={dataIni} onChange={(e) => setDataIni(e.target.value)} style={inp} /></label>
-        <label style={{ display: 'block' }}><span style={lbl}>Até</span><input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} style={inp} /></label>
-        <label style={{ display: 'block', gridColumn: 'span 2' }}><span style={lbl}>Buscar</span>
+        <label style={{ display: 'block' }}><span style={lbl}>De (entrega)<AjudaCampo chave="oficina.entregues.data_de" rota={ROTA} /></span><input type="date" value={dataIni} onChange={(e) => setDataIni(e.target.value)} style={inp} /></label>
+        <label style={{ display: 'block' }}><span style={lbl}>Até<AjudaCampo chave="oficina.entregues.data_ate" rota={ROTA} /></span><input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} style={inp} /></label>
+        <label style={{ display: 'block', gridColumn: 'span 2' }}><span style={lbl}>Buscar<AjudaCampo chave="oficina.entregues.busca" rota={ROTA} /></span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, border: `1px solid ${LINE}`, borderRadius: 8, background: WHITE, padding: '0 10px' }}>
             <Search size={15} color={ESP40} />
             <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="placa · cliente · nº da OS" style={{ ...inp, border: 'none', padding: '9px 0' }} />
@@ -122,7 +128,7 @@ export default function EntreguesPage() {
       {/* Totais do período */}
       {modo === 'historico' && totais && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 14 }}>
-          <Tot l="Entregas no período" v={String(totais.qtd)} />
+          <Tot l="Entregas no período" v={String(totais.qtd)} ajuda="oficina.entregues.entregas_periodo" />
           {/* R4 · custo/receita/lucro só p/ dono/admin (operador/mecânico não vê dinheiro) */}
           {!restrito && <Tot l="Custo total (peças+MO)" v={brl(totais.custo_total)} />}
           {!restrito && <Tot l="Receita" v={totais.receita == null ? 'aguardando' : brl(totais.receita)} small={totais.receita == null} />}
@@ -213,7 +219,20 @@ export default function EntreguesPage() {
           )
         })()
       ) : linhas.length === 0 ? (
-        <div style={{ background: WHITE, border: `1px solid ${LINE}`, borderRadius: 12, padding: '30px 16px', textAlign: 'center', color: ESP60 }}>Nenhuma entrega no período.</div>
+        // Critério d (jornada): estado vazio orienta — explica quando a entrega aparece e oferece ampliar o período.
+        <div style={{ background: WHITE, border: `1px solid ${LINE}`, borderRadius: 12, padding: '30px 16px', textAlign: 'center', color: ESP60, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: ESP }}>Nenhuma entrega no período</div>
+          <div style={{ fontSize: 13, maxWidth: '52ch' }}>
+            {busca.trim()
+              ? <>Nenhuma entrega de <b>{busca.trim()}</b> entre {dataIni.split('-').reverse().join('/')} e {dataFim.split('-').reverse().join('/')}. Limpe a busca ou amplie o período.</>
+              : <>Uma OS aparece aqui quando é <b>entregue</b> (e some da oficina). Amplie o período para ver entregas mais antigas.</>}
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+            {busca.trim() && <button type="button" onClick={() => setBusca('')} style={{ font: 'inherit', fontSize: 13, padding: '8px 14px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${LINE}`, background: WHITE, color: ESP }}>Limpar busca</button>}
+            <button type="button" onClick={() => { setDataIni(isoDaysAgo(90)); setDataFim(isoDaysAgo(0)) }} style={{ font: 'inherit', fontSize: 13, fontWeight: 600, padding: '8px 14px', borderRadius: 10, cursor: 'pointer', border: 0, background: ESP, color: WHITE }}>Ver últimos 90 dias</button>
+            <button type="button" onClick={() => { setDataIni(isoDaysAgo(365)); setDataFim(isoDaysAgo(0)) }} style={{ font: 'inherit', fontSize: 13, padding: '8px 14px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${ESP}`, background: WHITE, color: ESP }}>Ver últimos 12 meses</button>
+          </div>
+        </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {linhas.map((l) => {
@@ -257,10 +276,10 @@ const inp: React.CSSProperties = { width: '100%', padding: '9px 11px', fontSize:
 const lbl: React.CSSProperties = { fontSize: 11, color: ESP60, display: 'block', marginBottom: 3 }
 const segBtn = (ativo: boolean): React.CSSProperties => ({ padding: '7px 14px', fontSize: 12.5, fontWeight: 700, borderRadius: 8, border: 'none', cursor: 'pointer', background: ativo ? GOLD : 'transparent', color: ativo ? WHITE : ESP60 })
 const faltaTag: React.CSSProperties = { fontSize: 10.5, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: '#FCEBEB', color: '#791F1F' }
-function Tot({ l, v, small }: { l: string; v: string; small?: boolean }) {
+function Tot({ l, v, small, ajuda }: { l: string; v: string; small?: boolean; ajuda?: string }) {
   return (
     <div style={{ background: WHITE, border: `1px solid ${LINE}`, borderRadius: 10, padding: 12 }}>
-      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP40, fontWeight: 600 }}>{l}</div>
+      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP40, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>{l}{ajuda && <AjudaCampo chave={ajuda} rota={ROTA} />}</div>
       <div style={{ fontSize: small ? 14 : 18, fontWeight: 700, color: small ? '#1D4671' : ESP, marginTop: 3, lineHeight: 1.2 }}>{v}</div>
     </div>
   )

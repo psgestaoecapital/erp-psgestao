@@ -63,7 +63,7 @@ const seloFinalDe = (c: ItemQuadro): string | null =>
 
 // ── Cartão (componente de módulo: tipo estável, não remonta durante o arraste) ───────────────────────────────────
 function Cartao({
-  c, mostrarStatus, selo, col, arrastavel, emArraste, onAbrir, rotuloStatus, onDragStartCard, onDragEndCard,
+  c, mostrarStatus, selo, col, arrastavel, emArraste, onAbrir, rotuloStatus, onDragStartCard, onDragEndCard, onAssumir,
 }: {
   c: ItemQuadro
   mostrarStatus: boolean
@@ -75,6 +75,9 @@ function Cartao({
   rotuloStatus: (s: string) => string
   onDragStartCard: (id: string, de: ColunaKanban, e: React.DragEvent) => void
   onDragEndCard: () => void
+  // #7050: no celular o arraste nativo (HTML5 drag) não dispara no toque; quando presente, mostra um botão
+  // "Assumir" no cartão para mover de Pendentes → Em andamento também no touch (mesmo efeito do arraste).
+  onAssumir?: () => void
 }) {
   const self = seloFinalDe(c)
   return (
@@ -87,10 +90,20 @@ function Cartao({
         <div style={{ minWidth: 0, fontSize: 13, fontWeight: 600, color: C.esp, overflow: 'hidden', textOverflow: 'ellipsis' }}>
           <span style={{ color: C.gold, fontWeight: 800 }}>#{c.numero}</span> {c.titulo || c.descricao.slice(0, 60)}
         </div>
-        <button type="button" onClick={() => onAbrir(c.numero, ehArquivado(c))}
-          style={{ flexShrink: 0, border: `1px solid ${C.border}`, background: C.cream, borderRadius: 7, padding: '4px 10px', fontSize: 12, fontWeight: 700, color: C.esp, cursor: 'pointer' }}>
-          Abrir
-        </button>
+        <div style={{ flexShrink: 0, display: 'flex', gap: 6 }}>
+          {onAssumir && (
+            <button type="button" data-testid={`kanban-assumir-${c.numero}`}
+              onClick={(e) => { e.stopPropagation(); onAssumir() }}
+              title="Assumir este chamado — move para Em andamento e passa você como responsável. Não envia mensagem ao cliente."
+              style={{ border: `1px solid ${C.gold}`, background: C.gold, borderRadius: 7, padding: '4px 10px', fontSize: 12, fontWeight: 700, color: C.white, cursor: 'pointer' }}>
+              Assumir
+            </button>
+          )}
+          <button type="button" onClick={() => onAbrir(c.numero, ehArquivado(c))}
+            style={{ border: `1px solid ${C.border}`, background: C.cream, borderRadius: 7, padding: '4px 10px', fontSize: 12, fontWeight: 700, color: C.esp, cursor: 'pointer' }}>
+            Abrir
+          </button>
+        </div>
       </div>
       {(mostrarStatus || selo || self) && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -197,7 +210,8 @@ export default function QuadroChamados({ itens, meuId, busca, onBusca, filtro, o
     <Cartao key={c.id} c={c} mostrarStatus={mostrarStatus} selo={selo} col={col}
       arrastavel={podeArrastar && !!col} emArraste={arrastandoId === c.id}
       onAbrir={onAbrir} rotuloStatus={rotuloStatus}
-      onDragStartCard={onDragStartCard} onDragEndCard={onDragEndCard} />
+      onDragStartCard={onDragStartCard} onDragEndCard={onDragEndCard}
+      onAssumir={modo === 'operador' && col === 'pendentes' && onMover ? () => onMover(c, 'pendentes', 'andamento') : undefined} />
   )
 
   return (
@@ -263,7 +277,7 @@ export default function QuadroChamados({ itens, meuId, busca, onBusca, filtro, o
       {/* #7050: dica do arraste (só quando ligado). Arrastar não envia nada ao cliente — só troca o status/atendente. */}
       {!buscando && podeArrastar && (
         <div data-testid="kanban-dica-arrastar" style={{ fontSize: 11.5, color: C.espM }}>
-          Dica: arraste um cartão de <b>Pendentes</b> para <b>Em andamento</b> para assumir o chamado. Arrastar não envia nenhuma mensagem ao cliente.
+          Dica: arraste um cartão de <b>Pendentes</b> para <b>Em andamento</b> para assumir o chamado — ou, no celular, toque em <b>Assumir</b> no cartão. Em ambos os casos não é enviada nenhuma mensagem ao cliente.
         </div>
       )}
       {!buscando && <div style={{ fontSize: 11.5, color: C.espL }}>Arquivados não aparecem aqui — use a busca.</div>}

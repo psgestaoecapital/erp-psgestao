@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 type Categoria = {
   codigo: string
@@ -149,7 +150,7 @@ export default function CategoriaCombobox({
       })
       setBuscando(false)
       if (error) {
-        setErroRpc(error.message)
+        setErroRpc(erroAmigavel(error, 'Não foi possível buscar as categorias. Tente de novo.'))
         setResultados([])
         return
       }
@@ -286,7 +287,7 @@ export default function CategoriaCombobox({
 
           {!buscando && erroRpc && (
             <div style={{ padding: 12, fontSize: 11, color: C.red, textAlign: 'center', background: 'rgba(185,28,28,0.06)' }}>
-              Erro ao buscar: {erroRpc}
+              {erroRpc}
             </div>
           )}
 
@@ -405,7 +406,7 @@ function CriarInlineModal({
       p_pai_codigo: paiCodigo,
     })
     setSalvando(false)
-    if (error) { setErro(error.message); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível criar a categoria. Tente de novo.')); return }
     const criada = ((data ?? []) as Categoria[])[0]
     if (criada) onCriada(criada)
   }

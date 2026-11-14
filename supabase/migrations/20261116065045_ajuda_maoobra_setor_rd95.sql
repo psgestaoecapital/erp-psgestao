@@ -1,0 +1,50 @@
+-- RD-95: "?" dos campos/filtros/indicadores/ações da nova tela Indústria › RH › Mão de obra (Setores).
+-- Tela nova /dashboard/industrial/rh/mao-de-obra, PR1 do scaffold "Gestão de Mão de Obra" (CADASTRO de SETOR).
+-- Reaproveita os RPCs existentes fn_prod_setor_salvar / fn_prod_setor_excluir (RLS por company_id, soft-delete RD-98).
+-- Aditivo: só INSERT de texto de ajuda (ON CONFLICT (chave) DO NOTHING), nunca altera dado de cliente.
+-- Agente desenvolvedor_4_g (faixa de segundos :45–:54).
+INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
+VALUES
+  ('maoobra.setor.busca', 'Mão de obra · Setores', 'Buscar setor',
+   'Digite parte do nome do setor para filtrar a lista.',
+   'Encontra rápido um setor quando a empresa tem muitos — a lista abaixo mostra só os que casam com o texto.',
+   'Digitar "abate" para ver só o setor de Abate.',
+   'Esperar que a busca crie um setor: ela só filtra; para criar use "+ Novo setor".',
+   0, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado'),
+  ('maoobra.setor.nome', 'Mão de obra · Setores', 'Nome do setor',
+   'O nome do setor da produção como a equipe o chama (ex.: Abate, Desossa, Expedição, Manutenção).',
+   'O setor agrupa postos de trabalho e pessoas — é a base para medir custo e horas por setor nos painéis e no quadro de pessoal.',
+   'Desossa',
+   'Repetir um nome que já existe na empresa: o sistema recusa nomes duplicados. Ajuste o nome ou reative o setor inativo.',
+   1, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado'),
+  ('maoobra.setor.mostrar_inativos', 'Mão de obra · Setores', 'Mostrar inativos',
+   'Marque para ver também os setores arquivados (inativos), além dos ativos.',
+   'Um setor excluído é apenas arquivado (o histórico fica guardado); ligue esta opção para encontrá-lo e, se precisar, voltar a usá-lo.',
+   'Marcar para localizar o setor "Caldeira" arquivado por engano.',
+   'Achar que o setor sumiu: ele foi arquivado, não apagado — marque "Mostrar inativos" para vê-lo.',
+   2, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado'),
+  ('maoobra.setor.novo', 'Mão de obra · Setores', 'Novo setor',
+   'Abre o campo para cadastrar um novo setor da produção.',
+   'Cadastra o setor que vai agrupar postos e pessoas; depois você liga cada posto e cada pessoa a este setor.',
+   'Criar o setor "Expedição" antes de cadastrar os postos da expedição.',
+   'Criar setores duplicados com grafias diferentes (ex.: "Expedicao" e "Expedição"): padronize o nome.',
+   3, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado'),
+  ('maoobra.setor.editar', 'Mão de obra · Setores', 'Editar setor',
+   'Renomeia o setor. Os postos e as pessoas já ligados a ele continuam ligados.',
+   'Corrige um nome digitado errado ou padroniza a nomenclatura sem perder os vínculos existentes.',
+   'Renomear "Corte" para "Corte e Desossa".',
+   'Usar a edição para "mover" postos de setor: a edição só troca o nome; para mover um posto, altere o posto.',
+   4, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado'),
+  ('maoobra.setor.excluir', 'Mão de obra · Setores', 'Excluir setor',
+   'Arquiva o setor (exclusão rastreável): ele sai da lista, mas o histórico é preservado.',
+   'Tira da operação um setor que não existe mais, sem apagar os dados antigos que dependem dele.',
+   'Arquivar o setor "Linha 2" depois que ela foi desativada.',
+   'Tentar excluir um setor que ainda tem postos ativos: o sistema recusa e avisa quantos postos usam o setor — mova ou arquive os postos antes.',
+   5, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado'),
+  ('maoobra.setor.postos', 'Mão de obra · Setores', 'Postos no setor',
+   'Indicador (não editável): quantos postos de trabalho ativos estão ligados a este setor.',
+   'Mostra o tamanho do setor e avisa que ele está em uso — um setor com postos ativos não pode ser arquivado.',
+   '"4 postos" no setor de Abate.',
+   'Esperar incluir posto por aqui: os postos são cadastrados na tela de Postos; aqui você só vê a contagem.',
+   6, '/dashboard/industrial/rh/mao-de-obra', 'industrial', 'publicado')
+ON CONFLICT (chave) DO NOTHING;

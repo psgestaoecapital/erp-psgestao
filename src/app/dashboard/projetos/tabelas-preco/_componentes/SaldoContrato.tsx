@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { parseNumBR } from '@/lib/num'
 
 const ESP = '#3D2314', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)'
 const fmtN = (v: number) => v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })
@@ -27,7 +28,7 @@ export function SaldoContrato({ tabelaId, servicos, podeGravar, recarregar }: { 
   const nome = (r: string) => servicos.find(s => s.ref === r)?.nome ?? r
   const un = (r: string) => servicos.find(s => s.ref === r)?.unidade ?? ''
   const gravar = async (servico: string, valor: string) => {
-    const n = valor.trim() === '' ? null : Number(valor.replace(',', '.'))
+    const n = valor.trim() === '' ? null : (parseNumBR(valor) ?? NaN) // aceita vírgula e milhar BR (#5660)
     if (n !== null && (!Number.isFinite(n) || n < 0)) { setErro('Informe uma quantidade válida (zero ou mais).'); return }
     const { error } = await supabase.rpc('fn_tabela_preco_saldo_gravar', { p_tabela: tabelaId, p_servico_ref: servico, p_quantidade: n })
     if (error) { setErro(erroAmigavel(error, 'Não foi possível gravar a quantidade contratada.')); return }

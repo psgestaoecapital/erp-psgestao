@@ -15,11 +15,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import {
   Plus, Search, FileText, X, Trash2,
   Package, Calculator, ListChecks, Info,
 } from 'lucide-react'
 
+const ROTA = '/dashboard/commerce/fichas'
 const C = {
   espresso: '#3D2314',
   espressoM: '#6B5D4F',
@@ -174,21 +176,20 @@ export default function FichasCommercePage() {
       flash('Selecione uma empresa especifica no menu para criar fichas.')
       return
     }
+    // RD-98 p3 · escrita rastreável e guardada no servidor (fn_ficha_tecnica_salvar
+    // confere o acesso à empresa via get_user_company_ids()/is_admin()). Sem p_id = INSERT.
     const { data, error } = await supabase
-      .from('fichas_tecnicas')
-      .insert({
-        company_id: companyIdUnico,
-        nome: nome.trim(),
-        categoria,
-        unidade: 'm²',
-        mao_obra_direta: 0,
-        custos_indiretos_pct: 15,
-        impostos_pct: 8.65,
-        markup_pct: 30,
-        ativo: true,
+      .rpc('fn_ficha_tecnica_salvar', {
+        p_company_id: companyIdUnico,
+        p_nome: nome.trim(),
+        p_categoria: categoria,
+        p_unidade: 'm²',
+        p_mao_obra_direta: 0,
+        p_custos_indiretos_pct: 15,
+        p_impostos_pct: 8.65,
+        p_markup_pct: 30,
+        p_ativo: true,
       })
-      .select()
-      .single()
     if (error) {
       flash(erroAmigavel(error, 'Não foi possível criar a ficha. Tente de novo.'))
       return
@@ -202,10 +203,19 @@ export default function FichasCommercePage() {
   }
 
   async function atualizarFicha(id: string, patch: Partial<FichaTec>) {
-    const { error } = await supabase
-      .from('fichas_tecnicas')
-      .update({ ...patch, updated_at: new Date().toISOString() })
-      .eq('id', id)
+    // Update PARCIAL: só manda os campos tocados; a RPC usa COALESCE e preserva o resto.
+    const args: Record<string, unknown> = { p_id: id }
+    if (patch.nome !== undefined) args.p_nome = patch.nome
+    if (patch.categoria !== undefined) args.p_categoria = patch.categoria
+    if (patch.descricao !== undefined) args.p_descricao = patch.descricao
+    if (patch.unidade !== undefined) args.p_unidade = patch.unidade
+    if (patch.codigo !== undefined) args.p_codigo = patch.codigo
+    if (patch.mao_obra_direta !== undefined) args.p_mao_obra_direta = patch.mao_obra_direta
+    if (patch.custos_indiretos_pct !== undefined) args.p_custos_indiretos_pct = patch.custos_indiretos_pct
+    if (patch.impostos_pct !== undefined) args.p_impostos_pct = patch.impostos_pct
+    if (patch.markup_pct !== undefined) args.p_markup_pct = patch.markup_pct
+    if (patch.ativo !== undefined) args.p_ativo = patch.ativo
+    const { error } = await supabase.rpc('fn_ficha_tecnica_salvar', args)
     if (error) {
       flash(erroAmigavel(error, 'Não foi possível salvar a ficha. Tente de novo.'))
       return
@@ -215,7 +225,7 @@ export default function FichasCommercePage() {
 
   async function excluirFicha(id: string) {
     if (!confirm('Excluir esta ficha e todos os itens? Esta ação não pode ser desfeita.')) return
-    const { error } = await supabase.from('fichas_tecnicas').delete().eq('id', id)
+    const { error } = await supabase.rpc('fn_ficha_tecnica_excluir', { p_id: id })
     if (error) {
       flash(erroAmigavel(error, 'Não foi possível excluir a ficha. Tente de novo.'))
       return
@@ -228,10 +238,7 @@ export default function FichasCommercePage() {
   async function addItem(fichaId: string) {
     const ordemNova = (itensCache[fichaId]?.length ?? 0) + 1
     const { data, error } = await supabase
-      .from('ficha_itens')
-      .insert({ ficha_id: fichaId, ordem: ordemNova, nome: 'Novo item', unidade: 'un', quantidade: 1, preco_unitario: 0 })
-      .select()
-      .single()
+      .rpc('fn_ficha_item_salvar', { p_ficha_id: fichaId, p_ordem: ordemNova, p_nome: 'Novo item', p_unidade: 'un', p_quantidade: 1, p_preco_unitario: 0 })
     if (error) {
       flash(erroAmigavel(error, 'Não foi possível adicionar o item. Tente de novo.'))
       return
@@ -245,7 +252,16 @@ export default function FichasCommercePage() {
   }
 
   async function atualizarItem(itemId: string, fichaId: string, patch: Partial<FichaItem>) {
-    const { error } = await supabase.from('ficha_itens').update(patch).eq('id', itemId)
+    const args: Record<string, unknown> = { p_id: itemId }
+    if (patch.ordem !== undefined) args.p_ordem = patch.ordem
+    if (patch.codigo !== undefined) args.p_codigo = patch.codigo
+    if (patch.nome !== undefined) args.p_nome = patch.nome
+    if (patch.unidade !== undefined) args.p_unidade = patch.unidade
+    if (patch.quantidade !== undefined) args.p_quantidade = patch.quantidade
+    if (patch.preco_unitario !== undefined) args.p_preco_unitario = patch.preco_unitario
+    if (patch.fornecedor !== undefined) args.p_fornecedor = patch.fornecedor
+    if (patch.obs !== undefined) args.p_obs = patch.obs
+    const { error } = await supabase.rpc('fn_ficha_item_salvar', args)
     if (error) {
       flash(erroAmigavel(error, 'Não foi possível salvar o item. Tente de novo.'))
       return
@@ -257,7 +273,7 @@ export default function FichasCommercePage() {
   }
 
   async function excluirItem(itemId: string, fichaId: string) {
-    const { error } = await supabase.from('ficha_itens').delete().eq('id', itemId)
+    const { error } = await supabase.rpc('fn_ficha_item_excluir', { p_id: itemId })
     if (error) {
       flash(erroAmigavel(error, 'Não foi possível excluir o item. Tente de novo.'))
       return
@@ -396,7 +412,7 @@ export default function FichasCommercePage() {
           alignItems: 'center',
         }}
       >
-        <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 180 }}>
+        <div data-ajuda="commerce.fichas.busca" style={{ position: 'relative', flex: '1 1 240px', minWidth: 180 }}>
           <Search
             size={14}
             style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.espressoL }}
@@ -417,6 +433,9 @@ export default function FichasCommercePage() {
               outline: 'none',
             }}
           />
+          <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)' }}>
+            <AjudaCampo chave="commerce.fichas.busca" rota={ROTA} />
+          </span>
         </div>
         <select
           value={filtroCat}
@@ -437,6 +456,7 @@ export default function FichasCommercePage() {
             <option key={c} value={c}>{c}</option>
           ))}
         </select>
+        <AjudaCampo chave="commerce.fichas.filtro_categoria" rota={ROTA} />
         <span style={{ marginLeft: 'auto', fontSize: 11, color: C.espressoM }}>
           {fichasFiltradas.length} de {fichas.length}
         </span>

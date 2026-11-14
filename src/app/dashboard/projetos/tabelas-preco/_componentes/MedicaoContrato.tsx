@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { parseNumBR } from '@/lib/num'
 import { SaldoContrato } from './SaldoContrato'
 
 const ESP = '#3D2314', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)'
@@ -32,7 +33,7 @@ export function MedicaoContrato({ tabelaId, servicos, regimes, podeGravar }: { t
     setSalvas(((data ?? []) as typeof salvas).map(x => ({ ...x, total: Number(x.total) })))
   }, [tabelaId])
   useEffect(() => { carregarSalvas() }, [carregarSalvas])
-  const linhasValidas = () => linhas.filter(l => l.servico_ref && Number(l.quantidade.replace(',', '.')) > 0).map(l => ({ servico_ref: l.servico_ref, quantidade: Number(l.quantidade.replace(',', '.')), condicao: l.condicao }))
+  const linhasValidas = () => linhas.filter(l => l.servico_ref && (parseNumBR(l.quantidade) ?? 0) > 0).map(l => ({ servico_ref: l.servico_ref, quantidade: parseNumBR(l.quantidade) ?? 0, condicao: l.condicao }))
   const gravar = async () => {
     setErro(''); setMsg('')
     if (!desc.trim()) { setErro('Dê um nome à medição para salvar.'); return }
@@ -101,9 +102,9 @@ export function MedicaoContrato({ tabelaId, servicos, regimes, podeGravar }: { t
 
   const medir = async () => {
     setErro('')
-    const validas = linhas.filter(l => l.servico_ref && Number(l.quantidade.replace(',', '.')) > 0)
+    const validas = linhas.filter(l => l.servico_ref && (parseNumBR(l.quantidade) ?? 0) > 0)
     if (!validas.length) { setErro('Informe a quantidade medida de pelo menos um serviço.'); return }
-    const { data, error } = await supabase.rpc('fn_tabela_preco_medir', { p_tabela: tabelaId, p_linhas: validas.map(l => ({ servico_ref: l.servico_ref, quantidade: Number(l.quantidade.replace(',', '.')), condicao: l.condicao })) })
+    const { data, error } = await supabase.rpc('fn_tabela_preco_medir', { p_tabela: tabelaId, p_linhas: validas.map(l => ({ servico_ref: l.servico_ref, quantidade: parseNumBR(l.quantidade) ?? 0, condicao: l.condicao })) })
     if (error) { setErro(erroAmigavel(error, 'Não foi possível calcular a medição.')); return }
     setRes(data as { linhas: Res[]; total: number })
   }

@@ -65,6 +65,8 @@ export default function FluxoCaixaPage() {
   const [dados, setDados] = useState<FluxoResp | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  // RD-98 (g): clicar numa linha/dia abre o detalhe com os títulos daquele dia (Editar/Excluir por linha).
+  const [diaDetalhe, setDiaDetalhe] = useState<DiaFluxo | null>(null)
   const filtrandoCategoria = categoria !== ''
 
   // Opções dos seletores (contas ativas + categorias usadas), uma chamada por empresa.
@@ -254,19 +256,19 @@ export default function FluxoCaixaPage() {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 12, marginBottom: 20 }}>
         <PSGCMetric label={rotuloSaldo} valor={brl(saldoHoje)} destaque
-          icon="wallet" cor={PSGC_COLORS.espresso} ajuda="ge.fluxo_caixa.kpi.saldo_atual" ajudaRota={ROTA_AJUDA} />
+          icon="💰" cor={PSGC_COLORS.espresso} ajuda="ge.fluxo_caixa.kpi.saldo_atual" ajudaRota={ROTA_AJUDA} />
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <PSGCMetric label="Entradas realizadas no período" valor={brl(dados?.total_recebimentos ?? 0)}
-            icon="arrow-up" cor={PSGC_COLORS.baixa} pequeno ajuda="ge.fluxo_caixa.kpi.entradas" ajudaRota={ROTA_AJUDA} />
+            icon="↑" cor={PSGC_COLORS.baixa} pequeno ajuda="ge.fluxo_caixa.kpi.entradas" ajudaRota={ROTA_AJUDA} />
           <PSGCMetric label="Saídas realizadas no período" valor={brl(dados?.total_pagamentos ?? 0)}
-            icon="arrow-down" cor={PSGC_COLORS.alta} pequeno ajuda="ge.fluxo_caixa.kpi.saidas" ajudaRota={ROTA_AJUDA} />
+            icon="↓" cor={PSGC_COLORS.alta} pequeno ajuda="ge.fluxo_caixa.kpi.saidas" ajudaRota={ROTA_AJUDA} />
         </div>
         {(previstoEntrar > 0 || previstoSair > 0) && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <PSGCMetric label="Previsto a entrar" valor={brl(previstoEntrar)}
-              icon="arrow-up" cor={PSGC_COLORS.dourado} pequeno ajuda="ge.fluxo_caixa.kpi.previsto_entrar" ajudaRota={ROTA_AJUDA} />
+              icon="↑" cor={PSGC_COLORS.dourado} pequeno ajuda="ge.fluxo_caixa.kpi.previsto_entrar" ajudaRota={ROTA_AJUDA} />
             <PSGCMetric label="Previsto a sair" valor={brl(previstoSair)}
-              icon="arrow-down" cor={PSGC_COLORS.dourado} pequeno ajuda="ge.fluxo_caixa.kpi.previsto_sair" ajudaRota={ROTA_AJUDA} />
+              icon="↓" cor={PSGC_COLORS.dourado} pequeno ajuda="ge.fluxo_caixa.kpi.previsto_sair" ajudaRota={ROTA_AJUDA} />
           </div>
         )}
       </div>
@@ -376,6 +378,7 @@ export default function FluxoCaixaPage() {
                     <th style={{ ...th, textAlign: 'right' }}>Transf. ↑<AjudaCampo chave="ge.fluxo_caixa.col.transf_saida" rota={ROTA_AJUDA} /></th>
                     <th style={{ ...th, textAlign: 'right' }}>Movimento<AjudaCampo chave="ge.fluxo_caixa.col.movimento" rota={ROTA_AJUDA} /></th>
                     <th style={{ ...th, textAlign: 'right' }}>Saldo no dia<AjudaCampo chave="ge.fluxo_caixa.col.saldo" rota={ROTA_AJUDA} /></th>
+                    <th style={{ ...th, textAlign: 'center' }}>Detalhe<AjudaCampo chave="ge.fluxo_caixa.movdia.titulo" rota={ROTA_AJUDA} /></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -410,6 +413,13 @@ export default function FluxoCaixaPage() {
                         <td style={{ ...td, textAlign: 'right', color: PSGC_COLORS.espresso, fontWeight: 700 }}>
                           {brl(d.saldo_final)}
                         </td>
+                        <td style={{ ...td, textAlign: 'center' }}>
+                          <button onClick={() => setDiaDetalhe(d)}
+                            title="Ver os lançamentos deste dia (editar/excluir)"
+                            style={{ padding: '4px 10px', borderRadius: PSGC_RADIUS.sm, border: `1px solid ${PSGC_COLORS.espresso}`, background: 'transparent', color: PSGC_COLORS.espresso, fontWeight: 600, fontSize: 11.5, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                            Ver
+                          </button>
+                        </td>
                       </tr>
                     )
                   })}
@@ -439,6 +449,7 @@ export default function FluxoCaixaPage() {
                     <td style={{ ...td, textAlign: 'right', color: PSGC_COLORS.espresso, fontWeight: 800 }}>
                       {brl(dados?.saldo_final ?? 0)}
                     </td>
+                    <td style={td} />
                   </tr>
                 </tfoot>
               </table>
@@ -484,6 +495,10 @@ export default function FluxoCaixaPage() {
                         {d.transferencias_saida > 0 && <span style={{ color: TRANSF_OUT, marginLeft: 4 }}>↑ {brl(d.transferencias_saida)}</span>}
                       </div>
                     )}
+                    <button onClick={() => setDiaDetalhe(d)}
+                      style={{ marginTop: 8, width: '100%', padding: '8px 0', borderRadius: PSGC_RADIUS.md, border: `1px solid ${PSGC_COLORS.espresso}`, background: 'transparent', color: PSGC_COLORS.espresso, fontWeight: 600, fontSize: 12.5, cursor: 'pointer' }}>
+                      Ver movimentos do dia
+                    </button>
                   </div>
                 )
               })}
@@ -500,6 +515,22 @@ export default function FluxoCaixaPage() {
           </>
         )}
       </div>
+
+      {diaDetalhe && (
+        <ModalMovimentosDia
+          companyId={empresaUnica}
+          dia={diaDetalhe}
+          periodo={periodo}
+          contaId={contaId}
+          categoria={categoria}
+          onFechar={() => setDiaDetalhe(null)}
+          onIr={(mtipo, id, acao) => {
+            setDiaDetalhe(null)
+            const base = mtipo === 'pagar' ? '/dashboard/financeiro/pagar' : '/dashboard/financeiro/receber'
+            router.push(`${base}?abrir=${id}${acao === 'excluir' ? '&excluir=1' : ''}`)
+          }}
+        />
+      )}
 
       <style>{`
         .fc-cards { display: none; }
@@ -539,6 +570,142 @@ function FluxoTooltip({ active, payload }: { active?: boolean; payload?: TipPayl
       {row('Movimento', `${d.movimento > 0 ? '+' : d.movimento < 0 ? '−' : ''}${brl(Math.abs(d.movimento))}`, d.movimento > 0 ? ENTRADA : d.movimento < 0 ? SAIDA : 'rgba(61,35,20,0.6)')}
       <div style={{ borderTop: '1px solid #f0ebe4', marginTop: 4, paddingTop: 4 }}>
         {row(d.futuro ? 'Saldo previsto' : 'Saldo', brl(saldo), PSGC_COLORS.espresso)}
+      </div>
+    </div>
+  )
+}
+
+// Um título individual do dia (vem de fn_fluxo_caixa_movimentos_dia).
+type MovTipo = 'receber' | 'pagar' | 'transferencia'
+type Movimento = {
+  id: string
+  tipo: MovTipo
+  origem: 'realizado' | 'previsto' | 'vencido' | 'transferencia_entrada' | 'transferencia_saida'
+  descricao: string
+  pessoa: string | null
+  numero_documento: string | null
+  parcela: string | null
+  categoria: string | null
+  valor: number
+  sinal: number
+  status: string
+  data_ref: string
+}
+
+const ORIGEM_LABEL: Record<Movimento['origem'], { txt: string; cor: string; bg: string }> = {
+  realizado: { txt: 'Realizado', cor: '#166534', bg: '#DCFCE7' },
+  previsto: { txt: 'Previsto', cor: '#92400E', bg: '#FEF3C7' },
+  vencido: { txt: 'Vencido', cor: '#991B1B', bg: '#FEE2E2' },
+  transferencia_entrada: { txt: 'Transf. recebida', cor: '#1E40AF', bg: '#DBEAFE' },
+  transferencia_saida: { txt: 'Transf. enviada', cor: '#374151', bg: '#F3F4F6' },
+}
+
+// RD-98 (g): detalhe dos títulos de um dia, com Editar/Excluir por linha (deep-link p/ Contas a Receber/Pagar).
+function ModalMovimentosDia({
+  companyId, dia, periodo, contaId, categoria, onFechar, onIr,
+}: {
+  companyId: string
+  dia: DiaFluxo
+  periodo: 7 | 30 | 90
+  contaId: string
+  categoria: string
+  onFechar: () => void
+  onIr: (tipo: Exclude<MovTipo, 'transferencia'>, id: string, acao: 'editar' | 'excluir') => void
+}) {
+  const [movs, setMovs] = useState<Movimento[] | null>(null)
+  const [erro, setErro] = useState<string | null>(null)
+
+  useEffect(() => {
+    let vivo = true
+    const inicio = new Date()
+    inicio.setDate(inicio.getDate() - periodo)
+    supabase.rpc('fn_fluxo_caixa_movimentos_dia', {
+      p_company_id: companyId,
+      p_data: dia.data,
+      p_data_inicio: inicio.toISOString().slice(0, 10),
+      p_conta_id: contaId || null,
+      p_categoria: categoria || null,
+    }).then(({ data, error }) => {
+      if (!vivo) return
+      if (error) setErro('Não foi possível carregar os movimentos deste dia.')
+      else setMovs(((data as { movimentos?: Movimento[] } | null)?.movimentos) ?? [])
+    })
+    return () => { vivo = false }
+  }, [companyId, dia.data, periodo, contaId, categoria])
+
+  const titulo = `Movimentos de ${dia.data.slice(8, 10)}/${dia.data.slice(5, 7)}/${dia.data.slice(0, 4)}`
+
+  return (
+    <div onClick={onFechar} role="presentation"
+      style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.45)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 60, padding: 0 }}>
+      <div onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={titulo}
+        style={{ background: '#fff', width: '100%', maxWidth: 560, maxHeight: '85vh', overflowY: 'auto', borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 4 }}>
+          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: PSGC_COLORS.espresso, display: 'inline-flex', alignItems: 'center' }}>
+            {titulo}<AjudaCampo chave="ge.fluxo_caixa.movdia.titulo" rota={ROTA_AJUDA} />
+          </h2>
+          <button onClick={onFechar} aria-label="Fechar"
+            style={{ border: 'none', background: 'transparent', fontSize: 22, lineHeight: 1, color: PSGC_COLORS.espresso, cursor: 'pointer', padding: 4 }}>×</button>
+        </div>
+        <p style={{ margin: '0 0 14px', fontSize: 12, color: 'rgba(61,35,20,0.65)', display: 'inline-flex', alignItems: 'center' }}>
+          {dia.eh_futuro ? 'Projeção pelos vencimentos — só entra/sai de fato quando pago.' : 'Lançamentos já realizados neste dia.'}
+          <AjudaCampo chave="ge.fluxo_caixa.movdia.origem" rota={ROTA_AJUDA} />
+        </p>
+
+        {erro ? (
+          <p style={{ color: PSGC_COLORS.alta, fontSize: 13 }}>{erro}</p>
+        ) : movs === null ? (
+          <p style={{ color: PSGC_COLORS.espresso, opacity: 0.6, fontSize: 13 }}>Carregando…</p>
+        ) : movs.length === 0 ? (
+          <p style={{ color: PSGC_COLORS.espresso, opacity: 0.65, fontSize: 13, lineHeight: 1.5 }}>
+            Nenhum título individual neste dia para os filtros atuais.
+          </p>
+        ) : (
+          <div>
+            {movs.map((m, i) => {
+              const ent = m.sinal >= 0
+              const og = ORIGEM_LABEL[m.origem]
+              const ehTransf = m.tipo === 'transferencia'
+              return (
+                <div key={`${m.tipo}-${m.id}-${i}`}
+                  style={{ border: '1px solid #f0ebe4', borderRadius: PSGC_RADIUS.md, padding: '10px 12px', marginBottom: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, color: PSGC_COLORS.espresso, fontSize: 13.5, wordBreak: 'break-word' }}>{m.descricao}</div>
+                      {m.pessoa && <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.7)' }}>{m.pessoa}</div>}
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 4 }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: og.cor, background: og.bg, borderRadius: 4, padding: '1px 6px' }}>{og.txt}</span>
+                        {m.numero_documento && <span style={{ fontSize: 11, color: 'rgba(61,35,20,0.6)' }}>Doc {m.numero_documento}</span>}
+                        {m.parcela && <span style={{ fontSize: 11, color: 'rgba(61,35,20,0.6)' }}>Parc. {m.parcela}</span>}
+                      </div>
+                    </div>
+                    <div style={{ fontWeight: 800, fontSize: 14, color: ent ? '#16A34A' : '#DC2626', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                      {ent ? '+' : '−'}{brl(Math.abs(m.valor))}
+                    </div>
+                  </div>
+                  {ehTransf ? (
+                    <div style={{ marginTop: 8, fontSize: 11.5, color: 'rgba(61,35,20,0.6)' }}>
+                      Transferência entre contas — ajuste em <b>Financeiro › Transferências</b>.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center' }}>
+                      <button onClick={() => onIr(m.tipo as Exclude<MovTipo, 'transferencia'>, m.id, 'editar')}
+                        style={{ padding: '6px 12px', borderRadius: PSGC_RADIUS.sm, border: `1px solid ${PSGC_COLORS.espresso}`, background: 'transparent', color: PSGC_COLORS.espresso, fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
+                        Editar
+                      </button>
+                      <AjudaCampo chave="ge.fluxo_caixa.movdia.editar" rota={ROTA_AJUDA} />
+                      <button onClick={() => onIr(m.tipo as Exclude<MovTipo, 'transferencia'>, m.id, 'excluir')}
+                        style={{ padding: '6px 12px', borderRadius: PSGC_RADIUS.sm, border: '1px solid #DC2626', background: 'transparent', color: '#DC2626', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
+                        Excluir
+                      </button>
+                      <AjudaCampo chave="ge.fluxo_caixa.movdia.excluir" rota={ROTA_AJUDA} />
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )
