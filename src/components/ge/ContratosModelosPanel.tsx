@@ -468,7 +468,7 @@ export default function ContratosModelosPanel({ companyId }: { companyId: string
               )
             })()}
 
-            <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div data-ajuda="ge.contrato.modelo.subir_arquivo" style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <input
                 ref={pdfInputRef}
                 type="file"
