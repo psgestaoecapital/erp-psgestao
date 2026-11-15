@@ -3,6 +3,9 @@ import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { CampoMoeda } from "@/components/comum/CampoMoeda";
 import { moedaParaNumero, numeroParaMoeda } from "@/lib/moeda-mascara";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+
+const ROTA_AJUDA="/dashboard/cotacoes";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -403,7 +406,7 @@ export default function CotacoesPage(){
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:800}}>
                 <thead>
                   <tr>
-                    <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10,background:BG2,borderRadius:"8px 0 0 0",minWidth:180}}>Item</th>
+                    <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10,background:BG2,borderRadius:"8px 0 0 0",minWidth:180}}>Item <AjudaCampo chave="cotacoes.comparar.grade" rota={ROTA_AJUDA} /></th>
                     <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10,background:BG2,width:70}}>Qtd</th>
                     {dadosComparar.fornecedores.map((f:any,idx:number)=>{
                       const ehVencedor=f.status==='vencedor';
