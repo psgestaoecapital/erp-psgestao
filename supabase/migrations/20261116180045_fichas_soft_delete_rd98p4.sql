@@ -77,3 +77,9 @@ BEGIN
    WHERE ficha_id = p_id AND excluido_em IS NULL;
 END
 $function$;
+
+-- 4) Guardas de execução (SECURITY DEFINER): nunca anon/PUBLIC -------------------------
+REVOKE ALL ON FUNCTION public.fn_ficha_item_excluir(uuid)    FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_ficha_tecnica_excluir(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ficha_item_excluir(uuid)    TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_ficha_tecnica_excluir(uuid) TO authenticated, service_role;
