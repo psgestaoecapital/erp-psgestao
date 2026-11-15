@@ -1415,10 +1415,10 @@ function Th({ children, align = 'left', ajuda }: { children?: React.ReactNode; a
 function Td({ children, align = 'left', onClick }: { children?: React.ReactNode; align?: 'left' | 'right'; onClick?: () => void }) {
   return <td onClick={onClick} style={{ padding: '10px 14px', textAlign: align, verticalAlign: 'middle', color: C.espresso }}>{children}</td>
 }
-function Card({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+function Card({ titulo, children, ajuda }: { titulo: string; children: React.ReactNode; ajuda?: string }) {
   return (
     <section style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
-      <h4 style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 700, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5 }}>{titulo}</h4>
+      <h4 style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 700, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5, display: 'inline-flex', alignItems: 'center', gap: 4 }}>{titulo}{ajuda && <AjudaCampo chave={ajuda} rota={ROTA_AJUDA} />}</h4>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{children}</div>
     </section>
   )
@@ -1740,7 +1740,7 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
             </div>
           </Card>
 
-          <Card titulo="Observações">
+          <Card titulo="Observações" ajuda="commerce.compras.observacoes">
             <textarea value={observacoes} onChange={(e) => setObservacoes(e.target.value)} rows={2}
               style={{ width: '100%', padding: 8, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, resize: 'vertical' }} />
           </Card>
