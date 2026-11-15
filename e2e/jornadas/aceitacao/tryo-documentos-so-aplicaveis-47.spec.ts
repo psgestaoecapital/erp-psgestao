@@ -30,7 +30,7 @@ test.describe('Ficha do funcionário — documentos só os aplicáveis (#47)', (
     page.on('dialog', async (d) => { pediuJustificativa = true; await d.dismiss() })
 
     await page.addInitScript((id) => { try { window.localStorage.setItem('ps_empresa_sel', id) } catch { /* noop */ } }, DEMO_SST)
-    await page.goto(`/dashboard/compliance/funcionarios/${func.id}`)
+    await page.goto(`/dashboard/ehs/funcionarios/${func.id}`)
     await aguardarConteudo(page)
     await page.getByRole('button', { name: /^Documentos \(/ }).click()
 
