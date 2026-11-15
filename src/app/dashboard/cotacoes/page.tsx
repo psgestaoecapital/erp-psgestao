@@ -3,6 +3,9 @@ import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { CampoMoeda } from "@/components/comum/CampoMoeda";
 import { moedaParaNumero, numeroParaMoeda } from "@/lib/moeda-mascara";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+
+const ROTA_AJUDA="/dashboard/cotacoes";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -322,9 +325,11 @@ export default function CotacoesPage(){
 
             <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:10,marginBottom:14}}>
               <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Descrição</div>
-                <input value={novaCot.descricao} onChange={e=>setNovaCot({...novaCot,descricao:e.target.value})} placeholder="Ex: Compra mensal de matéria-prima" style={inp}/></div>
+                <AjudaCampo chave="cotacoes.nova.descricao" rota={ROTA_AJUDA} />
+                <input value={novaCot.descricao} onChange={e=>setNovaCot({...novaCot,descricao:e.target.value})} placeholder="Ex: Compra mensal de matéria-prima" aria-label="Descrição da cotação de compra" style={inp}/></div>
               <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Limite para Respostas</div>
-                <input type="date" value={novaCot.data_limite} onChange={e=>setNovaCot({...novaCot,data_limite:e.target.value})} style={inp}/></div>
+                <AjudaCampo chave="cotacoes.nova.data_limite" rota={ROTA_AJUDA} />
+                <input type="date" value={novaCot.data_limite} onChange={e=>setNovaCot({...novaCot,data_limite:e.target.value})} aria-label="Data limite para os fornecedores responderem" style={inp}/></div>
             </div>
 
             {/* Itens */}
