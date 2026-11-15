@@ -33,7 +33,7 @@ ok(/NEXT_PUBLIC_SUPABASE_URL:/.test(build) && /NEXT_PUBLIC_SUPABASE_ANON_KEY:/.t
 const fila = ler('scripts/merge/fila-merge.sh')
 ok(/\$1 != "gates"/.test(fila) && !/esperar:gates ainda não rodaram/.test(fila), 'fila de merge: suíte "gates" é informativa (fora do bloqueio) — guardas focados + compilação bloqueiam (CEO 22/10)')
 ok(/so_docs=1/.test(fila), 'fila de merge: PR só de docs não espera compilação')
-ok(/\$1 == "build-pr"/.test(fila) && /\[ "\$bp" = success \]/.test(fila), 'fila de merge: exige o check "build-pr" verde (compilação no Actions, CEO 10/11)')
+ok(/\$1 == "build-pr" && \$3 == "success"/.test(fila), 'fila de merge: build-pr verde = QUALQUER invocação success na SHA (compilação no Actions, CEO 10/11; tolera check-run "build-pr" skipped duplicada — não usa tail -1)')
 ok(/esperar:compilação \(build-pr\) ainda não rodou/.test(fila), 'fila de merge: sem build-pr nem preview legado verde → ESPERA (nunca passa sem compilar)')
 ok(/test\("cancel\|ignor"; "i"\)/.test(fila), 'fila de merge: preview legado "Canceled by Ignored Build Step" não conta como verde (transição)')
 
