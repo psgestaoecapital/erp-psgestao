@@ -13,8 +13,9 @@ import CargosPanel from '@/components/industrial/CargosPanel'
 import PostosPanel from '@/components/industrial/PostosPanel'
 import SalariosPanel from '@/components/industrial/SalariosPanel'
 import PessoasPanel from '@/components/industrial/PessoasPanel'
+import ProjetadoRealPanel from '@/components/industrial/ProjetadoRealPanel'
 
-type Aba = 'setores' | 'cargos' | 'postos' | 'salarios' | 'pessoas'
+type Aba = 'setores' | 'cargos' | 'postos' | 'salarios' | 'pessoas' | 'projetado_real'
 
 const ROTA = '/dashboard/industrial/rh/mao-de-obra'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)'
@@ -142,7 +143,7 @@ export default function MaoDeObraSetoresPage() {
 
         {empresa && (
           <div role="tablist" aria-label="Seções da mão de obra" style={{ display: 'flex', gap: 6, borderBottom: `1px solid ${LINE}`, flexWrap: 'wrap' }}>
-            {([['setores', 'Setores'], ['cargos', 'Cargos'], ['postos', 'Postos'], ['salarios', 'Salário'], ['pessoas', 'Pessoas']] as [Aba, string][]).map(([k, lbl]) => (
+            {([['setores', 'Setores'], ['cargos', 'Cargos'], ['postos', 'Postos'], ['salarios', 'Salário'], ['pessoas', 'Pessoas'], ['projetado_real', 'Projetado × Real']] as [Aba, string][]).map(([k, lbl]) => (
               <button key={k} role="tab" aria-selected={aba === k} data-testid={`aba-${k}`} onClick={() => setAba(k)}
                 style={{ padding: '9px 14px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 14, fontWeight: aba === k ? 700 : 500, color: aba === k ? ESP : MUT, borderBottom: aba === k ? `2px solid ${GOLD}` : '2px solid transparent', marginBottom: -1 }}>
                 {lbl}
@@ -158,6 +159,8 @@ export default function MaoDeObraSetoresPage() {
         {empresa && aba === 'salarios' && <SalariosPanel empresa={empresa} />}
 
         {empresa && aba === 'pessoas' && <PessoasPanel empresa={empresa} />}
+
+        {empresa && aba === 'projetado_real' && <ProjetadoRealPanel empresa={empresa} />}
 
         {empresa && aba === 'setores' && (
           <>
