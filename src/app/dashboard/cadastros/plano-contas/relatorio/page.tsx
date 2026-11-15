@@ -221,14 +221,14 @@ export default function Page() {
             </div>
 
             {filtro === 'sem_vinculo' ? (
-              <div style={{ border: '1px solid rgba(61,35,20,0.12)', borderRadius: PSGC_RADIUS.lg, background: '#fff', overflow: 'hidden' }}>
+              <div data-ajuda="plano_contas_rel.vincular" style={{ border: '1px solid rgba(61,35,20,0.12)', borderRadius: PSGC_RADIUS.lg, background: '#fff', overflow: 'hidden' }}>
                 <div style={{ display: 'flex', alignItems: 'center', padding: '10px 12px', background: C.offWhiteDark, color: INK, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                   Vincular conta contábil à conta gerencial<AjudaCampo chave="plano_contas_rel.vincular" />
                 </div>
                 {linhasFiltradas.length === 0 ? (
                   <div style={{ padding: 24, textAlign: 'center', color: INK }}>Nenhuma conta contábil pendente de vínculo. 🎉</div>
                 ) : linhasFiltradas.map((l, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 12px', borderTop: i ? '1px solid rgba(61,35,20,0.07)' : 'none' }}>
+                  <div key={i} data-ajuda="plano_contas_rel.vincular" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 12px', borderTop: i ? '1px solid rgba(61,35,20,0.07)' : 'none' }}>
                     <div style={{ minWidth: 220, flex: '1 1 260px' }}>
                       <div style={{ fontSize: 12.5, fontWeight: 600, color: C.espresso }}>{l.cont_codigo}</div>
                       <div style={{ fontSize: 11.5, color: INK }}>{l.cont_descricao}{l.cont_codigo_antigo ? ` · antigo ${l.cont_codigo_antigo}` : ''}</div>
