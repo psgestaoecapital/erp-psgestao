@@ -24,13 +24,22 @@ interface Modelo {
   descricao: string | null
   texto: string
   ativo: boolean
+  campos_obrigatorios: string[] | null
   atualizado_em: string | null
 }
 
 type Variavel = { chave: string; rotulo: string }
 
-type FormState = { id: string | null; nome: string; descricao: string; texto: string }
-const FORM_VAZIO: FormState = { id: null, nome: '', descricao: '', texto: '' }
+type FormState = { id: string | null; nome: string; descricao: string; texto: string; camposObrigatorios: string[] }
+const FORM_VAZIO: FormState = { id: null, nome: '', descricao: '', texto: '', camposObrigatorios: [] }
+
+// Extrai as chaves {{campo}} presentes num texto (normaliza {{ campo }} → campo). Usada para só oferecer
+// como "obrigatório" os campos que de fato aparecem no modelo.
+const chavesNoTexto = (texto: string): Set<string> => {
+  const set = new Set<string>()
+  for (const m of (texto ?? '').matchAll(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g)) set.add(m[1])
+  return set
+}
 
 export default function ContratosModelosPanel({ companyId }: { companyId: string | null }) {
   const [modelos, setModelos] = useState<Modelo[]>([])
@@ -95,13 +104,25 @@ export default function ContratosModelosPanel({ companyId }: { companyId: string
   const abrirNovo = () => { setErro(''); limparSugestaoIA(); setForm({ ...FORM_VAZIO }) }
   const abrirEdicao = (m: Modelo) => {
     setErro(''); limparSugestaoIA()
-    setForm({ id: m.id, nome: m.nome, descricao: m.descricao ?? '', texto: m.texto ?? '' })
+    setForm({ id: m.id, nome: m.nome, descricao: m.descricao ?? '', texto: m.texto ?? '', camposObrigatorios: m.campos_obrigatorios ?? [] })
   }
   // Duplicar: abre "Novo modelo" pré-preenchido com o texto/descrição deste (id null → cria um NOVO ao salvar,
-  // reusando fn_contrato_modelo_salvar). O original não muda.
+  // reusando fn_contrato_modelo_salvar). O original não muda. Leva junto os campos obrigatórios marcados.
   const abrirDuplicacao = (m: Modelo) => {
     setErro(''); limparSugestaoIA()
-    setForm({ id: null, nome: `${m.nome} (cópia)`, descricao: m.descricao ?? '', texto: m.texto ?? '' })
+    setForm({ id: null, nome: `${m.nome} (cópia)`, descricao: m.descricao ?? '', texto: m.texto ?? '', camposObrigatorios: m.campos_obrigatorios ?? [] })
+  }
+
+  // F2 (#5452) · marca/desmarca um campo variável como obrigatório (só os campos usados no texto).
+  const toggleObrigatorio = (chave: string) => {
+    if (!form) return
+    const marcado = form.camposObrigatorios.includes(chave)
+    setForm({
+      ...form,
+      camposObrigatorios: marcado
+        ? form.camposObrigatorios.filter((c) => c !== chave)
+        : [...form.camposObrigatorios, chave],
+    })
   }
 
   // F1 (#5452) · "Sugerir campos com IA": manda o TEXTO atual do editor ao servidor, que propõe onde entram
@@ -243,15 +264,29 @@ export default function ContratosModelosPanel({ companyId }: { companyId: string
     if (!companyId || !form) return
     if (!form.nome.trim()) { setErro('Informe o nome do modelo.'); return }
     setSalvando(true); setErro('')
-    const { error } = await supabase.rpc('fn_contrato_modelo_salvar', {
+    const { data, error } = await supabase.rpc('fn_contrato_modelo_salvar', {
       p_company_id: companyId,
       p_nome: form.nome.trim(),
       p_texto: form.texto ?? '',
       p_descricao: form.descricao.trim() || null,
       p_id: form.id,
     })
+    if (error) { setSalvando(false); setErro(erroAmigavel(error, 'Não foi possível salvar o modelo. Tente de novo.')); return }
+
+    // F2 (#5452): persiste os campos obrigatórios na versão recém-salva (só os que seguem presentes no texto).
+    // Chamada à parte e best-effort: o save acima já funciona mesmo antes desta migration chegar à produção —
+    // se a RPC ainda não existir no ambiente, a marcação apenas não é gravada (nasce desligada, não regride).
+    const novoId = (data as { id?: string } | null)?.id
+    if (novoId) {
+      const usadas = chavesNoTexto(form.texto ?? '')
+      const campos = form.camposObrigatorios.filter((c) => usadas.has(c))
+      await supabase.rpc('fn_contrato_modelo_campos_obrigatorios_definir', {
+        p_company_id: companyId,
+        p_modelo_id: novoId,
+        p_campos: campos,
+      })
+    }
     setSalvando(false)
-    if (error) { setErro(erroAmigavel(error, 'Não foi possível salvar o modelo. Tente de novo.')); return }
     setForm(null)
     await carregar()
   }
@@ -399,6 +434,40 @@ export default function ContratosModelosPanel({ companyId }: { companyId: string
               </div>
             )}
 
+            {/* F2 (#5452): marcar campos obrigatórios — só os campos variáveis que já aparecem no texto. */}
+            {(() => {
+              const usadas = chavesNoTexto(form.texto ?? '')
+              const camposUsados = variaveis.filter((v) => usadas.has(v.chave))
+              if (camposUsados.length === 0) return null
+              return (
+                <div style={{ marginTop: 12 }}>
+                  <span style={lblTxt}>
+                    Campos obrigatórios — clique para exigir o preenchimento <AjudaCampo chave="ge.contrato.modelo.campos_obrigatorios" />
+                  </span>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                    {camposUsados.map((v) => {
+                      const on = form.camposObrigatorios.includes(v.chave)
+                      return (
+                        <button
+                          key={v.chave}
+                          type="button"
+                          onClick={() => toggleObrigatorio(v.chave)}
+                          aria-pressed={on}
+                          style={on ? chipObrigOn : chipVar}
+                          title={on ? 'Obrigatório — clique para tornar opcional' : 'Opcional — clique para exigir o preenchimento'}
+                        >
+                          {on && <span style={{ color: C.gold, fontWeight: 700, marginRight: 4 }}>*</span>}{v.rotulo}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: C.espressoM, marginTop: 6 }}>
+                    Os campos com <span style={{ color: C.gold, fontWeight: 700 }}>*</span> precisarão estar preenchidos ao gerar o contrato com este modelo.
+                  </div>
+                </div>
+              )
+            })()}
+
             <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <input
                 ref={pdfInputRef}
@@ -484,6 +553,7 @@ const btnDanger: CSSProperties = { ...btnBase, background: C.white, color: C.dan
 const card: CSSProperties = { background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16 }
 const verChip: CSSProperties = { fontSize: 11, fontWeight: 600, color: C.espressoM, background: C.cream, borderRadius: 999, padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 3 }
 const chipVar: CSSProperties = { fontSize: 11.5, fontWeight: 600, color: C.espresso, background: C.cream, border: `1px solid ${C.border}`, borderRadius: 999, padding: '4px 10px', cursor: 'pointer' }
+const chipObrigOn: CSSProperties = { ...chipVar, background: C.white, color: C.espresso, border: `1.5px solid ${C.gold}` }
 const inativoChip: CSSProperties = { fontSize: 10.5, fontWeight: 700, color: C.espressoD, background: '#EFE8DE', borderRadius: 999, padding: '2px 8px', textTransform: 'uppercase', letterSpacing: 0.4 }
 const overlay: CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(40,25,12,0.38)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 60 }
 const modal: CSSProperties = { background: C.white, borderRadius: 14, padding: 22, width: '100%', maxWidth: 560, maxHeight: '90vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(40,25,12,0.25)' }

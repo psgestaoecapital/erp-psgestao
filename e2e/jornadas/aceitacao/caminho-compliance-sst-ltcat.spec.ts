@@ -18,7 +18,7 @@ test.describe('Caminho principal — SST · LTCAT: cadastrar uma função comple
     expect(emp?.is_demo, 'só na demonstração').toBe(true)
 
     await page.addInitScript((id) => { try { window.localStorage.setItem('ps_empresa_sel', id) } catch { /* noop */ } }, DEMO_SST)
-    await page.goto('/dashboard/compliance/sst')
+    await page.goto('/dashboard/ehs/sst')
     await aguardarConteudo(page)
 
     const passo2 = page.getByTestId('ltcat-passo2')
