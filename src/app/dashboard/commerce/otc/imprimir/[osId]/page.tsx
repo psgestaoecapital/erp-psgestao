@@ -10,6 +10,11 @@
 import { use, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAcesso } from '@/hooks/useAcesso'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+// Opções da via de impressão da OS — rota fixa de ajuda para o "?" (RD-95) carregar o mesmo pacote
+// mesmo com [osId] variável na URL.
+const ROTA_AJUDA = '/dashboard/commerce/otc/imprimir'
 
 export const dynamic = 'force-dynamic'
 const BUCKET = 'oficina-recepcao'
@@ -216,15 +221,18 @@ export default function ImprimirOSPage({ params }: { params: Promise<{ osId: str
                 data-testid="os-print-ocultar-valores"
               />
               Ocultar valores (via operacional){ehOperador ? ' 🔒' : ''}
+              <AjudaCampo chave="commerce.otc.imprimir.ocultar_valores" rota={ROTA_AJUDA} />
             </label>
             <label className="pp-toggle">
               <input type="checkbox" checked={incluirFotos} onChange={(e) => void alternarFotos(e.target.checked)} />
               Incluir histórico fotográfico
+              <AjudaCampo chave="commerce.otc.imprimir.incluir_fotos" rota={ROTA_AJUDA} />
             </label>
             {/* Nota promissória é documento financeiro — indisponível no modo sem valores. */}
             <label className="pp-toggle" style={ocultarValores ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}>
               <input type="checkbox" checked={incluirPromissoria && !ocultarValores} disabled={ocultarValores} onChange={(e) => setIncluirPromissoria(e.target.checked)} />
               Incluir nota promissória
+              <AjudaCampo chave="commerce.otc.imprimir.incluir_promissoria" rota={ROTA_AJUDA} />
             </label>
             <button type="button" onClick={() => window.print()} className="pp-btn" data-testid="os-print-trigger">🖨️ Imprimir</button>
           </div>
