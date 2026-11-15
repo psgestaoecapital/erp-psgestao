@@ -176,8 +176,8 @@ export default function PessoasList({ companyId, tipo }: Props) {
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: verInativos ? '#854F0B' : 'rgba(61,35,20,0.7)', cursor: 'pointer', userSelect: 'none', fontWeight: verInativos ? 700 : 500 }}>
             <input type="checkbox" checked={verInativos} onChange={(e) => { setVerInativos(e.target.checked); setBusca('') }} style={{ accentColor: '#C8941A', cursor: 'pointer' }} />
             Ver só inativos
+            <AjudaCampo chave="cadastros.pessoa.ver_inativos" rota="/dashboard/cadastros/pessoa" />
           </label>
-          <AjudaCampo chave="cadastros.pessoa.ver_inativos" rota="/dashboard/cadastros/pessoa" />
           <span style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)' }}>
             {busca ? `${total} encontrado${total === 1 ? '' : 's'}` : `${pessoas.length} de ${total} ${verInativos ? 'inativos' : 'ativos'}`}
           </span>
