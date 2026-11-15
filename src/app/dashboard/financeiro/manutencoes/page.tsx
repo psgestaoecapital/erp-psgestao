@@ -7,6 +7,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { supabase } from '@/lib/supabase'
 import { Wrench, Download, ChevronDown, ChevronUp, Loader2 } from 'lucide-react'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+// RD-95: rota canônica da ajuda desta tela (chaves ge.manutencoes.* em erp_ajuda_campo).
+const ROTA_AJUDA = '/dashboard/financeiro/manutencoes'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', ESP60 = 'rgba(61,35,20,0.6)', ESP40 = 'rgba(61,35,20,0.45)'
 const OK = '#166534', RED = '#A32D2D', WHITE = '#FFFFFF'
@@ -100,31 +104,34 @@ export default function ManutencoesPage() {
           <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700 }}>Financeiro · Gestão da mecânica</div>
           <h1 style={{ fontSize: 24, fontWeight: 700, margin: '2px 0 0', display: 'inline-flex', alignItems: 'center', gap: 8 }}><Wrench size={22} color={GOLD} /> Manutenções</h1>
         </div>
-        <button onClick={exportarCSV} disabled={visiveis.length === 0}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 14px', borderRadius: 8, border: `1px solid ${LINE}`, background: WHITE, color: ESP, fontWeight: 700, fontSize: 13, cursor: visiveis.length ? 'pointer' : 'not-allowed', opacity: visiveis.length ? 1 : 0.5 }}>
-          <Download size={15} /> Exportar CSV
-        </button>
+        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+          <button onClick={exportarCSV} disabled={visiveis.length === 0}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 14px', borderRadius: 8, border: `1px solid ${LINE}`, background: WHITE, color: ESP, fontWeight: 700, fontSize: 13, cursor: visiveis.length ? 'pointer' : 'not-allowed', opacity: visiveis.length ? 1 : 0.5 }}>
+            <Download size={15} /> Exportar CSV
+          </button>
+          <AjudaCampo chave="ge.manutencoes.acao.exportar" rota={ROTA_AJUDA} />
+        </span>
       </div>
       <p style={{ color: ESP60, fontSize: 13, marginTop: 6, marginBottom: 16 }}>Custo da peça vem do produto (Estoque/GE); mão de obra = horas × custo-hora. Lucro congelado na entrega.</p>
 
       {/* Filtros */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8, marginBottom: 14 }}>
-        <Campo l="De (entrega)"><input type="date" value={dataIni} onChange={(e) => setDataIni(e.target.value)} style={inp} /></Campo>
-        <Campo l="Até"><input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} style={inp} /></Campo>
-        <Campo l="Cliente"><input value={cliente} onChange={(e) => setCliente(e.target.value)} placeholder="nome…" style={inp} /></Campo>
-        <Campo l="Placa"><input value={placa} onChange={(e) => setPlaca(e.target.value)} placeholder="ABC…" style={inp} /></Campo>
-        <Campo l="Mecânico"><input value={mecanico} onChange={(e) => setMecanico(e.target.value)} placeholder="nome…" style={inp} /></Campo>
+        <Campo l="De (entrega)" ajuda="ge.manutencoes.filtro.de"><input type="date" value={dataIni} onChange={(e) => setDataIni(e.target.value)} style={inp} /></Campo>
+        <Campo l="Até" ajuda="ge.manutencoes.filtro.ate"><input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} style={inp} /></Campo>
+        <Campo l="Cliente" ajuda="ge.manutencoes.filtro.cliente"><input value={cliente} onChange={(e) => setCliente(e.target.value)} placeholder="nome…" style={inp} /></Campo>
+        <Campo l="Placa" ajuda="ge.manutencoes.filtro.placa"><input value={placa} onChange={(e) => setPlaca(e.target.value)} placeholder="ABC…" style={inp} /></Campo>
+        <Campo l="Mecânico" ajuda="ge.manutencoes.filtro.mecanico"><input value={mecanico} onChange={(e) => setMecanico(e.target.value)} placeholder="nome…" style={inp} /></Campo>
       </div>
 
       {/* Totais do período */}
       {totais && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, marginBottom: 16 }}>
-          <Tot l="OS entregues" v={String(totais.qtd)} />
-          <Tot l="Receita" v={brl(totais.receita)} />
-          <Tot l="Custo (peças+MO)" v={brl((totais.custo_pecas ?? 0) + (totais.custo_mo ?? 0))} />
-          <Tot l="Lucro" v={brl(totais.lucro)} cor={Number(totais.lucro) >= 0 ? OK : RED} />
-          <Tot l="Margem média" v={pct(totais.margem_media)} />
-          <Tot l="Ticket médio" v={brl(totais.ticket_medio)} />
+          <Tot l="OS entregues" v={String(totais.qtd)} ajuda="ge.manutencoes.kpi.os_entregues" />
+          <Tot l="Receita" v={brl(totais.receita)} ajuda="ge.manutencoes.kpi.receita" />
+          <Tot l="Custo (peças+MO)" v={brl((totais.custo_pecas ?? 0) + (totais.custo_mo ?? 0))} ajuda="ge.manutencoes.kpi.custo" />
+          <Tot l="Lucro" v={brl(totais.lucro)} cor={Number(totais.lucro) >= 0 ? OK : RED} ajuda="ge.manutencoes.kpi.lucro" />
+          <Tot l="Margem média" v={pct(totais.margem_media)} ajuda="ge.manutencoes.kpi.margem_media" />
+          <Tot l="Ticket médio" v={brl(totais.ticket_medio)} ajuda="ge.manutencoes.kpi.ticket_medio" />
         </div>
       )}
       {totais && totais.qtd_aguardando > 0 && (
@@ -209,13 +216,23 @@ export default function ManutencoesPage() {
 
 const inp: React.CSSProperties = { width: '100%', padding: '9px 11px', fontSize: 13, borderRadius: 8, border: `1px solid ${LINE}`, background: WHITE, color: ESP, boxSizing: 'border-box' }
 const secTit: React.CSSProperties = { fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: GOLD, fontWeight: 700, marginBottom: 6 }
-function Campo({ l, children }: { l: string; children: React.ReactNode }) {
-  return <label style={{ display: 'block' }}><span style={{ fontSize: 11, color: ESP60, display: 'block', marginBottom: 3 }}>{l}</span>{children}</label>
+// RD-95: `ajuda` no próprio <Campo> (atributo reconhecido como cobertura do "?") renderiza o AjudaCampo na label.
+function Campo({ l, children, ajuda }: { l: string; children: React.ReactNode; ajuda?: string }) {
+  return (
+    <label style={{ display: 'block' }}>
+      <span style={{ fontSize: 11, color: ESP60, display: 'inline-flex', alignItems: 'center', marginBottom: 3 }}>
+        {l}{ajuda && <AjudaCampo chave={ajuda} rota={ROTA_AJUDA} />}
+      </span>
+      {children}
+    </label>
+  )
 }
-function Tot({ l, v, cor }: { l: string; v: string; cor?: string }) {
+function Tot({ l, v, cor, ajuda }: { l: string; v: string; cor?: string; ajuda?: string }) {
   return (
     <div style={{ background: WHITE, border: `1px solid ${LINE}`, borderRadius: 10, padding: 12 }}>
-      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP40, fontWeight: 600 }}>{l}</div>
+      <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP40, fontWeight: 600, display: 'inline-flex', alignItems: 'center' }}>
+        {l}{ajuda && <AjudaCampo chave={ajuda} rota={ROTA_AJUDA} />}
+      </div>
       <div style={{ fontSize: 18, fontWeight: 700, color: cor ?? ESP, marginTop: 3, lineHeight: 1.2 }}>{v}</div>
     </div>
   )
