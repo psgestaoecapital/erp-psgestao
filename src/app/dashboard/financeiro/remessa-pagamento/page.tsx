@@ -537,11 +537,6 @@ export default function RemessaPagamentoPage() {
         {cfgAviso
           ? <><b>Configuração de pagamento não definida.</b><div style={{ marginTop: 8 }}>{cfgAviso}</div></>
           : 'Esta empresa não tem banco de pagamento (Sicoob ou Sicredi) configurado. Configure o banco antes de gerar remessa.'}
-        <div style={{ marginTop: 16 }}>
-          <a href="/dashboard/financeiro/conexoes-bancarias" style={{ display: 'inline-block', background: ESP, color: '#FFF', padding: '10px 16px', borderRadius: 8, fontWeight: 600, fontSize: 13, textDecoration: 'none' }}>
-            Configurar banco de pagamento →
-          </a>
-        </div>
       </div>
     </div>
   )
