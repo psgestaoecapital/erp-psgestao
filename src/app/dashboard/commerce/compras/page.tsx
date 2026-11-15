@@ -1254,9 +1254,9 @@ function ModalNovaCotacao({ companyId, onClose, onCreated, flash, flashErr }: {
 
         {step === 'identif' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <Field label="Descrição *"><input autoFocus value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Ex: Materiais de drywall para obra centro" style={inp} /></Field>
-            <Field label="Solicitante"><input value={solicitante} onChange={(e) => setSolicitante(e.target.value)} placeholder="Ex: João Silva (Compras)" style={inp} /></Field>
-            <Field label="Data limite para respostas"><input type="date" value={dataLimite} onChange={(e) => setDataLimite(e.target.value)} style={inp} /></Field>
+            <Field label="Descrição *" ajuda="commerce.compras.cot_descricao"><input autoFocus value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Ex: Materiais de drywall para obra centro" style={inp} /></Field>
+            <Field label="Solicitante" ajuda="commerce.compras.cot_solicitante"><input value={solicitante} onChange={(e) => setSolicitante(e.target.value)} placeholder="Ex: João Silva (Compras)" style={inp} /></Field>
+            <Field label="Data limite para respostas" ajuda="commerce.compras.cot_data_limite"><input type="date" value={dataLimite} onChange={(e) => setDataLimite(e.target.value)} style={inp} /></Field>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
               <button onClick={onClose} style={btnSec}>Cancelar</button>
               <button onClick={() => setStep('itens')} disabled={!podeAvancarIdent} style={{ ...btnPri, opacity: podeAvancarIdent ? 1 : 0.5 }}>Próximo →</button>
@@ -1266,7 +1266,7 @@ function ModalNovaCotacao({ companyId, onClose, onCreated, flash, flashErr }: {
 
         {step === 'itens' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Itens a cotar *</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM, display: 'inline-flex', alignItems: 'center', gap: 4 }}>Itens a cotar * <AjudaCampo chave="commerce.compras.cot_itens" rota={ROTA_AJUDA} /></label>
             {itens.map((it, i) => (
               <div key={i} style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {it.produto_id ? (
@@ -1340,7 +1340,7 @@ function ModalNovaCotacao({ companyId, onClose, onCreated, flash, flashErr }: {
 
         {step === 'fornec' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Fornecedores convidados *</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM, display: 'inline-flex', alignItems: 'center', gap: 4 }}>Fornecedores convidados * <AjudaCampo chave="commerce.compras.cot_fornecedores" rota={ROTA_AJUDA} /></label>
             <input value={fornBusca} onChange={(e) => setFornBusca(e.target.value)} placeholder="Buscar fornecedor (nome ou CNPJ, mín 2 chars)" style={inp} />
             {fornCandidatos.length > 0 && (
               <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 6, maxHeight: 220, overflowY: 'auto' }}>
@@ -1431,10 +1431,10 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
     </div>
   )
 }
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children, ajuda }: { label: string; children: React.ReactNode; ajuda?: string }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <span style={{ fontSize: 10, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>{label}</span>
+      <span style={{ fontSize: 10, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>{label}{ajuda && <AjudaCampo chave={ajuda} rota={ROTA_AJUDA} />}</span>
       {children}
     </label>
   )
@@ -1625,8 +1625,11 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
               </div>
             ) : (
               <>
-                <input value={forBusca} onChange={(e) => setForBusca(e.target.value)} placeholder="Buscar fornecedor (mín. 2 caracteres)..."
-                  style={{ width: '100%', padding: 10, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input value={forBusca} onChange={(e) => setForBusca(e.target.value)} placeholder="Buscar fornecedor (mín. 2 caracteres)..."
+                    style={{ flex: 1, padding: 10, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+                  <AjudaCampo chave="commerce.compras.compra_fornecedor" rota={ROTA_AJUDA} />
+                </div>
                 {forCarregando && <div style={{ fontSize: 11, color: C.espressoM, marginTop: 6 }}>Buscando...</div>}
                 {forOpcoes.length > 0 && (
                   <div style={{ maxHeight: 200, overflowY: 'auto', marginTop: 8, border: `1px solid ${C.border}`, borderRadius: 8, background: '#fff' }}>
@@ -1658,7 +1661,7 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
               <div style={{ fontSize: 12, color: C.espressoM, fontStyle: 'italic', padding: '8px 0' }}>Busque e adicione produtos acima.</div>
             ) : (
               <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
-                <thead><tr style={{ background: C.cream }}><Th>Produto</Th><Th>Qtd</Th><Th>Preço un.</Th><Th align="right">Subtotal</Th><Th></Th></tr></thead>
+                <thead><tr style={{ background: C.cream }}><Th>Produto</Th><Th ajuda="commerce.compras.compra_item_qtd">Qtd</Th><Th ajuda="commerce.compras.compra_item_preco">Preço un.</Th><Th align="right">Subtotal</Th><Th></Th></tr></thead>
                 <tbody>
                   {itens.map((it) => {
                     const q = Number(it.quantidade.replace(',', '.')) || 0
