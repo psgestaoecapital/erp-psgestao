@@ -80,6 +80,37 @@ const nextConfig: NextConfig = {
         destination: '/dashboard/cadastros/fornecedores',
         permanent: true,
       },
+      // PDCA GE (Princ.3 menu limpo · RD-98 p1 · auditor_pdca_2 15/11): /dashboard/services/nfse era um
+      // PLACEHOLDER "em construção" (ModuloEmConstrucao) duplicando no menu a tela REAL de NFS-e. A tela do
+      // menu é /dashboard/fiscal/nfse ("NFS-e Emitidas", emissão via NFSeEmitirGovModal). Entrada morta
+      // desativada no module_catalog; esta rota redireciona para a canônica (query string preservada).
+      {
+        source: '/dashboard/services/nfse',
+        destination: '/dashboard/fiscal/nfse',
+        permanent: true,
+      },
+      // Renomeação Compliance → EHS (CEO 14/11, Fase 2). A vertical passa a viver em /dashboard/ehs/*;
+      // o caminho antigo /dashboard/compliance/* vira redirect 308 permanente, então links salvos,
+      // favoritos e convites já enviados continuam abrindo (query string preservada automaticamente).
+      {
+        source: '/dashboard/compliance/:path*',
+        destination: '/dashboard/ehs/:path*',
+        permanent: true,
+      },
+      {
+        source: '/dashboard/compliance',
+        destination: '/dashboard/ehs',
+        permanent: true,
+      },
+      // GE · P0 rota-fantasma do Onboarding (FILA VIVA GE item 1): a tela "PR #140" em
+      // /dashboard/onboarding/gestao-empresarial foi refatorada para o Guia de Implantação em
+      // /dashboard/gestao-empresarial/implantacao (conserto #4117). A rota antiga não tem mais página
+      // (404 → system_screens 'quebrada'); este redirect 308 preserva bookmarks e links velhos.
+      {
+        source: '/dashboard/onboarding/gestao-empresarial',
+        destination: '/dashboard/gestao-empresarial/implantacao',
+        permanent: true,
+      },
     ]
   },
 }

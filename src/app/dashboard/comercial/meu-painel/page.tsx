@@ -11,8 +11,8 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import {
-  calcularModelo, estadoPadrao, exclusaoPadrao, gruposProduto, resumo,
-  type BaseV5, type EstadoV5, type GrupoProduto, type ModeloV5,
+  calcularModelo, estadoPadrao, exclusaoPadrao, gruposProduto, resumo, venAnalise,
+  type BaseV5, type DevFiltro, type EstadoV5, type GrupoProduto, type ModeloV5,
 } from './motor-v5'
 import { calcularClientesV7 } from './clientes-v7'
 import { AbaClientes } from './AbaClientes'
@@ -70,12 +70,17 @@ type VendRow = {
 export default function MeuPainelV6() {
   const { companyIds, selInfo } = useCompanyIds()
   const empresa = selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : null
+  // Nome exibido nos títulos: a empresa selecionada quando é uma só; senão termo
+  // genérico (nunca um nome de cliente fixo — tela compartilhada por toda empresa).
+  const nomeEmpresa = selInfo.tipo === 'empresa' && selInfo.nome ? selInfo.nome : 'sua empresa'
   const [base, setBase] = useState<BaseV5 | null>(null)
   const [estado, setEstado] = useState<EstadoV5 | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   // Fail-closed do escopo: usuário com papel comercial, mas sem vínculo a um código de vendedor (ef00dac6).
   const [semVinculo, setSemVinculo] = useState(false)
+  // Filtro de devoluções salvo por empresa no banco (com_devolucao_config): o que conta no indicador considerado.
+  const [devCfg, setDevCfg] = useState<DevFiltro>({ produtosFora: [], linhasFora: [] })
 
   // Chassi: período, abas e seletores. O período recarrega a base (fn_bi_comercial_base com p_de/p_ate);
   // vendedor e linha filtram o motor (estado.ven e estado.lin), então todas as abas recalculam juntas.
@@ -122,6 +127,17 @@ export default function MeuPainelV6() {
     setBase(data as BaseV5)
   }, [empresa, intervalo])
   useEffect(() => { void carregar() }, [carregar])
+  // Filtro de devoluções salvo no banco (por empresa). Falha silenciosa: sem config, tudo conta (bruta = considerada).
+  useEffect(() => {
+    if (!empresa) { setDevCfg({ produtosFora: [], linhasFora: [] }); return }
+    let vivo = true
+    void supabase.rpc('fn_com_devolucao_config_ler', { p_company_id: empresa }).then(({ data, error }) => {
+      if (!vivo || error || !data) return
+      const d = data as { produtos_fora?: string[]; linhas_fora?: string[] }
+      setDevCfg({ produtosFora: d.produtos_fora ?? [], linhasFora: d.linhas_fora ?? [] })
+    })
+    return () => { vivo = false }
+  }, [empresa])
   // Base nova (outro período) → análise padrão, mas mantém vendedor e linha escolhidos.
   // Se o usuário já escolheu a análise nesta empresa, a escolha salva vale; senão, a análise padrão (só carne).
   useEffect(() => {
@@ -132,14 +148,38 @@ export default function MeuPainelV6() {
       const excl: Record<number, boolean> = salva
         ? Object.fromEntries(base.prod.map((p, i) => [i, true] as const).filter(([i]) => salva.fora.includes(base.prod[i]?.[0] ?? '')))
         : padrao.excl
-      return { ...padrao, excl, escopo: salva?.escopo ?? 'preco', ven: prev?.ven ?? 'todos', lin: prev?.lin ?? 'todas' }
+      return { ...padrao, excl, escopo: salva?.escopo ?? 'preco', ven: prev?.ven ?? 'todos', lin: prev?.lin ?? 'todas', devFiltro: devCfg }
     })
-  }, [base, empresa])
+  }, [base, empresa, devCfg])
   const [modalAnalise, setModalAnalise] = useState(false)
   const [vendAberto, setVendAberto] = useState(false)
   const aplicarAnalise = (excl: Record<number, boolean>, escopo: EscopoAnalise) => setEstado((e) => e ? { ...e, excl, escopo } : e)
+  // Devoluções: aplica na hora (otimista) e persiste por empresa no banco; se falhar, volta ao que estava.
+  const aplicarDev = useCallback((produtosFora: string[], linhasFora: string[]) => {
+    const novo: DevFiltro = { produtosFora, linhasFora }
+    const anterior = devCfg
+    setDevCfg(novo)
+    if (!empresa) return
+    void supabase.rpc('fn_com_devolucao_config_salvar', { p_company_id: empresa, p_produtos_fora: produtosFora, p_linhas_fora: linhasFora })
+      .then(({ error }) => { if (error) { setErro(erroAmigavel(error)); setDevCfg(anterior) } })
+  }, [empresa, devCfg])
   const setVen = (v: EstadoV5['ven']) => setEstado((e) => e ? { ...e, ven: v } : e)
   const setLin = (v: EstadoV5['lin']) => setEstado((e) => e ? { ...e, lin: v } : e)
+  // AJUSTE 2 (CEO 13/11): "Vendedores na análise" — líder marca/desmarca quem entra na comparação e na média
+  // (config por empresa em com_ranking_participante). Desmarcar NÃO tira do total geral. Após gravar, recarrega
+  // a base (que recalcula o flag `incluido` na dimensão `ven`).
+  const [salvandoVen, setSalvandoVen] = useState<string | null>(null)
+  const toggleVenAnalise = useCallback(async (cod: string, incluir: boolean) => {
+    if (!empresa || !cod) return
+    setSalvandoVen(cod); setErro(null)
+    const { error } = await supabase.rpc('fn_com_ranking_participante_definir', {
+      p_company_id: empresa, p_cod_vendedor: cod, p_incluido: incluir,
+      p_motivo: incluir ? 'Reincluído na comparação/média pelo painel' : 'Fora da comparação/média (segue no total geral)',
+    })
+    if (error) { setSalvandoVen(null); setErro(erroAmigavel(error)); return }
+    await carregar()
+    setSalvandoVen(null)
+  }, [empresa, carregar])
 
   const pg = useMemo<GrupoProduto[] | null>(() => base ? gruposProduto(base) : null, [base])
   const modelo = useMemo<ModeloV5 | null>(() => base && estado && pg ? calcularModelo(base, estado, pg) : null, [base, estado, pg])
@@ -189,8 +229,11 @@ export default function MeuPainelV6() {
   const descR = modelo?.tot.desc ?? 0
   const tabR = modelo?.tot.tab ?? 0
   const descPct = tabR ? 100 * descR / tabR : 0
-  const devR = useMemo(() => modelo ? modelo.devs.reduce((s, x) => s + (x[4] as number), 0) : 0, [modelo])
-  const devPct = modelo?.tot.val ? 100 * devR / modelo.tot.val : 0
+  const devR = useMemo(() => modelo ? modelo.devTot : 0, [modelo])
+  const devConsid = useMemo(() => modelo ? modelo.devTotConsiderada : 0, [modelo])
+  const devPct = modelo?.tot.val ? 100 * devConsid / modelo.tot.val : 0
+  // Há algum item tirado do indicador? (então mostramos "considerada × bruta"; senão, só o % do faturamento).
+  const devFiltrada = devConsid < devR - 0.5
   const prazo = modelo?.pz ?? null
   const itensAbaixoPct = useMemo(() => {
     if (!modelo || !modelo.its.length) return 0
@@ -253,7 +296,7 @@ export default function MeuPainelV6() {
     // referência do sistema de origem — que pode estar desatualizada e gerava "descontos monstruosos" falsos.
     // Acima da média = acréscimo (conta a favor); abaixo = desconto real. Margem para destacar: 5 pontos de índice.
     const MARGEM_INDICE = 5
-    const idxVen = [...modelo.venM].filter(([, a]) => a.exp > 0).map(([vi, a]) => ({ vi, idx: 100 * a.valP / a.exp }))
+    const idxVen = [...modelo.venM].filter(([vi, a]) => a.exp > 0 && venAnalise(base, vi)).map(([vi, a]) => ({ vi, idx: 100 * a.valP / a.exp }))
     idxVen.filter((v) => v.idx < 100 - MARGEM_INDICE).sort((a, b) => a.idx - b.idx).forEach((v) => {
       riscos.push(`Preço de ${nomeVen(v.vi)} abaixo da média da empresa: índice ${nf({ maximumFractionDigits: 0 }).format(v.idx)} (100 = média)`)
       acoes.push(`Revisar o preço de ${nomeVen(v.vi)} (abaixo da média da empresa)`)
@@ -300,7 +343,9 @@ export default function MeuPainelV6() {
   // desconto = soma (tabela − praticado) ÷ tabela; devolução = devoluções ÷ faturamento.
   const vendedores = useMemo(() => {
     if (!modelo || !base) return [] as VendRow[]
-    return [...modelo.venM].map(([vi, a]) => {
+    // AJUSTE 2 (CEO 13/11): a comparação entre vendedores exclui quem está fora da análise (ex.: contas
+    // administrativas). O faturamento deles segue no TOTAL GERAL (modelo.tot) — por isso `part` usa tot.val.
+    return [...modelo.venM].filter(([vi]) => venAnalise(base, vi)).map(([vi, a]) => {
       const dev = modelo.devVen.get(vi) || 0
       const pz = modelo.venPz.get(vi)
       return {
@@ -336,7 +381,8 @@ export default function MeuPainelV6() {
       m.set(linha, (m.get(linha) || 0) + x[6])
     })
     const linhas = [...linhasSet].sort()
-    const rows = [...porVen].map(([vi, m]) => {
+    // AJUSTE 2: só vendedores da análise entram no gráfico de comparação do mix.
+    const rows = [...porVen].filter(([vi]) => venAnalise(base, vi)).map(([vi, m]) => {
       const row: Record<string, string | number> = { nome: base.ven[vi]?.[1] || base.ven[vi]?.[0] || 'Sem vendedor' }
       linhas.forEach((l) => { row[l] = m.get(l) || 0 })
       return row
@@ -502,7 +548,7 @@ export default function MeuPainelV6() {
       )}
 
       {aba === 'geral' && (<>
-      <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 8px' }}>Como a Frioeste está vendendo</h2>
+      <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 8px' }}>Como a {nomeEmpresa} está vendendo</h2>
 
       {modelo && semVendas && (
         <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: '36px 24px', textAlign: 'center', color: C.m }}>
@@ -535,7 +581,12 @@ export default function MeuPainelV6() {
             <Cartao rot="Preço médio" chave="com.painel.preco" valor={brl2(r.precoPorKg)} sub="R$/kg sem despojo" />
             <Cartao rot="Ticket por nota" chave="com.painel.ticket" valor={brl0(ticketNota)} sub={`${int(notas)} notas`} />
             <Cartao rot="Desconto vs tabela (ref.)" chave="com.painel.desconto" valor={`${nf({ maximumFractionDigits: 2 }).format(descPct)}%`} sub={`${brl0(descR)} · ref. pode estar desatualizada`} />
-            <Cartao rot="Devoluções" chave="com.painel.devolucao" valor={`${nf({ maximumFractionDigits: 2 }).format(devPct)}%`} sub={brl0(devR)} />
+            <button type="button" onClick={() => setModalAnalise(true)} aria-label="Devoluções — configurar o que conta no indicador"
+              style={{ textAlign: 'left', background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 14, cursor: 'pointer', font: 'inherit', color: 'inherit' }}>
+              <div style={{ fontSize: 12, color: C.m, display: 'flex', alignItems: 'center', gap: 4 }}>Devoluções<AjudaCampo chave={devFiltrada ? 'com.painel.devolucao_considerada' : 'com.painel.devolucao'} rota={ROTA} /></div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: C.esp, marginTop: 4 }}>{brl0(devConsid)} <span style={{ fontSize: 13, fontWeight: 500, color: C.m }}>· {nf({ maximumFractionDigits: 2 }).format(devPct)}%</span></div>
+              <div style={{ fontSize: 12, color: C.d, marginTop: 2 }}>{devFiltrada ? <>considerada · bruta {brl0(devR)}</> : <>bruta = considerada · ajustar ▾</>}</div>
+            </button>
             <Cartao rot="Clientes que compraram" chave="com.painel.clientes" valor={int(r.clientes)} />
             <Cartao rot="Prazo médio" chave="com.painel.visao" valor={prazo == null ? '—' : `${nf({ maximumFractionDigits: 1 }).format(prazo)} dias`} sub="ponderado pelo valor" />
           </div>
@@ -558,10 +609,10 @@ export default function MeuPainelV6() {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
-            {/* Do que vive a Frioeste: donut com alternância faturamento/volume */}
+            {/* Do que vive a empresa: donut com alternância faturamento/volume */}
             <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: C.m, display: 'flex', alignItems: 'center', gap: 4 }}>Do que vive a Frioeste<AjudaCampo chave="com.painel.produtos" rota={ROTA} /></div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: C.m, display: 'flex', alignItems: 'center', gap: 4 }}>Do que vive a {nomeEmpresa}<AjudaCampo chave="com.painel.produtos" rota={ROTA} /></div>
                 <div style={{ display: 'flex', gap: 4 }}>
                   {(['val', 'kg'] as const).map((m) => (
                     <button key={m} type="button" onClick={() => setDonutMetrica(m)} aria-pressed={donutMetrica === m}
@@ -718,8 +769,27 @@ export default function MeuPainelV6() {
       )}
       </>)}
 
-      {aba === 'vendedores' && r && modelo && (<>
+      {aba === 'vendedores' && r && modelo && base && (<>
           <div style={{ marginTop: 24, fontSize: 18, fontWeight: 700 }}>Vendedores</div>
+
+          {base.modo === 'lider' && (
+            <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16, marginTop: 8 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: C.m, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>Vendedores na análise<AjudaCampo chave="com.painel.analise" rota={ROTA} /></div>
+              <div style={{ fontSize: 12, color: C.m, marginBottom: 10 }}>Desmarque quem não deve entrar na comparação nem na média da equipe (ex.: contas administrativas). O faturamento e o volume de quem sai continuam no total geral.</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {base.ven.map((v) => {
+                  const cod = v[0]; const nome = v[1] || cod; const incluido = v[2] !== 0
+                  return (
+                    <label key={cod} data-ajuda="com.painel.analise" title={incluido ? 'Na comparação e na média' : 'Só no total geral'}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: C.esp, border: `1px solid ${C.bd}`, borderRadius: 999, padding: '5px 12px', background: incluido ? '#fff' : C.bg2, cursor: salvandoVen ? 'wait' : 'pointer', opacity: salvandoVen && salvandoVen !== cod ? 0.55 : 1 }}>
+                      <input type="checkbox" checked={incluido} disabled={!!salvandoVen} onChange={() => void toggleVenAnalise(cod, !incluido)} style={{ accentColor: C.gold }} />
+                      {nome}{!incluido && <span style={{ fontSize: 11, color: C.d }}>só no total</span>}
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 12, marginTop: 8 }}>
             <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16 }}>
@@ -826,7 +896,7 @@ export default function MeuPainelV6() {
         <AbaClientes clientes={clientesV7} base={base} modelo={modelo} />
       )}
       {aba === 'cidades' && base && modelo && cidadesV7 && (
-        <AbaCidades cidades={cidadesV7} base={base} modelo={modelo} />
+        <AbaCidades cidades={cidadesV7} base={base} modelo={modelo} alvo={nomeEmpresa} />
       )}
       {aba === 'metas' && (
         <MetasV7 empresa={empresa} />
@@ -849,7 +919,7 @@ export default function MeuPainelV6() {
         // corrigida no ModalAnalise; este limite é a garantia de que a tela nunca mais é derrubada pelo modal.
         <BlocoSeguro nome="Configurar a análise">
           <ModalAnalise open={modalAnalise} onClose={() => setModalAnalise(false)} empresa={empresa} base={base} modelo={modelo} estado={estado}
-            onAplicar={aplicarAnalise} exclusaoPadrao={exclusaoPadrao(base)} />
+            onAplicar={aplicarAnalise} exclusaoPadrao={exclusaoPadrao(base)} devFiltro={devCfg} onAplicarDev={aplicarDev} />
         </BlocoSeguro>
       )}
     </div>

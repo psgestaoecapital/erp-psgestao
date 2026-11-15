@@ -8,6 +8,9 @@ import { useRouter } from "next/navigation";
 import { rpc, supabaseBrowser } from "@/lib/authFetch";
 import { getUsuarioId } from "@/lib/AuthProvider";
 import { erroAmigavel } from "@/lib/erroAmigavel";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+
+const ROTA_AJUDA = "/dashboard/bpo/conversas/nova";
 
 interface Empresa {
   id: string;
@@ -129,7 +132,7 @@ export default function NovaConversaPage() {
           <div className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{erro}</div>
         )}
 
-        <Campo label="Empresa">
+        <Campo label="Empresa" ajuda="bpo.conversas.nova.empresa">
           <select
             value={companyId}
             onChange={(e) => setCompanyId(e.target.value)}
@@ -144,7 +147,7 @@ export default function NovaConversaPage() {
           </select>
         </Campo>
 
-        <Campo label="Assunto">
+        <Campo label="Assunto" ajuda="bpo.conversas.nova.assunto">
           <input
             type="text"
             value={assunto}
@@ -155,7 +158,7 @@ export default function NovaConversaPage() {
         </Campo>
 
         <div className="grid grid-cols-2 gap-3">
-          <Campo label="Contexto">
+          <Campo label="Contexto" ajuda="bpo.conversas.nova.contexto">
             <select
               value={contexto}
               onChange={(e) => setContexto(e.target.value)}
@@ -166,7 +169,7 @@ export default function NovaConversaPage() {
               ))}
             </select>
           </Campo>
-          <Campo label="Prioridade">
+          <Campo label="Prioridade" ajuda="bpo.conversas.nova.prioridade">
             <select
               value={prioridade}
               onChange={(e) => setPrioridade(e.target.value)}
@@ -186,7 +189,7 @@ export default function NovaConversaPage() {
             Preencha pelo menos um meio de contato.
           </p>
           <div className="space-y-3">
-            <Campo label="Nome">
+            <Campo label="Nome" ajuda="bpo.conversas.nova.contato_nome">
               <input
                 type="text"
                 value={clienteNome}
@@ -196,7 +199,7 @@ export default function NovaConversaPage() {
               />
             </Campo>
             <div className="grid grid-cols-2 gap-3">
-              <Campo label="Email">
+              <Campo label="Email" ajuda="bpo.conversas.nova.contato_email">
                 <input
                   type="email"
                   value={clienteEmail}
@@ -205,7 +208,7 @@ export default function NovaConversaPage() {
                   className="w-full rounded-lg border border-[#3D2314]/10 bg-white px-3 py-2 text-sm"
                 />
               </Campo>
-              <Campo label="WhatsApp (com DDI/DDD)">
+              <Campo label="WhatsApp (com DDI/DDD)" ajuda="bpo.conversas.nova.contato_whatsapp">
                 <input
                   type="tel"
                   value={clienteWhatsapp}
@@ -218,7 +221,7 @@ export default function NovaConversaPage() {
           </div>
         </div>
 
-        <Campo label="Mensagem inicial">
+        <Campo label="Mensagem inicial" ajuda="bpo.conversas.nova.mensagem">
           <textarea
             value={mensagem}
             onChange={(e) => setMensagem(e.target.value)}
@@ -228,7 +231,7 @@ export default function NovaConversaPage() {
           />
         </Campo>
 
-        <Campo label="Enviar via">
+        <Campo label="Enviar via" ajuda="bpo.conversas.nova.canais">
           <div className="flex flex-wrap gap-2">
             <CanalChip label="📱 Portal" ativo={canais.includes("portal")} onClick={() => toggleCanal("portal")} />
             <CanalChip label="💬 WhatsApp" ativo={canais.includes("whatsapp_manual")} onClick={() => toggleCanal("whatsapp_manual")} hint={clienteWhatsapp ? "" : "Preencha WhatsApp acima"} disabled={!clienteWhatsapp} />
@@ -259,10 +262,13 @@ export default function NovaConversaPage() {
   );
 }
 
-function Campo({ label, children }: { label: string; children: React.ReactNode }) {
+function Campo({ label, children, ajuda }: { label: string; children: React.ReactNode; ajuda?: string }) {
   return (
     <div>
-      <label className="mb-1 block text-xs uppercase text-[#3D2314]/70">{label}</label>
+      <label className="mb-1 flex items-center gap-1 text-xs uppercase text-[#3D2314]/70">
+        {label}
+        {ajuda && <AjudaCampo chave={ajuda} rota={ROTA_AJUDA} />}
+      </label>
       {children}
     </div>
   );

@@ -115,6 +115,7 @@ export default function FichasCommercePage() {
         .from('fichas_tecnicas')
         .select('*')
         .eq('company_id', companyIdUnico)
+        .is('excluido_em', null) // RD-98 p4: não lista fichas excluídas (soft-delete)
         .order('categoria', { ascending: true, nullsFirst: true })
         .order('nome', { ascending: true })
       if (!alive) return
@@ -133,6 +134,7 @@ export default function FichasCommercePage() {
           .from('ficha_itens')
           .select('*')
           .in('ficha_id', ids)
+          .is('excluido_em', null) // RD-98 p4: não lista itens excluídos (soft-delete)
           .order('ordem', { ascending: true, nullsFirst: true })
         if (!alive) return
         const porFicha: Record<string, FichaItem[]> = {}
@@ -158,6 +160,7 @@ export default function FichasCommercePage() {
         .from('ficha_itens')
         .select('*')
         .eq('ficha_id', selFichaId)
+        .is('excluido_em', null) // RD-98 p4: não lista itens excluídos (soft-delete)
         .order('ordem', { ascending: true, nullsFirst: true })
       if (alive) setItensCache((prev) => ({ ...prev, [selFichaId]: (data ?? []) as FichaItem[] }))
     })()
@@ -340,23 +343,6 @@ export default function FichasCommercePage() {
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button
             type="button"
-            disabled
-            title="Em breve"
-            style={{
-              padding: '8px 14px',
-              borderRadius: 8,
-              border: `1px solid ${C.border}`,
-              background: C.cream,
-              color: C.espressoL,
-              fontSize: 12,
-              fontWeight: 600,
-              cursor: 'not-allowed',
-            }}
-          >
-            Importar CSV (em breve)
-          </button>
-          <button
-            type="button"
             onClick={() => setShowNova(true)}
             disabled={!canCreate}
             title={canCreate ? 'Criar nova ficha tecnica' : 'Selecione uma empresa especifica para criar fichas'}
@@ -517,12 +503,12 @@ export default function FichasCommercePage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 720 }}>
               <thead style={{ background: C.cream }}>
                 <tr>
-                  <Th>Código</Th>
-                  <Th>Nome</Th>
-                  <Th>Categoria</Th>
-                  <Th>Unid.</Th>
-                  <Th align="right">Custo total</Th>
-                  <Th align="right">Preço venda</Th>
+                  <Th>Código <AjudaCampo chave="commerce.fichas.codigo" rota={ROTA} /></Th>
+                  <Th>Nome <AjudaCampo chave="commerce.fichas.nome" rota={ROTA} /></Th>
+                  <Th>Categoria <AjudaCampo chave="commerce.fichas.categoria" rota={ROTA} /></Th>
+                  <Th>Unid. <AjudaCampo chave="commerce.fichas.unidade" rota={ROTA} /></Th>
+                  <Th align="right">Custo total <AjudaCampo chave="commerce.fichas.col_custo_total" rota={ROTA} /></Th>
+                  <Th align="right">Preço venda <AjudaCampo chave="commerce.fichas.col_preco_venda" rota={ROTA} /></Th>
                 </tr>
               </thead>
               <tbody>

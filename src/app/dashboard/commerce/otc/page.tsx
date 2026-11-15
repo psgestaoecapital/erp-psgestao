@@ -201,6 +201,21 @@ const fmtBRL = (v: number | null | undefined) =>
 const fmtDate = (d: string | null | undefined) =>
   d ? new Date(d + (d.length === 10 ? 'T00:00:00' : '')).toLocaleDateString('pt-BR') : '—'
 
+// PDCA GE (tarefa 26111304) · "listas só com o que é da empresa" (RD-98 p1).
+// Os specs e2e de aceitação deixaram milhares de orçamentos/pedidos de TESTE na DEMO que
+// soterram o kanban/lista OTC. erp_pedidos não tem soft-delete, então o leftover é escondido
+// da LISTAGEM por marcador de cliente — cliente real nunca tem esses nomes. Dois coortes vistos
+// no dado (DEMO Comércio GE, RD-38 15/11: 968 de teste × 10 reais ORC-2026-0001..0010):
+//   · "Cliente Aceitação N"                                   (orçamentos têm deleted_at, já saem pela purga #5098)
+//   · "CLIENTE 263 <cpf>-MV…" / "Cliente Orc 264 <cpf>-mv…"   (coorte 26x, cancelados, ainda sem purga)
+// O regex casa só "cliente[ orc] 26<díg> " (nº + espaço) — não pega "Cliente Demo"/"Comércio Demo"
+// nem um cliente real tipo "Cliente 26 de Março" (precisa do 3º dígito colado ao 26).
+const RE_CLIENTE_TESTE_26X = /^cliente( orc)? 26\d\s/
+const semClienteDeTeste = (nome: string | null): boolean => {
+  const n = (nome ?? '').toLowerCase()
+  return !n.startsWith('cliente aceita') && !RE_CLIENTE_TESTE_26X.test(n)
+}
+
 export default function OTCPage() {
   return (
     <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: C.espressoM }}>Carregando…</div>}>
@@ -266,14 +281,21 @@ function OTCPageInner() {
       setLoading(true)
       setErro('')
       const [orc, ped] = await Promise.all([
-        supabase.from('erp_orcamentos').select('*').eq('company_id', expected).order('created_at', { ascending: false }).limit(200),
-        supabase.from('erp_pedidos').select('*').eq('company_id', expected).order('created_at', { ascending: false }).limit(200),
+        // Dois filtros contra o lixo de e2e na DEMO (26111304), no SERVIDOR p/ o limit(200) recair em docs reais:
+        // 1) .is(deleted_at,null): a RLS de erp_orcamentos não filtra soft-delete → sem isto o kanban mostrava
+        //    os orçamentos de teste que a purga #5098 soft-deleta (status intacto).
+        // 2) .or(cliente_nome null OU não casa marcador de teste): esconde o leftover ainda-não-drenado
+        //    (os reais ficam fora do top-200 por created_at, soterrados pelo flood). NULL-safe (cliente real pode ser null).
+        //    São dois coortes (ver semClienteDeTeste): "Cliente Aceita*" e o 26x ("CLIENTE 26_ *"/"Cliente Orc 26_ *").
+        //    Cada .or() soma com AND; "26_ *" (nº+char+espaço) não pega "Cliente 26 de Março" nem os reais "Cliente/Comércio Demo".
+        supabase.from('erp_orcamentos').select('*').eq('company_id', expected).is('deleted_at', null).or('cliente_nome.is.null,cliente_nome.not.ilike.Cliente Aceita*').or('cliente_nome.is.null,cliente_nome.not.ilike.CLIENTE 26_ *').or('cliente_nome.is.null,cliente_nome.not.ilike.Cliente Orc 26_ *').order('created_at', { ascending: false }).limit(200),
+        supabase.from('erp_pedidos').select('*').eq('company_id', expected).or('cliente_nome.is.null,cliente_nome.not.ilike.Cliente Aceita*').or('cliente_nome.is.null,cliente_nome.not.ilike.CLIENTE 26_ *').or('cliente_nome.is.null,cliente_nome.not.ilike.Cliente Orc 26_ *').order('created_at', { ascending: false }).limit(200),
       ])
       if (!alive) return
       // Runtime guard: descarta qualquer linha com company_id divergente
       // (defense-in-depth contra falha em .eq / RPC / RLS).
-      const orcSafe = ((orc.data ?? []) as Orcamento[]).filter((o) => o.company_id === expected)
-      const pedSafe = ((ped.data ?? []) as Pedido[]).filter((p) => p.company_id === expected)
+      const orcSafe = ((orc.data ?? []) as Orcamento[]).filter((o) => o.company_id === expected && semClienteDeTeste(o.cliente_nome))
+      const pedSafe = ((ped.data ?? []) as Pedido[]).filter((p) => p.company_id === expected && semClienteDeTeste(p.cliente_nome))
       if (orc.error) setErro(erroAmigavel(orc.error, 'Não foi possível carregar os orçamentos. Tente de novo.'))
       else setOrcamentos(orcSafe)
       if (ped.error) setErro(erroAmigavel(ped.error, 'Não foi possível carregar os pedidos. Tente de novo.'))
@@ -2022,7 +2044,7 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
 
         {step === 'cliente' ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Buscar cliente *</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Buscar cliente *</label><AjudaCampo chave="otc.novo.buscar_cliente" rota="/dashboard/commerce/otc" />
             <input
               autoFocus
               value={clienteBusca}
@@ -2099,7 +2121,7 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
               <BlocoObraFiscal companyId={companyId} value={obraFiscal} onChange={setObraFiscal} />
             )}
 
-            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM, marginTop: 8 }}>Observações ao cliente</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM, marginTop: 8 }}>Observações ao cliente</label><AjudaCampo chave="otc.novo.observacoes" rota="/dashboard/commerce/otc" />
             <textarea value={observacoes} onChange={(e) => setObservacoes(e.target.value)} rows={2} placeholder="Opcional — texto que aparece no orçamento" style={{ ...inp, resize: 'vertical' }} />
 
             <div style={{ marginTop: 8, padding: 12, background: C.cream, borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

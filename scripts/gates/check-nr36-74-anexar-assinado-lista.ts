@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
 
-const tela = readFileSync('src/app/dashboard/compliance/pausas-tecnicas/page.tsx', 'utf8')
+const tela = readFileSync('src/app/dashboard/ehs/pausas-tecnicas/page.tsx', 'utf8')
 ok(/ciencia-anexar-\$\{l\.cpf\}/.test(tela), 'a linha do colaborador tem o botão Anexar assinado')
 ok(/anexarAssinadoLinha[\s\S]{0,700}fn_nr36_ciencia_anexar_assinado', \{ p_id: l\.id/.test(tela), 'o upload grava pelo fn_nr36_ciencia_anexar_assinado')
 ok(/l\.status !== 'assinado' && <>[\s\S]{0,900}ciencia-anexar-/.test(tela), 'o botão só aparece enquanto o documento não está assinado')

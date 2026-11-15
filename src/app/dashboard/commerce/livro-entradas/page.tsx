@@ -5,7 +5,8 @@
 // (ago/2026 = R$ 1.761,77); o R$ 5.669,34 só aparece em "Todas (trimestre)". Valores vêm do XML.
 
 import { useCallback, useEffect, useState } from 'react'
-import { BookText, Loader2, Download, Printer } from 'lucide-react'
+import Link from 'next/link'
+import { BookText, Loader2, Download, Printer, AlertTriangle, FileUp } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
@@ -25,6 +26,17 @@ type Livro = {
 const brl = (v: number | null | undefined) => 'R$ ' + Number(v ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })
 const mesAtual = () => new Date().toISOString().slice(0, 7)
 const ROTA = '/dashboard/commerce/livro-entradas'
+const ROTA_DOCS = '/dashboard/compras/documentos-recebidos'
+
+// CTA clicável para importar o XML (estado vazio diz o que fazer E tem o botão — critério d).
+function BotaoImportarXml() {
+  return (
+    <Link href={ROTA_DOCS} data-testid="livro-entradas-cta-importar-xml"
+      className="inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-md bg-[#C8941A] text-white font-medium hover:bg-[#A87810] print:hidden">
+      <FileUp size={13} /> Importar XML em Documentos recebidos
+    </Link>
+  )
+}
 
 export default function LivroEntradasPage() {
   const { companyIds, selInfo } = useCompanyIds()
@@ -126,7 +138,19 @@ export default function LivroEntradasPage() {
               <div className="text-[12px] text-[#3D2314]/60 mt-1">{dados.cabecalho.aviso}</div>
               {dados.cabecalho.nota_estoque && <div className="text-[11px] text-[#3D2314]/55 mt-1">{dados.cabecalho.nota_estoque}</div>}
               {(dados.cabecalho.excluidas.sem_xml > 0 || dados.cabecalho.excluidas.recusada_ou_nao_realizada > 0) && (
-                <div className="text-[11px] text-[#A3651D] mt-1">Fora do livro: {dados.cabecalho.excluidas.sem_xml} sem XML · {dados.cabecalho.excluidas.recusada_ou_nao_realizada} recusada/não realizada.</div>
+                <div className="mt-1">
+                  <div className="text-[11px] text-[#A3651D]">Fora do livro: {dados.cabecalho.excluidas.sem_xml} sem XML · {dados.cabecalho.excluidas.recusada_ou_nao_realizada} recusada/não realizada.</div>
+                  {dados.cabecalho.excluidas.sem_xml > 0 && <div className="mt-1.5"><BotaoImportarXml /></div>}
+                </div>
+              )}
+              {dados.por_cfop.length === 0 && dados.cabecalho.total_notas > 0 && (
+                <div className="mt-3 flex items-start gap-2 text-[12px] text-[#8A5A12] bg-[#FBF2DD] border border-[#C8941A]/30 rounded-lg px-3 py-2">
+                  <AlertTriangle size={14} className="text-[#C8941A] mt-0.5 shrink-0" />
+                  <div className="leading-relaxed">
+                    Os totais estão em <strong>R$ 0,00</strong> porque as <strong>{dados.cabecalho.total_notas}</strong> nota(s) deste período ainda não têm o XML importado (sem CFOP, base e ICMS por item). Não é erro — importe o XML e o livro se preenche sozinho.
+                    <div className="mt-2"><BotaoImportarXml /></div>
+                  </div>
+                </div>
               )}
             </div>
 
@@ -151,10 +175,13 @@ export default function LivroEntradasPage() {
                     {dados.por_cfop.length === 0 ? (
                       <tr><td colSpan={9} className="px-3 py-8 text-center text-[#3D2314]/55">
                         {dados.cabecalho.total_notas > 0 ? (
-                          <span className="inline-block max-w-md text-[12px] leading-relaxed">
-                            As <strong className="text-[#3D2314]">{dados.cabecalho.total_notas}</strong> nota(s) deste período ainda não têm o detalhamento por item do XML (CFOP, base e ICMS por item).
-                            O resumo por CFOP aparece assim que os itens forem importados — reimporte o XML das notas em <strong>Compras · Documentos recebidos</strong>.
-                          </span>
+                          <div className="inline-flex flex-col items-center gap-2 max-w-md text-[12px] leading-relaxed">
+                            <span>
+                              As <strong className="text-[#3D2314]">{dados.cabecalho.total_notas}</strong> nota(s) deste período ainda não têm o detalhamento por item do XML (CFOP, base e ICMS por item).
+                              O resumo por CFOP aparece assim que os itens forem importados.
+                            </span>
+                            <BotaoImportarXml />
+                          </div>
                         ) : 'Nenhuma nota neste período.'}
                       </td></tr>
                     ) : dados.por_cfop.map((c) => (

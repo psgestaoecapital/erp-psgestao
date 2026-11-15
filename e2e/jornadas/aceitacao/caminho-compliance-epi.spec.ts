@@ -27,7 +27,7 @@ test.describe('Caminho principal — EPI: entregar pela ficha do funcionário', 
     expect(func?.id && epi?.id).toBeTruthy()
 
     await page.addInitScript((id) => { try { window.localStorage.setItem('ps_empresa_sel', id) } catch { /* noop */ } }, DEMO_SST)
-    await page.goto(`/dashboard/compliance/epi/ficha/${func.id}`)
+    await page.goto(`/dashboard/ehs/epi/ficha/${func.id}`)
     await aguardarConteudo(page)
     await expect(page.getByRole('heading', { name: FUNCIONARIO }), 'a ficha abre (antes: erro de coluna inexistente)').toBeVisible({ timeout: 20000 })
     await expect(page.getByText('EPIs em uso · 0')).toBeVisible()

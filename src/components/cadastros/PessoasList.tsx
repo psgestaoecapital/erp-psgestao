@@ -96,9 +96,11 @@ export default function PessoasList({ companyId, tipo }: Props) {
   async function handleInativar(id: string) {
     if (!confirm(`Inativar esse ${labelSingular}? Você pode reativá-lo depois em "Ver só inativos".`)) return
     setErro(null)
-    // Antes o error do update era ignorado: se a inativação falhasse (RLS, rede), o usuário achava que deu certo.
-    const { error } = await supabase.from(tabela).update({ ativo: false }).eq('id', id)
-    if (error) {
+    // RD-98 p4: inativar via RPC guardada (fn_pessoa_set_ativo) → grava audit_log_global (quem/quando)
+    // e valida RLS/multi-tenant no servidor. Erro nunca passa em silêncio.
+    const { data, error } = await supabase.rpc('fn_pessoa_set_ativo', { p_tipo: tipo, p_id: id, p_ativo: false })
+    const r = (data ?? {}) as { ok?: boolean }
+    if (error || r.ok === false) {
       setErro(erroAmigavel(error, `Não foi possível inativar o ${labelSingular}. Tente de novo.`))
       return
     }
@@ -108,9 +110,10 @@ export default function PessoasList({ companyId, tipo }: Props) {
   async function handleReativar(id: string) {
     if (!confirm(`Reativar esse ${labelSingular}? Ele volta para a lista de ativos.`)) return
     setErro(null)
-    // RD-98: reativar é o inverso do soft-delete; erro nunca passa em silêncio.
-    const { error } = await supabase.from(tabela).update({ ativo: true }).eq('id', id)
-    if (error) {
+    // RD-98: reativar é o inverso do soft-delete, via a mesma RPC guardada (audit + RLS). Erro nunca em silêncio.
+    const { data, error } = await supabase.rpc('fn_pessoa_set_ativo', { p_tipo: tipo, p_id: id, p_ativo: true })
+    const r = (data ?? {}) as { ok?: boolean }
+    if (error || r.ok === false) {
       setErro(erroAmigavel(error, `Não foi possível reativar o ${labelSingular}. Tente de novo.`))
       return
     }
@@ -173,8 +176,8 @@ export default function PessoasList({ companyId, tipo }: Props) {
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: verInativos ? '#854F0B' : 'rgba(61,35,20,0.7)', cursor: 'pointer', userSelect: 'none', fontWeight: verInativos ? 700 : 500 }}>
             <input type="checkbox" checked={verInativos} onChange={(e) => { setVerInativos(e.target.checked); setBusca('') }} style={{ accentColor: '#C8941A', cursor: 'pointer' }} />
             Ver só inativos
+            <AjudaCampo chave="cadastros.pessoa.ver_inativos" rota="/dashboard/cadastros/pessoa" />
           </label>
-          <AjudaCampo chave="cadastros.pessoa.ver_inativos" rota="/dashboard/cadastros/pessoa" />
           <span style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)' }}>
             {busca ? `${total} encontrado${total === 1 ? '' : 's'}` : `${pessoas.length} de ${total} ${verInativos ? 'inativos' : 'ativos'}`}
           </span>

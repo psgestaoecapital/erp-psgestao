@@ -1,7 +1,7 @@
 'use client'
 import React, { useState } from 'react'
 import { useDREPorLinha, useBenchmark, useLinhasNegocio } from '@/hooks/useLinhasNegocio'
-import { useEmpresaAtual } from '@/hooks/useEmpresaAtual'
+import { useEmpresaSelecionada } from '@/lib/agro/usePecuaria'
 import WaterfallChart from '@/components/linhas-negocio/WaterfallChart'
 import DREPorLinhaCard from '@/components/linhas-negocio/DREPorLinha'
 import HealthScorePanel from '@/components/linhas-negocio/HealthScore'
@@ -18,16 +18,16 @@ const mesAtual = new Date().toISOString().slice(0, 7)
 export default function LinhasNegocioPage() {
   const [periodo, setPeriodo] = useState(mesAtual)
   const [, setLinhaSelecionada] = useState<DREPorLinha | null>(null)
-  const { empresaId, loading: loadingEmpresa } = useEmpresaAtual()
+  // Mesma resolução de empresa das telas irmãs da GE (Bens, Implantação, Resultado por negócio):
+  // a empresa SELECIONADA no seletor global, não a empresa-sede fixa do perfil. Sem isso, a tela
+  // consultava a empresa errada e exibia o empty-state "Configure" mesmo com linhas cadastradas.
+  const { companyId } = useEmpresaSelecionada()
+  const empresaId = companyId ?? ''
   const { data: dre, loading } = useDREPorLinha(empresaId, periodo)
   const { data: benchmark } = useBenchmark(empresaId, periodo)
-  const { linhas } = useLinhasNegocio(empresaId)
+  const { linhas, loading: loadingLinhas } = useLinhasNegocio(empresaId)
 
   const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
-
-  if (loadingEmpresa) {
-    return <div style={{ background: OFFWHITE, minHeight: '100vh', padding: 32, color: TEXTM, fontSize: 13 }}>Carregando empresa...</div>
-  }
 
   return (
     <div style={{ background: OFFWHITE, minHeight: '100vh', padding: '24px 18px', color: ESPRESSO }}>
@@ -56,7 +56,18 @@ export default function LinhasNegocioPage() {
           </div>
         </header>
 
-        {!loading && linhas.length === 0 && (
+        {!empresaId && (
+          <div style={{ border: `1px dashed ${BORDA}`, background: '#fff', borderRadius: 16, padding: 48, textAlign: 'center' }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>🏢</div>
+            <h2 style={{ fontFamily: SERIF, fontSize: 20, fontWeight: 400, color: ESPRESSO, margin: '0 0 8px' }}>Selecione uma empresa</h2>
+            <p style={{ fontSize: 13, color: TEXTM, margin: '0 auto', maxWidth: 420 }}>
+              As linhas de negócio e o resultado por linha são por empresa. Escolha uma empresa no seletor
+              no topo para ver os indicadores. (A visão consolidada ainda não é suportada aqui.)
+            </p>
+          </div>
+        )}
+
+        {empresaId && !loadingLinhas && linhas.length === 0 && (
           <div style={{ border: `1px dashed ${DOURADO}`, background: '#fff', borderRadius: 16, padding: 48, textAlign: 'center' }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>📊</div>
             <h2 style={{ fontFamily: SERIF, fontSize: 20, fontWeight: 400, color: ESPRESSO, margin: '0 0 8px' }}>Configure suas linhas de negócio</h2>
