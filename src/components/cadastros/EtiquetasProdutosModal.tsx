@@ -11,6 +11,9 @@ import {
   type EtiquetaProduto, type RenderBarcode,
 } from '@/lib/produtos/etiquetasA4'
 import { X, Loader2, Printer } from 'lucide-react'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA_AJUDA = '/dashboard/cadastros/produtos'
 
 const renderNoCanvas: RenderBarcode = async (s) => {
   const canvas = document.createElement('canvas')
@@ -101,7 +104,7 @@ export default function EtiquetasProdutosModal({ companyId, ids, onClose }: Prop
           <p className="text-[12px] text-[#3D2314]/70">Folha: {FOLHA_A4.rotulo}. Imprima em tamanho real (100%, sem ajustar à página).</p>
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
-              <span className="text-[12px] font-medium block mb-1.5">Cópias de cada produto</span>
+              <span className="text-[12px] font-medium mb-1.5 flex items-center">Cópias de cada produto <AjudaCampo chave="cadastros.produtos.etiqueta_copias" rota={ROTA_AJUDA} /></span>
               <input
                 type="number" min={1} max={100} value={copias} onChange={(e) => setCopias(e.target.value)}
                 data-testid="etiquetas-copias"
@@ -109,7 +112,7 @@ export default function EtiquetasProdutosModal({ companyId, ids, onClose }: Prop
               />
             </label>
             <label className="block">
-              <span className="text-[12px] font-medium block mb-1.5">Começar na etiqueta nº</span>
+              <span className="text-[12px] font-medium mb-1.5 flex items-center">Começar na etiqueta nº <AjudaCampo chave="cadastros.produtos.etiqueta_inicio" rota={ROTA_AJUDA} /></span>
               <input
                 type="number" min={1} max={POR_FOLHA} value={inicio} onChange={(e) => setInicio(e.target.value)}
                 data-testid="etiquetas-inicio"
@@ -119,7 +122,7 @@ export default function EtiquetasProdutosModal({ companyId, ids, onClose }: Prop
             </label>
           </div>
           <label className="block">
-            <span className="text-[12px] font-medium block mb-1.5">Imprimir código de barras</span>
+            <span className="text-[12px] font-medium mb-1.5 flex items-center">Imprimir código de barras <AjudaCampo chave="cadastros.produtos.etiqueta_barras" rota={ROTA_AJUDA} /></span>
             <select
               value={barras} onChange={(e) => setBarras(e.target.value === 'nao' ? 'nao' : 'sim')}
               data-testid="etiquetas-barras"
