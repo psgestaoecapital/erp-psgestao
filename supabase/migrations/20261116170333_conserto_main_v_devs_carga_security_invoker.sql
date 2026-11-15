@@ -1,0 +1,21 @@
+-- conserto-main: v_devs_carga nasceu SEM security_invoker (regressão da #5080).
+--
+-- A auditoria de segurança fn_seguranca_rls_auditar() passou a acusar 1 achado
+-- (view_com_direitos_do_dono = ['v_devs_carga']) logo após a #5080 (migration
+-- 20261116170240_roteamento_fila_unica_ativos), derrubando o @pos-migration da main
+-- no run 43674107701 (spec e2e/jornadas/aceitacao/seguranca-search-path-prb.spec.ts:36).
+--
+-- Causa: o CREATE OR REPLACE VIEW public.v_devs_carga da #5080 não declarou
+-- security_invoker=on. Sem isso a view roda com os direitos do DONO (postgres),
+-- ignorando a RLS das tabelas de origem — exatamente o que a regra de segurança proíbe
+-- (toda view nova nasce com security_invoker=on). Não há dado de cliente aqui (view de
+-- carga da fila de devs), mas a regra é inegociável e o teste de SEGURANÇA é veredito.
+--
+-- Correção MÍNIMA e idempotente: ligar security_invoker na view. Não toca o teste nem as
+-- funções da #5080 (que já têm SET search_path). RD-38: prova no corpo do PR — a auditoria
+-- vai de total_achados=1 para 0 (ok=true) com este ALTER (verificado em BEGIN...ROLLBACK e
+-- aplicado como hotfix de main vermelha pelo gilberto-esteira).
+--
+-- Aditiva/idempotente: rodar com security_invoker já ligado é no-op.
+
+ALTER VIEW public.v_devs_carga SET (security_invoker = on);
