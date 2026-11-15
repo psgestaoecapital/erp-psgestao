@@ -6,6 +6,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+// Card de anexo exibido nas telas/modais de contrato — rota de ajuda fixa (RD-95).
+const ROTA_AJUDA = '/dashboard/contratos'
 
 interface ArquivoRow {
   id: string
@@ -156,8 +160,8 @@ export default function ContratoArquivos({ companyId, contratoId, tipo = 'contra
 
   return (
     <div style={{ marginTop: 8 }}>
-      <label style={{ display: 'block', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 }}>
-        {titulo ?? 'Contrato assinado'}
+      <label style={{ display: 'flex', alignItems: 'center', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 }}>
+        {titulo ?? 'Contrato assinado'}<AjudaCampo chave="ge.contrato.anexo" rota={ROTA_AJUDA} />
       </label>
 
       <div
@@ -167,6 +171,7 @@ export default function ContratoArquivos({ companyId, contratoId, tipo = 'contra
         onClick={() => inputRef.current?.click()}
         role="button"
         tabIndex={0}
+        data-ajuda="ge.contrato.anexo"
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') inputRef.current?.click() }}
         style={{
           border: `1.5px dashed ${arrastando ? '#C8941A' : 'rgba(61,35,20,0.3)'}`,
