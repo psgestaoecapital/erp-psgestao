@@ -4,7 +4,7 @@
 // e persiste a escolha por empresa no navegador (try/catch: se o navegador bloquear, a escolha vale só nesta sessão).
 import { useMemo, useState } from 'react'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
-import type { BaseV5, EstadoV5, ModeloV5 } from './motor-v5'
+import type { BaseV5, DevFiltro, EstadoV5, ModeloV5 } from './motor-v5'
 
 const C = { esp: '#3D2314', off: '#FAF7F2', gold: '#C8941A', bd: '#E7DED3', m: '#6B5D4F', d: '#9C8E80', bg2: '#F0ECE3' }
 const ROTA = '/dashboard/comercial/meu-painel'
@@ -31,20 +31,60 @@ type Props = {
   base: BaseV5; modelo: ModeloV5; estado: EstadoV5
   onAplicar: (excl: Record<number, boolean>, escopo: EscopoAnalise) => void
   exclusaoPadrao: Record<number, boolean>
+  /** Filtro de devoluções atual (o que conta no indicador). Vazio = tudo conta. */
+  devFiltro: DevFiltro
+  /** Aplica (e persiste por empresa, server-side) o filtro de devoluções escolhido. */
+  onAplicarDev: (produtosFora: string[], linhasFora: string[]) => void
 }
 
-export function ModalAnalise({ open, onClose, empresa, base, modelo, estado, onAplicar, exclusaoPadrao }: Props) {
+export function ModalAnalise({ open, onClose, empresa, base, modelo, estado, onAplicar, exclusaoPadrao, devFiltro, onAplicarDev }: Props) {
   // Guardas (CEO 13/11): o modal NUNCA pode derrubar a página. Mesmo com o BlocoSeguro em volta, normalizamos aqui
   // as entradas para, no pior caso, o modal abrir VAZIO em vez de lançar (estado/base/modelo com formato inesperado,
   // ex. mudança de config de tipos de movimento que altere a forma de modelo.its).
   const [rascunho, setRascunho] = useState<Record<number, boolean>>(estado?.excl ?? {})
   const [escopo, setEscopo] = useState<EscopoAnalise>(estado?.escopo ?? 'preco')
   const [busca, setBusca] = useState('')
+  // Devoluções: o que NÃO conta no indicador considerado (por nome de produto e por linha).
+  const [devProdFora, setDevProdFora] = useState<Set<string>>(() => new Set(devFiltro?.produtosFora ?? []))
+  const [devLinhaFora, setDevLinhaFora] = useState<Set<string>>(() => new Set(devFiltro?.linhasFora ?? []))
 
   // IMPORTANTE (regras dos Hooks): TODOS os hooks (useState/useMemo) vêm ANTES de qualquer return condicional.
   // Antes, o `if (!open) return null` ficava aqui, no meio — ao abrir o modal (open false→true) a quantidade de
   // hooks mudava entre renders e o React lançava "Rendered more hooks than during the previous render", o que
   // derrubava a ROTA INTEIRA (error boundary: "This page couldn't load"). O `return null` agora está após os hooks.
+
+  // Produtos de devolução do período, agrupados por linha (nome + valor), vindos do motor (modelo.devs).
+  // Acesso defensivo (mesma doutrina CEO 13/11): formato inesperado nunca derruba o modal.
+  const SEM_LINHA = 'Outros (sem produto)'
+  const devGrupos = (() => {
+    const porLinha = new Map<string, Map<string, number>>()
+    ;(Array.isArray(modelo?.devs) ? modelo.devs : []).forEach((x) => {
+      if (!Array.isArray(x)) return
+      const pi = x[3] as number
+      const linha = typeof pi === 'number' && pi >= 0 ? (base?.prod?.[pi]?.[1] ?? SEM_LINHA) : SEM_LINHA
+      const nome = (x[7] as string) ?? '—'
+      let m = porLinha.get(linha); if (!m) { m = new Map(); porLinha.set(linha, m) }
+      m.set(nome, (m.get(nome) || 0) + (Number(x[4]) || 0))
+    })
+    return [...porLinha].map(([linha, prods]) => ({
+      linha,
+      prods: [...prods].map(([nome, val]) => ({ nome, val })).sort((a, b) => b.val - a.val),
+    })).sort((a, b) => a.linha.localeCompare(b.linha))
+  })()
+  const devConta = (nome: string, linha: string) => !devProdFora.has(nome) && !(linha !== SEM_LINHA && devLinhaFora.has(linha))
+  const devBruta = modelo?.devTot ?? 0
+  const devConsid = (Array.isArray(modelo?.devs) ? modelo.devs : []).reduce((s, x) => {
+    if (!Array.isArray(x)) return s
+    const pi = x[3] as number
+    const linha = typeof pi === 'number' && pi >= 0 ? (base?.prod?.[pi]?.[1] ?? SEM_LINHA) : SEM_LINHA
+    return s + (devConta((x[7] as string) ?? '—', linha) ? (Number(x[4]) || 0) : 0)
+  }, 0)
+  const marcarLinha = (linha: string, conta: boolean) => setDevLinhaFora((s) => {
+    const n = new Set(s); if (conta) n.delete(linha); else n.add(linha); return n
+  })
+  const marcarProd = (nome: string, conta: boolean) => setDevProdFora((s) => {
+    const n = new Set(s); if (conta) n.delete(nome); else n.add(nome); return n
+  })
 
   // Produtos que existem no período (motor), com totais para a lista.
   const porProd = useMemo(() => {
@@ -98,8 +138,8 @@ export function ModalAnalise({ open, onClose, empresa, base, modelo, estado, onA
   })
 
   const aplicar = () => {
-    onAplicar(rascunho, escopo)
     salvarEscolha(empresa, Object.keys(rascunho).filter((k) => rascunho[+k]).map((k) => base?.prod?.[+k]?.[0] ?? k), escopo)
+    onAplicarDev([...devProdFora], [...devLinhaFora])
     onClose()
   }
 
@@ -173,6 +213,47 @@ export function ModalAnalise({ open, onClose, empresa, base, modelo, estado, onA
             </div>
           </div>
         ))}
+
+        {/* Devoluções (CEO 12/11): o que ENTRA no indicador de devoluções. Escolha salva por empresa no banco. */}
+        <div style={{ borderTop: `2px solid ${C.bd}`, marginTop: 14, paddingTop: 12 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>Devoluções — o que conta no indicador<AjudaCampo chave="com.painel.devolucao_considerada" rota={ROTA} /></div>
+          <p style={{ fontSize: 13, color: C.m, margin: '6px 0 8px' }}>Boa parte do que volta é reprocessada e revendida, então a devolução cheia distorce. Tire aqui, por produto ou por linha, o que não deve pesar no indicador. O painel mostra <b>bruta × considerada</b>.</p>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8, marginBottom: 8 }}>
+            <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 10, padding: 10 }}><div style={{ fontSize: 11, color: C.m }}>Devolução bruta</div><div style={{ fontSize: 18, fontWeight: 700 }}>{brl0(devBruta)}</div></div>
+            <div style={{ background: '#fff', border: `1px solid ${C.gold}`, borderRadius: 10, padding: 10 }}><div style={{ fontSize: 11, color: C.m }}>Devolução considerada</div><div style={{ fontSize: 18, fontWeight: 700 }}>{brl0(devConsid)}</div></div>
+          </div>
+
+          {devGrupos.length === 0 ? (
+            <div style={{ fontSize: 13, color: C.m, background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 10, padding: 12 }}>Sem devoluções no período escolhido.</div>
+          ) : devGrupos.map((g) => {
+            const contaLinha = g.linha === SEM_LINHA ? true : !devLinhaFora.has(g.linha)
+            return (
+              <div key={g.linha} style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 10, padding: 10, marginBottom: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700 }}>{g.linha}</div>
+                  {g.linha !== SEM_LINHA && (
+                    <button type="button" onClick={() => marcarLinha(g.linha, !contaLinha)} style={{ padding: '6px 8px', minHeight: 36, borderRadius: 8, border: `1px solid ${C.bd}`, background: contaLinha ? '#fff' : C.bg2, cursor: 'pointer', fontSize: 12 }}>{contaLinha ? 'Tirar a linha toda' : 'Voltar a linha'}</button>
+                  )}
+                </div>
+                <div style={{ display: 'grid', gap: 2 }}>
+                  {g.prods.map((p) => {
+                    const conta = devConta(p.nome, g.linha)
+                    return (
+                      <label key={p.nome} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto', gap: 8, alignItems: 'center', fontSize: 13, minHeight: 40, padding: '4px 4px', borderTop: `1px solid ${C.bg2}`, opacity: contaLinha ? 1 : 0.55 }}>
+                        <input type="checkbox" aria-label={`Contar a devolução de ${p.nome}`} checked={conta} disabled={!contaLinha} onChange={(e) => marcarProd(p.nome, e.target.checked)} />
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>{p.nome}<AjudaCampo chave="com.painel.devolucao_considerada" rota={ROTA} /></span>
+                        <span style={{ color: C.m, textAlign: 'right' }}>{brl0(p.val)}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
+
+          <div style={{ fontSize: 12, color: C.d, background: C.bg2, borderRadius: 8, padding: '8px 10px' }}>Em breve: quando o movimento de reprocesso/revenda for coletado, dá para <b>descontar automaticamente o que voltou para a produção</b> — sem mexer nesta tela.</div>
+        </div>
 
         <button type="button" onClick={aplicar} style={{ width: '100%', minHeight: 48, marginTop: 8, borderRadius: 10, border: 'none', background: C.gold, color: '#fff', fontSize: 16, fontWeight: 700, cursor: 'pointer' }}>Pronto</button>
       </div>
