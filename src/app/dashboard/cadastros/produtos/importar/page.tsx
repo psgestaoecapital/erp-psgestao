@@ -302,8 +302,12 @@ export default function ImportarEstoquePage() {
           </button>
           <AjudaCampo chave="cadastros.produtos.importar.arquivo" />
         </span>
-        <input ref={inputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) void onArquivo(f); e.target.value = '' }} />
+        {/* input oculto do seletor de arquivo: a ajuda (RD-95) fica no botão visível "Escolher planilha";
+            o data-ajuda liga o campo à mesma chave para a cobertura reconhecer o par. */}
+        <span data-ajuda="cadastros.produtos.importar.arquivo" className="hidden">
+          <input ref={inputRef} type="file" accept=".xlsx,.xls,.csv"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) void onArquivo(f); e.target.value = '' }} />
+        </span>
         {nomeArquivo && <span className="text-[12px] text-[#3D2314]/60">{nomeArquivo} · {linhas.length} linha(s)</span>}
       </div>
 
