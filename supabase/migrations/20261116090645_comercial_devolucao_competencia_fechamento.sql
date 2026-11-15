@@ -204,6 +204,10 @@ BEGIN
 END
 $function$;
 
+-- Guarda de acesso da função SECURITY DEFINER (RD-52): só usuário logado lê o BI comercial.
+REVOKE ALL ON FUNCTION public.fn_bi_comercial_kpis(uuid, date, date, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_bi_comercial_kpis(uuid, date, date, text) TO authenticated, service_role;
+
 -- ── Ajuda RD-95: deixar explícito no "?" do card a regra de competência da devolução. ────────────────────────────
 UPDATE public.erp_ajuda_campo
    SET para_que_serve = 'É o faturamento bruto menos as devoluções reais (tipos T582 e T583) do período. É o número que bate com o relatório do seu sistema de origem — o que de fato entrou, depois de tirar o que voltou. A devolução considerada é a lançada no mês + a do início do mês seguinte referente a este (até o dia 10, configurável por empresa), para que a devolução que chega poucos dias depois entre no fechamento do mês certo. O card "Faturamento" ao lado continua mostrando o bruto (antes das devoluções).',
