@@ -343,23 +343,6 @@ export default function FichasCommercePage() {
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button
             type="button"
-            disabled
-            title="Em breve"
-            style={{
-              padding: '8px 14px',
-              borderRadius: 8,
-              border: `1px solid ${C.border}`,
-              background: C.cream,
-              color: C.espressoL,
-              fontSize: 12,
-              fontWeight: 600,
-              cursor: 'not-allowed',
-            }}
-          >
-            Importar CSV (em breve)
-          </button>
-          <button
-            type="button"
             onClick={() => setShowNova(true)}
             disabled={!canCreate}
             title={canCreate ? 'Criar nova ficha tecnica' : 'Selecione uma empresa especifica para criar fichas'}
