@@ -408,7 +408,7 @@ export default function CotacoesPage(){
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:800}}>
                 <thead>
                   <tr>
-                    <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10,background:BG2,borderRadius:"8px 0 0 0",minWidth:180}}>Item</th>
+                    <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10,background:BG2,borderRadius:"8px 0 0 0",minWidth:180}}>Item <AjudaCampo chave="cotacoes.comparar.grade" rota={ROTA_AJUDA} /></th>
                     <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10,background:BG2,width:70}}>Qtd</th>
                     {dadosComparar.fornecedores.map((f:any,idx:number)=>{
                       const ehVencedor=f.status==='vencedor';
