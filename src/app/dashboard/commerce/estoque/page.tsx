@@ -180,6 +180,17 @@ const fmtNum = (v: number | null | undefined, dp = 2) =>
 const fmtDateTime = (d: string | null | undefined) =>
   d ? new Date(d).toLocaleString('pt-BR') : '—'
 
+// PDCA GE (tarefa 26111304) · "listas só com o que é da empresa" (RD-98 p1).
+// erp_inventarios NÃO tem soft-delete e os specs e2e de aceitação deixaram milhares de
+// inventários de TESTE (status=cancelado, marcados "E2E …"/"teste de aceitação") na DEMO,
+// soterrando a aba Inventário. Enquanto a purga durável não existe (sem deleted_at), escondemos
+// esses leftovers da LISTAGEM por marcador — inventário real nunca leva "E2E"/"teste de aceitação".
+const semInventarioDeTeste = (r: Inventario): boolean => {
+  const num = (r.numero ?? '').toUpperCase()
+  const obs = (r.observacoes ?? '').toLowerCase()
+  return !(num.includes('E2E') || obs.includes('e2e') || obs.includes('teste de aceita'))
+}
+
 export default function EstoquePage() {
   return (
     <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: C.espressoM }}>Carregando…</div>}>
@@ -307,7 +318,10 @@ function EstoqueInner() {
         // §6 · lê da view (produto e autor resolvidos na leitura; RD-52 — sem cópia denormalizada)
         supabase.from('v_estoque_movimentacoes').select('*').eq('company_id', companyIdUnico).order('data_movimento', { ascending: false }).limit(300),
         supabase.rpc('fn_curva_abc_estoque', { p_company_ids: [companyIdUnico] }),
-        supabase.from('erp_inventarios').select('*').eq('company_id', companyIdUnico).order('created_at', { ascending: false }).limit(50),
+        // .not(numero ilike %E2E%) descarta no servidor o grosso dos leftovers de teste (number "E2E…"),
+        // para o limit(50) recair sobre os inventários REAIS; o restante (marcador só em observações) cai
+        // no filtro semInventarioDeTeste abaixo. Ver nota na def. da função (tarefa PDCA GE 26111304).
+        supabase.from('erp_inventarios').select('*').eq('company_id', companyIdUnico).not('numero', 'ilike', '%E2E%').order('created_at', { ascending: false }).limit(50),
         // Bloco D · reserva por produto (estado; só produtos com reserva voltam)
         supabase.rpc('fn_estoque_reservas', { p_company_ids: [companyIdUnico] }),
         // F2.3 · saldo por local/depósito (reconstruído dos movimentos)
@@ -322,7 +336,7 @@ function EstoqueInner() {
       if (abc.error) setErro('Curva ABC: ' + erroAmigavel(abc.error))
       else setCurva((abc.data ?? []) as CurvaABCRow[])
       if (inv.error) setErro('Inventários: ' + erroAmigavel(inv.error))
-      else setInventarios((inv.data ?? []) as Inventario[])
+      else setInventarios(((inv.data ?? []) as Inventario[]).filter(semInventarioDeTeste))
       // reserva é auxiliar: se falhar, o resto da tela segue (disponível = físico)
       if (!rsv.error) {
         const m: Record<string, number> = {}
