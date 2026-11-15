@@ -158,6 +158,7 @@ export default function Page() {
                   {label}{k === 'pendencias' ? ` (${cont.pendencias})` : ''}
                 </button>
               ))}
+              <AjudaCampo chave="plano_contas_vinc.filtros" />
               <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar código ou descrição…" data-testid="vinc-busca"
                 style={{ flex: '1 1 220px', minWidth: 180, padding: '8px 10px', border: '1px solid rgba(61,35,20,0.25)', borderRadius: PSGC_RADIUS.sm, fontSize: 12.5, color: INK, background: '#fff' }} />
               <AjudaCampo chave="plano_contas_vinc.busca" />
@@ -174,10 +175,13 @@ export default function Page() {
               <button type="button" data-testid="vinc-massa-propor" disabled={ocupado || !gerMassa || alvos.proporContabilIds.length === 0}
                 onClick={() => void propor(alvos.proporContabilIds, gerMassa)}
                 style={botao(C.espresso, '#fff', ocupado || !gerMassa || alvos.proporContabilIds.length === 0)}>Propor ({alvos.proporContabilIds.length})</button>
+              <AjudaCampo chave="plano_contas_vinc.propor" />
               <button type="button" data-testid="vinc-massa-confirmar" disabled={ocupado || alvos.confirmarVinculoIds.length === 0} onClick={confirmarSelecionados}
                 style={botao(C.dourado, INK, ocupado || alvos.confirmarVinculoIds.length === 0)}>Confirmar ({alvos.confirmarVinculoIds.length})</button>
+              <AjudaCampo chave="plano_contas_vinc.confirmar" />
               <button type="button" data-testid="vinc-massa-descartar" disabled={ocupado || alvos.descartarVinculoIds.length === 0} onClick={descartarSelecionados}
                 style={botao('transparent', INK, ocupado || alvos.descartarVinculoIds.length === 0, true)}>Descartar proposta ({alvos.descartarVinculoIds.length})</button>
+              <AjudaCampo chave="plano_contas_vinc.descartar" />
             </div>
 
             <div data-ajuda="plano_contas_vinc.vincular" style={{ border: '1px solid rgba(61,35,20,0.2)', borderRadius: PSGC_RADIUS.lg, background: '#fff', overflow: 'hidden' }}>

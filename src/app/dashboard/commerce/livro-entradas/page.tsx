@@ -5,7 +5,7 @@
 // (ago/2026 = R$ 1.761,77); o R$ 5.669,34 só aparece em "Todas (trimestre)". Valores vêm do XML.
 
 import { useCallback, useEffect, useState } from 'react'
-import { BookText, Loader2, Download, Printer } from 'lucide-react'
+import { BookText, Loader2, Download, Printer, AlertTriangle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
@@ -121,12 +121,20 @@ export default function LivroEntradasPage() {
             <div className="mt-4 bg-white border border-[#3D2314]/10 rounded-xl p-4">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <div className="text-[14px] font-medium text-[#3D2314]">{periodoLabel}</div>
-                <div className="text-[13px] text-[#3D2314]/70">ICMS <strong className="text-[#3D2314]">{brl(dados.totais.valor_icms)}</strong> · contábil {brl(dados.totais.valor_contabil)}</div>
+                <div className="text-[13px] text-[#3D2314]/70 inline-flex items-center gap-1">ICMS <strong className="text-[#3D2314]">{brl(dados.totais.valor_icms)}</strong> <AjudaCampo chave="commerce.livro_entradas.kpi_icms" rota={ROTA} /> · contábil {brl(dados.totais.valor_contabil)} <AjudaCampo chave="commerce.livro_entradas.kpi_contabil" rota={ROTA} /></div>
               </div>
               <div className="text-[12px] text-[#3D2314]/60 mt-1">{dados.cabecalho.aviso}</div>
               {dados.cabecalho.nota_estoque && <div className="text-[11px] text-[#3D2314]/55 mt-1">{dados.cabecalho.nota_estoque}</div>}
               {(dados.cabecalho.excluidas.sem_xml > 0 || dados.cabecalho.excluidas.recusada_ou_nao_realizada > 0) && (
                 <div className="text-[11px] text-[#A3651D] mt-1">Fora do livro: {dados.cabecalho.excluidas.sem_xml} sem XML · {dados.cabecalho.excluidas.recusada_ou_nao_realizada} recusada/não realizada.</div>
+              )}
+              {dados.por_cfop.length === 0 && dados.cabecalho.total_notas > 0 && (
+                <div className="mt-3 flex items-start gap-2 text-[12px] text-[#8A5A12] bg-[#FBF2DD] border border-[#C8941A]/30 rounded-lg px-3 py-2">
+                  <AlertTriangle size={14} className="text-[#C8941A] mt-0.5 shrink-0" />
+                  <span className="leading-relaxed">
+                    Os totais estão em <strong>R$ 0,00</strong> porque as <strong>{dados.cabecalho.total_notas}</strong> nota(s) deste período ainda não têm o XML importado (sem CFOP, base e ICMS por item). Não é erro — importe o XML em <strong>Compras · Documentos recebidos</strong> e o livro se preenche sozinho.
+                  </span>
+                </div>
               )}
             </div>
 
@@ -136,15 +144,27 @@ export default function LivroEntradasPage() {
                 <table className="w-full text-[12px]">
                   <thead>
                     <tr className="text-[#3D2314]/55 text-left border-b border-[#3D2314]/8">
-                      <th className="px-3 py-2 font-medium">CFOP</th><th className="px-3 py-2 font-medium text-right">Notas</th>
-                      <th className="px-3 py-2 font-medium text-right">Contábil</th><th className="px-3 py-2 font-medium text-right">Base ICMS</th>
-                      <th className="px-3 py-2 font-medium text-right">ICMS</th><th className="px-3 py-2 font-medium text-right">Isentas</th>
-                      <th className="px-3 py-2 font-medium text-right">Outras</th><th className="px-3 py-2 font-medium text-right">IPI</th><th className="px-3 py-2 font-medium text-right">ST</th>
+                      <th className="px-3 py-2 font-medium"><span className="inline-flex items-center gap-1">CFOP <AjudaCampo chave="commerce.livro_entradas.col_cfop" rota={ROTA} /></span></th>
+                      <th className="px-3 py-2 font-medium text-right"><span className="inline-flex items-center gap-1 justify-end">Notas <AjudaCampo chave="commerce.livro_entradas.col_notas" rota={ROTA} /></span></th>
+                      <th className="px-3 py-2 font-medium text-right"><span className="inline-flex items-center gap-1 justify-end">Contábil <AjudaCampo chave="commerce.livro_entradas.col_contabil" rota={ROTA} /></span></th>
+                      <th className="px-3 py-2 font-medium text-right"><span className="inline-flex items-center gap-1 justify-end">Base ICMS <AjudaCampo chave="commerce.livro_entradas.col_base_icms" rota={ROTA} /></span></th>
+                      <th className="px-3 py-2 font-medium text-right"><span className="inline-flex items-center gap-1 justify-end">ICMS <AjudaCampo chave="commerce.livro_entradas.col_icms" rota={ROTA} /></span></th>
+                      <th className="px-3 py-2 font-medium text-right"><span className="inline-flex items-center gap-1 justify-end">Isentas <AjudaCampo chave="commerce.livro_entradas.col_isentas" rota={ROTA} /></span></th>
+                      <th className="px-3 py-2 font-medium text-right"><span className="inline-flex items-center gap-1 justify-end">Outras <AjudaCampo chave="commerce.livro_entradas.col_outras" rota={ROTA} /></span></th>
+                      <th className="px-3 py-2 font-medium text-right"><span className="inline-flex items-center gap-1 justify-end">IPI <AjudaCampo chave="commerce.livro_entradas.col_ipi" rota={ROTA} /></span></th>
+                      <th className="px-3 py-2 font-medium text-right"><span className="inline-flex items-center gap-1 justify-end">ST <AjudaCampo chave="commerce.livro_entradas.col_st" rota={ROTA} /></span></th>
                     </tr>
                   </thead>
                   <tbody>
                     {dados.por_cfop.length === 0 ? (
-                      <tr><td colSpan={9} className="px-3 py-8 text-center text-[#3D2314]/55">Nenhuma nota neste período.</td></tr>
+                      <tr><td colSpan={9} className="px-3 py-8 text-center text-[#3D2314]/55">
+                        {dados.cabecalho.total_notas > 0 ? (
+                          <span className="inline-block max-w-md text-[12px] leading-relaxed">
+                            As <strong className="text-[#3D2314]">{dados.cabecalho.total_notas}</strong> nota(s) deste período ainda não têm o detalhamento por item do XML (CFOP, base e ICMS por item).
+                            O resumo por CFOP aparece assim que os itens forem importados — reimporte o XML das notas em <strong>Compras · Documentos recebidos</strong>.
+                          </span>
+                        ) : 'Nenhuma nota neste período.'}
+                      </td></tr>
                     ) : dados.por_cfop.map((c) => (
                       <tr key={c.cfop} className="border-b border-[#3D2314]/6">
                         <td className="px-3 py-2 font-medium text-[#3D2314]">{c.cfop}</td>
