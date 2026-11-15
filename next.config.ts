@@ -93,6 +93,15 @@ const nextConfig: NextConfig = {
         destination: '/dashboard/ehs',
         permanent: true,
       },
+      // GE · P0 rota-fantasma do Onboarding (FILA VIVA GE item 1): a tela "PR #140" em
+      // /dashboard/onboarding/gestao-empresarial foi refatorada para o Guia de Implantação em
+      // /dashboard/gestao-empresarial/implantacao (conserto #4117). A rota antiga não tem mais página
+      // (404 → system_screens 'quebrada'); este redirect 308 preserva bookmarks e links velhos.
+      {
+        source: '/dashboard/onboarding/gestao-empresarial',
+        destination: '/dashboard/gestao-empresarial/implantacao',
+        permanent: true,
+      },
     ]
   },
 }
