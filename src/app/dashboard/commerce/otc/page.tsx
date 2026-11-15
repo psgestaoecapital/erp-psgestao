@@ -201,6 +201,14 @@ const fmtBRL = (v: number | null | undefined) =>
 const fmtDate = (d: string | null | undefined) =>
   d ? new Date(d + (d.length === 10 ? 'T00:00:00' : '')).toLocaleDateString('pt-BR') : '—'
 
+// PDCA GE (tarefa 26111304) · "listas só com o que é da empresa" (RD-98 p1).
+// Os specs e2e de aceitação deixaram milhares de orçamentos/pedidos de TESTE na DEMO
+// (cliente "Cliente Aceitação N") que soterram o kanban OTC. erp_pedidos não tem soft-delete,
+// então o leftover é escondido da LISTAGEM por marcador de cliente — cliente real nunca
+// se chama "Cliente Aceitação". (orçamentos, que têm deleted_at, já saem pela purga #5098.)
+const semClienteDeTeste = (nome: string | null): boolean =>
+  !(nome ?? '').toLowerCase().startsWith('cliente aceita')
+
 export default function OTCPage() {
   return (
     <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: C.espressoM }}>Carregando…</div>}>
@@ -266,14 +274,19 @@ function OTCPageInner() {
       setLoading(true)
       setErro('')
       const [orc, ped] = await Promise.all([
-        supabase.from('erp_orcamentos').select('*').eq('company_id', expected).order('created_at', { ascending: false }).limit(200),
-        supabase.from('erp_pedidos').select('*').eq('company_id', expected).order('created_at', { ascending: false }).limit(200),
+        // Dois filtros contra o lixo de e2e na DEMO (26111304), no SERVIDOR p/ o limit(200) recair em docs reais:
+        // 1) .is(deleted_at,null): a RLS de erp_orcamentos não filtra soft-delete → sem isto o kanban mostrava
+        //    os orçamentos de teste que a purga #5098 soft-deleta (status intacto).
+        // 2) .or(cliente_nome null OU não começa com "Cliente Aceita"): esconde o leftover ainda-não-drenado
+        //    (os reais ficam fora do top-200 por created_at, soterrados pelo flood). NULL-safe (cliente real pode ser null).
+        supabase.from('erp_orcamentos').select('*').eq('company_id', expected).is('deleted_at', null).or('cliente_nome.is.null,cliente_nome.not.ilike.Cliente Aceita*').order('created_at', { ascending: false }).limit(200),
+        supabase.from('erp_pedidos').select('*').eq('company_id', expected).or('cliente_nome.is.null,cliente_nome.not.ilike.Cliente Aceita*').order('created_at', { ascending: false }).limit(200),
       ])
       if (!alive) return
       // Runtime guard: descarta qualquer linha com company_id divergente
       // (defense-in-depth contra falha em .eq / RPC / RLS).
-      const orcSafe = ((orc.data ?? []) as Orcamento[]).filter((o) => o.company_id === expected)
-      const pedSafe = ((ped.data ?? []) as Pedido[]).filter((p) => p.company_id === expected)
+      const orcSafe = ((orc.data ?? []) as Orcamento[]).filter((o) => o.company_id === expected && semClienteDeTeste(o.cliente_nome))
+      const pedSafe = ((ped.data ?? []) as Pedido[]).filter((p) => p.company_id === expected && semClienteDeTeste(p.cliente_nome))
       if (orc.error) setErro(erroAmigavel(orc.error, 'Não foi possível carregar os orçamentos. Tente de novo.'))
       else setOrcamentos(orcSafe)
       if (ped.error) setErro(erroAmigavel(ped.error, 'Não foi possível carregar os pedidos. Tente de novo.'))
