@@ -18,6 +18,7 @@
 -- Corpo igual ao vivo (pg_get_functiondef, migração 20261116121345), só com o bloco de limpeza adicionado.
 -- ============================================================================
 
+-- ci-sem-guarda: fn_demo_reset — reset da DEMO; só service_role; trava por is_demo=true + company_id (bloco guardado), não por membership de usuário (sem auth.uid no fluxo de reset). Todas as escritas (inclusive o DELETE do complemento RH da 005) operam sobre dado 100% fictício da própria empresa DEMO já validada.
 CREATE OR REPLACE FUNCTION public.fn_demo_reset(p_company_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
