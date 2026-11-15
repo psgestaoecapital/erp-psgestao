@@ -38,7 +38,9 @@ test.describe('Anexos da Tryo — Nova oportunidade e orçamento em PDF (#264 #2
 
   test.afterAll(async () => {
     for (const id of oportunidades) await dbPatch('erp_crm_oportunidade', `id=eq.${id}`, { deleted_at: new Date().toISOString() })
-    for (const id of orcamentos) await dbPatch('erp_orcamentos', `id=eq.${id}`, { status: 'cancelado' })
+    // soft-delete (não só 'cancelado'): a lista do OTC filtra deleted_at IS NULL, então cancelar sem
+    // deleted_at deixava o orçamento de teste VIVO e acumulando no board (coorte 26x, auditor 15/11).
+    for (const id of orcamentos) await dbPatch('erp_orcamentos', `id=eq.${id}`, { status: 'cancelado', deleted_at: new Date().toISOString() })
     for (const id of clientes) await dbPatch('erp_clientes', `id=eq.${id}`, { ativo: false })
   })
 
