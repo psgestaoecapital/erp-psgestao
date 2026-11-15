@@ -132,3 +132,9 @@ BEGIN
     'vazio',(ROUND(v_ativo,2)=0 AND ROUND(v_passivo,2)=0 AND ROUND(v_pl,2)=0),
     'linhas',v_linhas);
 END; $function$;
+
+-- Regra 1 (gate check_fn_guards): REVOKE/GRANT explícito espelhando a ACL viva
+-- (postgres/authenticated/service_role; anon/PUBLIC já ausentes). CREATE OR REPLACE
+-- preserva a ACL; estas linhas só a tornam explícita e idempotente — não mudam comportamento.
+REVOKE ALL ON FUNCTION public.fn_balanco_patrimonial(uuid, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_balanco_patrimonial(uuid, date) TO authenticated, service_role;
