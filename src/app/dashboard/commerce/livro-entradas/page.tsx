@@ -5,7 +5,7 @@
 // (ago/2026 = R$ 1.761,77); o R$ 5.669,34 só aparece em "Todas (trimestre)". Valores vêm do XML.
 
 import { useCallback, useEffect, useState } from 'react'
-import { BookText, Loader2, Download, Printer } from 'lucide-react'
+import { BookText, Loader2, Download, Printer, AlertTriangle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
@@ -127,6 +127,14 @@ export default function LivroEntradasPage() {
               {dados.cabecalho.nota_estoque && <div className="text-[11px] text-[#3D2314]/55 mt-1">{dados.cabecalho.nota_estoque}</div>}
               {(dados.cabecalho.excluidas.sem_xml > 0 || dados.cabecalho.excluidas.recusada_ou_nao_realizada > 0) && (
                 <div className="text-[11px] text-[#A3651D] mt-1">Fora do livro: {dados.cabecalho.excluidas.sem_xml} sem XML · {dados.cabecalho.excluidas.recusada_ou_nao_realizada} recusada/não realizada.</div>
+              )}
+              {dados.por_cfop.length === 0 && dados.cabecalho.total_notas > 0 && (
+                <div className="mt-3 flex items-start gap-2 text-[12px] text-[#8A5A12] bg-[#FBF2DD] border border-[#C8941A]/30 rounded-lg px-3 py-2">
+                  <AlertTriangle size={14} className="text-[#C8941A] mt-0.5 shrink-0" />
+                  <span className="leading-relaxed">
+                    Os totais estão em <strong>R$ 0,00</strong> porque as <strong>{dados.cabecalho.total_notas}</strong> nota(s) deste período ainda não têm o XML importado (sem CFOP, base e ICMS por item). Não é erro — importe o XML em <strong>Compras · Documentos recebidos</strong> e o livro se preenche sozinho.
+                  </span>
+                </div>
               )}
             </div>
 
