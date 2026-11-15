@@ -1415,10 +1415,10 @@ function Th({ children, align = 'left', ajuda }: { children?: React.ReactNode; a
 function Td({ children, align = 'left', onClick }: { children?: React.ReactNode; align?: 'left' | 'right'; onClick?: () => void }) {
   return <td onClick={onClick} style={{ padding: '10px 14px', textAlign: align, verticalAlign: 'middle', color: C.espresso }}>{children}</td>
 }
-function Card({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+function Card({ titulo, children, ajuda }: { titulo: string; children: React.ReactNode; ajuda?: string }) {
   return (
     <section style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
-      <h4 style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 700, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5 }}>{titulo}</h4>
+      <h4 style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 700, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5, display: 'inline-flex', alignItems: 'center', gap: 4 }}>{titulo}{ajuda && <AjudaCampo chave={ajuda} rota={ROTA_AJUDA} />}</h4>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{children}</div>
     </section>
   )
@@ -1613,7 +1613,7 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
           <button onClick={onClose} disabled={salvando} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.espressoM }}><X size={18} /></button>
         </header>
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <Card titulo="Fornecedor">
+          <Card titulo="Fornecedor" ajuda="commerce.compras.fornecedor">
             {fornecedor ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10, background: C.cream, borderRadius: 8 }}>
                 <CheckCircle2 size={16} style={{ color: C.gold }} />
