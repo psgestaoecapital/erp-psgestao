@@ -1,20 +1,23 @@
 -- Chamado #5452 (Pdois/P&M) · Modelos de contrato — F2 (slice B): aviso de campos obrigatórios vazios ao gerar.
--- Complementa a slice A (campos_obrigatorios no modelo): ao PRÉ-VISUALIZAR/SALVAR o contrato a partir do
--- modelo (fn_contrato_modelo_gerar, consumida em /dashboard/contratos), a função passa a devolver também
--- campos_obrigatorios_vazios — os campos que o modelo marcou como OBRIGATÓRIOS mas que, para ESTE contrato,
--- resolveram vazio. A tela mostra um aviso (RD-95) para preencher antes de usar. REPORTE, NUNCA BLOQUEIA
--- (RD-97): gerar continua funcionando igual; o array só informa. Modelo sem obrigatórios → array vazio.
+-- RECONCILIADA sobre a F3 (#5021, já na main): esta versão parte da definição VIVA de fn_contrato_modelo_gerar
+-- (que já contém a CONTRATADA = empresa que fatura — empresa_faturadora_id + empresa_endereco/_cidade/_cep — e o
+-- preenchimento do cliente do #6703) e SÓ ACRESCENTA o campo campos_obrigatorios_vazios no retorno. Assim esta
+-- PR SOMA a F3 em vez de revertê-la (o AJUSTES ANTES DO MERGE do gilberto-revisor).
 --
--- AUTO-CONTIDA: garante a coluna campos_obrigatorios por IF NOT EXISTS (idempotente), então não depende da
--- ordem de merge com a slice A. CREATE OR REPLACE preserva a assinatura de fn_contrato_modelo_gerar (o save
--- segue funcionando no preview da PR; o campo novo só aparece após esta migration). Versão acima da main,
--- faixa de segundos :45–:54.
+-- Comportamento (RD-97): ao PRÉ-VISUALIZAR/SALVAR o contrato a partir do modelo (consumida em
+-- /dashboard/contratos), a função devolve também campos_obrigatorios_vazios — os campos que o modelo marcou como
+-- OBRIGATÓRIOS (coluna erp_contrato_modelo.campos_obrigatorios, slice A, já na main) mas que resolveram vazio para
+-- ESTE contrato. A tela mostra um aviso (RD-95) para preencher antes de usar. REPORTE, NUNCA BLOQUEIA: gerar
+-- continua funcionando igual; o array só informa. Modelo sem obrigatórios → array vazio.
+--
+-- AUTO-CONTIDA/idempotente: garante a coluna por IF NOT EXISTS (já veio da slice A na main). CREATE OR REPLACE
+-- preserva a assinatura. Versão acima da última da main, faixa de segundos :20 (jordana-code).
 
--- 0) Garante a coluna (idempotente — pode já ter vindo da slice A) --------------------------------------
+-- 0) Garante a coluna (idempotente — já veio da slice A na main) -----------------------------------------
 ALTER TABLE public.erp_contrato_modelo
   ADD COLUMN IF NOT EXISTS campos_obrigatorios text[] NOT NULL DEFAULT '{}'::text[];
 
--- 1) fn_contrato_modelo_gerar: + campos_obrigatorios_vazios ---------------------------------------------
+-- 1) fn_contrato_modelo_gerar: F3 (CONTRATADA=faturadora) + #6703 (cliente) + campos_obrigatorios_vazios ---
 CREATE OR REPLACE FUNCTION public.fn_contrato_modelo_gerar(p_company_id uuid, p_modelo_id uuid, p_contrato_id uuid, p_gravar boolean DEFAULT true)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -28,6 +31,8 @@ DECLARE
   v_cliente   public.erp_clientes%ROWTYPE;
   v_tem_cli   boolean := false;
   v_cli_end   text := '';
+  v_fat_id    uuid;
+  v_emp_end   text := '';
   v_vars      jsonb;
   v_texto     text;
   v_k         text;
@@ -54,7 +59,34 @@ BEGIN
     RAISE EXCEPTION 'Contrato não encontrado' USING ERRCODE = 'P0002';
   END IF;
 
-  SELECT * INTO v_empresa FROM public.companies WHERE id = p_company_id;
+  -- #5452 F3: CONTRATADA = empresa que fatura (empresa_faturadora_id) quando definida e do MESMO grupo.
+  -- Mesma regra de companies.group_id usada por fn_contrato_definir_empresa_faturadora /
+  -- fn_contrato_empresas_faturadoras. Fail-safe: faturadora ausente/fora do grupo -> empresa do contrato.
+  v_fat_id := v_contrato.empresa_faturadora_id;
+  IF v_fat_id IS NOT NULL AND v_fat_id <> p_company_id THEN
+    SELECT c.* INTO v_empresa
+      FROM public.companies c
+     WHERE c.id = v_fat_id
+       AND c.group_id IS NOT NULL
+       AND c.group_id = (SELECT group_id FROM public.companies WHERE id = p_company_id);
+    IF NOT FOUND THEN
+      SELECT * INTO v_empresa FROM public.companies WHERE id = p_company_id;
+    END IF;
+  ELSE
+    SELECT * INTO v_empresa FROM public.companies WHERE id = p_company_id;
+  END IF;
+
+  -- endereço completo da contratada (mesmo padrão do cliente): campo livre OU composição de partes
+  v_emp_end := COALESCE(
+    NULLIF(btrim(COALESCE(v_empresa.endereco, '')), ''),
+    NULLIF(btrim(
+      COALESCE(v_empresa.logradouro, '')
+      || CASE WHEN COALESCE(v_empresa.numero, '') <> '' THEN ', ' || v_empresa.numero ELSE '' END
+      || CASE WHEN COALESCE(v_empresa.complemento, '') <> '' THEN ' - ' || v_empresa.complemento ELSE '' END
+      || CASE WHEN COALESCE(v_empresa.bairro, '') <> '' THEN ', ' || v_empresa.bairro ELSE '' END
+    ), ''),
+    ''
+  );
 
   -- #6703: cadastro do cliente (contratante) para preencher endereço/cidade/UF/CEP/e-mail/telefone.
   -- Escopado por company_id: não vaza cliente de outra empresa.
@@ -114,6 +146,9 @@ BEGIN
     'empresa_razao_social',     COALESCE(v_empresa.razao_social, ''),
     'empresa_nome_fantasia',    COALESCE(v_empresa.nome_fantasia, ''),
     'empresa_cnpj',             COALESCE(v_empresa.cnpj, ''),
+    'empresa_endereco',         v_emp_end,
+    'empresa_cidade',           COALESCE(v_empresa.cidade, ''),
+    'empresa_cep',              COALESCE(v_empresa.cep, ''),
     'data_hoje',                to_char((now() AT TIME ZONE 'America/Sao_Paulo')::date, 'DD/MM/YYYY')
   );
 
