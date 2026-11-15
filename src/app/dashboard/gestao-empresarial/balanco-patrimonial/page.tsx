@@ -3,9 +3,12 @@
 // "Balanço Patrimonial" (GE genérico). Linhas CALCULADAS (🔒 read-only, vêm da fonte) +
 // linhas MANUAIS LIVRES por período: adicionar / editar (nome+valor) / excluir / ordenar.
 // Ausente => valor null + motivo (RD-51). Diferença de fechamento destacada, nunca forçada.
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { useEmpresaSelecionada } from '@/lib/agro/usePecuaria'
+// Princ.1 (núcleo universal): seletor GENÉRICO de empresa da GE. Balanço é núcleo (serve a qualquer ramo)
+// e NÃO pode depender da pecuária/agro — antes vinha de '@/lib/agro/usePecuaria' (useEmpresaSelecionada).
+import { useCompanyIds } from '@/lib/useCompanyIds'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ROTA = '/dashboard/gestao-empresarial/balanco-patrimonial'
@@ -32,16 +35,22 @@ const GRUPOS: { lado: string; grupo: string }[] = [
 
 type Linha = { id?: string; lado: string; grupo: string; nome: string; valor: number | null; ordem?: number; origem: string; editavel: boolean; fonte?: string | null; motivo?: string | null }
 type Balanco = { ok: boolean; periodo: string; ativo_total: number; passivo_total: number; pl_total: number; passivo_mais_pl: number; diferenca: number; fecha: boolean; linhas: Linha[] }
+// Modal premium de "adicionar linha manual" — substitui os window.prompt (RD-99 #1/#2, critérios a/e).
+type NovaLinha = { lado: string; grupo: string; nome: string; valor: string }
 
 function fmt(n: number | null | undefined): string { return n == null ? '—' : Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
 function hoje(): string { return new Date().toISOString().slice(0, 10) }
 function periodoDe(dataRef: string): string { return dataRef.slice(0, 7) }
 function periodoAnterior(dataRef: string): string { const [y, m] = dataRef.slice(0, 7).split('-').map(Number); const d = new Date(y, m - 2, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` }
 function iconeOrigem(o: string): string { return o === 'calculado' ? '🔒' : o === 'manual' ? '✍️' : '⚠️' }
+// Máscara de moeda BR: digita só números, formata como R$ (centavos à direita).
+function maskMoeda(v: string): string { const d = v.replace(/\D/g, ''); if (!d) return ''; return (Number(d) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
+function parseMoeda(v: string): number | null { if (!v.trim()) return null; return Number(v.replace(/\./g, '').replace(',', '.')) || 0 }
 
 export default function BalancoPage() {
-  const { companyId } = useEmpresaSelecionada()
-  const empresaUnica = companyId && !companyId.startsWith('group_') && companyId !== 'consolidado' ? companyId : null
+  // Princ.1 (núcleo universal): seletor GENÉRICO — empresa única só quando UMA empresa está selecionada.
+  const { companyIds, selInfo } = useCompanyIds()
+  const empresaUnica = selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : null
 
   const [dataRef, setDataRef] = useState(hoje())
   const [bal, setBal] = useState<Balanco | null>(null)
@@ -49,6 +58,9 @@ export default function BalancoPage() {
   const [busy, setBusy] = useState(false)
   // edição local das linhas manuais (chave = id ou "novo:lado|grupo|nome")
   const [ed, setEd] = useState<Record<string, { nome: string; valor: string; ordem: string }>>({})
+  // modal de nova linha manual
+  const [nova, setNova] = useState<NovaLinha | null>(null)
+  const [novaErro, setNovaErro] = useState<string | null>(null)
 
   const periodo = periodoDe(dataRef)
 
@@ -56,7 +68,7 @@ export default function BalancoPage() {
     if (!empresaUnica) return
     setBusy(true); setMsg(null)
     const { data, error } = await supabase.rpc('fn_balanco_patrimonial', { p_company_id: empresaUnica, p_data_ref: dataRef })
-    if (error) { setMsg('Erro: ' + error.message); setBal(null) }
+    if (error) { setMsg('Erro: ' + erroAmigavel(error)); setBal(null) }
     else {
       const b = data as Balanco
       setBal(b)
@@ -84,7 +96,7 @@ export default function BalancoPage() {
       p_nome: cur.nome.trim(), p_valor: cur.valor === '' ? null : Number(String(cur.valor).replace(',', '.')),
       p_subgrupo: null, p_ordem: Number(cur.ordem) || 0, p_periodo: periodo,
     })
-    if (error) setMsg('Erro: ' + error.message); else { setMsg('Linha salva.'); await carregar() }
+    if (error) setMsg('Erro: ' + erroAmigavel(error)); else { setMsg('Linha salva.'); await carregar() }
     setBusy(false)
   }
 
@@ -94,22 +106,26 @@ export default function BalancoPage() {
     if (!window.confirm(`Excluir a linha "${l.nome}"?${aviso}`)) return
     setBusy(true); setMsg(null)
     const { error } = await supabase.rpc('fn_balanco_linha_excluir', { p_company_id: empresaUnica, p_id: l.id })
-    if (error) setMsg('Erro: ' + error.message); else { setMsg('Linha excluída.'); await carregar() }
+    if (error) setMsg('Erro: ' + erroAmigavel(error)); else { setMsg('Linha excluída.'); await carregar() }
     setBusy(false)
   }
 
-  async function adicionarLinha(lado: string, grupo: string) {
-    if (!empresaUnica) return
-    const nome = window.prompt(`Nome da nova linha em ${grupo}:`, '')
-    if (!nome || !nome.trim()) return
-    const valorStr = window.prompt('Valor (R$):', '0') ?? '0'
-    setBusy(true); setMsg(null)
+  // Abre o modal premium (RD-99: sem window.prompt). Pré-preenche lado/grupo.
+  function abrirNovaLinha(lado: string, grupo: string) {
+    setNovaErro(null)
+    setNova({ lado, grupo, nome: '', valor: '' })
+  }
+
+  async function salvarNovaLinha() {
+    if (!empresaUnica || !nova) return
+    if (!nova.nome.trim()) { setNovaErro('Informe o nome da linha.'); return }
+    setBusy(true); setNovaErro(null); setMsg(null)
     const { error } = await supabase.rpc('fn_balanco_linha_salvar', {
-      p_company_id: empresaUnica, p_id: null, p_lado: lado, p_grupo: grupo, p_nome: nome.trim(),
-      p_valor: valorStr === '' ? null : Number(String(valorStr).replace(',', '.')), p_subgrupo: null, p_ordem: 99, p_periodo: periodo,
+      p_company_id: empresaUnica, p_id: null, p_lado: nova.lado, p_grupo: nova.grupo, p_nome: nova.nome.trim(),
+      p_valor: parseMoeda(nova.valor), p_subgrupo: null, p_ordem: 99, p_periodo: periodo,
     })
-    if (error) setMsg('Erro: ' + error.message); else { setMsg('Linha adicionada.'); await carregar() }
-    setBusy(false)
+    if (error) { setNovaErro(erroAmigavel(error)); setBusy(false); return }
+    setNova(null); setMsg('Linha adicionada.'); await carregar(); setBusy(false)
   }
 
   async function copiarPeriodoAnterior() {
@@ -118,7 +134,7 @@ export default function BalancoPage() {
     if (!window.confirm(`Copiar as linhas manuais de ${de} para ${periodo}? (não duplica as que já existem)`)) return
     setBusy(true); setMsg(null)
     const { data, error } = await supabase.rpc('fn_balanco_copiar_periodo', { p_company_id: empresaUnica, p_de: de, p_para: periodo })
-    if (error) setMsg('Erro: ' + error.message)
+    if (error) setMsg('Erro: ' + erroAmigavel(error))
     else { const r = data as { copiadas?: number }; setMsg(`${r?.copiadas ?? 0} linha(s) copiada(s) de ${de}.`); await carregar() }
     setBusy(false)
   }
@@ -160,7 +176,7 @@ export default function BalancoPage() {
       <div key={g.grupo} style={{ marginBottom: 14 }}>
         <div style={{ fontWeight: 700, fontSize: 12.5, color: ESP, borderBottom: `1px solid ${LINE}`, paddingBottom: 4, marginBottom: 4, display: 'flex', justifyContent: 'space-between' }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{g.grupo}{AJUDA_GRUPO[g.grupo] && <AjudaCampo chave={AJUDA_GRUPO[g.grupo]} rota={ROTA} />}</span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><button onClick={() => void adicionarLinha(g.lado, g.grupo)} style={miniAdd} title="Adicionar linha manual">+ linha</button><AjudaCampo chave="ge.balanco.add_linha" rota={ROTA} /></span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><button onClick={() => abrirNovaLinha(g.lado, g.grupo)} style={miniAdd} title="Adicionar linha manual">+ linha</button><AjudaCampo chave="ge.balanco.add_linha" rota={ROTA} /></span>
         </div>
         {linhas.map(renderLinha)}
       </div>
@@ -214,10 +230,32 @@ export default function BalancoPage() {
                 Lance no <strong>Patrimônio Líquido</strong> o <strong>Capital Social</strong> e o <strong>Resultado / Lucros (ou Prejuízos) Acumulados</strong> do período para o balanço fechar.
                 A diferença não é forçada — ela é mostrada até você apurar o Patrimônio Líquido.
               </div>
-              <button onClick={() => void adicionarLinha('pl', 'PATRIMÔNIO LÍQUIDO')} disabled={busy} style={ctaPl}>+ Lançar no Patrimônio Líquido</button>
+              <button onClick={() => abrirNovaLinha('pl', 'PATRIMÔNIO LÍQUIDO')} disabled={busy} style={ctaPl}>+ Lançar no Patrimônio Líquido</button>
             </div>
           )}
         </>
+      )}
+
+      {nova && (
+        <div onClick={() => !busy && setNova(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 50 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ ...card, width: '100%', maxWidth: 420, boxShadow: '0 10px 40px rgba(61,35,20,0.25)' }}>
+            <div style={{ fontSize: 16, fontWeight: 800 }}>Adicionar linha manual</div>
+            <div style={{ fontSize: 12.5, color: ESP60, marginTop: 2, marginBottom: 14 }}>{nova.grupo}</div>
+            <div style={{ display: 'grid', gap: 10 }}>
+              <label style={lbl}>Nome da linha <AjudaCampo chave="ge.balanco.linha_nome" rota={ROTA} />
+                <input autoFocus style={{ ...ipModal, width: '100%' }} value={nova.nome} onChange={(e) => setNova({ ...nova, nome: e.target.value })} placeholder="ex.: Capital Social" />
+              </label>
+              <label style={lbl}>Valor (R$) <AjudaCampo chave="ge.balanco.linha_valor" rota={ROTA} />
+                <input style={{ ...ipModal, width: '100%', textAlign: 'right' }} inputMode="numeric" value={nova.valor} onChange={(e) => setNova({ ...nova, valor: maskMoeda(e.target.value) })} placeholder="0,00" />
+              </label>
+            </div>
+            {novaErro && <div style={{ marginTop: 10, fontSize: 12.5, color: RED }}>{novaErro}</div>}
+            <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={() => setNova(null)} disabled={busy} style={btnSec}>Cancelar</button>
+              <button onClick={() => void salvarNovaLinha()} disabled={busy} style={btnPri}>{busy ? 'Salvando…' : 'Adicionar'}</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
@@ -225,7 +263,10 @@ export default function BalancoPage() {
 
 const card: React.CSSProperties = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 10, padding: 16 }
 const ip: React.CSSProperties = { padding: '3px 6px', border: `1px solid ${LINE}`, borderRadius: 5, fontSize: 12.5, background: '#fff', color: ESP }
+const ipModal: React.CSSProperties = { display: 'inline-block', padding: '7px 9px', border: `1px solid ${LINE}`, borderRadius: 6, fontSize: 13, marginTop: 3, background: '#fff', color: ESP }
+const lbl: React.CSSProperties = { fontSize: 12, color: ESP60, display: 'block' }
 const btnSec: React.CSSProperties = { padding: '6px 12px', background: 'transparent', color: ESP, border: `1px solid ${LINE}`, borderRadius: 6, fontWeight: 600, cursor: 'pointer', fontSize: 12.5 }
+const btnPri: React.CSSProperties = { padding: '8px 14px', background: GOLD, color: '#3D2314', border: 'none', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: 13 }
 const miniPri: React.CSSProperties = { padding: '3px 8px', background: GOLD, color: '#3D2314', border: 'none', borderRadius: 5, fontWeight: 700, cursor: 'pointer', fontSize: 12 }
 const miniDel: React.CSSProperties = { padding: '3px 8px', background: 'transparent', color: RED, border: `1px solid ${RED}55`, borderRadius: 5, fontWeight: 700, cursor: 'pointer', fontSize: 12 }
 const miniAdd: React.CSSProperties = { padding: '2px 8px', background: 'transparent', color: GOLD, border: `1px solid ${GOLD}55`, borderRadius: 5, fontWeight: 600, cursor: 'pointer', fontSize: 11 }
