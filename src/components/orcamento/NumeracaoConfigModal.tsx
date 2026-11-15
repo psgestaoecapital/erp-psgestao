@@ -5,6 +5,9 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA_AJUDA = '/dashboard/orcamentos'
 
 interface Props {
   companyId: string
@@ -76,17 +79,17 @@ export default function NumeracaoConfigModal({ companyId, onClose }: Props) {
         ) : (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <label style={{ fontSize: 11, color: '#3D2314' }}>Prefixo
+              <label style={{ fontSize: 11, color: '#3D2314' }}>Prefixo<AjudaCampo chave="orcamentos.config.num_prefixo" rota={ROTA_AJUDA} />
                 <input value={prefixo} onChange={(e) => setPrefixo(e.target.value.slice(0, 10))} style={inp} />
               </label>
-              <label style={{ fontSize: 11, color: '#3D2314' }}>Começar do número
+              <label style={{ fontSize: 11, color: '#3D2314' }}>Começar do número<AjudaCampo chave="orcamentos.config.num_proximo" rota={ROTA_AJUDA} />
                 <input type="number" min={1} value={proximo} onChange={(e) => setProximo(e.target.value)} style={inp} />
               </label>
-              <label style={{ fontSize: 11, color: '#3D2314' }}>Dígitos (padding)
+              <label style={{ fontSize: 11, color: '#3D2314' }}>Dígitos (padding)<AjudaCampo chave="orcamentos.config.num_padding" rota={ROTA_AJUDA} />
                 <input type="number" min={1} max={8} value={padding} onChange={(e) => setPadding(e.target.value)} style={inp} />
               </label>
               <label style={{ fontSize: 11, color: '#3D2314', display: 'flex', alignItems: 'center', gap: 8, marginTop: 18 }}>
-                <input type="checkbox" checked={incluirAno} onChange={(e) => setIncluirAno(e.target.checked)} /> Incluir o ano
+                <input type="checkbox" checked={incluirAno} onChange={(e) => setIncluirAno(e.target.checked)} /> Incluir o ano<AjudaCampo chave="orcamentos.config.num_incluir_ano" rota={ROTA_AJUDA} />
               </label>
             </div>
             <div style={{ marginTop: 14, padding: '8px 10px', background: '#FAF7F2', borderRadius: 6, fontSize: 12, color: '#3D2314' }}>

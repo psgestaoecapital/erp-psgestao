@@ -9,6 +9,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA_AJUDA = '/dashboard/_compartilhado/divergencias'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -221,20 +224,23 @@ function ModalResolver({ d, setores, onClose, onDone, onErro }: {
 
         {ehFolhaSemPonto ? (
           <>
-            <label style={{ fontSize: 11, fontWeight: 700, color: MUT, textTransform: 'uppercase', letterSpacing: 0.5 }}>Setor</label>
-            <input list="setores-list" value={setor} onChange={(e) => setSetor(e.target.value)} placeholder="Escolha ou digite o setor"
-              style={{ width: '100%', padding: '9px 12px', border: `0.5px solid rgba(61,35,20,0.25)`, borderRadius: 6, fontSize: 13, color: ESP, boxSizing: 'border-box', margin: '4px 0 12px' }} />
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: MUT, textTransform: 'uppercase', letterSpacing: 0.5 }}>Setor<AjudaCampo chave="divergencias.resolver.setor" rota={ROTA_AJUDA} />
+              <input list="setores-list" value={setor} onChange={(e) => setSetor(e.target.value)} placeholder="Escolha ou digite o setor"
+                style={{ width: '100%', padding: '9px 12px', border: `0.5px solid rgba(61,35,20,0.25)`, borderRadius: 6, fontSize: 13, color: ESP, boxSizing: 'border-box', margin: '4px 0 12px', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }} />
+            </label>
             <datalist id="setores-list">{setores.map((s) => <option key={s} value={s} />)}</datalist>
             <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, color: ESP, cursor: 'pointer', marginBottom: 12 }}>
               <input type="checkbox" checked={naoApura} onChange={(e) => setNaoApura(e.target.checked)} style={{ marginTop: 3 }} />
-              <span>Esta pessoa <b>NÃO bate ponto</b> — entra no custo, fica fora do cálculo de horas.</span>
+              <span>Esta pessoa <b>NÃO bate ponto</b> — entra no custo, fica fora do cálculo de horas.<AjudaCampo chave="divergencias.resolver.nao_apura" rota={ROTA_AJUDA} /></span>
             </label>
           </>
         ) : (
           <div style={{ fontSize: 12, color: MUT, marginBottom: 12 }}>Confirmar que esta divergência foi tratada.</div>
         )}
-        <input value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Observação (opcional)"
-          style={{ width: '100%', padding: '9px 12px', border: `0.5px solid rgba(61,35,20,0.25)`, borderRadius: 6, fontSize: 13, color: ESP, boxSizing: 'border-box', marginBottom: 16 }} />
+        <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: MUT, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 16 }}>Observação<AjudaCampo chave="divergencias.resolver.obs" rota={ROTA_AJUDA} />
+          <input value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Observação (opcional)"
+            style={{ width: '100%', padding: '9px 12px', border: `0.5px solid rgba(61,35,20,0.25)`, borderRadius: 6, fontSize: 13, color: ESP, boxSizing: 'border-box', marginTop: 4, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }} />
+        </label>
 
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ padding: '9px 16px', borderRadius: 8, border: `0.5px solid ${LINE}`, background: '#FFF', color: MUT, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
