@@ -115,6 +115,7 @@ export default function FichasCommercePage() {
         .from('fichas_tecnicas')
         .select('*')
         .eq('company_id', companyIdUnico)
+        .is('excluido_em', null) // RD-98 p4: não lista fichas excluídas (soft-delete)
         .order('categoria', { ascending: true, nullsFirst: true })
         .order('nome', { ascending: true })
       if (!alive) return
@@ -133,6 +134,7 @@ export default function FichasCommercePage() {
           .from('ficha_itens')
           .select('*')
           .in('ficha_id', ids)
+          .is('excluido_em', null) // RD-98 p4: não lista itens excluídos (soft-delete)
           .order('ordem', { ascending: true, nullsFirst: true })
         if (!alive) return
         const porFicha: Record<string, FichaItem[]> = {}
@@ -158,6 +160,7 @@ export default function FichasCommercePage() {
         .from('ficha_itens')
         .select('*')
         .eq('ficha_id', selFichaId)
+        .is('excluido_em', null) // RD-98 p4: não lista itens excluídos (soft-delete)
         .order('ordem', { ascending: true, nullsFirst: true })
       if (alive) setItensCache((prev) => ({ ...prev, [selFichaId]: (data ?? []) as FichaItem[] }))
     })()
