@@ -178,7 +178,7 @@ export const ROLE_NAMES: Record<string, string> = {
   atendimento: 'Atendimento',
   designer: 'Designer',
   cliente_pf: 'Cliente PF/PJ',
-  compliance: 'Compliance',
+  compliance: 'EHS',
   visualizador: 'Visualizador',
 };
 

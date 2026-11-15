@@ -80,6 +80,19 @@ const nextConfig: NextConfig = {
         destination: '/dashboard/cadastros/fornecedores',
         permanent: true,
       },
+      // Renomeação Compliance → EHS (CEO 14/11, Fase 2). A vertical passa a viver em /dashboard/ehs/*;
+      // o caminho antigo /dashboard/compliance/* vira redirect 308 permanente, então links salvos,
+      // favoritos e convites já enviados continuam abrindo (query string preservada automaticamente).
+      {
+        source: '/dashboard/compliance/:path*',
+        destination: '/dashboard/ehs/:path*',
+        permanent: true,
+      },
+      {
+        source: '/dashboard/compliance',
+        destination: '/dashboard/ehs',
+        permanent: true,
+      },
     ]
   },
 }
