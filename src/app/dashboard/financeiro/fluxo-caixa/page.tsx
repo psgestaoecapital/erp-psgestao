@@ -205,7 +205,7 @@ export default function FluxoCaixaPage() {
 
       {/* Filtros: conta + categoria (RD-99). O seletor de conta usa o fn_fluxo_caixa_diario já corrigido por conta. */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-        <div style={{ flex: '1 1 180px', minWidth: 160 }}>
+        <div data-ajuda="ge.fluxo_caixa.filtro_conta" style={{ flex: '1 1 180px', minWidth: 160 }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6, color: 'rgba(61,35,20,0.6)', marginBottom: 6 }}>
             Conta<AjudaCampo chave="ge.fluxo_caixa.filtro_conta" rota={ROTA_AJUDA} />
           </div>
@@ -214,7 +214,7 @@ export default function FluxoCaixaPage() {
             {filtros.contas.map((c) => (<option key={c.id} value={c.id}>{c.nome}</option>))}
           </select>
         </div>
-        <div style={{ flex: '1 1 180px', minWidth: 160 }}>
+        <div data-ajuda="ge.fluxo_caixa.filtro_categoria" style={{ flex: '1 1 180px', minWidth: 160 }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6, color: 'rgba(61,35,20,0.6)', marginBottom: 6 }}>
             Categoria<AjudaCampo chave="ge.fluxo_caixa.filtro_categoria" rota={ROTA_AJUDA} />
           </div>
