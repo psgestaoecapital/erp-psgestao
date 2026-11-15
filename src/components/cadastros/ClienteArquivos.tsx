@@ -6,6 +6,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+// Card exibido dentro do cadastro de pessoa (PessoasList) — mesma rota de ajuda (RD-95).
+const ROTA_AJUDA = '/dashboard/cadastros/pessoa'
 
 interface ArquivoRow {
   id: string
@@ -114,8 +118,8 @@ export default function ClienteArquivos({ companyId, clienteId }: Props) {
 
   return (
     <div style={{ marginTop: 4 }}>
-      <label style={{ display: 'block', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 }}>
-        Contratos & anexos
+      <label style={{ display: 'flex', alignItems: 'center', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 }}>
+        Contratos & anexos<AjudaCampo chave="cadastros.pessoa.anexos" rota={ROTA_AJUDA} />
       </label>
 
       <div
@@ -125,6 +129,7 @@ export default function ClienteArquivos({ companyId, clienteId }: Props) {
         onClick={() => inputRef.current?.click()}
         role="button"
         tabIndex={0}
+        data-ajuda="cadastros.pessoa.anexos"
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') inputRef.current?.click() }}
         style={{
           border: `1.5px dashed ${arrastando ? '#C8941A' : 'rgba(61,35,20,0.3)'}`, borderRadius: 8,
