@@ -71,7 +71,7 @@ test.describe('Conferência de pausas — dizer se o horário é saída ou retor
   test('a responsável marca 13:30 como retorno, acrescenta a saída 13:08 e o dia fecha com as pausas reais', { tag: '@pos-migration' }, async ({ page }) => {
     page.on('dialog', d => void d.accept())
     await page.addInitScript((id) => { try { window.localStorage.setItem('ps_empresa_sel', id) } catch { /* noop */ } }, DEMO_SST)
-    await page.goto('/dashboard/compliance/pausas-tecnicas')
+    await page.goto('/dashboard/ehs/pausas-tecnicas')
     await aguardarConteudo(page)
     await page.getByRole('button', { name: 'Conferência' }).click()
     const linha = page.locator('tbody tr').filter({ hasText: colaborador }).filter({ hasText: DIA_BR }).filter({ hasText: '13:30' })
