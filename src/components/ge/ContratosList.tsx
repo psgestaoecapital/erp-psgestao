@@ -376,12 +376,14 @@ function CardContrato({ contrato, onEditar, onAlterado }: { contrato: Contrato; 
                 Motivo *
                 <AjudaCampo chave="ge.contratos.motivo" rota={ROTA_AJUDA} />
               </label>
-              <input
-                value={motivo}
-                onChange={(e) => setMotivo(e.target.value)}
-                placeholder={acao === 'excluir' ? 'Ex.: cadastrada em duplicidade' : 'Ex.: cliente cancelou o serviço'}
-                style={{ width: '100%', padding: '9px 12px', border: '0.5px solid rgba(61,35,20,0.25)', borderRadius: 6, fontSize: 13, color: '#3D2314', background: '#FFFFFF', boxSizing: 'border-box', marginBottom: 10 }}
-              />
+              <div data-ajuda="ge.contratos.motivo">
+                <input
+                  value={motivo}
+                  onChange={(e) => setMotivo(e.target.value)}
+                  placeholder={acao === 'excluir' ? 'Ex.: cadastrada em duplicidade' : 'Ex.: cliente cancelou o serviço'}
+                  style={{ width: '100%', padding: '9px 12px', border: '0.5px solid rgba(61,35,20,0.25)', borderRadius: 6, fontSize: 13, color: '#3D2314', background: '#FFFFFF', boxSizing: 'border-box', marginBottom: 10 }}
+                />
+              </div>
             </>
           )}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
