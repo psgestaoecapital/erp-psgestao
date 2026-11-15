@@ -325,9 +325,11 @@ export default function CotacoesPage(){
 
             <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:10,marginBottom:14}}>
               <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Descrição</div>
-                <input value={novaCot.descricao} onChange={e=>setNovaCot({...novaCot,descricao:e.target.value})} placeholder="Ex: Compra mensal de matéria-prima" style={inp}/></div>
+                <AjudaCampo chave="cotacoes.nova.descricao" rota={ROTA_AJUDA} />
+                <input value={novaCot.descricao} onChange={e=>setNovaCot({...novaCot,descricao:e.target.value})} placeholder="Ex: Compra mensal de matéria-prima" aria-label="Descrição da cotação de compra" style={inp}/></div>
               <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Limite para Respostas</div>
-                <input type="date" value={novaCot.data_limite} onChange={e=>setNovaCot({...novaCot,data_limite:e.target.value})} style={inp}/></div>
+                <AjudaCampo chave="cotacoes.nova.data_limite" rota={ROTA_AJUDA} />
+                <input type="date" value={novaCot.data_limite} onChange={e=>setNovaCot({...novaCot,data_limite:e.target.value})} aria-label="Data limite para os fornecedores responderem" style={inp}/></div>
             </div>
 
             {/* Itens */}
