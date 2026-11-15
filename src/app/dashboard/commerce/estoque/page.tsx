@@ -1982,6 +1982,7 @@ function ModalAjuste({ companyId, locais, movimentacoes, onClose, onSubmit }: {
           {/* Produto · componente compartilhado FIX-PRODUTO-AUTOCOMPLETE-REUSE-262-v1 */}
           <div>
             <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Produto *</label>
+            <AjudaCampo chave="commerce.estoque.ajuste.produto" />
             <div style={{ marginTop: 4 }}>
               <ProdutoAutocomplete
                 companyId={companyId}
@@ -2010,6 +2011,7 @@ function ModalAjuste({ companyId, locais, movimentacoes, onClose, onSubmit }: {
           {/* Tipo · radio */}
           <div>
             <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Tipo *</label>
+            <AjudaCampo chave="commerce.estoque.ajuste.tipo" />
             <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
               <button type="button" onClick={() => setPositivo(true)} data-testid="ajuste-tipo-pos"
                 style={{
