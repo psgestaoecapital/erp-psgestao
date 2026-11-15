@@ -15,6 +15,7 @@ import { mapearRemessaSicoob, buildArquivoSicoob, mapearRemessaSicredi, buildArq
 import { normalizarCodigoBarras } from '@/lib/financeiro/boleto-parser'
 import { ehPix } from '@/lib/financeiro/formasPagamento'
 import { separarBloqueados, avisoBloqueadosFora } from '@/lib/financeiro/bloqueioPagamento'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
 
 const ROTA_AJUDA = '/dashboard/financeiro/remessa-pagamento'
@@ -280,7 +281,7 @@ export default function RemessaPagamentoPage() {
       p_config_id: cfg.id, p_agencia_dv: dvInput.trim(),
     })
     setBusy(false)
-    if (error) { setMsg('Erro ao salvar DV: ' + error.message); return }
+    if (error) { setMsg(erroAmigavel(error, 'Não foi possível salvar o DV da agência. Tente de novo.')); return }
     const j = data as { sucesso?: boolean; erro?: string; agencia_dv?: string | null } | null
     if (!j?.sucesso) { setMsg('Não salvou o DV: ' + (j?.erro ?? 'erro desconhecido')); return }
     setCfg({ ...cfg, agencia_dv: j.agencia_dv ?? dvInput.trim() }); setMsg('DV da agência salvo.')
@@ -398,7 +399,7 @@ export default function RemessaPagamentoPage() {
       setImpResumo(data as RetAutoResp); void carregarTitulosDoRetorno(data as RetAutoResp)
     } catch (e) {
       setImpArquivo(file.name)
-      setImpResumo({ ok: false, erro: (e as Error).message })
+      setImpResumo({ ok: false, erro: erroAmigavel(e, 'Não foi possível ler o arquivo de retorno. Confira o arquivo e tente de novo.') })
     } finally { setImpBusy(false) }
   }
 
@@ -480,7 +481,7 @@ export default function RemessaPagamentoPage() {
       if (error) throw error
       setExtrato(data as ExtratoResp)
     } catch (e) {
-      setExtrato({ sucesso: false, erro: (e as Error).message })
+      setExtrato({ sucesso: false, erro: erroAmigavel(e, 'Não foi possível abrir o extrato desta remessa. Tente de novo.') })
     } finally { setGestBusy(false) }
   }
 
@@ -496,7 +497,7 @@ export default function RemessaPagamentoPage() {
       if (!j?.sucesso) { setMsg('Erro: ' + (j?.orientacao ?? j?.erro ?? 'não foi possível cancelar')); return }
       setMsg(`Remessa ${rem.numero_sequencial} cancelada · ${j.titulos_liberados ?? 0} título(s) liberado(s).`)
       setExtrato(null); setExtratoRem(null); void carregar()
-    } catch (e) { setMsg('Erro ao cancelar: ' + (e as Error).message) } finally { setGestBusy(false) }
+    } catch (e) { setMsg(erroAmigavel(e, 'Não foi possível cancelar a remessa. Tente de novo.')) } finally { setGestBusy(false) }
   }
 
   async function removerItem(it: ExtratoItem) {
@@ -509,7 +510,7 @@ export default function RemessaPagamentoPage() {
       const j = data as { sucesso?: boolean; erro?: string; orientacao?: string } | null
       if (!j?.sucesso) { setMsg('Erro: ' + (j?.orientacao ?? j?.erro ?? 'não foi possível remover')); return }
       await abrirExtrato(extratoRem); void carregar()   // recarrega extrato + lista
-    } catch (e) { setMsg('Erro ao remover: ' + (e as Error).message) } finally { setGestBusy(false) }
+    } catch (e) { setMsg(erroAmigavel(e, 'Não foi possível remover o item da remessa. Tente de novo.')) } finally { setGestBusy(false) }
   }
 
   function imprimirExtrato() {
@@ -537,6 +538,14 @@ export default function RemessaPagamentoPage() {
         {cfgAviso
           ? <><b>Configuração de pagamento não definida.</b><div style={{ marginTop: 8 }}>{cfgAviso}</div></>
           : 'Esta empresa não tem banco de pagamento (Sicoob ou Sicredi) configurado. Configure o banco antes de gerar remessa.'}
+        <div style={{ marginTop: 16 }}>
+          <a
+            href="/dashboard/financeiro/conexoes-bancarias"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 999, background: GOLD, color: '#FFF', fontWeight: 700, fontSize: 13.5, textDecoration: 'none' }}
+          >
+            Configurar banco →
+          </a>
+        </div>
       </div>
     </div>
   )
@@ -697,7 +706,7 @@ export default function RemessaPagamentoPage() {
               {fornSemChavePix.slice(0, 12).map((f) => (
                 <a
                   key={f.nome}
-                  href={`/dashboard/fornecedores?busca=${encodeURIComponent(f.nome)}`}
+                  href={`/dashboard/cadastros/fornecedores?busca=${encodeURIComponent(f.nome)}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   title={`Abrir o cadastro de ${f.nome} para preencher a chave PIX`}
@@ -713,7 +722,12 @@ export default function RemessaPagamentoPage() {
 
         <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, overflow: 'hidden' }} data-ajuda="remessa.selecionar_titulos">
           {filtradas.length === 0 ? (
-            <div style={{ padding: 24, textAlign: 'center', color: MUT, fontSize: 13 }}>Nenhum título a pagar disponível (ou todos já estão em remessa ativa).</div>
+            <div style={{ padding: 24, textAlign: 'center', color: MUT, fontSize: 13 }}>
+              Nenhum título a pagar disponível (ou todos já estão em remessa ativa).
+              <div style={{ marginTop: 10 }}>
+                <a href="/dashboard/financeiro/pagar" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 13px', borderRadius: 999, background: '#FFF', border: `0.5px solid ${LINE}`, color: ESP, fontWeight: 600, fontSize: 12.5, textDecoration: 'none' }}>Abrir Contas a Pagar →</a>
+              </div>
+            </div>
           ) : filtradas.map((r) => {
             const motivo = eleg.motivoPorId.get(r.id)   // motivo de inelegibilidade (qualquer linha, não só a selecionada)
             return (
