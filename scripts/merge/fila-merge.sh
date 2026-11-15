@@ -688,8 +688,11 @@ estado_checks() {
   # contou e segue sem contar. TRANSIÇÃO: aceita também um preview REAL da Vercel já verde (head antigo, aberto antes
   # desta mudança, que ainda não ganhou o build-pr — ao sincronizar com a main ele passa a ter o build-pr). Gate:
   # check-vercel-build.ts.
-  bp=$(awk -F'\t' '$1 == "build-pr" {print $3}' <<< "$linhas" | tail -1)
-  [ "$bp" = success ] && { echo ok; return; }
+  # build-pr verde se QUALQUER invocação do build-pr.yml concluiu `success` nesta SHA. Duas check-runs "build-pr"
+  # podem coexistir no mesmo commit (uma real `success` e uma `skipped` do caminho pulado): o antigo `tail -1` pegava a
+  # ÚLTIMA da lista da API e às vezes caía na `skipped`, segurando a PR para SEMPRE (drenagem travada — #5170, 15/11).
+  # Qualquer success já prova que compilou.
+  if awk -F'\t' '$1 == "build-pr" && $3 == "success" { ok = 1 } END { exit ok ? 0 : 1 }' <<< "$linhas"; then echo ok; return; fi
   vercel_ok=$( { api "repos/$REPO/commits/$sha/status" --jq '.statuses[] | select(.context | startswith("Vercel"))
                    | if (.state == "success" and ((.description // "") | test("cancel|ignor"; "i"))) then "pending" else .state end' 2> /dev/null
                  awk -F'\t' '$1 ~ /^Vercel/ {print $3}' <<< "$linhas"; } | sort -u)
