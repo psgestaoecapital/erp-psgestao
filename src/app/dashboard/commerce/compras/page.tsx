@@ -954,7 +954,7 @@ function ModalComparativo({ cotacao, onClose, onAprovar }: { cotacao: Cotacao; o
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 700 }}>
                 <thead style={{ background: C.cream, position: 'sticky', top: 0 }}>
                   <tr>
-                    <Th>Item</Th>
+                    <Th ajuda="commerce.compras.cot_comparar">Item</Th>
                     {fornecedores.map((f) => (
                       <Th key={f.id} align="right">
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
