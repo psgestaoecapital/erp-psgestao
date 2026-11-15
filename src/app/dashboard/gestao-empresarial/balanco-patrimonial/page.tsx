@@ -34,9 +34,11 @@ const GRUPOS: { lado: string; grupo: string }[] = [
 ]
 
 type Linha = { id?: string; lado: string; grupo: string; nome: string; valor: number | null; ordem?: number; origem: string; editavel: boolean; fonte?: string | null; motivo?: string | null }
-type Balanco = { ok: boolean; periodo: string; ativo_total: number; passivo_total: number; pl_total: number; passivo_mais_pl: number; diferenca: number; fecha: boolean; linhas: Linha[] }
+type Balanco = { ok: boolean; periodo: string; ativo_total: number; passivo_total: number; pl_total: number; passivo_mais_pl: number; diferenca: number; fecha: boolean; vazio?: boolean; linhas: Linha[] }
 // Modal premium de "adicionar linha manual" — substitui os window.prompt (RD-99 #1/#2, critérios a/e).
 type NovaLinha = { lado: string; grupo: string; nome: string; valor: string }
+// Confirmação premium (RD-99): substitui o window.confirm nativo em ações que mexem no balanço.
+type Confirmacao = { titulo: string; aviso?: string; rotulo: string; perigo?: boolean; onOk: () => void | Promise<void> }
 
 function fmt(n: number | null | undefined): string { return n == null ? '—' : Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
 function hoje(): string { return new Date().toISOString().slice(0, 10) }
@@ -61,6 +63,8 @@ export default function BalancoPage() {
   // modal de nova linha manual
   const [nova, setNova] = useState<NovaLinha | null>(null)
   const [novaErro, setNovaErro] = useState<string | null>(null)
+  // confirmação premium (RD-99) — substitui window.confirm
+  const [confirmacao, setConfirmacao] = useState<Confirmacao | null>(null)
 
   const periodo = periodoDe(dataRef)
 
@@ -100,14 +104,19 @@ export default function BalancoPage() {
     setBusy(false)
   }
 
-  async function excluirLinha(l: Linha) {
+  function excluirLinha(l: Linha) {
     if (!empresaUnica || !l.id) return
-    const aviso = (l.valor ?? 0) > 0 ? `\n\n⚠️ Esta linha tem valor R$ ${fmt(l.valor)} — o balanço vai mudar.` : ''
-    if (!window.confirm(`Excluir a linha "${l.nome}"?${aviso}`)) return
-    setBusy(true); setMsg(null)
-    const { error } = await supabase.rpc('fn_balanco_linha_excluir', { p_company_id: empresaUnica, p_id: l.id })
-    if (error) setMsg('Erro: ' + erroAmigavel(error)); else { setMsg('Linha excluída.'); await carregar() }
-    setBusy(false)
+    const aviso = (l.valor ?? 0) > 0 ? `Esta linha tem valor R$ ${fmt(l.valor)} — o Total e o fechamento do balanço vão mudar.` : undefined
+    setConfirmacao({
+      titulo: `Excluir a linha "${l.nome}"?`, aviso, rotulo: 'Excluir linha', perigo: true,
+      onOk: async () => {
+        const id = l.id!
+        setBusy(true); setMsg(null)
+        const { error } = await supabase.rpc('fn_balanco_linha_excluir', { p_company_id: empresaUnica!, p_id: id })
+        if (error) setMsg('Erro: ' + erroAmigavel(error)); else { setMsg('Linha excluída.'); await carregar() }
+        setBusy(false)
+      },
+    })
   }
 
   // Abre o modal premium (RD-99: sem window.prompt). Pré-preenche lado/grupo.
@@ -128,15 +137,20 @@ export default function BalancoPage() {
     setNova(null); setMsg('Linha adicionada.'); await carregar(); setBusy(false)
   }
 
-  async function copiarPeriodoAnterior() {
+  function copiarPeriodoAnterior() {
     if (!empresaUnica) return
     const de = periodoAnterior(dataRef)
-    if (!window.confirm(`Copiar as linhas manuais de ${de} para ${periodo}? (não duplica as que já existem)`)) return
-    setBusy(true); setMsg(null)
-    const { data, error } = await supabase.rpc('fn_balanco_copiar_periodo', { p_company_id: empresaUnica, p_de: de, p_para: periodo })
-    if (error) setMsg('Erro: ' + erroAmigavel(error))
-    else { const r = data as { copiadas?: number }; setMsg(`${r?.copiadas ?? 0} linha(s) copiada(s) de ${de}.`); await carregar() }
-    setBusy(false)
+    setConfirmacao({
+      titulo: `Copiar as linhas manuais de ${de} para ${periodo}?`,
+      aviso: 'As linhas que já existem na competência atual não são duplicadas.', rotulo: 'Copiar linhas',
+      onOk: async () => {
+        setBusy(true); setMsg(null)
+        const { data, error } = await supabase.rpc('fn_balanco_copiar_periodo', { p_company_id: empresaUnica!, p_de: de, p_para: periodo })
+        if (error) setMsg('Erro: ' + erroAmigavel(error))
+        else { const r = data as { copiadas?: number }; setMsg(`${r?.copiadas ?? 0} linha(s) copiada(s) de ${de}.`); await carregar() }
+        setBusy(false)
+      },
+    })
   }
 
   const porGrupo = useCallback((lado: string, grupo: string) => (bal?.linhas ?? []).filter((l) => l.lado === lado && l.grupo === grupo), [bal])
@@ -200,7 +214,21 @@ export default function BalancoPage() {
         {msg && <span style={{ fontSize: 13, color: msg.startsWith('Erro') ? RED : GREEN }}>{msg}</span>}
       </div>
 
-      {bal && (
+      {bal && bal.vazio && (
+        // GAP 2 (auditor_pdca_2, critério d): balanço TODO ZERO não mostra selo verde "fecha" (enganoso).
+        // Estado vazio explica o que falta e oferece o caminho — nunca um "✓ fecha" de balanço sem conteúdo.
+        <div style={{ marginTop: 8, padding: '28px 20px', borderRadius: 12, background: '#fff', border: `1px dashed ${LINE}`, textAlign: 'center' }}>
+          <div style={{ fontSize: 34, marginBottom: 6 }}>📄</div>
+          <div style={{ fontWeight: 800, fontSize: 16 }}>Sem dados para montar o balanço nesta competência</div>
+          <div style={{ fontSize: 13, color: ESP60, marginTop: 8, lineHeight: 1.6, maxWidth: 560, marginInline: 'auto' }}>
+            O balanço se monta a partir dos <strong>lançamentos financeiros</strong>: lance <strong>contas a pagar e a receber</strong>,
+            registre <strong>saldos de banco</strong> e <strong>bens</strong> (imobilizado), ou adicione <strong>linhas manuais</strong>
+            de Patrimônio Líquido (Capital Social, Reservas). Enquanto tudo está zerado, não há balanço a conferir.
+          </div>
+          <button onClick={() => abrirNovaLinha('pl', 'PATRIMÔNIO LÍQUIDO')} disabled={busy} style={{ ...ctaPl, marginTop: 16 }}>+ Adicionar linha manual ao Patrimônio Líquido</button>
+        </div>
+      )}
+      {bal && !bal.vazio && (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 16 }}>
             <div style={card}><div style={{ fontWeight: 800, marginBottom: 10 }}>ATIVO</div>
@@ -257,6 +285,20 @@ export default function BalancoPage() {
           </div>
         </div>
       )}
+
+      {confirmacao && (
+        // Confirmação premium (RD-99 #3): substitui o window.confirm nativo nas ações que mexem no balanço.
+        <div onClick={() => !busy && setConfirmacao(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 60 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ ...card, width: '100%', maxWidth: 420, boxShadow: '0 10px 40px rgba(61,35,20,0.25)' }}>
+            <div style={{ fontSize: 16, fontWeight: 800 }}>{confirmacao.titulo}</div>
+            {confirmacao.aviso && <div style={{ fontSize: 12.5, color: confirmacao.perigo ? RED : ESP60, marginTop: 8, lineHeight: 1.5 }}>{confirmacao.perigo ? '⚠️ ' : ''}{confirmacao.aviso}</div>}
+            <div style={{ marginTop: 18, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={() => setConfirmacao(null)} disabled={busy} style={btnSec}>Cancelar</button>
+              <button autoFocus onClick={async () => { const fn = confirmacao.onOk; setConfirmacao(null); await fn() }} disabled={busy} style={confirmacao.perigo ? btnDel : btnPri}>{confirmacao.rotulo}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -267,6 +309,7 @@ const ipModal: React.CSSProperties = { display: 'inline-block', padding: '7px 9p
 const lbl: React.CSSProperties = { fontSize: 12, color: ESP60, display: 'block' }
 const btnSec: React.CSSProperties = { padding: '6px 12px', background: 'transparent', color: ESP, border: `1px solid ${LINE}`, borderRadius: 6, fontWeight: 600, cursor: 'pointer', fontSize: 12.5 }
 const btnPri: React.CSSProperties = { padding: '8px 14px', background: GOLD, color: '#3D2314', border: 'none', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: 13 }
+const btnDel: React.CSSProperties = { padding: '8px 14px', background: RED, color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: 13 }
 const miniPri: React.CSSProperties = { padding: '3px 8px', background: GOLD, color: '#3D2314', border: 'none', borderRadius: 5, fontWeight: 700, cursor: 'pointer', fontSize: 12 }
 const miniDel: React.CSSProperties = { padding: '3px 8px', background: 'transparent', color: RED, border: `1px solid ${RED}55`, borderRadius: 5, fontWeight: 700, cursor: 'pointer', fontSize: 12 }
 const miniAdd: React.CSSProperties = { padding: '2px 8px', background: 'transparent', color: GOLD, border: `1px solid ${GOLD}55`, borderRadius: 5, fontWeight: 600, cursor: 'pointer', fontSize: 11 }
