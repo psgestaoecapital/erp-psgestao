@@ -1625,8 +1625,11 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
               </div>
             ) : (
               <>
-                <input value={forBusca} onChange={(e) => setForBusca(e.target.value)} placeholder="Buscar fornecedor (mín. 2 caracteres)..."
-                  style={{ width: '100%', padding: 10, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input value={forBusca} onChange={(e) => setForBusca(e.target.value)} placeholder="Buscar fornecedor (mín. 2 caracteres)..."
+                    style={{ flex: 1, padding: 10, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+                  <AjudaCampo chave="commerce.compras.compra_fornecedor" rota={ROTA_AJUDA} />
+                </div>
                 {forCarregando && <div style={{ fontSize: 11, color: C.espressoM, marginTop: 6 }}>Buscando...</div>}
                 {forOpcoes.length > 0 && (
                   <div style={{ maxHeight: 200, overflowY: 'auto', marginTop: 8, border: `1px solid ${C.border}`, borderRadius: 8, background: '#fff' }}>
@@ -1658,7 +1661,7 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
               <div style={{ fontSize: 12, color: C.espressoM, fontStyle: 'italic', padding: '8px 0' }}>Busque e adicione produtos acima.</div>
             ) : (
               <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
-                <thead><tr style={{ background: C.cream }}><Th>Produto</Th><Th>Qtd</Th><Th>Preço un.</Th><Th align="right">Subtotal</Th><Th></Th></tr></thead>
+                <thead><tr style={{ background: C.cream }}><Th>Produto</Th><Th ajuda="commerce.compras.compra_item_qtd">Qtd</Th><Th ajuda="commerce.compras.compra_item_preco">Preço un.</Th><Th align="right">Subtotal</Th><Th></Th></tr></thead>
                 <tbody>
                   {itens.map((it) => {
                     const q = Number(it.quantidade.replace(',', '.')) || 0
