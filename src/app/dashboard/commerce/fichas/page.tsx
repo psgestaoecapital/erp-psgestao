@@ -503,12 +503,12 @@ export default function FichasCommercePage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 720 }}>
               <thead style={{ background: C.cream }}>
                 <tr>
-                  <Th>Código</Th>
-                  <Th>Nome</Th>
-                  <Th>Categoria</Th>
-                  <Th>Unid.</Th>
-                  <Th align="right">Custo total</Th>
-                  <Th align="right">Preço venda</Th>
+                  <Th>Código <AjudaCampo chave="commerce.fichas.codigo" rota={ROTA} /></Th>
+                  <Th>Nome <AjudaCampo chave="commerce.fichas.nome" rota={ROTA} /></Th>
+                  <Th>Categoria <AjudaCampo chave="commerce.fichas.categoria" rota={ROTA} /></Th>
+                  <Th>Unid. <AjudaCampo chave="commerce.fichas.unidade" rota={ROTA} /></Th>
+                  <Th align="right">Custo total <AjudaCampo chave="commerce.fichas.col_custo_total" rota={ROTA} /></Th>
+                  <Th align="right">Preço venda <AjudaCampo chave="commerce.fichas.col_preco_venda" rota={ROTA} /></Th>
                 </tr>
               </thead>
               <tbody>
