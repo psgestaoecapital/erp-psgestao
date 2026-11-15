@@ -1696,7 +1696,7 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
 
           <Card titulo="Pagamento">
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <label style={{ fontSize: 11, color: C.espressoM }}>Condição
+              <label style={{ fontSize: 11, color: C.espressoM }}>Condição <AjudaCampo chave="commerce.compras.pagamento_condicao" rota={ROTA_AJUDA} />
                 <select value={condicao} onChange={(e) => setCondicao(e.target.value)} style={{ width: '100%', marginTop: 4, padding: 8, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, background: '#fff' }}>
                   <option value="a_vista">À vista</option>
                   <option value="30">30 dias</option>
@@ -1705,11 +1705,11 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
                   <option value="parcelado">Parcelado custom</option>
                 </select>
               </label>
-              <label style={{ fontSize: 11, color: C.espressoM }}>Parcelas
+              <label style={{ fontSize: 11, color: C.espressoM }}>Parcelas <AjudaCampo chave="commerce.compras.pagamento_parcelas" rota={ROTA_AJUDA} />
                 <input type="number" min="1" value={parcelas} onChange={(e) => setParcelas(e.target.value)}
                   style={{ width: '100%', marginTop: 4, padding: 8, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12 }} />
               </label>
-              <label style={{ fontSize: 11, color: C.espressoM, gridColumn: '1 / -1' }}>Primeiro vencimento
+              <label style={{ fontSize: 11, color: C.espressoM, gridColumn: '1 / -1' }}>Primeiro vencimento <AjudaCampo chave="commerce.compras.pagamento_primeiro_venc" rota={ROTA_AJUDA} />
                 <input type="date" value={primeiroVenc} onChange={(e) => setPrimeiroVenc(e.target.value)}
                   style={{ width: '100%', marginTop: 4, padding: 8, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12 }} />
               </label>
@@ -1718,19 +1718,19 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
 
           <Card titulo="NF do fornecedor (opcional)">
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <label style={{ fontSize: 11, color: C.espressoM }}>Número
+              <label style={{ fontSize: 11, color: C.espressoM }}>Número <AjudaCampo chave="commerce.compras.nf_numero" rota={ROTA_AJUDA} />
                 <input value={nfNumero} onChange={(e) => setNfNumero(e.target.value)}
                   style={{ width: '100%', marginTop: 4, padding: 8, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12 }} />
               </label>
-              <label style={{ fontSize: 11, color: C.espressoM }}>Data emissão
+              <label style={{ fontSize: 11, color: C.espressoM }}>Data emissão <AjudaCampo chave="commerce.compras.nf_data" rota={ROTA_AJUDA} />
                 <input type="date" value={nfData} onChange={(e) => setNfData(e.target.value)}
                   style={{ width: '100%', marginTop: 4, padding: 8, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12 }} />
               </label>
-              <label style={{ fontSize: 11, color: C.espressoM, gridColumn: '1 / -1' }}>Chave (44 dígitos)
+              <label style={{ fontSize: 11, color: C.espressoM, gridColumn: '1 / -1' }}>Chave (44 dígitos) <AjudaCampo chave="commerce.compras.nf_chave" rota={ROTA_AJUDA} />
                 <input value={nfChave} onChange={(e) => setNfChave(e.target.value)}
                   style={{ width: '100%', marginTop: 4, padding: 8, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, fontFamily: 'monospace' }} />
               </label>
-              <label style={{ fontSize: 11, color: C.espressoM }}>Valor NF
+              <label style={{ fontSize: 11, color: C.espressoM }}>Valor NF <AjudaCampo chave="commerce.compras.nf_valor" rota={ROTA_AJUDA} />
                 <input value={nfValor} onChange={(e) => setNfValor(e.target.value)} placeholder="0,00"
                   style={{ width: '100%', marginTop: 4, padding: 8, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12 }} />
               </label>

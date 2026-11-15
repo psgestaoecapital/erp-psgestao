@@ -142,8 +142,8 @@ export default function ContratosFeePanel({ companyId }: { companyId: string | n
               style={{ width: 16, height: 16, cursor: salvandoCfg ? 'wait' : 'pointer', accentColor: C.gold }}
             />
             Exigir contrato assinado anexado para ativar
+            <AjudaCampo chave="ge.contratos.exigir_anexo" rota="/dashboard/contratos" />
           </label>
-          <AjudaCampo chave="ge.contratos.exigir_anexo" rota="/dashboard/contratos" />
           <span style={{ fontSize: 11.5, color: C.espressoM }}>
             {exigirAnexo ? 'Ativar só com o anexo do contrato.' : 'Pode ativar sem anexo — o aviso “Contrato não anexado” lembra de anexar depois.'}
           </span>
