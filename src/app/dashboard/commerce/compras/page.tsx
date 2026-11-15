@@ -1254,9 +1254,9 @@ function ModalNovaCotacao({ companyId, onClose, onCreated, flash, flashErr }: {
 
         {step === 'identif' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <Field label="Descrição *"><input autoFocus value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Ex: Materiais de drywall para obra centro" style={inp} /></Field>
-            <Field label="Solicitante"><input value={solicitante} onChange={(e) => setSolicitante(e.target.value)} placeholder="Ex: João Silva (Compras)" style={inp} /></Field>
-            <Field label="Data limite para respostas"><input type="date" value={dataLimite} onChange={(e) => setDataLimite(e.target.value)} style={inp} /></Field>
+            <Field label="Descrição *" ajuda="commerce.compras.cot_descricao"><input autoFocus value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Ex: Materiais de drywall para obra centro" style={inp} /></Field>
+            <Field label="Solicitante" ajuda="commerce.compras.cot_solicitante"><input value={solicitante} onChange={(e) => setSolicitante(e.target.value)} placeholder="Ex: João Silva (Compras)" style={inp} /></Field>
+            <Field label="Data limite para respostas" ajuda="commerce.compras.cot_data_limite"><input type="date" value={dataLimite} onChange={(e) => setDataLimite(e.target.value)} style={inp} /></Field>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
               <button onClick={onClose} style={btnSec}>Cancelar</button>
               <button onClick={() => setStep('itens')} disabled={!podeAvancarIdent} style={{ ...btnPri, opacity: podeAvancarIdent ? 1 : 0.5 }}>Próximo →</button>
@@ -1431,10 +1431,10 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
     </div>
   )
 }
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children, ajuda }: { label: string; children: React.ReactNode; ajuda?: string }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <span style={{ fontSize: 10, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>{label}</span>
+      <span style={{ fontSize: 10, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>{label}{ajuda && <AjudaCampo chave={ajuda} rota={ROTA_AJUDA} />}</span>
       {children}
     </label>
   )
