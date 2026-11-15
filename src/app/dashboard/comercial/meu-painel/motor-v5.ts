@@ -3,7 +3,7 @@
 // É o PRIMEIRO item da reconstrução de /dashboard/comercial/meu-painel no formato v5 aprovado pelo CEO. Aqui vive
 // APENAS o cálculo: funções puras, sem React, sem DOM, sem rede. A tela (próximo item) importa este módulo e só
 // desenha. Separar o cálculo da tela deixa os números testáveis sem navegador — é o que permite provar, no gate e
-// contra o banco real, os números de aceitação da Frioeste (01/10–06/11/2026: R$ 13.983.740 · 6.285 itens ·
+// contra o banco real, os números de aceitação de uma empresa real de referência (01/10–06/11/2026: R$ 13.983.740 · 6.285 itens ·
 // 482 clientes · 127 produtos · R$ 30,61/kg na análise padrão).
 //
 // O pacote de entrada (`BaseV5`) é exatamente o que a RPC `fn_bi_comercial_base(company, de, ate)` devolve (item 1,

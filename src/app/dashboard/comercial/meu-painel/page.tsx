@@ -70,6 +70,9 @@ type VendRow = {
 export default function MeuPainelV6() {
   const { companyIds, selInfo } = useCompanyIds()
   const empresa = selInfo.tipo === 'empresa' && companyIds.length === 1 ? companyIds[0] : null
+  // Nome exibido nos títulos: a empresa selecionada quando é uma só; senão termo
+  // genérico (nunca um nome de cliente fixo — tela compartilhada por toda empresa).
+  const nomeEmpresa = selInfo.tipo === 'empresa' && selInfo.nome ? selInfo.nome : 'sua empresa'
   const [base, setBase] = useState<BaseV5 | null>(null)
   const [estado, setEstado] = useState<EstadoV5 | null>(null)
   const [carregando, setCarregando] = useState(false)
@@ -545,7 +548,7 @@ export default function MeuPainelV6() {
       )}
 
       {aba === 'geral' && (<>
-      <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 8px' }}>Como a Frioeste está vendendo</h2>
+      <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 8px' }}>Como a {nomeEmpresa} está vendendo</h2>
 
       {modelo && semVendas && (
         <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: '36px 24px', textAlign: 'center', color: C.m }}>
@@ -606,10 +609,10 @@ export default function MeuPainelV6() {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
-            {/* Do que vive a Frioeste: donut com alternância faturamento/volume */}
+            {/* Do que vive a empresa: donut com alternância faturamento/volume */}
             <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: C.m, display: 'flex', alignItems: 'center', gap: 4 }}>Do que vive a Frioeste<AjudaCampo chave="com.painel.produtos" rota={ROTA} /></div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: C.m, display: 'flex', alignItems: 'center', gap: 4 }}>Do que vive a {nomeEmpresa}<AjudaCampo chave="com.painel.produtos" rota={ROTA} /></div>
                 <div style={{ display: 'flex', gap: 4 }}>
                   {(['val', 'kg'] as const).map((m) => (
                     <button key={m} type="button" onClick={() => setDonutMetrica(m)} aria-pressed={donutMetrica === m}
@@ -893,7 +896,7 @@ export default function MeuPainelV6() {
         <AbaClientes clientes={clientesV7} base={base} modelo={modelo} />
       )}
       {aba === 'cidades' && base && modelo && cidadesV7 && (
-        <AbaCidades cidades={cidadesV7} base={base} modelo={modelo} />
+        <AbaCidades cidades={cidadesV7} base={base} modelo={modelo} alvo={nomeEmpresa} />
       )}
       {aba === 'metas' && (
         <MetasV7 empresa={empresa} />

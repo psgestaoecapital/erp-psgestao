@@ -16,9 +16,9 @@ const int = (v: number | null | undefined) => v == null ? '—' : nf({ maximumFr
 const pct = (v: number) => `${nf({ maximumFractionDigits: 1 }).format(v)}%`
 const ton = (kg: number) => `${nf({ maximumFractionDigits: 1 }).format(kg / 1000)} t`
 
-type Props = { cidades: CidadesV7; base: BaseV5; modelo: ModeloV5 }
+type Props = { cidades: CidadesV7; base: BaseV5; modelo: ModeloV5; alvo: string }
 
-export function AbaCidades({ cidades, base, modelo }: Props) {
+export function AbaCidades({ cidades, base, modelo, alvo }: Props) {
   const [ord, setOrd] = useState<{ k: keyof CidadeV7; dir: 1 | -1 }>({ k: 'val', dir: -1 })
   const [aberta, setAberta] = useState<number | null>(null)
   const linhas = cidades.linhas
@@ -74,7 +74,7 @@ export function AbaCidades({ cidades, base, modelo }: Props) {
 
       {/* Donut */}
       <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>Onde a Frioeste vende<AjudaCampo chave="com.painel.cidades" rota={ROTA} /></div>
+        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>Onde a {alvo} vende<AjudaCampo chave="com.painel.cidades" rota={ROTA} /></div>
         <div style={{ width: '100%', height: 220 }}>
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
