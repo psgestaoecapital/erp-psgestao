@@ -58,7 +58,7 @@ test.describe('Supervisão de pausas — detalhe do desvio e filtro por colabora
 
   test('o caso mostra cada pausa curta com horário e o motivo pela régua (mm:ss), o excesso como gestão, e filtra por colaborador', { tag: '@pos-migration' }, async ({ page }) => {
     await page.addInitScript((id) => { try { window.localStorage.setItem('ps_empresa_sel', id) } catch { /* noop */ } }, DEMO_SST)
-    await page.goto('/dashboard/compliance/pausas-tecnicas')
+    await page.goto('/dashboard/ehs/pausas-tecnicas')
     await aguardarConteudo(page)
     await page.getByRole('button', { name: 'Supervisão' }).click()
     const datas = page.locator('input[type="date"]')

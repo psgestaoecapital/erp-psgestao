@@ -501,7 +501,7 @@ export default function ConectoresPage() {
                       {/* Providers de ponto: sync real (com periodo) vive no Ponto Eletronico.
                           Nao fingimos sync aqui — mandamos pra tela certa (Pilar 3 / nao mentir). */}
                       {(con as { pontoProvider?: boolean }).pontoProvider && (
-                        <a href="/dashboard/compliance/ponto" style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: C.g, color: '#fff', fontSize: 11, fontWeight: 700, textDecoration: 'none', display: 'inline-block' }}>
+                        <a href="/dashboard/ehs/ponto" style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: C.g, color: '#fff', fontSize: 11, fontWeight: 700, textDecoration: 'none', display: 'inline-block' }}>
                           ⟳ Sincronizar em Ponto Eletrônico →
                         </a>
                       )}
