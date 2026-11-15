@@ -11,6 +11,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Trash2, Plus, AlertCircle, CheckCircle2, Wand2 } from 'lucide-react'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+// O editor de parcelas aparece dentro do modal de contrato de fee (ContratoFeeModal), na tela de Contratos
+// (/dashboard/contratos) — fixa a rota de ajuda para o "?" (RD-95) carregar no mesmo pacote dessa tela,
+// inclusive quando o modal é aberto a partir de outra rota (ex.: pm/leads).
+const ROTA_AJUDA = '/dashboard/contratos'
 
 export interface ParcelaContrato {
   id?: string
@@ -167,11 +173,11 @@ export default function ParcelasContratoEditor({ contratoId, companyId, valorMen
       {autoAberto && !readOnly && (
         <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end', padding: 8, background: C.cream, borderRadius: 6, flexWrap: 'wrap' }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 130 }}>
-            <span style={{ fontSize: 10, color: C.espressoM }}>Primeiro vencimento</span>
+            <span style={{ fontSize: 10, color: C.espressoM, display: 'flex', alignItems: 'center' }}>Primeiro vencimento <AjudaCampo chave="ge.contratos.parcela_auto_primeiro_vencimento" rota={ROTA_AJUDA} /></span>
             <input type="date" value={autoPrimeiro} onChange={(e) => setAutoPrimeiro(e.target.value)} style={inp} />
           </label>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 2, width: 90 }}>
-            <span style={{ fontSize: 10, color: C.espressoM }}>Nº parcelas</span>
+            <span style={{ fontSize: 10, color: C.espressoM, display: 'flex', alignItems: 'center' }}>Nº parcelas <AjudaCampo chave="ge.contratos.parcela_auto_numero" rota={ROTA_AJUDA} /></span>
             <input type="number" min="1" max="120" value={autoN} onChange={(e) => setAutoN(e.target.value)} style={inp} />
           </label>
           <button type="button" onClick={() => void gerarAutomaticas()} disabled={gerando} style={{ ...btn, opacity: gerando ? 0.5 : 1 }}>
@@ -193,15 +199,15 @@ export default function ParcelasContratoEditor({ contratoId, companyId, valorMen
                 <div style={{ ...inp, textAlign: 'center', fontWeight: 700, color: C.goldD, background: C.goldBg }}>{i + 1}</div>
               </label>
               <label>
-                <span style={{ display: 'block', fontSize: 10, color: C.espressoM, marginBottom: 2 }}>Vencimento</span>
+                <span style={{ display: 'flex', alignItems: 'center', fontSize: 10, color: C.espressoM, marginBottom: 2 }}>Vencimento <AjudaCampo chave="ge.contratos.parcela_vencimento" rota={ROTA_AJUDA} /></span>
                 <input type="date" value={p.vencimento} disabled={readOnly} onChange={(e) => alterar(i, { vencimento: e.target.value })} style={inp} data-testid={`parcela-contrato-vencimento-${i}`} />
               </label>
               <label>
-                <span style={{ display: 'block', fontSize: 10, color: C.espressoM, marginBottom: 2 }}>Valor (R$)</span>
+                <span style={{ display: 'flex', alignItems: 'center', fontSize: 10, color: C.espressoM, marginBottom: 2 }}>Valor (R$) <AjudaCampo chave="ge.contratos.parcela_valor" rota={ROTA_AJUDA} /></span>
                 <input type="number" step="0.01" min="0" value={p.valor || ''} disabled={readOnly} onChange={(e) => alterar(i, { valor: parseFloat(e.target.value) || 0 })} style={{ ...inp, textAlign: 'right' }} data-testid={`parcela-contrato-valor-${i}`} />
               </label>
               <label>
-                <span style={{ display: 'block', fontSize: 10, color: C.espressoM, marginBottom: 2 }}>Conta de recebimento</span>
+                <span style={{ display: 'flex', alignItems: 'center', fontSize: 10, color: C.espressoM, marginBottom: 2 }}>Conta de recebimento <AjudaCampo chave="ge.contratos.parcela_conta_recebimento" rota={ROTA_AJUDA} /></span>
                 <select value={p.conta_bancaria_id ?? ''} disabled={readOnly || contas.length === 0} onChange={(e) => alterar(i, { conta_bancaria_id: e.target.value || null })} style={inp} data-testid={`parcela-contrato-conta-${i}`}>
                   <option value="">{contas.length === 0 ? 'Sem contas ativas' : 'Conta…'}</option>
                   {contas.map((c) => <option key={c.id} value={c.id}>{c.nome}{c.banco ? ` · ${c.banco}` : ''}</option>)}
