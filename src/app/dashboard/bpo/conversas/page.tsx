@@ -8,6 +8,9 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { rpc } from "@/lib/authFetch";
 import { getUsuarioId } from "@/lib/AuthProvider";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+
+const ROTA = "/dashboard/bpo/conversas";
 
 interface Conversa {
   id: string;
@@ -104,12 +107,15 @@ export default function ConversasLandingPage() {
                 Inbox unificado de comunicação com clientes
               </p>
             </div>
-            <button
-              onClick={() => router.push("/dashboard/bpo/conversas/nova")}
-              className="rounded-lg bg-[#C8941A] px-4 py-2 text-sm font-semibold text-white hover:bg-[#A87810]"
-            >
-              + Nova conversa
-            </button>
+            <div className="inline-flex items-center gap-1">
+              <button
+                onClick={() => router.push("/dashboard/bpo/conversas/nova")}
+                className="rounded-lg bg-[#C8941A] px-4 py-2 text-sm font-semibold text-white hover:bg-[#A87810]"
+              >
+                + Nova conversa
+              </button>
+              <AjudaCampo chave="bpo.conversas.acao.nova" rota={ROTA} />
+            </div>
           </div>
         </div>
       </header>
@@ -123,14 +129,17 @@ export default function ConversasLandingPage() {
       <main className="mx-auto max-w-7xl px-6 py-6">
         {/* KPIs */}
         <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-          <KpiCard label="Aguardando você" valor={stats.aguardando} tom={stats.aguardando > 0 ? "vermelho" : undefined} />
-          <KpiCard label="Não lidas" valor={stats.nao_lidas} tom={stats.nao_lidas > 0 ? "destaque" : undefined} />
-          <KpiCard label="SLA vencido" valor={stats.vencidas} tom={stats.vencidas > 0 ? "vermelho" : "verde"} />
-          <KpiCard label="SLA urgente" valor={stats.urgentes} tom={stats.urgentes > 0 ? "amarelo" : "verde"} />
+          <KpiCard label="Aguardando você" ajuda="bpo.conversas.kpi.aguardando" valor={stats.aguardando} tom={stats.aguardando > 0 ? "vermelho" : undefined} />
+          <KpiCard label="Não lidas" ajuda="bpo.conversas.kpi.nao_lidas" valor={stats.nao_lidas} tom={stats.nao_lidas > 0 ? "destaque" : undefined} />
+          <KpiCard label="SLA vencido" ajuda="bpo.conversas.kpi.sla_vencido" valor={stats.vencidas} tom={stats.vencidas > 0 ? "vermelho" : "verde"} />
+          <KpiCard label="SLA urgente" ajuda="bpo.conversas.kpi.sla_urgente" valor={stats.urgentes} tom={stats.urgentes > 0 ? "amarelo" : "verde"} />
         </div>
 
         {/* Filtros */}
         <div className="mb-4 flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1 text-xs text-[#3D2314]/60">
+            Ver <AjudaCampo chave="bpo.conversas.filtro.visao" rota={ROTA} />
+          </span>
           {[
             { v: "minhas", label: "Minhas conversas" },
             { v: "urgentes", label: "Urgentes" },
@@ -149,14 +158,17 @@ export default function ConversasLandingPage() {
             </button>
           ))}
           <div className="flex-1" />
-          <input
-            id="busca-conversas"
-            type="text"
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-            placeholder="Buscar... (Ctrl+K)"
-            className="rounded-lg border border-[#3D2314]/10 bg-white px-3 py-2 text-sm focus:border-[#C8941A] focus:outline-none"
-          />
+          <div className="inline-flex items-center gap-1">
+            <input
+              id="busca-conversas"
+              type="text"
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar... (Ctrl+K)"
+              className="rounded-lg border border-[#3D2314]/10 bg-white px-3 py-2 text-sm focus:border-[#C8941A] focus:outline-none"
+            />
+            <AjudaCampo chave="bpo.conversas.filtro.busca" rota={ROTA} />
+          </div>
         </div>
 
         {/* Lista */}
@@ -257,7 +269,7 @@ function ConversaCard({ c, userId }: { c: Conversa; userId: string | null }) {
   );
 }
 
-function KpiCard({ label, valor, tom }: { label: string; valor: number; tom?: "verde" | "vermelho" | "amarelo" | "destaque" }) {
+function KpiCard({ label, valor, tom, ajuda }: { label: string; valor: number; tom?: "verde" | "vermelho" | "amarelo" | "destaque"; ajuda?: string }) {
   const cor = tom === "verde" ? "text-emerald-700"
     : tom === "vermelho" ? "text-red-700"
     : tom === "amarelo" ? "text-yellow-700"
@@ -265,7 +277,10 @@ function KpiCard({ label, valor, tom }: { label: string; valor: number; tom?: "v
     : "text-[#3D2314]";
   return (
     <div className="rounded-xl bg-[#FAF7F2] p-4">
-      <div className="text-xs uppercase text-[#3D2314]/60">{label}</div>
+      <div className="flex items-center gap-1 text-xs uppercase text-[#3D2314]/60">
+        {label}
+        {ajuda && <AjudaCampo chave={ajuda} rota={ROTA} />}
+      </div>
       <div className={`mt-1 text-2xl font-bold ${cor}`}>{valor}</div>
     </div>
   );

@@ -3,7 +3,7 @@
 // É o PRIMEIRO item da reconstrução de /dashboard/comercial/meu-painel no formato v5 aprovado pelo CEO. Aqui vive
 // APENAS o cálculo: funções puras, sem React, sem DOM, sem rede. A tela (próximo item) importa este módulo e só
 // desenha. Separar o cálculo da tela deixa os números testáveis sem navegador — é o que permite provar, no gate e
-// contra o banco real, os números de aceitação da Frioeste (01/10–06/11/2026: R$ 13.983.740 · 6.285 itens ·
+// contra o banco real, os números de aceitação de uma empresa real de referência (01/10–06/11/2026: R$ 13.983.740 · 6.285 itens ·
 // 482 clientes · 127 produtos · R$ 30,61/kg na análise padrão).
 //
 // O pacote de entrada (`BaseV5`) é exatamente o que a RPC `fn_bi_comercial_base(company, de, ate)` devolve (item 1,
@@ -15,8 +15,8 @@ export interface BaseV5 {
   modo: 'lider' | 'vendedor'
   de: string
   ate: string
-  /** [codigo, nome] do vendedor. */
-  ven: [string, string][]
+  /** [codigo, nome, incluido?] do vendedor. incluido=0 => fica só no TOTAL (fora da comparação e da média); ausente/1 => entra. */
+  ven: [string, string, number?][]
   /** nome da cidade. */
   cid: string[]
   /** nome do transportador. */
@@ -168,6 +168,15 @@ export function venInclui(sel: EstadoV5['ven'], vi: number): boolean {
   if (sel === 'todos') return true
   if (Array.isArray(sel)) return sel.includes(vi)
   return +sel === vi
+}
+
+/**
+ * O vendedor entra nos GRÁFICOS DE COMPARAÇÃO e na MÉDIA da empresa? (AJUSTE 2, CEO 13/11). `incluido=0`
+ * (vindo de com_ranking_participante, na dimensão `ven` da base) deixa o vendedor FORA da comparação/média,
+ * mas o faturamento/volume dele continua no TOTAL GERAL (o motor não o remove de `items`/`tot`). Default: entra.
+ */
+export function venAnalise(base: BaseV5, vi: number): boolean {
+  return base.ven[vi]?.[2] !== 0
 }
 
 function novoAgregado(): Agregado {

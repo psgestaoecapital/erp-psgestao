@@ -25,6 +25,7 @@ type Contrato={
   data_encerramento:string;motivo_encerramento:string;
   responsavel:string;observacoes:string;
   ultimo_titulo_gerado_em:string;total_titulos_gerados:number;total_faturado:number;
+  sem_contas_receber?:boolean;
   created_at:string;
 };
 
@@ -334,6 +335,28 @@ export default function ContratosPage(){
     const erro = r.total_erro ?? 0;
     setMsg(`✅ ${sucesso} título(s) gerados · ${idemp} já existiam${erro>0?` · ${erro} erro(s)`:''}`);
     setProcessando(false);
+    refetchAll();
+    setTimeout(()=>setMsg(""),5000);
+  };
+
+  // #2de35307 — contrato ativado SEM gerar contas a receber: "Gerar agora". Passa pelo mesmo caminho da
+  // ativação (fn_contrato_mudar_status com p_gerar_receber=true), que reusa fn_contrato_gerar_parcelas
+  // (idempotente: não duplica títulos já lançados) e baixa o selo (sem_contas_receber → false).
+  const gerarContasAgora=async(c:Contrato)=>{
+    if(!confirm(`Gerar as contas a receber do contrato ${c.numero} agora?\n\nAs parcelas já lançadas não são duplicadas.`))return;
+    setProcessando(true);
+    const { data, error } = await supabase.rpc('fn_contrato_mudar_status', { p_contrato_id:c.id, p_status:'ativo', p_mensagem:'Gerar contas a receber (manual)', p_gerar_receber:true });
+    const d:any = data;
+    if(error||(d&&d.ok===false)){
+      const motivo = d?.erro==='plano_sem_valor' ? 'O contrato não tem parcelas com valor para lançar. Edite o plano e tente de novo.'
+        : d?.erro==='anexo_contrato_obrigatorio' ? 'Esta empresa exige o contrato anexado antes de lançar as contas a receber.'
+        : (error?erroAmigavel(error,"Não foi possível gerar as contas a receber. Tente de novo."):(d?.erro||"Não foi possível gerar as contas a receber. Tente de novo."));
+      setMsg("❌ "+motivo); setProcessando(false); return;
+    }
+    const g:any = d?.gerador||{};
+    setMsg(`✅ Contas a receber geradas${typeof g.gerados==='number'?` · ${g.gerados} lançada(s)${g.pulados?` · ${g.pulados} já existiam`:''}`:''}`);
+    setProcessando(false);
+    setShowDetalhe(s=>s&&s.id===c.id?{...s,sem_contas_receber:false}:s);
     refetchAll();
     setTimeout(()=>setMsg(""),5000);
   };
@@ -787,6 +810,10 @@ export default function ContratosPage(){
                           </td>
                           <td style={{padding:"8px",textAlign:"center"}}>
                             <span style={{fontSize:9,padding:"3px 10px",borderRadius:6,background:cfg.cor+"15",color:cfg.cor,fontWeight:600,whiteSpace:"nowrap"}}>{cfg.icon} {cfg.label}</span>
+                            {/* #2de35307 · selo quando ativado sem lançar contas a receber */}
+                            {c.status==='ativo'&&c.sem_contas_receber&&(
+                              <div title="Ativado sem lançar as contas a receber" style={{marginTop:4,fontSize:8.5,padding:"2px 7px",borderRadius:5,background:Y+"18",color:Y,fontWeight:600,whiteSpace:"nowrap",display:"inline-flex",alignItems:"center",gap:3}}>⚠ Sem contas a receber <AjudaCampo chave="ge.contrato.sem_contas_receber" /></div>
+                            )}
                           </td>
                           <td style={{padding:"8px",textAlign:"right",position:"relative"}} onClick={e=>e.stopPropagation()}>
                             <div style={{display:"inline-flex",gap:4,alignItems:"center",flexWrap:"wrap",justifyContent:"flex-end"}}>
@@ -1036,6 +1063,20 @@ export default function ContratosPage(){
               <div style={{background:BG3,borderRadius:8,padding:10}}><div style={{fontSize:9,color:TXD}}>TÍTULOS GERADOS</div><div style={{fontSize:15,fontWeight:700,color:B}}>{showDetalhe.total_titulos_gerados||0}</div></div>
               <div style={{background:BG3,borderRadius:8,padding:10}}><div style={{fontSize:9,color:TXD}}>TOTAL FATURADO</div><div style={{fontSize:15,fontWeight:700,color:GO}}>{fmtR(showDetalhe.total_faturado)}</div></div>
             </div>
+
+            {/* #2de35307 · aviso permanente quando o contrato foi ativado sem gerar contas a receber */}
+            {showDetalhe.status==='ativo'&&showDetalhe.sem_contas_receber&&(
+              <div style={{background:Y+"12",border:`1px solid ${Y}55`,borderRadius:10,padding:"10px 12px",marginBottom:16,display:"flex",gap:10,alignItems:"center",justifyContent:"space-between",flexWrap:"wrap"}}>
+                <div style={{fontSize:12,color:TX,display:"flex",alignItems:"center",gap:4}}>
+                  <span><strong style={{color:Y}}>⚠ Sem contas a receber.</strong> Este contrato foi ativado sem lançar títulos no financeiro (cobrança por fora, permuta ou lançamento manual).</span>
+                  <AjudaCampo chave="ge.contrato.sem_contas_receber" />
+                </div>
+                <div style={{display:"inline-flex",alignItems:"center",gap:3}}>
+                  <button onClick={()=>gerarContasAgora(showDetalhe)} disabled={processando} style={{padding:"7px 14px",borderRadius:8,background:G+"18",color:G,fontSize:11,fontWeight:700,border:`1px solid ${G}55`,cursor:processando?"wait":"pointer",whiteSpace:"nowrap"}}>💸 Gerar agora</button>
+                  <AjudaCampo chave="ge.contrato.gerar_contas_agora" />
+                </div>
+              </div>
+            )}
 
             {showDetalhe.escopo&&(
               <div style={{background:BG3,borderRadius:10,padding:12,marginBottom:16,borderLeft:`3px solid ${GO}`}}>
