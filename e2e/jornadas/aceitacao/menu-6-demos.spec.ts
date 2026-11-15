@@ -12,7 +12,7 @@ import { registrarJornada, rpc } from '../../support/api'
 const DEMOS = [
   { nome: 'Revenda', id: 'b0700000-0000-4000-a000-000000000003', rota: '/dashboard/revenda/patio', area: 'revenda_veiculos', posMigration: false },
   { nome: 'Comércio (GE)', id: 'b0700000-0000-4000-a000-000000000004', rota: '/dashboard/gestao-empresarial', area: 'gestao_empresarial', posMigration: false },
-  { nome: 'Indústria (SST)', id: 'b0700000-0000-4000-a000-000000000005', rota: '/dashboard/compliance', area: 'compliance', posMigration: false },
+  { nome: 'Indústria (SST)', id: 'b0700000-0000-4000-a000-000000000005', rota: '/dashboard/ehs', area: 'compliance', posMigration: false },
   { nome: 'Oficina', id: 'b0700000-0000-4000-a000-000000000001', rota: '/dashboard/oficina', area: 'oficina', posMigration: true },
   { nome: 'Agência (P&M)', id: 'b0700000-0000-4000-a000-000000000002', rota: '/dashboard/pm', area: 'pm', posMigration: true },
   { nome: 'Mecânica Modelo', id: 'ded00000-0000-4000-a000-000000000001', rota: '/dashboard/oficina', area: 'oficina', posMigration: true },
