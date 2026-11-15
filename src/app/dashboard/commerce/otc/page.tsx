@@ -2044,7 +2044,7 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
 
         {step === 'cliente' ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Buscar cliente *</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Buscar cliente *</label><AjudaCampo chave="otc.novo.buscar_cliente" rota="/dashboard/commerce/otc" />
             <input
               autoFocus
               value={clienteBusca}
@@ -2121,7 +2121,7 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
               <BlocoObraFiscal companyId={companyId} value={obraFiscal} onChange={setObraFiscal} />
             )}
 
-            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM, marginTop: 8 }}>Observações ao cliente</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM, marginTop: 8 }}>Observações ao cliente</label><AjudaCampo chave="otc.novo.observacoes" rota="/dashboard/commerce/otc" />
             <textarea value={observacoes} onChange={(e) => setObservacoes(e.target.value)} rows={2} placeholder="Opcional — texto que aparece no orçamento" style={{ ...inp, resize: 'vertical' }} />
 
             <div style={{ marginTop: 8, padding: 12, background: C.cream, borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
