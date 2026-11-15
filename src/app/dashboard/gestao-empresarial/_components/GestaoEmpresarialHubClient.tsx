@@ -1,9 +1,11 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Building2 } from 'lucide-react'
+import Link from 'next/link'
+import { Building2, Rocket, ArrowRight } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { PSGC_COLORS, PSGC_RADIUS } from '@/lib/psgc-tokens'
 import PSGCMetric from '@/components/psgc/PSGCMetric'
 import { GestaoEmpresarialHubSkeleton } from './GestaoEmpresarialHubSkeleton'
@@ -100,17 +102,24 @@ export default function GestaoEmpresarialHubClient() {
           <h2 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 26, fontWeight: 400, color: PSGC_COLORS.espresso, margin: '0 0 8px' }}>
             Gestão Empresarial Pró
           </h2>
-          <p style={{ color: PSGC_COLORS.espressoLight, maxWidth: 420, margin: 0, fontSize: 14 }}>
+          <p style={{ color: PSGC_COLORS.espressoLight, maxWidth: 420, margin: '0 0 20px', fontSize: 14 }}>
             {data.mensagem || 'Selecione uma empresa para acessar a Gestão Empresarial.'}
           </p>
+          <NudgeImplantacao />
         </div>
       </div>
     )
   }
 
+  // Empresa nova/vazia: tem empresa única, mas ainda sem nenhum registro financeiro → nudge de onboarding
+  // (não-bloqueante; o dashboard segue aberto — não regride o fix do router).
+  const k = data.kpis
+  const semDados = !!k && (k.registros_fluxo + k.registros_dre + k.registros_financiamentos + k.registros_pagar + k.registros_receber) === 0
+
   return (
     <div style={{ backgroundColor: PSGC_COLORS.offWhite, minHeight: '100vh', color: PSGC_COLORS.espresso }}>
       <div style={{ maxWidth: 1280, margin: '0 auto', padding: '32px 24px' }}>
+        {semDados && (<div style={{ marginBottom: 24 }}><NudgeImplantacao /></div>)}
         {/* Cabeçalho */}
         <header style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 32 }}>
           <div>
@@ -179,6 +188,43 @@ export default function GestaoEmpresarialHubClient() {
           </section>
         </div>
       </div>
+    </div>
+  )
+}
+
+// Nudge "Comece por aqui" (FILA VIVA GE item 1) — atalho não-bloqueante ao Guia de Implantação
+// para empresa nova/vazia. Aparece no empty-state e quando a empresa única ainda não tem registros.
+function NudgeImplantacao() {
+  return (
+    <div
+      style={{
+        display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', justifyContent: 'center',
+        maxWidth: 560, margin: '0 auto', padding: '16px 20px', textAlign: 'left',
+        background: '#FFFFFF', border: `1px solid ${PSGC_COLORS.offWhiteDarker}`,
+        borderRadius: 12, boxShadow: '0 1px 3px rgba(61,35,20,0.06)',
+      }}
+    >
+      <div style={{ flexShrink: 0, width: 40, height: 40, borderRadius: 10, background: `${PSGC_COLORS.dourado}1A`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Rocket size={20} color={PSGC_COLORS.dourado} />
+      </div>
+      <div style={{ flex: '1 1 220px', minWidth: 200 }}>
+        <p style={{ margin: '0 0 2px', fontSize: 14, fontWeight: 700, color: PSGC_COLORS.espresso }}>
+          Comece por aqui
+          <AjudaCampo chave="ge.onboarding.nudge" rota={ROTA_AJUDA} />
+        </p>
+        <p style={{ margin: 0, fontSize: 13, color: PSGC_COLORS.espressoLight }}>
+          5 passos rápidos para a empresa começar: contas, lançamentos, contratos, plano de contas e DRE.
+        </p>
+      </div>
+      <Link
+        href="/dashboard/gestao-empresarial/implantacao"
+        style={{
+          flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'none',
+          padding: '10px 16px', borderRadius: 8, background: PSGC_COLORS.espresso, color: '#fff', fontSize: 13, fontWeight: 600,
+        }}
+      >
+        Abrir o Guia <ArrowRight size={15} />
+      </Link>
     </div>
   )
 }
