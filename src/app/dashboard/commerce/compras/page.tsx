@@ -1266,7 +1266,7 @@ function ModalNovaCotacao({ companyId, onClose, onCreated, flash, flashErr }: {
 
         {step === 'itens' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Itens a cotar *</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM, display: 'inline-flex', alignItems: 'center', gap: 4 }}>Itens a cotar * <AjudaCampo chave="commerce.compras.cot_itens" rota={ROTA_AJUDA} /></label>
             {itens.map((it, i) => (
               <div key={i} style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {it.produto_id ? (
@@ -1340,7 +1340,7 @@ function ModalNovaCotacao({ companyId, onClose, onCreated, flash, flashErr }: {
 
         {step === 'fornec' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Fornecedores convidados *</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM, display: 'inline-flex', alignItems: 'center', gap: 4 }}>Fornecedores convidados * <AjudaCampo chave="commerce.compras.cot_fornecedores" rota={ROTA_AJUDA} /></label>
             <input value={fornBusca} onChange={(e) => setFornBusca(e.target.value)} placeholder="Buscar fornecedor (nome ou CNPJ, mín 2 chars)" style={inp} />
             {fornCandidatos.length > 0 && (
               <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 6, maxHeight: 220, overflowY: 'auto' }}>
