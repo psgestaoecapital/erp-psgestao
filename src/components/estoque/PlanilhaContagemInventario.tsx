@@ -9,6 +9,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { X, Download, Upload } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA_AJUDA = '/dashboard/commerce/estoque'
 import { selecionarTodas } from '@/lib/selecionarTodas'
 import {
   gerarPlanilhaContagem, lerPlanilhaContagem, montarPrevia, type LeituraContagem, type ProdutoAtual,
@@ -117,12 +120,14 @@ export function BaixarPlanilhaContagemModal({ companyId, empresa, cnpj, locais, 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div>
           <label style={lbl}>Local *</label>
+          <AjudaCampo chave="commerce.estoque.contagem.local" rota={ROTA_AJUDA} />
           <select value={localId} onChange={(e) => setLocalId(e.target.value)} style={inp} data-testid="contagem-local">
             {locais.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
           </select>
         </div>
         <div>
           <label style={lbl}>Grupo / categoria</label>
+          <AjudaCampo chave="commerce.estoque.contagem.grupo" rota={ROTA_AJUDA} />
           <select value={grupo} onChange={(e) => setGrupo(e.target.value)} style={inp} data-testid="contagem-grupo" disabled={grupos.length === 0}>
             <option value="">{grupos.length ? 'Todos' : 'Todos (produtos sem grupo cadastrado)'}</option>
             {grupos.map((g) => <option key={g} value={g}>{g}</option>)}
@@ -131,6 +136,7 @@ export function BaixarPlanilhaContagemModal({ companyId, empresa, cnpj, locais, 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <div>
             <label style={lbl}>Só itens com saldo</label>
+            <AjudaCampo chave="commerce.estoque.contagem.so_saldo" rota={ROTA_AJUDA} />
             <select value={soComSaldo ? 'sim' : 'nao'} onChange={(e) => setSoComSaldo(e.target.value === 'sim')} style={inp} data-testid="contagem-so-saldo">
               <option value="sim">Sim</option>
               <option value="nao">Não (todos os ativos)</option>
@@ -138,6 +144,7 @@ export function BaixarPlanilhaContagemModal({ companyId, empresa, cnpj, locais, 
           </div>
           <div>
             <label style={lbl}>Contagem cega</label>
+            <AjudaCampo chave="commerce.estoque.contagem.cega" rota={ROTA_AJUDA} />
             <select value={cega ? 'sim' : 'nao'} onChange={(e) => setCega(e.target.value === 'sim')} style={inp} data-testid="contagem-cega">
               <option value="sim">Sim — esconde o saldo do sistema</option>
               <option value="nao">Não — mostra saldo e diferença</option>
@@ -253,12 +260,14 @@ export function SubirContagemModal({ companyId, locais, onClose, onCriado, flash
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 8 }}>
           <div>
             <label style={lbl}>Local do inventário *</label>
+            <AjudaCampo chave="commerce.estoque.contagem.subir_local" rota={ROTA_AJUDA} />
             <select value={localId} onChange={(e) => setLocalId(e.target.value)} style={inp} disabled={!!criando}>
               {locais.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
             </select>
           </div>
           <div>
             <label style={lbl}>Planilha de contagem (.xlsx)</label>
+            <AjudaCampo chave="commerce.estoque.contagem.arquivo" rota={ROTA_AJUDA} />
             <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" data-testid="contagem-arquivo"
               disabled={lendo || !!criando} style={{ ...inp, padding: 6 }}
               onChange={(e) => { const f = e.target.files?.[0]; if (f) void ler(f); e.target.value = '' }} />
@@ -294,6 +303,7 @@ export function SubirContagemModal({ companyId, locais, onClose, onCriado, flash
             )}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12 }}>
               <span style={{ color: C.espressoM }}>Mostrar:</span>
+              <AjudaCampo chave="commerce.estoque.contagem.mostrar" rota={ROTA_AJUDA} />
               <select value={so} onChange={(e) => setSo(e.target.value as 'diferencas' | 'todos')} style={{ ...inp, width: 'auto', marginTop: 0 }}>
                 <option value="diferencas">Só com diferença</option>
                 <option value="todos">Todos os contados</option>
