@@ -155,7 +155,21 @@ export async function purgarLeftoversDemo(): Promise<void> {
 const DEMO_COMERCIO = 'b0700000-0000-4000-a000-000000000004'
 const DEMOS_PURGA = [DEMO_REVENDA, DEMO_COMERCIO]
 // Prefixos de descrição que SÓ os specs e2e geram (curinga PostgREST = `*`, não `%`).
-const MARCADORES_RECEBER_E2E = ['Contas500 *', 'Aceitação #*', 'Aceitação achado *']
+// PDCA GE 15/11 (tarefa d21978eb · /dashboard/gestao-empresarial/resultado-por-negocio): provado RD-38 no banco
+// prod (DEMO Comércio GE b0700000-...-0004) que os specs abaixo vazavam em erp_receber porque NÃO casavam nenhum
+// marcador acima — o pior era `Regressão achado B *` (pdois-juros-reconciliar-achado-b.spec), 474 títulos vivos =
+// R$ 1,46 mi, poluindo contas-a-receber/DRE/fluxo e jogando receita em "Sem negócio" no resultado-por-negócio.
+// Todos são prefixos DEDICADOS e2e (sufixo RUN único), inconfundíveis — nunca casam os recebíveis reais da DEMO
+// ("Recebimento …", "Venda balcão …", "Mensalidade …", "Serviço avulso …"), conferido RD-38.
+const MARCADORES_RECEBER_E2E = [
+  'Contas500 *', 'Aceitação #*', 'Aceitação achado *',
+  'Regressão achado B *',        // pdois-juros-reconciliar-achado-b.spec
+  'Aceitação baixa por banco *', // kgf/baixa-por-banco
+  'Aceitação unificar *',        // unificar-titulos
+  'Caminho receber *',           // caminho-financeiro-receber.spec
+  'Caminho conciliação *',       // caminho-conciliacao
+  'Pedido MED-*',                // pedido medição/parcelas
+]
 export async function purgarReceberDemo(): Promise<void> {
   const agora = new Date().toISOString()
   let total = 0
