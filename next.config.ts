@@ -80,6 +80,15 @@ const nextConfig: NextConfig = {
         destination: '/dashboard/cadastros/fornecedores',
         permanent: true,
       },
+      // PDCA GE (Princ.3 menu limpo · RD-98 p1 · auditor_pdca_2 15/11): /dashboard/services/nfse era um
+      // PLACEHOLDER "em construção" (ModuloEmConstrucao) duplicando no menu a tela REAL de NFS-e. A tela do
+      // menu é /dashboard/fiscal/nfse ("NFS-e Emitidas", emissão via NFSeEmitirGovModal). Entrada morta
+      // desativada no module_catalog; esta rota redireciona para a canônica (query string preservada).
+      {
+        source: '/dashboard/services/nfse',
+        destination: '/dashboard/fiscal/nfse',
+        permanent: true,
+      },
       // Renomeação Compliance → EHS (CEO 14/11, Fase 2). A vertical passa a viver em /dashboard/ehs/*;
       // o caminho antigo /dashboard/compliance/* vira redirect 308 permanente, então links salvos,
       // favoritos e convites já enviados continuam abrindo (query string preservada automaticamente).
