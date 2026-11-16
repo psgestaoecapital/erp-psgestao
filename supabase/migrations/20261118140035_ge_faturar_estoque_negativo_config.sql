@@ -191,6 +191,11 @@ BEGIN
     'status_pedido', CASE WHEN v_restam=0 THEN 'faturado' ELSE 'faturamento_parcial' END);
 END $function$;
 
+-- SEGURANÇA (RD-52/IDOR): remove a exposição histórica a anon. A guarda de empresa no corpo já barra
+-- quem não é da empresa; service_role (chamada interna sem JWT) segue executando.
+REVOKE ALL ON FUNCTION public.fn_faturar_efetivar(uuid, uuid[], numeric, text, uuid, date, uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_faturar_efetivar(uuid, uuid[], numeric, text, uuid, date, uuid) TO authenticated, service_role;
+
 -- 2b) fn_faturar — guarda no corpo legado (sem previsão). Quando há previsão, delega ao efetivar acima
 -- (que já carrega a guarda), então o retorno dele já traz 'avisos'. --------------------------------
 CREATE OR REPLACE FUNCTION public.fn_faturar(p_pedido_id uuid, p_local_id uuid DEFAULT NULL::uuid)
@@ -353,6 +358,11 @@ BEGIN
     'receber_ids',to_jsonb(v_rec_ids),'movimentos',v_movs);
 END;
 $function$;
+
+-- SEGURANÇA (RD-52/IDOR): remove a exposição histórica a anon (ver nota no corpo). A guarda de empresa
+-- já barra quem não é da empresa; service_role (chamada interna sem JWT) segue executando.
+REVOKE ALL ON FUNCTION public.fn_faturar(uuid, uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_faturar(uuid, uuid) TO authenticated, service_role;
 
 -- 3) RPCs company-scoped p/ a tela de Configurações (padrão do ie_isento; a tela nunca lê companies) --
 CREATE OR REPLACE FUNCTION public.fn_empresa_obter_estoque_negativo(p_company_id uuid)
