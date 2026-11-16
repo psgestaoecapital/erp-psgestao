@@ -477,7 +477,7 @@ export default function AnalisesPage(){
 
           {(realData.chart_mensal||chartData)&&(realData.chart_mensal||chartData).length>0&&(
             <Card>
-              <div style={{fontSize:12,fontWeight:600,color:GOL,marginBottom:10}}>Receitas × Despesas × Resultado — Dados Reais Importados (R$)</div>
+              <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:600,color:GOL,marginBottom:10}}>Receitas × Despesas × Resultado — Dados Reais Importados (R$)<AjudaCampo rota="/dashboard/analises" chave="analises.grafico_rec_desp" /></div>
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={realData.chart_mensal||chartData}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={BD}/>
@@ -610,7 +610,7 @@ export default function AnalisesPage(){
         <div style={{fontSize:11,color:TXM,marginBottom:16}}>Tabela de dias × receitas × despesas × margem bruta × EBITDA × resultado final.</div>
         <a href={`/dashboard/visao-mensal?empresa=${empresaSel}`} style={{display:"inline-block",padding:"12px 32px",borderRadius:10,background:`linear-gradient(135deg, #3D2314, ${GO})`,color:"#FAF7F2",fontSize:13,fontWeight:700,textDecoration:"none",border:"none",cursor:"pointer"}}>📊 Abrir Visão Mensal Completa</a>
         <div style={{marginTop:20}}>
-          <div style={{fontSize:12,fontWeight:700,color:GOL,marginBottom:10}}>💵 Fluxo de Caixa — Projeção Diária</div>
+          <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,fontWeight:700,color:GOL,marginBottom:10}}>💵 Fluxo de Caixa — Projeção Diária<AjudaCampo rota="/dashboard/analises" chave="analises.fluxo_caixa" /></div>
           <FluxoCaixa companyIds={empresaSel==="consolidado"?dbCompanies.map(c=>c.id):empresaSel.startsWith("group_")?dbCompanies.filter(c=>c.group_id===empresaSel.replace("group_","")).map(c=>c.id):[empresaSel]}/>
         </div>
       </div>
