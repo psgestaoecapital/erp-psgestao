@@ -251,7 +251,7 @@ export default function FichasCommercePage() {
   }
 
   async function excluirFicha(id: string) {
-    if (!confirm('Excluir esta ficha e todos os itens? Esta ação não pode ser desfeita.')) return
+    if (!confirm('Excluir esta ficha e todos os itens? A ficha sai da lista e fica registrada como excluída (exclusão rastreável). Peça ao suporte para recuperar, se precisar.')) return
     const { error } = await supabase.rpc('fn_ficha_tecnica_excluir', { p_id: id })
     if (error) {
       flash(erroAmigavel(error, 'Não foi possível excluir a ficha. Tente de novo.'))
