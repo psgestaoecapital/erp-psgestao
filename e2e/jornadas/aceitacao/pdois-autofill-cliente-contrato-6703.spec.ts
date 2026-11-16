@@ -54,4 +54,26 @@ test.describe('Aceitação #6703 — escolher cliente na aba Contrato preenche C
     // o responsável/contato do cadastro também veio
     await expect(page.getByPlaceholder('Quem assina / contato no cliente')).toHaveValue(contato, { timeout: 15000 })
   })
+
+  test('cliente com cadastro incompleto mostra aviso de dados faltantes sem bloquear', async ({ page }) => {
+    const nome = `Cliente 6703 bare ${process.env.GITHUB_RUN_ID ?? 'local'}-${Date.now().toString(36)}`
+    const cli = await dbInsert<{ id: string }>('erp_clientes', {
+      company_id: DEMO_AGENCIA, nome_fantasia: nome, razao_social: nome, cnpj_cpf: DOC, ativo: true,
+      // sem endereço, e-mail e telefone — devem aparecer no aviso
+    })
+    ids.push(cli.id)
+
+    await page.addInitScript((id) => { try { window.localStorage.setItem('ps_empresa_sel', id) } catch { /* noop */ } }, DEMO_AGENCIA)
+    await page.goto('/dashboard/contratos?tab=fee')
+    await aguardarConteudo(page)
+    await page.getByRole('button', { name: '+ Solicitar elaboração' }).click()
+    await expect(page.getByRole('dialog', { name: 'Solicitar elaboração de contrato' })).toBeVisible({ timeout: 20000 })
+    await page.getByRole('button', { name: 'Com dados novos' }).click()
+    await page.getByPlaceholder('Buscar cliente da GE…').fill(nome)
+    await page.getByText(nome, { exact: false }).last().click()
+    await expect(page.getByRole('button', { name: 'Trocar' })).toBeVisible({ timeout: 15000 })
+
+    // #6703 (c): aviso não-bloqueante lista o que falta no cadastro
+    await expect(page.getByText(/Faltam dados no cadastro deste cliente/)).toBeVisible({ timeout: 15000 })
+  })
 })

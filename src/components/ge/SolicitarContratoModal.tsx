@@ -269,6 +269,17 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
   }
   const avisos = coerenciaAvisos()
 
+  // #6703 (c): dados do cadastro que faltam para o contrato sair completo (só no modo manual, com cliente escolhido).
+  // Não bloqueia; endereço/e-mail/telefone vêm do cadastro (editáveis em Cadastros → Clientes). Doc e responsável
+  // são editáveis no próprio modal, então saem desta lista.
+  const faltamCadastro: string[] = (modo === 'manual' && cli && cliInfo)
+    ? ([
+        [!cliInfo.endereco, 'endereço'],
+        [!cliInfo.email, 'e-mail'],
+        [!cliInfo.telefone, 'telefone'],
+      ] as [boolean, string][]).filter(([f]) => f).map(([, r]) => r)
+    : []
+
   return (
     <div onClick={criado ? concluir : onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: 16 }}>
       <div onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Solicitar elaboração de contrato" style={{ background: C.cream, borderRadius: 12, maxWidth: 680, width: '100%', maxHeight: '92vh', overflowY: 'auto' }}>
@@ -352,6 +363,12 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
                         {cliInfo.endereco && <div style={{ fontSize: 12, color: C.espressoM, marginTop: 4 }}>{cliInfo.endereco}</div>}
                         <div style={{ fontSize: 12, color: C.espressoM, marginTop: 2 }}>{cliInfo.email || 'sem e-mail'} · {cliInfo.telefone || 'sem telefone'}</div>
                         <div style={{ fontSize: 11, color: C.espressoM, marginTop: 6 }}>Dados vindos do cadastro do cliente — edite no cadastro se mudaram.</div>
+                      </div>
+                    ) : null}
+                    {/* #6703 (c): avisa (sem bloquear) quais dados do cadastro faltam para o contrato sair completo. */}
+                    {faltamCadastro.length > 0 ? (
+                      <div style={{ background: C.amberBg, color: C.amber, padding: '10px 14px', borderRadius: 6, marginBottom: 14, marginTop: -4, fontSize: 12.5, lineHeight: 1.5 }}>
+                        Faltam dados no cadastro deste cliente: <strong>{faltamCadastro.join(', ')}</strong>. Complete em <strong>Cadastros → Clientes</strong> para o contrato sair sem lacunas.
                       </div>
                     ) : null}
                   </>
