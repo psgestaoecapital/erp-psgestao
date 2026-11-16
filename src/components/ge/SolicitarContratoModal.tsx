@@ -171,7 +171,9 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
   const daProposta = modo === 'proposta' ? chip('da proposta', C.amber, C.amberBg) : null
   const doCadastro = modo === 'proposta' && cliInfo ? chip('do cadastro', C.green, C.greenBg) : null
 
-  // escolher cliente para proposta sem vínculo: puxa nome/doc do cadastro p/ enviar como identidade do contrato
+  // escolher cliente (proposta sem vínculo ou modo "Com dados novos" — #6703): puxa nome/doc/contato/endereço do
+  // cadastro. Fill-se-vazio: só preenche CPF/CNPJ e responsável quando estão vazios — nunca sobrescreve o que o
+  // usuário digitou à mão (foi a sobrescrita assíncrona que quebrou o fluxo de cliente novo inline, revert #5270).
   async function escolherCliente(id: string) {
     const { data } = await supabase.from('erp_clientes').select('razao_social, nome_fantasia, cnpj_cpf, email, telefone, celular, logradouro, numero, bairro, cidade, uf, endereco, contato_operacional').eq('id', id).maybeSingle()
     const e = (data ?? {}) as Record<string, string | null>
@@ -334,9 +336,24 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
                     ) : null}
                   </>
                 ) : (
-                  <Campo label="Cliente" chave="pm.solicitar_contrato.cliente" ajuda>
-                    <ClientePickerInline companyId={companyId} value={cli} onChange={(id) => setCli(id)} onToast={(s) => setToast(s)} onErro={(s) => setErro(s)} />
-                  </Campo>
+                  <>
+                    <Campo label="Cliente" chave="pm.solicitar_contrato.cliente" ajuda>
+                      <ClientePickerInline companyId={companyId} value={cli}
+                        onChange={(id) => { setCli(id); if (id) void escolherCliente(id); else setCliInfo(null) }}
+                        onToast={(s) => setToast(s)} onErro={(s) => setErro(s)} />
+                    </Campo>
+                    {/* #6703 (Edney/Pdois): ao escolher o cliente, o cadastro preenche o CPF/CNPJ e o responsável
+                        abaixo — SÓ quando estão vazios, nunca sobrescrevendo o que foi digitado à mão (escolherCliente
+                        é fill-se-vazio, 1 argumento). Os dados de contato aparecem aqui para conferência. */}
+                    {cli && cliInfo ? (
+                      <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 14, marginTop: -6 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: C.espresso }}>{cliInfo.nome || 'Cliente'}{chip('do cadastro', C.green, C.greenBg)}</div>
+                        {cliInfo.endereco && <div style={{ fontSize: 12, color: C.espressoM, marginTop: 4 }}>{cliInfo.endereco}</div>}
+                        <div style={{ fontSize: 12, color: C.espressoM, marginTop: 2 }}>{cliInfo.email || 'sem e-mail'} · {cliInfo.telefone || 'sem telefone'}</div>
+                        <div style={{ fontSize: 11, color: C.espressoM, marginTop: 6 }}>Os dados vêm do cadastro do cliente — edite no cadastro se mudaram. O CPF/CNPJ e o responsável abaixo você pode ajustar aqui.</div>
+                      </div>
+                    ) : null}
+                  </>
                 )}
                 <div style={gradeContrato}>
                   <Campo label="CPF/CNPJ do cliente" chave="pm.solicitar_contrato.cpf_cnpj" ajuda>
