@@ -198,6 +198,12 @@ export default function MeuPainelV6() {
   // Sem vendas no período (RD-98 p1): com a base carregada mas nenhuma nota/valor/volume, a tela não desenha R$0 cru —
   // mostra o estado vazio com o que fazer (ampliar período / limpar filtros), em vez de KPIs e gráficos mortos.
   const semVendas = !!modelo && (modelo.tot.notas.size ?? 0) === 0 && (modelo.tot.val ?? 0) === 0 && (modelo.tot.kg ?? 0) === 0
+  // Núcleo universal (princípio 1): a inteligência de peso/despojo/desossa (frigorífico) só faz sentido
+  // quando a empresa transaciona por peso. Sinal barato e sem dependência: há volume em kg no período
+  // (a venda de carne carrega kg na nota). Empresa que vende por unidade/serviço (kg == 0, mas com venda)
+  // vê vocabulário genérico — nada de "quilo"/"despojo"/"R$/kg". Quando vende por peso, comportamento
+  // IDÊNTICO ao atual (frigorífico preservado). (Follow-up Eng.Chefe: flag de cadastro "vende por peso".)
+  const vendePorPeso = !!modelo && (modelo.tot.kg ?? 0) > 0
 
   // Bloco 2 — linhas de produto (mesma agregação do motor, por linha, com a análise padrão).
   const linhas = useMemo(() => {
@@ -570,15 +576,19 @@ export default function MeuPainelV6() {
       {r && modelo && !semVendas && (
         <>
           <p style={{ fontSize: 16, lineHeight: 1.5, margin: '0 0 16px' }}>
-            Faturou <b>{brl0(r.totalValor)}</b> em <b>{ton(modelo.tot.kg)}</b>, para <b>{int(r.clientes)} clientes</b>. Sem o despojo, o quilo sai a <b>{brl2(r.precoPorKg)}</b>. O preço por vendedor é medido pelo <b>índice vs a média da empresa</b> (100 = média): acima é acréscimo (conta a favor), abaixo é desconto real. A comparação com a tabela de referência do sistema de origem (<b>{nf({ maximumFractionDigits: 1 }).format(itensAbaixoPct)}%</b> dos itens abaixo dela, <b>{brl0(descR)}</b>) é secundária e pode estar desatualizada.
+            {vendePorPeso ? (
+              <>Faturou <b>{brl0(r.totalValor)}</b> em <b>{ton(modelo.tot.kg)}</b>, para <b>{int(r.clientes)} clientes</b>. Sem o despojo, o quilo sai a <b>{brl2(r.precoPorKg)}</b>. O preço por vendedor é medido pelo <b>índice vs a média da empresa</b> (100 = média): acima é acréscimo (conta a favor), abaixo é desconto real. A comparação com a tabela de referência do sistema de origem (<b>{nf({ maximumFractionDigits: 1 }).format(itensAbaixoPct)}%</b> dos itens abaixo dela, <b>{brl0(descR)}</b>) é secundária e pode estar desatualizada.</>
+            ) : (
+              <>Faturou <b>{brl0(r.totalValor)}</b> para <b>{int(r.clientes)} clientes</b>, com ticket médio de <b>{brl0(ticketNota)}</b> por nota. O preço por vendedor é medido pelo <b>índice vs a média da empresa</b> (100 = média): acima é acréscimo (conta a favor), abaixo é desconto real. A comparação com a tabela de referência do sistema de origem (<b>{nf({ maximumFractionDigits: 1 }).format(itensAbaixoPct)}%</b> dos itens abaixo dela, <b>{brl0(descR)}</b>) é secundária e pode estar desatualizada.</>
+            )}
           </p>
 
           {/* 8 cards KPI (SPEC §2.1) */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 16 }}>
             <Cartao rot="Faturamento" chave="com.painel.faturado" valor={brl0(r.totalValor)} sub="bruto (antes das devoluções)" />
             <Cartao rot="Faturamento líquido" chave="com.painel.faturado_liquido" valor={brl0(r.totalValor - devR)} sub={`bruto − ${brl0(devR)} de devoluções`} />
-            <Cartao rot="Volume sem despojo" chave="com.painel.volume" valor={ton(modelo.tot.kgP)} sub={`total com despojo ${ton(modelo.tot.kg)}`} />
-            <Cartao rot="Preço médio" chave="com.painel.preco" valor={brl2(r.precoPorKg)} sub="R$/kg sem despojo" />
+            {vendePorPeso && <Cartao rot="Volume sem despojo" chave="com.painel.volume" valor={ton(modelo.tot.kgP)} sub={`total com despojo ${ton(modelo.tot.kg)}`} />}
+            {vendePorPeso && <Cartao rot="Preço médio" chave="com.painel.preco" valor={brl2(r.precoPorKg)} sub="R$/kg sem despojo" />}
             <Cartao rot="Ticket por nota" chave="com.painel.ticket" valor={brl0(ticketNota)} sub={`${int(notas)} notas`} />
             <Cartao rot="Desconto vs tabela (ref.)" chave="com.painel.desconto" valor={`${nf({ maximumFractionDigits: 2 }).format(descPct)}%`} sub={`${brl0(descR)} · ref. pode estar desatualizada`} />
             <button type="button" onClick={() => setModalAnalise(true)} aria-label="Devoluções — configurar o que conta no indicador"
@@ -613,6 +623,7 @@ export default function MeuPainelV6() {
             <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: C.m, display: 'flex', alignItems: 'center', gap: 4 }}>Do que vive a {nomeEmpresa}<AjudaCampo chave="com.painel.produtos" rota={ROTA} /></div>
+                {vendePorPeso && (
                 <div style={{ display: 'flex', gap: 4 }}>
                   {(['val', 'kg'] as const).map((m) => (
                     <button key={m} type="button" onClick={() => setDonutMetrica(m)} aria-pressed={donutMetrica === m}
@@ -621,14 +632,15 @@ export default function MeuPainelV6() {
                     </button>
                   ))}
                 </div>
+                )}
               </div>
               <div style={{ width: '100%', height: 200 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={linhasTab} dataKey={donutMetrica === 'val' ? 'val' : 'kg'} nameKey="nome" innerRadius={55} outerRadius={85} paddingAngle={2}>
+                    <Pie data={linhasTab} dataKey={vendePorPeso && donutMetrica === 'kg' ? 'kg' : 'val'} nameKey="nome" innerRadius={55} outerRadius={85} paddingAngle={2}>
                       {linhasTab.map((l, i) => <Cell key={l.nome} fill={CORES_LINHA[i % CORES_LINHA.length]} />)}
                     </Pie>
-                    <Tooltip allowEscapeViewBox={{ x: false, y: false }} formatter={(v, n) => [donutMetrica === 'val' ? brl0(Number(v)) : `${int(Number(v))} kg`, n]} />
+                    <Tooltip allowEscapeViewBox={{ x: false, y: false }} formatter={(v, n) => [vendePorPeso && donutMetrica === 'kg' ? `${int(Number(v))} kg` : brl0(Number(v)), n]} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
@@ -679,7 +691,8 @@ export default function MeuPainelV6() {
               </div>
             </div>
 
-            {/* Preço médio do kg: linha temporal */}
+            {/* Preço médio do kg: linha temporal — só quando a empresa vende por peso */}
+            {vendePorPeso && (
             <div style={{ background: '#fff', border: `1px solid ${C.bd}`, borderRadius: 12, padding: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: C.m, display: 'flex', alignItems: 'center', gap: 4 }}>Preço médio do kg<AjudaCampo chave="com.painel.rpkg" rota={ROTA} /></div>
@@ -707,6 +720,7 @@ export default function MeuPainelV6() {
                 </ResponsiveContainer>
               </div>
             </div>
+            )}
           </div>
 
           {/* Faturamento por dia */}
@@ -731,7 +745,7 @@ export default function MeuPainelV6() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14, minWidth: 620 }}>
               <thead>
                 <tr style={{ color: C.m, textAlign: 'left' }}>
-                  {([['Linha', null], ['Faturamento', 'val'], ['Part.', 'part'], ['Volume', 'kg'], ['R$/kg', 'rpkg'], ['Desconto', 'desc'], ['Clientes', 'cli']] as [string, 'val' | 'part' | 'kg' | 'rpkg' | 'desc' | 'cli' | null][]).map(([rot, k]) => (
+                  {([['Linha', null], ['Faturamento', 'val'], ['Part.', 'part'], ...(vendePorPeso ? [['Volume', 'kg'], ['R$/kg', 'rpkg']] : []) as [string, 'kg' | 'rpkg'][], ['Desconto', 'desc'], ['Clientes', 'cli']] as [string, 'val' | 'part' | 'kg' | 'rpkg' | 'desc' | 'cli' | null][]).map(([rot, k]) => (
                     <th key={rot} style={{ padding: '6px 4px', textAlign: k || rot === 'Linha' ? (rot === 'Linha' ? 'left' : 'right') : 'left' }}>
                       {k ? (
                         <button type="button" onClick={() => setOrdLin((o) => ({ k, dir: o.k === k ? (o.dir === 1 ? -1 : 1) : -1 }))}
@@ -756,8 +770,8 @@ export default function MeuPainelV6() {
                       </div>
                     </td>
                     <td style={{ padding: '6px 4px', textAlign: 'right' }}>{nf({ maximumFractionDigits: 1 }).format(l.part)}%</td>
-                    <td style={{ padding: '6px 4px', textAlign: 'right' }}>{ton(l.kg)}</td>
-                    <td style={{ padding: '6px 4px', textAlign: 'right' }}>{brl2(l.rpkg)}</td>
+                    {vendePorPeso && <td style={{ padding: '6px 4px', textAlign: 'right' }}>{ton(l.kg)}</td>}
+                    {vendePorPeso && <td style={{ padding: '6px 4px', textAlign: 'right' }}>{brl2(l.rpkg)}</td>}
                     <td style={{ padding: '6px 4px', textAlign: 'right' }}>{nf({ maximumFractionDigits: 2 }).format(l.desc)}%</td>
                     <td style={{ padding: '6px 4px', textAlign: 'right' }}>{int(l.cli)}</td>
                   </tr>
@@ -865,7 +879,7 @@ export default function MeuPainelV6() {
                   <th style={{ padding: '6px 4px', textAlign: 'right' }}>Part.</th>
                   <th style={{ padding: '6px 4px', textAlign: 'right' }}>Clientes</th>
                   <th style={{ padding: '6px 4px', textAlign: 'right' }}>Ticket</th>
-                  <th style={{ padding: '6px 4px', textAlign: 'right' }}>R$/kg</th>
+                  {vendePorPeso && <th style={{ padding: '6px 4px', textAlign: 'right' }}>R$/kg</th>}
                   <th style={{ padding: '6px 4px', textAlign: 'right' }}>Índice</th>
                   <th style={{ padding: '6px 4px', textAlign: 'right' }}>Acrésc./Desc. (vs média)</th>
                   <th style={{ padding: '6px 4px', textAlign: 'right' }}>Devolução</th>
@@ -880,7 +894,7 @@ export default function MeuPainelV6() {
                     <td style={{ padding: '6px 4px', textAlign: 'right' }}>{nf({ maximumFractionDigits: 1 }).format(v.part)}%</td>
                     <td style={{ padding: '6px 4px', textAlign: 'right' }}>{int(v.cli)}</td>
                     <td style={{ padding: '6px 4px', textAlign: 'right' }}>{brl0(v.ticket)}</td>
-                    <td style={{ padding: '6px 4px', textAlign: 'right' }}>{brl2(v.rpkg)}</td>
+                    {vendePorPeso && <td style={{ padding: '6px 4px', textAlign: 'right' }}>{brl2(v.rpkg)}</td>}
                     <td style={{ padding: '6px 4px', textAlign: 'right' }}>{v.idx == null ? '—' : nf({ maximumFractionDigits: 0 }).format(v.idx)}</td>
                     <td style={{ padding: '6px 4px', textAlign: 'right', fontWeight: 600, color: v.vsMedia == null ? C.m : v.vsMedia >= 0 ? C.verde : C.vermelho }}>{v.vsMedia == null ? '—' : `${v.vsMedia >= 0 ? '+' : '−'}${nf({ maximumFractionDigits: 1 }).format(Math.abs(v.vsMedia))}%`}</td>
                     <td style={{ padding: '6px 4px', textAlign: 'right' }}>{brl0(v.dev)} · {nf({ maximumFractionDigits: 2 }).format(v.devPct)}%</td>
