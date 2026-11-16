@@ -271,7 +271,7 @@ export default function ContratoFeeModal({ companyId, contratoId, onClose, onSav
 
               {/* Cabeçalho do fee */}
               <Campo label="Cliente">
-                <ClientePickerInline companyId={companyId} value={cli} onChange={(id) => void escolherCliente(id)} onToast={(s) => setToast(s)} />
+                <ClientePickerInline companyId={companyId} value={cli} onChange={(id) => void escolherCliente(id)} onToast={(s) => setToast(s)} onErro={(s) => setErro(s)} />
               </Campo>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <Campo label="Código identificador"><input style={inp} value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="Ex.: FEE-2026-001" /></Campo>

@@ -320,7 +320,7 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
                         <div style={{ fontSize: 13, color: C.red, fontWeight: 700, marginBottom: 8 }}>
                           Esta proposta não tem cliente — escolha ou cadastre antes de pedir o contrato.
                         </div>
-                        <ClientePickerInline companyId={companyId} value={cliInfo?.id ?? ''} onChange={(id) => { if (id) void escolherCliente(id) }} onToast={(s) => setToast(s)} />
+                        <ClientePickerInline companyId={companyId} value={cliInfo?.id ?? ''} onChange={(id) => { if (id) void escolherCliente(id) }} onToast={(s) => setToast(s)} onErro={(s) => setErro(s)} />
                       </div>
                     ) : cliInfo ? (
                       <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 12 }}>
@@ -335,7 +335,7 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
                   </>
                 ) : (
                   <Campo label="Cliente" chave="pm.solicitar_contrato.cliente" ajuda>
-                    <ClientePickerInline companyId={companyId} value={cli} onChange={(id) => setCli(id)} onToast={(s) => setToast(s)} />
+                    <ClientePickerInline companyId={companyId} value={cli} onChange={(id) => setCli(id)} onToast={(s) => setToast(s)} onErro={(s) => setErro(s)} />
                   </Campo>
                 )}
                 <div style={gradeContrato}>
