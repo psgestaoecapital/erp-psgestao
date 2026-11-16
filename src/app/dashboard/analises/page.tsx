@@ -111,6 +111,25 @@ const Tit=({t,ajuda}:{t:string;ajuda?:string})=>(<div style={{display:"flex",ali
 
 const Card=({children,p="16px 18px",title}:{children:React.ReactNode,p?:string,title?:string})=>(<div style={{background:"#161614",borderRadius:14,padding:p,marginBottom:10,border:`1px solid #2A2822`,transition:"all 0.2s"}}>{title&&<div style={{fontSize:12,fontWeight:600,color:GOL,marginBottom:12,letterSpacing:0.2}}>{title}</div>}{children}</div>);
 
+// Esqueleto de carregamento que PREENCHE a viewport enquanto o /api/report pesado responde,
+// para a tela não aparecer "em branco/cinza" (gap do auditor). Mesma paleta escura da tela.
+const SkeletonAnalises=()=>(
+  <div style={{padding:"4px 0 48px"}} aria-busy="true" aria-label="Carregando análises">
+    <style>{`@keyframes psSk{0%{opacity:.4}50%{opacity:.85}100%{opacity:.4}}`}</style>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:8,marginBottom:14}}>
+      {Array.from({length:6}).map((_,i)=>(
+        <div key={i} style={{background:BG2,border:`1px solid ${BD}`,borderRadius:12,height:86,animation:"psSk 1.2s ease-in-out infinite",animationDelay:`${i*0.08}s`}}/>
+      ))}
+    </div>
+    <div style={{background:BG2,border:`1px solid ${BD}`,borderRadius:14,height:270,marginBottom:12,animation:"psSk 1.2s ease-in-out infinite",animationDelay:"0.1s"}}/>
+    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+      <div style={{background:BG2,border:`1px solid ${BD}`,borderRadius:14,height:220,animation:"psSk 1.2s ease-in-out infinite",animationDelay:"0.18s"}}/>
+      <div style={{background:BG2,border:`1px solid ${BD}`,borderRadius:14,height:220,animation:"psSk 1.2s ease-in-out infinite",animationDelay:"0.26s"}}/>
+    </div>
+    <div style={{textAlign:"center",color:TXM,fontSize:12,letterSpacing:0.2}}>Processando dados do período…</div>
+  </div>
+);
+
 export default function AnalisesPage(){
   const [aba,setAba]=useState("geral");
   const [lnAberta,setLnAberta]=useState<number|null>(null);
@@ -509,11 +528,11 @@ export default function AnalisesPage(){
         </div>
       )}
 
-      {loadingReal&&!realData&&(
-        <Card><div style={{textAlign:"center",padding:20,color:TXM,fontSize:12}}>Processando dados importados...</div></Card>
+      {(loadingReal||loadingDb)&&!realData&&(
+        <SkeletonAnalises/>
       )}
 
-      {!realData&&!loadingReal&&(<>
+      {!realData&&!loadingReal&&!loadingDb&&(<>
       <div style={{textAlign:"center",padding:"40px 20px"}}>
         <div style={{fontSize:16,fontWeight:600,color:TX,marginBottom:8}}>Comece com seus próprios dados</div>
         <div style={{fontSize:12,color:TXM,lineHeight:1.6,maxWidth:420,margin:"0 auto 20px"}}>
