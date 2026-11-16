@@ -111,6 +111,41 @@ const Tit=({t}:{t:string})=>(<div style={{display:"flex",alignItems:"center",gap
 
 const Card=({children,p="16px 18px",title}:{children:React.ReactNode,p?:string,title?:string})=>(<div style={{background:"#161614",borderRadius:14,padding:p,marginBottom:10,border:`1px solid #2A2822`,transition:"all 0.2s"}}>{title&&<div style={{fontSize:12,fontWeight:600,color:GOL,marginBottom:12,letterSpacing:0.2}}>{title}</div>}{children}</div>);
 
+const Sk=({w="100%",h=14,r=8,mb=0}:{w?:any,h?:number,r?:number,mb?:number})=>(
+  <div style={{width:w,height:h,borderRadius:r,marginBottom:mb,background:"linear-gradient(90deg,#1A1918 25%,#232320 50%,#1A1918 75%)",backgroundSize:"400% 100%",animation:"psAnaliseShimmer 1.4s ease infinite"}}/>
+);
+// Esqueleto de carregamento: preenche a viewport durante o fetch pesado (/api/report),
+// para a tela nunca aparecer em branco/cinza enquanto os dados chegam.
+const AnaliseSkeleton=()=>(
+  <div aria-busy="true" aria-label="Carregando análises financeiras" style={{padding:"4px 0"}}>
+    <style>{`@keyframes psAnaliseShimmer{0%{background-position:100% 0}100%{background-position:0 0}}`}</style>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(160px, 1fr))",gap:8,marginBottom:14}}>
+      {[0,1,2,3].map(i=>(
+        <div key={i} style={{background:"#161614",borderRadius:14,padding:"16px 18px",border:"1px solid #2A2822"}}>
+          <Sk w="60%" h={10} mb={10}/><Sk w="80%" h={22} mb={8}/><Sk w="45%" h={9}/>
+        </div>
+      ))}
+    </div>
+    <div style={{background:"#161614",borderRadius:14,padding:"16px 18px",marginBottom:10,border:"1px solid #2A2822"}}>
+      <Sk w="42%" h={12} mb={14}/>
+      <div style={{display:"flex",alignItems:"flex-end",gap:10,height:200}}>
+        {[60,85,45,95,70,55,80,40,90,65,75,50].map((hpc,i)=>(
+          <div key={i} style={{flex:1,height:`${hpc}%`,borderRadius:"6px 6px 0 0",background:"linear-gradient(180deg,#232320,#1A1918)",animation:"psAnaliseShimmer 1.4s ease infinite",backgroundSize:"100% 400%"}}/>
+        ))}
+      </div>
+    </div>
+    <div style={{background:"#161614",borderRadius:14,padding:"16px 18px",marginBottom:10,border:"1px solid #2A2822"}}>
+      <Sk w="35%" h={12} mb={14}/>
+      {[0,1,2,3,4].map(i=>(
+        <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:"0.5px solid rgba(42,40,34,0.3)"}}>
+          <Sk w={24} h={24} r={6}/><div style={{flex:1}}><Sk w={`${70-i*8}%`} h={11}/></div><Sk w={70} h={12}/>
+        </div>
+      ))}
+    </div>
+    <div style={{textAlign:"center",fontSize:11,color:"#B0AB9F",marginTop:8}}>Carregando suas análises financeiras…</div>
+  </div>
+);
+
 export default function AnalisesPage(){
   const [aba,setAba]=useState("geral");
   const [lnAberta,setLnAberta]=useState<number|null>(null);
@@ -428,7 +463,8 @@ export default function AnalisesPage(){
 
     <div style={{padding:"14px 20px",maxWidth:1400,margin:"0 auto"}}>
 
-    {aba==="geral"&&(<div>
+    {loadingDb&&(<AnaliseSkeleton/>)}
+    {!loadingDb&&aba==="geral"&&(<div>
       {realData&&(()=>{
         const alerts: {sev:string,msg:string,det:string}[] = [];
         if(realData.resultado_periodo<0) alerts.push({sev:"critico",msg:`Resultado negativo: ${fmtBRL(realData.resultado_periodo)}`,det:"A empresa está gastando mais do que fatura. Ação imediata necessária."});
@@ -509,11 +545,9 @@ export default function AnalisesPage(){
         </div>
       )}
 
-      {loadingReal&&!realData&&(
-        <Card><div style={{textAlign:"center",padding:20,color:TXM,fontSize:12}}>Processando dados importados...</div></Card>
-      )}
+      {loadingReal&&!realData&&(<AnaliseSkeleton/>)}
 
-      {!realData&&!loadingReal&&(<>
+      {!realData&&!loadingReal&&!loadingDb&&(<>
       <div style={{textAlign:"center",padding:"40px 20px"}}>
         <div style={{fontSize:16,fontWeight:600,color:TX,marginBottom:8}}>Comece com seus próprios dados</div>
         <div style={{fontSize:12,color:TXM,lineHeight:1.6,maxWidth:420,margin:"0 auto 20px"}}>
