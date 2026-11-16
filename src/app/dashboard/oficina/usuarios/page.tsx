@@ -187,6 +187,9 @@ export default function UsuariosOficinaPage() {
                     {removendoId === p.user_id ? 'Desativando…' : 'Desativar'}
                   </button>
                 )}
+                {ehMecanico && (
+                  <AjudaCampo chave="oficina.usuarios.desativar" rota="/dashboard/oficina/usuarios" />
+                )}
               </div>
             )
           })}
