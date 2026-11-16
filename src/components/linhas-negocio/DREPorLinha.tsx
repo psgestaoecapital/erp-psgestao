@@ -1,6 +1,7 @@
 'use client'
 import React from 'react'
 import type { DREPorLinha } from '@/types/linhas-negocio'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 // Design system PS premium (RD-96) — mesma paleta das telas irmãs (Divisões / Linhas de negócio).
 // Antes: tokens genéricos do shadcn/tailwind (bg-card, bg-muted, text-muted-foreground, bg/text-green/yellow/red-*).
@@ -33,6 +34,7 @@ export default function DREPorLinhaCard({ linha }: Props) {
       <div className="flex items-center gap-2 mb-3">
         <div className="w-3 h-3 rounded-full" style={{ background: linha.linha_cor }}/>
         <h3 className="text-sm font-semibold" style={{ color: ESPRESSO, fontFamily: SERIF }}>{linha.linha_nome}</h3>
+        <AjudaCampo chave='ge.linhas.dre_por_linha' rota='/dashboard/linhas-negocio' />
         {linha.health_score !== undefined && (
           <span className="ml-auto text-xs font-bold px-2 py-0.5 rounded-full" style={seloScore(linha.health_score)}>Score {linha.health_score}</span>
         )}
