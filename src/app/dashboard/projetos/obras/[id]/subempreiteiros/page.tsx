@@ -40,6 +40,14 @@ const STATUS_LABEL: Record<string, { l: string; cor: string }> = {
   concluido: { l: 'Concluído', cor: ESP },
   cancelado: { l: 'Cancelado', cor: VERM },
 }
+// Situação da medição do subempreiteiro (quanto foi executado/medido por período).
+const MED_STATUS: Record<string, { l: string; cor: string }> = {
+  rascunho: { l: 'Rascunho', cor: MUT },
+  aprovada: { l: 'Aprovada', cor: VERDE },
+  cancelada: { l: 'Cancelada', cor: VERM },
+}
+const fmtComp = (iso: string | null) =>
+  iso ? new Date(iso + 'T00:00:00').toLocaleDateString('pt-BR', { month: '2-digit', year: 'numeric' }) : '—'
 
 type Obra = { id: string; nome: string | null; company_id: string }
 type Fornecedor = { id: string; nome_fantasia: string | null; razao_social: string | null }
@@ -58,6 +66,19 @@ type Contrato = {
 
 type LinhaForm = { descricao: string; unidade: string; quantidade: string; preco_unitario: string }
 const linhaVazia = (): LinhaForm => ({ descricao: '', unidade: '', quantidade: '', preco_unitario: '' })
+
+type Medicao = {
+  id: string; numero: string | null; competencia: string | null; data_medicao: string | null
+  valor_bruto: number | null; retencao_pct: number | null; valor_retencao: number | null; valor_liquido: number | null
+  status: string; observacoes: string | null; criado_em: string | null
+}
+type MedForm = {
+  medicao_id: string | null; contrato_id: string
+  competencia: string; data_medicao: string; valor_bruto: string; status: string; observacoes: string
+}
+const medFormVazio = (contratoId: string): MedForm => ({
+  medicao_id: null, contrato_id: contratoId, competencia: '', data_medicao: '', valor_bruto: '', status: 'rascunho', observacoes: '',
+})
 
 type FormState = {
   contrato_id: string | null
@@ -90,6 +111,13 @@ export default function SubempreiteirosObraPage({ params }: { params: Promise<{ 
   const [abrirForm, setAbrirForm] = useState(false)
   const [form, setForm] = useState<FormState>(formVazio)
   const [salvando, setSalvando] = useState(false)
+
+  // Medições do subempreiteiro (slice 2a: camada de dados já publicada — fn_obra_subempreiteiro_medicao_*).
+  const [medExpandido, setMedExpandido] = useState<string | null>(null)
+  const [medicoes, setMedicoes] = useState<Record<string, Medicao[]>>({})
+  const [medCarregando, setMedCarregando] = useState<string | null>(null)
+  const [medForm, setMedForm] = useState<MedForm | null>(null)
+  const [medSalvando, setMedSalvando] = useState(false)
 
   const carregar = useCallback(async () => {
     setCarregando(true); setErro(null); setEmLiberacao(false)
@@ -222,6 +250,75 @@ export default function SubempreiteirosObraPage({ params }: { params: Promise<{ 
     const r = (data ?? {}) as { ok?: boolean; erro?: string }
     if (r.ok === false) { setErro(r.erro ?? 'Não foi possível excluir o contrato.'); return }
     await carregar()
+  }
+
+  // ---- Medições do subempreiteiro (slice 2a) -----------------------------------------------------------
+  const carregarMedicoes = useCallback(async (contratoId: string) => {
+    setMedCarregando(contratoId); setErro(null)
+    const { data, error } = await supabase.rpc('fn_obra_subempreiteiro_medicao_listar', { p_contrato_id: contratoId })
+    setMedCarregando(null)
+    if (error) {
+      if (recursoEmLiberacao(error)) { setMedicoes((m) => ({ ...m, [contratoId]: [] })); return }
+      setErro(erroAmigavel(error, 'Não foi possível carregar as medições.')); return
+    }
+    const r = (data ?? {}) as { ok?: boolean; erro?: string; medicoes?: Medicao[] }
+    if (r.ok === false) { setErro(r.erro ?? 'Não foi possível carregar as medições.'); return }
+    setMedicoes((m) => ({ ...m, [contratoId]: r.medicoes ?? [] }))
+  }, [])
+
+  function alternarMedicoes(contratoId: string) {
+    setMedForm(null)
+    if (medExpandido === contratoId) { setMedExpandido(null); return }
+    setMedExpandido(contratoId)
+    if (!medicoes[contratoId]) void carregarMedicoes(contratoId)
+  }
+
+  function abrirMedNova(contratoId: string) { setMedForm(medFormVazio(contratoId)); setErro(null) }
+  function abrirMedEdicao(contratoId: string, m: Medicao) {
+    setMedForm({
+      medicao_id: m.id, contrato_id: contratoId,
+      competencia: m.competencia ?? '', data_medicao: m.data_medicao ?? '',
+      valor_bruto: m.valor_bruto != null ? String(m.valor_bruto) : '',
+      status: m.status || 'rascunho', observacoes: m.observacoes ?? '',
+    })
+    setErro(null)
+  }
+
+  async function salvarMedicao() {
+    if (!medForm) return
+    const bruto = parseNumBR(medForm.valor_bruto) || 0
+    if (bruto <= 0) { setErro('Informe o valor bruto medido (maior que zero).'); return }
+    setMedSalvando(true); setErro(null)
+    const { data, error } = await supabase.rpc('fn_obra_subempreiteiro_medicao_salvar', {
+      p_medicao: {
+        medicao_id: medForm.medicao_id,
+        contrato_id: medForm.contrato_id,
+        competencia: medForm.competencia || null,
+        data_medicao: medForm.data_medicao || null,
+        valor_bruto: bruto,
+        status: medForm.status,
+        observacoes: medForm.observacoes.trim() || null,
+      },
+    })
+    setMedSalvando(false)
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível salvar a medição.')); return }
+    const r = (data ?? {}) as { ok?: boolean; erro?: string }
+    if (r.ok === false) { setErro(r.erro ?? 'Não foi possível salvar a medição.'); return }
+    const cid = medForm.contrato_id
+    setMedForm(null)
+    await carregarMedicoes(cid)
+  }
+
+  async function excluirMedicao(contratoId: string, m: Medicao) {
+    const motivo = prompt('Excluir esta medição? Fica registrado quem excluiu e o motivo (a medição não some do histórico). Motivo:')
+    if (motivo === null) return
+    if (!motivo.trim()) { setErro('Informe o motivo da exclusão.'); return }
+    setErro(null)
+    const { data, error } = await supabase.rpc('fn_obra_subempreiteiro_medicao_excluir', { p_medicao_id: m.id, p_motivo: motivo })
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível excluir a medição.')); return }
+    const r = (data ?? {}) as { ok?: boolean; erro?: string }
+    if (r.ok === false) { setErro(r.erro ?? 'Não foi possível excluir a medição.'); return }
+    await carregarMedicoes(contratoId)
   }
 
   const card: React.CSSProperties = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 14, padding: 18 }
@@ -423,6 +520,10 @@ export default function SubempreiteirosObraPage({ params }: { params: Promise<{ 
                       <button onClick={() => setExpandido(aberto ? null : c.id)} style={{ ...btn('transparent', GOLD), padding: '6px 10px', border: `1px solid ${LINE}` }}>
                         {aberto ? 'Ocultar itens' : `Ver itens (${c.itens.length})`}
                       </button>
+                      <button onClick={() => alternarMedicoes(c.id)} style={{ ...btn('transparent', GOLD), padding: '6px 10px', border: `1px solid ${LINE}` }} data-testid={`sub-medicoes-${c.id}`}>
+                        {medExpandido === c.id ? 'Ocultar medições' : 'Medições'}
+                      </button>
+                      <AjudaCampo chave="projetos.subempreiteiro.medicoes" rota={ROTA} />
                       <button onClick={() => abrirEdicao(c)} style={{ ...btn('transparent', ESP), padding: '6px 10px', border: `1px solid ${LINE}` }} data-testid={`sub-editar-${c.id}`}>Editar</button>
                       <AjudaCampo chave="projetos.subempreiteiro.editar" rota={ROTA} />
                       <span style={{ flex: 1 }} />
@@ -454,6 +555,118 @@ export default function SubempreiteirosObraPage({ params }: { params: Promise<{ 
                             ))}
                           </tbody>
                         </table>
+                      </div>
+                    )}
+
+                    {medExpandido === c.id && (
+                      <div style={{ marginTop: 12, borderTop: `1px solid ${LINE}`, paddingTop: 12 }} data-testid={`sub-medicoes-painel-${c.id}`}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <strong style={{ color: ESP, fontSize: 14 }}>Medições do subempreiteiro</strong>
+                          <AjudaCampo chave="projetos.subempreiteiro.medicoes" rota={ROTA} />
+                          <span style={{ flex: 1 }} />
+                          <button onClick={() => abrirMedNova(c.id)} style={{ ...btn(GOLD, ESP), padding: '6px 12px' }} data-testid={`sub-medicao-nova-${c.id}`}>+ Nova medição</button>
+                          <AjudaCampo chave="projetos.subempreiteiro.medicao_nova" rota={ROTA} />
+                        </div>
+                        <p style={{ fontSize: 12, color: MUT, margin: '6px 0 0' }}>
+                          Registre o quanto foi medido do subempreiteiro por período. O pagamento (com retenção, INSS e ISS) é gerado no financeiro, em etapa própria.
+                        </p>
+
+                        {medForm && medForm.contrato_id === c.id && (() => {
+                          const bruto = parseNumBR(medForm.valor_bruto) || 0
+                          const ret = Number(c.retencao_pct) || 0
+                          const vret = Math.round(bruto * ret) / 100
+                          const liq = bruto - vret
+                          return (
+                            <div style={{ ...card, marginTop: 10, background: BG }} data-testid={`sub-medicao-form-${c.id}`}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                <strong style={{ color: ESP, fontSize: 14 }}>{medForm.medicao_id ? 'Editar medição' : 'Nova medição'}</strong>
+                                <span style={{ flex: 1 }} />
+                                <button onClick={() => setMedForm(null)} style={{ ...btn('transparent', MUT), border: `1px solid ${LINE}`, padding: '6px 12px' }}>Fechar</button>
+                              </div>
+                              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 12 }}>
+                                <label style={{ ...lbl, flexDirection: 'column', alignItems: 'stretch', minWidth: 150 }}>
+                                  <span>Competência <AjudaCampo chave="projetos.subempreiteiro.medicao_competencia" rota={ROTA} /></span>
+                                  <input type="month" value={medForm.competencia ? medForm.competencia.slice(0, 7) : ''} onChange={(e) => setMedForm((f) => f && ({ ...f, competencia: e.target.value ? `${e.target.value}-01` : '' }))} style={{ ...inp, marginTop: 4 }} data-testid={`sub-medicao-competencia-${c.id}`} />
+                                </label>
+                                <label style={{ ...lbl, flexDirection: 'column', alignItems: 'stretch', minWidth: 160 }}>
+                                  <span>Data da medição <AjudaCampo chave="projetos.subempreiteiro.medicao_data" rota={ROTA} /></span>
+                                  <input type="date" value={medForm.data_medicao} onChange={(e) => setMedForm((f) => f && ({ ...f, data_medicao: e.target.value }))} style={{ ...inp, marginTop: 4 }} data-testid={`sub-medicao-data-${c.id}`} />
+                                </label>
+                                <label style={{ ...lbl, flexDirection: 'column', alignItems: 'stretch', minWidth: 160 }}>
+                                  <span>Valor bruto medido <AjudaCampo chave="projetos.subempreiteiro.medicao_valor_bruto" rota={ROTA} /></span>
+                                  <input inputMode="decimal" value={medForm.valor_bruto} onChange={(e) => setMedForm((f) => f && ({ ...f, valor_bruto: e.target.value }))} style={{ ...inp, marginTop: 4 }} placeholder="0,00" data-testid={`sub-medicao-valor-${c.id}`} />
+                                </label>
+                                <label style={{ ...lbl, flexDirection: 'column', alignItems: 'stretch', minWidth: 150 }}>
+                                  <span>Situação <AjudaCampo chave="projetos.subempreiteiro.medicao_status" rota={ROTA} /></span>
+                                  <select value={medForm.status} onChange={(e) => setMedForm((f) => f && ({ ...f, status: e.target.value }))} style={{ ...inp, marginTop: 4 }} data-testid={`sub-medicao-status-${c.id}`}>
+                                    <option value="rascunho">Rascunho</option>
+                                    <option value="aprovada">Aprovada</option>
+                                    <option value="cancelada">Cancelada</option>
+                                  </select>
+                                </label>
+                              </div>
+                              <label style={{ ...lbl, flexDirection: 'column', alignItems: 'stretch', marginTop: 12 }}>
+                                <span>Observações <AjudaCampo chave="projetos.subempreiteiro.medicao_observacoes" rota={ROTA} /></span>
+                                <textarea value={medForm.observacoes} onChange={(e) => setMedForm((f) => f && ({ ...f, observacoes: e.target.value }))} rows={2} style={{ ...inp, marginTop: 4, resize: 'vertical' }} placeholder="Opcional — referência da medição, boletim, nota." data-testid={`sub-medicao-obs-${c.id}`} />
+                              </label>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 12, flexWrap: 'wrap' }}>
+                                <div style={{ fontSize: 13, color: ESP }}>
+                                  <span style={{ color: MUT }}>Líquido (após {ret}% de retenção) </span>
+                                  <AjudaCampo chave="projetos.subempreiteiro.medicao_liquido" rota={ROTA} />
+                                  <strong style={{ marginLeft: 6 }}>{brl(liq)}</strong>
+                                  {ret > 0 && <span style={{ color: MUT, marginLeft: 8 }}>(retenção {brl(vret)})</span>}
+                                </div>
+                                <span style={{ flex: 1 }} />
+                                <button onClick={() => void salvarMedicao()} disabled={medSalvando} style={{ ...btn(ESP), opacity: medSalvando ? 0.6 : 1 }} data-testid={`sub-medicao-salvar-${c.id}`}>
+                                  {medSalvando ? 'Salvando…' : medForm.medicao_id ? 'Salvar alterações' : 'Salvar medição'}
+                                </button>
+                              </div>
+                            </div>
+                          )
+                        })()}
+
+                        <div style={{ marginTop: 10, overflowX: 'auto' }}>
+                          {medCarregando === c.id ? (
+                            <div style={{ fontSize: 13, color: MUT }}>Carregando medições…</div>
+                          ) : (medicoes[c.id]?.length ?? 0) === 0 ? (
+                            <div style={{ fontSize: 13, color: MUT }}>Nenhuma medição registrada para este contrato ainda. Use “+ Nova medição” para lançar a primeira.</div>
+                          ) : (
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                              <thead>
+                                <tr style={{ color: MUT, textAlign: 'left' }}>
+                                  <th style={{ padding: '6px 8px' }}>Competência</th>
+                                  <th style={{ padding: '6px 8px' }}>Data</th>
+                                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Bruto</th>
+                                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Retenção</th>
+                                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>Líquido</th>
+                                  <th style={{ padding: '6px 8px' }}>Situação</th>
+                                  <th style={{ padding: '6px 8px', width: 150 }} />
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {(medicoes[c.id] ?? []).map((m) => {
+                                  const mst = MED_STATUS[m.status] ?? { l: m.status, cor: MUT }
+                                  return (
+                                    <tr key={m.id} style={{ borderTop: `1px solid ${LINE}` }} data-testid={`sub-medicao-row-${m.id}`}>
+                                      <td style={{ padding: '6px 8px', color: ESP }}>{fmtComp(m.competencia)}</td>
+                                      <td style={{ padding: '6px 8px', color: ESP }}>{fmtData(m.data_medicao)}</td>
+                                      <td style={{ padding: '6px 8px', textAlign: 'right', color: ESP }}>{brl(m.valor_bruto)}</td>
+                                      <td style={{ padding: '6px 8px', textAlign: 'right', color: MUT }}>{brl(m.valor_retencao)}</td>
+                                      <td style={{ padding: '6px 8px', textAlign: 'right', color: ESP }}>{brl(m.valor_liquido)}</td>
+                                      <td style={{ padding: '6px 8px' }}><span style={{ fontSize: 12, fontWeight: 700, color: mst.cor }}>{mst.l}</span></td>
+                                      <td style={{ padding: '6px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                        <button onClick={() => abrirMedEdicao(c.id, m)} style={{ ...btn('transparent', ESP), padding: '4px 8px', border: `1px solid ${LINE}` }} data-testid={`sub-medicao-editar-${m.id}`}>Editar</button>
+                                        <AjudaCampo chave="projetos.subempreiteiro.medicao_editar" rota={ROTA} />
+                                        <button onClick={() => void excluirMedicao(c.id, m)} style={{ ...btn('transparent', VERM), padding: '4px 8px', border: `1px solid ${VERM}`, marginLeft: 6 }} data-testid={`sub-medicao-excluir-${m.id}`}>Excluir</button>
+                                        <AjudaCampo chave="projetos.subempreiteiro.medicao_excluir" rota={ROTA} />
+                                      </td>
+                                    </tr>
+                                  )
+                                })}
+                              </tbody>
+                            </table>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
