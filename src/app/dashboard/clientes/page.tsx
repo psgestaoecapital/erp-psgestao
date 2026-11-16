@@ -76,7 +76,17 @@ export default function ClientesPage(){
 
   const abrirEdicao=(c:Cliente)=>{setEditing(c);setShowForm(true);};
   const abrirNovo=()=>{setEditing(null);setShowForm(true);};
-  const toggleBloqueado=async(c:Cliente)=>{await supabase.from("erp_clientes").update({bloqueado:!c.bloqueado}).eq("id",c.id);setClientes(clientes.map(x=>x.id===c.id?{...x,bloqueado:!x.bloqueado}:x));};
+  // RD-98 p4 · bloquear/desbloquear via RPC guardada (fn_cliente_set_bloqueado): exige login, confere a
+  // empresa e grava audit_log_global (quem/quando). Bloquear cliente trava cobrança/venda → ação de dinheiro,
+  // precisa de rastro. Antes era UPDATE cru no navegador, sem auditoria e falhando em silêncio.
+  const toggleBloqueado=async(c:Cliente)=>{
+    const novo=!c.bloqueado;
+    const{data,error}=await supabase.rpc("fn_cliente_set_bloqueado",{p_id:c.id,p_bloqueado:novo});
+    const r=data as {ok?:boolean;erro?:string}|null;
+    if(error||!r?.ok){setMsg("❌ "+(r?.erro||erroAmigavel(error,`Não foi possível ${novo?"bloquear":"desbloquear"} o cliente agora.`)));setTimeout(()=>setMsg(""),4000);return;}
+    setClientes(clientes.map(x=>x.id===c.id?{...x,bloqueado:novo}:x));
+    setMsg(novo?"✅ Cliente bloqueado.":"✅ Cliente desbloqueado.");setTimeout(()=>setMsg(""),3000);
+  };
   // RD-98 p2/p4 · Excluir (arquivar, soft-delete rastreável) e Restaurar — via RPC guardada, nunca DELETE físico.
   const excluir=async(c:Cliente)=>{
     if(typeof window!=="undefined"&&!window.confirm(`Excluir o cliente "${c.nome_fantasia||c.razao_social}"? Ele sai da lista ativa, mas o histórico é preservado e você pode restaurá-lo depois.`))return;
