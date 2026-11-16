@@ -411,6 +411,7 @@ export default function AnalisesPage(){
         {[["hoje","Hoje"],["semana","Sem"],["mes","Mês"],["trimestre","Tri"],["semestre","6M"],["ano","Ano"]].map(([k,l])=>(
           <button key={k} onClick={()=>setQuickPeriod(k)} style={{padding:"3px 8px",borderRadius:5,fontSize:9,border:`1px solid ${BD}`,background:"transparent",color:TXM,fontWeight:500,cursor:"pointer"}}>{l}</button>
         ))}
+        <AjudaCampo rota="/dashboard/analises" chave="analises.filtro_periodo_rapido" />
         <div style={{width:1,height:14,background:BD,margin:"0 2px"}}/>
         <select value={filtroTipo} onChange={e=>{setFiltroTipo(e.target.value as any);}} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:5,padding:"3px 6px",fontSize:9,fontWeight:600}}>
           <option value="mes">Mensal</option>
