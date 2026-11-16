@@ -107,7 +107,7 @@ const KPI=({r,v,d,ok,ajuda}:any)=>(
   </div>
 );
 
-const Tit=({t}:{t:string})=>(<div style={{display:"flex",alignItems:"center",gap:10,margin:"20px 0 12px"}}><div style={{width:3,height:18,background:`linear-gradient(180deg, ${GOL}, ${GO})`,borderRadius:2}}/><span style={{fontSize:14,fontWeight:700,letterSpacing:0.2,color:TX}}>{t}</span></div>);
+const Tit=({t,ajuda}:{t:string;ajuda?:string})=>(<div style={{display:"flex",alignItems:"center",gap:8,margin:"20px 0 12px"}}><div style={{width:3,height:18,background:`linear-gradient(180deg, ${GOL}, ${GO})`,borderRadius:2}}/><span style={{fontSize:14,fontWeight:700,letterSpacing:0.2,color:TX}}>{t}</span>{ajuda&&<AjudaCampo rota="/dashboard/analises" chave={ajuda} />}</div>);
 
 const Card=({children,p="16px 18px",title}:{children:React.ReactNode,p?:string,title?:string})=>(<div style={{background:"#161614",borderRadius:14,padding:p,marginBottom:10,border:`1px solid #2A2822`,transition:"all 0.2s"}}>{title&&<div style={{fontSize:12,fontWeight:600,color:GOL,marginBottom:12,letterSpacing:0.2}}>{title}</div>}{children}</div>);
 
@@ -637,7 +637,7 @@ export default function AnalisesPage(){
         </>)}
 
         {realData.grupos_custo&&realData.grupos_custo.length>0&&(<>
-          <Tit t="Estrutura de Custos por Grupo"/>
+          <Tit t="Estrutura de Custos por Grupo" ajuda="analises.estrutura_custos"/>
           {realData.grupos_custo.map((g:any,i:number)=>{
             const pct = realData.total_despesas>0?((g.total/realData.total_despesas)*100):0;
             return(
@@ -735,7 +735,7 @@ export default function AnalisesPage(){
         </Card>
 
         {realData.grupos_custo&&realData.grupos_custo.length>0&&(<>
-          <Tit t="Mapa de Custos — Clique para expandir cada grupo"/>
+          <Tit t="Mapa de Custos — Clique para expandir cada grupo" ajuda="analises.mapa_custos"/>
           {realData.grupos_custo.map((g:any,gi:number)=>(
             <Card key={gi}>
               <div onClick={()=>setCustoAberto({...custoAberto,["rg"+gi]:!custoAberto["rg"+gi]})} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}>
@@ -780,12 +780,12 @@ export default function AnalisesPage(){
     </div>)}
 
     {aba==="balanco"&&(<div>
-      <Tit t="Balanço Patrimonial"/>
+      <Tit t="Balanço Patrimonial" ajuda="analises.balanco"/>
       <BalancoPatrimonial empresaId={empresaSel==="consolidado"?(dbCompanies[0]?.id||""):empresaSel.startsWith("group_")?(dbCompanies.find(c=>c.group_id===empresaSel.replace("group_",""))?.id||""):empresaSel} periodoFim={efPeriodoFim}/>
     </div>)}
 
     {aba==="indicadores"&&(<div>
-      <Tit t="Indicadores Fundamentalistas"/>
+      <Tit t="Indicadores Fundamentalistas" ajuda="analises.indicadores"/>
       <IndicadoresFinanceiros realData={realData} empresaId={empresaSel==="consolidado"?(dbCompanies[0]?.id||""):empresaSel.startsWith("group_")?(dbCompanies.find(c=>c.group_id===empresaSel.replace("group_",""))?.id||""):empresaSel}/>
     </div>)}
 
@@ -799,7 +799,7 @@ export default function AnalisesPage(){
           <KPI r="Clientes" v={realData.total_clientes.toLocaleString("pt-BR")} d="No cadastro do sistema de origem" ok={true}ajuda="analises.kpi_clientes"/>
           <KPI r="Empresas" v={`${realData.num_empresas}`} d="CNPJs consolidados" ok={null}/>
         </div>
-        <Tit t="Receitas × Despesas × Resultado"/>
+        <Tit t="Receitas × Despesas × Resultado" ajuda="analises.grafico_rec_desp"/>
         <Card>
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={realData.chart_mensal||chartData}>
@@ -815,14 +815,14 @@ export default function AnalisesPage(){
         </Card>
       </>)}
 
-      <Tit t="Fluxo de Caixa — Projeção Diária"/>
+      <Tit t="Fluxo de Caixa — Projeção Diária" ajuda="analises.fluxo_caixa"/>
       <FluxoCaixa companyIds={empresaSel==="consolidado"?dbCompanies.map(c=>c.id):empresaSel.startsWith("group_")?dbCompanies.filter(c=>c.group_id===empresaSel.replace("group_","")).map(c=>c.id):[empresaSel]}/>
 
     </div>)}
 
     {aba==="precos"&&(<div>
       {realData&&realData.top_receitas_operacionais?(<>
-        <Tit t="Análise de Receitas por Categoria"/>
+        <Tit t="Análise de Receitas por Categoria" ajuda="analises.receitas_categoria"/>
         <Card>
           <div style={{fontSize:11,color:TXM,marginBottom:12}}>Receita por categoria importada ordenada por valor.</div>
           <div style={{overflowX:"auto"}}>
