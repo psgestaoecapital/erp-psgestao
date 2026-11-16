@@ -15,6 +15,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { hhmmParaDecimal } from '@/lib/ponto/hhmm'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import PontoPainelDia from './PontoPainelDia'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
@@ -118,6 +119,11 @@ export default function PontoView({ lente }: { lente: Lente }) {
   const [sincronizandoDiario, setSincronizandoDiario] = useState(false)
   const [sincDiarioProg, setSincDiarioProg] = useState<string | null>(null)
   const [importando, setImportando] = useState(false)
+
+  // Lançamento MANUAL de horas (fallback sem provider integrado)
+  const [manualAberto, setManualAberto] = useState(false)
+  const [manual, setManual] = useState({ cpf: '', nome: '', funcao: '', inicio: inicioMes(), fim: toISO(new Date()), horas: '' })
+  const [salvandoManual, setSalvandoManual] = useState(false)
 
   const carregar = useCallback(async () => {
     if (!empresaUnica) { setLoading(false); return }
@@ -291,6 +297,34 @@ export default function PontoView({ lente }: { lente: Lente }) {
     setOk(`IMPORTOU ${j?.total_processados ?? 0} colaboradores pro EHS · ${j?.criados ?? 0} novos · ${j?.atualizados ?? 0} atualizados${j?.ignorados_sem_cpf ? ` · ${j.ignorados_sem_cpf} sem CPF (ignorados)` : ''}`)
   }
 
+  // Lançar horas MANUALMENTE (fallback: empresa sem relógio/integração opera o ponto à mão).
+  async function lancarManual() {
+    if (!empresaUnica) return
+    const horasNum = Number(String(manual.horas).replace(',', '.'))
+    if (!manual.cpf.trim()) { setErro('Informe o CPF do colaborador.'); return }
+    if (!manual.nome.trim()) { setErro('Informe o nome do colaborador.'); return }
+    if (!Number.isFinite(horasNum) || horasNum < 0 || horasNum > 1000) { setErro('Total de horas inválido (0 a 1000).'); return }
+    if (!manual.inicio || !manual.fim || manual.fim < manual.inicio) { setErro('Período inválido: a data fim não pode ser anterior ao início.'); return }
+    setSalvandoManual(true)
+    setErro(null); setOk(null)
+    const { data, error } = await supabase.rpc('fn_ponto_horas_manual_lancar', {
+      p_company_id: empresaUnica,
+      p_cpf: manual.cpf,
+      p_nome: manual.nome,
+      p_periodo_inicio: manual.inicio,
+      p_periodo_fim: manual.fim,
+      p_total_horas: horasNum,
+      p_funcao: manual.funcao || null,
+    })
+    setSalvandoManual(false)
+    if (error) { setErro(erroAmigavel(error)); return }
+    const j = data as { ok?: boolean } | null
+    if (!j?.ok) { setErro('Não foi possível lançar as horas.'); return }
+    setOk(`HORAS LANÇADAS · ${manual.nome} · ${h1(horasNum)} no período`)
+    setManual((m) => ({ ...m, cpf: '', nome: '', funcao: '', horas: '' }))
+    await carregar()
+  }
+
   // GATE LGPD (diretriz CEO): o Ponto mostra NOMES (dado pessoal) → só quem opera o ponto.
   // Reusa fn_bi_gente_setores_visiveis: bypass (PS_ADMIN/OWNER) ou quem tem escopo no
   // domínio 'gente'. Sem acesso → tela restrita (não renderiza nomes).
@@ -433,6 +467,69 @@ export default function PontoView({ lente }: { lente: Lente }) {
           </>
         )}
       </section>
+
+      {/* Lançamento MANUAL de horas — fallback pra empresa sem relógio/integração de ponto.
+          Fica sempre visível (inclusive sem provider conectado), pra a empresa operar o ponto à mão. */}
+      {empresaUnica && (
+        <section style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: manualAberto ? 18 : '12px 18px', marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => setManualAberto((v) => !v)}
+              data-testid="ponto-manual-abrir"
+              style={{ ...btnOutlineGold, minHeight: 36, padding: '8px 16px' }}
+            >
+              {manualAberto ? '▲ Fechar lançamento manual' : '✎ Lançar horas manualmente'}
+            </button>
+            <AjudaCampo chave="ponto.manual.abrir" rota={AJUDA_ROTA} />
+            {!config && (
+              <span style={{ fontSize: 11, color: MUT }}>
+                Sem relógio integrado? Registre o total de horas de cada colaborador por aqui.
+              </span>
+            )}
+          </div>
+
+          {manualAberto && (
+            <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, alignItems: 'end' }}>
+              <label style={{ display: 'block' }}>
+                <span style={{ ...lbl, ...ajudaLbl }}>CPF <AjudaCampo chave="ponto.manual.cpf" rota={AJUDA_ROTA} /></span>
+                <input value={manual.cpf} onChange={(e) => setManual((m) => ({ ...m, cpf: e.target.value }))} placeholder="Só números ou com pontuação" style={{ ...inp, width: '100%' }} />
+              </label>
+              <label style={{ display: 'block' }}>
+                <span style={{ ...lbl, ...ajudaLbl }}>Nome <AjudaCampo chave="ponto.manual.nome" rota={AJUDA_ROTA} /></span>
+                <input value={manual.nome} onChange={(e) => setManual((m) => ({ ...m, nome: e.target.value }))} placeholder="Nome completo" style={{ ...inp, width: '100%' }} />
+              </label>
+              <label style={{ display: 'block' }}>
+                <span style={{ ...lbl, ...ajudaLbl }}>Função <AjudaCampo chave="ponto.manual.funcao" rota={AJUDA_ROTA} /></span>
+                <input value={manual.funcao} onChange={(e) => setManual((m) => ({ ...m, funcao: e.target.value }))} placeholder="Opcional" style={{ ...inp, width: '100%' }} />
+              </label>
+              <label style={{ display: 'block' }}>
+                <span style={{ ...lbl, ...ajudaLbl }}>Início <AjudaCampo chave="ponto.manual.periodo" rota={AJUDA_ROTA} /></span>
+                <input type="date" value={manual.inicio} onChange={(e) => setManual((m) => ({ ...m, inicio: e.target.value }))} style={{ ...inp, width: '100%' }} />
+              </label>
+              <label style={{ display: 'block' }}>
+                <span style={{ ...lbl, ...ajudaLbl }}>Fim <AjudaCampo chave="ponto.manual.periodo" rota={AJUDA_ROTA} /></span>
+                <input type="date" value={manual.fim} onChange={(e) => setManual((m) => ({ ...m, fim: e.target.value }))} style={{ ...inp, width: '100%' }} />
+              </label>
+              <label style={{ display: 'block' }}>
+                <span style={{ ...lbl, ...ajudaLbl }}>Total de horas <AjudaCampo chave="ponto.manual.total_horas" rota={AJUDA_ROTA} /></span>
+                <input inputMode="decimal" value={manual.horas} onChange={(e) => setManual((m) => ({ ...m, horas: e.target.value }))} placeholder="Ex.: 176 ou 176,5" style={{ ...inp, width: '100%' }} />
+              </label>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <button
+                  type="button"
+                  onClick={lancarManual}
+                  disabled={salvandoManual}
+                  data-testid="ponto-manual-salvar"
+                  style={{ ...btnGold, opacity: salvandoManual ? 0.6 : 1, cursor: salvandoManual ? 'not-allowed' : 'pointer' }}
+                >
+                  {salvandoManual ? 'Lançando…' : '✓ Lançar horas'}
+                </button>
+              </span>
+            </div>
+          )}
+        </section>
+      )}
 
       {erro && <div style={{ background: RED_BG, color: RED, padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{erro}</div>}
       {ok && <div style={{ background: GREEN_BG, color: GREEN, padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: 13, fontWeight: 600 }}>✓ {ok}</div>}
