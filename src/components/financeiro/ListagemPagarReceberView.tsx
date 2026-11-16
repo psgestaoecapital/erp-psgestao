@@ -1966,6 +1966,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                                 )
                               })()}
                               {!pago && (
+                                <>
                                 <button
                                   type="button"
                                   onClick={() => setCartaoItem(r)}
@@ -1974,6 +1975,8 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                                 >
                                   💳 Cartão
                                 </button>
+                                <AjudaCampo chave="financeiro.receber.acao_cartao" alinhar="fim" />
+                                </>
                               )}
                             </div>
                           </Td>
@@ -1981,6 +1984,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                         <Td align="right">
                           <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', flexWrap: 'wrap', alignItems: 'center' }}>
                             {!pago && capExtrato && (
+                              <>
                               <button
                                 type="button"
                                 onClick={() => setConciliandoItem(r)}
@@ -1989,6 +1993,8 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                               >
                                 Conciliar
                               </button>
+                              <AjudaCampo chave={tipo === 'pagar' ? 'financeiro.pagar.acao_conciliar' : 'financeiro.receber.acao_conciliar'} alinhar="fim" />
+                              </>
                             )}
                             {!pago && (
                               <>
@@ -2061,7 +2067,9 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                             >
                               📋
                             </button>
+                            <AjudaCampo chave={tipo === 'pagar' ? 'financeiro.pagar.acao_duplicar' : 'financeiro.receber.acao_duplicar'} alinhar="fim" />
                             {tipo === 'receber' && r.status !== 'cancelado' && (
+                              <>
                               <button
                                 type="button"
                                 onClick={() => void cancelarTitulo(r)}
@@ -2071,6 +2079,8 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                               >
                                 🚫
                               </button>
+                              <AjudaCampo chave="financeiro.receber.acao_cancelar" alinhar="fim" />
+                              </>
                             )}
                             <button
                               type="button"
@@ -2081,6 +2091,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                             >
                               🗑️
                             </button>
+                            <AjudaCampo chave={tipo === 'pagar' ? 'financeiro.pagar.acao_excluir' : 'financeiro.receber.acao_excluir'} alinhar="fim" />
                           </div>
                         </Td>
                       </tr>
