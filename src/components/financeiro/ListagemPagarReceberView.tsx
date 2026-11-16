@@ -1086,6 +1086,22 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     }
   }
 
+  // #6732 item 3 (baixa por outro meio): se a baixa QUITOU o título por completo, o boleto registrado
+  // deixa de ter contrapartida e segue cobrável — mesmo risco do cancelamento. Só oferece quando o
+  // saldo zera; baixa PARCIAL mantém o boleto para o restante. Relê o saldo no banco (não confia no
+  // valor em memória, que é anterior à baixa).
+  const aposBaixaOferecerCancelarBoleto = async (r: Resultado | null) => {
+    if (!r || tipo !== 'receber') return
+    const bo = boletoMap[r.id]
+    if (!bo || bo.status !== 'registrado') return
+    const { data } = await supabase.from('erp_receber').select('valor_documento, valor_pago').eq('id', r.id).maybeSingle()
+    const d = data as { valor_documento?: number; valor_pago?: number } | null
+    if (!d) return
+    const saldo = Number(d.valor_documento ?? 0) - Number(d.valor_pago ?? 0)
+    if (saldo > 0.01) return   // baixa parcial: mantém o boleto para o saldo restante
+    await oferecerCancelarBoletoVinculado(r)
+  }
+
   // BUG #13b · cancelar título manualmente (defensivo): status='cancelado' com motivo + histórico.
   // Sai de inadimplentes na hora. Cobre título sem vínculo OMIE / falha de sync. Só recebíveis.
   const cancelarTitulo = async (r: Resultado) => {
@@ -2129,7 +2145,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       <MarcarPagoModal
         open={!!pagandoItem}
         onClose={() => setPagandoItem(null)}
-        onSucesso={() => setReloadKey((k) => k + 1)}
+        onSucesso={() => { const alvo = pagandoItem; void aposBaixaOferecerCancelarBoleto(alvo).finally(() => setReloadKey((k) => k + 1)) }}
         companyId={companyId}
         tipo={tipo}
         itemId={pagandoItem?.id ?? ''}
