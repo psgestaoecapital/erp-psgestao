@@ -137,6 +137,10 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'obra_id', p_obra_id, 'medicoes', v_out);
 END $function$;
 
+-- Guarda explícita (check_fn_guards): espelha a ACL viva (sem anon/public).
+REVOKE ALL ON FUNCTION public.fn_obra_medicao_listar(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_obra_medicao_listar(uuid) TO authenticated, service_role;
+
 -- 5) Elo automático (trigger): o título a receber nasce pelo LÍQUIDO (valor_total - retenções).
 CREATE OR REPLACE FUNCTION public.fn_obra_medicao_gerar_receber()
  RETURNS trigger
@@ -202,6 +206,9 @@ BEGIN
   RETURN NEW;
 END
 $function$;
+
+-- Guarda explícita (check_fn_guards): função de trigger, não exposta a chamada direta.
+REVOKE ALL ON FUNCTION public.fn_obra_medicao_gerar_receber() FROM PUBLIC, anon;
 
 -- 6) Geração manual (botão da tela): mesmo líquido/nota do elo automático.
 CREATE OR REPLACE FUNCTION public.fn_obra_medicao_gerar_receber_manual(p_medicao_id uuid)
@@ -269,6 +276,10 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'ja_existia', false, 'receber_id', v_receber_id);
 END
 $function$;
+
+-- Guarda explícita (check_fn_guards): espelha a ACL viva (sem anon/public).
+REVOKE ALL ON FUNCTION public.fn_obra_medicao_gerar_receber_manual(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_obra_medicao_gerar_receber_manual(uuid) TO authenticated, service_role;
 
 -- 7) RD-95: ajuda de campo das novas entradas de retenção.
 INSERT INTO public.erp_ajuda_campo (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, vertical, ordem, status)
