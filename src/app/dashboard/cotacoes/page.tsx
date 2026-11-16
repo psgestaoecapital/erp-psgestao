@@ -233,6 +233,7 @@ export default function CotacoesPage(){
           <div style={{fontSize:11,color:TXD}}>Compare propostas lado a lado · Aprovação 1-clique gera pedido de compra</div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          <AjudaCampo chave="cotacoes.empresa" rota={ROTA_AJUDA} />
           <select value={sel} onChange={e=>{setSel(e.target.value);if(typeof window!=="undefined")localStorage.setItem("ps_empresa_sel",e.target.value);}} style={selSt}>
             {companies.map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
           </select>
@@ -259,6 +260,7 @@ export default function CotacoesPage(){
       {/* Filtros */}
       <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
         <div style={{flex:1,minWidth:200,position:"relative"}}>
+          <AjudaCampo chave="cotacoes.busca" rota={ROTA_AJUDA} />
           <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por número ou descrição..." style={{...inp,paddingLeft:32}}/>
           <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:TXD}}>🔍</span>
         </div>
@@ -335,13 +337,13 @@ export default function CotacoesPage(){
             {/* Itens */}
             <div style={{marginBottom:14}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                <div style={{fontSize:11,fontWeight:600,color:GO}}>📦 Itens a Cotar ({novaCot.itens.length})</div>
+                <div style={{fontSize:11,fontWeight:600,color:GO,display:"inline-flex",alignItems:"center",gap:4}}>📦 Itens a Cotar ({novaCot.itens.length}) <AjudaCampo chave="cotacoes.nova.itens" rota={ROTA_AJUDA} /></div>
                 <button onClick={()=>setNovaCot({...novaCot,itens:[...novaCot.itens,{produto_id:'',produto_codigo:'',produto_nome:'',unidade:'UN',quantidade:1,observacoes:''}]})} style={{padding:"4px 10px",borderRadius:6,background:GO+"15",color:GO,fontSize:10,fontWeight:600,border:`1px solid ${GO}40`,cursor:"pointer"}}>+ Adicionar Item</button>
               </div>
               {novaCot.itens.length===0?<div style={{background:BG3,borderRadius:8,padding:16,textAlign:"center",fontSize:11,color:TXD}}>Nenhum item ainda. Clique em "Adicionar Item".</div>:
               <div style={{display:"flex",flexDirection:"column",gap:6}}>
                 {novaCot.itens.map((it:any,idx:number)=>(
-                  <div key={idx} style={{background:BG3,borderRadius:8,padding:8,display:"grid",gridTemplateColumns:"30px 1fr 80px 70px 30px",gap:6,alignItems:"center"}}>
+                  <div key={idx} data-ajuda="cotacoes.nova.itens" style={{background:BG3,borderRadius:8,padding:8,display:"grid",gridTemplateColumns:"30px 1fr 80px 70px 30px",gap:6,alignItems:"center"}}>
                     <div style={{textAlign:"center",color:TXD,fontWeight:600,fontSize:10}}>{idx+1}</div>
                     <select value={it.produto_id} onChange={e=>{
                       const p=produtos.find(p=>p.id===e.target.value);
@@ -362,13 +364,13 @@ export default function CotacoesPage(){
 
             {/* Fornecedores */}
             <div style={{marginBottom:14}}>
-              <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:6}}>🚚 Fornecedores a Convidar ({novaCot.fornecedores.length})</div>
+              <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:6,display:"inline-flex",alignItems:"center",gap:4}}>🚚 Fornecedores a Convidar ({novaCot.fornecedores.length}) <AjudaCampo chave="cotacoes.nova.fornecedores" rota={ROTA_AJUDA} /></div>
               {fornecedores.length===0?<div style={{background:BG3,borderRadius:8,padding:16,textAlign:"center",fontSize:11,color:TXD}}>Nenhum fornecedor cadastrado. Cadastre em Fornecedores primeiro.</div>:
               <div style={{background:BG3,borderRadius:8,padding:10,maxHeight:200,overflowY:"auto"}}>
                 {fornecedores.map(f=>{
                   const checked=novaCot.fornecedores.some((nf:any)=>nf.id===f.id);
                   return(
-                    <label key={f.id} style={{display:"flex",alignItems:"center",gap:8,padding:6,cursor:"pointer",borderRadius:4,background:checked?GO+"15":"transparent"}}>
+                    <label key={f.id} data-ajuda="cotacoes.nova.fornecedores" style={{display:"flex",alignItems:"center",gap:8,padding:6,cursor:"pointer",borderRadius:4,background:checked?GO+"15":"transparent"}}>
                       <input type="checkbox" checked={checked} onChange={e=>{
                         if(e.target.checked)setNovaCot({...novaCot,fornecedores:[...novaCot.fornecedores,f]});
                         else setNovaCot({...novaCot,fornecedores:novaCot.fornecedores.filter((nf:any)=>nf.id!==f.id)});
