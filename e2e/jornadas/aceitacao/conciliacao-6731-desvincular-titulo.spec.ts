@@ -56,7 +56,11 @@ test.describe('#6731 · desvincular um título da fatura agrupada sem desfazer o
   async function novoTitulo(valor: number, nome: string): Promise<string> {
     const { id } = await dbInsert<{ id: string }>('erp_pagar', {
       company_id: DEMO_COMERCIO, fornecedor_nome: nome, descricao: `Aceitação #6731 · ${nome} · ${RUN}`, valor,
-      data_emissao: dia(-5), data_vencimento: dia(-1), status: 'aberto', forma_pagamento: 'boleto',
+      // vencimento no FUTURO: ao desvincular, o título reabre e o trigger trg_status_pagar
+      // (fn_calcular_status_lancamento) recalcula o status pela data — vencimento passado reabre como
+      // 'vencido', não 'aberto'. A asserção verifica a REABERTURA ('aberto'), então a preparação usa
+      // vencimento futuro para o estado reaberto ser 'aberto' sem ambiguidade (RD-38, não é regressão da RPC).
+      data_emissao: dia(-5), data_vencimento: dia(30), status: 'aberto', forma_pagamento: 'boleto',
     })
     titulos.push(id)
     return id
