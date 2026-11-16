@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { useAcesso } from '@/hooks/useAcesso'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const C = {
   espresso: '#3D2314', espressoM: '#6B5D4F', bg: '#FAF7F2', white: '#FFFFFF',
@@ -123,10 +124,10 @@ export default function UsuariosOficinaPage() {
 
       {/* convidar mecânico — o form oferece SÓ isto (regra do CEO) */}
       <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, marginBottom: 16 }}>
-        <label style={{ display: 'block', fontSize: 12, color: C.espressoM, fontWeight: 600, marginBottom: 6 }}>
-          Convidar mecânico
+        <label style={{ display: 'flex', alignItems: 'center', fontSize: 12, color: C.espressoM, fontWeight: 600, marginBottom: 6 }}>
+          Convidar mecânico<AjudaCampo chave="oficina.usuarios.convidar_email" rota="/dashboard/oficina/usuarios" />
         </label>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div data-ajuda="oficina.usuarios.convidar_email" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <input
             type="email" value={email} onChange={(e) => setEmail(e.target.value)}
             placeholder="email@do-mecanico.com" style={{ ...inp, flex: 1, minWidth: 200 }}
@@ -149,8 +150,8 @@ export default function UsuariosOficinaPage() {
         background: C.greenBg, color: C.green, fontSize: 13, borderLeft: `3px solid ${C.green}` }}>{ok}</div>}
 
       {/* quem tem acesso */}
-      <div style={{ fontSize: 12, color: C.espressoM, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.3, margin: '4px 0 8px' }}>
-        Quem tem acesso
+      <div style={{ display: 'flex', alignItems: 'center', fontSize: 12, color: C.espressoM, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.3, margin: '4px 0 8px' }}>
+        Quem tem acesso<AjudaCampo chave="oficina.usuarios.acesso" rota="/dashboard/oficina/usuarios" />
       </div>
       {loading ? (
         <div style={{ color: C.espressoM, fontSize: 13 }}>Carregando…</div>
