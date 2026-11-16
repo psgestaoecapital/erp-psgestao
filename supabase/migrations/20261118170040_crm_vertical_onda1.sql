@@ -43,6 +43,18 @@ INSERT INTO public.rbac_subgrupo_catalogo (slug, grupo, nome, descricao, ativo) 
   ('crm_admin',      'crm', 'Configurar o CRM',  'Funis, etapas, origens, motivos de perda e campos próprios', true)
 ON CONFLICT (slug) DO NOTHING;
 
+-- conserto-main (gilberto-esteira 16/11): module_catalog.subgrupo tem FK para module_subgrupos (tabela distinta de
+-- rbac_subgrupo_catalogo, sem gatilho de sincronização). A versão original inseria os subgrupos só em
+-- rbac_subgrupo_catalogo, então o INSERT de module_catalog abaixo quebrava na FK (23503) e o deploy-migrations ficava
+-- vermelho. Em produção os subgrupos foram inseridos à mão e a migration já aplicou; este insert idempotente torna a
+-- migration auto-suficiente para rebuilds do zero (banco de testes) sem alterar produção (versão já no ledger = pulada).
+INSERT INTO public.module_subgrupos (id, label, grupo, ordem, ativo) VALUES
+  ('crm_pipeline',   'Funil de vendas',   'crm', 10, true),
+  ('crm_cadastros',  'Cadastros do CRM',  'crm', 20, true),
+  ('crm_relatorios', 'Relatórios do CRM', 'crm', 30, true),
+  ('crm_admin',      'Configurar o CRM',  'crm', 40, true)
+ON CONFLICT (id) DO NOTHING;
+
 INSERT INTO public.module_catalog (id, nome, grupo, icone, rota, ordem, ativo, descricao, is_shared, legacy, subgrupo, surface_in_groups)
 VALUES
   ('crm',            'O que fazer hoje', 'crm', 'Sun',        '/dashboard/crm',            10, true, 'Tarefas do dia, negócios parados, propostas aguardando e leads sem dono', false, false, 'crm_pipeline',   ARRAY[]::text[]),
