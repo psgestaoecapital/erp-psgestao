@@ -41,7 +41,7 @@ async function criarVendedor(sufixo: string): Promise<string> {
 
 async function criarContrato(sufixo: string): Promise<string> {
   const c = await dbInsert<IdRow>('erp_contratos', {
-    company_id: DEMO_GE, numero: `E2E-COMREC-${RUN}-${sufixo}`.slice(0, 30), nome: `Contrato comissão ${RUN}-${sufixo}`,
+    company_id: DEMO_GE, numero: `CR-${RUN}-${sufixo}`.slice(0, 20), nome: `Contrato comissão ${RUN}-${sufixo}`,
     valor_mensal: 1000, data_inicio: '2020-01-01', status: 'ativo', cliente_nome: `Cliente E2E ${RUN}`,
   })
   criado.contratos.push(c.id)
