@@ -1347,6 +1347,9 @@ export default function InboxPage() {
                               origem: {it.sugestao_lancamento_tabela}
                             </div>
                           </>
+                        ) : /LIQ.*COBRANC/i.test(it.descricao ?? '') && it.natureza === 'credito' ? (
+                          // #9418 · crédito único de boletos liquidados por API (ex.: Sicredi "LIQ.COBRANCA ...COBnn") sugere o lote de boletos liquidados p/ conciliar agrupado
+                          <LoteLiquidacaoCard mov={it} onConciliado={() => { void carregar() }} />
                         ) : (
                           // RD-41 · débito de remessa (DEB.COB.ELETR-NN) sugere o lote de títulos pagos p/ conciliar agrupado
                           <LoteRemessaCard mov={it} onConciliado={() => { void carregar() }} />
@@ -1791,7 +1794,7 @@ const emptyBox: React.CSSProperties = {
 // destino), pré-seleciona o subconjunto ÚNICO que bate; senão a Jordana marca (soma × débito à vista).
 type LoteCand = { lancamento_id: string; lancamento_tabela: string; descricao: string | null; fornecedor: string | null; valor: number; vencimento: string | null }
 
-function subsetUnico(itens: LoteCand[], alvoCents: number): string[] | null {
+function subsetUnico(itens: { lancamento_id: string; valor: number }[], alvoCents: number): string[] | null {
   const n = itens.length
   if (n === 0 || n > 20) return null // acima disso, força seleção manual (evita custo/ambiguidade)
   const cents = itens.map((i) => Math.round((i.valor || 0) * 100))
@@ -1882,6 +1885,95 @@ function LoteRemessaCard({ mov, onConciliado }: { mov: Item; onConciliado: () =>
         <button onClick={() => void conciliar()} disabled={fase === 'busy' || !bate}
           style={{ fontSize: 12, fontWeight: 700, color: '#fff', background: bate ? '#0D9488' : 'rgba(13,148,136,0.4)', border: 'none', borderRadius: 6, padding: '7px 12px', cursor: bate ? 'pointer' : 'not-allowed' }}>
           {fase === 'busy' ? 'Conciliando…' : `Conciliar lote (${sel.size})`}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// #9418 (jordana-chat) · F2 — crédito ÚNICO de boletos liquidados por API (ex.: Sicredi "LIQ.COBRANCA
+// SIMPLES-COBnnnnnn"): o banco credita o valor agrupado e o usuário precisava descobrir sozinho quais
+// boletos formam o crédito. Este card chama fn_conciliacao_lote_liquidacao_candidatos (F1, só-leitura),
+// mostra os boletos liquidados ainda não conciliados da MESMA conta pagos na janela do crédito, soma
+// viva × alvo, e concilia o subconjunto marcado (fn_conciliacao_vincular + fn_conciliacao_fechar_agrupado,
+// RD-26). Espelha LoteRemessaCard (lado débito). NUNCA concilia sozinho: pré-seleciona o subconjunto
+// ÚNICO que bate (subsetUnico) quando existe; senão o usuário marca.
+type LoteLiqCand = { lancamento_id: string; lancamento_tabela: string; cliente: string | null; valor: number; pago_em: string | null; vencimento: string | null }
+
+function LoteLiquidacaoCard({ mov, onConciliado }: { mov: Item; onConciliado: () => void }) {
+  const [fase, setFase] = useState<'idle' | 'load' | 'ready' | 'busy' | 'na'>('idle')
+  const [nn, setNn] = useState<number | null>(null)
+  const [itens, setItens] = useState<LoteLiqCand[]>([])
+  const [sel, setSel] = useState<Set<string>>(new Set())
+  const [erroL, setErroL] = useState<string | null>(null)
+  const alvo = Math.round(Math.abs(mov.valor) * 100)
+  // crédito de liquidação de cobrança: mesmo reconhecedor da F1 (LIQ...COBRANC + crédito)
+  const ehLiq = /LIQ.*COBRANC/i.test(mov.descricao ?? '') && mov.natureza === 'credito'
+
+  useEffect(() => {
+    if (!ehLiq) return   // não é crédito de liquidação → render mostra o texto padrão
+    let alive = true
+    void (async () => {
+      setFase('load')
+      const { data, error } = await supabase.rpc('fn_conciliacao_lote_liquidacao_candidatos', { p_movimento_id: mov.movimento_id })
+      if (!alive) return
+      const r = data as { ok?: boolean; aplicavel?: boolean; nn?: number | null; itens?: LoteLiqCand[] } | null
+      if (error || !r?.ok || !r.aplicavel || !(r.itens && r.itens.length)) { setFase('na'); return }
+      setNn(r.nn ?? null); setItens(r.itens)
+      setSel(new Set(subsetUnico(r.itens, alvo) ?? []))
+      setFase('ready')
+    })()
+    return () => { alive = false }
+  }, [ehLiq, mov.movimento_id, alvo])
+
+  const somaSel = Math.round(itens.filter((i) => sel.has(i.lancamento_id)).reduce((a, i) => a + (i.valor || 0), 0) * 100)
+  const bate = sel.size > 0 && Math.abs(somaSel - alvo) <= 5
+  const brl = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+
+  async function conciliar() {
+    setFase('busy'); setErroL(null)
+    for (const id of Array.from(sel)) {
+      const it = itens.find((x) => x.lancamento_id === id)
+      if (!it) continue
+      const { data, error } = await supabase.rpc('fn_conciliacao_vincular', { p_movimento_id: mov.movimento_id, p_lancamento_tabela: it.lancamento_tabela, p_lancamento_id: id, p_valor: null })
+      const rv = data as { ok?: boolean; erro?: string; msg?: string } | null
+      if (error || rv?.ok === false) { setErroL('Falha ao vincular: ' + (error?.message || rv?.msg || rv?.erro || '')); setFase('ready'); return }
+    }
+    const { data, error } = await supabase.rpc('fn_conciliacao_fechar_agrupado', { p_movimento_id: mov.movimento_id })
+    const rf = data as { ok?: boolean; erro?: string } | null
+    if (error || rf?.ok === false) { setErroL('Falha ao fechar o lote: ' + (error?.message || rf?.erro || '')); setFase('ready'); return }
+    onConciliado()
+  }
+
+  if (!ehLiq || fase === 'na') return <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)' }}>Sem sugestão automática. Conciliar manualmente.</div>
+  if (fase === 'idle' || fase === 'load') return <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)' }}>Verificando boletos liquidados…</div>
+  return (
+    <div style={{ border: '1px solid #0D9488', borderRadius: 8, padding: 10, background: '#F0FDFA' }}>
+      <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0D9488' }}>Crédito de cobrança liquidada{nn ? ` — ${nn} boleto(s) neste crédito` : ''}</div>
+      <div style={{ fontSize: 11.5, color: 'rgba(61,35,20,0.6)', marginTop: 2, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        Marque os boletos deste crédito · selecionado {brl(somaSel)} · crédito {brl(alvo)}{bate ? ' ✓ bate' : ' — ainda não bate'}<AjudaCampo chave="financeiro.conciliacao.match_titulo" />
+      </div>
+      <div style={{ maxHeight: 168, overflowY: 'auto', marginTop: 6 }}>
+        {itens.map((i, idx) => {
+          const on = sel.has(i.lancamento_id)
+          return (
+            <label key={i.lancamento_id} data-ajuda="financeiro.conciliacao.match_titulo" style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr) auto', columnGap: 10, alignItems: 'center', padding: '8px 4px', fontSize: 12.5, cursor: 'pointer', borderTop: idx ? '1px solid rgba(61,35,20,0.08)' : 'none' }}>
+              <input type="checkbox" checked={on} aria-label="Marcar este boleto" style={{ width: 16, height: 16, margin: 0, accentColor: '#C8941A' }}
+                onChange={() => setSel((s) => { const n = new Set(s); if (n.has(i.lancamento_id)) n.delete(i.lancamento_id); else n.add(i.lancamento_id); return n })} />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 600, color: '#3D2314', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{i.cliente || 'boleto'}</div>
+                <div style={{ fontSize: 10.5, color: 'rgba(61,35,20,0.55)' }}>{i.pago_em ? `pago ${fmtDate(i.pago_em)}` : ''}{i.pago_em && i.vencimento ? ' · ' : ''}{i.vencimento ? `venc ${fmtDate(i.vencimento)}` : ''}</div>
+              </div>
+              <span style={{ fontWeight: 800, color: '#3D2314', whiteSpace: 'nowrap', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{(i.valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+            </label>
+          )
+        })}
+      </div>
+      {erroL && <div style={{ fontSize: 11.5, color: '#A32D2D', marginTop: 4 }}>{erroL}</div>}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+        <button onClick={() => void conciliar()} disabled={fase === 'busy' || !bate}
+          style={{ fontSize: 12, fontWeight: 700, color: '#fff', background: bate ? '#0D9488' : 'rgba(13,148,136,0.4)', border: 'none', borderRadius: 6, padding: '7px 12px', cursor: bate ? 'pointer' : 'not-allowed' }}>
+          {fase === 'busy' ? 'Conciliando…' : `Conciliar crédito (${sel.size})`}
         </button>
       </div>
     </div>
