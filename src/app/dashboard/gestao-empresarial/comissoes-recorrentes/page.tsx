@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties, type Rea
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { AlertTriangle, PauseCircle, ReceiptText, Search, Undo2, type LucideIcon } from 'lucide-react'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DED3'
 const MUTED = 'rgba(61,35,20,0.6)'; const GREEN = '#2F6B3A'; const AMBER = '#8A6410'; const RED = '#9A1F1F'
@@ -397,7 +398,7 @@ function Esteira({ contratoId, onToast, onRecarregar }: { contratoId: string; on
     onToast(`${d.recebimentos ?? 0} recebimento(s) conferido(s): ${d.geradas ?? 0} comissão(ões) gerada(s), ${d.estornadas ?? 0} estornada(s).`)
     carregar(); onRecarregar()
   }
-  const icone: Record<string, string> = { identificado: '🔎', gerada: '🧾', estornada: '↩️', sem_comissao: '⏸️', erro: '⚠️' }
+  const icone: Record<string, LucideIcon> = { identificado: Search, gerada: ReceiptText, estornada: Undo2, sem_comissao: PauseCircle, erro: AlertTriangle }
   return (
     <div className="mt-3 rounded-lg p-3" style={{ border: `1px dashed ${LINE}` }} data-testid="comrec-esteira">
       <div className="flex justify-between items-center gap-2 flex-wrap mb-2">
@@ -410,7 +411,7 @@ function Esteira({ contratoId, onToast, onRecarregar }: { contratoId: string; on
         <ol className="space-y-1 text-sm">
           {eventos.map((e) => (
             <li key={e.id} className="flex gap-2" style={{ color: e.tipo === 'erro' ? RED : e.tipo === 'estornada' ? AMBER : ESP }}>
-              <span aria-hidden>{icone[e.tipo] ?? '•'}</span>
+              {(() => { const Ic = icone[e.tipo] ?? Search; return <Ic aria-hidden size={16} strokeWidth={1.5} style={{ flex: '0 0 auto', marginTop: 2 }} /> })()}
               <span><span style={{ color: MUTED }}>{new Date(e.created_at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</span> · {e.mensagem}</span>
             </li>))}
         </ol>)}
