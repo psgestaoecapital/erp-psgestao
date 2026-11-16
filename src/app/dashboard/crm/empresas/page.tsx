@@ -36,6 +36,7 @@ export default function CrmEmpresasPage() {
     for (const o of (ops.data ?? []) as { cliente_id: string | null }[]) if (o.cliente_id) m.set(o.cliente_id, (m.get(o.cliente_id) ?? 0) + 1)
     setNegocios(m)
   }, [empresa])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- carga/sincronia ao trocar empresa, funil ou filtro
   useEffect(() => { void carregar() }, [carregar])
 
   const filtrados = useMemo(() => {

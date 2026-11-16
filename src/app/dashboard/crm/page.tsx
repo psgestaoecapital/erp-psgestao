@@ -30,6 +30,7 @@ export default function CrmHojePage() {
     if (error) { setErro(erroAmigavel(error)); return }
     setHoje(data as Hoje)
   }, [empresa])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- carga/sincronia ao trocar empresa, funil ou filtro
   useEffect(() => { void carregar() }, [carregar])
 
   async function concluir(t: Tarefa) {

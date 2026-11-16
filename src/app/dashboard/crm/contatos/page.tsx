@@ -41,6 +41,7 @@ function Contatos() {
     setLista((ct.data ?? []) as Contato[])
     setClientes(((cl.data ?? []) as { id: string; nome_fantasia: string | null; razao_social: string | null }[]).map((c) => ({ id: c.id, nome: c.nome_fantasia || c.razao_social || '—' })))
   }, [empresa])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- carga/sincronia ao trocar empresa, funil ou filtro
   useEffect(() => { void carregar() }, [carregar])
 
   const nomeCli = useMemo(() => new Map(clientes.map((c) => [c.id, c.nome])), [clientes])

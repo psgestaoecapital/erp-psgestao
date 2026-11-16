@@ -34,6 +34,7 @@ export default function PipelinePage() {
   const [motivo, setMotivo] = useState('')
   const [motivoTexto, setMotivoTexto] = useState('')
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- carga/sincronia ao trocar empresa, funil ou filtro
   useEffect(() => { if (!funilId && funis.length) setFunilId(funis[0].id) }, [funis, funilId])
   const funil = funis.find((f) => f.id === funilId) ?? null
   const etapas = funil?.etapas ?? []
@@ -44,6 +45,7 @@ export default function PipelinePage() {
     if (error) { setErro(erroAmigavel(error)); return }
     setQuadro(data as Quadro)
   }, [empresa, funilId, resp])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- carga/sincronia ao trocar empresa, funil ou filtro
   useEffect(() => { void carregar() }, [carregar])
 
   async function mover(card: Cartao, etapaId: string, motivoId?: string, texto?: string) {

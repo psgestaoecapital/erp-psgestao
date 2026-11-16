@@ -128,6 +128,7 @@ export function useCrm() {
     setCarregando(false)
   }, [empresa])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- carga/sincronia ao trocar empresa, funil ou filtro
   useEffect(() => { void recarregar() }, [recarregar])
 
   const gestor = cfg?.papel === 'diretor' || cfg?.papel === 'gerente'

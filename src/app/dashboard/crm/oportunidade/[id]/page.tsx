@@ -10,7 +10,7 @@ import { erroAmigavel } from '@/lib/erroAmigavel'
 import Modal from '@/components/ui/Modal'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { MessageCircle } from 'lucide-react'
-import { C, Campo, Titulo, Cabecalho, Pagina, Aviso, Vazio, inp, btnPri, btnSec, chip, cartao, brl, dataBR, horaBR, waHref, rpcCrm, useCrm,
+import { C, Campo, Titulo, Cabecalho, Pagina, Aviso, Vazio, inp, btnPri, btnSec, chip, cartao, dataBR, horaBR, waHref, rpcCrm, useCrm,
   TIPOS_ATIVIDADE, TIPOS_TAREFA, IconeTipo, type CampoCustom } from '@/components/crm/crmUi'
 
 type EtapaF = { id: string; rotulo: string; tipo_etapa: 'normal' | 'ganho' | 'perda'; cor: string | null; probabilidade: number | null }
@@ -62,10 +62,12 @@ export default function FichaNegocioPage() {
     })
     setCustom(o.campos_custom ?? {})
   }, [id])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- carga/sincronia ao trocar empresa, funil ou filtro
   useEffect(() => { void carregar() }, [carregar])
 
   const clienteId = ficha?.oportunidade.cliente_id
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- carga/sincronia ao trocar empresa, funil ou filtro
     if (!clienteId) { setContatos([]); return }
     void supabase.from('erp_contatos').select('id, nome').eq('entidade_tipo', 'cliente').eq('entidade_id', clienteId).eq('ativo', true).order('nome')
       .then(({ data }) => setContatos((data ?? []) as Contato[]))

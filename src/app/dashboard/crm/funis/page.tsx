@@ -21,6 +21,7 @@ export default function CrmFunisPage() {
   const [novoMotivo, setNovoMotivo] = useState('')
   const [campo, setCampo] = useState<{ nome: string; entidade: 'oportunidade' | 'lead'; tipo: CampoCustom['tipo']; opcoes: string; obrigatorio: boolean }>({ nome: '', entidade: 'oportunidade', tipo: 'texto', opcoes: '', obrigatorio: false })
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- carga/sincronia ao trocar empresa, funil ou filtro
   useEffect(() => { if (cfg && (!funilId || !cfg.funis.some((f) => f.id === funilId))) setFunilId(cfg.funis[0]?.id ?? '') }, [cfg, funilId])
   const funil = cfg?.funis.find((f) => f.id === funilId) ?? null
   const normais = useMemo(() => (funil?.etapas ?? []).filter((e) => e.tipo_etapa === 'normal'), [funil])
@@ -163,6 +164,7 @@ function LinhaEtapa({ etapa, primeira, ultima, onSalvar, onMover, onRetirar }: {
 }) {
   const [rotulo, setRotulo] = useState(etapa.rotulo)
   const [prob, setProb] = useState(etapa.probabilidade == null ? '' : String(etapa.probabilidade))
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- carga/sincronia ao trocar empresa, funil ou filtro
   useEffect(() => { setRotulo(etapa.rotulo); setProb(etapa.probabilidade == null ? '' : String(etapa.probabilidade)) }, [etapa])
   const normal = etapa.tipo_etapa === 'normal'
   return (

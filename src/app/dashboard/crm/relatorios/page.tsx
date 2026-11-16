@@ -24,6 +24,7 @@ export default function CrmRelatoriosPage() {
   const [rel, setRel] = useState<Rel | null>(null)
   const [erro, setErro] = useState<string | null>(null)
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- carga/sincronia ao trocar empresa, funil ou filtro
   useEffect(() => { if (!funilId && funis.length) setFunilId(funis[0].id) }, [funis, funilId])
   const carregar = useCallback(async () => {
     if (!empresa || !funilId || !de || !ate) return
@@ -31,6 +32,7 @@ export default function CrmRelatoriosPage() {
     if (error) { setErro(erroAmigavel(error)); return }
     setErro(null); setRel(data as Rel)
   }, [empresa, funilId, de, ate])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- carga/sincronia ao trocar empresa, funil ou filtro
   useEffect(() => { void carregar() }, [carregar])
 
   if (carregando) return <Pagina><div style={{ color: C.TEXTM }}>Carregando…</div></Pagina>

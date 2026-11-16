@@ -41,6 +41,7 @@ export default function CrmLeadsPage() {
     if (error) { setErro(erroAmigavel(error)); return }
     setLeads((data ?? []) as Lead[])
   }, [empresa])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- carga/sincronia ao trocar empresa, funil ou filtro
   useEffect(() => { void carregar() }, [carregar])
 
   const nomeDe = useMemo(() => new Map((cfg?.equipe ?? []).map((u) => [u.id, u.nome])), [cfg])
