@@ -146,6 +146,11 @@ function erroAmigavel(err: unknown, acao: string): string {
 // canto); sucesso/info = faixa no topo que some sozinha. Cores do design system PS (psgc-tokens). Nunca vaza
 // erro cru do banco — o texto já chega amigável de erroAmigavel()/contrato {erro,orientacao}.
 type AvisoTipo = 'erro' | 'sucesso' | 'info'
+
+// #6732 item 3 · bancos cujo conector já envia a baixa/cancelamento do boleto pela API
+// (mesma lista do BoletoActions: /api/banco/<provider>/cancelar-boleto, #5404). Os demais
+// só avisam para cancelar no internet banking.
+const PROVIDERS_CANCELA_API = new Set<string>(['sicoob', 'bb'])
 type AvisoEstado = { tipo: AvisoTipo; texto: string } | null
 
 function AvisoBox({ aviso, onFechar }: { aviso: AvisoEstado; onFechar: () => void }) {
@@ -1041,6 +1046,62 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     })
   }
 
+  // Chamado #6732 (item 3) · evitar pagamento em duplicidade: ao cancelar o título, o boleto
+  // registrado continua COBRÁVEL no banco (o título some, o boleto não). Depois de cancelar o
+  // título, oferece cancelar o boleto vinculado pela API — mesma rota do botão "Cancelar boleto"
+  // do BoletoActions (Sicoob/BB, #5404). Bancos sem rota de baixa (Sicredi/Bradesco) ou conta sem
+  // roteamento só recebem o aviso para cancelar no internet banking. Sem gravar nada à força.
+  const oferecerCancelarBoletoVinculado = async (r: Resultado) => {
+    const bo = boletoMap[r.id]
+    if (!bo || bo.status !== 'registrado') return   // sem boleto ativo: nada a cancelar
+    const res = rotBoleto ? resolverProviderDaConta(rotBoleto, contaIdMap[r.id]) : null
+    const prov = res && res.ok ? res.provider : null
+    const ref = bo.nossoNumero ? ` ${bo.nossoNumero}` : ''
+    if (prov && PROVIDERS_CANCELA_API.has(prov)) {
+      const nome = NOME_BANCO[prov as BoletoProvider] ?? prov
+      const ok = window.confirm(
+        `O título foi cancelado, mas o boleto${ref} continua REGISTRADO no ${nome} e ainda pode ser pago.\n\n`
+        + 'Cancelar o boleto no banco agora, para evitar pagamento em duplicidade?',
+      )
+      if (!ok) return
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        const resp = await fetch(`/api/banco/${prov}/cancelar-boleto`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'content-type': 'application/json', authorization: session ? `Bearer ${session.access_token}` : '' },
+          body: JSON.stringify({ receber_id: r.id }),
+        })
+        const j = await resp.json().catch(() => ({}))
+        if (!resp.ok || !j.ok) {
+          setAviso({ tipo: 'erro', texto: `Título cancelado, mas não foi possível cancelar o boleto no banco: ${j.erro ?? `HTTP ${resp.status}`}. Cancele o boleto no internet banking.` })
+          return
+        }
+        setAviso({ tipo: 'sucesso', texto: 'Título e boleto cancelados — o boleto não pode mais ser pago.' })
+      } catch (e) {
+        setAviso({ tipo: 'erro', texto: `Título cancelado, mas houve erro ao cancelar o boleto no banco (${(e as Error).message || 'rede'}). Cancele o boleto no internet banking.` })
+      }
+    } else {
+      setAviso({ tipo: 'info', texto: `O título foi cancelado, mas o boleto${ref} continua registrado no banco e pode ser pago. Cancele o boleto no internet banking para evitar pagamento em duplicidade.` })
+    }
+  }
+
+  // #6732 item 3 (baixa por outro meio): se a baixa QUITOU o título por completo, o boleto registrado
+  // deixa de ter contrapartida e segue cobrável — mesmo risco do cancelamento. Só oferece quando o
+  // saldo zera; baixa PARCIAL mantém o boleto para o restante. Relê o saldo no banco (não confia no
+  // valor em memória, que é anterior à baixa).
+  const aposBaixaOferecerCancelarBoleto = async (r: Resultado | null) => {
+    if (!r || tipo !== 'receber') return
+    const bo = boletoMap[r.id]
+    if (!bo || bo.status !== 'registrado') return
+    const { data } = await supabase.from('erp_receber').select('valor_documento, valor_pago').eq('id', r.id).maybeSingle()
+    const d = data as { valor_documento?: number; valor_pago?: number } | null
+    if (!d) return
+    const saldo = Number(d.valor_documento ?? 0) - Number(d.valor_pago ?? 0)
+    if (saldo > 0.01) return   // baixa parcial: mantém o boleto para o saldo restante
+    await oferecerCancelarBoletoVinculado(r)
+  }
+
   // BUG #13b · cancelar título manualmente (defensivo): status='cancelado' com motivo + histórico.
   // Sai de inadimplentes na hora. Cobre título sem vínculo OMIE / falha de sync. Só recebíveis.
   const cancelarTitulo = async (r: Resultado) => {
@@ -1059,6 +1120,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         if (error) { setAviso({ tipo: 'erro', texto: erroAmigavel(error, 'cancelar o título') }); return }
         const j = data as { sucesso?: boolean; erro?: string; ja_cancelado?: boolean } | null
         if (!j?.sucesso) { setAviso({ tipo: 'erro', texto: 'Não foi possível cancelar: ' + (j?.erro ?? 'desconhecido') }); return }
+        await oferecerCancelarBoletoVinculado(r)   // #6732 item 3: evita pagamento duplicado do boleto vinculado
         setReloadKey((k) => k + 1)
       },
     })
@@ -2083,7 +2145,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       <MarcarPagoModal
         open={!!pagandoItem}
         onClose={() => setPagandoItem(null)}
-        onSucesso={() => setReloadKey((k) => k + 1)}
+        onSucesso={() => { const alvo = pagandoItem; void aposBaixaOferecerCancelarBoleto(alvo).finally(() => setReloadKey((k) => k + 1)) }}
         companyId={companyId}
         tipo={tipo}
         itemId={pagandoItem?.id ?? ''}

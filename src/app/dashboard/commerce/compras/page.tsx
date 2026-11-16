@@ -982,7 +982,7 @@ function ModalComparativo({ cotacao, onClose, onAprovar }: { cotacao: Cotacao; o
                           const indisp = p?.disponivel === false
                           return (
                             <Td key={f.id} align="right">
-                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                              <div data-ajuda="commerce.compras.cot_comparar" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
                                 {indisp ? (
                                   <span style={{ color: C.red, fontWeight: 600 }}>indisponível</span>
                                 ) : (
@@ -1268,7 +1268,7 @@ function ModalNovaCotacao({ companyId, onClose, onCreated, flash, flashErr }: {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM, display: 'inline-flex', alignItems: 'center', gap: 4 }}>Itens a cotar * <AjudaCampo chave="commerce.compras.cot_itens" rota={ROTA_AJUDA} /></label>
             {itens.map((it, i) => (
-              <div key={i} style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div key={i} data-ajuda="commerce.compras.cot_itens" style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {it.produto_id ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 6, background: C.goldBg, borderRadius: 6 }}>
                     <CheckCircle2 size={14} style={{ color: C.gold, flexShrink: 0 }} />
@@ -1339,7 +1339,7 @@ function ModalNovaCotacao({ companyId, onClose, onCreated, flash, flashErr }: {
         )}
 
         {step === 'fornec' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div data-ajuda="commerce.compras.cot_fornecedores" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM, display: 'inline-flex', alignItems: 'center', gap: 4 }}>Fornecedores convidados * <AjudaCampo chave="commerce.compras.cot_fornecedores" rota={ROTA_AJUDA} /></label>
             <input value={fornBusca} onChange={(e) => setFornBusca(e.target.value)} placeholder="Buscar fornecedor (nome ou CNPJ, mín 2 chars)" style={inp} />
             {fornCandidatos.length > 0 && (
@@ -1412,8 +1412,8 @@ function Th({ children, align = 'left', ajuda }: { children?: React.ReactNode; a
     </th>
   )
 }
-function Td({ children, align = 'left', onClick }: { children?: React.ReactNode; align?: 'left' | 'right'; onClick?: () => void }) {
-  return <td onClick={onClick} style={{ padding: '10px 14px', textAlign: align, verticalAlign: 'middle', color: C.espresso }}>{children}</td>
+function Td({ children, align = 'left', onClick, 'data-ajuda': dataAjuda }: { children?: React.ReactNode; align?: 'left' | 'right'; onClick?: () => void; 'data-ajuda'?: string }) {
+  return <td onClick={onClick} data-ajuda={dataAjuda} style={{ padding: '10px 14px', textAlign: align, verticalAlign: 'middle', color: C.espresso }}>{children}</td>
 }
 function Card({ titulo, children, ajuda }: { titulo: string; children: React.ReactNode; ajuda?: string }) {
   return (
@@ -1672,12 +1672,12 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
                           <strong>{it.nome}</strong>
                           <div style={{ fontSize: 9, color: C.espressoM, fontFamily: 'monospace' }}>{it.codigo}</div>
                         </Td>
-                        <Td>
+                        <Td data-ajuda="commerce.compras.compra_item_qtd">
                           <input value={it.quantidade} onChange={(e) => alterarItem(it.tempId, 'quantidade', e.target.value)}
                             style={{ width: 60, padding: 4, border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 11 }} />
                           <span style={{ fontSize: 10, color: C.espressoM, marginLeft: 4 }}>{it.unidade}</span>
                         </Td>
-                        <Td>
+                        <Td data-ajuda="commerce.compras.compra_item_preco">
                           <input value={it.preco} onChange={(e) => alterarItem(it.tempId, 'preco', e.target.value)} placeholder="0,00"
                             style={{ width: 80, padding: 4, border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 11 }} />
                         </Td>

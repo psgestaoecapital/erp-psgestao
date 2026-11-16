@@ -217,7 +217,7 @@ function Inner() {
             {CHIPS.map((c) => <button key={c.key} type="button" onClick={() => { setChip(c.key); setContaSel(null) }} style={{ ...chipBtn(chip === c.key), fontSize: 12 }}>{c.nome}</button>)}
             <Aj k="dre.analise.chips_tipo" />
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div data-ajuda="dre.analise.busca_conta" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12, color: MUT }}>Conta <Aj k="dre.analise.busca_conta" /></span>
             <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar conta (ex.: Pessoal)" aria-label="Buscar conta"
               style={{ padding: '7px 9px', fontSize: 13, border: `1px solid ${LINE}`, borderRadius: 7, background: WHITE, color: ESP, minWidth: 200 }} />
