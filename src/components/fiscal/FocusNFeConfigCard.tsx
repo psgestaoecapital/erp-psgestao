@@ -164,7 +164,9 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
       <div className="px-5 py-4 border-b border-[#3D2314]/10 flex items-center justify-between">
         <div>
           <div className="text-[11px] text-[#3D2314]/55 tracking-[0.8px] uppercase font-medium">Passo 2</div>
-          <h2 className="text-[15px] font-medium text-[#3D2314]">Provider NFSe</h2>
+          {/* #9428 slice3 · o título dizia "Provider NFSe", mas este cartão governa também a NF-e (modelo 55).
+             Renomeado para não dar a impressão de ser só de NFS-e; os campos de NF-e têm seção própria abaixo. */}
+          <h2 className="text-[15px] font-medium text-[#3D2314]">Provedor fiscal · NF-e e NFS-e</h2>
         </div>
         {configAtual && (
           <span className={`text-[10px] px-2.5 py-1 rounded-full font-medium tracking-[0.3px] ${
@@ -371,7 +373,7 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
         )}
 
         <div>
-          <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">Ambiente</label>
+          <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">Ambiente (NFS-e / NFC-e)</label>
           <div className="grid grid-cols-2 gap-2">
             {(['homologacao', 'producao'] as const).map((amb) => (
               <button
@@ -391,8 +393,9 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
           </div>
         </div>
 
-        {/* #5666 · ambiente SÓ da NF-e (modelo 55) — separado da NFS-e/NFC-e, que seguem o Ambiente acima */}
+        {/* #5666/#9428 slice3 · seção PRÓPRIA da NF-e (modelo 55), visualmente separada dos campos de NFS-e acima */}
         <div className="border border-[#C8941A]/25 rounded-lg p-3 bg-[#C8941A]/[0.04]">
+          <div className="text-[11px] text-[#633806] tracking-[0.4px] uppercase font-semibold mb-2">NF-e (modelo 55)</div>
           <label className="text-[12px] font-medium text-[#3D2314] mb-1.5 flex items-center gap-1">
             Ambiente da NF-e (modelo 55)
             <AjudaCampo chave="fiscal.ambiente_nfe" rota="/dashboard/configuracoes/fiscal" />
@@ -422,7 +425,7 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
             )}
           </p>
           <p className="text-[11px] text-[#3D2314]/60 mt-1" data-testid="nfe-chave-em-uso">
-            Chave em uso na NF-e: token de <strong>{ambienteNfe === 'producao' ? 'Produção' : 'Homologação'}</strong>. Confira que ele está cadastrado (Passo 2 › Ambiente › API Key) antes de emitir.
+            Chave em uso na NF-e: token de <strong>{ambienteNfe === 'producao' ? 'Produção' : 'Homologação'}</strong>. Confira que ele está cadastrado (Passo 2 › Tokens do provedor de NF-e) antes de emitir.
           </p>
           {/* #9428 · numeração da NF-e fica JUNTO dos demais campos de NF-e (modelo 55), não misturada com a NFS-e */}
           <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-[#C8941A]/20">
