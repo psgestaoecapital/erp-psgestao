@@ -25,7 +25,9 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
   const [verificandoMunicipio, setVerificandoMunicipio] = useState(false)
   const [municipioErro, setMunicipioErro] = useState<string | null>(null)
 
-  const [apiKey, setApiKey] = useState('')
+  // #9428 slice2 · um token por ambiente (homologação/produção): a emissão escolhe o correto, sem troca manual.
+  const [apiKeyHomolog, setApiKeyHomolog] = useState('')
+  const [apiKeyProd, setApiKeyProd] = useState('')
   const [ambiente, setAmbiente] = useState<Ambiente>('homologacao')
   // #5666 · ambiente SÓ da NF-e (modelo 55): emitir NF-e em homologação sem tirar a NFS-e de produção.
   const [ambienteNfe, setAmbienteNfe] = useState<Ambiente>('homologacao')
@@ -123,12 +125,17 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
         payload.govNfseMunicipioCodigo = codigo
         // RD-51: desconhecido (não verificado) fica null, nunca false — a emissão lê o vivo de erp_gov_nfse_municipios.
         payload.govNfseMunicipioAderido = municipioStatus?.aderido ?? null
-      } else if (apiKey.trim()) {
+      } else {
         // #1944 · token da Focus direto para o COFRE, como o próprio usuário (fn_fiscal_salvar_token confere o vínculo
         // com a empresa) — nunca vai em texto para a tabela nem passa pela rota.
-        const { data: tok, error: tokErr } = await supabase.rpc('fn_fiscal_salvar_token', { p_company_id: companyId, p_token: apiKey.trim(), p_ambiente: ambiente })
-        const r = tok as { ok?: boolean; erro?: string } | null
-        if (tokErr || !r?.ok) throw new Error(`Não foi possível guardar o token no cofre: ${tokErr?.message ?? r?.erro ?? 'erro desconhecido'}`)
+        // #9428 slice2 · um token por ambiente: grava cada um no seu segredo do cofre. A emissão
+        // (fn_fiscal_obter_token, por ambiente) usa o certo — o usuário não recola o token ao alternar o ambiente.
+        for (const [amb, val] of [['homologacao', apiKeyHomolog], ['producao', apiKeyProd]] as const) {
+          if (!val.trim()) continue
+          const { data: tok, error: tokErr } = await supabase.rpc('fn_fiscal_salvar_token', { p_company_id: companyId, p_token: val.trim(), p_ambiente: amb })
+          const r = tok as { ok?: boolean; erro?: string } | null
+          if (tokErr || !r?.ok) throw new Error(`Não foi possível guardar o token de ${amb === 'producao' ? 'produção' : 'homologação'} no cofre: ${tokErr?.message ?? r?.erro ?? 'erro desconhecido'}`)
+        }
       }
 
       const resp = await authFetch('/api/fiscal/provider-config', {
@@ -138,7 +145,8 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
       const json = await resp.json()
       if (!resp.ok || !json.ok) throw new Error(json.erro ?? 'Erro ao salvar')
 
-      setApiKey('')
+      setApiKeyHomolog('')
+      setApiKeyProd('')
       setSucesso(true)
       onAtualizado()
       setTimeout(() => setSucesso(false), 3000)
@@ -313,21 +321,51 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
         )}
 
         {provider === 'focusnfe' && (
-          <div>
-            <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">
-              API Key do provedor de NF-e{' '}
-              {temApiKey && <span className="text-[#3D2314]/50 font-normal">(deixe vazio para manter a atual)</span>}
-            </label>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              disabled={!podeEditar}
-              placeholder={temApiKey ? '•••••••••••••••• (já configurada — só preencha para trocar)' : 'Token gerado no painel do provedor'}
-              className="block w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 focus:border-[#C8941A]/40 font-mono disabled:bg-[#3D2314]/5"
-            />
-            <p className={`text-[11px] mt-1 flex items-center gap-1 ${temApiKey ? 'text-[#1F7A4D]' : 'text-[#B4471F]'}`}>
-              {temApiKey ? '✓ chave já configurada' : '⚠ sem chave — obrigatória para emitir com o provedor de NF-e'}
+          // #9428 slice2 · um campo de token por ambiente (homologação e produção), em vez de um só.
+          // O Focus usa tokens diferentes nos dois ambientes; a emissão escolhe o token do ambiente em uso
+          // (fn_fiscal_obter_token) — não é mais preciso recolar o token ao alternar o Ambiente.
+          <div className="space-y-3">
+            <div className="text-[11px] text-[#3D2314]/55 tracking-[0.4px] uppercase font-medium">
+              Tokens do provedor de NF-e
+            </div>
+            <p className="text-[11px] text-[#3D2314]/65">
+              Cadastre o token de cada ambiente. A emissão usa automaticamente o token do ambiente em uso —
+              você não precisa recolar o token ao alternar entre Homologação e Produção.
+            </p>
+            <div>
+              <label className="text-[12px] font-medium text-[#3D2314] mb-1.5 flex items-center gap-1 flex-wrap">
+                Token de Homologação
+                <AjudaCampo chave="fiscal.token_homolog" rota="/dashboard/configuracoes/fiscal" />
+                {temApiKey && <span className="text-[#3D2314]/50 font-normal">(deixe vazio para manter o atual)</span>}
+              </label>
+              <input
+                type="password"
+                value={apiKeyHomolog}
+                onChange={(e) => setApiKeyHomolog(e.target.value)}
+                disabled={!podeEditar}
+                data-testid="focus-token-homolog"
+                placeholder="Token de homologação gerado no painel do provedor"
+                className="block w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 focus:border-[#C8941A]/40 font-mono disabled:bg-[#3D2314]/5"
+              />
+            </div>
+            <div>
+              <label className="text-[12px] font-medium text-[#3D2314] mb-1.5 flex items-center gap-1 flex-wrap">
+                Token de Produção
+                <AjudaCampo chave="fiscal.token_prod" rota="/dashboard/configuracoes/fiscal" />
+                {temApiKey && <span className="text-[#3D2314]/50 font-normal">(deixe vazio para manter o atual)</span>}
+              </label>
+              <input
+                type="password"
+                value={apiKeyProd}
+                onChange={(e) => setApiKeyProd(e.target.value)}
+                disabled={!podeEditar}
+                data-testid="focus-token-prod"
+                placeholder="Token de produção gerado no painel do provedor"
+                className="block w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 focus:border-[#C8941A]/40 font-mono disabled:bg-[#3D2314]/5"
+              />
+            </div>
+            <p className={`text-[11px] flex items-center gap-1 ${temApiKey ? 'text-[#1F7A4D]' : 'text-[#B4471F]'}`}>
+              {temApiKey ? '✓ ao menos um token já configurado' : '⚠ sem token — cadastre pelo menos o do ambiente que vai usar'}
             </p>
           </div>
         )}
