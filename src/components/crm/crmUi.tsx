@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
+import { MessageCircle, Phone, Users, MapPin, Mail, StickyNote, CheckSquare, ArrowRightLeft, Circle, type LucideIcon } from 'lucide-react'
 
 export const C = {
   ESPRESSO: '#3D2314', OFFWHITE: '#FAF7F2', DOURADO: '#C8941A', BORDA: '#E7DED3', TEXTM: '#6b5444',
@@ -139,12 +140,19 @@ export function SemEmpresa() {
   return <Vazio texto="Escolha uma empresa no seletor do topo para abrir o CRM dela." />
 }
 
-export const TIPOS_ATIVIDADE: { v: string; l: string; i: string }[] = [
-  { v: 'whatsapp', l: 'WhatsApp', i: '💬' }, { v: 'ligacao', l: 'Ligação', i: '📞' }, { v: 'reuniao', l: 'Reunião', i: '🤝' },
-  { v: 'visita', l: 'Visita', i: '📍' }, { v: 'email', l: 'E-mail', i: '✉️' }, { v: 'nota', l: 'Nota', i: '📝' },
+const ICONES: Record<string, LucideIcon> = {
+  whatsapp: MessageCircle, ligacao: Phone, reuniao: Users, visita: MapPin, email: Mail, nota: StickyNote, tarefa: CheckSquare, historico: ArrowRightLeft,
+}
+export const TIPOS_ATIVIDADE: { v: string; l: string }[] = [
+  { v: 'whatsapp', l: 'WhatsApp' }, { v: 'ligacao', l: 'Ligação' }, { v: 'reuniao', l: 'Reunião' },
+  { v: 'visita', l: 'Visita' }, { v: 'email', l: 'E-mail' }, { v: 'nota', l: 'Nota' },
 ]
-export const TIPOS_TAREFA: { v: string; l: string; i: string }[] = [
-  { v: 'whatsapp', l: 'WhatsApp', i: '💬' }, { v: 'ligacao', l: 'Ligar', i: '📞' }, { v: 'reuniao', l: 'Reunião', i: '🤝' },
-  { v: 'visita', l: 'Visita', i: '📍' }, { v: 'email', l: 'E-mail', i: '✉️' }, { v: 'tarefa', l: 'Tarefa', i: '✅' },
+export const TIPOS_TAREFA: { v: string; l: string }[] = [
+  { v: 'whatsapp', l: 'WhatsApp' }, { v: 'ligacao', l: 'Ligar' }, { v: 'reuniao', l: 'Reunião' },
+  { v: 'visita', l: 'Visita' }, { v: 'email', l: 'E-mail' }, { v: 'tarefa', l: 'Tarefa' },
 ]
-export const iconeTipo = (t: string) => [...TIPOS_ATIVIDADE, ...TIPOS_TAREFA].find((x) => x.v === t)?.i ?? '•'
+/** Ícone (lucide, traço fino) do tipo de atividade/tarefa. */
+export function IconeTipo({ tipo, size = 16 }: { tipo: string; size?: number }) {
+  const I = ICONES[tipo] ?? Circle
+  return <I size={size} strokeWidth={1.5} aria-hidden style={{ flex: '0 0 auto', color: C.TEXTM }} />
+}

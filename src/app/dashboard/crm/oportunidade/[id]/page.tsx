@@ -9,8 +9,9 @@ import { supabase } from '@/lib/supabase'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import Modal from '@/components/ui/Modal'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { MessageCircle } from 'lucide-react'
 import { C, Campo, Titulo, Cabecalho, Pagina, Aviso, Vazio, inp, btnPri, btnSec, chip, cartao, brl, dataBR, horaBR, waHref, rpcCrm, useCrm,
-  TIPOS_ATIVIDADE, TIPOS_TAREFA, iconeTipo, type CampoCustom } from '@/components/crm/crmUi'
+  TIPOS_ATIVIDADE, TIPOS_TAREFA, IconeTipo, type CampoCustom } from '@/components/crm/crmUi'
 
 type EtapaF = { id: string; rotulo: string; tipo_etapa: 'normal' | 'ganho' | 'perda'; cor: string | null; probabilidade: number | null }
 type Op = {
@@ -77,7 +78,7 @@ export default function FichaNegocioPage() {
     if (et.tipo_etapa === 'perda' && !motivoId) { setPerda(et); setMotivo(''); setMotivoTexto(''); return }
     try {
       await rpcCrm('fn_crm_oportunidade_mover', { p_id: id, p_etapa_id: et.id, p_motivo_perda_id: motivoId ?? null, p_motivo_texto: texto ?? null })
-      setOk(et.tipo_etapa === 'ganho' ? `🎉 Negócio ganho!${cfg?.tem_ge ? ' A Gestão Empresarial foi avisada.' : ''}` : `Movido para ${et.rotulo}.`)
+      setOk(et.tipo_etapa === 'ganho' ? `Negócio ganho!${cfg?.tem_ge ? ' A Gestão Empresarial foi avisada.' : ''}` : `Movido para ${et.rotulo}.`)
       setPerda(null); void carregar()
     } catch (e) { setErro((e as Error).message) }
   }
@@ -138,7 +139,7 @@ export default function FichaNegocioPage() {
       <Cabecalho titulo={o.titulo}
         subtitulo={`${o.cliente_nome ?? 'Sem empresa'}${o.contato_nome ? ` · ${o.contato_nome}` : ''} · ${atual?.rotulo ?? o.etapa} há ${o.dias_na_etapa} dia(s)`}
         acoes={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-          {wa ? <a href={wa} target="_blank" rel="noreferrer" style={{ ...chip(C.WA), minHeight: 44, padding: '0 14px', fontSize: 14 }} data-testid="crm-ficha-whatsapp">💬 WhatsApp</a>
+          {wa ? <a href={wa} target="_blank" rel="noreferrer" style={{ ...chip(C.WA), minHeight: 44, padding: '0 14px', fontSize: 14 }} data-testid="crm-ficha-whatsapp"><MessageCircle size={16} strokeWidth={1.5} aria-hidden /> WhatsApp</a>
             : <span style={{ fontSize: 12, color: C.TEXTM }}>Sem telefone cadastrado</span>}
           <AjudaCampo chave="crm.ficha.whatsapp" />
         </span>} />
@@ -223,7 +224,7 @@ export default function FichaNegocioPage() {
               <Titulo texto="Registrar o que aconteceu" ajuda="crm.ficha.atividade" />
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
                 {TIPOS_ATIVIDADE.map((t) => (
-                  <button key={t.v} onClick={() => setAtivTipo(t.v)} style={chip(C.ESPRESSO, ativTipo === t.v ? '#F3E9D6' : '#fff')}>{t.i} {t.l}</button>
+                  <button key={t.v} onClick={() => setAtivTipo(t.v)} style={chip(C.ESPRESSO, ativTipo === t.v ? '#F3E9D6' : '#fff')}><IconeTipo tipo={t.v} size={14} /> {t.l}</button>
                 ))}
               </div>
               <Campo rotulo="O que foi conversado" ajuda="crm.ficha.atividade">
@@ -238,7 +239,7 @@ export default function FichaNegocioPage() {
             {ficha.tarefas.length === 0 && <div style={{ fontSize: 13, color: C.TEXTM, marginBottom: 8 }}>Nenhum próximo passo agendado. Negócio sem próximo passo esfria.</div>}
             {ficha.tarefas.map((t) => (
               <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: `1px solid ${C.BORDA}` }}>
-                <span aria-hidden>{iconeTipo(t.tipo)}</span>
+                <IconeTipo tipo={t.tipo} />
                 <div style={{ flex: 1, textDecoration: t.concluida_em ? 'line-through' : 'none', color: t.concluida_em ? C.TEXTM : C.ESPRESSO, fontSize: 14 }}>
                   {t.titulo}<div style={{ fontSize: 12, color: C.TEXTM }}>{dataBR(t.vence_em)} {horaBR(t.vence_em)}</div>
                 </div>
@@ -249,7 +250,7 @@ export default function FichaNegocioPage() {
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10, alignItems: 'flex-end' }}>
                 <Campo rotulo="Tipo" ajuda="crm.ficha.tarefa" largura={110}>
                   <select style={inp} value={tarTipo} onChange={(e) => setTarTipo(e.target.value)}>
-                    {TIPOS_TAREFA.map((t) => <option key={t.v} value={t.v}>{t.i} {t.l}</option>)}
+                    {TIPOS_TAREFA.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}
                   </select>
                 </Campo>
                 <Campo rotulo="O que fazer" ajuda="crm.ficha.tarefa" largura={180}>
@@ -268,7 +269,7 @@ export default function FichaNegocioPage() {
             {ficha.linha_do_tempo.length === 0 && <div style={{ fontSize: 13, color: C.TEXTM }}>Nada registrado ainda.</div>}
             {ficha.linha_do_tempo.map((ev, i) => (
               <div key={i} style={{ display: 'flex', gap: 8, padding: '8px 0', borderTop: `1px solid ${C.BORDA}`, fontSize: 13.5 }}>
-                <span aria-hidden>{ev.tipo === 'historico' ? '↪️' : iconeTipo(ev.tipo)}</span>
+                <IconeTipo tipo={ev.tipo} />
                 <div style={{ flex: 1 }}>
                   <div>{ev.texto ?? ev.acao}</div>
                   <div style={{ fontSize: 11.5, color: C.TEXTM }}>{dataBR(ev.quando)} {horaBR(ev.quando)}{ev.autor ? ` · ${ev.autor}` : ''}</div>

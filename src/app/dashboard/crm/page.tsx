@@ -8,7 +8,7 @@ import { supabase } from '@/lib/supabase'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import NovoNegocioModal from '@/components/crm/NovoNegocioModal'
 import { useRouter } from 'next/navigation'
-import { C, Titulo, Cabecalho, Pagina, Aviso, Vazio, SemEmpresa, btnPri, chip, cartao, brl, dataBR, horaBR, waHref, rpcCrm, useCrm, iconeTipo } from '@/components/crm/crmUi'
+import { C, Titulo, Cabecalho, Pagina, Aviso, Vazio, SemEmpresa, btnPri, chip, cartao, brl, dataBR, horaBR, waHref, rpcCrm, useCrm, IconeTipo } from '@/components/crm/crmUi'
 
 type Tarefa = { id: string; tipo: string; titulo: string; vence_em: string; atrasada: boolean; oportunidade_id: string | null; lead_id: string | null; oportunidade: string | null; telefone: string | null }
 type Parada = { id: string; titulo: string; etapa: string; responsavel_nome: string | null; valor: number | null; dias: number }
@@ -66,7 +66,7 @@ export default function CrmHojePage() {
             const wa = waHref(t.telefone)
             return (
               <div key={t.id} style={linha}>
-                <span aria-hidden>{iconeTipo(t.tipo)}</span>
+                <IconeTipo tipo={t.tipo} />
                 <div style={{ flex: 1, minWidth: 160 }}>
                   <div style={{ fontWeight: 600, fontSize: 14 }}>{t.titulo}</div>
                   <div style={{ fontSize: 12, color: t.atrasada ? C.RED : C.TEXTM }}>

@@ -5,6 +5,7 @@
 // Perdido exige motivo do cadastro. Vendedor vê só a própria carteira (o banco filtra).
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { Clock, User, MessageCircle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import Modal from '@/components/ui/Modal'
@@ -53,7 +54,7 @@ export default function PipelinePage() {
     setQuadro((q) => q && { ...q, cards: q.cards.map((c) => (c.id === card.id ? { ...c, etapa_id: etapaId, dias_na_etapa: 0, semaforo: 'verde' } : c)) })
     try {
       await rpcCrm('fn_crm_oportunidade_mover', { p_id: card.id, p_etapa_id: etapaId, p_motivo_perda_id: motivoId ?? null, p_motivo_texto: texto ?? null })
-      setOk(et.tipo_etapa === 'ganho' ? `🎉 "${card.titulo}" ganho!${cfg?.tem_ge ? ' A Gestão Empresarial foi avisada.' : ''}` : null)
+      setOk(et.tipo_etapa === 'ganho' ? `"${card.titulo}" ganho!${cfg?.tem_ge ? ' A Gestão Empresarial foi avisada.' : ''}` : null)
       setPerda(null)
     } catch (e) { setErro((e as Error).message) }
     void carregar()
@@ -130,12 +131,12 @@ export default function PipelinePage() {
                     </Link>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', marginTop: 6, flexWrap: 'wrap' }}>
                       <span style={{ fontSize: 14, fontWeight: 700 }}>{c.valor ? brl(c.valor) : '—'}</span>
-                      {!fechado && <span style={{ fontSize: 11, color: corDias, fontWeight: c.semaforo === 'verde' ? 400 : 700 }}>⏱ {c.dias_na_etapa} {c.dias_na_etapa === 1 ? 'dia' : 'dias'} na etapa</span>}
+                      {!fechado && <span style={{ fontSize: 11, color: corDias, fontWeight: c.semaforo === 'verde' ? 400 : 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Clock size={12} strokeWidth={1.5} aria-hidden />{c.dias_na_etapa} {c.dias_na_etapa === 1 ? 'dia' : 'dias'} na etapa</span>}
                     </div>
-                    {c.responsavel_nome && <div style={{ fontSize: 11, color: C.TEXTM, marginTop: 2 }}>👤 {c.responsavel_nome}</div>}
+                    {c.responsavel_nome && <div style={{ fontSize: 11, color: C.TEXTM, marginTop: 2, display: 'flex', alignItems: 'center', gap: 3 }}><User size={12} strokeWidth={1.5} aria-hidden />{c.responsavel_nome}</div>}
                     {c.motivo_perda && <div style={{ fontSize: 11, color: C.RED, marginTop: 2 }}>motivo: {c.motivo_perda}</div>}
                     <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                      {wa && <a href={wa} target="_blank" rel="noopener noreferrer" style={chip('#fff', C.WA)} data-testid="crm-cartao-whatsapp" onClick={(e) => e.stopPropagation()}>💬 WhatsApp</a>}
+                      {wa && <a href={wa} target="_blank" rel="noopener noreferrer" style={chip('#fff', C.WA)} data-testid="crm-cartao-whatsapp" onClick={(e) => e.stopPropagation()}><MessageCircle size={13} strokeWidth={1.5} aria-hidden /> WhatsApp</a>}
                       {!soLeitura && (
                         <span data-ajuda="crm.pipeline.mover">
                         <select aria-label="Mover para" value="" onChange={(e) => { if (e.target.value) void mover(c, e.target.value) }}
