@@ -43,6 +43,15 @@ INSERT INTO public.rbac_subgrupo_catalogo (slug, grupo, nome, descricao, ativo) 
   ('crm_admin',      'crm', 'Configurar o CRM',  'Funis, etapas, origens, motivos de perda e campos próprios', true)
 ON CONFLICT (slug) DO NOTHING;
 
+-- module_catalog.subgrupo tem FK para module_subgrupos: os subgrupos do menu entram antes dos módulos
+INSERT INTO public.module_subgrupos (id, label, grupo, ordem, ativo, descricao) VALUES
+  ('crm_pipeline',   'Vendas',     'crm', 10, true, 'O que fazer hoje, quadro do funil e leads'),
+  ('crm_cadastros',  'Cadastros',  'crm', 20, true, 'Empresas e contatos'),
+  ('crm_propostas',  'Propostas',  'crm', 30, true, 'Propostas e aceite do cliente (Onda 3)'),
+  ('crm_relatorios', 'Relatórios', 'crm', 40, true, 'Conversão, tempo por etapa, ranking e motivo de perda'),
+  ('crm_admin',      'Configurar', 'crm', 50, true, 'Funis, etapas, origens, motivos de perda e campos próprios')
+ON CONFLICT (id) DO NOTHING;
+
 INSERT INTO public.module_catalog (id, nome, grupo, icone, rota, ordem, ativo, descricao, is_shared, legacy, subgrupo, surface_in_groups)
 VALUES
   ('crm',            'O que fazer hoje', 'crm', 'Sun',        '/dashboard/crm',            10, true, 'Tarefas do dia, negócios parados, propostas aguardando e leads sem dono', false, false, 'crm_pipeline',   ARRAY[]::text[]),
