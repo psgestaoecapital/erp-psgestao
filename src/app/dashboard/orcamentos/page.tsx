@@ -701,7 +701,20 @@ export default function OrcamentosPage(){
     await supabase.from("erp_orcamento_historico").insert({
       orcamento_id:o.id,company_id:o.company_id,evento:`status_${novoStatus}`,detalhe:`Status alterado para ${STATUS_CFG[novoStatus]?.label}`
     });
-    setMsg(`✅ Status alterado para ${STATUS_CFG[novoStatus]?.label}`);
+    // #9473 · ao enviar o orçamento, a oportunidade vinculada (Hub) saía de "Orçando" para
+    // "Proposta enviada" só no arrasto manual do Kanban — ficava presa em Orçando. Agora o envio
+    // avança a etapa automaticamente. Só avança quando AINDA está em "orcando" (não regride
+    // negociação/ganho/perdido) e usa a RPC oficial fn_crm_mover_etapa (RLS + histórico "etapa_mudou").
+    let avisoKanban="";
+    if(novoStatus==='enviado'){
+      const{data:op}=await supabase.from('erp_crm_oportunidade')
+        .select('id').eq('orcamento_id',o.id).eq('etapa','orcando').is('deleted_at',null).limit(1).maybeSingle();
+      if(op?.id){
+        const{data:mv}=await supabase.rpc('fn_crm_mover_etapa',{p_id:op.id,p_etapa:'proposta_enviada',p_motivo_perda:null});
+        if((mv as {ok?:boolean}|null)?.ok)avisoKanban=" · oportunidade movida para Proposta enviada no Kanban";
+      }
+    }
+    setMsg(`✅ Status alterado para ${STATUS_CFG[novoStatus]?.label}${avisoKanban}`);
     loadOrcamentos();
     setTimeout(()=>setMsg(""),3000);
   };
