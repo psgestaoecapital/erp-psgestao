@@ -1130,6 +1130,7 @@ export default function InboxPage() {
               data-testid="inbox-sincronizar-extrato"
             >{sincExtratoBusy ? 'Sincronizando…' : '↻ Sincronizar extrato agora'}</button>
           )}
+          {empresaUnica && <AjudaCampo chave="financeiro.conciliacao.sincronizar_extrato" />}
           <button
             onClick={() => setShowImport((v) => !v)}
             style={{ ...tabInactive, borderStyle: 'dashed' }}
@@ -1293,6 +1294,13 @@ export default function InboxPage() {
               <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)' }}>
                 {items.length === 0 ? 'Importe um novo lote para começar.' : 'Desmarque o filtro pra ver outros.'}
               </div>
+              {items.length === 0 && (
+                <button
+                  onClick={() => setShowImport(true)}
+                  data-testid="inbox-empty-importar-ofx"
+                  style={{ marginTop: 14, padding: '9px 18px', borderRadius: 8, border: 'none', background: '#3D2314', color: '#FFFFFF', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                >+ Importar extrato (OFX)</button>
+              )}
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1460,6 +1468,7 @@ export default function InboxPage() {
                               <button onClick={() => setTransferindo(it)} disabled={aplicando} style={secondaryBtn(aplicando)} data-testid="conc-transferencia">
                                 🔄 Transferência entre contas
                               </button>
+                              <AjudaCampo chave="financeiro.conciliacao.acoes_painel" alinhar="fim" />
                             </div>
                           </>
                         )}
@@ -1589,6 +1598,7 @@ export default function InboxPage() {
                   }}
                 >{n === 'todos' ? 'Todos' : n === 'debito' ? 'A pagar' : 'A receber'}</button>
               ))}
+              <AjudaCampo chave="financeiro.conciliacao.filtro_natureza_sistema" />
             </div>
 
             <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', marginBottom: 12 }}>
