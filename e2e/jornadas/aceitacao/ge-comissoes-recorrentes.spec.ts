@@ -48,9 +48,13 @@ async function criarContrato(sufixo: string): Promise<string> {
   return c.id
 }
 
+// cada recebível precisa de descrição ÚNICA: vários testes criam valor=1000/vencimento=HOJE e a trava
+// de título duplicado (20260722120000_conciliacao_travas, por descrição+valor+vencimento na empresa) rejeitava
+// o 2º como 23505 quando os workers inseriam quase juntos. Numerar a descrição elimina a corrida (só preparação).
+let seqRecebivel = 0
 async function criarRecebivel(contrato: string, valor: number): Promise<string> {
   const r = await dbInsert<IdRow>('erp_receber', {
-    company_id: DEMO_GE, contrato_id: contrato, descricao: `Mensalidade E2E ${RUN}`,
+    company_id: DEMO_GE, contrato_id: contrato, descricao: `Mensalidade E2E ${RUN}-${++seqRecebivel}`,
     valor, data_vencimento: HOJE, status: 'aberto', cliente_nome: `Cliente E2E ${RUN}`,
   })
   return r.id
