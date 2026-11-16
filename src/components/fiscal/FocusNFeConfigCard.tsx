@@ -386,28 +386,47 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
           <p className="text-[11px] text-[#3D2314]/60 mt-1" data-testid="nfe-chave-em-uso">
             Chave em uso na NF-e: token de <strong>{ambienteNfe === 'producao' ? 'Produção' : 'Homologação'}</strong>. Confira que ele está cadastrado (Passo 2 › Ambiente › API Key) antes de emitir.
           </p>
+          {/* #9428 · numeração da NF-e fica JUNTO dos demais campos de NF-e (modelo 55), não misturada com a NFS-e */}
+          <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-[#C8941A]/20">
+            <label className="block">
+              <span className="text-[12px] font-medium text-[#3D2314] mb-1.5 flex items-center gap-1">
+                Série NFe
+                <AjudaCampo chave="fiscal.serie_nfe" rota="/dashboard/configuracoes/fiscal" />
+              </span>
+              <input type="text" value={serieNfe} onChange={(e) => setSerieNfe(e.target.value)} disabled={!podeEditar}
+                className="block w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 disabled:bg-[#3D2314]/5" />
+            </label>
+            <label className="block">
+              <span className="text-[12px] font-medium text-[#3D2314] mb-1.5 flex items-center gap-1">
+                Próximo nº NFe
+                <AjudaCampo chave="fiscal.prox_num_nfe" rota="/dashboard/configuracoes/fiscal" />
+              </span>
+              <input type="number" min={1} value={proxNumNfe} onChange={(e) => setProxNumNfe(e.target.value)} disabled={!podeEditar}
+                className="block w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 disabled:bg-[#3D2314]/5" />
+            </label>
+          </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">Série NFSe</label>
-            <input type="text" value={serieNfse} onChange={(e) => setSerieNfse(e.target.value)} disabled={!podeEditar}
-              className="block w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 disabled:bg-[#3D2314]/5" />
-          </div>
-          <div>
-            <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">Próximo nº NFSe</label>
-            <input type="number" min={1} value={proxNumNfse} onChange={(e) => setProxNumNfse(e.target.value)} disabled={!podeEditar}
-              className="block w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 disabled:bg-[#3D2314]/5" />
-          </div>
-          <div>
-            <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">Série NFe</label>
-            <input type="text" value={serieNfe} onChange={(e) => setSerieNfe(e.target.value)} disabled={!podeEditar}
-              className="block w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 disabled:bg-[#3D2314]/5" />
-          </div>
-          <div>
-            <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">Próximo nº NFe</label>
-            <input type="number" min={1} value={proxNumNfe} onChange={(e) => setProxNumNfe(e.target.value)} disabled={!podeEditar}
-              className="block w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 disabled:bg-[#3D2314]/5" />
+        {/* #9428 · numeração da NFS-e separada da NF-e (campos de modelos fiscais distintos não se misturam no mesmo grid) */}
+        <div>
+          <div className="text-[11px] text-[#3D2314]/55 tracking-[0.4px] uppercase font-medium mb-2">Numeração da NFS-e</div>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-[12px] font-medium text-[#3D2314] mb-1.5 flex items-center gap-1">
+                Série NFSe
+                <AjudaCampo chave="fiscal.serie_nfse" rota="/dashboard/configuracoes/fiscal" />
+              </span>
+              <input type="text" value={serieNfse} onChange={(e) => setSerieNfse(e.target.value)} disabled={!podeEditar}
+                className="block w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 disabled:bg-[#3D2314]/5" />
+            </label>
+            <label className="block">
+              <span className="text-[12px] font-medium text-[#3D2314] mb-1.5 flex items-center gap-1">
+                Próximo nº NFSe
+                <AjudaCampo chave="fiscal.prox_num_nfse" rota="/dashboard/configuracoes/fiscal" />
+              </span>
+              <input type="number" min={1} value={proxNumNfse} onChange={(e) => setProxNumNfse(e.target.value)} disabled={!podeEditar}
+                className="block w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 disabled:bg-[#3D2314]/5" />
+            </label>
           </div>
         </div>
 
