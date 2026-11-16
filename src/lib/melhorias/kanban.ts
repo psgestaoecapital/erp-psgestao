@@ -37,6 +37,15 @@ export function colunaDoChamado(c: ChamadoKanban): ColunaKanban | null {
   return 'andamento'
 }
 
+// #7050 (Jordana 16/11, AJUSTE 11:48): chamado ENTREGUE que ainda NÃO teve resposta enviada ao autor fica em
+// "Em andamento" (ver colunaDoChamado: aguardando_confirmacao sem resposta aprovada = andamento) com o aviso
+// "Resposta aguardando autorização", para o operador não o perder de vista — foi o que aconteceu no #6912 (entregue
+// em aguardando_confirmacao, sem nenhuma mensagem ao autor em sugestao_mensagem). Pura: só status + sinais já
+// disponíveis, não muda coluna nem dado. Só faz sentido na fila do operador.
+export const aguardaAutorizacao = (
+  c: Pick<ChamadoKanban, 'status' | 'resposta_aprovada' | 'confirmado_pelo_autor'>,
+): boolean => c.status === 'aguardando_confirmacao' && !c.resposta_aprovada && !c.confirmado_pelo_autor
+
 // Filtro "Minha carteira" / "Gerais". Minha carteira = responsável é a pessoa logada (decisão 2).
 export function passaFiltro(c: ChamadoKanban, filtro: FiltroKanban, meuId: string | null): boolean {
   if (filtro === 'gerais') return true
