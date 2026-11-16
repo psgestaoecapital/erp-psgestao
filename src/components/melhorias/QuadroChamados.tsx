@@ -18,7 +18,7 @@
 import { useRef, useState, type ReactNode } from 'react'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import {
-  casaBusca, colunaDoChamado, ehArquivado, passaFiltro, ROTULO_COLUNA, semDono,
+  aguardaAutorizacao, casaBusca, colunaDoChamado, ehArquivado, passaFiltro, ROTULO_COLUNA, semDono,
   type ChamadoKanban, type ColunaKanban, type FiltroKanban,
 } from '@/lib/melhorias/kanban'
 
@@ -63,11 +63,13 @@ const seloFinalDe = (c: ItemQuadro): string | null =>
 
 // ── Cartão (componente de módulo: tipo estável, não remonta durante o arraste) ───────────────────────────────────
 function Cartao({
-  c, mostrarStatus, selo, col, arrastavel, emArraste, onAbrir, rotuloStatus, onDragStartCard, onDragEndCard, onAssumir,
+  c, mostrarStatus, selo, avisoAutorizacao, col, arrastavel, emArraste, onAbrir, rotuloStatus, onDragStartCard, onDragEndCard, onAssumir,
 }: {
   c: ItemQuadro
   mostrarStatus: boolean
   selo?: 'sem_dono'
+  // #7050: chamado entregue com resposta ainda não enviada/autorizada ao autor — aviso ao operador.
+  avisoAutorizacao?: boolean
   col?: ColunaKanban
   arrastavel: boolean
   emArraste: boolean
@@ -105,8 +107,14 @@ function Cartao({
           </button>
         </div>
       </div>
-      {(mostrarStatus || selo || self) && (
+      {(mostrarStatus || selo || self || avisoAutorizacao) && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {avisoAutorizacao && (
+            <span data-testid="kanban-aviso-autorizacao" title="O chamado foi entregue, mas a resposta ao usuário ainda não foi enviada. Abra o chamado para revisar e autorizar o envio."
+              style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.amberBg, color: C.amber, fontWeight: 700 }}>
+              Resposta aguardando autorização
+            </span>
+          )}
           {mostrarStatus && (
             <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.cream, color: C.espM, fontWeight: 700 }}>
               {ehArquivado(c) ? 'ARQUIVADA' : rotuloStatus(c.status)}
@@ -208,6 +216,7 @@ export default function QuadroChamados({ itens, meuId, busca, onBusca, filtro, o
   // Cartão para uma coluna. col indefinido = cartão não arrastável (colunas "Todos"/"Minha carteira" e busca).
   const card = (c: ItemQuadro, mostrarStatus: boolean, col?: ColunaKanban, selo?: 'sem_dono') => (
     <Cartao key={c.id} c={c} mostrarStatus={mostrarStatus} selo={selo} col={col}
+      avisoAutorizacao={modo === 'operador' && col === 'andamento' && aguardaAutorizacao(c)}
       arrastavel={podeArrastar && !!col} emArraste={arrastandoId === c.id}
       onAbrir={onAbrir} rotuloStatus={rotuloStatus}
       onDragStartCard={onDragStartCard} onDragEndCard={onDragEndCard}
