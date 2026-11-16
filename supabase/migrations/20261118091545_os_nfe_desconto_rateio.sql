@@ -160,3 +160,8 @@ BEGIN
     )
   );
 END $function$;
+
+-- Guarda da função (check_fn_guards · regra 1): SECURITY DEFINER não pode ser chamada por anon.
+-- Idempotente — anon já não tinha EXECUTE (grants: postgres, authenticated, service_role); explicitado aqui
+-- porque CREATE OR REPLACE acima recria a função e o gate exige o REVOKE na mesma migration.
+REVOKE ALL ON FUNCTION public.fn_os_nfe_preparar(uuid) FROM anon;
