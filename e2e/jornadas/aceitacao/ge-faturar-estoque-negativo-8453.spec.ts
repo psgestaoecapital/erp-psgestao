@@ -1,5 +1,5 @@
 // GE · Chamado #8453 — Faturar com estoque negativo: config por empresa (bloquear/avisar/liberar).
-// Migration 20261118140035 · @pos-migration. Code: code-desenvolvedor-3.
+// Migration 20261118180035 · @pos-migration. Code: code-desenvolvedor-3.
 //
 // Prova os 3 modos COMO O USUÁRIO (as mesmas RPCs da tela: fn_empresa_salvar_estoque_negativo + fn_faturar),
 // na "Comércio (GE) - DEMO" (robô só em demonstração). Para cada modo o teste cria o próprio produto
