@@ -36,6 +36,19 @@ const diag = motivoPulo({ Cabecalho: { nCodNF: 9 }, Emissao: {} })
 ok(diag.tem_ref === true && diag.tem_data === false, 'motivoPulo: tem ref, falta data')
 ok(diag.chaves.includes('nCodNF') && diag.chaves.includes('Cabecalho') && !diag.chaves.some((k) => /^\d/.test(k)), 'motivoPulo: lista chaves, sem valores')
 ok(motivoPulo(item).tem_ref === true && motivoPulo(item).tem_data === true, 'motivoPulo: amostra válida mapeia')
+// #2712 (M.M): o OMIE (ListarNFSEs) manda a data em cDataEmissao/cDataInclusao (prefixo "c", não "d*").
+// Antes, CHAVES_EMISSAO só tinha os "d*" e toda nota era pulada por "sem data" (33 puladas / 0 inseridas).
+const omieReal = {
+  nCodNF: 70, nNumeroNFSe: 12, cDataEmissao: '30/09/2026', cHoraEmissao: '09:15:00',
+  cDataInclusao: '29/09/2026', cDataCancelamento: '', cCnpjCpf: '11.222.333/0001-44', nValorNFSe: '500,00',
+}
+const mr = mapearNfseOmie(omieReal, prest)
+ok(!!mr && mr.row.data_emissao === '2026-09-30T09:15:00-03:00', 'OMIE real: data de cDataEmissao + hora de cHoraEmissao')
+ok(motivoPulo(omieReal).tem_data === true, 'motivoPulo: cDataEmissao conta como data (não pula)')
+ok(
+  mapearNfseOmie({ nCodNF: 71, cDataInclusao: '15/08/2026' }, prest)?.row.data_emissao === '2026-08-15T00:00:00-03:00',
+  'fallback: usa cDataInclusao quando não há data de emissão',
+)
 
 const rota = readFileSync('src/app/api/omie/nfse/importar/route.ts', 'utf8')
 ok(/exigirUsuario\(req, \{ admin: true \}\)/.test(rota), 'rota só equipe PS')
