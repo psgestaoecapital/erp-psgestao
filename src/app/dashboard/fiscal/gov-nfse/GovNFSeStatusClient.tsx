@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 import {
   ArrowLeft, Landmark, Loader2, AlertCircle, RefreshCw, MapPin, FileText, CheckCircle2,
 } from 'lucide-react'
@@ -35,6 +36,8 @@ interface SyncResultado {
   atualizados?: number
   erro?: string
 }
+
+const ROTA = '/dashboard/fiscal/gov-nfse'
 
 export default function GovNFSeStatusClient() {
   const [pendentes, setPendentes] = useState<DPSPendente[]>([])
@@ -145,27 +148,31 @@ export default function GovNFSeStatusClient() {
         <div className="bg-white border border-[#3D2314]/10 rounded-xl overflow-hidden mb-5">
           <div className="px-5 py-3 border-b border-[#3D2314]/10 flex items-center justify-between flex-wrap gap-2">
             <div>
-              <div className="text-[11px] text-[#3D2314]/55 uppercase tracking-[0.8px] font-medium">
+              <div className="text-[11px] text-[#3D2314]/55 uppercase tracking-[0.8px] font-medium flex items-center">
                 Municípios aderidos (cache local)
+                <AjudaCampo chave="fiscal.gov_nfse.ind.municipios_aderidos" rota={ROTA} />
               </div>
               <div className="text-[13.5px] font-medium text-[#3D2314] mt-0.5 flex items-center gap-1.5">
                 <MapPin size={13} className="text-[#C8941A]" /> {municipios.length} municípios
               </div>
             </div>
-            <button
-              type="button"
-              onClick={sincronizarMunicipios}
-              disabled={sincronizando}
-              data-testid="gov-nfse-sync"
-              className="px-3 py-2 text-[12px] font-medium rounded-lg bg-[#3D2314] text-[#FAF7F2] hover:bg-[#5A3522] disabled:opacity-50 flex items-center gap-1.5"
-            >
-              {sincronizando ? (
-                <Loader2 size={13} className="animate-spin" />
-              ) : (
-                <RefreshCw size={13} />
-              )}
-              Sincronizar municípios
-            </button>
+            <div className="flex items-center">
+              <button
+                type="button"
+                onClick={sincronizarMunicipios}
+                disabled={sincronizando}
+                data-testid="gov-nfse-sync"
+                className="px-3 py-2 text-[12px] font-medium rounded-lg bg-[#3D2314] text-[#FAF7F2] hover:bg-[#5A3522] disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {sincronizando ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <RefreshCw size={13} />
+                )}
+                Sincronizar municípios
+              </button>
+              <AjudaCampo chave="fiscal.gov_nfse.acao.sincronizar" rota={ROTA} alinhar="fim" />
+            </div>
           </div>
 
           {sincResultado && (
@@ -208,10 +215,10 @@ export default function GovNFSeStatusClient() {
               <table className="w-full text-[13px]">
                 <thead className="bg-[#3D2314]/5 text-[11px] text-[#3D2314]/70 uppercase tracking-[0.5px]">
                   <tr>
-                    <th className="text-left px-4 py-2 font-medium">Código IBGE</th>
-                    <th className="text-left px-4 py-2 font-medium">Nome</th>
-                    <th className="text-left px-4 py-2 font-medium">UF</th>
-                    <th className="text-left px-4 py-2 font-medium">Aderiu em</th>
+                    <th className="text-left px-4 py-2 font-medium"><span className="inline-flex items-center">Código IBGE<AjudaCampo chave="fiscal.gov_nfse.munic.codigo_ibge" rota={ROTA} /></span></th>
+                    <th className="text-left px-4 py-2 font-medium"><span className="inline-flex items-center">Nome<AjudaCampo chave="fiscal.gov_nfse.munic.nome" rota={ROTA} /></span></th>
+                    <th className="text-left px-4 py-2 font-medium"><span className="inline-flex items-center">UF<AjudaCampo chave="fiscal.gov_nfse.munic.uf" rota={ROTA} /></span></th>
+                    <th className="text-left px-4 py-2 font-medium"><span className="inline-flex items-center">Aderiu em<AjudaCampo chave="fiscal.gov_nfse.munic.aderiu_em" rota={ROTA} /></span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -233,8 +240,9 @@ export default function GovNFSeStatusClient() {
 
         <div className="bg-white border border-[#3D2314]/10 rounded-xl overflow-hidden">
           <div className="px-5 py-3 border-b border-[#3D2314]/10">
-            <div className="text-[11px] text-[#3D2314]/55 uppercase tracking-[0.8px] font-medium">
+            <div className="text-[11px] text-[#3D2314]/55 uppercase tracking-[0.8px] font-medium flex items-center">
               DPSes pendentes (últimas 50)
+              <AjudaCampo chave="fiscal.gov_nfse.ind.dps_pendentes" rota={ROTA} />
             </div>
             <div className="text-[13.5px] font-medium text-[#3D2314] mt-0.5 flex items-center gap-1.5">
               <FileText size={13} className="text-[#C8941A]" /> {pendentes.length}{' '}
@@ -254,11 +262,11 @@ export default function GovNFSeStatusClient() {
               <table className="w-full text-[13px]">
                 <thead className="bg-[#3D2314]/5 text-[11px] text-[#3D2314]/70 uppercase tracking-[0.5px]">
                   <tr>
-                    <th className="text-left px-4 py-2 font-medium">Nº DPS</th>
-                    <th className="text-left px-4 py-2 font-medium">Data</th>
-                    <th className="text-left px-4 py-2 font-medium">Descrição</th>
-                    <th className="text-right px-4 py-2 font-medium">Valor</th>
-                    <th className="text-left px-4 py-2 font-medium">Status</th>
+                    <th className="text-left px-4 py-2 font-medium"><span className="inline-flex items-center">Nº DPS<AjudaCampo chave="fiscal.gov_nfse.dps.numero" rota={ROTA} /></span></th>
+                    <th className="text-left px-4 py-2 font-medium"><span className="inline-flex items-center">Data<AjudaCampo chave="fiscal.gov_nfse.dps.data" rota={ROTA} /></span></th>
+                    <th className="text-left px-4 py-2 font-medium"><span className="inline-flex items-center">Descrição<AjudaCampo chave="fiscal.gov_nfse.dps.descricao" rota={ROTA} /></span></th>
+                    <th className="text-right px-4 py-2 font-medium"><span className="inline-flex items-center justify-end">Valor<AjudaCampo chave="fiscal.gov_nfse.dps.valor" rota={ROTA} alinhar="fim" /></span></th>
+                    <th className="text-left px-4 py-2 font-medium"><span className="inline-flex items-center">Status<AjudaCampo chave="fiscal.gov_nfse.dps.status" rota={ROTA} /></span></th>
                   </tr>
                 </thead>
                 <tbody>
