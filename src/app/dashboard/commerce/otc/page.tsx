@@ -23,7 +23,7 @@ import {
   Plus, Search, ShoppingCart, BarChart3,
   X, Info, Send, CheckCircle2, ArrowRight,
   AlertTriangle, Undo2,
-  Columns3, Lock,
+  Columns3, Lock, Pencil,
 } from 'lucide-react'
 import OrcamentoItensEditor, { type EditorItem } from '@/components/comum/OrcamentoItensEditor'
 import BlocoObraFiscal, { type ObraFiscalState, obraFiscalStateInicial, resolverObraFiscal } from '@/components/comum/BlocoObraFiscal'
@@ -1249,6 +1249,10 @@ function DrawerOrcamento({ orc, itens, onClose, onObraSalva, flash, onEnviar, on
   const canConverter = ['rascunho', 'enviado', 'visualizado', 'aprovado'].includes(orc.status) && !orc.pedido_id
   // #728 · cancelar (perda) só enquanto o orçamento está aberto e não virou pedido
   const canCancelar = ['rascunho', 'enviado', 'visualizado', 'aprovado'].includes(orc.status) && !orc.pedido_id
+  // #3863 · EDITAR o orçamento já salvo (itens, valores, observações). Reusa o editor dedicado
+  // (/dashboard/orcamentos), que já existe e grava por fn_orcamento_editar com guarda real no backend
+  // (fn_orcamento_pode_editar). Mesma régua de status editável do banco: antes da aprovação/conversão.
+  const canEditar = ['rascunho', 'revisao', 'enviado', 'visualizado'].includes(orc.status) && !orc.pedido_id
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 90, display: 'flex', justifyContent: 'flex-end' }}>
@@ -1324,6 +1328,13 @@ function DrawerOrcamento({ orc, itens, onClose, onObraSalva, flash, onEnviar, on
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
             {canCancelar && (
               <button onClick={onCancelar} style={{ ...btnSec, color: C.red, borderColor: C.red, marginRight: 'auto' }}><X size={14} /> Cancelar (perda)</button>
+            )}
+            {canEditar && (
+              <button
+                onClick={() => { window.location.href = `/dashboard/orcamentos?id=${orc.id}` }}
+                style={btnSec}
+                title="Editar itens, valores e observações deste orçamento"
+              ><Pencil size={14} /> Editar</button>
             )}
             {canEnviar && (
               <button onClick={onEnviar} style={btnSec}><Send size={14} /> Marcar enviado</button>
@@ -1532,6 +1543,16 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
                   ))}
                 </tbody>
               </table>
+            )}
+            {/* #3863 · EDITAR os itens do pedido já salvo. Reusa o editor dedicado (/dashboard/pedidos →
+                "Editar Itens"), que grava por fn_pedido_editar_itens com guarda real no backend
+                (fn_pedido_pode_editar bloqueia pedido faturado/cancelado). */}
+            {statusLocal !== 'cancelado' && !ped.nf_emitida && (
+              <button
+                onClick={() => { window.location.href = `/dashboard/pedidos?abrir=${ped.id}` }}
+                style={{ ...btnSec, marginTop: 10 }}
+                title="Editar os itens deste pedido (quantidades, preços)"
+              ><Pencil size={14} /> Editar itens</button>
             )}
           </Card>
 
