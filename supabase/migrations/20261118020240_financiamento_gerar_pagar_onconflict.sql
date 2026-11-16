@@ -153,3 +153,8 @@ BEGIN
   END IF;
 END
 $seed$;
+
+-- RD-52 / check_fn_guards: CREATE OR REPLACE de SECURITY DEFINER exige REVOKE anon no próprio arquivo.
+-- Bate exatamente com a ACL viva (authenticated=X, service_role=X; anon já fora) — não muda a ACL de produção.
+REVOKE ALL ON FUNCTION public.fn_financiamento_gerar_pagar(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_financiamento_gerar_pagar(uuid) TO authenticated, service_role;
