@@ -76,7 +76,12 @@ export default function RelatorioOSPage() {
       o.numero ?? '—', fmtD(o.data_ref), o.cliente_nome ?? '—', o.placa ?? '—',
       STATUS[o.status] ?? o.status, num(o.servico), num(o.pecas), num(o.total),
     ].map(esc).join(';'))
-    const csv = '﻿' + [cab.join(';'), ...linhas].join('\r\n')
+    // Linha de total ao final — a planilha exportada fecha com os mesmos totais que a tela mostra (serviços, peças e total do período).
+    const rodape = [
+      `Total (${rel.totais.qtd} ordem(ns))`, '', '', '', '',
+      num(rel.totais.servico), num(rel.totais.pecas), num(rel.totais.total),
+    ].map(esc).join(';')
+    const csv = '﻿' + [cab.join(';'), ...linhas, rodape].join('\r\n')
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }))
     const a = document.createElement('a')
     a.href = url; a.download = `relatorio-os_${de}_a_${ate}.csv`
