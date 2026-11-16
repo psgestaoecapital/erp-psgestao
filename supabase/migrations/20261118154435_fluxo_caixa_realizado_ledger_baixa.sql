@@ -184,3 +184,7 @@ BEGIN
   );
 END;
 $function$;
+
+-- ACL explícita (idêntica à ACL viva: authenticated/service_role, sem anon/PUBLIC) — exigida pelo gate check_fn_guards.
+REVOKE ALL ON FUNCTION public.fn_fluxo_caixa_diario(uuid, date, date, uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_fluxo_caixa_diario(uuid, date, date, uuid, text) TO authenticated, service_role;
