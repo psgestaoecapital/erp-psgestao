@@ -1169,7 +1169,7 @@ export default function InboxPage() {
         {showImport && (
           <div style={{ border: '1px solid #E3D9CC', borderRadius: 8, padding: 16, marginBottom: 16, background: '#FAF7F2' }}>
             <div style={{ fontWeight: 600, marginBottom: 8, color: '#3D2314' }}>Importar extrato bancário (.ofx)</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div data-ajuda="financeiro.conciliacao.import_conta" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: '#3D2314' }}>
                 Conta bancária do extrato<AjudaCampo chave="financeiro.conciliacao.import_conta" />
               </div>
@@ -1822,8 +1822,8 @@ function LoteRemessaCard({ mov, onConciliado }: { mov: Item; onConciliado: () =>
   return (
     <div style={{ border: '1px solid #0D9488', borderRadius: 8, padding: 10, background: '#F0FDFA' }}>
       <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0D9488' }}>Remessa Nº {rem} — {itens.length} título(s) pago(s) neste lote</div>
-      <div style={{ fontSize: 11.5, color: 'rgba(61,35,20,0.6)', marginTop: 2 }}>
-        Marque os títulos deste débito · selecionado {brl(somaSel)} · débito {brl(alvo)}{bate ? ' ✓ bate' : ' — ainda não bate'}
+      <div style={{ fontSize: 11.5, color: 'rgba(61,35,20,0.6)', marginTop: 2, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        Marque os títulos deste débito · selecionado {brl(somaSel)} · débito {brl(alvo)}{bate ? ' ✓ bate' : ' — ainda não bate'}<AjudaCampo chave="financeiro.conciliacao.match_titulo" />
       </div>
       <div style={{ maxHeight: 168, overflowY: 'auto', marginTop: 6 }}>
         {itens.map((i, idx) => {
@@ -1831,8 +1831,8 @@ function LoteRemessaCard({ mov, onConciliado }: { mov: Item; onConciliado: () =>
           return (
             // RD-41 · 3 colunas ALINHADAS: [checkbox extrema-esquerda] · [favorecido flex] · [valor à direita],
             // cores escuras de alto contraste (o valor herdava cinza-claro e sumia). align-items:center.
-            <label key={i.lancamento_id} style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr) auto', columnGap: 10, alignItems: 'center', padding: '8px 4px', fontSize: 12.5, cursor: 'pointer', borderTop: idx ? '1px solid rgba(61,35,20,0.08)' : 'none' }}>
-              <input type="checkbox" checked={on} style={{ width: 16, height: 16, margin: 0, accentColor: '#C8941A' }}
+            <label key={i.lancamento_id} data-ajuda="financeiro.conciliacao.match_titulo" style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr) auto', columnGap: 10, alignItems: 'center', padding: '8px 4px', fontSize: 12.5, cursor: 'pointer', borderTop: idx ? '1px solid rgba(61,35,20,0.08)' : 'none' }}>
+              <input type="checkbox" checked={on} aria-label="Marcar este título" style={{ width: 16, height: 16, margin: 0, accentColor: '#C8941A' }}
                 onChange={() => setSel((s) => { const n = new Set(s); if (n.has(i.lancamento_id)) n.delete(i.lancamento_id); else n.add(i.lancamento_id); return n })} />
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontWeight: 600, color: '#3D2314', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{i.fornecedor || i.descricao || 'título'}</div>
