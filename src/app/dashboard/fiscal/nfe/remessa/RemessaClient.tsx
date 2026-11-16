@@ -6,12 +6,13 @@
 // complementares. A regra 5/6/7 pela UF é a mesma da rota (src/lib/fiscal/nfeAvulsa.ts) e aparece antes de emitir.
 // Os 5 tipos de erp_fiscal_remessa_tipos continuam como atalhos. Nesta etapa a nota não gera título nem mexe no estoque.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
 import { esperaConsulta, AVISO_PROCESSANDO } from '@/lib/fiscal/consultaRetorno'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { traduzirRejeicaoSefaz } from '@/lib/fiscal/rejeicoes-sefaz'
 import {
   validarNFeAvulsa, cfopNoCatalogo, formatarCfop, ufDestino, soDigitos,
   ICMS_OPCOES_SIMPLES, ICMS_OPCOES_NORMAL, type CfopSaida, type FinalidadeNFe,
@@ -116,6 +117,7 @@ export default function RemessaClient() {
   const [produtosFiltrados, setProdutosFiltrados] = useState<Produto[]>([])
   const [itens, setItens] = useState<ItemRem[]>([])
   const [produtoBusca, setProdutoBusca] = useState('')
+  const buscaProdutoRef = useRef<HTMLInputElement>(null)
 
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
@@ -377,7 +379,7 @@ export default function RemessaClient() {
       }
       if (json?.status === 'rejeitada' || json?.status === 'denegada') {
         setAguardando(null)
-        setErro(`Nota ${json.status} pela SEFAZ: ${json.motivoRejeicao ?? 'motivo não informado'}. Use "Corrigir e reenviar" em Notas emitidas.`)
+        setErro(`${traduzirRejeicaoSefaz(json.motivoRejeicao, `Nota ${json.status} pela SEFAZ`)} Você pode usar "Corrigir e reenviar" em Notas emitidas.`)
         return
       }
     } catch { /* falha de rede na consulta: tenta de novo no próximo degrau */ }
@@ -432,13 +434,17 @@ export default function RemessaClient() {
           void consultarRetorno(json.nfeId, 0)
           return
         }
-        setErro(json?.mensagem ?? json?.motivoRejeicao ?? 'Falha ao emitir')
+        setErro(
+          json?.motivoRejeicao
+            ? traduzirRejeicaoSefaz(json.motivoRejeicao, 'Não foi possível emitir')
+            : (json?.mensagem ?? 'Falha ao emitir'),
+        )
         return
       }
       if (json?.status === 'autorizada') {
         setSucesso({ numero: String(json.numero ?? '?'), chave: json.chave, danfeUrl: json.danfeUrl })
       } else if (json?.status === 'rejeitada' || json?.status === 'denegada') {
-        setErro(`Nota ${json.status} pela SEFAZ: ${json.motivoRejeicao ?? 'motivo não informado'}. Use "Corrigir e reenviar" em Notas emitidas.`)
+        setErro(`${traduzirRejeicaoSefaz(json.motivoRejeicao, `Nota ${json.status} pela SEFAZ`)} Você pode usar "Corrigir e reenviar" em Notas emitidas.`)
       } else if (json?.nfeId) {
         setAguardando({ nfeId: json.nfeId, esgotou: false })
         void consultarRetorno(json.nfeId, 0)
@@ -675,6 +681,7 @@ export default function RemessaClient() {
             <span className={rotuloCls}>Buscar produto <AjudaCampo chave="fiscal.nfe_avulsa.produto_busca" /></span>
             <input
               type="text"
+              ref={buscaProdutoRef}
               value={produtoBusca}
               onChange={(e) => setProdutoBusca(e.target.value)}
               placeholder="Nome ou código..."
@@ -702,8 +709,15 @@ export default function RemessaClient() {
         </div>
 
         {itens.length === 0 ? (
-          <div className="text-center py-6 text-[12px] text-[#3D2314]/55">
-            Busque um produto acima para adicionar.
+          <div className="text-center py-6">
+            <p className="text-[12px] text-[#3D2314]/55 mb-2.5">Nenhum item na nota ainda. Busque um produto para adicionar.</p>
+            <button
+              type="button"
+              onClick={() => buscaProdutoRef.current?.focus()}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium text-[#C8941A] border border-[#C8941A]/40 rounded-lg hover:bg-[#FBF3E0]"
+            >
+              <Plus size={13} /> Buscar produto
+            </button>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -715,7 +729,7 @@ export default function RemessaClient() {
                   <th className="px-2 py-1.5 text-right text-[10.5px] text-[#3D2314]/65 uppercase">Vlr Unit <AjudaCampo chave="fiscal.nfe_avulsa.item_valor" /></th>
                   <th className="px-2 py-1.5 text-left text-[10.5px] text-[#3D2314]/65 uppercase">CFOP <AjudaCampo chave="fiscal.nfe_avulsa.item_cfop" /></th>
                   <th className="px-2 py-1.5 text-right text-[10.5px] text-[#3D2314]/65 uppercase">Subtotal</th>
-                  <th></th>
+                  <th className="px-2 py-1.5 text-right"><AjudaCampo chave="fiscal.nfe_avulsa.item_remover" /></th>
                 </tr>
               </thead>
               <tbody>

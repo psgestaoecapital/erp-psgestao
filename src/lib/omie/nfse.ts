@@ -67,13 +67,23 @@ export function dataIso(v: unknown): string | null {
 
 // Nomes conhecidos/tolerados do OMIE para o identificador e a data de emissão da NFS-e.
 const CHAVES_REF = ['nCodNF', 'nCodNFSe', 'nIdNFSe', 'nIdNF', 'cCodIntNF']
-const CHAVES_EMISSAO = ['dEmissao', 'dDtEmissao', 'dEmiss', 'dDataEmissao', 'dDataEmi', 'dDtEmi', 'dEmi', 'dRegistro']
+// O OMIE (servicos/nfse · ListarNFSEs) manda a data em cDataEmissao (prefixo "c", não "d") — a lista só tinha os
+// "d*", então toda nota era pulada por "sem data" (#2712, M.M). Preferimos a EMISSÃO; se não houver, caímos na
+// data de INCLUSÃO como fallback (ordem de prioridade garantida pelas duas buscas em extrairEmissao).
+const CHAVES_EMISSAO = ['cDataEmissao', 'dEmissao', 'dDtEmissao', 'dEmiss', 'dDataEmissao', 'dDataEmi', 'dDtEmi', 'dEmi']
+const CHAVES_INCLUSAO = ['cDataInclusao', 'dDataInclusao', 'dInclusao', 'dDtInclusao', 'dRegistro']
+
+// Data de emissão da NFS-e do OMIE: tenta a emissão; se faltar, a inclusão. Fonte única para o mapeamento e o
+// diagnóstico (motivoPulo), para que "tem_data" reflita exatamente o que a importação vai usar.
+export function extrairEmissao(item: NfseOmie): string | null {
+  return dataIso(achar(item, CHAVES_EMISSAO)) ?? dataIso(achar(item, CHAVES_INCLUSAO))
+}
 
 // Diagnóstico (LGPD: só NOMES de chave, nunca valores) de por que uma nota não mapeia.
 // Serve para a rota dizer EXATAMENTE o que falta quando a nota é pulada, sem depender de dry_run.
 export function motivoPulo(item: NfseOmie): { tem_ref: boolean; tem_data: boolean; chaves: string[] } {
   const ref = txt(item, CHAVES_REF)
-  const emissao = dataIso(achar(item, CHAVES_EMISSAO))
+  const emissao = extrairEmissao(item)
   const chaves = new Set<string>()
   const colher = (o: unknown, prof = 0) => {
     if (!isObj(o) || prof > 4) return
@@ -99,12 +109,12 @@ export function mapearNfseOmie(
   prestador: { cnpj: string; razao: string; im: string | null }
 ): NfseMapeada | null {
   const ref = txt(item, CHAVES_REF)
-  const emissao = dataIso(achar(item, CHAVES_EMISSAO))
+  const emissao = extrairEmissao(item)
   if (!ref || !emissao) return null
 
-  const hora = txt(item, ['hEmissao']) ?? '00:00:00'
+  const hora = txt(item, ['hEmissao', 'cHoraEmissao', 'cHoraEmi']) ?? '00:00:00'
   const cancelada = /^s/i.test(txt(item, ['cCancelada', 'cCancelado']) ?? '') || /cancel/i.test(txt(item, ['cStatusNFSe', 'cStatus', 'cStatusNF']) ?? '')
-  const dtCancel = dataIso(achar(item, ['dCancelamento', 'dDtCancelamento']))
+  const dtCancel = dataIso(achar(item, ['dCancelamento', 'dDtCancelamento', 'cDataCancelamento']))
   const valor = numero(achar(item, ['nValorNFSe', 'nValorServicos', 'nValorTotal', 'nValorLiquido']))
   const tomadorDoc = soDigitos(txt(item, ['cCnpjCpf', 'cCNPJ_CPF', 'cCnpjTomador', 'cCpfCnpjTomador']))
   const iss = numero(achar(item, ['nValorISS', 'nValISS']))

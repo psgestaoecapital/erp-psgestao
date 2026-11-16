@@ -83,10 +83,11 @@ export async function POST(req: NextRequest) {
     if (!amostra && lista[0]) amostra = lista[0]
     r.lidas += lista.length
 
-    if (!dry) {
-      for (const item of lista as NfseOmie[]) {
-        const m = mapearNfseOmie(item, { cnpj: emp.cnpj, razao: emp.razao_social ?? '', im: emp.inscricao_municipal ?? null })
-        if (!m) { r.puladas++; if (pulos.length < 5) pulos.push(motivoPulo(item)); continue }
+    for (const item of lista as NfseOmie[]) {
+      const m = mapearNfseOmie(item, { cnpj: emp.cnpj, razao: emp.razao_social ?? '', im: emp.inscricao_municipal ?? null })
+      // Conta as puladas sempre (inclusive em dry_run) para o dry-run refletir os pulos reais da inserção (#2712).
+      if (!m) { r.puladas++; if (pulos.length < 5) pulos.push(motivoPulo(item)); continue }
+      if (!dry) {
         const { data: ja } = await supabaseAdmin
           .from('erp_nfse_emitidas')
           .select('id, xml_storage_path')
