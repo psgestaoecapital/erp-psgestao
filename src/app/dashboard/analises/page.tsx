@@ -547,7 +547,7 @@ export default function AnalisesPage(){
       </>)}
 
       {realData&&realData.top_receitas_operacionais&&(<>
-        <Tit t={`Linhas de Receita — Clique para ver detalhes`}/>
+        <Tit t={`Linhas de Receita — Clique para ver detalhes`} ajuda="analises.linhas_receita"/>
         {realData.top_receitas_operacionais.slice(0,8).map((r:any,i:number)=>(
           <div key={i}>
             <div onClick={()=>loadDrill(r.cod,"receita",`rec-${i}`)} style={{background:BG2,borderRadius:10,padding:"12px 14px",marginBottom:6,borderLeft:`4px solid ${[GO,G,B,P,T,GOL,R,Y][i%8]}`,border:`1px solid ${BD}`,cursor:"pointer",transition:"background 0.2s"}}
@@ -683,7 +683,7 @@ export default function AnalisesPage(){
 
     {aba==="resultado"&&(<div>
       {realData&&realData.dre_mensal&&realData.dre_mensal.length>0&&(<>
-        <Tit t="Resultado Financeiro — Clique nas linhas para abrir detalhes"/>
+        <Tit t="Resultado Financeiro — Clique nas linhas para abrir detalhes" ajuda="analises.resultado_financeiro"/>
 
         <div style={{display:"grid",gridTemplateColumns:"repeat(4, 1fr)",gap:8,marginBottom:14}}>
           <KPI r="Receita Período" v={`${fmtBRL(realData.total_rec_operacional||realData.total_receitas||0)}`} d="Faturamento operacional" ok={true}ajuda="analises.kpi_receitas"/>
@@ -815,9 +815,9 @@ export default function AnalisesPage(){
           <KPI r="Receita Operacional" v={`${fmtBRL(realData.total_rec_operacional||realData.total_receitas)}`} d="Faturamento real" ok={true}ajuda="analises.kpi_receitas"/>
           <KPI r="Despesas Totais" v={`${fmtBRL(realData.total_despesas)}`} d="Contas a pagar" ok={null}ajuda="analises.kpi_despesas"/>
           <KPI r="Resultado Operacional" v={`${fmtBRL(realData.resultado_periodo)}`} d={`Margem ${realData.margem}%`} ok={realData.resultado_periodo>0}ajuda="analises.kpi_resultado"/>
-          <KPI r="Empréstimos Recebidos" v={`${fmtBRL(realData.total_emprestimos||0)}`} d="Financiamentos, aportes" ok={null}/>
+          <KPI r="Empréstimos Recebidos" v={`${fmtBRL(realData.total_emprestimos||0)}`} d="Financiamentos, aportes" ok={null}ajuda="analises.kpi_emprestimos"/>
           <KPI r="Clientes" v={realData.total_clientes.toLocaleString("pt-BR")} d="No cadastro do sistema de origem" ok={true}ajuda="analises.kpi_clientes"/>
-          <KPI r="Empresas" v={`${realData.num_empresas}`} d="CNPJs consolidados" ok={null}/>
+          <KPI r="Empresas" v={`${realData.num_empresas}`} d="CNPJs consolidados" ok={null}ajuda="analises.kpi_empresas"/>
         </div>
         <Tit t="Receitas × Despesas × Resultado" ajuda="analises.grafico_rec_desp"/>
         <Card>
