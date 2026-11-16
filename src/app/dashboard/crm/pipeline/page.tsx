@@ -137,11 +137,13 @@ export default function PipelinePage() {
                     <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                       {wa && <a href={wa} target="_blank" rel="noopener noreferrer" style={chip('#fff', C.WA)} data-testid="crm-cartao-whatsapp" onClick={(e) => e.stopPropagation()}>💬 WhatsApp</a>}
                       {!soLeitura && (
+                        <span data-ajuda="crm.pipeline.mover">
                         <select aria-label="Mover para" value="" onChange={(e) => { if (e.target.value) void mover(c, e.target.value) }}
-                          style={{ ...chip(C.ESPRESSO), padding: '4px 6px', maxWidth: 140 }} data-ajuda="crm.pipeline.mover" data-testid="crm-cartao-mover">
+                          style={{ ...chip(C.ESPRESSO), padding: '4px 6px', maxWidth: 140 }} data-testid="crm-cartao-mover">
                           <option value="">Mover para…</option>
                           {etapas.filter((e) => e.id !== c.etapa_id).map((e) => <option key={e.id} value={e.id}>{e.rotulo}</option>)}
                         </select>
+                        </span>
                       )}
                     </div>
                   </>
