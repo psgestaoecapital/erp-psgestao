@@ -29,6 +29,10 @@ export default function LinhasConfig({ empresaId }: Props) {
   const { linhas, loading, refetch } = useLinhasNegocio(empresaId)
   const [novo, setNovo] = useState({ nome: '', descricao: '', cor: '#C8941A' })
   const [salvando, setSalvando] = useState(false)
+  // Edição inline por linha (RD-98: incluir/editar/excluir visíveis na lista).
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editForm, setEditForm] = useState({ nome: '', descricao: '', cor: '#C8941A' })
+  const [salvandoEdit, setSalvandoEdit] = useState(false)
 
   async function criarLinha() {
     if (!novo.nome.trim()) return
@@ -54,6 +58,26 @@ export default function LinhasConfig({ empresaId }: Props) {
     refetch()
   }
 
+  function iniciarEdicao(l: LinhaNegocio) {
+    setEditId(l.id)
+    setEditForm({ nome: l.nome, descricao: l.descricao ?? '', cor: l.cor })
+  }
+
+  async function salvarEdicao(id: string) {
+    if (!editForm.nome.trim()) return
+    setSalvandoEdit(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      await fetch('/api/linhas-negocio', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ id, nome: editForm.nome.trim(), descricao: editForm.descricao.trim(), cor: editForm.cor })
+      })
+      setEditId(null)
+      refetch()
+    } finally { setSalvandoEdit(false) }
+  }
+
   if (loading) return <div style={{ fontSize: 13, color: C.muted, padding: 16 }}>Carregando linhas...</div>
 
   return (
@@ -65,14 +89,54 @@ export default function LinhasConfig({ empresaId }: Props) {
             <p style={{ fontSize: 13, color: C.muted, margin: 0 }}>Nenhuma linha cadastrada. Crie a primeira abaixo.</p>
           )}
           {linhas.map((l: LinhaNegocio) => (
-            <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 12, border: `0.5px solid ${C.borda}`, borderRadius: 10, background: C.card }}>
-              <div style={{ width: 12, height: 12, borderRadius: '50%', flexShrink: 0, background: l.cor }}/>
-              <div style={{ flex: 1 }}>
-                <p style={{ fontSize: 13, fontWeight: 600, color: C.espresso, margin: 0 }}>{l.nome}</p>
-                {l.descricao && <p style={{ fontSize: 12, color: C.muted, margin: 0 }}>{l.descricao}</p>}
+            editId === l.id ? (
+              <div key={l.id} style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 12, border: `0.5px solid ${C.dourado}`, borderRadius: 10, background: C.card }}>
+                <label style={{ display: 'block' }}>
+                  <span style={rotulo}>
+                    Nome da linha
+                    <AjudaCampo chave="linhas_negocio.configurar.nome" rota={ROTA_AJUDA} />
+                  </span>
+                  <input value={editForm.nome} onChange={e => setEditForm(p => ({ ...p, nome: e.target.value }))} style={campo} />
+                </label>
+                <label style={{ display: 'block' }}>
+                  <span style={rotulo}>
+                    Descrição (opcional)
+                    <AjudaCampo chave="linhas_negocio.configurar.descricao" rota={ROTA_AJUDA} />
+                  </span>
+                  <input value={editForm.descricao} onChange={e => setEditForm(p => ({ ...p, descricao: e.target.value }))} style={campo} />
+                </label>
+                <div>
+                  <div style={rotulo}>
+                    Cor identificadora
+                    <AjudaCampo chave="linhas_negocio.configurar.cor" rota={ROTA_AJUDA} />
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {CORES.map(cor => (
+                      <button key={cor} type="button" aria-label={`Cor ${cor}`} onClick={() => setEditForm(p => ({ ...p, cor }))}
+                        style={{ width: 24, height: 24, borderRadius: '50%', border: `2px solid ${editForm.cor === cor ? C.espresso : 'transparent'}`, background: cor, cursor: 'pointer', padding: 0 }}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  <button onClick={() => setEditId(null)} style={{ fontSize: 12, color: C.muted, background: 'transparent', border: `0.5px solid ${C.borda}`, borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontWeight: 600 }}>Cancelar</button>
+                  <button onClick={() => salvarEdicao(l.id)} disabled={salvandoEdit || !editForm.nome.trim()}
+                    style={{ fontSize: 12, color: C.espresso, background: C.dourado, border: 'none', borderRadius: 6, padding: '6px 16px', cursor: salvandoEdit || !editForm.nome.trim() ? 'not-allowed' : 'pointer', fontWeight: 600, opacity: salvandoEdit || !editForm.nome.trim() ? 0.4 : 1 }}>
+                    {salvandoEdit ? 'Salvando...' : 'Salvar'}
+                  </button>
+                </div>
               </div>
-              <button onClick={() => desativar(l.id)} style={{ fontSize: 12, color: C.erro, background: 'transparent', border: 'none', cursor: 'pointer', fontWeight: 600 }}>Remover</button>
-            </div>
+            ) : (
+              <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 12, border: `0.5px solid ${C.borda}`, borderRadius: 10, background: C.card }}>
+                <div style={{ width: 12, height: 12, borderRadius: '50%', flexShrink: 0, background: l.cor }}/>
+                <div style={{ flex: 1 }}>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: C.espresso, margin: 0 }}>{l.nome}</p>
+                  {l.descricao && <p style={{ fontSize: 12, color: C.muted, margin: 0 }}>{l.descricao}</p>}
+                </div>
+                <button onClick={() => iniciarEdicao(l)} style={{ fontSize: 12, color: C.espresso, background: 'transparent', border: 'none', cursor: 'pointer', fontWeight: 600 }}>Editar</button>
+                <button onClick={() => desativar(l.id)} style={{ fontSize: 12, color: C.erro, background: 'transparent', border: 'none', cursor: 'pointer', fontWeight: 600 }}>Remover</button>
+              </div>
+            )
           ))}
         </div>
       </div>
