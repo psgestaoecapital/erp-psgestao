@@ -1,5 +1,5 @@
 // GE · /dashboard/financeiro/fluxo-caixa — REALIZADO vem do LEDGER de baixa, não de data_pagamento.
-// Migration 20261118154435 · @pos-migration. Code: code-desenvolvedor-3.
+// Migration 20261118180044 · @pos-migration. Code: code-desenvolvedor-3.
 //
 // Rede de regressão do bug de núcleo financeiro (RD-38): fn_fluxo_caixa_diario calculava o realizado chaveando
 // por erp_receber.data_pagamento / erp_pagar.data_pagamento. Quando a baixa não carimba data_pagamento no título
