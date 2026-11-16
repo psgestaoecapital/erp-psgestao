@@ -167,3 +167,8 @@ BEGIN
     'vazio',(ROUND(v_ativo,2)=0 AND ROUND(v_passivo,2)=0 AND ROUND(v_pl,2)=0),
     'linhas',v_linhas);
 END; $function$;
+
+-- RD-52 / check_fn_guards: CREATE OR REPLACE de SECURITY DEFINER exige REVOKE anon no próprio arquivo.
+-- Bate com a ACL viva (authenticated=X, service_role=X; anon já fora) — não muda a ACL de produção.
+REVOKE ALL ON FUNCTION public.fn_balanco_patrimonial(uuid, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_balanco_patrimonial(uuid, date) TO authenticated, service_role;
