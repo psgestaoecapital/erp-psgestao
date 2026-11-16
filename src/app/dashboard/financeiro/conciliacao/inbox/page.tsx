@@ -924,6 +924,32 @@ export default function InboxPage() {
     await carregar()
   }
 
+  // #6731: desvincular UM título de uma fatura agrupada, sem desfazer os demais.
+  // Os outros títulos continuam vinculados; se era o último, o movimento volta a Pendentes.
+  async function desvincularTitulo(c: Conciliado, it: VinculoItem) {
+    const falhou = (msg: string) => { setErro(msg); alert(msg) }
+    if (!it.tabela || !it.lancamento_id) { falhou('Título sem referência; use "Desvincular fatura".'); return }
+    const nome = it.contraparte ?? it.descricao ?? 'este título'
+    if (!confirm(`Desvincular "${nome}" desta conciliação? Ele volta a Aberto e os demais títulos continuam vinculados.`)) return
+    const { data, error } = await supabase.rpc('fn_conciliacao_desvincular_titulo', {
+      p_movimento_id: c.movimento_id,
+      p_lancamento_tabela: it.tabela,
+      p_lancamento_id: it.lancamento_id,
+    })
+    if (error) { falhou(erroAmigavel(error, 'Não consegui desvincular este título agora. Tente de novo em instantes.')); return }
+    const r = (data ?? {}) as { sucesso?: boolean; erro?: string; msg?: string; aviso?: string; movimento_liberado?: boolean }
+    if (r.sucesso === false) { falhou('Não desvinculou: ' + (r.msg ?? r.erro ?? 'erro desconhecido')); return }
+    // recarrega os títulos da fatura (sem recolher) e as listas
+    setVinculosExp((m) => ({ ...m, [c.movimento_id]: { loading: true, itens: [] } }))
+    const { data: vd } = await supabase.rpc('fn_conciliacao_vinculos', { p_movimento_id: c.movimento_id })
+    const vj = vd as { ok?: boolean; itens?: VinculoItem[] } | null
+    if (vj?.ok) setVinculosExp((m) => ({ ...m, [c.movimento_id]: { loading: false, itens: vj.itens ?? [] } }))
+    else setVinculosExp((m) => { const n = { ...m }; delete n[c.movimento_id]; return n })
+    await carregarConciliados()
+    await carregar()
+    if (r.aviso) setErro(r.aviso) // aviso não-bloqueante: título com ajuste — confira o valor manualmente
+  }
+
   if (!empresaUnica) {
     return <div style={infoBox}>Selecione uma empresa para ver a inbox.</div>
   }
@@ -1507,12 +1533,20 @@ export default function InboxPage() {
                               Títulos da fatura ({vinculosExp[c.movimento_id].itens.length})
                             </div>
                             {vinculosExp[c.movimento_id].itens.map((it) => (
-                              <div key={it.vinculo_id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12.5 }}>
-                                <span style={{ color: '#3D2314', wordBreak: 'break-word' }}>
+                              <div key={it.vinculo_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, fontSize: 12.5 }}>
+                                <span style={{ color: '#3D2314', wordBreak: 'break-word', flex: 1 }}>
                                   {it.contraparte ?? it.descricao ?? '(título)'}
                                   {it.vencimento ? <span style={{ color: 'rgba(61,35,20,0.5)' }}> · venc {fmtBR(it.vencimento)}</span> : null}
                                 </span>
                                 <span style={{ fontVariantNumeric: 'tabular-nums', color: '#3D2314', whiteSpace: 'nowrap' }}>R$ {fmt(it.valor)}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => void desvincularTitulo(c, it)}
+                                  title="Desvincular só este título (os demais continuam)"
+                                  style={{ background: 'transparent', border: '1px solid rgba(122,31,31,0.35)', color: '#7A1F1F', borderRadius: 7, padding: '2px 8px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                                >
+                                  Desvincular
+                                </button>
                               </div>
                             ))}
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700, borderTop: '1px dashed rgba(61,35,20,0.15)', paddingTop: 6 }}>
@@ -1525,8 +1559,8 @@ export default function InboxPage() {
                     )}
 
                     <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
-                      <button onClick={() => void desvincularConciliado(c)} style={secondaryBtn(false)}>
-                        Desvincular
+                      <button onClick={() => void desvincularConciliado(c)} style={secondaryBtn(false)} title={c.lancamento_id === null ? 'Desfaz a fatura inteira (todos os títulos voltam a Aberto)' : 'Desvincular este lançamento conciliado'}>
+                        {c.lancamento_id === null ? 'Desvincular fatura' : 'Desvincular'}
                       </button>
                     </div>
                   </div>
