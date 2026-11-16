@@ -177,14 +177,17 @@ export default function UsuariosOficinaPage() {
                 </span>
                 {/* Desativar SÓ aparece para mecânico ativo — o dono só age sobre mecânico (regra do CEO). */}
                 {ehMecanico && (
-                  <button
-                    type="button" onClick={() => void desativar(p)} disabled={removendoId === p.user_id}
-                    style={{ minHeight: 36, padding: '6px 12px', borderRadius: 8, border: `1px solid ${C.border}`,
-                      background: C.white, color: C.red, fontSize: 12, fontWeight: 600,
-                      cursor: removendoId === p.user_id ? 'default' : 'pointer' }}
-                  >
-                    {removendoId === p.user_id ? 'Desativando…' : 'Desativar'}
-                  </button>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <button
+                      type="button" onClick={() => void desativar(p)} disabled={removendoId === p.user_id}
+                      style={{ minHeight: 36, padding: '6px 12px', borderRadius: 8, border: `1px solid ${C.border}`,
+                        background: C.white, color: C.red, fontSize: 12, fontWeight: 600,
+                        cursor: removendoId === p.user_id ? 'default' : 'pointer' }}
+                    >
+                      {removendoId === p.user_id ? 'Desativando…' : 'Desativar'}
+                    </button>
+                    <AjudaCampo chave="oficina.usuarios.desativar" rota="/dashboard/oficina/usuarios" />
+                  </span>
                 )}
               </div>
             )
