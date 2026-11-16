@@ -20,11 +20,21 @@
 --   2. (MENOR) Preenche financiamento_parcelas.pagar_ref com o id do titulo gerado,
 --      para o cronograma refletir "titulo ja gerado" (a coluna estava morta).
 --
--- Prova RD-38 (BEGIN..ROLLBACK, GE-DEMO financiamento d34f984c, 33 parcelas nao pagas):
---   run1 INSERT = 33 · run2 (idempotente) UPDATE = 33 · total titulos distintos = 33 (sem duplicar).
+-- Prova RD-38 (BEGIN..ROLLBACK, GE-DEMO financiamento 05b000d0, parcelas nao pagas):
+--   run1 gera os titulos; marca-se 1 titulo PAGO (valor sentinela 1.11) e outro ABERTO;
+--   simula-se recalculo do cronograma (+500 no valor efetivo) e roda-se run2 (idempotente).
+--   Resultado: ABERTO 9984.82 -> 10484.82 (atualiza) · PAGO 1.11 -> 1.11 (guarda RD-55 bloqueia).
 --
 -- Seguranca: CREATE OR REPLACE da funcao existente (SECURITY DEFINER preservado, mesma
 -- assinatura, mesma guarda de permissao). Aditivo: nao apaga/altera titulo pago nem dado real.
+--
+-- RD-55 (financeiro de cliente): o ON CONFLICT DO UPDATE so reescreve valor/vencimento/
+--   competencia de titulo AINDA EM ABERTO. Guarda  WHERE erp_pagar.status NOT IN
+--   ('pago','parcial','cancelado')  em AMBOS os pontos (RPC e seed): numa re-execucao do
+--   botao "Gerar", um titulo ja pago/parcial/cancelado NUNCA e tocado (o DO UPDATE nao casa),
+--   mesmo que a parcela de origem ainda conste 'aberta' e o cronograma seja recalculado depois.
+-- Multi-tenant: o INSERT usa a company AUTORITATIVA do financiamento (v_company na RPC /
+--   f.company_id no seed), nao a da parcela, deixando o isolamento a prova de parcela divergente.
 
 CREATE OR REPLACE FUNCTION public.fn_financiamento_gerar_pagar(p_financiamento_id uuid)
  RETURNS jsonb
@@ -56,7 +66,7 @@ BEGIN
       parcela, ref_externa_id, ref_externa_sistema, importado_em
     )
     SELECT
-      p.company_id,
+      v_company,
       v_banco,
       'Financiamento '||COALESCE(v_contrato,'')||' · parcela '||p.numero,
       'Financiamento',
@@ -76,6 +86,7 @@ BEGIN
           data_vencimento  = EXCLUDED.data_vencimento,
           data_competencia = EXCLUDED.data_competencia,
           ultima_sync      = now()
+      WHERE erp_pagar.status NOT IN ('pago','parcial','cancelado')
     RETURNING id, ref_externa_id
   ),
   upd AS (
@@ -109,7 +120,7 @@ BEGIN
         parcela, ref_externa_id, ref_externa_sistema, importado_em
       )
       SELECT
-        p.company_id,
+        f.company_id,
         f.banco,
         'Financiamento '||COALESCE(f.contrato,'')||' · parcela '||p.numero,
         'Financiamento',
@@ -130,6 +141,7 @@ BEGIN
             data_vencimento  = EXCLUDED.data_vencimento,
             data_competencia = EXCLUDED.data_competencia,
             ultima_sync      = now()
+        WHERE erp_pagar.status NOT IN ('pago','parcial','cancelado')
       RETURNING id, ref_externa_id
     )
     UPDATE public.financiamento_parcelas fp
