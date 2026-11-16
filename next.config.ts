@@ -111,6 +111,16 @@ const nextConfig: NextConfig = {
         destination: '/dashboard/gestao-empresarial/implantacao',
         permanent: true,
       },
+      // PDCA GE (Princ.3 menu limpo · auditor_pdca · consolidar-clientes): /dashboard/clientes era uma
+      // SEGUNDA tela de clientes (CRUD inline com ClienteForm) sobre a MESMA entidade erp_clientes, porém
+      // órfã (fora do module_catalog) e já marcada [LEGACY] em system_screens. A tela do menu é
+      // /dashboard/cadastros/clientes (PessoasList, DRY · BrasilAPI). Consolidado na rota canônica do menu;
+      // query string preservada automaticamente.
+      {
+        source: '/dashboard/clientes',
+        destination: '/dashboard/cadastros/clientes',
+        permanent: true,
+      },
     ]
   },
 }
