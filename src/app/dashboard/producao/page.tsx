@@ -226,7 +226,11 @@ function ProducaoPageInner() {
     const mrr = ((ac.data ?? []) as ContratoMrr[])
       .filter((c) => c.status === 'ativo' && c.tipo === 'recorrente')
       .reduce((s, c) => s + Number((c.tem_contrato_ge ? c.ge_valor_mensal : c.fee_mensal) ?? 0), 0)
-    const horasMes = ((tsMes.data ?? []) as Array<{ horas?: number }>).reduce((s, t) => s + (t.horas ?? 0), 0)
+    // RD-38: agency_timesheet.horas é numeric; o PostgREST o devolve como STRING ("0.01"). Sem Number(),
+    // "s + t.horas" concatena texto em vez de somar e o KPI "Horas no mês" dá falso-zero/valor errado
+    // (DEMO P&M 2026-11: 894 lançamentos = 71,8 h apareciam como 0,0 h). Number() soma de verdade,
+    // igual ao MRR logo acima. Sem lançamento no mês → reduce de [] = 0 → "0.0h" (correto).
+    const horasMes = ((tsMes.data ?? []) as Array<{ horas?: number | string }>).reduce((s, t) => s + Number(t.horas ?? 0), 0)
     setMetrics({
       clientes: (cl.data ?? []).filter((c: { status?: string }) => c.status === 'ativo').length,
       jobs_ativos: (jb.data ?? []).filter((j: { status?: string }) => !['concluida', 'publicado', 'cancelado'].includes(j.status ?? '')).length,
@@ -792,7 +796,8 @@ function KanbanBoard({
         <div style={board}>
           {colunas.map((et) => {
             const cards = jobs.filter((j) => j.status === et.v)
-            const valor = cards.reduce((s, j) => s + (j.valor_job ?? 0), 0)
+            // RD-38: valor_job é numeric (string via PostgREST) — Number() evita concatenar texto no total da coluna
+            const valor = cards.reduce((s, j) => s + Number(j.valor_job ?? 0), 0)
             const hover = hoverCol === et.v
             return (
               <div
