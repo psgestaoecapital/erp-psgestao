@@ -1094,10 +1094,16 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     if (!r || tipo !== 'receber') return
     const bo = boletoMap[r.id]
     if (!bo || bo.status !== 'registrado') return
-    const { data } = await supabase.from('erp_receber').select('valor_documento, valor_pago').eq('id', r.id).maybeSingle()
-    const d = data as { valor_documento?: number; valor_pago?: number } | null
-    if (!d) return
-    const saldo = Number(d.valor_documento ?? 0) - Number(d.valor_pago ?? 0)
+    // erp_receber tem a coluna `valor` (não `valor_documento` — este é só o alias em memória do loader da lista).
+    // O select errado respondia 400 (42703) e o erro era engolido → a oferta de cancelar o boleto nunca aparecia
+    // no caminho pós-baixa, deixando risco de pagamento em duplicidade do boleto órfão. Não engolir o erro.
+    const { data, error } = await supabase.from('erp_receber').select('valor, valor_pago').eq('id', r.id).maybeSingle()
+    if (error || !data) {
+      setAviso({ tipo: 'info', texto: `Não foi possível confirmar o saldo para oferecer o cancelamento do boleto${bo.nossoNumero ? ` (nº ${bo.nossoNumero})` : ''}. Se o título foi quitado, cancele o boleto no internet banking para evitar pagamento em duplicidade.` })
+      return
+    }
+    const d = data as { valor?: number; valor_pago?: number }
+    const saldo = Number(d.valor ?? 0) - Number(d.valor_pago ?? 0)
     if (saldo > 0.01) return   // baixa parcial: mantém o boleto para o saldo restante
     await oferecerCancelarBoletoVinculado(r)
   }
