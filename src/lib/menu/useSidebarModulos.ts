@@ -114,12 +114,6 @@ const SECAO_LABEL_OVERRIDE: Record<string, string> = {
   PM_PRODUCAO: '2 · Produção & Controle',
   PM_FINANCEIRO: '3 · Financeiro da Produção',
   PM_INTELIGENCIA: '4 · Inteligência & IA',
-  // PS CRM (vertical crm): subgrupo → seção do menu
-  CRM_PIPELINE: 'Vendas',
-  CRM_CADASTROS: 'Cadastros',
-  CRM_PROPOSTAS: 'Propostas',
-  CRM_RELATORIOS: 'Relatórios',
-  CRM_ADMIN: 'Configurar',
   // Wealth (consultoria de investimentos): 13 módulos em 4 seções (subgrupo → secao)
   WEALTH_CARTEIRA: '1 · Carteira & Clientes',
   WEALTH_COMPLIANCE: '2 · Onboarding & Compliance',
