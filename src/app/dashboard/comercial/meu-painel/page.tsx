@@ -481,7 +481,7 @@ export default function MeuPainelV6() {
                               <button type="button" onClick={() => setVen([])} style={{ flex: 1, padding: '6px 8px', fontSize: 12, borderRadius: 7, border: `1px solid ${C.bd}`, background: '#fff', cursor: 'pointer', color: C.esp }}>Desmarcar todos</button>
                             </div>
                             {todosV.map(([cod, nome], i) => (
-                              <label key={cod + i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px', fontSize: 13, minHeight: 36, cursor: 'pointer', borderTop: `1px solid ${C.bg2}` }}>
+                              <label key={cod + i} data-ajuda="com.painel.equipe" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px', fontSize: 13, minHeight: 36, cursor: 'pointer', borderTop: `1px solid ${C.bg2}` }}>
                                 <input type="checkbox" checked={selArr.includes(i)} onChange={() => toggle(i)} /> {nome || cod}
                               </label>
                             ))}
