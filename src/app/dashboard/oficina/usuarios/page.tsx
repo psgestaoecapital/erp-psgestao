@@ -12,6 +12,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { useAcesso } from '@/hooks/useAcesso'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const C = {
   espresso: '#3D2314', espressoM: '#6B5D4F', bg: '#FAF7F2', white: '#FFFFFF',
@@ -65,7 +66,7 @@ export default function UsuariosOficinaPage() {
     if (!companyId) { setPessoas([]); setLoading(false); return }
     setLoading(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_acessos_empresa_contexto', { p_company_id: companyId })
-    if (error) { setErro(error.message); setPessoas([]); setLoading(false); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar os usuários. Tente de novo.')); setPessoas([]); setLoading(false); return }
     const c = data as Contexto | null
     setPessoas((c?.pessoas ?? []) as Pessoa[])
     setLoading(false)
@@ -85,7 +86,7 @@ export default function UsuariosOficinaPage() {
     })
     setConvidando(false)
     const r = data as { ok?: boolean; erro?: string; acao?: string } | null
-    if (error || r?.ok === false) { setErro(error?.message || r?.erro || 'Falha ao convidar.'); return }
+    if (error || r?.ok === false) { setErro(r?.erro || erroAmigavel(error, 'Não foi possível convidar o mecânico. Tente de novo.')); return }
     setOk(r?.acao === 'vinculado' ? 'Mecânico vinculado.' : 'Convite enviado ao mecânico.')
     setEmail('')
     void carregar()
@@ -99,7 +100,7 @@ export default function UsuariosOficinaPage() {
     })
     setRemovendoId(null)
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || r?.ok === false) { setErro(error?.message || r?.erro || 'Falha ao desativar.'); return }
+    if (error || r?.ok === false) { setErro(r?.erro || erroAmigavel(error, 'Não foi possível desativar o acesso. Tente de novo.')); return }
     setOk('Acesso do mecânico desativado.')
     void carregar()
   }
@@ -185,6 +186,9 @@ export default function UsuariosOficinaPage() {
                   >
                     {removendoId === p.user_id ? 'Desativando…' : 'Desativar'}
                   </button>
+                )}
+                {ehMecanico && (
+                  <AjudaCampo chave="oficina.usuarios.desativar" rota="/dashboard/oficina/usuarios" />
                 )}
               </div>
             )
