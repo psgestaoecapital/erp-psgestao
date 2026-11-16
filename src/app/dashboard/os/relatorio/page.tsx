@@ -65,10 +65,35 @@ export default function RelatorioOSPage() {
   // "Últimos 12 meses" respeita o teto de 400 dias da RPC (o span de 20 anos antigo estourava o limite e dava erro).
   const ver12 = () => { const m = ultimos12(); setDe(m.de); setAte(m.ate) }
 
+  // Chamado #6724 / gap do auditor: um relatório precisa sair da tela (imprimir, PDF, planilha).
+  // Imprimir usa o diálogo do navegador (inclui "Salvar como PDF"); CSV é gerado no cliente, sem RPC nova.
+  const imprimir = () => { if (typeof window !== 'undefined') window.print() }
+  const baixarCSV = () => {
+    if (!rel) return
+    const esc = (v: unknown) => { const s = String(v ?? ''); return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s }
+    const num = (v: number) => Number(v ?? 0).toFixed(2).replace('.', ',') // vírgula decimal p/ Excel pt-BR
+    const linhas: string[] = []
+    linhas.push(['Nº', 'Data', 'Cliente', 'Placa', 'Situação', 'Serviços', 'Peças', 'Total'].join(';'))
+    rel.itens.forEach((o) => {
+      linhas.push([o.numero ?? '', fmtD(o.data_ref), o.cliente_nome ?? '', o.placa ?? '', STATUS[o.status] ?? o.status, num(o.servico), num(o.pecas), num(o.total)].map(esc).join(';'))
+    })
+    linhas.push('')
+    linhas.push([`Total (${rel.totais.qtd} ordem(ns))`, '', '', '', '', num(rel.totais.servico), num(rel.totais.pecas), num(rel.totais.total)].map(esc).join(';'))
+    const csv = '﻿' + linhas.join('\r\n') // BOM p/ o Excel abrir acentos corretamente
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `relatorio-os_${de}_a_${ate}.csv`
+    document.body.appendChild(a); a.click(); a.remove()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto', padding: 16, display: 'grid', gap: 16 }}>
+      <style>{`@media print{ .no-print{display:none!important} body{background:#fff!important} @page{margin:14mm} }`}</style>
       <div>
-        <Link href="/dashboard/os" style={{ fontSize: 13, color: '#6B5D4F' }}>← Ordens de serviço</Link>
+        <Link href="/dashboard/os" className="no-print" style={{ fontSize: 13, color: '#6B5D4F' }}>← Ordens de serviço</Link>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: '#3D2314', margin: '6px 0 0' }}>Relatório de ordens de serviço</h1>
         <p style={{ fontSize: 13, color: '#6B5D4F', margin: '4px 0 0' }}>
           Soma de serviços, peças e total no período. Não entram ordens excluídas nem canceladas.
@@ -79,7 +104,7 @@ export default function RelatorioOSPage() {
         <div style={card}>Selecione uma empresa para ver o relatório.</div>
       ) : (
         <>
-          <div style={{ ...card, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
+          <div className="no-print" style={{ ...card, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
             <div>
               <label style={lbl}>De<AjudaCampo chave="os.relatorio.periodo" rota="/dashboard/os/relatorio" /></label>
               <input type="date" style={inp} value={de} onChange={(e) => setDe(e.target.value)} />
@@ -120,6 +145,13 @@ export default function RelatorioOSPage() {
 
           {rel && !loading && rel.totais.qtd > 0 && (
             <>
+              <div className="no-print" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-end' }}>
+                <button type="button" style={{ ...inp, cursor: 'pointer', fontWeight: 600 }} onClick={imprimir}>🖨️ Imprimir / PDF</button>
+                <AjudaCampo chave="os.relatorio.imprimir" rota="/dashboard/os/relatorio" />
+                <button type="button" style={{ ...inp, cursor: 'pointer', fontWeight: 600 }} onClick={baixarCSV}>⬇️ Baixar planilha (.csv)</button>
+                <AjudaCampo chave="os.relatorio.exportar_csv" rota="/dashboard/os/relatorio" />
+              </div>
+
               <div style={{ ...card, display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12 }}>
                 <div><div style={lbl}>Totais do período<AjudaCampo chave="os.relatorio.totais" rota="/dashboard/os/relatorio" /></div><div style={{ fontSize: 13 }}>{rel.totais.qtd} ordem(ns)</div></div>
                 <div><div style={lbl}>Serviços</div><strong>{brl(rel.totais.servico)}</strong></div>
