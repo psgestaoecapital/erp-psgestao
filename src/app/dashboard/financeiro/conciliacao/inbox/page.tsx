@@ -1598,6 +1598,7 @@ export default function InboxPage() {
                   }}
                 >{n === 'todos' ? 'Todos' : n === 'debito' ? 'A pagar' : 'A receber'}</button>
               ))}
+              <AjudaCampo chave="financeiro.conciliacao.filtro_natureza_sistema" />
             </div>
 
             <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', marginBottom: 12 }}>
