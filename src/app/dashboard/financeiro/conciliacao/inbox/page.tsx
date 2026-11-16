@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import ExportarConciliacaoButton from '@/components/financeiro/ExportarConciliacaoButton'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { dataReferenciaSaldoOFX, rotuloDataSaldo, dtendDoOFX, saldoOFXValido, AVISO_SALDO_INVALIDO } from '@/lib/financeiro/saldoPorConta'
 import { parseSaldoFechamento, ehLinhaSaldoOFX, parseValorOFX, decodificarOFX, mensagemErroOFX } from '@/lib/ofx-parser'
@@ -1137,6 +1138,22 @@ export default function InboxPage() {
             data-testid="inbox-importar-ofx"
           >+ Importar extrato (OFX)</button>
           <AjudaCampo chave="financeiro.conciliacao.importar_ofx" />
+          {empresaUnica && (
+            <>
+              <ExportarConciliacaoButton
+                companyId={empresaUnica}
+                loteNome={loteSel?.nome ?? null}
+                periodo={loteSel ? `${fmtDate(loteSel.periodo_inicio)} a ${fmtDate(loteSel.periodo_fim)}` : null}
+                vista={aba === 'conciliados' ? 'conciliados' : aba === 'ignorados' ? 'ignorados' : 'extrato'}
+                extrato={items}
+                sistema={pendenciasSistema}
+                conciliados={conciliados}
+                ignorados={ignorados}
+                kpis={[{ label: 'Valor pendente', valor: valorPendente, qtd: totPend }]}
+              />
+              <AjudaCampo chave="financeiro.conciliacao.exportar" />
+            </>
+          )}
         </div>
 
         {/* Camada1/Fatia1: barra de indicadores (item 1 valor pendente + item 3 datas) */}
@@ -1598,6 +1615,20 @@ export default function InboxPage() {
                   }}
                 >{n === 'todos' ? 'Todos' : n === 'debito' ? 'A pagar' : 'A receber'}</button>
               ))}
+              <AjudaCampo chave="financeiro.conciliacao.filtro_natureza_sistema" />
+              {empresaUnica && (
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <ExportarConciliacaoButton
+                    companyId={empresaUnica}
+                    loteNome={loteSel?.nome ?? null}
+                    periodo={loteSel ? `${fmtDate(loteSel.periodo_inicio)} a ${fmtDate(loteSel.periodo_fim)}` : null}
+                    vista="sistema"
+                    sistema={pendenciasSistema}
+                    kpis={[{ label: 'Valor pendente', valor: valorPendente, qtd: totPend }]}
+                  />
+                  <AjudaCampo chave="financeiro.conciliacao.exportar" />
+                </div>
+              )}
             </div>
 
             <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', marginBottom: 12 }}>
