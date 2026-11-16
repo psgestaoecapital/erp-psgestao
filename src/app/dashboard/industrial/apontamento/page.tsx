@@ -50,6 +50,19 @@ export default function ApontamentoPage() {
     if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
+  // RD-98 p2: EXCLUIR um turno registrado, de forma rastreável (soft-delete + audit no servidor).
+  const excluir = async (t: Turno) => {
+    if (!companyId) return
+    const quando = t.data.split('-').reverse().join('/')
+    if (!window.confirm(`Excluir o turno ${t.turno} de ${quando} (${t.unidade_nome})?\n\nO registro é preservado e sai das listas e dos indicadores do dia. Para reabrir, basta registrar o mesmo turno de novo.`)) return
+    const qs = new URLSearchParams({ turno_id: t.turno_id, company_id: companyId })
+    const r = await fetch('/api/industrial/bovinos/apontamento?' + qs.toString(), { method: 'DELETE', credentials: 'include' })
+    const d = await r.json().catch(() => ({}))
+    if (!r.ok || d?.error) { setMsg('✗ ' + erroAmigavel(d?.error || `Falha ao excluir (HTTP ${r.status})`)); return }
+    setMsg(`🗑 Turno ${t.turno} de ${quando} excluído.`)
+    recarregarTurnos()
+  }
+
   // Carrega as unidades/plantas ativas da empresa selecionada (via API com guarda de empresa).
   // Sem este seletor, unidade_id ia sempre vazio e o POST voltava 400 (RD-98 p1, critério c).
   /* eslint-disable-next-line react-hooks/set-state-in-effect */
@@ -239,7 +252,7 @@ export default function ApontamentoPage() {
                   <th className='px-3 py-2'>Unidade</th>
                   <th className='px-3 py-2 text-right'>Kg produzido</th>
                   <th className='px-3 py-2 text-right'>Custo/kg</th>
-                  <th className='px-3 py-2'></th>
+                  <th className='px-3 py-2 text-right'><span className='inline-flex items-center gap-1'>Ações<AjudaCampo chave='industria.apontamento.acoes' rota='/dashboard/industrial/apontamento' /></span></th>
                 </tr>
               </thead>
               <tbody>
@@ -250,8 +263,9 @@ export default function ApontamentoPage() {
                     <td className='px-3 py-2'>{t.unidade_nome}</td>
                     <td className='px-3 py-2 text-right'>{t.kg_produzido != null ? t.kg_produzido.toLocaleString('pt-BR') : '—'}</td>
                     <td className='px-3 py-2 text-right'>{t.custo_por_kg != null ? 'R$ '+t.custo_por_kg.toFixed(4) : '—'}</td>
-                    <td className='px-3 py-2 text-right'>
+                    <td className='px-3 py-2 text-right whitespace-nowrap'>
                       <button onClick={() => corrigir(t)} className='text-xs text-primary underline underline-offset-2'>Corrigir</button>
+                      <button onClick={() => excluir(t)} className='text-xs text-red-600 underline underline-offset-2 ml-3'>Excluir</button>
                     </td>
                   </tr>
                 ))}
