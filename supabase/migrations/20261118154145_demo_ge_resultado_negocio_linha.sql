@@ -191,3 +191,7 @@ BEGIN
     'retiradas_socio', (SELECT count(*) FROM erp_pagar WHERE company_id=v_bot AND categoria='Retirada de sócio' AND numero_documento LIKE 'DEMO-GE-FIN%')
   );
 END $function$;
+
+-- ci-sem-guarda: fn_demo_seed_ge_financeiro — seed DEMO-only, já travada por "IF p_company <> v_bot" (b0700000-0000-4000-a000-000000000004); roda só no fn_demo_reset (service_role), sem auth.uid() de usuário.
+REVOKE ALL ON FUNCTION public.fn_demo_seed_ge_financeiro(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_demo_seed_ge_financeiro(uuid) TO service_role;
