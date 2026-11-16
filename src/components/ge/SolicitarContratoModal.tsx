@@ -171,15 +171,19 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
   const daProposta = modo === 'proposta' ? chip('da proposta', C.amber, C.amberBg) : null
   const doCadastro = modo === 'proposta' && cliInfo ? chip('do cadastro', C.green, C.greenBg) : null
 
-  // escolher cliente para proposta sem vínculo: puxa nome/doc do cadastro p/ enviar como identidade do contrato
-  async function escolherCliente(id: string) {
-    const { data } = await supabase.from('erp_clientes').select('razao_social, nome_fantasia, cnpj_cpf, email, telefone, celular, logradouro, numero, bairro, cidade, uf, endereco, contato_operacional').eq('id', id).maybeSingle()
+  // escolher cliente: puxa nome/doc/contato/endereço do cadastro (não só o nome — #6703 Edney/Pdois).
+  // `sobrescrever`: na escolha manual ("Com dados novos"), os dados do cliente escolhido são a verdade e preenchem
+  // os campos; na proposta, mantém o fill-só-se-vazio para não apagar o que veio da proposta.
+  async function escolherCliente(id: string, sobrescrever = false) {
+    const { data } = await supabase.from('erp_clientes').select('razao_social, nome_fantasia, cnpj_cpf, cpf_cnpj, email, telefone, celular, logradouro, numero, bairro, cidade, uf, endereco, contato_operacional').eq('id', id).maybeSingle()
     const e = (data ?? {}) as Record<string, string | null>
     const end = e.endereco || [e.logradouro, e.numero, e.bairro, e.cidade && e.uf ? `${e.cidade}/${e.uf}` : (e.cidade || e.uf)].filter(Boolean).join(', ')
-    setCliInfo({ id, nome: e.nome_fantasia || e.razao_social || '', doc: e.cnpj_cpf || '', email: e.email || '', telefone: e.telefone || e.celular || '', endereco: end })
+    const docCad = e.cnpj_cpf || e.cpf_cnpj || ''
+    const contato = e.contato_operacional || ''
+    setCliInfo({ id, nome: e.nome_fantasia || e.razao_social || '', doc: docCad, email: e.email || '', telefone: e.telefone || e.celular || '', endereco: end })
     setSemCliente(false)
-    setDoc((v) => v || e.cnpj_cpf || '')
-    if (e.contato_operacional) setResponsavel((v) => v || e.contato_operacional || '')
+    setDoc((v) => sobrescrever ? (docCad || v) : (v || docCad))
+    if (contato) setResponsavel((v) => sobrescrever ? contato : (v || contato))
   }
 
   async function solicitar() {
@@ -334,9 +338,23 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
                     ) : null}
                   </>
                 ) : (
-                  <Campo label="Cliente" chave="pm.solicitar_contrato.cliente" ajuda>
-                    <ClientePickerInline companyId={companyId} value={cli} onChange={(id) => setCli(id)} onToast={(s) => setToast(s)} onErro={(s) => setErro(s)} />
-                  </Campo>
+                  <>
+                    <Campo label="Cliente" chave="pm.solicitar_contrato.cliente" ajuda>
+                      <ClientePickerInline companyId={companyId} value={cli}
+                        onChange={(id) => { setCli(id); if (id) void escolherCliente(id, true); else setCliInfo(null) }}
+                        onToast={(s) => setToast(s)} onErro={(s) => setErro(s)} />
+                    </Campo>
+                    {/* #6703 (Edney/Pdois): ao escolher o cliente, traz os dados do cadastro — o CPF/CNPJ e o
+                        responsável preenchem os campos abaixo; endereço/e-mail/telefone aparecem aqui para conferência. */}
+                    {cli && cliInfo && (cliInfo.endereco || cliInfo.email || cliInfo.telefone) ? (
+                      <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 14, marginTop: -6 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: C.espresso }}>{cliInfo.nome || 'Cliente'}{chip('do cadastro', C.green, C.greenBg)}</div>
+                        {cliInfo.endereco && <div style={{ fontSize: 12, color: C.espressoM, marginTop: 4 }}>{cliInfo.endereco}</div>}
+                        <div style={{ fontSize: 12, color: C.espressoM, marginTop: 2 }}>{cliInfo.email || 'sem e-mail'} · {cliInfo.telefone || 'sem telefone'}</div>
+                        <div style={{ fontSize: 11, color: C.espressoM, marginTop: 6 }}>Dados vindos do cadastro do cliente — edite no cadastro se mudaram.</div>
+                      </div>
+                    ) : null}
+                  </>
                 )}
                 <div style={gradeContrato}>
                   <Campo label="CPF/CNPJ do cliente" chave="pm.solicitar_contrato.cpf_cnpj" ajuda>
