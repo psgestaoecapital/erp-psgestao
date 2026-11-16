@@ -2,7 +2,7 @@
 // LEADS · CRM de entrada da agência (P&M). Funil sobre agency_leads, escopado por company_id (RD-45).
 // Etapas do kanban vêm de funil_etapa (fn_funil_etapas_listar) — configuráveis (add/editar/reordenar/excluir).
 // Cadastro rápido com autocomplete de clientes GE (fn_cliente_buscar) → grava erp_cliente_id (não cliente_id,
-// que tem FK p/ agency_clientes). Kanban arrasta card → etapa=chave. Ações Ganhar/Perder/Converter/Agendar.
+// que tem FK p/ agency_clientes). Kanban (componente genérico QuadroFunil, o mesmo do PS CRM) arrasta card → etapa=chave. Ações Ganhar/Perder/Converter/Agendar.
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
@@ -10,6 +10,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { nomeUsuario } from '@/lib/usuarioLabel'
 import SolicitarContratoModal from '@/components/ge/SolicitarContratoModal'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import QuadroFunil from '@/components/crm/QuadroFunil'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
 import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
@@ -117,7 +118,6 @@ export default function LeadsPage() {
   const cliTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [dragId, setDragId] = useState<string | null>(null)
   const [cfgOpen, setCfgOpen] = useState(false)
   const [origemCfgOpen, setOrigemCfgOpen] = useState(false)
   const [origens, setOrigens] = useState<Origem[]>([])
@@ -501,135 +501,125 @@ export default function LeadsPage() {
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>Colunas = etapas do funil<AjudaCampo chave="pm.leads.kanban_colunas" /></span>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>Ações do card<AjudaCampo chave="pm.leads.kanban_acoes" /></span>
           </div>
-          <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 8, alignItems: 'flex-start' }}>
-            {etapas.map((col) => {
-              const items = filtrados.filter((l) => l.etapa === col.chave)
-              const soma = items.reduce((s, l) => s + Number(l.valor_estimado ?? 0), 0)
+          <QuadroFunil
+            colunas={etapas.map((e) => ({ chave: e.chave, rotulo: e.rotulo, cor: e.cor, tipo: e.tipo_etapa }))}
+            itens={filtrados}
+            idDe={(l) => l.id}
+            colunaDe={(l) => l.etapa}
+            valorDe={(l) => Number(l.valor_estimado ?? 0)}
+            onMover={(l, chave) => void moverEtapa(l, chave)}
+            testIdCartao="lead-card"
+            estiloCartao={(l) => {
+              // PM-1 · semáforo do motor único (crm_alerta_config; PDois 7/10, fallback 3/7). Sem régua no front.
+              const sem = fechadas.has(l.etapa) ? 'verde' : (semaforoMap[l.id] ?? 'verde')
+              return { border: sem === 'vermelho' ? `1.5px solid ${RED}` : sem === 'amarelo' ? `1.5px solid ${DOURADO}` : `1px solid ${BORDA}` }
+            }}
+            renderCartao={(l) => {
+              const fim = fechadas.has(l.etapa)
+              const ct = l.erp_cliente_id ? contratoMap[l.erp_cliente_id] : undefined // #59 · contrato do cliente, se houver
+              // PM-1 · semáforo do motor único (crm_alerta_config; PDois 7/10, fallback 3/7). Sem régua no front.
+              const dEtapa = Math.floor(diasDesde(l.etapa_desde))
+              const sem = fim ? 'verde' : (semaforoMap[l.id] ?? 'verde')
+              const corEtapa = sem === 'vermelho' ? RED : sem === 'amarelo' ? DOURADO : TEXTM
               return (
-                <div key={col.id}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={() => { const l = leads.find((x) => x.id === dragId); if (l) void moverEtapa(l, col.chave); setDragId(null) }}
-                  style={{ minWidth: 250, width: 250, flex: '0 0 auto', background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: 8 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px 8px' }}>
-                    <span style={{ width: 10, height: 10, borderRadius: 3, background: col.cor ?? OFFWHITE, border: `1px solid ${BORDA}` }} />
-                    <strong style={{ fontSize: 13 }}>{col.rotulo}</strong>
-                    {col.tipo_etapa !== 'normal' && <span style={{ fontSize: 9, fontWeight: 700, color: col.tipo_etapa === 'ganho' ? GREEN : RED }}>{col.tipo_etapa === 'ganho' ? '✓' : '✕'}</span>}
-                    <span style={{ fontSize: 11, color: TEXTM, marginLeft: 'auto' }}>{items.length}{soma > 0 ? ` · ${brl(soma)}` : ''}</span>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minHeight: 20 }}>
-                    {items.map((l) => {
-                      const fim = fechadas.has(l.etapa)
-                      const ct = l.erp_cliente_id ? contratoMap[l.erp_cliente_id] : undefined // #59 · contrato do cliente, se houver
-                      // PM-1 · semáforo do motor único (crm_alerta_config; PDois 7/10, fallback 3/7). Sem régua no front.
-                      const dEtapa = Math.floor(diasDesde(l.etapa_desde))
-                      const sem = fim ? 'verde' : (semaforoMap[l.id] ?? 'verde')
-                      const corEtapa = sem === 'vermelho' ? RED : sem === 'amarelo' ? DOURADO : TEXTM
-                      const bordaSem = sem === 'vermelho' ? `1.5px solid ${RED}` : sem === 'amarelo' ? `1.5px solid ${DOURADO}` : `1px solid ${BORDA}`
+                <>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <strong style={{ fontSize: 13 }}>{l.empresa || l.nome}</strong>
+                      {(l.erp_cliente_id || l.cliente_id) && <span title="Cliente cadastrado na GE" style={{ fontSize: 9.5, fontWeight: 700, color: GREEN, background: '#DCEFD7', borderRadius: 999, padding: '1px 6px' }}>✓ cliente</span>}
+                    </div>
+                    {l.empresa && l.nome && l.nome !== l.empresa && <div style={{ fontSize: 11.5, color: TEXTM }}>{l.nome}</div>}
+                    <div style={{ fontSize: 11, color: TEXTM, marginTop: 3 }}>
+                      {origemLabel(l.origem)}{l.canal_contato ? ` · ${l.canal_contato}` : ''}{l.valor_estimado ? ` · ${brl(Number(l.valor_estimado))}` : ''}
+                    </div>
+                    {(l.contato_email || l.contato_telefone) && <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 2 }}>{[l.contato_telefone, l.contato_email].filter(Boolean).join(' · ')}</div>}
+                    {l.responsavel_id && respMap[l.responsavel_id] && <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 2 }}>resp: {respMap[l.responsavel_id]}</div>}
+                    {l.criado_por && l.criado_por !== l.responsavel_id && respMap[l.criado_por] && <div style={{ fontSize: 10.5, color: TEXTM }}>criado por: {respMap[l.criado_por]}</div>}
+                    <div style={{ fontSize: 10, color: TEXTM, marginTop: 3, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <span title={new Date(l.criado_em).toLocaleString('pt-BR')}>🕒 criado há {tempoCurto(l.criado_em)}</span>
+                      {!fim && <span style={{ color: corEtapa, fontWeight: sem === 'verde' ? 400 : 700 }} title={sem === 'vermelho' ? 'Lead parado além do limite (config. em Configurações → Alertas)' : sem === 'amarelo' ? 'Atenção: tempo elevado nesta etapa' : undefined}>⏱ {dEtapa} {dEtapa === 1 ? 'dia' : 'dias'} nesta etapa</span>}
+                    </div>
+                    {l.reuniao_agendada_em && (
+                      <div style={{ fontSize: 10.5, color: DOURADO, marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <button onClick={(e) => { e.stopPropagation(); setDetalheLead(l) }} title="Ver detalhes da reunião"
+                          style={{ background: 'none', border: 'none', color: DOURADO, fontWeight: 700, cursor: 'pointer', padding: 0, fontSize: 10.5 }}>
+                          📅 {new Date(l.reuniao_agendada_em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                        </button>
+                        {reunioesMap[l.id]?.link && (
+                          <a href={reunioesMap[l.id]!.link!} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+                            style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: '#2F5AA8', borderRadius: 6, padding: '1px 7px', textDecoration: 'none' }}>▶ entrar</a>
+                        )}
+                        {reunioesMap[l.id]?.local && <span style={{ color: TEXTM }}>· {reunioesMap[l.id]!.local}</span>}
+                      </div>
+                    )}
+                    {(() => {
+                      // #97/#98 · próxima tarefa a fazer do lead (atrasada em vermelho) + WhatsApp
+                      const prox = (tarefasPorLead[l.id] ?? []).find((t) => t.situacao === 'a_fazer')
+                      const wa = whatsappHref(l.contato_telefone)
+                      if (!prox && !wa) return null
                       return (
-                        <div key={l.id} draggable onDragStart={() => setDragId(l.id)} onDragEnd={() => setDragId(null)}
-                          data-testid="lead-card"
-                          style={{ background: OFFWHITE, border: bordaSem, borderRadius: 10, padding: '9px 10px', cursor: 'grab' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <strong style={{ fontSize: 13 }}>{l.empresa || l.nome}</strong>
-                            {(l.erp_cliente_id || l.cliente_id) && <span title="Cliente cadastrado na GE" style={{ fontSize: 9.5, fontWeight: 700, color: GREEN, background: '#DCEFD7', borderRadius: 999, padding: '1px 6px' }}>✓ cliente</span>}
-                          </div>
-                          {l.empresa && l.nome && l.nome !== l.empresa && <div style={{ fontSize: 11.5, color: TEXTM }}>{l.nome}</div>}
-                          <div style={{ fontSize: 11, color: TEXTM, marginTop: 3 }}>
-                            {origemLabel(l.origem)}{l.canal_contato ? ` · ${l.canal_contato}` : ''}{l.valor_estimado ? ` · ${brl(Number(l.valor_estimado))}` : ''}
-                          </div>
-                          {(l.contato_email || l.contato_telefone) && <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 2 }}>{[l.contato_telefone, l.contato_email].filter(Boolean).join(' · ')}</div>}
-                          {l.responsavel_id && respMap[l.responsavel_id] && <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 2 }}>resp: {respMap[l.responsavel_id]}</div>}
-                          {l.criado_por && l.criado_por !== l.responsavel_id && respMap[l.criado_por] && <div style={{ fontSize: 10.5, color: TEXTM }}>criado por: {respMap[l.criado_por]}</div>}
-                          <div style={{ fontSize: 10, color: TEXTM, marginTop: 3, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                            <span title={new Date(l.criado_em).toLocaleString('pt-BR')}>🕒 criado há {tempoCurto(l.criado_em)}</span>
-                            {!fim && <span style={{ color: corEtapa, fontWeight: sem === 'verde' ? 400 : 700 }} title={sem === 'vermelho' ? 'Lead parado além do limite (config. em Configurações → Alertas)' : sem === 'amarelo' ? 'Atenção: tempo elevado nesta etapa' : undefined}>⏱ {dEtapa} {dEtapa === 1 ? 'dia' : 'dias'} nesta etapa</span>}
-                          </div>
-                          {l.reuniao_agendada_em && (
-                            <div style={{ fontSize: 10.5, color: DOURADO, marginTop: 2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                              <button onClick={(e) => { e.stopPropagation(); setDetalheLead(l) }} title="Ver detalhes da reunião"
-                                style={{ background: 'none', border: 'none', color: DOURADO, fontWeight: 700, cursor: 'pointer', padding: 0, fontSize: 10.5 }}>
-                                📅 {new Date(l.reuniao_agendada_em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                              </button>
-                              {reunioesMap[l.id]?.link && (
-                                <a href={reunioesMap[l.id]!.link!} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
-                                  style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: '#2F5AA8', borderRadius: 6, padding: '1px 7px', textDecoration: 'none' }}>▶ entrar</a>
-                              )}
-                              {reunioesMap[l.id]?.local && <span style={{ color: TEXTM }}>· {reunioesMap[l.id]!.local}</span>}
-                            </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
+                          {prox && (
+                            <button onClick={(e) => { e.stopPropagation(); setTarefasLead(l) }} data-testid="lead-tarefa-proxima"
+                              style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 10.5, fontWeight: 700, color: atrasada(prox) ? RED : DOURADO }}>
+                              {tipoTarefa(prox.tipo).i} {tipoTarefa(prox.tipo).l} · {quando(prox)}{atrasada(prox) ? ' · atrasada' : ''}
+                              {prox.responsavel_id && respMap[prox.responsavel_id] ? ` · ${respMap[prox.responsavel_id]}` : ''}
+                            </button>
                           )}
-                          {(() => {
-                            // #97/#98 · próxima tarefa a fazer do lead (atrasada em vermelho) + WhatsApp
-                            const prox = (tarefasPorLead[l.id] ?? []).find((t) => t.situacao === 'a_fazer')
-                            const wa = whatsappHref(l.contato_telefone)
-                            if (!prox && !wa) return null
-                            return (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
-                                {prox && (
-                                  <button onClick={(e) => { e.stopPropagation(); setTarefasLead(l) }} data-testid="lead-tarefa-proxima"
-                                    style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 10.5, fontWeight: 700, color: atrasada(prox) ? RED : DOURADO }}>
-                                    {tipoTarefa(prox.tipo).i} {tipoTarefa(prox.tipo).l} · {quando(prox)}{atrasada(prox) ? ' · atrasada' : ''}
-                                    {prox.responsavel_id && respMap[prox.responsavel_id] ? ` · ${respMap[prox.responsavel_id]}` : ''}
-                                  </button>
-                                )}
-                                {wa && <a href={wa} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} data-testid="lead-whatsapp"
-                                  style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: '#1F7A3A', borderRadius: 6, padding: '1px 7px', textDecoration: 'none' }}>💬 WhatsApp</a>}
-                              </div>
-                            )
-                          })()}
-                          {fim && l.motivo_perda && <div style={{ fontSize: 10.5, color: RED, marginTop: 2 }}>motivo: {l.motivo_perda}</div>}
-                          {/* PM-2 · chip da proposta ligada (abre direto). Vê antes de clicar. */}
-                          {(propMap[l.id]?.length ?? 0) > 0 && (() => {
-                            const p0 = propMap[l.id]![0]; const n = propMap[l.id]!.length
-                            const aprovada = propMap[l.id]!.some((p) => p.status === 'aprovada')
-                            return (
-                              <button onClick={(e) => { e.stopPropagation(); void proposta(l) }} disabled={busy} title="Abrir proposta vinculada"
-                                style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, width: '100%', textAlign: 'left', border: `1px solid ${aprovada ? GREEN : BORDA}`, borderRadius: 8, padding: '5px 8px', background: aprovada ? '#DCEFD7' : '#FBF6EA', cursor: 'pointer', color: ESPRESSO, fontSize: 11 }}>
-                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📄 {p0.titulo} <span style={{ color: TEXTM }}>· {p0.status}</span></span>
-                                <span style={{ color: aprovada ? GREEN : DOURADO, fontWeight: 700, marginLeft: 'auto', whiteSpace: 'nowrap' }}>{n > 1 ? `+${n - 1}` : brl(Number(p0.valor_total ?? 0))}</span>
-                              </button>
-                            )
-                          })()}
-                          {fim && (
-                            // #59 PDOIS · no fechamento (Ganho/Perda) o contrato é a AÇÃO PRINCIPAL, ao lado de Excluir.
-                            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6, alignItems: 'center' }}>
-                              {ct
-                                ? <button onClick={() => verContrato(ct.id)} title="Abrir a solicitação/contrato na aba Fee" style={chip(GREEN)}>🧾 Ver contrato{ct.numero ? ` nº ${ct.numero}` : ''} · {situacaoContrato(ct.status)}</button>
-                                : <button disabled={busy} onClick={() => setSolicitarCli({ cliId: l.erp_cliente_id })} style={chip(DOURADO)}>🧾 Solicitar contrato</button>}
-                              <button disabled={busy} onClick={() => void excluirLead(l)} style={chip(RED)}>🗑 Excluir</button>
-                            </div>
-                          )}
-                          {!fim && (
-                            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 7, alignItems: 'center' }}>
-                              {/* Demanda 1: ações do estágio no rodapé = Reunião + Proposta. Demanda 2: Editar. */}
-                              {/* #97/#98 · Tarefas no lugar de "Reunião" (reunião virou um tipo de tarefa) */}
-                              <button onClick={() => setTarefasLead(l)} style={chip(DOURADO)} data-testid="lead-tarefas">
-                                ✅ Tarefas{(tarefasPorLead[l.id] ?? []).filter((t) => t.situacao === 'a_fazer').length ? ` (${(tarefasPorLead[l.id] ?? []).filter((t) => t.situacao === 'a_fazer').length})` : ''}
-                              </button>
-                              <button disabled={busy} onClick={() => void proposta(l)} style={chip(ESPRESSO)}>📄 Proposta</button>
-                              {/* #59 PDOIS · botão de contrato VISÍVEL no rodapé (não mais escondido no ⋯). */}
-                              {ct
-                                ? <button onClick={() => verContrato(ct.id)} title="Abrir a solicitação/contrato na aba Fee" style={chip(GREEN)}>🧾 Ver contrato · {situacaoContrato(ct.status)}</button>
-                                : <button disabled={busy} onClick={() => setSolicitarCli({ cliId: l.erp_cliente_id })} style={chip(DOURADO)}>🧾 Solicitar contrato</button>}
-                              <button onClick={() => setEditando(l)} style={chip('#2F5AA8')}>✏️ Editar</button>
-                              <button onClick={() => setMenuLead(menuLead === l.id ? null : l.id)} title="Mais ações" style={{ ...chip(TEXTM), fontWeight: 700 }}>⋯</button>
-                              {menuLead === l.id && (
-                                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', width: '100%', marginTop: 2 }}>
-                                  <button disabled={busy} onClick={() => { setMenuLead(null); ganhar(l) }} style={chip(GREEN)}>✓ Ganhar</button>
-                                  <button onClick={() => { setMenuLead(null); perder(l) }} style={chip(RED)}>✕ Perder</button>
-                                  <button disabled={busy} onClick={() => { setMenuLead(null); void converter(l) }} style={chip(ESPRESSO)}>→ Converter</button>
-                                  <button disabled={busy} onClick={() => { setMenuLead(null); void excluirLead(l) }} style={chip(RED)}>🗑 Excluir</button>
-                                </div>
-                              )}
-                            </div>
-                          )}
+                          {wa && <a href={wa} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} data-testid="lead-whatsapp"
+                            style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: '#1F7A3A', borderRadius: 6, padding: '1px 7px', textDecoration: 'none' }}>💬 WhatsApp</a>}
                         </div>
                       )
-                    })}
-                  </div>
-                </div>
+                    })()}
+                    {fim && l.motivo_perda && <div style={{ fontSize: 10.5, color: RED, marginTop: 2 }}>motivo: {l.motivo_perda}</div>}
+                    {/* PM-2 · chip da proposta ligada (abre direto). Vê antes de clicar. */}
+                    {(propMap[l.id]?.length ?? 0) > 0 && (() => {
+                      const p0 = propMap[l.id]![0]; const n = propMap[l.id]!.length
+                      const aprovada = propMap[l.id]!.some((p) => p.status === 'aprovada')
+                      return (
+                        <button onClick={(e) => { e.stopPropagation(); void proposta(l) }} disabled={busy} title="Abrir proposta vinculada"
+                          style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, width: '100%', textAlign: 'left', border: `1px solid ${aprovada ? GREEN : BORDA}`, borderRadius: 8, padding: '5px 8px', background: aprovada ? '#DCEFD7' : '#FBF6EA', cursor: 'pointer', color: ESPRESSO, fontSize: 11 }}>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>📄 {p0.titulo} <span style={{ color: TEXTM }}>· {p0.status}</span></span>
+                          <span style={{ color: aprovada ? GREEN : DOURADO, fontWeight: 700, marginLeft: 'auto', whiteSpace: 'nowrap' }}>{n > 1 ? `+${n - 1}` : brl(Number(p0.valor_total ?? 0))}</span>
+                        </button>
+                      )
+                    })()}
+                    {fim && (
+                      // #59 PDOIS · no fechamento (Ganho/Perda) o contrato é a AÇÃO PRINCIPAL, ao lado de Excluir.
+                      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6, alignItems: 'center' }}>
+                        {ct
+                          ? <button onClick={() => verContrato(ct.id)} title="Abrir a solicitação/contrato na aba Fee" style={chip(GREEN)}>🧾 Ver contrato{ct.numero ? ` nº ${ct.numero}` : ''} · {situacaoContrato(ct.status)}</button>
+                          : <button disabled={busy} onClick={() => setSolicitarCli({ cliId: l.erp_cliente_id })} style={chip(DOURADO)}>🧾 Solicitar contrato</button>}
+                        <button disabled={busy} onClick={() => void excluirLead(l)} style={chip(RED)}>🗑 Excluir</button>
+                      </div>
+                    )}
+                    {!fim && (
+                      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 7, alignItems: 'center' }}>
+                        {/* Demanda 1: ações do estágio no rodapé = Reunião + Proposta. Demanda 2: Editar. */}
+                        {/* #97/#98 · Tarefas no lugar de "Reunião" (reunião virou um tipo de tarefa) */}
+                        <button onClick={() => setTarefasLead(l)} style={chip(DOURADO)} data-testid="lead-tarefas">
+                          ✅ Tarefas{(tarefasPorLead[l.id] ?? []).filter((t) => t.situacao === 'a_fazer').length ? ` (${(tarefasPorLead[l.id] ?? []).filter((t) => t.situacao === 'a_fazer').length})` : ''}
+                        </button>
+                        <button disabled={busy} onClick={() => void proposta(l)} style={chip(ESPRESSO)}>📄 Proposta</button>
+                        {/* #59 PDOIS · botão de contrato VISÍVEL no rodapé (não mais escondido no ⋯). */}
+                        {ct
+                          ? <button onClick={() => verContrato(ct.id)} title="Abrir a solicitação/contrato na aba Fee" style={chip(GREEN)}>🧾 Ver contrato · {situacaoContrato(ct.status)}</button>
+                          : <button disabled={busy} onClick={() => setSolicitarCli({ cliId: l.erp_cliente_id })} style={chip(DOURADO)}>🧾 Solicitar contrato</button>}
+                        <button onClick={() => setEditando(l)} style={chip('#2F5AA8')}>✏️ Editar</button>
+                        <button onClick={() => setMenuLead(menuLead === l.id ? null : l.id)} title="Mais ações" style={{ ...chip(TEXTM), fontWeight: 700 }}>⋯</button>
+                        {menuLead === l.id && (
+                          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', width: '100%', marginTop: 2 }}>
+                            <button disabled={busy} onClick={() => { setMenuLead(null); ganhar(l) }} style={chip(GREEN)}>✓ Ganhar</button>
+                            <button onClick={() => { setMenuLead(null); perder(l) }} style={chip(RED)}>✕ Perder</button>
+                            <button disabled={busy} onClick={() => { setMenuLead(null); void converter(l) }} style={chip(ESPRESSO)}>→ Converter</button>
+                            <button disabled={busy} onClick={() => { setMenuLead(null); void excluirLead(l) }} style={chip(RED)}>🗑 Excluir</button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                </>
               )
-            })}
-          </div>
+            }}
+          />
           </>
         )}
       </div>
