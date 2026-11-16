@@ -51,7 +51,7 @@ async function criarContrato(sufixo: string): Promise<string> {
 async function criarRecebivel(contrato: string, valor: number): Promise<string> {
   const r = await dbInsert<IdRow>('erp_receber', {
     company_id: DEMO_GE, contrato_id: contrato, descricao: `Mensalidade E2E ${RUN}`,
-    valor, data_vencimento: HOJE, status: 'pendente', cliente_nome: `Cliente E2E ${RUN}`,
+    valor, data_vencimento: HOJE, status: 'aberto', cliente_nome: `Cliente E2E ${RUN}`,
   })
   return r.id
 }
@@ -66,7 +66,7 @@ async function salvarRegra(contrato: string, vendedor: string, extra: Record<str
 }
 
 // baixa real: PATCH direto em erp_receber dispara o gatilho trg_zz_comissao_recorrente (como a tela faz via baixa).
-const baixar = (recebivel: string, valorPago: number, status = 'recebido') =>
+const baixar = (recebivel: string, valorPago: number, status = 'pago') =>
   dbPatch('erp_receber', `id=eq.${recebivel}`, { valor_pago: valorPago, status, data_pagamento: HOJE })
 
 const lancDe = (recebivel: string) =>
@@ -86,16 +86,20 @@ test.describe('GE — comissões recorrentes: gatilho na baixa do cliente #5227'
   })
 
   test.afterAll(async () => {
+    // Limpeza best-effort: erp_receber/erp_pagar não aceitam DELETE físico (RD-30, trg_bloqueia_delete_fisico) →
+    // saem por soft-delete; contrato e vendedor saem por excluido_em (são referenciados pelos títulos).
+    const tenta = async (passo: () => Promise<unknown>) => { try { await passo() } catch (e) { console.warn('[limpeza comissoes]', e) } }
+    const agora = new Date().toISOString()
     try {
       for (const c of criado.contratos) {
-        await dbDelete('erp_comissao_recorrente_lancamento', `contrato_id=eq.${c}`)
-        await dbDelete('erp_comissao_recorrente_evento', `contrato_id=eq.${c}`)
-        await dbDelete('erp_pagar', `contrato_id=eq.${c}&categoria=eq.Comiss%C3%A3o%20recorrente`)
-        await dbDelete('erp_comissao_recorrente_regra', `contrato_id=eq.${c}`)
-        await dbDelete('erp_receber', `contrato_id=eq.${c}`)
-        await dbDelete('erp_contratos', `id=eq.${c}`)
+        await tenta(() => dbDelete('erp_comissao_recorrente_lancamento', `contrato_id=eq.${c}`))
+        await tenta(() => dbDelete('erp_comissao_recorrente_regra', `contrato_id=eq.${c}`))
+        await tenta(() => dbPatch('erp_pagar', `contrato_id=eq.${c}&categoria=eq.Comiss%C3%A3o%20recorrente`, { status: 'cancelado', deleted_at: agora }))
+        await tenta(() => dbPatch('erp_receber', `contrato_id=eq.${c}`, { status: 'cancelado', deleted_at: agora }))
+        await tenta(() => dbDelete('erp_comissao_recorrente_evento', `contrato_id=eq.${c}`))
+        await tenta(() => dbPatch('erp_contratos', `id=eq.${c}`, { excluido_em: agora, status: 'excluido' }))
       }
-      for (const f of criado.fornecedores) await dbDelete('erp_fornecedores', `id=eq.${f}`)
+      for (const f of criado.fornecedores) await tenta(() => dbPatch('erp_fornecedores', `id=eq.${f}`, { excluido_em: agora, ativo: false }))
     } finally {
       await soltarTravaDemo(donoTrava())
     }
@@ -201,7 +205,7 @@ test.describe('GE — comissões recorrentes: gatilho na baixa do cliente #5227'
 
     const [r] = await dbSelect<{ valor_pago: number; status: string }>('erp_receber', `id=eq.${rec}&select=valor_pago,status`)
     expect(Number(r.valor_pago), 'a baixa do cliente NUNCA cai por causa da comissão').toBe(BASE)
-    expect(r.status).toBe('recebido')
+    expect(r.status, 'o recebível fica baixado').toBe('pago')
     expect((await eventosErroDe(rec)).length, 'o erro fica visível na esteira (evento tipo erro)').toBeGreaterThanOrEqual(1)
     const pagares = (await pagaresComissaoDe(contrato)).filter((p) => p.status !== 'cancelado')
     expect(pagares.length, 'nenhuma conta a pagar fica pela metade quando a geração falha').toBe(0)
