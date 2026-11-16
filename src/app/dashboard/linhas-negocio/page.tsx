@@ -106,7 +106,10 @@ export default function LinhasNegocioPage() {
           <div style={{ background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 14, padding: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10, flexWrap: 'wrap' }}>
               <h2 style={{ fontFamily: SERIF, fontSize: 17, fontWeight: 400, color: ESPRESSO, margin: 0 }}>Suas linhas de negócio</h2>
-              <a href='/dashboard/linhas-negocio/configurar' style={{ fontSize: 12.5, fontWeight: 700, color: DOURADO, textDecoration: 'none' }}>+ Nova linha</a>
+              <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                <a href='/dashboard/linhas-negocio/configurar' style={{ fontSize: 12.5, fontWeight: 700, color: DOURADO, textDecoration: 'none' }}>+ Nova linha</a>
+                <AjudaCampo chave='ge.linhas.nova_linha' />
+              </span>
             </div>
             <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column' }}>
               {linhas.map((l, i) => (
