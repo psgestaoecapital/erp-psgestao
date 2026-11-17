@@ -2,6 +2,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 
 // Design system PS claro (RD-96): espresso/off-white/dourado. Status escurecidos p/ contraste no claro.
 const C={bg:'#FAF7F2',card:'#FFFFFF',card2:'#F5F2EB',border:'#E7DECF',gold:'#C8941A',goldL:'#9A6B10',text:'#3D2314',muted:'rgba(61,35,20,0.62)',dim:'rgba(61,35,20,0.45)',green:'#2E7D46',red:'#C44536',blue:'#2563EB',yellow:'#A77A06',purple:'#7C3AED'}
@@ -415,7 +417,8 @@ export default function OperacionalPage(){
               </div>
               <div>
                 <div style={{fontSize:10,color:C.gold,marginBottom:3,fontWeight:600}}>VALOR (R$) *</div>
-                <input type="number" step="0.01" value={formL.valor_documento||''} onChange={e=>setFormL({...formL,valor_documento:parseFloat(e.target.value)||0})}
+                {/* #6874 — valor com máscara em R$ enquanto digita (valor gravado continua numérico) */}
+                <CampoMoeda value={formL.valor_documento?numeroParaMoeda(formL.valor_documento):''} onChange={v=>setFormL({...formL,valor_documento:moedaParaNumero(v)||0})}
                   placeholder="0,00" style={{...inp,fontSize:16,fontWeight:700,color:tab==='receber'?C.green:C.red}}/>
               </div>
               <div style={{position:'relative'}} ref={catDropRef}>
@@ -759,7 +762,8 @@ export default function OperacionalPage(){
             </div>
             <div>
               <div style={{fontSize:10,color:C.muted,marginBottom:3}}>SALDO INICIAL (R$)</div>
-              <input type="number" step="0.01" value={formCB.saldo_inicial||''} onChange={e=>setFormCB({...formCB,saldo_inicial:parseFloat(e.target.value)||0})} placeholder="0,00" style={inp}/>
+              {/* #6874 — saldo inicial com máscara em R$ (valor gravado continua numérico) */}
+              <CampoMoeda value={formCB.saldo_inicial?numeroParaMoeda(formCB.saldo_inicial):''} onChange={v=>setFormCB({...formCB,saldo_inicial:moedaParaNumero(v)||0})} placeholder="0,00" style={inp}/>
             </div>
           </div>
           <div style={{display:'flex',gap:8,marginTop:14}}>
