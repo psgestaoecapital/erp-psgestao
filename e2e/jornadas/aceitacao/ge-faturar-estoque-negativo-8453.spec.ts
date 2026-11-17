@@ -30,7 +30,7 @@ async function criarCenario(sufixo: string): Promise<{ produto: string; pedido: 
   criados.produtos.push(prod.id)
   const ped = await dbInsert<{ id: string }>('erp_pedidos', {
     company_id: DEMO_GE, numero: `E2E8453${RUN}${sufixo}`.slice(0, 20), cliente_nome: `Cliente E2E ${RUN}`,
-    status: 'orcamento', total: 50, titulos_gerados: false,
+    status: 'aberto', total: 50, titulos_gerados: false,
   })
   criados.pedidos.push(ped.id)
   await dbInsert('erp_pedidos_itens', {
@@ -77,7 +77,7 @@ test.describe('GE — faturar com estoque negativo (config por empresa) #8453', 
     expect(r.texto).toContain('Estoque insuficiente')
     // nenhuma baixa: estoque intacto, pedido não faturado, sem movimentação
     expect(await estoqueDe(produto)).toBe(2)
-    expect(await statusDe(pedido)).toBe('orcamento')
+    expect(await statusDe(pedido)).toBe('aberto')
     const movs = await dbSelect('erp_estoque_movimentacoes', `ref_id=eq.${pedido}&select=id`)
     expect(movs.length).toBe(0)
   })
