@@ -187,14 +187,14 @@ VALUES
    'Define o conjunto de dados que será analisado — o raio-X olha SÓ os números dessa empresa (nunca de outra).',
    'Selecione "Pdois" para analisar os dados da Pdois.',
    'Analisar com a empresa errada selecionada e achar que o resultado é de outra.',
-   'nucleo', 10, 1, 'ativo'),
+   'nucleo', 10, 1, 'publicado'),
   ('inteligencia.consultor.sintoma','/dashboard/consultor-ia','Consultor','O que está acontecendo',
    'Descreva em poucas palavras o problema (ex.: "meu saldo não bate") ou use um dos atalhos de sintoma.',
    'Filtra os achados do raio-X pela sua dúvida — é um casamento por palavra-chave (saldo, boleto, conciliação, cliente/fornecedor), sem custo de IA.',
    'Digite "boleto sem baixa" para ver só os achados de conciliação.',
    'Esperar uma resposta de chat — aqui o sistema ANALISA seus dados e lista o que está errado e como corrigir.',
-   'nucleo', 20, 1, 'ativo')
+   'nucleo', 20, 1, 'publicado')
 ON CONFLICT (chave) DO UPDATE SET
    rota = EXCLUDED.rota, grupo = EXCLUDED.grupo, rotulo = EXCLUDED.rotulo,
    o_que_preencher = EXCLUDED.o_que_preencher, para_que_serve = EXCLUDED.para_que_serve,
-   exemplo = EXCLUDED.exemplo, erro_comum = EXCLUDED.erro_comum, status = 'ativo';
+   exemplo = EXCLUDED.exemplo, erro_comum = EXCLUDED.erro_comum, status = 'publicado';
