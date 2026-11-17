@@ -137,7 +137,7 @@ export default function ParcelasContratoEditor({ contratoId, companyId, contasCo
       p_valor: round2(Number(valorMensal) || 0), p_conta_id: conta,
     })
     setGerando(false)
-    if (error) { setMsgErr(error.message); return }
+    if (error) { setMsgErr(traduzErro(error.message)); return }
     const r = data as { ok?: boolean; erro?: string; parcelas?: number }
     if (!r?.ok) { setMsgErr(traduzErro(r?.erro)); return }
     setAutoAberto(false)
@@ -156,7 +156,7 @@ export default function ParcelasContratoEditor({ contratoId, companyId, contasCo
     }))
     const { data, error } = await supabase.rpc('fn_contrato_parcelas_salvar', { p_contrato_id: contratoId, p_parcelas: payload })
     setSalvando(false)
-    if (error) { setMsgErr(error.message); return }
+    if (error) { setMsgErr(traduzErro(error.message)); return }
     const r = data as { ok?: boolean; erro?: string; parcelas?: number }
     if (!r?.ok) { setMsgErr(traduzErro(r?.erro)); return }
     onSaved?.(r.parcelas ?? payload.length)
@@ -175,7 +175,7 @@ export default function ParcelasContratoEditor({ contratoId, companyId, contasCo
     setGerandoAgora(true); setMsgErr(null); setMsgOk(null)
     const { data, error } = await supabase.rpc('fn_contrato_parcelas_gerar_agora', { p_contrato_id: contratoId })
     setGerandoAgora(false)
-    if (error) { setMsgErr(error.message); return }
+    if (error) { setMsgErr(traduzErro(error.message)); return }
     const r = data as { ok?: boolean; erro?: string; gerados?: number; total?: number }
     if (!r?.ok) { setMsgErr(traduzErro(r?.erro)); return }
     setPlanoSalvoSemGerar(false)
@@ -333,6 +333,12 @@ function traduzErro(e?: string): string {
     case 'parcelas_invalidas': return 'Plano de parcelas inválido.'
     case 'plano_sem_valor': return 'O plano está zerado — informe o valor das parcelas antes de gerar as contas a receber.'
     case 'falha_geracao': return 'Não foi possível gerar as contas a receber. Tente novamente.'
-    default: return e || 'Não foi possível salvar as parcelas.'
+    case 'conta_de_outra_empresa': return 'A conta de recebimento precisa ser da empresa que fatura.'
+    case 'parcela_conta_outra_empresa': return 'A conta de recebimento precisa ser da empresa que fatura — corrija a conta das parcelas antes de gerar as cobranças.'
+    default:
+      // Erros vindos por RAISE (ex.: parcela_conta_outra_empresa na geração) chegam na mensagem crua.
+      if (e && e.includes('parcela_conta_outra_empresa')) return 'A conta de recebimento precisa ser da empresa que fatura — corrija a conta das parcelas antes de gerar as cobranças.'
+      if (e && e.includes('conta_de_outra_empresa')) return 'A conta de recebimento precisa ser da empresa que fatura.'
+      return e || 'Não foi possível salvar as parcelas.'
   }
 }
