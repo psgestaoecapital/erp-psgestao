@@ -73,6 +73,7 @@ export const SIDEBAR_GESTAO_EMPRESARIAL: SidebarModuleNode[] = [
       { id: 'extrato', label: 'Extrato Bancário', href: '/dashboard/financeiro/extrato', status: 'parcial' },
       { id: 'inadimplentes', label: 'Inadimplentes', href: '/dashboard/financeiro/inadimplentes', status: 'pronto' },
       { id: 'saude', label: 'Saúde Financeira', href: '/dashboard/financeiro/saude', status: 'pronto' },
+      { id: 'consultor-raiox-fin', label: 'Consultor · Raio-X', href: '/dashboard/consultor-ia', status: 'pronto' },
     ],
   },
   {
@@ -186,7 +187,7 @@ export const SIDEBAR_GESTAO_EMPRESARIAL: SidebarModuleNode[] = [
     label: 'Inteligência',
     status: 'pronto',
     items: [
-      { id: 'consultor-ia', label: 'Consultor IA', href: '/dashboard/consultor-ia', status: 'pronto', badge: 'IA' },
+      { id: 'consultor-ia', label: 'Consultor · Raio-X', href: '/dashboard/consultor-ia', status: 'pronto' },
       { id: 'divergencias', label: 'Divergências', href: '/dashboard/_compartilhado/divergencias', status: 'pronto' },
       { id: 'previsao', label: 'Previsão de Caixa', href: '/dashboard/previsao', status: 'parcial' },
       { id: 'score', label: 'Score Inadimplência', href: '/dashboard/score', status: 'parcial' },
