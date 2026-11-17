@@ -1,4 +1,4 @@
--- 20261119150045_f3_vendedor_acesso_comercial.sql
+-- 20261119140145_f3_vendedor_acesso_comercial.sql
 -- Emergência LGPD/acesso — msg eng_chefe 14fdc862 (complemento da c910e458), fatia F3 · DADOS.
 --
 -- Contexto: o papel "Vendedor" da indústria (rbac_papel.slug = 'industria_comercial',
@@ -19,7 +19,10 @@
 -- como hoje; este arquivo NÃO os altera.
 --
 -- Segurança: nada de DROP/UPDATE/DELETE; sem dado de cliente; não toca as 11 funções de
--- guarda (RD-91). Numerada acima do ledger (último: 20261119140045).
+-- guarda (RD-91). Numerada acima do ledger (último na main: 20261119133045) e dentro da
+-- janela não-futura do gate check:migrations (<= now+2d). Renumerada de 20261119150045
+-- a pedido do revisor (AJUSTES #5329): só o nome muda, o conteúdo e o patch-id estável
+-- permanecem idênticos.
 --
 -- Prova RD-38 (BEGIN/ROLLBACK, sem escrita persistida, Frioeste industrial, usuário real
 -- simulado como papel industria_comercial):
