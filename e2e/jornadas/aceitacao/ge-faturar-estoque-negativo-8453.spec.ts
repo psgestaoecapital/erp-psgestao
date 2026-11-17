@@ -11,7 +11,7 @@
 // Limpeza no fim: apaga só o que criou (receber/movimentações/itens/pedido/produto) e volta a regra para 'avisar'.
 
 import { test, expect } from '../../support/fixtures'
-import { dbSelect, dbInsert, dbDelete, rpcComoRobo, pegarTravaDemo, soltarTravaDemo, donoTrava } from '../../support/api'
+import { dbSelect, dbInsert, dbDelete, dbPatch, rpcComoRobo, pegarTravaDemo, soltarTravaDemo, donoTrava } from '../../support/api'
 
 const DEMO_GE = 'b0700000-0000-4000-a000-000000000004'
 const RUN = `${process.env.GITHUB_RUN_ID ?? 'local'}${Date.now().toString(36)}`.replace(/[^a-z0-9]/gi, '').slice(-8)
@@ -30,7 +30,7 @@ async function criarCenario(sufixo: string): Promise<{ produto: string; pedido: 
   criados.produtos.push(prod.id)
   const ped = await dbInsert<{ id: string }>('erp_pedidos', {
     company_id: DEMO_GE, numero: `E2E8453${RUN}${sufixo}`.slice(0, 20), cliente_nome: `Cliente E2E ${RUN}`,
-    status: 'orcamento', total: 50, titulos_gerados: false,
+    status: 'aberto', total: 50, titulos_gerados: false,
   })
   criados.pedidos.push(ped.id)
   await dbInsert('erp_pedidos_itens', {
@@ -57,7 +57,10 @@ test.describe('GE — faturar com estoque negativo (config por empresa) #8453', 
   test.afterAll(async () => {
     try {
       for (const ped of criados.pedidos) {
-        await dbDelete('erp_receber', `pedido_id=eq.${ped}`)
+        // erp_receber tem a trava RD-30 (trg_bloqueia_delete_fisico): documento financeiro não se apaga
+        // por DELETE físico. Limpeza do título gerado no faturamento é por SOFT-DELETE (deleted_at), igual
+        // ao purgarReceberDemo. Não há FK de erp_receber→erp_pedidos, então o pedido é apagado logo abaixo.
+        await dbPatch('erp_receber', `pedido_id=eq.${ped}&deleted_at=is.null`, { deleted_at: new Date().toISOString() })
         await dbDelete('erp_estoque_movimentacoes', `ref_id=eq.${ped}`)
         await dbDelete('erp_pedidos_itens', `pedido_id=eq.${ped}`)
         await dbDelete('erp_pedidos', `id=eq.${ped}`)
@@ -77,7 +80,7 @@ test.describe('GE — faturar com estoque negativo (config por empresa) #8453', 
     expect(r.texto).toContain('Estoque insuficiente')
     // nenhuma baixa: estoque intacto, pedido não faturado, sem movimentação
     expect(await estoqueDe(produto)).toBe(2)
-    expect(await statusDe(pedido)).toBe('orcamento')
+    expect(await statusDe(pedido)).toBe('aberto')
     const movs = await dbSelect('erp_estoque_movimentacoes', `ref_id=eq.${pedido}&select=id`)
     expect(movs.length).toBe(0)
   })

@@ -10,6 +10,8 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero } from '@/lib/moeda-mascara'
 import type { AlcadaConfig } from '@/lib/compras/alcada'
 import {
   ITEM_VAZIO, STATUS_ROTULO, caminhoOrcamento, lerQuantidade, pendenciasEnvio, validarSolicitacaoForm, type ItemForm,
@@ -304,7 +306,7 @@ function Detalhe({ s, empresa, alcada, rpc, editar, setMsg }: {
   }
 
   const anexar = async () => {
-    const valor = lerQuantidade(orc.valor)
+    const valor = moedaParaNumero(orc.valor) ?? NaN
     if (!orc.fornecedor.trim() || !(valor > 0)) { setMsg({ tipo: 'erro', texto: 'Informe o fornecedor e o valor total.' }); return }
     setOcupado(true)
     let path: string | null = null
@@ -364,7 +366,7 @@ function Detalhe({ s, empresa, alcada, rpc, editar, setMsg }: {
           </label>
           <label className="md:col-span-3">
             <span className="flex items-center gap-1 text-xs text-gray-600">Valor total <AjudaCampo chave="compras.solic.orc_valor" /></span>
-            <input inputMode="decimal" value={orc.valor} onChange={(e) => setOrc({ ...orc, valor: e.target.value })} placeholder="0,00" className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-base" />
+            <CampoMoeda value={orc.valor} onChange={(v) => setOrc({ ...orc, valor: v })} placeholder="0,00" className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-base" />
           </label>
           <label className="md:col-span-4">
             <span className="flex items-center gap-1 text-xs text-gray-600">Prazo de entrega <AjudaCampo chave="compras.solic.orc_prazo" /></span>
