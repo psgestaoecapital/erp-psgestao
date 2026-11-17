@@ -21,3 +21,15 @@ VALUES (
   'compliance', 10, 1, 'publicado'
 )
 ON CONFLICT (chave) DO NOTHING;
+
+-- RD-95: "?" do campo Motivo (texto que o usuário preenche ao inativar)
+INSERT INTO public.erp_ajuda_campo (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, vertical, ordem, versao, status)
+VALUES (
+  'compliance.prestadores.inativar_motivo', '/dashboard/ehs/prestadores', 'Prestadores PJ/MEI', 'Motivo da inativação',
+  'Escreva, em poucas palavras, por que o prestador está sendo inativado (no mínimo 3 letras).',
+  'Fica guardado junto com a inativação (quem e quando) para auditoria e para quem reabrir o cadastro depois entender o contexto.',
+  'Contrato encerrado em 11/2026; prestador substituído por outro já cadastrado.',
+  'Deixar vago ("encerrado") sem dizer o motivo real — atrapalha a auditoria depois.',
+  'compliance', 11, 1, 'publicado'
+)
+ON CONFLICT (chave) DO NOTHING;

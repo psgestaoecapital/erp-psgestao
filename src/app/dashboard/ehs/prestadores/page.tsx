@@ -513,14 +513,16 @@ function InativarPrestadorModal({
           <strong> não</strong> são apagados — a inativação é rastreável (registra quem, quando e o motivo) e pode ser
           revertida reativando o prestador.
         </p>
-        <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Motivo da inativação</label>
-        <textarea
-          value={motivo}
-          onChange={(e: any) => setMotivo(e.target.value)}
-          placeholder="Ex.: contrato encerrado, prestador substituído…"
-          rows={3}
-          style={{ ...inputStyle(), resize: 'vertical' }}
-        />
+        <label style={{ display: 'block' }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Motivo da inativação <AjudaCampo chave="compliance.prestadores.inativar_motivo" /></span>
+          <textarea
+            value={motivo}
+            onChange={(e: any) => setMotivo(e.target.value)}
+            placeholder="Ex.: contrato encerrado, prestador substituído…"
+            rows={3}
+            style={{ ...inputStyle(), resize: 'vertical' }}
+          />
+        </label>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
           <button onClick={onClose} disabled={inativando} style={btnSec()}>Cancelar</button>
           <button onClick={confirmar} disabled={inativando || motivo.trim().length < 3} style={{ ...btnPrim(), backgroundColor: C.red, opacity: inativando || motivo.trim().length < 3 ? 0.6 : 1, cursor: inativando || motivo.trim().length < 3 ? 'not-allowed' : 'pointer' }}>
