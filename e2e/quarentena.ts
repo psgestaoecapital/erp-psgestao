@@ -37,6 +37,14 @@ export type SpecQuarentenado = {
 export const QUARENTENA: SpecQuarentenado[] = [
   /* quarentena:inicio */
   {
+    spec: 'e2e/jornadas/aceitacao/pdois-solicitar-contrato-59.spec.ts',
+    area: 'contratos',
+    motivo: '@pos-migration da main VERMELHO 4x consecutivos (runs 43979564093, 43981754020, 43986690667, 43996371532) em pdois-solicitar-contrato-59.spec.ts:100 [celular]: após clicar "solicitar-contrato", o testid "solicitacao-criada" não aparece (timeout 20s, element not found). RD-38 PROVADO: na commit 24341000 (conserto-main #5276) a árvore de PRODUÇÃO é BYTE-IDÊNTICA à última VERDE 694ae18 (git diff 694ae184..24341000 = só arquivos de teste; SolicitarContratoModal.tsx restaurado ao verde) e MESMO ASSIM o spec falha — logo NÃO é regressão de código (nada a reverter; re-reverter é inútil). O teste-irmão (RPC como usuário, mesma migration) PASSA e deploy-migrations está VERDE. Causa = ambiente/dado da DEMO Agência OU fragilidade [celular] do submit da tela (validação/seleção do cliente inline no viewport mobile). NÃO-CRÍTICO (contratos; fora de financeiro/fiscal/RLS/NR-36/LGPD/Wealth). Quarentena MANUAL do guardião (a automática recusou por "área tocada pela PR do 1º vermelho", mas a PR culpada #5263/#5271 já foi revertida ao verde). Dono jordana-code: reproduzir o submit [celular] na DEMO, achar o campo/validação que bloqueia (ou corrigir a PREPARAÇÃO do teste, sem tocar nos expects) e só então remover esta entrada.',
+    desde: '2026-11-17T02:20:00Z',
+    runs: [43986690667, 43996371532], // 2 últimos @pos consecutivos da main vermelhos neste spec (há 4 na sequência)
+    code: 'jordana-code',
+  },
+  {
     spec: 'e2e/jornadas/aceitacao/prod-custos-posto-f3.spec.ts',
     area: 'custos-posto',
     motivo: 'Re-quarentena por ordem do Eng. Chefe (contexto 11d3ec7a): @pos-migration da main vermelho em prod-custos-posto-f3.spec.ts:46 — o posto criado pelo teste NÃO aparece como botão na lista de /dashboard/produtividade/custos-posto. A #4681 (dev7) tirou da quarentena sem o spec passar de fato, travando a publicação de ~41 PRs. SEM RELAÇÃO com as PRs de migration da fila; NÃO-CRÍTICO (custo industrial — não é financeiro/fiscal/RLS/NR-36/LGPD/Wealth). Dono: consertar o fluxo criar-posto → aparecer na lista (ou a fragilidade do teste) e só então remover esta entrada.',
