@@ -36,7 +36,10 @@ export default function PessoasList({ companyId, tipo }: Props) {
   const PAGE_SIZE = 50
   const SELECT_COLS =
     'id, company_id, nome_fantasia, razao_social, cnpj_cpf, cpf_cnpj, tipo_pessoa, ie, inscricao_municipal, contribuinte_icms, email, telefone, whatsapp, cep, logradouro, numero, bairro, complemento, cidade, uf, ativo, tags' +
-    (tabela === 'erp_clientes' ? ', codigo_ibge_municipio' : '')
+    // Colunas comerciais só existem em erp_clientes (editadas no PessoaForm — RD-98). Fornecedor não as tem.
+    (tabela === 'erp_clientes'
+      ? ', codigo_ibge_municipio, codigo, limite_credito, condicao_pagamento_padrao, prazo_medio_dias, segmento, regime_tributario, origem, vendedor_nome, observacoes'
+      : '')
 
   const [pessoas, setPessoas] = useState<Pessoa[]>([])
   const [total, setTotal] = useState(0)
