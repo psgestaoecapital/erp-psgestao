@@ -63,6 +63,7 @@ export default function ComplianceEmpresaPage() {
   const [uploadCtx, setUploadCtx] = useState<UploadContext | null>(null)
   const [filtroGrupo, setFiltroGrupo] = useState<string>('')
   const [filtroEmpresa, setFiltroEmpresa] = useState<string>('')
+  const [excluindoId, setExcluindoId] = useState<string | null>(null)
 
   const empresasNoEscopo = useMemo(() => {
     const ids = companyIdsKey ? companyIdsKey.split(',') : []
@@ -131,6 +132,23 @@ export default function ComplianceEmpresaPage() {
   }, [companyIdsKey, empresasNoEscopo])
 
   useEffect(() => { carregar() }, [carregar])
+
+  const excluirDocumento = useCallback(async (doc: DocEmpresa, tipoNome: string) => {
+    if (!window.confirm(`Excluir o documento "${doc.arquivo_nome_original}" (${tipoNome})?\n\nA exclusão é rastreável (fica no log de auditoria) e a linha volta a pedir Upload.`)) return
+    setExcluindoId(doc.id)
+    setErro(null)
+    try {
+      const { data, error } = await supabase.rpc('fn_compliance_documento_excluir', { p_id: doc.id })
+      if (error) throw new Error(error.message)
+      const r = (data ?? {}) as { ok?: boolean; erro?: string }
+      if (!r.ok) throw new Error(r.erro || 'Não foi possível excluir o documento')
+      await carregar()
+    } catch (e: any) {
+      setErro(e.message)
+    } finally {
+      setExcluindoId(null)
+    }
+  }, [carregar])
 
   function statusFinal(l: LinhaMatriz): string {
     if (!l.documento) return 'nao_emitido'
@@ -312,6 +330,14 @@ export default function ComplianceEmpresaPage() {
                               <AjudaCampo chave="compliance.empresa.substituir" />
                               <button onClick={() => baixarDocumento(l.documento!.id)} style={btnSec()}>Baixar</button>
                               <AjudaCampo chave="compliance.empresa.baixar" />
+                              <button
+                                onClick={() => excluirDocumento(l.documento!, l.tipo.nome)}
+                                disabled={excluindoId === l.documento!.id}
+                                style={btnDanger(excluindoId === l.documento!.id)}
+                              >
+                                {excluindoId === l.documento!.id ? 'Excluindo…' : 'Excluir'}
+                              </button>
+                              <AjudaCampo chave="compliance.empresa.excluir" />
                             </>
                           )}
                         </div>
@@ -356,5 +382,6 @@ function badgeOpc() {
 }
 function btnPrim() { return { padding: '6px 12px', borderRadius: 6, border: 'none', backgroundColor: C.espresso, color: 'white', fontSize: 12, fontWeight: 600, cursor: 'pointer' } as any }
 function btnSec() { return { padding: '6px 12px', borderRadius: 6, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 12, fontWeight: 600, cursor: 'pointer' } as any }
+function btnDanger(disabled?: boolean) { return { padding: '6px 12px', borderRadius: 6, border: `1px solid ${C.red}`, backgroundColor: 'white', color: C.red, fontSize: 12, fontWeight: 600, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.6 : 1 } as any }
 function Th({ children }: { children: any }) { return (<th style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'rgba(61, 35, 20, 0.65)' }}>{children}</th>) }
 function Td({ children, mono }: { children: any; mono?: boolean }) { return (<td style={{ padding: '10px 16px', verticalAlign: 'top', fontFamily: mono ? 'ui-monospace, SFMono-Regular, Menlo, monospace' : undefined }}>{children}</td>) }
