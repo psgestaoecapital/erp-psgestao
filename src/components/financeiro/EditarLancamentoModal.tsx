@@ -14,6 +14,7 @@ import { supabase } from '@/lib/supabase'
 import Modal from '@/components/ui/Modal'
 import { validarCodigoBarrasEntrada } from '@/lib/financeiro/boleto-parser'
 import CategoriaCombobox from './CategoriaCombobox'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 type Tipo = 'pagar' | 'receber'
 
@@ -130,7 +131,9 @@ type Irma = { id: string; parcela: string | null; parcela_num: number | null; st
 // 'conta'/'centro' = dropdown que grava o _id (FK). 'conta_txt' = dropdown com a MESMA lista, mas grava o NOME no
 // campo texto (conta do pagar · erp_pagar não tem essa FK). Chamado "ERRO SALVAR EDIÇÃO CONTAS"
 // (#71 · Jordana): editar despesa deve puxar as listas suspensas igual à inclusão, não campo de texto solto.
-type CampoTipo = 'text' | 'num' | 'date' | 'area' | 'bool' | 'select' | 'conta' | 'centro' | 'conta_txt' | 'cliente' | 'fornecedor' | 'categoria'
+// 'linha' = dropdown das linhas de negócio (business_lines) gravando o NOME no campo linha_negocio — o
+// Resultado por negócio casa a receita à linha por nome, então texto livre não segmenta.
+type CampoTipo = 'text' | 'num' | 'date' | 'area' | 'bool' | 'select' | 'conta' | 'centro' | 'conta_txt' | 'cliente' | 'fornecedor' | 'categoria' | 'linha'
 type Campo = { col: string; label: string; tipo: CampoTipo; opcoes?: string[]; largo?: boolean }
 const FORMAS = ['', 'boleto', 'pix', 'dinheiro', 'transferencia', 'cartao_debito', 'cartao_credito', 'cheque', 'permuta', 'debito_automatico']
 const TIPOS_CHAVE_PIX_OPCOES = ['', 'cpf_cnpj', 'telefone', 'email', 'aleatoria', 'copia_cola']
@@ -150,7 +153,7 @@ function campos(tipo: Tipo): Campo[] {
     contraparte,
     { col: 'descricao', label: 'Descrição *', tipo: 'text', largo: true },
     { col: 'categoria', label: 'Categoria', tipo: 'categoria' },
-    { col: 'linha_negocio', label: 'Linha de negócio', tipo: 'text' },
+    { col: 'linha_negocio', label: 'Linha de negócio', tipo: 'linha' },
     { col: 'valor', label: 'Valor (R$) *', tipo: 'num' },
     { col: 'forma_pagamento', label: 'Forma de pagamento', tipo: 'select', opcoes: FORMAS },
     { col: 'tipo_chave_pix', label: 'Tipo de chave PIX', tipo: 'select', opcoes: TIPOS_CHAVE_PIX_OPCOES },
@@ -191,6 +194,7 @@ export default function EditarLancamentoModal({ open, onClose, onSucesso, tipo, 
   const [movimentoBanco, setMovimentoBanco] = useState(false)
   const [contas, setContas] = useState<{ id: string; nome: string; banco: string | null }[]>([])
   const [centros, setCentros] = useState<{ id: string; nome: string }[]>([])
+  const [linhas, setLinhas] = useState<{ id: string; name: string }[]>([])
   const [legadoConta, setLegadoConta] = useState('')     // conta_bancaria (texto) p/ hint quando _id nulo
   const [legadoCentro, setLegadoCentro] = useState('')
   const [replica, setReplica] = useState<{ campos: Record<string, string | null>; outras: Irma[]; currentNum: number | null } | null>(null)
@@ -202,13 +206,15 @@ export default function EditarLancamentoModal({ open, onClose, onSucesso, tipo, 
     if (!open) return
     let alive = true
     ;(async () => {
-      const [bcs, ccs] = await Promise.all([
+      const [bcs, ccs, bls] = await Promise.all([
         supabase.from('erp_banco_contas').select('id, nome, banco').eq('company_id', companyId).eq('ativo', true).order('nome'),
         supabase.from('erp_centros_custo').select('id, nome').eq('company_id', companyId).eq('ativo', true).order('nome'),
+        supabase.from('business_lines').select('id, name').eq('company_id', companyId).eq('is_active', true).order('ln_number'),
       ])
       if (!alive) return
       setContas((bcs.data as { id: string; nome: string; banco: string | null }[] | null) ?? [])
       setCentros((ccs.data as { id: string; nome: string }[] | null) ?? [])
+      setLinhas((bls.data as { id: string; name: string }[] | null) ?? [])
     })()
     return () => { alive = false }
   }, [open, tipo, companyId])
@@ -438,6 +444,21 @@ export default function EditarLancamentoModal({ open, onClose, onSucesso, tipo, 
                     {val && !contas.some((o) => o.nome === val) && <option value={val}>{val} (atual)</option>}
                     {contas.map((o) => <option key={o.id} value={o.nome}>{o.nome}{o.banco ? ` · ${o.banco}` : ''}</option>)}
                   </select>
+                ) : c.tipo === 'linha' ? (
+                  // Linha de negócio: dropdown das business_lines gravando o NOME (o Resultado por negócio casa por nome).
+                  // Mantém o valor legado como opção quando não bate com nenhuma linha cadastrada (não perde dado).
+                  // RD-95: "?" visível (AjudaCampo) + data-ajuda p/ o gate reconhecer a cobertura do campo.
+                  <div data-ajuda="financeiro.receita.linha_negocio">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <select value={val} onChange={(e) => set(c.col, e.target.value)} style={{ ...inp, flex: 1 }}>
+                        <option value="">— sem linha de negócio —</option>
+                        {val && !linhas.some((o) => o.name === val) && <option value={val}>{val} (atual)</option>}
+                        {linhas.map((o) => <option key={o.id} value={o.name}>{o.name}</option>)}
+                      </select>
+                      <AjudaCampo chave="financeiro.receita.linha_negocio" rota="/dashboard/financeiro/nova-receita" />
+                    </div>
+                    {linhas.length === 0 && <span style={hintErr}>nenhuma linha · <a href="/dashboard/gestao-empresarial/resultado-por-negocio" style={{ color: GOLD }}>cadastrar</a></span>}
+                  </div>
                 ) : c.tipo === 'categoria' ? (
                   <CategoriaCombobox companyId={companyId} aplicacao={tipo} value={val} onChange={(codigo) => set(c.col, codigo)} />
                 ) : c.tipo === 'cliente' || c.tipo === 'fornecedor' ? (
