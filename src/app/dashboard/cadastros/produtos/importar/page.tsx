@@ -185,7 +185,6 @@ export default function ImportarEstoquePage() {
     let criados = 0, comSaldo = 0, semMudanca = 0
     const erros: { linha: number; codigo: string; motivo: string }[] = []
     const { data: uinfo } = await supabase.auth.getUser()
-    const motivo = `Migração · planilha padrão PS · ${nomeArquivo ?? 'planilha'}`
 
     // histórico (RD-52 · rastro): abre a importação
     let importId: string | null = null
@@ -198,52 +197,61 @@ export default function ImportarEstoquePage() {
       importId = (imp as { id?: string } | null)?.id ?? null
     }
 
-    // #9667 · grava EM LOTE no servidor (fn_estoque_importar_lote): resiliente ao foco da aba e
-    // idempotente. Cada bloco é UMA chamada (antes eram 3 round-trips por item, ~1 item/2s e a aba
-    // precisava ficar em foco). O parse de locale (#8621) continua no cliente; aqui só montamos o
-    // item (dados + extras + saldo/custo) e enviamos em blocos. fn_erp_produto_salvar faz upsert por
-    // código (reimportar não duplica) e fn_estoque_ajuste_migracao só movimenta se o saldo difere.
-    const itens = grava.map((l) => {
+    // #9667 / #8621 · grava EM LOTE no servidor (fn_estoque_importar_lote, SUPERSET #5370): UMA chamada por
+    // bloco em vez de 3 round-trips por item (~1 item/2s, exigindo a aba em foco). Resiliente ao foco da aba
+    // e idempotente — upsert por (company_id, codigo): reimportar não duplica e ajusta só o delta de saldo.
+    // O parse de locale (#8621) continua no cliente; aqui montamos a LINHA PLANA que a função consome.
+    const codToLinha = new Map<string, number>()
+    const rows = grava.map((l) => {
       const d = l.dados
-      const dados: Record<string, unknown> = {
+      codToLinha.set(d.codigo, l.n)
+      const r: Record<string, unknown> = {
         codigo: d.codigo, nome: d.nome, unidade: d.unidade || 'UN',
         tipo_item_sped: d.tipo_item_sped || '00', origem: d.origem || '0',
+        saldo: l.qtd ?? 0,
       }
-      if (soDig(d.ncm)) dados.ncm = soDig(d.ncm)
-      if (d.cest.trim()) dados.cest = d.cest.trim()
-      const pv = parseNum(d.preco_venda); if (pv != null) dados.preco_venda = pv
-      const extras: Record<string, unknown> = {}
-      if (l.custo != null) { extras.preco_custo_medio = l.custo; extras.custo_medio_origem = 'importacao' }
-      const em = parseNum(d.estoque_minimo); if (em != null) extras.estoque_minimo = em
-      if (d.categoria.trim()) extras.categoria = d.categoria.trim()
-      if (d.marca.trim()) extras.marca = d.marca.trim()
-      if (d.fornecedor_padrao_nome.trim()) extras.fornecedor_padrao_nome = d.fornecedor_padrao_nome.trim()
-      if (d.localizacao.trim()) extras.localizacao = d.localizacao.trim()
-      if (d.codigo_barras.trim()) extras.codigo_barras = d.codigo_barras.trim()
-      return { linha: l.n, codigo: d.codigo, dados, extras, saldo: l.qtd ?? 0, custo: l.custo ?? 0 }
+      if (soDig(d.ncm)) r.ncm = soDig(d.ncm)
+      if (d.cest.trim()) r.cest = d.cest.trim()
+      const pv = parseNum(d.preco_venda); if (pv != null) r.preco_venda = pv
+      if (l.custo != null) { r.preco_custo = l.custo; r.preco_custo_medio = l.custo; r.custo_medio_origem = 'importacao' }
+      const em = parseNum(d.estoque_minimo); if (em != null) r.estoque_minimo = em
+      if (d.categoria.trim()) r.categoria = d.categoria.trim()
+      if (d.marca.trim()) r.marca = d.marca.trim()
+      if (d.fornecedor_padrao_nome.trim()) r.fornecedor_padrao_nome = d.fornecedor_padrao_nome.trim()
+      if (d.localizacao.trim()) r.localizacao = d.localizacao.trim()
+      if (d.codigo_barras.trim()) r.codigo_barras = d.codigo_barras.trim()
+      return { linha: l.n, codigo: d.codigo, row: r }
     })
 
-    const LOTE = 300  // bloco pequeno = transação curta e retomável (RD-52); o teto da função é 1000
-    for (let i = 0; i < itens.length; i += LOTE) {
-      const bloco = itens.slice(i, i + LOTE)
+    const uid = uinfo?.user?.id ?? null
+    const LOTE = 500  // bloco = transação curta e retomável (RD-52); p_arquivo=null → a fn não grava histórico próprio (o cliente gere um só)
+    let novos = 0, atualizados = 0, saldos = 0
+    for (let i = 0; i < rows.length; i += LOTE) {
+      const bloco = rows.slice(i, i + LOTE)
       try {
         const { data, error } = await supabase.rpc('fn_estoque_importar_lote', {
-          p_company_id: companyId, p_itens: bloco, p_motivo: motivo,
+          p_company_id: companyId, p_rows: bloco.map((b) => b.row), p_dry_run: false, p_user_id: uid, p_arquivo: null,
         })
-        const res = data as { ok?: boolean; erro?: string; criados?: number; com_saldo?: number; sem_mudanca?: number; erros?: { linha: number; codigo: string; motivo: string }[] } | null
+        const res = data as { ok?: boolean; erro?: string; novos?: number; atualizados?: number; saldos_ajustados?: number; erros_detalhe?: { linha: number; codigo: string | null; msg: string }[] } | null
         if (error || !res?.ok) {
-          for (const it of bloco) erros.push({ linha: it.linha, codigo: it.codigo, motivo: error?.message ?? res?.erro ?? 'falha no lote' })
+          for (const b of bloco) erros.push({ linha: b.linha, codigo: b.codigo, motivo: error?.message ?? res?.erro ?? 'falha no lote' })
         } else {
-          criados += res.criados ?? 0
-          comSaldo += res.com_saldo ?? 0
-          semMudanca += res.sem_mudanca ?? 0
-          if (res.erros?.length) for (const e of res.erros) erros.push(e)
+          novos += res.novos ?? 0
+          atualizados += res.atualizados ?? 0
+          saldos += res.saldos_ajustados ?? 0
+          if (res.erros_detalhe?.length) for (const e of res.erros_detalhe) {
+            erros.push({ linha: (e.codigo ? codToLinha.get(e.codigo) : undefined) ?? e.linha, codigo: e.codigo ?? '', motivo: e.msg })
+          }
         }
       } catch (e) {
-        for (const it of bloco) erros.push({ linha: it.linha, codigo: it.codigo, motivo: (e as Error)?.message ?? 'erro' })
+        for (const b of bloco) erros.push({ linha: b.linha, codigo: b.codigo, motivo: (e as Error)?.message ?? 'erro' })
       }
-      setProgresso({ feito: Math.min(i + LOTE, itens.length), total: itens.length })
+      setProgresso({ feito: Math.min(i + LOTE, rows.length), total: rows.length })
     }
+    // "gravados" = novos + atualizados · "ajuste de saldo" = saldos · "sem mudança" = gravados - saldos
+    criados = novos + atualizados
+    comSaldo = saldos
+    semMudanca = Math.max(0, criados - saldos)
 
     if (importId) {
       await supabase.from('erp_importacoes').update({
