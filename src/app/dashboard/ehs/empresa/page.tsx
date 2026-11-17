@@ -7,6 +7,9 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { fmtData } from '@/lib/psgc-tokens'
 import { UploadDocumentoModal, type UploadContext } from '../_components/UploadDocumentoModal'
 import { C, StatusBadge, baixarDocumento } from '../_components/ui'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA_AJUDA = '/dashboard/ehs/empresa'
 
 type TipoEmpresa = {
   id: string
@@ -180,7 +183,11 @@ export default function ComplianceEmpresaPage() {
 
         {erro && (<div style={{ backgroundColor: C.redBg, color: C.red, padding: '12px 16px', borderRadius: 8, marginBottom: 16, fontSize: 14 }}>{erro}</div>)}
 
-        <section style={{ background: 'white', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)', display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+        <section style={{ background: 'white', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)', display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: C.muted, marginRight: 4 }}>
+            Área
+            <AjudaCampo chave="ehs.empresa.filtro_grupo" rota={ROTA_AJUDA} />
+          </span>
           <button
             onClick={() => setFiltroGrupo('')}
             style={chipStyle(filtroGrupo === '')}
@@ -200,7 +207,10 @@ export default function ComplianceEmpresaPage() {
 
         {multiEmpresa && (
           <section style={{ background: 'white', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)', display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
-            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: C.muted, marginRight: 4 }}>Empresa:</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: C.muted, marginRight: 4 }}>
+              Empresa:
+              <AjudaCampo chave="ehs.empresa.filtro_empresa" rota={ROTA_AJUDA} />
+            </span>
             <button onClick={() => setFiltroEmpresa('')} style={chipStyle(filtroEmpresa === '')}>
               Todas ({empresasNoEscopo.length})
             </button>
@@ -240,13 +250,13 @@ export default function ComplianceEmpresaPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ backgroundColor: C.offwhite }}>
-                    <Th>Documento</Th>
-                    <Th>Tipo</Th>
-                    {multiEmpresa && <Th>Empresa</Th>}
-                    <Th>Status</Th>
-                    <Th>Validade</Th>
-                    <Th>Arquivo</Th>
-                    <Th>Ações</Th>
+                    <Th><span style={thLabel}>Documento<AjudaCampo chave="ehs.empresa.col_documento" rota={ROTA_AJUDA} /></span></Th>
+                    <Th><span style={thLabel}>Tipo<AjudaCampo chave="ehs.empresa.col_tipo" rota={ROTA_AJUDA} /></span></Th>
+                    {multiEmpresa && <Th><span style={thLabel}>Empresa<AjudaCampo chave="ehs.empresa.col_empresa" rota={ROTA_AJUDA} /></span></Th>}
+                    <Th><span style={thLabel}>Status<AjudaCampo chave="ehs.empresa.col_status" rota={ROTA_AJUDA} /></span></Th>
+                    <Th><span style={thLabel}>Validade<AjudaCampo chave="ehs.empresa.col_validade" rota={ROTA_AJUDA} /></span></Th>
+                    <Th><span style={thLabel}>Arquivo<AjudaCampo chave="ehs.empresa.col_arquivo" rota={ROTA_AJUDA} /></span></Th>
+                    <Th><span style={thLabel}>Ações<AjudaCampo chave="ehs.empresa.col_acoes" rota={ROTA_AJUDA} /></span></Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -276,19 +286,22 @@ export default function ComplianceEmpresaPage() {
                       </Td>
                       <Td>{l.documento?.arquivo_nome_original || '—'}</Td>
                       <Td>
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                           {!l.documento ? (
-                            <button
-                              onClick={() =>
-                                setUploadCtx({
-                                  companyId: l.companyId, tipoDocumentoId: l.tipo.id, tipoNome: l.tipo.nome,
-                                  empresaAlvoId: l.companyId, modo: 'upload',
-                                })
-                              }
-                              style={btnPrim()}
-                            >
-                              Upload
-                            </button>
+                            <>
+                              <button
+                                onClick={() =>
+                                  setUploadCtx({
+                                    companyId: l.companyId, tipoDocumentoId: l.tipo.id, tipoNome: l.tipo.nome,
+                                    empresaAlvoId: l.companyId, modo: 'upload',
+                                  })
+                                }
+                                style={btnPrim()}
+                              >
+                                Upload
+                              </button>
+                              {i === 0 && <AjudaCampo chave="ehs.empresa.upload" rota={ROTA_AJUDA} />}
+                            </>
                           ) : (
                             <>
                               <button
@@ -302,7 +315,9 @@ export default function ComplianceEmpresaPage() {
                               >
                                 Substituir
                               </button>
+                              {i === 0 && <AjudaCampo chave="ehs.empresa.substituir" rota={ROTA_AJUDA} />}
                               <button onClick={() => baixarDocumento(l.documento!.id)} style={btnSec()}>Baixar</button>
+                              {i === 0 && <AjudaCampo chave="ehs.empresa.baixar" rota={ROTA_AJUDA} />}
                             </>
                           )}
                         </div>
@@ -329,6 +344,8 @@ export default function ComplianceEmpresaPage() {
     </div>
   )
 }
+
+const thLabel: React.CSSProperties = { display: 'inline-flex', alignItems: 'center' }
 
 function chipStyle(active: boolean) {
   return {
