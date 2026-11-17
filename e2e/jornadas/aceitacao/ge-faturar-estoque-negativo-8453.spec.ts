@@ -11,7 +11,7 @@
 // Limpeza no fim: apaga só o que criou (receber/movimentações/itens/pedido/produto) e volta a regra para 'avisar'.
 
 import { test, expect } from '../../support/fixtures'
-import { dbSelect, dbInsert, dbDelete, rpcComoRobo, pegarTravaDemo, soltarTravaDemo, donoTrava } from '../../support/api'
+import { dbSelect, dbInsert, dbDelete, dbPatch, rpcComoRobo, pegarTravaDemo, soltarTravaDemo, donoTrava } from '../../support/api'
 
 const DEMO_GE = 'b0700000-0000-4000-a000-000000000004'
 const RUN = `${process.env.GITHUB_RUN_ID ?? 'local'}${Date.now().toString(36)}`.replace(/[^a-z0-9]/gi, '').slice(-8)
@@ -57,7 +57,10 @@ test.describe('GE — faturar com estoque negativo (config por empresa) #8453', 
   test.afterAll(async () => {
     try {
       for (const ped of criados.pedidos) {
-        await dbDelete('erp_receber', `pedido_id=eq.${ped}`)
+        // erp_receber tem a trava RD-30 (trg_bloqueia_delete_fisico): documento financeiro não se apaga
+        // por DELETE físico. Limpeza do título gerado no faturamento é por SOFT-DELETE (deleted_at), igual
+        // ao purgarReceberDemo. Não há FK de erp_receber→erp_pedidos, então o pedido é apagado logo abaixo.
+        await dbPatch('erp_receber', `pedido_id=eq.${ped}&deleted_at=is.null`, { deleted_at: new Date().toISOString() })
         await dbDelete('erp_estoque_movimentacoes', `ref_id=eq.${ped}`)
         await dbDelete('erp_pedidos_itens', `pedido_id=eq.${ped}`)
         await dbDelete('erp_pedidos', `id=eq.${ped}`)
