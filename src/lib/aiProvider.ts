@@ -5,12 +5,14 @@
  * Fallback: Google Gemini 2.0 Flash
  */
 
-import { modeloPara, registrarFalhaIA, assertIAPermitida } from './aiModel'
+import { modeloPara, registrarFalhaIA, assertIAPermitida, featureDaFinalidade } from './aiModel'
 
 export interface AIRequest {
   system: string
   prompt: string
   maxTokens?: number
+  /** Finalidade p/ escolher o modelo por env (modeloPara). Default 'geral' — não muda os chamadores atuais. */
+  finalidade?: string
 }
 
 export interface AIResponse {
@@ -22,7 +24,7 @@ export interface AIResponse {
 
 // ── Anthropic ────────────────────────────────────────────────
 async function callAnthropic(req: AIRequest): Promise<string> {
-  const modelo = modeloPara('geral')
+  const modelo = modeloPara(req.finalidade ?? 'geral')
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -81,7 +83,8 @@ export async function callAI(req: AIRequest): Promise<AIResponse> {
   // P0 CUSTO (CEO 01/11): porteiro de orçamento ANTES de qualquer chamada. Bloqueia AMBOS os
   // providers (Anthropic e o fallback Gemini vivem dentro deste callAI), então nenhuma chamada
   // paga sai com o freeze ligado. Lança IABloqueadaError — a rota traduz em mensagem honesta.
-  await assertIAPermitida()
+  // Allowlist por feature (RD-101): só a finalidade 'consultor' → feature 'consultor_ia' passa o freeze global.
+  await assertIAPermitida({ feature: featureDaFinalidade(req.finalidade) })
   // Tenta Anthropic primeiro
   try {
     const text = await callAnthropic(req)
