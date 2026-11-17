@@ -46,6 +46,10 @@ type ContaBancaria = {
 }
 
 type CentroCusto = { id: string; nome: string }
+// Linha de negócio (business_lines) — o Resultado por negócio (fn_ge_resultado_por_negocio_calc) casa a
+// receita à linha por NOME (lower(trim(business_lines.name)) = lower(trim(erp_receber.linha_negocio))), por isso
+// a coluna guarda o NOME da linha, não o id.
+type LinhaNegocio = { id: string; name: string }
 
 interface NovaReceitaFormProps {
   companyId: string
@@ -78,6 +82,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [contas, setContas] = useState<ContaBancaria[]>([])
   const [centros, setCentros] = useState<CentroCusto[]>([])
+  const [linhasNegocio, setLinhasNegocio] = useState<LinhaNegocio[]>([])
 
   const [clienteId, setClienteId] = useState(initial?.clienteId ?? '')
   const [clienteNome, setClienteNome] = useState(initial?.clienteNome ?? '')
@@ -116,6 +121,8 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
   const [chavePix, setChavePix] = useState('')
   const [contaBancaria, setContaBancaria] = useState('') // agora guarda o ID da conta (erp_banco_contas.id)
   const [centroCustoId, setCentroCustoId] = useState('')
+  // Nome da linha de negócio (business_lines.name) — opcional; é o que segmenta a receita no Resultado por negócio.
+  const [linhaNegocio, setLinhaNegocio] = useState('')
   const [observacao, setObservacao] = useState('')
   // #71 · só na edição (ajustes do título): juros / multa / desconto
   const [juros, setJuros] = useState('')
@@ -242,7 +249,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
     if (!companyId) return
     let alive = true
     ;(async () => {
-      const [cli, cats, bcs, ccs] = await Promise.all([
+      const [cli, cats, bcs, ccs, bls] = await Promise.all([
         supabase
           .from('erp_clientes')
           .select('id, nome_fantasia, razao_social, cpf_cnpj, cidade, uf')
@@ -268,12 +275,19 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
           .eq('company_id', companyId)
           .eq('ativo', true)
           .order('nome'),
+        supabase
+          .from('business_lines')
+          .select('id, name')
+          .eq('company_id', companyId)
+          .eq('is_active', true)
+          .order('ln_number'),
       ])
       if (!alive) return
       setClientes((cli.data as Cliente[] | null) ?? [])
       setCategorias((cats.data as Categoria[] | null) ?? [])
       setContas((bcs.data as ContaBancaria[] | null) ?? [])
       setCentros((ccs.data as CentroCusto[] | null) ?? [])
+      setLinhasNegocio((bls.data as LinhaNegocio[] | null) ?? [])
     })()
     return () => {
       alive = false
@@ -352,7 +366,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
     categoriaCodigo: String(l.categoria ?? ''), numeroDocumento: String(l.numero_documento ?? ''),
     formaRecebimento: String(l.forma_pagamento ?? ''), tipoChavePix: String(l.tipo_chave_pix ?? 'cpf_cnpj'),
     chavePix: String(l.chave_pix ?? ''), contaBancaria: String(l.conta_bancaria_id ?? ''),
-    centroCustoId: String(l.centro_custo_id ?? ''), observacao: String(l.observacoes ?? ''),
+    centroCustoId: String(l.centro_custo_id ?? ''), linhaNegocio: String(l.linha_negocio ?? ''), observacao: String(l.observacoes ?? ''),
     juros: l.juros == null ? '' : String(l.juros), multa: l.multa == null ? '' : String(l.multa),
     desconto: l.desconto == null ? '' : String(l.desconto),
   })
@@ -368,6 +382,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
       numero_documento: v.numeroDocumento || null, forma_pagamento: v.formaRecebimento || null,
       tipo_chave_pix: pix ? v.tipoChavePix : null, chave_pix: pix ? normalizarChavePix(v.tipoChavePix, v.chavePix) : null,
       conta_bancaria_id: v.contaBancaria || null, centro_custo_id: v.centroCustoId || null,
+      linha_negocio: v.linhaNegocio || null,
       observacoes: v.observacao || null,
       juros: v.juros || null, multa: v.multa || null, desconto: v.desconto || null,
     }
@@ -380,7 +395,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
     setClienteId(v.clienteId); setClienteNome(v.clienteNome); setDescricao(v.descricao); setValor(v.valor)
     setDataRecebimento(v.dataRecebimento); setDataCompetencia(v.dataCompetencia); setCategoriaCodigo(v.categoriaCodigo)
     setNumeroDocumento(v.numeroDocumento); setFormaRecebimento(v.formaRecebimento); setTipoChavePix(v.tipoChavePix)
-    setChavePix(v.chavePix); setContaBancaria(v.contaBancaria); setCentroCustoId(v.centroCustoId); setObservacao(v.observacao)
+    setChavePix(v.chavePix); setContaBancaria(v.contaBancaria); setCentroCustoId(v.centroCustoId); setLinhaNegocio(v.linhaNegocio); setObservacao(v.observacao)
     setJuros(v.juros); setMulta(v.multa); setDesconto(v.desconto)
   }, [ed.linha])
 
@@ -399,7 +414,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
     const atual: ValoresReceita = {
       clienteId, clienteNome, descricao: descricao.trim() || `${clienteNome || 'Receita'}${compRef ? ' · ' + compRef : ''}`,
       valor, dataRecebimento, dataCompetencia, categoriaCodigo, numeroDocumento, formaRecebimento, tipoChavePix, chavePix,
-      contaBancaria, centroCustoId, observacao, juros, multa, desconto,
+      contaBancaria, centroCustoId, linhaNegocio, observacao, juros, multa, desconto,
     }
     const base = valoresDaLinha(ed.linha)
     const nomeBase = String(ed.linha.conta_bancaria ?? '') || null
@@ -524,6 +539,8 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
       if (dataCompFinal) patch.data_competencia = dataCompFinal
       if (contaBancaria) patch.conta_bancaria_id = contaBancaria
       if (centroCustoId) patch.centro_custo_id = centroCustoId
+      // Linha de negócio (opcional): guarda o NOME (o Resultado por negócio casa receita↔linha pelo nome).
+      if (linhaNegocio) patch.linha_negocio = linhaNegocio
       // PIX: grava tipo+chave (normalizada); outras formas limpam o lixo.
       const pixR = ehPix(formaRecebimento) && chavePix.trim()
       patch.tipo_chave_pix = pixR ? tipoChavePix : null
@@ -1021,6 +1038,26 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
               <small style={{ ...helperStyle, color: '#854F0B' }}>
                 Nenhum centro de custo · <a href="/dashboard/gestao-empresarial/centros-custo" style={{ color: PSGC_COLORS.dourado }}>cadastrar</a>
               </small>
+            )}
+          </Campo>
+
+          <Campo ajuda="financeiro.receita.linha_negocio" ajudaRota={ROTA_AJUDA} label="Linha de negócio (opcional)">
+            <select
+              value={linhaNegocio}
+              onChange={(e) => setLinhaNegocio(e.target.value)}
+              style={inputStyle}
+            >
+              <option value="">— sem linha de negócio —</option>
+              {linhasNegocio.map((l) => (
+                <option key={l.id} value={l.name}>{l.name}</option>
+              ))}
+            </select>
+            {linhasNegocio.length === 0 ? (
+              <small style={{ ...helperStyle, color: '#854F0B' }}>
+                Nenhuma linha de negócio · <a href="/dashboard/gestao-empresarial/resultado-por-negocio" style={{ color: PSGC_COLORS.dourado }}>cadastrar</a>
+              </small>
+            ) : (
+              <small style={helperStyle}>Separa a receita por negócio no Resultado por negócio e no DRE por linha.</small>
             )}
           </Campo>
 
