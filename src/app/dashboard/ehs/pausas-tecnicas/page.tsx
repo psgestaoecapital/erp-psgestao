@@ -95,7 +95,7 @@ const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,
 export default function PausasTecnicasPage() {
   const { sel, selInfo, loading } = useCompanyIds()
   const companyId = selInfo.tipo === 'empresa' ? sel : null
-  const [aba, setAba] = useState<'painel' | 'conferencia' | 'ciencia' | 'gestao' | 'supervisao' | 'auditoria' | 'importar' | 'historico' | 'config'>('painel')
+  const [aba, setAba] = useState<'painel' | 'conferencia' | 'ciencia' | 'gestao' | 'supervisao' | 'auditoria' | 'relatorio' | 'importar' | 'historico' | 'config'>('painel')
 
   if (loading) return <Wrap><div style={{ color: C.gray, padding: 40 }}>Carregando…</div></Wrap>
   if (!companyId) return <Wrap><Header /><Vazio titulo="Selecione uma empresa" texto="As pausas térmicas são por empresa. Escolha uma empresa específica no topo (não Consolidado/Grupo)." /></Wrap>
@@ -104,7 +104,7 @@ export default function PausasTecnicasPage() {
     <Wrap>
       <Header />
       <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: `1px solid ${C.borderLt}`, flexWrap: 'wrap' }}>
-        {([['painel', 'Painel', ClipboardList], ['conferencia', 'Conferência', CheckCircle2], ['ciencia', 'Ciência', FileSignature], ['gestao', 'Gestão', BarChart3], ['supervisao', 'Supervisão', Users], ['auditoria', 'Auditoria', FileText], ['importar', 'Importar', Upload], ['historico', 'Histórico', History], ['config', 'Configuração', Timer]] as const).map(([k, label, Icon]) => (
+        {([['painel', 'Painel', ClipboardList], ['conferencia', 'Conferência', CheckCircle2], ['ciencia', 'Ciência', FileSignature], ['gestao', 'Gestão', BarChart3], ['supervisao', 'Supervisão', Users], ['auditoria', 'Auditoria', FileText], ['relatorio', 'Relatório', FileSignature], ['importar', 'Importar', Upload], ['historico', 'Histórico', History], ['config', 'Configuração', Timer]] as const).map(([k, label, Icon]) => (
           <button key={k} onClick={() => setAba(k)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 14, fontWeight: aba === k ? 700 : 500, color: aba === k ? C.espresso : C.gray, borderBottom: `2px solid ${aba === k ? C.gold : 'transparent'}`, marginBottom: -1 }}><Icon size={16} /> {label}</button>
         ))}
       </div>
@@ -118,6 +118,7 @@ export default function PausasTecnicasPage() {
       {aba === 'gestao' && <AbaGestao companyId={companyId} />}
       {aba === 'supervisao' && <AbaSupervisao companyId={companyId} />}
       {aba === 'auditoria' && <AbaAuditoria companyId={companyId} />}
+      {aba === 'relatorio' && <AbaRelatorio companyId={companyId} />}
       {aba === 'importar' && <AbaImportar companyId={companyId} />}
       {aba === 'historico' && <AbaHistorico companyId={companyId} />}
       {aba === 'config' && <AbaConfig companyId={companyId} />}
@@ -1712,6 +1713,161 @@ function AuditoriaBatidas({ companyId, onRevisar }: { companyId: string; onRevis
           </table>
         </div>
       ))}
+    </div>
+  )
+}
+
+// ─────────────────────── RELATÓRIO DE BATIDAS (#9654 · FRIOESTE/NR-36 · Justiça) ───────────────────────
+// Relatório por COLABORADOR + PERÍODO montado DIRETO das batidas brutas do ponto (fn_nr36_relatorio_batidas →
+// ind_ponto_marcacao), desde jan/2026, SEM nenhum valor estimado. Cada pausa com ENTRADA e SAÍDA reais do relógio;
+// quando não há batida de retorno → "SEM REGISTRO". Exporta em PDF (imprimir) e Excel. Não toca a apuração antiga.
+type RelBatida = { hora: string; ajustada: boolean; motivo: string | null }
+type RelPausa = { entrada: RelBatida | null; saida: RelBatida | null }
+type RelDia = { data: string; jornada: { entrada: RelBatida | null; saida: RelBatida | null }; pausas: RelPausa[]; total_batidas: number }
+type RelData = { ok: boolean; erro?: string; mensagem?: string; empresa: string | null; colaborador: { cpf: string; nome: string; matricula: string | null; funcao: string | null; setor: string | null; pis: string | null; admissao: string | null }; periodo: { ini: string; fim: string }; dias: RelDia[]; gerado_em: string }
+
+const SEM_REG = 'SEM REGISTRO'
+const horaDe = (b: RelBatida | null) => b ? b.hora : SEM_REG
+
+function AbaRelatorio({ companyId }: { companyId: string }) {
+  const [colabs, setColabs] = useState<Colab[]>([])
+  const [cpf, setCpf] = useState('')
+  const [ini, setIni] = useState('2026-01-01')
+  const [fim, setFim] = useState(iso(new Date()))
+  const [dados, setDados] = useState<RelData | null>(null)
+  const [erro, setErro] = useState(''); const [busy, setBusy] = useState(false)
+
+  useEffect(() => { (async () => {
+    try { const r = await rpc<{ colaboradores: Colab[] }>('fn_nr36_elegiveis_listar', { p_company_id: companyId }); setColabs(r.colaboradores || []) }
+    catch (e) { setErro((e as Error).message) }
+  })() }, [companyId])
+
+  const gerar = async () => {
+    if (!cpf) { setErro('Escolha um colaborador.'); return }
+    setBusy(true); setErro(''); setDados(null)
+    try {
+      const r = await rpc<RelData>('fn_nr36_relatorio_batidas', { p_company_id: companyId, p_cpf: cpf, p_ini: ini, p_fim: fim })
+      if (!r.ok) throw new Error(r.mensagem || r.erro || 'Falha ao gerar o relatório.')
+      setDados(r)
+    } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
+  }
+
+  const exportarExcel = async () => {
+    if (!dados) return
+    const ExcelJS = (await import('exceljs')).default
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('Pausas térmicas')
+    if (dados.empresa) ws.addRow([dados.empresa])
+    ws.addRow([`Relatório de pausas térmicas — ${dados.colaborador.nome}`])
+    ws.addRow([`CPF ${dados.colaborador.cpf}${dados.colaborador.funcao ? ` · ${dados.colaborador.funcao}` : ''}${dados.colaborador.setor ? ` · ${dados.colaborador.setor}` : ''}`])
+    ws.addRow([`Período ${fmtData(dados.periodo.ini)} a ${fmtData(dados.periodo.fim)}`])
+    ws.addRow([])
+    const head = ['Data', 'Jornada entrada', 'Jornada saída', 'Pausa nº', 'Pausa entrada', 'Pausa saída', 'Observação']
+    ws.addRow(head).font = { bold: true }
+    for (const d of dados.dias) {
+      const jEnt = horaDe(d.jornada.entrada), jSai = horaDe(d.jornada.saida)
+      if (d.pausas.length === 0) {
+        ws.addRow([fmtData(d.data), jEnt, jSai, '—', '—', '—', 'Sem pausa registrada'])
+      } else {
+        d.pausas.forEach((p, i) => {
+          const obs: string[] = []
+          if (!p.saida) obs.push(SEM_REG)
+          if (p.entrada?.ajustada || p.saida?.ajustada) obs.push('batida ajustada')
+          ws.addRow([fmtData(d.data), jEnt, jSai, i + 1, horaDe(p.entrada), horaDe(p.saida), obs.join(' · ')])
+        })
+      }
+    }
+    ws.addRow([])
+    ws.addRow([`Gerado em ${fmtDT(dados.gerado_em)} a partir das marcações do ponto. Sem valores estimados.`])
+    ws.columns.forEach((c) => { c.width = 18 })
+    const buf = await wb.xlsx.writeBuffer()
+    const url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
+    const a = document.createElement('a')
+    a.href = url; a.download = `pausas_${(dados.colaborador.nome || dados.colaborador.cpf).replace(/\s+/g, '_')}_${dados.periodo.ini}_${dados.periodo.fim}.xlsx`
+    a.click(); URL.revokeObjectURL(url)
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 10, background: C.blueBg, border: `1px solid ${C.blue}33`, borderRadius: 12, padding: 12, marginBottom: 12 }}>
+        <FileSignature size={18} style={{ color: C.blue, flexShrink: 0, marginTop: 1 }} />
+        <div style={{ fontSize: 12.5, color: C.espresso, lineHeight: 1.5 }}>
+          Relatório das pausas <b>direto das batidas do relógio</b> (desde jan/2026), por colaborador e período. Cada pausa mostra a <b>entrada</b> e a <b>saída</b> reais; quando não há batida de retorno, aparece <b>&ldquo;{SEM_REG}&rdquo;</b> — <b>nunca um horário estimado</b>. Exporta em PDF e Excel para enviar.
+        </div>
+      </div>
+
+      <div className="no-print" style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 12, flexWrap: 'wrap' }}>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 260 }}>
+          <span style={{ fontSize: 12, color: C.gray, display: 'inline-flex', alignItems: 'center', gap: 5 }}>Colaborador <AjudaCampo chave="compliance.pausas.relatorio.colaborador" rota="/dashboard/ehs/pausas-tecnicas" /></span>
+          <select style={{ ...inp(), minWidth: 260 }} value={cpf} onChange={e => setCpf(e.target.value)}>
+            <option value="">Escolha um colaborador…</option>
+            {colabs.map(c => <option key={c.colaborador_id} value={c.cpf}>{c.nome}{c.funcao ? ` — ${c.funcao}` : ''}</option>)}
+          </select>
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontSize: 12, color: C.gray, display: 'inline-flex', alignItems: 'center', gap: 5 }}>De <AjudaCampo chave="compliance.pausas.relatorio.periodo_ini" rota="/dashboard/ehs/pausas-tecnicas" /></span>
+          <input type="date" min="2026-01-01" style={inp()} value={ini} onChange={e => setIni(e.target.value)} />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={{ fontSize: 12, color: C.gray, display: 'inline-flex', alignItems: 'center', gap: 5 }}>Até <AjudaCampo chave="compliance.pausas.relatorio.periodo_fim" rota="/dashboard/ehs/pausas-tecnicas" /></span>
+          <input type="date" min="2026-01-01" style={inp()} value={fim} onChange={e => setFim(e.target.value)} />
+        </label>
+        <Btn onClick={gerar} disabled={busy}><FileText size={14} /> {busy ? 'Gerando…' : 'Gerar relatório'}</Btn>
+        {dados && dados.dias.length > 0 && <>
+          <BtnGhost onClick={() => window.print()}><Printer size={13} /> PDF</BtnGhost>
+          <BtnGhost onClick={() => void exportarExcel()}><Download size={13} /> Excel</BtnGhost>
+        </>}
+      </div>
+
+      {erro && <div style={erroBox()}>{erro}</div>}
+      {!dados ? <Vazio titulo="Escolha o colaborador e o período" texto="O relatório é montado com as batidas reais do ponto, sem nenhum horário estimado. Depois você exporta em PDF ou Excel." /> : (
+        <div className="ps-print-doc" style={{ background: '#fff', border: `1px solid ${C.borderLt}`, borderRadius: 14, padding: 20 }}>
+          <style>{CSS_IMPRESSAO}</style>
+          <div style={{ textAlign: 'center', marginBottom: 12 }}>
+            <div style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, fontWeight: 700, color: C.espresso }}>Relatório de Pausas Térmicas — batidas do ponto (NR-36)</div>
+            {dados.empresa && <div style={{ fontSize: 13, fontWeight: 600, color: C.espresso }}>{dados.empresa}</div>}
+            <div style={{ fontSize: 12, color: C.gray }}>Período {fmtData(dados.periodo.ini)} a {fmtData(dados.periodo.fim)}</div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: 6, fontSize: 12.5, marginBottom: 14 }}>
+            <div><b>Nome:</b> {dados.colaborador.nome || '—'}</div><div><b>CPF:</b> {dados.colaborador.cpf || '—'}</div>
+            <div><b>Matrícula:</b> {dados.colaborador.matricula || '—'}</div><div><b>Função:</b> {dados.colaborador.funcao || '—'}</div>
+            <div><b>Setor:</b> {dados.colaborador.setor || '—'}</div>
+          </div>
+          {dados.dias.length === 0 ? <Vazio titulo="Sem batidas no período" texto="Não há marcações de ponto para este colaborador no intervalo escolhido." /> : (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                <thead><tr style={{ textAlign: 'left', color: C.gray, borderBottom: `1px solid ${C.borderLt}` }}>
+                  <th style={th()}>Data</th><th style={th()}>Jornada</th><th style={th()}>Pausas (entrada → saída)</th><th style={th()}>Batidas</th>
+                </tr></thead>
+                <tbody>
+                  {dados.dias.map((d) => (
+                    <tr key={d.data} style={{ borderBottom: `1px solid ${C.beigeLt}` }}>
+                      <td style={td()}>{fmtData(d.data)}</td>
+                      <td style={td()}><span style={{ fontFamily: 'monospace' }}>{horaDe(d.jornada.entrada)}</span> – <span style={{ fontFamily: 'monospace' }}>{horaDe(d.jornada.saida)}</span></td>
+                      <td style={td()}>
+                        {d.pausas.length === 0 ? <span style={{ color: C.gray, fontStyle: 'italic' }}>Sem pausa registrada</span> : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                            {d.pausas.map((p, i) => (
+                              <span key={i} style={{ fontFamily: 'monospace' }}>
+                                {i + 1}. {horaDe(p.entrada)} → <span style={{ color: p.saida ? C.espresso : C.red, fontWeight: p.saida ? 400 : 700 }}>{horaDe(p.saida)}</span>
+                                {(p.entrada?.ajustada || p.saida?.ajustada) && <b style={{ color: C.amber, fontFamily: 'inherit' }} title={p.entrada?.motivo || p.saida?.motivo || ''}> · ajustada</b>}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                      <td style={td()}>{d.total_batidas}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div style={{ marginTop: 16, fontSize: 11, color: C.gray, lineHeight: 1.5 }}>
+            Gerado em {fmtDT(dados.gerado_em)} a partir das marcações do ponto de <b>{dados.colaborador.nome}</b>. Os horários são as batidas reais do relógio — <b>nenhum valor é estimado</b>; &ldquo;{SEM_REG}&rdquo; indica pausa sem batida de retorno.
+          </div>
+        </div>
+      )}
     </div>
   )
 }
