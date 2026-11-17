@@ -32,6 +32,10 @@ export interface Pessoa {
   nome_fantasia: string
   razao_social: string | null
   cnpj_cpf: string | null
+  // Coluna irmã de documento: o form do CRM (ClienteForm) grava em cpf_cnpj, o cadastro em
+  // cnpj_cpf. Enquanto a consolidação (item 1, migration sensível) não ocorre, a tela lê/exibe/
+  // busca as DUAS para não "perder" cliente criado pelo CRM. Ver PDCA 17/11.
+  cpf_cnpj?: string | null
   tipo_pessoa: 'PF' | 'PJ' | null
   ie?: string | null
   inscricao_municipal?: string | null
@@ -199,7 +203,8 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
       .from(tabela)
       .select('nome_fantasia, razao_social')
       .eq('company_id', companyId)
-      .eq('cnpj_cpf', d)
+      // confere nas DUAS colunas de documento (cnpj_cpf do cadastro, cpf_cnpj do CRM)
+      .or(`cnpj_cpf.eq.${d},cpf_cnpj.eq.${d}`)
       .neq('id', pessoa?.id ?? '00000000-0000-0000-0000-000000000000')
       .eq('ativo', true)
       .limit(1)
@@ -264,7 +269,8 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
         .from(tabela)
         .select('id, nome_fantasia, razao_social')
         .eq('company_id', companyId)
-        .eq('cnpj_cpf', cnpjLimpo)
+        // confere nas DUAS colunas de documento (cnpj_cpf do cadastro, cpf_cnpj do CRM)
+        .or(`cnpj_cpf.eq.${cnpjLimpo},cpf_cnpj.eq.${cnpjLimpo}`)
         .neq('id', pessoa?.id ?? '00000000-0000-0000-0000-000000000000')
         // Chamados #129/#130 (Jordana · KGF/Gean): a checagem de duplicidade só considera cadastros ATIVOS.
         // Um duplicado INATIVADO (ativo=false, usado para "arquivar" um cadastro errado sem perder histórico)
