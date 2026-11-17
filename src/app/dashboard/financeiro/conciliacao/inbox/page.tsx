@@ -109,6 +109,16 @@ interface Lote {
   created_at: string | null
 }
 
+// Contadores reconciliados (soft-delete-aware) de fn_conciliacao_lote_resumo.
+interface ResumoLote {
+  total_movimentos: number
+  conciliados: number
+  conciliados_orfaos: number
+  ignorados: number
+  pendentes: number
+  resolvidos: number
+}
+
 interface PendenciaSistema {
   tabela: 'erp_pagar' | 'erp_receber' | string
   id: string
@@ -244,6 +254,10 @@ export default function InboxPage() {
 
   const [items, setItems] = useState<Item[]>([])
   const [conciliados, setConciliados] = useState<Conciliado[]>([])
+  // Contadores RECONCILIADOS do lote (fn_conciliacao_lote_resumo): aplicam a MESMA
+  // exclusão de soft-delete da lista, pra o progresso não mentir "extrato fechado"
+  // quando há conciliados órfãos (título excluído). Ver PDCA 17/11.
+  const [resumoLote, setResumoLote] = useState<ResumoLote | null>(null)
   // expandir fatura agrupada → títulos (fn_conciliacao_vinculos), por movimento_id
   const [vinculosExp, setVinculosExp] = useState<Record<string, VinculosState>>({})
   // RD-41 · aba de ruído ignorado (saldo/futuro/manual), reversível.
@@ -360,6 +374,17 @@ export default function InboxPage() {
       p_limite: 500,
     })
     if (!error) setConciliados((data ?? []) as Conciliado[])
+    void carregarResumoLote()
+  }
+
+  // Busca os contadores reconciliados do lote selecionado (soft-delete-aware).
+  async function carregarResumoLote() {
+    if (!empresaUnica || !loteSelId) { setResumoLote(null); return }
+    const { data, error } = await supabase.rpc('fn_conciliacao_lote_resumo', {
+      p_company_id: empresaUnica,
+      p_lote_id: loteSelId,
+    })
+    if (!error) setResumoLote(((data as ResumoLote[] | null)?.[0]) ?? null)
   }
 
   // Expande/recolhe os títulos de uma fatura agrupada (lancamento_id NULL).
@@ -650,6 +675,13 @@ export default function InboxPage() {
     void carregarIgnorados()
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, [loteSelId, modo])
+
+  useEffect(() => {
+    // contadores reconciliados do lote (independe do modo: a barra de progresso aparece fora do extrato)
+    /* eslint-disable-next-line react-hooks/set-state-in-effect */
+    void carregarResumoLote()
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [loteSelId, empresaUnica])
 
   useEffect(() => {
     /* eslint-disable-next-line react-hooks/set-state-in-effect */
@@ -963,14 +995,17 @@ export default function InboxPage() {
     : conciliados
   // #60: "resolvido" = conciliado + ignorado (ignorado é decisão tomada, não pendência).
   // O contador e a % devem fechar em N/N quando não há pendentes — antes só contava conciliados.
-  const totConc = loteSel?.total_conciliados ?? conciliadosLote.length
-  const totIgn = loteSel?.total_ignorados ?? ignorados.length
-  const totResolv = totConc + totIgn
-  const pctFech = loteSel && loteSel.total_movimentos
-    ? Math.round(100 * totResolv / loteSel.total_movimentos)
-    : 0
+  // PDCA 17/11: prefere os contadores RECONCILIADOS (resumoLote, soft-delete-aware) às
+  // colunas gravadas em conciliacao_lote, que superavaliavam "conciliados"/"extrato fechado"
+  // contando movimentos cujo título foi excluído. Fallback nas colunas quando o resumo não carregou.
+  const totConc = resumoLote?.conciliados ?? loteSel?.total_conciliados ?? conciliadosLote.length
+  const totIgn = resumoLote?.ignorados ?? loteSel?.total_ignorados ?? ignorados.length
+  const orfaosConc = resumoLote?.conciliados_orfaos ?? 0
+  const totMov = resumoLote?.total_movimentos ?? loteSel?.total_movimentos ?? 0
+  const totResolv = resumoLote?.resolvidos ?? (totConc + totIgn)
+  const pctFech = totMov ? Math.round(100 * totResolv / totMov) : 0
   // fix-conciliacao-pendentes-filtro-lote-v1: contadores por lote, nao global
-  const totPend = loteSel?.total_pendentes ?? items.length
+  const totPend = resumoLote?.pendentes ?? loteSel?.total_pendentes ?? items.length
   // Camada1/Fatia1 (08/07): indicadores aditivos da conciliacao
   const valorPendente = items.reduce((s, i) => s + Math.abs(Number(i.valor) || 0), 0)      // item 1
   const qtdReceb = items.filter((i) => i.natureza === 'credito').length                     // item 4
@@ -1071,12 +1106,20 @@ export default function InboxPage() {
                 </div>
                 <div style={{ fontSize: 12, color: '#3D2314', marginTop: 4 }}>
                   {/* #60: resolvidos = conciliados + ignorados (ignorado é decisão, não pendência) */}
-                  <b style={{ color: '#C8941A' }}>{totResolv}</b> de {loteSel.total_movimentos ?? 0} resolvidos
+                  {/* PDCA 17/11: números reconciliados (soft-delete-aware); "extrato fechado" só sem pendentes E sem órfãos. */}
+                  <b style={{ color: '#C8941A' }}>{totResolv}</b> de {totMov} resolvidos
                   {totIgn > 0 && <> ({totConc} conciliados + {totIgn} ignorados)</>}
-                  {(loteSel.total_pendentes ?? 0) > 0
-                    ? <> · faltam <b>{loteSel.total_pendentes}</b></>
-                    : <> · ✅ extrato fechado</>}
+                  {totPend > 0
+                    ? <> · faltam <b>{totPend}</b></>
+                    : orfaosConc > 0
+                      ? null
+                      : <> · ✅ extrato fechado</>}
                 </div>
+                {orfaosConc > 0 && (
+                  <div style={{ fontSize: 12, color: '#9A3412', background: '#FEF3EC', border: '0.5px solid #F3C9B0', borderRadius: 8, padding: '6px 8px', marginTop: 6 }}>
+                    ⚠ {orfaosConc} movimento{orfaosConc > 1 ? 's' : ''} conciliado{orfaosConc > 1 ? 's' : ''} com título excluído — reabra o extrato para desvincular. Não contam como resolvidos.
+                  </div>
+                )}
                 <div style={{ height: 8, borderRadius: 4, marginTop: 8, background: '#E7DED3', overflow: 'hidden' }}>
                   <div style={{ height: '100%', width: `${pctFech}%`, background: '#C8941A', transition: 'width 0.2s' }} />
                 </div>
