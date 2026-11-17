@@ -309,14 +309,14 @@ export default function ImportarEstoquePage() {
             </div>
             <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
               <table className="w-full text-[12px]">
-                <thead className="bg-[#3D2314]/5 text-[11px] text-[#3D2314]/70 sticky top-0"><tr>
-                  <th className="text-left px-3 py-2 font-medium">#</th>
-                  <th className="text-left px-3 py-2 font-medium">status<AjudaCampo chave="cadastros.produtos.importar.col_status" /></th>
-                  <th className="text-left px-3 py-2 font-medium">codigo<AjudaCampo chave="cadastros.produtos.importar.col_codigo" /></th>
-                  <th className="text-left px-3 py-2 font-medium">descrição<AjudaCampo chave="cadastros.produtos.importar.col_descricao" /></th>
-                  <th className="text-right px-3 py-2 font-medium">qtd<AjudaCampo chave="cadastros.produtos.importar.col_qtd" /></th>
-                  <th className="text-right px-3 py-2 font-medium">custo<AjudaCampo chave="cadastros.produtos.importar.col_custo" /></th>
-                  <th className="text-left px-3 py-2 font-medium">mensagens<AjudaCampo chave="cadastros.produtos.importar.col_mensagens" /></th>
+                <thead className="text-[11px] text-[#3D2314]/70"><tr>
+                  <th className="text-left px-3 py-2 font-medium sticky top-0 z-10 bg-[#F5F4F3]">#</th>
+                  <th className="text-left px-3 py-2 font-medium sticky top-0 z-10 bg-[#F5F4F3]">status<AjudaCampo chave="cadastros.produtos.importar.col_status" /></th>
+                  <th className="text-left px-3 py-2 font-medium sticky top-0 z-10 bg-[#F5F4F3]">codigo<AjudaCampo chave="cadastros.produtos.importar.col_codigo" /></th>
+                  <th className="text-left px-3 py-2 font-medium sticky top-0 z-10 bg-[#F5F4F3]">descrição<AjudaCampo chave="cadastros.produtos.importar.col_descricao" /></th>
+                  <th className="text-right px-3 py-2 font-medium sticky top-0 z-10 bg-[#F5F4F3]">qtd<AjudaCampo chave="cadastros.produtos.importar.col_qtd" /></th>
+                  <th className="text-right px-3 py-2 font-medium sticky top-0 z-10 bg-[#F5F4F3]">custo<AjudaCampo chave="cadastros.produtos.importar.col_custo" /></th>
+                  <th className="text-left px-3 py-2 font-medium sticky top-0 z-10 bg-[#F5F4F3]">mensagens<AjudaCampo chave="cadastros.produtos.importar.col_mensagens" /></th>
                 </tr></thead>
                 <tbody>
                   {linhas.map((l, i) => (
