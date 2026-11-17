@@ -228,6 +228,10 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
       condicoes_especificas: especificas.trim() || null,
       titulo: titulo.trim() || null,
       valor_mensal: num(valorMensal),
+      // SPEC 4.2: o contato do cadastro (email/telefone) viaja para o contrato — assim a Julia recebe
+      // completo. Na ausência aqui, o backend ainda puxa do cadastro do cliente (fn_contrato_solicitar).
+      cliente_email: cliInfo?.email?.trim() || null,
+      cliente_telefone: cliInfo?.telefone?.trim() || null,
     }
     if (modo === 'proposta' && cliInfo?.nome) dados.cliente_nome = cliInfo.nome   // identidade do cliente escolhido/vinculado
     if (modo === 'manual') {
