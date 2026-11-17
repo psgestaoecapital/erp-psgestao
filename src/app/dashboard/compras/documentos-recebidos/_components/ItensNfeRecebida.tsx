@@ -121,8 +121,11 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange, onConcluida }: Pr
   const [osSel, setOsSel] = useState<{ itemId: string; os: OSLite } | null>(null)
   const [diagLivres, setDiagLivres] = useState<DiagLite[]>([])
   // #11b · ações da nota (entrada de estoque / enviar pro financeiro / concluir) + feedback
-  const [acaoBusy, setAcaoBusy] = useState<'estoque' | 'financeiro' | 'concluir' | null>(null)
+  const [acaoBusy, setAcaoBusy] = useState<'estoque' | 'financeiro' | 'concluir' | 'estornar' | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
+  // #5730 · "Estornar entrada": desfaz estoque + título a pagar + vínculos de uma entrada lançada por engano.
+  // null = painel fechado; string = painel aberto com o motivo (obrigatório) em digitação.
+  const [estornoMotivo, setEstornoMotivo] = useState<string | null>(null)
   // NFE-F0 · E0 · CFOP de entrada + categoria por item; E4 · navegação item a item
   // NFE-F1 · E5 · custo real; NFE-F2 · E1/E2/E6 · recebido, motivo, fator, gera_financeiro
   const [extras, setExtras] = useState<Record<string, ItemExtra>>({})
@@ -130,7 +133,7 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange, onConcluida }: Pr
   const [idxAtual, setIdxAtual] = useState(0)
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({})
   // NFE-F2 · dados da nota p/ conferência (fornecedor p/ o fator, transp) + parcelas
-  const [notaInfo, setNotaInfo] = useState<{ emitente_cnpj: string | null; valor_total: number | null; lancado_pagar: boolean | null } | null>(null)
+  const [notaInfo, setNotaInfo] = useState<{ emitente_cnpj: string | null; valor_total: number | null; lancado_pagar: boolean | null; estoque_status: string | null } | null>(null)
   const [parcelas, setParcelas] = useState<{ id: string; numero_dup: string | null; data_vencimento: string | null; valor: number | null; pagar_id: string | null; forma_pagamento: string | null; conta_bancaria_id: string | null; codigo_barras: string | null }[]>([])
   // #573 · unidade de estoque de cada produto vinculado + fator já aprendido deste fornecedor
   const [unidadeProd, setUnidadeProd] = useState<Record<string, string | null>>({})
@@ -167,8 +170,8 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange, onConcluida }: Pr
     }
     setExtras(m)
     // NFE-F2 · nota (fornecedor p/ fator, valor p/ parcelas) + parcelas do XML
-    const { data: n } = await supabase.from('erp_nfe_recebidas').select('emitente_cnpj, valor_total, lancado_pagar, transportadora, frete_modalidade, peso_bruto').eq('id', nfeId).maybeSingle()
-    setNotaInfo(n ? { emitente_cnpj: (n as { emitente_cnpj: string | null }).emitente_cnpj, valor_total: (n as { valor_total: number | null }).valor_total, lancado_pagar: (n as { lancado_pagar: boolean | null }).lancado_pagar } : null)
+    const { data: n } = await supabase.from('erp_nfe_recebidas').select('emitente_cnpj, valor_total, lancado_pagar, estoque_status, transportadora, frete_modalidade, peso_bruto').eq('id', nfeId).maybeSingle()
+    setNotaInfo(n ? { emitente_cnpj: (n as { emitente_cnpj: string | null }).emitente_cnpj, valor_total: (n as { valor_total: number | null }).valor_total, lancado_pagar: (n as { lancado_pagar: boolean | null }).lancado_pagar, estoque_status: (n as { estoque_status: string | null }).estoque_status } : null)
     const { data: dups } = await supabase.from('erp_nfe_recebidas_duplicatas').select('id, numero_dup, data_vencimento, valor, pagar_id, forma_pagamento, conta_bancaria_id, codigo_barras').eq('nfe_recebida_id', nfeId).order('numero_dup')
     setParcelas((dups ?? []) as typeof parcelas)
     // #573 · unidade de estoque dos produtos vinculados + fator já salvo para este fornecedor (antes o campo
@@ -267,6 +270,31 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange, onConcluida }: Pr
     }
     setMsg(`✅ Nota concluída — ${r.estoque?.itens_movidos ?? 0} item(ns) no estoque · ${r.financeiro?.pagar_criadas ?? 0} conta(s) a pagar.`)
     await carregar(); onChange?.(); onConcluida?.()
+  }
+
+  // #5730 · estornar a entrada lançada por engano (desfaz estoque + título a pagar + vínculos). Motivo obrigatório.
+  // O banco é conservador: recusa (sem alterar nada) se o título já foi pago/conciliado ou se os itens já saíram.
+  const ESTORNO_MSG: Record<string, string> = {
+    motivo_obrigatorio: 'Informe o motivo do estorno.',
+    nada_a_estornar: 'Esta nota não tem entrada de estoque nem título a pagar para estornar.',
+    titulo_pago_ou_conciliado: 'O título a pagar desta nota já foi pago ou conciliado. Desfaça o pagamento/conciliação antes de estornar.',
+    itens_movimentados_apos_entrada: 'Houve outra movimentação de estoque após esta entrada — o estorno automático poderia deixar o custo médio errado. Faça o estorno manual com o suporte.',
+    estoque_insuficiente: 'O saldo atual é menor que a quantidade da entrada (itens já consumidos). Faça o estorno manual com o suporte.',
+    sem_permissao: 'Você não tem permissão para estornar esta entrada.',
+    nota_nao_encontrada: 'Nota não encontrada.',
+  }
+  async function estornarEntrada() {
+    const motivo = (estornoMotivo ?? '').trim()
+    if (!motivo) { setMsg('Informe o motivo do estorno.'); return }
+    setAcaoBusy('estornar'); setErro(null); setMsg(null)
+    const { data, error } = await supabase.rpc('fn_nfe_recebida_estornar_entrada', { p_nfe_recebida_id: nfeId, p_motivo: motivo })
+    setAcaoBusy(null)
+    if (error) { setErro(error.message); return }
+    const r = data as { ok?: boolean; erro?: string; titulos_cancelados?: number; movimentos_estornados?: number } | null
+    if (!r?.ok) { setErro(ESTORNO_MSG[r?.erro ?? ''] ?? ('Não consegui estornar: ' + (r?.erro ?? 'falhou'))); return }
+    setEstornoMotivo(null)
+    setMsg(`↩️ Entrada estornada — ${r.movimentos_estornados ?? 0} movimento(s) de estoque revertido(s) · ${r.titulos_cancelados ?? 0} título(s) a pagar cancelado(s). A nota voltou para "a concluir".`)
+    await carregar(); onChange?.()
   }
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -973,7 +1001,59 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange, onConcluida }: Pr
         >
           {acaoBusy === 'concluir' ? 'Concluindo…' : '✅ Concluir nota'}
         </button>
+        {/* #5730 · só aparece quando há algo a desfazer: estoque dado e/ou título lançado */}
+        {(notaInfo?.lancado_pagar || ['completo', 'parcial'].includes(notaInfo?.estoque_status ?? '')) && (
+          <span className="inline-flex items-center">
+            <button
+              type="button"
+              disabled={acaoBusy !== null}
+              onClick={() => setEstornoMotivo(estornoMotivo === null ? '' : null)}
+              title="Desfaz a entrada lançada por engano: reverte o estoque, cancela o título a pagar e solta os vínculos."
+              className="inline-flex items-center gap-1.5 text-[11.5px] px-3 py-1.5 rounded-md border border-[#A32D2D]/40 text-[#A32D2D] font-medium hover:bg-[#FCEBEB] disabled:opacity-50 min-h-[36px]"
+            >
+              ↩️ Estornar entrada
+            </button>
+            <AjudaCampo chave="fiscal.nfe_recebidas.estornar_entrada" rota="/dashboard/fiscal/nfe-recebidas" />
+          </span>
+        )}
       </div>
+
+      {/* #5730 · painel do estorno: motivo obrigatório + confirmação clara (ação de risco) */}
+      {estornoMotivo !== null && (
+        <div className="rounded-md border border-[#A32D2D]/30 bg-[#FCEBEB]/60 p-3 space-y-2">
+          <div className="text-[12px] font-medium text-[#791F1F]">Estornar a entrada desta nota</div>
+          <div className="text-[11.5px] text-[#791F1F]/90">
+            Vai reverter o estoque, cancelar o título a pagar e soltar os vínculos criados pela entrada. A nota volta para
+            &quot;a concluir&quot;. Não é possível se o título já foi pago/conciliado ou os itens já saíram.
+          </div>
+          <textarea
+            data-ajuda="fiscal.nfe_recebidas.estornar_entrada"
+            value={estornoMotivo}
+            onChange={(e) => setEstornoMotivo(e.target.value)}
+            placeholder="Motivo do estorno (obrigatório) — ex.: entrada duplicada, XML com dados errados…"
+            rows={2}
+            className="w-full text-[12px] rounded-md border border-[#A32D2D]/30 bg-white px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-[#A32D2D]/40"
+          />
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={acaoBusy !== null || !estornoMotivo.trim()}
+              onClick={() => void estornarEntrada()}
+              className="inline-flex items-center gap-1.5 text-[11.5px] px-3 py-1.5 rounded-md bg-[#A32D2D] text-white font-medium hover:bg-[#8A2525] disabled:opacity-50 min-h-[36px]"
+            >
+              {acaoBusy === 'estornar' ? 'Estornando…' : 'Confirmar estorno'}
+            </button>
+            <button
+              type="button"
+              disabled={acaoBusy !== null}
+              onClick={() => setEstornoMotivo(null)}
+              className="text-[11.5px] px-3 py-1.5 rounded-md border border-[#3D2314]/20 text-[#3D2314]/80 hover:bg-[#3D2314]/5 min-h-[36px]"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* NFE-F0 · E3 · anexos na nota (boleto, comprovante, foto) — reusa o <AnexosCard> (vínculo 'nfe') */}
       <AnexosCard companyId={companyId} vinculoTipo="nfe" vinculoId={nfeId} />
