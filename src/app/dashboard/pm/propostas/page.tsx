@@ -100,7 +100,7 @@ export default function PropostasPage() {
   const abriuDestaque = useRef(false)
   // aprovação → contrato recorrente na GE + comissão
   const [apr, setApr] = useState<Proposta | null>(null)
-  const [aprForm, setAprForm] = useState({ fee: '', dia: '10', periodicidade: 'mensal', comPct: '', comBase: 'fee', comTipo: 'unica' })
+  const [aprForm, setAprForm] = useState({ fee: '', dia: '10', periodicidade: 'mensal', comPct: '', comBase: 'fee', comTipo: 'unica', nParcelas: '', dataFim: '', clienteEmail: '', clienteTelefone: '' })
 
   const carregar = async () => {
     if (!empresa) { setPropostas([]); setLoading(false); return }
@@ -367,8 +367,18 @@ export default function PropostasPage() {
   }
 
   function abrirAprovar(p: Proposta) {
-    setAprForm({ fee: numeroParaMoeda(p.valor_final ?? p.valor_total), dia: '10', periodicidade: 'mensal', comPct: '', comBase: 'fee', comTipo: 'unica' })
+    setAprForm({ fee: numeroParaMoeda(p.valor_final ?? p.valor_total), dia: '10', periodicidade: 'mensal', comPct: '', comBase: 'fee', comTipo: 'unica', nParcelas: '', dataFim: '', clienteEmail: '', clienteTelefone: '' })
     setApr(p)
+    // SPEC 4.1: puxa o contato do cadastro do cliente para o bloco "Dados para o financeiro" (editável).
+    void (async () => {
+      const { data: pp } = await supabase.from('agency_propostas').select('erp_cliente_id').eq('id', p.id).maybeSingle()
+      const ecId = (pp as { erp_cliente_id?: string | null } | null)?.erp_cliente_id
+      if (!ecId) return
+      const { data: ec } = await supabase.from('erp_clientes').select('email, celular, whatsapp, telefone').eq('id', ecId).maybeSingle()
+      if (!ec) return
+      const e = ec as Record<string, string | null>
+      setAprForm((f) => ({ ...f, clienteEmail: f.clienteEmail || e.email || '', clienteTelefone: f.clienteTelefone || e.celular || e.whatsapp || e.telefone || '' }))
+    })()
   }
 
   async function confirmarAprovar() {
@@ -383,6 +393,11 @@ export default function PropostasPage() {
       p_comissao_percentual: aprForm.comPct ? Number(aprForm.comPct) : 0,
       p_comissao_tipo: aprForm.comTipo,
       p_comissao_base: aprForm.comBase,
+      // SPEC gaps: nº de parcelas + contato viajam na aprovação (a Julia recebe completo).
+      p_numero_parcelas: aprForm.nParcelas ? Number(aprForm.nParcelas) : null,
+      p_data_fim: aprForm.dataFim || null,
+      p_cliente_email: aprForm.clienteEmail.trim() || null,
+      p_cliente_telefone: aprForm.clienteTelefone.trim() || null,
     })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string; contrato_numero?: string } | null
@@ -635,6 +650,17 @@ export default function PropostasPage() {
               </label>
             </div>
             <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 2 }}>Fee 0 → aprova sem contrato recorrente (ex.: projeto avulso). A comissão ainda é gerada.</div>
+
+            {/* SPEC 4.1 · Dados para o financeiro — contato + nº de parcelas viajam para o pedido de contrato */}
+            <div style={{ fontSize: 11, fontWeight: 700, color: DOURADO, textTransform: 'uppercase', letterSpacing: 0.5, margin: '12px 0 4px' }}>Dados para o financeiro</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Nº de parcelas<AjudaCampo chave="pm.propostas.numero_parcelas" /></span><input style={inp} type="number" min={1} value={aprForm.nParcelas} onChange={(e) => setAprForm({ ...aprForm, nParcelas: e.target.value })} placeholder="Ex.: 12" /></label>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Fim da vigência<AjudaCampo chave="pm.propostas.data_fim" /></span><input style={inp} type="date" value={aprForm.dataFim} onChange={(e) => setAprForm({ ...aprForm, dataFim: e.target.value })} /></label>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>E-mail do cliente<AjudaCampo chave="pm.propostas.cliente_email" /></span><input style={inp} type="email" value={aprForm.clienteEmail} onChange={(e) => setAprForm({ ...aprForm, clienteEmail: e.target.value })} placeholder="do cadastro" /></label>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Telefone do cliente<AjudaCampo chave="pm.propostas.cliente_telefone" /></span><input style={inp} value={aprForm.clienteTelefone} onChange={(e) => setAprForm({ ...aprForm, clienteTelefone: e.target.value })} placeholder="do cadastro" /></label>
+            </div>
+            <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 2 }}>Sem o contato, a Julia não consegue enviar o boleto/cobrança. Sem o nº de parcelas, ela não sabe em quantas vezes faturar. Vêm do cadastro do cliente — ajuste se mudaram.</div>
+
             <div style={{ fontSize: 11, fontWeight: 700, color: DOURADO, textTransform: 'uppercase', letterSpacing: 0.5, margin: '12px 0 4px' }}>Comissão do comercial</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
               <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Percentual (%)<AjudaCampo chave="pm.propostas.comissao_pct" /></span><input style={inp} type="number" value={aprForm.comPct} onChange={(e) => setAprForm({ ...aprForm, comPct: e.target.value })} placeholder="0" /></label>
