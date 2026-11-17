@@ -31,14 +31,24 @@ test.describe('Inadimplentes · total de atrasadas usa SALDO (não bruto) em tí
     const [emp] = await dbSelect<{ is_demo: boolean }>('companies', `id=eq.${DEMO}&select=is_demo`)
     expect(emp?.is_demo, 'só na demonstração').toBe(true)
 
-    // 1) conjunto "atrasadas" direto da view, com o MESMO filtro da função (COALESCE em_renegociacao -> false)
+    // 1) conjunto "atrasadas" direto da view, com o MESMO filtro da função (COALESCE em_renegociacao -> false).
+    // O filtro é aplicado no SERVIDOR (PostgREST) e não no cliente: a DEMO Comércio acumula dezenas de milhares
+    // de títulos e2e vivos em erp_receber (purga por soft-delete em andamento), e ler a tabela inteira sem filtro
+    // era TRUNCADO pelo teto de linhas do PostgREST — a reconstrução client-side contava só uma janela (ex.: 16 de
+    // 28 atrasadas), divergindo da RPC (que filtra em SQL) sem que a função estivesse errada. Filtrando no servidor,
+    // a leitura devolve só as poucas atrasadas, sem truncamento. Os expects (verificações) ficam INALTERADOS.
+    // em_renegociacao: COALESCE(.,false)=false => inclui NULL e false (or=(is.null,is.false)); data_vencimento é date.
     const hoje = new Date().toISOString().slice(0, 10)
-    const linhas = await dbSelect<LinhaReceber>(
-      'v_receber_efetivo',
-      `company_id=eq.${DEMO}&deleted_at=is.null&select=valor,valor_pago,data_vencimento,status,em_renegociacao`,
-    )
     const foraStatus = new Set(['pago', 'recebido', 'cancelado', 'renegociado'])
-    const atrasadas = linhas.filter((l) =>
+    const atrasadasView = await dbSelect<LinhaReceber>(
+      'v_receber_efetivo',
+      `company_id=eq.${DEMO}&deleted_at=is.null&data_vencimento=lt.${hoje}` +
+        `&status=not.in.(${[...foraStatus].join(',')})` +
+        `&or=(em_renegociacao.is.null,em_renegociacao.is.false)` +
+        `&select=valor,valor_pago,data_vencimento,status,em_renegociacao&limit=5000`,
+    )
+    // defesa: reaplica o MESMO filtro em JS (no-op quando o servidor já filtrou) para manter a intenção explícita.
+    const atrasadas = atrasadasView.filter((l) =>
       l.data_vencimento != null && l.data_vencimento < hoje &&
       !foraStatus.has(String(l.status)) &&
       l.em_renegociacao !== true)
