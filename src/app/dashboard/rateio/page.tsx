@@ -1,6 +1,8 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
+import { CampoMoeda } from "@/components/comum/CampoMoeda";
+import { moedaParaNumero, numeroParaMoeda } from "@/lib/moeda-mascara";
 
 const GO="#C6973F",GOL="#E8C872",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
     G="#34D399",R="#F87171",Y="#FBBF24",B="#60A5FA",P="#A78BFA",
@@ -268,7 +270,7 @@ export default function RateioPage(){
             <div style={{fontSize:13,fontWeight:600,color:GOL,marginBottom:10}}>Novo Custo da Sede</div>
             <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:8}}>
               <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Descrição *</div><input value={newSede.nome} onChange={e=>setNewSede({...newSede,nome:e.target.value})} placeholder="Ex: Aluguel, Veículos, Telefone, Contabilidade" style={inp}/></div>
-              <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Valor Mensal (R$) *</div><input type="number" value={newSede.valor||""} onChange={e=>setNewSede({...newSede,valor:parseFloat(e.target.value)||0})} placeholder="0,00" style={inp}/></div>
+              <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Valor Mensal (R$) *</div>{/* #6874 — campo monetário padrão (CampoMoeda): máscara R$ ao digitar; valor continua number no banco */}<CampoMoeda value={newSede.valor?numeroParaMoeda(newSede.valor):""} onChange={v=>setNewSede({...newSede,valor:moedaParaNumero(v)??0})} placeholder="R$ 0,00" style={inp}/></div>
             </div>
             <div style={{marginTop:10,display:"flex",gap:8}}>
               <button onClick={addCustoSede} style={{padding:"8px 16px",borderRadius:8,background:GO,color:BG,fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>Salvar</button>
@@ -405,7 +407,7 @@ export default function RateioPage(){
         <div style={{background:BG2,borderRadius:16,padding:24,maxWidth:400,width:"100%",border:`1px solid ${BD}`}} onClick={e=>e.stopPropagation()}>
           <div style={{fontSize:16,fontWeight:600,color:GOL,marginBottom:16}}>Adicionar Custo Direto</div>
           <div style={{marginBottom:12}}><div style={{fontSize:10,color:TXD,marginBottom:3}}>Descrição *</div><input value={newCusto.nome} onChange={e=>setNewCusto({...newCusto,nome:e.target.value})} placeholder="Ex: Matéria-prima, Mão de obra, Frete" style={inp}/></div>
-          <div style={{marginBottom:12}}><div style={{fontSize:10,color:TXD,marginBottom:3}}>Valor Mensal (R$) *</div><input type="number" value={newCusto.valor||""} onChange={e=>setNewCusto({...newCusto,valor:parseFloat(e.target.value)||0})} placeholder="0,00" style={inp}/></div>
+          <div style={{marginBottom:12}}><div style={{fontSize:10,color:TXD,marginBottom:3}}>Valor Mensal (R$) *</div>{/* #6874 — campo monetário padrão (CampoMoeda) */}<CampoMoeda value={newCusto.valor?numeroParaMoeda(newCusto.valor):""} onChange={v=>setNewCusto({...newCusto,valor:moedaParaNumero(v)??0})} placeholder="R$ 0,00" style={inp}/></div>
           <div style={{marginBottom:16}}><div style={{fontSize:10,color:TXD,marginBottom:3}}>Observação</div><input value={newCusto.obs} onChange={e=>setNewCusto({...newCusto,obs:e.target.value})} placeholder="Opcional" style={inp}/></div>
           <div style={{display:"flex",gap:8}}>
             <button onClick={addCustoDirecto} style={{padding:"10px 20px",borderRadius:8,background:`linear-gradient(135deg,${GO},${GOL})`,color:BG,fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>Salvar</button>
@@ -419,7 +421,7 @@ export default function RateioPage(){
         <div style={{background:BG2,borderRadius:16,padding:24,maxWidth:400,width:"100%",border:`1px solid ${BD}`}} onClick={e=>e.stopPropagation()}>
           <div style={{fontSize:16,fontWeight:600,color:GOL,marginBottom:16}}>Adicionar Receita</div>
           <div style={{marginBottom:12}}><div style={{fontSize:10,color:TXD,marginBottom:3}}>Descrição *</div><input value={newReceita.nome} onChange={e=>setNewReceita({...newReceita,nome:e.target.value})} placeholder="Ex: Venda de gesso, Serviço de pintura" style={inp}/></div>
-          <div style={{marginBottom:12}}><div style={{fontSize:10,color:TXD,marginBottom:3}}>Valor Mensal (R$) *</div><input type="number" value={newReceita.valor||""} onChange={e=>setNewReceita({...newReceita,valor:parseFloat(e.target.value)||0})} placeholder="0,00" style={inp}/></div>
+          <div style={{marginBottom:12}}><div style={{fontSize:10,color:TXD,marginBottom:3}}>Valor Mensal (R$) *</div>{/* #6874 — campo monetário padrão (CampoMoeda) */}<CampoMoeda value={newReceita.valor?numeroParaMoeda(newReceita.valor):""} onChange={v=>setNewReceita({...newReceita,valor:moedaParaNumero(v)??0})} placeholder="R$ 0,00" style={inp}/></div>
           <div style={{marginBottom:16}}><div style={{fontSize:10,color:TXD,marginBottom:3}}>Observação</div><input value={newReceita.obs} onChange={e=>setNewReceita({...newReceita,obs:e.target.value})} placeholder="Opcional" style={inp}/></div>
           <div style={{display:"flex",gap:8}}>
             <button onClick={addReceitaLinha} style={{padding:"10px 20px",borderRadius:8,background:`linear-gradient(135deg,${GO},${GOL})`,color:BG,fontSize:12,fontWeight:600,border:"none",cursor:"pointer"}}>Salvar</button>
