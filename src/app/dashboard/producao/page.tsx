@@ -199,7 +199,7 @@ function ProducaoPageInner() {
     const prox = new Date(now.getFullYear(), now.getMonth() + 1, 1)
     const inicioProxMes = `${prox.getFullYear()}-${String(prox.getMonth() + 1).padStart(2, '0')}-01`
 
-    const [cl, jb, ts, tsMes, us, ct, sv, ac] = await Promise.all([
+    const [cl, jb, ts, tsMes, us, ct, sv, ac, clAtivos] = await Promise.all([
       supabase.from('agency_clientes').select('*').eq('company_id', sel).is('excluido_em', null).order('nome'),
       supabase.from('agency_jobs').select('*').eq('company_id', sel).is('excluido_em', null).order('created_at', { ascending: false }),
       supabase.from('agency_timesheet').select('id, company_id, job_id, tarefa_id, user_id, data, horas, descricao, tipo_atividade, aprovado, aprovado_por, created_at, inicio_em, fim_em, etapa_tipo, cliente_id').eq('company_id', sel).is('excluido_em', null).order('data', { ascending: false }),
@@ -209,6 +209,11 @@ function ProducaoPageInner() {
       supabase.from('erp_contratos').select('id,numero,nome,valor_mensal,status').eq('company_id', sel).order('numero', { ascending: false }),
       supabase.rpc('fn_agency_servico_listar_proposta', { p_company_id: sel }),
       supabase.rpc('fn_agency_contrato_listar', { p_company_id: sel }),
+      // KPI "Clientes ativos": contagem no servidor (head:true/count exact), não cl.data.length.
+      // O fetch de cl acima usa select('*') sem .limit() e o PostgREST corta em 1000 linhas; com
+      // muitos clientes o KPI travava em 1000 e subcontava (RD-38 DEMO P&M 2026-11: real=1133).
+      // Mesma correção da #5282 (KPIs de títulos somavam só os 1000 primeiros).
+      supabase.from('agency_clientes').select('*', { count: 'exact', head: true }).eq('company_id', sel).is('excluido_em', null).eq('status', 'ativo'),
     ])
     setClientes((cl.data ?? []) as Cliente[])
     setJobs((jb.data ?? []) as Job[])
@@ -232,7 +237,7 @@ function ProducaoPageInner() {
     // igual ao MRR logo acima. Sem lançamento no mês → reduce de [] = 0 → "0.0h" (correto).
     const horasMes = ((tsMes.data ?? []) as Array<{ horas?: number | string }>).reduce((s, t) => s + Number(t.horas ?? 0), 0)
     setMetrics({
-      clientes: (cl.data ?? []).filter((c: { status?: string }) => c.status === 'ativo').length,
+      clientes: clAtivos.count ?? 0,
       jobs_ativos: (jb.data ?? []).filter((j: { status?: string }) => !['concluida', 'publicado', 'cancelado'].includes(j.status ?? '')).length,
       horas_mes: horasMes,
       receita_mes: mrr,
