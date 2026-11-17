@@ -360,6 +360,7 @@ export default function ContratoFeeModal({ companyId, contratoId, onClose, onSav
               <Secao titulo="Parcelas do fee">
                 <ParcelasContratoEditor
                   contratoId={contratoId} companyId={companyId}
+                  contasCompanyId={empresaFatId || companyId}
                   valorMensal={valorMensal ? Number(String(valorMensal).replace(',', '.')) : 0}
                   readOnly={ativo}
                   defaultPrimeiro={primeiroVenc || de || null}

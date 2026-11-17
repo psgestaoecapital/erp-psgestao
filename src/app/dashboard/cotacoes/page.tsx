@@ -451,7 +451,7 @@ export default function CotacoesPage(){
                                   {proposta?.subtotal&&<div style={{fontSize:9,color:TXD}}>Subtotal: {fmtR(proposta.subtotal)}</div>}
                                 </div>
                               ):(
-                                <input type="number" step="0.01" value={proposta?.preco_unitario||''} onChange={e=>atualizarProposta(fornecedor.id,item.id,'preco_unitario',e.target.value)} placeholder="R$ 0,00" style={{...inp,padding:"4px 6px",fontSize:11,textAlign:"right",background:isMelhor?G+"20":BG3,borderColor:isMelhor?G:BD}}/>
+                                <CampoMoeda value={Number(proposta?.preco_unitario)>0?numeroParaMoeda(Number(proposta.preco_unitario)):''} onChange={m=>atualizarProposta(fornecedor.id,item.id,'preco_unitario',moedaParaNumero(m)??0)} placeholder="R$ 0,00" style={{...inp,padding:"4px 6px",fontSize:11,textAlign:"right",background:isMelhor?G+"20":BG3,borderColor:isMelhor?G:BD}}/>
                               )}
                             </td>
                           );
