@@ -9,6 +9,9 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA_AJUDA = '/dashboard/ehs/setores'
 
 const C = {
   espresso: '#3D2314',
@@ -138,13 +141,16 @@ export default function SetoresPage() {
               ← Voltar
             </Link>
             {aba === 'meus' && (
-              <button
-                onClick={() => setShowNovo(true)}
-                disabled={!companyAlvo}
-                style={{ padding: '10px 14px', borderRadius: 8, border: 'none', backgroundColor: C.espresso, color: 'white', fontSize: 13, fontWeight: 600, cursor: companyAlvo ? 'pointer' : 'not-allowed', opacity: companyAlvo ? 1 : 0.5 }}
-              >
-                + Novo setor
-              </button>
+              <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                <button
+                  onClick={() => setShowNovo(true)}
+                  disabled={!companyAlvo}
+                  style={{ padding: '10px 14px', borderRadius: 8, border: 'none', backgroundColor: C.espresso, color: 'white', fontSize: 13, fontWeight: 600, cursor: companyAlvo ? 'pointer' : 'not-allowed', opacity: companyAlvo ? 1 : 0.5 }}
+                >
+                  + Novo setor
+                </button>
+                <AjudaCampo chave="ehs.setores.novo" rota={ROTA_AJUDA} />
+              </span>
             )}
           </div>
         </header>
@@ -160,9 +166,11 @@ export default function SetoresPage() {
           <TabBtn ativa={aba === 'globais'} onClick={() => setAba('globais')}>
             🌐 Globais (PS)
           </TabBtn>
+          <AjudaCampo chave="ehs.setores.tab_globais" rota={ROTA_AJUDA} />
           <TabBtn ativa={aba === 'meus'} onClick={() => setAba('meus')}>
             🏢 Meus setores
           </TabBtn>
+          <AjudaCampo chave="ehs.setores.tab_meus" rota={ROTA_AJUDA} />
         </div>
 
         {/* Aviso aba Globais */}
@@ -176,8 +184,9 @@ export default function SetoresPage() {
         {/* Empresa alvo (quando grupo, no aba Meus) */}
         {aba === 'meus' && multiEmpresa && (
           <section style={{ backgroundColor: 'white', borderRadius: 12, padding: 16, marginBottom: 16, boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)' }}>
-            <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+            <label style={{ display: 'flex', alignItems: 'center', fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
               Empresa-alvo para criar setores
+              <AjudaCampo chave="ehs.setores.empresa_alvo" rota={ROTA_AJUDA} />
             </label>
             <select
               value={companyAlvo}
@@ -193,13 +202,17 @@ export default function SetoresPage() {
 
         {/* Busca */}
         <section style={{ backgroundColor: 'white', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)', marginBottom: 16 }}>
-          <input
-            type="text"
-            placeholder="Buscar setor por nome ou descrição…"
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-            style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: `1px solid ${C.borderLt}`, fontSize: 13, backgroundColor: C.offwhite }}
-          />
+          <label style={{ display: 'flex', alignItems: 'center', fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+            Buscar
+            <AjudaCampo chave="ehs.setores.busca" rota={ROTA_AJUDA} />
+            <input
+              type="text"
+              placeholder="Buscar setor por nome ou descrição…"
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: `1px solid ${C.borderLt}`, fontSize: 13, backgroundColor: C.offwhite, marginTop: 6, textTransform: 'none', letterSpacing: 'normal', fontWeight: 400 }}
+            />
+          </label>
         </section>
 
         {/* Lista */}
@@ -208,11 +221,11 @@ export default function SetoresPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ backgroundColor: C.beigeLt }}>
-                  <Th>Nome</Th>
-                  <Th>Slug</Th>
-                  <Th>Descrição</Th>
-                  {aba === 'meus' && multiEmpresa && <Th>Empresa</Th>}
-                  {aba === 'meus' && <Th>Ações</Th>}
+                  <Th><span style={thLabel}>Nome<AjudaCampo chave="ehs.setores.col_nome" rota={ROTA_AJUDA} /></span></Th>
+                  <Th><span style={thLabel}>Slug<AjudaCampo chave="ehs.setores.col_slug" rota={ROTA_AJUDA} /></span></Th>
+                  <Th><span style={thLabel}>Descrição<AjudaCampo chave="ehs.setores.col_descricao" rota={ROTA_AJUDA} /></span></Th>
+                  {aba === 'meus' && multiEmpresa && <Th><span style={thLabel}>Empresa<AjudaCampo chave="ehs.setores.col_empresa" rota={ROTA_AJUDA} /></span></Th>}
+                  {aba === 'meus' && <Th><span style={thLabel}>Ações<AjudaCampo chave="ehs.setores.col_acoes" rota={ROTA_AJUDA} /></span></Th>}
                 </tr>
               </thead>
               <tbody>
@@ -241,19 +254,21 @@ export default function SetoresPage() {
                     )}
                     {aba === 'meus' && (
                       <Td>
-                        <div style={{ display: 'flex', gap: 6 }}>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                           <button
                             onClick={() => setEditando(s)}
                             style={{ padding: '4px 10px', borderRadius: 6, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
                           >
                             Editar
                           </button>
+                          {i === 0 && <AjudaCampo chave="ehs.setores.editar" rota={ROTA_AJUDA} />}
                           <button
                             onClick={() => desativar(s)}
                             style={{ padding: '4px 10px', borderRadius: 6, border: `1px solid ${C.red}30`, backgroundColor: 'white', color: C.red, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
                           >
                             Desativar
                           </button>
+                          {i === 0 && <AjudaCampo chave="ehs.setores.desativar" rota={ROTA_AJUDA} />}
                         </div>
                       </Td>
                     )}
@@ -393,6 +408,8 @@ function TabBtn({ ativa, onClick, children }: { ativa: boolean; onClick: () => v
     </button>
   )
 }
+
+const thLabel: React.CSSProperties = { display: 'inline-flex', alignItems: 'center' }
 
 const labelStyle: React.CSSProperties = {
   display: 'block',
