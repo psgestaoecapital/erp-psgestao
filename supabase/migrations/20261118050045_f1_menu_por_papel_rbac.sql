@@ -205,5 +205,5 @@ BEGIN
 END $function$;
 
 -- Privilégios: preserva o ACL vivo (authenticated + service_role; anon NÃO executa).
-REVOKE ALL ON FUNCTION public.fn_modulos_sidebar_por_area(text, uuid, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_modulos_sidebar_por_area(text, uuid, uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_modulos_sidebar_por_area(text, uuid, uuid) TO authenticated, service_role;
