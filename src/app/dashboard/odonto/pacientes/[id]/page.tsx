@@ -15,6 +15,9 @@ import { abrirPdfSimples } from '@/lib/odonto/documentoPdf'
 import { TrajetoriaFicha } from '@/components/odonto/TrajetoriaFicha'
 import { ResumoIaCard } from '@/components/odonto/ResumoIaCard'
 import { VozSoap } from '@/components/odonto/VozSoap'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 import { UserRound, ChevronLeft, MessageCircle, Pencil, FileText, TrendingUp, Stethoscope, Wallet, ClipboardList, AlertTriangle, HeartPulse, Camera, FolderOpen, CheckCircle2, CalendarDays, X, Milestone } from 'lucide-react'
 
 type Paciente = {
@@ -295,7 +298,8 @@ function AbaOrcamentos({ companyId, pacienteId, onNovoOrcamento }: { companyId: 
 // Modal de aprovação → gera erp_receber (idempotente) via fn_odonto_plano_aprovar_financeiro.
 function AprovarPlanoModal({ plano, onClose, onOk }: { plano: Plano; onClose: () => void; onOk: (titulos: number, valor: number) => void }) {
   const [parcelas, setParcelas] = useState(1)
-  const [entrada, setEntrada] = useState('0')
+  // #6874 — entrada com máscara R$ (texto mascarado "R$ 0,00"); moedaParaNumero converte no envio.
+  const [entrada, setEntrada] = useState('')
   const [primeiraVenc, setPrimeiraVenc] = useState(new Date().toISOString().slice(0, 10))
   const [forma, setForma] = useState('boleto')
   const [salvando, setSalvando] = useState(false)
@@ -303,7 +307,7 @@ function AprovarPlanoModal({ plano, onClose, onOk }: { plano: Plano; onClose: ()
   const aprovar = async () => {
     setSalvando(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_odonto_plano_aprovar_financeiro', {
-      p_id: plano.id, p_parcelas: Math.max(1, parcelas), p_entrada: parseFloat(entrada.replace(',', '.')) || 0,
+      p_id: plano.id, p_parcelas: Math.max(1, parcelas), p_entrada: moedaParaNumero(entrada) ?? 0,
       p_primeira_venc: primeiraVenc, p_forma: forma,
     })
     setSalvando(false)
@@ -316,7 +320,7 @@ function AprovarPlanoModal({ plano, onClose, onOk }: { plano: Plano; onClose: ()
       <div style={{ fontSize: 12.5, color: TOK.mut, marginBottom: 10 }}>{plano.titulo || 'Plano de tratamento'} · <strong style={{ color: TOK.gold }}>{brl(plano.valor_total)}</strong>. Gera as contas a receber (idempotente — reaprovar não duplica).</div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
         <Campo label="Parcelas"><input type="number" min={1} max={60} value={parcelas} onChange={(e) => setParcelas(parseInt(e.target.value || '1', 10))} style={inpFicha} /></Campo>
-        <Campo label="Entrada (R$)"><input inputMode="decimal" value={entrada} onChange={(e) => setEntrada(e.target.value)} style={inpFicha} /></Campo>
+        <Campo label="Entrada (R$)" ajuda="odonto.plano.entrada" ajudaRota="/dashboard/odonto/pacientes"><CampoMoeda value={entrada} onChange={setEntrada} style={inpFicha} placeholder="0,00" /></Campo>
         <Campo label="1º vencimento"><input type="date" value={primeiraVenc} onChange={(e) => setPrimeiraVenc(e.target.value)} style={inpFicha} /></Campo>
         <Campo label="Forma"><select value={forma} onChange={(e) => setForma(e.target.value)} style={inpFicha}>{['boleto', 'pix', 'dinheiro', 'cartao_credito', 'cartao_debito', 'transferencia', 'cheque'].map((f) => <option key={f} value={f}>{FORMA_LABEL[f] ?? f}</option>)}</select></Campo>
       </div>
@@ -360,7 +364,8 @@ function ReceberModal({ companyId, titulo, onClose, onOk }: { companyId: string;
   const [contas, setContas] = useState<{ id: string; nome: string; banco: string | null }[]>([])
   const [conta, setConta] = useState('')
   const [forma, setForma] = useState('pix')
-  const [valor, setValor] = useState(String(titulo.valor ?? ''))
+  // #6874 — valor com máscara R$: pré-preenche o valor do título já mascarado e converte no envio.
+  const [valor, setValor] = useState(numeroParaMoeda(titulo.valor ?? null))
   const [data, setData] = useState(new Date().toISOString().slice(0, 10))
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
@@ -373,19 +378,19 @@ function ReceberModal({ companyId, titulo, onClose, onOk }: { companyId: string;
     setSalvando(true); setErro(null)
     const { data: res, error } = await supabase.rpc('fn_receber_baixar_pagamento', {
       p_receber_id: titulo.id, p_data_pagamento: data, p_conta_bancaria_id: conta,
-      p_forma_pagamento: (FORMA_LABEL[forma] ?? forma).toUpperCase(), p_valor_pago: parseFloat(valor.replace(',', '.')) || null,
+      p_forma_pagamento: (FORMA_LABEL[forma] ?? forma).toUpperCase(), p_valor_pago: moedaParaNumero(valor),
     })
     setSalvando(false)
     const r = res as { sucesso?: boolean; erro?: string; valor_baixa?: number } | null
     if (error || !r?.sucesso) { setErro(r?.erro || 'Não foi possível registrar o recebimento. Confira a conta e o valor e tente de novo; se continuar, fale com o suporte.'); return }
-    onOk(r.valor_baixa ?? (parseFloat(valor.replace(',', '.')) || 0))
+    onOk(r.valor_baixa ?? (moedaParaNumero(valor) ?? 0))
   }
   return (
     <ModalFicha titulo="Receber título" onClose={onClose}>
       <div style={{ fontSize: 12.5, color: TOK.mut, marginBottom: 10 }}>{titulo.descricao} · venc. {fmtData(titulo.data_vencimento)}</div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
         <Campo label="Forma"><select value={forma} onChange={(e) => setForma(e.target.value)} style={inpFicha}>{['dinheiro', 'cartao_credito', 'cartao_debito', 'pix', 'transferencia', 'boleto', 'cheque'].map((f) => <option key={f} value={f}>{FORMA_LABEL[f]}</option>)}</select></Campo>
-        <Campo label="Valor (R$)"><input inputMode="decimal" value={valor} onChange={(e) => setValor(e.target.value)} style={inpFicha} /></Campo>
+        <Campo label="Valor (R$)" ajuda="odonto.receber.valor" ajudaRota="/dashboard/odonto/pacientes"><CampoMoeda value={valor} onChange={setValor} style={inpFicha} placeholder="0,00" /></Campo>
         <Campo label="Data"><input type="date" value={data} onChange={(e) => setData(e.target.value)} style={inpFicha} /></Campo>
         <Campo label="Conta financeira"><select value={conta} onChange={(e) => setConta(e.target.value)} style={inpFicha}><option value="">— escolher —</option>{contas.map((c) => <option key={c.id} value={c.id}>{c.nome}{c.banco ? ` · ${c.banco}` : ''}</option>)}</select></Campo>
       </div>
@@ -411,8 +416,8 @@ function ModalFicha({ titulo, onClose, children }: { titulo: string; onClose: ()
     </div>
   )
 }
-function Campo({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label style={{ display: 'block' }}><span style={{ fontSize: 11, color: TOK.mut, display: 'block', marginBottom: 4 }}>{label}</span>{children}</label>
+function Campo({ label, ajuda, ajudaRota, children }: { label: string; ajuda?: string; ajudaRota?: string; children: React.ReactNode }) {
+  return <label style={{ display: 'block' }}><span style={{ fontSize: 11, color: TOK.mut, display: 'flex', alignItems: 'center', gap: 2, marginBottom: 4 }}>{label}{ajuda ? <AjudaCampo chave={ajuda} rota={ajudaRota} /> : null}</span>{children}</label>
 }
 const inpFicha: React.CSSProperties = { width: '100%', padding: '8px 10px', border: `0.5px solid ${TOK.line}`, borderRadius: 8, fontSize: 13, color: TOK.esp, background: '#fff', boxSizing: 'border-box' }
 
