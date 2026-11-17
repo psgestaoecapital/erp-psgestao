@@ -3,6 +3,8 @@ import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { CampoMoeda } from "@/components/comum/CampoMoeda";
+import { moedaParaNumero, numeroParaMoeda } from "@/lib/moeda-mascara";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -453,7 +455,8 @@ export default function PedidosPage(){
                   <input value={it.produto_nome||''} onChange={e=>atualizarItemEd(idx,'produto_nome',e.target.value)} placeholder="Descrição do item" style={{...inp,padding:"6px 8px",fontSize:11}}/>
                   <input type="number" step="0.01" value={it.quantidade||''} onChange={e=>atualizarItemEd(idx,'quantidade',parseFloat(e.target.value)||0)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/>
                   <input value={it.unidade||'UN'} onChange={e=>atualizarItemEd(idx,'unidade',e.target.value)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"center"}}/>
-                  <input type="number" step="0.01" value={it.preco_unitario||''} onChange={e=>atualizarItemEd(idx,'preco_unitario',parseFloat(e.target.value)||0)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/>
+                  {/* #6874 — preço unitário com máscara em R$ enquanto digita (valor gravado continua numérico) */}
+                  <CampoMoeda value={it.preco_unitario?numeroParaMoeda(it.preco_unitario):''} onChange={v=>atualizarItemEd(idx,'preco_unitario',moedaParaNumero(v)||0)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/>
                   <input type="number" step="0.1" value={it.desconto_percentual||''} onChange={e=>atualizarItemEd(idx,'desconto_percentual',parseFloat(e.target.value)||0)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/>
                   <div style={{textAlign:"right",fontSize:12,fontWeight:600,color:G}}>{fmtR(it.subtotal)}</div>
                   <button onClick={()=>removerItemEd(idx)} style={{background:"none",border:"none",color:R,cursor:"pointer",fontSize:14}} title="Remover">🗑</button>
