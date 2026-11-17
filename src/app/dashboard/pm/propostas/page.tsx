@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import AnexosCard, { type AnexosCardHandle } from '@/components/crm/AnexosCard'
+import ClientePickerInline from '@/components/ge/ClientePickerInline'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
 import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
@@ -548,7 +549,18 @@ export default function PropostasPage() {
               </div>
             )}
 
-            <ClienteField value={fCliente} onChange={(id) => setFCliente(id)} empresa={empresa} setToast={setToast} nomeLead={fLeadNome} />
+            {/* Pdois Frente 4: reusa o ClientePickerInline compartilhado (RD-26) — herda o fix do race e o CNPJ
+                correto (doc, não no nome). O box "Cliente do lead" (#2915) vira hint externo. */}
+            <div style={{ position: 'relative' }}>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Cliente (cadastro GE)<AjudaCampo chave="pm.propostas.cliente" /></span></label>
+              {!fCliente && fLeadNome && (
+                <div style={{ fontSize: 11, color: TEXTM, background: '#FBF6EA', border: `1px solid ${BORDA}`, borderRadius: 6, padding: '6px 8px', marginBottom: 4 }}>
+                  Cliente do lead: <b>{fLeadNome}</b> — ainda sem cadastro na GE. Busque ou cadastre abaixo.
+                </div>
+              )}
+              <ClientePickerInline companyId={empresa} value={fCliente} onChange={(id) => setFCliente(id)} onToast={setToast} onErro={setToast}
+                placeholder={fLeadNome ? `Buscar ou cadastrar "${fLeadNome}"…` : undefined} />
+            </div>
 
             <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Título *<AjudaCampo chave="pm.propostas.titulo" /></span><input style={inp} value={fTitulo} onChange={(e) => setFTitulo(e.target.value)} placeholder="Ex.: Gestão de redes + tráfego" /></label>
 
@@ -752,107 +764,6 @@ export default function PropostasPage() {
 
 
       {toast && <div style={toastStyle}>{toast}</div>}
-    </div>
-  )
-}
-
-// Autocomplete sobre erp_clientes (base mestre, via fn_cliente_buscar) + cadastro rápido inline
-// (fn_cliente_criar_inline). Igual ao picker dos Leads (regra-mãe b9333675). value = erp_cliente_id.
-function ClienteField({ value, onChange, empresa, setToast, nomeLead }: {
-  value: string; onChange: (erpId: string) => void; empresa: string; setToast: (s: string) => void
-  nomeLead?: string   // #2915 · nome do lead quando ele ainda não tem cliente da GE vinculado
-}) {
-  const [q, setQ] = useState('')
-  const [nomeSel, setNomeSel] = useState('')
-  const [sug, setSug] = useState<{ id: string; nome: string; doc: string | null }[]>([])
-  const [buscando, setBuscando] = useState(false)
-  const [open, setOpen] = useState(false)
-  const [criando, setCriando] = useState(false)
-  const [novoNome, setNovoNome] = useState('')
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  // nome do cliente pré-selecionado (prefill) — busca deferida (evita setState síncrono no effect)
-  useEffect(() => {
-    let alive = true
-    const t = setTimeout(async () => {
-      if (!value) { setNomeSel(''); return }
-      const { data } = await supabase.from('erp_clientes').select('nome_fantasia, razao_social').eq('id', value).maybeSingle()
-      if (!alive) return
-      const d = (data ?? {}) as { nome_fantasia?: string | null; razao_social?: string | null }
-      setNomeSel(d.nome_fantasia ?? d.razao_social ?? '')
-    }, 0)
-    return () => { alive = false; clearTimeout(t) }
-  }, [value])
-
-  function buscar(t: string) {
-    setQ(t); setOpen(true)
-    if (timer.current) clearTimeout(timer.current)
-    timer.current = setTimeout(async () => {
-      const term = t.trim()
-      if (term.length < 2) { setSug([]); return }
-      setBuscando(true)
-      try {
-        const { data } = await supabase.rpc('fn_cliente_buscar', { p_company_id: empresa, p_termo: term, p_limit: 8 })
-        const res = ((data as { resultados?: { cliente_id: string; nome: string; cnpj_cpf: string | null }[] } | null)?.resultados) ?? []
-        setSug(res.map((r) => ({ id: r.cliente_id, nome: r.nome, doc: r.cnpj_cpf })))
-      } finally { setBuscando(false) }
-    }, 250)
-  }
-  function escolher(c: { id: string; nome: string }) { onChange(c.id); setNomeSel(c.nome); setOpen(false); setSug([]); setQ('') }
-  async function criarInline(nomeDireto?: string) {
-    const nome = (nomeDireto ?? (novoNome || q)).trim()
-    if (!nome) { setToast('Digite o nome/empresa do cliente.'); return }
-    const { data, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: empresa, p_nome: nome, p_cpf_cnpj: null, p_extra: {} })
-    if (error) { setToast(erroAmigavel(error, 'Não foi possível criar o cliente.')); return }
-    const id = data as string | null
-    if (id) { onChange(id); setNomeSel(nome) }
-    setCriando(false); setNovoNome(''); setOpen(false); setSug([])
-    setToast('Cliente CRIADO na GE e vinculado.')
-  }
-
-  return (
-    <div style={{ position: 'relative' }}>
-      <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Cliente (cadastro GE)<AjudaCampo chave="pm.propostas.cliente" /></span>
-        {value ? (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <div style={{ ...inp, flex: 1, display: 'flex', alignItems: 'center' }}>{nomeSel || 'Cliente selecionado'}</div>
-            <button onClick={() => { onChange(''); setNomeSel(''); setQ('') }} style={btnSec}>Trocar</button>
-          </div>
-        ) : (
-          <input style={inp} value={q} onChange={(e) => buscar(e.target.value)}
-            onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)}
-            placeholder="Buscar cliente da GE…" />
-        )}
-      </label>
-      {!value && nomeLead && !q && (
-        <div data-testid="proposta-cliente-do-lead" style={{ marginTop: 6, padding: '8px 10px', border: `1px dashed ${DOURADO}`, borderRadius: 8, fontSize: 12.5, color: ESPRESSO, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ flex: 1, minWidth: 160 }}>Cliente do lead: <b>{nomeLead}</b> — ainda sem cadastro na GE.</span>
-          <button onMouseDown={(e) => { e.preventDefault(); buscar(nomeLead) }} style={btnSec}>Buscar</button>
-          <button onMouseDown={(e) => { e.preventDefault(); void criarInline(nomeLead) }} style={btnSec}>+ Cadastrar na GE</button>
-        </div>
-      )}
-      {!value && open && (q.trim().length >= 2 || criando) && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 8, marginTop: 2, boxShadow: '0 6px 20px rgba(0,0,0,.10)', maxHeight: 240, overflowY: 'auto' }}>
-          {buscando && <div style={{ padding: '8px 10px', fontSize: 12, color: TEXTM }}>Buscando…</div>}
-          {sug.map((c) => (
-            <div key={c.id} onMouseDown={(e) => { e.preventDefault(); escolher(c) }}
-              style={{ padding: '8px 10px', cursor: 'pointer', fontSize: 13, borderBottom: `1px solid ${BORDA}` }}>
-              {c.nome}{c.doc ? <span style={{ color: TEXTM, fontSize: 11, marginLeft: 6 }}>· {c.doc}</span> : null}
-            </div>
-          ))}
-          {!criando ? (
-            <div onMouseDown={(e) => { e.preventDefault(); setCriando(true); setNovoNome(q) }}
-              style={{ padding: '8px 10px', cursor: 'pointer', fontSize: 13, color: DOURADO, fontWeight: 700 }}>
-              + Cadastrar cliente{q.trim() ? ` "${q.trim()}"` : ''} na GE
-            </div>
-          ) : (
-            <div style={{ padding: 10, display: 'flex', gap: 6 }} onMouseDown={(e) => e.preventDefault()}>
-              <input style={{ ...inp, flex: 1 }} value={novoNome} onChange={(e) => setNovoNome(e.target.value)} placeholder="Nome do cliente" autoFocus />
-              <button onMouseDown={(e) => { e.preventDefault(); void criarInline() }} style={btnPri}>Criar</button>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   )
 }

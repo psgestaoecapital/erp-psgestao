@@ -161,16 +161,24 @@ export default function GovNFSeStatusClient() {
             <Landmark className="text-[#C8941A]" size={22} /> NFSe Nacional gov.br
           </h1>
           <p className="text-[13px] text-[#3D2314]/70 mt-1.5 max-w-3xl">
-            Diagnóstico da emissão via Sistema Nacional NFS-e (Receita Federal). Lista DPSes
-            pendentes e municípios aderidos. <strong>Fase 1</strong> · emissão real via mTLS chega na Fase 2.
+            Painel de diagnóstico do Sistema Nacional NFS-e (Receita Federal): municípios aderidos
+            e acompanhamento das DPSes. <strong>Para emitir</strong> uma NFS-e, use a tela de{' '}
+            <Link href="/dashboard/fiscal/nfse" className="text-[#BA7517] hover:text-[#8B5612] underline underline-offset-2">
+              Emissão de NFS-e
+            </Link>.
           </p>
         </header>
 
-        <div className="bg-[#FAEEDA] border border-[#E8C387] rounded-xl p-4 mb-5 text-[12.5px] text-[#633806] leading-relaxed">
-          <strong className="font-medium">Status atual:</strong> sistema preparado pra registrar DPSes
-          localmente. A transmissão efetiva (mTLS com certificado A1 + endpoint{' '}
-          <code className="text-[11px] bg-[#3D2314]/8 px-1 rounded">sefin.nfse.gov.br/sefinnacional/dps</code>)
-          será habilitada na Fase 2 (próximo PR).
+        <div className="bg-[#FAEEDA] border border-[#E8C387] rounded-xl p-4 mb-5 text-[12.5px] text-[#633806] leading-relaxed flex items-start gap-2">
+          <FileText size={15} className="text-[#C8941A] flex-shrink-0 mt-0.5" />
+          <div>
+            <strong className="font-medium">Esta tela é só diagnóstico.</strong> Ela mostra os municípios
+            aderidos ao padrão nacional e o status das DPSes. A emissão de NFS-e já está disponível e sai pela
+            tela de{' '}
+            <Link href="/dashboard/fiscal/nfse" className="font-medium text-[#8B5612] hover:text-[#633806] underline underline-offset-2">
+              Emissão de NFS-e
+            </Link>.
+          </div>
         </div>
 
         <div className="bg-white border border-[#3D2314]/10 rounded-xl overflow-hidden mb-5">
