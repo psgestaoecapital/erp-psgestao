@@ -7,6 +7,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { fmtData } from '@/lib/psgc-tokens'
 import { UploadDocumentoModal, type UploadContext } from '../_components/UploadDocumentoModal'
 import { C, StatusBadge, baixarDocumento } from '../_components/ui'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 
 type TipoEmpresa = {
   id: string
@@ -180,7 +181,10 @@ export default function ComplianceEmpresaPage() {
 
         {erro && (<div style={{ backgroundColor: C.redBg, color: C.red, padding: '12px 16px', borderRadius: 8, marginBottom: 16, fontSize: 14 }}>{erro}</div>)}
 
-        <section style={{ background: 'white', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)', display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+        <section style={{ background: 'white', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)', display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: C.muted, marginRight: 4 }}>
+            Grupo <AjudaCampo chave="compliance.empresa.filtro_grupo" />
+          </span>
           <button
             onClick={() => setFiltroGrupo('')}
             style={chipStyle(filtroGrupo === '')}
@@ -240,13 +244,13 @@ export default function ComplianceEmpresaPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ backgroundColor: C.offwhite }}>
-                    <Th>Documento</Th>
-                    <Th>Tipo</Th>
-                    {multiEmpresa && <Th>Empresa</Th>}
-                    <Th>Status</Th>
-                    <Th>Validade</Th>
-                    <Th>Arquivo</Th>
-                    <Th>Ações</Th>
+                    <Th>Documento <AjudaCampo chave="compliance.empresa.documento" /></Th>
+                    <Th>Tipo <AjudaCampo chave="compliance.empresa.tipo" /></Th>
+                    {multiEmpresa && <Th>Empresa <AjudaCampo chave="compliance.empresa.empresa" /></Th>}
+                    <Th>Status <AjudaCampo chave="compliance.empresa.status" /></Th>
+                    <Th>Validade <AjudaCampo chave="compliance.empresa.validade" /></Th>
+                    <Th>Arquivo <AjudaCampo chave="compliance.empresa.arquivo" /></Th>
+                    <Th>Ações <AjudaCampo chave="compliance.empresa.acoes" /></Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -278,17 +282,20 @@ export default function ComplianceEmpresaPage() {
                       <Td>
                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                           {!l.documento ? (
-                            <button
-                              onClick={() =>
-                                setUploadCtx({
-                                  companyId: l.companyId, tipoDocumentoId: l.tipo.id, tipoNome: l.tipo.nome,
-                                  empresaAlvoId: l.companyId, modo: 'upload',
-                                })
-                              }
-                              style={btnPrim()}
-                            >
-                              Upload
-                            </button>
+                            <>
+                              <button
+                                onClick={() =>
+                                  setUploadCtx({
+                                    companyId: l.companyId, tipoDocumentoId: l.tipo.id, tipoNome: l.tipo.nome,
+                                    empresaAlvoId: l.companyId, modo: 'upload',
+                                  })
+                                }
+                                style={btnPrim()}
+                              >
+                                Upload
+                              </button>
+                              <AjudaCampo chave="compliance.empresa.upload" />
+                            </>
                           ) : (
                             <>
                               <button
@@ -302,7 +309,9 @@ export default function ComplianceEmpresaPage() {
                               >
                                 Substituir
                               </button>
+                              <AjudaCampo chave="compliance.empresa.substituir" />
                               <button onClick={() => baixarDocumento(l.documento!.id)} style={btnSec()}>Baixar</button>
+                              <AjudaCampo chave="compliance.empresa.baixar" />
                             </>
                           )}
                         </div>

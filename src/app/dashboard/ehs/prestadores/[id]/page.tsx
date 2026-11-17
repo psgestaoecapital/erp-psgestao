@@ -9,6 +9,7 @@ import { UploadDocumentoModal, type UploadContext } from '../../_components/Uplo
 import NovoFuncionarioModal from '../../_components/NovoFuncionarioModal'
 import { C, StatusBadge, baixarDocumento } from '../../_components/ui'
 import { CLASSIFICACAO_SERVICO, TIPOS_SERVICO, ATIVIDADES_ESPECIAIS } from '../../_components/prestador-opts'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 
 type Prestador = {
   id: string
@@ -185,6 +186,52 @@ export default function PrestadorDetalhePage() {
     }
   }
 
+  // Inativação (soft-delete rastreável) / reativação do prestador — RD-98 p2.
+  const [confirmInativar, setConfirmInativar] = useState(false)
+  const [motivoInativar, setMotivoInativar] = useState('')
+  const [mutando, setMutando] = useState(false)
+
+  async function inativarPrestador() {
+    if (!prestador || mutando) return
+    if (!motivoInativar.trim()) { showToast('Informe o motivo da inativação.', false); return }
+    setMutando(true)
+    try {
+      const res = await authFetch(`/api/compliance/prestadores/${id}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ motivo: motivoInativar.trim() }),
+      })
+      const j = await res.json()
+      if (!j.ok) throw new Error(j.mensagem_humana || j.error || 'falha')
+      setConfirmInativar(false)
+      setMotivoInativar('')
+      showToast('✓ Prestador inativado')
+      await carregar()
+    } catch (e: any) {
+      showToast(e.message || 'Falha ao inativar prestador', false)
+    } finally {
+      setMutando(false)
+    }
+  }
+
+  async function reativarPrestador() {
+    if (!prestador || mutando) return
+    setMutando(true)
+    try {
+      const res = await authFetch(`/api/compliance/prestadores/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ ativo: true }),
+      })
+      const j = await res.json()
+      if (!j.ok) throw new Error(j.mensagem_humana || j.error || 'falha')
+      showToast('✓ Prestador reativado')
+      await carregar()
+    } catch (e: any) {
+      showToast(e.message || 'Falha ao reativar prestador', false)
+    } finally {
+      setMutando(false)
+    }
+  }
+
   if (loading && !prestador) {
     return (
       <div style={{ backgroundColor: C.offwhite, minHeight: '100vh', padding: 32, color: C.muted }}>
@@ -204,17 +251,46 @@ export default function PrestadorDetalhePage() {
   return (
     <div style={{ backgroundColor: C.offwhite, minHeight: '100vh', color: C.ink }}>
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: '32px 24px' }}>
-        <header style={{ marginBottom: 16 }}>
-          <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.5, margin: 0 }}>
-            <Link href="/dashboard/ehs/prestadores" style={{ color: 'inherit', textDecoration: 'none' }}>EHS &gt; Prestadores</Link>
-          </p>
-          <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 32, fontWeight: 400, margin: '4px 0 4px' }}>
-            {prestador.razao_social}
-          </h1>
-          <p style={{ margin: 0, fontSize: 13, color: C.muted }}>
-            {prestador.cnpj} · {prestador.tipo_contrato?.toUpperCase().replace('_', ' ') || '—'}
-            {prestador.empresa_tomadora_nome && ` · tomadora: ${prestador.empresa_tomadora_nome}`}
-          </p>
+        <header style={{ marginBottom: 16, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ minWidth: 0 }}>
+            <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.5, margin: 0 }}>
+              <Link href="/dashboard/ehs/prestadores" style={{ color: 'inherit', textDecoration: 'none' }}>EHS &gt; Prestadores</Link>
+            </p>
+            <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 32, fontWeight: 400, margin: '4px 0 4px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              {prestador.razao_social}
+              {!prestador.ativo && (
+                <span style={{ fontFamily: 'inherit', fontSize: 12, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', color: C.red, background: C.redBg, padding: '3px 10px', borderRadius: 999 }}>Inativo</span>
+              )}
+            </h1>
+            <p style={{ margin: 0, fontSize: 13, color: C.muted }}>
+              {prestador.cnpj} · {prestador.tipo_contrato?.toUpperCase().replace('_', ' ') || '—'}
+              {prestador.empresa_tomadora_nome && ` · tomadora: ${prestador.empresa_tomadora_nome}`}
+            </p>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+            {prestador.ativo ? (
+              <>
+                <button
+                  onClick={() => setConfirmInativar(true)}
+                  style={{ padding: '9px 14px', borderRadius: 8, border: `1px solid ${C.red}`, background: 'white', color: C.red, fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                >
+                  Inativar prestador
+                </button>
+                <AjudaCampo chave="compliance.prestadores.inativar" />
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={reativarPrestador}
+                  disabled={mutando}
+                  style={{ padding: '9px 14px', borderRadius: 8, border: 'none', background: C.espresso, color: 'white', fontSize: 13, fontWeight: 600, cursor: mutando ? 'not-allowed' : 'pointer', opacity: mutando ? 0.6 : 1, whiteSpace: 'nowrap' }}
+                >
+                  Reativar prestador
+                </button>
+                <AjudaCampo chave="compliance.prestadores.reativar" />
+              </>
+            )}
+          </div>
         </header>
 
         <nav style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${C.borderLt}`, marginBottom: 20 }}>
@@ -287,6 +363,48 @@ export default function PrestadorDetalhePage() {
             carregar()
           }}
         />
+      )}
+
+      {confirmInativar && (
+        <div
+          onClick={() => !mutando && setConfirmInativar(false)}
+          style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+        >
+          <div onClick={(e) => e.stopPropagation()} style={{ background: 'white', borderRadius: 12, padding: 24, width: '100%', maxWidth: 440, boxShadow: '0 16px 48px rgba(0,0,0,0.2)' }}>
+            <h2 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 20, fontWeight: 400, margin: '0 0 6px' }}>Inativar prestador</h2>
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: C.muted }}>
+              O prestador <strong>{prestador.razao_social}</strong> sai da lista de ativos. O histórico de documentos é preservado e a inativação fica registrada com o seu usuário, a data e o motivo. Você pode reativá-lo depois.
+            </p>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: C.espresso }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', marginBottom: 6 }}>
+                Motivo da inativação<AjudaCampo chave="compliance.prestadores.inativar_motivo" />
+              </span>
+              <textarea
+                value={motivoInativar}
+                onChange={(e) => setMotivoInativar(e.target.value)}
+                rows={3}
+                placeholder="Ex.: contrato encerrado em 31/12/2026, não renovado."
+                style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.borderLt}`, fontSize: 13, fontFamily: 'inherit', resize: 'vertical' }}
+              />
+            </label>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
+              <button
+                onClick={() => { setConfirmInativar(false); setMotivoInativar('') }}
+                disabled={mutando}
+                style={{ padding: '9px 14px', borderRadius: 8, border: `1px solid ${C.borderLt}`, background: 'white', color: C.espresso, fontSize: 13, fontWeight: 600, cursor: mutando ? 'not-allowed' : 'pointer' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={inativarPrestador}
+                disabled={mutando || !motivoInativar.trim()}
+                style={{ padding: '9px 14px', borderRadius: 8, border: 'none', background: C.red, color: 'white', fontSize: 13, fontWeight: 600, cursor: mutando || !motivoInativar.trim() ? 'not-allowed' : 'pointer', opacity: mutando || !motivoInativar.trim() ? 0.6 : 1 }}
+              >
+                {mutando ? 'Inativando…' : 'Confirmar inativação'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {toast && (

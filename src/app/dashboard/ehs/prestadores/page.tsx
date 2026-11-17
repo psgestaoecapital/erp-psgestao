@@ -6,6 +6,7 @@ import { authFetch } from '@/lib/authFetch'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { fmtR } from '@/lib/psgc-tokens'
 import { C } from '../_components/ui'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 import { CLASSIFICACAO_SERVICO, TIPOS_SERVICO, ATIVIDADES_ESPECIAIS } from '../_components/prestador-opts'
 
 type Prestador = {
@@ -29,6 +30,13 @@ const TIPO_LABEL: Record<string, string> = {
   mei: 'MEI',
   pj_simples: 'PJ Simples',
   pj_lucro_real: 'PJ Lucro Real',
+  prestacao_servico: 'Prestação de serviço',
+}
+// Nunca mostra valor cru em snake_case ao usuário (RD-98, critério e): mapeia o enum conhecido e,
+// para qualquer valor legado não mapeado, humaniza (troca "_" por espaço e capitaliza).
+function rotuloTipo(tipo: string | null): string {
+  if (!tipo) return '—'
+  return TIPO_LABEL[tipo] || tipo.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
 }
 
 export default function ComplianceListaPrestadoresPage() {
@@ -103,12 +111,16 @@ export default function ComplianceListaPrestadoresPage() {
             <button onClick={() => setModalAberto(true)} disabled={empresasNoEscopo.length === 0} style={btnPrim()}>
               + Novo Prestador
             </button>
+            <AjudaCampo chave="compliance.prestadores.novo" />
           </div>
         </header>
 
         {erro && (<div style={{ backgroundColor: C.redBg, color: C.red, padding: '12px 16px', borderRadius: 8, marginBottom: 16, fontSize: 14 }}>{erro}</div>)}
 
         <section style={{ backgroundColor: 'white', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)', marginBottom: 16 }}>
+          <label style={{ display: 'flex', alignItems: 'center', fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+            Buscar <AjudaCampo chave="compliance.prestadores.busca" />
+          </label>
           <input
             type="text"
             placeholder="Buscar por razão social, CNPJ, nome fantasia…"
@@ -123,14 +135,14 @@ export default function ComplianceListaPrestadoresPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ backgroundColor: C.beigeLt }}>
-                  <Th>Razão Social</Th>
-                  <Th>CNPJ</Th>
-                  <Th>Tipo</Th>
-                  {multiEmpresa && <Th>Empresa</Th>}
-                  <Th>Responsável</Th>
-                  <Th>Valor mensal</Th>
-                  <Th>EHS</Th>
-                  <Th>Ações</Th>
+                  <Th>Razão Social <AjudaCampo chave="compliance.prestadores.razao_social" /></Th>
+                  <Th>CNPJ <AjudaCampo chave="compliance.prestadores.cnpj" /></Th>
+                  <Th>Tipo <AjudaCampo chave="compliance.prestadores.tipo" /></Th>
+                  {multiEmpresa && <Th>Empresa <AjudaCampo chave="compliance.prestadores.empresa" /></Th>}
+                  <Th>Responsável <AjudaCampo chave="compliance.prestadores.responsavel" /></Th>
+                  <Th>Valor mensal <AjudaCampo chave="compliance.prestadores.valor_mensal" /></Th>
+                  <Th>EHS <AjudaCampo chave="compliance.prestadores.ehs" /></Th>
+                  <Th>Ações <AjudaCampo chave="compliance.prestadores.acoes" /></Th>
                 </tr>
               </thead>
               <tbody>
@@ -139,7 +151,7 @@ export default function ComplianceListaPrestadoresPage() {
                 {prestadores.map((p, i) => {
                   const pct = p.compliance_resumo?.pct ?? 0
                   const barColor = pct === 100 ? C.green : pct >= 50 ? C.amber : C.red
-                  const tipoLabel = p.tipo_contrato ? (TIPO_LABEL[p.tipo_contrato] || p.tipo_contrato) : '—'
+                  const tipoLabel = rotuloTipo(p.tipo_contrato)
                   return (
                     <tr key={p.id} style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.borderLt}` }}>
                       <Td>
@@ -171,7 +183,10 @@ export default function ComplianceListaPrestadoresPage() {
                         </div>
                       </Td>
                       <Td>
-                        <Link href={`/dashboard/ehs/prestadores/${p.id}`} style={btnSecSm()}>Abrir</Link>
+                        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                          <Link href={`/dashboard/ehs/prestadores/${p.id}`} style={btnSecSm()}>Abrir</Link>
+                          <AjudaCampo chave="compliance.prestadores.abrir" />
+                        </span>
                       </Td>
                     </tr>
                   )

@@ -25,6 +25,12 @@ verify_jwt = true
 # Tela autenticada checa disponibilidade de producao.
 verify_jwt = true
 
+[functions.gov-nfse-sync-municipios]
+# Sincroniza municipios aderidos ao SN NFS-e. Pode rodar por cron (service_role)
+# ou pelo botao "Sincronizar municipios" da tela diagnostica. Fonte estava so no
+# runtime (deploy manual); trazida ao repo. Preserva o verify_jwt=false ja vigente.
+verify_jwt = false
+
 [functions.pluggy-connect-token-financeiro]
 # Tela autenticada chama via supabase.functions.invoke (JWT user).
 verify_jwt = true
