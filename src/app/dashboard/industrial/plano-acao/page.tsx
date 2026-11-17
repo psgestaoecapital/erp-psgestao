@@ -9,6 +9,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { MapPin, User, CalendarDays, CheckCircle2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { exportarExcel, exportarPDF, type Coluna } from '@/lib/export/relatorioLista'
@@ -562,11 +564,13 @@ export default function PlanoAcaoPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
               <label>
                 <span style={rotulo}>Quanto (estimado)<AjudaCampo chave="industrial.plano_acao.quanto_estimado" rota={ROTA} /></span>
-                <input data-testid="campo-custo_estimado" type="number" step="0.01" min="0" value={form.custo_estimado} onChange={(e) => setForm({ ...form, custo_estimado: e.target.value })} placeholder="R$" style={inp} />
+                {/* #6874 — campo monetário padrão (CampoMoeda): máscara R$ ao digitar; custo_estimado segue string numérica ("1234.56") no estado/RPC */}
+                <CampoMoeda testId="campo-custo_estimado" value={form.custo_estimado !== '' ? numeroParaMoeda(Number(form.custo_estimado)) : ''} onChange={(v) => setForm({ ...form, custo_estimado: String(moedaParaNumero(v) ?? '') })} placeholder="R$ 0,00" style={inp} />
               </label>
               <label>
                 <span style={rotulo}>Quanto (real)<AjudaCampo chave="industrial.plano_acao.quanto_real" rota={ROTA} /></span>
-                <input data-testid="campo-custo_real" type="number" step="0.01" min="0" value={form.custo_real} onChange={(e) => setForm({ ...form, custo_real: e.target.value })} placeholder="R$" style={inp} />
+                {/* #6874 — campo monetário padrão (CampoMoeda) */}
+                <CampoMoeda testId="campo-custo_real" value={form.custo_real !== '' ? numeroParaMoeda(Number(form.custo_real)) : ''} onChange={(v) => setForm({ ...form, custo_real: String(moedaParaNumero(v) ?? '') })} placeholder="R$ 0,00" style={inp} />
               </label>
               <label>
                 <span style={rotulo}>Prioridade<AjudaCampo chave="industrial.plano_acao.prioridade" rota={ROTA} /></span>
