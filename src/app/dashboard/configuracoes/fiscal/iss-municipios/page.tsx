@@ -56,6 +56,53 @@ export default function IssMunicipiosPage() {
   const [obs, setObs] = useState('')
   const [salvando, setSalvando] = useState(false)
 
+  // edição de um cadastro existente (#9427)
+  const [editId, setEditId] = useState<string | null>(null)
+  const [edAliq, setEdAliq] = useState('')
+  const [edRetido, setEdRetido] = useState<'' | 'sim' | 'nao'>('')
+  const [edFonte, setEdFonte] = useState('contador')
+  const [edInformado, setEdInformado] = useState('')
+  const [edVigIni, setEdVigIni] = useState('')
+  const [edVigFim, setEdVigFim] = useState('')
+  const [edObs, setEdObs] = useState('')
+  const [edSalvando, setEdSalvando] = useState(false)
+
+  function abrirEdicao(r: IssRow) {
+    setEditId(r.id)
+    setEdAliq(String(r.aliquota).replace('.', ','))
+    setEdRetido(r.retido_na_fonte === null ? '' : r.retido_na_fonte ? 'sim' : 'nao')
+    setEdFonte(r.fonte)
+    setEdInformado(r.informado_por ?? '')
+    setEdVigIni(r.vigencia_inicio ? r.vigencia_inicio.slice(0, 10) : '')
+    setEdVigFim(r.vigencia_fim ? r.vigencia_fim.slice(0, 10) : '')
+    setEdObs(r.observacao ?? '')
+    setMsg('')
+  }
+
+  async function salvarEdicao() {
+    if (!editId) return
+    const a = Number(edAliq.replace(',', '.'))
+    if (!isFinite(a) || a < 0 || a > 10) { setMsg('Erro: alíquota deve estar entre 0 e 10%.'); return }
+    if (edVigFim && edVigIni && edVigFim < edVigIni) { setMsg('Erro: o fim da vigência não pode ser antes do início.'); return }
+    setEdSalvando(true); setMsg('')
+    try {
+      const { data, error } = await supabase.rpc('fn_fiscal_iss_alterar', {
+        p_id: editId, p_aliquota: a,
+        p_retido_na_fonte: edRetido === '' ? null : edRetido === 'sim',
+        p_vigencia_inicio: edVigIni || null, p_vigencia_fim: edVigFim || null,
+        p_fonte: edFonte, p_informado_por: edInformado.trim() || null, p_observacao: edObs.trim() || null,
+      })
+      if (error) throw error
+      const j = data as { ok?: boolean; erro?: string } | null
+      if (!j?.ok) { setMsg('Erro: ' + (j?.erro ?? 'não foi possível alterar')); return }
+      setMsg('Cadastro atualizado. O histórico (valor anterior e quem alterou) ficou registrado.')
+      setEditId(null)
+      void carregar()
+    } catch (e) {
+      setMsg('Erro ao alterar: ' + (e as Error).message)
+    } finally { setEdSalvando(false) }
+  }
+
   const carregar = useCallback(async () => {
     if (!companyId) { setLoading(false); return }
     setLoading(true)
@@ -241,14 +288,26 @@ export default function IssMunicipiosPage() {
               {rows.map((r) => {
                 const m = nomes[r.codigo_ibge]
                 const vigente = !r.vigencia_fim
+                const emEdicao = editId === r.id
                 return (
-                  <div key={r.id} className={`px-4 py-3 text-[13px] ${vigente ? '' : 'opacity-55'}`}>
+                  <div key={r.id} className={`px-4 py-3 text-[13px] ${vigente || emEdicao ? '' : 'opacity-55'}`}>
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
                         <span className="font-medium text-[#3D2314]">{m ? `${m.nome_municipio}/${m.uf}` : r.codigo_ibge}</span>
                         <span className="text-[#3D2314]/55"> · LC {r.codigo_lc116}</span>
                       </div>
-                      <span className="font-medium text-[#3D2314] tabular-nums whitespace-nowrap">{fmtPct(r.aliquota)}</span>
+                      <div className="flex items-center gap-2 whitespace-nowrap">
+                        <span className="font-medium text-[#3D2314] tabular-nums">{fmtPct(r.aliquota)}</span>
+                        {!emEdicao && (
+                          <>
+                            <AjudaCampo chave="fiscal.iss.editar" />
+                            <button type="button" onClick={() => abrirEdicao(r)}
+                              className="text-[12px] text-[#8A5A12] hover:text-[#6B4409] underline underline-offset-2">
+                              Editar
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
                     <div className="text-[11.5px] text-[#3D2314]/55 mt-0.5">
                       <span className="inline-block px-1.5 py-0.5 rounded bg-[#F3ECDD] text-[#5C3B0B] mr-2">{fonteLabel(r.fonte)}</span>
@@ -256,6 +315,65 @@ export default function IssMunicipiosPage() {
                       {r.informado_por ? ` · ${r.informado_por}` : ''}
                       {r.retido_na_fonte ? ' · retido na fonte' : ''}
                     </div>
+
+                    {emEdicao && (
+                      <div className="mt-3 bg-[#FAF7F2] border border-[#E7DECF] rounded-lg p-3">
+                        <div className="text-[12px] font-medium text-[#3D2314] mb-2">Editar cadastro</div>
+                        <div className="grid sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[11px] text-[#3D2314]/60 mb-1">Alíquota (%)<AjudaCampo chave="fiscal.iss.aliquota" /></label>
+                            <input value={edAliq} onChange={(e) => setEdAliq(e.target.value)} inputMode="decimal"
+                              className="w-full bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]" />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] text-[#3D2314]/60 mb-1">ISS retido na fonte<AjudaCampo chave="fiscal.iss.retido" /></label>
+                            <select value={edRetido} onChange={(e) => setEdRetido(e.target.value as '' | 'sim' | 'nao')}
+                              className="w-full bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]">
+                              <option value="">Não informado</option>
+                              <option value="sim">Sim, retido pelo tomador</option>
+                              <option value="nao">Não</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[11px] text-[#3D2314]/60 mb-1">Origem do número<AjudaCampo chave="fiscal.iss.fonte" /></label>
+                            <select value={edFonte} onChange={(e) => setEdFonte(e.target.value)}
+                              className="w-full bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]">
+                              {FONTES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[11px] text-[#3D2314]/60 mb-1">Quem informou (opcional)<AjudaCampo chave="fiscal.iss.informado_por" /></label>
+                            <input value={edInformado} onChange={(e) => setEdInformado(e.target.value)}
+                              className="w-full bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]" />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] text-[#3D2314]/60 mb-1">Vigência a partir de<AjudaCampo chave="fiscal.iss.vigencia" /></label>
+                            <input type="date" value={edVigIni} onChange={(e) => setEdVigIni(e.target.value)}
+                              className="w-full bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]" />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] text-[#3D2314]/60 mb-1">Vigência até (opcional)<AjudaCampo chave="fiscal.iss.vigencia" /></label>
+                            <input type="date" value={edVigFim} onChange={(e) => setEdVigFim(e.target.value)}
+                              className="w-full bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]" />
+                          </div>
+                          <div className="sm:col-span-2">
+                            <label className="block text-[11px] text-[#3D2314]/60 mb-1">Observação (opcional)<AjudaCampo chave="fiscal.iss.observacao" /></label>
+                            <input value={edObs} onChange={(e) => setEdObs(e.target.value)}
+                              className="w-full bg-white border border-[#3D2314]/15 rounded-md px-3 py-2 text-[13px] text-[#3D2314]" />
+                          </div>
+                        </div>
+                        <div className="flex justify-end items-center gap-2 mt-3">
+                          <button type="button" onClick={() => setEditId(null)} disabled={edSalvando}
+                            className="px-3 py-2 rounded-md text-[13px] text-[#3D2314]/70 hover:text-[#3D2314] disabled:opacity-50">
+                            Cancelar
+                          </button>
+                          <button type="button" onClick={salvarEdicao} disabled={edSalvando}
+                            className="px-4 py-2 rounded-md bg-[#C8941A] text-[#3D2314] font-medium text-[13px] hover:bg-[#B07F12] disabled:opacity-50">
+                            {edSalvando ? 'Salvando…' : 'Salvar alteração'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )
               })}
