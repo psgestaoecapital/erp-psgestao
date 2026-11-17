@@ -111,6 +111,7 @@ export default function ComplianceListaPrestadoresPage() {
             <button onClick={() => setModalAberto(true)} disabled={empresasNoEscopo.length === 0} style={btnPrim()}>
               + Novo Prestador
             </button>
+            <AjudaCampo chave="compliance.prestadores.novo" />
           </div>
         </header>
 
@@ -182,7 +183,10 @@ export default function ComplianceListaPrestadoresPage() {
                         </div>
                       </Td>
                       <Td>
-                        <Link href={`/dashboard/ehs/prestadores/${p.id}`} style={btnSecSm()}>Abrir</Link>
+                        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                          <Link href={`/dashboard/ehs/prestadores/${p.id}`} style={btnSecSm()}>Abrir</Link>
+                          <AjudaCampo chave="compliance.prestadores.abrir" />
+                        </span>
                       </Td>
                     </tr>
                   )
