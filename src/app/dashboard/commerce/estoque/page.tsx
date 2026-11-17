@@ -1721,7 +1721,7 @@ function ModalMovimentar({ produtos, locais, produtoInicial, onClose, onSubmit }
       local_id: localId || null,
       tipo,
       quantidade: parseFloat(quantidade) || 0,
-      custo_unitario: parseFloat(custo) || 0,
+      custo_unitario: moedaParaNumero(custo) ?? 0,   // #6874 · custo mascarado em R$ (CampoMoeda) → número
       motivo: motivo || null,
       observacoes: observacoes || null,
       lote: lote || null,
@@ -1780,7 +1780,7 @@ function ModalMovimentar({ produtos, locais, produtoInicial, onClose, onSubmit }
           )}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <Field label="Quantidade *" ajuda="commerce.estoque.movf.quantidade"><input type="number" step="0.01" value={quantidade} onChange={(e) => setQuantidade(e.target.value)} style={inp} /></Field>
-            {isEntrada && <Field label="Custo unitário" ajuda="commerce.estoque.movf.custo"><input type="number" step="0.01" value={custo} onChange={(e) => setCusto(e.target.value)} style={inp} /></Field>}
+            {isEntrada && <Field label="Custo unitário" ajuda="commerce.estoque.movf.custo"><CampoMoeda value={custo} onChange={(v) => setCusto(v)} placeholder="R$ 0,00" style={inp} /></Field>}
           </div>
           <Field label="Motivo" ajuda="commerce.estoque.movf.motivo"><input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder={isEntrada ? 'Ex: Compra fornecedor X' : 'Ex: Venda balcão #4521'} style={inp} /></Field>
           {isEntrada && (
