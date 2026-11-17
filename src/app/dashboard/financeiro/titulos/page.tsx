@@ -155,13 +155,27 @@ function TitulosInner() {
       setTitulos((data ?? []) as Titulo[])
       setTotal(count ?? 0)
 
-      // Agregados separados (para KPIs no header)
-      const aggQ = supabase
-        .from('v_titulos_consolidados')
-        .select('tipo, valor, status_calculado')
-        .in('company_id', ids)
-      const { data: aggData } = await aggQ
-      setAggregados((aggData ?? []) as { tipo: string; valor: number | null; status_calculado: string }[])
+      // Agregados para os KPIs do cabeçalho — somam TODOS os títulos da(s)
+      // empresa(s), não apenas os da página atual.
+      // #6712 (Gean Auto, 1.348 títulos): o select simples era limitado a 1.000
+      // linhas pelo PostgREST (max-rows), então os totais do cabeçalho vinham
+      // incompletos — o cliente relatou "não filtra pela informação do cabeçalho".
+      // Paginamos até esgotar para que os KPIs fiquem corretos e completos.
+      const AGG_PAGE = 1000
+      const AGG_MAX_PAGES = 50 // trava de segurança (até 50k linhas)
+      const agg: { tipo: string; valor: number | null; status_calculado: string }[] = []
+      for (let p = 0; p < AGG_MAX_PAGES; p++) {
+        const { data: aggData, error: aggErr } = await supabase
+          .from('v_titulos_consolidados')
+          .select('tipo, valor, status_calculado')
+          .in('company_id', ids)
+          .range(p * AGG_PAGE, p * AGG_PAGE + AGG_PAGE - 1)
+        if (aggErr) throw aggErr
+        const lote = (aggData ?? []) as { tipo: string; valor: number | null; status_calculado: string }[]
+        agg.push(...lote)
+        if (lote.length < AGG_PAGE) break
+      }
+      setAggregados(agg)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       setErro(msg || 'Falha ao carregar títulos.')
