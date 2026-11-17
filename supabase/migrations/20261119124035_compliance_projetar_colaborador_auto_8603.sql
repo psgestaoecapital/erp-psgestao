@@ -48,6 +48,9 @@ CREATE TRIGGER trg_compliance_projetar_colaborador
 -- ───────── (B) backfill dos que já ficaram de fora (cópia de segurança antes) ─────────
 CREATE TABLE IF NOT EXISTS public.compliance_funcionarios_bkp_8603 (
   id uuid, company_id uuid, cpf text, bkp_em timestamptz NOT NULL DEFAULT now());
+-- cópia tem CPF (LGPD): fechada para a API — RLS ligada sem policy e sem grant para anon/authenticated
+ALTER TABLE public.compliance_funcionarios_bkp_8603 ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.compliance_funcionarios_bkp_8603 FROM PUBLIC, anon, authenticated;
 INSERT INTO public.compliance_funcionarios_bkp_8603 (id, company_id, cpf)
   SELECT id, company_id, cpf FROM public.compliance_funcionarios;
 
