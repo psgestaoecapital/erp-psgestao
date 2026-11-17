@@ -9,7 +9,8 @@
 -- Regra única (blindagem): a conta_bancaria_id da parcela/título SEMPRE pertence à faturadora do contrato
 --   = COALESCE(empresa_faturadora_id, company_id). Nenhum dado de cliente é alterado (RD-30): só guarda.
 -- Editar (salvar/gerar plano) → REJEITA conta de outra empresa (o usuário corrige na hora). Gerar título →
--- não propaga conta cross-empresa (coerção para NULL: não bloqueia o faturamento, nunca cria título errado).
+-- FALHA o lote se a parcela tem conta de outra empresa (decisão CEO 17/11: não gerar título cross-empresa).
+-- One-off no fim: zera a conta inválida das parcelas AINDA NÃO geradas (o financeiro re-seleciona a da faturadora).
 
 -- ============================================================================================================
 -- §3.1 · fn_contrato_parcelas_salvar — fail-closed: valida ANTES do DELETE (não apaga o plano num payload ruim)
@@ -90,8 +91,8 @@ END;
 $function$;
 
 -- ============================================================================================================
--- §3.3 · fn_contrato_gerar_parcelas (gera o título a receber) — NUNCA propaga conta cross-empresa para o título.
---        Coerção (não bloqueia o faturamento): conta do título = a da parcela SE for da faturadora, senão NULL.
+-- §3.3 · fn_contrato_gerar_parcelas (gera o título a receber) — NUNCA gera título com conta cross-empresa.
+--        Decisão CEO 17/11: FALHAR (RAISE parcela_conta_outra_empresa) — aborta o lote, força corrigir o plano.
 -- ============================================================================================================
 CREATE OR REPLACE FUNCTION public.fn_contrato_gerar_parcelas(p_contrato_id uuid, p_ignorar_status boolean DEFAULT false)
  RETURNS jsonb
@@ -101,7 +102,7 @@ CREATE OR REPLACE FUNCTION public.fn_contrato_gerar_parcelas(p_contrato_id uuid,
 AS $function$
 DECLARE
   v_contrato record; v_p record; v_ref text; v_receber_id uuid; v_gerados int := 0; v_pulados int := 0; v_total numeric := 0;
-  v_empresa_fat uuid; v_conta_tit uuid;
+  v_empresa_fat uuid;
 BEGIN
   SELECT * INTO v_contrato FROM erp_contratos WHERE id = p_contrato_id;
   IF NOT FOUND THEN RETURN jsonb_build_object('success', false, 'error', 'contrato nao encontrado'); END IF;
@@ -122,11 +123,13 @@ BEGIN
     IF EXISTS (SELECT 1 FROM erp_receber WHERE ref_externa_sistema = 'contrato_parcela' AND ref_externa_id = v_ref AND deleted_at IS NULL) THEN
       v_pulados := v_pulados + 1; CONTINUE; END IF;
 
-    -- Blindagem cross-empresa: o título nasce na FATURADORA; a conta só vai junto se for DA faturadora, senão NULL
-    -- (o financeiro atribui a conta certa) — nunca um título da faturadora apontando conta de outra empresa.
-    v_conta_tit := CASE WHEN v_p.conta_bancaria_id IS NOT NULL
-      AND EXISTS (SELECT 1 FROM erp_banco_contas WHERE id = v_p.conta_bancaria_id AND company_id = v_empresa_fat)
-      THEN v_p.conta_bancaria_id ELSE NULL END;
+    -- Blindagem cross-empresa (decisão CEO 17/11 · FALHAR): o título nasce na FATURADORA e NUNCA aponta conta de
+    -- outra empresa. Se a parcela tem conta que não é da faturadora, ABORTA o lote (força corrigir o plano antes
+    -- de gerar título). Conta nula é aceita (o financeiro define depois).
+    IF v_p.conta_bancaria_id IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM erp_banco_contas WHERE id = v_p.conta_bancaria_id AND company_id = v_empresa_fat) THEN
+      RAISE EXCEPTION 'parcela_conta_outra_empresa' USING ERRCODE = '23514';
+    END IF;
 
     INSERT INTO erp_receber (
       company_id, cliente_id, cliente_nome, descricao, categoria, valor,
@@ -138,7 +141,7 @@ BEGIN
       format('%s - Parcela %s/%s', v_contrato.nome, v_p.numero, (SELECT count(*) FROM erp_contrato_parcelas WHERE contrato_id = p_contrato_id)),
       'Receita Recorrente', v_p.valor,
       CURRENT_DATE, v_p.vencimento, date_trunc('month', v_p.vencimento)::date, 'aberto', v_p.forma_pagamento,
-      v_conta_tit, v_contrato.tipo, format('Fee do contrato %s (parcela %s)', v_contrato.numero, v_p.numero),
+      v_p.conta_bancaria_id, v_contrato.tipo, format('Fee do contrato %s (parcela %s)', v_contrato.numero, v_p.numero),
       true, v_p.numero::text, v_ref, 'contrato_parcela', p_contrato_id
     ) RETURNING id INTO v_receber_id;
 
@@ -169,3 +172,15 @@ REVOKE ALL ON FUNCTION public.fn_contrato_gerar_parcelas(uuid, boolean) FROM PUB
 GRANT EXECUTE ON FUNCTION public.fn_contrato_parcelas_salvar(uuid, jsonb) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.fn_contrato_parcelas_gerar(uuid, date, integer, numeric, uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.fn_contrato_gerar_parcelas(uuid, boolean) TO authenticated, service_role;
+
+-- Correção dos DADOS já errados (one-off, genérica — autorizada pelo CEO 17/11). Zera a conta inválida (de
+-- empresa <> faturadora) das parcelas AINDA NÃO geradas (receber_id IS NULL); o financeiro re-seleciona a conta
+-- correta da faturadora na tela. NÃO adivinha conta e NÃO toca título já gerado. Genérico: pega CTR-2026-0015,
+-- -0016 e quaisquer outros. Idempotente (re-rodar não muda nada). Não altera dado de cliente.
+UPDATE public.erp_contrato_parcelas p
+   SET conta_bancaria_id = NULL, updated_at = now()
+  FROM public.erp_contratos c, public.erp_banco_contas bc
+ WHERE p.contrato_id = c.id
+   AND bc.id = p.conta_bancaria_id
+   AND p.receber_id IS NULL
+   AND bc.company_id IS DISTINCT FROM COALESCE(c.empresa_faturadora_id, c.company_id);
