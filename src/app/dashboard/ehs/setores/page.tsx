@@ -9,6 +9,7 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 
 const C = {
   espresso: '#3D2314',
@@ -157,12 +158,18 @@ export default function SetoresPage() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: `1px solid ${C.borderLt}` }}>
-          <TabBtn ativa={aba === 'globais'} onClick={() => setAba('globais')}>
-            🌐 Globais (PS)
-          </TabBtn>
-          <TabBtn ativa={aba === 'meus'} onClick={() => setAba('meus')}>
-            🏢 Meus setores
-          </TabBtn>
+          <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+            <TabBtn ativa={aba === 'globais'} onClick={() => setAba('globais')}>
+              🌐 Globais (PS)
+            </TabBtn>
+            <AjudaCampo chave="compliance.setores.aba_globais" />
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+            <TabBtn ativa={aba === 'meus'} onClick={() => setAba('meus')}>
+              🏢 Meus setores
+            </TabBtn>
+            <AjudaCampo chave="compliance.setores.aba_meus" />
+          </span>
         </div>
 
         {/* Aviso aba Globais */}
@@ -193,6 +200,9 @@ export default function SetoresPage() {
 
         {/* Busca */}
         <section style={{ backgroundColor: 'white', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)', marginBottom: 16 }}>
+          <label style={{ display: 'flex', alignItems: 'center', fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+            Buscar <AjudaCampo chave="compliance.setores.busca" />
+          </label>
           <input
             type="text"
             placeholder="Buscar setor por nome ou descrição…"
@@ -208,11 +218,11 @@ export default function SetoresPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ backgroundColor: C.beigeLt }}>
-                  <Th>Nome</Th>
-                  <Th>Slug</Th>
-                  <Th>Descrição</Th>
-                  {aba === 'meus' && multiEmpresa && <Th>Empresa</Th>}
-                  {aba === 'meus' && <Th>Ações</Th>}
+                  <Th>Nome <AjudaCampo chave="compliance.setores.nome" /></Th>
+                  <Th>Slug <AjudaCampo chave="compliance.setores.slug" /></Th>
+                  <Th>Descrição <AjudaCampo chave="compliance.setores.descricao" /></Th>
+                  {aba === 'meus' && multiEmpresa && <Th>Empresa <AjudaCampo chave="compliance.setores.empresa" /></Th>}
+                  {aba === 'meus' && <Th>Ações <AjudaCampo chave="compliance.setores.acoes" /></Th>}
                 </tr>
               </thead>
               <tbody>
