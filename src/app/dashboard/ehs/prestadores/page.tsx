@@ -7,6 +7,9 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { fmtR } from '@/lib/psgc-tokens'
 import { C } from '../_components/ui'
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import type { ReactNode } from 'react'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero } from '@/lib/moeda-mascara'
 import { CLASSIFICACAO_SERVICO, TIPOS_SERVICO, ATIVIDADES_ESPECIAIS } from '../_components/prestador-opts'
 
 type Prestador = {
@@ -282,7 +285,7 @@ function NovoPrestadorModal({
         responsavel_nome: responsavel.trim() || null,
         email: email.trim() || null,
         telefone: telefone.trim() || null,
-        valor_contrato_mensal: valorMensal ? Number(valorMensal) : null,
+        valor_contrato_mensal: moedaParaNumero(valorMensal),
         servico_descricao: servico.trim() || null,
         local_servico: localServico.trim() || null,
         classificacao_servico: classificacao || null,
@@ -344,8 +347,8 @@ function NovoPrestadorModal({
           <Field label="E-mail"><input type="email" value={email} onChange={(e: any) => setEmail(e.target.value)} style={inputStyle()} /></Field>
           <Field label="Telefone"><input value={telefone} onChange={(e: any) => setTelefone(e.target.value)} style={inputStyle()} /></Field>
         </div>
-        <Field label="Valor contrato mensal (R$)">
-          <input type="number" step="0.01" value={valorMensal} onChange={(e: any) => setValorMensal(e.target.value)} style={inputStyle()} />
+        <Field label={<>Valor contrato mensal (R$) <AjudaCampo chave="compliance.prestadores.valor_mensal" /></>}>
+          <CampoMoeda value={valorMensal} onChange={setValorMensal} placeholder="0,00" style={inputStyle()} />
         </Field>
         <Field label="Descrição do serviço">
           <textarea value={servico} onChange={(e: any) => setServico(e.target.value)} style={{ ...inputStyle(), minHeight: 60 }} />
@@ -427,7 +430,7 @@ function ChecklistGroup({ titulo, opts, sel, onToggle }: { titulo: string; opts:
     </div>
   )
 }
-function Field({ label, children }: { label: string; children: any }) {
+function Field({ label, children }: { label: ReactNode; children: any }) {
   return (
     <div style={{ marginBottom: 12 }}>
       <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{label}</label>
