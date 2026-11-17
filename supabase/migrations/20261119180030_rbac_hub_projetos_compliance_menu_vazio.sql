@@ -8,59 +8,58 @@
 -- docs_regulatorios) nunca foi liberado a esses papéis. O menu sai de rbac_papel_acesso ∩ módulo pago
 -- (fn_modulos_sidebar_por_area: GATE RBAC PAPEL + tenant_subscriptions). Camada de assinatura NÃO é o gap:
 -- a FC Pisos JÁ paga TODOS os módulos desses subgrupos (projetos_* 24/24, compliance_legal 2/2,
--- controle_epis 7/7, docs_regulatorios 16/16). O único bloqueio é o papel.
+-- controle_epis 7/7, docs_regulatorios 16/16). O único bloqueio era o papel.
 --
 -- SINTOMA (fn_menu_vazio_auditar, antes): FC PISOS área 'hub' itens=0/1 e área 'compliance' itens=0 para
 -- TODOS os 8 usuários (todos enxergam as duas áreas via fn_listar_areas_visiveis). "< 3 itens = achado."
--- PROVA (BEGIN..ROLLBACK, antes do PR): aplicando exatamente o grant abaixo, a gate zera os achados da FC
--- Pisos (hub e compliance saem da lista); sobra só FRIOESTE/gestao_empresarial, que é outro caso (não tocado).
+-- PROVA (BEGIN..ROLLBACK, antes do PR): aplicando exatamente o grant abaixo e re-rodando a gate, os achados
+-- da FC Pisos (hub e compliance) SOMEM da lista; sobra só FRIOESTE/gestao_empresarial (total_achados=1), que
+-- é outro caso e NÃO é tocado aqui.
 --
--- ESCOPO (RD-25, sem over-grant): cada papel recebe só as seções que PRECISA para as áreas que já enxerga —
--- os 4 projetos_* operacionais (raiz/obras/comercial/engenharia) + os 3 de compliance; projetos_configuracao
--- fica só no sócio. Níveis espelham a autoridade do papel (o GATE de menu só checa presença; o nível é rótulo
--- de visibilidade de seção). compras/cadastros/estoque NÃO entram: não há achado dessas áreas para a FC Pisos.
+-- ESCOPO (RD-25): mapeamento por FUNÇÃO do papel (remapeia hub_* morto -> projetos_* por papel; Compliance
+-- sempre em leitura 'ver'). projetos_configuracao só no sócio. hub_compras, além do Hub, recebe os núcleos de
+-- compra (compras/cadastros/estoque) que a função exige. NÃO concede 'administracao' (Cofre/Credenciais).
 -- Aditivo e idempotente: ON CONFLICT (papel_slug, subgrupo) DO NOTHING (constraint rbac_papel_acesso_unq).
+-- Blast radius contido: os papéis hub_* são exclusivos da FC Pisos.
 
 INSERT INTO public.rbac_papel_acesso (papel_slug, subgrupo, nivel) VALUES
-  -- Sócio: vê e aprova tudo do Hub + Compliance (inclui configuração).
+  -- Sócio: aprova o Hub inteiro (inclui configuração); lê o Compliance.
   ('hub_socio','projetos_raiz','aprovar'),
   ('hub_socio','projetos_obras','aprovar'),
   ('hub_socio','projetos_comercial','aprovar'),
   ('hub_socio','projetos_engenharia','aprovar'),
   ('hub_socio','projetos_configuracao','aprovar'),
-  ('hub_socio','compliance_legal','aprovar'),
-  ('hub_socio','controle_epis','aprovar'),
-  ('hub_socio','docs_regulatorios','aprovar'),
-  -- Gerente de obras: opera o Hub ponta a ponta + Compliance (sem configuração).
+  ('hub_socio','compliance_legal','ver'),
+  ('hub_socio','controle_epis','ver'),
+  ('hub_socio','docs_regulatorios','ver'),
+  -- Gerente de obras: opera o Hub ponta a ponta (sem configuração); lê o Compliance.
   ('hub_gerente_obras','projetos_raiz','aprovar'),
   ('hub_gerente_obras','projetos_obras','aprovar'),
   ('hub_gerente_obras','projetos_comercial','aprovar'),
   ('hub_gerente_obras','projetos_engenharia','aprovar'),
-  ('hub_gerente_obras','compliance_legal','aprovar'),
-  ('hub_gerente_obras','controle_epis','aprovar'),
-  ('hub_gerente_obras','docs_regulatorios','aprovar'),
-  -- Engenheiro: edita obra/engenharia/orçamento + Compliance.
+  ('hub_gerente_obras','compliance_legal','ver'),
+  ('hub_gerente_obras','controle_epis','ver'),
+  ('hub_gerente_obras','docs_regulatorios','ver'),
+  -- Engenheiro: edita obra/engenharia/comercial; lê EPIs e documentos regulatórios.
   ('hub_engenheiro','projetos_raiz','editar'),
   ('hub_engenheiro','projetos_obras','editar'),
-  ('hub_engenheiro','projetos_comercial','editar'),
   ('hub_engenheiro','projetos_engenharia','editar'),
-  ('hub_engenheiro','compliance_legal','editar'),
-  ('hub_engenheiro','controle_epis','editar'),
-  ('hub_engenheiro','docs_regulatorios','editar'),
-  -- Financeiro: visão (ver) do Hub + Compliance (já tem 'financeiro' do #5363).
+  ('hub_engenheiro','projetos_comercial','editar'),
+  ('hub_engenheiro','controle_epis','ver'),
+  ('hub_engenheiro','docs_regulatorios','ver'),
+  -- Financeiro: visão (ver) do Hub; lê Compliance legal e documentos (já tem 'financeiro' do #5363).
   ('hub_financeiro','projetos_raiz','ver'),
   ('hub_financeiro','projetos_obras','ver'),
   ('hub_financeiro','projetos_comercial','ver'),
-  ('hub_financeiro','projetos_engenharia','ver'),
   ('hub_financeiro','compliance_legal','ver'),
-  ('hub_financeiro','controle_epis','ver'),
   ('hub_financeiro','docs_regulatorios','ver'),
-  -- Compras: visão (ver) do Hub + Compliance.
-  ('hub_compras','projetos_raiz','ver'),
-  ('hub_compras','projetos_obras','ver'),
-  ('hub_compras','projetos_comercial','ver'),
-  ('hub_compras','projetos_engenharia','ver'),
-  ('hub_compras','compliance_legal','ver'),
+  -- Compras: edita a parte comercial do Hub + os núcleos de compra (compras/cadastros/estoque); lê EPIs e docs.
+  ('hub_compras','projetos_raiz','editar'),
+  ('hub_compras','projetos_obras','editar'),
+  ('hub_compras','projetos_comercial','editar'),
+  ('hub_compras','compras','editar'),
+  ('hub_compras','cadastros','editar'),
+  ('hub_compras','estoque','editar'),
   ('hub_compras','controle_epis','ver'),
   ('hub_compras','docs_regulatorios','ver')
 ON CONFLICT (papel_slug, subgrupo) DO NOTHING;
