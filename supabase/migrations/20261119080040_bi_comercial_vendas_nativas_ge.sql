@@ -70,3 +70,7 @@ AS $function$
         WHERE af.company_id = p_company_id AND af.dominio = 'comercial_venda_item'
      )
 $function$;
+
+-- ACL explícita (gate check_fn_guards · revoke_anon): reproduz a ACL viva {authenticated, service_role}
+REVOKE ALL ON FUNCTION public.fn_com_venda_item(uuid, date, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_com_venda_item(uuid, date, date) TO authenticated, service_role;
