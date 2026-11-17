@@ -64,6 +64,7 @@ export default function ComplianceListaPrestadoresPage() {
   const [erro, setErro] = useState<string | null>(null)
   const [busca, setBusca] = useState('')
   const [modalAberto, setModalAberto] = useState(false)
+  const [inativarAlvo, setInativarAlvo] = useState<Prestador | null>(null)
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
 
   function showToast(msg: string, ok = true) {
@@ -182,7 +183,10 @@ export default function ComplianceListaPrestadoresPage() {
                         </div>
                       </Td>
                       <Td>
-                        <Link href={`/dashboard/ehs/prestadores/${p.id}`} style={btnSecSm()}>Abrir</Link>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          <Link href={`/dashboard/ehs/prestadores/${p.id}`} style={btnSecSm()}>Abrir</Link>
+                          <button onClick={() => setInativarAlvo(p)} style={btnDangerSm()}>Inativar</button>
+                        </div>
                       </Td>
                     </tr>
                   )
@@ -201,6 +205,19 @@ export default function ComplianceListaPrestadoresPage() {
           onCreated={(nome) => {
             setModalAberto(false)
             showToast(`✓ Prestador ${nome} cadastrado`)
+            carregar()
+          }}
+          onErro={(m: string) => showToast(m, false)}
+        />
+      )}
+
+      {inativarAlvo && (
+        <InativarPrestadorModal
+          prestador={inativarAlvo}
+          onClose={() => setInativarAlvo(null)}
+          onDone={(nome) => {
+            setInativarAlvo(null)
+            showToast(`✓ Prestador ${nome} inativado`)
             carregar()
           }}
           onErro={(m: string) => showToast(m, false)}
@@ -445,6 +462,71 @@ function btnSec() {
 }
 function btnSecSm() {
   return { padding: '6px 12px', borderRadius: 6, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 12, fontWeight: 600, cursor: 'pointer', textDecoration: 'none' } as any
+}
+function btnDangerSm() {
+  return { padding: '6px 12px', borderRadius: 6, border: `1px solid ${C.red}55`, backgroundColor: 'white', color: C.red, fontSize: 12, fontWeight: 600, cursor: 'pointer', textDecoration: 'none' } as any
+}
+function InativarPrestadorModal({
+  prestador, onClose, onDone, onErro,
+}: {
+  prestador: Prestador
+  onClose: () => void
+  onDone: (nome: string) => void
+  onErro: (msg: string) => void
+}) {
+  const [motivo, setMotivo] = useState('')
+  const [inativando, setInativando] = useState(false)
+
+  async function confirmar() {
+    if (motivo.trim().length < 3) {
+      onErro('Informe o motivo da inativação (mínimo 3 caracteres).')
+      return
+    }
+    setInativando(true)
+    try {
+      const res = await authFetch(`/api/compliance/prestadores/${prestador.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ motivo: motivo.trim() }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok || !j.ok) throw new Error(j.mensagem_humana || j.error || 'Falha ao inativar o prestador.')
+      onDone(prestador.razao_social)
+    } catch (e: any) {
+      onErro(e.message)
+    } finally {
+      setInativando(false)
+    }
+  }
+
+  return (
+    <div onClick={() => !inativando && onClose()} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, zIndex: 100 }}>
+      <div onClick={(e: any) => e.stopPropagation()} style={{ background: 'white', borderRadius: 12, padding: 24, width: '100%', maxWidth: 440, boxShadow: '0 10px 40px rgba(61,35,20,0.25)' }}>
+        <h3 style={{ margin: '0 0 6px', fontSize: 18, fontWeight: 700, color: C.espresso, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          Inativar prestador <AjudaCampo chave="compliance.prestadores.inativar" />
+        </h3>
+        <p style={{ margin: '0 0 16px', fontSize: 13, color: C.muted, lineHeight: 1.5 }}>
+          <strong>{prestador.razao_social}</strong> sairá da lista de prestadores ativos. Os documentos e o histórico
+          <strong> não</strong> são apagados — a inativação é rastreável (registra quem, quando e o motivo) e pode ser
+          revertida reativando o prestador.
+        </p>
+        <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Motivo da inativação</label>
+        <textarea
+          value={motivo}
+          onChange={(e: any) => setMotivo(e.target.value)}
+          placeholder="Ex.: contrato encerrado, prestador substituído…"
+          rows={3}
+          style={{ ...inputStyle(), resize: 'vertical' }}
+        />
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
+          <button onClick={onClose} disabled={inativando} style={btnSec()}>Cancelar</button>
+          <button onClick={confirmar} disabled={inativando || motivo.trim().length < 3} style={{ ...btnPrim(), backgroundColor: C.red, opacity: inativando || motivo.trim().length < 3 ? 0.6 : 1, cursor: inativando || motivo.trim().length < 3 ? 'not-allowed' : 'pointer' }}>
+            {inativando ? 'Inativando…' : 'Inativar prestador'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 function tipoBadge(tipo: string | null) {
   const map: Record<string, { bg: string; fg: string }> = {

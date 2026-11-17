@@ -98,16 +98,27 @@ export const PATCH = exigirLogin(async (req: NextRequest, u, routeCtx) => {
   return NextResponse.json({ ok: true, prestador: data })
 })
 
-export const DELETE = exigirLogin(async (_req: NextRequest, u, routeCtx) => {
+// Inativação RASTREÁVEL (RD-98 p2): soft-delete (ativo=false) + quem/quando/motivo + audit_log_global.
+// Nunca DELETE físico — documentos e histórico do prestador ficam preservados; pode ser reativado.
+export const DELETE = exigirLogin(async (req: NextRequest, u, routeCtx) => {
   const id = await getId(routeCtx)
   const atual = await empresasDoPrestador(id)
   if (!atual) return fail(404, 'Prestador não encontrado.')
   const negado = await exigirEmpresas(u, [atual.company_id])
   if (negado) return negado
+  const body = await req.json().catch(() => null)
+  const motivo = typeof body?.motivo === 'string' ? body.motivo.trim() : ''
+  if (motivo.length < 3) return fail(400, 'Informe o motivo da inativação (mínimo 3 caracteres).')
   const { error } = await supabaseAdmin
     .from('compliance_prestadores')
-    .update({ ativo: false })
+    .update({ ativo: false, inativado_em: new Date().toISOString(), inativado_por: u.userId, inativado_motivo: motivo })
     .eq('id', id)
+    .eq('ativo', true)
   if (error) return fail(500, `Falha ao desativar prestador: ${error.message}`)
+  // audit central (best-effort — o trilho no registro já persiste quem/quando/motivo)
+  await supabaseAdmin.from('audit_log_global').insert({
+    company_id: atual.company_id, user_id: u.userId, tabela: 'compliance_prestadores', registro_id: id,
+    acao: 'INATIVACAO', valor_anterior: { ativo: true }, valor_novo: { ativo: false, motivo },
+  }).then(() => {}, () => { /* best-effort */ })
   return NextResponse.json({ ok: true })
 })
