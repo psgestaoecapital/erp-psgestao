@@ -148,7 +148,10 @@ export default function RegrasRateio({ companyId, bls }: { companyId: string; bl
           <span style={lblTxt}>% <AjudaCampo chave="cc.regra_pct" rota={ROTA} /></span>
           <input style={{ ...inp, minWidth: 70, width: 80 }} inputMode="decimal" value={novo.pct} onChange={(e) => setNovo({ ...novo, pct: e.target.value })} />
         </label>
-        <button onClick={() => void adicionar()} style={btnPri}>+ Gravar regra</button>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <button onClick={() => void adicionar()} style={btnPri}>+ Gravar regra</button>
+          <AjudaCampo chave="cc.regra_gravar" rota={ROTA} />
+        </span>
       </div>
       {novo.tipo === 'conta' && novo.chave.trim() && nomeConta.has(novo.chave.trim()) && (
         <div style={{ fontSize: 12, color: ESP60, marginTop: -6, marginBottom: 10 }}>{novo.chave.trim()} — {nomeConta.get(novo.chave.trim())}</div>
@@ -162,7 +165,7 @@ export default function RegrasRateio({ companyId, bls }: { companyId: string; bl
             <th style={th}>Chave</th>
             <th style={th}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Negócio <AjudaCampo chave="cc.regra_negocio" rota={ROTA} /></span></th>
             <th style={{ ...th, textAlign: 'right' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>% <AjudaCampo chave="cc.regra_pct" rota={ROTA} /></span></th>
-            <th style={th}></th>
+            <th style={th}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Ações <AjudaCampo chave="cc.regra_acoes" rota={ROTA} /></span></th>
           </tr></thead>
           <tbody>
             {regras.map((r) => {
