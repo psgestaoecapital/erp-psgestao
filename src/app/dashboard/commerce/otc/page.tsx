@@ -387,9 +387,10 @@ function OTCPageInner() {
       }
       const { data: fat, error: errFat } = await supabase.rpc('fn_faturar', { p_pedido_id: pedidoId })
       if (errFat) throw new Error(errFat.message)
-      const r = fat as { ok?: boolean; erro?: string } | null
+      const r = fat as { ok?: boolean; erro?: string; avisos?: Array<{ produto?: string | null }> } | null
       if (r && r.ok === false) throw new Error(r.erro ?? 'Falha ao faturar')
-      flash(confirmFatura.tipo === 'orcamento' ? 'Orçamento convertido e faturado!' : 'Pedido faturado!')
+      const nAvisos = Array.isArray(r?.avisos) ? r!.avisos.length : 0 // #8453
+      flash((confirmFatura.tipo === 'orcamento' ? 'Orçamento convertido e faturado!' : 'Pedido faturado!') + (nAvisos > 0 ? ` ⚠️ ${nAvisos} item(ns) com estoque negativo — regularize a entrada.` : ''))
       setConfirmFatura(null)
       await carregar()
     } catch (e) {
@@ -1361,7 +1362,7 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
   // FEAT-OS-ONDA3A-FATURAMENTO-v1 · status local pra refletir faturamento sem reload
   const [statusLocal, setStatusLocal] = useState(ped.status)
   const [faturando, setFaturando] = useState(false)
-  const [faturaResult, setFaturaResult] = useState<{ ok: boolean; cmv?: number; qtd_movimentos_estoque?: number; qtd_titulos_receber?: number; numero?: string | null; erro?: string } | null>(null)
+  const [faturaResult, setFaturaResult] = useState<{ ok: boolean; cmv?: number; qtd_movimentos_estoque?: number; qtd_titulos_receber?: number; numero?: string | null; erro?: string; avisos?: Array<{ produto?: string | null; saldo_depois?: number }> } | null>(null)
   // FEAT-OS-ONDA3B-NFSE-FRONT-v1 · dados pra emitir NFS-e do pedido faturado
   const [nfseDados, setNfseDados] = useState<NfsePedidoDados | null>(null)
   const [nfseModalAberto, setNfseModalAberto] = useState(false)
@@ -1760,6 +1761,17 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
                     CRIOU <strong>{faturaResult.qtd_titulos_receber}</strong> título(s) a receber<br />
                     BAIXOU <strong>{faturaResult.qtd_movimentos_estoque}</strong> item(ns) do estoque<br />
                     CMV: <strong>{fmtBRL(faturaResult.cmv)}</strong>
+                  </div>
+                )}
+                {/* #8453 · modo "avisar": lista os itens que ficaram com estoque negativo */}
+                {faturaResult?.ok && Array.isArray(faturaResult.avisos) && faturaResult.avisos.length > 0 && (
+                  <div data-testid="fatura-avisos-estoque" style={{ fontSize: 11.5, color: C.espresso, background: '#FFF8E7', border: `1px solid ${C.gold}`, borderRadius: 8, padding: '8px 10px', lineHeight: 1.5 }}>
+                    ⚠️ Estoque ficou negativo após o faturamento — regularize a entrada:
+                    <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
+                      {faturaResult.avisos.map((a, i) => (
+                        <li key={i}><strong>{a.produto ?? 'produto'}</strong>: saldo {a.saldo_depois}</li>
+                      ))}
+                    </ul>
                   </div>
                 )}
                 {/* #782 · gera o(s) boleto(s) das parcelas marcadas, aqui mesmo na tela de pedido */}
