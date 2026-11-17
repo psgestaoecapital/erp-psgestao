@@ -1080,10 +1080,11 @@ export default function OrcamentosPage(){
                 <input type="number" step="0.01" value={it.quantidade||''} onChange={e=>atualizarItem(idx,'quantidade',parseFloat(e.target.value)||0)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/>
                 <input value={it.unidade} onChange={e=>atualizarItem(idx,'unidade',e.target.value)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"center"}}/>
                 <div>
-                  <input type="number" step="0.01" value={it.preco_unitario||''}
+                  {/* #6874 — preço unitário com máscara em R$ (valor gravado continua numérico) */}
+                  <CampoMoeda value={it.preco_unitario?numeroParaMoeda(it.preco_unitario):''}
                     readOnly={!!it._srv_eng && !podeAlterarPreco}
                     title={(it._srv_eng && !podeAlterarPreco) ? "Preço definido pelo catálogo (custo + BDI). Ajuste requer engenheiro/master." : undefined}
-                    onChange={e=>atualizarItem(idx,'preco_unitario',parseFloat(e.target.value)||0)}
+                    onChange={v=>atualizarItem(idx,'preco_unitario',moedaParaNumero(v)||0)}
                     style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right",background:(it._srv_eng && !podeAlterarPreco)?BG3:'#fff',cursor:(it._srv_eng && !podeAlterarPreco)?'not-allowed':'auto'}}/>
                   {it._srv_eng && (it.preco_custo??0)>0 && (
                     <div style={{fontSize:8,textAlign:"right",marginTop:1,color:TXD,display:"flex",gap:4,justifyContent:"flex-end",alignItems:"center",flexWrap:"wrap"}}>
@@ -1448,7 +1449,8 @@ function OrcamentoPdfAnexo({ orcamentoId, companyId, onSaved }: { orcamentoId: s
       <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
         <div>
           <div style={{ fontSize: 10, color: TXD, marginBottom: 3 }}>Valor do orçamento (R$)</div>
-          <input type="number" step="0.01" value={valor} onChange={(e) => setValor(e.target.value)}
+          {/* #6874 — valor do orçamento com máscara em R$ (valor continua numérico, ver valorNum) */}
+          <CampoMoeda value={valor === "" ? "" : numeroParaMoeda(Number(valor.replace(",", ".")))} onChange={(v) => setValor(v === "" ? "" : String(moedaParaNumero(v) ?? ""))}
             style={{ padding: "8px 10px", border: `1px solid ${BD}`, borderRadius: 6, fontSize: 13, background: "#fff", color: TX, width: 160 }} placeholder="0,00" />
         </div>
         <button type="button" onClick={salvarValor} disabled={busy}
