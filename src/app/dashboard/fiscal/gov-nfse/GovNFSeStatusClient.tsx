@@ -291,8 +291,22 @@ export default function GovNFSeStatusClient() {
           ) : erroDps ? (
             <BlocoErro msg={erroDps} onRetry={carregarDps} />
           ) : pendentes.length === 0 ? (
-            <div className="py-8 text-center text-[12.5px] text-[#3D2314]/60">
-              Nenhuma DPS pendente.
+            <div className="py-10 px-6 flex flex-col items-center text-center" data-testid="gov-nfse-dps-vazio">
+              <div className="w-11 h-11 rounded-full bg-[#FAEEDA] border border-[#E8C387] flex items-center justify-center mb-3">
+                <CheckCircle2 size={20} className="text-[#C8941A]" />
+              </div>
+              <div className="text-[14px] font-medium text-[#3D2314]">Nenhuma DPS pendente</div>
+              <p className="text-[12.5px] text-[#3D2314]/60 mt-1.5 max-w-md leading-relaxed">
+                As notas emitidas aparecem aqui enquanto aguardam a autorização do gov.br. Nada
+                aguardando no momento — está tudo em dia.
+              </p>
+              <Link
+                href="/dashboard/fiscal/nfse"
+                data-testid="gov-nfse-dps-vazio-emitir"
+                className="inline-flex items-center gap-1.5 mt-4 text-[12.5px] font-medium text-[#BA7517] hover:text-[#8B5612]"
+              >
+                <FileText size={13} /> Emitir uma NFS-e
+              </Link>
             </div>
           ) : (
             <div className="overflow-x-auto">
