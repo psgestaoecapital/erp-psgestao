@@ -383,6 +383,19 @@ export default function PropostasPage() {
 
   async function confirmarAprovar() {
     if (!apr) return
+    // SPEC Master §3 (Júlia) · obrigatórios do comercial VISÍVEIS + mensageria "falta X": quando a aprovação
+    // faz NASCER um contrato de fee (fee > 0), o comercial não cria um pedido incompleto — a Julia recebe tudo
+    // para faturar. Paridade com os obrigatórios do SolicitarContratoModal da GE (RD-26: mesma régua).
+    // Fee 0 = sem contrato recorrente (projeto avulso); só a comissão é gerada, então os campos não são exigidos.
+    const feeNum = moedaParaNumero(aprForm.fee) ?? 0
+    if (feeNum > 0) {
+      const diaN = Number(aprForm.dia)
+      if (!aprForm.dia.trim() || !Number.isInteger(diaN) || diaN < 1 || diaN > 28) { setToast('Falta o dia do vencimento (de 1 a 28) — é o dia em que a parcela vence todo período.'); return }
+      if (!aprForm.nParcelas.trim() || !Number.isInteger(Number(aprForm.nParcelas)) || Number(aprForm.nParcelas) < 1) { setToast('Falta o nº de parcelas (1 ou mais) — em quantas vezes a Julia vai faturar.'); return }
+      if (!aprForm.dataFim.trim()) { setToast('Falta o fim da vigência — até quando o contrato vale (o início é hoje).'); return }
+      if (aprForm.dataFim < new Date().toISOString().slice(0, 10)) { setToast('O fim da vigência não pode ser antes de hoje (quando o contrato começa).'); return }
+      if (!aprForm.clienteEmail.trim() && !aprForm.clienteTelefone.trim()) { setToast('Falta o contato do cliente (e-mail ou telefone) — sem ele a Julia não consegue enviar a cobrança.'); return }
+    }
     setBusy(true)
     const { data, error } = await supabase.rpc('fn_agency_proposta_aprovar', {
       p_proposta_id: apr.id,
@@ -651,8 +664,12 @@ export default function PropostasPage() {
             </div>
             <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 2 }}>Fee 0 → aprova sem contrato recorrente (ex.: projeto avulso). A comissão ainda é gerada.</div>
 
-            {/* SPEC 4.1 · Dados para o financeiro — contato + nº de parcelas viajam para o pedido de contrato */}
-            <div style={{ fontSize: 11, fontWeight: 700, color: DOURADO, textTransform: 'uppercase', letterSpacing: 0.5, margin: '12px 0 4px' }}>Dados para o financeiro</div>
+            {/* SPEC 4.1 · Dados para o financeiro — contato + nº de parcelas viajam para o pedido de contrato.
+                SPEC Master §3 (Júlia) · obrigatórios do comercial VISÍVEIS quando há fee (paridade com a GE). */}
+            <div style={{ fontSize: 11, fontWeight: 700, color: DOURADO, textTransform: 'uppercase', letterSpacing: 0.5, margin: '12px 0 4px', display: 'flex', alignItems: 'center', gap: 6 }}>
+              Dados para o financeiro
+              {(moedaParaNumero(aprForm.fee) ?? 0) > 0 && <span style={{ fontSize: 9.5, fontWeight: 700, color: ESPRESSO, background: '#FBF3DE', border: `1px solid ${DOURADO}`, borderRadius: 999, padding: '1px 8px', textTransform: 'none', letterSpacing: 0 }}>obrigatórios quando há fee</span>}
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Nº de parcelas<AjudaCampo chave="pm.propostas.numero_parcelas" /></span><input style={inp} type="number" min={1} value={aprForm.nParcelas} onChange={(e) => setAprForm({ ...aprForm, nParcelas: e.target.value })} placeholder="Ex.: 12" /></label>
               <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Fim da vigência<AjudaCampo chave="pm.propostas.data_fim" /></span><input style={inp} type="date" value={aprForm.dataFim} onChange={(e) => setAprForm({ ...aprForm, dataFim: e.target.value })} /></label>
