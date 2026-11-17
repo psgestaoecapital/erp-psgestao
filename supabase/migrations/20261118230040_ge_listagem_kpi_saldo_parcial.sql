@@ -196,3 +196,7 @@ BEGIN
     'resultados', COALESCE(v_resultados, '[]'::jsonb)
   );
 END; $function$;
+
+-- ACL explícita (check_fn_guards): reproduz a ACL viva (authenticated/service_role, sem anon/PUBLIC); não muda permissão.
+REVOKE ALL ON FUNCTION public.fn_ge_listagem_v2(uuid, text, date, date, text, text[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ge_listagem_v2(uuid, text, date, date, text, text[]) TO authenticated, service_role;
