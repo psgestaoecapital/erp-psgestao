@@ -21,7 +21,19 @@ ok(!!nome, 'migration cartao_repasse_por_parcela existe')
 const sql = nome ? readFileSync(`supabase/migrations/${nome}`, 'utf8') : ''
 ok(/FOR i IN 1\.\.v_n LOOP/.test(sql) && sql.includes("parcela '||i||'/'||v_n"), 'um título da operadora por parcela')
 ok(['bandeira_obrigatoria', 'modalidade_obrigatoria', 'parcelas_invalidas', 'titulo_ja_baixado'].every((e) => sql.includes(`'${e}'`)), 'bandeira/modalidade/parcelas obrigatórias e não baixa duas vezes')
-ok(sql.includes('valor_liquido, data_repasse') && sql.includes('taxa_pagar_id = v_taxa_pagar'), 'grava líquido/repasse e liga a taxa (despesa) ao repasse')
+ok(sql.includes('valor_liquido, data_repasse'), 'grava líquido/repasse por parcela')
+
+// geração VIVA: a redefinição mais recente de fn_cartao_registrar_recebimento manda. #3740 (AJUSTE): a taxa entra como
+// DESCONTO do repasse (valor a receber = bruto − desconto) e NÃO se cria mais conta a pagar de taxa de cartão.
+const genNome = readdirSync('supabase/migrations')
+  .filter((f) => f.endsWith('.sql') && readFileSync(`supabase/migrations/${f}`, 'utf8').includes('FUNCTION public.fn_cartao_registrar_recebimento'))
+  .sort()
+  .pop()
+ok(!!genNome, 'existe migration que define fn_cartao_registrar_recebimento')
+const gen = genNome ? readFileSync(`supabase/migrations/${genNome}`, 'utf8') : ''
+const corpoGen = gen.slice(gen.indexOf('fn_cartao_registrar_recebimento'))
+ok(/INSERT INTO erp_receber \([^)]*\bdesconto\b/s.test(corpoGen), 'repasse nasce com a taxa no campo desconto (valor a receber = bruto − desconto)')
+ok(!/INSERT INTO erp_pagar\b/.test(corpoGen) && !/taxa_pagar_id = v_taxa_pagar\b/.test(corpoGen), 'geração não cria mais conta a pagar de taxa de cartão (#3740)')
 ok(sql.includes("'repasse_cartao', p_receber_id::text||'#'||i"), 'repasse com referência de sistema (não bate no anti-duplicidade)')
 ok(sql.includes('SELECT r.valor_liquido WHERE r.eh_repasse_cartao') && sql.includes('fn_receber_valor_referencia'), 'conciliação reconhece o líquido do repasse (lote e 1:1)')
 ok(/CREATE TRIGGER trg_zz_cartao_repasse_fechar\s+AFTER UPDATE OF conciliado, movimento_banco_id, valor_pago/.test(sql), 'gatilho de fechamento roda depois do guarda do valor_pago (nome trg_zz_)')
