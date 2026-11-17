@@ -39,6 +39,10 @@ export default function ClientePickerInline({ companyId, value, onChange, onToas
   const [novoNome, setNovoNome] = useState('')
   const [docNovo, setDocNovo] = useState('')
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // #Pdois Frente 4: o input "Nome do cliente" entra com autoFocus e tira o foco da busca; o onBlur dela fechava
+  // o painel (desmontava o form de cadastro). criandoRef mantém o painel aberto enquanto se cadastra.
+  const criandoRef = useRef(false)
+  useEffect(() => { criandoRef.current = criando }, [criando])
 
   useEffect(() => {
     let alive = true
@@ -92,10 +96,10 @@ export default function ClientePickerInline({ companyId, value, onChange, onToas
         </div>
       ) : (
         <input style={inp} value={q} onChange={(e) => buscar(e.target.value)}
-          onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)}
+          onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => { if (!criandoRef.current) setOpen(false) }, 150)}
           placeholder={placeholder ?? 'Buscar cliente da GE…'} />
       )}
-      {!value && open && (q.trim().length >= 2 || criando) && (
+      {!value && (open || criando) && (q.trim().length >= 2 || criando) && (
         <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 20, background: '#fff', border: `1px solid ${C.border}`, borderRadius: 8, marginTop: 2, boxShadow: '0 6px 20px rgba(0,0,0,.10)', maxHeight: 240, overflowY: 'auto' }}>
           {buscando && <div style={{ padding: '8px 10px', fontSize: 12, color: C.espressoM }}>Buscando…</div>}
           {sug.map((c) => (
@@ -114,6 +118,7 @@ export default function ClientePickerInline({ companyId, value, onChange, onToas
               {docNovo ? <div style={{ fontSize: 11, color: C.espressoM, marginBottom: 6 }}>CPF/CNPJ {docNovo} — informe o nome do cliente</div> : null}
               <input style={{ ...inp, flex: 1 }} value={novoNome} onChange={(e) => setNovoNome(e.target.value)} placeholder="Nome do cliente" autoFocus />
               <button type="button" onMouseDown={(e) => { e.preventDefault(); void criarInline() }} style={btnPri}>Criar</button>
+              <button type="button" onMouseDown={(e) => { e.preventDefault(); setCriando(false); setNovoNome(''); setDocNovo(''); setOpen(false) }} style={btnSec}>Cancelar</button>
             </div>
           )}
         </div>

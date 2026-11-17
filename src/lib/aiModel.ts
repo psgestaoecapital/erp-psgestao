@@ -72,16 +72,22 @@ function clienteAlarme() {
  */
 export interface IABudgetStatus { bloqueado: boolean; motivo: string }
 
-export async function iaBudgetStatus(opts?: { gold?: boolean }): Promise<IABudgetStatus> {
+export async function iaBudgetStatus(opts?: { gold?: boolean; feature?: string }): Promise<IABudgetStatus> {
   try {
     const sb = clienteAlarme()
     if (!sb) return { bloqueado: true, motivo: 'Controle de orçamento de IA indisponível; IA bloqueada por segurança de custo.' }
     const { data, error } = await sb
       .from('anthropic_budget_control')
-      .select('pausado,motivo_pausa,gold_pausado,gold_motivo_pausa,limite_max_custo_usd_dia,limite_max_custo_usd_mes,custo_usd_hoje,custo_usd_mes_atual')
+      .select('pausado,motivo_pausa,gold_pausado,gold_motivo_pausa,limite_max_custo_usd_dia,limite_max_custo_usd_mes,custo_usd_hoje,custo_usd_mes_atual,features_liberadas')
       .eq('id', 1)
       .maybeSingle()
     if (error || !data) return { bloqueado: true, motivo: 'Controle de orçamento de IA indisponível; IA bloqueada por segurança de custo.' }
+    // Allowlist por feature (CEO 17/11, RD-101): uma feature liberada passa o freeze global (pausado/limite) —
+    // ela é responsável pelo PRÓPRIO teto (ex.: consultor_ia é capado em US$2/dia na rota, antes do callAI).
+    // Fail-closed preservado: só libera APÓS leitura bem-sucedida do controle; erro/sem credencial nunca libera.
+    if (opts?.feature && Array.isArray(data.features_liberadas) && data.features_liberadas.includes(opts.feature)) {
+      return { bloqueado: false, motivo: '' }
+    }
     if (data.pausado) return { bloqueado: true, motivo: data.motivo_pausa || 'Gasto de IA pausado pelo controle de orçamento.' }
     if (opts?.gold && data.gold_pausado) return { bloqueado: true, motivo: data.gold_motivo_pausa || 'Sub-teto Gold de IA atingido.' }
     const limDia = Number(data.limite_max_custo_usd_dia)
@@ -101,9 +107,17 @@ export class IABloqueadaError extends Error {
 }
 
 /** Lança IABloqueadaError se a IA estiver bloqueada. Use no topo de todo ponto que chama Anthropic/Gemini. */
-export async function assertIAPermitida(opts?: { gold?: boolean }): Promise<void> {
+export async function assertIAPermitida(opts?: { gold?: boolean; feature?: string }): Promise<void> {
   const s = await iaBudgetStatus(opts)
   if (s.bloqueado) throw new IABloqueadaError(s.motivo)
+}
+
+/**
+ * Mapa finalidade → feature da allowlist do porteiro P0 (RD-101). Só a finalidade do Consultor mapeia para a
+ * feature liberada 'consultor_ia'; as demais finalidades não têm feature liberada e seguem o freeze global.
+ */
+export function featureDaFinalidade(finalidade: FinalidadeIA | string | undefined): string | undefined {
+  return finalidade === 'consultor' ? 'consultor_ia' : undefined
 }
 
 export interface FalhaIA {
@@ -151,7 +165,7 @@ export async function chamarClaude(opts: {
 }): Promise<any> {
   // P0 CUSTO: porteiro de orçamento ANTES de qualquer chamada paga. Finalidades de auditoria
   // (gold camada 2/3 e insight-auditor) respeitam também o sub-teto Gold.
-  await assertIAPermitida({ gold: String(opts.finalidade).startsWith('auditoria') })
+  await assertIAPermitida({ gold: String(opts.finalidade).startsWith('auditoria'), feature: featureDaFinalidade(opts.finalidade) })
   const modelo = modeloPara(opts.finalidade)
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
