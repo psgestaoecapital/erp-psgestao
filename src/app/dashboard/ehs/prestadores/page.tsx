@@ -94,6 +94,32 @@ export default function ComplianceListaPrestadoresPage() {
 
   useEffect(() => { carregar() }, [carregar])
 
+  // Inativação (soft-delete) rastreável: o back-end marca ativo=false e grava quem/quando/motivo
+  // em audit_log (RD-98 p2/p4). Aqui só confirmamos a intenção e pedimos o motivo; nada é apagado
+  // de fato — o prestador sai da lista de ativos e pode ser reativado pela ficha.
+  const [excluindoId, setExcluindoId] = useState<string | null>(null)
+  async function excluirPrestador(p: Prestador) {
+    if (excluindoId) return
+    if (!confirm(`Inativar o prestador "${p.razao_social}"? Ele sai da lista de ativos (pode ser reativado depois).`)) return
+    const motivo = (prompt('Motivo da inativação (fica no registro de auditoria):', '') || '').trim()
+    setExcluindoId(p.id)
+    try {
+      const res = await authFetch(`/api/compliance/prestadores/${p.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ motivo }),
+      })
+      const j = await res.json()
+      if (!j.ok) throw new Error(j.mensagem_humana || j.error || 'Falha ao inativar prestador.')
+      showToast('Prestador inativado.')
+      await carregar()
+    } catch (e: any) {
+      showToast(e.message || 'Falha ao inativar prestador.', false)
+    } finally {
+      setExcluindoId(null)
+    }
+  }
+
   return (
     <div style={{ backgroundColor: C.offwhite, minHeight: '100vh', color: C.ink }}>
       <div style={{ maxWidth: 1400, margin: '0 auto', padding: '32px 24px' }}>
@@ -189,6 +215,15 @@ export default function ComplianceListaPrestadoresPage() {
                         <span style={{ display: 'inline-flex', alignItems: 'center' }}>
                           <Link href={`/dashboard/ehs/prestadores/${p.id}`} style={btnSecSm()}>Abrir</Link>
                           <AjudaCampo chave="compliance.prestadores.abrir" />
+                          <button
+                            type="button"
+                            onClick={() => excluirPrestador(p)}
+                            disabled={excluindoId === p.id}
+                            style={{ ...btnDangerSm(), marginLeft: 8, opacity: excluindoId === p.id ? 0.6 : 1 }}
+                          >
+                            {excluindoId === p.id ? 'Inativando…' : 'Excluir'}
+                          </button>
+                          <AjudaCampo chave="compliance.prestadores.excluir" />
                         </span>
                       </Td>
                     </tr>
@@ -452,6 +487,9 @@ function btnSec() {
 }
 function btnSecSm() {
   return { padding: '6px 12px', borderRadius: 6, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 12, fontWeight: 600, cursor: 'pointer', textDecoration: 'none' } as any
+}
+function btnDangerSm() {
+  return { padding: '6px 12px', borderRadius: 6, border: '1px solid #e2b3b3', backgroundColor: 'white', color: '#a02020', fontSize: 12, fontWeight: 600, cursor: 'pointer', textDecoration: 'none' } as any
 }
 function tipoBadge(tipo: string | null) {
   const map: Record<string, { bg: string; fg: string }> = {
