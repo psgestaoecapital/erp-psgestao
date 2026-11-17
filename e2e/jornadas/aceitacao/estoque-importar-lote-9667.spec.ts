@@ -5,7 +5,7 @@
 // real (cadeia fn_erp_produto_salvar + descritivos + fn_estoque_ajuste_migracao) foi provada em BEGIN..ROLLBACK
 // no PR (RD-38). @pos-migration: a função revisada só existe após o deploy.
 import { test, expect } from '../../support/fixtures'
-import { rpc, dbSelect, registrarJornada } from '../../support/api'
+import { rpcComoRobo, dbSelect, registrarJornada } from '../../support/api'
 
 const DEMO_GE = 'b0700000-0000-4000-a000-000000000004'
 const COD_NOVO = `E2E-LOTE-9667-${Date.now()}`
@@ -23,8 +23,15 @@ test.describe('Estoque · importar em lote server-side (cadeia completa) @pos-mi
       // ERRO de linha: falta unidade e tipo_item_sped
       { n: 2, codigo: `${COD_NOVO}-X`, nome: 'Sem unidade' },
     ]
-    const r = await rpc<{ ok: boolean; dry_run: boolean; total: number; novos: number; atualizados: number; erros: { linha: number }[]; erros_total: number }>(
+    // fn_estoque_importar_lote tem guarda multi-tenant (SECURITY DEFINER: recusa com 42501 quem não é interno,
+    // admin, nem membro da empresa). O service_role via PostgREST carrega claims não-vazios → NÃO é "interno" e não
+    // tem company → a guarda recusa. Como um usuário real dispara a importação pela tela, a prova chama a RPC com o
+    // JWT do robô (rpcComoRobo), que é membro da DEMO (get_user_company_ids). A guarda continua intacta — só a
+    // invocação foi corrigida para o caminho real; nenhuma verificação (expect) mudou.
+    const resp = await rpcComoRobo<{ ok: boolean; dry_run: boolean; total: number; novos: number; atualizados: number; erros: { linha: number }[]; erros_total: number }>(
       'fn_estoque_importar_lote', { p_company_id: DEMO_GE, p_rows: rows, p_dry_run: true, p_user_id: null, p_arquivo: 'e2e-9667' })
+    expect(resp.status, `rpc respondeu 200 (corpo: ${resp.texto.slice(0, 200)})`).toBe(200)
+    const r = resp.corpo!
     expect(r.ok, 'rpc respondeu ok').toBe(true)
     expect(r.dry_run).toBe(true)
     expect(r.total).toBe(2)
