@@ -10,6 +10,8 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
+const ROTA_AJUDA = '/dashboard/ehs/epi/catalogo'
+
 const C = {
   espresso: '#3D2314',
   espressoLt: '#5D4534',
@@ -222,7 +224,9 @@ export default function CatalogoEpiPage() {
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: `1px solid ${C.borderLt}` }}>
           <TabBtn ativa={aba === 'global'} onClick={() => setAba('global')}>🌐 Catálogo Global PS</TabBtn>
+          <AjudaCampo chave="epi.catalogo.tab_global" rota={ROTA_AJUDA} />
           <TabBtn ativa={aba === 'meus'} onClick={() => setAba('meus')}>🏢 Meus EPIs</TabBtn>
+          <AjudaCampo chave="epi.catalogo.tab_meus" rota={ROTA_AJUDA} />
         </div>
 
         {aba === 'global' && (
@@ -233,7 +237,7 @@ export default function CatalogoEpiPage() {
 
         {aba === 'meus' && multiEmpresa && (
           <section style={{ background: '#FFFFFF', borderRadius: 12, padding: 16, marginBottom: 16, boxShadow: '0 1px 3px rgba(61,35,20,0.06)' }}>
-            <label style={labelStyle}>Empresa-alvo</label>
+            <label style={{ ...labelStyle, display: 'flex', alignItems: 'center' }}>Empresa-alvo<AjudaCampo chave="epi.catalogo.empresa_alvo" rota={ROTA_AJUDA} /></label>
             <select value={companyAlvo} onChange={(e) => setCompanyAlvo(e.target.value)} style={{ ...inputStyle, minWidth: 240 }}>
               {(companyIds || []).map((id) => <option key={id} value={id}>{empresaPorId.get(id) || id}</option>)}
             </select>
@@ -241,12 +245,18 @@ export default function CatalogoEpiPage() {
         )}
 
         {/* Filtros */}
-        <section style={{ background: '#FFFFFF', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61,35,20,0.06)', marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <input type="text" placeholder="Buscar por nome / modelo / CA…" value={busca} onChange={(e) => setBusca(e.target.value)} style={{ ...inputStyle, flex: '1 1 240px' }} />
-          <select value={filtroCategoria} onChange={(e) => setFiltroCategoria(e.target.value)} style={{ ...inputStyle, minWidth: 200 }}>
-            <option value="">Todas as categorias</option>
-            {categorias.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
-          </select>
+        <section style={{ background: '#FFFFFF', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61,35,20,0.06)', marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+          <label style={{ display: 'flex', alignItems: 'center', flex: '1 1 240px' }}>
+            <input type="text" placeholder="Buscar por nome / modelo / CA…" value={busca} onChange={(e) => setBusca(e.target.value)} style={{ ...inputStyle, flex: 1 }} />
+            <AjudaCampo chave="epi.catalogo.busca" rota={ROTA_AJUDA} />
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center' }}>
+            <select value={filtroCategoria} onChange={(e) => setFiltroCategoria(e.target.value)} style={{ ...inputStyle, minWidth: 200 }}>
+              <option value="">Todas as categorias</option>
+              {categorias.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+            </select>
+            <AjudaCampo chave="epi.catalogo.categoria" rota={ROTA_AJUDA} />
+          </label>
           {aba === 'meus' && (
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: C.espressoLt, cursor: 'pointer', whiteSpace: 'nowrap' }}>
               <input type="checkbox" checked={mostrarInativos} onChange={(e) => setMostrarInativos(e.target.checked)} />
@@ -300,7 +310,7 @@ export default function CatalogoEpiPage() {
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
-            {episFiltrados.map((e) => {
+            {episFiltrados.map((e, idx) => {
               const ca = statusCa(e.ca_validade)
               const selecionavel = modoSelecao && !e.is_global && e.ativo !== false
               const marcado = selecionavel && selecionados.has(e.id)
@@ -325,24 +335,35 @@ export default function CatalogoEpiPage() {
                     ) : null}
                   </div>
                   {e.categoria_nome && (
-                    <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 4, background: C.beigeLt, color: C.espressoLt, fontWeight: 600 }}>
+                    <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 4, background: C.beigeLt, color: C.espressoLt, fontWeight: 600, display: 'inline-flex', alignItems: 'center' }}>
                       {e.categoria_nome}
+                      {idx === 0 && <AjudaCampo chave="epi.catalogo.card_categoria" rota={ROTA_AJUDA} />}
                     </span>
                   )}
                   <div style={{ marginTop: 10, fontSize: 12, color: C.espressoLt }}>
-                    <div><strong style={{ color: C.espresso }}>CA</strong> {e.ca_numero}</div>
-                    <div style={{ color: ca.cor, fontWeight: 600 }}>{ca.label}</div>
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                      <strong style={{ color: C.espresso }}>CA</strong>&nbsp;{e.ca_numero}
+                      {idx === 0 && <AjudaCampo chave="epi.catalogo.card_ca" rota={ROTA_AJUDA} />}
+                    </div>
+                    <div style={{ color: ca.cor, fontWeight: 600, display: 'flex', alignItems: 'center' }}>
+                      {ca.label}
+                      {idx === 0 && <AjudaCampo chave="epi.catalogo.card_validade" rota={ROTA_AJUDA} />}
+                    </div>
                   </div>
-                  <div style={{ marginTop: 8, fontSize: 12, color: C.espressoLt }}>
+                  <div style={{ marginTop: 8, fontSize: 12, color: C.espressoLt, display: 'flex', alignItems: 'center' }}>
                     Fabricante: {e.fabricante_nome}
+                    {idx === 0 && <AjudaCampo chave="epi.catalogo.card_fabricante" rota={ROTA_AJUDA} />}
                   </div>
                   <div style={{ marginTop: 6, fontSize: 12, color: C.espressoLt }}>
                     Vida útil: {e.descartavel ? 'Descartável' : (e.vida_util_meses ? `${e.vida_util_meses} meses` : '—')}
                   </div>
                   {aba === 'global' && companyAlvo && (
-                    <button onClick={() => setImportarGlobal(e)} style={{ ...btnSec, marginTop: 12, width: '100%', fontSize: 12 }}>
-                      📋 Importar para minha empresa
-                    </button>
+                    <span style={{ display: 'flex', alignItems: 'center', marginTop: 12 }}>
+                      <button onClick={() => setImportarGlobal(e)} style={{ ...btnSec, width: '100%', fontSize: 12 }}>
+                        📋 Importar para minha empresa
+                      </button>
+                      {idx === 0 && <AjudaCampo chave="epi.catalogo.importar" rota={ROTA_AJUDA} />}
+                    </span>
                   )}
                   {aba === 'meus' && !e.is_global && !modoSelecao && (
                     <div style={{ display: 'flex', gap: 6, marginTop: 12, flexWrap: 'wrap' }}>
