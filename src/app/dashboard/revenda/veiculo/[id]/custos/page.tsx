@@ -8,6 +8,9 @@
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero } from '@/lib/moeda-mascara'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -178,8 +181,10 @@ function NovoCusto({ veiculoId, onSaved, onErro }: { veiculoId: string; onSaved:
   const [f, setF] = useState(vazio)
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
-  const valorNum = Number(String(f.valor).replace(',', '.'))
-  const valorOk = f.valor.trim() !== '' && Number.isFinite(valorNum) && valorNum > 0
+  // #6874 — valor em reais pelo campo monetário padrão (CampoMoeda): o texto fica mascarado ("R$ 1.234,56")
+  // e o número puro vai ao banco via moedaParaNumero. Nada muda no cálculo nem em dado já gravado.
+  const valorNum = moedaParaNumero(f.valor)
+  const valorOk = valorNum !== null && Number.isFinite(valorNum) && valorNum > 0
   const podeEnviar = valorOk && !!f.categoria.trim() && !!f.descricao.trim() && (!f.gerar || !!f.vencimento) && !busy
   async function salvar() {
     setErro(null)
@@ -189,7 +194,7 @@ function NovoCusto({ veiculoId, onSaved, onErro }: { veiculoId: string; onSaved:
     const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { data, error } = await supabase.rpc('fn_veic_custo_salvar', {
       p_veiculo_id: veiculoId,
-      p_custo: { categoria: f.categoria, valor: valorNum, descricao: f.descricao.trim(), fornecedor_nome: f.fornecedor_nome.trim() || null, data_custo: f.data_custo || null },
+      p_custo: { categoria: f.categoria, valor: valorNum ?? 0, descricao: f.descricao.trim(), fornecedor_nome: f.fornecedor_nome.trim() || null, data_custo: f.data_custo || null },
       p_gerar_pagar: f.gerar, p_vencimento: f.gerar ? (f.vencimento || null) : null, p_user: user?.id ?? null,
     })
     setBusy(false)
@@ -201,7 +206,10 @@ function NovoCusto({ veiculoId, onSaved, onErro }: { veiculoId: string; onSaved:
     <div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
         <select value={f.categoria} onChange={(e) => setF({ ...f, categoria: e.target.value })} style={inp}>{CATS.map((c) => <option key={c} value={c}>{c.replace('_', ' ')}</option>)}</select>
-        <input value={f.valor} onChange={(e) => setF({ ...f, valor: e.target.value })} placeholder="valor *" inputMode="decimal" style={{ ...inp, width: 90 }} />
+        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+          <CampoMoeda value={f.valor} onChange={(v) => setF({ ...f, valor: v })} placeholder="valor *" testId="custo-valor" style={{ ...inp, width: 120 }} />
+          <AjudaCampo chave="revenda.veiculo.custos.valor" rota="/dashboard/revenda/veiculo/custos" />
+        </span>
         <input value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} placeholder="descrição *" style={{ ...inp, width: 170 }} />
         <input value={f.fornecedor_nome} onChange={(e) => setF({ ...f, fornecedor_nome: e.target.value })} placeholder="fornecedor" style={{ ...inp, width: 130 }} />
         <input type="date" value={f.data_custo} onChange={(e) => setF({ ...f, data_custo: e.target.value })} style={inp} />
