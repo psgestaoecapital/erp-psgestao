@@ -249,16 +249,36 @@ export default function BalancoPage() {
             // Estado GUIADO (RD-98/criterios d,e): em vez do alarme cru "Balanço NÃO fecha",
             // a diferença é apresentada como Patrimônio Líquido a apurar, com orientação e CTA.
             <div style={{ marginTop: 16, padding: '14px 16px', borderRadius: 10, background: '#FFF6E6', border: `1px solid ${AMBER}55` }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                <span style={{ fontWeight: 700, color: AMBER, display: 'inline-flex', alignItems: 'center', gap: 4 }}>⚠️ Patrimônio Líquido a apurar <AjudaCampo chave="ge.balanco.fechamento" rota={ROTA} /></span>
-                <span style={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: AMBER }}>Falta apurar: R$ {fmt(Math.abs(bal.diferenca))}</span>
-              </div>
-              <div style={{ fontSize: 12.5, color: ESP, marginTop: 8, lineHeight: 1.5 }}>
-                O Ativo (R$ {fmt(bal.ativo_total)}) ainda não tem contrapartida completa no Passivo + Patrimônio Líquido (R$ {fmt(bal.passivo_mais_pl)}).
-                Lance no <strong>Patrimônio Líquido</strong> o <strong>Capital Social</strong> e o <strong>Resultado / Lucros (ou Prejuízos) Acumulados</strong> do período para o balanço fechar.
-                A diferença não é forçada — ela é mostrada até você apurar o Patrimônio Líquido.
-              </div>
-              <button onClick={() => abrirNovaLinha('pl', 'PATRIMÔNIO LÍQUIDO')} disabled={busy} style={ctaPl}>+ Lançar no Patrimônio Líquido</button>
+              {bal.diferenca >= 0 ? (
+                // Ativo > Passivo+PL: falta apurar o Patrimônio Líquido (Capital Social / Resultado).
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                    <span style={{ fontWeight: 700, color: AMBER, display: 'inline-flex', alignItems: 'center', gap: 4 }}>⚠️ Patrimônio Líquido a apurar <AjudaCampo chave="ge.balanco.fechamento" rota={ROTA} /></span>
+                    <span style={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: AMBER }}>Falta apurar: R$ {fmt(Math.abs(bal.diferenca))}</span>
+                  </div>
+                  <div style={{ fontSize: 12.5, color: ESP, marginTop: 8, lineHeight: 1.5 }}>
+                    O Ativo (R$ {fmt(bal.ativo_total)}) ainda não tem contrapartida completa no Passivo + Patrimônio Líquido (R$ {fmt(bal.passivo_mais_pl)}).
+                    Lance no <strong>Patrimônio Líquido</strong> o <strong>Capital Social</strong> e o <strong>Resultado / Lucros (ou Prejuízos) Acumulados</strong> do período para o balanço fechar.
+                    A diferença não é forçada — ela é mostrada até você apurar o Patrimônio Líquido.
+                  </div>
+                  <button onClick={() => abrirNovaLinha('pl', 'PATRIMÔNIO LÍQUIDO')} disabled={busy} style={ctaPl}>+ Lançar no Patrimônio Líquido</button>
+                </>
+              ) : (
+                // Passivo+PL > Ativo (diferença < 0): lançar MAIS no PL AFASTARIA do fechamento.
+                // Orientar a revisar passivo/PL em duplicidade ou registrar o Ativo que falta.
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                    <span style={{ fontWeight: 700, color: AMBER, display: 'inline-flex', alignItems: 'center', gap: 4 }}>⚠️ Passivo + PL acima do Ativo <AjudaCampo chave="ge.balanco.fechamento" rota={ROTA} /></span>
+                    <span style={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: AMBER }}>Diferença a revisar: R$ {fmt(Math.abs(bal.diferenca))}</span>
+                  </div>
+                  <div style={{ fontSize: 12.5, color: ESP, marginTop: 8, lineHeight: 1.5 }}>
+                    O Passivo + Patrimônio Líquido (R$ {fmt(bal.passivo_mais_pl)}) supera o Ativo (R$ {fmt(bal.ativo_total)}) em R$ {fmt(Math.abs(bal.diferenca))}.
+                    Lançar mais no Patrimônio Líquido <strong>afasta</strong> do fechamento. Revise <strong>lançamentos de passivo ou de PL em duplicidade</strong> ou registre o <strong>Ativo que falta</strong> (saldos de banco, bens e estoque) para o balanço fechar.
+                    A diferença não é forçada — ela é mostrada até você reconciliar os lançamentos.
+                  </div>
+                  <button onClick={() => abrirNovaLinha('ativo', 'ATIVO CIRCULANTE')} disabled={busy} style={ctaPl}>+ Registrar saldo no Ativo</button>
+                </>
+              )}
             </div>
           )}
         </>
