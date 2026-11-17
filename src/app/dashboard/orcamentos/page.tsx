@@ -1307,6 +1307,13 @@ export default function OrcamentosPage(){
                       </td>
                       <td style={{padding:"8px",textAlign:"center"}}>
                         <span style={{fontSize:9,padding:"3px 10px",borderRadius:6,background:cfg.cor+"15",color:cfg.cor,fontWeight:600,whiteSpace:"nowrap"}}>{o.status==='rascunho'&&o.orcamentista_id?"Em elaboração":`${cfg.icon} ${cfg.label}`}</span>
+                        {/* #9474 · validade vencida: alerta vermelho "Em atraso" claro na coluna de Status (o ⚠️ na
+                            data é discreto). dias em atraso = hoje − validade, só nos status que ainda aguardam o cliente. */}
+                        {expirado&&(()=>{const diasAtraso=Math.max(1,Math.floor((Date.now()-new Date(o.data_validade).getTime())/86400000));return(
+                          <div data-testid="orc-em-atraso" title={`Validade venceu há ${diasAtraso} dia${diasAtraso>1?'s':''} — orçamento em atraso`}
+                            style={{display:"inline-flex",alignItems:"center",gap:3,marginTop:3,fontSize:9,padding:"2px 8px",borderRadius:6,background:R+"18",color:R,fontWeight:700,whiteSpace:"nowrap"}}>
+                            ⚠ Em atraso · {diasAtraso}d
+                          </div>);})()}
                         {o.qtd_visualizacoes>0&&<div style={{fontSize:8,color:TXD,marginTop:2}}>👁 {o.qtd_visualizacoes} visualiz.</div>}
                       </td>
                       <td style={{padding:"8px",textAlign:"right",color:G,fontWeight:600}}>{fmtR(Number(o.total))}</td>
