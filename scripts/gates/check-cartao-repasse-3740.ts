@@ -32,7 +32,7 @@ const genNome = readdirSync('supabase/migrations')
 ok(!!genNome, 'existe migration que define fn_cartao_registrar_recebimento')
 const gen = genNome ? readFileSync(`supabase/migrations/${genNome}`, 'utf8') : ''
 const corpoGen = gen.slice(gen.indexOf('fn_cartao_registrar_recebimento'))
-ok(/INSERT INTO erp_receber \([^)]*\bdesconto\b/s.test(corpoGen), 'repasse nasce com a taxa no campo desconto (valor a receber = bruto − desconto)')
+ok(/INSERT INTO erp_receber \([^)]*\bdesconto\b/.test(corpoGen), 'repasse nasce com a taxa no campo desconto (valor a receber = bruto − desconto)')
 ok(!/INSERT INTO erp_pagar\b/.test(corpoGen) && !/taxa_pagar_id = v_taxa_pagar\b/.test(corpoGen), 'geração não cria mais conta a pagar de taxa de cartão (#3740)')
 ok(sql.includes("'repasse_cartao', p_receber_id::text||'#'||i"), 'repasse com referência de sistema (não bate no anti-duplicidade)')
 ok(sql.includes('SELECT r.valor_liquido WHERE r.eh_repasse_cartao') && sql.includes('fn_receber_valor_referencia'), 'conciliação reconhece o líquido do repasse (lote e 1:1)')

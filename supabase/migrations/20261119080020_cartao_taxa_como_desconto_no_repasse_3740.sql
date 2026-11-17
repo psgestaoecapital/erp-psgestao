@@ -102,3 +102,7 @@ BEGIN
     'total_taxa', (SELECT COALESCE(sum((p->>'valor_taxa')::numeric),0) FROM jsonb_array_elements(v_parcelas) p),
     'total_liquido', (SELECT COALESCE(sum((p->>'valor_liquido')::numeric),0) FROM jsonb_array_elements(v_parcelas) p));
 END $function$;
+
+-- ACL explícita (idêntica à ACL viva: authenticated=X, service_role=X, sem anon/PUBLIC) — check_fn_guards
+REVOKE ALL ON FUNCTION public.fn_cartao_registrar_recebimento(uuid,uuid,uuid,text,text,integer,date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_cartao_registrar_recebimento(uuid,uuid,uuid,text,text,integer,date) TO authenticated, service_role;
