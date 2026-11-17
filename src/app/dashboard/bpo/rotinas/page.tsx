@@ -33,7 +33,7 @@ const ROTINAS_TIPO = [
   { id: "cobranca", nome: "Gestão de cobrança", desc: "Identifica inadimplentes, envia lembretes, gera boletos de cobrança", executor: "hibrido", freq: "semanal", icon: "💳", cor: C.R },
   { id: "contas_pagar", nome: "Contas a pagar da semana", desc: "Lista vencimentos da semana, programa pagamentos, alerta sobre atrasos", executor: "hibrido", freq: "semanal", icon: "📋", cor: C.Y },
   { id: "fluxo_caixa", nome: "Previsão de fluxo de caixa", desc: "IA projeta entradas e saídas dos próximos 30/60/90 dias", executor: "ia", freq: "semanal", icon: "📈", cor: C.G },
-  { id: "nfe_emissao", nome: "Emissão de NF-e", desc: "Emite notas fiscais de serviço ou produto via eNotas/Focus NFe", executor: "humano", freq: "sob_demanda", icon: "📄", cor: C.BL },
+  { id: "nfe_emissao", nome: "Emissão de NF-e", desc: "Emite notas fiscais de serviço ou produto via provedor de NF-e", executor: "humano", freq: "sob_demanda", icon: "📄", cor: C.BL },
   { id: "boleto_emissao", nome: "Emissão de boletos", desc: "Gera boletos de cobrança via Asaas/Cora para clientes inadimplentes", executor: "hibrido", freq: "sob_demanda", icon: "🧾", cor: C.GO },
   { id: "dre_mensal", nome: "DRE mensal", desc: "Gera demonstrativo de resultado do exercício com comparativo mês a mês", executor: "ia", freq: "mensal", icon: "📊", cor: C.GOL },
   { id: "relatorio_ia", nome: "Relatório executivo IA", desc: "PS gera relatório com 8 seções: pontos críticos, oportunidades, Carta ao Sócio", executor: "ia", freq: "mensal", icon: "📑", cor: C.PU },
