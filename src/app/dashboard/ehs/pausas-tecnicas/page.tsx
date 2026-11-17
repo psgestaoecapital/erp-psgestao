@@ -1721,20 +1721,20 @@ function AuditoriaBatidas({ companyId, onRevisar }: { companyId: string; onRevis
 // Relatório por COLABORADOR + PERÍODO montado DIRETO das batidas brutas do ponto (fn_nr36_relatorio_batidas →
 // ind_ponto_marcacao), desde jan/2026, SEM nenhum valor estimado. Cada pausa com ENTRADA e SAÍDA reais do relógio;
 // quando não há batida de retorno → "SEM REGISTRO". Exporta em PDF (imprimir) e Excel. Não toca a apuração antiga.
-type RelBatida = { hora: string; ajustada: boolean; motivo: string | null }
-type RelPausa = { entrada: RelBatida | null; saida: RelBatida | null }
-type RelDia = { data: string; jornada: { entrada: RelBatida | null; saida: RelBatida | null }; pausas: RelPausa[]; total_batidas: number }
-type RelData = { ok: boolean; erro?: string; mensagem?: string; empresa: string | null; colaborador: { cpf: string; nome: string; matricula: string | null; funcao: string | null; setor: string | null; pis: string | null; admissao: string | null }; periodo: { ini: string; fim: string }; dias: RelDia[]; gerado_em: string }
+type BatMarca = { hora: string; ajustada: boolean; motivo: string | null }
+type BatPausa = { entrada: BatMarca | null; saida: BatMarca | null }
+type BatDia = { data: string; jornada: { entrada: BatMarca | null; saida: BatMarca | null }; pausas: BatPausa[]; total_batidas: number }
+type BatRelData = { ok: boolean; erro?: string; mensagem?: string; empresa: string | null; colaborador: { cpf: string; nome: string; matricula: string | null; funcao: string | null; setor: string | null; pis: string | null; admissao: string | null }; periodo: { ini: string; fim: string }; dias: BatDia[]; gerado_em: string }
 
 const SEM_REG = 'SEM REGISTRO'
-const horaDe = (b: RelBatida | null) => b ? b.hora : SEM_REG
+const horaDe = (b: BatMarca | null) => b ? b.hora : SEM_REG
 
 function AbaRelatorio({ companyId }: { companyId: string }) {
   const [colabs, setColabs] = useState<Colab[]>([])
   const [cpf, setCpf] = useState('')
   const [ini, setIni] = useState('2026-01-01')
   const [fim, setFim] = useState(iso(new Date()))
-  const [dados, setDados] = useState<RelData | null>(null)
+  const [dados, setDados] = useState<BatRelData | null>(null)
   const [erro, setErro] = useState(''); const [busy, setBusy] = useState(false)
 
   useEffect(() => { (async () => {
@@ -1746,7 +1746,7 @@ function AbaRelatorio({ companyId }: { companyId: string }) {
     if (!cpf) { setErro('Escolha um colaborador.'); return }
     setBusy(true); setErro(''); setDados(null)
     try {
-      const r = await rpc<RelData>('fn_nr36_relatorio_batidas', { p_company_id: companyId, p_cpf: cpf, p_ini: ini, p_fim: fim })
+      const r = await rpc<BatRelData>('fn_nr36_relatorio_batidas', { p_company_id: companyId, p_cpf: cpf, p_ini: ini, p_fim: fim })
       if (!r.ok) throw new Error(r.mensagem || r.erro || 'Falha ao gerar o relatório.')
       setDados(r)
     } catch (e) { setErro((e as Error).message) } finally { setBusy(false) }
