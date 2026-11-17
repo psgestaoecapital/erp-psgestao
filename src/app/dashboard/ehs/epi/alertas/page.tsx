@@ -172,8 +172,14 @@ export default function AlertasEpiPage() {
             🎉 Nenhum alerta {filtroStatus === 'ativo' ? 'ativo' : ''}. Está tudo em conformidade.
           </div>
         ) : (
+          <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: 11, color: C.muted, marginBottom: 2 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>Card de alerta <AjudaCampo chave="compliance.epi.alertas.card" rota={ROTA} /></span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>Resolver <AjudaCampo chave="compliance.epi.alertas.acao_resolver" rota={ROTA} /></span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>Ignorar <AjudaCampo chave="compliance.epi.alertas.acao_ignorar" rota={ROTA} /></span>
+          </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {filtradas.map((a) => {
+            {filtradas.map((a, idx) => {
               const cor = corSev(a.severidade)
               return (
                 <div key={a.id} style={{ background: '#FFFFFF', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61,35,20,0.06)', borderLeft: `4px solid ${cor}`, display: 'grid', gridTemplateColumns: '36px 1fr auto', gap: 12, alignItems: 'start' }}>
@@ -183,6 +189,7 @@ export default function AlertasEpiPage() {
                       <span style={{ fontSize: 14, fontWeight: 600, color: C.espresso }}>
                         {a.titulo || TIPO_LABEL[a.tipo] || a.tipo}
                       </span>
+                      {idx === 0 && <AjudaCampo chave="compliance.epi.alertas.conteudo" rota={ROTA} />}
                       {a.severidade && (
                         <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 4, background: cor + '22', color: cor, fontWeight: 700, textTransform: 'uppercase' }}>
                           {a.severidade}
@@ -207,18 +214,25 @@ export default function AlertasEpiPage() {
                   </div>
                   {a.status === 'ativo' && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 110 }}>
-                      <button onClick={() => alterarStatus(a.id, 'resolvido')} disabled={actingId === a.id} style={btnPri}>
-                        {actingId === a.id ? '…' : '✓ Resolver'}
-                      </button>
-                      <button onClick={() => alterarStatus(a.id, 'ignorado')} disabled={actingId === a.id} style={btnSec}>
-                        Ignorar
-                      </button>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                        <button onClick={() => alterarStatus(a.id, 'resolvido')} disabled={actingId === a.id} style={btnPri}>
+                          {actingId === a.id ? '…' : '✓ Resolver'}
+                        </button>
+                        {idx === 0 && <AjudaCampo chave="compliance.epi.alertas.resolver" rota={ROTA} />}
+                      </span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                        <button onClick={() => alterarStatus(a.id, 'ignorado')} disabled={actingId === a.id} style={btnSec}>
+                          Ignorar
+                        </button>
+                        {idx === 0 && <AjudaCampo chave="compliance.epi.alertas.ignorar" rota={ROTA} />}
+                      </span>
                     </div>
                   )}
                 </div>
               )
             })}
           </div>
+          </>
         )}
       </div>
     </div>
