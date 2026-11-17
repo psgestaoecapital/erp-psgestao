@@ -24,6 +24,47 @@ const TEXTM = '#6b5444'
 const GREEN = '#1F5A1F'
 const RED = '#7A1F1F'
 
+// SPEC Master §3 (Júlia) · obrigatórios do comercial quando a aprovação faz NASCER um contrato de fee (fee>0).
+// Mesma régua da porta manual (fn_contrato_solicitar / SolicitarContratoModal da GE) + CNPJ + contato. Projeto
+// avulso (fee 0, sem faturamento recorrente) não exige nada — só a comissão é gerada. Usado pelo guard de
+// submit E para desabilitar o botão "Aprovar" (bloqueio + "falta X"); o banco é fail-closed em paralelo.
+type AprForm = { fee: string; dia: string; nParcelas: string; dataFim: string; primeiroVenc: string; clienteEmail: string; clienteTelefone: string; clienteCnpj: string }
+function aprovarObrigatoriosFaltando(f: AprForm): string[] {
+  if ((moedaParaNumero(f.fee) ?? 0) <= 0) return []
+  const hoje = new Date().toISOString().slice(0, 10)
+  const falta: string[] = []
+  const diaN = Number(f.dia)
+  if (!f.dia.trim() || !Number.isInteger(diaN) || diaN < 1 || diaN > 28) falta.push('dia do vencimento (1 a 28)')
+  if (!f.nParcelas.trim() || !Number.isInteger(Number(f.nParcelas)) || Number(f.nParcelas) < 1) falta.push('nº de parcelas (1 ou mais)')
+  if (!f.dataFim.trim()) falta.push('fim da vigência')
+  else if (f.dataFim < hoje) falta.push('fim da vigência válido (não antes de hoje)')
+  if (!f.primeiroVenc.trim()) falta.push('1º vencimento')
+  if (!f.clienteCnpj.trim()) falta.push('CNPJ/CPF do cliente (no cadastro)')
+  if (!f.clienteEmail.trim() && !f.clienteTelefone.trim()) falta.push('contato do cliente (e-mail ou telefone)')
+  return falta
+}
+// Default do 1º vencimento: primeira data >= hoje cujo dia bate com o dia de vencimento (editável).
+function proximoVenc(dia: number): string {
+  const d = Math.min(Math.max(Number.isFinite(dia) ? dia : 10, 1), 28)
+  const h = new Date(); let y = h.getFullYear(); let m = h.getMonth()
+  if (h.getDate() > d) { m += 1; if (m > 11) { m = 0; y += 1 } }
+  return new Date(y, m, d).toISOString().slice(0, 10)
+}
+// Rede de segurança: tradução dos códigos que o banco (fail-closed) pode devolver, caso a aprovação chegue por fora do front.
+const APROVAR_ERRO: Record<string, string> = {
+  titulo_obrigatorio: 'Falta o título do contrato.',
+  vigencia_inicio_obrigatoria: 'Falta o início da vigência.',
+  vigencia_fim_obrigatoria: 'Falta o fim da vigência.',
+  vigencia_invalida: 'O fim da vigência não pode ser antes do início.',
+  numero_parcelas_obrigatorio: 'Falta o nº de parcelas.',
+  numero_parcelas_invalido: 'Nº de parcelas precisa ser 1 ou mais.',
+  dia_vencimento_obrigatorio: 'Falta o dia do vencimento (1 a 28).',
+  dia_vencimento_invalido: 'Dia do vencimento: de 1 a 28.',
+  primeiro_vencimento_obrigatorio: 'Falta o 1º vencimento.',
+  cnpj_cliente_obrigatorio: 'Falta o CNPJ/CPF do cliente — complete o cadastro do cliente antes de aprovar.',
+  contato_obrigatorio: 'Falta o contato do cliente (e-mail ou telefone) — sem ele o financeiro não envia a cobrança.',
+}
+
 const brl = (v: number | null | undefined) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0 }
 
@@ -100,7 +141,7 @@ export default function PropostasPage() {
   const abriuDestaque = useRef(false)
   // aprovação → contrato recorrente na GE + comissão
   const [apr, setApr] = useState<Proposta | null>(null)
-  const [aprForm, setAprForm] = useState({ fee: '', dia: '10', periodicidade: 'mensal', comPct: '', comBase: 'fee', comTipo: 'unica' })
+  const [aprForm, setAprForm] = useState({ fee: '', dia: '10', periodicidade: 'mensal', comPct: '', comBase: 'fee', comTipo: 'unica', nParcelas: '', dataFim: '', primeiroVenc: '', clienteEmail: '', clienteTelefone: '', clienteCnpj: '' })
 
   const carregar = async () => {
     if (!empresa) { setPropostas([]); setLoading(false); return }
@@ -367,12 +408,27 @@ export default function PropostasPage() {
   }
 
   function abrirAprovar(p: Proposta) {
-    setAprForm({ fee: numeroParaMoeda(p.valor_final ?? p.valor_total), dia: '10', periodicidade: 'mensal', comPct: '', comBase: 'fee', comTipo: 'unica' })
+    setAprForm({ fee: numeroParaMoeda(p.valor_final ?? p.valor_total), dia: '10', periodicidade: 'mensal', comPct: '', comBase: 'fee', comTipo: 'unica', nParcelas: '', dataFim: '', primeiroVenc: proximoVenc(10), clienteEmail: '', clienteTelefone: '', clienteCnpj: '' })
     setApr(p)
+    // SPEC 4.1 + §3: puxa contato E CNPJ do cadastro do cliente para o bloco "Dados para o financeiro".
+    // O CNPJ é obrigatório quando nasce contrato (fail-closed no banco) — se faltar, o comercial corrige o cadastro.
+    void (async () => {
+      const { data: pp } = await supabase.from('agency_propostas').select('erp_cliente_id').eq('id', p.id).maybeSingle()
+      const ecId = (pp as { erp_cliente_id?: string | null } | null)?.erp_cliente_id
+      if (!ecId) return
+      const { data: ec } = await supabase.from('erp_clientes').select('email, celular, whatsapp, telefone, cnpj_cpf').eq('id', ecId).maybeSingle()
+      if (!ec) return
+      const e = ec as Record<string, string | null>
+      setAprForm((f) => ({ ...f, clienteEmail: f.clienteEmail || e.email || '', clienteTelefone: f.clienteTelefone || e.celular || e.whatsapp || e.telefone || '', clienteCnpj: (e.cnpj_cpf || '').trim() }))
+    })()
   }
 
   async function confirmarAprovar() {
     if (!apr) return
+    // SPEC Master §3 (Júlia) · obrigatórios do comercial amarrados NOS DOIS LADOS. O front bloqueia antes
+    // (lista "falta X" + impacto); o banco (fn_agency_proposta_aprovar) é fail-closed e recusa de verdade.
+    const falta = aprovarObrigatoriosFaltando(aprForm)
+    if (falta.length > 0) { setToast(`Falta ${falta.join(' · ')} — sem isso o financeiro não consegue faturar/emitir NF. Preencha para aprovar.`); return }
     setBusy(true)
     const { data, error } = await supabase.rpc('fn_agency_proposta_aprovar', {
       p_proposta_id: apr.id,
@@ -383,10 +439,16 @@ export default function PropostasPage() {
       p_comissao_percentual: aprForm.comPct ? Number(aprForm.comPct) : 0,
       p_comissao_tipo: aprForm.comTipo,
       p_comissao_base: aprForm.comBase,
+      // SPEC gaps + §3: nº de parcelas, fim da vigência, 1º vencimento e contato viajam na aprovação (a Julia recebe completo).
+      p_numero_parcelas: aprForm.nParcelas ? Number(aprForm.nParcelas) : null,
+      p_data_fim: aprForm.dataFim || null,
+      p_cliente_email: aprForm.clienteEmail.trim() || null,
+      p_cliente_telefone: aprForm.clienteTelefone.trim() || null,
+      p_data_primeiro_vencimento: aprForm.primeiroVenc || null,
     })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string; contrato_numero?: string } | null
-    if (error || !j?.ok) { setToast(error ? erroAmigavel(error, 'Não foi possível aprovar a proposta.') : codigoAmigavel(j?.erro, 'Não foi possível aprovar a proposta.')); return }
+    if (error || !j?.ok) { setToast(error ? erroAmigavel(error, 'Não foi possível aprovar a proposta.') : (APROVAR_ERRO[j?.erro ?? ''] ?? codigoAmigavel(j?.erro, 'Não foi possível aprovar a proposta.'))); return }
     setApr(null)
     setToast(j.contrato_numero ? `APROVADA · pedido de contrato ${j.contrato_numero} criado — o financeiro vai elaborar.` : 'Proposta APROVADA.')
     void carregar()
@@ -635,6 +697,25 @@ export default function PropostasPage() {
               </label>
             </div>
             <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 2 }}>Fee 0 → aprova sem contrato recorrente (ex.: projeto avulso). A comissão ainda é gerada.</div>
+
+            {/* SPEC 4.1 · Dados para o financeiro — contato + nº de parcelas viajam para o pedido de contrato.
+                SPEC Master §3 (Júlia) · obrigatórios do comercial VISÍVEIS quando há fee (paridade com a GE). */}
+            <div style={{ fontSize: 11, fontWeight: 700, color: DOURADO, textTransform: 'uppercase', letterSpacing: 0.5, margin: '12px 0 4px', display: 'flex', alignItems: 'center', gap: 6 }}>
+              Dados para o financeiro
+              {(moedaParaNumero(aprForm.fee) ?? 0) > 0 && <span style={{ fontSize: 9.5, fontWeight: 700, color: ESPRESSO, background: '#FBF3DE', border: `1px solid ${DOURADO}`, borderRadius: 999, padding: '1px 8px', textTransform: 'none', letterSpacing: 0 }}>obrigatórios quando há fee</span>}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Nº de parcelas<AjudaCampo chave="pm.propostas.numero_parcelas" /></span><input style={inp} type="number" min={1} value={aprForm.nParcelas} onChange={(e) => setAprForm({ ...aprForm, nParcelas: e.target.value })} placeholder="Ex.: 12" /></label>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Fim da vigência<AjudaCampo chave="pm.propostas.data_fim" /></span><input style={inp} type="date" value={aprForm.dataFim} onChange={(e) => setAprForm({ ...aprForm, dataFim: e.target.value })} /></label>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>1º vencimento<AjudaCampo chave="pm.propostas.primeiro_vencimento" /></span><input style={inp} type="date" value={aprForm.primeiroVenc} onChange={(e) => setAprForm({ ...aprForm, primeiroVenc: e.target.value })} /></label>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>E-mail do cliente<AjudaCampo chave="pm.propostas.cliente_email" /></span><input style={inp} type="email" value={aprForm.clienteEmail} onChange={(e) => setAprForm({ ...aprForm, clienteEmail: e.target.value })} placeholder="do cadastro" /></label>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Telefone do cliente<AjudaCampo chave="pm.propostas.cliente_telefone" /></span><input style={inp} value={aprForm.clienteTelefone} onChange={(e) => setAprForm({ ...aprForm, clienteTelefone: e.target.value })} placeholder="do cadastro" /></label>
+            </div>
+            <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 2 }}>Sem o contato, a Julia não consegue enviar o boleto/cobrança. Sem o nº de parcelas, ela não sabe em quantas vezes faturar. Vêm do cadastro do cliente — ajuste se mudaram.</div>
+            {(moedaParaNumero(aprForm.fee) ?? 0) > 0 && !aprForm.clienteCnpj.trim() && (
+              <div style={{ fontSize: 11, color: RED, marginTop: 6, fontWeight: 600 }}>⚠ O cliente está sem CNPJ/CPF no cadastro — obrigatório para gerar o contrato. Complete o cadastro do cliente antes de aprovar.</div>
+            )}
+
             <div style={{ fontSize: 11, fontWeight: 700, color: DOURADO, textTransform: 'uppercase', letterSpacing: 0.5, margin: '12px 0 4px' }}>Comissão do comercial</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
               <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Percentual (%)<AjudaCampo chave="pm.propostas.comissao_pct" /></span><input style={inp} type="number" value={aprForm.comPct} onChange={(e) => setAprForm({ ...aprForm, comPct: e.target.value })} placeholder="0" /></label>
@@ -649,10 +730,22 @@ export default function PropostasPage() {
                 </select>
               </label>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-              <button onClick={() => setApr(null)} style={btnGhost}>Cancelar</button>
-              <button disabled={busy} onClick={confirmarAprovar} style={btnPri}>{busy ? 'Aprovando…' : 'Aprovar e gerar contrato'}</button>
-            </div>
+            {(() => {
+              const faltando = aprovarObrigatoriosFaltando(aprForm)
+              return (
+                <>
+                  {faltando.length > 0 && (
+                    <div style={{ fontSize: 11, color: RED, background: '#FBEAEA', border: '1px solid #E6B8B8', borderRadius: 8, padding: '8px 10px', marginTop: 12 }}>
+                      Para aprovar e gerar o contrato, falta: <strong>{faltando.join(' · ')}</strong>. Sem isso o financeiro não consegue faturar/emitir NF.
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+                    <button onClick={() => setApr(null)} style={btnGhost}>Cancelar</button>
+                    <button disabled={busy || faltando.length > 0} onClick={confirmarAprovar} style={{ ...btnPri, ...(faltando.length > 0 ? { opacity: 0.5, cursor: 'not-allowed' } : {}) }}>{busy ? 'Aprovando…' : 'Aprovar e gerar contrato'}</button>
+                  </div>
+                </>
+              )
+            })()}
           </div>
         </div>
       )}
