@@ -14,6 +14,8 @@ import QuadroFunil from '@/components/crm/QuadroFunil'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
 import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
+import { cnpjValido, soDigitosCnpj } from '@/lib/documentos/cnpj'
+import { consultarCNPJ } from '@/lib/cadastros/buscarCNPJ'
 import { TarefasLeadModal, MinhasTarefasModal, SELECT_TAREFA, tipoTarefa, quando, atrasada, whatsappHref, type Tarefa } from '@/components/pm/TarefasLead'
 
 const ESPRESSO = '#3D2314'
@@ -291,17 +293,46 @@ export default function LeadsPage() {
     setForm((f) => ({ ...f, empresa: c.nome, erp_cliente_id: c.id, contato_email: d.email ?? f.contato_email, contato_telefone: d.telefone || d.celular || d.whatsapp || f.contato_telefone }))
     setToast('Cliente vinculado — dados preenchidos.')
   }
+  // Criação inline de cliente GE espelhando o cadastro: se o que foi digitado é um CNPJ válido, consulta a
+  // BrasilAPI (rota interna, custo zero — NÃO é IA) e cria com razão social + CNPJ reais. NUNCA grava o CNPJ
+  // como nome nem deixa o CNPJ nulo quando um CNPJ foi digitado. Se o CNPJ já existe, a fn_cliente_criar_inline
+  // deduplica pela guarda e vincula. Retorna o erp_cliente_id ou null (e já mostra o toast de erro).
+  async function criarClienteGE(nomeRaw: string, emailFb: string | null, telFb: string | null): Promise<string | null> {
+    const nome = (nomeRaw || '').trim()
+    const dig = soDigitosCnpj(nome)
+    let pNome = nome
+    let pCpfCnpj: string | null = null
+    const extra: Record<string, string | null> = { email: emailFb || null, telefone: telFb || null }
+    if (cnpjValido(dig)) {
+      const r = await consultarCNPJ(dig)
+      if (r.status === 'ok') {
+        pNome = (r.dados.razao_social || r.dados.nome_fantasia || '').trim() || nome
+        pCpfCnpj = dig
+        extra.email = emailFb || r.dados.email
+        extra.telefone = telFb || r.dados.telefone
+        // endereço do cadastro (BrasilAPI) → cliente completo
+        extra.logradouro = r.dados.logradouro; extra.numero = r.dados.numero; extra.bairro = r.dados.bairro
+        extra.cidade = r.dados.cidade; extra.uf = r.dados.uf; extra.cep = r.dados.cep
+      } else {
+        setToast('Não consegui buscar esse CNPJ agora. Confira o número ou tente de novo em instantes — para não cadastrar o cliente sem nome.')
+        return null
+      }
+    }
+    const { data, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: empresa, p_nome: pNome, p_cpf_cnpj: pCpfCnpj, p_extra: extra })
+    if (error) { setToast(erroAmigavel(error, 'Não foi possível concluir a ação. Tente de novo.')); return null }
+    return data as string | null
+  }
+
   async function criarClienteInline() {
     if (!empresa) return
     const nome = (cliTermo || form.empresa).trim()
     if (!nome) { setToast('Digite o nome/empresa do cliente.'); return }
     setBusy(true)
     try {
-      const { data, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: empresa, p_nome: nome, p_cpf_cnpj: null, p_extra: { email: form.contato_email || null, telefone: form.contato_telefone || null } })
-      if (error) { setToast(erroAmigavel(error, 'Não foi possível concluir a ação. Tente de novo.')); return }
-      const cid = data as string | null
+      const cid = await criarClienteGE(nome, form.contato_email || null, form.contato_telefone || null)
+      if (!cid) return
       setForm((f) => ({ ...f, empresa: nome, erp_cliente_id: cid })); setCliSug([]); setCliTermo(nome)
-      setToast('Cliente CRIADO na GE e vinculado.')
+      setToast('Cliente cadastrado na GE e vinculado.')
     } finally { setBusy(false) }
   }
 
@@ -357,9 +388,9 @@ export default function LeadsPage() {
       if (!cid) {
         const nome = (l.empresa || l.nome || '').trim()
         if (!nome) { setToast('Lead sem empresa/contato para criar cliente.'); return }
-        const { data, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: empresa, p_nome: nome, p_cpf_cnpj: null, p_extra: { email: l.contato_email || null, telefone: l.contato_telefone || null } })
-        if (error) { setToast(erroAmigavel(error, 'Não foi possível concluir a ação. Tente de novo.')); return }
-        cid = data as string | null
+        const novoCid = await criarClienteGE(nome, l.contato_email || null, l.contato_telefone || null)
+        if (!novoCid) return
+        cid = novoCid
         if (cid) await supabase.from('agency_leads').update({ erp_cliente_id: cid, atualizado_em: new Date().toISOString() }).eq('id', l.id)
       }
       setToast('Cliente ligado ao lead → Propostas.'); void carregar()
