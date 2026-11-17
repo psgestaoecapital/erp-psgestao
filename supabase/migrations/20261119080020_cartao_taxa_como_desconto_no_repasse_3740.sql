@@ -106,3 +106,39 @@ END $function$;
 -- ACL explícita (idêntica à ACL viva: authenticated=X, service_role=X, sem anon/PUBLIC) — check_fn_guards
 REVOKE ALL ON FUNCTION public.fn_cartao_registrar_recebimento(uuid,uuid,uuid,text,text,integer,date) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_cartao_registrar_recebimento(uuid,uuid,uuid,text,text,integer,date) TO authenticated, service_role;
+
+-- #3740 item 1 (correção de par): a conciliação agrupada em um clique (fn_cartao_conciliar_repasse, usada em
+-- /dashboard/financeiro/cartoes) baixava o repasse pelo BRUTO (valor_pago = valor) e quitava a taxa_pagar à parte.
+-- Com a taxa agora no `desconto` e SEM conta a pagar, baixar pelo bruto sobrestimaria o caixa pela taxa (não há mais
+-- taxa_pagar compensando). Passa a baixar pelo LÍQUIDO (valor − desconto) = o que a operadora deposita.
+-- Títulos ANTIGOS têm desconto 0 e taxa_pagar_id → comportamento inalterado (valor − 0 = valor; taxa_pagar segue quitada).
+CREATE OR REPLACE FUNCTION public.fn_cartao_conciliar_repasse(p_company_id uuid, p_recebivel_ids uuid[], p_data_recebimento date, p_conta_bancaria_id uuid DEFAULT NULL::uuid, p_movimento_banco_id uuid DEFAULT NULL::uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE v_qtd int; v_total numeric; v_taxas int;
+BEGIN
+  IF p_company_id NOT IN (SELECT get_user_company_ids()) THEN RETURN jsonb_build_object('ok',false,'erro','sem_acesso'); END IF;
+
+  UPDATE erp_receber SET status='recebido', valor_pago=round(valor - COALESCE(desconto,0), 2), data_pagamento=p_data_recebimento,
+     conta_bancaria_id=COALESCE(p_conta_bancaria_id,conta_bancaria_id),
+     movimento_banco_id=COALESCE(p_movimento_banco_id,movimento_banco_id), conciliado=true, updated_at=now()
+   WHERE id = ANY(p_recebivel_ids) AND company_id=p_company_id AND eh_repasse_cartao AND status IN ('aberto','vencido');
+  GET DIAGNOSTICS v_qtd = ROW_COUNT;
+
+  SELECT COALESCE(sum(valor - COALESCE(desconto,0)),0) INTO v_total FROM erp_receber
+   WHERE id = ANY(p_recebivel_ids) AND company_id=p_company_id AND eh_repasse_cartao;
+
+  UPDATE erp_pagar SET status='pago', valor_pago=valor, data_pagamento=p_data_recebimento, updated_at=now()
+   WHERE id IN (SELECT taxa_pagar_id FROM erp_receber WHERE id = ANY(p_recebivel_ids) AND taxa_pagar_id IS NOT NULL)
+     AND company_id=p_company_id AND status<>'pago';
+  GET DIAGNOSTICS v_taxas = ROW_COUNT;
+
+  RETURN jsonb_build_object('ok', true, 'recebiveis_baixados', v_qtd, 'total_liquido', round(v_total,2), 'taxas_quitadas', v_taxas);
+END $function$;
+
+-- ACL explícita (idêntica à ACL viva: authenticated=X, service_role=X, sem anon/PUBLIC) — check_fn_guards
+REVOKE ALL ON FUNCTION public.fn_cartao_conciliar_repasse(uuid,uuid[],date,uuid,uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_cartao_conciliar_repasse(uuid,uuid[],date,uuid,uuid) TO authenticated, service_role;
