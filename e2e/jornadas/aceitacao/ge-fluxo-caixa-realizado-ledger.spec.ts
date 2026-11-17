@@ -5,9 +5,12 @@
 // por erp_receber.data_pagamento / erp_pagar.data_pagamento. Quando a baixa não carimba data_pagamento no título
 // (bulk/baixa parcial multi-data), o realizado zerava apesar do dinheiro ter entrado/saído (datado no ledger).
 //
-// O spec REPRODUZ exatamente o estado do bug na DEMO GE: título 'pago' + baixa DATADA no ledger, porém com
-// data_pagamento = NULL. Confere que o realizado do dia passa a incluir o valor da baixa (fonte = ledger).
-// No código ANTIGO o delta seria 0 (data_pagamento nulo); no novo é = valor da baixa. Limpa o que cria.
+// O spec REPRODUZ o estado do bug na DEMO GE: título 'pago' + baixa DATADA no ledger (dia X), mas com o
+// título carimbado em data_pagamento = HOJE (≠ X — a regra de núcleo fn_trg_status_lancamento força
+// data_pagamento = CURRENT_DATE ao quitar; não dá para forçar NULL). No path ANTIGO (realizado chaveado por
+// data_pagamento) o recebimento NÃO somaria no dia X; no novo (fonte = LEDGER, baixa datada em X) o delta do
+// dia X = valor da baixa. Limpa o que cria por SOFT-DELETE (RD-30: título financeiro não se apaga por DELETE
+// físico — trg_bloqueia_delete_fisico).
 
 import { test, expect } from '../../support/fixtures'
 import { dbSelect, dbInsert, dbPatch, dbDelete, rpcComoRobo, pegarTravaDemo, soltarTravaDemo, donoTrava } from '../../support/api'
@@ -38,10 +41,14 @@ test.describe('GE — fluxo de caixa: realizado pelo ledger de baixa #fluxo-caix
 
   test.afterAll(async () => {
     try {
+      // Ledger de baixa não tem a trava RD-30 → DELETE físico ok (dispara o recompute no título, ainda vivo).
       for (const id of criado.recBaixa) await dbDelete('erp_receber_baixa', `id=eq.${id}`)
       for (const id of criado.pagBaixa) await dbDelete('erp_pagar_baixa', `id=eq.${id}`)
-      for (const id of criado.receber) await dbDelete('erp_receber', `id=eq.${id}`)
-      for (const id of criado.pagar) await dbDelete('erp_pagar', `id=eq.${id}`)
+      // Título financeiro tem a trava RD-30 (trg_bloqueia_delete_fisico): remove por SOFT-DELETE (deleted_at),
+      // igual ao purgarReceberDemo / #5295. UPDATE de deleted_at não passa pelo trigger de status nem pela trava.
+      const agora = new Date().toISOString()
+      for (const id of criado.receber) await dbPatch('erp_receber', `id=eq.${id}&deleted_at=is.null`, { deleted_at: agora })
+      for (const id of criado.pagar) await dbPatch('erp_pagar', `id=eq.${id}&deleted_at=is.null`, { deleted_at: agora })
     } finally {
       await soltarTravaDemo(donoTrava())
     }
@@ -60,11 +67,13 @@ test.describe('GE — fluxo de caixa: realizado pelo ledger de baixa #fluxo-caix
       receber_id: rec.id, company_id: DEMO_GE, valor: Y, data: X, origem: 'e2e-fluxo',
     })
     criado.recBaixa.push(bx.id)
-    // reproduz o estado do bug: baixa datada no ledger, MAS o título sem data_pagamento (pelo path antigo,
-    // chaveado por data_pagamento + status IN ('pago','recebido'), este recebimento somaria 0).
-    await dbPatch('erp_receber', `id=eq.${rec.id}`, { data_pagamento: null })
+    // Estado do bug: a baixa (datada em X) quita o título; o núcleo (fn_trg_status_lancamento) carimba
+    // data_pagamento = HOJE (CURRENT_DATE), que é ≠ X. Pelo path ANTIGO (realizado chaveado por
+    // data_pagamento) este recebimento NÃO somaria no dia X. Não força NULL (o núcleo re-carimba ao quitar).
     const [parent] = await dbSelect<Rec>('erp_receber', `id=eq.${rec.id}&select=id,status,data_pagamento,valor_pago`)
-    expect(parent.data_pagamento, 'estado do bug: data_pagamento deve estar nulo').toBeNull()
+    expect(parent.status, 'a baixa quita o título (status pago)').toBe('pago')
+    expect(Number(parent.valor_pago), 'valor_pago = valor da baixa').toBe(Y)
+    expect(parent.data_pagamento, 'precondição do bug: data_pagamento (HOJE) difere da data da baixa (X)').not.toBe(X)
 
     const depois = await realizado('total_recebimentos')
     expect(Number((depois - antes).toFixed(2)), 'o realizado do dia soma a baixa do ledger (antes zerava)').toBe(Y)
@@ -82,9 +91,11 @@ test.describe('GE — fluxo de caixa: realizado pelo ledger de baixa #fluxo-caix
       pagar_id: pag.id, company_id: DEMO_GE, valor: Y, data: X, origem: 'e2e-fluxo',
     })
     criado.pagBaixa.push(bx.id)
-    await dbPatch('erp_pagar', `id=eq.${pag.id}`, { data_pagamento: null })
+    // Mesmo estado do bug do recebimento: baixa datada em X quita; data_pagamento carimbado = HOJE (≠ X).
     const [parent] = await dbSelect<Rec>('erp_pagar', `id=eq.${pag.id}&select=id,status,data_pagamento,valor_pago`)
-    expect(parent.data_pagamento, 'estado do bug: data_pagamento deve estar nulo').toBeNull()
+    expect(parent.status, 'a baixa quita o título (status pago)').toBe('pago')
+    expect(Number(parent.valor_pago), 'valor_pago = valor da baixa').toBe(Y)
+    expect(parent.data_pagamento, 'precondição do bug: data_pagamento (HOJE) difere da data da baixa (X)').not.toBe(X)
 
     const depois = await realizado('total_pagamentos')
     expect(Number((depois - antes).toFixed(2)), 'o realizado do dia soma a baixa do ledger (antes zerava)').toBe(Y)
