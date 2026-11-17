@@ -172,6 +172,12 @@ export default function AlertasEpiPage() {
             🎉 Nenhum alerta {filtroStatus === 'ativo' ? 'ativo' : ''}. Está tudo em conformidade.
           </div>
         ) : (
+          <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: 11, color: C.muted, marginBottom: 2 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>Card de alerta <AjudaCampo chave="compliance.epi.alertas.card" rota={ROTA} /></span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>Resolver <AjudaCampo chave="compliance.epi.alertas.acao_resolver" rota={ROTA} /></span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>Ignorar <AjudaCampo chave="compliance.epi.alertas.acao_ignorar" rota={ROTA} /></span>
+          </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {filtradas.map((a, idx) => {
               const cor = corSev(a.severidade)
@@ -226,6 +232,7 @@ export default function AlertasEpiPage() {
               )
             })}
           </div>
+          </>
         )}
       </div>
     </div>
