@@ -33,6 +33,9 @@ AS $function$
     LEFT JOIN public.ind_atak_fato f
            ON f.company_id = m.company_id AND f.dominio = 'comercial_venda_item' AND f.chave_fato = m.fato_id
    WHERE m.company_id = p_company_id AND m.dia BETWEEN p_de AND p_ate
+     -- guarda de empresa (critério 1 · isolamento multi-tenant): SECURITY DEFINER ignora RLS,
+     -- e o UUID da empresa não é segredo — sem esta guarda qualquer logado leria vendas de outra empresa.
+     AND (p_company_id IN (SELECT public.get_user_company_ids()) OR public.is_admin())
      -- só os tipos que entram no volume (ou tudo, se a empresa não configurou); exclui balcão (5200/5201) e perda (5235)
      AND (tv.a IS NULL OR trim(f.raw->>'COD_TIPO_MV') = ANY (tv.a))
 
@@ -63,6 +66,8 @@ AS $function$
     FROM public.erp_pedidos p
     JOIN public.erp_pedidos_itens pi ON pi.pedido_id = p.id
    WHERE p.company_id = p_company_id
+     -- guarda de empresa (critério 1 · isolamento multi-tenant): idem ramo ATAK acima.
+     AND (p_company_id IN (SELECT public.get_user_company_ids()) OR public.is_admin())
      AND p.status = 'faturado'
      AND COALESCE(p.data_faturamento, p.data_pedido) BETWEEN p_de AND p_ate
      AND NOT EXISTS (
