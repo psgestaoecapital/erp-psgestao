@@ -11,6 +11,8 @@ export interface AIRequest {
   system: string
   prompt: string
   maxTokens?: number
+  /** Finalidade p/ escolher o modelo por env (modeloPara). Default 'geral' — não muda os chamadores atuais. */
+  finalidade?: string
 }
 
 export interface AIResponse {
@@ -22,7 +24,7 @@ export interface AIResponse {
 
 // ── Anthropic ────────────────────────────────────────────────
 async function callAnthropic(req: AIRequest): Promise<string> {
-  const modelo = modeloPara('geral')
+  const modelo = modeloPara(req.finalidade ?? 'geral')
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
