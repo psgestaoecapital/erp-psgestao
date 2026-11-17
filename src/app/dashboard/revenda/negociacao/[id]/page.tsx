@@ -143,9 +143,9 @@ export default function NegociacaoPage() {
   const aprovado = !!neg.aprovado_em
   const dono = sim?.em_linguagem_de_dono
 
-  const Campo = (label: string, key: string, ph = '', tipo: 'text' | 'date' = 'text') => (
+  const Campo = (label: string, key: string, ph = '', tipo: 'text' | 'date' = 'text', chave?: string) => (
     <label style={{ display: 'block' }}>
-      <span style={{ display: 'block', fontSize: 11, color: C.espM, marginBottom: 3, fontWeight: 600 }}>{label}</span>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: C.espM, marginBottom: 3, fontWeight: 600 }}>{label}{chave && <AjudaCampo chave={chave} rota="/dashboard/revenda/negociacao" />}</span>
       <input type={tipo} value={f[key] ?? ''} placeholder={ph} disabled={!aberta}
         onChange={e => setF(s => ({ ...s, [key]: e.target.value }))} style={{ ...inp, background: aberta ? C.white : C.cream }} />
     </label>
@@ -186,9 +186,9 @@ export default function NegociacaoPage() {
     )
   }
   // #6874 — campos de dinheiro com máscara R$ (formata enquanto digita)
-  const CampoM = (label: string, key: string) => (
+  const CampoM = (label: string, key: string, chave?: string) => (
     <label style={{ display: 'block' }}>
-      <span style={{ display: 'block', fontSize: 11, color: C.espM, marginBottom: 3, fontWeight: 600 }}>{label}</span>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: C.espM, marginBottom: 3, fontWeight: 600 }}>{label}{chave && <AjudaCampo chave={chave} rota="/dashboard/revenda/negociacao" />}</span>
       <CampoMoeda value={f[key] ?? ''} placeholder="R$" disabled={!aberta}
         onChange={(v) => setF(s => ({ ...s, [key]: v }))} style={{ ...inp, background: aberta ? C.white : C.cream }} />
     </label>
@@ -216,19 +216,19 @@ export default function NegociacaoPage() {
           <section style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16 }}>
             <h2 style={{ fontSize: 14, fontWeight: 800, color: C.esp, margin: '0 0 12px' }}>Composição do negócio</h2>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
-              {Campo('Cliente', 'cliente_nome')}
-              {Campo('CPF/CNPJ', 'cliente_doc')}
-              {Campo('Vendedor', 'vendedor_nome')}
-              {Campo('Vale até', 'validade', '', 'date')}
-              {Campo('Origem do lead', 'origem_lead', 'ex.: OLX, WhatsApp, indicação')}
-              {CampoM('Preço pedido', 'preco_pedido')}
-              {CampoM('Desconto', 'desconto')}
-              {CampoM('Entrada', 'entrada')}
-              {CampoM('Financiado (banco)', 'financiado')}
+              {Campo('Cliente', 'cliente_nome', '', 'text', 'revenda.negociacao.cliente_nome')}
+              {Campo('CPF/CNPJ', 'cliente_doc', '', 'text', 'revenda.negociacao.cliente_doc')}
+              {Campo('Vendedor', 'vendedor_nome', '', 'text', 'revenda.negociacao.vendedor_nome')}
+              {Campo('Vale até', 'validade', '', 'date', 'revenda.negociacao.validade')}
+              {Campo('Origem do lead', 'origem_lead', 'ex.: OLX, WhatsApp, indicação', 'text', 'revenda.negociacao.origem_lead')}
+              {CampoM('Preço pedido', 'preco_pedido', 'revenda.negociacao.preco_pedido')}
+              {CampoM('Desconto', 'desconto', 'revenda.negociacao.desconto')}
+              {CampoM('Entrada', 'entrada', 'revenda.negociacao.entrada')}
+              {CampoM('Financiado (banco)', 'financiado', 'revenda.negociacao.financiado')}
               {bancoCampo()}
-              {Campo('Parcelas', 'parcelas')}
-              {CampoM('Retorno do banco', 'retorno_banco')}
-              {CampoM('Espécie (dinheiro)', 'especie_valor')}
+              {Campo('Parcelas', 'parcelas', '', 'text', 'revenda.negociacao.parcelas')}
+              {CampoM('Retorno do banco', 'retorno_banco', 'revenda.negociacao.retorno_banco')}
+              {CampoM('Espécie (dinheiro)', 'especie_valor', 'revenda.negociacao.especie_valor')}
             </div>
             {parceiroSel && parceiroSel.retorno_pct != null && (
               <div style={{ marginTop: 8, fontSize: 12, color: C.espM, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
