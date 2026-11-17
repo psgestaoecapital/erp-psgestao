@@ -161,3 +161,8 @@ BEGIN
     'erros_detalhe', v_erros_detalhe);
 END;
 $function$;
+
+-- Guarda (check_fn_guards · regra 1): o CREATE OR REPLACE acima recria a função SECURITY DEFINER,
+-- então o REVOKE anon precisa ser repetido NESTA migration (idêntico ao da 20261119173030; ACL inalterada na prática).
+REVOKE ALL ON FUNCTION public.fn_estoque_importar_lote(uuid, jsonb, boolean, uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_estoque_importar_lote(uuid, jsonb, boolean, uuid, text) TO authenticated, service_role;
