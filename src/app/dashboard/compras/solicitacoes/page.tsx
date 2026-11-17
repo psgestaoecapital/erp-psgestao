@@ -37,6 +37,13 @@ const FILTROS = [
   { id: 'recusada', rotulo: 'Recusadas' },
   { id: 'todas', rotulo: 'Todas' },
 ] as const
+const VAZIO: Record<string, { titulo: string; dica: string }> = {
+  aguardando_aprovacao: { titulo: 'Nenhuma solicitação aguardando aprovação', dica: 'Quando você enviar uma solicitação, ela fica aqui até o aprovador da empresa aprovar ou recusar. Crie uma nova solicitação para começar.' },
+  rascunho: { titulo: 'Nenhum rascunho em aberto', dica: 'Monte a solicitação com os itens, salve como rascunho e envie para aprovação quando estiver pronta.' },
+  aprovada: { titulo: 'Nenhuma solicitação aprovada ainda', dica: 'As solicitações aprovadas pelo aprovador da empresa ficam listadas aqui, prontas para virar compra.' },
+  recusada: { titulo: 'Nenhuma solicitação recusada', dica: 'As solicitações recusadas aparecem aqui com o motivo, para você ajustar e reenviar.' },
+  todas: { titulo: 'Você ainda não tem solicitações de compra', dica: 'Crie a primeira solicitação, adicione os itens e os orçamentos e envie para aprovação.' },
+}
 const COR: Record<string, string> = {
   rascunho: 'bg-gray-100 text-gray-700', aguardando_aprovacao: 'bg-amber-50 text-amber-800',
   aprovada: 'bg-emerald-50 text-emerald-800', recusada: 'bg-red-50 text-red-700', cancelada: 'bg-gray-100 text-gray-500',
@@ -241,7 +248,20 @@ export default function SolicitacoesCompraPage() {
           </div>
 
           {loading && <p className="flex items-center gap-2 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Carregando…</p>}
-          {!loading && visiveis.length === 0 && <p className="rounded-lg bg-gray-50 p-4 text-sm text-gray-600">Nenhuma solicitação nesta situação.</p>}
+          {!loading && visiveis.length === 0 && (
+            <div className="rounded-2xl border border-dashed border-gray-300 bg-gray-50 p-6 text-center" data-testid="solic-vazio">
+              <ClipboardList className="mx-auto h-8 w-8 text-gray-400" />
+              <p className="mt-2 text-sm font-semibold text-gray-800">{(VAZIO[filtro] ?? VAZIO.todas).titulo}</p>
+              <p className="mx-auto mt-1 max-w-md text-sm text-gray-500">{(VAZIO[filtro] ?? VAZIO.todas).dica}</p>
+              <div className="mt-4 flex items-center justify-center gap-1">
+                <button type="button" onClick={novo} data-testid="solic-vazio-nova"
+                  className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white">
+                  <Plus className="h-4 w-4" /> Nova solicitação
+                </button>
+                <AjudaCampo chave="compras.solic.nova" />
+              </div>
+            </div>
+          )}
 
           <ul className="space-y-3">
             {visiveis.map((s) => (

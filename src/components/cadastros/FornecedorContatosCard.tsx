@@ -8,6 +8,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Plus, Trash2, Star, Loader2 } from 'lucide-react'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+// O card de contatos aparece dentro do cadastro de pessoa (PessoaForm) — usa a mesma rota de ajuda,
+// para o "?" (RD-95) carregar no mesmo pacote da tela.
+const ROTA_AJUDA = '/dashboard/cadastros/pessoa'
 
 interface Contato {
   id: string
@@ -34,6 +39,12 @@ const inp: React.CSSProperties = {
   width: '100%', minHeight: 36, padding: '8px 10px',
   border: `1px solid ${C.border}`, borderRadius: 6,
   fontSize: 12, color: C.espresso, background: C.white, outline: 'none',
+}
+
+const lbl: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4 }
+const lblTxt: React.CSSProperties = {
+  fontSize: 10, fontWeight: 700, color: C.espressoM,
+  textTransform: 'uppercase', letterSpacing: 0.5, display: 'flex', alignItems: 'center',
 }
 
 export default function FornecedorContatosCard({ fornecedorId }: Props) {
@@ -181,13 +192,23 @@ export default function FornecedorContatosCard({ fornecedorId }: Props) {
       }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: C.espressoM }}>Novo vendedor</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-          <input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome *" style={inp} data-testid="forn-contato-novo-nome" />
-          <input value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="WhatsApp (DDD)" style={inp} data-testid="forn-contato-novo-tel" />
+          <label style={lbl}>
+            <span style={lblTxt}>Nome <AjudaCampo chave="cadastros.pessoa.contato_nome" rota={ROTA_AJUDA} /></span>
+            <input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome do vendedor *" style={inp} data-testid="forn-contato-novo-nome" />
+          </label>
+          <label style={lbl}>
+            <span style={lblTxt}>WhatsApp <AjudaCampo chave="cadastros.pessoa.contato_telefone" rota={ROTA_AJUDA} /></span>
+            <input value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="(DDD) 9 9999-9999" style={inp} data-testid="forn-contato-novo-tel" />
+          </label>
         </div>
-        <input value={cargo} onChange={(e) => setCargo(e.target.value)} placeholder="Cargo (opcional)" style={inp} />
+        <label style={lbl}>
+          <span style={lblTxt}>Cargo <AjudaCampo chave="cadastros.pessoa.contato_cargo" rota={ROTA_AJUDA} /></span>
+          <input value={cargo} onChange={(e) => setCargo(e.target.value)} placeholder="Cargo (opcional)" style={inp} />
+        </label>
         <label style={{ fontSize: 12, color: C.espresso, display: 'flex', alignItems: 'center', gap: 6 }}>
           <input type="checkbox" checked={principal} onChange={(e) => setPrincipal(e.target.checked)} style={{ accentColor: C.gold }} />
           Marcar como principal
+          <AjudaCampo chave="cadastros.pessoa.contato_principal" rota={ROTA_AJUDA} />
         </label>
         <button
           type="button"

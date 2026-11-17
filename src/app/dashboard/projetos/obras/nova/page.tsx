@@ -13,6 +13,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import CepEndereco from '@/components/comum/CepEndereco'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DED3', MUT = 'rgba(61,35,20,0.55)', VERM = '#B91C1C'
 const campo = { width: '100%', padding: '10px 12px', borderRadius: 8, border: `1px solid ${LINE}`, fontSize: 14, background: '#fff', color: ESP, boxSizing: 'border-box' as const }
@@ -163,7 +164,7 @@ export default function NovaObraPage() {
           {/* Gestão de Obras · valor e prazo entram já na criação (obra pronta ao salvar). */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}><span>Valor previsto<AjudaCampo chave="projetos.obra_nova.valor" /></span>
-              <input data-testid="nova-obra-valor" inputMode="decimal" style={campo} placeholder="R$ (opcional)" value={valor} onChange={(e) => setValor(e.target.value)} /></label>
+              <CampoMoeda testId="nova-obra-valor" style={campo} placeholder="R$ (opcional)" value={valor} onChange={setValor} /></label>
             <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}><span>Início<AjudaCampo chave="projetos.obra_nova.data_inicio" /></span>
               <input data-testid="nova-obra-inicio" type="date" style={campo} value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} /></label>
           </div>

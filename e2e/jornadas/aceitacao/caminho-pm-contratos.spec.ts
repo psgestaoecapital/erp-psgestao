@@ -35,8 +35,25 @@ test.describe('Caminho principal — Contratos (P&M): solicitar contrato grava n
     const dialogo = page.getByRole('dialog', { name: 'Solicitar elaboração de contrato' })
     await expect(dialogo).toBeVisible({ timeout: 20000 })
     await dialogo.getByRole('button', { name: 'Com dados novos' }).click()
-    await dialogo.locator('xpath=.//label[starts-with(normalize-space(.), "Título do contrato")]/following-sibling::input[1]').fill(TITULO)
-    await dialogo.locator('xpath=.//label[starts-with(normalize-space(.), "Valor")]/following-sibling::input[1]').fill('1250,00')
+    // #4789 (CEO 11/11, item 4A — "dados obrigatórios do comercial ao pedir o contrato"): cliente, CPF/CNPJ, objeto,
+    // valor, nº de parcelas, dia e 1º vencimento e vigência (De/Até) passaram a ser OBRIGATÓRIOS na tela. O caminho
+    // principal preenche todos — cadastra um cliente inline e informa os dados reais (conserto-main; sem tocar nos expects).
+    const nomeCliente = `Cliente caminho ${TITULO}`
+    await page.getByPlaceholder('Buscar cliente da GE…').fill(nomeCliente)
+    await page.getByText(/Cadastrar cliente/).click()
+    await page.getByPlaceholder('Nome do cliente').fill(nomeCliente)
+    await page.getByRole('button', { name: 'Criar' }).click()
+    await expect(dialogo.getByRole('button', { name: 'Trocar' })).toBeVisible({ timeout: 15000 })
+    const campoDlg = (rotulo: string) => dialogo.locator(`xpath=.//label[starts-with(normalize-space(.), "${rotulo}")]/following-sibling::*[self::input or self::select or self::textarea][1]`).first()
+    await campoDlg('CPF/CNPJ do cliente').fill('11.222.333/0001-81')
+    await campoDlg('Objeto do contrato').fill('Elaboração de contrato (caminho principal)')
+    await campoDlg('Título do contrato').fill(TITULO)
+    await campoDlg('Valor (por parcela)').fill('1250,00')
+    await campoDlg('Nº de parcelas').fill('3')
+    await campoDlg('Dia do vencimento').fill('10')
+    await campoDlg('Início previsto').fill('2026-10-01')
+    await campoDlg('Fim da vigência').fill('2027-03-31')
+    await campoDlg('1º vencimento').fill('2026-10-05')
     await dialogo.getByTestId('solicitar-contrato').click()
     await expect(page.getByTestId('solicitacao-criada')).toBeVisible({ timeout: 20000 })
 

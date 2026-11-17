@@ -12,6 +12,8 @@ import { CatalogoTable, type CatalogoColumn } from "@/components/projetos/Catalo
 import { CatalogoForm, type FormField } from "@/components/projetos/CatalogoForm";
 import { EmptyStateImportar } from "@/components/projetos/EmptyStateImportar";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { CampoMoeda } from "@/components/comum/CampoMoeda";
+import { moedaParaNumero } from "@/lib/moeda-mascara";
 import { erroAmigavel, codigoAmigavel, ErroUsuario } from "@/lib/erroAmigavel";
 
 interface Insumo {
@@ -355,11 +357,11 @@ export default function InsumosPage() {
       const supabase = supabaseBrowser();
       const { error } = await supabase.rpc("fn_projetos_atualizar_preco_insumo", {
         p_insumo_id: modalPreco.id,
-        p_novo_preco: parseFloat(novoPreco),
+        p_novo_preco: moedaParaNumero(novoPreco) ?? 0,
         p_data_compra: dataCompra,
       });
       if (error) throw error;
-      setAviso(`Preço de "${modalPreco.name}" atualizado para ${fmtBRL(parseFloat(novoPreco))}`);
+      setAviso(`Preço de "${modalPreco.name}" atualizado para ${fmtBRL(moedaParaNumero(novoPreco) ?? 0)}`);
       setTimeout(() => setAviso(null), 5000);
       setModalPreco(null);
       setNovoPreco("");
@@ -1058,13 +1060,11 @@ export default function InsumosPage() {
               <span className="mb-1 flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">
                 Novo preço (R$) <AjudaCampo chave="projetos.insumos.preco_novo" />
               </span>
-              <input
-                type="number"
-                step="0.01"
-                min={0}
+              <CampoMoeda
                 value={novoPreco}
-                onChange={(e) => setNovoPreco(e.target.value)}
-                className="mb-3 w-full rounded-lg border border-[#3D2314]/12 bg-white px-3 py-2 text-sm focus:border-[#C8941A] focus:outline-none"
+                onChange={setNovoPreco}
+                placeholder="R$ 0,00"
+                style={{ marginBottom: 12, width: "100%", borderRadius: 8, border: "1px solid rgba(61,35,20,0.12)", background: "white", padding: "8px 12px", fontSize: 14 }}
               />
             </label>
 

@@ -1,6 +1,9 @@
 // GET /api/cron/ponto-diario
 // CRON-PONTO · Vercel Cron HORÁRIO (0 * * * *) dispara o sync do ponto de TODAS as empresas com
 // provider IO Point ativo. Mantém a base como espelho fiel do IO Point (fonte da verdade).
+// Cada rodada sincroniza, por empresa: (1) o CADASTRO/roster (ind_ponto_colaborador) e (2) as
+// BATIDAS do mês corrente (ind_ponto_dia). Antes só as batidas eram horárias; o roster dependia
+// de clique manual, então admitidos novos sumiam de Funcionários/Compliance (chamado #8603).
 //
 // Estratégia por empresa: sincroniza SEMPRE o MÊS CORRENTE inteiro (1º dia do mês → hoje),
 // fatiado em CHUNKS de CHUNK_DIAS (timeout da sync-diario + rate limit da API IO Point). A gravação
@@ -68,7 +71,7 @@ export async function GET(req: NextRequest) {
   const forcaFim = url.searchParams.get('end_date')
 
   // empresas com provider de ponto ativo
-  let q = supa.from('ind_ponto_provider_config').select('company_id, provider').eq('ativo', true)
+  let q = supa.from('ind_ponto_provider_config').select('company_id, plant_id, provider').eq('ativo', true)
   if (soCompany) q = q.eq('company_id', soCompany)
   const { data: cfgs, error: eCfg } = await q
   if (eCfg) return NextResponse.json({ ok: false, erro: eCfg.message }, { status: 500 })
@@ -81,8 +84,41 @@ export async function GET(req: NextRequest) {
 
   for (const cfg of cfgs ?? []) {
     const companyId = cfg.company_id as string
+    const plantId = (cfg.plant_id as string) || ''
     const begin: string = forcaBegin || inicioMes
     const end: string = forcaFim || hoje
+
+    // CRON-PONTO-ROSTER (13/11) · chamado #8603 (Frioeste, NR-36): além das BATIDAS,
+    // atualiza o CADASTRO (ind_ponto_colaborador) a cada rodada horária. Antes, o roster
+    // só sincronizava por clique manual (último em 01/09) — admitidos novos batiam ponto mas
+    // nunca apareciam em Funcionários/Compliance (41 CPFs batendo fora do cadastro só na Frioeste).
+    // A rota /api/industrial/ponto/sync lista TODOS os colaboradores (independe da janela);
+    // passamos janela = só hoje para minimizar o trecho lento de horas. Idempotente (UPSERT
+    // onConflict company_id,provider,cpf). Erro no roster é registrado e NÃO trava as batidas (multi-tenant).
+    let rosterStatus = 'ignorado'
+    let rosterColaboradores = 0
+    let rosterErro: string | null = null
+    if (plantId) {
+      try {
+        const rRes = await fetch(
+          `${baseUrl}/api/industrial/ponto/sync?company_id=${companyId}&plant_id=${plantId}&begin_date=${hoje}&end_date=${hoje}`,
+          { method: 'POST', headers: { 'x-ping-secret': pingSecret } },
+        )
+        const rJson = await rRes.json().catch(() => ({}))
+        if (rRes.ok && rJson.ok) {
+          rosterStatus = 'ok'
+          rosterColaboradores = Number(rJson.colaboradores || 0)
+        } else {
+          rosterStatus = 'erro'
+          rosterErro = String(rJson.erro || rRes.status)
+        }
+      } catch (e) {
+        rosterStatus = 'erro'
+        rosterErro = e instanceof Error ? e.message : String(e)
+      }
+    } else {
+      rosterStatus = 'sem_plant'
+    }
 
     if (begin > end) {
       resultados.push({ company_id: companyId, status: 'em_dia', begin, end })
@@ -120,6 +156,8 @@ export async function GET(req: NextRequest) {
     resultados.push({
       company_id: companyId, begin, end, dias: diasTotal, batidas: batidasTotal,
       status: erros.length ? 'parcial' : 'ok', erros: erros.slice(0, 5),
+      roster_status: rosterStatus, roster_colaboradores: rosterColaboradores,
+      ...(rosterErro ? { roster_erro: rosterErro } : {}),
     })
   }
 

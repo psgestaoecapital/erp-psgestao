@@ -142,9 +142,9 @@ function buildChecklist(state: FiscalState): ChecklistItem[] {
         ? (isGovProvider(cfg.provider)
             ? `NFSe Nacional gov.br · ambiente ${cfg.ambiente ?? '—'}`
             : isFocusProvider(cfg.provider)
-              ? 'Focus NFe'
+              ? 'Provedor de NF-e'
               : `${cfg.provider ?? 'desconhecido'}`)
-        : 'Escolha entre NFSe Nacional gov.br ou Focus NFe',
+        : 'Escolha entre NFSe Nacional gov.br ou um provedor de NF-e',
       critico: true,
     },
     {

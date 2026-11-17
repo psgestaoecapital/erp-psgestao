@@ -18,6 +18,7 @@ import { VinculoCatalogo, type VinculoCpu } from './_componentes/VinculoCatalogo
 import { lerPlanilhaFaixas } from '@/lib/hub/tabelaPrecoImportar'
 import { precedenciaPreco } from '@/lib/hub/precedenciaPreco'
 import { escolherFaixa, margemContraCusto, precoUnitario, type Condicao, type ItemFaixa } from '@/lib/hub/tabelaPreco'
+import { parseNumBR } from '@/lib/num'
 
 // Preço unitário nunca arredonda centavo (22,50 não vira 23); inteiro segue sem casas.
 const fmtPreco = (v: number) => (Number.isInteger(v) ? fmtR(v) : `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)
@@ -60,7 +61,7 @@ export default function TabelasPrecoPage() {
   }, [companyIds])
   const [fm, setFm] = useState({ nomeTab: '', ref: '', nome: '', un: 'm²', de: '', ate: '', preco: '', cond: '', pct: '', cCond: 'normal', cod: '', fixo: '' })
   const setF = (k: keyof typeof fm, v: string) => setFm(f => ({ ...f, [k]: v }))
-  const num = (v: string) => (v.trim() === '' ? null : Number(v.replace(',', '.')))
+  const num = (v: string) => parseNumBR(v) // aceita vírgula decimal e ponto de milhar BR (#5660)
   const salvar = async (fn: string, args: Record<string, unknown>, ok: string) => {
     setMsg('')
     const { data, error } = await supabase.rpc(fn, args)
@@ -155,7 +156,7 @@ export default function TabelasPrecoPage() {
     return [...m.values()]
   }, [itens])
   const faixas = useMemo(() => itens.filter(i => i.servico_ref === servico), [itens, servico])
-  const q = Number(qtd.replace(',', '.')) || 0
+  const q = parseNumBR(qtd) || 0
   const cond: Condicao | null = useMemo(() => {
     if (condSel === 'normal') return null
     const c = conds.find(x => x.condicao === condSel)
@@ -166,7 +167,7 @@ export default function TabelasPrecoPage() {
   const preco = precoUnitario(faixas, q, cond)
   const codigo = cods.find(x => x.servico_ref === servico && x.condicao === condSel)?.codigo_externo
   const cpuCatalogo = cpus.find(x => x.servico_ref === servico)?.custo_unitario ?? null
-  const custoN = Number(custo.replace(',', '.')) || cpuCatalogo || 0
+  const custoN = parseNumBR(custo) || cpuCatalogo || 0
   // De-para PS ↔ cliente: serviço da tabela sem nenhum código, e código que aponta para serviço que não está na tabela.
   const semCodigo = useMemo(() => servicos.filter(s => !cods.some(k => k.servico_ref === s.servico_ref)), [servicos, cods])
   const codigoOrfao = useMemo(() => [...new Set(cods.filter(k => !servicos.some(s => s.servico_ref === k.servico_ref)).map(k => k.servico_ref))], [servicos, cods])

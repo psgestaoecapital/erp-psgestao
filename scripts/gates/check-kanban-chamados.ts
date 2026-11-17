@@ -2,7 +2,7 @@
 // que é a mesma que a tela usa, e confere a ajuda "?" (RD-95) da busca e do filtro na migration.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { casaBusca, colunaDoChamado, passaFiltro, type ChamadoKanban } from '../../src/lib/melhorias/kanban'
+import { aguardaAutorizacao, casaBusca, colunaDoChamado, passaFiltro, type ChamadoKanban } from '../../src/lib/melhorias/kanban'
 
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
@@ -22,6 +22,15 @@ ok(colunaDoChamado(c({ status: 'aguardando_confirmacao' })) === 'andamento', 'ag
 ok(colunaDoChamado(c({ status: 'em_desenvolvimento', resposta_aprovada: true })) === 'aguardando', 'resposta aprovada e enviada, autor não confirmou → Aguardando usuário')
 ok(colunaDoChamado(c({ status: 'em_desenvolvimento', resposta_aprovada: true, confirmado_pelo_autor: true })) === 'andamento', 'autor já confirmou → sai de Aguardando (volta ao fluxo)')
 ok(colunaDoChamado(c({ status: 'concluida', resposta_aprovada: true })) === 'finalizados', 'finalizado tem prioridade sobre Aguardando')
+
+// #7050 (Jordana 16/11): aviso "Resposta aguardando autorização" — entregue (aguardando_confirmacao) sem resposta enviada.
+ok(aguardaAutorizacao(c({ status: 'aguardando_confirmacao' })) === true, 'aguardando_confirmacao sem resposta aprovada → aviso de autorização (caso #6912)')
+ok(aguardaAutorizacao(c({ status: 'aguardando_confirmacao', resposta_aprovada: true })) === false, 'resposta já enviada/aprovada → sem aviso (vai para Aguardando usuário)')
+ok(aguardaAutorizacao(c({ status: 'aguardando_confirmacao', confirmado_pelo_autor: true })) === false, 'autor já confirmou → sem aviso')
+ok(aguardaAutorizacao(c({ status: 'em_desenvolvimento' })) === false, 'em desenvolvimento (não entregue) → sem aviso')
+ok(aguardaAutorizacao(c({ status: 'nova' })) === false, 'nova → sem aviso')
+// o aviso só aparece na coluna Em andamento (consistente com a regra de coluna)
+ok(colunaDoChamado(c({ status: 'aguardando_confirmacao' })) === 'andamento', 'o chamado com aviso de autorização fica em Em andamento')
 
 ok(passaFiltro(c({ responsavel_id: 'eu' }), 'minha', 'eu') === true, 'Minha carteira: responsável é a pessoa logada')
 ok(passaFiltro(c({ responsavel_id: 'outro' }), 'minha', 'eu') === false, 'Minha carteira: responsável de outro fica de fora')

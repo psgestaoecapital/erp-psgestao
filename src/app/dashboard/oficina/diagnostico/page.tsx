@@ -16,6 +16,7 @@ import AnotacaoOverlay from '@/components/oficina/AnotacaoOverlay'
 import { temAnotacao } from '@/components/oficina/anotacao'
 import { useOficinaRamo } from '@/lib/oficina/ramo'
 import { filtrarOS } from '@/lib/oficina/buscaOS'
+import { parseNumBR } from '@/lib/num'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { useOficinaModelo } from '@/lib/oficina/modelo'
 import { decimalBanco } from '@/lib/decimalBanco'
@@ -45,7 +46,7 @@ type Resumo = { total_aprovado: number; total_geral: number; qtd_aprovados: numb
 const brl = (v: number | null | undefined) => v == null ? '—' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
 // #40: quantidade digitada -> numero (aceita virgula). Vazio/invalido = 0.
-const parseQtd = (q?: string | null) => { const n = parseFloat(String(q ?? '1').replace(',', '.')); return Number.isFinite(n) && n > 0 ? n : 0 }
+const parseQtd = (q?: string | null) => { const n = parseNumBR(q ?? '1'); return n != null && n > 0 ? n : 0 } // aceita vírgula e milhar BR (#5660)
 // #40: subtotal AO VIVO da linha = qtd x preco unitario. O subtotal/preco do servidor so
 // atualiza no salvar; sem isto, mudar a qtd (ex.: 8 litros) mostrava o valor UNITARIO (it.preco).
 const subCalc = (it: { preco?: number | null; quantidade?: string | null }): number | null =>

@@ -382,47 +382,62 @@ export default function ProdutosPage() {
               </button>
               <AjudaCampo chave="cadastros.produtos.novo" />
             </span>
-            <button
-              type="button"
-              onClick={() => setEtiquetasAberto(true)}
-              disabled={selecionados.length === 0}
-              title={selecionados.length === 0 ? 'Marque os produtos na lista' : undefined}
-              data-testid="etiquetas-abrir"
-              className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] disabled:opacity-45 disabled:hover:bg-transparent flex items-center gap-2"
-            >
-              <Printer size={15} /> Etiquetas A4{selecionados.length > 0 ? ` (${selecionados.length})` : ''}
-            </button>
-            <button
-              type="button"
-              onClick={() => setFiscalMassaAberto(true)}
-              data-testid="fiscal-massa-abrir"
-              className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
-            >
-              <ListChecks size={15} /> Edição fiscal em massa
-            </button>
-            <button
-              type="button"
-              onClick={() => setAutoclassificarAberto(true)}
-              data-testid="produto-autoclassificar"
-              className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
-            >
-              <Sparkles size={15} /> Auto-classificar pela base PS
-            </button>
-            <button
-              type="button"
-              onClick={() => setImportarFiscalAberto(true)}
-              data-testid="produto-importar-fiscal"
-              className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
-            >
-              <Upload size={15} /> Importar planilha fiscal
-            </button>
-            <a
-              href="/dashboard/cadastros/produtos/importar"
-              data-testid="produto-importar-estoque"
-              className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
-            >
-              <Upload size={15} /> Importar estoque (planilha)
-            </a>
+            <span className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setEtiquetasAberto(true)}
+                disabled={selecionados.length === 0}
+                title={selecionados.length === 0 ? 'Marque os produtos na lista' : undefined}
+                data-testid="etiquetas-abrir"
+                className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] disabled:opacity-45 disabled:hover:bg-transparent flex items-center gap-2"
+              >
+                <Printer size={15} /> Etiquetas A4{selecionados.length > 0 ? ` (${selecionados.length})` : ''}
+              </button>
+              <AjudaCampo chave="cadastros.produtos.etiquetas" />
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setFiscalMassaAberto(true)}
+                data-testid="fiscal-massa-abrir"
+                className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
+              >
+                <ListChecks size={15} /> Edição fiscal em massa
+              </button>
+              <AjudaCampo chave="cadastros.produtos.fiscal_massa" />
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setAutoclassificarAberto(true)}
+                data-testid="produto-autoclassificar"
+                className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
+              >
+                <Sparkles size={15} /> Auto-classificar pela base PS
+              </button>
+              <AjudaCampo chave="cadastros.produtos.autoclassificar" />
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setImportarFiscalAberto(true)}
+                data-testid="produto-importar-fiscal"
+                className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
+              >
+                <Upload size={15} /> Importar planilha fiscal
+              </button>
+              <AjudaCampo chave="cadastros.produtos.importar_fiscal" />
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <a
+                href="/dashboard/cadastros/produtos/importar"
+                data-testid="produto-importar-estoque"
+                className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
+              >
+                <Upload size={15} /> Importar estoque (planilha)
+              </a>
+              <AjudaCampo chave="cadastros.produtos.importar_estoque" />
+            </span>
             <span className="inline-flex items-center gap-1">
               <button
                 type="button"
@@ -435,34 +450,41 @@ export default function ProdutosPage() {
               </button>
               <AjudaCampo chave="cadastros.produtos.exportar" />
             </span>
-            <a
-              href="/dashboard/compras/precificacao"
-              data-testid="produto-formar-precos"
-              className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
-            >
-              <Tags size={15} /> Formar preços
-            </a>
+            <span className="inline-flex items-center gap-1">
+              <a
+                href="/dashboard/compras/precificacao"
+                data-testid="produto-formar-precos"
+                className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
+              >
+                <Tags size={15} /> Formar preços
+              </a>
+              <AjudaCampo chave="cadastros.produtos.formar_precos" />
+            </span>
           </div>
         </header>
 
         {/* Banner: produtos sem preço travam a venda → leva para Formar preços na Precificação */}
         {semPrecoCount > 0 && (
-          <a href="/dashboard/compras/precificacao" data-testid="produto-sem-preco-banner"
-             className="mb-4 flex items-start gap-2.5 bg-[#FBEDD6] border border-[#C8941A]/35 rounded-xl px-4 py-3 hover:bg-[#F9E6C8] transition-colors">
-            <AlertTriangle size={18} className="text-[#B06A00] shrink-0 mt-0.5" />
-            <div className="text-[13px] text-[#5A3A12]">
-              <strong>{semPrecoCount} produto(s) ativo(s) sem preço de venda</strong> — eles travam a venda.
-              {' '}<span className="underline text-[#A2600B] font-medium">Formar preços agora →</span>
-            </div>
-          </a>
+          <div className="mb-4 flex items-start gap-1">
+            <a href="/dashboard/compras/precificacao" data-testid="produto-sem-preco-banner"
+               className="flex-1 flex items-start gap-2.5 bg-[#FBEDD6] border border-[#C8941A]/35 rounded-xl px-4 py-3 hover:bg-[#F9E6C8] transition-colors">
+              <AlertTriangle size={18} className="text-[#B06A00] shrink-0 mt-0.5" />
+              <div className="text-[13px] text-[#5A3A12]">
+                <strong>{semPrecoCount} produto(s) ativo(s) sem preço de venda</strong> — eles travam a venda.
+                {' '}<span className="underline text-[#A2600B] font-medium">Formar preços agora →</span>
+              </div>
+            </a>
+            <span className="mt-2.5"><AjudaCampo chave="cadastros.produtos.banner_sem_preco" /></span>
+          </div>
         )}
 
         {/* Pendências fiscais (SPED 0200) — pro contador completar (tipo do item / NCM) */}
         {pendencias.length > 0 && (
           <div className="mb-4 rounded-xl border border-[#C8941A]/40 bg-[#FBF4E4] p-4">
             <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="text-[13px] text-[#3D2314]">
-                <b>⚠ {pendencias.length} produto(s) com pendência fiscal</b> (SPED 0200) — falta tipo do item ou NCM. O contador completa antes da apuração.
+              <div className="text-[13px] text-[#3D2314] flex items-center gap-1">
+                <span><b>⚠ {pendencias.length} produto(s) com pendência fiscal</b> (SPED 0200) — falta tipo do item ou NCM. O contador completa antes da apuração.</span>
+                <AjudaCampo chave="cadastros.produtos.banner_pendencia_fiscal" />
               </div>
               <button
                 type="button"

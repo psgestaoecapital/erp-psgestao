@@ -17,10 +17,13 @@ interface Props {
   value: string
   onChange: (erpId: string, nome?: string) => void
   onToast?: (s: string) => void
+  // #8393 (Pdois): erro ao criar o cliente é um ERRO — não pode cair no mesmo canal de sucesso (toast verde) de quem
+  // recebe. Quando informado, o erro vai por aqui (caixa vermelha do modal); senão, cai no onToast como antes.
+  onErro?: (s: string) => void
   placeholder?: string
 }
 
-export default function ClientePickerInline({ companyId, value, onChange, onToast, placeholder }: Props) {
+export default function ClientePickerInline({ companyId, value, onChange, onToast, onErro, placeholder }: Props) {
   const [q, setQ] = useState('')
   const [nomeSel, setNomeSel] = useState('')
   const [sug, setSug] = useState<{ id: string; nome: string; doc: string | null }[]>([])
@@ -59,11 +62,16 @@ export default function ClientePickerInline({ companyId, value, onChange, onToas
   function escolher(c: { id: string; nome: string }) { onChange(c.id, c.nome); setNomeSel(c.nome); setOpen(false); setSug([]); setQ('') }
   async function criarInline() {
     const nome = (novoNome || q).trim()
-    if (!nome) { onToast?.('Digite o nome/empresa do cliente.'); return }
+    if (!nome) { (onErro ?? onToast)?.('Digite o nome/empresa do cliente.'); return }
+    const reportarErro = onErro ?? onToast
     const { data, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: companyId, p_nome: nome, p_cpf_cnpj: null, p_extra: {} })
-    if (error) { onToast?.(`Erro ao criar cliente: ${error.message}`); return }
+    // #8393: antes, QUALQUER retorno (inclusive erro ou id nulo) mostrava "Cliente criado" e o form era fechado — a
+    // pessoa achava que salvou e não tinha salvado ("cadastrei e não faz o salvamento"). Agora o erro aparece de verdade
+    // e, sem id, o form fica aberto para tentar de novo em vez de fingir sucesso.
+    if (error) { reportarErro?.(`Não consegui salvar o cliente: ${error.message}`); return }
     const id = data as string | null
-    if (id) { onChange(id, nome); setNomeSel(nome) }
+    if (!id) { reportarErro?.('Não consegui salvar o cliente. Tente de novo ou cadastre em Cadastros → Clientes.'); return }
+    onChange(id, nome); setNomeSel(nome)
     setCriando(false); setNovoNome(''); setOpen(false); setSug([])
     onToast?.('Cliente criado na GE e vinculado.')
   }

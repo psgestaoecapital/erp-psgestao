@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { Landmark, Loader2 } from 'lucide-react'
+import { Download, Landmark, Loader2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
@@ -43,6 +43,27 @@ export default function PainelReformaPage() {
     setDados(r)
   }, [empresa])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
+
+  // Ação própria na tela (RD-98 p2 afford.): levar o IBS/CBS já recebido para fora do ERP (contador/planilha),
+  // sem sair da tela. Export client-side do que o painel mostra — nada é gravado, é informativo (RD-51).
+  function montarCsv(d: Painel): string {
+    const esc = (v: string | number) => {
+      const s = String(v ?? '')
+      return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    }
+    const head = ['mes', 'ibs', 'cbs', 'ibs_cbs', 'notas_com_valor']
+    const linhas = d.por_mes.map((m) => [m.mes, m.ibs.toFixed(2), m.cbs.toFixed(2), m.ibs_cbs.toFixed(2), String(m.notas_com_valor)])
+    const total = ['TOTAL', d.ibs_total.toFixed(2), d.cbs_total.toFixed(2), d.ibs_cbs_total.toFixed(2), String(d.notas_com_valor)]
+    return [head, ...linhas, total].map((r) => r.map(esc).join(';')).join('\n')
+  }
+  function exportarCsv() {
+    if (!dados) return
+    const csv = montarCsv(dados)
+    // BOM p/ Excel pt-BR abrir acentos e separador ; corretamente
+    const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }))
+    const a = document.createElement('a'); a.href = url; a.download = 'reforma_ibs_cbs.csv'
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+  }
 
   const maxMes = dados ? Math.max(1, ...dados.por_mes.map((m) => m.ibs_cbs)) : 1
 
@@ -95,7 +116,19 @@ export default function PainelReformaPage() {
           </div>
         ) : dados ? (
           <>
-            <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="mt-5 flex justify-end">
+              <span className="inline-flex items-center">
+                <button
+                  type="button"
+                  onClick={exportarCsv}
+                  className="inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-md bg-[#C8941A] text-white font-medium hover:bg-[#A87810]"
+                >
+                  <Download size={13} /> Exportar CSV
+                </button>
+                <AjudaCampo chave="commerce.reforma.exportar_csv" rota={ROTA} />
+              </span>
+            </div>
+            <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="bg-white border border-[#3D2314]/10 rounded-xl p-4">
                 <div className="text-[11px] text-[#3D2314]/55 uppercase tracking-[0.5px] flex items-center">IBS + CBS recebidos<AjudaCampo chave="commerce.reforma.ibs_cbs_recebidos" rota={ROTA} /></div>
                 <div className="text-[26px] font-semibold text-[#3F7012] tabular-nums mt-1">{brl(dados.ibs_cbs_total)}</div>

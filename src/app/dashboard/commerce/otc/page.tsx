@@ -23,7 +23,7 @@ import {
   Plus, Search, ShoppingCart, BarChart3,
   X, Info, Send, CheckCircle2, ArrowRight,
   AlertTriangle, Undo2,
-  Columns3, Lock,
+  Columns3, Lock, Pencil,
 } from 'lucide-react'
 import OrcamentoItensEditor, { type EditorItem } from '@/components/comum/OrcamentoItensEditor'
 import BlocoObraFiscal, { type ObraFiscalState, obraFiscalStateInicial, resolverObraFiscal } from '@/components/comum/BlocoObraFiscal'
@@ -201,6 +201,21 @@ const fmtBRL = (v: number | null | undefined) =>
 const fmtDate = (d: string | null | undefined) =>
   d ? new Date(d + (d.length === 10 ? 'T00:00:00' : '')).toLocaleDateString('pt-BR') : '—'
 
+// PDCA GE (tarefa 26111304) · "listas só com o que é da empresa" (RD-98 p1).
+// Os specs e2e de aceitação deixaram milhares de orçamentos/pedidos de TESTE na DEMO que
+// soterram o kanban/lista OTC. erp_pedidos não tem soft-delete, então o leftover é escondido
+// da LISTAGEM por marcador de cliente — cliente real nunca tem esses nomes. Dois coortes vistos
+// no dado (DEMO Comércio GE, RD-38 15/11: 968 de teste × 10 reais ORC-2026-0001..0010):
+//   · "Cliente Aceitação N"                                   (orçamentos têm deleted_at, já saem pela purga #5098)
+//   · "CLIENTE 263 <cpf>-MV…" / "Cliente Orc 264 <cpf>-mv…"   (coorte 26x, cancelados, ainda sem purga)
+// O regex casa só "cliente[ orc] 26<díg> " (nº + espaço) — não pega "Cliente Demo"/"Comércio Demo"
+// nem um cliente real tipo "Cliente 26 de Março" (precisa do 3º dígito colado ao 26).
+const RE_CLIENTE_TESTE_26X = /^cliente( orc)? 26\d\s/
+const semClienteDeTeste = (nome: string | null): boolean => {
+  const n = (nome ?? '').toLowerCase()
+  return !n.startsWith('cliente aceita') && !RE_CLIENTE_TESTE_26X.test(n)
+}
+
 export default function OTCPage() {
   return (
     <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: C.espressoM }}>Carregando…</div>}>
@@ -266,14 +281,21 @@ function OTCPageInner() {
       setLoading(true)
       setErro('')
       const [orc, ped] = await Promise.all([
-        supabase.from('erp_orcamentos').select('*').eq('company_id', expected).order('created_at', { ascending: false }).limit(200),
-        supabase.from('erp_pedidos').select('*').eq('company_id', expected).order('created_at', { ascending: false }).limit(200),
+        // Dois filtros contra o lixo de e2e na DEMO (26111304), no SERVIDOR p/ o limit(200) recair em docs reais:
+        // 1) .is(deleted_at,null): a RLS de erp_orcamentos não filtra soft-delete → sem isto o kanban mostrava
+        //    os orçamentos de teste que a purga #5098 soft-deleta (status intacto).
+        // 2) .or(cliente_nome null OU não casa marcador de teste): esconde o leftover ainda-não-drenado
+        //    (os reais ficam fora do top-200 por created_at, soterrados pelo flood). NULL-safe (cliente real pode ser null).
+        //    São dois coortes (ver semClienteDeTeste): "Cliente Aceita*" e o 26x ("CLIENTE 26_ *"/"Cliente Orc 26_ *").
+        //    Cada .or() soma com AND; "26_ *" (nº+char+espaço) não pega "Cliente 26 de Março" nem os reais "Cliente/Comércio Demo".
+        supabase.from('erp_orcamentos').select('*').eq('company_id', expected).is('deleted_at', null).or('cliente_nome.is.null,cliente_nome.not.ilike.Cliente Aceita*').or('cliente_nome.is.null,cliente_nome.not.ilike.CLIENTE 26_ *').or('cliente_nome.is.null,cliente_nome.not.ilike.Cliente Orc 26_ *').order('created_at', { ascending: false }).limit(200),
+        supabase.from('erp_pedidos').select('*').eq('company_id', expected).or('cliente_nome.is.null,cliente_nome.not.ilike.Cliente Aceita*').or('cliente_nome.is.null,cliente_nome.not.ilike.CLIENTE 26_ *').or('cliente_nome.is.null,cliente_nome.not.ilike.Cliente Orc 26_ *').order('created_at', { ascending: false }).limit(200),
       ])
       if (!alive) return
       // Runtime guard: descarta qualquer linha com company_id divergente
       // (defense-in-depth contra falha em .eq / RPC / RLS).
-      const orcSafe = ((orc.data ?? []) as Orcamento[]).filter((o) => o.company_id === expected)
-      const pedSafe = ((ped.data ?? []) as Pedido[]).filter((p) => p.company_id === expected)
+      const orcSafe = ((orc.data ?? []) as Orcamento[]).filter((o) => o.company_id === expected && semClienteDeTeste(o.cliente_nome))
+      const pedSafe = ((ped.data ?? []) as Pedido[]).filter((p) => p.company_id === expected && semClienteDeTeste(p.cliente_nome))
       if (orc.error) setErro(erroAmigavel(orc.error, 'Não foi possível carregar os orçamentos. Tente de novo.'))
       else setOrcamentos(orcSafe)
       if (ped.error) setErro(erroAmigavel(ped.error, 'Não foi possível carregar os pedidos. Tente de novo.'))
@@ -423,7 +445,7 @@ function OTCPageInner() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <ShoppingCart size={26} style={{ color: C.gold }} />
           <div>
-            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>OTC — Order-to-Cash</h1>
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>Vendas — do orçamento ao faturamento</h1>
             <p style={{ margin: 0, fontSize: 12, color: C.espressoM }}>Orçamento → Pedido → Faturamento</p>
           </div>
         </div>
@@ -456,7 +478,7 @@ function OTCPageInner() {
       {selInfo.tipo !== 'empresa' && companyIds.length > 0 && (
         <div style={{ marginBottom: 12, padding: '10px 14px', background: C.amberBg, border: `1px solid ${C.amber}55`, borderRadius: 8, color: C.amber, fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Info size={14} />
-          <span>Selecione uma empresa específica no menu superior. OTC é operacional por empresa — não exibe dados consolidados.</span>
+          <span>Selecione uma empresa específica no menu superior. Esta tela é operacional por empresa — não exibe dados consolidados.</span>
         </div>
       )}
 
@@ -470,7 +492,7 @@ function OTCPageInner() {
       ) : companyIds.length === 0 ? (
         <EmptyState titulo="Nenhuma empresa disponível" texto="Você ainda não tem empresas vinculadas. Peça ao administrador para te vincular ou selecione uma no menu superior." />
       ) : !companyIdUnico ? (
-        <EmptyState titulo="Selecione uma empresa" texto="OTC é operacional por empresa. Escolha uma empresa específica no menu superior para ver orçamentos e pedidos." />
+        <EmptyState titulo="Selecione uma empresa" texto="Esta tela é operacional por empresa. Escolha uma empresa específica no menu superior para ver orçamentos e pedidos." />
       ) : tab === 'visao' ? (
         <VisaoGeralKPIs kpis={kpis} />
       ) : (
@@ -642,6 +664,11 @@ function KanbanBoard({
   const [dropCol, setDropCol] = useState<'ped' | 'fat' | 'orc' | null>(null)
   const [busca, setBusca] = useState('')
   const q = busca.trim().toLowerCase()
+  // Coluna não enche a tela com centenas de cards (usabilidade): mostra os primeiros
+  // e oferece "ver todos". Reseta ao buscar (a busca já reduz a lista).
+  const LIMITE_COL = 50
+  const [verTudo, setVerTudo] = useState<Record<'orc' | 'ped' | 'fat', boolean>>({ orc: false, ped: false, fat: false })
+  useEffect(() => { setVerTudo({ orc: false, ped: false, fat: false }) }, [q])
 
   // Busca migrada da aba removida (nada se perde): filtra por número ou cliente.
   const colOrc = useMemo(
@@ -710,14 +737,30 @@ function KanbanBoard({
     </div>
   )
 
+  // Limita quantos cards a coluna renderiza; rodapé "ver todos" expande.
+  function limitar<T>(key: 'orc' | 'ped' | 'fat', col: T[]): T[] {
+    return verTudo[key] ? col : col.slice(0, LIMITE_COL)
+  }
+  function maisFooter(key: 'orc' | 'ped' | 'fat', total: number, cor: string) {
+    const restantes = total - LIMITE_COL
+    if (verTudo[key] || restantes <= 0) return null
+    return (
+      <button type="button" onClick={() => setVerTudo((s) => ({ ...s, [key]: true }))}
+        style={{ marginTop: 2, background: C.white, color: cor, border: `1px dashed ${cor}`, borderRadius: 8, padding: '7px 10px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer' }}>
+        +{restantes} {restantes === 1 ? 'restante' : 'restantes'} · ver todos
+      </button>
+    )
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 180, maxWidth: 360 }}>
+        <div data-ajuda="otc.busca" style={{ position: 'relative', flex: '1 1 240px', minWidth: 180, maxWidth: 360 }}>
           <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.espressoL }} />
           <input type="text" placeholder="Buscar por número ou cliente…" value={busca} onChange={(e) => setBusca(e.target.value)}
             style={{ width: '100%', padding: '8px 10px 8px 32px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.white, color: C.espresso, outline: 'none' }} />
         </div>
+        <AjudaCampo chave="otc.busca" rota="/dashboard/commerce/otc" />
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 12, color: C.espressoM }}>
         <Info size={13} />
@@ -743,7 +786,7 @@ function KanbanBoard({
                 Soltar para voltar a orçamento
               </div>
             )}
-            {colOrc.length === 0 && dropCol !== 'orc' ? <KanbanVazio texto="Nenhum orçamento em aberto." /> : colOrc.map(cardOrc)}
+            {colOrc.length === 0 && dropCol !== 'orc' ? <KanbanVazio texto="Nenhum orçamento em aberto." /> : <>{limitar('orc', colOrc).map(cardOrc)}{maisFooter('orc', colOrc.length, C.gold)}</>}
           </KanbanColuna>
         </div>
 
@@ -765,7 +808,7 @@ function KanbanBoard({
                 Soltar para converter em pedido
               </div>
             )}
-            {colPed.length === 0 && dropCol !== 'ped' ? <KanbanVazio texto="Nenhum pedido em aberto. Arraste um orçamento para cá." /> : colPed.map(cardPed)}
+            {colPed.length === 0 && dropCol !== 'ped' ? <KanbanVazio texto="Nenhum pedido em aberto. Arraste um orçamento para cá." /> : <>{limitar('ped', colPed).map(cardPed)}{maisFooter('ped', colPed.length, C.blue)}</>}
           </KanbanColuna>
         </div>
 
@@ -789,7 +832,7 @@ function KanbanBoard({
                 Soltar para faturar
               </div>
             )}
-            {colFat.length === 0 && dropCol !== 'fat' ? <KanbanVazio texto="Nada faturado ainda. Arraste um pedido (ou orçamento) para cá." /> : colFat.map((p) => (
+            {colFat.length === 0 && dropCol !== 'fat' ? <KanbanVazio texto="Nada faturado ainda. Arraste um pedido (ou orçamento) para cá." /> : <>{limitar('fat', colFat).map((p) => (
               <div key={p.id} onClick={() => onAbrirPed(p)}
                 style={{ cursor: 'pointer', background: C.white, border: `1px solid ${C.border}`, borderLeft: `3px solid ${C.purple}`, borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <KanbanCardTopo numero={p.numero} status={p.status} mapa={STATUS_PED} />
@@ -799,7 +842,7 @@ function KanbanBoard({
                   <strong style={{ color: C.purple }}>{fmtBRL(p.total)}</strong>
                 </div>
               </div>
-            ))}
+            ))}{maisFooter('fat', colFat.length, C.purple)}</>}
           </KanbanColuna>
         </div>
       </div>
@@ -1033,7 +1076,7 @@ function ModalCancelarOrcamento({ orc, onClose, onDone, flash }: {
           ) : (
             <>
               <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Motivo da perda</span>
+                <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>Motivo da perda<AjudaCampo chave="otc.perda.motivo" rota="/dashboard/commerce/otc" /></span>
                 <select value={motivoId} onChange={(e) => setMotivoId(e.target.value)}
                   style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.white, color: C.espresso }}>
                   <option value="">{motivos.length === 0 ? 'Nenhum motivo cadastrado' : 'Selecione…'}</option>
@@ -1049,7 +1092,7 @@ function ModalCancelarOrcamento({ orc, onClose, onDone, flash }: {
               ) : (
                 <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end', background: C.cream, borderRadius: 8, padding: 8 }}>
                   <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
-                    <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Novo motivo</span>
+                    <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>Novo motivo<AjudaCampo chave="otc.perda.novo_motivo" rota="/dashboard/commerce/otc" /></span>
                     <input value={novoNome} onChange={(e) => setNovoNome(e.target.value)} placeholder="Ex.: Preço, Prazo, Concorrência…"
                       style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.white, color: C.espresso }} />
                   </label>
@@ -1059,7 +1102,7 @@ function ModalCancelarOrcamento({ orc, onClose, onDone, flash }: {
               )}
 
               <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Descrição {exigeTexto ? '(obrigatória)' : '(opcional)'}</span>
+                <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>Descrição {exigeTexto ? '(obrigatória)' : '(opcional)'}<AjudaCampo chave="otc.perda.descricao" rota="/dashboard/commerce/otc" /></span>
                 <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={2} placeholder="O que aconteceu?"
                   style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.white, color: C.espresso, resize: 'vertical' }} />
               </label>
@@ -1206,6 +1249,10 @@ function DrawerOrcamento({ orc, itens, onClose, onObraSalva, flash, onEnviar, on
   const canConverter = ['rascunho', 'enviado', 'visualizado', 'aprovado'].includes(orc.status) && !orc.pedido_id
   // #728 · cancelar (perda) só enquanto o orçamento está aberto e não virou pedido
   const canCancelar = ['rascunho', 'enviado', 'visualizado', 'aprovado'].includes(orc.status) && !orc.pedido_id
+  // #3863 · EDITAR o orçamento já salvo (itens, valores, observações). Reusa o editor dedicado
+  // (/dashboard/orcamentos), que já existe e grava por fn_orcamento_editar com guarda real no backend
+  // (fn_orcamento_pode_editar). Mesma régua de status editável do banco: antes da aprovação/conversão.
+  const canEditar = ['rascunho', 'revisao', 'enviado', 'visualizado'].includes(orc.status) && !orc.pedido_id
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 90, display: 'flex', justifyContent: 'flex-end' }}>
@@ -1281,6 +1328,13 @@ function DrawerOrcamento({ orc, itens, onClose, onObraSalva, flash, onEnviar, on
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end', paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
             {canCancelar && (
               <button onClick={onCancelar} style={{ ...btnSec, color: C.red, borderColor: C.red, marginRight: 'auto' }}><X size={14} /> Cancelar (perda)</button>
+            )}
+            {canEditar && (
+              <button
+                onClick={() => { window.location.href = `/dashboard/orcamentos?id=${orc.id}` }}
+                style={btnSec}
+                title="Editar itens, valores e observações deste orçamento"
+              ><Pencil size={14} /> Editar</button>
             )}
             {canEnviar && (
               <button onClick={onEnviar} style={btnSec}><Send size={14} /> Marcar enviado</button>
@@ -1489,6 +1543,16 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
                   ))}
                 </tbody>
               </table>
+            )}
+            {/* #3863 · EDITAR os itens do pedido já salvo. Reusa o editor dedicado (/dashboard/pedidos →
+                "Editar Itens"), que grava por fn_pedido_editar_itens com guarda real no backend
+                (fn_pedido_pode_editar bloqueia pedido faturado/cancelado). */}
+            {statusLocal !== 'cancelado' && !ped.nf_emitida && (
+              <button
+                onClick={() => { window.location.href = `/dashboard/pedidos?abrir=${ped.id}` }}
+                style={{ ...btnSec, marginTop: 10 }}
+                title="Editar os itens deste pedido (quantidades, preços)"
+              ><Pencil size={14} /> Editar itens</button>
             )}
           </Card>
 
@@ -2002,7 +2066,7 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
 
         {step === 'cliente' ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Buscar cliente *</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Buscar cliente *</label><AjudaCampo chave="otc.novo.buscar_cliente" rota="/dashboard/commerce/otc" />
             <input
               autoFocus
               value={clienteBusca}
@@ -2079,7 +2143,7 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
               <BlocoObraFiscal companyId={companyId} value={obraFiscal} onChange={setObraFiscal} />
             )}
 
-            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM, marginTop: 8 }}>Observações ao cliente</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM, marginTop: 8 }}>Observações ao cliente</label><AjudaCampo chave="otc.novo.observacoes" rota="/dashboard/commerce/otc" />
             <textarea value={observacoes} onChange={(e) => setObservacoes(e.target.value)} rows={2} placeholder="Opcional — texto que aparece no orçamento" style={{ ...inp, resize: 'vertical' }} />
 
             <div style={{ marginTop: 8, padding: 12, background: C.cream, borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

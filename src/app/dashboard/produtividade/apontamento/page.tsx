@@ -13,6 +13,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
+import { parseNumBR } from '@/lib/num'
 
 const ROTA = '/dashboard/produtividade/apontamento'
 const Aj = ({ k }: { k: string }) => <AjudaCampo chave={k} rota={ROTA} />
@@ -37,6 +38,12 @@ type LinhaProd = {
   capacidade: number | null; produtividade_pct: number | null; ociosidade_pct: number | null; pessoas_presentes: number | null
 }
 type GridResp = { ok: boolean; data: string; postos: LinhaProd[] }
+type LancamentoCru = {
+  id: string; posto_id: string | null; posto_numero: string | null; posto_atividade: string | null
+  produto_id: string | null; produto_codigo: string | null; produto_nome: string | null
+  hora: number; qtd_produzida: number; unidade: string | null; pessoas_presentes: number | null; fonte: string | null
+}
+type ListaResp = { ok: boolean; lancamentos: LancamentoCru[] }
 
 const hoje = () => new Date().toISOString().slice(0, 10)
 const num = (n: number | null, suf = '') => (n == null ? '—' : `${n.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}${suf}`)
@@ -73,6 +80,8 @@ function Inner() {
   const [postos, setPostos] = useState<Posto[]>([])
   const [produtos, setProdutos] = useState<Produto[]>([])
   const [grid, setGrid] = useState<LinhaProd[]>([])
+  const [lancamentos, setLancamentos] = useState<LancamentoCru[]>([])
+  const [excluindoId, setExcluindoId] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(false)
 
   // formulário de lançamento
@@ -120,13 +129,17 @@ function Inner() {
 
   // grade de confronto (produzido × capacidade) por posto e hora
   const carregarGrid = useCallback(async () => {
-    if (!companyId || !plantId || !fluxoId) { setGrid([]); return }
+    if (!companyId || !plantId || !fluxoId) { setGrid([]); setLancamentos([]); return }
     setCarregando(true)
     try {
-      const { data: d, error } = await supabase.rpc('fn_prod_produtividade_hora', { p_company_id: companyId, p_plant_id: plantId, p_fluxo_id: fluxoId, p_data: data })
+      const [{ data: d, error }, { data: dl, error: el }] = await Promise.all([
+        supabase.rpc('fn_prod_produtividade_hora', { p_company_id: companyId, p_plant_id: plantId, p_fluxo_id: fluxoId, p_data: data }),
+        supabase.rpc('fn_prod_apontamento_listar', { p_company_id: companyId, p_plant_id: plantId, p_fluxo_id: fluxoId, p_data: data }),
+      ])
       if (error) { flashErr(erroAmigavel(error, 'Não foi possível carregar a grade de produtividade. Tente de novo.')); setGrid([]); return }
       const r = d as unknown as GridResp | null
       setGrid(r?.ok ? (r.postos ?? []) : [])
+      if (el) { setLancamentos([]) } else { const rl = dl as unknown as ListaResp | null; setLancamentos(rl?.ok ? (rl.lancamentos ?? []) : []) }
     } finally {
       setCarregando(false)
     }
@@ -155,7 +168,7 @@ function Inner() {
     if (!produtoId) { flashErr('Escolha o produto.'); return }
     const h = Number(hora)
     if (!Number.isInteger(h) || h < 0 || h > 23) { flashErr('A hora deve ser um inteiro de 0 a 23.'); return }
-    const q = Number(qtd.replace(',', '.'))
+    const q = parseNumBR(qtd) ?? NaN // aceita vírgula e milhar BR (#5660)
     if (!(q > 0)) { flashErr('A quantidade produzida deve ser maior que zero.'); return }
     const pessoasNum = pessoas.trim() === '' ? null : Number(pessoas)
     if (pessoasNum != null && (!Number.isInteger(pessoasNum) || pessoasNum < 0)) { flashErr('Pessoas presentes deve ser uma contagem inteira (ou em branco).'); return }
@@ -175,6 +188,38 @@ function Inner() {
       await carregarGrid()
     } finally {
       setSalvando(false)
+    }
+  }
+
+  // Editar: reabre o lançamento no formulário (mesma chave corrige, não duplica — RD-98 p2)
+  function editar(l: LancamentoCru) {
+    if (l.posto_id) setPostoId(l.posto_id)
+    if (l.produto_id) setProdutoId(l.produto_id)
+    setBuscaProd('')
+    setHora(String(l.hora))
+    setQtd(String(l.qtd_produzida))
+    setUnidade(l.unidade ?? 'un')
+    setPessoas(l.pessoas_presentes == null ? '' : String(l.pessoas_presentes))
+    if (l.fonte === 'manual' || l.fonte === 'ponto' || l.fonte === 'balanca') setFonte(l.fonte)
+    flash('Lançamento aberto no formulário — ajuste e lance de novo para corrigir.')
+    try { window.scrollTo({ top: 0, behavior: 'smooth' }) } catch { /* */ }
+  }
+
+  // Excluir: exclusão rastreável por id (RD-98 p4) — registra em audit_log_global no backend
+  async function excluir(l: LancamentoCru) {
+    if (!companyId || !plantId) return
+    const qual = `${l.posto_numero ? `posto ${l.posto_numero}, ` : ''}${String(l.hora).padStart(2, '0')}h${l.produto_codigo ? `, ${l.produto_codigo}` : ''}`
+    if (!window.confirm(`Excluir o lançamento (${qual})? A exclusão fica registrada para auditoria.`)) return
+    setExcluindoId(l.id)
+    try {
+      const { data: d, error } = await supabase.rpc('fn_prod_apontamento_excluir', { p_company_id: companyId, p_plant_id: plantId, p_id: l.id })
+      if (error) { flashErr(erroAmigavel(error, 'Não foi possível excluir o lançamento. Tente de novo.')); return }
+      const r = d as unknown as { ok: boolean; erro?: string } | null
+      if (!r?.ok) { flashErr(r?.erro === 'nao_encontrado' ? 'Lançamento não encontrado — a lista pode estar desatualizada.' : 'Não foi possível excluir o lançamento.'); return }
+      flash('Lançamento EXCLUÍDO')
+      await carregarGrid()
+    } finally {
+      setExcluindoId(null)
     }
   }
 
@@ -330,6 +375,48 @@ function Inner() {
                       </tr>
                     )
                   })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Lançamentos do dia — item a item, com Editar e Excluir (RD-98 CRUD + exclusão rastreável) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '20px 0 8px' }}>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>Lançamentos do dia<Aj k="prod.apont.lancamentos" /></div>
+          </div>
+          {lancamentos.length === 0 ? (
+            <div style={{ background: C.white, border: `1px dashed ${C.border}`, borderRadius: 12, padding: '22px 16px', textAlign: 'center', color: C.espM }}>
+              Nenhum lançamento neste dia. Lance o produzido acima — ele aparece aqui para corrigir ou excluir.
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto', background: C.white, border: `1px solid ${C.border}`, borderRadius: 12 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 680 }}>
+                <thead>
+                  <tr style={{ background: C.cream, color: C.espM, textAlign: 'left' }}>
+                    <Th>Posto<Aj k="prod.apont.posto" /></Th>
+                    <Th center>Hora<Aj k="prod.apont.hora" /></Th>
+                    <Th>Produto<Aj k="prod.apont.produto" /></Th>
+                    <Th right>Produzido<Aj k="prod.apont.qtd" /></Th>
+                    <Th right>Pessoas<Aj k="prod.apont.pessoas" /></Th>
+                    <Th center>Ações<Aj k="prod.apont.editar" /><Aj k="prod.apont.excluir" /></Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lancamentos.map((l) => (
+                    <tr key={l.id} style={{ borderTop: `1px solid ${C.border}` }}>
+                      <Td><b style={{ color: C.esp }}>{l.posto_numero ?? '—'}</b>{l.posto_atividade ? <span style={{ color: C.espL }}> · {l.posto_atividade}</span> : null}</Td>
+                      <Td center>{String(l.hora).padStart(2, '0')}h</Td>
+                      <Td>{l.produto_codigo ? <><b style={{ color: C.esp }}>{l.produto_codigo}</b> · {l.produto_nome}</> : (l.produto_nome ?? '—')}</Td>
+                      <Td right>{l.qtd_produzida.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}{l.unidade ? ` ${l.unidade}` : ''}</Td>
+                      <Td right>{l.pessoas_presentes == null ? <span style={{ color: C.espL }}>—</span> : l.pessoas_presentes.toLocaleString('pt-BR')}</Td>
+                      <Td center>
+                        <div style={{ display: 'inline-flex', gap: 6 }}>
+                          <button data-testid="apont-editar" onClick={() => editar(l)} style={{ padding: '5px 10px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: `1px solid ${C.border}`, background: C.white, color: C.esp, cursor: 'pointer' }}>Editar</button>
+                          <button data-testid="apont-excluir" onClick={() => void excluir(l)} disabled={excluindoId === l.id} style={{ padding: '5px 10px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: `1px solid ${C.redBg}`, background: C.redBg, color: C.red, cursor: excluindoId === l.id ? 'not-allowed' : 'pointer' }}>{excluindoId === l.id ? 'Excluindo…' : 'Excluir'}</button>
+                        </div>
+                      </Td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>

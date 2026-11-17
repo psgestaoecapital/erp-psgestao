@@ -141,6 +141,131 @@ export async function purgarLeftoversDemo(): Promise<void> {
   } catch (e) { console.warn('[purga-e2e] não purgou (segue):', e instanceof Error ? e.message : String(e)) }
 }
 
+// Purga durável do lixo de E2E em erp_receber das demos (PDCA GE 13/11, tarefas 0c3345df/26111304).
+// PROBLEMA (provado RD-38 no banco prod, DEMO Comércio GE b0700000-...-0004): 30 mil+ títulos de teste
+// "Contas500 antigo/pendente" (e poucos "Aceitação #…/achado") vivos em erp_receber. Os specs que os criam
+// (caminho-contas-mais-de-500-titulos, kgf-*, cartao-repasse-*) JÁ limpam por soft-delete no afterAll — mas o
+// afterAll NÃO roda quando o run é CANCELADO/estoura timeout (o que acontece muito na esteira contínua), e aí
+// 520+ linhas vazam por run. Como a tabela tem a trava BEFORE DELETE trg_bloqueia_delete_fisico (RD-30), a
+// purga TAMBÉM é por SOFT-DELETE (dbPatch deleted_at) — UPDATE passa pela RLS e não dispara a trava.
+// Roda no passo "sempre" (e2e-trava-soltar), que executa até em cancel/timeout: estanca o vazamento dos runs
+// interrompidos E, rodada a rodada, zera o acúmulo histórico (idempotente: só pega deleted_at IS NULL).
+// Marcadores DEDICADOS e2e, inconfundíveis — nunca casam os ~37 recebíveis reais da DEMO (conferido RD-38).
+// Nunca lança: a purga é higiene, não pode derrubar o run.
+const DEMO_COMERCIO = 'b0700000-0000-4000-a000-000000000004'
+const DEMOS_PURGA = [DEMO_REVENDA, DEMO_COMERCIO]
+// Prefixos de descrição que SÓ os specs e2e geram (curinga PostgREST = `*`, não `%`).
+// PDCA GE 15/11 (tarefa d21978eb · /dashboard/gestao-empresarial/resultado-por-negocio): provado RD-38 no banco
+// prod (DEMO Comércio GE b0700000-...-0004) que os specs abaixo vazavam em erp_receber porque NÃO casavam nenhum
+// marcador acima — o pior era `Regressão achado B *` (pdois-juros-reconciliar-achado-b.spec), 474 títulos vivos =
+// R$ 1,46 mi, poluindo contas-a-receber/DRE/fluxo e jogando receita em "Sem negócio" no resultado-por-negócio.
+// Todos são prefixos DEDICADOS e2e (sufixo RUN único), inconfundíveis — nunca casam os recebíveis reais da DEMO
+// ("Recebimento …", "Venda balcão …", "Mensalidade …", "Serviço avulso …"), conferido RD-38.
+const MARCADORES_RECEBER_E2E = [
+  'Contas500 *', 'Aceitação #*', 'Aceitação achado *',
+  'Regressão achado B *',        // pdois-juros-reconciliar-achado-b.spec
+  'Aceitação baixa por banco *', // kgf/baixa-por-banco
+  'Aceitação unificar *',        // unificar-titulos
+  'Caminho receber *',           // caminho-financeiro-receber.spec
+  'Caminho conciliação *',       // caminho-conciliacao
+  'Pedido MED-*',                // pedido medição/parcelas
+]
+export async function purgarReceberDemo(): Promise<void> {
+  const agora = new Date().toISOString()
+  let total = 0
+  for (const company of DEMOS_PURGA) {
+    for (const marca of MARCADORES_RECEBER_E2E) {
+      try {
+        const vivos = await dbSelect<{ id: string }>(
+          'erp_receber',
+          `company_id=eq.${company}&deleted_at=is.null&descricao=like.${encodeURIComponent(marca)}&select=id&limit=1`,
+        )
+        if (!vivos.length) continue
+        await dbPatch(
+          'erp_receber',
+          `company_id=eq.${company}&deleted_at=is.null&descricao=like.${encodeURIComponent(marca)}`,
+          { deleted_at: agora },
+        )
+        total++
+      } catch (e) {
+        console.warn(`[purga-receber] ${company}/${marca} falhou (segue):`, e instanceof Error ? e.message : String(e))
+      }
+    }
+  }
+  console.log(`[purga-receber] marcadores soft-deletados: ${total} (de ${DEMOS_PURGA.length * MARCADORES_RECEBER_E2E.length} varreduras)`)
+}
+
+// Purga durável do lixo de E2E em erp_produtos das demos (PDCA GE 14/11, tarefas 0c3345df/26111304).
+// PROBLEMA (provado RD-38 no banco prod, DEMO Comércio GE b0700000-...-0004): ~20 mil produtos de teste
+// vivos poluem /cadastros/produtos (RD-98 "listas só da empresa"). Os specs que os criam deveriam limpar no
+// afterAll, mas ele NÃO roda quando o run é cancelado/estoura timeout (igual ao caso de erp_receber), e aí os
+// produtos vazam. erp_produtos NÃO tem a trava RD-30, mas a purga é por SOFT-DELETE (dbPatch deleted_at) para
+// não quebrar referência de títulos/NF-e que apontem para o produto. Roda no passo "sempre" (e2e-trava-soltar).
+// Marcador DEDICADO e2e, inconfundível: prefixo "E2E " — nenhum produto real da DEMO começa com isso
+// (conferido RD-38: 10.038 linhas "E2E *", nenhuma legítima). Os demais rótulos de teste ("… teste <código>")
+// ficam para uma auditoria de marcador dedicada (risco de casar palavra "teste" de produto real).
+// Idempotente (só pega deleted_at IS NULL). Nunca lança: a purga é higiene, não pode derrubar o run.
+const MARCADORES_PRODUTOS_E2E = ['E2E *']
+export async function purgarProdutosDemo(): Promise<void> {
+  const agora = new Date().toISOString()
+  let total = 0
+  for (const company of DEMOS_PURGA) {
+    for (const marca of MARCADORES_PRODUTOS_E2E) {
+      try {
+        const vivos = await dbSelect<{ id: string }>(
+          'erp_produtos',
+          `company_id=eq.${company}&deleted_at=is.null&nome=like.${encodeURIComponent(marca)}&select=id&limit=1`,
+        )
+        if (!vivos.length) continue
+        await dbPatch(
+          'erp_produtos',
+          `company_id=eq.${company}&deleted_at=is.null&nome=like.${encodeURIComponent(marca)}`,
+          { deleted_at: agora },
+        )
+        total++
+      } catch (e) {
+        console.warn(`[purga-produtos] ${company}/${marca} falhou (segue):`, e instanceof Error ? e.message : String(e))
+      }
+    }
+  }
+  console.log(`[purga-produtos] marcadores soft-deletados: ${total} (de ${DEMOS_PURGA.length * MARCADORES_PRODUTOS_E2E.length} varreduras)`)
+}
+
+// Purga durável do lixo de E2E em erp_orcamentos das demos (PDCA GE 14/11, tarefas 0c3345df/26111304).
+// PROBLEMA (provado RD-38 no banco prod, DEMO Comércio GE b0700000-...-0004): ~1,4 mil orçamentos de teste
+// vivos soterram o kanban de /dashboard/commerce/otc (Order-to-Cash) e a lista de orçamentos. O spec que os cria
+// deveria limpar no afterAll, que NÃO roda em cancel/timeout do run (igual a erp_receber/erp_produtos), e aí vazam.
+// erp_orcamentos tem deleted_at/deleted_by (exclusão do app é soft) — a purga é por SOFT-DELETE (dbPatch deleted_at),
+// que passa pela RLS e NÃO dispara o trigger trg_orcamento_gera_obra (só reage a mudança de status, não de deleted_at).
+// Marcador DEDICADO e2e, inconfundível: cliente_nome "Cliente Aceitação <N>" — o MESMO marcador "Aceitação" já usado
+// na purga de erp_receber. Conferido RD-38 (14/11): 1.380 vivos casam, 0 orçamentos reais (todos têm numero "A<N>-*"
+// gerado pelo spec; os reais são "ORC-2026-*", cliente comum). Idempotente (só pega deleted_at IS NULL). Nunca lança.
+const MARCADORES_ORCAMENTOS_E2E = ['Cliente Aceitação *']
+export async function purgarOrcamentosDemo(): Promise<void> {
+  const agora = new Date().toISOString()
+  let total = 0
+  for (const company of DEMOS_PURGA) {
+    for (const marca of MARCADORES_ORCAMENTOS_E2E) {
+      try {
+        const vivos = await dbSelect<{ id: string }>(
+          'erp_orcamentos',
+          `company_id=eq.${company}&deleted_at=is.null&cliente_nome=like.${encodeURIComponent(marca)}&select=id&limit=1`,
+        )
+        if (!vivos.length) continue
+        await dbPatch(
+          'erp_orcamentos',
+          `company_id=eq.${company}&deleted_at=is.null&cliente_nome=like.${encodeURIComponent(marca)}`,
+          { deleted_at: agora },
+        )
+        total++
+      } catch (e) {
+        console.warn(`[purga-orcamentos] ${company}/${marca} falhou (segue):`, e instanceof Error ? e.message : String(e))
+      }
+    }
+  }
+  console.log(`[purga-orcamentos] marcadores soft-deletados: ${total} (de ${DEMOS_PURGA.length * MARCADORES_ORCAMENTOS_E2E.length} varreduras)`)
+}
+
 // Reset da demo ao FIM da suíte (a demo pode ser mexida à vontade e volta ao seed).
 export async function resetarDemo(): Promise<void> {
   await rpc('fn_demo_reset', { p_company_id: DEMO_REVENDA })

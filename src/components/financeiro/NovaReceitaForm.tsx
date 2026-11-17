@@ -540,7 +540,16 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
         // valor_taxa/valor_liquido são do TOTAL — só gravo quando é 1 recebível (evita total em cada parcela).
         if (parcelas === 1) { patch.valor_taxa = cartaoCalc.valor_taxa; patch.valor_liquido = cartaoCalc.valor_liquido }
       }
-      if (Object.keys(patch).length) await supabase.from('erp_receber').update(patch).in('id', ids)
+      // RD-98 pilar 3: o que se salva FICA salvo. Confere o retorno e avisa em vez de sucesso falso
+      // (competência/conta/centro/PIX/cartão não podem sumir em silêncio por RLS ou erro de write).
+      if (Object.keys(patch).length) {
+        const { error: ePatch } = await supabase.from('erp_receber').update(patch).in('id', ids)
+        if (ePatch) {
+          setLoading(false)
+          setFeedback({ tipo: 'erro', texto: 'A receita foi criada, mas alguns dados (competência, conta, centro de custo ou PIX) não foram gravados. Abra o título e complete os campos.' })
+          return
+        }
+      }
     }
 
     // #3740 · venda no cartão: quita o cliente e gera um título da operadora por parcela (bruto, taxa,
@@ -842,7 +851,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
           {parcelas >= 2 && !vendaCartao && (
             <div style={{ gridColumn: '1 / -1' }}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 12, color: 'rgba(61,35,20,0.65)', fontWeight: 500 }}>O valor informado é:</span>
+                <span style={{ fontSize: 12, color: 'rgba(61,35,20,0.65)', fontWeight: 500 }}>O valor informado é: <AjudaCampo chave="financeiro.receita.modo_valor" rota={ROTA_AJUDA} /></span>
                 <div style={{ display: 'inline-flex', border: '0.5px solid rgba(61,35,20,0.25)', borderRadius: 6, overflow: 'hidden' }}>
                   {([['total', 'Total da conta'], ['parcela', 'Valor de cada parcela']] as const).map(([m, rot]) => (
                     <button key={m} type="button" onClick={() => setModoValor(m)}
@@ -879,6 +888,11 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
               {modoValor === 'total' && Math.abs(somaParcelas - (parseFloat(valor) || 0)) > 0.01 && (
                 <div style={{ marginTop: 8, background: PSGC_COLORS.amareloSoft, border: `1px solid ${PSGC_COLORS.dourado}`, borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#854F0B' }}>
                   A soma das parcelas difere do total informado ({brl(parseFloat(valor) || 0)}) — variação permitida.
+                </div>
+              )}
+              {parcelasEdit.some((p) => !(Number(p.valor) > 0)) && (
+                <div style={{ marginTop: 8, background: PSGC_COLORS.amareloSoft, border: `1px solid ${PSGC_COLORS.dourado}`, borderRadius: 8, padding: '8px 12px', fontSize: 12, color: '#854F0B' }}>
+                  Há parcela com valor vazio ou zerado — confira o valor de cada parcela antes de salvar.
                 </div>
               )}
               <small style={helperStyle}>Ajuste vencimento e valor de cada parcela livremente (permite parcelas de valor/data variável).</small>
