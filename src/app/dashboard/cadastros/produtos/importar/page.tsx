@@ -198,50 +198,51 @@ export default function ImportarEstoquePage() {
       importId = (imp as { id?: string } | null)?.id ?? null
     }
 
-    for (let i = 0; i < grava.length; i++) {
-      const l = grava[i]; const d = l.dados
-      try {
-        const p_dados: Record<string, unknown> = {
-          codigo: d.codigo, nome: d.nome, unidade: d.unidade || 'UN',
-          tipo_item_sped: d.tipo_item_sped || '00', origem: d.origem || '0',
-        }
-        if (soDig(d.ncm)) p_dados.ncm = soDig(d.ncm)
-        if (d.cest.trim()) p_dados.cest = d.cest.trim()
-        const pv = parseNum(d.preco_venda); if (pv != null) p_dados.preco_venda = pv
-
-        const { data: rSalvar, error: eSalvar } = await supabase.rpc('fn_erp_produto_salvar', { p_company_id: companyId, p_dados })
-        const j = rSalvar as { ok?: boolean; id?: string; erro?: string; campos?: string[] } | null
-        if (eSalvar || !j?.ok || !j.id) {
-          erros.push({ linha: l.n, codigo: d.codigo, motivo: eSalvar?.message ?? j?.erro ?? ('falha ao salvar' + (j?.campos ? ` (${j.campos.join(', ')})` : '')) })
-          continue
-        }
-        const produtoId = j.id; criados++
-
-        // colunas descritivas + custo médio (preco_custo_medio + custo_medio_origem='importacao')
-        const extras: Record<string, unknown> = {}
-        if (l.custo != null) { extras.preco_custo_medio = l.custo; extras.custo_medio_origem = 'importacao' }
-        const em = parseNum(d.estoque_minimo); if (em != null) extras.estoque_minimo = em
-        if (d.categoria.trim()) extras.categoria = d.categoria.trim()
-        if (d.marca.trim()) extras.marca = d.marca.trim()
-        if (d.fornecedor_padrao_nome.trim()) extras.fornecedor_padrao_nome = d.fornecedor_padrao_nome.trim()
-        if (d.localizacao.trim()) extras.localizacao = d.localizacao.trim()
-        if (d.codigo_barras.trim()) extras.codigo_barras = d.codigo_barras.trim()
-        if (Object.keys(extras).length) await supabase.from('erp_produtos').update(extras).eq('id', produtoId).eq('company_id', companyId)
-
-        // saldo por AJUSTE: fn_estoque_ajuste_migracao põe estoque_atual no valor informado (aceita
-        // NEGATIVO) com UMA movimentação; se já bate, ajustado=false (0 movimentações, idempotente).
-        const informado = l.qtd ?? 0
-        const { data: rAj, error: eMov } = await supabase.rpc('fn_estoque_ajuste_migracao', {
-          p_produto_id: produtoId, p_saldo_alvo: informado, p_custo: l.custo ?? 0, p_motivo: motivo,
-        })
-        const aj = rAj as { ok?: boolean; ajustado?: boolean; erro?: string } | null
-        if (eMov || !aj?.ok) erros.push({ linha: l.n, codigo: d.codigo, motivo: `produto ok, saldo falhou: ${eMov?.message ?? aj?.erro ?? 'erro'}` })
-        else if (aj.ajustado) comSaldo++
-        else semMudanca++
-      } catch (e) {
-        erros.push({ linha: l.n, codigo: d.codigo, motivo: (e as Error)?.message ?? 'erro' })
+    // #9667 · grava EM LOTE no servidor (fn_estoque_importar_lote): resiliente ao foco da aba e
+    // idempotente. Cada bloco é UMA chamada (antes eram 3 round-trips por item, ~1 item/2s e a aba
+    // precisava ficar em foco). O parse de locale (#8621) continua no cliente; aqui só montamos o
+    // item (dados + extras + saldo/custo) e enviamos em blocos. fn_erp_produto_salvar faz upsert por
+    // código (reimportar não duplica) e fn_estoque_ajuste_migracao só movimenta se o saldo difere.
+    const itens = grava.map((l) => {
+      const d = l.dados
+      const dados: Record<string, unknown> = {
+        codigo: d.codigo, nome: d.nome, unidade: d.unidade || 'UN',
+        tipo_item_sped: d.tipo_item_sped || '00', origem: d.origem || '0',
       }
-      setProgresso({ feito: i + 1, total: grava.length })
+      if (soDig(d.ncm)) dados.ncm = soDig(d.ncm)
+      if (d.cest.trim()) dados.cest = d.cest.trim()
+      const pv = parseNum(d.preco_venda); if (pv != null) dados.preco_venda = pv
+      const extras: Record<string, unknown> = {}
+      if (l.custo != null) { extras.preco_custo_medio = l.custo; extras.custo_medio_origem = 'importacao' }
+      const em = parseNum(d.estoque_minimo); if (em != null) extras.estoque_minimo = em
+      if (d.categoria.trim()) extras.categoria = d.categoria.trim()
+      if (d.marca.trim()) extras.marca = d.marca.trim()
+      if (d.fornecedor_padrao_nome.trim()) extras.fornecedor_padrao_nome = d.fornecedor_padrao_nome.trim()
+      if (d.localizacao.trim()) extras.localizacao = d.localizacao.trim()
+      if (d.codigo_barras.trim()) extras.codigo_barras = d.codigo_barras.trim()
+      return { linha: l.n, codigo: d.codigo, dados, extras, saldo: l.qtd ?? 0, custo: l.custo ?? 0 }
+    })
+
+    const LOTE = 300  // bloco pequeno = transação curta e retomável (RD-52); o teto da função é 1000
+    for (let i = 0; i < itens.length; i += LOTE) {
+      const bloco = itens.slice(i, i + LOTE)
+      try {
+        const { data, error } = await supabase.rpc('fn_estoque_importar_lote', {
+          p_company_id: companyId, p_itens: bloco, p_motivo: motivo,
+        })
+        const res = data as { ok?: boolean; erro?: string; criados?: number; com_saldo?: number; sem_mudanca?: number; erros?: { linha: number; codigo: string; motivo: string }[] } | null
+        if (error || !res?.ok) {
+          for (const it of bloco) erros.push({ linha: it.linha, codigo: it.codigo, motivo: error?.message ?? res?.erro ?? 'falha no lote' })
+        } else {
+          criados += res.criados ?? 0
+          comSaldo += res.com_saldo ?? 0
+          semMudanca += res.sem_mudanca ?? 0
+          if (res.erros?.length) for (const e of res.erros) erros.push(e)
+        }
+      } catch (e) {
+        for (const it of bloco) erros.push({ linha: it.linha, codigo: it.codigo, motivo: (e as Error)?.message ?? 'erro' })
+      }
+      setProgresso({ feito: Math.min(i + LOTE, itens.length), total: itens.length })
     }
 
     if (importId) {
