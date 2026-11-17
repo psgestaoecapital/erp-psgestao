@@ -221,8 +221,8 @@ export default function CatalogoEpiPage() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: `1px solid ${C.borderLt}` }}>
-          <TabBtn ativa={aba === 'global'} onClick={() => setAba('global')}>🌐 Catálogo Global PS</TabBtn>
-          <TabBtn ativa={aba === 'meus'} onClick={() => setAba('meus')}>🏢 Meus EPIs</TabBtn>
+          <span style={{ display: 'inline-flex', alignItems: 'center' }}><TabBtn ativa={aba === 'global'} onClick={() => setAba('global')}>🌐 Catálogo Global PS</TabBtn><AjudaCampo chave="epi.catalogo.aba_global" /></span>
+          <span style={{ display: 'inline-flex', alignItems: 'center' }}><TabBtn ativa={aba === 'meus'} onClick={() => setAba('meus')}>🏢 Meus EPIs</TabBtn><AjudaCampo chave="epi.catalogo.aba_meus" /></span>
         </div>
 
         {aba === 'global' && (
@@ -241,12 +241,18 @@ export default function CatalogoEpiPage() {
         )}
 
         {/* Filtros */}
-        <section style={{ background: '#FFFFFF', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61,35,20,0.06)', marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <input type="text" placeholder="Buscar por nome / modelo / CA…" value={busca} onChange={(e) => setBusca(e.target.value)} style={{ ...inputStyle, flex: '1 1 240px' }} />
-          <select value={filtroCategoria} onChange={(e) => setFiltroCategoria(e.target.value)} style={{ ...inputStyle, minWidth: 200 }}>
-            <option value="">Todas as categorias</option>
-            {categorias.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
-          </select>
+        <section style={{ background: '#FFFFFF', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61,35,20,0.06)', marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '1 1 240px' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>Buscar <AjudaCampo chave="epi.catalogo.busca" /></span>
+            <input type="text" placeholder="Buscar por nome / modelo / CA…" value={busca} onChange={(e) => setBusca(e.target.value)} style={{ ...inputStyle, width: '100%' }} />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 200 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>Categoria <AjudaCampo chave="epi.catalogo.categoria" /></span>
+            <select value={filtroCategoria} onChange={(e) => setFiltroCategoria(e.target.value)} style={{ ...inputStyle, minWidth: 200 }}>
+              <option value="">Todas as categorias</option>
+              {categorias.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+            </select>
+          </label>
           {aba === 'meus' && (
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: C.espressoLt, cursor: 'pointer', whiteSpace: 'nowrap' }}>
               <input type="checkbox" checked={mostrarInativos} onChange={(e) => setMostrarInativos(e.target.checked)} />
@@ -299,6 +305,15 @@ export default function CatalogoEpiPage() {
             {aba === 'global' ? 'Nenhum EPI global ativo' : 'Você ainda não tem EPIs próprios. Crie ou importe do catálogo global!'}
           </div>
         ) : (
+          <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: 11, color: C.muted, marginBottom: 8 }}>
+            <span style={{ fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' }}>Nos cards:</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>CA <AjudaCampo chave="epi.catalogo.ca" /></span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>Classe/Categoria <AjudaCampo chave="epi.catalogo.classe" /></span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>Fabricante <AjudaCampo chave="epi.catalogo.fabricante" /></span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>Validade/Vida útil <AjudaCampo chave="epi.catalogo.validade" /></span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>Importar <AjudaCampo chave="epi.catalogo.importar" /></span>
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
             {episFiltrados.map((e) => {
               const ca = statusCa(e.ca_validade)
@@ -361,6 +376,7 @@ export default function CatalogoEpiPage() {
               )
             })}
           </div>
+          </>
         )}
       </div>
 
