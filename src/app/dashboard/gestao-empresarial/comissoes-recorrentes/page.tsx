@@ -9,6 +9,8 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties, type Rea
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 import { AlertTriangle, PauseCircle, ReceiptText, Search, Undo2, type LucideIcon } from 'lucide-react'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DED3'
@@ -568,7 +570,9 @@ function RegraModal({ empresa, inicial, contratos, fornecedores, onFechar, onSal
             </select></label>
           {d.tipo_comissao === 'fixo' ? (
             <label style={lbl}>Valor fixo (R$)<AjudaCampo chave="comrec.valor_fixo" />
-              <input style={inp} type="number" min="0" step="0.01" value={d.valor_fixo ?? ''} onChange={(e) => set('valor_fixo', e.target.value === '' ? null : Number(e.target.value))} /></label>
+              {/* #6874 — campo monetário padrão (CampoMoeda): texto mascarado em R$; o número puro continua indo ao banco
+                  (d.valor_fixo segue number via moedaParaNumero), sem mudar o cálculo do exemplo nem o RPC de salvar. */}
+              <CampoMoeda value={numeroParaMoeda(d.valor_fixo)} onChange={(v) => set('valor_fixo', moedaParaNumero(v))} placeholder="R$ 0,00" style={inp} testId="comrec-regra-valor-fixo" /></label>
           ) : (
             <label style={lbl}>Percentual (%)<AjudaCampo chave="comrec.percentual" />
               <input style={inp} type="number" min="0" max="100" step="0.01" value={d.percentual ?? ''} onChange={(e) => set('percentual', e.target.value === '' ? null : Number(e.target.value))} data-testid="comrec-regra-pct" /></label>
