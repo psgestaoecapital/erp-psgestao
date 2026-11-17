@@ -7,6 +7,10 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { fmtR } from '@/lib/psgc-tokens'
 import { C } from '../_components/ui'
 import { CLASSIFICACAO_SERVICO, TIPOS_SERVICO, ATIVIDADES_ESPECIAIS } from '../_components/prestador-opts'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA_AJUDA = '/dashboard/ehs/prestadores'
+const thLabel: React.CSSProperties = { display: 'inline-flex', alignItems: 'center' }
 
 type Prestador = {
   id: string
@@ -29,6 +33,16 @@ const TIPO_LABEL: Record<string, string> = {
   mei: 'MEI',
   pj_simples: 'PJ Simples',
   pj_lucro_real: 'PJ Lucro Real',
+  prestacao_servico: 'Prestação de serviço',
+}
+
+// Criterio e (RD-95): nunca mostrar valor cru em snake_case ao usuario. Para um tipo fora do mapa acima,
+// humaniza ("algum_tipo_novo" -> "Algum tipo novo") em vez de exibir o identificador tecnico.
+function rotuloTipoContrato(v: string | null | undefined): string {
+  if (!v) return '—'
+  if (TIPO_LABEL[v]) return TIPO_LABEL[v]
+  const s = v.replace(/_/g, ' ').trim()
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : '—'
 }
 
 export default function ComplianceListaPrestadoresPage() {
@@ -109,13 +123,16 @@ export default function ComplianceListaPrestadoresPage() {
         {erro && (<div style={{ backgroundColor: C.redBg, color: C.red, padding: '12px 16px', borderRadius: 8, marginBottom: 16, fontSize: 14 }}>{erro}</div>)}
 
         <section style={{ backgroundColor: 'white', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)', marginBottom: 16 }}>
-          <input
-            type="text"
-            placeholder="Buscar por razão social, CNPJ, nome fantasia…"
-            value={busca}
-            onChange={(e: any) => setBusca(e.target.value)}
-            style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.borderLt}`, fontSize: 13, backgroundColor: C.offwhite }}
-          />
+          <label style={{ display: 'flex', alignItems: 'center' }}>
+            <input
+              type="text"
+              placeholder="Buscar por razão social, CNPJ, nome fantasia…"
+              value={busca}
+              onChange={(e: any) => setBusca(e.target.value)}
+              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.borderLt}`, fontSize: 13, backgroundColor: C.offwhite }}
+            />
+            <AjudaCampo chave="ehs.prestadores.busca" rota={ROTA_AJUDA} />
+          </label>
         </section>
 
         <section style={{ backgroundColor: 'white', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)' }}>
@@ -123,14 +140,14 @@ export default function ComplianceListaPrestadoresPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ backgroundColor: C.beigeLt }}>
-                  <Th>Razão Social</Th>
-                  <Th>CNPJ</Th>
-                  <Th>Tipo</Th>
-                  {multiEmpresa && <Th>Empresa</Th>}
-                  <Th>Responsável</Th>
-                  <Th>Valor mensal</Th>
-                  <Th>EHS</Th>
-                  <Th>Ações</Th>
+                  <Th><span style={thLabel}>Razão Social<AjudaCampo chave="ehs.prestadores.col_razao" rota={ROTA_AJUDA} /></span></Th>
+                  <Th><span style={thLabel}>CNPJ<AjudaCampo chave="ehs.prestadores.col_cnpj" rota={ROTA_AJUDA} /></span></Th>
+                  <Th><span style={thLabel}>Tipo<AjudaCampo chave="ehs.prestadores.col_tipo" rota={ROTA_AJUDA} /></span></Th>
+                  {multiEmpresa && <Th><span style={thLabel}>Empresa<AjudaCampo chave="ehs.prestadores.col_empresa" rota={ROTA_AJUDA} /></span></Th>}
+                  <Th><span style={thLabel}>Responsável<AjudaCampo chave="ehs.prestadores.col_responsavel" rota={ROTA_AJUDA} /></span></Th>
+                  <Th><span style={thLabel}>Valor mensal<AjudaCampo chave="ehs.prestadores.col_valor" rota={ROTA_AJUDA} /></span></Th>
+                  <Th><span style={thLabel}>EHS<AjudaCampo chave="ehs.prestadores.col_ehs" rota={ROTA_AJUDA} /></span></Th>
+                  <Th><span style={thLabel}>Ações<AjudaCampo chave="ehs.prestadores.col_acoes" rota={ROTA_AJUDA} /></span></Th>
                 </tr>
               </thead>
               <tbody>
@@ -139,7 +156,7 @@ export default function ComplianceListaPrestadoresPage() {
                 {prestadores.map((p, i) => {
                   const pct = p.compliance_resumo?.pct ?? 0
                   const barColor = pct === 100 ? C.green : pct >= 50 ? C.amber : C.red
-                  const tipoLabel = p.tipo_contrato ? (TIPO_LABEL[p.tipo_contrato] || p.tipo_contrato) : '—'
+                  const tipoLabel = rotuloTipoContrato(p.tipo_contrato)
                   return (
                     <tr key={p.id} style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.borderLt}` }}>
                       <Td>
