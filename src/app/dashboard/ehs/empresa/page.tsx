@@ -282,17 +282,20 @@ export default function ComplianceEmpresaPage() {
                       <Td>
                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                           {!l.documento ? (
-                            <button
-                              onClick={() =>
-                                setUploadCtx({
-                                  companyId: l.companyId, tipoDocumentoId: l.tipo.id, tipoNome: l.tipo.nome,
-                                  empresaAlvoId: l.companyId, modo: 'upload',
-                                })
-                              }
-                              style={btnPrim()}
-                            >
-                              Upload
-                            </button>
+                            <>
+                              <button
+                                onClick={() =>
+                                  setUploadCtx({
+                                    companyId: l.companyId, tipoDocumentoId: l.tipo.id, tipoNome: l.tipo.nome,
+                                    empresaAlvoId: l.companyId, modo: 'upload',
+                                  })
+                                }
+                                style={btnPrim()}
+                              >
+                                Upload
+                              </button>
+                              <AjudaCampo chave="compliance.empresa.upload" />
+                            </>
                           ) : (
                             <>
                               <button
@@ -306,7 +309,9 @@ export default function ComplianceEmpresaPage() {
                               >
                                 Substituir
                               </button>
+                              <AjudaCampo chave="compliance.empresa.substituir" />
                               <button onClick={() => baixarDocumento(l.documento!.id)} style={btnSec()}>Baixar</button>
+                              <AjudaCampo chave="compliance.empresa.baixar" />
                             </>
                           )}
                         </div>
