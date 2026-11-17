@@ -1,205 +1,218 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
+// Consultor · Raio-X dos seus dados (SPEC Eng. Chefe RD-41, caminho A / 🅰️) — DETERMINÍSTICO, CUSTO ZERO de IA.
+// A tela NÃO chama LLM/API: clica "Analisar meus dados" e roda fn_consultor_raiox(empresa) — só SQL. O texto/sintoma
+// filtra os achados por palavra-chave (saldo/boleto/conciliação/cliente-fornecedor/saúde), sem token. Camada 2 (chat
+// aberto + imagem, com LLM) fica para decisão futura do CEO e NÃO entra aqui.
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { authFetch } from "@/lib/authFetch";
+import AjudaCampo from "@/components/ajuda/AjudaCampo";
 
-const ESP="#3D2314",GO="#C8941A",GOL="#E8C872",OW="#FAF7F2",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
-  BD="#2A2822",TX="#E8E5DC",TXM="#A8A498",TXD="#918C82",GRN="#22C55E",RED="#EF4444",Y="#FBBF24",B="#60A5FA";
+const ESP = "#3D2314", GO = "#C8941A", GOL = "#E8C872", OW = "#FAF7F2", BG2 = "#161614", BG3 = "#1E1E1B",
+  BD = "#2A2822", TX = "#E8E5DC", TXM = "#A8A498", TXD = "#918C82", GRN = "#22C55E", RED = "#EF4444", Y = "#FBBF24";
 
-type Msg = { role:"user"|"ai"; text:string; file?:string; timestamp:Date; context?:any; };
+type Achado = {
+  codigo: string; categoria: string; severidade: "alta" | "media" | "baixa";
+  titulo: string; mensagem: string; como_corrigir: string; rota_link: string; metricas?: any;
+};
+type Raiox = { ok: boolean; erro?: string; resumo?: { alta: number; media: number; baixa: number; total: number }; achados?: Achado[]; saldo_gerencial?: number };
 
-export default function ConsultorPage(){
-  const [companies,setCompanies]=useState<any[]>([]);
-  const [selectedComp,setSelectedComp]=useState("");
-  const [question,setQuestion]=useState("");
-  const [file,setFile]=useState<File|null>(null);
-  const [loading,setLoading]=useState(false);
-  const [messages,setMessages]=useState<Msg[]>([]);
-  const [loadingDb,setLoadingDb]=useState(true);
-  const fileRef=useRef<HTMLInputElement>(null);
-  const chatRef=useRef<HTMLDivElement>(null);
+// casamento por palavra-chave → categoria (determinístico, SEM IA)
+const KW: Record<string, string[]> = {
+  saldo: ["saldo", "nao bate", "não bate", "nao fecha", "não fecha", "caixa", "banco", "conta negativa", "negativo"],
+  conciliacao: ["boleto", "conciliar", "conciliacao", "conciliação", "extrato", "movimento", "baixa", "sumiu", "sumiram", "desapareceu", "vinculo", "vínculo"],
+  qualidade_dados: ["cliente", "fornecedor", "sem nome", "cadastro", "dado", "duplicado", "em branco"],
+  saude: ["margem", "lucro", "prejuizo", "prejuízo", "inadimpl", "vencid", "atras", "receita", "despesa", "concentra"],
+};
+function categoriasDoTexto(txt: string): string[] {
+  const t = txt.toLowerCase();
+  const cats = Object.entries(KW).filter(([, ws]) => ws.some((w) => t.includes(w))).map(([c]) => c);
+  return cats;
+}
 
-  useEffect(()=>{loadCompanies();},[]);
-  useEffect(()=>{if(chatRef.current)chatRef.current.scrollTop=chatRef.current.scrollHeight;},[messages]);
+const CHIPS = [
+  { rotulo: "Saldo não fecha", cats: ["saldo", "conciliacao"] },
+  { rotulo: "Boleto errado / sem baixa", cats: ["conciliacao"] },
+  { rotulo: "Conta sumiu", cats: ["conciliacao", "saldo"] },
+  { rotulo: "Revisar meus dados", cats: [] as string[] }, // vazio = todos
+];
 
-  const loadCompanies=async()=>{
-    const{data:{user}}=await supabase.auth.getUser();
-    if(!user){setLoadingDb(false);return;}
-    const{data:up}=await supabase.from("users").select("role").eq("id",user.id).single();
-    let data:any[]=[];
-    if(up?.role==="adm"||up?.role==="acesso_total"){const r=await supabase.from("companies").select("*").order("nome_fantasia");data=r.data||[];}
-    else{const r=await supabase.from("user_companies").select("companies(*)").eq("user_id",user.id);data=(r.data||[]).map((u:any)=>u.companies).filter(Boolean);}
-    if(data.length>0){setCompanies(data);const saved=typeof window!=="undefined"?localStorage.getItem("ps_empresa_sel"):"";const match=data.find(c=>c.id===saved);setSelectedComp(match?match.id:data[0].id);}
-    setLoadingDb(false);
-  };
+const ORDEM: Record<string, number> = { alta: 0, media: 1, baixa: 2 };
+const COR: Record<string, string> = { alta: RED, media: Y, baixa: GRN };
+const DOT: Record<string, string> = { alta: "🔴", media: "🟡", baixa: "🟢" };
 
-  const send=async()=>{
-    if(!question.trim()||!selectedComp)return;
-    const userMsg:Msg={role:"user",text:question,file:file?.name,timestamp:new Date()};
-    setMessages(prev=>[...prev,userMsg]);
-    setLoading(true);
+export default function ConsultorRaioxPage() {
+  const router = useRouter();
+  const [companies, setCompanies] = useState<any[]>([]);
+  const [empresa, setEmpresa] = useState("");
+  const [texto, setTexto] = useState("");
+  const [filtro, setFiltro] = useState<string[] | null>(null); // null = ainda não filtrou; [] = todos
+  const [loading, setLoading] = useState(false);
+  const [loadingDb, setLoadingDb] = useState(true);
+  const [raiox, setRaiox] = useState<Raiox | null>(null);
+  const [erro, setErro] = useState("");
 
-    try{
-      const formData=new FormData();
-      formData.append("question",question);
-      formData.append("company_id",selectedComp);
-      if(file)formData.append("file",file);
+  useEffect(() => { carregarEmpresas(); }, []);
 
-      const res=await authFetch("/api/consultor",{method:"POST",body:formData});
-      const data=await res.json();
-
-      if(data.success){
-        setMessages(prev=>[...prev,{role:"ai",text:data.answer,timestamp:new Date(),context:data.context_used}]);
-      }else{
-        setMessages(prev=>[...prev,{role:"ai",text:`❌ Erro: ${data.error}`,timestamp:new Date()}]);
-      }
-    }catch(e:any){
-      setMessages(prev=>[...prev,{role:"ai",text:`❌ Erro: ${e.message}`,timestamp:new Date()}]);
+  async function carregarEmpresas() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setLoadingDb(false); return; }
+    const { data: up } = await supabase.from("users").select("role").eq("id", user.id).single();
+    let data: any[] = [];
+    if (up?.role === "adm" || up?.role === "acesso_total") {
+      const r = await supabase.from("companies").select("id,nome_fantasia,razao_social").order("nome_fantasia");
+      data = r.data || [];
+    } else {
+      const r = await supabase.from("user_companies").select("companies(id,nome_fantasia,razao_social)").eq("user_id", user.id);
+      data = (r.data || []).map((u: any) => u.companies).filter(Boolean);
     }
+    if (data.length > 0) {
+      setCompanies(data);
+      const saved = typeof window !== "undefined" ? localStorage.getItem("ps_empresa_sel") : "";
+      const match = data.find((c) => c.id === saved);
+      setEmpresa(match ? match.id : data[0].id);
+    }
+    setLoadingDb(false);
+  }
 
-    setQuestion("");setFile(null);setLoading(false);
-    if(fileRef.current)fileRef.current.value="";
+  async function analisar(catsIniciais?: string[]) {
+    if (!empresa) return;
+    setLoading(true); setErro(""); setRaiox(null);
+    // filtro determinístico: chip explícito, senão casamento do texto, senão todos
+    const cats = catsIniciais !== undefined ? catsIniciais : categoriasDoTexto(texto);
+    setFiltro(cats);
+    const { data, error } = await supabase.rpc("fn_consultor_raiox", { p_company_id: empresa });
+    if (error) { setErro("Não consegui analisar agora. Tente de novo em instantes."); setLoading(false); return; }
+    const r = data as Raiox;
+    if (r && r.ok === false) { setErro(r.erro === "sem_acesso" ? "Você não tem acesso aos dados desta empresa." : "Não consegui analisar agora."); setLoading(false); return; }
+    setRaiox(r); setLoading(false);
+  }
+
+  const achadosFiltrados = (): Achado[] => {
+    const todos = (raiox?.achados || []).slice().sort((a, b) => (ORDEM[a.severidade] ?? 3) - (ORDEM[b.severidade] ?? 3));
+    if (!filtro || filtro.length === 0) return todos;
+    return todos.filter((a) => filtro.includes(a.categoria));
   };
 
-  const examples=[
-    {icon:"🏦",q:"Tenho 3 financiamentos ativos. Vale a pena quitar algum antecipadamente?"},
-    {icon:"📊",q:"Minha margem está saudável? O que posso fazer para melhorar?"},
-    {icon:"💰",q:"Tenho caixa para contratar mais 2 funcionários?"},
-    {icon:"📈",q:"Se eu aumentar preços em 10%, qual o impacto no resultado?"},
-    {icon:"🔄",q:"Devo aceitar essa proposta de financiamento? (anexe o PDF)"},
-    {icon:"📋",q:"Este orçamento de venda cobre todos meus custos? (anexe o orçamento)"},
-  ];
+  if (loadingDb) return <div style={{ padding: 40, textAlign: "center", color: TXM }}>Carregando…</div>;
 
-  const Card=({children,style}:{children:React.ReactNode;style?:React.CSSProperties})=>(
-    <div style={{background:BG2,borderRadius:14,border:`1px solid ${BD}`,padding:16,...style}}>{children}</div>
-  );
+  const lista = achadosFiltrados();
+  const resumo = raiox?.resumo;
 
-  if(loadingDb)return <div style={{padding:40,textAlign:"center",color:TXM}}>Carregando...</div>;
-
-  return(
-    <div style={{maxWidth:1000,margin:"0 auto",display:"flex",flexDirection:"column",height:"calc(100vh - 140px)"}}>
-
-      {/* HEADER */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
-        <div>
-          <div style={{fontSize:20,fontWeight:700,color:TX,display:"flex",alignItems:"center",gap:8}}>
-            <span style={{fontSize:24}}>🧠</span> Consultor IA
+  return (
+    <div style={{ maxWidth: 820, margin: "0 auto", padding: "0 16px" }}>
+      {/* CABEÇALHO */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 20, fontWeight: 700, color: TX, display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 24 }}>🔎</span> Consultor · Raio-X dos seus dados
           </div>
-          <div style={{fontSize:11,color:TXD,marginTop:2}}>Suba documentos e pergunte qualquer coisa. A IA cruza com todos os dados financeiros reais da empresa.</div>
+          <div style={{ fontSize: 12, color: TXD, marginTop: 3, lineHeight: 1.5, maxWidth: 560 }}>
+            Eu olho suas <strong style={{ color: TXM }}>contas a pagar, a receber, boletos e saldos</strong> e te mostro onde está o problema e como corrigir — sem custo.
+          </div>
         </div>
-        <select value={selectedComp} onChange={e=>setSelectedComp(e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:600}}>
-          {companies.map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
-        </select>
+        <label data-ajuda="inteligencia.consultor.empresa" style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <select value={empresa} onChange={(e) => setEmpresa(e.target.value)}
+            style={{ background: BG3, border: `1px solid ${BD}`, color: GOL, borderRadius: 8, padding: "6px 10px", fontSize: 12, fontWeight: 600, maxWidth: 220 }}>
+            {companies.map((c) => <option key={c.id} value={c.id}>{c.nome_fantasia || c.razao_social}</option>)}
+          </select>
+          <AjudaCampo chave="inteligencia.consultor.empresa" />
+        </label>
       </div>
 
-      {/* CHAT AREA */}
-      <div ref={chatRef} style={{flex:1,overflowY:"auto",marginBottom:12,display:"flex",flexDirection:"column",gap:10}}>
+      {/* ENTRADA */}
+      <div style={{ background: BG2, borderRadius: 14, border: `1px solid ${BD}`, padding: 14, marginBottom: 14 }}>
+        <label data-ajuda="inteligencia.consultor.sintoma" style={{ display: "block" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: TXM, marginBottom: 6, display: "flex", alignItems: "center" }}>
+            O que está acontecendo?<AjudaCampo chave="inteligencia.consultor.sintoma" />
+          </div>
+          <textarea value={texto} onChange={(e) => setTexto(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); analisar(); } }}
+            placeholder="Descreva em poucas palavras. Ex.: 'meu saldo não bate' — ou use um atalho abaixo."
+            rows={2}
+            style={{ width: "100%", background: BG3, border: `1px solid ${BD}`, color: TX, borderRadius: 10, padding: "10px 12px", fontSize: 13, outline: "none", resize: "none", fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box" }} />
+        </label>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
+          {CHIPS.map((c) => (
+            <button key={c.rotulo} type="button" onClick={() => analisar(c.cats)}
+              style={{ background: BG3, border: `1px solid ${BD}`, color: TXM, borderRadius: 999, padding: "6px 12px", fontSize: 11, cursor: "pointer" }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = GO + "80"; e.currentTarget.style.color = GOL; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = BD; e.currentTarget.style.color = TXM; }}>
+              {c.rotulo}
+            </button>
+          ))}
+        </div>
+        <button type="button" onClick={() => analisar()} disabled={loading || !empresa}
+          style={{ marginTop: 12, width: "100%", borderRadius: 10, border: "none", padding: "12px 16px", fontSize: 14, fontWeight: 700, cursor: loading || !empresa ? "not-allowed" : "pointer", color: OW, background: loading || !empresa ? BD : `linear-gradient(135deg,${ESP},${GO})` }}>
+          {loading ? "Analisando seus dados…" : "Analisar meus dados"}
+        </button>
+      </div>
 
-        {messages.length===0&&(
-          <>
-            <Card style={{borderLeft:`4px solid ${GO}`}}>
-              <div style={{fontSize:13,fontWeight:600,color:GOL,marginBottom:8}}>Como funciona</div>
-              <div style={{fontSize:11,color:TXM,lineHeight:1.8}}>
-                O Consultor IA tem acesso a <strong style={{color:TX}}>todos os dados financeiros reais</strong> da empresa selecionada: DRE, fluxo de caixa, financiamentos, balanço patrimonial, orçamento, clientes e contexto estratégico.<br/><br/>
-                Você pode <strong style={{color:TX}}>anexar documentos</strong> (propostas de financiamento, orçamentos, contratos, extratos) e a IA vai cruzar com os dados reais para dar uma análise completa.
-              </div>
-            </Card>
+      {/* ERRO */}
+      {erro && <div style={{ background: RED + "18", border: `1px solid ${RED}55`, borderRadius: 10, padding: 12, color: "#FCA5A5", fontSize: 12.5, marginBottom: 12 }}>{erro}</div>}
 
-            <div style={{fontSize:11,fontWeight:600,color:TXD,marginTop:4}}>Exemplos de perguntas:</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
-              {examples.map((ex,i)=>(
-                <div key={i} onClick={()=>setQuestion(ex.q)} style={{
-                  background:BG2,borderRadius:10,padding:"10px 12px",border:`1px solid ${BD}`,cursor:"pointer",
-                  display:"flex",gap:8,alignItems:"flex-start",transition:"all 0.2s",
-                }} onMouseEnter={e=>{e.currentTarget.style.borderColor=GO+"60";e.currentTarget.style.background=BG3;}}
-                   onMouseLeave={e=>{e.currentTarget.style.borderColor=BD;e.currentTarget.style.background=BG2;}}>
-                  <span style={{fontSize:18,flexShrink:0}}>{ex.icon}</span>
-                  <span style={{fontSize:11,color:TXM,lineHeight:1.5}}>{ex.q}</span>
-                </div>
-              ))}
+      {/* RESUMO + FILTRO */}
+      {raiox?.ok && resumo && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+          <div style={{ fontSize: 12, color: TXM }}>
+            {resumo.total === 0 ? "Nenhum problema encontrado" : `${resumo.total} achado(s):`}
+          </div>
+          {resumo.alta > 0 && <span style={{ fontSize: 12, color: RED }}>🔴 {resumo.alta} grave(s)</span>}
+          {resumo.media > 0 && <span style={{ fontSize: 12, color: Y }}>🟡 {resumo.media} atenção</span>}
+          {resumo.baixa > 0 && <span style={{ fontSize: 12, color: GRN }}>🟢 {resumo.baixa} ok/informativo</span>}
+          {filtro && filtro.length > 0 && (
+            <button type="button" onClick={() => setFiltro([])} style={{ marginLeft: "auto", background: "none", border: `1px solid ${BD}`, color: TXD, borderRadius: 999, padding: "4px 10px", fontSize: 10.5, cursor: "pointer" }}>
+              filtrando por: {filtro.join(", ")} · ver tudo ✕
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* EMPTY STATE */}
+      {raiox?.ok && resumo?.total === 0 && (
+        <div style={{ background: GRN + "12", border: `1px solid ${GRN}44`, borderRadius: 14, padding: 24, textAlign: "center" }}>
+          <div style={{ fontSize: 30 }}>✅</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: TX, marginTop: 6 }}>Analisei tudo e não achei problema</div>
+          <div style={{ fontSize: 12, color: TXM, marginTop: 4 }}>Suas contas, boletos e saldos estão batendo. Volte quando quiser revisar de novo.</div>
+        </div>
+      )}
+
+      {/* ACHADOS FILTRADOS SEM RESULTADO (mas há achados noutras categorias) */}
+      {raiox?.ok && (resumo?.total ?? 0) > 0 && lista.length === 0 && (
+        <div style={{ background: BG2, border: `1px solid ${BD}`, borderRadius: 14, padding: 20, textAlign: "center", color: TXM, fontSize: 12.5 }}>
+          Nada nessa categoria. <button type="button" onClick={() => setFiltro([])} style={{ background: "none", border: "none", color: GOL, cursor: "pointer", textDecoration: "underline", fontSize: 12.5 }}>Ver todos os achados</button>
+        </div>
+      )}
+
+      {/* CARDS DE ACHADO */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {lista.map((a) => (
+          <div key={a.codigo} style={{ background: BG2, borderRadius: 14, border: `1px solid ${BD}`, borderLeft: `4px solid ${COR[a.severidade] || BD}`, padding: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <span style={{ fontSize: 14 }}>{DOT[a.severidade] || "•"}</span>
+              <span style={{ fontSize: 13.5, fontWeight: 700, color: TX }}>{a.titulo}</span>
             </div>
-          </>
-        )}
-
-        {messages.map((msg,i)=>(
-          <div key={i} style={{display:"flex",justifyContent:msg.role==="user"?"flex-end":"flex-start"}}>
-            <div style={{
-              maxWidth:"85%",borderRadius:14,padding:"12px 16px",
-              background:msg.role==="user"?`linear-gradient(135deg,${ESP},${GO}20)`:BG2,
-              border:`1px solid ${msg.role==="user"?GO+"40":BD}`,
-            }}>
-              {msg.role==="user"&&msg.file&&(
-                <div style={{fontSize:10,color:GOL,marginBottom:6,display:"flex",alignItems:"center",gap:4}}>
-                  📎 {msg.file}
-                </div>
-              )}
-              <div style={{fontSize:12,color:msg.role==="user"?OW:TX,lineHeight:1.7,whiteSpace:"pre-wrap"}}>{msg.text}</div>
-              {msg.role==="ai"&&msg.context&&(
-                <div style={{marginTop:10,paddingTop:8,borderTop:`1px solid ${BD}`,display:"flex",gap:8,flexWrap:"wrap"}}>
-                  {Object.entries(msg.context).filter(([k])=>k!=="arquivo").map(([k,v])=>(
-                    <span key={k} style={{fontSize:9,color:TXD,background:BG3,padding:"2px 8px",borderRadius:4}}>
-                      {k.replace(/_/g," ")}: <strong style={{color:TXM}}>{String(v)}</strong>
-                    </span>
-                  ))}
-                </div>
-              )}
-              <div style={{fontSize:8,color:TXD,marginTop:4,textAlign:"right"}}>
-                {msg.timestamp.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}
-              </div>
+            <div style={{ fontSize: 12.5, color: TXM, lineHeight: 1.6 }}>{a.mensagem}</div>
+            <div style={{ marginTop: 8, background: BG3, borderRadius: 8, padding: "8px 10px" }}>
+              <span style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: GOL }}>Como corrigir</span>
+              <div style={{ fontSize: 12, color: TX, marginTop: 2, lineHeight: 1.5 }}>{a.como_corrigir}</div>
             </div>
+            {a.rota_link && (
+              <button type="button" onClick={() => router.push(a.rota_link)}
+                style={{ marginTop: 10, background: "transparent", border: `1px solid ${GO}66`, color: GOL, borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                Ir pra tela →
+              </button>
+            )}
           </div>
         ))}
-
-        {loading&&(
-          <div style={{display:"flex",justifyContent:"flex-start"}}>
-            <div style={{background:BG2,borderRadius:14,padding:"16px 20px",border:`1px solid ${BD}`}}>
-              <div style={{fontSize:12,color:GOL,display:"flex",alignItems:"center",gap:8}}>
-                <span style={{animation:"pulse 1.5s infinite"}}>🧠</span> Analisando dados financeiros e documento...
-              </div>
-              <div style={{fontSize:10,color:TXD,marginTop:4}}>Cruzando DRE, fluxo de caixa, financiamentos, balanço e contexto</div>
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* INPUT AREA */}
-      <div style={{background:BG2,borderRadius:16,border:`1px solid ${BD}`,padding:12}}>
-        {file&&(
-          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,padding:"6px 10px",background:BG3,borderRadius:8}}>
-            <span style={{fontSize:14}}>📎</span>
-            <span style={{fontSize:11,color:GOL,flex:1}}>{file.name} <span style={{color:TXD}}>({(file.size/1024).toFixed(0)}KB)</span></span>
-            <button onClick={()=>{setFile(null);if(fileRef.current)fileRef.current.value="";}} style={{background:"none",border:"none",color:RED,cursor:"pointer",fontSize:14}}>✕</button>
-          </div>
-        )}
-        <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
-          <input ref={fileRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.csv,.xlsx,.txt" onChange={e=>{if(e.target.files?.[0])setFile(e.target.files[0]);}} style={{display:"none"}}/>
-          <button onClick={()=>fileRef.current?.click()} title="Anexar documento" style={{
-            width:44,height:44,borderRadius:12,border:`1px solid ${BD}`,background:file?`${GO}20`:"transparent",
-            color:file?GOL:TXM,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,
-          }}>📎</button>
-          <textarea value={question} onChange={e=>setQuestion(e.target.value)}
-            onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}}
-            placeholder="Pergunte qualquer coisa sobre a empresa... (Enter para enviar, Shift+Enter para nova linha)"
-            style={{
-              flex:1,background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:12,padding:"12px 14px",
-              fontSize:13,outline:"none",resize:"none",minHeight:44,maxHeight:120,fontFamily:"inherit",lineHeight:1.5,
-            }}
-            rows={1}
-          />
-          <button onClick={send} disabled={loading||!question.trim()} style={{
-            width:44,height:44,borderRadius:12,border:"none",cursor:loading||!question.trim()?"not-allowed":"pointer",
-            background:loading||!question.trim()?BD:`linear-gradient(135deg,${ESP},${GO})`,
-            color:OW,fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,
-            boxShadow:loading||!question.trim()?"none":`0 4px 12px rgba(200,148,26,0.3)`,
-          }}>➤</button>
+      {/* RODAPÉ (custo zero) */}
+      {raiox?.ok && (
+        <div style={{ fontSize: 10, color: TXD, textAlign: "center", marginTop: 16 }}>
+          Análise 100% dos seus dados, sem custo de IA. Atualiza sempre que você clica em “Analisar meus dados”.
         </div>
-        <div style={{display:"flex",justifyContent:"space-between",marginTop:6}}>
-          <div style={{fontSize:9,color:TXD}}>💡 Dica: anexe PDFs de propostas, orçamentos ou contratos para análise completa</div>
-          <div style={{fontSize:9,color:TXD}}>Shift+Enter = nova linha</div>
-        </div>
-      </div>
-
-      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}`}</style>
+      )}
     </div>
   );
 }
