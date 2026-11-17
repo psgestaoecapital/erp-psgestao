@@ -74,6 +74,8 @@ export default function ConfigEmpresaPage() {
   const [salvando, setSalvando] = useState(false)
   const [msg, setMsg] = useState('')
   const [ieIsento, setIeIsento] = useState(false)
+  const [estoqueNeg, setEstoqueNeg] = useState<'bloquear' | 'avisar' | 'liberar'>('avisar') // #8453
+  const [salvandoEstoque, setSalvandoEstoque] = useState(false)
   const [end, setEnd] = useState<EnderecoValue>(END_VAZIO)
 
   const carregar = useCallback(async () => {
@@ -117,6 +119,10 @@ export default function ConfigEmpresaPage() {
     if (!sel) return
     let vivo = true
     void Promise.resolve(supabase.rpc('fn_empresa_obter_ie_isento', { p_company_id: sel })).then(({ data }) => { if (vivo) setIeIsento(data === true) })
+    // #8453: regra de faturar com estoque negativo (a tela nunca lê companies direto)
+    void Promise.resolve(supabase.rpc('fn_empresa_obter_estoque_negativo', { p_company_id: sel })).then(({ data }) => {
+      if (vivo && (data === 'bloquear' || data === 'avisar' || data === 'liberar')) setEstoqueNeg(data)
+    })
     return () => { vivo = false }
   }, [sel, comps])
 
@@ -158,6 +164,20 @@ export default function ConfigEmpresaPage() {
     setSalvando(false)
     if (r.error || (r.data as { sucesso?: boolean } | null)?.sucesso !== true) { setMsg('Erro: não consegui salvar a isenção de inscrição estadual.'); return }
     setMsg('✅ Dados da empresa salvos.'); void carregar()
+  }
+
+  // #8453 · salva só a regra de estoque negativo (independente do cadastro — não exige endereço/IE)
+  async function salvarEstoqueNeg() {
+    if (!sel) return
+    setSalvandoEstoque(true); setMsg('')
+    const { data, error } = await supabase.rpc('fn_empresa_salvar_estoque_negativo', { p_company_id: sel, p_modo: estoqueNeg })
+    setSalvandoEstoque(false)
+    const j = data as { sucesso?: boolean; erro?: string } | null
+    if (error || !j?.sucesso) {
+      setMsg('Erro: ' + (j?.erro === 'sem_acesso' ? 'Você não tem permissão para editar esta empresa.' : (error?.message ?? j?.erro ?? 'não salvou')))
+      return
+    }
+    setMsg('✅ Regra de faturamento com estoque negativo salva.')
   }
 
   async function enviarLogo(file: File) {
@@ -257,6 +277,34 @@ export default function ConfigEmpresaPage() {
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
             <button data-testid="empresa-salvar" onClick={() => void salvar()} disabled={salvando || !emp} style={{ ...btnPrim, background: GOLD, color: ESP, opacity: (salvando || !emp) ? 0.6 : 1, cursor: salvando ? 'wait' : 'pointer' }}>
               {salvando ? 'Salvando…' : 'Salvar'}
+            </button>
+          </div>
+        </div>
+
+        {/* Faturamento e estoque — #8453: o que fazer quando faturar deixaria o saldo negativo */}
+        <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, marginBottom: 14 }}>
+          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+            Faturamento e estoque<AjudaCampo chave="empresa.estoque.venda_negativo" />
+          </div>
+          <div style={{ fontSize: 12.5, color: ESP, fontWeight: 600, margin: '8px 0 4px' }}>Ao faturar uma venda que deixaria o estoque negativo:</div>
+          <div data-testid="empresa-estoque-negativo" role="radiogroup" aria-label="Faturar com estoque negativo" style={{ display: 'grid', gap: 8, marginTop: 6 }}>
+            {([
+              { v: 'bloquear', t: 'Bloquear', d: 'Impede o faturamento e mostra o produto, o saldo atual e o saldo que ficaria. Nenhuma baixa é gravada.' },
+              { v: 'avisar', t: 'Avisar (recomendado)', d: 'Fatura normalmente, mas lista os itens que ficaram negativos para você regularizar.' },
+              { v: 'liberar', t: 'Liberar', d: 'Fatura em silêncio, sem alerta.' },
+            ] as const).map((o) => (
+              <label key={o.v} data-testid={`estoque-negativo-${o.v}`} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '10px 12px', border: `1px solid ${estoqueNeg === o.v ? GOLD : LINE}`, borderRadius: 9, background: estoqueNeg === o.v ? '#FFF8E7' : '#FFF', cursor: 'pointer' }}>
+                <input type="radio" name="estoque_negativo" value={o.v} checked={estoqueNeg === o.v} onChange={() => setEstoqueNeg(o.v)} style={{ width: 16, height: 16, marginTop: 2 }} />
+                <span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: ESP }}>{o.t}</span>
+                  <span style={{ display: 'block', fontSize: 11.5, color: MUT, marginTop: 2 }}>{o.d}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+            <button data-testid="empresa-salvar-estoque-negativo" onClick={() => void salvarEstoqueNeg()} disabled={salvandoEstoque || !emp} style={{ ...btnPrim, background: GOLD, color: ESP, opacity: (salvandoEstoque || !emp) ? 0.6 : 1, cursor: salvandoEstoque ? 'wait' : 'pointer' }}>
+              {salvandoEstoque ? 'Salvando…' : 'Salvar regra'}
             </button>
           </div>
         </div>

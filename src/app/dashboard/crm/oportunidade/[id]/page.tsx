@@ -10,6 +10,8 @@ import { erroAmigavel } from '@/lib/erroAmigavel'
 import Modal from '@/components/ui/Modal'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { MessageCircle } from 'lucide-react'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 import { C, Campo, Titulo, Cabecalho, Pagina, Aviso, Vazio, inp, btnPri, btnSec, chip, cartao, dataBR, horaBR, waHref, rpcCrm, useCrm,
   TIPOS_ATIVIDADE, TIPOS_TAREFA, IconeTipo, type CampoCustom } from '@/components/crm/crmUi'
 
@@ -26,8 +28,7 @@ type Tarefa = { id: string; tipo: string; titulo: string; vence_em: string; conc
 type Ficha = { oportunidade: Op; etapas: EtapaF[]; linha_do_tempo: Evento[]; tarefas: Tarefa[]; evento_ge: { status: string; criado_em: string } | null }
 type Contato = { id: string; nome: string }
 
-const numBR = (v: string) => (v ? Number(v.replace(/\./g, '').replace(',', '.')) : null)
-const paraCampo = (n: number | null | undefined) => (n == null ? '' : String(n).replace('.', ','))
+// #6874 — valores em R$ com máscara (CampoMoeda): moedaParaNumero no envio, numeroParaMoeda ao carregar.
 
 export default function FichaNegocioPage() {
   const { id } = useParams<{ id: string }>()
@@ -56,7 +57,7 @@ export default function FichaNegocioPage() {
     setFicha(f)
     const o = f.oportunidade
     setForm({
-      titulo: o.titulo ?? '', valor_estimado: paraCampo(o.valor_estimado), valor_proposta: paraCampo(o.valor_proposta),
+      titulo: o.titulo ?? '', valor_estimado: numeroParaMoeda(o.valor_estimado), valor_proposta: numeroParaMoeda(o.valor_proposta),
       data_prevista_fechamento: o.data_prevista_fechamento ?? '', origem_id: o.origem_id ?? '', responsavel_id: o.responsavel_id ?? '',
       contato_id: o.contato_id ?? '', observacoes: o.observacoes ?? '',
     })
@@ -92,7 +93,7 @@ export default function FichaNegocioPage() {
     }
     try {
       const dados: Record<string, unknown> = {
-        titulo: form.titulo, valor_estimado: numBR(form.valor_estimado), valor_proposta: numBR(form.valor_proposta),
+        titulo: form.titulo, valor_estimado: moedaParaNumero(form.valor_estimado), valor_proposta: moedaParaNumero(form.valor_proposta),
         data_prevista_fechamento: form.data_prevista_fechamento || null, origem_id: form.origem_id || null,
         contato_id: form.contato_id || null, observacoes: form.observacoes, campos_custom: custom,
       }
@@ -173,10 +174,10 @@ export default function FichaNegocioPage() {
             <Campo rotulo="Nome do negócio" ajuda="crm.novo.titulo"><input style={inp} value={form.titulo ?? ''} onChange={set('titulo')} disabled={bloqueado} /></Campo>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               <Campo rotulo="Valor estimado (R$)" ajuda="crm.novo.valor" largura={140}>
-                <input style={inp} inputMode="decimal" value={form.valor_estimado ?? ''} onChange={(e) => setForm((f) => ({ ...f, valor_estimado: e.target.value.replace(/[^\d.,]/g, '') }))} disabled={bloqueado} />
+                <CampoMoeda style={inp} value={form.valor_estimado ?? ''} onChange={(v) => setForm((f) => ({ ...f, valor_estimado: v }))} disabled={bloqueado} placeholder="0,00" />
               </Campo>
               <Campo rotulo="Valor da proposta (R$)" ajuda="crm.ficha.valor_proposta" largura={140}>
-                <input style={inp} inputMode="decimal" value={form.valor_proposta ?? ''} onChange={(e) => setForm((f) => ({ ...f, valor_proposta: e.target.value.replace(/[^\d.,]/g, '') }))} disabled={bloqueado} />
+                <CampoMoeda style={inp} value={form.valor_proposta ?? ''} onChange={(v) => setForm((f) => ({ ...f, valor_proposta: v }))} disabled={bloqueado} placeholder="0,00" />
               </Campo>
             </div>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
