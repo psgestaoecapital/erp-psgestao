@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { calcularMargem, totaisMargem, agruparMargem, type ApontamentoMargem, type DimensaoMargem } from '@/lib/pm/margem'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
 import { carregarCustosEquipe } from '@/lib/pm/equipeCustos'
 import { parseNumBR } from '@/lib/num'
 
@@ -145,13 +146,13 @@ export default function MargemJobPage() {
                     <label key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       <span style={{ flex: '1 1 160px', minWidth: 140, fontWeight: 600, display: 'inline-flex', alignItems: 'center' }}>{m.nome}<AjudaCampo chave="pm.equipe.custo_hora" /></span>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        <span style={{ color: TEXTM, fontSize: 12 }}>R$</span>
-                        <input
-                          type="number" inputMode="decimal" min={0} step="0.01" placeholder="0,00"
-                          data-testid={`margem-custo-input-${m.id}`}
+                        {/* #6874 · máscara R$ ao digitar (antes era <input type="number"> cru); parseNumBR já aceita "R$ 12,50" no salvar */}
+                        <CampoMoeda
+                          testId={`margem-custo-input-${m.id}`}
                           value={custoEdit[m.id] ?? ''}
-                          onChange={(e) => setCustoEdit((prev) => ({ ...prev, [m.id]: e.target.value }))}
-                          style={{ width: 110, minHeight: 40, border: `1px solid ${BORDA}`, borderRadius: 8, padding: '6px 10px', fontSize: 14 }}
+                          onChange={(mascarado) => setCustoEdit((prev) => ({ ...prev, [m.id]: mascarado }))}
+                          placeholder="R$ 0,00"
+                          style={{ width: 120, minHeight: 40, border: `1px solid ${BORDA}`, borderRadius: 8, padding: '6px 10px', fontSize: 14 }}
                         />
                         <span style={{ color: TEXTM, fontSize: 12 }}>/h</span>
                       </span>
