@@ -64,3 +64,7 @@ BEGIN
 
   RETURN jsonb_build_object('ok', true, 'id', p_id, 'valor_total', v_total, 'valor_final', v_final);
 END $function$;
+
+-- ACL explícita (fail-closed): nunca anon; só usuário logado e serviço (preserva os grants vivos).
+REVOKE ALL ON FUNCTION public.fn_agency_proposta_editar(uuid, jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_agency_proposta_editar(uuid, jsonb) TO authenticated, service_role;
