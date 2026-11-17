@@ -7,6 +7,8 @@
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -77,7 +79,7 @@ function Inner() {
     const r = pr as Precif | null
     if (r?.ok) {
       setP(r)
-      if (r.preco_venda != null) setPrecoVenda(String(r.preco_venda))
+      if (r.preco_venda != null) setPrecoVenda(numeroParaMoeda(r.preco_venda))
       if (r.margem_alvo_pct != null) setMargem(String(r.margem_alvo_pct))
     }
     if (comp) {
@@ -100,7 +102,7 @@ function Inner() {
   // fonte única — encargos e margem incidem sobre o PREÇO. O piso vem do servidor (piso_sem_margem).
   const sim = useMemo(() => {
     if (!p?.custo) return null
-    const pv = numOrNull(precoVenda)
+    const pv = moedaParaNumero(precoVenda)
     const mg = numOrNull(margem) ?? 0
     const imp = p.encargos?.impostos.pct ?? 0
     const com = p.encargos?.comissao.pct ?? 0
@@ -120,7 +122,7 @@ function Inner() {
   }, [p, precoVenda, margem])
 
   async function salvar() {
-    const pv = numOrNull(precoVenda)
+    const pv = moedaParaNumero(precoVenda)
     if (pv == null || pv <= 0) { setErro('Informe o preço de venda (maior que zero).'); return }
     setSalvando(true); setErro(null)
     const { data } = await supabase.rpc('fn_veic_precificacao_salvar', { p_veiculo_id: veiculoId, p_dados: { preco_venda: String(pv), margem_alvo_pct: consignado ? null : (margem || null), observacao: obs || null }, p_user: await userId() })
@@ -163,7 +165,7 @@ function Inner() {
       <Bloco titulo="Valor de venda">
         <div style={{ fontSize: 12, color: C.espM, marginBottom: 8 }}>Carro consignado: não tem custo de aquisição nem preço mínimo — defina só por quanto ele sai.</div>
         <label style={{ display: 'block', fontSize: 12, color: C.espM }}>Valor de venda
-          <input value={precoVenda} onChange={(e) => setPrecoVenda(e.target.value)} inputMode="decimal" placeholder="R$ 0,00"
+          <CampoMoeda value={precoVenda} onChange={setPrecoVenda} placeholder="R$ 0,00" testId="precif-valor-consignado"
             style={{ width: '100%', boxSizing: 'border-box', marginTop: 4, padding: 12, fontSize: 18, border: `1px solid ${C.border}`, borderRadius: 10, color: C.esp }} />
         </label>
         <input value={obs} onChange={(e) => setObs(e.target.value)} placeholder="observação (opcional)" style={{ width: '100%', boxSizing: 'border-box', marginTop: 12, padding: 10, fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, color: C.esp }} />
@@ -222,7 +224,7 @@ function Inner() {
       <Bloco titulo="Quero vender por">
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <label style={{ fontSize: 12, color: C.espM, flex: 1 }}>Preço de venda
-            <input value={precoVenda} onChange={(e) => setPrecoVenda(e.target.value)} inputMode="decimal" placeholder="R$ 0,00"
+            <CampoMoeda value={precoVenda} onChange={setPrecoVenda} placeholder="R$ 0,00" testId="precif-preco-venda"
               style={{ width: '100%', boxSizing: 'border-box', marginTop: 4, padding: 12, fontSize: 18, border: `1px solid ${sim?.abaixoPiso ? C.red : C.border}`, borderRadius: 10, color: sim?.abaixoPiso ? C.red : C.esp }} />
           </label>
           <label style={{ fontSize: 12, color: C.espM, width: 110 }}>Margem

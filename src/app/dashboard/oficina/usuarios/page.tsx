@@ -11,6 +11,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { useAcesso } from '@/hooks/useAcesso'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const C = {
   espresso: '#3D2314', espressoM: '#6B5D4F', bg: '#FAF7F2', white: '#FFFFFF',
@@ -64,7 +66,7 @@ export default function UsuariosOficinaPage() {
     if (!companyId) { setPessoas([]); setLoading(false); return }
     setLoading(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_acessos_empresa_contexto', { p_company_id: companyId })
-    if (error) { setErro(error.message); setPessoas([]); setLoading(false); return }
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar os usuários desta oficina. Tente de novo.')); setPessoas([]); setLoading(false); return }
     const c = data as Contexto | null
     setPessoas((c?.pessoas ?? []) as Pessoa[])
     setLoading(false)
@@ -84,7 +86,7 @@ export default function UsuariosOficinaPage() {
     })
     setConvidando(false)
     const r = data as { ok?: boolean; erro?: string; acao?: string } | null
-    if (error || r?.ok === false) { setErro(error?.message || r?.erro || 'Falha ao convidar.'); return }
+    if (error || r?.ok === false) { setErro(erroAmigavel(error, r?.erro || 'Não foi possível convidar o mecânico. Tente de novo.')); return }
     setOk(r?.acao === 'vinculado' ? 'Mecânico vinculado.' : 'Convite enviado ao mecânico.')
     setEmail('')
     void carregar()
@@ -98,7 +100,7 @@ export default function UsuariosOficinaPage() {
     })
     setRemovendoId(null)
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error || r?.ok === false) { setErro(error?.message || r?.erro || 'Falha ao desativar.'); return }
+    if (error || r?.ok === false) { setErro(erroAmigavel(error, r?.erro || 'Não foi possível desativar o acesso do mecânico. Tente de novo.')); return }
     setOk('Acesso do mecânico desativado.')
     void carregar()
   }
@@ -123,10 +125,10 @@ export default function UsuariosOficinaPage() {
 
       {/* convidar mecânico — o form oferece SÓ isto (regra do CEO) */}
       <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 14, marginBottom: 16 }}>
-        <label style={{ display: 'block', fontSize: 12, color: C.espressoM, fontWeight: 600, marginBottom: 6 }}>
-          Convidar mecânico
+        <label style={{ display: 'flex', alignItems: 'center', fontSize: 12, color: C.espressoM, fontWeight: 600, marginBottom: 6 }}>
+          Convidar mecânico<AjudaCampo chave="oficina.usuarios.convidar_email" rota="/dashboard/oficina/usuarios" />
         </label>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div data-ajuda="oficina.usuarios.convidar_email" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <input
             type="email" value={email} onChange={(e) => setEmail(e.target.value)}
             placeholder="email@do-mecanico.com" style={{ ...inp, flex: 1, minWidth: 200 }}
@@ -149,8 +151,8 @@ export default function UsuariosOficinaPage() {
         background: C.greenBg, color: C.green, fontSize: 13, borderLeft: `3px solid ${C.green}` }}>{ok}</div>}
 
       {/* quem tem acesso */}
-      <div style={{ fontSize: 12, color: C.espressoM, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.3, margin: '4px 0 8px' }}>
-        Quem tem acesso
+      <div style={{ display: 'flex', alignItems: 'center', fontSize: 12, color: C.espressoM, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.3, margin: '4px 0 8px' }}>
+        Quem tem acesso<AjudaCampo chave="oficina.usuarios.acesso" rota="/dashboard/oficina/usuarios" />
       </div>
       {loading ? (
         <div style={{ color: C.espressoM, fontSize: 13 }}>Carregando…</div>
@@ -184,6 +186,9 @@ export default function UsuariosOficinaPage() {
                   >
                     {removendoId === p.user_id ? 'Desativando…' : 'Desativar'}
                   </button>
+                )}
+                {ehMecanico && (
+                  <AjudaCampo chave="oficina.usuarios.desativar" rota="/dashboard/oficina/usuarios" />
                 )}
               </div>
             )

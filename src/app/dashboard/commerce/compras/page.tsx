@@ -23,6 +23,9 @@ import {
 } from 'lucide-react'
 import CotacaoWhatsAppModal from '@/components/comum/CotacaoWhatsAppModal'
 import OrdemFornecimentoCard, { type CondicoesOF } from '@/components/compras/OrdemFornecimento'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA_AJUDA = '/dashboard/commerce/compras'
 
 export const dynamic = 'force-dynamic'
 
@@ -338,22 +341,30 @@ function ComprasInner() {
           </div>
         </div>
         {tab === 'cotacoes' && (
-          <button onClick={() => setShowNova(true)} disabled={!canCreate} title={canCreate ? '' : 'Selecione uma empresa específica'}
-            style={btnPrincipal(canCreate)}>
-            <Plus size={14} /> Nova Cotação
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button onClick={() => setShowNova(true)} disabled={!canCreate} title={canCreate ? '' : 'Selecione uma empresa específica'}
+              style={btnPrincipal(canCreate)}>
+              <Plus size={14} /> Nova Cotação
+            </button>
+            <AjudaCampo chave="commerce.compras.nova_cotacao" rota={ROTA_AJUDA} />
+          </div>
         )}
         {tab === 'compras' && (
-          <button onClick={() => setShowNovaCompra(true)} disabled={!canCreate} title={canCreate ? '' : 'Selecione uma empresa específica'}
-            style={btnPrincipal(canCreate)} data-testid="commerce-nova-compra">
-            <Plus size={14} /> Nova compra
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button onClick={() => setShowNovaCompra(true)} disabled={!canCreate} title={canCreate ? '' : 'Selecione uma empresa específica'}
+              style={btnPrincipal(canCreate)} data-testid="commerce-nova-compra">
+              <Plus size={14} /> Nova compra
+            </button>
+            <AjudaCampo chave="commerce.compras.nova_compra" rota={ROTA_AJUDA} />
+          </div>
         )}
       </header>
 
-      <div style={{ display: 'flex', gap: 4, marginBottom: 14, borderBottom: `1px solid ${C.border}` }}>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 14, borderBottom: `1px solid ${C.border}`, alignItems: 'center' }}>
         <TabBtn ativo={tab === 'cotacoes'} onClick={() => setTab('cotacoes')} icon={<FileText size={14} />} label="Cotações" count={cotacoes.length} />
+        <AjudaCampo chave="commerce.compras.aba_cotacoes" rota={ROTA_AJUDA} />
         <TabBtn ativo={tab === 'compras'} onClick={() => setTab('compras')} icon={<ShoppingCart size={14} />} label="Pedidos de Compra" count={compras.length} />
+        <AjudaCampo chave="commerce.compras.aba_pedidos" rota={ROTA_AJUDA} />
       </div>
 
       {/* FIX-VAZAMENTO-JORDANA (07/07): NAO consolida multi-empresa */}
@@ -369,18 +380,22 @@ function ComprasInner() {
 
       {/* Filtros */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12, marginBottom: 12 }}>
-        <div style={{ position: 'relative', flex: '1 1 220px', minWidth: 180 }}>
+        <div style={{ position: 'relative', flex: '1 1 220px', minWidth: 180, display: 'flex', alignItems: 'center', gap: 6 }}>
           <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.espressoL }} />
           <input type="text" placeholder={tab === 'cotacoes' ? 'Buscar por número, descrição, solicitante…' : 'Buscar por número, fornecedor, NF…'}
             value={filtroBusca} onChange={(e) => setFiltroBusca(e.target.value)}
             style={{ width: '100%', padding: '8px 10px 8px 32px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.white, color: C.espresso, outline: 'none' }} />
+          <AjudaCampo chave="commerce.compras.busca" rota={ROTA_AJUDA} />
         </div>
-        <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)} style={selInpStyle}>
-          <option value="">Todos os status</option>
-          {Object.keys(tab === 'cotacoes' ? STATUS_COT : STATUS_COMP).map((s) => (
-            <option key={s} value={s}>{(tab === 'cotacoes' ? STATUS_COT : STATUS_COMP)[s].label}</option>
-          ))}
-        </select>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)} style={selInpStyle}>
+            <option value="">Todos os status</option>
+            {Object.keys(tab === 'cotacoes' ? STATUS_COT : STATUS_COMP).map((s) => (
+              <option key={s} value={s}>{(tab === 'cotacoes' ? STATUS_COT : STATUS_COMP)[s].label}</option>
+            ))}
+          </select>
+          <AjudaCampo chave="commerce.compras.filtro_status" rota={ROTA_AJUDA} />
+        </div>
         <span style={{ marginLeft: 'auto', fontSize: 11, color: C.espressoM }}>
           {tab === 'cotacoes' ? cotFiltradas.length : compFiltradas.length} de {tab === 'cotacoes' ? cotacoes.length : compras.length}
         </span>
@@ -476,7 +491,7 @@ function TabelaCotacoes({ rows, total, onSelect, onCompare, canCreate, onCreate 
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 860 }}>
           <thead style={{ background: C.cream }}>
-            <tr><Th>Número</Th><Th>Descrição</Th><Th>Solicitante</Th><Th>Abertura</Th><Th>Limite</Th><Th>Status</Th><Th align="right">Ações</Th></tr>
+            <tr><Th ajuda="commerce.compras.col_numero">Número</Th><Th ajuda="commerce.compras.col_descricao">Descrição</Th><Th ajuda="commerce.compras.col_solicitante">Solicitante</Th><Th ajuda="commerce.compras.col_abertura">Abertura</Th><Th ajuda="commerce.compras.col_limite">Limite</Th><Th ajuda="commerce.compras.col_status">Status</Th><Th align="right" ajuda="commerce.compras.col_acoes">Ações</Th></tr>
           </thead>
           <tbody>
             {rows.map((c) => (
@@ -513,7 +528,7 @@ function TabelaCompras({ rows, total, cotacoes, onSelect }: { rows: Compra[]; to
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 880 }}>
           <thead style={{ background: C.cream }}>
-            <tr><Th>Número</Th><Th>Fornecedor</Th><Th>Pedido</Th><Th>Prev. entrega</Th><Th align="right">Total</Th><Th>Status</Th><Th>NF</Th></tr>
+            <tr><Th ajuda="commerce.compras.col_numero">Número</Th><Th ajuda="commerce.compras.col_fornecedor">Fornecedor</Th><Th ajuda="commerce.compras.col_pedido">Pedido</Th><Th ajuda="commerce.compras.col_prev_entrega">Prev. entrega</Th><Th align="right" ajuda="commerce.compras.col_total">Total</Th><Th ajuda="commerce.compras.col_status">Status</Th><Th ajuda="commerce.compras.col_nf">NF</Th></tr>
           </thead>
           <tbody>
             {rows.map((p) => {
@@ -939,7 +954,7 @@ function ModalComparativo({ cotacao, onClose, onAprovar }: { cotacao: Cotacao; o
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 700 }}>
                 <thead style={{ background: C.cream, position: 'sticky', top: 0 }}>
                   <tr>
-                    <Th>Item</Th>
+                    <Th ajuda="commerce.compras.cot_comparar">Item</Th>
                     {fornecedores.map((f) => (
                       <Th key={f.id} align="right">
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -967,7 +982,7 @@ function ModalComparativo({ cotacao, onClose, onAprovar }: { cotacao: Cotacao; o
                           const indisp = p?.disponivel === false
                           return (
                             <Td key={f.id} align="right">
-                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                              <div data-ajuda="commerce.compras.cot_comparar" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
                                 {indisp ? (
                                   <span style={{ color: C.red, fontWeight: 600 }}>indisponível</span>
                                 ) : (
@@ -1239,9 +1254,9 @@ function ModalNovaCotacao({ companyId, onClose, onCreated, flash, flashErr }: {
 
         {step === 'identif' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <Field label="Descrição *"><input autoFocus value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Ex: Materiais de drywall para obra centro" style={inp} /></Field>
-            <Field label="Solicitante"><input value={solicitante} onChange={(e) => setSolicitante(e.target.value)} placeholder="Ex: João Silva (Compras)" style={inp} /></Field>
-            <Field label="Data limite para respostas"><input type="date" value={dataLimite} onChange={(e) => setDataLimite(e.target.value)} style={inp} /></Field>
+            <Field label="Descrição *" ajuda="commerce.compras.cot_descricao"><input autoFocus value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Ex: Materiais de drywall para obra centro" style={inp} /></Field>
+            <Field label="Solicitante" ajuda="commerce.compras.cot_solicitante"><input value={solicitante} onChange={(e) => setSolicitante(e.target.value)} placeholder="Ex: João Silva (Compras)" style={inp} /></Field>
+            <Field label="Data limite para respostas" ajuda="commerce.compras.cot_data_limite"><input type="date" value={dataLimite} onChange={(e) => setDataLimite(e.target.value)} style={inp} /></Field>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
               <button onClick={onClose} style={btnSec}>Cancelar</button>
               <button onClick={() => setStep('itens')} disabled={!podeAvancarIdent} style={{ ...btnPri, opacity: podeAvancarIdent ? 1 : 0.5 }}>Próximo →</button>
@@ -1251,9 +1266,9 @@ function ModalNovaCotacao({ companyId, onClose, onCreated, flash, flashErr }: {
 
         {step === 'itens' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Itens a cotar *</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM, display: 'inline-flex', alignItems: 'center', gap: 4 }}>Itens a cotar * <AjudaCampo chave="commerce.compras.cot_itens" rota={ROTA_AJUDA} /></label>
             {itens.map((it, i) => (
-              <div key={i} style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div key={i} data-ajuda="commerce.compras.cot_itens" style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {it.produto_id ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 6, background: C.goldBg, borderRadius: 6 }}>
                     <CheckCircle2 size={14} style={{ color: C.gold, flexShrink: 0 }} />
@@ -1324,8 +1339,8 @@ function ModalNovaCotacao({ companyId, onClose, onCreated, flash, flashErr }: {
         )}
 
         {step === 'fornec' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Fornecedores convidados *</label>
+          <div data-ajuda="commerce.compras.cot_fornecedores" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM, display: 'inline-flex', alignItems: 'center', gap: 4 }}>Fornecedores convidados * <AjudaCampo chave="commerce.compras.cot_fornecedores" rota={ROTA_AJUDA} /></label>
             <input value={fornBusca} onChange={(e) => setFornBusca(e.target.value)} placeholder="Buscar fornecedor (nome ou CNPJ, mín 2 chars)" style={inp} />
             {fornCandidatos.length > 0 && (
               <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 6, maxHeight: 220, overflowY: 'auto' }}>
@@ -1388,16 +1403,22 @@ function StatusBadge({ status, mapa }: { status: string; mapa: Record<string, { 
   return <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 999, background: s.bg, color: s.fg, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, whiteSpace: 'nowrap' }}>{s.label}</span>
 }
 
-function Th({ children, align = 'left' }: { children?: React.ReactNode; align?: 'left' | 'right' }) {
-  return <th style={{ padding: '10px 14px', textAlign: align, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: C.espressoM }}>{children}</th>
+function Th({ children, align = 'left', ajuda }: { children?: React.ReactNode; align?: 'left' | 'right'; ajuda?: string }) {
+  return (
+    <th style={{ padding: '10px 14px', textAlign: align, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: C.espressoM }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, justifyContent: align === 'right' ? 'flex-end' : 'flex-start' }}>
+        {children}{ajuda && <AjudaCampo chave={ajuda} rota={ROTA_AJUDA} />}
+      </span>
+    </th>
+  )
 }
-function Td({ children, align = 'left', onClick }: { children?: React.ReactNode; align?: 'left' | 'right'; onClick?: () => void }) {
-  return <td onClick={onClick} style={{ padding: '10px 14px', textAlign: align, verticalAlign: 'middle', color: C.espresso }}>{children}</td>
+function Td({ children, align = 'left', onClick, 'data-ajuda': dataAjuda }: { children?: React.ReactNode; align?: 'left' | 'right'; onClick?: () => void; 'data-ajuda'?: string }) {
+  return <td onClick={onClick} data-ajuda={dataAjuda} style={{ padding: '10px 14px', textAlign: align, verticalAlign: 'middle', color: C.espresso }}>{children}</td>
 }
-function Card({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+function Card({ titulo, children, ajuda }: { titulo: string; children: React.ReactNode; ajuda?: string }) {
   return (
     <section style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: 14 }}>
-      <h4 style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 700, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5 }}>{titulo}</h4>
+      <h4 style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 700, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5, display: 'inline-flex', alignItems: 'center', gap: 4 }}>{titulo}{ajuda && <AjudaCampo chave={ajuda} rota={ROTA_AJUDA} />}</h4>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{children}</div>
     </section>
   )
@@ -1410,10 +1431,10 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
     </div>
   )
 }
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children, ajuda }: { label: string; children: React.ReactNode; ajuda?: string }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <span style={{ fontSize: 10, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>{label}</span>
+      <span style={{ fontSize: 10, color: C.espressoM, textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>{label}{ajuda && <AjudaCampo chave={ajuda} rota={ROTA_AJUDA} />}</span>
       {children}
     </label>
   )
@@ -1604,8 +1625,11 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
               </div>
             ) : (
               <>
-                <input value={forBusca} onChange={(e) => setForBusca(e.target.value)} placeholder="Buscar fornecedor (mín. 2 caracteres)..."
-                  style={{ width: '100%', padding: 10, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input value={forBusca} onChange={(e) => setForBusca(e.target.value)} placeholder="Buscar fornecedor (mín. 2 caracteres)..."
+                    style={{ flex: 1, padding: 10, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13 }} />
+                  <AjudaCampo chave="commerce.compras.compra_fornecedor" rota={ROTA_AJUDA} />
+                </div>
                 {forCarregando && <div style={{ fontSize: 11, color: C.espressoM, marginTop: 6 }}>Buscando...</div>}
                 {forOpcoes.length > 0 && (
                   <div style={{ maxHeight: 200, overflowY: 'auto', marginTop: 8, border: `1px solid ${C.border}`, borderRadius: 8, background: '#fff' }}>
@@ -1637,7 +1661,7 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
               <div style={{ fontSize: 12, color: C.espressoM, fontStyle: 'italic', padding: '8px 0' }}>Busque e adicione produtos acima.</div>
             ) : (
               <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
-                <thead><tr style={{ background: C.cream }}><Th>Produto</Th><Th>Qtd</Th><Th>Preço un.</Th><Th align="right">Subtotal</Th><Th></Th></tr></thead>
+                <thead><tr style={{ background: C.cream }}><Th>Produto</Th><Th ajuda="commerce.compras.compra_item_qtd">Qtd</Th><Th ajuda="commerce.compras.compra_item_preco">Preço un.</Th><Th align="right">Subtotal</Th><Th></Th></tr></thead>
                 <tbody>
                   {itens.map((it) => {
                     const q = Number(it.quantidade.replace(',', '.')) || 0
@@ -1648,12 +1672,12 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
                           <strong>{it.nome}</strong>
                           <div style={{ fontSize: 9, color: C.espressoM, fontFamily: 'monospace' }}>{it.codigo}</div>
                         </Td>
-                        <Td>
+                        <Td data-ajuda="commerce.compras.compra_item_qtd">
                           <input value={it.quantidade} onChange={(e) => alterarItem(it.tempId, 'quantidade', e.target.value)}
                             style={{ width: 60, padding: 4, border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 11 }} />
                           <span style={{ fontSize: 10, color: C.espressoM, marginLeft: 4 }}>{it.unidade}</span>
                         </Td>
-                        <Td>
+                        <Td data-ajuda="commerce.compras.compra_item_preco">
                           <input value={it.preco} onChange={(e) => alterarItem(it.tempId, 'preco', e.target.value)} placeholder="0,00"
                             style={{ width: 80, padding: 4, border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 11 }} />
                         </Td>
@@ -1675,7 +1699,7 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
 
           <Card titulo="Pagamento">
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <label style={{ fontSize: 11, color: C.espressoM }}>Condição
+              <label style={{ fontSize: 11, color: C.espressoM }}>Condição <AjudaCampo chave="commerce.compras.pagamento_condicao" rota={ROTA_AJUDA} />
                 <select value={condicao} onChange={(e) => setCondicao(e.target.value)} style={{ width: '100%', marginTop: 4, padding: 8, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, background: '#fff' }}>
                   <option value="a_vista">À vista</option>
                   <option value="30">30 dias</option>
@@ -1684,11 +1708,11 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
                   <option value="parcelado">Parcelado custom</option>
                 </select>
               </label>
-              <label style={{ fontSize: 11, color: C.espressoM }}>Parcelas
+              <label style={{ fontSize: 11, color: C.espressoM }}>Parcelas <AjudaCampo chave="commerce.compras.pagamento_parcelas" rota={ROTA_AJUDA} />
                 <input type="number" min="1" value={parcelas} onChange={(e) => setParcelas(e.target.value)}
                   style={{ width: '100%', marginTop: 4, padding: 8, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12 }} />
               </label>
-              <label style={{ fontSize: 11, color: C.espressoM, gridColumn: '1 / -1' }}>Primeiro vencimento
+              <label style={{ fontSize: 11, color: C.espressoM, gridColumn: '1 / -1' }}>Primeiro vencimento <AjudaCampo chave="commerce.compras.pagamento_primeiro_venc" rota={ROTA_AJUDA} />
                 <input type="date" value={primeiroVenc} onChange={(e) => setPrimeiroVenc(e.target.value)}
                   style={{ width: '100%', marginTop: 4, padding: 8, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12 }} />
               </label>
@@ -1697,26 +1721,26 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
 
           <Card titulo="NF do fornecedor (opcional)">
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <label style={{ fontSize: 11, color: C.espressoM }}>Número
+              <label style={{ fontSize: 11, color: C.espressoM }}>Número <AjudaCampo chave="commerce.compras.nf_numero" rota={ROTA_AJUDA} />
                 <input value={nfNumero} onChange={(e) => setNfNumero(e.target.value)}
                   style={{ width: '100%', marginTop: 4, padding: 8, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12 }} />
               </label>
-              <label style={{ fontSize: 11, color: C.espressoM }}>Data emissão
+              <label style={{ fontSize: 11, color: C.espressoM }}>Data emissão <AjudaCampo chave="commerce.compras.nf_data" rota={ROTA_AJUDA} />
                 <input type="date" value={nfData} onChange={(e) => setNfData(e.target.value)}
                   style={{ width: '100%', marginTop: 4, padding: 8, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12 }} />
               </label>
-              <label style={{ fontSize: 11, color: C.espressoM, gridColumn: '1 / -1' }}>Chave (44 dígitos)
+              <label style={{ fontSize: 11, color: C.espressoM, gridColumn: '1 / -1' }}>Chave (44 dígitos) <AjudaCampo chave="commerce.compras.nf_chave" rota={ROTA_AJUDA} />
                 <input value={nfChave} onChange={(e) => setNfChave(e.target.value)}
                   style={{ width: '100%', marginTop: 4, padding: 8, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, fontFamily: 'monospace' }} />
               </label>
-              <label style={{ fontSize: 11, color: C.espressoM }}>Valor NF
+              <label style={{ fontSize: 11, color: C.espressoM }}>Valor NF <AjudaCampo chave="commerce.compras.nf_valor" rota={ROTA_AJUDA} />
                 <input value={nfValor} onChange={(e) => setNfValor(e.target.value)} placeholder="0,00"
                   style={{ width: '100%', marginTop: 4, padding: 8, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12 }} />
               </label>
             </div>
           </Card>
 
-          <Card titulo="Observações">
+          <Card titulo="Observações" ajuda="commerce.compras.observacoes">
             <textarea value={observacoes} onChange={(e) => setObservacoes(e.target.value)} rows={2}
               style={{ width: '100%', padding: 8, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, resize: 'vertical' }} />
           </Card>

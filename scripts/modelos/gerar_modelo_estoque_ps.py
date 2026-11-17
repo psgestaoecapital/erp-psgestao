@@ -92,7 +92,7 @@ EXEMPLO = {
     "estoque_atual": 10, "custo_medio": 12.50, "preco_venda": 24.90, "ncm": "84713012",
     "codigo_barras": "7891234567895", "codigo_original": "FORN-9988", "fornecedor_padrao_nome": "Fornecedor Exemplo Ltda",
     "categoria": "Geral", "marca": "Marca X", "estoque_minimo": 5, "localizacao": "A1-P3",
-    "tipo_item_sped": "00", "origem": "0", "cest": "",
+    "tipo_item_sped": "00 - Mercadoria para revenda", "origem": "0 - Nacional", "cest": "",
 }
 
 
@@ -163,8 +163,10 @@ def _aba_estoque(wb, ws):
     ws.auto_filter.ref = f"A4:{last}{DATA_FIM}"
 
     # validações
-    lst_o = DataValidation(type="list", formula1="=Listas!$A$4:$A$15", allow_blank=True)
-    lst_p = DataValidation(type="list", formula1="=Listas!$D$4:$D$12", allow_blank=True)
+    # #8439: menus suspensos mostram "código - descrição" (colunas C e F da aba Listas). O importador
+    # extrai só o código (src/lib/importacao/codigoDescricao.ts); planilhas antigas (só o código) seguem válidas.
+    lst_o = DataValidation(type="list", formula1="=Listas!$C$4:$C$15", allow_blank=True)
+    lst_p = DataValidation(type="list", formula1="=Listas!$F$4:$F$12", allow_blank=True)
     dec_d = DataValidation(type="decimal", operator="between", formula1="-1000000000", formula2="1000000000", allow_blank=True)
     dec_m = DataValidation(type="decimal", operator="greaterThanOrEqual", formula1="0", allow_blank=True)
     dec_e = DataValidation(type="decimal", operator="greaterThanOrEqual", formula1="0", allow_blank=True,
@@ -284,15 +286,21 @@ def _aba_listas(ws):
     ws["A3"] = "Tipo do item (SPED · Bloco 0200)"; ws["A3"].font = _title_font(11, ESPRESSO)
     ws["D3"] = "Origem da mercadoria (ICMS)"; ws["D3"].font = _title_font(11, ESPRESSO)
     ws["G3"] = "Unidades comuns"; ws["G3"].font = _title_font(11, ESPRESSO)
-    for i, (cod, sig) in enumerate(SPED):        # A4:B15
+    ws["C3"] = "Tipo do item — menu (código + descrição)"; ws["C3"].font = _title_font(11, ESPRESSO)
+    ws["F3"] = "Origem — menu (código + descrição)"; ws["F3"].font = _title_font(11, ESPRESSO)
+    # Colunas C e F: "código - descrição" (#8439) — é o que os menus suspensos da aba Estoque exibem,
+    # para quem preenche não precisar consultar o código. O importador extrai só o código.
+    for i, (cod, sig) in enumerate(SPED):        # A4:B15 (cód·desc) · C4:C15 (cód - desc, usado no menu)
         ws.cell(row=4 + i, column=1, value=cod).number_format = "@"
         ws.cell(row=4 + i, column=2, value=sig)
-    for i, (cod, sig) in enumerate(ORIGEM):       # D4:E12
+        ws.cell(row=4 + i, column=3, value=f"{cod} - {sig}").number_format = "@"
+    for i, (cod, sig) in enumerate(ORIGEM):       # D4:E12 (cód·desc) · F4:F12 (cód - desc, usado no menu)
         ws.cell(row=4 + i, column=4, value=cod).number_format = "@"
         ws.cell(row=4 + i, column=5, value=sig)
+        ws.cell(row=4 + i, column=6, value=f"{cod} - {sig}").number_format = "@"
     for i, u in enumerate(UNIDADES):              # G4:G19
         ws.cell(row=4 + i, column=7, value=u).number_format = "@"
-    for col, w in (("A", 8), ("B", 34), ("D", 8), ("E", 44), ("G", 12)):
+    for col, w in (("A", 8), ("B", 34), ("C", 40), ("D", 8), ("E", 44), ("F", 50), ("G", 12)):
         ws.column_dimensions[col].width = w
 
 

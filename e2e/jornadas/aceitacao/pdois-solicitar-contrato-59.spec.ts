@@ -113,6 +113,10 @@ test.describe('Aceitação #59 — pedido de contrato com pagamento, vigência e
     // CPF/CNPJ passou a ser validado por dígito verificador na tela (#4775, regra CEO P2 12/11): o antigo
     // '12.345.678/0001-90' tem DV inválido e a tela agora bloqueia o envio. Usa um CNPJ VÁLIDO de teste.
     await campo(page, 'CPF/CNPJ do cliente').fill('11.222.333/0001-81')
+    // #6703 (re-entrega, revert #5270): o autofill do cliente ("Com dados novos" traz os dados do cadastro) é
+    // fill-se-vazio e NUNCA sobrescreve o CPF/CNPJ digitado à mão — foi a sobrescrita assíncrona que zerava o CPF do
+    // cliente novo inline e quebrava esta jornada. Confirma que o valor digitado sobrevive ao fetch do cadastro.
+    await expect(campo(page, 'CPF/CNPJ do cliente')).toHaveValue('11.222.333/0001-81')
     await campo(page, 'Objeto do contrato').fill('Serviços de marketing (aceitação #59)')
     await campo(page, 'Valor (por parcela)').fill('1500,50')
     await campo(page, 'Título do contrato').fill(titulo)
@@ -121,6 +125,12 @@ test.describe('Aceitação #59 — pedido de contrato com pagamento, vigência e
     await campo(page, 'Nº de parcelas').fill('3')
     await campo(page, 'Dia do vencimento').fill('10')
     await campo(page, 'Condições específicas').fill('sem fidelidade')
+    // Vigência e 1º vencimento viraram OBRIGATÓRIOS na tela (#4789, CEO 11/11 item 4A — "dados obrigatórios do
+    // comercial ao pedir o contrato"). Sem eles a tela bloqueia o envio e 'solicitacao-criada' não abre. Preenche
+    // os mesmos campos reais que o teste do robô já passa (conserto-main).
+    await campo(page, 'Início previsto').fill('2026-10-01')
+    await campo(page, 'Fim da vigência').fill('2027-03-31')
+    await campo(page, '1º vencimento').fill('2026-10-05')
     await page.getByTestId('solicitar-contrato').click()
     await expect(page.getByTestId('solicitacao-criada')).toBeVisible({ timeout: 20000 })
     await expect(page.getByText('Modelos e documentos de referência')).toBeVisible()

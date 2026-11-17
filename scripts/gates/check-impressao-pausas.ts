@@ -16,7 +16,7 @@ ok(/\.ps-print-portal \{[^}]*position: static !important/.test(css), 'o fundo do
 ok(/\.ps-print-doc \{[^}]*max-height: none !important/.test(css) && /\.ps-print-doc \{[^}]*overflow: visible !important/.test(css), 'o cartão perde altura máxima e rolagem (nada é cortado)')
 ok(/\.ps-print-assinatura \{[^}]*break-inside: avoid/.test(css), 'o bloco de assinatura não se parte entre folhas')
 
-const pagina = readFileSync('src/app/dashboard/compliance/pausas-tecnicas/page.tsx', 'utf8')
+const pagina = readFileSync('src/app/dashboard/ehs/pausas-tecnicas/page.tsx', 'utf8')
 for (const nome of ['ModalCienciaDoc', 'ModalProva']) {
   const ini = pagina.indexOf(`function ${nome}(`)
   const corpo = pagina.slice(ini, pagina.indexOf('\nfunction ', ini + 10))

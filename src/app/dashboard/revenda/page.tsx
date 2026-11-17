@@ -10,7 +10,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
+const ROTA = '/dashboard/revenda'
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
   border: '#E0D8CC', gold: '#C8941A', green: '#166534', greenBg: '#ECFDF5', amber: '#BA7517', amberBg: '#FFF6E5', red: '#B42318', redBg: '#FDECEC',
@@ -358,8 +360,14 @@ function MarcarModal({ ocorrencia, companyId, onClose, onDone, onErro }: { ocorr
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, borderRadius: 12, padding: 18, width: 'min(460px,100%)' }}>
         <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 4 }}>Marcar como comunicado ao COAF</div>
         <div style={{ fontSize: 12, color: C.espM, marginBottom: 12, lineHeight: 1.45 }}>A comunicação é feita por você no SISCOAF. Aqui só registramos o protocolo — o sistema não comunica sozinho.</div>
-        <input value={protocolo} onChange={(e) => setProtocolo(e.target.value)} placeholder="protocolo do SISCOAF (opcional)" style={{ padding: '8px 10px', fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, outline: 'none', width: '100%', marginBottom: 8 }} />
-        <textarea value={obs} onChange={(e) => setObs(e.target.value)} placeholder="observação (opcional)" rows={3} style={{ padding: '8px 10px', fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, outline: 'none', width: '100%', resize: 'vertical' }} />
+        <label style={{ display: 'block', marginBottom: 8 }}>
+          <span style={{ fontSize: 11, color: C.espM, display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>Protocolo do SISCOAF <AjudaCampo chave="revenda.coaf.protocolo" rota={ROTA} /></span>
+          <input value={protocolo} onChange={(e) => setProtocolo(e.target.value)} placeholder="protocolo do SISCOAF (opcional)" style={{ padding: '8px 10px', fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, outline: 'none', width: '100%' }} />
+        </label>
+        <label style={{ display: 'block' }}>
+          <span style={{ fontSize: 11, color: C.espM, display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>Observação <AjudaCampo chave="revenda.coaf.observacao" rota={ROTA} /></span>
+          <textarea value={obs} onChange={(e) => setObs(e.target.value)} placeholder="observação (opcional)" rows={3} style={{ padding: '8px 10px', fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.esp, outline: 'none', width: '100%', resize: 'vertical' }} />
+        </label>
         <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ padding: '8px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.espM, cursor: 'pointer' }}>Cancelar</button>
           <button disabled={busy} onClick={() => void confirmar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: busy ? C.espL : C.red, color: C.white, fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer' }}>{busy ? 'Salvando…' : 'Confirmar'}</button>

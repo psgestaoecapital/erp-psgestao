@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA_AJUDA = '/dashboard/cadastros/plano-contas'
 
 export type TipoConta = 'receita' | 'despesa' | 'custo' | 'financeiro' | 'investimento'
 
@@ -49,6 +52,22 @@ const GRUPOS_POR_TIPO: Record<TipoConta, Array<{ value: string; label: string }>
 
 function grupoDefault(tipo: TipoConta): string {
   return GRUPOS_POR_TIPO[tipo][0].value
+}
+
+// Mensagem de negócio quando a RPC recusa sem mensagem própria (RD-99: sem erro cru do banco).
+function mensagemErro(codigo?: string): string {
+  switch (codigo) {
+    case 'codigo_duplicado': return 'Já existe uma conta com este código neste plano.'
+    case 'codigo_obrigatorio': return 'Informe o código da conta.'
+    case 'descricao_obrigatoria': return 'Informe a descrição da conta.'
+    case 'grupo_obrigatorio': return 'Selecione o grupo DRE da conta.'
+    case 'tipo_obrigatorio': return 'Selecione o tipo da conta.'
+    case 'sem_acesso': return 'Você não tem acesso a esta empresa.'
+    case 'conta_global_nao_editavel': return 'Contas do modelo padrão não podem ser editadas.'
+    case 'nao_encontrado': return 'Conta não encontrada. Recarregue a página e tente de novo.'
+    case 'nao_autenticado': return 'Sessão expirada. Entre novamente para salvar.'
+    default: return 'Não foi possível salvar a conta. Verifique os dados e tente novamente.'
+  }
 }
 
 export interface ContaPlano {
@@ -119,25 +138,35 @@ export default function PlanoContasForm({ companyId, conta, contasExistentes, on
     setSalvando(true)
     setErro(null)
 
-    const payload = {
-      company_id: companyId,
-      codigo: codigo.trim(),
-      descricao: descricao.trim(),
-      tipo,
-      grupo,
-      pai_codigo: paiCodigo || null,
-      nivel,
-      ativo: conta?.ativo ?? true,
-      is_totalizador: isTotalizador,
-    }
-
-    const result = conta?.id
-      ? await supabase.from('erp_plano_contas').update(payload).eq('id', conta.id)
-      : await supabase.from('erp_plano_contas').insert(payload)
+    // Escrita guardada por RPC (fn_plano_contas_salvar): valida código único com
+    // mensagem amigável, respeita RLS/multi-tenant e grava audit_log_global (RD-98 p4).
+    const { data, error } = await supabase.rpc('fn_plano_contas_salvar', {
+      p_id: conta?.id ?? null,
+      p_company_id: companyId,
+      p_codigo: codigo.trim(),
+      p_descricao: descricao.trim(),
+      p_tipo: tipo,
+      p_grupo: grupo,
+      p_pai_codigo: paiCodigo || null,
+      p_nivel: nivel,
+      p_is_totalizador: isTotalizador,
+    })
 
     setSalvando(false)
-    if (result.error) setErro('Erro: ' + result.error.message)
-    else onSaved()
+
+    if (error) {
+      // Nunca vaza o texto cru do banco (RD-99): mensagem em linguagem do usuário.
+      setErro('Não foi possível salvar a conta agora. Tente novamente em instantes.')
+      return
+    }
+
+    const res = (data ?? {}) as { ok?: boolean; erro?: string; mensagem?: string }
+    if (res.ok === false) {
+      setErro(res.mensagem ?? mensagemErro(res.erro))
+      return
+    }
+
+    onSaved()
   }
 
   return (
@@ -159,7 +188,7 @@ export default function PlanoContasForm({ companyId, conta, contasExistentes, on
             <div style={{ background: '#FCEBEB', color: '#A32D2D', padding: '10px 14px', borderRadius: 6, marginBottom: 16, fontSize: 13 }}>{erro}</div>
           )}
 
-          <Campo label="Tipo *">
+          <Campo label="Tipo *" ajuda="plano_contas.tipo">
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {TIPOS.map((t) => {
                 const ativo = tipo === t.value
@@ -195,22 +224,22 @@ export default function PlanoContasForm({ companyId, conta, contasExistentes, on
           </Campo>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12 }}>
-            <Campo label="Código *" hint="Ex: 3.1 · 4.3.06">
+            <Campo label="Código *" hint="Ex: 3.1 · 4.3.06" ajuda="plano_contas.codigo">
               <input value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="x.x.xx" style={inputStyle} />
             </Campo>
-            <Campo label="Descrição *">
+            <Campo label="Descrição *" ajuda="plano_contas.descricao">
               <input value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Ex: Aluguel" style={inputStyle} />
             </Campo>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <Campo label="Nível">
+            <Campo label="Nível" ajuda="plano_contas.nivel">
               <select value={nivel} onChange={(e) => setNivel(parseInt(e.target.value, 10))} style={inputStyle}>
                 <option value={1}>1 (Grupo principal)</option>
                 <option value={2}>2 (Subconta)</option>
               </select>
             </Campo>
-            <Campo label="Grupo DRE *" hint="Obrigatório (NOT NULL)">
+            <Campo label="Grupo DRE *" hint="Obrigatório (NOT NULL)" ajuda="plano_contas.grupo_dre">
               <select value={grupo} onChange={(e) => setGrupo(e.target.value)} style={inputStyle}>
                 {opcoesGrupo.map((g) => (
                   <option key={g.value} value={g.value}>{g.label}</option>
@@ -220,7 +249,7 @@ export default function PlanoContasForm({ companyId, conta, contasExistentes, on
           </div>
 
           {nivel === 2 && opcoesPai.length > 0 && (
-            <Campo label="Conta-pai" hint="Grupo onde essa subconta entra">
+            <Campo label="Conta-pai" hint="Grupo onde essa subconta entra" ajuda="plano_contas.conta_pai">
               <select value={paiCodigo} onChange={(e) => setPaiCodigo(e.target.value)} style={inputStyle}>
                 <option value="">— Sem pai —</option>
                 {opcoesPai.map((p) => (
@@ -236,7 +265,7 @@ export default function PlanoContasForm({ companyId, conta, contasExistentes, on
             <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
               <input type="checkbox" checked={isTotalizador} onChange={(e) => setIsTotalizador(e.target.checked)} style={{ width: 16, height: 16, accentColor: '#C8941A', marginTop: 2 }} />
               <span>
-                <span style={{ fontSize: 13, fontWeight: 600, color: '#3D2314' }}>Σ É linha totalizadora</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#3D2314' }}>Σ É linha totalizadora <AjudaCampo chave="plano_contas.totalizadora" rota={ROTA_AJUDA} /></span>
                 <small style={{ display: 'block', fontSize: 11, color: 'rgba(61,35,20,0.6)', marginTop: 2 }}>
                   Soma os filhos automaticamente · não recebe lançamentos diretos.
                 </small>
@@ -268,11 +297,11 @@ export default function PlanoContasForm({ companyId, conta, contasExistentes, on
   )
 }
 
-function Campo({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+function Campo({ label, hint, ajuda, children }: { label: string; hint?: string; ajuda?: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 14 }}>
       <label style={{ display: 'block', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>
-        {label}
+        {label}{ajuda && <> <AjudaCampo chave={ajuda} rota={ROTA_AJUDA} /></>}
       </label>
       {children}
       {hint && <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.5)', marginTop: 4 }}>{hint}</div>}

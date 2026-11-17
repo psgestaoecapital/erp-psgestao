@@ -264,13 +264,15 @@ export default function ConfigEmpresaPage() {
         {/* Logomarca */}
         <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, marginBottom: 14 }}>
           <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700, marginBottom: 10 }}>Logomarca</div>
+          {/* FIX #8620 · o "?" (AjudaCampo portava um cartão fixed z-130 e capturava o clique quando ficava DENTRO
+             do <label>, impedindo o seletor de arquivo de abrir). Agora é IRMÃO do botão, nunca sobre a área clicável. */}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <label style={{ ...btnPrim, opacity: busy ? 0.6 : 1, cursor: busy ? 'default' : 'pointer' }}>
-              <AjudaCampo chave="empresa.dados.logo" />
+            <label data-testid="empresa-enviar-logo" style={{ ...btnPrim, opacity: busy ? 0.6 : 1, cursor: busy ? 'default' : 'pointer' }}>
               {busy ? 'Enviando…' : emp?.logo_url ? 'Trocar logo' : 'Enviar logo'}
               <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" style={{ display: 'none' }} disabled={busy}
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) void enviarLogo(f) }} />
             </label>
+            <AjudaCampo chave="empresa.dados.logo" />
             {emp?.logo_url && <button onClick={removerLogo} disabled={busy} style={btnGhost}>Remover</button>}
           </div>
           <div style={{ fontSize: 10.5, color: MUT, marginTop: 8 }}>PNG, JPG, WEBP ou SVG, até 2MB. A logo aparece nos orçamentos, nas ordens de serviço e no topo do sistema.</div>

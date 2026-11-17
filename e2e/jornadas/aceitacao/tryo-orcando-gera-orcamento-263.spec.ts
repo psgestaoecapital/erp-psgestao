@@ -23,7 +23,9 @@ test.describe('Oportunidade em "Orçando" gera o orçamento e ele aparece na lis
 
   test.afterAll(async () => {
     if (opId) await dbPatch('erp_crm_oportunidade', `id=eq.${opId}`, { deleted_at: new Date().toISOString() })
-    if (orcId) await dbPatch('erp_orcamentos', `id=eq.${orcId}`, { status: 'cancelado' })
+    // soft-delete (não só 'cancelado'): a lista do OTC filtra deleted_at IS NULL, então cancelar sem
+    // deleted_at deixava o orçamento de teste VIVO e acumulando no board (coorte 26x, auditor 15/11).
+    if (orcId) await dbPatch('erp_orcamentos', `id=eq.${orcId}`, { status: 'cancelado', deleted_at: new Date().toISOString() })
     if (cliId) await dbPatch('erp_clientes', `id=eq.${cliId}`, { ativo: false })
   })
 

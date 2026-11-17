@@ -35,6 +35,8 @@ const labelEtapa = (v: string) => ETAPAS_DESTINOS.find((e) => e.v === v)?.l ?? v
 
 // F2.6 · semáforo 3/7 dias (mesmo padrão do Kanban P&M), autor e destino do link por etapa.
 const semColor = (s: string) => (s === 'verde' ? '#1F5A1F' : s === 'amarelo' ? '#B45309' : '#B91C1C')
+// #9474 · prazo (SLA) para elaborar o orçamento da fila "Orçando". Passou do prazo → card marcado em atraso.
+const PRAZO_ORCAR_DIAS = 5
 const ACAO_LBL: Record<string, string> = { etapa_mudou: 'moveu', criada: 'criou', ganha: 'ganhou', perdida: 'perdeu', retornou_funil: 'retornou' }
 const fmtDiaMes = (iso: string | null) => { if (!iso) return ''; const d = new Date(iso); return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}` }
 function linkDaEtapa(etapa: string): { href: string; tip: string } | null {
@@ -325,6 +327,18 @@ export default function OportunidadesKanban({
       return
     }
     await aplicarMove(cardId, novaEtapa, etapaAtual, null)
+    // Chamado #3268 (Tryo): "Visita feita" segue sozinha para a fila do orçamento. A RPC é idempotente:
+    // se a oportunidade já tem orçamento, devolve o mesmo (ja_existia) e nada é duplicado. Sem cliente
+    // não cria — avisa; o card já está em "Visita feita" e o orçamento sai quando o cliente for informado.
+    if (novaEtapa === 'visita_feita') {
+      const { data, error } = await supabase.rpc('fn_oportunidade_gerar_orcamento', { p_oportunidade_id: cardId })
+      const j = data as { ok?: boolean; erro?: string; mensagem?: string; numero?: string; ja_existia?: boolean } | null
+      if (error || !j?.ok) {
+        onError(`Visita feita registrada, mas o orçamento não foi criado: ${j?.erro === 'sem_cliente' ? 'informe o cliente da oportunidade.' : (j?.mensagem ?? error?.message ?? 'falha')}`)
+        return
+      }
+      onMoved(j.ja_existia ? `Visita feita. O orçamento ${j.numero} já existia na fila.` : `Visita feita. Orçamento ${j.numero} criado em rascunho na fila.`)
+    }
   }
 
   async function aplicarMove(cardId: string, novaEtapa: string, etapaAtual: string | null, motivo: string | null) {
@@ -579,6 +593,15 @@ export default function OportunidadesKanban({
                         <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 3, display: 'flex', alignItems: 'center', gap: 5 }}>
                           <span style={{ width: 8, height: 8, borderRadius: 999, background: semColor(tempoMap[c.id].semaforo), display: 'inline-block', flexShrink: 0 }} aria-hidden />
                           <Clock size={11} aria-hidden /> {tempoMap[c.id].dias_na_etapa} {tempoMap[c.id].dias_na_etapa === 1 ? 'dia' : 'dias'} {tempoMap[c.id].origem === 'created_at' ? '(desde a criação)' : 'nesta etapa'}
+                        </div>
+                      )}
+                      {/* #9474 · prazo de elaboração do orçamento: a fila de "Orçando" tem SLA de PRAZO_ORCAR_DIAS dias.
+                          Passou do prazo → alerta VERMELHO "em atraso" no card (cliente pediu sinalização de atraso). */}
+                      {et.v === 'orcando' && tempoMap[c.id] && tempoMap[c.id].dias_na_etapa > PRAZO_ORCAR_DIAS && (
+                        <div data-testid="card-oport-orcar-atrasado" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4, padding: '2px 8px', borderRadius: 999, background: '#FBEAEA', border: '1px solid #E6B3B3', color: '#B91C1C', fontSize: 11, fontWeight: 700 }}>
+                          <AlertTriangle size={11} aria-hidden />
+                          Orçamento em atraso · prazo de {PRAZO_ORCAR_DIAS} dias
+                          <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}><AjudaCampo chave="projetos.oportunidades.card_orcar_atrasado" /></span>
                         </div>
                       )}
                       {/* F2.7 · orçamento vinculado (chip clicável) ou botão de gerar */}

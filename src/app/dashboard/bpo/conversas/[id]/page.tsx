@@ -8,6 +8,11 @@ import { useRouter } from "next/navigation";
 import { rpc, supabaseBrowser } from "@/lib/authFetch";
 import { getUsuarioId } from "@/lib/AuthProvider";
 import { erroAmigavel } from "@/lib/erroAmigavel";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+
+// Mesma rota-grupo da caixa de conversas (inbox): as chaves de ajuda do detalhe ficam
+// registradas em erp_ajuda_campo com rota "/dashboard/bpo/conversas" e são lidas aqui.
+const ROTA = "/dashboard/bpo/conversas";
 
 interface Mensagem {
   id: string;
@@ -223,13 +228,17 @@ export default function ConversaDetalhePage({ params }: { params: Promise<{ id: 
             >
               📋 Colar resposta
             </button>
+            <AjudaCampo chave="bpo.conversas.detalhe.colar_resposta" rota={ROTA} />
             {conversa.status !== "resolvida" && (
-              <button
-                onClick={resolver}
-                className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
-              >
-                ✓ Resolver
-              </button>
+              <>
+                <button
+                  onClick={resolver}
+                  className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
+                >
+                  ✓ Resolver
+                </button>
+                <AjudaCampo chave="bpo.conversas.detalhe.resolver" rota={ROTA} />
+              </>
             )}
           </div>
         </div>
@@ -258,7 +267,7 @@ export default function ConversaDetalhePage({ params }: { params: Promise<{ id: 
           <div className="mx-auto max-w-3xl">
             {/* Canais */}
             <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
-              <span className="text-[#3D2314]/60">Enviar via:</span>
+              <span className="flex items-center text-[#3D2314]/60">Enviar via:<AjudaCampo chave="bpo.conversas.detalhe.enviar_via" rota={ROTA} /></span>
               <CanalChip
                 label="📱 Portal"
                 ativo={canaisSelecionados.includes("portal")}
@@ -304,6 +313,7 @@ export default function ConversaDetalhePage({ params }: { params: Promise<{ id: 
               >
                 {enviando ? "..." : "Enviar"}
               </button>
+              <AjudaCampo chave="bpo.conversas.detalhe.enviar" rota={ROTA} />
             </div>
           </div>
         </div>

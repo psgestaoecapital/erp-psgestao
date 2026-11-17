@@ -8,6 +8,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import AjustarValoresModal from '@/components/conciliacao/AjustarValoresModal'
 
 type TituloTabela = 'erp_pagar' | 'erp_receber'
 
@@ -54,6 +55,12 @@ export default function ConciliarTituloModal({
   const [dias, setDias] = useState(15)
   const [selecionado, setSelecionado] = useState<Candidato | null>(null)
   const [aplicando, setAplicando] = useState(false)
+  // #6691 (Jordana · Pdois): quando o banco pagou mais (juros/multa) ou menos (desconto/parcial) que o
+  // saldo do título, não conciliar direto deixando "parcial" — abrir o Ajustar valores (mesmo fluxo da
+  // tela de conciliação, inbox/page.tsx › conciliarComAjuste) para o usuário somar o juros e QUITAR, ou
+  // optar por parcial/desconto conscientemente. Só diferença dentro de 1 centavo concilia direto.
+  const [ajuste, setAjuste] = useState<null | { movimentoId: string; valorBanco: number }>(null)
+  const TOL_DIF = 0.01
 
   useEffect(() => {
     if (!open) return
@@ -107,9 +114,17 @@ export default function ConciliarTituloModal({
     }
   }
 
+  // #6691: decide se concilia direto (valor bate) ou abre o Ajustar valores (há diferença de juros/desconto).
+  function onConciliarClick() {
+    if (!selecionado) return
+    if (Math.abs(selecionado.diff_valor) < TOL_DIF) { void aplicar(); return }
+    setAjuste({ movimentoId: selecionado.id, valorBanco: Math.abs(Number(selecionado.valor) || 0) })
+  }
+
   if (!open) return null
 
   return (
+    <>
     <div
       role="dialog"
       aria-modal="true"
@@ -226,14 +241,16 @@ export default function ConciliarTituloModal({
         <div style={{ padding: '14px 20px', borderTop: '0.5px solid rgba(61,35,20,0.15)', display: 'flex', gap: 10, justifyContent: 'flex-end', alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ marginRight: 'auto', fontSize: 11, color: 'rgba(61,35,20,0.55)' }}>
             {selecionado && Math.abs(selecionado.diff_valor) >= 0.01 && (
-              <>Diferença: <strong>{fmtBRL(Math.abs(selecionado.diff_valor))}</strong> — o título ficará como <strong>parcial</strong>.</>
+              <>Diferença: <strong>{fmtBRL(Math.abs(selecionado.diff_valor))}</strong> — {selecionado.diff_valor > 0
+                ? 'banco pagou a mais; abrirá o Ajustar valores para somar o juros e quitar.'
+                : 'banco pagou a menos; abrirá o Ajustar valores para lançar desconto (quitar) ou deixar parcial.'}</>
             )}
           </div>
           <button type="button" onClick={onClose} disabled={aplicando}
             style={{ background: 'transparent', color: '#3D2314', border: '0.5px solid rgba(61,35,20,0.25)', padding: '8px 16px', borderRadius: 6, fontSize: 13, cursor: aplicando ? 'not-allowed' : 'pointer' }}>
             Cancelar
           </button>
-          <button type="button" onClick={aplicar} disabled={!selecionado || aplicando}
+          <button type="button" onClick={onConciliarClick} disabled={!selecionado || aplicando}
             style={{
               background: (!selecionado || aplicando) ? 'rgba(200,148,26,0.4)' : '#C8941A',
               color: '#3D2314', border: 'none', padding: '8px 20px',
@@ -245,5 +262,22 @@ export default function ConciliarTituloModal({
         </div>
       </div>
     </div>
+
+    {/* #6691: diferença de juros/desconto → Ajustar valores (soma o juros e quita, ou lança desconto/parcial). */}
+    {ajuste && (
+      <AjustarValoresModal
+        open
+        onClose={() => setAjuste(null)}
+        onSucesso={() => { setAjuste(null); void aplicar() }}
+        onConciliado={() => { setAjuste(null); onSucesso(); onClose() }}
+        movimentoId={ajuste.movimentoId}
+        lancamentoId={tituloId}
+        tipo={tituloTabela === 'erp_receber' ? 'receber' : 'pagar'}
+        valorOriginal={tituloValor}
+        valorBanco={ajuste.valorBanco}
+        descricao={tituloDescricao}
+      />
+    )}
+    </>
   )
 }

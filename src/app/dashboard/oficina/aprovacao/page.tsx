@@ -13,6 +13,7 @@ import { useOficinaRamo } from '@/lib/oficina/ramo'
 import { filtrarOS } from '@/lib/oficina/buscaOS'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { useOficinaModelo } from '@/lib/oficina/modelo'
+import { parseNumBR } from '@/lib/num'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'; const RED = '#A32D2D'; const AMBER = '#B45309'
@@ -103,10 +104,10 @@ export default function AprovacaoPage() {
   }
   const toggle = (id: string) => { invalidarAssinatura(); setItens((p) => p.map((i) => (i.item_id === id ? { ...i, aprovado: !i.aprovado } : i))) }
   const setPreco = (id: string, v: string) => { invalidarAssinatura(); setItens((p) => p.map((i) => (i.item_id === id ? { ...i, _preco: v.replace(/[^\d.,]/g, '') } : i))) }
-  const precoNum = (l: Linha) => Number((l._preco || '0').replace(',', '.')) || 0
+  const precoNum = (l: Linha) => parseNumBR(l._preco) || 0 // aceita vírgula e milhar BR (#5660)
   // RD-55 · preço p/ salvar: vazio → null (backend MANTÉM o valor atual, nunca zera);
   // preenchido → string numérica (inclui "0" intencional, que o backend só aceita com confirmação).
-  const precoRaw = (l: Linha): string | null => { const s = (l._preco ?? '').trim(); return s === '' ? null : s.replace(',', '.') }
+  const precoRaw = (l: Linha): string | null => { const s = (l._preco ?? '').trim(); if (s === '') return null; const n = parseNumBR(s); return n == null ? null : String(n) } // aceita vírgula e milhar BR (#5660)
   // #1447 · item aprovado SEM preço não entra no total (não vira R$ 0,00 calado — decisão errada). É declarado.
   const aprovSemPreco = itens.filter((i) => i.aprovado && precoNum(i) <= 0)
   // #132 · o preço digitado é UNITÁRIO (contrato do banco: diag.preco × quantidade = linha). Antes o total somava
@@ -117,8 +118,8 @@ export default function AprovacaoPage() {
   // Onda 4B (#1434) · custo por peça (a margem vira verdade). Mudar custo NÃO mexe na assinatura (não muda o
   // valor autorizado pelo cliente) — por isso setCusto não chama invalidarAssinatura.
   const setCusto = (id: string, v: string) => setItens((p) => p.map((i) => (i.item_id === id ? { ...i, _custo: v.replace(/[^\d.,]/g, '') } : i)))
-  const custoRaw = (l: Linha): string | null => { const s = (l._custo ?? '').trim(); return s === '' ? null : s.replace(',', '.') }
-  const custoNum = (l: Linha) => Number((l._custo || '0').replace(',', '.')) || 0
+  const custoRaw = (l: Linha): string | null => { const s = (l._custo ?? '').trim(); if (s === '') return null; const n = parseNumBR(s); return n == null ? null : String(n) } // aceita vírgula e milhar BR (#5660)
+  const custoNum = (l: Linha) => parseNumBR(l._custo) || 0 // aceita vírgula e milhar BR (#5660)
   const margemPct = (l: Linha): number | null => { const p = precoNum(l), c = custoNum(l); return p > 0 && l._custo.trim() !== '' ? Math.round((1 - c / p) * 1000) / 10 : null }
 
   const salvar = async () => {
@@ -173,6 +174,11 @@ export default function AprovacaoPage() {
           </div>
         )}
         {lista.length === 0 && <div style={{ color: ESP60, fontSize: 14, padding: '20px 0' }}>Nenhuma OS com laudo ainda. Faça o Diagnóstico primeiro.</div>}
+        {lista.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, margin: '2px 0 8px' }}>
+            Laudos para orçar<AjudaCampo chave="oficina.aprovacao.lista" rota="/dashboard/oficina/aprovacao" />
+          </div>
+        )}
         {lista.length > 0 && buscaOS.trim() && filtrarOS(lista, buscaOS).length === 0 && <div style={{ color: ESP60, fontSize: 14, padding: '12px 0' }}>Nenhuma OS encontrada para “{buscaOS.trim()}”.</div>}
         {filtrarOS(lista, buscaOS).map((os) => (
           <div key={os.id} onClick={() => void abrirOS(os)} style={{ width: '100%', textAlign: 'left', background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 10, cursor: 'pointer' }}>
@@ -197,7 +203,7 @@ export default function AprovacaoPage() {
         <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, color: GOLD, fontWeight: 700, marginTop: 6 }}>🔧 Oficina · Orçamento · {osSel.numero}</div>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: '2px 0 10px' }}>{osSel.placa} · {osSel.marca} {osSel.modelo}</h1>
 
-        <Sec titulo={`Itens do orçamento (${nAprov}/${itens.length})`}>
+        <Sec titulo={`Itens do orçamento (${nAprov}/${itens.length})`} ajuda="oficina.aprovacao.itens">
           {itens.map((i) => (
             <div key={i.item_id} style={{ border: `1px solid ${i.aprovado ? OK : LINE}`, borderRadius: 12, padding: 12, marginBottom: 8, background: i.aprovado ? 'rgba(22,101,52,0.04)' : '#fff' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
@@ -217,6 +223,7 @@ export default function AprovacaoPage() {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
                 <span style={{ fontSize: 12, color: ESP60 }}>{qtdNum(i) !== 1 ? 'R$ unit.' : 'R$'}</span>
+                <AjudaCampo chave="oficina.aprovacao.preco" rota="/dashboard/oficina/aprovacao" />
                 <input value={i._preco} onChange={(e) => setPreco(i.item_id, e.target.value)} inputMode="decimal" placeholder="0,00"
                   data-testid="aprov-item-preco" readOnly={precoFixo(i)}
                   title={precoFixo(i) ? 'Valor definido no Diagnóstico (atendimento centralizado)' : undefined}
@@ -242,6 +249,7 @@ export default function AprovacaoPage() {
               {i.tipo === 'peca' && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
                   <span style={{ fontSize: 12, color: ESP60 }}>Custo R$</span>
+                  <AjudaCampo chave="oficina.aprovacao.custo" rota="/dashboard/oficina/aprovacao" />
                   <input value={i._custo} onChange={(e) => setCusto(i.item_id, e.target.value)} inputMode="decimal" placeholder="quanto a peça custou"
                     style={{ ...inp, maxWidth: 160, padding: '8px 10px' }} />
                   {(() => { const m = margemPct(i); return m != null
@@ -254,13 +262,14 @@ export default function AprovacaoPage() {
         </Sec>
 
         <Sec titulo="Quem autorizou">
-          <Campo l="Nome de quem autorizou"><input value={aprovadorNome} onChange={(e) => setAprovadorNome(e.target.value)} placeholder="Nome do cliente" style={inp} /></Campo>
+          <Campo l="Nome de quem autorizou" ajuda="oficina.aprovacao.aprovador_nome"><input value={aprovadorNome} onChange={(e) => setAprovadorNome(e.target.value)} placeholder="Nome do cliente" style={inp} /></Campo>
+          <div style={{ fontSize: 11, color: ESP60, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>Canal de aprovação<AjudaCampo chave="oficina.aprovacao.canal" rota="/dashboard/oficina/aprovacao" /></div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
             {CANAIS.map((c) => (
               <button key={c.v} onClick={() => escolherCanal(c.v)} style={{ ...chip, background: canal === c.v ? ESP : '#fff', color: canal === c.v ? '#fff' : ESP, borderColor: canal === c.v ? ESP : LINE }}>{c.l}</button>
             ))}
           </div>
-          <Campo l="Observação (opcional)"><textarea value={observacao} onChange={(e) => setObservacao(e.target.value)} rows={2} placeholder="Ex.: cliente pediu para adiar a retífica." style={{ ...inp, resize: 'vertical' }} /></Campo>
+          <Campo l="Observação (opcional)" ajuda="oficina.aprovacao.observacao"><textarea value={observacao} onChange={(e) => setObservacao(e.target.value)} rows={2} placeholder="Ex.: cliente pediu para adiar a retífica." style={{ ...inp, resize: 'vertical' }} /></Campo>
           <button onClick={compartilharWhatsApp} style={{ ...btnLine, width: '100%', gap: 6, marginTop: 4 }}><Share2 size={15} /> Compartilhar orçamento no WhatsApp</button>
 
           {/* Onda 3 · assinatura é o ÚLTIMO gesto: vem DEPOIS de conferir os itens (o cliente assina o
@@ -349,16 +358,18 @@ function AssinaturaPad({ onChange }: { onChange: (b64: string | null) => void })
   )
 }
 
-function Sec({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+function Sec({ titulo, ajuda, children }: { titulo: string; ajuda?: string; children: React.ReactNode }) {
   return (
     <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 14, padding: 14, marginBottom: 12 }}>
-      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 10 }}>{titulo}</div>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: ESP60, fontWeight: 700, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
+        {titulo}{ajuda && <AjudaCampo chave={ajuda} rota="/dashboard/oficina/aprovacao" />}
+      </div>
       {children}
     </div>
   )
 }
-function Campo({ l, children }: { l: string; children: React.ReactNode }) {
-  return <div style={{ marginBottom: 10 }}><div style={{ fontSize: 11, color: ESP60, marginBottom: 4 }}>{l}</div>{children}</div>
+function Campo({ l, ajuda, children }: { l: string; ajuda?: string; children: React.ReactNode }) {
+  return <div style={{ marginBottom: 10 }}><div style={{ fontSize: 11, color: ESP60, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>{l}{ajuda && <AjudaCampo chave={ajuda} rota="/dashboard/oficina/aprovacao" />}</div>{children}</div>
 }
 function Toast({ children }: { children: React.ReactNode }) {
   return <div style={{ position: 'fixed', bottom: 96, left: '50%', transform: 'translateX(-50%)', background: ESP, color: '#fff', padding: '10px 16px', borderRadius: 999, fontSize: 13, zIndex: 70, maxWidth: '92%', textAlign: 'center' }}>{children}</div>

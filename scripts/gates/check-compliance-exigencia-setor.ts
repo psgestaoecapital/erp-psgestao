@@ -22,10 +22,10 @@ ok(/ex\.funcao IS NULL OR/.test(view) && /ex\.setor_id IS NULL OR ex\.setor_id =
 ok(/\(d\.em_escopo OR d\.por_setor OR d\.incluido\) AND NOT d\.dispensado/.test(fnDocs), 'função: aplica = escopo OU setor OU pessoa, e dispensa continua valendo')
 ok(/GRANT EXECUTE ON FUNCTION public\.fn_compliance_setor_exigencias_salvar/.test(mig) && /fn_compliance_assert\(p_company_id\)/.test(mig), 'RPCs com guarda de empresa')
 
-const tela = readFileSync('src/app/dashboard/compliance/treinamentos-por-setor/page.tsx', 'utf8')
+const tela = readFileSync('src/app/dashboard/ehs/treinamentos-por-setor/page.tsx', 'utf8')
 ok(/fn_compliance_setor_exigencias_listar/.test(tela) && /fn_compliance_setor_exigencias_salvar/.test(tela), 'tela: setor → marcar treinamentos → salvar')
 ok(/data-testid="setor-select"/.test(tela) && /data-testid="setor-salvar"/.test(tela), 'tela tem o seletor de setor e o botão Salvar')
-ok(/link-treinamentos-por-setor/.test(readFileSync('src/app/dashboard/compliance/documentos-exigidos/page.tsx', 'utf8')), 'Documentos exigidos aponta para a tela por setor')
+ok(/link-treinamentos-por-setor/.test(readFileSync('src/app/dashboard/ehs/documentos-exigidos/page.tsx', 'utf8')), 'Documentos exigidos aponta para a tela por setor')
 
 if (falhas > 0) { console.error(`\n[check-compliance-exigencia-setor] ${falhas} regra(s) quebrada(s) — build bloqueado.`); process.exit(1) }
 console.log('\n[check-compliance-exigencia-setor] treinamentos por setor conferidos.')

@@ -12,6 +12,7 @@ import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { PlacaInline } from '../_components/PlacaInline'
 import { useOficinaRamo } from '@/lib/oficina/ramo'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { parseNumBR } from '@/lib/num'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DECF'; const ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#166534'; const RED = '#A32D2D'; const AMBER = '#B45309'
@@ -168,7 +169,7 @@ export default function ApontamentoPage() {
     if (!companyId || !osSel || !it.apontamento) return
     setBusy(it.item_id)
     const manual = ajustando.has(it.item_id) ? tempoManual[it.item_id] : ''
-    const tempo = manual && manual.trim() ? Number(manual.replace(',', '.')) : null   // vazio = relógio (RD-60)
+    const tempo = manual && manual.trim() ? parseNumBR(manual) : null   // vazio = relógio (RD-60); aceita vírgula (#5660)
     const nota = (obs[it.item_id] ?? '').trim() || null
     const { data, error } = await supabase.rpc('fn_oficina_apontamento_concluir', {
       p_company_id: companyId, p_apontamento_id: it.apontamento.id,

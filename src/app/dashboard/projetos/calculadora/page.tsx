@@ -12,6 +12,7 @@ import { custearItens, sugerirVinculos, type ProdutoEstoque } from "@/lib/calcul
 import { itensParaOrcamento, listaDeCompra, linkWhatsApp, listaDeCompraCsv, listaDeCompraHtml } from "@/lib/calculadora/saida";
 import { precoComMargem } from "@/lib/calculadora/margem";
 import { mesclarRegras } from "@/lib/calculadora/regras-empresa";
+import { parseNumBR } from "@/lib/num";
 import { RESUMO_VALIDACAO } from "@/lib/calculadora/referencia-validacao";
 import { erroAmigavel } from "@/lib/erroAmigavel";
 import { CheckCircle2 } from "lucide-react";
@@ -20,7 +21,7 @@ import {
 } from "@/lib/calculadora/motor";
 
 type Sistema = "parede" | "separativa" | "cortafogo" | "forro" | "aramado" | "revestimento" | "estruturado";
-const n = (v: string) => Number((v || "0").replace(",", ".")) || 0
+const n = (v: string) => parseNumBR(v) || 0 // aceita vírgula decimal e ponto de milhar BR (#5660)
 // Formatação pt-BR determinística (idêntica no servidor e no navegador). Usar toLocaleString aqui
 // causava erro de hidratação React #418 ao abrir a tela: o separador de milhar/moeda do pt-BR
 // depende da versão do ICU, que difere entre o Node do servidor e o navegador (ex.: espaço comum

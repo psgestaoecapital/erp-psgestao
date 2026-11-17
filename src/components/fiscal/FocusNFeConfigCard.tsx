@@ -25,7 +25,9 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
   const [verificandoMunicipio, setVerificandoMunicipio] = useState(false)
   const [municipioErro, setMunicipioErro] = useState<string | null>(null)
 
-  const [apiKey, setApiKey] = useState('')
+  // #9428 slice2 · um token por ambiente (homologação/produção): a emissão escolhe o correto, sem troca manual.
+  const [apiKeyHomolog, setApiKeyHomolog] = useState('')
+  const [apiKeyProd, setApiKeyProd] = useState('')
   const [ambiente, setAmbiente] = useState<Ambiente>('homologacao')
   // #5666 · ambiente SÓ da NF-e (modelo 55): emitir NF-e em homologação sem tirar a NFS-e de produção.
   const [ambienteNfe, setAmbienteNfe] = useState<Ambiente>('homologacao')
@@ -123,12 +125,17 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
         payload.govNfseMunicipioCodigo = codigo
         // RD-51: desconhecido (não verificado) fica null, nunca false — a emissão lê o vivo de erp_gov_nfse_municipios.
         payload.govNfseMunicipioAderido = municipioStatus?.aderido ?? null
-      } else if (apiKey.trim()) {
+      } else {
         // #1944 · token da Focus direto para o COFRE, como o próprio usuário (fn_fiscal_salvar_token confere o vínculo
         // com a empresa) — nunca vai em texto para a tabela nem passa pela rota.
-        const { data: tok, error: tokErr } = await supabase.rpc('fn_fiscal_salvar_token', { p_company_id: companyId, p_token: apiKey.trim(), p_ambiente: ambiente })
-        const r = tok as { ok?: boolean; erro?: string } | null
-        if (tokErr || !r?.ok) throw new Error(`Não foi possível guardar o token no cofre: ${tokErr?.message ?? r?.erro ?? 'erro desconhecido'}`)
+        // #9428 slice2 · um token por ambiente: grava cada um no seu segredo do cofre. A emissão
+        // (fn_fiscal_obter_token, por ambiente) usa o certo — o usuário não recola o token ao alternar o ambiente.
+        for (const [amb, val] of [['homologacao', apiKeyHomolog], ['producao', apiKeyProd]] as const) {
+          if (!val.trim()) continue
+          const { data: tok, error: tokErr } = await supabase.rpc('fn_fiscal_salvar_token', { p_company_id: companyId, p_token: val.trim(), p_ambiente: amb })
+          const r = tok as { ok?: boolean; erro?: string } | null
+          if (tokErr || !r?.ok) throw new Error(`Não foi possível guardar o token de ${amb === 'producao' ? 'produção' : 'homologação'} no cofre: ${tokErr?.message ?? r?.erro ?? 'erro desconhecido'}`)
+        }
       }
 
       const resp = await authFetch('/api/fiscal/provider-config', {
@@ -138,7 +145,8 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
       const json = await resp.json()
       if (!resp.ok || !json.ok) throw new Error(json.erro ?? 'Erro ao salvar')
 
-      setApiKey('')
+      setApiKeyHomolog('')
+      setApiKeyProd('')
       setSucesso(true)
       onAtualizado()
       setTimeout(() => setSucesso(false), 3000)
@@ -156,7 +164,9 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
       <div className="px-5 py-4 border-b border-[#3D2314]/10 flex items-center justify-between">
         <div>
           <div className="text-[11px] text-[#3D2314]/55 tracking-[0.8px] uppercase font-medium">Passo 2</div>
-          <h2 className="text-[15px] font-medium text-[#3D2314]">Provider NFSe</h2>
+          {/* #9428 slice3 · o título dizia "Provider NFSe", mas este cartão governa também a NF-e (modelo 55).
+             Renomeado para não dar a impressão de ser só de NFS-e; os campos de NF-e têm seção própria abaixo. */}
+          <h2 className="text-[15px] font-medium text-[#3D2314]">Provedor fiscal · NF-e e NFS-e</h2>
         </div>
         {configAtual && (
           <span className={`text-[10px] px-2.5 py-1 rounded-full font-medium tracking-[0.3px] ${
@@ -229,7 +239,7 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
               <div className="flex-1 min-w-0">
                 <div className="text-[13px] font-medium text-[#3D2314] flex items-center gap-1.5">
                   <Radio size={13} className="text-[#C8941A] flex-shrink-0" />
-                  Focus NFe (alternativo)
+                  Provedor de NF-e (alternativo)
                 </div>
                 <div className="text-[12px] text-[#3D2314]/75 mt-1">
                   Provider terceirizado · R$ 89-548/mês · útil pra prefeituras que ainda não aderiram ao NFSe Nacional.
@@ -295,7 +305,7 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
                     </>
                   ) : municipioStatus.aderido === false ? (
                     <>
-                      <strong>{municipioStatus.nome ?? 'Município'}</strong> ainda não aderiu ao SN NFS-e · considere Focus NFe
+                      <strong>{municipioStatus.nome ?? 'Município'}</strong> ainda não aderiu ao SN NFS-e · considere um provedor de NF-e
                     </>
                   ) : (
                     // RD-51: desconhecido ≠ não aderido — não alarma, e a emissão checa o cadastro oficial na hora
@@ -313,27 +323,57 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
         )}
 
         {provider === 'focusnfe' && (
-          <div>
-            <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">
-              API Key Focus NFe{' '}
-              {temApiKey && <span className="text-[#3D2314]/50 font-normal">(deixe vazio para manter a atual)</span>}
-            </label>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              disabled={!podeEditar}
-              placeholder={temApiKey ? '•••••••••••••••• (já configurada — só preencha para trocar)' : 'Token gerado em focusnfe.com.br'}
-              className="block w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 focus:border-[#C8941A]/40 font-mono disabled:bg-[#3D2314]/5"
-            />
-            <p className={`text-[11px] mt-1 flex items-center gap-1 ${temApiKey ? 'text-[#1F7A4D]' : 'text-[#B4471F]'}`}>
-              {temApiKey ? '✓ chave já configurada' : '⚠ sem chave — obrigatória para emitir com Focus NFe'}
+          // #9428 slice2 · um campo de token por ambiente (homologação e produção), em vez de um só.
+          // O Focus usa tokens diferentes nos dois ambientes; a emissão escolhe o token do ambiente em uso
+          // (fn_fiscal_obter_token) — não é mais preciso recolar o token ao alternar o Ambiente.
+          <div className="space-y-3">
+            <div className="text-[11px] text-[#3D2314]/55 tracking-[0.4px] uppercase font-medium">
+              Tokens do provedor de NF-e
+            </div>
+            <p className="text-[11px] text-[#3D2314]/65">
+              Cadastre o token de cada ambiente. A emissão usa automaticamente o token do ambiente em uso —
+              você não precisa recolar o token ao alternar entre Homologação e Produção.
+            </p>
+            <div>
+              <label className="text-[12px] font-medium text-[#3D2314] mb-1.5 flex items-center gap-1 flex-wrap">
+                Token de Homologação
+                <AjudaCampo chave="fiscal.token_homolog" rota="/dashboard/configuracoes/fiscal" />
+                {temApiKey && <span className="text-[#3D2314]/50 font-normal">(deixe vazio para manter o atual)</span>}
+              </label>
+              <input
+                type="password"
+                value={apiKeyHomolog}
+                onChange={(e) => setApiKeyHomolog(e.target.value)}
+                disabled={!podeEditar}
+                data-testid="focus-token-homolog"
+                placeholder="Token de homologação gerado no painel do provedor"
+                className="block w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 focus:border-[#C8941A]/40 font-mono disabled:bg-[#3D2314]/5"
+              />
+            </div>
+            <div>
+              <label className="text-[12px] font-medium text-[#3D2314] mb-1.5 flex items-center gap-1 flex-wrap">
+                Token de Produção
+                <AjudaCampo chave="fiscal.token_prod" rota="/dashboard/configuracoes/fiscal" />
+                {temApiKey && <span className="text-[#3D2314]/50 font-normal">(deixe vazio para manter o atual)</span>}
+              </label>
+              <input
+                type="password"
+                value={apiKeyProd}
+                onChange={(e) => setApiKeyProd(e.target.value)}
+                disabled={!podeEditar}
+                data-testid="focus-token-prod"
+                placeholder="Token de produção gerado no painel do provedor"
+                className="block w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 focus:border-[#C8941A]/40 font-mono disabled:bg-[#3D2314]/5"
+              />
+            </div>
+            <p className={`text-[11px] flex items-center gap-1 ${temApiKey ? 'text-[#1F7A4D]' : 'text-[#B4471F]'}`}>
+              {temApiKey ? '✓ ao menos um token já configurado' : '⚠ sem token — cadastre pelo menos o do ambiente que vai usar'}
             </p>
           </div>
         )}
 
         <div>
-          <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">Ambiente</label>
+          <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">Ambiente (NFS-e / NFC-e)</label>
           <div className="grid grid-cols-2 gap-2">
             {(['homologacao', 'producao'] as const).map((amb) => (
               <button
@@ -353,8 +393,9 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
           </div>
         </div>
 
-        {/* #5666 · ambiente SÓ da NF-e (modelo 55) — separado da NFS-e/NFC-e, que seguem o Ambiente acima */}
+        {/* #5666/#9428 slice3 · seção PRÓPRIA da NF-e (modelo 55), visualmente separada dos campos de NFS-e acima */}
         <div className="border border-[#C8941A]/25 rounded-lg p-3 bg-[#C8941A]/[0.04]">
+          <div className="text-[11px] text-[#633806] tracking-[0.4px] uppercase font-semibold mb-2">NF-e (modelo 55)</div>
           <label className="text-[12px] font-medium text-[#3D2314] mb-1.5 flex items-center gap-1">
             Ambiente da NF-e (modelo 55)
             <AjudaCampo chave="fiscal.ambiente_nfe" rota="/dashboard/configuracoes/fiscal" />
@@ -384,30 +425,49 @@ export default function FocusNFeConfigCard({ companyId, configAtual, certificado
             )}
           </p>
           <p className="text-[11px] text-[#3D2314]/60 mt-1" data-testid="nfe-chave-em-uso">
-            Chave em uso na NF-e: token de <strong>{ambienteNfe === 'producao' ? 'Produção' : 'Homologação'}</strong>. Confira que ele está cadastrado (Passo 2 › Ambiente › API Key) antes de emitir.
+            Chave em uso na NF-e: token de <strong>{ambienteNfe === 'producao' ? 'Produção' : 'Homologação'}</strong>. Confira que ele está cadastrado (Passo 2 › Tokens do provedor de NF-e) antes de emitir.
           </p>
+          {/* #9428 · numeração da NF-e fica JUNTO dos demais campos de NF-e (modelo 55), não misturada com a NFS-e */}
+          <div className="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-[#C8941A]/20">
+            <label className="block">
+              <span className="text-[12px] font-medium text-[#3D2314] mb-1.5 flex items-center gap-1">
+                Série NFe
+                <AjudaCampo chave="fiscal.serie_nfe" rota="/dashboard/configuracoes/fiscal" />
+              </span>
+              <input type="text" value={serieNfe} onChange={(e) => setSerieNfe(e.target.value)} disabled={!podeEditar}
+                className="block w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 disabled:bg-[#3D2314]/5" />
+            </label>
+            <label className="block">
+              <span className="text-[12px] font-medium text-[#3D2314] mb-1.5 flex items-center gap-1">
+                Próximo nº NFe
+                <AjudaCampo chave="fiscal.prox_num_nfe" rota="/dashboard/configuracoes/fiscal" />
+              </span>
+              <input type="number" min={1} value={proxNumNfe} onChange={(e) => setProxNumNfe(e.target.value)} disabled={!podeEditar}
+                className="block w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 disabled:bg-[#3D2314]/5" />
+            </label>
+          </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">Série NFSe</label>
-            <input type="text" value={serieNfse} onChange={(e) => setSerieNfse(e.target.value)} disabled={!podeEditar}
-              className="block w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 disabled:bg-[#3D2314]/5" />
-          </div>
-          <div>
-            <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">Próximo nº NFSe</label>
-            <input type="number" min={1} value={proxNumNfse} onChange={(e) => setProxNumNfse(e.target.value)} disabled={!podeEditar}
-              className="block w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 disabled:bg-[#3D2314]/5" />
-          </div>
-          <div>
-            <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">Série NFe</label>
-            <input type="text" value={serieNfe} onChange={(e) => setSerieNfe(e.target.value)} disabled={!podeEditar}
-              className="block w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 disabled:bg-[#3D2314]/5" />
-          </div>
-          <div>
-            <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">Próximo nº NFe</label>
-            <input type="number" min={1} value={proxNumNfe} onChange={(e) => setProxNumNfe(e.target.value)} disabled={!podeEditar}
-              className="block w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 disabled:bg-[#3D2314]/5" />
+        {/* #9428 · numeração da NFS-e separada da NF-e (campos de modelos fiscais distintos não se misturam no mesmo grid) */}
+        <div>
+          <div className="text-[11px] text-[#3D2314]/55 tracking-[0.4px] uppercase font-medium mb-2">Numeração da NFS-e</div>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-[12px] font-medium text-[#3D2314] mb-1.5 flex items-center gap-1">
+                Série NFSe
+                <AjudaCampo chave="fiscal.serie_nfse" rota="/dashboard/configuracoes/fiscal" />
+              </span>
+              <input type="text" value={serieNfse} onChange={(e) => setSerieNfse(e.target.value)} disabled={!podeEditar}
+                className="block w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 disabled:bg-[#3D2314]/5" />
+            </label>
+            <label className="block">
+              <span className="text-[12px] font-medium text-[#3D2314] mb-1.5 flex items-center gap-1">
+                Próximo nº NFSe
+                <AjudaCampo chave="fiscal.prox_num_nfse" rota="/dashboard/configuracoes/fiscal" />
+              </span>
+              <input type="number" min={1} value={proxNumNfse} onChange={(e) => setProxNumNfse(e.target.value)} disabled={!podeEditar}
+                className="block w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 disabled:bg-[#3D2314]/5" />
+            </label>
           </div>
         </div>
 

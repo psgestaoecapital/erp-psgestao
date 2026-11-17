@@ -6,6 +6,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { ShellOdonto, PageHeaderOdonto, CardOdonto, EmptyStateOdonto, MetricStat, TOK } from '@/components/odonto/ui'
 import { TrendingUp, User, Armchair, AlertTriangle } from 'lucide-react'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA_AJUDA = '/dashboard/odonto/rentabilidade'
 
 const brl = (n: number) => (n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 function corMargem(pct: number | null): string { if (pct === null) return TOK.mut; if (pct < 0) return TOK.red; if (pct < 25) return '#B45309'; return TOK.green }
@@ -65,10 +68,14 @@ export default function RentabilidadePage() {
             </button>
           ))}
         </div>
+        <AjudaCampo chave="odonto.rentabilidade.dimensao" rota={ROTA_AJUDA} />
         <span style={{ flex: 1 }} />
-        <input type="date" value={de} onChange={(e) => setDe(e.target.value)} style={inpData} />
-        <span style={{ color: TOK.mut, fontSize: 12 }}>até</span>
-        <input type="date" value={ate} onChange={(e) => setAte(e.target.value)} style={inpData} />
+        <span data-ajuda="odonto.rentabilidade.periodo" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <AjudaCampo chave="odonto.rentabilidade.periodo" rota={ROTA_AJUDA} />
+          <input type="date" value={de} onChange={(e) => setDe(e.target.value)} style={inpData} />
+          <span style={{ color: TOK.mut, fontSize: 12 }}>até</span>
+          <input type="date" value={ate} onChange={(e) => setAte(e.target.value)} style={inpData} />
+        </span>
       </div>
 
       {/* totais */}
@@ -80,7 +87,7 @@ export default function RentabilidadePage() {
           <MetricStat valor={t?.margem_pct != null ? `${t.margem_pct}%` : '—'} label="Margem" cor={corMargem(t?.margem_pct ?? null)} />
           <MetricStat valor={String(t?.n_proc ?? 0)} label="Procedimentos" cor={TOK.mut} />
         </div>
-        <div style={{ fontSize: 11, color: TOK.mut30, marginTop: 8 }}>Custo/hora {data?.custo_hora != null ? brl(data.custo_hora) : '—'} · o resultado alimenta o <strong>DRE divisional</strong> <span style={{ color: TOK.gold, fontWeight: 700 }}>[→GE]</span>.</div>
+        <div style={{ display: 'flex', alignItems: 'center', fontSize: 11, color: TOK.mut30, marginTop: 8 }}>Custo/hora {data?.custo_hora != null ? brl(data.custo_hora) : '—'} · o resultado alimenta o <strong>&nbsp;DRE divisional&nbsp;</strong> <span style={{ color: TOK.gold, fontWeight: 700 }}>[→GE]</span><AjudaCampo chave="odonto.rentabilidade.resultado" rota={ROTA_AJUDA} /></div>
       </CardOdonto>
 
       {(t?.parcial_qtd ?? 0) > 0 && (

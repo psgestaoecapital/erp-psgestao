@@ -81,11 +81,12 @@ function Inner() {
   const [acertoVenda, setAcertoVenda] = useState<Venda | null>(null)
   const [acerto, setAcerto] = useState<Acerto | null>(null)
   const [recebs, setRecebs] = useState<Map<string, Receb[]>>(new Map())
-  const [cancelaTit, setCancelaTit] = useState<{ venda: Venda; motivo: string; abertos: { id: string; valor: number }[] } | null>(null)
   // Motivo (devolução/cancelamento) coletado por Modal/bottom-sheet do design PS — sem window.prompt() nativo.
   const [motivoModal, setMotivoModal] = useState<{ titulo: string; label: string; obrig: boolean; confirmLabel: string; onConfirm: (motivo: string) => void | Promise<void> } | null>(null)
   const [motivoTxt, setMotivoTxt] = useState('')
   const [motivoErro, setMotivoErro] = useState<string | null>(null)
+  // #6928 · aviso de bloqueio do cancelamento mostrado ANTES de pedir o motivo (NF-e autorizada / título em aberto).
+  const [cancelBloqueio, setCancelBloqueio] = useState<{ v: Venda; temNfe: boolean; titulos: Receb[] } | null>(null)
   // #7641 etapa 2 · card de conferência da NF-e (confere/edita antes de emitir; mantém aberto p/ reenviar em rejeição).
   const [nfeCard, setNfeCard] = useState<{ v: Venda; nota: PreviaNota; infoCpl: string; limite: number; aviso: string | null } | null>(null)
   const [nfeCardBusy, setNfeCardBusy] = useState(false)
@@ -280,37 +281,32 @@ function Inner() {
   // #6928: títulos do financeiro (GE) ainda em aberto de uma venda. Pago/cancelado nunca entram.
   const ABERTO = ['aberto', 'vencido', 'pendente']
   const titulosAbertos = (vendaId: string) => (recebs.get(vendaId) ?? []).filter((t) => t.receber_id && t.status && ABERTO.includes(t.status))
-  const titulosPagos = (vendaId: string) => (recebs.get(vendaId) ?? []).filter((t) => t.receber_id && t.status && !ABERTO.includes(t.status) && t.status !== 'cancelado')
 
   function cancelar(v: Venda) {
+    // #6928: checar o bloqueio NO CLIQUE (antes de pedir o motivo). Se houver NF-e autorizada ou
+    // título a receber em aberto, mostrar o aviso na hora — com atalho para cancelar a nota / tratar
+    // o título — e NÃO abrir o campo de motivo (o usuário não digita à toa). Só quando estiver limpo
+    // é que abrimos o modal de motivo. O backend (fn_veic_venda_cancelar) mantém a mesma validação
+    // como defesa em profundidade.
+    const titulos = titulosAbertos(v.id)
+    if (v.nfe_autorizada || titulos.length > 0) {
+      setCancelBloqueio({ v, temNfe: v.nfe_autorizada, titulos })
+      return
+    }
     setMotivoTxt(''); setMotivoErro(null)
     setMotivoModal({ titulo: `Cancelar venda — ${v.modelo || ''}`, label: 'Motivo do cancelamento (opcional)', obrig: false, confirmLabel: 'Continuar', onConfirm: (motivo) => prosseguirCancelar(v, motivo) })
   }
   async function prosseguirCancelar(v: Venda, motivo: string) {
-    // Releitura do status dos títulos no banco (a lista da tela pode estar velha).
-    const ids = (recebs.get(v.id) ?? []).map((t) => t.receber_id).filter((x): x is string => !!x)
-    let abertos: { id: string; valor: number }[] = []
-    if (ids.length) {
-      const { data: er } = await supabase.from('erp_receber').select('id, valor, status').in('id', ids)
-      abertos = ((er as { id: string; valor: number; status: string | null }[]) ?? []).filter((e) => e.status && ABERTO.includes(e.status)).map((e) => ({ id: e.id, valor: Number(e.valor) || 0 }))
-    }
-    if (abertos.length > 0) { setCancelaTit({ venda: v, motivo, abertos }); return }
-    await executarCancelar(v, motivo, [])
+    // O bloqueio já foi checado na UI (cancelar). O backend valida de novo (defesa em profundidade).
+    await executarCancelar(v, motivo)
   }
-  async function executarCancelar(v: Venda, motivo: string, cancelarTitulos: { id: string; valor: number }[]) {
+  async function executarCancelar(v: Venda, motivo: string) {
     setBusy(true)
     const { data, error } = await supabase.rpc('fn_veic_venda_cancelar', { p_venda_id: v.id, p_user: await userId(), p_motivo: motivo || null })
     const r = data as { ok?: boolean; erro?: string; mensagem?: string; titulos_nao_excluidos?: number } | null
-    if (error || !r?.ok) { setBusy(false); setErro((error ? msgAmigavel(error.message) : null) || r?.mensagem || r?.erro || 'Falha'); return }
-    // Venda cancelada. Só então cancela os títulos escolhidos, pela função do financeiro (histórico + auditoria).
-    let falhas = 0
-    for (const t of cancelarTitulos) {
-      const { data: cr, error: ce } = await supabase.rpc('fn_receber_cancelar', { p_id: t.id, p_motivo: `Venda cancelada${motivo ? `: ${motivo}` : ''}` })
-      if (ce || !(cr as { sucesso?: boolean } | null)?.sucesso) falhas++
-    }
     setBusy(false)
-    if (falhas > 0) setErro(`Venda cancelada, mas ${falhas} título(s) não puderam ser cancelados. Cancele no Contas a Receber.`)
-    else setMsg(cancelarTitulos.length ? `Venda cancelada e ${cancelarTitulos.length} título(s) do financeiro cancelado(s).` : 'Venda cancelada.')
+    if (error || !r?.ok) { setErro((error ? msgAmigavel(error.message) : null) || r?.mensagem || r?.erro || 'Falha'); return }
+    setMsg('Venda cancelada.')
     void carregar()
   }
 
@@ -477,7 +473,7 @@ function Inner() {
                   {/* Devolução (entregue) no lugar de Cancelar */}
                   {entregue
                     ? <button disabled={busy} onClick={() => void devolver(v)} style={btnDanger}>Registrar devolução</button>
-                    : (!encerrada && <button disabled={busy} onClick={() => void cancelar(v)} style={btnDanger}>Cancelar</button>)}
+                    : (!encerrada && <button disabled={busy} onClick={() => void cancelar(v)} style={btnDanger}>Cancelar venda</button>)}
                 </div>
               </div>
             )
@@ -511,19 +507,37 @@ function Inner() {
         </Modal>
       )}
 
-      {/* ── Modal #6928: cancelar também o título? ── */}
-      {cancelaTit && (
-        <Modal onClose={() => setCancelaTit(null)} titulo="Cancelar venda">
-          <p style={{ fontSize: 13, color: C.esp, margin: '0 0 8px' }}>
-            Esta venda tem <b>{brl(cancelaTit.abertos.reduce((a, t) => a + t.valor, 0))}</b> em título aberto no financeiro. Cancelar também o título?
-          </p>
-          {titulosPagos(cancelaTit.venda.id).length > 0 && (
-            <p style={{ fontSize: 12, color: C.amber, background: C.amberBg, borderRadius: 8, padding: '6px 10px', margin: '0 0 8px' }}>Título já pago não é cancelado: trate no Contas a Receber.</p>
-          )}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-            <button disabled={busy} style={btnGold} onClick={() => { const c = cancelaTit; setCancelaTit(null); void executarCancelar(c.venda, c.motivo, c.abertos) }}>Sim, cancelar venda e título</button>
-            <button disabled={busy} style={btnDanger} onClick={() => { const c = cancelaTit; setCancelaTit(null); void executarCancelar(c.venda, c.motivo, []) }}>Não, só a venda</button>
-            <button disabled={busy} style={btnGhost} onClick={() => setCancelaTit(null)}>Voltar</button>
+      {/* ── #6928 · Aviso de bloqueio do cancelamento (mostrado no clique, antes do motivo) ── */}
+      {cancelBloqueio && (
+        <Modal onClose={() => setCancelBloqueio(null)} titulo={`Não é possível cancelar — ${cancelBloqueio.v.modelo || ''}`}>
+          <div style={{ fontSize: 13, color: C.esp, marginBottom: 10 }}>
+            Esta venda ainda tem pendências que impedem o cancelamento. Resolva os itens abaixo e tente de novo.
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {cancelBloqueio.temNfe && (
+              <div style={{ background: C.amberBg, borderRadius: 8, padding: '10px 12px' }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: '#8A4B08' }}>NF-e autorizada</div>
+                <div style={{ fontSize: 12, color: C.espM, margin: '2px 0 8px' }}>Existe uma nota fiscal autorizada para esta venda. Cancele a nota na SEFAZ antes de cancelar a venda.</div>
+                <button onClick={() => { setCancelBloqueio(null); router.push('/dashboard/fiscal/nfe') }} style={btnGhost}>Cancelar nota (NF-e emitidas)</button>
+              </div>
+            )}
+            {cancelBloqueio.titulos.length > 0 && (
+              <div style={{ background: C.amberBg, borderRadius: 8, padding: '10px 12px' }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: '#8A4B08' }}>Título a receber em aberto</div>
+                <div style={{ fontSize: 12, color: C.espM, margin: '2px 0 6px' }}>
+                  {cancelBloqueio.titulos.length} título(s) em aberto no financeiro. Baixe ou cancele o(s) título(s) antes de cancelar a venda.
+                </div>
+                <ul style={{ margin: '0 0 8px', paddingLeft: 18, fontSize: 12, color: C.espM }}>
+                  {cancelBloqueio.titulos.map((t, i) => (
+                    <li key={t.receber_id || i}>{t.numero ? `Nº ${t.numero}` : t.tipo} — {t.devedor} — {brl(t.valor)}</li>
+                  ))}
+                </ul>
+                <button onClick={() => { setCancelBloqueio(null); router.push('/dashboard/financeiro/receber') }} style={btnGhost}>Ir para Contas a Receber</button>
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
+            <button onClick={() => setCancelBloqueio(null)} style={btnGold}>Entendi</button>
           </div>
         </Modal>
       )}
@@ -691,9 +705,11 @@ function Linha({ k, v, destaque, testid }: { k: string; v: number | null; destaq
 }
 
 function Modal({ titulo, children, onClose }: { titulo: string; children: React.ReactNode; onClose: () => void }) {
+  // Centralizado e padronizado com o <Modal> central do sistema (regra da Jordana: NÃO fecha no clique-fora;
+  // só por X). Em telas pequenas vira painel inferior arredondado. Antes aparecia deslocado/sobreposto (#6928).
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.45)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 50, padding: '0' }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, width: '100%', maxWidth: 560, borderRadius: '16px 16px 0 0', padding: 18, maxHeight: '88vh', overflow: 'auto' }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, width: '100%', maxWidth: 560, borderRadius: 16, padding: 18, maxHeight: '88vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <div style={{ fontWeight: 700, fontSize: 16 }}>{titulo}</div>
           <button onClick={onClose} style={{ ...btnGhost, padding: '4px 10px' }}>✕</button>

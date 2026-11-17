@@ -160,7 +160,7 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
     setSalvandoReforma(false)
     if (error) { setErro(error.message); return }
     const r = data as { ok?: boolean; erro?: string }
-    if (!r?.ok) { setErro(r?.erro === 'config_focusnfe_nao_encontrada' ? 'Configure o emissor Focus antes de preencher a Reforma.' : (r?.erro ?? 'Erro ao salvar')); return }
+    if (!r?.ok) { setErro(r?.erro === 'config_focusnfe_nao_encontrada' ? 'Configure o emissor de NF-e antes de preencher a Reforma.' : (r?.erro ?? 'Erro ao salvar')); return }
     setToast('✅ Campos da Reforma (IBS/CBS) salvos.')
     onSalvo?.(); setTimeout(() => setToast(null), 4000)
   }
@@ -351,7 +351,7 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
                   className="w-full bg-white border border-[#3D2314]/20 rounded-md px-3 py-2 text-[13px]"
                 >
                   <option value="gov_nfse_nacional">NFSe Nacional gov.br (Receita)</option>
-                  <option value="focusnfe">Focus NFe (3rd party)</option>
+                  <option value="focusnfe">Provedor de NF-e (alternativo)</option>
                 </select>
               </Field>
               {isNacional && (
@@ -502,7 +502,7 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
                     type="password"
                     value={token}
                     onChange={(e) => setToken(e.target.value)}
-                    placeholder="Cole o token Focus (ambiente atual: este wizard)"
+                    placeholder="Cole o token do provedor (ambiente atual: este wizard)"
                     autoComplete="off"
                     className="w-full bg-white border border-[#3D2314]/20 rounded-md px-3 py-2 text-[13px] font-mono"
                   />
@@ -556,7 +556,7 @@ export default function ConfigFiscalEditCard({ companyId, imAtual, onSalvo }: Pr
           <Section titulo="Cupom fiscal (NFC-e)">
             <div className="text-[11px] text-[#3D2314]/60 mb-2">
               Série do cupom fiscal eletrônico para venda a consumidor final. Diferente da série da NF-e. O CSC e o ID do
-              token (fornecidos pela SEFAZ) são cadastrados na Focus. Vazio = a empresa não emite NFC-e. Teste primeiro em homologação.
+              token (fornecidos pela SEFAZ) são cadastrados no provedor. Vazio = a empresa não emite NFC-e. Teste primeiro em homologação.
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
               <label className="block">

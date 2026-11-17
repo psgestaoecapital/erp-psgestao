@@ -1,8 +1,12 @@
 'use client'
 
-// Quadro de chamados (Fase 2 do #7050, CEO 09/11). Colunas: Todos, Minha carteira, Pendentes, Em andamento,
-// Aguardando usuário e Finalizados. O cartão mostra só número, título e "Abrir" (o detalhe — descrição, anexos,
-// fotos, histórico e respostas — continua na lista). A etiqueta de status aparece só em "Todos" e na busca.
+// Quadro de chamados (Fase 2 do #7050, CEO 09/11). Colunas por status: Pendentes, Em andamento, Aguardando
+// usuário e Finalizados (no modo usuário, antes delas a coluna "Minha carteira"). O ESCOPO (minha carteira ×
+// gerais / meu usuário × todos) é dado pelo FILTRO no topo — a antiga coluna "Todos" duplicava as colunas de
+// status (todo chamado ativo já cai em uma delas) e, no teste do CEO (12/11), comia largura e empurrava a última
+// coluna para fora da tela; por isso virou filtro em vez de coluna e foi removida. O cartão mostra só número,
+// título e "Abrir" (o detalhe — descrição, anexos, fotos, histórico e respostas — continua na lista). A etiqueta
+// de status aparece na busca (nas colunas, o cabeçalho da coluna já diz o status).
 // A busca fica fixa no topo e acha finalizados e arquivados (estes com a etiqueta ARQUIVADA).
 // Regras de coluna e de busca: src/lib/melhorias/kanban.ts (puras, com gate). Filtro Minha carteira / Gerais.
 //
@@ -14,7 +18,7 @@
 import { useRef, useState, type ReactNode } from 'react'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import {
-  casaBusca, colunaDoChamado, ehArquivado, passaFiltro, ROTULO_COLUNA, semDono,
+  aguardaAutorizacao, casaBusca, colunaDoChamado, ehArquivado, passaFiltro, ROTULO_COLUNA, semDono,
   type ChamadoKanban, type ColunaKanban, type FiltroKanban,
 } from '@/lib/melhorias/kanban'
 
@@ -41,8 +45,8 @@ type Props = {
   onFiltro: (f: FiltroKanban) => void
   rotuloStatus: (s: string) => string
   onAbrir: (numero: number, arquivada: boolean) => void
-  // 'operador' = fila de atendimento (#7050): colunas Todos/Pendentes/Em andamento/Aguardando usuário/Finalizados e seletor
-  // "Meu usuário" / "Todos usuários" (sem a coluna extra "Minha carteira"). Padrão 'usuario' = tela de melhorias.
+  // 'operador' = fila de atendimento (#7050): colunas de status (Pendentes/Em andamento/Aguardando usuário/Finalizados) e
+  // seletor "Meu usuário" / "Todos usuários" (sem a coluna extra "Minha carteira"). Padrão 'usuario' = tela de melhorias.
   modo?: 'usuario' | 'operador'
   // #7050 Fase 3: arrastar o cartão. Quando presente, os cartões das colunas de status ficam arrastáveis e as colunas
   // de status viram alvo de soltura. A PÁGINA decide o que cada transição faz (hoje só Pendentes → Em andamento =
@@ -59,11 +63,13 @@ const seloFinalDe = (c: ItemQuadro): string | null =>
 
 // ── Cartão (componente de módulo: tipo estável, não remonta durante o arraste) ───────────────────────────────────
 function Cartao({
-  c, mostrarStatus, selo, col, arrastavel, emArraste, onAbrir, rotuloStatus, onDragStartCard, onDragEndCard,
+  c, mostrarStatus, selo, avisoAutorizacao, col, arrastavel, emArraste, onAbrir, rotuloStatus, onDragStartCard, onDragEndCard, onAssumir,
 }: {
   c: ItemQuadro
   mostrarStatus: boolean
   selo?: 'sem_dono'
+  // #7050: chamado entregue com resposta ainda não enviada/autorizada ao autor — aviso ao operador.
+  avisoAutorizacao?: boolean
   col?: ColunaKanban
   arrastavel: boolean
   emArraste: boolean
@@ -71,6 +77,9 @@ function Cartao({
   rotuloStatus: (s: string) => string
   onDragStartCard: (id: string, de: ColunaKanban, e: React.DragEvent) => void
   onDragEndCard: () => void
+  // #7050: no celular o arraste nativo (HTML5 drag) não dispara no toque; quando presente, mostra um botão
+  // "Assumir" no cartão para mover de Pendentes → Em andamento também no touch (mesmo efeito do arraste).
+  onAssumir?: () => void
 }) {
   const self = seloFinalDe(c)
   return (
@@ -83,13 +92,29 @@ function Cartao({
         <div style={{ minWidth: 0, fontSize: 13, fontWeight: 600, color: C.esp, overflow: 'hidden', textOverflow: 'ellipsis' }}>
           <span style={{ color: C.gold, fontWeight: 800 }}>#{c.numero}</span> {c.titulo || c.descricao.slice(0, 60)}
         </div>
-        <button type="button" onClick={() => onAbrir(c.numero, ehArquivado(c))}
-          style={{ flexShrink: 0, border: `1px solid ${C.border}`, background: C.cream, borderRadius: 7, padding: '4px 10px', fontSize: 12, fontWeight: 700, color: C.esp, cursor: 'pointer' }}>
-          Abrir
-        </button>
+        <div style={{ flexShrink: 0, display: 'flex', gap: 6 }}>
+          {onAssumir && (
+            <button type="button" data-testid={`kanban-assumir-${c.numero}`}
+              onClick={(e) => { e.stopPropagation(); onAssumir() }}
+              title="Assumir este chamado — move para Em andamento e passa você como responsável. Não envia mensagem ao cliente."
+              style={{ border: `1px solid ${C.gold}`, background: C.gold, borderRadius: 7, padding: '4px 10px', fontSize: 12, fontWeight: 700, color: C.white, cursor: 'pointer' }}>
+              Assumir
+            </button>
+          )}
+          <button type="button" onClick={() => onAbrir(c.numero, ehArquivado(c))}
+            style={{ border: `1px solid ${C.border}`, background: C.cream, borderRadius: 7, padding: '4px 10px', fontSize: 12, fontWeight: 700, color: C.esp, cursor: 'pointer' }}>
+            Abrir
+          </button>
+        </div>
       </div>
-      {(mostrarStatus || selo || self) && (
+      {(mostrarStatus || selo || self || avisoAutorizacao) && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {avisoAutorizacao && (
+            <span data-testid="kanban-aviso-autorizacao" title="O chamado foi entregue, mas a resposta ao usuário ainda não foi enviada. Abra o chamado para revisar e autorizar o envio."
+              style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.amberBg, color: C.amber, fontWeight: 700 }}>
+              Resposta aguardando autorização
+            </span>
+          )}
           {mostrarStatus && (
             <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.cream, color: C.espM, fontWeight: 700 }}>
               {ehArquivado(c) ? 'ARQUIVADA' : rotuloStatus(c.status)}
@@ -186,15 +211,16 @@ export default function QuadroChamados({ itens, meuId, busca, onBusca, filtro, o
 
   const daCarteira = (c: ChamadoKanban) => passaFiltro(c, 'minha', meuId)
   const porColuna = (col: ColunaKanban) => ativos.filter((c) => colunaDoChamado(c) === col && passaFiltro(c, filtro, meuId))
-  const todos = ativos.filter((c) => passaFiltro(c, filtro, meuId))
   const minhaCarteira = ativos.filter(daCarteira)
 
   // Cartão para uma coluna. col indefinido = cartão não arrastável (colunas "Todos"/"Minha carteira" e busca).
   const card = (c: ItemQuadro, mostrarStatus: boolean, col?: ColunaKanban, selo?: 'sem_dono') => (
     <Cartao key={c.id} c={c} mostrarStatus={mostrarStatus} selo={selo} col={col}
+      avisoAutorizacao={modo === 'operador' && col === 'andamento' && aguardaAutorizacao(c)}
       arrastavel={podeArrastar && !!col} emArraste={arrastandoId === c.id}
       onAbrir={onAbrir} rotuloStatus={rotuloStatus}
-      onDragStartCard={onDragStartCard} onDragEndCard={onDragEndCard} />
+      onDragStartCard={onDragStartCard} onDragEndCard={onDragEndCard}
+      onAssumir={modo === 'operador' && col === 'pendentes' && onMover ? () => onMover(c, 'pendentes', 'andamento') : undefined} />
   )
 
   return (
@@ -237,9 +263,6 @@ export default function QuadroChamados({ itens, meuId, busca, onBusca, filtro, o
         </div>
       ) : (
         <div className="qc-board qc-scroll" style={{ display: 'flex', gap: 10, overflowX: 'auto', WebkitOverflowScrolling: 'touch', alignItems: 'stretch', width: '100%', paddingBottom: 8 }}>
-          <Coluna titulo="Todos" count={todos.length} destacar={false} vazio={todos.length === 0}>
-            {todos.map((c) => card(c, true))}
-          </Coluna>
           {modo === 'usuario' && (
             <Coluna titulo="Minha carteira" count={minhaCarteira.length} destacar={false} vazio={minhaCarteira.length === 0}>
               {minhaCarteira.map((c) => card(c, false))}
@@ -263,7 +286,7 @@ export default function QuadroChamados({ itens, meuId, busca, onBusca, filtro, o
       {/* #7050: dica do arraste (só quando ligado). Arrastar não envia nada ao cliente — só troca o status/atendente. */}
       {!buscando && podeArrastar && (
         <div data-testid="kanban-dica-arrastar" style={{ fontSize: 11.5, color: C.espM }}>
-          Dica: arraste um cartão de <b>Pendentes</b> para <b>Em andamento</b> para assumir o chamado. Arrastar não envia nenhuma mensagem ao cliente.
+          Dica: arraste um cartão de <b>Pendentes</b> para <b>Em andamento</b> para assumir o chamado — ou, no celular, toque em <b>Assumir</b> no cartão. Em ambos os casos não é enviada nenhuma mensagem ao cliente.
         </div>
       )}
       {!buscando && <div style={{ fontSize: 11.5, color: C.espL }}>Arquivados não aparecem aqui — use a busca.</div>}

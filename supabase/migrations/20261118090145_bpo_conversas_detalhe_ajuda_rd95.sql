@@ -1,0 +1,14 @@
+-- RD-95 · BPO Conversas — detalhe do chat (/dashboard/bpo/conversas/[id]): a tela de detalhe não
+-- tinha nenhum "?" (AjudaCampo=0). Esta migration cadastra a ajuda das 4 ações/campos principais da
+-- jornada do operador (Colar resposta, Resolver, Enviar via, Enviar), na mesma rota-grupo da caixa
+-- (/dashboard/bpo/conversas), para o AjudaCampo do detalhe encontrá-las (fn_ajuda_campo_listar casa
+-- por rota exata). ADITIVO e idempotente (ON CONFLICT DO NOTHING). Nenhum dado de cliente tocado.
+-- RD-52: arquivo em supabase/migrations + PR (faixa desenvolvedor_4_g :45, acima da main).
+
+INSERT INTO public.erp_ajuda_campo (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, vertical, ordem, status)
+VALUES
+ ('bpo.conversas.detalhe.colar_resposta','/dashboard/bpo/conversas','Ações','Colar resposta','Ação (botão). Abre uma janela para você colar uma resposta que o cliente enviou por fora (WhatsApp ou e-mail) e registrá-la na conversa.','Mantém o histórico completo da conversa num lugar só, mesmo quando o cliente responde por outro canal.','O cliente respondeu no WhatsApp; você cola o texto aqui para ficar junto da conversa.','Colar a resposta sem escolher o canal (WhatsApp/e-mail): escolha o canal antes de registrar.','gestao_empresarial',80,'publicado'),
+ ('bpo.conversas.detalhe.resolver','/dashboard/bpo/conversas','Ações','Resolver','Ação (botão). Marca a conversa como resolvida quando o atendimento terminou.','Tira a conversa da fila de pendências e para o cronômetro de SLA; ela sai de "aguardando".','Depois de responder e confirmar com o cliente, clicar em Resolver.','Resolver antes de responder o cliente: só marque como resolvida quando o atendimento realmente terminou.','gestao_empresarial',90,'publicado'),
+ ('bpo.conversas.detalhe.enviar_via','/dashboard/bpo/conversas','Compositor','Enviar via','Escolha por quais canais a sua mensagem sai: Portal (dentro do sistema), WhatsApp (abre o WhatsApp Web pré-preenchido) ou E-mail (abre seu cliente de e-mail). Pode marcar mais de um.','Garante que o cliente receba a resposta pelo canal que ele usa, sem redigitar a mensagem.','Marcar Portal + WhatsApp para registrar no sistema e já avisar o cliente.','Clicar em Enviar sem marcar nenhum canal: escolha pelo menos um antes de enviar.','gestao_empresarial',100,'publicado'),
+ ('bpo.conversas.detalhe.enviar','/dashboard/bpo/conversas','Compositor','Enviar','Ação (botão). Envia a mensagem digitada pelos canais marcados em "Enviar via". Atalho: Ctrl+Enter.','Responde o cliente e registra a mensagem na conversa de uma vez.','Digitar a resposta, marcar o canal e clicar em Enviar (ou Ctrl+Enter).','Botão desabilitado quando a mensagem está vazia ou nenhum canal foi marcado — preencha os dois.','gestao_empresarial',110,'publicado')
+ON CONFLICT (chave) DO NOTHING;

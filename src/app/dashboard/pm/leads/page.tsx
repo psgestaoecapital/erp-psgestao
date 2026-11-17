@@ -2,7 +2,7 @@
 // LEADS · CRM de entrada da agência (P&M). Funil sobre agency_leads, escopado por company_id (RD-45).
 // Etapas do kanban vêm de funil_etapa (fn_funil_etapas_listar) — configuráveis (add/editar/reordenar/excluir).
 // Cadastro rápido com autocomplete de clientes GE (fn_cliente_buscar) → grava erp_cliente_id (não cliente_id,
-// que tem FK p/ agency_clientes). Kanban arrasta card → etapa=chave. Ações Ganhar/Perder/Converter/Agendar.
+// que tem FK p/ agency_clientes). Kanban (componente genérico QuadroFunil, o mesmo do PS CRM) arrasta card → etapa=chave. Ações Ganhar/Perder/Converter/Agendar.
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
@@ -10,7 +10,10 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { nomeUsuario } from '@/lib/usuarioLabel'
 import SolicitarContratoModal from '@/components/ge/SolicitarContratoModal'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import QuadroFunil from '@/components/crm/QuadroFunil'
 import { erroAmigavel } from '@/lib/erroAmigavel'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 import { TarefasLeadModal, MinhasTarefasModal, SELECT_TAREFA, tipoTarefa, quando, atrasada, whatsappHref, type Tarefa } from '@/components/pm/TarefasLead'
 
 const ESPRESSO = '#3D2314'
@@ -115,7 +118,6 @@ export default function LeadsPage() {
   const cliTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [dragId, setDragId] = useState<string | null>(null)
   const [cfgOpen, setCfgOpen] = useState(false)
   const [origemCfgOpen, setOrigemCfgOpen] = useState(false)
   const [origens, setOrigens] = useState<Origem[]>([])
@@ -312,7 +314,7 @@ export default function LeadsPage() {
         company_id: empresa, empresa: form.empresa.trim() || null, nome: form.nome.trim() || null,
         contato_email: form.contato_email.trim() || null, contato_telefone: form.contato_telefone.trim() || null,
         canal_contato: form.canal_contato.trim() || null, origem: form.origem,
-        valor_estimado: form.valor_estimado || null,
+        valor_estimado: moedaParaNumero(form.valor_estimado), // #6874: campo mascarado (R$) -> número
         erp_cliente_id: form.erp_cliente_id, cliente_id: null, responsavel_id: uid,
         observacoes: form.observacoes.trim() || null,
       },
@@ -499,34 +501,28 @@ export default function LeadsPage() {
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>Colunas = etapas do funil<AjudaCampo chave="pm.leads.kanban_colunas" /></span>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>Ações do card<AjudaCampo chave="pm.leads.kanban_acoes" /></span>
           </div>
-          <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 8, alignItems: 'flex-start' }}>
-            {etapas.map((col) => {
-              const items = filtrados.filter((l) => l.etapa === col.chave)
-              const soma = items.reduce((s, l) => s + Number(l.valor_estimado ?? 0), 0)
+          <QuadroFunil
+            colunas={etapas.map((e) => ({ chave: e.chave, rotulo: e.rotulo, cor: e.cor, tipo: e.tipo_etapa }))}
+            itens={filtrados}
+            idDe={(l) => l.id}
+            colunaDe={(l) => l.etapa}
+            valorDe={(l) => Number(l.valor_estimado ?? 0)}
+            onMover={(l, chave) => void moverEtapa(l, chave)}
+            testIdCartao="lead-card"
+            estiloCartao={(l) => {
+              // PM-1 · semáforo do motor único (crm_alerta_config; PDois 7/10, fallback 3/7). Sem régua no front.
+              const sem = fechadas.has(l.etapa) ? 'verde' : (semaforoMap[l.id] ?? 'verde')
+              return { border: sem === 'vermelho' ? `1.5px solid ${RED}` : sem === 'amarelo' ? `1.5px solid ${DOURADO}` : `1px solid ${BORDA}` }
+            }}
+            renderCartao={(l) => {
+              const fim = fechadas.has(l.etapa)
+              const ct = l.erp_cliente_id ? contratoMap[l.erp_cliente_id] : undefined // #59 · contrato do cliente, se houver
+              // PM-1 · semáforo do motor único (crm_alerta_config; PDois 7/10, fallback 3/7). Sem régua no front.
+              const dEtapa = Math.floor(diasDesde(l.etapa_desde))
+              const sem = fim ? 'verde' : (semaforoMap[l.id] ?? 'verde')
+              const corEtapa = sem === 'vermelho' ? RED : sem === 'amarelo' ? DOURADO : TEXTM
               return (
-                <div key={col.id}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={() => { const l = leads.find((x) => x.id === dragId); if (l) void moverEtapa(l, col.chave); setDragId(null) }}
-                  style={{ minWidth: 250, width: 250, flex: '0 0 auto', background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: 8 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px 8px' }}>
-                    <span style={{ width: 10, height: 10, borderRadius: 3, background: col.cor ?? OFFWHITE, border: `1px solid ${BORDA}` }} />
-                    <strong style={{ fontSize: 13 }}>{col.rotulo}</strong>
-                    {col.tipo_etapa !== 'normal' && <span style={{ fontSize: 9, fontWeight: 700, color: col.tipo_etapa === 'ganho' ? GREEN : RED }}>{col.tipo_etapa === 'ganho' ? '✓' : '✕'}</span>}
-                    <span style={{ fontSize: 11, color: TEXTM, marginLeft: 'auto' }}>{items.length}{soma > 0 ? ` · ${brl(soma)}` : ''}</span>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minHeight: 20 }}>
-                    {items.map((l) => {
-                      const fim = fechadas.has(l.etapa)
-                      const ct = l.erp_cliente_id ? contratoMap[l.erp_cliente_id] : undefined // #59 · contrato do cliente, se houver
-                      // PM-1 · semáforo do motor único (crm_alerta_config; PDois 7/10, fallback 3/7). Sem régua no front.
-                      const dEtapa = Math.floor(diasDesde(l.etapa_desde))
-                      const sem = fim ? 'verde' : (semaforoMap[l.id] ?? 'verde')
-                      const corEtapa = sem === 'vermelho' ? RED : sem === 'amarelo' ? DOURADO : TEXTM
-                      const bordaSem = sem === 'vermelho' ? `1.5px solid ${RED}` : sem === 'amarelo' ? `1.5px solid ${DOURADO}` : `1px solid ${BORDA}`
-                      return (
-                        <div key={l.id} draggable onDragStart={() => setDragId(l.id)} onDragEnd={() => setDragId(null)}
-                          data-testid="lead-card"
-                          style={{ background: OFFWHITE, border: bordaSem, borderRadius: 10, padding: '9px 10px', cursor: 'grab' }}>
+                <>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                             <strong style={{ fontSize: 13 }}>{l.empresa || l.nome}</strong>
                             {(l.erp_cliente_id || l.cliente_id) && <span title="Cliente cadastrado na GE" style={{ fontSize: 9.5, fontWeight: 700, color: GREEN, background: '#DCEFD7', borderRadius: 999, padding: '1px 6px' }}>✓ cliente</span>}
@@ -620,14 +616,10 @@ export default function LeadsPage() {
                               )}
                             </div>
                           )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
+                </>
               )
-            })}
-          </div>
+            }}
+          />
           </>
         )}
       </div>
@@ -678,7 +670,7 @@ export default function LeadsPage() {
                 ⚙️ Gerenciar origens
               </button>
             </label>
-            <label style={lbl}>Valor Total Estimado do Contrato (R$)<input style={inp} type="number" inputMode="decimal" value={form.valor_estimado} onChange={(e) => setForm({ ...form, valor_estimado: e.target.value })} /></label>
+            <label style={lbl}>Valor Total Estimado do Contrato (R$)<CampoMoeda style={inp} value={form.valor_estimado} onChange={(v) => setForm({ ...form, valor_estimado: v })} placeholder="R$ 0,00" /></label>
             {/* #912 Pdois: observação já na criação (antes só dava para pôr editando o lead depois) */}
             <label style={lbl}>Observações<textarea style={{ ...inp, minHeight: 64, resize: 'vertical', fontFamily: 'inherit' }} rows={3} value={form.observacoes} onChange={(e) => setForm({ ...form, observacoes: e.target.value })} data-testid="lead-observacoes" /></label>
 
@@ -1095,7 +1087,7 @@ function EditarLeadModal({ lead, empresa, origens, onClose, onSaved }: {
   const [f, setF] = useState({
     empresa: lead.empresa ?? '', nome: lead.nome ?? '',
     contato_email: lead.contato_email ?? '', contato_telefone: lead.contato_telefone ?? '',
-    origem: lead.origem ?? '', valor_estimado: lead.valor_estimado != null ? String(lead.valor_estimado) : '',
+    origem: lead.origem ?? '', valor_estimado: numeroParaMoeda(lead.valor_estimado), // #6874: máscara R$
     observacoes: lead.observacoes ?? '',
   })
   const [busy, setBusy] = useState(false)
@@ -1105,7 +1097,7 @@ function EditarLeadModal({ lead, empresa, origens, onClose, onSaved }: {
     const { error } = await supabase.from('agency_leads').update({
       empresa: f.empresa.trim() || null, nome: f.nome.trim() || null,
       contato_email: f.contato_email.trim() || null, contato_telefone: f.contato_telefone.trim() || null,
-      origem: f.origem || lead.origem, valor_estimado: f.valor_estimado.trim() ? Number(f.valor_estimado) : null,
+      origem: f.origem || lead.origem, valor_estimado: moedaParaNumero(f.valor_estimado), // #6874: máscara R$ -> número
       observacoes: f.observacoes.trim() || null, atualizado_em: new Date().toISOString(),
     }).eq('id', lead.id).eq('company_id', empresa)
     setBusy(false)
@@ -1131,7 +1123,7 @@ function EditarLeadModal({ lead, empresa, origens, onClose, onSaved }: {
             {origens.map((o) => <option key={o.chave} value={o.chave}>{o.nome}</option>)}
           </select>
         </label>
-        <label style={lbl}>Valor Total Estimado do Contrato (R$)<input style={inp} type="number" inputMode="decimal" value={f.valor_estimado} onChange={(e) => setF({ ...f, valor_estimado: e.target.value })} /></label>
+        <label style={lbl}>Valor Total Estimado do Contrato (R$)<CampoMoeda style={inp} value={f.valor_estimado} onChange={(v) => setF({ ...f, valor_estimado: v })} placeholder="R$ 0,00" /></label>
         <label style={lbl}>Observações<input style={inp} value={f.observacoes} onChange={(e) => setF({ ...f, observacoes: e.target.value })} /></label>
         {erro && <div style={{ background: '#FCEBEB', color: RED, padding: '7px 10px', borderRadius: 6, fontSize: 12, marginTop: 8 }}>{erro}</div>}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
