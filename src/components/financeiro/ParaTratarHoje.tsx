@@ -99,8 +99,10 @@ export function ParaTratarHoje({
                 }}
               >
                 <span aria-hidden style={{ width: 10, height: 10, borderRadius: "50%", background: cor, flex: "0 0 auto" }} />
-                <span style={{ flex: "1 1 180px", minWidth: 0, fontSize: 13, color: TX, fontWeight: 500 }}>
+                <span style={{ flex: "1 1 180px", minWidth: 0, fontSize: 13, color: TX, fontWeight: 500, display: "inline-flex", alignItems: "center", flexWrap: "wrap" }}>
                   {p.texto}
+                  {/* RD-95: "?" por TIPO de pendência — explica o que a linha significa e o que fazer. */}
+                  <AjudaCampo chave={`ge.caixa.pendencia.${p.tipo}`} rota="/dashboard/financeiro/caixa-grupo" />
                   {multiEmpresa && p.empresa ? (
                     <span style={{ color: TXM, fontWeight: 400 }}> · {p.empresa}</span>
                   ) : null}

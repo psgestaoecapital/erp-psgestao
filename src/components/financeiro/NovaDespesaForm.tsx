@@ -144,6 +144,12 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
   // 01/10 · centro de custo de verdade (erp_pagar.centro_custo_id). Cada obra do Hub tem o seu → liga a despesa à obra.
   const [centros, setCentros] = useState<{ id: string; nome: string }[]>([])
   const [centroCustoId, setCentroCustoId] = useState('')
+  // Criação INLINE de centro de custo (igual ao fornecedor/plano de contas): digita um centro
+  // que ainda não existe sem sair do lançamento. fn_centro_custo_criar_inline acha/reusa ou cria.
+  const [criandoCentro, setCriandoCentro] = useState(false)
+  const [novoCentroNome, setNovoCentroNome] = useState('')
+  const [salvandoCentro, setSalvandoCentro] = useState(false)
+  const [erroCentroNovo, setErroCentroNovo] = useState<string | null>(null)
   const [numeroDocumento, setNumeroDocumento] = useState('')
   const [formaPagamento, setFormaPagamento] = useState('pix')
   const [tipoChavePix, setTipoChavePix] = useState('cpf_cnpj')
@@ -479,6 +485,25 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
     return data
   }
 
+  // Centro de custo DIGITADO vira cadastro de verdade na hora (acha/reusa ou cria) e já fica
+  // selecionado — sem sair do lançamento para o cadastro de centros.
+  async function criarCentroInline() {
+    const nome = novoCentroNome.trim()
+    if (!nome) { setErroCentroNovo('Digite o nome do centro de custo.'); return }
+    setSalvandoCentro(true); setErroCentroNovo(null)
+    const { data, error } = await supabase.rpc('fn_centro_custo_criar_inline', { p_company_id: companyId, p_nome: nome })
+    setSalvandoCentro(false)
+    if (error || typeof data !== 'string') {
+      setErroCentroNovo(erroAmigavel(error, 'não foi possível criar o centro de custo agora'))
+      return
+    }
+    setCentros((lista) => lista.some((c) => c.id === data) ? lista
+      : [...lista, { id: data, nome }].sort((x, y) => x.nome.localeCompare(y.nome, 'pt-BR')))
+    setCentroCustoId(data)
+    setNovoCentroNome(''); setCriandoCentro(false)
+    setToast(`Centro de custo "${nome}" pronto e selecionado`)
+  }
+
   // Descrição OPCIONAL (pedido Jordana/BPO): se vazia, geramos a partir de
   // fornecedor + categoria do DRE — a descrição identifica a conta na lista, nos
   // relatórios e no alerta anti-duplicidade ("[descrição]"), então nunca fica vazia.
@@ -594,16 +619,25 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
     const ids = (ret as { ids?: string[] }).ids ?? []
     const dataCompFinal = dataCompetencia || dataVencimento
     if (ids.length > 0 && dataCompFinal) {
-      await supabase.from('erp_pagar').update({ data_competencia: dataCompFinal }).in('id', ids)
+      // RD-98 pilar 3: o que se salva FICA salvo — confere o retorno e avisa em vez de sucesso falso.
+      const { error: eComp } = await supabase.from('erp_pagar').update({ data_competencia: dataCompFinal }).in('id', ids)
+      if (eComp) {
+        setFeedback({ tipo: 'erro', texto: `A despesa foi criada, mas a data de competência não foi gravada: ${erroAmigavel(eComp, 'não foi possível gravar a competência')}. Edite a despesa e informe de novo.` })
+        return
+      }
     }
 
     // PIX: grava tipo+chave (normalizada) no título → flui pro item da remessa. Outras formas limpam o lixo.
     if (ids.length > 0) {
       const pix = ehPix(formaPagamento) && chavePix.trim()
-      await supabase.from('erp_pagar').update({
+      const { error: ePix } = await supabase.from('erp_pagar').update({
         tipo_chave_pix: pix ? tipoChavePix : null,
         chave_pix: pix ? normalizarChavePix(tipoChavePix, chavePix) : null,
       }).in('id', ids)
+      if (ePix) {
+        setFeedback({ tipo: 'erro', texto: `A despesa foi criada, mas os dados de PIX não foram gravados: ${erroAmigavel(ePix, 'não foi possível gravar o PIX')}. Edite a despesa e informe de novo.` })
+        return
+      }
     }
 
     // 01/10 · centro de custo / obra em todas as parcelas (o trigger confere a empresa e espelha o nome no texto)
@@ -620,7 +654,11 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
     // reescrevia os dígitos digitados ("não mantinha o que a Jordana digita"). A forma canônica (44) é
     // derivada on-the-fly na GERAÇÃO da remessa (mapearRemessa*) e na CONSULTA anti-dup — sem tocar aqui.
     if (ids.length > 0 && cbInput) {
-      await supabase.from('erp_pagar').update({ codigo_barras: cbInput }).eq('id', ids[0])
+      const { error: eCb } = await supabase.from('erp_pagar').update({ codigo_barras: cbInput }).eq('id', ids[0])
+      if (eCb) {
+        setFeedback({ tipo: 'erro', texto: `A despesa foi criada, mas o código de barras não foi gravado: ${erroAmigavel(eCb, 'não foi possível gravar o código de barras')}. Edite a despesa e informe de novo.` })
+        return
+      }
     }
 
     // Fluxo atomico (RD-38): quando vem da Conciliacao, a baixa e feita pelo
@@ -857,7 +895,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
             />
           </Campo>
 
-          <Campo ajuda="financeiro.despesa.centro_custo" ajudaRota={ROTA_AJUDA} label="Centro de custo / obra">
+          <Campo ajuda="financeiro.despesa.centro_custo" ajudaRota={ROTA_AJUDA} label="Centro de custo (opcional)">
             <select
               data-testid="despesa-centro-custo"
               value={centroCustoId}
@@ -869,10 +907,53 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
               {centros.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
             </select>
             <small style={helperStyle}>
-              Despesa de obra? Escolha a obra: o custo aparece na ficha da obra no Hub.
+              Classifique a despesa por centro de custo: o lançamento passa a aparecer no resultado desse centro.
               {editando && !centroCustoId && String(ed.linha?.centro_custo ?? '').trim() !== '' && <> Hoje está só como texto: “{String(ed.linha?.centro_custo)}”.</>}
             </small>
+            {!criandoCentro && (
+              <button
+                type="button"
+                data-testid="despesa-centro-custo-novo-abrir"
+                onClick={() => { setCriandoCentro(true); setErroCentroNovo(null) }}
+                style={{ marginTop: 6, background: 'none', border: 'none', padding: 0, color: '#8a6d00', fontWeight: 600, fontSize: 13, cursor: 'pointer', textAlign: 'left' }}
+              >
+                + Criar novo centro de custo
+              </button>
+            )}
           </Campo>
+
+          {criandoCentro && (
+            <Campo ajuda="financeiro.despesa.centro_custo_novo" ajudaRota={ROTA_AJUDA} label="Novo centro de custo">
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <input
+                  data-testid="despesa-centro-custo-novo-nome"
+                  autoFocus
+                  value={novoCentroNome}
+                  onChange={(e) => { setNovoCentroNome(e.target.value); if (erroCentroNovo) setErroCentroNovo(null) }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void criarCentroInline() } }}
+                  placeholder="Ex.: Administrativo, Comercial, Projeto A"
+                  style={{ ...inputStyle, flex: '1 1 200px' }}
+                />
+                <button
+                  type="button"
+                  data-testid="despesa-centro-custo-novo-criar"
+                  onClick={() => void criarCentroInline()}
+                  disabled={salvandoCentro || !novoCentroNome.trim()}
+                  style={{ padding: '0 16px', borderRadius: 8, border: 'none', background: '#1f2937', color: '#fff', fontWeight: 600, cursor: salvandoCentro || !novoCentroNome.trim() ? 'default' : 'pointer', opacity: salvandoCentro || !novoCentroNome.trim() ? 0.6 : 1 }}
+                >
+                  {salvandoCentro ? 'Criando…' : 'Criar'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setCriandoCentro(false); setNovoCentroNome(''); setErroCentroNovo(null) }}
+                  style={{ padding: '0 12px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', color: '#374151', cursor: 'pointer' }}
+                >
+                  Cancelar
+                </button>
+              </div>
+              {erroCentroNovo && <small style={{ ...helperStyle, color: '#b91c1c' }}>{erroCentroNovo}</small>}
+            </Campo>
+          )}
 
           {!editando && (
           <Campo ajuda="financeiro.despesa.parcelas" ajudaRota={ROTA_AJUDA} label="Quantas parcelas?" erro={erroCampo === 'parcelas' ? 'Revise as parcelas' : null}>
@@ -927,7 +1008,7 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
           {parcelas >= 2 && (
             <div style={{ gridColumn: '1 / -1' }}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 12, color: 'rgba(61,35,20,0.65)', fontWeight: 500 }}>O valor informado é:</span>
+                <span style={{ fontSize: 12, color: 'rgba(61,35,20,0.65)', fontWeight: 500 }}>O valor informado é: <AjudaCampo chave="financeiro.despesa.modo_valor" rota={ROTA_AJUDA} /></span>
                 <div style={{ display: 'inline-flex', border: '0.5px solid rgba(61,35,20,0.25)', borderRadius: 6, overflow: 'hidden' }}>
                   {([['total', 'Total da conta'], ['parcela', 'Valor de cada parcela']] as const).map(([m, rot]) => (
                     <button key={m} type="button" onClick={() => setModoValor(m)}
@@ -1258,6 +1339,9 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
             >
               ▾
             </button>
+            <span style={{ display: 'inline-flex', alignItems: 'center', marginLeft: 6 }}>
+              <AjudaCampo chave="financeiro.despesa.salvar_opcoes" rota={ROTA_AJUDA} />
+            </span>
             {salvarMenu && !loading && (
               <div style={{ position: 'absolute', bottom: '100%', right: 0, marginBottom: 6, background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.15)', borderRadius: 8, boxShadow: '0 8px 24px rgba(61,35,20,0.15)', zIndex: 20, minWidth: 200, overflow: 'hidden' }}>
                 <button type="button" onClick={() => void salvar('nova')} style={menuItemStyle}>Salvar e lançar nova</button>

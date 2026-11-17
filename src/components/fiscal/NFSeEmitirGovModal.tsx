@@ -136,7 +136,7 @@ function mensagemAmigavel(raw: string | null | undefined): string {
   const s = String(raw)
   // E0037 = limitacao de convenio do sandbox (esperado em Homologacao p/ varios municipios)
   if (/E0037/i.test(s) || /convenio/i.test(s)) {
-    return 'Homologação Focus sem convênio com este município (erro E0037 da prefeitura). É o esperado em testes — a tela e a integração estão funcionando. Emissão real só em Produção.'
+    return 'Ambiente de homologação sem convênio com este município (erro E0037 da prefeitura). É o esperado em testes — a tela e a integração estão funcionando. Emissão real só em Produção.'
   }
   if (/timeout|tempo esgotado/i.test(s)) {
     return 'A prefeitura demorou pra responder. Tente novamente em alguns segundos.'

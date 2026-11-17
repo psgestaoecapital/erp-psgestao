@@ -290,19 +290,20 @@ export default function ProdutoForm({ companyId, produto, clonarDe = null, onClo
           )}
           {aba === 'basico' && (
             <>
-              <Campo label="Codigo * (interno)" value={codigo} onChange={setCodigo} placeholder="ex: PROD-001" />
-              <Campo label="Nome *" value={nome} onChange={setNome} placeholder="Tinta acrilica branca 18L" />
+              <Campo label="Codigo * (interno)" value={codigo} onChange={setCodigo} placeholder="ex: PROD-001" ajuda="cadastros.produtos.codigo" />
+              <Campo label="Nome *" value={nome} onChange={setNome} placeholder="Tinta acrilica branca 18L" ajuda="cadastros.produtos.nome" />
               <Campo
                 label="Descricao"
                 value={descricao}
                 onChange={setDescricao}
                 placeholder="Detalhes adicionais (entra na NFe)"
                 multiline
+                ajuda="cadastros.produtos.descricao"
               />
-              <Campo label="Unidade *" value={unidade} onChange={setUnidade} placeholder="UN · KG · M · L · CX" />
+              <Campo label="Unidade *" value={unidade} onChange={setUnidade} placeholder="UN · KG · M · L · CX" ajuda="cadastros.produtos.unidade" />
               <div className="grid grid-cols-2 gap-3">
-                <Campo label="Local de armazenagem" value={localizacao} onChange={setLocalizacao} placeholder="ex: Galpão B · Prat. 3" testId="produto-localizacao" />
-                <Campo label="Codigo de barras (EAN)" value={codigoBarras} onChange={setCodigoBarras} placeholder="vazio = etiqueta usa o codigo interno" mono />
+                <Campo label="Local de armazenagem" value={localizacao} onChange={setLocalizacao} placeholder="ex: Galpão B · Prat. 3" testId="produto-localizacao" ajuda="cadastros.produtos.localizacao" />
+                <Campo label="Codigo de barras (EAN)" value={codigoBarras} onChange={setCodigoBarras} placeholder="vazio = etiqueta usa o codigo interno" mono ajuda="cadastros.produtos.codigo_barras" />
               </div>
               {ehNovo && (
                 <div>
@@ -350,10 +351,10 @@ export default function ProdutoForm({ companyId, produto, clonarDe = null, onClo
                   ⚠ {produto.fiscal_observacao}
                 </div>
               )}
-              <Campo label="NCM * (8 digitos)" value={ncm} onChange={setNcm} placeholder="ex: 32091010" maxLength={8} mono />
-              <Campo label="CEST" value={cest} onChange={setCest} placeholder="opcional (substituicao tributaria)" />
-              <Campo label="CFOP venda dentro do estado" value={cfopVenda} onChange={setCfopVenda} placeholder="ex.: 5102 · 5405 (com ST)" />
-              <Campo label="CFOP venda fora do estado" value={cfopVendaFora} onChange={setCfopVendaFora} placeholder="ex.: 6102 · 6404 (com ST)" />
+              <Campo label="NCM * (8 digitos)" value={ncm} onChange={setNcm} placeholder="ex: 32091010" maxLength={8} mono ajuda="cadastros.produtos.ncm" />
+              <Campo label="CEST" value={cest} onChange={setCest} placeholder="opcional (substituicao tributaria)" ajuda="cadastros.produtos.cest" />
+              <Campo label="CFOP venda dentro do estado" value={cfopVenda} onChange={setCfopVenda} placeholder="ex.: 5102 · 5405 (com ST)" ajuda="cadastros.produtos.cfop_dentro" />
+              <Campo label="CFOP venda fora do estado" value={cfopVendaFora} onChange={setCfopVendaFora} placeholder="ex.: 6102 · 6404 (com ST)" ajuda="cadastros.produtos.cfop_fora" />
               <Select
                 label="Origem"
                 value={origem}
@@ -364,16 +365,17 @@ export default function ProdutoForm({ companyId, produto, clonarDe = null, onClo
                   ['2', '2 · Estrangeira (mercado interno)'],
                   ['3', '3 · Nacional com importacao > 40%'],
                 ]}
+                ajuda="cadastros.produtos.origem"
               />
               <div className="grid grid-cols-2 gap-3">
-                <Campo label="CST / CSOSN ICMS" value={cstIcms} onChange={setCstIcms} placeholder="Simples: 102, 500… · normal: 00, 60…" />
-                <Campo label="Aliquota ICMS (%)" value={aliquotaIcms} onChange={setAliquotaIcms} placeholder="vazio = não informado" />
-                <Campo label="Aliquota IPI (%)" value={aliquotaIpi} onChange={setAliquotaIpi} placeholder="0" />
+                <Campo label="CST / CSOSN ICMS" value={cstIcms} onChange={setCstIcms} placeholder="Simples: 102, 500… · normal: 00, 60…" ajuda="cadastros.produtos.cst_icms" />
+                <Campo label="Aliquota ICMS (%)" value={aliquotaIcms} onChange={setAliquotaIcms} placeholder="vazio = não informado" ajuda="cadastros.produtos.aliquota_icms" />
+                <Campo label="Aliquota IPI (%)" value={aliquotaIpi} onChange={setAliquotaIpi} placeholder="0" ajuda="cadastros.produtos.aliquota_ipi" />
                 <span />
-                <Campo label="CST PIS" value={cstPis} onChange={setCstPis} placeholder="ex.: 01, 04, 49" />
-                <Campo label="Aliquota PIS (%)" value={aliquotaPis} onChange={setAliquotaPis} placeholder="vazio = não informado" />
-                <Campo label="CST COFINS" value={cstCofins} onChange={setCstCofins} placeholder="ex.: 01, 04, 49" />
-                <Campo label="Aliquota COFINS (%)" value={aliquotaCofins} onChange={setAliquotaCofins} placeholder="vazio = não informado" />
+                <Campo label="CST PIS" value={cstPis} onChange={setCstPis} placeholder="ex.: 01, 04, 49" ajuda="cadastros.produtos.cst_pis" />
+                <Campo label="Aliquota PIS (%)" value={aliquotaPis} onChange={setAliquotaPis} placeholder="vazio = não informado" ajuda="cadastros.produtos.aliquota_pis" />
+                <Campo label="CST COFINS" value={cstCofins} onChange={setCstCofins} placeholder="ex.: 01, 04, 49" ajuda="cadastros.produtos.cst_cofins" />
+                <Campo label="Aliquota COFINS (%)" value={aliquotaCofins} onChange={setAliquotaCofins} placeholder="vazio = não informado" ajuda="cadastros.produtos.aliquota_cofins" />
               </div>
 
               {(cstIcms === '500' || cstIcms === '60') && (
@@ -385,10 +387,10 @@ export default function ProdutoForm({ companyId, produto, clonarDe = null, onClo
                     Os quatro vem da nota de compra do fornecedor.
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <Campo label="vBCSTRet · Base ICMS ST retido (R$/un)" value={vbcstRet} onChange={setVbcstRet} placeholder="0.00" />
-                    <Campo label="pST · Aliquota consumidor final (%)" value={pst} onChange={setPst} placeholder="ex: 18" />
-                    <Campo label="vICMSSubstituto · ICMS do substituto (R$/un)" value={vicmsSubstituto} onChange={setVicmsSubstituto} placeholder="0.00" />
-                    <Campo label="vICMSSTRet · ICMS ST retido (R$/un)" value={vicmsStRet} onChange={setVicmsStRet} placeholder="0.00" />
+                    <Campo label="vBCSTRet · Base ICMS ST retido (R$/un)" value={vbcstRet} onChange={setVbcstRet} placeholder="0.00" ajuda="cadastros.produtos.vbcst_ret" />
+                    <Campo label="pST · Aliquota consumidor final (%)" value={pst} onChange={setPst} placeholder="ex: 18" ajuda="cadastros.produtos.pst" />
+                    <Campo label="vICMSSubstituto · ICMS do substituto (R$/un)" value={vicmsSubstituto} onChange={setVicmsSubstituto} placeholder="0.00" ajuda="cadastros.produtos.vicms_substituto" />
+                    <Campo label="vICMSSTRet · ICMS ST retido (R$/un)" value={vicmsStRet} onChange={setVicmsStRet} placeholder="0.00" ajuda="cadastros.produtos.vicms_st_ret" />
                   </div>
                 </div>
               )}
@@ -402,8 +404,8 @@ export default function ProdutoForm({ companyId, produto, clonarDe = null, onClo
                     (destinatario), nao e preenchida aqui.
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                    <Campo label="cProdANP · Codigo ANP (SIMP)" value={combAnpCodigo} onChange={setCombAnpCodigo} placeholder="ex: 320101001" maxLength={9} mono />
-                    <Campo label="descANP · Descricao ANP" value={combAnpDescricao} onChange={setCombAnpDescricao} placeholder="descricao conforme a ANP" />
+                    <Campo label="cProdANP · Codigo ANP (SIMP)" value={combAnpCodigo} onChange={setCombAnpCodigo} placeholder="ex: 320101001" maxLength={9} mono ajuda="cadastros.produtos.anp_codigo" />
+                    <Campo label="descANP · Descricao ANP" value={combAnpDescricao} onChange={setCombAnpDescricao} placeholder="descricao conforme a ANP" ajuda="cadastros.produtos.anp_descricao" />
                   </div>
                 </div>
               )}
@@ -412,13 +414,14 @@ export default function ProdutoForm({ companyId, produto, clonarDe = null, onClo
 
           {aba === 'precos' && (
             <>
-              <Campo label="Preco de venda (R$) *" value={precoVenda} onChange={setPrecoVenda} placeholder="0.00" />
-              <Campo label="Preco de custo (R$)" value={precoCusto} onChange={setPrecoCusto} placeholder="0.00" />
-              <p className="text-[11.5px] text-[#3D2314]/55">
-                Margem:{' '}
+              <Campo label="Preco de venda (R$) *" value={precoVenda} onChange={setPrecoVenda} placeholder="0.00" ajuda="cadastros.produtos.preco_venda" />
+              <Campo label="Preco de custo (R$)" value={precoCusto} onChange={setPrecoCusto} placeholder="0.00" ajuda="cadastros.produtos.preco_custo" />
+              <p className="text-[11.5px] text-[#3D2314]/55 flex items-center gap-1">
+                <span>Margem:{' '}
                 {parseFloat(precoCusto) > 0 && parseFloat(precoVenda) > 0
                   ? (((parseFloat(precoVenda) - parseFloat(precoCusto)) / parseFloat(precoVenda)) * 100).toFixed(1) + '%'
-                  : '—'}
+                  : '—'}</span>
+                <AjudaCampo chave="cadastros.produtos.margem" />
               </p>
               {/* markup próprio do produto (sem ele, vale o geral da empresa) — só para produto já cadastrado (#2710) */}
               {produto?.id && <MarkupProdutoCampo companyId={companyId} produtoId={produto.id} custo={parseFloat(precoCusto) || null} />}
@@ -475,15 +478,16 @@ interface CampoProps {
   maxLength?: number
   mono?: boolean
   testId?: string
+  ajuda?: string
 }
 
-function Campo({ label, value, onChange, placeholder, multiline, maxLength, mono, testId }: CampoProps) {
+function Campo({ label, value, onChange, placeholder, multiline, maxLength, mono, testId, ajuda }: CampoProps) {
   const cls = `w-full px-3 py-2 text-[13px] border border-[#3D2314]/15 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C8941A]/40 ${
     mono ? 'font-mono' : ''
   }`
   return (
     <div>
-      <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">{label}</label>
+      <label className="text-[12px] font-medium text-[#3D2314] mb-1.5 flex items-center gap-1">{label}{ajuda && <AjudaCampo chave={ajuda} />}</label>
       {multiline ? (
         <textarea
           value={value}
@@ -512,12 +516,13 @@ interface SelectProps {
   value: string
   onChange: (v: string) => void
   options: Array<[string, string]>
+  ajuda?: string
 }
 
-function Select({ label, value, onChange, options }: SelectProps) {
+function Select({ label, value, onChange, options, ajuda }: SelectProps) {
   return (
     <div>
-      <label className="text-[12px] font-medium text-[#3D2314] block mb-1.5">{label}</label>
+      <label className="text-[12px] font-medium text-[#3D2314] mb-1.5 flex items-center gap-1">{label}{ajuda && <AjudaCampo chave={ajuda} />}</label>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}

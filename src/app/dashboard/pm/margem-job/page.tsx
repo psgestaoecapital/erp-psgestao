@@ -11,6 +11,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { calcularMargem, totaisMargem, agruparMargem, type ApontamentoMargem, type DimensaoMargem } from '@/lib/pm/margem'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { carregarCustosEquipe } from '@/lib/pm/equipeCustos'
+import { parseNumBR } from '@/lib/num'
 
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
 const BORDA = '#E7DED3'; const TEXTM = '#6b5444'; const GREEN = '#1F5A1F'; const YELLOW = '#7A5A0F'; const RED = '#7A1F1F'
@@ -98,7 +99,7 @@ export default function MargemJobPage() {
   const salvarCustos = useCallback(async () => {
     if (!empresa) return
     const alvos = Object.entries(custoEdit)
-      .map(([id, v]) => ({ id, v: v.trim() === '' ? NaN : Number(v.replace(',', '.')) }))
+      .map(([id, v]) => ({ id, v: v.trim() === '' ? NaN : (parseNumBR(v) ?? NaN) })) // aceita vírgula e milhar BR (#5660)
       .filter((x) => Number.isFinite(x.v) && x.v > 0)
     if (alvos.length === 0) { setMsgSalvar({ tipo: 'erro', texto: 'Informe um custo/hora maior que zero em pelo menos uma pessoa.' }); return }
     setSalvando(true); setMsgSalvar(null)

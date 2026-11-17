@@ -1,0 +1,19 @@
+-- PDCA GE · /dashboard/cadastros/plano-contas · RD-95: "?" nos FORMULÁRIOS (onde o usuário digita),
+-- que estavam com ZERO ajuda (a cobertura só existia na lista). Cobre os 7 campos do PlanoContasForm
+-- (Tipo, Código, Descrição, Nível, Grupo DRE, Conta-pai, "É linha totalizadora") e o filtro
+-- "Buscar linha DRE" do VincularLinhasDREModal (aud8 92/95, GAP 1).
+-- Aditivo: só INSERT de texto (ON CONFLICT DO NOTHING); nenhuma tabela, função ou permissão nova.
+INSERT INTO public.erp_ajuda_campo (chave, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, ordem, rota, vertical, status)
+SELECT v.chave, 'Cadastros · Plano de contas', v.rotulo, v.o_que, v.para_que, v.exemplo, v.erro, v.ordem,
+       '/dashboard/cadastros/plano-contas', 'gestao_empresarial', 'publicado'
+FROM (VALUES
+ ('plano_contas.tipo', 'Tipo da conta', 'A natureza da conta: Receita (entra), Despesa (gasto do dia a dia), Custo (ligado ao que se produz/vende), Financeiro (juros, tarifas) ou Investimento (compra de bem, aporte).', 'Define em qual bloco do DRE a conta entra e quais grupos DRE ficam disponíveis abaixo.', 'Aluguel da loja → Despesa; Matéria-prima → Custo.', 'Marcar como Despesa um gasto ligado à produção: o custo do produto fica subestimado no DRE.', 10),
+ ('plano_contas.codigo', 'Código da conta', 'O código contábil hierárquico da conta, com pontos separando os níveis. Precisa ser único neste plano.', 'Ordena as contas e liga a subconta ao grupo pai (o "3.1" é pai de "3.1.01").', '3.1 · 4.3.06', 'Repetir um código que já existe: o sistema recusa; use um número livre no mesmo grupo.', 11),
+ ('plano_contas.descricao', 'Descrição', 'O nome da conta como aparece no DRE e nas telas de lançamento.', 'É o rótulo que o usuário escolhe ao lançar uma despesa ou receita.', 'Energia elétrica', 'Usar nome genérico ("Diversos"): o DRE perde a leitura de onde o dinheiro vai.', 12),
+ ('plano_contas.nivel', 'Nível', 'Nível 1 é grupo principal (totaliza); Nível 2 é subconta, que entra dentro de um grupo do nível 1.', 'Monta a hierarquia do plano: subcontas somam no seu grupo pai.', 'Nível 1 "Despesas administrativas" com as subconta "Aluguel", "Energia" no nível 2.', 'Criar tudo no nível 1: o DRE fica sem subtotais e difícil de ler.', 13),
+ ('plano_contas.grupo_dre', 'Grupo DRE', 'A linha do DRE onde a conta é somada. As opções mudam conforme o Tipo escolhido acima. É obrigatório.', 'É o que posiciona a conta no relatório de resultado (DRE).', 'Despesa → "Despesa administrativa"; Receita → "Receita bruta".', 'Jogar tudo em "Outras": o DRE perde o detalhe por grupo.', 14),
+ ('plano_contas.conta_pai', 'Conta-pai', 'Para uma subconta (nível 2), o grupo do nível 1 onde ela entra. Aparece só quando o nível é 2.', 'Liga a subconta ao seu totalizador, para o grupo somar os filhos.', 'Subconta "Aluguel" dentro da conta-pai "Despesas administrativas".', 'Deixar sem pai uma subconta: ela fica solta e não soma em nenhum grupo.', 15),
+ ('plano_contas.totalizadora', 'É linha totalizadora', 'Marque quando a conta serve só para somar as contas filhas — ela não recebe lançamento direto.', 'Cria os subtotais do DRE: a linha soma os filhos automaticamente.', 'Marcar "Despesas administrativas" como totalizadora e lançar só nas subcontas.', 'Marcar totalizadora e tentar lançar direto nela: o sistema não aceita lançamento na linha de soma.', 16),
+ ('plano_contas.buscar_linha_dre', 'Buscar linha DRE', 'Digite parte do nome da linha do DRE gerencial (divisão/negócio) que você quer vincular a esta categoria.', 'Filtra a lista para achar e marcar as linhas do DRE divisional em que a categoria deve aparecer.', 'Digite "administrativa" para achar a linha de despesas administrativas.', 'Vincular a linha errada: o valor da categoria aparece na divisão errada do DRE.', 17)
+) AS v(chave, rotulo, o_que, para_que, exemplo, erro, ordem)
+ON CONFLICT (chave) DO NOTHING;

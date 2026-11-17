@@ -3,6 +3,7 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { authFetch } from "@/lib/authFetch";
 import { erroAmigavel, codigoAmigavel } from "@/lib/erroAmigavel";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
 const GO="#C6973F",GOL="#E8C872",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
     G="#34D399",R="#F87171",Y="#FBBF24",B="#60A5FA",P="#A78BFA",
@@ -11,6 +12,7 @@ const GO="#C6973F",GOL="#E8C872",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
 const fmtR=(v:number)=>v.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
 const CATEGORIAS=["parede","forro","revestimento","divisoria","shaft","outro"];
 const UNIDADES=["un","m","m²","kg","L","rolo","saco","caixa","par","pç"];
+const ROTA_AJUDA="/dashboard/ficha-tecnica";
 
 const TEMPLATES:Record<string,{nome:string;cat:string;mo:number;itens:{nome:string;un:string;qtd:number;preco:number}[]}> = {
   parede_simples:{nome:"Parede Drywall Simples 73mm (ST)",cat:"parede",mo:35,itens:[
@@ -304,7 +306,8 @@ export default function FichaTecnicaPage(){
           <div style={{fontSize:20,fontWeight:700,color:GOL}}>🔧 Ficha Técnica de Produção</div>
           <div style={{fontSize:11,color:TXM}}>Composição de custo por m² — base para análise de projetos e formação de preço</div>
         </div>
-        <div style={{display:"flex",gap:8}}>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <AjudaCampo chave="ficha.empresa" rota={ROTA_AJUDA} />
           <select value={selComp} onChange={e=>{setSelComp(e.target.value);if(typeof window!=="undefined")localStorage.setItem("ps_empresa_sel",e.target.value);}} style={{...inp,width:250}}>
             {companies.length>1&&<option value="consolidado">📊 Todas ({companies.length})</option>}
             {groups.map(g=>{
@@ -376,8 +379,8 @@ export default function FichaTecnicaPage(){
 
           {/* New ficha form */}
           {showNew&&(
-            <div style={{background:BG2,borderRadius:12,padding:12,border:`1px solid ${GO}30`,marginBottom:8}}>
-              <div style={{fontSize:12,fontWeight:600,color:GOL,marginBottom:8}}>Nova Ficha</div>
+            <div data-ajuda="ficha.nova" style={{background:BG2,borderRadius:12,padding:12,border:`1px solid ${GO}30`,marginBottom:8}}>
+              <div style={{fontSize:12,fontWeight:600,color:GOL,marginBottom:8,display:"inline-flex",alignItems:"center",gap:4}}>Nova Ficha <AjudaCampo chave="ficha.nova" rota={ROTA_AJUDA} /></div>
               <input value={newNome} onChange={e=>setNewNome(e.target.value)} placeholder="Nome da tipologia" style={{...inp,marginBottom:6}}/>
               <select value={newCat} onChange={e=>setNewCat(e.target.value)} style={{...inp,marginBottom:6}}>
                 {CATEGORIAS.map(c=><option key={c} value={c}>{c.charAt(0).toUpperCase()+c.slice(1)}</option>)}
@@ -435,8 +438,8 @@ export default function FichaTecnicaPage(){
 
                 {/* Product search panel */}
                 {showProdSearch&&(
-                  <div style={{background:BG3,borderRadius:10,padding:12,border:`1px solid ${G}30`,marginBottom:10}}>
-                    <div style={{fontSize:12,fontWeight:600,color:G,marginBottom:6}}>🔍 Buscar no Estoque (ERP) (por nome ou código)</div>
+                  <div data-ajuda="ficha.produto_busca" style={{background:BG3,borderRadius:10,padding:12,border:`1px solid ${G}30`,marginBottom:10}}>
+                    <div style={{fontSize:12,fontWeight:600,color:G,marginBottom:6,display:"inline-flex",alignItems:"center",gap:4}}>🔍 Buscar no Estoque (ERP) (por nome ou código) <AjudaCampo chave="ficha.produto_busca" rota={ROTA_AJUDA} /></div>
                     <input value={prodSearch} onChange={e=>searchProdutos(e.target.value)} placeholder="Digite nome ou código do produto..." style={{...inp,marginBottom:6}}/>
                     {loadingProds&&<div style={{fontSize:10,color:TXM}}>Buscando...</div>}
                     <div style={{maxHeight:200,overflowY:"auto"}}>
@@ -456,20 +459,20 @@ export default function FichaTecnicaPage(){
                 )}
                 <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
                   <div>
-                    <div style={{fontSize:9,color:TXM,marginBottom:2}}>MO Direta (R$/m²)</div>
-                    <input value={fichaAtual.mao_obra_direta} onChange={e=>updateFicha("mao_obra_direta",parseFloat(e.target.value)||0)} type="number" style={inpSm}/>
+                    <label style={{fontSize:9,color:TXM,marginBottom:2,display:"block"}}><span style={{display:"inline-flex",alignItems:"center",gap:3}}>MO Direta (R$/m²) <AjudaCampo chave="ficha.mao_obra_direta" rota={ROTA_AJUDA} /></span>
+                    <input value={fichaAtual.mao_obra_direta} onChange={e=>updateFicha("mao_obra_direta",parseFloat(e.target.value)||0)} type="number" style={inpSm}/></label>
                   </div>
                   <div>
-                    <div style={{fontSize:9,color:TXM,marginBottom:2}}>Custos Indiretos (%)</div>
-                    <input value={fichaAtual.custos_indiretos_pct} onChange={e=>updateFicha("custos_indiretos_pct",parseFloat(e.target.value)||0)} type="number" style={inpSm}/>
+                    <label style={{fontSize:9,color:TXM,marginBottom:2,display:"block"}}><span style={{display:"inline-flex",alignItems:"center",gap:3}}>Custos Indiretos (%) <AjudaCampo chave="ficha.custos_indiretos_pct" rota={ROTA_AJUDA} /></span>
+                    <input value={fichaAtual.custos_indiretos_pct} onChange={e=>updateFicha("custos_indiretos_pct",parseFloat(e.target.value)||0)} type="number" style={inpSm}/></label>
                   </div>
                   <div>
-                    <div style={{fontSize:9,color:TXM,marginBottom:2}}>Impostos (%)</div>
-                    <input value={fichaAtual.impostos_pct} onChange={e=>updateFicha("impostos_pct",parseFloat(e.target.value)||0)} type="number" style={inpSm}/>
+                    <label style={{fontSize:9,color:TXM,marginBottom:2,display:"block"}}><span style={{display:"inline-flex",alignItems:"center",gap:3}}>Impostos (%) <AjudaCampo chave="ficha.impostos_pct" rota={ROTA_AJUDA} /></span>
+                    <input value={fichaAtual.impostos_pct} onChange={e=>updateFicha("impostos_pct",parseFloat(e.target.value)||0)} type="number" style={inpSm}/></label>
                   </div>
                   <div>
-                    <div style={{fontSize:9,color:TXM,marginBottom:2}}>Markup (%)</div>
-                    <input value={fichaAtual.markup_pct} onChange={e=>updateFicha("markup_pct",parseFloat(e.target.value)||0)} type="number" style={inpSm}/>
+                    <label style={{fontSize:9,color:TXM,marginBottom:2,display:"block"}}><span style={{display:"inline-flex",alignItems:"center",gap:3}}>Markup (%) <AjudaCampo chave="ficha.markup_pct" rota={ROTA_AJUDA} /></span>
+                    <input value={fichaAtual.markup_pct} onChange={e=>updateFicha("markup_pct",parseFloat(e.target.value)||0)} type="number" style={inpSm}/></label>
                   </div>
                 </div>
               </div>
@@ -499,11 +502,11 @@ export default function FichaTecnicaPage(){
                     <thead style={{position:"sticky",top:0,background:BG2,zIndex:1}}>
                       <tr style={{borderBottom:`1px solid ${BD}`}}>
                         <th style={{padding:"8px",textAlign:"left",color:GO,fontSize:10,fontWeight:600,width:30}}>#</th>
-                        <th style={{padding:"8px",textAlign:"left",color:GO,fontSize:10,fontWeight:600,width:90}}>CÓDIGO</th>
-                        <th style={{padding:"8px",textAlign:"left",color:GO,fontSize:10,fontWeight:600}}>MATERIAL / INSUMO</th>
-                        <th style={{padding:"8px",textAlign:"center",color:GO,fontSize:10,fontWeight:600}}>UN</th>
-                        <th style={{padding:"8px",textAlign:"right",color:GO,fontSize:10,fontWeight:600}}>QTD/m²</th>
-                        <th style={{padding:"8px",textAlign:"right",color:GO,fontSize:10,fontWeight:600}}>PREÇO UN.</th>
+                        <th style={{padding:"8px",textAlign:"left",color:GO,fontSize:10,fontWeight:600,width:90}}>CÓDIGO <AjudaCampo chave="ficha.item_codigo" rota={ROTA_AJUDA} /></th>
+                        <th style={{padding:"8px",textAlign:"left",color:GO,fontSize:10,fontWeight:600}}>MATERIAL / INSUMO <AjudaCampo chave="ficha.item_material" rota={ROTA_AJUDA} /></th>
+                        <th style={{padding:"8px",textAlign:"center",color:GO,fontSize:10,fontWeight:600}}>UN <AjudaCampo chave="ficha.item_unidade" rota={ROTA_AJUDA} /></th>
+                        <th style={{padding:"8px",textAlign:"right",color:GO,fontSize:10,fontWeight:600}}>QTD/m² <AjudaCampo chave="ficha.item_qtd" rota={ROTA_AJUDA} /></th>
+                        <th style={{padding:"8px",textAlign:"right",color:GO,fontSize:10,fontWeight:600}}>PREÇO UN. <AjudaCampo chave="ficha.item_preco" rota={ROTA_AJUDA} /></th>
                         <th style={{padding:"8px",textAlign:"right",color:GO,fontSize:10,fontWeight:600}}>CUSTO/m²</th>
                         <th style={{padding:"8px",textAlign:"center",color:GO,fontSize:10,fontWeight:600,width:50}}></th>
                       </tr>

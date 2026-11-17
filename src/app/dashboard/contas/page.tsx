@@ -140,7 +140,7 @@ export default function ContasPage(){
     setProcessando(true);
     try{
       const{data,error}=await supabase.rpc('batch_baixa_titulos',{
-        p_titulos_ids:Array.from(selecionados),
+        p_lancamento_ids:Array.from(selecionados),
         p_data_pagamento:baixaData,
         p_banco_conta_id:baixaConta||null,
         p_forma_pagamento:baixaForma,
@@ -160,7 +160,7 @@ export default function ContasPage(){
     if(!confirm(`Cancelar ${selecionados.size} título(s)?`))return;
     setProcessando(true);
     try{
-      const{error}=await supabase.rpc('batch_cancelar_titulos',{p_titulos_ids:Array.from(selecionados)});
+      const{error}=await supabase.rpc('batch_cancelar_titulos',{p_lancamento_ids:Array.from(selecionados)});
       if(error){setMsg("❌ "+error.message);setProcessando(false);return;}
       setMsg(`✅ ${selecionados.size} título(s) cancelado(s)`);
       setSelecionados(new Set());
@@ -371,16 +371,16 @@ export default function ContasPage(){
           <div style={{background:BG2,borderRadius:14,padding:24,maxWidth:500,width:"100%"}} onClick={e=>e.stopPropagation()}>
             <div style={{fontSize:18,fontWeight:700,color:G,marginBottom:14,fontFamily:"var(--ps-font-display,serif)"}}>✅ Baixar {selecionados.size} título(s)</div>
             <div style={{display:"grid",gap:10,marginBottom:16}}>
-              <div><div style={{fontSize:11,color:TXD,marginBottom:4}}>Data do Pagamento</div>
+              <div data-ajuda="contas.baixa_data"><div style={{fontSize:11,color:TXD,marginBottom:4,display:"flex",alignItems:"center",gap:4}}>Data do Pagamento<AjudaCampo chave="contas.baixa_data" /></div>
                 <input type="date" value={baixaData} onChange={e=>setBaixaData(e.target.value)} style={inp}/></div>
               {contasBancarias.length>0&&(
-                <div><div style={{fontSize:11,color:TXD,marginBottom:4}}>Conta Bancária</div>
+                <div data-ajuda="contas.baixa_conta"><div style={{fontSize:11,color:TXD,marginBottom:4,display:"flex",alignItems:"center",gap:4}}>Conta Bancária<AjudaCampo chave="contas.baixa_conta" /></div>
                   <select value={baixaConta} onChange={e=>setBaixaConta(e.target.value)} style={inp}>
                     <option value="">Sem conta específica</option>
                     {contasBancarias.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}
                   </select></div>
               )}
-              <div><div style={{fontSize:11,color:TXD,marginBottom:4}}>Forma</div>
+              <div data-ajuda="contas.baixa_forma"><div style={{fontSize:11,color:TXD,marginBottom:4,display:"flex",alignItems:"center",gap:4}}>Forma<AjudaCampo chave="contas.baixa_forma" /></div>
                 <select value={baixaForma} onChange={e=>setBaixaForma(e.target.value)} style={inp}>
                   <option value="transferencia">Transferência</option>
                   <option value="pix">PIX</option>
@@ -402,8 +402,8 @@ export default function ContasPage(){
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={()=>setShowVencimento(false)}>
           <div style={{background:BG2,borderRadius:14,padding:24,maxWidth:500,width:"100%"}} onClick={e=>e.stopPropagation()}>
             <div style={{fontSize:18,fontWeight:700,color:Y,marginBottom:14,fontFamily:"var(--ps-font-display,serif)"}}>📅 Alterar vencimento de {selecionados.size} título(s)</div>
-            <div style={{marginBottom:10}}>
-              <div style={{fontSize:11,color:TXD,marginBottom:4}}>Novo Vencimento</div>
+            <div style={{marginBottom:10}} data-ajuda="contas.venc_novo">
+              <div style={{fontSize:11,color:TXD,marginBottom:4,display:"flex",alignItems:"center",gap:4}}>Novo Vencimento<AjudaCampo chave="contas.venc_novo" /></div>
               <input type="date" value={novoVencimento} onChange={e=>setNovoVencimento(e.target.value)} style={inp}/>
             </div>
             <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:16}}>

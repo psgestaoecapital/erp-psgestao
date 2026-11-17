@@ -171,7 +171,9 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
   const daProposta = modo === 'proposta' ? chip('da proposta', C.amber, C.amberBg) : null
   const doCadastro = modo === 'proposta' && cliInfo ? chip('do cadastro', C.green, C.greenBg) : null
 
-  // escolher cliente para proposta sem vínculo: puxa nome/doc do cadastro p/ enviar como identidade do contrato
+  // escolher cliente (proposta sem vínculo ou modo "Com dados novos" — #6703): puxa nome/doc/contato/endereço do
+  // cadastro. Fill-se-vazio: só preenche CPF/CNPJ e responsável quando estão vazios — nunca sobrescreve o que o
+  // usuário digitou à mão (foi a sobrescrita assíncrona que quebrou o fluxo de cliente novo inline, revert #5270).
   async function escolherCliente(id: string) {
     const { data } = await supabase.from('erp_clientes').select('razao_social, nome_fantasia, cnpj_cpf, email, telefone, celular, logradouro, numero, bairro, cidade, uf, endereco, contato_operacional').eq('id', id).maybeSingle()
     const e = (data ?? {}) as Record<string, string | null>
@@ -197,6 +199,14 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
     const dia = diaVenc ? Number(diaVenc) : null
     if (dia != null && (!Number.isInteger(dia) || dia < 1 || dia > 28)) { setErro('Dia de vencimento: de 1 a 28.'); return }
     if (inicio && fim && fim < inicio) { setErro('O fim da vigência não pode ser antes do início.'); return }
+    // Novos obrigatórios (CEO 11/11, item 4A): título, vigência De/Até, nº parcelas, dia venc e 1º venc.
+    // Vêm pré-preenchidos da proposta aprovada; aqui a tela exige que cheguem (a régua do backend é igual, fail-closed).
+    if (!titulo.trim()) { setErro('Informe o título do contrato.'); return }
+    if (!inicio) { setErro('Informe o início da vigência (De).'); return }
+    if (!fim) { setErro('Informe o fim da vigência (Até).'); return }
+    if (!nParcelas || !Number.isInteger(Number(nParcelas)) || Number(nParcelas) < 1) { setErro('Informe o nº de parcelas (1 ou mais).'); return }
+    if (dia == null) { setErro('Informe o dia do vencimento (de 1 a 28).'); return }
+    if (!primeiroVenc) { setErro('Informe o 1º vencimento.'); return }
     const dados: Record<string, unknown> = {
       cliente_cnpj: doc.trim() || null,
       responsavel: responsavel.trim() || null,
@@ -312,7 +322,7 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
                         <div style={{ fontSize: 13, color: C.red, fontWeight: 700, marginBottom: 8 }}>
                           Esta proposta não tem cliente — escolha ou cadastre antes de pedir o contrato.
                         </div>
-                        <ClientePickerInline companyId={companyId} value={cliInfo?.id ?? ''} onChange={(id) => { if (id) void escolherCliente(id) }} onToast={(s) => setToast(s)} />
+                        <ClientePickerInline companyId={companyId} value={cliInfo?.id ?? ''} onChange={(id) => { if (id) void escolherCliente(id) }} onToast={(s) => setToast(s)} onErro={(s) => setErro(s)} />
                       </div>
                     ) : cliInfo ? (
                       <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 12 }}>
@@ -326,9 +336,24 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
                     ) : null}
                   </>
                 ) : (
-                  <Campo label="Cliente" chave="pm.solicitar_contrato.cliente" ajuda>
-                    <ClientePickerInline companyId={companyId} value={cli} onChange={(id) => setCli(id)} onToast={(s) => setToast(s)} />
-                  </Campo>
+                  <>
+                    <Campo label="Cliente" chave="pm.solicitar_contrato.cliente" ajuda>
+                      <ClientePickerInline companyId={companyId} value={cli}
+                        onChange={(id) => { setCli(id); if (id) void escolherCliente(id); else setCliInfo(null) }}
+                        onToast={(s) => setToast(s)} onErro={(s) => setErro(s)} />
+                    </Campo>
+                    {/* #6703 (Edney/Pdois): ao escolher o cliente, o cadastro preenche o CPF/CNPJ e o responsável
+                        abaixo — SÓ quando estão vazios, nunca sobrescrevendo o que foi digitado à mão (escolherCliente
+                        é fill-se-vazio, 1 argumento). Os dados de contato aparecem aqui para conferência. */}
+                    {cli && cliInfo ? (
+                      <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 14, marginTop: -6 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: C.espresso }}>{cliInfo.nome || 'Cliente'}{chip('do cadastro', C.green, C.greenBg)}</div>
+                        {cliInfo.endereco && <div style={{ fontSize: 12, color: C.espressoM, marginTop: 4 }}>{cliInfo.endereco}</div>}
+                        <div style={{ fontSize: 12, color: C.espressoM, marginTop: 2 }}>{cliInfo.email || 'sem e-mail'} · {cliInfo.telefone || 'sem telefone'}</div>
+                        <div style={{ fontSize: 11, color: C.espressoM, marginTop: 6 }}>Os dados vêm do cadastro do cliente — edite no cadastro se mudaram. O CPF/CNPJ e o responsável abaixo você pode ajustar aqui.</div>
+                      </div>
+                    ) : null}
+                  </>
                 )}
                 <div style={gradeContrato}>
                   <Campo label="CPF/CNPJ do cliente" chave="pm.solicitar_contrato.cpf_cnpj" ajuda>
@@ -413,7 +438,7 @@ export default function SolicitarContratoModal({ companyId, propostaId, proposta
                   <textarea style={{ ...inp, minHeight: 70, fontFamily: 'inherit' }} value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Contexto, pedidos do cliente, etc." />
                 </Campo>
                 <div style={{ fontSize: 11, color: C.espressoM, marginTop: -6, marginBottom: 12 }}>
-                  Obrigatórios para enviar ao financeiro: cliente, CPF/CNPJ, objeto, valor e periodicidade. O resto o financeiro pode completar.
+                  Obrigatórios para enviar ao financeiro: título, cliente, CPF/CNPJ, objeto, valor, periodicidade, vigência (De e Até), nº de parcelas, dia do vencimento e 1º vencimento. Vêm pré-preenchidos da proposta aprovada.
                 </div>
               </Secao>
 
@@ -473,6 +498,12 @@ function traduz(e?: string): string {
     case 'dia_vencimento_invalido': return 'Dia de vencimento: de 1 a 28.'
     case 'numero_parcelas_invalido': return 'Nº de parcelas precisa ser pelo menos 1.'
     case 'vigencia_invalida': return 'O fim da vigência não pode ser antes do início.'
+    case 'titulo_obrigatorio': return 'Informe o título do contrato.'
+    case 'vigencia_inicio_obrigatoria': return 'Informe o início da vigência (De).'
+    case 'vigencia_fim_obrigatoria': return 'Informe o fim da vigência (Até).'
+    case 'numero_parcelas_obrigatorio': return 'Informe o nº de parcelas.'
+    case 'dia_vencimento_obrigatorio': return 'Informe o dia do vencimento (de 1 a 28).'
+    case 'primeiro_vencimento_obrigatorio': return 'Informe o 1º vencimento.'
     default: return e || 'Não foi possível solicitar o contrato.'
   }
 }

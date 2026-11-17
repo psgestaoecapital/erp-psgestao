@@ -37,7 +37,7 @@ ok(/v_devido > 0 THEN 'pendente_confirmacao'[\s\S]*ELSE 'conforme' END;[\s\S]*v_
 ok(!/\bDELETE FROM\b|\bTRUNCATE\b|\bDROP TABLE\b/.test(mig2119), 'a migration não apaga dado')
 ok(/REVOKE ALL ON FUNCTION[^;]*anon/.test(mig2119) && /GRANT EXECUTE ON FUNCTION[^;]*service_role/.test(mig2119), 'função trancada (sem anon; service_role)')
 
-const tela = readFileSync('src/app/dashboard/compliance/pausas-tecnicas/page.tsx', 'utf8')
+const tela = readFileSync('src/app/dashboard/ehs/pausas-tecnicas/page.tsx', 'utf8')
 ok(/rotuloPendente\(p\)/.test(tela) && /data-testid="pendente-explica"/.test(tela), 'Supervisão mostra o motivo e a explicação')
 
 const spec = readFileSync('e2e/jornadas/aceitacao/nr36-587-almoco-pausas-faltantes.spec.ts', 'utf8')

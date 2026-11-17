@@ -13,6 +13,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
+import { parseNumBR } from '@/lib/num'
 import { CelulaEditavel, type OpcaoCelula } from '@/components/produtividade/CelulaEditavel'
 import { Video, Timer } from 'lucide-react'
 
@@ -336,12 +337,15 @@ function EstadoBadge({ estado }: { estado: string }) {
   return <span style={{ display: 'inline-block', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: valida ? C.greenBg : C.amberBg, color: valida ? C.green : '#8A4B08', border: `1px solid ${(valida ? C.green : C.amber)}55` }}>{rotuloEstado(estado)}</span>
 }
 
-type MedicaoCrono = { id: string; tempo_seg: number; qtd_pecas: number; seg_por_peca: number; observacao: string | null; medido_em: string }
+type MedicaoCrono = { id: string; tempo_seg: number; qtd_pecas: number; seg_por_peca: number; peso_kg: number | null; seg_por_kg: number | null; observacao: string | null; medido_em: string }
 
 // Cronoanálise digitada: tempo medido + nº de peças → Cap./h (3600 ÷ segundos por peça), média de 3+ ciclos.
+// F2 (CEO 11/11): quando a tarefa pesa o produto, também grava o peso (kg) e calcula segundos por kg — o produto
+// final é sempre medido em kg (RD-102). O peso é opcional: tarefa contada por peça continua sem informar peso.
 function BlocoCronometro({ ctx, tarefa, onMudou }: { ctx: Ctx; tarefa: Tarefa; onMudou: () => Promise<void> }) {
   const [tempo, setTempo] = useState('')
   const [pecas, setPecas] = useState('1')
+  const [peso, setPeso] = useState('')
   const [obs, setObs] = useState('')
   const [lista, setLista] = useState<MedicaoCrono[]>([])
   const [carregando, setCarregando] = useState(false)
@@ -351,7 +355,7 @@ function BlocoCronometro({ ctx, tarefa, onMudou }: { ctx: Ctx; tarefa: Tarefa; o
   const carregar = useCallback(async () => {
     setCarregando(true)
     const { data, error } = await supabase.from('prod_tarefa_tempo')
-      .select('id, tempo_seg, qtd_pecas, seg_por_peca, observacao, medido_em')
+      .select('id, tempo_seg, qtd_pecas, seg_por_peca, peso_kg, seg_por_kg, observacao, medido_em')
       .eq('tarefa_id', tarefa.id).order('medido_em', { ascending: false }).limit(50)
     setCarregando(false)
     if (!error) setLista((data as MedicaoCrono[]) ?? [])
@@ -361,23 +365,33 @@ function BlocoCronometro({ ctx, tarefa, onMudou }: { ctx: Ctx; tarefa: Tarefa; o
 
   const media = lista.length ? lista.reduce((s, m) => s + Number(m.seg_por_peca), 0) / lista.length : null
   const capCalc = media ? Math.round((3600 / media) * 10) / 10 : null
+  // média de segundos por kg só sobre os ciclos que informaram peso (seg_por_kg vem nulo sem peso)
+  const comKg = lista.filter((m) => m.seg_por_kg != null)
+  const mediaKg = comKg.length ? comKg.reduce((s, m) => s + Number(m.seg_por_kg), 0) / comKg.length : null
 
   async function gravar() {
     setErro(null)
-    const ts = Number(tempo.trim().replace(',', '.'))
-    const qp = Number((pecas.trim() || '1').replace(',', '.'))
+    const ts = parseNumBR(tempo) ?? NaN // aceita vírgula e milhar BR (#5660)
+    const qp = parseNumBR(pecas.trim() || '1') ?? NaN // aceita vírgula e milhar BR (#5660)
     if (!(ts > 0)) { setErro('Informe o tempo medido em segundos (maior que zero).'); return }
     if (!(qp > 0)) { setErro('Nº de peças deve ser maior que zero.'); return }
+    // peso é opcional; se digitado tem de ser maior que zero
+    let pk: number | null = null
+    if (peso.trim()) {
+      const n = parseNumBR(peso.trim()) ?? NaN
+      if (!(n > 0)) { setErro('Peso do produto (kg) deve ser maior que zero — ou deixe em branco.'); return }
+      pk = n
+    }
     setSalvando(true)
     const { data, error } = await supabase.rpc('fn_prod_tarefa_cronometro_salvar', {
       p_company_id: ctx.companyId, p_plant_id: ctx.plantId, p_tarefa_id: tarefa.id,
-      p_tempo_seg: ts, p_qtd_pecas: qp, p_observacao: obs.trim() || null,
+      p_tempo_seg: ts, p_qtd_pecas: qp, p_observacao: obs.trim() || null, p_peso_kg: pk,
     })
     setSalvando(false)
-    const r = data as { ok?: boolean; cap_hora?: number; n_medicoes?: number } | null
+    const r = data as { ok?: boolean; cap_hora?: number; n_medicoes?: number; seg_por_kg_medio?: number | null } | null
     if (error || !r?.ok) { setErro(erroAmigavel(error, 'Não foi possível gravar a medição agora. Tente de novo.')); return }
-    ctx.flash(`Medição gravada — Cap./h recalculada: ${r.cap_hora} peças/h (${r.n_medicoes} ciclo(s)).`)
-    setTempo(''); setPecas('1'); setObs('')
+    ctx.flash(`Medição gravada — Cap./h recalculada: ${r.cap_hora} peças/h (${r.n_medicoes} ciclo(s)).${r.seg_por_kg_medio != null ? ` Média ${String(r.seg_por_kg_medio).replace('.', ',')} s/kg.` : ''}`)
+    setTempo(''); setPecas('1'); setPeso(''); setObs('')
     await carregar()
     await onMudou()
   }
@@ -398,6 +412,10 @@ function BlocoCronometro({ ctx, tarefa, onMudou }: { ctx: Ctx; tarefa: Tarefa; o
           <label data-ajuda="prod.tarefa.crono_pecas" style={lab}>Nº de peças<Aj k="prod.tarefa.crono_pecas" /></label>
           <input data-testid={`crono-pecas-${tarefa.id}`} value={pecas} onChange={(e) => setPecas(e.target.value)} inputMode="decimal" placeholder="ex.: 3" style={inp} />
         </div>
+        <div data-ajuda="prod.tarefa.crono_peso" style={{ flex: '1 1 130px' }}>
+          <label data-ajuda="prod.tarefa.crono_peso" style={lab}>Peso do produto (kg)<Aj k="prod.tarefa.crono_peso" /></label>
+          <input data-testid={`crono-peso-${tarefa.id}`} value={peso} onChange={(e) => setPeso(e.target.value)} inputMode="decimal" placeholder="opcional" style={inp} />
+        </div>
         <div data-ajuda="prod.tarefa.crono_obs" style={{ flex: '2 1 180px' }}>
           <label data-ajuda="prod.tarefa.crono_obs" style={lab}>Observação (opcional)<Aj k="prod.tarefa.crono_obs" /></label>
           <input data-testid={`crono-obs-${tarefa.id}`} value={obs} onChange={(e) => setObs(e.target.value)} placeholder="ex.: ritmo normal" style={inp} />
@@ -409,6 +427,7 @@ function BlocoCronometro({ ctx, tarefa, onMudou }: { ctx: Ctx; tarefa: Tarefa; o
 
       <div style={{ display: 'flex', gap: 22, margin: '12px 0 6px', flexWrap: 'wrap' }}>
         <div><span style={lab}>Média seg/peça<Aj k="prod.tarefa.crono_media" /></span><b style={{ fontSize: 16 }}>{media == null ? '—' : `${Math.round(media * 10) / 10} s`}</b></div>
+        <div><span style={lab}>Média seg/kg<Aj k="prod.tarefa.crono_peso" /></span><b style={{ fontSize: 16 }}>{mediaKg == null ? '—' : `${(Math.round(mediaKg * 100) / 100).toLocaleString('pt-BR')} s`}</b></div>
         <div><span style={lab}>Cap./h calculada</span><b style={{ fontSize: 16, color: C.goldD }}>{capCalc == null ? '—' : `${capCalc} peças/h`}</b></div>
         <div><span style={lab}>Ciclos medidos</span><b style={{ fontSize: 16 }}>{lista.length}{lista.length > 0 && lista.length < 3 ? ' · meça 3+' : ''}</b></div>
       </div>
@@ -422,6 +441,8 @@ function BlocoCronometro({ ctx, tarefa, onMudou }: { ctx: Ctx; tarefa: Tarefa; o
             <th style={{ textAlign: 'right', padding: '4px 6px', fontWeight: 700 }}>Tempo</th>
             <th style={{ textAlign: 'right', padding: '4px 6px', fontWeight: 700 }}>Peças</th>
             <th style={{ textAlign: 'right', padding: '4px 6px', fontWeight: 700 }}>seg/peça</th>
+            <th style={{ textAlign: 'right', padding: '4px 6px', fontWeight: 700 }}>Peso (kg)</th>
+            <th style={{ textAlign: 'right', padding: '4px 6px', fontWeight: 700 }}>seg/kg</th>
             <th style={{ textAlign: 'left', padding: '4px 6px', fontWeight: 700 }}>Obs.</th>
           </tr></thead>
           <tbody>
@@ -431,6 +452,8 @@ function BlocoCronometro({ ctx, tarefa, onMudou }: { ctx: Ctx; tarefa: Tarefa; o
                 <td style={{ padding: '4px 6px', textAlign: 'right' }}>{Number(m.tempo_seg)} s</td>
                 <td style={{ padding: '4px 6px', textAlign: 'right' }}>{Number(m.qtd_pecas)}</td>
                 <td style={{ padding: '4px 6px', textAlign: 'right' }}>{Math.round(Number(m.seg_por_peca) * 10) / 10}</td>
+                <td style={{ padding: '4px 6px', textAlign: 'right' }}>{m.peso_kg == null ? '—' : Number(m.peso_kg).toLocaleString('pt-BR')}</td>
+                <td style={{ padding: '4px 6px', textAlign: 'right' }}>{m.seg_por_kg == null ? '—' : (Math.round(Number(m.seg_por_kg) * 100) / 100).toLocaleString('pt-BR')}</td>
                 <td style={{ padding: '4px 6px', color: C.espM }}>{m.observacao ?? '—'}</td>
               </tr>
             ))}

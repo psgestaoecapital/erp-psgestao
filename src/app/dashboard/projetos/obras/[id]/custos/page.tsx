@@ -14,6 +14,8 @@ import { ehUuid, erroAmigavel } from '@/lib/erroAmigavel'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERM = '#B91C1C', VERDE = '#2E7D32'
 // RD-95: a ajuda "?" é carregada por rota exata (fn_ajuda_campo_listar). Esta tela é rota dinâmica (/obras/[id]/custos):
@@ -71,7 +73,7 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
 
   const lancar = async (e: React.FormEvent) => {
     e.preventDefault(); setErro('')
-    const valor = Number(f.valor.replace(/\./g, '').replace(',', '.'))
+    const valor = moedaParaNumero(f.valor) ?? 0 // #6874: campo mascarado (R$)
     if (!f.descricao.trim()) { setErro('Informe a descrição do custo.'); return }
     if (!(valor > 0)) { setErro('Informe um valor maior que zero.'); return }
     setSalvando(true)
@@ -101,7 +103,7 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
       data: (c.data ?? hoje()).slice(0, 10),
       categoria: c.categoria || 'Material',
       descricao: c.descricao || '',
-      valor: Number(c.valor ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      valor: numeroParaMoeda(c.valor), // #6874: máscara R$ ao editar
       fornecedor_nome: c.fornecedor_nome ?? '',
     })
     setEd(c)
@@ -110,7 +112,7 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
     e.preventDefault()
     if (!ed) return
     setErro('')
-    const valor = Number(ef.valor.replace(/\./g, '').replace(',', '.'))
+    const valor = moedaParaNumero(ef.valor) ?? 0 // #6874: campo mascarado (R$)
     if (!ef.descricao.trim()) { setErro('Informe a descrição do custo.'); return }
     if (!(valor > 0)) { setErro('Informe um valor maior que zero.'); return }
     setSalvandoEd(true)
@@ -178,7 +180,7 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
             <AjudaCampo chave="projetos.obra_custos.categoria" rota={ROTA} /> <select value={f.categoria} onChange={e => setF({ ...f, categoria: e.target.value })} style={inp} data-testid="custos-categoria">
               {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
           <div><label style={lab}>Valor (R$)</label>
-            <input inputMode="decimal" value={f.valor} onChange={e => setF({ ...f, valor: e.target.value })} style={inp} data-testid="custos-valor" placeholder="0,00" /> <AjudaCampo chave="projetos.obra_custos.valor" rota={ROTA} /></div>
+            <CampoMoeda value={f.valor} onChange={v => setF({ ...f, valor: v })} style={inp} testId="custos-valor" placeholder="R$ 0,00" /> <AjudaCampo chave="projetos.obra_custos.valor" rota={ROTA} /></div>
           <div><label style={lab}>Fornecedor</label>
             <input value={f.fornecedor_nome} onChange={e => setF({ ...f, fornecedor_nome: e.target.value })} style={inp} data-testid="custos-fornecedor" placeholder="Opcional" /> <AjudaCampo chave="projetos.obra_custos.fornecedor" rota={ROTA} /></div>
           <div style={{ gridColumn: '1 / -1' }}><label style={lab}>Descrição</label>
@@ -239,7 +241,7 @@ export default function CustosObraPage({ params }: { params: Promise<{ id: strin
               <AjudaCampo chave="projetos.obra_custos.categoria" rota={ROTA} /> <select value={ef.categoria} onChange={e => setEf({ ...ef, categoria: e.target.value })} style={inp} data-testid="custos-editar-categoria">
                 {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}</select></div>
             <div><label style={lab}>Valor (R$)</label>
-              <input inputMode="decimal" value={ef.valor} onChange={e => setEf({ ...ef, valor: e.target.value })} style={inp} data-testid="custos-editar-valor" placeholder="0,00" /> <AjudaCampo chave="projetos.obra_custos.valor" rota={ROTA} /></div>
+              <CampoMoeda value={ef.valor} onChange={v => setEf({ ...ef, valor: v })} style={inp} testId="custos-editar-valor" placeholder="R$ 0,00" /> <AjudaCampo chave="projetos.obra_custos.valor" rota={ROTA} /></div>
             <div><label style={lab}>Fornecedor</label>
               <input value={ef.fornecedor_nome} onChange={e => setEf({ ...ef, fornecedor_nome: e.target.value })} style={inp} data-testid="custos-editar-fornecedor" placeholder="Opcional" /> <AjudaCampo chave="projetos.obra_custos.fornecedor" rota={ROTA} /></div>
             <div><label style={lab}>Descrição</label>

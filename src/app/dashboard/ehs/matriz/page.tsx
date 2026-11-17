@@ -1,0 +1,596 @@
+'use client'
+
+import Link from 'next/link'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { authFetch } from '@/lib/authFetch'
+import { useCompanyIds } from '@/lib/useCompanyIds'
+import { fmtData } from '@/lib/psgc-tokens'
+import { UploadDocumentoModal, type UploadContext } from '../_components/UploadDocumentoModal'
+import { C, baixarDocumento } from '../_components/ui'
+
+type Tipo = { id: string; slug: string; nome: string; grupo: string | null; obrigatorio: boolean }
+type Celula = {
+  tipo_documento_id: string
+  tipo_slug: string
+  tipo_nome: string
+  documento_id: string | null
+  data_emissao: string | null
+  data_validade: string | null
+  status_validade: string | null
+  status_final: string
+  dias_para_vencer: number | null
+  obrigatorio: boolean
+  dispensa_motivo?: string | null
+}
+type Linha = {
+  funcionario_id: string
+  company_id: string
+  nome_completo: string
+  cpf: string | null
+  cargo: string | null
+  setor: string | null
+  empresa_tomadora_nome: string | null
+  obra_nome: string | null
+  funcionario_ativo: boolean
+  documentos: Record<string, Celula>
+}
+
+function corDotStatus(status: string | null | undefined): { bg: string; fg: string; emoji: string; label: string } {
+  switch (status) {
+    case 'valido': return { bg: C.greenBg, fg: C.green, emoji: '🟢', label: 'Válido' }
+    case 'vencendo': return { bg: C.amberBg, fg: C.amber, emoji: '🟡', label: 'Vencendo' }
+    case 'vencido': return { bg: C.redBg, fg: C.red, emoji: '🔴', label: 'Vencido' }
+    case 'nao_emitido': return { bg: C.grayBg, fg: C.gray, emoji: '⚫', label: 'Não emitido' }
+    case 'nao_se_aplica': return { bg: C.neutralBg, fg: C.neutral, emoji: '⊘', label: 'Não se aplica' }
+    default: return { bg: C.grayBg, fg: C.gray, emoji: '⚫', label: status || 'Não emitido' }
+  }
+}
+
+export default function MatrizPage() {
+  const { companyIds } = useCompanyIds()
+  // Estabiliza referência (useCompanyIds devolve array novo a cada render).
+  const companyIdsKey = useMemo(() => [...(companyIds ?? [])].sort().join(','), [companyIds])
+  const [loading, setLoading] = useState(true)
+  const [erro, setErro] = useState<string | null>(null)
+  const [tipos, setTipos] = useState<Tipo[]>([])
+  const [linhas, setLinhas] = useState<Linha[]>([])
+  const [fTomadora, setFTomadora] = useState('')
+  const [fObra, setFObra] = useState('')
+  const [fSetor, setFSetor] = useState('')
+  const [fCargo, setFCargo] = useState('')
+  const [fGrupo, setFGrupo] = useState<string>('')
+  const [mostrarOpcionais, setMostrarOpcionais] = useState(false)
+  const [celulaSelecionada, setCelulaSelecionada] = useState<{ linha: Linha; celula: Celula } | null>(null)
+  const [uploadCtx, setUploadCtx] = useState<UploadContext | null>(null)
+  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
+  // #75 (celular): filtros numa gaveta, siglas no cabeçalho e a tabela na primeira tela. Computador: igual.
+  const [isCelular, setIsCelular] = useState(false)
+  const [gavetaAberta, setGavetaAberta] = useState(false)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const mq = window.matchMedia('(max-width: 640px)')
+    const on = () => setIsCelular(mq.matches)
+    on(); mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
+
+  const showToast = useCallback((msg: string, ok = true) => {
+    setToast({ msg, ok })
+    setTimeout(() => setToast(null), 3500)
+  }, [])
+
+  const carregar = useCallback(async () => {
+    if (!companyIdsKey) return
+    setLoading(true)
+    setErro(null)
+    try {
+      const params = new URLSearchParams({ company_ids: companyIdsKey })
+      if (fTomadora) params.set('empresa_tomadora', fTomadora)
+      if (fObra) params.set('obra', fObra)
+      if (fSetor) params.set('setor', fSetor)
+      if (fCargo) params.set('cargo', fCargo)
+      const res = await authFetch(`/api/compliance/matriz?${params.toString()}`)
+      const j = await res.json()
+      if (!j.ok) throw new Error(j.error || 'falha')
+      setTipos(j.tipos || [])
+      setLinhas(j.funcionarios || [])
+    } catch (e: any) {
+      setErro(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }, [companyIdsKey, fTomadora, fObra, fSetor, fCargo])
+
+  useEffect(() => { carregar() }, [carregar])
+
+  const dispensar = useCallback(async (linha: Linha, celula: Celula, motivo: string) => {
+    try {
+      const res = await authFetch('/api/compliance/dispensas', {
+        method: 'POST',
+        body: JSON.stringify({
+          company_id: linha.company_id,
+          tipo_documento_id: celula.tipo_documento_id,
+          funcionario_id: linha.funcionario_id,
+          motivo: motivo.trim() || null,
+        }),
+      })
+      const j = await res.json()
+      if (!j.ok) throw new Error(j.mensagem_humana || j.error || 'Falha')
+      showToast(`✓ Documento dispensado para ${linha.nome_completo}`)
+      setCelulaSelecionada(null)
+      await carregar()
+    } catch (e: any) {
+      showToast(e.message || 'Falha ao dispensar', false)
+    }
+  }, [carregar, showToast])
+
+  const reativarCobranca = useCallback(async (linha: Linha, celula: Celula) => {
+    try {
+      const res = await authFetch('/api/compliance/dispensas', {
+        method: 'DELETE',
+        body: JSON.stringify({
+          company_id: linha.company_id,
+          tipo_documento_id: celula.tipo_documento_id,
+          funcionario_id: linha.funcionario_id,
+        }),
+      })
+      const j = await res.json()
+      if (!j.ok) throw new Error(j.mensagem_humana || j.error || 'Falha')
+      showToast(`✓ Cobrança reativada para ${linha.nome_completo}`)
+      setCelulaSelecionada(null)
+      await carregar()
+    } catch (e: any) {
+      showToast(e.message || 'Falha ao reativar', false)
+    }
+  }, [carregar, showToast])
+
+  const opcoesTomadora = useMemo(() => Array.from(new Set(linhas.map((l: Linha) => l.empresa_tomadora_nome).filter(Boolean) as string[])).sort(), [linhas])
+  const opcoesObra = useMemo(() => Array.from(new Set(linhas.map((l: Linha) => l.obra_nome).filter(Boolean) as string[])).sort(), [linhas])
+  const opcoesSetor = useMemo(() => Array.from(new Set(linhas.map((l: Linha) => l.setor).filter(Boolean) as string[])).sort(), [linhas])
+  const opcoesCargo = useMemo(() => Array.from(new Set(linhas.map((l: Linha) => l.cargo).filter(Boolean) as string[])).sort(), [linhas])
+
+  const filtrosAtivos = useMemo(() => [
+    fTomadora && { rotulo: fTomadora, limpar: () => setFTomadora('') },
+    fObra && { rotulo: fObra, limpar: () => setFObra('') },
+    fSetor && { rotulo: fSetor, limpar: () => setFSetor('') },
+    fCargo && { rotulo: fCargo, limpar: () => setFCargo('') },
+  ].filter(Boolean) as { rotulo: string; limpar: () => void }[], [fTomadora, fObra, fSetor, fCargo])
+
+  // Grupos de documentos vindos da API. Default mostra apenas obrigatórios;
+  // toggle "Mostrar opcionais" expande para todos. Filtro de grupo opera
+  // independente do toggle (ambos compõem).
+  const gruposDisponiveis = useMemo(
+    () => Array.from(new Set(tipos.map((t: Tipo) => t.grupo || '_outros'))).sort(),
+    [tipos]
+  )
+  const tiposFiltrados = useMemo(
+    () => tipos.filter((t: Tipo) => {
+      if (fGrupo && (t.grupo || '_outros') !== fGrupo) return false
+      if (!mostrarOpcionais && !t.obrigatorio) return false
+      return true
+    }),
+    [tipos, fGrupo, mostrarOpcionais]
+  )
+
+  function exportarCsv() {
+    const header = ['Funcionário', 'CPF', 'Cargo', 'Setor', 'Tomadora', 'Obra', ...tiposFiltrados.map((t: Tipo) => t.nome)]
+    const rows = linhas.map((l: Linha) => {
+      const cols: string[] = [l.nome_completo, l.cpf || '', l.cargo || '', l.setor || '', l.empresa_tomadora_nome || '', l.obra_nome || '']
+      for (const t of tiposFiltrados) {
+        const c = l.documentos[t.slug]
+        if (!c || c.status_final === 'nao_emitido') cols.push('Não emitido')
+        else cols.push(`${corDotStatus(c.status_final).label}${c.data_validade ? ' (até ' + fmtData(c.data_validade) + ')' : ''}`)
+      }
+      return cols
+    })
+    const csv = [header, ...rows].map((r: string[]) => r.map((v: string) => `"${String(v).replace(/"/g, '""')}"`).join(';')).join('\n')
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `matriz-compliance-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <div style={{ backgroundColor: C.offwhite, minHeight: '100vh', color: C.ink }}>
+      <div style={{ maxWidth: '100%', margin: '0 auto', padding: isCelular ? '10px' : '24px' }}>
+        {isCelular ? (
+          <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+            <div style={{ minWidth: 0 }}>
+              <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 20, fontWeight: 400, margin: 0 }}>Matriz de Conformidade</h1>
+              <p data-testid="matriz-contagem" style={{ margin: 0, fontSize: 12, color: C.muted }}>{linhas.length} funcionários × {tiposFiltrados.length} documentos</p>
+            </div>
+            <Link href="/dashboard/ehs" style={{ padding: '6px 10px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 12, fontWeight: 600, textDecoration: 'none', flexShrink: 0 }}>← Voltar</Link>
+          </header>
+        ) : (
+        <header style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
+          <div>
+            <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.5, margin: 0 }}>EHS</p>
+            <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 32, fontWeight: 400, margin: '4px 0 6px' }}>Matriz de Conformidade</h1>
+            <p data-testid="matriz-contagem" style={{ margin: 0, fontSize: 14, color: C.muted }}>
+              {linhas.length} funcionários × {tiposFiltrados.length} documentos
+              {!mostrarOpcionais && tiposFiltrados.length < tipos.length && ` (${tipos.length - tiposFiltrados.length} opcionais ocultos)`}
+              . Clique numa célula para ver/editar.
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Link href="/dashboard/ehs" style={{ padding: '10px 14px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>← Voltar</Link>
+            <button onClick={exportarCsv} disabled={loading || linhas.length === 0} style={{ padding: '10px 14px', borderRadius: 8, border: 'none', backgroundColor: C.gold, color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+              Exportar Excel (CSV)
+            </button>
+          </div>
+        </header>
+        )}
+
+        {erro && (<div style={{ backgroundColor: C.redBg, color: C.red, padding: '12px 16px', borderRadius: 8, marginBottom: 16, fontSize: 14 }}>{erro}</div>)}
+
+        {isCelular ? (
+          <section style={{ marginBottom: 8 }}>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <button data-testid="matriz-filtros" onClick={() => setGavetaAberta(true)} style={{ ...chipStyle(filtrosAtivos.length > 0), flexShrink: 0 }}>
+                Filtros{filtrosAtivos.length > 0 ? ` (${filtrosAtivos.length})` : ''}
+              </button>
+              <div style={{ display: 'flex', gap: 6, overflowX: 'auto', whiteSpace: 'nowrap', flex: 1 }}>
+                <button onClick={() => setFGrupo('')} style={{ ...chipStyle(fGrupo === ''), flexShrink: 0 }}>Todos</button>
+                {gruposDisponiveis.map((g: string) => (
+                  <button key={g} onClick={() => setFGrupo(g)} style={{ ...chipStyle(fGrupo === g), flexShrink: 0 }}>{labelGrupo(g)}</button>
+                ))}
+              </div>
+            </div>
+            {filtrosAtivos.length > 0 && (
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
+                {filtrosAtivos.map((f) => (
+                  <button key={f.rotulo} data-testid="matriz-filtro-ativo" onClick={f.limpar} aria-label={`Tirar filtro ${f.rotulo}`}
+                    style={{ padding: '2px 8px', borderRadius: 999, border: `1px solid ${C.borderLt}`, background: C.beigeLt, color: C.espresso, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                    {f.rotulo} ✕
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+        ) : (
+        /* #75 (SST): filtros compactados numa única barra — grupo, selects e toggle
+            na mesma linha, reduzindo a altura ocupada antes da matriz. */
+        <section style={{ backgroundColor: 'white', borderRadius: 12, padding: '10px 12px', boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)', display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
+          <button onClick={() => setFGrupo('')} style={chipStyle(fGrupo === '')}>Todos</button>
+          {gruposDisponiveis.map((g: string) => (
+            <button key={g} onClick={() => setFGrupo(g)} style={chipStyle(fGrupo === g)}>{labelGrupo(g)}</button>
+          ))}
+          <span style={{ width: 1, alignSelf: 'stretch', background: C.borderLt, margin: '0 2px' }} />
+          <select value={fTomadora} onChange={(e: any) => setFTomadora(e.target.value)} style={selectStyle()}>
+            <option value="">Todas as tomadoras</option>
+            {opcoesTomadora.map((s: string) => (<option key={s} value={s}>{s}</option>))}
+          </select>
+          <select value={fObra} onChange={(e: any) => setFObra(e.target.value)} style={selectStyle()}>
+            <option value="">Todas as obras</option>
+            {opcoesObra.map((s: string) => (<option key={s} value={s}>{s}</option>))}
+          </select>
+          <select value={fSetor} onChange={(e: any) => setFSetor(e.target.value)} style={selectStyle()}>
+            <option value="">Todos os setores</option>
+            {opcoesSetor.map((s: string) => (<option key={s} value={s}>{s}</option>))}
+          </select>
+          <select value={fCargo} onChange={(e: any) => setFCargo(e.target.value)} style={selectStyle()}>
+            <option value="">Todos os cargos</option>
+            {opcoesCargo.map((s: string) => (<option key={s} value={s}>{s}</option>))}
+          </select>
+          <span style={{ flex: 1 }} />
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: C.espresso, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={mostrarOpcionais}
+              onChange={(e: any) => setMostrarOpcionais(e.target.checked)}
+            />
+            Mostrar opcionais
+          </label>
+        </section>
+        )}
+
+        <section style={{ backgroundColor: 'white', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)' }}>
+          <div style={{ overflowX: 'auto', maxHeight: isCelular ? 'calc(100vh - 130px)' : '70vh', overflowY: 'auto' }}>
+            <table style={{ borderCollapse: 'separate', borderSpacing: 0, fontSize: 12, width: '100%' }}>
+              <thead>
+                <tr>
+                  <th style={{ ...headerStyle(), left: 0, position: 'sticky', zIndex: 3, background: C.beigeLt, minWidth: isCelular ? 130 : 200, padding: isCelular ? '6px 8px' : '8px 12px' }}>Funcionário</th>
+                  {tiposFiltrados.map((t: Tipo) => isCelular ? (
+                    <th key={t.id} style={{ ...headerStyle(), padding: '6px 2px', minWidth: 38, textAlign: 'center', opacity: t.obrigatorio ? 1 : 0.6 }}>
+                      <button onClick={() => showToast(`${siglaDoc(t)} — ${t.nome}${t.obrigatorio ? ' (obrigatório)' : ' (opcional)'}`)}
+                        title={t.nome} data-testid="matriz-sigla"
+                        style={{ border: 'none', background: 'transparent', padding: 0, fontSize: 10, fontWeight: 700, color: 'rgba(61, 35, 20, 0.75)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                        {siglaDoc(t)}
+                      </button>
+                    </th>
+                  ) : (
+                    <th
+                      key={t.id}
+                      style={{ ...headerStyle(), padding: '6px 2px', minWidth: 30, opacity: t.obrigatorio ? 1 : 0.6 }}
+                      title={`${t.nome}${t.obrigatorio ? ' (obrigatório)' : ' (opcional)'}`}
+                    >
+                      <div style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', padding: '6px 2px', whiteSpace: 'nowrap', maxHeight: 150, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {t.nome}{t.obrigatorio ? ' *' : ''}
+                      </div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {loading && (<tr><td colSpan={tiposFiltrados.length + 1} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Carregando…</td></tr>)}
+                {!loading && linhas.length === 0 && (<tr><td colSpan={tiposFiltrados.length + 1} style={{ padding: 24, textAlign: 'center', color: C.muted }}>Sem funcionários</td></tr>)}
+                {linhas.map((l: Linha, i: number) => (
+                  <tr key={l.funcionario_id} style={{ background: i % 2 === 0 ? 'white' : C.offwhite }}>
+                    <td style={{ padding: isCelular ? '4px 8px' : '5px 12px', borderBottom: `1px solid ${C.borderLt}`, left: 0, position: 'sticky', zIndex: 2, background: i % 2 === 0 ? 'white' : C.offwhite, minWidth: isCelular ? 130 : 200, fontSize: isCelular ? 11.5 : undefined }}>
+                      <Link href={`/dashboard/ehs/funcionarios/${l.funcionario_id}`} style={{ color: C.espresso, textDecoration: 'none', fontWeight: 600 }}>{l.nome_completo}</Link>
+                      <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>{l.cargo || '—'} · {l.empresa_tomadora_nome || 'sem tomadora'}</div>
+                    </td>
+                    {tiposFiltrados.map((t: Tipo) => {
+                      const c = l.documentos[t.slug]
+                      const d = corDotStatus(c?.status_final)
+                      return (
+                        <td key={t.id} style={{ padding: 2, borderBottom: `1px solid ${C.borderLt}`, textAlign: 'center' }}>
+                          <button
+                            onClick={() => {
+                              if (!c) return
+                              setCelulaSelecionada({ linha: l, celula: c })
+                            }}
+                            title={
+                              c?.status_final === 'nao_se_aplica'
+                                ? `${t.nome}: Não se aplica${c?.dispensa_motivo ? ' — ' + c.dispensa_motivo : ''}`
+                                : `${t.nome}: ${d.label}${c?.data_validade ? ' até ' + fmtData(c.data_validade) : ''}`
+                            }
+                            style={{
+                              width: 26, height: 26, borderRadius: '50%',
+                              border: 'none', background: d.bg, color: d.fg,
+                              fontSize: 12, cursor: c ? 'pointer' : 'default',
+                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            }}
+                          >
+                            {d.emoji}
+                          </button>
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      {isCelular && gavetaAberta && (
+        <div onClick={() => setGavetaAberta(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 150, display: 'flex', alignItems: 'flex-end' }}>
+          <div data-testid="matriz-gaveta" onClick={(e) => e.stopPropagation()} style={{ background: 'white', width: '100%', borderRadius: '14px 14px 0 0', padding: 16, display: 'grid', gap: 10, boxSizing: 'border-box' }}>
+            <div style={{ fontWeight: 700, color: C.espresso }}>Filtros</div>
+            <select aria-label="Tomadora" value={fTomadora} onChange={(e) => setFTomadora(e.target.value)} style={{ ...selectStyle(), width: '100%', padding: '9px 10px', fontSize: 14 }}>
+              <option value="">Todas as tomadoras</option>
+              {opcoesTomadora.map((x: string) => (<option key={x} value={x}>{x}</option>))}
+            </select>
+            <select aria-label="Obra" value={fObra} onChange={(e) => setFObra(e.target.value)} style={{ ...selectStyle(), width: '100%', padding: '9px 10px', fontSize: 14 }}>
+              <option value="">Todas as obras</option>
+              {opcoesObra.map((x: string) => (<option key={x} value={x}>{x}</option>))}
+            </select>
+            <select aria-label="Setor" value={fSetor} onChange={(e) => setFSetor(e.target.value)} style={{ ...selectStyle(), width: '100%', padding: '9px 10px', fontSize: 14 }}>
+              <option value="">Todos os setores</option>
+              {opcoesSetor.map((x: string) => (<option key={x} value={x}>{x}</option>))}
+            </select>
+            <select aria-label="Cargo" value={fCargo} onChange={(e) => setFCargo(e.target.value)} style={{ ...selectStyle(), width: '100%', padding: '9px 10px', fontSize: 14 }}>
+              <option value="">Todos os cargos</option>
+              {opcoesCargo.map((x: string) => (<option key={x} value={x}>{x}</option>))}
+            </select>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: C.espresso }}>
+              <input type="checkbox" checked={mostrarOpcionais} onChange={(e) => setMostrarOpcionais(e.target.checked)} /> Mostrar documentos opcionais
+            </label>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => { setFTomadora(''); setFObra(''); setFSetor(''); setFCargo('') }} style={btnSecModal()}>Limpar</button>
+              <button data-testid="matriz-gaveta-fechar" onClick={() => setGavetaAberta(false)} style={btnPrimModal()}>Ver resultado</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {celulaSelecionada && (
+        <CelulaModal
+          linha={celulaSelecionada.linha}
+          celula={celulaSelecionada.celula}
+          onClose={() => setCelulaSelecionada(null)}
+          onBaixar={() => celulaSelecionada.celula.documento_id && baixarDocumento(celulaSelecionada.celula.documento_id)}
+          onSubstituir={() => {
+            setUploadCtx({
+              companyId: celulaSelecionada.linha.company_id,
+              tipoDocumentoId: celulaSelecionada.celula.tipo_documento_id,
+              tipoNome: celulaSelecionada.celula.tipo_nome,
+              funcionarioId: celulaSelecionada.linha.funcionario_id,
+              modo: celulaSelecionada.celula.documento_id ? 'substituir' : 'upload',
+            })
+            setCelulaSelecionada(null)
+          }}
+          onDispensar={(motivo: string) => dispensar(celulaSelecionada.linha, celulaSelecionada.celula, motivo)}
+          onReativar={() => reativarCobranca(celulaSelecionada.linha, celulaSelecionada.celula)}
+        />
+      )}
+
+      {toast && (
+        <div
+          style={{
+            position: 'fixed', bottom: 24, right: 24, zIndex: 200,
+            padding: '12px 18px', borderRadius: 8,
+            background: toast.ok ? C.espresso : C.red,
+            color: 'white', fontSize: 13, fontWeight: 600,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+            maxWidth: 'min(90vw, 420px)',
+          }}
+        >
+          {toast.msg}
+        </div>
+      )}
+
+      {uploadCtx && (
+        <UploadDocumentoModal
+          ctx={uploadCtx}
+          onClose={() => setUploadCtx(null)}
+          onUploaded={() => {
+            setUploadCtx(null)
+            carregar()
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function CelulaModal({
+  linha, celula, onClose, onBaixar, onSubstituir, onDispensar, onReativar,
+}: {
+  linha: Linha; celula: Celula
+  onClose: () => void
+  onBaixar: () => void
+  onSubstituir: () => void
+  onDispensar: (motivo: string) => void
+  onReativar: () => void
+}) {
+  const d = corDotStatus(celula.status_final)
+  const [mostrandoMotivo, setMostrandoMotivo] = useState(false)
+  const [motivo, setMotivo] = useState('')
+  const isNaoSeAplica = celula.status_final === 'nao_se_aplica'
+  const isNaoEmitido = celula.status_final === 'nao_emitido'
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+      <div onClick={(e: any) => e.stopPropagation()} style={{ background: 'white', borderRadius: 12, padding: 24, width: 'min(480px, 92vw)' }}>
+        <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.5, margin: 0 }}>
+          {linha.nome_completo}
+        </p>
+        <h2 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 22, fontWeight: 400, margin: '4px 0 12px' }}>{celula.tipo_nome}</h2>
+        <div style={{ padding: '8px 14px', borderRadius: 999, fontSize: 13, fontWeight: 600, backgroundColor: d.bg, color: d.fg, display: 'inline-block', marginBottom: 12 }}>
+          {d.emoji} {d.label}
+        </div>
+        <div style={{ fontSize: 13, color: C.ink, lineHeight: 1.6 }}>
+          {isNaoSeAplica ? (
+            <div><strong>Motivo:</strong> {celula.dispensa_motivo || '—'}</div>
+          ) : (
+            <>
+              <div><strong>Emissão:</strong> {fmtData(celula.data_emissao)}</div>
+              <div><strong>Validade:</strong> {fmtData(celula.data_validade)}</div>
+              {celula.dias_para_vencer != null && (<div><strong>Dias para vencer:</strong> {celula.dias_para_vencer}</div>)}
+            </>
+          )}
+        </div>
+
+        {mostrandoMotivo && (
+          <div style={{ marginTop: 16, padding: 12, background: C.beigeLt, borderRadius: 8 }}>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+              Motivo (opcional)
+            </label>
+            <textarea
+              value={motivo}
+              onChange={(e: any) => setMotivo(e.target.value)}
+              rows={2}
+              placeholder="Ex: cargo isento por convenção coletiva"
+              style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: `1px solid ${C.borderLt}`, fontSize: 13, background: 'white', color: C.ink, boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit' }}
+            />
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
+              <button onClick={() => { setMostrandoMotivo(false); setMotivo('') }} style={btnSecModal()}>Cancelar</button>
+              <button onClick={() => onDispensar(motivo)} style={btnPrimModal()}>Confirmar dispensa</button>
+            </div>
+          </div>
+        )}
+
+        {!mostrandoMotivo && (
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 20, flexWrap: 'wrap' }}>
+            <button onClick={onClose} style={btnSecModal()}>Fechar</button>
+            {celula.documento_id && (
+              <button onClick={onBaixar} style={btnSecModal()}>Baixar</button>
+            )}
+            {isNaoSeAplica ? (
+              <>
+                <button
+                  onClick={onReativar}
+                  style={{ ...btnSecModal(), borderColor: C.gold, color: C.gold }}
+                >
+                  🔄 Reativar cobrança
+                </button>
+                <button onClick={onSubstituir} style={btnPrimModal()}>📤 Fazer upload</button>
+              </>
+            ) : (
+              <>
+                {isNaoEmitido && (
+                  <button
+                    onClick={() => setMostrandoMotivo(true)}
+                    style={{ ...btnSecModal(), borderColor: C.neutral, color: C.neutral }}
+                  >
+                    🚫 Não se aplica
+                  </button>
+                )}
+                <button onClick={onSubstituir} style={btnPrimModal()}>
+                  {celula.documento_id ? 'Substituir' : '📤 Fazer upload'}
+                </button>
+              </>
+            )}
+            <Link href={`/dashboard/ehs/funcionarios/${linha.funcionario_id}`} style={{ ...btnSecModal(), textDecoration: 'none' }}>
+              Ver funcionário
+            </Link>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function btnSecModal() {
+  return { padding: '8px 14px', borderRadius: 8, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 13, fontWeight: 600, cursor: 'pointer' } as any
+}
+function btnPrimModal() {
+  return { padding: '8px 14px', borderRadius: 8, border: 'none', backgroundColor: C.espresso, color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer' } as any
+}
+
+function headerStyle() {
+  return {
+    padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 700,
+    letterSpacing: 0.8, textTransform: 'uppercase', color: 'rgba(61, 35, 20, 0.65)',
+    background: C.beigeLt, borderBottom: `1px solid ${C.borderLt}`, top: 0, position: 'sticky', zIndex: 1,
+  } as any
+}
+function selectStyle() { return { padding: '6px 10px', borderRadius: 8, border: `1px solid ${C.borderLt}`, fontSize: 12, backgroundColor: 'white', minWidth: 120 } as any }
+
+function chipStyle(active: boolean) {
+  return {
+    padding: '5px 10px', borderRadius: 999,
+    border: `1px solid ${active ? C.espresso : C.borderLt}`,
+    backgroundColor: active ? C.espresso : 'white',
+    color: active ? 'white' : C.espresso,
+    fontSize: 12, fontWeight: 600, cursor: 'pointer',
+  } as any
+}
+
+const GRUPO_LABEL: Record<string, string> = {
+  juridico: 'Jurídico',
+  fiscal: 'Fiscal',
+  saude: 'Saúde',
+  seguranca: 'Segurança',
+  ambiental: 'Ambiental',
+  pessoal: 'Pessoal',
+  trabalhista: 'Trabalhista',
+  _outros: 'Outros',
+}
+
+function labelGrupo(g: string): string {
+  return GRUPO_LABEL[g] || g.charAt(0).toUpperCase() + g.slice(1)
+}
+
+// #75 (celular): sigla curta no cabeçalho, na horizontal; o nome completo aparece ao tocar.
+const SIGLAS: Record<string, string> = {
+  aso: 'ASO', os_funcionario: 'OS', ficha_registro: 'REG', ficha_epi: 'F.EPI', folha_pagamento: 'FOLHA',
+  espelho_ponto: 'PONTO', treinamento_psicossocial: 'PSIC', rg_cpf: 'RG/CPF', ficha_treinamento_nr06: 'T.NR06',
+  cnh: 'CNH', ctps_digital: 'CTPS', comprovante_residencia: 'RESID', certificado_militar: 'MILIT',
+  titulo_eleitor: 'TÍTULO', foto_3x4: 'FOTO', contrato_trabalho: 'CONTR', termo_confidencialidade: 'NDA',
+  termo_uso_epi: 'T.EPI', termo_uso_veiculo_ferramentas: 'T.VEÍC', adesao_plano_saude: 'PLANO',
+  vacina_hepatite_tetano: 'VACINA', audiometria_nr7: 'AUDIO', certificado_cipa: 'CIPA', certificado_primeiros_socorros: '1ºSOC',
+}
+function siglaDoc(t: { slug: string; nome: string }): string {
+  if (SIGLAS[t.slug]) return SIGLAS[t.slug]
+  const nr = t.slug.match(/^nr0*(\d+)$/i)
+  if (nr) return `NR-${nr[1].padStart(2, '0')}`
+  const base = t.nome.split(/\s+[-–]\s+/)[0].trim()
+  return base.length <= 6 ? base.toUpperCase() : base.slice(0, 5).toUpperCase() + '.'
+}

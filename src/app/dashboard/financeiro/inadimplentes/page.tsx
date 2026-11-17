@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero } from '@/lib/moeda-mascara'
 
 const ROTA_AJUDA = '/dashboard/financeiro/inadimplentes'
 
@@ -357,7 +359,7 @@ function ConteudoAtrasadas({
             checked={allSelected}
             onChange={() => allSelected ? onClearAll() : onSelectAll(todosIds)}
           />
-          Selecionar todas ({todosIds.length})
+          Selecionar todas ({todosIds.length})<AjudaCampo chave="ge.inadimplentes.selecionar" rota={ROTA_AJUDA} />
         </label>
       </div>
 
@@ -415,8 +417,8 @@ function ConteudoAtrasadas({
                     const checked = selecionados.has(conta.id)
                     const corAtraso = corPorAtraso(conta.dias_atraso)
                     return (
-                      <div key={conta.id} style={{ padding: '8px 8px 8px 10px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', borderBottom: '0.5px solid rgba(61,35,20,0.05)', borderLeft: `4px solid ${corAtraso}` }}>
-                        <input type="checkbox" checked={checked} onChange={() => onToggleSelect(conta.id)} />
+                      <div key={conta.id} data-ajuda="ge.inadimplentes.selecionar" style={{ padding: '8px 8px 8px 10px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', borderBottom: '0.5px solid rgba(61,35,20,0.05)', borderLeft: `4px solid ${corAtraso}` }}>
+                        <input type="checkbox" checked={checked} onChange={() => onToggleSelect(conta.id)} aria-label="Selecionar esta conta" />
                         <div style={{ flex: 1, minWidth: 200 }}>
                           <div style={{ fontSize: 12, fontWeight: 600, color: '#3D2314' }}>{conta.descricao ?? '(sem descrição)'}</div>
                           <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.65)', marginTop: 2 }}>
@@ -591,7 +593,7 @@ function RenegociarModal({ open, ids, onClose, onSucesso }: { open: boolean; ids
     const { error } = await supabase.rpc('fn_renegociar_inadimplencia', {
       p_receber_ids: ids,
       p_nova_data_vencimento: novaData,
-      p_novo_valor_total: novoValor ? Number(novoValor) : null,
+      p_novo_valor_total: moedaParaNumero(novoValor),
       p_observacao: obs || 'Renegociado',
     })
     setLoading(false)
@@ -613,15 +615,15 @@ function RenegociarModal({ open, ids, onClose, onSucesso }: { open: boolean; ids
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <label>
-            <span style={fieldLabel}>Nova data vencimento</span>
+            <span style={fieldLabel}>Nova data vencimento<AjudaCampo chave="ge.inadimplentes.reneg_data" rota={ROTA_AJUDA} /></span>
             <input type="date" value={novaData} onChange={(e) => setNovaData(e.target.value)} style={input} />
           </label>
           <label>
-            <span style={fieldLabel}>Novo valor total (opcional)</span>
-            <input type="number" step="0.01" min="0" value={novoValor} onChange={(e) => setNovoValor(e.target.value)} placeholder="Deixe vazio pra manter" style={input} />
+            <span style={fieldLabel}>Novo valor total (opcional)<AjudaCampo chave="ge.inadimplentes.reneg_valor" rota={ROTA_AJUDA} /></span>
+            <CampoMoeda value={novoValor} onChange={setNovoValor} placeholder="Deixe vazio pra manter" style={input} />
           </label>
           <label>
-            <span style={fieldLabel}>Observação</span>
+            <span style={fieldLabel}>Observação<AjudaCampo chave="ge.inadimplentes.reneg_obs" rota={ROTA_AJUDA} /></span>
             <textarea value={obs} onChange={(e) => setObs(e.target.value)} rows={2} style={input} />
           </label>
           {erro && <div style={{ background: '#FCEBEB', color: '#A32D2D', padding: '8px 12px', borderRadius: 6, fontSize: 12 }}>{erro}</div>}

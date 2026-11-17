@@ -66,6 +66,14 @@ export default function ResultadoPorNegocioPage() {
   useEffect(() => { void carregar() }, [carregar])
 
   const somaNegocios = useMemo(() => (dados?.negocios ?? []).reduce((s, n) => s + Number(n.resultado), 0), [dados])
+  // Há negócios cadastrados, mas a maior parte da receita ainda cai em "sem negócio" (lançamentos não
+  // classificados): a tabela aparece quase zerada e parece quebrada. Avisa e orienta, sem bloquear (RD-98 p4).
+  const maioriaSemClassificar = useMemo(() => {
+    if (!dados || dados.negocios.length === 0) return false
+    const receitaNegocios = dados.negocios.reduce((s, n) => s + Number(n.receita || 0), 0)
+    const receitaSemNegocio = Number(dados.sem_negocio?.receita || 0) + Number(dados.sem_negocio?.outras || 0)
+    return receitaSemNegocio > 0 && receitaNegocios < receitaSemNegocio
+  }, [dados])
 
   if (!empresa) return <div style={{ padding: 24, color: ESP60 }}>Selecione UMA empresa específica.</div>
 
@@ -119,6 +127,23 @@ export default function ResultadoPorNegocioPage() {
             </div>
           ) : (
           <>
+          {maioriaSemClassificar && (
+            /* negócios existem, mas a maior parte da receita está sem linha de negócio: a quebra sai incompleta */
+            <div style={{ background: '#FBF4E6', border: `1px solid ${GOLD}`, borderRadius: 12, padding: '14px 18px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+              <span aria-hidden style={{ fontSize: 20 }}>💡</span>
+              <div style={{ flex: 1, minWidth: 220, fontSize: 13, color: ESP, lineHeight: 1.5 }}>
+                A maior parte da receita do período ainda está <strong>sem linha de negócio</strong>, então a quebra abaixo
+                sai incompleta. Classifique seus lançamentos por linha de negócio para comparar cada negócio lado a lado.
+              </div>
+              <button
+                type="button"
+                onClick={() => router.push('/dashboard/gestao-empresarial/centros-custo')}
+                style={{ background: GOLD, color: '#fff', border: 'none', padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
+              >
+                Classificar lançamentos →
+              </button>
+            </div>
+          )}
           {/* cartões por negócio */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14, marginBottom: 18 }}>
             {dados.negocios.map((n) => (

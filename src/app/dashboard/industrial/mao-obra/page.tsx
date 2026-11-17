@@ -26,6 +26,8 @@ type CompRow = { matricula: number; nome: string | null; competencia: string; to
 type PessoaRow = { matricula: number; setor: string | null; vinculo: string | null }
 type LinhaPessoa = { matricula: number; nome: string; remuneracao: number; total_geral: number }
 type Grupo = { setor: string; especial: boolean; pessoas: LinhaPessoa[]; custo: number; remuneracao: number }
+// Agregado por setor (gestor/diretoria sem papel RH) — SEM dado individual (LGPD).
+type AggRow = { competencia: string; setor: string; colaboradores: number; custo_total: number; remuneracao_base: number; pct: number }
 
 // mesma classificação da view v_custo_folha_setor (RD-51): pró-labore e sem-setor separados, nunca diluídos
 function setorDe(vinculo: string | null, setor: string | null): string {
@@ -45,6 +47,10 @@ export default function MaoObraIndustriaPage() {
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [podeVer, setPodeVer] = useState<boolean | null>(null)
+  // Gestor/diretoria sem papel RH: vê só o custo AGREGADO por setor (gerencial), nunca salário individual.
+  const [podeAgregado, setPodeAgregado] = useState<boolean | null>(null)
+  const [aggRows, setAggRows] = useState<AggRow[]>([])
+  const [aggCompSel, setAggCompSel] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     if (!empresaUnica) { setLoading(false); return }
@@ -70,6 +76,30 @@ export default function MaoObraIndustriaPage() {
     void supabase.rpc('fn__pode_ver_folha', { p_company_id: empresaUnica }).then(({ data }) => { if (alive) setPodeVer(data === true) })
     return () => { alive = false }
   }, [empresaUnica])
+
+  // Gestor/diretoria (RH, owner, sócio, diretor, gerente, financeiro) e as camadas gerenciais do
+  // escopo industrial podem ver o custo AGREGADO por setor (número gerencial), mesmo sem papel RH.
+  // O salário INDIVIDUAL segue restrito ao RH/diretoria por guarda própria (fn__mao_obra_pode_ver_individual).
+  useEffect(() => {
+    if (!empresaUnica) { setPodeAgregado(null); return }
+    let alive = true
+    void supabase.rpc('fn__mao_obra_pode_ver_agregado', { p_company_id: empresaUnica }).then(({ data }) => { if (alive) setPodeAgregado(data === true) })
+    return () => { alive = false }
+  }, [empresaUnica])
+
+  // Carrega o agregado por setor só quando é gestor-não-RH (evita chamada à toa).
+  useEffect(() => {
+    if (!empresaUnica || podeVer !== false || !podeAgregado) return
+    let alive = true
+    void supabase.rpc('fn_custo_folha_setor_agregado', { p_company_id: empresaUnica }).then(({ data }) => {
+      if (!alive) return
+      const rows = (data ?? []) as AggRow[]
+      setAggRows(rows)
+      const comps = [...new Set(rows.map((r) => r.competencia))].sort().reverse()
+      setAggCompSel((c) => c ?? comps[0] ?? null)
+    })
+    return () => { alive = false }
+  }, [empresaUnica, podeVer, podeAgregado])
 
   const competencias = useMemo(() => [...new Set(compRows.map((r) => r.competencia))].sort().reverse(), [compRows])
   const setorPorMatricula = useMemo(() => {
@@ -103,7 +133,86 @@ export default function MaoObraIndustriaPage() {
   }
 
   if (podeVer === false) {
-    return <Casca><Box><b style={{ color: ESP }}>Acesso restrito ao RH</b><div style={{ color: MUT, fontSize: 13, marginTop: 6 }}>Salários e folha de pagamento são visíveis apenas ao RH e à diretoria. Se você precisa deste acesso, fale com o RH.</div></Box></Casca>
+    // Gestor/diretoria sem papel RH: mostra o custo AGREGADO por setor (gerencial),
+    // sem nenhum salário individual. Enquanto a permissão carrega, aguarda.
+    if (podeAgregado === null) {
+      return <Casca><Box><span style={{ color: MUT, fontSize: 13 }}>Verificando acesso…</span></Box></Casca>
+    }
+    if (!podeAgregado) {
+      return <Casca><Box><b style={{ color: ESP }}>Acesso restrito ao RH</b><div style={{ color: MUT, fontSize: 13, marginTop: 6 }}>Salários e folha de pagamento são visíveis apenas ao RH e à diretoria. Se você precisa deste acesso, fale com o RH.</div></Box></Casca>
+    }
+    const aggComps = [...new Set(aggRows.map((r) => r.competencia))].sort().reverse()
+    const aggLinhas = aggRows
+      .filter((r) => r.competencia === aggCompSel)
+      .sort((a, b) => Number(ESPECIAL(a.setor)) - Number(ESPECIAL(b.setor)) || Number(b.custo_total) - Number(a.custo_total))
+    const aggCusto = aggLinhas.reduce((s, r) => s + (Number(r.custo_total) || 0), 0)
+    const aggColab = aggLinhas.reduce((s, r) => s + (Number(r.colaboradores) || 0), 0)
+    const aggSetores = aggLinhas.filter((r) => !ESPECIAL(r.setor)).length
+    return (
+      <Casca>
+        <div style={{ background: 'rgba(200,148,26,0.08)', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: '10px 14px', fontSize: 12.5, color: ESP }}>
+          👔 Visão de <b>gestão</b>: custo de mão de obra <b>agregado por setor</b>. O salário por pessoa é dado sensível e fica visível só ao RH.
+        </div>
+        {aggComps.length === 0 ? (
+          <Box>
+            <div style={{ fontSize: 34, marginBottom: 8 }}>👥</div>
+            <b style={{ color: ESP, fontSize: 15 }}>Sem folha importada ainda</b>
+            <div style={{ color: MUT, fontSize: 13, margin: '8px 0 16px', lineHeight: 1.5 }}>
+              O custo por setor aparece assim que a folha de pagamento for importada. A importação é feita pelo RH, na tela da folha.
+            </div>
+            {/* RD-98 · estado vazio com ação: leva à tela da folha (as permissões de importação são aplicadas lá). */}
+            <Link href="/dashboard/industrial/folha" style={{ ...btnGold, textDecoration: 'none', display: 'inline-block' }}>📤 Ir para a folha</Link>
+          </Box>
+        ) : (
+          <>
+            <section style={card}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT }}>Competência</span>
+                <AjudaCampo chave="industrial.mao_obra.competencia" rota={ROTA} />
+                <select value={aggCompSel ?? ''} onChange={(e) => setAggCompSel(e.target.value)}
+                  style={{ padding: '8px 11px', border: `0.5px solid ${LINE}`, borderRadius: 6, fontSize: 13, color: ESP, background: '#FFF' }}>
+                  {aggComps.map((k) => <option key={k} value={k}>competência {fmtComp(k)}</option>)}
+                </select>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
+                <Kpi t="Colaboradores" v={String(aggColab)} ajuda="industrial.mao_obra.pessoas" />
+                <Kpi t="Custo total (com encargos)" v={brl(aggCusto)} destaque ajuda="industrial.mao_obra.total" />
+                <Kpi t="Setores" v={String(aggSetores)} ajuda="industrial.mao_obra.setores" />
+              </div>
+            </section>
+
+            <section style={card}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                <span style={{ fontSize: 13.5, fontWeight: 700, color: ESP }}>Custo de mão de obra por setor</span>
+                <AjudaCampo chave="industrial.mao_obra.custo_setor" rota={ROTA} />
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 360 }}>
+                  <thead style={{ background: BG }}>
+                    <tr>
+                      <th style={th}>Setor</th>
+                      <th style={{ ...th, textAlign: 'right' }}>Colaboradores</th>
+                      <th style={{ ...th, textAlign: 'right' }}>Custo c/ encargos</th>
+                      <th style={{ ...th, textAlign: 'right' }}>% do total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {aggLinhas.map((r) => (
+                      <tr key={r.setor} style={{ borderTop: `0.5px solid ${LINE}` }}>
+                        <td style={{ padding: '8px 12px', color: ESPECIAL(r.setor) ? MUT : ESP, fontWeight: ESPECIAL(r.setor) ? 700 : 600 }}>{r.setor}</td>
+                        <td style={{ padding: '8px 12px', textAlign: 'right', color: MUT, fontVariantNumeric: 'tabular-nums' }}>{r.colaboradores}</td>
+                        <td style={{ padding: '8px 12px', textAlign: 'right', color: ESP, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{brl(Number(r.custo_total) || 0)}</td>
+                        <td style={{ padding: '8px 12px', textAlign: 'right', color: MUT, fontVariantNumeric: 'tabular-nums' }}>{(Number(r.pct) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </>
+        )}
+      </Casca>
+    )
   }
 
   return (

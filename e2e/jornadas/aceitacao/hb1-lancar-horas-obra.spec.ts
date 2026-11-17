@@ -31,7 +31,8 @@ test.describe('HB1 — lançar horas na obra', () => {
     await expect(page.getByTestId('horas-vazio')).toBeVisible({ timeout: 30000 })
 
     await page.getByTestId('horas-horas').fill('2')
-    await page.getByTestId('horas-custo').fill('50')
+    // #6874: custo/hora agora é campo com máscara de R$ (CampoMoeda, centavos). "5000" dígitos → R$ 50,00.
+    await page.getByTestId('horas-custo').fill('5000')
     await page.getByTestId('horas-descricao').fill(`E2E ${RUN}`)
     await page.getByTestId('horas-lancar').click()
     await expect(page.getByTestId('horas-total')).toContainText(/100,00/, { timeout: 30000 })

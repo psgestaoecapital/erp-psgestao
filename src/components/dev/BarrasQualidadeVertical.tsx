@@ -23,9 +23,11 @@ type Linha = {
   ultima_auditoria: string | null
 }
 // Nome curto por vertical para caber no eixo X.
+// compliance -> "EHS" é só RÓTULO DE EXIBIÇÃO (renomeio CEO 08/10 p/ PS EHS); o slug interno
+// segue 'compliance' nas 21 telas e nas RPCs (não regredir, RD-100/estabilidade).
 const NOME: Record<string, string> = {
   hub: 'Hub', pm: 'P&M', oficina: 'Oficina', revenda_veiculos: 'Revenda', industrial: 'Indústria',
-  compliance: 'Compliance', bpo: 'BPO', gestao_empresarial: 'Gestão', wealth: 'Wealth', odonto: 'Odonto',
+  compliance: 'EHS', bpo: 'BPO', gestao_empresarial: 'Gestão', wealth: 'Wealth', odonto: 'Odonto',
   agro: 'Agro', ecommerce: 'E-commerce', medica: 'Médica', custeio_a: 'Custeio A', custeio_b: 'Custeio B',
 }
 const nomeVertical = (s: string) => NOME[s] ?? s.replace(/_/g, ' ')

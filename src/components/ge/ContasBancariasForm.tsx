@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 
 // RD-95: chaves ge.contas_bancarias.form.* cadastradas na rota canônica (o formulário abre dentro dela).
 const ROTA_AJUDA = '/dashboard/cadastros/contas-bancarias'
@@ -77,7 +79,7 @@ export default function ContasBancariasForm({ companyId, conta, contas = [], onC
   const [incluirResumo, setIncluirResumo] = useState(conta?.incluir_no_resumo ?? true)
   const [incluirFluxo, setIncluirFluxo] = useState(conta?.incluir_no_fluxo ?? true)
   const [incluirOrcamento, setIncluirOrcamento] = useState(conta?.incluir_no_orcamento ?? true)
-  const [limiteCredito, setLimiteCredito] = useState(conta?.limite_credito?.toString() ?? '0')
+  const [limiteCredito, setLimiteCredito] = useState(numeroParaMoeda(conta?.limite_credito ?? 0))
   const [cor, setCor] = useState(conta?.cor ?? '#3D2314')
   // Cartão de crédito
   const [ccVinculada, setCcVinculada] = useState(conta?.conta_corrente_vinculada_id ?? '')
@@ -131,7 +133,7 @@ export default function ContasBancariasForm({ companyId, conta, contas = [], onC
       incluir_no_resumo: incluirResumo,
       incluir_no_fluxo: incluirFluxo,
       incluir_no_orcamento: incluirOrcamento,
-      limite_credito: parseFloat(limiteCredito) || 0,
+      limite_credito: moedaParaNumero(limiteCredito) ?? 0,
       cor,
       ativo: true,
       // Cartão: só grava o bloco quando tipo = cartão; troca de tipo limpa os campos.
@@ -267,7 +269,7 @@ export default function ContasBancariasForm({ companyId, conta, contas = [], onC
           </div>
 
           <Campo ajuda="ge.contas_bancarias.form.limite_credito" label="Limite de crédito (R$)" hint="Cartão de crédito ou cheque especial · zero se não houver">
-            <input type="number" step="0.01" min="0" value={limiteCredito} onChange={(e) => setLimiteCredito(e.target.value)} style={inputStyle} />
+            <CampoMoeda value={limiteCredito} onChange={setLimiteCredito} style={inputStyle} />
           </Campo>
 
           {ehCartao && (

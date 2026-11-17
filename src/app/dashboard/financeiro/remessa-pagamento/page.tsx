@@ -15,7 +15,10 @@ import { mapearRemessaSicoob, buildArquivoSicoob, mapearRemessaSicredi, buildArq
 import { normalizarCodigoBarras } from '@/lib/financeiro/boleto-parser'
 import { ehPix } from '@/lib/financeiro/formasPagamento'
 import { separarBloqueados, avisoBloqueadosFora } from '@/lib/financeiro/bloqueioPagamento'
+import { erroAmigavel } from '@/lib/erroAmigavel'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 
+const ROTA_AJUDA = '/dashboard/financeiro/remessa-pagamento'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERDE = '#2E8B57', VERM = '#A32D2D'
 const brl = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const escHtml = (s: string) => (s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string))
@@ -278,7 +281,7 @@ export default function RemessaPagamentoPage() {
       p_config_id: cfg.id, p_agencia_dv: dvInput.trim(),
     })
     setBusy(false)
-    if (error) { setMsg('Erro ao salvar DV: ' + error.message); return }
+    if (error) { setMsg(erroAmigavel(error, 'Não foi possível salvar o DV da agência. Tente de novo.')); return }
     const j = data as { sucesso?: boolean; erro?: string; agencia_dv?: string | null } | null
     if (!j?.sucesso) { setMsg('Não salvou o DV: ' + (j?.erro ?? 'erro desconhecido')); return }
     setCfg({ ...cfg, agencia_dv: j.agencia_dv ?? dvInput.trim() }); setMsg('DV da agência salvo.')
@@ -396,7 +399,7 @@ export default function RemessaPagamentoPage() {
       setImpResumo(data as RetAutoResp); void carregarTitulosDoRetorno(data as RetAutoResp)
     } catch (e) {
       setImpArquivo(file.name)
-      setImpResumo({ ok: false, erro: (e as Error).message })
+      setImpResumo({ ok: false, erro: erroAmigavel(e, 'Não foi possível ler o arquivo de retorno. Confira o arquivo e tente de novo.') })
     } finally { setImpBusy(false) }
   }
 
@@ -478,7 +481,7 @@ export default function RemessaPagamentoPage() {
       if (error) throw error
       setExtrato(data as ExtratoResp)
     } catch (e) {
-      setExtrato({ sucesso: false, erro: (e as Error).message })
+      setExtrato({ sucesso: false, erro: erroAmigavel(e, 'Não foi possível abrir o extrato desta remessa. Tente de novo.') })
     } finally { setGestBusy(false) }
   }
 
@@ -494,7 +497,7 @@ export default function RemessaPagamentoPage() {
       if (!j?.sucesso) { setMsg('Erro: ' + (j?.orientacao ?? j?.erro ?? 'não foi possível cancelar')); return }
       setMsg(`Remessa ${rem.numero_sequencial} cancelada · ${j.titulos_liberados ?? 0} título(s) liberado(s).`)
       setExtrato(null); setExtratoRem(null); void carregar()
-    } catch (e) { setMsg('Erro ao cancelar: ' + (e as Error).message) } finally { setGestBusy(false) }
+    } catch (e) { setMsg(erroAmigavel(e, 'Não foi possível cancelar a remessa. Tente de novo.')) } finally { setGestBusy(false) }
   }
 
   async function removerItem(it: ExtratoItem) {
@@ -507,7 +510,7 @@ export default function RemessaPagamentoPage() {
       const j = data as { sucesso?: boolean; erro?: string; orientacao?: string } | null
       if (!j?.sucesso) { setMsg('Erro: ' + (j?.orientacao ?? j?.erro ?? 'não foi possível remover')); return }
       await abrirExtrato(extratoRem); void carregar()   // recarrega extrato + lista
-    } catch (e) { setMsg('Erro ao remover: ' + (e as Error).message) } finally { setGestBusy(false) }
+    } catch (e) { setMsg(erroAmigavel(e, 'Não foi possível remover o item da remessa. Tente de novo.')) } finally { setGestBusy(false) }
   }
 
   function imprimirExtrato() {
@@ -535,6 +538,14 @@ export default function RemessaPagamentoPage() {
         {cfgAviso
           ? <><b>Configuração de pagamento não definida.</b><div style={{ marginTop: 8 }}>{cfgAviso}</div></>
           : 'Esta empresa não tem banco de pagamento (Sicoob ou Sicredi) configurado. Configure o banco antes de gerar remessa.'}
+        <div style={{ marginTop: 16 }}>
+          <a
+            href="/dashboard/financeiro/conexoes-bancarias"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 999, background: GOLD, color: '#FFF', fontWeight: 700, fontSize: 13.5, textDecoration: 'none' }}
+          >
+            Configurar banco →
+          </a>
+        </div>
       </div>
     </div>
   )
@@ -597,8 +608,8 @@ export default function RemessaPagamentoPage() {
 
         {semDv && (
           <div style={{ margin: '0 0 12px', padding: 12, borderRadius: 8, background: '#FBF4E4', border: `0.5px solid ${GOLD}`, fontSize: 12.5, color: ESP }}>
-            <b>Falta o DV da agência</b> (cooperativa {cfg.cooperativa}). Confirme com o {labelBanco} e informe para gerar o arquivo:
-            <div style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center' }}>
+            <b>Falta o DV da agência</b><AjudaCampo chave="remessa.dv_agencia" rota={ROTA_AJUDA} /> (cooperativa {cfg.cooperativa}). Confirme com o {labelBanco} e informe para gerar o arquivo:
+            <div style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'center' }} data-ajuda="remessa.dv_agencia">
               <input value={dvInput} onChange={(e) => setDvInput(e.target.value)} placeholder="DV" maxLength={2} style={{ width: 60, ...inp }} />
               <button onClick={salvarDv} disabled={busy || !dvInput.trim()} style={btnGhost}>Salvar DV</button>
             </div>
@@ -612,8 +623,8 @@ export default function RemessaPagamentoPage() {
         )}
 
         <div style={{ margin: '0 0 12px', padding: 12, borderRadius: 8, background: '#FFF', border: `0.5px solid ${LINE}`, fontSize: 12.5, color: ESP }}>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            <span style={{ fontWeight: 700 }}>Nº da próxima remessa</span>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }} data-ajuda="remessa.numero_proxima">
+            <span style={{ fontWeight: 700 }}>Nº da próxima remessa<AjudaCampo chave="remessa.numero_proxima" rota={ROTA_AJUDA} /></span>
             <input
               value={numRemessa}
               onChange={(e) => setNumRemessa(e.target.value.replace(/\D/g, ''))}
@@ -645,8 +656,8 @@ export default function RemessaPagamentoPage() {
         </div>
 
         {/* Filtro por vencimento (Jordana: pagamento por período) */}
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 12, color: MUT, marginRight: 2 }}>Vencimento:</span>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }} data-ajuda="remessa.filtro_vencimento">
+          <span style={{ fontSize: 12, color: MUT, marginRight: 2 }}>Vencimento:<AjudaCampo chave="remessa.filtro_vencimento" rota={ROTA_AJUDA} /></span>
           {PRESETS_VENC.map((p) => {
             const on = vencPreset === p.v
             return (
@@ -668,7 +679,11 @@ export default function RemessaPagamentoPage() {
         {avisoBloqueados && (
           <div style={{ background: '#FEF3C7', color: '#7A5A0F', border: '0.5px solid #C8941A', borderRadius: 8, padding: '8px 12px', fontSize: 13, marginBottom: 10 }}>🔒 {avisoBloqueados}</div>
         )}
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }} data-ajuda="remessa.filtro_titulos">
+          <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+            <AjudaCampo chave="remessa.filtro_titulos" rota={ROTA_AJUDA} />
+            <AjudaCampo chave="remessa.selecionar_titulos" rota={ROTA_AJUDA} />
+          </span>
           <input value={filtro} onChange={(e) => setFiltro(e.target.value)} placeholder="Filtrar por fornecedor, descrição, forma…" style={{ ...inp, flex: 1, minWidth: 220 }} />
           <button onClick={() => toggleAll(true)} style={btnGhost}>Selecionar todos</button>
           <button onClick={() => toggleAll(false)} style={btnGhost}>Limpar</button>
@@ -691,7 +706,7 @@ export default function RemessaPagamentoPage() {
               {fornSemChavePix.slice(0, 12).map((f) => (
                 <a
                   key={f.nome}
-                  href={`/dashboard/fornecedores?busca=${encodeURIComponent(f.nome)}`}
+                  href={`/dashboard/cadastros/fornecedores?busca=${encodeURIComponent(f.nome)}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   title={`Abrir o cadastro de ${f.nome} para preencher a chave PIX`}
@@ -705,13 +720,18 @@ export default function RemessaPagamentoPage() {
           </div>
         )}
 
-        <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, overflow: 'hidden' }}>
+        <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, overflow: 'hidden' }} data-ajuda="remessa.selecionar_titulos">
           {filtradas.length === 0 ? (
-            <div style={{ padding: 24, textAlign: 'center', color: MUT, fontSize: 13 }}>Nenhum título a pagar disponível (ou todos já estão em remessa ativa).</div>
+            <div style={{ padding: 24, textAlign: 'center', color: MUT, fontSize: 13 }}>
+              Nenhum título a pagar disponível (ou todos já estão em remessa ativa).
+              <div style={{ marginTop: 10 }}>
+                <a href="/dashboard/financeiro/pagar" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 13px', borderRadius: 999, background: '#FFF', border: `0.5px solid ${LINE}`, color: ESP, fontWeight: 600, fontSize: 12.5, textDecoration: 'none' }}>Abrir Contas a Pagar →</a>
+              </div>
+            </div>
           ) : filtradas.map((r) => {
             const motivo = eleg.motivoPorId.get(r.id)   // motivo de inelegibilidade (qualquer linha, não só a selecionada)
             return (
-              <label key={r.id} style={{ display: 'grid', gridTemplateColumns: '22px minmax(0,1fr) auto', alignItems: 'center', columnGap: 12, padding: '10px 14px', borderTop: `0.5px solid ${BG}`, cursor: 'pointer', opacity: motivo ? 0.6 : 1 }}>
+              <label key={r.id} data-ajuda="remessa.selecionar_titulos" style={{ display: 'grid', gridTemplateColumns: '22px minmax(0,1fr) auto', alignItems: 'center', columnGap: 12, padding: '10px 14px', borderTop: `0.5px solid ${BG}`, cursor: 'pointer', opacity: motivo ? 0.6 : 1 }}>
                 <input type="checkbox" checked={r._sel} onChange={() => toggle(r.id)} style={{ width: 16, height: 16, margin: 0 }} />
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 13.5, color: ESP, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.fornecedor?.nome || r.descricao || '—'}</div>
@@ -729,9 +749,11 @@ export default function RemessaPagamentoPage() {
         </div>
 
         <div style={{ position: 'sticky', bottom: 0, marginTop: 14, background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <div style={{ fontSize: 13, color: ESP }}>
-            <b>{preview?.incluidos.length ?? 0}</b> pagamentos válidos · <b>{brl(preview?.totalCentavos ?? 0)}</b>
+          <div style={{ fontSize: 13, color: ESP, display: 'flex', alignItems: 'center' }}>
+            <AjudaCampo chave="remessa.gerar" rota={ROTA_AJUDA} />
+            <span><b>{preview?.incluidos.length ?? 0}</b> pagamentos válidos · <b>{brl(preview?.totalCentavos ?? 0)}</b>
             {preview && preview.erros.filter((e) => e.id !== '*').length > 0 && <span style={{ color: VERM, marginLeft: 8 }}>({preview.erros.filter((e) => e.id !== '*').length} excluídos)</span>}
+            </span>
           </div>
           <button
             onClick={() => setConfirmar(true)}
@@ -841,12 +863,12 @@ export default function RemessaPagamentoPage() {
       {impOpen && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }} onClick={() => !impBusy && setImpOpen(false)}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: '#FFF', borderRadius: 14, padding: 24, maxWidth: 560, width: '92%', maxHeight: '86vh', overflowY: 'auto', border: `0.5px solid ${LINE}` }}>
-            <h3 style={{ fontFamily: 'Fraunces, Georgia, serif', fontWeight: 400, color: ESP, margin: '0 0 4px' }}>Importar retorno do banco</h3>
+            <h3 style={{ fontFamily: 'Fraunces, Georgia, serif', fontWeight: 400, color: ESP, margin: '0 0 4px', display: 'flex', alignItems: 'center' }}>Importar retorno do banco<AjudaCampo chave="remessa.importar_retorno" rota={ROTA_AJUDA} /></h3>
             <p style={{ fontSize: 12.5, color: MUT, margin: '0 0 12px', lineHeight: 1.5 }}>
               Suba o arquivo de retorno (<b>.ret</b>/.rem) que você baixou no Internet Banking. O sistema acha sozinho os títulos e dá baixa nos que o banco confirmou — <b>não precisa escolher a remessa</b> (um arquivo pode ter pagamentos de várias). Reimportar o mesmo arquivo não baixa de novo.
             </p>
 
-            <label style={{ display: 'block', border: `1px dashed ${LINE}`, borderRadius: 10, padding: 16, textAlign: 'center', cursor: impBusy ? 'default' : 'pointer', color: ESP, fontSize: 13, background: BG }}>
+            <label data-ajuda="remessa.importar_retorno" style={{ display: 'block', border: `1px dashed ${LINE}`, borderRadius: 10, padding: 16, textAlign: 'center', cursor: impBusy ? 'default' : 'pointer', color: ESP, fontSize: 13, background: BG }}>
               <input type="file" accept=".ret,.rem,.txt" style={{ display: 'none' }} disabled={impBusy}
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) void lerRetorno(f) }} />
               {impBusy ? 'Processando…' : impArquivo ? `📄 ${impArquivo} — escolher outro` : '📥 Escolher arquivo de retorno'}

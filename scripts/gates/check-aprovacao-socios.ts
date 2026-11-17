@@ -11,6 +11,13 @@ const ok = (c: boolean, m: string) => { if (c) console.log('✓', m); else { fal
 const arq = readdirSync('supabase/migrations').filter((f) => f.endsWith('_aprovacao_socios_bandeja.sql'))
 if (arq.length !== 1) { console.error(`✗ esperava 1 migration *_aprovacao_socios_bandeja.sql, achei ${arq.length}`); process.exit(1) }
 const mig = readFileSync(`supabase/migrations/${arq[0]}`, 'utf8')
+// Chaves de ajuda podem ser cadastradas nesta OU em migrations posteriores
+// (ex.: dev.aprovar.em_andamento veio em *_bandeja_socios_so_aprovavel.sql).
+// Para "chave cadastrada" conferimos em TODAS as migrations, não só a da bandeja.
+const todasMigs = readdirSync('supabase/migrations')
+  .filter((f) => f.endsWith('.sql'))
+  .map((f) => readFileSync(`supabase/migrations/${f}`, 'utf8'))
+  .join('\n')
 const sql = mig.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
 const wf = readFileSync('.github/workflows/bandeja-socios.yml', 'utf8')
 const js = readFileSync('scripts/dev/bandeja-socios.mjs', 'utf8')
@@ -42,7 +49,7 @@ ok(itemDaBandeja(pr, [{ body: 'BANDEJA DO CEO' }, { body: `MERGE AUTORIZADO #7 �
 ok(itemDaBandeja({ ...pr, labels: [...pr.labels, { name: 'ceo-aprovado' }] }, [{ body: 'BANDEJA DO CEO' }]) === null, 'já aprovada não entra')
 ok(patchIdDe('sem hash') === null, 'sem patch-id → null')
 ok((tela.match(/supabase\.rpc\('/g) || []).length === 3 && !/\.from\(/.test(tela), 'tela lê só as RPCs')
-for (const k of [...tela.matchAll(/AjudaCampo chave="([^"]+)"/g)].map((m) => m[1])) ok(mig.includes(`('${k}',`), `chave de ajuda cadastrada: ${k}`)
+for (const k of [...tela.matchAll(/AjudaCampo chave="([^"]+)"/g)].map((m) => m[1])) ok(todasMigs.includes(`('${k}',`), `chave de ajuda cadastrada: ${k}`)
 
 if (falhas) { console.error(`\n${falhas} falha(s) — aprovação dos sócios`); process.exit(1) }
 console.log('\nAprovação dos sócios ok')

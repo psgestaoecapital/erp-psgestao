@@ -123,6 +123,12 @@ export default function BoletoActions({ provider, receberId, valor, vencimentoIS
 
   const registrado = boleto.status === 'registrado'
 
+  // #6732 · cancelamento do boleto pela API do banco. Habilitado para os conectores cuja rota
+  // /api/banco/<provider>/cancelar-boleto já envia a baixa ao banco e grava boleto_status='cancelado'
+  // (Sicoob e Banco do Brasil #5404). Para os demais bancos, o botão fica desabilitado com aviso
+  // para cancelar no internet banking, até existir a rota de baixa do respectivo conector.
+  const cancelaViaApi = provider === 'sicoob' || provider === 'bb'
+
   const copiarLinha = () => {
     if (!boleto.linhaDigitavel) return
     navigator.clipboard.writeText(boleto.linhaDigitavel)
@@ -402,7 +408,7 @@ export default function BoletoActions({ provider, receberId, valor, vencimentoIS
       </button>
       {!pago && <AjudaCampo chave="financeiro.receber.cancelar_boleto" rota="/dashboard/financeiro/receber" />}
       {!pago && (
-        provider === 'sicoob' ? (
+        cancelaViaApi ? (
           <button type="button" onClick={cancelarBoleto} disabled={cancelando}
             data-testid="boleto-cancelar"
             title="Cancela só o boleto no banco (não pode mais ser pago). O título continua em aberto."

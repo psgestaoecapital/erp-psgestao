@@ -16,7 +16,7 @@ ok(sql.includes('AND (p_cpf IS NULL OR c.cpf = p_cpf)'), 'com p_cpf, só aquele 
 ok(sql.includes("'fn_nr36_apurar(p_company_id, p_data, p_data, p_cpf)'"), 'a releitura da Conferência reapura só o colaborador relido')
 ok(/REVOKE ALL ON FUNCTION public\.fn_nr36_apurar\(uuid, date, date, text\) FROM PUBLIC, anon/.test(sql), 'permissões da nova assinatura (sem anon)')
 // a tela chama com 3 argumentos nomeados — continua resolvendo pela assinatura nova com default
-const pagina = readFileSync('src/app/dashboard/compliance/pausas-tecnicas/page.tsx', 'utf8')
+const pagina = readFileSync('src/app/dashboard/ehs/pausas-tecnicas/page.tsx', 'utf8')
 ok(/rpc\('fn_nr36_apurar', \{ p_company_id: companyId, p_dt_ini: ini, p_dt_fim: fim \}\)/.test(pagina), 'o botão Reapurar da tela segue reapurando o período inteiro (sem p_cpf)')
 
 if (falhas) { console.error(`\n[check-apurar-por-colaborador] ${falhas} regra(s) quebrada(s) — build bloqueado.`); process.exit(1) }

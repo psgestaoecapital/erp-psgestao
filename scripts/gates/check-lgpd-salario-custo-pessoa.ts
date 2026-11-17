@@ -126,7 +126,7 @@ const apont = readFileSync('src/app/dashboard/pm/apontamento-horas/page.tsx', 'u
 ok(/rpc\('fn_pm_timesheet_apontar'/.test(apont) && /rpc\('fn_pm_timesheet_custos'/.test(apont) && !/from\('agency_timesheet'\)\s*\.insert/.test(apont), '6) Apontamento grava pela função e pede o custo por apontamento só a quem vê salário')
 const marg = readFileSync('src/app/dashboard/pm/margem-job/page.tsx', 'utf8')
 ok(/rpc\('fn_pm_job_custos'/.test(marg) && !/from\('agency_timesheet'\)/.test(marg), '6) Margem por Job usa o agregado por job')
-const ficha = readFileSync('src/app/dashboard/compliance/funcionarios/[id]/page.tsx', 'utf8')
+const ficha = readFileSync('src/app/dashboard/ehs/funcionarios/[id]/page.tsx', 'utf8')
 ok(/podeVerSalario\s*\n?\s*\?/.test(ficha) && /salario-media-funcao/.test(ficha), '6) ficha: campo de salário só para quem vê; os demais veem a média da função')
 
 if (falhas) { console.error(`\n[check-lgpd-salario-custo-pessoa] ${falhas} regra(s) quebrada(s) — build bloqueado.`); process.exit(1) }

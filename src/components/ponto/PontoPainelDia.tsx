@@ -17,7 +17,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
+
+// Rota de ajuda do "?" (RD-95). O painel é compartilhado pelas duas lentes
+// (industrial/compliance); o texto da ajuda é o mesmo, então fixamos a rota
+// industrial, onde a chave está cadastrada.
+const ROTA_AJUDA = '/dashboard/industrial/ponto'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -44,9 +50,11 @@ type ColabResumo = {
   dias_ajustados: number
 }
 type DiaSerie = { data: string; presentes: number; horas: number; batidas: number }
-type BiDia = { ok: boolean; ano: number; mes: number; dias_uteis: number; tem_dados: boolean; por_colaborador: ColabResumo[]; por_dia: DiaSerie[]; erro?: string }
+type InfraMotivo = { motivo: string; qtd: number }
+type InfraSetor = { setor: string; motivo: string; qtd: number }
+type BiDia = { ok: boolean; ano: number; mes: number; dias_uteis: number; tem_dados: boolean; por_colaborador: ColabResumo[]; por_dia: DiaSerie[]; erro?: string; limite_dia_h?: number; infracoes_total?: number; infracoes_por_motivo?: InfraMotivo[]; infracoes_por_setor?: InfraSetor[] }
 
-type DiaColab = { data: string; horas: number; extras: number; batidas: number; tem_ajuste: boolean; infracao: boolean; shift: string | null }
+type DiaColab = { data: string; horas: number; extras: number; batidas: number; tem_ajuste: boolean; infracao: boolean; motivo_infracao?: string | null; shift: string | null }
 type Batida = { hora: string | null; datetime: string | null; method: string | null; origin: string | null; is_adjusted: boolean; adjustment_reason: string | null; has_audit_photo: boolean }
 
 const fmtDia = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', weekday: 'short' })
@@ -160,6 +168,14 @@ export default function PontoPainelDia({ companyId }: { companyId: string }) {
             &quot;Além da escala&quot; = worked − escala do turno (operacional, por dia). A HE-CLT oficial (por faixa, adicional,
             DSR) está no fechamento do provedor, em Inteligência → Sala de Comando.
           </p>
+
+          {/* Infrações por motivo (geral) + por setor — chamado #8150 */}
+          <InfracaoPorMotivo
+            total={data?.infracoes_total ?? 0}
+            porMotivo={data?.infracoes_por_motivo ?? []}
+            porSetor={data?.infracoes_por_setor ?? []}
+            limiteH={data?.limite_dia_h}
+          />
 
           {/* Lista de colaboradores (card premium) */}
           {colabs.length === 0 ? (
@@ -298,7 +314,12 @@ function DiaLinha({ companyId, cpf, dia, aberto, onToggle }: {
         <span style={{ fontSize: 12, color: ESP }}>{h1(dia.horas)}</span>
         {dia.extras > 0 && <span style={{ fontSize: 11, color: GOLD, fontWeight: 600 }}>+{h1(dia.extras)} além</span>}
         <span style={{ fontSize: 11, color: MUT }}>{dia.batidas} batidas</span>
-        {dia.infracao && <Badge cor={RED} bg={RED_BG}>⚠ infração</Badge>}
+        {dia.infracao && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+            <Badge cor={RED} bg={RED_BG}>⚠ infração</Badge>
+            {dia.motivo_infracao && <span style={{ fontSize: 11, color: RED, fontWeight: 600 }}>{dia.motivo_infracao}</span>}
+          </span>
+        )}
         {dia.tem_ajuste && <Badge cor={ESP} bg="#F1E9DA">ajustado</Badge>}
         <span style={{ marginLeft: 'auto', fontSize: 13, color: MUT, transform: aberto ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>›</span>
       </button>
@@ -324,6 +345,58 @@ function DiaLinha({ companyId, cpf, dia, aberto, onToggle }: {
               ))}
             </div>
           )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Infrações por motivo (geral) + por setor ───────────────────────────
+// Chamado #8150: antes o painel só dizia QUE houve infração; agora mostra o
+// MOTIVO e a quantidade no geral e por setor. Hoje a regra de infração é uma
+// (jornada acima do limite diário); o bloco já nasce preparado para mais motivos.
+function InfracaoPorMotivo({ total, porMotivo, porSetor, limiteH }: {
+  total: number; porMotivo: InfraMotivo[]; porSetor: InfraSetor[]; limiteH?: number
+}) {
+  const fmt = (n: number) => Number(n ?? 0).toLocaleString('pt-BR')
+  return (
+    <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 10, padding: '14px 16px', marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: ESP }}>Infrações de jornada por motivo</span>
+        <AjudaCampo chave="ponto.infra.por_motivo" rota={ROTA_AJUDA} />
+        <span style={{ marginLeft: 'auto', fontSize: 12, color: total > 0 ? RED : MUT, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+          {fmt(total)} no mês
+        </span>
+      </div>
+      {total === 0 ? (
+        <div style={{ fontSize: 12, color: MUT }}>Nenhuma infração de jornada neste mês{typeof limiteH === 'number' ? ` (limite de ${limiteH}h/dia)` : ''}.</div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
+          {/* Geral por motivo */}
+          <div>
+            <div style={{ fontSize: 10, color: MUT, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>Por motivo (geral)</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {porMotivo.map((m) => (
+                <div key={m.motivo} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: RED, flexShrink: 0 }} />
+                  <span style={{ color: ESP, flex: 1 }}>{m.motivo}</span>
+                  <span style={{ color: RED, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{fmt(m.qtd)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* Por setor */}
+          <div>
+            <div style={{ fontSize: 10, color: MUT, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>Por setor</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 180, overflowY: 'auto' }}>
+              {porSetor.map((s) => (
+                <div key={s.setor} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+                  <span style={{ color: ESP, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.setor}>{s.setor}</span>
+                  <span style={{ color: RED, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{fmt(s.qtd)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
     </div>

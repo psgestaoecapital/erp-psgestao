@@ -10,6 +10,7 @@ import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { exportToExcel } from "@/lib/export-utils";
+import { parseNumBR } from "@/lib/num";
 import { exportarPDF, type Coluna } from "@/lib/export/relatorioLista";
 
 type Cliente = { id: string; nome: string };
@@ -122,7 +123,7 @@ export default function SimuladorPage() {
 
   const simular = useCallback(async () => {
     if (!companyId || !montagemId) { setSim(null); return; }
-    const areaNum = Number((area || "0").replace(",", ".")) || 0;
+    const areaNum = parseNumBR(area) || 0;
     setCalculando(true); setErro(null); setFaltaConfig(false);
     const supabase = supabaseBrowser();
     const { data, error } = await supabase.rpc("fn_simular_montagem", {
@@ -145,7 +146,7 @@ export default function SimuladorPage() {
 
   const gerarOrcamento = async () => {
     if (!companyId || !montagemId || gerando) return;
-    const areaNum = Number((area || "0").replace(",", ".")) || 0;
+    const areaNum = parseNumBR(area) || 0;
     setGerando(true); setErro(null); setFaltaConfig(false);
     const { data, error } = await supabaseBrowser().rpc("fn_simulador_gerar_orcamento", {
       p_servico_id: montagemId, p_company_id: companyId, p_business_line_id: montagemSel?.business_line_id ?? null,
@@ -163,7 +164,7 @@ export default function SimuladorPage() {
 
   const salvarSimulacao = async () => {
     if (!companyId || !montagemId || salvando) return;
-    const areaNum = Number((area || "0").replace(",", ".")) || 0;
+    const areaNum = parseNumBR(area) || 0;
     setSalvando(true); setErro(null); setMsg(null);
     // Com editId: atualiza o MESMO registro (fn_simulador_editar); sem: cria um novo (fn_simulador_salvar).
     const { error } = editId
