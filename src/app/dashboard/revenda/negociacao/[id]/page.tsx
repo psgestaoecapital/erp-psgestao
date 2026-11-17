@@ -10,6 +10,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { numeroParaMoeda } from '@/lib/moeda-mascara'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -38,7 +40,8 @@ type Sim = {
   em_linguagem_de_dono: { o_cliente_paga: number; voce_recebe_do_cliente: number; voce_recebe_do_banco: number; a_troca_embutiu_desconto: number }
 }
 
-const numOrNull = (s: string) => { const n = Number(String(s).replace(/\./g, '').replace(',', '.')); return s.trim() === '' || Number.isNaN(n) ? null : n }
+// #6874 — aceita tanto número cru ("50000", "50000,5") quanto o texto mascarado do CampoMoeda ("R$ 50.000,00").
+const numOrNull = (s: string) => { const n = Number(String(s).replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.')); return String(s).trim() === '' || Number.isNaN(n) ? null : n }
 
 export default function NegociacaoPage() {
   const router = useRouter()
@@ -65,10 +68,10 @@ export default function NegociacaoPage() {
       setNeg(n)
       setF({
         cliente_nome: n.cliente_nome ?? '', cliente_doc: n.cliente_doc ?? '', vendedor_nome: n.vendedor_nome ?? '', validade: n.validade ?? '', origem_lead: (n as { origem_lead?: string | null }).origem_lead ?? '',
-        preco_pedido: n.preco_pedido?.toString() ?? '', desconto: n.desconto?.toString() ?? '',
-        entrada: n.entrada?.toString() ?? '', financiado: n.financiado?.toString() ?? '', banco_nome: n.banco_nome ?? '', parcelas: n.parcelas?.toString() ?? '', retorno_banco: n.retorno_banco?.toString() ?? '',
-        troca_avaliacao: n.troca_avaliacao?.toString() ?? '', troca_valor_dado: n.troca_valor_dado?.toString() ?? '', troca_marca: n.troca_marca ?? '', troca_modelo: n.troca_modelo ?? '', troca_ano: n.troca_ano?.toString() ?? '', troca_km: n.troca_km?.toString() ?? '', troca_chassi: n.troca_chassi ?? '',
-        outros_debitos: n.outros_debitos?.toString() ?? '', outros_debitos_desc: n.outros_debitos_desc ?? '', especie_valor: n.especie_valor?.toString() ?? '', observacao: n.observacao ?? '',
+        preco_pedido: numeroParaMoeda(n.preco_pedido), desconto: numeroParaMoeda(n.desconto),
+        entrada: numeroParaMoeda(n.entrada), financiado: numeroParaMoeda(n.financiado), banco_nome: n.banco_nome ?? '', parcelas: n.parcelas?.toString() ?? '', retorno_banco: numeroParaMoeda(n.retorno_banco),
+        troca_avaliacao: numeroParaMoeda(n.troca_avaliacao), troca_valor_dado: numeroParaMoeda(n.troca_valor_dado), troca_marca: n.troca_marca ?? '', troca_modelo: n.troca_modelo ?? '', troca_ano: n.troca_ano?.toString() ?? '', troca_km: n.troca_km?.toString() ?? '', troca_chassi: n.troca_chassi ?? '',
+        outros_debitos: numeroParaMoeda(n.outros_debitos), outros_debitos_desc: n.outros_debitos_desc ?? '', especie_valor: numeroParaMoeda(n.especie_valor), observacao: n.observacao ?? '',
       })
       const { data: s } = await supabase.rpc('fn_veic_negociacao_simular', { p_neg_id: id })
       setSim(s as Sim)
@@ -135,6 +138,14 @@ export default function NegociacaoPage() {
         onChange={e => setF(s => ({ ...s, [key]: e.target.value }))} style={{ ...inp, background: aberta ? C.white : C.cream }} />
     </label>
   )
+  // #6874 — campos em reais: campo monetário padrão (R$ ao digitar); o número puro vai ao banco via numOrNull.
+  const CampoR = (label: string, key: string, ph = 'R$') => (
+    <label style={{ display: 'block' }}>
+      <span style={{ display: 'block', fontSize: 11, color: C.espM, marginBottom: 3, fontWeight: 600 }}>{label}</span>
+      <CampoMoeda value={f[key] ?? ''} onChange={v => setF(s => ({ ...s, [key]: v }))} placeholder={ph} disabled={!aberta}
+        testId={`neg-${key}`} style={{ ...inp, background: aberta ? C.white : C.cream }} />
+    </label>
+  )
 
   return (
     <div style={{ background: C.bg, minHeight: '100vh', padding: '18px 16px 70px' }}>
@@ -163,14 +174,14 @@ export default function NegociacaoPage() {
               {Campo('Vendedor', 'vendedor_nome')}
               {Campo('Vale até', 'validade', '', 'date')}
               {Campo('Origem do lead', 'origem_lead', 'ex.: OLX, WhatsApp, indicação')}
-              {Campo('Preço pedido', 'preco_pedido', 'R$')}
-              {Campo('Desconto', 'desconto', 'R$')}
-              {Campo('Entrada', 'entrada', 'R$')}
-              {Campo('Financiado (banco)', 'financiado', 'R$')}
+              {CampoR('Preço pedido', 'preco_pedido')}
+              {CampoR('Desconto', 'desconto')}
+              {CampoR('Entrada', 'entrada')}
+              {CampoR('Financiado (banco)', 'financiado')}
               {Campo('Banco', 'banco_nome')}
               {Campo('Parcelas', 'parcelas')}
-              {Campo('Retorno do banco', 'retorno_banco', 'R$')}
-              {Campo('Espécie (dinheiro)', 'especie_valor', 'R$')}
+              {CampoR('Retorno do banco', 'retorno_banco')}
+              {CampoR('Espécie (dinheiro)', 'especie_valor')}
             </div>
             <h3 style={{ fontSize: 12, fontWeight: 800, color: C.espM, margin: '16px 0 8px', textTransform: 'uppercase', letterSpacing: 0.4 }}>Troca na entrada</h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
@@ -179,8 +190,8 @@ export default function NegociacaoPage() {
               {Campo('Ano', 'troca_ano')}
               {Campo('KM', 'troca_km')}
               {Campo('Chassi', 'troca_chassi')}
-              {Campo('Avaliação (real)', 'troca_avaliacao', 'R$')}
-              {Campo('Valor dado ao cliente', 'troca_valor_dado', 'R$')}
+              {CampoR('Avaliação (real)', 'troca_avaliacao')}
+              {CampoR('Valor dado ao cliente', 'troca_valor_dado')}
             </div>
             <label style={{ display: 'block', marginTop: 12 }}>
               <span style={{ display: 'block', fontSize: 11, color: C.espM, marginBottom: 3, fontWeight: 600 }}>Observação</span>
