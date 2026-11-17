@@ -33,6 +33,7 @@ interface Conta { id: string; nome: string; banco: string | null }
 interface Props {
   contratoId: string
   companyId: string
+  contasCompanyId?: string         // empresa cujas CONTAS alimentam a dropdown (= faturadora; fallback: companyId)
   valorMensal: number              // referência do rodapé (soma esperada = valorMensal × nº parcelas)
   readOnly?: boolean               // contrato 'ativo' → plano imutável
   defaultPrimeiro?: string | null  // sugestão do "Automáticas" (= data De do fee)
@@ -57,7 +58,10 @@ const inp: React.CSSProperties = { width: '100%', minHeight: 36, padding: '6px 8
 const btn: React.CSSProperties = { minHeight: 32, padding: '6px 10px', fontSize: 11, fontWeight: 600, border: `1px solid ${C.gold}`, borderRadius: 6, background: C.goldBg, color: C.goldD, cursor: 'pointer' }
 const btnPri: React.CSSProperties = { minHeight: 44, padding: '10px 16px', fontSize: 13, fontWeight: 700, border: 'none', borderRadius: 8, background: C.gold, color: C.white, cursor: 'pointer' }
 
-export default function ParcelasContratoEditor({ contratoId, companyId, valorMensal, readOnly, defaultPrimeiro, defaultN, onSaved }: Props) {
+export default function ParcelasContratoEditor({ contratoId, companyId, contasCompanyId, valorMensal, readOnly, defaultPrimeiro, defaultN, onSaved }: Props) {
+  // A conta de recebimento tem de ser da empresa que FATURA. Se o financeiro trocar a faturadora, as contas
+  // (e as já escolhidas que não pertencem à nova empresa) acompanham. Fallback: a própria empresa do contrato.
+  const contasCompany = contasCompanyId || companyId
   const [parcelas, setParcelas] = useState<ParcelaContrato[]>([])
   const [contas, setContas] = useState<Conta[]>([])
   const [loading, setLoading] = useState(true)
@@ -83,16 +87,18 @@ export default function ParcelasContratoEditor({ contratoId, companyId, valorMen
       .eq('contrato_id', contratoId)
       .order('numero', { ascending: true })
     const { data: cts } = await supabase
-      .from('erp_banco_contas').select('id,nome,banco').eq('company_id', companyId).eq('ativo', true).order('nome')
+      .from('erp_banco_contas').select('id,nome,banco').eq('company_id', contasCompany).eq('ativo', true).order('nome')
     // contas a receber vivas já geradas para este contrato (dirige o selo "geradas" x "aguardando")
     const { count: rc } = await supabase
       .from('erp_receber').select('id', { count: 'exact', head: true })
       .eq('contrato_id', contratoId).eq('ref_externa_sistema', 'contrato_parcela').is('deleted_at', null)
     setReceberCount(rc ?? 0)
+    const validas = new Set((cts ?? []).map((c) => c.id))
     setContas((cts ?? []) as Conta[])
-    setParcelas((data ?? []).map((p) => ({ ...p, valor: Number(p.valor), conta_bancaria_id: p.conta_bancaria_id ?? null })) as ParcelaContrato[])
+    // Revalida a seleção: conta que não é da empresa que fatura é LIMPA (nunca salva conta de empresa errada).
+    setParcelas((data ?? []).map((p) => ({ ...p, valor: Number(p.valor), conta_bancaria_id: (p.conta_bancaria_id && validas.has(p.conta_bancaria_id)) ? p.conta_bancaria_id : null })) as ParcelaContrato[])
     setLoading(false)
-  }, [contratoId, companyId])
+  }, [contratoId, contasCompany])
 
   useEffect(() => { void carregar() }, [carregar])
 
@@ -214,6 +220,12 @@ export default function ParcelasContratoEditor({ contratoId, companyId, valorMen
             {gerando ? 'Gerando…' : `Gerar ${autoN}× de ${fmtBRL(valorMensal)}`}
           </button>
         </div>
+      )}
+
+      {contasCompany !== companyId && !readOnly && (
+        <p style={{ fontSize: 11, color: C.amber, background: C.amberBg, border: `1px solid ${C.amber}44`, borderRadius: 6, padding: '6px 8px', margin: '0 0 8px' }}>
+          ⓘ Escolha a conta de recebimento da <strong>empresa que fatura</strong> — são as contas que aparecem abaixo. Ao trocar a empresa que fatura, as contas acompanham.
+        </p>
       )}
 
       {parcelas.length === 0 ? (
