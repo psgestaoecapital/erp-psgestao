@@ -504,7 +504,7 @@ export default function DocumentosRecebidosPage() {
               <Inbox size={22} className="text-[#C8941A]" /> NFes Recebidas
             </h1>
             <p className="text-[13px] text-[#3D2314]/70 mt-1.5 max-w-2xl">
-              Notas emitidas contra o CNPJ desta empresa · puxa direto da Distribuição DF-e (Focus NFe).
+              Notas emitidas contra o CNPJ desta empresa · puxa direto da Distribuição DF-e.
               Os itens e duplicatas chegam quando a manifestação for feita (F2).
             </p>
             {habilitado === true && (
