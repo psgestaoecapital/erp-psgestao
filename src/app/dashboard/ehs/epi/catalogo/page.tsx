@@ -209,8 +209,14 @@ export default function CatalogoEpiPage() {
             <Link href="/dashboard/ehs/epi" style={btnSec}>← EPI</Link>
             {aba === 'meus' && (
               <>
-                <button onClick={() => setShowImportarEstoque(true)} disabled={!companyAlvo} title="Puxar EPIs que a empresa já tem no estoque (GE / Indústria)" style={{ ...btnSec, opacity: companyAlvo ? 1 : 0.5, cursor: companyAlvo ? 'pointer' : 'not-allowed' }}>⬇️ Importar do estoque</button>
-                <button onClick={() => setShowNovo(true)} disabled={!companyAlvo} style={{ ...btnPrim, opacity: companyAlvo ? 1 : 0.5, cursor: companyAlvo ? 'pointer' : 'not-allowed' }}>+ Novo EPI</button>
+                <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                  <button onClick={() => setShowImportarEstoque(true)} disabled={!companyAlvo} title="Puxar EPIs que a empresa já tem no estoque (GE / Indústria)" style={{ ...btnSec, opacity: companyAlvo ? 1 : 0.5, cursor: companyAlvo ? 'pointer' : 'not-allowed' }}>⬇️ Importar do estoque</button>
+                  <AjudaCampo chave="epi.catalogo.importar_estoque" />
+                </span>
+                <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                  <button onClick={() => setShowNovo(true)} disabled={!companyAlvo} style={{ ...btnPrim, opacity: companyAlvo ? 1 : 0.5, cursor: companyAlvo ? 'pointer' : 'not-allowed' }}>+ Novo EPI</button>
+                  <AjudaCampo chave="epi.catalogo.novo" />
+                </span>
               </>
             )}
           </div>
@@ -355,9 +361,12 @@ export default function CatalogoEpiPage() {
                     Vida útil: {e.descartavel ? 'Descartável' : (e.vida_util_meses ? `${e.vida_util_meses} meses` : '—')}
                   </div>
                   {aba === 'global' && companyAlvo && (
-                    <button onClick={() => setImportarGlobal(e)} style={{ ...btnSec, marginTop: 12, width: '100%', fontSize: 12 }}>
-                      📋 Importar para minha empresa
-                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 12 }}>
+                      <button onClick={() => setImportarGlobal(e)} style={{ ...btnSec, width: '100%', fontSize: 12 }}>
+                        📋 Importar para minha empresa
+                      </button>
+                      <AjudaCampo chave="epi.catalogo.importar_empresa" />
+                    </div>
                   )}
                   {aba === 'meus' && !e.is_global && !modoSelecao && (
                     <div style={{ display: 'flex', gap: 6, marginTop: 12, flexWrap: 'wrap' }}>
