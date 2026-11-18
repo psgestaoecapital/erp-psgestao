@@ -61,5 +61,31 @@ test.describe('PS GE — fluxo de caixa diário (set-based, perf)', () => {
     const j2 = await (await rpcFluxo({})).json()
     expect(Number(j2.total_recebimentos), 'idempotente').toBe(Number(j.total_recebimentos))
     expect(Number(j2.total_pagamentos), 'idempotente').toBe(Number(j.total_pagamentos))
+
+    // (c) CORRECTNESS (gap 18/11): o ramo REALIZADO não pode contar baixas de título
+    // cancelado/renegociado (fn_receber_cancelar não estorna a baixa). Antes do fix, essas
+    // baixas-fantasma inflavam o REALIZADO (na DEMO GE chegaram a R$ 1,26 QUADRILHÃO).
+    // Guarda robusta a churn: só assere quando há fantasma grande vivo na janela; se não há,
+    // a checagem é vácua e passa (nunca flaka).
+    const hoje = new Date()
+    const iso = (dt: Date) => dt.toISOString().slice(0, 10)
+    const ini = new Date(hoje); ini.setDate(ini.getDate() - 30)
+    const fim = new Date(hoje); fim.setDate(fim.getDate() + 30)
+    const respFant = await fetch(
+      `${URL_SB}/rest/v1/erp_receber_baixa?select=valor,er:erp_receber!inner(status)` +
+      `&company_id=eq.${DEMO_COMERCIO_GE}&deleted_at=is.null` +
+      `&data=gte.${iso(ini)}&data=lte.${iso(fim)}&er.status=in.(cancelado,renegociado)`,
+      { headers: { apikey: SERVICE, Authorization: `Bearer ${SERVICE}` } },
+    )
+    expect(respFant.status, await respFant.clone().text()).toBe(200)
+    const fantasmaRows: Array<{ valor: number | string }> = await respFant.json()
+    const fantasma = fantasmaRows.reduce((acc, r) => acc + Number(r.valor ?? 0), 0)
+    if (fantasma > 1e12) {
+      // Com o fix, o REALIZADO exclui o fantasma; recebimentos legítimos da DEMO são ~R$ 3e5,
+      // muito abaixo de um fantasma na casa do trilhão. Sem o fix, total_recebimentos ~>= fantasma.
+      expect(Number(j.total_recebimentos),
+        `REALIZADO não deve contar fantasma de título cancelado (fantasma=${fantasma})`,
+      ).toBeLessThan(fantasma)
+    }
   })
 })

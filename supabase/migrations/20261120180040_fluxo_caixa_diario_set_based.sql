@@ -14,6 +14,13 @@
 -- CONTRATO PRESERVADO (#5241): mesma fonte do realizado (ledger de baixas), mesmo shape de
 -- retorno (dias[], saldo_inicial/final, total_recebimentos/pagamentos, previstos, vencidos,
 -- transferencias, movimento_liquido) e as MESMAS guardas de empresa/conta/categoria.
+--
+-- CORRECTNESS (gap 18/11, RD-38): o ramo REALIZADO somava erp_receber_baixa/erp_pagar_baixa
+-- SEM filtrar o status do titulo-pai. Como fn_receber_cancelar NAO estorna a baixa, cancelar
+-- um titulo ja baixado deixava a baixa viva contando como caixa realizado (fantasma). Na DEMO
+-- Comercio GE isso inflava saldo_final p/ ~R$ 1,26 QUADRILHAO. FIX: excluir do REALIZADO as
+-- baixas de titulo cancelado/renegociado (receber) e cancelado (pagar). So LEITURA; nao toca
+-- o ledger nem dado de cliente.
 -- Aditivo (CREATE OR REPLACE), sem tocar dado de cliente. Nucleo financeiro = SENSIVEL.
 -- Faixa de migration :40 (code-desenvolvedor-3). Prova RD-38 no corpo do PR.
 
@@ -96,6 +103,10 @@ BEGIN
       JOIN public.erp_receber er ON er.id = b.receber_id
       WHERE b.company_id = p_company_id AND b.deleted_at IS NULL
         AND b.data BETWEEN p_data_inicio AND p_data_fim
+        -- CORRECTNESS (gap 18/11): cancelar/renegociar um título NÃO estorna a baixa do ledger
+        -- (fn_receber_cancelar não mexe em erp_receber_baixa). Sem este filtro, a baixa de um
+        -- título cancelado seguia contando como caixa realizado (fantasma) e inflava o saldo.
+        AND er.status NOT IN ('cancelado', 'renegociado')
         AND (CASE WHEN p_conta_id IS NOT NULL THEN er.conta_bancaria_id = p_conta_id
                   ELSE NOT EXISTS (SELECT 1 FROM erp_banco_contas bc WHERE bc.id = er.conta_bancaria_id AND bc.incluir_no_fluxo = false) END)
         AND (v_categoria IS NULL OR er.categoria = v_categoria)
@@ -108,6 +119,9 @@ BEGIN
       JOIN public.erp_pagar ep ON ep.id = b.pagar_id
       WHERE b.company_id = p_company_id AND b.deleted_at IS NULL
         AND b.data BETWEEN p_data_inicio AND p_data_fim
+        -- CORRECTNESS (gap 18/11): simétrico ao recebimento — baixa de título pago e depois
+        -- cancelado não deve seguir contando como saída realizada.
+        AND ep.status <> 'cancelado'
         AND (CASE WHEN p_conta_id IS NOT NULL THEN lower(ep.conta_bancaria) = lower(v_conta_nome)
                   ELSE NOT EXISTS (SELECT 1 FROM erp_banco_contas bc WHERE bc.company_id = ep.company_id AND bc.incluir_no_fluxo = false AND lower(bc.nome) = lower(ep.conta_bancaria)) END)
         AND (v_categoria IS NULL OR ep.categoria = v_categoria)
