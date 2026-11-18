@@ -603,7 +603,10 @@ function Rot({ t, children, full }: { t: string; children: React.ReactNode; full
 }
 
 function NovoVeiculo({ companyId, onClose, onSaved, onErro }: { companyId: string; onClose: () => void; onSaved: (id?: string) => void; onErro: (m: string) => void }) {
-  const [f, setF] = useState({ chassi: '', placa: '', marca: '', modelo: '', ano_modelo: '', cor: '', origem: 'compra_pf', valor_aquisicao: '', km_entrada: '', tem_manual: '', tem_chave_reserva: '' })
+  const [f, setF] = useState({ chassi: '', placa: '', marca: '', modelo: '', ano_modelo: '', cor: '', origem: 'compra_pf', valor_aquisicao: '', km_entrada: '', tem_manual: '', tem_chave_reserva: '',
+    // #9787 · remetente PF da entrada de compra PF (nome/CPF/endereço) — exigido para a NF-e de entrada
+    vendedor: { nome: '', cpf: '', cep: '', logradouro: '', numero: '', bairro: '', municipio: '', uf: '' } })
+  const setVend = (campo: string, val: string) => setF((p) => ({ ...p, vendedor: { ...p.vendedor, [campo]: val } }))
   // #101 (Fábio): o ano ia parar no campo modelo ("2009") — o campo só tinha placeholder, sem rótulo
   const modeloPareceAno = /^(19|20)\d{2}$/.test(f.modelo.trim())
   const [busy, setBusy] = useState(false)
@@ -613,7 +616,18 @@ function NovoVeiculo({ companyId, onClose, onSaved, onErro }: { companyId: strin
     const { data, error } = await supabase.rpc('fn_veic_criar', {
       p_company_id: companyId,
       // números vão como TEXTO: o banco aceita formato BR ("72.956,00") — Number() dava NaN e o valor sumia
-      p_veiculo: { chassi: f.chassi.trim(), placa: f.placa.trim() || null, marca: f.marca.trim() || null, modelo: f.modelo.trim() || null, ano_modelo: f.ano_modelo.trim() || null, cor: f.cor.trim() || null, origem: f.origem, valor_aquisicao: f.valor_aquisicao.trim() || null, km_entrada: f.km_entrada.trim() || null, km_atual: f.km_entrada.trim() || null, tem_manual: f.tem_manual || null, tem_chave_reserva: f.tem_chave_reserva || null },
+      p_veiculo: { chassi: f.chassi.trim(), placa: f.placa.trim() || null, marca: f.marca.trim() || null, modelo: f.modelo.trim() || null, ano_modelo: f.ano_modelo.trim() || null, cor: f.cor.trim() || null, origem: f.origem, valor_aquisicao: f.valor_aquisicao.trim() || null, km_entrada: f.km_entrada.trim() || null, km_atual: f.km_entrada.trim() || null, tem_manual: f.tem_manual || null, tem_chave_reserva: f.tem_chave_reserva || null,
+        // #9787 · só envia o remetente PF quando origem = compra PF e há ao menos nome ou CPF (ausente => coluna fica NULL, comportamento idêntico ao de hoje)
+        ...(f.origem === 'compra_pf' && (f.vendedor.nome.trim() || f.vendedor.cpf.trim()) ? { vendedor_pf: {
+          nome: f.vendedor.nome.trim() || null,
+          cpf: f.vendedor.cpf.replace(/\D/g, '') || null,
+          cep: f.vendedor.cep.replace(/\D/g, '') || null,
+          logradouro: f.vendedor.logradouro.trim() || null,
+          numero: f.vendedor.numero.trim() || null,
+          bairro: f.vendedor.bairro.trim() || null,
+          municipio: f.vendedor.municipio.trim() || null,
+          uf: f.vendedor.uf.trim().toUpperCase() || null,
+        } } : {}) },
       p_user: user?.id ?? null,
     })
     setBusy(false)
@@ -652,6 +666,24 @@ function NovoVeiculo({ companyId, onClose, onSaved, onErro }: { companyId: strin
           </Rot>
           <Rot t="Valor de aquisição"><CampoMoeda value={f.valor_aquisicao} onChange={(v) => setF({ ...f, valor_aquisicao: v })} placeholder="ex.: R$ 72.956,00" style={inpW} /></Rot>
         </div>
+        {/* #9787 · dados do vendedor PF — só na compra PF; são o remetente da NF-e de entrada */}
+        {f.origem === 'compra_pf' && (
+          <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }} className="inline-flex items-center">
+              Vendedor (pessoa física)<AjudaCampo chave="revenda.patio.vendedor_pf" rota={ROTA} />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <Rot t="Nome" full><input value={f.vendedor.nome} onChange={(e) => setVend('nome', e.target.value)} placeholder="quem vendeu o veículo" style={inpW} /></Rot>
+              <Rot t="CPF"><input value={f.vendedor.cpf} onChange={(e) => setVend('cpf', e.target.value)} inputMode="numeric" placeholder="000.000.000-00" style={inpW} /></Rot>
+              <Rot t="CEP"><input value={f.vendedor.cep} onChange={(e) => setVend('cep', e.target.value)} inputMode="numeric" placeholder="00000-000" style={inpW} /></Rot>
+              <Rot t="Logradouro"><input value={f.vendedor.logradouro} onChange={(e) => setVend('logradouro', e.target.value)} placeholder="rua/avenida" style={inpW} /></Rot>
+              <Rot t="Número"><input value={f.vendedor.numero} onChange={(e) => setVend('numero', e.target.value)} placeholder="nº" style={inpW} /></Rot>
+              <Rot t="Bairro"><input value={f.vendedor.bairro} onChange={(e) => setVend('bairro', e.target.value)} placeholder="bairro" style={inpW} /></Rot>
+              <Rot t="Município"><input value={f.vendedor.municipio} onChange={(e) => setVend('municipio', e.target.value)} placeholder="cidade" style={inpW} /></Rot>
+              <Rot t="UF"><input value={f.vendedor.uf} onChange={(e) => setVend('uf', e.target.value)} maxLength={2} placeholder="SC" style={inpW} /></Rot>
+            </div>
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ padding: '8px 14px', border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.espM, cursor: 'pointer' }}>Cancelar</button>
           <button disabled={!f.chassi.trim() || busy} onClick={() => void salvar()} style={{ padding: '8px 16px', border: 'none', borderRadius: 8, background: f.chassi.trim() && !busy ? C.gold : C.espL, color: C.white, fontWeight: 700, cursor: f.chassi.trim() && !busy ? 'pointer' : 'not-allowed' }}>{busy ? 'Salvando…' : 'Salvar'}</button>
