@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
 
-const sql = readFileSync('supabase/migrations/20261119170120_fiscal_iss_alterar.sql', 'utf8')
+const sql = readFileSync('supabase/migrations/20261120013020_fiscal_iss_alterar.sql', 'utf8')
 ok(sql.includes('CREATE OR REPLACE FUNCTION public.fn_fiscal_iss_alterar'), 'existe a função de alteração')
 ok(/ADD COLUMN IF NOT EXISTS valor_anterior jsonb/.test(sql), 'coluna de histórico valor_anterior (aditiva)')
 ok(/ADD COLUMN IF NOT EXISTS editado_por\s+uuid/.test(sql), 'coluna editado_por (quem alterou)')
