@@ -21,6 +21,7 @@ import { supabaseBrowser } from "@/lib/authFetch";
 import { BomEditor, type BomLinha } from "@/components/projetos/BomEditor";
 import { ComposicaoCpu } from "@/components/projetos/ComposicaoCpu";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { CampoDecimal } from "@/components/comum/CampoDecimal";
 import { ehUuid, erroAmigavel, MSG_ENDERECO_INVALIDO } from "@/lib/erroAmigavel";
 
 const ROTA_AJUDA = "/dashboard/projetos/catalogo/[id]";
@@ -459,18 +460,10 @@ export default function ServicoEditorPage({
                   Produtividade /dia
                   <AjudaCampo chave="projetos.catalogo.servico.produtividade" rota={ROTA_AJUDA} />
                 </label>
-                <input
-                  type="number"
+                <CampoDecimal
                   step="0.01"
-                  value={
-                    (valorAtual("produtividade_unidade_dia") as number | null) ?? ""
-                  }
-                  onChange={(e) =>
-                    handleEdit(
-                      "produtividade_unidade_dia",
-                      e.target.value === "" ? null : Number(e.target.value)
-                    )
-                  }
+                  value={valorAtual("produtividade_unidade_dia") as number | null}
+                  onChange={(n) => handleEdit("produtividade_unidade_dia", n)}
                   placeholder="20"
                   className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-3 py-2 text-right font-mono text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
                 />
