@@ -87,3 +87,8 @@ VALUES
    'Deixar em branco numa compra PF: a entrada fica sem o remetente e a emissão da NF-e de entrada trava.',
    'revenda', 1)
 ON CONFLICT (chave) DO NOTHING;
+
+-- ACL explícita exigida pelo gate check_fn_guards (SECURITY DEFINER ≥ cutoff).
+-- Idêntica à ACL viva (authenticated=X, service_role=X, sem anon/PUBLIC) → no-op funcional.
+REVOKE ALL ON FUNCTION public.fn_veic_criar(uuid, jsonb, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_veic_criar(uuid, jsonb, uuid) TO authenticated, service_role;
