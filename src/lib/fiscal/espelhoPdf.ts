@@ -45,7 +45,7 @@ export type EspelhoNota = {
   totais: { produtos: number; ibsCbs: { base: number; cbs: number; ibs: number } | null }
 }
 export type EspelhoMeta = {
-  empresa: string           // razão social / nome do emitente (cabeçalho)
+  empresa?: string | null   // razão social / nome do emitente (cabeçalho); ausente → rótulo neutro
   emitidoEmISO: string      // data de geração do espelho (passada de fora, sem Date.now interno)
   modelo?: 'nfe55' | 'nfse' // rótulo do documento (default nfe55)
   placa?: string | null     // revenda: placa do veículo (quando houver)
@@ -111,7 +111,8 @@ export async function gerarEspelhoNFePdf(nota: EspelhoNota, meta: EspelhoMeta): 
   y -= 36
 
   // Emitente + data
-  page.drawText(corta(meta.empresa, bold, 13, contentW), { x: M, y: y - 12, size: 13, font: bold, color: ESP }); y -= 18
+  const emitenteRot = (meta.empresa || '').trim() || 'Emitente — espelho de conferência'
+  page.drawText(corta(emitenteRot, bold, 13, contentW), { x: M, y: y - 12, size: 13, font: bold, color: ESP }); y -= 18
   page.drawText(ansi(`Espelho de conferência gerado em ${dataBR(meta.emitidoEmISO)}`), { x: M, y: y - 10, size: 9, font, color: MUT }); y -= 18
   page.drawLine({ start: { x: M, y }, end: { x: W - M, y }, thickness: 0.5, color: LINE }); y -= 8
 
@@ -182,7 +183,7 @@ export async function gerarEspelhoNFePdf(nota: EspelhoNota, meta: EspelhoMeta): 
 export async function baixarEspelhoNFePdf(nota: EspelhoNota, meta: EspelhoMeta): Promise<string> {
   const bytes = await gerarEspelhoNFePdf(nota, meta)
   const slug = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40)
-  const nome = `espelho_${meta.modelo === 'nfse' ? 'nfse' : 'nfe'}_${slug(meta.empresa) || 'empresa'}_${meta.emitidoEmISO.slice(0, 10)}.pdf`
+  const nome = `espelho_${meta.modelo === 'nfse' ? 'nfse' : 'nfe'}_${slug(meta.empresa || '') || 'empresa'}_${meta.emitidoEmISO.slice(0, 10)}.pdf`
   const blob = new Blob([bytes as BlobPart], { type: 'application/pdf' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
