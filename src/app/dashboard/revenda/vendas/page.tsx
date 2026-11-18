@@ -11,6 +11,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { authFetch } from '@/lib/authFetch'
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import { baixarEspelhoNFePdf } from '@/lib/fiscal/espelhoPdf'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -600,6 +601,27 @@ function Inner() {
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
               <button disabled={nfeCardBusy} onClick={() => setNfeCard(null)} style={btnGhost}>Cancelar</button>
+              {/* #9724 (decisão B) · Espelho em PDF da nota MONTADA (não transmite, não numera) — conferir/imprimir/enviar ao cliente antes de emitir. */}
+              <button
+                disabled={nfeCardBusy}
+                onClick={async () => {
+                  try {
+                    setNfeCardErro(null)
+                    await baixarEspelhoNFePdf(n, {
+                      empresa: selInfo.nome,
+                      emitidoEmISO: new Date().toISOString(),
+                      modelo: 'nfe55',
+                      placa: nfeCard.v.placa ?? null,
+                      informacoesComplementares: nfeCard.infoCpl,
+                    })
+                  } catch {
+                    setNfeCardErro('Não foi possível gerar o espelho em PDF. Tente novamente.')
+                  }
+                }}
+                style={btnGhost}
+              >
+                Baixar espelho (PDF)
+              </button>
               <button disabled={nfeCardBusy || nfeCard.infoCpl.length > nfeCard.limite} onClick={() => void confirmarEmissao()} style={btnGold}>
                 {nfeCardBusy ? 'Enviando…' : (nfeCardErro ? 'Reenviar' : 'Confirmar e emitir')}
               </button>
