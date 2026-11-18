@@ -5,6 +5,8 @@ import { supabase } from '@/lib/supabase'
 import ContratoArquivos from './ContratoArquivos'
 import ContratoAssinatura from './ContratoAssinatura'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { numeroParaMoeda, moedaParaNumero } from '@/lib/moeda-mascara'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 
 // RD-95: chaves ge.contratos.* cadastradas na rota canônica (o form abre dentro dela).
@@ -103,7 +105,8 @@ export default function ContratoForm({ companyId, contrato, onClose, onSaved }: 
   const [nome, setNome] = useState(contrato?.nome ?? '')
   const [tipo, setTipo] = useState(contrato?.tipo ?? 'mensalidade')
   const [clienteId, setClienteId] = useState(contrato?.cliente_id ?? '')
-  const [valorMensal, setValorMensal] = useState(contrato?.valor_mensal?.toString() ?? '')
+  // #6874 — valor com máscara R$: o estado guarda o texto mascarado; moedaParaNumero converte na validação e no envio.
+  const [valorMensal, setValorMensal] = useState(contrato?.valor_mensal != null ? numeroParaMoeda(Number(contrato.valor_mensal)) : '')
   const [dataInicio, setDataInicio] = useState(
     contrato?.data_inicio ?? new Date().toISOString().split('T')[0],
   )
@@ -138,7 +141,8 @@ export default function ContratoForm({ companyId, contrato, onClose, onSaved }: 
       setErro('Dá um nome para essa cobrança — ex: "Aluguel sala 101"')
       return
     }
-    if (!valorMensal || parseFloat(valorMensal) <= 0) {
+    const valorMensalNum = moedaParaNumero(valorMensal)
+    if (valorMensalNum == null || valorMensalNum <= 0) {
       setErro('Valor precisa ser maior que zero')
       return
     }
@@ -161,7 +165,7 @@ export default function ContratoForm({ companyId, contrato, onClose, onSaved }: 
       cliente_cnpj: clienteSel?.cnpj_cpf ?? null,
       cliente_email: clienteSel?.email ?? null,
       cliente_telefone: clienteSel?.telefone ?? null,
-      valor_mensal: valorMensal,
+      valor_mensal: String(valorMensalNum),
       data_inicio: dataInicio,
       data_fim: dataFim || null,
       dia_vencimento: diaVencimento,
@@ -251,7 +255,7 @@ export default function ContratoForm({ companyId, contrato, onClose, onSaved }: 
 
           <div style={{ ...gridResponsivo, gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
             <Campo ajuda="ge.contratos.form.valor" label="Valor *">
-              <input type="number" step="0.01" value={valorMensal} onChange={(e) => setValorMensal(e.target.value)} placeholder="0,00" style={inputStyle} />
+              <CampoMoeda value={valorMensal} onChange={setValorMensal} placeholder="0,00" style={inputStyle} />
             </Campo>
             <Campo ajuda="ge.contratos.form.frequencia" label="Frequência *">
               <select value={periodicidade} onChange={(e) => setPeriodicidade(e.target.value)} style={inputStyle}>
