@@ -17,11 +17,14 @@ type Achado = { codigo: string; categoria: string; severidade: "alta" | "media" 
 type Raiox = { ok: boolean; erro?: string; resumo?: { alta: number; media: number; baixa: number; total: number }; achados?: Achado[] };
 type Resposta = {
   ok: boolean; bloqueado?: boolean; naoEntendi?: boolean; mensagem?: string; error?: string;
-  tipo?: "lista" | "valor" | "cliente" | "raiox"; titulo?: string; resumo?: string;
+  tipo?: "lista" | "valor" | "cliente" | "raiox" | "divergencia" | "lista_lancamentos"; titulo?: string; resumo?: string;
   kpis?: any; linhas?: any[]; valor?: number; achados?: Achado[];
+  contas?: { conta_id: string; conta_nome: string; saldo_sistema: number; saldo_banco: number; diferenca: number; rota_link?: string }[];
+  contas_sem_extrato?: { conta_nome: string; saldo_sistema?: number }[];
 };
 
-const CHIPS = ["Contas a receber que vencem hoje", "Despesas que vencem amanhã", "Quais clientes estão inadimplentes?", "Qual o saldo das minhas contas?"];
+const CHIPS = ["Contas a receber que vencem hoje", "Despesas que vencem amanhã", "Quais clientes estão inadimplentes?", "Qual o saldo das minhas contas?",
+  "Meu saldo bate com o banco?", "Lançamentos sem conciliar", "Lançamentos sem CNPJ"];
 const ORDEM: Record<string, number> = { alta: 0, media: 1, baixa: 2 };
 const COR: Record<string, string> = { alta: RED, media: Y, baixa: GRN };
 const DOT: Record<string, string> = { alta: "🔴", media: "🟡", baixa: "🟢" };
@@ -112,7 +115,7 @@ export default function ConsultorIAPage() {
       {/* EMPRESA CONSULTADA — o assistente só lê dados deste CNPJ (o do seletor do topo) */}
       <div data-testid="consultor-empresa" style={{ background: empresa ? "#F3EDE3" : "#FDF2E9", border: `1px solid ${empresa ? BD : GO}`, borderRadius: 10, padding: "8px 12px", marginBottom: 12, fontSize: 12, color: ESP }}>
         {empresa
-          ? <><Lock size={13} strokeWidth={1.5} style={{ verticalAlign: "-2px", marginRight: 4 }} aria-hidden /> Consultando só os dados de <strong>{empresaInfo?.nome || "…"}</strong>{empresaInfo?.cnpj ? <> · CNPJ {empresaInfo.cnpj}</> : null}. Para outra empresa, troque no seletor do topo.</>
+          ? <><Lock size={13} strokeWidth={1.5} style={{ verticalAlign: "-2px", marginRight: 4 }} aria-hidden /><AjudaCampo chave="inteligencia.consultor.empresa" /> Consultando só os dados de <strong>{empresaInfo?.nome || "…"}</strong>{empresaInfo?.cnpj ? <> · CNPJ {empresaInfo.cnpj}</> : null}. Para outra empresa, troque no seletor do topo.</>
           : <>Selecione <strong>uma empresa</strong> no seletor do topo. O assistente responde por um CNPJ de cada vez e não mistura dados de empresas.</>}
       </div>
 
@@ -204,6 +207,80 @@ export default function ConsultorIAPage() {
             </div>
           )}
 
+          {/* DIVERGÊNCIA sistema × banco, por conta */}
+          {resposta.tipo === "divergencia" && (
+            <div style={{ marginTop: 10 }}>
+              {(resposta.contas?.length ?? 0) > 0 && (
+                <div style={{ overflowX: "auto", border: `1px solid ${BD}`, borderRadius: 12, background: CARD }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <thead><tr style={{ background: OW, color: ESP }}>
+                      {["Conta", "Sistema", "Banco", "Diferença", ""].map((h, i) => <th key={i} style={{ textAlign: i === 0 || i === 4 ? "left" : "right", padding: "8px 10px", fontWeight: 700, borderBottom: `1px solid ${BD}` }}>{h}</th>)}
+                    </tr></thead>
+                    <tbody>
+                      {resposta.contas!.map((c) => (
+                        <tr key={c.conta_id} style={{ borderBottom: `1px solid ${BD}` }}>
+                          <td style={{ padding: "7px 10px", fontWeight: 600 }}>{c.conta_nome}</td>
+                          <td style={{ padding: "7px 10px", textAlign: "right" }}>{brl(c.saldo_sistema)}</td>
+                          <td style={{ padding: "7px 10px", textAlign: "right" }}>{brl(c.saldo_banco)}</td>
+                          <td style={{ padding: "7px 10px", textAlign: "right", fontWeight: 700, color: RED }}>{brl(c.diferenca)}</td>
+                          <td style={{ padding: "7px 10px" }}>
+                            <button type="button" onClick={() => router.push(c.rota_link || "/dashboard/financeiro/conciliacao/inbox")}
+                              style={{ background: "transparent", border: `1px solid ${GO}`, color: ESP, borderRadius: 8, padding: "5px 10px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                              Abrir conciliação →
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {(resposta.contas_sem_extrato?.length ?? 0) > 0 && (
+                <div style={{ fontSize: 12, color: TXM, marginTop: 8 }}>
+                  Sem extrato para comparar: {resposta.contas_sem_extrato!.map((c) => c.conta_nome).join(", ")}.
+                </div>
+              )}
+              {(resposta.contas?.length ?? 0) > 0 && (
+                <button type="button" onClick={() => perguntar("Lançamentos sem conciliar")}
+                  style={{ marginTop: 10, background: OW, border: `1px solid ${BD}`, color: ESP, borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                  Ver os lançamentos sem conciliar
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* LANÇAMENTOS (sem conciliar / sem CNPJ / busca) — cada um com o botão para abrir e corrigir */}
+          {resposta.tipo === "lista_lancamentos" && (resposta.linhas?.length ?? 0) > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+              {resposta.linhas!.map((l: any, i: number) => (
+                <div key={l.id ?? i} style={{ background: CARD, border: `1px solid ${BD}`, borderRadius: 12, padding: "10px 14px", display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ minWidth: 0, flex: "1 1 260px" }}>
+                    <div style={{ fontWeight: 700, color: ESP, fontSize: 13 }}>
+                      {l.descricao || l.numero_documento || "Lançamento"}
+                      <span style={{ fontWeight: 500, color: TXM, fontSize: 11, marginLeft: 6 }}>{l.natureza === "pagar" ? "a pagar" : "a receber"}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: TXM, marginTop: 2 }}>
+                      {l.contraparte_nome || "Sem fornecedor/cliente"} · {l.contraparte_cnpj ? `CNPJ/CPF ${l.contraparte_cnpj}` : <span style={{ color: RED, fontWeight: 600 }}>sem CNPJ</span>}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: TXM, marginTop: 2 }}>
+                      Venc. {fmtData(l.data_vencimento)}{l.data_pagamento ? ` · pago em ${fmtData(l.data_pagamento)}` : ""}{l.conta ? ` · ${l.conta}` : ""} · {l.status || "—"}
+                      {!l.conciliado && (l.data_pagamento || l.status === "pago" || l.status === "recebido") ? <span style={{ marginLeft: 6, background: "#FDF2E9", color: Y, borderRadius: 999, padding: "1px 8px", fontWeight: 600 }}>sem conciliar</span> : null}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontWeight: 700, color: ESP, fontSize: 13.5 }}>{brl(l.valor)}</span>
+                    {l.rota_link && (
+                      <button type="button" onClick={() => router.push(l.rota_link)}
+                        style={{ background: "transparent", border: `1px solid ${GO}`, color: ESP, borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                        Abrir lançamento →
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* VALOR (saldo) */}
           {resposta.tipo === "valor" && (
             <div style={{ marginTop: 10, background: CARD, border: `1px solid ${BD}`, borderRadius: 12, padding: 20, textAlign: "center" }}>
@@ -224,8 +301,8 @@ export default function ConsultorIAPage() {
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {achadosOrd.map((a) => (
-                <div key={a.codigo} style={{ background: CARD, borderRadius: 14, border: `1px solid ${BD}`, borderLeft: `4px solid ${COR[a.severidade] || BD}`, padding: 14 }}>
+              {achadosOrd.map((a, i) => (
+                <div key={`${a.codigo}-${i}`} style={{ background: CARD, borderRadius: 14, border: `1px solid ${BD}`, borderLeft: `4px solid ${COR[a.severidade] || BD}`, padding: 14 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                     <span style={{ fontSize: 14 }}>{DOT[a.severidade] || "•"}</span>
                     <span style={{ fontSize: 13.5, fontWeight: 700, color: ESP }}>{a.titulo}</span>
