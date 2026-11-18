@@ -22,6 +22,7 @@ import { edicaoInicialOS, idsRemovidosNaEdicao, itemEditavelNaOS, montarDadosDia
 import { aprovaPendentesAoAvancar, proximoPassoOS } from '@/lib/oficina/avancoNaOS'   // #135 · Iniciar → Finalizar → Entregar na ficha
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
 import FotosOS from '@/components/oficina/FotosOS'   // #135 item 6 · fotos da OS em lote
+import OSCustosAvulsos from '@/components/oficina/OSCustosAvulsos'   // #6714 · custo avulso (sem NF) na OS
 import { Lock, Package, PencilLine, Play, Search, Trash2, Wrench } from 'lucide-react'
 
 interface OS {
@@ -954,6 +955,9 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
           </span>
         </div>
       </div>
+
+      {/* #6714 · custos avulsos (sem NF) da OS — compõem o custo real do serviço */}
+      <OSCustosAvulsos companyId={os.company_id} osId={os.id} />
 
       {/* RD-41 · a assinatura única "de recebimento da OS" saiu daqui. Agora são 2
           assinaturas operacionais tipadas: "Ciente do checklist" (na Recepção) e
