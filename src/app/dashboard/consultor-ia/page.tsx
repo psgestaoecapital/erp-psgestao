@@ -3,10 +3,12 @@
 // Pergunta em linguagem natural → /api/consultor-ia (IA ROTEADOR: escolhe a RPC, os dados NÃO vão ao LLM;
 // company_id forçado no servidor; teto GLOBAL US$ 2/dia). Fallback de graça: chips + Raio-X determinístico.
 // Tema CLARO do ERP (Espresso em off-white) — corrige o "título fantasma" da V1 escura no shell branco.
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import AjudaCampo from "@/components/ajuda/AjudaCampo";
+import { useEmpresaSelecionada } from "@/hooks/useEmpresaSelecionada";
+import { Lock } from "lucide-react";
 
 const ESP = "#3D2314", GO = "#C8941A", OW = "#FAF7F2", CARD = "#FFFFFF", BD = "#E7DED3",
   TXM = "#6B5D4F", TXD = "#918C82", GRN = "#1F5A1F", RED = "#B91C1C", Y = "#8A5A00";
@@ -28,38 +30,39 @@ const fmtData = (s?: string) => { if (!s) return "—"; const m = /^(\d{4})-(\d{
 
 export default function ConsultorIAPage() {
   const router = useRouter();
-  const [empresa, setEmpresa] = useState("");
+  // LGPD / isolamento por CNPJ (CEO 18/11): a empresa é SEMPRE a do seletor do topo (ps_empresa_sel), acompanhada
+  // ao vivo pelo hook. Multi-empresa sem seleção, "consolidado" ou grupo → null → pede para escolher UM CNPJ.
+  // Nunca chutamos "a primeira empresa": a resposta tem de ser da empresa que o usuário está vendo no topo.
+  const { companyId } = useEmpresaSelecionada();
+  const empresa = companyId ?? "";
+  const empresaRef = useRef(empresa);
+  const [empresaInfo, setEmpresaInfo] = useState<{ nome: string; cnpj: string } | null>(null);
   const [pergunta, setPergunta] = useState("");
   const [loading, setLoading] = useState(false);
-  const [loadingDb, setLoadingDb] = useState(true);
   const [resposta, setResposta] = useState<Resposta | null>(null);
   const [raiox, setRaiox] = useState<Raiox | null>(null);
   const [erro, setErro] = useState("");
 
-  useEffect(() => { carregarEmpresa(); }, []);
-
-  async function carregarEmpresa() {
-    // Empresa vem do CONTEXTO/sessão (shell) — sem seletor no topo (SPEC §6.1).
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoadingDb(false); return; }
-    const saved = typeof window !== "undefined" ? localStorage.getItem("ps_empresa_sel") : "";
-    if (saved) { setEmpresa(saved); setLoadingDb(false); return; }
-    const { data: up } = await supabase.from("users").select("role").eq("id", user.id).single();
-    let first = "";
-    if (up?.role === "adm" || up?.role === "acesso_total") {
-      const r = await supabase.from("companies").select("id").order("nome_fantasia").limit(1);
-      first = r.data?.[0]?.id || "";
-    } else {
-      const r = await supabase.from("user_companies").select("company_id").eq("user_id", user.id).limit(1);
-      first = (r.data?.[0] as any)?.company_id || "";
-    }
-    setEmpresa(first); setLoadingDb(false);
-  }
+  // Troca de empresa no topo: limpa tudo que foi respondido para a empresa anterior e mostra o CNPJ atual.
+  useEffect(() => {
+    empresaRef.current = empresa;
+    setResposta(null); setRaiox(null); setErro(""); setEmpresaInfo(null);
+    if (!empresa) return;
+    let vivo = true;
+    supabase.from("companies").select("nome_fantasia, razao_social, cnpj").eq("id", empresa).maybeSingle()
+      .then(({ data }) => {
+        if (!vivo || !data) return;
+        const d = data as { nome_fantasia?: string | null; razao_social?: string | null; cnpj?: string | null };
+        setEmpresaInfo({ nome: d.nome_fantasia || d.razao_social || "", cnpj: d.cnpj || "" });
+      });
+    return () => { vivo = false; };
+  }, [empresa]);
 
   // Assistente (IA roteador) — pergunta livre.
   async function perguntar(texto?: string) {
     const q = (texto ?? pergunta).trim();
     if (!q || !empresa) return;
+    const alvo = empresa;
     if (texto) setPergunta(texto);
     setLoading(true); setErro(""); setResposta(null); setRaiox(null);
     try {
@@ -67,9 +70,10 @@ export default function ConsultorIAPage() {
       const res = await fetch("/api/consultor-ia", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token ?? ""}` },
-        body: JSON.stringify({ pergunta: q, company_id: empresa }),
+        body: JSON.stringify({ pergunta: q, company_id: alvo }),
       });
       const j = (await res.json()) as Resposta;
+      if (empresaRef.current !== alvo) { setLoading(false); return; } // empresa trocada no meio: descarta
       if (!res.ok || j.ok === false) { setErro(j.error || "Não consegui responder agora. Tente de novo."); setLoading(false); return; }
       setResposta(j);
     } catch { setErro("Falha de conexão. Tente de novo em instantes."); }
@@ -79,15 +83,15 @@ export default function ConsultorIAPage() {
   // Raio-X determinístico (grátis) — atalho/fallback, sem IA.
   async function rodarRaiox() {
     if (!empresa) return;
+    const alvo = empresa;
     setLoading(true); setErro(""); setResposta(null); setRaiox(null);
-    const { data, error } = await supabase.rpc("fn_consultor_raiox", { p_company_id: empresa });
+    const { data, error } = await supabase.rpc("fn_consultor_raiox", { p_company_id: alvo });
+    if (empresaRef.current !== alvo) { setLoading(false); return; } // empresa trocada no meio: descarta
     if (error) { setErro("Não consegui analisar agora. Tente de novo."); setLoading(false); return; }
     const r = data as Raiox;
     if (r && r.ok === false) { setErro(r.erro === "sem_acesso" ? "Você não tem acesso aos dados desta empresa." : "Não consegui analisar agora."); setLoading(false); return; }
     setRaiox(r); setLoading(false);
   }
-
-  if (loadingDb) return <div style={{ padding: 40, textAlign: "center", color: TXM }}>Carregando…</div>;
 
   const achados = (resposta?.tipo === "raiox" ? resposta.achados : raiox?.achados) || [];
   const achadosOrd = achados.slice().sort((a, b) => (ORDEM[a.severidade] ?? 3) - (ORDEM[b.severidade] ?? 3));
@@ -103,6 +107,13 @@ export default function ConsultorIAPage() {
         <div style={{ fontSize: 12.5, color: TXM, marginTop: 3, lineHeight: 1.5, maxWidth: 580 }}>
           Pergunte em português — <strong style={{ color: ESP }}>“contas a receber que vencem hoje”, “o cliente X está cadastrado?”</strong> — e eu trago direto dos seus dados. Os atalhos abaixo são gratuitos.
         </div>
+      </div>
+
+      {/* EMPRESA CONSULTADA — o assistente só lê dados deste CNPJ (o do seletor do topo) */}
+      <div data-testid="consultor-empresa" style={{ background: empresa ? "#F3EDE3" : "#FDF2E9", border: `1px solid ${empresa ? BD : GO}`, borderRadius: 10, padding: "8px 12px", marginBottom: 12, fontSize: 12, color: ESP }}>
+        {empresa
+          ? <><Lock size={13} strokeWidth={1.5} style={{ verticalAlign: "-2px", marginRight: 4 }} aria-hidden /> Consultando só os dados de <strong>{empresaInfo?.nome || "…"}</strong>{empresaInfo?.cnpj ? <> · CNPJ {empresaInfo.cnpj}</> : null}. Para outra empresa, troque no seletor do topo.</>
+          : <>Selecione <strong>uma empresa</strong> no seletor do topo. O assistente responde por um CNPJ de cada vez e não mistura dados de empresas.</>}
       </div>
 
       {/* CAIXA DE PERGUNTA */}
