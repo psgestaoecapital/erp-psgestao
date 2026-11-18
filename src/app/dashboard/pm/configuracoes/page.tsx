@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
+import { parseNumBR } from '@/lib/num'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)'
 const VERDE = '#16A34A', VERM = '#B91C1C'
@@ -273,7 +274,7 @@ function AbaProposta({ empresa }: { empresa: string | null }) {
     // RD-98 p4: salvar rastreável — RPC grava audit_log (quem/quando/antes/depois), em vez do upsert direto.
     const { data, error } = await supabase.rpc('fn_pm_config_proposta_salvar', {
       p_company_id: empresa, p_exigir: exigir, p_condicao: condicao.trim() || null,
-      p_desconto_max: descMax.trim() === '' ? null : Number(descMax),
+      p_desconto_max: descMax.trim() === '' ? null : parseNumBR(descMax), // #5620: % aceita vírgula
     })
     setBusy(false)
     if (error) { setMsg(erroAmigavel(error)); return }
@@ -291,7 +292,7 @@ function AbaProposta({ empresa }: { empresa: string | null }) {
       </label>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
         <label><span style={lblS}>Condição de pagamento padrão<AjudaCampo chave="pm.config.proposta_condicao" /></span><input value={condicao} onChange={(e) => setCondicao(e.target.value)} placeholder="ex.: Mensal" style={inp} /></label>
-        <label><span style={lblS}>Desconto máximo (%) — vazio = sem limite<AjudaCampo chave="pm.config.proposta_desconto_max" /></span><input type="number" min={0} max={100} step="0.5" value={descMax} onChange={(e) => setDescMax(e.target.value)} placeholder="sem limite" style={inp} /></label>
+        <label><span style={lblS}>Desconto máximo (%) — vazio = sem limite<AjudaCampo chave="pm.config.proposta_desconto_max" /></span><input type="text" inputMode="decimal" value={descMax} onChange={(e) => setDescMax(e.target.value)} placeholder="sem limite" style={inp} /></label>
       </div>
       <div style={{ fontSize: 11, color: MUT, marginTop: 10 }}>Numeração (prefixo/contador) e validade padrão ficam para um próximo ajuste — dependem de mudança na função de criação da proposta, e não entram aqui como campo que não faz nada.</div>
       <Msg m={msg} />
