@@ -13,6 +13,9 @@ import GerarBoletoButton from './GerarBoletoButton'
 import BoletoActions, { type ClienteContato, type BoletoEstado } from './BoletoActions'
 
 const SEM_CONTA = '— sem conta informada —' // 3b: chip de filtro p/ lançamentos sem conta bancária
+// #9991 · opção "Sem categoria" no filtro de categoria: leva o usuário direto aos títulos ainda
+// não classificados (os que distorcem o DRE). Sentinela que não colide com nenhum código de conta.
+const SEM_CATEGORIA = '— sem categoria —'
 import ConciliarTituloModal from './ConciliarTituloModal'
 // #71 · Editar abre a MESMA tela da inclusão (NovaDespesaForm/NovaReceitaForm em modo edição)
 import NovaDespesaModal from './NovaDespesaModal'
@@ -461,6 +464,15 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     } else if (st === 'avencer') {
       setStatusSel(['avencer'])
     }
+    // #9991 · aviso "X despesas/receitas sem categoria — classificar p/ o DRE" chega com
+    // ?semcategoria=1: abre a lista já filtrada só nos títulos sem categoria, período largo
+    // (podem ser de meses anteriores). Reusa o filtro de categoria existente (sentinela).
+    if (qs.get('semcategoria') === '1') {
+      setCategoria(SEM_CATEGORIA)
+      setPeriodoChoice('personalizado')
+      setDataInicio(`${new Date().getFullYear() - 5}-01-01`)
+      setDataFim(fimMesAtual())
+    }
     // roda só no mount: é o filtro inicial vindo da URL
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -711,7 +723,8 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     const vMin = parseValorBR(fValorMin)
     const vMax = parseValorBR(fValorMax)
     const filtrado = base.filter((r) => {
-      if (categoria && r.categoria !== categoria) return false
+      if (categoria === SEM_CATEGORIA) { if ((r.categoria ?? '').trim() !== '') return false }
+      else if (categoria && r.categoria !== categoria) return false
       if (soBloqueadas && !(r.id in bloqueioMap)) return false   // #1672
       // item 3 + 3b: filtro Conta (sentinel "— sem conta informada —" = linha sem conta bancária)
       if (contasSel.size > 0) {
@@ -802,7 +815,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     const statusMap: Record<string, string> = { todos: 'Todos', avencer: 'A vencer', vencidos: 'Vencidos', hoje: 'Hoje', pagos: labels.pagosLabel, conciliado: 'Conciliado', agendado: 'Agendado', incluido_remessa: 'Incluído na remessa' }
     const statusTxt = statusSel.length ? statusSel.map((s) => statusMap[s]).join(' + ') : 'Todos'
     const partes = [`Periodo ${fmtData(dataInicio)} a ${fmtData(dataFim)}`, `Status: ${statusTxt}`]
-    if (categoria) partes.push(`Categoria: ${categoria}`)
+    if (categoria) partes.push(categoria === SEM_CATEGORIA ? 'Categoria: Sem categoria' : `Categoria: ${categoria}`)
     if (busca.trim()) partes.push(`Busca: "${busca.trim()}"`)
     if (fPessoa.trim()) partes.push(`${tipo === 'pagar' ? 'Fornecedor' : 'Cliente'}: ${fPessoa.trim()}`)
     if (fForma) partes.push(`Forma: ${fForma}`)
@@ -1571,6 +1584,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         <Campo label="Categoria" ajuda={`financeiro.${tipo}.filtro_categoria`}>
           <select value={categoria} onChange={(e) => { setCategoria(e.target.value); setPage(1) }} style={inputStyle}>
             <option value="">Todas</option>
+            <option value={SEM_CATEGORIA}>Sem categoria (classificar p/ o DRE)</option>
             {categoriasDistinct.map((c) => (
               <option key={c} value={c}>{rotuloCategoria(c)}</option>
             ))}
