@@ -2139,7 +2139,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                   )}
                 </span>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span>Itens por página:</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Itens por página:<AjudaCampo chave={`financeiro.${tipo}.itens_por_pagina`} /></span>
                   <select
                     value={pageSize}
                     onChange={(e) => trocarPageSize(Number(e.target.value))}
@@ -2255,16 +2255,19 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           confirmarLabel={massaBusy ? 'Aplicando…' : 'Aplicar'}
           confirmarDisabled={massaBusy || !massaValorValido}
         >
-          <div style={{ fontSize: 12, marginBottom: 6 }}>Campo a alterar</div>
-          <select
-            value={massaCampo}
-            onChange={(e) => { setMassaCampo(e.target.value); setMassaNovoValor('') }}
-            style={{ width: '100%', padding: '10px 12px', border: '0.5px solid rgba(61,35,20,0.25)', borderRadius: 6, fontSize: 14, background: '#FFFFFF', color: '#3D2314', boxSizing: 'border-box', marginBottom: 12 }}
-          >
-            {CAMPOS_MASSA.map((c) => <option key={c.v} value={c.v}>{c.l}</option>)}
-          </select>
+          <label style={{ display: 'block' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, marginBottom: 6 }}>Campo a alterar<AjudaCampo chave={`financeiro.${tipo}.massa_campo`} /></span>
+            <select
+              value={massaCampo}
+              onChange={(e) => { setMassaCampo(e.target.value); setMassaNovoValor('') }}
+              style={{ width: '100%', padding: '10px 12px', border: '0.5px solid rgba(61,35,20,0.25)', borderRadius: 6, fontSize: 14, background: '#FFFFFF', color: '#3D2314', boxSizing: 'border-box', marginBottom: 12 }}
+            >
+              {CAMPOS_MASSA.map((c) => <option key={c.v} value={c.v}>{c.l}</option>)}
+            </select>
+          </label>
 
-          <div style={{ fontSize: 12, marginBottom: 6 }}>Novo valor · {campoMassaDef.l}</div>
+          <label style={{ display: 'block' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, marginBottom: 6 }}>Novo valor · {campoMassaDef.l}<AjudaCampo chave={`financeiro.${tipo}.massa_valor`} /></span>
           {campoMassaDef.tipo === 'select' ? (
             <select value={massaNovoValor} onChange={(e) => setMassaNovoValor(e.target.value)}
               style={{ width: '100%', padding: '10px 12px', border: '0.5px solid rgba(61,35,20,0.25)', borderRadius: 6, fontSize: 14, background: '#FFFFFF', color: '#3D2314', boxSizing: 'border-box' }}>
@@ -2283,6 +2286,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
               style={{ width: '100%', padding: '10px 12px', border: '0.5px solid rgba(61,35,20,0.25)', borderRadius: 6, fontSize: 14, background: '#FFFFFF', color: '#3D2314', boxSizing: 'border-box' }}
             />
           )}
+          </label>
 
           <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.6)', marginTop: 8 }}>
             {selecionados.size} lançamento{selecionados.size !== 1 ? 's' : ''} → <b>{campoMassaDef.l}</b>{massaNovoValor ? <> = <b>{massaNovoValor}</b></> : ''}.
