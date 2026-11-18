@@ -16,6 +16,7 @@ import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
+import { moedaMascara, moedaParaNumero } from '@/lib/moeda-mascara'
 import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
 import {
   Plus, Search, FileText, ShoppingCart, BarChart3, X, Info, Trash2,
@@ -836,8 +837,8 @@ function ModalComparativo({ cotacao, onClose, onAprovar }: { cotacao: Cotacao; o
         const k = `${it.id}|${f.id}`
         const raw = precosLocais[k]
         if (raw == null || raw === '') continue
-        const preco = Number(String(raw).replace(',', '.'))
-        if (!Number.isFinite(preco) || preco < 0) continue
+        const preco = moedaParaNumero(raw)
+        if (preco == null || !Number.isFinite(preco) || preco < 0) continue
         // Skip se nao mudou em relacao ao banco
         const existente = propostas.find((p) => p.cotacao_item_id === it.id && p.cotacao_fornecedor_id === f.id)
         if (existente && Number(existente.preco_unitario ?? 0) === preco && existente.disponivel !== false) continue
@@ -976,7 +977,7 @@ function ModalComparativo({ cotacao, onClose, onAprovar }: { cotacao: Cotacao; o
                           const k = `${it.id}|${f.id}`
                           const p = propostaMap[k]
                           const valorLocal = precosLocais[k] ?? ''
-                          const precoNum = Number(String(valorLocal).replace(',', '.'))
+                          const precoNum = moedaParaNumero(valorLocal) ?? NaN
                           const subtotalCalc = Number.isFinite(precoNum) && precoNum > 0 ? precoNum * qtd : 0
                           const isMenor = menorFid === f.id && p && p.disponivel !== false
                           const indisp = p?.disponivel === false
@@ -987,13 +988,11 @@ function ModalComparativo({ cotacao, onClose, onAprovar }: { cotacao: Cotacao; o
                                   <span style={{ color: C.red, fontWeight: 600 }}>indisponível</span>
                                 ) : (
                                   <input
-                                    type="number"
-                                    inputMode="decimal"
-                                    step="0.01"
-                                    min="0"
+                                    inputMode="numeric"
+                                    autoComplete="off"
                                     placeholder="R$ 0,00"
                                     value={valorLocal}
-                                    onChange={(e) => setPrecosLocais({ ...precosLocais, [k]: e.target.value })}
+                                    onChange={(e) => setPrecosLocais({ ...precosLocais, [k]: moedaMascara(e.target.value) })}
                                     disabled={cotReadOnly}
                                     style={{
                                       width: 110, minHeight: 32, padding: '6px 8px', textAlign: 'right',

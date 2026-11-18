@@ -9,6 +9,9 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties, type Rea
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
+import { parseNumBR } from '@/lib/num'
 import { AlertTriangle, PauseCircle, ReceiptText, Search, Undo2, type LucideIcon } from 'lucide-react'
 
 const ESP = '#3D2314'; const BG = '#FAF7F2'; const GOLD = '#C8941A'; const LINE = '#E7DED3'
@@ -534,11 +537,12 @@ function RegraModal({ empresa, inicial, contratos, fornecedores, onFechar, onSal
   const set = <K extends keyof Regra>(k: K, v: Regra[K] | null) => setD((x) => ({ ...x, [k]: v }))
   const contrato = contratos.find((c) => c.id === d.contrato_id)
   const vendOpc = fornecedores.filter((f) => !filtroVend.trim() || nomeForn(f).toLowerCase().includes(filtroVend.trim().toLowerCase()) || f.id === d.fornecedor_id).slice(0, 300)
-  const exemplo = contrato ? (d.tipo_comissao === 'fixo' ? Number(d.valor_fixo) || 0 : ((Number(d.percentual) || 0) / 100) * valorMensal(contrato)) : 0
+  const exemplo = contrato ? (d.tipo_comissao === 'fixo' ? Number(d.valor_fixo) || 0 : ((parseNumBR(d.percentual) || 0) / 100) * valorMensal(contrato)) : 0
 
   async function salvar() {
     setSalvando(true); setErro(null)
-    const { data, error } = await supabase.rpc('fn_comissao_recorrente_regra_salvar', { p_company_id: empresa, p_dados: d })
+    const p_dados = { ...d, percentual: parseNumBR(d.percentual ?? null) }
+    const { data, error } = await supabase.rpc('fn_comissao_recorrente_regra_salvar', { p_company_id: empresa, p_dados })
     setSalvando(false)
     const r = data as { ok?: boolean; erro?: string } | null
     if (error) { setErro(erroAmigavel(error, 'salvar a comissão')); return }
@@ -568,10 +572,12 @@ function RegraModal({ empresa, inicial, contratos, fornecedores, onFechar, onSal
             </select></label>
           {d.tipo_comissao === 'fixo' ? (
             <label style={lbl}>Valor fixo (R$)<AjudaCampo chave="comrec.valor_fixo" />
-              <input style={inp} type="number" min="0" step="0.01" value={d.valor_fixo ?? ''} onChange={(e) => set('valor_fixo', e.target.value === '' ? null : Number(e.target.value))} /></label>
+              {/* #6874 — campo monetário padrão (CampoMoeda): texto mascarado em R$; o número puro continua indo ao banco
+                  (d.valor_fixo segue number via moedaParaNumero), sem mudar o cálculo do exemplo nem o RPC de salvar. */}
+              <CampoMoeda value={numeroParaMoeda(d.valor_fixo)} onChange={(v) => set('valor_fixo', moedaParaNumero(v))} placeholder="R$ 0,00" style={inp} testId="comrec-regra-valor-fixo" /></label>
           ) : (
             <label style={lbl}>Percentual (%)<AjudaCampo chave="comrec.percentual" />
-              <input style={inp} type="number" min="0" max="100" step="0.01" value={d.percentual ?? ''} onChange={(e) => set('percentual', e.target.value === '' ? null : Number(e.target.value))} data-testid="comrec-regra-pct" /></label>
+              <input style={inp} type="text" inputMode="decimal" value={d.percentual ?? ''} onChange={(e) => set('percentual', (e.target.value === '' ? null : e.target.value) as unknown as number)} data-testid="comrec-regra-pct" /></label>
           )}
         </div>
         {contrato && <div className="text-sm rounded-lg p-2" style={{ background: BG }}>Cliente pagando {brl(valorMensal(contrato))} → vendedor recebe <b style={{ color: GOLD }}>{brl(exemplo)}</b> por pagamento.</div>}

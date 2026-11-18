@@ -6,7 +6,8 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { fmtData } from '@/lib/psgc-tokens'
 import { UploadDocumentoModal, type UploadContext } from '../_components/UploadDocumentoModal'
-import { C, StatusBadge, baixarDocumento } from '../_components/ui'
+import { C, StatusBadge, baixarDocumento, removerDocumento } from '../_components/ui'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
 
 type TipoEmpresa = {
   id: string
@@ -62,6 +63,7 @@ export default function ComplianceEmpresaPage() {
   const [uploadCtx, setUploadCtx] = useState<UploadContext | null>(null)
   const [filtroGrupo, setFiltroGrupo] = useState<string>('')
   const [filtroEmpresa, setFiltroEmpresa] = useState<string>('')
+  const [removendoId, setRemovendoId] = useState<string | null>(null)
 
   const empresasNoEscopo = useMemo(() => {
     const ids = companyIdsKey ? companyIdsKey.split(',') : []
@@ -131,6 +133,21 @@ export default function ComplianceEmpresaPage() {
 
   useEffect(() => { carregar() }, [carregar])
 
+  // RD-98 p2 (Excluir): remove um documento já enviado. Confirma, chama o DELETE
+  // guardado (soft-delete + remoção do arquivo) e recarrega — a linha volta a
+  // oferecer "Upload". O registro fica no histórico (ativo=false).
+  async function onRemover(l: LinhaMatriz) {
+    if (!l.documento) return
+    const nomeArq = l.documento.arquivo_nome_original || l.tipo.nome
+    if (!window.confirm(`Remover o documento "${nomeArq}" (${l.tipo.nome})? Ele sai da lista; o histórico é mantido e você pode enviar um novo depois.`)) return
+    setRemovendoId(l.documento.id)
+    try {
+      const r = await removerDocumento(l.documento.id)
+      if (!r.ok) { window.alert('Não consegui remover o documento: ' + (r.error ?? 'erro desconhecido')); return }
+      await carregar()
+    } finally { setRemovendoId(null) }
+  }
+
   function statusFinal(l: LinhaMatriz): string {
     if (!l.documento) return 'nao_emitido'
     return l.documento.status_validade || 'valido'
@@ -180,7 +197,10 @@ export default function ComplianceEmpresaPage() {
 
         {erro && (<div style={{ backgroundColor: C.redBg, color: C.red, padding: '12px 16px', borderRadius: 8, marginBottom: 16, fontSize: 14 }}>{erro}</div>)}
 
-        <section style={{ background: 'white', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)', display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+        <section style={{ background: 'white', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)', display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16, alignItems: 'center' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: C.muted, marginRight: 4 }}>
+            Grupo <AjudaCampo chave="compliance.empresa.filtro_grupo" />
+          </span>
           <button
             onClick={() => setFiltroGrupo('')}
             style={chipStyle(filtroGrupo === '')}
@@ -240,13 +260,13 @@ export default function ComplianceEmpresaPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ backgroundColor: C.offwhite }}>
-                    <Th>Documento</Th>
-                    <Th>Tipo</Th>
-                    {multiEmpresa && <Th>Empresa</Th>}
-                    <Th>Status</Th>
-                    <Th>Validade</Th>
-                    <Th>Arquivo</Th>
-                    <Th>Ações</Th>
+                    <Th>Documento <AjudaCampo chave="compliance.empresa.documento" /></Th>
+                    <Th>Tipo <AjudaCampo chave="compliance.empresa.tipo" /></Th>
+                    {multiEmpresa && <Th>Empresa <AjudaCampo chave="compliance.empresa.empresa" /></Th>}
+                    <Th>Status <AjudaCampo chave="compliance.empresa.status" /></Th>
+                    <Th>Validade <AjudaCampo chave="compliance.empresa.validade" /></Th>
+                    <Th>Arquivo <AjudaCampo chave="compliance.empresa.arquivo" /></Th>
+                    <Th>Ações <AjudaCampo chave="compliance.empresa.acoes" /></Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -278,17 +298,20 @@ export default function ComplianceEmpresaPage() {
                       <Td>
                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                           {!l.documento ? (
-                            <button
-                              onClick={() =>
-                                setUploadCtx({
-                                  companyId: l.companyId, tipoDocumentoId: l.tipo.id, tipoNome: l.tipo.nome,
-                                  empresaAlvoId: l.companyId, modo: 'upload',
-                                })
-                              }
-                              style={btnPrim()}
-                            >
-                              Upload
-                            </button>
+                            <>
+                              <button
+                                onClick={() =>
+                                  setUploadCtx({
+                                    companyId: l.companyId, tipoDocumentoId: l.tipo.id, tipoNome: l.tipo.nome,
+                                    empresaAlvoId: l.companyId, modo: 'upload',
+                                  })
+                                }
+                                style={btnPrim()}
+                              >
+                                Upload
+                              </button>
+                              <AjudaCampo chave="compliance.empresa.upload" />
+                            </>
                           ) : (
                             <>
                               <button
@@ -302,7 +325,17 @@ export default function ComplianceEmpresaPage() {
                               >
                                 Substituir
                               </button>
+                              <AjudaCampo chave="compliance.empresa.substituir" />
                               <button onClick={() => baixarDocumento(l.documento!.id)} style={btnSec()}>Baixar</button>
+                              <AjudaCampo chave="compliance.empresa.baixar" />
+                              <button
+                                onClick={() => onRemover(l)}
+                                disabled={removendoId === l.documento!.id}
+                                style={btnDanger(removendoId === l.documento!.id)}
+                              >
+                                {removendoId === l.documento!.id ? 'Removendo…' : 'Remover'}
+                              </button>
+                              <AjudaCampo chave="compliance.empresa.remover" />
                             </>
                           )}
                         </div>
@@ -347,5 +380,6 @@ function badgeOpc() {
 }
 function btnPrim() { return { padding: '6px 12px', borderRadius: 6, border: 'none', backgroundColor: C.espresso, color: 'white', fontSize: 12, fontWeight: 600, cursor: 'pointer' } as any }
 function btnSec() { return { padding: '6px 12px', borderRadius: 6, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 12, fontWeight: 600, cursor: 'pointer' } as any }
+function btnDanger(busy: boolean) { return { padding: '6px 12px', borderRadius: 6, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.red, fontSize: 12, fontWeight: 600, cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1 } as any }
 function Th({ children }: { children: any }) { return (<th style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'rgba(61, 35, 20, 0.65)' }}>{children}</th>) }
 function Td({ children, mono }: { children: any; mono?: boolean }) { return (<td style={{ padding: '10px 16px', verticalAlign: 'top', fontFamily: mono ? 'ui-monospace, SFMono-Regular, Menlo, monospace' : undefined }}>{children}</td>) }

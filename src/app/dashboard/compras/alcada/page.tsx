@@ -35,6 +35,9 @@ export default function AlcadaComprasPage() {
   const [minOrc, setMinOrc] = useState<1 | 3>(3)
   const [categorias, setCategorias] = useState<string[]>([])
   const [novaCat, setNovaCat] = useState('')
+  const [produtos, setProdutos] = useState<{ id: string; nome: string }[]>([])
+  const [produtoIds, setProdutoIds] = useState<string[]>([])
+  const [novoProd, setNovoProd] = useState('')
   const [loading, setLoading] = useState(true)
   const [salvando, setSalvando] = useState(false)
   const [msg, setMsg] = useState<{ tipo: 'ok' | 'erro'; texto: string } | null>(null)
@@ -45,7 +48,7 @@ export default function AlcadaComprasPage() {
     const [{ data: c, error: cErr }, { data: us }, { data: prods }] = await Promise.all([
       supabase.rpc('fn_compras_alcada_obter', { p_company_id: empresa }),
       supabase.rpc('fn_usuarios_da_empresa', { p_company_id: empresa }),
-      supabase.from('erp_produtos').select('categoria').eq('company_id', empresa).not('categoria', 'is', null).limit(2000),
+      supabase.from('erp_produtos').select('id, nome, categoria, ativo').eq('company_id', empresa).limit(5000),
     ])
     if (cErr || !c) { setMsg({ tipo: 'erro', texto: cErr?.message ?? 'Não foi possível ler a alçada.' }); setLoading(false); return }
     const conf = c as Config
@@ -54,10 +57,17 @@ export default function AlcadaComprasPage() {
     setSubstituto(conf.aprovador_substituto_id ?? '')
     setMinOrc(conf.min_orcamentos === 1 ? 1 : 3)
     setCategorias(conf.urgencia_categorias ?? [])
+    setProdutoIds(conf.urgencia_produto_ids ?? [])
     setUsuarios(((us ?? []) as Usuario[]).filter((u) => u.is_active))
+    const plist = (prods ?? []) as { id: string; nome: string | null; categoria: string | null; ativo: boolean | null }[]
     const cats = new Set<string>()
-    for (const p of (prods ?? []) as { categoria: string | null }[]) if (p.categoria?.trim()) cats.add(p.categoria.trim())
+    for (const p of plist) if (p.categoria?.trim()) cats.add(p.categoria.trim())
     setCategoriasProdutos([...cats].sort((a, b) => a.localeCompare(b, 'pt-BR')))
+    setProdutos(
+      plist.filter((p) => p.ativo !== false && p.nome?.trim())
+        .map((p) => ({ id: p.id, nome: p.nome!.trim() }))
+        .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')),
+    )
     setLoading(false)
   }, [empresa])
 
@@ -72,6 +82,16 @@ export default function AlcadaComprasPage() {
     setCategorias([...categorias, v]); setNovaCat('')
   }
 
+  const nomeProduto = (id: string) => produtos.find((p) => p.id === id)?.nome ?? '(produto removido)'
+  const sugestoesProd = useMemo(() => produtos.filter((p) => !produtoIds.includes(p.id)), [produtos, produtoIds])
+  const addProduto = (nome: string) => {
+    const v = nome.trim().toLowerCase()
+    if (!v) { setNovoProd(''); return }
+    const prod = produtos.find((p) => p.nome.toLowerCase() === v)
+    if (prod && !produtoIds.includes(prod.id)) setProdutoIds([...produtoIds, prod.id])
+    setNovoProd('')
+  }
+
   const salvar = async () => {
     if (!empresa || !cfg) return
     const erro = validarAlcadaForm({ principal, substituto })
@@ -84,7 +104,7 @@ export default function AlcadaComprasPage() {
         aprovador_substituto_id: substituto || null,
         min_orcamentos: minOrc,
         urgencia_categorias: categorias,
-        urgencia_produto_ids: cfg.urgencia_produto_ids ?? [],
+        urgencia_produto_ids: produtoIds,
       },
     })
     setSalvando(false)
@@ -186,6 +206,40 @@ export default function AlcadaComprasPage() {
                   <datalist id="alcada-categorias">{sugestoesCat.map((c) => <option key={c} value={c} />)}</datalist>
                 </label>
                 <button type="button" onClick={() => addCategoria(novaCat)}
+                  className="self-end rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-700">Incluir</button>
+              </div>
+            )}
+          </section>
+
+          <section>
+            <span className="flex items-center gap-1 text-sm font-medium text-gray-800">
+              Produtos liberados para compra urgente <AjudaCampo chave="compras.alcada.urgencia_produtos" />
+            </span>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {produtoIds.length === 0 && <span className="text-sm text-gray-500">Nenhum produto específico: vale apenas a liberação por categoria acima.</span>}
+              {produtoIds.map((id) => (
+                <span key={id} className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-sm text-emerald-800">
+                  {nomeProduto(id)}
+                  {!somenteLeitura && (
+                    <button type="button" aria-label={`Tirar ${nomeProduto(id)}`} onClick={() => setProdutoIds(produtoIds.filter((x) => x !== id))}>
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </span>
+              ))}
+            </div>
+            {!somenteLeitura && (
+              <div className="mt-3 flex gap-2">
+                <label className="flex-1">
+                  <span className="flex items-center gap-1 text-xs text-gray-600">
+                    Incluir produto <AjudaCampo chave="compras.alcada.incluir_produto" />
+                  </span>
+                  <input list="alcada-produtos" value={novoProd} onChange={(e) => setNovoProd(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addProduto(novoProd) } }}
+                    placeholder="Digite o nome do produto" className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-base" />
+                  <datalist id="alcada-produtos">{sugestoesProd.map((p) => <option key={p.id} value={p.nome} />)}</datalist>
+                </label>
+                <button type="button" onClick={() => addProduto(novoProd)}
                   className="self-end rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-700">Incluir</button>
               </div>
             )}

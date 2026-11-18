@@ -161,16 +161,24 @@ export default function GovNFSeStatusClient() {
             <Landmark className="text-[#C8941A]" size={22} /> NFSe Nacional gov.br
           </h1>
           <p className="text-[13px] text-[#3D2314]/70 mt-1.5 max-w-3xl">
-            Diagnóstico da emissão via Sistema Nacional NFS-e (Receita Federal). Lista DPSes
-            pendentes e municípios aderidos. <strong>Fase 1</strong> · emissão real via mTLS chega na Fase 2.
+            Painel de diagnóstico do Sistema Nacional NFS-e (Receita Federal): municípios aderidos
+            e acompanhamento das DPSes. <strong>Para emitir</strong> uma NFS-e, use a tela de{' '}
+            <Link href="/dashboard/fiscal/nfse" className="text-[#BA7517] hover:text-[#8B5612] underline underline-offset-2">
+              Emissão de NFS-e
+            </Link>.
           </p>
         </header>
 
-        <div className="bg-[#FAEEDA] border border-[#E8C387] rounded-xl p-4 mb-5 text-[12.5px] text-[#633806] leading-relaxed">
-          <strong className="font-medium">Status atual:</strong> sistema preparado pra registrar DPSes
-          localmente. A transmissão efetiva (mTLS com certificado A1 + endpoint{' '}
-          <code className="text-[11px] bg-[#3D2314]/8 px-1 rounded">sefin.nfse.gov.br/sefinnacional/dps</code>)
-          será habilitada na Fase 2 (próximo PR).
+        <div className="bg-[#FAEEDA] border border-[#E8C387] rounded-xl p-4 mb-5 text-[12.5px] text-[#633806] leading-relaxed flex items-start gap-2">
+          <FileText size={15} className="text-[#C8941A] flex-shrink-0 mt-0.5" />
+          <div>
+            <strong className="font-medium">Esta tela é só diagnóstico.</strong> Ela mostra os municípios
+            aderidos ao padrão nacional e o status das DPSes. A emissão de NFS-e já está disponível e sai pela
+            tela de{' '}
+            <Link href="/dashboard/fiscal/nfse" className="font-medium text-[#8B5612] hover:text-[#633806] underline underline-offset-2">
+              Emissão de NFS-e
+            </Link>.
+          </div>
         </div>
 
         <div className="bg-white border border-[#3D2314]/10 rounded-xl overflow-hidden mb-5">
@@ -291,8 +299,22 @@ export default function GovNFSeStatusClient() {
           ) : erroDps ? (
             <BlocoErro msg={erroDps} onRetry={carregarDps} />
           ) : pendentes.length === 0 ? (
-            <div className="py-8 text-center text-[12.5px] text-[#3D2314]/60">
-              Nenhuma DPS pendente.
+            <div className="py-10 px-6 flex flex-col items-center text-center" data-testid="gov-nfse-dps-vazio">
+              <div className="w-11 h-11 rounded-full bg-[#FAEEDA] border border-[#E8C387] flex items-center justify-center mb-3">
+                <CheckCircle2 size={20} className="text-[#C8941A]" />
+              </div>
+              <div className="text-[14px] font-medium text-[#3D2314]">Nenhuma DPS pendente</div>
+              <p className="text-[12.5px] text-[#3D2314]/60 mt-1.5 max-w-md leading-relaxed">
+                As notas emitidas aparecem aqui enquanto aguardam a autorização do gov.br. Nada
+                aguardando no momento — está tudo em dia.
+              </p>
+              <Link
+                href="/dashboard/fiscal/nfse"
+                data-testid="gov-nfse-dps-vazio-emitir"
+                className="inline-flex items-center gap-1.5 mt-4 text-[12.5px] font-medium text-[#BA7517] hover:text-[#8B5612]"
+              >
+                <FileText size={13} /> Emitir uma NFS-e
+              </Link>
             </div>
           ) : (
             <div className="overflow-x-auto">
