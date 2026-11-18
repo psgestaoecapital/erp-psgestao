@@ -559,7 +559,10 @@ function AreaListItem({
 
   return (
     <Link
-      href={area.rota_raiz}
+      // Leva o ?area=<slug> novo na navegação: a fonte de maior prioridade (queryArea) reflete a escolha já no
+      // 1º clique, sem depender do intervalo de 800 ms nem de a rota ter page.tsx. Consistente com os links dos
+      // módulos (que já usam ?area=). onClick segue persistindo em localStorage para o F5.
+      href={`${area.rota_raiz}?area=${area.area_slug}`}
       role="menuitem"
       onClick={onClick}
       data-testid={`area-${area.area_slug}`}

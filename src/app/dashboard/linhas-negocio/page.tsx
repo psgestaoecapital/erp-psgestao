@@ -136,6 +136,28 @@ export default function LinhasNegocioPage() {
           </div>
         )}
 
+        {/* Estado vazio do bloco de performance (RD-98/critério d): há linhas cadastradas, mas ainda
+            não há DRE/rateio no período — sem isso não há como calcular receita, CM3 nem contribuição
+            marginal por linha. Antes ficava um espaço em branco sob o subtítulo "Performance e
+            contribuição marginal"; agora explicamos o que falta e damos o caminho. */}
+        {empresaId && !loadingLinhas && linhas.length > 0 && !loading && !benchmark && dre.length === 0 && (
+          <div style={{ border: `1px dashed ${DOURADO}`, background: '#fff', borderRadius: 16, padding: 40, textAlign: 'center' }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>📈</div>
+            <h2 style={{ fontFamily: SERIF, fontSize: 20, fontWeight: 400, color: ESPRESSO, margin: '0 0 8px' }}>
+              Ainda sem performance no período {new Date(periodo + '-02').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+            </h2>
+            <p style={{ fontSize: 13, color: TEXTM, margin: '0 auto 16px', maxWidth: 460, lineHeight: 1.5 }}>
+              Suas linhas já estão cadastradas, mas a performance por linha (receita, CM3 e contribuição marginal)
+              só aparece quando as receitas e despesas do período são rateadas para cada linha. Configure o rateio
+              para ver a DRE por linha, o health score e o comparativo com o orçamento.
+            </p>
+            <a href='/dashboard/rateio'
+              style={{ display: 'inline-block', background: ESPRESSO, color: '#fff', padding: '9px 22px', borderRadius: 10, fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>
+              Configurar rateio →
+            </a>
+          </div>
+        )}
+
         {benchmark && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px,1fr))', gap: 14 }}>
             {[

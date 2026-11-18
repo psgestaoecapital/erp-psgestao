@@ -14,6 +14,7 @@ import ClientePickerInline from '@/components/ge/ClientePickerInline'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
 import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
+import { parseNumBR } from '@/lib/num'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { Receipt } from 'lucide-react'
 
@@ -437,7 +438,7 @@ export default function PropostasPage() {
       p_dia_vencimento: Number(aprForm.dia) || 10,
       p_periodicidade: aprForm.periodicidade,
       p_data_inicio: new Date().toISOString().slice(0, 10),
-      p_comissao_percentual: aprForm.comPct ? Number(aprForm.comPct) : 0,
+      p_comissao_percentual: aprForm.comPct ? (parseNumBR(aprForm.comPct) ?? 0) : 0, // #5620: % aceita vírgula
       p_comissao_tipo: aprForm.comTipo,
       p_comissao_base: aprForm.comBase,
       // SPEC gaps + §3: nº de parcelas, fim da vigência, 1º vencimento e contato viajam na aprovação (a Julia recebe completo).
@@ -605,7 +606,8 @@ export default function PropostasPage() {
                   <div style={{ display: 'grid', gridTemplateColumns: '0.7fr 0.7fr 1fr 1fr auto', gap: 8, marginTop: 8, alignItems: 'center' }}>
                     <input style={inp} type="number" min={0} value={it.quantidade} onChange={(e) => setItem(i, { quantidade: num(e.target.value) })} placeholder="Qtd" />
                     <input style={inp} value={it.unidade} onChange={(e) => setItem(i, { unidade: e.target.value })} placeholder="un" />
-                    <input style={inp} type="number" min={0} step="0.01" value={it.valor_unitario} onChange={(e) => setItem(i, { valor_unitario: num(e.target.value) })} placeholder="Valor unit." />
+                    {/* #6874 — valor unitário do item com máscara R$ ao digitar (igual a Desconto/Fee desta tela); valor_total recalcula em setItem */}
+                    <CampoMoeda style={inp} value={numeroParaMoeda(it.valor_unitario)} onChange={(v) => setItem(i, { valor_unitario: moedaParaNumero(v) ?? 0 })} placeholder="Valor unit." />
                     <div style={{ fontSize: 13, fontWeight: 700, textAlign: 'right', color: ESPRESSO }}>{brl(it.valor_total)}</div>
                     <button onClick={() => rmItem(i)} disabled={itens.length === 1} title="Remover" style={{ ...btnSec, borderColor: RED, color: RED, opacity: itens.length === 1 ? 0.4 : 1 }}>✕</button>
                   </div>
@@ -730,7 +732,7 @@ export default function PropostasPage() {
 
             <div style={{ fontSize: 11, fontWeight: 700, color: DOURADO, textTransform: 'uppercase', letterSpacing: 0.5, margin: '12px 0 4px' }}>Comissão do comercial</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Percentual (%)<AjudaCampo chave="pm.propostas.comissao_pct" /></span><input style={inp} type="number" value={aprForm.comPct} onChange={(e) => setAprForm({ ...aprForm, comPct: e.target.value })} placeholder="0" /></label>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Percentual (%)<AjudaCampo chave="pm.propostas.comissao_pct" /></span><input style={inp} type="text" inputMode="decimal" value={aprForm.comPct} onChange={(e) => setAprForm({ ...aprForm, comPct: e.target.value })} placeholder="0" /></label>
               <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Base<AjudaCampo chave="pm.propostas.comissao_base" /></span>
                 <select style={inp} value={aprForm.comBase} onChange={(e) => setAprForm({ ...aprForm, comBase: e.target.value })}>
                   <option value="fee">Fee mensal</option><option value="contrato">Valor da proposta</option>

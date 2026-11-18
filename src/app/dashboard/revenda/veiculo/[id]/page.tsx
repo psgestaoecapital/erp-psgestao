@@ -1241,7 +1241,7 @@ function RegistrarInteresseModal({ veiculoId, companyId, onClose, onSaved, onErr
         p_dados: {
           oportunidade_id: r.oportunidade_id, cliente_nome: f.nome.trim(), contato: f.contato.trim() || null,
           marca: proc.marca.trim() || null, modelo: proc.modelo.trim() || null,
-          ano_min: proc.ano_min || null, ano_max: proc.ano_max || null, valor_ate: proc.valor_ate || null, cambio: proc.cambio.trim() || null,
+          ano_min: proc.ano_min || null, ano_max: proc.ano_max || null, valor_ate: moedaNum(proc.valor_ate), cambio: proc.cambio.trim() || null,
         },
         p_user: uid,
       })
@@ -1268,7 +1268,8 @@ function RegistrarInteresseModal({ veiculoId, companyId, onClose, onSaved, onErr
             <input value={proc.modelo} onChange={(e) => setProc({ ...proc, modelo: e.target.value })} placeholder="modelo" style={inp} />
             <input value={proc.ano_min} onChange={(e) => setProc({ ...proc, ano_min: e.target.value })} placeholder="ano de" inputMode="numeric" style={inp} />
             <input value={proc.ano_max} onChange={(e) => setProc({ ...proc, ano_max: e.target.value })} placeholder="ano até" inputMode="numeric" style={inp} />
-            <input value={proc.valor_ate} onChange={(e) => setProc({ ...proc, valor_ate: e.target.value })} placeholder="até R$" inputMode="decimal" style={inp} />
+            {/* #6874 — valor com máscara R$ ao digitar; grava número (moedaNum) p/ a demanda "O que comprar" ler/formatar igual ao outro ponto de entrada */}
+            <CampoMoeda value={proc.valor_ate} onChange={(v) => setProc({ ...proc, valor_ate: v })} placeholder="até R$" style={inp} />
             <input value={proc.cambio} onChange={(e) => setProc({ ...proc, cambio: e.target.value })} placeholder="câmbio (opcional)" style={inp} />
           </div>
           <div style={{ fontSize: 11, color: C.espM, marginTop: 6 }}>Vira demanda em &quot;O que comprar&quot; — a procura que a loja não atendeu.</div>
