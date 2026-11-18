@@ -52,6 +52,8 @@ type MedicaoItem = {
 type Medicao = {
   id: string; numero: number; tipo: string; competencia: string | null; status: string
   valor_total: number | null; observacoes: string | null; aprovada_em: string | null; criado_em: string | null
+  inss_pct: number | null; iss_pct: number | null; irrf_pct: number | null
+  valor_retido: number | null; valor_liquido: number | null
   itens: MedicaoItem[]
 }
 
@@ -80,6 +82,13 @@ export default function MedicoesObraPage({ params }: { params: Promise<{ id: str
   const [observacoes, setObservacoes] = useState('')
   const [linhas, setLinhas] = useState<Record<string, string>>({})
   const [salvando, setSalvando] = useState(false)
+
+  // Retenção na fonte (INSS/ISS/IRRF) — editável só em rascunho, aplicada no líquido do título.
+  const [retId, setRetId] = useState<string | null>(null)
+  const [retInss, setRetInss] = useState('')
+  const [retIss, setRetIss] = useState('')
+  const [retIrrf, setRetIrrf] = useState('')
+  const [retSalvando, setRetSalvando] = useState(false)
 
   function fecharForm() { setAbrirForm(false); setEditId(null); setEditNumero(null); setLinhas({}); setObservacoes('') }
   function novaMedicao() {
@@ -235,6 +244,35 @@ export default function MedicoesObraPage({ params }: { params: Promise<{ id: str
     await carregar()
   }
 
+  // Abre o editor de retenção (só rascunho), pré-preenchido com os percentuais atuais.
+  function abrirRetencao(med: Medicao) {
+    if (retId === med.id) { setRetId(null); return }
+    setRetId(med.id)
+    setRetInss(med.inss_pct && Number(med.inss_pct) !== 0 ? String(med.inss_pct) : '')
+    setRetIss(med.iss_pct && Number(med.iss_pct) !== 0 ? String(med.iss_pct) : '')
+    setRetIrrf(med.irrf_pct && Number(med.irrf_pct) !== 0 ? String(med.irrf_pct) : '')
+  }
+
+  // Salva a retenção da medição em rascunho. O líquido é recalculado no banco (coluna gerada).
+  async function salvarRetencao(med: Medicao) {
+    const inss = parseNumBR(retInss) ?? 0
+    const iss = parseNumBR(retIss) ?? 0
+    const irrf = parseNumBR(retIrrf) ?? 0
+    if (inss < 0 || iss < 0 || irrf < 0 || inss + iss + irrf > 100) {
+      setErro('Retenção inválida: cada percentual de 0 a 100 e a soma até 100%.'); return
+    }
+    setRetSalvando(true); setErro(null)
+    const { data, error } = await supabase.rpc('fn_obra_medicao_retencao_salvar', {
+      p_medicao_id: med.id, p_inss_pct: inss, p_iss_pct: iss, p_irrf_pct: irrf,
+    })
+    setRetSalvando(false)
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível salvar a retenção.')); return }
+    const r = (data ?? {}) as { ok?: boolean; erro?: string }
+    if (r.ok === false) { setErro(r.erro ?? 'Não foi possível salvar a retenção.'); return }
+    setRetId(null)
+    await carregar()
+  }
+
   const card: React.CSSProperties = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 14, padding: 18 }
   const lbl: React.CSSProperties = { fontSize: 12, fontWeight: 700, color: ESP, display: 'flex', alignItems: 'center', gap: 4 }
   const inp: React.CSSProperties = { border: `1px solid ${LINE}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: ESP, background: BG, width: '100%' }
@@ -384,6 +422,17 @@ export default function MedicoesObraPage({ params }: { params: Promise<{ id: str
                     </div>
                     {med.observacoes && <p style={{ fontSize: 13, color: MUT, margin: '8px 0 0' }}>{med.observacoes}</p>}
 
+                    {/* Retenção na fonte aplicada: o título a receber nasce pelo líquido (bruto - INSS/ISS/IRRF). */}
+                    {Number(med.valor_retido) > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap', fontSize: 13, color: ESP }} data-testid={`med-retencao-${med.numero}`}>
+                        <span style={{ color: MUT }}>
+                          Retenção na fonte: INSS {Number(med.inss_pct) || 0}% · ISS {Number(med.iss_pct) || 0}% · IRRF {Number(med.irrf_pct) || 0}% = <strong style={{ color: VERM }}>− {brl(med.valor_retido)}</strong>
+                        </span>
+                        <span>Líquido a receber <strong>{brl(med.valor_liquido)}</strong></span>
+                        <AjudaCampo chave="projetos.medicao.valor_liquido" rota={ROTA} />
+                      </div>
+                    )}
+
                     {/* Somente leitura: conta a receber gerada pela aprovação (núcleo, #4397). Critério b. */}
                     {med.status === 'aprovada' && recebiveis[med.id] && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, flexWrap: 'wrap', fontSize: 13 }} data-testid={`med-receber-${med.numero}`}>
@@ -415,6 +464,10 @@ export default function MedicoesObraPage({ params }: { params: Promise<{ id: str
                         <>
                           <button onClick={() => abrirEditar(med)} style={{ ...btn('transparent', ESP), padding: '6px 10px', border: `1px solid ${LINE}` }} data-testid={`med-editar-${med.numero}`}>Editar</button>
                           <AjudaCampo chave="projetos.medicao.editar" rota={ROTA} />
+                          <button onClick={() => abrirRetencao(med)} style={{ ...btn('transparent', ESP), padding: '6px 10px', border: `1px solid ${LINE}` }} data-testid={`med-retencao-abrir-${med.numero}`}>
+                            {retId === med.id ? 'Fechar retenção' : 'Retenção'}
+                          </button>
+                          <AjudaCampo chave="projetos.medicao.inss_pct" rota={ROTA} />
                           <button onClick={() => void aprovar(med)} style={btn(VERDE)} data-testid={`med-aprovar-${med.numero}`}>Aprovar</button>
                           <AjudaCampo chave="projetos.medicao.aprovar" rota={ROTA} />
                         </>
@@ -423,6 +476,38 @@ export default function MedicoesObraPage({ params }: { params: Promise<{ id: str
                       <button onClick={() => void excluir(med)} style={{ ...btn('transparent', VERM), padding: '6px 10px', border: `1px solid ${VERM}` }} data-testid={`med-excluir-${med.numero}`}>Excluir</button>
                       <AjudaCampo chave="projetos.medicao.excluir" rota={ROTA} />
                     </div>
+
+                    {/* Editor de retenção na fonte (só rascunho). O líquido é recalculado no banco. */}
+                    {med.status === 'rascunho' && retId === med.id && (
+                      <div style={{ marginTop: 12, padding: 14, border: `1px dashed ${LINE}`, borderRadius: 10, background: BG }} data-testid={`med-retencao-form-${med.numero}`}>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: ESP, marginBottom: 4 }}>Retenção na fonte (opcional)</div>
+                        <p style={{ fontSize: 12, color: MUT, margin: '0 0 10px', maxWidth: 560 }}>
+                          Quando o cliente retém impostos na fonte, informe os percentuais. O título a receber nasce pelo líquido (bruto − retenções). Deixe em branco se não há retenção.
+                        </p>
+                        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                          <div style={{ minWidth: 130 }} data-ajuda="projetos.medicao.inss_pct">
+                            <div style={lbl}>INSS retido (%) <AjudaCampo chave="projetos.medicao.inss_pct" rota={ROTA} /></div>
+                            <input inputMode="decimal" value={retInss} onChange={(e) => setRetInss(e.target.value)} placeholder="0" style={{ ...inp, marginTop: 4, textAlign: 'right' }} data-testid={`med-ret-inss-${med.numero}`} />
+                          </div>
+                          <div style={{ minWidth: 130 }} data-ajuda="projetos.medicao.iss_pct">
+                            <div style={lbl}>ISS retido (%) <AjudaCampo chave="projetos.medicao.iss_pct" rota={ROTA} /></div>
+                            <input inputMode="decimal" value={retIss} onChange={(e) => setRetIss(e.target.value)} placeholder="0" style={{ ...inp, marginTop: 4, textAlign: 'right' }} data-testid={`med-ret-iss-${med.numero}`} />
+                          </div>
+                          <div style={{ minWidth: 130 }} data-ajuda="projetos.medicao.irrf_pct">
+                            <div style={lbl}>IRRF retido (%) <AjudaCampo chave="projetos.medicao.irrf_pct" rota={ROTA} /></div>
+                            <input inputMode="decimal" value={retIrrf} onChange={(e) => setRetIrrf(e.target.value)} placeholder="0" style={{ ...inp, marginTop: 4, textAlign: 'right' }} data-testid={`med-ret-irrf-${med.numero}`} />
+                          </div>
+                          <div style={{ fontSize: 13, color: ESP }} data-ajuda="projetos.medicao.valor_liquido">
+                            <div style={{ color: MUT }}>Líquido estimado <AjudaCampo chave="projetos.medicao.valor_liquido" rota={ROTA} /></div>
+                            <strong>{brl((Number(med.valor_total) || 0) * (1 - Math.min(100, (parseNumBR(retInss) ?? 0) + (parseNumBR(retIss) ?? 0) + (parseNumBR(retIrrf) ?? 0)) / 100))}</strong>
+                          </div>
+                          <span style={{ flex: 1 }} />
+                          <button onClick={() => void salvarRetencao(med)} disabled={retSalvando} style={{ ...btn(ESP), opacity: retSalvando ? 0.6 : 1 }} data-testid={`med-ret-salvar-${med.numero}`}>
+                            {retSalvando ? 'Salvando…' : 'Salvar retenção'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
                     {aberta && (
                       <div style={{ marginTop: 12, overflowX: 'auto' }}>
