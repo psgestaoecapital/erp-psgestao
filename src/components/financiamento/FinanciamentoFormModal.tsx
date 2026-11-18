@@ -2,6 +2,10 @@
 import { useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { SECTIONS, type Field } from './fields'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+// "?" (RD-95) ao lado de cada campo do formulário — texto vem de erp_ajuda_campo (chave ge.financiamento.<key>).
+const ROTA_AJUDA = '/dashboard/gestao-empresarial/financiamento'
 
 type FormState = Record<string, string | number | boolean | null>
 
@@ -69,27 +73,33 @@ export default function FinanciamentoFormModal({ companyId, initial, onClose, on
     const value = form[fd.key]
     if (fd.type === 'bool') {
       return (
-        <input
-          type="checkbox"
-          checked={!!value}
-          disabled={fd.readOnly}
-          onChange={(e) => set(fd.key, e.target.checked)}
-        />
+        <span style={campoAjuda}>
+          <input
+            type="checkbox"
+            checked={!!value}
+            disabled={fd.readOnly}
+            onChange={(e) => set(fd.key, e.target.checked)}
+          />
+          <AjudaCampo chave={`ge.financiamento.form.${fd.key}`} rota={ROTA_AJUDA} />
+        </span>
       )
     }
     if (fd.type === 'select') {
       return (
-        <select
-          value={(value as string) ?? ''}
-          disabled={fd.readOnly}
-          onChange={(e) => set(fd.key, e.target.value)}
-          style={inp}
-        >
-          <option value="">—</option>
-          {fd.opts!.map((o) => (
-            <option key={o} value={o}>{o}</option>
-          ))}
-        </select>
+        <span style={campoAjuda}>
+          <select
+            value={(value as string) ?? ''}
+            disabled={fd.readOnly}
+            onChange={(e) => set(fd.key, e.target.value)}
+            style={inp}
+          >
+            <option value="">—</option>
+            {fd.opts!.map((o) => (
+              <option key={o} value={o}>{o}</option>
+            ))}
+          </select>
+          <AjudaCampo chave={`ge.financiamento.form.${fd.key}`} rota={ROTA_AJUDA} />
+        </span>
       )
     }
     const t =
@@ -97,20 +107,23 @@ export default function FinanciamentoFormModal({ companyId, initial, onClose, on
       (fd.type === 'number' || fd.type === 'money' || fd.type === 'percent') ? 'number' : 'text'
     const isNum = t === 'number'
     return (
-      <input
-        type={t}
-        value={(value as string | number | null) ?? ''}
-        disabled={fd.readOnly}
-        onChange={(e) =>
-          set(
-            fd.key,
-            isNum
-              ? e.target.value === '' ? null : Number(e.target.value)
-              : e.target.value
-          )
-        }
-        style={inp}
-      />
+      <span style={campoAjuda}>
+        <input
+          type={t}
+          value={(value as string | number | null) ?? ''}
+          disabled={fd.readOnly}
+          onChange={(e) =>
+            set(
+              fd.key,
+              isNum
+                ? e.target.value === '' ? null : Number(e.target.value)
+                : e.target.value
+            )
+          }
+          style={inp}
+        />
+        <AjudaCampo chave={`ge.financiamento.form.${fd.key}`} rota={ROTA_AJUDA} />
+      </span>
     )
   }
 
@@ -206,6 +219,13 @@ const inp: CSSProperties = {
   padding: '8px 10px',
   fontSize: 13,
   minHeight: 40,
+  flex: 1,
+  minWidth: 0,
+}
+const campoAjuda: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 4,
 }
 const actions: CSSProperties = {
   display: 'flex',
