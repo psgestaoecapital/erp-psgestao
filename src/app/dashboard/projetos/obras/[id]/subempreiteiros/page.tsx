@@ -584,6 +584,38 @@ export default function SubempreiteirosObraPage({ params }: { params: Promise<{ 
                           Registre o quanto foi medido do subempreiteiro por período. Ao <strong>aprovar</strong> uma medição, o sistema gera automaticamente o título a pagar no financeiro (GE) pelo <strong>líquido</strong> — bruto menos retenção, INSS e ISS — no centro de custo da obra.
                         </p>
 
+                        {/* Progresso de execução: quanto já foi medido (aprovado) do contratado — margem de execução H7 */}
+                        {(() => {
+                          const lista = medicoes[c.id] ?? []
+                          const contratado = Number(c.valor_total) || 0
+                          const medidoAprovado = lista
+                            .filter((m) => m.status === 'aprovada')
+                            .reduce((s, m) => s + (Number(m.valor_bruto) || 0), 0)
+                          if (contratado <= 0 && medidoAprovado <= 0) return null
+                          const pct = contratado > 0 ? Math.min(100, Math.round((medidoAprovado / contratado) * 100)) : 0
+                          const saldo = contratado - medidoAprovado
+                          return (
+                            <div style={{ marginTop: 10 }} data-testid={`sub-execucao-${c.id}`}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: MUT, flexWrap: 'wrap' }}>
+                                <span>
+                                  Medido (aprovado) <strong style={{ color: ESP }}>{brl(medidoAprovado)}</strong>
+                                  {contratado > 0 && <> de <strong style={{ color: ESP }}>{brl(contratado)}</strong> contratado — <strong style={{ color: ESP }}>{pct}%</strong></>}
+                                </span>
+                                <AjudaCampo chave="projetos.subempreiteiro.execucao_progresso" rota={ROTA} />
+                                <span style={{ flex: 1 }} />
+                                {contratado > 0 && (
+                                  <span>Saldo a medir <strong style={{ color: saldo < 0 ? VERM : ESP }}>{brl(saldo)}</strong></span>
+                                )}
+                              </div>
+                              {contratado > 0 && (
+                                <div style={{ height: 6, borderRadius: 999, background: LINE, marginTop: 6, overflow: 'hidden' }}>
+                                  <div style={{ height: '100%', width: `${pct}%`, background: GOLD, borderRadius: 999 }} />
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })()}
+
                         {medForm && medForm.contrato_id === c.id && (() => {
                           const bruto = parseNumBR(medForm.valor_bruto) || 0
                           const ret = Number(c.retencao_pct) || 0
