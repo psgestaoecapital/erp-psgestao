@@ -335,7 +335,7 @@ export default function MaoObraPage() {
       {modal?.tipo === "restaurar" && <ModalRestaurar item={modal.item} onClose={() => setModal(null)} onSalvar={rpc} />}
       {modal?.tipo === "encargos" && enc && <ModalEncargos companyId={companyId} enc={enc} onClose={() => setModal(null)} onSalvar={rpc} />}
       {modal?.tipo === "historico" && <ModalHistorico item={modal.item} onClose={() => setModal(null)} />}
-      {modal?.tipo === "equipe" && <ModalEquipe companyId={companyId} eq={modal.eq} onClose={() => setModal(null)} onConcluido={() => { setAviso("Equipe salva."); setErro(null); void carregarEquipes(); }} />}
+      {modal?.tipo === "equipe" && <ModalEquipe companyId={companyId} eq={modal.eq} funcoes={funcoesAtivas} pessoas={dados?.equipe ?? []} podeVerIndividual={!!dados?.pode_ver_individual} onClose={() => setModal(null)} onConcluido={() => { setAviso("Equipe salva."); setErro(null); void carregarEquipes(); }} />}
     </div>
   );
 }
@@ -1005,40 +1005,62 @@ function ModalHistorico({ item, onClose }: { item: ItemEquipe; onClose: () => vo
   );
 }
 
-function ModalEquipe({ companyId, eq, onClose, onConcluido }: { companyId: string; eq?: EquipeRow; onClose: () => void; onConcluido: () => void }) {
-  type LinhaM = { nome_pessoa: string; funcao_mao_obra_id: string; custo_hora: string };
+function ModalEquipe({ companyId, eq, funcoes, pessoas, podeVerIndividual, onClose, onConcluido }: { companyId: string; eq?: EquipeRow; funcoes: Funcao[]; pessoas: ItemEquipe[]; podeVerIndividual: boolean; onClose: () => void; onConcluido: () => void }) {
+  type LinhaM = { origem: "pessoa" | "manual"; pessoa_key: string; nome_pessoa: string; funcao_sel_id: string; funcao_mao_obra_id: string; funcao_nome: string; custo_hora: string };
+  // pessoas reais da empresa (cadastro da aba Equipe); perfis anônimos ficam de fora do seletor (vão no manual)
+  const pessoasReais = useMemo(() => pessoas.filter((p) => p.tipo === "pessoa" && p.ativo), [pessoas]);
+  const funcCusto = (f: Funcao): number | null => f.custo?.custo_hora ?? f.custo_hora_manual ?? null;
   const [nome, setNome] = useState(eq?.nome ?? "");
   const [descricao, setDescricao] = useState(eq?.descricao ?? "");
-  const [membros, setMembros] = useState<LinhaM[]>(() => (eq?.membros ?? []).map((m) => ({ nome_pessoa: m.nome_pessoa ?? "", funcao_mao_obra_id: m.funcao_mao_obra_id ?? "", custo_hora: m.custo_hora != null ? txt(Number(m.custo_hora)) : "" })));
+  const [membros, setMembros] = useState<LinhaM[]>(() => (eq?.membros ?? []).map((m) => ({
+    origem: "manual", pessoa_key: "", nome_pessoa: m.nome_pessoa ?? "",
+    funcao_sel_id: funcoes.find((f) => f.nome === m.funcao_nome)?.id ?? "",
+    funcao_mao_obra_id: m.funcao_mao_obra_id ?? "", funcao_nome: m.funcao_nome ?? "",
+    custo_hora: m.custo_hora != null ? txt(Number(m.custo_hora)) : "",
+  })));
   const [efetivo, setEfetivo] = useState(eq?.ajustado && eq.custo_hora_efetivo != null ? txt(Number(eq.custo_hora_efetivo)) : "");
-  const [funcoesCat, setFuncoesCat] = useState<{ id: string; funcao: string; custo_hora: number | null }[]>([]);
   const [erro, setErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
-
-  useEffect(() => {
-    let cancel = false;
-    (async () => {
-      const { data } = await supabase.from("projetos_mao_obra").select("id, funcao, custo_hora").eq("company_id", companyId).eq("ativo", true).order("funcao").limit(300);
-      if (!cancel) setFuncoesCat((data as { id: string; funcao: string; custo_hora: number | null }[]) ?? []);
-    })();
-    return () => { cancel = true; };
-  }, [companyId]);
 
   const custos = membros.map((m) => numBR(m.custo_hora)).filter((n) => n > 0);
   const medio = custos.length ? custos.reduce((s, n) => s + n, 0) / custos.length : null;
 
-  const addMembro = () => setMembros((ms) => [...ms, { nome_pessoa: "", funcao_mao_obra_id: "", custo_hora: "" }]);
+  const addMembro = () => setMembros((ms) => [...ms, { origem: "pessoa", pessoa_key: "", nome_pessoa: "", funcao_sel_id: "", funcao_mao_obra_id: "", funcao_nome: "", custo_hora: "" }]);
   const removeMembro = (i: number) => setMembros((ms) => ms.filter((_, k) => k !== i));
   const mudar = (i: number, patch: Partial<LinhaM>) => setMembros((ms) => ms.map((m, k) => (k === i ? { ...m, ...patch } : m)));
+
+  // Escolher a PESSOA do cadastro → traz nome, função e custo/hora dela (custo só se o usuário pode ver — LGPD).
+  const escolherPessoa = (i: number, key: string) => {
+    if (key === "__manual__") { mudar(i, { origem: "manual", pessoa_key: "", nome_pessoa: "" }); return; }
+    if (key === "") { mudar(i, { origem: "pessoa", pessoa_key: "", nome_pessoa: "" }); return; }
+    const p = pessoasReais.find((x) => x.id === key);
+    if (!p) return;
+    const f = funcoes.find((x) => x.id === p.funcao_id);
+    const custoPessoa = p.custo?.custo_hora ?? null;
+    const custoFunc = f ? funcCusto(f) : null;
+    const custo = custoPessoa ?? custoFunc;
+    mudar(i, {
+      origem: "pessoa", pessoa_key: key, nome_pessoa: p.nome,
+      funcao_sel_id: f?.id ?? "", funcao_nome: p.funcao ?? f?.nome ?? "", funcao_mao_obra_id: f?.migrada_de ?? "",
+      custo_hora: custo != null ? txt(Number(custo)) : membros[i].custo_hora,
+    });
+  };
+
+  // Escolher/trocar a FUNÇÃO (lista da empresa = aba Funções) → preenche o custo se ainda estiver vazio.
   const escolherFuncao = (i: number, id: string) => {
-    const f = funcoesCat.find((x) => x.id === id);
-    mudar(i, { funcao_mao_obra_id: id, custo_hora: f && f.custo_hora != null ? txt(Number(f.custo_hora)) : membros[i].custo_hora });
+    const f = funcoes.find((x) => x.id === id);
+    if (!f) { mudar(i, { funcao_sel_id: "", funcao_mao_obra_id: "", funcao_nome: "" }); return; }
+    const c = funcCusto(f);
+    mudar(i, {
+      funcao_sel_id: id, funcao_nome: f.nome, funcao_mao_obra_id: f.migrada_de ?? "",
+      custo_hora: membros[i].custo_hora.trim() === "" && c != null ? txt(Number(c)) : membros[i].custo_hora,
+    });
   };
 
   async function salvar() {
     if (nome.trim().length < 2) { setErro("Dê um nome à equipe (pelo menos 2 letras)."); return; }
     setSalvando(true); setErro(null);
-    const p_membros = membros.filter((m) => numBR(m.custo_hora) > 0).map((m, i) => ({ nome_pessoa: m.nome_pessoa.trim() || null, funcao_mao_obra_id: m.funcao_mao_obra_id || null, custo_hora: numBR(m.custo_hora), ordem: i }));
+    const p_membros = membros.filter((m) => numBR(m.custo_hora) > 0).map((m, i) => ({ nome_pessoa: m.nome_pessoa.trim() || null, funcao_mao_obra_id: m.funcao_mao_obra_id || null, funcao_nome: m.funcao_nome.trim() || null, custo_hora: numBR(m.custo_hora), ordem: i }));
     const salvarRes = await supabase.rpc("fn_projetos_equipe_salvar", { p_company_id: companyId, p_equipe: { nome: nome.trim(), descricao: descricao.trim() || null }, p_membros, p_id: eq?.id ?? null });
     if (salvarRes.error || (salvarRes.data as { ok?: boolean } | null)?.ok === false) {
       setErro(salvarRes.error ? erroAmigavel(salvarRes.error, "Não foi possível salvar a equipe.") : codigoAmigavel((salvarRes.data as { erro?: string }).erro, "Não foi possível salvar a equipe.")); setSalvando(false); return;
@@ -1063,21 +1085,27 @@ function ModalEquipe({ companyId, eq, onClose, onConcluido }: { companyId: strin
 
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <span className="text-[12.5px] font-medium flex items-center">Pessoas da equipe<AjudaCampo chave="projetos.mao_obra.equipes.membro_funcao" /></span>
+          <span className="text-[12.5px] font-medium flex items-center">Pessoas da equipe<AjudaCampo chave="projetos.mao_obra.equipes.membro_pessoa" /></span>
           <button className={btnSec} data-testid="equipe-add-membro" onClick={addMembro}><UserPlus size={14} /> Adicionar pessoa</button>
         </div>
-        {membros.length === 0 && <p className="text-[12px] text-[#3D2314]/55">Adicione pessoas por função (traz o R$/h do catálogo) ou digitando o custo à mão.</p>}
+        {membros.length === 0 && <p className="text-[12px] text-[#3D2314]/55">Escolha a pessoa do cadastro (traz a função e o custo/hora dela) ou use “Digitar manual” para alguém fora do cadastro.</p>}
+        {!podeVerIndividual && membros.length > 0 && <p className="text-[11.5px] text-[#3D2314]/60 flex items-center gap-1"><Lock size={11} /> Você não vê o custo individual das pessoas (LGPD): o custo vem da função ou você digita.</p>}
         <div className="space-y-2" data-testid="equipe-membros">
           {membros.map((m, i) => (
-            <div key={i} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_120px_auto] gap-2 items-end border border-[#3D2314]/10 rounded-md p-2" data-testid="equipe-membro-linha">
-              <label className="flex flex-col gap-1 text-[12px]"><span className="text-[#3D2314]/70 flex items-center">Função<AjudaCampo chave="projetos.mao_obra.equipes.membro_funcao" /></span>
-                <select className={inp} value={m.funcao_mao_obra_id} onChange={(e) => escolherFuncao(i, e.target.value)} data-testid="equipe-membro-funcao">
-                  <option value="">— digitar o custo à mão —</option>
-                  {funcoesCat.map((f) => <option key={f.id} value={f.id}>{f.funcao}{f.custo_hora != null ? ` (${brl(f.custo_hora)}/h)` : ""}</option>)}
+            <div key={i} className="grid grid-cols-1 sm:grid-cols-[1.2fr_1fr_120px_auto] gap-2 items-end border border-[#3D2314]/10 rounded-md p-2" data-testid="equipe-membro-linha">
+              <label className="flex flex-col gap-1 text-[12px]"><span className="text-[#3D2314]/70 flex items-center">Pessoa<AjudaCampo chave="projetos.mao_obra.equipes.membro_pessoa" /></span>
+                <select className={inp} value={m.origem === "manual" ? "__manual__" : m.pessoa_key} onChange={(e) => escolherPessoa(i, e.target.value)} data-testid="equipe-membro-pessoa">
+                  <option value="">— selecione a pessoa —</option>
+                  {pessoasReais.map((p) => <option key={p.id} value={p.id}>{p.nome}{p.funcao ? ` · ${p.funcao}` : ""}</option>)}
+                  <option value="__manual__">✎ Digitar manual (fora do cadastro)</option>
                 </select>
+                {m.origem === "manual" && <input className={inp + " mt-1"} value={m.nome_pessoa} onChange={(e) => mudar(i, { nome_pessoa: e.target.value })} data-testid="equipe-membro-nome" placeholder="Nome (opcional)" />}
               </label>
-              <label className="flex flex-col gap-1 text-[12px]"><span className="text-[#3D2314]/70 flex items-center">Nome da pessoa (opcional)<AjudaCampo chave="projetos.mao_obra.equipes.membro_nome" /></span>
-                <input className={inp} value={m.nome_pessoa} onChange={(e) => mudar(i, { nome_pessoa: e.target.value })} data-testid="equipe-membro-nome" placeholder="João da Silva" />
+              <label className="flex flex-col gap-1 text-[12px]"><span className="text-[#3D2314]/70 flex items-center">Função<AjudaCampo chave="projetos.mao_obra.equipes.membro_funcao" /></span>
+                <select className={inp} value={m.funcao_sel_id} onChange={(e) => escolherFuncao(i, e.target.value)} data-testid="equipe-membro-funcao">
+                  <option value="">— sem função / manual —</option>
+                  {funcoes.map((f) => <option key={f.id} value={f.id}>{f.nome}{funcCusto(f) != null ? ` (${brl(funcCusto(f))}/h)` : ""}</option>)}
+                </select>
               </label>
               <label className="flex flex-col gap-1 text-[12px]"><span className="text-[#3D2314]/70 flex items-center">Custo/hora<AjudaCampo chave="projetos.mao_obra.equipes.membro_custo" /></span>
                 <input className={inp} value={m.custo_hora} onChange={(e) => mudar(i, { custo_hora: e.target.value })} inputMode="decimal" data-testid="equipe-membro-custo" placeholder="32,00" />
