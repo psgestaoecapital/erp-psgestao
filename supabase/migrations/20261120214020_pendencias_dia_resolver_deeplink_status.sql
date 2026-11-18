@@ -251,3 +251,7 @@ BEGIN
     'por_gravidade', jsonb_build_object('vermelho', v_n_verm, 'amarelo', v_n_amar));
 END;
 $function$;
+
+-- Guarda (check_fn_guards): SECURITY DEFINER read-only, fechada a quem não está logado.
+REVOKE ALL ON FUNCTION public.fn_ge_pendencias_dia(uuid[], date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ge_pendencias_dia(uuid[], date) TO authenticated, service_role;
