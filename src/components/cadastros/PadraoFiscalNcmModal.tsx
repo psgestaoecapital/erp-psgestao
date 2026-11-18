@@ -142,26 +142,26 @@ export default function PadraoFiscalNcmModal({ companyId, onClose, onSalvo }: Pr
               {editId ? <><Pencil size={13} /> Editar padrão</> : <><Plus size={13} /> Novo padrão</>}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              <div>
-                <label className={lbl}>NCM<AjudaCampo chave="cadastros.produtos.padrao_fiscal.ncm" rota={ROTA} /></label>
+              <label className="block">
+                <span className={lbl}>NCM<AjudaCampo chave="cadastros.produtos.padrao_fiscal.ncm" rota={ROTA} /></span>
                 <input value={ncm} onChange={(e) => setNcm(e.target.value)} inputMode="numeric" placeholder="ex.: 8708 ou 87081000"
                   data-testid="pf-ncm" className={inp} disabled={!!editId} />
-              </div>
+              </label>
               {CAMPOS_FISCAIS.map((c) => (
-                <div key={c}>
-                  <label className={lbl}>{rotuloCampo(c, simples)}<AjudaCampo chave={`cadastros.produtos.padrao_fiscal.${c}`} rota={ROTA} /></label>
+                <label key={c} className="block">
+                  <span className={lbl}>{rotuloCampo(c, simples)}<AjudaCampo chave={`cadastros.produtos.padrao_fiscal.${c}`} rota={ROTA} /></span>
                   <select value={valores[c]} onChange={(e) => setValores((v) => ({ ...v, [c]: e.target.value }))} data-testid={`pf-${c}`} className={inp}>
                     <option value="">— não definir —</option>
                     {opcoesDoCampo(c, simples).map((o) => <option key={o.codigo} value={o.codigo}>{o.codigo} · {o.rotulo}</option>)}
                   </select>
-                </div>
+                </label>
               ))}
             </div>
-            <div className="mt-3">
-              <label className={lbl}>Observação<AjudaCampo chave="cadastros.produtos.padrao_fiscal.observacao" rota={ROTA} /></label>
+            <label className="block mt-3">
+              <span className={lbl}>Observação<AjudaCampo chave="cadastros.produtos.padrao_fiscal.observacao" rota={ROTA} /></span>
               <input value={observacao} onChange={(e) => setObservacao(e.target.value)} data-testid="pf-observacao" className={inp}
                 placeholder="ex.: autopeças com ICMS já retido por ST — confirmado pelo contador" />
-            </div>
+            </label>
             {erro && <div data-testid="pf-erro" className="mt-3 px-3 py-2 rounded bg-[#FCEBEB] text-[#791F1F] text-[12.5px] border border-[#E8A6A5]">{erro}</div>}
             <div className="mt-3 flex items-center gap-2 flex-wrap">
               <AjudaCampo chave="cadastros.produtos.padrao_fiscal.salvar" rota={ROTA} />
