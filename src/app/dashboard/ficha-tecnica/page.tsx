@@ -4,6 +4,8 @@ import { supabase } from "@/lib/supabase";
 import { authFetch } from "@/lib/authFetch";
 import { erroAmigavel, codigoAmigavel } from "@/lib/erroAmigavel";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { CampoMoeda } from "@/components/comum/CampoMoeda";
+import { moedaParaNumero, numeroParaMoeda } from "@/lib/moeda-mascara";
 
 const GO="#C6973F",GOL="#E8C872",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
     G="#34D399",R="#F87171",Y="#FBBF24",B="#60A5FA",P="#A78BFA",
@@ -104,7 +106,7 @@ export default function FichaTecnicaPage(){
   const [seeding,setSeeding]=useState(false);
   const [newNome,setNewNome]=useState("");
   const [newCat,setNewCat]=useState("parede");
-  const [newMO,setNewMO]=useState("35");
+  const [newMO,setNewMO]=useState(numeroParaMoeda(35));
   const [newInd,setNewInd]=useState("15");
   const [newImp,setNewImp]=useState("8.65");
   const [newMarkup,setNewMarkup]=useState("30");
@@ -217,7 +219,7 @@ export default function FichaTecnicaPage(){
     if(!newNome.trim())return;
     const{data}=await supabase.from("fichas_tecnicas").insert({
       company_id:resolvedCompId,nome:newNome,categoria:newCat,unidade:"m²",
-      mao_obra_direta:parseFloat(newMO)||0,custos_indiretos_pct:parseFloat(newInd)||0,
+      mao_obra_direta:moedaParaNumero(newMO)||0,custos_indiretos_pct:parseFloat(newInd)||0,
       impostos_pct:parseFloat(newImp)||0,markup_pct:parseFloat(newMarkup)||0,
     }).select().single();
     if(data){setSelFicha(data.id);setShowNew(false);setNewNome("");loadFichas();}
@@ -386,7 +388,7 @@ export default function FichaTecnicaPage(){
                 {CATEGORIAS.map(c=><option key={c} value={c}>{c.charAt(0).toUpperCase()+c.slice(1)}</option>)}
               </select>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,marginBottom:6}}>
-                <input value={newMO} onChange={e=>setNewMO(e.target.value)} placeholder="MO R$/m²" type="number" style={inp}/>
+                <CampoMoeda value={newMO} onChange={setNewMO} placeholder="MO R$/m²" style={inp}/>
                 <input value={newInd} onChange={e=>setNewInd(e.target.value)} placeholder="Indir. %" type="number" style={inp}/>
               </div>
               <div style={{display:"flex",gap:4}}>
@@ -460,7 +462,7 @@ export default function FichaTecnicaPage(){
                 <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
                   <div>
                     <label style={{fontSize:9,color:TXM,marginBottom:2,display:"block"}}><span style={{display:"inline-flex",alignItems:"center",gap:3}}>MO Direta (R$/m²) <AjudaCampo chave="ficha.mao_obra_direta" rota={ROTA_AJUDA} /></span>
-                    <input value={fichaAtual.mao_obra_direta} onChange={e=>updateFicha("mao_obra_direta",parseFloat(e.target.value)||0)} type="number" style={inpSm}/></label>
+                    <CampoMoeda value={numeroParaMoeda(fichaAtual.mao_obra_direta)} onChange={m=>updateFicha("mao_obra_direta",moedaParaNumero(m)??0)} style={inpSm}/></label>
                   </div>
                   <div>
                     <label style={{fontSize:9,color:TXM,marginBottom:2,display:"block"}}><span style={{display:"inline-flex",alignItems:"center",gap:3}}>Custos Indiretos (%) <AjudaCampo chave="ficha.custos_indiretos_pct" rota={ROTA_AJUDA} /></span>
@@ -522,7 +524,7 @@ export default function FichaTecnicaPage(){
                             <input value={item.quantidade} onChange={e=>updateItem(item.id,"quantidade",parseFloat(e.target.value)||0)} type="number" step="0.01" style={{...inpSm,width:70}}/>
                           </td>
                           <td style={{padding:"6px 8px",textAlign:"right"}}>
-                            <input value={item.preco_unitario} onChange={e=>updateItem(item.id,"preco_unitario",parseFloat(e.target.value)||0)} type="number" step="0.01" style={{...inpSm,width:80}}/>
+                            <CampoMoeda value={numeroParaMoeda(item.preco_unitario)} onChange={m=>updateItem(item.id,"preco_unitario",moedaParaNumero(m)??0)} style={{...inpSm,width:80}}/>
                           </td>
                           <td style={{padding:"6px 8px",textAlign:"right",fontWeight:600,color:GOL}}>R$ {fmtR(item.quantidade*item.preco_unitario)}</td>
                           <td style={{padding:"6px 8px",textAlign:"center"}}>
@@ -537,7 +539,7 @@ export default function FichaTecnicaPage(){
                         <td style={{padding:"6px 8px"}}><input value={editItem?.nome||""} onChange={e=>setEditItem({...editItem,nome:e.target.value})} placeholder="Nome do material" style={{...inp,fontSize:11}}/></td>
                         <td style={{padding:"6px 8px"}}><select value={editItem?.unidade||"un"} onChange={e=>setEditItem({...editItem,unidade:e.target.value})} style={{...inp,width:60,fontSize:10}}>{UNIDADES.map(u=><option key={u}>{u}</option>)}</select></td>
                         <td style={{padding:"6px 8px"}}><input value={editItem?.quantidade||""} onChange={e=>setEditItem({...editItem,quantidade:parseFloat(e.target.value)||0})} type="number" step="0.01" placeholder="0" style={{...inpSm,width:70}}/></td>
-                        <td style={{padding:"6px 8px"}}><input value={editItem?.preco_unitario||""} onChange={e=>setEditItem({...editItem,preco_unitario:parseFloat(e.target.value)||0})} type="number" step="0.01" placeholder="0.00" style={{...inpSm,width:80}}/></td>
+                        <td style={{padding:"6px 8px"}}><CampoMoeda value={editItem?.preco_unitario?numeroParaMoeda(editItem.preco_unitario):""} onChange={m=>setEditItem({...editItem,preco_unitario:moedaParaNumero(m)??0})} placeholder="R$ 0,00" style={{...inpSm,width:80}}/></td>
                         <td colSpan={2} style={{padding:"6px 8px"}}><button onClick={addItem} disabled={!editItem?.nome} style={{padding:"4px 12px",borderRadius:6,background:editItem?.nome?GO:BD,color:editItem?.nome?BG:TXD,fontSize:10,fontWeight:600,border:"none",cursor:editItem?.nome?"pointer":"default"}}>Adicionar</button></td>
                       </tr>
                       {/* Total row */}
