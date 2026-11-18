@@ -11,6 +11,8 @@ import { COLUNAS_EQUIPE, carregarCustosEquipe } from '@/lib/pm/equipeCustos'
 import { resumirPrevia, type PapelPrevia } from '@/lib/pm/papelAgencia'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CargaEquipe } from '@/components/pm/CargaEquipe'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
@@ -28,6 +30,7 @@ export default function EquipePage() {
   const [membros, setMembros] = useState<Membro[]>([])
   const [loading, setLoading] = useState(true)
   const [edit, setEdit] = useState<Partial<Membro> | null>(null)
+  const [custoHoraTxt, setCustoHoraTxt] = useState('') // #6874 — texto mascarado do Custo/hora (R$) durante a edição
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [podeVer, setPodeVer] = useState(false)
@@ -87,7 +90,7 @@ export default function EquipePage() {
     setBusy(true)
     const payload = {
       company_id: empresa, nome: edit.nome.trim(), cargo: edit.cargo ?? null, setor: edit.setor ?? null,
-      custo_hora: edit.custo_hora != null ? Number(edit.custo_hora) : null,
+      custo_hora: moedaParaNumero(custoHoraTxt),
       jornada_horas_dia: edit.jornada_horas_dia != null ? Number(edit.jornada_horas_dia) : 8, ativo: edit.ativo ?? true,
     }
     const { error } = edit.id
@@ -128,7 +131,7 @@ export default function EquipePage() {
             <h1 style={{ fontSize: 26, fontWeight: 700, margin: '2px 0 0' }}>Equipe</h1>
             <p style={{ fontSize: 13, color: TEXTM, margin: '4px 0 0' }}>Custo/hora por pessoa — a base do cálculo de margem.</p>
           </div>
-          {podeVer && <button onClick={() => setEdit({ ativo: true, jornada_horas_dia: 8 })} style={btnPri}>+ Novo membro</button>}
+          {podeVer && <button onClick={() => { setEdit({ ativo: true, jornada_horas_dia: 8 }); setCustoHoraTxt('') }} style={btnPri}>+ Novo membro</button>}
         </header>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px,1fr))', gap: 10, marginBottom: 14 }}>
@@ -160,7 +163,7 @@ export default function EquipePage() {
                     <div style={{ textAlign: 'right', minWidth: 110 }}>
                       <div style={{ fontWeight: 700, color: m.custo_hora ? ESPRESSO : RED }}>{m.custo_hora ? `${brl(Number(m.custo_hora))}/h` : 'sem custo/h'}</div>
                     </div>
-                    <button onClick={() => { setEdit(m); setPapelSel(''); setPrevia(null) }} style={btnSec}>Editar</button>
+                    <button onClick={() => { setEdit(m); setCustoHoraTxt(numeroParaMoeda(m.custo_hora)); setPapelSel(''); setPrevia(null) }} style={btnSec}>Editar</button>
                   </>}
                 </div>
               ))}
@@ -178,7 +181,7 @@ export default function EquipePage() {
               <label style={lbl}><span style={rot}>Setor<AjudaCampo chave="pm.equipe.setor" /></span><input style={inp} value={edit.setor ?? ''} onChange={(e) => setEdit({ ...edit, setor: e.target.value })} /></label>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <label style={lbl}><span style={rot}>Custo/hora (R$)<AjudaCampo chave="pm.equipe.custo_hora" /></span><input type="number" style={inp} value={edit.custo_hora ?? ''} onChange={(e) => setEdit({ ...edit, custo_hora: e.target.value === '' ? null : Number(e.target.value) })} /></label>
+              <label style={lbl}><span style={rot}>Custo/hora (R$)<AjudaCampo chave="pm.equipe.custo_hora" /></span><CampoMoeda value={custoHoraTxt} onChange={setCustoHoraTxt} style={inp} placeholder="R$ 0,00" /></label>
               <label style={lbl}><span style={rot}>Jornada (h/dia)<AjudaCampo chave="pm.equipe.jornada" /></span><input type="number" style={inp} value={edit.jornada_horas_dia ?? 8} onChange={(e) => setEdit({ ...edit, jornada_horas_dia: Number(e.target.value) })} /></label>
             </div>
             <label style={{ ...lbl, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
