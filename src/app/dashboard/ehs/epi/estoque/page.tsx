@@ -38,6 +38,7 @@ interface EstoqueRow {
   qtd_disponivel: number
   qtd_reservada: number
   qtd_minima_alerta: number
+  ativo: boolean
   created_at: string
 }
 
@@ -75,6 +76,8 @@ export default function EstoqueEpiPage() {
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [busca, setBusca] = useState('')
+  const [mostrarInativos, setMostrarInativos] = useState(false)
+  const [acaoId, setAcaoId] = useState<string | null>(null)
   const [showEntrada, setShowEntrada] = useState(false)
   const [editandoMinimo, setEditandoMinimo] = useState<EstoqueRow | null>(null)
   // #3865 — Requisição/baixa de EPI: entrega ao funcionário dá baixa no estoque (fn_epi_registrar_entrega).
@@ -94,7 +97,7 @@ export default function EstoqueEpiPage() {
       const [estR, ownR, globalR] = await Promise.all([
         supabase
           .from('epi_estoque')
-          .select('id, company_id, catalogo_id, localizacao, qtd_disponivel, qtd_reservada, qtd_minima_alerta, created_at, epi_catalogo(nome, ca_numero, lote)')
+          .select('id, company_id, catalogo_id, localizacao, qtd_disponivel, qtd_reservada, qtd_minima_alerta, ativo, created_at, epi_catalogo(nome, ca_numero, lote)')
           .in('company_id', ids)
           .order('created_at', { ascending: false }),
         supabase
@@ -116,6 +119,7 @@ export default function EstoqueEpiPage() {
       if (globalR.error) throw globalR.error
       setEstoque(((estR.data || []) as any[]).map((r) => ({
         ...r,
+        ativo: r.ativo ?? true,
         catalogo_nome: (r.epi_catalogo as any)?.nome,
         ca_numero: (r.epi_catalogo as any)?.ca_numero,
         catalogo_lote: (r.epi_catalogo as any)?.lote,
@@ -157,9 +161,29 @@ export default function EstoqueEpiPage() {
 
   const estoqueFiltrado = useMemo(() => {
     const q = busca.toLowerCase().trim()
-    if (!q) return estoque
-    return estoque.filter((e) => `${e.catalogo_nome || ''} ${e.ca_numero || ''} ${e.localizacao || ''}`.toLowerCase().includes(q))
-  }, [estoque, busca])
+    return estoque.filter((e) => {
+      if (!mostrarInativos && !e.ativo) return false
+      if (!q) return true
+      return `${e.catalogo_nome || ''} ${e.ca_numero || ''} ${e.localizacao || ''}`.toLowerCase().includes(q)
+    })
+  }, [estoque, busca, mostrarInativos])
+
+  // RD-98 p2: inativação/reativação rastreável do item de estoque (soft-delete via coluna `ativo`),
+  // no mesmo padrão de gravação direta da tela (RLS epi_estoque escopa por company_id). O saldo e o
+  // histórico ficam guardados; nada é apagado.
+  async function alternarAtivo(row: EstoqueRow) {
+    setAcaoId(row.id)
+    setErro(null)
+    try {
+      const { error } = await supabase.from('epi_estoque').update({ ativo: !row.ativo }).eq('id', row.id)
+      if (error) throw error
+      await carregar()
+    } catch {
+      setErro(row.ativo ? 'Não foi possível inativar o item. Tente de novo.' : 'Não foi possível reativar o item. Tente de novo.')
+    } finally {
+      setAcaoId(null)
+    }
+  }
 
   function statusEstoque(row: EstoqueRow): { cor: string; label: string } {
     const min = row.qtd_minima_alerta || 0
@@ -203,6 +227,11 @@ export default function EstoqueEpiPage() {
           <label style={{ display: 'block' }}>
             <span style={{ ...labelStyle, display: 'inline-flex', alignItems: 'center', gap: 6 }}>Buscar no estoque <AjudaCampo chave="compliance.epi.estoque.busca" rota={ROTA} /></span>
             <input type="text" placeholder="Buscar por EPI / CA / localização…" value={busca} onChange={(e) => setBusca(e.target.value)} style={{ ...inputStyle, width: '100%' }} />
+          </label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 12, fontSize: 13, color: C.espressoLt, cursor: 'pointer' }}>
+            <input type="checkbox" checked={mostrarInativos} onChange={(e) => setMostrarInativos(e.target.checked)} />
+            Mostrar inativos
+            <AjudaCampo chave="compliance.epi.estoque.mostrar_inativos" rota={ROTA} />
           </label>
         </section>
 
@@ -258,8 +287,8 @@ export default function EstoqueEpiPage() {
                 {estoqueFiltrado.map((e, i) => {
                   const st = statusEstoque(e)
                   return (
-                    <tr key={e.id} style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.borderLt}` }}>
-                      <Td><strong>{e.catalogo_nome || '—'}</strong>{e.catalogo_lote ? <div style={{ fontSize: 11, color: C.muted }}>Lote: {e.catalogo_lote}</div> : null}</Td>
+                    <tr key={e.id} style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.borderLt}`, opacity: e.ativo ? 1 : 0.6 }}>
+                      <Td><strong>{e.catalogo_nome || '—'}</strong>{!e.ativo && <span style={{ marginLeft: 6, display: 'inline-block', padding: '1px 7px', borderRadius: 10, fontSize: 10, fontWeight: 700, background: 'rgba(61,35,20,0.08)', color: C.muted }}>inativo</span>}{e.catalogo_lote ? <div style={{ fontSize: 11, color: C.muted }}>Lote: {e.catalogo_lote}</div> : null}</Td>
                       <Td mono>{e.ca_numero || '—'}</Td>
                       <Td>{e.localizacao || '—'}</Td>
                       {multiEmpresa && <Td>{empresaPorId.get(e.company_id) || '—'}</Td>}
@@ -270,7 +299,15 @@ export default function EstoqueEpiPage() {
                         <span style={{ display: 'inline-block', padding: '3px 10px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: st.cor + '22', color: st.cor }}>{st.label}</span>
                       </Td>
                       <Td align="right">
-                        <button onClick={() => setEditandoMinimo(e)} style={{ ...btnSec, padding: '4px 10px', fontSize: 11 }}>Editar mínimo</button>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+                          <button onClick={() => setEditandoMinimo(e)} style={{ ...btnSec, padding: '4px 10px', fontSize: 11 }}>Editar mínimo</button>
+                          <button
+                            onClick={() => void alternarAtivo(e)}
+                            disabled={acaoId === e.id}
+                            style={{ ...btnSec, padding: '4px 10px', fontSize: 11, color: e.ativo ? C.red : C.green, borderColor: e.ativo ? '#f0d4d4' : '#d0e8d6', cursor: acaoId === e.id ? 'default' : 'pointer' }}
+                          >{acaoId === e.id ? '…' : (e.ativo ? 'Inativar' : 'Reativar')}</button>
+                          <AjudaCampo chave="compliance.epi.estoque.inativar" rota={ROTA} />
+                        </span>
                       </Td>
                     </tr>
                   )
