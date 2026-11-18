@@ -17,6 +17,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { moedaMascara, moedaParaNumero } from '@/lib/moeda-mascara'
+import { CampoPercent } from '@/lib/ui/CampoPercent'
 import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
 import {
   Plus, Search, FileText, ShoppingCart, BarChart3, X, Info, Trash2,
@@ -1318,7 +1319,7 @@ function ModalNovaCotacao({ companyId, onClose, onCreated, flash, flashErr }: {
                   </>
                 )}
                 <div style={{ display: 'grid', gridTemplateColumns: '0.8fr 0.8fr auto', gap: 6, alignItems: 'center' }}>
-                  <input type="number" step="0.01" placeholder="Qtd" value={it.quantidade} onChange={(e) => { const copy = [...itens]; copy[i] = { ...copy[i], quantidade: parseFloat(e.target.value) || 0 }; setItens(copy) }} style={{ ...inp, textAlign: 'right' }} />
+                  <CampoPercent placeholder="Qtd" value={it.quantidade} onChange={(n) => { const copy = [...itens]; copy[i] = { ...copy[i], quantidade: n ?? 0 }; setItens(copy) }} style={{ ...inp, textAlign: 'right' }} />
                   <select value={it.unidade} onChange={(e) => { const copy = [...itens]; copy[i] = { ...copy[i], unidade: e.target.value }; setItens(copy) }} style={inp}>
                     <option value="un">un</option><option value="m">m</option><option value="m²">m²</option><option value="kg">kg</option><option value="L">L</option><option value="pç">pç</option>
                   </select>
