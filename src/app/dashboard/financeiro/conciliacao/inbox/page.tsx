@@ -1588,6 +1588,7 @@ export default function InboxPage() {
                                 >
                                   Desvincular
                                 </button>
+                                <AjudaCampo chave="conc.inbox.acao_desvincular_titulo" rota="/dashboard/financeiro/conciliacao/inbox" />
                               </div>
                             ))}
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700, borderTop: '1px dashed rgba(61,35,20,0.15)', paddingTop: 6 }}>
@@ -1603,6 +1604,7 @@ export default function InboxPage() {
                       <button onClick={() => void desvincularConciliado(c)} style={secondaryBtn(false)} title={c.lancamento_id === null ? 'Desfaz a fatura inteira (todos os títulos voltam a Aberto)' : 'Desvincular este lançamento conciliado'}>
                         {c.lancamento_id === null ? 'Desvincular fatura' : 'Desvincular'}
                       </button>
+                      <AjudaCampo chave="conc.inbox.acao_desvincular_conciliado" rota="/dashboard/financeiro/conciliacao/inbox" />
                     </div>
                   </div>
                 )
@@ -1700,6 +1702,7 @@ export default function InboxPage() {
                           style={secondaryBtn(false)}
                           data-testid="conc-sistema-editar"
                         >✏️ Editar</button>
+                        <AjudaCampo chave="conc.inbox.acao_editar_sistema" rota="/dashboard/financeiro/conciliacao/inbox" />
                       </div>
                     </div>
                   )
