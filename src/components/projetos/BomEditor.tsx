@@ -5,7 +5,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Trash2, Package, HardHat, Wrench, Loader2 } from "lucide-react";
+import { Plus, Trash2, Package, HardHat, Wrench, ShieldCheck, Loader2 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { SeletorItemModal, type ItemEscolhido, type TipoItem } from "./SeletorItemModal";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
@@ -39,18 +39,21 @@ interface Props {
 function tipoIcone(tipo: string | TipoItem) {
   if (tipo === "mao_obra") return HardHat;
   if (tipo === "equipamento") return Wrench;
+  if (tipo === "epi") return ShieldCheck;
   return Package;
 }
 
 function tipoLabel(tipo: string | TipoItem) {
   if (tipo === "mao_obra") return "Mão de obra";
   if (tipo === "equipamento") return "Equipamento";
+  if (tipo === "epi") return "EPI";
   return "Material";
 }
 
 function tipoCorChip(tipo: string | TipoItem) {
   if (tipo === "mao_obra") return "bg-blue-50 text-blue-800";
   if (tipo === "equipamento") return "bg-purple-50 text-purple-800";
+  if (tipo === "epi") return "bg-amber-50 text-amber-800";
   return "bg-emerald-50 text-emerald-800";
 }
 
@@ -134,11 +137,19 @@ export function BomEditor({ servicoId, companyId, bom, onChange }: Props) {
         tipo: item.tipo,
         quantidade: 1.0,
         unidade: item.unidade,
-        perda_pct: item.tipo === "insumo" || item.tipo === "equipamento" ? 5 : 0,
+        perda_pct: item.tipo === "mao_obra" || item.manual ? 0 : 5,
         ordem: proximaOrdem,
+        local_id: item.local_id ?? null,
       };
       if (item.tipo === "mao_obra") payload.mao_obra_id = item.item_id;
-      else payload.insumo_id = item.item_id; // insumo ou equipamento partilham m16_insumos
+      else if (item.manual) {
+        payload.item_nome_manual = item.nome;
+        payload.custo_unitario_manual = item.custo ?? 0;
+      } else if (item.produto_id) {
+        payload.produto_id = item.produto_id; // material/equipamento/EPI do estoque real (erp_produtos)
+      } else {
+        payload.insumo_id = item.item_id; // legado m16_insumos (itens antigos)
+      }
       const { error } = await supabase.from("projetos_servicos_bom").insert(payload);
       if (error) throw error;
       await supabase.rpc("fn_projetos_atualizar_cache_bom", { p_servico_id: servicoId });
