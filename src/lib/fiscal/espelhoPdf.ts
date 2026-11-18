@@ -26,29 +26,32 @@ export type EspelhoItem = {
   chassi: string | null
   icmsBase: number | null
   icmsValor: number | null
-  ibsCbs: { base: number; cbs: number; ibs: number } | null
+  ibsCbs?: { base: number; cbs: number; ibs: number } | null
   valorTotal: number
 }
+// Contraparte da nota: na SAÍDA é o destinatário; na ENTRADA é o remetente.
+// série/finalidade/consumidorFinal/ibsCbs são opcionais — a nota de entrada não os traz.
 export type EspelhoNota = {
   naturezaOperacao: string
-  serie: string
-  finalidade: string
-  consumidorFinal: boolean | null
+  serie?: string
+  finalidade?: string
+  consumidorFinal?: boolean | null
   destinatario: {
     razaoSocial: string
     documento: string | null
     tipoDocumento: string | null
-    email: string | null
+    email?: string | null
     endereco: string | null
   }
   itens: EspelhoItem[]
-  totais: { produtos: number; ibsCbs: { base: number; cbs: number; ibs: number } | null }
+  totais: { produtos: number; ibsCbs?: { base: number; cbs: number; ibs: number } | null }
 }
 export type EspelhoMeta = {
   empresa?: string | null   // razão social / nome do emitente (cabeçalho); ausente → rótulo neutro
   emitidoEmISO: string      // data de geração do espelho (passada de fora, sem Date.now interno)
   modelo?: 'nfe55' | 'nfse' // rótulo do documento (default nfe55)
   placa?: string | null     // revenda: placa do veículo (quando houver)
+  papelContraparte?: 'destinatario' | 'remetente' // título da seção (default 'destinatario'; entrada = 'remetente')
   informacoesComplementares?: string | null
 }
 
@@ -126,15 +129,15 @@ export async function gerarEspelhoNFePdf(nota: EspelhoNota, meta: EspelhoMeta): 
 
   sec('Operação')
   kv('Natureza', nota.naturezaOperacao)
-  kv('Série / Finalidade', `${nota.serie || '—'} · ${nota.finalidade}`)
-  kv('Consumidor final', nota.consumidorFinal == null ? '—' : (nota.consumidorFinal ? 'Sim' : 'Não'))
+  if (nota.serie != null || nota.finalidade != null) kv('Série / Finalidade', `${nota.serie || '—'} · ${nota.finalidade || '—'}`)
+  if (nota.consumidorFinal !== undefined) kv('Consumidor final', nota.consumidorFinal == null ? '—' : (nota.consumidorFinal ? 'Sim' : 'Não'))
   if (meta.placa) kv('Placa do veículo', meta.placa)
   y -= 4
 
-  sec('Destinatário')
+  sec(meta.papelContraparte === 'remetente' ? 'Remetente' : 'Destinatário')
   kv('Nome', nota.destinatario.razaoSocial)
   kv(nota.destinatario.tipoDocumento || 'Documento', nota.destinatario.documento)
-  kv('E-mail', nota.destinatario.email)
+  if (nota.destinatario.email !== undefined) kv('E-mail', nota.destinatario.email ?? null)
   kv('Endereço', nota.destinatario.endereco)
   y -= 4
 
