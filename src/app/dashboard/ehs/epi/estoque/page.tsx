@@ -80,6 +80,8 @@ export default function EstoqueEpiPage() {
   const [acaoId, setAcaoId] = useState<string | null>(null)
   const [showEntrada, setShowEntrada] = useState(false)
   const [editandoMinimo, setEditandoMinimo] = useState<EstoqueRow | null>(null)
+  // RD-98 p2 — baixa rastreavel do item de estoque (perda/dano/descarte/acerto) via fn_epi_estoque_baixar.
+  const [baixando, setBaixando] = useState<EstoqueRow | null>(null)
   // #3865 — Requisição/baixa de EPI: entrega ao funcionário dá baixa no estoque (fn_epi_registrar_entrega).
   const [funcionarios, setFuncionarios] = useState<FuncionarioEntrega[]>([])
   const [funcEntregaId, setFuncEntregaId] = useState('')
@@ -99,6 +101,7 @@ export default function EstoqueEpiPage() {
           .from('epi_estoque')
           .select('id, company_id, catalogo_id, localizacao, qtd_disponivel, qtd_reservada, qtd_minima_alerta, ativo, created_at, epi_catalogo(nome, ca_numero, lote)')
           .in('company_id', ids)
+          .eq('ativo', true) // itens inativados por baixa total (fn_epi_estoque_baixar) saem da lista
           .order('created_at', { ascending: false }),
         supabase
           .from('epi_catalogo')
@@ -302,6 +305,12 @@ export default function EstoqueEpiPage() {
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
                           <button onClick={() => setEditandoMinimo(e)} style={{ ...btnSec, padding: '4px 10px', fontSize: 11 }}>Editar mínimo</button>
                           <button
+                            onClick={() => setBaixando(e)}
+                            disabled={e.qtd_disponivel <= 0}
+                            style={{ ...btnSec, padding: '4px 10px', fontSize: 11, color: C.red, borderColor: C.red + '55', opacity: e.qtd_disponivel <= 0 ? 0.4 : 1, cursor: e.qtd_disponivel <= 0 ? 'not-allowed' : 'pointer' }}
+                          >Baixar</button>
+                          <AjudaCampo chave="compliance.epi.estoque.acao_baixar" rota={ROTA} />
+                          <button
                             onClick={() => void alternarAtivo(e)}
                             disabled={acaoId === e.id}
                             style={{ ...btnSec, padding: '4px 10px', fontSize: 11, color: e.ativo ? C.red : C.green, borderColor: e.ativo ? '#f0d4d4' : '#d0e8d6', cursor: acaoId === e.id ? 'default' : 'pointer' }}
@@ -323,6 +332,9 @@ export default function EstoqueEpiPage() {
       )}
       {editandoMinimo && (
         <ModalEditarMinimo row={editandoMinimo} onClose={() => setEditandoMinimo(null)} onSaved={() => { setEditandoMinimo(null); carregar() }} />
+      )}
+      {baixando && (
+        <ModalBaixarEstoque row={baixando} onClose={() => setBaixando(null)} onSaved={() => { setBaixando(null); carregar() }} />
       )}
       {showEntrega && companyAlvo && funcEntregaSel && (
         <ModalEntregarEPI
@@ -467,6 +479,63 @@ function ModalEditarMinimo({ row, onClose, onSaved }: { row: EstoqueRow; onClose
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
           <button onClick={onClose} disabled={salvando} style={btnSec}>Cancelar</button>
           <button onClick={salvar} disabled={salvando} style={btnPrim}>{salvando ? 'Salvando…' : 'Salvar'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// RD-98 p2 — baixa rastreavel: perda/dano/descarte/acerto. Chama fn_epi_estoque_baixar (SECURITY DEFINER,
+// guarda por empresa, grava em audit_log_global quem/quando/por que; zera -> inativa a linha).
+function ModalBaixarEstoque({ row, onClose, onSaved }: { row: EstoqueRow; onClose: () => void; onSaved: () => void }) {
+  const [quantidade, setQuantidade] = useState(1)
+  const [motivo, setMotivo] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  async function salvar() {
+    if (quantidade < 1 || quantidade > row.qtd_disponivel) { setErro(`Quantidade deve ser entre 1 e ${row.qtd_disponivel}`); return }
+    if (!motivo.trim()) { setErro('Informe o motivo da baixa'); return }
+    setSalvando(true)
+    setErro(null)
+    try {
+      const { data, error } = await supabase.rpc('fn_epi_estoque_baixar', {
+        p_estoque_id: row.id, p_quantidade: quantidade, p_motivo: motivo.trim(),
+      })
+      if (error) throw error
+      const r = data as { ok?: boolean; erro?: string } | null
+      if (!r?.ok) throw new Error(r?.erro || 'Falha ao dar baixa')
+      onSaved()
+    } catch (e: any) {
+      setErro(e?.message || 'Falha ao dar baixa')
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <div onClick={onClose} style={overlayStyle}>
+      <div onClick={(e) => e.stopPropagation()} style={{ ...modalStyle, width: 'min(420px, 92vw)' }}>
+        <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.2, color: C.gold, margin: 0, textTransform: 'uppercase' }}>EPI · Estoque</p>
+        <h2 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 20, fontWeight: 400, margin: '4px 0 6px' }}>Baixar do estoque</h2>
+        <p style={{ fontSize: 12, color: C.muted, margin: '0 0 14px' }}>{row.catalogo_nome || '—'}{row.localizacao ? ` · ${row.localizacao}` : ''} · disponível {row.qtd_disponivel}</p>
+        {erro && <div style={{ background: '#fce8e8', color: C.red, padding: '10px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{erro}</div>}
+
+        <label style={{ display: 'block', marginBottom: 10 }}>
+          <span style={{ ...labelStyle, display: 'inline-flex', alignItems: 'center', gap: 6 }}>Quantidade a baixar <AjudaCampo chave="compliance.epi.estoque.baixa_quantidade" rota={ROTA} /></span>
+          <input type="number" min={1} max={row.qtd_disponivel} value={quantidade}
+            onChange={(e) => setQuantidade(parseInt(e.target.value) || 1)} style={inputStyle} autoFocus />
+        </label>
+        <label style={{ display: 'block', marginBottom: 10 }}>
+          <span style={{ ...labelStyle, display: 'inline-flex', alignItems: 'center', gap: 6 }}>Motivo da baixa <AjudaCampo chave="compliance.epi.estoque.baixa_motivo" rota={ROTA} /></span>
+          <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex: descarte por validade, dano, acerto de inventário" style={inputStyle} />
+        </label>
+        <p style={{ fontSize: 11, color: C.muted, margin: '2px 0 0', lineHeight: 1.5 }}>
+          A baixa fica registrada com quem fez, quando e o motivo. Se o item zerar (0 disponível e 0 reservado), ele é inativado e sai da lista.
+        </p>
+
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
+          <button onClick={onClose} disabled={salvando} style={btnSec}>Cancelar</button>
+          <button onClick={salvar} disabled={salvando} style={{ ...btnPrim, background: C.red }}>{salvando ? 'Baixando…' : 'Confirmar baixa'}</button>
         </div>
       </div>
     </div>
