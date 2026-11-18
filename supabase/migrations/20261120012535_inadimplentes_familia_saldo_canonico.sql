@@ -159,3 +159,13 @@ BEGIN
   );
 END;
 $function$;
+
+-- Guardas de permissão (check_fn_guards): funções SECURITY DEFINER não abertas a anon.
+-- fn_ge_inadimplentes_agrupado: consumida só internamente/service_role (a tela /inadimplentes
+--   migrou para fn_inadimplentes_por_status); preserva grant existente (service_role).
+REVOKE ALL ON FUNCTION public.fn_ge_inadimplentes_agrupado(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ge_inadimplentes_agrupado(uuid) TO service_role;
+
+-- fn_ge_top_inadimplentes: chamada pelo cliente (ColunaInadimplentes.tsx via rpc) → authenticated.
+REVOKE ALL ON FUNCTION public.fn_ge_top_inadimplentes(uuid, integer) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ge_top_inadimplentes(uuid, integer) TO authenticated, service_role;
