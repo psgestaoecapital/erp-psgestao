@@ -63,6 +63,15 @@ no livro de intervenções e nos comentários de PR).
    o OK do CEO é só o Eng. Chefe. O Code só lê a própria caixa (`fn_agente_caixa`) e responde
    (`fn_agente_mensagem_responder`). Cada envio e cada OK ficam gravados com quem chamou (`enviado_por`,
    `ok_registrado_por`).
+7. **`requer_ok_ceo` por DECISÃO NOVA, não por ÁREA (RD-103, CEO 18/11).** Marque `requer_ok_ceo=true` SÓ quando a
+   mudança introduz decisão nova de grupo protegido: cria/altera conta bancária ou muda COMO o dinheiro se move
+   (baixa/pagamento/transferência/estorno/rateio); muda acesso/RBAC/papel; toca vault/segredos; muda
+   assinatura/plano; política fiscal nova com impacto tributário real. NÃO marque por "é financeiro": implementar
+   spec/decisão já gravado, bugfix, leitura, wiring a estrutura existente, refactor, performance, texto/UX,
+   RD-98/RD-95 → `false` (o revisor audita e libera). Depois de auditar o PR, **o revisor** classifica com
+   `fn_revisor_classificar_mensagem('<id>', <requer_ok_ceo>, '<motivo>', '<spec_ref>')` (só service_role): libera o
+   que só executa decisão gravada, ou escala se achar decisão nova protegida. Essa função NUNCA grava `ok_ceo_em` —
+   o OK real do CEO continua exclusivo do `fn_agente_mensagem_ok_ceo`; o CEO pode sempre forçar `true` (override pra cima).
 <!-- END:protocolo-sessao -->
 
 <!-- BEGIN:provas-producao -->
