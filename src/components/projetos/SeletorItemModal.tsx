@@ -78,7 +78,7 @@ export function SeletorItemModal({
             .from("m16_insumos")
             .select("id, name, unit, category, current_cost")
             .eq("company_id", companyId)
-            .eq("ativo", true)
+            .eq("status", "ativo") // m16_insumos usa status='ativo' (não há coluna 'ativo')
             .order("name")
             .limit(500),
           supabase
@@ -90,10 +90,11 @@ export function SeletorItemModal({
             .limit(200),
         ]);
         if (cancel) return;
-        if (insR.error) throw insR.error;
-        if (moR.error) throw moR.error;
-        setInsumos((insR.data as InsumoRow[]) || []);
-        setMos((moR.data as MoRow[]) || []);
+        // Robustez: uma fonte que falha/vazia NÃO derruba a outra aba — cada lista recebe seus próprios dados.
+        setInsumos(!insR.error ? ((insR.data as InsumoRow[]) || []) : []);
+        setMos(!moR.error ? ((moR.data as MoRow[]) || []) : []);
+        const err = insR.error || moR.error;
+        setErro(err ? erroAmigavel(err) : null);
       } catch (e: any) {
         if (!cancel) setErro(erroAmigavel(e));
       } finally {
