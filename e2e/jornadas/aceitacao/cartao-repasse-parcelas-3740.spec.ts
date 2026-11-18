@@ -57,8 +57,10 @@ test.describe('Recebimento em cartão → títulos da operadora por parcela (Jor
       await dbPatch('erp_receber', `id=eq.${c}`, { deleted_at: agora }).catch(() => {})
     }
     if (adq) {
-      await dbPatch('erp_cartao_taxa', `adquirente_id=eq.${adq}`, { ativo: false }).catch(() => {})
-      await dbPatch('erp_cartao_adquirente', `id=eq.${adq}`, { ativo: false }).catch(() => {})
+      // soft-delete (deleted_at), não só ativo=false: a lista/seletor da tela de cartões filtra por deleted_at,
+      // e marcar só ativo=false deixava o registro "vivo" e a DEMO acumulava milhares de "CIELO ACEITE" (RD-69).
+      await dbPatch('erp_cartao_taxa', `adquirente_id=eq.${adq}`, { ativo: false, deleted_at: agora }).catch(() => {})
+      await dbPatch('erp_cartao_adquirente', `id=eq.${adq}`, { ativo: false, deleted_at: agora }).catch(() => {})
     }
   })
 
