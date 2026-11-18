@@ -7,6 +7,7 @@
 import { ReactNode, useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { CampoDecimal } from "@/components/comum/CampoDecimal";
 
 export type FieldType = "text" | "textarea" | "number" | "select" | "radio";
 
@@ -153,15 +154,11 @@ export function CatalogoForm<T extends Record<string, any>>({
                 )}
 
                 {f.type === "number" && (
-                  <input
-                    type="number"
-                    value={values[f.key] ?? ""}
-                    onChange={(e) =>
-                      set(
-                        f.key as keyof T,
-                        (e.target.value === "" ? null : parseFloat(e.target.value)) as any
-                      )
-                    }
+                  // #5660: aceita vírgula E ponto como decimal (antes era type="number",
+                  // que no locale en-US nem deixava digitar vírgula). "1,5" → 1.5.
+                  <CampoDecimal
+                    value={(values[f.key] ?? null) as number | null}
+                    onChange={(n) => set(f.key as keyof T, n as any)}
                     placeholder={f.placeholder}
                     step={f.step}
                     min={f.min}
