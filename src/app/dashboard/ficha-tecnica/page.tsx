@@ -4,6 +4,8 @@ import { supabase } from "@/lib/supabase";
 import { authFetch } from "@/lib/authFetch";
 import { erroAmigavel, codigoAmigavel } from "@/lib/erroAmigavel";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { CampoMoeda } from "@/components/comum/CampoMoeda";
+import { moedaParaNumero, numeroParaMoeda } from "@/lib/moeda-mascara";
 
 const GO="#C6973F",GOL="#E8C872",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
     G="#34D399",R="#F87171",Y="#FBBF24",B="#60A5FA",P="#A78BFA",
@@ -522,7 +524,7 @@ export default function FichaTecnicaPage(){
                             <input value={item.quantidade} onChange={e=>updateItem(item.id,"quantidade",parseFloat(e.target.value)||0)} type="number" step="0.01" style={{...inpSm,width:70}}/>
                           </td>
                           <td style={{padding:"6px 8px",textAlign:"right"}}>
-                            <input value={item.preco_unitario} onChange={e=>updateItem(item.id,"preco_unitario",parseFloat(e.target.value)||0)} type="number" step="0.01" style={{...inpSm,width:80}}/>
+                            <CampoMoeda value={numeroParaMoeda(item.preco_unitario)} onChange={m=>updateItem(item.id,"preco_unitario",moedaParaNumero(m)??0)} style={{...inpSm,width:80}}/>
                           </td>
                           <td style={{padding:"6px 8px",textAlign:"right",fontWeight:600,color:GOL}}>R$ {fmtR(item.quantidade*item.preco_unitario)}</td>
                           <td style={{padding:"6px 8px",textAlign:"center"}}>
@@ -537,7 +539,7 @@ export default function FichaTecnicaPage(){
                         <td style={{padding:"6px 8px"}}><input value={editItem?.nome||""} onChange={e=>setEditItem({...editItem,nome:e.target.value})} placeholder="Nome do material" style={{...inp,fontSize:11}}/></td>
                         <td style={{padding:"6px 8px"}}><select value={editItem?.unidade||"un"} onChange={e=>setEditItem({...editItem,unidade:e.target.value})} style={{...inp,width:60,fontSize:10}}>{UNIDADES.map(u=><option key={u}>{u}</option>)}</select></td>
                         <td style={{padding:"6px 8px"}}><input value={editItem?.quantidade||""} onChange={e=>setEditItem({...editItem,quantidade:parseFloat(e.target.value)||0})} type="number" step="0.01" placeholder="0" style={{...inpSm,width:70}}/></td>
-                        <td style={{padding:"6px 8px"}}><input value={editItem?.preco_unitario||""} onChange={e=>setEditItem({...editItem,preco_unitario:parseFloat(e.target.value)||0})} type="number" step="0.01" placeholder="0.00" style={{...inpSm,width:80}}/></td>
+                        <td style={{padding:"6px 8px"}}><CampoMoeda value={editItem?.preco_unitario?numeroParaMoeda(editItem.preco_unitario):""} onChange={m=>setEditItem({...editItem,preco_unitario:moedaParaNumero(m)??0})} placeholder="R$ 0,00" style={{...inpSm,width:80}}/></td>
                         <td colSpan={2} style={{padding:"6px 8px"}}><button onClick={addItem} disabled={!editItem?.nome} style={{padding:"4px 12px",borderRadius:6,background:editItem?.nome?GO:BD,color:editItem?.nome?BG:TXD,fontSize:10,fontWeight:600,border:"none",cursor:editItem?.nome?"pointer":"default"}}>Adicionar</button></td>
                       </tr>
                       {/* Total row */}
