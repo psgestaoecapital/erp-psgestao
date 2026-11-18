@@ -149,3 +149,7 @@ BEGIN
     'status', CASE WHEN v_erros>0 AND v_inseridos=0 THEN 'falhou' WHEN v_erros>0 THEN 'parcial' ELSE 'concluido' END);
 END;
 $function$;
+
+-- Guarda de função (RD: REVOKE anon): importação financeira só por usuário logado / serviço.
+REVOKE ALL ON FUNCTION public.fn_import_financeiro_v3(uuid, uuid, text, jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_import_financeiro_v3(uuid, uuid, text, jsonb) TO authenticated, service_role;
