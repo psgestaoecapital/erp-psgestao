@@ -63,3 +63,9 @@ BEGIN
   RETURN v_falta;
 END;
 $function$;
+
+-- Guarda (check_fn_guards): reafirma a ACL VIVA da função SECURITY DEFINER (anon/PUBLIC sem acesso;
+-- EXECUTE só para authenticated e service_role). Não altera a postura de acesso — apenas a reexpressa
+-- após o CREATE OR REPLACE, como exige o gate.
+REVOKE ALL ON FUNCTION public.fn__agency_contrato_faltando(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn__agency_contrato_faltando(uuid) TO authenticated, service_role;
