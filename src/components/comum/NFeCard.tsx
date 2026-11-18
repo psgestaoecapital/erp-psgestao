@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { baixarEspelhoNFePdf, type EspelhoNota } from '@/lib/fiscal/espelhoPdf'
 
 interface Props {
   companyId: string
@@ -75,6 +76,9 @@ export default function NFeCard({ companyId, pedidoId, forcarHomologacao = false
   const [erro, setErro] = useState<string | null>(null)
   // Informações Complementares: prévia (texto composto pelo servidor) + texto editado na tela
   const [previa, setPrevia] = useState<PreviaInfCpl | null>(null)
+  // #9724 (decisão B) · nota MONTADA (previa.nota) p/ o espelho em PDF (não transmite, não numera)
+  const [notaMontada, setNotaMontada] = useState<EspelhoNota | null>(null)
+  const [espelhoErro, setEspelhoErro] = useState<string | null>(null)
   const [textoInfCpl, setTextoInfCpl] = useState('')
   const [previaErro, setPreviaErro] = useState<string | null>(null)
   const previaPedida = useRef(false)
@@ -120,13 +124,16 @@ export default function NFeCard({ companyId, pedidoId, forcarHomologacao = false
       const json = await res.json()
       if (!res.ok || json?.ok === false || !json?.previa) {
         setPreviaErro(json?.mensagem ?? json?.message ?? `HTTP ${res.status}`)
+        setNotaMontada(null)
       } else {
         const texto = String(json.previa.informacoesComplementares ?? '')
         setPrevia({ original: texto, limite: Number(json.previa.limite) || 5000 })
         setTextoInfCpl(texto)
+        setNotaMontada((json.previa.nota ?? null) as EspelhoNota | null)
       }
     } catch (e) {
       setPreviaErro(e instanceof Error ? e.message : 'Falha ao montar o texto da nota')
+      setNotaMontada(null)
     }
   }, [companyId, pedidoId])
 
@@ -224,6 +231,38 @@ export default function NFeCard({ companyId, pedidoId, forcarHomologacao = false
       }}
     >
       {carregando ? 'Atualizando…' : '↻ Atualizar status'}
+    </button>
+  )
+
+  // #9724 (decisão B) · baixa o PDF da nota MONTADA marcado "PRÉVIA — SEM VALOR FISCAL" (não transmite, não numera)
+  const btnEspelho = (
+    <button
+      type="button"
+      disabled={!notaMontada || emitindo}
+      data-testid="nfe-pedido-espelho"
+      onClick={async () => {
+        if (!notaMontada) return
+        try {
+          setEspelhoErro(null)
+          await baixarEspelhoNFePdf(notaMontada, {
+            empresa: null,
+            emitidoEmISO: new Date().toISOString(),
+            modelo: 'nfe55',
+            informacoesComplementares: previa ? textoInfCpl : null,
+          })
+        } catch {
+          setEspelhoErro('Não foi possível gerar o espelho em PDF. Tente novamente.')
+        }
+      }}
+      title={notaMontada ? 'Baixa um PDF da nota montada marcado como PRÉVIA — SEM VALOR FISCAL. Não transmite nem numera.' : 'Montando a prévia da nota…'}
+      style={{
+        fontSize: 11, padding: '4px 10px', borderRadius: 6,
+        border: `1px solid ${C.border}`, background: 'transparent',
+        color: C.espressoM, cursor: (!notaMontada || emitindo) ? 'not-allowed' : 'pointer',
+        alignSelf: 'flex-start', opacity: (!notaMontada || emitindo) ? 0.5 : 1,
+      }}
+    >
+      Baixar espelho (PDF)
     </button>
   )
 
@@ -381,6 +420,8 @@ export default function NFeCard({ companyId, pedidoId, forcarHomologacao = false
           >
             {emitindo ? 'Emitindo…' : '📄 Reemitir NF-e'}
           </button>
+          {btnEspelho}
+          {espelhoErro && <p style={{ fontSize: 11, color: C.red, margin: 0 }}>{espelhoErro}</p>}
           {btnAtualizar}
         </div>
       )}
@@ -404,6 +445,8 @@ export default function NFeCard({ companyId, pedidoId, forcarHomologacao = false
           >
             {emitindo ? 'Emitindo…' : '📄 Emitir NF-e'}
           </button>
+          {btnEspelho}
+          {espelhoErro && <p style={{ fontSize: 11, color: C.red, margin: 0 }}>{espelhoErro}</p>}
         </div>
       )}
     </div>
