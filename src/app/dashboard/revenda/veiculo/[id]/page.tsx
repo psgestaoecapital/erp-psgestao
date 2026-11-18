@@ -27,6 +27,7 @@ import { CampoMoeda } from '@/components/comum/CampoMoeda'
 import { moedaMascara, numeroParaMoeda } from '@/lib/moeda-mascara'
 import { buscarClientesErp, nomeErp, type ErpCliente } from '@/components/pm/ClienteBusca'
 import { parseNumBR } from '@/lib/num'
+import { baixarEspelhoNFePdf } from '@/lib/fiscal/espelhoPdf'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -449,6 +450,26 @@ function Inner() {
                 <div style={{ background: C.amberBg, color: C.amber, padding: '6px 10px', borderRadius: 7, fontSize: 12 }}>{previaEnt.avisos.join(' ')}</div>
               )}
               <div style={{ fontSize: 11, color: C.espL }}>Prévia sem valor fiscal — não transmite ao SEFAZ nem consome numeração/série.</div>
+              {/* #9724 (decisão B) · baixa o espelho desta prévia em PDF (nota de ENTRADA → contraparte = remetente). */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+                <button
+                  onClick={() => {
+                    const n = previaEnt.nota!
+                    void baixarEspelhoNFePdf(
+                      {
+                        naturezaOperacao: n.naturezaOperacao,
+                        destinatario: { razaoSocial: n.remetente.razaoSocial, documento: n.remetente.documento, tipoDocumento: n.remetente.tipoDocumento, endereco: n.remetente.endereco },
+                        itens: n.itens.map((it) => ({ ...it, ibsCbs: null })),
+                        totais: { produtos: n.totais.produtos },
+                      },
+                      { emitidoEmISO: new Date().toISOString(), modelo: 'nfe55', papelContraparte: 'remetente', placa: v?.placa ?? null },
+                    )
+                  }}
+                  style={{ padding: '8px 14px', border: `1px solid ${C.gold}`, borderRadius: 8, background: C.white, color: C.gold, fontWeight: 700, cursor: 'pointer' }}
+                >
+                  Baixar espelho (PDF)
+                </button>
+              </div>
             </div>
           ) : null}
         </Modal>
