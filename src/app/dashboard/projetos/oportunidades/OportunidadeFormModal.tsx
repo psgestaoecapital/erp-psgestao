@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CampoDecimal } from '@/components/comum/CampoDecimal'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import SeletorUsuario from '@/components/crm/SeletorUsuario'
 import AnexosCard, { type AnexosCardHandle } from '@/components/crm/AnexosCard'
@@ -519,10 +520,10 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
           </label>
           <label style={lbl}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Probabilidade (%) <AjudaCampo chave="projetos.oportunidade.form.probabilidade" rota="/dashboard/projetos/oportunidades" /></span>
-            <input
-              type="number" min={0} max={100}
-              value={form.probabilidade ?? ''}
-              onChange={(e) => setF('probabilidade', e.target.value === '' ? null : Number(e.target.value))}
+            <CampoDecimal
+              min={0} max={100}
+              value={form.probabilidade}
+              onChange={(n) => setF('probabilidade', n)}
               style={inp}
             />
           </label>
