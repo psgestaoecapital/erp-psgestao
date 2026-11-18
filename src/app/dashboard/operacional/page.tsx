@@ -540,15 +540,15 @@ export default function OperacionalPage(){
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(120px,1fr))',gap:10}}>
               <div>
                 <div style={{fontSize:10,color:C.yellow,marginBottom:3}}>JUROS (R$)</div>
-                <input type="number" step="0.01" value={formL.juros||''} onChange={e=>setFormL({...formL,juros:parseFloat(e.target.value)||0})} placeholder="0,00" style={inp}/>
+                <CampoMoeda value={formL.juros?numeroParaMoeda(formL.juros):''} onChange={v=>setFormL({...formL,juros:moedaParaNumero(v)||0})} placeholder="0,00" style={inp}/>
               </div>
               <div>
                 <div style={{fontSize:10,color:C.red,marginBottom:3}}>MULTA (R$)</div>
-                <input type="number" step="0.01" value={formL.multa||''} onChange={e=>setFormL({...formL,multa:parseFloat(e.target.value)||0})} placeholder="0,00" style={inp}/>
+                <CampoMoeda value={formL.multa?numeroParaMoeda(formL.multa):''} onChange={v=>setFormL({...formL,multa:moedaParaNumero(v)||0})} placeholder="0,00" style={inp}/>
               </div>
               <div>
                 <div style={{fontSize:10,color:C.green,marginBottom:3}}>DESCONTO (R$)</div>
-                <input type="number" step="0.01" value={formL.desconto||''} onChange={e=>setFormL({...formL,desconto:parseFloat(e.target.value)||0})} placeholder="0,00" style={inp}/>
+                <CampoMoeda value={formL.desconto?numeroParaMoeda(formL.desconto):''} onChange={v=>setFormL({...formL,desconto:moedaParaNumero(v)||0})} placeholder="0,00" style={inp}/>
               </div>
               {(formL.juros||formL.multa||formL.desconto)&&formL.valor_documento>0&&(
                 <div style={{background:C.card2,borderRadius:6,padding:'6px 10px',border:`1px solid ${C.gold}40`,fontSize:10}}>

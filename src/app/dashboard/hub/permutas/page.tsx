@@ -9,6 +9,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
 import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
+import { parseNumBR } from '@/lib/num'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ROTA = '/dashboard/hub/permutas'
@@ -212,7 +213,7 @@ function CadastroModal({ empresas, permutaId, onClose, onSalvo }: { empresas: Em
     setSalvando(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_permuta_salvar', {
       p_id: permutaId ?? null, p_company_id: f.company_id, p_obra_id: f.obra_id || null, p_contratante: f.contratante || null,
-      p_ativo_descr: f.ativo_descr, p_tipo_contrato: f.tipo_contrato, p_pct_permuta: f.pct_permuta ? Number(f.pct_permuta) : null,
+      p_ativo_descr: f.ativo_descr, p_tipo_contrato: f.tipo_contrato, p_pct_permuta: f.pct_permuta ? parseNumBR(f.pct_permuta) : null,
       p_valor_permuta: moedaParaNumero(f.valor_permuta) ?? 0, p_valor_dinheiro: moedaParaNumero(f.valor_dinheiro) ?? 0,
       p_indice_reajuste: f.indice_reajuste || null, p_data_base: f.data_base || null, p_contrato_anexo: f.contrato_anexo || null,
       p_status: statusAtual, p_intragrupo: f.intragrupo,
@@ -229,7 +230,7 @@ function CadastroModal({ empresas, permutaId, onClose, onSalvo }: { empresas: Em
       <Campo data-ajuda="hub.permutas.ativo_descr" chave="hub.permutas.ativo_descr" rot="Ativo (imóvel) *"><input style={inp} value={f.ativo_descr} onChange={e => set('ativo_descr', e.target.value)} placeholder="Apto 1202 Amazon" /></Campo>
       <Campo data-ajuda="hub.permutas.contratante" chave="hub.permutas.contratante" rot="Contratante"><input style={inp} value={f.contratante} onChange={e => set('contratante', e.target.value)} placeholder="Incorporadora…" /></Campo>
       <Campo data-ajuda="hub.permutas.tipo_contrato" chave="hub.permutas.tipo_contrato" rot="Tipo de contrato"><select style={inp} value={f.tipo_contrato} onChange={e => set('tipo_contrato', e.target.value)}><option value="100_permuta">100% permuta</option><option value="misto">Misto</option><option value="100_dinheiro">100% dinheiro</option></select></Campo>
-      <Campo data-ajuda="hub.permutas.pct_permuta" chave="hub.permutas.pct_permuta" rot="% de permuta"><input style={inp} type="number" value={f.pct_permuta} onChange={e => set('pct_permuta', e.target.value)} placeholder="40" /></Campo>
+      <Campo data-ajuda="hub.permutas.pct_permuta" chave="hub.permutas.pct_permuta" rot="% de permuta"><input style={inp} type="text" inputMode="decimal" value={f.pct_permuta} onChange={e => set('pct_permuta', e.target.value)} placeholder="40" /></Campo>
       <Campo data-ajuda="hub.permutas.valor_permuta" chave="hub.permutas.valor_permuta" rot="Valor da permuta (R$)"><CampoMoeda style={inp} value={f.valor_permuta} onChange={v => set('valor_permuta', v)} placeholder="0,00" /></Campo>
       <Campo data-ajuda="hub.permutas.valor_dinheiro" chave="hub.permutas.valor_dinheiro" rot="Valor em dinheiro (R$)"><CampoMoeda style={inp} value={f.valor_dinheiro} onChange={v => set('valor_dinheiro', v)} placeholder="0,00" /></Campo>
       <Campo data-ajuda="hub.permutas.indice_reajuste" chave="hub.permutas.indice_reajuste" rot="Índice de reajuste"><input style={inp} value={f.indice_reajuste} onChange={e => set('indice_reajuste', e.target.value)} placeholder="CUB-SC" /></Campo>
