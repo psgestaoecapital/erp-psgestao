@@ -7,6 +7,12 @@
 import { Buffer } from 'node:buffer'
 import { consultarBoleto as consultarSicoob, type Credencial as CredSicoob } from '@/lib/banco/sicoob'
 import { consultarBoleto as consultarSicredi, type Credencial as CredSicredi } from '@/lib/banco/sicredi'
+import { consultarBoletoBb } from '@/lib/banco/bb/cobranca'
+import type { BbCredencial } from '@/lib/banco/bb'
+import { extractBankMessage } from '@/lib/banco/bankError'
+
+// O BB precisa do convênio além da credencial; carrego os dois juntos no montarCredencial.
+type CredBb = { bb: BbCredencial; convenio: string }
 
 export type Ambiente = 'producao' | 'homologacao'
 export type ResultadoConsulta = { situacao: string | null; dataLiquidacao: string | null; valorPago: number | null; raw: unknown }
@@ -51,6 +57,37 @@ export const PROVEDORES_LIQUIDACAO: Record<string, ProvedorLiquidacao> = {
       return { cred }
     },
     consultar: async (cred, nn) => consultarSicredi(cred as CredSicredi, nn),
+  },
+  // Banco do Brasil (001) · consulta título a título na mesma rotina das 7h/13h (chamado #9976). A consulta é SÓ LEITURA
+  // (GET cobranças/v2/boletos/{nn}); a baixa segue pela mesma fn_boleto_liquidar idempotente dos demais bancos — nada de
+  // movimento novo. estado=6 → liquidado (pago); estado=7 → baixado (cancelado, NÃO é pagamento).
+  bb: {
+    provider: 'bb', banco_codigo: '001',
+    montarCredencial: (row, ambiente) => {
+      const convenio = s(row.convenio)
+      if (!s(row.client_id) || !s(row.client_secret) || !s(row.api_key) || !convenio) {
+        return { faltando: 'credencial Banco do Brasil incompleta (Client ID, Client Secret, chave da aplicação ou convênio)' }
+      }
+      const cred: CredBb = {
+        bb: {
+          client_id: s(row.client_id), client_secret: s(row.client_secret), app_key: s(row.api_key), ambiente,
+          pfx: s(row.cert_base64) ? Buffer.from(s(row.cert_base64), 'base64') : null,
+          passphrase: s(row.cert_senha) || null,
+        },
+        convenio,
+      }
+      return { cred }
+    },
+    consultar: async (cred, nn) => {
+      const { bb, convenio } = cred as CredBb
+      const r = await consultarBoletoBb(bb, nn, convenio)
+      if (r.status < 200 || r.status >= 300) {
+        const msg = extractBankMessage(r.raw)
+        throw new Error(msg ? `Banco do Brasil: ${msg}` : `Banco do Brasil não respondeu a consulta (status ${r.status})`)
+      }
+      const situacao = r.liquidado ? 'LIQUIDADO' : r.baixado ? 'BAIXADO' : 'NORMAL'
+      return { situacao, dataLiquidacao: r.dataPagamento ?? null, valorPago: r.valorPago ?? null, raw: r.raw }
+    },
   },
 }
 
