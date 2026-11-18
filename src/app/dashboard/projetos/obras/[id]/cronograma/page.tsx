@@ -160,7 +160,7 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
     if (!form) return
     if (!form.nome.trim()) { setErro('Informe o nome da tarefa.'); return }
     if (form.fim < form.inicio) { setErro('O fim não pode ser antes do início.'); return }
-    const pct = Number(form.percentual)
+    const pct = parseNumBR(form.percentual) ?? NaN // #5620: avanço aceita vírgula (ex.: 33,5)
     if (!Number.isFinite(pct) || pct < 0 || pct > 100) { setErro('O avanço deve ficar entre 0 e 100.'); return }
     const custo = form.custo.trim() === '' ? null : (parseNumBR(form.custo) ?? NaN) // aceita vírgula e milhar BR (#5660)
     if (custo !== null && (!Number.isFinite(custo) || custo < 0)) { setErro('O custo previsto deve ser um valor maior ou igual a zero.'); return }
@@ -271,7 +271,7 @@ export default function CronogramaObraPage({ params }: { params: Promise<{ id: s
                   <input type="date" value={form.fim} min={form.inicio} onChange={(e) => setForm({ ...form, fim: e.target.value })} style={inp} required />
                 </label>
                 <label style={lbl}>Avanço (%) <AjudaCampo chave="projetos.cronograma.percentual" rota={ROTA_AJUDA} />
-                  <input type="number" min={0} max={100} step={1} value={form.percentual} onChange={(e) => setForm({ ...form, percentual: e.target.value })} style={inp} />
+                  <input type="text" inputMode="decimal" value={form.percentual} onChange={(e) => setForm({ ...form, percentual: e.target.value })} style={inp} />
                 </label>
                 <label style={lbl}>Custo previsto (R$) <AjudaCampo chave="projetos.cronograma.custo_previsto" rota={ROTA_AJUDA} />
                   <input inputMode="decimal" value={form.custo} onChange={(e) => setForm({ ...form, custo: e.target.value })} style={inp} placeholder="opcional" />

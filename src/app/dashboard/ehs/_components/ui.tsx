@@ -55,3 +55,17 @@ export async function baixarDocumento(documentoId: string): Promise<void> {
     alert(e.message)
   }
 }
+
+// RD-98 p2 (Excluir): remove um documento já enviado. Usa o endpoint DELETE
+// existente (soft-delete ativo=false + remoção do arquivo no storage), guardado
+// por empresa do próprio documento. O registro é mantido no histórico.
+export async function removerDocumento(documentoId: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await authFetch(`/api/compliance/documentos/${documentoId}`, { method: 'DELETE' })
+    const j = await res.json().catch(() => ({} as { ok?: boolean; error?: string }))
+    if (!res.ok || !j.ok) return { ok: false, error: j.error || res.statusText }
+    return { ok: true }
+  } catch (e: any) {
+    return { ok: false, error: e?.message || 'Falha ao remover o documento' }
+  }
+}

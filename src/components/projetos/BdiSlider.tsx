@@ -6,6 +6,7 @@
 "use client";
 
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { CampoDecimal } from "@/components/comum/CampoDecimal";
 
 export type BdiSliderCor = "espresso" | "gold" | "brown" | "gray";
 
@@ -87,17 +88,13 @@ export function BdiSlider({
           </div>
         </div>
         <div className="flex items-center gap-1">
-          <input
-            type="number"
+          <CampoDecimal
             min={0}
             max={100}
             step={step}
             value={safe}
-            aria-label={`${label} (%)`}
-            onChange={(e) => {
-              const v = parseFloat(e.target.value);
-              onChange(Number.isFinite(v) ? v : 0);
-            }}
+            ariaLabel={`${label} (%)`}
+            onChange={(n) => onChange(Number.isFinite(n as number) ? (n as number) : 0)}
             className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-2 py-1.5 text-right font-mono text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none"
           />
           <span className="text-xs text-[#3D2314]/50">%</span>
