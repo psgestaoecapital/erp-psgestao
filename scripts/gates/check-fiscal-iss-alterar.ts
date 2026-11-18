@@ -1,12 +1,16 @@
 // Gate (chamado #9427 FC Pisos): a tela "ISS por município" só permitia cadastrar; agora permite
 // EDITAR um cadastro existente (alíquota, retenção, vigência, fonte, quem informou, observação),
 // guardando quem alterou, quando e o valor anterior. Estático, sem rede.
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
 
-const sql = readFileSync('supabase/migrations/20261120013020_fiscal_iss_alterar.sql', 'utf8')
+// Resolve a migration pelo SUFIXO (a fila de merge pode renumerar o prefixo de 14 dígitos).
+const dir = 'supabase/migrations'
+const arq = readdirSync(dir).filter((f) => f.endsWith('_fiscal_iss_alterar.sql')).sort().pop()
+if (!arq) { console.error('✗ migration *_fiscal_iss_alterar.sql não encontrada'); process.exit(1) }
+const sql = readFileSync(`${dir}/${arq}`, 'utf8')
 ok(sql.includes('CREATE OR REPLACE FUNCTION public.fn_fiscal_iss_alterar'), 'existe a função de alteração')
 ok(/ADD COLUMN IF NOT EXISTS valor_anterior jsonb/.test(sql), 'coluna de histórico valor_anterior (aditiva)')
 ok(/ADD COLUMN IF NOT EXISTS editado_por\s+uuid/.test(sql), 'coluna editado_por (quem alterou)')
