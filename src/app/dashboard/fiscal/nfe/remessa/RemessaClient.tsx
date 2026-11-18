@@ -13,6 +13,7 @@ import { authFetch } from '@/lib/authFetch'
 import { esperaConsulta, AVISO_PROCESSANDO } from '@/lib/fiscal/consultaRetorno'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { traduzirRejeicaoSefaz } from '@/lib/fiscal/rejeicoes-sefaz'
+import { baixarEspelhoNFePdf, type EspelhoNota } from '@/lib/fiscal/espelhoPdf'
 import {
   validarNFeAvulsa, cfopNoCatalogo, formatarCfop, ufDestino, soDigitos,
   ICMS_OPCOES_SIMPLES, ICMS_OPCOES_NORMAL, type CfopSaida, type FinalidadeNFe,
@@ -120,6 +121,8 @@ export default function RemessaClient() {
   const buscaProdutoRef = useRef<HTMLInputElement>(null)
 
   const [enviando, setEnviando] = useState(false)
+  // #9724 (decisão B) · espelho em PDF da nota montada (sob demanda, sem transmitir/numerar)
+  const [baixandoEspelho, setBaixandoEspelho] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [sucesso, setSucesso] = useState<{ numero: string; chave?: string; danfeUrl?: string } | null>(null)
   // #3861 · 'processando' na Focus NÃO é falha: nota enviada, aguardando a SEFAZ (consulta até a resposta final)
@@ -392,6 +395,61 @@ export default function RemessaClient() {
     void consultarRetorno(aguardando.nfeId, 0)
   }
 
+  // Corpo da emissão — reaproveitado na emissão e no espelho (apenasPrevia), para o PDF refletir
+  // exatamente o que seria transmitido (sem cálculo paralelo).
+  function payloadRemessa(): Record<string, unknown> {
+    return {
+      companyId,
+      destinatarioId,
+      destinatarioTabela: destTabela,
+      tipoId: tipoId || null,
+      cfop: soDigitos(cfop),
+      naturezaOperacao: natureza,
+      ...(reenvioDe ? { reenvioDe } : {}),
+      finalidade,
+      chaveReferenciada: soDigitos(chaveRef) || undefined,
+      icmsCodigo: icmsCodigo || undefined,
+      observacoes: observacoes.trim() || undefined,
+      modalidadeFrete,
+      valorFrete,
+      itens: itens.map((it) => ({
+        produtoId: it.produtoId,
+        quantidade: Number(it.quantidade),
+        valorUnitarioOverride: Number(it.valorUnitarioOverride ?? 0),
+        ...(it.cfop ? { cfop: soDigitos(it.cfop) } : {}),
+      })),
+    }
+  }
+
+  // #9724 (decisão B) · baixa o PDF da nota MONTADA marcada "PRÉVIA — SEM VALOR FISCAL".
+  // apenasPrevia=true: o servidor monta a nota e devolve o resumo sem transmitir nem numerar.
+  async function baixarEspelho() {
+    if (!podeEnviar || !previa) return
+    setBaixandoEspelho(true); setErro(null)
+    try {
+      const resp = await authFetch('/api/fiscal/nfe/remessa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...payloadRemessa(), apenasPrevia: true }),
+      })
+      const json = await resp.json()
+      if (!resp.ok || json?.ok === false || !json?.previa?.nota) {
+        setErro(json?.mensagem ?? json?.motivoRejeicao ?? 'Não foi possível montar o espelho da nota.')
+        return
+      }
+      await baixarEspelhoNFePdf(json.previa.nota as EspelhoNota, {
+        empresa: null,
+        emitidoEmISO: new Date().toISOString(),
+        modelo: 'nfe55',
+        informacoesComplementares: json.previa.informacoesComplementares ?? null,
+      })
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Falha ao gerar o espelho em PDF')
+    } finally {
+      setBaixandoEspelho(false)
+    }
+  }
+
   async function emitir() {
     if (!podeEnviar || !previa) return
     const resumo = `EMITIR NF-e avulsa · CFOP ${formatarCfop(previa.cfop)} · ${itens.length} item(ns)?`
@@ -402,27 +460,7 @@ export default function RemessaClient() {
       const resp = await authFetch('/api/fiscal/nfe/remessa', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          companyId,
-          destinatarioId,
-          destinatarioTabela: destTabela,
-          tipoId: tipoId || null,
-          cfop: soDigitos(cfop),
-          naturezaOperacao: natureza,
-          ...(reenvioDe ? { reenvioDe } : {}),
-          finalidade,
-          chaveReferenciada: soDigitos(chaveRef) || undefined,
-          icmsCodigo: icmsCodigo || undefined,
-          observacoes: observacoes.trim() || undefined,
-          modalidadeFrete,
-          valorFrete,
-          itens: itens.map((it) => ({
-            produtoId: it.produtoId,
-            quantidade: Number(it.quantidade),
-            valorUnitarioOverride: Number(it.valorUnitarioOverride ?? 0),
-            ...(it.cfop ? { cfop: soDigitos(it.cfop) } : {}),
-          })),
-        }),
+        body: JSON.stringify(payloadRemessa()),
       })
       const json = await resp.json()
       setEnviando(false)
@@ -821,6 +859,17 @@ export default function RemessaClient() {
 
       <div className="flex justify-end items-center gap-2">
         <AjudaCampo chave="fiscal.nfe_avulsa.emitir" />
+        {/* #9724 (decisão B) · espelho/prévia em PDF — não transmite, não numera */}
+        <button
+          type="button"
+          onClick={() => void baixarEspelho()}
+          disabled={!podeEnviar || baixandoEspelho}
+          data-testid="nfe-remessa-espelho"
+          title="Baixa um PDF da nota montada marcado como PRÉVIA — SEM VALOR FISCAL. Não transmite nem numera."
+          className="px-5 py-2 text-[12.5px] font-semibold rounded-lg border border-[#3D2314]/15 text-[#3D2314] hover:bg-[#3D2314]/5 disabled:opacity-50"
+        >
+          {baixandoEspelho ? 'Gerando…' : 'Baixar espelho (PDF)'}
+        </button>
         <button
           type="button"
           onClick={emitir}
