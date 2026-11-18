@@ -154,45 +154,21 @@ export async function purgarLeftoversDemo(): Promise<void> {
 // Nunca lança: a purga é higiene, não pode derrubar o run.
 const DEMO_COMERCIO = 'b0700000-0000-4000-a000-000000000004'
 const DEMOS_PURGA = [DEMO_REVENDA, DEMO_COMERCIO]
-// Prefixos de descrição que SÓ os specs e2e geram (curinga PostgREST = `*`, não `%`).
-// PDCA GE 15/11 (tarefa d21978eb · /dashboard/gestao-empresarial/resultado-por-negocio): provado RD-38 no banco
-// prod (DEMO Comércio GE b0700000-...-0004) que os specs abaixo vazavam em erp_receber porque NÃO casavam nenhum
-// marcador acima — o pior era `Regressão achado B *` (pdois-juros-reconciliar-achado-b.spec), 474 títulos vivos =
-// R$ 1,46 mi, poluindo contas-a-receber/DRE/fluxo e jogando receita em "Sem negócio" no resultado-por-negócio.
-// Todos são prefixos DEDICADOS e2e (sufixo RUN único), inconfundíveis — nunca casam os recebíveis reais da DEMO
-// ("Recebimento …", "Venda balcão …", "Mensalidade …", "Serviço avulso …"), conferido RD-38.
-const MARCADORES_RECEBER_E2E = [
-  'Contas500 *', 'Aceitação #*', 'Aceitação achado *',
-  'Regressão achado B *',        // pdois-juros-reconciliar-achado-b.spec
-  'Aceitação baixa por banco *', // kgf/baixa-por-banco
-  'Aceitação unificar *',        // unificar-titulos
-  'Caminho receber *',           // caminho-financeiro-receber.spec
-  'Caminho conciliação *',       // caminho-conciliacao
-  'Pedido MED-*',                // pedido medição/parcelas
-]
+// Os marcadores DEDICADOS e2e de erp_receber (Contas500 *, Aceitação #*/achado *, Regressão achado B *,
+// Aceitação baixa por banco *, Aceitação unificar *, Caminho receber */conciliação *, Pedido MED-*) agora vivem
+// SERVER-SIDE na função fn_e2e_purgar_receber_demo (migration 20261120013245) — ver purgarReceberDemo abaixo.
+// PDCA GE 18/11 (0c3345df/26111304): a varredura marcador-a-marcador por PATCH do PostgREST fazia UM update cobrindo
+// TODAS as linhas de um marcador. O marcador "Contas500 *" casa ~30 mil títulos vivos e o PATCH único estourava o
+// timeout do pooler/PostgREST — erro engolido no catch, o lixo grande NUNCA drenava (ficava parado em ~30,3k). A purga
+// virou SERVER-SIDE (fn_e2e_purgar_receber_demo): uma RPC só, soft-delete set-based em lotes de 5000 no banco, sem o
+// round-trip gigante. Mesmos marcadores e2e (agora dentro da função, provados RD-38: 0 falso-positivo legítimo).
 export async function purgarReceberDemo(): Promise<void> {
-  const agora = new Date().toISOString()
-  let total = 0
-  for (const company of DEMOS_PURGA) {
-    for (const marca of MARCADORES_RECEBER_E2E) {
-      try {
-        const vivos = await dbSelect<{ id: string }>(
-          'erp_receber',
-          `company_id=eq.${company}&deleted_at=is.null&descricao=like.${encodeURIComponent(marca)}&select=id&limit=1`,
-        )
-        if (!vivos.length) continue
-        await dbPatch(
-          'erp_receber',
-          `company_id=eq.${company}&deleted_at=is.null&descricao=like.${encodeURIComponent(marca)}`,
-          { deleted_at: agora },
-        )
-        total++
-      } catch (e) {
-        console.warn(`[purga-receber] ${company}/${marca} falhou (segue):`, e instanceof Error ? e.message : String(e))
-      }
-    }
+  try {
+    const r = await rpc<{ receber_soft_deletados?: number }>('fn_e2e_purgar_receber_demo', {})
+    console.log(`[purga-receber] títulos e2e soft-deletados: ${r?.receber_soft_deletados ?? 0}`)
+  } catch (e) {
+    console.warn('[purga-receber] não purgou (segue):', e instanceof Error ? e.message : String(e))
   }
-  console.log(`[purga-receber] marcadores soft-deletados: ${total} (de ${DEMOS_PURGA.length * MARCADORES_RECEBER_E2E.length} varreduras)`)
 }
 
 // Purga durável do lixo de E2E em erp_produtos das demos (PDCA GE 14/11, tarefas 0c3345df/26111304).
