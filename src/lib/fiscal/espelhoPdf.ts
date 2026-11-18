@@ -28,6 +28,17 @@ export type EspelhoItem = {
   icmsValor: number | null
   ibsCbs?: { base: number; cbs: number; ibs: number } | null
   valorTotal: number
+  // NFS-e (#9724): quando a nota é de SERVIÇO, os tributos do item são o ISS — não NCM/CFOP/CST/ICMS.
+  // Campos opcionais, lidos só quando meta.modelo === 'nfse' (NF-e 55 ignora este objeto). Reflete o que
+  // SERIA transmitido (código do serviço, município de incidência, base/alíquota/valor do ISS, retenção).
+  servico?: {
+    codigo?: string | null              // código do serviço (LC116 / municipal)
+    municipioIncidencia?: string | null // município onde incide o ISS
+    issBase?: number | null
+    issAliquota?: number | null         // alíquota do ISS em %
+    issValor?: number | null
+    issRetido?: boolean | null          // ISS retido pelo tomador
+  } | null
 }
 // Contraparte da nota: na SAÍDA é o destinatário; na ENTRADA é o remetente.
 // série/finalidade/consumidorFinal/ibsCbs são opcionais — a nota de entrada não os traz.
@@ -146,17 +157,27 @@ export async function gerarEspelhoNFePdf(nota: EspelhoNota, meta: EspelhoMeta): 
     if (y < M + 80) novaPagina()
     page.drawText(corta(`${i + 1}. ${it.descricao}`, bold, 9.5, contentW), { x: M, y: y - 10, size: 9.5, font: bold, color: ESP }); y -= 14
     if (it.chassi) kv('Chassi', it.chassi)
-    kv('NCM / CFOP', `${it.ncm || '—'} · CFOP ${it.cfop || '—'}`)
-    kv('CST / cBenef', `${it.cst || '—'}${it.cBenef ? ` · benef. ${it.cBenef}` : ''}`)
-    kv('Base / ICMS', `${it.icmsBase != null ? brl(it.icmsBase) : '—'} · ${it.icmsValor != null ? brl(it.icmsValor) : '—'}`)
-    if (it.ibsCbs) kv('IBS/CBS', `base ${brl(it.ibsCbs.base)} · CBS ${brl(it.ibsCbs.cbs)} · IBS ${brl(it.ibsCbs.ibs)}`)
+    if (meta.modelo === 'nfse') {
+      // NFS-e: tributação do serviço (ISS), não NCM/CFOP/ICMS.
+      const sv = it.servico
+      kv('Código do serviço', sv?.codigo ?? null)
+      kv('Município (ISS)', sv?.municipioIncidencia ?? null)
+      kv('Base / alíquota ISS', `${sv?.issBase != null ? brl(sv.issBase) : '—'} · ${sv?.issAliquota != null ? `${String(sv.issAliquota).replace('.', ',')}%` : '—'}`)
+      kv('ISS', sv?.issValor != null ? brl(sv.issValor) : '—')
+      if (sv?.issRetido != null) kv('ISS retido', sv.issRetido ? 'Sim (pelo tomador)' : 'Não')
+    } else {
+      kv('NCM / CFOP', `${it.ncm || '—'} · CFOP ${it.cfop || '—'}`)
+      kv('CST / cBenef', `${it.cst || '—'}${it.cBenef ? ` · benef. ${it.cBenef}` : ''}`)
+      kv('Base / ICMS', `${it.icmsBase != null ? brl(it.icmsBase) : '—'} · ${it.icmsValor != null ? brl(it.icmsValor) : '—'}`)
+      if (it.ibsCbs) kv('IBS/CBS', `base ${brl(it.ibsCbs.base)} · CBS ${brl(it.ibsCbs.cbs)} · IBS ${brl(it.ibsCbs.ibs)}`)
+    }
     kv('Valor do item', brl(it.valorTotal))
     y -= 2
   })
   y -= 2
   if (y < M + 60) novaPagina()
   page.drawLine({ start: { x: M, y }, end: { x: W - M, y }, thickness: 0.5, color: LINE }); y -= 6
-  const totTxt = `Total dos produtos: ${brl(nota.totais.produtos)}`
+  const totTxt = `${meta.modelo === 'nfse' ? 'Total dos serviços' : 'Total dos produtos'}: ${brl(nota.totais.produtos)}`
   page.drawText(totTxt, { x: W - M - bold.widthOfTextAtSize(totTxt, 11), y: y - 10, size: 11, font: bold, color: ESP }); y -= 16
   if (nota.totais.ibsCbs) {
     const t = `IBS/CBS — base ${brl(nota.totais.ibsCbs.base)} · CBS ${brl(nota.totais.ibsCbs.cbs)} · IBS ${brl(nota.totais.ibsCbs.ibs)}`
