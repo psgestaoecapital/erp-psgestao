@@ -1,11 +1,14 @@
 'use client'
 
 // IMPORT-ESTOQUE · Migração de estoque pela PLANILHA PADRÃO PS (contexto 9c43a93d).
-// Baixar modelo (arquivo estático) → subir → PRÉVIA com os 8 indicadores da aba Conferência → carregar.
-// RD-26: reusa fn_erp_produto_salvar (validação legal SPED 0200) + fn_movimentar_estoque (saldo).
+// Baixar modelo (arquivo estático) → subir → PRÉVIA com os 8 indicadores → SIMULAR (dry-run) → carregar.
+// #9667: a gravação é SERVER-SIDE em lote — fn_estoque_importar_lote processa cada linha pela cadeia completa
+//   (fn_erp_produto_salvar [SPED 0200] + descritivos + fn_estoque_ajuste_migracao [saldo absoluto]); o front só
+//   monta as linhas e manda em chunks (progresso + sem depender de a aba ficar em foco). Antes era item-a-item
+//   no navegador (2 RPCs/linha), que levava horas em 12k e travava se perdia o foco.
 // Contrato de colunas: src/lib/estoque/colunasImportacao.ts (linha 4 do xlsx; check-modelo-estoque quebra o build se divergir).
-// Saldo: ajuste = diferença entre o informado e o atual → UMA movimentação 'inventario' (aceita NEGATIVO;
-//   reimportar igual = 0 movimentações). custo_medio → preco_custo_medio + custo_medio_origem='importacao'.
+// Saldo: ajuste = diferença entre o informado e o atual → UMA movimentação (aceita NEGATIVO; reimportar igual =
+//   0 movimentações). custo_medio → preco_custo_medio + custo_medio_origem='importacao'.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
@@ -22,6 +25,7 @@ const MODELO_URL = '/modelos/MODELO_migracao_estoque_PS.xlsx'
 type Nivel = 'ok' | 'aviso' | 'erro'
 interface LinhaParse { n: number; dados: Record<string, string>; nivel: Nivel; mensagens: string[]; qtd: number | null; custo: number | null }
 interface ImportRow { id: string; arquivo_nome: string | null; registros_total: number | null; registros_novos: number | null; registros_erro: number | null; status: string | null; iniciado_em: string | null }
+interface Erro { linha: number; codigo: string; motivo: string }
 
 const soDig = (s: string) => (s || '').replace(/\D/g, '')
 // #8621 · leitor de número robusto a locale. O separador DECIMAL é o que aparece por ÚLTIMO
@@ -63,8 +67,10 @@ export default function ImportarEstoquePage() {
   const [parseErro, setParseErro] = useState<string | null>(null)
   const [soValidas, setSoValidas] = useState(false)
   const [carregando, setCarregando] = useState(false)
+  const [simulando, setSimulando] = useState(false)
   const [progresso, setProgresso] = useState<{ feito: number; total: number } | null>(null)
-  const [resultado, setResultado] = useState<{ criados: number; comSaldo: number; semMudanca: number; erros: { linha: number; codigo: string; motivo: string }[] } | null>(null)
+  const [resultado, setResultado] = useState<{ novos: number; atualizados: number; comSaldo: number; semMudanca: number; erros: Erro[] } | null>(null)
+  const [simulacao, setSimulacao] = useState<{ novos: number; atualizados: number; erros: Erro[] } | null>(null)
   const [historico, setHistorico] = useState<ImportRow[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -175,19 +181,77 @@ export default function ImportarEstoquePage() {
     }
   }
 
+  // ── ENVIO AO SERVIDOR (lote server-side) ─────────────────────────────────────────────
+  // O servidor faz a cadeia completa por linha (fn_erp_produto_salvar + descritivos +
+  // fn_estoque_ajuste_migracao). O front só monta as linhas e manda em CHUNKS — o lote inteiro
+  // numa só chamada estouraria o timeout de 12k; chunkar também dá o progresso real (não depende
+  // de a aba ficar em foco). #9667.
+  function montarRows(grava: LinhaParse[]): Record<string, unknown>[] {
+    return grava.map((l) => {
+      const d = l.dados
+      const row: Record<string, unknown> = {
+        n: l.n, codigo: d.codigo, nome: d.nome, unidade: d.unidade || 'UN',
+        tipo_item_sped: d.tipo_item_sped || '00', origem: d.origem || '0', estoque_atual: l.qtd ?? 0,
+      }
+      if (soDig(d.ncm)) row.ncm = soDig(d.ncm)
+      if (d.cest.trim()) row.cest = d.cest.trim()
+      const pv = parseNum(d.preco_venda); if (pv != null) row.preco_venda = pv
+      if (l.custo != null) row.preco_custo_medio = l.custo
+      const em = parseNum(d.estoque_minimo); if (em != null) row.estoque_minimo = em
+      if (d.categoria.trim()) row.categoria = d.categoria.trim()
+      if (d.marca.trim()) row.marca = d.marca.trim()
+      if (d.fornecedor_padrao_nome.trim()) row.fornecedor_padrao_nome = d.fornecedor_padrao_nome.trim()
+      if (d.localizacao.trim()) row.localizacao = d.localizacao.trim()
+      if (d.codigo_barras.trim()) row.codigo_barras = d.codigo_barras.trim()
+      return row
+    })
+  }
+
+  const CHUNK = 1500
+  async function enviarEmChunks(rows: Record<string, unknown>[], dryRun: boolean) {
+    let novos = 0, atualizados = 0, comSaldo = 0, semMudanca = 0
+    const erros: Erro[] = []
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const chunk = rows.slice(i, i + CHUNK)
+      const { data, error } = await supabase.rpc('fn_estoque_importar_lote', {
+        p_company_id: companyId, p_rows: chunk, p_dry_run: dryRun, p_arquivo: nomeArquivo ?? null,
+      })
+      if (error) {
+        for (const r of chunk) erros.push({ linha: Number(r.n) || 0, codigo: String(r.codigo ?? ''), motivo: error.message })
+      } else {
+        const j = data as { novos?: number; atualizados?: number; saldos_ajustados?: number; sem_mudanca?: number; erros?: Erro[]; erro?: string } | null
+        if (j?.erro) for (const r of chunk) erros.push({ linha: Number(r.n) || 0, codigo: String(r.codigo ?? ''), motivo: j.erro! })
+        novos += j?.novos ?? 0; atualizados += j?.atualizados ?? 0
+        comSaldo += j?.saldos_ajustados ?? 0; semMudanca += j?.sem_mudanca ?? 0
+        if (j?.erros?.length) erros.push(...j.erros)
+      }
+      setProgresso({ feito: Math.min(i + CHUNK, rows.length), total: rows.length })
+    }
+    return { novos, atualizados, comSaldo, semMudanca, erros }
+  }
+
+  // SIMULAR (dry-run): só o servidor sabe quais códigos já existem — a prévia mostra novos×atualizados×erros
+  // sem gravar nada. É a janela de teste do cutover.
+  async function simular() {
+    if (!companyId) return
+    const grava = linhas.filter((l) => l.nivel !== 'erro')
+    if (grava.length === 0) return
+    setSimulando(true); setSimulacao(null); setResultado(null); setProgresso({ feito: 0, total: grava.length })
+    const r = await enviarEmChunks(montarRows(grava), true)
+    setSimulacao({ novos: r.novos, atualizados: r.atualizados, erros: r.erros })
+    setSimulando(false)
+  }
+
   // ── CARREGAR ─────────────────────────────────────────────────────────────────────────
   async function carregar() {
     if (!companyId) return
     const grava = linhas.filter((l) => l.nivel !== 'erro')
     if (contagem.erro > 0 && !soValidas) return
     if (grava.length === 0) return
-    setCarregando(true); setProgresso({ feito: 0, total: grava.length })
-    let criados = 0, comSaldo = 0, semMudanca = 0
-    const erros: { linha: number; codigo: string; motivo: string }[] = []
+    setCarregando(true); setResultado(null); setSimulacao(null); setProgresso({ feito: 0, total: grava.length })
     const { data: uinfo } = await supabase.auth.getUser()
-    const motivo = `Migração · planilha padrão PS · ${nomeArquivo ?? 'planilha'}`
 
-    // histórico (RD-52 · rastro): abre a importação
+    // histórico (RD-52 · rastro): 1 linha por importação, atravessa os chunks
     let importId: string | null = null
     {
       const { data: imp } = await supabase.from('erp_importacoes')
@@ -198,60 +262,16 @@ export default function ImportarEstoquePage() {
       importId = (imp as { id?: string } | null)?.id ?? null
     }
 
-    for (let i = 0; i < grava.length; i++) {
-      const l = grava[i]; const d = l.dados
-      try {
-        const p_dados: Record<string, unknown> = {
-          codigo: d.codigo, nome: d.nome, unidade: d.unidade || 'UN',
-          tipo_item_sped: d.tipo_item_sped || '00', origem: d.origem || '0',
-        }
-        if (soDig(d.ncm)) p_dados.ncm = soDig(d.ncm)
-        if (d.cest.trim()) p_dados.cest = d.cest.trim()
-        const pv = parseNum(d.preco_venda); if (pv != null) p_dados.preco_venda = pv
-
-        const { data: rSalvar, error: eSalvar } = await supabase.rpc('fn_erp_produto_salvar', { p_company_id: companyId, p_dados })
-        const j = rSalvar as { ok?: boolean; id?: string; erro?: string; campos?: string[] } | null
-        if (eSalvar || !j?.ok || !j.id) {
-          erros.push({ linha: l.n, codigo: d.codigo, motivo: eSalvar?.message ?? j?.erro ?? ('falha ao salvar' + (j?.campos ? ` (${j.campos.join(', ')})` : '')) })
-          continue
-        }
-        const produtoId = j.id; criados++
-
-        // colunas descritivas + custo médio (preco_custo_medio + custo_medio_origem='importacao')
-        const extras: Record<string, unknown> = {}
-        if (l.custo != null) { extras.preco_custo_medio = l.custo; extras.custo_medio_origem = 'importacao' }
-        const em = parseNum(d.estoque_minimo); if (em != null) extras.estoque_minimo = em
-        if (d.categoria.trim()) extras.categoria = d.categoria.trim()
-        if (d.marca.trim()) extras.marca = d.marca.trim()
-        if (d.fornecedor_padrao_nome.trim()) extras.fornecedor_padrao_nome = d.fornecedor_padrao_nome.trim()
-        if (d.localizacao.trim()) extras.localizacao = d.localizacao.trim()
-        if (d.codigo_barras.trim()) extras.codigo_barras = d.codigo_barras.trim()
-        if (Object.keys(extras).length) await supabase.from('erp_produtos').update(extras).eq('id', produtoId).eq('company_id', companyId)
-
-        // saldo por AJUSTE: fn_estoque_ajuste_migracao põe estoque_atual no valor informado (aceita
-        // NEGATIVO) com UMA movimentação; se já bate, ajustado=false (0 movimentações, idempotente).
-        const informado = l.qtd ?? 0
-        const { data: rAj, error: eMov } = await supabase.rpc('fn_estoque_ajuste_migracao', {
-          p_produto_id: produtoId, p_saldo_alvo: informado, p_custo: l.custo ?? 0, p_motivo: motivo,
-        })
-        const aj = rAj as { ok?: boolean; ajustado?: boolean; erro?: string } | null
-        if (eMov || !aj?.ok) erros.push({ linha: l.n, codigo: d.codigo, motivo: `produto ok, saldo falhou: ${eMov?.message ?? aj?.erro ?? 'erro'}` })
-        else if (aj.ajustado) comSaldo++
-        else semMudanca++
-      } catch (e) {
-        erros.push({ linha: l.n, codigo: d.codigo, motivo: (e as Error)?.message ?? 'erro' })
-      }
-      setProgresso({ feito: i + 1, total: grava.length })
-    }
+    const r = await enviarEmChunks(montarRows(grava), false)
 
     if (importId) {
       await supabase.from('erp_importacoes').update({
-        registros_novos: criados, registros_atualizados: comSaldo, registros_erro: erros.length,
-        status: erros.length && !criados ? 'falhou' : erros.length ? 'parcial' : 'concluido',
+        registros_novos: r.novos + r.atualizados, registros_atualizados: r.comSaldo, registros_erro: r.erros.length,
+        status: r.erros.length && !(r.novos + r.atualizados) ? 'falhou' : r.erros.length ? 'parcial' : 'concluido',
         concluido_em: new Date().toISOString(),
       }).eq('id', importId)
     }
-    setResultado({ criados, comSaldo, semMudanca, erros })
+    setResultado({ novos: r.novos, atualizados: r.atualizados, comSaldo: r.comSaldo, semMudanca: r.semMudanca, erros: r.erros })
     setCarregando(false)
     void carregarHistorico()
   }
@@ -272,7 +292,8 @@ export default function ImportarEstoquePage() {
     )
   }
 
-  const podeCarregar = linhas.length > 0 && !carregando && (soValidas ? contagem.ok + contagem.aviso > 0 : contagem.erro === 0)
+  const podeCarregar = linhas.length > 0 && !carregando && !simulando && (soValidas ? contagem.ok + contagem.aviso > 0 : contagem.erro === 0)
+  const podeSimular = linhas.length > 0 && !carregando && !simulando && contagem.ok + contagem.aviso > 0
   const Card = ({ l, v, cor, ajuda }: { l: string; v: string; cor?: string; ajuda?: string }) => (
     <div className="rounded-lg border border-[#3D2314]/10 bg-white px-3 py-2">
       <div className="text-[11px] text-[#3D2314]/60 inline-flex items-center">{l}{ajuda && <AjudaCampo chave={ajuda} />}</div>
@@ -371,8 +392,14 @@ export default function ImportarEstoquePage() {
               </table>
             </div>
             <div className="px-4 py-3 border-t border-[#3D2314]/10 flex items-center justify-between gap-3 flex-wrap">
-              <span className="text-[12px] text-[#3D2314]/60">{contagem.erro > 0 && !soValidas ? 'Corrija os erros ou marque "carregar só as válidas".' : 'Pronto para carregar.'}</span>
-              <span className="inline-flex items-center">
+              <span className="text-[12px] text-[#3D2314]/60">{contagem.erro > 0 && !soValidas ? 'Corrija os erros ou marque "carregar só as válidas".' : 'Simule para conferir, depois carregue.'}</span>
+              <span className="inline-flex items-center gap-2">
+                <button type="button" onClick={() => void simular()} disabled={!podeSimular}
+                  className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] disabled:opacity-40 flex items-center gap-2">
+                  {simulando ? <Loader2 size={15} className="animate-spin" /> : <CheckCircle2 size={15} />}
+                  {simulando && progresso ? `Simulando ${progresso.feito}/${progresso.total}…` : 'Simular (teste)'}
+                </button>
+                <AjudaCampo chave="cadastros.produtos.importar.simular" />
                 <button type="button" onClick={() => void carregar()} disabled={!podeCarregar}
                   className="px-5 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] disabled:opacity-40 flex items-center gap-2">
                   {carregando ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
@@ -385,11 +412,22 @@ export default function ImportarEstoquePage() {
         </>
       )}
 
+      {simulacao && (
+        <div className="bg-white rounded-xl border border-[#C8941A]/40 p-4 mb-4">
+          <div className="text-[14px] font-medium mb-2 flex items-center gap-2"><CheckCircle2 size={18} className="text-[#C8941A]" /> Simulação — nada foi gravado</div>
+          <div className="text-[13px] text-[#3D2314]/80">
+            <b>{simulacao.novos}</b> novo(s) · <b>{simulacao.atualizados}</b> já existe(m) (serão atualizados)
+            {simulacao.erros.length > 0 && <> · <b className="text-[#A32D2D]">{simulacao.erros.length}</b> com erro</>}
+          </div>
+          <div className="text-[12px] text-[#3D2314]/60 mt-1.5">Confira os números e clique em <b>Carregar</b> para gravar de verdade.</div>
+        </div>
+      )}
+
       {resultado && (
         <div className="bg-white rounded-xl border border-[#3D2314]/10 p-4 mb-4">
           <div className="text-[14px] font-medium mb-2 flex items-center gap-2"><CheckCircle2 size={18} className="text-[#3F7012]" /> Migração concluída</div>
           <div className="text-[13px] text-[#3D2314]/80">
-            <b>{resultado.criados}</b> produto(s) gravados · <b>{resultado.comSaldo}</b> ajuste(s) de saldo · <b>{resultado.semMudanca}</b> sem mudança (já batia)
+            <b>{resultado.novos}</b> novo(s) · <b>{resultado.atualizados}</b> atualizado(s) · <b>{resultado.comSaldo}</b> ajuste(s) de saldo · <b>{resultado.semMudanca}</b> sem mudança (já batia)
             {resultado.erros.length > 0 && <> · <b className="text-[#A32D2D]">{resultado.erros.length}</b> com erro</>}
           </div>
           {resultado.erros.length > 0 && (
