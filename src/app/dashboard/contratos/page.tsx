@@ -7,6 +7,7 @@ import ContratosModelosPanel from "@/components/ge/ContratosModelosPanel";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { CampoMoeda } from "@/components/comum/CampoMoeda";
 import { numeroParaMoeda, moedaParaNumero } from "@/lib/moeda-mascara";
+import { parseNumBR } from "@/lib/num";
 import { erroAmigavel } from "@/lib/erroAmigavel";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
@@ -110,7 +111,7 @@ export default function ContratosPage(){
     cliente_id:'',cliente_nome:'',cliente_cnpj:'',cliente_email:'',
     tipo:'bpo_financeiro',nome:'',descricao:'',escopo:'',
     valor_mensal:0,data_inicio:hoje(),data_fim:'',dia_vencimento:10,
-    periodicidade:'mensal',tipo_reajuste:'ipca',reajuste_percentual:0,mes_reajuste:1,
+    periodicidade:'mensal',tipo_reajuste:'ipca',reajuste_percentual:'',mes_reajuste:1,
     forma_pagamento:'boleto',
   });
   // Empresa-alvo do novo contrato (necessario quando multi)
@@ -121,7 +122,8 @@ export default function ContratosPage(){
   const [servicoSel,setServicoSel]=useState("");
 
   const [showReajuste,setShowReajuste]=useState<Contrato|null>(null);
-  const [pctReajuste,setPctReajuste]=useState(0);
+  const [pctReajuste,setPctReajuste]=useState('');
+  const pctReajusteNum=parseNumBR(pctReajuste)??0;
   const [processando,setProcessando]=useState(false);
 
   // RD-41 · CRUD com guarda fiscal
@@ -285,6 +287,7 @@ export default function ContratosPage(){
       ...novoContrato,
       company_id:novoCompanyId,
       numero,
+      reajuste_percentual:parseNumBR(novoContrato.reajuste_percentual)??0,
       valor_atual:novoContrato.valor_mensal,
       data_primeiro_vencimento:primeiroVenc.toISOString().slice(0,10),
       proximo_reajuste_em:proxReaj.toISOString().slice(0,10),
@@ -295,7 +298,7 @@ export default function ContratosPage(){
     if(error){setMsg("❌ Não foi possível criar o contrato. Tente novamente.");return;}
     setMsg(`✅ Contrato ${numero} criado com sucesso`);
     setShowNovo(false); setServicoSel("");
-    setNovoContrato({cliente_id:'',cliente_nome:'',cliente_cnpj:'',cliente_email:'',tipo:'bpo_financeiro',nome:'',descricao:'',escopo:'',valor_mensal:0,data_inicio:hoje(),data_fim:'',dia_vencimento:10,periodicidade:'mensal',tipo_reajuste:'ipca',reajuste_percentual:0,mes_reajuste:1,forma_pagamento:'boleto'});
+    setNovoContrato({cliente_id:'',cliente_nome:'',cliente_cnpj:'',cliente_email:'',tipo:'bpo_financeiro',nome:'',descricao:'',escopo:'',valor_mensal:0,data_inicio:hoje(),data_fim:'',dia_vencimento:10,periodicidade:'mensal',tipo_reajuste:'ipca',reajuste_percentual:'',mes_reajuste:1,forma_pagamento:'boleto'});
     setBuscaCli("");
     refetchAll();
     setTimeout(()=>setMsg(""),3000);
@@ -313,7 +316,7 @@ export default function ContratosPage(){
       valor_mensal:Number(c.valor_atual||c.valor_mensal)||0,
       data_inicio:hoje(), data_fim:'',
       dia_vencimento:c.dia_vencimento||10, periodicidade:c.periodicidade||'mensal',
-      tipo_reajuste:c.tipo_reajuste||'ipca', reajuste_percentual:Number(c.reajuste_percentual)||0, mes_reajuste:c.mes_reajuste||1,
+      tipo_reajuste:c.tipo_reajuste||'ipca', reajuste_percentual:c.reajuste_percentual!=null?String(c.reajuste_percentual):'', mes_reajuste:c.mes_reajuste||1,
       forma_pagamento:c.forma_pagamento||'boleto',
     });
     setBuscaCli("");
@@ -380,16 +383,16 @@ export default function ContratosPage(){
   };
 
   const aplicarReajuste=async()=>{
-    if(!showReajuste||pctReajuste<=0)return;
+    if(!showReajuste||pctReajusteNum<=0)return;
     setProcessando(true);
     const { error } = await supabase.rpc('fn_contrato_aplicar_reajuste',{
       p_contrato_id: showReajuste.id,
-      p_indice_aplicado: pctReajuste,
+      p_indice_aplicado: pctReajusteNum,
     });
     if(error){setMsg("❌ Não foi possível aplicar o reajuste. Tente novamente.");setProcessando(false);return;}
-    setMsg(`✅ Reajuste de ${pctReajuste}% aplicado`);
+    setMsg(`✅ Reajuste de ${pctReajusteNum}% aplicado`);
     setShowReajuste(null);
-    setPctReajuste(0);
+    setPctReajuste('');
     setProcessando(false);
     refetchAll();
     setTimeout(()=>setMsg(""),3000);
@@ -414,7 +417,7 @@ export default function ContratosPage(){
     setEditForm({
       nome:c.nome||'', cliente_nome:c.cliente_nome||'',
       valor_mensal:c.valor_atual||c.valor_mensal||0, dia_vencimento:c.dia_vencimento||10,
-      tipo_reajuste:c.tipo_reajuste||'ipca', reajuste_percentual:c.reajuste_percentual||0,
+      tipo_reajuste:c.tipo_reajuste||'ipca', reajuste_percentual:c.reajuste_percentual!=null?String(c.reajuste_percentual):'',
       descricao:c.descricao||'', data_fim:c.data_fim||'',
       status:(c.status==='ativo'||c.status==='suspenso')?c.status:'ativo',
     });
@@ -427,7 +430,7 @@ export default function ContratosPage(){
       nome:editForm.nome, cliente_nome:editForm.cliente_nome,
       valor_mensal:Number(editForm.valor_mensal)||0, valor_atual:Number(editForm.valor_mensal)||0,
       dia_vencimento:Number(editForm.dia_vencimento)||10, tipo_reajuste:editForm.tipo_reajuste,
-      reajuste_percentual:Number(editForm.reajuste_percentual)||0, descricao:editForm.descricao,
+      reajuste_percentual:parseNumBR(editForm.reajuste_percentual)??0, descricao:editForm.descricao,
       status:editForm.status,
     };
     if(editForm.data_fim) patch.data_fim=editForm.data_fim;
@@ -896,7 +899,7 @@ export default function ContratosPage(){
                           Aplicar {tipoReaj} {pct>0?`${pct.toFixed(2)}%`:''}
                         </button>
                         <button
-                          onClick={()=>{setShowReajuste(c);setPctReajuste(pct||5);}}
+                          onClick={()=>{setShowReajuste(c);setPctReajuste(String(pct||5));}}
                           disabled={processando}
                           style={{padding:"6px 12px",borderRadius:6,background:"transparent",color:TXM,fontSize:10,fontWeight:600,border:`1px solid ${BD}`,cursor:"pointer"}}
                         >
@@ -1025,7 +1028,7 @@ export default function ContratosPage(){
                 </select></div>
               {(novoContrato.tipo_reajuste==='fixo'||novoContrato.tipo_reajuste==='custom')&&(
                 <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>% Reajuste</div>
-                  <input type="number" step="0.01" value={novoContrato.reajuste_percentual||''} onChange={e=>setNovoContrato({...novoContrato,reajuste_percentual:parseFloat(e.target.value)||0})} style={inp}/></div>
+                  <input type="text" inputMode="decimal" value={novoContrato.reajuste_percentual??''} onChange={e=>setNovoContrato({...novoContrato,reajuste_percentual:e.target.value})} style={inp}/><AjudaCampo chave="ge.contrato.novo.reajuste_pct" /></div>
               )}
               <div style={{gridColumn:"span 2"}}><div style={{fontSize:10,color:TXD,marginBottom:3}}>Forma de Pagamento</div>
                 <select value={novoContrato.forma_pagamento} onChange={e=>setNovoContrato({...novoContrato,forma_pagamento:e.target.value})} style={{...inp,cursor:"pointer"}}>
@@ -1145,7 +1148,7 @@ export default function ContratosPage(){
               <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
                 {showDetalhe.status==='ativo'&&(
                   <>
-                    <button onClick={()=>{setShowReajuste(showDetalhe);setPctReajuste(Number(showDetalhe.reajuste_percentual)||5);}} style={{padding:"8px 14px",borderRadius:8,background:Y+"15",color:Y,fontSize:11,fontWeight:600,border:`1px solid ${Y}40`,cursor:"pointer"}}>📈 Reajustar</button>
+                    <button onClick={()=>{setShowReajuste(showDetalhe);setPctReajuste(String(Number(showDetalhe.reajuste_percentual)||5));}} style={{padding:"8px 14px",borderRadius:8,background:Y+"15",color:Y,fontSize:11,fontWeight:600,border:`1px solid ${Y}40`,cursor:"pointer"}}>📈 Reajustar</button>
                     <button onClick={()=>encerrarContrato(showDetalhe)} style={{padding:"8px 14px",borderRadius:8,background:R+"15",color:R,fontSize:11,fontWeight:600,border:`1px solid ${R}40`,cursor:"pointer"}}>🏁 Encerrar</button>
                   </>
                 )}
@@ -1225,23 +1228,23 @@ export default function ContratosPage(){
               </div>
               <div style={{display:"flex",justifyContent:"space-between"}}>
                 <span style={{fontSize:11,color:TXD}}>Novo valor (com reajuste):</span>
-                <span style={{fontSize:15,fontWeight:700,color:G}}>{fmtR((Number(showReajuste.valor_atual||showReajuste.valor_mensal))*(1+pctReajuste/100))}</span>
+                <span style={{fontSize:15,fontWeight:700,color:G}}>{fmtR((Number(showReajuste.valor_atual||showReajuste.valor_mensal))*(1+pctReajusteNum/100))}</span>
               </div>
             </div>
 
             <div style={{marginBottom:16}}>
               <div style={{fontSize:10,color:TXD,marginBottom:3}}>Percentual de Reajuste (%)</div>
-              <input type="number" step="0.01" value={pctReajuste||''} onChange={e=>setPctReajuste(parseFloat(e.target.value)||0)} style={inp}/>
+              <input type="text" inputMode="decimal" value={pctReajuste} onChange={e=>setPctReajuste(e.target.value)} style={inp}/><AjudaCampo chave="ge.contrato.reajuste.percentual" />
               <div style={{display:"flex",gap:6,marginTop:6,flexWrap:"wrap"}}>
                 {[3,4,5,6,8,10].map(p=>(
-                  <button key={p} onClick={()=>setPctReajuste(p)} style={{padding:"4px 10px",borderRadius:4,background:pctReajuste===p?Y+"20":BG3,color:pctReajuste===p?Y:TXM,border:`1px solid ${pctReajuste===p?Y:BD}`,fontSize:10,cursor:"pointer"}}>+{p}%</button>
+                  <button key={p} onClick={()=>setPctReajuste(String(p))} style={{padding:"4px 10px",borderRadius:4,background:pctReajusteNum===p?Y+"20":BG3,color:pctReajusteNum===p?Y:TXM,border:`1px solid ${pctReajusteNum===p?Y:BD}`,fontSize:10,cursor:"pointer"}}>+{p}%</button>
                 ))}
               </div>
             </div>
 
             <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
               <button onClick={()=>setShowReajuste(null)} disabled={processando} style={{padding:"10px 20px",borderRadius:8,background:"transparent",border:`1px solid ${BD}`,color:TX,fontSize:12,cursor:"pointer"}}>Cancelar</button>
-              <button onClick={aplicarReajuste} disabled={processando||pctReajuste<=0} style={{padding:"10px 24px",borderRadius:8,background:Y,color:"#FFF",fontSize:13,fontWeight:600,border:"none",cursor:processando?"wait":"pointer",opacity:pctReajuste<=0?0.5:1}}>{processando?"⏳":"Aplicar"}</button>
+              <button onClick={aplicarReajuste} disabled={processando||pctReajusteNum<=0} style={{padding:"10px 24px",borderRadius:8,background:Y,color:"#FFF",fontSize:13,fontWeight:600,border:"none",cursor:processando?"wait":"pointer",opacity:pctReajusteNum<=0?0.5:1}}>{processando?"⏳":"Aplicar"}</button>
             </div>
           </div>
         </div>
@@ -1270,7 +1273,7 @@ export default function ContratosPage(){
                   {['ipca','igpm','inpc','fixo','nenhum'].map(x=><option key={x} value={x}>{x.toUpperCase()}</option>)}
                 </select></div>
               <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Reajuste (%)</div>
-                <input type="number" step="0.01" value={editForm.reajuste_percentual} onChange={e=>setEditForm({...editForm,reajuste_percentual:e.target.value})} style={inp}/></div>
+                <input type="text" inputMode="decimal" value={editForm.reajuste_percentual??''} onChange={e=>setEditForm({...editForm,reajuste_percentual:e.target.value})} style={inp}/><AjudaCampo chave="ge.contrato.editar.reajuste_pct" /></div>
               <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Fim de vigência (opcional)</div>
                 <input type="date" value={editForm.data_fim||''} onChange={e=>setEditForm({...editForm,data_fim:e.target.value})} style={inp}/></div>
               <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Situação</div>
