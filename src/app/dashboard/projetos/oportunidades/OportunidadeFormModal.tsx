@@ -262,6 +262,12 @@ export default function OportunidadeFormModal({ companyId, initial, onClose, onS
     const nomeCliente = cliSel?.nome ?? buscaCli
     const invalido = erroOportunidade(form.titulo, nomeCliente)
     if (invalido) { setErr(invalido); return }
+    // #9475 · ao marcar a proposta como enviada, o vendedor responsável é obrigatório —
+    // é quem conduz a negociação com o cliente a partir daí.
+    if (form.etapa === 'proposta_enviada' && !form.responsavel_id) {
+      setErr('Selecione o vendedor responsável antes de marcar a proposta como enviada — é ele quem conduz a negociação com o cliente.')
+      return
+    }
     setSaving(true)
     setErr(null)
     let clienteId = form.cliente_id

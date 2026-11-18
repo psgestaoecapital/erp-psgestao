@@ -37,7 +37,7 @@ export const DASHBOARD_MENU_GROUPS: MenuGroup[] = [
     label: 'Início',
     icon: Home,
     items: [
-      { label: 'Consultor IA', href: '/dashboard/consultor-ia', icon: Sparkles, status: 'parcial' },
+      { label: 'Consultor · Raio-X', href: '/dashboard/consultor-ia', icon: Sparkles, status: 'pronto' },
     ],
   },
   {

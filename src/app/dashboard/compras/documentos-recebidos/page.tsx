@@ -17,6 +17,12 @@ import { UploadXmlRecebidaButton } from '@/components/fiscal/UploadXmlRecebidaBu
 import { UploadXmlLoteRecebidas } from '@/components/fiscal/UploadXmlLoteRecebidas'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
+// A ajuda ("?") desta tela está gravada em erp_ajuda_campo sob esta rota.
+// A tela também é montada pelo alias fiscal /dashboard/fiscal/nfe-recebidas; sem
+// fixar a rota, AjudaCampo cairia no usePathname() do alias e as 16 chaves ficariam
+// mudas ("A ajuda deste campo ainda não foi escrita"). Fonte única, sem duplicar conteúdo.
+const AJUDA_ROTA = '/dashboard/compras/documentos-recebidos'
+
 interface Linha {
   id: string
   chave_acesso: string
@@ -504,7 +510,7 @@ export default function DocumentosRecebidosPage() {
               <Inbox size={22} className="text-[#C8941A]" /> NFes Recebidas
             </h1>
             <p className="text-[13px] text-[#3D2314]/70 mt-1.5 max-w-2xl">
-              Notas emitidas contra o CNPJ desta empresa · puxa direto da Distribuição DF-e (Focus NFe).
+              Notas emitidas contra o CNPJ desta empresa · puxa direto da Distribuição DF-e.
               Os itens e duplicatas chegam quando a manifestação for feita (F2).
             </p>
             {habilitado === true && (
@@ -528,7 +534,7 @@ export default function DocumentosRecebidosPage() {
                     className="cursor-pointer"
                   />
                   Dar ciência automática
-                  <AjudaCampo chave="compras.docs_recebidos.auto_ciencia" />
+                  <AjudaCampo rota={AJUDA_ROTA} chave="compras.docs_recebidos.auto_ciencia" />
                 </label>
               </div>
             )}
@@ -546,7 +552,7 @@ export default function DocumentosRecebidosPage() {
                   {habilitando ? <Loader2 className="animate-spin" size={15} /> : <Power size={15} />}
                   {habilitando ? 'Habilitando…' : 'Habilitar recebimento'}
                 </button>
-                <AjudaCampo chave="compras.docs_recebidos.acao_habilitar" />
+                <AjudaCampo rota={AJUDA_ROTA} chave="compras.docs_recebidos.acao_habilitar" />
               </span>
             )}
             {habilitado === true && (
@@ -561,7 +567,7 @@ export default function DocumentosRecebidosPage() {
                   <PowerOff size={14} />
                   Desabilitar
                 </button>
-                <AjudaCampo chave="compras.docs_recebidos.acao_desabilitar" />
+                <AjudaCampo rota={AJUDA_ROTA} chave="compras.docs_recebidos.acao_desabilitar" />
               </span>
             )}
             {/* NFE-F3 · mutirão (fila + casamento exato em lote) */}
@@ -569,7 +575,7 @@ export default function DocumentosRecebidosPage() {
               className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-[#3D2314]/15 text-[#3D2314] text-[13px] font-medium hover:bg-[#3D2314]/5 min-h-[44px]">
               🗂️ Mutirão de notas
             </Link>
-            <AjudaCampo chave="compras.docs_recebidos.acao_mutirao" />
+            <AjudaCampo rota={AJUDA_ROTA} chave="compras.docs_recebidos.acao_mutirao" />
             {/* NFE-F3 · §1 · sincronizar manifestação (só leitura, nada à SEFAZ) */}
             <button
               type="button"
@@ -579,12 +585,12 @@ export default function DocumentosRecebidosPage() {
             >
               <RefreshCw size={14} /> Sincronizar manifestação
             </button>
-            <AjudaCampo chave="compras.docs_recebidos.acao_sincronizar" />
+            <AjudaCampo rota={AJUDA_ROTA} chave="compras.docs_recebidos.acao_sincronizar" />
             {/* nfe-recebida-upload-xml · sobe o XML do fornecedor sem esperar a SEFAZ (cria a nota se preciso) */}
             <UploadXmlRecebidaButton companyId={empresaUnica} onDone={() => void carregar()} />
             {/* GF4 · vários XMLs (ou .zip) de uma vez, pela mesma função do envio de um arquivo */}
             <UploadXmlLoteRecebidas companyId={empresaUnica} onDone={() => void carregar()} />
-            <AjudaCampo chave="compras.docs_recebidos.acao_upload_xml" />
+            <AjudaCampo rota={AJUDA_ROTA} chave="compras.docs_recebidos.acao_upload_xml" />
             <button
               type="button"
               onClick={() => void buscarAgora()}
@@ -595,7 +601,7 @@ export default function DocumentosRecebidosPage() {
               {buscando ? <Loader2 className="animate-spin" size={15} /> : <RefreshCw size={15} />}
               {buscando ? 'Buscando…' : 'Buscar agora'}
             </button>
-            <AjudaCampo chave="compras.docs_recebidos.acao_buscar_agora" />
+            <AjudaCampo rota={AJUDA_ROTA} chave="compras.docs_recebidos.acao_buscar_agora" />
             {habilitado === true && lista.some((l) => l.status === 'resumo' && !l.lancado_pagar) && (
               <button
                 type="button"
@@ -610,7 +616,7 @@ export default function DocumentosRecebidosPage() {
                   : 'Processar pendentes'}
               </button>
             )}
-            <AjudaCampo chave="compras.docs_recebidos.acao_processar_pendentes" />
+            <AjudaCampo rota={AJUDA_ROTA} chave="compras.docs_recebidos.acao_processar_pendentes" />
           </div>
         </header>
 
@@ -635,13 +641,13 @@ export default function DocumentosRecebidosPage() {
               placeholder="Buscar por número, fornecedor, CNPJ ou chave..." data-testid="nfe-busca"
               className="flex-1 text-[13px] outline-none bg-transparent text-[#3D2314] min-w-[200px]"
             />
-            <AjudaCampo chave="compras.docs_recebidos.busca" />
+            <AjudaCampo rota={AJUDA_ROTA} chave="compras.docs_recebidos.busca" />
             <input type="date" value={dataIni} onChange={(e) => setDataIni(e.target.value)} aria-label="Emitidas desde"
               className="text-[12px] bg-white border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[#3D2314]" />
             <span className="text-[12px] text-[#3D2314]/55">até</span>
             <input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} aria-label="Emitidas até"
               className="text-[12px] bg-white border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[#3D2314]" />
-            <AjudaCampo chave="compras.docs_recebidos.periodo" />
+            <AjudaCampo rota={AJUDA_ROTA} chave="compras.docs_recebidos.periodo" />
             <select
               value={filtroStatus}
               onChange={(e) => setFiltroStatus(e.target.value)}
@@ -654,7 +660,7 @@ export default function DocumentosRecebidosPage() {
               <option value="lancada">Lançada</option>
               <option value="ignorada">Ignorada</option>
             </select>
-            <AjudaCampo chave="compras.docs_recebidos.filtro_status" />
+            <AjudaCampo rota={AJUDA_ROTA} chave="compras.docs_recebidos.filtro_status" />
           </div>
 
           {erro && (
@@ -772,7 +778,7 @@ export default function DocumentosRecebidosPage() {
                               <Ban size={11} />
                               Recusar
                             </button>
-                            <AjudaCampo chave="compras.docs_recebidos.acao_manifestar" />
+                            <AjudaCampo rota={AJUDA_ROTA} chave="compras.docs_recebidos.acao_manifestar" />
                           </div>
                         )}
                         {/* NFE-4 · nota só-resumo: puxar o XML completo (itens/duplicatas) via DF-e. */}
@@ -788,7 +794,7 @@ export default function DocumentosRecebidosPage() {
                               {puxando[n.id] ? <Loader2 className="animate-spin" size={11} /> : <RotateCcw size={11} />}
                               Puxar XML
                             </button>
-                            <AjudaCampo chave="compras.docs_recebidos.acao_puxar_xml" />
+                            <AjudaCampo rota={AJUDA_ROTA} chave="compras.docs_recebidos.acao_puxar_xml" />
                           </span>
                         )}
                         {n.lancado_pagar || n.status === 'lancada' ? (
@@ -845,7 +851,7 @@ export default function DocumentosRecebidosPage() {
                               {processando[n.id] ? <Loader2 className="animate-spin" size={11} /> : <Zap size={11} />}
                               {processando[n.id] ? 'Lançando…' : 'Lançar em Contas a Pagar'}
                             </button>
-                            <AjudaCampo chave="compras.docs_recebidos.acao_lancar_pagar" />
+                            <AjudaCampo rota={AJUDA_ROTA} chave="compras.docs_recebidos.acao_lancar_pagar" />
                           </span>
                         )}
                         {/* NFE-F0 · E2 · ver o XML e a DANFE (conferência) */}
@@ -873,7 +879,7 @@ export default function DocumentosRecebidosPage() {
                         >
                           <RotateCcw size={11} /> Devolver
                         </Link>
-                        <AjudaCampo chave="compras.docs_recebidos.acao_devolver" />
+                        <AjudaCampo rota={AJUDA_ROTA} chave="compras.docs_recebidos.acao_devolver" />
                       </div>
                     </div>
                     {isExpandido && empresaUnica && (
@@ -900,7 +906,7 @@ export default function DocumentosRecebidosPage() {
                     {carregandoMais ? 'Carregando…' : 'Carregar mais'}
                   </button>
                 )}
-                <AjudaCampo chave="compras.docs_recebidos.carregar_mais" />
+                <AjudaCampo rota={AJUDA_ROTA} chave="compras.docs_recebidos.carregar_mais" />
               </div>
             </div>
           )}

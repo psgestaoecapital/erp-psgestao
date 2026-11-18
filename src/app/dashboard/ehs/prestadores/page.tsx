@@ -6,6 +6,10 @@ import { authFetch } from '@/lib/authFetch'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { fmtR } from '@/lib/psgc-tokens'
 import { C } from '../_components/ui'
+import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import type { ReactNode } from 'react'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero } from '@/lib/moeda-mascara'
 import { CLASSIFICACAO_SERVICO, TIPOS_SERVICO, ATIVIDADES_ESPECIAIS } from '../_components/prestador-opts'
 
 type Prestador = {
@@ -29,6 +33,13 @@ const TIPO_LABEL: Record<string, string> = {
   mei: 'MEI',
   pj_simples: 'PJ Simples',
   pj_lucro_real: 'PJ Lucro Real',
+  prestacao_servico: 'Prestação de serviço',
+}
+// Nunca mostra valor cru em snake_case ao usuário (RD-98, critério e): mapeia o enum conhecido e,
+// para qualquer valor legado não mapeado, humaniza (troca "_" por espaço e capitaliza).
+function rotuloTipo(tipo: string | null): string {
+  if (!tipo) return '—'
+  return TIPO_LABEL[tipo] || tipo.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
 }
 
 export default function ComplianceListaPrestadoresPage() {
@@ -83,6 +94,32 @@ export default function ComplianceListaPrestadoresPage() {
 
   useEffect(() => { carregar() }, [carregar])
 
+  // Inativação (soft-delete) rastreável: o back-end marca ativo=false e grava quem/quando/motivo
+  // em audit_log (RD-98 p2/p4). Aqui só confirmamos a intenção e pedimos o motivo; nada é apagado
+  // de fato — o prestador sai da lista de ativos e pode ser reativado pela ficha.
+  const [excluindoId, setExcluindoId] = useState<string | null>(null)
+  async function excluirPrestador(p: Prestador) {
+    if (excluindoId) return
+    if (!confirm(`Inativar o prestador "${p.razao_social}"? Ele sai da lista de ativos (pode ser reativado depois).`)) return
+    const motivo = (prompt('Motivo da inativação (fica no registro de auditoria):', '') || '').trim()
+    setExcluindoId(p.id)
+    try {
+      const res = await authFetch(`/api/compliance/prestadores/${p.id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ motivo }),
+      })
+      const j = await res.json()
+      if (!j.ok) throw new Error(j.mensagem_humana || j.error || 'Falha ao inativar prestador.')
+      showToast('Prestador inativado.')
+      await carregar()
+    } catch (e: any) {
+      showToast(e.message || 'Falha ao inativar prestador.', false)
+    } finally {
+      setExcluindoId(null)
+    }
+  }
+
   return (
     <div style={{ backgroundColor: C.offwhite, minHeight: '100vh', color: C.ink }}>
       <div style={{ maxWidth: 1400, margin: '0 auto', padding: '32px 24px' }}>
@@ -103,12 +140,16 @@ export default function ComplianceListaPrestadoresPage() {
             <button onClick={() => setModalAberto(true)} disabled={empresasNoEscopo.length === 0} style={btnPrim()}>
               + Novo Prestador
             </button>
+            <AjudaCampo chave="compliance.prestadores.novo" />
           </div>
         </header>
 
         {erro && (<div style={{ backgroundColor: C.redBg, color: C.red, padding: '12px 16px', borderRadius: 8, marginBottom: 16, fontSize: 14 }}>{erro}</div>)}
 
         <section style={{ backgroundColor: 'white', borderRadius: 12, padding: 16, boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)', marginBottom: 16 }}>
+          <label style={{ display: 'flex', alignItems: 'center', fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+            Buscar <AjudaCampo chave="compliance.prestadores.busca" />
+          </label>
           <input
             type="text"
             placeholder="Buscar por razão social, CNPJ, nome fantasia…"
@@ -123,14 +164,14 @@ export default function ComplianceListaPrestadoresPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ backgroundColor: C.beigeLt }}>
-                  <Th>Razão Social</Th>
-                  <Th>CNPJ</Th>
-                  <Th>Tipo</Th>
-                  {multiEmpresa && <Th>Empresa</Th>}
-                  <Th>Responsável</Th>
-                  <Th>Valor mensal</Th>
-                  <Th>EHS</Th>
-                  <Th>Ações</Th>
+                  <Th>Razão Social <AjudaCampo chave="compliance.prestadores.razao_social" /></Th>
+                  <Th>CNPJ <AjudaCampo chave="compliance.prestadores.cnpj" /></Th>
+                  <Th>Tipo <AjudaCampo chave="compliance.prestadores.tipo" /></Th>
+                  {multiEmpresa && <Th>Empresa <AjudaCampo chave="compliance.prestadores.empresa" /></Th>}
+                  <Th>Responsável <AjudaCampo chave="compliance.prestadores.responsavel" /></Th>
+                  <Th>Valor mensal <AjudaCampo chave="compliance.prestadores.valor_mensal" /></Th>
+                  <Th>EHS <AjudaCampo chave="compliance.prestadores.ehs" /></Th>
+                  <Th>Ações <AjudaCampo chave="compliance.prestadores.acoes" /></Th>
                 </tr>
               </thead>
               <tbody>
@@ -139,7 +180,7 @@ export default function ComplianceListaPrestadoresPage() {
                 {prestadores.map((p, i) => {
                   const pct = p.compliance_resumo?.pct ?? 0
                   const barColor = pct === 100 ? C.green : pct >= 50 ? C.amber : C.red
-                  const tipoLabel = p.tipo_contrato ? (TIPO_LABEL[p.tipo_contrato] || p.tipo_contrato) : '—'
+                  const tipoLabel = rotuloTipo(p.tipo_contrato)
                   return (
                     <tr key={p.id} style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.borderLt}` }}>
                       <Td>
@@ -171,7 +212,19 @@ export default function ComplianceListaPrestadoresPage() {
                         </div>
                       </Td>
                       <Td>
-                        <Link href={`/dashboard/ehs/prestadores/${p.id}`} style={btnSecSm()}>Abrir</Link>
+                        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+                          <Link href={`/dashboard/ehs/prestadores/${p.id}`} style={btnSecSm()}>Abrir</Link>
+                          <AjudaCampo chave="compliance.prestadores.abrir" />
+                          <button
+                            type="button"
+                            onClick={() => excluirPrestador(p)}
+                            disabled={excluindoId === p.id}
+                            style={{ ...btnDangerSm(), marginLeft: 8, opacity: excluindoId === p.id ? 0.6 : 1 }}
+                          >
+                            {excluindoId === p.id ? 'Inativando…' : 'Excluir'}
+                          </button>
+                          <AjudaCampo chave="compliance.prestadores.excluir" />
+                        </span>
                       </Td>
                     </tr>
                   )
@@ -267,7 +320,7 @@ function NovoPrestadorModal({
         responsavel_nome: responsavel.trim() || null,
         email: email.trim() || null,
         telefone: telefone.trim() || null,
-        valor_contrato_mensal: valorMensal ? Number(valorMensal) : null,
+        valor_contrato_mensal: moedaParaNumero(valorMensal),
         servico_descricao: servico.trim() || null,
         local_servico: localServico.trim() || null,
         classificacao_servico: classificacao || null,
@@ -329,8 +382,8 @@ function NovoPrestadorModal({
           <Field label="E-mail"><input type="email" value={email} onChange={(e: any) => setEmail(e.target.value)} style={inputStyle()} /></Field>
           <Field label="Telefone"><input value={telefone} onChange={(e: any) => setTelefone(e.target.value)} style={inputStyle()} /></Field>
         </div>
-        <Field label="Valor contrato mensal (R$)">
-          <input type="number" step="0.01" value={valorMensal} onChange={(e: any) => setValorMensal(e.target.value)} style={inputStyle()} />
+        <Field label={<>Valor contrato mensal (R$) <AjudaCampo chave="compliance.prestadores.valor_mensal" /></>}>
+          <CampoMoeda value={valorMensal} onChange={setValorMensal} placeholder="0,00" style={inputStyle()} />
         </Field>
         <Field label="Descrição do serviço">
           <textarea value={servico} onChange={(e: any) => setServico(e.target.value)} style={{ ...inputStyle(), minHeight: 60 }} />
@@ -412,7 +465,7 @@ function ChecklistGroup({ titulo, opts, sel, onToggle }: { titulo: string; opts:
     </div>
   )
 }
-function Field({ label, children }: { label: string; children: any }) {
+function Field({ label, children }: { label: ReactNode; children: any }) {
   return (
     <div style={{ marginBottom: 12 }}>
       <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{label}</label>
@@ -434,6 +487,9 @@ function btnSec() {
 }
 function btnSecSm() {
   return { padding: '6px 12px', borderRadius: 6, border: `1px solid ${C.borderLt}`, backgroundColor: 'white', color: C.espresso, fontSize: 12, fontWeight: 600, cursor: 'pointer', textDecoration: 'none' } as any
+}
+function btnDangerSm() {
+  return { padding: '6px 12px', borderRadius: 6, border: '1px solid #e2b3b3', backgroundColor: 'white', color: '#a02020', fontSize: 12, fontWeight: 600, cursor: 'pointer', textDecoration: 'none' } as any
 }
 function tipoBadge(tipo: string | null) {
   const map: Record<string, { bg: string; fg: string }> = {

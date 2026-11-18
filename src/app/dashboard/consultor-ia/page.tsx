@@ -1,205 +1,245 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
+// Consultor IA — Assistente de dados (SPEC Eng. Chefe RD-41 · CEO 17/11, RD-101).
+// Pergunta em linguagem natural → /api/consultor-ia (IA ROTEADOR: escolhe a RPC, os dados NÃO vão ao LLM;
+// company_id forçado no servidor; teto GLOBAL US$ 2/dia). Fallback de graça: chips + Raio-X determinístico.
+// Tema CLARO do ERP (Espresso em off-white) — corrige o "título fantasma" da V1 escura no shell branco.
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { authFetch } from "@/lib/authFetch";
+import AjudaCampo from "@/components/ajuda/AjudaCampo";
 
-const ESP="#3D2314",GO="#C8941A",GOL="#E8C872",OW="#FAF7F2",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
-  BD="#2A2822",TX="#E8E5DC",TXM="#A8A498",TXD="#918C82",GRN="#22C55E",RED="#EF4444",Y="#FBBF24",B="#60A5FA";
+const ESP = "#3D2314", GO = "#C8941A", OW = "#FAF7F2", CARD = "#FFFFFF", BD = "#E7DED3",
+  TXM = "#6B5D4F", TXD = "#918C82", GRN = "#1F5A1F", RED = "#B91C1C", Y = "#8A5A00";
 
-type Msg = { role:"user"|"ai"; text:string; file?:string; timestamp:Date; context?:any; };
+type Achado = { codigo: string; categoria: string; severidade: "alta" | "media" | "baixa"; titulo: string; mensagem: string; como_corrigir: string; rota_link: string };
+type Raiox = { ok: boolean; erro?: string; resumo?: { alta: number; media: number; baixa: number; total: number }; achados?: Achado[] };
+type Resposta = {
+  ok: boolean; bloqueado?: boolean; naoEntendi?: boolean; mensagem?: string; error?: string;
+  tipo?: "lista" | "valor" | "cliente" | "raiox"; titulo?: string; resumo?: string;
+  kpis?: any; linhas?: any[]; valor?: number; achados?: Achado[];
+};
 
-export default function ConsultorPage(){
-  const [companies,setCompanies]=useState<any[]>([]);
-  const [selectedComp,setSelectedComp]=useState("");
-  const [question,setQuestion]=useState("");
-  const [file,setFile]=useState<File|null>(null);
-  const [loading,setLoading]=useState(false);
-  const [messages,setMessages]=useState<Msg[]>([]);
-  const [loadingDb,setLoadingDb]=useState(true);
-  const fileRef=useRef<HTMLInputElement>(null);
-  const chatRef=useRef<HTMLDivElement>(null);
+const CHIPS = ["Contas a receber que vencem hoje", "Despesas que vencem amanhã", "Quais clientes estão inadimplentes?", "Qual o saldo das minhas contas?"];
+const ORDEM: Record<string, number> = { alta: 0, media: 1, baixa: 2 };
+const COR: Record<string, string> = { alta: RED, media: Y, baixa: GRN };
+const DOT: Record<string, string> = { alta: "🔴", media: "🟡", baixa: "🟢" };
+const brl = (v: any) => "R$ " + Number(v || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtData = (s?: string) => { if (!s) return "—"; const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s); return m ? `${m[3]}/${m[2]}/${m[1]}` : s; };
 
-  useEffect(()=>{loadCompanies();},[]);
-  useEffect(()=>{if(chatRef.current)chatRef.current.scrollTop=chatRef.current.scrollHeight;},[messages]);
+export default function ConsultorIAPage() {
+  const router = useRouter();
+  const [empresa, setEmpresa] = useState("");
+  const [pergunta, setPergunta] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [loadingDb, setLoadingDb] = useState(true);
+  const [resposta, setResposta] = useState<Resposta | null>(null);
+  const [raiox, setRaiox] = useState<Raiox | null>(null);
+  const [erro, setErro] = useState("");
 
-  const loadCompanies=async()=>{
-    const{data:{user}}=await supabase.auth.getUser();
-    if(!user){setLoadingDb(false);return;}
-    const{data:up}=await supabase.from("users").select("role").eq("id",user.id).single();
-    let data:any[]=[];
-    if(up?.role==="adm"||up?.role==="acesso_total"){const r=await supabase.from("companies").select("*").order("nome_fantasia");data=r.data||[];}
-    else{const r=await supabase.from("user_companies").select("companies(*)").eq("user_id",user.id);data=(r.data||[]).map((u:any)=>u.companies).filter(Boolean);}
-    if(data.length>0){setCompanies(data);const saved=typeof window!=="undefined"?localStorage.getItem("ps_empresa_sel"):"";const match=data.find(c=>c.id===saved);setSelectedComp(match?match.id:data[0].id);}
-    setLoadingDb(false);
-  };
+  useEffect(() => { carregarEmpresa(); }, []);
 
-  const send=async()=>{
-    if(!question.trim()||!selectedComp)return;
-    const userMsg:Msg={role:"user",text:question,file:file?.name,timestamp:new Date()};
-    setMessages(prev=>[...prev,userMsg]);
-    setLoading(true);
-
-    try{
-      const formData=new FormData();
-      formData.append("question",question);
-      formData.append("company_id",selectedComp);
-      if(file)formData.append("file",file);
-
-      const res=await authFetch("/api/consultor",{method:"POST",body:formData});
-      const data=await res.json();
-
-      if(data.success){
-        setMessages(prev=>[...prev,{role:"ai",text:data.answer,timestamp:new Date(),context:data.context_used}]);
-      }else{
-        setMessages(prev=>[...prev,{role:"ai",text:`❌ Erro: ${data.error}`,timestamp:new Date()}]);
-      }
-    }catch(e:any){
-      setMessages(prev=>[...prev,{role:"ai",text:`❌ Erro: ${e.message}`,timestamp:new Date()}]);
+  async function carregarEmpresa() {
+    // Empresa vem do CONTEXTO/sessão (shell) — sem seletor no topo (SPEC §6.1).
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setLoadingDb(false); return; }
+    const saved = typeof window !== "undefined" ? localStorage.getItem("ps_empresa_sel") : "";
+    if (saved) { setEmpresa(saved); setLoadingDb(false); return; }
+    const { data: up } = await supabase.from("users").select("role").eq("id", user.id).single();
+    let first = "";
+    if (up?.role === "adm" || up?.role === "acesso_total") {
+      const r = await supabase.from("companies").select("id").order("nome_fantasia").limit(1);
+      first = r.data?.[0]?.id || "";
+    } else {
+      const r = await supabase.from("user_companies").select("company_id").eq("user_id", user.id).limit(1);
+      first = (r.data?.[0] as any)?.company_id || "";
     }
+    setEmpresa(first); setLoadingDb(false);
+  }
 
-    setQuestion("");setFile(null);setLoading(false);
-    if(fileRef.current)fileRef.current.value="";
-  };
+  // Assistente (IA roteador) — pergunta livre.
+  async function perguntar(texto?: string) {
+    const q = (texto ?? pergunta).trim();
+    if (!q || !empresa) return;
+    if (texto) setPergunta(texto);
+    setLoading(true); setErro(""); setResposta(null); setRaiox(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch("/api/consultor-ia", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token ?? ""}` },
+        body: JSON.stringify({ pergunta: q, company_id: empresa }),
+      });
+      const j = (await res.json()) as Resposta;
+      if (!res.ok || j.ok === false) { setErro(j.error || "Não consegui responder agora. Tente de novo."); setLoading(false); return; }
+      setResposta(j);
+    } catch { setErro("Falha de conexão. Tente de novo em instantes."); }
+    setLoading(false);
+  }
 
-  const examples=[
-    {icon:"🏦",q:"Tenho 3 financiamentos ativos. Vale a pena quitar algum antecipadamente?"},
-    {icon:"📊",q:"Minha margem está saudável? O que posso fazer para melhorar?"},
-    {icon:"💰",q:"Tenho caixa para contratar mais 2 funcionários?"},
-    {icon:"📈",q:"Se eu aumentar preços em 10%, qual o impacto no resultado?"},
-    {icon:"🔄",q:"Devo aceitar essa proposta de financiamento? (anexe o PDF)"},
-    {icon:"📋",q:"Este orçamento de venda cobre todos meus custos? (anexe o orçamento)"},
-  ];
+  // Raio-X determinístico (grátis) — atalho/fallback, sem IA.
+  async function rodarRaiox() {
+    if (!empresa) return;
+    setLoading(true); setErro(""); setResposta(null); setRaiox(null);
+    const { data, error } = await supabase.rpc("fn_consultor_raiox", { p_company_id: empresa });
+    if (error) { setErro("Não consegui analisar agora. Tente de novo."); setLoading(false); return; }
+    const r = data as Raiox;
+    if (r && r.ok === false) { setErro(r.erro === "sem_acesso" ? "Você não tem acesso aos dados desta empresa." : "Não consegui analisar agora."); setLoading(false); return; }
+    setRaiox(r); setLoading(false);
+  }
 
-  const Card=({children,style}:{children:React.ReactNode;style?:React.CSSProperties})=>(
-    <div style={{background:BG2,borderRadius:14,border:`1px solid ${BD}`,padding:16,...style}}>{children}</div>
-  );
+  if (loadingDb) return <div style={{ padding: 40, textAlign: "center", color: TXM }}>Carregando…</div>;
 
-  if(loadingDb)return <div style={{padding:40,textAlign:"center",color:TXM}}>Carregando...</div>;
+  const achados = (resposta?.tipo === "raiox" ? resposta.achados : raiox?.achados) || [];
+  const achadosOrd = achados.slice().sort((a, b) => (ORDEM[a.severidade] ?? 3) - (ORDEM[b.severidade] ?? 3));
+  const bloqueadoOuFalha = resposta?.bloqueado || resposta?.naoEntendi;
 
-  return(
-    <div style={{maxWidth:1000,margin:"0 auto",display:"flex",flexDirection:"column",height:"calc(100vh - 140px)"}}>
-
-      {/* HEADER */}
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
-        <div>
-          <div style={{fontSize:20,fontWeight:700,color:TX,display:"flex",alignItems:"center",gap:8}}>
-            <span style={{fontSize:24}}>🧠</span> Consultor IA
-          </div>
-          <div style={{fontSize:11,color:TXD,marginTop:2}}>Suba documentos e pergunte qualquer coisa. A IA cruza com todos os dados financeiros reais da empresa.</div>
+  return (
+    <div style={{ maxWidth: 820, margin: "0 auto", padding: "0 16px", color: ESP }}>
+      {/* CABEÇALHO (sem nome da empresa — vem do contexto) */}
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 20, fontWeight: 700, color: ESP, display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 24 }}>💬</span> Consultor IA · Assistente dos seus dados
         </div>
-        <select value={selectedComp} onChange={e=>setSelectedComp(e.target.value)} style={{background:BG3,border:`1px solid ${BD}`,color:GOL,borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:600}}>
-          {companies.map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
-        </select>
+        <div style={{ fontSize: 12.5, color: TXM, marginTop: 3, lineHeight: 1.5, maxWidth: 580 }}>
+          Pergunte em português — <strong style={{ color: ESP }}>“contas a receber que vencem hoje”, “o cliente X está cadastrado?”</strong> — e eu trago direto dos seus dados. Os atalhos abaixo são gratuitos.
+        </div>
       </div>
 
-      {/* CHAT AREA */}
-      <div ref={chatRef} style={{flex:1,overflowY:"auto",marginBottom:12,display:"flex",flexDirection:"column",gap:10}}>
+      {/* CAIXA DE PERGUNTA */}
+      <div style={{ background: CARD, borderRadius: 14, border: `1px solid ${BD}`, padding: 14, marginBottom: 14, boxShadow: "0 1px 3px rgba(61,35,20,0.05)" }}>
+        <label data-ajuda="inteligencia.consultor.sintoma" style={{ display: "block" }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: TXM, marginBottom: 6, display: "flex", alignItems: "center" }}>
+            Pergunte sobre seus dados<AjudaCampo chave="inteligencia.consultor.sintoma" />
+          </div>
+          <textarea value={pergunta} onChange={(e) => setPergunta(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); perguntar(); } }}
+            placeholder="Ex.: quais despesas vencem amanhã? — ou toque num atalho abaixo."
+            rows={2}
+            style={{ width: "100%", background: OW, border: `1px solid ${BD}`, color: ESP, borderRadius: 10, padding: "10px 12px", fontSize: 13, outline: "none", resize: "none", fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box" }} />
+        </label>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
+          {CHIPS.map((c) => (
+            <button key={c} type="button" onClick={() => perguntar(c)}
+              style={{ background: OW, border: `1px solid ${BD}`, color: TXM, borderRadius: 999, padding: "6px 12px", fontSize: 11, cursor: "pointer" }}>
+              {c}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+          <button type="button" onClick={() => perguntar()} disabled={loading || !empresa || !pergunta.trim()}
+            style={{ flex: "1 1 220px", borderRadius: 10, border: "none", padding: "12px 16px", fontSize: 14, fontWeight: 700, cursor: loading || !empresa || !pergunta.trim() ? "not-allowed" : "pointer", color: "#fff", background: loading || !empresa || !pergunta.trim() ? "#CDB89A" : `linear-gradient(135deg,${ESP},${GO})` }}>
+            {loading ? "Consultando…" : "Perguntar ao assistente"}
+          </button>
+          <button type="button" onClick={rodarRaiox} disabled={loading || !empresa}
+            style={{ borderRadius: 10, border: `1px solid ${GO}`, background: "transparent", color: ESP, padding: "12px 16px", fontSize: 13, fontWeight: 600, cursor: loading || !empresa ? "not-allowed" : "pointer" }}>
+            🔎 Raio-X (grátis)
+          </button>
+        </div>
+      </div>
 
-        {messages.length===0&&(
-          <>
-            <Card style={{borderLeft:`4px solid ${GO}`}}>
-              <div style={{fontSize:13,fontWeight:600,color:GOL,marginBottom:8}}>Como funciona</div>
-              <div style={{fontSize:11,color:TXM,lineHeight:1.8}}>
-                O Consultor IA tem acesso a <strong style={{color:TX}}>todos os dados financeiros reais</strong> da empresa selecionada: DRE, fluxo de caixa, financiamentos, balanço patrimonial, orçamento, clientes e contexto estratégico.<br/><br/>
-                Você pode <strong style={{color:TX}}>anexar documentos</strong> (propostas de financiamento, orçamentos, contratos, extratos) e a IA vai cruzar com os dados reais para dar uma análise completa.
-              </div>
-            </Card>
+      {/* ERRO */}
+      {erro && <div style={{ background: "#FBEAEA", border: `1px solid #E6B8B8`, borderRadius: 10, padding: 12, color: RED, fontSize: 12.5, marginBottom: 12 }}>{erro}</div>}
 
-            <div style={{fontSize:11,fontWeight:600,color:TXD,marginTop:4}}>Exemplos de perguntas:</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
-              {examples.map((ex,i)=>(
-                <div key={i} onClick={()=>setQuestion(ex.q)} style={{
-                  background:BG2,borderRadius:10,padding:"10px 12px",border:`1px solid ${BD}`,cursor:"pointer",
-                  display:"flex",gap:8,alignItems:"flex-start",transition:"all 0.2s",
-                }} onMouseEnter={e=>{e.currentTarget.style.borderColor=GO+"60";e.currentTarget.style.background=BG3;}}
-                   onMouseLeave={e=>{e.currentTarget.style.borderColor=BD;e.currentTarget.style.background=BG2;}}>
-                  <span style={{fontSize:18,flexShrink:0}}>{ex.icon}</span>
-                  <span style={{fontSize:11,color:TXM,lineHeight:1.5}}>{ex.q}</span>
+      {/* AVISO (teto estourado / não entendeu) → aponta para o Raio-X grátis */}
+      {bloqueadoOuFalha && (
+        <div style={{ background: "#FBF3DE", border: `1px solid ${GO}`, borderRadius: 12, padding: 14, marginBottom: 12 }}>
+          <div style={{ fontSize: 13, color: ESP, fontWeight: 600 }}>{resposta?.mensagem}</div>
+          <button type="button" onClick={rodarRaiox} style={{ marginTop: 10, background: "transparent", border: `1px solid ${GO}`, color: ESP, borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+            🔎 Rodar Raio-X dos meus dados (grátis)
+          </button>
+        </div>
+      )}
+
+      {/* RESPOSTA DO ASSISTENTE */}
+      {resposta?.ok && !bloqueadoOuFalha && resposta.resumo && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ background: CARD, border: `1px solid ${BD}`, borderLeft: `4px solid ${GO}`, borderRadius: 12, padding: "12px 14px", fontSize: 13.5, fontWeight: 600, color: ESP }}>
+            {resposta.resumo}
+          </div>
+
+          {/* LISTA (receber/pagar/inadimplentes) */}
+          {resposta.tipo === "lista" && (resposta.linhas?.length ?? 0) > 0 && (
+            <div style={{ overflowX: "auto", marginTop: 10, border: `1px solid ${BD}`, borderRadius: 12, background: CARD }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead><tr style={{ background: OW, color: ESP }}>
+                  {["Cliente/Fornecedor", "Descrição", "Vencimento", "Valor", "Situação"].map((h) => <th key={h} style={{ textAlign: h === "Valor" ? "right" : "left", padding: "8px 10px", fontWeight: 700, borderBottom: `1px solid ${BD}` }}>{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {resposta.linhas!.slice(0, 100).map((l: any, i: number) => (
+                    <tr key={l.id ?? i} style={{ borderBottom: `1px solid ${BD}` }}>
+                      <td style={{ padding: "7px 10px" }}>{l.nome_pessoa || "—"}</td>
+                      <td style={{ padding: "7px 10px", color: TXM }}>{l.descricao || l.numero_documento || "—"}</td>
+                      <td style={{ padding: "7px 10px" }}>{fmtData(l.data_vencimento)}</td>
+                      <td style={{ padding: "7px 10px", textAlign: "right", fontWeight: 600 }}>{brl(l.valor_documento ?? l.valor_pago)}</td>
+                      <td style={{ padding: "7px 10px", color: TXM }}>{l.situacao || l.status || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* CLIENTE */}
+          {resposta.tipo === "cliente" && (resposta.linhas?.length ?? 0) > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+              {resposta.linhas!.map((c: any, i: number) => (
+                <div key={c.id ?? i} style={{ background: CARD, border: `1px solid ${BD}`, borderRadius: 12, padding: "10px 14px" }}>
+                  <div style={{ fontWeight: 700, color: ESP }}>{c.razao_social || c.nome_fantasia || c.nome || "Cliente"}</div>
+                  <div style={{ fontSize: 12, color: TXM, marginTop: 2 }}>
+                    {(c.cpf_cnpj || c.cnpj_cpf) ? `CNPJ/CPF: ${c.cpf_cnpj || c.cnpj_cpf}` : ""}{(c.cidade) ? ` · ${c.cidade}${c.uf ? "/" + c.uf : ""}` : ""}
+                  </div>
                 </div>
               ))}
             </div>
-          </>
-        )}
+          )}
 
-        {messages.map((msg,i)=>(
-          <div key={i} style={{display:"flex",justifyContent:msg.role==="user"?"flex-end":"flex-start"}}>
-            <div style={{
-              maxWidth:"85%",borderRadius:14,padding:"12px 16px",
-              background:msg.role==="user"?`linear-gradient(135deg,${ESP},${GO}20)`:BG2,
-              border:`1px solid ${msg.role==="user"?GO+"40":BD}`,
-            }}>
-              {msg.role==="user"&&msg.file&&(
-                <div style={{fontSize:10,color:GOL,marginBottom:6,display:"flex",alignItems:"center",gap:4}}>
-                  📎 {msg.file}
-                </div>
-              )}
-              <div style={{fontSize:12,color:msg.role==="user"?OW:TX,lineHeight:1.7,whiteSpace:"pre-wrap"}}>{msg.text}</div>
-              {msg.role==="ai"&&msg.context&&(
-                <div style={{marginTop:10,paddingTop:8,borderTop:`1px solid ${BD}`,display:"flex",gap:8,flexWrap:"wrap"}}>
-                  {Object.entries(msg.context).filter(([k])=>k!=="arquivo").map(([k,v])=>(
-                    <span key={k} style={{fontSize:9,color:TXD,background:BG3,padding:"2px 8px",borderRadius:4}}>
-                      {k.replace(/_/g," ")}: <strong style={{color:TXM}}>{String(v)}</strong>
-                    </span>
-                  ))}
-                </div>
-              )}
-              <div style={{fontSize:8,color:TXD,marginTop:4,textAlign:"right"}}>
-                {msg.timestamp.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}
-              </div>
+          {/* VALOR (saldo) */}
+          {resposta.tipo === "valor" && (
+            <div style={{ marginTop: 10, background: CARD, border: `1px solid ${BD}`, borderRadius: 12, padding: 20, textAlign: "center" }}>
+              <div style={{ fontSize: 28, fontWeight: 800, color: Number(resposta.valor) < 0 ? RED : ESP }}>{brl(resposta.valor)}</div>
+              <div style={{ fontSize: 12, color: TXM, marginTop: 2 }}>saldo atual das contas bancárias</div>
             </div>
-          </div>
-        ))}
+          )}
+        </div>
+      )}
 
-        {loading&&(
-          <div style={{display:"flex",justifyContent:"flex-start"}}>
-            <div style={{background:BG2,borderRadius:14,padding:"16px 20px",border:`1px solid ${BD}`}}>
-              <div style={{fontSize:12,color:GOL,display:"flex",alignItems:"center",gap:8}}>
-                <span style={{animation:"pulse 1.5s infinite"}}>🧠</span> Analisando dados financeiros e documento...
-              </div>
-              <div style={{fontSize:10,color:TXD,marginTop:4}}>Cruzando DRE, fluxo de caixa, financiamentos, balanço e contexto</div>
+      {/* RAIO-X determinístico (chip/fallback) ou tipo raiox */}
+      {(raiox?.ok || resposta?.tipo === "raiox") && (
+        <div style={{ marginBottom: 12 }}>
+          {achadosOrd.length === 0 ? (
+            <div style={{ background: "#EAF4EA", border: `1px solid #B8D8B8`, borderRadius: 14, padding: 20, textAlign: "center" }}>
+              <div style={{ fontSize: 28 }}>✅</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: ESP, marginTop: 6 }}>Analisei tudo e não achei problema</div>
             </div>
-          </div>
-        )}
-      </div>
-
-      {/* INPUT AREA */}
-      <div style={{background:BG2,borderRadius:16,border:`1px solid ${BD}`,padding:12}}>
-        {file&&(
-          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8,padding:"6px 10px",background:BG3,borderRadius:8}}>
-            <span style={{fontSize:14}}>📎</span>
-            <span style={{fontSize:11,color:GOL,flex:1}}>{file.name} <span style={{color:TXD}}>({(file.size/1024).toFixed(0)}KB)</span></span>
-            <button onClick={()=>{setFile(null);if(fileRef.current)fileRef.current.value="";}} style={{background:"none",border:"none",color:RED,cursor:"pointer",fontSize:14}}>✕</button>
-          </div>
-        )}
-        <div style={{display:"flex",gap:8,alignItems:"flex-end"}}>
-          <input ref={fileRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.csv,.xlsx,.txt" onChange={e=>{if(e.target.files?.[0])setFile(e.target.files[0]);}} style={{display:"none"}}/>
-          <button onClick={()=>fileRef.current?.click()} title="Anexar documento" style={{
-            width:44,height:44,borderRadius:12,border:`1px solid ${BD}`,background:file?`${GO}20`:"transparent",
-            color:file?GOL:TXM,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,
-          }}>📎</button>
-          <textarea value={question} onChange={e=>setQuestion(e.target.value)}
-            onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}}
-            placeholder="Pergunte qualquer coisa sobre a empresa... (Enter para enviar, Shift+Enter para nova linha)"
-            style={{
-              flex:1,background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:12,padding:"12px 14px",
-              fontSize:13,outline:"none",resize:"none",minHeight:44,maxHeight:120,fontFamily:"inherit",lineHeight:1.5,
-            }}
-            rows={1}
-          />
-          <button onClick={send} disabled={loading||!question.trim()} style={{
-            width:44,height:44,borderRadius:12,border:"none",cursor:loading||!question.trim()?"not-allowed":"pointer",
-            background:loading||!question.trim()?BD:`linear-gradient(135deg,${ESP},${GO})`,
-            color:OW,fontSize:18,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,
-            boxShadow:loading||!question.trim()?"none":`0 4px 12px rgba(200,148,26,0.3)`,
-          }}>➤</button>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {achadosOrd.map((a) => (
+                <div key={a.codigo} style={{ background: CARD, borderRadius: 14, border: `1px solid ${BD}`, borderLeft: `4px solid ${COR[a.severidade] || BD}`, padding: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 14 }}>{DOT[a.severidade] || "•"}</span>
+                    <span style={{ fontSize: 13.5, fontWeight: 700, color: ESP }}>{a.titulo}</span>
+                  </div>
+                  <div style={{ fontSize: 12.5, color: TXM, lineHeight: 1.6 }}>{a.mensagem}</div>
+                  <div style={{ marginTop: 8, background: OW, borderRadius: 8, padding: "8px 10px" }}>
+                    <span style={{ fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, color: Y }}>Como corrigir</span>
+                    <div style={{ fontSize: 12, color: ESP, marginTop: 2, lineHeight: 1.5 }}>{a.como_corrigir}</div>
+                  </div>
+                  {a.rota_link && (
+                    <button type="button" onClick={() => router.push(a.rota_link)}
+                      style={{ marginTop: 10, background: "transparent", border: `1px solid ${GO}`, color: ESP, borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                      Ir pra tela →
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-        <div style={{display:"flex",justifyContent:"space-between",marginTop:6}}>
-          <div style={{fontSize:9,color:TXD}}>💡 Dica: anexe PDFs de propostas, orçamentos ou contratos para análise completa</div>
-          <div style={{fontSize:9,color:TXD}}>Shift+Enter = nova linha</div>
-        </div>
-      </div>
+      )}
 
-      <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}`}</style>
+      <div style={{ fontSize: 10, color: TXD, textAlign: "center", marginTop: 16 }}>
+        O assistente lê só sua pergunta e escolhe qual consulta rodar — os números vêm direto do seu banco, pela empresa da sua sessão. Os atalhos e o Raio-X não têm custo.
+      </div>
     </div>
   );
 }

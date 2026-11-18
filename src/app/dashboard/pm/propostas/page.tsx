@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import AnexosCard, { type AnexosCardHandle } from '@/components/crm/AnexosCard'
+import ClientePickerInline from '@/components/ge/ClientePickerInline'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
 import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
@@ -23,6 +24,47 @@ const BORDA = '#E7DED3'
 const TEXTM = '#6b5444'
 const GREEN = '#1F5A1F'
 const RED = '#7A1F1F'
+
+// SPEC Master §3 (Júlia) · obrigatórios do comercial quando a aprovação faz NASCER um contrato de fee (fee>0).
+// Mesma régua da porta manual (fn_contrato_solicitar / SolicitarContratoModal da GE) + CNPJ + contato. Projeto
+// avulso (fee 0, sem faturamento recorrente) não exige nada — só a comissão é gerada. Usado pelo guard de
+// submit E para desabilitar o botão "Aprovar" (bloqueio + "falta X"); o banco é fail-closed em paralelo.
+type AprForm = { fee: string; dia: string; nParcelas: string; dataFim: string; primeiroVenc: string; clienteEmail: string; clienteTelefone: string; clienteCnpj: string }
+function aprovarObrigatoriosFaltando(f: AprForm): string[] {
+  if ((moedaParaNumero(f.fee) ?? 0) <= 0) return []
+  const hoje = new Date().toISOString().slice(0, 10)
+  const falta: string[] = []
+  const diaN = Number(f.dia)
+  if (!f.dia.trim() || !Number.isInteger(diaN) || diaN < 1 || diaN > 28) falta.push('dia do vencimento (1 a 28)')
+  if (!f.nParcelas.trim() || !Number.isInteger(Number(f.nParcelas)) || Number(f.nParcelas) < 1) falta.push('nº de parcelas (1 ou mais)')
+  if (!f.dataFim.trim()) falta.push('fim da vigência')
+  else if (f.dataFim < hoje) falta.push('fim da vigência válido (não antes de hoje)')
+  if (!f.primeiroVenc.trim()) falta.push('1º vencimento')
+  if (!f.clienteCnpj.trim()) falta.push('CNPJ/CPF do cliente (no cadastro)')
+  if (!f.clienteEmail.trim() && !f.clienteTelefone.trim()) falta.push('contato do cliente (e-mail ou telefone)')
+  return falta
+}
+// Default do 1º vencimento: primeira data >= hoje cujo dia bate com o dia de vencimento (editável).
+function proximoVenc(dia: number): string {
+  const d = Math.min(Math.max(Number.isFinite(dia) ? dia : 10, 1), 28)
+  const h = new Date(); let y = h.getFullYear(); let m = h.getMonth()
+  if (h.getDate() > d) { m += 1; if (m > 11) { m = 0; y += 1 } }
+  return new Date(y, m, d).toISOString().slice(0, 10)
+}
+// Rede de segurança: tradução dos códigos que o banco (fail-closed) pode devolver, caso a aprovação chegue por fora do front.
+const APROVAR_ERRO: Record<string, string> = {
+  titulo_obrigatorio: 'Falta o título do contrato.',
+  vigencia_inicio_obrigatoria: 'Falta o início da vigência.',
+  vigencia_fim_obrigatoria: 'Falta o fim da vigência.',
+  vigencia_invalida: 'O fim da vigência não pode ser antes do início.',
+  numero_parcelas_obrigatorio: 'Falta o nº de parcelas.',
+  numero_parcelas_invalido: 'Nº de parcelas precisa ser 1 ou mais.',
+  dia_vencimento_obrigatorio: 'Falta o dia do vencimento (1 a 28).',
+  dia_vencimento_invalido: 'Dia do vencimento: de 1 a 28.',
+  primeiro_vencimento_obrigatorio: 'Falta o 1º vencimento.',
+  cnpj_cliente_obrigatorio: 'Falta o CNPJ/CPF do cliente — complete o cadastro do cliente antes de aprovar.',
+  contato_obrigatorio: 'Falta o contato do cliente (e-mail ou telefone) — sem ele o financeiro não envia a cobrança.',
+}
 
 const brl = (v: number | null | undefined) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) ? n : 0 }
@@ -100,7 +142,7 @@ export default function PropostasPage() {
   const abriuDestaque = useRef(false)
   // aprovação → contrato recorrente na GE + comissão
   const [apr, setApr] = useState<Proposta | null>(null)
-  const [aprForm, setAprForm] = useState({ fee: '', dia: '10', periodicidade: 'mensal', comPct: '', comBase: 'fee', comTipo: 'unica' })
+  const [aprForm, setAprForm] = useState({ fee: '', dia: '10', periodicidade: 'mensal', comPct: '', comBase: 'fee', comTipo: 'unica', nParcelas: '', dataFim: '', primeiroVenc: '', clienteEmail: '', clienteTelefone: '', clienteCnpj: '' })
 
   const carregar = async () => {
     if (!empresa) { setPropostas([]); setLoading(false); return }
@@ -367,12 +409,27 @@ export default function PropostasPage() {
   }
 
   function abrirAprovar(p: Proposta) {
-    setAprForm({ fee: numeroParaMoeda(p.valor_final ?? p.valor_total), dia: '10', periodicidade: 'mensal', comPct: '', comBase: 'fee', comTipo: 'unica' })
+    setAprForm({ fee: numeroParaMoeda(p.valor_final ?? p.valor_total), dia: '10', periodicidade: 'mensal', comPct: '', comBase: 'fee', comTipo: 'unica', nParcelas: '', dataFim: '', primeiroVenc: proximoVenc(10), clienteEmail: '', clienteTelefone: '', clienteCnpj: '' })
     setApr(p)
+    // SPEC 4.1 + §3: puxa contato E CNPJ do cadastro do cliente para o bloco "Dados para o financeiro".
+    // O CNPJ é obrigatório quando nasce contrato (fail-closed no banco) — se faltar, o comercial corrige o cadastro.
+    void (async () => {
+      const { data: pp } = await supabase.from('agency_propostas').select('erp_cliente_id').eq('id', p.id).maybeSingle()
+      const ecId = (pp as { erp_cliente_id?: string | null } | null)?.erp_cliente_id
+      if (!ecId) return
+      const { data: ec } = await supabase.from('erp_clientes').select('email, celular, whatsapp, telefone, cnpj_cpf').eq('id', ecId).maybeSingle()
+      if (!ec) return
+      const e = ec as Record<string, string | null>
+      setAprForm((f) => ({ ...f, clienteEmail: f.clienteEmail || e.email || '', clienteTelefone: f.clienteTelefone || e.celular || e.whatsapp || e.telefone || '', clienteCnpj: (e.cnpj_cpf || '').trim() }))
+    })()
   }
 
   async function confirmarAprovar() {
     if (!apr) return
+    // SPEC Master §3 (Júlia) · obrigatórios do comercial amarrados NOS DOIS LADOS. O front bloqueia antes
+    // (lista "falta X" + impacto); o banco (fn_agency_proposta_aprovar) é fail-closed e recusa de verdade.
+    const falta = aprovarObrigatoriosFaltando(aprForm)
+    if (falta.length > 0) { setToast(`Falta ${falta.join(' · ')} — sem isso o financeiro não consegue faturar/emitir NF. Preencha para aprovar.`); return }
     setBusy(true)
     const { data, error } = await supabase.rpc('fn_agency_proposta_aprovar', {
       p_proposta_id: apr.id,
@@ -383,10 +440,16 @@ export default function PropostasPage() {
       p_comissao_percentual: aprForm.comPct ? Number(aprForm.comPct) : 0,
       p_comissao_tipo: aprForm.comTipo,
       p_comissao_base: aprForm.comBase,
+      // SPEC gaps + §3: nº de parcelas, fim da vigência, 1º vencimento e contato viajam na aprovação (a Julia recebe completo).
+      p_numero_parcelas: aprForm.nParcelas ? Number(aprForm.nParcelas) : null,
+      p_data_fim: aprForm.dataFim || null,
+      p_cliente_email: aprForm.clienteEmail.trim() || null,
+      p_cliente_telefone: aprForm.clienteTelefone.trim() || null,
+      p_data_primeiro_vencimento: aprForm.primeiroVenc || null,
     })
     setBusy(false)
     const j = data as { ok?: boolean; erro?: string; contrato_numero?: string } | null
-    if (error || !j?.ok) { setToast(error ? erroAmigavel(error, 'Não foi possível aprovar a proposta.') : codigoAmigavel(j?.erro, 'Não foi possível aprovar a proposta.')); return }
+    if (error || !j?.ok) { setToast(error ? erroAmigavel(error, 'Não foi possível aprovar a proposta.') : (APROVAR_ERRO[j?.erro ?? ''] ?? codigoAmigavel(j?.erro, 'Não foi possível aprovar a proposta.'))); return }
     setApr(null)
     setToast(j.contrato_numero ? `APROVADA · pedido de contrato ${j.contrato_numero} criado — o financeiro vai elaborar.` : 'Proposta APROVADA.')
     void carregar()
@@ -486,7 +549,18 @@ export default function PropostasPage() {
               </div>
             )}
 
-            <ClienteField value={fCliente} onChange={(id) => setFCliente(id)} empresa={empresa} setToast={setToast} nomeLead={fLeadNome} />
+            {/* Pdois Frente 4: reusa o ClientePickerInline compartilhado (RD-26) — herda o fix do race e o CNPJ
+                correto (doc, não no nome). O box "Cliente do lead" (#2915) vira hint externo. */}
+            <div style={{ position: 'relative' }}>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Cliente (cadastro GE)<AjudaCampo chave="pm.propostas.cliente" /></span></label>
+              {!fCliente && fLeadNome && (
+                <div style={{ fontSize: 11, color: TEXTM, background: '#FBF6EA', border: `1px solid ${BORDA}`, borderRadius: 6, padding: '6px 8px', marginBottom: 4 }}>
+                  Cliente do lead: <b>{fLeadNome}</b> — ainda sem cadastro na GE. Busque ou cadastre abaixo.
+                </div>
+              )}
+              <ClientePickerInline companyId={empresa} value={fCliente} onChange={(id) => setFCliente(id)} onToast={setToast} onErro={setToast}
+                placeholder={fLeadNome ? `Buscar ou cadastrar "${fLeadNome}"…` : undefined} />
+            </div>
 
             <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Título *<AjudaCampo chave="pm.propostas.titulo" /></span><input style={inp} value={fTitulo} onChange={(e) => setFTitulo(e.target.value)} placeholder="Ex.: Gestão de redes + tráfego" /></label>
 
@@ -531,7 +605,8 @@ export default function PropostasPage() {
                   <div style={{ display: 'grid', gridTemplateColumns: '0.7fr 0.7fr 1fr 1fr auto', gap: 8, marginTop: 8, alignItems: 'center' }}>
                     <input style={inp} type="number" min={0} value={it.quantidade} onChange={(e) => setItem(i, { quantidade: num(e.target.value) })} placeholder="Qtd" />
                     <input style={inp} value={it.unidade} onChange={(e) => setItem(i, { unidade: e.target.value })} placeholder="un" />
-                    <input style={inp} type="number" min={0} step="0.01" value={it.valor_unitario} onChange={(e) => setItem(i, { valor_unitario: num(e.target.value) })} placeholder="Valor unit." />
+                    {/* #6874 — valor unitário do item com máscara R$ ao digitar (igual a Desconto/Fee desta tela); valor_total recalcula em setItem */}
+                    <CampoMoeda style={inp} value={numeroParaMoeda(it.valor_unitario)} onChange={(v) => setItem(i, { valor_unitario: moedaParaNumero(v) ?? 0 })} placeholder="Valor unit." />
                     <div style={{ fontSize: 13, fontWeight: 700, textAlign: 'right', color: ESPRESSO }}>{brl(it.valor_total)}</div>
                     <button onClick={() => rmItem(i)} disabled={itens.length === 1} title="Remover" style={{ ...btnSec, borderColor: RED, color: RED, opacity: itens.length === 1 ? 0.4 : 1 }}>✕</button>
                   </div>
@@ -635,6 +710,25 @@ export default function PropostasPage() {
               </label>
             </div>
             <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 2 }}>Fee 0 → aprova sem contrato recorrente (ex.: projeto avulso). A comissão ainda é gerada.</div>
+
+            {/* SPEC 4.1 · Dados para o financeiro — contato + nº de parcelas viajam para o pedido de contrato.
+                SPEC Master §3 (Júlia) · obrigatórios do comercial VISÍVEIS quando há fee (paridade com a GE). */}
+            <div style={{ fontSize: 11, fontWeight: 700, color: DOURADO, textTransform: 'uppercase', letterSpacing: 0.5, margin: '12px 0 4px', display: 'flex', alignItems: 'center', gap: 6 }}>
+              Dados para o financeiro
+              {(moedaParaNumero(aprForm.fee) ?? 0) > 0 && <span style={{ fontSize: 9.5, fontWeight: 700, color: ESPRESSO, background: '#FBF3DE', border: `1px solid ${DOURADO}`, borderRadius: 999, padding: '1px 8px', textTransform: 'none', letterSpacing: 0 }}>obrigatórios quando há fee</span>}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Nº de parcelas<AjudaCampo chave="pm.propostas.numero_parcelas" /></span><input style={inp} type="number" min={1} value={aprForm.nParcelas} onChange={(e) => setAprForm({ ...aprForm, nParcelas: e.target.value })} placeholder="Ex.: 12" /></label>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Fim da vigência<AjudaCampo chave="pm.propostas.data_fim" /></span><input style={inp} type="date" value={aprForm.dataFim} onChange={(e) => setAprForm({ ...aprForm, dataFim: e.target.value })} /></label>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>1º vencimento<AjudaCampo chave="pm.propostas.primeiro_vencimento" /></span><input style={inp} type="date" value={aprForm.primeiroVenc} onChange={(e) => setAprForm({ ...aprForm, primeiroVenc: e.target.value })} /></label>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>E-mail do cliente<AjudaCampo chave="pm.propostas.cliente_email" /></span><input style={inp} type="email" value={aprForm.clienteEmail} onChange={(e) => setAprForm({ ...aprForm, clienteEmail: e.target.value })} placeholder="do cadastro" /></label>
+              <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Telefone do cliente<AjudaCampo chave="pm.propostas.cliente_telefone" /></span><input style={inp} value={aprForm.clienteTelefone} onChange={(e) => setAprForm({ ...aprForm, clienteTelefone: e.target.value })} placeholder="do cadastro" /></label>
+            </div>
+            <div style={{ fontSize: 10.5, color: TEXTM, marginTop: 2 }}>Sem o contato, a Julia não consegue enviar o boleto/cobrança. Sem o nº de parcelas, ela não sabe em quantas vezes faturar. Vêm do cadastro do cliente — ajuste se mudaram.</div>
+            {(moedaParaNumero(aprForm.fee) ?? 0) > 0 && !aprForm.clienteCnpj.trim() && (
+              <div style={{ fontSize: 11, color: RED, marginTop: 6, fontWeight: 600 }}>⚠ O cliente está sem CNPJ/CPF no cadastro — obrigatório para gerar o contrato. Complete o cadastro do cliente antes de aprovar.</div>
+            )}
+
             <div style={{ fontSize: 11, fontWeight: 700, color: DOURADO, textTransform: 'uppercase', letterSpacing: 0.5, margin: '12px 0 4px' }}>Comissão do comercial</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
               <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Percentual (%)<AjudaCampo chave="pm.propostas.comissao_pct" /></span><input style={inp} type="number" value={aprForm.comPct} onChange={(e) => setAprForm({ ...aprForm, comPct: e.target.value })} placeholder="0" /></label>
@@ -649,117 +743,28 @@ export default function PropostasPage() {
                 </select>
               </label>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-              <button onClick={() => setApr(null)} style={btnGhost}>Cancelar</button>
-              <button disabled={busy} onClick={confirmarAprovar} style={btnPri}>{busy ? 'Aprovando…' : 'Aprovar e gerar contrato'}</button>
-            </div>
+            {(() => {
+              const faltando = aprovarObrigatoriosFaltando(aprForm)
+              return (
+                <>
+                  {faltando.length > 0 && (
+                    <div style={{ fontSize: 11, color: RED, background: '#FBEAEA', border: '1px solid #E6B8B8', borderRadius: 8, padding: '8px 10px', marginTop: 12 }}>
+                      Para aprovar e gerar o contrato, falta: <strong>{faltando.join(' · ')}</strong>. Sem isso o financeiro não consegue faturar/emitir NF.
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+                    <button onClick={() => setApr(null)} style={btnGhost}>Cancelar</button>
+                    <button disabled={busy || faltando.length > 0} onClick={confirmarAprovar} style={{ ...btnPri, ...(faltando.length > 0 ? { opacity: 0.5, cursor: 'not-allowed' } : {}) }}>{busy ? 'Aprovando…' : 'Aprovar e gerar contrato'}</button>
+                  </div>
+                </>
+              )
+            })()}
           </div>
         </div>
       )}
 
 
       {toast && <div style={toastStyle}>{toast}</div>}
-    </div>
-  )
-}
-
-// Autocomplete sobre erp_clientes (base mestre, via fn_cliente_buscar) + cadastro rápido inline
-// (fn_cliente_criar_inline). Igual ao picker dos Leads (regra-mãe b9333675). value = erp_cliente_id.
-function ClienteField({ value, onChange, empresa, setToast, nomeLead }: {
-  value: string; onChange: (erpId: string) => void; empresa: string; setToast: (s: string) => void
-  nomeLead?: string   // #2915 · nome do lead quando ele ainda não tem cliente da GE vinculado
-}) {
-  const [q, setQ] = useState('')
-  const [nomeSel, setNomeSel] = useState('')
-  const [sug, setSug] = useState<{ id: string; nome: string; doc: string | null }[]>([])
-  const [buscando, setBuscando] = useState(false)
-  const [open, setOpen] = useState(false)
-  const [criando, setCriando] = useState(false)
-  const [novoNome, setNovoNome] = useState('')
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  // nome do cliente pré-selecionado (prefill) — busca deferida (evita setState síncrono no effect)
-  useEffect(() => {
-    let alive = true
-    const t = setTimeout(async () => {
-      if (!value) { setNomeSel(''); return }
-      const { data } = await supabase.from('erp_clientes').select('nome_fantasia, razao_social').eq('id', value).maybeSingle()
-      if (!alive) return
-      const d = (data ?? {}) as { nome_fantasia?: string | null; razao_social?: string | null }
-      setNomeSel(d.nome_fantasia ?? d.razao_social ?? '')
-    }, 0)
-    return () => { alive = false; clearTimeout(t) }
-  }, [value])
-
-  function buscar(t: string) {
-    setQ(t); setOpen(true)
-    if (timer.current) clearTimeout(timer.current)
-    timer.current = setTimeout(async () => {
-      const term = t.trim()
-      if (term.length < 2) { setSug([]); return }
-      setBuscando(true)
-      try {
-        const { data } = await supabase.rpc('fn_cliente_buscar', { p_company_id: empresa, p_termo: term, p_limit: 8 })
-        const res = ((data as { resultados?: { cliente_id: string; nome: string; cnpj_cpf: string | null }[] } | null)?.resultados) ?? []
-        setSug(res.map((r) => ({ id: r.cliente_id, nome: r.nome, doc: r.cnpj_cpf })))
-      } finally { setBuscando(false) }
-    }, 250)
-  }
-  function escolher(c: { id: string; nome: string }) { onChange(c.id); setNomeSel(c.nome); setOpen(false); setSug([]); setQ('') }
-  async function criarInline(nomeDireto?: string) {
-    const nome = (nomeDireto ?? (novoNome || q)).trim()
-    if (!nome) { setToast('Digite o nome/empresa do cliente.'); return }
-    const { data, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: empresa, p_nome: nome, p_cpf_cnpj: null, p_extra: {} })
-    if (error) { setToast(erroAmigavel(error, 'Não foi possível criar o cliente.')); return }
-    const id = data as string | null
-    if (id) { onChange(id); setNomeSel(nome) }
-    setCriando(false); setNovoNome(''); setOpen(false); setSug([])
-    setToast('Cliente CRIADO na GE e vinculado.')
-  }
-
-  return (
-    <div style={{ position: 'relative' }}>
-      <label style={lbl}><span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>Cliente (cadastro GE)<AjudaCampo chave="pm.propostas.cliente" /></span>
-        {value ? (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <div style={{ ...inp, flex: 1, display: 'flex', alignItems: 'center' }}>{nomeSel || 'Cliente selecionado'}</div>
-            <button onClick={() => { onChange(''); setNomeSel(''); setQ('') }} style={btnSec}>Trocar</button>
-          </div>
-        ) : (
-          <input style={inp} value={q} onChange={(e) => buscar(e.target.value)}
-            onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)}
-            placeholder="Buscar cliente da GE…" />
-        )}
-      </label>
-      {!value && nomeLead && !q && (
-        <div data-testid="proposta-cliente-do-lead" style={{ marginTop: 6, padding: '8px 10px', border: `1px dashed ${DOURADO}`, borderRadius: 8, fontSize: 12.5, color: ESPRESSO, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ flex: 1, minWidth: 160 }}>Cliente do lead: <b>{nomeLead}</b> — ainda sem cadastro na GE.</span>
-          <button onMouseDown={(e) => { e.preventDefault(); buscar(nomeLead) }} style={btnSec}>Buscar</button>
-          <button onMouseDown={(e) => { e.preventDefault(); void criarInline(nomeLead) }} style={btnSec}>+ Cadastrar na GE</button>
-        </div>
-      )}
-      {!value && open && (q.trim().length >= 2 || criando) && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 10, background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 8, marginTop: 2, boxShadow: '0 6px 20px rgba(0,0,0,.10)', maxHeight: 240, overflowY: 'auto' }}>
-          {buscando && <div style={{ padding: '8px 10px', fontSize: 12, color: TEXTM }}>Buscando…</div>}
-          {sug.map((c) => (
-            <div key={c.id} onMouseDown={(e) => { e.preventDefault(); escolher(c) }}
-              style={{ padding: '8px 10px', cursor: 'pointer', fontSize: 13, borderBottom: `1px solid ${BORDA}` }}>
-              {c.nome}{c.doc ? <span style={{ color: TEXTM, fontSize: 11, marginLeft: 6 }}>· {c.doc}</span> : null}
-            </div>
-          ))}
-          {!criando ? (
-            <div onMouseDown={(e) => { e.preventDefault(); setCriando(true); setNovoNome(q) }}
-              style={{ padding: '8px 10px', cursor: 'pointer', fontSize: 13, color: DOURADO, fontWeight: 700 }}>
-              + Cadastrar cliente{q.trim() ? ` "${q.trim()}"` : ''} na GE
-            </div>
-          ) : (
-            <div style={{ padding: 10, display: 'flex', gap: 6 }} onMouseDown={(e) => e.preventDefault()}>
-              <input style={{ ...inp, flex: 1 }} value={novoNome} onChange={(e) => setNovoNome(e.target.value)} placeholder="Nome do cliente" autoFocus />
-              <button onMouseDown={(e) => { e.preventDefault(); void criarInline() }} style={btnPri}>Criar</button>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   )
 }

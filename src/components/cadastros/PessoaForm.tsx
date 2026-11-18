@@ -32,6 +32,10 @@ export interface Pessoa {
   nome_fantasia: string
   razao_social: string | null
   cnpj_cpf: string | null
+  // Coluna irmã de documento: o form do CRM (ClienteForm) grava em cpf_cnpj, o cadastro em
+  // cnpj_cpf. Enquanto a consolidação (item 1, migration sensível) não ocorre, a tela lê/exibe/
+  // busca as DUAS para não "perder" cliente criado pelo CRM. Ver PDCA 17/11.
+  cpf_cnpj?: string | null
   tipo_pessoa: 'PF' | 'PJ' | null
   ie?: string | null
   inscricao_municipal?: string | null
@@ -47,11 +51,28 @@ export interface Pessoa {
   cidade: string | null
   uf: string | null
   codigo_ibge_municipio?: string | null   // só erp_clientes
+  // Dados comerciais (só erp_clientes). O form do CRM (ClienteForm) já os edita; o cadastro OFICIAL
+  // (esta tela) passa a ver/editar os mesmos campos — RD-98 (CRUD completo no cadastro). PDCA 17/11.
+  codigo?: string | null
+  limite_credito?: number | null
+  condicao_pagamento_padrao?: string | null
+  prazo_medio_dias?: number | null
+  segmento?: string | null
+  regime_tributario?: string | null
+  origem?: string | null
+  vendedor_nome?: string | null
+  observacoes?: string | null
   ativo: boolean
   tags: string[] | null
 }
 
 export const TAGS_SUGERIDAS = ['Cliente', 'Fornecedor', 'Funcionário', 'Parceiro', 'Prospect']
+
+// Opções comerciais — espelham o form do CRM (ClienteForm) para gravar no MESMO cadastro (erp_clientes).
+const CONDS_PGTO = ['À vista', '7 dias', '14 dias', '21 dias', '28 dias', '30 dias', '30/60 dias', '30/60/90 dias', '45 dias', '60 dias', '90 dias', 'Boleto 30d', 'PIX']
+const REGIMES = ['Simples Nacional', 'Lucro Presumido', 'Lucro Real', 'MEI', 'Produtor Rural', 'Isento']
+const SEGMENTOS = ['Indústria', 'Comércio', 'Serviço', 'Construção', 'Agro', 'Transporte', 'Educação', 'Saúde', 'Tecnologia', 'Varejo', 'Atacado', 'Outro']
+const ORIGENS = ['Indicação', 'Site', 'WhatsApp', 'Instagram', 'Google', 'Feira', 'Cold Call', 'Cliente Antigo', 'Parceiro', 'Outro']
 
 interface Props {
   companyId: string
@@ -127,6 +148,16 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
   const [ibgeManual, setIbgeManual] = useState(false)
   const [tags, setTags] = useState<string[]>(pessoa?.tags ?? (tipo === 'cliente' ? ['Cliente'] : ['Fornecedor']))
   const [novaTag, setNovaTag] = useState('')
+  // Dados comerciais (só cliente) — RD-98: o cadastro oficial passa a ver/editar o que vive no registro.
+  const [codigo, setCodigo] = useState(pessoa?.codigo ?? '')
+  const [limiteCredito, setLimiteCredito] = useState(pessoa?.limite_credito != null ? String(pessoa.limite_credito) : '')
+  const [condPagamento, setCondPagamento] = useState(pessoa?.condicao_pagamento_padrao ?? '')
+  const [prazoMedio, setPrazoMedio] = useState(pessoa?.prazo_medio_dias != null ? String(pessoa.prazo_medio_dias) : '')
+  const [segmento, setSegmento] = useState(pessoa?.segmento ?? '')
+  const [regimeTributario, setRegimeTributario] = useState(pessoa?.regime_tributario ?? '')
+  const [origem, setOrigem] = useState(pessoa?.origem ?? '')
+  const [vendedorNome, setVendedorNome] = useState(pessoa?.vendedor_nome ?? '')
+  const [observacoes, setObservacoes] = useState(pessoa?.observacoes ?? '')
   const [buscandoCNPJ, setBuscandoCNPJ] = useState(false)
   const [buscandoCEP, setBuscandoCEP] = useState(false)
   const [salvando, setSalvando] = useState(false)
@@ -199,7 +230,8 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
       .from(tabela)
       .select('nome_fantasia, razao_social')
       .eq('company_id', companyId)
-      .eq('cnpj_cpf', d)
+      // confere nas DUAS colunas de documento (cnpj_cpf do cadastro, cpf_cnpj do CRM)
+      .or(`cnpj_cpf.eq.${d},cpf_cnpj.eq.${d}`)
       .neq('id', pessoa?.id ?? '00000000-0000-0000-0000-000000000000')
       .eq('ativo', true)
       .limit(1)
@@ -264,7 +296,8 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
         .from(tabela)
         .select('id, nome_fantasia, razao_social')
         .eq('company_id', companyId)
-        .eq('cnpj_cpf', cnpjLimpo)
+        // confere nas DUAS colunas de documento (cnpj_cpf do cadastro, cpf_cnpj do CRM)
+        .or(`cnpj_cpf.eq.${cnpjLimpo},cpf_cnpj.eq.${cnpjLimpo}`)
         .neq('id', pessoa?.id ?? '00000000-0000-0000-0000-000000000000')
         // Chamados #129/#130 (Jordana · KGF/Gean): a checagem de duplicidade só considera cadastros ATIVOS.
         // Um duplicado INATIVADO (ativo=false, usado para "arquivar" um cadastro errado sem perder histórico)
@@ -360,7 +393,19 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
       tags: tags.length > 0 ? tags : null,
     }
     // erp_fornecedores não tem a coluna. NULL deixa o gatilho do banco tentar pela cidade + UF.
-    if (ehCliente) payload.codigo_ibge_municipio = ibgeF
+    if (ehCliente) {
+      payload.codigo_ibge_municipio = ibgeF
+      // Dados comerciais (só erp_clientes). Mesmos campos/colunas do form do CRM — um só cadastro.
+      payload.codigo = codigo.trim() || null
+      payload.limite_credito = limiteCredito.trim() ? (Number(limiteCredito) || 0) : null
+      payload.condicao_pagamento_padrao = condPagamento || null
+      payload.prazo_medio_dias = prazoMedio.trim() ? (parseInt(prazoMedio, 10) || 0) : null
+      payload.segmento = segmento || null
+      payload.regime_tributario = regimeTributario || null
+      payload.origem = origem || null
+      payload.vendedor_nome = vendedorNome.trim() || null
+      payload.observacoes = observacoes.trim() || null
+    }
 
     const result = pessoa?.id
       ? await supabase.from(tabela).update(payload).eq('id', pessoa.id)
@@ -584,6 +629,66 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
               </Campo>
             )}
           </div>
+
+          {/* Dados comerciais (só cliente) — RD-98: o cadastro oficial vê/edita o que o CRM edita no mesmo registro.
+              Limite de crédito, condição de pagamento, prazo, vendedor, segmento, origem e regime vivem em erp_clientes. */}
+          {ehCliente && (
+            <div style={{ marginTop: 8, padding: '12px 14px', background: '#FFFFFF', borderRadius: 8, border: '0.5px solid rgba(61,35,20,0.15)' }}>
+              <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10, fontWeight: 700 }}>
+                Dados comerciais
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <Campo ajuda="cadastros.pessoa.codigo" label="Código interno" hint="Seu código/apelido do cliente (opcional)">
+                  <input value={codigo} onChange={(e) => setCodigo(e.target.value)} style={{ ...inputStyle, fontFamily: 'monospace' }} />
+                </Campo>
+                <Campo ajuda="cadastros.pessoa.limite_credito" label="Limite de crédito (R$)">
+                  <input type="number" step="0.01" inputMode="decimal" value={limiteCredito} onChange={(e) => setLimiteCredito(e.target.value)} placeholder="0,00" style={inputStyle} />
+                </Campo>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <Campo ajuda="cadastros.pessoa.condicao_pagamento" label="Condição de pagamento">
+                  <select value={condPagamento} onChange={(e) => setCondPagamento(e.target.value)} style={inputStyle}>
+                    <option value="">— não definida</option>
+                    {CONDS_PGTO.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </Campo>
+                <Campo ajuda="cadastros.pessoa.prazo_medio" label="Prazo médio (dias)">
+                  <input type="number" inputMode="numeric" value={prazoMedio} onChange={(e) => setPrazoMedio(e.target.value)} placeholder="ex.: 30" style={inputStyle} />
+                </Campo>
+              </div>
+
+              <Campo ajuda="cadastros.pessoa.vendedor" label="Vendedor responsável">
+                <input value={vendedorNome} onChange={(e) => setVendedorNome(e.target.value)} style={inputStyle} />
+              </Campo>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                <Campo ajuda="cadastros.pessoa.segmento" label="Segmento">
+                  <select value={segmento} onChange={(e) => setSegmento(e.target.value)} style={inputStyle}>
+                    <option value="">—</option>
+                    {SEGMENTOS.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </Campo>
+                <Campo ajuda="cadastros.pessoa.origem" label="Origem">
+                  <select value={origem} onChange={(e) => setOrigem(e.target.value)} style={inputStyle}>
+                    <option value="">—</option>
+                    {ORIGENS.map((o) => <option key={o} value={o}>{o}</option>)}
+                  </select>
+                </Campo>
+                <Campo ajuda="cadastros.pessoa.regime_tributario" label="Regime tributário">
+                  <select value={regimeTributario} onChange={(e) => setRegimeTributario(e.target.value)} style={inputStyle}>
+                    <option value="">—</option>
+                    {REGIMES.map((r) => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </Campo>
+              </div>
+
+              <Campo ajuda="cadastros.pessoa.observacoes" label="Observações">
+                <textarea value={observacoes} onChange={(e) => setObservacoes(e.target.value)} rows={2} placeholder="Observações gerais sobre o cliente…" style={{ ...inputStyle, resize: 'vertical' }} />
+              </Campo>
+            </div>
+          )}
 
           <Campo ajuda="cadastros.pessoa.tags" label="Tags" hint="Categorize a pessoa · clique nas sugestões ou digite uma tag nova">
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
