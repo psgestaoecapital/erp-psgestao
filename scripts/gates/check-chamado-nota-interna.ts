@@ -1,5 +1,5 @@
 // Gate (#7050 opção A · jordana-code): a nota interna do chamado é privada ao autor e não move a coluna.
-// Prova estática (sem rede/banco) sobre a migration 20261120061020_chamado_nota_interna_7050.sql:
+// Prova estática (sem rede/banco) sobre a migration 20261120072020_chamado_nota_interna_7050.sql:
 //  1. coluna nota_interna aditiva, default false (nenhuma linha existente muda);
 //  2. RLS sugestao_msg_sel esconde nota interna de quem não é da fila de suporte (nota_interna = false);
 //  3. fn_sugestao_mensagem_enviar: só a PS marca nota interna; nota interna NÃO aprova resposta;
