@@ -12,6 +12,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { acharErroCatalogo, type ErroCatalogo } from '@/lib/banco/erroCatalogo'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', ESP60 = 'rgba(61,35,20,0.55)'
 const OK = '#2E7D5B', WARN = '#8A5A00', ERR = '#B23B3B'
@@ -154,9 +155,12 @@ export default function AssistenteConexaoPage() {
             <Link href="/dashboard/financeiro/conexoes-bancarias" style={{ fontSize: 12, color: ESP60 }}>← Conexões Bancárias</Link>
             <h1 style={{ fontSize: 20, fontWeight: 700, color: ESP, margin: '4px 0 0' }}>Assistente de Conexão Bancária</h1>
           </div>
-          <select value={provider} onChange={(e) => setProvider(e.target.value)} style={{ padding: '8px 10px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 13 }}>
-            {manifestos.map((m) => <option key={m.provider} value={m.provider}>{m.nome}</option>)}
-          </select>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <AjudaCampo chave="conexoes.assistente.banco" />
+            <select value={provider} onChange={(e) => setProvider(e.target.value)} style={{ padding: '8px 10px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 13 }}>
+              {manifestos.map((m) => <option key={m.provider} value={m.provider}>{m.nome}</option>)}
+            </select>
+          </label>
         </div>
 
         {man && (
@@ -208,7 +212,8 @@ export default function AssistenteConexaoPage() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 10 }}>
                 {(man.campos ?? []).filter((c) => !(man.campos_ausentes ?? []).includes(c.id)).map((c) => (
                   <div key={c.id}>
-                    <div style={{ fontSize: 11, color: ESP60 }}>{c.label}{c.secret ? ' 🔒' : ''}</div>
+                    <div style={{ fontSize: 11, color: ESP60, display: 'inline-flex', alignItems: 'center', gap: 4 }}>{c.label}{c.secret ? ' 🔒' : ''}</div>
+                    <AjudaCampo chave="conexoes.assistente.campo_modelo" />
                     <input disabled title="Campo apenas ilustrativo — preencha na tela Conectar" placeholder={c.exemplo ? `ex.: ${c.exemplo}` : c.tipo === 'arquivo' ? 'anexar .pfx (na tela Conectar)' : ''} style={{ width: '100%', padding: '7px 9px', border: `1px solid ${LINE}`, borderRadius: 6, fontSize: 12, background: '#faf8f4' }} />
                     {c.helper && <small style={{ fontSize: 10, color: ESP60, display: 'block', marginTop: 2 }}>{c.helper}</small>}
                   </div>
