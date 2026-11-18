@@ -68,7 +68,15 @@ function resolvePeriodo(periodo?: string): { de: string; ate: string; status: st
     default: return { de: iso(addDias(h, -365)), ate: iso(addDias(h, 365)), status: 'todos' }
   }
 }
-const STATUS_OK = new Set(['todos', 'aberto', 'vencido', 'pago'])
+// Status do catálogo → filtros que o fn_ge_listagem_v2 entende (p_status_filtros). Antes passávamos 'vencido'/'aberto'/'pago',
+// que a RPC não reconhece → lista sempre vazia em "inadimplentes" e nos filtros de status.
+const STATUS_FILTROS: Record<string, string[]> = {
+  todos: ['todos'],
+  aberto: ['vencidos', 'hoje', 'avencer'],
+  vencido: ['vencidos'],
+  pago: ['pagos', 'conciliado'],
+}
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const brl = (v: number) => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 function extrairJSON(texto: string): { tool?: string; params?: Record<string, unknown> } | null {
@@ -95,7 +103,11 @@ export async function POST(req: NextRequest) {
   if (!pergunta) return NextResponse.json({ ok: false, error: 'Escreva uma pergunta.' }, { status: 400 })
   if (pergunta.length > 500) return NextResponse.json({ ok: false, error: 'Pergunta muito longa — resuma em poucas palavras.' }, { status: 400 })
 
-  // Multi-tenant: a empresa vem da sessão e é VALIDADA aqui (o LLM nunca escolhe empresa).
+  // Multi-tenant / LGPD: a empresa vem do seletor do topo e é VALIDADA aqui contra get_user_company_ids() do
+  // PRÓPRIO usuário (o LLM nunca escolhe empresa). "Consolidado"/grupo não é aceito: o consultor responde por UM CNPJ.
+  if (!UUID_RE.test(companyId)) {
+    return NextResponse.json({ ok: false, error: 'Selecione uma empresa (um CNPJ) no topo da tela para perguntar.' }, { status: 400 })
+  }
   const negado = await exigirEmpresas(u, [companyId])
   if (negado) return negado
 
@@ -125,8 +137,9 @@ export async function POST(req: NextRequest) {
       prompt: `FERRAMENTAS:\n${JSON.stringify(CATALOGO)}\n\nPERGUNTA: "${pergunta}"\n\nResponda só o JSON.`,
     })
     escolha = extrairJSON(resp.text)
-    // registra o custo (estimativa conservadora — roteamento é minúsculo)
-    admin.rpc('fn_ia_empresa_registrar_gasto', { p_company_id: companyId, p_feature: FEATURE, p_custo_usd: CUSTO_ESTIMADO, p_chamadas: 1 }).then(() => {}, () => {})
+    // registra o custo (estimativa conservadora — roteamento é minúsculo). AWAIT: em função serverless um
+    // fire-and-forget pode morrer antes de gravar, e sem registro o teto global nunca dispara.
+    await admin.rpc('fn_ia_empresa_registrar_gasto', { p_company_id: companyId, p_feature: FEATURE, p_custo_usd: CUSTO_ESTIMADO, p_chamadas: 1 }).then(() => {}, () => {})
   } catch (e) {
     if (e instanceof IABloqueadaError) {
       return NextResponse.json({ ok: true, bloqueado: true, motivo: 'ia_bloqueada',
@@ -148,9 +161,10 @@ export async function POST(req: NextRequest) {
     if (tool === 'contas_receber' || tool === 'contas_pagar') {
       const tipo = tool === 'contas_receber' ? 'receber' : 'pagar'
       const { de, ate, status } = resolvePeriodo(typeof params.periodo === 'string' ? params.periodo : undefined)
-      const pedido = typeof params.status === 'string' && STATUS_OK.has(params.status.toLowerCase()) ? params.status.toLowerCase() : status
-      const { data, error } = await sb.rpc('fn_ge_listagem_v2', { p_company_id: companyId, p_tipo: tipo, p_data_inicio: de, p_data_fim: ate, p_status_filtro: pedido })
+      const pedido = typeof params.status === 'string' && STATUS_FILTROS[params.status.toLowerCase()] ? params.status.toLowerCase() : status
+      const { data, error } = await sb.rpc('fn_ge_listagem_v2', { p_company_id: companyId, p_tipo: tipo, p_data_inicio: de, p_data_fim: ate, p_status_filtro: 'todos', p_status_filtros: STATUS_FILTROS[pedido] ?? ['todos'] })
       if (error) throw error
+      if ((data as { sem_plano?: boolean })?.sem_plano) return NextResponse.json({ ok: true, naoEntendi: true, mensagem: 'Esta empresa não tem o módulo financeiro da Gestão Empresarial ativo.' })
       const r = data as { kpis?: Record<string, { qtd?: number; valor?: number } | number>; resultados?: unknown[]; total_rows?: number }
       const tot = r?.kpis?.total
       const totalValor = typeof tot === 'number' ? tot : (tot as { valor?: number })?.valor ?? 0
@@ -160,7 +174,7 @@ export async function POST(req: NextRequest) {
     }
     if (tool === 'inadimplentes') {
       const { de, ate } = resolvePeriodo('vencidos')
-      const { data, error } = await sb.rpc('fn_ge_listagem_v2', { p_company_id: companyId, p_tipo: 'receber', p_data_inicio: de, p_data_fim: ate, p_status_filtro: 'vencido' })
+      const { data, error } = await sb.rpc('fn_ge_listagem_v2', { p_company_id: companyId, p_tipo: 'receber', p_data_inicio: de, p_data_fim: ate, p_status_filtro: 'vencidos' })
       if (error) throw error
       const r = data as { kpis?: { vencidos?: { qtd?: number; valor?: number } }; resultados?: unknown[] }
       const v = r?.kpis?.vencidos ?? {}
