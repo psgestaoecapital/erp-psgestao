@@ -12,7 +12,7 @@
 --      do próprio anthropic_budget_control (dia/mês; padrão 2/60) e soma o gasto do consultor AO gasto do resto do
 --      sistema no mesmo dia/mês — o teto passa a ser do sistema inteiro, como o CEO pediu.
 
-CREATE OR REPLACE FUNCTION public.fn_ia_empresa_registrar_gasto(p_company_id uuid, p_feature text, p_custo_usd numeric, p_chamadas integer DEFAULT 1)
+CREATE OR REPLACE FUNCTION public.fn_ia_empresa_registrar_gasto(p_company_id uuid, p_feature text, p_custo_usd numeric, p_chamadas int DEFAULT 1)
  RETURNS void
  LANGUAGE plpgsql
  SECURITY DEFINER
@@ -79,7 +79,7 @@ BEGIN
                             'consumo_mes', v_feat_mes + v_outros_mes, 'teto_mes', v_teto_mes);
 END $function$;
 
-REVOKE ALL ON FUNCTION public.fn_ia_empresa_registrar_gasto(uuid, text, numeric, integer) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.fn_ia_empresa_registrar_gasto(uuid, text, numeric, int) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.fn_ia_global_pode_gastar(text, numeric) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.fn_ia_empresa_registrar_gasto(uuid, text, numeric, integer) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_ia_empresa_registrar_gasto(uuid, text, numeric, int) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.fn_ia_global_pode_gastar(text, numeric) TO authenticated, service_role;
