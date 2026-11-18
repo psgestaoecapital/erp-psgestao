@@ -349,7 +349,14 @@ export default function InboxPage() {
       p_data_fim: fim,
       p_limite: 200,
     })
-    if (!error) setPendenciasSistema((data ?? []) as PendenciaSistema[])
+    if (error) {
+      // criterio c/e (RD-98): nao deixar a aba "verde-vazia" quando a query falha —
+      // erro != "sem pendencias". Avisa em linguagem do usuario e preserva a lista atual.
+      setErro(erroAmigavel(error, 'Não foi possível carregar as pendências do sistema agora. Tente de novo em instantes.'))
+      setLoadingSistema(false)
+      return
+    }
+    setPendenciasSistema((data ?? []) as PendenciaSistema[])
     setLoadingSistema(false)
   }
 
@@ -359,7 +366,12 @@ export default function InboxPage() {
       p_company_id: empresaUnica,
       p_limite: 500,
     })
-    if (!error) setConciliados((data ?? []) as Conciliado[])
+    if (error) {
+      // criterio c/e (RD-98): erro de query nao pode virar aba "Conciliados" vazia e silenciosa.
+      setErro(erroAmigavel(error, 'Não foi possível carregar os conciliados agora. Tente de novo em instantes.'))
+      return
+    }
+    setConciliados((data ?? []) as Conciliado[])
   }
 
   // Expande/recolhe os títulos de uma fatura agrupada (lancamento_id NULL).
