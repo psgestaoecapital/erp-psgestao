@@ -69,15 +69,19 @@ const linhaVazia = (): LinhaForm => ({ descricao: '', unidade: '', quantidade: '
 
 type Medicao = {
   id: string; numero: string | null; competencia: string | null; data_medicao: string | null
-  valor_bruto: number | null; retencao_pct: number | null; valor_retencao: number | null; valor_liquido: number | null
+  valor_bruto: number | null; retencao_pct: number | null; valor_retencao: number | null
+  inss_pct: number | null; iss_pct: number | null; valor_inss: number | null; valor_iss: number | null
+  valor_liquido: number | null
   status: string; observacoes: string | null; criado_em: string | null
 }
 type MedForm = {
   medicao_id: string | null; contrato_id: string
   competencia: string; data_medicao: string; valor_bruto: string; status: string; observacoes: string
+  inss_pct: string; iss_pct: string
 }
 const medFormVazio = (contratoId: string): MedForm => ({
   medicao_id: null, contrato_id: contratoId, competencia: '', data_medicao: '', valor_bruto: '', status: 'rascunho', observacoes: '',
+  inss_pct: '', iss_pct: '',
 })
 
 type FormState = {
@@ -280,6 +284,8 @@ export default function SubempreiteirosObraPage({ params }: { params: Promise<{ 
       competencia: m.competencia ?? '', data_medicao: m.data_medicao ?? '',
       valor_bruto: m.valor_bruto != null ? String(m.valor_bruto) : '',
       status: m.status || 'rascunho', observacoes: m.observacoes ?? '',
+      inss_pct: m.inss_pct != null ? String(m.inss_pct) : '',
+      iss_pct: m.iss_pct != null ? String(m.iss_pct) : '',
     })
     setErro(null)
   }
@@ -288,6 +294,10 @@ export default function SubempreiteirosObraPage({ params }: { params: Promise<{ 
     if (!medForm) return
     const bruto = parseNumBR(medForm.valor_bruto) || 0
     if (bruto <= 0) { setErro('Informe o valor bruto medido (maior que zero).'); return }
+    const inss = parseNumBR(medForm.inss_pct) || 0
+    const iss = parseNumBR(medForm.iss_pct) || 0
+    if (inss < 0 || inss > 100) { setErro('O INSS deve estar entre 0 e 100%.'); return }
+    if (iss < 0 || iss > 100) { setErro('O ISS deve estar entre 0 e 100%.'); return }
     setMedSalvando(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_obra_subempreiteiro_medicao_salvar', {
       p_medicao: {
@@ -296,6 +306,8 @@ export default function SubempreiteirosObraPage({ params }: { params: Promise<{ 
         competencia: medForm.competencia || null,
         data_medicao: medForm.data_medicao || null,
         valor_bruto: bruto,
+        inss_pct: inss,
+        iss_pct: iss,
         status: medForm.status,
         observacoes: medForm.observacoes.trim() || null,
       },
@@ -574,8 +586,12 @@ export default function SubempreiteirosObraPage({ params }: { params: Promise<{ 
                         {medForm && medForm.contrato_id === c.id && (() => {
                           const bruto = parseNumBR(medForm.valor_bruto) || 0
                           const ret = Number(c.retencao_pct) || 0
+                          const inss = parseNumBR(medForm.inss_pct) || 0
+                          const iss = parseNumBR(medForm.iss_pct) || 0
                           const vret = Math.round(bruto * ret) / 100
-                          const liq = bruto - vret
+                          const vinss = Math.round(bruto * inss) / 100
+                          const viss = Math.round(bruto * iss) / 100
+                          const liq = bruto - vret - vinss - viss
                           return (
                             <div style={{ ...card, marginTop: 10, background: BG }} data-testid={`sub-medicao-form-${c.id}`}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -596,6 +612,14 @@ export default function SubempreiteirosObraPage({ params }: { params: Promise<{ 
                                   <span>Valor bruto medido <AjudaCampo chave="projetos.subempreiteiro.medicao_valor_bruto" rota={ROTA} /></span>
                                   <input inputMode="decimal" value={medForm.valor_bruto} onChange={(e) => setMedForm((f) => f && ({ ...f, valor_bruto: e.target.value }))} style={{ ...inp, marginTop: 4 }} placeholder="0,00" data-testid={`sub-medicao-valor-${c.id}`} />
                                 </label>
+                                <label style={{ ...lbl, flexDirection: 'column', alignItems: 'stretch', minWidth: 120 }}>
+                                  <span>INSS retido (%) <AjudaCampo chave="projetos.subempreiteiro.medicao_inss" rota={ROTA} /></span>
+                                  <input inputMode="decimal" value={medForm.inss_pct} onChange={(e) => setMedForm((f) => f && ({ ...f, inss_pct: e.target.value }))} style={{ ...inp, marginTop: 4 }} placeholder="0" data-testid={`sub-medicao-inss-${c.id}`} />
+                                </label>
+                                <label style={{ ...lbl, flexDirection: 'column', alignItems: 'stretch', minWidth: 120 }}>
+                                  <span>ISS retido (%) <AjudaCampo chave="projetos.subempreiteiro.medicao_iss" rota={ROTA} /></span>
+                                  <input inputMode="decimal" value={medForm.iss_pct} onChange={(e) => setMedForm((f) => f && ({ ...f, iss_pct: e.target.value }))} style={{ ...inp, marginTop: 4 }} placeholder="0" data-testid={`sub-medicao-iss-${c.id}`} />
+                                </label>
                                 <label style={{ ...lbl, flexDirection: 'column', alignItems: 'stretch', minWidth: 150 }}>
                                   <span>Situação <AjudaCampo chave="projetos.subempreiteiro.medicao_status" rota={ROTA} /></span>
                                   <select value={medForm.status} onChange={(e) => setMedForm((f) => f && ({ ...f, status: e.target.value }))} style={{ ...inp, marginTop: 4 }} data-testid={`sub-medicao-status-${c.id}`}>
@@ -611,10 +635,14 @@ export default function SubempreiteirosObraPage({ params }: { params: Promise<{ 
                               </label>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 12, flexWrap: 'wrap' }}>
                                 <div style={{ fontSize: 13, color: ESP }}>
-                                  <span style={{ color: MUT }}>Líquido (após {ret}% de retenção) </span>
+                                  <span style={{ color: MUT }}>Líquido (após retenção, INSS e ISS) </span>
                                   <AjudaCampo chave="projetos.subempreiteiro.medicao_liquido" rota={ROTA} />
                                   <strong style={{ marginLeft: 6 }}>{brl(liq)}</strong>
-                                  {ret > 0 && <span style={{ color: MUT, marginLeft: 8 }}>(retenção {brl(vret)})</span>}
+                                  {(vret + vinss + viss) > 0 && (
+                                    <span style={{ color: MUT, marginLeft: 8 }}>
+                                      ({[ret > 0 ? `retenção ${brl(vret)}` : null, inss > 0 ? `INSS ${brl(vinss)}` : null, iss > 0 ? `ISS ${brl(viss)}` : null].filter(Boolean).join(' · ')})
+                                    </span>
+                                  )}
                                 </div>
                                 <span style={{ flex: 1 }} />
                                 <button onClick={() => void salvarMedicao()} disabled={medSalvando} style={{ ...btn(ESP), opacity: medSalvando ? 0.6 : 1 }} data-testid={`sub-medicao-salvar-${c.id}`}>
@@ -638,6 +666,8 @@ export default function SubempreiteirosObraPage({ params }: { params: Promise<{ 
                                   <th style={{ padding: '6px 8px' }}>Data</th>
                                   <th style={{ padding: '6px 8px', textAlign: 'right' }}>Bruto</th>
                                   <th style={{ padding: '6px 8px', textAlign: 'right' }}>Retenção</th>
+                                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>INSS</th>
+                                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>ISS</th>
                                   <th style={{ padding: '6px 8px', textAlign: 'right' }}>Líquido</th>
                                   <th style={{ padding: '6px 8px' }}>Situação</th>
                                   <th style={{ padding: '6px 8px', width: 150 }} />
@@ -652,6 +682,8 @@ export default function SubempreiteirosObraPage({ params }: { params: Promise<{ 
                                       <td style={{ padding: '6px 8px', color: ESP }}>{fmtData(m.data_medicao)}</td>
                                       <td style={{ padding: '6px 8px', textAlign: 'right', color: ESP }}>{brl(m.valor_bruto)}</td>
                                       <td style={{ padding: '6px 8px', textAlign: 'right', color: MUT }}>{brl(m.valor_retencao)}</td>
+                                      <td style={{ padding: '6px 8px', textAlign: 'right', color: MUT }}>{brl(m.valor_inss)}</td>
+                                      <td style={{ padding: '6px 8px', textAlign: 'right', color: MUT }}>{brl(m.valor_iss)}</td>
                                       <td style={{ padding: '6px 8px', textAlign: 'right', color: ESP }}>{brl(m.valor_liquido)}</td>
                                       <td style={{ padding: '6px 8px' }}><span style={{ fontSize: 12, fontWeight: 700, color: mst.cor }}>{mst.l}</span></td>
                                       <td style={{ padding: '6px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>
