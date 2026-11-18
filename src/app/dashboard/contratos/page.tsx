@@ -5,6 +5,8 @@ import { useCompanyIds } from "@/lib/useCompanyIds";
 import ContratosFeePanel from "@/components/ge/ContratosFeePanel";
 import ContratosModelosPanel from "@/components/ge/ContratosModelosPanel";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { CampoMoeda } from "@/components/comum/CampoMoeda";
+import { numeroParaMoeda, moedaParaNumero } from "@/lib/moeda-mascara";
 import { erroAmigavel } from "@/lib/erroAmigavel";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
@@ -1004,8 +1006,8 @@ export default function ContratosPage(){
                 </select></div>
               <div style={{gridColumn:"span 2"}}><div style={{fontSize:10,color:TXD,marginBottom:3}}>Nome do Contrato *</div>
                 <input value={novoContrato.nome} onChange={e=>setNovoContrato({...novoContrato,nome:e.target.value})} placeholder="Ex: BPO Financeiro Mensal Premium" style={inp}/></div>
-              <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Valor Mensal (R$) *</div>
-                <input type="number" step="0.01" value={novoContrato.valor_mensal||''} onChange={e=>setNovoContrato({...novoContrato,valor_mensal:parseFloat(e.target.value)||0})} style={inp}/></div>
+              <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Valor Mensal (R$) * <AjudaCampo chave="ge.contrato.novo.valor_mensal" /></div>
+                <CampoMoeda value={numeroParaMoeda(novoContrato.valor_mensal||null)} onChange={v=>setNovoContrato({...novoContrato,valor_mensal:moedaParaNumero(v)??0})} placeholder="0,00" style={inp}/></div>
               <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Dia do Vencimento</div>
                 <input type="number" min="1" max="28" value={novoContrato.dia_vencimento} onChange={e=>setNovoContrato({...novoContrato,dia_vencimento:parseInt(e.target.value)||10})} style={inp}/></div>
               <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Data de Início *</div>
@@ -1259,8 +1261,8 @@ export default function ContratosPage(){
                 <input value={editForm.nome} onChange={e=>setEditForm({...editForm,nome:e.target.value})} style={inp}/></div>
               <div style={{gridColumn:"1 / -1"}}><div style={{fontSize:10,color:TXD,marginBottom:3}}>Cliente (nome exibido)</div>
                 <input value={editForm.cliente_nome} onChange={e=>setEditForm({...editForm,cliente_nome:e.target.value})} style={inp}/></div>
-              <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Valor mensal (R$)</div>
-                <input type="number" step="0.01" value={editForm.valor_mensal} onChange={e=>setEditForm({...editForm,valor_mensal:e.target.value})} style={inp}/></div>
+              <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Valor mensal (R$) <AjudaCampo chave="ge.contrato.editar.valor_mensal" /></div>
+                <CampoMoeda value={numeroParaMoeda(Number(editForm.valor_mensal)||null)} onChange={v=>setEditForm({...editForm,valor_mensal:moedaParaNumero(v)??0})} placeholder="0,00" style={inp}/></div>
               <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Dia de vencimento</div>
                 <input type="number" min="1" max="31" value={editForm.dia_vencimento} onChange={e=>setEditForm({...editForm,dia_vencimento:e.target.value})} style={inp}/></div>
               <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Índice de reajuste</div>
