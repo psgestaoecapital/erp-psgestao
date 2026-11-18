@@ -160,3 +160,11 @@ BEGIN
     'historico', COALESCE(v_hist, '[]'::jsonb),
     'convite', v_conv);
 END $function$;
+
+-- ACL explícita exigida pelo gate check_fn_guards (SECURITY DEFINER ≥ cutoff).
+-- Idêntica à ACL viva (authenticated=X, service_role=X, sem anon/PUBLIC) → no-op funcional.
+REVOKE ALL ON FUNCTION public.fn_veic_perfil_fiscal_salvar(uuid, jsonb, jsonb, text, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_veic_perfil_fiscal_salvar(uuid, jsonb, jsonb, text, uuid) TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.fn_veic_perfil_fiscal_obter(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_veic_perfil_fiscal_obter(uuid) TO authenticated, service_role;
