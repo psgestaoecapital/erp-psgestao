@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { parseNumBR } from '@/lib/num'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF'
 const MUT = 'rgba(61,35,20,0.55)', GREEN = '#166534', RED = '#A32D2D'
@@ -797,7 +798,8 @@ function AjusteModal({ empresa, competencia, funcionarioId, nome, onClose, onCha
             <select value={tipo} onChange={(e) => setTipo(e.target.value as 'adicional' | 'desconto')} style={{ border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '7px 8px', fontSize: 12.5, color: ESP, background: '#fff' }}>
               <option value="adicional">Adicional (+)</option><option value="desconto">Desconto (−)</option>
             </select>
-            <input inputMode="decimal" placeholder="valor R$" value={valor} onChange={(e) => setValor(e.target.value.replace(/[^\d.,]/g, ''))} style={{ width: 110, border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '7px 8px', fontSize: 12.5, color: ESP, background: '#fff' }} />
+            {/* #6874 — valor do ajuste com máscara R$ ao digitar; parseNumBR (salvar) já interpreta "R$ 1.500,00" */}
+            <CampoMoeda placeholder="valor R$" value={valor} onChange={setValor} style={{ width: 110, border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '7px 8px', fontSize: 12.5, color: ESP, background: '#fff' }} />
           </div>
           <input placeholder="motivo (obrigatório)" value={motivo} onChange={(e) => setMotivo(e.target.value)} maxLength={200} style={{ width: '100%', marginTop: 8, border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '7px 8px', fontSize: 12.5, color: ESP, background: '#fff', boxSizing: 'border-box' }} />
           <button onClick={() => void salvar()} disabled={busy} style={{ marginTop: 8, background: GOLD, color: '#fff', border: 'none', borderRadius: 6, padding: '7px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>+ Lançar ajuste</button>

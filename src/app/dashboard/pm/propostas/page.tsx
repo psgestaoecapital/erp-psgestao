@@ -605,7 +605,8 @@ export default function PropostasPage() {
                   <div style={{ display: 'grid', gridTemplateColumns: '0.7fr 0.7fr 1fr 1fr auto', gap: 8, marginTop: 8, alignItems: 'center' }}>
                     <input style={inp} type="number" min={0} value={it.quantidade} onChange={(e) => setItem(i, { quantidade: num(e.target.value) })} placeholder="Qtd" />
                     <input style={inp} value={it.unidade} onChange={(e) => setItem(i, { unidade: e.target.value })} placeholder="un" />
-                    <input style={inp} type="number" min={0} step="0.01" value={it.valor_unitario} onChange={(e) => setItem(i, { valor_unitario: num(e.target.value) })} placeholder="Valor unit." />
+                    {/* #6874 — valor unitário do item com máscara R$ ao digitar (igual a Desconto/Fee desta tela); valor_total recalcula em setItem */}
+                    <CampoMoeda style={inp} value={numeroParaMoeda(it.valor_unitario)} onChange={(v) => setItem(i, { valor_unitario: moedaParaNumero(v) ?? 0 })} placeholder="Valor unit." />
                     <div style={{ fontSize: 13, fontWeight: 700, textAlign: 'right', color: ESPRESSO }}>{brl(it.valor_total)}</div>
                     <button onClick={() => rmItem(i)} disabled={itens.length === 1} title="Remover" style={{ ...btnSec, borderColor: RED, color: RED, opacity: itens.length === 1 ? 0.4 : 1 }}>✕</button>
                   </div>
