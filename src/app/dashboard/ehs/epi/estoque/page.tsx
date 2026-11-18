@@ -38,6 +38,7 @@ interface EstoqueRow {
   qtd_disponivel: number
   qtd_reservada: number
   qtd_minima_alerta: number
+  ativo: boolean
   created_at: string
 }
 
@@ -75,8 +76,12 @@ export default function EstoqueEpiPage() {
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [busca, setBusca] = useState('')
+  const [mostrarInativos, setMostrarInativos] = useState(false)
+  const [acaoId, setAcaoId] = useState<string | null>(null)
   const [showEntrada, setShowEntrada] = useState(false)
   const [editandoMinimo, setEditandoMinimo] = useState<EstoqueRow | null>(null)
+  // RD-98 p2 — baixa rastreavel do item de estoque (perda/dano/descarte/acerto) via fn_epi_estoque_baixar.
+  const [baixando, setBaixando] = useState<EstoqueRow | null>(null)
   // #3865 — Requisição/baixa de EPI: entrega ao funcionário dá baixa no estoque (fn_epi_registrar_entrega).
   const [funcionarios, setFuncionarios] = useState<FuncionarioEntrega[]>([])
   const [funcEntregaId, setFuncEntregaId] = useState('')
@@ -94,8 +99,9 @@ export default function EstoqueEpiPage() {
       const [estR, ownR, globalR] = await Promise.all([
         supabase
           .from('epi_estoque')
-          .select('id, company_id, catalogo_id, localizacao, qtd_disponivel, qtd_reservada, qtd_minima_alerta, created_at, epi_catalogo(nome, ca_numero, lote)')
+          .select('id, company_id, catalogo_id, localizacao, qtd_disponivel, qtd_reservada, qtd_minima_alerta, ativo, created_at, epi_catalogo(nome, ca_numero, lote)')
           .in('company_id', ids)
+          .eq('ativo', true) // itens inativados por baixa total (fn_epi_estoque_baixar) saem da lista
           .order('created_at', { ascending: false }),
         supabase
           .from('epi_catalogo')
@@ -116,6 +122,7 @@ export default function EstoqueEpiPage() {
       if (globalR.error) throw globalR.error
       setEstoque(((estR.data || []) as any[]).map((r) => ({
         ...r,
+        ativo: r.ativo ?? true,
         catalogo_nome: (r.epi_catalogo as any)?.nome,
         ca_numero: (r.epi_catalogo as any)?.ca_numero,
         catalogo_lote: (r.epi_catalogo as any)?.lote,
@@ -157,9 +164,29 @@ export default function EstoqueEpiPage() {
 
   const estoqueFiltrado = useMemo(() => {
     const q = busca.toLowerCase().trim()
-    if (!q) return estoque
-    return estoque.filter((e) => `${e.catalogo_nome || ''} ${e.ca_numero || ''} ${e.localizacao || ''}`.toLowerCase().includes(q))
-  }, [estoque, busca])
+    return estoque.filter((e) => {
+      if (!mostrarInativos && !e.ativo) return false
+      if (!q) return true
+      return `${e.catalogo_nome || ''} ${e.ca_numero || ''} ${e.localizacao || ''}`.toLowerCase().includes(q)
+    })
+  }, [estoque, busca, mostrarInativos])
+
+  // RD-98 p2: inativação/reativação rastreável do item de estoque (soft-delete via coluna `ativo`),
+  // no mesmo padrão de gravação direta da tela (RLS epi_estoque escopa por company_id). O saldo e o
+  // histórico ficam guardados; nada é apagado.
+  async function alternarAtivo(row: EstoqueRow) {
+    setAcaoId(row.id)
+    setErro(null)
+    try {
+      const { error } = await supabase.from('epi_estoque').update({ ativo: !row.ativo }).eq('id', row.id)
+      if (error) throw error
+      await carregar()
+    } catch {
+      setErro(row.ativo ? 'Não foi possível inativar o item. Tente de novo.' : 'Não foi possível reativar o item. Tente de novo.')
+    } finally {
+      setAcaoId(null)
+    }
+  }
 
   function statusEstoque(row: EstoqueRow): { cor: string; label: string } {
     const min = row.qtd_minima_alerta || 0
@@ -203,6 +230,11 @@ export default function EstoqueEpiPage() {
           <label style={{ display: 'block' }}>
             <span style={{ ...labelStyle, display: 'inline-flex', alignItems: 'center', gap: 6 }}>Buscar no estoque <AjudaCampo chave="compliance.epi.estoque.busca" rota={ROTA} /></span>
             <input type="text" placeholder="Buscar por EPI / CA / localização…" value={busca} onChange={(e) => setBusca(e.target.value)} style={{ ...inputStyle, width: '100%' }} />
+          </label>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 12, fontSize: 13, color: C.espressoLt, cursor: 'pointer' }}>
+            <input type="checkbox" checked={mostrarInativos} onChange={(e) => setMostrarInativos(e.target.checked)} />
+            Mostrar inativos
+            <AjudaCampo chave="compliance.epi.estoque.mostrar_inativos" rota={ROTA} />
           </label>
         </section>
 
@@ -258,8 +290,8 @@ export default function EstoqueEpiPage() {
                 {estoqueFiltrado.map((e, i) => {
                   const st = statusEstoque(e)
                   return (
-                    <tr key={e.id} style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.borderLt}` }}>
-                      <Td><strong>{e.catalogo_nome || '—'}</strong>{e.catalogo_lote ? <div style={{ fontSize: 11, color: C.muted }}>Lote: {e.catalogo_lote}</div> : null}</Td>
+                    <tr key={e.id} style={{ borderTop: i === 0 ? 'none' : `1px solid ${C.borderLt}`, opacity: e.ativo ? 1 : 0.6 }}>
+                      <Td><strong>{e.catalogo_nome || '—'}</strong>{!e.ativo && <span style={{ marginLeft: 6, display: 'inline-block', padding: '1px 7px', borderRadius: 10, fontSize: 10, fontWeight: 700, background: 'rgba(61,35,20,0.08)', color: C.muted }}>inativo</span>}{e.catalogo_lote ? <div style={{ fontSize: 11, color: C.muted }}>Lote: {e.catalogo_lote}</div> : null}</Td>
                       <Td mono>{e.ca_numero || '—'}</Td>
                       <Td>{e.localizacao || '—'}</Td>
                       {multiEmpresa && <Td>{empresaPorId.get(e.company_id) || '—'}</Td>}
@@ -270,7 +302,21 @@ export default function EstoqueEpiPage() {
                         <span style={{ display: 'inline-block', padding: '3px 10px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: st.cor + '22', color: st.cor }}>{st.label}</span>
                       </Td>
                       <Td align="right">
-                        <button onClick={() => setEditandoMinimo(e)} style={{ ...btnSec, padding: '4px 10px', fontSize: 11 }}>Editar mínimo</button>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+                          <button onClick={() => setEditandoMinimo(e)} style={{ ...btnSec, padding: '4px 10px', fontSize: 11 }}>Editar mínimo</button>
+                          <button
+                            onClick={() => setBaixando(e)}
+                            disabled={e.qtd_disponivel <= 0}
+                            style={{ ...btnSec, padding: '4px 10px', fontSize: 11, color: C.red, borderColor: C.red + '55', opacity: e.qtd_disponivel <= 0 ? 0.4 : 1, cursor: e.qtd_disponivel <= 0 ? 'not-allowed' : 'pointer' }}
+                          >Baixar</button>
+                          <AjudaCampo chave="compliance.epi.estoque.acao_baixar" rota={ROTA} />
+                          <button
+                            onClick={() => void alternarAtivo(e)}
+                            disabled={acaoId === e.id}
+                            style={{ ...btnSec, padding: '4px 10px', fontSize: 11, color: e.ativo ? C.red : C.green, borderColor: e.ativo ? '#f0d4d4' : '#d0e8d6', cursor: acaoId === e.id ? 'default' : 'pointer' }}
+                          >{acaoId === e.id ? '…' : (e.ativo ? 'Inativar' : 'Reativar')}</button>
+                          <AjudaCampo chave="compliance.epi.estoque.inativar" rota={ROTA} />
+                        </span>
                       </Td>
                     </tr>
                   )
@@ -286,6 +332,9 @@ export default function EstoqueEpiPage() {
       )}
       {editandoMinimo && (
         <ModalEditarMinimo row={editandoMinimo} onClose={() => setEditandoMinimo(null)} onSaved={() => { setEditandoMinimo(null); carregar() }} />
+      )}
+      {baixando && (
+        <ModalBaixarEstoque row={baixando} onClose={() => setBaixando(null)} onSaved={() => { setBaixando(null); carregar() }} />
       )}
       {showEntrega && companyAlvo && funcEntregaSel && (
         <ModalEntregarEPI
@@ -430,6 +479,63 @@ function ModalEditarMinimo({ row, onClose, onSaved }: { row: EstoqueRow; onClose
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
           <button onClick={onClose} disabled={salvando} style={btnSec}>Cancelar</button>
           <button onClick={salvar} disabled={salvando} style={btnPrim}>{salvando ? 'Salvando…' : 'Salvar'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// RD-98 p2 — baixa rastreavel: perda/dano/descarte/acerto. Chama fn_epi_estoque_baixar (SECURITY DEFINER,
+// guarda por empresa, grava em audit_log_global quem/quando/por que; zera -> inativa a linha).
+function ModalBaixarEstoque({ row, onClose, onSaved }: { row: EstoqueRow; onClose: () => void; onSaved: () => void }) {
+  const [quantidade, setQuantidade] = useState(1)
+  const [motivo, setMotivo] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState<string | null>(null)
+
+  async function salvar() {
+    if (quantidade < 1 || quantidade > row.qtd_disponivel) { setErro(`Quantidade deve ser entre 1 e ${row.qtd_disponivel}`); return }
+    if (!motivo.trim()) { setErro('Informe o motivo da baixa'); return }
+    setSalvando(true)
+    setErro(null)
+    try {
+      const { data, error } = await supabase.rpc('fn_epi_estoque_baixar', {
+        p_estoque_id: row.id, p_quantidade: quantidade, p_motivo: motivo.trim(),
+      })
+      if (error) throw error
+      const r = data as { ok?: boolean; erro?: string } | null
+      if (!r?.ok) throw new Error(r?.erro || 'Falha ao dar baixa')
+      onSaved()
+    } catch (e: any) {
+      setErro(e?.message || 'Falha ao dar baixa')
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <div onClick={onClose} style={overlayStyle}>
+      <div onClick={(e) => e.stopPropagation()} style={{ ...modalStyle, width: 'min(420px, 92vw)' }}>
+        <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: 1.2, color: C.gold, margin: 0, textTransform: 'uppercase' }}>EPI · Estoque</p>
+        <h2 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 20, fontWeight: 400, margin: '4px 0 6px' }}>Baixar do estoque</h2>
+        <p style={{ fontSize: 12, color: C.muted, margin: '0 0 14px' }}>{row.catalogo_nome || '—'}{row.localizacao ? ` · ${row.localizacao}` : ''} · disponível {row.qtd_disponivel}</p>
+        {erro && <div style={{ background: '#fce8e8', color: C.red, padding: '10px 12px', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>{erro}</div>}
+
+        <label style={{ display: 'block', marginBottom: 10 }}>
+          <span style={{ ...labelStyle, display: 'inline-flex', alignItems: 'center', gap: 6 }}>Quantidade a baixar <AjudaCampo chave="compliance.epi.estoque.baixa_quantidade" rota={ROTA} /></span>
+          <input type="number" min={1} max={row.qtd_disponivel} value={quantidade}
+            onChange={(e) => setQuantidade(parseInt(e.target.value) || 1)} style={inputStyle} autoFocus />
+        </label>
+        <label style={{ display: 'block', marginBottom: 10 }}>
+          <span style={{ ...labelStyle, display: 'inline-flex', alignItems: 'center', gap: 6 }}>Motivo da baixa <AjudaCampo chave="compliance.epi.estoque.baixa_motivo" rota={ROTA} /></span>
+          <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex: descarte por validade, dano, acerto de inventário" style={inputStyle} />
+        </label>
+        <p style={{ fontSize: 11, color: C.muted, margin: '2px 0 0', lineHeight: 1.5 }}>
+          A baixa fica registrada com quem fez, quando e o motivo. Se o item zerar (0 disponível e 0 reservado), ele é inativado e sai da lista.
+        </p>
+
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
+          <button onClick={onClose} disabled={salvando} style={btnSec}>Cancelar</button>
+          <button onClick={salvar} disabled={salvando} style={{ ...btnPrim, background: C.red }}>{salvando ? 'Baixando…' : 'Confirmar baixa'}</button>
         </div>
       </div>
     </div>

@@ -16,6 +16,8 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { moedaMascara, moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
+import { parseNumBR } from '@/lib/num'
 import {
   Plus, Search, FileText, X, Trash2,
   Package, Calculator, ListChecks, Info,
@@ -567,6 +569,47 @@ export default function FichasCommercePage() {
   )
 }
 
+// #6874 — campo de dinheiro: mascara em R$ enquanto digita e grava o número no onBlur
+// (mesma semântica dos antigos <input type="number"> defaultValue+onBlur desta tela).
+function InputMoeda({ valor, onCommit, style }: {
+  valor: number | null | undefined
+  onCommit: (n: number) => void
+  style?: React.CSSProperties
+}) {
+  const [txt, setTxt] = useState(() => numeroParaMoeda(valor))
+  return (
+    <input
+      value={txt}
+      inputMode="numeric"
+      autoComplete="off"
+      placeholder="R$ 0,00"
+      onChange={(e) => setTxt(moedaMascara(e.target.value))}
+      onBlur={() => onCommit(moedaParaNumero(txt) ?? 0)}
+      style={style}
+    />
+  )
+}
+
+// #5660 — campo de percentual/quantidade decimal: aceita vírgula (e ponto) como
+// separador BR. Mantém a semântica desta tela (grava no onBlur, não a cada tecla).
+function InputDecimalBR({ valor, onCommit, style }: {
+  valor: number | null | undefined
+  onCommit: (n: number) => void
+  style?: React.CSSProperties
+}) {
+  const [txt, setTxt] = useState(() => String(valor ?? 0).replace('.', ','))
+  return (
+    <input
+      value={txt}
+      inputMode="decimal"
+      autoComplete="off"
+      onChange={(e) => setTxt(e.target.value)}
+      onBlur={() => onCommit(parseNumBR(txt) ?? 0)}
+      style={style}
+    />
+  )
+}
+
 function Th({ children, align = 'left' }: { children?: React.ReactNode; align?: 'left' | 'right' }) {
   return (
     <th style={{ padding: '10px 14px', textAlign: align, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: C.espressoM }}>
@@ -902,20 +945,16 @@ function Drawer({
                             </select>
                           </Td>
                           <Td align="right">
-                            <input
-                              type="number"
-                              step="0.01"
-                              defaultValue={it.quantidade ?? 0}
-                              onBlur={(e) => onUpdateItem(it.id, { quantidade: parseFloat(e.target.value) || 0 })}
+                            <InputDecimalBR
+                              valor={it.quantidade}
+                              onCommit={(n) => onUpdateItem(it.id, { quantidade: n })}
                               style={{ ...inp, width: 80, textAlign: 'right' }}
                             />
                           </Td>
                           <Td align="right">
-                            <input
-                              type="number"
-                              step="0.01"
-                              defaultValue={it.preco_unitario ?? 0}
-                              onBlur={(e) => onUpdateItem(it.id, { preco_unitario: parseFloat(e.target.value) || 0 })}
+                            <InputMoeda
+                              valor={it.preco_unitario}
+                              onCommit={(n) => onUpdateItem(it.id, { preco_unitario: n })}
                               style={{ ...inp, width: 100, textAlign: 'right' }}
                             />
                           </Td>
@@ -951,38 +990,30 @@ function Drawer({
           >
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
               <Field label="Mão de obra direta (R$)" ajuda="commerce.fichas.mao_obra_direta">
-                <input
-                  type="number"
-                  step="0.01"
-                  defaultValue={ficha.mao_obra_direta ?? 0}
-                  onBlur={(e) => onUpdate({ mao_obra_direta: parseFloat(e.target.value) || 0 })}
+                <InputMoeda
+                  valor={ficha.mao_obra_direta}
+                  onCommit={(n) => onUpdate({ mao_obra_direta: n })}
                   style={inp}
                 />
               </Field>
               <Field label="Custos indiretos (%)" ajuda="commerce.fichas.custos_indiretos_pct">
-                <input
-                  type="number"
-                  step="0.01"
-                  defaultValue={ficha.custos_indiretos_pct ?? 0}
-                  onBlur={(e) => onUpdate({ custos_indiretos_pct: parseFloat(e.target.value) || 0 })}
+                <InputDecimalBR
+                  valor={ficha.custos_indiretos_pct}
+                  onCommit={(n) => onUpdate({ custos_indiretos_pct: n })}
                   style={inp}
                 />
               </Field>
               <Field label="Impostos (%)" ajuda="commerce.fichas.impostos_pct">
-                <input
-                  type="number"
-                  step="0.01"
-                  defaultValue={ficha.impostos_pct ?? 0}
-                  onBlur={(e) => onUpdate({ impostos_pct: parseFloat(e.target.value) || 0 })}
+                <InputDecimalBR
+                  valor={ficha.impostos_pct}
+                  onCommit={(n) => onUpdate({ impostos_pct: n })}
                   style={inp}
                 />
               </Field>
               <Field label="Markup (%)" ajuda="commerce.fichas.markup_pct">
-                <input
-                  type="number"
-                  step="0.01"
-                  defaultValue={ficha.markup_pct ?? 0}
-                  onBlur={(e) => onUpdate({ markup_pct: parseFloat(e.target.value) || 0 })}
+                <InputDecimalBR
+                  valor={ficha.markup_pct}
+                  onCommit={(n) => onUpdate({ markup_pct: n })}
                   style={inp}
                 />
               </Field>

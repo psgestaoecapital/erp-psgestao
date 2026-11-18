@@ -98,16 +98,33 @@ export const PATCH = exigirLogin(async (req: NextRequest, u, routeCtx) => {
   return NextResponse.json({ ok: true, prestador: data })
 })
 
-export const DELETE = exigirLogin(async (_req: NextRequest, u, routeCtx) => {
+// DELETE = inativação (soft-delete) rastreável: além de ativo=false, registra quem/quando/motivo
+// em audit_log, para a exclusão ser auditável (RD-98 p2). Aceita body opcional { motivo }.
+export const DELETE = exigirLogin(async (req: NextRequest, u, routeCtx) => {
   const id = await getId(routeCtx)
   const atual = await empresasDoPrestador(id)
   if (!atual) return fail(404, 'Prestador não encontrado.')
   const negado = await exigirEmpresas(u, [atual.company_id])
   if (negado) return negado
-  const { error } = await supabaseAdmin
+
+  const body = await req.json().catch(() => null)
+  const motivo = typeof body?.motivo === 'string' ? body.motivo.trim() : ''
+
+  const { data: alvo, error } = await supabaseAdmin
     .from('compliance_prestadores')
     .update({ ativo: false })
     .eq('id', id)
+    .select('id, razao_social, cnpj')
+    .single()
   if (error) return fail(500, `Falha ao desativar prestador: ${error.message}`)
+
+  // Rastro de auditoria (quem + motivo + quando). Não bloqueia a inativação se o log falhar.
+  await supabaseAdmin.from('audit_log').insert({
+    user_id: u.userId,
+    action: 'compliance.prestador.inativado',
+    module: 'compliance',
+    detail: `Prestador inativado: ${alvo?.razao_social ?? id}${alvo?.cnpj ? ` (${alvo.cnpj})` : ''} · motivo: ${motivo || '—'}`,
+  })
+
   return NextResponse.json({ ok: true })
 })

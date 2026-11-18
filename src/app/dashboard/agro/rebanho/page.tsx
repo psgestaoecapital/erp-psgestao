@@ -7,6 +7,8 @@ import { exportToExcel } from '@/lib/export-utils'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { salvarSnapshot, lerSnapshot, type RebanhoSnapshot } from '@/lib/agro/rebanhoOffline'
 import CapacidadeIdealModal, { type Forrageira } from '@/components/agro/CapacidadeIdealModal'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 
 // slug pra compor nome de arquivo com o filtro ativo (piquete/lote/categoria)
 const slug = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
@@ -788,10 +790,10 @@ function AcaoModal({
   const hoje = new Date().toISOString().slice(0, 10)
 
   // valor recebido sugerido = peso x valor/un (÷15 se @); campo "valor" sobrescreve
-  const valorSugerido = useMemo(() => {
-    const p = Number(peso), vu = Number(valorUnit)
-    if (p > 0 && vu > 0) { const t = unidade === 'arroba' ? (p / 15) * vu : p * vu; return String(Math.round(t * 100) / 100) }
-    return ''
+  const valorSugerido = useMemo((): number | null => {
+    const p = Number(peso), vu = moedaParaNumero(valorUnit) ?? 0   // #6874 — valorUnit agora é texto mascarado (R$)
+    if (p > 0 && vu > 0) { const t = unidade === 'arroba' ? (p / 15) * vu : p * vu; return Math.round(t * 100) / 100 }
+    return null
   }, [peso, valorUnit, unidade])
 
   // compradores do cadastro (erp_clientes) — carrega ao abrir o modal de venda
@@ -900,13 +902,13 @@ function AcaoModal({
       // VENDA: RPC dedicada — rateia valor/peso entre os animais, marca vendido e
       // (se marcado) gera o recebivel em Contas a Receber.
       if (acao.tipo === 'vender') {
-        const valorTotal = Number(valor || valorSugerido) || null
+        const valorTotal = (moedaParaNumero(valor) ?? valorSugerido) || null   // #6874 — valor manual (mascarado) sobrescreve; vazio usa o sugerido
         const { error } = await supabase.rpc('fn_pec_animal_vender', {
           p_company_id: companyId, p_animal_ids: alvos, p_propriedade_id: propriedadeId,
           p_comprador_id: compradorId || null,
           p_comprador_nome: null,
           p_peso_kg: peso ? Number(peso) : null,
-          p_valor_unitario: valorUnit ? Number(valorUnit) : null,
+          p_valor_unitario: moedaParaNumero(valorUnit),
           p_unidade: unidade,
           p_valor_total: valorTotal,
           p_vencimento: vencimento || null,
@@ -999,10 +1001,10 @@ function AcaoModal({
                 <option value="kg">Valor por kg</option>
                 <option value="arroba">Valor por @ (15kg)</option>
               </select>
-              <input className={inp} type="number" inputMode="decimal" placeholder={unidade === 'arroba' ? 'R$/@' : 'R$/kg'} value={valorUnit} onChange={(e) => setValorUnit(e.target.value)} />
+              <CampoMoeda className={inp} placeholder={unidade === 'arroba' ? 'R$/@' : 'R$/kg'} value={valorUnit} onChange={setValorUnit} />
             </div>
-            <input className={inp} type="number" inputMode="decimal" placeholder={valorSugerido ? `Valor recebido (auto: ${valorSugerido})` : 'Valor recebido (R$)'} value={valor} onChange={(e) => setValor(e.target.value)} />
-            {valorSugerido && !valor && <div className="text-[11px]" style={{ color: ESP60 }}>Calculado: R$ {valorSugerido} — editável</div>}
+            <CampoMoeda className={inp} placeholder={valorSugerido ? `Valor recebido (auto: ${numeroParaMoeda(valorSugerido)})` : 'Valor recebido (R$)'} value={valor} onChange={setValor} />
+            {valorSugerido && !valor && <div className="text-[11px]" style={{ color: ESP60 }}>Calculado: {numeroParaMoeda(valorSugerido)} — editável</div>}
             <div className="grid grid-cols-2 gap-2 items-center">
               <input className={inp} type="date" value={vencimento || hoje} onChange={(e) => setVencimento(e.target.value)} />
               <label className="flex items-center gap-2 text-xs" style={{ color: ESP }}>
