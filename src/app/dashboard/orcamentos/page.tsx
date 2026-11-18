@@ -1040,7 +1040,7 @@ export default function OrcamentosPage(){
           </div>
           <div style={{background:BG3,borderRadius:8,padding:12,marginBottom:12}}>
             <div style={{display:"grid",gridTemplateColumns:"40px 2fr 80px 80px 100px 70px 90px 30px",gap:6,alignItems:"center",fontSize:10,color:TXD,fontWeight:600,padding:"4px 0",borderBottom:`1px solid ${BD}`}}>
-              <div>#</div><div>Produto / Serviço</div><div>Qtd</div><div>UN</div><div>Preço Unit</div><div>Desc %</div><div style={{textAlign:"right"}}>Subtotal</div><div></div>
+              <div>#</div><div>Produto / Serviço</div><div style={{display:"flex",alignItems:"center",gap:3}}>Qtd<AjudaCampo chave="orcamentos.item.quantidade" rota="/dashboard/orcamentos"/></div><div>UN</div><div>Preço Unit</div><div>Desc %</div><div style={{textAlign:"right"}}>Subtotal</div><div></div>
             </div>
             {itens.map((it,idx)=>(
               <div key={idx} style={{display:"grid",gridTemplateColumns:"40px 2fr 80px 80px 100px 70px 90px 30px",gap:6,alignItems:"center",padding:"4px 0",borderBottom:`0.5px solid ${BD}`,position:"relative"}}>
@@ -1079,7 +1079,8 @@ export default function OrcamentosPage(){
                     )}
                   </>)}
                 </div>
-                <input type="text" inputMode="decimal" placeholder="0" value={it.quantidade||''} onChange={e=>atualizarItem(idx,'quantidade',parseNumBR(e.target.value)||0)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/>{/* #5660 · aceita vírgula */}
+                {/* #5660 · aceita vírgula · "?" (RD-95) no cabeçalho da coluna; data-ajuda no campo cobre a régua sem alterar o layout */}
+                <div data-ajuda="orcamentos.item.quantidade" style={{display:"contents"}}><input type="text" inputMode="decimal" placeholder="0" value={it.quantidade||''} onChange={e=>atualizarItem(idx,'quantidade',parseNumBR(e.target.value)||0)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/></div>
                 <input value={it.unidade} onChange={e=>atualizarItem(idx,'unidade',e.target.value)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"center"}}/>
                 <div>
                   {/* #6874 — preço unitário com máscara em R$ (valor gravado continua numérico) */}
