@@ -2,7 +2,7 @@
 // LEADS · CRM de entrada da agência (P&M). Funil sobre agency_leads, escopado por company_id (RD-45).
 // Etapas do kanban vêm de funil_etapa (fn_funil_etapas_listar) — configuráveis (add/editar/reordenar/excluir).
 // Cadastro rápido com autocomplete de clientes GE (fn_cliente_buscar) → grava erp_cliente_id (não cliente_id,
-// que tem FK p/ agency_clientes). Kanban arrasta card → etapa=chave. Ações Ganhar/Perder/Converter/Agendar.
+// que tem FK p/ agency_clientes). Kanban (componente genérico QuadroFunil, o mesmo do PS CRM) arrasta card → etapa=chave. Ações Ganhar/Perder/Converter/Agendar.
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
@@ -10,9 +10,13 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { nomeUsuario } from '@/lib/usuarioLabel'
 import SolicitarContratoModal from '@/components/ge/SolicitarContratoModal'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import QuadroFunil from '@/components/crm/QuadroFunil'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
 import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
+import { cnpjValido, soDigitosCnpj } from '@/lib/documentos/cnpj'
+import { consultarCNPJ } from '@/lib/cadastros/buscarCNPJ'
+import PessoaForm from '@/components/cadastros/PessoaForm'
 import { TarefasLeadModal, MinhasTarefasModal, SELECT_TAREFA, tipoTarefa, quando, atrasada, whatsappHref, type Tarefa } from '@/components/pm/TarefasLead'
 
 const ESPRESSO = '#3D2314'
@@ -105,6 +109,7 @@ export default function LeadsPage() {
   // #59 PDOIS parte 2: solicitar elaboração de contrato a partir do lead (modo manual, cliente pré-preenchido)
   const [solicitarCli, setSolicitarCli] = useState<{ cliId: string | null } | null>(null)
   const [reuniaoLead, setReuniaoLead] = useState<Lead | null>(null) // modal de agendamento de reunião
+  const [cadCliente, setCadCliente] = useState(false) // CEO 18/11: "cadastrar cliente" abre o cadastro COMPLETO do GE (PessoaForm)
   const [detalheLead, setDetalheLead] = useState<Lead | null>(null) // detalhe da reunião (clique no 📅)
   const [reunioesMap, setReunioesMap] = useState<Record<string, { data: string; hora: string | null; link: string | null; local: string | null }>>({})
   // #97/#98 Pdois · tarefas do lead (no lugar do registro de reunião) + "Minhas tarefas"
@@ -117,7 +122,6 @@ export default function LeadsPage() {
   const cliTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [dragId, setDragId] = useState<string | null>(null)
   const [cfgOpen, setCfgOpen] = useState(false)
   const [origemCfgOpen, setOrigemCfgOpen] = useState(false)
   const [origens, setOrigens] = useState<Origem[]>([])
@@ -291,18 +295,34 @@ export default function LeadsPage() {
     setForm((f) => ({ ...f, empresa: c.nome, erp_cliente_id: c.id, contato_email: d.email ?? f.contato_email, contato_telefone: d.telefone || d.celular || d.whatsapp || f.contato_telefone }))
     setToast('Cliente vinculado — dados preenchidos.')
   }
-  async function criarClienteInline() {
-    if (!empresa) return
-    const nome = (cliTermo || form.empresa).trim()
-    if (!nome) { setToast('Digite o nome/empresa do cliente.'); return }
-    setBusy(true)
-    try {
-      const { data, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: empresa, p_nome: nome, p_cpf_cnpj: null, p_extra: { email: form.contato_email || null, telefone: form.contato_telefone || null } })
-      if (error) { setToast(erroAmigavel(error, 'Não foi possível concluir a ação. Tente de novo.')); return }
-      const cid = data as string | null
-      setForm((f) => ({ ...f, empresa: nome, erp_cliente_id: cid })); setCliSug([]); setCliTermo(nome)
-      setToast('Cliente CRIADO na GE e vinculado.')
-    } finally { setBusy(false) }
+  // Criação inline de cliente GE espelhando o cadastro: se o que foi digitado é um CNPJ válido, consulta a
+  // BrasilAPI (rota interna, custo zero — NÃO é IA) e cria com razão social + CNPJ reais. NUNCA grava o CNPJ
+  // como nome nem deixa o CNPJ nulo quando um CNPJ foi digitado. Se o CNPJ já existe, a fn_cliente_criar_inline
+  // deduplica pela guarda e vincula. Retorna o erp_cliente_id ou null (e já mostra o toast de erro).
+  async function criarClienteGE(nomeRaw: string, emailFb: string | null, telFb: string | null): Promise<string | null> {
+    const nome = (nomeRaw || '').trim()
+    const dig = soDigitosCnpj(nome)
+    let pNome = nome
+    let pCpfCnpj: string | null = null
+    const extra: Record<string, string | null> = { email: emailFb || null, telefone: telFb || null }
+    if (cnpjValido(dig)) {
+      const r = await consultarCNPJ(dig)
+      if (r.status === 'ok') {
+        pNome = (r.dados.razao_social || r.dados.nome_fantasia || '').trim() || nome
+        pCpfCnpj = dig
+        extra.email = emailFb || r.dados.email
+        extra.telefone = telFb || r.dados.telefone
+        // endereço do cadastro (BrasilAPI) → cliente completo
+        extra.logradouro = r.dados.logradouro; extra.numero = r.dados.numero; extra.bairro = r.dados.bairro
+        extra.cidade = r.dados.cidade; extra.uf = r.dados.uf; extra.cep = r.dados.cep
+      } else {
+        setToast('Não consegui buscar esse CNPJ agora. Confira o número ou tente de novo em instantes — para não cadastrar o cliente sem nome.')
+        return null
+      }
+    }
+    const { data, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: empresa, p_nome: pNome, p_cpf_cnpj: pCpfCnpj, p_extra: extra })
+    if (error) { setToast(erroAmigavel(error, 'Não foi possível concluir a ação. Tente de novo.')); return null }
+    return data as string | null
   }
 
   async function criar() {
@@ -357,9 +377,9 @@ export default function LeadsPage() {
       if (!cid) {
         const nome = (l.empresa || l.nome || '').trim()
         if (!nome) { setToast('Lead sem empresa/contato para criar cliente.'); return }
-        const { data, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: empresa, p_nome: nome, p_cpf_cnpj: null, p_extra: { email: l.contato_email || null, telefone: l.contato_telefone || null } })
-        if (error) { setToast(erroAmigavel(error, 'Não foi possível concluir a ação. Tente de novo.')); return }
-        cid = data as string | null
+        const novoCid = await criarClienteGE(nome, l.contato_email || null, l.contato_telefone || null)
+        if (!novoCid) return
+        cid = novoCid
         if (cid) await supabase.from('agency_leads').update({ erp_cliente_id: cid, atualizado_em: new Date().toISOString() }).eq('id', l.id)
       }
       setToast('Cliente ligado ao lead → Propostas.'); void carregar()
@@ -501,34 +521,28 @@ export default function LeadsPage() {
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>Colunas = etapas do funil<AjudaCampo chave="pm.leads.kanban_colunas" /></span>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>Ações do card<AjudaCampo chave="pm.leads.kanban_acoes" /></span>
           </div>
-          <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 8, alignItems: 'flex-start' }}>
-            {etapas.map((col) => {
-              const items = filtrados.filter((l) => l.etapa === col.chave)
-              const soma = items.reduce((s, l) => s + Number(l.valor_estimado ?? 0), 0)
+          <QuadroFunil
+            colunas={etapas.map((e) => ({ chave: e.chave, rotulo: e.rotulo, cor: e.cor, tipo: e.tipo_etapa }))}
+            itens={filtrados}
+            idDe={(l) => l.id}
+            colunaDe={(l) => l.etapa}
+            valorDe={(l) => Number(l.valor_estimado ?? 0)}
+            onMover={(l, chave) => void moverEtapa(l, chave)}
+            testIdCartao="lead-card"
+            estiloCartao={(l) => {
+              // PM-1 · semáforo do motor único (crm_alerta_config; PDois 7/10, fallback 3/7). Sem régua no front.
+              const sem = fechadas.has(l.etapa) ? 'verde' : (semaforoMap[l.id] ?? 'verde')
+              return { border: sem === 'vermelho' ? `1.5px solid ${RED}` : sem === 'amarelo' ? `1.5px solid ${DOURADO}` : `1px solid ${BORDA}` }
+            }}
+            renderCartao={(l) => {
+              const fim = fechadas.has(l.etapa)
+              const ct = l.erp_cliente_id ? contratoMap[l.erp_cliente_id] : undefined // #59 · contrato do cliente, se houver
+              // PM-1 · semáforo do motor único (crm_alerta_config; PDois 7/10, fallback 3/7). Sem régua no front.
+              const dEtapa = Math.floor(diasDesde(l.etapa_desde))
+              const sem = fim ? 'verde' : (semaforoMap[l.id] ?? 'verde')
+              const corEtapa = sem === 'vermelho' ? RED : sem === 'amarelo' ? DOURADO : TEXTM
               return (
-                <div key={col.id}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={() => { const l = leads.find((x) => x.id === dragId); if (l) void moverEtapa(l, col.chave); setDragId(null) }}
-                  style={{ minWidth: 250, width: 250, flex: '0 0 auto', background: '#fff', border: `1px solid ${BORDA}`, borderRadius: 12, padding: 8 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 6px 8px' }}>
-                    <span style={{ width: 10, height: 10, borderRadius: 3, background: col.cor ?? OFFWHITE, border: `1px solid ${BORDA}` }} />
-                    <strong style={{ fontSize: 13 }}>{col.rotulo}</strong>
-                    {col.tipo_etapa !== 'normal' && <span style={{ fontSize: 9, fontWeight: 700, color: col.tipo_etapa === 'ganho' ? GREEN : RED }}>{col.tipo_etapa === 'ganho' ? '✓' : '✕'}</span>}
-                    <span style={{ fontSize: 11, color: TEXTM, marginLeft: 'auto' }}>{items.length}{soma > 0 ? ` · ${brl(soma)}` : ''}</span>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minHeight: 20 }}>
-                    {items.map((l) => {
-                      const fim = fechadas.has(l.etapa)
-                      const ct = l.erp_cliente_id ? contratoMap[l.erp_cliente_id] : undefined // #59 · contrato do cliente, se houver
-                      // PM-1 · semáforo do motor único (crm_alerta_config; PDois 7/10, fallback 3/7). Sem régua no front.
-                      const dEtapa = Math.floor(diasDesde(l.etapa_desde))
-                      const sem = fim ? 'verde' : (semaforoMap[l.id] ?? 'verde')
-                      const corEtapa = sem === 'vermelho' ? RED : sem === 'amarelo' ? DOURADO : TEXTM
-                      const bordaSem = sem === 'vermelho' ? `1.5px solid ${RED}` : sem === 'amarelo' ? `1.5px solid ${DOURADO}` : `1px solid ${BORDA}`
-                      return (
-                        <div key={l.id} draggable onDragStart={() => setDragId(l.id)} onDragEnd={() => setDragId(null)}
-                          data-testid="lead-card"
-                          style={{ background: OFFWHITE, border: bordaSem, borderRadius: 10, padding: '9px 10px', cursor: 'grab' }}>
+                <>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                             <strong style={{ fontSize: 13 }}>{l.empresa || l.nome}</strong>
                             {(l.erp_cliente_id || l.cliente_id) && <span title="Cliente cadastrado na GE" style={{ fontSize: 9.5, fontWeight: 700, color: GREEN, background: '#DCEFD7', borderRadius: 999, padding: '1px 6px' }}>✓ cliente</span>}
@@ -622,14 +636,10 @@ export default function LeadsPage() {
                               )}
                             </div>
                           )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
+                </>
               )
-            })}
-          </div>
+            }}
+          />
           </>
         )}
       </div>
@@ -652,9 +662,9 @@ export default function LeadsPage() {
                         {c.nome}{c.doc ? <span style={{ color: TEXTM, fontSize: 11, marginLeft: 6 }}>· {c.doc}</span> : null}
                       </button>
                     ))}
-                    <button type="button" disabled={busy} onMouseDown={(e) => { e.preventDefault(); void criarClienteInline() }}
+                    <button type="button" disabled={busy} data-testid="lead-cadastrar-cliente" onMouseDown={(e) => { e.preventDefault(); setCadCliente(true) }}
                       style={{ display: 'block', width: '100%', textAlign: 'left', border: 'none', borderTop: `1px solid ${BORDA}`, background: 'rgba(200,148,26,.08)', padding: '8px 10px', fontSize: 12.5, cursor: 'pointer', color: DOURADO, fontWeight: 700 }}>
-                      + Cadastrar cliente &quot;{(cliTermo || form.empresa).trim()}&quot; na GE
+                      + Cadastrar cliente &quot;{(cliTermo || form.empresa).trim()}&quot; na GE (cadastro completo)
                     </button>
                   </div>
                 )}
@@ -767,6 +777,25 @@ export default function LeadsPage() {
         <SolicitarContratoModal companyId={empresa} clienteId={solicitarCli.cliId}
           onClose={() => setSolicitarCli(null)}
           onSolicitado={(r) => { setSolicitarCli(null); setToast(`Contrato solicitado${r.numero ? ` (nº ${r.numero})` : ''}. Veja em Contratos → Solicitações & Fee.`); void carregar() /* #59 · recarrega p/ o botão virar "Ver contrato" */ }} />
+      )}
+
+      {cadCliente && empresa && (
+        <PessoaForm
+          companyId={empresa}
+          tipo="cliente"
+          pessoa={null}
+          initialNome={(cliTermo || form.empresa).trim() || undefined}
+          onClose={() => setCadCliente(false)}
+          onSaved={(id) => {
+            setCadCliente(false)
+            if (id) {
+              const nm = (cliTermo || form.empresa).trim()
+              setForm((f) => ({ ...f, erp_cliente_id: id, empresa: nm || f.empresa }))
+              setCliSug([])
+              setToast('Cliente cadastrado na GE (cadastro completo) e vinculado ao lead.')
+            }
+          }}
+        />
       )}
 
       {toast && <div style={toastStyle}>{toast}</div>}

@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import ExportarConciliacaoButton from '@/components/financeiro/ExportarConciliacaoButton'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { dataReferenciaSaldoOFX, rotuloDataSaldo, dtendDoOFX, saldoOFXValido, AVISO_SALDO_INVALIDO } from '@/lib/financeiro/saldoPorConta'
 import { parseSaldoFechamento, ehLinhaSaldoOFX, parseValorOFX, decodificarOFX, mensagemErroOFX } from '@/lib/ofx-parser'
@@ -348,7 +349,14 @@ export default function InboxPage() {
       p_data_fim: fim,
       p_limite: 200,
     })
-    if (!error) setPendenciasSistema((data ?? []) as PendenciaSistema[])
+    if (error) {
+      // criterio c/e (RD-98): nao deixar a aba "verde-vazia" quando a query falha —
+      // erro != "sem pendencias". Avisa em linguagem do usuario e preserva a lista atual.
+      setErro(erroAmigavel(error, 'Não foi possível carregar as pendências do sistema agora. Tente de novo em instantes.'))
+      setLoadingSistema(false)
+      return
+    }
+    setPendenciasSistema((data ?? []) as PendenciaSistema[])
     setLoadingSistema(false)
   }
 
@@ -358,7 +366,12 @@ export default function InboxPage() {
       p_company_id: empresaUnica,
       p_limite: 500,
     })
-    if (!error) setConciliados((data ?? []) as Conciliado[])
+    if (error) {
+      // criterio c/e (RD-98): erro de query nao pode virar aba "Conciliados" vazia e silenciosa.
+      setErro(erroAmigavel(error, 'Não foi possível carregar os conciliados agora. Tente de novo em instantes.'))
+      return
+    }
+    setConciliados((data ?? []) as Conciliado[])
   }
 
   // Expande/recolhe os títulos de uma fatura agrupada (lancamento_id NULL).
@@ -924,6 +937,32 @@ export default function InboxPage() {
     await carregar()
   }
 
+  // #6731: desvincular UM título de uma fatura agrupada, sem desfazer os demais.
+  // Os outros títulos continuam vinculados; se era o último, o movimento volta a Pendentes.
+  async function desvincularTitulo(c: Conciliado, it: VinculoItem) {
+    const falhou = (msg: string) => { setErro(msg); alert(msg) }
+    if (!it.tabela || !it.lancamento_id) { falhou('Título sem referência; use "Desvincular fatura".'); return }
+    const nome = it.contraparte ?? it.descricao ?? 'este título'
+    if (!confirm(`Desvincular "${nome}" desta conciliação? Ele volta a Aberto e os demais títulos continuam vinculados.`)) return
+    const { data, error } = await supabase.rpc('fn_conciliacao_desvincular_titulo', {
+      p_movimento_id: c.movimento_id,
+      p_lancamento_tabela: it.tabela,
+      p_lancamento_id: it.lancamento_id,
+    })
+    if (error) { falhou(erroAmigavel(error, 'Não consegui desvincular este título agora. Tente de novo em instantes.')); return }
+    const r = (data ?? {}) as { sucesso?: boolean; erro?: string; msg?: string; aviso?: string; movimento_liberado?: boolean }
+    if (r.sucesso === false) { falhou('Não desvinculou: ' + (r.msg ?? r.erro ?? 'erro desconhecido')); return }
+    // recarrega os títulos da fatura (sem recolher) e as listas
+    setVinculosExp((m) => ({ ...m, [c.movimento_id]: { loading: true, itens: [] } }))
+    const { data: vd } = await supabase.rpc('fn_conciliacao_vinculos', { p_movimento_id: c.movimento_id })
+    const vj = vd as { ok?: boolean; itens?: VinculoItem[] } | null
+    if (vj?.ok) setVinculosExp((m) => ({ ...m, [c.movimento_id]: { loading: false, itens: vj.itens ?? [] } }))
+    else setVinculosExp((m) => { const n = { ...m }; delete n[c.movimento_id]; return n })
+    await carregarConciliados()
+    await carregar()
+    if (r.aviso) setErro(r.aviso) // aviso não-bloqueante: título com ajuste — confira o valor manualmente
+  }
+
   if (!empresaUnica) {
     return <div style={infoBox}>Selecione uma empresa para ver a inbox.</div>
   }
@@ -1104,12 +1143,29 @@ export default function InboxPage() {
               data-testid="inbox-sincronizar-extrato"
             >{sincExtratoBusy ? 'Sincronizando…' : '↻ Sincronizar extrato agora'}</button>
           )}
+          {empresaUnica && <AjudaCampo chave="financeiro.conciliacao.sincronizar_extrato" />}
           <button
             onClick={() => setShowImport((v) => !v)}
             style={{ ...tabInactive, borderStyle: 'dashed' }}
             data-testid="inbox-importar-ofx"
           >+ Importar extrato (OFX)</button>
           <AjudaCampo chave="financeiro.conciliacao.importar_ofx" />
+          {empresaUnica && (
+            <>
+              <ExportarConciliacaoButton
+                companyId={empresaUnica}
+                loteNome={loteSel?.nome ?? null}
+                periodo={loteSel ? `${fmtDate(loteSel.periodo_inicio)} a ${fmtDate(loteSel.periodo_fim)}` : null}
+                vista={aba === 'conciliados' ? 'conciliados' : aba === 'ignorados' ? 'ignorados' : 'extrato'}
+                extrato={items}
+                sistema={pendenciasSistema}
+                conciliados={conciliados}
+                ignorados={ignorados}
+                kpis={[{ label: 'Valor pendente', valor: valorPendente, qtd: totPend }]}
+              />
+              <AjudaCampo chave="financeiro.conciliacao.exportar" />
+            </>
+          )}
         </div>
 
         {/* Camada1/Fatia1: barra de indicadores (item 1 valor pendente + item 3 datas) */}
@@ -1169,7 +1225,7 @@ export default function InboxPage() {
         {showImport && (
           <div style={{ border: '1px solid #E3D9CC', borderRadius: 8, padding: 16, marginBottom: 16, background: '#FAF7F2' }}>
             <div style={{ fontWeight: 600, marginBottom: 8, color: '#3D2314' }}>Importar extrato bancário (.ofx)</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div data-ajuda="financeiro.conciliacao.import_conta" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: '#3D2314' }}>
                 Conta bancária do extrato<AjudaCampo chave="financeiro.conciliacao.import_conta" />
               </div>
@@ -1267,6 +1323,13 @@ export default function InboxPage() {
               <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)' }}>
                 {items.length === 0 ? 'Importe um novo lote para começar.' : 'Desmarque o filtro pra ver outros.'}
               </div>
+              {items.length === 0 && (
+                <button
+                  onClick={() => setShowImport(true)}
+                  data-testid="inbox-empty-importar-ofx"
+                  style={{ marginTop: 14, padding: '9px 18px', borderRadius: 8, border: 'none', background: '#3D2314', color: '#FFFFFF', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                >+ Importar extrato (OFX)</button>
+              )}
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1321,6 +1384,9 @@ export default function InboxPage() {
                               origem: {it.sugestao_lancamento_tabela}
                             </div>
                           </>
+                        ) : /LIQ.*COBRANC/i.test(it.descricao ?? '') && it.natureza === 'credito' ? (
+                          // #9418 · crédito único de boletos liquidados por API (ex.: Sicredi "LIQ.COBRANCA ...COBnn") sugere o lote de boletos liquidados p/ conciliar agrupado
+                          <LoteLiquidacaoCard mov={it} onConciliado={() => { void carregar() }} />
                         ) : (
                           // RD-41 · débito de remessa (DEB.COB.ELETR-NN) sugere o lote de títulos pagos p/ conciliar agrupado
                           <LoteRemessaCard mov={it} onConciliado={() => { void carregar() }} />
@@ -1431,6 +1497,7 @@ export default function InboxPage() {
                               <button onClick={() => setTransferindo(it)} disabled={aplicando} style={secondaryBtn(aplicando)} data-testid="conc-transferencia">
                                 🔄 Transferência entre contas
                               </button>
+                              <AjudaCampo chave="financeiro.conciliacao.acoes_painel" alinhar="fim" />
                             </div>
                           </>
                         )}
@@ -1507,12 +1574,21 @@ export default function InboxPage() {
                               Títulos da fatura ({vinculosExp[c.movimento_id].itens.length})
                             </div>
                             {vinculosExp[c.movimento_id].itens.map((it) => (
-                              <div key={it.vinculo_id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12.5 }}>
-                                <span style={{ color: '#3D2314', wordBreak: 'break-word' }}>
+                              <div key={it.vinculo_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, fontSize: 12.5 }}>
+                                <span style={{ color: '#3D2314', wordBreak: 'break-word', flex: 1 }}>
                                   {it.contraparte ?? it.descricao ?? '(título)'}
                                   {it.vencimento ? <span style={{ color: 'rgba(61,35,20,0.5)' }}> · venc {fmtBR(it.vencimento)}</span> : null}
                                 </span>
                                 <span style={{ fontVariantNumeric: 'tabular-nums', color: '#3D2314', whiteSpace: 'nowrap' }}>R$ {fmt(it.valor)}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => void desvincularTitulo(c, it)}
+                                  title="Desvincular só este título (os demais continuam)"
+                                  style={{ background: 'transparent', border: '1px solid rgba(122,31,31,0.35)', color: '#7A1F1F', borderRadius: 7, padding: '2px 8px', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                                >
+                                  Desvincular
+                                </button>
+                                <AjudaCampo chave="conc.inbox.acao_desvincular_titulo" rota="/dashboard/financeiro/conciliacao/inbox" />
                               </div>
                             ))}
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700, borderTop: '1px dashed rgba(61,35,20,0.15)', paddingTop: 6 }}>
@@ -1525,9 +1601,10 @@ export default function InboxPage() {
                     )}
 
                     <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
-                      <button onClick={() => void desvincularConciliado(c)} style={secondaryBtn(false)}>
-                        Desvincular
+                      <button onClick={() => void desvincularConciliado(c)} style={secondaryBtn(false)} title={c.lancamento_id === null ? 'Desfaz a fatura inteira (todos os títulos voltam a Aberto)' : 'Desvincular este lançamento conciliado'}>
+                        {c.lancamento_id === null ? 'Desvincular fatura' : 'Desvincular'}
                       </button>
+                      <AjudaCampo chave="conc.inbox.acao_desvincular_conciliado" rota="/dashboard/financeiro/conciliacao/inbox" />
                     </div>
                   </div>
                 )
@@ -1552,6 +1629,20 @@ export default function InboxPage() {
                   }}
                 >{n === 'todos' ? 'Todos' : n === 'debito' ? 'A pagar' : 'A receber'}</button>
               ))}
+              <AjudaCampo chave="financeiro.conciliacao.filtro_natureza_sistema" />
+              {empresaUnica && (
+                <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <ExportarConciliacaoButton
+                    companyId={empresaUnica}
+                    loteNome={loteSel?.nome ?? null}
+                    periodo={loteSel ? `${fmtDate(loteSel.periodo_inicio)} a ${fmtDate(loteSel.periodo_fim)}` : null}
+                    vista="sistema"
+                    sistema={pendenciasSistema}
+                    kpis={[{ label: 'Valor pendente', valor: valorPendente, qtd: totPend }]}
+                  />
+                  <AjudaCampo chave="financeiro.conciliacao.exportar" />
+                </div>
+              )}
             </div>
 
             <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', marginBottom: 12 }}>
@@ -1611,6 +1702,7 @@ export default function InboxPage() {
                           style={secondaryBtn(false)}
                           data-testid="conc-sistema-editar"
                         >✏️ Editar</button>
+                        <AjudaCampo chave="conc.inbox.acao_editar_sistema" rota="/dashboard/financeiro/conciliacao/inbox" />
                       </div>
                     </div>
                   )
@@ -1757,7 +1849,7 @@ const emptyBox: React.CSSProperties = {
 // destino), pré-seleciona o subconjunto ÚNICO que bate; senão a Jordana marca (soma × débito à vista).
 type LoteCand = { lancamento_id: string; lancamento_tabela: string; descricao: string | null; fornecedor: string | null; valor: number; vencimento: string | null }
 
-function subsetUnico(itens: LoteCand[], alvoCents: number): string[] | null {
+function subsetUnico(itens: { lancamento_id: string; valor: number }[], alvoCents: number): string[] | null {
   const n = itens.length
   if (n === 0 || n > 20) return null // acima disso, força seleção manual (evita custo/ambiguidade)
   const cents = itens.map((i) => Math.round((i.valor || 0) * 100))
@@ -1822,8 +1914,8 @@ function LoteRemessaCard({ mov, onConciliado }: { mov: Item; onConciliado: () =>
   return (
     <div style={{ border: '1px solid #0D9488', borderRadius: 8, padding: 10, background: '#F0FDFA' }}>
       <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0D9488' }}>Remessa Nº {rem} — {itens.length} título(s) pago(s) neste lote</div>
-      <div style={{ fontSize: 11.5, color: 'rgba(61,35,20,0.6)', marginTop: 2 }}>
-        Marque os títulos deste débito · selecionado {brl(somaSel)} · débito {brl(alvo)}{bate ? ' ✓ bate' : ' — ainda não bate'}
+      <div style={{ fontSize: 11.5, color: 'rgba(61,35,20,0.6)', marginTop: 2, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        Marque os títulos deste débito · selecionado {brl(somaSel)} · débito {brl(alvo)}{bate ? ' ✓ bate' : ' — ainda não bate'}<AjudaCampo chave="financeiro.conciliacao.match_titulo" />
       </div>
       <div style={{ maxHeight: 168, overflowY: 'auto', marginTop: 6 }}>
         {itens.map((i, idx) => {
@@ -1831,8 +1923,8 @@ function LoteRemessaCard({ mov, onConciliado }: { mov: Item; onConciliado: () =>
           return (
             // RD-41 · 3 colunas ALINHADAS: [checkbox extrema-esquerda] · [favorecido flex] · [valor à direita],
             // cores escuras de alto contraste (o valor herdava cinza-claro e sumia). align-items:center.
-            <label key={i.lancamento_id} style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr) auto', columnGap: 10, alignItems: 'center', padding: '8px 4px', fontSize: 12.5, cursor: 'pointer', borderTop: idx ? '1px solid rgba(61,35,20,0.08)' : 'none' }}>
-              <input type="checkbox" checked={on} style={{ width: 16, height: 16, margin: 0, accentColor: '#C8941A' }}
+            <label key={i.lancamento_id} data-ajuda="financeiro.conciliacao.match_titulo" style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr) auto', columnGap: 10, alignItems: 'center', padding: '8px 4px', fontSize: 12.5, cursor: 'pointer', borderTop: idx ? '1px solid rgba(61,35,20,0.08)' : 'none' }}>
+              <input type="checkbox" checked={on} aria-label="Marcar este título" style={{ width: 16, height: 16, margin: 0, accentColor: '#C8941A' }}
                 onChange={() => setSel((s) => { const n = new Set(s); if (n.has(i.lancamento_id)) n.delete(i.lancamento_id); else n.add(i.lancamento_id); return n })} />
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontWeight: 600, color: '#3D2314', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{i.fornecedor || i.descricao || 'título'}</div>
@@ -1848,6 +1940,95 @@ function LoteRemessaCard({ mov, onConciliado }: { mov: Item; onConciliado: () =>
         <button onClick={() => void conciliar()} disabled={fase === 'busy' || !bate}
           style={{ fontSize: 12, fontWeight: 700, color: '#fff', background: bate ? '#0D9488' : 'rgba(13,148,136,0.4)', border: 'none', borderRadius: 6, padding: '7px 12px', cursor: bate ? 'pointer' : 'not-allowed' }}>
           {fase === 'busy' ? 'Conciliando…' : `Conciliar lote (${sel.size})`}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// #9418 (jordana-chat) · F2 — crédito ÚNICO de boletos liquidados por API (ex.: Sicredi "LIQ.COBRANCA
+// SIMPLES-COBnnnnnn"): o banco credita o valor agrupado e o usuário precisava descobrir sozinho quais
+// boletos formam o crédito. Este card chama fn_conciliacao_lote_liquidacao_candidatos (F1, só-leitura),
+// mostra os boletos liquidados ainda não conciliados da MESMA conta pagos na janela do crédito, soma
+// viva × alvo, e concilia o subconjunto marcado (fn_conciliacao_vincular + fn_conciliacao_fechar_agrupado,
+// RD-26). Espelha LoteRemessaCard (lado débito). NUNCA concilia sozinho: pré-seleciona o subconjunto
+// ÚNICO que bate (subsetUnico) quando existe; senão o usuário marca.
+type LoteLiqCand = { lancamento_id: string; lancamento_tabela: string; cliente: string | null; valor: number; pago_em: string | null; vencimento: string | null }
+
+function LoteLiquidacaoCard({ mov, onConciliado }: { mov: Item; onConciliado: () => void }) {
+  const [fase, setFase] = useState<'idle' | 'load' | 'ready' | 'busy' | 'na'>('idle')
+  const [nn, setNn] = useState<number | null>(null)
+  const [itens, setItens] = useState<LoteLiqCand[]>([])
+  const [sel, setSel] = useState<Set<string>>(new Set())
+  const [erroL, setErroL] = useState<string | null>(null)
+  const alvo = Math.round(Math.abs(mov.valor) * 100)
+  // crédito de liquidação de cobrança: mesmo reconhecedor da F1 (LIQ...COBRANC + crédito)
+  const ehLiq = /LIQ.*COBRANC/i.test(mov.descricao ?? '') && mov.natureza === 'credito'
+
+  useEffect(() => {
+    if (!ehLiq) return   // não é crédito de liquidação → render mostra o texto padrão
+    let alive = true
+    void (async () => {
+      setFase('load')
+      const { data, error } = await supabase.rpc('fn_conciliacao_lote_liquidacao_candidatos', { p_movimento_id: mov.movimento_id })
+      if (!alive) return
+      const r = data as { ok?: boolean; aplicavel?: boolean; nn?: number | null; itens?: LoteLiqCand[] } | null
+      if (error || !r?.ok || !r.aplicavel || !(r.itens && r.itens.length)) { setFase('na'); return }
+      setNn(r.nn ?? null); setItens(r.itens)
+      setSel(new Set(subsetUnico(r.itens, alvo) ?? []))
+      setFase('ready')
+    })()
+    return () => { alive = false }
+  }, [ehLiq, mov.movimento_id, alvo])
+
+  const somaSel = Math.round(itens.filter((i) => sel.has(i.lancamento_id)).reduce((a, i) => a + (i.valor || 0), 0) * 100)
+  const bate = sel.size > 0 && Math.abs(somaSel - alvo) <= 5
+  const brl = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+
+  async function conciliar() {
+    setFase('busy'); setErroL(null)
+    for (const id of Array.from(sel)) {
+      const it = itens.find((x) => x.lancamento_id === id)
+      if (!it) continue
+      const { data, error } = await supabase.rpc('fn_conciliacao_vincular', { p_movimento_id: mov.movimento_id, p_lancamento_tabela: it.lancamento_tabela, p_lancamento_id: id, p_valor: null })
+      const rv = data as { ok?: boolean; erro?: string; msg?: string } | null
+      if (error || rv?.ok === false) { setErroL('Falha ao vincular: ' + (error?.message || rv?.msg || rv?.erro || '')); setFase('ready'); return }
+    }
+    const { data, error } = await supabase.rpc('fn_conciliacao_fechar_agrupado', { p_movimento_id: mov.movimento_id })
+    const rf = data as { ok?: boolean; erro?: string } | null
+    if (error || rf?.ok === false) { setErroL('Falha ao fechar o lote: ' + (error?.message || rf?.erro || '')); setFase('ready'); return }
+    onConciliado()
+  }
+
+  if (!ehLiq || fase === 'na') return <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)' }}>Sem sugestão automática. Conciliar manualmente.</div>
+  if (fase === 'idle' || fase === 'load') return <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.55)' }}>Verificando boletos liquidados…</div>
+  return (
+    <div style={{ border: '1px solid #0D9488', borderRadius: 8, padding: 10, background: '#F0FDFA' }}>
+      <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0D9488' }}>Crédito de cobrança liquidada{nn ? ` — ${nn} boleto(s) neste crédito` : ''}</div>
+      <div style={{ fontSize: 11.5, color: 'rgba(61,35,20,0.6)', marginTop: 2, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        Marque os boletos deste crédito · selecionado {brl(somaSel)} · crédito {brl(alvo)}{bate ? ' ✓ bate' : ' — ainda não bate'}<AjudaCampo chave="financeiro.conciliacao.match_titulo" />
+      </div>
+      <div style={{ maxHeight: 168, overflowY: 'auto', marginTop: 6 }}>
+        {itens.map((i, idx) => {
+          const on = sel.has(i.lancamento_id)
+          return (
+            <label key={i.lancamento_id} data-ajuda="financeiro.conciliacao.match_titulo" style={{ display: 'grid', gridTemplateColumns: 'auto minmax(0,1fr) auto', columnGap: 10, alignItems: 'center', padding: '8px 4px', fontSize: 12.5, cursor: 'pointer', borderTop: idx ? '1px solid rgba(61,35,20,0.08)' : 'none' }}>
+              <input type="checkbox" checked={on} aria-label="Marcar este boleto" style={{ width: 16, height: 16, margin: 0, accentColor: '#C8941A' }}
+                onChange={() => setSel((s) => { const n = new Set(s); if (n.has(i.lancamento_id)) n.delete(i.lancamento_id); else n.add(i.lancamento_id); return n })} />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 600, color: '#3D2314', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{i.cliente || 'boleto'}</div>
+                <div style={{ fontSize: 10.5, color: 'rgba(61,35,20,0.55)' }}>{i.pago_em ? `pago ${fmtDate(i.pago_em)}` : ''}{i.pago_em && i.vencimento ? ' · ' : ''}{i.vencimento ? `venc ${fmtDate(i.vencimento)}` : ''}</div>
+              </div>
+              <span style={{ fontWeight: 800, color: '#3D2314', whiteSpace: 'nowrap', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{(i.valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+            </label>
+          )
+        })}
+      </div>
+      {erroL && <div style={{ fontSize: 11.5, color: '#A32D2D', marginTop: 4 }}>{erroL}</div>}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+        <button onClick={() => void conciliar()} disabled={fase === 'busy' || !bate}
+          style={{ fontSize: 12, fontWeight: 700, color: '#fff', background: bate ? '#0D9488' : 'rgba(13,148,136,0.4)', border: 'none', borderRadius: 6, padding: '7px 12px', cursor: bate ? 'pointer' : 'not-allowed' }}>
+          {fase === 'busy' ? 'Conciliando…' : `Conciliar crédito (${sel.size})`}
         </button>
       </div>
     </div>

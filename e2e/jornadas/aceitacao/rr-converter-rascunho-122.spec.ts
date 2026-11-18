@@ -5,7 +5,7 @@
 // Demonstração Comércio (GE). A RPC é chamada COMO O ROBÔ (mesmo caminho do Kanban). Dados de teste excluídos (soft).
 
 import { test, expect } from '../../support/fixtures'
-import { dbSelect, dbInsert, dbPatch, registrarJornada, obterSessionPayload } from '../../support/api'
+import { dbSelect, dbInsert, dbDelete, registrarJornada, obterSessionPayload } from '../../support/api'
 
 const DEMO_COMERCIO = 'b0700000-0000-4000-a000-000000000004'
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || ''
@@ -37,8 +37,18 @@ test.describe('Aceitação #122 — orçamento vira pedido a partir do rascunho'
   })
 
   test.afterAll(async () => {
-    if (pedido) await dbPatch('erp_pedidos', `id=eq.${pedido}`, { deleted_at: new Date().toISOString() }).catch(() => {})
-    if (orc) await dbPatch('erp_orcamentos', `id=eq.${orc}`, { deleted_at: new Date().toISOString() }).catch(() => {})
+    // erp_pedidos NÃO tem coluna deleted_at (o PATCH antigo falhava em silêncio e o pedido 'aberto'
+    // vazava a cada run → 2213 "Cliente Aceitação 122" acumulados no GE-DEMO). Limpeza HARD, FK-safe
+    // (filhos antes), como a aceitação #3858.
+    if (pedido) {
+      await dbDelete('erp_pedidos_itens', `pedido_id=eq.${pedido}`).catch(() => {})
+      await dbDelete('erp_pedidos', `id=eq.${pedido}`).catch(() => {})
+    }
+    if (orc) {
+      await dbDelete('erp_orcamento_historico', `orcamento_id=eq.${orc}`).catch(() => {})
+      await dbDelete('erp_orcamentos_itens', `orcamento_id=eq.${orc}`).catch(() => {})
+      await dbDelete('erp_orcamentos', `id=eq.${orc}`).catch(() => {})
+    }
   })
 
   test('orçamento em RASCUNHO converte em pedido (sem precisar marcar "enviado") @pos-migration', async () => {

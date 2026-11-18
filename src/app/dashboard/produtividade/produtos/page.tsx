@@ -32,18 +32,29 @@ type Produto = {
   secao_origem: string | null; peso_aprox_kg: number | null; conservacao: string | null; ativo: boolean
 }
 
+// Papéis = domínio canônico do banco (prod_produto_papel_check = {origem,intermediario,acabado,subproduto};
+// ~9 mil produtos reais já usam). NÃO adicionar valores fora deste conjunto sem antes alterar o CHECK da tabela.
 const PAPEIS: { value: string; label: string }[] = [
-  { value: 'entrada_animal', label: 'Entrada (animal)' },
-  { value: 'carcaca', label: 'Carcaça' },
-  { value: 'carcaca_quarto', label: 'Carcaça (quarto)' },
-  { value: 'entrada_desossa', label: 'Entrada p/ desossa' },
-  { value: 'produto_final_com_osso', label: 'Produto final c/ osso' },
-  { value: 'produto_final_sem_osso', label: 'Produto final s/ osso' },
-  { value: 'miudo', label: 'Miúdo' },
-  { value: 'subproduto', label: 'Subproduto' },
-  { value: 'acabado', label: 'Acabado' },
-  { value: 'ignorar', label: 'Ignorar' },
+  { value: 'origem', label: 'Origem (entrada do processo — ex.: boi em pé)' },
+  { value: 'intermediario', label: 'Intermediário (entra na desossa — ex.: carcaça, quarto, bola)' },
+  { value: 'acabado', label: 'Produto final (corte pronto — ex.: coxão mole)' },
+  { value: 'subproduto', label: 'Subproduto (ex.: sebo, ossos, aparas)' },
 ]
+const PAPEIS_VALIDOS = new Set(PAPEIS.map((p) => p.value))
+// Papel da linha colada (3ª coluna) fora do domínio → erro claro por linha, antes de enviar (não repete o
+// problema do import em massa). Linha vazia/cabeçalho e papel em branco (opcional) não acusam.
+function papeisInvalidosColados(texto: string): { linha: number; papel: string }[] {
+  const out: { linha: number; papel: string }[] = []
+  texto.split(/\r?\n/).forEach((ln, i) => {
+    const t = ln.trim()
+    if (!t) return
+    const cols = t.split(';').map((c) => c.trim())
+    if (i === 0 && (cols[0] ?? '').toLowerCase() === 'codigo') return // cabeçalho
+    const papel = (cols[2] ?? '').toLowerCase()
+    if (papel && !PAPEIS_VALIDOS.has(papel)) out.push({ linha: i + 1, papel: cols[2] })
+  })
+  return out
+}
 const LINHAS: { value: string; label: string }[] = [
   { value: 'padrao', label: 'Padrão' },
   { value: 'precoce', label: 'Precoce' },
@@ -192,7 +203,10 @@ function Inner() {
           <button data-testid="produtos-novo" onClick={() => setNovoAberto(true)} style={{ ...btn(true), padding: '7px 12px', fontSize: 12.5 }}>+ Novo produto</button>
           <Aj k="prod.produto.novo" />
         </span>
-        <button data-testid="produtos-colar" onClick={() => setColarAberto(true)} style={{ ...btn(true), background: 'transparent', color: C.esp, border: `1px solid ${C.border}`, padding: '7px 12px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><ClipboardList size={14} strokeWidth={1.5} />Colar lista</button>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+          <button data-testid="produtos-colar" onClick={() => setColarAberto(true)} style={{ ...btn(true), background: 'transparent', color: C.esp, border: `1px solid ${C.border}`, padding: '7px 12px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><ClipboardList size={14} strokeWidth={1.5} />Colar lista</button>
+          <Aj k="prod.produto.colar_lista" />
+        </span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
           <button data-testid="produtos-importar-vinculado" onClick={() => setImportarAberto(true)} style={{ ...btn(true), background: 'transparent', color: C.esp, border: `1px solid ${C.border}`, padding: '7px 12px', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><PlugZap size={14} strokeWidth={1.5} />Importar do sistema vinculado</button>
           <Aj k="prod.produto.importar_vinculado" />
@@ -448,6 +462,13 @@ function ColarListaModal({ companyId, plantId, onClose, onGravou }: {
   const [erro, setErro] = useState<string | null>(null)
 
   async function chamar(gravar: boolean): Promise<PreviaColar | null> {
+    // Parte C (defensivo, cliente): papel fora do domínio canônico → erro claro por linha, sem enviar ao banco.
+    const inval = papeisInvalidosColados(texto)
+    if (inval.length) {
+      setErro(`Papel inválido na(s) linha(s) ${inval.map((x) => `${x.linha} ("${x.papel}")`).join(', ')}. Use: origem, intermediario, acabado ou subproduto.`)
+      setPrevia(null)
+      return null
+    }
     setBusy(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_prod_produto_colar', { p_company_id: companyId, p_plant_id: plantId, p_linhas: texto, p_gravar: gravar })
     setBusy(false)
@@ -477,7 +498,7 @@ function ColarListaModal({ companyId, plantId, onClose, onGravou }: {
         {erro && <div style={{ background: C.redBg, color: C.red, padding: '8px 11px', borderRadius: 7, fontSize: 12.5, marginBottom: 10 }}>{erro}</div>}
         <div data-ajuda="prod.produto.colar_lista">
           <textarea data-testid="colar-texto" value={texto} onChange={(e) => { setTexto(e.target.value); setPrevia(null) }} rows={8}
-            placeholder={'codigo;nome;papel;linha;secao;peso;conservacao\n1001;Dianteiro com osso;produto_final_com_osso;padrao;desossa;12,5;RESFRIADO'}
+            placeholder={'codigo;nome;papel;linha;secao;peso;conservacao\n1001;Dianteiro com osso;acabado;padrao;cortes;12,5;RESFRIADO\n(papel: origem, intermediario, acabado ou subproduto)'}
             style={{ ...inp, fontFamily: 'ui-monospace, monospace', fontSize: 12.5, resize: 'vertical' }} />
         </div>
 

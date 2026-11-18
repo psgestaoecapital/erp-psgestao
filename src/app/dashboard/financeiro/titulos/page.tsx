@@ -22,6 +22,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -155,13 +156,27 @@ function TitulosInner() {
       setTitulos((data ?? []) as Titulo[])
       setTotal(count ?? 0)
 
-      // Agregados separados (para KPIs no header)
-      const aggQ = supabase
-        .from('v_titulos_consolidados')
-        .select('tipo, valor, status_calculado')
-        .in('company_id', ids)
-      const { data: aggData } = await aggQ
-      setAggregados((aggData ?? []) as { tipo: string; valor: number | null; status_calculado: string }[])
+      // Agregados para os KPIs do cabeçalho — somam TODOS os títulos da(s)
+      // empresa(s), não apenas os da página atual.
+      // #6712 (Gean Auto, 1.348 títulos): o select simples era limitado a 1.000
+      // linhas pelo PostgREST (max-rows), então os totais do cabeçalho vinham
+      // incompletos — o cliente relatou "não filtra pela informação do cabeçalho".
+      // Paginamos até esgotar para que os KPIs fiquem corretos e completos.
+      const AGG_PAGE = 1000
+      const AGG_MAX_PAGES = 50 // trava de segurança (até 50k linhas)
+      const agg: { tipo: string; valor: number | null; status_calculado: string }[] = []
+      for (let p = 0; p < AGG_MAX_PAGES; p++) {
+        const { data: aggData, error: aggErr } = await supabase
+          .from('v_titulos_consolidados')
+          .select('tipo, valor, status_calculado')
+          .in('company_id', ids)
+          .range(p * AGG_PAGE, p * AGG_PAGE + AGG_PAGE - 1)
+        if (aggErr) throw aggErr
+        const lote = (aggData ?? []) as { tipo: string; valor: number | null; status_calculado: string }[]
+        agg.push(...lote)
+        if (lote.length < AGG_PAGE) break
+      }
+      setAggregados(agg)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       setErro(msg || 'Falha ao carregar títulos.')
@@ -217,9 +232,9 @@ function TitulosInner() {
 
         {/* KPIs */}
         <section className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-3">
-          <KpiCard label="A pagar (aberto + vencido + agendado)" valor={kpiPagar} tone="amber" Icon={ArrowUpFromLine} />
-          <KpiCard label="A receber (aberto + vencido + agendado)" valor={kpiReceber} tone="emerald" Icon={ArrowDownToLine} />
-          <KpiCard label="Total vencido" valor={kpiVencido} tone="rose" Icon={CalendarClock} />
+          <KpiCard label="A pagar (aberto + vencido + agendado)" chave="financeiro.titulos.kpi_pagar" valor={kpiPagar} tone="amber" Icon={ArrowUpFromLine} />
+          <KpiCard label="A receber (aberto + vencido + agendado)" chave="financeiro.titulos.kpi_receber" valor={kpiReceber} tone="emerald" Icon={ArrowDownToLine} />
+          <KpiCard label="Total vencido" chave="financeiro.titulos.kpi_vencido" valor={kpiVencido} tone="rose" Icon={CalendarClock} />
         </section>
 
         {/* Filtros */}
@@ -237,6 +252,7 @@ function TitulosInner() {
               ]}
               atual={tipo}
               campo="tipo"
+              chave="financeiro.titulos.filtro_tipo"
               urlBuilder={urlComFiltro}
             />
             <FiltroGrupo
@@ -253,13 +269,15 @@ function TitulosInner() {
               ]}
               atual={status}
               campo="status"
+              chave="financeiro.titulos.filtro_status"
               urlBuilder={urlComFiltro}
             />
           </div>
           {companies && companies.length > 0 && (
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <span className="text-xs font-medium uppercase tracking-wider text-[#3D2314]/50">
+              <span className="inline-flex items-center text-xs font-medium uppercase tracking-wider text-[#3D2314]/50">
                 Empresa:
+                <AjudaCampo chave="financeiro.titulos.filtro_empresa" />
               </span>
               <Link
                 href={urlComFiltro({ empresa: 'todas' })}
@@ -386,9 +404,9 @@ function TitulosInner() {
 /* ─────────── Sub-componentes ─────────── */
 
 function KpiCard({
-  label, valor, tone, Icon,
+  label, chave, valor, tone, Icon,
 }: {
-  label: string; valor: number;
+  label: string; chave: string; valor: number;
   tone: 'amber' | 'emerald' | 'rose';
   Icon: typeof CalendarClock;
 }) {
@@ -403,7 +421,10 @@ function KpiCard({
         <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${tones[tone]}`}>
           <Icon className="h-4 w-4" />
         </div>
-        <p className="text-xs text-[#3D2314]/60">{label}</p>
+        <p className="inline-flex items-center text-xs text-[#3D2314]/60">
+          {label}
+          <AjudaCampo chave={chave} />
+        </p>
       </div>
       <p className="mt-3 text-2xl font-semibold text-[#3D2314]">
         {valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
@@ -413,17 +434,21 @@ function KpiCard({
 }
 
 function FiltroGrupo({
-  label, opcoes, atual, campo, urlBuilder,
+  label, opcoes, atual, campo, chave, urlBuilder,
 }: {
   label: string;
   opcoes: { v: string; l: string }[];
   atual: string;
   campo: string;
+  chave: string;
   urlBuilder: (patch: Record<string, string>) => string;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      <span className="text-xs font-medium uppercase tracking-wider text-[#3D2314]/50">{label}:</span>
+      <span className="inline-flex items-center text-xs font-medium uppercase tracking-wider text-[#3D2314]/50">
+        {label}:
+        <AjudaCampo chave={chave} />
+      </span>
       {opcoes.map((o) => (
         <Link
           key={o.v}

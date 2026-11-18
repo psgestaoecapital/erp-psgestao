@@ -22,6 +22,17 @@ type Lote = { id: string; codigo: string; fase: string | null }
 type Draft = { tipo: string; bl: string; lote: string }
 type FiltroStatus = 'todos' | 'nao' | 'map' | 'inativo'
 
+// A DEMO fica poluída por centros de teste (E2E/[BOT]/screenshot) que vazam das specs e2e e ficam
+// INATIVOS na listagem (a DEMO de Comércio chegou a ~10 mil centros inativos de teste, afogando os
+// poucos reais). Como PALIATIVO DE DISPLAY (não-destrutivo — nada é apagado no banco, RD-69/RD-98 p4),
+// a tela esconde os centros INATIVOS cujo nome é um marcador INEQUÍVOCO de teste. Em empresa real não
+// existe centro com esse nome, então o filtro é inócuo fora da DEMO. A limpeza definitiva (specs e2e
+// usarem empresa descartável / limparem ao fim) é do time de testes.
+const MARCADOR_TESTE = /(^e2e[-_]|\[bot\]|screenshot)/i
+function ehCentroDeTesteInativo(r: Row): boolean {
+  return r.mapeado && !r.ativo && MARCADOR_TESTE.test(r.valor_origem)
+}
+
 // RD-98 critério (e): nunca mostrar o erro CRU do banco ao usuário. Loga o técnico no console (suporte)
 // e devolve uma frase amigável/acionável. Os erros de negócio (contrato {ok,erro}) já chegam amigáveis
 // da função e são mantidos. Mesmo padrão de ListagemPagarReceberView.tsx.
@@ -53,7 +64,9 @@ export default function CentrosCustoPage() {
       supabase.from('business_lines').select('id,name').eq('company_id', empresaUnica).order('ln_number'),
       supabase.from('erp_pec_lote').select('id,codigo,fase').eq('company_id', empresaUnica).eq('ativo', true).order('codigo'),
     ])
-    const data = (cc.data ?? []) as Row[]
+    // Esconde o lixo de teste INATIVO (ver MARCADOR_TESTE) antes de montar a lista e as contagens,
+    // para que "Inativos" e "Todos" reflitam os centros reais, não a poluição de e2e da DEMO.
+    const data = ((cc.data ?? []) as Row[]).filter((r) => !ehCentroDeTesteInativo(r))
     setRows(data)
     setBls((bl.data ?? []) as BL[])
     setLotes((lo.data ?? []) as Lote[])
@@ -211,7 +224,7 @@ export default function CentrosCustoPage() {
             <th style={th}><span style={thWrap}>Tipo <AjudaCampo chave="ge.centros_custo.col_tipo" /></span></th>
             <th style={th}><span style={thWrap}>Linha <AjudaCampo chave="ge.centros_custo.col_linha" /></span></th>
             {usaLotes && <th style={th}><span style={thWrap}>Lote (se direto) <AjudaCampo chave="ge.centros_custo.col_lote" /></span></th>}
-            <th style={th}></th>
+            <th style={th}><span style={thWrap}>Ações <AjudaCampo chave="ge.centros_custo.col_acoes" /></span></th>
           </tr></thead>
           <tbody>
             {visiveis.map((r) => {
@@ -244,9 +257,9 @@ export default function CentrosCustoPage() {
                   )}
                   <td style={td}>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      <button onClick={() => void salvar(r.valor_origem)} style={btnPri}>Salvar</button>
-                      {r.mapeado && r.ativo && <button onClick={() => void excluir(r)} style={btnDel} title={r.ocorrencias > 0 ? 'Em uso — será inativado' : 'Excluir mapeamento'}>{r.ocorrencias > 0 ? 'Inativar' : 'Excluir'}</button>}
-                      {r.mapeado && !r.ativo && <button onClick={() => void reativar(r)} style={btnSec}>Reativar</button>}
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}><button onClick={() => void salvar(r.valor_origem)} style={btnPri}>Salvar</button><AjudaCampo chave="ge.centros_custo.acao_salvar" /></span>
+                      {r.mapeado && r.ativo && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}><button onClick={() => void excluir(r)} style={btnDel} title={r.ocorrencias > 0 ? 'Em uso — será inativado' : 'Excluir mapeamento'}>{r.ocorrencias > 0 ? 'Inativar' : 'Excluir'}</button><AjudaCampo chave="ge.centros_custo.acao_excluir" /></span>}
+                      {r.mapeado && !r.ativo && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}><button onClick={() => void reativar(r)} style={btnSec}>Reativar</button><AjudaCampo chave="ge.centros_custo.acao_reativar" /></span>}
                     </div>
                   </td>
                 </tr>

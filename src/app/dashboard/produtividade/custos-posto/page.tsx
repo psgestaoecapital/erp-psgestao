@@ -380,7 +380,9 @@ function Casca({ children }: { children: React.ReactNode }) {
             <Link href="/dashboard/produtividade" style={{ fontSize: 13, fontWeight: 600, color: MUT, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 999, padding: '5px 12px', textDecoration: 'none' }}>Cadastro de postos</Link>
             <Link href="/dashboard/produtividade/indicadores" style={{ fontSize: 13, fontWeight: 600, color: MUT, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 999, padding: '5px 12px', textDecoration: 'none' }}>Indicadores</Link>
             <span aria-current="page" style={{ fontSize: 13, fontWeight: 700, color: ESP, background: '#FBF3DE', border: `1px solid ${GOLD}`, borderRadius: 999, padding: '5px 12px' }}>Custos do posto</span>
+            <Link href="/dashboard/produtividade/rateio" data-testid="link-rateio-admin" style={{ fontSize: 13, fontWeight: 600, color: MUT, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 999, padding: '5px 12px', textDecoration: 'none' }}>Rateio administrativo</Link>
           </nav>
+
         </header>
         {children}
       </div>

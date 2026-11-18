@@ -24,7 +24,9 @@ export const POST = exigirLogin(async (req: NextRequest, u) => {
 
   const { data: turnoRec, error: errTurno } = await supabaseAdmin
     .from('ind_turnos')
-    .upsert({ unidade_id, data, turno, supervisor: userId }, { onConflict: 'unidade_id,data,turno' })
+    // RD-98: re-registrar o mesmo turno (unidade+data+turno) REATIVA um que havia sido
+    // excluído — zera o soft-delete junto com o upsert.
+    .upsert({ unidade_id, data, turno, supervisor: userId, excluido_em: null, excluido_por: null }, { onConflict: 'unidade_id,data,turno' })
     .select().single()
   if (errTurno) return NextResponse.json({ error: errTurno.message }, { status: 400 })
 
@@ -96,6 +98,7 @@ export const GET = exigirLogin(async (req: NextRequest, u) => {
     .from('ind_turnos')
     .select('id, data, turno, unidade_id, ind_unidades(nome), ind_custos_turno(custo_por_kg, kg_produzido, margem_bruta)')
     .eq('company_id', companyId)
+    .is('excluido_em', null)
     .order('data', { ascending: false })
     .order('turno', { ascending: true })
     .limit(15)
@@ -115,10 +118,54 @@ export const GET = exigirLogin(async (req: NextRequest, u) => {
   return NextResponse.json({ turnos: lista })
 })
 
+// RD-98 p2: EXCLUIR um turno registrado, de forma rastreável (soft-delete + audit_log).
+// Preserva o registro (ind_apontamentos_bovinos / ind_qualidade_sif / ind_custos_turno ficam,
+// mas o turno some das listas e dos KPIs do dia). Reabrir é só re-registrar o mesmo turno.
+export const DELETE = exigirLogin(async (req: NextRequest, u) => {
+  const { userId } = u
+  const turnoId = req.nextUrl.searchParams.get('turno_id') || ''
+  const companyId = req.nextUrl.searchParams.get('company_id') || ''
+  if (!turnoId || !companyId)
+    return NextResponse.json({ error: 'turno_id e company_id são obrigatórios' }, { status: 400 })
+  const negado = await exigirEmpresas(u, [companyId])
+  if (negado) return negado
+
+  // Confere que o turno é da empresa informada (não exclui turno de outra empresa) e está ativo.
+  const { data: turno } = await supabaseAdmin
+    .from('ind_turnos')
+    .select('id, company_id, unidade_id, data, turno, excluido_em')
+    .eq('id', turnoId)
+    .maybeSingle()
+  if (!turno || turno.company_id !== companyId)
+    return NextResponse.json({ error: 'Turno não encontrado nesta empresa' }, { status: 404 })
+  if (turno.excluido_em)
+    return NextResponse.json({ success: true, ja_excluido: true })
+
+  const { error: errDel } = await supabaseAdmin
+    .from('ind_turnos')
+    .update({ excluido_em: new Date().toISOString(), excluido_por: userId })
+    .eq('id', turnoId)
+    .eq('company_id', companyId)
+  if (errDel) return NextResponse.json({ error: errDel.message }, { status: 400 })
+
+  // Rastro (RD-98): quem excluiu e o quê.
+  await supabaseAdmin.from('audit_log_global').insert({
+    company_id: companyId, user_id: userId,
+    tabela: 'ind_turnos', registro_id: turnoId, acao: 'soft_delete',
+    valor_anterior: { data: turno.data, turno: turno.turno, unidade_id: turno.unidade_id },
+  })
+
+  // Tira o turno excluído dos agregados do dia.
+  await recalcularKpiDiario(turno.unidade_id, turno.data)
+
+  return NextResponse.json({ success: true })
+})
+
 async function recalcularKpiDiario(unidade_id: string, data: string) {
   const { data: turnos } = await supabaseAdmin
     .from('ind_turnos').select('id')
     .eq('unidade_id', unidade_id).eq('data', data)
+    .is('excluido_em', null)
   const ids = (turnos || []).map((t: any) => t.id)
   if (!ids.length) return
 

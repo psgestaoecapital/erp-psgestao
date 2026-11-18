@@ -13,6 +13,9 @@ import GerarBoletoButton from './GerarBoletoButton'
 import BoletoActions, { type ClienteContato, type BoletoEstado } from './BoletoActions'
 
 const SEM_CONTA = '— sem conta informada —' // 3b: chip de filtro p/ lançamentos sem conta bancária
+// #9991 · opção "Sem categoria" no filtro de categoria: leva o usuário direto aos títulos ainda
+// não classificados (os que distorcem o DRE). Sentinela que não colide com nenhum código de conta.
+const SEM_CATEGORIA = '— sem categoria —'
 import ConciliarTituloModal from './ConciliarTituloModal'
 // #71 · Editar abre a MESMA tela da inclusão (NovaDespesaForm/NovaReceitaForm em modo edição)
 import NovaDespesaModal from './NovaDespesaModal'
@@ -146,6 +149,11 @@ function erroAmigavel(err: unknown, acao: string): string {
 // canto); sucesso/info = faixa no topo que some sozinha. Cores do design system PS (psgc-tokens). Nunca vaza
 // erro cru do banco — o texto já chega amigável de erroAmigavel()/contrato {erro,orientacao}.
 type AvisoTipo = 'erro' | 'sucesso' | 'info'
+
+// #6732 item 3 · bancos cujo conector já envia a baixa/cancelamento do boleto pela API
+// (mesma lista do BoletoActions: /api/banco/<provider>/cancelar-boleto, #5404). Os demais
+// só avisam para cancelar no internet banking.
+const PROVIDERS_CANCELA_API = new Set<string>(['sicoob', 'bb'])
 type AvisoEstado = { tipo: AvisoTipo; texto: string } | null
 
 function AvisoBox({ aviso, onFechar }: { aviso: AvisoEstado; onFechar: () => void }) {
@@ -398,6 +406,10 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   const [conciliandoItem, setConciliandoItem] = useState<Resultado | null>(null)
   const [cartaoItem, setCartaoItem] = useState<Resultado | null>(null)   // F2 · registrar recebimento em cartão
   const [editandoItem, setEditandoItem] = useState<Resultado | null>(null)
+  // Deep-link do Fluxo de Caixa (RD-98 g): ?abrir=<id> abre a ficha daquele título (e ?excluir=1
+  // dispara a exclusão rastreável), para a tabela de Movimentações do fluxo ter Editar/Excluir por linha.
+  const [abrirId, setAbrirId] = useState<string | null>(null)
+  const [abrirAcao, setAbrirAcao] = useState<'editar' | 'excluir'>('editar')
   const [historicoItem, setHistoricoItem] = useState<Resultado | null>(null)
   const [historicoGlobalAberto, setHistoricoGlobalAberto] = useState(false)
   // Camada1/Fatia2 estabilizacao contas a pagar (08/07):
@@ -418,7 +430,25 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     // Chamado #5427 · "Faturada - ver na GE" (OS) chega com ?busca=<nº da OS>: abre a busca já preenchida e o período
     // largo (a OS pode ter parcelas fora do mês atual). Limpar o campo volta a lista ao normal.
     const buscaUrl = (qs.get('busca') ?? '').trim().slice(0, 80)
-    if (buscaUrl) {
+    // Fluxo de Caixa → ?abrir=<id do título> (+ ?excluir=1): abre a ficha (ou a exclusão) daquele
+    // lançamento. Precisa de período largo porque o título pode estar fora do mês atual; a paginação é
+    // client-side (todos os títulos do período já vêm do fn_ge_listagem_v2), então o alvo é encontrado
+    // em memória independentemente da página. Limpa a URL para não reabrir ao navegar/atualizar.
+    const abrirUrl = (qs.get('abrir') ?? '').trim().slice(0, 64)
+    if (abrirUrl) {
+      const ano = new Date().getFullYear()
+      setAbrirId(abrirUrl)
+      setAbrirAcao(qs.get('excluir') === '1' ? 'excluir' : 'editar')
+      setPeriodoChoice('personalizado')
+      setDataInicio(`${ano - 5}-01-01`)
+      setDataFim(`${ano + 5}-12-31`)
+      try {
+        const limpa = new URL(window.location.href)
+        limpa.searchParams.delete('abrir')
+        limpa.searchParams.delete('excluir')
+        window.history.replaceState(null, '', limpa.pathname + limpa.search)
+      } catch { /* history indisponível */ }
+    } else if (buscaUrl) {
       const ano = new Date().getFullYear()
       setBusca(buscaUrl)
       setPeriodoChoice('personalizado')
@@ -433,6 +463,15 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       setStatusSel(['hoje'])
     } else if (st === 'avencer') {
       setStatusSel(['avencer'])
+    }
+    // #9991 · aviso "X despesas/receitas sem categoria — classificar p/ o DRE" chega com
+    // ?semcategoria=1: abre a lista já filtrada só nos títulos sem categoria, período largo
+    // (podem ser de meses anteriores). Reusa o filtro de categoria existente (sentinela).
+    if (qs.get('semcategoria') === '1') {
+      setCategoria(SEM_CATEGORIA)
+      setPeriodoChoice('personalizado')
+      setDataInicio(`${new Date().getFullYear() - 5}-01-01`)
+      setDataFim(fimMesAtual())
     }
     // roda só no mount: é o filtro inicial vindo da URL
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -684,7 +723,8 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     const vMin = parseValorBR(fValorMin)
     const vMax = parseValorBR(fValorMax)
     const filtrado = base.filter((r) => {
-      if (categoria && r.categoria !== categoria) return false
+      if (categoria === SEM_CATEGORIA) { if ((r.categoria ?? '').trim() !== '') return false }
+      else if (categoria && r.categoria !== categoria) return false
       if (soBloqueadas && !(r.id in bloqueioMap)) return false   // #1672
       // item 3 + 3b: filtro Conta (sentinel "— sem conta informada —" = linha sem conta bancária)
       if (contasSel.size > 0) {
@@ -775,7 +815,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     const statusMap: Record<string, string> = { todos: 'Todos', avencer: 'A vencer', vencidos: 'Vencidos', hoje: 'Hoje', pagos: labels.pagosLabel, conciliado: 'Conciliado', agendado: 'Agendado', incluido_remessa: 'Incluído na remessa' }
     const statusTxt = statusSel.length ? statusSel.map((s) => statusMap[s]).join(' + ') : 'Todos'
     const partes = [`Periodo ${fmtData(dataInicio)} a ${fmtData(dataFim)}`, `Status: ${statusTxt}`]
-    if (categoria) partes.push(`Categoria: ${categoria}`)
+    if (categoria) partes.push(categoria === SEM_CATEGORIA ? 'Categoria: Sem categoria' : `Categoria: ${categoria}`)
     if (busca.trim()) partes.push(`Busca: "${busca.trim()}"`)
     if (fPessoa.trim()) partes.push(`${tipo === 'pagar' ? 'Fornecedor' : 'Cliente'}: ${fPessoa.trim()}`)
     if (fForma) partes.push(`Forma: ${fForma}`)
@@ -1019,6 +1059,76 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     })
   }
 
+  // Chamado #6732 (item 3) · evitar pagamento em duplicidade: ao cancelar o título, o boleto
+  // registrado continua COBRÁVEL no banco (o título some, o boleto não). Depois de cancelar o
+  // título, oferece cancelar o boleto vinculado pela API — mesma rota do botão "Cancelar boleto"
+  // do BoletoActions (Sicoob/BB, #5404). Bancos sem rota de baixa (Sicredi/Bradesco) ou conta sem
+  // roteamento só recebem o aviso para cancelar no internet banking. Sem gravar nada à força.
+  const oferecerCancelarBoletoVinculado = async (r: Resultado) => {
+    const bo = boletoMap[r.id]
+    if (!bo || bo.status !== 'registrado') return   // sem boleto ativo: nada a cancelar
+    const res = rotBoleto ? resolverProviderDaConta(rotBoleto, contaIdMap[r.id]) : null
+    const prov = res && res.ok ? res.provider : null
+    const ref = bo.nossoNumero ? ` ${bo.nossoNumero}` : ''
+    if (prov && PROVIDERS_CANCELA_API.has(prov)) {
+      const nome = NOME_BANCO[prov as BoletoProvider] ?? prov
+      // RD-99/RD-58: ação de DINHEIRO confirma pelo card in-app (ConfirmAcaoModal), nunca pelo confirm()
+      // nativo do navegador — coerente com o resto desta tela (cancelar/estornar/excluir) e usável no celular.
+      setConfirmAcao({
+        titulo: 'Cancelar boleto no banco',
+        mensagem:
+          `O título foi cancelado, mas o boleto${ref} continua REGISTRADO no ${nome} e ainda pode ser pago.\n\n`
+          + 'Cancelar o boleto no banco agora, para evitar pagamento em duplicidade?',
+        perigo: true,
+        confirmLabel: 'Cancelar boleto',
+        executar: async () => {
+          setConfirmAcao(null)
+          try {
+            const { data: { session } } = await supabase.auth.getSession()
+            const resp = await fetch(`/api/banco/${prov}/cancelar-boleto`, {
+              method: 'POST',
+              credentials: 'include',
+              headers: { 'content-type': 'application/json', authorization: session ? `Bearer ${session.access_token}` : '' },
+              body: JSON.stringify({ receber_id: r.id }),
+            })
+            const j = await resp.json().catch(() => ({}))
+            if (!resp.ok || !j.ok) {
+              setAviso({ tipo: 'erro', texto: `Título cancelado, mas não foi possível cancelar o boleto no banco: ${j.erro ?? `HTTP ${resp.status}`}. Cancele o boleto no internet banking.` })
+              return
+            }
+            setAviso({ tipo: 'sucesso', texto: 'Título e boleto cancelados — o boleto não pode mais ser pago.' })
+          } catch (e) {
+            setAviso({ tipo: 'erro', texto: `Título cancelado, mas houve erro ao cancelar o boleto no banco (${(e as Error).message || 'rede'}). Cancele o boleto no internet banking.` })
+          }
+        },
+      })
+    } else {
+      setAviso({ tipo: 'info', texto: `O título foi cancelado, mas o boleto${ref} continua registrado no banco e pode ser pago. Cancele o boleto no internet banking para evitar pagamento em duplicidade.` })
+    }
+  }
+
+  // #6732 item 3 (baixa por outro meio): se a baixa QUITOU o título por completo, o boleto registrado
+  // deixa de ter contrapartida e segue cobrável — mesmo risco do cancelamento. Só oferece quando o
+  // saldo zera; baixa PARCIAL mantém o boleto para o restante. Relê o saldo no banco (não confia no
+  // valor em memória, que é anterior à baixa).
+  const aposBaixaOferecerCancelarBoleto = async (r: Resultado | null) => {
+    if (!r || tipo !== 'receber') return
+    const bo = boletoMap[r.id]
+    if (!bo || bo.status !== 'registrado') return
+    // erp_receber tem a coluna `valor` (não `valor_documento` — este é só o alias em memória do loader da lista).
+    // O select errado respondia 400 (42703) e o erro era engolido → a oferta de cancelar o boleto nunca aparecia
+    // no caminho pós-baixa, deixando risco de pagamento em duplicidade do boleto órfão. Não engolir o erro.
+    const { data, error } = await supabase.from('erp_receber').select('valor, valor_pago').eq('id', r.id).maybeSingle()
+    if (error || !data) {
+      setAviso({ tipo: 'info', texto: `Não foi possível confirmar o saldo para oferecer o cancelamento do boleto${bo.nossoNumero ? ` (nº ${bo.nossoNumero})` : ''}. Se o título foi quitado, cancele o boleto no internet banking para evitar pagamento em duplicidade.` })
+      return
+    }
+    const d = data as { valor?: number; valor_pago?: number }
+    const saldo = Number(d.valor ?? 0) - Number(d.valor_pago ?? 0)
+    if (saldo > 0.01) return   // baixa parcial: mantém o boleto para o saldo restante
+    await oferecerCancelarBoletoVinculado(r)
+  }
+
   // BUG #13b · cancelar título manualmente (defensivo): status='cancelado' com motivo + histórico.
   // Sai de inadimplentes na hora. Cobre título sem vínculo OMIE / falha de sync. Só recebíveis.
   const cancelarTitulo = async (r: Resultado) => {
@@ -1037,6 +1147,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         if (error) { setAviso({ tipo: 'erro', texto: erroAmigavel(error, 'cancelar o título') }); return }
         const j = data as { sucesso?: boolean; erro?: string; ja_cancelado?: boolean } | null
         if (!j?.sucesso) { setAviso({ tipo: 'erro', texto: 'Não foi possível cancelar: ' + (j?.erro ?? 'desconhecido') }); return }
+        await oferecerCancelarBoletoVinculado(r)   // #6732 item 3: evita pagamento duplicado do boleto vinculado
         setReloadKey((k) => k + 1)
       },
     })
@@ -1082,6 +1193,18 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       },
     })
   }
+
+  // Deep-link do Fluxo de Caixa: quando ?abrir chegou e a lista (período largo) já carregou, localiza o
+  // título por id e abre a ficha — ou dispara a exclusão rastreável se veio ?excluir=1. Uma vez só.
+  useEffect(() => {
+    if (!abrirId) return
+    const alvo = (data?.resultados ?? []).find((r) => r.id === abrirId)
+    if (!alvo) return
+    setAbrirId(null)
+    if (abrirAcao === 'excluir') void excluir(alvo)
+    else setEditandoItem(alvo)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [abrirId, abrirAcao, data])
 
   // Edição em massa (Jordana #6) · aplica o MESMO valor do CAMPO escolhido a N selecionados. Reusa a RPC
   // do domínio (whitelist + pula pagos p/ valor/vencimento + RLS + log — RD-55/RD-57).
@@ -1207,6 +1330,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       <ConfirmAcaoModal acao={confirmAcao} onFechar={() => setConfirmAcao(null)} />
       <Header
         labels={labels}
+        tipo={tipo}
         onHistorico={() => setHistoricoGlobalAberto(true)}
         onNovo={() => setCriandoNovo(true)}
         acaoExtra={
@@ -1254,6 +1378,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
             style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid rgba(61,35,20,0.2)', fontSize: 12, background: '#fff' }}>
             {providers.map((p) => <option key={p} value={p}>{NOME_BANCO[p]}</option>)}
           </select>
+          <AjudaCampo chave="financeiro.receber.ctrl_boleto_banco" />
         </div>
       )}
 
@@ -1274,6 +1399,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
             }}>
             {sincLiqBusy ? 'Sincronizando…' : '↻ Sincronizar liquidação'}
           </button>
+          <AjudaCampo chave="financeiro.receber.ctrl_sincronizar_liquidacao" alinhar="fim" />
         </div>
       )}
 
@@ -1395,7 +1521,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
 
         {periodoChoice === 'personalizado' && (
           <>
-            <Campo label="Data início">
+            <Campo label="Data início" ajuda={`financeiro.${tipo}.filtro_data_inicio`}>
               <input
                 type="date"
                 value={dataInicio}
@@ -1403,7 +1529,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                 style={inputStyle}
               />
             </Campo>
-            <Campo label="Data fim">
+            <Campo label="Data fim" ajuda={`financeiro.${tipo}.filtro_data_fim`}>
               <input
                 type="date"
                 value={dataFim}
@@ -1458,6 +1584,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         <Campo label="Categoria" ajuda={`financeiro.${tipo}.filtro_categoria`}>
           <select value={categoria} onChange={(e) => { setCategoria(e.target.value); setPage(1) }} style={inputStyle}>
             <option value="">Todas</option>
+            <option value={SEM_CATEGORIA}>Sem categoria (classificar p/ o DRE)</option>
             {categoriasDistinct.map((c) => (
               <option key={c} value={c}>{rotuloCategoria(c)}</option>
             ))}
@@ -1493,19 +1620,19 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         </div>
         {filtrosAbertos && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginTop: 10, padding: 12, background: '#FAF7F2', border: '0.5px solid rgba(61,35,20,0.15)', borderRadius: 10 }}>
-            <Campo label={tipo === 'pagar' ? 'Fornecedor' : 'Cliente'}>
+            <Campo label={tipo === 'pagar' ? 'Fornecedor' : 'Cliente'} ajuda={`financeiro.${tipo}.filtro_pessoa`}>
               <input value={fPessoa} onChange={(e) => { setFPessoa(e.target.value); setPage(1) }} placeholder={`Nome do ${tipo === 'pagar' ? 'fornecedor' : 'cliente'}`} style={inputStyle} />
             </Campo>
-            <Campo label="Forma de pagamento">
+            <Campo label="Forma de pagamento" ajuda={`financeiro.${tipo}.filtro_forma`}>
               <select value={fForma} onChange={(e) => { setFForma(e.target.value); setPage(1) }} style={inputStyle}>
                 <option value="">Todas</option>
                 {formasDistinct.map((f) => <option key={f} value={f}>{f}</option>)}
               </select>
             </Campo>
-            <Campo label="Valor mín (R$)">
+            <Campo label="Valor mín (R$)" ajuda={`financeiro.${tipo}.filtro_valor_min`}>
               <input value={fValorMin} onChange={(e) => { setFValorMin(e.target.value); setPage(1) }} inputMode="decimal" placeholder="0,00" style={inputStyle} />
             </Campo>
-            <Campo label="Valor máx (R$)">
+            <Campo label="Valor máx (R$)" ajuda={`financeiro.${tipo}.filtro_valor_max`}>
               <input value={fValorMax} onChange={(e) => { setFValorMax(e.target.value); setPage(1) }} inputMode="decimal" placeholder="0,00" style={inputStyle} />
             </Campo>
           </div>
@@ -1515,7 +1642,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       {/* Camada1/Fatia2 item 3: filtro Conta = multi-select com chips (só aparece se houver contas) */}
       {contasDistinct.length > 0 && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
-          <span style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.5, marginRight: 4 }}>Conta:</span>
+          <span style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.5, marginRight: 4 }}>Conta:<AjudaCampo chave={`financeiro.${tipo}.filtro_conta`} /></span>
           {contasDistinct.map((c) => {
             const on = contasSel.has(c)
             return (
@@ -1824,6 +1951,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                                 notaId={nfseDocMap[r.id]?.notaId}
                                 onSucesso={() => setReloadKey((k) => k + 1)}
                               />
+                              <AjudaCampo chave="financeiro.receber.acao_nfse" alinhar="fim" />
                               <EmitirNFeButton
                                 companyId={companyId}
                                 erpReceberId={r.id}
@@ -1837,6 +1965,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                                 motivo={nfeDocMap[r.id]?.motivo ?? undefined}
                                 onSucesso={() => setReloadKey((k) => k + 1)}
                               />
+                              <AjudaCampo chave="financeiro.receber.acao_nfe" alinhar="fim" />
                               {(() => {
                                 // #5404: o boleto sai pelo banco da CONTA do título; conta sem boleto → mensagem, nunca outro banco
                                 const res = rotBoleto ? resolverProviderDaConta(rotBoleto, contaIdMap[r.id]) : null
@@ -1863,7 +1992,9 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                                   />
                                 )
                               })()}
+                              <AjudaCampo chave="financeiro.receber.acao_boleto" alinhar="fim" />
                               {!pago && (
+                                <>
                                 <button
                                   type="button"
                                   onClick={() => setCartaoItem(r)}
@@ -1872,6 +2003,8 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                                 >
                                   💳 Cartão
                                 </button>
+                                <AjudaCampo chave="financeiro.receber.acao_cartao" alinhar="fim" />
+                                </>
                               )}
                             </div>
                           </Td>
@@ -1879,6 +2012,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                         <Td align="right">
                           <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', flexWrap: 'wrap', alignItems: 'center' }}>
                             {!pago && capExtrato && (
+                              <>
                               <button
                                 type="button"
                                 onClick={() => setConciliandoItem(r)}
@@ -1887,6 +2021,8 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                               >
                                 Conciliar
                               </button>
+                              <AjudaCampo chave={tipo === 'pagar' ? 'financeiro.pagar.acao_conciliar' : 'financeiro.receber.acao_conciliar'} alinhar="fim" />
+                              </>
                             )}
                             {!pago && (
                               <>
@@ -1959,7 +2095,9 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                             >
                               📋
                             </button>
+                            <AjudaCampo chave={tipo === 'pagar' ? 'financeiro.pagar.acao_duplicar' : 'financeiro.receber.acao_duplicar'} alinhar="fim" />
                             {tipo === 'receber' && r.status !== 'cancelado' && (
+                              <>
                               <button
                                 type="button"
                                 onClick={() => void cancelarTitulo(r)}
@@ -1969,6 +2107,8 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                               >
                                 🚫
                               </button>
+                              <AjudaCampo chave="financeiro.receber.acao_cancelar" alinhar="fim" />
+                              </>
                             )}
                             <button
                               type="button"
@@ -1979,6 +2119,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                             >
                               🗑️
                             </button>
+                            <AjudaCampo chave={tipo === 'pagar' ? 'financeiro.pagar.acao_excluir' : 'financeiro.receber.acao_excluir'} alinhar="fim" />
                           </div>
                         </Td>
                       </tr>
@@ -2012,7 +2153,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
                   )}
                 </span>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span>Itens por página:</span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Itens por página:<AjudaCampo chave={`financeiro.${tipo}.itens_por_pagina`} /></span>
                   <select
                     value={pageSize}
                     onChange={(e) => trocarPageSize(Number(e.target.value))}
@@ -2049,7 +2190,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       <MarcarPagoModal
         open={!!pagandoItem}
         onClose={() => setPagandoItem(null)}
-        onSucesso={() => setReloadKey((k) => k + 1)}
+        onSucesso={() => { const alvo = pagandoItem; void aposBaixaOferecerCancelarBoleto(alvo).finally(() => setReloadKey((k) => k + 1)) }}
         companyId={companyId}
         tipo={tipo}
         itemId={pagandoItem?.id ?? ''}
@@ -2128,16 +2269,19 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
           confirmarLabel={massaBusy ? 'Aplicando…' : 'Aplicar'}
           confirmarDisabled={massaBusy || !massaValorValido}
         >
-          <div style={{ fontSize: 12, marginBottom: 6 }}>Campo a alterar</div>
-          <select
-            value={massaCampo}
-            onChange={(e) => { setMassaCampo(e.target.value); setMassaNovoValor('') }}
-            style={{ width: '100%', padding: '10px 12px', border: '0.5px solid rgba(61,35,20,0.25)', borderRadius: 6, fontSize: 14, background: '#FFFFFF', color: '#3D2314', boxSizing: 'border-box', marginBottom: 12 }}
-          >
-            {CAMPOS_MASSA.map((c) => <option key={c.v} value={c.v}>{c.l}</option>)}
-          </select>
+          <label style={{ display: 'block' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, marginBottom: 6 }}>Campo a alterar<AjudaCampo chave={`financeiro.${tipo}.massa_campo`} /></span>
+            <select
+              value={massaCampo}
+              onChange={(e) => { setMassaCampo(e.target.value); setMassaNovoValor('') }}
+              style={{ width: '100%', padding: '10px 12px', border: '0.5px solid rgba(61,35,20,0.25)', borderRadius: 6, fontSize: 14, background: '#FFFFFF', color: '#3D2314', boxSizing: 'border-box', marginBottom: 12 }}
+            >
+              {CAMPOS_MASSA.map((c) => <option key={c.v} value={c.v}>{c.l}</option>)}
+            </select>
+          </label>
 
-          <div style={{ fontSize: 12, marginBottom: 6 }}>Novo valor · {campoMassaDef.l}</div>
+          <label style={{ display: 'block' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, marginBottom: 6 }}>Novo valor · {campoMassaDef.l}<AjudaCampo chave={`financeiro.${tipo}.massa_valor`} /></span>
           {campoMassaDef.tipo === 'select' ? (
             <select value={massaNovoValor} onChange={(e) => setMassaNovoValor(e.target.value)}
               style={{ width: '100%', padding: '10px 12px', border: '0.5px solid rgba(61,35,20,0.25)', borderRadius: 6, fontSize: 14, background: '#FFFFFF', color: '#3D2314', boxSizing: 'border-box' }}>
@@ -2156,6 +2300,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
               style={{ width: '100%', padding: '10px 12px', border: '0.5px solid rgba(61,35,20,0.25)', borderRadius: 6, fontSize: 14, background: '#FFFFFF', color: '#3D2314', boxSizing: 'border-box' }}
             />
           )}
+          </label>
 
           <div style={{ fontSize: 12, color: 'rgba(61,35,20,0.6)', marginTop: 8 }}>
             {selecionados.size} lançamento{selecionados.size !== 1 ? 's' : ''} → <b>{campoMassaDef.l}</b>{massaNovoValor ? <> = <b>{massaNovoValor}</b></> : ''}.
@@ -2253,8 +2398,9 @@ function Wrapper({ children }: { children: React.ReactNode }) {
   )
 }
 
-function Header({ labels, onHistorico, acaoExtra, onNovo }: {
+function Header({ labels, tipo, onHistorico, acaoExtra, onNovo }: {
   labels: ReturnType<typeof labelsPorTipo>
+  tipo: Tipo
   onHistorico?: () => void
   acaoExtra?: React.ReactNode
   onNovo?: () => void
@@ -2306,11 +2452,13 @@ function Header({ labels, onHistorico, acaoExtra, onNovo }: {
             🕐 Histórico
           </button>
         )}
+        <AjudaCampo chave={`financeiro.${tipo}.header_historico`} alinhar="fim" />
         {onNovo ? (
           <button type="button" onClick={onNovo} style={ctaStyle}>+ {labels.ctaNovo}</button>
         ) : (
           <Link href={labels.rotaNovo + '?area=gestao_empresarial'} style={ctaStyle}>+ {labels.ctaNovo}</Link>
         )}
+        <AjudaCampo chave={`financeiro.${tipo}.cta_novo`} alinhar="fim" />
       </div>
     </div>
   )

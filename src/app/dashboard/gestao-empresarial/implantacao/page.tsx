@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { OnboardingFiveSteps, type OnboardingData } from '@/components/ge/OnboardingFiveSteps'
+import { BlocoSeguro } from '@/components/dev/BlocoSeguro'
 
 type FnReturn =
   | { erro: true; mensagem: string }
@@ -74,5 +75,10 @@ export default function GuiaImplantacaoPage() {
       </div>
     )
   }
-  return <OnboardingFiveSteps data={data as OnboardingData} />
+  // BlocoSeguro (error boundary): se o wizard quebrar por dado ruim, mostra aviso em vez de tela branca.
+  return (
+    <BlocoSeguro nome="Guia de Implantação">
+      <OnboardingFiveSteps data={data as OnboardingData} />
+    </BlocoSeguro>
+  )
 }

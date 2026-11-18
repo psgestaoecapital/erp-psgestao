@@ -9,6 +9,8 @@ import { SlidersHorizontal, Loader2, Landmark } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { parseNumBR } from '@/lib/num'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 type Cfg = {
   id?: string; natureza: string
@@ -60,8 +62,8 @@ export default function CustoConfigPage() {
 
   function foraDaFaixa(s: string): boolean {
     if (s.trim() === '') return false
-    const n = Number(s)
-    return Number.isNaN(n) || n < 0 || n > 100
+    const n = parseNumBR(s) // #5620 — aceita vírgula ("1,5") e milhar além do ponto
+    return n == null || n < 0 || n > 100
   }
 
   async function salvarVenda() {
@@ -70,12 +72,12 @@ export default function CustoConfigPage() {
     setSavingV(true)
     const { data, error } = await supabase.rpc('fn_venda_params_salvar', {
       p_company_id: empresa,
-      p_imposto_venda_pct: vImp.trim() === '' ? null : Number(vImp),
-      p_comissao_venda_pct: vCom.trim() === '' ? null : Number(vCom),
+      p_imposto_venda_pct: vImp.trim() === '' ? null : parseNumBR(vImp),
+      p_comissao_venda_pct: vCom.trim() === '' ? null : parseNumBR(vCom),
     })
     setSavingV(false)
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error) { setToast('Erro ao salvar: ' + error.message); return }
+    if (error) { console.error('[custo-config] fn_venda_params_salvar', error); setToast(erroAmigavel(error, 'Não foi possível salvar agora. Tente de novo; se persistir, fale com o suporte.')); return }
     if (!r?.ok) { setToast(r?.erro ?? 'Não foi possível salvar.'); return }
     setToast('Imposto e comissão da venda salvos.')
   }
@@ -88,7 +90,7 @@ export default function CustoConfigPage() {
       p_cofins: c.cofins_e_custo, p_frete: c.frete_e_custo, p_seguro: c.seguro_e_custo, p_outras: c.outras_e_custo,
     })
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error) { setToast('Erro ao salvar: ' + error.message); return }
+    if (error) { console.error('[custo-config] fn_custo_estoque_config_salvar', error); setToast(erroAmigavel(error, 'Não foi possível salvar agora. Tente de novo; se persistir, fale com o suporte.')); return }
     if (!r?.ok) { setToast(r?.erro ?? 'Não foi possível salvar.'); return }
     setToast('Configuração salva.'); void carregar()
   }
@@ -97,7 +99,7 @@ export default function CustoConfigPage() {
     if (!window.confirm(`Excluir a configuração de custo da natureza "${natureza}"? As notas dessa natureza passam a usar o default. A exclusão fica registrada (rastreável).`)) return
     const { data, error } = await supabase.rpc('fn_custo_estoque_config_excluir', { p_company_id: empresa, p_natureza: natureza })
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error) { setToast('Erro ao excluir: ' + error.message); return }
+    if (error) { console.error('[custo-config] fn_custo_estoque_config_excluir', error); setToast(erroAmigavel(error, 'Não foi possível excluir agora. Tente de novo; se persistir, fale com o suporte.')); return }
     if (!r?.ok) { setToast(r?.erro ?? 'Não foi possível excluir.'); return }
     setToast('Configuração excluída.'); void carregar()
   }
@@ -135,7 +137,7 @@ export default function CustoConfigPage() {
           <div className="flex flex-wrap items-end gap-3">
             <label className="text-[12px] text-[#3D2314]/70">Imposto da venda (%)<AjudaCampo chave="compras.custo_config.imposto_venda" />
               <div className="mt-0.5">
-                <input type="number" step="0.01" min="0" max="100" value={vImp} onChange={(e) => setVImp(e.target.value)}
+                <input type="text" inputMode="decimal" value={vImp} onChange={(e) => setVImp(e.target.value)}
                   placeholder={vSN != null ? `auto: ${vSN}% (Simples)` : 'ex.: 6'}
                   aria-invalid={foraDaFaixa(vImp)}
                   className={'w-44 border rounded-md px-2 py-1 text-[13px] text-[#3D2314] ' + (foraDaFaixa(vImp) ? 'border-[#B42318]' : 'border-[#3D2314]/15')} />
@@ -143,7 +145,7 @@ export default function CustoConfigPage() {
             </label>
             <label className="text-[12px] text-[#3D2314]/70">Comissão da venda (%)<AjudaCampo chave="compras.custo_config.comissao_venda" />
               <div className="mt-0.5">
-                <input type="number" step="0.01" min="0" max="100" value={vCom} onChange={(e) => setVCom(e.target.value)}
+                <input type="text" inputMode="decimal" value={vCom} onChange={(e) => setVCom(e.target.value)}
                   placeholder="ex.: 5"
                   aria-invalid={foraDaFaixa(vCom)}
                   className={'w-44 border rounded-md px-2 py-1 text-[13px] text-[#3D2314] ' + (foraDaFaixa(vCom) ? 'border-[#B42318]' : 'border-[#3D2314]/15')} />

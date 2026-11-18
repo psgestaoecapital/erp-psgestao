@@ -15,6 +15,25 @@ const BD = "var(--ps-border,#E0D8CC)", VERDE = "#3B6D11", VERM = "#A32D2D", AMBE
 const brl = (v: unknown) =>
   `R$ ${(Number(v) || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+// Preferência de expandir/recolher por usuário (chamado #9977). Padrão: RECOLHIDO. Quem nunca mexeu vê recolhido;
+// quem deixou expandido, abre expandido da próxima vez. localStorage é por navegador/usuário logado; try/catch porque
+// aba anônima ou site bloqueado podem lançar — nunca quebra a tela.
+const PREF_KEY = "ps:ge:para-tratar-hoje:expandido";
+function lerPrefExpandido(): boolean {
+  try {
+    return window.localStorage.getItem(PREF_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+function gravarPrefExpandido(v: boolean) {
+  try {
+    window.localStorage.setItem(PREF_KEY, v ? "1" : "0");
+  } catch {
+    /* sem localStorage: a escolha vale só nesta sessão */
+  }
+}
+
 type Pendencia = {
   tipo: string;
   empresa: string;
@@ -41,6 +60,13 @@ export function ParaTratarHoje({
   const [resp, setResp] = useState<Resp | null>(null);
   const [loading, setLoading] = useState(true);
   const [indisponivel, setIndisponivel] = useState(false);
+  // Abre RECOLHIDO por padrão; relê a preferência do usuário depois de montar (evita divergência SSR/cliente).
+  const [expandido, setExpandido] = useState(false);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- hidrata a preferência do usuário só no cliente (localStorage).
+  useEffect(() => { setExpandido(lerPrefExpandido()); }, []);
+  const alternar = useCallback(() => {
+    setExpandido((v) => { const novo = !v; gravarPrefExpandido(novo); return novo; });
+  }, []);
 
   const carregar = useCallback(async () => {
     if (!key) { setResp(null); setLoading(false); return; }
@@ -61,13 +87,18 @@ export function ParaTratarHoje({
 
   const pend = resp?.pendencias ?? [];
   const tudoEmDia = !loading && resp?.ok && pend.length === 0;
+  // Só há o que recolher quando existe lista de pendências. "Tudo em dia"/carregando já são compactos.
+  const temLista = !loading && pend.length > 0;
+  const recolhido = temLista && !expandido;
+  const verm = resp?.por_gravidade?.vermelho ?? 0;
+  const amar = resp?.por_gravidade?.amarelo ?? 0;
 
   return (
     <section
       aria-label="Para tratar hoje"
       style={{ background: BG2, border: `1px solid ${BD}`, borderRadius: 12, padding: "14px 16px", marginBottom: 16 }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: pend.length || tudoEmDia ? 10 : 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: recolhido ? 0 : pend.length || tudoEmDia ? 10 : 0 }}>
         <span style={{ fontSize: 15, fontWeight: 700, color: TX, display: "inline-flex", alignItems: "center" }}>
           Para tratar hoje
           <AjudaCampo chave="ge.caixa.para_tratar_hoje" rota="/dashboard/financeiro/caixa-grupo" />
@@ -77,9 +108,53 @@ export function ParaTratarHoje({
             {resp.total} {resp.total === 1 ? "pendência" : "pendências"}
           </span>
         )}
+        {recolhido && (verm > 0 || amar > 0) && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 10, fontSize: 12, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+            {verm > 0 && (
+              <span style={{ color: VERM, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <span aria-hidden style={{ width: 9, height: 9, borderRadius: "50%", background: VERM }} />{verm}
+              </span>
+            )}
+            {amar > 0 && (
+              <span style={{ color: AMBER, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <span aria-hidden style={{ width: 9, height: 9, borderRadius: "50%", background: AMBER }} />{amar}
+              </span>
+            )}
+          </span>
+        )}
+        {temLista && (
+          <button
+            type="button"
+            onClick={alternar}
+            aria-expanded={expandido}
+            aria-label={expandido ? "Recolher pendências" : "Expandir pendências"}
+            title={expandido ? "Recolher" : "Expandir"}
+            style={{
+              marginLeft: "auto", flex: "0 0 auto", cursor: "pointer",
+              background: "transparent", border: `1px solid ${BD}`, borderRadius: 8,
+              color: TXM, fontSize: 12, fontWeight: 600, padding: "4px 10px",
+              display: "inline-flex", alignItems: "center", gap: 6, lineHeight: 1,
+            }}
+          >
+            {expandido ? "Recolher" : "Expandir"}
+            <span aria-hidden style={{ fontSize: 10 }}>{expandido ? "▲" : "▼"}</span>
+          </button>
+        )}
       </div>
 
-      {loading ? (
+      {recolhido ? (
+        <button
+          type="button"
+          onClick={alternar}
+          aria-label="Expandir pendências"
+          style={{
+            width: "100%", textAlign: "left", cursor: "pointer", background: "transparent",
+            border: "none", padding: 0, margin: 0, color: TXM, fontSize: 12,
+          }}
+        >
+          Toque para ver a lista
+        </button>
+      ) : loading ? (
         <div style={{ color: TXM, fontSize: 13, padding: "4px 0" }}>Verificando pendências…</div>
       ) : tudoEmDia ? (
         <div style={{ color: VERDE, fontSize: 14, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
@@ -99,8 +174,10 @@ export function ParaTratarHoje({
                 }}
               >
                 <span aria-hidden style={{ width: 10, height: 10, borderRadius: "50%", background: cor, flex: "0 0 auto" }} />
-                <span style={{ flex: "1 1 180px", minWidth: 0, fontSize: 13, color: TX, fontWeight: 500 }}>
+                <span style={{ flex: "1 1 180px", minWidth: 0, fontSize: 13, color: TX, fontWeight: 500, display: "inline-flex", alignItems: "center", flexWrap: "wrap" }}>
                   {p.texto}
+                  {/* RD-95: "?" por TIPO de pendência — explica o que a linha significa e o que fazer. */}
+                  <AjudaCampo chave={`ge.caixa.pendencia.${p.tipo}`} rota="/dashboard/financeiro/caixa-grupo" />
                   {multiEmpresa && p.empresa ? (
                     <span style={{ color: TXM, fontWeight: 400 }}> · {p.empresa}</span>
                   ) : null}

@@ -17,10 +17,14 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
+import { parseNumBR } from '@/lib/num'
 import { selecionarTodas } from '@/lib/selecionarTodas'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import TabVeiculosRevenda, { type EstoqueVeiculos } from '@/components/estoque/TabVeiculosRevenda'
 import { BaixarPlanilhaContagemModal, SubirContagemModal } from '@/components/estoque/PlanilhaContagemInventario'
+import ProdutoForm, { type Produto as ProdutoFicha } from '@/components/cadastros/ProdutoForm'
 import {
   Plus, Search, Boxes, Package, ArrowRightLeft, BarChart3,
   X, Info, Trash2, Pencil, Download, Upload, Car,
@@ -137,7 +141,6 @@ type Movimentacao = {
   lote: string | null
   validade: string | null
   observacoes: string | null
-  usuario_nome: string | null            // §6 · coluna órfã (cópia vazia) — não usar; ver usuario_nome_resolvido
   usuario_id: string | null
   produto_nome: string | null            // §6 · resolvido na view v_estoque_movimentacoes
   produto_codigo: string | null
@@ -179,6 +182,17 @@ const fmtNum = (v: number | null | undefined, dp = 2) =>
   (v ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: dp, maximumFractionDigits: dp })
 const fmtDateTime = (d: string | null | undefined) =>
   d ? new Date(d).toLocaleString('pt-BR') : '—'
+
+// PDCA GE (tarefa 26111304) · "listas só com o que é da empresa" (RD-98 p1).
+// erp_inventarios NÃO tem soft-delete e os specs e2e de aceitação deixaram milhares de
+// inventários de TESTE (status=cancelado, marcados "E2E …"/"teste de aceitação") na DEMO,
+// soterrando a aba Inventário. Enquanto a purga durável não existe (sem deleted_at), escondemos
+// esses leftovers da LISTAGEM por marcador — inventário real nunca leva "E2E"/"teste de aceitação".
+const semInventarioDeTeste = (r: Inventario): boolean => {
+  const num = (r.numero ?? '').toUpperCase()
+  const obs = (r.observacoes ?? '').toLowerCase()
+  return !(num.includes('E2E') || obs.includes('e2e') || obs.includes('teste de aceita'))
+}
 
 export default function EstoquePage() {
   return (
@@ -231,6 +245,11 @@ function EstoqueInner() {
   // Bloco D · reserva de estoque como ESTADO (fonte: fn_estoque_reservas). Mapa produto_id → reservado.
   // Só produtos COM reserva vêm no mapa; disponível = físico − (reservado ?? 0). Nada muda de lugar.
   const [reservas, setReservas] = useState<Record<string, number>>({})
+  // F2.3 · saldo POR LOCAL (fonte: fn_estoque_saldo_por_local, reconstruído dos
+  // movimentos). Mapa produto_id → [{ local_id, saldo }]. Só produtos com movimento
+  // localizado vêm aqui; o restante (não localizado) a UI joga no local principal
+  // reconciliando com erp_produtos.estoque_atual (fonte da verdade do total).
+  const [saldoPorLocal, setSaldoPorLocal] = useState<Record<string, { local_id: string; saldo: number }[]>>({})
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState('')
   const [erro, setErro] = useState('')
@@ -286,7 +305,7 @@ function EstoqueInner() {
   // multi-empresa. Gate estrito em companyIdUnico + .eq (era .in(companyIds)).
   const carregar = useCallback(async () => {
     if (!companyIdUnico) {
-      setLocais([]); setProdutos([]); setMovimentacoes([]); setCurva([]); setInventarios([]); setReservas({})
+      setLocais([]); setProdutos([]); setMovimentacoes([]); setCurva([]); setInventarios([]); setReservas({}); setSaldoPorLocal({})
       return
     }
     setLoading(true)
@@ -294,7 +313,7 @@ function EstoqueInner() {
     // FIX cf980ce1 · "Carregando" preso: qualquer falha de rede fazia o Promise.all rejeitar e o
     // setLoading(false) nunca rodava. try/finally garante que a tela SEMPRE sai do "Carregando…".
     try {
-      const [loc, prod, mov, abc, inv, rsv] = await Promise.all([
+      const [loc, prod, mov, abc, inv, rsv, spl] = await Promise.all([
         supabase.from('erp_estoque_locais').select('*').eq('company_id', companyIdUnico).eq('ativo', true).order('principal', { ascending: false }).order('nome'),
         // #126: .limit(5000) voltava só 1000 (teto do PostgREST) → 1485 importados, 1000 na tela. Busca em páginas.
         selecionarTodas<Produto>((de, ate) => supabase.from('erp_produtos').select('id,company_id,codigo,nome,categoria,unidade,preco_venda,preco_custo,preco_custo_medio,estoque_atual,estoque_minimo,estoque_maximo,localizacao,ativo')
@@ -302,9 +321,14 @@ function EstoqueInner() {
         // §6 · lê da view (produto e autor resolvidos na leitura; RD-52 — sem cópia denormalizada)
         supabase.from('v_estoque_movimentacoes').select('*').eq('company_id', companyIdUnico).order('data_movimento', { ascending: false }).limit(300),
         supabase.rpc('fn_curva_abc_estoque', { p_company_ids: [companyIdUnico] }),
-        supabase.from('erp_inventarios').select('*').eq('company_id', companyIdUnico).order('created_at', { ascending: false }).limit(50),
+        // .not(numero ilike %E2E%) descarta no servidor o grosso dos leftovers de teste (number "E2E…"),
+        // para o limit(50) recair sobre os inventários REAIS; o restante (marcador só em observações) cai
+        // no filtro semInventarioDeTeste abaixo. Ver nota na def. da função (tarefa PDCA GE 26111304).
+        supabase.from('erp_inventarios').select('*').eq('company_id', companyIdUnico).not('numero', 'ilike', '%E2E%').order('created_at', { ascending: false }).limit(50),
         // Bloco D · reserva por produto (estado; só produtos com reserva voltam)
         supabase.rpc('fn_estoque_reservas', { p_company_ids: [companyIdUnico] }),
+        // F2.3 · saldo por local/depósito (reconstruído dos movimentos)
+        supabase.rpc('fn_estoque_saldo_por_local', { p_company_ids: [companyIdUnico] }),
       ])
       if (loc.error) setErro('Locais: ' + erroAmigavel(loc.error))
       else setLocais((loc.data ?? []) as Local[])
@@ -315,13 +339,22 @@ function EstoqueInner() {
       if (abc.error) setErro('Curva ABC: ' + erroAmigavel(abc.error))
       else setCurva((abc.data ?? []) as CurvaABCRow[])
       if (inv.error) setErro('Inventários: ' + erroAmigavel(inv.error))
-      else setInventarios((inv.data ?? []) as Inventario[])
+      else setInventarios(((inv.data ?? []) as Inventario[]).filter(semInventarioDeTeste))
       // reserva é auxiliar: se falhar, o resto da tela segue (disponível = físico)
       if (!rsv.error) {
         const m: Record<string, number> = {}
         for (const r of ((rsv.data ?? []) as { produto_id: string; reservado: number }[])) m[r.produto_id] = Number(r.reservado ?? 0)
         setReservas(m)
       } else setReservas({})
+      // saldo por local é auxiliar: se falhar, a UI cai no total no local principal
+      if (!spl.error) {
+        const porProd: Record<string, { local_id: string; saldo: number }[]> = {}
+        for (const r of ((spl.data ?? []) as { produto_id: string; local_id: string; saldo: number }[])) {
+          if (!r.produto_id || !r.local_id) continue
+          ;(porProd[r.produto_id] ??= []).push({ local_id: r.local_id, saldo: Number(r.saldo ?? 0) })
+        }
+        setSaldoPorLocal(porProd)
+      } else setSaldoPorLocal({})
     } catch (e) {
       setErro('Não conseguimos carregar os dados do estoque. Tente de novo. ' + ((e as Error)?.message ?? ''))
     } finally {
@@ -385,8 +418,8 @@ function EstoqueInner() {
     observacoes: string | null; lote: string | null; validade: string | null;
   }) {
     // F2.2 · usa RPC eleita (com usuario_id pra rastreio LGPD).
-    // fn_movimentar_estoque ficou [DEPRECATED]. Lote/validade nao sao
-    // passados aqui ainda (gap conhecido F2.3).
+    // fn_movimentar_estoque ficou [DEPRECATED]. F2.3: lote/validade agora
+    // persistem (registrar_movimento_estoque recebe p_lote/p_validade).
     if (!companyIdUnico) { flashErr('Selecione uma empresa específica.'); return false }
     const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
     const { error } = await supabase.rpc('registrar_movimento_estoque', {
@@ -399,6 +432,8 @@ function EstoqueInner() {
       p_observacoes: args.observacoes,
       p_usuario_id: user?.id ?? null,
       p_local_id: args.local_id,
+      p_lote: args.lote,
+      p_validade: args.validade,
     })
     if (error) {
       flashErr(erroAmigavel(error, 'Não foi possível registrar a movimentação. Tente de novo.'))
@@ -472,6 +507,30 @@ function EstoqueInner() {
   const [produtosSrvTotal, setProdutosSrvTotal] = useState(0)
   const [produtosSrvLoading, setProdutosSrvLoading] = useState(false)
   const [produtosSrvPage, setProdutosSrvPage] = useState(1)
+  // Gap 5 (aud8 14/11): editar o produto SEM sair da tela de Estoque — a ficha abre aqui mesmo (ProdutoForm
+  // compartilhado, o mesmo da tela de Cadastros). `produtoFichaEdit` guarda a linha completa (select '*')
+  // pra o form não perder campo fiscal; `carregandoFicha` cobre o tempo da busca; bump de `recarregarProdutosSeq`
+  // recarrega a lista após salvar.
+  const [produtoFichaEdit, setProdutoFichaEdit] = useState<ProdutoFicha | null>(null)
+  const [carregandoFicha, setCarregandoFicha] = useState(false)
+  const [recarregarProdutosSeq, setRecarregarProdutosSeq] = useState(0)
+
+  const abrirFichaProduto = useCallback(async (id: string) => {
+    if (!companyIdUnico) { flashErr('Selecione uma empresa específica.'); return }
+    setCarregandoFicha(true)
+    try {
+      const { data, error } = await supabase
+        .from('erp_produtos').select('*')
+        .eq('company_id', companyIdUnico).eq('id', id).maybeSingle()
+      if (error) throw error
+      if (data) setProdutoFichaEdit(data as unknown as ProdutoFicha)
+      else flashErr('Produto não encontrado.')
+    } catch (err) {
+      setErro(erroAmigavel(err, 'Erro ao abrir a ficha do produto.'))
+    } finally {
+      setCarregandoFicha(false)
+    }
+  }, [companyIdUnico]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reset pagina quando filtros mudam
   useEffect(() => { setProdutosSrvPage(1) }, [filtroBusca, filtroCategoria, companyIdUnico])
@@ -526,7 +585,7 @@ function EstoqueInner() {
       }
     }, 300)
     return () => window.clearTimeout(handle)
-  }, [companyIdUnico, filtroBusca, filtroCategoria, produtosSrvPage]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [companyIdUnico, filtroBusca, filtroCategoria, produtosSrvPage, recarregarProdutosSeq]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Filtro estoque aplicado client-side na pagina exibida
   const produtosSrvFiltradosEstoque = useMemo(() => {
@@ -580,32 +639,61 @@ function EstoqueInner() {
   }, [curva])
   const saldoRows = useMemo<SaldoRow[]>(() => {
     const principal = locais.find((l) => l.principal) ?? locais[0] ?? null
-    return produtos.map((p) => {
-      const saldo = Number(p.estoque_atual ?? 0)
+    const pidPrincipal = principal?.id ?? null
+    const out: SaldoRow[] = []
+    for (const p of produtos) {
+      const total = Number(p.estoque_atual ?? 0)                 // fonte da verdade do total
       const custo = Number(p.preco_custo_medio ?? p.preco_custo ?? 0)
-      const reservado = Number(reservas[p.id] ?? 0)
-      return {
-        produto_id: p.id,
-        produto_nome: p.nome,
-        produto_codigo: p.codigo,
-        local_id: principal?.id ?? null,
-        local_nome: principal?.nome ?? 'Estoque Principal',
-        saldo,
-        custo_medio: custo,
-        valor_total: saldo * custo,   // pode ser negativo se o saldo for negativo — honesto
-        classe_abc: classeAbcMap[p.id] ?? null,
-        reservado,
-        disponivel: saldo - reservado,
+      const reservado = Number(reservas[p.id] ?? 0)              // reserva é por produto
+      // F2.3 · agrega o saldo localizado (dos movimentos) por local
+      const porLocal = new Map<string | null, number>()
+      for (const x of (saldoPorLocal[p.id] ?? [])) {
+        porLocal.set(x.local_id, (porLocal.get(x.local_id) ?? 0) + x.saldo)
       }
-    })
-  }, [produtos, locais, reservas, classeAbcMap])
+      const somaLocais = Array.from(porLocal.values()).reduce((s, v) => s + v, 0)
+      const resto = total - somaLocais   // não localizado → vai no principal (reconcilia c/ estoque_atual)
+      if (resto !== 0 || porLocal.size === 0) {
+        porLocal.set(pidPrincipal, (porLocal.get(pidPrincipal) ?? 0) + resto)
+      }
+      for (const [localId, saldo] of porLocal) {
+        const isPrincipal = localId === pidPrincipal
+        const localNome = (localId && locaisPorId[localId]?.nome) || (isPrincipal ? (principal?.nome ?? 'Estoque Principal') : 'Outro local')
+        const reservadoRow = isPrincipal ? reservado : 0          // reserva só aparece no principal
+        out.push({
+          produto_id: p.id,
+          produto_nome: p.nome,
+          produto_codigo: p.codigo,
+          local_id: localId,
+          local_nome: localNome,
+          saldo,
+          custo_medio: custo,
+          valor_total: saldo * custo,   // pode ser negativo se o saldo for negativo — honesto
+          classe_abc: classeAbcMap[p.id] ?? null,
+          reservado: reservadoRow,
+          disponivel: saldo - reservadoRow,
+        })
+      }
+    }
+    return out
+  }, [produtos, locais, locaisPorId, reservas, classeAbcMap, saldoPorLocal])
+
+  // saldo total por produto (fonte da verdade = erp_produtos.estoque_atual) — usado
+  // pela situação dos chips (com/zero/neg) e pelos KPIs, por SKU e não por linha de local.
+  const produtoTotalSaldo = useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const p of produtos) m[p.id] = Number(p.estoque_atual ?? 0)
+    return m
+  }, [produtos])
 
   const saldoFiltrado = useMemo(() => {
     const q = filtroSaldoProduto.trim().toLowerCase()
     return saldoRows.filter((r) => {
-      if (filtroSaldoTipo === 'com' && !(r.saldo > 0)) return false
-      if (filtroSaldoTipo === 'zero' && !(r.saldo === 0)) return false
-      if (filtroSaldoTipo === 'neg' && !(r.saldo < 0)) return false
+      // situação (com/zero/neg) é por PRODUTO (saldo total), não pela linha de local,
+      // pra bater com os contadores dos chips (KPIs por SKU).
+      const tot = Number(produtoTotalSaldo[r.produto_id] ?? 0)
+      if (filtroSaldoTipo === 'com' && !(tot > 0)) return false
+      if (filtroSaldoTipo === 'zero' && !(tot === 0)) return false
+      if (filtroSaldoTipo === 'neg' && !(tot < 0)) return false
       if (filtroSaldoLocal && r.local_id !== filtroSaldoLocal) return false
       if (q) {
         const hay = `${r.produto_nome} ${r.produto_codigo ?? ''}`.toLowerCase()
@@ -613,18 +701,25 @@ function EstoqueInner() {
       }
       return true
     })
-  }, [saldoRows, filtroSaldoProduto, filtroSaldoLocal, filtroSaldoTipo])
+  }, [saldoRows, produtoTotalSaldo, filtroSaldoProduto, filtroSaldoLocal, filtroSaldoTipo])
 
+  // KPIs por SKU (produto), independentes do split por local — o total por produto é
+  // erp_produtos.estoque_atual (fonte da verdade); o split por local não altera estes números.
   const saldoKpis = useMemo(() => {
-    const totalSku = saldoRows.length
-    const skusComSaldo = saldoRows.filter((r) => r.saldo > 0).length
-    const skusZerados = saldoRows.filter((r) => r.saldo === 0).length
-    const skusNegativos = saldoRows.filter((r) => r.saldo < 0).length
-    const qtdLiquida = saldoRows.reduce((s, r) => s + r.saldo, 0)
-    const valorLiquido = saldoRows.reduce((s, r) => s + r.valor_total, 0)
-    const skusReservados = saldoRows.filter((r) => r.reservado > 0).length
+    const totalSku = produtos.length
+    let skusComSaldo = 0, skusZerados = 0, skusNegativos = 0, qtdLiquida = 0, valorLiquido = 0, skusReservados = 0
+    for (const p of produtos) {
+      const saldo = Number(p.estoque_atual ?? 0)
+      const custo = Number(p.preco_custo_medio ?? p.preco_custo ?? 0)
+      if (saldo > 0) skusComSaldo++
+      else if (saldo === 0) skusZerados++
+      else skusNegativos++
+      qtdLiquida += saldo
+      valorLiquido += saldo * custo
+      if (Number(reservas[p.id] ?? 0) > 0) skusReservados++
+    }
     return { totalSku, skusComSaldo, skusZerados, skusNegativos, qtdLiquida, valorLiquido, skusReservados }
-  }, [saldoRows])
+  }, [produtos, reservas])
 
   // F2.1 · ref_tipos unicos pro filtro de movimentacoes
   const refTiposUnicos = useMemo(() => {
@@ -760,7 +855,7 @@ function EstoqueInner() {
           buscando={filtroBusca.trim().length >= 2}
           reservas={reservas}
           onSelect={setProdutoSel}
-          onEditar={(id) => router.push(`/dashboard/cadastros/produtos?edit=${id}`)}
+          onEditar={(id) => { void abrirFichaProduto(id) }}
         />
       ) : tab === 'movimentacoes' ? (
         <TabMovimentacoes
@@ -897,6 +992,25 @@ function EstoqueInner() {
           onSubmit={movimentar}
         />
       )}
+
+      {/* Gap 5 (aud8 14/11): ficha do produto editável SEM sair do Estoque — mesmo ProdutoForm de Cadastros */}
+      {carregandoFicha && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center" aria-live="polite">
+          <div className="bg-white rounded-xl px-5 py-4 shadow-2xl text-[13px] text-[#3D2314]">Abrindo ficha do produto…</div>
+        </div>
+      )}
+      {produtoFichaEdit && companyIdUnico && (
+        <ProdutoForm
+          companyId={companyIdUnico}
+          produto={produtoFichaEdit}
+          onClose={() => setProdutoFichaEdit(null)}
+          onSalvo={() => {
+            setProdutoFichaEdit(null)
+            setRecarregarProdutosSeq((n) => n + 1)
+            void carregar()
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -956,7 +1070,7 @@ function TabProdutos({ rows, total, loading, categorias, filtroBusca, setFiltroB
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', background: C.offWhite, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 }}>
-        <div style={{ position: 'relative', flex: '1 1 220px', minWidth: 180 }}>
+        <div data-ajuda="commerce.estoque.busca" style={{ position: 'relative', flex: '1 1 220px', minWidth: 180 }}>
           <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.espressoL }} />
           <input type="text" placeholder="Buscar por nome ou código (busca em todo cadastro)…" value={filtroBusca} onChange={(e) => setFiltroBusca(e.target.value)}
             data-testid="produtos-busca" style={{ width: '100%', padding: '8px 10px 8px 32px', minHeight: 44, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.white, color: C.espresso, outline: 'none' }} />
@@ -1607,8 +1721,8 @@ function ModalMovimentar({ produtos, locais, produtoInicial, onClose, onSubmit }
       produto_id: produtoId,
       local_id: localId || null,
       tipo,
-      quantidade: parseFloat(quantidade) || 0,
-      custo_unitario: parseFloat(custo) || 0,
+      quantidade: parseNumBR(quantidade) || 0,   // #5660 · aceita vírgula ("1,5") como decimal
+      custo_unitario: moedaParaNumero(custo) ?? 0,   // #6874 · custo mascarado em R$ (CampoMoeda) → número
       motivo: motivo || null,
       observacoes: observacoes || null,
       lote: lote || null,
@@ -1666,8 +1780,8 @@ function ModalMovimentar({ produtos, locais, produtoInicial, onClose, onSubmit }
             </Field>
           )}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <Field label="Quantidade *" ajuda="commerce.estoque.movf.quantidade"><input type="number" step="0.01" value={quantidade} onChange={(e) => setQuantidade(e.target.value)} style={inp} /></Field>
-            {isEntrada && <Field label="Custo unitário" ajuda="commerce.estoque.movf.custo"><input type="number" step="0.01" value={custo} onChange={(e) => setCusto(e.target.value)} style={inp} /></Field>}
+            <Field label="Quantidade *" ajuda="commerce.estoque.movf.quantidade"><input type="text" inputMode="decimal" value={quantidade} onChange={(e) => setQuantidade(e.target.value)} placeholder="0" style={inp} /></Field>
+            {isEntrada && <Field label="Custo unitário" ajuda="commerce.estoque.movf.custo"><CampoMoeda value={custo} onChange={(v) => setCusto(v)} placeholder="R$ 0,00" style={inp} /></Field>}
           </div>
           <Field label="Motivo" ajuda="commerce.estoque.movf.motivo"><input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder={isEntrada ? 'Ex: Compra fornecedor X' : 'Ex: Venda balcão #4521'} style={inp} /></Field>
           {isEntrada && (
@@ -1830,12 +1944,12 @@ function ModalAjuste({ companyId, locais, movimentacoes, onClose, onSubmit }: {
     setProdutoSel(p)
     if (!custo) {
       const c = Number(p.preco_custo_medio ?? p.preco_custo ?? 0)
-      if (c > 0) setCusto(c.toFixed(2).replace('.', ','))
+      if (c > 0) setCusto(numeroParaMoeda(c))
     }
   }
 
   const qtdN = Number(quantidade.replace(',', '.')) || 0
-  const custoN = Number(custo.replace(',', '.')) || 0
+  const custoN = moedaParaNumero(custo) ?? 0
   const saldoFinal = saldoAtual != null ? (positivo ? saldoAtual + qtdN : saldoAtual - qtdN) : null
 
   async function salvar() {
@@ -1871,6 +1985,7 @@ function ModalAjuste({ companyId, locais, movimentacoes, onClose, onSubmit }: {
           {/* Produto · componente compartilhado FIX-PRODUTO-AUTOCOMPLETE-REUSE-262-v1 */}
           <div>
             <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Produto *</label>
+            <AjudaCampo chave="commerce.estoque.ajuste.produto" />
             <div style={{ marginTop: 4 }}>
               <ProdutoAutocomplete
                 companyId={companyId}
@@ -1899,6 +2014,7 @@ function ModalAjuste({ companyId, locais, movimentacoes, onClose, onSubmit }: {
           {/* Tipo · radio */}
           <div>
             <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Tipo *</label>
+            <AjudaCampo chave="commerce.estoque.ajuste.tipo" />
             <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
               <button type="button" onClick={() => setPositivo(true)} data-testid="ajuste-tipo-pos"
                 style={{
@@ -1928,8 +2044,8 @@ function ModalAjuste({ companyId, locais, movimentacoes, onClose, onSubmit }: {
             <div>
               <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Custo unitário</label>
               <AjudaCampo chave="commerce.estoque.ajuste.custo" />
-              <input type="text" inputMode="decimal" value={custo} onChange={(e) => setCusto(e.target.value)} placeholder="0,00"
-                data-testid="ajuste-custo" style={{ ...selInpStyle, marginTop: 4, width: '100%', textAlign: 'right' }} />
+              <CampoMoeda value={custo} onChange={(v) => setCusto(v)} placeholder="0,00"
+                testId="ajuste-custo" style={{ ...selInpStyle, marginTop: 4, width: '100%', textAlign: 'right' }} />
             </div>
           </div>
 
@@ -2291,11 +2407,11 @@ function DrawerInventario({ inventario, produtos, locaisPorId, onClose, onFechad
                             <span>{contado != null ? fmtNum(Number(contado)) : '—'}</span>
                           ) : (
                             <input
-                              type="number" step="0.001"
+                              type="text" inputMode="decimal"
                               defaultValue={contado ?? ''}
                               onBlur={(e) => {
-                                const v = parseFloat(e.target.value)
-                                if (!isNaN(v)) void alterarContado(it, v)
+                                const v = parseNumBR(e.target.value)   // #5660 · aceita vírgula na contagem
+                                if (v != null) void alterarContado(it, v)
                               }}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') {

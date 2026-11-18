@@ -152,6 +152,35 @@ export default function CaixaGrupoPage() {
         </div>
       ) : (
         <>
+          {/* Faixa de cartões — headline do grupo (v2 fatia 2, cd8f31c5): Recebido/Pago do dia, Saldo,
+              A receber/A pagar em aberto e o líquido a realizar. Só leitura, do mesmo fn_caixa_grupo_dia (RD-26). */}
+          {cons && (() => {
+            const vR = resp?.vence?.receber, vP = resp?.vence?.pagar;
+            const aReceber = (Number(vR?.atrasado) || 0) + (Number(vR?.hoje) || 0) + (Number(vR?.proximos7) || 0);
+            const aPagar = (Number(vP?.atrasado) || 0) + (Number(vP?.hoje) || 0) + (Number(vP?.proximos7) || 0);
+            const emAberto = aReceber - aPagar;
+            const cards = [
+              { lbl: "Recebido no dia", v: cons.entradas, cor: VERDE, ajuda: "financeiro.caixa_grupo.entradas" },
+              { lbl: "Pago no dia", v: cons.saidas, cor: VERM, ajuda: "financeiro.caixa_grupo.saidas" },
+              { lbl: "Saldo do grupo", v: cons.saldo_final, cor: Number(cons.saldo_final) < 0 ? VERM : TX, ajuda: "financeiro.caixa_grupo.saldo_final" },
+              { lbl: "A receber em aberto", v: aReceber, cor: VERDE, ajuda: "financeiro.caixa_grupo.vence" },
+              { lbl: "A pagar em aberto", v: aPagar, cor: GO, ajuda: "financeiro.caixa_grupo.vence" },
+              { lbl: "Em aberto (líquido)", v: emAberto, cor: emAberto < 0 ? VERM : VERDE, ajuda: "financeiro.caixa_grupo.vence" },
+            ];
+            return (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 16 }}>
+                {cards.map((c) => (
+                  <div key={c.lbl} style={{ background: BG2, border: `1px solid ${BD}`, borderRadius: 12, padding: "14px 16px" }}>
+                    <div style={{ display: "inline-flex", alignItems: "center", fontSize: 10.5, color: TXD, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                      {c.lbl}<AjudaCampo chave={c.ajuda} rota={ROTA} />
+                    </div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: c.cor, fontVariantNumeric: "tabular-nums", marginTop: 4 }}>{brl(c.v)}</div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+
           {/* Matriz indicadores × empresas (+ consolidado) */}
           <div style={{ background: BG2, border: `1px solid ${BD}`, borderRadius: 12, overflowX: "auto", marginBottom: 16 }}>
             <table style={{ width: "100%", borderCollapse: "collapse", minWidth: multi ? 520 : 320 }}>

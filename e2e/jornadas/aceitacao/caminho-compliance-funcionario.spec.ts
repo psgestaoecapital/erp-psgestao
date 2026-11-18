@@ -25,7 +25,7 @@ test.describe('Caminho principal — ficha do funcionário', () => {
       `company_id=eq.${DEMO_SST}&ativo=eq.true&select=id&order=nome_completo&limit=1`)
 
     await page.addInitScript((id) => { try { window.localStorage.setItem('ps_empresa_sel', id) } catch { /* noop */ } }, DEMO_SST)
-    await page.goto(`/dashboard/compliance/funcionarios/${func.id}`)
+    await page.goto(`/dashboard/ehs/funcionarios/${func.id}`)
     await aguardarConteudo(page)
 
     const obs = `caminho ficha ${RUN}`

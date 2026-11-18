@@ -223,7 +223,8 @@ export default function ConexoesBancariasPage() {
         .order('provider'),
       supabase.from('erp_banco_contas')
         .select('id, nome, banco')
-        .eq('company_id', empresaUnica),
+        .eq('company_id', empresaUnica)
+        .eq('ativo', true),
       // chamado #14: último teste de conexão por config (mais recente primeiro)
       supabase.from('erp_banco_teste_conexao')
         .select('provider_config_id, status, cert_status, cert_expira_em, auth_ok, erro, testado_em, testado_por_email')

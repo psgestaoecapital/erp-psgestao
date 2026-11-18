@@ -3,7 +3,7 @@
 // É o PRIMEIRO item da reconstrução de /dashboard/comercial/meu-painel no formato v5 aprovado pelo CEO. Aqui vive
 // APENAS o cálculo: funções puras, sem React, sem DOM, sem rede. A tela (próximo item) importa este módulo e só
 // desenha. Separar o cálculo da tela deixa os números testáveis sem navegador — é o que permite provar, no gate e
-// contra o banco real, os números de aceitação da Frioeste (01/10–06/11/2026: R$ 13.983.740 · 6.285 itens ·
+// contra o banco real, os números de aceitação de uma empresa real de referência (01/10–06/11/2026: R$ 13.983.740 · 6.285 itens ·
 // 482 clientes · 127 produtos · R$ 30,61/kg na análise padrão).
 //
 // O pacote de entrada (`BaseV5`) é exatamente o que a RPC `fn_bi_comercial_base(company, de, ate)` devolve (item 1,
@@ -15,8 +15,8 @@ export interface BaseV5 {
   modo: 'lider' | 'vendedor'
   de: string
   ate: string
-  /** [codigo, nome] do vendedor. */
-  ven: [string, string][]
+  /** [codigo, nome, incluido?] do vendedor. incluido=0 => fica só no TOTAL (fora da comparação e da média); ausente/1 => entra. */
+  ven: [string, string, number?][]
   /** nome da cidade. */
   cid: string[]
   /** nome do transportador. */
@@ -38,6 +38,19 @@ export interface BaseV5 {
 /** Grupo de produto derivado da linha: 0 desossado (s/osso), 1 com osso, 2 miúdo, 3 subproduto/outros. */
 export type GrupoProduto = 0 | 1 | 2 | 3
 
+/**
+ * Filtro de DEVOLUÇÕES (CEO 12/11): o que ENTRA no indicador de devoluções. Na Frioeste ~90% do devolvido é
+ * reprocessado e revendido, então a devolução "cheia" distorce. Aqui o usuário escolhe, por NOME de produto e por
+ * LINHA, o que conta — por nome (não por índice) para a escolha resistir a mudança de ordem da base, igual à da
+ * análise de produtos. Guardado por empresa no banco (com_devolucao_config). Lista vazia = nada excluído (bruto).
+ */
+export interface DevFiltro {
+  /** nomes de produto de devolução que NÃO contam no indicador. */
+  produtosFora: string[]
+  /** nomes de linha cujas devoluções NÃO contam no indicador. */
+  linhasFora: string[]
+}
+
 /** Estado de filtros do painel que altera o cálculo. */
 export interface EstadoV5 {
   de: number
@@ -50,6 +63,8 @@ export interface EstadoV5 {
   escopo: 'preco' | 'tudo'
   /** produtos fora da análise (índice do produto → true). */
   excl: Record<number, boolean>
+  /** devoluções que contam no indicador (null/ausente = todas contam → considerada = bruta). */
+  devFiltro?: DevFiltro | null
 }
 
 /** Agregado de um recorte (total, por produto, por vendedor, etc.). */
@@ -121,6 +136,8 @@ export interface ModeloV5 {
   devVen: Map<number, number>
   devProd: Map<string, number>
   devTot: number
+  /** Devolução CONSIDERADA: devTot menos as devoluções que o usuário tirou do indicador (devFiltro). */
+  devTotConsiderada: number
   pz: number
   venPz: Map<number, [number, number]>
   clis: LinhaCliente[]
@@ -168,6 +185,15 @@ export function venInclui(sel: EstadoV5['ven'], vi: number): boolean {
   if (sel === 'todos') return true
   if (Array.isArray(sel)) return sel.includes(vi)
   return +sel === vi
+}
+
+/**
+ * O vendedor entra nos GRÁFICOS DE COMPARAÇÃO e na MÉDIA da empresa? (AJUSTE 2, CEO 13/11). `incluido=0`
+ * (vindo de com_ranking_participante, na dimensão `ven` da base) deixa o vendedor FORA da comparação/média,
+ * mas o faturamento/volume dele continua no TOTAL GERAL (o motor não o remove de `items`/`tot`). Default: entra.
+ */
+export function venAnalise(base: BaseV5, vi: number): boolean {
+  return base.ven[vi]?.[2] !== 0
 }
 
 function novoAgregado(): Agregado {
@@ -255,10 +281,24 @@ export function calcularModelo(base: BaseV5, estado: EstadoV5, pg?: GrupoProduto
   const devVen = new Map<number, number>()
   const devCli = new Map<number, number>()
   const devProd = new Map<string, number>()
+  // Filtro de devoluções (CEO 12/11): uma devolução conta no indicador CONSIDERADO, a menos que o usuário tenha
+  // tirado o produto (por nome) ou a linha. Lista ausente/vazia = tudo conta → considerada = bruta.
+  const devForaProd = new Set(st.devFiltro?.produtosFora ?? [])
+  const devForaLinha = new Set(st.devFiltro?.linhasFora ?? [])
+  const temDevFiltro = devForaProd.size > 0 || devForaLinha.size > 0
+  const devConta = (x: (number | string)[]) => {
+    if (!temDevFiltro) return true
+    if (devForaProd.has(x[7] as string)) return false
+    const pi = x[3] as number
+    if (pi >= 0 && devForaLinha.has(B.prod[pi]?.[1] ?? '')) return false
+    return true
+  }
   let devTot = 0
+  let devTotConsiderada = 0
   devs.forEach((x) => {
     const valor = x[4] as number
     devTot += valor
+    if (devConta(x)) devTotConsiderada += valor
     devVen.set(x[1] as number, (devVen.get(x[1] as number) || 0) + valor)
     devCli.set(x[2] as number, (devCli.get(x[2] as number) || 0) + valor)
     devProd.set(x[7] as string, (devProd.get(x[7] as string) || 0) + valor)
@@ -298,7 +338,7 @@ export function calcularModelo(base: BaseV5, estado: EstadoV5, pg?: GrupoProduto
 
   return {
     its, devs, mid, tot, prodM, pPrice, venM, cliM, cidM, grpM, linM, gEcoM, diaM, cargaM, trM,
-    cidVen, prodItens, devVen, devProd, devTot, pz: pzDen ? pzNum / pzDen : 0, venPz, clis, inc,
+    cidVen, prodItens, devVen, devProd, devTot, devTotConsiderada, pz: pzDen ? pzNum / pzDen : 0, venPz, clis, inc,
   }
 }
 

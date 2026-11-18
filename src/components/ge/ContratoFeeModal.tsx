@@ -252,7 +252,16 @@ export default function ContratoFeeModal({ companyId, contratoId, onClose, onSav
             Contrato de fee{row?.numero ? ` · nº ${row.numero}` : ''}
             {row?.status ? <span style={{ marginLeft: 10, fontSize: 11, fontWeight: 600, background: '#5B4636', padding: '2px 8px', borderRadius: 10 }}>{STATUS_LABEL[row.status] ?? row.status}</span> : null}
           </h2>
-          <button type="button" onClick={onClose} aria-label="Fechar" style={{ background: 'transparent', color: C.cream, border: 'none', fontSize: 22, cursor: 'pointer', width: 28, height: 28, lineHeight: 1 }}>×</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {contratoId ? (
+              <button type="button" onClick={() => window.open(`/dashboard/contratos/${contratoId}/imprimir`, '_blank')}
+                title="Imprimir / gerar PDF do contrato de fee"
+                style={{ background: 'transparent', color: C.cream, border: `1px solid ${C.cream}`, borderRadius: 8, padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                🖨️ Imprimir / PDF
+              </button>
+            ) : null}
+            <button type="button" onClick={onClose} aria-label="Fechar" style={{ background: 'transparent', color: C.cream, border: 'none', fontSize: 22, cursor: 'pointer', width: 28, height: 28, lineHeight: 1 }}>×</button>
+          </div>
         </div>
 
         <div style={{ padding: 20 }}>
@@ -271,7 +280,7 @@ export default function ContratoFeeModal({ companyId, contratoId, onClose, onSav
 
               {/* Cabeçalho do fee */}
               <Campo label="Cliente">
-                <ClientePickerInline companyId={companyId} value={cli} onChange={(id) => void escolherCliente(id)} onToast={(s) => setToast(s)} />
+                <ClientePickerInline companyId={companyId} value={cli} onChange={(id) => void escolherCliente(id)} onToast={(s) => setToast(s)} onErro={(s) => setErro(s)} />
               </Campo>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <Campo label="Código identificador"><input style={inp} value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="Ex.: FEE-2026-001" /></Campo>
@@ -351,6 +360,7 @@ export default function ContratoFeeModal({ companyId, contratoId, onClose, onSav
               <Secao titulo="Parcelas do fee">
                 <ParcelasContratoEditor
                   contratoId={contratoId} companyId={companyId}
+                  contasCompanyId={empresaFatId || companyId}
                   valorMensal={valorMensal ? Number(String(valorMensal).replace(',', '.')) : 0}
                   readOnly={ativo}
                   defaultPrimeiro={primeiroVenc || de || null}

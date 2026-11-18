@@ -23,7 +23,7 @@ import {
   Plus, Search, ShoppingCart, BarChart3,
   X, Info, Send, CheckCircle2, ArrowRight,
   AlertTriangle, Undo2,
-  Columns3, Lock,
+  Columns3, Lock, Pencil,
 } from 'lucide-react'
 import OrcamentoItensEditor, { type EditorItem } from '@/components/comum/OrcamentoItensEditor'
 import BlocoObraFiscal, { type ObraFiscalState, obraFiscalStateInicial, resolverObraFiscal } from '@/components/comum/BlocoObraFiscal'
@@ -201,6 +201,21 @@ const fmtBRL = (v: number | null | undefined) =>
 const fmtDate = (d: string | null | undefined) =>
   d ? new Date(d + (d.length === 10 ? 'T00:00:00' : '')).toLocaleDateString('pt-BR') : '—'
 
+// PDCA GE (tarefa 26111304) · "listas só com o que é da empresa" (RD-98 p1).
+// Os specs e2e de aceitação deixaram milhares de orçamentos/pedidos de TESTE na DEMO que
+// soterram o kanban/lista OTC. erp_pedidos não tem soft-delete, então o leftover é escondido
+// da LISTAGEM por marcador de cliente — cliente real nunca tem esses nomes. Dois coortes vistos
+// no dado (DEMO Comércio GE, RD-38 15/11: 968 de teste × 10 reais ORC-2026-0001..0010):
+//   · "Cliente Aceitação N"                                   (orçamentos têm deleted_at, já saem pela purga #5098)
+//   · "CLIENTE 263 <cpf>-MV…" / "Cliente Orc 264 <cpf>-mv…"   (coorte 26x, cancelados, ainda sem purga)
+// O regex casa só "cliente[ orc] 26<díg> " (nº + espaço) — não pega "Cliente Demo"/"Comércio Demo"
+// nem um cliente real tipo "Cliente 26 de Março" (precisa do 3º dígito colado ao 26).
+const RE_CLIENTE_TESTE_26X = /^cliente( orc)? 26\d\s/
+const semClienteDeTeste = (nome: string | null): boolean => {
+  const n = (nome ?? '').toLowerCase()
+  return !n.startsWith('cliente aceita') && !RE_CLIENTE_TESTE_26X.test(n)
+}
+
 export default function OTCPage() {
   return (
     <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: C.espressoM }}>Carregando…</div>}>
@@ -266,14 +281,21 @@ function OTCPageInner() {
       setLoading(true)
       setErro('')
       const [orc, ped] = await Promise.all([
-        supabase.from('erp_orcamentos').select('*').eq('company_id', expected).order('created_at', { ascending: false }).limit(200),
-        supabase.from('erp_pedidos').select('*').eq('company_id', expected).order('created_at', { ascending: false }).limit(200),
+        // Dois filtros contra o lixo de e2e na DEMO (26111304), no SERVIDOR p/ o limit(200) recair em docs reais:
+        // 1) .is(deleted_at,null): a RLS de erp_orcamentos não filtra soft-delete → sem isto o kanban mostrava
+        //    os orçamentos de teste que a purga #5098 soft-deleta (status intacto).
+        // 2) .or(cliente_nome null OU não casa marcador de teste): esconde o leftover ainda-não-drenado
+        //    (os reais ficam fora do top-200 por created_at, soterrados pelo flood). NULL-safe (cliente real pode ser null).
+        //    São dois coortes (ver semClienteDeTeste): "Cliente Aceita*" e o 26x ("CLIENTE 26_ *"/"Cliente Orc 26_ *").
+        //    Cada .or() soma com AND; "26_ *" (nº+char+espaço) não pega "Cliente 26 de Março" nem os reais "Cliente/Comércio Demo".
+        supabase.from('erp_orcamentos').select('*').eq('company_id', expected).is('deleted_at', null).or('cliente_nome.is.null,cliente_nome.not.ilike.Cliente Aceita*').or('cliente_nome.is.null,cliente_nome.not.ilike.CLIENTE 26_ *').or('cliente_nome.is.null,cliente_nome.not.ilike.Cliente Orc 26_ *').order('created_at', { ascending: false }).limit(200),
+        supabase.from('erp_pedidos').select('*').eq('company_id', expected).or('cliente_nome.is.null,cliente_nome.not.ilike.Cliente Aceita*').or('cliente_nome.is.null,cliente_nome.not.ilike.CLIENTE 26_ *').or('cliente_nome.is.null,cliente_nome.not.ilike.Cliente Orc 26_ *').order('created_at', { ascending: false }).limit(200),
       ])
       if (!alive) return
       // Runtime guard: descarta qualquer linha com company_id divergente
       // (defense-in-depth contra falha em .eq / RPC / RLS).
-      const orcSafe = ((orc.data ?? []) as Orcamento[]).filter((o) => o.company_id === expected)
-      const pedSafe = ((ped.data ?? []) as Pedido[]).filter((p) => p.company_id === expected)
+      const orcSafe = ((orc.data ?? []) as Orcamento[]).filter((o) => o.company_id === expected && semClienteDeTeste(o.cliente_nome))
+      const pedSafe = ((ped.data ?? []) as Pedido[]).filter((p) => p.company_id === expected && semClienteDeTeste(p.cliente_nome))
       if (orc.error) setErro(erroAmigavel(orc.error, 'Não foi possível carregar os orçamentos. Tente de novo.'))
       else setOrcamentos(orcSafe)
       if (ped.error) setErro(erroAmigavel(ped.error, 'Não foi possível carregar os pedidos. Tente de novo.'))
@@ -365,9 +387,10 @@ function OTCPageInner() {
       }
       const { data: fat, error: errFat } = await supabase.rpc('fn_faturar', { p_pedido_id: pedidoId })
       if (errFat) throw new Error(errFat.message)
-      const r = fat as { ok?: boolean; erro?: string } | null
+      const r = fat as { ok?: boolean; erro?: string; avisos?: Array<{ produto?: string | null }> } | null
       if (r && r.ok === false) throw new Error(r.erro ?? 'Falha ao faturar')
-      flash(confirmFatura.tipo === 'orcamento' ? 'Orçamento convertido e faturado!' : 'Pedido faturado!')
+      const nAvisos = Array.isArray(r?.avisos) ? r!.avisos.length : 0 // #8453
+      flash((confirmFatura.tipo === 'orcamento' ? 'Orçamento convertido e faturado!' : 'Pedido faturado!') + (nAvisos > 0 ? ` ⚠️ ${nAvisos} item(ns) com estoque negativo — regularize a entrada.` : ''))
       setConfirmFatura(null)
       await carregar()
     } catch (e) {
@@ -733,11 +756,12 @@ function KanbanBoard({
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 180, maxWidth: 360 }}>
+        <div data-ajuda="otc.busca" style={{ position: 'relative', flex: '1 1 240px', minWidth: 180, maxWidth: 360 }}>
           <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: C.espressoL }} />
           <input type="text" placeholder="Buscar por número ou cliente…" value={busca} onChange={(e) => setBusca(e.target.value)}
             style={{ width: '100%', padding: '8px 10px 8px 32px', border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, background: C.white, color: C.espresso, outline: 'none' }} />
         </div>
+        <AjudaCampo chave="otc.busca" rota="/dashboard/commerce/otc" />
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 12, color: C.espressoM }}>
         <Info size={13} />
@@ -1053,7 +1077,7 @@ function ModalCancelarOrcamento({ orc, onClose, onDone, flash }: {
           ) : (
             <>
               <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Motivo da perda</span>
+                <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>Motivo da perda<AjudaCampo chave="otc.perda.motivo" rota="/dashboard/commerce/otc" /></span>
                 <select value={motivoId} onChange={(e) => setMotivoId(e.target.value)}
                   style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.white, color: C.espresso }}>
                   <option value="">{motivos.length === 0 ? 'Nenhum motivo cadastrado' : 'Selecione…'}</option>
@@ -1069,7 +1093,7 @@ function ModalCancelarOrcamento({ orc, onClose, onDone, flash }: {
               ) : (
                 <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end', background: C.cream, borderRadius: 8, padding: 8 }}>
                   <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
-                    <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Novo motivo</span>
+                    <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>Novo motivo<AjudaCampo chave="otc.perda.novo_motivo" rota="/dashboard/commerce/otc" /></span>
                     <input value={novoNome} onChange={(e) => setNovoNome(e.target.value)} placeholder="Ex.: Preço, Prazo, Concorrência…"
                       style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.white, color: C.espresso }} />
                   </label>
@@ -1079,7 +1103,7 @@ function ModalCancelarOrcamento({ orc, onClose, onDone, flash }: {
               )}
 
               <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Descrição {exigeTexto ? '(obrigatória)' : '(opcional)'}</span>
+                <span style={{ fontSize: 11, color: C.espressoM, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>Descrição {exigeTexto ? '(obrigatória)' : '(opcional)'}<AjudaCampo chave="otc.perda.descricao" rota="/dashboard/commerce/otc" /></span>
                 <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={2} placeholder="O que aconteceu?"
                   style={{ padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.border}`, fontSize: 13, background: C.white, color: C.espresso, resize: 'vertical' }} />
               </label>
@@ -1226,6 +1250,10 @@ function DrawerOrcamento({ orc, itens, onClose, onObraSalva, flash, onEnviar, on
   const canConverter = ['rascunho', 'enviado', 'visualizado', 'aprovado'].includes(orc.status) && !orc.pedido_id
   // #728 · cancelar (perda) só enquanto o orçamento está aberto e não virou pedido
   const canCancelar = ['rascunho', 'enviado', 'visualizado', 'aprovado'].includes(orc.status) && !orc.pedido_id
+  // #3863 · EDITAR o orçamento já salvo (itens, valores, observações). Reusa o editor dedicado
+  // (/dashboard/orcamentos), que já existe e grava por fn_orcamento_editar com guarda real no backend
+  // (fn_orcamento_pode_editar). Mesma régua de status editável do banco: antes da aprovação/conversão.
+  const canEditar = ['rascunho', 'revisao', 'enviado', 'visualizado'].includes(orc.status) && !orc.pedido_id
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 90, display: 'flex', justifyContent: 'flex-end' }}>
@@ -1302,6 +1330,13 @@ function DrawerOrcamento({ orc, itens, onClose, onObraSalva, flash, onEnviar, on
             {canCancelar && (
               <button onClick={onCancelar} style={{ ...btnSec, color: C.red, borderColor: C.red, marginRight: 'auto' }}><X size={14} /> Cancelar (perda)</button>
             )}
+            {canEditar && (
+              <button
+                onClick={() => { window.location.href = `/dashboard/orcamentos?id=${orc.id}` }}
+                style={btnSec}
+                title="Editar itens, valores e observações deste orçamento"
+              ><Pencil size={14} /> Editar</button>
+            )}
             {canEnviar && (
               <button onClick={onEnviar} style={btnSec}><Send size={14} /> Marcar enviado</button>
             )}
@@ -1327,7 +1362,7 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
   // FEAT-OS-ONDA3A-FATURAMENTO-v1 · status local pra refletir faturamento sem reload
   const [statusLocal, setStatusLocal] = useState(ped.status)
   const [faturando, setFaturando] = useState(false)
-  const [faturaResult, setFaturaResult] = useState<{ ok: boolean; cmv?: number; qtd_movimentos_estoque?: number; qtd_titulos_receber?: number; numero?: string | null; erro?: string } | null>(null)
+  const [faturaResult, setFaturaResult] = useState<{ ok: boolean; cmv?: number; qtd_movimentos_estoque?: number; qtd_titulos_receber?: number; numero?: string | null; erro?: string; avisos?: Array<{ produto?: string | null; saldo_depois?: number }> } | null>(null)
   // FEAT-OS-ONDA3B-NFSE-FRONT-v1 · dados pra emitir NFS-e do pedido faturado
   const [nfseDados, setNfseDados] = useState<NfsePedidoDados | null>(null)
   const [nfseModalAberto, setNfseModalAberto] = useState(false)
@@ -1509,6 +1544,16 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
                   ))}
                 </tbody>
               </table>
+            )}
+            {/* #3863 · EDITAR os itens do pedido já salvo. Reusa o editor dedicado (/dashboard/pedidos →
+                "Editar Itens"), que grava por fn_pedido_editar_itens com guarda real no backend
+                (fn_pedido_pode_editar bloqueia pedido faturado/cancelado). */}
+            {statusLocal !== 'cancelado' && !ped.nf_emitida && (
+              <button
+                onClick={() => { window.location.href = `/dashboard/pedidos?abrir=${ped.id}` }}
+                style={{ ...btnSec, marginTop: 10 }}
+                title="Editar os itens deste pedido (quantidades, preços)"
+              ><Pencil size={14} /> Editar itens</button>
             )}
           </Card>
 
@@ -1716,6 +1761,17 @@ function DrawerPedido({ ped, orcamentos, onClose, onFaturado }: { ped: Pedido; o
                     CRIOU <strong>{faturaResult.qtd_titulos_receber}</strong> título(s) a receber<br />
                     BAIXOU <strong>{faturaResult.qtd_movimentos_estoque}</strong> item(ns) do estoque<br />
                     CMV: <strong>{fmtBRL(faturaResult.cmv)}</strong>
+                  </div>
+                )}
+                {/* #8453 · modo "avisar": lista os itens que ficaram com estoque negativo */}
+                {faturaResult?.ok && Array.isArray(faturaResult.avisos) && faturaResult.avisos.length > 0 && (
+                  <div data-testid="fatura-avisos-estoque" style={{ fontSize: 11.5, color: C.espresso, background: '#FFF8E7', border: `1px solid ${C.gold}`, borderRadius: 8, padding: '8px 10px', lineHeight: 1.5 }}>
+                    ⚠️ Estoque ficou negativo após o faturamento — regularize a entrada:
+                    <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
+                      {faturaResult.avisos.map((a, i) => (
+                        <li key={i}><strong>{a.produto ?? 'produto'}</strong>: saldo {a.saldo_depois}</li>
+                      ))}
+                    </ul>
                   </div>
                 )}
                 {/* #782 · gera o(s) boleto(s) das parcelas marcadas, aqui mesmo na tela de pedido */}
@@ -2022,7 +2078,7 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
 
         {step === 'cliente' ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Buscar cliente *</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM }}>Buscar cliente *</label><AjudaCampo chave="otc.novo.buscar_cliente" rota="/dashboard/commerce/otc" />
             <input
               autoFocus
               value={clienteBusca}
@@ -2099,7 +2155,7 @@ function ModalNovoOrcamento({ companyId, onClose, onCreated, flash }: {
               <BlocoObraFiscal companyId={companyId} value={obraFiscal} onChange={setObraFiscal} />
             )}
 
-            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM, marginTop: 8 }}>Observações ao cliente</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: C.espressoM, marginTop: 8 }}>Observações ao cliente</label><AjudaCampo chave="otc.novo.observacoes" rota="/dashboard/commerce/otc" />
             <textarea value={observacoes} onChange={(e) => setObservacoes(e.target.value)} rows={2} placeholder="Opcional — texto que aparece no orçamento" style={{ ...inp, resize: 'vertical' }} />
 
             <div style={{ marginTop: 8, padding: 12, background: C.cream, borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

@@ -106,7 +106,11 @@ function Inner() {
     const { data, error } = await supabase.rpc('fn_psgc_dre_horizontal', { p_company_ids: membros, p_mes_ini: `${ano}-${pad2(selIni)}-01`, p_mes_fim: `${ano}-${pad2(selFim)}-01`, p_regime: regime })
     const prev = await supabase.rpc('fn_psgc_dre_horizontal', { p_company_ids: membros, p_mes_ini: `${anoAnt}-${pad2(antIniN)}-01`, p_mes_fim: `${anoAnt}-${pad2(antFimN)}-01`, p_regime: regime })
     setLoading(false)
-    if (error || !(data as Horiz)?.ok) { setErro('Não deu para carregar o DRE agora.'); return }
+    if (error || !(data as Horiz)?.ok) {
+      // usuário vê mensagem amigável; detalhe vai só para o console, para o suporte diagnosticar
+      console.error('[dre-analise] carregar falhou:', error ?? (data as Horiz))
+      setErro('Não deu para carregar o DRE agora.'); return
+    }
     setHz(data as Horiz); setHzAnt((prev.data as Horiz)?.ok ? (prev.data as Horiz) : null)
   }, [membros, ano, selIni, selFim, regime, anoAnt, antIniN, antFimN])
   useEffect(() => { let a = true; void (async () => { if (a) await carregar() })(); return () => { a = false } }, [carregar])
@@ -213,7 +217,7 @@ function Inner() {
             {CHIPS.map((c) => <button key={c.key} type="button" onClick={() => { setChip(c.key); setContaSel(null) }} style={{ ...chipBtn(chip === c.key), fontSize: 12 }}>{c.nome}</button>)}
             <Aj k="dre.analise.chips_tipo" />
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div data-ajuda="dre.analise.busca_conta" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12, color: MUT }}>Conta <Aj k="dre.analise.busca_conta" /></span>
             <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar conta (ex.: Pessoal)" aria-label="Buscar conta"
               style={{ padding: '7px 9px', fontSize: 13, border: `1px solid ${LINE}`, borderRadius: 7, background: WHITE, color: ESP, minWidth: 200 }} />

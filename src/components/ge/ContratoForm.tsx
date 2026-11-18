@@ -5,6 +5,9 @@ import { supabase } from '@/lib/supabase'
 import ContratoArquivos from './ContratoArquivos'
 import ContratoAssinatura from './ContratoAssinatura'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { numeroParaMoeda, moedaParaNumero } from '@/lib/moeda-mascara'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 // RD-95: chaves ge.contratos.* cadastradas na rota canônica (o form abre dentro dela).
 const ROTA_AJUDA = '/dashboard/cadastros/contratos-recorrentes'
@@ -60,10 +63,12 @@ const PERIODICIDADES = [
   { value: 'anual', label: 'Uma vez por ano' },
 ]
 
+// RD-38: sem percentual "aproximado" cravado no rótulo (não vinha de índice real e induzia a erro).
+// O usuário informa o % no campo "% anual"; estes são só a base de cálculo.
 const TIPOS_REAJUSTE = [
   { value: 'nenhum', label: 'Sem reajuste' },
-  { value: 'ipca', label: 'Anual IPCA (~4,5%)' },
-  { value: 'igpm', label: 'Anual IGPM (~6%)' },
+  { value: 'ipca', label: 'Anual pelo IPCA' },
+  { value: 'igpm', label: 'Anual pelo IGP-M' },
   { value: 'personalizado', label: 'Personalizado' },
 ]
 
@@ -100,7 +105,8 @@ export default function ContratoForm({ companyId, contrato, onClose, onSaved }: 
   const [nome, setNome] = useState(contrato?.nome ?? '')
   const [tipo, setTipo] = useState(contrato?.tipo ?? 'mensalidade')
   const [clienteId, setClienteId] = useState(contrato?.cliente_id ?? '')
-  const [valorMensal, setValorMensal] = useState(contrato?.valor_mensal?.toString() ?? '')
+  // #6874 — valor com máscara R$: o estado guarda o texto mascarado; moedaParaNumero converte na validação e no envio.
+  const [valorMensal, setValorMensal] = useState(contrato?.valor_mensal != null ? numeroParaMoeda(Number(contrato.valor_mensal)) : '')
   const [dataInicio, setDataInicio] = useState(
     contrato?.data_inicio ?? new Date().toISOString().split('T')[0],
   )
@@ -135,7 +141,8 @@ export default function ContratoForm({ companyId, contrato, onClose, onSaved }: 
       setErro('Dá um nome para essa cobrança — ex: "Aluguel sala 101"')
       return
     }
-    if (!valorMensal || parseFloat(valorMensal) <= 0) {
+    const valorMensalNum = moedaParaNumero(valorMensal)
+    if (valorMensalNum == null || valorMensalNum <= 0) {
       setErro('Valor precisa ser maior que zero')
       return
     }
@@ -148,9 +155,9 @@ export default function ContratoForm({ companyId, contrato, onClose, onSaved }: 
 
     const clienteSel = clientes.find((c) => c.id === clienteId) ?? null
 
-    const payload = {
-      company_id: companyId,
-      numero: contrato?.numero || `CTR-${Date.now().toString().slice(-6)}`,
+    // RD-98/RD-99: salvar via RPC guardada fn_contrato_salvar (validação + multi-tenant + audit + número único no
+    // servidor). Antes era INSERT/UPDATE direto em erp_contratos, sem guarda e com número CTR-Date.now que podia colidir.
+    const dados = {
       nome: nome.trim(),
       tipo,
       cliente_id: clienteId || null,
@@ -158,27 +165,31 @@ export default function ContratoForm({ companyId, contrato, onClose, onSaved }: 
       cliente_cnpj: clienteSel?.cnpj_cpf ?? null,
       cliente_email: clienteSel?.email ?? null,
       cliente_telefone: clienteSel?.telefone ?? null,
-      valor_mensal: parseFloat(valorMensal),
-      valor_atual: parseFloat(valorMensal),
+      valor_mensal: String(valorMensalNum),
       data_inicio: dataInicio,
       data_fim: dataFim || null,
-      data_primeiro_vencimento: dataInicio,
-      dia_vencimento: parseInt(diaVencimento, 10) || 10,
+      dia_vencimento: diaVencimento,
       periodicidade,
       tipo_reajuste: tipoReajuste,
-      reajuste_percentual: parseFloat(reajustePercentual) || 0,
+      reajuste_percentual: reajustePercentual,
       descricao: descricao.trim() || null,
       status,
-      updated_at: new Date().toISOString(),
     }
 
-    const result = contrato?.id
-      ? await supabase.from('erp_contratos').update(payload).eq('id', contrato.id)
-      : await supabase.from('erp_contratos').insert(payload)
+    const { data, error } = await supabase.rpc('fn_contrato_salvar', {
+      p_id: contrato?.id ?? null,
+      p_company_id: companyId,
+      p_dados: dados,
+    })
 
     setSalvando(false)
-    if (result.error) setErro('Não consegui salvar: ' + result.error.message)
-    else onSaved()
+    const r = data as { ok?: boolean; erro?: string; mensagem?: string } | null
+    if (error || !r?.ok) {
+      // A RPC devolve mensagem em linguagem do usuário; falha de transporte vira texto amigável (nunca o erro cru do banco).
+      setErro(!error && r?.mensagem ? r.mensagem : erroAmigavel(error, 'Não consegui salvar a cobrança. Tente de novo.'))
+      return
+    }
+    onSaved()
   }
 
   return (
@@ -244,7 +255,7 @@ export default function ContratoForm({ companyId, contrato, onClose, onSaved }: 
 
           <div style={{ ...gridResponsivo, gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
             <Campo ajuda="ge.contratos.form.valor" label="Valor *">
-              <input type="number" step="0.01" value={valorMensal} onChange={(e) => setValorMensal(e.target.value)} placeholder="0,00" style={inputStyle} />
+              <CampoMoeda value={valorMensal} onChange={setValorMensal} placeholder="0,00" style={inputStyle} />
             </Campo>
             <Campo ajuda="ge.contratos.form.frequencia" label="Frequência *">
               <select value={periodicidade} onChange={(e) => setPeriodicidade(e.target.value)} style={inputStyle}>

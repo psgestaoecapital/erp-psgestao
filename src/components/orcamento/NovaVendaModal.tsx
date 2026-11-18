@@ -8,6 +8,9 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
 import { moedaParaNumero } from '@/lib/moeda-mascara'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA_AJUDA = '/dashboard/orcamento'
 
 interface Cliente { id: string; nome_fantasia: string | null; razao_social: string | null }
 interface Categoria { id: string; codigo: string; descricao: string }
@@ -97,10 +100,10 @@ export default function NovaVendaModal({ open, onClose, companyId }: Props) {
         <h2 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 20, fontWeight: 400, color: '#3D2314', margin: '0 0 18px' }}>Nova Venda</h2>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <Field label="Tipo">
+          <Field label="Tipo" ajuda="orcamento.nova_venda.tipo">
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {([['orcamento', 'Orçamento'], ['venda_avulsa', 'Venda Avulsa'], ['venda_recorrente', 'Recorrente']] as Array<[TipoVenda, string]>).map(([k, label]) => (
-                <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#3D2314', cursor: 'pointer' }}>
+                <label key={k} data-ajuda="orcamento.nova_venda.tipo" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#3D2314', cursor: 'pointer' }}>
                   <input type="radio" name="tipo" value={k} checked={tipo === k} onChange={() => setTipo(k)} />
                   {label}
                 </label>
@@ -108,27 +111,27 @@ export default function NovaVendaModal({ open, onClose, companyId }: Props) {
             </div>
           </Field>
 
-          <Field label="Cliente">
+          <Field label="Cliente" ajuda="orcamento.nova_venda.cliente">
             <select value={clienteId} onChange={(e) => setClienteId(e.target.value)} style={input}>
               <option value="">— selecione —</option>
               {clientes.map((c) => <option key={c.id} value={c.id}>{nomeCliente(c)}</option>)}
             </select>
           </Field>
 
-          <Field label="Descrição">
+          <Field label="Descrição" ajuda="orcamento.nova_venda.descricao">
             <input value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Ex: Consultoria mensal · Setembro" style={input} />
           </Field>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8 }}>
-            <Field label="Valor R$">
+            <Field label="Valor R$" ajuda="orcamento.nova_venda.valor">
               <CampoMoeda value={valor} onChange={setValor} placeholder="R$ 0,00" style={input} />
             </Field>
-            <Field label="Vencimento">
+            <Field label="Vencimento" ajuda="orcamento.nova_venda.vencimento">
               <input type="date" value={vencimento} onChange={(e) => setVencimento(e.target.value)} style={input} />
             </Field>
           </div>
 
-          <Field label="Categoria (opcional)">
+          <Field label="Categoria (opcional)" ajuda="orcamento.nova_venda.categoria">
             <select value={categoria} onChange={(e) => setCategoria(e.target.value)} style={input}>
               <option value="">— sem categoria —</option>
               {categorias.map((c) => <option key={c.id} value={c.codigo}>{c.codigo} · {c.descricao}</option>)}
@@ -138,6 +141,7 @@ export default function NovaVendaModal({ open, onClose, companyId }: Props) {
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#3D2314', cursor: 'pointer', padding: '6px 0' }}>
             <input type="checkbox" checked={emitirNF} onChange={(e) => setEmitirNF(e.target.checked)} />
             Emitir NF-e?
+            <AjudaCampo chave="orcamento.nova_venda.emitir_nf" rota={ROTA_AJUDA} />
           </label>
 
           {erro && <div style={{ background: '#FCEBEB', color: '#A32D2D', padding: '8px 12px', borderRadius: 6, fontSize: 12 }}>{erro}</div>}
@@ -154,10 +158,13 @@ export default function NovaVendaModal({ open, onClose, companyId }: Props) {
   )
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, ajuda, children }: { label: string; ajuda?: string; children: React.ReactNode }) {
   return (
     <label style={{ display: 'block' }}>
-      <span style={{ fontSize: 10, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600, display: 'block', marginBottom: 4 }}>{label}</span>
+      <span style={{ fontSize: 10, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600, display: 'inline-flex', alignItems: 'center', marginBottom: 4 }}>
+        {label}
+        {ajuda && <AjudaCampo chave={ajuda} rota={ROTA_AJUDA} />}
+      </span>
       {children}
     </label>
   )

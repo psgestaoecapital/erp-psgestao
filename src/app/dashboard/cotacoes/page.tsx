@@ -3,6 +3,10 @@ import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { CampoMoeda } from "@/components/comum/CampoMoeda";
 import { moedaParaNumero, numeroParaMoeda } from "@/lib/moeda-mascara";
+import { CampoPercent } from "@/lib/ui/CampoPercent";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+
+const ROTA_AJUDA="/dashboard/cotacoes";
 
 const BG="var(--ps-bg,#FAF7F2)",BG2="var(--ps-bg2,#FFFFFF)",BG3="var(--ps-bg3,#F0ECE3)";
 const TX="var(--ps-text,#3D2314)",TXM="var(--ps-text-m,#6B5D4F)",TXD="var(--ps-text-d,#9C8E80)";
@@ -230,6 +234,7 @@ export default function CotacoesPage(){
           <div style={{fontSize:11,color:TXD}}>Compare propostas lado a lado · Aprovação 1-clique gera pedido de compra</div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          <AjudaCampo chave="cotacoes.empresa" rota={ROTA_AJUDA} />
           <select value={sel} onChange={e=>{setSel(e.target.value);if(typeof window!=="undefined")localStorage.setItem("ps_empresa_sel",e.target.value);}} style={selSt}>
             {companies.map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
           </select>
@@ -256,6 +261,7 @@ export default function CotacoesPage(){
       {/* Filtros */}
       <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
         <div style={{flex:1,minWidth:200,position:"relative"}}>
+          <AjudaCampo chave="cotacoes.busca" rota={ROTA_AJUDA} />
           <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por número ou descrição..." style={{...inp,paddingLeft:32}}/>
           <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",fontSize:14,color:TXD}}>🔍</span>
         </div>
@@ -322,21 +328,23 @@ export default function CotacoesPage(){
 
             <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:10,marginBottom:14}}>
               <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Descrição</div>
-                <input value={novaCot.descricao} onChange={e=>setNovaCot({...novaCot,descricao:e.target.value})} placeholder="Ex: Compra mensal de matéria-prima" style={inp}/></div>
+                <AjudaCampo chave="cotacoes.nova.descricao" rota={ROTA_AJUDA} />
+                <input value={novaCot.descricao} onChange={e=>setNovaCot({...novaCot,descricao:e.target.value})} placeholder="Ex: Compra mensal de matéria-prima" aria-label="Descrição da cotação de compra" style={inp}/></div>
               <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Limite para Respostas</div>
-                <input type="date" value={novaCot.data_limite} onChange={e=>setNovaCot({...novaCot,data_limite:e.target.value})} style={inp}/></div>
+                <AjudaCampo chave="cotacoes.nova.data_limite" rota={ROTA_AJUDA} />
+                <input type="date" value={novaCot.data_limite} onChange={e=>setNovaCot({...novaCot,data_limite:e.target.value})} aria-label="Data limite para os fornecedores responderem" style={inp}/></div>
             </div>
 
             {/* Itens */}
             <div style={{marginBottom:14}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
-                <div style={{fontSize:11,fontWeight:600,color:GO}}>📦 Itens a Cotar ({novaCot.itens.length})</div>
+                <div style={{fontSize:11,fontWeight:600,color:GO,display:"inline-flex",alignItems:"center",gap:4}}>📦 Itens a Cotar ({novaCot.itens.length}) <AjudaCampo chave="cotacoes.nova.itens" rota={ROTA_AJUDA} /></div>
                 <button onClick={()=>setNovaCot({...novaCot,itens:[...novaCot.itens,{produto_id:'',produto_codigo:'',produto_nome:'',unidade:'UN',quantidade:1,observacoes:''}]})} style={{padding:"4px 10px",borderRadius:6,background:GO+"15",color:GO,fontSize:10,fontWeight:600,border:`1px solid ${GO}40`,cursor:"pointer"}}>+ Adicionar Item</button>
               </div>
               {novaCot.itens.length===0?<div style={{background:BG3,borderRadius:8,padding:16,textAlign:"center",fontSize:11,color:TXD}}>Nenhum item ainda. Clique em "Adicionar Item".</div>:
               <div style={{display:"flex",flexDirection:"column",gap:6}}>
                 {novaCot.itens.map((it:any,idx:number)=>(
-                  <div key={idx} style={{background:BG3,borderRadius:8,padding:8,display:"grid",gridTemplateColumns:"30px 1fr 80px 70px 30px",gap:6,alignItems:"center"}}>
+                  <div key={idx} data-ajuda="cotacoes.nova.itens" style={{background:BG3,borderRadius:8,padding:8,display:"grid",gridTemplateColumns:"30px 1fr 80px 70px 30px",gap:6,alignItems:"center"}}>
                     <div style={{textAlign:"center",color:TXD,fontWeight:600,fontSize:10}}>{idx+1}</div>
                     <select value={it.produto_id} onChange={e=>{
                       const p=produtos.find(p=>p.id===e.target.value);
@@ -347,7 +355,7 @@ export default function CotacoesPage(){
                       <option value="">Selecione produto...</option>
                       {produtos.map(p=><option key={p.id} value={p.id}>{p.codigo} - {p.nome}</option>)}
                     </select>
-                    <input type="number" step="0.001" value={it.quantidade||''} onChange={e=>{const novos=[...novaCot.itens];novos[idx].quantidade=parseFloat(e.target.value)||0;setNovaCot({...novaCot,itens:novos});}} placeholder="Qtd" style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/>
+                    <CampoPercent value={it.quantidade??null} onChange={n=>{const novos=[...novaCot.itens];novos[idx].quantidade=n??0;setNovaCot({...novaCot,itens:novos});}} placeholder="Qtd" style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/>
                     <input value={it.unidade} onChange={e=>{const novos=[...novaCot.itens];novos[idx].unidade=e.target.value;setNovaCot({...novaCot,itens:novos});}} placeholder="UN" style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"center"}}/>
                     <button onClick={()=>setNovaCot({...novaCot,itens:novaCot.itens.filter((_:any,i:number)=>i!==idx)})} style={{background:"none",border:"none",color:R,cursor:"pointer",fontSize:14}}>✕</button>
                   </div>
@@ -357,13 +365,13 @@ export default function CotacoesPage(){
 
             {/* Fornecedores */}
             <div style={{marginBottom:14}}>
-              <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:6}}>🚚 Fornecedores a Convidar ({novaCot.fornecedores.length})</div>
+              <div style={{fontSize:11,fontWeight:600,color:GO,marginBottom:6,display:"inline-flex",alignItems:"center",gap:4}}>🚚 Fornecedores a Convidar ({novaCot.fornecedores.length}) <AjudaCampo chave="cotacoes.nova.fornecedores" rota={ROTA_AJUDA} /></div>
               {fornecedores.length===0?<div style={{background:BG3,borderRadius:8,padding:16,textAlign:"center",fontSize:11,color:TXD}}>Nenhum fornecedor cadastrado. Cadastre em Fornecedores primeiro.</div>:
               <div style={{background:BG3,borderRadius:8,padding:10,maxHeight:200,overflowY:"auto"}}>
                 {fornecedores.map(f=>{
                   const checked=novaCot.fornecedores.some((nf:any)=>nf.id===f.id);
                   return(
-                    <label key={f.id} style={{display:"flex",alignItems:"center",gap:8,padding:6,cursor:"pointer",borderRadius:4,background:checked?GO+"15":"transparent"}}>
+                    <label key={f.id} data-ajuda="cotacoes.nova.fornecedores" style={{display:"flex",alignItems:"center",gap:8,padding:6,cursor:"pointer",borderRadius:4,background:checked?GO+"15":"transparent"}}>
                       <input type="checkbox" checked={checked} onChange={e=>{
                         if(e.target.checked)setNovaCot({...novaCot,fornecedores:[...novaCot.fornecedores,f]});
                         else setNovaCot({...novaCot,fornecedores:novaCot.fornecedores.filter((nf:any)=>nf.id!==f.id)});
@@ -403,7 +411,7 @@ export default function CotacoesPage(){
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:11,minWidth:800}}>
                 <thead>
                   <tr>
-                    <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10,background:BG2,borderRadius:"8px 0 0 0",minWidth:180}}>Item</th>
+                    <th style={{padding:"8px",textAlign:"left",color:TXD,fontSize:10,background:BG2,borderRadius:"8px 0 0 0",minWidth:180}}>Item <AjudaCampo chave="cotacoes.comparar.grade" rota={ROTA_AJUDA} /></th>
                     <th style={{padding:"8px",textAlign:"center",color:TXD,fontSize:10,background:BG2,width:70}}>Qtd</th>
                     {dadosComparar.fornecedores.map((f:any,idx:number)=>{
                       const ehVencedor=f.status==='vencedor';
@@ -444,7 +452,7 @@ export default function CotacoesPage(){
                                   {proposta?.subtotal&&<div style={{fontSize:9,color:TXD}}>Subtotal: {fmtR(proposta.subtotal)}</div>}
                                 </div>
                               ):(
-                                <input type="number" step="0.01" value={proposta?.preco_unitario||''} onChange={e=>atualizarProposta(fornecedor.id,item.id,'preco_unitario',e.target.value)} placeholder="R$ 0,00" style={{...inp,padding:"4px 6px",fontSize:11,textAlign:"right",background:isMelhor?G+"20":BG3,borderColor:isMelhor?G:BD}}/>
+                                <CampoMoeda value={Number(proposta?.preco_unitario)>0?numeroParaMoeda(Number(proposta.preco_unitario)):''} onChange={m=>atualizarProposta(fornecedor.id,item.id,'preco_unitario',moedaParaNumero(m)??0)} placeholder="R$ 0,00" style={{...inp,padding:"4px 6px",fontSize:11,textAlign:"right",background:isMelhor?G+"20":BG3,borderColor:isMelhor?G:BD}}/>
                               )}
                             </td>
                           );

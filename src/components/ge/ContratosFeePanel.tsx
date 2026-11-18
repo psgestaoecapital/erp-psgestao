@@ -30,7 +30,7 @@ const STATUS_COR: Record<string, string> = {
 const fmtBRL = (v: number | null) => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 interface Row {
-  id: string; numero: string | null; nome: string | null; cliente_nome: string | null
+  id: string; numero: string | null; nome: string | null; cliente_nome: string | null; cliente_email: string | null; cliente_telefone: string | null
   status: string | null; valor_mensal: number | null; solicitante_id: string | null
   responsavel_id: string | null; created_at: string | null; prazo_desejado: string | null
 }
@@ -58,7 +58,7 @@ export default function ContratosFeePanel({ companyId }: { companyId: string | n
     setUid(u.user?.id ?? null)
     const { data } = await supabase
       .from('erp_contratos')
-      .select('id,numero,nome,cliente_nome,status,valor_mensal,solicitante_id,responsavel_id,created_at,prazo_desejado')
+      .select('id,numero,nome,cliente_nome,cliente_email,cliente_telefone,status,valor_mensal,solicitante_id,responsavel_id,created_at,prazo_desejado')
       .eq('company_id', companyId)
       .or('solicitante_id.not.is.null,status.in.(solicitado,em_elaboracao,aguardando_info,em_revisao,aguardando_aprovacao)')
       .order('created_at', { ascending: false })
@@ -142,8 +142,8 @@ export default function ContratosFeePanel({ companyId }: { companyId: string | n
               style={{ width: 16, height: 16, cursor: salvandoCfg ? 'wait' : 'pointer', accentColor: C.gold }}
             />
             Exigir contrato assinado anexado para ativar
+            <AjudaCampo chave="ge.contratos.exigir_anexo" rota="/dashboard/contratos" />
           </label>
-          <AjudaCampo chave="ge.contratos.exigir_anexo" rota="/dashboard/contratos" />
           <span style={{ fontSize: 11.5, color: C.espressoM }}>
             {exigirAnexo ? 'Ativar só com o anexo do contrato.' : 'Pode ativar sem anexo — o aviso “Contrato não anexado” lembra de anexar depois.'}
           </span>
@@ -171,6 +171,14 @@ export default function ContratosFeePanel({ companyId }: { companyId: string | n
                   {r.cliente_nome || 'Sem cliente'} · {fmtBRL(r.valor_mensal)}/mês
                   {r.prazo_desejado ? ` · prazo ${r.prazo_desejado.split('-').reverse().join('/')}` : ''}
                 </div>
+                {/* SPEC 4.3: contato do cliente à vista para a Julia (veio da proposta/cadastro, sem precisar procurar) */}
+                {(r.cliente_email || r.cliente_telefone) ? (
+                  <div style={{ fontSize: 11.5, color: C.espressoM, marginTop: 2 }}>
+                    📞 {r.cliente_telefone || 'sem telefone'}{r.cliente_email ? ` · ✉️ ${r.cliente_email}` : ''}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 11, color: C.gold, marginTop: 2 }}>falta contato · sem ele a cobrança/boleto fica sem destino</div>
+                )}
               </div>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 {r.status === 'ativo' && !comAnexo.has(r.id) ? <SeloContratoSemAnexoChip /> : null}

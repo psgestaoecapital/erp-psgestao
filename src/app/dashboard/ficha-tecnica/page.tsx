@@ -3,6 +3,10 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { authFetch } from "@/lib/authFetch";
 import { erroAmigavel, codigoAmigavel } from "@/lib/erroAmigavel";
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { CampoMoeda } from "@/components/comum/CampoMoeda";
+import { CampoPercent } from "@/lib/ui/CampoPercent";
+import { moedaParaNumero, numeroParaMoeda } from "@/lib/moeda-mascara";
 
 const GO="#C6973F",GOL="#E8C872",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
     G="#34D399",R="#F87171",Y="#FBBF24",B="#60A5FA",P="#A78BFA",
@@ -11,6 +15,7 @@ const GO="#C6973F",GOL="#E8C872",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
 const fmtR=(v:number)=>v.toLocaleString("pt-BR",{minimumFractionDigits:2,maximumFractionDigits:2});
 const CATEGORIAS=["parede","forro","revestimento","divisoria","shaft","outro"];
 const UNIDADES=["un","m","m²","kg","L","rolo","saco","caixa","par","pç"];
+const ROTA_AJUDA="/dashboard/ficha-tecnica";
 
 const TEMPLATES:Record<string,{nome:string;cat:string;mo:number;itens:{nome:string;un:string;qtd:number;preco:number}[]}> = {
   parede_simples:{nome:"Parede Drywall Simples 73mm (ST)",cat:"parede",mo:35,itens:[
@@ -102,8 +107,8 @@ export default function FichaTecnicaPage(){
   const [seeding,setSeeding]=useState(false);
   const [newNome,setNewNome]=useState("");
   const [newCat,setNewCat]=useState("parede");
-  const [newMO,setNewMO]=useState("35");
-  const [newInd,setNewInd]=useState("15");
+  const [newMO,setNewMO]=useState(numeroParaMoeda(35));
+  const [newInd,setNewInd]=useState<number|null>(15);
   const [newImp,setNewImp]=useState("8.65");
   const [newMarkup,setNewMarkup]=useState("30");
   // Item editing
@@ -215,7 +220,7 @@ export default function FichaTecnicaPage(){
     if(!newNome.trim())return;
     const{data}=await supabase.from("fichas_tecnicas").insert({
       company_id:resolvedCompId,nome:newNome,categoria:newCat,unidade:"m²",
-      mao_obra_direta:parseFloat(newMO)||0,custos_indiretos_pct:parseFloat(newInd)||0,
+      mao_obra_direta:moedaParaNumero(newMO)||0,custos_indiretos_pct:newInd??0,
       impostos_pct:parseFloat(newImp)||0,markup_pct:parseFloat(newMarkup)||0,
     }).select().single();
     if(data){setSelFicha(data.id);setShowNew(false);setNewNome("");loadFichas();}
@@ -304,7 +309,8 @@ export default function FichaTecnicaPage(){
           <div style={{fontSize:20,fontWeight:700,color:GOL}}>🔧 Ficha Técnica de Produção</div>
           <div style={{fontSize:11,color:TXM}}>Composição de custo por m² — base para análise de projetos e formação de preço</div>
         </div>
-        <div style={{display:"flex",gap:8}}>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <AjudaCampo chave="ficha.empresa" rota={ROTA_AJUDA} />
           <select value={selComp} onChange={e=>{setSelComp(e.target.value);if(typeof window!=="undefined")localStorage.setItem("ps_empresa_sel",e.target.value);}} style={{...inp,width:250}}>
             {companies.length>1&&<option value="consolidado">📊 Todas ({companies.length})</option>}
             {groups.map(g=>{
@@ -376,15 +382,15 @@ export default function FichaTecnicaPage(){
 
           {/* New ficha form */}
           {showNew&&(
-            <div style={{background:BG2,borderRadius:12,padding:12,border:`1px solid ${GO}30`,marginBottom:8}}>
-              <div style={{fontSize:12,fontWeight:600,color:GOL,marginBottom:8}}>Nova Ficha</div>
+            <div data-ajuda="ficha.nova" style={{background:BG2,borderRadius:12,padding:12,border:`1px solid ${GO}30`,marginBottom:8}}>
+              <div style={{fontSize:12,fontWeight:600,color:GOL,marginBottom:8,display:"inline-flex",alignItems:"center",gap:4}}>Nova Ficha <AjudaCampo chave="ficha.nova" rota={ROTA_AJUDA} /></div>
               <input value={newNome} onChange={e=>setNewNome(e.target.value)} placeholder="Nome da tipologia" style={{...inp,marginBottom:6}}/>
               <select value={newCat} onChange={e=>setNewCat(e.target.value)} style={{...inp,marginBottom:6}}>
                 {CATEGORIAS.map(c=><option key={c} value={c}>{c.charAt(0).toUpperCase()+c.slice(1)}</option>)}
               </select>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,marginBottom:6}}>
-                <input value={newMO} onChange={e=>setNewMO(e.target.value)} placeholder="MO R$/m²" type="number" style={inp}/>
-                <input value={newInd} onChange={e=>setNewInd(e.target.value)} placeholder="Indir. %" type="number" style={inp}/>
+                <CampoMoeda value={newMO} onChange={setNewMO} placeholder="MO R$/m²" style={inp}/>
+                <CampoPercent value={newInd} onChange={setNewInd} placeholder="Indir. %" style={inp}/>
               </div>
               <div style={{display:"flex",gap:4}}>
                 <button onClick={criarFicha} style={{flex:1,padding:"8px",borderRadius:6,background:GO,color:BG,fontSize:11,fontWeight:600,border:"none",cursor:"pointer"}}>Criar</button>
@@ -435,8 +441,8 @@ export default function FichaTecnicaPage(){
 
                 {/* Product search panel */}
                 {showProdSearch&&(
-                  <div style={{background:BG3,borderRadius:10,padding:12,border:`1px solid ${G}30`,marginBottom:10}}>
-                    <div style={{fontSize:12,fontWeight:600,color:G,marginBottom:6}}>🔍 Buscar no Estoque (ERP) (por nome ou código)</div>
+                  <div data-ajuda="ficha.produto_busca" style={{background:BG3,borderRadius:10,padding:12,border:`1px solid ${G}30`,marginBottom:10}}>
+                    <div style={{fontSize:12,fontWeight:600,color:G,marginBottom:6,display:"inline-flex",alignItems:"center",gap:4}}>🔍 Buscar no Estoque (ERP) (por nome ou código) <AjudaCampo chave="ficha.produto_busca" rota={ROTA_AJUDA} /></div>
                     <input value={prodSearch} onChange={e=>searchProdutos(e.target.value)} placeholder="Digite nome ou código do produto..." style={{...inp,marginBottom:6}}/>
                     {loadingProds&&<div style={{fontSize:10,color:TXM}}>Buscando...</div>}
                     <div style={{maxHeight:200,overflowY:"auto"}}>
@@ -456,20 +462,20 @@ export default function FichaTecnicaPage(){
                 )}
                 <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
                   <div>
-                    <div style={{fontSize:9,color:TXM,marginBottom:2}}>MO Direta (R$/m²)</div>
-                    <input value={fichaAtual.mao_obra_direta} onChange={e=>updateFicha("mao_obra_direta",parseFloat(e.target.value)||0)} type="number" style={inpSm}/>
+                    <label style={{fontSize:9,color:TXM,marginBottom:2,display:"block"}}><span style={{display:"inline-flex",alignItems:"center",gap:3}}>MO Direta (R$/m²) <AjudaCampo chave="ficha.mao_obra_direta" rota={ROTA_AJUDA} /></span>
+                    <CampoMoeda value={numeroParaMoeda(fichaAtual.mao_obra_direta)} onChange={m=>updateFicha("mao_obra_direta",moedaParaNumero(m)??0)} style={inpSm}/></label>
                   </div>
                   <div>
-                    <div style={{fontSize:9,color:TXM,marginBottom:2}}>Custos Indiretos (%)</div>
-                    <input value={fichaAtual.custos_indiretos_pct} onChange={e=>updateFicha("custos_indiretos_pct",parseFloat(e.target.value)||0)} type="number" style={inpSm}/>
+                    <label style={{fontSize:9,color:TXM,marginBottom:2,display:"block"}}><span style={{display:"inline-flex",alignItems:"center",gap:3}}>Custos Indiretos (%) <AjudaCampo chave="ficha.custos_indiretos_pct" rota={ROTA_AJUDA} /></span>
+                    <CampoPercent value={fichaAtual.custos_indiretos_pct} onChange={n=>updateFicha("custos_indiretos_pct",n??0)} style={inpSm}/></label>
                   </div>
                   <div>
-                    <div style={{fontSize:9,color:TXM,marginBottom:2}}>Impostos (%)</div>
-                    <input value={fichaAtual.impostos_pct} onChange={e=>updateFicha("impostos_pct",parseFloat(e.target.value)||0)} type="number" style={inpSm}/>
+                    <label style={{fontSize:9,color:TXM,marginBottom:2,display:"block"}}><span style={{display:"inline-flex",alignItems:"center",gap:3}}>Impostos (%) <AjudaCampo chave="ficha.impostos_pct" rota={ROTA_AJUDA} /></span>
+                    <CampoPercent value={fichaAtual.impostos_pct} onChange={n=>updateFicha("impostos_pct",n??0)} style={inpSm}/></label>
                   </div>
                   <div>
-                    <div style={{fontSize:9,color:TXM,marginBottom:2}}>Markup (%)</div>
-                    <input value={fichaAtual.markup_pct} onChange={e=>updateFicha("markup_pct",parseFloat(e.target.value)||0)} type="number" style={inpSm}/>
+                    <label style={{fontSize:9,color:TXM,marginBottom:2,display:"block"}}><span style={{display:"inline-flex",alignItems:"center",gap:3}}>Markup (%) <AjudaCampo chave="ficha.markup_pct" rota={ROTA_AJUDA} /></span>
+                    <CampoPercent value={fichaAtual.markup_pct} onChange={n=>updateFicha("markup_pct",n??0)} style={inpSm}/></label>
                   </div>
                 </div>
               </div>
@@ -499,11 +505,11 @@ export default function FichaTecnicaPage(){
                     <thead style={{position:"sticky",top:0,background:BG2,zIndex:1}}>
                       <tr style={{borderBottom:`1px solid ${BD}`}}>
                         <th style={{padding:"8px",textAlign:"left",color:GO,fontSize:10,fontWeight:600,width:30}}>#</th>
-                        <th style={{padding:"8px",textAlign:"left",color:GO,fontSize:10,fontWeight:600,width:90}}>CÓDIGO</th>
-                        <th style={{padding:"8px",textAlign:"left",color:GO,fontSize:10,fontWeight:600}}>MATERIAL / INSUMO</th>
-                        <th style={{padding:"8px",textAlign:"center",color:GO,fontSize:10,fontWeight:600}}>UN</th>
-                        <th style={{padding:"8px",textAlign:"right",color:GO,fontSize:10,fontWeight:600}}>QTD/m²</th>
-                        <th style={{padding:"8px",textAlign:"right",color:GO,fontSize:10,fontWeight:600}}>PREÇO UN.</th>
+                        <th style={{padding:"8px",textAlign:"left",color:GO,fontSize:10,fontWeight:600,width:90}}>CÓDIGO <AjudaCampo chave="ficha.item_codigo" rota={ROTA_AJUDA} /></th>
+                        <th style={{padding:"8px",textAlign:"left",color:GO,fontSize:10,fontWeight:600}}>MATERIAL / INSUMO <AjudaCampo chave="ficha.item_material" rota={ROTA_AJUDA} /></th>
+                        <th style={{padding:"8px",textAlign:"center",color:GO,fontSize:10,fontWeight:600}}>UN <AjudaCampo chave="ficha.item_unidade" rota={ROTA_AJUDA} /></th>
+                        <th style={{padding:"8px",textAlign:"right",color:GO,fontSize:10,fontWeight:600}}>QTD/m² <AjudaCampo chave="ficha.item_qtd" rota={ROTA_AJUDA} /></th>
+                        <th style={{padding:"8px",textAlign:"right",color:GO,fontSize:10,fontWeight:600}}>PREÇO UN. <AjudaCampo chave="ficha.item_preco" rota={ROTA_AJUDA} /></th>
                         <th style={{padding:"8px",textAlign:"right",color:GO,fontSize:10,fontWeight:600}}>CUSTO/m²</th>
                         <th style={{padding:"8px",textAlign:"center",color:GO,fontSize:10,fontWeight:600,width:50}}></th>
                       </tr>
@@ -516,10 +522,10 @@ export default function FichaTecnicaPage(){
                           <td style={{padding:"6px 8px",color:TX,fontSize:12,fontWeight:500}}>{item.nome}</td>
                           <td style={{padding:"6px 8px",textAlign:"center",color:TXM}}>{item.unidade}</td>
                           <td style={{padding:"6px 8px",textAlign:"right"}}>
-                            <input value={item.quantidade} onChange={e=>updateItem(item.id,"quantidade",parseFloat(e.target.value)||0)} type="number" step="0.01" style={{...inpSm,width:70}}/>
+                            <CampoPercent value={item.quantidade} onChange={n=>updateItem(item.id,"quantidade",n??0)} style={{...inpSm,width:70}}/>
                           </td>
                           <td style={{padding:"6px 8px",textAlign:"right"}}>
-                            <input value={item.preco_unitario} onChange={e=>updateItem(item.id,"preco_unitario",parseFloat(e.target.value)||0)} type="number" step="0.01" style={{...inpSm,width:80}}/>
+                            <CampoMoeda value={numeroParaMoeda(item.preco_unitario)} onChange={m=>updateItem(item.id,"preco_unitario",moedaParaNumero(m)??0)} style={{...inpSm,width:80}}/>
                           </td>
                           <td style={{padding:"6px 8px",textAlign:"right",fontWeight:600,color:GOL}}>R$ {fmtR(item.quantidade*item.preco_unitario)}</td>
                           <td style={{padding:"6px 8px",textAlign:"center"}}>
@@ -533,8 +539,8 @@ export default function FichaTecnicaPage(){
                         <td style={{padding:"6px 8px"}}><input value={editItem?.obs||""} onChange={e=>setEditItem({...editItem,obs:e.target.value})} placeholder="Código" style={{...inp,fontSize:10,width:80}}/></td>
                         <td style={{padding:"6px 8px"}}><input value={editItem?.nome||""} onChange={e=>setEditItem({...editItem,nome:e.target.value})} placeholder="Nome do material" style={{...inp,fontSize:11}}/></td>
                         <td style={{padding:"6px 8px"}}><select value={editItem?.unidade||"un"} onChange={e=>setEditItem({...editItem,unidade:e.target.value})} style={{...inp,width:60,fontSize:10}}>{UNIDADES.map(u=><option key={u}>{u}</option>)}</select></td>
-                        <td style={{padding:"6px 8px"}}><input value={editItem?.quantidade||""} onChange={e=>setEditItem({...editItem,quantidade:parseFloat(e.target.value)||0})} type="number" step="0.01" placeholder="0" style={{...inpSm,width:70}}/></td>
-                        <td style={{padding:"6px 8px"}}><input value={editItem?.preco_unitario||""} onChange={e=>setEditItem({...editItem,preco_unitario:parseFloat(e.target.value)||0})} type="number" step="0.01" placeholder="0.00" style={{...inpSm,width:80}}/></td>
+                        <td style={{padding:"6px 8px"}}><CampoPercent value={editItem?.quantidade??null} onChange={n=>setEditItem({...editItem,quantidade:n??0})} placeholder="0" style={{...inpSm,width:70}}/></td>
+                        <td style={{padding:"6px 8px"}}><CampoMoeda value={editItem?.preco_unitario?numeroParaMoeda(editItem.preco_unitario):""} onChange={m=>setEditItem({...editItem,preco_unitario:moedaParaNumero(m)??0})} placeholder="R$ 0,00" style={{...inpSm,width:80}}/></td>
                         <td colSpan={2} style={{padding:"6px 8px"}}><button onClick={addItem} disabled={!editItem?.nome} style={{padding:"4px 12px",borderRadius:6,background:editItem?.nome?GO:BD,color:editItem?.nome?BG:TXD,fontSize:10,fontWeight:600,border:"none",cursor:editItem?.nome?"pointer":"default"}}>Adicionar</button></td>
                       </tr>
                       {/* Total row */}

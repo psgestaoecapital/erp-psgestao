@@ -219,7 +219,20 @@ export default function EntreguesPage() {
           )
         })()
       ) : linhas.length === 0 ? (
-        <div style={{ background: WHITE, border: `1px solid ${LINE}`, borderRadius: 12, padding: '30px 16px', textAlign: 'center', color: ESP60 }}>Nenhuma entrega no período.</div>
+        // Critério d (jornada): estado vazio orienta — explica quando a entrega aparece e oferece ampliar o período.
+        <div style={{ background: WHITE, border: `1px solid ${LINE}`, borderRadius: 12, padding: '30px 16px', textAlign: 'center', color: ESP60, display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: ESP }}>Nenhuma entrega no período</div>
+          <div style={{ fontSize: 13, maxWidth: '52ch' }}>
+            {busca.trim()
+              ? <>Nenhuma entrega de <b>{busca.trim()}</b> entre {dataIni.split('-').reverse().join('/')} e {dataFim.split('-').reverse().join('/')}. Limpe a busca ou amplie o período.</>
+              : <>Uma OS aparece aqui quando é <b>entregue</b> (e some da oficina). Amplie o período para ver entregas mais antigas.</>}
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+            {busca.trim() && <button type="button" onClick={() => setBusca('')} style={{ font: 'inherit', fontSize: 13, padding: '8px 14px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${LINE}`, background: WHITE, color: ESP }}>Limpar busca</button>}
+            <button type="button" onClick={() => { setDataIni(isoDaysAgo(90)); setDataFim(isoDaysAgo(0)) }} style={{ font: 'inherit', fontSize: 13, fontWeight: 600, padding: '8px 14px', borderRadius: 10, cursor: 'pointer', border: 0, background: ESP, color: WHITE }}>Ver últimos 90 dias</button>
+            <button type="button" onClick={() => { setDataIni(isoDaysAgo(365)); setDataFim(isoDaysAgo(0)) }} style={{ font: 'inherit', fontSize: 13, padding: '8px 14px', borderRadius: 10, cursor: 'pointer', border: `1px solid ${ESP}`, background: WHITE, color: ESP }}>Ver últimos 12 meses</button>
+          </div>
+        </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {linhas.map((l) => {

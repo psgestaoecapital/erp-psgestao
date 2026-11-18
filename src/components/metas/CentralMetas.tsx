@@ -10,6 +10,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA_AJUDA = '/dashboard/metas'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -152,11 +155,13 @@ function CardMeta({ ind, rascunho, onRascunho, onSalvar, salvando }: {
       </div>
 
       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <AjudaCampo chave="metas.definir.valor" rota={ROTA_AJUDA} />
         <input
           value={rascunho}
           onChange={(e) => onRascunho(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') onSalvar() }}
           placeholder={ind.tem_meta ? 'nova meta' : 'defina a meta'}
+          aria-label="Valor da meta do indicador"
           inputMode="decimal"
           style={{ width: 96, padding: '9px 12px', border: `0.5px solid rgba(61,35,20,0.25)`, borderRadius: 6, fontSize: 13, color: ESP, background: '#FFF', textAlign: 'right' }}
         />

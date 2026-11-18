@@ -12,15 +12,24 @@ const inp: React.CSSProperties = { width: '100%', minHeight: 38, padding: '8px 1
 const btnSec: React.CSSProperties = { minHeight: 38, padding: '0 12px', fontSize: 12, border: `1px solid ${C.border}`, borderRadius: 6, background: 'transparent', color: C.espresso, cursor: 'pointer' }
 const btnPri: React.CSSProperties = { minHeight: 38, padding: '0 14px', fontSize: 12, fontWeight: 700, border: 'none', borderRadius: 6, background: C.gold, color: C.white, cursor: 'pointer' }
 
+// #6703 (Edney/Pdois): quando a busca é por CPF/CNPJ e o cliente não existe, o cadastro rápido nasce JÁ COM o documento
+// digitado — assim, ao voltar preenchido, o CPF/CNPJ vem do cadastro (fn_cliente_criar_inline grava e deduplica por doc),
+// sem a pessoa redigitar o que já tinha digitado na busca.
+const soDigitos = (s: string) => s.replace(/\D/g, '')
+const termoEhDoc = (s: string) => { const d = soDigitos(s); return d.length === 11 || d.length === 14 }
+
 interface Props {
   companyId: string
   value: string
   onChange: (erpId: string, nome?: string) => void
   onToast?: (s: string) => void
+  // #8393 (Pdois): erro ao criar o cliente é um ERRO — não pode cair no mesmo canal de sucesso (toast verde) de quem
+  // recebe. Quando informado, o erro vai por aqui (caixa vermelha do modal); senão, cai no onToast como antes.
+  onErro?: (s: string) => void
   placeholder?: string
 }
 
-export default function ClientePickerInline({ companyId, value, onChange, onToast, placeholder }: Props) {
+export default function ClientePickerInline({ companyId, value, onChange, onToast, onErro, placeholder }: Props) {
   const [q, setQ] = useState('')
   const [nomeSel, setNomeSel] = useState('')
   const [sug, setSug] = useState<{ id: string; nome: string; doc: string | null }[]>([])
@@ -28,7 +37,12 @@ export default function ClientePickerInline({ companyId, value, onChange, onToas
   const [open, setOpen] = useState(false)
   const [criando, setCriando] = useState(false)
   const [novoNome, setNovoNome] = useState('')
+  const [docNovo, setDocNovo] = useState('')
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // #Pdois Frente 4: o input "Nome do cliente" entra com autoFocus e tira o foco da busca; o onBlur dela fechava
+  // o painel (desmontava o form de cadastro). criandoRef mantém o painel aberto enquanto se cadastra.
+  const criandoRef = useRef(false)
+  useEffect(() => { criandoRef.current = criando }, [criando])
 
   useEffect(() => {
     let alive = true
@@ -58,13 +72,18 @@ export default function ClientePickerInline({ companyId, value, onChange, onToas
   }
   function escolher(c: { id: string; nome: string }) { onChange(c.id, c.nome); setNomeSel(c.nome); setOpen(false); setSug([]); setQ('') }
   async function criarInline() {
-    const nome = (novoNome || q).trim()
-    if (!nome) { onToast?.('Digite o nome/empresa do cliente.'); return }
-    const { data, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: companyId, p_nome: nome, p_cpf_cnpj: null, p_extra: {} })
-    if (error) { onToast?.(`Erro ao criar cliente: ${error.message}`); return }
+    const nome = (novoNome || (termoEhDoc(q) ? '' : q)).trim()
+    if (!nome) { (onErro ?? onToast)?.('Digite o nome/empresa do cliente.'); return }
+    const reportarErro = onErro ?? onToast
+    const { data, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: companyId, p_nome: nome, p_cpf_cnpj: docNovo || null, p_extra: {} })
+    // #8393: antes, QUALQUER retorno (inclusive erro ou id nulo) mostrava "Cliente criado" e o form era fechado — a
+    // pessoa achava que salvou e não tinha salvado ("cadastrei e não faz o salvamento"). Agora o erro aparece de verdade
+    // e, sem id, o form fica aberto para tentar de novo em vez de fingir sucesso.
+    if (error) { reportarErro?.(`Não consegui salvar o cliente: ${error.message}`); return }
     const id = data as string | null
-    if (id) { onChange(id, nome); setNomeSel(nome) }
-    setCriando(false); setNovoNome(''); setOpen(false); setSug([])
+    if (!id) { reportarErro?.('Não consegui salvar o cliente. Tente de novo ou cadastre em Cadastros → Clientes.'); return }
+    onChange(id, nome); setNomeSel(nome)
+    setCriando(false); setNovoNome(''); setDocNovo(''); setOpen(false); setSug([])
     onToast?.('Cliente criado na GE e vinculado.')
   }
 
@@ -77,10 +96,10 @@ export default function ClientePickerInline({ companyId, value, onChange, onToas
         </div>
       ) : (
         <input style={inp} value={q} onChange={(e) => buscar(e.target.value)}
-          onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)}
+          onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => { if (!criandoRef.current) setOpen(false) }, 150)}
           placeholder={placeholder ?? 'Buscar cliente da GE…'} />
       )}
-      {!value && open && (q.trim().length >= 2 || criando) && (
+      {!value && (open || criando) && (q.trim().length >= 2 || criando) && (
         <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 20, background: '#fff', border: `1px solid ${C.border}`, borderRadius: 8, marginTop: 2, boxShadow: '0 6px 20px rgba(0,0,0,.10)', maxHeight: 240, overflowY: 'auto' }}>
           {buscando && <div style={{ padding: '8px 10px', fontSize: 12, color: C.espressoM }}>Buscando…</div>}
           {sug.map((c) => (
@@ -90,14 +109,16 @@ export default function ClientePickerInline({ companyId, value, onChange, onToas
             </div>
           ))}
           {!criando ? (
-            <div onMouseDown={(e) => { e.preventDefault(); setCriando(true); setNovoNome(q) }}
+            <div onMouseDown={(e) => { e.preventDefault(); const d = termoEhDoc(q); setCriando(true); setDocNovo(d ? soDigitos(q) : ''); setNovoNome(d ? '' : q) }}
               style={{ padding: '8px 10px', cursor: 'pointer', fontSize: 13, color: C.gold, fontWeight: 700 }}>
-              + Cadastrar cliente{q.trim() ? ` "${q.trim()}"` : ''} na GE
+              + Cadastrar cliente{!termoEhDoc(q) && q.trim() ? ` "${q.trim()}"` : ''} na GE
             </div>
           ) : (
-            <div style={{ padding: 10, display: 'flex', gap: 6 }} onMouseDown={(e) => e.preventDefault()}>
+            <div style={{ padding: 10, display: docNovo ? 'block' : 'flex', gap: 6 }} onMouseDown={(e) => e.preventDefault()}>
+              {docNovo ? <div style={{ fontSize: 11, color: C.espressoM, marginBottom: 6 }}>CPF/CNPJ {docNovo} — informe o nome do cliente</div> : null}
               <input style={{ ...inp, flex: 1 }} value={novoNome} onChange={(e) => setNovoNome(e.target.value)} placeholder="Nome do cliente" autoFocus />
               <button type="button" onMouseDown={(e) => { e.preventDefault(); void criarInline() }} style={btnPri}>Criar</button>
+              <button type="button" onMouseDown={(e) => { e.preventDefault(); setCriando(false); setNovoNome(''); setDocNovo(''); setOpen(false) }} style={btnSec}>Cancelar</button>
             </div>
           )}
         </div>
