@@ -7,6 +7,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useEmpresaSelecionada, usePropriedade } from '@/lib/agro/usePecuaria'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.6)'
 const GREEN = '#5C8D3F', RED = '#C44536'
@@ -212,7 +214,7 @@ function DetalheModal({ companyId, mov, det, carregando, onClose, onDone }: {
   useEffect(() => {
     if (!det) return
     /* eslint-disable react-hooks/set-state-in-effect */
-    setValor(String(det.movimentacao.valor ?? ''))
+    setValor(numeroParaMoeda(det.movimentacao.valor))   // #6874 — preenche o campo já mascarado (R$) para edição
     setContraparte(det.movimentacao.contraparte_nome ?? '')
     setObs(det.movimentacao.observacao ?? '')
     /* eslint-enable react-hooks/set-state-in-effect */
@@ -226,7 +228,7 @@ function DetalheModal({ companyId, mov, det, carregando, onClose, onDone }: {
     setSalvando(true); setErro(null)
     const { data } = await supabase.rpc('fn_pec_movimentacao_editar', {
       p_company_id: companyId, p_grupo_id: mov.grupo_id,
-      p_valor: valor.trim() === '' ? null : Number(valor.replace(',', '.')),
+      p_valor: moedaParaNumero(valor),   // #6874 — interpreta "R$ 1.500,00" → 1500 (vazio → null, igual a antes)
       p_contraparte_nome: contraparte.trim() || null, p_observacao: obs.trim() || null,
     })
     setSalvando(false)
@@ -327,7 +329,7 @@ function DetalheModal({ companyId, mov, det, carregando, onClose, onDone }: {
 
         {det && modo === 'editar' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <label style={lbl}>Valor total (R$)<input value={valor} onChange={(e) => setValor(e.target.value.replace(/[^\d.,]/g, ''))} style={campo} /></label>
+            <label style={lbl}>Valor total (R$)<CampoMoeda value={valor} onChange={setValor} placeholder="R$ 0,00" style={campo} /></label>
             <label style={lbl}>Comprador / contraparte<input value={contraparte} onChange={(e) => setContraparte(e.target.value)} style={campo} /></label>
             <label style={lbl}>Observação<input value={obs} onChange={(e) => setObs(e.target.value)} style={campo} /></label>
             {fin && <div style={{ fontSize: 11.5, color: MUT }}>Ao mudar o valor, a receita vinculada ({brl(fin.valor)}) é atualizada junto.</div>}
