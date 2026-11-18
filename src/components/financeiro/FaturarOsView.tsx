@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { PackageCheck, RefreshCw, CircleDollarSign, UserPlus, FileWarning, ChevronRight, X } from 'lucide-react'
 import VincularClienteModal from './VincularClienteModal'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', ESP60 = 'rgba(61,35,20,0.6)', WHITE = '#FFFFFF', OK = '#166534', WARN = '#B45309', RED = '#A32D2D'
 const brl = (v: number | null | undefined) => (v == null ? '—' : Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }))
@@ -98,21 +99,21 @@ export default function FaturarOsView({ companyId }: { companyId: string }) {
       {/* Totais */}
       {totais && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 18 }}>
-          <Tot l="Prontas p/ faturar" v={String(totais.prontas)} sub={brl(totais.soma_prontas)} cor={OK} />
-          <Tot l="Falta vincular cliente" v={String(totais.sem_cliente)} cor={WARN} />
-          <Tot l="Falta informar valor" v={String(totais.sem_valor)} cor={ESP60} />
+          <Tot l="Prontas p/ faturar" chave="financeiro.faturar_os.tot_prontas" v={String(totais.prontas)} sub={brl(totais.soma_prontas)} cor={OK} />
+          <Tot l="Falta vincular cliente" chave="financeiro.faturar_os.tot_sem_cliente" v={String(totais.sem_cliente)} cor={WARN} />
+          <Tot l="Falta informar valor" chave="financeiro.faturar_os.tot_sem_valor" v={String(totais.sem_valor)} cor={ESP60} />
         </div>
       )}
 
       {/* PRONTAS */}
-      <Grupo icon={<CircleDollarSign size={16} color={OK} />} titulo={`Prontas para faturar (${prontas.length})`} cor={OK}>
+      <Grupo icon={<CircleDollarSign size={16} color={OK} />} titulo={`Prontas para faturar (${prontas.length})`} chave="financeiro.faturar_os.grupo_prontas" cor={OK}>
         {prontas.length === 0 ? <Vazio texto="Nada pronto para faturar agora." /> : (<>
           {/* RD-53 · a Jordana fatura ALGUMAS pela lista e confere em A Receber ANTES de liberar o lote */}
           {prontas.length > 1 && (
             <div style={{ background: WHITE, border: `1px solid ${LINE}`, borderRadius: 10, padding: 12, marginBottom: 10 }}>
               <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', cursor: 'pointer', fontSize: 12.5, color: ESP }}>
                 <input type="checkbox" checked={loteLiberado} onChange={(e) => setLoteLiberado(e.target.checked)} style={{ marginTop: 2, width: 16, height: 16 }} />
-                <span>Já faturei ao menos uma OS aqui e <b>confiro o título em “A Receber”</b>. Liberar faturar em lote.</span>
+                <span>Já faturei ao menos uma OS aqui e <b>confiro o título em “A Receber”</b>. Liberar faturar em lote.<AjudaCampo chave="financeiro.faturar_os.liberar_lote" /></span>
               </label>
               <button onClick={() => setPreview(true)} disabled={!loteLiberado || emLote}
                 style={{ marginTop: 10, width: '100%', minHeight: 44, borderRadius: 10, border: 'none', fontWeight: 800, fontSize: 14,
@@ -133,7 +134,7 @@ export default function FaturarOsView({ companyId }: { companyId: string }) {
 
       {/* SEM CLIENTE */}
       {semCliente.length > 0 && (
-        <Grupo icon={<UserPlus size={16} color={WARN} />} titulo={`Falta vincular cliente (${semCliente.length})`} cor={WARN}>
+        <Grupo icon={<UserPlus size={16} color={WARN} />} titulo={`Falta vincular cliente (${semCliente.length})`} chave="financeiro.faturar_os.grupo_sem_cliente" cor={WARN}>
           <div style={{ fontSize: 12, color: ESP60, marginBottom: 8 }}>Título sem cliente não concilia nem entra na cobrança. Vincule o cliente antes de faturar (em breve, aqui mesmo).</div>
           {semCliente.map((l) => <LinhaOS key={l.os_id} l={l}
             acao={<button onClick={() => setVincularOs(l)}
@@ -145,7 +146,7 @@ export default function FaturarOsView({ companyId }: { companyId: string }) {
 
       {/* SEM VALOR */}
       {semValor.length > 0 && (
-        <Grupo icon={<FileWarning size={16} color={ESP60} />} titulo={`Falta informar valor (${semValor.length})`} cor={ESP60}>
+        <Grupo icon={<FileWarning size={16} color={ESP60} />} titulo={`Falta informar valor (${semValor.length})`} chave="financeiro.faturar_os.grupo_sem_valor" cor={ESP60}>
           <div style={{ fontSize: 12, color: ESP60, marginBottom: 8 }}>Sem valor no laudo/aprovação — não dá p/ faturar. Abra a OS e informe o valor.</div>
           {semValor.map((l) => (
             <LinhaOS key={l.os_id} l={l}
@@ -211,19 +212,19 @@ export default function FaturarOsView({ companyId }: { companyId: string }) {
   )
 }
 
-function Tot({ l, v, sub, cor }: { l: string; v: string; sub?: string; cor: string }) {
+function Tot({ l, chave, v, sub, cor }: { l: string; chave: string; v: string; sub?: string; cor: string }) {
   return (
     <div style={{ background: WHITE, border: `1px solid ${LINE}`, borderRadius: 10, padding: 14 }}>
-      <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.4, color: ESP60, fontWeight: 700 }}>{l}</div>
+      <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.4, color: ESP60, fontWeight: 700, display: 'inline-flex', alignItems: 'center' }}>{l}<AjudaCampo chave={chave} /></div>
       <div style={{ fontSize: 22, fontWeight: 800, color: cor, lineHeight: 1.2 }}>{v}</div>
       {sub && <div style={{ fontSize: 12, color: ESP60 }}>{sub}</div>}
     </div>
   )
 }
-function Grupo({ icon, titulo, cor, children }: { icon: React.ReactNode; titulo: string; cor: string; children: React.ReactNode }) {
+function Grupo({ icon, titulo, chave, cor, children }: { icon: React.ReactNode; titulo: string; chave?: string; cor: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 20 }}>
-      <div style={{ fontSize: 12, fontWeight: 800, color: cor, marginBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 6 }}>{icon} {titulo}</div>
+      <div style={{ fontSize: 12, fontWeight: 800, color: cor, marginBottom: 8, display: 'inline-flex', alignItems: 'center', gap: 6 }}>{icon} {titulo}{chave && <AjudaCampo chave={chave} />}</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{children}</div>
     </div>
   )
