@@ -6,6 +6,7 @@ import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { CampoMoeda } from "@/components/comum/CampoMoeda";
 import { CampoPercent } from "@/lib/ui/CampoPercent";
 import { moedaParaNumero, numeroParaMoeda } from "@/lib/moeda-mascara";
+import { parseNumBR } from "@/lib/num";
 import { APP_URL } from "@/lib/appUrl";
 import { orFiltroClienteBusca } from "@/lib/clienteBusca";
 import { useCompanyIds } from "@/lib/useCompanyIds";
@@ -1078,7 +1079,7 @@ export default function OrcamentosPage(){
                     )}
                   </>)}
                 </div>
-                <input type="number" step="0.01" value={it.quantidade||''} onChange={e=>atualizarItem(idx,'quantidade',parseFloat(e.target.value)||0)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/>
+                <input type="text" inputMode="decimal" placeholder="0" value={it.quantidade||''} onChange={e=>atualizarItem(idx,'quantidade',parseNumBR(e.target.value)||0)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/>{/* #5660 · aceita vírgula */}
                 <input value={it.unidade} onChange={e=>atualizarItem(idx,'unidade',e.target.value)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"center"}}/>
                 <div>
                   {/* #6874 — preço unitário com máscara em R$ (valor gravado continua numérico) */}
