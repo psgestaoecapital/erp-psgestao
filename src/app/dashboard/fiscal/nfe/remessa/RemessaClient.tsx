@@ -19,7 +19,7 @@ import {
   ICMS_OPCOES_SIMPLES, ICMS_OPCOES_NORMAL, type CfopSaida, type FinalidadeNFe,
 } from '@/lib/fiscal/nfeAvulsa'
 import { termosBuscaProduto, filtroTermoProduto, filtroPrefixoProduto, juntarResultados } from '@/lib/fiscal/buscaProdutoAvulsa'
-import { ArrowLeft, Loader2, AlertCircle, FileText, Plus, Trash2, Info } from 'lucide-react'
+import { ArrowLeft, Loader2, AlertCircle, FileText, Plus, Trash2, Info, Save, FolderOpen } from 'lucide-react'
 
 interface DestPessoa {
   id: string
@@ -84,8 +84,36 @@ interface NotaRecusada {
   payload_enviado: { modalidade_frete?: number; informacoes_adicionais_contribuinte?: string } | null
 }
 
+// #6728 · rascunho da NF-e avulsa: só o conteúdo digitado (não emite, não gera título/estoque/numeração).
+interface RascunhoMeta {
+  id: string
+  titulo: string | null
+  criado_em: string
+  atualizado_em: string
+}
+// o que entra no payload do rascunho (buffers de digitação pt-BR ficam de fora — recalculam ao abrir)
+interface RascunhoPayload {
+  destTabela: 'erp_clientes' | 'erp_fornecedores'
+  destinatarioId: string
+  tipoId: string
+  natureza: string
+  cfop: string
+  finalidade: FinalidadeNFe
+  chaveRef: string
+  icmsCodigo: string
+  modalidadeFrete: number
+  valorFrete: number
+  observacoes: string
+  itens: Array<Pick<ItemRem, 'produtoId' | 'produtoLabel' | 'quantidade' | 'valorUnitarioOverride' | 'cfop'>>
+}
+
 const fmtBRL = (v: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
+
+const fmtDataHora = (iso: string) => {
+  try { return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(iso)) }
+  catch { return iso }
+}
 
 const inputCls = 'w-full px-3 py-2 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]'
 const rotuloCls = 'flex items-center gap-1 text-[11px] text-[#3D2314]/70 mb-1'
@@ -131,6 +159,12 @@ export default function RemessaClient() {
   const [reenvioInfo, setReenvioInfo] = useState<string | null>(null)
   // destinatário da nota recusada: escolhido depois que a lista da tabela certa carrega
   const [destPendente, setDestPendente] = useState<DestPessoa | null>(null)
+
+  // #6728 · rascunho: salvar o que foi digitado sem emitir, retomar depois pela lista e remover ao emitir.
+  const [rascunhos, setRascunhos] = useState<RascunhoMeta[]>([])
+  const [rascunhoId, setRascunhoId] = useState<string | null>(null)
+  const [salvandoRascunho, setSalvandoRascunho] = useState(false)
+  const [rascunhoMsg, setRascunhoMsg] = useState<string | null>(null)
 
   useEffect(() => {
     const cid = resolveCompanyId()
@@ -495,6 +529,133 @@ export default function RemessaClient() {
     }
   }
 
+  // #6728 · há conteúdo digitado ainda não emitido? (controla o aviso ao sair e o botão "Salvar rascunho")
+  const formPreenchido = useMemo(
+    () => !!destinatarioId || !!soDigitos(cfop) || !!natureza.trim() || itens.length > 0 || !!observacoes.trim() || !!soDigitos(chaveRef),
+    [destinatarioId, cfop, natureza, itens, observacoes, chaveRef],
+  )
+
+  async function carregarRascunhos() {
+    if (!companyId) return
+    const { data } = await supabase.rpc('fn_nfe_avulsa_rascunho_listar', { p_company_id: companyId })
+    const r = data as { ok?: boolean; rascunhos?: RascunhoMeta[] } | null
+    if (r?.ok) setRascunhos(r.rascunhos ?? [])
+  }
+
+  useEffect(() => {
+    if (companyId) void carregarRascunhos()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId])
+
+  function montarPayload(): RascunhoPayload {
+    return {
+      destTabela, destinatarioId, tipoId, natureza, cfop: soDigitos(cfop), finalidade,
+      chaveRef: soDigitos(chaveRef), icmsCodigo, modalidadeFrete, valorFrete, observacoes,
+      itens: itens.map((it) => ({
+        produtoId: it.produtoId, produtoLabel: it.produtoLabel, quantidade: it.quantidade,
+        valorUnitarioOverride: it.valorUnitarioOverride, ...(it.cfop ? { cfop: it.cfop } : {}),
+      })),
+    }
+  }
+
+  async function salvarRascunho() {
+    if (!companyId || !formPreenchido || salvandoRascunho) return
+    setSalvandoRascunho(true); setRascunhoMsg(null); setErro(null)
+    try {
+      const nomeDest = destinatario ? (destinatario.razao_social ?? destinatario.nome_fantasia ?? '') : ''
+      const titulo = [nomeDest, natureza.trim()].filter(Boolean).join(' · ').slice(0, 120) || 'Rascunho de NF-e avulsa'
+      const { data, error } = await supabase.rpc('fn_nfe_avulsa_rascunho_salvar', {
+        p_company_id: companyId,
+        p_payload: montarPayload(),
+        p_titulo: titulo,
+        p_rascunho_id: rascunhoId,
+      })
+      const r = data as { ok?: boolean; id?: string; erro?: string } | null
+      if (error || !r?.ok) {
+        setRascunhoMsg(r?.erro === 'rascunho_vazio' ? 'Preencha algo antes de salvar o rascunho.' : 'Não foi possível salvar o rascunho. Tente de novo.')
+        return
+      }
+      setRascunhoId(r.id ?? null)
+      setRascunhoMsg('Rascunho salvo. Você pode sair e voltar depois pela lista "Rascunhos".')
+      await carregarRascunhos()
+    } catch {
+      setRascunhoMsg('Não foi possível salvar o rascunho. Tente de novo.')
+    } finally {
+      setSalvandoRascunho(false)
+    }
+  }
+
+  async function abrirRascunho(id: string) {
+    if (formPreenchido && id !== rascunhoId && !confirm('Abrir este rascunho substitui o que está na tela agora. Continuar?')) return
+    const { data } = await supabase.rpc('fn_nfe_avulsa_rascunho_abrir', { p_rascunho_id: id })
+    const r = data as { ok?: boolean; payload?: RascunhoPayload } | null
+    if (!r?.ok || !r.payload) { setRascunhoMsg('Não foi possível abrir o rascunho.'); return }
+    const p = r.payload
+    setDestPendente(null)
+    setDestTabela(p.destTabela === 'erp_fornecedores' ? 'erp_fornecedores' : 'erp_clientes')
+    setDestinatarioId(p.destinatarioId ?? '')
+    setTipoId(p.tipoId ?? '')
+    setNatureza(p.natureza ?? '')
+    setCfop(soDigitos(p.cfop))
+    setFinalidade(p.finalidade ?? 'normal')
+    setChaveRef(soDigitos(p.chaveRef))
+    setIcmsCodigo(p.icmsCodigo ?? '')
+    setModalidadeFrete(typeof p.modalidadeFrete === 'number' ? p.modalidadeFrete : 9)
+    setValorFrete(Number(p.valorFrete ?? 0)); setValorFreteTexto(null)
+    setObservacoes(p.observacoes ?? '')
+    setItens((p.itens ?? []).map((it) => ({
+      produtoId: it.produtoId, produtoLabel: it.produtoLabel,
+      quantidade: Number(it.quantidade ?? 1), valorUnitarioOverride: Number(it.valorUnitarioOverride ?? 0),
+      ...(it.cfop ? { cfop: it.cfop } : {}),
+    })))
+    setRascunhoId(id); setErro(null); setSucesso(null)
+    setRascunhoMsg('Rascunho carregado. Confira os dados e emita quando quiser.')
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  async function excluirRascunho(id: string) {
+    if (!confirm('Excluir este rascunho? Esta ação não pode ser desfeita.')) return
+    const { data } = await supabase.rpc('fn_nfe_avulsa_rascunho_excluir', { p_rascunho_id: id })
+    const r = data as { ok?: boolean } | null
+    if (r?.ok) {
+      if (id === rascunhoId) setRascunhoId(null)
+      setRascunhoMsg('Rascunho excluído.')
+      await carregarRascunhos()
+    } else {
+      setRascunhoMsg('Não foi possível excluir o rascunho.')
+    }
+  }
+
+  // ao emitir com sucesso (em qualquer caminho), remove o rascunho de origem e some da lista.
+  useEffect(() => {
+    if (!sucesso || !rascunhoId) return
+    const id = rascunhoId
+    void (async () => {
+      await supabase.rpc('fn_nfe_avulsa_rascunho_excluir', { p_rascunho_id: id })
+      setRascunhoId(null)
+      await carregarRascunhos()
+    })()
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [sucesso])
+
+  // aviso do navegador ao fechar/recarregar com nota não emitida (fechar aba, F5, voltar do navegador).
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (formPreenchido && !sucesso && !enviando) { e.preventDefault(); e.returnValue = '' }
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [formPreenchido, sucesso, enviando])
+
+  // sair pela navegação interna (link "Notas emitidas"): pergunta antes de perder a nota não emitida.
+  function sairComGuarda(e: { preventDefault: () => void }) {
+    if (formPreenchido && !sucesso && !enviando) {
+      if (!confirm('Você tem uma nota preenchida e ainda não emitida. Salve como rascunho antes de sair para não perder o que digitou.\n\nSair mesmo assim?')) {
+        e.preventDefault()
+      }
+    }
+  }
+
   if (erroEmpresa) {
     return (
       <div className="p-6 max-w-2xl mx-auto">
@@ -509,7 +670,7 @@ export default function RemessaClient() {
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto">
       <div className="flex items-center gap-3 mb-5">
-        <Link href="/dashboard/fiscal/nfe" className="text-[#3D2314]/65 hover:text-[#3D2314] flex items-center gap-1.5 text-[12.5px]">
+        <Link href="/dashboard/fiscal/nfe" onClick={sairComGuarda} className="text-[#3D2314]/65 hover:text-[#3D2314] flex items-center gap-1.5 text-[12.5px]">
           <ArrowLeft size={14} /> Notas emitidas
         </Link>
         <span className="text-[#3D2314]/30">/</span>
@@ -526,6 +687,43 @@ export default function RemessaClient() {
           Teste cada operação nova em homologação e confirme o CFOP e o ICMS com a contabilidade.
         </span>
       </div>
+
+      {rascunhos.length > 0 && (
+        <div className="mb-4 bg-white border border-[#3D2314]/10 rounded-xl p-4 sm:p-5" data-testid="nfe-avulsa-rascunhos">
+          <h2 className="text-[12.5px] font-semibold text-[#3D2314] mb-3 flex items-center gap-1.5">
+            <FolderOpen size={14} className="text-[#C8941A]" /> Rascunhos
+            <AjudaCampo chave="fiscal.nfe_avulsa.rascunhos" />
+          </h2>
+          <ul className="divide-y divide-[#3D2314]/5">
+            {rascunhos.map((r) => (
+              <li key={r.id} className="py-2 flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-[12.5px] text-[#3D2314] truncate">{r.titulo || 'Rascunho de NF-e avulsa'}{r.id === rascunhoId && <span className="ml-2 text-[10.5px] text-[#C8941A]">(em edição)</span>}</div>
+                  <div className="text-[10.5px] text-[#3D2314]/55">Salvo em {fmtDataHora(r.atualizado_em)}</div>
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <button type="button" onClick={() => abrirRascunho(r.id)}
+                    className="px-2.5 py-1 text-[11.5px] font-semibold rounded-lg border border-[#C8941A] text-[#3D2314] hover:bg-[#FBF3E0]"
+                    data-testid={`nfe-avulsa-rascunho-abrir-${r.id}`}>
+                    Abrir
+                  </button>
+                  <button type="button" onClick={() => excluirRascunho(r.id)}
+                    className="text-[#A32D2D] hover:bg-[#A32D2D]/10 p-1 rounded" aria-label="Excluir rascunho">
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {rascunhoMsg && (
+        <div className="mb-4 p-3 bg-[#FBF3E0] border border-[#C8941A]/40 rounded-lg text-[12.5px] text-[#3D2314] flex items-start gap-2" data-testid="nfe-avulsa-rascunho-msg">
+          <Info size={14} className="flex-shrink-0 mt-0.5 text-[#C8941A]" />
+          <span>{rascunhoMsg}</span>
+        </div>
+      )}
 
       {reenvioInfo && (
         <div className="mb-4 p-3 bg-[#FBF3E0] border border-[#C8941A]/40 rounded-lg text-[12.5px] text-[#3D2314] flex items-start gap-2" data-testid="nfe-avulsa-reenvio">
@@ -857,7 +1055,18 @@ export default function RemessaClient() {
         </div>
       )}
 
-      <div className="flex justify-end items-center gap-2">
+      <div className="flex flex-wrap justify-end items-center gap-2">
+        <AjudaCampo chave="fiscal.nfe_avulsa.salvar_rascunho" />
+        <button
+          type="button"
+          onClick={salvarRascunho}
+          disabled={!formPreenchido || salvandoRascunho || enviando}
+          data-testid="nfe-avulsa-salvar-rascunho"
+          className="px-4 py-2 text-[12.5px] font-semibold rounded-lg border border-[#C8941A] text-[#3D2314] hover:bg-[#FBF3E0] disabled:opacity-50 flex items-center gap-1.5"
+        >
+          {salvandoRascunho ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+          {salvandoRascunho ? 'Salvando…' : rascunhoId ? 'Atualizar rascunho' : 'Salvar rascunho'}
+        </button>
         <AjudaCampo chave="fiscal.nfe_avulsa.emitir" />
         {/* #9724 (decisão B) · espelho/prévia em PDF — não transmite, não numera */}
         <button
