@@ -8,6 +8,12 @@ import { useCompanyIds } from "@/lib/useCompanyIds";
 import AjudaCampo from "@/components/ajuda/AjudaCampo";
 import { erroAmigavel, codigoAmigavel } from "@/lib/erroAmigavel";
 import { precedenciaPreco } from "@/lib/hub/precedenciaPreco";
+import { parseNumBR } from "@/lib/num";
+
+// #5660 · os campos numéricos (quantidade, preço, desconto %/R$) são digitados como texto e vão para a RPC,
+// que faz `(p_item->>'campo')::numeric`. "1,5" quebrava o cast ("invalid input syntax for numeric: 1,5").
+// Normaliza para ponto decimal (ou '' quando vazio, deixando a RPC aplicar o default) ANTES de enviar.
+const numStrBR = (v: string): string => { const n = parseNumBR(v); return n == null ? "" : String(n); };
 
 const ROTA = "/dashboard/hub/orcamento-itens";
 type Orc = { id: string; numero: string; cliente_nome: string | null; status: string; total: number | null; escopo_congelado_em: string | null };
@@ -96,8 +102,8 @@ export default function OrcamentoItensPage() {
 
   async function salvar() {
     if (!form || !orcId) return;
-    const corpo = { produto_nome: form.produto_nome, tipo_item: form.tipo_item, unidade: form.unidade, quantidade: form.quantidade,
-      preco_unitario: form.preco_unitario, desconto_percentual: form.desconto_percentual, desconto_valor: form.desconto_valor, observacoes: form.observacoes };
+    const corpo = { produto_nome: form.produto_nome, tipo_item: form.tipo_item, unidade: form.unidade, quantidade: numStrBR(form.quantidade),
+      preco_unitario: numStrBR(form.preco_unitario), desconto_percentual: numStrBR(form.desconto_percentual), desconto_valor: numStrBR(form.desconto_valor), observacoes: form.observacoes };
     const { data, error } = form.id
       ? await supabase.rpc("fn_orcamento_item_editar", { p_item_id: form.id, p_item: corpo })
       : await supabase.rpc("fn_orcamento_item_adicionar", { p_orcamento_id: orcId, p_item: corpo });
