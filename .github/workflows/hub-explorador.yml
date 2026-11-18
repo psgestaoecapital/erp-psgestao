@@ -1,0 +1,56 @@
+name: Hub · explorador de botões (eng-chefe-auto)
+
+# CHECK do PDCA do Hub (RD-97): entra como o robô na empresa DEMO "Construtora Modelo", abre cada tela do Hub
+# (scripts/auditoria/hub-rotas.json) nos dois viewports, coleta erros/4xx-5xx/botões/"?" e explora SÓ botões seguros
+# (abre e cancela; nunca emite nota, paga, aprova, concilia, envia a terceiros, integra, cofre ou exclui).
+# Grava em gold_exploracao. NÃO decide merge e NÃO toca empresa de cliente — só is_demo. Code: eng-chefe-auto
+on:
+  workflow_dispatch:
+    inputs:
+      rota:
+        description: 'Uma rota só (vazio = todas as rotas do Hub)'
+        required: false
+        default: ''
+
+# Entra na fila única da demo (igual às jornadas): não roda em cima de outra suíte que mexe na mesma DEMO.
+concurrency:
+  group: demo-e2e
+  cancel-in-progress: false
+
+jobs:
+  explorar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright browser
+        run: node node_modules/playwright/cli.js install --with-deps chromium
+      - name: Explorar o Hub na DEMO
+        env:
+          PROD_BASE_URL: https://erp-psgestao.vercel.app
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          PLAYWRIGHT_USER_EMAIL: ${{ secrets.PLAYWRIGHT_USER_EMAIL }}
+          PLAYWRIGHT_USER_PASSWORD: ${{ secrets.PLAYWRIGHT_USER_PASSWORD }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          set -euo pipefail
+          if [ -n "${{ github.event.inputs.rota }}" ]; then
+            npm run hub:explorar -- --rota "${{ github.event.inputs.rota }}"
+          else
+            npm run hub:explorar
+          fi
+      - name: Upload screenshots do Hub
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hub-explorador-screenshots
+          path: scripts/auditoria/hub-output/
+          if-no-files-found: ignore
