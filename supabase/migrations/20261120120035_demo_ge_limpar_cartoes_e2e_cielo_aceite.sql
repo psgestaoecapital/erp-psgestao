@@ -18,6 +18,9 @@
 -- Nenhum adquirente real tocado (a DEMO GE não tem adquirente real). Soft-delete, nunca DELETE físico.
 
 -- 1) Função de limpeza reutilizável (guarda is_demo; só padrão de teste; soft-delete rastreável)
+-- ci-sem-guarda: fn_demo_ge_limpar_cartoes_teste — função de DEMO (RD-69): grava SÓ em empresa is_demo
+--   (validado em v_is_demo; retorna erro para company não-demo). Dado 100% fake; nenhum cliente real é tocado.
+-- ci-allow-anon: função de DEMO/teste, não é rota pública; REVOKE de anon aplicado logo após a definição.
 CREATE OR REPLACE FUNCTION public.fn_demo_ge_limpar_cartoes_teste(p_company_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -83,6 +86,8 @@ REVOKE ALL ON FUNCTION public.fn_demo_ge_limpar_cartoes_teste(uuid) FROM PUBLIC,
 SELECT public.fn_demo_ge_limpar_cartoes_teste('b0700000-0000-4000-a000-000000000004');
 
 -- 3) ligar no reset da DEMO GE para não voltar a acumular no banco de testes
+-- ci-sem-guarda: fn_demo_reset — função de DEMO (RD-69): só executa seeds/limpeza em empresa is_demo
+--   (validado em v_is_demo; retorna erro 'nao_e_demo' para company não-demo). Nenhum dado de cliente real.
 CREATE OR REPLACE FUNCTION public.fn_demo_reset(p_company_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -207,3 +212,6 @@ BEGIN
 
   RETURN jsonb_build_object('ok', true, 'empresa', v_nome, 'seed', v_seed, 'resultado', v_res);
 END $function$;
+
+-- fn_demo_reset é chamada só pelo harness de banco de testes / canal de serviço (nunca por anon).
+REVOKE ALL ON FUNCTION public.fn_demo_reset(uuid) FROM PUBLIC, anon;
