@@ -15,6 +15,7 @@ import { useAcesso } from '@/hooks/useAcesso'
 import VisaoExecucaoModal from '@/components/oficina/VisaoExecucaoModal'
 import AssinaturaModal from '@/components/oficina/AssinaturaModal'
 import { useOficinaRamo } from '@/lib/oficina/ramo'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const C = {
   espresso: '#3D2314', espressoM: '#6B5D4F', espressoD: '#9C8E80',
@@ -324,11 +325,14 @@ export default function PatioKanbanPage() {
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <PatioAlertaPecas companyId={companyId} />
-          <select value={filtroMec} onChange={(e) => setFiltroMec(e.target.value)}
-            style={{ padding: '10px 12px', fontSize: 14, borderRadius: 8, border: `1px solid ${C.border}`, background: C.white, color: C.espresso }}>
-            <option value="todos">👥 Todos os mecânicos</option>
-            {mecLimpos.map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <AjudaCampo chave="oficina.patio.filtro_mecanico" />
+            <select value={filtroMec} onChange={(e) => setFiltroMec(e.target.value)}
+              style={{ padding: '10px 12px', fontSize: 14, borderRadius: 8, border: `1px solid ${C.border}`, background: C.white, color: C.espresso }}>
+              <option value="todos">👥 Todos os mecânicos</option>
+              {mecLimpos.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </label>
           <button onClick={() => void carregar()} title="Atualizar"
             style={{ padding: '10px 14px', fontSize: 14, fontWeight: 600, borderRadius: 8, border: `1px solid ${C.border}`, background: C.white, color: C.espresso, cursor: 'pointer' }}>↻</button>
         </div>
@@ -505,6 +509,7 @@ export default function PatioKanbanPage() {
                   ))}
                 </div>
               )}
+              <AjudaCampo chave="oficina.patio.designar_mecanico" />
               <input list="mec-limpos" value={novoMec}
                 onChange={(e) => { setNovoMec(e.target.value); setMecSelId(null) }}
                 placeholder="Nome do mecânico" enterKeyHint="done"
@@ -591,6 +596,7 @@ export default function PatioKanbanPage() {
                   {removerBloqueio}
                 </div>
                 <div style={{ fontSize: 12, color: C.espressoM, marginBottom: 6 }}>Se quiser mesmo tirar do pátio, você pode <b>cancelar a OS</b> (mantém o histórico financeiro). Informe o motivo:</div>
+                <AjudaCampo chave="oficina.patio.remover_motivo" />
                 <textarea value={removerMotivo} onChange={(e) => setRemoverMotivo(e.target.value)} rows={2}
                   placeholder="Ex.: cliente desistiu do serviço" style={{ width: '100%', border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: C.espresso, boxSizing: 'border-box', fontFamily: 'inherit', resize: 'vertical' }} />
                 <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
