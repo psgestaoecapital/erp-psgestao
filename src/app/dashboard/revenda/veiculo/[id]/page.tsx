@@ -35,6 +35,8 @@ type Custo = { id: string; categoria: string; descricao: string | null; valor: n
 type Evento = { id: string; tipo: string; descricao: string | null; data_evento: string }
 type Reserva = { id: string; cliente_nome: string | null; valor_sinal: number | null; reservado_ate: string | null; situacao: string; receber_id: string | null }
 type Venda = { id: string; cliente_nome: string | null; valor_venda: number | null; desconto_embutido_troca: number | null; valor_entrada: number | null; valor_financiado: number | null; banco_nome: string | null; retorno_banco: number | null; situacao: string }
+// #9787 · visão por-veículo das notas fiscais (motor da revenda) — hoje a nota liga pelo veic_venda.nfe_id
+type Nota = { id: string; numero: string | null; serie: string | null; status: string | null; natureza_operacao: string | null; valor_total: number | null; danfe_url: string | null; xml_url: string | null; modelo: string | null }
 // Onda 1 · composição real do negócio (fn_veic_venda_composicao). As duas margens, badge de incerteza honesto.
 type UsadoRecebido = { placa: string | null; marca: string | null; modelo: string | null; entrou_no_estoque_por: number | null }
 type Composicao = {
@@ -63,6 +65,7 @@ function Inner() {
   const [precoHist, setPrecoHist] = useState<{ preco_venda: number | null; preco_minimo: number | null; criado_em: string }[]>([]) // R3-fix T4: linha do tempo do valor
   const [reserva, setReserva] = useState<Reserva | null>(null)
   const [venda, setVenda] = useState<Venda | null>(null)
+  const [notas, setNotas] = useState<Nota[]>([])
   const [compl, setCompl] = useState<Compl | null>(null)
   const [comp, setComp] = useState<Composicao | null>(null)
   const [margem, setMargem] = useState(20)
@@ -99,6 +102,17 @@ function Inner() {
     setPrecoHist((ph as { preco_venda: number | null; preco_minimo: number | null; criado_em: string }[]) ?? [])
     setReserva(((rs.data as Reserva[]) ?? [])[0] ?? null)
     setVenda(((vs.data as Venda[]) ?? [])[0] ?? null)
+    // #9787 · notas fiscais DESTE veículo (visão por-veículo). Hoje a nota liga pelo veic_venda.nfe_id;
+    // quando o motor de entrada chegar, as notas de entrada entram pela mesma lista.
+    const { data: vendasNfe } = await supabase.from('veic_venda').select('nfe_id').eq('veiculo_id', id).is('deleted_at', null).not('nfe_id', 'is', null)
+    const nfeIds = Array.from(new Set(((vendasNfe as { nfe_id: string | null }[]) ?? []).map((x) => x.nfe_id).filter((x): x is string => !!x)))
+    if (nfeIds.length > 0) {
+      const { data: nf } = await supabase.from('erp_nfe_emitidas')
+        .select('id,numero,serie,status,natureza_operacao,valor_total,danfe_url,xml_url,modelo').in('id', nfeIds)
+      setNotas((nf as Nota[]) ?? [])
+    } else {
+      setNotas([])
+    }
     setCompl((cp.data as Compl | null) ?? null)
     const m = (cfg.data as { margem_alvo_pct?: number } | null)?.margem_alvo_pct
     if (m != null) setMargem(Number(m))
@@ -343,6 +357,29 @@ function Inner() {
             <span style={{ fontFamily: 'monospace' }}>{consignado ? '' : `piso ${h.preco_minimo != null ? brl(h.preco_minimo) : '—'} · `}anunciado <b>{h.preco_venda != null ? brl(h.preco_venda) : '—'}</b></span>
           </div>
         ))}
+      </Bloco>
+
+      {/* #9787 · Notas fiscais DESTE veículo (visão por-veículo; o GE tem a lista geral, aqui é só o que é deste carro). */}
+      <Bloco titulo="Notas fiscais deste veículo">
+        {notas.length === 0 ? (
+          <div style={{ fontSize: 12, color: C.espL }}>Nenhuma nota fiscal deste veículo ainda — quando uma NF-e (entrada ou venda) deste carro for emitida, ela aparece aqui.</div>
+        ) : notas.map((n, i) => {
+          const st = (n.status ?? '').toLowerCase()
+          const corSt = st === 'autorizada' ? C.green : (st === 'cancelada' || st === 'rejeitada' || st === 'denegada') ? C.red : C.gold
+          const bgSt = st === 'autorizada' ? C.greenBg : C.cream
+          return (
+            <div key={n.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12.5, borderTop: i ? `1px solid ${C.cream}` : 'none', padding: '8px 0' }}>
+              <span style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: bgSt, color: corSt, fontWeight: 700 }}>{(n.status ?? '—').toUpperCase()}</span>
+              <span style={{ fontFamily: 'monospace' }}>{n.modelo === '65' ? 'NFC-e' : 'NF-e'}{n.numero ? ` nº ${n.numero}` : ''}{n.serie ? `/${n.serie}` : ''}</span>
+              {n.natureza_operacao && <span style={{ color: C.espM }}>{n.natureza_operacao}</span>}
+              {n.valor_total != null && <span style={{ fontWeight: 700 }}>{brl(n.valor_total)}</span>}
+              <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 10 }}>
+                {n.danfe_url && <a href={n.danfe_url} target="_blank" rel="noopener noreferrer" style={{ color: C.gold, textDecoration: 'underline' }}>ver DANFE</a>}
+                {n.xml_url && <a href={n.xml_url} target="_blank" rel="noopener noreferrer" style={{ color: C.gold, textDecoration: 'underline' }}>XML</a>}
+              </span>
+            </div>
+          )
+        })}
       </Bloco>
 
       {lancarPagar && <LancarPagarModal custo={lancarPagar} onClose={() => setLancarPagar(null)} onSaved={(venc) => { setLancarPagar(null); setMsg(`Conta a pagar lançada (vencimento ${brDate(venc)}).`); void carregar() }} onErro={setErro} />}
