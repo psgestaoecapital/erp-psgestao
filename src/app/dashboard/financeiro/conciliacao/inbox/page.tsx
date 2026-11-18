@@ -83,6 +83,20 @@ interface Conciliado {
   conciliado_em: string | null
 }
 
+// 2f1a465c item 1: movimento conciliado cujo título foi excluído (soft-delete) → órfão.
+interface Orfao {
+  movimento_id: string
+  lote_id: string | null
+  lote_nome: string | null
+  data_transacao: string
+  valor: number
+  descricao: string | null
+  natureza: string | null
+  lancamento_tabela: string | null
+  lancamento_id: string | null
+  conciliado_em: string | null
+}
+
 // Títulos que compõem um movimento agrupado (fn_conciliacao_vinculos → itens[]).
 interface VinculoItem {
   vinculo_id: string
@@ -244,6 +258,8 @@ export default function InboxPage() {
 
   const [items, setItems] = useState<Item[]>([])
   const [conciliados, setConciliados] = useState<Conciliado[]>([])
+  // 2f1a465c item 1: conciliados cujo título foi excluído (soft-delete) — ver carregarOrfaos.
+  const [orfaos, setOrfaos] = useState<Orfao[]>([])
   // expandir fatura agrupada → títulos (fn_conciliacao_vinculos), por movimento_id
   const [vinculosExp, setVinculosExp] = useState<Record<string, VinculosState>>({})
   // RD-41 · aba de ruído ignorado (saldo/futuro/manual), reversível.
@@ -360,6 +376,47 @@ export default function InboxPage() {
       p_limite: 500,
     })
     if (!error) setConciliados((data ?? []) as Conciliado[])
+  }
+
+  // 2f1a465c item 1: movimentos conciliados cujo título foi EXCLUÍDO (soft-delete).
+  // A fn_conciliacao_conciliados os esconde de propósito (#71/#38: não vazar dado velho),
+  // mas o contador do lote (total_conciliados) ainda os contava → a barra mentia
+  // "extrato fechado". Listamos para (1) não contar como resolvidos e (2) permitir
+  // desvincular (o movimento volta às Pendências e pode ser reconciliado com o título certo).
+  async function carregarOrfaos() {
+    if (!empresaUnica) { setOrfaos([]); return }
+    const { data, error } = await supabase.rpc('fn_conciliacao_conciliados_orfaos', {
+      p_company_id: empresaUnica,
+      p_limite: 500,
+    })
+    if (!error) setOrfaos((data ?? []) as Orfao[])
+  }
+
+  // Desvincula um movimento órfão: volta a Pendências. 1:1 (lancamento_id) usa
+  // fn_conciliacao_desvincular (reseta pelo próprio movimento, mesmo com o título já excluído);
+  // agrupado (sem lancamento_id) usa fn_conciliacao_desvincular_movimento.
+  async function desvincularOrfao(o: Orfao) {
+    const falhou = (msg: string) => { setErro(msg); alert(msg) }
+    if (!confirm('Desvincular este movimento? O título por trás foi excluído; o movimento volta para Pendências para você reconciliá-lo com o título certo.')) return
+    let error: { message?: string } | null = null
+    let r: { sucesso?: boolean; erro?: string; msg?: string } = {}
+    if (o.lancamento_id && o.lancamento_tabela) {
+      const res = await supabase.rpc('fn_conciliacao_desvincular', {
+        p_lancamento_id: o.lancamento_id,
+        p_tipo: o.lancamento_tabela.replace(/^erp_/, ''),
+      })
+      error = res.error; r = (res.data ?? {}) as typeof r
+    } else {
+      const res = await supabase.rpc('fn_conciliacao_desvincular_movimento', {
+        p_movimento_id: o.movimento_id,
+      })
+      error = res.error; r = (res.data ?? {}) as typeof r
+    }
+    if (error) { falhou(erroAmigavel(error, 'Não consegui desvincular agora. Tente de novo em instantes.')); return }
+    if (r.sucesso === false) { falhou('Não desvinculou: ' + (r.msg ?? r.erro ?? 'erro desconhecido')); return }
+    await carregarConciliados()
+    await carregarOrfaos()
+    await carregar()
   }
 
   // Expande/recolhe os títulos de uma fatura agrupada (lancamento_id NULL).
@@ -647,6 +704,7 @@ export default function InboxPage() {
     /* eslint-disable-next-line react-hooks/set-state-in-effect */
     void carregar()
     void carregarConciliados()
+    void carregarOrfaos()
     void carregarIgnorados()
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, [loteSelId, modo])
@@ -961,14 +1019,23 @@ export default function InboxPage() {
   const conciliadosLote = loteSelId
     ? conciliados.filter((c) => c.lote_id === loteSelId)
     : conciliados
+  // 2f1a465c item 1: órfãos = conciliados cujo título foi excluído (soft-delete). O contador
+  // armazenado total_conciliados os inclui, mas a lista (fn_conciliacao_conciliados) não — por
+  // isso descontamos aqui, para "resolvidos"/"% fechado"/"extrato fechado" não mentirem.
+  const orfaosLote = loteSelId
+    ? orfaos.filter((o) => o.lote_id === loteSelId)
+    : orfaos
+  const orfaosCount = orfaosLote.length
   // #60: "resolvido" = conciliado + ignorado (ignorado é decisão tomada, não pendência).
   // O contador e a % devem fechar em N/N quando não há pendentes — antes só contava conciliados.
-  const totConc = loteSel?.total_conciliados ?? conciliadosLote.length
+  const totConc = Math.max(0, (loteSel?.total_conciliados ?? conciliadosLote.length) - orfaosCount)
   const totIgn = loteSel?.total_ignorados ?? ignorados.length
   const totResolv = totConc + totIgn
-  const pctFech = loteSel && loteSel.total_movimentos
-    ? Math.round(100 * totResolv / loteSel.total_movimentos)
-    : 0
+  const totalMov = loteSel?.total_movimentos ?? 0
+  // não-resolvidos = pendentes reais + órfãos (que precisam de desvínculo). Usado na barra
+  // em vez de total_pendentes armazenado (que não conta os órfãos conciliados).
+  const naoResolv = Math.max(0, totalMov - totResolv)
+  const pctFech = totalMov ? Math.round(100 * totResolv / totalMov) : 0
   // fix-conciliacao-pendentes-filtro-lote-v1: contadores por lote, nao global
   const totPend = loteSel?.total_pendentes ?? items.length
   // Camada1/Fatia1 (08/07): indicadores aditivos da conciliacao
@@ -1073,13 +1140,37 @@ export default function InboxPage() {
                   {/* #60: resolvidos = conciliados + ignorados (ignorado é decisão, não pendência) */}
                   <b style={{ color: '#C8941A' }}>{totResolv}</b> de {loteSel.total_movimentos ?? 0} resolvidos
                   {totIgn > 0 && <> ({totConc} conciliados + {totIgn} ignorados)</>}
-                  {(loteSel.total_pendentes ?? 0) > 0
-                    ? <> · faltam <b>{loteSel.total_pendentes}</b></>
+                  {naoResolv > 0
+                    ? <> · faltam <b>{naoResolv}</b></>
                     : <> · ✅ extrato fechado</>}
                 </div>
                 <div style={{ height: 8, borderRadius: 4, marginTop: 8, background: '#E7DED3', overflow: 'hidden' }}>
                   <div style={{ height: '100%', width: `${pctFech}%`, background: '#C8941A', transition: 'width 0.2s' }} />
                 </div>
+                {orfaosCount > 0 && (
+                  <div style={{ background: '#FDF3F3', border: '0.5px solid #E7B4B4', borderRadius: 8, padding: 10, marginTop: 10 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#8B2E2E', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span>⚠️ {orfaosCount} movimento{orfaosCount > 1 ? 's' : ''} conciliado{orfaosCount > 1 ? 's' : ''} com título excluído</span>
+                      <AjudaCampo chave="financeiro.conciliacao.titulo_excluido" />
+                    </div>
+                    <div style={{ fontSize: 12, color: '#5B4636', marginTop: 4 }}>
+                      O título por trás foi excluído do sistema; estes movimentos não contam como resolvidos. Desvincule para o movimento voltar às Pendências.
+                    </div>
+                    <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {orfaosLote.map((o) => (
+                        <div key={o.movimento_id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, color: '#3D2314', flexWrap: 'wrap' }}>
+                          <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{fmtDate(o.data_transacao)}</span>
+                          <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{(o.valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</span>
+                          <span style={{ color: '#6B5B4D', flex: 1, minWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.descricao ?? '—'}</span>
+                          <button
+                            onClick={() => void desvincularOrfao(o)}
+                            style={{ padding: '4px 10px', borderRadius: 6, border: '0.5px solid #8B2E2E', background: '#fff', color: '#8B2E2E', fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                          >Desvincular</button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </>
