@@ -13,6 +13,7 @@ import { Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
 import ServicoAutocomplete, { type ServicoSelecionado } from '@/components/comum/ServicoAutocomplete'
+import { CampoDecimal } from '@/components/comum/CampoDecimal'
 
 export type EditorItem = {
   id?: string
@@ -268,12 +269,12 @@ export default function OrcamentoItensEditor({ companyId, itens, onChange }: Pro
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.2fr 1.2fr', gap: 6 }}>
                 <label>
                   <span style={{ display: 'block', fontSize: 10, color: C.espressoM, marginBottom: 2 }}>Qtd</span>
-                  <input
-                    type="number" step="0.001"
-                    value={it.quantidade || ''}
-                    onChange={(e) => atualizar(i, { quantidade: parseFloat(e.target.value) || 0 })}
+                  <CampoDecimal
+                    step="0.001"
+                    value={it.quantidade}
+                    onChange={(n) => atualizar(i, { quantidade: n ?? 0 })}
                     style={{ ...inp, textAlign: 'right' }}
-                    data-testid={`orc-qtd-${i}`}
+                    testId={`orc-qtd-${i}`}
                   />
                 </label>
                 <label>
@@ -286,12 +287,12 @@ export default function OrcamentoItensEditor({ companyId, itens, onChange }: Pro
                 </label>
                 <label>
                   <span style={{ display: 'block', fontSize: 10, color: C.espressoM, marginBottom: 2 }}>Preço un. (R$)</span>
-                  <input
-                    type="number" step="0.01"
-                    value={it.preco_unitario || ''}
-                    onChange={(e) => atualizar(i, { preco_unitario: parseFloat(e.target.value) || 0 })}
+                  <CampoDecimal
+                    step="0.01"
+                    value={it.preco_unitario}
+                    onChange={(n) => atualizar(i, { preco_unitario: n ?? 0 })}
                     style={{ ...inp, textAlign: 'right' }}
-                    data-testid={`orc-preco-${i}`}
+                    testId={`orc-preco-${i}`}
                   />
                 </label>
                 <label>

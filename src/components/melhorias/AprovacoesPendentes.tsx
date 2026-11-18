@@ -1,7 +1,10 @@
 'use client'
 
 // "Aprovações pendentes" — todos os pedidos de OK que os Codes fizeram ao sócio logado (ligados ou não a um chamado).
-// O banco decide quem vê: fn_agente_ok_socio_lista devolve [] para qualquer outro usuário (e a tela some).
+// O banco decide quem vê: fn_agente_ok_socio_lista devolve [] para qualquer outro usuário.
+// #6697/eea07e63 (CEO 12/11): para quem É aprovador, quando não há nada pendente, mostrar "Nada esperando você ✓"
+// em vez de sumir — assim o sócio sabe que o bloco existe e está vazio. Quem NÃO é aprovador segue sem ver o bloco.
+// Distinção via guarda existente fn__eh_aprovador_pr() (boolean, EXECUTE p/ authenticated) — sem RPC nova.
 
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
@@ -11,12 +14,18 @@ type Item = { mensagem_id: string; agente: string; texto: string; pedido_em: str
 
 export default function AprovacoesPendentes() {
   const [itens, setItens] = useState<Item[]>([])
+  const [ehAprovador, setEhAprovador] = useState<boolean | null>(null)
   const [enviando, setEnviando] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
-    const { data } = await supabase.rpc('fn_agente_ok_socio_lista')
-    setItens(Array.isArray(data) ? (data as Item[]) : [])
+    const [listaRes, aprovRes] = await Promise.all([
+      supabase.rpc('fn_agente_ok_socio_lista'),
+      supabase.rpc('fn__eh_aprovador_pr'),
+    ])
+    setItens(Array.isArray(listaRes.data) ? (listaRes.data as Item[]) : [])
+    // Em qualquer falha, trata como NÃO aprovador (bloco oculto) — nunca mostra vazio a quem não deveria ver.
+    setEhAprovador(aprovRes.data === true)
   }, [])
   useEffect(() => { void carregar() }, [carregar])
 
@@ -29,7 +38,20 @@ export default function AprovacoesPendentes() {
     await carregar()
   }
 
-  if (itens.length === 0) return null
+  // Enquanto carrega (null) ou se não é aprovador: bloco oculto — comportamento de sempre p/ não-aprovadores.
+  if (ehAprovador !== true) return null
+
+  // É aprovador, mas nada pendente: tranquiliza em vez de sumir (antes o bloco desaparecia e parecia faltar algo).
+  if (itens.length === 0) {
+    return (
+      <section data-testid="aprovacoes-pendentes-vazio" style={{ margin: '16px 0', background: '#F3F7F2', border: '1px solid #CFE3CC', borderRadius: 12, padding: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span aria-hidden style={{ color: '#166534', fontSize: 16, fontWeight: 700 }}>✓</span>
+        <span style={{ fontSize: 14, color: '#245c2b', fontWeight: 600 }}>Nada esperando você</span>
+        <span style={{ fontSize: 12.5, color: '#4a6b4e' }}>Nenhuma aprovação pendente no momento.</span>
+      </section>
+    )
+  }
+
   return (
     <section data-testid="aprovacoes-pendentes" style={{ margin: '16px 0', background: '#FFF8E6', border: '1px solid #C8941A', borderRadius: 12, padding: 14 }}>
       <h2 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 8px', color: '#3D2314' }}>
