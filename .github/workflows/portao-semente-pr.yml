@@ -1,0 +1,86 @@
+name: Portão de semente (PR)
+
+# INFRA-TESTES · Slice 1 (22/10, onda f076af2d): detecção PRECOCE de dessincronia migration × semente. Em PR que toca
+# migration ou a semente do banco de testes, sobe um Postgres/Supabase LOCAL EFÊMERO no próprio runner (nada de produção,
+# nenhuma vaga compartilhada, nenhum segredo), aplica TODAS as migrations do zero, roda a semente + fn_demo_reset e um
+# smoke por vertical. Falha a PR se a semente quebrar — a sangria é barrada ANTES do merge. Aditivo: não toca o montar
+# nem a aceitação.
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/**'
+      - 'scripts/banco-testes/**'
+      - '.github/workflows/portao-semente-pr.yml'
+
+concurrency:
+  group: portao-semente-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  semente:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      BOT_EMAIL: robo-portao@testes.local
+      BOT_PASSWORD: portao-semente-efemero-1
+      ROBO_ID: 74cf7dfa-4af5-4ef5-bd58-6a2166ea4cfa
+      DB_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.118.0
+      # sobe a pilha local SEM as migrations (as extensões que elas assumem existem antes, como no montar-do-zero.sh) e
+      # só com o que a semente usa (db + auth + api)
+      - name: Subir Supabase local efêmero (sem migrations ainda)
+        run: |
+          set -euo pipefail
+          mv supabase/migrations "$RUNNER_TEMP/migrations"
+          mkdir supabase/migrations
+          supabase start -x realtime,storage-api,imgproxy,studio,edge-runtime,logflare,vector,mailpit,postgres-meta,supavisor
+          rmdir supabase/migrations
+          mv "$RUNNER_TEMP/migrations" supabase/migrations
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -q -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto; CREATE EXTENSION IF NOT EXISTS "uuid-ossp"; CREATE EXTENSION IF NOT EXISTS unaccent WITH SCHEMA public; CREATE EXTENSION IF NOT EXISTS pg_trgm; CREATE EXTENSION IF NOT EXISTS btree_gist; CREATE EXTENSION IF NOT EXISTS citext;' || echo "::warning::alguma extensão não pôde ser criada — o db push dirá se faltou"
+      - name: Aplicar TODAS as migrations do zero
+        run: |
+          set -euo pipefail
+          supabase db push --include-all --db-url "$DB_URL"
+          repo_max=$(ls supabase/migrations/*.sql | sed -E 's#.*/([0-9]+)_.*#\1#' | sort | tail -1)
+          led_max=$(psql "$DB_URL" -tAc "select max(version) from supabase_migrations.schema_migrations" | tr -d '[:space:]')
+          echo "ledger_max=$led_max repo_max=$repo_max"
+          [ "$led_max" = "$repo_max" ] || { echo "::error::ledger ($led_max) != última migration do repo ($repo_max)"; exit 1; }
+      - name: Semente (robô com id fixo + empresas DEMO)
+        run: |
+          set -euo pipefail
+          eval "$(supabase status -o env)"
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API_URL/auth/v1/admin/users" \
+            -H "apikey: $SERVICE_ROLE_KEY" -H "Authorization: Bearer $SERVICE_ROLE_KEY" -H 'Content-Type: application/json' \
+            -d "$(jq -n --arg id "$ROBO_ID" --arg e "$BOT_EMAIL" --arg p "$BOT_PASSWORD" '{id:$id,email:$e,password:$p,email_confirm:true}')")
+          echo "criar robô: HTTP $code"
+          [ "$code" = 200 ] || [ "$code" = 201 ] || exit 1
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -v bot_email="$BOT_EMAIL" -f scripts/banco-testes/semente.sql
+      # Sem a cópia dos catálogos da produção (Slice 3 vira seed versionado), o fn_demo_reset pode faltar de catálogo
+      # (plan_catalog/epi_catalogo): enquanto isso, erro com catálogo vazio é AVISO; erro com catálogo presente falha.
+      - name: fn_demo_reset nas empresas DEMO
+        run: |
+          set -uo pipefail
+          plano=$(psql "$DB_URL" -At -c "select count(*) from public.plan_catalog" 2>/dev/null || echo 0)
+          echo "plan_catalog local: ${plano:-0}"
+          ruim=0
+          for emp in b0700000-0000-4000-a000-000000000001 b0700000-0000-4000-a000-000000000002 b0700000-0000-4000-a000-000000000003 b0700000-0000-4000-a000-000000000004 b0700000-0000-4000-a000-000000000005 ded00000-0000-4000-a000-000000000001; do
+            if ! psql "$DB_URL" -v VERBOSITY=verbose -c "select public.fn_demo_reset('$emp')" 2> "reset-$emp.log"; then
+              msg=$(tr '\n' ' ' < "reset-$emp.log" | cut -c1-600)
+              if [ "${plano:-0}" = 0 ]; then echo "::warning title=fn_demo_reset ($emp)::sem catálogo global local (Slice 3) — $msg"
+              else echo "::error title=fn_demo_reset ($emp)::$msg"; ruim=1; fi
+            fi
+          done
+          [ "$ruim" = 0 ]
+      - name: Smoke por vertical
+        run: scripts/banco-testes/smoke.sh
+      - name: Resumo
+        if: always()
+        run: |
+          echo "### Portão de semente - migrations do zero + semente + smoke num banco efêmero (sem produção, sem vaga)" >> "$GITHUB_STEP_SUMMARY"
