@@ -73,9 +73,9 @@ export default function CapacidadeIdealModal({
         </label>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           <label style={{ fontSize: 11, color: ESP60 }}>UA/ha
-            <input type="number" step="0.1" value={uaHa} onChange={(e) => onUaHa(e.target.value)} placeholder="ex.: 2,0" style={inpStyle} /></label>
+            <input type="text" inputMode="decimal" value={uaHa} onChange={(e) => onUaHa(e.target.value)} placeholder="ex.: 2,0" style={inpStyle} /></label>{/* #5660 · aceita vírgula (o parse já normaliza) */}
           <label style={{ fontSize: 11, color: ESP60 }}>UA total
-            <input type="number" step="0.1" value={uaTotal} onChange={(e) => onUaTotal(e.target.value)} placeholder="ex.: 10" style={inpStyle} /></label>
+            <input type="text" inputMode="decimal" value={uaTotal} onChange={(e) => onUaTotal(e.target.value)} placeholder="ex.: 10" style={inpStyle} /></label>
         </div>
         <div style={{ fontSize: 10.5, color: ESP60, marginTop: 8 }}>Digite um — o outro é calculado pela área. A forrageira sugere o UA/ha; você pode ajustar (a sugestão não trava).</div>
         {erro && <div style={{ fontSize: 12, color: '#B91C1C', marginTop: 8 }}>❌ {erro}</div>}
