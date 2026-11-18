@@ -106,7 +106,7 @@ export default function FichaTecnicaPage(){
   const [seeding,setSeeding]=useState(false);
   const [newNome,setNewNome]=useState("");
   const [newCat,setNewCat]=useState("parede");
-  const [newMO,setNewMO]=useState("35");
+  const [newMO,setNewMO]=useState(numeroParaMoeda(35));
   const [newInd,setNewInd]=useState("15");
   const [newImp,setNewImp]=useState("8.65");
   const [newMarkup,setNewMarkup]=useState("30");
@@ -219,7 +219,7 @@ export default function FichaTecnicaPage(){
     if(!newNome.trim())return;
     const{data}=await supabase.from("fichas_tecnicas").insert({
       company_id:resolvedCompId,nome:newNome,categoria:newCat,unidade:"m²",
-      mao_obra_direta:parseFloat(newMO)||0,custos_indiretos_pct:parseFloat(newInd)||0,
+      mao_obra_direta:moedaParaNumero(newMO)||0,custos_indiretos_pct:parseFloat(newInd)||0,
       impostos_pct:parseFloat(newImp)||0,markup_pct:parseFloat(newMarkup)||0,
     }).select().single();
     if(data){setSelFicha(data.id);setShowNew(false);setNewNome("");loadFichas();}
@@ -388,7 +388,7 @@ export default function FichaTecnicaPage(){
                 {CATEGORIAS.map(c=><option key={c} value={c}>{c.charAt(0).toUpperCase()+c.slice(1)}</option>)}
               </select>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,marginBottom:6}}>
-                <input value={newMO} onChange={e=>setNewMO(e.target.value)} placeholder="MO R$/m²" type="number" style={inp}/>
+                <CampoMoeda value={newMO} onChange={setNewMO} placeholder="MO R$/m²" style={inp}/>
                 <input value={newInd} onChange={e=>setNewInd(e.target.value)} placeholder="Indir. %" type="number" style={inp}/>
               </div>
               <div style={{display:"flex",gap:4}}>
@@ -462,7 +462,7 @@ export default function FichaTecnicaPage(){
                 <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
                   <div>
                     <label style={{fontSize:9,color:TXM,marginBottom:2,display:"block"}}><span style={{display:"inline-flex",alignItems:"center",gap:3}}>MO Direta (R$/m²) <AjudaCampo chave="ficha.mao_obra_direta" rota={ROTA_AJUDA} /></span>
-                    <input value={fichaAtual.mao_obra_direta} onChange={e=>updateFicha("mao_obra_direta",parseFloat(e.target.value)||0)} type="number" style={inpSm}/></label>
+                    <CampoMoeda value={numeroParaMoeda(fichaAtual.mao_obra_direta)} onChange={m=>updateFicha("mao_obra_direta",moedaParaNumero(m)??0)} style={inpSm}/></label>
                   </div>
                   <div>
                     <label style={{fontSize:9,color:TXM,marginBottom:2,display:"block"}}><span style={{display:"inline-flex",alignItems:"center",gap:3}}>Custos Indiretos (%) <AjudaCampo chave="ficha.custos_indiretos_pct" rota={ROTA_AJUDA} /></span>
