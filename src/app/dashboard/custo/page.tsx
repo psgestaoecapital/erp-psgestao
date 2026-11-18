@@ -3,6 +3,9 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
+import { CampoPercent } from '@/lib/ui/CampoPercent'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 
 const C = { bg: '#0F0F0F', card: '#1A1410', border: '#2A2822', gold: '#C8941A', text: '#FAF7F2', muted: '#B0AB9F', green: '#4CAF50', red: '#EF5350', yellow: '#FFC107', blue: '#42A5F5', teal: '#009688', espresso: '#3D2314', orange: '#FF9800' }
 
@@ -479,11 +482,12 @@ export default function CustoPage() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
             <div>
               <div style={{ fontSize: 10, color: C.muted, marginBottom: 2 }}>Volume Producao (ton)</div>
-              <input type="number" value={volumeTon} onChange={e => setVolumeTon(parseFloat(e.target.value) || 0)} style={{ ...inputSt, width: '100%' }} />
+              <CampoPercent value={volumeTon} onChange={n => setVolumeTon(n ?? 0)} style={{ ...inputSt, width: '100%' }} />
             </div>
             <div>
               <div style={{ fontSize: 10, color: C.muted, marginBottom: 2 }}>Receita Bruta (R$)</div>
-              <input type="number" value={receitaBruta} onChange={e => setReceitaBruta(parseFloat(e.target.value) || 0)} style={{ ...inputSt, width: '100%' }} />
+              {/* #6874 — campo de dinheiro com máscara em R$ enquanto digita (valor gravado continua numérico) */}
+              <CampoMoeda value={numeroParaMoeda(receitaBruta)} onChange={v => setReceitaBruta(moedaParaNumero(v) ?? 0)} style={{ ...inputSt, width: '100%' }} />
             </div>
           </div>
 
@@ -500,8 +504,9 @@ export default function CustoPage() {
                 <tr key={g.id} style={{ borderBottom: '1px solid ' + C.border }}>
                   <td style={{ padding: '5px 8px', paddingLeft: 16 }}>{g.label}</td>
                   <td style={{ padding: '5px 8px', textAlign: 'right' }}>
-                    <input type="number" defaultValue={Math.round(dados[g.campo] || 0)}
-                      onChange={e => { setEditValues({...editValues, [g.campo]: parseFloat(e.target.value) || 0}); setEditMode(true) }}
+                    {/* #6874 — campo de dinheiro com máscara em R$ enquanto digita (valor gravado continua numérico) */}
+                    <CampoMoeda value={numeroParaMoeda(editValues[g.campo] ?? dados[g.campo] ?? 0)}
+                      onChange={v => { setEditValues({...editValues, [g.campo]: moedaParaNumero(v) ?? 0}); setEditMode(true) }}
                       style={{ width: 120, background: C.bg, border: '1px solid ' + C.border, color: C.text, padding: '4px 8px', borderRadius: 4, fontSize: 12, textAlign: 'right' }} />
                   </td>
                 </tr>
@@ -511,8 +516,9 @@ export default function CustoPage() {
                 <tr key={g.id} style={{ borderBottom: '1px solid ' + C.border }}>
                   <td style={{ padding: '5px 8px', paddingLeft: 16 }}>{g.label}</td>
                   <td style={{ padding: '5px 8px', textAlign: 'right' }}>
-                    <input type="number" defaultValue={Math.round(dados[g.campo] || 0)}
-                      onChange={e => { setEditValues({...editValues, [g.campo]: parseFloat(e.target.value) || 0}); setEditMode(true) }}
+                    {/* #6874 — campo de dinheiro com máscara em R$ enquanto digita (valor gravado continua numérico) */}
+                    <CampoMoeda value={numeroParaMoeda(editValues[g.campo] ?? dados[g.campo] ?? 0)}
+                      onChange={v => { setEditValues({...editValues, [g.campo]: moedaParaNumero(v) ?? 0}); setEditMode(true) }}
                       style={{ width: 120, background: C.bg, border: '1px solid ' + C.border, color: C.text, padding: '4px 8px', borderRadius: 4, fontSize: 12, textAlign: 'right' }} />
                   </td>
                 </tr>
