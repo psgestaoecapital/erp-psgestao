@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
+import { CampoDecimal } from "@/components/comum/CampoDecimal";
 import { erroAmigavel } from "@/lib/erroAmigavel";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { comPrazo } from "@/lib/comPrazo";
@@ -813,17 +814,11 @@ function CampoNumero({
       <span className="mb-1 flex items-center gap-1 text-xs uppercase tracking-wider text-[#3D2314]/60">
         {label} {ajuda && <AjudaCampo chave={ajuda} rota="/dashboard/projetos/configuracoes" />}
       </span>
-      <input
-        type="number"
-        data-testid={ajuda ? `campo-${ajuda}` : undefined}
+      <CampoDecimal
+        testId={ajuda ? `campo-${ajuda}` : undefined}
         step={inteiro ? 1 : 0.01}
-        value={valor ?? ""}
-        onChange={(e) => {
-          const t = e.target.value;
-          if (t === "") return onChange(null);
-          const v = parseFloat(t);
-          onChange(Number.isFinite(v) ? v : null);
-        }}
+        value={valor}
+        onChange={onChange}
         className="w-full rounded-lg !border !border-[#3D2314]/12 !bg-white px-4 py-2 text-right font-mono text-sm !text-[#3D2314] placeholder:!text-[#3D2314]/40 focus:!border-[#C8941A] focus:outline-none focus:ring-2 focus:ring-[#C8941A]/20 transition-colors"
       />
       {hint && <p className="mt-1 text-[11px] text-[#3D2314]/50">{hint}</p>}
