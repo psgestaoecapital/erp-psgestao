@@ -6,6 +6,7 @@ import ProdutoForm, { type Produto } from '@/components/cadastros/ProdutoForm'
 import ImportProdutosFiscalModal from '@/components/importar/ImportProdutosFiscalModal'
 import AutoclassificarProdutosModal from '@/components/importar/AutoclassificarProdutosModal'
 import EdicaoFiscalMassaModal from '@/components/cadastros/EdicaoFiscalMassaModal'
+import PadraoFiscalNcmModal from '@/components/cadastros/PadraoFiscalNcmModal'
 import ConfirmarClonar from '@/components/cadastros/ConfirmarClonar'
 import EtiquetasProdutosModal from '@/components/cadastros/EtiquetasProdutosModal'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
@@ -85,6 +86,7 @@ export default function ProdutosPage() {
   const [pendVerLista, setPendVerLista] = useState(false)
   const [autoclassificarAberto, setAutoclassificarAberto] = useState(false)
   const [fiscalMassaAberto, setFiscalMassaAberto] = useState(false)
+  const [padraoNcmAberto, setPadraoNcmAberto] = useState(false)
   // Etiquetas A4 (CEO 30/09 · Diego/FC): seleção sobrevive a busca/filtro/"carregar mais"
   const [selecionados, setSelecionados] = useState<string[]>([])
   const [etiquetasAberto, setEtiquetasAberto] = useState(false)
@@ -405,6 +407,17 @@ export default function ProdutosPage() {
                 <ListChecks size={15} /> Edição fiscal em massa
               </button>
               <AjudaCampo chave="cadastros.produtos.fiscal_massa" />
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setPadraoNcmAberto(true)}
+                data-testid="padrao-fiscal-ncm-abrir"
+                className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
+              >
+                <ListChecks size={15} /> Padrão fiscal por NCM
+              </button>
+              <AjudaCampo chave="cadastros.produtos.padrao_fiscal_ncm" />
             </span>
             <span className="inline-flex items-center gap-1">
               <button
@@ -1008,6 +1021,13 @@ export default function ProdutosPage() {
             companyId={companyId}
             onClose={() => setFiscalMassaAberto(false)}
             onAplicado={() => carregar(true)}
+          />
+        )}
+
+        {padraoNcmAberto && (
+          <PadraoFiscalNcmModal
+            companyId={companyId}
+            onClose={() => setPadraoNcmAberto(false)}
           />
         )}
 

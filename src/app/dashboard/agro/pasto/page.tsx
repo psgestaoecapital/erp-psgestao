@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { parseNumBR } from '@/lib/num'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { useEmpresaSelecionada } from '@/hooks/useEmpresaSelecionada'
 import CapacidadeIdealModal from '@/components/agro/CapacidadeIdealModal'
 
@@ -192,8 +193,9 @@ export default function ManejoPastoPage() {
               )}
               {editUA && (
                 <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: ESP60, fontWeight: 600 }}>UA por categoria <AjudaCampo chave="agro.pasto.ua_categoria" /></div>
                   {p.categoria_ua.map(c => (
-                    <div key={c.categoria} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div key={c.categoria} data-ajuda="agro.pasto.ua_categoria" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ fontSize: 13, color: ESP, width: 90, textTransform: 'capitalize' }}>{c.categoria}</span>
                       <input type="text" inputMode="decimal" value={uaDraft[c.categoria] ?? String(c.ua_valor)}
                         onChange={e => setUaDraft(d => ({ ...d, [c.categoria]: e.target.value }))}
@@ -242,7 +244,7 @@ export default function ManejoPastoPage() {
                   <div style={{ fontSize: 12, color: ESP60 }}>Limiares do alerta (braquiária/mombaça/tifton pedem valores diferentes):</div>
                   <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                     {([['lotacao_pct', 'Lotação % >'], ['dias_min', 'Dias ≥'], ['altura_cm_min', 'Capim cm <']] as const).map(([k, lbl]) => (
-                      <label key={k} style={{ fontSize: 12, color: ESP60 }}>{lbl}<br />
+                      <label key={k} style={{ fontSize: 12, color: ESP60 }}>{lbl} <AjudaCampo chave={`agro.pasto.config.${k}`} /><br />
                         <input type="text" inputMode={k === 'dias_min' ? 'numeric' : 'decimal'} value={cfgDraft[k]} onChange={e => setCfgDraft(d => ({ ...d, [k]: e.target.value }))}
                           style={{ width: 80, padding: '6px 8px', border: `1px solid ${LINE}`, borderRadius: 6, fontSize: 13 }} /></label>
                     ))}
@@ -336,10 +338,12 @@ export default function ManejoPastoPage() {
                   {forrEdit ? (
                     <div style={{ display: 'grid', gap: 6, background: BG, borderRadius: 10, padding: 10 }}>
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        <input value={forrEdit.nome} onChange={(e) => setForrEdit({ ...forrEdit, nome: e.target.value })} placeholder="Nome (ex.: Panicum Mombaça)"
-                          style={{ flex: 2, minWidth: 160, padding: '7px 10px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 13 }} />
-                        <input type="text" inputMode="decimal" value={forrEdit.ua_ha_sugerido} onChange={(e) => setForrEdit({ ...forrEdit, ua_ha_sugerido: e.target.value })} placeholder="UA/ha"
-                          style={{ width: 90, padding: '7px 10px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 13 }} />
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 2, minWidth: 160, fontSize: 12, color: ESP60 }}>Nome <AjudaCampo chave="agro.pasto.forrageira.nome" />
+                          <input value={forrEdit.nome} onChange={(e) => setForrEdit({ ...forrEdit, nome: e.target.value })} placeholder="Nome (ex.: Panicum Mombaça)"
+                            style={{ flex: 1, minWidth: 120, padding: '7px 10px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 13 }} /></label>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: ESP60 }}>UA/ha <AjudaCampo chave="agro.pasto.forrageira.ua_ha" />
+                          <input type="text" inputMode="decimal" value={forrEdit.ua_ha_sugerido} onChange={(e) => setForrEdit({ ...forrEdit, ua_ha_sugerido: e.target.value })} placeholder="UA/ha"
+                            style={{ width: 90, padding: '7px 10px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 13 }} /></label>
                       </div>
                       <input value={forrEdit.observacao} onChange={(e) => setForrEdit({ ...forrEdit, observacao: e.target.value })} placeholder="Observação (opcional)"
                         style={{ padding: '7px 10px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 13 }} />
@@ -376,7 +380,8 @@ export default function ManejoPastoPage() {
                     ))}
                   </div>
                 ) : (
-                  <input type="text" inputMode="decimal" value={avalNum} onChange={e => setAvalNum(e.target.value)} placeholder={avalMetodo === 'altura_cm' ? 'altura em cm' : 'kg MS/ha'} style={{ width: 180, padding: '8px 10px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 13 }} />
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}><AjudaCampo chave="agro.pasto.avaliacao.valor" />
+                    <input type="text" inputMode="decimal" value={avalNum} onChange={e => setAvalNum(e.target.value)} placeholder={avalMetodo === 'altura_cm' ? 'altura em cm' : 'kg MS/ha'} style={{ width: 180, padding: '8px 10px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 13 }} /></label>
                 )}
                 <button onClick={registrarAval} disabled={busy} style={{ width: 'fit-content', background: GOLD, color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: busy ? 'wait' : 'pointer' }}>Registrar avaliação</button>
               </div>
