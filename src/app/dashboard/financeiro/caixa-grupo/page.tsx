@@ -26,6 +26,11 @@ const brlCompacto = (v: unknown) => {
   if (abs >= 1e6) return `R$ ${fmt(n / 1e6)} mi`;
   return brl(n);
 };
+// Headline do resumo com valores COMPACTOS (R$ 10,0 tri) — mesmo tratamento dos cartões, para o número
+// nunca estourar a largura do texto. O valor exato fica no title (tooltip) e nas tabelas abaixo (RD-98).
+const montarResumoCompacto = (c: Totais, atrasados: number) =>
+  `Entrou ${brlCompacto(c.entradas)}, saiu ${brlCompacto(c.saidas)}, caixa do grupo ${brlCompacto(c.saldo_final)}` +
+  (atrasados > 0 ? `, ${atrasados} título(s) atrasado(s).` : ", nenhum título atrasado.");
 const hojeISO = () => new Date().toISOString().slice(0, 10);
 // Saldo do banco (extrato): data curta dd/mm e idade em dias (para avisar quando o extrato está velho).
 const diaMes = (iso?: string | null) => { if (!iso) return ""; const d = new Date(iso); return isNaN(d.getTime()) ? "" : d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }); };
@@ -148,9 +153,9 @@ export default function CaixaGrupoPage() {
       <ParaTratarHoje companyIds={effectiveIds} data={data} multiEmpresa={multi} />
 
       {/* Resumo do dia */}
-      {resp?.resumo && (
+      {resp?.consolidado && (
         <div style={{ background: `linear-gradient(90deg, ${GO}14, transparent)`, border: `1px solid ${GO}40`, borderRadius: 12, padding: "14px 18px", marginBottom: 16, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 15, fontWeight: 600, color: TX }}>{resp.resumo}</span>
+          <span title={resp.resumo} style={{ fontSize: 15, fontWeight: 600, color: TX }}>{montarResumoCompacto(resp.consolidado, resp.atrasados_n)}</span>
           <AjudaCampo chave="financeiro.caixa_grupo.resumo" rota={ROTA} />
         </div>
       )}
