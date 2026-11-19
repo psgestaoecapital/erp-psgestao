@@ -46,8 +46,13 @@ const STATUS_TERMINAL = ['concluida', 'concluido', 'resolvida', 'recusada', 'dup
 // PRECISA DELA (resposta chegou, falta ela dizer se resolveu) do que já ACABOU. Antes era lista plana.
 // #7050 · "Aguardando sua confirmação" só quando a resposta JÁ foi aprovada e enviada ao autor. Se o chamado está nesse
 // status mas a resposta ainda espera o operador aprovar (nada vai ao cliente sem tratamento), o autor vê "Em análise".
+// #9986 · o rótulo "A equipe está liberando a resposta para você conferir" dava a entender que a resposta estava
+// saindo AGORA, mesmo quando ela ainda nem foi aprovada/liberada (resposta_aprovada=false) — o autor via "aguardando"
+// sem nada de fato liberado para ele. A mensagem de liberação só aparece quando a resposta foi REALMENTE liberada
+// (resposta_aprovada=true → o status "Aguardando sua confirmação" já comunica isso). Enquanto não está liberada,
+// o autor vê "Em análise", como manda a doutrina do #7050 acima.
 const rotuloStatusAutor = (m: { status: string; resposta_aprovada: boolean }) =>
-  m.status === 'aguardando_confirmacao' && !m.resposta_aprovada ? 'A equipe está liberando a resposta para você conferir' : (STAT_LABEL[m.status] || m.status)
+  m.status === 'aguardando_confirmacao' && !m.resposta_aprovada ? STAT_LABEL.em_analise : (STAT_LABEL[m.status] || m.status)
 type BucketMelhoria = 'precisa_voce' | 'aguardando' | 'concluidas'
 // A aba da Central. 'todos' (padrão) mostra tudo — o quadro nunca abre vazio quando há chamados; as demais filtram por bucket.
 type AbaMelhoria = 'todos' | BucketMelhoria
