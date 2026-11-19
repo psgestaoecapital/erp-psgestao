@@ -7,6 +7,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { PackageOpen, Plus, Pencil, Copy, Trash2, X, GripVertical } from 'lucide-react'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { CampoDecimal } from '@/components/comum/CampoDecimal'
 import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 
@@ -176,7 +177,7 @@ function FormServico({ edit, setEdit, equipe, servicos, onSalvar, erro, opcoes, 
       </div>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
         {edit.tipo === 'recorrente' && <Campo label="Periodicidade" ajuda="pm.servico.periodicidade"><SelectConfig lista="periodicidade" opcoes={opcoes} value={edit.periodicidade ?? ''} onChange={v => setEdit({ ...edit, periodicidade: v || null })} onGerenciar={onGerenciar} /></Campo>}
-        <Campo label="Horas estimadas" ajuda="pm.servico.horas"><input type="number" style={inp} value={edit.horas_estimadas ?? ''} onChange={e => setEdit({ ...edit, horas_estimadas: e.target.value === '' ? null : Number(e.target.value) })} /></Campo>
+        <Campo label="Horas estimadas" ajuda="pm.servico.horas"><CampoDecimal style={inp} step={0.5} value={edit.horas_estimadas} onChange={n => setEdit({ ...edit, horas_estimadas: n })} /></Campo>
         <Campo label="Prazo padrão (dias)" ajuda="pm.servico.prazo"><input type="number" style={inp} value={edit.prazo_dias_padrao ?? ''} onChange={e => setEdit({ ...edit, prazo_dias_padrao: e.target.value === '' ? null : Number(e.target.value) })} /></Campo>
         <div style={{ marginBottom: 10, flex: 1, minWidth: 130 }}>
           <label style={{ display: 'flex', alignItems: 'center', fontSize: 12, color: TEXTM, marginBottom: 4 }}>Antecedência da publicação (dias)<AjudaCampo chave="pm.servico.antecedencia" /></label>
