@@ -14,10 +14,14 @@ test.describe('P&M · trava comercial→financeiro @pos-migration', () => {
 
   test('só envia ao financeiro com cliente+documento, serviço e valor/forma (recorrente e projeto)', async () => {
     const tag = Date.now()
+    // Documento ÚNICO por execução (só preparação): o CNPJ fixo colidia (23505) com um órfão deixado por um run
+    // que caiu antes do finally — a trava comercial→financeiro só exige o cliente TER documento, não um valor fixo.
+    // erp_clientes exige unicidade do documento, não valida DV (mesmo padrão de cliente-cnpj-duplicado-guarda).
+    const docCli = `9${Date.now().toString().slice(-9)}${String(Math.floor(Math.random() * 1e4)).padStart(4, '0')}`
     let ctrR = '', ctrP = '', cliSem = '', cliOk = '', erpR = '', erpP = ''
     try {
       cliSem = (await dbInsert<{ id: string }>('erp_clientes', { company_id: DEMO_REVENDA, nome_fantasia: `Sem Doc ${tag}`, razao_social: `Sem Doc ${tag}`, ativo: true })).id
-      cliOk = (await dbInsert<{ id: string }>('erp_clientes', { company_id: DEMO_REVENDA, nome_fantasia: `Com Doc ${tag}`, razao_social: `Com Doc ${tag}`, cnpj_cpf: '11222333000181', ativo: true })).id
+      cliOk = (await dbInsert<{ id: string }>('erp_clientes', { company_id: DEMO_REVENDA, nome_fantasia: `Com Doc ${tag}`, razao_social: `Com Doc ${tag}`, cnpj_cpf: docCli, ativo: true })).id
 
       // RECORRENTE incompleto: cliente sem documento, sem serviço, sem fee, sem dia → BLOQUEIA
       ctrR = (await dbInsert<{ id: string }>('agency_contratos', { company_id: DEMO_REVENDA, tipo: 'recorrente', erp_cliente_id: cliSem })).id
