@@ -294,7 +294,7 @@ function MovimentoModal({ permutaId, empresas, onClose, onSalvo }: { permutaId: 
   const salvarCub = async () => {
     setSalvando(true); setErro(null)
     const { data, error } = await supabase.rpc('fn_permuta_reajuste_add', {
-      p_permuta_id: permutaId, p_competencia: compDate(r.competencia), p_indice_valor: r.indice_valor ? Number(r.indice_valor) : null, p_valor_reajuste: moedaParaNumero(r.valor_reajuste) ?? 0,
+      p_permuta_id: permutaId, p_competencia: compDate(r.competencia), p_indice_valor: r.indice_valor ? parseNumBR(r.indice_valor) : null, p_valor_reajuste: moedaParaNumero(r.valor_reajuste) ?? 0,
     })
     setSalvando(false); const d = data as { ok: boolean; erro?: string } | null
     if (error) setErro(erroAmigavel(error)); else if (!d?.ok) setErro(d?.erro ?? 'Erro'); else onSalvo()
@@ -320,7 +320,7 @@ function MovimentoModal({ permutaId, empresas, onClose, onSalvo }: { permutaId: 
     </> : <>
       <Grid>
         <Campo data-ajuda="hub.permutas.reaj_competencia" chave="hub.permutas.reaj_competencia" rot="Competência do CUB"><input style={inp} type="month" value={r.competencia} onChange={e => setR(p => ({ ...p, competencia: e.target.value }))} /></Campo>
-        <Campo data-ajuda="hub.permutas.reaj_indice" chave="hub.permutas.reaj_indice" rot="Valor do índice"><input style={inp} type="number" value={r.indice_valor} onChange={e => setR(p => ({ ...p, indice_valor: e.target.value }))} placeholder="2950" /></Campo>
+        <Campo data-ajuda="hub.permutas.reaj_indice" chave="hub.permutas.reaj_indice" rot="Valor do índice"><input style={inp} type="text" inputMode="decimal" value={r.indice_valor} onChange={e => setR(p => ({ ...p, indice_valor: e.target.value }))} placeholder="2950,34" /></Campo>
         <Campo data-ajuda="hub.permutas.reaj_valor" chave="hub.permutas.reaj_valor" rot="Reajuste do mês (R$)"><CampoMoeda style={inp} value={r.valor_reajuste} onChange={v => setR(p => ({ ...p, valor_reajuste: v }))} placeholder="0,00" /></Campo>
       </Grid>
       {erro && <div style={{ color: C.verm, fontSize: 12, marginTop: 8 }}>{erro}</div>}

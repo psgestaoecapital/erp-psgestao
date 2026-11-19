@@ -692,6 +692,7 @@ export default function SubempreiteirosObraPage({ params }: { params: Promise<{ 
                           ) : (medicoes[c.id]?.length ?? 0) === 0 ? (
                             <div style={{ fontSize: 13, color: MUT }}>Nenhuma medição registrada para este contrato ainda. Use “+ Nova medição” para lançar a primeira.</div>
                           ) : (
+                            <div style={{ overflowX: 'auto' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                               <thead>
                                 <tr style={{ color: MUT, textAlign: 'left' }}>
@@ -736,6 +737,7 @@ export default function SubempreiteirosObraPage({ params }: { params: Promise<{ 
                                 })}
                               </tbody>
                             </table>
+                            </div>
                           )}
                         </div>
                       </div>
