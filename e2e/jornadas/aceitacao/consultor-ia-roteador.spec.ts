@@ -34,6 +34,10 @@ test.describe('Consultor IA · roteador seguro', () => {
     // (critério 2) empresa fora do escopo → 403, mesmo com pergunta válida (o LLM nem é chamado: a guarda vem antes).
     const foraEscopo = await request.post('/api/consultor-ia', { headers: h, data: { pergunta: 'quais contas vencem hoje?', company_id: EMPRESA_FORA } })
     expect(foraEscopo.status(), 'empresa fora do escopo é barrada no servidor').toBe(403)
+
+    // Isolamento por CNPJ (CEO 18/11): "consolidado"/grupo não é uma empresa — o consultor responde por UM CNPJ.
+    const consolidado = await request.post('/api/consultor-ia', { headers: h, data: { pergunta: 'quais contas vencem hoje?', company_id: 'consolidado' } })
+    expect(consolidado.status(), 'consolidado/grupo é barrado: um CNPJ por vez').toBe(400)
   })
 
   test('fallback GRÁTIS: Raio-X determinístico na tela clara, sem custo', async ({ page }) => {
