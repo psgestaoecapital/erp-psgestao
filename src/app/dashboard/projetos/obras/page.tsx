@@ -9,6 +9,7 @@ import { AlertTriangle, HardHat, Receipt, X } from 'lucide-react'
 import PSGCMetric from '@/components/psgc/PSGCMetric'
 import { fmtR } from '@/lib/psgc-tokens'
 import { supabase } from '@/lib/supabase'
+import { parseNumBR } from '@/lib/num'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { parseNumBR } from '@/lib/num'
@@ -610,7 +611,7 @@ function EditarObraModal({ obra, onClose, onSaved }: { obra: Obra; onClose: () =
   async function salvar() {
     if (!f.nome.trim()) { setMsg('Erro: informe o nome da obra.'); return }
     if (f.data_inicio && f.data_prevista_fim && f.data_prevista_fim < f.data_inicio) { setMsg('Erro: o prazo final não pode ser antes do início.'); return }
-    const valor = Number(f.valor_previsto.replace(/\./g, '').replace(',', '.'))
+    const valor = f.valor_previsto.trim() === '' ? 0 : (parseNumBR(f.valor_previsto) ?? NaN)
     if (!Number.isFinite(valor) || valor < 0) { setMsg('Erro: valor previsto inválido.'); return }
     setBusy(true); setMsg(null)
     const { data, error } = await supabase.rpc('fn_obra_editar', { p_obra_id: obra.id, p_dados: { ...f, valor_previsto: String(valor) } })
