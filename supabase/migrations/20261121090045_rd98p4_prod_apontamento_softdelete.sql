@@ -139,3 +139,17 @@ BEGIN
   RETURNING id INTO v_id;
   RETURN jsonb_build_object('ok', true, 'id', v_id);
 END $function$;
+
+-- 6) ACL explícita (check_fn_guards): toda SECURITY DEFINER recriada aqui -------
+--    mantém o ACL atual (authenticated + service_role; nunca anon/PUBLIC).
+REVOKE ALL ON FUNCTION public.fn_prod_apontamento_excluir(uuid,uuid,uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_prod_apontamento_excluir(uuid,uuid,uuid) TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.fn_prod_apontamento_listar(uuid,uuid,uuid,date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_prod_apontamento_listar(uuid,uuid,uuid,date) TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.fn_prod_produtividade_hora(uuid,uuid,uuid,date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_prod_produtividade_hora(uuid,uuid,uuid,date) TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.fn_prod_apontar_hora(uuid,uuid,uuid,uuid,date,integer,numeric,uuid,uuid,uuid,text,integer,text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_prod_apontar_hora(uuid,uuid,uuid,uuid,date,integer,numeric,uuid,uuid,uuid,text,integer,text) TO authenticated, service_role;
