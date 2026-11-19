@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { createFiscalService } from '@/lib/fiscal/service'
 import { buildNFeRequest, type NFeBuilderItemInput } from '@/lib/fiscal/nfe-builder'
 import { validateNFeRequest } from '@/lib/fiscal/nfe-validator'
+import type { NFeRequest } from '@/lib/fiscal/types'
 import { isFiscalError } from '@/lib/fiscal/errors'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 import { montarObsDevolucaoCompra } from '@/lib/fiscal/obsDevolucao'
@@ -29,6 +30,8 @@ interface DevolucaoBody {
   outrasDespesas?: number
   desconto?: number
   modalidadeFrete?: number
+  // #5722 · transportador (opcional)
+  transportador?: NFeRequest['transportador']
 }
 
 export const POST = withAuth(async (req: NextRequest, { userId }) => {
@@ -168,6 +171,7 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
           frete: body.frete, seguro: body.seguro, outrasDespesas: body.outrasDespesas,
           desconto: body.desconto, modalidadeFrete: body.modalidadeFrete,
         },
+        transportador: body.transportador,
       },
     })
 
