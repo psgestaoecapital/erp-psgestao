@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { parseNumBR } from '@/lib/num'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { BancosParceiros } from '@/components/revenda/BancosParceiros'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
@@ -19,7 +20,8 @@ const C = {
   red: '#A32D2D', redBg: '#FDECEC',
 }
 const brl = (v: number | null | undefined) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-const numOrNull = (s: string): number | null => { const n = Number(String(s).replace(',', '.')); return String(s).trim() !== '' && Number.isFinite(n) ? n : null }
+// aceita decimal BR com milhar via fonte única parseNumBR (RD-52, src/lib/num.ts)
+const numOrNull = (s: string): number | null => parseNumBR(s)
 
 type Carrego = {
   ok?: boolean
