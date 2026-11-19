@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { FORMAS_PAGAMENTO, ehPix, normalizarChavePix, validarChavePix } from '@/lib/financeiro/formasPagamento'
-import { validarCompetencia } from '@/lib/financeiro/competencia'
 import { CamposPix } from './CamposPix'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { supabase } from '@/lib/supabase'
@@ -13,6 +12,7 @@ import Modal from '@/components/ui/Modal'
 import ClienteForm, { type ClienteFormInitial } from '@/components/clientes/ClienteForm'
 import { PSGC_COLORS } from '@/lib/psgc-tokens'
 import { parcelasCartao } from '@/lib/financeiro/cartaoParcelas'
+import { validarAnoCompetencia } from '@/lib/financeiro/competencia'
 // RD-41 · padrão único de "erro de salvamento" (piloto)
 import FeedbackSalvar from '@/components/ui/feedback/FeedbackSalvar'
 import { Campo } from '@/components/ui/feedback/Campo'
@@ -407,8 +407,8 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
     setToast(null); limparFeedback()
     if (!valor || parseFloat(valor) <= 0) { setErroCampo('valor'); setFeedback({ tipo: 'erro', texto: 'Faltou preencher: Valor' }); return }
     if (!dataRecebimento) { setErroCampo('dataRecebimento'); setFeedback({ tipo: 'erro', texto: 'Faltou preencher: Quando entra na conta' }); return }
-    const eCompEd = validarCompetencia(dataCompetencia || dataRecebimento)
-    if (eCompEd) { setErroCampo('dataCompetencia'); setFeedback({ tipo: 'erro', texto: eCompEd }); return }
+    const eComp = validarAnoCompetencia(dataCompetencia)
+    if (eComp) { setErroCampo('dataCompetencia'); setFeedback({ tipo: 'erro', texto: eComp }); return }
     if (ehPix(formaRecebimento) && chavePix.trim()) {
       const eChave = validarChavePix(tipoChavePix, chavePix)
       if (eChave) { setErroCampo('chavePix'); setFeedback({ tipo: 'erro', texto: `Chave PIX: ${eChave}` }); return }
@@ -442,10 +442,9 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
   function validarCampos(): { campo: string; banner: string } | null {
     if (!valor || parseFloat(valor) <= 0) return { campo: 'valor', banner: 'Faltou preencher: Valor' }
     if (!dataRecebimento) return { campo: 'dataRecebimento', banner: 'Faltou preencher: Quando entra na conta' }
-    // Guarda de competência: ano fora da faixa sã (typo "0002"/"20026") não pode parquear a receita num ano fantasma.
-    const eComp = validarCompetencia(dataCompetencia || dataRecebimento)
-    if (eComp) return { campo: 'dataCompetencia', banner: eComp }
     if (parcelas < 1 || parcelas > 60) return { campo: 'parcelas', banner: 'Parcelas devem ficar entre 1 e 60' }
+    const eComp = validarAnoCompetencia(dataCompetencia)
+    if (eComp) return { campo: 'dataCompetencia', banner: eComp }
     // #3740 · venda no cartão (fora da conciliação) exige maquininha, bandeira e modalidade; débito é sempre 1x.
     if (vendaCartao) {
       if (!adquirenteId || !bandeira || !modalidadeCartao) return { campo: 'cartao', banner: 'Faltou preencher: maquininha, bandeira e modalidade do cartão' }

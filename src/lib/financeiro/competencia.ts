@@ -1,40 +1,48 @@
-// Guarda de faixa de competência (data_competencia) — barra na ENTRADA.
+// ═══════════════════════════════════════════════════════════════════════════
+// Guarda de sanidade do ANO de competência — PDCA GE · DRE Consolidado (RD-38).
 //
-// PORQUÊ: um erro de digitação no ANO da competência (ex.: "0002", "0226",
-// "20026") "estaciona" o título num ano fantasma. O DRE só olha anos sãos
-// (o seletor vai de 2024 a ano_atual+1), então essa receita/despesa SOME do
-// mês certo e o DRE passa a mentir para menos. Foi o caso real do cliente Gean
-// (R$903,84 de ago/2026 presos no "ano 2"). A correção durável é NÃO deixar o
-// ano absurdo entrar: aqui, na tela, com mensagem em linguagem do usuário; e,
-// como rede de segurança para qualquer outra via (import/ETL), um CHECK no
-// banco (chk_competencia_sana em erp_receber/erp_pagar).
+// Motivo (provado no dado): títulos reais entraram com `data_competencia` em ano
+// impossível (ex.: '0002-08-11' no lugar de '2026-08-11'), por erro de digitação
+// no seletor de ano do campo de data. Efeito ao usuário: a receita/despesa some do
+// mês certo e fica "estacionada" num ano fantasma — o DRE daquele mês mente para
+// menos, sem nenhum aviso. A aritmética da soma está certa; o defeito é LIXO DE
+// DATA na fonte que a tela não defendia.
+//
+// Correção durável: barrar na ENTRADA (formulários de contas a receber/pagar), com
+// mensagem em linguagem do usuário, para um ano fora da faixa sã nunca mais
+// parquear dinheiro num período inexistente. Aditivo: só valida, não altera dado.
+// ═══════════════════════════════════════════════════════════════════════════
 
-// Piso fixo da competência. Nenhum lançamento são deste ERP é anterior a 2000.
-// Espelha o limite inferior do CHECK no banco (DATE '2000-01-01').
-export const COMPETENCIA_ANO_MIN = 2000
+/** Menor ano aceito para competência (antes disso é digitação errada, não operação viva). */
+export const ANO_COMPETENCIA_MIN = 2000
 
-// Teto dinâmico: ano atual + 5. Cobre provisões/competências futuras legítimas
-// sem deixar passar um "20026". (O CHECK no banco usa o teto fixo 2100, que é
-// mais frouxo de propósito — a mensagem amigável e o limite apertado ficam aqui.)
-export function competenciaAnoMax(hoje: Date = new Date()): number {
-  return hoje.getFullYear() + 5
+/** Maior ano aceito = ano atual + folga, para lançamentos futuros legítimos. */
+export const FOLGA_ANOS_FUTURO = 5
+
+/** Teto do ano de competência relativo a `hoje`. */
+export function anoCompetenciaMax(hoje: Date = new Date()): number {
+  return hoje.getFullYear() + FOLGA_ANOS_FUTURO
 }
 
 /**
- * Valida a competência (data ISO 'YYYY-MM-DD'). Retorna uma mensagem amigável
- * em pt-BR quando o ANO está fora da faixa sã [2000 .. ano_atual+5], ou `null`
- * quando está OK. Vazio/nulo é OK (o formulário aplica o default — vencimento
- * ou recebimento — antes de gravar; o chamador deve validar a competência
- * EFETIVA, isto é, `dataCompetencia || dataVencimento/recebimento`).
+ * Valida o ANO de uma data de competência vinda de um `<input type="date">`
+ * (formato "YYYY-MM-DD"). Competência é opcional, então vazio → sem erro.
+ *
+ * @returns mensagem em linguagem do usuário quando o ano está fora da faixa sã
+ *          [ANO_COMPETENCIA_MIN, anoCompetenciaMax()]; `null` quando está OK ou
+ *          quando a string não traz um ano avaliável (outras validações/HTML cuidam).
  */
-export function validarCompetencia(iso: string | null | undefined, hoje: Date = new Date()): string | null {
-  if (!iso) return null
-  const m = /^(\d{1,6})-(\d{2})-(\d{2})$/.exec(iso.trim())
-  if (!m) return null // formato inesperado: não é o nosso erro de ano a tratar aqui
-  const ano = parseInt(m[1], 10)
-  const max = competenciaAnoMax(hoje)
-  if (ano < COMPETENCIA_ANO_MIN || ano > max) {
-    return `A competência tem um ano fora do comum (${m[1]}) — confira a data (esperado entre ${COMPETENCIA_ANO_MIN} e ${max}).`
+export function validarAnoCompetencia(
+  dataCompetencia: string | null | undefined,
+  hoje: Date = new Date(),
+): string | null {
+  if (!dataCompetencia) return null
+  const ano = Number(String(dataCompetencia).slice(0, 4))
+  // Data malformada / sem ano (ex.: "") → não é papel desta guarda; deixa passar.
+  if (!Number.isFinite(ano) || ano === 0) return null
+  const max = anoCompetenciaMax(hoje)
+  if (ano < ANO_COMPETENCIA_MIN || ano > max) {
+    return `A competência tem um ano fora do comum (${ano}) — confira a data.`
   }
   return null
 }
