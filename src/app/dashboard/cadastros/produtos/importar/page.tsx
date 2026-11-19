@@ -3,9 +3,12 @@
 // IMPORT-ESTOQUE · Migração de estoque pela PLANILHA PADRÃO PS (contexto 9c43a93d).
 // Baixar modelo (arquivo estático) → subir → PRÉVIA com os 8 indicadores → SIMULAR (dry-run) → carregar.
 // #9667: a gravação é SERVER-SIDE em lote — fn_estoque_importar_lote processa cada linha pela cadeia completa
-//   (fn_erp_produto_salvar [SPED 0200] + descritivos + fn_estoque_ajuste_migracao [saldo absoluto]); o front só
-//   monta as linhas e manda em chunks (progresso + sem depender de a aba ficar em foco). Antes era item-a-item
-//   no navegador (2 RPCs/linha), que levava horas em 12k e travava se perdia o foco.
+//   (fn_erp_produto_salvar [SPED 0200] + descritivos + fn_estoque_ajuste_migracao [saldo absoluto]). Antes era
+//   item-a-item no navegador (2 RPCs/linha), que levava horas em 12k e travava se perdia o foco.
+// #8621 parte B: a GRAVAÇÃO REAL (carregar) vai para /api/estoque/importar, que percorre TODOS os chunks no
+//   servidor em UMA requisição — o navegador não fica mais num loop de chunks que parava parcial ao perder o foco
+//   da aba (caso Diego: 1.519 de 3.403). A SIMULAÇÃO (dry-run) segue client-side (interrupção é inofensiva).
+//   A RPC é idempotente: se a requisição cair, carregar de novo conclui sem duplicar.
 // Contrato de colunas: src/lib/estoque/colunasImportacao.ts (linha 4 do xlsx; check-modelo-estoque quebra o build se divergir).
 // Saldo: ajuste = diferença entre o informado e o atual → UMA movimentação (aceita NEGATIVO; reimportar igual =
 //   0 movimentações). custo_medio → preco_custo_medio + custo_medio_origem='importacao'.
@@ -243,37 +246,42 @@ export default function ImportarEstoquePage() {
   }
 
   // ── CARREGAR ─────────────────────────────────────────────────────────────────────────
+  // #8621 parte B: a gravação real vai para a rota server-side /api/estoque/importar, que percorre TODOS os
+  // chunks no servidor (UMA requisição). Antes o navegador fazia o loop de chunks e, se a aba perdia o foco /
+  // era descartada no meio, a importação parava parcial (Diego: 1.519 de 3.403). O histórico e o status final
+  // são gravados pelo próprio servidor, então nunca ficam presos em 'processando'. A RPC é idempotente:
+  // se a requisição cair, basta carregar de novo que não duplica.
   async function carregar() {
     if (!companyId) return
     const grava = linhas.filter((l) => l.nivel !== 'erro')
     if (contagem.erro > 0 && !soValidas) return
     if (grava.length === 0) return
     setCarregando(true); setResultado(null); setSimulacao(null); setProgresso({ feito: 0, total: grava.length })
-    const { data: uinfo } = await supabase.auth.getUser()
-
-    // histórico (RD-52 · rastro): 1 linha por importação, atravessa os chunks
-    let importId: string | null = null
-    {
-      const { data: imp } = await supabase.from('erp_importacoes')
-        .insert({ company_id: companyId, user_id: uinfo?.user?.id ?? null, sistema_origem: 'planilha_padrao',
-                  tipo_dado: 'estoque', registros_total: grava.length, status: 'processando',
-                  arquivo_nome: nomeArquivo, iniciado_em: new Date().toISOString() })
-        .select('id').maybeSingle()
-      importId = (imp as { id?: string } | null)?.id ?? null
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      const resp = await fetch('/api/estoque/importar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+        body: JSON.stringify({ company_id: companyId, arquivo: nomeArquivo ?? null, rows: montarRows(grava) }),
+      })
+      const j = (await resp.json().catch(() => null)) as
+        | { ok?: boolean; error?: string; novos?: number; atualizados?: number; comSaldo?: number; semMudanca?: number; erros?: Erro[] }
+        | null
+      if (!resp.ok || !j?.ok) {
+        const motivo = j?.error || `Falha na importação (HTTP ${resp.status}). A importação não duplica: você pode carregar de novo para concluir.`
+        setResultado({ novos: j?.novos ?? 0, atualizados: j?.atualizados ?? 0, comSaldo: j?.comSaldo ?? 0, semMudanca: j?.semMudanca ?? 0,
+                       erros: j?.erros?.length ? j.erros : [{ linha: 0, codigo: '', motivo }] })
+      } else {
+        setProgresso({ feito: grava.length, total: grava.length })
+        setResultado({ novos: j.novos ?? 0, atualizados: j.atualizados ?? 0, comSaldo: j.comSaldo ?? 0, semMudanca: j.semMudanca ?? 0, erros: j.erros ?? [] })
+      }
+    } catch {
+      setResultado({ novos: 0, atualizados: 0, comSaldo: 0, semMudanca: 0,
+                     erros: [{ linha: 0, codigo: '', motivo: 'Não foi possível concluir a importação (conexão interrompida). A importação não duplica: carregue de novo para concluir.' }] })
+    } finally {
+      setCarregando(false)
+      void carregarHistorico()
     }
-
-    const r = await enviarEmChunks(montarRows(grava), false)
-
-    if (importId) {
-      await supabase.from('erp_importacoes').update({
-        registros_novos: r.novos + r.atualizados, registros_atualizados: r.comSaldo, registros_erro: r.erros.length,
-        status: r.erros.length && !(r.novos + r.atualizados) ? 'falhou' : r.erros.length ? 'parcial' : 'concluido',
-        concluido_em: new Date().toISOString(),
-      }).eq('id', importId)
-    }
-    setResultado({ novos: r.novos, atualizados: r.atualizados, comSaldo: r.comSaldo, semMudanca: r.semMudanca, erros: r.erros })
-    setCarregando(false)
-    void carregarHistorico()
   }
 
   function baixarCsvErros() {
@@ -403,7 +411,7 @@ export default function ImportarEstoquePage() {
                 <button type="button" onClick={() => void carregar()} disabled={!podeCarregar}
                   className="px-5 py-2 text-[13px] font-medium rounded-lg bg-[#C8941A] text-white hover:bg-[#A87810] disabled:opacity-40 flex items-center gap-2">
                   {carregando ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
-                  {carregando && progresso ? `Carregando ${progresso.feito}/${progresso.total}…` : 'Carregar'}
+                  {carregando ? (progresso && progresso.feito > 0 ? `Carregando ${progresso.feito}/${progresso.total}…` : 'Carregando no servidor…') : 'Carregar'}
                 </button>
                 <AjudaCampo chave="cadastros.produtos.importar.carregar" />
               </span>
