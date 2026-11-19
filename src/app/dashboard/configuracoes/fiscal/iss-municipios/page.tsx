@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import { parseNumBR } from '@/lib/num'
 
 type IssRow = {
   id: string
@@ -145,7 +146,7 @@ export default function IssMunicipiosPage() {
   async function salvar() {
     if (!companyId || !munSel) { setMsg('Erro: escolha o município.'); return }
     if (!lc116.trim()) { setMsg('Erro: informe o código da LC 116 (ex.: 07.02).'); return }
-    const a = Number(aliq.replace(',', '.'))
+    const a = parseNumBR(aliq) ?? NaN
     if (!isFinite(a) || a < 0 || a > 10) { setMsg('Erro: alíquota deve estar entre 0 e 10%.'); return }
     setSalvando(true); setMsg('')
     try {
