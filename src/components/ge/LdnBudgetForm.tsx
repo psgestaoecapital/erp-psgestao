@@ -2,6 +2,10 @@
 
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+// RD-95 "?": a ajuda usa as chaves da rota canônica da tela de Divisões.
+const ROTA_AJUDA = '/dashboard/cadastros/divisoes'
 
 export interface LDNRef {
   id: string
@@ -99,8 +103,8 @@ export default function LdnBudgetForm({ companyId, ldn, ano, onClose, onSaved }:
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
             <div>
-              <label style={{ display: 'block', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6, fontWeight: 700 }}>
-                Receita por mês (R$)
+              <label style={{ display: 'flex', alignItems: 'center', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6, fontWeight: 700 }}>
+                Receita por mês (R$)<AjudaCampo chave="ge.divisoes.budget_receita" rota={ROTA_AJUDA} />
               </label>
               <input type="number" step="0.01" value={receitaMensal} onChange={(e) => setReceitaMensal(e.target.value)} placeholder="0,00" style={inputStyle} />
               <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', marginTop: 4 }}>
@@ -108,8 +112,8 @@ export default function LdnBudgetForm({ companyId, ldn, ano, onClose, onSaved }:
               </div>
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6, fontWeight: 700 }}>
-                Despesa por mês (R$)
+              <label style={{ display: 'flex', alignItems: 'center', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6, fontWeight: 700 }}>
+                Despesa por mês (R$)<AjudaCampo chave="ge.divisoes.budget_despesa" rota={ROTA_AJUDA} />
               </label>
               <input type="number" step="0.01" value={despesaMensal} onChange={(e) => setDespesaMensal(e.target.value)} placeholder="0,00" style={inputStyle} />
               <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', marginTop: 4 }}>
