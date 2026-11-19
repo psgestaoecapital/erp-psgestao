@@ -4,7 +4,7 @@
  * mensagem diz "CNO ou endereço" e a falta de alíquota de ISS leva à tela "ISS por município".
  *   tsx scripts/gates/check-nfse-obra-endereco-3862.ts
  */
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { modoObraInicial, ROTA_ISS_MUNICIPIOS, textoBloqueioNfse } from '../../src/lib/fiscal/bloqueioNfseTexto'
 
 let falhas = 0
@@ -29,6 +29,35 @@ ok(outro.acao === 'Cadastre. (cadastro do servico)' && outro.link === null, 'dem
 const modal = readFileSync('src/components/fiscal/NFSeEmitirGovModal.tsx', 'utf8')
 ok(modal.includes('textoBloqueioNfse(b)'), 'modal mostra os bloqueios pelo helper')
 ok(modal.includes('modoObraInicial(') && modal.includes('setObraTocada(true)'), 'modal abre a obra em informar até a pessoa mexer')
+
+// 4) AJUSTE #3862 (19/11): o PREVIEW (fn_nfse_validar_emissao) precisa receber o endereço/CNO digitados no
+//    quadro — senão, no modo "informar" (obra_id null), o preview volta a dizer obra_obrigatoria enquanto a
+//    emissão libera (a contradição verde×vermelho do print). Guarda a regressão do #2920.
+// o payload digitado é montado em `obraDigitada` e injetado no p_dados da porta única (...obraDigitada)
+const idxCall = modal.indexOf("rpc('fn_nfse_validar_emissao'")
+const corpoChamada = modal.slice(idxCall, idxCall + 400)
+ok(/p_dados:\s*\{[^}]*\.\.\.obraDigitada/.test(corpoChamada), 'preview injeta ...obraDigitada no p_dados')
+const idxObra = modal.indexOf('const obraDigitada')
+const blocoObra = idxObra >= 0 ? modal.slice(idxObra, idxObra + 700) : ''
+ok(/obra_cno\s*:/.test(blocoObra), 'preview envia obra_cno digitado (CNO basta)')
+ok(/obra_logradouro\s*:/.test(blocoObra) && /obra_numero\s*:/.test(blocoObra)
+  && /obra_bairro\s*:/.test(blocoObra) && /obra_cep\s*:/.test(blocoObra)
+  && /obra_codigo_ibge\s*:/.test(blocoObra), 'preview envia o endereço digitado (endereço completo basta)')
+ok(blocoObra.includes("obraFiscal.modo === 'informar'"), 'os dados digitados só vão no modo informar (apontar lê a obra cadastrada)')
+
+// 5) a migration mais nova de fn_nfse_validar_emissao aceita "CNO OU endereço" (regra central do ajuste)
+const migs = readdirSync('supabase/migrations').filter((f) => f.endsWith('.sql')).sort()
+const migObra = migs.filter((f) => {
+  const txt = readFileSync(`supabase/migrations/${f}`, 'utf8')
+  return txt.includes('CREATE OR REPLACE FUNCTION public.fn_nfse_validar_emissao')
+}).pop()
+ok(!!migObra, 'existe migration de fn_nfse_validar_emissao')
+if (migObra) {
+  const sql = readFileSync(`supabase/migrations/${migObra}`, 'utf8')
+  ok(/v_tem_cno\b/.test(sql) && /v_end_completo\b/.test(sql), `${migObra}: avalia CNO e endereço completo`)
+  ok(/v_tem_cno\s+OR\s+v_end_completo/.test(sql), `${migObra}: libera quando CNO OU endereço completo`)
+  ok(sql.includes("p_dados->>'obra_cno'") && sql.includes("p_dados->>'obra_logradouro'"), `${migObra}: lê o endereço/CNO digitados na nota`)
+}
 
 if (falhas) { console.error(`\n${falhas} falha(s)`); process.exit(1) }
 console.log('\nOK — NFS-e de obra pelo endereço (#3862)')
