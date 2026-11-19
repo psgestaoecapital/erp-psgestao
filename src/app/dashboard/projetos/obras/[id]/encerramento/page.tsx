@@ -18,6 +18,7 @@
 import { use, useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { parseNumBR } from '@/lib/num'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { FileSignature, FolderArchive, Paperclip, ShieldCheck } from 'lucide-react'
@@ -79,10 +80,7 @@ const GAR_STATUS: { v: string; l: string }[] = [
 const labelDe = (arr: { v: string; l: string }[], v: string) => arr.find((x) => x.v === v)?.l ?? v
 // número a partir de texto de formulário: vazio → null; vírgula decimal aceita
 function numOuNull(s: string): number | null {
-  const t = s.trim().replace(/\./g, '').replace(',', '.')
-  if (t === '') return null
-  const n = Number(t)
-  return Number.isFinite(n) ? n : null
+  return parseNumBR(s)
 }
 function fmtMoeda(n: number | null): string {
   if (n === null || n === undefined) return '—'
