@@ -23,6 +23,10 @@
 -- frequência de cron, não forja identidade. Bug interno de chamados (sugestoes) — texto publicado é o que o
 -- próprio sócio aprovou. Mantém auth.uid() = sócio do agente ('so_o_socio_dono') e grant só authenticated.
 
+-- ci-sem-guarda: fn_agente_ok_socio — guarda por ESCOPO de sócio, não por empresa: só o sócio dono do agente
+--   (erp_agente_escopo, auth.uid()=socio_user_id) e só em chamado do próprio escopo (fn__agente_escopo_chamado_i).
+--   Chamado interno (sugestoes) atravessa as empresas da carteira do sócio — não há "empresa do registro" a conferir.
+--   Mesmo modelo do caminho oficial irmão fn_agente_chamado_responder.
 CREATE OR REPLACE FUNCTION public.fn_agente_ok_socio(p_mensagem_id uuid, p_decisao text)
  RETURNS jsonb
  LANGUAGE plpgsql
