@@ -141,10 +141,14 @@ export function BomEditor({ servicoId, companyId, bom, onChange }: Props) {
         ordem: proximaOrdem,
         local_id: item.local_id ?? null,
       };
-      if (item.tipo === "mao_obra") payload.mao_obra_id = item.item_id;
-      else if (item.manual) {
+      // Entrada manual (nome + custo digitados) vem antes do tipo: vale para qualquer aba,
+      // inclusive "Mão de obra". O CHECK bom_uma_referencia exige UMA referência, e a de um
+      // item manual é item_nome_manual — nunca mao_obra_id (que ficaria "" e quebrava o insert).
+      if (item.manual) {
         payload.item_nome_manual = item.nome;
         payload.custo_unitario_manual = item.custo ?? 0;
+      } else if (item.tipo === "mao_obra") {
+        payload.mao_obra_id = item.item_id;
       } else if (item.produto_id) {
         payload.produto_id = item.produto_id; // material/equipamento/EPI do estoque real (erp_produtos)
       } else {
