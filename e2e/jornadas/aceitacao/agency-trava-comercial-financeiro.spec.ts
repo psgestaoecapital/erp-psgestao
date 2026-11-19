@@ -55,8 +55,10 @@ test.describe('P&M · trava comercial→financeiro @pos-migration', () => {
       expect(ecP.status).toBe('solicitado')
       expect(Number(ecP.numero_parcelas)).toBe(3)
     } finally {
-      for (const id of [erpR, erpP]) if (id) await dbDelete('erp_contratos', `id=eq.${id}`)
+      // ORDEM do teardown respeita a FK agency_contratos.erp_contrato_id → erp_contratos:
+      // apaga o FILHO (agency_contratos, + itens) ANTES do PAI (erp_contratos), senão 23503.
       for (const id of [ctrR, ctrP]) if (id) { await dbDelete('agency_contrato_itens', `contrato_id=eq.${id}`); await dbDelete('agency_contratos', `id=eq.${id}`) }
+      for (const id of [erpR, erpP]) if (id) await dbDelete('erp_contratos', `id=eq.${id}`)
       for (const id of [cliSem, cliOk]) if (id) await dbDelete('erp_clientes', `id=eq.${id}`)
     }
   })
