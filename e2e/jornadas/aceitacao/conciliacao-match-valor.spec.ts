@@ -2,7 +2,7 @@
 // Gap de dinheiro: a sugestão rotulava "perfeito"/"exato" (e a auto-conciliação baixava) mesmo quando o VALOR do
 // movimento divergia materialmente do título — bastava data+documento+forma somarem score alto. Ex. real provado pelo
 // auditor: movimento R$ 750 × título R$ 1.000 (mesmo CNPJ, PIX, mesma data) saía "perfeito/exato".
-// A migration 20261120230035 passou a EXIGIR que o valor case (pontos_de_valor > 0) para o selo "perfeito"/"exato".
+// A migration do gate de valor passou a EXIGIR que o valor case (pontos_de_valor > 0) para o selo "perfeito"/"exato".
 // Aqui, na Demonstração Comércio (GE), com a RPC chamada COMO O ROBÔ (RLS do usuário):
 //   1) valor divergente com score >= 90 NÃO é "perfeito" nem "exato" (vira "quase"/"revisar", match_valor_ok=false);
 //   2) NÃO regride o caso são: valor igual continua "perfeito"/"exato" (match_valor_ok=true).
