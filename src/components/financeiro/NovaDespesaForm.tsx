@@ -14,6 +14,7 @@ import FeedbackSalvar from '@/components/ui/feedback/FeedbackSalvar'
 import { Campo } from '@/components/ui/feedback/Campo'
 import { useSalvar } from '@/components/ui/feedback/useSalvar'
 import { estiloBordaInput } from '@/components/ui/feedback/contratoSalvar'
+import { validarAnoCompetencia } from '@/lib/financeiro/competencia'
 // #71 · modo edição: a mesma tela da inclusão abre o lançamento existente
 import { useEdicaoLancamento, ReplicaParcelasDialog, SituacaoEdicao, type Campos } from './edicaoLancamento'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
@@ -433,6 +434,8 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
     setToast(null); limparFeedback()
     if (!valor || parseFloat(valor) <= 0) { setErroCampo('valor'); setFeedback({ tipo: 'erro', texto: 'Faltou preencher: Valor' }); return }
     if (!dataVencimento) { setErroCampo('dataVencimento'); setFeedback({ tipo: 'erro', texto: 'Faltou preencher: Vencimento' }); return }
+    const eComp = validarAnoCompetencia(dataCompetencia)
+    if (eComp) { setErroCampo('dataCompetencia'); setFeedback({ tipo: 'erro', texto: eComp }); return }
     const cbInput = codigoBarras.trim()
     if (cbInput && cbInput !== String(ed.linha.codigo_barras ?? '').trim()) {
       const vb = validarCodigoBarrasEntrada(cbInput)
@@ -519,6 +522,8 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
     if (!valor || parseFloat(valor) <= 0) return { campo: 'valor', banner: 'Faltou preencher: Valor' }
     if (!dataVencimento) return { campo: 'dataVencimento', banner: 'Faltou preencher: Vencimento' }
     if (parcelas < 1 || parcelas > 60) return { campo: 'parcelas', banner: 'Parcelas devem ficar entre 1 e 60' }
+    const eComp = validarAnoCompetencia(dataCompetencia)
+    if (eComp) return { campo: 'dataCompetencia', banner: eComp }
     return null
   }
 
@@ -819,13 +824,13 @@ export default function NovaDespesaForm({ companyId, onSucesso, onCancelar, edit
             />
           </Campo>
 
-          <Campo ajuda="financeiro.despesa.competencia" ajudaRota={ROTA_AJUDA} label="Data de competência (opcional)">
+          <Campo ajuda="financeiro.despesa.competencia" ajudaRota={ROTA_AJUDA} label="Data de competência (opcional)" erro={erroCampo === 'dataCompetencia' ? 'Confira o ano da competência' : null}>
             <input
               type="date"
               value={dataCompetencia}
-              onChange={(e) => setDataCompetencia(e.target.value)}
+              onChange={(e) => { setDataCompetencia(e.target.value); if (erroCampo === 'dataCompetencia') limparFeedback() }}
               placeholder={dataVencimento}
-              style={inputStyle}
+              style={{ ...inputStyle, ...estiloBordaInput(erroCampo === 'dataCompetencia' ? 'x' : null) }}
             />
             <small style={helperStyle}>
               Mês contábil ao qual essa despesa pertence. Default = vencimento.
