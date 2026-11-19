@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { Tags, Loader2, AlertTriangle, Calculator, Check, X } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { parseNumBR } from '@/lib/num'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import MarkupPadraoCard from '@/components/precificacao/MarkupPadraoCard'
@@ -84,12 +85,9 @@ export default function PrecificacaoPage() {
   // muda → a digitação do usuário fica intacta). Assim o campo nunca lateja num valor velho nem volta vazio havendo valor.
   const cfgSync = useRef<string | null>(null)
 
-  // parse pt-BR tolerante: aceita "11", "11,5" e "11.5". Vazio/!número → null.
-  const num = (s: string): number | null => {
-    const t = s.trim().replace(/\s/g, '').replace(',', '.')
-    const n = Number(t)
-    return t === '' || Number.isNaN(n) ? null : n
-  }
+  // parse pt-BR tolerante via fonte única parseNumBR (RD-52): aceita "11", "11,5", "11.5" e milhar "1.234,56".
+  // Vazio/!número → null.
+  const num = (s: string): number | null => parseNumBR(s)
 
   // carrega o painel; quando `comPrevia`, pede ao banco o preço novo (modo/valor/arred) sem gravar nada
   const carregar = useCallback(async (comPrevia: boolean) => {
