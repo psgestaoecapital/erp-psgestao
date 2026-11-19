@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Banknote, TrendingDown, TrendingUp, ArrowRight } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import {
   PSGC_COLORS,
   PSGC_RADIUS,
@@ -13,10 +14,13 @@ import {
   typoToStyle,
 } from '@/lib/psgc-tokens'
 
+const ROTA_AJUDA = '/dashboard/gestao-empresarial'
+
 interface KpiPrincipal {
   label: string
   valor: number
   valor_formatado: string
+  ajuda_chave?: string
   positivo: boolean
 }
 
@@ -24,6 +28,7 @@ interface KpiSecundario {
   label: string
   valor: number
   valor_formatado?: string
+  ajuda_chave?: string
   critico?: boolean
 }
 
@@ -196,8 +201,11 @@ export function FluxoCaixaWidget({ companyId }: { companyId: string }) {
               ) : (
                 <TrendingDown size={14} color={PSGC_COLORS.alta} aria-hidden />
               )}
-              <span style={{ ...typoToStyle('caption'), color: PSGC_COLORS.espressoLight }}>
+              <span style={{ ...typoToStyle('caption'), color: PSGC_COLORS.espressoLight, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 {data.kpi_principal.label}
+                {data.kpi_principal.ajuda_chave && (
+                  <AjudaCampo chave={data.kpi_principal.ajuda_chave} rota={ROTA_AJUDA} />
+                )}
               </span>
             </div>
           </div>
@@ -222,7 +230,10 @@ export function FluxoCaixaWidget({ companyId }: { companyId: string }) {
                       padding: 12,
                     }}
                   >
-                    <div style={{ ...typoToStyle('label'), color: PSGC_COLORS.espressoLight }}>{kpi.label}</div>
+                    <div style={{ ...typoToStyle('label'), color: PSGC_COLORS.espressoLight, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      {kpi.label}
+                      {kpi.ajuda_chave && <AjudaCampo chave={kpi.ajuda_chave} rota={ROTA_AJUDA} />}
+                    </div>
                     <div
                       style={{
                         ...typoToStyle('numberSmall'),
