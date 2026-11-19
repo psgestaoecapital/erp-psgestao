@@ -37,6 +37,10 @@ const CATALOGO: Ferramenta[] = [
   { tool: 'saldo_contas', desc: 'Saldo atual das contas bancárias da empresa.', params: {} },
   { tool: 'inadimplentes', desc: 'Títulos a receber VENCIDOS e não pagos (inadimplência).', params: {} },
   { tool: 'buscar_cliente', desc: 'Verifica se um cliente está cadastrado e traz os dados dele. Use quando a pergunta cita um nome ou CNPJ de cliente.', params: { termo: 'nome ou CNPJ do cliente' } },
+  { tool: 'divergencia_saldo', desc: 'Compara o saldo do SISTEMA com o saldo do BANCO/extrato por conta e mostra a diferença exata. Use para "meu saldo bate com o banco?", "os saldos são iguais?", "por que o saldo do sistema é diferente do banco?".', params: {} },
+  { tool: 'lancamentos_sem_conciliar', desc: 'Lista os lançamentos já pagos/recebidos e SEM conciliar (os que fazem o saldo não bater), com valor, data, contraparte e CNPJ, e link para corrigir.', params: { conta: '(opcional) nome da conta bancária' } },
+  { tool: 'lancamentos_sem_cnpj', desc: 'Lançamentos cujo fornecedor/cliente está sem CNPJ ou sem cadastro.', params: {} },
+  { tool: 'buscar_lancamento', desc: 'Localiza um lançamento específico por valor, número do documento/NF, descrição ou nome do fornecedor/cliente, com link para abrir e corrigir.', params: { termo: 'valor, documento, descrição ou nome' } },
   { tool: 'raio_x', desc: 'Raio-X dos dados: inconsistências, saldo que não bate, boleto sem baixa, cadastro errado.', params: {} },
 ]
 const TOOLS = new Set(CATALOGO.map((c) => c.tool))
@@ -68,7 +72,15 @@ function resolvePeriodo(periodo?: string): { de: string; ate: string; status: st
     default: return { de: iso(addDias(h, -365)), ate: iso(addDias(h, 365)), status: 'todos' }
   }
 }
-const STATUS_OK = new Set(['todos', 'aberto', 'vencido', 'pago'])
+// Status do catálogo → filtros que o fn_ge_listagem_v2 entende (p_status_filtros). Antes passávamos 'vencido'/'aberto'/'pago',
+// que a RPC não reconhece → lista sempre vazia em "inadimplentes" e nos filtros de status.
+const STATUS_FILTROS: Record<string, string[]> = {
+  todos: ['todos'],
+  aberto: ['vencidos', 'hoje', 'avencer'],
+  vencido: ['vencidos'],
+  pago: ['pagos', 'conciliado'],
+}
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const brl = (v: number) => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 function extrairJSON(texto: string): { tool?: string; params?: Record<string, unknown> } | null {
@@ -95,7 +107,11 @@ export async function POST(req: NextRequest) {
   if (!pergunta) return NextResponse.json({ ok: false, error: 'Escreva uma pergunta.' }, { status: 400 })
   if (pergunta.length > 500) return NextResponse.json({ ok: false, error: 'Pergunta muito longa — resuma em poucas palavras.' }, { status: 400 })
 
-  // Multi-tenant: a empresa vem da sessão e é VALIDADA aqui (o LLM nunca escolhe empresa).
+  // Multi-tenant / LGPD: a empresa vem do seletor do topo e é VALIDADA aqui contra get_user_company_ids() do
+  // PRÓPRIO usuário (o LLM nunca escolhe empresa). "Consolidado"/grupo não é aceito: o consultor responde por UM CNPJ.
+  if (!UUID_RE.test(companyId)) {
+    return NextResponse.json({ ok: false, error: 'Selecione uma empresa (um CNPJ) no topo da tela para perguntar.' }, { status: 400 })
+  }
   const negado = await exigirEmpresas(u, [companyId])
   if (negado) return negado
 
@@ -125,8 +141,9 @@ export async function POST(req: NextRequest) {
       prompt: `FERRAMENTAS:\n${JSON.stringify(CATALOGO)}\n\nPERGUNTA: "${pergunta}"\n\nResponda só o JSON.`,
     })
     escolha = extrairJSON(resp.text)
-    // registra o custo (estimativa conservadora — roteamento é minúsculo)
-    admin.rpc('fn_ia_empresa_registrar_gasto', { p_company_id: companyId, p_feature: FEATURE, p_custo_usd: CUSTO_ESTIMADO, p_chamadas: 1 }).then(() => {}, () => {})
+    // registra o custo (estimativa conservadora — roteamento é minúsculo). AWAIT: em função serverless um
+    // fire-and-forget pode morrer antes de gravar, e sem registro o teto global nunca dispara.
+    await admin.rpc('fn_ia_empresa_registrar_gasto', { p_company_id: companyId, p_feature: FEATURE, p_custo_usd: CUSTO_ESTIMADO, p_chamadas: 1 }).then(() => {}, () => {})
   } catch (e) {
     if (e instanceof IABloqueadaError) {
       return NextResponse.json({ ok: true, bloqueado: true, motivo: 'ia_bloqueada',
@@ -138,7 +155,7 @@ export async function POST(req: NextRequest) {
   const tool = typeof escolha?.tool === 'string' ? escolha.tool : ''
   if (!tool || tool === 'nenhuma' || !TOOLS.has(tool)) {
     return NextResponse.json({ ok: true, naoEntendi: true,
-      mensagem: 'Não entendi a pergunta. Tente reformular (ex.: "contas a receber que vencem hoje") ou use um atalho abaixo.' })
+      mensagem: 'Não entendi a pergunta. Posso trazer contas a pagar e a receber, saldo, inadimplentes, comparar seu saldo com o banco, listar lançamentos sem conciliar ou sem CNPJ, localizar um lançamento ou buscar um cliente. Tente reformular ou use um atalho abaixo.' })
   }
   const params = (escolha?.params && typeof escolha.params === 'object') ? escolha.params as Record<string, unknown> : {}
 
@@ -148,9 +165,10 @@ export async function POST(req: NextRequest) {
     if (tool === 'contas_receber' || tool === 'contas_pagar') {
       const tipo = tool === 'contas_receber' ? 'receber' : 'pagar'
       const { de, ate, status } = resolvePeriodo(typeof params.periodo === 'string' ? params.periodo : undefined)
-      const pedido = typeof params.status === 'string' && STATUS_OK.has(params.status.toLowerCase()) ? params.status.toLowerCase() : status
-      const { data, error } = await sb.rpc('fn_ge_listagem_v2', { p_company_id: companyId, p_tipo: tipo, p_data_inicio: de, p_data_fim: ate, p_status_filtro: pedido })
+      const pedido = typeof params.status === 'string' && STATUS_FILTROS[params.status.toLowerCase()] ? params.status.toLowerCase() : status
+      const { data, error } = await sb.rpc('fn_ge_listagem_v2', { p_company_id: companyId, p_tipo: tipo, p_data_inicio: de, p_data_fim: ate, p_status_filtro: 'todos', p_status_filtros: STATUS_FILTROS[pedido] ?? ['todos'] })
       if (error) throw error
+      if ((data as { sem_plano?: boolean })?.sem_plano) return NextResponse.json({ ok: true, naoEntendi: true, mensagem: 'Esta empresa não tem o módulo financeiro da Gestão Empresarial ativo.' })
       const r = data as { kpis?: Record<string, { qtd?: number; valor?: number } | number>; resultados?: unknown[]; total_rows?: number }
       const tot = r?.kpis?.total
       const totalValor = typeof tot === 'number' ? tot : (tot as { valor?: number })?.valor ?? 0
@@ -160,7 +178,7 @@ export async function POST(req: NextRequest) {
     }
     if (tool === 'inadimplentes') {
       const { de, ate } = resolvePeriodo('vencidos')
-      const { data, error } = await sb.rpc('fn_ge_listagem_v2', { p_company_id: companyId, p_tipo: 'receber', p_data_inicio: de, p_data_fim: ate, p_status_filtro: 'vencido' })
+      const { data, error } = await sb.rpc('fn_ge_listagem_v2', { p_company_id: companyId, p_tipo: 'receber', p_data_inicio: de, p_data_fim: ate, p_status_filtro: 'vencidos' })
       if (error) throw error
       const r = data as { kpis?: { vencidos?: { qtd?: number; valor?: number } }; resultados?: unknown[] }
       const v = r?.kpis?.vencidos ?? {}
@@ -183,6 +201,40 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true, tipo: 'cliente', titulo: 'cliente', resumo: `Não encontrei nenhum cliente com "${termo}" cadastrado nesta empresa.`, linhas: [] })
       }
       return NextResponse.json({ ok: true, tipo: 'cliente', titulo: 'cliente', resumo: `Encontrei ${lista.length} cliente(s) para "${termo}".`, linhas: lista })
+    }
+    if (tool === 'divergencia_saldo') {
+      const { data, error } = await sb.rpc('fn_consultor_divergencia_contas', { p_company_id: companyId })
+      if (error) throw error
+      const r = data as { ok?: boolean; tem_divergencia?: boolean; contas?: { conta_nome: string; saldo_sistema: number; saldo_banco: number; diferenca: number }[]; contas_sem_extrato?: { conta_nome: string }[] } | null
+      if (!r?.ok) return NextResponse.json({ ok: false, error: 'Você não tem acesso aos dados desta empresa.' }, { status: 403 })
+      const contas = r.contas ?? []
+      const semExtrato = r.contas_sem_extrato ?? []
+      const notaSem = semExtrato.length ? ` Sem extrato para comparar: ${semExtrato.map((c) => c.conta_nome).join(', ')}.` : ''
+      const resumo = r.tem_divergencia
+        ? 'Não batem: ' + contas.map((c) => `conta ${c.conta_nome} tem ${brl(Math.abs(c.diferenca))} de diferença (sistema ${brl(c.saldo_sistema)} × banco ${brl(c.saldo_banco)})`).join('; ') + '.' + notaSem
+        : 'Sim, todas as contas com extrato estão batendo com o banco.' + notaSem
+      return NextResponse.json({ ok: true, tipo: 'divergencia', titulo: 'saldo do sistema × banco', resumo, contas, contas_sem_extrato: semExtrato })
+    }
+    if (tool === 'lancamentos_sem_conciliar' || tool === 'lancamentos_sem_cnpj' || tool === 'buscar_lancamento') {
+      const filtro = tool === 'lancamentos_sem_conciliar' ? 'nao_conciliados' : tool === 'lancamentos_sem_cnpj' ? 'sem_cnpj' : 'por_termo'
+      const termo = typeof params.termo === 'string' ? params.termo.trim().slice(0, 100) : ''
+      const conta = typeof params.conta === 'string' ? params.conta.trim().slice(0, 80) : ''
+      if (filtro === 'por_termo' && termo.length < 2) {
+        return NextResponse.json({ ok: true, naoEntendi: true, mensagem: 'Diga o valor, o número do documento, a descrição ou o nome do fornecedor/cliente do lançamento.' })
+      }
+      const { data, error } = await sb.rpc('fn_consultor_lancamentos_detalhe', { p_company_id: companyId, p_filtro: filtro, p_termo: termo || null, p_conta: conta || null, p_limite: 50 })
+      if (error) throw error
+      const r = data as { ok?: boolean; total?: number; mostrando?: number; linhas?: unknown[] } | null
+      if (!r?.ok) return NextResponse.json({ ok: false, error: 'Você não tem acesso aos dados desta empresa.' }, { status: 403 })
+      const total = r.total ?? 0
+      const mostrando = r.mostrando ?? 0
+      const extra = total > mostrando ? ` Mostrando os ${mostrando} mais recentes.` : ''
+      const resumo = filtro === 'nao_conciliados'
+        ? (total ? `${total} lançamento(s) pago(s)/recebido(s) sem conciliar${conta ? ` na conta "${conta}"` : ''}. São eles que fazem o saldo não bater com o banco.${extra}` : 'Nenhum lançamento pago/recebido está sem conciliar.')
+        : filtro === 'sem_cnpj'
+          ? (total ? `${total} lançamento(s) com fornecedor/cliente sem CNPJ ou sem cadastro.${extra}` : 'Todos os lançamentos têm fornecedor/cliente cadastrado com CNPJ.')
+          : (total ? `Encontrei ${total} lançamento(s) para "${termo}".${extra}` : `Não encontrei lançamento com "${termo}" nesta empresa.`)
+      return NextResponse.json({ ok: true, tipo: 'lista_lancamentos', titulo: 'lançamentos', resumo, linhas: r.linhas ?? [] })
     }
     if (tool === 'raio_x') {
       const { data, error } = await sb.rpc('fn_consultor_raiox', { p_company_id: companyId })

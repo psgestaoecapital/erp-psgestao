@@ -5,6 +5,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import FinanciamentoFormModal from '@/components/financiamento/FinanciamentoFormModal'
 import FinanciamentoDetalhe from '@/components/financiamento/FinanciamentoDetalhe'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 type Financiamento = Record<string, unknown> & {
   id: string
@@ -152,13 +153,13 @@ export default function FinanciamentoPage() {
 
   async function recalcular(r: Financiamento) {
     const { error } = await supabase.rpc('fn_financiamento_recalcular', { p_id: r.id })
-    if (error) { setToast(`Erro: ${error.message}`); return }
+    if (error) { setToast(erroAmigavel(error, 'Não foi possível recalcular agora. Tente de novo.')); return }
     setToast('Financiamento recalculado.')
     reload(); reloadParcelas()
   }
   async function gerarCronograma(r: Financiamento) {
     const { error } = await supabase.rpc('fn_financiamento_gerar_cronograma', { p_id: r.id })
-    if (error) { setToast(`Erro: ${error.message}`); return }
+    if (error) { setToast(erroAmigavel(error, 'Não foi possível gerar o cronograma. Confira valor e nº de parcelas.')); return }
     setToast('Cronograma gerado.')
     reload(); reloadParcelas()
   }
@@ -169,7 +170,7 @@ export default function FinanciamentoPage() {
     for (const r of alvos) {
       const { data: res, error } = await supabase.rpc('fn_financiamento_situacao', { p_id: r.id, p_acao: tipo, p_motivo: motivo ?? null, p_data: data ?? null })
       const j = res as { ok?: boolean; erro?: string; contas_pagar_abertas?: number } | null
-      if (error || !j?.ok) { erro = error?.message ?? (j?.erro === 'motivo_obrigatorio' ? 'informe o motivo' : j?.erro ?? 'falhou'); continue }
+      if (error || !j?.ok) { erro = error ? erroAmigavel(error, 'não foi possível concluir') : (j?.erro === 'motivo_obrigatorio' ? 'informe o motivo' : j?.erro ?? 'falhou'); continue }
       ok++; abertas += j.contas_pagar_abertas ?? 0
     }
     const rot: Record<string, string> = { arquivar: 'arquivado(s)', desarquivar: 'desarquivado(s)', quitar: 'marcado(s) como quitado(s)', reabrir: 'reaberto(s)', excluir: 'excluído(s) — dá para restaurar em Excluídos', restaurar: 'restaurado(s)' }
@@ -182,7 +183,7 @@ export default function FinanciamentoPage() {
       p_financiamento_id: r.id,
     })
     if (error) {
-      setToast(`Erro: ${error.message}`)
+      setToast(erroAmigavel(error, 'Não foi possível gerar as contas a pagar agora. Tente de novo.'))
       return
     }
     const d = data as { ok?: boolean; contas_geradas_ou_atualizadas?: number; erro?: string } | null
@@ -224,7 +225,7 @@ export default function FinanciamentoPage() {
           <p className="text-sm opacity-70">Contratos de financiamento, empréstimo e consórcio.</p>
         </div>
         {aba === 'contratos' && (
-          <button onClick={() => setEditing(null)} style={btnNovo}>+ Novo contrato</button>
+          <span style={acaoAjuda}><button onClick={() => setEditing(null)} style={btnNovo}>+ Novo contrato</button><AjudaCampo chave="ge.financiamento.acao_novo_contrato" /></span>
         )}
       </header>
 
@@ -232,6 +233,7 @@ export default function FinanciamentoPage() {
         <button onClick={() => setAba('contratos')} style={tab(aba === 'contratos')}>Contratos</button>
         <button onClick={() => setAba('visao')} style={tab(aba === 'visao')}>Visão Geral</button>
         <button onClick={() => setAba('cronograma')} style={tab(aba === 'cronograma')}>Cronograma</button>
+        <AjudaCampo chave="ge.financiamento.abas" />
       </nav>
 
       {aba === 'contratos' && (
@@ -260,9 +262,9 @@ export default function FinanciamentoPage() {
                 ))}
                 <AjudaCampo chave="ge.financiamento.filtro" />
                 {filtro === 'vencidos' && vencidos.length > 0 && (
-                  <button onClick={() => setAcao({ tipo: 'arquivar', alvos: vencidos })} style={{ ...btnSec, marginLeft: 'auto' }} data-testid="fin-arquivar-vencidos">
+                  <span style={{ ...acaoAjuda, marginLeft: 'auto' }}><button onClick={() => setAcao({ tipo: 'arquivar', alvos: vencidos })} style={btnSec} data-testid="fin-arquivar-vencidos">
                     Arquivar os {vencidos.length} vencidos
-                  </button>
+                  </button><AjudaCampo chave="ge.financiamento.acao_arquivar_vencidos" /></span>
                 )}
               </div>
             )
@@ -271,7 +273,8 @@ export default function FinanciamentoPage() {
           {!loading && rows.length === 0 && (
             <div className="rounded-xl p-6 text-center" style={{ background: OFFWHITE }}>
               <p className="font-medium">Nenhum financiamento cadastrado</p>
-              <p className="text-sm opacity-70">Clique em &ldquo;+ Novo contrato&rdquo; para começar.</p>
+              <p className="text-sm opacity-70 mb-3">Cadastre um contrato de financiamento, empréstimo ou consórcio para acompanhar parcelas e contas a pagar.</p>
+              <button onClick={() => setEditing(null)} style={btnNovo} data-testid="fin-vazio-novo">+ Novo contrato</button>
             </div>
           )}
 
@@ -343,26 +346,25 @@ export default function FinanciamentoPage() {
                     onClick={(e) => e.stopPropagation()}
                   >
                     {sit === 'excluidos' ? (
-                      <button onClick={() => void aplicar([r], 'restaurar')} style={btnSec} data-testid="fin-restaurar">Restaurar</button>
+                      <span style={acaoAjuda}><button onClick={() => void aplicar([r], 'restaurar')} style={btnSec} data-testid="fin-restaurar">Restaurar</button><AjudaCampo chave="ge.financiamento.acao_restaurar" /></span>
                     ) : (
                       <>
-                        <button onClick={() => setEditing(r)} style={btnSec} data-testid="fin-editar">Editar</button>
+                        <span style={acaoAjuda}><button onClick={() => setEditing(r)} style={btnSec} data-testid="fin-editar">Editar</button><AjudaCampo chave="ge.financiamento.acao_editar" /></span>
                         {(sit === 'andamento' || sit === 'vencidos') && (
                           <>
-                            <button onClick={() => recalcular(r)} style={btnSec}>Recalcular</button>
-                            <button onClick={() => gerarCronograma(r)} style={btnSec}>Gerar cronograma</button>
-                            <button onClick={() => gerarPagar(r)} style={btnSec}>Gerar contas a pagar</button>
-                            <button onClick={() => setAcao({ tipo: 'quitar', alvos: [r] })} style={btnSec} data-testid="fin-quitar">Marcar como quitado</button>
+                            <span style={acaoAjuda}><button onClick={() => recalcular(r)} style={btnSec}>Recalcular</button><AjudaCampo chave="ge.financiamento.acao_recalcular" /></span>
+                            <span style={acaoAjuda}><button onClick={() => gerarCronograma(r)} style={btnSec}>Gerar cronograma</button><AjudaCampo chave="ge.financiamento.acao_gerar_cronograma" /></span>
+                            <span style={acaoAjuda}><button onClick={() => gerarPagar(r)} style={btnSec}>Gerar contas a pagar</button><AjudaCampo chave="ge.financiamento.acao_gerar_pagar" /></span>
+                            <span style={acaoAjuda}><button onClick={() => setAcao({ tipo: 'quitar', alvos: [r] })} style={btnSec} data-testid="fin-quitar">Marcar como quitado</button><AjudaCampo chave="ge.financiamento.acao_quitar" /></span>
                           </>
                         )}
-                        {sit === 'quitados' && <button onClick={() => void aplicar([r], 'reabrir')} style={btnSec}>Reabrir</button>}
+                        {sit === 'quitados' && <span style={acaoAjuda}><button onClick={() => void aplicar([r], 'reabrir')} style={btnSec}>Reabrir</button><AjudaCampo chave="ge.financiamento.acao_reabrir" /></span>}
                         {sit === 'arquivados'
-                          ? <button onClick={() => void aplicar([r], 'desarquivar')} style={btnSec} data-testid="fin-desarquivar">Desarquivar</button>
-                          : <button onClick={() => setAcao({ tipo: 'arquivar', alvos: [r] })} style={btnSec} data-testid="fin-arquivar">Arquivar</button>}
-                        <button onClick={() => setAcao({ tipo: 'excluir', alvos: [r] })} style={btnDanger} data-testid="fin-excluir">Excluir</button>
+                          ? <span style={acaoAjuda}><button onClick={() => void aplicar([r], 'desarquivar')} style={btnSec} data-testid="fin-desarquivar">Desarquivar</button><AjudaCampo chave="ge.financiamento.acao_desarquivar" /></span>
+                          : <span style={acaoAjuda}><button onClick={() => setAcao({ tipo: 'arquivar', alvos: [r] })} style={btnSec} data-testid="fin-arquivar">Arquivar</button><AjudaCampo chave="ge.financiamento.acao_arquivar" /></span>}
+                        <span style={acaoAjuda}><button onClick={() => setAcao({ tipo: 'excluir', alvos: [r] })} style={btnDanger} data-testid="fin-excluir">Excluir</button><AjudaCampo chave="ge.financiamento.acao_excluir" /></span>
                       </>
                     )}
-                    <AjudaCampo chave="ge.financiamento.acoes" />
                   </div>
                 </div>
               )
@@ -407,7 +409,18 @@ export default function FinanciamentoPage() {
           companyId={empresaUnica}
           initial={editing ?? undefined}
           onClose={() => setEditing(undefined)}
-          onSaved={() => { setEditing(undefined); reload() }}
+          onSaved={async (savedId, isNew, aviso) => {
+            setEditing(undefined)
+            await reload()
+            reloadParcelas()
+            if (aviso) setToast(aviso)
+            // Jornada: contrato novo abre direto no detalhe (com o cronograma já gerado), próximo passo
+            // "Gerar contas a pagar" à mão. Edição não reabre o detalhe (fica na lista).
+            if (isNew && savedId) {
+              const { data } = await supabase.from('financiamentos').select('*').eq('id', savedId).single()
+              if (data) setViewing(data as Financiamento)
+            }
+          }}
         />
       )}
     </div>
@@ -445,6 +458,11 @@ const btnNovo: CSSProperties = {
   fontWeight: 600,
   cursor: 'pointer',
   minHeight: 44,
+}
+const acaoAjuda: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 2,
 }
 const btnSec: CSSProperties = {
   border: `1px solid ${BORDA}`,
