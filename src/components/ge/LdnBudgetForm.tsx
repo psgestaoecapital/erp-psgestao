@@ -102,7 +102,7 @@ export default function LdnBudgetForm({ companyId, ldn, ano, onClose, onSaved }:
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-            <div>
+            <div data-ajuda="ge.divisoes.budget_receita">
               <label style={{ display: 'flex', alignItems: 'center', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6, fontWeight: 700 }}>
                 Receita por mês (R$)<AjudaCampo chave="ge.divisoes.budget_receita" rota={ROTA_AJUDA} />
               </label>
@@ -111,7 +111,7 @@ export default function LdnBudgetForm({ companyId, ldn, ano, onClose, onSaved }:
                 Total anual: R$ {fmt(receitaAnual)}
               </div>
             </div>
-            <div>
+            <div data-ajuda="ge.divisoes.budget_despesa">
               <label style={{ display: 'flex', alignItems: 'center', fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6, fontWeight: 700 }}>
                 Despesa por mês (R$)<AjudaCampo chave="ge.divisoes.budget_despesa" rota={ROTA_AJUDA} />
               </label>
