@@ -133,6 +133,20 @@ export default function MeusTrabalhosPage() {
             <span className="inline-flex items-center text-[11.5px] text-[#3D2314]/60">situação<AjudaCampo chave="pm.meus_trabalhos.situacao" /></span>
             <span className="ml-auto inline-flex items-center gap-1 text-[11.5px] text-[#3D2314]/60"><Play size={11} fill="currentColor" /> aponta horas <AjudaCampo chave="pm.meus_trabalhos.apontar" /></span>
           </div>
+          {erro && (
+            // Critério d (auditoria 19/11): quando a carga falha, o painel central nunca fica em branco — mostra o que
+            // aconteceu, como tentar de novo e um caminho para seguir (Ver a Pauta), além do aviso do topo.
+            <div className="rounded-xl border border-dashed border-[#791F1F]/25 bg-[#FAF7F2] px-4 py-6 text-center" data-testid="mt-lista-erro">
+              <Briefcase size={22} className="mx-auto mb-2 text-[#791F1F]" />
+              <div className="text-[13px] font-medium text-[#3D2314]">Não foi possível carregar seus trabalhos agora.</div>
+              <div className="mt-1 text-[12px] text-[#3D2314]/65">Pode ser uma instabilidade momentânea de conexão. Tente de novo ou abra a Pauta.</div>
+              <span className="mt-3 inline-flex items-center justify-center gap-2">
+                <button onClick={() => void carregar()} className="rounded-lg bg-[#3D2314] px-3.5 py-2 text-[12.5px] font-medium text-white hover:bg-[#3D2314]/90" data-testid="mt-lista-erro-tentar">Tentar de novo</button>
+                <Link href="/dashboard/pm/pauta" className="rounded-lg border border-[#3D2314]/15 bg-white px-3.5 py-2 text-[12.5px] font-medium hover:bg-[#FAEEDA]" data-testid="mt-lista-erro-pauta">Ver a Pauta</Link>
+                <AjudaCampo chave="pm.meus_trabalhos.ver_pauta" />
+              </span>
+            </div>
+          )}
           {!grupos.length && !carregando && !erro && (
             <div className="rounded-xl border border-dashed border-[#3D2314]/15 bg-[#FAF7F2] px-4 py-6 text-center" data-testid="mt-vazio">
               <Briefcase size={22} className="mx-auto mb-2 text-[#C8941A]" />
