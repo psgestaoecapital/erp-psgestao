@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs'
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗', m) } else console.log('✓', m) }
 
-const MIG = 'supabase/migrations/20261121094020_pendencias_dia_sem_categoria_deeplink.sql'
+const MIG = 'supabase/migrations/20261121094120_pendencias_dia_sem_categoria_deeplink.sql'
 const sql = readFileSync(MIG, 'utf8')
 
 // os 2 links corrigidos nesta fatia
