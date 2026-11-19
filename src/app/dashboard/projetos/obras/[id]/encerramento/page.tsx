@@ -395,7 +395,7 @@ export default function EncerramentoObraPage({ params }: { params: Promise<{ id:
 
                   {/* faixa de situação */}
                   <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 999, marginBottom: 14, background: assinado ? 'rgba(46,125,82,0.12)' : 'rgba(200,148,26,0.14)', color: assinado ? VERDE : '#8A6A12' }}>
-                    {assinado ? '✓ Assinado' : termo ? '✎ Rascunho' : '• Ainda não iniciado'}
+                    {assinado ? '✓ Assinado' : termo ? 'Rascunho' : '• Ainda não iniciado'}
                     {assinado && termo?.assinado_em && <span style={{ fontWeight: 500, color: MUT }}>· em {fmtData(termo.assinado_em)}</span>}
                   </div>
 
