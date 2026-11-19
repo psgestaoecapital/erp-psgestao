@@ -9,8 +9,9 @@
 //   - plano trava quando o contrato está 'ativo' (as RPCs recusam edição; a tela fica read-only).
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
-import { Trash2, Plus, AlertCircle, CheckCircle2, Wand2 } from 'lucide-react'
+import { Trash2, Plus, AlertCircle, CheckCircle2, Wand2, Clock3, ExternalLink } from 'lucide-react'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 // O editor de parcelas aparece dentro do modal de contrato de fee (ContratoFeeModal), na tela de Contratos
@@ -32,6 +33,7 @@ interface Conta { id: string; nome: string; banco: string | null }
 interface Props {
   contratoId: string
   companyId: string
+  contasCompanyId?: string         // empresa cujas CONTAS alimentam a dropdown (= faturadora; fallback: companyId)
   valorMensal: number              // referência do rodapé (soma esperada = valorMensal × nº parcelas)
   readOnly?: boolean               // contrato 'ativo' → plano imutável
   defaultPrimeiro?: string | null  // sugestão do "Automáticas" (= data De do fee)
@@ -56,7 +58,10 @@ const inp: React.CSSProperties = { width: '100%', minHeight: 36, padding: '6px 8
 const btn: React.CSSProperties = { minHeight: 32, padding: '6px 10px', fontSize: 11, fontWeight: 600, border: `1px solid ${C.gold}`, borderRadius: 6, background: C.goldBg, color: C.goldD, cursor: 'pointer' }
 const btnPri: React.CSSProperties = { minHeight: 44, padding: '10px 16px', fontSize: 13, fontWeight: 700, border: 'none', borderRadius: 8, background: C.gold, color: C.white, cursor: 'pointer' }
 
-export default function ParcelasContratoEditor({ contratoId, companyId, valorMensal, readOnly, defaultPrimeiro, defaultN, onSaved }: Props) {
+export default function ParcelasContratoEditor({ contratoId, companyId, contasCompanyId, valorMensal, readOnly, defaultPrimeiro, defaultN, onSaved }: Props) {
+  // A conta de recebimento tem de ser da empresa que FATURA. Se o financeiro trocar a faturadora, as contas
+  // (e as já escolhidas que não pertencem à nova empresa) acompanham. Fallback: a própria empresa do contrato.
+  const contasCompany = contasCompanyId || companyId
   const [parcelas, setParcelas] = useState<ParcelaContrato[]>([])
   const [contas, setContas] = useState<Conta[]>([])
   const [loading, setLoading] = useState(true)
@@ -68,6 +73,11 @@ export default function ParcelasContratoEditor({ contratoId, companyId, valorMen
   const [autoPrimeiro, setAutoPrimeiro] = useState(defaultPrimeiro || hojeISO())
   const [autoN, setAutoN] = useState(defaultN && defaultN > 0 ? String(defaultN) : '12')
   const [gerando, setGerando] = useState(false)
+  // SPEC gerar-agora: escolha por contrato de QUANDO as contas a receber nascem.
+  const [modoGeracao, setModoGeracao] = useState<'ao_ativar' | 'agora'>('ao_ativar')
+  const [receberCount, setReceberCount] = useState(0)
+  const [gerandoAgora, setGerandoAgora] = useState(false)
+  const [planoSalvoSemGerar, setPlanoSalvoSemGerar] = useState(false)
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -77,11 +87,18 @@ export default function ParcelasContratoEditor({ contratoId, companyId, valorMen
       .eq('contrato_id', contratoId)
       .order('numero', { ascending: true })
     const { data: cts } = await supabase
-      .from('erp_banco_contas').select('id,nome,banco').eq('company_id', companyId).eq('ativo', true).order('nome')
+      .from('erp_banco_contas').select('id,nome,banco').eq('company_id', contasCompany).eq('ativo', true).order('nome')
+    // contas a receber vivas já geradas para este contrato (dirige o selo "geradas" x "aguardando")
+    const { count: rc } = await supabase
+      .from('erp_receber').select('id', { count: 'exact', head: true })
+      .eq('contrato_id', contratoId).eq('ref_externa_sistema', 'contrato_parcela').is('deleted_at', null)
+    setReceberCount(rc ?? 0)
+    const validas = new Set((cts ?? []).map((c) => c.id))
     setContas((cts ?? []) as Conta[])
-    setParcelas((data ?? []).map((p) => ({ ...p, valor: Number(p.valor), conta_bancaria_id: p.conta_bancaria_id ?? null })) as ParcelaContrato[])
+    // Revalida a seleção: conta que não é da empresa que fatura é LIMPA (nunca salva conta de empresa errada).
+    setParcelas((data ?? []).map((p) => ({ ...p, valor: Number(p.valor), conta_bancaria_id: (p.conta_bancaria_id && validas.has(p.conta_bancaria_id)) ? p.conta_bancaria_id : null })) as ParcelaContrato[])
     setLoading(false)
-  }, [contratoId, companyId])
+  }, [contratoId, contasCompany])
 
   useEffect(() => { void carregar() }, [carregar])
 
@@ -120,7 +137,7 @@ export default function ParcelasContratoEditor({ contratoId, companyId, valorMen
       p_valor: round2(Number(valorMensal) || 0), p_conta_id: conta,
     })
     setGerando(false)
-    if (error) { setMsgErr(error.message); return }
+    if (error) { setMsgErr(traduzErro(error.message)); return }
     const r = data as { ok?: boolean; erro?: string; parcelas?: number }
     if (!r?.ok) { setMsgErr(traduzErro(r?.erro)); return }
     setAutoAberto(false)
@@ -139,12 +156,31 @@ export default function ParcelasContratoEditor({ contratoId, companyId, valorMen
     }))
     const { data, error } = await supabase.rpc('fn_contrato_parcelas_salvar', { p_contrato_id: contratoId, p_parcelas: payload })
     setSalvando(false)
-    if (error) { setMsgErr(error.message); return }
+    if (error) { setMsgErr(traduzErro(error.message)); return }
     const r = data as { ok?: boolean; erro?: string; parcelas?: number }
     if (!r?.ok) { setMsgErr(traduzErro(r?.erro)); return }
-    await carregar()
-    setMsgOk(`Plano salvo · ${r.parcelas ?? payload.length} parcela(s).`)
     onSaved?.(r.parcelas ?? payload.length)
+    if (modoGeracao === 'agora') { await gerarAgora(); return }
+    await carregar()
+    setPlanoSalvoSemGerar(receberCount === 0)
+    setMsgOk(`Plano salvo · ${r.parcelas ?? payload.length} parcela(s).${receberCount === 0 ? ' As cobranças ainda não foram criadas.' : ''}`)
+  }
+
+  // SPEC 3.3/4.2: salva o plano e cria as contas a receber AGORA (mesmo em elaboração, sem anexo).
+  async function gerarAgora() {
+    const n = parcelas.length
+    if (!window.confirm(`Vão nascer ${n} conta(s) a receber (total ${fmtBRL(soma)}), faturadas pela empresa faturadora do contrato. Confirmar?`)) {
+      setMsgOk('Plano salvo. As contas a receber não foram criadas — você cancelou a geração.'); setPlanoSalvoSemGerar(receberCount === 0); await carregar(); return
+    }
+    setGerandoAgora(true); setMsgErr(null); setMsgOk(null)
+    const { data, error } = await supabase.rpc('fn_contrato_parcelas_gerar_agora', { p_contrato_id: contratoId })
+    setGerandoAgora(false)
+    if (error) { setMsgErr(traduzErro(error.message)); return }
+    const r = data as { ok?: boolean; erro?: string; gerados?: number; total?: number }
+    if (!r?.ok) { setMsgErr(traduzErro(r?.erro)); return }
+    setPlanoSalvoSemGerar(false)
+    await carregar()
+    setMsgOk(`Contas a receber criadas: ${r.gerados ?? n} cobrança(s) (total ${fmtBRL(r.total ?? soma)}).`)
   }
 
   if (loading) return <p style={{ fontSize: 12, color: C.espressoM, fontStyle: 'italic', margin: 0 }}>Carregando parcelas…</p>
@@ -184,6 +220,12 @@ export default function ParcelasContratoEditor({ contratoId, companyId, valorMen
             {gerando ? 'Gerando…' : `Gerar ${autoN}× de ${fmtBRL(valorMensal)}`}
           </button>
         </div>
+      )}
+
+      {contasCompany !== companyId && !readOnly && (
+        <p style={{ fontSize: 11, color: C.amber, background: C.amberBg, border: `1px solid ${C.amber}44`, borderRadius: 6, padding: '6px 8px', margin: '0 0 8px' }}>
+          ⓘ Escolha a conta de recebimento da <strong>empresa que fatura</strong> — são as contas que aparecem abaixo. Ao trocar a empresa que fatura, as contas acompanham.
+        </p>
       )}
 
       {parcelas.length === 0 ? (
@@ -242,10 +284,39 @@ export default function ParcelasContratoEditor({ contratoId, companyId, valorMen
         </div>
       )}
 
+      {/* SPEC 4.1: escolha de QUANDO as contas a receber nascem (por contrato) */}
+      {!readOnly && parcelas.length > 0 && (
+        <div data-ajuda="ge.contratos.geracao_contas_receber" style={{ padding: 10, background: C.cream, borderRadius: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: C.espresso, display: 'flex', alignItems: 'center' }}>
+            Geração das contas a receber <AjudaCampo chave="ge.contratos.geracao_contas_receber" rota={ROTA_AJUDA} />
+          </span>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12, color: C.espresso, cursor: 'pointer' }}>
+            <input type="radio" name="geracao-cr" checked={modoGeracao === 'ao_ativar'} onChange={() => setModoGeracao('ao_ativar')} data-testid="geracao-cr-ao-ativar" style={{ marginTop: 2 }} />
+            <span><strong>Gerar ao ativar o contrato</strong> <span style={{ color: C.espressoM }}>(padrão)</span> <AjudaCampo chave="ge.contratos.geracao_contas_receber" rota={ROTA_AJUDA} /><br /><span style={{ fontSize: 11, color: C.espressoM }}>As cobranças nascem quando o contrato for ativado.</span></span>
+          </label>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12, color: C.espresso, cursor: 'pointer' }}>
+            <input type="radio" name="geracao-cr" checked={modoGeracao === 'agora'} onChange={() => setModoGeracao('agora')} data-testid="geracao-cr-agora" style={{ marginTop: 2 }} />
+            <span><strong>Gerar agora</strong> <AjudaCampo chave="ge.contratos.geracao_contas_receber" rota={ROTA_AJUDA} /><br /><span style={{ fontSize: 11, color: C.espressoM }}>Cria as contas a receber imediatamente, mesmo com o contrato em elaboração e sem anexo/assinatura. Use quando a NF sai depois mas o financeiro já precisa das cobranças.</span></span>
+          </label>
+        </div>
+      )}
+
+      {/* SPEC 4.3: selo do estado das cobranças (corrige a confusão do "Salvar plano") */}
+      {receberCount > 0 ? (
+        <div style={{ padding: 10, background: C.greenBg, borderRadius: 6, fontSize: 12, color: C.green, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }} data-testid="selo-contas-receber-geradas">
+          <CheckCircle2 size={14} /> Contas a receber geradas ({receberCount}/{parcelas.length || receberCount})
+          <Link href={`/dashboard/financeiro/receber?contrato=${contratoId}`} style={{ color: C.goldD, fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3 }}>ver no Contas a Receber <ExternalLink size={12} /></Link>
+        </div>
+      ) : (planoSalvoSemGerar && parcelas.length > 0) ? (
+        <div style={{ padding: 10, background: C.amberBg, borderRadius: 6, fontSize: 12, color: C.amber, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }} data-testid="selo-contas-receber-aguardando">
+          <Clock3 size={14} /> Plano salvo · aguardando geração das contas a receber. As cobranças ainda não foram criadas — ative o contrato ou use "Gerar agora".
+        </div>
+      ) : null}
+
       {!readOnly && (
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <button type="button" onClick={() => void salvar()} disabled={salvando || parcelas.length === 0} data-testid="parcelas-contrato-salvar" style={{ ...btnPri, opacity: (salvando || parcelas.length === 0) ? 0.5 : 1 }}>
-            {salvando ? 'Salvando…' : 'Salvar plano de parcelas'}
+          <button type="button" onClick={() => void salvar()} disabled={salvando || gerandoAgora || parcelas.length === 0} data-testid="parcelas-contrato-salvar" style={{ ...btnPri, opacity: (salvando || gerandoAgora || parcelas.length === 0) ? 0.5 : 1 }}>
+            {salvando ? 'Salvando…' : gerandoAgora ? 'Gerando…' : modoGeracao === 'agora' ? 'Salvar e gerar contas a receber' : 'Salvar plano de parcelas'}
           </button>
         </div>
       )}
@@ -260,6 +331,14 @@ function traduzErro(e?: string): string {
     case 'sem_acesso': return 'Você não tem acesso a esta empresa.'
     case 'n_parcelas_invalido': return 'Número de parcelas inválido.'
     case 'parcelas_invalidas': return 'Plano de parcelas inválido.'
-    default: return e || 'Não foi possível salvar as parcelas.'
+    case 'plano_sem_valor': return 'O plano está zerado — informe o valor das parcelas antes de gerar as contas a receber.'
+    case 'falha_geracao': return 'Não foi possível gerar as contas a receber. Tente novamente.'
+    case 'conta_de_outra_empresa': return 'A conta de recebimento precisa ser da empresa que fatura.'
+    case 'parcela_conta_outra_empresa': return 'A conta de recebimento precisa ser da empresa que fatura — corrija a conta das parcelas antes de gerar as cobranças.'
+    default:
+      // Erros vindos por RAISE (ex.: parcela_conta_outra_empresa na geração) chegam na mensagem crua.
+      if (e && e.includes('parcela_conta_outra_empresa')) return 'A conta de recebimento precisa ser da empresa que fatura — corrija a conta das parcelas antes de gerar as cobranças.'
+      if (e && e.includes('conta_de_outra_empresa')) return 'A conta de recebimento precisa ser da empresa que fatura.'
+      return e || 'Não foi possível salvar as parcelas.'
   }
 }

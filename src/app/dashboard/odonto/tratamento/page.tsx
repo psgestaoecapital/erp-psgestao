@@ -6,6 +6,10 @@ import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { authFetch } from '@/lib/authFetch'
 import { SaldoBadge } from '@/components/odonto/ui'
 import { PainelPlanos } from '@/components/odonto/PainelPlanos'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { numeroParaMoeda, moedaParaNumero } from '@/lib/moeda-mascara'
+import { baixarEspelhoNFePdf, type EspelhoNota } from '@/lib/fiscal/espelhoPdf'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -310,6 +314,30 @@ export default function TratamentoPage() {
     if (planoId) await carregarExec(planoId)
   }
 
+  // #9724 (decisão B) · PRÉVIA/ESPELHO: monta a NFS-e com apenasPrevia=true e baixa o PDF marcado
+  // "PRÉVIA — SEM VALOR FISCAL". Não transmite à prefeitura, não numera, não grava. Mesmo payload da emissão.
+  const baixarEspelhoNfse = async (titulo: Titulo) => {
+    if (!fin) return
+    if (!servicoSel) { alert('Cadastre e selecione um serviço odontológico (com item LC116) em Cadastros › Serviços para gerar o espelho.'); return }
+    setBusy('espelho:' + titulo.id)
+    try {
+      const r = await authFetch('/api/fiscal/nfse/emitir', {
+        method: 'POST',
+        body: JSON.stringify({ companyId: fin.company_id, erpReceberId: titulo.id, servicoId: servicoSel, apenasPrevia: true }),
+      })
+      const j = (await r.json()) as { ok?: boolean; previa?: { nota?: EspelhoNota }; mensagem?: string; motivoRejeicao?: string }
+      if (!r.ok || !j.ok || !j.previa?.nota) {
+        alert(j.mensagem ?? j.motivoRejeicao ?? 'Não foi possível gerar o espelho da NFS-e.')
+        return
+      }
+      await baixarEspelhoNFePdf(j.previa.nota, { empresa: null, emitidoEmISO: new Date().toISOString(), modelo: 'nfse' })
+    } catch (e) {
+      alert('Falha ao gerar o espelho: ' + ((e as Error)?.message ?? 'erro'))
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const emitirNfse = async (titulo: Titulo) => {
     if (!fin) return
     if (!servicoSel) { alert('Cadastre e selecione um serviço odontológico (com item LC116) em Cadastros › Serviços para emitir NFS-e.'); return }
@@ -411,8 +439,8 @@ export default function TratamentoPage() {
               </select>
             </div>
             <div style={{ width: 120 }}>
-              <label className="block text-xs font-medium mb-1">Valor (R$)</label>
-              <input type="number" value={valorItem} onChange={(e) => setValorItem(Number(e.target.value))} className="w-full rounded-xl px-3 py-2 text-sm outline-none" style={{ border: `1px solid ${LINE}`, color: ESP }} />
+              <label className="block text-xs font-medium mb-1">Valor (R$)<AjudaCampo chave="odonto.tratamento.item_valor" /></label>
+              <CampoMoeda value={numeroParaMoeda(valorItem)} onChange={(v) => setValorItem(moedaParaNumero(v) ?? 0)} placeholder="0,00" className="w-full rounded-xl px-3 py-2 text-sm outline-none" style={{ border: `1px solid ${LINE}`, color: ESP }} />
             </div>
             <button onClick={addItem} className="px-4 py-2 rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-1" style={{ background: ESP, color: '#fff' }}>
               <Plus size={15} /> {sel.size ? `Add ${sel.size} dente(s)` : 'Add geral'}
@@ -432,8 +460,8 @@ export default function TratamentoPage() {
               </div>
             ))}
             <div className="flex items-center justify-between px-3 py-2" style={{ borderBottom: `1px solid ${LINE}` }}>
-              <span className="text-sm" style={{ color: ESP60 }}>Desconto (R$)</span>
-              <input type="number" value={desconto} onChange={(e) => setDesconto(Number(e.target.value))} className="w-28 text-right rounded-lg px-2 py-1 text-sm outline-none" style={{ border: `1px solid ${LINE}`, color: ESP }} />
+              <span className="text-sm" style={{ color: ESP60 }}>Desconto (R$)<AjudaCampo chave="odonto.tratamento.desconto" /></span>
+              <CampoMoeda value={numeroParaMoeda(desconto)} onChange={(v) => setDesconto(moedaParaNumero(v) ?? 0)} placeholder="0,00" className="w-28 text-right rounded-lg px-2 py-1 text-sm outline-none" style={{ border: `1px solid ${LINE}`, color: ESP }} />
             </div>
             <div className="flex items-center justify-between px-3 py-3" style={{ background: BG }}>
               <span className="font-semibold">Total</span>
@@ -450,8 +478,8 @@ export default function TratamentoPage() {
                 <input type="number" min={1} value={parcelas} onChange={(e) => setParcelas(Math.max(1, Number(e.target.value)))} className="w-full rounded-lg px-2 py-1.5 text-sm outline-none" style={{ border: `1px solid ${LINE}`, color: ESP }} />
               </div>
               <div>
-                <label className="block text-[11px] mb-1" style={{ color: ESP60 }}>Entrada (R$)</label>
-                <input type="number" min={0} value={entrada} onChange={(e) => setEntrada(Math.max(0, Number(e.target.value)))} className="w-full rounded-lg px-2 py-1.5 text-sm outline-none" style={{ border: `1px solid ${LINE}`, color: ESP }} />
+                <label className="block text-[11px] mb-1" style={{ color: ESP60 }}>Entrada (R$)<AjudaCampo chave="odonto.tratamento.entrada" /></label>
+                <CampoMoeda value={numeroParaMoeda(entrada)} onChange={(v) => setEntrada(Math.max(0, moedaParaNumero(v) ?? 0))} placeholder="0,00" className="w-full rounded-lg px-2 py-1.5 text-sm outline-none" style={{ border: `1px solid ${LINE}`, color: ESP }} />
               </div>
               <div>
                 <label className="block text-[11px] mb-1" style={{ color: ESP60 }}>1º vencimento</label>
@@ -603,11 +631,20 @@ export default function TratamentoPage() {
                         {N.l}{t.nfse_numero ? ` · nº ${t.nfse_numero}` : ''}
                       </span>
                     ) : (
-                      <button onClick={() => emitirNfse(t)} disabled={busy === 'nfse:' + t.id || servicos.length === 0}
-                        className="px-3 py-1.5 rounded-lg text-[11.5px] font-semibold inline-flex items-center gap-1 disabled:opacity-50"
-                        style={{ background: '#fff', border: `1px solid ${GOLD}`, color: GOLD }}>
-                        <Receipt size={13} /> {busy === 'nfse:' + t.id ? 'Emitindo…' : 'Emitir NFS-e'}
-                      </button>
+                      <>
+                        <button onClick={() => emitirNfse(t)} disabled={busy === 'nfse:' + t.id || servicos.length === 0}
+                          className="px-3 py-1.5 rounded-lg text-[11.5px] font-semibold inline-flex items-center gap-1 disabled:opacity-50"
+                          style={{ background: '#fff', border: `1px solid ${GOLD}`, color: GOLD }}>
+                          <Receipt size={13} /> {busy === 'nfse:' + t.id ? 'Emitindo…' : 'Emitir NFS-e'}
+                        </button>
+                        {/* #9724 (decisão B) · espelho/prévia PDF — não transmite, não numera */}
+                        <button onClick={() => baixarEspelhoNfse(t)} disabled={busy === 'espelho:' + t.id || servicos.length === 0}
+                          title="Baixa um PDF da NFS-e montada marcado como PRÉVIA — SEM VALOR FISCAL. Não transmite nem numera."
+                          className="px-3 py-1.5 rounded-lg text-[11.5px] font-semibold inline-flex items-center gap-1 disabled:opacity-50"
+                          style={{ background: '#fff', border: `1px solid ${LINE}`, color: ESP60 }}>
+                          <FileText size={13} /> {busy === 'espelho:' + t.id ? 'Gerando…' : 'Espelho (PDF)'}
+                        </button>
+                      </>
                     )}
                     {N?.l === 'NFS-e rejeitada' && (
                       <button onClick={() => emitirNfse(t)} disabled={busy === 'nfse:' + t.id} className="px-2.5 py-1 rounded-lg text-[11px] font-semibold disabled:opacity-50" style={{ background: '#fff', border: `1px solid ${LINE}`, color: ESP60 }}>Reenviar</button>

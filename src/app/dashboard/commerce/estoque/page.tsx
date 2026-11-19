@@ -17,6 +17,9 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
+import { parseNumBR } from '@/lib/num'
 import { selecionarTodas } from '@/lib/selecionarTodas'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import TabVeiculosRevenda, { type EstoqueVeiculos } from '@/components/estoque/TabVeiculosRevenda'
@@ -1718,8 +1721,8 @@ function ModalMovimentar({ produtos, locais, produtoInicial, onClose, onSubmit }
       produto_id: produtoId,
       local_id: localId || null,
       tipo,
-      quantidade: parseFloat(quantidade) || 0,
-      custo_unitario: parseFloat(custo) || 0,
+      quantidade: parseNumBR(quantidade) || 0,   // #5660 · aceita vírgula ("1,5") como decimal
+      custo_unitario: moedaParaNumero(custo) ?? 0,   // #6874 · custo mascarado em R$ (CampoMoeda) → número
       motivo: motivo || null,
       observacoes: observacoes || null,
       lote: lote || null,
@@ -1777,8 +1780,8 @@ function ModalMovimentar({ produtos, locais, produtoInicial, onClose, onSubmit }
             </Field>
           )}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <Field label="Quantidade *" ajuda="commerce.estoque.movf.quantidade"><input type="number" step="0.01" value={quantidade} onChange={(e) => setQuantidade(e.target.value)} style={inp} /></Field>
-            {isEntrada && <Field label="Custo unitário" ajuda="commerce.estoque.movf.custo"><input type="number" step="0.01" value={custo} onChange={(e) => setCusto(e.target.value)} style={inp} /></Field>}
+            <Field label="Quantidade *" ajuda="commerce.estoque.movf.quantidade"><input type="text" inputMode="decimal" value={quantidade} onChange={(e) => setQuantidade(e.target.value)} placeholder="0" style={inp} /></Field>
+            {isEntrada && <Field label="Custo unitário" ajuda="commerce.estoque.movf.custo"><CampoMoeda value={custo} onChange={(v) => setCusto(v)} placeholder="R$ 0,00" style={inp} /></Field>}
           </div>
           <Field label="Motivo" ajuda="commerce.estoque.movf.motivo"><input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder={isEntrada ? 'Ex: Compra fornecedor X' : 'Ex: Venda balcão #4521'} style={inp} /></Field>
           {isEntrada && (
@@ -1941,12 +1944,12 @@ function ModalAjuste({ companyId, locais, movimentacoes, onClose, onSubmit }: {
     setProdutoSel(p)
     if (!custo) {
       const c = Number(p.preco_custo_medio ?? p.preco_custo ?? 0)
-      if (c > 0) setCusto(c.toFixed(2).replace('.', ','))
+      if (c > 0) setCusto(numeroParaMoeda(c))
     }
   }
 
   const qtdN = Number(quantidade.replace(',', '.')) || 0
-  const custoN = Number(custo.replace(',', '.')) || 0
+  const custoN = moedaParaNumero(custo) ?? 0
   const saldoFinal = saldoAtual != null ? (positivo ? saldoAtual + qtdN : saldoAtual - qtdN) : null
 
   async function salvar() {
@@ -2041,8 +2044,8 @@ function ModalAjuste({ companyId, locais, movimentacoes, onClose, onSubmit }: {
             <div>
               <label style={{ fontSize: 11, color: C.espressoM, fontWeight: 600 }}>Custo unitário</label>
               <AjudaCampo chave="commerce.estoque.ajuste.custo" />
-              <input type="text" inputMode="decimal" value={custo} onChange={(e) => setCusto(e.target.value)} placeholder="0,00"
-                data-testid="ajuste-custo" style={{ ...selInpStyle, marginTop: 4, width: '100%', textAlign: 'right' }} />
+              <CampoMoeda value={custo} onChange={(v) => setCusto(v)} placeholder="0,00"
+                testId="ajuste-custo" style={{ ...selInpStyle, marginTop: 4, width: '100%', textAlign: 'right' }} />
             </div>
           </div>
 
@@ -2404,11 +2407,11 @@ function DrawerInventario({ inventario, produtos, locaisPorId, onClose, onFechad
                             <span>{contado != null ? fmtNum(Number(contado)) : '—'}</span>
                           ) : (
                             <input
-                              type="number" step="0.001"
+                              type="text" inputMode="decimal"
                               defaultValue={contado ?? ''}
                               onBlur={(e) => {
-                                const v = parseFloat(e.target.value)
-                                if (!isNaN(v)) void alterarContado(it, v)
+                                const v = parseNumBR(e.target.value)   // #5660 · aceita vírgula na contagem
+                                if (v != null) void alterarContado(it, v)
                               }}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') {

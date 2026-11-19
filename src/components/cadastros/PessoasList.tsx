@@ -35,8 +35,11 @@ export default function PessoasList({ companyId, tipo }: Props) {
   // a busca, feita só no array carregado, nunca os achava. Agora pagina e busca NO SERVIDOR.
   const PAGE_SIZE = 50
   const SELECT_COLS =
-    'id, company_id, nome_fantasia, razao_social, cnpj_cpf, tipo_pessoa, ie, inscricao_municipal, contribuinte_icms, email, telefone, whatsapp, cep, logradouro, numero, bairro, complemento, cidade, uf, ativo, tags' +
-    (tabela === 'erp_clientes' ? ', codigo_ibge_municipio' : '')
+    'id, company_id, nome_fantasia, razao_social, cnpj_cpf, cpf_cnpj, tipo_pessoa, ie, inscricao_municipal, contribuinte_icms, email, telefone, whatsapp, cep, logradouro, numero, bairro, complemento, cidade, uf, ativo, tags' +
+    // Colunas comerciais só existem em erp_clientes (editadas no PessoaForm — RD-98). Fornecedor não as tem.
+    (tabela === 'erp_clientes'
+      ? ', codigo_ibge_municipio, codigo, limite_credito, condicao_pagamento_padrao, prazo_medio_dias, segmento, regime_tributario, origem, vendedor_nome, observacoes'
+      : '')
 
   const [pessoas, setPessoas] = useState<Pessoa[]>([])
   const [total, setTotal] = useState(0)
@@ -67,7 +70,8 @@ export default function PessoasList({ companyId, tipo }: Props) {
       const digitos = termo.replace(/\D/g, '')
       const ors: string[] = []
       if (texto) { ors.push(`nome_fantasia.ilike.*${texto}*`); ors.push(`razao_social.ilike.*${texto}*`) }
-      if (digitos) ors.push(`cnpj_cpf.ilike.*${digitos}*`)
+      // busca nas DUAS colunas de documento: cadastro grava cnpj_cpf, CRM grava cpf_cnpj
+      if (digitos) { ors.push(`cnpj_cpf.ilike.*${digitos}*`); ors.push(`cpf_cnpj.ilike.*${digitos}*`) }
       if (ors.length) q = q.or(ors.join(','))
     }
     const { data, error, count } = await q
@@ -347,7 +351,7 @@ function Card({ pessoa, inativo, onAbrir, onEditar, onInativar, onReativar }: { 
         </div>
         <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', marginTop: 3 }}>
           {pessoa.razao_social && pessoa.razao_social !== pessoa.nome_fantasia ? `${pessoa.razao_social} · ` : ''}
-          {fmtCNPJ(pessoa.cnpj_cpf)}
+          {fmtCNPJ(pessoa.cnpj_cpf ?? pessoa.cpf_cnpj ?? null)}
           {local && ` · ${local}`}
         </div>
         {contato && (
@@ -401,7 +405,7 @@ function PessoaDrawer({ pessoa, tipo, inativo, onClose, onEditar, onInativar, on
     const linhas = [
       ['Nome', pessoa.nome_fantasia],
       ['Razão social', pessoa.razao_social],
-      ['CNPJ/CPF', pessoa.cnpj_cpf],
+      ['CNPJ/CPF', pessoa.cnpj_cpf ?? pessoa.cpf_cnpj ?? null],
       ['Tipo', pessoa.tipo_pessoa],
       ['Email', pessoa.email],
       ['Telefone', pessoa.telefone],
@@ -432,7 +436,7 @@ function PessoaDrawer({ pessoa, tipo, inativo, onClose, onEditar, onInativar, on
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 15, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pessoa.nome_fantasia}</div>
-              <div style={{ fontSize: 11, color: 'rgba(250,247,242,0.7)' }}>{pessoa.tipo_pessoa ?? '—'} · {fmtCNPJ(pessoa.cnpj_cpf)}</div>
+              <div style={{ fontSize: 11, color: 'rgba(250,247,242,0.7)' }}>{pessoa.tipo_pessoa ?? '—'} · {fmtCNPJ(pessoa.cnpj_cpf ?? pessoa.cpf_cnpj ?? null)}</div>
             </div>
             <button type="button" onClick={onClose} aria-label="Fechar" style={{ background: 'transparent', color: '#FAF7F2', border: 'none', fontSize: 22, cursor: 'pointer' }}>×</button>
           </div>

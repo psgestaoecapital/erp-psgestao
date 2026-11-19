@@ -4,7 +4,9 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { CampoMoeda } from "@/components/comum/CampoMoeda";
+import { CampoPercent } from "@/lib/ui/CampoPercent";
 import { moedaParaNumero, numeroParaMoeda } from "@/lib/moeda-mascara";
+import { parseNumBR } from "@/lib/num";
 import { APP_URL } from "@/lib/appUrl";
 import { orFiltroClienteBusca } from "@/lib/clienteBusca";
 import { useCompanyIds } from "@/lib/useCompanyIds";
@@ -701,7 +703,20 @@ export default function OrcamentosPage(){
     await supabase.from("erp_orcamento_historico").insert({
       orcamento_id:o.id,company_id:o.company_id,evento:`status_${novoStatus}`,detalhe:`Status alterado para ${STATUS_CFG[novoStatus]?.label}`
     });
-    setMsg(`✅ Status alterado para ${STATUS_CFG[novoStatus]?.label}`);
+    // #9473 · ao enviar o orçamento, a oportunidade vinculada (Hub) saía de "Orçando" para
+    // "Proposta enviada" só no arrasto manual do Kanban — ficava presa em Orçando. Agora o envio
+    // avança a etapa automaticamente. Só avança quando AINDA está em "orcando" (não regride
+    // negociação/ganho/perdido) e usa a RPC oficial fn_crm_mover_etapa (RLS + histórico "etapa_mudou").
+    let avisoKanban="";
+    if(novoStatus==='enviado'){
+      const{data:op}=await supabase.from('erp_crm_oportunidade')
+        .select('id').eq('orcamento_id',o.id).eq('etapa','orcando').is('deleted_at',null).limit(1).maybeSingle();
+      if(op?.id){
+        const{data:mv}=await supabase.rpc('fn_crm_mover_etapa',{p_id:op.id,p_etapa:'proposta_enviada',p_motivo_perda:null});
+        if((mv as {ok?:boolean}|null)?.ok)avisoKanban=" · oportunidade movida para Proposta enviada no Kanban";
+      }
+    }
+    setMsg(`✅ Status alterado para ${STATUS_CFG[novoStatus]?.label}${avisoKanban}`);
     loadOrcamentos();
     setTimeout(()=>setMsg(""),3000);
   };
@@ -971,7 +986,7 @@ export default function OrcamentosPage(){
             {form.eh_permuta && (
               <label style={{fontSize:11.5,display:"flex",alignItems:"center",gap:6}}>
                 Percentual de permuta (%)
-                <input type="number" min={0} max={100} step="0.01" data-testid="orc-permuta-pct" value={form.permuta_percentual??''} onChange={e=>setForm({...form,permuta_percentual:e.target.value===''?null:Number(e.target.value)})} style={{...inp,width:90}}/>
+                <CampoPercent testId="orc-permuta-pct" value={form.permuta_percentual} onChange={n=>setForm({...form,permuta_percentual:n==null?null:Math.min(100,Math.max(0,n))})} style={{...inp,width:90}}/>
                 <AjudaCampo chave="orcamentos.campo.permuta_percentual" rota="/dashboard/orcamentos"/>
               </label>
             )}
@@ -1025,7 +1040,7 @@ export default function OrcamentosPage(){
           </div>
           <div style={{background:BG3,borderRadius:8,padding:12,marginBottom:12}}>
             <div style={{display:"grid",gridTemplateColumns:"40px 2fr 80px 80px 100px 70px 90px 30px",gap:6,alignItems:"center",fontSize:10,color:TXD,fontWeight:600,padding:"4px 0",borderBottom:`1px solid ${BD}`}}>
-              <div>#</div><div>Produto / Serviço</div><div>Qtd</div><div>UN</div><div>Preço Unit</div><div>Desc %</div><div style={{textAlign:"right"}}>Subtotal</div><div></div>
+              <div>#</div><div>Produto / Serviço</div><div style={{display:"flex",alignItems:"center",gap:3}}>Qtd<AjudaCampo chave="orcamentos.item.quantidade" rota="/dashboard/orcamentos"/></div><div>UN</div><div>Preço Unit</div><div>Desc %</div><div style={{textAlign:"right"}}>Subtotal</div><div></div>
             </div>
             {itens.map((it,idx)=>(
               <div key={idx} style={{display:"grid",gridTemplateColumns:"40px 2fr 80px 80px 100px 70px 90px 30px",gap:6,alignItems:"center",padding:"4px 0",borderBottom:`0.5px solid ${BD}`,position:"relative"}}>
@@ -1064,19 +1079,21 @@ export default function OrcamentosPage(){
                     )}
                   </>)}
                 </div>
-                <input type="number" step="0.01" value={it.quantidade||''} onChange={e=>atualizarItem(idx,'quantidade',parseFloat(e.target.value)||0)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/>
+                {/* #5660 · aceita vírgula · "?" (RD-95) no cabeçalho da coluna; data-ajuda no campo cobre a régua sem alterar o layout */}
+                <div data-ajuda="orcamentos.item.quantidade" style={{display:"contents"}}><input type="text" inputMode="decimal" placeholder="0" value={it.quantidade||''} onChange={e=>atualizarItem(idx,'quantidade',parseNumBR(e.target.value)||0)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/></div>
                 <input value={it.unidade} onChange={e=>atualizarItem(idx,'unidade',e.target.value)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"center"}}/>
                 <div>
-                  <input type="number" step="0.01" value={it.preco_unitario||''}
+                  {/* #6874 — preço unitário com máscara em R$ (valor gravado continua numérico) */}
+                  <CampoMoeda value={it.preco_unitario?numeroParaMoeda(it.preco_unitario):''}
                     readOnly={!!it._srv_eng && !podeAlterarPreco}
                     title={(it._srv_eng && !podeAlterarPreco) ? "Preço definido pelo catálogo (custo + BDI). Ajuste requer engenheiro/master." : undefined}
-                    onChange={e=>atualizarItem(idx,'preco_unitario',parseFloat(e.target.value)||0)}
+                    onChange={v=>atualizarItem(idx,'preco_unitario',moedaParaNumero(v)||0)}
                     style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right",background:(it._srv_eng && !podeAlterarPreco)?BG3:'#fff',cursor:(it._srv_eng && !podeAlterarPreco)?'not-allowed':'auto'}}/>
                   {it._srv_eng && (it.preco_custo??0)>0 && (
                     <div style={{fontSize:8,textAlign:"right",marginTop:1,color:TXD,display:"flex",gap:4,justifyContent:"flex-end",alignItems:"center",flexWrap:"wrap"}}>
                       <span>custo {fmtR(it.preco_custo||0)}</span>
                       <span>· BDI {podeAlterarPreco ? (
-                        <input type="number" step="0.1" value={it.bdi_percentual??''} onChange={e=>alterarBdiItem(idx,parseFloat(e.target.value)||0)}
+                        <CampoPercent value={it.bdi_percentual} onChange={n=>alterarBdiItem(idx,n||0)}
                           title="BDI % — recalcula o preço de venda na hora"
                           style={{width:36,fontSize:8,padding:'0 2px',textAlign:'right',border:`1px solid ${BD}`,borderRadius:3}}/>
                       ) : <b>{it.bdi_percentual!=null?it.bdi_percentual:'—'}</b>}%</span>
@@ -1087,14 +1104,14 @@ export default function OrcamentosPage(){
                     </div>
                   )}
                 </div>
-                <input type="number" step="0.1" value={it.desconto_percentual||''} onChange={e=>atualizarItem(idx,'desconto_percentual',parseFloat(e.target.value)||0)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/>
+                <CampoPercent value={it.desconto_percentual} onChange={n=>atualizarItem(idx,'desconto_percentual',n||0)} style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/>
                 <div style={{textAlign:"right",fontSize:12,fontWeight:600,color:G}}>{fmtR(it.subtotal)}</div>
                 <button onClick={()=>removerItem(idx)} style={{background:"none",border:"none",color:R,cursor:"pointer",fontSize:14}} title="Remover">🗑</button>
                 {it.tipo_item==='servico' && (
                   <div style={{gridColumn:"2 / -1",display:"flex",alignItems:"center",gap:8,fontSize:10,color:TXD,paddingTop:2,flexWrap:"wrap"}}>
                     <span style={{fontWeight:600}}>ISS %</span>
-                    <input type="number" step="0.01" value={it.aliquota_iss??''}
-                      onChange={e=>atualizarItem(idx,'aliquota_iss', e.target.value===''?undefined:(parseFloat(e.target.value)||0))}
+                    <CampoPercent value={it.aliquota_iss}
+                      onChange={n=>atualizarItem(idx,'aliquota_iss', n==null?undefined:n)}
                       placeholder={it._srv_aliquota_padrao!=null?`padrão ${it._srv_aliquota_padrao}`:'0'}
                       title="Alíquota ISS deste orçamento (override do cadastro do serviço)"
                       style={{width:70,padding:"3px 6px",fontSize:10,textAlign:"right",border:`1px solid ${BD}`,borderRadius:4}}/>
@@ -1152,7 +1169,7 @@ export default function OrcamentosPage(){
             <div><div style={{fontSize:10,color:TXD,marginBottom:3,display:"flex",alignItems:"center",gap:4}}>Valor Frete (R$)<AjudaCampo chave="orcamentos.campo.frete_valor" rota="/dashboard/orcamentos"/></div>
               <CampoMoeda value={form.frete_valor?numeroParaMoeda(form.frete_valor):''} onChange={m=>setForm({...form,frete_valor:moedaParaNumero(m)??0})} placeholder="R$ 0,00" style={inp}/></div>
             <div><div style={{fontSize:10,color:TXD,marginBottom:3}}>Desc. Geral (%)</div>
-              <input type="number" step="0.1" value={form.desconto_percentual||''} onChange={e=>setForm({...form,desconto_percentual:parseFloat(e.target.value)||0})} style={inp}/></div>
+              <CampoPercent value={form.desconto_percentual} onChange={n=>setForm({...form,desconto_percentual:n||0})} style={inp}/></div>
             <div><div style={{fontSize:10,color:TXD,marginBottom:3,display:"flex",alignItems:"center",gap:4}}>Desc. Geral (R$)<AjudaCampo chave="orcamentos.campo.desconto_valor" rota="/dashboard/orcamentos"/></div>
               <CampoMoeda value={form.desconto_valor?numeroParaMoeda(form.desconto_valor):''} onChange={m=>setForm({...form,desconto_valor:moedaParaNumero(m)??0})} placeholder="R$ 0,00" style={inp}/></div>
           </div>
@@ -1294,6 +1311,13 @@ export default function OrcamentosPage(){
                       </td>
                       <td style={{padding:"8px",textAlign:"center"}}>
                         <span style={{fontSize:9,padding:"3px 10px",borderRadius:6,background:cfg.cor+"15",color:cfg.cor,fontWeight:600,whiteSpace:"nowrap"}}>{o.status==='rascunho'&&o.orcamentista_id?"Em elaboração":`${cfg.icon} ${cfg.label}`}</span>
+                        {/* #9474 · validade vencida: alerta vermelho "Em atraso" claro na coluna de Status (o ⚠️ na
+                            data é discreto). dias em atraso = hoje − validade, só nos status que ainda aguardam o cliente. */}
+                        {expirado&&(()=>{const diasAtraso=Math.max(1,Math.floor((Date.now()-new Date(o.data_validade).getTime())/86400000));return(
+                          <div data-testid="orc-em-atraso" title={`Validade venceu há ${diasAtraso} dia${diasAtraso>1?'s':''} — orçamento em atraso`}
+                            style={{display:"inline-flex",alignItems:"center",gap:3,marginTop:3,fontSize:9,padding:"2px 8px",borderRadius:6,background:R+"18",color:R,fontWeight:700,whiteSpace:"nowrap"}}>
+                            ⚠ Em atraso · {diasAtraso}d
+                          </div>);})()}
                         {o.qtd_visualizacoes>0&&<div style={{fontSize:8,color:TXD,marginTop:2}}>👁 {o.qtd_visualizacoes} visualiz.</div>}
                       </td>
                       <td style={{padding:"8px",textAlign:"right",color:G,fontWeight:600}}>{fmtR(Number(o.total))}</td>
@@ -1428,7 +1452,8 @@ function OrcamentoPdfAnexo({ orcamentoId, companyId, onSaved }: { orcamentoId: s
       <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
         <div>
           <div style={{ fontSize: 10, color: TXD, marginBottom: 3 }}>Valor do orçamento (R$)</div>
-          <input type="number" step="0.01" value={valor} onChange={(e) => setValor(e.target.value)}
+          {/* #6874 — valor do orçamento com máscara em R$ (valor continua numérico, ver valorNum) */}
+          <CampoMoeda value={valor === "" ? "" : numeroParaMoeda(Number(valor.replace(",", ".")))} onChange={(v) => setValor(v === "" ? "" : String(moedaParaNumero(v) ?? ""))}
             style={{ padding: "8px 10px", border: `1px solid ${BD}`, borderRadius: 6, fontSize: 13, background: "#fff", color: TX, width: 160 }} placeholder="0,00" />
         </div>
         <button type="button" onClick={salvarValor} disabled={busy}

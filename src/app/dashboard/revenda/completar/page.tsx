@@ -10,7 +10,8 @@ import { supabase } from '@/lib/supabase'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
-import { numeroParaMoeda } from '@/lib/moeda-mascara'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -290,7 +291,8 @@ function LinhaLote({ r, companyId, ncmSugerido, onSaved, onErro }: { r: Row; com
   async function salvar() {
     setBusy(true)
     const { data: { session } } = await supabase.auth.getSession(); const user = session?.user
-    const { data, error } = await supabase.rpc('fn_veic_atualizar_dados', { p_veiculo_id: r.id, p_dados: f, p_user: user?.id ?? null })
+    // #6874 — valor_aquisicao vai ao banco como número puro (CampoMoeda guarda texto mascarado "R$ …" no form).
+    const { data, error } = await supabase.rpc('fn_veic_atualizar_dados', { p_veiculo_id: r.id, p_dados: { ...f, valor_aquisicao: moedaParaNumero(f.valor_aquisicao) }, p_user: user?.id ?? null })
     setBusy(false)
     const rr = data as { ok?: boolean; erro?: string; campo?: string; valor?: string } | null
     if (error || !rr?.ok) {
@@ -427,7 +429,12 @@ function LinhaLote({ r, companyId, ncmSugerido, onSaved, onErro }: { r: Row; com
         {mostraCil && <Campo label="cilindr. (nota)" w={95}><input value={f.cilindradas} onChange={(e) => setF({ ...f, cilindradas: e.target.value })} placeholder="cc" style={inp} /></Campo>}
         <Campo label="ano fab" w={80}><input value={f.ano_fabricacao} onChange={(e) => setF({ ...f, ano_fabricacao: e.target.value })} placeholder={r.sugestao_ano_chassi ? `${r.sugestao_ano_chassi}?` : 'ano'} style={{ ...inp, ...hi('ano_fabricacao') }} /></Campo>
         <Campo label="ano mod" w={80}><input value={f.ano_modelo} onChange={(e) => setF({ ...f, ano_modelo: e.target.value })} placeholder={r.sugestao_ano_chassi ? `${r.sugestao_ano_chassi}?` : 'ano'} style={{ ...inp, ...hi('ano_modelo') }} /></Campo>
-        <Campo label="aquisição" w={110}><CampoMoeda value={f.valor_aquisicao} onChange={(v) => setF({ ...f, valor_aquisicao: v })} placeholder="R$" style={inp} /></Campo>
+        <Campo label="aquisição" w={130}>
+          <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+            <CampoMoeda value={f.valor_aquisicao} onChange={(v) => setF({ ...f, valor_aquisicao: v })} placeholder="R$" testId="completar-aquisicao" style={{ ...inp, flex: 1, minWidth: 0 }} />
+            <AjudaCampo chave="revenda.veiculo.valor_aquisicao" rota="/dashboard/revenda/veiculo" />
+          </span>
+        </Campo>
         <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
           {r.sugestao_ano_chassi != null && (!f.ano_modelo || !f.ano_fabricacao) && (
             <button title={`sugestão pelo chassi: ${r.sugestao_ano_chassi}`} onClick={() => setF({ ...f, ano_modelo: f.ano_modelo || String(r.sugestao_ano_chassi), ano_fabricacao: f.ano_fabricacao || String(r.sugestao_ano_chassi) })}

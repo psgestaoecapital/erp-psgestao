@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { CampoMoeda } from "@/components/comum/CampoMoeda";
 import { moedaParaNumero, numeroParaMoeda } from "@/lib/moeda-mascara";
+import { CampoPercent } from "@/lib/ui/CampoPercent";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
 const ROTA_AJUDA="/dashboard/cotacoes";
@@ -354,7 +355,7 @@ export default function CotacoesPage(){
                       <option value="">Selecione produto...</option>
                       {produtos.map(p=><option key={p.id} value={p.id}>{p.codigo} - {p.nome}</option>)}
                     </select>
-                    <input type="number" step="0.001" value={it.quantidade||''} onChange={e=>{const novos=[...novaCot.itens];novos[idx].quantidade=parseFloat(e.target.value)||0;setNovaCot({...novaCot,itens:novos});}} placeholder="Qtd" style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/>
+                    <CampoPercent value={it.quantidade??null} onChange={n=>{const novos=[...novaCot.itens];novos[idx].quantidade=n??0;setNovaCot({...novaCot,itens:novos});}} placeholder="Qtd" style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"right"}}/>
                     <input value={it.unidade} onChange={e=>{const novos=[...novaCot.itens];novos[idx].unidade=e.target.value;setNovaCot({...novaCot,itens:novos});}} placeholder="UN" style={{...inp,padding:"6px 8px",fontSize:11,textAlign:"center"}}/>
                     <button onClick={()=>setNovaCot({...novaCot,itens:novaCot.itens.filter((_:any,i:number)=>i!==idx)})} style={{background:"none",border:"none",color:R,cursor:"pointer",fontSize:14}}>✕</button>
                   </div>
@@ -451,7 +452,7 @@ export default function CotacoesPage(){
                                   {proposta?.subtotal&&<div style={{fontSize:9,color:TXD}}>Subtotal: {fmtR(proposta.subtotal)}</div>}
                                 </div>
                               ):(
-                                <input type="number" step="0.01" value={proposta?.preco_unitario||''} onChange={e=>atualizarProposta(fornecedor.id,item.id,'preco_unitario',e.target.value)} placeholder="R$ 0,00" style={{...inp,padding:"4px 6px",fontSize:11,textAlign:"right",background:isMelhor?G+"20":BG3,borderColor:isMelhor?G:BD}}/>
+                                <CampoMoeda value={Number(proposta?.preco_unitario)>0?numeroParaMoeda(Number(proposta.preco_unitario)):''} onChange={m=>atualizarProposta(fornecedor.id,item.id,'preco_unitario',moedaParaNumero(m)??0)} placeholder="R$ 0,00" style={{...inp,padding:"4px 6px",fontSize:11,textAlign:"right",background:isMelhor?G+"20":BG3,borderColor:isMelhor?G:BD}}/>
                               )}
                             </td>
                           );

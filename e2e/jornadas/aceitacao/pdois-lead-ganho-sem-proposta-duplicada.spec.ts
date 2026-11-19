@@ -34,6 +34,11 @@ test.describe('#2078 Pdois: ganhar o lead não duplica a proposta', { tag: '@pos
       await dbPatch('agency_propostas', `lead_id=eq.${id}`, { deleted_at: agora }).catch(() => {})
       await dbPatch('agency_leads', `id=eq.${id}`, { deleted_at: agora }).catch(() => {})
     }
+    // fn_agency_lead_ganhar cria um agency_clientes (nome = empresa do lead, que carrega o RUN).
+    // Sem esta limpeza o cliente fica vivo na DEMO P&M e polui /dashboard/producao (RD-30).
+    // Descoberta 6f3bdbc6 (auditor_pdca_1): 1124 de 1133 ativos eram "E2E Ganho%" deste spec.
+    await dbPatch('agency_clientes', `company_id=eq.${DEMO_AG}&nome=ilike.*${encodeURIComponent(RUN)}*&excluido_em=is.null`,
+      { excluido_em: agora }).catch(() => {})
   })
 
   test('lead com proposta: ganhar usa a proposta do lead e não cria outra zerada', async () => {

@@ -6,18 +6,20 @@
 // complementares. A regra 5/6/7 pela UF é a mesma da rota (src/lib/fiscal/nfeAvulsa.ts) e aparece antes de emitir.
 // Os 5 tipos de erp_fiscal_remessa_tipos continuam como atalhos. Nesta etapa a nota não gera título nem mexe no estoque.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
 import { esperaConsulta, AVISO_PROCESSANDO } from '@/lib/fiscal/consultaRetorno'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { traduzirRejeicaoSefaz } from '@/lib/fiscal/rejeicoes-sefaz'
+import { baixarEspelhoNFePdf, type EspelhoNota } from '@/lib/fiscal/espelhoPdf'
 import {
   validarNFeAvulsa, cfopNoCatalogo, formatarCfop, ufDestino, soDigitos,
   ICMS_OPCOES_SIMPLES, ICMS_OPCOES_NORMAL, type CfopSaida, type FinalidadeNFe,
 } from '@/lib/fiscal/nfeAvulsa'
 import { termosBuscaProduto, filtroTermoProduto, filtroPrefixoProduto, juntarResultados } from '@/lib/fiscal/buscaProdutoAvulsa'
-import { ArrowLeft, Loader2, AlertCircle, FileText, Plus, Trash2, Info } from 'lucide-react'
+import { ArrowLeft, Loader2, AlertCircle, FileText, Plus, Trash2, Info, Save, FolderOpen } from 'lucide-react'
 
 interface DestPessoa {
   id: string
@@ -82,8 +84,36 @@ interface NotaRecusada {
   payload_enviado: { modalidade_frete?: number; informacoes_adicionais_contribuinte?: string } | null
 }
 
+// #6728 · rascunho da NF-e avulsa: só o conteúdo digitado (não emite, não gera título/estoque/numeração).
+interface RascunhoMeta {
+  id: string
+  titulo: string | null
+  criado_em: string
+  atualizado_em: string
+}
+// o que entra no payload do rascunho (buffers de digitação pt-BR ficam de fora — recalculam ao abrir)
+interface RascunhoPayload {
+  destTabela: 'erp_clientes' | 'erp_fornecedores'
+  destinatarioId: string
+  tipoId: string
+  natureza: string
+  cfop: string
+  finalidade: FinalidadeNFe
+  chaveRef: string
+  icmsCodigo: string
+  modalidadeFrete: number
+  valorFrete: number
+  observacoes: string
+  itens: Array<Pick<ItemRem, 'produtoId' | 'produtoLabel' | 'quantidade' | 'valorUnitarioOverride' | 'cfop'>>
+}
+
 const fmtBRL = (v: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
+
+const fmtDataHora = (iso: string) => {
+  try { return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(iso)) }
+  catch { return iso }
+}
 
 const inputCls = 'w-full px-3 py-2 text-[13px] border border-[#3D2314]/20 rounded-lg focus:outline-none focus:border-[#C8941A]'
 const rotuloCls = 'flex items-center gap-1 text-[11px] text-[#3D2314]/70 mb-1'
@@ -116,8 +146,11 @@ export default function RemessaClient() {
   const [produtosFiltrados, setProdutosFiltrados] = useState<Produto[]>([])
   const [itens, setItens] = useState<ItemRem[]>([])
   const [produtoBusca, setProdutoBusca] = useState('')
+  const buscaProdutoRef = useRef<HTMLInputElement>(null)
 
   const [enviando, setEnviando] = useState(false)
+  // #9724 (decisão B) · espelho em PDF da nota montada (sob demanda, sem transmitir/numerar)
+  const [baixandoEspelho, setBaixandoEspelho] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [sucesso, setSucesso] = useState<{ numero: string; chave?: string; danfeUrl?: string } | null>(null)
   // #3861 · 'processando' na Focus NÃO é falha: nota enviada, aguardando a SEFAZ (consulta até a resposta final)
@@ -126,6 +159,12 @@ export default function RemessaClient() {
   const [reenvioInfo, setReenvioInfo] = useState<string | null>(null)
   // destinatário da nota recusada: escolhido depois que a lista da tabela certa carrega
   const [destPendente, setDestPendente] = useState<DestPessoa | null>(null)
+
+  // #6728 · rascunho: salvar o que foi digitado sem emitir, retomar depois pela lista e remover ao emitir.
+  const [rascunhos, setRascunhos] = useState<RascunhoMeta[]>([])
+  const [rascunhoId, setRascunhoId] = useState<string | null>(null)
+  const [salvandoRascunho, setSalvandoRascunho] = useState(false)
+  const [rascunhoMsg, setRascunhoMsg] = useState<string | null>(null)
 
   useEffect(() => {
     const cid = resolveCompanyId()
@@ -377,7 +416,7 @@ export default function RemessaClient() {
       }
       if (json?.status === 'rejeitada' || json?.status === 'denegada') {
         setAguardando(null)
-        setErro(`Nota ${json.status} pela SEFAZ: ${json.motivoRejeicao ?? 'motivo não informado'}. Use "Corrigir e reenviar" em Notas emitidas.`)
+        setErro(`${traduzirRejeicaoSefaz(json.motivoRejeicao, `Nota ${json.status} pela SEFAZ`)} Você pode usar "Corrigir e reenviar" em Notas emitidas.`)
         return
       }
     } catch { /* falha de rede na consulta: tenta de novo no próximo degrau */ }
@@ -390,6 +429,61 @@ export default function RemessaClient() {
     void consultarRetorno(aguardando.nfeId, 0)
   }
 
+  // Corpo da emissão — reaproveitado na emissão e no espelho (apenasPrevia), para o PDF refletir
+  // exatamente o que seria transmitido (sem cálculo paralelo).
+  function payloadRemessa(): Record<string, unknown> {
+    return {
+      companyId,
+      destinatarioId,
+      destinatarioTabela: destTabela,
+      tipoId: tipoId || null,
+      cfop: soDigitos(cfop),
+      naturezaOperacao: natureza,
+      ...(reenvioDe ? { reenvioDe } : {}),
+      finalidade,
+      chaveReferenciada: soDigitos(chaveRef) || undefined,
+      icmsCodigo: icmsCodigo || undefined,
+      observacoes: observacoes.trim() || undefined,
+      modalidadeFrete,
+      valorFrete,
+      itens: itens.map((it) => ({
+        produtoId: it.produtoId,
+        quantidade: Number(it.quantidade),
+        valorUnitarioOverride: Number(it.valorUnitarioOverride ?? 0),
+        ...(it.cfop ? { cfop: soDigitos(it.cfop) } : {}),
+      })),
+    }
+  }
+
+  // #9724 (decisão B) · baixa o PDF da nota MONTADA marcada "PRÉVIA — SEM VALOR FISCAL".
+  // apenasPrevia=true: o servidor monta a nota e devolve o resumo sem transmitir nem numerar.
+  async function baixarEspelho() {
+    if (!podeEnviar || !previa) return
+    setBaixandoEspelho(true); setErro(null)
+    try {
+      const resp = await authFetch('/api/fiscal/nfe/remessa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...payloadRemessa(), apenasPrevia: true }),
+      })
+      const json = await resp.json()
+      if (!resp.ok || json?.ok === false || !json?.previa?.nota) {
+        setErro(json?.mensagem ?? json?.motivoRejeicao ?? 'Não foi possível montar o espelho da nota.')
+        return
+      }
+      await baixarEspelhoNFePdf(json.previa.nota as EspelhoNota, {
+        empresa: null,
+        emitidoEmISO: new Date().toISOString(),
+        modelo: 'nfe55',
+        informacoesComplementares: json.previa.informacoesComplementares ?? null,
+      })
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Falha ao gerar o espelho em PDF')
+    } finally {
+      setBaixandoEspelho(false)
+    }
+  }
+
   async function emitir() {
     if (!podeEnviar || !previa) return
     const resumo = `EMITIR NF-e avulsa · CFOP ${formatarCfop(previa.cfop)} · ${itens.length} item(ns)?`
@@ -400,27 +494,7 @@ export default function RemessaClient() {
       const resp = await authFetch('/api/fiscal/nfe/remessa', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          companyId,
-          destinatarioId,
-          destinatarioTabela: destTabela,
-          tipoId: tipoId || null,
-          cfop: soDigitos(cfop),
-          naturezaOperacao: natureza,
-          ...(reenvioDe ? { reenvioDe } : {}),
-          finalidade,
-          chaveReferenciada: soDigitos(chaveRef) || undefined,
-          icmsCodigo: icmsCodigo || undefined,
-          observacoes: observacoes.trim() || undefined,
-          modalidadeFrete,
-          valorFrete,
-          itens: itens.map((it) => ({
-            produtoId: it.produtoId,
-            quantidade: Number(it.quantidade),
-            valorUnitarioOverride: Number(it.valorUnitarioOverride ?? 0),
-            ...(it.cfop ? { cfop: soDigitos(it.cfop) } : {}),
-          })),
-        }),
+        body: JSON.stringify(payloadRemessa()),
       })
       const json = await resp.json()
       setEnviando(false)
@@ -432,13 +506,17 @@ export default function RemessaClient() {
           void consultarRetorno(json.nfeId, 0)
           return
         }
-        setErro(json?.mensagem ?? json?.motivoRejeicao ?? 'Falha ao emitir')
+        setErro(
+          json?.motivoRejeicao
+            ? traduzirRejeicaoSefaz(json.motivoRejeicao, 'Não foi possível emitir')
+            : (json?.mensagem ?? 'Falha ao emitir'),
+        )
         return
       }
       if (json?.status === 'autorizada') {
         setSucesso({ numero: String(json.numero ?? '?'), chave: json.chave, danfeUrl: json.danfeUrl })
       } else if (json?.status === 'rejeitada' || json?.status === 'denegada') {
-        setErro(`Nota ${json.status} pela SEFAZ: ${json.motivoRejeicao ?? 'motivo não informado'}. Use "Corrigir e reenviar" em Notas emitidas.`)
+        setErro(`${traduzirRejeicaoSefaz(json.motivoRejeicao, `Nota ${json.status} pela SEFAZ`)} Você pode usar "Corrigir e reenviar" em Notas emitidas.`)
       } else if (json?.nfeId) {
         setAguardando({ nfeId: json.nfeId, esgotou: false })
         void consultarRetorno(json.nfeId, 0)
@@ -448,6 +526,133 @@ export default function RemessaClient() {
     } catch (e) {
       setErro((e as Error)?.message ?? 'Erro ao emitir')
       setEnviando(false)
+    }
+  }
+
+  // #6728 · há conteúdo digitado ainda não emitido? (controla o aviso ao sair e o botão "Salvar rascunho")
+  const formPreenchido = useMemo(
+    () => !!destinatarioId || !!soDigitos(cfop) || !!natureza.trim() || itens.length > 0 || !!observacoes.trim() || !!soDigitos(chaveRef),
+    [destinatarioId, cfop, natureza, itens, observacoes, chaveRef],
+  )
+
+  async function carregarRascunhos() {
+    if (!companyId) return
+    const { data } = await supabase.rpc('fn_nfe_avulsa_rascunho_listar', { p_company_id: companyId })
+    const r = data as { ok?: boolean; rascunhos?: RascunhoMeta[] } | null
+    if (r?.ok) setRascunhos(r.rascunhos ?? [])
+  }
+
+  useEffect(() => {
+    if (companyId) void carregarRascunhos()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId])
+
+  function montarPayload(): RascunhoPayload {
+    return {
+      destTabela, destinatarioId, tipoId, natureza, cfop: soDigitos(cfop), finalidade,
+      chaveRef: soDigitos(chaveRef), icmsCodigo, modalidadeFrete, valorFrete, observacoes,
+      itens: itens.map((it) => ({
+        produtoId: it.produtoId, produtoLabel: it.produtoLabel, quantidade: it.quantidade,
+        valorUnitarioOverride: it.valorUnitarioOverride, ...(it.cfop ? { cfop: it.cfop } : {}),
+      })),
+    }
+  }
+
+  async function salvarRascunho() {
+    if (!companyId || !formPreenchido || salvandoRascunho) return
+    setSalvandoRascunho(true); setRascunhoMsg(null); setErro(null)
+    try {
+      const nomeDest = destinatario ? (destinatario.razao_social ?? destinatario.nome_fantasia ?? '') : ''
+      const titulo = [nomeDest, natureza.trim()].filter(Boolean).join(' · ').slice(0, 120) || 'Rascunho de NF-e avulsa'
+      const { data, error } = await supabase.rpc('fn_nfe_avulsa_rascunho_salvar', {
+        p_company_id: companyId,
+        p_payload: montarPayload(),
+        p_titulo: titulo,
+        p_rascunho_id: rascunhoId,
+      })
+      const r = data as { ok?: boolean; id?: string; erro?: string } | null
+      if (error || !r?.ok) {
+        setRascunhoMsg(r?.erro === 'rascunho_vazio' ? 'Preencha algo antes de salvar o rascunho.' : 'Não foi possível salvar o rascunho. Tente de novo.')
+        return
+      }
+      setRascunhoId(r.id ?? null)
+      setRascunhoMsg('Rascunho salvo. Você pode sair e voltar depois pela lista "Rascunhos".')
+      await carregarRascunhos()
+    } catch {
+      setRascunhoMsg('Não foi possível salvar o rascunho. Tente de novo.')
+    } finally {
+      setSalvandoRascunho(false)
+    }
+  }
+
+  async function abrirRascunho(id: string) {
+    if (formPreenchido && id !== rascunhoId && !confirm('Abrir este rascunho substitui o que está na tela agora. Continuar?')) return
+    const { data } = await supabase.rpc('fn_nfe_avulsa_rascunho_abrir', { p_rascunho_id: id })
+    const r = data as { ok?: boolean; payload?: RascunhoPayload } | null
+    if (!r?.ok || !r.payload) { setRascunhoMsg('Não foi possível abrir o rascunho.'); return }
+    const p = r.payload
+    setDestPendente(null)
+    setDestTabela(p.destTabela === 'erp_fornecedores' ? 'erp_fornecedores' : 'erp_clientes')
+    setDestinatarioId(p.destinatarioId ?? '')
+    setTipoId(p.tipoId ?? '')
+    setNatureza(p.natureza ?? '')
+    setCfop(soDigitos(p.cfop))
+    setFinalidade(p.finalidade ?? 'normal')
+    setChaveRef(soDigitos(p.chaveRef))
+    setIcmsCodigo(p.icmsCodigo ?? '')
+    setModalidadeFrete(typeof p.modalidadeFrete === 'number' ? p.modalidadeFrete : 9)
+    setValorFrete(Number(p.valorFrete ?? 0)); setValorFreteTexto(null)
+    setObservacoes(p.observacoes ?? '')
+    setItens((p.itens ?? []).map((it) => ({
+      produtoId: it.produtoId, produtoLabel: it.produtoLabel,
+      quantidade: Number(it.quantidade ?? 1), valorUnitarioOverride: Number(it.valorUnitarioOverride ?? 0),
+      ...(it.cfop ? { cfop: it.cfop } : {}),
+    })))
+    setRascunhoId(id); setErro(null); setSucesso(null)
+    setRascunhoMsg('Rascunho carregado. Confira os dados e emita quando quiser.')
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  async function excluirRascunho(id: string) {
+    if (!confirm('Excluir este rascunho? Esta ação não pode ser desfeita.')) return
+    const { data } = await supabase.rpc('fn_nfe_avulsa_rascunho_excluir', { p_rascunho_id: id })
+    const r = data as { ok?: boolean } | null
+    if (r?.ok) {
+      if (id === rascunhoId) setRascunhoId(null)
+      setRascunhoMsg('Rascunho excluído.')
+      await carregarRascunhos()
+    } else {
+      setRascunhoMsg('Não foi possível excluir o rascunho.')
+    }
+  }
+
+  // ao emitir com sucesso (em qualquer caminho), remove o rascunho de origem e some da lista.
+  useEffect(() => {
+    if (!sucesso || !rascunhoId) return
+    const id = rascunhoId
+    void (async () => {
+      await supabase.rpc('fn_nfe_avulsa_rascunho_excluir', { p_rascunho_id: id })
+      setRascunhoId(null)
+      await carregarRascunhos()
+    })()
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [sucesso])
+
+  // aviso do navegador ao fechar/recarregar com nota não emitida (fechar aba, F5, voltar do navegador).
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (formPreenchido && !sucesso && !enviando) { e.preventDefault(); e.returnValue = '' }
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [formPreenchido, sucesso, enviando])
+
+  // sair pela navegação interna (link "Notas emitidas"): pergunta antes de perder a nota não emitida.
+  function sairComGuarda(e: { preventDefault: () => void }) {
+    if (formPreenchido && !sucesso && !enviando) {
+      if (!confirm('Você tem uma nota preenchida e ainda não emitida. Salve como rascunho antes de sair para não perder o que digitou.\n\nSair mesmo assim?')) {
+        e.preventDefault()
+      }
     }
   }
 
@@ -465,7 +670,7 @@ export default function RemessaClient() {
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto">
       <div className="flex items-center gap-3 mb-5">
-        <Link href="/dashboard/fiscal/nfe" className="text-[#3D2314]/65 hover:text-[#3D2314] flex items-center gap-1.5 text-[12.5px]">
+        <Link href="/dashboard/fiscal/nfe" onClick={sairComGuarda} className="text-[#3D2314]/65 hover:text-[#3D2314] flex items-center gap-1.5 text-[12.5px]">
           <ArrowLeft size={14} /> Notas emitidas
         </Link>
         <span className="text-[#3D2314]/30">/</span>
@@ -482,6 +687,43 @@ export default function RemessaClient() {
           Teste cada operação nova em homologação e confirme o CFOP e o ICMS com a contabilidade.
         </span>
       </div>
+
+      {rascunhos.length > 0 && (
+        <div className="mb-4 bg-white border border-[#3D2314]/10 rounded-xl p-4 sm:p-5" data-testid="nfe-avulsa-rascunhos">
+          <h2 className="text-[12.5px] font-semibold text-[#3D2314] mb-3 flex items-center gap-1.5">
+            <FolderOpen size={14} className="text-[#C8941A]" /> Rascunhos
+            <AjudaCampo chave="fiscal.nfe_avulsa.rascunhos" />
+          </h2>
+          <ul className="divide-y divide-[#3D2314]/5">
+            {rascunhos.map((r) => (
+              <li key={r.id} className="py-2 flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-[12.5px] text-[#3D2314] truncate">{r.titulo || 'Rascunho de NF-e avulsa'}{r.id === rascunhoId && <span className="ml-2 text-[10.5px] text-[#C8941A]">(em edição)</span>}</div>
+                  <div className="text-[10.5px] text-[#3D2314]/55">Salvo em {fmtDataHora(r.atualizado_em)}</div>
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <button type="button" onClick={() => abrirRascunho(r.id)}
+                    className="px-2.5 py-1 text-[11.5px] font-semibold rounded-lg border border-[#C8941A] text-[#3D2314] hover:bg-[#FBF3E0]"
+                    data-testid={`nfe-avulsa-rascunho-abrir-${r.id}`}>
+                    Abrir
+                  </button>
+                  <button type="button" onClick={() => excluirRascunho(r.id)}
+                    className="text-[#A32D2D] hover:bg-[#A32D2D]/10 p-1 rounded" aria-label="Excluir rascunho">
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {rascunhoMsg && (
+        <div className="mb-4 p-3 bg-[#FBF3E0] border border-[#C8941A]/40 rounded-lg text-[12.5px] text-[#3D2314] flex items-start gap-2" data-testid="nfe-avulsa-rascunho-msg">
+          <Info size={14} className="flex-shrink-0 mt-0.5 text-[#C8941A]" />
+          <span>{rascunhoMsg}</span>
+        </div>
+      )}
 
       {reenvioInfo && (
         <div className="mb-4 p-3 bg-[#FBF3E0] border border-[#C8941A]/40 rounded-lg text-[12.5px] text-[#3D2314] flex items-start gap-2" data-testid="nfe-avulsa-reenvio">
@@ -675,6 +917,7 @@ export default function RemessaClient() {
             <span className={rotuloCls}>Buscar produto <AjudaCampo chave="fiscal.nfe_avulsa.produto_busca" /></span>
             <input
               type="text"
+              ref={buscaProdutoRef}
               value={produtoBusca}
               onChange={(e) => setProdutoBusca(e.target.value)}
               placeholder="Nome ou código..."
@@ -702,8 +945,15 @@ export default function RemessaClient() {
         </div>
 
         {itens.length === 0 ? (
-          <div className="text-center py-6 text-[12px] text-[#3D2314]/55">
-            Busque um produto acima para adicionar.
+          <div className="text-center py-6">
+            <p className="text-[12px] text-[#3D2314]/55 mb-2.5">Nenhum item na nota ainda. Busque um produto para adicionar.</p>
+            <button
+              type="button"
+              onClick={() => buscaProdutoRef.current?.focus()}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium text-[#C8941A] border border-[#C8941A]/40 rounded-lg hover:bg-[#FBF3E0]"
+            >
+              <Plus size={13} /> Buscar produto
+            </button>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -715,7 +965,7 @@ export default function RemessaClient() {
                   <th className="px-2 py-1.5 text-right text-[10.5px] text-[#3D2314]/65 uppercase">Vlr Unit <AjudaCampo chave="fiscal.nfe_avulsa.item_valor" /></th>
                   <th className="px-2 py-1.5 text-left text-[10.5px] text-[#3D2314]/65 uppercase">CFOP <AjudaCampo chave="fiscal.nfe_avulsa.item_cfop" /></th>
                   <th className="px-2 py-1.5 text-right text-[10.5px] text-[#3D2314]/65 uppercase">Subtotal</th>
-                  <th></th>
+                  <th className="px-2 py-1.5 text-right"><AjudaCampo chave="fiscal.nfe_avulsa.item_remover" /></th>
                 </tr>
               </thead>
               <tbody>
@@ -805,8 +1055,30 @@ export default function RemessaClient() {
         </div>
       )}
 
-      <div className="flex justify-end items-center gap-2">
+      <div className="flex flex-wrap justify-end items-center gap-2">
+        <AjudaCampo chave="fiscal.nfe_avulsa.salvar_rascunho" />
+        <button
+          type="button"
+          onClick={salvarRascunho}
+          disabled={!formPreenchido || salvandoRascunho || enviando}
+          data-testid="nfe-avulsa-salvar-rascunho"
+          className="px-4 py-2 text-[12.5px] font-semibold rounded-lg border border-[#C8941A] text-[#3D2314] hover:bg-[#FBF3E0] disabled:opacity-50 flex items-center gap-1.5"
+        >
+          {salvandoRascunho ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+          {salvandoRascunho ? 'Salvando…' : rascunhoId ? 'Atualizar rascunho' : 'Salvar rascunho'}
+        </button>
         <AjudaCampo chave="fiscal.nfe_avulsa.emitir" />
+        {/* #9724 (decisão B) · espelho/prévia em PDF — não transmite, não numera */}
+        <button
+          type="button"
+          onClick={() => void baixarEspelho()}
+          disabled={!podeEnviar || baixandoEspelho}
+          data-testid="nfe-remessa-espelho"
+          title="Baixa um PDF da nota montada marcado como PRÉVIA — SEM VALOR FISCAL. Não transmite nem numera."
+          className="px-5 py-2 text-[12.5px] font-semibold rounded-lg border border-[#3D2314]/15 text-[#3D2314] hover:bg-[#3D2314]/5 disabled:opacity-50"
+        >
+          {baixandoEspelho ? 'Gerando…' : 'Baixar espelho (PDF)'}
+        </button>
         <button
           type="button"
           onClick={emitir}

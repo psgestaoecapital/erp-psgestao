@@ -8,6 +8,8 @@ import { ClienteBusca } from '@/components/pm/ClienteBusca'
 import { BriefingEditor } from '@/components/pm/BriefingEditor'
 import { BriefingLigado } from '@/components/pm/BriefingLigado'
 import { CopiarJob, JobsParecidos, type ResultadoCopia } from '@/components/pm/CopiarJob'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
 // Identidade Espresso (mesmos tokens do CRM Oportunidades / Financiamentos)
@@ -199,7 +201,7 @@ function ProducaoPageInner() {
     const prox = new Date(now.getFullYear(), now.getMonth() + 1, 1)
     const inicioProxMes = `${prox.getFullYear()}-${String(prox.getMonth() + 1).padStart(2, '0')}-01`
 
-    const [cl, jb, ts, tsMes, us, ct, sv, ac] = await Promise.all([
+    const [cl, jb, ts, tsMes, us, ct, sv, ac, clAtivos] = await Promise.all([
       supabase.from('agency_clientes').select('*').eq('company_id', sel).is('excluido_em', null).order('nome'),
       supabase.from('agency_jobs').select('*').eq('company_id', sel).is('excluido_em', null).order('created_at', { ascending: false }),
       supabase.from('agency_timesheet').select('id, company_id, job_id, tarefa_id, user_id, data, horas, descricao, tipo_atividade, aprovado, aprovado_por, created_at, inicio_em, fim_em, etapa_tipo, cliente_id').eq('company_id', sel).is('excluido_em', null).order('data', { ascending: false }),
@@ -209,6 +211,11 @@ function ProducaoPageInner() {
       supabase.from('erp_contratos').select('id,numero,nome,valor_mensal,status').eq('company_id', sel).order('numero', { ascending: false }),
       supabase.rpc('fn_agency_servico_listar_proposta', { p_company_id: sel }),
       supabase.rpc('fn_agency_contrato_listar', { p_company_id: sel }),
+      // KPI "Clientes ativos": contagem no servidor (head:true/count exact), não cl.data.length.
+      // O fetch de cl acima usa select('*') sem .limit() e o PostgREST corta em 1000 linhas; com
+      // muitos clientes o KPI travava em 1000 e subcontava (RD-38 DEMO P&M 2026-11: real=1133).
+      // Mesma correção da #5282 (KPIs de títulos somavam só os 1000 primeiros).
+      supabase.from('agency_clientes').select('*', { count: 'exact', head: true }).eq('company_id', sel).is('excluido_em', null).eq('status', 'ativo'),
     ])
     setClientes((cl.data ?? []) as Cliente[])
     setJobs((jb.data ?? []) as Job[])
@@ -226,9 +233,13 @@ function ProducaoPageInner() {
     const mrr = ((ac.data ?? []) as ContratoMrr[])
       .filter((c) => c.status === 'ativo' && c.tipo === 'recorrente')
       .reduce((s, c) => s + Number((c.tem_contrato_ge ? c.ge_valor_mensal : c.fee_mensal) ?? 0), 0)
-    const horasMes = ((tsMes.data ?? []) as Array<{ horas?: number }>).reduce((s, t) => s + (t.horas ?? 0), 0)
+    // RD-38: agency_timesheet.horas é numeric; o PostgREST o devolve como STRING ("0.01"). Sem Number(),
+    // "s + t.horas" concatena texto em vez de somar e o KPI "Horas no mês" dá falso-zero/valor errado
+    // (DEMO P&M 2026-11: 894 lançamentos = 71,8 h apareciam como 0,0 h). Number() soma de verdade,
+    // igual ao MRR logo acima. Sem lançamento no mês → reduce de [] = 0 → "0.0h" (correto).
+    const horasMes = ((tsMes.data ?? []) as Array<{ horas?: number | string }>).reduce((s, t) => s + Number(t.horas ?? 0), 0)
     setMetrics({
-      clientes: (cl.data ?? []).filter((c: { status?: string }) => c.status === 'ativo').length,
+      clientes: clAtivos.count ?? 0,
       jobs_ativos: (jb.data ?? []).filter((j: { status?: string }) => !['concluida', 'publicado', 'cancelado'].includes(j.status ?? '')).length,
       horas_mes: horasMes,
       receita_mes: mrr,
@@ -535,7 +546,7 @@ function ProducaoPageInner() {
             <Field label="Telefone" v={form.telefone} on={(v) => setForm({ ...form, telefone: v })} />
             <Field label="Contato principal" v={form.contato_principal} on={(v) => setForm({ ...form, contato_principal: v })} />
             <Field label="Segmento" v={form.segmento} on={(v) => setForm({ ...form, segmento: v })} />
-            <Field label="Fee mensal (R$)" type="number" v={form.fee_mensal} on={(v) => setForm({ ...form, fee_mensal: parseFloat(v) || 0 })} />
+            <Field label="Fee mensal (R$)" moeda v={form.fee_mensal} on={(v) => setForm({ ...form, fee_mensal: parseFloat(v) || 0 })} />
             <Select label="Tipo de contrato" v={(form.tipo_contrato as string) ?? 'fee_mensal'} on={(v) => setForm({ ...form, tipo_contrato: v })}
               opts={[['fee_mensal', 'Fee mensal'], ['projeto', 'Projeto'], ['avulso', 'Avulso']]} />
             <Select label="Status" v={(form.status as string) ?? 'ativo'} on={(v) => setForm({ ...form, status: v })}
@@ -636,7 +647,7 @@ function ProducaoPageInner() {
               <Field label="Início" type="date" v={form.data_inicio} on={(v) => setForm({ ...form, data_inicio: v || null })} />
               <Field label="Responsável (sem login)" v={form.responsavel_nome as string | undefined}
                 on={(v) => setForm({ ...form, responsavel_nome: v || null, responsavel_id: v ? null : (form.responsavel_id ?? null) })} />
-              <Field label="Valor (R$)" type="number" v={form.valor_job} on={(v) => setForm({ ...form, valor_job: parseFloat(v) || 0 })} />
+              <Field label="Valor (R$)" moeda v={form.valor_job} on={(v) => setForm({ ...form, valor_job: parseFloat(v) || 0 })} />
               <Field label="Horas estimadas" type="number" v={form.horas_estimadas} on={(v) => setForm({ ...form, horas_estimadas: parseFloat(v) || 0 })} />
               <Field label="% Comissão (preview)" type="number" v={form.percentual_comissao} on={(v) => setForm({ ...form, percentual_comissao: v === '' ? null : parseFloat(v) })} />
             </div>
@@ -792,7 +803,8 @@ function KanbanBoard({
         <div style={board}>
           {colunas.map((et) => {
             const cards = jobs.filter((j) => j.status === et.v)
-            const valor = cards.reduce((s, j) => s + (j.valor_job ?? 0), 0)
+            // RD-38: valor_job é numeric (string via PostgREST) — Number() evita concatenar texto no total da coluna
+            const valor = cards.reduce((s, j) => s + Number(j.valor_job ?? 0), 0)
             const hover = hoverCol === et.v
             return (
               <div
@@ -1163,12 +1175,15 @@ function Modal({ titulo, children, onClose }: { titulo: string; children: React.
     </div>
   )
 }
-function Field({ label, v, on, type = 'text', multiline, testId, ajuda }: { label: string; v: unknown; on: (v: string) => void; type?: string; multiline?: boolean; testId?: string; ajuda?: string }) {
+function Field({ label, v, on, type = 'text', multiline, moeda, testId, ajuda }: { label: string; v: unknown; on: (v: string) => void; type?: string; multiline?: boolean; moeda?: boolean; testId?: string; ajuda?: string }) {
   return (
     <label style={lbl}>
       <span style={{ display: 'flex', alignItems: 'center' }}>{label}{ajuda && <AjudaCampo chave={ajuda} />}</span>
       {multiline ? (
         <textarea rows={3} value={(v as string) ?? ''} onChange={(e) => on(e.target.value)} data-testid={testId} style={{ ...inp, resize: 'vertical' }} />
+      ) : moeda ? (
+        // #6874 — valor em R$ com máscara ao digitar; devolve o número (string) p/ o parse do chamador
+        <CampoMoeda value={numeroParaMoeda(v === '' || v == null ? null : Number(v))} onChange={(m) => on(String(moedaParaNumero(m) ?? ''))} testId={testId} placeholder="R$ 0,00" style={inp} />
       ) : (
         <input type={type} value={(v as string | number) ?? ''} onChange={(e) => on(e.target.value)} data-testid={testId} style={inp} />
       )}

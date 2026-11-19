@@ -10,7 +10,10 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { parseNumBR } from '@/lib/num'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
+const ROTA = '/dashboard/inteligencia/rh'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF'
 const MUT = 'rgba(61,35,20,0.55)', GREEN = '#166534', RED = '#A32D2D'
 const brl = (n: number | null | undefined) => 'R$ ' + Number(n ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -207,12 +210,12 @@ export default function RhHubPage() {
   useEffect(() => { if (sub === 'remun') void carregarRv() }, [sub, carregarRv])
 
   const subcards = useMemo(() => ([
-    { key: 'quadro' as SubKey, icone: '📋', nome: 'Quadro de lotação', tipo: 'ativo' as const, badge: counts.postos > 0 ? `${counts.postos} postos` : 'aguarda import', aceso: counts.postos > 0 },
-    { key: 'remun' as SubKey, icone: '📈', nome: 'Remuneração variável', tipo: 'ativo' as const, badge: counts.participantes > 0 ? `${counts.participantes} no plano` : 'sem participantes', aceso: counts.participantes > 0 },
-    { key: 'folha' as SubKey, icone: '💰', nome: 'Folha de pagamento', tipo: 'link' as const, rota: '/dashboard/industrial/folha', badge: counts.folha > 0 ? `${counts.folha} lançamentos` : '—', aceso: counts.folha > 0 },
-    { key: 'ponto' as SubKey, icone: '⏱️', nome: 'Ponto e jornada', tipo: 'link' as const, rota: '/dashboard/industrial/producao', badge: counts.ponto > 0 ? `${counts.ponto} colaboradores` : '—', aceso: counts.ponto > 0 },
-    { key: 'indic' as SubKey, icone: '📊', nome: 'Indicadores', tipo: 'breve' as const, badge: 'em breve · aguarda dados', aceso: false },
-    { key: 'nr' as SubKey, icone: '🎓', nome: 'Treinamentos NR', tipo: 'breve' as const, badge: 'em breve · aguarda dados', aceso: false },
+    { key: 'quadro' as SubKey, icone: '📋', nome: 'Quadro de lotação', aj: 'rh.painel.aba_quadro', tipo: 'ativo' as const, badge: counts.postos > 0 ? `${counts.postos} postos` : 'aguarda import', aceso: counts.postos > 0 },
+    { key: 'remun' as SubKey, icone: '📈', nome: 'Remuneração variável', aj: 'rh.painel.aba_remun', tipo: 'ativo' as const, badge: counts.participantes > 0 ? `${counts.participantes} no plano` : 'sem participantes', aceso: counts.participantes > 0 },
+    { key: 'folha' as SubKey, icone: '💰', nome: 'Folha de pagamento', aj: 'rh.painel.aba_folha', tipo: 'link' as const, rota: '/dashboard/industrial/folha', badge: counts.folha > 0 ? `${counts.folha} lançamentos` : '—', aceso: counts.folha > 0 },
+    { key: 'ponto' as SubKey, icone: '⏱️', nome: 'Ponto e jornada', aj: 'rh.painel.aba_ponto', tipo: 'link' as const, rota: '/dashboard/industrial/producao', badge: counts.ponto > 0 ? `${counts.ponto} colaboradores` : '—', aceso: counts.ponto > 0 },
+    { key: 'indic' as SubKey, icone: '📊', nome: 'Indicadores', aj: 'rh.painel.aba_indicadores', tipo: 'breve' as const, badge: 'em breve · aguarda dados', aceso: false },
+    { key: 'nr' as SubKey, icone: '🎓', nome: 'Treinamentos NR', aj: 'rh.painel.aba_nr', tipo: 'breve' as const, badge: 'em breve · aguarda dados', aceso: false },
   ]), [counts])
 
   function clicarSub(sc: (typeof subcards)[number]) {
@@ -259,15 +262,18 @@ export default function RhHubPage() {
           {subcards.map((sc) => {
             const ativo = sub === sc.key && sc.tipo === 'ativo'
             return (
-              <button key={sc.key} type="button" onClick={() => clicarSub(sc)} disabled={sc.tipo === 'breve'}
-                style={{ textAlign: 'left', background: ativo ? '#FBF3DE' : '#fff', border: `1px solid ${ativo ? GOLD : LINE}`, borderRadius: 12,
-                  padding: '12px 14px', cursor: sc.tipo === 'breve' ? 'default' : 'pointer', opacity: sc.tipo === 'breve' ? 0.6 : 1, color: ESP }}>
-                <div style={{ fontSize: 20, marginBottom: 4 }}>{sc.icone}</div>
-                <div style={{ fontSize: 13, fontWeight: 700 }}>{sc.nome}</div>
-                <div style={{ fontSize: 10.5, marginTop: 4, color: sc.aceso ? GREEN : MUT, fontWeight: 600 }}>
-                  {sc.tipo === 'link' && sc.aceso ? '🔗 ' : ''}{sc.badge}
-                </div>
-              </button>
+              <div key={sc.key} style={{ position: 'relative' }}>
+                <button type="button" onClick={() => clicarSub(sc)} disabled={sc.tipo === 'breve'}
+                  style={{ width: '100%', textAlign: 'left', background: ativo ? '#FBF3DE' : '#fff', border: `1px solid ${ativo ? GOLD : LINE}`, borderRadius: 12,
+                    padding: '12px 14px', cursor: sc.tipo === 'breve' ? 'default' : 'pointer', opacity: sc.tipo === 'breve' ? 0.6 : 1, color: ESP }}>
+                  <div style={{ fontSize: 20, marginBottom: 4 }}>{sc.icone}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>{sc.nome}</div>
+                  <div style={{ fontSize: 10.5, marginTop: 4, color: sc.aceso ? GREEN : MUT, fontWeight: 600 }}>
+                    {sc.tipo === 'link' && sc.aceso ? '🔗 ' : ''}{sc.badge}
+                  </div>
+                </button>
+                <span style={{ position: 'absolute', top: 8, right: 8 }}><AjudaCampo chave={sc.aj} rota={ROTA} /></span>
+              </div>
             )
           })}
         </div>
@@ -289,14 +295,14 @@ export default function RhHubPage() {
             <>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 16 }}>
                 {[
-                  { l: 'Postos ativos', v: String(quadro!.kpis.postos_ativos) },
-                  { l: 'Ocupados', v: String(quadro!.kpis.postos_ocupados) },
-                  { l: 'Vagas abertas', v: String(quadro!.kpis.vagas_abertas), cor: quadro!.kpis.vagas_abertas > 0 ? RED : GREEN },
-                  { l: 'Projetado × Real', v: `${quadro!.kpis.proj_total} / ${quadro!.kpis.real_total}` },
-                  ...(quadro!.pode_salario ? [{ l: 'Custo registrado', v: brl(quadro!.kpis.custo_registrado) }] : []),
+                  { l: 'Postos ativos', v: String(quadro!.kpis.postos_ativos), aj: 'rh.painel.kpi_postos_ativos' },
+                  { l: 'Ocupados', v: String(quadro!.kpis.postos_ocupados), aj: 'rh.painel.kpi_ocupados' },
+                  { l: 'Vagas abertas', v: String(quadro!.kpis.vagas_abertas), cor: quadro!.kpis.vagas_abertas > 0 ? RED : GREEN, aj: 'rh.painel.kpi_vagas_abertas' },
+                  { l: 'Projetado × Real', v: `${quadro!.kpis.proj_total} / ${quadro!.kpis.real_total}`, aj: 'rh.painel.kpi_proj_real' },
+                  ...(quadro!.pode_salario ? [{ l: 'Custo registrado', v: brl(quadro!.kpis.custo_registrado), aj: 'rh.painel.kpi_custo_registrado' }] : []),
                 ].map((k, i) => (
                   <div key={i} style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: '12px 14px' }}>
-                    <div style={{ fontSize: 10.5, color: MUT, textTransform: 'uppercase', letterSpacing: 0.5 }}>{k.l}</div>
+                    <div style={{ fontSize: 10.5, color: MUT, textTransform: 'uppercase', letterSpacing: 0.5 }}>{k.l}<AjudaCampo chave={k.aj} rota={ROTA} /></div>
                     <div style={{ fontSize: 20, fontWeight: 700, marginTop: 2, color: (k as { cor?: string }).cor ?? ESP }}>{k.v}</div>
                   </div>
                 ))}
@@ -308,8 +314,15 @@ export default function RhHubPage() {
                   <div style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, overflow: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                       <thead><tr style={{ color: MUT, textAlign: 'left' }}>
-                        {['Posto', 'Cargo', 'Proj (T1/T2/T3)', 'Real', 'Gap', ...(quadro!.pode_salario ? ['Custo'] : [])].map((h) => (
-                          <th key={h} style={{ padding: '8px 10px', borderBottom: `1px solid ${LINE}`, fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
+                        {[
+                          { h: 'Posto', aj: 'rh.painel.col_posto' },
+                          { h: 'Cargo', aj: 'rh.painel.col_cargo' },
+                          { h: 'Proj (T1/T2/T3)', aj: 'rh.painel.col_proj' },
+                          { h: 'Real', aj: 'rh.painel.col_real' },
+                          { h: 'Gap', aj: 'rh.painel.col_gap' },
+                          ...(quadro!.pode_salario ? [{ h: 'Custo', aj: 'rh.painel.col_custo' }] : []),
+                        ].map((c) => (
+                          <th key={c.h} style={{ padding: '8px 10px', borderBottom: `1px solid ${LINE}`, fontWeight: 600, whiteSpace: 'nowrap' }}>{c.h}<AjudaCampo chave={c.aj} rota={ROTA} /></th>
                         ))}
                       </tr></thead>
                       <tbody>
@@ -336,7 +349,7 @@ export default function RhHubPage() {
         {sub === 'remun' && (
           <div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
-              <label style={{ fontSize: 12, color: MUT }}>Competência
+              <label style={{ fontSize: 12, color: MUT }}>Competência<AjudaCampo chave="rh.painel.rv_competencia" rota={ROTA} />
                 <input type="month" value={competencia} onChange={(e) => setCompetencia(e.target.value)}
                   style={{ marginLeft: 6, border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '6px 8px', fontSize: 12.5, color: ESP, background: '#fff' }} />
               </label>
@@ -375,13 +388,13 @@ export default function RhHubPage() {
               <>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 16 }}>
                   {[
-                    { l: 'No plano', v: String(rv!.kpis.no_plano) },
-                    { l: 'Dias apurados', v: String(rv!.kpis.dias_apurados) },
-                    { l: 'Sem infração', v: `${rv!.kpis.sem_infracao}/${rv!.kpis.no_plano}` },
-                    ...(rv!.pode_salario ? [{ l: 'Variável do mês', v: brl(rv!.kpis.variavel_mes) }] : []),
+                    { l: 'No plano', v: String(rv!.kpis.no_plano), aj: 'rh.painel.rv_kpi_no_plano' },
+                    { l: 'Dias apurados', v: String(rv!.kpis.dias_apurados), aj: 'rh.painel.rv_kpi_dias_apurados' },
+                    { l: 'Sem infração', v: `${rv!.kpis.sem_infracao}/${rv!.kpis.no_plano}`, aj: 'rh.painel.rv_kpi_sem_infracao' },
+                    ...(rv!.pode_salario ? [{ l: 'Variável do mês', v: brl(rv!.kpis.variavel_mes), aj: 'rh.painel.rv_kpi_variavel_mes' }] : []),
                   ].map((k, i) => (
                     <div key={i} style={{ background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12, padding: '12px 14px' }}>
-                      <div style={{ fontSize: 10.5, color: MUT, textTransform: 'uppercase', letterSpacing: 0.5 }}>{k.l}</div>
+                      <div style={{ fontSize: 10.5, color: MUT, textTransform: 'uppercase', letterSpacing: 0.5 }}>{k.l}<AjudaCampo chave={k.aj} rota={ROTA} /></div>
                       <div style={{ fontSize: 20, fontWeight: 700, marginTop: 2 }}>{k.v}</div>
                     </div>
                   ))}
@@ -797,7 +810,8 @@ function AjusteModal({ empresa, competencia, funcionarioId, nome, onClose, onCha
             <select value={tipo} onChange={(e) => setTipo(e.target.value as 'adicional' | 'desconto')} style={{ border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '7px 8px', fontSize: 12.5, color: ESP, background: '#fff' }}>
               <option value="adicional">Adicional (+)</option><option value="desconto">Desconto (−)</option>
             </select>
-            <input inputMode="decimal" placeholder="valor R$" value={valor} onChange={(e) => setValor(e.target.value.replace(/[^\d.,]/g, ''))} style={{ width: 110, border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '7px 8px', fontSize: 12.5, color: ESP, background: '#fff' }} />
+            {/* #6874 — valor do ajuste com máscara R$ ao digitar; parseNumBR (salvar) já interpreta "R$ 1.500,00" */}
+            <CampoMoeda placeholder="valor R$" value={valor} onChange={setValor} style={{ width: 110, border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '7px 8px', fontSize: 12.5, color: ESP, background: '#fff' }} />
           </div>
           <input placeholder="motivo (obrigatório)" value={motivo} onChange={(e) => setMotivo(e.target.value)} maxLength={200} style={{ width: '100%', marginTop: 8, border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '7px 8px', fontSize: 12.5, color: ESP, background: '#fff', boxSizing: 'border-box' }} />
           <button onClick={() => void salvar()} disabled={busy} style={{ marginTop: 8, background: GOLD, color: '#fff', border: 'none', borderRadius: 6, padding: '7px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>+ Lançar ajuste</button>
