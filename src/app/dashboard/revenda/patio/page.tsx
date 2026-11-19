@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { parseNumBR } from '@/lib/num'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
@@ -521,7 +522,7 @@ function LoteModal({ companyId, ids, onClose, onAplicado, onErro }: { companyId:
   const [prev, setPrev] = useState<LoteResultado[] | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const valorNum = Number(String(valor).replace(',', '.'))
+  const valorNum = parseNumBR(valor) ?? NaN
   const valorOk = valor.trim() !== '' && Number.isFinite(valorNum) && (modo === 'preco' ? valorNum > 0 : valorNum !== 0)
 
   async function chamar(aplicar: boolean): Promise<LoteResultado[] | null> {
