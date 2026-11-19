@@ -161,7 +161,7 @@ export default function PrecificacaoPage() {
     setGravando(true)
     const motivo = modo === 'markup_padrao'
       ? `Formar preços · markup padrão do produto${arred !== 'nenhum' ? ' · arred ' + arred : ''}`
-      : `Formar preços · ${modo === 'markup' ? 'markup' : 'margem'} ${Number(valor) || 0}%${arred !== 'nenhum' ? ' · arred ' + arred : ''}`
+      : `Formar preços · ${modo === 'markup' ? 'markup' : 'margem'} ${num(valor) ?? 0}%${arred !== 'nenhum' ? ' · arred ' + arred : ''}`
     let ok = 0
     for (const r of comPrecoNovo) {
       const { data } = await supabase.rpc('fn_produto_preco_aplicar', { p_produto_id: r.produto_id, p_novo_preco: r.preco_novo, p_regra_id: null, p_motivo: motivo })
@@ -242,21 +242,21 @@ export default function PrecificacaoPage() {
               <label className="text-[12px] text-[#3D2314]/70 flex flex-col">
                 <span className="flex items-center">Imposto sobre a venda<AjudaCampo chave="compras.precificacao.imposto_venda" /></span>
                 <div className="mt-0.5 flex items-center gap-1">
-                  <input type="number" inputMode="decimal" value={impostoIn} onChange={(e) => setImpostoIn(e.target.value)} placeholder="ex. 8,5" className={'w-24 border rounded-md px-2 py-1.5 text-[13px] text-[#3D2314] ' + (impostoOk ? 'border-[#3D2314]/15' : 'border-[#A32D2D]/50')} />
+                  <input type="text" inputMode="decimal" value={impostoIn} onChange={(e) => setImpostoIn(e.target.value)} placeholder="ex. 8,5" className={'w-24 border rounded-md px-2 py-1.5 text-[13px] text-[#3D2314] ' + (impostoOk ? 'border-[#3D2314]/15' : 'border-[#A32D2D]/50')} />
                   <span className="text-[13px] text-[#3D2314]/60">%</span>
                 </div>
               </label>
               <label className="text-[12px] text-[#3D2314]/70 flex flex-col">
                 <span className="flex items-center">Margem meta<AjudaCampo chave="compras.precificacao.margem_meta" /></span>
                 <div className="mt-0.5 flex items-center gap-1">
-                  <input type="number" inputMode="decimal" value={metaIn} onChange={(e) => setMetaIn(e.target.value)} placeholder="ex. 25" className="w-20 border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[13px] text-[#3D2314]" />
+                  <input type="text" inputMode="decimal" value={metaIn} onChange={(e) => setMetaIn(e.target.value)} placeholder="ex. 25" className="w-20 border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[13px] text-[#3D2314]" />
                   <span className="text-[13px] text-[#3D2314]/60">%</span>
                 </div>
               </label>
               <label className="text-[12px] text-[#3D2314]/70 flex flex-col">
                 <span className="flex items-center">Margem mínima<AjudaCampo chave="compras.precificacao.margem_minima" /></span>
                 <div className="mt-0.5 flex items-center gap-1">
-                  <input type="number" inputMode="decimal" value={minIn} onChange={(e) => setMinIn(e.target.value)} placeholder="ex. 10" className="w-20 border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[13px] text-[#3D2314]" />
+                  <input type="text" inputMode="decimal" value={minIn} onChange={(e) => setMinIn(e.target.value)} placeholder="ex. 10" className="w-20 border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[13px] text-[#3D2314]" />
                   <span className="text-[13px] text-[#3D2314]/60">%</span>
                 </div>
               </label>
@@ -293,7 +293,7 @@ export default function PrecificacaoPage() {
               <label className="text-[12px] text-[#3D2314]/70 flex flex-col">
                 <span className="flex items-center">Percentual<AjudaCampo chave="compras.precificacao.valor" /></span>
                 <div className="mt-0.5 flex items-center gap-1">
-                  <input type="number" inputMode="decimal" value={valor} onChange={(e) => { setValor(e.target.value); setPrevia(false) }} className="w-20 border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[13px] text-[#3D2314]" />
+                  <input type="text" inputMode="decimal" value={valor} onChange={(e) => { setValor(e.target.value); setPrevia(false) }} className="w-20 border border-[#3D2314]/15 rounded-md px-2 py-1.5 text-[13px] text-[#3D2314]" />
                   <span className="text-[13px] text-[#3D2314]/60">%</span>
                 </div>
               </label>
