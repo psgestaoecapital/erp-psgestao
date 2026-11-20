@@ -7,6 +7,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { fmtData } from '@/lib/psgc-tokens'
 import { UploadDocumentoModal, type UploadContext } from '../_components/UploadDocumentoModal'
 import { C, baixarDocumento } from '../_components/ui'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 type Tipo = { id: string; slug: string; nome: string; grupo: string | null; obrigatorio: boolean }
 type Celula = {
@@ -213,6 +214,7 @@ export default function MatrizPage() {
               {linhas.length} funcionários × {tiposFiltrados.length} documentos
               {!mostrarOpcionais && tiposFiltrados.length < tipos.length && ` (${tipos.length - tiposFiltrados.length} opcionais ocultos)`}
               . Clique numa célula para ver/editar.
+              <AjudaCampo chave="ehs.matriz.grade" />
             </p>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -220,6 +222,7 @@ export default function MatrizPage() {
             <button onClick={exportarCsv} disabled={loading || linhas.length === 0} style={{ padding: '10px 14px', borderRadius: 8, border: 'none', backgroundColor: C.gold, color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               Exportar Excel (CSV)
             </button>
+            <AjudaCampo chave="ehs.matriz.exportar" />
           </div>
         </header>
         )}
@@ -258,23 +261,36 @@ export default function MatrizPage() {
           {gruposDisponiveis.map((g: string) => (
             <button key={g} onClick={() => setFGrupo(g)} style={chipStyle(fGrupo === g)}>{labelGrupo(g)}</button>
           ))}
+          <AjudaCampo chave="ehs.matriz.grupos" />
           <span style={{ width: 1, alignSelf: 'stretch', background: C.borderLt, margin: '0 2px' }} />
-          <select value={fTomadora} onChange={(e: any) => setFTomadora(e.target.value)} style={selectStyle()}>
-            <option value="">Todas as tomadoras</option>
-            {opcoesTomadora.map((s: string) => (<option key={s} value={s}>{s}</option>))}
-          </select>
-          <select value={fObra} onChange={(e: any) => setFObra(e.target.value)} style={selectStyle()}>
-            <option value="">Todas as obras</option>
-            {opcoesObra.map((s: string) => (<option key={s} value={s}>{s}</option>))}
-          </select>
-          <select value={fSetor} onChange={(e: any) => setFSetor(e.target.value)} style={selectStyle()}>
-            <option value="">Todos os setores</option>
-            {opcoesSetor.map((s: string) => (<option key={s} value={s}>{s}</option>))}
-          </select>
-          <select value={fCargo} onChange={(e: any) => setFCargo(e.target.value)} style={selectStyle()}>
-            <option value="">Todos os cargos</option>
-            {opcoesCargo.map((s: string) => (<option key={s} value={s}>{s}</option>))}
-          </select>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <select value={fTomadora} onChange={(e: any) => setFTomadora(e.target.value)} style={selectStyle()}>
+              <option value="">Todas as tomadoras</option>
+              {opcoesTomadora.map((s: string) => (<option key={s} value={s}>{s}</option>))}
+            </select>
+            <AjudaCampo chave="ehs.matriz.filtro_tomadora" />
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <select value={fObra} onChange={(e: any) => setFObra(e.target.value)} style={selectStyle()}>
+              <option value="">Todas as obras</option>
+              {opcoesObra.map((s: string) => (<option key={s} value={s}>{s}</option>))}
+            </select>
+            <AjudaCampo chave="ehs.matriz.filtro_obra" />
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <select value={fSetor} onChange={(e: any) => setFSetor(e.target.value)} style={selectStyle()}>
+              <option value="">Todos os setores</option>
+              {opcoesSetor.map((s: string) => (<option key={s} value={s}>{s}</option>))}
+            </select>
+            <AjudaCampo chave="ehs.matriz.filtro_setor" />
+          </span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <select value={fCargo} onChange={(e: any) => setFCargo(e.target.value)} style={selectStyle()}>
+              <option value="">Todos os cargos</option>
+              {opcoesCargo.map((s: string) => (<option key={s} value={s}>{s}</option>))}
+            </select>
+            <AjudaCampo chave="ehs.matriz.filtro_cargo" />
+          </span>
           <span style={{ flex: 1 }} />
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600, color: C.espresso, cursor: 'pointer' }}>
             <input
@@ -283,6 +299,7 @@ export default function MatrizPage() {
               onChange={(e: any) => setMostrarOpcionais(e.target.checked)}
             />
             Mostrar opcionais
+            <AjudaCampo chave="ehs.matriz.opcionais" />
           </label>
         </section>
         )}
