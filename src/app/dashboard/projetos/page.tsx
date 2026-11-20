@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Hammer, ArrowRight } from "lucide-react";
+import { Hammer, ArrowRight, Clock, FileClock } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
@@ -25,6 +25,8 @@ interface ResumoEmpresa {
   funil_valor_aberto: number;
   funil_ganhas: number;
   funil_perdidas: number;
+  aprovacoes_pendentes: number;
+  orcamentos_parados: number;
   obras_andamento: ObraAndamento[];
 }
 
@@ -83,12 +85,18 @@ export default function PainelProjetos() {
         // contava por v_obra_resultado (view derivada) e podia divergir da lista (auditor 27/10: Painel "Concluídas 0"
         // x lista "Concluídas 1"). Uma fonte só = os números sempre batem. Só as obras em andamento vêm linha a linha
         // (receita/custo previstos) da v_obra_resultado para a tabela abaixo.
-        const [{ data: v }, { data: k, error: ek }, { count: propostas, error: ep }, { data: obras, error: eo }, { data: opps, error: eop }] = await Promise.all([
+        // "Bloco do dia" (§310): orçamentos enviados sem retorno há mais de 7 dias (cobrar o cliente)
+        // e revisões de escopo aguardando aprovação (decisão travando a obra). Erros destes dois NÃO
+        // derrubam o painel (try separado no throw): são blocos de apoio, não os indicadores principais.
+        const seteDiasAtras = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+        const [{ data: v }, { data: k, error: ek }, { count: propostas, error: ep }, { data: obras, error: eo }, { data: opps, error: eop }, { count: orcParados, error: eorc }, { count: revPend, error: erev }] = await Promise.all([
           supabase.from("v_projetos_resumo_empresa").select("contas_pagar_abertas,contas_receber_abertas").eq("company_id", companyId).maybeSingle(),
           supabase.rpc("fn_obras_kpis", { p_company_ids: [companyId] }),
           supabase.from("erp_orcamentos").select("id", { count: "exact", head: true }).eq("company_id", companyId).in("status", ["rascunho", "enviado"]),
           supabase.from("v_obra_resultado").select("obra_id,numero,nome,status,receita_prevista,custo_previsto").eq("company_id", companyId).eq("status", "em_andamento"),
           supabase.from("erp_crm_oportunidade").select("etapa,valor_estimado").eq("company_id", companyId).is("deleted_at", null),
+          supabase.from("erp_orcamentos").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "enviado").is("deleted_at", null).lt("updated_at", seteDiasAtras),
+          supabase.from("projetos_obra_revisao").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "solicitada").is("excluido_em", null),
         ]);
         if (ek || ep || eo || eop) throw new Error("indicadores");
         const kp = (k as { em_andamento?: number; concluidas?: number; pausada?: number; cancelada?: number; valor_em_andamento?: number } | null) ?? {};
@@ -129,6 +137,8 @@ export default function PainelProjetos() {
             funil_valor_aberto: valorAberto,
             funil_ganhas: ganhas,
             funil_perdidas: perdidas,
+            aprovacoes_pendentes: erev ? 0 : Number(revPend ?? 0),
+            orcamentos_parados: eorc ? 0 : Number(orcParados ?? 0),
             obras_andamento: andamento,
           });
         }
@@ -228,6 +238,38 @@ export default function PainelProjetos() {
             vazio={!!resumo && resumo.receber_aberto === 0}
             vazioTexto="Sem conta a receber em aberto — abrir o Financeiro"
             href="/dashboard/financeiro/receber"
+          />
+        </div>
+      </section>
+
+      {/* PARA HOJE — §310 (relatório 01 · reunião 20/11): bloco do dia. Hoje: aprovações de escopo
+          paradas e orçamentos enviados sem retorno. Compromissos/tarefas entram quando a Agenda (§311)
+          chegar. Cada card é acionável e tem "?" (RD-95); estado calmo quando não há pendência (RD-98). */}
+      <section className="mt-12" data-testid="painel-para-hoje">
+        <div className="flex items-center gap-1">
+          <Clock size={14} className="text-[#C8941A]" />
+          <SectionLabel>Para hoje</SectionLabel>
+        </div>
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <PendenciaCard
+            icone={<FileClock size={18} className="text-[#C8941A]" />}
+            label="Aprovações pendentes"
+            chave="projetos.painel.pendencias.aprovacoes"
+            testid="pendencia-aprovacoes"
+            valor={resumo ? resumo.aprovacoes_pendentes : null}
+            texto={(n) => n === 1 ? "revisão de escopo aguardando sua aprovação" : "revisões de escopo aguardando sua aprovação"}
+            vazioTexto="Nenhuma revisão de escopo aguardando decisão."
+            href="/dashboard/projetos/obras"
+          />
+          <PendenciaCard
+            icone={<Clock size={18} className="text-[#C8941A]" />}
+            label="Orçamentos sem retorno"
+            chave="projetos.painel.pendencias.orcamentos_parados"
+            testid="pendencia-orcamentos"
+            valor={resumo ? resumo.orcamentos_parados : null}
+            texto={(n) => n === 1 ? "proposta enviada há mais de 7 dias sem resposta" : "propostas enviadas há mais de 7 dias sem resposta"}
+            vazioTexto="Nenhuma proposta enviada esperando resposta há mais de 7 dias."
+            href="/dashboard/projetos/propostas"
           />
         </div>
       </section>
@@ -396,6 +438,33 @@ function Numero({ label, valor, testid, ajuda }: { label: string; valor: string;
         {valor}
       </div>
     </div>
+  );
+}
+
+function PendenciaCard({ icone, label, chave, testid, valor, texto, vazioTexto, href }: { icone: React.ReactNode; label: string; chave: string; testid?: string; valor: number | null; texto: (n: number) => string; vazioTexto: string; href: string }) {
+  const vazio = valor !== null && valor === 0;
+  return (
+    <Link
+      href={href}
+      data-testid={testid}
+      className="flex items-start gap-3 rounded-xl border border-[#3D2314]/12 bg-white p-4 shadow-sm transition-colors hover:border-[#C8941A]"
+    >
+      <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#C8941A]/10">{icone}</span>
+      <span className="min-w-0">
+        <span className="flex items-center gap-1 text-xs text-[#3D2314]/50">{label}<AjudaCampo chave={chave} /></span>
+        {valor === null ? (
+          <span className="mt-0.5 block text-lg font-medium text-[#3D2314]">…</span>
+        ) : vazio ? (
+          <span className="mt-0.5 block text-sm text-[#3D2314]/45">{vazioTexto}</span>
+        ) : (
+          <span className="mt-0.5 block text-sm text-[#3D2314]">
+            <span className="text-lg font-medium" style={{ fontFamily: "var(--ps-font-body)", fontStyle: "normal" }}>{valor}</span>{" "}
+            {texto(valor)}
+          </span>
+        )}
+      </span>
+      <ArrowRight size={14} className="ml-auto mt-1 shrink-0 text-[#C8941A]" />
+    </Link>
   );
 }
 
