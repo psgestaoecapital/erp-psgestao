@@ -192,3 +192,7 @@ BEGIN
     'folha_base',   (SELECT COALESCE(sum(salario_base),0) FROM rh_pessoa_complemento WHERE company_id = c AND excluido_em IS NULL));
 END
 $function$;
+
+-- Guarda de exposição (RD / check-fn-guards): SECURITY DEFINER não fica aberta a anon/PUBLIC.
+REVOKE ALL ON FUNCTION public.fn_demo_seed_industria_rh_quadro(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_demo_seed_industria_rh_quadro(uuid) TO authenticated, service_role;
