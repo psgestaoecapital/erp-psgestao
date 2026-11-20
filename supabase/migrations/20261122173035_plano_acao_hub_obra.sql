@@ -85,6 +85,9 @@ BEGIN
   RETURN jsonb_build_object('ok',true,'id',p_id,'codigo',v_old.codigo);
 END $function$;
 
+REVOKE ALL ON FUNCTION public.fn_plano_acao_salvar(uuid,jsonb,uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_plano_acao_salvar(uuid,jsonb,uuid) TO authenticated, service_role;
+
 -- ───────────── 3. fn_plano_acao_reuniao_salvar: aceita obra_id no jsonb ─────────────
 CREATE OR REPLACE FUNCTION public.fn_plano_acao_reuniao_salvar(p_company_id uuid, p_reuniao jsonb, p_id uuid DEFAULT NULL::uuid)
  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
@@ -186,6 +189,9 @@ END $function$;
 REVOKE ALL ON FUNCTION public.fn_plano_acao_listar(uuid,text,uuid,uuid,text,text,boolean,text,uuid,boolean,uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_plano_acao_listar(uuid,text,uuid,uuid,text,text,boolean,text,uuid,boolean,uuid) TO authenticated, service_role;
 
+REVOKE ALL ON FUNCTION public.fn_plano_acao_reuniao_salvar(uuid,jsonb,uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_plano_acao_reuniao_salvar(uuid,jsonb,uuid) TO authenticated, service_role;
+
 -- ───────────── 5. fn_plano_acao_reuniao_listar: + obra_id/obra_nome no resultado ─────────────
 CREATE OR REPLACE FUNCTION public.fn_plano_acao_reuniao_listar(p_company_id uuid)
  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
@@ -209,6 +215,9 @@ BEGIN
   ) r;
   RETURN jsonb_build_object('ok',true,'reunioes',coalesce(v,'[]'::jsonb));
 END $function$;
+
+REVOKE ALL ON FUNCTION public.fn_plano_acao_reuniao_listar(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_plano_acao_reuniao_listar(uuid) TO authenticated, service_role;
 
 -- ───────────── 6. fn_plano_acao_obra_resumo: contagem de ações da obra (Cockpit) ─────────────
 CREATE OR REPLACE FUNCTION public.fn_plano_acao_obra_resumo(p_company_id uuid, p_obra uuid)
