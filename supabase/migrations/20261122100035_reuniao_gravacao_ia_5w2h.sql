@@ -321,24 +321,26 @@ BEGIN
           custo_estimado, prioridade, evidencia, minuto, confianca, status, acao_id, criado_em FROM erp_plano_acao_reuniao_proposta WHERE reuniao_id = p_reuniao_id) p));
 END $fn$;
 
-DO $g$
-DECLARE f text;
-BEGIN
-  FOREACH f IN ARRAY ARRAY[
-    'fn_reuniao_ia_consentir(uuid)',
-    'fn_reuniao_ia_segmento_registrar(uuid,int,text,text,text,numeric,numeric)',
-    'fn_reuniao_ia_segmento_status(uuid,text,text,boolean)',
-    'fn_reuniao_ia_trechos_gravar(uuid,jsonb)',
-    'fn_reuniao_ia_custo_somar(uuid,numeric,numeric)',
-    'fn_reuniao_ia_resultado_gravar(uuid,text,jsonb,jsonb)',
-    'fn_reuniao_ia_proposta_confirmar(uuid,jsonb)',
-    'fn_reuniao_ia_proposta_descartar(uuid)',
-    'fn_reuniao_ia_confirmar_todas(uuid)',
-    'fn_reuniao_ia_obter(uuid)'] LOOP
-    EXECUTE format('REVOKE ALL ON FUNCTION public.%s FROM PUBLIC, anon', f);
-    EXECUTE format('GRANT EXECUTE ON FUNCTION public.%s TO authenticated, service_role', f);
-  END LOOP;
-END $g$;
+REVOKE ALL ON FUNCTION public.fn_reuniao_ia_consentir(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_reuniao_ia_consentir(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_reuniao_ia_segmento_registrar(uuid,int,text,text,text,numeric,numeric) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_reuniao_ia_segmento_registrar(uuid,int,text,text,text,numeric,numeric) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_reuniao_ia_segmento_status(uuid,text,text,boolean) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_reuniao_ia_segmento_status(uuid,text,text,boolean) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_reuniao_ia_trechos_gravar(uuid,jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_reuniao_ia_trechos_gravar(uuid,jsonb) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_reuniao_ia_custo_somar(uuid,numeric,numeric) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_reuniao_ia_custo_somar(uuid,numeric,numeric) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_reuniao_ia_resultado_gravar(uuid,text,jsonb,jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_reuniao_ia_resultado_gravar(uuid,text,jsonb,jsonb) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_reuniao_ia_proposta_confirmar(uuid,jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_reuniao_ia_proposta_confirmar(uuid,jsonb) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_reuniao_ia_proposta_descartar(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_reuniao_ia_proposta_descartar(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_reuniao_ia_confirmar_todas(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_reuniao_ia_confirmar_todas(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_reuniao_ia_obter(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_reuniao_ia_obter(uuid) TO authenticated, service_role;
 
 -- ───────────── 8. ajuda RD-95 ─────────────
 INSERT INTO erp_ajuda_campo (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, vertical, ordem, versao, status)
