@@ -28,7 +28,9 @@ function recursoEmLiberacao(e: unknown): boolean {
   const code = typeof err.code === 'string' ? err.code : ''
   const msg = typeof err.message === 'string' ? err.message.toLowerCase() : ''
   if (['42P01', 'PGRST202', 'PGRST205'].includes(code)) return true
-  return /does not exist|not found|schema cache/.test(msg)
+  // Só o schema cache do PostgREST (relação/função ainda não existe). NUNCA "does not exist"/"not found"
+  // genérico: um erro REAL de SQL não pode virar aviso falso de "recurso sendo liberado".
+  return /schema cache/.test(msg)
 }
 
 const brl = (n: number | null | undefined) =>
