@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { parseNumBR } from '@/lib/num'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
@@ -60,7 +61,7 @@ export default function IaPrecoPage() {
   const sugerir = useCallback(async () => {
     if (!empresa) return
     setCalculando(true); setMsg(null); setResultado(null)
-    const margem = margemInput.trim() === '' ? null : Number(margemInput.replace(',', '.'))
+    const margem = margemInput.trim() === '' ? null : (parseNumBR(margemInput) ?? NaN)
     if (margem !== null && (!Number.isFinite(margem) || margem < 0 || margem >= 100)) {
       setMsg({ tipo: 'erro', texto: 'A margem-alvo deve ser um número entre 0 e 99,9.' }); setCalculando(false); return
     }
@@ -74,7 +75,7 @@ export default function IaPrecoPage() {
 
   const salvarMargem = useCallback(async () => {
     if (!empresa) return
-    const margem = Number(margemInput.replace(',', '.'))
+    const margem = parseNumBR(margemInput) ?? NaN
     if (!Number.isFinite(margem) || margem < 0 || margem >= 100) {
       setMsg({ tipo: 'erro', texto: 'Informe a margem-alvo (0 a 99,9) para salvar.' }); return
     }
@@ -135,7 +136,7 @@ export default function IaPrecoPage() {
             </label>
             <label style={{ flex: '0 1 180px', minWidth: 150 }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: TEXTM, display: 'inline-flex', alignItems: 'center' }}>Margem-alvo (%)<AjudaCampo chave="pm.ia_preco.margem" /></span>
-              <input type="number" inputMode="decimal" min={0} max={99.9} step="0.5" placeholder="usa a cadastrada" value={margemInput}
+              <input type="text" inputMode="decimal" placeholder="usa a cadastrada" value={margemInput}
                 onChange={(e) => setMargemInput(e.target.value)} data-testid="iapreco-margem"
                 style={{ width: '100%', minHeight: 42, border: `1px solid ${BORDA}`, borderRadius: 8, padding: '6px 10px', fontSize: 14, marginTop: 4 }} />
             </label>
@@ -198,7 +199,7 @@ export default function IaPrecoPage() {
               </label>
               <label style={{ flex: '0 1 160px', minWidth: 130 }}>
                 <span style={{ fontSize: 12, fontWeight: 700, color: TEXTM, display: 'inline-flex', alignItems: 'center' }}>Margem-alvo (%)<AjudaCampo chave="pm.ia_preco.margem" /></span>
-                <input type="number" inputMode="decimal" min={0} max={99.9} step="0.5" placeholder="ex.: 30" value={margemInput}
+                <input type="text" inputMode="decimal" placeholder="ex.: 30" value={margemInput}
                   onChange={(e) => setMargemInput(e.target.value)} data-testid="iapreco-incluir-margem"
                   style={{ width: '100%', minHeight: 42, border: `1px solid ${BORDA}`, borderRadius: 8, padding: '6px 10px', fontSize: 14, marginTop: 4 }} />
               </label>

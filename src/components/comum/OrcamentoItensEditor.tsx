@@ -13,6 +13,8 @@ import { Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
 import ServicoAutocomplete, { type ServicoSelecionado } from '@/components/comum/ServicoAutocomplete'
+import { CampoDecimal } from '@/components/comum/CampoDecimal'
+import { TIPOS_ITEM_SPED } from '@/lib/produtos/fiscalMassa'
 
 export type EditorItem = {
   id?: string
@@ -77,6 +79,15 @@ function recalc(it: EditorItem): EditorItem {
   return { ...it, subtotal }
 }
 
+// #OS-163 / #9667 (Canal PS): rótulo do Tipo de item SPED do produto, p/ a operadora reconhecer
+// estoque "quente" (00 = mercadoria para revenda, pode faturar) x "frio" (99 = outras, não fatura).
+// SPED vazio no cadastro = 00 (revenda), padrão do mesmo lib da importação de estoque.
+function spedRotulo(codigo: string | null | undefined): string {
+  const c = (codigo ?? '').trim() || '00'
+  const op = TIPOS_ITEM_SPED.find((o) => o.codigo === c)
+  return op ? `${op.codigo} - ${op.rotulo}` : `${c} - (código SPED não catalogado)`
+}
+
 export default function OrcamentoItensEditor({ companyId, itens, onChange }: Props) {
   const tid = useId()
 
@@ -97,6 +108,35 @@ export default function OrcamentoItensEditor({ companyId, itens, onChange }: Pro
     })()
     return () => { vivo = false }
   }, [companyId])
+
+  // #OS-163 / #9667 · Tipo de item SPED por produto da OS (leitura só, erp_produtos.tipo_item_sped).
+  // Mostrado abaixo do nome de cada item (letra menor), em TODAS as empresas — independe do modo de
+  // baixa de estoque. Busca os tipos dos produtos presentes na OS quando a lista de produto_ids muda.
+  const [tipoSped, setTipoSped] = useState<Record<string, string>>({})
+  const produtoIdsKey = itens
+    .filter((it) => it.tipo_item === 'produto' && it.produto_id)
+    .map((it) => it.produto_id as string)
+    .sort()
+    .join(',')
+  useEffect(() => {
+    let vivo = true
+    const ids = produtoIdsKey ? produtoIdsKey.split(',') : []
+    if (!companyId || ids.length === 0) { setTipoSped({}); return }
+    void (async () => {
+      const { data, error } = await supabase
+        .from('erp_produtos')
+        .select('id, tipo_item_sped')
+        .eq('company_id', companyId)
+        .in('id', ids)
+      if (!vivo || error) return
+      const m: Record<string, string> = {}
+      for (const p of ((data ?? []) as { id: string; tipo_item_sped: string | null }[])) {
+        m[p.id] = (p.tipo_item_sped ?? '').trim() || '00'
+      }
+      setTipoSped(m)
+    })()
+    return () => { vivo = false }
+  }, [companyId, produtoIdsKey])
 
   function atualizar(idx: number, patch: Partial<EditorItem>) {
     const arr = [...itens]
@@ -238,6 +278,16 @@ export default function OrcamentoItensEditor({ companyId, itens, onChange }: Pro
                   testId={`orc-produto-${i}`}
                 />
               ) : null}
+              {/* #OS-163 / #9667 · Tipo de item SPED abaixo do nome (letra menor) — quente (00) x frio (99). Leitura só. */}
+              {it.tipo_item === 'produto' && it.produto_id && (
+                <div
+                  data-testid={`orc-produto-sped-${i}`}
+                  style={{ fontSize: 10.5, color: C.espressoM, marginTop: -2 }}
+                  title="Tipo de item (SPED) cadastrado no produto. Define o controle de estoque: 00 = com nota (revenda, pode faturar); 99 = sem nota (outras, não sai em NF de venda)."
+                >
+                  Tipo (SPED): {spedRotulo(tipoSped[it.produto_id])}
+                </div>
+              )}
               {/* Bloco D · aviso de reserva (não bloqueia a venda — só informa; RD-58: só aparece se houver) */}
               {it.tipo_item === 'produto' && it.produto_id && (reservas[it.produto_id] ?? 0) > 0 && (
                 <div
@@ -268,12 +318,12 @@ export default function OrcamentoItensEditor({ companyId, itens, onChange }: Pro
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.2fr 1.2fr', gap: 6 }}>
                 <label>
                   <span style={{ display: 'block', fontSize: 10, color: C.espressoM, marginBottom: 2 }}>Qtd</span>
-                  <input
-                    type="number" step="0.001"
-                    value={it.quantidade || ''}
-                    onChange={(e) => atualizar(i, { quantidade: parseFloat(e.target.value) || 0 })}
+                  <CampoDecimal
+                    step="0.001"
+                    value={it.quantidade}
+                    onChange={(n) => atualizar(i, { quantidade: n ?? 0 })}
                     style={{ ...inp, textAlign: 'right' }}
-                    data-testid={`orc-qtd-${i}`}
+                    testId={`orc-qtd-${i}`}
                   />
                 </label>
                 <label>
@@ -286,12 +336,12 @@ export default function OrcamentoItensEditor({ companyId, itens, onChange }: Pro
                 </label>
                 <label>
                   <span style={{ display: 'block', fontSize: 10, color: C.espressoM, marginBottom: 2 }}>Preço un. (R$)</span>
-                  <input
-                    type="number" step="0.01"
-                    value={it.preco_unitario || ''}
-                    onChange={(e) => atualizar(i, { preco_unitario: parseFloat(e.target.value) || 0 })}
+                  <CampoDecimal
+                    step="0.01"
+                    value={it.preco_unitario}
+                    onChange={(n) => atualizar(i, { preco_unitario: n ?? 0 })}
                     style={{ ...inp, textAlign: 'right' }}
-                    data-testid={`orc-preco-${i}`}
+                    testId={`orc-preco-${i}`}
                   />
                 </label>
                 <label>

@@ -28,6 +28,9 @@ import NovaDespesaModal from '@/components/financeiro/NovaDespesaModal'
 import NovaReceitaModal from '@/components/financeiro/NovaReceitaModal'
 import { rotuloLote } from '@/lib/conciliacao/rotuloLote'
 
+// Tamanho da página da aba "Pendências do Sistema"
+const PAGE_SISTEMA = 200
+
 interface Item {
   movimento_id: string
   lote_nome: string | null
@@ -264,6 +267,9 @@ export default function InboxPage() {
   const [filtroNat, setFiltroNat] = useState<'todos' | 'debito' | 'credito'>('todos')
   const [pendenciasSistema, setPendenciasSistema] = useState<PendenciaSistema[]>([])
   const [loadingSistema, setLoadingSistema] = useState(false)
+  // Paginação da aba "Pendências do Sistema" (há empresas com dezenas de milhares de pendências; o teto fixo escondia o resto)
+  const [pgSistema, setPgSistema] = useState(0)
+  const [temProxSistema, setTemProxSistema] = useState(false)
   const [autoGlobal, setAutoGlobal] = useState(false)
   const [aplicandoIds, setAplicandoIds] = useState<Set<string>>(new Set())
   const [conciliandoLote, setConciliandoLote] = useState(false)
@@ -342,14 +348,26 @@ export default function InboxPage() {
     const loteSel = lotes.find((l) => l.id === loteSelId)
     const ini = loteSel?.periodo_inicio ?? new Date(Date.now() - 90 * 86_400_000).toISOString().slice(0, 10)
     const fim = loteSel?.periodo_fim ?? null
+    // pede 1 a mais que a página para saber, sem um COUNT extra, se existe próxima página
     const { data, error } = await supabase.rpc('fn_conciliacao_pendencias_sistema', {
       p_company_id: empresaUnica,
       p_natureza: filtroNat === 'todos' ? null : filtroNat,
       p_data_ini: ini,
       p_data_fim: fim,
-      p_limite: 200,
+      p_limite: PAGE_SISTEMA + 1,
+      p_offset: pgSistema * PAGE_SISTEMA,
     })
-    if (!error) setPendenciasSistema((data ?? []) as PendenciaSistema[])
+    if (error) {
+      // criterio c/e (RD-98): nao deixar a aba "verde-vazia" quando a query falha —
+      // erro != "sem pendencias". Avisa em linguagem do usuario e preserva a lista atual.
+      setErro(erroAmigavel(error, 'Não foi possível carregar as pendências do sistema agora. Tente de novo em instantes.'))
+      setLoadingSistema(false)
+      return
+    }
+    // paginação: pedimos PAGE_SISTEMA + 1 p/ saber se há próxima, sem COUNT extra
+    const linhas = (data ?? []) as PendenciaSistema[]
+    setTemProxSistema(linhas.length > PAGE_SISTEMA)
+    setPendenciasSistema(linhas.slice(0, PAGE_SISTEMA))
     setLoadingSistema(false)
   }
 
@@ -359,7 +377,12 @@ export default function InboxPage() {
       p_company_id: empresaUnica,
       p_limite: 500,
     })
-    if (!error) setConciliados((data ?? []) as Conciliado[])
+    if (error) {
+      // criterio c/e (RD-98): erro de query nao pode virar aba "Conciliados" vazia e silenciosa.
+      setErro(erroAmigavel(error, 'Não foi possível carregar os conciliados agora. Tente de novo em instantes.'))
+      return
+    }
+    setConciliados((data ?? []) as Conciliado[])
   }
 
   // Expande/recolhe os títulos de uma fatura agrupada (lancamento_id NULL).
@@ -655,7 +678,14 @@ export default function InboxPage() {
     /* eslint-disable-next-line react-hooks/set-state-in-effect */
     if (modo === 'sistema') void carregarPendenciasSistema()
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
-  }, [modo, filtroNat, loteSelId])
+  }, [modo, filtroNat, loteSelId, pgSistema])
+
+  // trocar filtro de natureza ou lote volta para a 1ª página (senão o offset ficaria num vazio)
+  useEffect(() => {
+    /* eslint-disable-next-line react-hooks/set-state-in-effect */
+    setPgSistema(0)
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [filtroNat, loteSelId, modo])
 
   const filtrados = useMemo(() => {
     let base = soOuro ? items.filter((i) => (i.sugestao_score ?? 0) >= 0.8) : items
@@ -1001,7 +1031,7 @@ export default function InboxPage() {
             <p style={{ color: 'rgba(61,35,20,0.65)', fontSize: 13, margin: 0 }}>
               {modo === 'extrato'
                 ? `${totPend} pendentes · ${qtdOuro} com match OURO (score ≥ 0.8)`
-                : `${pendenciasSistema.length} pendências no sistema (não vinculadas ao extrato)`}
+                : `${pendenciasSistema.length}${temProxSistema || pgSistema > 0 ? ` nesta página · página ${pgSistema + 1}` : ''} pendência${pendenciasSistema.length === 1 ? '' : 's'} no sistema (não vinculadas ao extrato)`}
             </p>
           </div>
           {modo === 'extrato' && qtdOuro > 0 && aba === 'pendentes' && (
@@ -1576,6 +1606,7 @@ export default function InboxPage() {
                                 >
                                   Desvincular
                                 </button>
+                                <AjudaCampo chave="conc.inbox.acao_desvincular_titulo" rota="/dashboard/financeiro/conciliacao/inbox" />
                               </div>
                             ))}
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700, borderTop: '1px dashed rgba(61,35,20,0.15)', paddingTop: 6 }}>
@@ -1591,6 +1622,7 @@ export default function InboxPage() {
                       <button onClick={() => void desvincularConciliado(c)} style={secondaryBtn(false)} title={c.lancamento_id === null ? 'Desfaz a fatura inteira (todos os títulos voltam a Aberto)' : 'Desvincular este lançamento conciliado'}>
                         {c.lancamento_id === null ? 'Desvincular fatura' : 'Desvincular'}
                       </button>
+                      <AjudaCampo chave="conc.inbox.acao_desvincular_conciliado" rota="/dashboard/financeiro/conciliacao/inbox" />
                     </div>
                   </div>
                 )
@@ -1688,10 +1720,32 @@ export default function InboxPage() {
                           style={secondaryBtn(false)}
                           data-testid="conc-sistema-editar"
                         >✏️ Editar</button>
+                        <AjudaCampo chave="conc.inbox.acao_editar_sistema" rota="/dashboard/financeiro/conciliacao/inbox" />
                       </div>
                     </div>
                   )
                 })}
+              </div>
+            )}
+
+            {!loadingSistema && (pgSistema > 0 || temProxSistema) && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginTop: 16 }}>
+                <button
+                  onClick={() => setPgSistema((n) => Math.max(0, n - 1))}
+                  disabled={pgSistema === 0}
+                  style={{ ...secondaryBtn(false), opacity: pgSistema === 0 ? 0.4 : 1, cursor: pgSistema === 0 ? 'not-allowed' : 'pointer' }}
+                  data-testid="conc-sistema-anterior"
+                >← Anterior</button>
+                <span style={{ fontSize: 12, color: 'rgba(61,35,20,0.65)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  Página {pgSistema + 1}
+                  <AjudaCampo chave="financeiro.conciliacao.paginacao_sistema" />
+                </span>
+                <button
+                  onClick={() => setPgSistema((n) => n + 1)}
+                  disabled={!temProxSistema}
+                  style={{ ...secondaryBtn(false), opacity: !temProxSistema ? 0.4 : 1, cursor: !temProxSistema ? 'not-allowed' : 'pointer' }}
+                  data-testid="conc-sistema-proxima"
+                >Próxima →</button>
               </div>
             )}
           </>

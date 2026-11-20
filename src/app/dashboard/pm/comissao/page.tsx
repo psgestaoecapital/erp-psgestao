@@ -218,7 +218,7 @@ export default function ComissaoPage() {
                 <CampoMoeda value={form.base_valor} onChange={(v) => setForm({ ...form, base_valor: v })} placeholder="R$ 0,00" style={inp} testId="comissao-f-base" />
               </Campo>
               <Campo label="Percentual (%)" chave="pm.comissao.campo_percentual" flex>
-                <input type="number" min="0" step="0.01" value={form.percentual} onChange={(e) => setForm({ ...form, percentual: e.target.value })} style={inp} data-testid="comissao-f-percentual" />
+                <input type="text" inputMode="decimal" value={form.percentual} onChange={(e) => setForm({ ...form, percentual: e.target.value })} style={inp} data-testid="comissao-f-percentual" />
               </Campo>
             </div>
             <Campo label="Competência" chave="pm.comissao.campo_competencia">

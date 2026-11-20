@@ -72,6 +72,7 @@ type Medicao = {
   valor_bruto: number | null; retencao_pct: number | null; valor_retencao: number | null
   inss_pct: number | null; iss_pct: number | null; valor_inss: number | null; valor_iss: number | null
   valor_liquido: number | null
+  pagar_id: string | null; pagar_valor: number | null
   status: string; observacoes: string | null; criado_em: string | null
 }
 type MedForm = {
@@ -580,8 +581,40 @@ export default function SubempreiteirosObraPage({ params }: { params: Promise<{ 
                           <AjudaCampo chave="projetos.subempreiteiro.medicao_nova" rota={ROTA} />
                         </div>
                         <p style={{ fontSize: 12, color: MUT, margin: '6px 0 0' }}>
-                          Registre o quanto foi medido do subempreiteiro por período. O pagamento (com retenção, INSS e ISS) é gerado no financeiro, em etapa própria.
+                          Registre o quanto foi medido do subempreiteiro por período. Ao <strong>aprovar</strong> uma medição, o sistema gera automaticamente o título a pagar no financeiro (GE) pelo <strong>líquido</strong> — bruto menos retenção, INSS e ISS — no centro de custo da obra.
                         </p>
+
+                        {/* Progresso de execução: quanto já foi medido (aprovado) do contratado — margem de execução H7 */}
+                        {(() => {
+                          const lista = medicoes[c.id] ?? []
+                          const contratado = Number(c.valor_total) || 0
+                          const medidoAprovado = lista
+                            .filter((m) => m.status === 'aprovada')
+                            .reduce((s, m) => s + (Number(m.valor_bruto) || 0), 0)
+                          if (contratado <= 0 && medidoAprovado <= 0) return null
+                          const pct = contratado > 0 ? Math.min(100, Math.round((medidoAprovado / contratado) * 100)) : 0
+                          const saldo = contratado - medidoAprovado
+                          return (
+                            <div style={{ marginTop: 10 }} data-testid={`sub-execucao-${c.id}`}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: MUT, flexWrap: 'wrap' }}>
+                                <span>
+                                  Medido (aprovado) <strong style={{ color: ESP }}>{brl(medidoAprovado)}</strong>
+                                  {contratado > 0 && <> de <strong style={{ color: ESP }}>{brl(contratado)}</strong> contratado — <strong style={{ color: ESP }}>{pct}%</strong></>}
+                                </span>
+                                <AjudaCampo chave="projetos.subempreiteiro.execucao_progresso" rota={ROTA} />
+                                <span style={{ flex: 1 }} />
+                                {contratado > 0 && (
+                                  <span>Saldo a medir <strong style={{ color: saldo < 0 ? VERM : ESP }}>{brl(saldo)}</strong></span>
+                                )}
+                              </div>
+                              {contratado > 0 && (
+                                <div style={{ height: 6, borderRadius: 999, background: LINE, marginTop: 6, overflow: 'hidden' }}>
+                                  <div style={{ height: '100%', width: `${pct}%`, background: GOLD, borderRadius: 999 }} />
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })()}
 
                         {medForm && medForm.contrato_id === c.id && (() => {
                           const bruto = parseNumBR(medForm.valor_bruto) || 0
@@ -659,6 +692,7 @@ export default function SubempreiteirosObraPage({ params }: { params: Promise<{ 
                           ) : (medicoes[c.id]?.length ?? 0) === 0 ? (
                             <div style={{ fontSize: 13, color: MUT }}>Nenhuma medição registrada para este contrato ainda. Use “+ Nova medição” para lançar a primeira.</div>
                           ) : (
+                            <div style={{ overflowX: 'auto' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                               <thead>
                                 <tr style={{ color: MUT, textAlign: 'left' }}>
@@ -670,6 +704,7 @@ export default function SubempreiteirosObraPage({ params }: { params: Promise<{ 
                                   <th style={{ padding: '6px 8px', textAlign: 'right' }}>ISS</th>
                                   <th style={{ padding: '6px 8px', textAlign: 'right' }}>Líquido</th>
                                   <th style={{ padding: '6px 8px' }}>Situação</th>
+                                  <th style={{ padding: '6px 8px', textAlign: 'right' }}>A pagar (GE) <AjudaCampo chave="projetos.subempreiteiro.medicao_a_pagar" rota={ROTA} /></th>
                                   <th style={{ padding: '6px 8px', width: 150 }} />
                                 </tr>
                               </thead>
@@ -686,6 +721,11 @@ export default function SubempreiteirosObraPage({ params }: { params: Promise<{ 
                                       <td style={{ padding: '6px 8px', textAlign: 'right', color: MUT }}>{brl(m.valor_iss)}</td>
                                       <td style={{ padding: '6px 8px', textAlign: 'right', color: ESP }}>{brl(m.valor_liquido)}</td>
                                       <td style={{ padding: '6px 8px' }}><span style={{ fontSize: 12, fontWeight: 700, color: mst.cor }}>{mst.l}</span></td>
+                                      <td style={{ padding: '6px 8px', textAlign: 'right', color: m.pagar_id ? ESP : MUT }} data-testid={`sub-medicao-pagar-${m.id}`}>
+                                        {m.pagar_id
+                                          ? <span title="Título a pagar gerado no financeiro pela aprovação desta medição">{brl(m.pagar_valor)}</span>
+                                          : (m.status === 'aprovada' ? '—' : '')}
+                                      </td>
                                       <td style={{ padding: '6px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>
                                         <button onClick={() => abrirMedEdicao(c.id, m)} style={{ ...btn('transparent', ESP), padding: '4px 8px', border: `1px solid ${LINE}` }} data-testid={`sub-medicao-editar-${m.id}`}>Editar</button>
                                         <AjudaCampo chave="projetos.subempreiteiro.medicao_editar" rota={ROTA} />
@@ -697,6 +737,7 @@ export default function SubempreiteirosObraPage({ params }: { params: Promise<{ 
                                 })}
                               </tbody>
                             </table>
+                            </div>
                           )}
                         </div>
                       </div>

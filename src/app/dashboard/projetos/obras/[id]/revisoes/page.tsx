@@ -6,13 +6,15 @@
 // publicada e guardada fn_obra_revisao_listar (#3935, leitura por company_id).
 // ABERTURA (esta fatia): botão "Nova revisão" + formulário que liga à RPC já existente e guardada
 // fn_obra_revisao_criar (cria em 'rascunho'; valida acesso por company_id e o PISO do medido por item).
-// A revisão nasce como rascunho e só muda o valor contratado quando aprovada — a aprovação é fatia
-// SEPARADA (transições rascunho→solicitada→aprovada ainda não implementadas).
+// DECISÃO (esta fatia): botões Solicitar aprovação / Aprovar / Recusar, que ligam às RPCs já
+// existentes e guardadas fn_obra_revisao_solicitar / _aprovar / _recusar (rascunho→solicitada→
+// aprovada/recusada). A revisão nasce como rascunho e só muda o valor contratado quando APROVADA.
 // RD-95: "?" em todo filtro / indicador / coluna / ação. RD-96/RD-100: linguagem e layout próprios.
 
 import { use, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { parseNumBR } from '@/lib/num'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 
@@ -94,6 +96,14 @@ export default function RevisoesObraPage({ params }: { params: Promise<{ id: str
   const [salvandoNova, setSalvandoNova] = useState(false)
   const [erroNova, setErroNova] = useState<string | null>(null)
 
+  // Decisão da revisão (liga às RPCs já existentes e guardadas fn_obra_revisao_solicitar/aprovar/recusar).
+  // Só revisão em rascunho pode ser solicitada; só solicitada pode ser aprovada/recusada. A aprovação MOVE
+  // o valor contratado — por isso toda ação passa por uma confirmação antes de executar.
+  const [acao, setAcao] = useState<{ rev: Revisao; tipo: 'solicitar' | 'aprovar' | 'recusar' } | null>(null)
+  const [motivoRecusa, setMotivoRecusa] = useState('')
+  const [salvandoAcao, setSalvandoAcao] = useState(false)
+  const [erroAcao, setErroAcao] = useState<string | null>(null)
+
   const carregar = useCallback(async () => {
     setCarregando(true); setErro(null); setEmLiberacao(false)
     const { data: o, error: eo } = await supabase
@@ -136,8 +146,8 @@ export default function RevisoesObraPage({ params }: { params: Promise<{ id: str
     for (const oi of obraItens) {
       const ed = fItens[oi.id]
       if (!ed) continue
-      const qtd = ed.qtd.trim() === '' ? null : Number(ed.qtd.replace(',', '.'))
-      const preco = ed.preco.trim() === '' ? null : Number(ed.preco.replace(',', '.'))
+      const qtd = ed.qtd.trim() === '' ? null : (parseNumBR(ed.qtd) ?? NaN)
+      const preco = ed.preco.trim() === '' ? null : (parseNumBR(ed.preco) ?? NaN)
       if (qtd === null && preco === null) continue
       if (qtd !== null && (!Number.isFinite(qtd) || qtd < 0)) { setErroNova(`Quantidade inválida em "${oi.descricao ?? 'item'}".`); return }
       if (preco !== null && (!Number.isFinite(preco) || preco < 0)) { setErroNova(`Preço inválido em "${oi.descricao ?? 'item'}".`); return }
@@ -164,6 +174,30 @@ export default function RevisoesObraPage({ params }: { params: Promise<{ id: str
     setNovaAberta(false)
     await carregar()
   }, [id, fMotivo, fOrigem, obraItens, fItens, carregar])
+
+  const abrirAcao = useCallback((rev: Revisao, tipo: 'solicitar' | 'aprovar' | 'recusar') => {
+    setErroAcao(null); setMotivoRecusa(''); setAcao({ rev, tipo })
+  }, [])
+
+  const confirmarAcao = useCallback(async () => {
+    if (!acao) return
+    setErroAcao(null); setSalvandoAcao(true)
+    const fn = acao.tipo === 'solicitar' ? 'fn_obra_revisao_solicitar'
+      : acao.tipo === 'aprovar' ? 'fn_obra_revisao_aprovar'
+        : 'fn_obra_revisao_recusar'
+    const args: Record<string, unknown> = { p_revisao_id: acao.rev.id }
+    if (acao.tipo === 'recusar') args.p_motivo = motivoRecusa.trim() || null
+    const { data, error } = await supabase.rpc(fn, args)
+    setSalvandoAcao(false)
+    if (error) {
+      if (recursoEmLiberacao(error)) { setErroAcao('Recurso de decisão de revisões sendo liberado para esta empresa. Tente de novo em instantes.'); return }
+      setErroAcao(erroAmigavel(error, 'Não foi possível concluir a ação. Confira e tente de novo.')); return
+    }
+    const r = (data ?? {}) as { ok?: boolean; erro?: string }
+    if (r.ok === false) { setErroAcao(r.erro ?? 'Não foi possível concluir a ação.'); return }
+    setAcao(null); setMotivoRecusa('')
+    await carregar()
+  }, [acao, motivoRecusa, carregar])
 
   const revisoesFiltradas = useMemo(() => revisoes.filter((r) => {
     if (filtro === 'todos') return true
@@ -300,6 +334,24 @@ export default function RevisoesObraPage({ params }: { params: Promise<{ id: str
                         {aberto ? 'Ocultar itens' : `Ver itens (${r.itens.length})`}
                       </button>
                       <AjudaCampo chave="projetos.revisao.itens" rota={ROTA} />
+
+                      {/* Ações de decisão — só aparecem na situação em que são válidas (a RPC também valida). */}
+                      {r.status === 'rascunho' && (
+                        <>
+                          <span style={{ flex: 1 }} />
+                          <button onClick={() => abrirAcao(r, 'solicitar')} style={{ ...btn(GOLD), padding: '6px 12px' }} data-testid={`rev-solicitar-${r.id}`}>Solicitar aprovação</button>
+                          <AjudaCampo chave="projetos.revisao.acao_solicitar" rota={ROTA} />
+                        </>
+                      )}
+                      {r.status === 'solicitada' && (
+                        <>
+                          <span style={{ flex: 1 }} />
+                          <button onClick={() => abrirAcao(r, 'aprovar')} style={{ ...btn(VERDE), padding: '6px 12px' }} data-testid={`rev-aprovar-${r.id}`}>Aprovar</button>
+                          <AjudaCampo chave="projetos.revisao.acao_aprovar" rota={ROTA} />
+                          <button onClick={() => abrirAcao(r, 'recusar')} style={{ ...btn('transparent', VERM), padding: '6px 12px', border: `1px solid ${VERM}` }} data-testid={`rev-recusar-${r.id}`}>Recusar</button>
+                          <AjudaCampo chave="projetos.revisao.acao_recusar" rota={ROTA} />
+                        </>
+                      )}
                     </div>
 
                     {aberto && (
@@ -426,6 +478,62 @@ export default function RevisoesObraPage({ params }: { params: Promise<{ id: str
             </div>
           </div>
         )}
+
+        {acao && (() => {
+          const titulo = acao.tipo === 'solicitar' ? 'Enviar revisão para aprovação'
+            : acao.tipo === 'aprovar' ? 'Aprovar revisão de escopo' : 'Recusar revisão de escopo'
+          const deltaA = Number(acao.rev.delta) || 0
+          const confirmarCor = acao.tipo === 'recusar' ? VERM : acao.tipo === 'aprovar' ? VERDE : GOLD
+          const confirmarLabel = acao.tipo === 'solicitar' ? 'Solicitar aprovação'
+            : acao.tipo === 'aprovar' ? 'Aprovar e mover o contrato' : 'Recusar revisão'
+          return (
+            <div
+              style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.45)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '24px 16px', overflowY: 'auto', zIndex: 50 }}
+              onClick={() => { if (!salvandoAcao) setAcao(null) }}
+            >
+              <div style={{ ...card, maxWidth: 520, width: '100%', marginTop: 40 }} onClick={(e) => e.stopPropagation()} data-testid="rev-acao-modal">
+                <h2 style={{ fontSize: 18, fontWeight: 800, color: ESP, margin: 0 }}>{titulo}</h2>
+                <p style={{ fontSize: 13, color: MUT, margin: '8px 0 0' }}>
+                  Revisão nº {acao.rev.sequencial}
+                  {acao.rev.motivo ? <> — <span style={{ color: ESP }}>{acao.rev.motivo}</span></> : null}
+                </p>
+
+                {acao.tipo === 'solicitar' && (
+                  <p style={{ fontSize: 13, color: ESP, margin: '12px 0 0' }}>
+                    A revisão passa de <strong>Rascunho</strong> para <strong>Solicitada</strong> e fica pronta para ser aprovada ou recusada. Ainda não altera o valor contratado.
+                  </p>
+                )}
+                {acao.tipo === 'aprovar' && (
+                  <div style={{ ...card, background: BG, marginTop: 12, padding: 12, fontSize: 13, color: ESP }}>
+                    Ao aprovar, a nova quantidade e/ou o novo preço dos itens passam a valer no contrato da obra.
+                    <div style={{ display: 'flex', gap: 20, marginTop: 8, flexWrap: 'wrap' }}>
+                      <span style={{ color: MUT }}>Valor anterior: <strong style={{ color: ESP }}>{brl(acao.rev.valor_anterior)}</strong></span>
+                      <span style={{ color: MUT }}>Valor novo: <strong style={{ color: ESP }}>{brl(acao.rev.valor_novo)}</strong></span>
+                      <span style={{ color: MUT }}>Variação: <strong style={{ color: deltaA > 0 ? VERDE : deltaA < 0 ? VERM : ESP }}>{deltaA > 0 ? '+' : ''}{brl(deltaA)}</strong></span>
+                    </div>
+                  </div>
+                )}
+                {acao.tipo === 'recusar' && (
+                  <label style={{ ...lbl, flexDirection: 'column', alignItems: 'flex-start', gap: 4, marginTop: 12, width: '100%' }}>
+                    <span>Motivo da recusa (opcional) <AjudaCampo chave="projetos.revisao.acao_recusar" rota={ROTA} /></span>
+                    <textarea value={motivoRecusa} onChange={(e) => setMotivoRecusa(e.target.value)} rows={2}
+                      placeholder="Ex.: acréscimo não aprovado pelo cliente nesta etapa."
+                      style={{ ...inp, width: '100%', resize: 'vertical', fontFamily: 'inherit' }} data-testid="rev-recusar-motivo" />
+                  </label>
+                )}
+
+                {erroAcao && <div style={{ ...card, borderColor: VERM, color: VERM, marginTop: 12, fontSize: 13, padding: 12 }}>{erroAcao}</div>}
+
+                <div style={{ display: 'flex', gap: 10, marginTop: 18, justifyContent: 'flex-end' }}>
+                  <button onClick={() => { if (!salvandoAcao) setAcao(null) }} style={{ ...btn('transparent', MUT), border: `1px solid ${LINE}` }}>Cancelar</button>
+                  <button onClick={() => void confirmarAcao()} disabled={salvandoAcao} style={{ ...btn(confirmarCor), opacity: salvandoAcao ? 0.6 : 1 }} data-testid="rev-acao-confirmar">
+                    {salvandoAcao ? 'Processando…' : confirmarLabel}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )
+        })()}
       </div>
     </div>
   )
