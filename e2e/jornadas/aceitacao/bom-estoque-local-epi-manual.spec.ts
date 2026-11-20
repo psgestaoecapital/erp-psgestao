@@ -3,7 +3,7 @@
 // o EPI entra no total (material + EPI = custo_material; não some), nomes resolvem, e a RPC de fontes do modal responde.
 // @pos-migration: colunas/funcoes só existem após o deploy. DEMO (RD-69/LGPD), serviço público p/ ler via service.
 import { test, expect } from '../../support/fixtures'
-import { rpc, dbInsert, dbSelect, dbDelete, DEMO_REVENDA, registrarJornada } from '../../support/api'
+import { rpc, rpcComoRobo, dbInsert, dbSelect, dbDelete, DEMO_REVENDA, registrarJornada } from '../../support/api'
 
 type Servico = { custo_material: string | number | null; custo_mao_obra: string | number | null; custo_unitario_total: string | number | null }
 type Linha = { tipo: string; custo_total: string | number | null; ordem: number }
@@ -57,7 +57,11 @@ test.describe('BOM · estoque real + local + EPI + manual @pos-migration', () =>
       expect(completo.validacao.tem_mao_obra).toBe(true)
 
       // fontes do estoque para o modal (produtos + locais + mapa)
-      const fontes = await rpc<{ ok: boolean; produtos: { id: string }[]; locais: unknown[] }>('fn_bom_estoque_fontes', { p_company_id: DEMO_REVENDA })
+      // fn_bom_estoque_fontes tem guarda de usuário (is_admin / get_user_company_ids) e recusa service_role (42501).
+      // Como as outras funções guardadas, chama via rpcComoRobo (JWT do bot, membro/admin da DEMO) e lê o corpo.
+      const fontesResp = await rpcComoRobo<{ ok: boolean; produtos: { id: string }[]; locais: unknown[] }>('fn_bom_estoque_fontes', { p_company_id: DEMO_REVENDA })
+      expect(fontesResp.status, `fontes respondeu 200 (corpo: ${fontesResp.texto.slice(0, 200)})`).toBe(200)
+      const fontes = fontesResp.corpo!
       expect(fontes.ok).toBe(true)
       expect(fontes.produtos.some((p) => p.id === p1)).toBe(true)
       expect(fontes.produtos.some((p) => p.id === p2)).toBe(true)
