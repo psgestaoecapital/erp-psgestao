@@ -232,10 +232,22 @@ function Coluna({ titulo, cor, obras, receita, fiscalPend, onStatus, busy, onAbr
 function ObraCard({ o, fiscalPend, receita, onStatus, busy, onAbrir, onFiscal, onEditar, onExcluir }: { o: Obra; fiscalPend: boolean; receita: Receita | null | undefined; onStatus: (o: Obra, s: string) => void; busy: boolean; onAbrir: (o: Obra) => void; onFiscal: (o: Obra) => void; onEditar: (o: Obra) => void; onExcluir: (o: Obra) => void }) {
   const st = ST[o.status] ?? { label: o.status, cor: MUT }
   const local = [o.cidade, o.uf].filter(Boolean).join('/')
+  // §310/§314 "bloco de obras": obra atrasada = ainda em andamento (ou pausada) com a data prevista
+  // de término já no passado. Comparação só por data (YYYY-MM-DD), sem hora, para não oscilar no dia.
+  const atrasada = (o.status === 'em_andamento' || o.status === 'pausada') && !!o.data_prevista_fim && o.data_prevista_fim < new Date().toISOString().slice(0, 10)
   return (
     <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderLeft: `4px solid ${st.cor}`, borderRadius: 12, padding: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-        <span style={{ fontSize: 11, fontWeight: 700, color: st.cor, fontFamily: 'monospace' }}>{o.numero}</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: st.cor, fontFamily: 'monospace' }}>{o.numero}</span>
+          {atrasada && (
+            <span data-testid="obra-atrasada" title={`Prazo previsto: ${new Date(o.data_prevista_fim + 'T00:00:00').toLocaleDateString('pt-BR')}`}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 700, color: VERM, background: '#FDECEC', border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '1px 6px' }}>
+              <AlertTriangle size={11} aria-hidden />Atrasada
+              <AjudaCampo chave="projetos.obras.atrasada" />
+            </span>
+          )}
+        </span>
         <span style={{ fontSize: 13.5, fontWeight: 700, color: ESP }}>{fmtR(o.valor_previsto)}</span>
       </div>
       <div title={o.nome} style={{ fontSize: 13.5, color: ESP, fontWeight: 600, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.nome}</div>
