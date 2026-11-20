@@ -94,3 +94,8 @@ BEGIN
   );
 END;
 $function$;
+
+-- ACL explícita (gate check-fn-guards, Regra 1): SECURITY DEFINER sem anon/PUBLIC,
+-- batendo com a ACL viva {authenticated, service_role}.
+REVOKE ALL ON FUNCTION public.fn_ge_onboarding_status(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_ge_onboarding_status(uuid) TO authenticated, service_role;
