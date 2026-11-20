@@ -13,7 +13,12 @@
 --   Único consumidor: fn_hub_fiscal_resumo(uuid) (lê os campos da view) + HubFiscalClient.
 -- Validação pós-deploy: PS GESTAO deve passar a mostrar 5 em "com erro".
 
-CREATE OR REPLACE VIEW public.v_hub_fiscal_cards AS
+-- WITH (security_invoker = true): o isolamento por empresa depende INTEIRAMENTE
+-- disto. CREATE OR REPLACE VIEW ... AS sem a cláusula WITH reseta reloptions para
+-- null e a view passaria a rodar como security-definer (vazamento cross-tenant:
+-- qualquer authenticated veria os cards fiscais de TODAS as empresas). Mantém o
+-- estado vivo: reloptions = {security_invoker=true}, SELECT a authenticated.
+CREATE OR REPLACE VIEW public.v_hub_fiscal_cards WITH (security_invoker = true) AS
  WITH nfse_stats AS (
          SELECT erp_nfse_emitidas.company_id,
             count(*) AS total,
