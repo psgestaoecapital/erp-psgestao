@@ -23,7 +23,7 @@ const LINE = '#E7DECF'
 const MUT = 'rgba(61,35,20,0.55)'
 const VERM = '#B23B3B'
 const CARD: React.CSSProperties = { background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16 }
-const ROTA = '/dashboard/industrial/plano-acao'
+const ROTA_PADRAO = '/dashboard/industrial/plano-acao'
 
 
 // Busca acento- e caixa-insensível (#5405): "Marcelo" acha "Márcelo/MARCELO".
@@ -84,7 +84,9 @@ const btnPrim: React.CSSProperties = { padding: '9px 16px', borderRadius: 8, fon
 const btnSec: React.CSSProperties = { padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: '#FFF', color: ESP, border: `0.5px solid ${LINE}` }
 const rotulo: React.CSSProperties = { display: 'flex', alignItems: 'center', fontSize: 12, fontWeight: 600, color: ESP, marginBottom: 4 }
 
-export default function PlanoAcaoView() {
+export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } = {}) {
+  // Rota da tela que monta o componente (Indústria ou Hub): alimenta o rastro/rota de cada "?" (AjudaCampo).
+  const ROTA = rota
   const { selInfo, sel: selId, companies } = useCompanyIds()
   const companyId = selInfo.tipo === 'empresa' && selId ? selId : null
   const empresaNome = selInfo.nome || companies.find((c) => c.id === companyId)?.nome_fantasia || ''
