@@ -118,7 +118,10 @@ export default function NFeListClient() {
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [pagina, setPagina] = useState(1)
-  const [statusFiltro, setStatusFiltro] = useState<string>('')
+  const [statusFiltro, setStatusFiltro] = useState<string>(() => {
+    if (typeof window === 'undefined') return ''
+    return new URLSearchParams(window.location.search).get('status') ?? ''
+  })
   const [finalidadeFiltro, setFinalidadeFiltro] = useState<string>('')
   const [mostrarRecusadas, setMostrarRecusadas] = useState<boolean>(false) // visão antiga (1 linha/registro)
   const [dataInicio, setDataInicio] = useState('')
