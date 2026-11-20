@@ -46,8 +46,13 @@ const STATUS_TERMINAL = ['concluida', 'concluido', 'resolvida', 'recusada', 'dup
 // PRECISA DELA (resposta chegou, falta ela dizer se resolveu) do que já ACABOU. Antes era lista plana.
 // #7050 · "Aguardando sua confirmação" só quando a resposta JÁ foi aprovada e enviada ao autor. Se o chamado está nesse
 // status mas a resposta ainda espera o operador aprovar (nada vai ao cliente sem tratamento), o autor vê "Em análise".
+// #9986 · o rótulo "A equipe está liberando a resposta para você conferir" dava a entender que a resposta estava
+// saindo AGORA, mesmo quando ela ainda nem foi aprovada/liberada (resposta_aprovada=false) — o autor via "aguardando"
+// sem nada de fato liberado para ele. A mensagem de liberação só aparece quando a resposta foi REALMENTE liberada
+// (resposta_aprovada=true → o status "Aguardando sua confirmação" já comunica isso). Enquanto não está liberada,
+// o autor vê "Em análise", como manda a doutrina do #7050 acima.
 const rotuloStatusAutor = (m: { status: string; resposta_aprovada: boolean }) =>
-  m.status === 'aguardando_confirmacao' && !m.resposta_aprovada ? 'A equipe está liberando a resposta para você conferir' : (STAT_LABEL[m.status] || m.status)
+  m.status === 'aguardando_confirmacao' && !m.resposta_aprovada ? STAT_LABEL.em_analise : (STAT_LABEL[m.status] || m.status)
 type BucketMelhoria = 'precisa_voce' | 'aguardando' | 'concluidas'
 // A aba da Central. 'todos' (padrão) mostra tudo — o quadro nunca abre vazio quando há chamados; as demais filtram por bucket.
 type AbaMelhoria = 'todos' | BucketMelhoria
@@ -346,17 +351,25 @@ function Inner() {
 
       <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, marginBottom: 18 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <label style={{ fontSize: 12, color: C.espM }}>Tipo
+          <label style={{ fontSize: 12, color: C.espM }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Tipo<AjudaCampo chave="chamado.tipo" rota="/dashboard/melhorias" /></span>
             <select value={f.categoria} onChange={(e) => setF({ ...f, categoria: e.target.value })} style={{ ...inp, width: '100%', marginTop: 4 }}>{CATS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
           </label>
-          <label style={{ fontSize: 12, color: C.espM }}>Prioridade
+          <label style={{ fontSize: 12, color: C.espM }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>Prioridade<AjudaCampo chave="chamado.prioridade" rota="/dashboard/melhorias" /></span>
             <select value={f.prioridade} onChange={(e) => setF({ ...f, prioridade: e.target.value })} style={{ ...inp, width: '100%', marginTop: 4 }}>{PRIOS.map((p) => <option key={p} value={p}>{p}</option>)}</select>
           </label>
         </div>
-        <input value={f.titulo} onChange={(e) => setF({ ...f, titulo: e.target.value })} placeholder="título curto (opcional)" style={{ ...inp, width: '100%', marginTop: 10, boxSizing: 'border-box' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 10 }}>
+          <input value={f.titulo} onChange={(e) => setF({ ...f, titulo: e.target.value })} placeholder="título curto (opcional)" style={{ ...inp, flex: 1, boxSizing: 'border-box' }} />
+          <AjudaCampo chave="chamado.titulo" rota="/dashboard/melhorias" />
+        </div>
         <input value={f.tela} onChange={(e) => setF({ ...f, tela: e.target.value })} placeholder="Em qual tela acontece? (obrigatório) — ex.: Ordens de Serviço, NF-e recebidas, Perfil fiscal da revenda" maxLength={200} aria-required style={{ ...inp, width: '100%', marginTop: 10, boxSizing: 'border-box' }} />
         <AjudaCampo chave="chamado.tela_informada" rota="/dashboard/melhorias" />
-        <textarea value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} placeholder="descreva a dificuldade — o que você tentou fazer e o que aconteceu (ou dite por voz 🎙️)" rows={3} style={{ ...inp, width: '100%', marginTop: 10, boxSizing: 'border-box', resize: 'vertical' }} />
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4, marginTop: 10 }}>
+          <textarea value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} placeholder="descreva a dificuldade — o que você tentou fazer e o que aconteceu (ou dite por voz 🎙️)" rows={3} style={{ ...inp, flex: 1, boxSizing: 'border-box', resize: 'vertical' }} />
+          <AjudaCampo chave="chamado.descricao" rota="/dashboard/melhorias" />
+        </div>
         {/* #63 · ditar a sugestão por voz (fala→texto, editável antes de enviar) */}
         <div style={{ marginTop: 6 }}>
           <BotaoDitar onTexto={(frag) => setF((prev) => ({ ...prev, descricao: (prev.descricao ? prev.descricao.trimEnd() + ' ' : '') + frag }))} disabled={busy} />

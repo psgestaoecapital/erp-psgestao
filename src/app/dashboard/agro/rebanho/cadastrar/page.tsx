@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft, Plus, Trash2, Check } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { parseNumBR } from '@/lib/num'
 import { comPrazo } from '@/lib/comPrazo'
 import { useEmpresaSelecionada, usePropriedade } from '@/lib/agro/usePecuaria'
 import { erroAmigavel } from '@/lib/erroAmigavel'
@@ -266,11 +267,11 @@ export default function CadastrarRebanho() {
       // peso do lote: coletivo → médio (se veio total, divide pela qtd); individual → cada linha
       let pesoMedio: number | null = null
       if (!identificarInd) {
-        const p = Number((pesoLote || '').replace(',', '.'))
+        const p = parseNumBR(pesoLote || '') ?? NaN
         if (p > 0) pesoMedio = pesoModo === 'total' ? Number((p / loteQtdNum).toFixed(2)) : p
       }
       const animais = identificarInd
-        ? gridLote.map((r) => ({ identificacao: r.identificacao.trim() || null, sisbov: r.sisbov.trim() || null, peso_kg: r.peso.trim() === '' ? null : Number(r.peso.replace(',', '.')) }))
+        ? gridLote.map((r) => ({ identificacao: r.identificacao.trim() || null, sisbov: r.sisbov.trim() || null, peso_kg: r.peso.trim() === '' ? null : (parseNumBR(r.peso) ?? NaN) }))
         : []
       const { data, error } = await supabase.rpc('fn_pec_animal_cadastrar_lote', {
         p_company_id: companyId, p_propriedade_id: propriedadeId, p_quantidade: loteQtdNum,
@@ -474,9 +475,9 @@ export default function CadastrarRebanho() {
                     <option value="medio">Médio (por animal)</option>
                     <option value="total">Total (o sistema divide)</option>
                   </select>
-                  {pesoModo === 'total' && loteQtdNum > 0 && Number((pesoLote || '').replace(',', '.')) > 0 && (
+                  {pesoModo === 'total' && loteQtdNum > 0 && (parseNumBR(pesoLote || '') ?? 0) > 0 && (
                     <div className="text-[11px] mt-1" style={{ color: ESP60 }}>
-                      ≈ {(Number(pesoLote.replace(',', '.')) / loteQtdNum).toFixed(1)} kg por animal
+                      ≈ {((parseNumBR(pesoLote) ?? 0) / loteQtdNum).toFixed(1)} kg por animal
                     </div>
                   )}
                 </div>
