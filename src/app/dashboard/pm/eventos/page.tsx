@@ -473,7 +473,7 @@ export default function EventosPage() {
                     <Campo label="Fornecedor" chave="pm.eventos.item_fornecedor" flex><input value={itemForm.fornecedor} onChange={(e) => setItemForm({ ...itemForm, fornecedor: e.target.value })} style={inp} data-testid="evento-item-f-fornecedor" /></Campo>
                   </div>
                   <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                    <Campo label="Qtd." chave="pm.eventos.item_quantidade" flex><input type="number" min="0" step="0.01" value={itemForm.quantidade} onChange={(e) => setItemForm({ ...itemForm, quantidade: e.target.value })} style={inp} data-testid="evento-item-f-quantidade" /></Campo>
+                    <Campo label="Qtd." chave="pm.eventos.item_quantidade" flex><input type="text" inputMode="decimal" value={itemForm.quantidade} onChange={(e) => setItemForm({ ...itemForm, quantidade: e.target.value })} style={inp} data-testid="evento-item-f-quantidade" /></Campo>
                     <Campo label="Valor unit. (R$)" chave="pm.eventos.item_valor_unitario" flex><CampoMoeda value={itemForm.valor_unitario} onChange={(v) => setItemForm({ ...itemForm, valor_unitario: v })} placeholder="R$ 0,00" style={inp} testId="evento-item-f-valor" /></Campo>
                     <Campo label="Situação" chave="pm.eventos.item_status" flex>
                       <select value={itemForm.status} onChange={(e) => setItemForm({ ...itemForm, status: e.target.value })} style={inp} data-testid="evento-item-f-status">

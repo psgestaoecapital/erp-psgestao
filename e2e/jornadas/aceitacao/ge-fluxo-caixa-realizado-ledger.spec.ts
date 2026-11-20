@@ -11,6 +11,12 @@
 // data_pagamento) o recebimento NÃO somaria no dia X; no novo (fonte = LEDGER, baixa datada em X) o delta do
 // dia X = valor da baixa. Limpa o que cria por SOFT-DELETE (RD-30: título financeiro não se apaga por DELETE
 // físico — trg_bloqueia_delete_fisico).
+//
+// ISOLAMENTO (RD-41, incidente DEMO GE): o spec media (depois − antes) do TOTAL do dia X da empresa inteira. Uma
+// linha estranha na DEMO (baixas de ~R$ 10 tri de outro spec; outra jornada gravando no mesmo dia) ou o float do
+// JSON em totais grandes davam falso-vermelho (13572.46 vs 13572.44). Agora o título do run leva uma CATEGORIA
+// única e o realizado é lido pela vista por categoria da MESMA RPC (p_categoria — mesmo caminho do ledger, com o
+// filtro er.categoria/ep.categoria): só a baixa do próprio título entra, antes = 0 e depois = Y.
 
 import { test, expect } from '../../support/fixtures'
 import { dbSelect, dbInsert, dbPatch, dbDelete, rpcComoRobo, pegarTravaDemo, soltarTravaDemo, donoTrava } from '../../support/api'
@@ -19,6 +25,8 @@ const DEMO_GE = 'b0700000-0000-4000-a000-000000000004'
 const RUN = `${process.env.GITHUB_RUN_ID ?? 'local'}${Date.now().toString(36)}`.replace(/[^a-z0-9]/gi, '').slice(-8)
 // data de recebimento/pagamento 3 dias atrás (sempre passado em relação ao run → "realizado")
 const X = new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10)
+// categoria exclusiva do run: isola o realizado medido na baixa do próprio título (RD-41)
+const CATEGORIA = `E2E fluxo ledger ${RUN}`
 
 type IdRow = { id: string }
 type Fluxo = { total_recebimentos?: number; total_pagamentos?: number }
@@ -27,7 +35,9 @@ type Rec = { id: string; status: string; data_pagamento: string | null; valor_pa
 const criado = { receber: [] as string[], pagar: [] as string[], recBaixa: [] as string[], pagBaixa: [] as string[] }
 
 const realizado = async (campo: 'total_recebimentos' | 'total_pagamentos'): Promise<number> => {
-  const r = await rpcComoRobo<Fluxo>('fn_fluxo_caixa_diario', { p_company_id: DEMO_GE, p_data_inicio: X, p_data_fim: X })
+  const r = await rpcComoRobo<Fluxo>('fn_fluxo_caixa_diario', {
+    p_company_id: DEMO_GE, p_data_inicio: X, p_data_fim: X, p_categoria: CATEGORIA,
+  })
   expect(r.corpo, `fn_fluxo_caixa_diario deve responder (resp: ${r.texto})`).not.toBeNull()
   return Number(r.corpo?.[campo] ?? 0)
 }
@@ -57,10 +67,11 @@ test.describe('GE — fluxo de caixa: realizado pelo ledger de baixa #fluxo-caix
   test('recebimento: baixa datada no ledger entra no realizado mesmo com data_pagamento NULL', { tag: '@pos-migration' }, async () => {
     const Y = 13572.46
     const antes = await realizado('total_recebimentos')
+    expect(antes, 'categoria exclusiva do run: nada no realizado antes da baixa').toBe(0)
 
     const rec = await dbInsert<IdRow>('erp_receber', {
       company_id: DEMO_GE, descricao: `E2E fluxo receber ${RUN}`, valor: Y, data_vencimento: X,
-      status: 'pendente', cliente_nome: `Cliente E2E ${RUN}`,
+      status: 'pendente', cliente_nome: `Cliente E2E ${RUN}`, categoria: CATEGORIA,
     })
     criado.receber.push(rec.id)
     const bx = await dbInsert<IdRow>('erp_receber_baixa', {
@@ -76,15 +87,17 @@ test.describe('GE — fluxo de caixa: realizado pelo ledger de baixa #fluxo-caix
     expect(parent.data_pagamento, 'precondição do bug: data_pagamento (HOJE) difere da data da baixa (X)').not.toBe(X)
 
     const depois = await realizado('total_recebimentos')
-    expect(Number((depois - antes).toFixed(2)), 'o realizado do dia soma a baixa do ledger (antes zerava)').toBe(Y)
+    expect(depois, 'o realizado do dia (categoria do run) é a baixa do ledger (antes zerava)').toBeCloseTo(Y, 2)
   })
 
   test('pagamento: baixa datada no ledger entra no realizado mesmo com data_pagamento NULL', { tag: '@pos-migration' }, async () => {
     const Y = 24681.35
     const antes = await realizado('total_pagamentos')
+    expect(antes, 'categoria exclusiva do run: nada no realizado antes da baixa').toBe(0)
 
     const pag = await dbInsert<IdRow>('erp_pagar', {
       company_id: DEMO_GE, descricao: `E2E fluxo pagar ${RUN}`, valor: Y, data_vencimento: X, status: 'pendente',
+      categoria: CATEGORIA,
     })
     criado.pagar.push(pag.id)
     const bx = await dbInsert<IdRow>('erp_pagar_baixa', {
@@ -98,6 +111,6 @@ test.describe('GE — fluxo de caixa: realizado pelo ledger de baixa #fluxo-caix
     expect(parent.data_pagamento, 'precondição do bug: data_pagamento (HOJE) difere da data da baixa (X)').not.toBe(X)
 
     const depois = await realizado('total_pagamentos')
-    expect(Number((depois - antes).toFixed(2)), 'o realizado do dia soma a baixa do ledger (antes zerava)').toBe(Y)
+    expect(depois, 'o realizado do dia (categoria do run) é a baixa do ledger (antes zerava)').toBeCloseTo(Y, 2)
   })
 })

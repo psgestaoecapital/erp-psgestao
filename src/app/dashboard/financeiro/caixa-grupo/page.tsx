@@ -15,6 +15,22 @@ const BD = "var(--ps-border,#E0D8CC)", GO = "var(--ps-gold,#C8941A)";
 const VERDE = "#3B6D11", VERM = "#A32D2D", AZUL = "#2563EB";
 
 const brl = (v: unknown) => `R$ ${(Number(v) || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+// Valor compacto para os cartões-resumo (fonte grande em cartão estreito): a partir de 1 milhão abrevia
+// (R$ 1,2 mi · R$ 3,4 bi · R$ 10,0 tri) para nunca estourar a largura e virar "###". O valor exato fica
+// no title (tooltip) e nas tabelas abaixo (RD-98). Pequenos valores seguem com os centavos.
+const brlCompacto = (v: unknown) => {
+  const n = Number(v) || 0, abs = Math.abs(n);
+  const fmt = (x: number) => x.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+  if (abs >= 1e12) return `R$ ${fmt(n / 1e12)} tri`;
+  if (abs >= 1e9) return `R$ ${fmt(n / 1e9)} bi`;
+  if (abs >= 1e6) return `R$ ${fmt(n / 1e6)} mi`;
+  return brl(n);
+};
+// Headline do resumo com valores COMPACTOS (R$ 10,0 tri) — mesmo tratamento dos cartões, para o número
+// nunca estourar a largura do texto. O valor exato fica no title (tooltip) e nas tabelas abaixo (RD-98).
+const montarResumoCompacto = (c: Totais, atrasados: number) =>
+  `Entrou ${brlCompacto(c.entradas)}, saiu ${brlCompacto(c.saidas)}, caixa do grupo ${brlCompacto(c.saldo_final)}` +
+  (atrasados > 0 ? `, ${atrasados} título(s) atrasado(s).` : ", nenhum título atrasado.");
 const hojeISO = () => new Date().toISOString().slice(0, 10);
 // Saldo do banco (extrato): data curta dd/mm e idade em dias (para avisar quando o extrato está velho).
 const diaMes = (iso?: string | null) => { if (!iso) return ""; const d = new Date(iso); return isNaN(d.getTime()) ? "" : d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }); };
@@ -137,9 +153,9 @@ export default function CaixaGrupoPage() {
       <ParaTratarHoje companyIds={effectiveIds} data={data} multiEmpresa={multi} />
 
       {/* Resumo do dia */}
-      {resp?.resumo && (
+      {resp?.consolidado && (
         <div style={{ background: `linear-gradient(90deg, ${GO}14, transparent)`, border: `1px solid ${GO}40`, borderRadius: 12, padding: "14px 18px", marginBottom: 16, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 15, fontWeight: 600, color: TX }}>{resp.resumo}</span>
+          <span title={resp.resumo} style={{ fontSize: 15, fontWeight: 600, color: TX }}>{montarResumoCompacto(resp.consolidado, resp.atrasados_n)}</span>
           <AjudaCampo chave="financeiro.caixa_grupo.resumo" rota={ROTA} />
         </div>
       )}
@@ -170,11 +186,11 @@ export default function CaixaGrupoPage() {
             return (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 16 }}>
                 {cards.map((c) => (
-                  <div key={c.lbl} style={{ background: BG2, border: `1px solid ${BD}`, borderRadius: 12, padding: "14px 16px" }}>
+                  <div key={c.lbl} style={{ background: BG2, border: `1px solid ${BD}`, borderRadius: 12, padding: "14px 16px", minWidth: 0 }}>
                     <div style={{ display: "inline-flex", alignItems: "center", fontSize: 10.5, color: TXD, textTransform: "uppercase", letterSpacing: 0.5 }}>
                       {c.lbl}<AjudaCampo chave={c.ajuda} rota={ROTA} />
                     </div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: c.cor, fontVariantNumeric: "tabular-nums", marginTop: 4 }}>{brl(c.v)}</div>
+                    <div title={brl(c.v)} style={{ fontSize: 20, fontWeight: 700, color: c.cor, fontVariantNumeric: "tabular-nums", marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{brlCompacto(c.v)}</div>
                   </div>
                 ))}
               </div>
