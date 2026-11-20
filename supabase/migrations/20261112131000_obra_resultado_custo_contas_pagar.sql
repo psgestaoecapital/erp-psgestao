@@ -16,7 +16,7 @@
 --   - DEMO-FC-001 (Frigorífico Oeste): as 5 contas já lançadas (R$ 2.460,35) que a view antiga ignorava
 --     passam a somar no custo realizado.
 
-CREATE OR REPLACE VIEW public.v_obra_resultado_alocado AS
+CREATE OR REPLACE VIEW public.v_obra_resultado_alocado WITH (security_invoker = true) AS
  SELECT r.obra_id,
     r.company_id,
     r.numero,
