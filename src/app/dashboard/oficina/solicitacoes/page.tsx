@@ -178,7 +178,10 @@ function Card({ s, url, placa, salvando, podeDecidir, onDecidir, onTrocada }: {
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
           <span style={{ fontSize: 14, fontWeight: 700, color: ESP }}>{Number(s.quantidade)}× {s.descricao}</span>
-          <span style={{ fontSize: 11, fontWeight: 700, color: STATUS_COR[s.status] ?? ESP60, flexShrink: 0 }}>{STATUS_LBL[s.status] ?? s.status}</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: STATUS_COR[s.status] ?? ESP60 }}>{STATUS_LBL[s.status] ?? s.status}</span>
+            <AjudaCampo chave="oficina.solicitacoes.status" rota={ROTA} alinhar="fim" />
+          </span>
         </div>
         <div style={{ fontSize: 12, color: ESP60, marginTop: 2 }}>
           OS {s.os_numero ?? '—'}{placa ? ` · ${placa}` : ''}{s.solicitado_por_nome ? ` · ${s.solicitado_por_nome}` : ''}
@@ -187,11 +190,12 @@ function Card({ s, url, placa, salvando, podeDecidir, onDecidir, onTrocada }: {
         </div>
         {s.observacao && <div style={{ fontSize: 12, color: ESP, marginTop: 4, fontStyle: 'italic' }}>“{s.observacao}”</div>}
         {podeDecidir && s.status !== 'trocada' && s.status !== 'recusado' && (
-          <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             {pend && <button disabled={salvando} onClick={() => onDecidir(s.id, 'aprovado')} style={btn(BLUE)}><Check size={14} /> Aprovar</button>}
             {(pend || s.status === 'aprovado') && <button disabled={salvando} onClick={() => onDecidir(s.id, 'comprado')} style={btn(OK)}><ShoppingCart size={14} /> Comprada</button>}
             {(s.status === 'aprovado' || s.status === 'comprado') && <button disabled={salvando} onClick={() => onTrocada(s.id)} style={btn(TEAL)}><Wrench size={14} /> Trocada</button>}
             {pend && <button disabled={salvando} onClick={() => onDecidir(s.id, 'recusado')} style={btn(RED, true)}><X size={14} /> Recusar</button>}
+            <AjudaCampo chave="oficina.solicitacoes.acoes" rota={ROTA} />
           </div>
         )}
       </div>
