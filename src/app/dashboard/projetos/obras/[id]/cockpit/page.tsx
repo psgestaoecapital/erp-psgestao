@@ -21,6 +21,7 @@ type Resultado = {
 }
 // Contexto da obra (avanço físico, prazo, cliente) — vem de projetos_obras, não da view de resultado financeiro.
 type ObraInfo = { pct_conclusao: number | null; data_inicio: string | null; data_prevista_fim: string | null; cliente_nome: string | null; cidade: string | null }
+type PlanoResumo = { abertas: number; em_andamento: number; atrasadas: number; total: number }
 type Linha = { k: string; ajuda: string; l: string; v: number }
 type Card = { k: string; ajuda: string; l: string; v: string; sub: string; cor?: string; bar?: number | null; linhas?: Linha[] }
 
@@ -32,6 +33,8 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
   const [erro, setErro] = useState<string | null>(null)
   // Código curto de referência do erro para o suporte triar o motivo (RD-98 p2: erro amigável + código + CTA).
   const [codigoErro, setCodigoErro] = useState<string | null>(null)
+  // Plano de ação 5W2H desta obra (CEO 20/11): abertas + atrasadas, com atalho para o plano já na obra.
+  const [plano, setPlano] = useState<PlanoResumo | null>(null)
 
   const consulta = useCallback(async () => await supabase.from('v_obra_resultado_alocado').select('*').eq('obra_id', id).maybeSingle(), [id])
   const carregar = useCallback(async () => {
@@ -54,8 +57,15 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
     setR(data as Resultado)
     // Contexto da obra (avanço físico, prazo, cliente) — leitura separada de projetos_obras; se falhar, os cards
     // financeiros seguem aparecendo (não trava a tela).
-    const { data: oi } = await supabase.from('projetos_obras').select('pct_conclusao,data_inicio,data_prevista_fim,cliente_nome,cidade').eq('id', id).maybeSingle()
-    if (oi) setInfo(oi as ObraInfo)
+    const { data: oi } = await supabase.from('projetos_obras').select('pct_conclusao,data_inicio,data_prevista_fim,cliente_nome,cidade,company_id').eq('id', id).maybeSingle()
+    if (oi) {
+      setInfo(oi as ObraInfo)
+      const cid = (oi as { company_id?: string }).company_id
+      if (cid) {
+        const { data: pa } = await supabase.rpc('fn_plano_acao_obra_resumo', { p_company_id: cid, p_obra: id })
+        if ((pa as { ok?: boolean } | null)?.ok) setPlano(pa as PlanoResumo)
+      }
+    }
   }, [consulta, id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
 
@@ -202,6 +212,22 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
                 {pendencias.length === 0
                   ? <div style={{ fontSize: 12, color: VERDE }}>Nenhuma pendência. Obra em ordem.</div>
                   : <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: ESP }}>{pendencias.map((p) => <li key={p}>{p}</li>)}</ul>}
+              </div>
+              <div data-testid="cockpit-plano-acao" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 14, marginBottom: 14, display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: ESP, display: 'inline-flex', alignItems: 'center', gap: 4 }}>Ações abertas desta obra <AjudaCampo chave="projetos.cockpit.plano_acao" rota={ROTA} /></div>
+                  <div style={{ fontSize: 12, color: MUT, marginTop: 4 }}>
+                    {plano
+                      ? (plano.total === 0
+                          ? 'Nenhuma ação ainda — crie a primeira pelo plano 5W2H.'
+                          : <><b style={{ color: ESP }}>{plano.abertas + plano.em_andamento}</b> em aberto{plano.atrasadas > 0 ? <> · <span style={{ color: VERM, fontWeight: 700 }}>{plano.atrasadas} atrasada(s)</span></> : ''}</>)
+                      : '—'}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <Link href={`/dashboard/projetos/plano-acao?obra=${id}`} data-testid="link-plano-acao-obra" style={{ fontSize: 12, color: GOLD, fontWeight: 700, textDecoration: 'none' }}>Ver plano da obra →</Link>
+                  <Link href={`/dashboard/projetos/plano-acao?obra=${id}&nova=1`} data-testid="cockpit-nova-acao-obra" style={{ background: ESP, color: BG, borderRadius: 10, padding: '8px 14px', fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>+ Nova ação desta obra</Link>
+                </div>
               </div>
               {/* Ações da obra: contêiner que quebra linha sem cortar (antes eram links soltos com margens inconsistentes que estouravam no mobile) */}
               <nav aria-label="Ações da obra" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px 18px', marginTop: 2 }}>

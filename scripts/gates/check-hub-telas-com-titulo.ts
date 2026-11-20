@@ -5,7 +5,8 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 const PASTA = 'src/app/dashboard/projetos'
-const COMPONENTE_COM_TITULO = /<InstalarApp\b/
+// Componentes comuns que já renderizam o próprio <h1> (a page.tsx é um wrapper fino).
+const COMPONENTE_COM_TITULO = /<(InstalarApp|PlanoAcaoTela)\b/
 
 function paginas(d: string): string[] {
   return readdirSync(d).flatMap((n) => {
