@@ -70,7 +70,7 @@ export default function MatrizTreinamentoPostoPage() {
         supabase.from('prod_posto').select('id, company_id, numero, atividade, setor_id').in('company_id', ids),
         supabase.from('prod_setor').select('id, nome').in('company_id', ids),
         supabase.from('nr_treinamento_tipo').select('id, nr_codigo, nome, carga_horaria, validade_meses, reciclagem_meses, ativo, company_id').eq('ativo', true).in('company_id', ids),
-        supabase.from('prod_posto_treinamento').select('id, posto_id, tipo_id, obrigatorio').in('company_id', ids),
+        supabase.from('prod_posto_treinamento').select('id, posto_id, tipo_id, obrigatorio').in('company_id', ids).is('excluido_em', null),
         supabase.from('prod_posto_pessoa').select('posto_id').in('company_id', ids),
       ])
       if (po.error) throw po.error
@@ -111,8 +111,10 @@ export default function MatrizTreinamentoPostoPage() {
     const tipo = tipoPorId.get(pt.tipo_id)
     if (!confirm(`Remover o treinamento "${tipo?.nome || 'treinamento'}" deste posto?`)) return
     try {
-      const { error } = await supabase.from('prod_posto_treinamento').delete().eq('id', pt.id)
+      // RPC guardada: soft-delete rastreável (quem/quando + audit_log, NR-8). Nunca DELETE físico.
+      const { data, error } = await supabase.rpc('fn_ehs_posto_treinamento_remover', { p_id: pt.id })
       if (error) throw error
+      if (data && (data as any).ok === false) throw new Error((data as any).erro || 'Falha ao remover')
       setAviso('Treinamento removido do posto.'); carregar()
     } catch (e: any) { alert(e?.message || 'Falha ao remover') }
   }
@@ -259,8 +261,12 @@ function TreinoFormModal({ companyId, postoId, postoLabel, tipos, jaNoPosto, onC
     if (!tipoId) { setErro('Selecione o treinamento'); return }
     setSalvando(true); setErro(null)
     try {
-      const { error } = await supabase.from('prod_posto_treinamento').insert({ company_id: companyId, posto_id: postoId, tipo_id: tipoId, obrigatorio })
+      // RPC guardada: inclui/atualiza/reativa o vínculo com guarda por empresa + audit_log (NR-8).
+      const { data, error } = await supabase.rpc('fn_ehs_posto_treinamento_incluir', {
+        p_company_id: companyId, p_posto_id: postoId, p_tipo_id: tipoId, p_obrigatorio: obrigatorio,
+      })
       if (error) throw error
+      if (data && (data as any).ok === false) throw new Error((data as any).erro || 'Falha ao salvar')
       onSaved()
     } catch (e: any) { setErro(e?.message || 'Falha ao salvar'); setSalvando(false) }
   }
