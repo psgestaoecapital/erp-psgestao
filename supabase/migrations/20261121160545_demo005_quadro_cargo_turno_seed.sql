@@ -212,5 +212,8 @@ END $function$;
 
 -- Guarda de função (RD-30 / check-fn-guards): fn_demo_seed_industria_postos é SECURITY DEFINER;
 -- só o canal de serviço do reset executa (mesmo ACL atual: service_role).
+-- ci-sem-guarda: fn_demo_seed_industria_postos — seed da DEMO trava no company_id fixo
+--   b0700000-0000-4000-a000-000000000005 (p_company_id IS DISTINCT FROM c → erro) e exige
+--   companies.is_demo IS TRUE; nunca escreve em empresa de cliente, logo não chama fn__guarda_empresa.
 REVOKE ALL ON FUNCTION public.fn_demo_seed_industria_postos(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_demo_seed_industria_postos(uuid) TO service_role;
