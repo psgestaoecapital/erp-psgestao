@@ -44,10 +44,12 @@ const SITUACOES = [
   { s: "cancelada", l: "Canceladas" },
 ];
 
+// Ferramentas de Gestão (Blueprint Hub §310, relatório 03): atalhos de trabalho SEM numeração
+// 1-2-3 (não é um passo a passo obrigatório) — o grid comporta novos atalhos conforme o Hub cresce.
 const PASSOS = [
-  { href: "/dashboard/projetos/oportunidades", titulo: "1. Funil de oportunidades", texto: "Registre o cliente e a obra que quer orçar." },
-  { href: "/dashboard/projetos/obras", titulo: "2. Obras", texto: "Acompanhe escopo, status e fiscal de cada obra." },
-  { href: "/dashboard/projetos/obras/resultado", titulo: "3. Resultado por obra", texto: "Previsto x realizado: custo, compras e margem." },
+  { href: "/dashboard/projetos/oportunidades", titulo: "Funil de oportunidades", texto: "Registre o cliente e a obra que quer orçar." },
+  { href: "/dashboard/projetos/obras", titulo: "Obras", texto: "Acompanhe escopo, status e fiscal de cada obra." },
+  { href: "/dashboard/projetos/obras/resultado", titulo: "Resultado por obra", texto: "Previsto x realizado: custo, compras e margem." },
 ];
 
 function fmtBRL(v: number) {
@@ -173,41 +175,17 @@ export default function PainelProjetos() {
         <p className="text-[#3D2314]/60 mb-5 max-w-xl mx-auto">
           Hub de engenharia, CRM de obra e acompanhamento
         </p>
+        {/* §310 (relatório 03): topo focado no trabalho — o funil é a entrada. A configuração de
+            BDI saiu do topo (fica ao fim, em "Configuração da empresa"). */}
         <div className="flex flex-wrap items-center justify-center gap-4">
           <Link
-            href="/dashboard/projetos/configuracoes"
+            href="/dashboard/projetos/oportunidades"
             className="inline-flex items-center gap-2 rounded-lg bg-[#3D2314] px-5 py-2.5 text-sm font-medium text-[#FAF7F2] transition-colors hover:bg-[#3D2314]/90"
           >
-            Configurar BDI da empresa
+            Abrir o funil de oportunidades
             <ArrowRight size={14} />
           </Link>
-          <AjudaCampo chave="projetos.painel.acao.configurar_bdi" />
-          <Link
-            href="/dashboard/projetos/oportunidades"
-            className="text-sm text-[#3D2314]/60 hover:text-[#3D2314]"
-          >
-            Abrir o funil de oportunidades
-          </Link>
           <AjudaCampo chave="projetos.painel.acao.abrir_funil" />
-        </div>
-      </section>
-
-      {/* NOVIDADES DO HUB — toda entrega nova do Hub precisa aparecer aqui, no menu e nas abas */}
-      <section className="mt-4" data-testid="novidades-hub">
-        <SectionLabel>Novidades do Hub</SectionLabel>
-        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-          <Link href="/dashboard/projetos/obras/resultado?area=hub" data-testid="novidade-resultado" className="rounded-xl border border-[#C8941A]/40 bg-white p-4 shadow-sm transition-colors hover:bg-[#C8941A]/5">
-            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#C8941A]">Novo</div>
-            <div className="text-base font-medium text-[#3D2314]">Resultado por obra</div>
-            <div className="mt-1 text-sm text-[#3D2314]/60">Receita, custo e margem de cada obra, previsto × realizado, com o consolidado.</div>
-            <div className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-[#C8941A]">Abrir <ArrowRight size={14} /></div>
-          </Link>
-          <Link href="/dashboard/projetos/cockpit?area=hub" data-testid="novidade-cockpit" className="rounded-xl border border-[#C8941A]/40 bg-white p-4 shadow-sm transition-colors hover:bg-[#C8941A]/5">
-            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#C8941A]">Novo</div>
-            <div className="text-base font-medium text-[#3D2314]">Cockpit da obra</div>
-            <div className="mt-1 text-sm text-[#3D2314]/60">Avanço, custo, margem e pendências de uma obra numa tela só.</div>
-            <div className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-[#C8941A]">Abrir <ArrowRight size={14} /></div>
-          </Link>
         </div>
       </section>
 
@@ -349,9 +327,9 @@ export default function PainelProjetos() {
         </p>
       )}
 
-      {/* PRÓXIMOS PASSOS */}
+      {/* FERRAMENTAS DE GESTÃO */}
       <section className="mt-16">
-        <SectionLabel>Por onde começar</SectionLabel>
+        <SectionLabel>Ferramentas de Gestão</SectionLabel>
         <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
           {PASSOS.map((p) => (
             <Link key={p.href} href={p.href} className="rounded-xl border border-[#3D2314]/12 bg-white p-4 shadow-sm hover:border-[#C8941A]">
@@ -359,6 +337,40 @@ export default function PainelProjetos() {
               <div className="mt-1 text-xs text-[#3D2314]/60">{p.texto}</div>
             </Link>
           ))}
+        </div>
+      </section>
+
+      {/* NOVIDADES DO HUB — §310 (relatório 03): curtas e no fim da página (saíram do topo, que agora
+          abre direto nos indicadores). Toda entrega nova do Hub aparece aqui, no menu e nas abas. */}
+      <section className="mt-16" data-testid="novidades-hub">
+        <SectionLabel>Novidades do Hub</SectionLabel>
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <Link href="/dashboard/projetos/obras/resultado?area=hub" data-testid="novidade-resultado" className="rounded-xl border border-[#C8941A]/40 bg-white p-4 shadow-sm transition-colors hover:bg-[#C8941A]/5">
+            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#C8941A]">Novo</div>
+            <div className="text-base font-medium text-[#3D2314]">Resultado por obra</div>
+            <div className="mt-1 text-sm text-[#3D2314]/60">Receita, custo e margem de cada obra, previsto × realizado, com o consolidado.</div>
+            <div className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-[#C8941A]">Abrir <ArrowRight size={14} /></div>
+          </Link>
+          <Link href="/dashboard/projetos/cockpit?area=hub" data-testid="novidade-cockpit" className="rounded-xl border border-[#C8941A]/40 bg-white p-4 shadow-sm transition-colors hover:bg-[#C8941A]/5">
+            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#C8941A]">Novo</div>
+            <div className="text-base font-medium text-[#3D2314]">Cockpit da obra</div>
+            <div className="mt-1 text-sm text-[#3D2314]/60">Avanço, custo, margem e pendências de uma obra numa tela só.</div>
+            <div className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-[#C8941A]">Abrir <ArrowRight size={14} /></div>
+          </Link>
+        </div>
+      </section>
+
+      {/* CONFIGURAÇÃO DA EMPRESA — §310: a configuração de BDI saiu do topo e fica aqui, ao fim. */}
+      <section className="mt-10 mb-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <Link
+            href="/dashboard/projetos/configuracoes"
+            className="inline-flex items-center gap-2 rounded-lg border border-[#3D2314]/15 bg-white px-4 py-2 text-sm font-medium text-[#3D2314] transition-colors hover:border-[#C8941A]"
+          >
+            Configurar BDI da empresa
+            <ArrowRight size={14} />
+          </Link>
+          <AjudaCampo chave="projetos.painel.acao.configurar_bdi" />
         </div>
       </section>
     </main>
