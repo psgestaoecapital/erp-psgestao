@@ -18,6 +18,10 @@
 --   seed, então a reinserção é limpa a cada reset.
 -- Corpo idêntico ao vivo (pg_get_functiondef), só com o cargo no catálogo de postos e o bloco de turno.
 -- ============================================================================
+-- ci-sem-guarda: fn_demo_seed_industria_postos — seed de DEMO travado numa empresa fixa (constante c =
+--   b0700000-0000-4000-a000-000000000005) + exigência is_demo IS TRUE; retorna erro para qualquer outra
+--   empresa (p_company_id IS DISTINCT FROM c → so_empresa_demo_industria). Não há empresa de cliente a
+--   conferir: a guarda é por constante, mais forte que fn__guarda_empresa. Só grava dado 100% fictício.
 
 CREATE OR REPLACE FUNCTION public.fn_demo_seed_industria_postos(p_company_id uuid)
  RETURNS jsonb
