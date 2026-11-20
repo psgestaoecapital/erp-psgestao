@@ -34,6 +34,7 @@ export default function ViabilidadePage(){
   const [descricaoProjeto,setDescricaoProjeto]=useState("");
   const [setor,setSetor]=useState("");
   const [resultado,setResultado]=useState<AnaliseResult|null>(null);
+  const [ehExemplo,setEhExemplo]=useState(false);
   const [dragOver,setDragOver]=useState(false);
   const [iaPergunta,setIaPergunta]=useState("");
   const [iaResposta,setIaResposta]=useState("");
@@ -111,8 +112,43 @@ Dados do arquivo: ${fileData.substring(0,2000)}`;
     if(file) handleFile(file);
   };
 
+  // Laudo de exemplo: deixa a SAÍDA da análise demonstrável na rota genérica sem precisar de arquivo
+  // (auditoria 19/11, critérios b/c). Marcado como exemplo — não é dado real da empresa.
+  const verExemplo=()=>{
+    setEhExemplo(true);
+    setFileName("Laudo de exemplo");
+    setSetor("Comércio");
+    setDescricaoProjeto("Exemplo ilustrativo: abertura de uma unidade de varejo com investimento inicial e operação em 12 meses.");
+    setResultado({
+      viavel:true,
+      score:78,
+      margemProjetada:18.5,
+      investimento:180000,
+      retorno:399600,
+      payback:"8-12 meses",
+      pontos_fortes:[
+        "Mercado em crescimento na região",
+        "Margem bruta acima da média setorial",
+        "Baixo custo de entrada vs. concorrentes",
+      ],
+      riscos:[
+        "Dependência de poucos fornecedores para o insumo principal",
+        "Sazonalidade pode afetar o fluxo de caixa nos meses 3-5",
+        "Concorrência acirrada no segmento",
+      ],
+      sugestoes:[
+        "Negociar contrato de fornecimento com 2+ fornecedores para reduzir risco",
+        "Iniciar com escala menor e expandir conforme validação",
+        "Reservar capital de giro equivalente a 3 meses de operação",
+      ],
+      resumo:"Exemplo: o projeto apresenta viabilidade econômica com margem projetada de 18,5% e payback estimado em 8-12 meses. Envie o seu projeto para gerar um laudo com os números da sua empresa.",
+    });
+    setStep("resultado");
+  };
+
   const analisar=async()=>{
     if(!descricaoProjeto.trim())return;
+    setEhExemplo(false);
     setStep("processando");
 
     // In production: calls Claude API with file data + company context
@@ -155,7 +191,7 @@ Dados do arquivo: ${fileData.substring(0,2000)}`;
   };
 
   const novaAnalise=()=>{
-    setStep("upload");setFileName("");setFileData("");setDescricaoProjeto("");setSetor("");setResultado(null);
+    setStep("upload");setFileName("");setFileData("");setDescricaoProjeto("");setSetor("");setResultado(null);setEhExemplo(false);
   };
 
   const inp:React.CSSProperties={background:BG3,border:`1px solid ${BD}`,color:TX,borderRadius:10,padding:"10px 14px",fontSize:13,outline:"none",width:"100%",fontFamily:"inherit"};
@@ -236,12 +272,16 @@ Dados do arquivo: ${fileData.substring(0,2000)}`;
                 </div>
               ))}
             </div>
-            <div style={{display:"flex",gap:8,alignItems:"flex-start",flexWrap:"wrap",fontSize:11,color:TXD}}>
+            <div style={{display:"flex",gap:8,alignItems:"flex-start",flexWrap:"wrap",fontSize:11,color:TXD,marginBottom:14}}>
               <span style={{fontWeight:700,color:TXM}}>Como funciona:</span>
               <span>1. Envie um arquivo ou descreva o projeto</span>
               <span>→ 2. A IA analisa custos e receitas</span>
               <span>→ 3. Você recebe o laudo em segundos</span>
             </div>
+            {/* Laudo de exemplo: torna a SAÍDA demonstrável sem arquivo (auditoria 19/11, estado_real) */}
+            <button onClick={verExemplo} style={{padding:"9px 16px",borderRadius:10,border:`1px solid ${GO}`,background:"transparent",color:GOL,fontSize:12,fontWeight:600,cursor:"pointer"}}>
+              👁️ Ver um laudo de exemplo
+            </button>
           </div>
         </div>
       )}
@@ -311,6 +351,13 @@ Dados do arquivo: ${fileData.substring(0,2000)}`;
       {/* STEP 4: Resultado */}
       {step==="resultado"&&resultado&&(
         <div style={{animation:"fadeIn 0.4s ease"}}>
+          {ehExemplo&&(
+            <div style={{background:GO+"12",border:`1px solid ${GO}40`,borderRadius:12,padding:"10px 14px",marginBottom:14,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+              <span style={{fontSize:16}}>👁️</span>
+              <span style={{fontSize:12,color:TXM,flex:1,minWidth:180}}><b style={{color:GOL}}>Laudo de exemplo</b> — números ilustrativos. Envie o seu projeto para gerar o laudo com os dados da sua empresa.</span>
+              <button onClick={novaAnalise} style={{padding:"7px 14px",borderRadius:9,border:"none",background:`linear-gradient(135deg,${GO},${GOL})`,color:BG,fontSize:11,fontWeight:700,cursor:"pointer"}}>Analisar meu projeto</button>
+            </div>
+          )}
           {/* Verdict */}
           <div style={{
             background:resultado.viavel?G+"10":R+"10",
