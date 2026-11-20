@@ -160,6 +160,9 @@ const SECAO_LABEL_OVERRIDE: Record<string, string> = {
   PRODUTIVIDADE: 'Produtividade',
   CRUZAMENTO: 'Indicadores de cruzamento',
   ADMINISTRACAO: 'Administração',
+  // Hub de Projetos (auditoria CEO 20/11): as telas de execução da obra ganham seção própria no menu.
+  // A RPC manda a seção crua "PROJETOS_EXECUCAO" (REPLACE/UPPER do subgrupo) — o cliente lê "Execução da obra".
+  PROJETOS_EXECUCAO: 'Execução da obra',
   // Gestão Empresarial — a seção vem crua "CONTRATOS_VENDAS" da RPC; o usuário lê "Contratos".
   CONTRATOS_VENDAS: 'Contratos',
 }
