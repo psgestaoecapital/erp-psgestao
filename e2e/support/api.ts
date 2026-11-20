@@ -155,8 +155,9 @@ export async function purgarLeftoversDemo(): Promise<void> {
 const DEMO_COMERCIO = 'b0700000-0000-4000-a000-000000000004'
 const DEMOS_PURGA = [DEMO_REVENDA, DEMO_COMERCIO]
 // Os marcadores DEDICADOS e2e de erp_receber (Contas500 *, Aceitação #*/achado *, Regressão achado B *,
-// Aceitação baixa por banco *, Aceitação unificar *, Caminho receber */conciliação *, Pedido MED-*) agora vivem
-// SERVER-SIDE na função fn_e2e_purgar_receber_demo (migration 20261120013245) — ver purgarReceberDemo abaixo.
+// Aceitação baixa por banco *, Aceitação unificar *, Caminho receber */conciliação *, Pedido MED-*,
+// Mensalidade E2E * [ge-comissoes-recorrentes, poison R$10 TRI no resultado-por-negocio; migration 20261121193045])
+// agora vivem SERVER-SIDE na função fn_e2e_purgar_receber_demo (migration 20261120013245) — ver purgarReceberDemo abaixo.
 // PDCA GE 18/11 (0c3345df/26111304): a varredura marcador-a-marcador por PATCH do PostgREST fazia UM update cobrindo
 // TODAS as linhas de um marcador. O marcador "Contas500 *" casa ~30 mil títulos vivos e o PATCH único estourava o
 // timeout do pooler/PostgREST — erro engolido no catch, o lixo grande NUNCA drenava (ficava parado em ~30,3k). A purga
