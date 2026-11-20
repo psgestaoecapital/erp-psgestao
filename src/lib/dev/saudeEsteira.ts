@@ -2,6 +2,7 @@
 export type Semaforo = 'verde' | 'amarelo' | 'vermelho'
 export type SaudeEsteira = {
   portao_verde: boolean | null; portao_desde: string | null; portao_spec_falha: string | null
+  quarentena_abertas: number | null
   quedas_24h: number | null; tempo_vermelho_24h_min: number | null; merges_24h: number | null
   intervalo_mediano_merge_min: number | null; fila_esperando: number | null; fila_parada: number | null
   pr_parada_mais_antiga_h: number | null
