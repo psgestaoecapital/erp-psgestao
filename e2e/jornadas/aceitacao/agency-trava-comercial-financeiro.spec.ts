@@ -62,4 +62,27 @@ test.describe('P&M · trava comercial→financeiro @pos-migration', () => {
       for (const id of [cliSem, cliOk]) if (id) await dbDelete('erp_clientes', `id=eq.${id}`)
     }
   })
+
+  // Regressão #5523 (migration 20261120180030): fn__agency_contrato_faltando fazia `text[] || 'literal'` SEM cast,
+  // que o Postgres resolvia como anyarray||anyarray e lançava 22P02 "malformed array literal" em TODO contrato
+  // incompleto. Como fn_agency_contrato_listar chama a função INLINE por linha, /dashboard/pm/contratos não carregava
+  // quando QUALQUER contrato estava incompleto. Este teste exercita o caminho INCOMPLETO de verdade: a lista tem de
+  // carregar e devolver `faltando[]` em vez de lançar. (O teste acima passou batido por não cobrir o listar.)
+  test('a lista de contratos carrega com contratos INCOMPLETOS (devolve faltando[], não lança) — regressão #5523', async () => {
+    const tag = Date.now()
+    let ctr = '', cli = ''
+    try {
+      cli = (await dbInsert<{ id: string }>('erp_clientes', { company_id: DEMO_REVENDA, nome_fantasia: `Lista Sem Doc ${tag}`, razao_social: `Lista Sem Doc ${tag}`, ativo: true })).id
+      // recorrente incompleto: cliente SEM documento e SEM serviço → antes do fix, o faltando lançava e a lista 500ava
+      ctr = (await dbInsert<{ id: string }>('agency_contratos', { company_id: DEMO_REVENDA, tipo: 'recorrente', erp_cliente_id: cli })).id
+      const linhas = await rpc<Array<{ contrato_id: string; faltando: string[] }>>('fn_agency_contrato_listar', { p_company_id: DEMO_REVENDA })
+      expect(Array.isArray(linhas)).toBe(true)
+      const linha = linhas.find((l) => l.contrato_id === ctr)
+      expect(linha).toBeTruthy()
+      expect(linha!.faltando).toEqual(expect.arrayContaining(['cnpj_cliente', 'servico']))
+    } finally {
+      if (ctr) { await dbDelete('agency_contrato_itens', `contrato_id=eq.${ctr}`); await dbDelete('agency_contratos', `id=eq.${ctr}`) }
+      if (cli) await dbDelete('erp_clientes', `id=eq.${cli}`)
+    }
+  })
 })
