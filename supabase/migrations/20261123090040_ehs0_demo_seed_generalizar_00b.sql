@@ -667,6 +667,11 @@ BEGIN
   IF p_company_id IN ('b0700000-0000-4000-a000-000000000005'::uuid,
                       'b0700000-0000-4000-a000-00000000000b'::uuid) THEN
     DELETE FROM public.rh_pessoa_complemento WHERE company_id = p_company_id;
+    -- rh_vaga referencia prod_setor (FK RESTRICT); limpar antes do seed principal que apaga prod_setor
+    -- (mesmo motivo do rh_pessoa_complemento). fn_demo_seed_industria_rh_quadro re-insere no fim.
+    -- SUPERSET da conserto-main #5709 (que destrava o @pos): com 00b + este DELETE, qualquer ordem
+    -- de aplicação deixa o fn_demo_reset correto (dado 100% fake, is_demo validado; nenhum cliente é tocado).
+    DELETE FROM public.rh_vaga WHERE company_id = p_company_id;
   END IF;
 
   EXECUTE format('SELECT %I($1)', v_seed) INTO v_res USING p_company_id;
