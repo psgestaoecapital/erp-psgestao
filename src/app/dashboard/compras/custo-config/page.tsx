@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { parseNumBR } from '@/lib/num'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 type Cfg = {
   id?: string; natureza: string
@@ -76,7 +77,7 @@ export default function CustoConfigPage() {
     })
     setSavingV(false)
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error) { setToast('Erro ao salvar: ' + error.message); return }
+    if (error) { console.error('[custo-config] fn_venda_params_salvar', error); setToast(erroAmigavel(error, 'Não foi possível salvar agora. Tente de novo; se persistir, fale com o suporte.')); return }
     if (!r?.ok) { setToast(r?.erro ?? 'Não foi possível salvar.'); return }
     setToast('Imposto e comissão da venda salvos.')
   }
@@ -89,7 +90,7 @@ export default function CustoConfigPage() {
       p_cofins: c.cofins_e_custo, p_frete: c.frete_e_custo, p_seguro: c.seguro_e_custo, p_outras: c.outras_e_custo,
     })
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error) { setToast('Erro ao salvar: ' + error.message); return }
+    if (error) { console.error('[custo-config] fn_custo_estoque_config_salvar', error); setToast(erroAmigavel(error, 'Não foi possível salvar agora. Tente de novo; se persistir, fale com o suporte.')); return }
     if (!r?.ok) { setToast(r?.erro ?? 'Não foi possível salvar.'); return }
     setToast('Configuração salva.'); void carregar()
   }
@@ -98,7 +99,7 @@ export default function CustoConfigPage() {
     if (!window.confirm(`Excluir a configuração de custo da natureza "${natureza}"? As notas dessa natureza passam a usar o default. A exclusão fica registrada (rastreável).`)) return
     const { data, error } = await supabase.rpc('fn_custo_estoque_config_excluir', { p_company_id: empresa, p_natureza: natureza })
     const r = data as { ok?: boolean; erro?: string } | null
-    if (error) { setToast('Erro ao excluir: ' + error.message); return }
+    if (error) { console.error('[custo-config] fn_custo_estoque_config_excluir', error); setToast(erroAmigavel(error, 'Não foi possível excluir agora. Tente de novo; se persistir, fale com o suporte.')); return }
     if (!r?.ok) { setToast(r?.erro ?? 'Não foi possível excluir.'); return }
     setToast('Configuração excluída.'); void carregar()
   }
