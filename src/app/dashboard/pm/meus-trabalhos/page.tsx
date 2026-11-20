@@ -9,6 +9,7 @@ import { Briefcase, Play } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { erroAmigavel } from "@/lib/erroAmigavel";
+import { comPrazo } from "@/lib/comPrazo";
 import EmpresaNaoResolvida from "@/components/pm/EmpresaNaoResolvida";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { BotaoPlay } from "@/components/pm/BotaoPlay";
@@ -33,30 +34,39 @@ export default function MeusTrabalhosPage() {
 
   const carregar = useCallback(async () => {
     if (!empresa) return;
-    const { data: { session } } = await supabase.auth.getSession();
-    const uid = session?.user?.id ?? null;
-    setUserId(uid);
-    const [ls, ct] = await Promise.all([
-      supabase.rpc("fn_pauta_listar", { p_company_id: empresa, p_filtros: { atalho: "meus" }, p_situacao: null, p_agrupar: "prazo", p_pagina: 1, p_por_pagina: 200 }),
-      supabase.rpc("fn_pauta_contadores", { p_company_id: empresa, p_filtros: {} }),
-    ]);
-    setTotalEmpresa(ct.error ? null : Number((ct.data as { total?: number } | null)?.total ?? 0));
-    // RD-98 critério e: nunca o erro cru do banco ao usuário — mensagem em linguagem dele.
-    if (ls.error) { setErro(erroAmigavel(ls.error, "Não foi possível carregar seus trabalhos. Tente de novo.")); setCarregando(false); return; }
-    const itens = ((ls.data as { itens: ItemPauta[] } | null)?.itens ?? []);
-    const ids = itens.map((i) => i.id);
-    const [ini, ta] = await Promise.all([
-      ids.length ? supabase.from("agency_jobs").select("id, data_inicio").in("id", ids) : Promise.resolve({ data: [] as { id: string; data_inicio: string | null }[] }),
-      // #5440: antes carregava 500 linhas SEM ordem e de QUALQUER status, filtrando o "ativo" só no cliente — com
-      // muitas tarefas o corte de 500 engolia parte das ativas e os indicadores "destoavam" (ex.: 250 em vez do total
-      // real). Agora traz só as ATIVAS (as fechadas não entram em nenhum indicador nem na agenda), ordenadas por prazo,
-      // com teto folgado. O filtro continua batendo com o ativo() da lib no cliente.
-      uid ? supabase.from("agency_tarefas").select("id, job_id, titulo, status, data_prazo, data_inicio").eq("company_id", empresa).eq("responsavel_id", uid).not("status", "in", '("concluida","concluido","publicado","cancelado","cancelada")').order("data_prazo", { ascending: true, nullsFirst: false }).limit(5000) : Promise.resolve({ data: [] }),
-    ]);
-    const inicio = new Map(((ini.data ?? []) as { id: string; data_inicio: string | null }[]).map((r) => [r.id, r.data_inicio]));
-    setJobs(itens.map((i) => ({ id: i.id, codigo: i.codigo, titulo: i.titulo, cliente: i.cliente, status: i.status, data_prazo: i.data_prazo, data_inicio: inicio.get(i.id) ?? null, atrasado: i.atrasado })));
-    setTarefas((ta.data ?? []) as TrabalhoTarefa[]);
-    setCarregando(false);
+    setCarregando(true);
+    setErro(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const uid = session?.user?.id ?? null;
+      setUserId(uid);
+      // Carregamento resiliente (comPrazo): prazo por tentativa + re-tentativa automática antes de desistir — uma queda
+      // momentânea de rede/consulta lenta não derruba mais a tela para o banner de erro (auditoria aud8 19/11).
+      const [ls, ct] = await comPrazo(() => Promise.all([
+        supabase.rpc("fn_pauta_listar", { p_company_id: empresa, p_filtros: { atalho: "meus" }, p_situacao: null, p_agrupar: "prazo", p_pagina: 1, p_por_pagina: 200 }),
+        supabase.rpc("fn_pauta_contadores", { p_company_id: empresa, p_filtros: {} }),
+      ]), { ms: 8000, tentativas: 2, label: "pm_meus_trabalhos" });
+      setTotalEmpresa(ct.error ? null : Number((ct.data as { total?: number } | null)?.total ?? 0));
+      // RD-98 critério e: nunca o erro cru do banco ao usuário — mensagem em linguagem dele.
+      if (ls.error) { setErro(erroAmigavel(ls.error, "Não foi possível carregar seus trabalhos. Tente de novo.")); setCarregando(false); return; }
+      const itens = ((ls.data as { itens: ItemPauta[] } | null)?.itens ?? []);
+      const ids = itens.map((i) => i.id);
+      const [ini, ta] = await comPrazo(() => Promise.all([
+        ids.length ? supabase.from("agency_jobs").select("id, data_inicio").in("id", ids) : Promise.resolve({ data: [] as { id: string; data_inicio: string | null }[] }),
+        // #5440: antes carregava 500 linhas SEM ordem e de QUALQUER status, filtrando o "ativo" só no cliente — com
+        // muitas tarefas o corte de 500 engolia parte das ativas e os indicadores "destoavam" (ex.: 250 em vez do total
+        // real). Agora traz só as ATIVAS (as fechadas não entram em nenhum indicador nem na agenda), ordenadas por prazo,
+        // com teto folgado. O filtro continua batendo com o ativo() da lib no cliente.
+        uid ? supabase.from("agency_tarefas").select("id, job_id, titulo, status, data_prazo, data_inicio").eq("company_id", empresa).eq("responsavel_id", uid).not("status", "in", '("concluida","concluido","publicado","cancelado","cancelada")').order("data_prazo", { ascending: true, nullsFirst: false }).limit(5000) : Promise.resolve({ data: [] }),
+      ]), { ms: 8000, tentativas: 2, label: "pm_meus_trabalhos_detalhe" });
+      const inicio = new Map(((ini.data ?? []) as { id: string; data_inicio: string | null }[]).map((r) => [r.id, r.data_inicio]));
+      setJobs(itens.map((i) => ({ id: i.id, codigo: i.codigo, titulo: i.titulo, cliente: i.cliente, status: i.status, data_prazo: i.data_prazo, data_inicio: inicio.get(i.id) ?? null, atrasado: i.atrasado })));
+      setTarefas((ta.data ?? []) as TrabalhoTarefa[]);
+      setCarregando(false);
+    } catch (e) {
+      setErro(erroAmigavel(e, "Não foi possível carregar seus trabalhos. Tente de novo."));
+      setCarregando(false);
+    }
   }, [empresa]);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- carrega quando a empresa muda
   useEffect(() => { void carregar(); }, [carregar]);
@@ -83,17 +93,37 @@ export default function MeusTrabalhosPage() {
         </div>
         <span className="inline-flex items-center"><Link href="/dashboard/pm/meu-dia" className="rounded-lg border border-[#3D2314]/15 bg-white px-3 py-2 text-[12.5px]">Meu dia</Link><AjudaCampo chave="pm.meus_trabalhos.meu_dia" /></span>
       </header>
-      {erro && <div className="mb-3 rounded-lg bg-[#F7E1E1] px-3 py-2 text-[12.5px] text-[#791F1F]" onClick={() => setErro(null)}>{erro}</div>}
-      {carregando && <div className="text-[12.5px] text-[#3D2314]/55">carregando…</div>}
+      {erro && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[#F7E1E1] px-3 py-2 text-[12.5px] text-[#791F1F]" data-testid="mt-erro">
+          <span>{erro}</span>
+          <button onClick={() => void carregar()} className="shrink-0 rounded-md border border-[#791F1F]/30 bg-white px-2.5 py-1 text-[12px] font-medium text-[#791F1F] hover:bg-[#791F1F]/5" data-testid="mt-tentar-de-novo">Tentar de novo</button>
+        </div>
+      )}
+      {carregando && !erro && (
+        <div aria-hidden data-testid="mt-skeleton">
+          <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-6">
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className={cartao}>
+                <div className="mb-2 h-3 w-16 animate-pulse rounded bg-[#3D2314]/10" />
+                <div className="h-5 w-10 animate-pulse rounded bg-[#3D2314]/10" />
+              </div>
+            ))}
+          </div>
+          <div className="grid gap-3 lg:grid-cols-3">
+            <div className={`${cartao} space-y-2 lg:col-span-2`}>{[0, 1, 2, 3].map((i) => <div key={i} className="h-4 w-full animate-pulse rounded bg-[#3D2314]/8" />)}</div>
+            <div className={`${cartao} space-y-2`}>{[0, 1, 2].map((i) => <div key={i} className="h-4 w-full animate-pulse rounded bg-[#3D2314]/8" />)}</div>
+          </div>
+        </div>
+      )}
 
-      <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-6" data-testid="mt-indicadores">
+      <div className={`mb-3 grid grid-cols-2 gap-2 md:grid-cols-6 ${carregando && !erro ? "hidden" : ""}`} data-testid="mt-indicadores">
         {cards.map(([rot, n, id, ajuda]) => (
           <div key={id} className={`${cartao} ${n > 0 && id.includes("atrasad") ? "border-[#791F1F]/30" : ""}`} data-testid={`mt-ind-${id}`}>
             <div className="flex items-center text-[11px] text-[#3D2314]/60">{rot}<AjudaCampo chave={ajuda} /></div><div className="text-[24px] font-medium">{n}</div>
           </div>))}
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-3">
+      <div className={`grid gap-3 lg:grid-cols-3 ${carregando && !erro ? "hidden" : ""}`}>
         <section className={`${cartao} lg:col-span-2`} data-testid="mt-lista">
           <div className="mb-3 flex flex-wrap items-center gap-1" role="tablist">
             {ABAS.map((a) => (
@@ -103,11 +133,32 @@ export default function MeusTrabalhosPage() {
             <span className="inline-flex items-center text-[11.5px] text-[#3D2314]/60">situação<AjudaCampo chave="pm.meus_trabalhos.situacao" /></span>
             <span className="ml-auto inline-flex items-center gap-1 text-[11.5px] text-[#3D2314]/60"><Play size={11} fill="currentColor" /> aponta horas <AjudaCampo chave="pm.meus_trabalhos.apontar" /></span>
           </div>
+          {erro && (
+            // Critério d (auditoria 19/11): quando a carga falha, o painel central nunca fica em branco — mostra o que
+            // aconteceu, como tentar de novo e um caminho para seguir (Ver a Pauta), além do aviso do topo.
+            <div className="rounded-xl border border-dashed border-[#791F1F]/25 bg-[#FAF7F2] px-4 py-6 text-center" data-testid="mt-lista-erro">
+              <Briefcase size={22} className="mx-auto mb-2 text-[#791F1F]" />
+              <div className="text-[13px] font-medium text-[#3D2314]">Não foi possível carregar seus trabalhos agora.</div>
+              <div className="mt-1 text-[12px] text-[#3D2314]/65">Pode ser uma instabilidade momentânea de conexão. Tente de novo ou abra a Pauta.</div>
+              <span className="mt-3 inline-flex items-center justify-center gap-2">
+                <button onClick={() => void carregar()} className="rounded-lg bg-[#3D2314] px-3.5 py-2 text-[12.5px] font-medium text-white hover:bg-[#3D2314]/90" data-testid="mt-lista-erro-tentar">Tentar de novo</button>
+                <Link href="/dashboard/pm/pauta" className="rounded-lg border border-[#3D2314]/15 bg-white px-3.5 py-2 text-[12.5px] font-medium hover:bg-[#FAEEDA]" data-testid="mt-lista-erro-pauta">Ver a Pauta</Link>
+                <AjudaCampo chave="pm.meus_trabalhos.ver_pauta" />
+              </span>
+            </div>
+          )}
           {!grupos.length && !carregando && !erro && (
-            <div className="text-[12.5px] text-[#3D2314]/70" data-testid="mt-vazio">
-              Nenhum job em andamento está com você como responsável.
-              {totalEmpresa !== null && totalEmpresa > 0 && <> A pauta da empresa tem {totalEmpresa} job(s) com outras pessoas — <Link href="/dashboard/pm/pauta" className="font-medium text-[#C8941A] underline" data-testid="mt-ver-pauta">ver na Pauta</Link><AjudaCampo chave="pm.meus_trabalhos.ver_pauta" />.</>}
-              {totalEmpresa === 0 && <> A empresa ainda não tem jobs na pauta.</>}
+            <div className="rounded-xl border border-dashed border-[#3D2314]/15 bg-[#FAF7F2] px-4 py-6 text-center" data-testid="mt-vazio">
+              <Briefcase size={22} className="mx-auto mb-2 text-[#C8941A]" />
+              <div className="text-[13px] font-medium text-[#3D2314]">Nenhum job em andamento está com você como responsável.</div>
+              <div className="mt-1 text-[12px] text-[#3D2314]/65">
+                {totalEmpresa !== null && totalEmpresa > 0 && <>A pauta da empresa tem {totalEmpresa} job(s) com outras pessoas.</>}
+                {totalEmpresa === 0 && <>A empresa ainda não tem jobs na pauta.</>}
+              </div>
+              <span className="mt-3 inline-flex items-center justify-center">
+                <Link href="/dashboard/pm/pauta" className="rounded-lg bg-[#3D2314] px-3.5 py-2 text-[12.5px] font-medium text-white hover:bg-[#3D2314]/90" data-testid="mt-ver-pauta">Ver a Pauta</Link>
+                <AjudaCampo chave="pm.meus_trabalhos.ver_pauta" />
+              </span>
             </div>
           )}
           {grupos.map((g) => (

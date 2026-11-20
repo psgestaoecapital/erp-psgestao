@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { parseNumBR } from '@/lib/num'
 import ProdutoForm, { type Produto } from '@/components/cadastros/ProdutoForm'
 import ImportProdutosFiscalModal from '@/components/importar/ImportProdutosFiscalModal'
 import AutoclassificarProdutosModal from '@/components/importar/AutoclassificarProdutosModal'
 import EdicaoFiscalMassaModal from '@/components/cadastros/EdicaoFiscalMassaModal'
+import PadraoFiscalNcmModal from '@/components/cadastros/PadraoFiscalNcmModal'
 import ConfirmarClonar from '@/components/cadastros/ConfirmarClonar'
 import EtiquetasProdutosModal from '@/components/cadastros/EtiquetasProdutosModal'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
@@ -85,6 +87,7 @@ export default function ProdutosPage() {
   const [pendVerLista, setPendVerLista] = useState(false)
   const [autoclassificarAberto, setAutoclassificarAberto] = useState(false)
   const [fiscalMassaAberto, setFiscalMassaAberto] = useState(false)
+  const [padraoNcmAberto, setPadraoNcmAberto] = useState(false)
   // Etiquetas A4 (CEO 30/09 · Diego/FC): seleção sobrevive a busca/filtro/"carregar mais"
   const [selecionados, setSelecionados] = useState<string[]>([])
   const [etiquetasAberto, setEtiquetasAberto] = useState(false)
@@ -245,8 +248,8 @@ export default function ProdutosPage() {
         if (statusEstoque !== 'todos') q = q.eq('status_estoque', statusEstoque)
         if (situacao === 'ativos') q = q.eq('ativo', true)
         else if (situacao === 'inativos') q = q.eq('ativo', false)
-        const min = precoMin === '' ? null : parseFloat(precoMin.replace(',', '.'))
-        const max = precoMax === '' ? null : parseFloat(precoMax.replace(',', '.'))
+        const min = precoMin === '' ? null : parseNumBR(precoMin)
+        const max = precoMax === '' ? null : parseNumBR(precoMax)
         if (min != null && !isNaN(min)) q = q.gte('preco_venda', min)
         if (max != null && !isNaN(max)) q = q.lte('preco_venda', max)
         if (semPreco) q = q.or('preco_venda.is.null,preco_venda.eq.0')
@@ -405,6 +408,17 @@ export default function ProdutosPage() {
                 <ListChecks size={15} /> Edição fiscal em massa
               </button>
               <AjudaCampo chave="cadastros.produtos.fiscal_massa" />
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setPadraoNcmAberto(true)}
+                data-testid="padrao-fiscal-ncm-abrir"
+                className="px-4 py-2 text-[13px] font-medium rounded-lg border border-[#C8941A] text-[#C8941A] hover:bg-[#FFF8E7] flex items-center gap-2"
+              >
+                <ListChecks size={15} /> Padrão fiscal por NCM
+              </button>
+              <AjudaCampo chave="cadastros.produtos.padrao_fiscal_ncm" />
             </span>
             <span className="inline-flex items-center gap-1">
               <button
@@ -1008,6 +1022,13 @@ export default function ProdutosPage() {
             companyId={companyId}
             onClose={() => setFiscalMassaAberto(false)}
             onAplicado={() => carregar(true)}
+          />
+        )}
+
+        {padraoNcmAberto && (
+          <PadraoFiscalNcmModal
+            companyId={companyId}
+            onClose={() => setPadraoNcmAberto(false)}
           />
         )}
 

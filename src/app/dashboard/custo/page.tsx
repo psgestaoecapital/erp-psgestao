@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
+import { CampoPercent } from '@/lib/ui/CampoPercent'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
 import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 
@@ -481,7 +482,7 @@ export default function CustoPage() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
             <div>
               <div style={{ fontSize: 10, color: C.muted, marginBottom: 2 }}>Volume Producao (ton)</div>
-              <input type="number" value={volumeTon} onChange={e => setVolumeTon(parseFloat(e.target.value) || 0)} style={{ ...inputSt, width: '100%' }} />
+              <CampoPercent value={volumeTon} onChange={n => setVolumeTon(n ?? 0)} style={{ ...inputSt, width: '100%' }} />
             </div>
             <div>
               <div style={{ fontSize: 10, color: C.muted, marginBottom: 2 }}>Receita Bruta (R$)</div>
