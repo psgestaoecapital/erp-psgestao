@@ -25,6 +25,7 @@ permissions:
 concurrency:
   group: pos-migration-${{ github.ref }}
   cancel-in-progress: false
+  queue: max
 
 jobs:
   # Superados (CEO 27/10, Opção 1 aprovada): roda NA HORA, sem o grupo demo-e2e (que serializa o Playwright e NÃO pode

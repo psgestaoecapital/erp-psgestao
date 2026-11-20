@@ -2,6 +2,11 @@
 import { useState, type CSSProperties } from 'react'
 import { supabase } from '@/lib/supabase'
 import { SECTIONS, type Field } from './fields'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { erroAmigavel } from '@/lib/erroAmigavel'
+
+// "?" (RD-95) ao lado de cada campo do formulário — texto vem de erp_ajuda_campo (chave ge.financiamento.<key>).
+const ROTA_AJUDA = '/dashboard/gestao-empresarial/financiamento'
 
 type FormState = Record<string, string | number | boolean | null>
 
@@ -9,7 +14,8 @@ interface Props {
   companyId: string
   initial?: (Record<string, unknown> & { id?: string }) | null
   onClose: () => void
-  onSaved: () => void
+  // savedId/isNew/aviso permitem à tela abrir o contrato novo já no Cronograma e orientar o próximo passo.
+  onSaved: (savedId?: string, isNew?: boolean, aviso?: string) => void
 }
 
 export default function FinanciamentoFormModal({ companyId, initial, onClose, onSaved }: Props) {
@@ -37,59 +43,77 @@ export default function FinanciamentoFormModal({ companyId, initial, onClose, on
     let savedId = initial?.id ?? null
     if (isEdit) {
       const res = await supabase.from('financiamentos').update(payload).eq('id', initial!.id!)
-      if (res.error) { setSaving(false); setErr(res.error.message); return }
+      if (res.error) { setSaving(false); setErr(erroAmigavel(res.error, 'Não foi possível salvar o contrato. Confira os dados e tente de novo.')); return }
     } else {
       const res = await supabase.from('financiamentos').insert(payload).select('id').single()
-      if (res.error) { setSaving(false); setErr(res.error.message); return }
+      if (res.error) { setSaving(false); setErr(erroAmigavel(res.error, 'Não foi possível salvar o contrato. Confira os dados e tente de novo.')); return }
       savedId = (res.data as { id: string } | null)?.id ?? null
     }
 
-    // Recalcula parcelas_pagas/saldo/valor_parcela via RPC (apos save).
+    // Contrato NOVO: gera o cronograma automaticamente (jornada — as parcelas já aparecem, sem exigir
+    // que o usuário clique "Gerar cronograma" depois). Se faltar valor/nº de parcelas, a RPC devolve
+    // ok:false com motivo claro: o contrato fica salvo e orientamos o próximo passo (não bloqueia).
+    let aviso: string | undefined
+    if (savedId && !isEdit) {
+      const cron = await supabase.rpc('fn_financiamento_gerar_cronograma', { p_id: savedId })
+      const cj = cron.data as { ok?: boolean; erro?: string } | null
+      aviso = (cron.error || (cj && cj.ok === false))
+        ? 'Contrato criado. Preencha valor e nº de parcelas e use "Gerar cronograma" no contrato.'
+        : 'Contrato criado e cronograma gerado. Confira as parcelas e gere as contas a pagar.'
+    }
+
+    // Recalcula parcelas_pagas/saldo/valor_parcela via RPC (apos gerar o cronograma, quando novo).
     // RPC ja valida company_id via get_user_company_ids() — RLS-safe.
     if (savedId) {
       const rec = await supabase.rpc('fn_financiamento_recalcular', { p_id: savedId })
       if (rec.error) {
         setSaving(false)
-        setErr(`Salvou mas nao recalculou: ${rec.error.message}`)
+        setErr(erroAmigavel(rec.error, 'Salvou, mas não foi possível recalcular agora. Tente "Recalcular" no contrato.'))
         return
       }
       const r = rec.data as { ok?: boolean; erro?: string } | null
       if (r && r.ok === false) {
         setSaving(false)
-        setErr(r.erro ?? 'Salvou mas nao recalculou.')
+        setErr(r.erro ?? 'Salvou, mas não recalculou.')
         return
       }
     }
 
     setSaving(false)
-    onSaved()
+    onSaved(savedId ?? undefined, !isEdit, aviso)
   }
 
   const renderInput = (fd: Field) => {
     const value = form[fd.key]
     if (fd.type === 'bool') {
       return (
-        <input
-          type="checkbox"
-          checked={!!value}
-          disabled={fd.readOnly}
-          onChange={(e) => set(fd.key, e.target.checked)}
-        />
+        <span style={campoAjuda}>
+          <input
+            type="checkbox"
+            checked={!!value}
+            disabled={fd.readOnly}
+            onChange={(e) => set(fd.key, e.target.checked)}
+          />
+          <AjudaCampo chave={`ge.financiamento.form.${fd.key}`} rota={ROTA_AJUDA} />
+        </span>
       )
     }
     if (fd.type === 'select') {
       return (
-        <select
-          value={(value as string) ?? ''}
-          disabled={fd.readOnly}
-          onChange={(e) => set(fd.key, e.target.value)}
-          style={inp}
-        >
-          <option value="">—</option>
-          {fd.opts!.map((o) => (
-            <option key={o} value={o}>{o}</option>
-          ))}
-        </select>
+        <span style={campoAjuda}>
+          <select
+            value={(value as string) ?? ''}
+            disabled={fd.readOnly}
+            onChange={(e) => set(fd.key, e.target.value)}
+            style={inp}
+          >
+            <option value="">—</option>
+            {fd.opts!.map((o) => (
+              <option key={o} value={o}>{o}</option>
+            ))}
+          </select>
+          <AjudaCampo chave={`ge.financiamento.form.${fd.key}`} rota={ROTA_AJUDA} />
+        </span>
       )
     }
     const t =
@@ -97,20 +121,23 @@ export default function FinanciamentoFormModal({ companyId, initial, onClose, on
       (fd.type === 'number' || fd.type === 'money' || fd.type === 'percent') ? 'number' : 'text'
     const isNum = t === 'number'
     return (
-      <input
-        type={t}
-        value={(value as string | number | null) ?? ''}
-        disabled={fd.readOnly}
-        onChange={(e) =>
-          set(
-            fd.key,
-            isNum
-              ? e.target.value === '' ? null : Number(e.target.value)
-              : e.target.value
-          )
-        }
-        style={inp}
-      />
+      <span style={campoAjuda}>
+        <input
+          type={t}
+          value={(value as string | number | null) ?? ''}
+          disabled={fd.readOnly}
+          onChange={(e) =>
+            set(
+              fd.key,
+              isNum
+                ? e.target.value === '' ? null : Number(e.target.value)
+                : e.target.value
+            )
+          }
+          style={inp}
+        />
+        <AjudaCampo chave={`ge.financiamento.form.${fd.key}`} rota={ROTA_AJUDA} />
+      </span>
     )
   }
 
@@ -138,10 +165,13 @@ export default function FinanciamentoFormModal({ companyId, initial, onClose, on
         ))}
         {err && <p style={{ color: '#b00', fontSize: 13 }}>Erro: {err}</p>}
         <div style={actions}>
-          <button onClick={onClose} style={btnGhost}>Cancelar</button>
-          <button onClick={save} disabled={saving} style={btnPrimary}>
-            {saving ? 'Salvando…' : 'Salvar'}
-          </button>
+          <span style={campoAjuda}><button onClick={onClose} style={btnGhost}>Cancelar</button><AjudaCampo chave="ge.financiamento.form_cancelar" rota={ROTA_AJUDA} /></span>
+          <span style={campoAjuda}>
+            <button onClick={save} disabled={saving} style={btnPrimary}>
+              {saving ? 'Salvando…' : 'Salvar'}
+            </button>
+            <AjudaCampo chave="ge.financiamento.form_salvar" rota={ROTA_AJUDA} />
+          </span>
         </div>
       </div>
     </div>
@@ -206,6 +236,13 @@ const inp: CSSProperties = {
   padding: '8px 10px',
   fontSize: 13,
   minHeight: 40,
+  flex: 1,
+  minWidth: 0,
+}
+const campoAjuda: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 4,
 }
 const actions: CSSProperties = {
   display: 'flex',

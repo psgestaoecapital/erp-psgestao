@@ -25,10 +25,12 @@ import { authFetch } from '@/lib/authFetch'
 import { carregarProducaoDisponivel } from '@/lib/fiscal/producaoDisponivel'
 import { NotaDaOSStatus, notaJaEmitida, useNotaDaOS } from '@/components/comum/NotaFiscalDaOS'
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import { baixarEspelhoNFePdf, type EspelhoNota } from '@/lib/fiscal/espelhoPdf'
 
 type ItemEmitivel = {
   item_id: string; produto_id: string; descricao: string; quantidade: number
   preco_unitario: number; subtotal: number; ncm: string; cfop: string; unidade: string
+  desconto_rateado?: number // #7031 · parcela do desconto geral da OS rateada neste item
 }
 type Bloqueada = { descricao: string; subtotal?: number }
 type Dest = {
@@ -40,6 +42,7 @@ type Dest = {
 type Prep = {
   ok: boolean; motivo?: string; erro?: string; os_numero?: string | null
   valor_esperado?: number; valor_emitivel?: number; qtd_pecas?: number
+  desconto_os?: number; desconto_emitivel?: number // #7031 · desconto geral da OS e a parcela que a NF-e carrega
   itens_emitiveis?: ItemEmitivel[]; itens_texto_livre?: Bloqueada[]; itens_sem_fiscal?: Bloqueada[]
   destinatario?: Dest
 }
@@ -67,6 +70,9 @@ export default function EmitirNFeOSButton({
   const [textoInfCpl, setTextoInfCpl] = useState('')
   const editouInfCpl = useRef(false)
   const [previaErro, setPreviaErro] = useState<string | null>(null)
+  // #9724 (decisão B) · nota MONTADA (previa.nota) para gerar o espelho em PDF (não transmite, não numera)
+  const [notaMontada, setNotaMontada] = useState<EspelhoNota | null>(null)
+  const [espelhoErro, setEspelhoErro] = useState<string | null>(null)
   // #2167 · nota já emitida para a OS → botão verde que abre o DANFE
   const { nota, recarregar } = useNotaDaOS('nfe', osId, companyId)
   const notaEmitida = notaJaEmitida(nota)
@@ -85,6 +91,7 @@ export default function EmitirNFeOSButton({
       ;(p.itens_emitiveis ?? []).forEach((it) => { s[it.item_id] = true })
       setPrep(p); setProducao(prod); setSel(s); setJustificativa(''); setFase('form'); setResultado(null); setAberto(true)
       setPrevia(null); setTextoInfCpl(''); editouInfCpl.current = false; setPreviaErro(null)
+      setNotaMontada(null); setEspelhoErro(null)
     } finally { setCarregando(false) }
   }
 
@@ -97,6 +104,10 @@ export default function EmitirNFeOSButton({
   const esperado = Number(prep?.valor_esperado ?? 0)
   const diff = Number((esperado - totalNF).toFixed(2))
   const diverge = Math.abs(diff) >= 0.01
+  // #7031 · desconto da OS (rateado) que a NF-e vai carregar = Σ das parcelas dos itens SELECIONADOS.
+  // Escala com a (des)seleção de itens; a trava de valor acima segue comparando o BRUTO (não muda).
+  const descontoSel = Number(selecionados.reduce((a, it) => a + Number(it.desconto_rateado ?? 0), 0).toFixed(2))
+  const totalNFLiquido = Number((totalNF - descontoSel).toFixed(2))
   const justOk = !diverge || justificativa.trim().length >= MIN_JUST
   const destOk = !!dest?.ok
   const podeEmitir = selecionados.length > 0 && justOk && destOk && fase === 'form' && !(!!previa && textoInfCpl.trim().length > previa.limite)
@@ -119,6 +130,8 @@ export default function EmitirNFeOSButton({
           },
         },
         itens: selecionados.map((it) => ({ produtoId: it.produto_id, quantidade: Number(it.quantidade), valorUnitarioOverride: Number(it.preco_unitario) })),
+        // #7031 · desconto geral da OS (rateado) vai no TOTAL da nota (vDesc) — mesmo campo note-level que a devolução usa.
+        ...(descontoSel > 0 ? { totais: { desconto: descontoSel } } : {}),
       },
       osId,
       ...(diverge ? { justificativaDivergencia: justificativa.trim(), valorEsperadoOs: esperado } : {}),
@@ -138,12 +151,13 @@ export default function EmitirNFeOSButton({
         const res = await authFetch('/api/fiscal/nfe/emitir', { method: 'POST', body: JSON.stringify({ ...corpo, apenasPrevia: true }) })
         const json = await res.json()
         if (!vivo) return
-        if (!res.ok || json?.ok === false || !json?.previa) { setPreviaErro(json?.mensagem ?? json?.message ?? `HTTP ${res.status}`); return }
+        if (!res.ok || json?.ok === false || !json?.previa) { setPreviaErro(json?.mensagem ?? json?.message ?? `HTTP ${res.status}`); setNotaMontada(null); return }
         const texto = String(json.previa.informacoesComplementares ?? '')
         setPrevia({ original: texto, limite: Number(json.previa.limite) || 5000 })
         setTextoInfCpl((atual) => (editouInfCpl.current ? atual : texto))
+        setNotaMontada((json.previa.nota ?? null) as EspelhoNota | null)
       } catch (e) {
-        if (vivo) setPreviaErro(e instanceof Error ? e.message : 'Falha ao montar o texto da nota')
+        if (vivo) { setPreviaErro(e instanceof Error ? e.message : 'Falha ao montar o texto da nota'); setNotaMontada(null) }
       }
     })()
     return () => { vivo = false }
@@ -259,6 +273,7 @@ export default function EmitirNFeOSButton({
                 {/* trava de valor (§2.3/§8.1) — mostra a diferença em número */}
                 <div style={{ ...box('#F7F3EC', C.espresso), marginBottom: diverge ? 8 : 12 }}>
                   NF <b>{brl(totalNF)}</b> · OS <b>{brl(esperado)}</b>
+                  {descontoSel > 0 && <> · desconto da OS <b style={{ color: C.espresso }}>−{brl(descontoSel)}</b> · NF líquida <b>{brl(totalNFLiquido)}</b></>}
                   {diverge && <> · diferença <b style={{ color: C.amber }}>{brl(Math.abs(diff))}</b></>}
                 </div>
 
@@ -316,9 +331,34 @@ export default function EmitirNFeOSButton({
                   <div style={{ ...box(C.redBg, '#791F1F'), marginBottom: 12 }}>Selecione ao menos uma peça — não existe nota sem item.</div>
                 )}
 
+                {espelhoErro && (
+                  <div style={{ ...box(C.redBg, '#791F1F'), marginBottom: 10 }}>{espelhoErro}</div>
+                )}
+
                 <div style={{ display: 'flex', gap: 10 }}>
                   <button type="button" onClick={() => setAberto(false)} disabled={fase === 'enviando'}
                     style={{ ...defBtn, flex: 1, opacity: fase === 'enviando' ? 0.5 : 1 }}>Cancelar</button>
+                  {/* #9724 (decisão B) · Espelho em PDF da nota MONTADA (não transmite, não numera) — conferir/imprimir antes de emitir. */}
+                  <button type="button" disabled={!notaMontada || fase === 'enviando'}
+                    data-testid="os-nfe-espelho"
+                    onClick={async () => {
+                      if (!notaMontada) return
+                      try {
+                        setEspelhoErro(null)
+                        await baixarEspelhoNFePdf(notaMontada, {
+                          empresa: null,
+                          emitidoEmISO: new Date().toISOString(),
+                          modelo: 'nfe55',
+                          informacoesComplementares: previa ? textoInfCpl : null,
+                        })
+                      } catch {
+                        setEspelhoErro('Não foi possível gerar o espelho em PDF. Tente novamente.')
+                      }
+                    }}
+                    title={notaMontada ? 'Baixa um PDF da nota montada marcado como PRÉVIA — SEM VALOR FISCAL. Não transmite nem numera.' : 'Selecione as peças para montar a prévia da nota.'}
+                    style={{ ...defBtn, flex: 1, opacity: (!notaMontada || fase === 'enviando') ? 0.5 : 1 }}>
+                    Baixar espelho (PDF)
+                  </button>
                   <button type="button" onClick={() => void emitir()} disabled={!podeEmitir}
                     data-testid="os-nfe-confirmar"
                     style={{ flex: 1, padding: '10px 14px', borderRadius: 8, border: 'none', background: C.gold, color: C.espresso, fontWeight: 600, fontSize: 13, cursor: podeEmitir ? 'pointer' : 'not-allowed', opacity: podeEmitir ? 1 : 0.5 }}>

@@ -30,6 +30,9 @@ type ItemEquipe = {
 };
 type Encerrada = { id: string; grupo_id: string; tipo: "pessoa" | "perfil"; nome: string; funcao: string; vinculo: string; vigencia_inicio: string; vigencia_fim: string; motivo: string | null; quantidade_pessoas: number; ajuste_por_nome: string | null };
 type Lista = { pode_ver_individual: boolean; encargos: Encargos & { fonte: string; vigencia_inicio: string | null }; funcoes: Funcao[]; equipe: ItemEquipe[]; encerradas: Encerrada[] };
+// Equipes de mão de obra (CEO 18/11): grupos com custo médio/h calculado e efetivo editável.
+type EquipeMembro = { id?: string; nome_pessoa: string | null; funcao_mao_obra_id: string | null; funcao_nome?: string | null; custo_hora: number; ordem?: number };
+type EquipeRow = { id: string; nome: string; descricao: string | null; custo_medio_hora: number | null; custo_hora_efetivo: number | null; qtd_pessoas: number; ajustado: boolean; ativo: boolean; membros: EquipeMembro[] };
 
 const brl = (v: number | null | undefined) => (v === null || v === undefined ? "—" : v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
 const pct = (v: number | null | undefined) => (v === null || v === undefined ? "—" : `${Number(v).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`);
@@ -56,12 +59,12 @@ export default function MaoObraPage() {
   const { sel, companies } = useCompanyIds();
   const companyId = sel && !sel.startsWith("group_") && sel !== "consolidado" ? sel : null;
   const empresa = companies.find((c) => c.id === companyId);
-  const [aba, setAba] = useState<"funcoes" | "equipe" | "lista">("equipe");
+  const [aba, setAba] = useState<"funcoes" | "equipe" | "equipes" | "lista">("equipe");
   const [verEnc, setVerEnc] = useState(false);
   const [dados, setDados] = useState<Lista | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
-  const [modal, setModal] = useState<null | { tipo: "funcao"; f?: Funcao } | { tipo: "ficha"; modo: "pessoa" | "perfil" | "editar"; item?: ItemEquipe } | { tipo: "encerrar"; item: ItemEquipe } | { tipo: "restaurar"; item: Encerrada } | { tipo: "encargos" } | { tipo: "historico"; item: ItemEquipe } | { tipo: "unir"; f: Funcao } | { tipo: "importar" }>(null);
+  const [modal, setModal] = useState<null | { tipo: "funcao"; f?: Funcao } | { tipo: "ficha"; modo: "pessoa" | "perfil" | "editar"; item?: ItemEquipe } | { tipo: "encerrar"; item: ItemEquipe } | { tipo: "restaurar"; item: Encerrada } | { tipo: "encargos" } | { tipo: "historico"; item: ItemEquipe } | { tipo: "unir"; f: Funcao } | { tipo: "importar" } | { tipo: "equipe"; eq?: EquipeRow }>(null);
 
   const carregar = useCallback(async () => {
     if (!companyId) return;
@@ -72,6 +75,16 @@ export default function MaoObraPage() {
   }, [companyId]);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial vinda do banco
   useEffect(() => { void carregar(); }, [carregar]);
+
+  const [equipes, setEquipes] = useState<EquipeRow[] | null>(null);
+  const carregarEquipes = useCallback(async () => {
+    if (!companyId) return;
+    const { data, error } = await supabase.rpc("fn_projetos_equipe_listar", { p_company_id: companyId });
+    if (error) { setErro(erroAmigavel(error, "Não foi possível carregar as equipes.")); return; }
+    setEquipes(((data as { equipes?: EquipeRow[] } | null)?.equipes) ?? []);
+  }, [companyId]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- carga das equipes ao abrir a aba
+  useEffect(() => { if (aba === "equipes") void carregarEquipes(); }, [aba, carregarEquipes]);
 
   const pode = !!dados?.pode_ver_individual;
   const funcoesAtivas = useMemo(() => (dados?.funcoes ?? []).filter((f) => f.ativo), [dados]);
@@ -136,7 +149,7 @@ export default function MaoObraPage() {
       {aviso && !erro && <div className="rounded-md bg-[#E5F2E1] text-[#2F5A1F] px-3 py-2 text-[12.5px]" data-testid="mao-obra-aviso">{aviso}</div>}
 
       <nav className="flex gap-1 border-b border-[#3D2314]/10">
-        {([["equipe", "Equipe"], ["funcoes", "Funções"], ["lista", "Lista anterior"]] as const).map(([k, l]) => (
+        {([["equipe", "Equipe"], ["equipes", "Equipes"], ["funcoes", "Funções"], ["lista", "Lista anterior"]] as const).map(([k, l]) => (
           <button key={k} onClick={() => setAba(k)} data-testid={`mao-obra-aba-${k}`}
             className={`px-3 py-2 text-[13px] -mb-px border-b-2 ${aba === k ? "border-[#C8941A] font-medium" : "border-transparent text-[#3D2314]/60"}`}>{l}</button>
         ))}
@@ -270,6 +283,48 @@ export default function MaoObraPage() {
         </div>
       )}
 
+      {aba === "equipes" && (
+        <div className="space-y-3" data-testid="mao-obra-equipes-wrap">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[12.5px] text-[#3D2314]/60 max-w-[640px]">Monte equipes com as pessoas da obra (por função do catálogo ou com o custo digitado); o sistema calcula o custo médio da hora e você pode fixar um custo efetivo para usar nos orçamentos.</p>
+            <span className="flex items-center gap-1"><button className={btnPri} data-testid="mao-obra-equipe-nova" onClick={() => setModal({ tipo: "equipe" })}><Plus size={14} /> Nova equipe</button><AjudaCampo chave="projetos.mao_obra.equipes.acao.nova" /></span>
+          </div>
+          <div className="overflow-auto max-h-[65vh] rounded-md border border-[#3D2314]/10">
+            <table className="w-full text-[12.5px]" data-testid="mao-obra-equipes">
+              <thead className="sticky top-0 z-10 bg-[#FAF7F2]"><tr className="text-left text-[#3D2314]/60 border-b border-[#3D2314]/10">
+                <th className="py-2 pr-2">Nome<AjudaCampo chave="projetos.mao_obra.equipes.col_nome" /></th>
+                <th className="pr-2 text-right">Pessoas<AjudaCampo chave="projetos.mao_obra.equipes.col_pessoas" /></th>
+                <th className="pr-2 text-right">Custo médio/h<AjudaCampo chave="projetos.mao_obra.equipes.col_medio" /></th>
+                <th className="pr-2 text-right">Custo efetivo/h<AjudaCampo chave="projetos.mao_obra.equipes.col_efetivo" /></th>
+                <th></th>
+              </tr></thead>
+              <tbody>
+                {equipes === null && <tr><td colSpan={5} className="py-6 text-center text-[#3D2314]/60" data-testid="mao-obra-equipes-carregando">Carregando as equipes…</td></tr>}
+                {equipes !== null && equipes.length === 0 && <tr><td colSpan={5} className="py-6 text-center text-[#3D2314]/60" data-testid="mao-obra-equipes-vazia">Nenhuma equipe ainda. Use “Nova equipe” para montar a primeira (ex.: “Equipe Lapa”).</td></tr>}
+                {(equipes ?? []).map((eq) => (
+                  <tr key={eq.id} className={`border-b border-[#3D2314]/5 ${eq.ativo ? "" : "opacity-50"}`} data-testid={`mao-obra-equipe-${eq.id}`}>
+                    <td className="py-2 pr-2">{eq.nome}{eq.descricao && <span className="block text-[11px] text-[#3D2314]/55">{eq.descricao}</span>}{!eq.ativo && <span className="ml-1 text-[11px] text-[#791F1F]">· arquivada</span>}</td>
+                    <td className="pr-2 text-right tabular-nums">{eq.qtd_pessoas}</td>
+                    <td className="pr-2 text-right tabular-nums" data-testid="mao-obra-equipe-medio">{brl(eq.custo_medio_hora)}</td>
+                    <td className="pr-2 text-right tabular-nums" data-testid="mao-obra-equipe-efetivo">{brl(eq.custo_hora_efetivo)}{eq.ajustado && <span className="ml-1 text-[10.5px] text-[#8A5A00] bg-[#FAEEDA] rounded px-1 py-0.5" data-testid="mao-obra-equipe-ajustado" title="Custo efetivo ajustado pela empresa (não acompanha mais o médio)">ajustado</span>}</td>
+                    <td className="text-right whitespace-nowrap">
+                      <button className="text-[12px] underline mr-2" data-testid="mao-obra-equipe-editar" onClick={() => setModal({ tipo: "equipe", eq })}>Editar</button><AjudaCampo chave="projetos.mao_obra.equipes.acao.editar" />
+                      <button className={`text-[12px] underline ${eq.ativo ? "text-[#791F1F]" : "text-[#2F5A1F]"}`} data-testid="mao-obra-equipe-arquivar" onClick={async () => {
+                        if (eq.ativo && !confirm(`Arquivar a equipe "${eq.nome}"?\n\nEla sai do uso ativo, mas o histórico fica e você pode reativar quando quiser.`)) return;
+                        const { data, error } = await supabase.rpc("fn_projetos_equipe_arquivar", { p_company_id: companyId, p_id: eq.id, p_ativo: !eq.ativo });
+                        if (error) { setErro(erroAmigavel(error, "Não foi possível arquivar a equipe.")); return; }
+                        if ((data as { ok?: boolean; erro?: string } | null)?.ok === false) { setErro(codigoAmigavel((data as { erro?: string }).erro, "Não foi possível arquivar a equipe.")); return; }
+                        setErro(null); setAviso(eq.ativo ? `Equipe ${eq.nome} arquivada.` : `Equipe ${eq.nome} reativada.`); void carregarEquipes();
+                      }}>{eq.ativo ? <><Ban size={12} className="inline" /> Arquivar</> : <><RotateCcw size={12} className="inline" /> Reativar</>}</button><AjudaCampo chave="projetos.mao_obra.equipes.acao.arquivar" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {aba === "lista" && <MaoObraCatalogoLegado />}
 
       {modal?.tipo === "funcao" && <ModalFuncao companyId={companyId} f={modal.f} onClose={() => setModal(null)} onSalvar={rpc} />}
@@ -280,6 +335,7 @@ export default function MaoObraPage() {
       {modal?.tipo === "restaurar" && <ModalRestaurar item={modal.item} onClose={() => setModal(null)} onSalvar={rpc} />}
       {modal?.tipo === "encargos" && enc && <ModalEncargos companyId={companyId} enc={enc} onClose={() => setModal(null)} onSalvar={rpc} />}
       {modal?.tipo === "historico" && <ModalHistorico item={modal.item} onClose={() => setModal(null)} />}
+      {modal?.tipo === "equipe" && <ModalEquipe companyId={companyId} eq={modal.eq} funcoes={funcoesAtivas} pessoas={dados?.equipe ?? []} podeVerIndividual={!!dados?.pode_ver_individual} onClose={() => setModal(null)} onConcluido={() => { setAviso("Equipe salva."); setErro(null); void carregarEquipes(); }} />}
     </div>
   );
 }
@@ -944,6 +1000,131 @@ function ModalHistorico({ item, onClose }: { item: ItemEquipe; onClose: () => vo
         <tbody>{(linhas ?? []).map((l, i) => (
           <tr key={i} className="border-t border-[#3D2314]/5"><td>{l.vigencia_inicio}{l.vigencia_fim ? ` → ${l.vigencia_fim}` : " → hoje"}</td><td className="text-right">{brl(l.salario)}</td><td className="text-right">{brl(l.custo?.custo_mensal)}</td><td className="text-right">{brl(l.custo?.custo_hora)}</td><td>{l.motivo}{l.conferido ? " · conferido" : ""}</td></tr>
         ))}</tbody></table>
+      </div>
+    </Janela>
+  );
+}
+
+function ModalEquipe({ companyId, eq, funcoes, pessoas, podeVerIndividual, onClose, onConcluido }: { companyId: string; eq?: EquipeRow; funcoes: Funcao[]; pessoas: ItemEquipe[]; podeVerIndividual: boolean; onClose: () => void; onConcluido: () => void }) {
+  type LinhaM = { origem: "pessoa" | "manual"; pessoa_key: string; nome_pessoa: string; funcao_sel_id: string; funcao_mao_obra_id: string; funcao_nome: string; custo_hora: string };
+  // pessoas reais da empresa (cadastro da aba Equipe); perfis anônimos ficam de fora do seletor (vão no manual)
+  const pessoasReais = useMemo(() => pessoas.filter((p) => p.tipo === "pessoa" && p.ativo), [pessoas]);
+  const funcCusto = (f: Funcao): number | null => f.custo?.custo_hora ?? f.custo_hora_manual ?? null;
+  const [nome, setNome] = useState(eq?.nome ?? "");
+  const [descricao, setDescricao] = useState(eq?.descricao ?? "");
+  const [membros, setMembros] = useState<LinhaM[]>(() => (eq?.membros ?? []).map((m) => ({
+    origem: "manual", pessoa_key: "", nome_pessoa: m.nome_pessoa ?? "",
+    funcao_sel_id: funcoes.find((f) => f.nome === m.funcao_nome)?.id ?? "",
+    funcao_mao_obra_id: m.funcao_mao_obra_id ?? "", funcao_nome: m.funcao_nome ?? "",
+    custo_hora: m.custo_hora != null ? txt(Number(m.custo_hora)) : "",
+  })));
+  const [efetivo, setEfetivo] = useState(eq?.ajustado && eq.custo_hora_efetivo != null ? txt(Number(eq.custo_hora_efetivo)) : "");
+  const [erro, setErro] = useState<string | null>(null);
+  const [salvando, setSalvando] = useState(false);
+
+  const custos = membros.map((m) => numBR(m.custo_hora)).filter((n) => n > 0);
+  const medio = custos.length ? custos.reduce((s, n) => s + n, 0) / custos.length : null;
+
+  const addMembro = () => setMembros((ms) => [...ms, { origem: "pessoa", pessoa_key: "", nome_pessoa: "", funcao_sel_id: "", funcao_mao_obra_id: "", funcao_nome: "", custo_hora: "" }]);
+  const removeMembro = (i: number) => setMembros((ms) => ms.filter((_, k) => k !== i));
+  const mudar = (i: number, patch: Partial<LinhaM>) => setMembros((ms) => ms.map((m, k) => (k === i ? { ...m, ...patch } : m)));
+
+  // Escolher a PESSOA do cadastro → traz nome, função e custo/hora dela (custo só se o usuário pode ver — LGPD).
+  const escolherPessoa = (i: number, key: string) => {
+    if (key === "__manual__") { mudar(i, { origem: "manual", pessoa_key: "", nome_pessoa: "" }); return; }
+    if (key === "") { mudar(i, { origem: "pessoa", pessoa_key: "", nome_pessoa: "" }); return; }
+    const p = pessoasReais.find((x) => x.id === key);
+    if (!p) return;
+    const f = funcoes.find((x) => x.id === p.funcao_id);
+    const custoPessoa = p.custo?.custo_hora ?? null;
+    const custoFunc = f ? funcCusto(f) : null;
+    const custo = custoPessoa ?? custoFunc;
+    mudar(i, {
+      origem: "pessoa", pessoa_key: key, nome_pessoa: p.nome,
+      funcao_sel_id: f?.id ?? "", funcao_nome: p.funcao ?? f?.nome ?? "", funcao_mao_obra_id: f?.migrada_de ?? "",
+      custo_hora: custo != null ? txt(Number(custo)) : membros[i].custo_hora,
+    });
+  };
+
+  // Escolher/trocar a FUNÇÃO (lista da empresa = aba Funções) → preenche o custo se ainda estiver vazio.
+  const escolherFuncao = (i: number, id: string) => {
+    const f = funcoes.find((x) => x.id === id);
+    if (!f) { mudar(i, { funcao_sel_id: "", funcao_mao_obra_id: "", funcao_nome: "" }); return; }
+    const c = funcCusto(f);
+    mudar(i, {
+      funcao_sel_id: id, funcao_nome: f.nome, funcao_mao_obra_id: f.migrada_de ?? "",
+      custo_hora: membros[i].custo_hora.trim() === "" && c != null ? txt(Number(c)) : membros[i].custo_hora,
+    });
+  };
+
+  async function salvar() {
+    if (nome.trim().length < 2) { setErro("Dê um nome à equipe (pelo menos 2 letras)."); return; }
+    setSalvando(true); setErro(null);
+    const p_membros = membros.filter((m) => numBR(m.custo_hora) > 0).map((m, i) => ({ nome_pessoa: m.nome_pessoa.trim() || null, funcao_mao_obra_id: m.funcao_mao_obra_id || null, funcao_nome: m.funcao_nome.trim() || null, custo_hora: numBR(m.custo_hora), ordem: i }));
+    const salvarRes = await supabase.rpc("fn_projetos_equipe_salvar", { p_company_id: companyId, p_equipe: { nome: nome.trim(), descricao: descricao.trim() || null }, p_membros, p_id: eq?.id ?? null });
+    if (salvarRes.error || (salvarRes.data as { ok?: boolean } | null)?.ok === false) {
+      setErro(salvarRes.error ? erroAmigavel(salvarRes.error, "Não foi possível salvar a equipe.") : codigoAmigavel((salvarRes.data as { erro?: string }).erro, "Não foi possível salvar a equipe.")); setSalvando(false); return;
+    }
+    const id = (salvarRes.data as { id?: string } | null)?.id ?? eq?.id;
+    if (id) {
+      const custo = efetivo.trim() === "" ? null : numBR(efetivo);
+      const setRes = await supabase.rpc("fn_projetos_equipe_set_custo_efetivo", { p_company_id: companyId, p_id: id, p_custo: custo });
+      if (setRes.error || (setRes.data as { ok?: boolean } | null)?.ok === false) {
+        setErro(setRes.error ? erroAmigavel(setRes.error, "Equipe salva, mas não foi possível ajustar o custo efetivo.") : codigoAmigavel((setRes.data as { erro?: string }).erro, "Equipe salva, mas não foi possível ajustar o custo efetivo.")); setSalvando(false); return;
+      }
+    }
+    setSalvando(false); onConcluido(); onClose();
+  }
+
+  return (
+    <Janela titulo={eq ? `Editar equipe · ${eq.nome}` : "Nova equipe"} onClose={onClose} testid="mao-obra-modal-equipe">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Campo ajuda="projetos.mao_obra.equipes.nome" rotulo="Nome da equipe"><input className={inp} value={nome} onChange={(e) => setNome(e.target.value)} data-testid="equipe-nome" placeholder="Equipe Lapa" /></Campo>
+        <Campo ajuda="projetos.mao_obra.equipes.descricao" rotulo="Descrição (opcional)"><input className={inp} value={descricao} onChange={(e) => setDescricao(e.target.value)} data-testid="equipe-descricao" placeholder="Acabamento e gesso · turno da manhã" /></Campo>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-[12.5px] font-medium flex items-center">Pessoas da equipe<AjudaCampo chave="projetos.mao_obra.equipes.membro_pessoa" /></span>
+          <button className={btnSec} data-testid="equipe-add-membro" onClick={addMembro}><UserPlus size={14} /> Adicionar pessoa</button>
+        </div>
+        {membros.length === 0 && <p className="text-[12px] text-[#3D2314]/55">Escolha a pessoa do cadastro (traz a função e o custo/hora dela) ou use “Digitar manual” para alguém fora do cadastro.</p>}
+        {!podeVerIndividual && membros.length > 0 && <p className="text-[11.5px] text-[#3D2314]/60 flex items-center gap-1"><Lock size={11} /> Você não vê o custo individual das pessoas (LGPD): o custo vem da função ou você digita.</p>}
+        <div className="space-y-2" data-testid="equipe-membros">
+          {membros.map((m, i) => (
+            <div key={i} className="grid grid-cols-1 sm:grid-cols-[1.2fr_1fr_120px_auto] gap-2 items-end border border-[#3D2314]/10 rounded-md p-2" data-testid="equipe-membro-linha">
+              <label className="flex flex-col gap-1 text-[12px]"><span className="text-[#3D2314]/70 flex items-center">Pessoa<AjudaCampo chave="projetos.mao_obra.equipes.membro_pessoa" /></span>
+                <select className={inp} value={m.origem === "manual" ? "__manual__" : m.pessoa_key} onChange={(e) => escolherPessoa(i, e.target.value)} data-testid="equipe-membro-pessoa">
+                  <option value="">— selecione a pessoa —</option>
+                  {pessoasReais.map((p) => <option key={p.id} value={p.id}>{p.nome}{p.funcao ? ` · ${p.funcao}` : ""}</option>)}
+                  <option value="__manual__">Digitar manual (fora do cadastro)</option>
+                </select>
+                {m.origem === "manual" && <input className={inp + " mt-1"} value={m.nome_pessoa} onChange={(e) => mudar(i, { nome_pessoa: e.target.value })} data-testid="equipe-membro-nome" placeholder="Nome (opcional)" />}
+              </label>
+              <label className="flex flex-col gap-1 text-[12px]"><span className="text-[#3D2314]/70 flex items-center">Função<AjudaCampo chave="projetos.mao_obra.equipes.membro_funcao" /></span>
+                <select className={inp} value={m.funcao_sel_id} onChange={(e) => escolherFuncao(i, e.target.value)} data-testid="equipe-membro-funcao">
+                  <option value="">— sem função / manual —</option>
+                  {funcoes.map((f) => <option key={f.id} value={f.id}>{f.nome}{funcCusto(f) != null ? ` (${brl(funcCusto(f))}/h)` : ""}</option>)}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-[12px]"><span className="text-[#3D2314]/70 flex items-center">Custo/hora<AjudaCampo chave="projetos.mao_obra.equipes.membro_custo" /></span>
+                <input className={inp} value={m.custo_hora} onChange={(e) => mudar(i, { custo_hora: e.target.value })} inputMode="decimal" data-testid="equipe-membro-custo" placeholder="32,00" />
+              </label>
+              <button className="text-[#791F1F] p-2 justify-self-end" title="Remover pessoa" data-testid="equipe-membro-remover" onClick={() => removeMembro(i)}><X size={14} /></button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border-t border-[#3D2314]/10 pt-3 items-end">
+        <div className="text-[12.5px]"><span className="flex items-center text-[#3D2314]/70">Custo médio/h (calculado)<AjudaCampo chave="projetos.mao_obra.equipes.custo_medio" /></span><b data-testid="equipe-medio-calc">{medio != null ? brl(medio) : "—"}</b><span className="text-[11px] text-[#3D2314]/55"> · {custos.length} pessoa{custos.length === 1 ? "" : "s"} com custo</span></div>
+        <Campo ajuda="projetos.mao_obra.equipes.custo_efetivo" rotulo="Custo efetivo/h (em branco = acompanha o médio)"><input className={inp} value={efetivo} onChange={(e) => setEfetivo(e.target.value)} inputMode="decimal" data-testid="equipe-efetivo" placeholder={medio != null ? txt(Number(medio.toFixed(2))) : "ex.: 35,00"} /></Campo>
+      </div>
+
+      {erro && <div className="rounded-md bg-[#F7E1E1] text-[#791F1F] px-3 py-2 text-[12.5px]" data-testid="equipe-erro">{erro}</div>}
+      <div className="flex justify-end gap-2">
+        <button className={btnSec} onClick={onClose}>Voltar</button>
+        <button className={btnPri} data-testid="equipe-salvar" disabled={salvando || nome.trim().length < 2} onClick={() => void salvar()}>{salvando ? "Salvando…" : "Salvar"}</button>
       </div>
     </Janela>
   );
