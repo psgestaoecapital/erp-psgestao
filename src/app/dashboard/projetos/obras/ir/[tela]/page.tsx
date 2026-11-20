@@ -72,7 +72,7 @@ export default function ResolverObraTela() {
     setErro('')
     try {
       const { data, error } = await comPrazo(
-        () => supabase.rpc('fn_obras_listar', { p_company_ids: companyIds, p_status: null }),
+        async () => await supabase.rpc('fn_obras_listar', { p_company_ids: companyIds, p_status: null }),
         { ms: 8000, tentativas: 1, label: 'resolver_obra_tela' })
       if (error) throw error
       const lista = (data || []) as ObraLite[]
