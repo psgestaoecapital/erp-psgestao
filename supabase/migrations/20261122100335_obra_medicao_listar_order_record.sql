@@ -41,3 +41,9 @@ BEGIN
 
   RETURN jsonb_build_object('ok', true, 'obra_id', p_obra_id, 'medicoes', v_out);
 END $function$;
+
+-- Guarda da função (check_fn_guards, regra 1): CREATE OR REPLACE de função SECURITY DEFINER exige
+-- REVOKE anon no próprio arquivo. A ACL viva já é {authenticated, service_role} (o REPLACE preserva
+-- grants); isto só reafirma a guarda que o gate cobra. Sem mudança de comportamento.
+REVOKE ALL ON FUNCTION public.fn_obra_medicao_listar(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_obra_medicao_listar(uuid) TO authenticated, service_role;
