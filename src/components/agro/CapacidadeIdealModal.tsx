@@ -4,6 +4,7 @@
 // Forrageira → pré-preenche o UA/ha (ua_ha_sugerido) e recalcula a UA total; a sugestão não trava.
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const ESP = '#3D2314', GOLD = '#C8941A', LINE = '#E7DECF', ESP60 = 'rgba(61,35,20,0.6)'
 const r2 = (n: number) => Math.round(n * 100) / 100
@@ -72,10 +73,11 @@ export default function CapacidadeIdealModal({
           {forrageiras.length === 0 && <span style={{ fontSize: 10, color: ESP60 }}>Nenhuma forrageira cadastrada — cadastre em Pasto &amp; Lotação.</span>}
         </label>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <label style={{ fontSize: 11, color: ESP60 }}>UA/ha
-            <input type="number" step="0.1" value={uaHa} onChange={(e) => onUaHa(e.target.value)} placeholder="ex.: 2,0" style={inpStyle} /></label>
-          <label style={{ fontSize: 11, color: ESP60 }}>UA total
-            <input type="number" step="0.1" value={uaTotal} onChange={(e) => onUaTotal(e.target.value)} placeholder="ex.: 10" style={inpStyle} /></label>
+          {/* modal compartilhado (pasto + rebanho): rota fixa para a ajuda não depender de onde foi aberto */}
+          <label style={{ fontSize: 11, color: ESP60 }}>UA/ha <AjudaCampo chave="agro.capacidade.ua_ha" rota="/dashboard/agro/pasto" />
+            <input type="text" inputMode="decimal" value={uaHa} onChange={(e) => onUaHa(e.target.value)} placeholder="ex.: 2,0" style={inpStyle} /></label>{/* #5660 · aceita vírgula (o parse já normaliza) */}
+          <label style={{ fontSize: 11, color: ESP60 }}>UA total <AjudaCampo chave="agro.capacidade.ua_total" rota="/dashboard/agro/pasto" />
+            <input type="text" inputMode="decimal" value={uaTotal} onChange={(e) => onUaTotal(e.target.value)} placeholder="ex.: 10" style={inpStyle} /></label>
         </div>
         <div style={{ fontSize: 10.5, color: ESP60, marginTop: 8 }}>Digite um — o outro é calculado pela área. A forrageira sugere o UA/ha; você pode ajustar (a sugestão não trava).</div>
         {erro && <div style={{ fontSize: 12, color: '#B91C1C', marginTop: 8 }}>❌ {erro}</div>}

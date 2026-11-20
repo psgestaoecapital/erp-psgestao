@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { parseNumBR } from '@/lib/num'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
@@ -60,7 +61,7 @@ export default function IaPrecoPage() {
   const sugerir = useCallback(async () => {
     if (!empresa) return
     setCalculando(true); setMsg(null); setResultado(null)
-    const margem = margemInput.trim() === '' ? null : Number(margemInput.replace(',', '.'))
+    const margem = margemInput.trim() === '' ? null : (parseNumBR(margemInput) ?? NaN)
     if (margem !== null && (!Number.isFinite(margem) || margem < 0 || margem >= 100)) {
       setMsg({ tipo: 'erro', texto: 'A margem-alvo deve ser um número entre 0 e 99,9.' }); setCalculando(false); return
     }
@@ -74,7 +75,7 @@ export default function IaPrecoPage() {
 
   const salvarMargem = useCallback(async () => {
     if (!empresa) return
-    const margem = Number(margemInput.replace(',', '.'))
+    const margem = parseNumBR(margemInput) ?? NaN
     if (!Number.isFinite(margem) || margem < 0 || margem >= 100) {
       setMsg({ tipo: 'erro', texto: 'Informe a margem-alvo (0 a 99,9) para salvar.' }); return
     }

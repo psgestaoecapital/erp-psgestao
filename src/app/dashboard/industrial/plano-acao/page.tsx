@@ -14,6 +14,7 @@ import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { exportarExcel, exportarPDF, type Coluna } from '@/lib/export/relatorioLista'
+import ReuniaoGravacaoIA from '@/components/plano-acao/ReuniaoGravacaoIA'
 
 const ESP = '#3D2314'
 const BG = '#FAF7F2'
@@ -667,6 +668,15 @@ export default function PlanoAcaoPage() {
               <span style={rotulo}>Ata<AjudaCampo chave="industrial.plano_acao.reuniao_ata" rota={ROTA} /></span>
               <textarea data-testid="reuniao-ata" value={reuniaoForm.ata} onChange={(e) => setReuniaoForm({ ...reuniaoForm, ata: e.target.value })} rows={3} placeholder="O que foi decidido (sai no PDF da ata)" style={{ ...inp, resize: 'vertical' }} />
             </label>
+            {reuniaoEditId && companyId ? (
+              <ReuniaoGravacaoIA reuniaoId={reuniaoEditId} companyId={companyId} rota={ROTA}
+                onAta={(texto) => setReuniaoForm((f) => ({ ...f, ata: texto }))}
+                onAcoesConfirmadas={() => void carregar()} />
+            ) : (
+              <div style={{ fontSize: 12, color: MUT, background: '#FAF7F2', border: `0.5px dashed ${LINE}`, borderRadius: 8, padding: 10 }}>
+                Salve a reunião primeiro para gravar o áudio e gerar a ata e as ações com IA.
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
               <button type="button" onClick={() => setReuniaoFormAberto(false)} style={btnSec}>Cancelar</button>
               <button type="button" data-testid="reuniao-salvar" onClick={() => void salvarReuniao()} disabled={salvandoReuniao} style={{ ...btnPrim, opacity: salvandoReuniao ? 0.6 : 1 }}>{salvandoReuniao ? 'Salvando…' : 'Salvar reunião'}</button>
