@@ -7,33 +7,21 @@
 --   gilberto-produto, gilberto-automotivo, gilberto-industria, eng-chefe-auto, andre-code, stephany-code.
 -- Também religa auditor_pdca_1/auditor_pdca_2 para receber TAREFA (rodavam toda hora, mas o gatilho os
 -- tratava como desligados e o PDCA 1 passava a maioria das rodadas sem trabalho).
--- Cópia de segurança antes de apagar. Não toca dado de cliente.
+-- Não apaga nada (o histórico fica); não toca dado de cliente.
 
--- 1) Cópias de segurança (só leitura de serviço)
-CREATE TABLE IF NOT EXISTS public.erp_agente_rotina_bkp_20261120 AS
-  SELECT * FROM public.erp_agente_rotina WHERE false;
-INSERT INTO public.erp_agente_rotina_bkp_20261120
-  SELECT r.* FROM public.erp_agente_rotina r
-   WHERE r.agente IN ('desenvolvedor_6_g','auditor_pdca_g','gilberto-desenv','gilberto-chamados','gilberto-produto',
-                      'gilberto-automotivo','gilberto-industria','eng-chefe-auto','andre-code','stephany-code')
-     AND NOT EXISTS (SELECT 1 FROM public.erp_agente_rotina_bkp_20261120 b WHERE b.agente = r.agente);
-ALTER TABLE public.erp_agente_rotina_bkp_20261120 ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.erp_agente_rotina_bkp_20261120 FROM PUBLIC, anon, authenticated;
+-- 1) O banco não permite apagar o cadastro (o histórico de mensagens referencia o Code por FK, e o histórico
+--    não pode ser apagado). Então o Code sai do mapa de forma PERMANENTE: ativo=false, nunca aciona.
+ALTER TABLE public.erp_agente_rotina ADD COLUMN IF NOT EXISTS ativo boolean NOT NULL DEFAULT true;
+ALTER TABLE public.erp_agente_rotina ADD COLUMN IF NOT EXISTS inativado_em timestamptz;
+COMMENT ON COLUMN public.erp_agente_rotina.ativo IS
+  'Mapa de Codes ativos (CEO 20/11/2026): false = Code fora do processo, permanentemente; não recebe tarefa nem é acionado.';
 
-CREATE TABLE IF NOT EXISTS public.erp_agente_dono_bkp_20261120 AS
-  SELECT * FROM public.erp_agente_dono WHERE false;
-INSERT INTO public.erp_agente_dono_bkp_20261120
-  SELECT d.* FROM public.erp_agente_dono d
-   WHERE d.agente IN ('andre-code','stephany-code') AND NOT d.ativo
-     AND NOT EXISTS (SELECT 1 FROM public.erp_agente_dono_bkp_20261120 b WHERE b.agente = d.agente);
-ALTER TABLE public.erp_agente_dono_bkp_20261120 ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.erp_agente_dono_bkp_20261120 FROM PUBLIC, anon, authenticated;
-
--- 2) Sai do mapa quem não roda
-DELETE FROM public.erp_agente_rotina
+UPDATE public.erp_agente_rotina
+   SET ativo = false, aciona = false, inativado_em = now(), atualizado_em = now(),
+       observacao = 'INATIVO (CEO 20/11/2026): sem rodar de 15 a 20/11; fora do mapa de Codes ativos. ' || coalesce(observacao, '')
  WHERE agente IN ('desenvolvedor_6_g','auditor_pdca_g','gilberto-desenv','gilberto-chamados','gilberto-produto',
-                  'gilberto-automotivo','gilberto-industria','eng-chefe-auto','andre-code','stephany-code');
-DELETE FROM public.erp_agente_dono WHERE agente IN ('andre-code','stephany-code') AND NOT ativo;
+                  'gilberto-automotivo','gilberto-industria','eng-chefe-auto','andre-code','stephany-code')
+   AND ativo;
 
 -- 3) dev7claudeps volta a receber chamados e GAPS (CEO reativou a rotina em 20/11)
 UPDATE public.erp_agente_papel SET pausado = false, atualizado_em = now(),
@@ -97,3 +85,35 @@ BEGIN
     PERFORM public.fn_agente_mensagem_arquivar(m.id);
   END LOOP;
 END $$;
+
+-- 7) Fluxograma da infraestrutura: papéis = só os Codes ativos
+CREATE OR REPLACE FUNCTION public.fn_infra_fluxograma()
+ RETURNS jsonb
+ LANGUAGE sql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+SELECT jsonb_build_object(
+  'atualizado_em', now(),
+  'esteira', fn_esteira_saude(),
+  'codes', fn_codes_saude(),
+  'papeis', jsonb_build_object(
+     'code-desenvolvedor-3','Dev do núcleo (financeiro, fiscal, cadastros, permissões) + EHS-0/EHS-1/EHS-F',
+     'desenvolvedor_4_g','Dev EHS (riscos, higiene, eSocial) + Hub',
+     'desenvolvedor_5_g','Dev de emergência + EHS modo prestador e campo',
+     'dev7claudeps','Dev EHS (saúde, EPI, treinamentos) + Hub',
+     'rodrigo-code','Code do sócio Rodrigo (carteira dele)',
+     'jordana-code','Code da sócia Jordana (carteira dela)',
+     'gilberto-esteira','Guardião da esteira',
+     'gilberto-revisor','Revisor das PRs sensíveis',
+     'aud8claudeps','Auditor visual tela a tela (portão do selo)',
+     'auditor_pdca_1','Auditor de jornadas (EHS)',
+     'auditor_pdca_2','Auditor de jornadas (Gestão Empresarial)'),
+  'ult_publicada_min', (SELECT round(EXTRACT(EPOCH FROM (now()-max(ocorrido_em)))/60) FROM erp_dev_entrega WHERE evento='publicada'),
+  'em_teste', (SELECT count(*) FROM erp_esteira_pr_estado WHERE estado='esperando' AND motivo ILIKE '%checks rodando%'),
+  'esperando', (SELECT count(*) FROM erp_esteira_pr_estado WHERE estado='esperando'),
+  'relogio_ativo', EXISTS(SELECT 1 FROM cron.job WHERE jobname='monitor-merge-tick' AND active),
+  'auditores_ativos', (SELECT count(*) FROM cron.job WHERE active AND (jobname ILIKE '%auditor%' OR jobname ILIKE '%gold%' OR jobname ILIKE '%screen-watcher%' OR jobname ILIKE '%truth%'))
+);
+$function$;
+REVOKE ALL ON FUNCTION public.fn_infra_fluxograma() FROM PUBLIC, anon;
