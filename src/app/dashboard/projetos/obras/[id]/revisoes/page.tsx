@@ -14,6 +14,7 @@
 import { use, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { parseNumBR } from '@/lib/num'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 
@@ -145,8 +146,8 @@ export default function RevisoesObraPage({ params }: { params: Promise<{ id: str
     for (const oi of obraItens) {
       const ed = fItens[oi.id]
       if (!ed) continue
-      const qtd = ed.qtd.trim() === '' ? null : Number(ed.qtd.replace(',', '.'))
-      const preco = ed.preco.trim() === '' ? null : Number(ed.preco.replace(',', '.'))
+      const qtd = ed.qtd.trim() === '' ? null : (parseNumBR(ed.qtd) ?? NaN)
+      const preco = ed.preco.trim() === '' ? null : (parseNumBR(ed.preco) ?? NaN)
       if (qtd === null && preco === null) continue
       if (qtd !== null && (!Number.isFinite(qtd) || qtd < 0)) { setErroNova(`Quantidade inválida em "${oi.descricao ?? 'item'}".`); return }
       if (preco !== null && (!Number.isFinite(preco) || preco < 0)) { setErroNova(`Preço inválido em "${oi.descricao ?? 'item'}".`); return }

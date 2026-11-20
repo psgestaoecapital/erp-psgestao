@@ -8,6 +8,7 @@ import { erroAmigavel } from '@/lib/erroAmigavel'
 import { salvarSnapshot, lerSnapshot, type RebanhoSnapshot } from '@/lib/agro/rebanhoOffline'
 import CapacidadeIdealModal, { type Forrageira } from '@/components/agro/CapacidadeIdealModal'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { CampoDecimal } from '@/components/comum/CampoDecimal'
 import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 
 // slug pra compor nome de arquivo com o filtro ativo (piquete/lote/categoria)
@@ -781,7 +782,7 @@ function AcaoModal({
   // identificar
   const [identificacao, setIdentificacao] = useState('')
   // novo
-  const [novo, setNovo] = useState({ categoria: 'bezerro', sexo: 'M', lote_id: '', area_atual_id: '', peso: '', identificacao: '' })
+  const [novo, setNovo] = useState<{ categoria: string; sexo: string; lote_id: string; area_atual_id: string; peso: number | null; identificacao: string }>({ categoria: 'bezerro', sexo: 'M', lote_id: '', area_atual_id: '', peso: null, identificacao: '' })
   // editar (individual + lote) — carrega o(s) registro(s) completo(s) dos alvos
   const [full, setFull] = useState<AnimalFull[] | null>(null)
   const [ed, setEd] = useState({ identificacao: '', categoria: 'outro', sexo: '', raca: '', data_nascimento: '', observacao: '' })
@@ -881,7 +882,7 @@ function AcaoModal({
           p_company_id: companyId, p_propriedade_id: propriedadeId,
           p_categoria: novo.categoria, p_sexo: novo.sexo,
           p_lote_id: novo.lote_id || null, p_area_atual_id: novo.area_atual_id || null,
-          p_peso_entrada_kg: novo.peso ? Number(novo.peso) : null,
+          p_peso_entrada_kg: novo.peso,
           p_identificacao: novo.identificacao || null,
           p_origem: 'comprado',
         })
@@ -1108,7 +1109,7 @@ function AcaoModal({
                 {piquetes.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
               </select>
             </div>
-            <input className={inp} type="number" inputMode="decimal" placeholder="Peso de entrada (kg)" value={novo.peso} onChange={(e) => setNovo({ ...novo, peso: e.target.value })} />
+            <CampoDecimal className={inp} step={0.01} placeholder="Peso de entrada (kg)" value={novo.peso} onChange={(n) => setNovo({ ...novo, peso: n })} />
           </>)}
         </div>
 
@@ -1276,7 +1277,7 @@ function Piquetes({
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregarForr() }, [carregarForr])
   const r2 = (n: number) => Math.round(n * 100) / 100
-  const [novo, setNovo] = useState<{ nome: string; area_ha: string; capacidade_ua: string } | null>(null)
+  const [novo, setNovo] = useState<{ nome: string; area_ha: number | null; capacidade_ua: number | null } | null>(null)
   const [busy, setBusy] = useState(false)
   const salvar = async () => {
     if (!novo?.nome) return
@@ -1284,8 +1285,8 @@ function Piquetes({
     await supabase.rpc('fn_pec_area_salvar', {
       p_company_id: companyId, p_propriedade_id: propriedadeId,
       p_nome: novo.nome, p_tipo: 'piquete',
-      p_area_ha: novo.area_ha ? Number(novo.area_ha) : null,
-      p_capacidade_ua: novo.capacidade_ua ? Number(novo.capacidade_ua) : null,
+      p_area_ha: novo.area_ha,
+      p_capacidade_ua: novo.capacidade_ua,
     })
     setBusy(false); setNovo(null); onReload()
   }
@@ -1301,7 +1302,7 @@ function Piquetes({
     <div className="space-y-3">
       <div className="flex justify-between items-center">
         <span className="text-sm font-semibold" style={{ color: ESP }}>{piquetes.length} piquete(s)</span>
-        <button onClick={() => setNovo({ nome: '', area_ha: '', capacidade_ua: '' })} className="px-3 py-2 rounded-xl text-sm font-semibold" style={{ background: GOLD, color: '#fff' }}>+ Novo piquete</button>
+        <button onClick={() => setNovo({ nome: '', area_ha: null, capacidade_ua: null })} className="px-3 py-2 rounded-xl text-sm font-semibold" style={{ background: GOLD, color: '#fff' }}>+ Novo piquete</button>
       </div>
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {piquetes.map((p) => {
@@ -1356,8 +1357,8 @@ function Piquetes({
             <div className="space-y-2">
               <input className={inp} placeholder="Nome (ex.: Piquete 1)" value={novo.nome} onChange={(e) => setNovo({ ...novo, nome: e.target.value })} />
               <div className="grid grid-cols-2 gap-2">
-                <input className={inp} type="number" inputMode="decimal" placeholder="Área (ha)" value={novo.area_ha} onChange={(e) => setNovo({ ...novo, area_ha: e.target.value })} />
-                <input className={inp} type="number" inputMode="decimal" placeholder="Capacidade UA" value={novo.capacidade_ua} onChange={(e) => setNovo({ ...novo, capacidade_ua: e.target.value })} />
+                <CampoDecimal className={inp} step={0.01} placeholder="Área (ha)" value={novo.area_ha} onChange={(n) => setNovo({ ...novo, area_ha: n })} />
+                <CampoDecimal className={inp} step={0.01} placeholder="Capacidade UA" value={novo.capacidade_ua} onChange={(n) => setNovo({ ...novo, capacidade_ua: n })} />
               </div>
             </div>
             <div className="mt-4 flex justify-end gap-2">
