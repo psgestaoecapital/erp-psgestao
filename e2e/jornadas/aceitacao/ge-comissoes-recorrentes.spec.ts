@@ -13,7 +13,7 @@
 //      recebível fica baixado e sobra um evento tipo 'erro' na esteira;
 //   5. CROSS-TENANT: regra_salvar/painel/livro de outra empresa são negados;
 //   6. nenhuma conta a pagar do vendedor nasce 'pago'.
-// Limpeza no fim: apaga só o que criou.
+// Limpeza no fim: apaga só o que criou — inclusive as baixas que o trigger-guarda gerou nos títulos do run.
 
 import { test, expect } from '../../support/fixtures'
 import { dbSelect, dbInsert, dbPatch, dbDelete, rpcComoRobo, pegarTravaDemo, soltarTravaDemo, donoTrava } from '../../support/api'
@@ -90,12 +90,22 @@ test.describe('GE — comissões recorrentes: gatilho na baixa do cliente #5227'
   })
 
   test.afterAll(async () => {
-    // Limpeza best-effort: erp_receber/erp_pagar não aceitam DELETE físico (RD-30, trg_bloqueia_delete_fisico) →
-    // saem por soft-delete; contrato e vendedor saem por excluido_em (são referenciados pelos títulos).
+    // Limpeza best-effort: baixas do ledger saem por DELETE físico; erp_receber/erp_pagar não aceitam DELETE físico
+    // (RD-30, trg_bloqueia_delete_fisico) → saem por soft-delete; contrato e vendedor saem por excluido_em (são referenciados pelos títulos).
     const tenta = async (passo: () => Promise<unknown>) => { try { await passo() } catch (e) { console.warn('[limpeza comissoes]', e) } }
     const agora = new Date().toISOString()
     try {
       for (const c of criado.contratos) {
+        // 1º as baixas do ledger (sem trava RD-30 → DELETE físico), inclusive as que o trigger-guarda materializou
+        // a partir do valor_pago (origem 'trigger_guarda'): o soft-delete do título NÃO apaga as baixas, e baixa
+        // viva de título excluído continua no realizado do fluxo de caixa. Antes do resto, para o estorno que o
+        // recompute dispara cair em lançamentos/eventos que a limpeza ainda vai apagar.
+        await tenta(async () => {
+          const recs = await dbSelect<IdRow>('erp_receber', `contrato_id=eq.${c}&select=id`)
+          if (recs.length) await dbDelete('erp_receber_baixa', `receber_id=in.(${recs.map((r) => r.id).join(',')})`)
+          const pags = await dbSelect<IdRow>('erp_pagar', `contrato_id=eq.${c}&select=id`)
+          if (pags.length) await dbDelete('erp_pagar_baixa', `pagar_id=in.(${pags.map((p) => p.id).join(',')})`)
+        })
         await tenta(() => dbDelete('erp_comissao_recorrente_lancamento', `contrato_id=eq.${c}`))
         await tenta(() => dbDelete('erp_comissao_recorrente_regra', `contrato_id=eq.${c}`))
         await tenta(() => dbPatch('erp_pagar', `contrato_id=eq.${c}&categoria=eq.Comiss%C3%A3o%20recorrente`, { status: 'cancelado', deleted_at: agora }))
@@ -200,8 +210,12 @@ test.describe('GE — comissões recorrentes: gatilho na baixa do cliente #5227'
   test('isolamento: erro na sincronização não derruba a baixa e deixa evento "erro"', { tag: '@pos-migration' }, async () => {
     const vend = await criarVendedor('iso')
     const contrato = await criarContrato('iso')
-    // valor no limite de numeric(15,2); 10% estoura o numeric(14,2) do valor_comissao DENTRO da sincronização
-    const BASE = 9999999999999.99
+    // R$ 1 tri: o MENOR valor que estoura o numeric(14,2) de valor_base/valor_pago_acumulado DENTRO da sincronização
+    // (máx. 999.999.999.999,99). Antes usava 9.999.999.999.999,99 — o TETO do numeric(15,2) do título — e o
+    // trigger-guarda espelhava esse valor_pago numa baixa 'trigger_guarda' de ~R$ 10 tri que ficava VIVA depois da
+    // limpeza e inflava o realizado do fluxo de caixa da DEMO (incidente RD-41). Com o teto de sanidade do guarda
+    // (R$ 100 bi, 20261121200040) esta baixa nem nasce; sem ele, a limpeza abaixo apaga as baixas dos títulos.
+    const BASE = 1000000000000
     const rec = await criarRecebivel(contrato, BASE)
     await salvarRegra(contrato, vend, { tipo_comissao: 'percentual', percentual: 10 })
 
