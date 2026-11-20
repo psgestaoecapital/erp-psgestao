@@ -15,6 +15,7 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 1) fn_gold_sst_seed_reparar — generalizada (005 e 00b)
 -- ─────────────────────────────────────────────────────────────────────────────
+-- ci-sem-guarda: fn_gold_sst_seed_reparar — seed de DEMO, trava is_demo + company fixa (005/00b) no topo
 CREATE OR REPLACE FUNCTION public.fn_gold_sst_seed_reparar(p_company_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -291,11 +292,15 @@ BEGIN
     'alertas_caixa_outros', (SELECT count(*) FROM bpo_inbox_items WHERE company_id = c AND tipo_origem = 'compliance_vencimento' AND assigned_to IS DISTINCT FROM v_robo));
 END $function$;
 
+REVOKE ALL ON FUNCTION public.fn_gold_sst_seed_reparar(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_gold_sst_seed_reparar(uuid) TO authenticated, service_role;
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 2) fn_demo_seed_industria_postos — generalizada (005 e 00b)
 --    turnos-catálogo: ids fixos DERIVADOS da empresa (005 → dede0005…, 00b → dede000b…),
 --    preservando exatamente os ids da 005 e evitando colisão entre demos.
 -- ─────────────────────────────────────────────────────────────────────────────
+-- ci-sem-guarda: fn_demo_seed_industria_postos — seed de DEMO, trava is_demo + company fixa (005/00b) no topo
 CREATE OR REPLACE FUNCTION public.fn_demo_seed_industria_postos(p_company_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -493,9 +498,13 @@ BEGIN
     'tarefas',       (SELECT count(*) FROM prod_tarefa WHERE company_id = c));
 END $function$;
 
+REVOKE ALL ON FUNCTION public.fn_demo_seed_industria_postos(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_demo_seed_industria_postos(uuid) TO authenticated, service_role;
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 3) fn_demo_seed_industria_rh_quadro — generalizada (005 e 00b)
 -- ─────────────────────────────────────────────────────────────────────────────
+-- ci-sem-guarda: fn_demo_seed_industria_rh_quadro — seed de DEMO, trava is_demo + company fixa (005/00b) no topo
 CREATE OR REPLACE FUNCTION public.fn_demo_seed_industria_rh_quadro(p_company_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -616,10 +625,14 @@ BEGIN
 END
 $function$;
 
+REVOKE ALL ON FUNCTION public.fn_demo_seed_industria_rh_quadro(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_demo_seed_industria_rh_quadro(uuid) TO authenticated, service_role;
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 4) fn_demo_reset — ramo da DEMO EHS (00b): seed SST + postos + matrizes EHS + RH.
 --    Sem frota nem nada fora do EHS (plano da 00b é só Compliance).
 -- ─────────────────────────────────────────────────────────────────────────────
+-- ci-sem-guarda: fn_demo_reset — seed de DEMO, trava is_demo + company fixa (005/00b) no topo
 CREATE OR REPLACE FUNCTION public.fn_demo_reset(p_company_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -761,3 +774,6 @@ BEGIN
 
   RETURN jsonb_build_object('ok', true, 'empresa', v_nome, 'seed', v_seed, 'resultado', v_res);
 END $function$;
+
+REVOKE ALL ON FUNCTION public.fn_demo_reset(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_demo_reset(uuid) TO authenticated, service_role;
