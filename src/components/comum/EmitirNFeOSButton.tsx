@@ -30,6 +30,7 @@ import { baixarEspelhoNFePdf, type EspelhoNota } from '@/lib/fiscal/espelhoPdf'
 type ItemEmitivel = {
   item_id: string; produto_id: string; descricao: string; quantidade: number
   preco_unitario: number; subtotal: number; ncm: string; cfop: string; unidade: string
+  desconto_rateado?: number // #7031 · parcela do desconto geral da OS rateada neste item
 }
 type Bloqueada = { descricao: string; subtotal?: number }
 type Dest = {
@@ -41,6 +42,7 @@ type Dest = {
 type Prep = {
   ok: boolean; motivo?: string; erro?: string; os_numero?: string | null
   valor_esperado?: number; valor_emitivel?: number; qtd_pecas?: number
+  desconto_os?: number; desconto_emitivel?: number // #7031 · desconto geral da OS e a parcela que a NF-e carrega
   itens_emitiveis?: ItemEmitivel[]; itens_texto_livre?: Bloqueada[]; itens_sem_fiscal?: Bloqueada[]
   destinatario?: Dest
 }
@@ -102,6 +104,10 @@ export default function EmitirNFeOSButton({
   const esperado = Number(prep?.valor_esperado ?? 0)
   const diff = Number((esperado - totalNF).toFixed(2))
   const diverge = Math.abs(diff) >= 0.01
+  // #7031 · desconto da OS (rateado) que a NF-e vai carregar = Σ das parcelas dos itens SELECIONADOS.
+  // Escala com a (des)seleção de itens; a trava de valor acima segue comparando o BRUTO (não muda).
+  const descontoSel = Number(selecionados.reduce((a, it) => a + Number(it.desconto_rateado ?? 0), 0).toFixed(2))
+  const totalNFLiquido = Number((totalNF - descontoSel).toFixed(2))
   const justOk = !diverge || justificativa.trim().length >= MIN_JUST
   const destOk = !!dest?.ok
   const podeEmitir = selecionados.length > 0 && justOk && destOk && fase === 'form' && !(!!previa && textoInfCpl.trim().length > previa.limite)
@@ -124,6 +130,8 @@ export default function EmitirNFeOSButton({
           },
         },
         itens: selecionados.map((it) => ({ produtoId: it.produto_id, quantidade: Number(it.quantidade), valorUnitarioOverride: Number(it.preco_unitario) })),
+        // #7031 · desconto geral da OS (rateado) vai no TOTAL da nota (vDesc) — mesmo campo note-level que a devolução usa.
+        ...(descontoSel > 0 ? { totais: { desconto: descontoSel } } : {}),
       },
       osId,
       ...(diverge ? { justificativaDivergencia: justificativa.trim(), valorEsperadoOs: esperado } : {}),
@@ -265,6 +273,7 @@ export default function EmitirNFeOSButton({
                 {/* trava de valor (§2.3/§8.1) — mostra a diferença em número */}
                 <div style={{ ...box('#F7F3EC', C.espresso), marginBottom: diverge ? 8 : 12 }}>
                   NF <b>{brl(totalNF)}</b> · OS <b>{brl(esperado)}</b>
+                  {descontoSel > 0 && <> · desconto da OS <b style={{ color: C.espresso }}>−{brl(descontoSel)}</b> · NF líquida <b>{brl(totalNFLiquido)}</b></>}
                   {diverge && <> · diferença <b style={{ color: C.amber }}>{brl(Math.abs(diff))}</b></>}
                 </div>
 
