@@ -298,7 +298,10 @@ export default function ConectoresIndustrialPage() {
       {/* FORMULÁRIO */}
       {empresaUnica && (
         <div style={{ background: C.card, border: '1px solid ' + C.bd, borderRadius: 10, padding: 16, marginTop: 12 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Conexão ATAK / Frigosoft (SQL Server)</div>
+          {/* RD-100: título visível em termo genérico (sem nome de sistema de terceiros). Os identificadores
+              técnicos NÃO visíveis — binário agente-atak.exe, RPCs fn_atak_*, serviço "PS Agente ATAK", nome do
+              banco SATKFRIOESTE — são preservados por exigência do provedor/instalador (exceção RD-100). */}
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Conexão com o sistema do cliente (SQL Server)</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
             <label style={{ display: 'block' }}><div style={lbl}>Host / IP <AjudaCampo chave="conectores.atak_host" /></div><input style={inp} value={f.host} onChange={(e) => setF({ ...f, host: e.target.value })} placeholder="192.168.20.77" /></label>
             <label style={{ display: 'block' }}><div style={lbl}>Porta <AjudaCampo chave="conectores.atak_porta" /></div><input style={inp} type="number" value={f.porta} onChange={(e) => setF({ ...f, porta: Number(e.target.value) })} /></label>
