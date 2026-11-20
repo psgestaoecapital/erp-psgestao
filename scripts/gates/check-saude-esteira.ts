@@ -4,7 +4,7 @@ import { classificarSaude, type SaudeEsteira } from '../../src/lib/dev/saudeEste
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗', m) } else console.log('✓', m) }
-const base: SaudeEsteira = { portao_verde: true, portao_desde: '2026-10-11T10:00:00Z', portao_spec_falha: null, quedas_24h: 0, tempo_vermelho_24h_min: 0,
+const base: SaudeEsteira = { portao_verde: true, portao_desde: '2026-10-11T10:00:00Z', portao_spec_falha: null, quarentena_abertas: 0, quedas_24h: 0, tempo_vermelho_24h_min: 0,
   merges_24h: 20, intervalo_mediano_merge_min: 20, fila_esperando: 3, fila_parada: 0, pr_parada_mais_antiga_h: null }
 const agora = new Date('2026-10-11T12:00:00Z')
 const k = (o: Partial<SaudeEsteira>) => classificarSaude({ ...base, ...o }, agora)
