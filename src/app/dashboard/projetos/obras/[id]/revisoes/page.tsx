@@ -99,7 +99,7 @@ export default function RevisoesObraPage({ params }: { params: Promise<{ id: str
   // Decisão da revisão (liga às RPCs já existentes e guardadas fn_obra_revisao_solicitar/aprovar/recusar).
   // Só revisão em rascunho pode ser solicitada; só solicitada pode ser aprovada/recusada. A aprovação MOVE
   // o valor contratado — por isso toda ação passa por uma confirmação antes de executar.
-  const [acao, setAcao] = useState<{ rev: Revisao; tipo: 'solicitar' | 'aprovar' | 'recusar' } | null>(null)
+  const [acao, setAcao] = useState<{ rev: Revisao; tipo: 'solicitar' | 'aprovar' | 'recusar' | 'excluir' } | null>(null)
   const [motivoRecusa, setMotivoRecusa] = useState('')
   const [salvandoAcao, setSalvandoAcao] = useState(false)
   const [erroAcao, setErroAcao] = useState<string | null>(null)
@@ -175,7 +175,7 @@ export default function RevisoesObraPage({ params }: { params: Promise<{ id: str
     await carregar()
   }, [id, fMotivo, fOrigem, obraItens, fItens, carregar])
 
-  const abrirAcao = useCallback((rev: Revisao, tipo: 'solicitar' | 'aprovar' | 'recusar') => {
+  const abrirAcao = useCallback((rev: Revisao, tipo: 'solicitar' | 'aprovar' | 'recusar' | 'excluir') => {
     setErroAcao(null); setMotivoRecusa(''); setAcao({ rev, tipo })
   }, [])
 
@@ -184,7 +184,8 @@ export default function RevisoesObraPage({ params }: { params: Promise<{ id: str
     setErroAcao(null); setSalvandoAcao(true)
     const fn = acao.tipo === 'solicitar' ? 'fn_obra_revisao_solicitar'
       : acao.tipo === 'aprovar' ? 'fn_obra_revisao_aprovar'
-        : 'fn_obra_revisao_recusar'
+        : acao.tipo === 'excluir' ? 'fn_obra_revisao_excluir'
+          : 'fn_obra_revisao_recusar'
     const args: Record<string, unknown> = { p_revisao_id: acao.rev.id }
     if (acao.tipo === 'recusar') args.p_motivo = motivoRecusa.trim() || null
     const { data, error } = await supabase.rpc(fn, args)
@@ -339,6 +340,8 @@ export default function RevisoesObraPage({ params }: { params: Promise<{ id: str
                       {r.status === 'rascunho' && (
                         <>
                           <span style={{ flex: 1 }} />
+                          <button onClick={() => abrirAcao(r, 'excluir')} style={{ ...btn('transparent', VERM), padding: '6px 12px', border: `1px solid ${LINE}` }} data-testid={`rev-excluir-${r.id}`}>Excluir</button>
+                          <AjudaCampo chave="projetos.revisao.acao_excluir" rota={ROTA} />
                           <button onClick={() => abrirAcao(r, 'solicitar')} style={{ ...btn(GOLD), padding: '6px 12px' }} data-testid={`rev-solicitar-${r.id}`}>Solicitar aprovação</button>
                           <AjudaCampo chave="projetos.revisao.acao_solicitar" rota={ROTA} />
                         </>
@@ -481,11 +484,13 @@ export default function RevisoesObraPage({ params }: { params: Promise<{ id: str
 
         {acao && (() => {
           const titulo = acao.tipo === 'solicitar' ? 'Enviar revisão para aprovação'
-            : acao.tipo === 'aprovar' ? 'Aprovar revisão de escopo' : 'Recusar revisão de escopo'
+            : acao.tipo === 'aprovar' ? 'Aprovar revisão de escopo'
+              : acao.tipo === 'excluir' ? 'Excluir revisão em rascunho' : 'Recusar revisão de escopo'
           const deltaA = Number(acao.rev.delta) || 0
-          const confirmarCor = acao.tipo === 'recusar' ? VERM : acao.tipo === 'aprovar' ? VERDE : GOLD
+          const confirmarCor = acao.tipo === 'recusar' || acao.tipo === 'excluir' ? VERM : acao.tipo === 'aprovar' ? VERDE : GOLD
           const confirmarLabel = acao.tipo === 'solicitar' ? 'Solicitar aprovação'
-            : acao.tipo === 'aprovar' ? 'Aprovar e mover o contrato' : 'Recusar revisão'
+            : acao.tipo === 'aprovar' ? 'Aprovar e mover o contrato'
+              : acao.tipo === 'excluir' ? 'Excluir rascunho' : 'Recusar revisão'
           return (
             <div
               style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.45)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '24px 16px', overflowY: 'auto', zIndex: 50 }}
@@ -501,6 +506,11 @@ export default function RevisoesObraPage({ params }: { params: Promise<{ id: str
                 {acao.tipo === 'solicitar' && (
                   <p style={{ fontSize: 13, color: ESP, margin: '12px 0 0' }}>
                     A revisão passa de <strong>Rascunho</strong> para <strong>Solicitada</strong> e fica pronta para ser aprovada ou recusada. Ainda não altera o valor contratado.
+                  </p>
+                )}
+                {acao.tipo === 'excluir' && (
+                  <p style={{ fontSize: 13, color: ESP, margin: '12px 0 0' }}>
+                    Esta revisão está em <strong>Rascunho</strong> e ainda não mexeu no contrato. Ao excluir, ela sai da lista. Só rascunhos podem ser excluídos — revisões já solicitadas, aprovadas ou recusadas ficam no histórico.
                   </p>
                 )}
                 {acao.tipo === 'aprovar' && (
