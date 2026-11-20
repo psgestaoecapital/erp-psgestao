@@ -13,6 +13,9 @@ import GerarBoletoButton from './GerarBoletoButton'
 import BoletoActions, { type ClienteContato, type BoletoEstado } from './BoletoActions'
 
 const SEM_CONTA = '— sem conta informada —' // 3b: chip de filtro p/ lançamentos sem conta bancária
+// #9991 · opção "Sem categoria" no filtro de categoria: leva o usuário direto aos títulos ainda
+// não classificados (os que distorcem o DRE). Sentinela que não colide com nenhum código de conta.
+const SEM_CATEGORIA = '— sem categoria —'
 import ConciliarTituloModal from './ConciliarTituloModal'
 // #71 · Editar abre a MESMA tela da inclusão (NovaDespesaForm/NovaReceitaForm em modo edição)
 import NovaDespesaModal from './NovaDespesaModal'
@@ -415,6 +418,11 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
   // PR3b (Jordana #106/#38): por título de receber, o split das baixas — conciliado x aguardando conciliação.
   const [baixaMap, setBaixaMap] = useState<Record<string, { conc: number; agu: number }>>({})
   const [contasSel, setContasSel] = useState<Set<string>>(new Set())
+  // #9991 fatia 3: quando a lista abre já filtrada por um aviso/botão "Resolver" (deep-link, ex.
+  // ?status=vencido, ?semcategoria=1, ?busca=<OS>), mostra no topo "Filtrando por <X> — mostrar
+  // todos", para o usuário entender de onde veio o recorte e voltar à visão completa (chamado #9991
+  // item 2). Só UI; não altera dados nem a consulta — reaproveita os filtros já existentes.
+  const [filtroAviso, setFiltroAviso] = useState<string | null>(null)
 
   // GE-CARDS-404 · filtro inicial via query param (?status=vencido|hoje|avencer), disparado pelos
   // KPI cards do painel Gestão Empresarial. Lê UMA vez no mount (client-only, sem useSearchParams p/
@@ -451,15 +459,29 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
       setPeriodoChoice('personalizado')
       setDataInicio(`${ano - 5}-01-01`)
       setDataFim(`${ano + 5}-12-31`)
+      setFiltroAviso(`Busca: "${buscaUrl}"`)
     } else if (st === 'vencido') {
       setStatusSel(['vencidos'])
       setPeriodoChoice('personalizado')
       setDataInicio(`${new Date().getFullYear() - 5}-01-01`)
       setDataFim(fimMesAtual())
+      setFiltroAviso('Vencidos (em atraso)')
     } else if (st === 'hoje') {
       setStatusSel(['hoje'])
+      setFiltroAviso('Vencendo hoje')
     } else if (st === 'avencer') {
       setStatusSel(['avencer'])
+      setFiltroAviso('A vencer')
+    }
+    // #9991 · aviso "X despesas/receitas sem categoria — classificar p/ o DRE" chega com
+    // ?semcategoria=1: abre a lista já filtrada só nos títulos sem categoria, período largo
+    // (podem ser de meses anteriores). Reusa o filtro de categoria existente (sentinela).
+    if (qs.get('semcategoria') === '1') {
+      setCategoria(SEM_CATEGORIA)
+      setPeriodoChoice('personalizado')
+      setDataInicio(`${new Date().getFullYear() - 5}-01-01`)
+      setDataFim(fimMesAtual())
+      setFiltroAviso('Sem categoria (classificar p/ o DRE sair certo)')
     }
     // roda só no mount: é o filtro inicial vindo da URL
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -711,7 +733,8 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     const vMin = parseValorBR(fValorMin)
     const vMax = parseValorBR(fValorMax)
     const filtrado = base.filter((r) => {
-      if (categoria && r.categoria !== categoria) return false
+      if (categoria === SEM_CATEGORIA) { if ((r.categoria ?? '').trim() !== '') return false }
+      else if (categoria && r.categoria !== categoria) return false
       if (soBloqueadas && !(r.id in bloqueioMap)) return false   // #1672
       // item 3 + 3b: filtro Conta (sentinel "— sem conta informada —" = linha sem conta bancária)
       if (contasSel.size > 0) {
@@ -802,7 +825,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     const statusMap: Record<string, string> = { todos: 'Todos', avencer: 'A vencer', vencidos: 'Vencidos', hoje: 'Hoje', pagos: labels.pagosLabel, conciliado: 'Conciliado', agendado: 'Agendado', incluido_remessa: 'Incluído na remessa' }
     const statusTxt = statusSel.length ? statusSel.map((s) => statusMap[s]).join(' + ') : 'Todos'
     const partes = [`Periodo ${fmtData(dataInicio)} a ${fmtData(dataFim)}`, `Status: ${statusTxt}`]
-    if (categoria) partes.push(`Categoria: ${categoria}`)
+    if (categoria) partes.push(categoria === SEM_CATEGORIA ? 'Categoria: Sem categoria' : `Categoria: ${categoria}`)
     if (busca.trim()) partes.push(`Busca: "${busca.trim()}"`)
     if (fPessoa.trim()) partes.push(`${tipo === 'pagar' ? 'Fornecedor' : 'Cliente'}: ${fPessoa.trim()}`)
     if (fForma) partes.push(`Forma: ${fForma}`)
@@ -866,6 +889,27 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
 
   const filtrosColunaAtivos = (fPessoa.trim() ? 1 : 0) + (fValorMin.trim() ? 1 : 0) + (fValorMax.trim() ? 1 : 0) + (fForma ? 1 : 0)
   const limparFiltrosColuna = () => { setFPessoa(''); setFValorMin(''); setFValorMax(''); setFForma(''); setPage(1) }
+
+  // #9991 fatia 3: "Mostrar todos" do aviso de deep-link — volta a lista à visão completa padrão
+  // (mês atual, todos os status, sem categoria/busca) e tira os parâmetros da URL para o recorte não
+  // voltar ao atualizar/navegar. Reaproveita os setters dos filtros já existentes; não toca em dados.
+  const limparFiltroAviso = () => {
+    setStatusSel([])
+    setCategoria('')
+    setBusca('')
+    setPeriodoChoice('mes_atual')
+    setDataInicio(inicioMesAtual())
+    setDataFim(fimMesAtual())
+    setPage(1)
+    setFiltroAviso(null)
+    if (typeof window !== 'undefined') {
+      try {
+        const limpa = new URL(window.location.href)
+        for (const p of ['status', 'semcategoria', 'busca']) limpa.searchParams.delete(p)
+        window.history.replaceState(null, '', limpa.pathname + limpa.search)
+      } catch { /* history indisponível */ }
+    }
+  }
 
   // Camada1/Fatia2 item 3: busca a conta bancaria (texto) de cada linha carregada,
   // padrao aditivo (mesmo dos maps de nfse/boleto). Se a coluna nao existir (ex.
@@ -1315,6 +1359,26 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
     <Wrapper>
       <AvisoBox aviso={aviso} onFechar={() => setAviso(null)} />
       <ConfirmAcaoModal acao={confirmAcao} onFechar={() => setConfirmAcao(null)} />
+      {filtroAviso && (
+        <div
+          role="status"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+            background: '#FBF3E2', border: '1px solid #E4C66B', color: '#5A3E12',
+            borderRadius: 8, padding: '8px 12px', marginBottom: 12, fontSize: 13,
+          }}>
+          <span>🔎 Filtrando por <b>{filtroAviso}</b> — você chegou aqui por um aviso. A lista mostra só esses itens.</span>
+          <button
+            type="button"
+            onClick={limparFiltroAviso}
+            style={{
+              marginLeft: 'auto', background: '#fff', color: '#7A4B12', border: '1px solid #C8941A',
+              borderRadius: 6, padding: '5px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
+            }}>
+            Mostrar todos
+          </button>
+        </div>
+      )}
       <Header
         labels={labels}
         tipo={tipo}
@@ -1571,6 +1635,7 @@ export default function ListagemPagarReceberView({ companyId, tipo }: Props) {
         <Campo label="Categoria" ajuda={`financeiro.${tipo}.filtro_categoria`}>
           <select value={categoria} onChange={(e) => { setCategoria(e.target.value); setPage(1) }} style={inputStyle}>
             <option value="">Todas</option>
+            <option value={SEM_CATEGORIA}>Sem categoria (classificar p/ o DRE)</option>
             {categoriasDistinct.map((c) => (
               <option key={c} value={c}>{rotuloCategoria(c)}</option>
             ))}

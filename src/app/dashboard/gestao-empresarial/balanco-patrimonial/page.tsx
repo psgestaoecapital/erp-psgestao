@@ -34,7 +34,7 @@ const GRUPOS: { lado: string; grupo: string }[] = [
 ]
 
 type Linha = { id?: string; lado: string; grupo: string; nome: string; valor: number | null; ordem?: number; origem: string; editavel: boolean; fonte?: string | null; motivo?: string | null }
-type Balanco = { ok: boolean; periodo: string; ativo_total: number; passivo_total: number; pl_total: number; passivo_mais_pl: number; diferenca: number; fecha: boolean; vazio?: boolean; linhas: Linha[] }
+type Balanco = { ok: boolean; periodo: string; ativo_total: number; passivo_total: number; pl_total: number; passivo_mais_pl: number; diferenca: number; fecha: boolean; vazio?: boolean; ajuste_apurar?: number; linhas: Linha[] }
 // Modal premium de "adicionar linha manual" — substitui os window.prompt (RD-99 #1/#2, critérios a/e).
 type NovaLinha = { lado: string; grupo: string; nome: string; valor: string }
 // Confirmação premium (RD-99): substitui o window.confirm nativo em ações que mexem no balanço.
@@ -241,10 +241,26 @@ export default function BalancoPage() {
             </div>
           </div>
           {bal.fecha ? (
-            <div style={{ marginTop: 16, padding: '12px 16px', borderRadius: 10, background: '#E8F4DC', border: `1px solid ${GREEN}55`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontWeight: 700, color: GREEN, display: 'inline-flex', alignItems: 'center', gap: 4 }}>✓ Balanço fecha <AjudaCampo chave="ge.balanco.fechamento" rota={ROTA} /></span>
-              <span style={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: GREEN }}>Diferença: R$ {fmt(bal.diferenca)}</span>
-            </div>
+            // Balanço fecha. Quando fecha por conta da linha-plug "a apurar (fechamento)" (ajuste_apurar != 0),
+            // mostramos o ajuste EXPLÍCITO — o selo nunca esconde que o PL ainda não foi apurado (Capital Social/Reservas).
+            Math.abs(bal.ajuste_apurar ?? 0) >= 0.01 ? (
+              <div style={{ marginTop: 16, padding: '14px 16px', borderRadius: 10, background: '#EEF6E3', border: `1px solid ${GREEN}55` }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                  <span style={{ fontWeight: 700, color: GREEN, display: 'inline-flex', alignItems: 'center', gap: 4 }}>✓ Balanço fecha (com ajuste a apurar) <AjudaCampo chave="ge.balanco.fechamento" rota={ROTA} /></span>
+                  <span style={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: AMBER }}>Ajuste a apurar: R$ {fmt(bal.ajuste_apurar)}</span>
+                </div>
+                <div style={{ fontSize: 12.5, color: ESP, marginTop: 8, lineHeight: 1.5 }}>
+                  O balanço fecha porque o Patrimônio Líquido inclui a linha <strong>“Resultado/ajuste a apurar (fechamento)”</strong> de R$ {fmt(bal.ajuste_apurar)}.
+                  Cadastre o <strong>Capital Social</strong> e as <strong>Reservas</strong> do período no Patrimônio Líquido para substituir esse ajuste pelo valor real.
+                </div>
+                <button onClick={() => abrirNovaLinha('pl', 'PATRIMÔNIO LÍQUIDO')} disabled={busy} style={ctaPl}>+ Lançar Capital Social / Reservas</button>
+              </div>
+            ) : (
+              <div style={{ marginTop: 16, padding: '12px 16px', borderRadius: 10, background: '#E8F4DC', border: `1px solid ${GREEN}55`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontWeight: 700, color: GREEN, display: 'inline-flex', alignItems: 'center', gap: 4 }}>✓ Balanço fecha <AjudaCampo chave="ge.balanco.fechamento" rota={ROTA} /></span>
+                <span style={{ fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: GREEN }}>Diferença: R$ {fmt(bal.diferenca)}</span>
+              </div>
+            )
           ) : (
             // Estado GUIADO (RD-98/criterios d,e): em vez do alarme cru "Balanço NÃO fecha",
             // a diferença é apresentada como Patrimônio Líquido a apurar, com orientação e CTA.

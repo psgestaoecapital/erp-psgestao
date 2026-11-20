@@ -4,7 +4,7 @@
 // etapas + atividades + visitas). Leitura: fn_crm_oportunidade_ficha · escrita: RPCs fn_crm_* (o banco confere a carteira).
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import Modal from '@/components/ui/Modal'
@@ -32,6 +32,7 @@ type Contato = { id: string; nome: string }
 
 export default function FichaNegocioPage() {
   const { id } = useParams<{ id: string }>()
+  const router = useRouter()
   const { empresa, cfg, gestor, soLeitura } = useCrm()
   const [ficha, setFicha] = useState<Ficha | null>(null)
   const [erro, setErro] = useState<string | null>(null)
@@ -48,6 +49,8 @@ export default function FichaNegocioPage() {
   const [perda, setPerda] = useState<EtapaF | null>(null)
   const [motivo, setMotivo] = useState('')
   const [motivoTexto, setMotivoTexto] = useState('')
+  const [excluir, setExcluir] = useState(false)
+  const [excluindo, setExcluindo] = useState(false)
 
   const carregar = useCallback(async () => {
     const { data, error } = await supabase.rpc('fn_crm_oportunidade_ficha', { p_id: id })
@@ -123,6 +126,15 @@ export default function FichaNegocioPage() {
   async function concluir(t: Tarefa) {
     try { await rpcCrm('fn_crm_tarefa_concluir', { p_id: t.id, p_concluida: !t.concluida_em }); void carregar() }
     catch (e) { setErro((e as Error).message) }
+  }
+
+  async function excluirNegocio() {
+    if (!ficha) return
+    setExcluindo(true); setErro(null)
+    try {
+      await rpcCrm('fn_crm_oportunidade_excluir', { p_company_id: ficha.oportunidade.company_id, p_id: id, p_motivo: null })
+      router.push('/dashboard/crm/pipeline')
+    } catch (e) { setErro((e as Error).message); setExcluindo(false); setExcluir(false) }
   }
 
   if (naoAchou) return <Pagina><Cabecalho titulo="Negócio" /><Vazio texto="Negócio não encontrado (ou foi excluído)." acao={<Link href="/dashboard/crm/pipeline" style={chip(C.ESPRESSO)}>Voltar ao funil</Link>} /></Pagina>
@@ -217,7 +229,15 @@ export default function FichaNegocioPage() {
             <Campo rotulo="Observações" ajuda="crm.ficha.observacoes">
               <textarea style={{ ...inp, minHeight: 80 }} value={form.observacoes ?? ''} onChange={set('observacoes')} disabled={bloqueado} />
             </Campo>
-            {!bloqueado && <button onClick={() => void salvarDados()} style={btnPri} data-testid="crm-ficha-salvar">Salvar dados</button>}
+            {!bloqueado && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <button onClick={() => void salvarDados()} style={btnPri} data-testid="crm-ficha-salvar">Salvar dados</button>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, marginLeft: 'auto' }}>
+                  <button onClick={() => setExcluir(true)} style={{ ...btnSec, color: C.RED, borderColor: C.RED }} data-testid="crm-ficha-excluir">Excluir negócio</button>
+                  <AjudaCampo chave="crm.ficha.excluir" />
+                </span>
+              </div>
+            )}
           </div>
         </section>
 
@@ -298,6 +318,17 @@ export default function FichaNegocioPage() {
           <Campo rotulo="Detalhe (opcional)" ajuda="crm.pipeline.motivo_perda">
             <input style={inp} value={motivoTexto} onChange={(e) => setMotivoTexto(e.target.value)} />
           </Campo>
+        </div>
+      </Modal>
+
+      <Modal open={excluir} onClose={() => { if (!excluindo) setExcluir(false) }} title="Excluir este negócio?" subtitle={o.titulo} maxWidth={440}
+        footer={<div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button onClick={() => setExcluir(false)} disabled={excluindo} style={btnSec}>Cancelar</button>
+          <button onClick={() => void excluirNegocio()} disabled={excluindo} style={{ ...btnPri, background: C.RED, opacity: excluindo ? 0.5 : 1 }} data-testid="crm-ficha-excluir-confirmar">{excluindo ? 'Excluindo…' : 'Excluir negócio'}</button>
+        </div>}>
+        <div style={{ fontSize: 13.5, color: C.ESPRESSO, lineHeight: 1.5 }}>
+          O negócio sai do funil e dos relatórios. A exclusão fica registrada na trilha de auditoria (quem excluiu e quando) e pode ser recuperada pelo suporte se preciso.
+          <div style={{ marginTop: 8, color: C.TEXTM }}>Para um negócio que não fechou, prefira mover para uma etapa de <strong>perda</strong> — assim ele entra no relatório de perdas com o motivo.</div>
         </div>
       </Modal>
     </Pagina>

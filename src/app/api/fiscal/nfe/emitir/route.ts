@@ -9,7 +9,7 @@ import { isFiscalError } from '@/lib/fiscal/errors'
 import { guardaEmpresaFiscal } from '@/lib/auth/assertAcessoEmpresa'
 import { guardarXmlNota } from '@/lib/fiscal/guardarXmlNota'
 import { registrarFalhaEmissaoNFe, registrarTentativaEmissaoNFe, type ContextoEmissaoNFe } from '@/lib/fiscal/nfeRecusa'
-import { carregarVendaVeiculo, type ItemVeiculoMontado } from '@/lib/fiscal/nfe-veiculo'
+import { carregarVendaVeiculo, carregarEntradaVeiculo, type ItemVeiculoMontado, type ItemVeiculoEntradaMontado, type OperacaoEntrada } from '@/lib/fiscal/nfe-veiculo'
 import { LIMITE_INF_CPL, excedeLimiteInfCpl, mensagemLimiteInfCpl, textoInformacoesComplementares } from '@/lib/fiscal/informacoesComplementares'
 
 export const dynamic = 'force-dynamic'
@@ -22,6 +22,9 @@ interface EmitirNFeBody {
   pedidoId?: string
   // #5684 · NF-e da venda de VEÍCULO (Revenda · Caminho A): liga ao título que a venda já criou e grava veic_venda.nfe_id
   vendaVeiculoId?: string
+  // #9787 marco 2 · ENTRADA do veículo (compra PF/PJ, troca) — SÓ prévia (não transmite). operacaoEntrada = a operação do perfil.
+  entradaVeiculoId?: string
+  operacaoEntrada?: OperacaoEntrada
   // chamado #20 Fase 3 · NF-e de peça a partir da OS: vincula a nota à OS e guarda a justificativa
   // de divergência de valor NO registro (recuperável depois — §8.1 detalhe #1 do CEO).
   osId?: string
@@ -82,10 +85,25 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       body.erpReceberId = vendaVeic.receberId ?? undefined
     }
 
+    // #9787 marco 2 · ENTRADA (compra PF/PJ, troca) em PRÉVIA: carrega veículo + perfil + remetente. SÓ prévia.
+    let entradaVeic: Awaited<ReturnType<typeof carregarEntradaVeiculo>> | undefined
+    let entradaMontado: ItemVeiculoEntradaMontado | undefined
+    if (body.entradaVeiculoId) {
+      if (!body.operacaoEntrada) {
+        return NextResponse.json({ ok: false, mensagem: 'operacaoEntrada obrigatória (compra_pf | compra_pj | troca_entrada)' }, { status: 400 })
+      }
+      if (!body.apenasPrevia) {
+        return NextResponse.json({ ok: false, mensagem: 'Entrada do veículo: apenas PRÉVIA neste marco (sem transmitir). A emissão real depende de homologação supervisionada com o certificado da empresa.' }, { status: 400 })
+      }
+      entradaVeic = await carregarEntradaVeiculo(body.companyId, body.entradaVeiculoId, body.operacaoEntrada)
+    }
+
     const nfeReq = await buildNFeRequest({
       companyId: body.companyId,
       vendaVeiculo: vendaVeic,
       onVeiculoMontado: (m) => { veicMontado = m },
+      entradaVeiculo: entradaVeic,
+      onEntradaMontada: (m) => { entradaMontado = m },
       erpReceberId: vendaVeic ? undefined : body.erpReceberId,
       pedidoId: body.pedidoId,
       osId: body.osId,
@@ -93,6 +111,45 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
       overrides: body.overrides,
       consumidorFinal: body.consumidorFinal,
     })
+
+    // #9787 marco 2 · ENTRADA: devolve só o ESPELHO para conferência (sem validar como saída, sem Lei 12.741,
+    // sem transmitir, sem gravar). A estrutura (tpNF=0, PIS/COFINS da entrada, remetente/destinatário da nota
+    // própria de entrada) é validada na emissão REAL em homologação supervisionada — fora desta prévia.
+    if (entradaVeic) {
+      const d = nfeReq.destinatario
+      const end = d.endereco
+      const valorProdutosEntrada = nfeReq.itens.reduce((acc, i) => acc + i.valorTotal, 0)
+      const nota = {
+        tipoOperacao: 'entrada' as const,
+        operacao: entradaVeic.operacao,
+        naturezaOperacao: nfeReq.naturezaOperacao,
+        serie: nfeReq.serie,
+        finalidade: nfeReq.finalidade,
+        remetente: {
+          razaoSocial: d.razaoSocial,
+          documento: d.cnpj || d.cpf || null,
+          tipoDocumento: d.cnpj ? 'CNPJ' : (d.cpf ? 'CPF' : null),
+          endereco: end ? [end.logradouro, end.numero, end.bairro, end.cidade, end.uf, end.cep].filter(Boolean).join(', ') : null,
+        },
+        itens: nfeReq.itens.map((it) => ({
+          descricao: it.descricao, ncm: it.ncm ?? null, cfop: it.cfop ?? null,
+          cst: it.icms?.cst ?? null, cBenef: it.icms?.cBenef ?? null, chassi: it.veiculo?.chassi ?? null,
+          icmsBase: it.icms?.base ?? null, icmsValor: it.icms?.valor ?? null, valorTotal: it.valorTotal,
+        })),
+        totais: { produtos: valorProdutosEntrada },
+      }
+      return NextResponse.json({
+        ok: true,
+        previa: {
+          informacoesComplementares: nfeReq.observacoes ?? '',
+          tamanho: (nfeReq.observacoes ?? '').length,
+          limite: LIMITE_INF_CPL,
+          avisoIbpt: null,
+          nota,
+          ...(entradaMontado?.avisos.length ? { avisosVeiculo: entradaMontado.avisos } : {}),
+        },
+      })
+    }
 
     // OS-0179: toda falha da emissão deixa rastro (tentativa; recusa da Focus → nota 'rejeitada' + payload).
     // Vínculos da origem vão também na nota rejeitada, para ela aparecer na OS/pedido/título certo.
