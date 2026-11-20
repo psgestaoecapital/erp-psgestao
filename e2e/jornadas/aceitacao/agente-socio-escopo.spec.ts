@@ -60,9 +60,13 @@ test.describe('Escopo de agente de sócio e OK do sócio', () => {
   test('guarda: outro agente não age em chamado de sócio; agente de sócio só com OK do sócio', { tag: '@pos-migration' }, async () => {
     const meu = (await dbSelect<Chamado>('sugestoes', `user_id=eq.${rodrigo}&select=id&limit=1`))[0]
     const outro = (await dbSelect<Chamado>('sugestoes', `responsavel_id=neq.${rodrigo}&user_id=neq.${rodrigo}&select=id&limit=1`))[0]
-    const chm = await msg('gilberto-chamados', { requer_ok_ceo: true, ok_ceo_em: new Date().toISOString(), ok_ceo_origem: 'teste' })
+    // "outro agente" (não-sócio, ativo) barrado no chamado de sócio. Era gilberto-chamados, que o CEO
+    // tirou do mapa de Codes ativos em 20/11/2026 (migration 20261122100735_agentes_mapa_codes_ativos):
+    // Code inativo não recebe mais tarefa do eng_chefe (o gatilho recusa o INSERT). Usa code-desenvolvedor-3
+    // (Code ativo, não-sócio). A verificação é a mesma: qualquer agente não-dono recebe 'chamado_de_agente_socio'.
+    const chm = await msg('code-desenvolvedor-3', { requer_ok_ceo: true, ok_ceo_em: new Date().toISOString(), ok_ceo_origem: 'teste' })
     const r1 = await rpc<Resp>('fn_agente_chamado_responder', { p_mensagem_agente: chm, p_sugestao_id: meu.id, p_texto: 'x' })
-    expect(r1.erro, 'gilberto-chamados barrado').toBe('chamado_de_agente_socio')
+    expect(r1.erro, 'agente não-dono barrado').toBe('chamado_de_agente_socio')
     const rod = await msg('rodrigo-code')
     const r2 = await rpc<Resp>('fn_agente_chamado_responder', { p_mensagem_agente: rod, p_sugestao_id: meu.id, p_texto: 'x' })
     expect(r2.erro, 'sem OK do sócio').toBe('sem_ok_do_socio')
