@@ -181,11 +181,11 @@ export default function VagasPage() {
           <strong style={{ fontSize: 22, color: ESP }}>{resumo.analise}</strong>
         </div>
         <div style={{ ...CARD, display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <span style={{ fontSize: 11.5, color: MUT, display: 'inline-flex', alignItems: 'center' }}><CheckCircle2 size={13} style={{ marginRight: 4 }} color={VERDE} /> Aprovadas</span>
+          <span style={{ fontSize: 11.5, color: MUT, display: 'inline-flex', alignItems: 'center' }}><CheckCircle2 size={13} style={{ marginRight: 4 }} color={VERDE} /> Aprovadas <AjudaCampo chave="industrial.vaga.aprovadas" rota={ROTA} /></span>
           <strong style={{ fontSize: 22, color: ESP }}>{resumo.aprovadas}</strong>
         </div>
         <div style={{ ...CARD, display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <span style={{ fontSize: 11.5, color: MUT, display: 'inline-flex', alignItems: 'center' }}><XCircle size={13} style={{ marginRight: 4 }} color={VERM} /> Recusadas</span>
+          <span style={{ fontSize: 11.5, color: MUT, display: 'inline-flex', alignItems: 'center' }}><XCircle size={13} style={{ marginRight: 4 }} color={VERM} /> Recusadas <AjudaCampo chave="industrial.vaga.recusadas" rota={ROTA} /></span>
           <strong style={{ fontSize: 22, color: ESP }}>{resumo.recusadas}</strong>
         </div>
       </div>
