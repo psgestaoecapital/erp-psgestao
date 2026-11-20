@@ -60,9 +60,9 @@ export default function SaudeEsteira({ compacto = false }: { compacto?: boolean 
           <Bloco id="fila" titulo="Fila" sem={k.fila} valor={`${s.fila_esperando ?? 0} esperando`}
             detalhe={`${s.fila_parada ?? 0} paradas${s.pr_parada_mais_antiga_h != null ? ` · a mais antiga há ${s.pr_parada_mais_antiga_h} h` : ''}`}
             ajuda="PRs esperando a vez e PRs paradas fora da rodada. Verde: nenhuma parada. Amarelo: parada há menos de 6 h. Vermelho: parada há 6 h ou mais." />
-          <Bloco id="portao" titulo="Portão" sem={k.portao} valor={s.portao_verde === null ? 'sem dado' : s.portao_verde ? 'Verde' : 'Vermelho'}
+          <Bloco id="portao" titulo="Portão" sem={k.portao} valor={s.portao_verde === null ? 'sem dado' : s.portao_verde ? (s.quarentena_abertas ? `Verde (${s.quarentena_abertas} em quarentena)` : 'Verde') : 'Vermelho'}
             detalhe={`${s.portao_desde ? `há ${k.portaoHa}` : ''}${!s.portao_verde && s.portao_spec_falha ? ` — ${s.portao_spec_falha}` : ''}` || 'sem data'}
-            ajuda="Resultado do teste da main (o portão que libera as publicações) e há quanto tempo está nesse estado. Vermelho: nada com migration publica enquanto estiver assim." />
+            ajuda="Resultado do teste da main (o portão que libera as publicações) e há quanto tempo está nesse estado. 'N em quarentena' = specs com dívida aberta que não congelam a fila enquanto dentro da validade (viram chamado ao dono). Vermelho: nada com migration publica enquanto estiver assim." />
         </div>
       )}
     </section>
