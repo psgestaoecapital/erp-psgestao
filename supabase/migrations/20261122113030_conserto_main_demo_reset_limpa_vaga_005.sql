@@ -10,6 +10,7 @@
 -- (DELETE seguro); fn_demo_seed_industria_rh_quadro re-insere as vagas no fim (re-seed garantido).
 -- Correção: limpar as vagas FICTÍCIAS da 005 ANTES dos seeds, no MESMO bloco do complemento. Dado 100% fake
 -- (RD-69/LGPD), travado em is_demo; nenhum cliente é tocado. CREATE OR REPLACE idempotente.
+-- ci-sem-guarda: fn_demo_reset — reset de DEMO; valida is_demo (rejeita não-DEMO) e opera apenas na company do parâmetro; não há "empresa do registro" a conferir
 CREATE OR REPLACE FUNCTION public.fn_demo_reset(p_company_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -144,3 +145,7 @@ BEGIN
 
   RETURN jsonb_build_object('ok', true, 'empresa', v_nome, 'seed', v_seed, 'resultado', v_res);
 END $function$;
+
+-- revoke_anon: declara explicitamente a ACL viva (CREATE OR REPLACE a preserva; anon já não executa).
+REVOKE ALL ON FUNCTION public.fn_demo_reset(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_demo_reset(uuid) TO authenticated, service_role;
