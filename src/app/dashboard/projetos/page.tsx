@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Hammer, ArrowRight, Clock, FileClock, CalendarDays } from "lucide-react";
+import { Hammer, ArrowRight, Clock, FileClock, CalendarDays, AlertTriangle } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
@@ -28,6 +28,7 @@ interface ResumoEmpresa {
   aprovacoes_pendentes: number;
   orcamentos_parados: number;
   compromissos_7d: number;
+  obras_atrasadas: number;
   obras_andamento: ObraAndamento[];
 }
 
@@ -102,7 +103,7 @@ export default function PainelProjetos() {
         // de hoje (inclusive) até +7 dias; ignora cancelados e títulos de robô/teste, como a própria Agenda.
         const hojeData = new Date().toISOString().slice(0, 10);
         const mais7Data = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-        const [{ data: v }, { data: k, error: ek }, { count: propostas, error: ep }, { data: obras, error: eo }, { data: opps, error: eop }, { count: orcParados, error: eorc }, { count: revPend, error: erev }, { count: compromissos, error: eag }] = await Promise.all([
+        const [{ data: v }, { data: k, error: ek }, { count: propostas, error: ep }, { data: obras, error: eo }, { data: opps, error: eop }, { count: orcParados, error: eorc }, { count: revPend, error: erev }, { count: compromissos, error: eag }, { count: obrasAtrasadas, error: eobr }] = await Promise.all([
           supabase.from("v_projetos_resumo_empresa").select("contas_pagar_abertas,contas_receber_abertas").eq("company_id", companyId).maybeSingle(),
           supabase.rpc("fn_obras_kpis", { p_company_ids: [companyId] }),
           supabase.from("erp_orcamentos").select("id", { count: "exact", head: true }).eq("company_id", companyId).in("status", ["rascunho", "enviado"]),
@@ -111,6 +112,10 @@ export default function PainelProjetos() {
           supabase.from("erp_orcamentos").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "enviado").is("deleted_at", null).lt("updated_at", seteDiasAtras),
           supabase.from("projetos_obra_revisao").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "solicitada").is("excluido_em", null),
           supabase.from("erp_agendamento").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("origem_modulo", "comercial").neq("status", "cancelado").gte("data", hojeData).lte("data", mais7Data).not("titulo", "ilike", "%[BOT]%").not("titulo", "ilike", "%E2E%"),
+          // Obras atrasadas (§310 "bloco de obras" · atrasadas): obra em andamento cujo prazo previsto de
+          // término (data_prevista_fim) já passou. Fonte direta de projetos_obras (RLS por company), não a
+          // v_obra_resultado (que não traz o prazo). Só em_andamento vencida = alerta de prazo acionável.
+          supabase.from("projetos_obras").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "em_andamento").lt("data_prevista_fim", hojeData).is("deleted_at", null),
         ]);
         if (ek || ep || eo || eop) throw new Error("indicadores");
         const kp = (k as { em_andamento?: number; concluidas?: number; pausada?: number; cancelada?: number; valor_em_andamento?: number } | null) ?? {};
@@ -154,6 +159,7 @@ export default function PainelProjetos() {
             aprovacoes_pendentes: erev ? 0 : Number(revPend ?? 0),
             orcamentos_parados: eorc ? 0 : Number(orcParados ?? 0),
             compromissos_7d: eag ? 0 : Number(compromissos ?? 0),
+            obras_atrasadas: eobr ? 0 : Number(obrasAtrasadas ?? 0),
             obras_andamento: andamento,
           });
         }
@@ -319,6 +325,27 @@ export default function PainelProjetos() {
           <SectionLabel>Obras por situação</SectionLabel>
           <AjudaCampo chave="projetos.painel.obras_situacao" />
         </div>
+        {/* §310 "bloco de obras" · atrasadas: alerta de prazo das obras em andamento cujo término previsto
+            já venceu. Só aparece quando há atraso (RD-98: zero não vira alarme falso). */}
+        {resumo && resumo.obras_atrasadas > 0 && (
+          <Link
+            href="/dashboard/projetos/obras?status=em_andamento&area=hub"
+            data-testid="painel-obras-atrasadas"
+            className="mt-3 flex items-start gap-3 rounded-xl border border-[#C2410C]/30 bg-[#C2410C]/5 p-4 shadow-sm transition-colors hover:border-[#C2410C]"
+          >
+            <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#C2410C]/10">
+              <AlertTriangle size={18} className="text-[#C2410C]" />
+            </span>
+            <span className="min-w-0">
+              <span className="flex items-center gap-1 text-xs text-[#3D2314]/50">Obras atrasadas<AjudaCampo chave="projetos.painel.obras.atrasadas" /></span>
+              <span className="mt-0.5 block text-sm text-[#3D2314]">
+                <span className="text-lg font-medium" style={{ fontFamily: "var(--ps-font-body)", fontStyle: "normal" }}>{resumo.obras_atrasadas}</span>{" "}
+                {resumo.obras_atrasadas === 1 ? "obra em andamento passou do prazo previsto de término" : "obras em andamento passaram do prazo previsto de término"}
+              </span>
+            </span>
+            <ArrowRight size={14} className="ml-auto mt-1 shrink-0 text-[#C2410C]" />
+          </Link>
+        )}
         <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
           {SITUACOES.map((x) => (
             <Link key={x.s} href={`/dashboard/projetos/obras?status=${x.s}&area=hub`} data-testid={`situacao-${x.s}`} className="rounded-xl border border-[#3D2314]/12 bg-white p-4 shadow-sm hover:border-[#C8941A]">
