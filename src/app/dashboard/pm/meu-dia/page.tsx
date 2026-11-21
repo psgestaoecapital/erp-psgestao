@@ -13,6 +13,7 @@ import { supabase } from "@/lib/supabase";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { erroAmigavel } from "@/lib/erroAmigavel";
+import { comPrazo } from "@/lib/comPrazo";
 import { Cronometro, type JobCurto } from "@/components/pm/Cronometro";
 import { BotaoPlay } from "@/components/pm/BotaoPlay";
 import { prazoAprovacao, textoAtraso, type ItemPauta } from "@/lib/pm/pauta";
@@ -45,40 +46,49 @@ export default function MeuDiaPage() {
 
   const carregar = useCallback(async () => {
     if (!empresa) return;
-    const { data: { session } } = await supabase.auth.getSession();
-    const uid = session?.user?.id ?? null;
-    setUserId(uid);
-    if (!uid) { setCarregando(false); return; }
-    const desde = new Date(Date.now() - 7 * 86_400_000).toISOString();
-    const [eq, ls, me, co, ts, lo, an] = await Promise.all([
-      // mesma lista de pessoas da Pauta (Bloco 1): usuários ativos da empresa — agency_equipe não é legível pelo usuário
-      supabase.rpc("fn_usuarios_da_empresa", { p_company_id: empresa }),
-      supabase.rpc("fn_pauta_listar", { p_company_id: empresa, p_filtros: { atalho: "meus" }, p_situacao: null, p_agrupar: "prazo", p_pagina: 1, p_por_pagina: 200 }),
-      supabase.from("agency_job_comentarios").select("id, job_id, texto, criado_em, autor_id").eq("company_id", empresa).contains("mencoes", [uid]).is("excluido_em", null).gte("criado_em", desde).order("criado_em", { ascending: false }).limit(10),
-      supabase.from("agency_job_comentarios").select("criado_em, texto, job_id").eq("company_id", empresa).eq("autor_id", uid).is("excluido_em", null).order("criado_em", { ascending: false }).limit(15),
-      supabase.from("agency_timesheet").select("inicio_em, created_at, horas, job_id, fim_em").eq("company_id", empresa).eq("user_id", uid).order("created_at", { ascending: false }).limit(15),
-      supabase.from("agency_pauta_lote").select("criado_em, acao, job_ids, desfeito_em").eq("company_id", empresa).eq("user_id", uid).order("criado_em", { ascending: false }).limit(10),
-      supabase.from("agency_anotacoes").select("id, texto, fixada, job_id, atualizado_em").eq("company_id", empresa).is("excluido_em", null).order("fixada", { ascending: false }).order("atualizado_em", { ascending: false }).limit(30),
-    ]);
-    if (ls.error) { setErro(erroAmigavel(ls.error, "Não foi possível carregar o seu dia. Tente de novo.")); setCarregando(false); return; }
-    const pessoas = ((eq.data ?? []) as { id: string; full_name: string | null; email: string | null; is_active: boolean }[])
-      .filter((u) => u.is_active).map((u) => ({ id: u.id, nome: u.full_name || u.email || "usuário" }))
-      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
-    setEquipe(pessoas);
-    setMeuNome(pessoas.find((p) => p.id === uid)?.nome?.split(" ")[0] ?? "");
-    const itens = ((ls.data as { itens: ItemPauta[] } | null)?.itens ?? []).filter((i) => !["concluida", "publicado"].includes(i.status));
-    setMeus(itens);
-    const emAprov = itens.filter((i) => i.status === "em_aprovacao").map((i) => i.id);
-    if (emAprov.length) {
-      const { data: ap } = await supabase.from("agency_aprovacoes").select("job_id, prazo_em").in("job_id", emAprov).is("decisao", null).order("prazo_em");
-      setAprov((ap ?? []) as { job_id: string; prazo_em: string }[]);
-    } else setAprov([]);
-    setMencoes((me.data ?? []) as Mencao[]);
-    setAcoes(juntarAcoes((co.data ?? []) as { criado_em: string; texto: string; job_id: string }[],
-      (ts.data ?? []) as { inicio_em: string | null; created_at: string; horas: number; job_id: string | null; fim_em: string | null }[],
-      (lo.data ?? []) as { criado_em: string; acao: string; job_ids: string[] | null; desfeito_em: string | null }[]));
-    setNotas((an.data ?? []) as Nota[]);
-    setCarregando(false);
+    setCarregando(true);
+    setErro(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const uid = session?.user?.id ?? null;
+      setUserId(uid);
+      if (!uid) { setCarregando(false); return; }
+      const desde = new Date(Date.now() - 7 * 86_400_000).toISOString();
+      // Carregamento resiliente (comPrazo): prazo por tentativa + re-tentativa automática antes de desistir — uma
+      // queda momentânea de rede/consulta lenta não derruba mais a tela para o banner de erro (RD-95, auditoria aud8 19/11).
+      const [eq, ls, me, co, ts, lo, an] = await comPrazo(() => Promise.all([
+        // mesma lista de pessoas da Pauta (Bloco 1): usuários ativos da empresa — agency_equipe não é legível pelo usuário
+        supabase.rpc("fn_usuarios_da_empresa", { p_company_id: empresa }),
+        supabase.rpc("fn_pauta_listar", { p_company_id: empresa, p_filtros: { atalho: "meus" }, p_situacao: null, p_agrupar: "prazo", p_pagina: 1, p_por_pagina: 200 }),
+        supabase.from("agency_job_comentarios").select("id, job_id, texto, criado_em, autor_id").eq("company_id", empresa).contains("mencoes", [uid]).is("excluido_em", null).gte("criado_em", desde).order("criado_em", { ascending: false }).limit(10),
+        supabase.from("agency_job_comentarios").select("criado_em, texto, job_id").eq("company_id", empresa).eq("autor_id", uid).is("excluido_em", null).order("criado_em", { ascending: false }).limit(15),
+        supabase.from("agency_timesheet").select("inicio_em, created_at, horas, job_id, fim_em").eq("company_id", empresa).eq("user_id", uid).order("created_at", { ascending: false }).limit(15),
+        supabase.from("agency_pauta_lote").select("criado_em, acao, job_ids, desfeito_em").eq("company_id", empresa).eq("user_id", uid).order("criado_em", { ascending: false }).limit(10),
+        supabase.from("agency_anotacoes").select("id, texto, fixada, job_id, atualizado_em").eq("company_id", empresa).is("excluido_em", null).order("fixada", { ascending: false }).order("atualizado_em", { ascending: false }).limit(30),
+      ]), { ms: 8000, tentativas: 2, label: "pm_meu_dia" });
+      if (ls.error) { setErro(erroAmigavel(ls.error, "Não foi possível carregar o seu dia. Tente de novo.")); setCarregando(false); return; }
+      const pessoas = ((eq.data ?? []) as { id: string; full_name: string | null; email: string | null; is_active: boolean }[])
+        .filter((u) => u.is_active).map((u) => ({ id: u.id, nome: u.full_name || u.email || "usuário" }))
+        .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+      setEquipe(pessoas);
+      setMeuNome(pessoas.find((p) => p.id === uid)?.nome?.split(" ")[0] ?? "");
+      const itens = ((ls.data as { itens: ItemPauta[] } | null)?.itens ?? []).filter((i) => !["concluida", "publicado"].includes(i.status));
+      setMeus(itens);
+      const emAprov = itens.filter((i) => i.status === "em_aprovacao").map((i) => i.id);
+      if (emAprov.length) {
+        const { data: ap } = await supabase.from("agency_aprovacoes").select("job_id, prazo_em").in("job_id", emAprov).is("decisao", null).order("prazo_em");
+        setAprov((ap ?? []) as { job_id: string; prazo_em: string }[]);
+      } else setAprov([]);
+      setMencoes((me.data ?? []) as Mencao[]);
+      setAcoes(juntarAcoes((co.data ?? []) as { criado_em: string; texto: string; job_id: string }[],
+        (ts.data ?? []) as { inicio_em: string | null; created_at: string; horas: number; job_id: string | null; fim_em: string | null }[],
+        (lo.data ?? []) as { criado_em: string; acao: string; job_ids: string[] | null; desfeito_em: string | null }[]));
+      setNotas((an.data ?? []) as Nota[]);
+      setCarregando(false);
+    } catch (e) {
+      setErro(erroAmigavel(e, "Não foi possível carregar o seu dia. Tente de novo."));
+      setCarregando(false);
+    }
   }, [empresa]);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- carrega o Meu Dia quando a empresa muda
   useEffect(() => { void carregar(); }, [carregar]);
@@ -138,10 +148,34 @@ export default function MeuDiaPage() {
         </div>
         <Link href="/dashboard/pm/pauta" className="inline-flex items-center gap-1.5 rounded-lg border border-[#3D2314]/15 bg-white px-3 py-2 text-[12.5px]"><ListChecks size={14} /> Abrir a Pauta</Link>
       </header>
-      {erro && <div className="mb-3 rounded-lg bg-[#F7E1E1] px-3 py-2 text-[12.5px] text-[#791F1F]" onClick={() => setErro(null)}>{erro}</div>}
-      {carregando && <div className="text-[12.5px] text-[#3D2314]/55">carregando…</div>}
+      {erro && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[#F7E1E1] px-3 py-2 text-[12.5px] text-[#791F1F]" data-testid="meu-dia-erro">
+          <span>{erro}</span>
+          <button onClick={() => void carregar()} className="shrink-0 rounded-md border border-[#791F1F]/30 bg-white px-2.5 py-1 text-[12px] font-medium text-[#791F1F] hover:bg-[#791F1F]/5" data-testid="meu-dia-tentar-de-novo">Tentar de novo</button>
+        </div>
+      )}
+      {carregando && !erro && (
+        <div className="mb-3 grid gap-3 lg:grid-cols-3" aria-hidden data-testid="meu-dia-skeleton">
+          <div className="space-y-3 lg:col-span-2">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className={cartao}>
+                <div className="mb-2 h-3 w-32 animate-pulse rounded bg-[#3D2314]/10" />
+                <div className="space-y-2">{[0, 1, 2].map((j) => <div key={j} className="h-3 w-full animate-pulse rounded bg-[#3D2314]/8" />)}</div>
+              </div>
+            ))}
+          </div>
+          <div className="space-y-3">
+            {[0, 1].map((i) => (
+              <div key={i} className={cartao}>
+                <div className="mb-2 h-3 w-24 animate-pulse rounded bg-[#3D2314]/10" />
+                <div className="space-y-2">{[0, 1].map((j) => <div key={j} className="h-3 w-full animate-pulse rounded bg-[#3D2314]/8" />)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
-      <div className="grid gap-3 lg:grid-cols-3">
+      <div className={`grid gap-3 lg:grid-cols-3 ${carregando && !erro ? "hidden" : ""}`}>
         <div className="space-y-3 lg:col-span-2">
           {userId && <BarraHorasHoje empresa={empresa} userId={userId} />}
           {userId && <ResumoFimDia empresa={empresa} userId={userId} />}

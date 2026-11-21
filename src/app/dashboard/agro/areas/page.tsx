@@ -4,6 +4,7 @@
 // Painel de rateio mostra o % CALCULADO (nunca digitado) com a memória visível.
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { parseNumBR } from '@/lib/num'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useEmpresaSelecionada, usePropriedade } from '@/lib/agro/usePecuaria'
 import { erroAmigavel } from '@/lib/erroAmigavel'
@@ -125,7 +126,7 @@ export default function AreasPropriedadePage() {
 
   async function salvarArea() {
     if (!empresaUnica || !propriedade?.id) { setMsg('Cadastre a propriedade antes.'); return }
-    const ha = Number(String(f.area_ha).replace(',', '.'))
+    const ha = parseNumBR(String(f.area_ha)) ?? NaN
     if (!f.nome || !ha || ha <= 0) { setMsg('Nome e hectares (>0) são obrigatórios.'); return }
     setBusy(true); setMsg(null)
     // Salva pelo RPC (SECURITY DEFINER · RD-52). NÃO envia capacidade_ua — fonte é a pecuária.
