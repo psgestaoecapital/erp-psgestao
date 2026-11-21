@@ -62,7 +62,7 @@ export default function MatrizEpiPostoPage() {
         supabase.from('prod_posto').select('id, company_id, numero, atividade, setor_id').in('company_id', ids),
         supabase.from('prod_setor').select('id, nome').in('company_id', ids),
         supabase.from('epi_catalogo').select('id, nome, ca_numero, ca_validade, riscos_protege, vida_util_meses, ativo, company_id, is_global').eq('ativo', true).or(`company_id.in.(${ids.join(',')}),is_global.eq.true`),
-        supabase.from('prod_posto_epi').select('id, posto_id, catalogo_id, obrigatorio, observacao').in('company_id', ids),
+        supabase.from('prod_posto_epi').select('id, posto_id, catalogo_id, obrigatorio, observacao').in('company_id', ids).is('excluido_em', null),
         supabase.from('prod_posto_pessoa').select('posto_id').in('company_id', ids),
       ])
       if (po.error) throw po.error
@@ -103,8 +103,10 @@ export default function MatrizEpiPostoPage() {
     const epi = epiPorId.get(pe.catalogo_id)
     if (!confirm(`Remover o EPI "${epi?.nome || 'EPI'}" deste posto?`)) return
     try {
-      const { error } = await supabase.from('prod_posto_epi').delete().eq('id', pe.id)
+      // RPC guardada: soft-delete rastreável (quem/quando + audit_log, NR-6). Nunca DELETE físico.
+      const { data, error } = await supabase.rpc('fn_ehs_posto_epi_remover', { p_id: pe.id })
       if (error) throw error
+      if (data && (data as any).ok === false) throw new Error((data as any).erro || 'Falha ao remover')
       setAviso('EPI removido do posto.'); carregar()
     } catch (e: any) { alert(e?.message || 'Falha ao remover') }
   }
@@ -259,8 +261,12 @@ function EpiFormModal({ companyId, postoId, postoLabel, epis, jaNoPosto, onClose
     if (!catalogoId) { setErro('Selecione o EPI'); return }
     setSalvando(true); setErro(null)
     try {
-      const { error } = await supabase.from('prod_posto_epi').insert({ company_id: companyId, posto_id: postoId, catalogo_id: catalogoId, obrigatorio, observacao: observacao.trim() || null })
+      // RPC guardada: inclui/atualiza/reativa o vínculo com guarda por empresa + audit_log (NR-6).
+      const { data, error } = await supabase.rpc('fn_ehs_posto_epi_incluir', {
+        p_company_id: companyId, p_posto_id: postoId, p_catalogo_id: catalogoId, p_obrigatorio: obrigatorio, p_observacao: observacao.trim() || null,
+      })
       if (error) throw error
+      if (data && (data as any).ok === false) throw new Error((data as any).erro || 'Falha ao salvar')
       onSaved()
     } catch (e: any) { setErro(e?.message || 'Falha ao salvar'); setSalvando(false) }
   }
