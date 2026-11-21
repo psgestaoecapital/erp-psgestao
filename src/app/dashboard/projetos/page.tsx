@@ -52,6 +52,8 @@ const PASSOS = [
   { href: "/dashboard/projetos/oportunidades", titulo: "Funil de oportunidades", texto: "Registre o cliente e a obra que quer orçar." },
   { href: "/dashboard/projetos/obras", titulo: "Obras", texto: "Acompanhe escopo, status e fiscal de cada obra." },
   { href: "/dashboard/projetos/obras/resultado", titulo: "Resultado por obra", texto: "Previsto x realizado: custo, compras e margem." },
+  { href: "/dashboard/projetos/agenda", titulo: "Agenda e tarefas", texto: "Compromissos, visitas e tarefas da obra em um só lugar." },
+  { href: "/dashboard/hub/plano-acao", titulo: "Plano de ação 5W2H", texto: "Reuniões e ações por obra: o quê, quem e até quando." },
 ];
 
 function fmtBRL(v: number) {
