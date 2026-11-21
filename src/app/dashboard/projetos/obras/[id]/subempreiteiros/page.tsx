@@ -26,7 +26,9 @@ function recursoEmLiberacao(e: unknown): boolean {
   const code = typeof err.code === 'string' ? err.code : ''
   const msg = typeof err.message === 'string' ? err.message.toLowerCase() : ''
   if (['42P01', 'PGRST202', 'PGRST205'].includes(code)) return true
-  return /does not exist|not found|schema cache/.test(msg)
+  // Só o schema cache do PostgREST (relação/função ainda não existe). NUNCA "does not exist"/"not found"
+  // genérico: um erro REAL de SQL não pode virar aviso falso de "recurso sendo liberado".
+  return /schema cache/.test(msg)
 }
 
 const brl = (n: number | null | undefined) =>
@@ -692,6 +694,7 @@ export default function SubempreiteirosObraPage({ params }: { params: Promise<{ 
                           ) : (medicoes[c.id]?.length ?? 0) === 0 ? (
                             <div style={{ fontSize: 13, color: MUT }}>Nenhuma medição registrada para este contrato ainda. Use “+ Nova medição” para lançar a primeira.</div>
                           ) : (
+                            <div style={{ overflowX: 'auto' }}>
                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                               <thead>
                                 <tr style={{ color: MUT, textAlign: 'left' }}>
@@ -736,6 +739,7 @@ export default function SubempreiteirosObraPage({ params }: { params: Promise<{ 
                                 })}
                               </tbody>
                             </table>
+                            </div>
                           )}
                         </div>
                       </div>
