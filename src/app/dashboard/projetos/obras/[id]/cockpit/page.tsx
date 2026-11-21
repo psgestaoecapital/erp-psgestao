@@ -63,6 +63,9 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
   const custo = r ? Number(r.custo_material) + Number(r.custo_viagens) + Number(r.custo_mao_obra ?? 0) + Number(r.custo_rateio ?? 0) : 0
   const margem = r ? Number(r.margem_alocada ?? r.margem_realizada) : 0
   const margemPct = receita > 0 ? (margem / receita) * 100 : null
+  // Margem PREVISTA (do orçamento): (receita prevista − custo previsto) ÷ receita prevista. Serve de referência
+  // ao lado da margem realizada, para o gestor ver previsto × realizado sem sair do cockpit (§310/§314).
+  const margemPrevistaPct = r && Number(r.receita_prevista) > 0 ? ((Number(r.receita_prevista) - Number(r.custo_previsto)) / Number(r.receita_prevista)) * 100 : null
   // Avanço financeiro = receita já realizada (serviço medido + material vendido à obra) sobre a receita prevista.
   // Usa a receita realizada total — a mesma do card "Receita realizada" — para não contradizer a própria tela quando a
   // receita vem por venda de material (ex.: obra sem NFS-e de medição ainda lançada). Teto 100%.
@@ -108,7 +111,7 @@ export default function CockpitObraPage({ params }: { params: Promise<{ id: stri
       { k: 'via', ajuda: 'projetos.cockpit.custo_viagens', l: 'Viagens', v: Number(r.custo_viagens) },
       { k: 'mo', ajuda: 'projetos.cockpit.custo_mao_obra', l: 'Mão de obra', v: Number(r.custo_mao_obra ?? 0) },
       { k: 'rat', ajuda: 'projetos.cockpit.custo_rateio', l: 'Rateio', v: Number(r.custo_rateio ?? 0) }] },
-    { k: 'margem', ajuda: 'projetos.cockpit.margem', l: 'Margem', v: brl(margem), sub: margemPct == null ? (custo > 0 ? 'Custo lançado, mas sem medição: a margem fica negativa até medir' : 'Sem receita ainda') : `${margemPct.toFixed(1)}% da receita`, cor: margem < 0 ? VERM : VERDE },
+    { k: 'margem', ajuda: 'projetos.cockpit.margem', l: 'Margem', v: brl(margem), sub: margemPct == null ? (custo > 0 ? 'Custo lançado, mas sem medição: a margem fica negativa até medir' : 'Sem receita ainda') : `${margemPct.toFixed(1)}% da receita${margemPrevistaPct != null ? ` · prevista ${margemPrevistaPct.toFixed(1)}%` : ''}`, cor: margem < 0 ? VERM : VERDE },
     { k: 'avanco_fisico', ajuda: 'projetos.cockpit.avanco_fisico', l: 'Avanço físico', v: fisicoPct == null ? '—' : `${fisicoPct.toFixed(0)}%`, sub: fisicoPct == null ? 'Lance o % no cronograma' : 'Execução em campo', bar: fisicoPct },
     { k: 'avanco', ajuda: 'projetos.cockpit.avanco', l: 'Avanço financeiro', v: avancoPct == null ? '—' : `${avancoPct.toFixed(0)}%`, sub: `Realizado ${brl(receita)} de ${brl(r.receita_prevista)}`, bar: avancoPct },
     { k: 'prazo', ajuda: 'projetos.cockpit.prazo', l: 'Prazo', v: prazoBR ?? '—', sub: prazoSub, cor: prazoVencido ? VERM : undefined, bar: tempoPct },
