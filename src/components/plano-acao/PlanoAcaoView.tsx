@@ -65,6 +65,13 @@ type Form = {
 
 const STATUS_ROTULO: Record<Status, string> = { aberta: 'Aberta', em_andamento: 'Em andamento', concluida: 'Concluída', cancelada: 'Cancelada' }
 const STATUS_ORDEM: Status[] = ['aberta', 'em_andamento', 'concluida', 'cancelada']
+// Estado vazio por coluna do Kanban (critério d): em vez de só "—", orienta o que cai ali e como fazer.
+const COLUNA_VAZIA: Record<Status, string> = {
+  aberta: 'Nenhuma ação aberta. Crie a primeira em “+ Nova ação”.',
+  em_andamento: 'Nada em andamento. Arraste um cartão de “Aberta” para cá (ou mude o status no cartão) quando a ação começar.',
+  concluida: 'Nenhuma ação concluída ainda. Ao concluir, descreva o resultado obtido — fecha o ciclo PDCA.',
+  cancelada: 'Nenhuma ação cancelada.',
+}
 const PRIORIDADE_ROTULO: Record<Prioridade, string> = { alta: 'Alta', media: 'Média', baixa: 'Baixa' }
 const PRIORIDADE_COR: Record<Prioridade, string> = { alta: VERM, media: GOLD, baixa: '#5B8C5A' }
 const ORIGEM_ROTULO: Record<Origem, string> = { reuniao: 'Reunião', indicador: 'Indicador', auditoria: 'Auditoria', chamado: 'Chamado', outro: 'Outro' }
@@ -512,7 +519,12 @@ export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } 
                   <span style={{ fontSize: 12, color: MUT }}>{porStatus[s].length}</span>
                 </div>
                 {porStatus[s].length === 0 ? (
-                  <div style={{ ...CARD, padding: 12, color: MUT, fontSize: 12, textAlign: 'center', borderStyle: 'dashed' }}>—</div>
+                  <div data-testid={`plano-coluna-vazia-${s}`} style={{ ...CARD, padding: 14, color: MUT, fontSize: 12, lineHeight: 1.5, textAlign: 'center', borderStyle: 'dashed', display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'center' }}>
+                    <span>{COLUNA_VAZIA[s]}</span>
+                    {s === 'aberta' && (
+                      <button type="button" data-testid="plano-coluna-vazia-nova" onClick={abrirNova} style={{ ...btnPrim, padding: '6px 12px', fontSize: 12 }}>+ Nova ação</button>
+                    )}
+                  </div>
                 ) : porStatus[s].map((p) => (
                   <CardAcao key={p.id} p={p} arrastando={arrastando === p.id} onArrastar={(on) => { setArrastando(on ? p.id : null); if (!on) setSobre(null) }} onEditar={() => abrirEdicao(p)} onStatus={(st) => void mudarStatus(p, st)}
                     onConcluir={() => { setConcluir(p); setResultado('') }} onExcluir={() => void excluir(p)} rota={ROTA} />
