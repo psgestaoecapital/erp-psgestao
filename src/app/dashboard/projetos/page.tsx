@@ -45,6 +45,7 @@ interface ObraAndamento {
   custo_previsto: number;
   receita_realizada: number;
   margem_realizada: number;
+  avanco_pct: number | null;
 }
 
 const SITUACOES = [
@@ -104,7 +105,7 @@ export default function PainelProjetos() {
         // de hoje (inclusive) até +7 dias; ignora cancelados e títulos de robô/teste, como a própria Agenda.
         const hojeData = new Date().toISOString().slice(0, 10);
         const mais7Data = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-        const [{ data: v }, { data: k, error: ek }, { count: propostas, error: ep }, { data: obras, error: eo }, { data: opps, error: eop }, { count: orcParados, error: eorc }, { count: revPend, error: erev }, { count: compromissos, error: eag }, { count: compromissosAtrasados, error: eag2 }, { count: obrasAtrasadas, error: eobr }] = await Promise.all([
+        const [{ data: v }, { data: k, error: ek }, { count: propostas, error: ep }, { data: obras, error: eo }, { data: opps, error: eop }, { count: orcParados, error: eorc }, { count: revPend, error: erev }, { count: compromissos, error: eag }, { count: compromissosAtrasados, error: eag2 }, { count: obrasAtrasadas, error: eobr }, { data: obrasAvanco }] = await Promise.all([
           supabase.from("v_projetos_resumo_empresa").select("contas_pagar_abertas,contas_receber_abertas").eq("company_id", companyId).maybeSingle(),
           supabase.rpc("fn_obras_kpis", { p_company_ids: [companyId] }),
           supabase.from("erp_orcamentos").select("id", { count: "exact", head: true }).eq("company_id", companyId).in("status", ["rascunho", "enviado"]),
@@ -121,6 +122,10 @@ export default function PainelProjetos() {
           // término (data_prevista_fim) já passou. Fonte direta de projetos_obras (RLS por company), não a
           // v_obra_resultado (que não traz o prazo). Só em_andamento vencida = alerta de prazo acionável.
           supabase.from("projetos_obras").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "em_andamento").lt("data_prevista_fim", hojeData).is("deleted_at", null),
+          // Avanço físico (§310 "avanço físico de cada uma"): % de conclusão da obra, de projetos_obras
+          // (RLS por company). A v_obra_resultado traz o financeiro, não o físico — por isso o fetch à parte,
+          // casado por obra_id. Avanço físico × margem (financeiro) na mesma linha mostra "andou × rendeu".
+          supabase.from("projetos_obras").select("id,pct_conclusao").eq("company_id", companyId).eq("status", "em_andamento").is("deleted_at", null),
         ]);
         if (ek || ep || eo || eop) throw new Error("indicadores");
         const kp = (k as { em_andamento?: number; concluidas?: number; pausada?: number; cancelada?: number; valor_em_andamento?: number } | null) ?? {};
@@ -132,10 +137,15 @@ export default function PainelProjetos() {
           cancelada: Number(kp.cancelada ?? 0),
         };
         let receita = 0, custo = 0;
+        // Avanço físico por obra (obra_id → % de conclusão) da projetos_obras, casado à linha do Resultado.
+        const avancoPorObra = new Map<string, number | null>();
+        for (const a of (obrasAvanco as { id: string; pct_conclusao: number | null }[] | null) ?? []) {
+          avancoPorObra.set(a.id, a.pct_conclusao === null ? null : Number(a.pct_conclusao));
+        }
         const andamento: ObraAndamento[] = [];
         for (const o of (obras as { obra_id: string; numero: string | null; nome: string | null; status: string; receita_prevista: number | null; custo_previsto: number | null; receita_servico: number | null; receita_material: number | null; margem_realizada: number | null }[] | null) ?? []) {
           receita += Number(o.receita_prevista ?? 0); custo += Number(o.custo_previsto ?? 0);
-          andamento.push({ obra_id: o.obra_id, numero: o.numero, nome: o.nome, receita_prevista: Number(o.receita_prevista ?? 0), custo_previsto: Number(o.custo_previsto ?? 0), receita_realizada: Number(o.receita_servico ?? 0) + Number(o.receita_material ?? 0), margem_realizada: Number(o.margem_realizada ?? 0) });
+          andamento.push({ obra_id: o.obra_id, numero: o.numero, nome: o.nome, receita_prevista: Number(o.receita_prevista ?? 0), custo_previsto: Number(o.custo_previsto ?? 0), receita_realizada: Number(o.receita_servico ?? 0) + Number(o.receita_material ?? 0), margem_realizada: Number(o.margem_realizada ?? 0), avanco_pct: avancoPorObra.has(o.obra_id) ? avancoPorObra.get(o.obra_id)! : null });
         }
         andamento.sort((a, b) => b.receita_prevista - a.receita_prevista);
         let abertas = 0, valorAberto = 0, ganhas = 0, perdidas = 0;
@@ -390,6 +400,7 @@ export default function PainelProjetos() {
               <thead>
                 <tr className="border-b border-[#3D2314]/10 text-left text-xs text-[#3D2314]/50">
                   <th className="px-4 py-2 font-medium">Obra</th>
+                  <th className="px-4 py-2 font-medium"><span className="inline-flex items-center gap-1">Avanço<AjudaCampo chave="projetos.painel.obra.avanco_fisico" /></span></th>
                   <th className="px-4 py-2 text-right font-medium"><span className="inline-flex items-center gap-1">Receita prevista<AjudaCampo chave="projetos.resultado_obra.receita_prevista" rota="/dashboard/projetos/obras/resultado" /></span></th>
                   <th className="px-4 py-2 text-right font-medium"><span className="inline-flex items-center gap-1">Custo previsto<AjudaCampo chave="projetos.resultado_obra.custo_previsto" rota="/dashboard/projetos/obras/resultado" /></span></th>
                   <th className="px-4 py-2 text-right font-medium"><span className="inline-flex items-center gap-1">Margem prevista<AjudaCampo chave="projetos.painel.kpi.margem_prevista" /></span></th>
@@ -407,6 +418,18 @@ export default function PainelProjetos() {
                     <tr key={o.obra_id} data-testid="painel-obra-linha" className="border-b border-[#3D2314]/5 last:border-0">
                       <td className="px-4 py-2.5 text-[#3D2314]">
                         <span className="text-[#3D2314]/50">{o.numero ? `${o.numero} · ` : ""}</span>{o.nome ?? "Obra sem nome"}
+                      </td>
+                      <td data-testid="painel-obra-avanco" className="px-4 py-2.5">
+                        {o.avanco_pct === null ? (
+                          <span className="text-[#3D2314]/40">—</span>
+                        ) : (
+                          <span className="flex items-center gap-2">
+                            <span className="h-1.5 w-16 overflow-hidden rounded-full bg-[#3D2314]/10">
+                              <span className="block h-full rounded-full bg-[#C8941A]" style={{ width: `${Math.max(0, Math.min(100, o.avanco_pct))}%` }} />
+                            </span>
+                            <span className="tabular-nums text-xs text-[#3D2314]/70">{o.avanco_pct}%</span>
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-[#3D2314]">{fmtBRL(o.receita_prevista)}</td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-[#3D2314]">{fmtBRL(o.custo_previsto)}</td>
