@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Hammer, ArrowRight, Clock, FileClock } from "lucide-react";
+import { Hammer, ArrowRight, Clock, FileClock, CalendarDays } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
@@ -27,6 +27,7 @@ interface ResumoEmpresa {
   funil_perdidas: number;
   aprovacoes_pendentes: number;
   orcamentos_parados: number;
+  compromissos_7d: number;
   obras_andamento: ObraAndamento[];
 }
 
@@ -92,11 +93,16 @@ export default function PainelProjetos() {
         // contava por v_obra_resultado (view derivada) e podia divergir da lista (auditor 27/10: Painel "Concluídas 0"
         // x lista "Concluídas 1"). Uma fonte só = os números sempre batem. Só as obras em andamento vêm linha a linha
         // (receita/custo previstos) da v_obra_resultado para a tabela abaixo.
-        // "Bloco do dia" (§310): orçamentos enviados sem retorno há mais de 7 dias (cobrar o cliente)
-        // e revisões de escopo aguardando aprovação (decisão travando a obra). Erros destes dois NÃO
-        // derrubam o painel (try separado no throw): são blocos de apoio, não os indicadores principais.
+        // "Bloco do dia" (§310): orçamentos enviados sem retorno há mais de 7 dias (cobrar o cliente),
+        // revisões de escopo aguardando aprovação (decisão travando a obra) e os compromissos da Agenda
+        // comercial marcados de hoje até os próximos 7 dias. Erros destes blocos NÃO derrubam o painel
+        // (try separado no throw): são blocos de apoio, não os indicadores principais.
         const seteDiasAtras = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-        const [{ data: v }, { data: k, error: ek }, { count: propostas, error: ep }, { data: obras, error: eo }, { data: opps, error: eop }, { count: orcParados, error: eorc }, { count: revPend, error: erev }] = await Promise.all([
+        // Compromissos: mesma fonte da Agenda do Hub (erp_agendamento origem_modulo='comercial', RD-26),
+        // de hoje (inclusive) até +7 dias; ignora cancelados e títulos de robô/teste, como a própria Agenda.
+        const hojeData = new Date().toISOString().slice(0, 10);
+        const mais7Data = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        const [{ data: v }, { data: k, error: ek }, { count: propostas, error: ep }, { data: obras, error: eo }, { data: opps, error: eop }, { count: orcParados, error: eorc }, { count: revPend, error: erev }, { count: compromissos, error: eag }] = await Promise.all([
           supabase.from("v_projetos_resumo_empresa").select("contas_pagar_abertas,contas_receber_abertas").eq("company_id", companyId).maybeSingle(),
           supabase.rpc("fn_obras_kpis", { p_company_ids: [companyId] }),
           supabase.from("erp_orcamentos").select("id", { count: "exact", head: true }).eq("company_id", companyId).in("status", ["rascunho", "enviado"]),
@@ -104,6 +110,7 @@ export default function PainelProjetos() {
           supabase.from("erp_crm_oportunidade").select("etapa,valor_estimado").eq("company_id", companyId).is("deleted_at", null),
           supabase.from("erp_orcamentos").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "enviado").is("deleted_at", null).lt("updated_at", seteDiasAtras),
           supabase.from("projetos_obra_revisao").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "solicitada").is("excluido_em", null),
+          supabase.from("erp_agendamento").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("origem_modulo", "comercial").neq("status", "cancelado").gte("data", hojeData).lte("data", mais7Data).not("titulo", "ilike", "%[BOT]%").not("titulo", "ilike", "%E2E%"),
         ]);
         if (ek || ep || eo || eop) throw new Error("indicadores");
         const kp = (k as { em_andamento?: number; concluidas?: number; pausada?: number; cancelada?: number; valor_em_andamento?: number } | null) ?? {};
@@ -146,6 +153,7 @@ export default function PainelProjetos() {
             funil_perdidas: perdidas,
             aprovacoes_pendentes: erev ? 0 : Number(revPend ?? 0),
             orcamentos_parados: eorc ? 0 : Number(orcParados ?? 0),
+            compromissos_7d: eag ? 0 : Number(compromissos ?? 0),
             obras_andamento: andamento,
           });
         }
@@ -249,15 +257,25 @@ export default function PainelProjetos() {
         </div>
       </section>
 
-      {/* PARA HOJE — §310 (relatório 01 · reunião 20/11): bloco do dia. Hoje: aprovações de escopo
-          paradas e orçamentos enviados sem retorno. Compromissos/tarefas entram quando a Agenda (§311)
-          chegar. Cada card é acionável e tem "?" (RD-95); estado calmo quando não há pendência (RD-98). */}
+      {/* PARA HOJE — §310 (relatório 01 · reunião 20/11): bloco do dia. Hoje: compromissos da Agenda
+          nos próximos 7 dias, aprovações de escopo paradas e orçamentos enviados sem retorno. Cada card
+          é acionável e tem "?" (RD-95); estado calmo quando não há pendência (RD-98). */}
       <section className="mt-12" data-testid="painel-para-hoje">
         <div className="flex items-center gap-1">
           <Clock size={14} className="text-[#C8941A]" />
           <SectionLabel>Para hoje</SectionLabel>
         </div>
-        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+          <PendenciaCard
+            icone={<CalendarDays size={18} className="text-[#C8941A]" />}
+            label="Compromissos (próximos 7 dias)"
+            chave="projetos.painel.pendencias.compromissos"
+            testid="pendencia-compromissos"
+            valor={resumo ? resumo.compromissos_7d : null}
+            texto={(n) => n === 1 ? "compromisso agendado de hoje aos próximos 7 dias" : "compromissos agendados de hoje aos próximos 7 dias"}
+            vazioTexto="Nenhum compromisso agendado nos próximos 7 dias."
+            href="/dashboard/projetos/agenda"
+          />
           <PendenciaCard
             icone={<FileClock size={18} className="text-[#C8941A]" />}
             label="Aprovações pendentes"
