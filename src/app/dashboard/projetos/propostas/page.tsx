@@ -73,6 +73,12 @@ export default function PropostasHubPage() {
   const [mostrar, setMostrar] = useState(POR_PAGINA)
   const [msg, setMsg] = useState('')
   const [msgErro, setMsgErro] = useState('')
+  const [filtroNumero, setFiltroNumero] = useState('')
+  const [buscaNum, setBuscaNum] = useState('')
+  const [ordenar, setOrdenar] = useState('data_desc')
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editNum, setEditNum] = useState('')
+  const [salvandoNum, setSalvandoNum] = useState(false)
 
   // Origem: oportunidades e plantas ligadas às propostas; depois as visitas (diretas ou da oportunidade). Falha → coluna avisa.
   const carregarOrigem = useCallback(async (ids: string[]) => {
@@ -96,8 +102,13 @@ export default function PropostasHubPage() {
     setLoading(true); setErro('')
     try {
       const { data, error, count } = await comPrazo(
-        async () => await supabase.from('erp_orcamentos').select('id,company_id,numero,cliente_nome,status,total,data_emissao,data_validade,obra_id,eh_obra,versao,orcamento_origem_id,pdf_anexo_path,orcamentista_id,orcamentista_nome', { count: 'exact' })
-          .in('company_id', companyIds).is('deleted_at', null).order('data_emissao', { ascending: false }).limit(LIMITE),
+        async () => {
+          let q = supabase.from('erp_orcamentos').select('id,company_id,numero,cliente_nome,status,total,data_emissao,data_validade,obra_id,eh_obra,versao,orcamento_origem_id,pdf_anexo_path,orcamentista_id,orcamentista_nome', { count: 'exact' })
+            .in('company_id', companyIds).is('deleted_at', null)
+          // Filtro por número: consulta o banco inteiro (acha além das 100 carregadas), não só a lista client-side.
+          if (buscaNum) q = q.ilike('numero', `%${buscaNum}%`)
+          return await q.order('data_emissao', { ascending: false }).order('created_at', { ascending: false }).limit(LIMITE)
+        },
         { ms: 8000, tentativas: 1, label: 'propostas_hub' },
       )
       if (error) { setErro(erroAmigavel(error, 'Não foi possível carregar as propostas.')); return }
@@ -137,7 +148,9 @@ export default function PropostasHubPage() {
       setOrigErro(false); setOrig({})
       if (ls.length) await carregarOrigem(ls.map(l => l.id))
     } catch { setErro(MSG_CARREGAMENTO_FALHOU) } finally { setLoading(false) }
-  }, [companyIds, carregarOrigem])
+  }, [companyIds, carregarOrigem, buscaNum])
+  // Debounce do filtro por número (server-side): acha orçamento além dos 100 carregados sem recarregar a cada tecla.
+  useEffect(() => { const t = setTimeout(() => setBuscaNum(filtroNumero.trim()), 400); return () => clearTimeout(t) }, [filtroNumero])
   useEffect(() => { carregar() }, [carregar])
   // Quem está logado — para o filtro "meus orçamentos" (compara com orcamentista_id) e para o rastro da atribuição (#3270)
   useEffect(() => { let vivo = true; void supabase.auth.getUser().then(async ({ data }) => {
@@ -201,12 +214,41 @@ export default function PropostasHubPage() {
     setExcluir(null); setMotivo(''); void carregar()
   }
 
+  // Editar o número do orçamento (auto-gerado no nascimento, editável depois) via RPC guardada com rastro.
+  async function salvarNumero(l: Proposta) {
+    const novo = editNum.trim()
+    if (!novo) { setMsgErro('Informe o número do orçamento.'); return }
+    setSalvandoNum(true); setMsgErro('')
+    const { data, error } = await supabase.rpc('fn_orcamento_editar_numero', { p_orcamento_id: l.id, p_numero: novo })
+    setSalvandoNum(false)
+    const res = data as { ok?: boolean; erro?: string; numero?: string } | null
+    if (error || !res?.ok) {
+      const m = res?.erro === 'numero_em_uso' ? 'Esse número já está em uso nesta empresa.'
+        : res?.erro === 'numero_vazio' ? 'Informe o número do orçamento.'
+        : res?.erro === 'numero_longo' ? 'Número muito longo (máximo 40 caracteres).'
+        : res?.erro === 'sem_acesso_empresa' ? 'Você não tem acesso a esta empresa.'
+        : erroAmigavel(error, 'Não foi possível alterar o número.')
+      setMsgErro(m); return
+    }
+    setLinhas(ls => ls.map(x => x.id === l.id ? { ...x, numero: res.numero ?? x.numero } : x))
+    setEditId(null); setMsg(`Número alterado para ${res.numero}.`); setMsgErro(''); setTimeout(() => setMsg(''), 3000)
+  }
+
   const vis = useMemo(() => {
     const b = busca.trim().toLowerCase()
-    return linhas.filter(l => (filtro === 'todos' || vstatus(l) === filtro)
+    const fs = linhas.filter(l => (filtro === 'todos' || vstatus(l) === filtro)
       && (!soMeus || (!!meuId && l.orcamentista_id === meuId))
       && (!b || (l.numero ?? '').toLowerCase().includes(b) || (l.cliente_nome ?? '').toLowerCase().includes(b) || (l.orcamentista_nome ?? '').toLowerCase().includes(b)))
-  }, [linhas, busca, filtro, soMeus, meuId])
+    // Padrão (data_desc) mantém a ordem do servidor (data_emissao + created_at); as demais ordenam o conjunto carregado.
+    if (ordenar === 'data_desc') return fs
+    const asc = ordenar.endsWith('_asc') ? 1 : -1
+    const campo = ordenar.replace(/_(asc|desc)$/, '')
+    return [...fs].sort((a, z) => {
+      if (campo === 'numero') return asc * (a.numero ?? '').localeCompare(z.numero ?? '', 'pt-BR', { numeric: true })
+      if (campo === 'valor') return asc * (Number(a.total ?? 0) - Number(z.total ?? 0))
+      return asc * (a.data_emissao ?? '').localeCompare(z.data_emissao ?? '')
+    })
+  }, [linhas, busca, filtro, soMeus, meuId, ordenar])
   const r = useMemo(() => resumoFunil(linhas), [linhas])
   // Contadores por situação visível (#3271): separa "Em elaboração" de "Rascunho", igual ao selo e ao filtro.
   const porStatusVisual = useMemo(() => {
@@ -343,12 +385,28 @@ export default function PropostasHubPage() {
                 style={{ flex: 1, padding: '8px 12px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 13 }} />
               <AjudaCampo chave="projetos.propostas.busca" />
             </div>
+            <div style={{ flex: '1 1 200px', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <input value={filtroNumero} onChange={e => { setFiltroNumero(e.target.value); setMostrar(POR_PAGINA) }} placeholder="Filtrar por número (busca no banco todo)" data-testid="hub-propostas-filtro-numero"
+                style={{ flex: 1, padding: '8px 12px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 13 }} />
+              <AjudaCampo chave="projetos.propostas.filtro_numero" />
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <select value={filtro} onChange={e => { setFiltro(e.target.value); setMostrar(POR_PAGINA) }} style={{ padding: '8px 12px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 13 }}>
                 <option value="todos">Todos os status</option>
                 {Object.entries(STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
               </select>
               <AjudaCampo chave="projetos.propostas.status" />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <select value={ordenar} onChange={e => setOrdenar(e.target.value)} data-testid="hub-propostas-ordenar" aria-label="Ordenar por" style={{ padding: '8px 12px', border: `1px solid ${LINE}`, borderRadius: 8, fontSize: 13 }}>
+                <option value="data_desc">Mais recentes</option>
+                <option value="data_asc">Mais antigas</option>
+                <option value="numero_asc">Número (crescente)</option>
+                <option value="numero_desc">Número (decrescente)</option>
+                <option value="valor_desc">Maior valor</option>
+                <option value="valor_asc">Menor valor</option>
+              </select>
+              <AjudaCampo chave="projetos.propostas.ordenar" />
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <button type="button" data-testid="hub-propostas-meus" aria-pressed={soMeus} onClick={() => { setSoMeus(v => !v); setMostrar(POR_PAGINA) }} disabled={!meuId}
@@ -359,6 +417,7 @@ export default function PropostasHubPage() {
               <AjudaCampo chave="projetos.propostas.filtro_meus" />
             </div>
           </div>
+          <div style={{ fontSize: 11.5, color: MUT, marginTop: 8 }}>O número do orçamento nasce automático; use &quot;editar&quot; na coluna Número para trocá-lo (fica registrado quem alterou).</div>
           <div style={{ overflowX: 'auto', marginTop: 12, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 12 }}>
             <table style={{ width: '100%', minWidth: 1360, borderCollapse: 'collapse' }}>
               <thead><tr style={{ textAlign: 'left', fontSize: 12, color: MUT }}>
@@ -384,7 +443,23 @@ export default function PropostasHubPage() {
                   const so = obras[l.id]
                   return (
                     <tr key={l.id} style={{ borderTop: `1px solid ${LINE}`, fontSize: 13 }}>
-                      <td style={{ padding: '8px 12px', fontFamily: 'monospace', color: GOLD, fontWeight: 600 }}>{l.numero ?? '—'}</td>
+                      <td style={{ padding: '8px 12px', fontFamily: 'monospace', color: GOLD, fontWeight: 600 }}>
+                        {editId === l.id ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <input autoFocus value={editNum} onChange={e => setEditNum(e.target.value)} maxLength={40} aria-label="Número do orçamento" data-testid="hub-proposta-numero-input"
+                              onKeyDown={e => { if (e.key === 'Enter') void salvarNumero(l); if (e.key === 'Escape') setEditId(null) }}
+                              style={{ width: 130, padding: '4px 6px', fontSize: 12, fontFamily: 'monospace', border: `1px solid ${LINE}`, borderRadius: 6 }} />
+                            <button data-testid="hub-proposta-numero-salvar" onClick={() => void salvarNumero(l)} disabled={salvandoNum} style={{ border: 'none', background: GOLD, color: '#fff', borderRadius: 6, padding: '4px 8px', fontSize: 11, fontWeight: 700, cursor: 'pointer', opacity: salvandoNum ? 0.6 : 1 }}>{salvandoNum ? '…' : 'Salvar'}</button>
+                            <button onClick={() => setEditId(null)} style={{ border: `1px solid ${LINE}`, background: '#fff', borderRadius: 6, padding: '4px 8px', fontSize: 11, cursor: 'pointer', color: ESP }}>Cancelar</button>
+                          </span>
+                        ) : (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            {l.numero ?? '—'}
+                            <button data-testid="hub-proposta-numero-editar" onClick={() => { setEditId(l.id); setEditNum(l.numero ?? ''); setMsgErro('') }} title="Editar número" aria-label="Editar número"
+                              style={{ border: 'none', background: 'none', color: ESP, fontSize: 11, fontWeight: 600, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>editar</button>
+                          </span>
+                        )}
+                      </td>
                       <td style={{ padding: '8px 12px', fontSize: 12 }} data-testid="hub-proposta-versao">
                         <span style={{ fontWeight: 600 }}>v{l.versao ?? 1}</span>
                         {l.orcamento_origem_id && <span style={{ display: 'block', color: MUT }}>revisão de {numeroPorId[l.orcamento_origem_id] ?? 'proposta anterior'}</span>}

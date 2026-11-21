@@ -252,7 +252,7 @@ export default function NegociacaoPage() {
               {CampoM('Valor dado ao cliente', 'troca_valor_dado')}
             </div>
             <label style={{ display: 'block', marginTop: 12 }}>
-              <span style={{ display: 'block', fontSize: 11, color: C.espM, marginBottom: 3, fontWeight: 600 }}>Observação</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: C.espM, marginBottom: 3, fontWeight: 600 }}>Observação<AjudaCampo chave="revenda.negociacao.observacao" rota="/dashboard/revenda/negociacao" /></span>
               <textarea value={f.observacao ?? ''} disabled={!aberta} onChange={e => setF(s => ({ ...s, observacao: e.target.value }))}
                 rows={2} style={{ ...inp, resize: 'vertical', background: aberta ? C.white : C.cream }} />
             </label>
@@ -307,7 +307,8 @@ export default function NegociacaoPage() {
                   <div style={{ marginTop: 14, background: C.amberBg, border: `1px solid ${C.amber}`, borderRadius: 10, padding: 12 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: C.amber, marginBottom: 6 }}>Desconto/margem acima da alçada — precisa da aprovação do gerente.</div>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      <input value={aprMotivo} onChange={e => setAprMotivo(e.target.value)} placeholder="Motivo da aprovação" style={{ ...inp, flex: 1, minWidth: 180 }} />
+                      <label style={{ flex: 1, minWidth: 180 }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: C.amber, fontWeight: 600 }}>Motivo da aprovação<AjudaCampo chave="revenda.negociacao.motivo_aprovacao" rota="/dashboard/revenda/negociacao" /></span>
+                      <input value={aprMotivo} onChange={e => setAprMotivo(e.target.value)} placeholder="Motivo da aprovação" style={{ ...inp, width: '100%', boxSizing: 'border-box', marginTop: 3 }} /></label>
                       <button onClick={aprovar} style={{ padding: '8px 16px', background: C.amber, color: C.white, border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer' }}>Aprovar</button>
                     </div>
                   </div>
@@ -338,7 +339,8 @@ export default function NegociacaoPage() {
         <div onClick={() => setPerdaOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: C.white, borderRadius: 14, width: '100%', maxWidth: 440, padding: 20 }}>
             <h2 style={{ fontSize: 16, fontWeight: 800, color: C.esp, margin: '0 0 10px' }}>Marcar como perdida</h2>
-            <input value={perdaMotivo} onChange={e => setPerdaMotivo(e.target.value)} placeholder="Motivo da perda (obrigatório)" style={{ ...inp }} autoFocus />
+            <label style={{ display: 'block' }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: C.espM, marginBottom: 3, fontWeight: 600 }}>Motivo da perda<AjudaCampo chave="revenda.negociacao.motivo_perda" rota="/dashboard/revenda/negociacao" /></span>
+            <input value={perdaMotivo} onChange={e => setPerdaMotivo(e.target.value)} placeholder="Motivo da perda (obrigatório)" style={{ ...inp, width: '100%', boxSizing: 'border-box' }} autoFocus /></label>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 14 }}>
               <button onClick={() => setPerdaOpen(false)} style={{ padding: '9px 16px', background: C.cream, color: C.esp, border: `1px solid ${C.border}`, borderRadius: 8, fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
               <button onClick={perder} style={{ padding: '9px 16px', background: C.red, color: C.white, border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer' }}>Confirmar perda</button>

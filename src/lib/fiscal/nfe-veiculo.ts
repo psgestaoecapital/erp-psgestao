@@ -248,3 +248,152 @@ export async function carregarVendaVeiculo(companyId: string, vendaId: string): 
     },
   }
 }
+
+// ── #9787 marco 2 · ENTRADA do veículo (compra PF/PJ, troca-entrada) em PRÉVIA ───────────────────────────
+// Motor ÚNICO: mesma montagem de item (CFOP/CST/natureza/veicProd) da venda, mas lendo a OPERAÇÃO de entrada
+// do PERFIL fiscal aprovado (sem hardcode). Usado SÓ em prévia (apenasPrevia) — não transmite nada.
+// O que NÃO entra aqui e fica para a emissão REAL (homologação supervisionada): PIS/COFINS CST da entrada,
+// tpNF=0 no payload Focus, e a validação da estrutura destinatário/remetente da nota própria de entrada.
+export const OPERACOES_ENTRADA_PREVIA = ['compra_pf', 'compra_pj', 'troca_entrada'] as const
+export type OperacaoEntrada = (typeof OPERACOES_ENTRADA_PREVIA)[number]
+
+export interface RemetenteEntrada {
+  tipo: 'pf' | 'pj'
+  nome: string | null
+  documento: string | null   // CPF (pf) ou CNPJ (pj), só dígitos
+  endereco: { logradouro: string | null; numero: string | null; bairro: string | null; cidade: string | null; uf: string | null; cep: string | null } | null
+}
+
+export interface DadosEntradaVeiculo {
+  veiculoId: string
+  operacao: OperacaoEntrada
+  valor: number
+  veiculo: DadosVendaVeiculo['veiculo']
+  remetente: RemetenteEntrada
+  perfil: { veicprodObrigatorioUsado: boolean; ncmPadrao: string | null; operacao: PerfilVendaVeiculo['operacao'] }
+  avisos: string[]
+}
+
+export interface ItemVeiculoEntradaMontado {
+  item: NFeProdutoItem
+  observacoes: string
+  naturezaOperacao: string
+  avisos: string[]
+}
+
+/** Item da NF-e de ENTRADA (prévia). CFOP/CST/natureza vêm do perfil; CST≠20 (ex.: compra PF 41) → sem ICMS calculado. */
+export function montarItemVeiculoEntrada(d: DadosEntradaVeiculo, ufEmitente: string | undefined, ufDestino: string | undefined): ItemVeiculoEntradaMontado {
+  const op = d.perfil.operacao
+  const avisos: string[] = [...d.avisos]
+  const valor = round2(d.valor)
+  if (!(valor > 0)) throw new FiscalError('PAYLOAD_INVALIDO', 'Entrada sem valor de aquisição — informe o valor antes de gerar a prévia')
+
+  const ncm = String(d.veiculo.ncm ?? d.perfil.ncmPadrao ?? '').replace(/\D/g, '')
+  if (ncm.length !== 8) throw new FiscalError('PAYLOAD_INVALIDO', 'NCM do veículo não informado (nem NCM padrão no perfil fiscal aprovado) — preencha no cadastro do veículo')
+
+  const interestadual = !!ufEmitente && !!ufDestino && ufEmitente !== ufDestino.toUpperCase()
+  const cfop = (interestadual ? op.cfopForaUf : op.cfopDentroUf ?? '').trim()
+  if (!/^\d{4}$/.test(cfop)) throw new FiscalError('PAYLOAD_INVALIDO', `CFOP da operação '${d.operacao}' não configurado no perfil fiscal aprovado`)
+
+  const natureza = (op.naturezaOperacao ?? '').trim()
+  if (!natureza) throw new FiscalError('PAYLOAD_INVALIDO', `Natureza da operação '${d.operacao}' não configurada no perfil fiscal aprovado`)
+
+  const cst = cstRegimeNormal(op.cstOuCsosn)
+  let icms: NFeProdutoItem['icms']
+  if (cst === '20') {
+    const reducao = op.reducaoBasePct ?? 0
+    const aliq = ALIQUOTA_ICMS_VENDA_VEICULO_PADRAO
+    const base = round2(valor * (1 - reducao / 100))
+    icms = { cst, aliquota: aliq, base, valor: round2(base * aliq / 100), modBc: '3', reducaoBase: reducao, ...(op.cbenef ? { cBenef: op.cbenef } : {}) }
+  } else {
+    // entrada não tributada pelo ICMS (ex.: compra PF CST 41): segue o CST do perfil, sem calcular base/valor.
+    icms = { cst, ...(op.cbenef ? { cBenef: op.cbenef } : {}) }
+    avisos.push(`ICMS pelo CST ${cst || '(vazio)'} do perfil (entrada) — sem cálculo de base/valor nesta prévia; confira com o contador.`)
+  }
+
+  const veiculo: NonNullable<NFeProdutoItem['veiculo']> = {
+    tipoOperacao: '0', chassi: d.veiculo.chassi,
+    descricaoCor: d.veiculo.cor ?? undefined,
+    potenciaMotor: d.veiculo.potenciaCv != null ? String(d.veiculo.potenciaCv) : undefined,
+    cm3: d.veiculo.cilindradas != null ? String(d.veiculo.cilindradas) : undefined,
+    tipoCombustivel: codigoCombustivel(d.veiculo.combustivel) ?? undefined,
+    anoModelo: d.veiculo.anoModelo ?? undefined, anoFabricacao: d.veiculo.anoFabricacao ?? undefined,
+    condicao: '1', lotacao: d.veiculo.lugares ?? undefined,
+  }
+  const nomeVeic = [d.veiculo.marca, d.veiculo.modelo, d.veiculo.versao].filter(Boolean).join(' ')
+
+  const item: NFeProdutoItem = {
+    codigo: d.veiculo.placa || d.veiculo.chassi,
+    descricao: nomeVeic || 'Veículo',
+    ncm, cfop, unidade: 'UN', quantidade: 1, valorUnitario: valor, valorTotal: valor,
+    origem: '0', icms,
+    ...(d.perfil.veicprodObrigatorioUsado ? { veiculo } : {}),
+  }
+
+  return {
+    item,
+    observacoes: infComplementarVeiculo(d.veiculo, op.infComplementar, fraseReducaoBaseIcms(cst, op.reducaoBasePct)),
+    naturezaOperacao: natureza,
+    avisos,
+  }
+}
+
+/** Carrega veículo + perfil aprovado (operação de entrada) + remetente (vendedor PF na compra PF). Service role: a rota já checou a empresa. */
+export async function carregarEntradaVeiculo(companyId: string, veiculoId: string, operacao: OperacaoEntrada): Promise<DadosEntradaVeiculo> {
+  if (!OPERACOES_ENTRADA_PREVIA.includes(operacao)) {
+    throw new FiscalError('PAYLOAD_INVALIDO', `Operação de entrada inválida para a prévia: ${operacao} (consignação/devolução ficam para o marco seguinte)`)
+  }
+  const avisos: string[] = []
+  const { data: ve } = await supabaseAdmin
+    .from('veic_veiculo')
+    .select('id, chassi, placa, renavam, marca, modelo, versao, ano_fabricacao, ano_modelo, cor, combustivel, potencia_cv, cilindradas, lugares, km_atual, ncm, valor_aquisicao, origem, fornecedor_nome, vendedor_pf')
+    .eq('id', veiculoId).eq('company_id', companyId).is('deleted_at', null).maybeSingle()
+  if (!ve) throw new FiscalError('PAYLOAD_INVALIDO', 'Veículo não encontrado nesta empresa')
+
+  const { data: perfil } = await supabaseAdmin
+    .from('veic_perfil_fiscal')
+    .select('id, veicprod_obrigatorio_usado, ncm_padrao')
+    .eq('company_id', companyId).eq('status', 'aprovado').lte('vigente_desde', new Date().toISOString().slice(0, 10))
+    .order('vigente_desde', { ascending: false }).order('versao', { ascending: false }).limit(1).maybeSingle()
+  if (!perfil) throw new FiscalError('PAYLOAD_INVALIDO', 'Perfil fiscal da revenda não está aprovado — aprove o perfil fiscal antes de gerar a prévia')
+  const { data: op } = await supabaseAdmin
+    .from('veic_perfil_fiscal_operacao')
+    .select('cfop_dentro_uf, cfop_fora_uf, cst_ou_csosn, cbenef, reducao_base_icms_pct, ibs_cbs_cst, ibs_cbs_cclasstrib, natureza_operacao, inf_complementar_texto')
+    .eq('perfil_id', perfil.id).eq('operacao', operacao).maybeSingle()
+  if (!op) throw new FiscalError('PAYLOAD_INVALIDO', `A operação '${operacao}' não está configurada no perfil fiscal aprovado — complete o perfil com o contador`)
+
+  // Remetente (contraparte da nota de entrada): compra PF usa o vendedor PF capturado (#5479); PJ/troca usa o fornecedor.
+  const vpf = (ve.vendedor_pf ?? null) as { nome?: string; cpf?: string; cep?: string; logradouro?: string; numero?: string; bairro?: string; municipio?: string; uf?: string } | null
+  let remetente: RemetenteEntrada
+  if (operacao === 'compra_pf') {
+    if (!vpf || !(vpf.nome || vpf.cpf)) avisos.push('Compra PF sem os dados do vendedor PF (nome/CPF/endereço) — preencha no cadastro do veículo para a nota de entrada ficar completa.')
+    remetente = {
+      tipo: 'pf', nome: vpf?.nome ?? null, documento: (vpf?.cpf ?? '').replace(/\D/g, '') || null,
+      endereco: vpf ? { logradouro: vpf.logradouro ?? null, numero: vpf.numero ?? null, bairro: vpf.bairro ?? null, cidade: vpf.municipio ?? null, uf: (vpf.uf ?? null), cep: (vpf.cep ?? '').replace(/\D/g, '') || null } : null,
+    }
+  } else {
+    if (!ve.fornecedor_nome) avisos.push(`Operação '${operacao}' sem fornecedor no cadastro do veículo — o remetente da nota de entrada fica incompleto.`)
+    remetente = { tipo: 'pj', nome: ve.fornecedor_nome ?? null, documento: null, endereco: null }
+    avisos.push('Remetente PJ/troca: documento e endereço completos dependem do cadastro do fornecedor (dependência para a emissão real).')
+  }
+
+  return {
+    veiculoId, operacao, valor: Number(ve.valor_aquisicao ?? 0),
+    veiculo: {
+      id: ve.id, chassi: ve.chassi, placa: ve.placa, renavam: ve.renavam, marca: ve.marca, modelo: ve.modelo, versao: ve.versao,
+      anoFabricacao: ve.ano_fabricacao, anoModelo: ve.ano_modelo, cor: ve.cor, combustivel: ve.combustivel,
+      potenciaCv: num(ve.potencia_cv), cilindradas: num(ve.cilindradas), lugares: ve.lugares, kmAtual: num(ve.km_atual), ncm: ve.ncm,
+    },
+    remetente,
+    perfil: {
+      veicprodObrigatorioUsado: perfil.veicprod_obrigatorio_usado === true,
+      ncmPadrao: perfil.ncm_padrao ?? null,
+      operacao: {
+        cfopDentroUf: op.cfop_dentro_uf, cfopForaUf: op.cfop_fora_uf, cstOuCsosn: op.cst_ou_csosn, cbenef: op.cbenef ?? null,
+        reducaoBasePct: num(op.reducao_base_icms_pct), ibsCbsCst: op.ibs_cbs_cst ?? null, ibsCbsCClassTrib: op.ibs_cbs_cclasstrib ?? null,
+        naturezaOperacao: op.natureza_operacao ?? null, infComplementar: op.inf_complementar_texto ?? null,
+      },
+    },
+    avisos,
+  }
+}

@@ -9,7 +9,8 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { authFetch } from '@/lib/authFetch'
-import { X, Loader2, CheckCircle2, AlertCircle, Info, ExternalLink } from 'lucide-react'
+import { X, Loader2, CheckCircle2, AlertCircle, Info, ExternalLink, FileDown } from 'lucide-react'
+import { baixarEspelhoNFePdf, type EspelhoNota } from '@/lib/fiscal/espelhoPdf'
 import TomadorEnderecoPendente from '@/components/fiscal/TomadorEnderecoPendente'
 import { CAMPOS_CADASTRO_TOMADOR, escolherCadastroTomador, filtroCadastroTomador, type CadastroTomador } from '@/lib/fiscal/tomadorEndereco'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
@@ -191,6 +192,8 @@ export default function NFSeEmitirGovModal({
   const [fase, setFase] = useState<Fase>('form')
   const [resultado, setResultado] = useState<EmitirResp | null>(null)
   const [erroLocal, setErroLocal] = useState<string | null>(null)
+  // #9724 (decisão B) · COMPLEMENTO 0057bba0 · gerando o espelho (PDF prévia da NFS-e montada, sem transmitir)
+  const [baixandoEspelho, setBaixandoEspelho] = useState(false)
   // #32 fase 2 · local da execução (só quando iss_no_local) + bloqueios da porta única
   const [munIbge, setMunIbge] = useState(municipioPrestacaoIbge ?? '')
   const [munLabel, setMunLabel] = useState(municipioPrestacaoLabel ?? '')
@@ -583,6 +586,64 @@ export default function NFSeEmitirGovModal({
       .select('erp_receber_id').in('erp_receber_id', ids).in('status', ['autorizada', 'processando'])
     const usados = new Set((comNota ?? []).map((n) => (n as { erp_receber_id: string }).erp_receber_id))
     return ids.find((id) => !usados.has(id)) ?? ids[0]
+  }
+
+  // #9724 (decisão B) · COMPLEMENTO 0057bba0 · baixa o PDF da NFS-e MONTADA, marcado "PRÉVIA — SEM VALOR
+  // FISCAL". Chama /api/fiscal/nfse/emitir com apenasPrevia=true: o servidor monta e valida a MESMA nota que
+  // seria transmitida e devolve previa.nota — NÃO transmite, NÃO numera, NÃO grava e NÃO resolve/cria obra.
+  // Mesmo renderer (modelo 'nfse') e mesmo payload Focus do NFSePreviewModal/EmitirNFSeButton.
+  async function baixarEspelho() {
+    setErroLocal(null)
+    const valorNum = Number(valor.replace(/\./g, '').replace(',', '.'))
+    if (!descricao.trim()) { setErroLocal('Informe a descrição do serviço.'); return }
+    if (!isFinite(valorNum) || valorNum <= 0) { setErroLocal('Valor deve ser maior que zero.'); return }
+    if (!codigoTrib.trim()) { setErroLocal('Informe o código de tributação ISS.'); return }
+    const aliquotaNum = Number(aliquota.replace(',', '.')) || 0
+    setBaixandoEspelho(true)
+    try {
+      // leitura apenas (resolverReceberDoPedido não grava); sem criar obra — passa a obra já conhecida, se houver.
+      const erpReceberId = medicao ? undefined : await resolverReceberDoPedido()
+      const body: Record<string, unknown> = {
+        companyId,
+        servicoId: servicoIdEff,
+        codigoServicoTributacao: codigoTrib.trim() || undefined,
+        obraId: (obraId ?? obraIdEff) || undefined,
+        tipoRetencaoIss: issRetidoCadastro ? 2 : 1,
+        observacoes: observacoes.trim() || undefined,
+        ...(servicoIdEff && retNota ? { retencoesNota: retNota } : {}),
+        apenasPrevia: true,
+      }
+      if (erpReceberId) {
+        body.erpReceberId = erpReceberId
+        body.overrides = { descricaoServico: descricao.trim(), aliquotaIss: aliquotaNum, retemIss: issRetidoCadastro }
+      } else {
+        const docDig = soDigitos(tomDoc)
+        body.manual = {
+          descricaoServico: descricao.trim(),
+          valorServicos: valorNum,
+          aliquotaIss: aliquotaNum,
+          retemIss: issRetidoCadastro,
+          codigoServico: codigoTrib.trim() || undefined,
+          tomador: {
+            razaoSocial: tomNome.trim() || (tomTipo === 'CPF' ? 'Pessoa Física' : 'Pessoa Jurídica'),
+            cnpj: tomTipo === 'CNPJ' && docDig ? docDig : undefined,
+            cpf: tomTipo === 'CPF' && docDig ? docDig : undefined,
+            clienteId: tomClienteId ?? undefined,
+          },
+        }
+      }
+      const r = await authFetch('/api/fiscal/nfse/emitir', { method: 'POST', body: JSON.stringify(body) })
+      const json = (await r.json().catch(() => null)) as { ok?: boolean; previa?: { nota?: EspelhoNota }; mensagem?: string; motivoRejeicao?: string } | null
+      if (!r.ok || !json?.ok || !json.previa?.nota) {
+        setErroLocal(json?.mensagem ?? json?.motivoRejeicao ?? 'Não foi possível gerar a prévia da nota.')
+        return
+      }
+      await baixarEspelhoNFePdf(json.previa.nota, { empresa: null, emitidoEmISO: new Date().toISOString(), modelo: 'nfse' })
+    } catch (e) {
+      setErroLocal(e instanceof Error ? e.message : 'Erro ao gerar a prévia em PDF.')
+    } finally {
+      setBaixandoEspelho(false)
+    }
   }
 
   async function emitir() {
@@ -1289,6 +1350,20 @@ export default function NFSeEmitirGovModal({
                   <span>{erroLocal}</span>
                 </div>
               )}
+
+              {/* #9724 (decisão B) · COMPLEMENTO 0057bba0 · conferir antes de emitir: baixa o espelho (PDF)
+                  da NFS-e montada, sem transmitir, sem numerar e sem gravar. Mesmo botão do NFSePreviewModal. */}
+              <button
+                type="button"
+                onClick={baixarEspelho}
+                disabled={fase === 'enviando' || baixandoEspelho}
+                data-testid="nfse-os-baixar-espelho"
+                title="Baixa um PDF da nota de serviço montada, marcado como PRÉVIA — SEM VALOR FISCAL. Não transmite, não numera e não grava — é só para conferência."
+                className="w-full px-4 py-2.5 text-[13px] font-medium rounded-lg border border-[#C8941A]/50 text-[#8A4B08] hover:bg-[#FAEEDA] disabled:opacity-40 flex items-center justify-center gap-1.5"
+              >
+                {baixandoEspelho ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />}
+                {baixandoEspelho ? 'Gerando prévia…' : 'Baixar espelho (PDF)'}
+              </button>
 
               <div className="border-t border-[#3D2314]/10 pt-4 flex gap-3">
                 <button

@@ -293,12 +293,12 @@ export default function FuncionariosPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ backgroundColor: C.beigeLt }}>
-                  <Th>Nome</Th>
-                  <Th>CPF</Th>
-                  <Th>Vínculo</Th>
-                  <Th>Cargo / Setor</Th>
-                  {multiEmpresa && <Th>Empresa</Th>}
-                  <Th>Tomadora</Th>
+                  <Th>Nome <AjudaCampo chave="compliance.funcionarios.col_nome" rota={ROTA} /></Th>
+                  <Th>CPF <AjudaCampo chave="compliance.funcionarios.col_cpf" rota={ROTA} /></Th>
+                  <Th>Vínculo <AjudaCampo chave="compliance.funcionarios.col_vinculo" rota={ROTA} /></Th>
+                  <Th>Cargo / Setor <AjudaCampo chave="compliance.funcionarios.col_cargo_setor" rota={ROTA} /></Th>
+                  {multiEmpresa && <Th>Empresa <AjudaCampo chave="compliance.funcionarios.col_empresa" rota={ROTA} /></Th>}
+                  <Th>Tomadora <AjudaCampo chave="compliance.funcionarios.col_tomadora" rota={ROTA} /></Th>
                   <Th>EHS <AjudaCampo chave="compliance.funcionarios.col_compliance" rota={ROTA} /></Th>
                   <Th>Ações <AjudaCampo chave="compliance.funcionarios.col_acoes" rota={ROTA} /></Th>
                 </tr>
