@@ -1,11 +1,12 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Loader2, FileCheck, AlertTriangle, X, ExternalLink } from 'lucide-react'
+import { Loader2, FileCheck, AlertTriangle, X, ExternalLink, FileDown } from 'lucide-react'
 import { authFetch } from '@/lib/authFetch'
 import { supabase } from '@/lib/supabase'
 import CepEndereco from '@/components/comum/CepEndereco'
 import { esperaConsulta, AVISO_PROCESSANDO } from '@/lib/fiscal/consultaRetorno'
+import { baixarEspelhoNFePdf, type EspelhoNota } from '@/lib/fiscal/espelhoPdf'
 
 interface Props {
   open: boolean
@@ -50,6 +51,8 @@ export default function NFSePreviewModal(props: Props) {
   const [infoCompl, setInfoCompl] = useState('')
   const [resposta, setResposta] = useState<RespostaEmissao | null>(null)
   const [erro, setErro] = useState<string | null>(null)
+  // #9724 (decisão B) · gerando o espelho (PDF prévia, sem transmitir)
+  const [baixandoEspelho, setBaixandoEspelho] = useState(false)
   // receber-nfse-seletor-servico-v1: lista de servicos da empresa
   const [servicos, setServicos] = useState<ServicoOpt[]>([])
   const [servicoId, setServicoId] = useState<string>('')
@@ -218,6 +221,59 @@ export default function NFSePreviewModal(props: Props) {
       }
     } catch {
       pollStatus(nfseId, attempt + 1)
+    }
+  }
+
+  // #9724 (decisão B) · baixa o PDF da nota de serviço MONTADA, marcado "PRÉVIA — SEM VALOR FISCAL".
+  // Chama a emissão com apenasPrevia=true: o servidor monta e valida a mesma NFS-e que seria transmitida,
+  // mas NÃO transmite, NÃO numera e NÃO grava — devolve previa.nota, que o renderer desenha (modelo 'nfse').
+  // Não resolve/cria obra aqui (isso é só da emissão real); manda o endereço digitado para o servidor conferir.
+  async function baixarEspelho() {
+    setErro(null)
+    setBaixandoEspelho(true)
+    try {
+      const r = await authFetch('/api/fiscal/nfse/emitir', {
+        method: 'POST',
+        body: JSON.stringify({
+          companyId: props.companyId,
+          erpReceberId: props.erpReceberId,
+          servicoId,
+          ...(subitens.length > 0 ? {
+            codigoServicoTributacao: subitem || undefined,
+            obra: {
+              cno: obra.cno.trim() || undefined,
+              logradouro: obra.logradouro.trim() || undefined,
+              numero: obra.numero.trim() || undefined,
+              bairro: obra.bairro.trim() || undefined,
+              cep: obra.cep.trim() || undefined,
+              uf: obra.uf.trim() || undefined,
+              codigoMunicipio: obra.municipio.trim() || undefined,
+            },
+          } : {}),
+          overrides: {
+            descricaoServico: descricao,
+            aliquotaIss: parseFloat(aliquota),
+            retemIss: tipoRetencao !== '1',
+          },
+          tipoRetencaoIss: Number(tipoRetencao),
+          ...(infoCompl.trim() ? { observacoes: infoCompl.trim() } : {}),
+          apenasPrevia: true,
+        }),
+      })
+      const json = (await r.json()) as { ok?: boolean; previa?: { nota?: EspelhoNota }; mensagem?: string; motivoRejeicao?: string }
+      if (!r.ok || !json.ok || !json.previa?.nota) {
+        setErro(json.mensagem ?? json.motivoRejeicao ?? 'Não foi possível gerar a prévia da nota.')
+        return
+      }
+      await baixarEspelhoNFePdf(json.previa.nota, {
+        empresa: null,
+        emitidoEmISO: new Date().toISOString(),
+        modelo: 'nfse',
+      })
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao gerar a prévia em PDF.')
+    } finally {
+      setBaixandoEspelho(false)
     }
   }
 
@@ -493,6 +549,18 @@ export default function NFSePreviewModal(props: Props) {
                   <span>{erro}</span>
                 </div>
               )}
+              {/* #9724 (decisão B) · conferir antes de emitir: baixa o espelho (PDF) da nota montada, sem transmitir */}
+              <button
+                type="button"
+                onClick={baixarEspelho}
+                disabled={!podeEmitir || baixandoEspelho}
+                data-testid="nfse-baixar-espelho"
+                title="Baixa um PDF da nota de serviço montada, marcado como PRÉVIA — SEM VALOR FISCAL. Não transmite, não numera e não grava — é só para conferência."
+                className="w-full px-4 py-2.5 text-[13px] font-medium rounded-lg border border-[#C8941A]/50 text-[#8A4B08] hover:bg-[#FAEEDA] disabled:opacity-40 flex items-center justify-center gap-1.5"
+              >
+                {baixandoEspelho ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />}
+                {baixandoEspelho ? 'Gerando prévia…' : 'Baixar espelho (PDF)'}
+              </button>
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"

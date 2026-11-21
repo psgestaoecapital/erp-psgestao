@@ -9,6 +9,26 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { authFetch } from '@/lib/authFetch'
 import { erroAmigavel } from '@/lib/erroAmigavel'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+// Rótulo amigável em PT para os domínios do de-para (atak_fonte_mapa.dominio vem em snake_case técnico).
+// Mantém a CHAVE interna (title no chip) e exibe um nome que o usuário entende. Fallback: prettify do próprio código.
+const DOMINIO_ROTULO: Record<string, string> = {
+  comercial_faturamento: 'Faturamento (vendas)',
+  comercial_nota: 'Notas fiscais de venda',
+  comercial_pedido: 'Pedidos de venda',
+  estoque_posicao: 'Posição de estoque',
+  estoque_movimento: 'Movimentações de estoque',
+  compras_nota: 'Notas fiscais de compra',
+  compras_pedido: 'Pedidos de compra',
+  financeiro_receber: 'Contas a receber',
+  financeiro_pagar: 'Contas a pagar',
+  producao: 'Produção',
+  cadastro_produto: 'Produtos (cadastro)',
+  cadastro_cliente: 'Clientes (cadastro)',
+  cadastro_fornecedor: 'Fornecedores (cadastro)',
+}
+const rotuloDominio = (d: string) => DOMINIO_ROTULO[d] ?? d.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 
 const C = { bg: '#FAF7F2', card: '#FFFFFF', card2: '#F5EFE4', bd: '#E7DECF', go: '#C8941A', gol: '#A57A15', tx: '#3D2314', txm: '#6B5D4F', txd: '#9C8E80', g: '#16A34A', r: '#B91C1C', y: '#B45309', b: '#2563EB' }
 
@@ -278,36 +298,45 @@ export default function ConectoresIndustrialPage() {
       {/* FORMULÁRIO */}
       {empresaUnica && (
         <div style={{ background: C.card, border: '1px solid ' + C.bd, borderRadius: 10, padding: 16, marginTop: 12 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Conexão ATAK / Frigosoft (SQL Server)</div>
+          {/* RD-100: título visível em termo genérico (sem nome de sistema de terceiros). Os identificadores
+              técnicos NÃO visíveis — binário agente-atak.exe, RPCs fn_atak_*, serviço "PS Agente ATAK", nome do
+              banco SATKFRIOESTE — são preservados por exigência do provedor/instalador (exceção RD-100). */}
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Conexão com o sistema do cliente (SQL Server)</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
-            <div><div style={lbl}>Host / IP</div><input style={inp} value={f.host} onChange={(e) => setF({ ...f, host: e.target.value })} placeholder="192.168.20.77" /></div>
-            <div><div style={lbl}>Porta</div><input style={inp} type="number" value={f.porta} onChange={(e) => setF({ ...f, porta: Number(e.target.value) })} /></div>
-            <div><div style={lbl}>Banco</div><input style={inp} value={f.banco} onChange={(e) => setF({ ...f, banco: e.target.value })} placeholder="SATKFRIOESTE" /></div>
-            <div><div style={lbl}>Cód. filial</div><input style={inp} value={f.cod_filial} onChange={(e) => setF({ ...f, cod_filial: e.target.value })} /></div>
-            <div><div style={lbl}>Usuário</div><input style={inp} value={f.usuario} onChange={(e) => setF({ ...f, usuario: e.target.value })} placeholder="usuario_leitura" /></div>
-            <div><div style={lbl}>Senha (opcional — o TI preenche no .env local)</div>
-              <input style={inp} type="password" value={f.senha} onChange={(e) => setF({ ...f, senha: e.target.value })} placeholder="fica na máquina do cliente" autoComplete="new-password" /></div>
-            <div><div style={lbl}>Coletar a cada (min)</div><input style={inp} type="number" value={f.sync_minuto} onChange={(e) => setF({ ...f, sync_minuto: Number(e.target.value) })} /></div>
+            <label style={{ display: 'block' }}><div style={lbl}>Host / IP <AjudaCampo chave="conectores.atak_host" /></div><input style={inp} value={f.host} onChange={(e) => setF({ ...f, host: e.target.value })} placeholder="192.168.20.77" /></label>
+            <label style={{ display: 'block' }}><div style={lbl}>Porta <AjudaCampo chave="conectores.atak_porta" /></div><input style={inp} type="number" value={f.porta} onChange={(e) => setF({ ...f, porta: Number(e.target.value) })} /></label>
+            <label style={{ display: 'block' }}><div style={lbl}>Banco <AjudaCampo chave="conectores.atak_banco" /></div><input style={inp} value={f.banco} onChange={(e) => setF({ ...f, banco: e.target.value })} placeholder="SATKFRIOESTE" /></label>
+            <label style={{ display: 'block' }}><div style={lbl}>Cód. filial <AjudaCampo chave="conectores.atak_cod_filial" /></div><input style={inp} value={f.cod_filial} onChange={(e) => setF({ ...f, cod_filial: e.target.value })} /></label>
+            <label style={{ display: 'block' }}><div style={lbl}>Usuário <AjudaCampo chave="conectores.atak_usuario" /></div><input style={inp} value={f.usuario} onChange={(e) => setF({ ...f, usuario: e.target.value })} placeholder="usuario_leitura" /></label>
+            <label style={{ display: 'block' }}><div style={lbl}>Senha (opcional — o TI preenche na máquina local) <AjudaCampo chave="conectores.atak_senha" /></div>
+              <input style={inp} type="password" value={f.senha} onChange={(e) => setF({ ...f, senha: e.target.value })} placeholder="fica na máquina do cliente" autoComplete="new-password" /></label>
+            <label style={{ display: 'block' }}><div style={lbl}>Coletar a cada (min) <AjudaCampo chave="conectores.atak_sync_minuto" /></div><input style={inp} type="number" value={f.sync_minuto} onChange={(e) => setF({ ...f, sync_minuto: Number(e.target.value) })} /></label>
           </div>
 
           <div style={{ marginTop: 12 }}>
-            <div style={lbl}>Domínios a coletar</div>
+            <div style={lbl}>Domínios a coletar <AjudaCampo chave="conectores.atak_dominios" /></div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {dominiosDisp.length === 0 && <span style={{ fontSize: 11, color: C.txd }}>Nenhum domínio no de-para (atak_fonte_mapa).</span>}
+              {dominiosDisp.length === 0 && <span style={{ fontSize: 11, color: C.txd }}>Nenhuma área de dados configurada para esta conexão ainda.</span>}
               {dominiosDisp.map((d) => {
                 const on = doms.has(d)
-                return <button key={d} onClick={() => toggleDom(d)} style={{ padding: '5px 12px', borderRadius: 999, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: '1px solid ' + (on ? C.go : C.bd), background: on ? C.go + '18' : 'transparent', color: on ? C.gol : C.txm }}>{on ? '✓ ' : ''}{d}</button>
+                return <button key={d} title={d} onClick={() => toggleDom(d)} style={{ padding: '5px 12px', borderRadius: 999, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: '1px solid ' + (on ? C.go : C.bd), background: on ? C.go + '18' : 'transparent', color: on ? C.gol : C.txm }}>{on ? '✓ ' : ''}{rotuloDominio(d)}</button>
               })}
             </div>
           </div>
 
           <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap', alignItems: 'center' }}>
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.txm, cursor: 'pointer' }}>
-              <input type="checkbox" checked={f.ativo} onChange={(e) => setF({ ...f, ativo: e.target.checked })} /> Conexão ativa
+              <input type="checkbox" checked={f.ativo} onChange={(e) => setF({ ...f, ativo: e.target.checked })} /> Conexão ativa <AjudaCampo chave="conectores.atak_ativo" />
             </label>
             <div style={{ flex: 1 }} />
-            <button onClick={salvar} disabled={busy === 'salvar'} style={{ padding: '9px 18px', borderRadius: 6, border: 'none', background: C.go, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', opacity: busy === 'salvar' ? 0.6 : 1 }}>{busy === 'salvar' ? 'Salvando…' : 'Salvar conexão'}</button>
-            <button onClick={testar} disabled={busy === 'testar' || !dados?.conexao} title={!dados?.conexao ? 'Salve a conexão primeiro' : 'O Agente PS executa o SELECT 1 na rede do cliente'} style={{ padding: '9px 18px', borderRadius: 6, border: '1px solid ' + C.b, background: 'transparent', color: C.b, fontSize: 12, fontWeight: 700, cursor: dados?.conexao ? 'pointer' : 'not-allowed', opacity: (busy === 'testar' || !dados?.conexao) ? 0.55 : 1 }}>{busy === 'testar' ? 'Solicitando…' : 'Testar conexão'}</button>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+              <button onClick={salvar} disabled={busy === 'salvar'} style={{ padding: '9px 18px', borderRadius: 6, border: 'none', background: C.go, color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', opacity: busy === 'salvar' ? 0.6 : 1 }}>{busy === 'salvar' ? 'Salvando…' : 'Salvar conexão'}</button>
+              <AjudaCampo chave="conectores.atak_salvar" />
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+              <button onClick={testar} disabled={busy === 'testar' || !dados?.conexao} title={!dados?.conexao ? 'Salve a conexão primeiro' : 'O Agente PS executa o teste de conexão na rede do cliente'} style={{ padding: '9px 18px', borderRadius: 6, border: '1px solid ' + C.b, background: 'transparent', color: C.b, fontSize: 12, fontWeight: 700, cursor: dados?.conexao ? 'pointer' : 'not-allowed', opacity: (busy === 'testar' || !dados?.conexao) ? 0.55 : 1 }}>{busy === 'testar' ? 'Solicitando…' : 'Testar conexão'}</button>
+              <AjudaCampo chave="conectores.atak_testar" />
+            </span>
           </div>
 
           {/* resultado do teste (mediado pelo agente) */}
@@ -343,7 +372,7 @@ export default function ConectoresIndustrialPage() {
       {/* Instalar o Agente PS — 1 clique gera o .zip completo (RD-41) */}
       {empresaUnica && (
         <div style={{ background: C.card, border: '1px solid ' + C.bd, borderRadius: 10, padding: 16, marginTop: 12 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Instalar o Agente PS</div>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Instalar o Agente PS <AjudaCampo chave="conectores.atak_gerar_instalador" /></div>
           <div style={{ fontSize: 11, color: C.txm, marginBottom: 12, lineHeight: 1.5 }}>
             Gere o instalador desta empresa (1 clique), baixe o <b>.zip</b> e mande pro TI. Dentro vão o executável,
             a configuração com o <b>token desta empresa</b> e o guia. A <b>senha do SQL Server</b> o TI digita 1× na

@@ -224,7 +224,7 @@ export default function CentrosCustoPage() {
             <th style={th}><span style={thWrap}>Tipo <AjudaCampo chave="ge.centros_custo.col_tipo" /></span></th>
             <th style={th}><span style={thWrap}>Linha <AjudaCampo chave="ge.centros_custo.col_linha" /></span></th>
             {usaLotes && <th style={th}><span style={thWrap}>Lote (se direto) <AjudaCampo chave="ge.centros_custo.col_lote" /></span></th>}
-            <th style={th}></th>
+            <th style={th}><span style={thWrap}>Ações <AjudaCampo chave="ge.centros_custo.col_acoes" /></span></th>
           </tr></thead>
           <tbody>
             {visiveis.map((r) => {
@@ -257,9 +257,9 @@ export default function CentrosCustoPage() {
                   )}
                   <td style={td}>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      <button onClick={() => void salvar(r.valor_origem)} style={btnPri}>Salvar</button>
-                      {r.mapeado && r.ativo && <button onClick={() => void excluir(r)} style={btnDel} title={r.ocorrencias > 0 ? 'Em uso — será inativado' : 'Excluir mapeamento'}>{r.ocorrencias > 0 ? 'Inativar' : 'Excluir'}</button>}
-                      {r.mapeado && !r.ativo && <button onClick={() => void reativar(r)} style={btnSec}>Reativar</button>}
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}><button onClick={() => void salvar(r.valor_origem)} style={btnPri}>Salvar</button><AjudaCampo chave="ge.centros_custo.acao_salvar" /></span>
+                      {r.mapeado && r.ativo && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}><button onClick={() => void excluir(r)} style={btnDel} title={r.ocorrencias > 0 ? 'Em uso — será inativado' : 'Excluir mapeamento'}>{r.ocorrencias > 0 ? 'Inativar' : 'Excluir'}</button><AjudaCampo chave="ge.centros_custo.acao_excluir" /></span>}
+                      {r.mapeado && !r.ativo && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}><button onClick={() => void reativar(r)} style={btnSec}>Reativar</button><AjudaCampo chave="ge.centros_custo.acao_reativar" /></span>}
                     </div>
                   </td>
                 </tr>

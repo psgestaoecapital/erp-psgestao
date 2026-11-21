@@ -28,8 +28,10 @@ type Pendencia = {
 
 const brl = (v: number | null) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const data = (s: string | null) => (s ? new Date(s).toLocaleDateString('pt-BR') : '—')
+// Design system PS (RD-96): espresso #3D2314 / off-white #FAF7F2 / dourado #C8941A / linha #E7DECF.
+// Verde/vermelho só sinalizam estado (comprada = concluída; urgente = alerta), não são cor de marca.
 const COR: Record<Situacao, string> = {
-  pendente: 'bg-amber-50 text-amber-800', em_cotacao: 'bg-sky-50 text-sky-800', comprada: 'bg-emerald-50 text-emerald-800',
+  pendente: 'bg-[#C8941A]/15 text-[#8A6A12]', em_cotacao: 'bg-[#3D2314]/10 text-[#3D2314]', comprada: 'bg-[#5C8D3F]/15 text-[#4A7233]',
 }
 
 export default function PendenciasCompraPage() {
@@ -79,50 +81,59 @@ export default function PendenciasCompraPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-4 md:p-8">
+    <div className="mx-auto min-h-full max-w-4xl space-y-6 bg-[#FAF7F2] p-4 md:p-8">
       <header className="flex items-start gap-3">
-        <ShoppingCart className="mt-1 h-7 w-7 text-emerald-600" />
+        <ShoppingCart className="mt-1 h-7 w-7 text-[#C8941A]" />
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Pendências de compra</h1>
-          <p className="mt-1 text-sm text-gray-600">Compras aprovadas esperando o comprador: gere a cotação, compare os fornecedores e feche o pedido.</p>
+          <h1 className="text-2xl font-semibold text-[#3D2314]">Pendências de compra</h1>
+          <p className="mt-1 text-sm text-[#3D2314]/70">Compras aprovadas esperando o comprador: gere a cotação, compare os fornecedores e feche o pedido.</p>
         </div>
       </header>
 
-      {!empresa && <p className="rounded-lg bg-amber-50 p-4 text-sm text-amber-800">Escolha uma empresa no topo da tela.</p>}
-      {msg && <p className={`rounded-lg p-3 text-sm ${msg.tipo === 'ok' ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-700'}`}>{msg.texto}</p>}
+      {!empresa && <p className="rounded-lg border border-[#C8941A]/40 bg-[#C8941A]/10 p-4 text-sm text-[#3D2314]">Escolha uma empresa no topo da tela.</p>}
+      {msg && <p className={`rounded-lg p-3 text-sm ${msg.tipo === 'ok' ? 'bg-[#5C8D3F]/10 text-[#4A7233]' : 'bg-[#C44536]/10 text-[#C44536]'}`}>{msg.texto}</p>}
 
       {empresa && (
         <>
           <div className="flex flex-wrap items-center gap-2">
             {FILTROS_PENDENCIA.map((f) => (
               <button key={f.id} type="button" onClick={() => setFiltro(f.id)}
-                className={`rounded-full border px-3 py-1.5 text-sm ${filtro === f.id ? 'border-emerald-600 bg-emerald-50 font-semibold text-emerald-800' : 'border-gray-300 text-gray-700'}`}>
+                className={`rounded-full border px-3 py-1.5 text-sm ${filtro === f.id ? 'border-[#C8941A] bg-[#C8941A]/10 font-semibold text-[#3D2314]' : 'border-[#E7DECF] text-[#3D2314]/80'}`}>
                 {f.rotulo}{f.id !== 'todas' && contagem[f.id] ? ` (${contagem[f.id]})` : ''}
               </button>
             ))}
             <AjudaCampo chave="compras.pend.filtro_situacao" />
           </div>
 
-          {loading && <p className="flex items-center gap-2 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Carregando…</p>}
-          {!loading && visiveis.length === 0 && <p className="rounded-lg bg-gray-50 p-4 text-sm text-gray-600">Nenhuma compra nesta situação.</p>}
+          {loading && <p className="flex items-center gap-2 text-sm text-[#3D2314]/60"><Loader2 className="h-4 w-4 animate-spin" /> Carregando…</p>}
+          {!loading && visiveis.length === 0 && <p className="rounded-lg border border-[#E7DECF] bg-white p-4 text-sm text-[#3D2314]/70">Nenhuma compra nesta situação.</p>}
 
           <ul className="space-y-3">
             {visiveis.map((p) => (
-              <li key={p.id} className="rounded-2xl border border-gray-200 bg-white shadow-sm">
+              <li key={p.id} className="rounded-2xl border border-[#E7DECF] bg-white shadow-sm">
                 <div className="flex flex-wrap items-center justify-between gap-3 p-4">
                   <button type="button" onClick={() => setAberta(aberta === p.id ? null : p.id)} className="min-w-0 flex-1 text-left">
-                    <p className="font-semibold text-gray-900">#{p.numero} · {p.titulo} {p.urgente && <span className="ml-1 rounded bg-red-50 px-1.5 py-0.5 text-xs text-red-700">urgente</span>}</p>
-                    <p className="text-xs text-gray-500">
+                    <p className="font-semibold text-[#3D2314]">#{p.numero} · {p.titulo}</p>
+                    <p className="text-xs text-[#3D2314]/60">
                       {p.solicitante_nome ?? '—'} · aprovada por {p.aprovado_por_nome ?? '—'} em {data(p.decidido_em)} · {p.itens.length} item(ns)
                       {p.cotacao ? ` · cotação ${p.cotacao.numero} (${p.cotacao.fornecedores} fornecedor(es))` : ''}
                     </p>
                   </button>
                   <div className="flex items-center gap-2">
-                    <span className={`rounded-full px-3 py-1 text-xs font-medium ${COR[p.situacao]}`}>{SITUACAO_ROTULO[p.situacao]}</span>
+                    {p.urgente && (
+                      <span className="inline-flex items-center gap-1">
+                        <span className="rounded px-1.5 py-0.5 text-xs font-medium bg-[#C44536]/10 text-[#C44536]">urgente</span>
+                        <AjudaCampo chave="compras.pend.urgente" />
+                      </span>
+                    )}
+                    <span className="inline-flex items-center gap-1">
+                      <span className={`rounded-full px-3 py-1 text-xs font-medium ${COR[p.situacao]}`}>{SITUACAO_ROTULO[p.situacao]}</span>
+                      <AjudaCampo chave="compras.pend.situacao" />
+                    </span>
                     {p.cotacao ? (
                       <>
                         <button type="button" onClick={() => router.push(linkCotacao(p.cotacao!.id))}
-                          className="inline-flex items-center gap-1 rounded-lg border border-emerald-600 px-3 py-2 text-sm text-emerald-700">
+                          className="inline-flex items-center gap-1 rounded-lg border border-[#C8941A] px-3 py-2 text-sm font-medium text-[#3D2314] hover:bg-[#C8941A]/10">
                           <ExternalLink className="h-4 w-4" /> Abrir cotação
                         </button>
                         <AjudaCampo chave="compras.pend.abrir_cotacao" />
@@ -130,7 +141,7 @@ export default function PendenciasCompraPage() {
                     ) : (
                       <>
                         <button type="button" disabled={ocupado === p.id} onClick={() => gerarCotacao(p)}
-                          className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                          className="inline-flex items-center gap-1 rounded-lg bg-[#C8941A] px-3 py-2 text-sm font-semibold text-[#3D2314] hover:bg-[#b5840f] disabled:opacity-60">
                           {ocupado === p.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />} Gerar cotação
                         </button>
                         <AjudaCampo chave="compras.pend.gerar_cotacao" />
@@ -140,7 +151,7 @@ export default function PendenciasCompraPage() {
                 </div>
 
                 {p.cotacao?.compra && (
-                  <p className="flex flex-wrap items-center gap-1 border-t border-gray-100 px-4 py-2 text-sm text-emerald-800">
+                  <p className="flex flex-wrap items-center gap-1 border-t border-[#E7DECF] px-4 py-2 text-sm text-[#3D2314]">
                     Pedido {p.cotacao.compra.numero ?? ''} — {p.cotacao.compra.fornecedor_nome ?? '—'} — {brl(p.cotacao.compra.total)}
                     <AjudaCampo chave="compras.pend.pedido" />
                     <span className="ml-auto"><BotaoOrdemFornecimento compraId={p.cotacao.compra.id} /></span>
@@ -148,30 +159,30 @@ export default function PendenciasCompraPage() {
                 )}
 
                 {aberta === p.id && (
-                  <div className="space-y-4 border-t border-gray-100 p-4">
-                    {p.justificativa && <p className="text-sm text-gray-700"><span className="font-medium">Justificativa:</span> {p.justificativa}</p>}
-                    {p.decisao_motivo && <p className="text-sm text-gray-700"><span className="font-medium">Observação do aprovador:</span> {p.decisao_motivo}</p>}
+                  <div className="space-y-4 border-t border-[#E7DECF] p-4">
+                    {p.justificativa && <p className="text-sm text-[#3D2314]/80"><span className="font-medium text-[#3D2314]">Justificativa:</span> {p.justificativa}</p>}
+                    {p.decisao_motivo && <p className="text-sm text-[#3D2314]/80"><span className="font-medium text-[#3D2314]">Observação do aprovador:</span> {p.decisao_motivo}</p>}
                     <div>
-                      <p className="text-sm font-medium text-gray-800">Itens</p>
-                      <ul className="mt-1 divide-y divide-gray-100 text-sm">
+                      <p className="text-sm font-medium text-[#3D2314]">Itens</p>
+                      <ul className="mt-1 divide-y divide-[#E7DECF] text-sm">
                         {p.itens.map((i) => (
-                          <li key={i.id} className="flex justify-between gap-2 py-1.5">
+                          <li key={i.id} className="flex justify-between gap-2 py-1.5 text-[#3D2314]">
                             <span>{i.descricao}</span>
-                            <span className="whitespace-nowrap text-gray-700">{Number(i.quantidade).toLocaleString('pt-BR')} {i.unidade ?? ''}</span>
+                            <span className="whitespace-nowrap text-[#3D2314]/70">{Number(i.quantidade).toLocaleString('pt-BR')} {i.unidade ?? ''}</span>
                           </li>
                         ))}
                       </ul>
                     </div>
                     <div>
-                      <p className="flex items-center gap-1 text-sm font-medium text-gray-800">Orçamentos da solicitação <AjudaCampo chave="compras.pend.orcamentos" /></p>
-                      {p.orcamentos.length === 0 && <p className="mt-1 text-sm text-gray-500">Compra urgente, sem orçamentos anexados.</p>}
-                      <ul className="mt-1 divide-y divide-gray-100 text-sm">
+                      <p className="flex items-center gap-1 text-sm font-medium text-[#3D2314]">Orçamentos da solicitação <AjudaCampo chave="compras.pend.orcamentos" /></p>
+                      {p.orcamentos.length === 0 && <p className="mt-1 text-sm text-[#3D2314]/60">Compra urgente, sem orçamentos anexados.</p>}
+                      <ul className="mt-1 divide-y divide-[#E7DECF] text-sm">
                         {p.orcamentos.map((o) => (
-                          <li key={o.id} className="flex flex-wrap items-center justify-between gap-2 py-1.5">
-                            <span>{o.fornecedor_nome}{o.prazo_entrega ? <span className="text-gray-500"> · {o.prazo_entrega}</span> : null}</span>
+                          <li key={o.id} className="flex flex-wrap items-center justify-between gap-2 py-1.5 text-[#3D2314]">
+                            <span>{o.fornecedor_nome}{o.prazo_entrega ? <span className="text-[#3D2314]/60"> · {o.prazo_entrega}</span> : null}</span>
                             <span className="flex items-center gap-2">
                               <span className="font-medium">{brl(Number(o.valor_total))}</span>
-                              {o.arquivo_path && <button type="button" onClick={() => abrirArquivo(o.arquivo_path!)} className="inline-flex items-center gap-1 text-emerald-700 underline"><Paperclip className="h-3.5 w-3.5" />{o.arquivo_nome ?? 'arquivo'}</button>}
+                              {o.arquivo_path && <button type="button" onClick={() => abrirArquivo(o.arquivo_path!)} className="inline-flex items-center gap-1 text-[#C8941A] underline"><Paperclip className="h-3.5 w-3.5" />{o.arquivo_nome ?? 'arquivo'}</button>}
                             </span>
                           </li>
                         ))}

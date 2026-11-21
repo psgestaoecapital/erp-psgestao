@@ -30,7 +30,13 @@ ok(/router\.push\(linkCotacao\(/.test(tela), 'Gerar/Abrir cotação leva à tela
 ok(/useSearchParams\(\)\.get\('cotacao'\)/.test(cotacoes) && /setCotSel\(alvo\)/.test(cotacoes), 'tela de Cotações abre a cotação do link')
 const chaves = [...tela.matchAll(/<AjudaCampo chave="([^"]+)"/g)].map((m) => m[1])
 ok(chaves.length >= 5, `tela tem "?" no filtro, nas ações e nos blocos (${chaves.length})`)
-for (const c of new Set(chaves)) ok(mig.includes(`'${c}'`), `chave de ajuda cadastrada: ${c}`)
+// RD-95: a chave de ajuda pode ter sido cadastrada na migration original (…_comprador.sql) OU numa
+// migration aditiva posterior das pendências (ex.: situação/urgente). Procuramos em todas elas.
+const migsAjuda = readdirSync('supabase/migrations')
+  .filter((f) => f.includes('compras_pendencias'))
+  .map((f) => readFileSync(`supabase/migrations/${f}`, 'utf8'))
+  .join('\n')
+for (const c of new Set(chaves)) ok(migsAjuda.includes(`'${c}'`), `chave de ajuda cadastrada: ${c}`)
 
 const semCom = mig.replace(/--[^\n]*/g, '')
 const corpo = (f: string) => semCom.slice(semCom.indexOf(`FUNCTION public.${f}(`), semCom.indexOf('END $$', semCom.indexOf(`FUNCTION public.${f}(`)))

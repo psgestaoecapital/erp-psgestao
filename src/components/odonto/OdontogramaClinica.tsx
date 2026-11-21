@@ -6,6 +6,7 @@
 // _plano_aprovar_financeiro / _odontograma_estado). Usado em Orçamentos (montar) e Tratamentos (executar).
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { parseNumBR } from '@/lib/num'
 import { CardOdonto, TOK } from './ui'
 import { Odontograma, grupoDentes, FACES, FACE_LABEL, type Face } from './Odontograma'
 
@@ -100,7 +101,7 @@ export function OdontogramaClinica({ companyId, pacienteId, onMudou }: { company
   // 💡 sugestão de preço vem do catálogo; se 0 → dentista define
   useEffect(() => { if (procSel && !fValor) setFValor(procSel.valor && procSel.valor > 0 ? String(procSel.valor) : '') }, [procSel]) // eslint-disable-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
 
-  const parseVal = (s: string) => { const n = Number(s.replace(/\./g, '').replace(',', '.')); return Number.isFinite(n) ? n : 0 }
+  const parseVal = (s: string) => parseNumBR(s) ?? 0
 
   const salvarPlano = async (novos: Item[]) => {
     const payloadItens = novos.map((i, ix) => ({
@@ -306,7 +307,7 @@ function AprovarModal({ planoId, total, onClose, onAprovado }: {
   }, [])
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
-  const parse = (s: string) => { const n = Number(s.replace(/\./g, '').replace(',', '.')); return Number.isFinite(n) ? n : 0 }
+  const parse = (s: string) => parseNumBR(s) ?? 0
 
   const aprovar = async () => {
     setBusy(true); setErro(null)

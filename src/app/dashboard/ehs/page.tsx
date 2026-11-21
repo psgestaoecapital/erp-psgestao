@@ -10,6 +10,9 @@ import { EhsCabecalho } from '@/components/ps-ehs/componentes'
 import { EhsCockpit, type EhsPapel } from '@/components/ps-ehs/cockpit'
 import { EHS } from '@/components/ps-ehs/tokens'
 import { tEhs } from '@/components/ps-ehs/i18n'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA = '/dashboard/ehs'
 
 const C = {
   espresso: '#3D2314',
@@ -57,6 +60,8 @@ export default function ComplianceDashboardPage() {
   const [docsVencendo, setDocsVencendo] = useState(0)
   const [docsVencidos, setDocsVencidos] = useState(0)
   const [docsValidos, setDocsValidos] = useState(0)
+  const [docsNaoEmitidos, setDocsNaoEmitidos] = useState(0)
+  const [docsSemValidade, setDocsSemValidade] = useState(0)
   const [alertas, setAlertas] = useState<Alerta[]>([])
 
   // useCompanyIds devolve um array novo a cada render — depender da referência
@@ -91,24 +96,37 @@ export default function ComplianceDashboardPage() {
       const vencendo = ativosObrig.filter((x) => x.status_final === 'vencendo').length
       const vencidos = ativosObrig.filter((x) => x.status_final === 'vencido').length
       const validos = ativosObrig.filter((x) => x.status_final === 'valido').length
+      // "Não emitido" = obrigação sem nenhum documento — o risco mais grave de SST e o que
+      // o painel antigo escondia (ficava fora do % em dia). Entra no total e vira alerta.
+      const naoEmitidos = ativosObrig.filter((x) => x.status_final === 'nao_emitido').length
+      const semValidade = ativosObrig.filter((x) => x.status_final === 'sem_validade').length
 
-      // 10 alertas mais urgentes (vencidos primeiro, depois vencendo mais próximos)
-      const { data: urgentes } = await supabase
-        .from('v_compliance_matriz_funcionarios')
-        .select('documento_id, funcionario_id, nome_completo, tipo_nome, data_validade, dias_para_vencer, status_final')
-        .or(orFilter)
-        .eq('funcionario_ativo', true)
-        .eq('obrigatorio', true)
-        .in('status_final', ['vencido', 'vencendo'])
-        .order('dias_para_vencer', { ascending: true, nullsFirst: true })
-        .limit(10)
+      // Alertas, mais grave primeiro: (1) obrigações não emitidas (em aberto), (2) vencidas/vencendo
+      // por menor prazo. Em duas consultas para não deixar os "não emitidos" (sem prazo) afogarem os
+      // vencidos no mesmo order/limit.
+      const campos = 'documento_id, funcionario_id, nome_completo, tipo_nome, data_validade, dias_para_vencer, status_final'
+      const [resNaoEmitido, resPrazo] = await Promise.all([
+        supabase.from('v_compliance_matriz_funcionarios').select(campos)
+          .or(orFilter).eq('funcionario_ativo', true).eq('obrigatorio', true)
+          .eq('status_final', 'nao_emitido').order('nome_completo', { ascending: true }).limit(10),
+        supabase.from('v_compliance_matriz_funcionarios').select(campos)
+          .or(orFilter).eq('funcionario_ativo', true).eq('obrigatorio', true)
+          .in('status_final', ['vencido', 'vencendo'])
+          .order('dias_para_vencer', { ascending: true, nullsFirst: true }).limit(10),
+      ])
+      const listaAlertas = [
+        ...(((resNaoEmitido.data as any[] | null) ?? []) as Alerta[]),
+        ...(((resPrazo.data as any[] | null) ?? []) as Alerta[]),
+      ]
 
       if (!ignore) {
         setTotalFuncionarios(qtdFunc ?? 0)
         setDocsVencendo(vencendo)
         setDocsVencidos(vencidos)
         setDocsValidos(validos)
-        setAlertas(((urgentes as any[] | null) ?? []) as Alerta[])
+        setDocsNaoEmitidos(naoEmitidos)
+        setDocsSemValidade(semValidade)
+        setAlertas(listaAlertas)
         setLoading(false)
       }
     })()
@@ -117,10 +135,13 @@ export default function ComplianceDashboardPage() {
     }
   }, [companyIdsKey])
 
+  // % em dia honesto (RD-98 p1): o denominador é o TOTAL de obrigações dos funcionários ativos —
+  // inclui vencidos, não emitidos e sem validade. Em dia = documento vigente (válido ou vencendo,
+  // que ainda está dentro do prazo). Assim o número bate com o banco e não esconde obrigação em aberto.
+  const totalObrig = docsValidos + docsVencendo + docsVencidos + docsNaoEmitidos + docsSemValidade
   const pctEmDia = useMemo(() => {
-    const total = docsValidos + docsVencendo + docsVencidos
-    return total > 0 ? Math.round((docsValidos / total) * 100) : 0
-  }, [docsValidos, docsVencendo, docsVencidos])
+    return totalObrig > 0 ? Math.round(((docsValidos + docsVencendo) / totalObrig) * 100) : 0
+  }, [docsValidos, docsVencendo, totalObrig])
 
   return (
     <div style={{ backgroundColor: C.offwhite, minHeight: '100vh', color: C.ink }}>
@@ -129,12 +150,15 @@ export default function ComplianceDashboardPage() {
           titulo="Hub PS EHS"
           descricao={tEhs('ehs.painel.descricao')}
           acoes={empresaUnica ? (
-            <button
-              onClick={() => setZipModalAberto(true)}
-              style={{ alignSelf: 'flex-start', padding: '10px 16px', borderRadius: 8, border: 'none', backgroundColor: EHS.marca, color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-            >
-              📦 Gerar ZIP
-            </button>
+            <span style={{ display: 'inline-flex', alignItems: 'center', alignSelf: 'flex-start' }}>
+              <button
+                onClick={() => setZipModalAberto(true)}
+                style={{ padding: '10px 16px', borderRadius: 8, border: 'none', backgroundColor: EHS.marca, color: 'white', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+              >
+                📦 Gerar ZIP
+              </button>
+              <AjudaCampo chave="ehs.painel.gerar_zip" rota={ROTA} />
+            </span>
           ) : undefined}
         />
 
@@ -142,11 +166,13 @@ export default function ComplianceDashboardPage() {
         <EhsCockpit
           papel={papel}
           onPapel={setPapel}
+          rotaAjuda={ROTA}
           indicadores={[
-            { id: 'func', rotulo: 'Funcionários ativos', valor: loading ? '…' : totalFuncionarios, status: 'neutro' },
-            { id: 'vencendo', rotulo: 'Vencendo (10 dias)', valor: loading ? '…' : docsVencendo, status: docsVencendo > 0 ? 'atencao' : 'ok' },
-            { id: 'vencidos', rotulo: 'Vencidos', valor: loading ? '…' : docsVencidos, status: docsVencidos > 0 ? 'critico' : 'ok' },
-            { id: 'emdia', rotulo: '% em dia', valor: loading ? '…' : `${pctEmDia}%`, status: pctEmDia >= 90 ? 'ok' : pctEmDia >= 70 ? 'atencao' : 'critico' },
+            { id: 'func', rotulo: 'Funcionários ativos', valor: loading ? '…' : totalFuncionarios, status: 'neutro', ajuda: 'ehs.painel.func_ativos' },
+            { id: 'naoemit', rotulo: 'Não emitidos', valor: loading ? '…' : docsNaoEmitidos, status: docsNaoEmitidos > 0 ? 'critico' : 'ok', detalhe: docsNaoEmitidos > 0 ? 'obrigação em aberto' : undefined, ajuda: 'ehs.painel.nao_emitidos' },
+            { id: 'vencidos', rotulo: 'Vencidos', valor: loading ? '…' : docsVencidos, status: docsVencidos > 0 ? 'critico' : 'ok', ajuda: 'ehs.painel.vencidos' },
+            { id: 'vencendo', rotulo: 'Vencendo (10 dias)', valor: loading ? '…' : docsVencendo, status: docsVencendo > 0 ? 'atencao' : 'ok', ajuda: 'ehs.painel.vencendo' },
+            { id: 'emdia', rotulo: '% em dia', valor: loading ? '…' : `${pctEmDia}%`, status: pctEmDia >= 90 ? 'ok' : pctEmDia >= 70 ? 'atencao' : 'critico', detalhe: loading ? undefined : `${docsValidos + docsVencendo} de ${totalObrig} obrigações`, ajuda: 'ehs.painel.pct_em_dia' },
           ]}
         />
 
@@ -172,18 +198,18 @@ export default function ComplianceDashboardPage() {
               Alertas mais urgentes
             </h2>
             <p style={{ margin: '2px 0 0', fontSize: 12, color: C.muted }}>
-              10 documentos obrigatórios com menor prazo
+              Mais graves primeiro: obrigações não emitidas (em aberto) e documentos vencidos ou vencendo
             </p>
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ backgroundColor: C.beigeLt }}>
-                  <Th>Funcionário</Th>
-                  <Th>Documento</Th>
-                  <Th>Validade</Th>
-                  <Th>Dias</Th>
-                  <Th>Status</Th>
+                  <Th ajuda="ehs.painel.col_funcionario">Funcionário</Th>
+                  <Th ajuda="ehs.painel.col_documento">Documento</Th>
+                  <Th ajuda="ehs.painel.col_validade">Validade</Th>
+                  <Th ajuda="ehs.painel.col_dias">Dias</Th>
+                  <Th ajuda="ehs.painel.col_status">Status</Th>
                 </tr>
               </thead>
               <tbody>
@@ -201,8 +227,8 @@ export default function ComplianceDashboardPage() {
                       </Link>
                     </Td>
                     <Td>{a.tipo_nome}</Td>
-                    <Td mono>{fmtData(a.data_validade)}</Td>
-                    <Td mono>{a.dias_para_vencer == null ? '—' : a.dias_para_vencer}</Td>
+                    <Td mono>{a.status_final === 'nao_emitido' ? '—' : fmtData(a.data_validade)}</Td>
+                    <Td mono>{a.status_final === 'nao_emitido' ? 'Em aberto' : a.dias_para_vencer == null ? '—' : a.dias_para_vencer}</Td>
                     <Td><StatusBadge status={a.status_final} /></Td>
                   </tr>
                 ))}
@@ -473,7 +499,7 @@ function StatusBadge({ status }: { status: string }) {
     valido: { bg: C.greenBg, fg: C.green, label: 'Válido', dot: '🟢' },
     vencendo: { bg: C.amberBg, fg: C.amber, label: 'Vencendo', dot: '🟡' },
     vencido: { bg: C.redBg, fg: C.red, label: 'Vencido', dot: '🔴' },
-    nao_emitido: { bg: C.grayBg, fg: C.gray, label: 'Não emitido', dot: '⚫' },
+    nao_emitido: { bg: C.redBg, fg: C.red, label: 'Não emitido', dot: '🚫' },
   }
   const s = map[status] || { bg: C.grayBg, fg: C.gray, label: status, dot: '⚫' }
   return (
@@ -483,10 +509,10 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
-function Th({ children }: { children: any }) {
+function Th({ children, ajuda }: { children: any; ajuda?: string }) {
   return (
     <th style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: 'rgba(61, 35, 20, 0.65)' }}>
-      {children}
+      <span style={{ display: 'inline-flex', alignItems: 'center' }}>{children}{ajuda && <AjudaCampo chave={ajuda} rota={ROTA} />}</span>
     </th>
   )
 }
