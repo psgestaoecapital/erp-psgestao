@@ -1,6 +1,9 @@
 'use client'
 import { type CSSProperties } from 'react'
 import { SECTIONS, fmt, brl } from './fields'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ROTA_AJUDA = '/dashboard/gestao-empresarial/financiamento'
 
 type Row = Record<string, unknown> & {
   banco?: string | null
@@ -51,8 +54,8 @@ export default function FinanciamentoDetalhe({ row, onEdit, onClose, onGerarPaga
         ))}
         <div style={hint}>Garantias alocáveis chegam na próxima entrega (F2b).</div>
         <div style={actions}>
-          <button onClick={onGerarPagar} style={btnGhost}>Gerar contas a pagar</button>
-          <button onClick={onEdit} style={btnPrimary}>Editar</button>
+          <span style={campoAjuda}><button onClick={onGerarPagar} style={btnGhost}>Gerar contas a pagar</button><AjudaCampo chave="ge.financiamento.detalhe_gerar_pagar" rota={ROTA_AJUDA} /></span>
+          <span style={campoAjuda}><button onClick={onEdit} style={btnPrimary}>Editar</button><AjudaCampo chave="ge.financiamento.detalhe_editar" rota={ROTA_AJUDA} /></span>
         </div>
       </div>
     </div>
@@ -116,6 +119,11 @@ const actions: CSSProperties = {
   gap: 8,
   justifyContent: 'flex-end',
   marginTop: 8,
+}
+const campoAjuda: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
 }
 const btnGhost: CSSProperties = {
   border: '1px solid #E7DED3',

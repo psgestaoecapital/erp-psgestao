@@ -27,7 +27,10 @@ function recursoEmLiberacao(e: unknown): boolean {
   const code = typeof err.code === 'string' ? err.code : ''
   const msg = typeof err.message === 'string' ? err.message.toLowerCase() : ''
   if (['42P01', 'PGRST202', 'PGRST205'].includes(code)) return true
-  return /does not exist|not found|schema cache/.test(msg)
+  // Só o schema cache do PostgREST (relação/função ainda não existe). NUNCA "does not exist"/"not found"
+  // genérico: um erro REAL de SQL (ex.: "operator does not exist: record ->> unknown") virava aviso falso
+  // de "recurso sendo liberado" e escondia o bug. O erro de verdade tem de aparecer e ser registrado.
+  return /schema cache/.test(msg)
 }
 
 const brl = (n: number | null | undefined) =>
@@ -129,6 +132,7 @@ export default function MedicoesObraPage({ params }: { params: Promise<{ id: str
     setCarregando(false)
     if (error) {
       if (recursoEmLiberacao(error)) { setEmLiberacao(true); return }
+      console.error('fn_obra_medicao_listar falhou', error)
       setErro(erroAmigavel(error, 'Não foi possível carregar as medições. Tente de novo.')); return
     }
     const r = (data ?? {}) as { ok?: boolean; erro?: string; medicoes?: Medicao[] }

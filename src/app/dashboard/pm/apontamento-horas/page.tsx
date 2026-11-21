@@ -11,6 +11,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { carregarCustosEquipe } from '@/lib/pm/equipeCustos'
 import { ATALHOS_HORAS, jobDoLink } from '@/lib/pm/apontamentoRapido'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CampoDecimal } from '@/components/comum/CampoDecimal'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ESPRESSO = '#3D2314'; const OFFWHITE = '#FAF7F2'; const DOURADO = '#C8941A'
@@ -31,7 +32,7 @@ export default function ApontamentoHorasPage() {
   const [loading, setLoading] = useState(true)
   const [podeVerCusto, setPodeVerCusto] = useState(false)
   const [jobSel, setJobSel] = useState(''); const [membroSel, setMembroSel] = useState('')
-  const [horasManual, setHorasManual] = useState(''); const [desc, setDesc] = useState('')
+  const [horasManual, setHorasManual] = useState<number | null>(null); const [desc, setDesc] = useState('')
   const [rodando, setRodando] = useState<number | null>(null); const [tick, setTick] = useState(0)
   const timer = useRef<ReturnType<typeof setInterval> | null>(null)
   const [busy, setBusy] = useState(false); const [toast, setToast] = useState<string | null>(null)
@@ -111,7 +112,7 @@ export default function ApontamentoHorasPage() {
     await gravar(Number(horas.toFixed(2)))
   }
   async function gravarManual() {
-    const h = Number(horasManual)
+    const h = horasManual
     if (!h || h <= 0) { setToast('Informe as horas.'); return }
     await gravar(h)
   }
@@ -130,7 +131,7 @@ export default function ApontamentoHorasPage() {
     })
     setBusy(false)
     if (error) { setToast(erroAmigavel(error, 'Não foi possível lançar as horas. Tente de novo.')); return }
-    setHorasManual(''); setDesc(''); const custoAp = (ap as { custo_total?: number | null } | null)?.custo_total
+    setHorasManual(null); setDesc(''); const custoAp = (ap as { custo_total?: number | null } | null)?.custo_total
     setToast(`Apontamento CRIADO · ${horas}h${custoAp ? ` · ${brl(Number(custoAp))}` : ''}`); void carregar()
   }
 
@@ -190,7 +191,7 @@ export default function ApontamentoHorasPage() {
               : <><span style={{ fontSize: 22, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{fmtT(elapsed)}</span><button onClick={parar} style={btnStop}>■ Parar e gravar</button></>}
             <span style={{ color: TEXTM }}>ou</span>
             <label style={{ ...lbl, flexDirection: 'row', alignItems: 'center' }}>
-              <input type="number" placeholder="horas" style={{ ...inp, width: 100 }} value={horasManual} onChange={(e) => setHorasManual(e.target.value)} />
+              <CampoDecimal placeholder="horas" style={{ ...inp, width: 100 }} value={horasManual} onChange={setHorasManual} />
               <AjudaCampo chave="pm.apontamento.horas" />
             </label>
             <label style={{ ...lbl, flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 160 }}>

@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { parseNumBR } from '@/lib/num'
 import AnexosCard from '@/components/crm/AnexosCard'
 import { UNIDADES_ESTOQUE } from '@/lib/produtos/unidades'
 import PrecoVendaEntradaNota from '@/components/precificacao/PrecoVendaEntradaNota'
@@ -1064,8 +1065,9 @@ export function ItensNfeRecebida({ nfeId, companyId, onChange, onConcluida }: Pr
 // NFE-F2 · E3 · bloco de parcelas (duplicatas): editar valor/vencimento, adicionar/remover, refazer N×.
 // A soma tem que bater com o valor da nota — o botão salvar avisa/bloqueia se não bater.
 type Parcela = { id?: string; numero_dup: string | null; data_vencimento: string | null; valor: number | null; pagar_id?: string | null; forma_pagamento?: string | null; conta_bancaria_id?: string | null; codigo_barras?: string | null; valorTexto?: string }
-// #5660 · aceita vírgula pt-BR em valor monetário: texto + replace(',', '.') (padrão do Perfil fiscal da revenda)
-const numOrNull = (s: string): number | null => { const n = Number(String(s).replace(',', '.')); return String(s).trim() !== '' && Number.isFinite(n) ? n : null }
+// #5660 · aceita vírgula pt-BR em valor monetário. Usa a fonte única parseNumBR (RD-52, src/lib/num.ts),
+// que também trata milhar ("1.234,56" -> 1234.56) — antes o replace(',','.') simples quebrava nesses casos.
+const numOrNull = (s: string): number | null => parseNumBR(s)
 const FORMAS_PAGTO = ['boleto', 'pix', 'transferencia', 'cartao_credito', 'cartao_debito', 'dinheiro', 'cheque']
 function ParcelasBlock({ parcelas, valorNota, contas, onRefazer, onSalvar }: {
   parcelas: Parcela[]; valorNota: number | null; contas: { id: string; nome: string }[]
