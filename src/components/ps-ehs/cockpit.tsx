@@ -32,14 +32,15 @@ const TEXTO: Record<EhsPapel, Record<EhsIdioma, { titulo: string; foco: string }
   },
 }
 
-export type EhsIndicador = { id: string; rotulo: string; valor: ReactNode; status: EhsStatus; detalhe?: string }
+export type EhsIndicador = { id: string; rotulo: string; valor: ReactNode; status: EhsStatus; detalhe?: string; ajuda?: string }
 
 /** Seletor de papel + indicadores do papel escolhido. Só apresentação: dados vêm de quem usa. */
-export function EhsCockpit({ papel, onPapel, indicadores, idioma = 'pt' }: {
+export function EhsCockpit({ papel, onPapel, indicadores, idioma = 'pt', rotaAjuda }: {
   papel: EhsPapel
   onPapel: (p: EhsPapel) => void
   indicadores: EhsIndicador[]
   idioma?: EhsIdioma
+  rotaAjuda?: string
 }) {
   const t = TEXTO[papel][idioma]
   // Prioridade: o que é crítico aparece primeiro.
@@ -65,7 +66,7 @@ export function EhsCockpit({ papel, onPapel, indicadores, idioma = 'pt' }: {
       <p style={{ margin: '0 0 12px', fontSize: 13, color: EHS.suave }}>{t.foco}</p>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
         {lista.map((i) => (
-          <EhsCartaoStatus key={i.id} rotulo={i.rotulo} valor={i.valor} status={i.status} detalhe={i.detalhe} />
+          <EhsCartaoStatus key={i.id} rotulo={i.rotulo} valor={i.valor} status={i.status} detalhe={i.detalhe} ajuda={i.ajuda} rotaAjuda={rotaAjuda} />
         ))}
       </div>
     </section>

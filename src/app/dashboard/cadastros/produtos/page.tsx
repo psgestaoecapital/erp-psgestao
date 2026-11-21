@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { parseNumBR } from '@/lib/num'
 import ProdutoForm, { type Produto } from '@/components/cadastros/ProdutoForm'
 import ImportProdutosFiscalModal from '@/components/importar/ImportProdutosFiscalModal'
 import AutoclassificarProdutosModal from '@/components/importar/AutoclassificarProdutosModal'
@@ -247,8 +248,8 @@ export default function ProdutosPage() {
         if (statusEstoque !== 'todos') q = q.eq('status_estoque', statusEstoque)
         if (situacao === 'ativos') q = q.eq('ativo', true)
         else if (situacao === 'inativos') q = q.eq('ativo', false)
-        const min = precoMin === '' ? null : parseFloat(precoMin.replace(',', '.'))
-        const max = precoMax === '' ? null : parseFloat(precoMax.replace(',', '.'))
+        const min = precoMin === '' ? null : parseNumBR(precoMin)
+        const max = precoMax === '' ? null : parseNumBR(precoMax)
         if (min != null && !isNaN(min)) q = q.gte('preco_venda', min)
         if (max != null && !isNaN(max)) q = q.lte('preco_venda', max)
         if (semPreco) q = q.or('preco_venda.is.null,preco_venda.eq.0')

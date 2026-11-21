@@ -7,8 +7,13 @@
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { parseNumBR } from '@/lib/num'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
 import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+// RD-95: a rota da ajuda colapsa o segmento dinâmico [id] (mesma convenção do irmão /veiculo/custos).
+const ROTA_AJUDA = '/dashboard/revenda/veiculo/precificacao'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF', cream: '#F0ECE3',
@@ -17,7 +22,8 @@ const C = {
 }
 const brl = (v: number | null | undefined) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const brDate = (d?: string | null) => d ? String(d).slice(0, 10).split('-').reverse().join('/') : ''
-const numOrNull = (s: string): number | null => { const n = Number(String(s).replace(',', '.')); return s.trim() !== '' && Number.isFinite(n) ? n : null }
+// aceita decimal BR com milhar via fonte única parseNumBR (RD-52, src/lib/num.ts)
+const numOrNull = (s: string): number | null => parseNumBR(s)
 
 type Encargo = { pct: number | null; valor: number | null; configurado: boolean; fonte?: string | null; base?: string | null; rotulo?: string | null; na_precificacao?: boolean; status?: string | null }
 type Precif = {
@@ -168,7 +174,9 @@ function Inner() {
           <CampoMoeda value={precoVenda} onChange={setPrecoVenda} placeholder="R$ 0,00" testId="precif-valor-consignado"
             style={{ width: '100%', boxSizing: 'border-box', marginTop: 4, padding: 12, fontSize: 18, border: `1px solid ${C.border}`, borderRadius: 10, color: C.esp }} />
         </label>
-        <input value={obs} onChange={(e) => setObs(e.target.value)} placeholder="observação (opcional)" style={{ width: '100%', boxSizing: 'border-box', marginTop: 12, padding: 10, fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, color: C.esp }} />
+        <label style={{ display: 'block', marginTop: 12 }}><span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 12, color: C.espM }}>Observação (opcional)<AjudaCampo chave="revenda.veiculo.precificacao.observacao" rota={ROTA_AJUDA} /></span>
+          <input value={obs} onChange={(e) => setObs(e.target.value)} placeholder="observação (opcional)" style={{ width: '100%', boxSizing: 'border-box', marginTop: 4, padding: 10, fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, color: C.esp }} />
+        </label>
         <button disabled={salvando} onClick={() => void salvar()} style={{ marginTop: 12, background: salvando ? C.espL : C.gold, color: '#fff', border: 'none', borderRadius: 10, padding: '12px 22px', fontSize: 15, fontWeight: 700, cursor: salvando ? 'wait' : 'pointer' }}>{salvando ? 'Salvando…' : 'SALVAR VALOR DE VENDA'}</button>
         {p.precificado_em && <span style={{ fontSize: 11.5, color: C.espL, marginLeft: 10 }}>definido em {brDate(p.precificado_em)}</span>}
       </Bloco>
@@ -227,7 +235,7 @@ function Inner() {
             <CampoMoeda value={precoVenda} onChange={setPrecoVenda} placeholder="R$ 0,00" testId="precif-preco-venda"
               style={{ width: '100%', boxSizing: 'border-box', marginTop: 4, padding: 12, fontSize: 18, border: `1px solid ${sim?.abaixoPiso ? C.red : C.border}`, borderRadius: 10, color: sim?.abaixoPiso ? C.red : C.esp }} />
           </label>
-          <label style={{ fontSize: 12, color: C.espM, width: 110 }}>Margem
+          <label style={{ fontSize: 12, color: C.espM, width: 110 }}><span style={{ display: 'inline-flex', alignItems: 'center' }}>Margem<AjudaCampo chave="revenda.veiculo.precificacao.margem" rota={ROTA_AJUDA} /></span>
             <input value={margem} onChange={(e) => setMargem(e.target.value)} inputMode="decimal" placeholder="%"
               style={{ width: '100%', boxSizing: 'border-box', marginTop: 4, padding: 12, fontSize: 16, border: `1px solid ${C.border}`, borderRadius: 10, color: C.esp }} />
           </label>
@@ -242,7 +250,9 @@ function Inner() {
           <div><div style={{ fontSize: 10.5, textTransform: 'uppercase', color: C.gold }}>Teto de compra</div><div style={{ fontSize: 18, fontWeight: 700, color: C.esp }}>{sim?.teto != null ? brl(sim.teto) : '—'}</div></div>
         </div>
         <div style={{ fontSize: 11, color: C.espL, marginTop: 6 }}>Para vender pelo preço acima com essa margem, você pode pagar até o teto na aquisição.</div>
-        <input value={obs} onChange={(e) => setObs(e.target.value)} placeholder="observação (opcional)" style={{ width: '100%', boxSizing: 'border-box', marginTop: 12, padding: 10, fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, color: C.esp }} />
+        <label style={{ display: 'block', marginTop: 12 }}><span style={{ display: 'inline-flex', alignItems: 'center', fontSize: 12, color: C.espM }}>Observação (opcional)<AjudaCampo chave="revenda.veiculo.precificacao.observacao" rota={ROTA_AJUDA} /></span>
+          <input value={obs} onChange={(e) => setObs(e.target.value)} placeholder="observação (opcional)" style={{ width: '100%', boxSizing: 'border-box', marginTop: 4, padding: 10, fontSize: 13, border: `1px solid ${C.border}`, borderRadius: 8, color: C.esp }} />
+        </label>
         <button disabled={salvando} onClick={() => void salvar()} style={{ marginTop: 12, background: salvando ? C.espL : C.gold, color: '#fff', border: 'none', borderRadius: 10, padding: '12px 22px', fontSize: 15, fontWeight: 700, cursor: salvando ? 'wait' : 'pointer' }}>{salvando ? 'Salvando…' : 'SALVAR PREÇO'}</button>
         {p.precificado_em && <span style={{ fontSize: 11.5, color: C.espL, marginLeft: 10 }}>precificado em {brDate(p.precificado_em)}</span>}
       </Bloco>
