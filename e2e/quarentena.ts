@@ -46,15 +46,6 @@ export type SpecQuarentenado = {
 export const QUARENTENA: SpecQuarentenado[] = [
   /* quarentena:inicio */
   {
-    spec: 'e2e/jornadas/aceitacao/caminho-compliance-epi.spec.ts',
-    area: 'ehs',
-    motivo: 'Ficha de EPI não abre p/ DEMO_SST — regressão REAL da leva EHS 20/11 (#5675/#5691: gate de acesso/render em ehs/layout.tsx; backend verificado SÃO). @pos-migration da main VERMELHO em caminho-compliance-epi.spec.ts:20 (run 44826854296, head 055a8dca) congelando ~68 PRs SEM relação com EHS. NÃO-CRÍTICO p/ dado (compliance/EPI de tela; fora de financeiro/fiscal/RLS/NR-36/LGPD/Wealth). Quarentena de PRAZO CURTO autorizada pelo CEO (21/11) só para destravar a fila — NÃO substitui o conserto (CODE_MANUAL_fix_ehs_ficha_epi_nao_abre_pos.md, Code do EHS). Remover esta entrada quando o EHS consertar e o spec passar.',
-    desde: '2026-11-21T00:50:00Z',
-    runs: [44826854296, 0], // @pos vermelho da main (run 3035, commit 055a8dca); 2º run não rastreado (entrada manual do CEO)
-    ate: '2026-11-24', // PRAZO CURTO (seg 24/11): se o conserto do EHS não entrar até lá, re-congela e força o conserto — a dívida tem data p/ morrer
-    code: 'desenvolvedor_5_g', // Code ativo de EHS (dev7claudeps pausado por crédito; divisão CEO 20/11) — Eng. Chefe reatribui se o dono do conserto for outro
-  },
-  {
     spec: 'e2e/jornadas/aceitacao/pdois-solicitar-contrato-59.spec.ts',
     area: 'contratos',
     motivo: '@pos-migration da main VERMELHO 4x consecutivos (runs 43979564093, 43981754020, 43986690667, 43996371532) em pdois-solicitar-contrato-59.spec.ts:100 [celular]: após clicar "solicitar-contrato", o testid "solicitacao-criada" não aparece (timeout 20s, element not found). RD-38 PROVADO: na commit 24341000 (conserto-main #5276) a árvore de PRODUÇÃO é BYTE-IDÊNTICA à última VERDE 694ae18 (git diff 694ae184..24341000 = só arquivos de teste; SolicitarContratoModal.tsx restaurado ao verde) e MESMO ASSIM o spec falha — logo NÃO é regressão de código (nada a reverter; re-reverter é inútil). O teste-irmão (RPC como usuário, mesma migration) PASSA e deploy-migrations está VERDE. Causa = ambiente/dado da DEMO Agência OU fragilidade [celular] do submit da tela (validação/seleção do cliente inline no viewport mobile). NÃO-CRÍTICO (contratos; fora de financeiro/fiscal/RLS/NR-36/LGPD/Wealth). Quarentena MANUAL do guardião (a automática recusou por "área tocada pela PR do 1º vermelho", mas a PR culpada #5263/#5271 já foi revertida ao verde). Dono jordana-code: reproduzir o submit [celular] na DEMO, achar o campo/validação que bloqueia (ou corrigir a PREPARAÇÃO do teste, sem tocar nos expects) e só então remover esta entrada.',
