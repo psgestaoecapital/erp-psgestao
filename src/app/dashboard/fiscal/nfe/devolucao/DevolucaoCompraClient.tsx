@@ -12,6 +12,7 @@ import { authFetch } from '@/lib/authFetch'
 import { textoObsDevolucaoCompra, type NotaOrigem } from '@/lib/fiscal/obsDevolucaoTexto'
 import { baixarUrlComNome } from '@/lib/download/baixarArquivo'
 import { nomeArquivoNota } from '@/lib/download/nomeArquivo'
+import { baixarEspelhoNFePdf, type EspelhoNota } from '@/lib/fiscal/espelhoPdf'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { ArrowLeft, Loader2, AlertCircle, Trash2, Plus, RotateCcw, FileText, FileCode } from 'lucide-react'
 
@@ -80,6 +81,7 @@ export default function DevolucaoCompraClient() {
   const [descontoNota, setDescontoNota] = useState(0)
   const [modalidadeFrete, setModalidadeFrete] = useState<number>(9)
   const [enviando, setEnviando] = useState(false)
+  const [baixandoEspelho, setBaixandoEspelho] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [sucesso, setSucesso] = useState<{ numero: string; chave?: string; nfeId?: string } | null>(null)
   const [baixando, setBaixando] = useState<'pdf' | 'xml' | null>(null)
@@ -265,6 +267,62 @@ export default function DevolucaoCompraClient() {
   const chaveLimpa = chaveCompra.replace(/\D/g, '')
   const podeEnviar = !!companyId && !!fornecedorId && chaveLimpa.length === 44 && itens.length > 0 && !enviando
 
+  // Corpo compartilhado entre EMITIR e a PRÉVIA/ESPELHO: os dois montam a MESMA nota; o espelho só
+  // acrescenta apenasPrevia=true (o servidor monta e devolve o resumo sem transmitir nem numerar).
+  function corpoDevolucao() {
+    return {
+      companyId,
+      fornecedorId,
+      chaveCompra: chaveLimpa,
+      naturezaOperacao: natureza,
+      csosnIcms: csosnDevol.trim() || '900',
+      // Lei Kandir: frete/seguro/outras/desconto compõem o total e a base do ICMS.
+      frete, seguro, outrasDespesas: outras, desconto: descontoNota, modalidadeFrete,
+      itens: itens.map((it) => {
+        const base = it.icmsBase != null ? Number(it.icmsBase) : undefined
+        const aliq = it.icmsAliquota != null ? Number(it.icmsAliquota) : undefined
+        // valor = base × aliq/100 (espelho); so manda o grupo ICMS quando ha base a devolver.
+        const valor = base != null && aliq != null ? Math.round(base * aliq) / 100 : undefined
+        return {
+          produtoId: it.produtoId,
+          quantidade: Number(it.quantidade),
+          valorUnitarioOverride: Number(it.valorUnitarioOverride ?? 0),
+          cfopOverride: it.cfopOverride.trim() || '5202',
+          ...(base != null ? { icmsOverride: { base, aliquota: aliq, valor } } : {}),
+        }
+      }),
+    }
+  }
+
+  // #9724 (decisão B) · baixa o PDF da nota MONTADA marcada "PRÉVIA — SEM VALOR FISCAL".
+  // apenasPrevia=true: o servidor monta a nota e devolve o resumo sem transmitir nem numerar.
+  async function baixarEspelho() {
+    if (!podeEnviar) return
+    setBaixandoEspelho(true); setErro(null)
+    try {
+      const resp = await authFetch('/api/fiscal/nfe/devolucao', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...corpoDevolucao(), apenasPrevia: true }),
+      })
+      const json = await resp.json()
+      if (!resp.ok || json?.ok === false || !json?.previa?.nota) {
+        setErro(json?.mensagem ?? json?.motivoRejeicao ?? 'Não foi possível montar o espelho da nota.')
+        return
+      }
+      await baixarEspelhoNFePdf(json.previa.nota as EspelhoNota, {
+        empresa: null,
+        emitidoEmISO: new Date().toISOString(),
+        modelo: 'nfe55',
+        informacoesComplementares: json.previa.informacoesComplementares ?? null,
+      })
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Falha ao gerar o espelho em PDF')
+    } finally {
+      setBaixandoEspelho(false)
+    }
+  }
+
   async function emitir() {
     if (!podeEnviar) return
     if (!confirm(`EMITIR NF-e de devolução para ${itens.length} item(ns)?\n\nCFOP / CST devem espelhar a entrada (validar com contador antes de produção).`)) return
@@ -273,28 +331,7 @@ export default function DevolucaoCompraClient() {
       const resp = await authFetch('/api/fiscal/nfe/devolucao', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          companyId,
-          fornecedorId,
-          chaveCompra: chaveLimpa,
-          naturezaOperacao: natureza,
-          csosnIcms: csosnDevol.trim() || '900',
-          // Lei Kandir: frete/seguro/outras/desconto compõem o total e a base do ICMS.
-          frete, seguro, outrasDespesas: outras, desconto: descontoNota, modalidadeFrete,
-          itens: itens.map((it) => {
-            const base = it.icmsBase != null ? Number(it.icmsBase) : undefined
-            const aliq = it.icmsAliquota != null ? Number(it.icmsAliquota) : undefined
-            // valor = base × aliq/100 (espelho); so manda o grupo ICMS quando ha base a devolver.
-            const valor = base != null && aliq != null ? Math.round(base * aliq) / 100 : undefined
-            return {
-              produtoId: it.produtoId,
-              quantidade: Number(it.quantidade),
-              valorUnitarioOverride: Number(it.valorUnitarioOverride ?? 0),
-              cfopOverride: it.cfopOverride.trim() || '5202',
-              ...(base != null ? { icmsOverride: { base, aliquota: aliq, valor } } : {}),
-            }
-          }),
-        }),
+        body: JSON.stringify(corpoDevolucao()),
       })
       const json = await resp.json()
 
@@ -704,6 +741,18 @@ export default function DevolucaoCompraClient() {
           className="px-4 py-2 text-[12.5px] font-medium rounded-lg border border-[#3D2314]/20 text-[#3D2314] hover:bg-[#3D2314]/5 disabled:opacity-50"
         >
           Limpar
+        </button>
+        {/* #9724 (decisão B) · espelho/prévia em PDF — não transmite, não numera, não consome série */}
+        <button
+          type="button"
+          onClick={() => void baixarEspelho()}
+          disabled={!podeEnviar || baixandoEspelho}
+          data-testid="nfe-devol-espelho"
+          title="Baixa um PDF da devolução montada marcado como PRÉVIA — SEM VALOR FISCAL. Não transmite nem numera."
+          className="px-5 py-2 text-[12.5px] font-semibold rounded-lg border border-[#3D2314]/15 text-[#3D2314] hover:bg-[#3D2314]/5 disabled:opacity-50 flex items-center gap-1.5"
+        >
+          {baixandoEspelho ? <Loader2 size={13} className="animate-spin" /> : <FileText size={13} />}
+          {baixandoEspelho ? 'Gerando…' : 'Baixar espelho (PDF)'}
         </button>
         <button
           type="button"

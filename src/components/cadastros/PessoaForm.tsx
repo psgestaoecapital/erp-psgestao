@@ -79,7 +79,11 @@ interface Props {
   tipo: 'cliente' | 'fornecedor'
   pessoa: Pessoa | null
   onClose: () => void
-  onSaved: () => void
+  // onSaved recebe o id do cadastro gravado (ou do existente, quando o usuário opta por abrir o duplicado),
+  // para quem precisa vincular o cliente logo após salvar (ex.: cadastrar cliente a partir de um lead da P&M).
+  onSaved: (id?: string) => void
+  // Pré-preenche o nome só na criação (pessoa === null) — ex.: o nome já digitado no lead. Não entra no modo edição.
+  initialNome?: string
 }
 
 const inputStyle: React.CSSProperties = {
@@ -121,14 +125,14 @@ function enderecoIncompleto(v: {
   return faltando.length > 0 ? faltando.join(', ') : null
 }
 
-export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }: Props) {
+export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved, initialNome }: Props) {
   const tabela = tipo === 'cliente' ? 'erp_clientes' : 'erp_fornecedores'
   const label = tipo === 'cliente' ? 'cliente' : 'fornecedor'
 
   const [tipoPessoa, setTipoPessoa] = useState<'PF' | 'PJ'>(pessoa?.tipo_pessoa ?? 'PJ')
   const [cnpjCpf, setCnpjCpf] = useState(pessoa?.cnpj_cpf ?? '')
-  const [nomeFantasia, setNomeFantasia] = useState(pessoa?.nome_fantasia ?? '')
-  const [razaoSocial, setRazaoSocial] = useState(pessoa?.razao_social ?? '')
+  const [nomeFantasia, setNomeFantasia] = useState(pessoa?.nome_fantasia ?? (pessoa ? '' : initialNome) ?? '')
+  const [razaoSocial, setRazaoSocial] = useState(pessoa?.razao_social ?? (pessoa ? '' : initialNome) ?? '')
   const [ie, setIe] = useState(pessoa?.ie ?? '')
   const [inscricaoMunicipal, setInscricaoMunicipal] = useState(pessoa?.inscricao_municipal ?? '')
   const [contribuinteIcms, setContribuinteIcms] = useState<'' | 'contribuinte' | 'isento' | 'nao_contribuinte'>(pessoa?.contribuinte_icms ?? '')
@@ -314,8 +318,8 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
         )
         if (queroAbrir) {
           // Usuario decide editar o existente — fecha o form e pula a inclusao.
-          // PessoasList faz refresh em onSaved, basta dispará-lo.
-          onSaved()
+          // PessoasList faz refresh em onSaved; devolve o id do existente para quem precisa vincular (lead da P&M).
+          onSaved(existente.id)
           return
         }
         // Se o usuario quis MESMO duplicar, segue o save abaixo.
@@ -408,15 +412,15 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved }
     }
 
     const result = pessoa?.id
-      ? await supabase.from(tabela).update(payload).eq('id', pessoa.id)
-      : await supabase.from(tabela).insert(payload)
+      ? await supabase.from(tabela).update(payload).eq('id', pessoa.id).select('id').maybeSingle()
+      : await supabase.from(tabela).insert(payload).select('id').maybeSingle()
 
     setSalvando(false)
     if (result.error) {
       setErro(erroAmigavel(result.error))
       return
     }
-    onSaved()
+    onSaved((result.data as { id?: string } | null)?.id ?? pessoa?.id)
   }
 
   return (

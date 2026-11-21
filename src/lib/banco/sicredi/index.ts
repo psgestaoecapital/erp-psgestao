@@ -244,3 +244,24 @@ export async function consultarBoleto(c: Credencial, nossoNumero: string | numbe
     raw: d,
   }
 }
+
+export type BaixaBoletoResult = { status: number; raw: unknown }
+
+// PATCH baixa (cancelamento) do boleto no Sicredi — o boleto deixa de poder ser pago; o título do ERP
+// NÃO é tocado (quem chama decide o que fazer com o registro local).
+// Manual API Cobrança (developers.sicredi.com.br · getting-started-billing): a baixa é um comando de
+// instrução — PATCH /cobranca/boleto/v1/boletos/{nossoNumero}/baixa — processado de forma assíncrona
+// (resposta 202, statusComando MOVIMENTO_ENVIADO). O recurso é chaveado por codigoBeneficiario na query,
+// como em consultarBoleto/buscarPdf. Qualquer 2xx (inclusive 202) conta como aceito pelo banco.
+export async function baixarBoleto(c: Credencial, nossoNumero: string | number): Promise<BaixaBoletoResult> {
+  const token = await obterToken(c)
+  const qs = new URLSearchParams({ codigoBeneficiario: c.codigo_beneficiario }).toString()
+  const res = await fetch(`${base(c.ambiente)}/cobranca/boleto/v1/boletos/${encodeURIComponent(String(nossoNumero))}/baixa?${qs}`, {
+    method: 'PATCH',
+    headers: { ...authHeaders(c, token), 'content-type': 'application/json' },
+  })
+  const raw = await res.text()
+  let d: unknown = raw
+  try { d = raw ? JSON.parse(raw) : null } catch { /* mantém texto cru */ }
+  return { status: res.status, raw: d }
+}
