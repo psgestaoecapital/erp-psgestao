@@ -413,16 +413,18 @@ function AbaHistorico({ historico, onBaixar }: { historico: Documento[]; onBaixa
 }
 
 function F({ label, chave, v, onChange, type, textarea }: { label: string; chave?: string; v: any; onChange: (v: any) => void; type?: string; textarea?: boolean }) {
+  // O "?" (AjudaCampo) fica como IRMÃO do <label>, nunca dentro dele: assim o texto
+  // acessível do rótulo continua sendo só "{label}" e o <input> segue como following-sibling
+  // direto do <label> (contrato das aceitações LGPD/ficha). O flexWrap mantém rótulo + "?" na
+  // 1ª linha e o campo (flexBasis 100%) na 2ª, preservando o layout.
   return (
-    <div>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
-        {label}
-        {chave ? <AjudaCampo chave={chave} rota="/dashboard/ehs/funcionarios/[id]" /> : null}
-      </label>
+    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4 }}>
+      <label style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5 }}>{label}</label>
+      {chave ? <AjudaCampo chave={chave} rota="/dashboard/ehs/funcionarios/[id]" /> : null}
       {textarea ? (
-        <textarea value={v} onChange={(e: any) => onChange(e.target.value)} style={{ ...inputStyle(), minHeight: 70 }} />
+        <textarea value={v} onChange={(e: any) => onChange(e.target.value)} style={{ ...inputStyle(), minHeight: 70, flexBasis: '100%', marginTop: 4 }} />
       ) : (
-        <input type={type || 'text'} value={v ?? ''} onChange={(e: any) => onChange(e.target.value)} style={inputStyle()} />
+        <input type={type || 'text'} value={v ?? ''} onChange={(e: any) => onChange(e.target.value)} style={{ ...inputStyle(), flexBasis: '100%', marginTop: 4 }} />
       )}
     </div>
   )
