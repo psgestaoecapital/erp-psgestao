@@ -31,12 +31,17 @@ interface ResumoEmpresa {
 }
 
 // Obras em andamento do painel: mesma fonte e mesma conta da "Margem prevista das obras" (receita − custo previstos).
+// §310 "avanço financeiro de cada uma" + pedido do Diego/FC ("resultado por obra: previsto × realizado"):
+// além do previsto, o painel traz a margem REALIZADA (margem_realizada da v_obra_resultado = receita realizada −
+// custo realizado), lado a lado, para o sócio ver o previsto × realizado sem abrir a tela de Resultado por obra.
 interface ObraAndamento {
   obra_id: string;
   numero: string | null;
   nome: string | null;
   receita_prevista: number;
   custo_previsto: number;
+  receita_realizada: number;
+  margem_realizada: number;
 }
 
 const SITUACOES = [
@@ -95,7 +100,7 @@ export default function PainelProjetos() {
           supabase.from("v_projetos_resumo_empresa").select("contas_pagar_abertas,contas_receber_abertas").eq("company_id", companyId).maybeSingle(),
           supabase.rpc("fn_obras_kpis", { p_company_ids: [companyId] }),
           supabase.from("erp_orcamentos").select("id", { count: "exact", head: true }).eq("company_id", companyId).in("status", ["rascunho", "enviado"]),
-          supabase.from("v_obra_resultado").select("obra_id,numero,nome,status,receita_prevista,custo_previsto").eq("company_id", companyId).eq("status", "em_andamento"),
+          supabase.from("v_obra_resultado").select("obra_id,numero,nome,status,receita_prevista,custo_previsto,receita_servico,receita_material,margem_realizada").eq("company_id", companyId).eq("status", "em_andamento"),
           supabase.from("erp_crm_oportunidade").select("etapa,valor_estimado").eq("company_id", companyId).is("deleted_at", null),
           supabase.from("erp_orcamentos").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "enviado").is("deleted_at", null).lt("updated_at", seteDiasAtras),
           supabase.from("projetos_obra_revisao").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "solicitada").is("excluido_em", null),
@@ -111,9 +116,9 @@ export default function PainelProjetos() {
         };
         let receita = 0, custo = 0;
         const andamento: ObraAndamento[] = [];
-        for (const o of (obras as { obra_id: string; numero: string | null; nome: string | null; status: string; receita_prevista: number | null; custo_previsto: number | null }[] | null) ?? []) {
+        for (const o of (obras as { obra_id: string; numero: string | null; nome: string | null; status: string; receita_prevista: number | null; custo_previsto: number | null; receita_servico: number | null; receita_material: number | null; margem_realizada: number | null }[] | null) ?? []) {
           receita += Number(o.receita_prevista ?? 0); custo += Number(o.custo_previsto ?? 0);
-          andamento.push({ obra_id: o.obra_id, numero: o.numero, nome: o.nome, receita_prevista: Number(o.receita_prevista ?? 0), custo_previsto: Number(o.custo_previsto ?? 0) });
+          andamento.push({ obra_id: o.obra_id, numero: o.numero, nome: o.nome, receita_prevista: Number(o.receita_prevista ?? 0), custo_previsto: Number(o.custo_previsto ?? 0), receita_realizada: Number(o.receita_servico ?? 0) + Number(o.receita_material ?? 0), margem_realizada: Number(o.margem_realizada ?? 0) });
         }
         andamento.sort((a, b) => b.receita_prevista - a.receita_prevista);
         let abertas = 0, valorAberto = 0, ganhas = 0, perdidas = 0;
@@ -327,12 +332,16 @@ export default function PainelProjetos() {
                   <th className="px-4 py-2 text-right font-medium"><span className="inline-flex items-center gap-1">Receita prevista<AjudaCampo chave="projetos.resultado_obra.receita_prevista" rota="/dashboard/projetos/obras/resultado" /></span></th>
                   <th className="px-4 py-2 text-right font-medium"><span className="inline-flex items-center gap-1">Custo previsto<AjudaCampo chave="projetos.resultado_obra.custo_previsto" rota="/dashboard/projetos/obras/resultado" /></span></th>
                   <th className="px-4 py-2 text-right font-medium"><span className="inline-flex items-center gap-1">Margem prevista<AjudaCampo chave="projetos.painel.kpi.margem_prevista" /></span></th>
+                  <th className="px-4 py-2 text-right font-medium"><span className="inline-flex items-center gap-1">Margem realizada<AjudaCampo chave="projetos.resultado_obra.kpi_margem" rota="/dashboard/projetos/obras/resultado" /></span></th>
                   <th className="px-4 py-2" />
                 </tr>
               </thead>
               <tbody>
                 {resumo.obras_andamento.slice(0, 8).map((o) => {
                   const m = o.receita_prevista > 0 ? ((o.receita_prevista - o.custo_previsto) / o.receita_prevista) * 100 : null;
+                  // Margem realizada em % = margem_realizada (R$) ÷ receita já realizada. Sem receita realizada
+                  // ainda (obra recém-começada), mostra "—" em vez de 0 % (não há base para o percentual) — RD-98.
+                  const mr = o.receita_realizada > 0 ? (o.margem_realizada / o.receita_realizada) * 100 : null;
                   return (
                     <tr key={o.obra_id} data-testid="painel-obra-linha" className="border-b border-[#3D2314]/5 last:border-0">
                       <td className="px-4 py-2.5 text-[#3D2314]">
@@ -341,6 +350,7 @@ export default function PainelProjetos() {
                       <td className="px-4 py-2.5 text-right tabular-nums text-[#3D2314]">{fmtBRL(o.receita_prevista)}</td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-[#3D2314]">{fmtBRL(o.custo_previsto)}</td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-[#3D2314]">{m === null ? "—" : fmtPct(m)}</td>
+                      <td data-testid="painel-obra-margem-realizada" className="px-4 py-2.5 text-right tabular-nums text-[#3D2314]">{mr === null ? <span className="text-[#3D2314]/40">—</span> : fmtPct(mr)}</td>
                       <td className="px-4 py-2.5 text-right">
                         <Link href={`/dashboard/projetos/obras/${o.obra_id}/cockpit?area=hub`} className="inline-flex items-center gap-1 whitespace-nowrap text-sm font-medium text-[#C8941A] hover:underline">
                           Cockpit <ArrowRight size={14} />
