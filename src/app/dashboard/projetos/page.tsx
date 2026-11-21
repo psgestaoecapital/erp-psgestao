@@ -207,7 +207,7 @@ export default function PainelProjetos() {
 
         {/* Cada indicador leva à tela CRUD correspondente (drill-down). */}
         <div className="mb-3 mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
-          <KpiPrincipal label="Obras em andamento" chave="projetos.painel.kpi.obras_ativas" testid="kpi-obras-ativas" valor={resumo ? String(resumo.obras_ativas) : "…"} href="/dashboard/projetos/obras" />
+          <KpiPrincipal label="Obras em andamento" chave="projetos.painel.kpi.obras_ativas" testid="kpi-obras-ativas" valor={resumo ? String(resumo.obras_ativas) : "…"} href="/dashboard/projetos/obras?status=em_andamento&area=hub" />
           <KpiPrincipal
             label="Valor das obras em andamento"
             chave="projetos.painel.kpi.valor_obras"
@@ -298,7 +298,7 @@ export default function PainelProjetos() {
         </div>
         <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
           {SITUACOES.map((x) => (
-            <Link key={x.s} href="/dashboard/projetos/obras" data-testid={`situacao-${x.s}`} className="rounded-xl border border-[#3D2314]/12 bg-white p-4 shadow-sm hover:border-[#C8941A]">
+            <Link key={x.s} href={`/dashboard/projetos/obras?status=${x.s}&area=hub`} data-testid={`situacao-${x.s}`} className="rounded-xl border border-[#3D2314]/12 bg-white p-4 shadow-sm hover:border-[#C8941A]">
               <Numero label={x.l} valor={resumo ? String(resumo.obras_por_status[x.s] ?? 0) : "…"} ajuda="projetos.painel.obras_situacao" />
             </Link>
           ))}
