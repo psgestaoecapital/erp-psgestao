@@ -21,22 +21,41 @@ export default function HubRotaGuard({ children }: { children: React.ReactNode }
   const pathname = usePathname() || ''
   const { sel } = useCompanyIds()
   const router = useRouter()
-  const [estado, setEstado] = useState<'checando' | 'ok' | 'bloqueado'>('ok')
+  // Começa em 'checando' (CEO 21/11): enquanto a guarda não confirma, mostramos um carregando curto em vez
+  // dos filhos — assim a tela bloqueada nunca "pisca" por um instante antes do aviso quando se chega por URL.
+  const [estado, setEstado] = useState<'checando' | 'ok' | 'bloqueado'>('checando')
 
   useEffect(() => {
     let cancelado = false
     const empresa = sel && sel !== 'consolidado' && !sel.startsWith('group_') ? sel : null
+    // Sem empresa única (consolidado/grupo) nada é gateado — libera sem flash de carregando.
     if (!empresa) { setEstado('ok'); return }
+    // A cada rota a checar, volta a 'checando' para não exibir a tela anterior enquanto a guarda responde.
+    setEstado('checando')
     supabase
       .rpc('fn_hub_rota_permitida', { p_company_id: empresa, p_rota: pathname })
       .then(({ data, error }) => {
         if (cancelado) return
-        // falha transitória: não trava a tela — o filtro do menu no servidor + a RLS são o primário
+        // falha transitória: não trava a tela — o filtro do menu no servidor + a RLS são o primário (fail-open)
         if (error) { setEstado('ok'); return }
         setEstado(data === false ? 'bloqueado' : 'ok')
       })
     return () => { cancelado = true }
   }, [pathname, sel])
+
+  if (estado === 'checando') {
+    return (
+      <div style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, backgroundColor: '#FAF7F2' }}>
+        <div style={{ textAlign: 'center' }} aria-live="polite" aria-busy="true">
+          <div
+            style={{ width: 28, height: 28, margin: '0 auto 12px', borderRadius: '50%', border: '3px solid rgba(200,148,26,0.25)', borderTopColor: '#C8941A', animation: 'hubguard-spin 0.8s linear infinite' }}
+          />
+          <p style={{ fontSize: 13, color: 'rgba(61,35,20,0.55)', margin: 0 }}>Carregando…</p>
+          <style>{'@keyframes hubguard-spin{to{transform:rotate(360deg)}}'}</style>
+        </div>
+      </div>
+    )
+  }
 
   if (estado === 'bloqueado') {
     return (
