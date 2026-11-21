@@ -17,6 +17,11 @@
 --     "Modelo de contratação da obra (administração, empreitada global, empreitada por preço
 --      unitário, outro)..." -> select "Modelo de contratação" com as 4 opções exatas; o valor
 --      alimenta o Resultado por obra (v_obra_resultado). Captura completa.
+--   773c43c7-f056-4601-800d-922c308fee3d
+--     "Tipos de local padrão da estrutura física: pavimento · unidade autônoma · ambiente/área
+--      comum · fachada · zona/bloco · equipamento (ex.: elevador). Tabela projetos_local_tipo."
+--     -> tabela projetos_local_tipo existe e está semeada com os 6 tipos exatos (ordem 1..6):
+--        pavimento, unidade, ambiente, fachada, zona, equipamento. Catálogo completo.
 
 UPDATE public.blueprint_tela_requisito
    SET status_baseline = 'atendido'
@@ -24,6 +29,7 @@ UPDATE public.blueprint_tela_requisito
    AND tela_num = 314
    AND id IN (
      '1dd6b44a-a1c0-4b76-99a9-5f34a14bf5e5',
-     '0bbdfa1f-c804-4f70-b0be-e9227576cc39'
+     '0bbdfa1f-c804-4f70-b0be-e9227576cc39',
+     '773c43c7-f056-4601-800d-922c308fee3d'
    )
    AND status_baseline IS DISTINCT FROM 'atendido';
