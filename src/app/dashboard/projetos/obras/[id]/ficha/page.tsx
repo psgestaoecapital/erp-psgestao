@@ -25,7 +25,14 @@ const MODELOS = [
   { v: 'outro', l: 'Outro' },
 ]
 
-type Ficha = { ok: boolean; numero?: string; nome?: string | null; cliente_nome?: string | null; tipo_execucao?: string | null; modelo_contratacao?: string | null; erro?: string }
+const EDIFICACAO = [
+  { v: 'residencial', l: 'Residencial' },
+  { v: 'comercial', l: 'Comercial' },
+  { v: 'industrial', l: 'Industrial' },
+  { v: 'misto', l: 'Misto' },
+]
+
+type Ficha = { ok: boolean; numero?: string; nome?: string | null; cliente_nome?: string | null; tipo_execucao?: string | null; modelo_contratacao?: string | null; matricula?: string | null; inscricao_imobiliaria?: string | null; tipo_edificacao?: string | null; area_construida_m2?: number | null; area_terreno_m2?: number | null; erro?: string }
 
 export default function FichaObraPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -34,10 +41,26 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
   const [cliente, setCliente] = useState<string | null>(null)
   const [tipo, setTipo] = useState('')
   const [modelo, setModelo] = useState('')
+  // Identidade do imóvel
+  const [matricula, setMatricula] = useState('')
+  const [inscricao, setInscricao] = useState('')
+  const [tipoEdif, setTipoEdif] = useState('')
+  const [areaConstruida, setAreaConstruida] = useState('')
+  const [areaTerreno, setAreaTerreno] = useState('')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [busyId, setBusyId] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [ok, setOk] = useState(false)
+  const [okId, setOkId] = useState(false)
+
+  // Área: aceita "1250" ou "1.250,50"; vira número só na hora de salvar (null quando vazio).
+  const areaNum = (s: string): number | null => {
+    const t = String(s).replace(/[^\d,.-]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.')
+    if (t.trim() === '') return null
+    const n = Number(t)
+    return Number.isFinite(n) ? n : null
+  }
 
   const carregar = useCallback(async () => {
     if (!ehUuid(id)) { setLoading(false); setErro('Obra não encontrada. Abra pela lista de obras.'); return }
@@ -48,6 +71,9 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     if (error || !j || !j.ok) { setErro(erroAmigavel(error, j?.erro ?? 'Não foi possível carregar a ficha da obra.')); return }
     setNumero(j.numero ?? null); setNome(j.nome ?? null); setCliente(j.cliente_nome ?? null)
     setTipo(j.tipo_execucao ?? ''); setModelo(j.modelo_contratacao ?? '')
+    setMatricula(j.matricula ?? ''); setInscricao(j.inscricao_imobiliaria ?? ''); setTipoEdif(j.tipo_edificacao ?? '')
+    setAreaConstruida(j.area_construida_m2 != null ? String(j.area_construida_m2) : '')
+    setAreaTerreno(j.area_terreno_m2 != null ? String(j.area_terreno_m2) : '')
   }, [id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
 
@@ -60,6 +86,18 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     const j = data as Ficha | null
     if (error || !j || !j.ok) { setErro(erroAmigavel(error, j?.erro ?? 'Não foi possível salvar a ficha.')); return }
     setOk(true)
+  }
+
+  const salvarIdentidade = async () => {
+    setBusyId(true); setErro(null); setOkId(false)
+    const { data, error } = await supabase.rpc('fn_obra_ficha_identidade_salvar', {
+      p_obra_id: id, p_matricula: matricula || null, p_inscricao_imobiliaria: inscricao || null,
+      p_tipo_edificacao: tipoEdif || null, p_area_construida_m2: areaNum(areaConstruida), p_area_terreno_m2: areaNum(areaTerreno),
+    })
+    setBusyId(false)
+    const j = data as Ficha | null
+    if (error || !j || !j.ok) { setErro(erroAmigavel(error, j?.erro ?? 'Não foi possível salvar a identidade da obra.')); return }
+    setOkId(true)
   }
 
   return (
@@ -91,18 +129,57 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
                   </select>
                 </label>
                 <div style={{ fontSize: 11, color: MUT }}>A classificação alimenta o resultado por obra e orienta como medir e faturar. Pode ser ajustada a qualquer momento.</div>
+                {ok && <div data-testid="ficha-ok" style={{ background: '#EAF6EC', color: VERDE, borderRadius: 8, padding: 10, fontSize: 13, fontWeight: 600 }}>Classificação salva.</div>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button data-testid="ficha-salvar" disabled={busy} onClick={() => void salvar()}
+                    style={{ flex: 1, padding: '12px 16px', borderRadius: 8, border: 'none', background: ESP, color: '#fff', fontSize: 14, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>
+                    {busy ? 'Salvando…' : 'Salvar classificação'}
+                  </button>
+                  <AjudaCampo chave="projetos.obra_ficha.salvar" rota={ROTA} />
+                </div>
+              </div>
+
+              {/* Identidade do imóvel — matrícula, inscrição, tipo e áreas (tela 314 "ficha da obra") */}
+              <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'grid', gap: 14 }}>
+                <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: GOLD, fontWeight: 700 }}>Identidade do imóvel</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>Matrícula<AjudaCampo chave="projetos.obra_ficha.matricula" rota={ROTA} /></span>
+                    <input data-testid="ficha-matricula" style={campo} value={matricula} placeholder="Matrícula do imóvel" onChange={(e) => { setMatricula(e.target.value); setOkId(false) }} />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>Inscrição imobiliária<AjudaCampo chave="projetos.obra_ficha.inscricao_imobiliaria" rota={ROTA} /></span>
+                    <input data-testid="ficha-inscricao" style={campo} value={inscricao} placeholder="Cadastro na prefeitura" onChange={(e) => { setInscricao(e.target.value); setOkId(false) }} />
+                  </label>
+                </div>
+                <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                  <span>Tipo de edificação<AjudaCampo chave="projetos.obra_ficha.tipo_edificacao" rota={ROTA} /></span>
+                  <select data-testid="ficha-tipo-edificacao" style={campo} value={tipoEdif} onChange={(e) => { setTipoEdif(e.target.value); setOkId(false) }}>
+                    <option value="">Não informado</option>
+                    {EDIFICACAO.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+                  </select>
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>Área construída (m²)<AjudaCampo chave="projetos.obra_ficha.area_construida" rota={ROTA} /></span>
+                    <input data-testid="ficha-area-construida" inputMode="decimal" style={campo} value={areaConstruida} placeholder="m²" onChange={(e) => { setAreaConstruida(e.target.value); setOkId(false) }} />
+                  </label>
+                  <label style={{ display: 'grid', gap: 4, fontSize: 12, color: MUT }}>
+                    <span>Área do terreno (m²)<AjudaCampo chave="projetos.obra_ficha.area_terreno" rota={ROTA} /></span>
+                    <input data-testid="ficha-area-terreno" inputMode="decimal" style={campo} value={areaTerreno} placeholder="m²" onChange={(e) => { setAreaTerreno(e.target.value); setOkId(false) }} />
+                  </label>
+                </div>
+                {okId && <div data-testid="ficha-identidade-ok" style={{ background: '#EAF6EC', color: VERDE, borderRadius: 8, padding: 10, fontSize: 13, fontWeight: 600 }}>Identidade salva.</div>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button data-testid="ficha-salvar-identidade" disabled={busyId} onClick={() => void salvarIdentidade()}
+                    style={{ flex: 1, padding: '12px 16px', borderRadius: 8, border: 'none', background: ESP, color: '#fff', fontSize: 14, fontWeight: 700, cursor: busyId ? 'wait' : 'pointer' }}>
+                    {busyId ? 'Salvando…' : 'Salvar identidade'}
+                  </button>
+                  <AjudaCampo chave="projetos.obra_ficha.salvar_identidade" rota={ROTA} />
+                </div>
               </div>
 
               {erro && <div role="alert" data-testid="ficha-erro" style={{ background: '#FBEAEA', color: VERM, borderRadius: 8, padding: 10, fontSize: 13 }}>{erro}</div>}
-              {ok && <div data-testid="ficha-ok" style={{ background: '#EAF6EC', color: VERDE, borderRadius: 8, padding: 10, fontSize: 13, fontWeight: 600 }}>Classificação salva.</div>}
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <button data-testid="ficha-salvar" disabled={busy} onClick={() => void salvar()}
-                  style={{ flex: 1, padding: '12px 16px', borderRadius: 8, border: 'none', background: ESP, color: '#fff', fontSize: 14, fontWeight: 700, cursor: busy ? 'wait' : 'pointer' }}>
-                  {busy ? 'Salvando…' : 'Salvar classificação'}
-                </button>
-                <AjudaCampo chave="projetos.obra_ficha.salvar" rota={ROTA} />
-              </div>
             </div>
           )}
       </div>
