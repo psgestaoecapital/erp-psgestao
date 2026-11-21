@@ -100,10 +100,12 @@ function derivarValidacoes(
   if (!v) return [];
   if (Array.isArray(v)) return v;
   const itens: ValidacaoItem[] = [];
+  // Composição flexível (CEO 18/11): o serviço pode ter um único tipo (só material, só MO, só equipamento/EPI).
+  // Falta de um tipo é só informação, não alerta — não há obrigação de ter material + mão de obra juntos.
   if (v.tem_material === false)
-    itens.push({ severidade: "alerta", mensagem: "Sem material na composição." });
+    itens.push({ severidade: "info", mensagem: "Sem material na composição (ok se o serviço é só mão de obra, equipamento ou EPI)." });
   if (v.tem_mao_obra === false)
-    itens.push({ severidade: "alerta", mensagem: "Sem mão de obra na composição." });
+    itens.push({ severidade: "info", mensagem: "Sem mão de obra na composição (ok se o serviço é só material ou equipamento)." });
   if (v.tem_produtividade === false)
     itens.push({ severidade: "info", mensagem: "Produtividade/dia não informada — afeta prazo, não o preço." });
   if (v.tem_custo_calculado === false)

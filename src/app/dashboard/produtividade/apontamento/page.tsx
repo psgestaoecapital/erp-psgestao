@@ -197,7 +197,7 @@ function Inner() {
     if (l.produto_id) setProdutoId(l.produto_id)
     setBuscaProd('')
     setHora(String(l.hora))
-    setQtd(String(l.qtd_produzida))
+    setQtd(String(l.qtd_produzida).replace('.', ',')) // mostra decimal em pt-BR ao editar (#5660)
     setUnidade(l.unidade ?? 'un')
     setPessoas(l.pessoas_presentes == null ? '' : String(l.pessoas_presentes))
     if (l.fonte === 'manual' || l.fonte === 'ponto' || l.fonte === 'balanca') setFonte(l.fonte)
@@ -298,7 +298,7 @@ function Inner() {
               </label>
 
               <label data-ajuda="prod.apont.qtd" style={{ fontSize: 12, color: C.espM }}>Quantidade produzida<Aj k="prod.apont.qtd" />
-                <input data-testid="apont-qtd" type="number" min={0} step="any" value={qtd} onChange={(e) => setQtd(e.target.value)} placeholder="ex.: 320" style={inp} />
+                <input data-testid="apont-qtd" type="text" inputMode="decimal" value={qtd} onChange={(e) => setQtd(e.target.value)} placeholder="ex.: 320,5" style={inp} />
               </label>
 
               <label data-ajuda="prod.apont.unidade" style={{ fontSize: 12, color: C.espM }}>Unidade<Aj k="prod.apont.unidade" />

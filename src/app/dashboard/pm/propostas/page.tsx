@@ -55,6 +55,7 @@ function proximoVenc(dia: number): string {
 }
 // Rede de segurança: tradução dos códigos que o banco (fail-closed) pode devolver, caso a aprovação chegue por fora do front.
 const APROVAR_ERRO: Record<string, string> = {
+  servico: 'Adicione ao menos 1 serviço/item à proposta antes de aprovar.',
   titulo_obrigatorio: 'Falta o título do contrato.',
   vigencia_inicio_obrigatoria: 'Falta o início da vigência.',
   vigencia_fim_obrigatoria: 'Falta o fim da vigência.',

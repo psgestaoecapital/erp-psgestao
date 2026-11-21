@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { supabase } from '@/lib/supabase'
 import { rpc, authFetch } from '@/lib/authFetch'
+import { CampoDecimal } from '@/components/comum/CampoDecimal'
 import { GraduationCap, Users, ShieldAlert, Plus, Pencil, Trash2, X, Ban, ClipboardCheck, Upload, FileText, Loader2 } from 'lucide-react'
 
 const C = {
@@ -179,7 +180,7 @@ function AbaTipos({ companyId }: { companyId: string }) {
           <Campo label="Código NR (opcional)"><input style={inp()} value={edit.nr_codigo ?? ''} onChange={e => setEdit({ ...edit, nr_codigo: e.target.value })} placeholder="NR-35" /></Campo>
           <Campo label="Nome *"><input style={inp()} value={edit.nome ?? ''} onChange={e => setEdit({ ...edit, nome: e.target.value })} placeholder="Trabalho em Altura" /></Campo>
           <div style={{ display: 'flex', gap: 10 }}>
-            <Campo label="Carga horária (h)"><input type="number" style={inp()} value={edit.carga_horaria ?? ''} onChange={e => setEdit({ ...edit, carga_horaria: e.target.value === '' ? null : Number(e.target.value) })} /></Campo>
+            <Campo label="Carga horária (h)"><CampoDecimal style={inp()} value={edit.carga_horaria} onChange={n => setEdit({ ...edit, carga_horaria: n })} placeholder="0" /></Campo>
             <Campo label="Validade (meses)"><input type="number" style={inp()} value={edit.validade_meses ?? ''} onChange={e => setEdit({ ...edit, validade_meses: e.target.value === '' ? null : Number(e.target.value) })} placeholder="24" /></Campo>
             <Campo label="Reciclagem (meses)"><input type="number" style={inp()} value={edit.reciclagem_meses ?? ''} onChange={e => setEdit({ ...edit, reciclagem_meses: e.target.value === '' ? null : Number(e.target.value) })} /></Campo>
           </div>
@@ -295,7 +296,7 @@ function AbaTurmas({ companyId }: { companyId: string }) {
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
             <Campo label="Instrutor"><input style={inp()} value={edit.instrutor ?? ''} onChange={e => setEdit({ ...edit, instrutor: e.target.value })} /></Campo>
-            <Campo label="Carga horária (h)"><input type="number" style={inp()} value={edit.carga_horaria ?? ''} onChange={e => setEdit({ ...edit, carga_horaria: e.target.value === '' ? null : Number(e.target.value) })} /></Campo>
+            <Campo label="Carga horária (h)"><CampoDecimal style={inp()} value={edit.carga_horaria} onChange={n => setEdit({ ...edit, carga_horaria: n })} placeholder="0" /></Campo>
           </div>
           <Campo label="Local"><input style={inp()} value={edit.local ?? ''} onChange={e => setEdit({ ...edit, local: e.target.value })} /></Campo>
           <Campo label="Observação"><input style={inp()} value={edit.observacao ?? ''} onChange={e => setEdit({ ...edit, observacao: e.target.value })} /></Campo>

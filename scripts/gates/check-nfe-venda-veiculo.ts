@@ -49,7 +49,7 @@ ok(/nfeStatusAtual === 'autorizada'/.test(rota), 'rota recusa venda que já tem 
 const loaderCodigo = loader.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
 ok(!/fn_faturar|baixar_estoque|erp_pedidos/.test(loaderCodigo), 'caminho A: sem fn_faturar, sem pedido paralelo, sem baixa de estoque')
 ok(/veic_venda_recebimento/.test(loader) && /body\.erpReceberId = vendaVeic\.receberId/.test(rota), 'nota ligada ao título que a venda já criou (erp_receber)')
-ok(/input\.vendaVeiculo/.test(builder) && /veiculoMontado \? \[veiculoMontado\.item\] : itensNFe/.test(builder), 'builder: modo novo opcional; itens atuais intocados')
+ok(/input\.vendaVeiculo/.test(builder) && /veiculoMontado \? \[veiculoMontado\.item\] :/.test(builder) && /entradaMontadoItem \? \[entradaMontadoItem\] : itensNFe/.test(builder), 'builder: modo novo opcional (venda/entrada); itens atuais intocados (fallback itensNFe)')
 ok(/\.\.\.\(item\.veiculo \?/.test(focus) && /\.\.\.\(item\.ibsCbs \?/.test(focus) && /item\.icms\?\.reducaoBase != null/.test(focus) && !/veiculo_renavam/.test(focus), 'provider: campos opcionais da Focus, sem campo RENAVAM')
 ok(/emitirNfe\(v\)/.test(tela) && /revenda\.vendas\.emitir_nfe/.test(tela), 'tela: botão Emitir NF-e com "?"')
 ok(/nomeDestinatarioNFe\(cli\.razao_social, cli\.nome_fantasia, docLimpo\)/.test(builder) && /nome_fantasia/.test(builder.split('input.vendaVeiculo) {')[1] ?? ''), 'builder usa nomeDestinatarioNFe e carrega nome_fantasia')

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { authFetch } from '@/lib/authFetch'
 import { calcularImpostos } from '@/lib/fiscal/nfe-calc-impostos'
+import { baixarEspelhoNFePdf, type EspelhoNota } from '@/lib/fiscal/espelhoPdf'
 import { supabase } from '@/lib/supabase'
 import { X, Loader2, Trash2, FileCheck, AlertTriangle, ExternalLink } from 'lucide-react'
 import { esperaConsulta } from '@/lib/fiscal/consultaRetorno'
@@ -73,6 +74,8 @@ export default function NFePreviewModal(props: Props) {
   const [resposta, setResposta] = useState<RespostaEmissao | null>(null)
   const [nfeId, setNfeId] = useState<string | null>(null)
   const [erro, setErro] = useState<string | null>(null)
+  // #9724 (decisão B) · espelho em PDF da nota montada (sob demanda, sem transmitir/numerar)
+  const [baixandoEspelho, setBaixandoEspelho] = useState(false)
 
   const carregarProdutos = useCallback(async () => {
     const { data } = await supabase
@@ -172,6 +175,55 @@ export default function NFePreviewModal(props: Props) {
     void pollStatus(id, 0)
   }
 
+  // Corpo da emissão — reaproveitado na emissão e no espelho (apenasPrevia), para o PDF refletir
+  // exatamente o que seria transmitido (sem cálculo paralelo).
+  function corpoEmissao(): Record<string, unknown> {
+    return {
+      companyId: props.companyId,
+      erpReceberId: props.erpReceberId,
+      // undefined → servidor deriva do indIEDest; marcado/desmarcado → decisão explícita do operador
+      consumidorFinal: consumidorFinal ?? undefined,
+      overrides: {
+        naturezaOperacao: naturezaOp,
+        finalidade: 'normal',
+        itens: itens.map((i) => ({
+          produtoId: i.produtoId,
+          quantidade: i.quantidade,
+          valorUnitarioOverride: i.precoUnitario,
+        })),
+      },
+    }
+  }
+
+  // #9724 (decisão B) · baixa o PDF da nota MONTADA marcada "PRÉVIA — SEM VALOR FISCAL".
+  // Monta a nota no servidor (apenasPrevia=true): não transmite, não consome numeração/série.
+  async function baixarEspelho() {
+    if (itens.length === 0) { setErro('Adicione pelo menos 1 produto'); return }
+    setBaixandoEspelho(true)
+    setErro(null)
+    try {
+      const r = await authFetch('/api/fiscal/nfe/emitir', {
+        method: 'POST',
+        body: JSON.stringify({ ...corpoEmissao(), apenasPrevia: true }),
+      })
+      const json = await r.json()
+      if (!r.ok || json?.ok === false || !json?.previa?.nota) {
+        setErro(json?.mensagem ?? json?.motivoRejeicao ?? 'Não foi possível montar o espelho da nota.')
+        return
+      }
+      await baixarEspelhoNFePdf(json.previa.nota as EspelhoNota, {
+        empresa: null,
+        emitidoEmISO: new Date().toISOString(),
+        modelo: 'nfe55',
+        informacoesComplementares: json.previa.informacoesComplementares ?? null,
+      })
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Falha ao gerar o espelho em PDF')
+    } finally {
+      setBaixandoEspelho(false)
+    }
+  }
+
   async function emitir() {
     if (itens.length === 0) {
       setErro('Adicione pelo menos 1 produto')
@@ -182,21 +234,7 @@ export default function NFePreviewModal(props: Props) {
     try {
       const r = await authFetch('/api/fiscal/nfe/emitir', {
         method: 'POST',
-        body: JSON.stringify({
-          companyId: props.companyId,
-          erpReceberId: props.erpReceberId,
-          // undefined → servidor deriva do indIEDest; marcado/desmarcado → decisão explícita do operador
-          consumidorFinal: consumidorFinal ?? undefined,
-          overrides: {
-            naturezaOperacao: naturezaOp,
-            finalidade: 'normal',
-            itens: itens.map((i) => ({
-              produtoId: i.produtoId,
-              quantidade: i.quantidade,
-              valorUnitarioOverride: i.precoUnitario,
-            })),
-          },
-        }),
+        body: JSON.stringify(corpoEmissao()),
       })
       const json = (await r.json()) as RespostaEmissao
       // Só falha de verdade (HTTP != 2xx) é erro de emissão. NÃO usar json.ok aqui: a Focus
@@ -405,6 +443,17 @@ export default function NFePreviewModal(props: Props) {
                   className="flex-1 px-4 py-2.5 text-[13px] font-medium rounded-lg border border-[#3D2314]/15 text-[#3D2314] hover:bg-[#3D2314]/5"
                 >
                   Cancelar
+                </button>
+                {/* #9724 (decisão B) · espelho/prévia em PDF — não transmite, não numera */}
+                <button
+                  type="button"
+                  onClick={() => void baixarEspelho()}
+                  disabled={itens.length === 0 || baixandoEspelho}
+                  data-testid="nfe-espelho"
+                  title="Baixa um PDF da nota montada marcado como PRÉVIA — SEM VALOR FISCAL. Não transmite nem numera."
+                  className="flex-1 px-4 py-2.5 text-[13px] font-medium rounded-lg border border-[#3D2314]/15 text-[#3D2314] hover:bg-[#3D2314]/5 disabled:opacity-40"
+                >
+                  {baixandoEspelho ? 'Gerando…' : 'Baixar espelho (PDF)'}
                 </button>
                 <button
                   type="button"

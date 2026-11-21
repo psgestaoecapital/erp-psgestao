@@ -500,7 +500,7 @@ export default function AnalisesPage(){
           {realData.top_custos&&realData.top_custos.length>0&&(
             <Card>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-                <div style={{fontSize:12,fontWeight:600,color:GOL}}>Maiores Custos — Real vs Orçado</div>
+                <div style={{fontSize:12,fontWeight:600,color:GOL,display:"inline-flex",alignItems:"center",gap:6}}>Maiores Custos — Real vs Orçado<AjudaCampo rota="/dashboard/analises" chave="analises.grafico_maiores_custos" /></div>
                 {realData.variacao_global&&<div style={{fontSize:10,color:Number(realData.variacao_global)>0?R:G,fontWeight:600}}>Variação global: {Number(realData.variacao_global)>0?"+":""}{realData.variacao_global}%</div>}
               </div>
               <div style={{display:"grid",gridTemplateColumns:"24px 1fr auto auto auto",gap:"0 8px",alignItems:"center",fontSize:10,color:TXD,padding:"4px 0",borderBottom:`1px solid ${BD}`,marginBottom:4}}>
@@ -618,7 +618,7 @@ export default function AnalisesPage(){
 
     {aba==="negocios"&&(<div>
       {realData&&realData.top_receitas_operacionais&&realData.top_receitas_operacionais.length>0?(<>
-        <Tit t={`${realData.top_receitas_operacionais.length} Linhas de Receita Identificadas — Dados Reais (sistema de origem)`}/>
+        <Tit t={`${realData.top_receitas_operacionais.length} Linhas de Receita Identificadas — Dados Reais (sistema de origem)`} ajuda="analises.linhas_receita_reais"/>
         {realData.top_receitas_operacionais.map((r:any,i:number)=>{
           const pct = realData.total_rec_operacional>0?((r.valor/realData.total_rec_operacional)*100):0;
           const cores = [GO,G,B,P,T,GOL,"#F97316","#EC4899"];
@@ -645,7 +645,7 @@ export default function AnalisesPage(){
         })}
 
         {realData.top_emprestimos&&realData.top_emprestimos.length>0&&(<>
-          <Tit t="Entradas Não-Operacionais (Empréstimos, Transferências)"/>
+          <Tit t="Entradas Não-Operacionais (Empréstimos, Transferências)" ajuda="analises.entradas_nao_operacionais"/>
           {realData.top_emprestimos.map((r:any,i:number)=>(
             <div key={i} style={{background:BG2,borderRadius:8,padding:"10px 14px",marginBottom:4,borderLeft:`3px solid ${Y}`,border:`1px solid ${BD}`}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
