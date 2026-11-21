@@ -162,6 +162,13 @@ const SECAO_LABEL_OVERRIDE: Record<string, string> = {
   ADMINISTRACAO: 'Administração',
   // Gestão Empresarial — a seção vem crua "CONTRATOS_VENDAS" da RPC; o usuário lê "Contratos".
   CONTRATOS_VENDAS: 'Contratos',
+  // Hub de Projetos (auditoria CEO 20/11): os subgrupos vinham crus ("PROJETOS RAIZ", "PROJETOS COMERCIAL"…)
+  // — nome técnico para o cliente. Trocamos por nomes de gente (RD-96, marca própria).
+  PROJETOS_RAIZ: 'Painel',
+  PROJETOS_COMERCIAL: 'Comercial',
+  PROJETOS_ENGENHARIA: 'Engenharia',
+  PROJETOS_OBRAS: 'Obras',
+  PROJETOS_CONFIGURACAO: 'Configurações',
 }
 
 function rpcRowsToModulos(rows: RpcRow[], isPS: boolean, areaSlug: string, labelOverride?: Record<string, string>): SidebarModuleNode[] {
