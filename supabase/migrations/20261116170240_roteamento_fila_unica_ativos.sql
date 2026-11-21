@@ -88,7 +88,7 @@ REVOKE ALL ON FUNCTION public.fn_dev_mais_vazio() FROM anon;
 GRANT EXECUTE ON FUNCTION public.fn_dev_mais_vazio() TO service_role;
 
 -- (5) Carga por dev para o Eng. Chefe / painel (balanceamento da fila única).
-CREATE OR REPLACE VIEW public.v_devs_carga AS
+CREATE OR REPLACE VIEW public.v_devs_carga WITH (security_invoker = true) AS
   SELECT d.agente,
          (SELECT count(*) FROM public.erp_agente_mensagem m
            WHERE m.para = d.agente
