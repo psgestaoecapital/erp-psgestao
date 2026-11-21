@@ -17,16 +17,18 @@
 --     "CONFIGURAÇÃO DA EMPRESA — §310: a configuração de BDI saiu do topo e fica aqui, ao fim"
 --     com o botão "Configurar BDI da empresa").
 --
--- Esta migration só corrige o ledger (status_baseline ausente -> completo) desses dois
+-- Esta migration só corrige o ledger (status_baseline ausente -> atendido) desses dois
 -- requisitos provados. NÃO toca requisitos genuinamente pendentes da 310 (filtros do
 -- dashboard, bloco financeiro reaproveitado, modos, comparação entre obras, pós-obra).
+-- (Valor 'atendido' é o permitido pelo CHECK blueprint_tela_requisito_status_chk
+--  {ausente,parcial,atendido,travado}; 'completo' NÃO existe e quebraria o deploy — RD-52.)
 --
 -- Aditiva e idempotente: guarda por status_baseline='ausente' (re-rodar não altera nada).
 -- Sem RLS/policy/grant; blueprint_tela_requisito é tabela de referência interna de cobertura,
 -- não é dado de cliente.
 
 UPDATE public.blueprint_tela_requisito
-   SET status_baseline = 'completo'
+   SET status_baseline = 'atendido'
  WHERE id IN (
          'c8da1f90-24d2-4782-a945-76ce68ab12a2',  -- "Ferramentas de Gestão" (sem numeração)
          'd4f358fd-a8bf-433b-abbd-d24b43d11d48'   -- Novidades/sugestões ao fim + BDI fora do topo
