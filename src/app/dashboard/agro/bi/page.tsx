@@ -32,6 +32,7 @@ const catLabel = (c: string) => ({
 type Propriedade = { id: string; nome: string }
 type Painel = { total_cabecas: number; por_categoria: Array<{ categoria: string; qtd: number }>; lotes_ativos: number; areas: number; propriedades: number }
 type SerieReb = { mes: string; liquido: number; acumulado: number }
+type SerieEstoque = { mes: string; estoque: number; entradas: number; saidas: number }
 type ResumoLado = { cabecas: number; valor: number; peso_kg: number; preco_medio_cab: number; preco_kg: number }
 type Vendas = { ok: boolean; resumo?: { venda: ResumoLado; compra: ResumoLado }; series?: Array<{ mes: string; venda_cab: number; venda_valor: number; compra_cab: number; compra_valor: number }> }
 
@@ -47,6 +48,7 @@ export default function BiPecuariaPage() {
   const [periodo, setPeriodo] = useState(anoCorrente())
   const [painel, setPainel] = useState<Painel | null>(null)
   const [serieReb, setSerieReb] = useState<SerieReb[]>([])
+  const [serieEstoque, setSerieEstoque] = useState<SerieEstoque[]>([])
   const [vendas, setVendas] = useState<Vendas | null>(null)
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState(false)
@@ -70,14 +72,16 @@ export default function BiPecuariaPage() {
     setLoading(true); setErro(false)
     const prop = propId || null
     try {
-      const [p, d, v] = await comPrazo(() => Promise.all([
+      const [p, d, v, e] = await comPrazo(() => Promise.all([
         supabase.rpc('fn_pec_painel_rebanho', { p_company_id: companyId, p_propriedade_id: prop }),
         supabase.rpc('fn_agro_dashboard', { p_company_id: companyId, p_data_inicio: periodo.de, p_data_fim: periodo.ate }),
         supabase.rpc('fn_pec_bi_vendas', { p_company_id: companyId, p_de: periodo.de, p_ate: periodo.ate, p_propriedade_id: prop }),
+        supabase.rpc('fn_pec_bi_estoque_mensal', { p_company_id: companyId, p_de: periodo.de, p_ate: periodo.ate, p_propriedade_id: prop }),
       ]), { ms: 9000, tentativas: 1, label: 'agro_bi' })
       setPainel((p.data as Painel) ?? null)
       setSerieReb((((d.data as { series_rebanho?: SerieReb[] })?.series_rebanho) ?? []))
       setVendas((v.data as Vendas) ?? null)
+      setSerieEstoque((((e.data as { series?: SerieEstoque[] })?.series) ?? []))
     } catch {
       setErro(true)
     } finally {
@@ -176,6 +180,26 @@ export default function BiPecuariaPage() {
                 <Legend />
                 <Bar dataKey="liquido" name="Líquido do mês" fill={GOLD} radius={[4, 4, 0, 0]} />
                 <Line type="monotone" dataKey="acumulado" name="Cabeças (acum.)" stroke={GREEN} strokeWidth={2} dot={false} />
+              </ComposedChart>
+            </ChartBox>}
+      </Section>
+
+      {/* 2b · Estoque de cabeças mês a mês (ciclo de vida do animal) */}
+      <Section titulo="Estoque de cabeças mês a mês" sub="Saldo do rebanho no fim de cada mês, reconstruído da entrada e da saída de cada animal. Linha = estoque; barras = entradas e saídas do mês.">
+        <ChartTitulo titulo="Saldo do rebanho ao longo do tempo" chave="agro_bi.estoque_mensal" />
+        {serieEstoque.length === 0
+          ? <Vazio texto="Sem animais cadastrados para esta seleção. Cadastre o rebanho em Rebanho & Cadastro para acompanhar o saldo mês a mês aqui." />
+          : <ChartBox>
+              <ComposedChart data={serieEstoque}>
+                <CartesianGrid strokeDasharray="3 3" stroke={LINE} />
+                <XAxis dataKey="mes" tickFormatter={mesLabel} tick={{ fontSize: 11, fill: ESP60 }} />
+                <YAxis tick={{ fontSize: 11, fill: ESP60 }} />
+                <Tooltip labelFormatter={(l) => mesLabel(String(l))}
+                  formatter={(v, n) => [int(Number(v)), n === 'estoque' ? 'Cabeças (saldo)' : n === 'entradas' ? 'Entradas' : 'Saídas']} />
+                <Legend />
+                <Bar dataKey="entradas" name="Entradas" fill={BLUE} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="saidas" name="Saídas" fill={'#A32D2D'} radius={[4, 4, 0, 0]} />
+                <Line type="monotone" dataKey="estoque" name="Cabeças (saldo)" stroke={GREEN} strokeWidth={2} dot={false} />
               </ComposedChart>
             </ChartBox>}
       </Section>
