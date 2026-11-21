@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react'
 import { EHS, type EhsStatus } from './tokens'
 import { tEhs, type EhsIdioma } from './i18n'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const COR: Record<EhsStatus, { fg: string; bg: string }> = {
   ok: { fg: EHS.ok, bg: EHS.okBg },
@@ -32,17 +33,19 @@ export function EhsCabecalho({ titulo, descricao, idioma = 'pt', acoes }: {
   )
 }
 
-/** Cartão de status: a cor aparece só no indicador de status. */
-export function EhsCartaoStatus({ rotulo, valor, status, detalhe }: {
+/** Cartão de status: a cor aparece só no indicador de status. O "?" (RD-95) aparece quando `ajuda` é informado. */
+export function EhsCartaoStatus({ rotulo, valor, status, detalhe, ajuda, rotaAjuda }: {
   rotulo: string
   valor: ReactNode
   status: EhsStatus
   detalhe?: string
+  ajuda?: string
+  rotaAjuda?: string
 }) {
   const c = COR[status]
   return (
     <div data-testid="ehs-cartao-status" data-status={status} style={{ background: EHS.superficie, border: `1px solid ${EHS.borda}`, borderLeft: `6px solid ${c.fg}`, borderRadius: 12, padding: '16px 18px' }}>
-      <div style={{ fontSize: 12, color: EHS.suave, fontWeight: 600 }}>{rotulo}</div>
+      <div style={{ fontSize: 12, color: EHS.suave, fontWeight: 600, display: 'inline-flex', alignItems: 'center' }}>{rotulo}{ajuda && <AjudaCampo chave={ajuda} rota={rotaAjuda} />}</div>
       <div style={{ fontSize: 32, fontWeight: 700, color: EHS.tinta, lineHeight: 1.2 }}>{valor}</div>
       {detalhe && <div style={{ fontSize: 12, color: c.fg, background: c.bg, display: 'inline-block', padding: '2px 8px', borderRadius: 999, marginTop: 6 }}>{detalhe}</div>}
     </div>

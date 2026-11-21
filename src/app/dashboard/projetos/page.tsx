@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Hammer, ArrowRight } from "lucide-react";
+import { Hammer, ArrowRight, Clock, FileClock, CalendarDays, CalendarClock, AlertTriangle } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
@@ -25,16 +25,27 @@ interface ResumoEmpresa {
   funil_valor_aberto: number;
   funil_ganhas: number;
   funil_perdidas: number;
+  aprovacoes_pendentes: number;
+  orcamentos_parados: number;
+  compromissos_7d: number;
+  compromissos_atrasados: number;
+  obras_atrasadas: number;
   obras_andamento: ObraAndamento[];
 }
 
 // Obras em andamento do painel: mesma fonte e mesma conta da "Margem prevista das obras" (receita − custo previstos).
+// §310 "avanço financeiro de cada uma" + pedido do Diego/FC ("resultado por obra: previsto × realizado"):
+// além do previsto, o painel traz a margem REALIZADA (margem_realizada da v_obra_resultado = receita realizada −
+// custo realizado), lado a lado, para o sócio ver o previsto × realizado sem abrir a tela de Resultado por obra.
 interface ObraAndamento {
   obra_id: string;
   numero: string | null;
   nome: string | null;
   receita_prevista: number;
   custo_previsto: number;
+  receita_realizada: number;
+  margem_realizada: number;
+  avanco_pct: number | null;
 }
 
 const SITUACOES = [
@@ -50,6 +61,8 @@ const PASSOS = [
   { href: "/dashboard/projetos/oportunidades", titulo: "Funil de oportunidades", texto: "Registre o cliente e a obra que quer orçar." },
   { href: "/dashboard/projetos/obras", titulo: "Obras", texto: "Acompanhe escopo, status e fiscal de cada obra." },
   { href: "/dashboard/projetos/obras/resultado", titulo: "Resultado por obra", texto: "Previsto x realizado: custo, compras e margem." },
+  { href: "/dashboard/projetos/agenda", titulo: "Agenda e tarefas", texto: "Compromissos, visitas e tarefas da obra em um só lugar." },
+  { href: "/dashboard/hub/plano-acao", titulo: "Plano de ação 5W2H", texto: "Reuniões e ações por obra: o quê, quem e até quando." },
 ];
 
 function fmtBRL(v: number) {
@@ -83,12 +96,36 @@ export default function PainelProjetos() {
         // contava por v_obra_resultado (view derivada) e podia divergir da lista (auditor 27/10: Painel "Concluídas 0"
         // x lista "Concluídas 1"). Uma fonte só = os números sempre batem. Só as obras em andamento vêm linha a linha
         // (receita/custo previstos) da v_obra_resultado para a tabela abaixo.
-        const [{ data: v }, { data: k, error: ek }, { count: propostas, error: ep }, { data: obras, error: eo }, { data: opps, error: eop }] = await Promise.all([
+        // "Bloco do dia" (§310): orçamentos enviados sem retorno há mais de 7 dias (cobrar o cliente),
+        // revisões de escopo aguardando aprovação (decisão travando a obra) e os compromissos da Agenda
+        // comercial marcados de hoje até os próximos 7 dias. Erros destes blocos NÃO derrubam o painel
+        // (try separado no throw): são blocos de apoio, não os indicadores principais.
+        const seteDiasAtras = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+        // Compromissos: mesma fonte da Agenda do Hub (erp_agendamento origem_modulo='comercial', RD-26),
+        // de hoje (inclusive) até +7 dias; ignora cancelados e títulos de robô/teste, como a própria Agenda.
+        const hojeData = new Date().toISOString().slice(0, 10);
+        const mais7Data = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        const [{ data: v }, { data: k, error: ek }, { count: propostas, error: ep }, { data: obras, error: eo }, { data: opps, error: eop }, { count: orcParados, error: eorc }, { count: revPend, error: erev }, { count: compromissos, error: eag }, { count: compromissosAtrasados, error: eag2 }, { count: obrasAtrasadas, error: eobr }, { data: obrasAvanco }] = await Promise.all([
           supabase.from("v_projetos_resumo_empresa").select("contas_pagar_abertas,contas_receber_abertas").eq("company_id", companyId).maybeSingle(),
           supabase.rpc("fn_obras_kpis", { p_company_ids: [companyId] }),
           supabase.from("erp_orcamentos").select("id", { count: "exact", head: true }).eq("company_id", companyId).in("status", ["rascunho", "enviado"]),
-          supabase.from("v_obra_resultado").select("obra_id,numero,nome,status,receita_prevista,custo_previsto").eq("company_id", companyId).eq("status", "em_andamento"),
+          supabase.from("v_obra_resultado").select("obra_id,numero,nome,status,receita_prevista,custo_previsto,receita_servico,receita_material,margem_realizada").eq("company_id", companyId).eq("status", "em_andamento"),
           supabase.from("erp_crm_oportunidade").select("etapa,valor_estimado").eq("company_id", companyId).is("deleted_at", null),
+          supabase.from("erp_orcamentos").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "enviado").is("deleted_at", null).lt("updated_at", seteDiasAtras),
+          supabase.from("projetos_obra_revisao").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "solicitada").is("excluido_em", null),
+          supabase.from("erp_agendamento").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("origem_modulo", "comercial").neq("status", "cancelado").gte("data", hojeData).lte("data", mais7Data).not("titulo", "ilike", "%[BOT]%").not("titulo", "ilike", "%E2E%"),
+          // Compromissos atrasados (§310 "bloco do dia" · tarefas atrasadas): agenda comercial ainda em aberto
+          // (status agendado/confirmado — nunca concluído nem cancelado) com data ANTERIOR a hoje. Mesma fonte e
+          // mesmos filtros de robô/teste da Agenda (RD-26). Vencidos ficam no passado = algo passou e não foi tratado.
+          supabase.from("erp_agendamento").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("origem_modulo", "comercial").in("status", ["agendado", "confirmado"]).lt("data", hojeData).is("excluido_em", null).not("titulo", "ilike", "%[BOT]%").not("titulo", "ilike", "%E2E%"),
+          // Obras atrasadas (§310 "bloco de obras" · atrasadas): obra em andamento cujo prazo previsto de
+          // término (data_prevista_fim) já passou. Fonte direta de projetos_obras (RLS por company), não a
+          // v_obra_resultado (que não traz o prazo). Só em_andamento vencida = alerta de prazo acionável.
+          supabase.from("projetos_obras").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "em_andamento").lt("data_prevista_fim", hojeData).is("deleted_at", null),
+          // Avanço físico (§310 "avanço físico de cada uma"): % de conclusão da obra, de projetos_obras
+          // (RLS por company). A v_obra_resultado traz o financeiro, não o físico — por isso o fetch à parte,
+          // casado por obra_id. Avanço físico × margem (financeiro) na mesma linha mostra "andou × rendeu".
+          supabase.from("projetos_obras").select("id,pct_conclusao").eq("company_id", companyId).eq("status", "em_andamento").is("deleted_at", null),
         ]);
         if (ek || ep || eo || eop) throw new Error("indicadores");
         const kp = (k as { em_andamento?: number; concluidas?: number; pausada?: number; cancelada?: number; valor_em_andamento?: number } | null) ?? {};
@@ -100,10 +137,15 @@ export default function PainelProjetos() {
           cancelada: Number(kp.cancelada ?? 0),
         };
         let receita = 0, custo = 0;
+        // Avanço físico por obra (obra_id → % de conclusão) da projetos_obras, casado à linha do Resultado.
+        const avancoPorObra = new Map<string, number | null>();
+        for (const a of (obrasAvanco as { id: string; pct_conclusao: number | null }[] | null) ?? []) {
+          avancoPorObra.set(a.id, a.pct_conclusao === null ? null : Number(a.pct_conclusao));
+        }
         const andamento: ObraAndamento[] = [];
-        for (const o of (obras as { obra_id: string; numero: string | null; nome: string | null; status: string; receita_prevista: number | null; custo_previsto: number | null }[] | null) ?? []) {
+        for (const o of (obras as { obra_id: string; numero: string | null; nome: string | null; status: string; receita_prevista: number | null; custo_previsto: number | null; receita_servico: number | null; receita_material: number | null; margem_realizada: number | null }[] | null) ?? []) {
           receita += Number(o.receita_prevista ?? 0); custo += Number(o.custo_previsto ?? 0);
-          andamento.push({ obra_id: o.obra_id, numero: o.numero, nome: o.nome, receita_prevista: Number(o.receita_prevista ?? 0), custo_previsto: Number(o.custo_previsto ?? 0) });
+          andamento.push({ obra_id: o.obra_id, numero: o.numero, nome: o.nome, receita_prevista: Number(o.receita_prevista ?? 0), custo_previsto: Number(o.custo_previsto ?? 0), receita_realizada: Number(o.receita_servico ?? 0) + Number(o.receita_material ?? 0), margem_realizada: Number(o.margem_realizada ?? 0), avanco_pct: avancoPorObra.has(o.obra_id) ? avancoPorObra.get(o.obra_id)! : null });
         }
         andamento.sort((a, b) => b.receita_prevista - a.receita_prevista);
         let abertas = 0, valorAberto = 0, ganhas = 0, perdidas = 0;
@@ -129,6 +171,11 @@ export default function PainelProjetos() {
             funil_valor_aberto: valorAberto,
             funil_ganhas: ganhas,
             funil_perdidas: perdidas,
+            aprovacoes_pendentes: erev ? 0 : Number(revPend ?? 0),
+            orcamentos_parados: eorc ? 0 : Number(orcParados ?? 0),
+            compromissos_7d: eag ? 0 : Number(compromissos ?? 0),
+            compromissos_atrasados: eag2 ? 0 : Number(compromissosAtrasados ?? 0),
+            obras_atrasadas: eobr ? 0 : Number(obrasAtrasadas ?? 0),
             obras_andamento: andamento,
           });
         }
@@ -195,7 +242,7 @@ export default function PainelProjetos() {
 
         {/* Cada indicador leva à tela CRUD correspondente (drill-down). */}
         <div className="mb-3 mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
-          <KpiPrincipal label="Obras em andamento" chave="projetos.painel.kpi.obras_ativas" testid="kpi-obras-ativas" valor={resumo ? String(resumo.obras_ativas) : "…"} href="/dashboard/projetos/obras" />
+          <KpiPrincipal label="Obras em andamento" chave="projetos.painel.kpi.obras_ativas" testid="kpi-obras-ativas" valor={resumo ? String(resumo.obras_ativas) : "…"} href="/dashboard/projetos/obras?status=em_andamento&area=hub" />
           <KpiPrincipal
             label="Valor das obras em andamento"
             chave="projetos.painel.kpi.valor_obras"
@@ -232,6 +279,58 @@ export default function PainelProjetos() {
         </div>
       </section>
 
+      {/* PARA HOJE — §310 (relatório 01 · reunião 20/11): bloco do dia. Hoje: compromissos da Agenda
+          nos próximos 7 dias, aprovações de escopo paradas e orçamentos enviados sem retorno. Cada card
+          é acionável e tem "?" (RD-95); estado calmo quando não há pendência (RD-98). */}
+      <section className="mt-12" data-testid="painel-para-hoje">
+        <div className="flex items-center gap-1">
+          <Clock size={14} className="text-[#C8941A]" />
+          <SectionLabel>Para hoje</SectionLabel>
+        </div>
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <PendenciaCard
+            icone={<CalendarDays size={18} className="text-[#C8941A]" />}
+            label="Compromissos (próximos 7 dias)"
+            chave="projetos.painel.pendencias.compromissos"
+            testid="pendencia-compromissos"
+            valor={resumo ? resumo.compromissos_7d : null}
+            texto={(n) => n === 1 ? "compromisso agendado de hoje aos próximos 7 dias" : "compromissos agendados de hoje aos próximos 7 dias"}
+            vazioTexto="Nenhum compromisso agendado nos próximos 7 dias."
+            href="/dashboard/projetos/agenda"
+          />
+          <PendenciaCard
+            icone={<CalendarClock size={18} className="text-[#C8941A]" />}
+            label="Compromissos atrasados"
+            chave="projetos.painel.pendencias.compromissos_atrasados"
+            testid="pendencia-compromissos-atrasados"
+            valor={resumo ? resumo.compromissos_atrasados : null}
+            texto={(n) => n === 1 ? "compromisso venceu e ainda está em aberto" : "compromissos venceram e ainda estão em aberto"}
+            vazioTexto="Nenhum compromisso em atraso — a agenda está em dia."
+            href="/dashboard/projetos/agenda"
+          />
+          <PendenciaCard
+            icone={<FileClock size={18} className="text-[#C8941A]" />}
+            label="Aprovações pendentes"
+            chave="projetos.painel.pendencias.aprovacoes"
+            testid="pendencia-aprovacoes"
+            valor={resumo ? resumo.aprovacoes_pendentes : null}
+            texto={(n) => n === 1 ? "revisão de escopo aguardando sua aprovação" : "revisões de escopo aguardando sua aprovação"}
+            vazioTexto="Nenhuma revisão de escopo aguardando decisão."
+            href="/dashboard/projetos/obras"
+          />
+          <PendenciaCard
+            icone={<Clock size={18} className="text-[#C8941A]" />}
+            label="Orçamentos sem retorno"
+            chave="projetos.painel.pendencias.orcamentos_parados"
+            testid="pendencia-orcamentos"
+            valor={resumo ? resumo.orcamentos_parados : null}
+            texto={(n) => n === 1 ? "proposta enviada há mais de 7 dias sem resposta" : "propostas enviadas há mais de 7 dias sem resposta"}
+            vazioTexto="Nenhuma proposta enviada esperando resposta há mais de 7 dias."
+            href="/dashboard/projetos/propostas"
+          />
+        </div>
+      </section>
+
       {/* FUNIL — contador honesto, cada número leva para o funil */}
       <section className="mt-12" data-testid="painel-funil">
         <div className="flex items-center gap-1">
@@ -252,9 +351,30 @@ export default function PainelProjetos() {
           <SectionLabel>Obras por situação</SectionLabel>
           <AjudaCampo chave="projetos.painel.obras_situacao" />
         </div>
+        {/* §310 "bloco de obras" · atrasadas: alerta de prazo das obras em andamento cujo término previsto
+            já venceu. Só aparece quando há atraso (RD-98: zero não vira alarme falso). */}
+        {resumo && resumo.obras_atrasadas > 0 && (
+          <Link
+            href="/dashboard/projetos/obras?status=em_andamento&area=hub"
+            data-testid="painel-obras-atrasadas"
+            className="mt-3 flex items-start gap-3 rounded-xl border border-[#C2410C]/30 bg-[#C2410C]/5 p-4 shadow-sm transition-colors hover:border-[#C2410C]"
+          >
+            <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#C2410C]/10">
+              <AlertTriangle size={18} className="text-[#C2410C]" />
+            </span>
+            <span className="min-w-0">
+              <span className="flex items-center gap-1 text-xs text-[#3D2314]/50">Obras atrasadas<AjudaCampo chave="projetos.painel.obras.atrasadas" /></span>
+              <span className="mt-0.5 block text-sm text-[#3D2314]">
+                <span className="text-lg font-medium" style={{ fontFamily: "var(--ps-font-body)", fontStyle: "normal" }}>{resumo.obras_atrasadas}</span>{" "}
+                {resumo.obras_atrasadas === 1 ? "obra em andamento passou do prazo previsto de término" : "obras em andamento passaram do prazo previsto de término"}
+              </span>
+            </span>
+            <ArrowRight size={14} className="ml-auto mt-1 shrink-0 text-[#C2410C]" />
+          </Link>
+        )}
         <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
           {SITUACOES.map((x) => (
-            <Link key={x.s} href="/dashboard/projetos/obras" data-testid={`situacao-${x.s}`} className="rounded-xl border border-[#3D2314]/12 bg-white p-4 shadow-sm hover:border-[#C8941A]">
+            <Link key={x.s} href={`/dashboard/projetos/obras?status=${x.s}&area=hub`} data-testid={`situacao-${x.s}`} className="rounded-xl border border-[#3D2314]/12 bg-white p-4 shadow-sm hover:border-[#C8941A]">
               <Numero label={x.l} valor={resumo ? String(resumo.obras_por_status[x.s] ?? 0) : "…"} ajuda="projetos.painel.obras_situacao" />
             </Link>
           ))}
@@ -280,23 +400,41 @@ export default function PainelProjetos() {
               <thead>
                 <tr className="border-b border-[#3D2314]/10 text-left text-xs text-[#3D2314]/50">
                   <th className="px-4 py-2 font-medium">Obra</th>
+                  <th className="px-4 py-2 font-medium"><span className="inline-flex items-center gap-1">Avanço<AjudaCampo chave="projetos.painel.obra.avanco_fisico" /></span></th>
                   <th className="px-4 py-2 text-right font-medium"><span className="inline-flex items-center gap-1">Receita prevista<AjudaCampo chave="projetos.resultado_obra.receita_prevista" rota="/dashboard/projetos/obras/resultado" /></span></th>
                   <th className="px-4 py-2 text-right font-medium"><span className="inline-flex items-center gap-1">Custo previsto<AjudaCampo chave="projetos.resultado_obra.custo_previsto" rota="/dashboard/projetos/obras/resultado" /></span></th>
                   <th className="px-4 py-2 text-right font-medium"><span className="inline-flex items-center gap-1">Margem prevista<AjudaCampo chave="projetos.painel.kpi.margem_prevista" /></span></th>
+                  <th className="px-4 py-2 text-right font-medium"><span className="inline-flex items-center gap-1">Margem realizada<AjudaCampo chave="projetos.resultado_obra.kpi_margem" rota="/dashboard/projetos/obras/resultado" /></span></th>
                   <th className="px-4 py-2" />
                 </tr>
               </thead>
               <tbody>
                 {resumo.obras_andamento.slice(0, 8).map((o) => {
                   const m = o.receita_prevista > 0 ? ((o.receita_prevista - o.custo_previsto) / o.receita_prevista) * 100 : null;
+                  // Margem realizada em % = margem_realizada (R$) ÷ receita já realizada. Sem receita realizada
+                  // ainda (obra recém-começada), mostra "—" em vez de 0 % (não há base para o percentual) — RD-98.
+                  const mr = o.receita_realizada > 0 ? (o.margem_realizada / o.receita_realizada) * 100 : null;
                   return (
                     <tr key={o.obra_id} data-testid="painel-obra-linha" className="border-b border-[#3D2314]/5 last:border-0">
                       <td className="px-4 py-2.5 text-[#3D2314]">
                         <span className="text-[#3D2314]/50">{o.numero ? `${o.numero} · ` : ""}</span>{o.nome ?? "Obra sem nome"}
                       </td>
+                      <td data-testid="painel-obra-avanco" className="px-4 py-2.5">
+                        {o.avanco_pct === null ? (
+                          <span className="text-[#3D2314]/40">—</span>
+                        ) : (
+                          <span className="flex items-center gap-2">
+                            <span className="h-1.5 w-16 overflow-hidden rounded-full bg-[#3D2314]/10">
+                              <span className="block h-full rounded-full bg-[#C8941A]" style={{ width: `${Math.max(0, Math.min(100, o.avanco_pct))}%` }} />
+                            </span>
+                            <span className="tabular-nums text-xs text-[#3D2314]/70">{o.avanco_pct}%</span>
+                          </span>
+                        )}
+                      </td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-[#3D2314]">{fmtBRL(o.receita_prevista)}</td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-[#3D2314]">{fmtBRL(o.custo_previsto)}</td>
                       <td className="px-4 py-2.5 text-right tabular-nums text-[#3D2314]">{m === null ? "—" : fmtPct(m)}</td>
+                      <td data-testid="painel-obra-margem-realizada" className="px-4 py-2.5 text-right tabular-nums text-[#3D2314]">{mr === null ? <span className="text-[#3D2314]/40">—</span> : fmtPct(mr)}</td>
                       <td className="px-4 py-2.5 text-right">
                         <Link href={`/dashboard/projetos/obras/${o.obra_id}/cockpit?area=hub`} className="inline-flex items-center gap-1 whitespace-nowrap text-sm font-medium text-[#C8941A] hover:underline">
                           Cockpit <ArrowRight size={14} />
@@ -396,6 +534,33 @@ function Numero({ label, valor, testid, ajuda }: { label: string; valor: string;
         {valor}
       </div>
     </div>
+  );
+}
+
+function PendenciaCard({ icone, label, chave, testid, valor, texto, vazioTexto, href }: { icone: React.ReactNode; label: string; chave: string; testid?: string; valor: number | null; texto: (n: number) => string; vazioTexto: string; href: string }) {
+  const vazio = valor !== null && valor === 0;
+  return (
+    <Link
+      href={href}
+      data-testid={testid}
+      className="flex items-start gap-3 rounded-xl border border-[#3D2314]/12 bg-white p-4 shadow-sm transition-colors hover:border-[#C8941A]"
+    >
+      <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#C8941A]/10">{icone}</span>
+      <span className="min-w-0">
+        <span className="flex items-center gap-1 text-xs text-[#3D2314]/50">{label}<AjudaCampo chave={chave} /></span>
+        {valor === null ? (
+          <span className="mt-0.5 block text-lg font-medium text-[#3D2314]">…</span>
+        ) : vazio ? (
+          <span className="mt-0.5 block text-sm text-[#3D2314]/45">{vazioTexto}</span>
+        ) : (
+          <span className="mt-0.5 block text-sm text-[#3D2314]">
+            <span className="text-lg font-medium" style={{ fontFamily: "var(--ps-font-body)", fontStyle: "normal" }}>{valor}</span>{" "}
+            {texto(valor)}
+          </span>
+        )}
+      </span>
+      <ArrowRight size={14} className="ml-auto mt-1 shrink-0 text-[#C8941A]" />
+    </Link>
   );
 }
 

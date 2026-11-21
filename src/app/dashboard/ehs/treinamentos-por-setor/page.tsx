@@ -9,17 +9,27 @@ import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const C = { espresso: '#3D2314', offwhite: '#FAF7F2', gold: '#C8941A', borderLt: '#ece3d2', gray: '#6b6b6b', red: '#a02020', green: '#2d6a3e' }
 type Setor = { setor: string; setor_id: string }
+type Cobertura = { setor: string; setor_id: string; marcados: number }
 type Exig = { exigido_id: string; nome: string; grupo: string; marcado_setor: boolean; ja_exigido_por_escopo: boolean }
 
 export default function TreinamentosPorSetorPage() {
   const { sel, selInfo, loading } = useCompanyIds()
   const companyId = selInfo.tipo === 'empresa' ? sel : null
   const [setores, setSetores] = useState<Setor[]>([])
+  const [cobertura, setCobertura] = useState<Cobertura[]>([])
   const [setorId, setSetorId] = useState('')
   const [itens, setItens] = useState<Exig[]>([])
   const [marcados, setMarcados] = useState<Set<string>>(new Set())
   const [msg, setMsg] = useState('')
   const [salvando, setSalvando] = useState(false)
+
+  const carregarPanorama = useCallback(async () => {
+    if (!companyId) return
+    try {
+      const r = await rpc<{ setores: Cobertura[] }>('fn_compliance_setores_cobertura', { p_company_id: companyId })
+      setCobertura(r.setores || [])
+    } catch { /* panorama é auxiliar; o seletor continua funcionando sem ele */ }
+  }, [companyId])
 
   useEffect(() => {
     if (!companyId) return
@@ -29,7 +39,8 @@ export default function TreinamentosPorSetorPage() {
         setSetores(r.setores || [])
       } catch (e) { setMsg((e as Error).message) }
     })()
-  }, [companyId])
+    void carregarPanorama()
+  }, [companyId, carregarPanorama])
 
   const carregar = useCallback(async () => {
     if (!companyId || !setorId) { setItens([]); return }
@@ -49,6 +60,7 @@ export default function TreinamentosPorSetorPage() {
       await rpc('fn_compliance_setor_exigencias_salvar', { p_company_id: companyId, p_setor_id: setorId, p_exigido_ids: Array.from(marcados) })
       setMsg('Salvo. Os colaboradores deste setor passam a ter estes treinamentos na aba Documentos.')
       await carregar()
+      await carregarPanorama()
     } catch (e) { setMsg((e as Error).message) } finally { setSalvando(false) }
   }
   const alternar = (id: string) => setMarcados(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
@@ -61,6 +73,32 @@ export default function TreinamentosPorSetorPage() {
     <div style={{ background: C.offwhite, minHeight: '100vh', padding: 24, color: C.espresso }}>
       <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>Treinamentos por setor</h1>
       <p style={{ fontSize: 13, color: C.gray, margin: '6px 0 16px' }}>Escolha o setor e marque os treinamentos que todos os colaboradores dele precisam ter. O que a empresa já exige hoje (por cargo ou para todos) continua valendo: aqui você só acrescenta.</p>
+
+      {cobertura.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 11.5, fontWeight: 800, color: C.gold, textTransform: 'uppercase', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+            Panorama de cobertura<AjudaCampo chave="compliance.treinamentos_por_setor.panorama" />
+            <span style={{ fontSize: 11, fontWeight: 600, color: C.gray, textTransform: 'none' }}>
+              {cobertura.filter(c => c.marcados > 0).length} de {cobertura.length} setores com treinamentos marcados
+            </span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 8 }}>
+            {cobertura.map(c => {
+              const sel = setorId === c.setor_id
+              return (
+                <button key={c.setor_id} type="button" data-testid="setor-cobertura" onClick={() => setSetorId(c.setor_id)}
+                  style={{ textAlign: 'left', background: '#fff', border: `1px solid ${sel ? C.gold : C.borderLt}`, borderLeft: `4px solid ${c.marcados > 0 ? C.green : C.borderLt}`, borderRadius: 10, padding: '10px 12px', cursor: 'pointer', boxShadow: sel ? `0 0 0 2px ${C.gold}30` : 'none' }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 700, color: C.espresso }}>{c.setor}</div>
+                  <div style={{ fontSize: 12, color: c.marcados > 0 ? C.green : C.gray, marginTop: 2 }}>
+                    {c.marcados > 0 ? `${c.marcados} treinamento${c.marcados === 1 ? '' : 's'} marcado${c.marcados === 1 ? '' : 's'}` : 'nenhum ainda'}
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       <label style={{ display: 'block', maxWidth: 440 }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Setor<AjudaCampo chave="compliance.treinamentos_por_setor.setor" /></span>
         <select data-testid="setor-select" value={setorId} onChange={e => setSetorId(e.target.value)} style={{ padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.borderLt}`, minWidth: 260, fontSize: 14 }}>
