@@ -69,7 +69,7 @@ export default function MatrizRiscoSetorPage() {
       if (ids.length === 0) { setSetores([]); setRiscos([]); setHeranca(new Map()); return }
       const [s, r, po, pp] = await Promise.all([
         supabase.from('prod_setor').select('id, company_id, nome, ordem, ativo').in('company_id', ids).eq('ativo', true).order('nome'),
-        supabase.from('prod_setor_risco').select('id, company_id, setor_id, tipo, descricao, grau').in('company_id', ids),
+        supabase.from('prod_setor_risco').select('id, company_id, setor_id, tipo, descricao, grau').in('company_id', ids).is('excluido_em', null),
         supabase.from('prod_posto').select('id, setor_id').in('company_id', ids),
         supabase.from('prod_posto_pessoa').select('posto_id, funcionario_id').in('company_id', ids),
       ])
@@ -129,8 +129,9 @@ export default function MatrizRiscoSetorPage() {
     const setorNome = setores.find((s) => s.id === r.setor_id)?.nome || 'setor'
     if (!confirm(`Excluir o risco "${tipoInfo(r.tipo).rotulo}${r.descricao ? ' · ' + r.descricao : ''}" do setor ${setorNome}?`)) return
     try {
-      const { error } = await supabase.from('prod_setor_risco').delete().eq('id', r.id)
+      const { data, error } = await supabase.rpc('fn_ehs_setor_risco_excluir', { p_id: r.id, p_motivo: null })
       if (error) throw error
+      if (data && (data as any).ok === false) throw new Error((data as any).erro || 'Falha ao excluir')
       setAviso('Risco excluído.')
       carregar()
     } catch (e: any) { alert(e?.message || 'Falha ao excluir') }
@@ -284,14 +285,16 @@ function RiscoFormModal({ companyId, setores, setorInicial, risco, onClose, onSa
     setSalvando(true); setErro(null)
     try {
       if (risco?.id) {
-        const { error } = await supabase.from('prod_setor_risco')
-          .update({ setor_id: setorId, tipo, descricao: descricao.trim(), grau: grau || null }).eq('id', risco.id)
+        const { data, error } = await supabase.rpc('fn_ehs_setor_risco_alterar', {
+          p_id: risco.id, p_setor_id: setorId, p_tipo: tipo, p_descricao: descricao.trim(), p_grau: grau || null })
         if (error) throw error
+        if (data && (data as any).ok === false) throw new Error((data as any).erro || 'Falha ao salvar')
         onSaved('Risco alterado.')
       } else {
-        const { error } = await supabase.from('prod_setor_risco')
-          .insert({ company_id: companyId, setor_id: setorId, tipo, descricao: descricao.trim(), grau: grau || null })
+        const { data, error } = await supabase.rpc('fn_ehs_setor_risco_incluir', {
+          p_company_id: companyId, p_setor_id: setorId, p_tipo: tipo, p_descricao: descricao.trim(), p_grau: grau || null })
         if (error) throw error
+        if (data && (data as any).ok === false) throw new Error((data as any).erro || 'Falha ao salvar')
         onSaved('Risco criado.')
       }
     } catch (e: any) { setErro(e?.message || 'Falha ao salvar'); setSalvando(false) }
