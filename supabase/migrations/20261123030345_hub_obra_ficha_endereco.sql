@@ -107,3 +107,10 @@ VALUES
   'Preencha os campos e clique em Salvar endereço.',
   'Sair da tela sem clicar em salvar — as alterações do endereço não são gravadas.', 'hub_projetos', 15, 'publicado')
 ON CONFLICT (chave) DO NOTHING;
+
+-- 4) ACL explícita (check_fn_guards regra 1): fecha anon/PUBLIC em toda função SECURITY DEFINER recriada ----
+REVOKE ALL ON FUNCTION public.fn_obra_ficha_ler(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_obra_ficha_ler(uuid) TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.fn_obra_ficha_endereco_salvar(uuid, text, text, text, text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_obra_ficha_endereco_salvar(uuid, text, text, text, text, text) TO authenticated, service_role;
