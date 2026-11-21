@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Hammer, ArrowRight } from "lucide-react";
+import { Hammer, ArrowRight, Clock, FileClock } from "lucide-react";
 import { useCompanyIds } from "@/lib/useCompanyIds";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
@@ -25,6 +25,8 @@ interface ResumoEmpresa {
   funil_valor_aberto: number;
   funil_ganhas: number;
   funil_perdidas: number;
+  aprovacoes_pendentes: number;
+  orcamentos_parados: number;
   obras_andamento: ObraAndamento[];
 }
 
@@ -44,10 +46,14 @@ const SITUACOES = [
   { s: "cancelada", l: "Canceladas" },
 ];
 
+// Ferramentas de Gestão (Blueprint Hub §310, relatório 03): atalhos de trabalho SEM numeração
+// 1-2-3 (não é um passo a passo obrigatório) — o grid comporta novos atalhos conforme o Hub cresce.
 const PASSOS = [
-  { href: "/dashboard/projetos/oportunidades", titulo: "1. Funil de oportunidades", texto: "Registre o cliente e a obra que quer orçar." },
-  { href: "/dashboard/projetos/obras", titulo: "2. Obras", texto: "Acompanhe escopo, status e fiscal de cada obra." },
-  { href: "/dashboard/projetos/obras/resultado", titulo: "3. Resultado por obra", texto: "Previsto x realizado: custo, compras e margem." },
+  { href: "/dashboard/projetos/oportunidades", titulo: "Funil de oportunidades", texto: "Registre o cliente e a obra que quer orçar." },
+  { href: "/dashboard/projetos/obras", titulo: "Obras", texto: "Acompanhe escopo, status e fiscal de cada obra." },
+  { href: "/dashboard/projetos/obras/resultado", titulo: "Resultado por obra", texto: "Previsto x realizado: custo, compras e margem." },
+  { href: "/dashboard/projetos/agenda", titulo: "Agenda e tarefas", texto: "Compromissos, visitas e tarefas da obra em um só lugar." },
+  { href: "/dashboard/hub/plano-acao", titulo: "Plano de ação 5W2H", texto: "Reuniões e ações por obra: o quê, quem e até quando." },
 ];
 
 function fmtBRL(v: number) {
@@ -81,12 +87,18 @@ export default function PainelProjetos() {
         // contava por v_obra_resultado (view derivada) e podia divergir da lista (auditor 27/10: Painel "Concluídas 0"
         // x lista "Concluídas 1"). Uma fonte só = os números sempre batem. Só as obras em andamento vêm linha a linha
         // (receita/custo previstos) da v_obra_resultado para a tabela abaixo.
-        const [{ data: v }, { data: k, error: ek }, { count: propostas, error: ep }, { data: obras, error: eo }, { data: opps, error: eop }] = await Promise.all([
+        // "Bloco do dia" (§310): orçamentos enviados sem retorno há mais de 7 dias (cobrar o cliente)
+        // e revisões de escopo aguardando aprovação (decisão travando a obra). Erros destes dois NÃO
+        // derrubam o painel (try separado no throw): são blocos de apoio, não os indicadores principais.
+        const seteDiasAtras = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+        const [{ data: v }, { data: k, error: ek }, { count: propostas, error: ep }, { data: obras, error: eo }, { data: opps, error: eop }, { count: orcParados, error: eorc }, { count: revPend, error: erev }] = await Promise.all([
           supabase.from("v_projetos_resumo_empresa").select("contas_pagar_abertas,contas_receber_abertas").eq("company_id", companyId).maybeSingle(),
           supabase.rpc("fn_obras_kpis", { p_company_ids: [companyId] }),
           supabase.from("erp_orcamentos").select("id", { count: "exact", head: true }).eq("company_id", companyId).in("status", ["rascunho", "enviado"]),
           supabase.from("v_obra_resultado").select("obra_id,numero,nome,status,receita_prevista,custo_previsto").eq("company_id", companyId).eq("status", "em_andamento"),
           supabase.from("erp_crm_oportunidade").select("etapa,valor_estimado").eq("company_id", companyId).is("deleted_at", null),
+          supabase.from("erp_orcamentos").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "enviado").is("deleted_at", null).lt("updated_at", seteDiasAtras),
+          supabase.from("projetos_obra_revisao").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "solicitada").is("excluido_em", null),
         ]);
         if (ek || ep || eo || eop) throw new Error("indicadores");
         const kp = (k as { em_andamento?: number; concluidas?: number; pausada?: number; cancelada?: number; valor_em_andamento?: number } | null) ?? {};
@@ -127,6 +139,8 @@ export default function PainelProjetos() {
             funil_valor_aberto: valorAberto,
             funil_ganhas: ganhas,
             funil_perdidas: perdidas,
+            aprovacoes_pendentes: erev ? 0 : Number(revPend ?? 0),
+            orcamentos_parados: eorc ? 0 : Number(orcParados ?? 0),
             obras_andamento: andamento,
           });
         }
@@ -173,41 +187,17 @@ export default function PainelProjetos() {
         <p className="text-[#3D2314]/60 mb-5 max-w-xl mx-auto">
           Hub de engenharia, CRM de obra e acompanhamento
         </p>
+        {/* §310 (relatório 03): topo focado no trabalho — o funil é a entrada. A configuração de
+            BDI saiu do topo (fica ao fim, em "Configuração da empresa"). */}
         <div className="flex flex-wrap items-center justify-center gap-4">
           <Link
-            href="/dashboard/projetos/configuracoes"
+            href="/dashboard/projetos/oportunidades"
             className="inline-flex items-center gap-2 rounded-lg bg-[#3D2314] px-5 py-2.5 text-sm font-medium text-[#FAF7F2] transition-colors hover:bg-[#3D2314]/90"
           >
-            Configurar BDI da empresa
+            Abrir o funil de oportunidades
             <ArrowRight size={14} />
           </Link>
-          <AjudaCampo chave="projetos.painel.acao.configurar_bdi" />
-          <Link
-            href="/dashboard/projetos/oportunidades"
-            className="text-sm text-[#3D2314]/60 hover:text-[#3D2314]"
-          >
-            Abrir o funil de oportunidades
-          </Link>
           <AjudaCampo chave="projetos.painel.acao.abrir_funil" />
-        </div>
-      </section>
-
-      {/* NOVIDADES DO HUB — toda entrega nova do Hub precisa aparecer aqui, no menu e nas abas */}
-      <section className="mt-4" data-testid="novidades-hub">
-        <SectionLabel>Novidades do Hub</SectionLabel>
-        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-          <Link href="/dashboard/projetos/obras/resultado?area=hub" data-testid="novidade-resultado" className="rounded-xl border border-[#C8941A]/40 bg-white p-4 shadow-sm transition-colors hover:bg-[#C8941A]/5">
-            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#C8941A]">Novo</div>
-            <div className="text-base font-medium text-[#3D2314]">Resultado por obra</div>
-            <div className="mt-1 text-sm text-[#3D2314]/60">Receita, custo e margem de cada obra, previsto × realizado, com o consolidado.</div>
-            <div className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-[#C8941A]">Abrir <ArrowRight size={14} /></div>
-          </Link>
-          <Link href="/dashboard/projetos/cockpit?area=hub" data-testid="novidade-cockpit" className="rounded-xl border border-[#C8941A]/40 bg-white p-4 shadow-sm transition-colors hover:bg-[#C8941A]/5">
-            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#C8941A]">Novo</div>
-            <div className="text-base font-medium text-[#3D2314]">Cockpit da obra</div>
-            <div className="mt-1 text-sm text-[#3D2314]/60">Avanço, custo, margem e pendências de uma obra numa tela só.</div>
-            <div className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-[#C8941A]">Abrir <ArrowRight size={14} /></div>
-          </Link>
         </div>
       </section>
 
@@ -217,7 +207,7 @@ export default function PainelProjetos() {
 
         {/* Cada indicador leva à tela CRUD correspondente (drill-down). */}
         <div className="mb-3 mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
-          <KpiPrincipal label="Obras em andamento" chave="projetos.painel.kpi.obras_ativas" testid="kpi-obras-ativas" valor={resumo ? String(resumo.obras_ativas) : "…"} href="/dashboard/projetos/obras" />
+          <KpiPrincipal label="Obras em andamento" chave="projetos.painel.kpi.obras_ativas" testid="kpi-obras-ativas" valor={resumo ? String(resumo.obras_ativas) : "…"} href="/dashboard/projetos/obras?status=em_andamento&area=hub" />
           <KpiPrincipal
             label="Valor das obras em andamento"
             chave="projetos.painel.kpi.valor_obras"
@@ -254,6 +244,38 @@ export default function PainelProjetos() {
         </div>
       </section>
 
+      {/* PARA HOJE — §310 (relatório 01 · reunião 20/11): bloco do dia. Hoje: aprovações de escopo
+          paradas e orçamentos enviados sem retorno. Compromissos/tarefas entram quando a Agenda (§311)
+          chegar. Cada card é acionável e tem "?" (RD-95); estado calmo quando não há pendência (RD-98). */}
+      <section className="mt-12" data-testid="painel-para-hoje">
+        <div className="flex items-center gap-1">
+          <Clock size={14} className="text-[#C8941A]" />
+          <SectionLabel>Para hoje</SectionLabel>
+        </div>
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <PendenciaCard
+            icone={<FileClock size={18} className="text-[#C8941A]" />}
+            label="Aprovações pendentes"
+            chave="projetos.painel.pendencias.aprovacoes"
+            testid="pendencia-aprovacoes"
+            valor={resumo ? resumo.aprovacoes_pendentes : null}
+            texto={(n) => n === 1 ? "revisão de escopo aguardando sua aprovação" : "revisões de escopo aguardando sua aprovação"}
+            vazioTexto="Nenhuma revisão de escopo aguardando decisão."
+            href="/dashboard/projetos/obras"
+          />
+          <PendenciaCard
+            icone={<Clock size={18} className="text-[#C8941A]" />}
+            label="Orçamentos sem retorno"
+            chave="projetos.painel.pendencias.orcamentos_parados"
+            testid="pendencia-orcamentos"
+            valor={resumo ? resumo.orcamentos_parados : null}
+            texto={(n) => n === 1 ? "proposta enviada há mais de 7 dias sem resposta" : "propostas enviadas há mais de 7 dias sem resposta"}
+            vazioTexto="Nenhuma proposta enviada esperando resposta há mais de 7 dias."
+            href="/dashboard/projetos/propostas"
+          />
+        </div>
+      </section>
+
       {/* FUNIL — contador honesto, cada número leva para o funil */}
       <section className="mt-12" data-testid="painel-funil">
         <div className="flex items-center gap-1">
@@ -276,7 +298,7 @@ export default function PainelProjetos() {
         </div>
         <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
           {SITUACOES.map((x) => (
-            <Link key={x.s} href="/dashboard/projetos/obras" data-testid={`situacao-${x.s}`} className="rounded-xl border border-[#3D2314]/12 bg-white p-4 shadow-sm hover:border-[#C8941A]">
+            <Link key={x.s} href={`/dashboard/projetos/obras?status=${x.s}&area=hub`} data-testid={`situacao-${x.s}`} className="rounded-xl border border-[#3D2314]/12 bg-white p-4 shadow-sm hover:border-[#C8941A]">
               <Numero label={x.l} valor={resumo ? String(resumo.obras_por_status[x.s] ?? 0) : "…"} ajuda="projetos.painel.obras_situacao" />
             </Link>
           ))}
@@ -349,9 +371,9 @@ export default function PainelProjetos() {
         </p>
       )}
 
-      {/* PRÓXIMOS PASSOS */}
+      {/* FERRAMENTAS DE GESTÃO */}
       <section className="mt-16">
-        <SectionLabel>Por onde começar</SectionLabel>
+        <SectionLabel>Ferramentas de Gestão</SectionLabel>
         <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
           {PASSOS.map((p) => (
             <Link key={p.href} href={p.href} className="rounded-xl border border-[#3D2314]/12 bg-white p-4 shadow-sm hover:border-[#C8941A]">
@@ -359,6 +381,40 @@ export default function PainelProjetos() {
               <div className="mt-1 text-xs text-[#3D2314]/60">{p.texto}</div>
             </Link>
           ))}
+        </div>
+      </section>
+
+      {/* NOVIDADES DO HUB — §310 (relatório 03): curtas e no fim da página (saíram do topo, que agora
+          abre direto nos indicadores). Toda entrega nova do Hub aparece aqui, no menu e nas abas. */}
+      <section className="mt-16" data-testid="novidades-hub">
+        <SectionLabel>Novidades do Hub</SectionLabel>
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <Link href="/dashboard/projetos/obras/resultado?area=hub" data-testid="novidade-resultado" className="rounded-xl border border-[#C8941A]/40 bg-white p-4 shadow-sm transition-colors hover:bg-[#C8941A]/5">
+            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#C8941A]">Novo</div>
+            <div className="text-base font-medium text-[#3D2314]">Resultado por obra</div>
+            <div className="mt-1 text-sm text-[#3D2314]/60">Receita, custo e margem de cada obra, previsto × realizado, com o consolidado.</div>
+            <div className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-[#C8941A]">Abrir <ArrowRight size={14} /></div>
+          </Link>
+          <Link href="/dashboard/projetos/cockpit?area=hub" data-testid="novidade-cockpit" className="rounded-xl border border-[#C8941A]/40 bg-white p-4 shadow-sm transition-colors hover:bg-[#C8941A]/5">
+            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#C8941A]">Novo</div>
+            <div className="text-base font-medium text-[#3D2314]">Cockpit da obra</div>
+            <div className="mt-1 text-sm text-[#3D2314]/60">Avanço, custo, margem e pendências de uma obra numa tela só.</div>
+            <div className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-[#C8941A]">Abrir <ArrowRight size={14} /></div>
+          </Link>
+        </div>
+      </section>
+
+      {/* CONFIGURAÇÃO DA EMPRESA — §310: a configuração de BDI saiu do topo e fica aqui, ao fim. */}
+      <section className="mt-10 mb-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <Link
+            href="/dashboard/projetos/configuracoes"
+            className="inline-flex items-center gap-2 rounded-lg border border-[#3D2314]/15 bg-white px-4 py-2 text-sm font-medium text-[#3D2314] transition-colors hover:border-[#C8941A]"
+          >
+            Configurar BDI da empresa
+            <ArrowRight size={14} />
+          </Link>
+          <AjudaCampo chave="projetos.painel.acao.configurar_bdi" />
         </div>
       </section>
     </main>
@@ -384,6 +440,33 @@ function Numero({ label, valor, testid, ajuda }: { label: string; valor: string;
         {valor}
       </div>
     </div>
+  );
+}
+
+function PendenciaCard({ icone, label, chave, testid, valor, texto, vazioTexto, href }: { icone: React.ReactNode; label: string; chave: string; testid?: string; valor: number | null; texto: (n: number) => string; vazioTexto: string; href: string }) {
+  const vazio = valor !== null && valor === 0;
+  return (
+    <Link
+      href={href}
+      data-testid={testid}
+      className="flex items-start gap-3 rounded-xl border border-[#3D2314]/12 bg-white p-4 shadow-sm transition-colors hover:border-[#C8941A]"
+    >
+      <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#C8941A]/10">{icone}</span>
+      <span className="min-w-0">
+        <span className="flex items-center gap-1 text-xs text-[#3D2314]/50">{label}<AjudaCampo chave={chave} /></span>
+        {valor === null ? (
+          <span className="mt-0.5 block text-lg font-medium text-[#3D2314]">…</span>
+        ) : vazio ? (
+          <span className="mt-0.5 block text-sm text-[#3D2314]/45">{vazioTexto}</span>
+        ) : (
+          <span className="mt-0.5 block text-sm text-[#3D2314]">
+            <span className="text-lg font-medium" style={{ fontFamily: "var(--ps-font-body)", fontStyle: "normal" }}>{valor}</span>{" "}
+            {texto(valor)}
+          </span>
+        )}
+      </span>
+      <ArrowRight size={14} className="ml-auto mt-1 shrink-0 text-[#C8941A]" />
+    </Link>
   );
 }
 
