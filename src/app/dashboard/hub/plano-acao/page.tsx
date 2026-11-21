@@ -7,5 +7,5 @@
 import PlanoAcaoView from '@/components/plano-acao/PlanoAcaoView'
 
 export default function PlanoAcaoHubPage() {
-  return <PlanoAcaoView />
+  return <PlanoAcaoView rota="/dashboard/hub/plano-acao" />
 }
