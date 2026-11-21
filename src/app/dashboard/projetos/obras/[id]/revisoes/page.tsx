@@ -90,6 +90,7 @@ export default function RevisoesObraPage({ params }: { params: Promise<{ id: str
 
   // Abertura de nova revisão (liga à RPC já existente e guardada fn_obra_revisao_criar — cria em 'rascunho').
   const [novaAberta, setNovaAberta] = useState(false)
+  const [editandoId, setEditandoId] = useState<string | null>(null) // revisão em rascunho sendo editada (null = criando nova)
   const [obraItens, setObraItens] = useState<ObraItem[]>([])
   const [carregandoItens, setCarregandoItens] = useState(false)
   const [fOrigem, setFOrigem] = useState<'interno' | 'pedido_cliente'>('interno')
@@ -101,7 +102,7 @@ export default function RevisoesObraPage({ params }: { params: Promise<{ id: str
   // Decisão da revisão (liga às RPCs já existentes e guardadas fn_obra_revisao_solicitar/aprovar/recusar).
   // Só revisão em rascunho pode ser solicitada; só solicitada pode ser aprovada/recusada. A aprovação MOVE
   // o valor contratado — por isso toda ação passa por uma confirmação antes de executar.
-  const [acao, setAcao] = useState<{ rev: Revisao; tipo: 'solicitar' | 'aprovar' | 'recusar' } | null>(null)
+  const [acao, setAcao] = useState<{ rev: Revisao; tipo: 'solicitar' | 'aprovar' | 'recusar' | 'excluir' } | null>(null)
   const [motivoRecusa, setMotivoRecusa] = useState('')
   const [salvandoAcao, setSalvandoAcao] = useState(false)
   const [erroAcao, setErroAcao] = useState<string | null>(null)
@@ -129,7 +130,32 @@ export default function RevisoesObraPage({ params }: { params: Promise<{ id: str
   useEffect(() => { void carregar() }, [carregar])
 
   const abrirNova = useCallback(async () => {
-    setErroNova(null); setFOrigem('interno'); setFMotivo(''); setFItens({})
+    setErroNova(null); setEditandoId(null); setFOrigem('interno'); setFMotivo(''); setFItens({})
+    setNovaAberta(true); setCarregandoItens(true)
+    const { data, error } = await supabase
+      .from('projetos_obra_item')
+      .select('id, descricao, unidade, quantidade_contratada, preco_unitario, quantidade_medida')
+      .eq('obra_id', id).is('excluido_em', null).order('ordem', { ascending: true })
+    setCarregandoItens(false)
+    if (error) { setObraItens([]); return }
+    setObraItens((data ?? []) as ObraItem[])
+  }, [id])
+
+  // Editar um rascunho: reabre o mesmo formulário pré-preenchido com motivo/origem e os itens já revisados.
+  // Só rascunho (o botão só aparece nessa situação; a RPC fn_obra_revisao_editar também valida).
+  const abrirEditar = useCallback(async (rev: Revisao) => {
+    setErroNova(null); setEditandoId(rev.id)
+    setFOrigem(rev.origem === 'pedido_cliente' ? 'pedido_cliente' : 'interno')
+    setFMotivo(rev.motivo ?? '')
+    const pre: Record<string, EdicaoItem> = {}
+    for (const it of rev.itens) {
+      if (!it.obra_item_id) continue
+      pre[it.obra_item_id] = {
+        qtd: it.quantidade_nova != null ? String(it.quantidade_nova) : '',
+        preco: it.preco_unitario_novo != null ? String(it.preco_unitario_novo) : '',
+      }
+    }
+    setFItens(pre)
     setNovaAberta(true); setCarregandoItens(true)
     const { data, error } = await supabase
       .from('projetos_obra_item')
@@ -163,21 +189,25 @@ export default function RevisoesObraPage({ params }: { params: Promise<{ id: str
       itens.push(item)
     }
     setSalvandoNova(true)
-    const { data, error } = await supabase.rpc('fn_obra_revisao_criar', {
-      p_obra_id: id, p_motivo: fMotivo.trim(), p_origem: fOrigem, p_itens: itens,
-    })
+    const { data, error } = editandoId
+      ? await supabase.rpc('fn_obra_revisao_editar', {
+        p_revisao_id: editandoId, p_motivo: fMotivo.trim(), p_origem: fOrigem, p_itens: itens,
+      })
+      : await supabase.rpc('fn_obra_revisao_criar', {
+        p_obra_id: id, p_motivo: fMotivo.trim(), p_origem: fOrigem, p_itens: itens,
+      })
     setSalvandoNova(false)
     if (error) {
       if (recursoEmLiberacao(error)) { setErroNova('Recurso de revisões sendo liberado para esta empresa. Tente de novo em instantes.'); return }
-      setErroNova(erroAmigavel(error, 'Não foi possível abrir a revisão. Confira os dados e tente de novo.')); return
+      setErroNova(erroAmigavel(error, editandoId ? 'Não foi possível salvar a revisão. Confira os dados e tente de novo.' : 'Não foi possível abrir a revisão. Confira os dados e tente de novo.')); return
     }
     const r = (data ?? {}) as { ok?: boolean; erro?: string }
-    if (r.ok === false) { setErroNova(r.erro ?? 'Não foi possível abrir a revisão.'); return }
-    setNovaAberta(false)
+    if (r.ok === false) { setErroNova(r.erro ?? 'Não foi possível salvar a revisão.'); return }
+    setNovaAberta(false); setEditandoId(null)
     await carregar()
-  }, [id, fMotivo, fOrigem, obraItens, fItens, carregar])
+  }, [id, editandoId, fMotivo, fOrigem, obraItens, fItens, carregar])
 
-  const abrirAcao = useCallback((rev: Revisao, tipo: 'solicitar' | 'aprovar' | 'recusar') => {
+  const abrirAcao = useCallback((rev: Revisao, tipo: 'solicitar' | 'aprovar' | 'recusar' | 'excluir') => {
     setErroAcao(null); setMotivoRecusa(''); setAcao({ rev, tipo })
   }, [])
 
@@ -186,9 +216,10 @@ export default function RevisoesObraPage({ params }: { params: Promise<{ id: str
     setErroAcao(null); setSalvandoAcao(true)
     const fn = acao.tipo === 'solicitar' ? 'fn_obra_revisao_solicitar'
       : acao.tipo === 'aprovar' ? 'fn_obra_revisao_aprovar'
-        : 'fn_obra_revisao_recusar'
+        : acao.tipo === 'excluir' ? 'fn_obra_revisao_excluir'
+          : 'fn_obra_revisao_recusar'
     const args: Record<string, unknown> = { p_revisao_id: acao.rev.id }
-    if (acao.tipo === 'recusar') args.p_motivo = motivoRecusa.trim() || null
+    if (acao.tipo === 'recusar' || acao.tipo === 'excluir') args.p_motivo = motivoRecusa.trim() || null
     const { data, error } = await supabase.rpc(fn, args)
     setSalvandoAcao(false)
     if (error) {
@@ -341,6 +372,10 @@ export default function RevisoesObraPage({ params }: { params: Promise<{ id: str
                       {r.status === 'rascunho' && (
                         <>
                           <span style={{ flex: 1 }} />
+                          <button onClick={() => void abrirEditar(r)} style={{ ...btn('transparent', ESP), padding: '6px 12px', border: `1px solid ${LINE}` }} data-testid={`rev-editar-${r.id}`}>Editar</button>
+                          <AjudaCampo chave="projetos.revisao.acao_editar" rota={ROTA} />
+                          <button onClick={() => abrirAcao(r, 'excluir')} style={{ ...btn('transparent', VERM), padding: '6px 12px', border: `1px solid ${VERM}` }} data-testid={`rev-excluir-${r.id}`}>Excluir</button>
+                          <AjudaCampo chave="projetos.revisao.acao_excluir" rota={ROTA} />
                           <button onClick={() => abrirAcao(r, 'solicitar')} style={{ ...btn(GOLD), padding: '6px 12px' }} data-testid={`rev-solicitar-${r.id}`}>Solicitar aprovação</button>
                           <AjudaCampo chave="projetos.revisao.acao_solicitar" rota={ROTA} />
                         </>
@@ -401,7 +436,7 @@ export default function RevisoesObraPage({ params }: { params: Promise<{ id: str
           >
             <div style={{ ...card, maxWidth: 760, width: '100%', marginTop: 20 }} onClick={(e) => e.stopPropagation()} data-testid="rev-nova-modal">
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <h2 style={{ fontSize: 18, fontWeight: 800, color: ESP, margin: 0 }}>Nova revisão de escopo</h2>
+                <h2 style={{ fontSize: 18, fontWeight: 800, color: ESP, margin: 0 }}>{editandoId ? 'Editar revisão (rascunho)' : 'Nova revisão de escopo'}</h2>
                 <span style={{ flex: 1 }} />
                 <button onClick={() => { if (!salvandoNova) setNovaAberta(false) }} style={{ ...btn('transparent', MUT), border: `1px solid ${LINE}`, padding: '6px 12px' }}>Fechar</button>
               </div>
@@ -474,7 +509,7 @@ export default function RevisoesObraPage({ params }: { params: Promise<{ id: str
               <div style={{ display: 'flex', gap: 10, marginTop: 18, justifyContent: 'flex-end' }}>
                 <button onClick={() => { if (!salvandoNova) setNovaAberta(false) }} style={{ ...btn('transparent', MUT), border: `1px solid ${LINE}` }}>Cancelar</button>
                 <button onClick={() => void submeterNova()} disabled={salvandoNova} style={{ ...btn(GOLD), opacity: salvandoNova ? 0.6 : 1 }} data-testid="rev-nova-salvar">
-                  {salvandoNova ? 'Salvando…' : 'Criar revisão (rascunho)'}
+                  {salvandoNova ? 'Salvando…' : editandoId ? 'Salvar alterações' : 'Criar revisão (rascunho)'}
                 </button>
               </div>
             </div>
@@ -483,11 +518,13 @@ export default function RevisoesObraPage({ params }: { params: Promise<{ id: str
 
         {acao && (() => {
           const titulo = acao.tipo === 'solicitar' ? 'Enviar revisão para aprovação'
-            : acao.tipo === 'aprovar' ? 'Aprovar revisão de escopo' : 'Recusar revisão de escopo'
+            : acao.tipo === 'aprovar' ? 'Aprovar revisão de escopo'
+              : acao.tipo === 'excluir' ? 'Excluir revisão em rascunho' : 'Recusar revisão de escopo'
           const deltaA = Number(acao.rev.delta) || 0
-          const confirmarCor = acao.tipo === 'recusar' ? VERM : acao.tipo === 'aprovar' ? VERDE : GOLD
+          const confirmarCor = acao.tipo === 'recusar' || acao.tipo === 'excluir' ? VERM : acao.tipo === 'aprovar' ? VERDE : GOLD
           const confirmarLabel = acao.tipo === 'solicitar' ? 'Solicitar aprovação'
-            : acao.tipo === 'aprovar' ? 'Aprovar e mover o contrato' : 'Recusar revisão'
+            : acao.tipo === 'aprovar' ? 'Aprovar e mover o contrato'
+              : acao.tipo === 'excluir' ? 'Excluir revisão' : 'Recusar revisão'
           return (
             <div
               style={{ position: 'fixed', inset: 0, background: 'rgba(61,35,20,0.45)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '24px 16px', overflowY: 'auto', zIndex: 50 }}
@@ -522,6 +559,19 @@ export default function RevisoesObraPage({ params }: { params: Promise<{ id: str
                       placeholder="Ex.: acréscimo não aprovado pelo cliente nesta etapa."
                       style={{ ...inp, width: '100%', resize: 'vertical', fontFamily: 'inherit' }} data-testid="rev-recusar-motivo" />
                   </label>
+                )}
+                {acao.tipo === 'excluir' && (
+                  <>
+                    <p style={{ fontSize: 13, color: ESP, margin: '12px 0 0' }}>
+                      Só é possível excluir uma revisão que ainda está em <strong>Rascunho</strong> — nunca uma que já foi solicitada ou aprovada. A revisão sai da lista, mas o registro é preservado (exclusão rastreável, com quem e quando).
+                    </p>
+                    <label style={{ ...lbl, flexDirection: 'column', alignItems: 'flex-start', gap: 4, marginTop: 12, width: '100%' }}>
+                      <span>Motivo da exclusão (opcional) <AjudaCampo chave="projetos.revisao.acao_excluir" rota={ROTA} /></span>
+                      <textarea value={motivoRecusa} onChange={(e) => setMotivoRecusa(e.target.value)} rows={2}
+                        placeholder="Ex.: rascunho criado por engano / com quantidade errada."
+                        style={{ ...inp, width: '100%', resize: 'vertical', fontFamily: 'inherit' }} data-testid="rev-excluir-motivo" />
+                    </label>
+                  </>
                 )}
 
                 {erroAcao && <div style={{ ...card, borderColor: VERM, color: VERM, marginTop: 12, fontSize: 13, padding: 12 }}>{erroAcao}</div>}
