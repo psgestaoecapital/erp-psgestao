@@ -669,7 +669,7 @@ BEGIN
     DELETE FROM public.rh_pessoa_complemento WHERE company_id = p_company_id;
     -- rh_vaga referencia prod_setor (FK RESTRICT); limpar antes do seed principal que apaga prod_setor
     -- (mesmo motivo do rh_pessoa_complemento). fn_demo_seed_industria_rh_quadro re-insere no fim.
-    -- SUPERSET da conserto-main #5709 (que destrava o @pos): com 00b + este DELETE, qualquer ordem
+    -- SUPERSET da conserto-main #5748 (mergeada; destrava o @pos): com 00b + este DELETE, qualquer ordem
     -- de aplicação deixa o fn_demo_reset correto (dado 100% fake, is_demo validado; nenhum cliente é tocado).
     DELETE FROM public.rh_vaga WHERE company_id = p_company_id;
   END IF;
@@ -688,7 +688,13 @@ BEGIN
     v_ban := fn_demo_seed_ge_bancos(p_company_id);
     v_fis := fn_demo_seed_ge_fiscal(p_company_id);
     v_dre := fn_demo_seed_ge_dre(p_company_id);  -- [GE G0-F] Bloco 6: assinatura R$0 + DRE 6 meses
-    v_res := COALESCE(v_res, '{}'::jsonb) || jsonb_build_object('comercial', v_com, 'financeiro', v_fin, 'bancos', v_ban, 'fiscal', v_fis, 'dre', v_dre);
+    -- 18/11 (code-desenvolvedor-3 · PDCA cartões, #5477): remove a poluição do e2e "CIELO ACEITE" na DEMO GE
+    -- (adquirentes/taxas/repasses de teste), para a lista da tela de cartões não acumular entre rodadas.
+    -- SUPERSET do corpo vivo (reconciliar_cartoes · 20261123200030): sem esta linha, aplicar esta migration
+    -- por último reverteria a limpeza de cartões. Mantido idêntico ao corpo vivo + o ramo 00b abaixo.
+    v_res := COALESCE(v_res, '{}'::jsonb)
+      || jsonb_build_object('comercial', v_com, 'financeiro', v_fin, 'bancos', v_ban, 'fiscal', v_fis, 'dre', v_dre)
+      || jsonb_build_object('cartoes_limpeza', public.fn_demo_ge_limpar_cartoes_teste(p_company_id));
   END IF;
 
   -- 02/10: Pauta da P&M com cenário realista (atrasados, vence hoje, aguardando, rodadas)
