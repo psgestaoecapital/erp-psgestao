@@ -23,7 +23,7 @@ const LINE = '#E7DECF'
 const MUT = 'rgba(61,35,20,0.55)'
 const VERM = '#B23B3B'
 const CARD: React.CSSProperties = { background: '#FFF', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16 }
-const ROTA = '/dashboard/industrial/plano-acao'
+const ROTA_PADRAO = '/dashboard/industrial/plano-acao'
 
 
 // Busca acento- e caixa-insensível (#5405): "Marcelo" acha "Márcelo/MARCELO".
@@ -84,7 +84,9 @@ const btnPrim: React.CSSProperties = { padding: '9px 16px', borderRadius: 8, fon
 const btnSec: React.CSSProperties = { padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: '#FFF', color: ESP, border: `0.5px solid ${LINE}` }
 const rotulo: React.CSSProperties = { display: 'flex', alignItems: 'center', fontSize: 12, fontWeight: 600, color: ESP, marginBottom: 4 }
 
-export default function PlanoAcaoView() {
+export default function PlanoAcaoView({ rota = ROTA_PADRAO }: { rota?: string } = {}) {
+  // Rota da tela que monta o componente (Indústria ou Hub): alimenta o rastro/rota de cada "?" (AjudaCampo).
+  const ROTA = rota
   const { selInfo, sel: selId, companies } = useCompanyIds()
   const companyId = selInfo.tipo === 'empresa' && selId ? selId : null
   const empresaNome = selInfo.nome || companies.find((c) => c.id === companyId)?.nome_fantasia || ''
@@ -433,11 +435,11 @@ export default function PlanoAcaoView() {
 
         {/* KPIs */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 16 }}>
-          <Kpi chave="industrial.plano_acao.kpi_abertas" titulo="Abertas" valor={resumo?.abertas ?? 0} />
-          <Kpi chave="industrial.plano_acao.kpi_em_andamento" titulo="Em andamento" valor={resumo?.em_andamento ?? 0} />
-          <Kpi chave="industrial.plano_acao.kpi_atrasadas" titulo="Atrasadas" valor={resumo?.atrasadas ?? 0} cor={VERM} testid="kpi-atrasadas" />
-          <Kpi chave="industrial.plano_acao.kpi_concluidas_mes" titulo="Concluídas no mês" valor={resumo?.concluidas_mes ?? 0} />
-          <Kpi chave="industrial.plano_acao.kpi_pct_prazo" titulo="% no prazo" valor={resumo?.pct_no_prazo != null ? `${resumo.pct_no_prazo}%` : '—'} />
+          <Kpi chave="industrial.plano_acao.kpi_abertas" titulo="Abertas" valor={resumo?.abertas ?? 0} rota={ROTA} />
+          <Kpi chave="industrial.plano_acao.kpi_em_andamento" titulo="Em andamento" valor={resumo?.em_andamento ?? 0} rota={ROTA} />
+          <Kpi chave="industrial.plano_acao.kpi_atrasadas" titulo="Atrasadas" valor={resumo?.atrasadas ?? 0} cor={VERM} testid="kpi-atrasadas" rota={ROTA} />
+          <Kpi chave="industrial.plano_acao.kpi_concluidas_mes" titulo="Concluídas no mês" valor={resumo?.concluidas_mes ?? 0} rota={ROTA} />
+          <Kpi chave="industrial.plano_acao.kpi_pct_prazo" titulo="% no prazo" valor={resumo?.pct_no_prazo != null ? `${resumo.pct_no_prazo}%` : '—'} rota={ROTA} />
         </div>
 
         {/* Filtros + busca */}
@@ -496,7 +498,7 @@ export default function PlanoAcaoView() {
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: MUT, fontSize: 13 }}>Carregando…</div>
         ) : visao === 'tabela' ? (
-          <TabelaAcoes planos={filtrados} onEditar={abrirEdicao} />
+          <TabelaAcoes planos={filtrados} onEditar={abrirEdicao} rota={ROTA} />
         ) : (
           <div data-testid="plano-quadro" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14, alignItems: 'start' }}>
             {STATUS_ORDEM.map((s) => (
@@ -513,7 +515,7 @@ export default function PlanoAcaoView() {
                   <div style={{ ...CARD, padding: 12, color: MUT, fontSize: 12, textAlign: 'center', borderStyle: 'dashed' }}>—</div>
                 ) : porStatus[s].map((p) => (
                   <CardAcao key={p.id} p={p} arrastando={arrastando === p.id} onArrastar={(on) => { setArrastando(on ? p.id : null); if (!on) setSobre(null) }} onEditar={() => abrirEdicao(p)} onStatus={(st) => void mudarStatus(p, st)}
-                    onConcluir={() => { setConcluir(p); setResultado('') }} onExcluir={() => void excluir(p)} />
+                    onConcluir={() => { setConcluir(p); setResultado('') }} onExcluir={() => void excluir(p)} rota={ROTA} />
                 ))}
               </div>
             ))}
@@ -693,19 +695,19 @@ export default function PlanoAcaoView() {
   )
 }
 
-function Kpi({ chave, titulo, valor, cor, testid }: { chave: string; titulo: string; valor: number | string; cor?: string; testid?: string }) {
+function Kpi({ chave, titulo, valor, cor, testid, rota }: { chave: string; titulo: string; valor: number | string; cor?: string; testid?: string; rota: string }) {
   return (
     <div style={CARD} data-testid={testid}>
       <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5, color: MUT, fontWeight: 600, display: 'flex', alignItems: 'center' }}>
-        {titulo}<AjudaCampo chave={chave} rota={ROTA} />
+        {titulo}<AjudaCampo chave={chave} rota={rota} />
       </div>
       <div style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 28, color: cor ?? ESP, marginTop: 4 }}>{valor}</div>
     </div>
   )
 }
 
-function CardAcao({ p, arrastando, onArrastar, onEditar, onStatus, onConcluir, onExcluir }: {
-  p: Plano; arrastando: boolean; onArrastar: (on: boolean) => void; onEditar: () => void; onStatus: (s: Status) => void; onConcluir: () => void; onExcluir: () => void
+function CardAcao({ p, arrastando, onArrastar, onEditar, onStatus, onConcluir, onExcluir, rota }: {
+  p: Plano; arrastando: boolean; onArrastar: (on: boolean) => void; onEditar: () => void; onStatus: (s: Status) => void; onConcluir: () => void; onExcluir: () => void; rota: string
 }) {
   const concluida = p.status === 'concluida' || p.status === 'cancelada'
   return (
@@ -735,11 +737,11 @@ function CardAcao({ p, arrastando, onArrastar, onEditar, onStatus, onConcluir, o
           {p.status === 'aberta' && <BtnMini testid="plano-status-andamento" onClick={() => onStatus('em_andamento')}>Iniciar</BtnMini>}
           <span style={{ display: 'inline-flex', alignItems: 'center' }}>
             <BtnMini testid="plano-concluir" onClick={onConcluir}>Concluir</BtnMini>
-            <AjudaCampo chave="industrial.plano_acao.concluir" rota={ROTA} />
+            <AjudaCampo chave="industrial.plano_acao.concluir" rota={rota} />
           </span>
           <span style={{ display: 'inline-flex', alignItems: 'center' }}>
             <BtnMini testid="plano-cancelar" onClick={() => onStatus('cancelada')}>Cancelar</BtnMini>
-            <AjudaCampo chave="industrial.plano_acao.mudar_status" rota={ROTA} />
+            <AjudaCampo chave="industrial.plano_acao.mudar_status" rota={rota} />
           </span>
           <BtnMini testid="plano-excluir" onClick={onExcluir}>Excluir</BtnMini>
         </div>
@@ -766,7 +768,7 @@ const COLS_TAB: ColTab[] = [
   { k: 'status', h: 'Status', v: (p) => STATUS_ORDEM.indexOf(p.status) },
 ]
 
-function TabelaAcoes({ planos, onEditar }: { planos: Plano[]; onEditar: (p: Plano) => void }) {
+function TabelaAcoes({ planos, onEditar, rota }: { planos: Plano[]; onEditar: (p: Plano) => void; rota: string }) {
   const [ord, setOrd] = useState<{ k: string; dir: 1 | -1 }>({ k: 'prazo', dir: 1 })
   const linhas = useMemo(() => {
     const c = COLS_TAB.find((x) => x.k === ord.k) ?? COLS_TAB[0]
@@ -787,7 +789,7 @@ function TabelaAcoes({ planos, onEditar }: { planos: Plano[]; onEditar: (p: Plan
             <th key={c.k} style={th} aria-sort={ord.k === c.k ? (ord.dir === 1 ? 'ascending' : 'descending') : 'none'}>
               <button type="button" data-testid={`plano-ord-${c.k}`} onClick={() => setOrd((o) => ({ k: c.k, dir: o.k === c.k ? (o.dir === 1 ? -1 : 1) : 1 }))}
                 style={{ all: 'unset', cursor: 'pointer' }}>{c.h}{ord.k === c.k ? (ord.dir === 1 ? ' ▲' : ' ▼') : ''}</button>
-              {c.k === 'codigo' && <AjudaCampo chave="industrial.plano_acao.ordenar" rota={ROTA} />}
+              {c.k === 'codigo' && <AjudaCampo chave="industrial.plano_acao.ordenar" rota={rota} />}
             </th>
           ))}</tr>
         </thead>
