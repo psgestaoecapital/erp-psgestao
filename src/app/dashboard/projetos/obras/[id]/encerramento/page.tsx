@@ -18,6 +18,7 @@
 import { use, useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { parseNumBR } from '@/lib/num'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { FileSignature, FolderArchive, Paperclip, ShieldCheck } from 'lucide-react'
@@ -30,7 +31,9 @@ function recursoEmLiberacao(e: unknown): boolean {
   const code = typeof err.code === 'string' ? err.code : ''
   const msg = typeof err.message === 'string' ? err.message.toLowerCase() : ''
   if (['42P01', 'PGRST205', 'PGRST202', 'PGRST204'].includes(code)) return true
-  return /does not exist|not found|schema cache|bucket not found/.test(msg)
+  // Só o schema cache do PostgREST / bucket ausente. NUNCA "does not exist"/"not found" genérico:
+  // um erro REAL de SQL não pode virar aviso falso de "recurso sendo liberado".
+  return /schema cache|bucket not found/.test(msg)
 }
 
 const ROTA = '/dashboard/projetos/obras/[id]/encerramento'
@@ -79,10 +82,7 @@ const GAR_STATUS: { v: string; l: string }[] = [
 const labelDe = (arr: { v: string; l: string }[], v: string) => arr.find((x) => x.v === v)?.l ?? v
 // número a partir de texto de formulário: vazio → null; vírgula decimal aceita
 function numOuNull(s: string): number | null {
-  const t = s.trim().replace(/\./g, '').replace(',', '.')
-  if (t === '') return null
-  const n = Number(t)
-  return Number.isFinite(n) ? n : null
+  return parseNumBR(s)
 }
 function fmtMoeda(n: number | null): string {
   if (n === null || n === undefined) return '—'
@@ -395,7 +395,7 @@ export default function EncerramentoObraPage({ params }: { params: Promise<{ id:
 
                   {/* faixa de situação */}
                   <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 999, marginBottom: 14, background: assinado ? 'rgba(46,125,82,0.12)' : 'rgba(200,148,26,0.14)', color: assinado ? VERDE : '#8A6A12' }}>
-                    {assinado ? '✓ Assinado' : termo ? '✎ Rascunho' : '• Ainda não iniciado'}
+                    {assinado ? '✓ Assinado' : termo ? 'Rascunho' : '• Ainda não iniciado'}
                     {assinado && termo?.assinado_em && <span style={{ fontWeight: 500, color: MUT }}>· em {fmtData(termo.assinado_em)}</span>}
                   </div>
 

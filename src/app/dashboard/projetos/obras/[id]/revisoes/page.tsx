@@ -14,6 +14,7 @@
 import { use, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { parseNumBR } from '@/lib/num'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 
@@ -27,7 +28,9 @@ function recursoEmLiberacao(e: unknown): boolean {
   const code = typeof err.code === 'string' ? err.code : ''
   const msg = typeof err.message === 'string' ? err.message.toLowerCase() : ''
   if (['42P01', 'PGRST202', 'PGRST205'].includes(code)) return true
-  return /does not exist|not found|schema cache/.test(msg)
+  // Só o schema cache do PostgREST (relação/função ainda não existe). NUNCA "does not exist"/"not found"
+  // genérico: um erro REAL de SQL não pode virar aviso falso de "recurso sendo liberado".
+  return /schema cache/.test(msg)
 }
 
 const brl = (n: number | null | undefined) =>
@@ -145,8 +148,8 @@ export default function RevisoesObraPage({ params }: { params: Promise<{ id: str
     for (const oi of obraItens) {
       const ed = fItens[oi.id]
       if (!ed) continue
-      const qtd = ed.qtd.trim() === '' ? null : Number(ed.qtd.replace(',', '.'))
-      const preco = ed.preco.trim() === '' ? null : Number(ed.preco.replace(',', '.'))
+      const qtd = ed.qtd.trim() === '' ? null : (parseNumBR(ed.qtd) ?? NaN)
+      const preco = ed.preco.trim() === '' ? null : (parseNumBR(ed.preco) ?? NaN)
       if (qtd === null && preco === null) continue
       if (qtd !== null && (!Number.isFinite(qtd) || qtd < 0)) { setErroNova(`Quantidade inválida em "${oi.descricao ?? 'item'}".`); return }
       if (preco !== null && (!Number.isFinite(preco) || preco < 0)) { setErroNova(`Preço inválido em "${oi.descricao ?? 'item'}".`); return }

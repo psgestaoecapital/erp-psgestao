@@ -16,6 +16,7 @@ import { CampoMoeda } from '@/components/comum/CampoMoeda'
 import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 import { cnpjValido, soDigitosCnpj } from '@/lib/documentos/cnpj'
 import { consultarCNPJ } from '@/lib/cadastros/buscarCNPJ'
+import PessoaForm from '@/components/cadastros/PessoaForm'
 import { TarefasLeadModal, MinhasTarefasModal, SELECT_TAREFA, tipoTarefa, quando, atrasada, whatsappHref, type Tarefa } from '@/components/pm/TarefasLead'
 
 const ESPRESSO = '#3D2314'
@@ -108,6 +109,7 @@ export default function LeadsPage() {
   // #59 PDOIS parte 2: solicitar elaboração de contrato a partir do lead (modo manual, cliente pré-preenchido)
   const [solicitarCli, setSolicitarCli] = useState<{ cliId: string | null } | null>(null)
   const [reuniaoLead, setReuniaoLead] = useState<Lead | null>(null) // modal de agendamento de reunião
+  const [cadCliente, setCadCliente] = useState(false) // CEO 18/11: "cadastrar cliente" abre o cadastro COMPLETO do GE (PessoaForm)
   const [detalheLead, setDetalheLead] = useState<Lead | null>(null) // detalhe da reunião (clique no 📅)
   const [reunioesMap, setReunioesMap] = useState<Record<string, { data: string; hora: string | null; link: string | null; local: string | null }>>({})
   // #97/#98 Pdois · tarefas do lead (no lugar do registro de reunião) + "Minhas tarefas"
@@ -321,19 +323,6 @@ export default function LeadsPage() {
     const { data, error } = await supabase.rpc('fn_cliente_criar_inline', { p_company_id: empresa, p_nome: pNome, p_cpf_cnpj: pCpfCnpj, p_extra: extra })
     if (error) { setToast(erroAmigavel(error, 'Não foi possível concluir a ação. Tente de novo.')); return null }
     return data as string | null
-  }
-
-  async function criarClienteInline() {
-    if (!empresa) return
-    const nome = (cliTermo || form.empresa).trim()
-    if (!nome) { setToast('Digite o nome/empresa do cliente.'); return }
-    setBusy(true)
-    try {
-      const cid = await criarClienteGE(nome, form.contato_email || null, form.contato_telefone || null)
-      if (!cid) return
-      setForm((f) => ({ ...f, empresa: nome, erp_cliente_id: cid })); setCliSug([]); setCliTermo(nome)
-      setToast('Cliente cadastrado na GE e vinculado.')
-    } finally { setBusy(false) }
   }
 
   async function criar() {
@@ -673,9 +662,9 @@ export default function LeadsPage() {
                         {c.nome}{c.doc ? <span style={{ color: TEXTM, fontSize: 11, marginLeft: 6 }}>· {c.doc}</span> : null}
                       </button>
                     ))}
-                    <button type="button" disabled={busy} onMouseDown={(e) => { e.preventDefault(); void criarClienteInline() }}
+                    <button type="button" disabled={busy} data-testid="lead-cadastrar-cliente" onMouseDown={(e) => { e.preventDefault(); setCadCliente(true) }}
                       style={{ display: 'block', width: '100%', textAlign: 'left', border: 'none', borderTop: `1px solid ${BORDA}`, background: 'rgba(200,148,26,.08)', padding: '8px 10px', fontSize: 12.5, cursor: 'pointer', color: DOURADO, fontWeight: 700 }}>
-                      + Cadastrar cliente &quot;{(cliTermo || form.empresa).trim()}&quot; na GE
+                      + Cadastrar cliente &quot;{(cliTermo || form.empresa).trim()}&quot; na GE (cadastro completo)
                     </button>
                   </div>
                 )}
@@ -788,6 +777,25 @@ export default function LeadsPage() {
         <SolicitarContratoModal companyId={empresa} clienteId={solicitarCli.cliId}
           onClose={() => setSolicitarCli(null)}
           onSolicitado={(r) => { setSolicitarCli(null); setToast(`Contrato solicitado${r.numero ? ` (nº ${r.numero})` : ''}. Veja em Contratos → Solicitações & Fee.`); void carregar() /* #59 · recarrega p/ o botão virar "Ver contrato" */ }} />
+      )}
+
+      {cadCliente && empresa && (
+        <PessoaForm
+          companyId={empresa}
+          tipo="cliente"
+          pessoa={null}
+          initialNome={(cliTermo || form.empresa).trim() || undefined}
+          onClose={() => setCadCliente(false)}
+          onSaved={(id) => {
+            setCadCliente(false)
+            if (id) {
+              const nm = (cliTermo || form.empresa).trim()
+              setForm((f) => ({ ...f, erp_cliente_id: id, empresa: nm || f.empresa }))
+              setCliSug([])
+              setToast('Cliente cadastrado na GE (cadastro completo) e vinculado ao lead.')
+            }
+          }}
+        />
       )}
 
       {toast && <div style={toastStyle}>{toast}</div>}
