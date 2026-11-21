@@ -14,6 +14,14 @@
 // O detector (scripts/merge/quarentena-detectar.ts) decide e inclui/remove por commit no ramo da main; o Playwright
 // lê `specsEmQuarentena()` em `testIgnore` para não rodar o spec (o ARQUIVO continua no repo — nunca se apaga).
 // Sai da quarentena sozinho quando o spec volta a passar. Gate: scripts/gates/check-quarentena.ts.
+//
+// VALIDADE OBRIGATÓRIA (Item 4, CEO 20/11) — a dívida NÃO vira permanente: toda entrada tem um `ate` ('YYYY-MM-DD').
+// Enquanto hoje <= ate a quarentena VALE (o portão @pos não congela por causa dela). Depois do `ate`, a entrada está
+// VENCIDA: o portão da main (passo "Registrar status da main" do aceitacao-pos-migration.yml) VOLTA A FICAR VERMELHO
+// por causa dela — forçando o Code dono a consertar o spec e remover a entrada, ou renovar o `ate` por nova PR
+// (humano-only, revisável). A decisão é computada por `decidirVerde(...)` abaixo — reusada pelo workflow E pelo gate.
+// Quarentena NÃO é esconder bug: a entrada vigente segue como chamado/alerta aberto (erp_quarentena_spec) e o banner
+// da esteira mostra "verde (N em quarentena)" para ninguém esquecer que há dívida aberta.
 
 // Áreas que NUNCA entram em quarentena (substring, minúsculas) — financeiro, fiscal, permissões/RLS/guarda, NR-36,
 // LGPD, Wealth/CVM. Um spec cujo caminho/nome casa com qualquer uma destas sempre segura a fila.
@@ -28,6 +36,7 @@ export type SpecQuarentenado = {
   area: string              // área derivada do nome do spec (para a tarefa e a auditoria)
   motivo: string            // por que entrou (resumo do erro) — linguagem de quem vai consertar
   desde: string             // ISO 8601 de quando entrou
+  ate: string               // 'YYYY-MM-DD' validade: enquanto hoje <= ate a quarentena VALE (desconta no portão); depois re-congela
   runs: [number, number]    // os 2 runs @pos consecutivos da main que falharam
   code: string              // Code dono da área (recebe a tarefa de consertar)
 }
@@ -37,11 +46,21 @@ export type SpecQuarentenado = {
 export const QUARENTENA: SpecQuarentenado[] = [
   /* quarentena:inicio */
   {
+    spec: 'e2e/jornadas/aceitacao/caminho-compliance-epi.spec.ts',
+    area: 'ehs',
+    motivo: 'Ficha de EPI não abre p/ DEMO_SST — regressão REAL da leva EHS 20/11 (#5675/#5691: gate de acesso/render em ehs/layout.tsx; backend verificado SÃO). @pos-migration da main VERMELHO em caminho-compliance-epi.spec.ts:20 (run 44826854296, head 055a8dca) congelando ~68 PRs SEM relação com EHS. NÃO-CRÍTICO p/ dado (compliance/EPI de tela; fora de financeiro/fiscal/RLS/NR-36/LGPD/Wealth). Quarentena de PRAZO CURTO autorizada pelo CEO (21/11) só para destravar a fila — NÃO substitui o conserto (CODE_MANUAL_fix_ehs_ficha_epi_nao_abre_pos.md, Code do EHS). Remover esta entrada quando o EHS consertar e o spec passar.',
+    desde: '2026-11-21T00:50:00Z',
+    runs: [44826854296, 0], // @pos vermelho da main (run 3035, commit 055a8dca); 2º run não rastreado (entrada manual do CEO)
+    ate: '2026-11-24', // PRAZO CURTO (seg 24/11): se o conserto do EHS não entrar até lá, re-congela e força o conserto — a dívida tem data p/ morrer
+    code: 'desenvolvedor_5_g', // Code ativo de EHS (dev7claudeps pausado por crédito; divisão CEO 20/11) — Eng. Chefe reatribui se o dono do conserto for outro
+  },
+  {
     spec: 'e2e/jornadas/aceitacao/pdois-solicitar-contrato-59.spec.ts',
     area: 'contratos',
     motivo: '@pos-migration da main VERMELHO 4x consecutivos (runs 43979564093, 43981754020, 43986690667, 43996371532) em pdois-solicitar-contrato-59.spec.ts:100 [celular]: após clicar "solicitar-contrato", o testid "solicitacao-criada" não aparece (timeout 20s, element not found). RD-38 PROVADO: na commit 24341000 (conserto-main #5276) a árvore de PRODUÇÃO é BYTE-IDÊNTICA à última VERDE 694ae18 (git diff 694ae184..24341000 = só arquivos de teste; SolicitarContratoModal.tsx restaurado ao verde) e MESMO ASSIM o spec falha — logo NÃO é regressão de código (nada a reverter; re-reverter é inútil). O teste-irmão (RPC como usuário, mesma migration) PASSA e deploy-migrations está VERDE. Causa = ambiente/dado da DEMO Agência OU fragilidade [celular] do submit da tela (validação/seleção do cliente inline no viewport mobile). NÃO-CRÍTICO (contratos; fora de financeiro/fiscal/RLS/NR-36/LGPD/Wealth). Quarentena MANUAL do guardião (a automática recusou por "área tocada pela PR do 1º vermelho", mas a PR culpada #5263/#5271 já foi revertida ao verde). Dono jordana-code: reproduzir o submit [celular] na DEMO, achar o campo/validação que bloqueia (ou corrigir a PREPARAÇÃO do teste, sem tocar nos expects) e só então remover esta entrada.',
     desde: '2026-11-17T02:20:00Z',
     runs: [43986690667, 43996371532], // 2 últimos @pos consecutivos da main vermelhos neste spec (há 4 na sequência)
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'jordana-code',
   },
   {
@@ -50,6 +69,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'Re-quarentena por ordem do Eng. Chefe (contexto 11d3ec7a): @pos-migration da main vermelho em prod-custos-posto-f3.spec.ts:46 — o posto criado pelo teste NÃO aparece como botão na lista de /dashboard/produtividade/custos-posto. A #4681 (dev7) tirou da quarentena sem o spec passar de fato, travando a publicação de ~41 PRs. SEM RELAÇÃO com as PRs de migration da fila; NÃO-CRÍTICO (custo industrial — não é financeiro/fiscal/RLS/NR-36/LGPD/Wealth). Dono: consertar o fluxo criar-posto → aparecer na lista (ou a fragilidade do teste) e só então remover esta entrada.',
     desde: '2026-11-11T21:15:00Z',
     runs: [0, 0], // re-quarentena manual (Eng. Chefe destrava a esteira; @pos da main vermelho em custos-posto-f3:46)
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'desenvolvedor_4_g',
   },
   {
@@ -58,6 +78,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'asserção da linha 31 falha no banco de testes novo (DEMO da agência sem algum dado da semente); trava o teste da main e ~32 PRs. Conserto: Eng. Chefe msg 8787bb9d, ação 2',
     desde: '2026-10-11T09:00:00Z',
     runs: [0, 0], // run da aceitacao-main 01:09 e o seguinte (CEO destrava manual, 11/10)
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-desenv',
   },
   {
@@ -66,6 +87,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'QUARENTENA TEMPORÁRIA seed-gap banco de testes — restaurar após semear (semente-demo). Eng. Chefe msg 00149d0d, ação 2',
     desde: '2026-10-11T13:00:00Z',
     runs: [0, 0], // aceitacao-main/@pos 11/10 12:23 (run 38137150574) e anterior — CEO destrava manual
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-desenv',
   },
   {
@@ -74,6 +96,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'QUARENTENA TEMPORÁRIA seed-gap banco de testes — restaurar após semear (semente-demo). Eng. Chefe msg 00149d0d, ação 2',
     desde: '2026-10-11T13:00:00Z',
     runs: [0, 0], // aceitacao-main/@pos 11/10 12:23 (run 38137150574) e anterior — CEO destrava manual
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-desenv',
   },
   {
@@ -82,6 +105,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'QUARENTENA TEMPORÁRIA seed-gap banco de testes — restaurar após semear (semente-demo). Eng. Chefe msg 00149d0d, ação 2',
     desde: '2026-10-11T13:00:00Z',
     runs: [0, 0], // aceitacao-main/@pos 11/10 12:23 (run 38137150574) e anterior — CEO destrava manual
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-desenv',
   },
   {
@@ -90,6 +114,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'QUARENTENA TEMPORÁRIA seed-gap banco de testes — restaurar após semear (semente-demo). Eng. Chefe msg 00149d0d, ação 2',
     desde: '2026-10-11T13:00:00Z',
     runs: [0, 0], // aceitacao-main/@pos 11/10 12:23 (run 38137150574) e anterior — CEO destrava manual
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-desenv',
   },
   {
@@ -98,6 +123,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'QUARENTENA TEMPORÁRIA seed-gap banco de testes — restaurar após semear (semente-demo). Eng. Chefe msg 00149d0d, ação 2',
     desde: '2026-10-11T13:00:00Z',
     runs: [0, 0], // aceitacao-main/@pos 11/10 12:23 (run 38137150574) e anterior — CEO destrava manual
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-desenv',
   },
   {
@@ -106,6 +132,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'QUARENTENA TEMPORÁRIA seed-gap banco de testes — restaurar após semear (semente-demo). Eng. Chefe msg 00149d0d, ação 2',
     desde: '2026-10-11T13:00:00Z',
     runs: [0, 0], // aceitacao-main/@pos 11/10 12:23 (run 38137150574) e anterior — CEO destrava manual
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-desenv',
   },
   {
@@ -114,6 +141,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'QUARENTENA TEMPORÁRIA seed-gap banco de testes — restaurar após semear (semente-demo). Eng. Chefe msg 00149d0d, ação 2',
     desde: '2026-10-11T13:00:00Z',
     runs: [0, 0], // aceitacao-main/@pos 11/10 12:23 (run 38137150574) e anterior — CEO destrava manual
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-desenv',
   },
   {
@@ -122,6 +150,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
     desde: '2026-10-18T20:30:00Z',
     runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-desenv',
   },
   {
@@ -130,6 +159,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
     desde: '2026-10-18T20:30:00Z',
     runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-desenv',
   },
   {
@@ -138,6 +168,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
     desde: '2026-10-18T20:30:00Z',
     runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-desenv',
   },
   {
@@ -146,6 +177,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
     desde: '2026-10-18T20:30:00Z',
     runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-desenv',
   },
   {
@@ -154,6 +186,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
     desde: '2026-10-18T20:30:00Z',
     runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-desenv',
   },
   {
@@ -162,6 +195,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
     desde: '2026-10-18T20:30:00Z',
     runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-desenv',
   },
   {
@@ -170,6 +204,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
     desde: '2026-10-18T20:30:00Z',
     runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-desenv',
   },
   {
@@ -178,6 +213,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
     desde: '2026-10-18T20:30:00Z',
     runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-desenv',
   },
   {
@@ -186,6 +222,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
     desde: '2026-10-18T20:30:00Z',
     runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-desenv',
   },
   {
@@ -194,6 +231,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
     desde: '2026-10-18T20:30:00Z',
     runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-desenv',
   },
   {
@@ -202,6 +240,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
     desde: '2026-10-18T20:30:00Z',
     runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-desenv',
   },
   {
@@ -210,6 +249,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
     desde: '2026-10-18T20:30:00Z',
     runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-desenv',
   },
   {
@@ -218,6 +258,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
     desde: '2026-10-18T20:30:00Z',
     runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-desenv',
   },
   {
@@ -226,6 +267,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
     desde: '2026-10-18T20:30:00Z',
     runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-desenv',
   },
   {
@@ -234,6 +276,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
     desde: '2026-10-18T20:30:00Z',
     runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-desenv',
   },
   {
@@ -242,6 +285,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
     desde: '2026-10-18T20:30:00Z',
     runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-desenv',
   },
   {
@@ -250,6 +294,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
     desde: '2026-10-18T20:30:00Z',
     runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-desenv',
   },
   {
@@ -258,6 +303,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'falha em todas as PRs: a DEMO das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
     desde: '2026-10-18T20:30:00Z',
     runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-desenv',
   },
   {
@@ -266,6 +312,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'falha igual em todas as PRs (#2563, #2839, #2827): a DEMO Oficina das vagas não é a DEMO da produção (18/10) — não é regressão de PR. Quarentena temporária autorizada pelo CEO 18/10; vira P1 ao Code dono',
     desde: '2026-10-18T22:30:00Z',
     runs: [0, 0], // falha em todas as PRs de 18/10 (ambiente das vagas)
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-esteira',
   },
   {
@@ -274,6 +321,7 @@ export const QUARENTENA: SpecQuarentenado[] = [
     motivo: 'falha de ambiente em 4 PRs diferentes (#2114, #2856, #2118, #2845) — DEMO das vagas ≠ produção; não crítico',
     desde: '2026-10-19T10:00:00Z',
     runs: [0, 0], // falha de ambiente nas vagas (não é regressão de PR), 19/10
+    ate: '2026-12-05', // backfill Item 4 (CEO 20/11): janela de graça uniforme p/ NÃO congelar no merge; depois re-congela e força conserto+remoção ou renovação do ate
     code: 'gilberto-esteira',
   },
   /* quarentena:fim */
@@ -281,6 +329,50 @@ export const QUARENTENA: SpecQuarentenado[] = [
 
 export function specsEmQuarentena(): string[] {
   return QUARENTENA.map((q) => q.spec)
+}
+
+// ── Validade (Item 4) ──────────────────────────────────────────────────────────────────────────────────────────
+// `hojeISO` é a data do dia ('YYYY-MM-DD'); comparar strings ISO de data é equivalente a comparar as datas.
+export function hojeIso(d: Date = new Date()): string {
+  return d.toISOString().slice(0, 10)
+}
+
+// Vigente = ainda dentro da validade (hoje <= ate). A entrada sem `ate` (não deve existir: o tipo exige) é tratada
+// como VENCIDA (viés de segurança: na dúvida, re-congela — nunca esconde dívida sem prazo).
+export function quarentenaVigente(q: SpecQuarentenado, hoje: string = hojeIso()): boolean {
+  return typeof q.ate === 'string' && q.ate.length >= 10 && hoje <= q.ate
+}
+
+export function quarentenasVigentes(hoje: string = hojeIso()): SpecQuarentenado[] {
+  return QUARENTENA.filter((q) => quarentenaVigente(q, hoje))
+}
+
+// Entradas VENCIDAS (ate < hoje, ou sem ate válido): cada uma re-congela o portão até o dono consertar/renovar.
+export function quarentenasVencidas(hoje: string = hojeIso()): SpecQuarentenado[] {
+  return QUARENTENA.filter((q) => !quarentenaVigente(q, hoje))
+}
+
+// DECISÃO DO PORTÃO (reusada pelo workflow e pelo gate — RD-26). Dado se a suíte @pos passou (os specs quarentenados
+// NÃO rodam, via testIgnore; logo suíte vermelha = um spec NÃO quarentenado falhou) e a data de hoje, decide o verde:
+//   verde = suíte verde E nenhuma quarentena VENCIDA.
+// Critérios do Item 4 que isto garante:
+//   1) spec na lista (vigente) falhando/ausente + resto verde → suíte verde, sem vencidas → VERDE (fila publica).
+//   2) spec FORA da lista falhando → suíte vermelha → VERMELHO (congela, como hoje).
+//   4) quarentena VENCIDA → VERMELHO (a dívida não vira permanente), mesmo com a suíte verde.
+// `motivo` nomeia o 1º culpado para o banner/portão (o spec vencido, quando o vermelho vem da validade).
+export function decidirVerde(
+  suiteVerde: boolean,
+  hoje: string = hojeIso(),
+): { verde: boolean; n_vigentes: number; vencidas: string[]; motivo: string } {
+  const vencidas = quarentenasVencidas(hoje).map((q) => q.spec)
+  const n_vigentes = quarentenasVigentes(hoje).length
+  if (!suiteVerde) {
+    return { verde: false, n_vigentes, vencidas, motivo: 'suíte @pos vermelha (spec não quarentenado falhou)' }
+  }
+  if (vencidas.length) {
+    return { verde: false, n_vigentes, vencidas, motivo: `quarentena vencida (re-congela): ${vencidas.join(', ')}` }
+  }
+  return { verde: true, n_vigentes, vencidas, motivo: n_vigentes ? `verde (${n_vigentes} em quarentena)` : 'verde' }
 }
 
 // Área do spec: tokens do nome do arquivo (sem .spec.ts), em minúsculas, só os com 3+ letras. Ex.:
