@@ -100,6 +100,18 @@ export default function ObrasPage() {
 
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
 
+  // Entrada vinda de um indicador do Painel do Hub (§310 "todo indicador abre a lista FILTRADA"):
+  // ?status=<situação> já abre esta lista filtrada na situação clicada, sem o usuário reabrir o filtro.
+  // Lê uma vez, no cliente (sem useSearchParams → sem fronteira Suspense); valida contra as situações
+  // conhecidas e espelha a mesma lógica de aba do seletor (pausada/cancelada ficam na aba "outras").
+  useEffect(() => {
+    const s = new URLSearchParams(window.location.search).get('status') ?? ''
+    if (s && s in ST) {
+      setFiltroStatus(s)
+      setAba(s === 'pausada' || s === 'cancelada' ? 'outras' : 'principais')
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   async function mudarStatus(o: Obra, novo: string) {
     setBusy(o.id); setMsg('')
     const { error } = await supabase.rpc('fn_obra_mudar_status', { p_obra_id: o.id, p_novo_status: novo })
