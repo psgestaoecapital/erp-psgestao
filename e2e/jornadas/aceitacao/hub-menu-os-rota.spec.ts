@@ -1,6 +1,6 @@
 // Hub · auditoria CEO 20/11: o item "Ordens de Serviço" do menu do Hub (hub_ordens_servico) apontava para
 // /dashboard/os (OS da oficina). Deve apontar para a OS de obra (/dashboard/projetos/obras/os).
-// Depende da migration 20261122100435 → @pos-migration. Só leitura de catálogo; não semeia nem apaga nada.
+// Depende da migration 20261123100640 → @pos-migration. Só leitura de catálogo; não semeia nem apaga nada.
 
 import { test, expect } from '../../support/fixtures'
 import { dbSelect, registrarJornada } from '../../support/api'
