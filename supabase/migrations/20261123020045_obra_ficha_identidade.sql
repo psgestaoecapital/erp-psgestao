@@ -3,7 +3,7 @@
 -- imobiliária, tipo (residencial, comercial, industrial, misto), área construída, área do terreno...".
 -- Nome/endereço já existem; esta fatia acrescenta matrícula, inscrição imobiliária, tipo de edificação e
 -- as áreas construída e do terreno, na mesma página /dashboard/projetos/obras/[id]/ficha.
--- Depende da migration 20261122230545 (classificação): o fila publica primeiro a de versão menor.
+-- Depende da migration 20261123013145 (classificação, já na main): esta tem versão maior e aplica depois.
 -- Aditiva e idempotente: ADD COLUMN IF NOT EXISTS (colunas distintas da anterior) + CREATE OR REPLACE da
 -- leitura (passa a devolver também estes campos — aditivo ao JSON) + função NOVA de gravação. Sem CHECK na
 -- tabela (valida na RPC). RLS da projetos_obras já cobre as colunas novas. Não toca dado de cliente.
