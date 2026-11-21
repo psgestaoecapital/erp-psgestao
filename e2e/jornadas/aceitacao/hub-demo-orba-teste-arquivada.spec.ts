@@ -1,5 +1,5 @@
 // Hub · auditoria CEO 20/11: a obra lixo "ORBA TESTE" (OBR-2026-0002) da DEMO Construtora Modelo (006)
-// foi arquivada (soft-delete) só na DEMO. Depende da migration 20261122101735 → @pos-migration.
+// foi arquivada (soft-delete) só na DEMO. Depende da migration 20261123100540 → @pos-migration.
 // Só leitura; não semeia nem apaga nada.
 
 import { test, expect } from '../../support/fixtures'
