@@ -5,10 +5,11 @@ import { PROVEDORES_LIQUIDACAO, BANCOS_COM_CONSULTA, provedorPorBanco, situacaoP
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
 
-// 1) bancos com consulta e seus códigos (Sicoob e Sicredi agora; Bradesco quando chegar a documentação)
+// 1) bancos com consulta e seus códigos (Sicoob, Sicredi e BB — #9976; Bradesco tem rotina própria)
 ok(PROVEDORES_LIQUIDACAO.sicoob.banco_codigo === '756' && PROVEDORES_LIQUIDACAO.sicredi.banco_codigo === '748', 'Sicoob=756, Sicredi=748')
+ok(PROVEDORES_LIQUIDACAO.bb.banco_codigo === '001' && BANCOS_COM_CONSULTA.includes('001'), 'Banco do Brasil=001 entra na consulta título a título (7h/13h — #9976)')
 ok(!BANCOS_COM_CONSULTA.includes('237'), 'Bradesco (237) não usa a consulta título a título genérica: tem rotina própria (lista 7h / individual 13h — #297)')
-ok(provedorPorBanco('748')?.provider === 'sicredi' && provedorPorBanco('001') === null, 'banco → provedor; banco sem consulta → nenhum')
+ok(provedorPorBanco('748')?.provider === 'sicredi' && provedorPorBanco('001')?.provider === 'bb', 'banco → provedor (748=sicredi, 001=bb)')
 
 // 2) o que é PAGO (e o que não é)
 for (const s of ['LIQUIDADO', 'Liquidado', 'PAGO', 'BAIXADO_LIQUIDADO', 'LIQUIDADO_REDE', 'Liquidado Compe', 'LIQUIDACAO_PIX'.replace('LIQUIDACAO', 'LIQUIDADO')]) {

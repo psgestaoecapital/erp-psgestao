@@ -30,6 +30,8 @@ interface RemessaBody {
   valorFrete?: number
   // #3861 · "Corrigir e reenviar": id da nota recusada (erp_nfe_emitidas) — a nova herda o vínculo com pedido/título
   reenvioDe?: string
+  // #9724 (decisão B) · apenasPrevia=true só monta a nota e devolve o resumo p/ o espelho em PDF — não emite, não grava.
+  apenasPrevia?: boolean
 }
 
 const FINALIDADES: FinalidadeNFe[] = ['normal', 'complementar', 'ajuste', 'devolucao']
@@ -210,6 +212,44 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
         totais: { modalidadeFrete, ...(valorFrete > 0 ? { frete: valorFrete } : {}) },
       },
     })
+
+    // #9724 (decisão B) · espelho/prévia: devolve um RESUMO estruturado da nota montada (mesmo formato da
+    // /api/fiscal/nfe/emitir) para o operador baixar o PDF "PRÉVIA — SEM VALOR FISCAL". Puramente aditivo —
+    // retorna ANTES de validar/emitir: não transmite, não consome numeração/série, não grava nada.
+    if (body.apenasPrevia) {
+      const d = nfeReq.destinatario
+      const end = d.endereco
+      const nota = {
+        naturezaOperacao: nfeReq.naturezaOperacao,
+        serie: nfeReq.serie,
+        finalidade: nfeReq.finalidade,
+        consumidorFinal: nfeReq.consumidorFinal ?? null,
+        destinatario: {
+          razaoSocial: d.razaoSocial,
+          documento: d.cnpj || d.cpf || null,
+          tipoDocumento: d.cnpj ? 'CNPJ' : (d.cpf ? 'CPF' : null),
+          email: d.email ?? null,
+          endereco: end ? [end.logradouro, end.numero, end.bairro, end.cidade, end.uf, end.cep].filter(Boolean).join(', ') : null,
+        },
+        itens: nfeReq.itens.map((it) => ({
+          descricao: it.descricao,
+          ncm: it.ncm ?? null,
+          cfop: it.cfop ?? null,
+          cst: it.icms?.cst ?? null,
+          cBenef: it.icms?.cBenef ?? null,
+          chassi: it.veiculo?.chassi ?? null,
+          icmsBase: it.icms?.base ?? null,
+          icmsValor: it.icms?.valor ?? null,
+          ibsCbs: it.ibsCbs ? { base: it.ibsCbs.baseCalculo, cbs: it.ibsCbs.cbsValor, ibs: it.ibsCbs.ibsValorTotal } : null,
+          valorTotal: it.valorTotal,
+        })),
+        totais: {
+          produtos: nfeReq.itens.reduce((acc, i) => acc + i.valorTotal, 0),
+          ibsCbs: nfeReq.ibsCbsTotais ? { base: nfeReq.ibsCbsTotais.baseCalculo, cbs: nfeReq.ibsCbsTotais.cbsValor, ibs: nfeReq.ibsCbsTotais.ibsValor } : null,
+        },
+      }
+      return NextResponse.json({ ok: true, previa: { informacoesComplementares: nfeReq.observacoes ?? '', nota } })
+    }
 
     // OS-0179 (RD-71, mesmo caminho da nfe/emitir): toda falha da emissão deixa rastro — tentativa; recusa
     // síncrona da Focus → nota 'rejeitada' com payload_enviado.

@@ -93,9 +93,9 @@ export default function PipelinePage() {
         )}
         {r && (
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginLeft: 'auto' }}>
-            <Indicador rotulo="Em aberto" valor={`${r.abertas} · ${brl(r.valor_aberto)}`} />
+            <Indicador rotulo="Em aberto" valor={`${r.abertas} · ${brl(r.valor_aberto)}`} ajuda="crm.pipeline.em_aberto" />
             <Indicador rotulo="Previsão (ponderado)" valor={brl(r.valor_ponderado)} ajuda="crm.pipeline.ponderado" destaque />
-            <Indicador rotulo="Ganhos em 30 dias" valor={`${r.ganhos_30d} · ${brl(r.valor_ganho_30d)}`} />
+            <Indicador rotulo="Ganhos em 30 dias" valor={`${r.ganhos_30d} · ${brl(r.valor_ganho_30d)}`} ajuda="crm.pipeline.ganhos_30d" />
           </div>
         )}
       </div>
@@ -109,7 +109,7 @@ export default function PipelinePage() {
                 <Vazio texto="Nenhum negócio neste funil ainda. Crie o primeiro — leva 10 segundos." acao={!soLeitura ? <button style={btnPri} onClick={() => setNovo(true)}>+ Novo negócio</button> : undefined} />
               </div>
             )}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: C.TEXTM, marginBottom: 8 }}>Colunas = etapas do funil cadastrado<AjudaCampo chave="crm.pipeline.quadro" /></div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: C.TEXTM, marginBottom: 8, flexWrap: 'wrap' }}>Colunas = etapas do funil cadastrado<AjudaCampo chave="crm.pipeline.quadro" /><span style={{ margin: '0 2px' }}>·</span>cada cartão é um negócio<AjudaCampo chave="crm.pipeline.cartao" /></div>
             <QuadroFunil<Cartao>
               colunas={etapas.map((e) => ({ chave: e.id, rotulo: e.rotulo, cor: e.cor, tipo: e.tipo_etapa, detalhe: e.tipo_etapa === 'normal' && e.probabilidade != null ? `${e.probabilidade}%` : null }))}
               itens={cards}
