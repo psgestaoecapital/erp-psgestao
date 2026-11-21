@@ -239,36 +239,36 @@ function AbaDados({ funcionario, salario, onSaved }: { funcionario: Funcionario;
       {msg && (<div style={{ backgroundColor: C.beigeLt, color: C.espresso, padding: '8px 12px', borderRadius: 6, marginBottom: 16, fontSize: 13 }}>{msg}</div>)}
       <h3 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, fontWeight: 500, margin: '0 0 12px' }}>Pessoais</h3>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
-        <F label="Nome completo *" v={form.nome_completo || ''} onChange={(v) => set('nome_completo', v)} />
-        <F label="CPF" v={form.cpf || ''} onChange={(v) => set('cpf', v)} />
-        <F label="RG" v={form.rg || ''} onChange={(v) => set('rg', v)} />
-        <F label="Data nascimento" v={form.data_nascimento || ''} onChange={(v) => set('data_nascimento', v)} type="date" />
-        <F label="Email" v={form.email || ''} onChange={(v) => set('email', v)} />
-        <F label="Telefone" v={form.telefone || ''} onChange={(v) => set('telefone', v)} />
+        <F label="Nome completo *" chave="compliance.funcionario.nome_completo" v={form.nome_completo || ''} onChange={(v) => set('nome_completo', v)} />
+        <F label="CPF" chave="compliance.funcionario.cpf" v={form.cpf || ''} onChange={(v) => set('cpf', v)} />
+        <F label="RG" chave="compliance.funcionario.rg" v={form.rg || ''} onChange={(v) => set('rg', v)} />
+        <F label="Data nascimento" chave="compliance.funcionario.data_nascimento" v={form.data_nascimento || ''} onChange={(v) => set('data_nascimento', v)} type="date" />
+        <F label="Email" chave="compliance.funcionario.email" v={form.email || ''} onChange={(v) => set('email', v)} />
+        <F label="Telefone" chave="compliance.funcionario.telefone" v={form.telefone || ''} onChange={(v) => set('telefone', v)} />
       </div>
 
       <h3 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, fontWeight: 500, margin: '20px 0 12px' }}>Endereço</h3>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-        <F label="CEP" v={form.cep || ''} onChange={(v) => set('cep', v)} />
-        <F label="Logradouro" v={form.logradouro || ''} onChange={(v) => set('logradouro', v)} />
-        <F label="Número" v={form.numero || ''} onChange={(v) => set('numero', v)} />
-        <F label="Complemento" v={form.complemento || ''} onChange={(v) => set('complemento', v)} />
-        <F label="Bairro" v={form.bairro || ''} onChange={(v) => set('bairro', v)} />
-        <F label="Cidade" v={form.cidade || ''} onChange={(v) => set('cidade', v)} />
-        <F label="UF" v={form.uf || ''} onChange={(v) => set('uf', v)} />
+        <F label="CEP" chave="compliance.funcionario.cep" v={form.cep || ''} onChange={(v) => set('cep', v)} />
+        <F label="Logradouro" chave="compliance.funcionario.logradouro" v={form.logradouro || ''} onChange={(v) => set('logradouro', v)} />
+        <F label="Número" chave="compliance.funcionario.numero" v={form.numero || ''} onChange={(v) => set('numero', v)} />
+        <F label="Complemento" chave="compliance.funcionario.complemento" v={form.complemento || ''} onChange={(v) => set('complemento', v)} />
+        <F label="Bairro" chave="compliance.funcionario.bairro" v={form.bairro || ''} onChange={(v) => set('bairro', v)} />
+        <F label="Cidade" chave="compliance.funcionario.cidade" v={form.cidade || ''} onChange={(v) => set('cidade', v)} />
+        <F label="UF" chave="compliance.funcionario.uf" v={form.uf || ''} onChange={(v) => set('uf', v)} />
       </div>
 
       <h3 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, fontWeight: 500, margin: '20px 0 12px' }}>Contrato</h3>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-        <F label="Matrícula" v={form.matricula || ''} onChange={(v) => set('matricula', v)} />
-        <F label="Cargo" v={form.cargo || ''} onChange={(v) => set('cargo', v)} />
-        <F label="Setor" v={form.setor || ''} onChange={(v) => set('setor', v)} />
-        <F label="Função" v={form.funcao || ''} onChange={(v) => set('funcao', v)} />
-        <F label="Data admissão" v={form.data_admissao || ''} onChange={(v) => set('data_admissao', v)} type="date" />
-        <F label="Data demissão" v={form.data_demissao || ''} onChange={(v) => set('data_demissao', v)} type="date" />
-        <F label="Tipo contrato" v={form.tipo_contrato || ''} onChange={(v) => set('tipo_contrato', v)} />
+        <F label="Matrícula" chave="compliance.funcionario.matricula" v={form.matricula || ''} onChange={(v) => set('matricula', v)} />
+        <F label="Cargo" chave="compliance.funcionario.cargo" v={form.cargo || ''} onChange={(v) => set('cargo', v)} />
+        <F label="Setor" chave="compliance.funcionario.setor" v={form.setor || ''} onChange={(v) => set('setor', v)} />
+        <F label="Função" chave="compliance.funcionario.funcao" v={form.funcao || ''} onChange={(v) => set('funcao', v)} />
+        <F label="Data admissão" chave="compliance.funcionario.data_admissao" v={form.data_admissao || ''} onChange={(v) => set('data_admissao', v)} type="date" />
+        <F label="Data demissão" chave="compliance.funcionario.data_demissao" v={form.data_demissao || ''} onChange={(v) => set('data_demissao', v)} type="date" />
+        <F label="Tipo contrato" chave="compliance.funcionario.tipo_contrato" v={form.tipo_contrato || ''} onChange={(v) => set('tipo_contrato', v)} />
         {podeVerSalario
-          ? <F label="Salário base (R$)" v={form.salario_base ?? ''} onChange={(v) => set('salario_base', v === '' ? null : Number(v))} type="number" />
+          ? <F label="Salário base (R$)" chave="compliance.funcionario.salario_base" v={form.salario_base ?? ''} onChange={(v) => set('salario_base', v === '' ? null : Number(v))} type="number" />
           : (
             <div data-testid="salario-media-funcao" style={{ fontSize: 13, color: C.espresso }}>
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Salário da função</div>
@@ -281,12 +281,12 @@ function AbaDados({ funcionario, salario, onSaved }: { funcionario: Funcionario;
 
       <h3 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, fontWeight: 500, margin: '20px 0 12px' }}>Alocação</h3>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-        <F label="Empresa tomadora" v={form.empresa_tomadora_nome || ''} onChange={(v) => set('empresa_tomadora_nome', v)} />
-        <F label="Obra" v={form.obra_nome || ''} onChange={(v) => set('obra_nome', v)} />
+        <F label="Empresa tomadora" chave="compliance.funcionario.empresa_tomadora" v={form.empresa_tomadora_nome || ''} onChange={(v) => set('empresa_tomadora_nome', v)} />
+        <F label="Obra" chave="compliance.funcionario.obra" v={form.obra_nome || ''} onChange={(v) => set('obra_nome', v)} />
       </div>
 
       <div style={{ marginTop: 12 }}>
-        <F label="Observações" v={form.observacoes || ''} onChange={(v) => set('observacoes', v)} textarea />
+        <F label="Observações" chave="compliance.funcionario.observacoes" v={form.observacoes || ''} onChange={(v) => set('observacoes', v)} textarea />
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}>
@@ -412,10 +412,13 @@ function AbaHistorico({ historico, onBaixar }: { historico: Documento[]; onBaixa
   )
 }
 
-function F({ label, v, onChange, type, textarea }: { label: string; v: any; onChange: (v: any) => void; type?: string; textarea?: boolean }) {
+function F({ label, chave, v, onChange, type, textarea }: { label: string; chave?: string; v: any; onChange: (v: any) => void; type?: string; textarea?: boolean }) {
   return (
     <div>
-      <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>{label}</label>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+        {label}
+        {chave ? <AjudaCampo chave={chave} rota="/dashboard/ehs/funcionarios/[id]" /> : null}
+      </label>
       {textarea ? (
         <textarea value={v} onChange={(e: any) => onChange(e.target.value)} style={{ ...inputStyle(), minHeight: 70 }} />
       ) : (
