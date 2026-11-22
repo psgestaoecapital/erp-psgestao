@@ -94,6 +94,16 @@ function detectarTotalPlanilha(matriz: string[][]): number | null {
   return melhor ? melhor.valor : null
 }
 
+// §334 — nível hierárquico da EAP pela quantidade de pontos do código ("1"=1, "1.2"=2, "1.2.3"=3…), limitado a 6.
+// Código sem ponto reconhecível = nível 1. Só conta blocos numéricos (ignora sufixos como "1.2-A"). Função pura.
+function nivelEap(codigo: string): number {
+  const c = String(codigo ?? '').trim()
+  if (!c) return 0
+  const blocos = c.split('.').map((b) => b.trim()).filter((b) => /^\d+[a-z]?$/i.test(b))
+  if (!blocos.length) return 1
+  return Math.min(blocos.length, 6)
+}
+
 type Linha = {
   eap_codigo: string; descricao: string; unidade: string
   quantidade: string; custo_material_unit: string; custo_mao_obra_unit: string
@@ -406,6 +416,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
                 <thead>
                   <tr style={{ background: BG, color: MUT, textAlign: 'left' }}>
                     <th style={{ padding: '8px 10px' }}>Código</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'center' }} title="Nível na EAP pela quantidade de pontos do código (1, 1.1, 1.1.1…), até 6">Nível</th>
                     <th style={{ padding: '8px 10px' }}>Descrição</th>
                     <th style={{ padding: '8px 10px' }}>Un</th>
                     <th style={{ padding: '8px 10px', textAlign: 'right' }}>Qtd</th>
@@ -421,6 +432,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
                         {l.eap_codigo || '—'}
                         {codigosNumericos.has(l.idx - 1) && <span title="Este código veio como número na planilha — confira o zero à direita" style={{ marginLeft: 6, fontSize: 10, fontWeight: 800, color: GOLD, fontFamily: 'inherit' }}>nº</span>}
                       </td>
+                      <td style={{ padding: '7px 10px', textAlign: 'center', color: MUT }} title={l.unidade ? 'Item (tem unidade)' : 'Agrupador (etapa/subetapa)'}>{nivelEap(l.eap_codigo) || '—'}</td>
                       <td style={{ padding: '7px 10px' }}>{l.descricao || '—'}</td>
                       <td style={{ padding: '7px 10px' }}>{l.unidade || '—'}</td>
                       <td style={{ padding: '7px 10px', textAlign: 'right' }}>{l.quantidade || '—'}</td>
