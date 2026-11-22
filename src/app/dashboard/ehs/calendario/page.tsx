@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const C = {
   espresso: '#3D2314',
@@ -337,25 +338,27 @@ export default function CalendarioCompliancePage() {
             marginBottom: 20,
           }}
         >
-          <KpiCard label="Ativas" value={String(kpis?.tarefas_ativas ?? 0)} accent={C.blue} hint="pendentes/em andamento" />
-          <KpiCard label="Vencem 7d" value={String(kpis?.vencendo_7d ?? 0)} accent={C.orange} hint="acao urgente" />
+          <KpiCard label="Ativas" value={String(kpis?.tarefas_ativas ?? 0)} accent={C.blue} hint="pendentes/em andamento" ajuda="ehs.calendario.kpi_ativas" />
+          <KpiCard label="Vencem 7d" value={String(kpis?.vencendo_7d ?? 0)} accent={C.orange} hint="acao urgente" ajuda="ehs.calendario.kpi_vencem_7d" />
           <KpiCard
             label="Vencidas"
             value={String(kpis?.tarefas_vencidas ?? 0)}
             accent={C.red}
             hint={fmtBRL(kpis?.multa_atual_vencido_brl ?? 0)}
+            ajuda="ehs.calendario.kpi_vencidas"
           />
           <KpiCard
             label="Exposicao"
             value={fmtBRL(kpis?.exposicao_multa_total_brl ?? 0)}
             accent={C.gold}
             hint="multas potenciais"
+            ajuda="ehs.calendario.kpi_exposicao"
           />
         </section>
 
         {/* Filtros */}
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, fontSize: 13, marginBottom: 16 }}>
-          <span style={{ color: C.muted }}>Filtros:</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: C.muted }}>Filtros:<AjudaCampo chave="ehs.calendario.filtros" /></span>
           <FilterPill label="Todos riscos" active={!filtroRisco} onClick={() => setFiltroRisco(null)} />
           <FilterPill label="Critico" active={filtroRisco === 'critico'} onClick={() => setFiltroRisco('critico')} color={C.red} />
           <FilterPill label="Alto" active={filtroRisco === 'alto'} onClick={() => setFiltroRisco('alto')} color={C.orange} />
@@ -476,7 +479,7 @@ export default function CalendarioCompliancePage() {
   )
 }
 
-function KpiCard({ label, value, accent, hint }: { label: string; value: string; accent: string; hint: string }) {
+function KpiCard({ label, value, accent, hint, ajuda }: { label: string; value: string; accent: string; hint: string; ajuda?: string }) {
   return (
     <div
       style={{
@@ -497,9 +500,12 @@ function KpiCard({ label, value, accent, hint }: { label: string; value: string;
           textTransform: 'uppercase',
           letterSpacing: 0.8,
           color: C.espressoL,
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 4,
         }}
       >
-        {label}
+        {label}{ajuda ? <AjudaCampo chave={ajuda} /> : null}
       </span>
       <span style={{ fontSize: 22, fontWeight: 700, color: accent, lineHeight: 1.1, wordBreak: 'break-word' }}>
         {value}

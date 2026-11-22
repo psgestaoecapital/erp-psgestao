@@ -5,6 +5,7 @@ import AreaRedirectGuard from '@/components/layout/AreaRedirectGuard'
 import RecoveryGuard from '@/components/layout/RecoveryGuard'
 import ConsentGuard from '@/components/layout/ConsentGuard'
 import DashboardMain from '@/components/layout/DashboardMain'
+import RouteAccessGuard from '@/components/layout/RouteAccessGuard'
 import { SelectedCompanyProvider } from '@/contexts/SelectedCompanyContext'
 import { AuthProvider } from '@/lib/AuthProvider'
 import AjudaWidget from '@/components/ajuda/AjudaWidget'
@@ -29,7 +30,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className="md:ml-[220px] min-h-screen flex flex-col">
           <TopNav />
           <DashboardMain>
-            <Suspense fallback={null}>{children}</Suspense>
+            {/* F2 (emergência LGPD/acesso): bloqueio de rota por papel, fail-closed, mesma regra do menu.
+                Abrir pela URL uma seção não liberada para a função mostra "Acesso restrito" (nunca tela vazia). */}
+            <Suspense fallback={null}>
+              <RouteAccessGuard>{children}</RouteAccessGuard>
+            </Suspense>
           </DashboardMain>
         </div>
       </div>
