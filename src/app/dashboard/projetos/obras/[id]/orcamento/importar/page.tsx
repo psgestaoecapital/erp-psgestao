@@ -156,6 +156,8 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
   const [linhasIgnoradas, setLinhasIgnoradas] = useState(0)
   // §334: quantas linhas tiveram a unidade padronizada para a grafia canônica (ex.: "UND"→"un", "M2"→"m²").
   const [unidadesNormalizadas, setUnidadesNormalizadas] = useState(0)
+  // §334: qual aba da planilha foi usada, quando o arquivo tem mais de uma (a EAP pode não estar na 1ª aba).
+  const [abaImportada, setAbaImportada] = useState<{ nome: string; total: number } | null>(null)
   // §334 conferência do total: soma importada (Σ qtd × (material + mão de obra)) × total declarado na planilha.
   const [totalImportado, setTotalImportado] = useState(0)
   const [totalPlanilha, setTotalPlanilha] = useState<number | null>(null)
@@ -184,9 +186,25 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
       const buf = await f.arrayBuffer()
       const XLSX = await import('xlsx')
       const wb = XLSX.read(buf, { type: 'array' })
-      const ws = wb.Sheets[wb.SheetNames[0]]
-      const matriz = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, raw: false, defval: '' })
-      const mapa = mapearColunas(matriz)
+      // §334: a planilha do cliente costuma ter VÁRIAS abas — a EAP numa, e "Outros Custos"/"Análise"/"Resumo"/"Capa"
+      // noutras (essas vão para a viabilidade, não para a EAP). Em vez de ler sempre a 1ª aba (que pode ser uma capa),
+      // procuramos a PRIMEIRA aba cujo conteúdo tem cabeçalho de EAP reconhecível (código+descrição+quantidade),
+      // ignorando as abas de nome claramente não-EAP. Se nenhuma casar, caímos na 1ª aba (comportamento antigo).
+      const ehAbaNaoEap = (nome: string) => /an[aá]lise|outros\s*custos|resumo|capa|cronograma|curva|bdi|composi/i.test(nome)
+      let ws = wb.Sheets[wb.SheetNames[0]]
+      let matriz = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, raw: false, defval: '' })
+      let mapa = mapearColunas(matriz)
+      let abaUsada = wb.SheetNames[0]
+      if (!mapa && wb.SheetNames.length > 1) {
+        // 1ª passada: só abas de nome plausível de EAP; 2ª passada: qualquer aba (nome não ajuda, mas o conteúdo sim)
+        const ordem = [...wb.SheetNames.filter((n) => !ehAbaNaoEap(n)), ...wb.SheetNames.filter((n) => ehAbaNaoEap(n))]
+        for (const nome of ordem) {
+          const wsTest = wb.Sheets[nome]
+          const mTest = XLSX.utils.sheet_to_json<string[]>(wsTest, { header: 1, raw: false, defval: '' })
+          const mapTest = mapearColunas(mTest)
+          if (mapTest) { ws = wsTest; matriz = mTest; mapa = mapTest; abaUsada = nome; break }
+        }
+      }
       if (!mapa) { setAviso(''); setErro('Não reconheci as colunas da planilha. Confira se há colunas de código, descrição e quantidade.'); return }
       const { headerRow, col } = mapa
       const pega = (linha: string[], chave: string) => (col[chave] === undefined ? '' : String(linha[col[chave]] ?? '').trim())
@@ -232,6 +250,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
       setCodigosRepetidos([...cont.entries()].filter(([, n]) => n > 1).map(([codigo, vezes]) => ({ codigo, vezes })).sort((a, b) => b.vezes - a.vezes))
       setLinhasIgnoradas(ignoradas)
       setUnidadesNormalizadas(normalizadas)
+      setAbaImportada(wb.SheetNames.length > 1 ? { nome: abaUsada, total: wb.SheetNames.length } : null)
       // §334 conferência: soma importada = Σ qtd × (material + mão de obra) de todas as linhas lidas.
       const somaImportada = lin.reduce((acc, l) => acc + numBR(l.quantidade) * (numBR(l.custo_material_unit) + numBR(l.custo_mao_obra_unit)), 0)
       setTotalImportado(somaImportada)
@@ -258,7 +277,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
     setPasso('resultado')
   }
 
-  const recomecar = () => { setPasso('upload'); setLinhas([]); setValidadas([]); setResumo(null); setResultado(null); setHash(''); setArquivoNome(''); setErro(null); setAviso(''); setCodigosNumericos(new Set()); setCienteNumerico(false); setCodigosRepetidos([]); setLinhasIgnoradas(0); setUnidadesNormalizadas(0); setTotalImportado(0); setTotalPlanilha(null) }
+  const recomecar = () => { setPasso('upload'); setLinhas([]); setValidadas([]); setResumo(null); setResultado(null); setHash(''); setArquivoNome(''); setErro(null); setAviso(''); setCodigosNumericos(new Set()); setCienteNumerico(false); setCodigosRepetidos([]); setLinhasIgnoradas(0); setUnidadesNormalizadas(0); setAbaImportada(null); setTotalImportado(0); setTotalPlanilha(null) }
 
   // diferença entre a soma importada e o total declarado na planilha; "confere" quando ≤ 1 centavo.
   const difTotal = totalPlanilha === null ? null : Math.round((totalImportado - totalPlanilha) * 100) / 100
@@ -318,6 +337,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
           <div style={{ display: 'grid', gap: 12 }}>
             <div style={{ ...CARD, display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center' }}>
               <span style={{ fontSize: 13, color: MUT }}>Arquivo: <strong style={{ color: ESP }}>{arquivoNome}</strong></span>
+              {abaImportada && <span data-testid="eap-importar-aba" title={`A planilha tem ${abaImportada.total} abas; usamos a que tem a EAP. As abas de "Outros Custos"/"Análise" não entram no orçamento.`} style={{ fontSize: 13, color: MUT }}>Aba: <strong style={{ color: ESP }}>{abaImportada.nome}</strong></span>}
               <span style={{ fontSize: 13, color: VERDE, fontWeight: 700 }}>{resumo.validos} válidas</span>
               <span style={{ fontSize: 13, color: resumo.com_erro ? VERM : MUT, fontWeight: 700 }}>{resumo.com_erro} com erro</span>
               {codigosNumericos.size > 0 && <span style={{ fontSize: 13, color: GOLD, fontWeight: 700 }}>{codigosNumericos.size} código(s) como número</span>}
