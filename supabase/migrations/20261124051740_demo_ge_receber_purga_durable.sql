@@ -132,14 +132,14 @@ $fn$;
 REVOKE ALL ON FUNCTION public.fn_demo_ge_receber_purgar_lixo_teste(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_demo_ge_receber_purgar_lixo_teste(uuid) TO service_role;
 
--- ── Limpeza ÚNICA do estado atual de produção (DEMO "Comércio (GE)") ──
-DO $once$
-DECLARE r jsonb;
-BEGIN
-  SELECT public.fn_demo_ge_receber_purgar_lixo_teste('b0700000-0000-4000-a000-000000000004') INTO r;
-  RAISE NOTICE 'Purga única DEMO GE /receber: %', r;
-END
-$once$;
+-- ── Limpeza ÚNICA do estado atual de produção (DEMO "Comércio (GE)") — REMOVIDA no conserto-main (gilberto-esteira, 22/11) ──
+-- Por que foi removida: o `DO $once$` chamava o purge inline em ~30.273 títulos VIVOS + ~30k baixas da DEMO GE. Como todo o
+-- arquivo roda numa ÚNICA transação do `supabase db push`, o purge é uma ÚNICA statement e estourou o statement_timeout
+-- do deploy (ERROR 57014 na statement 11, run 45015641338) — DEPLOY-MIGRATIONS VERMELHO travando TODAS as migrations.
+-- Soft-delete de 60k linhas com triggers por linha não cabe no caminho de deploy (bloqueante) sem risco (incidente 03/10:
+-- "Prova em produção nunca varre tabela grande"). A FUNÇÃO e o backup acima ficam intactos, e a AUTO-CURA abaixo
+-- (fn_demo_seed_ge_financeiro → PERFORM ...purgar_lixo_teste) limpa a DEMO GE no próximo fn_demo_reset, fora do deploy.
+-- A migration vira DDL-only → aplica em segundos → deploy verde. A purga do estado atual acontece na auto-cura (reset da DEMO).
 
 -- ── Auto-cura: fn_demo_seed_ge_financeiro chama o purge no início (superset puro do corpo vivo + 1 linha PERFORM) ──
 -- Conferido com pg_get_functiondef (RD-38): idêntico à definição viva (md5 do corpo normalizado bate), exceto a linha
