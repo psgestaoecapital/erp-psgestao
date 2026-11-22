@@ -27,6 +27,7 @@ import {
   Truck,
   type LucideIcon,
 } from "lucide-react";
+import HubRotaGuard from "@/components/layout/HubRotaGuard";
 
 interface Tab {
   href: string;
@@ -186,7 +187,7 @@ export default function ProjetosLayout({ children }: { children: React.ReactNode
         </div>
       </div>
 
-      {children}
+      <HubRotaGuard>{children}</HubRotaGuard>
     </div>
   );
 }

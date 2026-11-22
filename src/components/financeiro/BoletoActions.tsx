@@ -125,9 +125,9 @@ export default function BoletoActions({ provider, receberId, valor, vencimentoIS
 
   // #6732 · cancelamento do boleto pela API do banco. Habilitado para os conectores cuja rota
   // /api/banco/<provider>/cancelar-boleto já envia a baixa ao banco e grava boleto_status='cancelado'
-  // (Sicoob e Banco do Brasil #5404). Para os demais bancos, o botão fica desabilitado com aviso
-  // para cancelar no internet banking, até existir a rota de baixa do respectivo conector.
-  const cancelaViaApi = provider === 'sicoob' || provider === 'bb'
+  // (Sicoob e Banco do Brasil #5404; Sicredi #6732). Para os demais bancos (Bradesco), o botão fica
+  // desabilitado com aviso para cancelar no internet banking, até existir a rota de baixa do conector.
+  const cancelaViaApi = provider === 'sicoob' || provider === 'bb' || provider === 'sicredi'
 
   const copiarLinha = () => {
     if (!boleto.linhaDigitavel) return

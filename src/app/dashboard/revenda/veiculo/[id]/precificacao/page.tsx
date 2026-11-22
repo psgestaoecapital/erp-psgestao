@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useState, Suspense } from 'react'
 import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { parseNumBR } from '@/lib/num'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
 import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
@@ -21,7 +22,8 @@ const C = {
 }
 const brl = (v: number | null | undefined) => (v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const brDate = (d?: string | null) => d ? String(d).slice(0, 10).split('-').reverse().join('/') : ''
-const numOrNull = (s: string): number | null => { const n = Number(String(s).replace(',', '.')); return s.trim() !== '' && Number.isFinite(n) ? n : null }
+// aceita decimal BR com milhar via fonte única parseNumBR (RD-52, src/lib/num.ts)
+const numOrNull = (s: string): number | null => parseNumBR(s)
 
 type Encargo = { pct: number | null; valor: number | null; configurado: boolean; fonte?: string | null; base?: string | null; rotulo?: string | null; na_precificacao?: boolean; status?: string | null }
 type Precif = {

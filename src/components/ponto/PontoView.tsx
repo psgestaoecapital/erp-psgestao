@@ -122,7 +122,10 @@ export default function PontoView({ lente }: { lente: Lente }) {
 
   // Lançamento MANUAL de horas (fallback sem provider integrado)
   const [manualAberto, setManualAberto] = useState(false)
-  const [manual, setManual] = useState({ cpf: '', nome: '', funcao: '', inicio: inicioMes(), fim: toISO(new Date()), horas: '' })
+  // modo 'periodo' = total de horas num intervalo; modo 'dia' = batida do dia (entrada/saída → horas)
+  // para a empresa sem relógio registrar a jornada de UM dia sem precisar de integração (auditoria 19/11, critério a).
+  const [modoManual, setModoManual] = useState<'periodo' | 'dia'>('periodo')
+  const [manual, setManual] = useState({ cpf: '', nome: '', funcao: '', inicio: inicioMes(), fim: toISO(new Date()), horas: '', dia: toISO(new Date()), entrada: '', saida: '', intervalo: '' })
   const [salvandoManual, setSalvandoManual] = useState(false)
 
   const carregar = useCallback(async () => {
@@ -297,22 +300,57 @@ export default function PontoView({ lente }: { lente: Lente }) {
     setOk(`IMPORTOU ${j?.total_processados ?? 0} colaboradores pro EHS · ${j?.criados ?? 0} novos · ${j?.atualizados ?? 0} atualizados${j?.ignorados_sem_cpf ? ` · ${j.ignorados_sem_cpf} sem CPF (ignorados)` : ''}`)
   }
 
+  // Converte "HH:MM" em minutos do dia (0..1440); null se inválido.
+  function hhmmEmMin(v: string): number | null {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(v.trim())
+    if (!m) return null
+    const h = Number(m[1]); const min = Number(m[2])
+    if (h < 0 || h > 23 || min < 0 || min > 59) return null
+    return h * 60 + min
+  }
+
   // Lançar horas MANUALMENTE (fallback: empresa sem relógio/integração opera o ponto à mão).
+  // Dois modos: 'periodo' (total de horas num intervalo) ou 'dia' (batida: entrada/saída de UM dia → horas).
   async function lancarManual() {
     if (!empresaUnica) return
-    const horasNum = Number(String(manual.horas).replace(',', '.'))
     if (!manual.cpf.trim()) { setErro('Informe o CPF do colaborador.'); return }
     if (!manual.nome.trim()) { setErro('Informe o nome do colaborador.'); return }
-    if (!Number.isFinite(horasNum) || horasNum < 0 || horasNum > 1000) { setErro('Total de horas inválido (0 a 1000).'); return }
-    if (!manual.inicio || !manual.fim || manual.fim < manual.inicio) { setErro('Período inválido: a data fim não pode ser anterior ao início.'); return }
+
+    let periodoInicio: string
+    let periodoFim: string
+    let horasNum: number
+
+    if (modoManual === 'dia') {
+      // Batida do dia: calcula as horas a partir de entrada/saída (menos o intervalo opcional).
+      if (!manual.dia) { setErro('Informe a data da batida.'); return }
+      const ent = hhmmEmMin(manual.entrada)
+      const sai = hhmmEmMin(manual.saida)
+      if (ent === null) { setErro('Hora de entrada inválida (use HH:MM, ex.: 08:00).'); return }
+      if (sai === null) { setErro('Hora de saída inválida (use HH:MM, ex.: 17:00).'); return }
+      if (sai <= ent) { setErro('A saída deve ser depois da entrada (no mesmo dia).'); return }
+      const intervaloMin = manual.intervalo.trim() ? Number(String(manual.intervalo).replace(',', '.')) : 0
+      if (!Number.isFinite(intervaloMin) || intervaloMin < 0 || intervaloMin > 1440) { setErro('Intervalo inválido (minutos, 0 a 1440).'); return }
+      const liquidoMin = sai - ent - intervaloMin
+      if (liquidoMin <= 0) { setErro('O intervalo não pode ser maior ou igual à jornada (entrada→saída).'); return }
+      horasNum = Math.round((liquidoMin / 60) * 100) / 100
+      periodoInicio = manual.dia
+      periodoFim = manual.dia
+    } else {
+      horasNum = Number(String(manual.horas).replace(',', '.'))
+      if (!Number.isFinite(horasNum) || horasNum < 0 || horasNum > 1000) { setErro('Total de horas inválido (0 a 1000).'); return }
+      if (!manual.inicio || !manual.fim || manual.fim < manual.inicio) { setErro('Período inválido: a data fim não pode ser anterior ao início.'); return }
+      periodoInicio = manual.inicio
+      periodoFim = manual.fim
+    }
+
     setSalvandoManual(true)
     setErro(null); setOk(null)
     const { data, error } = await supabase.rpc('fn_ponto_horas_manual_lancar', {
       p_company_id: empresaUnica,
       p_cpf: manual.cpf,
       p_nome: manual.nome,
-      p_periodo_inicio: manual.inicio,
-      p_periodo_fim: manual.fim,
+      p_periodo_inicio: periodoInicio,
+      p_periodo_fim: periodoFim,
       p_total_horas: horasNum,
       p_funcao: manual.funcao || null,
     })
@@ -320,8 +358,10 @@ export default function PontoView({ lente }: { lente: Lente }) {
     if (error) { setErro(erroAmigavel(error)); return }
     const j = data as { ok?: boolean } | null
     if (!j?.ok) { setErro('Não foi possível lançar as horas.'); return }
-    setOk(`HORAS LANÇADAS · ${manual.nome} · ${h1(horasNum)} no período`)
-    setManual((m) => ({ ...m, cpf: '', nome: '', funcao: '', horas: '' }))
+    setOk(modoManual === 'dia'
+      ? `BATIDA LANÇADA · ${manual.nome} · ${h1(horasNum)} em ${fmtD(manual.dia)}`
+      : `HORAS LANÇADAS · ${manual.nome} · ${h1(horasNum)} no período`)
+    setManual((m) => ({ ...m, cpf: '', nome: '', funcao: '', horas: '', entrada: '', saida: '', intervalo: '' }))
     await carregar()
   }
 
@@ -479,53 +519,112 @@ export default function PontoView({ lente }: { lente: Lente }) {
               data-testid="ponto-manual-abrir"
               style={{ ...btnOutlineGold, minHeight: 36, padding: '8px 16px' }}
             >
-              {manualAberto ? '▲ Fechar lançamento manual' : '✎ Lançar horas manualmente'}
+              {manualAberto ? '▲ Fechar lançamento manual' : '✎ Lançar ponto manualmente'}
             </button>
             <AjudaCampo chave="ponto.manual.abrir" rota={AJUDA_ROTA} />
             {!config && (
               <span style={{ fontSize: 11, color: MUT }}>
-                Sem relógio integrado? Registre o total de horas de cada colaborador por aqui.
+                Sem relógio integrado? Registre a batida do dia ou o total de horas de cada colaborador por aqui.
               </span>
             )}
           </div>
 
           {manualAberto && (
-            <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, alignItems: 'end' }}>
-              <label style={{ display: 'block' }}>
-                <span style={{ ...lbl, ...ajudaLbl }}>CPF <AjudaCampo chave="ponto.manual.cpf" rota={AJUDA_ROTA} /></span>
-                <input value={manual.cpf} onChange={(e) => setManual((m) => ({ ...m, cpf: e.target.value }))} placeholder="Só números ou com pontuação" style={{ ...inp, width: '100%' }} />
-              </label>
-              <label style={{ display: 'block' }}>
-                <span style={{ ...lbl, ...ajudaLbl }}>Nome <AjudaCampo chave="ponto.manual.nome" rota={AJUDA_ROTA} /></span>
-                <input value={manual.nome} onChange={(e) => setManual((m) => ({ ...m, nome: e.target.value }))} placeholder="Nome completo" style={{ ...inp, width: '100%' }} />
-              </label>
-              <label style={{ display: 'block' }}>
-                <span style={{ ...lbl, ...ajudaLbl }}>Função <AjudaCampo chave="ponto.manual.funcao" rota={AJUDA_ROTA} /></span>
-                <input value={manual.funcao} onChange={(e) => setManual((m) => ({ ...m, funcao: e.target.value }))} placeholder="Opcional" style={{ ...inp, width: '100%' }} />
-              </label>
-              <label style={{ display: 'block' }}>
-                <span style={{ ...lbl, ...ajudaLbl }}>Início <AjudaCampo chave="ponto.manual.periodo" rota={AJUDA_ROTA} /></span>
-                <input type="date" value={manual.inicio} onChange={(e) => setManual((m) => ({ ...m, inicio: e.target.value }))} style={{ ...inp, width: '100%' }} />
-              </label>
-              <label style={{ display: 'block' }}>
-                <span style={{ ...lbl, ...ajudaLbl }}>Fim <AjudaCampo chave="ponto.manual.periodo" rota={AJUDA_ROTA} /></span>
-                <input type="date" value={manual.fim} onChange={(e) => setManual((m) => ({ ...m, fim: e.target.value }))} style={{ ...inp, width: '100%' }} />
-              </label>
-              <label style={{ display: 'block' }}>
-                <span style={{ ...lbl, ...ajudaLbl }}>Total de horas <AjudaCampo chave="ponto.manual.total_horas" rota={AJUDA_ROTA} /></span>
-                <input inputMode="decimal" value={manual.horas} onChange={(e) => setManual((m) => ({ ...m, horas: e.target.value }))} placeholder="Ex.: 176 ou 176,5" style={{ ...inp, width: '100%' }} />
-              </label>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                <button
-                  type="button"
-                  onClick={lancarManual}
-                  disabled={salvandoManual}
-                  data-testid="ponto-manual-salvar"
-                  style={{ ...btnGold, opacity: salvandoManual ? 0.6 : 1, cursor: salvandoManual ? 'not-allowed' : 'pointer' }}
-                >
-                  {salvandoManual ? 'Lançando…' : '✓ Lançar horas'}
-                </button>
-              </span>
+            <div style={{ marginTop: 14 }}>
+              {/* Modo: batida do dia (entrada/saída) OU total de horas num período */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                <span style={{ ...lbl, ...ajudaLbl, marginBottom: 0 }}>Como lançar <AjudaCampo chave="ponto.manual.modo" rota={AJUDA_ROTA} /></span>
+                <div role="tablist" style={{ display: 'inline-flex', border: `1px solid ${GOLD}`, borderRadius: 8, overflow: 'hidden' }}>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={modoManual === 'dia'}
+                    onClick={() => setModoManual('dia')}
+                    data-testid="ponto-manual-modo-dia"
+                    style={{ padding: '7px 14px', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, background: modoManual === 'dia' ? GOLD : 'transparent', color: modoManual === 'dia' ? '#FFF' : GOLD }}
+                  >
+                    🕒 Batida do dia
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={modoManual === 'periodo'}
+                    onClick={() => setModoManual('periodo')}
+                    data-testid="ponto-manual-modo-periodo"
+                    style={{ padding: '7px 14px', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, background: modoManual === 'periodo' ? GOLD : 'transparent', color: modoManual === 'periodo' ? '#FFF' : GOLD }}
+                  >
+                    📅 Total por período
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, alignItems: 'end' }}>
+                <label style={{ display: 'block' }}>
+                  <span style={{ ...lbl, ...ajudaLbl }}>CPF <AjudaCampo chave="ponto.manual.cpf" rota={AJUDA_ROTA} /></span>
+                  <input value={manual.cpf} onChange={(e) => setManual((m) => ({ ...m, cpf: e.target.value }))} placeholder="Só números ou com pontuação" style={{ ...inp, width: '100%' }} />
+                </label>
+                <label style={{ display: 'block' }}>
+                  <span style={{ ...lbl, ...ajudaLbl }}>Nome <AjudaCampo chave="ponto.manual.nome" rota={AJUDA_ROTA} /></span>
+                  <input value={manual.nome} onChange={(e) => setManual((m) => ({ ...m, nome: e.target.value }))} placeholder="Nome completo" style={{ ...inp, width: '100%' }} />
+                </label>
+                <label style={{ display: 'block' }}>
+                  <span style={{ ...lbl, ...ajudaLbl }}>Função <AjudaCampo chave="ponto.manual.funcao" rota={AJUDA_ROTA} /></span>
+                  <input value={manual.funcao} onChange={(e) => setManual((m) => ({ ...m, funcao: e.target.value }))} placeholder="Opcional" style={{ ...inp, width: '100%' }} />
+                </label>
+
+                {modoManual === 'dia' ? (
+                  <>
+                    <label style={{ display: 'block' }}>
+                      <span style={{ ...lbl, ...ajudaLbl }}>Dia <AjudaCampo chave="ponto.manual.dia" rota={AJUDA_ROTA} /></span>
+                      <input type="date" value={manual.dia} onChange={(e) => setManual((m) => ({ ...m, dia: e.target.value }))} style={{ ...inp, width: '100%' }} />
+                    </label>
+                    <label style={{ display: 'block' }}>
+                      <span style={{ ...lbl, ...ajudaLbl }}>Entrada <AjudaCampo chave="ponto.manual.entrada" rota={AJUDA_ROTA} /></span>
+                      <input type="time" value={manual.entrada} onChange={(e) => setManual((m) => ({ ...m, entrada: e.target.value }))} data-testid="ponto-manual-entrada" style={{ ...inp, width: '100%' }} />
+                    </label>
+                    <label style={{ display: 'block' }}>
+                      <span style={{ ...lbl, ...ajudaLbl }}>Saída <AjudaCampo chave="ponto.manual.saida" rota={AJUDA_ROTA} /></span>
+                      <input type="time" value={manual.saida} onChange={(e) => setManual((m) => ({ ...m, saida: e.target.value }))} data-testid="ponto-manual-saida" style={{ ...inp, width: '100%' }} />
+                    </label>
+                    <label style={{ display: 'block' }}>
+                      <span style={{ ...lbl, ...ajudaLbl }}>Intervalo (min) <AjudaCampo chave="ponto.manual.intervalo" rota={AJUDA_ROTA} /></span>
+                      <input inputMode="numeric" value={manual.intervalo} onChange={(e) => setManual((m) => ({ ...m, intervalo: e.target.value }))} placeholder="Ex.: 60" style={{ ...inp, width: '100%' }} />
+                    </label>
+                  </>
+                ) : (
+                  <>
+                    <label style={{ display: 'block' }}>
+                      <span style={{ ...lbl, ...ajudaLbl }}>Início <AjudaCampo chave="ponto.manual.periodo" rota={AJUDA_ROTA} /></span>
+                      <input type="date" value={manual.inicio} onChange={(e) => setManual((m) => ({ ...m, inicio: e.target.value }))} style={{ ...inp, width: '100%' }} />
+                    </label>
+                    <label style={{ display: 'block' }}>
+                      <span style={{ ...lbl, ...ajudaLbl }}>Fim <AjudaCampo chave="ponto.manual.periodo" rota={AJUDA_ROTA} /></span>
+                      <input type="date" value={manual.fim} onChange={(e) => setManual((m) => ({ ...m, fim: e.target.value }))} style={{ ...inp, width: '100%' }} />
+                    </label>
+                    <label style={{ display: 'block' }}>
+                      <span style={{ ...lbl, ...ajudaLbl }}>Total de horas <AjudaCampo chave="ponto.manual.total_horas" rota={AJUDA_ROTA} /></span>
+                      <input inputMode="decimal" value={manual.horas} onChange={(e) => setManual((m) => ({ ...m, horas: e.target.value }))} placeholder="Ex.: 176 ou 176,5" style={{ ...inp, width: '100%' }} />
+                    </label>
+                  </>
+                )}
+
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <button
+                    type="button"
+                    onClick={lancarManual}
+                    disabled={salvandoManual}
+                    data-testid="ponto-manual-salvar"
+                    style={{ ...btnGold, opacity: salvandoManual ? 0.6 : 1, cursor: salvandoManual ? 'not-allowed' : 'pointer' }}
+                  >
+                    {salvandoManual ? 'Lançando…' : (modoManual === 'dia' ? '✓ Lançar batida' : '✓ Lançar horas')}
+                  </button>
+                </span>
+              </div>
+              {modoManual === 'dia' && (
+                <div style={{ marginTop: 8, fontSize: 11, color: MUT }}>
+                  As horas do dia são calculadas de entrada → saída, descontando o intervalo informado.
+                </div>
+              )}
             </div>
           )}
         </section>
