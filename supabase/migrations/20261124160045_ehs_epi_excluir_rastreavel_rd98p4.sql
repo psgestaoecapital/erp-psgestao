@@ -49,3 +49,7 @@ BEGIN
     'ok', true, 'nome', v_nome, 'tinha_historico', (v_total > 0),
     'deps', jsonb_build_object('ficha', v_ficha, 'estoque', v_estoque, 'movimentacao', v_mov, 'alerta', v_alerta));
 END $function$;
+
+-- RD-97 · guarda de acesso (check-fn-guards regra 1): SECURITY DEFINER não pode ficar aberta ao anon.
+REVOKE ALL ON FUNCTION public.fn_epi_excluir(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_epi_excluir(uuid) TO authenticated;
