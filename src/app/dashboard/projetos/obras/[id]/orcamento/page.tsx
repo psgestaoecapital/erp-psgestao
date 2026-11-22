@@ -393,6 +393,12 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                   style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${ESP}`, background: '#fff', color: ESP, fontSize: 13, fontWeight: 700, cursor: 'pointer', textDecoration: 'none' }}>
                   Importar da planilha (.xlsx)
                 </Link>
+                {/* §315 "três jeitos de começar o orçamento" (1): partir da Biblioteca padrão PS (333). */}
+                <Link href="/dashboard/projetos/catalogo?aba=biblioteca" data-testid="orc-vazio-biblioteca"
+                  style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${LINE}`, background: '#fff', color: ESP, fontSize: 13, fontWeight: 700, cursor: 'pointer', textDecoration: 'none' }}>
+                  Começar pela Biblioteca padrão PS
+                </Link>
+                <AjudaCampo chave="projetos.orcamento_eap.comecar_biblioteca" rota={ROTA} />
               </div>
             )}
           </div>
