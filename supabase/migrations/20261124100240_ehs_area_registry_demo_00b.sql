@@ -352,3 +352,21 @@ BEGIN
   WHERE amc.id = 'gestao_empresarial';
 END;
 $function$;
+
+-- ── Segurança (check:fn-guards · revoke_anon) ───────────────────────────────
+-- Funções SECURITY DEFINER de leitura do painel de desenvolvimento/áreas:
+-- fecham para anon/PUBLIC e abrem só para usuário logado e serviço.
+REVOKE ALL ON FUNCTION public.fn_codes_qualidade_vertical() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_codes_qualidade_vertical() TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.fn_dev_central_barras() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_dev_central_barras() TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.fn_dev_vertical_auditoria_status(text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_dev_vertical_auditoria_status(text) TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.fn_dev_vertical_orcamento(text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_dev_vertical_orcamento(text) TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.fn_resolver_area_da_rota(text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_resolver_area_da_rota(text) TO authenticated, service_role;
