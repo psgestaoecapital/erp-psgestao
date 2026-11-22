@@ -1,0 +1,263 @@
+'use client'
+// Tela 334 (Hub · Onda C-2) — Importar o orçamento por EAP de uma planilha (.xlsx) do cliente.
+// A planilha entra sem redigitar: lê o arquivo no navegador (SheetJS), autodetecta o layout tipo
+// Gaia (código "1.2.3", descrição, unidade, quantidade, material, mão de obra, local), mostra a
+// PRÉVIA com validação e só grava depois de "Confirmar". A gravação é idempotente por hash do
+// arquivo. Nada acessa tabela direto: a prévia usa fn_projetos_orcamento_eap_importar_validar e a
+// gravação fn_projetos_orcamento_eap_importar (SECURITY DEFINER, guarda por empresa, REVOKE anon).
+// RD-95: "?" no campo. RD-96/RD-100: design próprio PS, sem nome de outro sistema. Mobile-first.
+import { use, useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
+import { supabase } from '@/lib/supabase'
+import { ehUuid, erroAmigavel } from '@/lib/erroAmigavel'
+import { comPrazo } from '@/lib/comPrazo'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DED3', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A', VERM = '#B91C1C'
+const CARD: React.CSSProperties = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 14, padding: 18, boxShadow: '0 1px 2px rgba(61,35,20,0.04)' }
+const brl = (n: number) => (n ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+
+// Converte número no formato BR ("1.234,50") para o canônico com ponto ("1234.50"). Vazio → ''.
+function numCanonico(raw: string): string {
+  const s = String(raw ?? '').trim()
+  if (!s) return ''
+  const limpo = s.replace(/[R$\s]/g, '')
+  // "1.234,50" → tira o ponto de milhar e troca a vírgula decimal
+  if (/,/.test(limpo)) return limpo.replace(/\./g, '').replace(',', '.')
+  return limpo
+}
+
+type Linha = {
+  eap_codigo: string; descricao: string; unidade: string
+  quantidade: string; custo_material_unit: string; custo_mao_obra_unit: string
+  local_tipo: string; local_nome: string
+}
+type LinhaValidada = Linha & { idx: number; status: 'ok' | 'erro'; motivos: string[] }
+type Passo = 'upload' | 'preview' | 'resultado'
+
+// Acha, nas primeiras linhas, qual é o cabeçalho e o índice de cada coluna que conhecemos.
+function mapearColunas(matriz: string[][]): { headerRow: number; col: Record<string, number> } | null {
+  const alvos: Record<string, RegExp> = {
+    eap_codigo: /c[oó]d|eap|item/i,
+    descricao: /descri|servi[çc]o|insumo/i,
+    unidade: /unid|^un\.?$|^und/i,
+    quantidade: /qtd|quant/i,
+    custo_material_unit: /material|mat\.?$|insumo/i,
+    custo_mao_obra_unit: /m[aã]o.?de.?obra|m\.?o\.?|\bmo\b|servi[çc]o unit/i,
+    local_tipo: /local|pavimento|ambiente|zona/i,
+  }
+  for (let r = 0; r < Math.min(matriz.length, 15); r++) {
+    const linha = matriz[r] ?? []
+    const col: Record<string, number> = {}
+    for (const [chave, rx] of Object.entries(alvos)) {
+      const idx = linha.findIndex((c) => rx.test(String(c ?? '')))
+      if (idx >= 0 && col[chave] === undefined) col[chave] = idx
+    }
+    // precisa pelo menos de código, descrição e quantidade pra valer como cabeçalho
+    if (col.eap_codigo !== undefined && col.descricao !== undefined && col.quantidade !== undefined) {
+      return { headerRow: r, col }
+    }
+  }
+  return null
+}
+
+export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params)
+  const [orcamentoId, setOrcamentoId] = useState<string | null>(null)
+  const [obraNome, setObraNome] = useState<string>('')
+  const [loading, setLoading] = useState(true)
+  const [erro, setErro] = useState<string | null>(null)
+
+  const [passo, setPasso] = useState<Passo>('upload')
+  const [arquivoNome, setArquivoNome] = useState('')
+  const [hash, setHash] = useState('')
+  const [linhas, setLinhas] = useState<Linha[]>([])
+  const [validadas, setValidadas] = useState<LinhaValidada[]>([])
+  const [resumo, setResumo] = useState<{ validos: number; com_erro: number } | null>(null)
+  const [resultado, setResultado] = useState<{ importados: number; ignorados: number; erros: number; ja_importado?: boolean } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [aviso, setAviso] = useState('')
+
+  const carregar = useCallback(async () => {
+    if (!ehUuid(id)) { setLoading(false); setErro('Obra não encontrada. Abra pela lista de obras.'); return }
+    setLoading(true); setErro(null)
+    const { data, error } = await supabase.from('projetos_obras').select('orcamento_id, nome').eq('id', id).maybeSingle()
+    setLoading(false)
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível abrir a obra.')); return }
+    if (!data) { setErro('Esta obra não existe ou você não tem acesso a ela na empresa ativa.'); return }
+    setObraNome((data as { nome: string | null }).nome ?? '')
+    setOrcamentoId((data as { orcamento_id: string | null }).orcamento_id ?? null)
+  }, [id])
+  useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
+
+  async function hashArquivo(buf: ArrayBuffer): Promise<string> {
+    const d = await crypto.subtle.digest('SHA-256', buf)
+    return Array.from(new Uint8Array(d)).map((b) => b.toString(16).padStart(2, '0')).join('')
+  }
+
+  const lerArquivo = async (f: File) => {
+    if (!orcamentoId) return
+    setBusy(true); setAviso('Lendo a planilha…'); setErro(null)
+    try {
+      const buf = await f.arrayBuffer()
+      const XLSX = await import('xlsx')
+      const wb = XLSX.read(buf, { type: 'array' })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const matriz = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, raw: false, defval: '' })
+      const mapa = mapearColunas(matriz)
+      if (!mapa) { setAviso(''); setErro('Não reconheci as colunas da planilha. Confira se há colunas de código, descrição e quantidade.'); return }
+      const { headerRow, col } = mapa
+      const pega = (linha: string[], chave: string) => (col[chave] === undefined ? '' : String(linha[col[chave]] ?? '').trim())
+      const lin: Linha[] = []
+      for (let r = headerRow + 1; r < matriz.length; r++) {
+        const row = matriz[r] ?? []
+        const eap = pega(row, 'eap_codigo')
+        const desc = pega(row, 'descricao')
+        // pula agrupadores/linhas vazias (sem código e sem descrição)
+        if (!eap && !desc) continue
+        lin.push({
+          eap_codigo: eap, descricao: desc, unidade: pega(row, 'unidade'),
+          quantidade: numCanonico(pega(row, 'quantidade')),
+          custo_material_unit: numCanonico(pega(row, 'custo_material_unit')),
+          custo_mao_obra_unit: numCanonico(pega(row, 'custo_mao_obra_unit')),
+          local_tipo: pega(row, 'local_tipo'), local_nome: pega(row, 'local_tipo'),
+        })
+      }
+      if (!lin.length) { setAviso(''); setErro('A planilha não tem linhas de serviço abaixo do cabeçalho.'); return }
+      if (lin.length > 10000) { setAviso(''); setErro('A planilha tem mais de 10.000 linhas. Divida em partes.'); return }
+      const h = await hashArquivo(buf)
+      setArquivoNome(f.name); setHash(h); setLinhas(lin)
+      // prévia no banco (sem gravar)
+      const { data, error } = await comPrazo(() => supabase.rpc('fn_projetos_orcamento_eap_importar_validar', { p_orcamento_id: orcamentoId, p_linhas: lin }), { ms: 15000, tentativas: 1, label: 'eap-validar' })
+      if (error) { setAviso(''); setErro(erroAmigavel(error, 'Não foi possível validar a planilha.')); return }
+      const r = data as { validos: number; com_erro: number; linhas: LinhaValidada[] }
+      setValidadas(r.linhas ?? []); setResumo({ validos: r.validos ?? 0, com_erro: r.com_erro ?? 0 })
+      setPasso('preview'); setAviso('')
+    } catch {
+      setAviso(''); setErro('Não consegui ler a planilha. Use um arquivo .xlsx válido.')
+    } finally { setBusy(false) }
+  }
+
+  const confirmar = async () => {
+    if (!orcamentoId || !linhas.length) return
+    setBusy(true); setErro(null)
+    const { data, error } = await comPrazo(() => supabase.rpc('fn_projetos_orcamento_eap_importar', { p_orcamento_id: orcamentoId, p_linhas: linhas, p_arquivo_hash: hash, p_arquivo_nome: arquivoNome }), { ms: 30000, tentativas: 1, label: 'eap-importar' })
+    setBusy(false)
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível importar. Tente de novo.')); return }
+    const r = data as { importados: number; ignorados: number; erros: number; ja_importado?: boolean }
+    setResultado({ importados: r.importados ?? 0, ignorados: r.ignorados ?? 0, erros: r.erros ?? 0, ja_importado: r.ja_importado })
+    setPasso('resultado')
+  }
+
+  const recomecar = () => { setPasso('upload'); setLinhas([]); setValidadas([]); setResumo(null); setResultado(null); setHash(''); setArquivoNome(''); setErro(null); setAviso('') }
+
+  return (
+    <div style={{ minHeight: '100vh', background: BG, padding: '20px 16px 48px' }}>
+      <div style={{ maxWidth: 900, margin: '0 auto', display: 'grid', gap: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <Link href={`/dashboard/projetos/obras/${id}/cockpit?area=hub`} style={{ fontSize: 12, color: GOLD, textDecoration: 'none', fontWeight: 600 }}>← Cockpit da obra</Link>
+          <Link href={`/dashboard/projetos/obras/${id}/orcamento`} style={{ fontSize: 12, color: GOLD, textDecoration: 'none', fontWeight: 600 }}>Ver orçamento por EAP →</Link>
+        </div>
+
+        <div>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: ESP, letterSpacing: -0.3 }}>Importar orçamento da planilha</h1>
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: MUT }}>{obraNome ? `Obra: ${obraNome}. ` : ''}A planilha entra como itens do orçamento por EAP, sem redigitar.</p>
+        </div>
+
+        {loading && <div style={CARD}>Carregando a obra…</div>}
+        {erro && <div role="alert" style={{ ...CARD, borderColor: VERM, color: VERM, fontSize: 13 }}>{erro}</div>}
+
+        {!loading && !orcamentoId && !erro && (
+          <div style={{ ...CARD, display: 'grid', gap: 10 }}>
+            <strong style={{ color: ESP }}>Esta obra ainda não tem orçamento.</strong>
+            <span style={{ fontSize: 13, color: MUT }}>Crie o orçamento da obra primeiro; depois a planilha pode ser importada para dentro dele.</span>
+            <Link href={`/dashboard/projetos/obras/${id}/orcamento`} style={{ justifySelf: 'start', background: ESP, color: BG, borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>Abrir o orçamento</Link>
+          </div>
+        )}
+
+        {!loading && orcamentoId && passo === 'upload' && (
+          <div style={{ ...CARD, display: 'grid', gap: 12 }}>
+            <label style={{ display: 'grid', gap: 6 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 700, color: ESP }}>
+                Planilha do orçamento (.xlsx)
+                <AjudaCampo chave="projetos.orcamento_eap.importar_arquivo" />
+              </span>
+              <input
+                data-testid="eap-importar-arquivo"
+                type="file"
+                accept=".xlsx,.xls"
+                disabled={busy}
+                aria-label="Planilha do orçamento em Excel"
+                style={{ fontSize: 13 }}
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) void lerArquivo(f); e.target.value = '' }}
+              />
+            </label>
+            <p style={{ margin: 0, fontSize: 12, color: MUT }}>
+              Reconhecemos colunas de código (EAP), descrição, unidade, quantidade, material, mão de obra e local.
+              O código é texto — planilhas podem gravar &quot;23,10&quot; como número e perder o zero; confira os códigos na prévia.
+            </p>
+            {aviso && <div role="status" style={{ fontSize: 13, color: ESP }}>{aviso}</div>}
+          </div>
+        )}
+
+        {!loading && passo === 'preview' && resumo && (
+          <div style={{ display: 'grid', gap: 12 }}>
+            <div style={{ ...CARD, display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ fontSize: 13, color: MUT }}>Arquivo: <strong style={{ color: ESP }}>{arquivoNome}</strong></span>
+              <span style={{ fontSize: 13, color: VERDE, fontWeight: 700 }}>{resumo.validos} válidas</span>
+              <span style={{ fontSize: 13, color: resumo.com_erro ? VERM : MUT, fontWeight: 700 }}>{resumo.com_erro} com erro</span>
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+                <button type="button" data-testid="eap-importar-recomecar" onClick={recomecar} disabled={busy} style={{ background: '#fff', color: ESP, border: `1px solid ${LINE}`, borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Trocar arquivo</button>
+                <button type="button" data-testid="eap-importar-confirmar" onClick={() => void confirmar()} disabled={busy || resumo.validos === 0} style={{ background: ESP, color: BG, border: 'none', borderRadius: 10, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: busy || resumo.validos === 0 ? 'default' : 'pointer', opacity: busy || resumo.validos === 0 ? 0.5 : 1 }}>Confirmar importação</button>
+              </div>
+            </div>
+            <div style={{ ...CARD, padding: 0, overflow: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                <thead>
+                  <tr style={{ background: BG, color: MUT, textAlign: 'left' }}>
+                    <th style={{ padding: '8px 10px' }}>Código</th>
+                    <th style={{ padding: '8px 10px' }}>Descrição</th>
+                    <th style={{ padding: '8px 10px' }}>Un</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'right' }}>Qtd</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'right' }}>Material</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'right' }}>Mão de obra</th>
+                    <th style={{ padding: '8px 10px' }}>Situação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {validadas.slice(0, 300).map((l) => (
+                    <tr key={l.idx} style={{ borderTop: `1px solid ${LINE}`, background: l.status === 'erro' ? 'rgba(185,28,28,0.04)' : '#fff' }}>
+                      <td style={{ padding: '7px 10px', fontFamily: 'ui-monospace, monospace' }}>{l.eap_codigo || '—'}</td>
+                      <td style={{ padding: '7px 10px' }}>{l.descricao || '—'}</td>
+                      <td style={{ padding: '7px 10px' }}>{l.unidade || '—'}</td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right' }}>{l.quantidade || '—'}</td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right' }}>{l.custo_material_unit ? brl(Number(l.custo_material_unit)) : '—'}</td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right' }}>{l.custo_mao_obra_unit ? brl(Number(l.custo_mao_obra_unit)) : '—'}</td>
+                      <td style={{ padding: '7px 10px', color: l.status === 'erro' ? VERM : VERDE }}>{l.status === 'erro' ? (l.motivos || []).join('; ') : 'OK'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {validadas.length > 300 && <div style={{ padding: '8px 10px', fontSize: 12, color: MUT }}>Mostrando as primeiras 300 de {validadas.length} linhas. Todas serão processadas na importação.</div>}
+            </div>
+          </div>
+        )}
+
+        {!loading && passo === 'resultado' && resultado && (
+          <div style={{ ...CARD, display: 'grid', gap: 12 }}>
+            <strong style={{ color: ESP, fontSize: 16 }}>{resultado.ja_importado ? 'Este arquivo já tinha sido importado' : 'Importação concluída'}</strong>
+            <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 14, color: VERDE, fontWeight: 700 }}>CRIOU {resultado.importados} itens</span>
+              {resultado.ignorados > 0 && <span style={{ fontSize: 14, color: MUT, fontWeight: 700 }}>{resultado.ignorados} ignorados</span>}
+              {resultado.erros > 0 && <span style={{ fontSize: 14, color: VERM, fontWeight: 700 }}>{resultado.erros} com erro</span>}
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <Link href={`/dashboard/projetos/obras/${id}/orcamento`} style={{ background: ESP, color: BG, borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>Ver o orçamento por EAP</Link>
+              <button type="button" data-testid="eap-importar-outro" onClick={recomecar} style={{ background: '#fff', color: ESP, border: `1px solid ${LINE}`, borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Importar outra planilha</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
