@@ -106,6 +106,9 @@ END $once$;
 
 -- ── (3) Auto-cura a cada reset: CREATE OR REPLACE fn_demo_reset com UMA linha nova no bloco GE (004) ──
 -- (verbatim de pg_get_functiondef de 22/11/2026 + chamada do purge de inventário ao lado da limpeza de cartões)
+-- ci-sem-guarda: fn_demo_reset — função de DEMO: valida is_demo no início (RETURN erro se NOT is_demo), nunca
+--                reseta/semeia/apaga empresa real; p_company_id é sempre uma DEMO. Escape já aplicado na origem
+--                desta função; esta migration só acrescenta UMA chamada de limpeza de DEMO no bloco GE.
 CREATE OR REPLACE FUNCTION public.fn_demo_reset(p_company_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
