@@ -6,6 +6,7 @@
 import { use, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { parseNumBR } from '@/lib/num'
 import { ehUuid, erroAmigavel } from '@/lib/erroAmigavel'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
@@ -110,7 +111,7 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
     if (!fr.atividades.trim() && !fr.ocorrencias.trim()) { setErro('Conte o que foi feito ou o que aconteceu no dia.'); return }
     if (fr.data > hoje()) { setErro('O diário é do dia que já aconteceu — a data não pode ser futura.'); return }
     if (fr.fotos.length + novasFotos.length > 10) { setErro('No máximo 10 fotos por dia.'); return }
-    const qtd = fr.quantidade.trim() === '' ? null : Number(fr.quantidade.replace(/\./g, '').replace(',', '.'))
+    const qtd = fr.quantidade.trim() === '' ? null : (parseNumBR(fr.quantidade) ?? NaN)
     if (qtd !== null && (!Number.isFinite(qtd) || qtd < 0)) { setErro('A quantidade executada deve ser um número maior ou igual a zero.'); return }
     setOcupado(true)
     const enviadas: string[] = []

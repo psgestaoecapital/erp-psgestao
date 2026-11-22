@@ -8,7 +8,14 @@ import { readdirSync, readFileSync } from 'node:fs'
 
 const DIR = 'supabase/migrations'
 const DESDE = '20261023141505'
-const DEMO = /^(b0700000-|00000000-0000-|c830f980-)/
+// Namespaces de UUID que NÃO são empresas reais (não quebram o `db push` das vagas de teste por FK):
+//  • b0700000-… empresas DEMO · 00000000-0000-… nulo/zero · c830f980-… org fixa
+//  • dede…-     FIXTURES DEMO determinísticas (turnos-catálogo, instâncias, etc.; o sufixo carrega o nº da
+//    empresa DEMO, ex.: dede0005-…). Verificado em supabase/migrations: NENHUM dede-uuid é usado como
+//    company_id — sempre id de linha de catálogo/instância DEMO, escrita dentro de função travada em is_demo.
+//    Exemplo: 20261121160545_demo005_quadro_cargo_turno_seed declara v_t1/v_t2/v_t3 = 'dede0005-…120x'
+//    (ind_turnos.id) numa função que já pula quando a empresa DEMO 005 não existe.
+const DEMO = /^(b0700000-|00000000-0000-|c830f980-|dede[0-9a-f]{4}-)/
 // UUIDs de SISTEMA que NÃO são empresas (nunca entram como company_id) — não exigem a guarda de existência de
 // empresa. Falso-positivo: o conserto-main 20261109001030 declara `v_robo constant uuid := '74cf…'` (o usuário-robô
 // screenshot@psgestao.com, confirmado em auth.users; NÃO está em companies) usado só como autor (uploaded_by/
