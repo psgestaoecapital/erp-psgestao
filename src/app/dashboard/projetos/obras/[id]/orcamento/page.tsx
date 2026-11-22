@@ -25,7 +25,7 @@ type Arvore = {
   total_geral: number; material_geral: number; mao_obra_geral: number
   nos: NoEap[] | NoLocal[]
 }
-type ObraInfo = { numero: string; nome: string | null; orcamento_id: string | null }
+type ObraInfo = { numero: string; nome: string | null; orcamento_id: string | null; area_construida_m2: number | null }
 // Serviço do catálogo da empresa (origem do custo do item)
 type Servico = { id: string; codigo: string | null; nome: string; unidade: string | null; eap_codigo: string | null; custo_material: number | null; custo_mao_obra: number | null }
 // Item individual do orçamento com complemento EAP (para editar/excluir) — fn_projetos_orcamento_item_eap_listar (#5814)
@@ -75,7 +75,7 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
   const carregar = useCallback(async () => {
     if (!ehUuid(id)) { setLoading(false); setErro('Obra não encontrada. Abra pela lista de obras.'); return }
     setLoading(true); setErro(null)
-    const { data: od, error: oe } = await supabase.from('projetos_obras').select('numero,nome,orcamento_id').eq('id', id).maybeSingle()
+    const { data: od, error: oe } = await supabase.from('projetos_obras').select('numero,nome,orcamento_id,area_construida_m2').eq('id', id).maybeSingle()
     if (oe || !od) { setLoading(false); setErro(erroAmigavel(oe, 'Não foi possível carregar a obra.')); return }
     const info = od as ObraInfo
     setObra(info)
@@ -404,6 +404,14 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700 }}>Mão de obra <AjudaCampo chave="projetos.orcamento_eap.mao_obra" rota={ROTA} /></div>
                 <div style={{ fontSize: 18, color: ESP, fontWeight: 600 }}>{brl(arvore.mao_obra_geral)}</div>
               </div>
+              {/* KPI Custo por m² (blueprint §315 essencial): total estruturado ÷ área construída da obra. */}
+              {obra?.area_construida_m2 != null && obra.area_construida_m2 > 0 && (
+                <div data-testid="orc-custo-m2">
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700 }}>Custo por m² <AjudaCampo chave="projetos.orcamento_eap.custo_m2" rota={ROTA} /></div>
+                  <div style={{ fontSize: 18, color: ESP, fontWeight: 600 }}>{brl(arvore.total_geral / obra.area_construida_m2)}<span style={{ fontSize: 12, color: MUT, fontWeight: 500 }}> /m²</span></div>
+                  <div style={{ fontSize: 11, color: MUT }}>{obra.area_construida_m2.toLocaleString('pt-BR')} m² construídos</div>
+                </div>
+              )}
             </div>
 
             {/* Aviso quando a EAP é só uma fatia do orçamento: há itens no orçamento sem complemento EAP. */}
