@@ -127,3 +127,7 @@ BEGIN
                             'sem_dev_disponivel', v_sem_dev, 'detalhe', v_detalhe, 'em', now());
 END
 $function$;
+
+-- Grants iguais aos da 20261110161545 (só cron/serviço).
+REVOKE ALL ON FUNCTION public.fn_rotear_gaps_geral() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_rotear_gaps_geral() TO service_role;
