@@ -27,8 +27,11 @@ ON CONFLICT (chave) DO NOTHING;
 
 -- Regra de entrega (CEO 21/11, tela 355): marca a linha do blueprint atendida. Meta-tabela (não é dado de cliente),
 -- idempotente e escopada pelo id do requisito "Tipo de uso do produto".
+-- status 'parcial': cadastro + seletor compartilhado (orçamento/venda/compra) já filtram por uso, mas
+-- seletores próprios de outras verticais (ex.: revenda/vendas) ainda mostram todos os produtos. 'atendido'
+-- só quando o requisito ficar 100% em todas as telas (RD-38 / doutrina PDCA CEO 06/11).
 UPDATE public.blueprint_tela_requisito
-   SET status_baseline = 'atendido',
-       evidencia_baseline = 'PR #5794 · /dashboard/cadastros/produtos (campo Tipo de uso + filtro venda/compra no seletor compartilhado)'
+   SET status_baseline = 'parcial',
+       evidencia_baseline = 'PR #5794 · /dashboard/cadastros/produtos (campo Tipo de uso) + seletor compartilhado filtra venda/compra. PARCIAL: seletores próprios de outras verticais ainda listam todos os produtos.'
  WHERE id = '5c5888d4-ba20-4f1a-80c0-848861502143'
-   AND status_baseline <> 'atendido';
+   AND status_baseline NOT IN ('atendido','parcial');
