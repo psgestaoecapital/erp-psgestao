@@ -398,11 +398,27 @@ export default function NFSeEmitirGovModal({
     if (!aberto || !servicoIdEff) { setBloqueios([]); setPodeEmitir(true); setIssInfo(''); return }
     let vivo = true
     setValidando(true)
-    void (async () => {
+    // #3862 · pequeno debounce: o endereço/CNO digitados entram nas deps, então reavalia enquanto o usuário
+    // digita, sem bater no banco a cada tecla.
+    const timer = setTimeout(() => void (async () => {
       try {
+        // #3862 · no modo "informar" (endereço/CNO digitados no quadro, sem obra cadastrada), a porta única
+        // precisa receber esses dados para o PREVIEW casar com a emissão: basta o CNO OU o endereço completo.
+        // No modo "apontar" nada disso é enviado — a função lê o endereço/CNO da obra cadastrada (obra_id).
+        const ef = obraFiscal.obraEnd
+        const obraDigitada = mostrarObra && obraFiscal.modo === 'informar'
+          ? {
+              obra_cno: (obraFiscal.obraCno || '').trim() || null,
+              obra_logradouro: (ef.logradouro || '').trim() || null,
+              obra_numero: (ef.numero || '').trim() || null,
+              obra_bairro: (ef.bairro || '').trim() || null,
+              obra_cep: (ef.cep || '').trim() || null,
+              obra_codigo_ibge: (ef.codigo_ibge_municipio || '').trim() || null,
+            }
+          : {}
         const { data } = await supabase.rpc('fn_nfse_validar_emissao', {
           p_company_id: companyId,
-          p_dados: { servico_id: servicoIdEff, obra_id: obraIdEff ?? null, municipio_prestacao_ibge: munIbge || null },
+          p_dados: { servico_id: servicoIdEff, obra_id: obraIdEff ?? null, municipio_prestacao_ibge: munIbge || null, ...obraDigitada },
         })
         if (!vivo) return
         const v = data as { pode_emitir?: boolean; bloqueios?: Bloqueio[]; iss?: IssResolv; exige_obra?: boolean } | null
@@ -421,9 +437,9 @@ export default function NFSeEmitirGovModal({
       } finally {
         if (vivo) setValidando(false)
       }
-    })()
-    return () => { vivo = false }
-  }, [aberto, servicoIdEff, obraIdEff, munIbge, companyId])
+    })(), 300)
+    return () => { vivo = false; clearTimeout(timer) }
+  }, [aberto, servicoIdEff, obraIdEff, munIbge, companyId, mostrarObra, obraFiscal.modo, obraFiscal.obraCno, obraFiscal.obraEnd])
 
   // #32 · descobre o PROVEDOR ATIVO e o regime (Simples x não-Simples) da empresa ao abrir. Lê a config
   // fiscal ATIVA sem filtrar por provider (o filtro fixo em 'gov_nfse_nacional' era o bug: pra empresa
