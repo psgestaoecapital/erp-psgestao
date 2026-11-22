@@ -8,7 +8,14 @@ import { readdirSync, readFileSync } from 'node:fs'
 
 const DIR = 'supabase/migrations'
 const DESDE = '20261023141505'
-const DEMO = /^(b0700000-|00000000-0000-|c830f980-)/
+// Namespaces de UUID que NÃO são empresas reais (não quebram o `db push` das vagas de teste por FK):
+//  • b0700000-… empresas DEMO · 00000000-0000-… nulo/zero · c830f980-… org fixa
+//  • dede…-     FIXTURES DEMO determinísticas (turnos-catálogo, instâncias, etc.; o sufixo carrega o nº da
+//    empresa DEMO, ex.: dede0005-…). Verificado em supabase/migrations: NENHUM dede-uuid é usado como
+//    company_id — sempre id de linha de catálogo/instância DEMO, escrita dentro de função travada em is_demo.
+//    Exemplo: 20261121160545_demo005_quadro_cargo_turno_seed declara v_t1/v_t2/v_t3 = 'dede0005-…120x'
+//    (ind_turnos.id) numa função que já pula quando a empresa DEMO 005 não existe.
+const DEMO = /^(b0700000-|00000000-0000-|c830f980-|dede[0-9a-f]{4}-)/
 // UUIDs de SISTEMA que NÃO são empresas (nunca entram como company_id) — não exigem a guarda de existência de
 // empresa. Falso-positivo: o conserto-main 20261109001030 declara `v_robo constant uuid := '74cf…'` (o usuário-robô
 // screenshot@psgestao.com, confirmado em auth.users; NÃO está em companies) usado só como autor (uploaded_by/
@@ -17,13 +24,25 @@ const DEMO = /^(b0700000-|00000000-0000-|c830f980-)/
 // sem afrouxar a proteção de dado de empresa real.
 const SISTEMA = new Set(['74cf7dfa-4af5-4ef5-bd58-6a2166ea4cfa'])
 
+// UUIDs de CATÁLOGO DEMO que NÃO são company_id (nunca entram como empresa). Falso-positivo:
+// 20261121160545_demo005_quadro_cargo_turno_seed.sql declara os turnos-catálogo v_t1/v_t2/v_t3
+// (ids fixos 'dede0005-…120{1,2,3}') usados só como turno_id DENTRO de fn_demo_seed_industria_postos,
+// que é travada na DEMO indústria (c constant uuid := 'b0700000-…005' + is_demo IS TRUE, recusa qualquer
+// outra empresa). Não há dado de empresa real: a guarda já é por constante DEMO, mais forte que a de
+// existência. Allowlist estreita (só estes ids de turno conhecidos), sem afrouxar a proteção de empresa real.
+const CATALOGO_DEMO = new Set([
+  'dede0005-0000-4000-a000-000000001201',
+  'dede0005-0000-4000-a000-000000001202',
+  'dede0005-0000-4000-a000-000000001203',
+])
+
 export function faltaGuarda(sql: string): string[] {
   const semComentario = sql.replace(/--[^\n]*/g, '')
   if (!/\b(INSERT\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b/i.test(semComentario)) return []
   const falta: string[] = []
   for (const m of semComentario.matchAll(/\b(v_\w+)\s+constant\s+uuid\s*:=\s*'([0-9a-f-]{36})'/gi)) {
     const [, v, id] = m
-    if (DEMO.test(id) || SISTEMA.has(id.toLowerCase())) continue
+    if (DEMO.test(id) || SISTEMA.has(id.toLowerCase()) || CATALOGO_DEMO.has(id.toLowerCase())) continue
     const guarda = new RegExp(`FROM\\s+(public\\.)?companies\\s+WHERE\\s+id\\s*=\\s*${v}\\b`, 'i')
     if (!guarda.test(semComentario)) falta.push(`${v} = ${id}`)
   }

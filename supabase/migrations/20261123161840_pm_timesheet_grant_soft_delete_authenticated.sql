@@ -1,0 +1,28 @@
+-- Corrige o KPI "Horas no mês" (= 0.0h) e a aba Timesheet de /dashboard/producao,
+-- que mostravam falso-zero / lista vazia silenciosa.
+--
+-- CAUSA RAIZ (RD-38, provado em produção):
+--   A migration LGPD 20261005180000_lgpd_salario_custo_pessoa_protegido.sql fez
+--   "REVOKE ALL ON agency_timesheet FROM authenticated" e re-concedeu SELECT/INSERT/UPDATE
+--   apenas por COLUNA (lista v_ts das colunas não-sensíveis), para esconder salário/custo.
+--   A coluna de soft-delete `excluido_em` (e `excluido_por`) NÃO entrou nessa lista.
+--   Porém as queries da tela filtram `.is('excluido_em', null)`, e o PostgreSQL EXIGE
+--   privilégio SELECT na coluna para FILTRAR por ela. Logo, toda leitura de
+--   agency_timesheet pelo papel `authenticated` retornava
+--   "permission denied for table agency_timesheet"; a tela engolia o {error} e o KPI
+--   somava [] = 0.0h.
+--   Prova: DEMO P&M (b0700000-0000-4000-a000-000000000002) tem 1014 lançamentos em
+--   nov/2026 = 80,40h que o usuário logado não conseguia ler. has_column_privilege(
+--   'authenticated', ..., 'excluido_em', 'SELECT') = false ANTES; true DEPOIS.
+--
+-- FIX (aditivo, mínimo, idempotente):
+--   Conceder SELECT nas colunas de SOFT-DELETE (metadados — NÃO são dado sensível/LGPD).
+--   As colunas de CUSTO (custo_hora, custo_total) PERMANECEM revogadas para authenticated:
+--   a proteção LGPD de salário/custo fica intacta. A guarda de tenant continua sendo a
+--   RLS (policy agency_timesheet_access, por company_id). O soft-delete em si continua
+--   acontecendo via RPC fn_pm_registro_excluir (SECURITY DEFINER) — não precisa de
+--   UPDATE(excluido_em) no cliente.
+--
+-- GRANT é idempotente; seguro para re-execução.
+
+GRANT SELECT (excluido_em, excluido_por) ON public.agency_timesheet TO authenticated;
