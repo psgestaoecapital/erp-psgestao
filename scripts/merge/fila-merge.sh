@@ -867,6 +867,13 @@ merges=0
 # (1 por @pos) — classificador critica-solo.ts, viés de segurança (dúvida → SOLO). Se o @pos do lote falhar, o guardião
 # (gilberto-esteira) BISSECTA: reverte metade, roda o @pos, repete até isolar a PR culpada, reverte só ela e republica as
 # inocentes (procedimento no AGENTS.md / PROTOCOLO DE MAIN VERMELHA). LOTE_MIG_CRIT_MAX=1 volta ao comportamento antigo.
+# SO-DEMO (CEO 21/11 20:18): migration que SÓ mexe em empresa DEMO (toda escrita guardada por is_demo=true / ids
+# b0700000-…) NÃO deve publicar SOZINHA só por cair no carve-out do critica-solo (travava a fila, 1 por @pos de ~45 min).
+# O gilberto-revisor, DEPOIS de PROVAR na revisão profunda a guarda is_demo e a ausência de DDL de estrutura, põe a label
+# `so-demo` (MERGE AUTORIZADO "SÓ-DEMO comprovado"). A fila então deixa a crítica BATELÁVEL (n_critica=1 mas n_critica_solo=0:
+# entra no LOTE DE CRÍTICAS, espera o @pos), NUNCA aditiva/via-rápida. Backstop so-demo-batelavel.ts (viés p/ SOLO): mesmo
+# com a label, mantém SOLO se o conteúdo toca risco máximo que is_demo não cobre (fiscal/NR-36/RLS/LGPD/Wealth-CVM) ou faz
+# DDL de estrutura em objeto existente. Gate: check-fila-lote-critico.ts.
 LOTE_MIG_MAX=${LOTE_MIG_MAX:-6}
 LOTE_MIG_CRIT_MAX=${LOTE_MIG_CRIT_MAX:-5}
 lote_mig_n=0; lote_mig_crit_n=0; lote_mig_sqls=()
@@ -954,6 +961,29 @@ for n in $fila; do
           # viés de segurança: SÓ é batelável (não-solo) quando o classificador diz .solo==false EXPLÍCITO. Ausente,
           # saída vazia (crash) ou qualquer dúvida → SOLO. (Não use `.solo // true`: no jq, `false // true` vale true.)
           [ "$(jq -r 'if .solo == false then "nao" else "sim" end' <<< "$solo_json" 2> /dev/null)" = nao ] || n_critica_solo=1
+        fi
+      fi
+      # SO-DEMO (CEO 21/11 20:18): migration que SÓ mexe em empresa DEMO não publica SOZINHA só por cair no carve-out do
+      # critica-solo (ex.: #5747 limpeza da DEMO GE, #5779 bot P&M travavam a fila, 1 por @pos de ~45 min). A label
+      # `so-demo` (posta pelo gilberto-revisor, que PROVOU na revisão profunda que TODA escrita é guardada por
+      # is_demo=true / ids b0700000-… e que NÃO há DDL de estrutura) deixa a crítica BATELÁVEL (entra no lote de
+      # críticas), NUNCA aditiva/via-rápida. BACKSTOP de segurança (so-demo-batelavel.ts, viés p/ SOLO): mesmo com a
+      # label, mantém SOLO se o conteúdo toca risco máximo que is_demo NÃO cobre (fiscal/NR-36/RLS/LGPD/Wealth-CVM), faz
+      # DDL de estrutura em objeto existente, ou é ilegível. conserto-main nunca é so-demo (já saiu como SOLO acima).
+      if [ "$n_critica_solo" = 1 ] \
+         && jq -e '.labels | map(.name) | index("so-demo")' <<< "$pj" > /dev/null 2>&1 \
+         && jq -e --arg l "$SENSIVEL" '.labels | map(.name) | index($l)' <<< "$pj" > /dev/null 2>&1 \
+         && ! jq -e '.labels | map(.name) | index("conserto-main")' <<< "$pj" > /dev/null 2>&1 \
+         && [ -s "$TMPF/mig/$n.sql" ]; then
+        sodemo_b64=$(base64 -w0 < "$TMPF/mig/$n.sql" 2> /dev/null || base64 < "$TMPF/mig/$n.sql" 2> /dev/null | tr -d '\n')
+        sodemo_json=$({ grep -vE '^supabase/migrations/.*\.sql$' <<< "$arquivos"; printf 'supabase/migrations/_lote_%s.sql\t%s\n' "$n" "$sodemo_b64"; } | npx --yes tsx "$(dirname "${BASH_SOURCE[0]}")/so-demo-batelavel.ts" 2> /dev/null)
+        # viés de segurança: SÓ rebaixa p/ batelável quando o classificador diz .batelavel==true EXPLÍCITO (saída vazia/
+        # crash/qualquer dúvida → mantém SOLO). Não use `.batelavel // true`: no jq, `false // true` vale true.
+        if [ "$(jq -r 'if .batelavel == true then "sim" else "nao" end' <<< "$sodemo_json" 2> /dev/null)" = sim ]; then
+          n_critica_solo=0
+          log "#$n: label so-demo comprovada — migration crítica BATELÁVEL no lote de críticas, não SOLO ($(jq -r '.motivo // ""' <<< "$sodemo_json" 2> /dev/null))"
+        else
+          log "#$n: label so-demo, mas o conteúdo mantém SOLO (viés de segurança: $(jq -r '.motivo // "risco máximo/DDL/ilegível"' <<< "$sodemo_json" 2> /dev/null))"
         fi
       fi
       [ "$n_critica_solo" = 1 ] && log "#$n: migration CRÍTICA de categoria SOLO (NR-36/fiscal/financeiro/RLS/LGPD/conserto-main) — publica sozinha (1 por @pos), fora do lote de críticas"
