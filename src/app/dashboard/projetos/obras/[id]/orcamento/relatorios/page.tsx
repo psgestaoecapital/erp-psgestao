@@ -72,6 +72,35 @@ export default function RelatoriosOrcamentoPage({ params }: { params: Promise<{ 
   const vazio = !!obra && (!obra.orcamento_id || itens.length === 0)
   const formatoAtual = FORMATOS.find((f) => f.codigo === formato)!
 
+  // Exporta o formato atual em CSV (;) para abrir no Excel. Planilha cega sai sem preços, com a coluna de
+  // cotação em branco para o empreiteiro preencher. Puro cliente (Blob), sem rede nem dado extra.
+  const csvCampo = (v: string | number | null | undefined) => {
+    const s = v == null ? '' : String(v)
+    return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+  }
+  const exportarCsv = () => {
+    if (vazio) return
+    let linhas: (string | number | null)[][]
+    if (formato === 'sintetico') {
+      linhas = [['EAP', 'Etapa', 'Nível', 'Material', 'Mão de obra', 'Total', '%']]
+      for (const n of arvore?.nos ?? []) linhas.push([n.eap_codigo, n.nome, n.nivel, n.material, n.mao_obra, n.total, n.pct])
+    } else if (formato === 'analitico') {
+      linhas = [['EAP', 'Serviço', 'Local', 'Quantidade', 'Unidade', 'Material unit.', 'MO unit.', 'Subtotal']]
+      for (const it of itens) linhas.push([it.eap_codigo, `${it.servico_codigo ? it.servico_codigo + ' · ' : ''}${it.servico_descricao ?? 'Serviço'}`, it.local_nome ?? '', it.quantidade, it.unidade ?? '', it.custo_material_unit ?? '', it.custo_mao_obra_unit ?? '', it.subtotal])
+    } else {
+      linhas = [['EAP', 'Serviço', 'Local', 'Quantidade', 'Unidade', 'Preço unit. (cotação)']]
+      for (const it of itens) linhas.push([it.eap_codigo, `${it.servico_codigo ? it.servico_codigo + ' · ' : ''}${it.servico_descricao ?? 'Serviço'}`, it.local_nome ?? '', it.quantidade, it.unidade ?? '', ''])
+    }
+    const texto = '﻿' + linhas.map((r) => r.map(csvCampo).join(';')).join('\r\n')
+    const blob = new Blob([texto], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `orcamento-${obra?.numero ?? 'obra'}-${formato}.csv`
+    document.body.appendChild(a); a.click(); a.remove()
+    URL.revokeObjectURL(url)
+  }
+
   const chip = (ativo: boolean): CSSProperties => ({
     padding: '7px 14px', borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: 'pointer',
     border: `1px solid ${ativo ? ESP : LINE}`, background: ativo ? ESP : '#fff', color: ativo ? '#fff' : MUT,
@@ -126,6 +155,10 @@ export default function RelatoriosOrcamentoPage({ params }: { params: Promise<{ 
             <button key={f.codigo} data-testid={`orc-rel-formato-${f.codigo}`} onClick={() => setFormato(f.codigo)} style={chip(formato === f.codigo)}>{f.nome}</button>
           ))}
           <div style={{ flex: 1 }} />
+          <button data-testid="orc-rel-csv" onClick={exportarCsv} disabled={vazio}
+            style={{ padding: '7px 16px', borderRadius: 999, border: `1px solid ${LINE}`, background: '#fff', color: vazio ? MUT : ESP, fontSize: 13, fontWeight: 700, cursor: vazio ? 'default' : 'pointer' }}>
+            Exportar CSV
+          </button>
           <button data-testid="orc-rel-imprimir" onClick={() => window.print()} disabled={vazio}
             style={{ padding: '7px 16px', borderRadius: 999, border: `1px solid ${ESP}`, background: '#fff', color: vazio ? MUT : ESP, fontSize: 13, fontWeight: 700, cursor: vazio ? 'default' : 'pointer' }}>
             Imprimir / PDF
