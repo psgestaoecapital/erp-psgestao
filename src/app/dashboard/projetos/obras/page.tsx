@@ -23,6 +23,7 @@ type Obra = {
   id: string; numero: string; nome: string; cliente_nome: string | null; status: string
   valor_previsto: number; pct_conclusao: number; cidade: string | null; uf: string | null
   responsavel_nome: string | null; data_inicio: string | null; data_prevista_fim: string | null; data_conclusao: string | null
+  modelo_contratacao: string | null; tipo_execucao: string | null
 }
 type Kpis = { em_andamento: number; concluidas: number; valor_em_andamento: number; valor_concluido: number }
 // Resultado por obra — versão receita (CEO 30/09 · FC): fn_obras_receita. Custo real (material + viagens) vem da v_obra_resultado.
@@ -41,6 +42,25 @@ const PROXIMOS: Record<string, { s: string; l: string }[]> = {
   cancelada: [{ s: 'em_andamento', l: 'Reabrir' }],
 }
 
+// §314 (blueprint) — modelo de contratação + papel da empresa na obra, surfaceados no card.
+// tipo_execucao: 'propria' (sua empresa é a dona/proprietária) | 'terceiros' (você executa/gerencia para um contratante).
+const MODELO_LABEL: Record<string, string> = {
+  administracao: 'Administração',
+  empreitada_global: 'Empreitada global',
+  empreitada_preco_unitario: 'Empreitada (preço unit.)',
+  outro: 'Outro modelo',
+}
+// Resumo do tipo para o selo e para o filtro: Própria × Gerenciada (+ papel da empresa).
+function contratacaoResumo(o: Obra): { tipo: 'propria' | 'terceiros' | null; etiqueta: string; papel: string; cor: string } | null {
+  const tipo = o.tipo_execucao === 'propria' ? 'propria' : o.tipo_execucao === 'terceiros' ? 'terceiros' : null
+  const modelo = o.modelo_contratacao ? (MODELO_LABEL[o.modelo_contratacao] ?? 'Outro modelo') : null
+  if (!tipo && !modelo) return null
+  const etiqueta = tipo === 'propria' ? 'Própria' : tipo === 'terceiros' ? 'Gerenciada' : 'Contratação'
+  const papel = tipo === 'propria' ? 'Proprietário' : tipo === 'terceiros' ? 'p/ contratante' : ''
+  const cor = tipo === 'propria' ? '#0E7490' : tipo === 'terceiros' ? '#7C5BD9' : MUT
+  return { tipo, etiqueta: modelo ? `${etiqueta} · ${modelo}` : etiqueta, papel, cor }
+}
+
 export default function ObrasPage() {
   const { companyIds } = useCompanyIds()
   const [kpis, setKpis] = useState<Kpis | null>(null)
@@ -50,6 +70,7 @@ export default function ObrasPage() {
   const [aba, setAba] = useState<'principais' | 'outras'>('principais')
   const [busca, setBusca] = useState('')
   const [filtroStatus, setFiltroStatus] = useState('')
+  const [filtroExecucao, setFiltroExecucao] = useState('')  // '' = todas · 'propria' · 'terceiros'
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState('')
   const [obraAberta, setObraAberta] = useState<Obra | null>(null)
@@ -100,6 +121,18 @@ export default function ObrasPage() {
 
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
 
+  // Entrada vinda de um indicador do Painel do Hub (§310 "todo indicador abre a lista FILTRADA"):
+  // ?status=<situação> já abre esta lista filtrada na situação clicada, sem o usuário reabrir o filtro.
+  // Lê uma vez, no cliente (sem useSearchParams → sem fronteira Suspense); valida contra as situações
+  // conhecidas e espelha a mesma lógica de aba do seletor (pausada/cancelada ficam na aba "outras").
+  useEffect(() => {
+    const s = new URLSearchParams(window.location.search).get('status') ?? ''
+    if (s && s in ST) {
+      setFiltroStatus(s)
+      setAba(s === 'pausada' || s === 'cancelada' ? 'outras' : 'principais')
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   async function mudarStatus(o: Obra, novo: string) {
     setBusy(o.id); setMsg('')
     const { error } = await supabase.rpc('fn_obra_mudar_status', { p_obra_id: o.id, p_novo_status: novo })
@@ -112,8 +145,9 @@ export default function ObrasPage() {
   const visiveis = useMemo(() => {
     const q = busca.trim().toLowerCase()
     return obras.filter((o) => (!filtroStatus || o.status === filtroStatus)
+      && (!filtroExecucao || o.tipo_execucao === filtroExecucao)
       && (!q || [o.numero, o.nome, o.cliente_nome, o.cidade].some((t) => (t ?? '').toLowerCase().includes(q))))
-  }, [obras, busca, filtroStatus])
+  }, [obras, busca, filtroStatus, filtroExecucao])
   const grupos = useMemo(() => ({
     em_andamento: visiveis.filter((o) => o.status === 'em_andamento'),
     concluida: visiveis.filter((o) => o.status === 'concluida'),
@@ -179,6 +213,14 @@ export default function ObrasPage() {
                 <option value="cancelada">Canceladas</option>
               </select>
               <AjudaCampo chave="projetos.obras.filtro_status" />
+              <select data-testid="obras-filtro-execucao" aria-label="Filtrar por tipo de obra" value={filtroExecucao}
+                onChange={(e) => setFiltroExecucao(e.target.value)}
+                style={{ padding: '8px 10px', fontSize: 13, border: `1px solid ${LINE}`, borderRadius: 8, background: '#fff', color: ESP }}>
+                <option value="">Próprias e gerenciadas</option>
+                <option value="propria">Próprias</option>
+                <option value="terceiros">Gerenciadas (p/ terceiros)</option>
+              </select>
+              <AjudaCampo chave="projetos.obras.filtro_execucao" />
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 12 }}>
               <Tab ativo={aba === 'principais'} onClick={() => setAba('principais')}>Em andamento · Concluídas</Tab>
@@ -232,14 +274,38 @@ function Coluna({ titulo, cor, obras, receita, fiscalPend, onStatus, busy, onAbr
 function ObraCard({ o, fiscalPend, receita, onStatus, busy, onAbrir, onFiscal, onEditar, onExcluir }: { o: Obra; fiscalPend: boolean; receita: Receita | null | undefined; onStatus: (o: Obra, s: string) => void; busy: boolean; onAbrir: (o: Obra) => void; onFiscal: (o: Obra) => void; onEditar: (o: Obra) => void; onExcluir: (o: Obra) => void }) {
   const st = ST[o.status] ?? { label: o.status, cor: MUT }
   const local = [o.cidade, o.uf].filter(Boolean).join('/')
+  // §310/§314 "bloco de obras": obra atrasada = ainda em andamento (ou pausada) com a data prevista
+  // de término já no passado. Comparação só por data (YYYY-MM-DD), sem hora, para não oscilar no dia.
+  const atrasada = (o.status === 'em_andamento' || o.status === 'pausada') && !!o.data_prevista_fim && o.data_prevista_fim < new Date().toISOString().slice(0, 10)
+  const contr = contratacaoResumo(o)
   return (
     <div style={{ background: '#FFF', border: `0.5px solid ${LINE}`, borderLeft: `4px solid ${st.cor}`, borderRadius: 12, padding: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-        <span style={{ fontSize: 11, fontWeight: 700, color: st.cor, fontFamily: 'monospace' }}>{o.numero}</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: st.cor, fontFamily: 'monospace' }}>{o.numero}</span>
+          {atrasada && (
+            <span data-testid="obra-atrasada" title={`Prazo previsto: ${new Date(o.data_prevista_fim + 'T00:00:00').toLocaleDateString('pt-BR')}`}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, fontWeight: 700, color: VERM, background: '#FDECEC', border: `0.5px solid ${LINE}`, borderRadius: 6, padding: '1px 6px' }}>
+              <AlertTriangle size={11} aria-hidden />Atrasada
+              <AjudaCampo chave="projetos.obras.atrasada" />
+            </span>
+          )}
+        </span>
         <span style={{ fontSize: 13.5, fontWeight: 700, color: ESP }}>{fmtR(o.valor_previsto)}</span>
       </div>
       <div title={o.nome} style={{ fontSize: 13.5, color: ESP, fontWeight: 600, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.nome}</div>
       <div style={{ fontSize: 11.5, color: MUT, marginTop: 1 }}>{o.cliente_nome || 'Cliente não informado'}{local ? ` · ${local}` : ''}</div>
+
+      {/* §314 · modelo de contratação + papel (própria=proprietário × gerenciada=p/ contratante). Só aparece quando classificado na ficha. */}
+      {contr && (
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 6 }}>
+          <span data-testid="obra-selo-contratacao" title={contr.papel ? `${contr.etiqueta} — ${contr.papel}` : contr.etiqueta}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700, color: contr.cor, background: '#fff', border: `0.5px solid ${contr.cor}33`, borderRadius: 6, padding: '2px 7px' }}>
+            <HardHat size={11} aria-hidden />{contr.etiqueta}{contr.papel ? <span style={{ fontWeight: 600, color: MUT }}>· {contr.papel}</span> : null}
+          </span>
+          <AjudaCampo chave="projetos.obras.selo_contratacao" />
+        </div>
+      )}
 
       <div style={{ marginTop: 8 }}>
         <div style={{ background: BG, borderRadius: 6, height: 8, overflow: 'hidden' }}>
