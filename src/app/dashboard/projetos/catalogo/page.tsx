@@ -23,6 +23,7 @@ import { CatalogoTable, type CatalogoColumn } from "@/components/projetos/Catalo
 import { EmptyStateImportar } from "@/components/projetos/EmptyStateImportar";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { ComposicaoCpu } from "@/components/projetos/ComposicaoCpu";
+import BibliotecaPadraoPS from "@/components/projetos/BibliotecaPadraoPS";
 import { erroAmigavel } from "@/lib/erroAmigavel";
 
 const ROTA = "/dashboard/projetos/catalogo";
@@ -170,6 +171,8 @@ export default function CatalogoServicosPage() {
   const [produtos, setProdutos] = useState<ProdutoBusca[]>([]);
   const [novoAberto, setNovoAberto] = useState(false);
   const [novo, setNovo] = useState({ nome: "", codigo: "", categoria: "", unidade: "m²" });
+  // Abas do Catálogo (Onda C-1 · V31): "Meu catálogo" (serviços da empresa) × "Biblioteca padrão PS" (referência, só leitura).
+  const [aba, setAba] = useState<"meu" | "biblioteca">("meu");
 
   const carregar = useCallback(async () => {
     if (!companyId) {
@@ -754,6 +757,35 @@ export default function CatalogoServicosPage() {
         </div>
       </header>
 
+      <div className="mb-6 flex gap-1 border-b border-[#3D2314]/10">
+        <button
+          type="button"
+          onClick={() => setAba("meu")}
+          className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
+            aba === "meu"
+              ? "border-[#C8941A] text-[#3D2314]"
+              : "border-transparent text-[#3D2314]/50 hover:text-[#3D2314]/80"
+          }`}
+        >
+          Meu catálogo
+        </button>
+        <button
+          type="button"
+          onClick={() => setAba("biblioteca")}
+          className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
+            aba === "biblioteca"
+              ? "border-[#C8941A] text-[#3D2314]"
+              : "border-transparent text-[#3D2314]/50 hover:text-[#3D2314]/80"
+          }`}
+        >
+          Biblioteca padrão PS
+        </button>
+      </div>
+
+      {aba === "biblioteca" && <BibliotecaPadraoPS companyId={companyId} rota={ROTA} />}
+
+      {aba === "meu" && (
+      <>
       {erro && <div className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">{erro}</div>}
       {aviso && (
         <div className="mb-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">✓ {aviso}</div>
@@ -1154,6 +1186,8 @@ export default function CatalogoServicosPage() {
             </button>
           </div>
         </div>
+      )}
+      </>
       )}
     </main>
   );

@@ -70,8 +70,11 @@ test.describe('Equipes de mão de obra · custo médio/hora e efetivo editável 
       const achada = minha.equipes.find((e) => e.id === id)
       expect(achada, 'a empresa dona vê a equipe').toBeTruthy()
       expect(achada!.membros.length).toBe(4)
-      const outra = (await rpcComoRobo<{ equipes: { id: string }[] }>('fn_projetos_equipe_listar', { p_company_id: '00000000-0000-4000-a000-0000000000ff' })).corpo!
-      expect(outra.equipes.some((e) => e.id === id), 'outra empresa não vê a equipe').toBe(false)
+      // fn_projetos_equipe_listar tem guarda por empresa: usuário sem acesso leva 42501 (→ HTTP 403). Isolamento
+      // mais forte que lista vazia — provamos a RECUSA e, por redundância, que a equipe nunca vaza no corpo.
+      const outra = await rpcComoRobo<{ ok?: boolean; equipes?: { id: string }[] }>('fn_projetos_equipe_listar', { p_company_id: '00000000-0000-4000-a000-0000000000ff' })
+      expect(outra.status, 'outra empresa é barrada pelo guarda de acesso (42501 → 403)').toBe(403)
+      expect((outra.corpo?.equipes ?? []).some((e) => e.id === id), 'outra empresa não vê a equipe').toBe(false)
 
       // 6) arquivar não apaga (RD-30): some do uso ativo, histórico fica
       expect((await rpcComoRobo<{ ok: boolean; ativo: boolean }>('fn_projetos_equipe_arquivar', { p_company_id: DEMO_REVENDA, p_id: id, p_ativo: false })).corpo!.ativo).toBe(false)
