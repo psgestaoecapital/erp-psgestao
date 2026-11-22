@@ -52,6 +52,9 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
   // Itens individuais do orçamento (para editar/excluir). A árvore só devolve nós agregados por EAP.
   const [itens, setItens] = useState<ItemEap[]>([])
   const [excluindoId, setExcluindoId] = useState<string | null>(null)
+  // Total cheio do orçamento e nº de itens vivos — para avisar quando a EAP é só uma fatia do orçamento.
+  const [orcTotal, setOrcTotal] = useState<number | null>(null)
+  const [itensVivos, setItensVivos] = useState<number | null>(null)
   // "+ Item" / editar: catálogo de serviços e estado do formulário
   const [servicos, setServicos] = useState<Servico[]>([])
   const [formAberto, setFormAberto] = useState(false)
@@ -82,6 +85,11 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
     // Lista dos itens individuais (com id) para editar/excluir.
     const { data: li } = await supabase.rpc('fn_projetos_orcamento_item_eap_listar', { p_orcamento_id: info.orcamento_id })
     setItens(((li as { itens?: ItemEap[] } | null)?.itens) ?? [])
+    // Total cheio do orçamento e nº de itens vivos — para distinguir a fatia EAP do total do orçamento.
+    const { data: orc } = await supabase.from('erp_orcamentos').select('total').eq('id', info.orcamento_id).maybeSingle()
+    setOrcTotal((orc as { total?: number } | null)?.total ?? null)
+    const { count } = await supabase.from('erp_orcamentos_itens').select('id', { count: 'exact', head: true }).eq('orcamento_id', info.orcamento_id).is('excluido_em', null)
+    setItensVivos(count ?? null)
   }, [id, porLocal])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
 
@@ -335,7 +343,7 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
             {/* Totais do orçamento */}
             <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'flex', flexWrap: 'wrap', gap: 20 }}>
               <div>
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700 }}>Total do orçamento <AjudaCampo chave="projetos.orcamento_eap.total" rota={ROTA} /></div>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700 }}>Total estruturado (EAP) <AjudaCampo chave="projetos.orcamento_eap.total" rota={ROTA} /></div>
                 <div style={{ fontSize: 22, color: ESP, fontWeight: 700 }}>{brl(arvore.total_geral)}</div>
               </div>
               <div>
@@ -347,6 +355,14 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                 <div style={{ fontSize: 18, color: ESP, fontWeight: 600 }}>{brl(arvore.mao_obra_geral)}</div>
               </div>
             </div>
+
+            {/* Aviso quando a EAP é só uma fatia do orçamento: há itens no orçamento sem complemento EAP. */}
+            {orcTotal != null && orcTotal - arvore.total_geral > 0.005 && (
+              <div data-testid="orc-aviso-fatia" style={{ background: '#FBF3E0', border: `0.5px solid ${GOLD}`, borderRadius: 10, padding: '10px 14px', fontSize: 13, color: ESP, lineHeight: 1.5 }}>
+                Este é o total <strong>estruturado pela EAP</strong> ({brl(arvore.total_geral)}
+                {itensVivos != null ? ` · ${itens.length} de ${itensVivos} ${itensVivos === 1 ? 'item' : 'itens'}` : ''}). O orçamento tem mais <strong>{brl(orcTotal - arvore.total_geral)}</strong> em itens ainda <strong>sem EAP</strong> — use o <em>+ Item</em> ou o importador para estruturá-los e fechar o orçamento pela EAP.
+              </div>
+            )}
 
             {/* Toggle Etapa / Local */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

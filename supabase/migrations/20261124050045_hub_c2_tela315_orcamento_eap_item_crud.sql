@@ -207,10 +207,13 @@ $function$;
 REVOKE ALL ON FUNCTION public.fn_projetos_orcamento_eap_arvore(uuid, boolean) FROM anon, public;
 GRANT EXECUTE ON FUNCTION public.fn_projetos_orcamento_eap_arvore(uuid, boolean) TO authenticated;
 
--- 3) Ajuda de campo (RD-95) do bloco "Itens do orçamento" (lista com editar/excluir).
+-- 3) Ajuda de campo (RD-95) do bloco "Itens do orçamento" (lista com editar/excluir) +
+--    correção do texto do "Total estruturado (EAP)": é a soma dos itens estruturados pela EAP,
+--    não necessariamente o total cheio do orçamento (gap 2 do PDCA d635c805).
 INSERT INTO public.erp_ajuda_campo (chave, rota, grupo, rotulo, o_que_preencher, para_que_serve, exemplo, erro_comum, vertical, ordem, status)
 VALUES
- ('projetos.orcamento_eap.itens','/dashboard/projetos/obras/[id]/orcamento','Orçamento por EAP','Itens do orçamento','A lista de cada serviço lançado no orçamento, com EAP, local, quantidade e subtotal.','Permite corrigir (editar) ou remover (excluir) um item lançado com erro, sem refazer o orçamento. A árvore e os totais se ajustam.','Clique em Editar para ajustar quantidade/custo; Excluir remove o item do orçamento.','Excluir um item achando que só sai da visão — ele é removido do orçamento (com rastro) e o total cai.','projetos',50,'publicado')
+ ('projetos.orcamento_eap.itens','/dashboard/projetos/obras/[id]/orcamento','Orçamento por EAP','Itens do orçamento','A lista de cada serviço lançado no orçamento, com EAP, local, quantidade e subtotal.','Permite corrigir (editar) ou remover (excluir) um item lançado com erro, sem refazer o orçamento. A árvore e os totais se ajustam.','Clique em Editar para ajustar quantidade/custo; Excluir remove o item do orçamento.','Excluir um item achando que só sai da visão — ele é removido do orçamento (com rastro) e o total cai.','projetos',50,'publicado'),
+ ('projetos.orcamento_eap.total','/dashboard/projetos/obras/[id]/orcamento','Orçamento por EAP','Total estruturado (EAP)','A soma dos itens já estruturados pela EAP (material + mão de obra).','Mostra o valor da obra organizado pela EAP. Se o orçamento tiver itens sem EAP, eles não entram aqui — o aviso informa quanto falta estruturar.','R$ 237.437,50 estruturados de um orçamento de R$ 690.902,50','Ler o total da EAP como total cheio da obra quando ainda há itens sem EAP.','projetos',10,'publicado')
 ON CONFLICT (chave) DO UPDATE SET
   rota            = EXCLUDED.rota,
   grupo           = EXCLUDED.grupo,
