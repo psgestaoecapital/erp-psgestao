@@ -10,6 +10,7 @@ import NovoFuncionarioModal from '../../_components/NovoFuncionarioModal'
 import { C, StatusBadge, baixarDocumento } from '../../_components/ui'
 import { CLASSIFICACAO_SERVICO, TIPOS_SERVICO, ATIVIDADES_ESPECIAIS } from '../../_components/prestador-opts'
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import { CampoDecimal } from '@/components/comum/CampoDecimal'
 
 type Prestador = {
   id: string
@@ -471,11 +472,10 @@ function AbaDados({
         <F label="Telefone" v={form.telefone || ''} onChange={(v) => set('telefone', v)} />
       </div>
       <Field label="Valor contrato mensal (R$)">
-        <input
-          type="number"
-          step="0.01"
-          value={form.valor_contrato_mensal ?? ''}
-          onChange={(e: any) => set('valor_contrato_mensal', e.target.value ? Number(e.target.value) : null)}
+        <CampoDecimal
+          step={0.01}
+          value={form.valor_contrato_mensal}
+          onChange={(n) => set('valor_contrato_mensal', n)}
           style={inp()}
         />
       </Field>

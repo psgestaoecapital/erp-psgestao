@@ -8,6 +8,7 @@ import { labelUsuario } from '@/lib/usuarioLabel'
 import { linkTelefone } from '@/lib/crm/oportunidadeCliente'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
+import OportunidadeFormModal, { type OportunidadeRow } from './OportunidadeFormModal'
 
 type UsuarioOpt = { id: string; email: string | null; full_name?: string | null }
 type Fechada = {
@@ -126,6 +127,10 @@ export default function OportunidadesKanban({
   const [nomesCliente, setNomesCliente] = useState<Record<string, string>>({})
   // DELTA FC · obra criada ao ganhar (oportunidade_id → obra): prova na lista de Ganhas que todo ganho tem obra.
   const [obrasGanhas, setObrasGanhas] = useState<Record<string, { id: string; numero: string }>>({})
+  // PR-B · editar o VALOR de uma oportunidade GANHA (corrige erro de digitação) reusando o form; rastro automático
+  // (trg_crm_oport_historico grava valor_antes/valor_depois/autor). Não remove o status "ganha".
+  const [editarGanha, setEditarGanha] = useState<OportunidadeRow | null>(null)
+  const [abrindoEdicao, setAbrindoEdicao] = useState<string | null>(null)
   // F2.6 · tempo na etapa (semáforo) e quem moveu por último, por oportunidade_id.
   const [tempoMap, setTempoMap] = useState<Record<string, TempoRow>>({})
   const [quemMap, setQuemMap] = useState<Record<string, QuemRow>>({})
@@ -171,6 +176,19 @@ export default function OportunidadesKanban({
       setObrasGanhas(om)
     }
   }
+
+  // PR-B · abre o form (modo edição) para corrigir o valor de uma oportunidade ganha. Busca a linha completa
+  // por id (a Fechada traz só o resumo). O form preserva a etapa 'ganho'; salvar dispara o rastro no histórico.
+  async function abrirEditarValor(opId: string) {
+    setAbrindoEdicao(opId)
+    const { data, error } = await supabase.from('erp_crm_oportunidade')
+      .select('id,company_id,cliente_id,titulo,etapa,valor_estimado,origem,obra_endereco,obra_cidade,obra_bairro,responsavel_id,responsavel_nome,data_prevista_fechamento,probabilidade,observacoes')
+      .eq('id', opId).maybeSingle()
+    setAbrindoEdicao(null)
+    if (error || !data) { onError(erroAmigavel(error, 'Não foi possível abrir a oportunidade para editar.')); return }
+    setEditarGanha(data as unknown as OportunidadeRow)
+  }
+
   // FIX B · modal de motivo da perda (obrigatório)
   const [perda, setPerda] = useState<{ cardId: string; etapaAtual: string | null } | null>(null)
   const [perdaMotivo, setPerdaMotivo] = useState('')
@@ -734,6 +752,15 @@ export default function OportunidadesKanban({
                           <div style={{ marginTop: 6, fontSize: 12, color: '#7A1F1F' }}>Motivo: <b>{it.motivo_perda}</b></div>
                         )}
                         <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                          {fechadas.etapa === 'ganho' && (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                              <button data-testid="ganha-editar-valor" onClick={() => { setFechadas(null); void abrirEditarValor(it.id) }} disabled={abrindoEdicao === it.id}
+                                style={{ ...cardActBtn, padding: '5px 12px', fontSize: 12, borderColor: DOURADO, color: '#A57A15', fontWeight: 600 }}>
+                                {abrindoEdicao === it.id ? 'Abrindo…' : 'Editar valor'}
+                              </button>
+                              <AjudaCampo chave="projetos.oportunidades.editar_valor_ganha" />
+                            </span>
+                          )}
                           {it.orcamento_id ? (
                             <button onClick={() => router.push(`/dashboard/orcamentos?id=${it.orcamento_id}`)}
                               style={{ ...cardActBtn, padding: '5px 12px', fontSize: 12 }}>Ver orçamento →</button>
@@ -754,6 +781,16 @@ export default function OportunidadesKanban({
             </div>
           </div>
         </div>
+      )}
+
+      {/* PR-B · editar o valor da oportunidade ganha (reusa o form; preserva 'ganho'; rastro automático no histórico) */}
+      {editarGanha && (
+        <OportunidadeFormModal
+          companyId={companyId}
+          initial={editarGanha}
+          onClose={() => setEditarGanha(null)}
+          onSaved={(_id, aviso) => { setEditarGanha(null); onMoved(aviso ?? 'Valor da oportunidade atualizado.'); carregar() }}
+        />
       )}
     </div>
   )
