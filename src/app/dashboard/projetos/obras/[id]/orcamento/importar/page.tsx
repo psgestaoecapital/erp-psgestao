@@ -293,6 +293,23 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
   const difTotal = totalPlanilha === null ? null : Math.round((totalImportado - totalPlanilha) * 100) / 100
   const confereTotal = difTotal !== null && Math.abs(difTotal) <= 0.01
 
+  // §334 — resumo das linhas COM ERRO agrupado por motivo, cobrindo TODAS as linhas validadas (a tabela da prévia
+  // mostra só as primeiras 300). Assim o usuário corrige a planilha e importa de novo sem caçar linha a linha os
+  // erros que ficaram abaixo da 300ª. Só leitura; computado a partir de `validadas`, sem rede.
+  const errosPorMotivo = (() => {
+    const m = new Map<string, { vezes: number; codigos: string[] }>()
+    for (const l of validadas) {
+      if (l.status !== 'erro') continue
+      for (const motivo of (l.motivos?.length ? l.motivos : ['Com erro'])) {
+        const e = m.get(motivo) ?? { vezes: 0, codigos: [] }
+        e.vezes++
+        if (e.codigos.length < 12 && l.eap_codigo) e.codigos.push(l.eap_codigo)
+        m.set(motivo, e)
+      }
+    }
+    return [...m.entries()].map(([motivo, v]) => ({ motivo, ...v })).sort((a, b) => b.vezes - a.vezes)
+  })()
+
   return (
     <div style={{ minHeight: '100vh', background: BG, padding: '20px 16px 48px' }}>
       <div style={{ maxWidth: 900, margin: '0 auto', display: 'grid', gap: 16 }}>
@@ -370,6 +387,26 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
                     <span key={r.codigo} style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12, color: ESP, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 8, padding: '3px 8px' }}>{r.codigo} <strong style={{ color: GOLD }}>×{r.vezes}</strong></span>
                   ))}
                   {codigosRepetidos.length > 40 && <span style={{ fontSize: 12, color: MUT, alignSelf: 'center' }}>e mais {codigosRepetidos.length - 40}…</span>}
+                </div>
+              </div>
+            )}
+            {resumo.com_erro > 0 && errosPorMotivo.length > 0 && (
+              <div data-testid="eap-importar-erros-por-motivo" role="alert" style={{ ...CARD, borderColor: VERM, background: 'rgba(185,28,28,0.05)', display: 'grid', gap: 8 }}>
+                <strong style={{ color: ESP, fontSize: 14 }}>Linhas com erro, por motivo</strong>
+                <span style={{ fontSize: 13, color: ESP, lineHeight: 1.5 }}>
+                  {resumo.com_erro} linha(s) não serão importadas. Corrija na planilha e importe de novo — a prévia abaixo mostra só as primeiras 300 linhas, então use este resumo para achar todas.
+                </span>
+                <div style={{ display: 'grid', gap: 6 }}>
+                  {errosPorMotivo.map((e) => (
+                    <div key={e.motivo} style={{ display: 'grid', gap: 2, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 8, padding: '8px 10px' }}>
+                      <span style={{ fontSize: 13, color: ESP }}><strong style={{ color: VERM }}>{e.vezes}×</strong> {e.motivo}</span>
+                      {e.codigos.length > 0 && (
+                        <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11.5, color: MUT }}>
+                          {e.codigos.join(', ')}{e.vezes > e.codigos.length ? '…' : ''}
+                        </span>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
