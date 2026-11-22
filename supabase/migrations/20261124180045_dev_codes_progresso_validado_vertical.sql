@@ -142,6 +142,7 @@ CREATE OR REPLACE FUNCTION public.fn_code_log_execucao(p_agente text, p_resultad
  SECURITY DEFINER
  SET search_path TO 'public'
 AS $function$
+-- ci-sem-guarda: fn_code_log_execucao — log de execução por agente (telemetria dev, conexão de serviço); não há company_id no registro a conferir
 DECLARE v_id uuid;
 BEGIN
   INSERT INTO erp_code_execucao_log(agente,resultado,motivo_parada,prs_abertas,prs_ready,prs_fechadas,erro,o_que_fez,
@@ -154,6 +155,12 @@ BEGIN
   EXCEPTION WHEN OTHERS THEN NULL; END;
   RETURN v_id;
 END $function$;
+
+-- ACL explícita espelhando a viva (RD-94.1 · check_fn_guards[revoke_anon]): recriação de SECURITY DEFINER
+-- carimba a ACL; mantém EXATAMENTE o que já vale (proacl vivo = service_role=X), sem ampliar (nunca anon/PUBLIC,
+-- nunca authenticated — é telemetria chamada só pela conexão de serviço no fim da rodada do Code).
+REVOKE ALL ON FUNCTION public.fn_code_log_execucao(text,text,text,integer,integer,integer,text,text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_code_log_execucao(text,text,text,integer,integer,integer,text,text) TO service_role;
 
 -- Ponto inicial: grava o retrato de HOJE já nesta migration (RD-38: não inventa dias passados).
 SELECT public.fn_vertical_progresso_snapshot();
