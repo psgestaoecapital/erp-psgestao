@@ -1655,6 +1655,7 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
                 onSelect={adicionarProduto}
                 placeholder="Buscar produto (nome ou código) · adicione ao pedido"
                 testId="compra-prod"
+                contexto="compra"
               />
             </div>
             {itens.length === 0 ? (
