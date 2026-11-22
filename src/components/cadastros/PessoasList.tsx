@@ -70,8 +70,17 @@ export default function PessoasList({ companyId, tipo }: Props) {
       const digitos = termo.replace(/\D/g, '')
       const ors: string[] = []
       if (texto) { ors.push(`nome_fantasia.ilike.*${texto}*`); ors.push(`razao_social.ilike.*${texto}*`) }
-      // busca nas DUAS colunas de documento: cadastro grava cnpj_cpf, CRM grava cpf_cnpj
-      if (digitos) { ors.push(`cnpj_cpf.ilike.*${digitos}*`); ors.push(`cpf_cnpj.ilike.*${digitos}*`) }
+      if (digitos) {
+        if (tabela === 'erp_clientes') {
+          // Busca por documento acha 100%: a coluna GERADA documento_digitos guarda só os
+          // dígitos, então quem digita números acha mesmo o cliente que gravou o doc FORMATADO
+          // (50% da base). Antes a busca batia na coluna CRUA e perdia esses (RD-38, 9.350/18.619).
+          ors.push(`documento_digitos.ilike.*${digitos}*`)
+        } else {
+          // Fornecedores ainda não têm a coluna de dígitos: busca nas duas colunas cruas.
+          ors.push(`cnpj_cpf.ilike.*${digitos}*`); ors.push(`cpf_cnpj.ilike.*${digitos}*`)
+        }
+      }
       if (ors.length) q = q.or(ors.join(','))
     }
     const { data, error, count } = await q
