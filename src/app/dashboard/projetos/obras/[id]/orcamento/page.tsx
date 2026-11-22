@@ -234,7 +234,15 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                 style={{ border: 'none', background: 'transparent', color: GOLD, fontSize: 12, fontWeight: 700, cursor: 'pointer', width: 16 }}>{aberto ? '▾' : '▸'}</button>
             ) : <span style={{ width: 16, color: MUT, textAlign: 'center' }}>•</span>}
             <span style={{ fontSize: 11, color: MUT, fontFamily: 'ui-monospace, monospace', flex: '0 0 auto' }}>{n.eap_codigo}</span>
-            <span style={{ fontSize: 14, color: ESP, fontWeight: n.nivel <= 1 ? 700 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.nome}</span>
+            <div style={{ minWidth: 0, overflow: 'hidden' }}>
+              <div style={{ fontSize: 14, color: ESP, fontWeight: n.nivel <= 1 ? 700 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.nome}</div>
+              {/* §315 C-2: material × mão de obra separados também por nó da EAP (não só no total geral). */}
+              {(n.material > 0 || n.mao_obra > 0) && (
+                <div style={{ fontSize: 11, color: MUT, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  Material {brl(n.material)} · Mão de obra {brl(n.mao_obra)}
+                </div>
+              )}
+            </div>
           </div>
           <span style={{ fontSize: 13, color: ESP, fontWeight: 600, flex: '0 0 auto', textAlign: 'right' }}>{brl(n.total)}</span>
           {barra(n.pct)}
