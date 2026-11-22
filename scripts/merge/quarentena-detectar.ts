@@ -91,7 +91,10 @@ function abrirPrQuarentena(entradas: { spec: string; area: string; code: string;
   const arq = 'e2e/quarentena.ts'
   const atual = JSON.parse(api(`repos/${REPO}/contents/${arq}?ref=${ref}`))
   let texto = Buffer.from(atual.content, 'base64').toString('utf8')
-  const bloco = entradas.map((e) => `  { spec: '${e.spec}', area: '${e.area}', motivo: ${JSON.stringify(e.motivo)}, desde: '${new Date().toISOString()}', runs: [${e.runs[0]}, ${e.runs[1]}], code: '${e.code}' },`).join('\n')
+  // Item 4 (CEO 20/11): `ate` obrigatório — validade da quarentena automática = hoje + 14 dias (janela para o Code
+  // dono consertar; depois disso o portão re-congela e força o conserto ou a renovação do `ate` por nova PR).
+  const ate = new Date(Date.now() + 14 * 24 * 3600 * 1000).toISOString().slice(0, 10)
+  const bloco = entradas.map((e) => `  { spec: '${e.spec}', area: '${e.area}', motivo: ${JSON.stringify(e.motivo)}, desde: '${new Date().toISOString()}', ate: '${ate}', runs: [${e.runs[0]}, ${e.runs[1]}], code: '${e.code}' },`).join('\n')
   texto = texto.replace('/* quarentena:inicio */', `/* quarentena:inicio */\n${bloco}`)
   api(`repos/${REPO}/contents/${arq}`, ['-X', 'PUT', '-f', `message=quarentena automática: ${entradas.map((e) => e.spec.split('/').pop()).join(', ')} (@pos run ${RUN_ID})`,
     '-f', `content=${Buffer.from(texto).toString('base64')}`, '-f', `branch=${ref}`, '-f', `sha=${atual.sha}`])

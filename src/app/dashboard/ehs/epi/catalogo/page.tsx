@@ -185,15 +185,17 @@ export default function CatalogoEpiPage() {
   )
   const todosSelecionados = selecionaveis.length > 0 && selecionaveis.every((e) => selecionados.has(e.id))
 
+  // Status da VALIDADE do CA (não do número). Rótulos sempre falam de validade para não
+  // contradizer o número do CA exibido acima no card (ex.: "CA 35924" + "Validade a definir").
   function statusCa(ca_validade: string): { cor: string; label: string } {
-    if (!ca_validade) return { cor: C.muted, label: 'CA a definir' }
+    if (!ca_validade) return { cor: C.muted, label: 'Validade a definir' }
     const valid = new Date(ca_validade)
-    if (isNaN(valid.getTime())) return { cor: C.muted, label: 'CA a definir' }
+    if (isNaN(valid.getTime())) return { cor: C.muted, label: 'Validade a definir' }
     const hoje = new Date()
     const diasFalt = Math.floor((valid.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24))
     if (diasFalt < 0) return { cor: C.red, label: 'CA vencido' }
-    if (diasFalt < 90) return { cor: C.yellow, label: `vence em ${diasFalt}d` }
-    return { cor: C.green, label: 'CA válido' }
+    if (diasFalt < 90) return { cor: C.yellow, label: `Validade vence em ${diasFalt}d` }
+    return { cor: C.green, label: 'Validade em dia' }
   }
 
   return (
@@ -351,7 +353,7 @@ export default function CatalogoEpiPage() {
                     </span>
                   )}
                   <div style={{ marginTop: 10, fontSize: 12, color: C.espressoLt }}>
-                    <div><strong style={{ color: C.espresso }}>CA</strong> {e.ca_numero}</div>
+                    <div><strong style={{ color: C.espresso }}>CA nº</strong> {e.ca_numero && e.ca_numero !== 'A DEFINIR' ? e.ca_numero : 'a definir'}</div>
                     <div style={{ color: ca.cor, fontWeight: 600 }}>{ca.label}</div>
                   </div>
                   <div style={{ marginTop: 8, fontSize: 12, color: C.espressoLt }}>

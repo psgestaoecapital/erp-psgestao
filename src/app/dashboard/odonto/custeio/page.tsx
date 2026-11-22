@@ -121,7 +121,7 @@ function CustoHoraConfig({ companyId, onMudou }: { companyId: string; onMudou: (
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void carregar() }, [carregar])
 
-  const num = (s: string) => { const n = Number(s.replace(/\./g, '').replace(',', '.')); return isFinite(n) ? n : 0 }
+  const num = (s: string) => parseNumBR(s) ?? 0
   const salvar = async () => {
     setSalvando(true)
     const { data, error } = await supabase.rpc('fn_odonto_custo_config_salvar', { p_company_id: companyId, p_custo_fixo: num(fixo), p_horas: num(horas), p_usar_folha: usarFolha, p_mo_manual: usarFolha ? null : num(moManual) })

@@ -507,7 +507,7 @@ export default function DocumentosRecebidosPage() {
               Compras · Documentos Recebidos
             </div>
             <h1 className="text-[24px] sm:text-[28px] font-medium text-[#3D2314] leading-tight flex items-center gap-2">
-              <Inbox size={22} className="text-[#C8941A]" /> NFes Recebidas
+              <Inbox size={22} className="text-[#C8941A]" /> Documentos Recebidos (NFe)
             </h1>
             <p className="text-[13px] text-[#3D2314]/70 mt-1.5 max-w-2xl">
               Notas emitidas contra o CNPJ desta empresa · puxa direto da Distribuição DF-e.
