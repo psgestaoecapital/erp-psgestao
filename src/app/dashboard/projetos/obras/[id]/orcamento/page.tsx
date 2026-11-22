@@ -305,7 +305,12 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                 <option key={s.id} value={s.id}>{s.codigo ? `${s.codigo} · ` : ''}{s.nome}{s.unidade ? ` (${s.unidade})` : ''}</option>
               ))}
             </select>
-            {servicos.length === 0 && <div style={{ fontSize: 12, color: MUT, marginTop: 4 }}>Nenhum serviço no catálogo da empresa. Cadastre serviços para montar o orçamento.</div>}
+            {servicos.length === 0 && (
+              <div style={{ fontSize: 12, color: MUT, marginTop: 4 }}>
+                Nenhum serviço no catálogo da empresa.{' '}
+                <Link href="/dashboard/projetos/catalogo?aba=biblioteca" data-testid="orc-add-sem-servico-biblioteca" style={{ color: GOLD, fontWeight: 600, textDecoration: 'underline' }}>Escolha serviços prontos na Biblioteca padrão PS</Link>{' '}ou cadastre o seu no Catálogo para montar o orçamento.
+              </div>
+            )}
           </label>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
             <label style={{ display: 'block' }}>
@@ -393,6 +398,12 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                   style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${ESP}`, background: '#fff', color: ESP, fontSize: 13, fontWeight: 700, cursor: 'pointer', textDecoration: 'none' }}>
                   Importar da planilha (.xlsx)
                 </Link>
+                {/* §315 "três jeitos de começar o orçamento" (1): partir da Biblioteca padrão PS (333). */}
+                <Link href="/dashboard/projetos/catalogo?aba=biblioteca" data-testid="orc-vazio-biblioteca"
+                  style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${LINE}`, background: '#fff', color: ESP, fontSize: 13, fontWeight: 700, cursor: 'pointer', textDecoration: 'none' }}>
+                  Começar pela Biblioteca padrão PS
+                </Link>
+                <AjudaCampo chave="projetos.orcamento_eap.comecar_biblioteca" rota={ROTA} />
               </div>
             )}
           </div>
