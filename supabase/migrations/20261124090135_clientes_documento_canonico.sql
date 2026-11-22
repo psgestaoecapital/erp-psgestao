@@ -71,3 +71,8 @@ BEGIN
   ) t;
   RETURN jsonb_build_object('ok', true, 'resultados', COALESCE(v_out, '[]'::jsonb));
 END $function$;
+
+-- Guarda da função SECURITY DEFINER (check_fn_guards): fecha chamada RPC direta por anon e
+-- reafirma o acesso só de quem está logado (CREATE OR REPLACE preserva grants; o REVOKE anon é explícito).
+REVOKE ALL ON FUNCTION public.fn_cliente_buscar(uuid, text, integer) FROM anon;
+GRANT EXECUTE ON FUNCTION public.fn_cliente_buscar(uuid, text, integer) TO authenticated, service_role;
