@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { parseNumBR } from '@/lib/num'
 import { TOK } from './ui'
 import { Package, X, Check, RotateCcw, AlertTriangle } from 'lucide-react'
 
@@ -40,7 +41,7 @@ export function ConsumoInsumos({ agendamentoId, procedimentoNome, onClose, onDon
 
   const confirmar = async () => {
     if (!c) return
-    const itens = c.padrao.filter((p) => inc[p.produto_id]).map((p) => ({ produto_id: p.produto_id, quantidade: Number((qtd[p.produto_id] ?? '0').replace(',', '.')) || 0 })).filter((x) => x.quantidade > 0)
+    const itens = c.padrao.filter((p) => inc[p.produto_id]).map((p) => ({ produto_id: p.produto_id, quantidade: parseNumBR(qtd[p.produto_id] ?? '0') ?? 0 })).filter((x) => x.quantidade > 0)
     if (itens.length === 0) { setMsg('Marque ao menos um insumo com quantidade.'); return }
     setBusy(true)
     const { data, error } = await supabase.rpc('fn_odonto_baixar_insumos_atendimento', { p_agendamento_id: agendamentoId, p_itens: itens })

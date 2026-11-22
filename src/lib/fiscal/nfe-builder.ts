@@ -3,7 +3,7 @@ import { nomeDestinatarioNFe } from './nomeDestinatarioNFe'
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { FiscalError } from './errors'
 import { enderecoComMunicipioOficial } from './municipioDestinatario'
-import { montarItemVeiculo, type DadosVendaVeiculo, type ItemVeiculoMontado } from './nfe-veiculo'
+import { montarItemVeiculo, montarItemVeiculoEntrada, type DadosVendaVeiculo, type ItemVeiculoMontado, type DadosEntradaVeiculo, type ItemVeiculoEntradaMontado } from './nfe-veiculo'
 import { type CondicaoCreditoSN, aliquotaCreditoValida, csosnDoItem, observacoesComSimples, valorCreditoSN } from './creditoIcmsSimples'
 
 // UFs válidas (27). Fora desta lista não é UF nacional confiável (exterior, texto sujo) → não deriva CFOP.
@@ -91,6 +91,10 @@ export interface NFeBuilderInput {
   vendaVeiculo?: DadosVendaVeiculo
   /** Preenchido pelo builder quando vendaVeiculo vem: avisos do que não deu para validar (a rota devolve à tela). */
   onVeiculoMontado?: (m: ItemVeiculoMontado) => void
+  // #9787 marco 2 · ENTRADA do veículo (compra PF/PJ, troca) — SÓ prévia (a rota força apenasPrevia). Destinatário =
+  // remetente (vendedor PF na compra PF); item/CFOP/CST/natureza do perfil fiscal aprovado (não de erp_produtos).
+  entradaVeiculo?: DadosEntradaVeiculo
+  onEntradaMontada?: (m: ItemVeiculoEntradaMontado) => void
 }
 
 export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeRequest> {
@@ -140,6 +144,7 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
   // que veio do orçamento, ex.: nº da ordem de compra do cliente) — nunca as observações internas.
   let observacoesOrigem: string | undefined
   let veiculoMontado: ItemVeiculoMontado | undefined
+  let entradaMontadoItem: NFeProdutoItem | undefined   // #9787 marco 2 · item da NF-e de entrada (prévia)
 
   if (input.pedidoId) {
     // FEAT-NFE-PRODUTO-2-CARD-PEDIDO-v1
@@ -291,6 +296,26 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
     input.onVeiculoMontado?.(veiculoMontado)
     naturezaOp = veiculoMontado.naturezaOperacao
     observacoesOrigem = veiculoMontado.observacoes
+  } else if (input.entradaVeiculo) {
+    // #9787 marco 2 · ENTRADA (prévia). Destinatário = remetente/contraparte (vendedor PF na compra PF; fornecedor na PJ/troca).
+    const ev = input.entradaVeiculo
+    const r = ev.remetente
+    const doc = (r.documento ?? '').replace(/\D/g, '')
+    destinatario = {
+      cnpj: doc.length === 14 ? doc : undefined,
+      cpf: doc.length === 11 ? doc : undefined,
+      razaoSocial: r.nome ?? '',
+      indicadorIE: r.tipo === 'pf' ? 9 : undefined,   // PF = não contribuinte
+      endereco: r.endereco && r.endereco.logradouro
+        ? { logradouro: r.endereco.logradouro, numero: r.endereco.numero ?? undefined, bairro: r.endereco.bairro ?? '', cidade: r.endereco.cidade ?? '', uf: r.endereco.uf ?? '', cep: (r.endereco.cep ?? '').replace(/\D/g, '') }
+        : undefined,
+    }
+    const montado = montarItemVeiculoEntrada(ev, ufEmitente, destinatario.endereco?.uf)
+    input.onEntradaMontada?.(montado)
+    entradaMontadoItem = montado.item
+    naturezaOp = montado.naturezaOperacao
+    observacoesOrigem = montado.observacoes
+    finalidade = 'normal'
   } else if (input.manual) {
     destinatario = input.manual.destinatario
     // #131 (KGF) · 3º caminho: o modo manual (botão da OS, NFeCard, devolução, devolução-venda, remessa)
@@ -507,7 +532,7 @@ export async function buildNFeRequest(input: NFeBuilderInput): Promise<NFeReques
       simplesNacional: ehSimples,
     },
     destinatario,
-    itens: veiculoMontado ? [veiculoMontado.item] : itensNFe,
+    itens: veiculoMontado ? [veiculoMontado.item] : (entradaMontadoItem ? [entradaMontadoItem] : itensNFe),
     ...(veiculoMontado && veiculoMontado.item.ibsCbs ? { ibsCbsTotais: veiculoMontado.ibsCbsTotais } : {}),
     chaveReferenciada: input.manual?.chaveReferenciada,
     // #2876 (ajuste Jordana 20/10): a frase do Simples ("DOCUMENTO EMITIDO POR ME OU EPP…") sai em TODA nota de

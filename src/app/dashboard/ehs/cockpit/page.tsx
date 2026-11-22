@@ -138,9 +138,9 @@ export default function CockpitSstPage() {
           <>
             {/* KPIs base */}
             <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12, marginBottom: 16 }}>
-              <Kpi rotulo="Setores" valor={resumo.n_setores} />
-              <Kpi rotulo="Postos" valor={resumo.n_postos} />
-              <Kpi rotulo="Pessoas" valor={resumo.n_pessoas} />
+              <Kpi rotulo="Setores" valor={resumo.n_setores} ajuda="ehs.cockpit.kpi_setores" />
+              <Kpi rotulo="Postos" valor={resumo.n_postos} ajuda="ehs.cockpit.kpi_postos" />
+              <Kpi rotulo="Pessoas" valor={resumo.n_pessoas} ajuda="ehs.cockpit.kpi_pessoas" />
             </section>
 
             {/* KPIs de cobertura / herança / alertas */}
@@ -222,11 +222,11 @@ export default function CockpitSstPage() {
   )
 }
 
-function Kpi({ rotulo, valor }: { rotulo: string; valor: number }) {
+function Kpi({ rotulo, valor, ajuda }: { rotulo: string; valor: number; ajuda?: string }) {
   return (
     <div style={{ backgroundColor: 'white', borderRadius: 12, padding: '14px 16px', boxShadow: '0 1px 3px rgba(61, 35, 20, 0.06)' }}>
       <div style={{ fontSize: 26, fontWeight: 700, color: C.espresso, fontFamily: 'Fraunces, Georgia, serif' }}>{valor}</div>
-      <div style={subLabel}>{rotulo}</div>
+      <div style={{ ...subLabel, display: 'inline-flex', alignItems: 'center', gap: 4 }}>{rotulo}{ajuda ? <AjudaCampo chave={ajuda} /> : null}</div>
     </div>
   )
 }

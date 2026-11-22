@@ -32,8 +32,15 @@ const SIT: Record<string, { ico: string; cor: string; l: (s: number | null) => s
 type Contrato = {
   contrato_id: string; cliente_nome: string; tipo: string; fee_mensal: number | null; ge_valor_mensal: number | null
   erp_contrato_id: string | null; tem_contrato_ge: boolean; status: string; data_inicio: string | null
-  itens_total: number; itens_a_mais: number; escopo_status: string
+  itens_total: number; itens_a_mais: number; escopo_status: string; faltando: string[] | null
 }
+// CEO 18/11 (Parte B): o que falta p/ o contrato ir ao financeiro, em linguagem do usuário.
+const FALTA_LABEL: Record<string, string> = {
+  cliente: 'cliente vinculado', cnpj_cliente: 'CNPJ do cliente', servico: '1 serviço no escopo',
+  fee_mensal: 'fee mensal', dia_vencimento: 'dia de vencimento', valor_projeto: 'valor do projeto', parcelas: 'nº de parcelas',
+  contrato_nao_encontrado: 'contrato não encontrado',
+}
+const traduzFalta = (f: string) => FALTA_LABEL[f] ?? f
 type Servico = { id: string; nome: string; unidade: string | null; periodicidade: string | null }
 type GeContrato = { id: string; numero: string | null; cliente_nome: string | null; valor_atual: number | null; status: string | null }
 type RealItem = {
@@ -146,16 +153,21 @@ export default function ContratosPage() {
       setToast(/permission|rls|policy|acesso/i.test(error.message) ? 'Sem permissão para enviar este contrato ao financeiro.' : erroAmigavel(error, 'Não foi possível enviar o contrato ao financeiro. Tente de novo.'))
       return
     }
-    const j = data as { ok?: boolean; erro?: string; ja_vinculado?: boolean } | null
+    const j = data as { ok?: boolean; erro?: string; ja_vinculado?: boolean; faltando?: string[] } | null
     if (j && j.ok === false) {
+      if (Array.isArray(j.faltando) && j.faltando.length > 0) {
+        setToast('Falta para enviar ao financeiro: ' + j.faltando.map(traduzFalta).join(' · '))
+        return
+      }
       const motivo: Record<string, string> = {
+        // legados (compat) + novos códigos da trava
         nao_recorrente: 'Só contratos recorrentes geram cobrança no financeiro. Para projeto, vincule a um contrato da GE.',
         sem_fee_mensal: 'Defina o fee mensal do contrato antes de enviar ao financeiro.',
         sem_cliente_financeiro: 'Vincule o cliente à Gestão Empresarial antes de enviar ao financeiro.',
         contrato_nao_encontrado: 'Contrato não encontrado.',
         sem_acesso: 'Sem permissão para enviar este contrato ao financeiro.',
       }
-      setToast(motivo[j.erro ?? ''] ?? `Não foi possível enviar: ${j.erro ?? 'falha'}`)
+      setToast(motivo[j.erro ?? ''] ?? (FALTA_LABEL[j.erro ?? ''] ? `Falta: ${FALTA_LABEL[j.erro ?? '']}` : `Não foi possível enviar: ${j.erro ?? 'falha'}`))
       return
     }
     setToast(j?.ja_vinculado ? 'Este contrato já está no financeiro.' : 'Solicitação enviada ao financeiro — aguardando a equipe financeira ativar a cobrança.')
@@ -226,24 +238,23 @@ export default function ContratosPage() {
                           {c.tipo === 'recorrente' ? `${brl(Number(feeMostrar ?? 0))}/mês` : brl(Number(c.ge_valor_mensal ?? c.fee_mensal ?? 0))}
                           {c.data_inicio ? ` · desde ${c.data_inicio}` : ''}
                         </div>
-                        {/* Elo contrato → financeiro (PDCA 06/11): recorrente sem elo envia em 1 clique; projeto segue o vínculo manual. */}
-                        {!c.erp_contrato_id && c.tipo === 'recorrente' && (
+                        {/* CEO 18/11 (Parte B) · elo contrato → financeiro: recorrente E projeto podem ir ao financeiro,
+                            mas SÓ quando os obrigatórios estão completos. Falta algo → botão travado + lista do que falta. */}
+                        {!c.erp_contrato_id && (
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
-                            <button data-testid="contrato-enviar-financeiro" disabled={enviando === c.contrato_id} onClick={() => void enviarFinanceiro(c)}
-                              style={{ fontSize: 11, color: '#fff', background: enviando === c.contrato_id ? '#caa94f' : DOURADO, border: 'none', borderRadius: 8, padding: '4px 10px', cursor: 'pointer', fontWeight: 700 }}>
-                              {enviando === c.contrato_id ? 'Enviando…' : '📤 Enviar ao financeiro'}
-                            </button>
+                            {c.faltando && c.faltando.length > 0 ? (
+                              <span data-testid="contrato-faltando" style={{ fontSize: 11, color: RED, background: '#F9E4E4', border: `1px solid ${RED}`, borderRadius: 8, padding: '3px 8px', fontWeight: 600 }}>
+                                ⚠️ falta p/ enviar ao financeiro: {c.faltando.map(traduzFalta).join(' · ')}
+                              </span>
+                            ) : (
+                              <button data-testid="contrato-enviar-financeiro" disabled={enviando === c.contrato_id} onClick={() => void enviarFinanceiro(c)}
+                                style={{ fontSize: 11, color: '#fff', background: enviando === c.contrato_id ? '#caa94f' : DOURADO, border: 'none', borderRadius: 8, padding: '4px 10px', cursor: 'pointer', fontWeight: 700 }}>
+                                {enviando === c.contrato_id ? 'Enviando…' : '📤 Enviar ao financeiro'}
+                              </button>
+                            )}
                             <AjudaCampo chave="pm.contratos.acao_enviar_financeiro" />
                             <button onClick={() => setVincular(c)} style={{ fontSize: 11, color: TEXTM, background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer' }}>
                               ou vincular a um contrato já criado
-                            </button>
-                            <AjudaCampo chave="pm.contratos.acao_vincular_ge" />
-                          </span>
-                        )}
-                        {!c.erp_contrato_id && c.tipo !== 'recorrente' && (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', marginTop: 4 }}>
-                            <button onClick={() => setVincular(c)} style={{ fontSize: 11, color: RED, background: '#F9E4E4', border: `1px solid ${RED}`, borderRadius: 8, padding: '3px 8px', cursor: 'pointer', fontWeight: 600 }}>
-                              ⚠️ sem contrato na GE — não gera faturamento · vincular
                             </button>
                             <AjudaCampo chave="pm.contratos.acao_vincular_ge" />
                           </span>

@@ -69,6 +69,9 @@ interface EmitirNFSeBody {
   medicaoObra?: { obraId: string; itens: { item_id: string; quantidade: number }[] }
   // #339 (reaberto) · retenções AJUSTADAS NESTA NOTA (partem do cadastro do serviço; o modal edita). Ausente = cadastro.
   retencoesNota?: RetencoesNota
+  // Chamado #9724 (decisão B) · ESPELHO/PRÉVIA: só MONTA a nota e devolve em previa.nota (formato do espelhoPdf);
+  // NÃO transmite, NÃO consome numeração/série, NÃO grava. Read-only — a prévia é o que SERIA transmitido.
+  apenasPrevia?: boolean
 }
 
 interface DadosNFSeRPC {
@@ -327,6 +330,51 @@ export const POST = withAuth(async (req: NextRequest, { userId }) => {
     }
 
     validateNFSeRequest(nfseReq)
+
+    // Chamado #9724 (decisão B) · ESPELHO (prévia) da NFS-e. Com a nota JÁ MONTADA e VALIDADA (o mesmo nfseReq
+    // que seria transmitido), devolve previa.nota no formato do renderer (espelhoPdf.ts, modelo 'nfse') e PARA
+    // AQUI — antes de qualquer transmissão, numeração ou gravação. Puramente aditivo e read-only: o PDF sai
+    // marcado "PRÉVIA — SEM VALOR FISCAL". Numa nota de serviço os tributos do item são o ISS (não NCM/CFOP/ICMS).
+    if (body.apenasPrevia) {
+      const t = nfseReq.tomador
+      const end = t.endereco
+      const r2 = (n: number) => Math.round(n * 100) / 100
+      const aliq = typeof nfseReq.aliquotaIss === 'number' ? nfseReq.aliquotaIss : null
+      const issBase = nfseReq.valorServicos
+      const issValor = typeof nfseReq.valorIss === 'number'
+        ? nfseReq.valorIss
+        : (aliq != null ? r2(issBase * aliq / 100) : null)
+      const nota = {
+        naturezaOperacao: 'Prestação de serviço',
+        serie: nfseReq.serie,
+        destinatario: {
+          razaoSocial: t.razaoSocial,
+          documento: t.cnpj || t.cpf || null,
+          tipoDocumento: t.cnpj ? 'CNPJ' : (t.cpf ? 'CPF' : null),
+          email: t.email ?? null,
+          endereco: end ? [end.logradouro, end.numero, end.bairro, end.cidade, end.uf, end.cep].filter(Boolean).join(', ') : null,
+        },
+        itens: [{
+          descricao: nfseReq.descricaoServico,
+          ncm: null, cfop: null, cst: null, cBenef: null, chassi: null,
+          icmsBase: null, icmsValor: null,
+          valorTotal: nfseReq.valorServicos,
+          servico: {
+            codigo: nfseReq.codigoServico || null,
+            municipioIncidencia: nfseReq.prestador.codigoMunicipio ?? null,
+            issBase,
+            issAliquota: aliq,
+            issValor,
+            issRetido: (nfseReq.tipoRetencaoISS ?? (nfseReq.retemIss ? 2 : 1)) !== 1,
+          },
+        }],
+        totais: { produtos: nfseReq.valorServicos },
+      }
+      return NextResponse.json({
+        ok: true,
+        previa: { informacoesComplementares: nfseReq.observacoes ?? '', nota },
+      })
+    }
 
     // #35 · MEDIÇÃO: antes de falar com a prefeitura, confere no banco que as parcelas são do pedido, estão
     // previstas, não têm outra nota ativa e somam o valor da nota. Nota que não fecha com as parcelas não sai.

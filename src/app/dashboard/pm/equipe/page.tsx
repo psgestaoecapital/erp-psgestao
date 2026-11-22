@@ -12,6 +12,7 @@ import { resumirPrevia, type PapelPrevia } from '@/lib/pm/papelAgencia'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CargaEquipe } from '@/components/pm/CargaEquipe'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { CampoDecimal } from '@/components/comum/CampoDecimal'
 import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 
@@ -182,7 +183,7 @@ export default function EquipePage() {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <label style={lbl}><span style={rot}>Custo/hora (R$)<AjudaCampo chave="pm.equipe.custo_hora" /></span><CampoMoeda value={custoHoraTxt} onChange={setCustoHoraTxt} style={inp} placeholder="R$ 0,00" /></label>
-              <label style={lbl}><span style={rot}>Jornada (h/dia)<AjudaCampo chave="pm.equipe.jornada" /></span><input type="number" style={inp} value={edit.jornada_horas_dia ?? 8} onChange={(e) => setEdit({ ...edit, jornada_horas_dia: Number(e.target.value) })} /></label>
+              <label style={lbl}><span style={rot}>Jornada (h/dia)<AjudaCampo chave="pm.equipe.jornada" /></span><CampoDecimal value={edit.jornada_horas_dia ?? 8} onChange={(n) => setEdit({ ...edit, jornada_horas_dia: n })} style={inp} placeholder="8" /></label>
             </div>
             <label style={{ ...lbl, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <input type="checkbox" checked={edit.ativo ?? true} onChange={(e) => setEdit({ ...edit, ativo: e.target.checked })} /> Ativo<AjudaCampo chave="pm.equipe.ativo" />

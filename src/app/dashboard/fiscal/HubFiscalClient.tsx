@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import {
   Receipt, FileText, AlertTriangle, Settings, Archive, Loader2, AlertCircle,
@@ -84,11 +85,12 @@ export default function HubFiscalClient() {
       if (error) throw error
       setState({ loading: false, companyId: sel.id, resumo: (data ?? {}) as ResumoFiscal, erro: null })
     } catch (err) {
+      console.error('[HubFiscal] fn_hub_fiscal_resumo', err)
       setState({
         loading: false,
         companyId: sel.id,
         resumo: null,
-        erro: err instanceof Error ? err.message : 'Erro ao carregar hub fiscal',
+        erro: erroAmigavel(err, 'Não foi possível carregar o Hub Fiscal agora; tente de novo. Se persistir, fale com o suporte.'),
       })
     }
   }, [])
