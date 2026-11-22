@@ -28,8 +28,8 @@ type Arvore = {
 type ObraInfo = { numero: string; nome: string | null; orcamento_id: string | null }
 // Serviço do catálogo da empresa (origem do custo do item)
 type Servico = { id: string; codigo: string | null; nome: string; unidade: string | null; eap_codigo: string | null; custo_material: number | null; custo_mao_obra: number | null }
-// Item individual do orçamento com complemento EAP (para editar/excluir) — fn_projetos_orcamento_item_eap_listar
-type ItemEap = { orcamento_item_id: string; servico_id: string | null; servico_codigo: string | null; servico_nome: string | null; unidade: string | null; eap_codigo: string; local_tipo: string | null; local_nome: string | null; quantidade: number; custo_material_unit: number | null; custo_mao_obra_unit: number | null; subtotal: number }
+// Item individual do orçamento com complemento EAP (para editar/excluir) — fn_projetos_orcamento_item_eap_listar (#5814)
+type ItemEap = { item_id: string; servico_id: string | null; servico_codigo: string | null; servico_descricao: string | null; unidade: string | null; eap_codigo: string; local_tipo: string | null; local_nome: string | null; quantidade: number; custo_material_unit: number | null; custo_mao_obra_unit: number | null; subtotal: number }
 // Os 6 tipos de local (projetos_local_tipo). O LOCAL é dimensão do item, não nível da EAP.
 const LOCAIS: { codigo: string; nome: string }[] = [
   { codigo: 'ambiente', nome: 'Ambiente / área comum' },
@@ -122,7 +122,7 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
 
   // Abre o formulário já preenchido com o item para EDITAR (reaproveita fn_..._salvar com p_item_id).
   const abrirEdicao = (it: ItemEap) => {
-    setEditId(it.orcamento_item_id)
+    setEditId(it.item_id)
     setServicoId(it.servico_id ?? '')
     setQuantidade(it.quantidade != null ? String(it.quantidade) : '')
     setLocalTipo(it.local_tipo ?? '')
@@ -134,15 +134,17 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
     setFormAberto(true)
   }
 
-  // Exclui o item (soft-delete com rastro) por fn_orcamento_item_excluir, após confirmação.
+  // Exclui o item por fn_projetos_orcamento_item_eap_excluir (#5814): apaga o complemento EAP
+  // (sai da árvore) e marca o item compartilhado como excluído (recalcula o total). Com confirmação.
   const excluirItem = async (it: ItemEap) => {
-    const rot = `${it.servico_codigo ? it.servico_codigo + ' · ' : ''}${it.servico_nome ?? 'item'}`
+    if (!obra?.orcamento_id) return
+    const rot = `${it.servico_codigo ? it.servico_codigo + ' · ' : ''}${it.servico_descricao ?? 'item'}`
     if (!window.confirm(`Excluir "${rot}" do orçamento? Esta ação remove o item (com rastro) e recalcula o total.`)) return
-    setExcluindoId(it.orcamento_item_id); setErro(null)
-    const { data, error } = await supabase.rpc('fn_orcamento_item_excluir', { p_item_id: it.orcamento_item_id })
+    setExcluindoId(it.item_id); setErro(null)
+    const { data, error } = await supabase.rpc('fn_projetos_orcamento_item_eap_excluir', { p_item_id: it.item_id, p_orcamento_id: obra.orcamento_id })
     setExcluindoId(null)
-    const res = data as { ok?: boolean; erro?: string } | null
-    if (error || (res && res.ok === false)) { setErro(erroAmigavel(error, res?.erro ?? 'Não foi possível excluir o item.')); return }
+    const res = data as { ok?: boolean } | null
+    if (error || (res && res.ok === false)) { setErro(erroAmigavel(error, 'Não foi possível excluir o item.')); return }
     await carregar()
   }
 
@@ -395,21 +397,21 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                 {itens.map((it) => {
                   const loc = it.local_nome ? ` · ${it.local_nome}` : ''
                   const un = it.unidade ? ` ${it.unidade}` : ''
-                  const excluindo = excluindoId === it.orcamento_item_id
+                  const excluindo = excluindoId === it.item_id
                   return (
-                    <div key={it.orcamento_item_id} data-testid={`orc-item-${it.orcamento_item_id}`}
+                    <div key={it.item_id} data-testid={`orc-item-${it.item_id}`}
                       style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: `1px solid ${LINE}`, flexWrap: 'wrap' }}>
                       <div style={{ flex: 1, minWidth: 180 }}>
-                        <div style={{ fontSize: 14, color: ESP, fontWeight: 500 }}>{it.servico_codigo ? `${it.servico_codigo} · ` : ''}{it.servico_nome ?? 'Serviço'}</div>
+                        <div style={{ fontSize: 14, color: ESP, fontWeight: 500 }}>{it.servico_codigo ? `${it.servico_codigo} · ` : ''}{it.servico_descricao ?? 'Serviço'}</div>
                         <div style={{ fontSize: 11, color: MUT, fontFamily: 'ui-monospace, monospace' }}>
                           EAP {it.eap_codigo}{loc} · {(it.quantidade ?? 0).toLocaleString('pt-BR')}{un}
                         </div>
                       </div>
                       <span style={{ fontSize: 13, color: ESP, fontWeight: 600, textAlign: 'right' }}>{brl(it.subtotal)}</span>
                       <div style={{ display: 'flex', gap: 6 }}>
-                        <button data-testid={`orc-item-editar-${it.orcamento_item_id}`} onClick={() => abrirEdicao(it)} disabled={excluindo}
+                        <button data-testid={`orc-item-editar-${it.item_id}`} onClick={() => abrirEdicao(it)} disabled={excluindo}
                           style={{ padding: '6px 12px', borderRadius: 999, border: `1px solid ${LINE}`, background: '#fff', color: ESP, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Editar</button>
-                        <button data-testid={`orc-item-excluir-${it.orcamento_item_id}`} onClick={() => void excluirItem(it)} disabled={excluindo}
+                        <button data-testid={`orc-item-excluir-${it.item_id}`} onClick={() => void excluirItem(it)} disabled={excluindo}
                           style={{ padding: '6px 12px', borderRadius: 999, border: `1px solid ${VERM}`, background: '#fff', color: VERM, fontSize: 12, fontWeight: 700, cursor: excluindo ? 'default' : 'pointer' }}>{excluindo ? 'Excluindo…' : 'Excluir'}</button>
                       </div>
                     </div>
