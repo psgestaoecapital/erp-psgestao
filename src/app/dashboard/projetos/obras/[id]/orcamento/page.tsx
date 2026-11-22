@@ -25,7 +25,7 @@ type Arvore = {
   total_geral: number; material_geral: number; mao_obra_geral: number
   nos: NoEap[] | NoLocal[]
 }
-type ObraInfo = { numero: string; nome: string | null; orcamento_id: string | null }
+type ObraInfo = { numero: string; nome: string | null; orcamento_id: string | null; area_construida_m2: number | null }
 // Serviço do catálogo da empresa (origem do custo do item)
 type Servico = { id: string; codigo: string | null; nome: string; unidade: string | null; eap_codigo: string | null; custo_material: number | null; custo_mao_obra: number | null }
 // Item individual do orçamento com complemento EAP (para editar/excluir) — fn_projetos_orcamento_item_eap_listar (#5814)
@@ -52,6 +52,8 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
   // Itens individuais do orçamento (para editar/excluir). A árvore só devolve nós agregados por EAP.
   const [itens, setItens] = useState<ItemEap[]>([])
   const [excluindoId, setExcluindoId] = useState<string | null>(null)
+  // Criar o orçamento da própria obra quando ela ainda não tem um (fluxo rápido deixa orcamento_id NULL).
+  const [criandoOrc, setCriandoOrc] = useState(false)
   // Total cheio do orçamento e nº de itens vivos — para avisar quando a EAP é só uma fatia do orçamento.
   const [orcTotal, setOrcTotal] = useState<number | null>(null)
   const [itensVivos, setItensVivos] = useState<number | null>(null)
@@ -73,7 +75,7 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
   const carregar = useCallback(async () => {
     if (!ehUuid(id)) { setLoading(false); setErro('Obra não encontrada. Abra pela lista de obras.'); return }
     setLoading(true); setErro(null)
-    const { data: od, error: oe } = await supabase.from('projetos_obras').select('numero,nome,orcamento_id').eq('id', id).maybeSingle()
+    const { data: od, error: oe } = await supabase.from('projetos_obras').select('numero,nome,orcamento_id,area_construida_m2').eq('id', id).maybeSingle()
     if (oe || !od) { setLoading(false); setErro(erroAmigavel(oe, 'Não foi possível carregar a obra.')); return }
     const info = od as ObraInfo
     setObra(info)
@@ -145,6 +147,17 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
     setExcluindoId(null)
     const res = data as { ok?: boolean } | null
     if (error || (res && res.ok === false)) { setErro(erroAmigavel(error, 'Não foi possível excluir o item.')); return }
+    await carregar()
+  }
+
+  // Cria e vincula um orçamento vazio para a obra que ainda não tem um (fluxo rápido de obra deixa orcamento_id NULL).
+  // Idempotente no banco (fn_projetos_orcamento_garantir): se já houver, devolve o mesmo. Recarrega já com "+ Item"/Importar.
+  const criarOrcamento = async () => {
+    if (!obra || obra.orcamento_id) return
+    setCriandoOrc(true); setErro(null)
+    const { error } = await supabase.rpc('fn_projetos_orcamento_garantir', { p_obra_id: id })
+    setCriandoOrc(false)
+    if (error) { setErro(erroAmigavel(error, 'Não foi possível criar o orçamento desta obra.')); return }
     await carregar()
   }
 
@@ -221,7 +234,15 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                 style={{ border: 'none', background: 'transparent', color: GOLD, fontSize: 12, fontWeight: 700, cursor: 'pointer', width: 16 }}>{aberto ? '▾' : '▸'}</button>
             ) : <span style={{ width: 16, color: MUT, textAlign: 'center' }}>•</span>}
             <span style={{ fontSize: 11, color: MUT, fontFamily: 'ui-monospace, monospace', flex: '0 0 auto' }}>{n.eap_codigo}</span>
-            <span style={{ fontSize: 14, color: ESP, fontWeight: n.nivel <= 1 ? 700 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.nome}</span>
+            <div style={{ minWidth: 0, overflow: 'hidden' }}>
+              <div style={{ fontSize: 14, color: ESP, fontWeight: n.nivel <= 1 ? 700 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.nome}</div>
+              {/* §315 C-2: material × mão de obra separados também por nó da EAP (não só no total geral). */}
+              {(n.material > 0 || n.mao_obra > 0) && (
+                <div style={{ fontSize: 11, color: MUT, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  Material {brl(n.material)} · Mão de obra {brl(n.mao_obra)}
+                </div>
+              )}
+            </div>
           </div>
           <span style={{ fontSize: 13, color: ESP, fontWeight: 600, flex: '0 0 auto', textAlign: 'right' }}>{brl(n.total)}</span>
           {barra(n.pct)}
@@ -266,6 +287,10 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
           <Link href={importarHref} data-testid="orc-importar-link"
             style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${ESP}`, background: '#fff', color: ESP, fontSize: 13, fontWeight: 700, cursor: 'pointer', textDecoration: 'none' }}>
             Importar da planilha (.xlsx)
+          </Link>
+          <Link href={`/dashboard/projetos/obras/${id}/orcamento/relatorios`} data-testid="orc-relatorios-link"
+            style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${LINE}`, background: '#fff', color: ESP, fontSize: 13, fontWeight: 700, cursor: 'pointer', textDecoration: 'none' }}>
+            Relatórios
           </Link>
         </div>
       ) : (
@@ -346,9 +371,18 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
             <div style={{ fontSize: 15, color: ESP, fontWeight: 600, marginBottom: 6 }}>Orçamento ainda sem itens</div>
             <div style={{ fontSize: 13, color: MUT, lineHeight: 1.5 }}>
               {obra && !obra.orcamento_id
-                ? 'Esta obra ainda não tem um orçamento vinculado. Crie o orçamento da obra e volte aqui para montar a EAP.'
+                ? 'Esta obra ainda não tem um orçamento vinculado. Crie o orçamento aqui e comece a montar a EAP sem sair da tela.'
                 : 'O orçamento está vinculado, mas ainda não tem itens. Adicione serviços um a um por etapa e local, ou importe a planilha da obra de uma vez pelo importador.'}
             </div>
+            {obra && !obra.orcamento_id && (
+              <div style={{ marginTop: 16, display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
+                <button data-testid="orc-vazio-criar" onClick={() => void criarOrcamento()} disabled={criandoOrc}
+                  style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${ESP}`, background: criandoOrc ? MUT : ESP, color: '#fff', fontSize: 13, fontWeight: 700, cursor: criandoOrc ? 'default' : 'pointer' }}>
+                  {criandoOrc ? 'Criando…' : 'Criar orçamento desta obra'}
+                </button>
+                <AjudaCampo chave="projetos.orcamento_eap.criar_orcamento" rota={ROTA} />
+              </div>
+            )}
             {obra?.orcamento_id && (
               <div style={{ marginTop: 16, display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
                 <button data-testid="orc-vazio-add" onClick={abrirNovo}
@@ -378,6 +412,14 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700 }}>Mão de obra <AjudaCampo chave="projetos.orcamento_eap.mao_obra" rota={ROTA} /></div>
                 <div style={{ fontSize: 18, color: ESP, fontWeight: 600 }}>{brl(arvore.mao_obra_geral)}</div>
               </div>
+              {/* KPI Custo por m² (blueprint §315 essencial): total estruturado ÷ área construída da obra. */}
+              {obra?.area_construida_m2 != null && obra.area_construida_m2 > 0 && (
+                <div data-testid="orc-custo-m2">
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700 }}>Custo por m² <AjudaCampo chave="projetos.orcamento_eap.custo_m2" rota={ROTA} /></div>
+                  <div style={{ fontSize: 18, color: ESP, fontWeight: 600 }}>{brl(arvore.total_geral / obra.area_construida_m2)}<span style={{ fontSize: 12, color: MUT, fontWeight: 500 }}> /m²</span></div>
+                  <div style={{ fontSize: 11, color: MUT }}>{obra.area_construida_m2.toLocaleString('pt-BR')} m² construídos</div>
+                </div>
+              )}
             </div>
 
             {/* Aviso quando a EAP é só uma fatia do orçamento: há itens no orçamento sem complemento EAP. */}

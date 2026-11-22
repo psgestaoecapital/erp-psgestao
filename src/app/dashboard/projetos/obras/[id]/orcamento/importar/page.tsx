@@ -26,6 +26,32 @@ function numCanonico(raw: string): string {
   if (/,/.test(limpo)) return limpo.replace(/\./g, '').replace(',', '.')
   return limpo
 }
+const numBR = (raw: string): number => { const n = Number(numCanonico(raw)); return Number.isFinite(n) ? n : 0 }
+
+// §334 — conferência do total (acceptance C-2): a soma importada tem de bater, centavo a centavo, com o total
+// que a própria planilha declara. Procura, nas linhas da planilha, uma linha de "TOTAL" (geral/global/do orçamento/
+// final) e devolve o MAIOR valor numérico dela (o grande total costuma ser o maior número da linha). Sem rede: só
+// lê a matriz já carregada. Devolve null quando não há um total declarado reconhecível (aí a tela só mostra a soma
+// importada para o usuário conferir na mão).
+function detectarTotalPlanilha(matriz: string[][]): number | null {
+  let melhor: { peso: number; valor: number } | null = null
+  for (const row of matriz) {
+    if (!Array.isArray(row)) continue
+    const texto = row.map((c) => String(c ?? '')).join(' ')
+    if (!/\btotal\b/i.test(texto)) continue
+    // dá preferência à linha do total "forte" (geral/global/orçamento/final/investimento)
+    const peso = /(geral|global|or[çc]amento|final|investimento|do\s+or[çc]amento)/i.test(texto) ? 2 : 1
+    let maior = 0
+    for (const c of row) {
+      const v = numBR(String(c ?? ''))
+      if (v > maior) maior = v
+    }
+    if (maior > 0 && (!melhor || peso > melhor.peso || (peso === melhor.peso && maior > melhor.valor))) {
+      melhor = { peso, valor: maior }
+    }
+  }
+  return melhor ? melhor.valor : null
+}
 
 type Linha = {
   eap_codigo: string; descricao: string; unidade: string
@@ -77,6 +103,19 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
   const [resultado, setResultado] = useState<{ importados: number; ignorados: number; erros: number; ja_importado?: boolean } | null>(null)
   const [busy, setBusy] = useState(false)
   const [aviso, setAviso] = useState('')
+  // §334: o CÓDIGO É TEXTO. Quando a célula do código veio NUMÉRICA na planilha (ex.: "23,10" gravado como número 23.1),
+  // o zero à direita se perde (23.1 ≠ 23.10). Guardamos os índices (base 0 em `linhas`) dessas linhas para avisar e pedir
+  // confirmação antes de gravar. Detecção pelo TIPO da célula (SheetJS `cell.t === 'n'`), não pelo texto já formatado.
+  const [codigosNumericos, setCodigosNumericos] = useState<Set<number>>(new Set())
+  const [cienteNumerico, setCienteNumerico] = useState(false)
+  // §334: relatório consolidado de códigos EAP repetidos no arquivo (ex.: "1.2.9" quatro vezes). Cada repetição já
+  // entra como "com erro" na validação; aqui mostramos o resumo porque a tabela só exibe as primeiras 300 linhas.
+  const [codigosRepetidos, setCodigosRepetidos] = useState<{ codigo: string; vezes: number }[]>([])
+  // §334: linhas da planilha SEM código e SEM descrição (títulos/agrupadores/linhas vazias) que foram puladas.
+  const [linhasIgnoradas, setLinhasIgnoradas] = useState(0)
+  // §334 conferência do total: soma importada (Σ qtd × (material + mão de obra)) × total declarado na planilha.
+  const [totalImportado, setTotalImportado] = useState(0)
+  const [totalPlanilha, setTotalPlanilha] = useState<number | null>(null)
 
   const carregar = useCallback(async () => {
     if (!ehUuid(id)) { setLoading(false); setErro('Obra não encontrada. Abra pela lista de obras.'); return }
@@ -108,13 +147,25 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
       if (!mapa) { setAviso(''); setErro('Não reconheci as colunas da planilha. Confira se há colunas de código, descrição e quantidade.'); return }
       const { headerRow, col } = mapa
       const pega = (linha: string[], chave: string) => (col[chave] === undefined ? '' : String(linha[col[chave]] ?? '').trim())
+      // Origem do range da planilha: matriz[r][c] corresponde à célula (range.s.r + r, range.s.c + c).
+      const range = XLSX.utils.decode_range(ws['!ref'] ?? 'A1')
+      // A célula do código veio como NÚMERO? (tipo 'n' no SheetJS). Guarda índice base 0 da linha em `lin`.
+      const numericos = new Set<number>()
       const lin: Linha[] = []
+      let ignoradas = 0
       for (let r = headerRow + 1; r < matriz.length; r++) {
         const row = matriz[r] ?? []
         const eap = pega(row, 'eap_codigo')
         const desc = pega(row, 'descricao')
-        // pula agrupadores/linhas vazias (sem código e sem descrição)
-        if (!eap && !desc) continue
+        // pula agrupadores/linhas vazias (sem código e sem descrição); conta p/ o relatório do que não foi lido.
+        if (!eap && !desc) { if (row.some((c) => String(c ?? '').trim())) ignoradas++; continue }
+        const linIdx = lin.length
+        // Só vale avisar quando há código: célula do código com tipo numérico perde o zero à direita.
+        if (eap && col.eap_codigo !== undefined) {
+          const addr = XLSX.utils.encode_cell({ r: range.s.r + r, c: range.s.c + col.eap_codigo })
+          const cel = ws[addr] as { t?: string } | undefined
+          if (cel && cel.t === 'n') numericos.add(linIdx)
+        }
         lin.push({
           eap_codigo: eap, descricao: desc, unidade: pega(row, 'unidade'),
           quantidade: numCanonico(pega(row, 'quantidade')),
@@ -127,6 +178,16 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
       if (lin.length > 10000) { setAviso(''); setErro('A planilha tem mais de 10.000 linhas. Divida em partes.'); return }
       const h = await hashArquivo(buf)
       setArquivoNome(f.name); setHash(h); setLinhas(lin)
+      setCodigosNumericos(numericos); setCienteNumerico(false)
+      // §334: conta quantas vezes cada código EAP aparece; lista os que repetem (2+), do mais repetido ao menos.
+      const cont = new Map<string, number>()
+      for (const l of lin) { const c = l.eap_codigo.trim(); if (c) cont.set(c, (cont.get(c) ?? 0) + 1) }
+      setCodigosRepetidos([...cont.entries()].filter(([, n]) => n > 1).map(([codigo, vezes]) => ({ codigo, vezes })).sort((a, b) => b.vezes - a.vezes))
+      setLinhasIgnoradas(ignoradas)
+      // §334 conferência: soma importada = Σ qtd × (material + mão de obra) de todas as linhas lidas.
+      const somaImportada = lin.reduce((acc, l) => acc + numBR(l.quantidade) * (numBR(l.custo_material_unit) + numBR(l.custo_mao_obra_unit)), 0)
+      setTotalImportado(somaImportada)
+      setTotalPlanilha(detectarTotalPlanilha(matriz))
       // prévia no banco (sem gravar)
       const { data, error } = await comPrazo(async () => await supabase.rpc('fn_projetos_orcamento_eap_importar_validar', { p_orcamento_id: orcamentoId, p_linhas: lin }), { ms: 15000, tentativas: 1, label: 'eap-validar' })
       if (error) { setAviso(''); setErro(erroAmigavel(error, 'Não foi possível validar a planilha.')); return }
@@ -149,7 +210,11 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
     setPasso('resultado')
   }
 
-  const recomecar = () => { setPasso('upload'); setLinhas([]); setValidadas([]); setResumo(null); setResultado(null); setHash(''); setArquivoNome(''); setErro(null); setAviso('') }
+  const recomecar = () => { setPasso('upload'); setLinhas([]); setValidadas([]); setResumo(null); setResultado(null); setHash(''); setArquivoNome(''); setErro(null); setAviso(''); setCodigosNumericos(new Set()); setCienteNumerico(false); setCodigosRepetidos([]); setLinhasIgnoradas(0); setTotalImportado(0); setTotalPlanilha(null) }
+
+  // diferença entre a soma importada e o total declarado na planilha; "confere" quando ≤ 1 centavo.
+  const difTotal = totalPlanilha === null ? null : Math.round((totalImportado - totalPlanilha) * 100) / 100
+  const confereTotal = difTotal !== null && Math.abs(difTotal) <= 0.01
 
   return (
     <div style={{ minHeight: '100vh', background: BG, padding: '20px 16px 48px' }}>
@@ -206,11 +271,66 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
               <span style={{ fontSize: 13, color: MUT }}>Arquivo: <strong style={{ color: ESP }}>{arquivoNome}</strong></span>
               <span style={{ fontSize: 13, color: VERDE, fontWeight: 700 }}>{resumo.validos} válidas</span>
               <span style={{ fontSize: 13, color: resumo.com_erro ? VERM : MUT, fontWeight: 700 }}>{resumo.com_erro} com erro</span>
+              {codigosNumericos.size > 0 && <span style={{ fontSize: 13, color: GOLD, fontWeight: 700 }}>{codigosNumericos.size} código(s) como número</span>}
+              {codigosRepetidos.length > 0 && <span style={{ fontSize: 13, color: GOLD, fontWeight: 700 }}>{codigosRepetidos.length} código(s) repetido(s)</span>}
+              {linhasIgnoradas > 0 && <span data-testid="eap-importar-ignoradas" title="Linhas sem código e sem descrição (títulos/agrupadores) — não entram no orçamento" style={{ fontSize: 13, color: MUT, fontWeight: 700 }}>{linhasIgnoradas} linha(s) ignorada(s)</span>}
               <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
                 <button type="button" data-testid="eap-importar-recomecar" onClick={recomecar} disabled={busy} style={{ background: '#fff', color: ESP, border: `1px solid ${LINE}`, borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Trocar arquivo</button>
-                <button type="button" data-testid="eap-importar-confirmar" onClick={() => void confirmar()} disabled={busy || resumo.validos === 0} style={{ background: ESP, color: BG, border: 'none', borderRadius: 10, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: busy || resumo.validos === 0 ? 'default' : 'pointer', opacity: busy || resumo.validos === 0 ? 0.5 : 1 }}>Confirmar importação</button>
+                <button type="button" data-testid="eap-importar-confirmar" onClick={() => void confirmar()} disabled={busy || resumo.validos === 0 || (codigosNumericos.size > 0 && !cienteNumerico)} style={{ background: ESP, color: BG, border: 'none', borderRadius: 10, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: busy || resumo.validos === 0 || (codigosNumericos.size > 0 && !cienteNumerico) ? 'default' : 'pointer', opacity: busy || resumo.validos === 0 || (codigosNumericos.size > 0 && !cienteNumerico) ? 0.5 : 1 }}>Confirmar importação</button>
               </div>
             </div>
+            {codigosRepetidos.length > 0 && (
+              <div data-testid="eap-importar-codigos-repetidos" role="alert" style={{ ...CARD, borderColor: GOLD, background: 'rgba(200,148,26,0.06)', display: 'grid', gap: 8 }}>
+                <strong style={{ color: ESP, fontSize: 14 }}>Códigos EAP repetidos no arquivo</strong>
+                <span style={{ fontSize: 13, color: ESP, lineHeight: 1.5 }}>
+                  {codigosRepetidos.length} código(s) aparecem mais de uma vez. Cada repetição entra como <strong>com erro</strong> (código EAP duplicado). Confira se são itens realmente distintos — então ajuste o código na planilha — ou se é duplicação a remover.
+                </span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {codigosRepetidos.slice(0, 40).map((r) => (
+                    <span key={r.codigo} style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12, color: ESP, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 8, padding: '3px 8px' }}>{r.codigo} <strong style={{ color: GOLD }}>×{r.vezes}</strong></span>
+                  ))}
+                  {codigosRepetidos.length > 40 && <span style={{ fontSize: 12, color: MUT, alignSelf: 'center' }}>e mais {codigosRepetidos.length - 40}…</span>}
+                </div>
+              </div>
+            )}
+            <div data-testid="eap-importar-conferencia-total" style={{ ...CARD, display: 'grid', gap: 8, borderColor: confereTotal ? VERDE : (difTotal !== null ? GOLD : LINE) }}>
+              <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'baseline' }}>
+                <span style={{ fontSize: 13, color: MUT }}>Total importado (soma dos itens)</span>
+                <strong data-testid="eap-importar-total-importado" style={{ fontSize: 18, color: ESP, letterSpacing: -0.3 }}>{brl(totalImportado)}</strong>
+                {totalPlanilha !== null && (
+                  <span style={{ fontSize: 13, color: MUT }}>× Total declarado na planilha <strong style={{ color: ESP }}>{brl(totalPlanilha)}</strong></span>
+                )}
+              </div>
+              {totalPlanilha === null ? (
+                <span style={{ fontSize: 12.5, color: MUT }}>Não encontrei um &quot;Total&quot; declarado na planilha para conferir automaticamente. Compare o total importado acima com o total da sua planilha antes de confirmar.</span>
+              ) : confereTotal ? (
+                <span data-testid="eap-importar-total-confere" style={{ fontSize: 13, color: VERDE, fontWeight: 700 }}>✓ Confere com o total da planilha, centavo a centavo.</span>
+              ) : (
+                <span data-testid="eap-importar-total-difere" role="alert" style={{ fontSize: 13, color: GOLD, fontWeight: 700 }}>
+                  ⚠ Difere do total da planilha em {brl(Math.abs(difTotal ?? 0))}. Confira itens faltando, valores ou linhas de desconto/BDI antes de confirmar.
+                </span>
+              )}
+            </div>
+            {codigosNumericos.size > 0 && (
+              <div data-testid="eap-importar-aviso-numerico" role="alert" style={{ ...CARD, borderColor: GOLD, background: 'rgba(200,148,26,0.06)', display: 'grid', gap: 10 }}>
+                <strong style={{ color: ESP, fontSize: 14 }}>Confira os códigos que vieram como número</strong>
+                <span style={{ fontSize: 13, color: ESP, lineHeight: 1.5 }}>
+                  {codigosNumericos.size} código(s) da EAP estavam gravados como <strong>número</strong> na planilha, não como texto.
+                  Nesses casos o zero à direita pode ter se perdido (ex.: <strong>23,10</strong> vira <strong>23,1</strong>, que é um código diferente).
+                  Confira na coluna <strong>Código</strong> (marcados com <span style={{ color: GOLD, fontWeight: 700 }}>nº</span>) e, se estiverem certos, confirme abaixo.
+                </span>
+                <button
+                  type="button"
+                  data-testid="eap-importar-ciente-numerico"
+                  aria-pressed={cienteNumerico}
+                  onClick={() => setCienteNumerico((v) => !v)}
+                  style={{ justifySelf: 'start', display: 'flex', alignItems: 'center', gap: 8, background: cienteNumerico ? ESP : '#fff', color: cienteNumerico ? BG : ESP, border: `1px solid ${cienteNumerico ? ESP : LINE}`, borderRadius: 10, padding: '9px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+                >
+                  <span aria-hidden="true" style={{ fontSize: 15 }}>{cienteNumerico ? '☑' : '☐'}</span>
+                  Conferi os códigos numéricos e estão corretos
+                </button>
+              </div>
+            )}
             <div style={{ ...CARD, padding: 0, overflow: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
                 <thead>
@@ -227,7 +347,10 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
                 <tbody>
                   {validadas.slice(0, 300).map((l) => (
                     <tr key={l.idx} style={{ borderTop: `1px solid ${LINE}`, background: l.status === 'erro' ? 'rgba(185,28,28,0.04)' : '#fff' }}>
-                      <td style={{ padding: '7px 10px', fontFamily: 'ui-monospace, monospace' }}>{l.eap_codigo || '—'}</td>
+                      <td style={{ padding: '7px 10px', fontFamily: 'ui-monospace, monospace' }}>
+                        {l.eap_codigo || '—'}
+                        {codigosNumericos.has(l.idx - 1) && <span title="Este código veio como número na planilha — confira o zero à direita" style={{ marginLeft: 6, fontSize: 10, fontWeight: 800, color: GOLD, fontFamily: 'inherit' }}>nº</span>}
+                      </td>
                       <td style={{ padding: '7px 10px' }}>{l.descricao || '—'}</td>
                       <td style={{ padding: '7px 10px' }}>{l.unidade || '—'}</td>
                       <td style={{ padding: '7px 10px', textAlign: 'right' }}>{l.quantidade || '—'}</td>
