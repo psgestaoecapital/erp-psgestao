@@ -240,6 +240,18 @@ Depois do merge: veredito `@pos-migration`, Gold nas telas tocadas e prova leve 
   VERMELHA do guardião): reverte metade do lote, roda o `@pos`, repete até ISOLAR a PR culpada, reverte só ela (PR com
   `conserto-main`) e republica as inocentes. Gate: `scripts/gates/check-fila-lote-critico.ts` (teto 5, carve-out SOLO,
   encerra a rodada no SOLO e o caminho de falha). Nunca afrouxe o crítico para drenar.
+  **SÓ-DEMO deixa de publicar SOZINHA (CEO 21/11 20:18) — label `so-demo` + lote de críticas:** migration que SÓ mexe em
+  empresa DEMO (toda escrita guardada por `companies.is_demo = true` ou pelos ids `b0700000-…`) caía no CARVE-OUT acima e
+  publicava SOZINHA (1 por `@pos` de ~45 min), travando a fila (ex.: `#5747` limpeza da DEMO GE, `#5779` bot P&M atrás de
+  críticas reais). Agora a PR revisada com a label **`so-demo`** continua **crítica** (`n_critica=1`, espera o `@pos`) mas
+  **NÃO é SOLO** (`n_critica_solo=0`): entra no **LOTE DE CRÍTICAS**, nunca vira aditiva/via-rápida. **Quem põe a label é só
+  o `gilberto-revisor`**, e SÓ depois de PROVAR na revisão profunda que toda escrita é guardada por `is_demo` (ou pelos ids
+  da DEMO) e que NÃO há DDL de estrutura (tabela de domínio) nem categoria de risco máximo; o comentário `MERGE AUTORIZADO`
+  passa a dizer **"SÓ-DEMO comprovado"**. **Backstop de segurança na fila** (`scripts/merge/so-demo-batelavel.ts`, viés p/
+  SOLO — qualquer dúvida → SOLO): mesmo com a label, a crítica MANTÉM SOLO se o conteúdo toca risco máximo que `is_demo`
+  NÃO cobre (**fiscal/NR-36/RLS/permissão/LGPD/Wealth-CVM**) ou faz **DDL de estrutura** em objeto existente
+  (ALTER/DROP/TRUNCATE/RLS/`CREATE OR REPLACE VIEW`), ou é ilegível. `conserto-main` nunca é `so-demo` (fica SOLO pela
+  etiqueta). No script: `so-demo-batelavel.ts` dentro do bloco `n_critica_solo`. Gate: `scripts/gates/check-fila-lote-critico.ts`.
   **VIA EXPRESSA DO HUB (CEO 23/10 — "Hub inteiro no dev, sem parar; publicação direta e prioritária, sem trava nenhuma;
   reauditamos depois"):** PR com a label **`hub`** é tratada pela fila como **via rápida** (SEM revisor, mesmo com
   `revisao-eng-chefe`) e como **ADITIVA** (batela até `LOTE_MIG_MAX`, NÃO entra no teto `LOTE_MIG_CRIT_MAX`), e vai na
