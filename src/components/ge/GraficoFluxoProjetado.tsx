@@ -204,7 +204,7 @@ export default function GraficoFluxoProjetado({ companyId }: { companyId: string
             />
             <ReferenceLine y={0} stroke={PSGC_COLORS.alta} strokeDasharray="3 3" />
             <Tooltip
-              formatter={(v: number | string) => [fmtBRL(Number(v)), 'Saldo acumulado']}
+              formatter={(v) => [fmtBRL(Number(v)), 'Saldo acumulado'] as [string, string]}
               labelFormatter={(l: string) => `Dia ${l}`}
               contentStyle={{
                 borderRadius: 8,
