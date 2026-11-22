@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import HeaderGE from './HeaderGE'
 import SemaforoSaude from './SemaforoSaude'
 import KpisDashboard from './KpisDashboard'
+import GraficoFluxoProjetado from './GraficoFluxoProjetado'
 import ColunaContas from './ColunaContas'
 import ColunaFluxoCaixa from './ColunaFluxoCaixa'
 import ColunaInadimplentes from './ColunaInadimplentes'
@@ -83,6 +84,10 @@ export default function DashboardRico({ companyId, companyName, userName }: Prop
 
         <SemaforoSaude companyId={companyId} />
         <KpisDashboard companyId={companyId} />
+
+        {/* Gap PDCA GE (aud8): evolução financeira visível — gráfico de área do saldo
+            acumulado (projeção 30d ou realizado), consumindo a RPC já usada pelo hub. */}
+        <GraficoFluxoProjetado companyId={companyId} />
 
         <div
           style={{
