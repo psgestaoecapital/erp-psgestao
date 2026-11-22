@@ -132,15 +132,12 @@ $fn$;
 REVOKE ALL ON FUNCTION public.fn_demo_ge_receber_purgar_lixo_teste(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_demo_ge_receber_purgar_lixo_teste(uuid) TO service_role;
 
--- ── Limpeza ÚNICA do estado atual de produção (DEMO "Comércio (GE)") ──
-DO $once$
-DECLARE r jsonb;
-BEGIN
-  SELECT public.fn_demo_ge_receber_purgar_lixo_teste('b0700000-0000-4000-a000-000000000004') INTO r;
-  RAISE NOTICE 'Purga única DEMO GE /receber: %', r;
-END
-$once$;
-
+-- ── conserto-main (code-desenvolvedor-3): a purga ÚNICA do backlog (~30k títulos + 30k baixas) NÃO roda mais inline ──
+-- Motivo (RD-52 + "Provas em produção — nunca derrubar o banco"): soft-delete de ~30k linhas em erp_receber dispara
+-- gatilhos por-linha (auditoria, outbox, fila contábil PSGC, comissão recorrente) e ultrapassa o statement_timeout do
+-- `supabase db push` (deploy-migrations ficou vermelho em 22/11: SQLSTATE 57014). A limpeza do estado ATUAL de produção
+-- é feita FORA da migration, em lotes pequenos (idempotente, reversível pelo backup acima). Ambiente novo não tem backlog,
+-- então a migration é só DDL. A auto-cura (fn_demo_seed_ge_financeiro chama o purge a cada reset) permanece abaixo.
 -- ── Auto-cura: fn_demo_seed_ge_financeiro chama o purge no início (superset puro do corpo vivo + 1 linha PERFORM) ──
 -- Conferido com pg_get_functiondef (RD-38): idêntico à definição viva (md5 do corpo normalizado bate), exceto a linha
 -- "PERFORM ... purgar_lixo_teste" logo após o bloco de RESET. A cada fn_demo_reset a DEMO GE não re-acumula lixo de teste.
