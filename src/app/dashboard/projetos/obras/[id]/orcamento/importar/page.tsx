@@ -128,7 +128,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
       const h = await hashArquivo(buf)
       setArquivoNome(f.name); setHash(h); setLinhas(lin)
       // prévia no banco (sem gravar)
-      const { data, error } = await comPrazo(() => supabase.rpc('fn_projetos_orcamento_eap_importar_validar', { p_orcamento_id: orcamentoId, p_linhas: lin }), { ms: 15000, tentativas: 1, label: 'eap-validar' })
+      const { data, error } = await comPrazo(async () => await supabase.rpc('fn_projetos_orcamento_eap_importar_validar', { p_orcamento_id: orcamentoId, p_linhas: lin }), { ms: 15000, tentativas: 1, label: 'eap-validar' })
       if (error) { setAviso(''); setErro(erroAmigavel(error, 'Não foi possível validar a planilha.')); return }
       const r = data as { validos: number; com_erro: number; linhas: LinhaValidada[] }
       setValidadas(r.linhas ?? []); setResumo({ validos: r.validos ?? 0, com_erro: r.com_erro ?? 0 })
@@ -141,7 +141,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
   const confirmar = async () => {
     if (!orcamentoId || !linhas.length) return
     setBusy(true); setErro(null)
-    const { data, error } = await comPrazo(() => supabase.rpc('fn_projetos_orcamento_eap_importar', { p_orcamento_id: orcamentoId, p_linhas: linhas, p_arquivo_hash: hash, p_arquivo_nome: arquivoNome }), { ms: 30000, tentativas: 1, label: 'eap-importar' })
+    const { data, error } = await comPrazo(async () => await supabase.rpc('fn_projetos_orcamento_eap_importar', { p_orcamento_id: orcamentoId, p_linhas: linhas, p_arquivo_hash: hash, p_arquivo_nome: arquivoNome }), { ms: 30000, tentativas: 1, label: 'eap-importar' })
     setBusy(false)
     if (error) { setErro(erroAmigavel(error, 'Não foi possível importar. Tente de novo.')); return }
     const r = data as { importados: number; ignorados: number; erros: number; ja_importado?: boolean }
