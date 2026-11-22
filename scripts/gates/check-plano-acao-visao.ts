@@ -8,7 +8,8 @@ import { join } from 'node:path'
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error(`✘ ${m}`) } else console.log(`✓ ${m}`) }
 const raiz = join(__dirname, '../..')
-const tela = readFileSync(join(raiz, 'src/app/dashboard/industrial/plano-acao/page.tsx'), 'utf8')
+// A tela virou o componente compartilhado PlanoAcaoView (reusado por Indústria e Hub); o conteúdo é o mesmo.
+const tela = readFileSync(join(raiz, 'src/components/plano-acao/PlanoAcaoView.tsx'), 'utf8')
 const sql = readFileSync(join(raiz, 'supabase/migrations/20261017002010_plano_acao_visao_arrastar_ajuda.sql'), 'utf8')
 
 ok(/draggable/.test(tela) && /onDragStart/.test(tela) && /onDrop=/.test(tela) && /onDragOver=/.test(tela), 'cartão arrastável e coluna aceita soltar')
