@@ -9,6 +9,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { supabase } from '@/lib/supabase'
 import { FileSpreadsheet, Link2, AlertTriangle, Check, Search } from 'lucide-react'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+
+// RD-95 (CEO 08/10): "?" em todo campo/filtro/ação. Rota canônica desta tela, passada em cada AjudaCampo.
+const ROTA_AJUDA = '/dashboard/contador/plano-depara'
 
 const C = {
   esp: '#3D2314', espM: '#6B5D4F', espL: '#9C8E80', bg: '#FAF7F2', white: '#FFFFFF',
@@ -145,7 +149,7 @@ export default function PlanoDeParaPage() {
 
       {/* ── Importar ── */}
       <div style={{ background: C.white, border: `1px solid ${C.border}`, borderRadius: 12, padding: 16, marginBottom: 18 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>1 · Colar o plano exportado</div>
+        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8, display: 'inline-flex', alignItems: 'center' }}>1 · Colar o plano exportado<AjudaCampo chave="contabil.depara.colar_plano" rota={ROTA_AJUDA} /></div>
         <textarea
           value={texto} onChange={(e) => setTexto(e.target.value)}
           placeholder={'Cole aqui as linhas do plano (TAB, ; ou , são detectados automaticamente).\nEx.:\n142\t1.01.01\tClientes Diversos\tA\n2860\t\tJuros Recebidos\tA'}
@@ -153,12 +157,12 @@ export default function PlanoDeParaPage() {
           style={{ width: '100%', fontFamily: 'monospace', fontSize: 12, padding: 10, border: `1px solid ${C.border}`, borderRadius: 8, background: C.bg, color: C.esp, boxSizing: 'border-box', resize: 'vertical' }}
         />
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.espM, marginTop: 8 }}>
-          <input type="checkbox" checked={temCabecalho} onChange={(e) => setTemCabecalho(e.target.checked)} /> a primeira linha é cabeçalho
+          <input type="checkbox" checked={temCabecalho} onChange={(e) => setTemCabecalho(e.target.checked)} /> a primeira linha é cabeçalho<AjudaCampo chave="contabil.depara.tem_cabecalho" rota={ROTA_AJUDA} />
         </label>
 
         {parsed.headers.length > 0 && (
           <>
-            <div style={{ fontSize: 13, fontWeight: 700, margin: '14px 0 6px' }}>2 · Dizer o que é cada coluna</div>
+            <div style={{ fontSize: 13, fontWeight: 700, margin: '14px 0 6px', display: 'inline-flex', alignItems: 'center' }}>2 · Dizer o que é cada coluna<AjudaCampo chave="contabil.depara.mapear_coluna" rota={ROTA_AJUDA} /></div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               {parsed.headers.map((h, i) => (
                 <label key={i} style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11, color: C.espM }}>
@@ -196,17 +200,24 @@ export default function PlanoDeParaPage() {
                 <AlertTriangle size={14} /> Marque qual coluna é o <strong>código do contador</strong> — é obrigatório.
               </div>
             )}
-            <button type="button" disabled={!temCodExterno || importando || parsed.rows.length === 0} onClick={() => void importar()}
-              style={{ marginTop: 12, padding: '10px 16px', borderRadius: 8, border: 'none', background: (!temCodExterno || importando) ? C.espL : C.gold, color: C.white, fontWeight: 700, fontSize: 13, cursor: (!temCodExterno || importando) ? 'not-allowed' : 'pointer' }}>
-              {importando ? 'Importando…' : `Importar ${parsed.rows.length} conta(s)`}
-            </button>
+            <div style={{ display: 'inline-flex', alignItems: 'center', marginTop: 12 }}>
+              <button type="button" disabled={!temCodExterno || importando || parsed.rows.length === 0} onClick={() => void importar()}
+                style={{ padding: '10px 16px', borderRadius: 8, border: 'none', background: (!temCodExterno || importando) ? C.espL : C.gold, color: C.white, fontWeight: 700, fontSize: 13, cursor: (!temCodExterno || importando) ? 'not-allowed' : 'pointer' }}>
+                {importando ? 'Importando…' : `Importar ${parsed.rows.length} conta(s)`}
+              </button>
+              <AjudaCampo chave="contabil.depara.importar" rota={ROTA_AJUDA} />
+            </div>
           </>
         )}
       </div>
 
       {/* ── De-para atual ── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-        <div style={{ fontSize: 16, fontWeight: 700 }}>De-para atual</div>
+        <div style={{ fontSize: 16, fontWeight: 700, display: 'inline-flex', alignItems: 'center' }}>De-para atual
+          <AjudaCampo chave="contabil.depara.conta_contador" rota={ROTA_AJUDA} />
+          <AjudaCampo chave="contabil.depara.conta_ps" rota={ROTA_AJUDA} />
+          <AjudaCampo chave="contabil.depara.vincular" rota={ROTA_AJUDA} />
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {totais && (
             <div style={{ fontSize: 12, color: C.espM }}>
@@ -215,7 +226,7 @@ export default function PlanoDeParaPage() {
             </div>
           )}
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.espM }}>
-            <input type="checkbox" checked={soPendentes} onChange={(e) => setSoPendentes(e.target.checked)} /> só pendentes
+            <input type="checkbox" checked={soPendentes} onChange={(e) => setSoPendentes(e.target.checked)} /> só pendentes<AjudaCampo chave="contabil.depara.so_pendentes" rota={ROTA_AJUDA} />
           </label>
         </div>
       </div>

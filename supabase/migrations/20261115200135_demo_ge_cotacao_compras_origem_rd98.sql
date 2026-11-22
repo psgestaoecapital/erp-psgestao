@@ -108,14 +108,14 @@ BEGIN
      status, data_convite, data_resposta, prazo_entrega_dias, condicao_pagamento)
   VALUES
     (v_cot, v_bot, v_forn_a.id, COALESCE(v_forn_a.nome_fantasia, v_forn_a.razao_social, 'Fornecedor A'),
-     v_forn_a.cnpj_cpf, 'respondida', now(), now(), 7, '30 dias')
+     v_forn_a.cnpj_cpf, 'respondeu', now(), now(), 7, '30 dias')
   RETURNING id INTO v_fa;
   INSERT INTO erp_cotacoes_fornecedores
     (cotacao_id, company_id, fornecedor_id, fornecedor_nome, fornecedor_cnpj,
      status, data_convite, data_resposta, prazo_entrega_dias, condicao_pagamento)
   VALUES
     (v_cot, v_bot, v_forn_b.id, COALESCE(v_forn_b.nome_fantasia, v_forn_b.razao_social, 'Fornecedor B'),
-     v_forn_b.cnpj_cpf, 'respondida', now(), now(), 10, '28 dias')
+     v_forn_b.cnpj_cpf, 'respondeu', now(), now(), 10, '28 dias')
   RETURNING id INTO v_fb;
 
   -- Propostas (preços diferentes -> Fornecedor B é o menor: A=310,00 / B=300,00)

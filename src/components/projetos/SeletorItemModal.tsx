@@ -1,7 +1,7 @@
 // src/components/projetos/SeletorItemModal.tsx
 // Modal "Adicionar item ao BOM" com 4 abas: Material / Mão de obra / Equipamento / EPI.
 // Material/Equipamento/EPI puxam do ESTOQUE REAL (erp_produtos) via fn_bom_estoque_fontes, com filtro por LOCAL de
-// estoque (Decisão CEO 18/11 🅰️: EPI vem do estoque, no local dos EPIs). Mão de obra vem de projetos_mao_obra.
+// estoque (Decisão CEO 18/11 opção A: EPI vem do estoque, no local dos EPIs). Mão de obra vem de projetos_mao_obra.
 // Entrada MANUAL em qualquer aba (nome+unidade+custo, sem cadastro). Produto sem local NUNCA some ("Sem local").
 
 "use client";
