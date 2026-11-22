@@ -345,6 +345,7 @@ export default function FinanciamentoPage() {
                     className="flex gap-2 mt-3 flex-wrap"
                     onClick={(e) => e.stopPropagation()}
                   >
+                    <AjudaCampo chave="ge.financiamento.acoes" />
                     {sit === 'excluidos' ? (
                       <span style={acaoAjuda}><button onClick={() => void aplicar([r], 'restaurar')} style={btnSec} data-testid="fin-restaurar">Restaurar</button><AjudaCampo chave="ge.financiamento.acao_restaurar" /></span>
                     ) : (

@@ -4,6 +4,7 @@
 // SUGESTÃO (mês anterior + 5%) como ponto de partida e avisa que é sugestão, não meta.
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { parseNumBR } from '@/lib/num'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { calcularModelo, estadoPadrao, gruposProduto, type BaseV5 } from './motor-v5'
@@ -92,8 +93,7 @@ export function MetasV7({ empresa }: Props) {
 
   const temMeta = metas.size > 0
   const salvar = async (cod: string, nome: string) => {
-    const txt = (editando[cod] ?? '').replace(/\./g, '').replace(',', '.')
-    const valor = Number(txt)
+    const valor = parseNumBR(editando[cod] ?? '') ?? NaN
     if (!Number.isFinite(valor) || valor < 0) { setErro('Informe um valor de meta válido.'); return }
     setErro(null); setMsg(null)
     const { data, error } = await supabase.rpc('fn_meta_comercial_salvar', { p_company_id: empresa, p_mes: mes, p_vendedor: cod, p_valor: valor })
