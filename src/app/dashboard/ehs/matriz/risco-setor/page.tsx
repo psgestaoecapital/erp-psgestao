@@ -69,7 +69,7 @@ export default function MatrizRiscoSetorPage() {
       if (ids.length === 0) { setSetores([]); setRiscos([]); setHeranca(new Map()); return }
       const [s, r, po, pp] = await Promise.all([
         supabase.from('prod_setor').select('id, company_id, nome, ordem, ativo').in('company_id', ids).eq('ativo', true).order('nome'),
-        supabase.from('prod_setor_risco').select('id, company_id, setor_id, tipo, descricao, grau').in('company_id', ids),
+        supabase.from('prod_setor_risco').select('id, company_id, setor_id, tipo, descricao, grau').in('company_id', ids).is('deleted_at', null),
         supabase.from('prod_posto').select('id, setor_id').in('company_id', ids),
         supabase.from('prod_posto_pessoa').select('posto_id, funcionario_id').in('company_id', ids),
       ])
@@ -127,11 +127,13 @@ export default function MatrizRiscoSetorPage() {
 
   async function excluir(r: Risco) {
     const setorNome = setores.find((s) => s.id === r.setor_id)?.nome || 'setor'
-    if (!confirm(`Excluir o risco "${tipoInfo(r.tipo).rotulo}${r.descricao ? ' · ' + r.descricao : ''}" do setor ${setorNome}?`)) return
+    if (!confirm(`Excluir o risco "${tipoInfo(r.tipo).rotulo}${r.descricao ? ' · ' + r.descricao : ''}" do setor ${setorNome}?\n\nA exclusão fica registrada (quem e quando) e o histórico do GRO/PGR é preservado.`)) return
     try {
-      const { error } = await supabase.from('prod_setor_risco').delete().eq('id', r.id)
+      // Exclusão RASTREÁVEL (RD-98 p4): soft-delete + audit via RPC guardada; nunca DELETE físico de registro de PGR.
+      const { data, error } = await supabase.rpc('fn_prod_setor_risco_excluir', { p_id: r.id })
       if (error) throw error
-      setAviso('Risco excluído.')
+      if (!data?.ok) throw new Error(mensagemErroRisco(data?.erro))
+      setAviso('Risco excluído — exclusão registrada.')
       carregar()
     } catch (e: any) { alert(e?.message || 'Falha ao excluir') }
   }
@@ -254,7 +256,6 @@ export default function MatrizRiscoSetorPage() {
 
       {(novoNoSetor !== null || editando) && companyAlvo && (
         <RiscoFormModal
-          companyId={editando?.company_id || companyAlvo}
           setores={setores}
           setorInicial={editando ? editando.setor_id : (novoNoSetor || setores[0]?.id || '')}
           risco={editando || undefined}
@@ -266,8 +267,8 @@ export default function MatrizRiscoSetorPage() {
   )
 }
 
-function RiscoFormModal({ companyId, setores, setorInicial, risco, onClose, onSaved }: {
-  companyId: string; setores: Setor[]; setorInicial: string; risco?: Risco
+function RiscoFormModal({ setores, setorInicial, risco, onClose, onSaved }: {
+  setores: Setor[]; setorInicial: string; risco?: Risco
   onClose: () => void; onSaved: (aviso: string) => void
 }) {
   const [setorId, setSetorId] = useState(risco?.setor_id || setorInicial || '')
@@ -283,15 +284,18 @@ function RiscoFormModal({ companyId, setores, setorInicial, risco, onClose, onSa
     if (!descricao.trim()) { setErro('Descreva o risco'); return }
     setSalvando(true); setErro(null)
     try {
+      // Inclusão/alteração por RPC guardada (empresa derivada do setor no servidor) + audit (RD-98).
       if (risco?.id) {
-        const { error } = await supabase.from('prod_setor_risco')
-          .update({ setor_id: setorId, tipo, descricao: descricao.trim(), grau: grau || null }).eq('id', risco.id)
+        const { data, error } = await supabase.rpc('fn_prod_setor_risco_alterar',
+          { p_id: risco.id, p_setor_id: setorId, p_tipo: tipo, p_descricao: descricao.trim(), p_grau: grau || null })
         if (error) throw error
+        if (!data?.ok) throw new Error(mensagemErroRisco(data?.erro))
         onSaved('Risco alterado.')
       } else {
-        const { error } = await supabase.from('prod_setor_risco')
-          .insert({ company_id: companyId, setor_id: setorId, tipo, descricao: descricao.trim(), grau: grau || null })
+        const { data, error } = await supabase.rpc('fn_prod_setor_risco_incluir',
+          { p_setor_id: setorId, p_tipo: tipo, p_descricao: descricao.trim(), p_grau: grau || null })
         if (error) throw error
+        if (!data?.ok) throw new Error(mensagemErroRisco(data?.erro))
         onSaved('Risco criado.')
       }
     } catch (e: any) { setErro(e?.message || 'Falha ao salvar'); setSalvando(false) }
@@ -336,6 +340,19 @@ function RiscoFormModal({ companyId, setores, setorInicial, risco, onClose, onSa
       </div>
     </div>
   )
+}
+
+// Erros das RPCs guardadas em linguagem do usuário (RD-98 critério e — nunca erro cru do banco).
+function mensagemErroRisco(code?: string): string {
+  switch (code) {
+    case 'sem_acesso': return 'Você não tem acesso a esta empresa.'
+    case 'nao_encontrado': return 'Risco não encontrado — ele já pode ter sido excluído.'
+    case 'setor_nao_encontrado':
+    case 'setor_invalido': return 'Setor inválido para esta empresa.'
+    case 'tipo_obrigatorio': return 'Selecione o tipo de agente.'
+    case 'descricao_obrigatoria': return 'Descreva o risco.'
+    default: return 'Não foi possível concluir a operação.'
+  }
 }
 
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 600, color: C.muted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }
