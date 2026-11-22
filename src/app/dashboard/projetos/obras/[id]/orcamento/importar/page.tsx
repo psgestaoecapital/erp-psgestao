@@ -28,6 +28,47 @@ function numCanonico(raw: string): string {
 }
 const numBR = (raw: string): number => { const n = Number(numCanonico(raw)); return Number.isFinite(n) ? n : 0 }
 
+// §334 — normaliza a unidade da planilha para a grafia canônica do orçamento (un, m, m², m³, kg, pç, vb, mês, h).
+// Planilhas de cliente escrevem a MESMA unidade de formas diferentes ("UND", "unid.", "M2", "m²", "pç", "peça",
+// "verba", "hr"…). Sem isto, o mesmo insumo entra com unidades diferentes e não soma/compara. Só reescreve o que
+// RECONHECE; unidade desconhecida fica como veio (trim), para não perder informação do cliente. Sem rede: função pura.
+function normalizarUnidade(raw: string): string {
+  const orig = String(raw ?? '').trim()
+  if (!orig) return ''
+  // minúsculo, sem acento, sem ponto/espaço, para casar grafias (ex.: "M²." → "m2"; "Mês" → "mes")
+  const k = orig.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[.\s]/g, '')
+  const mapa: Record<string, string> = {
+    // unidade
+    un: 'un', und: 'un', unid: 'un', unidade: 'un', unidades: 'un', u: 'un', pcto: 'un',
+    // peça
+    pc: 'pç', pca: 'pç', peca: 'pç', pecas: 'pç', pec: 'pç', 'pç': 'pç',
+    // metro linear
+    m: 'm', ml: 'm', metro: 'm', metros: 'm', metrolinear: 'm', mlinear: 'm',
+    // metro quadrado
+    m2: 'm²', 'm²': 'm²', mq: 'm²', metroquadrado: 'm²', metrosquadrados: 'm²',
+    // metro cúbico
+    m3: 'm³', 'm³': 'm³', mc: 'm³', metrocubico: 'm³', metroscubicos: 'm³',
+    // quilograma
+    kg: 'kg', quilo: 'kg', quilos: 'kg', kilo: 'kg', kilograma: 'kg', quilograma: 'kg', kgs: 'kg',
+    // verba
+    vb: 'vb', verba: 'vb', verbaglobal: 'vb', gl: 'vb', global: 'vb',
+    // mês
+    mes: 'mês', meses: 'mês', 'mês': 'mês',
+    // hora
+    h: 'h', hr: 'h', hrs: 'h', hora: 'h', horas: 'h', hs: 'h',
+    // litro (comum em planilhas de obra; mantém como 'L')
+    l: 'L', lt: 'L', litro: 'L', litros: 'L',
+    // tonelada
+    t: 't', ton: 't', tonelada: 't', toneladas: 't',
+    // saco / cento / par / conjunto
+    sc: 'sc', saco: 'sc', sacos: 'sc',
+    cto: 'cto', cento: 'cto',
+    par: 'par', pares: 'par',
+    cj: 'cj', conj: 'cj', conjunto: 'cj', jogo: 'cj', kit: 'cj',
+  }
+  return mapa[k] ?? orig
+}
+
 // §334 — conferência do total (acceptance C-2): a soma importada tem de bater, centavo a centavo, com o total
 // que a própria planilha declara. Procura, nas linhas da planilha, uma linha de "TOTAL" (geral/global/do orçamento/
 // final) e devolve o MAIOR valor numérico dela (o grande total costuma ser o maior número da linha). Sem rede: só
@@ -113,6 +154,8 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
   const [codigosRepetidos, setCodigosRepetidos] = useState<{ codigo: string; vezes: number }[]>([])
   // §334: linhas da planilha SEM código e SEM descrição (títulos/agrupadores/linhas vazias) que foram puladas.
   const [linhasIgnoradas, setLinhasIgnoradas] = useState(0)
+  // §334: quantas linhas tiveram a unidade padronizada para a grafia canônica (ex.: "UND"→"un", "M2"→"m²").
+  const [unidadesNormalizadas, setUnidadesNormalizadas] = useState(0)
   // §334 conferência do total: soma importada (Σ qtd × (material + mão de obra)) × total declarado na planilha.
   const [totalImportado, setTotalImportado] = useState(0)
   const [totalPlanilha, setTotalPlanilha] = useState<number | null>(null)
@@ -153,6 +196,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
       const numericos = new Set<number>()
       const lin: Linha[] = []
       let ignoradas = 0
+      let normalizadas = 0
       for (let r = headerRow + 1; r < matriz.length; r++) {
         const row = matriz[r] ?? []
         const eap = pega(row, 'eap_codigo')
@@ -166,8 +210,11 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
           const cel = ws[addr] as { t?: string } | undefined
           if (cel && cel.t === 'n') numericos.add(linIdx)
         }
+        const unidadeOrig = pega(row, 'unidade')
+        const unidadeNorm = normalizarUnidade(unidadeOrig)
+        if (unidadeOrig && unidadeNorm !== unidadeOrig.trim()) normalizadas++
         lin.push({
-          eap_codigo: eap, descricao: desc, unidade: pega(row, 'unidade'),
+          eap_codigo: eap, descricao: desc, unidade: unidadeNorm,
           quantidade: numCanonico(pega(row, 'quantidade')),
           custo_material_unit: numCanonico(pega(row, 'custo_material_unit')),
           custo_mao_obra_unit: numCanonico(pega(row, 'custo_mao_obra_unit')),
@@ -184,6 +231,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
       for (const l of lin) { const c = l.eap_codigo.trim(); if (c) cont.set(c, (cont.get(c) ?? 0) + 1) }
       setCodigosRepetidos([...cont.entries()].filter(([, n]) => n > 1).map(([codigo, vezes]) => ({ codigo, vezes })).sort((a, b) => b.vezes - a.vezes))
       setLinhasIgnoradas(ignoradas)
+      setUnidadesNormalizadas(normalizadas)
       // §334 conferência: soma importada = Σ qtd × (material + mão de obra) de todas as linhas lidas.
       const somaImportada = lin.reduce((acc, l) => acc + numBR(l.quantidade) * (numBR(l.custo_material_unit) + numBR(l.custo_mao_obra_unit)), 0)
       setTotalImportado(somaImportada)
@@ -210,7 +258,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
     setPasso('resultado')
   }
 
-  const recomecar = () => { setPasso('upload'); setLinhas([]); setValidadas([]); setResumo(null); setResultado(null); setHash(''); setArquivoNome(''); setErro(null); setAviso(''); setCodigosNumericos(new Set()); setCienteNumerico(false); setCodigosRepetidos([]); setLinhasIgnoradas(0); setTotalImportado(0); setTotalPlanilha(null) }
+  const recomecar = () => { setPasso('upload'); setLinhas([]); setValidadas([]); setResumo(null); setResultado(null); setHash(''); setArquivoNome(''); setErro(null); setAviso(''); setCodigosNumericos(new Set()); setCienteNumerico(false); setCodigosRepetidos([]); setLinhasIgnoradas(0); setUnidadesNormalizadas(0); setTotalImportado(0); setTotalPlanilha(null) }
 
   // diferença entre a soma importada e o total declarado na planilha; "confere" quando ≤ 1 centavo.
   const difTotal = totalPlanilha === null ? null : Math.round((totalImportado - totalPlanilha) * 100) / 100
@@ -260,6 +308,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
             <p style={{ margin: 0, fontSize: 12, color: MUT }}>
               Reconhecemos colunas de código (EAP), descrição, unidade, quantidade, material, mão de obra e local.
               O código é texto — planilhas podem gravar &quot;23,10&quot; como número e perder o zero; confira os códigos na prévia.
+              As unidades são padronizadas para a grafia do orçamento (ex.: &quot;UND&quot; → un, &quot;M2&quot; → m², &quot;hr&quot; → h); o que não reconhecemos fica como veio.
             </p>
             {aviso && <div role="status" style={{ fontSize: 13, color: ESP }}>{aviso}</div>}
           </div>
@@ -274,6 +323,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
               {codigosNumericos.size > 0 && <span style={{ fontSize: 13, color: GOLD, fontWeight: 700 }}>{codigosNumericos.size} código(s) como número</span>}
               {codigosRepetidos.length > 0 && <span style={{ fontSize: 13, color: GOLD, fontWeight: 700 }}>{codigosRepetidos.length} código(s) repetido(s)</span>}
               {linhasIgnoradas > 0 && <span data-testid="eap-importar-ignoradas" title="Linhas sem código e sem descrição (títulos/agrupadores) — não entram no orçamento" style={{ fontSize: 13, color: MUT, fontWeight: 700 }}>{linhasIgnoradas} linha(s) ignorada(s)</span>}
+              {unidadesNormalizadas > 0 && <span data-testid="eap-importar-unidades-normalizadas" title="Unidades padronizadas para a grafia do orçamento (ex.: UND→un, M2→m², peça→pç, hr→h)" style={{ fontSize: 13, color: VERDE, fontWeight: 700 }}>{unidadesNormalizadas} unidade(s) padronizada(s)</span>}
               <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
                 <button type="button" data-testid="eap-importar-recomecar" onClick={recomecar} disabled={busy} style={{ background: '#fff', color: ESP, border: `1px solid ${LINE}`, borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Trocar arquivo</button>
                 <button type="button" data-testid="eap-importar-confirmar" onClick={() => void confirmar()} disabled={busy || resumo.validos === 0 || (codigosNumericos.size > 0 && !cienteNumerico)} style={{ background: ESP, color: BG, border: 'none', borderRadius: 10, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: busy || resumo.validos === 0 || (codigosNumericos.size > 0 && !cienteNumerico) ? 'default' : 'pointer', opacity: busy || resumo.validos === 0 || (codigosNumericos.size > 0 && !cienteNumerico) ? 0.5 : 1 }}>Confirmar importação</button>
