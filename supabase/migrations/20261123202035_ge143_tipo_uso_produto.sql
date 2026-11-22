@@ -24,3 +24,11 @@ VALUES
 ('cadastros.produtos.uso_compra','Produtos · Identificação','É comprado','Marque se este produto é adquirido de fornecedor.','Controla se ele aparece na busca de produto das telas de compra e pedido.','Insumo, matéria-prima, item de revenda: marcado.','Desmarcar num item que você compra: ele some do pedido de compra.',6,'/dashboard/cadastros/produtos','gestao_empresarial','publicado'),
 ('cadastros.produtos.uso_producao','Produtos · Identificação','É produzido internamente','Marque se este produto é fabricado dentro da própria empresa.','Separa os itens de fabricação própria dos de simples revenda, para os módulos de produção/custo.','Peça montada na oficina, produto manufaturado.','Marcar em item de revenda pura: distorce os relatórios de produção.',7,'/dashboard/cadastros/produtos','gestao_empresarial','publicado')
 ON CONFLICT (chave) DO NOTHING;
+
+-- Regra de entrega (CEO 21/11, tela 355): marca a linha do blueprint atendida. Meta-tabela (não é dado de cliente),
+-- idempotente e escopada pelo id do requisito "Tipo de uso do produto".
+UPDATE public.blueprint_tela_requisito
+   SET status_baseline = 'atendido',
+       evidencia_baseline = 'PR #5794 · /dashboard/cadastros/produtos (campo Tipo de uso + filtro venda/compra no seletor compartilhado)'
+ WHERE id = '5c5888d4-ba20-4f1a-80c0-848861502143'
+   AND status_baseline <> 'atendido';
