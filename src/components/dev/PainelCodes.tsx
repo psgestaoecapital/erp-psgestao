@@ -12,6 +12,7 @@ import AvancoVertical from './AvancoVertical'
 import SaudeEsteira from './SaudeEsteira'
 import DiagnosticoEsteira from './DiagnosticoEsteira'
 import BarrasQualidadeVertical from './BarrasQualidadeVertical'
+import ProgressoValidadoVertical from './ProgressoValidadoVertical'
 import ProximasPublicacoes from './ProximasPublicacoes'
 import CronogramaHub from './CronogramaHub'
 import SaudeCodes from './SaudeCodes'
@@ -171,6 +172,10 @@ export default function PainelCodes() {
         <div style={{ minWidth: 0 }}>{dados && <BlocoSeguro nome="Produzidas × publicadas por hora"><ProducaoCompacta entregas={dados.entregas} agora={agora} /></BlocoSeguro>}</div>
         <div style={{ minWidth: 0 }}><BlocoSeguro nome="Saúde da esteira"><SaudeEsteira compacto /></BlocoSeguro></div>
       </div>
+
+      {/* Pronto e validado por vertical ao longo dos dias (CEO 22/11) — LOGO ABAIXO do gráfico de colunas de qualidade,
+          NÃO o substitui: a linha mostra só o que o auditor validou; o de colunas segue sendo a foto do construído. */}
+      <div style={{ marginTop: 12 }}><BlocoSeguro nome="Pronto e validado por vertical"><ProgressoValidadoVertical /></BlocoSeguro></div>
 
       {/* Detalhe e diagnóstico (abaixo da primeira tela) */}
       <div style={{ marginTop: 12 }}><BlocoSeguro nome="Gráficos"><GraficosCodes semProducao /></BlocoSeguro></div>

@@ -75,6 +75,15 @@ test.describe('Central de Desenvolvimento · aba Codes', () => {
       await expect(page.getByTestId('codes-faixa')).toBeVisible()
       await expect(page.getByTestId('codes-atualizado'), 'assinou o Realtime').toContainText('(ao vivo)', { timeout: 20000 })
 
+      // "Pronto e validado por vertical" (CEO 22/11): o gráfico de LINHAS NOVO e a tabela "Qual priorizar", logo abaixo
+      // do gráfico de colunas de qualidade (que continua existindo — a linha não o substitui).
+      await expect(page.getByTestId('codes-qualidade-vertical'), 'o gráfico de colunas segue existindo').toBeVisible()
+      const validado = page.getByTestId('codes-progresso-validado')
+      await validado.scrollIntoViewIfNeeded()
+      await expect(validado, 'o gráfico de linhas validado aparece').toBeVisible({ timeout: 20000 })
+      await expect(validado.getByRole('button', { name: 'Essenciais' }), 'toggle Essenciais/Todos').toBeVisible()
+      await expect(page.getByTestId('codes-progresso-priorizar'), 'a tabela "Qual priorizar"').toBeVisible()
+
       // evento novo gravado DEPOIS da tela aberta: tem de aparecer sozinho, sem page.reload()
       await dbInsert('erp_dev_entrega', { pr_numero: PR_TESTE, titulo: `Aceitação aba Codes ${RUN}`, code: 'gilberto-desenv', evento: 'publicada',
         via: 'rapida', sha: RUN, url: null, ocorrido_em: new Date().toISOString() })
