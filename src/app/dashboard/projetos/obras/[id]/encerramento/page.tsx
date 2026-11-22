@@ -31,7 +31,9 @@ function recursoEmLiberacao(e: unknown): boolean {
   const code = typeof err.code === 'string' ? err.code : ''
   const msg = typeof err.message === 'string' ? err.message.toLowerCase() : ''
   if (['42P01', 'PGRST205', 'PGRST202', 'PGRST204'].includes(code)) return true
-  return /does not exist|not found|schema cache|bucket not found/.test(msg)
+  // Só o schema cache do PostgREST / bucket ausente. NUNCA "does not exist"/"not found" genérico:
+  // um erro REAL de SQL não pode virar aviso falso de "recurso sendo liberado".
+  return /schema cache|bucket not found/.test(msg)
 }
 
 const ROTA = '/dashboard/projetos/obras/[id]/encerramento'

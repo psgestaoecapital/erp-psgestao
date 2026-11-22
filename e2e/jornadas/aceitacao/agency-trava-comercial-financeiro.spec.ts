@@ -3,7 +3,7 @@
 // solicitar_financeiro devolve `faltando: [...]` e BLOQUEIA; completo → gera erp_contratos 'solicitado'. Cobre projeto.
 // @pos-migration: coluna numero_parcelas e a trava só existem após o deploy. DEMO (RD-69), self-cleaning.
 import { test, expect } from '../../support/fixtures'
-import { rpc, dbInsert, dbSelect, dbPatch, dbDelete, DEMO_REVENDA, registrarJornada } from '../../support/api'
+import { rpc, rpcComoRobo, dbInsert, dbSelect, dbPatch, dbDelete, DEMO_REVENDA, registrarJornada } from '../../support/api'
 
 type Sol = { ok: boolean; erro?: string; faltando?: string[]; tipo?: string }
 
@@ -75,7 +75,12 @@ test.describe('P&M · trava comercial→financeiro @pos-migration', () => {
       cli = (await dbInsert<{ id: string }>('erp_clientes', { company_id: DEMO_REVENDA, nome_fantasia: `Lista Sem Doc ${tag}`, razao_social: `Lista Sem Doc ${tag}`, ativo: true })).id
       // recorrente incompleto: cliente SEM documento e SEM serviço → antes do fix, o faltando lançava e a lista 500ava
       ctr = (await dbInsert<{ id: string }>('agency_contratos', { company_id: DEMO_REVENDA, tipo: 'recorrente', erp_cliente_id: cli })).id
-      const linhas = await rpc<Array<{ contrato_id: string; faltando: string[] }>>('fn_agency_contrato_listar', { p_company_id: DEMO_REVENDA })
+      // fn_agency_contrato_listar tem guarda de acesso (is_admin() OU empresa do usuário) e RECUSA o service_role
+      // (auth.uid() nulo → 'sem_acesso'). Chame como o robô (JWT real, PS_ADMIN) para exercitar o caminho REAL da
+      // regressão: se fn__agency_contrato_faltando voltar a lançar 22P02, o status deixa de ser 200 e o teste falha.
+      const resp = await rpcComoRobo<Array<{ contrato_id: string; faltando: string[] }>>('fn_agency_contrato_listar', { p_company_id: DEMO_REVENDA })
+      expect(resp.status, resp.texto).toBe(200)
+      const linhas = resp.corpo ?? []
       expect(Array.isArray(linhas)).toBe(true)
       const linha = linhas.find((l) => l.contrato_id === ctr)
       expect(linha).toBeTruthy()
