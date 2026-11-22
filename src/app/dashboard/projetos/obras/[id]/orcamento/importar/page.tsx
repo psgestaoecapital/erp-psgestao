@@ -26,6 +26,32 @@ function numCanonico(raw: string): string {
   if (/,/.test(limpo)) return limpo.replace(/\./g, '').replace(',', '.')
   return limpo
 }
+const numBR = (raw: string): number => { const n = Number(numCanonico(raw)); return Number.isFinite(n) ? n : 0 }
+
+// §334 — conferência do total (acceptance C-2): a soma importada tem de bater, centavo a centavo, com o total
+// que a própria planilha declara. Procura, nas linhas da planilha, uma linha de "TOTAL" (geral/global/do orçamento/
+// final) e devolve o MAIOR valor numérico dela (o grande total costuma ser o maior número da linha). Sem rede: só
+// lê a matriz já carregada. Devolve null quando não há um total declarado reconhecível (aí a tela só mostra a soma
+// importada para o usuário conferir na mão).
+function detectarTotalPlanilha(matriz: string[][]): number | null {
+  let melhor: { peso: number; valor: number } | null = null
+  for (const row of matriz) {
+    if (!Array.isArray(row)) continue
+    const texto = row.map((c) => String(c ?? '')).join(' ')
+    if (!/\btotal\b/i.test(texto)) continue
+    // dá preferência à linha do total "forte" (geral/global/orçamento/final/investimento)
+    const peso = /(geral|global|or[çc]amento|final|investimento|do\s+or[çc]amento)/i.test(texto) ? 2 : 1
+    let maior = 0
+    for (const c of row) {
+      const v = numBR(String(c ?? ''))
+      if (v > maior) maior = v
+    }
+    if (maior > 0 && (!melhor || peso > melhor.peso || (peso === melhor.peso && maior > melhor.valor))) {
+      melhor = { peso, valor: maior }
+    }
+  }
+  return melhor ? melhor.valor : null
+}
 
 type Linha = {
   eap_codigo: string; descricao: string; unidade: string
@@ -82,6 +108,9 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
   // confirmação antes de gravar. Detecção pelo TIPO da célula (SheetJS `cell.t === 'n'`), não pelo texto já formatado.
   const [codigosNumericos, setCodigosNumericos] = useState<Set<number>>(new Set())
   const [cienteNumerico, setCienteNumerico] = useState(false)
+  // §334 conferência do total: soma importada (Σ qtd × (material + mão de obra)) × total declarado na planilha.
+  const [totalImportado, setTotalImportado] = useState(0)
+  const [totalPlanilha, setTotalPlanilha] = useState<number | null>(null)
 
   const carregar = useCallback(async () => {
     if (!ehUuid(id)) { setLoading(false); setErro('Obra não encontrada. Abra pela lista de obras.'); return }
@@ -144,6 +173,10 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
       const h = await hashArquivo(buf)
       setArquivoNome(f.name); setHash(h); setLinhas(lin)
       setCodigosNumericos(numericos); setCienteNumerico(false)
+      // §334 conferência: soma importada = Σ qtd × (material + mão de obra) de todas as linhas lidas.
+      const somaImportada = lin.reduce((acc, l) => acc + numBR(l.quantidade) * (numBR(l.custo_material_unit) + numBR(l.custo_mao_obra_unit)), 0)
+      setTotalImportado(somaImportada)
+      setTotalPlanilha(detectarTotalPlanilha(matriz))
       // prévia no banco (sem gravar)
       const { data, error } = await comPrazo(async () => await supabase.rpc('fn_projetos_orcamento_eap_importar_validar', { p_orcamento_id: orcamentoId, p_linhas: lin }), { ms: 15000, tentativas: 1, label: 'eap-validar' })
       if (error) { setAviso(''); setErro(erroAmigavel(error, 'Não foi possível validar a planilha.')); return }
@@ -166,7 +199,11 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
     setPasso('resultado')
   }
 
-  const recomecar = () => { setPasso('upload'); setLinhas([]); setValidadas([]); setResumo(null); setResultado(null); setHash(''); setArquivoNome(''); setErro(null); setAviso(''); setCodigosNumericos(new Set()); setCienteNumerico(false) }
+  const recomecar = () => { setPasso('upload'); setLinhas([]); setValidadas([]); setResumo(null); setResultado(null); setHash(''); setArquivoNome(''); setErro(null); setAviso(''); setCodigosNumericos(new Set()); setCienteNumerico(false); setTotalImportado(0); setTotalPlanilha(null) }
+
+  // diferença entre a soma importada e o total declarado na planilha; "confere" quando ≤ 1 centavo.
+  const difTotal = totalPlanilha === null ? null : Math.round((totalImportado - totalPlanilha) * 100) / 100
+  const confereTotal = difTotal !== null && Math.abs(difTotal) <= 0.01
 
   return (
     <div style={{ minHeight: '100vh', background: BG, padding: '20px 16px 48px' }}>
@@ -228,6 +265,24 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
                 <button type="button" data-testid="eap-importar-recomecar" onClick={recomecar} disabled={busy} style={{ background: '#fff', color: ESP, border: `1px solid ${LINE}`, borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Trocar arquivo</button>
                 <button type="button" data-testid="eap-importar-confirmar" onClick={() => void confirmar()} disabled={busy || resumo.validos === 0 || (codigosNumericos.size > 0 && !cienteNumerico)} style={{ background: ESP, color: BG, border: 'none', borderRadius: 10, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: busy || resumo.validos === 0 || (codigosNumericos.size > 0 && !cienteNumerico) ? 'default' : 'pointer', opacity: busy || resumo.validos === 0 || (codigosNumericos.size > 0 && !cienteNumerico) ? 0.5 : 1 }}>Confirmar importação</button>
               </div>
+            </div>
+            <div data-testid="eap-importar-conferencia-total" style={{ ...CARD, display: 'grid', gap: 8, borderColor: confereTotal ? VERDE : (difTotal !== null ? GOLD : LINE) }}>
+              <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'baseline' }}>
+                <span style={{ fontSize: 13, color: MUT }}>Total importado (soma dos itens)</span>
+                <strong data-testid="eap-importar-total-importado" style={{ fontSize: 18, color: ESP, letterSpacing: -0.3 }}>{brl(totalImportado)}</strong>
+                {totalPlanilha !== null && (
+                  <span style={{ fontSize: 13, color: MUT }}>× Total declarado na planilha <strong style={{ color: ESP }}>{brl(totalPlanilha)}</strong></span>
+                )}
+              </div>
+              {totalPlanilha === null ? (
+                <span style={{ fontSize: 12.5, color: MUT }}>Não encontrei um &quot;Total&quot; declarado na planilha para conferir automaticamente. Compare o total importado acima com o total da sua planilha antes de confirmar.</span>
+              ) : confereTotal ? (
+                <span data-testid="eap-importar-total-confere" style={{ fontSize: 13, color: VERDE, fontWeight: 700 }}>✓ Confere com o total da planilha, centavo a centavo.</span>
+              ) : (
+                <span data-testid="eap-importar-total-difere" role="alert" style={{ fontSize: 13, color: GOLD, fontWeight: 700 }}>
+                  ⚠ Difere do total da planilha em {brl(Math.abs(difTotal ?? 0))}. Confira itens faltando, valores ou linhas de desconto/BDI antes de confirmar.
+                </span>
+              )}
             </div>
             {codigosNumericos.size > 0 && (
               <div data-testid="eap-importar-aviso-numerico" role="alert" style={{ ...CARD, borderColor: GOLD, background: 'rgba(200,148,26,0.06)', display: 'grid', gap: 10 }}>
