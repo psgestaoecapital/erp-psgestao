@@ -28,6 +28,8 @@ type Arvore = {
 type ObraInfo = { numero: string; nome: string | null; orcamento_id: string | null }
 // Serviço do catálogo da empresa (origem do custo do item)
 type Servico = { id: string; codigo: string | null; nome: string; unidade: string | null; eap_codigo: string | null; custo_material: number | null; custo_mao_obra: number | null }
+// Item individual do orçamento com complemento EAP (para editar/excluir) — fn_projetos_orcamento_item_eap_listar
+type ItemEap = { orcamento_item_id: string; servico_id: string | null; servico_codigo: string | null; servico_nome: string | null; unidade: string | null; eap_codigo: string; local_tipo: string | null; local_nome: string | null; quantidade: number; custo_material_unit: number | null; custo_mao_obra_unit: number | null; subtotal: number }
 // Os 6 tipos de local (projetos_local_tipo). O LOCAL é dimensão do item, não nível da EAP.
 const LOCAIS: { codigo: string; nome: string }[] = [
   { codigo: 'ambiente', nome: 'Ambiente / área comum' },
@@ -47,9 +49,13 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
   const [erro, setErro] = useState<string | null>(null)
   // nós recolhidos (chave = eap_codigo). Começa tudo expandido.
   const [recolhidos, setRecolhidos] = useState<Set<string>>(new Set())
-  // "+ Item": catálogo de serviços e estado do formulário
+  // Itens individuais do orçamento (para editar/excluir). A árvore só devolve nós agregados por EAP.
+  const [itens, setItens] = useState<ItemEap[]>([])
+  const [excluindoId, setExcluindoId] = useState<string | null>(null)
+  // "+ Item" / editar: catálogo de serviços e estado do formulário
   const [servicos, setServicos] = useState<Servico[]>([])
   const [formAberto, setFormAberto] = useState(false)
+  const [editId, setEditId] = useState<string | null>(null) // null = novo item; preenchido = editando
   const [servicoId, setServicoId] = useState('')
   const [quantidade, setQuantidade] = useState('')
   const [localTipo, setLocalTipo] = useState('')
@@ -73,6 +79,9 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
     setLoading(false)
     if (error || !data) { setErro(erroAmigavel(error, 'Não foi possível carregar o orçamento.')); return }
     setArvore(data as Arvore)
+    // Lista dos itens individuais (com id) para editar/excluir.
+    const { data: li } = await supabase.rpc('fn_projetos_orcamento_item_eap_listar', { p_orcamento_id: info.orcamento_id })
+    setItens(((li as { itens?: ItemEap[] } | null)?.itens) ?? [])
   }, [id, porLocal])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
 
@@ -96,8 +105,37 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
   }
 
   const fecharForm = () => {
-    setFormAberto(false); setServicoId(''); setQuantidade(''); setLocalTipo(''); setLocalNome('')
+    setFormAberto(false); setEditId(null); setServicoId(''); setQuantidade(''); setLocalTipo(''); setLocalNome('')
     setCustoMat(''); setCustoMo(''); setEapOverride(''); setErroForm(null)
+  }
+
+  // Abre o formulário em branco para um item novo.
+  const abrirNovo = () => { fecharForm(); setFormAberto(true) }
+
+  // Abre o formulário já preenchido com o item para EDITAR (reaproveita fn_..._salvar com p_item_id).
+  const abrirEdicao = (it: ItemEap) => {
+    setEditId(it.orcamento_item_id)
+    setServicoId(it.servico_id ?? '')
+    setQuantidade(it.quantidade != null ? String(it.quantidade) : '')
+    setLocalTipo(it.local_tipo ?? '')
+    setLocalNome(it.local_nome ?? '')
+    setCustoMat(it.custo_material_unit != null ? String(it.custo_material_unit) : '')
+    setCustoMo(it.custo_mao_obra_unit != null ? String(it.custo_mao_obra_unit) : '')
+    setEapOverride(it.eap_codigo ?? '')
+    setErroForm(null)
+    setFormAberto(true)
+  }
+
+  // Exclui o item (soft-delete com rastro) por fn_orcamento_item_excluir, após confirmação.
+  const excluirItem = async (it: ItemEap) => {
+    const rot = `${it.servico_codigo ? it.servico_codigo + ' · ' : ''}${it.servico_nome ?? 'item'}`
+    if (!window.confirm(`Excluir "${rot}" do orçamento? Esta ação remove o item (com rastro) e recalcula o total.`)) return
+    setExcluindoId(it.orcamento_item_id); setErro(null)
+    const { data, error } = await supabase.rpc('fn_orcamento_item_excluir', { p_item_id: it.orcamento_item_id })
+    setExcluindoId(null)
+    const res = data as { ok?: boolean; erro?: string } | null
+    if (error || (res && res.ok === false)) { setErro(erroAmigavel(error, res?.erro ?? 'Não foi possível excluir o item.')); return }
+    await carregar()
   }
 
   // Aceita tanto o formato pt-BR digitado ("1.234,56") quanto o formato de máquina do prefil ("1234.56").
@@ -129,10 +167,10 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
       p_eap_codigo: eapOverride.trim() || null,
       p_custo_material_unit: mat,
       p_custo_mao_obra_unit: mo,
-      p_item_id: null,
+      p_item_id: editId,
     })
     setSalvando(false)
-    if (error) { setErroForm(erroAmigavel(error, 'Não foi possível adicionar o item.')); return }
+    if (error) { setErroForm(erroAmigavel(error, editId ? 'Não foi possível salvar o item.' : 'Não foi possível adicionar o item.')); return }
     fecharForm()
     await carregar()
   }
@@ -206,13 +244,13 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
   const painelAdd = !loading && obra && obra.orcamento_id ? (
     <div style={{ marginBottom: 14 }}>
       {!formAberto ? (
-        <button data-testid="orc-add-abrir" onClick={() => setFormAberto(true)}
+        <button data-testid="orc-add-abrir" onClick={abrirNovo}
           style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${ESP}`, background: ESP, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
           + Item
         </button>
       ) : (
         <div data-testid="orc-add-form" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'grid', gap: 12 }}>
-          <div style={{ fontSize: 15, color: ESP, fontWeight: 700 }}>Adicionar item ao orçamento</div>
+          <div style={{ fontSize: 15, color: ESP, fontWeight: 700 }}>{editId ? 'Editar item do orçamento' : 'Adicionar item ao orçamento'}</div>
           {erroForm && <div role="alert" data-testid="orc-add-erro" style={{ background: '#FBEAEA', color: VERM, borderRadius: 8, padding: 9, fontSize: 13 }}>{erroForm}</div>}
           <label style={{ display: 'block' }}>
             <span style={rotuloCampo}>Serviço <AjudaCampo chave="projetos.orcamento_eap.item_servico" rota={ROTA} /></span>
@@ -262,7 +300,7 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                 style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${LINE}`, background: '#fff', color: MUT, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Cancelar</button>
               <button data-testid="orc-add-salvar" onClick={() => void salvarItem()} disabled={salvando}
                 style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${ESP}`, background: salvando ? MUT : ESP, color: '#fff', fontSize: 13, fontWeight: 700, cursor: salvando ? 'default' : 'pointer' }}>
-                {salvando ? 'Salvando…' : 'Adicionar item'}
+                {salvando ? 'Salvando…' : editId ? 'Salvar alterações' : 'Adicionar item'}
               </button>
             </div>
           </div>
@@ -331,6 +369,38 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                   </div>
                 ))}
             </div>
+
+            {/* Itens do orçamento — incluir (acima) / editar / excluir (RD-98 p2). Lista achatada com id. */}
+            {itens.length > 0 && (
+              <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: '14px 16px' }} data-testid="orc-itens">
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700, marginBottom: 10 }}>
+                  Itens do orçamento <AjudaCampo chave="projetos.orcamento_eap.itens" rota={ROTA} />
+                </div>
+                {itens.map((it) => {
+                  const loc = it.local_nome ? ` · ${it.local_nome}` : ''
+                  const un = it.unidade ? ` ${it.unidade}` : ''
+                  const excluindo = excluindoId === it.orcamento_item_id
+                  return (
+                    <div key={it.orcamento_item_id} data-testid={`orc-item-${it.orcamento_item_id}`}
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: `1px solid ${LINE}`, flexWrap: 'wrap' }}>
+                      <div style={{ flex: 1, minWidth: 180 }}>
+                        <div style={{ fontSize: 14, color: ESP, fontWeight: 500 }}>{it.servico_codigo ? `${it.servico_codigo} · ` : ''}{it.servico_nome ?? 'Serviço'}</div>
+                        <div style={{ fontSize: 11, color: MUT, fontFamily: 'ui-monospace, monospace' }}>
+                          EAP {it.eap_codigo}{loc} · {(it.quantidade ?? 0).toLocaleString('pt-BR')}{un}
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 13, color: ESP, fontWeight: 600, textAlign: 'right' }}>{brl(it.subtotal)}</span>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button data-testid={`orc-item-editar-${it.orcamento_item_id}`} onClick={() => abrirEdicao(it)} disabled={excluindo}
+                          style={{ padding: '6px 12px', borderRadius: 999, border: `1px solid ${LINE}`, background: '#fff', color: ESP, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Editar</button>
+                        <button data-testid={`orc-item-excluir-${it.orcamento_item_id}`} onClick={() => void excluirItem(it)} disabled={excluindo}
+                          style={{ padding: '6px 12px', borderRadius: 999, border: `1px solid ${VERM}`, background: '#fff', color: VERM, fontSize: 12, fontWeight: 700, cursor: excluindo ? 'default' : 'pointer' }}>{excluindo ? 'Excluindo…' : 'Excluir'}</button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>
