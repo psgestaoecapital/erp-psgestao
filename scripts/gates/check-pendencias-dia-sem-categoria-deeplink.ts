@@ -3,13 +3,17 @@
 // sem categoria. A tela (ListagemPagarReceberView) filtra por ?semcategoria=1 (seleciona a sentinela
 // "— sem categoria —"). A migration que define fn_ge_pendencias_dia tem de emitir esses 2 links com o
 // parâmetro certo — nunca mais a tela geral de A pagar / A receber sem filtrar.
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 
 let falhas = 0
 const ok = (c: boolean, m: string) => { if (!c) { falhas++; console.error('✗', m) } else console.log('✓', m) }
 
-const MIG = 'supabase/migrations/20261121120120_pendencias_dia_sem_categoria_deeplink.sql'
-const sql = readFileSync(MIG, 'utf8')
+// Localiza a migration pelo SUFIXO (não pela versão): a fila de merge renumera o
+// timestamp acima da main, então amarrar o gate ao número quebraria a cada renumeração.
+const DIR = 'supabase/migrations'
+const arq = readdirSync(DIR).find((f) => f.endsWith('_pendencias_dia_sem_categoria_deeplink.sql'))
+ok(!!arq, 'migration _pendencias_dia_sem_categoria_deeplink.sql existe')
+const sql = arq ? readFileSync(`${DIR}/${arq}`, 'utf8') : ''
 
 // os 2 links corrigidos nesta fatia
 ok(sql.includes("/dashboard/financeiro/pagar?semcategoria=1"), 'despesa sem categoria → ?semcategoria=1')
