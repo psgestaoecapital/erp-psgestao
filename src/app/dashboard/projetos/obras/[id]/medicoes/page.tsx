@@ -16,6 +16,7 @@ import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { parseNumBR } from '@/lib/num'
+import { MedicaoEtapas } from '@/components/hub/MedicaoEtapas'
 
 const ROTA = '/dashboard/projetos/obras/[id]/medicoes'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = 'rgba(61,35,20,0.18)', MUT = 'rgba(61,35,20,0.55)', VERM = '#A32D2D', VERDE = '#2E7D32'
@@ -511,6 +512,10 @@ export default function MedicoesObraPage({ params }: { params: Promise<{ id: str
                           </button>
                         </div>
                       </div>
+                    )}
+
+                    {aberta && (
+                      <MedicaoEtapas medicaoId={med.id} onMudou={() => void carregar()} />
                     )}
 
                     {aberta && (
