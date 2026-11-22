@@ -85,6 +85,8 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
   // §334: relatório consolidado de códigos EAP repetidos no arquivo (ex.: "1.2.9" quatro vezes). Cada repetição já
   // entra como "com erro" na validação; aqui mostramos o resumo porque a tabela só exibe as primeiras 300 linhas.
   const [codigosRepetidos, setCodigosRepetidos] = useState<{ codigo: string; vezes: number }[]>([])
+  // §334: linhas da planilha SEM código e SEM descrição (títulos/agrupadores/linhas vazias) que foram puladas.
+  const [linhasIgnoradas, setLinhasIgnoradas] = useState(0)
 
   const carregar = useCallback(async () => {
     if (!ehUuid(id)) { setLoading(false); setErro('Obra não encontrada. Abra pela lista de obras.'); return }
@@ -121,12 +123,13 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
       // A célula do código veio como NÚMERO? (tipo 'n' no SheetJS). Guarda índice base 0 da linha em `lin`.
       const numericos = new Set<number>()
       const lin: Linha[] = []
+      let ignoradas = 0
       for (let r = headerRow + 1; r < matriz.length; r++) {
         const row = matriz[r] ?? []
         const eap = pega(row, 'eap_codigo')
         const desc = pega(row, 'descricao')
-        // pula agrupadores/linhas vazias (sem código e sem descrição)
-        if (!eap && !desc) continue
+        // pula agrupadores/linhas vazias (sem código e sem descrição); conta p/ o relatório do que não foi lido.
+        if (!eap && !desc) { if (row.some((c) => String(c ?? '').trim())) ignoradas++; continue }
         const linIdx = lin.length
         // Só vale avisar quando há código: célula do código com tipo numérico perde o zero à direita.
         if (eap && col.eap_codigo !== undefined) {
@@ -151,6 +154,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
       const cont = new Map<string, number>()
       for (const l of lin) { const c = l.eap_codigo.trim(); if (c) cont.set(c, (cont.get(c) ?? 0) + 1) }
       setCodigosRepetidos([...cont.entries()].filter(([, n]) => n > 1).map(([codigo, vezes]) => ({ codigo, vezes })).sort((a, b) => b.vezes - a.vezes))
+      setLinhasIgnoradas(ignoradas)
       // prévia no banco (sem gravar)
       const { data, error } = await comPrazo(async () => await supabase.rpc('fn_projetos_orcamento_eap_importar_validar', { p_orcamento_id: orcamentoId, p_linhas: lin }), { ms: 15000, tentativas: 1, label: 'eap-validar' })
       if (error) { setAviso(''); setErro(erroAmigavel(error, 'Não foi possível validar a planilha.')); return }
@@ -173,7 +177,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
     setPasso('resultado')
   }
 
-  const recomecar = () => { setPasso('upload'); setLinhas([]); setValidadas([]); setResumo(null); setResultado(null); setHash(''); setArquivoNome(''); setErro(null); setAviso(''); setCodigosNumericos(new Set()); setCienteNumerico(false); setCodigosRepetidos([]) }
+  const recomecar = () => { setPasso('upload'); setLinhas([]); setValidadas([]); setResumo(null); setResultado(null); setHash(''); setArquivoNome(''); setErro(null); setAviso(''); setCodigosNumericos(new Set()); setCienteNumerico(false); setCodigosRepetidos([]); setLinhasIgnoradas(0) }
 
   return (
     <div style={{ minHeight: '100vh', background: BG, padding: '20px 16px 48px' }}>
@@ -232,6 +236,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
               <span style={{ fontSize: 13, color: resumo.com_erro ? VERM : MUT, fontWeight: 700 }}>{resumo.com_erro} com erro</span>
               {codigosNumericos.size > 0 && <span style={{ fontSize: 13, color: GOLD, fontWeight: 700 }}>{codigosNumericos.size} código(s) como número</span>}
               {codigosRepetidos.length > 0 && <span style={{ fontSize: 13, color: GOLD, fontWeight: 700 }}>{codigosRepetidos.length} código(s) repetido(s)</span>}
+              {linhasIgnoradas > 0 && <span data-testid="eap-importar-ignoradas" title="Linhas sem código e sem descrição (títulos/agrupadores) — não entram no orçamento" style={{ fontSize: 13, color: MUT, fontWeight: 700 }}>{linhasIgnoradas} linha(s) ignorada(s)</span>}
               <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
                 <button type="button" data-testid="eap-importar-recomecar" onClick={recomecar} disabled={busy} style={{ background: '#fff', color: ESP, border: `1px solid ${LINE}`, borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Trocar arquivo</button>
                 <button type="button" data-testid="eap-importar-confirmar" onClick={() => void confirmar()} disabled={busy || resumo.validos === 0 || (codigosNumericos.size > 0 && !cienteNumerico)} style={{ background: ESP, color: BG, border: 'none', borderRadius: 10, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: busy || resumo.validos === 0 || (codigosNumericos.size > 0 && !cienteNumerico) ? 'default' : 'pointer', opacity: busy || resumo.validos === 0 || (codigosNumericos.size > 0 && !cienteNumerico) ? 0.5 : 1 }}>Confirmar importação</button>
