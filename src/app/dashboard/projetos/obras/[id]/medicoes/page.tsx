@@ -16,6 +16,7 @@ import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { parseNumBR } from '@/lib/num'
+import { MedicaoEtapas } from '@/components/hub/MedicaoEtapas'
 
 const ROTA = '/dashboard/projetos/obras/[id]/medicoes'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = 'rgba(61,35,20,0.18)', MUT = 'rgba(61,35,20,0.55)', VERM = '#A32D2D', VERDE = '#2E7D32'
@@ -27,7 +28,10 @@ function recursoEmLiberacao(e: unknown): boolean {
   const code = typeof err.code === 'string' ? err.code : ''
   const msg = typeof err.message === 'string' ? err.message.toLowerCase() : ''
   if (['42P01', 'PGRST202', 'PGRST205'].includes(code)) return true
-  return /does not exist|not found|schema cache/.test(msg)
+  // Só o schema cache do PostgREST (relação/função ainda não existe). NUNCA "does not exist"/"not found"
+  // genérico: um erro REAL de SQL (ex.: "operator does not exist: record ->> unknown") virava aviso falso
+  // de "recurso sendo liberado" e escondia o bug. O erro de verdade tem de aparecer e ser registrado.
+  return /schema cache/.test(msg)
 }
 
 const brl = (n: number | null | undefined) =>
@@ -129,6 +133,7 @@ export default function MedicoesObraPage({ params }: { params: Promise<{ id: str
     setCarregando(false)
     if (error) {
       if (recursoEmLiberacao(error)) { setEmLiberacao(true); return }
+      console.error('fn_obra_medicao_listar falhou', error)
       setErro(erroAmigavel(error, 'Não foi possível carregar as medições. Tente de novo.')); return
     }
     const r = (data ?? {}) as { ok?: boolean; erro?: string; medicoes?: Medicao[] }
@@ -507,6 +512,10 @@ export default function MedicoesObraPage({ params }: { params: Promise<{ id: str
                           </button>
                         </div>
                       </div>
+                    )}
+
+                    {aberta && (
+                      <MedicaoEtapas medicaoId={med.id} onMudou={() => void carregar()} />
                     )}
 
                     {aberta && (

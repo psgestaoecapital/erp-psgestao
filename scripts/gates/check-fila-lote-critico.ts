@@ -11,6 +11,7 @@
 //            sozinha e encerra a rodada; e o CAMINHO DE FALHA — @pos do lote vermelho segura toda crítica seguinte.
 import { readFileSync } from 'node:fs'
 import { criticaSolo } from '../merge/critica-solo'
+import { soDemoBatelavel } from '../merge/so-demo-batelavel'
 import { SCRIPT_FILA, comFilaSimulada, merges, temFerramentas } from '../merge/fila-simulada'
 
 let falhas = 0
@@ -32,6 +33,11 @@ ok(/n_critica_solo" = 1 \][\s\S]*encerra a rodada/.test(sh) || /SOLO: encerra|en
   'SOLO encerra a rodada ao publicar (nada batela no @pos dela)')
 ok(/n_critica" = 1 \] && \[ "\$n_critica_solo" = 0 \] && \[ "\$lote_mig_crit_n" -ge "\$LOTE_MIG_CRIT_MAX"/.test(sh),
   'o teto de críticas vale só para as BATELÁVEIS (n_critica_solo=0)')
+// SO-DEMO (CEO 21/11): a label `so-demo` numa PR revisada rebaixa a crítica de SOLO p/ BATELÁVEL (backstop de segurança).
+ok(/so-demo-batelavel\.ts/.test(sh), 'a fila chama o classificador so-demo-batelavel.ts (label so-demo)')
+ok(/index\("so-demo"\)/.test(sh) && /n_critica_solo=0/.test(sh), 'label so-demo rebaixa a crítica p/ BATELÁVEL (n_critica_solo=0)')
+ok(/batelavel == true/.test(sh), 'so-demo: só rebaixa com .batelavel==true EXPLÍCITO (viés p/ SOLO)')
+ok(/index\("conserto-main"\)/.test(sh) && /so-demo/.test(sh), 'conserto-main nunca é so-demo (fica SOLO)')
 
 // ── Parte 2: o classificador puro ──
 const diz = (r: { solo: boolean }) => (r.solo ? 'SOLO' : 'batelável')
@@ -51,6 +57,25 @@ ok(!criticaSolo([{ nome: 'supabase/migrations/1_x.sql', conteudo: 'create table 
 ok(criticaSolo([{ nome: 'supabase/migrations/1_x.sql' }]).solo, 'migration sem conteúdo p/ avaliar → SOLO (viés de segurança)')
 ok(!criticaSolo([{ nome: 'e2e/x.spec.ts' }, { nome: 'docs/y.md' }]).solo, 'só teste/doc → batelável (ignora)')
 void diz
+
+// ── Parte 2b: o classificador so-demo-batelavel.ts (puro) — backstop de segurança da label so-demo (CEO 21/11) ──
+const bat = (r: { batelavel: boolean }) => (r.batelavel ? 'batelável' : 'SOLO')
+ok(soDemoBatelavel([{ nome: 'supabase/migrations/1_demo.sql', conteudo: 'delete from titulos where company_id in (select id from companies where is_demo);' }]).batelavel,
+  'so-demo: DML de dado financeiro SÓ na DEMO (titulos), sem DDL → BATELÁVEL (is_demo cobre a linha)')
+ok(soDemoBatelavel([{ nome: 'supabase/migrations/1_demo.sql', conteudo: "insert into erp_bot_config(id, nome) values (1, 'demo') on conflict do nothing;" }]).batelavel,
+  'so-demo: INSERT de dado demo em tabela não-fiscal (bot P&M) → BATELÁVEL')
+ok(!soDemoBatelavel([{ nome: 'supabase/migrations/1_demo.sql', conteudo: 'insert into nfe_lote(id) values (1);' }]).batelavel,
+  'so-demo + fiscal (nfe) no conteúdo → SOLO (is_demo não cobre a nota fiscal)')
+ok(!soDemoBatelavel([{ nome: 'supabase/migrations/1_demo.sql', conteudo: 'alter table veic_veiculo add column demo_flag boolean;' }]).batelavel,
+  'so-demo + DDL em tabela de domínio (ALTER existente) → SOLO (muda o schema de todas as empresas)')
+ok(!soDemoBatelavel([{ nome: 'supabase/migrations/1_demo.sql', conteudo: 'create policy p on erp_clientes for select using (true);' }]).batelavel,
+  'so-demo + RLS/policy em tabela existente → SOLO')
+ok(!soDemoBatelavel([{ nome: 'supabase/migrations/1_nr36_demo.sql', conteudo: 'select 1;' }]).batelavel,
+  'so-demo + NR-36 pelo caminho → SOLO')
+ok(!soDemoBatelavel([{ nome: 'src/app/dashboard/fiscal/page.tsx' }]).batelavel, 'so-demo + tela fiscal pelo caminho → SOLO')
+ok(!soDemoBatelavel([{ nome: 'supabase/migrations/1_demo.sql' }]).batelavel,
+  'so-demo sem conteúdo p/ avaliar → SOLO (viés de segurança)')
+void bat
 
 // ── Parte 3: o comportamento real ──
 if (!temFerramentas()) {
@@ -87,6 +112,34 @@ if (!temFerramentas()) {
     x = rodar([crit(1), crit(2)], false, 5000, {}, { conclusion: 'failure', specs: ['e2e/x.spec.ts'], headPr: 1 })
     ok(merges(x.escritas).length === 0,
       '5) caminho de falha: @pos do lote vermelho → nenhuma crítica publica (o guardião bisseta/reverte)')
+
+    // ── SO-DEMO (CEO 21/11): a label `so-demo` numa PR revisada+autorizada rebaixa a crítica de SOLO p/ BATELÁVEL ──
+    // so-demo VÁLIDO: DML de dado financeiro guardado por is_demo, sem DDL de estrutura.
+    const soDemo = (n: number) => ({ n, labels: ['revisao-eng-chefe', 'so-demo'], autorizada: true, migration: true,
+      sqlMigration: `delete from titulos where company_id in (select id from companies where is_demo);` })
+    // MESMA migration SEM a label so-demo: cai no carve-out financeiro do critica-solo → SOLO (como hoje).
+    const soDemoSemLabel = (n: number) => ({ n, labels: ['revisao-eng-chefe'], autorizada: true, migration: true,
+      sqlMigration: `delete from titulos where company_id in (select id from companies where is_demo);` })
+    // so-demo mas com DDL de ESTRUTURA em tabela de domínio: critica-solo marca SOLO (token `titulo`), e o backstop
+    // MANTÉM SOLO — o ALTER muda o schema de TODAS as empresas, não só da DEMO (is_demo não cobre). Diferente do cenário
+    // 6 (DELETE de dado demo em titulos), onde SÓ o DML financeiro é rebaixado p/ batelável.
+    const soDemoDdl = (n: number) => ({ n, labels: ['revisao-eng-chefe', 'so-demo'], autorizada: true, migration: true,
+      sqlMigration: `alter table titulos add column obs_demo text;` })
+
+    // 6) so-demo VÁLIDO é BATELÁVEL: batela com outra crítica no MESMO lote (um @pos para as duas).
+    x = rodar([soDemo(1), crit(2)], false, 5000, {}, {})
+    ok(merges(x.escritas).includes(1) && merges(x.escritas).includes(2),
+      '6) so-demo comprovado (DML financeiro só-demo) é BATELÁVEL: batela com outra crítica no mesmo @pos')
+
+    // 7) so-demo + DDL em tabela de domínio: backstop mantém SOLO (publica sozinha e encerra a rodada).
+    x = rodar([soDemoDdl(1), crit(2)], false, 5000, {}, {})
+    ok(merges(x.escritas).includes(1) && !merges(x.escritas).includes(2),
+      '7) so-demo + DDL de estrutura: backstop mantém SOLO (publica sozinha, encerra a rodada)')
+
+    // 8) SEM a label so-demo, a MESMA migration financeira é SOLO como hoje (batelável atrás dela espera).
+    x = rodar([soDemoSemLabel(1), crit(2)], false, 5000, {}, {})
+    ok(merges(x.escritas).includes(1) && !merges(x.escritas).includes(2),
+      '8) sem a label so-demo: migration financeira cai no carve-out → SOLO (como hoje)')
   })
 }
 
