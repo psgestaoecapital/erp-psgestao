@@ -305,7 +305,12 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                 <option key={s.id} value={s.id}>{s.codigo ? `${s.codigo} · ` : ''}{s.nome}{s.unidade ? ` (${s.unidade})` : ''}</option>
               ))}
             </select>
-            {servicos.length === 0 && <div style={{ fontSize: 12, color: MUT, marginTop: 4 }}>Nenhum serviço no catálogo da empresa. Cadastre serviços para montar o orçamento.</div>}
+            {servicos.length === 0 && (
+              <div style={{ fontSize: 12, color: MUT, marginTop: 4 }}>
+                Nenhum serviço no catálogo da empresa.{' '}
+                <Link href="/dashboard/projetos/catalogo?aba=biblioteca" data-testid="orc-add-sem-servico-biblioteca" style={{ color: GOLD, fontWeight: 600, textDecoration: 'underline' }}>Escolha serviços prontos na Biblioteca padrão PS</Link>{' '}ou cadastre o seu no Catálogo para montar o orçamento.
+              </div>
+            )}
           </label>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
             <label style={{ display: 'block' }}>
