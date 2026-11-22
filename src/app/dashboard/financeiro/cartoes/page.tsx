@@ -7,6 +7,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero } from '@/lib/moeda-mascara'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF'
 const ESP60 = 'rgba(61,35,20,0.6)', GREEN = '#16A34A', RED = '#B91C1C'
@@ -139,7 +141,7 @@ export default function CartoesPage() {
 
   async function simular() {
     if (!empresaUnica || !sel) { setMsg({ t: 'Selecione uma adquirente.', ok: false }); return }
-    const v = parseFloat(String(sim.valor).replace(',', '.'))
+    const v = moedaParaNumero(sim.valor) ?? 0
     if (!v || v <= 0) { setMsg({ t: 'Informe um valor de venda.', ok: false }); return }
     setBusy(true); setSimRes(null)
     const { data, error } = await supabase.rpc('fn_cartao_calcular', {
@@ -311,7 +313,7 @@ export default function CartoesPage() {
             <label style={{ display: 'block' }}><span style={lbl}>Bandeira<AjudaCampo chave="financeiro.cartoes.sim_bandeira" /></span><input style={inp} list="bandeiras" value={sim.bandeira} onChange={(e) => setSim({ ...sim, bandeira: e.target.value })} /></label>
             <label style={{ display: 'block' }}><span style={lbl}>Modalidade<AjudaCampo chave="financeiro.cartoes.sim_modalidade" /></span><select style={inp} value={sim.modalidade} onChange={(e) => setSim({ ...sim, modalidade: e.target.value })}>{MODALIDADES.map((m) => <option key={m} value={m}>{m}</option>)}</select></label>
             <label style={{ display: 'block' }}><span style={lbl}>Parcelas<AjudaCampo chave="financeiro.cartoes.sim_parcelas" /></span><input style={inp} type="number" value={sim.parcelas} onChange={(e) => setSim({ ...sim, parcelas: e.target.value })} /></label>
-            <label style={{ display: 'block' }}><span style={lbl}>Valor da venda (R$)<AjudaCampo chave="financeiro.cartoes.sim_valor" /></span><input style={inp} value={sim.valor} onChange={(e) => setSim({ ...sim, valor: e.target.value })} placeholder="2110,00" /></label>
+            <label style={{ display: 'block' }}><span style={lbl}>Valor da venda (R$)<AjudaCampo chave="financeiro.cartoes.sim_valor" /></span><CampoMoeda style={inp} value={sim.valor} onChange={(m) => setSim({ ...sim, valor: m })} placeholder="2.110,00" /></label>
           </div>
           <button onClick={() => void simular()} disabled={busy || !sel} style={{ ...btnPri, marginTop: 10, opacity: sel ? 1 : 0.5 }}>Calcular</button>
           {!sel && <div style={{ fontSize: 11.5, color: ESP60, marginTop: 8 }}>Cadastre uma adquirente e selecione-a (clique no nome, à esquerda) para simular.</div>}
