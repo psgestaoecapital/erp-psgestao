@@ -368,5 +368,7 @@ GRANT EXECUTE ON FUNCTION public.fn_dev_vertical_auditoria_status(text) TO authe
 REVOKE ALL ON FUNCTION public.fn_dev_vertical_orcamento(text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_dev_vertical_orcamento(text) TO authenticated, service_role;
 
+-- ACL viva é service_role-only (postgres, service_role); chamada só server-side.
+-- Não adicionar authenticated: função SECURITY DEFINER sem guarda interna. (revisor 22/11)
 REVOKE ALL ON FUNCTION public.fn_resolver_area_da_rota(text) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.fn_resolver_area_da_rota(text) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.fn_resolver_area_da_rota(text) TO service_role;
