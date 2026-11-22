@@ -325,6 +325,18 @@ GRANT EXECUTE ON FUNCTION public.fn_rh_parametro_custo_salvar(uuid, jsonb) TO au
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 8) MENU / CATÁLOGO / TELA
+-- conserto-main (gilberto-esteira): o subgrupo 'recursos_humanos' é pré-requisito do FK
+-- module_catalog_subgrupo_fkey do INSERT abaixo. Em produção ele foi semeado fora da migration
+-- (CEO 11/11), mas NENHUMA migration o cria — então a reconstrução limpa do banco (vaga 1 de
+-- referência da aceitação da main) falhava aqui com 23503 "Key (subgrupo)=(recursos_humanos)
+-- is not present in table module_subgrupos", abortando a suíte e travando a esteira. Insere o
+-- subgrupo de forma idempotente, com os MESMOS valores vivos da produção, antes de referenciá-lo
+-- (mesmo padrão dos módulos irmãos: produtividade, logistica, crm_*, ehs_*). No-op em produção.
+INSERT INTO public.module_subgrupos (id, label, grupo, ordem, ativo, descricao)
+VALUES ('recursos_humanos', 'Recursos Humanos', 'industrial', 80, true,
+        'Postos de trabalho, quadro, vagas, custo da mão de obra, folha, ponto e painel de RH (CEO 11/11)')
+ON CONFLICT (id) DO NOTHING;
+
 INSERT INTO public.module_catalog (id, nome, grupo, subgrupo, rota, ordem, ativo, descricao, is_shared)
 VALUES ('industrial_rh_quadro', 'Quadro de pessoal', 'industrial', 'recursos_humanos',
         '/dashboard/industrial/rh/quadro', 5, true,
