@@ -82,6 +82,9 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
   // confirmação antes de gravar. Detecção pelo TIPO da célula (SheetJS `cell.t === 'n'`), não pelo texto já formatado.
   const [codigosNumericos, setCodigosNumericos] = useState<Set<number>>(new Set())
   const [cienteNumerico, setCienteNumerico] = useState(false)
+  // §334: relatório consolidado de códigos EAP repetidos no arquivo (ex.: "1.2.9" quatro vezes). Cada repetição já
+  // entra como "com erro" na validação; aqui mostramos o resumo porque a tabela só exibe as primeiras 300 linhas.
+  const [codigosRepetidos, setCodigosRepetidos] = useState<{ codigo: string; vezes: number }[]>([])
 
   const carregar = useCallback(async () => {
     if (!ehUuid(id)) { setLoading(false); setErro('Obra não encontrada. Abra pela lista de obras.'); return }
@@ -144,6 +147,10 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
       const h = await hashArquivo(buf)
       setArquivoNome(f.name); setHash(h); setLinhas(lin)
       setCodigosNumericos(numericos); setCienteNumerico(false)
+      // §334: conta quantas vezes cada código EAP aparece; lista os que repetem (2+), do mais repetido ao menos.
+      const cont = new Map<string, number>()
+      for (const l of lin) { const c = l.eap_codigo.trim(); if (c) cont.set(c, (cont.get(c) ?? 0) + 1) }
+      setCodigosRepetidos([...cont.entries()].filter(([, n]) => n > 1).map(([codigo, vezes]) => ({ codigo, vezes })).sort((a, b) => b.vezes - a.vezes))
       // prévia no banco (sem gravar)
       const { data, error } = await comPrazo(async () => await supabase.rpc('fn_projetos_orcamento_eap_importar_validar', { p_orcamento_id: orcamentoId, p_linhas: lin }), { ms: 15000, tentativas: 1, label: 'eap-validar' })
       if (error) { setAviso(''); setErro(erroAmigavel(error, 'Não foi possível validar a planilha.')); return }
@@ -166,7 +173,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
     setPasso('resultado')
   }
 
-  const recomecar = () => { setPasso('upload'); setLinhas([]); setValidadas([]); setResumo(null); setResultado(null); setHash(''); setArquivoNome(''); setErro(null); setAviso(''); setCodigosNumericos(new Set()); setCienteNumerico(false) }
+  const recomecar = () => { setPasso('upload'); setLinhas([]); setValidadas([]); setResumo(null); setResultado(null); setHash(''); setArquivoNome(''); setErro(null); setAviso(''); setCodigosNumericos(new Set()); setCienteNumerico(false); setCodigosRepetidos([]) }
 
   return (
     <div style={{ minHeight: '100vh', background: BG, padding: '20px 16px 48px' }}>
@@ -224,11 +231,26 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
               <span style={{ fontSize: 13, color: VERDE, fontWeight: 700 }}>{resumo.validos} válidas</span>
               <span style={{ fontSize: 13, color: resumo.com_erro ? VERM : MUT, fontWeight: 700 }}>{resumo.com_erro} com erro</span>
               {codigosNumericos.size > 0 && <span style={{ fontSize: 13, color: GOLD, fontWeight: 700 }}>{codigosNumericos.size} código(s) como número</span>}
+              {codigosRepetidos.length > 0 && <span style={{ fontSize: 13, color: GOLD, fontWeight: 700 }}>{codigosRepetidos.length} código(s) repetido(s)</span>}
               <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
                 <button type="button" data-testid="eap-importar-recomecar" onClick={recomecar} disabled={busy} style={{ background: '#fff', color: ESP, border: `1px solid ${LINE}`, borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Trocar arquivo</button>
                 <button type="button" data-testid="eap-importar-confirmar" onClick={() => void confirmar()} disabled={busy || resumo.validos === 0 || (codigosNumericos.size > 0 && !cienteNumerico)} style={{ background: ESP, color: BG, border: 'none', borderRadius: 10, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: busy || resumo.validos === 0 || (codigosNumericos.size > 0 && !cienteNumerico) ? 'default' : 'pointer', opacity: busy || resumo.validos === 0 || (codigosNumericos.size > 0 && !cienteNumerico) ? 0.5 : 1 }}>Confirmar importação</button>
               </div>
             </div>
+            {codigosRepetidos.length > 0 && (
+              <div data-testid="eap-importar-codigos-repetidos" role="alert" style={{ ...CARD, borderColor: GOLD, background: 'rgba(200,148,26,0.06)', display: 'grid', gap: 8 }}>
+                <strong style={{ color: ESP, fontSize: 14 }}>Códigos EAP repetidos no arquivo</strong>
+                <span style={{ fontSize: 13, color: ESP, lineHeight: 1.5 }}>
+                  {codigosRepetidos.length} código(s) aparecem mais de uma vez. Cada repetição entra como <strong>com erro</strong> (código EAP duplicado). Confira se são itens realmente distintos — então ajuste o código na planilha — ou se é duplicação a remover.
+                </span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {codigosRepetidos.slice(0, 40).map((r) => (
+                    <span key={r.codigo} style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12, color: ESP, background: '#fff', border: `1px solid ${LINE}`, borderRadius: 8, padding: '3px 8px' }}>{r.codigo} <strong style={{ color: GOLD }}>×{r.vezes}</strong></span>
+                  ))}
+                  {codigosRepetidos.length > 40 && <span style={{ fontSize: 12, color: MUT, alignSelf: 'center' }}>e mais {codigosRepetidos.length - 40}…</span>}
+                </div>
+              </div>
+            )}
             {codigosNumericos.size > 0 && (
               <div data-testid="eap-importar-aviso-numerico" role="alert" style={{ ...CARD, borderColor: GOLD, background: 'rgba(200,148,26,0.06)', display: 'grid', gap: 10 }}>
                 <strong style={{ color: ESP, fontSize: 14 }}>Confira os códigos que vieram como número</strong>
