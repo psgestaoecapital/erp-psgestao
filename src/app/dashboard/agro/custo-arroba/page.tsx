@@ -6,6 +6,7 @@
 // Indicadores (card por lote; sem dado = diz o que falta, RD-51).
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { parseNumBR } from '@/lib/num'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useEmpresaSelecionada, usePropriedade } from '@/lib/agro/usePecuaria'
 import { erroAmigavel } from '@/lib/erroAmigavel'
@@ -85,7 +86,7 @@ export default function CustoProducaoPage() {
 
   async function salvarLancamento() {
     if (!empresaUnica) return
-    const valor = Number(String(fValor).replace(',', '.'))
+    const valor = parseNumBR(String(fValor)) ?? NaN
     if (!valor || valor < 0) { setMsg('Informe um valor válido.'); return }
     setBusy(true); setMsg(null)
     const { error } = await supabase.from('erp_pec_custo_lancamento').insert({
