@@ -71,6 +71,8 @@ export default function RelatoriosOrcamentoPage({ params }: { params: Promise<{ 
 
   const vazio = !!obra && (!obra.orcamento_id || itens.length === 0)
   const formatoAtual = FORMATOS.find((f) => f.codigo === formato)!
+  // Soma dos subtotais dos itens listados — linha de total do relatório analítico (confere com o total da EAP).
+  const somaSubtotais = useMemo(() => itens.reduce((a, it) => a + (it.subtotal ?? 0), 0), [itens])
 
   // Exporta o formato atual em CSV (;) para abrir no Excel. Planilha cega sai sem preços, com a coluna de
   // cotação em branco para o empreiteiro preencher. Puro cliente (Blob), sem rede nem dado extra.
@@ -87,6 +89,7 @@ export default function RelatoriosOrcamentoPage({ params }: { params: Promise<{ 
     } else if (formato === 'analitico') {
       linhas = [['EAP', 'Serviço', 'Local', 'Quantidade', 'Unidade', 'Material unit.', 'MO unit.', 'Subtotal']]
       for (const it of itens) linhas.push([it.eap_codigo, `${it.servico_codigo ? it.servico_codigo + ' · ' : ''}${it.servico_descricao ?? 'Serviço'}`, it.local_nome ?? '', it.quantidade, it.unidade ?? '', it.custo_material_unit ?? '', it.custo_mao_obra_unit ?? '', it.subtotal])
+      linhas.push(['', 'TOTAL', '', '', '', '', '', somaSubtotais])
     } else {
       linhas = [['EAP', 'Serviço', 'Local', 'Quantidade', 'Unidade', 'Preço unit. (cotação)']]
       for (const it of itens) linhas.push([it.eap_codigo, `${it.servico_codigo ? it.servico_codigo + ' · ' : ''}${it.servico_descricao ?? 'Serviço'}`, it.local_nome ?? '', it.quantidade, it.unidade ?? '', ''])
@@ -225,6 +228,12 @@ export default function RelatoriosOrcamentoPage({ params }: { params: Promise<{ 
                       </tr>
                     ))}
                   </tbody>
+                  <tfoot>
+                    <tr data-testid="orc-rel-analitico-total">
+                      <td style={{ ...td, fontWeight: 700, borderTop: `2px solid ${LINE}`, borderBottom: 'none' }} colSpan={6}>Total do orçamento ({itens.length} {itens.length === 1 ? 'item' : 'itens'})</td>
+                      <td style={{ ...tdR, fontWeight: 800, color: ESP, borderTop: `2px solid ${LINE}`, borderBottom: 'none' }}>{brl(somaSubtotais)}</td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             )}
