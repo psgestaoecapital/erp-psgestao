@@ -5,6 +5,7 @@
 import { use, useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { parseNumBR } from '@/lib/num'
 import { ehUuid, erroAmigavel } from '@/lib/erroAmigavel'
 import { comPrazo, MSG_CARREGAMENTO_FALHOU } from '@/lib/comPrazo'
 import { useCompanyIds } from '@/lib/useCompanyIds'
@@ -64,7 +65,7 @@ export default function LancarHorasPage({ params }: { params: Promise<{ id: stri
 
   const lancar = async (e: React.FormEvent) => {
     e.preventDefault(); setErro('')
-    const horas = Number(f.horas.replace(',', '.')), custo = moedaParaNumero(f.custo_hora) // #6874: custo/hora mascarado (R$)
+    const horas = (parseNumBR(f.horas) ?? NaN), custo = moedaParaNumero(f.custo_hora) // #6874: custo/hora mascarado (R$)
     if (!(horas > 0)) { setErro('Informe as horas trabalhadas (maior que zero).'); return }
     if (custo == null || custo < 0) { setErro('Informe o custo da hora.'); return }
     setSalvando(true)
@@ -98,7 +99,7 @@ export default function LancarHorasPage({ params }: { params: Promise<{ id: stri
     e.preventDefault()
     if (!ed) return
     setErro('')
-    const horas = Number(ef.horas.replace(',', '.')), custo = moedaParaNumero(ef.custo_hora) // #6874: custo/hora mascarado (R$)
+    const horas = (parseNumBR(ef.horas) ?? NaN), custo = moedaParaNumero(ef.custo_hora) // #6874: custo/hora mascarado (R$)
     if (!(horas > 0)) { setErro('Informe as horas trabalhadas (maior que zero).'); return }
     if (custo == null || custo < 0) { setErro('Informe o custo da hora.'); return }
     setSalvandoEd(true)
