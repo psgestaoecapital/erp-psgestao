@@ -251,13 +251,27 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
     return q * (m + o)
   })()
 
+  // Importador de orçamento por planilha (.xlsx) — tela 334. Porta de entrada visível (RD-98 p1/RD-99):
+  // sem este link o usuário só chegaria ao importador digitando a URL.
+  const importarHref = `/dashboard/projetos/obras/${id}/orcamento/importar`
+
   const painelAdd = !loading && obra && obra.orcamento_id ? (
     <div style={{ marginBottom: 14 }}>
       {!formAberto ? (
-        <button data-testid="orc-add-abrir" onClick={abrirNovo}
-          style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${ESP}`, background: ESP, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-          + Item
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button data-testid="orc-add-abrir" onClick={abrirNovo}
+            style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${ESP}`, background: ESP, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+            + Item
+          </button>
+          <Link href={importarHref} data-testid="orc-importar-link"
+            style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${ESP}`, background: '#fff', color: ESP, fontSize: 13, fontWeight: 700, cursor: 'pointer', textDecoration: 'none' }}>
+            Importar da planilha (.xlsx)
+          </Link>
+          <Link href={`/dashboard/projetos/obras/${id}/orcamento/relatorios`} data-testid="orc-relatorios-link"
+            style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${LINE}`, background: '#fff', color: ESP, fontSize: 13, fontWeight: 700, cursor: 'pointer', textDecoration: 'none' }}>
+            Relatórios
+          </Link>
+        </div>
       ) : (
         <div data-testid="orc-add-form" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'grid', gap: 12 }}>
           <div style={{ fontSize: 15, color: ESP, fontWeight: 700 }}>{editId ? 'Editar item do orçamento' : 'Adicionar item ao orçamento'}</div>
@@ -337,8 +351,20 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
             <div style={{ fontSize: 13, color: MUT, lineHeight: 1.5 }}>
               {obra && !obra.orcamento_id
                 ? 'Esta obra ainda não tem um orçamento vinculado. Crie o orçamento da obra e volte aqui para montar a EAP.'
-                : 'O orçamento está vinculado, mas ainda não tem itens. Adicione serviços por etapa e local — ou importe a planilha da obra pelo importador (em breve).'}
+                : 'O orçamento está vinculado, mas ainda não tem itens. Adicione serviços um a um por etapa e local, ou importe a planilha da obra de uma vez pelo importador.'}
             </div>
+            {obra?.orcamento_id && (
+              <div style={{ marginTop: 16, display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+                <button data-testid="orc-vazio-add" onClick={abrirNovo}
+                  style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${ESP}`, background: ESP, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                  + Item
+                </button>
+                <Link href={importarHref} data-testid="orc-vazio-importar"
+                  style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${ESP}`, background: '#fff', color: ESP, fontSize: 13, fontWeight: 700, cursor: 'pointer', textDecoration: 'none' }}>
+                  Importar da planilha (.xlsx)
+                </Link>
+              </div>
+            )}
           </div>
         ) : arvore && (
           <div style={{ display: 'grid', gap: 14 }}>
