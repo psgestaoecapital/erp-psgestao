@@ -1,8 +1,10 @@
 // src/app/dashboard/ehs/trabalhos-risco/apr/page.tsx
 // PS EHS · EHS-7 / M11 — Trabalhos de risco: Análise Preliminar de Risco (APR) por tarefa
 // Antes do serviço, quebra a tarefa em etapas e, para cada etapa, levanta perigo, risco, medida de controle
-// e severidade. Backend: ehs_apr + ehs_apr_etapa (RLS por empresa via get_user_company_ids). Soft delete
-// (ativo=false). Padrão visual PS EHS (RD-96), "?" em todo campo (RD-95), excluir rastreável (RD-98).
+// e severidade. Backend: ehs_apr + ehs_apr_etapa (RLS por empresa via get_user_company_ids). Exclusão rastreável
+// (RD-98 p4): desativar a APR e reescrever as etapas passam por RPC (fn_ehs_apr_desativar /
+// fn_ehs_apr_etapas_salvar) com quem/quando + audit_log_global — sem DELETE físico. Soft delete (ativo=false).
+// Padrão visual PS EHS (RD-96), "?" em todo campo (RD-95).
 
 'use client'
 
@@ -111,7 +113,8 @@ export default function APRPage() {
       if (error) throw error
       setLista((data || []) as APR[])
     } catch (e: any) {
-      setErro(e?.message || 'Falha ao carregar as análises de risco')
+      console.error('carregar análises de risco', e)
+      setErro('Não foi possível carregar as análises de risco. Tente novamente em instantes.')
     } finally {
       setLoading(false)
     }
@@ -141,14 +144,15 @@ export default function APRPage() {
     if (motivo === null) return
     if (!motivo.trim()) { alert('Informe o motivo para desativar.'); return }
     try {
-      const { error } = await supabase
-        .from('ehs_apr')
-        .update({ ativo: false, observacoes: ((a.observacoes ? a.observacoes + ' ' : '') + `[desativada: ${motivo.trim()}]`).slice(0, 2000), atualizado_em: new Date().toISOString() })
-        .eq('id', a.id)
+      // RD-98 p4: a APR é documento de segurança — a desativação grava quem/quando/motivo e um registro
+      // em audit_log_global via RPC (soft-delete rastreável), nunca um UPDATE solto pelo cliente.
+      const { data, error } = await supabase.rpc('fn_ehs_apr_desativar', { p_id: a.id, p_motivo: motivo.trim() })
       if (error) throw error
+      if (data && data.ok === false) { alert(data.erro || 'Não foi possível desativar a análise.'); return }
       carregar()
     } catch (e: any) {
-      alert(e?.message || 'Falha ao desativar')
+      console.error('fn_ehs_apr_desativar', e)
+      alert('Não foi possível desativar a análise de risco. Tente novamente.')
     }
   }
 
@@ -334,26 +338,26 @@ function APRFormModal({ companyId, apr, onClose, onSaved }: { companyId: string;
         const { error } = await supabase.from('ehs_apr')
           .update({ ...campos, atualizado_em: new Date().toISOString() }).eq('id', aprId)
         if (error) throw error
-        const { error: delErr } = await supabase.from('ehs_apr_etapa').delete().eq('apr_id', aprId)
-        if (delErr) throw delErr
       } else {
         const { data, error } = await supabase.from('ehs_apr')
           .insert({ company_id: companyId, ...campos }).select('id').single()
         if (error) throw error
         aprId = data!.id
       }
-      if (linhas.length > 0) {
-        const payload = linhas.map((e, i) => ({
-          company_id: companyId, apr_id: aprId, ordem: i + 1, etapa: e.etapa,
-          perigo: e.perigo.trim() || null, risco: e.risco.trim() || null,
-          medida_controle: e.medida_controle.trim() || null, severidade: e.severidade,
-        }))
-        const { error: insErr } = await supabase.from('ehs_apr_etapa').insert(payload)
-        if (insErr) throw insErr
-      }
+      // RD-98 p4: a coleção de etapas é reescrita por RPC (soft-delete das antigas + insert das novas,
+      // com rastro em audit_log_global) — nunca por DELETE físico de ehs_apr_etapa.
+      const { data: etData, error: etErr } = await supabase.rpc('fn_ehs_apr_etapas_salvar', {
+        p_apr_id: aprId,
+        p_etapas: linhas.map((e) => ({
+          etapa: e.etapa, perigo: e.perigo, risco: e.risco, medida_controle: e.medida_controle, severidade: e.severidade,
+        })),
+      })
+      if (etErr) throw etErr
+      if (etData && etData.ok === false) { setErro(etData.erro || 'Não foi possível salvar as etapas da análise.'); setSalvando(false); return }
       onSaved()
     } catch (e: any) {
-      setErro(e?.message || 'Falha ao salvar a análise')
+      console.error('salvar análise de risco', e)
+      setErro('Não foi possível salvar a análise. Confira os dados e tente novamente.')
       setSalvando(false)
     }
   }
