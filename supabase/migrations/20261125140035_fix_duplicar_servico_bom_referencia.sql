@@ -78,3 +78,8 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.fn_projetos_duplicar_servico(uuid,text,text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_projetos_duplicar_servico(uuid,text,text) TO authenticated, service_role;
+
+-- ci-sem-guarda: fn_projetos_duplicar_servico — a guarda de empresa (PERFORM public.fn__guarda_empresa)
+-- é adicionada na migration POSTERIOR 20261125170040 (conserto-main, code-desenvolvedor-3), que recria a
+-- função já com a guarda e ordena depois desta. Esta migration foca o conserto do BOM (23514); a correção
+-- de segurança (IDOR de escrita) fica na 170040 para aplicar por último e não ser sobrescrita.
