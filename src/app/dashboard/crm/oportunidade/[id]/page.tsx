@@ -12,6 +12,7 @@ import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { MessageCircle } from 'lucide-react'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
 import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
+import { parseNumBR } from '@/lib/num'
 import { C, Campo, Titulo, Cabecalho, Pagina, Aviso, Vazio, inp, btnPri, btnSec, chip, cartao, dataBR, horaBR, waHref, rpcCrm, useCrm,
   TIPOS_ATIVIDADE, TIPOS_TAREFA, IconeTipo, type CampoCustom } from '@/components/crm/crmUi'
 
@@ -352,7 +353,7 @@ function CampoProprio({ campo, valor, onChange, bloqueado }: { campo: CampoCusto
         </select>
       ) : (
         <input style={inp} type={campo.tipo === 'data' ? 'date' : 'text'} inputMode={campo.tipo === 'numero' ? 'decimal' : undefined} value={v}
-          onChange={(e) => onChange(campo.tipo === 'numero' ? (e.target.value === '' ? null : Number(e.target.value.replace(',', '.')) || e.target.value) : e.target.value)} disabled={bloqueado} />
+          onChange={(e) => onChange(campo.tipo === 'numero' ? (e.target.value === '' ? null : (parseNumBR(e.target.value) ?? e.target.value)) : e.target.value)} disabled={bloqueado} />
       )}
     </Campo>
   )
