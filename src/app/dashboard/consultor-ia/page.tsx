@@ -240,7 +240,41 @@ export default function ConsultorIAPage() {
                   Sem extrato para comparar: {resposta.contas_sem_extrato!.map((c) => c.conta_nome).join(", ")}.
                 </div>
               )}
-              {(resposta.contas?.length ?? 0) > 0 && (
+              {/* Lançamentos que causam a diferença — já na MESMA resposta (sem 2º clique). Mesmo estilo de lista_lancamentos. */}
+              {(resposta.linhas?.length ?? 0) > 0 && (
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: ESP, marginBottom: 6 }}>Lançamentos sem conciliar que explicam a diferença</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {resposta.linhas!.map((l: any, i: number) => (
+                      <div key={l.id ?? i} style={{ background: CARD, border: `1px solid ${BD}`, borderRadius: 12, padding: "10px 14px", display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
+                        <div style={{ minWidth: 0, flex: "1 1 260px" }}>
+                          <div style={{ fontWeight: 700, color: ESP, fontSize: 13 }}>
+                            {l.descricao || l.numero_documento || "Lançamento"}
+                            <span style={{ fontWeight: 500, color: TXM, fontSize: 11, marginLeft: 6 }}>{l.natureza === "pagar" ? "a pagar" : "a receber"}</span>
+                          </div>
+                          <div style={{ fontSize: 12, color: TXM, marginTop: 2 }}>
+                            {l.contraparte_nome || "Sem fornecedor/cliente"} · {l.contraparte_cnpj ? `CNPJ/CPF ${l.contraparte_cnpj}` : <span style={{ color: RED, fontWeight: 600 }}>sem CNPJ</span>}
+                          </div>
+                          <div style={{ fontSize: 11.5, color: TXM, marginTop: 2 }}>
+                            Venc. {fmtData(l.data_vencimento)}{l.data_pagamento ? ` · pago em ${fmtData(l.data_pagamento)}` : ""}{l.conta ? ` · ${l.conta}` : ""} · {l.status || "—"}
+                            {!l.conciliado && (l.data_pagamento || l.status === "pago" || l.status === "recebido") ? <span style={{ marginLeft: 6, background: "#FDF2E9", color: Y, borderRadius: 999, padding: "1px 8px", fontWeight: 600 }}>sem conciliar</span> : null}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <span style={{ fontWeight: 700, color: ESP, fontSize: 13.5 }}>{brl(l.valor)}</span>
+                          {l.rota_link && (
+                            <button type="button" onClick={() => router.push(l.rota_link)}
+                              style={{ background: "transparent", border: `1px solid ${GO}`, color: ESP, borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                              Abrir lançamento →
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {(resposta.contas?.length ?? 0) > 0 && (resposta.linhas?.length ?? 0) === 0 && (
                 <button type="button" onClick={() => perguntar("Lançamentos sem conciliar")}
                   style={{ marginTop: 10, background: OW, border: `1px solid ${BD}`, color: ESP, borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                   Ver os lançamentos sem conciliar
