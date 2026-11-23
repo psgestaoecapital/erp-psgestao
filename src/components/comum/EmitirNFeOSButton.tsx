@@ -277,6 +277,43 @@ export default function EmitirNFeOSButton({
                   {diverge && <> · diferença <b style={{ color: C.amber }}>{brl(Math.abs(diff))}</b></>}
                 </div>
 
+                {/* #9929 (Gean · crítica) · Impostos (informativo): mostra os tributos que a NF-e vai carregar,
+                    lidos da prévia já montada pelo servidor (notaMontada) — sem cálculo paralelo (RD-26/RD-38). */}
+                {notaMontada && notaMontada.itens.length > 0 && (() => {
+                  const itensImp = notaMontada.itens
+                  const totalIcms = itensImp.reduce((a, it) => a + Number(it.icmsValor ?? 0), 0)
+                  const totCbs = Number(notaMontada.totais?.ibsCbs?.cbs ?? itensImp.reduce((a, it) => a + Number(it.ibsCbs?.cbs ?? 0), 0))
+                  const totIbs = Number(notaMontada.totais?.ibsCbs?.ibs ?? itensImp.reduce((a, it) => a + Number(it.ibsCbs?.ibs ?? 0), 0))
+                  const temIbsCbs = itensImp.some((it) => it.ibsCbs) || !!notaMontada.totais?.ibsCbs
+                  return (
+                    <div data-testid="os-nfe-impostos" style={{ ...box('#F7F3EC', C.espresso), marginBottom: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.3, color: C.espressoM, marginBottom: 6 }}>
+                        Impostos (informativo)
+                        <AjudaCampo chave="oficina.os.nfe_impostos_informativo" rota="/dashboard/os" />
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {itensImp.map((it, i) => (
+                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12 }}>
+                            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {it.descricao}{it.cst ? ` · CST/CSOSN ${it.cst}` : ''}
+                            </span>
+                            <span style={{ color: C.espressoM, whiteSpace: 'nowrap' }}>
+                              base {brl(it.icmsBase)} · ICMS {brl(it.icmsValor)}{it.ibsCbs ? ` · IBS ${brl(it.ibsCbs.ibs)} · CBS ${brl(it.ibsCbs.cbs)}` : ''}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 6, paddingTop: 6, display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700 }}>
+                        <span>Total de impostos</span>
+                        <span>ICMS {brl(totalIcms)}{temIbsCbs ? ` · IBS ${brl(totIbs)} · CBS ${brl(totCbs)}` : ''}</span>
+                      </div>
+                      <div style={{ fontSize: 10.5, color: C.espressoM, marginTop: 6 }}>
+                        Valores da prévia da nota (sem valor fiscal até a emissão). Vêm da tributação de cada produto; ST, quando o produto tem, já entra embutida no CST/CSOSN.
+                      </div>
+                    </div>
+                  )
+                })()}
+
                 {diverge && (
                   <label style={{ display: 'block', marginBottom: 12 }}>
                     <span style={{ display: 'block', fontSize: 12, color: C.espresso, marginBottom: 4 }}>
