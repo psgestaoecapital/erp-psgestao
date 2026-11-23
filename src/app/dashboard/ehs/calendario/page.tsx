@@ -257,7 +257,7 @@ export default function CalendarioCompliancePage() {
     return (
       <div style={{ padding: 'clamp(16px, 4vw, 32px)', maxWidth: 620, margin: '0 auto', textAlign: 'center' }}>
         <p style={{ fontSize: 14, color: C.espressoM }}>
-          Selecione uma empresa no topo para ver o Calendario Legal IA.
+          Selecione uma empresa no topo para ver o Calendário Legal IA.
         </p>
       </div>
     )
@@ -282,7 +282,7 @@ export default function CalendarioCompliancePage() {
               COMPLIANCE
             </p>
             <h1 style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 32, fontWeight: 400, margin: '4px 0 6px' }}>
-              Calendario Legal IA
+              Calendário Legal IA
             </h1>
             <p style={{ margin: 0, fontSize: 13, color: C.muted }}>
               {empresaNome} · Tarefas legais priorizadas por risco × multa
@@ -293,7 +293,7 @@ export default function CalendarioCompliancePage() {
               ← EHS
             </Link>
             <button onClick={gerarTarefas} disabled={gerando} style={{ ...btnPri, opacity: gerando ? 0.6 : 1 }}>
-              {gerando ? '⏳ Gerando…' : '✨ Gerar tarefas do periodo'}
+              {gerando ? 'Gerando…' : 'Gerar tarefas do período'}
             </button>
           </div>
         </header>
