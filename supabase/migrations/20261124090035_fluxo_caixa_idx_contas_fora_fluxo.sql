@@ -1,0 +1,41 @@
+-- Fluxo de caixa (/dashboard/financeiro/fluxo-caixa) · PERFORMANCE — DURÁVEL, protege TODO cliente.
+-- Aditiva: cria UM índice parcial funcional novo. NÃO altera dado, função, RLS, grant nem resultado de nenhuma consulta.
+--
+-- CONTEXTO: a migration companheira 20261124070035 já criou ix_pagar_vivos_venc / ix_receber_vivos_venc
+-- (partial por data_vencimento WHERE deleted_at IS NULL). Mas a tela CONTINUAVA lenta na carga padrão:
+-- fn_fluxo_caixa_diario em 60d ~5,4s e em 120d ESTOURAVA o statement_timeout (medido no dado, 22/11,
+-- DEMO GE b0700000-0000-4000-a000-000000000004). A causa NÃO era o scan por vencimento (aquele índice
+-- resolveu os CTEs rec_prev/pag_prev e os vencidos), e sim o CTE rec_real/pag_real do ledger de baixas.
+--
+-- CAUSA-RAIZ PROVADA NO DADO (RD-38, EXPLAIN ANALYZE force_generic_plan, 22/11):
+--   O CTE pag_real (ledger erp_pagar_baixa do período) avalia, POR linha de baixa, o subselect correlacionado
+--     NOT EXISTS (SELECT 1 FROM erp_banco_contas bc
+--                  WHERE bc.company_id = ep.company_id AND bc.incluir_no_fluxo = false
+--                    AND lower(bc.nome) = lower(ep.conta_bancaria))
+--   (erp_pagar.conta_bancaria é TEXTO/nome, não id — por isso o anti-join é por lower(nome)).
+--   Na DEMO GE a janela de 120d tem 20.708 baixas e a empresa acumulou 1.755 contas (lixo de E2E);
+--   o planner varria idx_banco_contas_company (1.755 linhas, filtrando incluir_no_fluxo=false + lower(nome))
+--   uma vez POR baixa (20.522 loops) → ~36M linhas examinadas, Anti Join = 9.450ms só nesse nó (Buffers hit=964.534).
+--   Os mesmos CTEs pag_prev e v_pagar_vencido usam o MESMO NOT EXISTS por nome (eram rápidos só por terem
+--   poucas linhas de pagar na janela; o custo por loop é idêntico).
+--
+-- FIX (produto, independe do volume de baixas OU do número de contas da empresa): índice parcial FUNCIONAL
+--   em erp_banco_contas (company_id, lower(nome)) WHERE incluir_no_fluxo = false. O predicado incluir_no_fluxo=false
+--   é raro (a grande maioria das contas ENTRA no fluxo), então o índice é minúsculo e o NOT EXISTS vira um
+--   Index Cond exato (company_id = X AND lower(nome) = lower(conta_bancaria)) em vez de varrer todas as contas por loop.
+--
+-- PROVA AFTER (mesma sessão, índice criado em BEGIN...ROLLBACK, force_generic_plan, DEMO GE 120d):
+--   Anti Join: Index Scan using ix_banco_contas_fora_fluxo_nome ... (actual time=0.000..0.000 rows=0 loops=20522)
+--   → pag_real 9.450ms → 126ms; fn_fluxo_caixa_diario COMPLETO 60d 5.453ms→286ms (19x), 120d 12.343ms→357ms (35x),
+--   saldo_final IDÊNTICO antes/depois (um índice não muda resultado, só o plano).
+--
+-- RESULT-NEUTRAL: um índice NÃO muda o resultado de nenhuma consulta. Os filtros de correctness de 18/11
+-- (baixa de título cancelado/renegociado fora do realizado) e deleted_at IS NULL seguem intactos.
+--
+-- RD-52: migration é ARQUIVO + PR; versão acima da main; faixa de segundos do agente (:35). CREATE INDEX comum
+-- (não CONCURRENTLY, pois db push roda em transação). erp_banco_contas é tabela pequena; build dentro de lock_timeout.
+-- lower() é IMMUTABLE → índice funcional válido.
+
+CREATE INDEX IF NOT EXISTS ix_banco_contas_fora_fluxo_nome
+  ON public.erp_banco_contas (company_id, lower(nome))
+  WHERE incluir_no_fluxo = false;

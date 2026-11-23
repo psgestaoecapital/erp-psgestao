@@ -116,6 +116,10 @@ export default function ConectoresPage() {
   const [syncCount, setSyncCount] = useState(0)
   // Credenciais Vault por provider (id + nome_secret_vault) — necessario pra editar/excluir.
   const [vaultCreds, setVaultCreds] = useState<Record<string, VaultCred>>({})
+  // Importação de NFS-e (notas de serviço) do Omie — desligamento do Omie (M.m, R.R...).
+  // Chama /api/omie/nfse/importar (#2712): prévia (dry_run) → gravar com retomada paginada.
+  const [nfseBusy, setNfseBusy] = useState(false)
+  const [nfseResumo, setNfseResumo] = useState('')
 
   // Recarrega empresa (dados brutos + credenciais Vault) sempre que empresaUnica muda
   useEffect(() => {
@@ -361,6 +365,61 @@ export default function ConectoresPage() {
     setSyncing(false); setTimeout(() => setMsg(''), 8000)
   }
 
+  // Prévia da NFS-e do Omie (dry_run=true): consulta quantas notas de serviço existem SEM gravar nada.
+  // Prova no dado antes de importar o histórico fiscal (desligamento do Omie).
+  const previewNfse = async () => {
+    if (!empresa) return
+    if (!vaultCreds['omie']) { setMsg('Salve as credenciais do Omie primeiro'); return }
+    setNfseBusy(true); setNfseResumo(''); setMsg('Consultando NFS-e no Omie (prévia, sem gravar)...')
+    try {
+      const res = await authFetch('/api/omie/nfse/importar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ company_id: empresa.id, dry_run: true, pagina_inicial: 1, max_paginas: 1 }) })
+      const d = await res.json()
+      if (!res.ok || d.error) { setMsg('Erro na prévia de NFS-e: ' + (d.error || ('HTTP ' + res.status))) }
+      else {
+        const total = Number(d.total_omie || 0)
+        setNfseResumo(total > 0
+          ? `Prévia: o Omie tem ${total} nota(s) de serviço emitida(s). Nada foi gravado. Clique em “Gravar NFS-e” para importar o histórico completo (idempotente — reimportar não duplica).`
+          : 'Prévia: nenhuma NFS-e emitida encontrada no Omie para esta empresa.')
+        setMsg('')
+      }
+    } catch (e: any) { setMsg('Erro: ' + e.message) }
+    setNfseBusy(false)
+  }
+
+  // Grava as NFS-e do Omie em erp_nfse_emitidas, com retomada paginada (cada chamada cabe nos 300s do servidor).
+  // Idempotente por (company_id, provider='omie', provider_reference=nCodNF): reimportar não duplica.
+  const gravarNfse = async () => {
+    if (!empresa) return
+    if (!vaultCreds['omie']) { setMsg('Salve as credenciais do Omie primeiro'); return }
+    if (!window.confirm('Importar o histórico de NFS-e (notas de serviço) do Omie para esta empresa?\n\nReimportar não duplica (idempotente). Pode levar alguns minutos para empresas com muitas notas.')) return
+    setNfseBusy(true); setMsg('')
+    let pagina = 1
+    let ins = 0, atu = 0, pul = 0, xmlOk = 0, lidas = 0, totalOmie = 0
+    const MAX_CHAMADAS = 60 // trava de segurança da retomada (até 60 lotes de 20 páginas)
+    try {
+      for (let i = 0; i < MAX_CHAMADAS; i++) {
+        setNfseResumo(`Importando NFS-e... (lote a partir da página ${pagina}; ${ins} nova(s), ${atu} atualizada(s) até agora)`)
+        const res = await authFetch('/api/omie/nfse/importar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ company_id: empresa.id, dry_run: false, pagina_inicial: pagina, max_paginas: 20 }) })
+        const d = await res.json()
+        if (!res.ok || d.error || (Array.isArray(d.erros) && d.erros.length)) {
+          const motivo = d.error || (Array.isArray(d.erros) && d.erros[0]) || ('HTTP ' + res.status)
+          setMsg('Erro ao importar NFS-e (página ' + pagina + '): ' + motivo)
+          break
+        }
+        ins += Number(d.inseridas || 0); atu += Number(d.atualizadas || 0); pul += Number(d.puladas || 0)
+        xmlOk += Number(d.xml_ok || 0); lidas += Number(d.lidas || 0); totalOmie = Number(d.total_omie || totalOmie)
+        if (d.proxima_pagina) { pagina = Number(d.proxima_pagina) } else {
+          setNfseResumo(`NFS-e importadas: ${ins} nova(s), ${atu} atualizada(s), ${pul} pulada(s) · ${xmlOk} XML baixado(s) · ${lidas} lida(s) de ${totalOmie} no Omie. Reimportar não duplica.`)
+          setMsg('Importação de NFS-e concluída.')
+          recarregarSyncInfo()
+          break
+        }
+      }
+    } catch (e: any) { setMsg('Erro: ' + e.message) }
+    setNfseBusy(false)
+    setTimeout(() => setMsg(''), 10000)
+  }
+
   const filtered = filtro === 'todos' ? CONNECTORS : CONNECTORS.filter(c => c.cat === filtro)
   const stats = { total: CONNECTORS.length, ativo: CONNECTORS.filter(c => c.status === 'ativo').length, breve: CONNECTORS.filter(c => c.status === 'em_breve').length, plan: CONNECTORS.filter(c => c.status === 'planejado').length }
 
@@ -496,6 +555,18 @@ export default function ConectoresPage() {
                           <button onClick={() => sincronizar(con.id)} disabled={syncing} style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: syncing ? C.bd : C.g, color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
                             {syncing ? 'Sincronizando...' : 'Sincronizar Agora'}
                           </button>
+                          {/* NFS-e (notas de serviço): o Sincronizar acima traz cadastros/financeiro;
+                              estes botões trazem o histórico fiscal de NFS-e (desligamento do Omie). */}
+                          {con.id === 'omie' && (
+                            <>
+                              <button onClick={previewNfse} disabled={nfseBusy} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid ' + C.p, background: 'transparent', color: C.p, fontSize: 11, fontWeight: 600, cursor: nfseBusy ? 'not-allowed' : 'pointer', opacity: nfseBusy ? 0.6 : 1 }}>
+                                {nfseBusy ? '...' : 'NFS-e: prévia'}
+                              </button>
+                              <button onClick={gravarNfse} disabled={nfseBusy} style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: nfseBusy ? C.bd : C.p, color: '#fff', fontSize: 11, fontWeight: 700, cursor: nfseBusy ? 'not-allowed' : 'pointer' }}>
+                                {nfseBusy ? 'Importando...' : 'Gravar NFS-e'}
+                              </button>
+                            </>
+                          )}
                         </>
                       )}
                       {/* Providers de ponto: sync real (com periodo) vive no Ponto Eletronico.
@@ -506,6 +577,12 @@ export default function ConectoresPage() {
                         </a>
                       )}
                     </div>
+                    {con.id === 'omie' && con.status === 'ativo' && (
+                      <div style={{ marginTop: 8, fontSize: 9, color: C.txd, lineHeight: 1.5 }}>
+                        📄 <b style={{ color: C.txm }}>NFS-e</b>: traz o histórico de notas de serviço emitidas do Omie para o PS (para desligar o Omie). Comece pela <b>prévia</b> (não grava) e depois <b>Gravar</b> — reimportar não duplica.
+                        {nfseResumo && <div style={{ marginTop: 6, padding: '6px 10px', background: C.p + '10', border: '1px solid ' + C.p + '30', borderRadius: 6, fontSize: 10, color: C.p }}>{nfseResumo}</div>}
+                      </div>
+                    )}
                     {con.status !== 'ativo' && <div style={{ fontSize: 9, color: C.txd, marginTop: 6 }}>Integracao em desenvolvimento. Salve as credenciais para quando ativarmos.</div>}
                   </>
                 ) : (
