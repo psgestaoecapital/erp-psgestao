@@ -266,7 +266,11 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
 
   const raizes = arvore?.modo === 'eap' ? (filhosPorPai.get(null) ?? []) : []
   const locais = arvore?.modo === 'local' ? (arvore.nos as NoLocal[]) : []
-  const vazio = !!obra && (!obra.orcamento_id || (arvore != null && arvore.nos.length === 0))
+  // Sem nós na EAP: pode ser orçamento REALMENTE vazio (0 itens) OU orçamento COM itens, porém nenhum
+  // estruturado pela EAP ainda. São estados diferentes — não dizer "ainda não tem itens" quando há itens.
+  const semArvoreEap = arvore != null && arvore.nos.length === 0
+  const itensSemEap = !!obra?.orcamento_id && semArvoreEap && (itensVivos ?? 0) > 0
+  const vazio = !!obra && (!obra.orcamento_id || semArvoreEap)
 
   const chip = (ativo: boolean) => ({
     padding: '7px 14px', borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: 'pointer' as const,
@@ -384,11 +388,17 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
 
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: MUT }}>Carregando…</div> : vazio ? (
           <div data-testid="orc-vazio" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 20, textAlign: 'center' }}>
-            <div style={{ fontSize: 15, color: ESP, fontWeight: 600, marginBottom: 6 }}>Orçamento ainda sem itens</div>
+            <div style={{ fontSize: 15, color: ESP, fontWeight: 600, marginBottom: 6 }}>
+              {itensSemEap ? 'Orçamento com itens — ainda sem EAP' : 'Orçamento ainda sem itens'}
+            </div>
             <div style={{ fontSize: 13, color: MUT, lineHeight: 1.5 }}>
-              {obra && !obra.orcamento_id
-                ? 'Esta obra ainda não tem um orçamento vinculado. Crie o orçamento aqui e comece a montar a EAP sem sair da tela.'
-                : 'O orçamento está vinculado, mas ainda não tem itens. Adicione serviços um a um por etapa e local, ou importe a planilha da obra de uma vez pelo importador.'}
+              {obra && !obra.orcamento_id ? (
+                'Esta obra ainda não tem um orçamento vinculado. Crie o orçamento aqui e comece a montar a EAP sem sair da tela.'
+              ) : itensSemEap ? (
+                <>Este orçamento já tem <strong>{itensVivos} {itensVivos === 1 ? 'item' : 'itens'}</strong>{orcTotal != null && orcTotal > 0 ? <> somando <strong>{brl(orcTotal)}</strong></> : null}, mas <strong>nenhum está estruturado pela EAP</strong> ainda. Organize-os por etapa e local com o <em>+ Item</em>, importando a planilha da obra, ou partindo da Biblioteca padrão PS.</>
+              ) : (
+                'O orçamento está vinculado, mas ainda não tem itens. Adicione serviços um a um por etapa e local, ou importe a planilha da obra de uma vez pelo importador.'
+              )}
             </div>
             {obra && !obra.orcamento_id && (
               <div style={{ marginTop: 16, display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>

@@ -18,9 +18,10 @@ ok(!/UPDATE\s+public\.agency_leads\s+SET/i.test(sql), 'nenhum lead existente é 
 const seed = readFileSync('supabase/migrations/20260821190000_agency_lead_origem_configuravel.sql', 'utf8')
 for (const k of ['whatsapp', 'site', 'ligacao', 'email', 'evento']) ok(seed.includes(`('${k}',`), `origem padrão "${k}" existe na lista da empresa`)
 
-// a tela grava pela RPC e mostra o erro do banco (não engole)
+// a tela grava pela RPC e SURGE o erro ao usuário (não engole) — via erroAmigavel (RD-98 e: nunca o
+// texto cru do Postgres; antes mostrava `Erro: ${error.message}`, o que a RD-98 passou a proibir).
 const tela = readFileSync('src/app/dashboard/pm/leads/page.tsx', 'utf8')
-ok(/rpc\('fn_agency_lead_criar'/.test(tela) && /if \(error\) \{ setToast\(`Erro: \$\{error\.message\}`\)/.test(tela), 'tela cria pela RPC e mostra o erro')
+ok(/rpc\('fn_agency_lead_criar'/.test(tela) && /if \(error\) \{ setToast\(erroAmigavel\(error,/.test(tela), 'tela cria pela RPC e mostra o erro (amigável, RD-98)')
 
 if (falhas) { console.error(`\n${falhas} falha(s) na origem do lead`); process.exit(1) }
 console.log('\nOrigem do lead configurável: ok')
