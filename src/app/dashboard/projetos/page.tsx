@@ -30,6 +30,7 @@ interface ResumoEmpresa {
   compromissos_7d: number;
   compromissos_atrasados: number;
   obras_atrasadas: number;
+  obras_estouro: number;
   obras_andamento: ObraAndamento[];
 }
 
@@ -143,9 +144,19 @@ export default function PainelProjetos() {
           avancoPorObra.set(a.id, a.pct_conclusao === null ? null : Number(a.pct_conclusao));
         }
         const andamento: ObraAndamento[] = [];
+        // §310 "bloco de obras" · obras com gasto acima do previsto: estouro de custo = custo realizado já maior
+        // que o custo previsto (orçado). O custo realizado sai da MESMA fonte da coluna "Margem realizada" já
+        // exibida (v_obra_resultado): custo_realizado = receita_realizada − margem_realizada. Assim o alerta não
+        // introduz número novo nem diverge do que a tabela mostra (RD-97). Só conta obra com orçamento lançado
+        // (custo_previsto > 0) — sem orçado não há "previsto" para estourar.
+        let obrasEstouro = 0;
         for (const o of (obras as { obra_id: string; numero: string | null; nome: string | null; status: string; receita_prevista: number | null; custo_previsto: number | null; receita_servico: number | null; receita_material: number | null; margem_realizada: number | null }[] | null) ?? []) {
           receita += Number(o.receita_prevista ?? 0); custo += Number(o.custo_previsto ?? 0);
-          andamento.push({ obra_id: o.obra_id, numero: o.numero, nome: o.nome, receita_prevista: Number(o.receita_prevista ?? 0), custo_previsto: Number(o.custo_previsto ?? 0), receita_realizada: Number(o.receita_servico ?? 0) + Number(o.receita_material ?? 0), margem_realizada: Number(o.margem_realizada ?? 0), avanco_pct: avancoPorObra.has(o.obra_id) ? avancoPorObra.get(o.obra_id)! : null });
+          const receitaRealizada = Number(o.receita_servico ?? 0) + Number(o.receita_material ?? 0);
+          const custoPrevisto = Number(o.custo_previsto ?? 0);
+          const custoRealizado = receitaRealizada - Number(o.margem_realizada ?? 0);
+          if (custoPrevisto > 0 && custoRealizado - custoPrevisto > 0.005) obrasEstouro++;
+          andamento.push({ obra_id: o.obra_id, numero: o.numero, nome: o.nome, receita_prevista: Number(o.receita_prevista ?? 0), custo_previsto: custoPrevisto, receita_realizada: receitaRealizada, margem_realizada: Number(o.margem_realizada ?? 0), avanco_pct: avancoPorObra.has(o.obra_id) ? avancoPorObra.get(o.obra_id)! : null });
         }
         andamento.sort((a, b) => b.receita_prevista - a.receita_prevista);
         let abertas = 0, valorAberto = 0, ganhas = 0, perdidas = 0;
@@ -176,6 +187,7 @@ export default function PainelProjetos() {
             compromissos_7d: eag ? 0 : Number(compromissos ?? 0),
             compromissos_atrasados: eag2 ? 0 : Number(compromissosAtrasados ?? 0),
             obras_atrasadas: eobr ? 0 : Number(obrasAtrasadas ?? 0),
+            obras_estouro: obrasEstouro,
             obras_andamento: andamento,
           });
         }
@@ -370,6 +382,28 @@ export default function PainelProjetos() {
               </span>
             </span>
             <ArrowRight size={14} className="ml-auto mt-1 shrink-0 text-[#C2410C]" />
+          </Link>
+        )}
+        {/* §310 "bloco de obras" · gasto acima do previsto: obras em andamento cujo custo realizado já
+            passou do custo previsto (estouro de orçamento). Mesma fonte da coluna "Margem realizada" abaixo
+            (v_obra_resultado), sem número paralelo. Só aparece quando há estouro (RD-98: zero não é alarme). */}
+        {resumo && resumo.obras_estouro > 0 && (
+          <Link
+            href="/dashboard/projetos/obras/resultado?area=hub"
+            data-testid="painel-obras-estouro"
+            className="mt-3 flex items-start gap-3 rounded-xl border border-[#B91C1C]/30 bg-[#B91C1C]/5 p-4 shadow-sm transition-colors hover:border-[#B91C1C]"
+          >
+            <span className="mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#B91C1C]/10">
+              <AlertTriangle size={18} className="text-[#B91C1C]" />
+            </span>
+            <span className="min-w-0">
+              <span className="flex items-center gap-1 text-xs text-[#3D2314]/50">Gasto acima do previsto<AjudaCampo chave="projetos.resultado_obra.saldo_custo" rota="/dashboard/projetos/obras/resultado" /></span>
+              <span className="mt-0.5 block text-sm text-[#3D2314]">
+                <span className="text-lg font-medium" style={{ fontFamily: "var(--ps-font-body)", fontStyle: "normal" }}>{resumo.obras_estouro}</span>{" "}
+                {resumo.obras_estouro === 1 ? "obra em andamento já gastou mais que o custo previsto" : "obras em andamento já gastaram mais que o custo previsto"}
+              </span>
+            </span>
+            <ArrowRight size={14} className="ml-auto mt-1 shrink-0 text-[#B91C1C]" />
           </Link>
         )}
         <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">

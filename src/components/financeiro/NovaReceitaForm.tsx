@@ -131,6 +131,9 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
   const [desconto, setDesconto] = useState('')
   const [jaRecebido, setJaRecebido] = useState(false)
   const [dataPagamento, setDataPagamento] = useState(new Date().toISOString().split('T')[0])
+  // TELA 355: dropdown "Salvar / Salvar e lançar nova / Salvar e duplicar" (criar como cópia).
+  const [salvarMenu, setSalvarMenu] = useState(false)
+  const [dupModo, setDupModo] = useState<'fechar' | 'nova' | 'duplicar'>('fechar')
 
   // CART-1 · cartão: adquirente + bandeira + modalidade → líquido/data_repasse via fn_cartao_calcular (RD-26).
   const ehCartao = formaRecebimento === 'cartao_credito' || formaRecebimento === 'cartao_debito'
@@ -455,7 +458,12 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
     return null
   }
 
-  async function salvar(forcar = false) {
+  // TELA 355 (CEO 21/11): "criar como cópia" — 'nova' salva e limpa pra lançar outra; 'duplicar' salva e
+  // MANTÉM os valores pra lançar uma parecida; 'fechar' = comportamento padrão (navega/onSucesso). Paridade
+  // com a Nova Despesa, que já tinha o dropdown.
+  async function salvar(modo: 'fechar' | 'nova' | 'duplicar' = 'fechar', forcar = false) {
+    setSalvarMenu(false)
+    setDupModo(modo)
     setToast(null)
     limparFeedback()
     const faltou = validarCampos()
@@ -637,12 +645,31 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
       router.push('/dashboard/financeiro/conciliacao/inbox')
       return
     }
+    // "criar como cópia": NÃO navega — fica no form (igual à Nova Despesa).
+    if (modo === 'nova') {
+      limparReceita()
+      setToast(`${msg} · form limpo pra lançar outra`)
+      return
+    }
+    if (modo === 'duplicar') {
+      setToast(`${msg} · valores mantidos, ajuste e salve outra`)
+      return
+    }
     if (primeiroId && onSucesso) {
       onSucesso(primeiroId)
     } else {
       setToast(msg)
       router.push('/dashboard/financeiro/receber?area=gestao_empresarial')
     }
+  }
+
+  // "Salvar e lançar nova": limpa os campos do lançamento (mantém listas carregadas). Paridade com a Nova Despesa.
+  function limparReceita() {
+    setClienteId(''); setClienteNome(''); setClienteBusca(''); setDescricao(''); setValor('')
+    setDataRecebimento(new Date().toISOString().split('T')[0]); setDataCompetencia('')
+    setParcelas(1); setIntervaloDias(30); setDiaFixo(''); setCategoriaCodigo(''); setNumeroDocumento('')
+    setCentroCustoId(''); setLinhaNegocio(''); setObservacao(''); setJaRecebido(false); setContaBancaria('')
+    setDupWarn(false)
   }
 
   // #72 · fecha o passo de boleto — segue o mesmo destino do salvar normal.
@@ -1183,10 +1210,11 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
           >
             Cancelar
           </button>
+          {editando ? (
           <button
-            data-testid={editando ? 'salvar-edicao' : undefined}
-            onClick={() => (editando ? void salvarEdicao() : salvar())}
-            disabled={loading || salvandoEdicao || (editando && !ed.linha)}
+            data-testid="salvar-edicao"
+            onClick={() => void salvarEdicao()}
+            disabled={loading || salvandoEdicao || !ed.linha}
             style={{
               background: PSGC_COLORS.dourado,
               color: '#3D2314',
@@ -1199,8 +1227,48 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
               opacity: (loading || salvandoEdicao) ? 0.6 : 1,
             }}
           >
-            {(loading || salvandoEdicao) ? 'Salvando...' : editando ? 'Salvar alterações' : 'Salvar receita'}
+            {(loading || salvandoEdicao) ? 'Salvando...' : 'Salvar alterações'}
           </button>
+          ) : (
+          /* TELA 355: dropdown Salvar (Salvar / Salvar e lançar nova / Salvar e duplicar) — criar como cópia */
+          <div style={{ position: 'relative', display: 'inline-flex' }}>
+            <button
+              data-testid="salvar-receita"
+              onClick={() => void salvar('fechar')}
+              disabled={loading}
+              style={{
+                background: PSGC_COLORS.dourado, color: '#3D2314', border: 'none',
+                padding: '10px 20px', borderRadius: '6px 0 0 6px', fontSize: 13, fontWeight: 500,
+                cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.6 : 1,
+              }}
+            >
+              {loading ? 'Salvando...' : 'Salvar receita'}
+            </button>
+            <button
+              type="button"
+              aria-label="Mais opções de salvar"
+              data-testid="salvar-receita-opcoes"
+              onClick={() => setSalvarMenu((v) => !v)}
+              disabled={loading}
+              style={{
+                background: PSGC_COLORS.dourado, color: '#3D2314', border: 'none',
+                borderLeft: '1px solid rgba(61,35,20,0.25)', padding: '10px 12px',
+                borderRadius: '0 6px 6px 0', fontSize: 13, cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.6 : 1,
+              }}
+            >
+              ▾
+            </button>
+            <span style={{ display: 'inline-flex', alignItems: 'center', marginLeft: 6 }}>
+              <AjudaCampo chave="financeiro.receita.salvar_opcoes" rota={ROTA_AJUDA} />
+            </span>
+            {salvarMenu && !loading && (
+              <div style={{ position: 'absolute', bottom: '100%', right: 0, marginBottom: 6, background: '#FFFFFF', border: '0.5px solid rgba(61,35,20,0.15)', borderRadius: 8, boxShadow: '0 8px 24px rgba(61,35,20,0.15)', zIndex: 20, minWidth: 200, overflow: 'hidden' }}>
+                <button type="button" data-testid="salvar-receita-nova" onClick={() => void salvar('nova')} style={menuItemStyleReceita}>Salvar e lançar nova</button>
+                <button type="button" data-testid="salvar-receita-duplicar" onClick={() => void salvar('duplicar')} style={{ ...menuItemStyleReceita, borderTop: '0.5px solid rgba(61,35,20,0.1)' }}>Salvar e duplicar (cópia)</button>
+              </div>
+            )}
+          </div>
+          )}
         </div>
       </div>
       )}
@@ -1224,7 +1292,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button onClick={() => setDupWarn(false)} style={{ padding: '9px 16px', borderRadius: 8, border: '1px solid #E7DED3', background: '#fff', color: '#3D2314', fontSize: 13, cursor: 'pointer' }}>Cancelar</button>
-              <button onClick={() => salvar(true)} disabled={loading} style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: PSGC_COLORS.dourado, color: '#fff', fontWeight: 600, fontSize: 13, cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.6 : 1 }}>Criar mesmo assim</button>
+              <button onClick={() => salvar(dupModo, true)} disabled={loading} style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: PSGC_COLORS.dourado, color: '#fff', fontWeight: 600, fontSize: 13, cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.6 : 1 }}>Criar mesmo assim</button>
             </div>
           </div>
         </div>
@@ -1336,4 +1404,9 @@ function vencDiaFixo(iso: string, i: number, passoMeses: number, dia: number): s
 const cellHead: React.CSSProperties = { padding: '7px 10px', fontSize: 11, fontWeight: 600, color: 'rgba(61,35,20,0.6)' }
 const cellBody: React.CSSProperties = { padding: '6px 10px', fontSize: 13, color: '#3D2314' }
 const inputMini: React.CSSProperties = { width: '100%', padding: '6px 8px', border: '0.5px solid rgba(61,35,20,0.2)', borderRadius: 5, fontSize: 13, background: '#FFFFFF', color: '#3D2314', fontFamily: 'inherit', boxSizing: 'border-box' }
+// TELA 355: item do dropdown "Salvar e ..." (criar como cópia).
+const menuItemStyleReceita: React.CSSProperties = {
+  display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none',
+  padding: '10px 14px', fontSize: 13, color: '#3D2314', cursor: 'pointer',
+}
 

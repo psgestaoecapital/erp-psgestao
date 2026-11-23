@@ -162,7 +162,7 @@ export default function RegularizacaoObraPage({ params }: { params: Promise<{ id
               </div>
             </div>
             <div>
-              <div style={lbl}>Observação</div>
+              <div style={lbl}>Observação <AjudaCampo chave="projetos.obra_licenca.observacao" rota={ROTA} /></div>
               <input data-testid="regularizacao-descricao" style={campo} value={form.descricao} onChange={(e) => setForm({ ...form, descricao: e.target.value })} placeholder="Observação (opcional)" />
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
