@@ -114,14 +114,23 @@ BEGIN
    WHERE b.company_id = p_company AND b.deleted_at IS NULL AND er.deleted_at IS NOT NULL
   ON CONFLICT (baixa_id) DO NOTHING;
 
-  ALTER TABLE public.erp_receber_baixa DISABLE TRIGGER trg_receber_baixa_recompute;
-  UPDATE public.erp_receber_baixa b
-     SET deleted_at = now()
-    FROM public.erp_receber er
-   WHERE er.id = b.receber_id
-     AND b.company_id = p_company AND b.deleted_at IS NULL AND er.deleted_at IS NOT NULL;
-  GET DIAGNOSTICS v_orf_rec = ROW_COUNT;
-  ALTER TABLE public.erp_receber_baixa ENABLE TRIGGER trg_receber_baixa_recompute;
+  -- RD-97: só pega ACCESS EXCLUSIVE na tabela COMPARTILHADA erp_receber_baixa quando HÁ órfã desta empresa.
+  -- No estado permanente (0 órfã, DEMO auto-curada) o reset não trava a tabela de todos os tenants.
+  IF EXISTS (
+      SELECT 1 FROM public.erp_receber_baixa b
+        JOIN public.erp_receber er ON er.id = b.receber_id
+       WHERE b.company_id = p_company AND b.deleted_at IS NULL AND er.deleted_at IS NOT NULL
+  ) THEN
+    SET LOCAL lock_timeout = '5s';
+    ALTER TABLE public.erp_receber_baixa DISABLE TRIGGER trg_receber_baixa_recompute;
+    UPDATE public.erp_receber_baixa b
+       SET deleted_at = now()
+      FROM public.erp_receber er
+     WHERE er.id = b.receber_id
+       AND b.company_id = p_company AND b.deleted_at IS NULL AND er.deleted_at IS NOT NULL;
+    GET DIAGNOSTICS v_orf_rec = ROW_COUNT;
+    ALTER TABLE public.erp_receber_baixa ENABLE TRIGGER trg_receber_baixa_recompute;
+  END IF;
 
   INSERT INTO public.erp_pagar_baixa_lixo_teste_bkp_c3 (baixa_id, pagar_id, company_id, valor, data, deleted_at_old)
   SELECT b.id, b.pagar_id, b.company_id, b.valor, b.data, b.deleted_at
@@ -130,14 +139,22 @@ BEGIN
    WHERE b.company_id = p_company AND b.deleted_at IS NULL AND ep.deleted_at IS NOT NULL
   ON CONFLICT (baixa_id) DO NOTHING;
 
-  ALTER TABLE public.erp_pagar_baixa DISABLE TRIGGER trg_pagar_baixa_recompute;
-  UPDATE public.erp_pagar_baixa b
-     SET deleted_at = now()
-    FROM public.erp_pagar ep
-   WHERE ep.id = b.pagar_id
-     AND b.company_id = p_company AND b.deleted_at IS NULL AND ep.deleted_at IS NOT NULL;
-  GET DIAGNOSTICS v_orf_pag = ROW_COUNT;
-  ALTER TABLE public.erp_pagar_baixa ENABLE TRIGGER trg_pagar_baixa_recompute;
+  -- RD-97: idem para a tabela COMPARTILHADA erp_pagar_baixa — só trava quando há órfã desta empresa.
+  IF EXISTS (
+      SELECT 1 FROM public.erp_pagar_baixa b
+        JOIN public.erp_pagar ep ON ep.id = b.pagar_id
+       WHERE b.company_id = p_company AND b.deleted_at IS NULL AND ep.deleted_at IS NOT NULL
+  ) THEN
+    SET LOCAL lock_timeout = '5s';
+    ALTER TABLE public.erp_pagar_baixa DISABLE TRIGGER trg_pagar_baixa_recompute;
+    UPDATE public.erp_pagar_baixa b
+       SET deleted_at = now()
+      FROM public.erp_pagar ep
+     WHERE ep.id = b.pagar_id
+       AND b.company_id = p_company AND b.deleted_at IS NULL AND ep.deleted_at IS NOT NULL;
+    GET DIAGNOSTICS v_orf_pag = ROW_COUNT;
+    ALTER TABLE public.erp_pagar_baixa ENABLE TRIGGER trg_pagar_baixa_recompute;
+  END IF;
 
   RETURN jsonb_build_object('ok', true, 'company', p_company,
     'titulos_purgados', v_tit, 'baixas_purgadas', v_bx,
@@ -145,24 +162,14 @@ BEGIN
 END
 $function$;
 
--- ── Backfill one-shot: aplica a purga (incl. órfãs) em cada empresa is_demo que tenha baixa órfã viva agora ──
-DO $$
-DECLARE r record;
-BEGIN
-  FOR r IN
-    SELECT DISTINCT c.id
-      FROM public.companies c
-     WHERE c.is_demo = true
-       AND (
-         EXISTS (SELECT 1 FROM public.erp_receber_baixa b JOIN public.erp_receber er ON er.id=b.receber_id
-                  WHERE b.company_id=c.id AND b.deleted_at IS NULL AND er.deleted_at IS NOT NULL)
-         OR EXISTS (SELECT 1 FROM public.erp_pagar_baixa b JOIN public.erp_pagar ep ON ep.id=b.pagar_id
-                  WHERE b.company_id=c.id AND b.deleted_at IS NULL AND ep.deleted_at IS NOT NULL)
-       )
-  LOOP
-    PERFORM public.fn_demo_ge_receber_purgar_lixo_teste(r.id);
-  END LOOP;
-END $$;
+-- ── SEM backfill one-shot no deploy (AJUSTES revisor 23/11 · RD-97 / lição 03/10, espelha #5929) ──
+-- A purga do acumulado (~59k baixas órfãs da DEMO) NÃO roda inline no `supabase db push`: isso pegaria lock pesado
+-- nas tabelas de baixa compartilhadas durante o deploy. A auto-cura cobre o acumulado no PRÓXIMO fn_demo_reset:
+-- esta migration estende fn_demo_ge_receber_purgar_lixo_teste para TAMBÉM soft-deletar as órfãs históricas (bloco
+-- acima, guardado por is_demo + IF EXISTS por empresa). O gatilho da auto-cura é a chamada
+-- `PERFORM fn_demo_ge_receber_purgar_lixo_teste(b0700000-…-004)` dentro de fn_demo_seed_ge_financeiro, instalada
+-- pela irmã #5929 (que religa o seed p/ chamar receber+pagar). Quando as duas estiverem na main, o 1º reset da DEMO
+-- limpa o acumulado sem lock no deploy. Idempotente (deleted_at IS NULL): re-rodar não altera nada.
 
 -- UNDO (reversível, se necessário): reativar as baixas da DEMO a partir dos backups —
 --   UPDATE erp_receber_baixa b SET deleted_at = k.deleted_at_old FROM erp_receber_baixa_lixo_teste_bkp_c3 k WHERE k.baixa_id=b.id;
