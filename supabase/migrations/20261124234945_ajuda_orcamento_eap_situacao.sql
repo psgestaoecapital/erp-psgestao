@@ -18,3 +18,11 @@ VALUES (
   'publicado'
 )
 ON CONFLICT (chave) DO NOTHING;
+
+-- §315 baseline (regra V32): a tela passa a MOSTRAR a situação do orçamento. O requisito pede ainda
+-- histórico e vínculo a fornecedores — não entregues aqui — então marca PARCIAL, não atendido.
+UPDATE public.blueprint_tela_requisito
+   SET status_baseline = 'parcial',
+       evidencia_baseline = 'PR #5885 · /dashboard/projetos/obras/[id]/orcamento · situação do orçamento exibida (histórico/vínculo fornecedor pendentes)'
+ WHERE id = 'f347bef3-fb3b-4184-9a05-b0f9612526a1'
+   AND status_baseline = 'ausente';
