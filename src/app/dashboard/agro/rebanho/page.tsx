@@ -53,6 +53,8 @@ type Animal = {
   status: string
   origem: string
   observacao: string | null
+  data_entrada: string | null
+  created_at: string | null
 }
 type Lote = { id: string; codigo: string; fase: string | null; modo: string; status: string }
 type Piquete = { id: string; nome: string; area_ha: number | null; capacidade_ua: number | null }
@@ -500,7 +502,7 @@ function Animais({
     setErro(null)
     void (async () => {
       let q = supabase.from('erp_pec_animal')
-        .select('id,identificacao,categoria,sexo,raca,peso_entrada_kg,lote_id,area_atual_id,status,origem,observacao', { count: 'exact' })
+        .select('id,identificacao,categoria,sexo,raca,peso_entrada_kg,lote_id,area_atual_id,status,origem,observacao,data_entrada,created_at', { count: 'exact' })
         .eq('company_id', companyId)
         .eq('propriedade_id', propriedadeId)
         .eq('status', 'ativo')
@@ -666,6 +668,7 @@ function Animais({
               <th className="text-left p-2">Piquete</th>
               <th className="text-left p-2">Observação</th>
               <th className="text-right p-2">Peso entrada</th>
+              <th className="text-left p-2">Entrada</th>
               <th className="p-2">Ações</th>
             </tr>
           </thead>
@@ -681,6 +684,10 @@ function Animais({
                 <td className="p-2 text-xs">{nomePiq(a.area_atual_id)}</td>
                 <td className="p-2 text-xs" title={a.observacao ?? ''} style={{ maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.observacao ?? '—'}</td>
                 <td className="p-2 text-right text-xs">{a.peso_entrada_kg ?? '—'}{a.peso_entrada_kg ? ' kg' : ''}</td>
+                <td className="p-2 text-xs whitespace-nowrap">
+                  {fmtDia(a.data_entrada)}
+                  {a.created_at && <div style={{ color: ESP60, fontSize: 10 }}>cad. {new Date(a.created_at).toLocaleDateString('pt-BR')}</div>}
+                </td>
                 <td className="p-2">
                   <div className="flex gap-1 justify-center">
                     <button onClick={() => abrirAcao({ tipo: 'editar', alvos: [a.id] })} className="text-[10px] px-2 py-1 rounded" style={{ background: '#fff', border: `1px solid ${ESP}`, color: ESP }}>Editar</button>
@@ -710,6 +717,9 @@ function Animais({
                 </div>
                 <div className="text-xs mt-1" style={{ color: ESP60 }}>
                   {nomeLote(a.lote_id)} · {nomePiq(a.area_atual_id)}
+                </div>
+                <div className="text-xs mt-1" style={{ color: ESP60 }}>
+                  Entrada: {fmtDia(a.data_entrada)}{a.created_at ? ` · cad. ${new Date(a.created_at).toLocaleDateString('pt-BR')}` : ''}
                 </div>
               </div>
               <div className="flex flex-col gap-1">
