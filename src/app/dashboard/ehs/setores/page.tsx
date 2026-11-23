@@ -222,7 +222,7 @@ export default function SetoresPage() {
               <thead>
                 <tr style={{ backgroundColor: C.beigeLt }}>
                   <Th><span style={thLabel}>Nome<AjudaCampo chave="ehs.setores.col_nome" rota={ROTA_AJUDA} /></span></Th>
-                  <Th><span style={thLabel}>Slug<AjudaCampo chave="ehs.setores.col_slug" rota={ROTA_AJUDA} /></span></Th>
+                  <Th><span style={thLabel}>Identificador<AjudaCampo chave="ehs.setores.col_slug" rota={ROTA_AJUDA} /></span></Th>
                   <Th><span style={thLabel}>Descrição<AjudaCampo chave="ehs.setores.col_descricao" rota={ROTA_AJUDA} /></span></Th>
                   {aba === 'meus' && multiEmpresa && <Th><span style={thLabel}>Empresa<AjudaCampo chave="ehs.setores.col_empresa" rota={ROTA_AJUDA} /></span></Th>}
                   {aba === 'meus' && <Th><span style={thLabel}>Ações<AjudaCampo chave="ehs.setores.col_acoes" rota={ROTA_AJUDA} /></span></Th>}
