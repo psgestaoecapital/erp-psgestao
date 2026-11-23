@@ -11,6 +11,7 @@ import { Search, X, Package, HardHat, Wrench, ShieldCheck, Pencil } from "lucide
 import { supabaseBrowser } from "@/lib/authFetch";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { erroAmigavel } from "@/lib/erroAmigavel";
+import { parseNumBR } from "@/lib/num";
 
 // RD-95: abre dentro da ficha do serviço (rota dinâmica) → textos do "?" na rota fixa dela
 const ROTA_AJUDA_SERVICO = "/dashboard/projetos/catalogo/[id]";
@@ -64,8 +65,8 @@ function fmtBRL(v: number | null) {
 }
 
 function parseNum(s: string): number | null {
-  const n = Number(String(s ?? "").replace(/\./g, "").replace(",", "."));
-  return Number.isFinite(n) ? n : null;
+  // parseNumBR: vírgula decimal e ponto de milhar (pt-BR); não zera "398.0" como o replace antigo.
+  return parseNumBR(s);
 }
 
 export function SeletorItemModal({

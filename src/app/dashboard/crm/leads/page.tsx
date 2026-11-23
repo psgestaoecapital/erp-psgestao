@@ -53,20 +53,20 @@ export default function CrmLeadsPage() {
 
   async function acao(l: Lead, a: string, valor?: string) {
     try { await rpcCrm('fn_crm_lead_acao', { p_lead_id: l.id, p_acao: a, p_valor: valor ?? null }); void carregar(); return true }
-    catch (e) { setErro((e as Error).message); return false }
+    catch (e) { setErro(erroAmigavel(e)); return false }
   }
   async function qualificar(l: Lead) {
     try {
       const r = await rpcCrm<{ id: string }>('fn_crm_lead_qualificar', { p_lead_id: l.id, p_funil_id: null, p_cliente_id: null })
       router.push(`/dashboard/crm/oportunidade/${r.id}`)
-    } catch (e) { setErro((e as Error).message) }
+    } catch (e) { setErro(erroAmigavel(e)) }
   }
   async function salvar() {
     if (!form || !empresa) return
     try {
       await rpcCrm('fn_crm_lead_salvar', { p_company_id: empresa, p_dados: { ...form, id: form.id || null } })
       setOk(form.id ? 'Lead atualizado.' : 'Lead cadastrado.'); setForm(null); void carregar()
-    } catch (e) { setErro((e as Error).message) }
+    } catch (e) { setErro(erroAmigavel(e)) }
   }
 
   if (carregando) return <Pagina><div style={{ color: C.TEXTM }}>Carregando…</div></Pagina>

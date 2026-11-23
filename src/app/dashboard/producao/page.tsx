@@ -9,6 +9,7 @@ import { BriefingEditor } from '@/components/pm/BriefingEditor'
 import { BriefingLigado } from '@/components/pm/BriefingLigado'
 import { CopiarJob, JobsParecidos, type ResultadoCopia } from '@/components/pm/CopiarJob'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { CampoDecimal } from '@/components/comum/CampoDecimal'
 import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
 
@@ -648,8 +649,8 @@ function ProducaoPageInner() {
               <Field label="Responsável (sem login)" v={form.responsavel_nome as string | undefined}
                 on={(v) => setForm({ ...form, responsavel_nome: v || null, responsavel_id: v ? null : (form.responsavel_id ?? null) })} />
               <Field label="Valor (R$)" moeda v={form.valor_job} on={(v) => setForm({ ...form, valor_job: parseFloat(v) || 0 })} />
-              <Field label="Horas estimadas" type="number" v={form.horas_estimadas} on={(v) => setForm({ ...form, horas_estimadas: parseFloat(v) || 0 })} />
-              <Field label="% Comissão (preview)" type="number" v={form.percentual_comissao} on={(v) => setForm({ ...form, percentual_comissao: v === '' ? null : parseFloat(v) })} />
+              <Field label="Horas estimadas" decimal v={form.horas_estimadas} on={(v) => setForm({ ...form, horas_estimadas: parseFloat(v) || 0 })} />
+              <Field label="% Comissão (preview)" decimal v={form.percentual_comissao} on={(v) => setForm({ ...form, percentual_comissao: v === '' ? null : parseFloat(v) })} />
             </div>
           )}
           {(form.valor_job && form.percentual_comissao) ? (
@@ -674,7 +675,7 @@ function ProducaoPageInner() {
                 .filter((j) => !['concluida', 'publicado', 'cancelado'].includes(j.status))
                 .map((j) => [j.id, j.titulo] as [string, string])]} />
             <Field label="Data *" ajuda="pm.timesheet.data" type="date" v={form.data} on={(v) => setForm({ ...form, data: v })} />
-            <Field label="Horas *" ajuda="pm.timesheet.horas" type="number" v={form.horas} on={(v) => setForm({ ...form, horas: parseFloat(v) || 0 })} />
+            <Field label="Horas *" ajuda="pm.timesheet.horas" decimal v={form.horas} on={(v) => setForm({ ...form, horas: parseFloat(v) || 0 })} />
             <Select label="Atividade" ajuda="pm.timesheet.atividade" v={(form.tipo_atividade as string) ?? ''} on={(v) => setForm({ ...form, tipo_atividade: v || null })}
               opts={[['', '— tipo —'], ['criacao', 'Criação'], ['atendimento', 'Atendimento'],
                 ['producao', 'Produção'], ['edicao', 'Edição'], ['revisao', 'Revisão'],
@@ -744,7 +745,7 @@ function ProducaoPageInner() {
               <Select label="Responsável" v={novaEtapa.responsavel_id} on={(v) => setNovaEtapa({ ...novaEtapa, responsavel_id: v })}
                 opts={[['', '—'], ...responsaveis.map((u) => [u.id, labelUsuario(u, responsaveis)] as [string, string])]} />
               <Field label="Prazo" type="date" v={novaEtapa.data_prazo} on={(v) => setNovaEtapa({ ...novaEtapa, data_prazo: v })} />
-              <Field label="Horas estimadas" type="number" v={novaEtapa.horas_estimadas} on={(v) => setNovaEtapa({ ...novaEtapa, horas_estimadas: v })} />
+              <Field label="Horas estimadas" decimal v={novaEtapa.horas_estimadas} on={(v) => setNovaEtapa({ ...novaEtapa, horas_estimadas: v })} />
             </div>
             <div style={actions}>
               <button onClick={addEtapa} disabled={etapaBusy === 'nova'} style={btnPrimary}>{etapaBusy === 'nova' ? 'Adicionando…' : 'Adicionar etapa'}</button>
@@ -1175,7 +1176,7 @@ function Modal({ titulo, children, onClose }: { titulo: string; children: React.
     </div>
   )
 }
-function Field({ label, v, on, type = 'text', multiline, moeda, testId, ajuda }: { label: string; v: unknown; on: (v: string) => void; type?: string; multiline?: boolean; moeda?: boolean; testId?: string; ajuda?: string }) {
+function Field({ label, v, on, type = 'text', multiline, moeda, decimal, testId, ajuda }: { label: string; v: unknown; on: (v: string) => void; type?: string; multiline?: boolean; moeda?: boolean; decimal?: boolean; testId?: string; ajuda?: string }) {
   return (
     <label style={lbl}>
       <span style={{ display: 'flex', alignItems: 'center' }}>{label}{ajuda && <AjudaCampo chave={ajuda} />}</span>
@@ -1184,6 +1185,9 @@ function Field({ label, v, on, type = 'text', multiline, moeda, testId, ajuda }:
       ) : moeda ? (
         // #6874 — valor em R$ com máscara ao digitar; devolve o número (string) p/ o parse do chamador
         <CampoMoeda value={numeroParaMoeda(v === '' || v == null ? null : Number(v))} onChange={(m) => on(String(moedaParaNumero(m) ?? ''))} testId={testId} placeholder="R$ 0,00" style={inp} />
+      ) : decimal ? (
+        // #5660 — valor/percentual/horas decimal que ACEITA vírgula BR (e ponto); devolve o número (string) p/ o parse do chamador
+        <CampoDecimal value={v as number | string | null | undefined} onChange={(n) => on(n == null ? '' : String(n))} testId={testId} style={inp} />
       ) : (
         <input type={type} value={(v as string | number) ?? ''} onChange={(e) => on(e.target.value)} data-testid={testId} style={inp} />
       )}
