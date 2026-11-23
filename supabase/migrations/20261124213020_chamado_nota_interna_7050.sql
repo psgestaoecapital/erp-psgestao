@@ -142,6 +142,10 @@ BEGIN
   RETURN NEW;
 END $function$;
 
+-- ACL da trigger: casa a ACL viva (service_role apenas; sem anon/authenticated) — exigência check_fn_guards [revoke_anon]
+REVOKE ALL ON FUNCTION public.fn__sugestao_autor_respondeu() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.fn__sugestao_autor_respondeu() TO service_role;
+
 -- 5) envio com nota interna + automação da coluna --------------------------------------------------
 -- A assinatura muda (novo parâmetro) → DROP da versão antiga e CREATE da nova, re-aplicando os grants
 -- exatamente como estavam (authenticated, service_role; sem anon/PUBLIC).
