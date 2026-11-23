@@ -31,7 +31,12 @@ async function main() {
   ok(/<GerarSegundoPlanoButton companyId=\{empresaUnica\} tipo="financeiro_movimentacao" dataInicio=\{dataInicio\} dataFim=\{dataFim\}/.test(extrato), 'extrato: movimentação do período da tela')
 
   const rota = ler('src/app/api/relatorios/fila/route.ts')
-  ok(/const GERADOS = new Set\(\['financeiro_movimentacao', 'financeiro_pagar', 'financeiro_receber'\]\)/.test(rota), 'gerador conhece pagar e receber')
+  // PDCA GE: a verdade dos tipos gerados foi centralizada em src/lib/relatorios/gerados.ts
+  // (RELATORIOS_GERADOS). A rota valida por relatorioEhGerado, no lugar do Set inline antigo.
+  const gerados = ler('src/lib/relatorios/gerados.ts')
+  ok(/import \{ relatorioEhGerado \} from '@\/lib\/relatorios\/gerados'/.test(rota)
+     && /id: 'financeiro_movimentacao'/.test(gerados) && /id: 'financeiro_pagar'/.test(gerados) && /id: 'financeiro_receber'/.test(gerados),
+    'gerador conhece pagar e receber')
   const tit = /async function gerarTitulos[\s\S]*?\n\}/.exec(rota)?.[0] ?? ''
   ok(/\.eq\('company_id', p\.company_id\)/.test(tit), 'títulos: só da empresa do pedido')
   ok(/\.is\('deleted_at', null\)/.test(tit), 'títulos: excluídos ficam fora')

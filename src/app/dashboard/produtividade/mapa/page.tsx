@@ -14,6 +14,7 @@ import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { CelulaEditavel } from '@/components/produtividade/CelulaEditavel'
 import { erroAmigavel, codigoAmigavel } from '@/lib/erroAmigavel'
+import { parseNumBR } from '@/lib/num'
 
 const ROTA = '/dashboard/produtividade/mapa'
 const Aj = ({ k }: { k: string }) => <AjudaCampo chave={k} rota={ROTA} />
@@ -418,7 +419,7 @@ function EntraSaiEditor({ companyId, plantId, raia, produtos, onRecarregar }: {
     setErro(null); setAviso(null)
     if (!origem || !saida) { setErro('Escolha o produto que ENTRA e o que SAI.'); return }
     if (origem === saida) { setErro('Entra e sai não podem ser o mesmo produto.'); return }
-    const pct = rend.trim() ? Number(rend.replace(',', '.')) : null
+    const pct = rend.trim() ? parseNumBR(rend) : null
     if (pct != null && (!(pct > 0) || pct > 100)) { setErro('O rendimento deve ser maior que 0 e até 100%.'); return }
     setBusy(true)
     const { data, error } = await supabase.rpc('fn_prod_estrutura_salvar', {
@@ -436,7 +437,7 @@ function EntraSaiEditor({ companyId, plantId, raia, produtos, onRecarregar }: {
 
   async function editarRend(l: Ligacao, valor: string) {
     setErro(null); setAviso(null)
-    const pct = valor.trim() ? Number(valor.replace(',', '.')) : null
+    const pct = valor.trim() ? parseNumBR(valor) : null
     if (pct != null && (!(pct > 0) || pct > 100)) { setErro('O rendimento deve ser maior que 0 e até 100%.'); return }
     setBusy(true)
     const { data, error } = await supabase.rpc('fn_prod_estrutura_salvar', {

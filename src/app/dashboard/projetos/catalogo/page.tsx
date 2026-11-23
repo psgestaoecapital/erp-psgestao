@@ -173,6 +173,15 @@ export default function CatalogoServicosPage() {
   const [novo, setNovo] = useState({ nome: "", codigo: "", categoria: "", unidade: "m²" });
   // Abas do Catálogo (Onda C-1 · V31): "Meu catálogo" (serviços da empresa) × "Biblioteca padrão PS" (referência, só leitura).
   const [aba, setAba] = useState<"meu" | "biblioteca">("meu");
+  // Deep-link da aba pela URL (?aba=biblioteca): permite que outras telas (ex.: o estado
+  // vazio do Orçamento por EAP, §315) mandem o usuário direto para a Biblioteca padrão PS.
+  // Lê via window.location (client-only em useEffect) — sem useSearchParams, para não exigir
+  // Suspense no build.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const abaUrl = new URLSearchParams(window.location.search).get("aba");
+    if (abaUrl === "biblioteca" || abaUrl === "meu") setAba(abaUrl);
+  }, []);
 
   const carregar = useCallback(async () => {
     if (!companyId) {
