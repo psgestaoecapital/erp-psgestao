@@ -44,10 +44,13 @@ const SITUACOES = [
   { s: "cancelada", l: "Canceladas" },
 ];
 
+// Ferramentas de Gestão: atalhos da frente de trabalho do Hub, sem numeração (não é
+// um passo-a-passo obrigatório; são ferramentas que o sócio abre na ordem que quiser).
+// A lista é aberta — basta acrescentar um item aqui para surgir um novo atalho.
 const PASSOS = [
-  { href: "/dashboard/projetos/oportunidades", titulo: "1. Funil de oportunidades", texto: "Registre o cliente e a obra que quer orçar." },
-  { href: "/dashboard/projetos/obras", titulo: "2. Obras", texto: "Acompanhe escopo, status e fiscal de cada obra." },
-  { href: "/dashboard/projetos/obras/resultado", titulo: "3. Resultado por obra", texto: "Previsto x realizado: custo, compras e margem." },
+  { href: "/dashboard/projetos/oportunidades", titulo: "Funil de oportunidades", texto: "Registre o cliente e a obra que quer orçar." },
+  { href: "/dashboard/projetos/obras", titulo: "Obras", texto: "Acompanhe escopo, status e fiscal de cada obra." },
+  { href: "/dashboard/projetos/obras/resultado", titulo: "Resultado por obra", texto: "Previsto x realizado: custo, compras e margem." },
 ];
 
 function fmtBRL(v: number) {
@@ -349,9 +352,9 @@ export default function PainelProjetos() {
         </p>
       )}
 
-      {/* PRÓXIMOS PASSOS */}
+      {/* FERRAMENTAS DE GESTÃO */}
       <section className="mt-16">
-        <SectionLabel>Por onde começar</SectionLabel>
+        <SectionLabel>Ferramentas de Gestão</SectionLabel>
         <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
           {PASSOS.map((p) => (
             <Link key={p.href} href={p.href} className="rounded-xl border border-[#3D2314]/12 bg-white p-4 shadow-sm hover:border-[#C8941A]">
