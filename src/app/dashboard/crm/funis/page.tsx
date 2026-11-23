@@ -4,6 +4,7 @@
 // Ganho e Perdido existem em todo funil (fecham o negócio): podem ser renomeados, não retirados.
 import { useEffect, useMemo, useState } from 'react'
 import { C, Campo, Titulo, Cabecalho, Pagina, Aviso, Vazio, SemEmpresa, inp, btnPri, btnSec, chip, cartao, rpcCrm, useCrm, type Etapa, type Item, type CampoCustom } from '@/components/crm/crmUi'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const CORES = ['#F0E9DE', '#E8F0FB', '#FFF4D6', '#FBE7D5', '#E3F1E0', '#F3E3F5', '#FBE0E0']
 const TIPOS_CAMPO: { v: CampoCustom['tipo']; l: string }[] = [
@@ -30,7 +31,7 @@ export default function CrmFunisPage() {
   async function rodar(fn: string, args: Record<string, unknown>, msg: string) {
     setErro(null)
     try { const r = await rpcCrm<{ id?: string }>(fn, args); setOk(msg); await recarregar(); return r }
-    catch (e) { setErro((e as Error).message); return null }
+    catch (e) { setErro(erroAmigavel(e)); return null }
   }
   const salvarEtapa = (e: Etapa, mud: Partial<Etapa>) => rodar('fn_crm_funil_etapa_salvar', { p_company_id: empresa, p_dados: { id: e.id, ...mud } }, 'Etapa salva. O quadro já mostra a mudança.')
   async function mover(i: number, d: -1 | 1) {
