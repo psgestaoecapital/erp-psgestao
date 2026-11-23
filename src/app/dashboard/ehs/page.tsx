@@ -180,8 +180,8 @@ export default function ComplianceDashboardPage() {
         <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12, marginBottom: 24 }}>
           <AtalhoCard href="/dashboard/ehs/funcionarios" titulo="Funcionários" desc="Cadastro e documentos" />
           <AtalhoCard href="/dashboard/ehs/empresa" titulo="Documentos da Empresa" desc="Certidões, alvarás, INSS" />
-          <AtalhoCard href="/dashboard/ehs/matriz" titulo="Matriz de Conformidade" desc="Grid funcionários × documentos" />
-          <AtalhoCard href="/dashboard/ehs/funcionarios" titulo="Upload rápido" desc="Subir um documento" />
+          <AtalhoCard href="/dashboard/ehs/matriz" titulo="Matriz de Conformidade" desc="Grid funcionários × documentos — subir documento" />
+          <AtalhoCard href="/dashboard/ehs/calendario" titulo="Calendário Legal" desc="Tarefas legais por risco × multa" />
         </section>
 
         {/* Alertas urgentes */}
