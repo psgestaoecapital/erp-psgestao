@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { FORMAS_PAGAMENTO, ehPix, normalizarChavePix, validarChavePix } from '@/lib/financeiro/formasPagamento'
 import { CamposPix } from './CamposPix'
+import { CampoComprovanteReceber } from './ComprovanteReceber'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { supabase } from '@/lib/supabase'
 import CategoriaCombobox from './CategoriaCombobox'
@@ -117,6 +118,9 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
   const [parcelasEdit, setParcelasEdit] = useState<{ vencimento: string; valor: number }[]>([])
   const [categoriaCodigo, setCategoriaCodigo] = useState('')
   const [numeroDocumento, setNumeroDocumento] = useState('')
+  // 23/11 · recibo/contrato/nota da receita (bucket privado 'receber-comprovantes' → erp_receber.anexo_path).
+  const [anexoPath, setAnexoPath] = useState('')
+  const [anexoNome, setAnexoNome] = useState('')
   const [formaRecebimento, setFormaRecebimento] = useState('pix')
   const [tipoChavePix, setTipoChavePix] = useState('cpf_cnpj')
   const [chavePix, setChavePix] = useState('')
@@ -401,7 +405,23 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
     setNumeroDocumento(v.numeroDocumento); setFormaRecebimento(v.formaRecebimento); setTipoChavePix(v.tipoChavePix)
     setChavePix(v.chavePix); setContaBancaria(v.contaBancaria); setCentroCustoId(v.centroCustoId); setLinhaNegocio(v.linhaNegocio); setObservacao(v.observacao)
     setJuros(v.juros); setMulta(v.multa); setDesconto(v.desconto)
+    setAnexoPath(String(ed.linha.anexo_path ?? '')); setAnexoNome(String(ed.linha.anexo_nome ?? ''))
   }, [ed.linha])
+
+  // Comprovante: no CRIAR, só guarda em estado (persiste no bloco pós-insert do salvar()).
+  // No EDITAR, o título já existe → grava na hora em erp_receber.anexo_path e confere o retorno (RD-98 p3).
+  async function aplicarAnexo(path: string, nome: string) {
+    setAnexoPath(path); setAnexoNome(nome)
+    if (!editando || !editarId) { if (path) setToast('Comprovante anexado'); return }
+    const { error } = await supabase.from('erp_receber').update({ anexo_path: path || null, anexo_nome: nome || null }).eq('id', editarId)
+    if (error) {
+      setAnexoPath(String(ed.linha?.anexo_path ?? '')); setAnexoNome(String(ed.linha?.anexo_nome ?? ''))
+      setFeedback({ tipo: 'erro', texto: 'Não foi possível salvar o comprovante. Tente de novo.' })
+      return
+    }
+    setToast(path ? 'Comprovante anexado' : 'Comprovante removido')
+  }
+  function removerAnexo() { void aplicarAnexo('', '') }
 
   const [salvandoEdicao, setSalvandoEdicao] = useState(false)
   const [edicaoSalva, setEdicaoSalva] = useState(false)
@@ -554,6 +574,8 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
       if (centroCustoId) patch.centro_custo_id = centroCustoId
       // Linha de negócio (opcional): guarda o NOME (o Resultado por negócio casa receita↔linha pelo nome).
       if (linhaNegocio) patch.linha_negocio = linhaNegocio
+      // 23/11 · comprovante/recibo em todas as parcelas do grupo (bucket privado → anexo_path).
+      if (anexoPath) { patch.anexo_path = anexoPath; patch.anexo_nome = anexoNome || null }
       // PIX: grava tipo+chave (normalizada); outras formas limpam o lixo.
       const pixR = ehPix(formaRecebimento) && chavePix.trim()
       patch.tipo_chave_pix = pixR ? tipoChavePix : null
@@ -668,7 +690,7 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
     setClienteId(''); setClienteNome(''); setClienteBusca(''); setDescricao(''); setValor('')
     setDataRecebimento(new Date().toISOString().split('T')[0]); setDataCompetencia('')
     setParcelas(1); setIntervaloDias(30); setDiaFixo(''); setCategoriaCodigo(''); setNumeroDocumento('')
-    setCentroCustoId(''); setLinhaNegocio(''); setObservacao(''); setJaRecebido(false); setContaBancaria('')
+    setCentroCustoId(''); setLinhaNegocio(''); setObservacao(''); setJaRecebido(false); setContaBancaria(''); setAnexoPath(''); setAnexoNome('')
     setDupWarn(false)
   }
 
@@ -1101,6 +1123,21 @@ export default function NovaReceitaForm({ companyId, onSucesso, onCancelar, init
               style={inputStyle}
               maxLength={50}
             />
+          </Campo>
+
+          {/* 23/11 · recibo/contrato/nota da receita — anexo no bucket privado por empresa (erp_receber.anexo_path). */}
+          <Campo ajuda="financeiro.receita.comprovante" ajudaRota={ROTA_AJUDA} label="Anexo (recibo/contrato/nota)">
+            <CampoComprovanteReceber
+              empresa={companyId}
+              anexoPath={anexoPath}
+              anexoNome={anexoNome}
+              onChange={(p, n) => void aplicarAnexo(p, n)}
+              onRemover={removerAnexo}
+            />
+            <small style={helperStyle}>
+              Opcional. Anexe a foto do recibo, contrato, boleto ou nota (JPG, PNG, WEBP, HEIC ou PDF, até 20 MB).
+              Fica guardado com segurança e só quem é da empresa consegue abrir.
+            </small>
           </Campo>
 
           <Campo ajuda="financeiro.receita.observacao" ajudaRota={ROTA_AJUDA} label="Observação (opcional)" fullWidth>
