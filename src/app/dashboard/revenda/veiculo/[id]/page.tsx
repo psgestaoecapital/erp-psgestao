@@ -498,8 +498,9 @@ function ReservaModal({ companyId, veiculoId, onClose, onSaved, onErro }: { comp
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [campo, setCampo] = useState<string | null>(null)
-  const sinalNum = Number(String(f.valor_sinal).replace(',', '.'))
-  const sinalOk = !f.gerar || (f.valor_sinal.trim() !== '' && Number.isFinite(sinalNum) && sinalNum > 0)
+  // #5660 · usa a fonte única moedaNum (parseNumBR) p/ aceitar vírgula E milhar BR ("10.000,00"); o Number(replace) ingênuo virava NaN/valor errado
+  const sinalNum = moedaNum(f.valor_sinal)
+  const sinalOk = !f.gerar || (f.valor_sinal.trim() !== '' && sinalNum != null && sinalNum > 0)
   const podeEnviar = !!f.cliente_nome.trim() && sinalOk && !busy
   async function salvar() {
     setErro(null); setCampo(null)
@@ -877,8 +878,9 @@ function NovoCusto({ veiculoId, onSaved, onErro }: { veiculoId: string; onSaved:
   const [busy, setBusy] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
   const [campo, setCampo] = useState<string | null>(null)
-  const valorNum = Number(String(f.valor).replace(',', '.'))
-  const valorOk = f.valor.trim() !== '' && Number.isFinite(valorNum) && valorNum > 0
+  // #5660 · usa a fonte única moedaNum (parseNumBR) p/ aceitar vírgula E milhar BR ("10.000,00"); o Number(replace) ingênuo virava NaN/valor errado
+  const valorNum = moedaNum(f.valor)
+  const valorOk = f.valor.trim() !== '' && valorNum != null && valorNum > 0
   const podeEnviar = valorOk && !!f.categoria.trim() && !!f.descricao.trim() && (!f.gerar || !!f.vencimento) && !busy
   async function salvar() {
     setErro(null); setCampo(null)
