@@ -166,3 +166,9 @@ BEGIN
     'vazio',(ROUND(v_ativo,2)=0 AND ROUND(v_passivo,2)=0 AND ROUND(v_pl,2)=0),
     'linhas',v_linhas);
 END; $function$;
+
+-- AJUSTES revisor (check_fn_guards · revoke_anon): CREATE OR REPLACE reseta a ACL; re-aplica o fecho
+-- padrão — REVOKE anon/PUBLIC + GRANT só a authenticated/service_role (ACL viva: authenticated=X,
+-- service_role=X; sem anon). Sem este bloco o CREATE OR REPLACE tiraria o EXECUTE de authenticated e quebraria a tela.
+REVOKE ALL ON FUNCTION public.fn_balanco_patrimonial(uuid, date) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_balanco_patrimonial(uuid, date) TO authenticated, service_role;
