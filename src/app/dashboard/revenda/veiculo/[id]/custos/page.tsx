@@ -126,14 +126,15 @@ function Inner() {
 
       {/* CUSTOS LANÇADOS */}
       <Bloco titulo="Custos lançados" hint="⚠️ Custo acima de 2× a mediana da categoria (no histórico da empresa) é sinalizado como “fora da curva”.">
-        {/* Indicação de comparação com a curva — sempre visível (RD-98: estado honesto do que foi avaliado). */}
-        {custos.length > 0 && (
-          curvaResumo.comBase === 0
+        {/* Indicação de comparação com a curva — SEMPRE visível (RD-98: estado honesto do que foi avaliado),
+            inclusive no estado vazio, para a comparação ser descoberta antes mesmo do primeiro lançamento. */}
+        {custos.length === 0
+          ? <div data-testid="curva-resumo" style={{ fontSize: 12, color: C.espM, background: C.cream, padding: '7px 11px', borderRadius: 8, marginBottom: 10 }}>Assim que houver custos lançados, cada um é comparado com a <b>curva da categoria</b>: “fora da curva” = acima de 2× a mediana da mesma categoria no histórico da empresa.</div>
+          : curvaResumo.comBase === 0
             ? <div data-testid="curva-resumo" style={{ fontSize: 12, color: C.espM, background: C.cream, padding: '7px 11px', borderRadius: 8, marginBottom: 10 }}>Comparação com a curva disponível a partir de 3 lançamentos na mesma categoria (histórico da empresa).</div>
             : curvaResumo.foraCount > 0
               ? <div data-testid="curva-resumo" style={{ fontSize: 12.5, fontWeight: 700, color: C.red, background: C.redBg, padding: '7px 11px', borderRadius: 8, marginBottom: 10 }}>⚠️ {curvaResumo.foraCount} {curvaResumo.foraCount === 1 ? 'custo' : 'custos'} fora da curva (acima de 2× a mediana da categoria).</div>
-              : <div data-testid="curva-resumo" style={{ fontSize: 12.5, fontWeight: 600, color: C.green, background: C.greenBg, padding: '7px 11px', borderRadius: 8, marginBottom: 10 }}>Todos os custos estão dentro da curva da categoria.</div>
-        )}
+              : <div data-testid="curva-resumo" style={{ fontSize: 12.5, fontWeight: 600, color: C.green, background: C.greenBg, padding: '7px 11px', borderRadius: 8, marginBottom: 10 }}>Todos os custos estão dentro da curva da categoria.</div>}
         {custos.length === 0 ? <div style={{ fontSize: 12.5, color: C.espL, fontStyle: 'italic' }}>Nenhum custo ainda.</div> : (
           <div>
             {custos.map((c) => {
@@ -219,18 +220,30 @@ function NovoCusto({ veiculoId, onSaved, onErro }: { veiculoId: string; onSaved:
   return (
     <div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-        <select value={f.categoria} onChange={(e) => setF({ ...f, categoria: e.target.value })} style={inp}>{CATS.map((c) => <option key={c} value={c}>{c.replace('_', ' ')}</option>)}</select>
+        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+          <select value={f.categoria} onChange={(e) => setF({ ...f, categoria: e.target.value })} style={inp}>{CATS.map((c) => <option key={c} value={c}>{c.replace('_', ' ')}</option>)}</select>
+          <AjudaCampo chave="revenda.veiculo.custos.categoria" rota="/dashboard/revenda/veiculo/custos" />
+        </span>
         <span style={{ display: 'inline-flex', alignItems: 'center' }}>
           <CampoMoeda value={f.valor} onChange={(v) => setF({ ...f, valor: v })} placeholder="valor *" testId="custo-valor" style={{ ...inp, width: 120 }} />
           <AjudaCampo chave="revenda.veiculo.custos.valor" rota="/dashboard/revenda/veiculo/custos" />
         </span>
-        <input value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} placeholder="descrição *" style={{ ...inp, width: 170 }} />
-        <input value={f.fornecedor_nome} onChange={(e) => setF({ ...f, fornecedor_nome: e.target.value })} placeholder="fornecedor" style={{ ...inp, width: 130 }} />
-        <input type="date" value={f.data_custo} onChange={(e) => setF({ ...f, data_custo: e.target.value })} style={inp} />
+        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+          <input value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} placeholder="descrição *" style={{ ...inp, width: 170 }} />
+          <AjudaCampo chave="revenda.veiculo.custos.descricao" rota="/dashboard/revenda/veiculo/custos" />
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+          <input value={f.fornecedor_nome} onChange={(e) => setF({ ...f, fornecedor_nome: e.target.value })} placeholder="fornecedor" style={{ ...inp, width: 130 }} />
+          <AjudaCampo chave="revenda.veiculo.custos.fornecedor" rota="/dashboard/revenda/veiculo/custos" />
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+          <input type="date" value={f.data_custo} onChange={(e) => setF({ ...f, data_custo: e.target.value })} style={inp} />
+          <AjudaCampo chave="revenda.veiculo.custos.data" rota="/dashboard/revenda/veiculo/custos" />
+        </span>
         <label style={{ fontSize: 12, color: C.espM, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-          <input type="checkbox" checked={f.gerar} onChange={(e) => setF({ ...f, gerar: e.target.checked })} /> gerar título em contas a pagar
+          <input type="checkbox" checked={f.gerar} onChange={(e) => setF({ ...f, gerar: e.target.checked })} /> gerar título em contas a pagar<AjudaCampo chave="revenda.veiculo.custos.gerar_titulo" rota="/dashboard/revenda/veiculo/custos" />
         </label>
-        {f.gerar && <label style={{ fontSize: 11, color: C.espM }}>venc.<input type="date" value={f.vencimento} onChange={(e) => setF({ ...f, vencimento: e.target.value })} style={{ ...inp, marginLeft: 4 }} /></label>}
+        {f.gerar && <label style={{ fontSize: 11, color: C.espM, display: 'inline-flex', alignItems: 'center', gap: 4 }}>venc.<input type="date" value={f.vencimento} onChange={(e) => setF({ ...f, vencimento: e.target.value })} style={{ ...inp, marginLeft: 4 }} /><AjudaCampo chave="revenda.veiculo.custos.vencimento" rota="/dashboard/revenda/veiculo/custos" /></label>}
         <button disabled={!podeEnviar} onClick={() => void salvar()} style={{ padding: '8px 14px', border: 'none', borderRadius: 8, background: podeEnviar ? C.gold : C.espL, color: C.white, fontWeight: 700, cursor: podeEnviar ? 'pointer' : 'not-allowed' }}>{busy ? 'Salvando…' : '+ Custo'}</button>
       </div>
       {erro && <div style={{ background: C.redBg, color: C.red, padding: '6px 10px', borderRadius: 7, fontSize: 12, marginTop: 6, display: 'inline-block' }}>{erro}</div>}
