@@ -293,7 +293,7 @@ export default function ConfigEmpresaPage() {
               { v: 'avisar', t: 'Avisar (recomendado)', d: 'Fatura normalmente, mas lista os itens que ficaram negativos para você regularizar.' },
               { v: 'liberar', t: 'Liberar', d: 'Fatura em silêncio, sem alerta.' },
             ] as const).map((o) => (
-              <label key={o.v} data-testid={`estoque-negativo-${o.v}`} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '10px 12px', border: `1px solid ${estoqueNeg === o.v ? GOLD : LINE}`, borderRadius: 9, background: estoqueNeg === o.v ? '#FFF8E7' : '#FFF', cursor: 'pointer' }}>
+              <label key={o.v} data-testid={`estoque-negativo-${o.v}`} data-ajuda="empresa.estoque.venda_negativo" style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '10px 12px', border: `1px solid ${estoqueNeg === o.v ? GOLD : LINE}`, borderRadius: 9, background: estoqueNeg === o.v ? '#FFF8E7' : '#FFF', cursor: 'pointer' }}>
                 <input type="radio" name="estoque_negativo" value={o.v} checked={estoqueNeg === o.v} onChange={() => setEstoqueNeg(o.v)} style={{ width: 16, height: 16, marginTop: 2 }} />
                 <span>
                   <span style={{ fontSize: 13, fontWeight: 700, color: ESP }}>{o.t}</span>
@@ -315,7 +315,7 @@ export default function ConfigEmpresaPage() {
           {/* FIX #8620 · o "?" (AjudaCampo portava um cartão fixed z-130 e capturava o clique quando ficava DENTRO
              do <label>, impedindo o seletor de arquivo de abrir). Agora é IRMÃO do botão, nunca sobre a área clicável. */}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <label data-testid="empresa-enviar-logo" style={{ ...btnPrim, opacity: busy ? 0.6 : 1, cursor: busy ? 'default' : 'pointer' }}>
+            <label data-testid="empresa-enviar-logo" data-ajuda="empresa.dados.logo" style={{ ...btnPrim, opacity: busy ? 0.6 : 1, cursor: busy ? 'default' : 'pointer' }}>
               {busy ? 'Enviando…' : emp?.logo_url ? 'Trocar logo' : 'Enviar logo'}
               <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" style={{ display: 'none' }} disabled={busy}
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) void enviarLogo(f) }} />
