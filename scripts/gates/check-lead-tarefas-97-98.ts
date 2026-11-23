@@ -35,7 +35,8 @@ ok(leads.includes('data-testid="lead-tarefas"') && !leads.includes('>📅 Reuni�
 ok(leads.includes('data-testid="minhas-tarefas-abrir"') && leads.includes("get('tarefas') === 'minhas'"), '"Minhas tarefas" (e o aviso do sino abre direto)')
 ok(leads.includes('<option value={uid}>Meus leads</option>'), 'filtro do funil: Meus leads')
 ok(leads.includes('data-testid="lead-whatsapp"'), 'WhatsApp no card')
-const agenda = readFileSync('src/app/dashboard/pm/agenda/page.tsx', 'utf8')
+// #5564 moveu a Agenda comercial para o componente compartilhado AgendaComercialView (RD-26).
+const agenda = readFileSync('src/components/agenda/AgendaComercialView.tsx', 'utf8')
 ok(agenda.includes("useState<'minha' | 'equipe'>('minha')") && agenda.includes('responsavel_id.eq.${uid}'), 'agenda: Minha agenda (padrão) / Equipe')
 
 // WhatsApp sem integração paga

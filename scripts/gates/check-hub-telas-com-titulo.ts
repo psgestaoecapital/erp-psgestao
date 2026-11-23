@@ -5,7 +5,10 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 const PASTA = 'src/app/dashboard/projetos'
-const COMPONENTE_COM_TITULO = /<InstalarApp\b/
+// Componentes compartilhados que já renderizam o próprio <h1> da tela (RD-26 — a page.tsx só os reusa):
+// - InstalarApp (tela de instalação do app)
+// - AgendaComercialView (Agenda comercial; renderiza <h1>Agenda</h1>, reusada do P&M)
+const COMPONENTE_COM_TITULO = /<(InstalarApp|AgendaComercialView)\b/
 
 function paginas(d: string): string[] {
   return readdirSync(d).flatMap((n) => {
@@ -24,6 +27,7 @@ export function temTitulo(src: string): boolean {
 const autoteste =
   temTitulo('return <main><h1>Obras</h1></main>') &&
   temTitulo("return <InstalarApp titulo='x' />") &&
+  temTitulo('return <AgendaComercialView eyebrow="Hub · Agenda comercial" />') &&
   temTitulo("import { redirect } from 'next/navigation'\nexport default function P() { redirect('/x') }") &&
   !temTitulo('return <main><h2>Sem título</h2></main>') &&
   !temTitulo("redirect('/x'); return <main>tela</main>")
