@@ -7,6 +7,8 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 
 const ROTA = '/dashboard/gestao-empresarial/bens'
 
@@ -113,14 +115,15 @@ export default function BensPage() {
 
   async function salvar() {
     if (!empresaUnica) return
-    const valor = Number(String(f.valor_aquisicao).replace(',', '.'))
+    // #6874 — parser de moeda que trata milhar ("1.234,56" -> 1234.56); antes o replace(',','.') simples quebrava.
+    const valor = moedaParaNumero(f.valor_aquisicao) ?? 0
     if (!f.descricao || !valor || valor < 0) { setMsg('Descrição e valor (≥0) são obrigatórios.'); return }
     setBusy(true); setMsg(null)
     const payload = {
       company_id: empresaUnica, codigo: f.codigo || null, descricao: f.descricao, natureza: f.natureza,
       data_aquisicao: f.data_aquisicao, valor_aquisicao: valor, deprecia: f.deprecia,
       vida_util_meses: f.deprecia && f.vida_util_meses ? Number(f.vida_util_meses) : null,
-      valor_residual: f.valor_residual ? Number(String(f.valor_residual).replace(',', '.')) : 0,
+      valor_residual: f.valor_residual ? (moedaParaNumero(f.valor_residual) ?? 0) : 0,
       business_line_id: f.business_line_id || null, centro_custo: f.centro_custo || null,
       data_inicio_depreciacao: f.data_aquisicao,
     }
@@ -135,9 +138,9 @@ export default function BensPage() {
   function editar(b: Bem) {
     setEditId(b.id); setShowForm(true)
     setF({ codigo: b.codigo ?? '', descricao: b.descricao, natureza: b.natureza, data_aquisicao: b.data_aquisicao,
-      valor_aquisicao: String(b.valor_aquisicao), deprecia: b.deprecia, vida_util_meses: b.vida_util_meses != null ? String(b.vida_util_meses) : '',
-      // RD-98: carrega o residual atual para não zerá-lo silenciosamente ao salvar a edição.
-      valor_residual: b.valor_residual != null ? String(b.valor_residual) : '', business_line_id: b.business_line_id ?? '', centro_custo: b.centro_custo ?? '' })
+      valor_aquisicao: numeroParaMoeda(b.valor_aquisicao), deprecia: b.deprecia, vida_util_meses: b.vida_util_meses != null ? String(b.vida_util_meses) : '',
+      // RD-98: carrega o residual atual (mascarado em R$) para não zerá-lo silenciosamente ao salvar a edição.
+      valor_residual: b.valor_residual != null ? numeroParaMoeda(b.valor_residual) : '', business_line_id: b.business_line_id ?? '', centro_custo: b.centro_custo ?? '' })
   }
 
   async function excluir(b: Bem) {
@@ -395,10 +398,10 @@ export default function BensPage() {
             <label style={lbl}>Descrição <AjudaCampo chave="ge.bens.form_descricao" rota={ROTA} /><input style={inp} value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} /></label>
             <label style={lbl}>Natureza <AjudaCampo chave="ge.bens.form_natureza" rota={ROTA} /><select style={inp} value={f.natureza} onChange={(e) => setNatureza(e.target.value)}>{NATUREZAS.map((n) => <option key={n} value={n}>{n}</option>)}</select></label>
             <label style={lbl}>Aquisição <AjudaCampo chave="ge.bens.form_aquisicao" rota={ROTA} /><input type="date" style={inp} value={f.data_aquisicao} onChange={(e) => setF({ ...f, data_aquisicao: e.target.value })} /></label>
-            <label style={lbl}>Valor (R$) <AjudaCampo chave="ge.bens.form_valor" rota={ROTA} /><input style={inp} value={f.valor_aquisicao} onChange={(e) => setF({ ...f, valor_aquisicao: e.target.value })} placeholder="0,00" /></label>
+            <label style={lbl}>Valor (R$) <AjudaCampo chave="ge.bens.form_valor" rota={ROTA} /><CampoMoeda value={f.valor_aquisicao} onChange={(v) => setF({ ...f, valor_aquisicao: v })} placeholder="R$ 0,00" style={inp} testId="ge-bens-valor-aquisicao" /></label>
             <label style={{ ...lbl, display: 'flex', alignItems: 'center', gap: 6, marginTop: 18 }}><input type="checkbox" checked={f.deprecia} onChange={(e) => setF({ ...f, deprecia: e.target.checked })} /> Deprecia <AjudaCampo chave="ge.bens.form_deprecia" rota={ROTA} /></label>
             {f.deprecia && <label style={lbl}>Vida útil (meses) <AjudaCampo chave="ge.bens.form_vida_util" rota={ROTA} />{!f.vida_util_meses && <span style={{ color: RED }}> *falta</span>}<input style={inp} value={f.vida_util_meses} onChange={(e) => setF({ ...f, vida_util_meses: e.target.value })} /></label>}
-            {f.deprecia && <label style={lbl}>Valor residual <AjudaCampo chave="ge.bens.form_residual" rota={ROTA} /><input style={inp} value={f.valor_residual} onChange={(e) => setF({ ...f, valor_residual: e.target.value })} placeholder="0,00" /></label>}
+            {f.deprecia && <label style={lbl}>Valor residual <AjudaCampo chave="ge.bens.form_residual" rota={ROTA} /><CampoMoeda value={f.valor_residual} onChange={(v) => setF({ ...f, valor_residual: v })} placeholder="R$ 0,00" style={inp} testId="ge-bens-valor-residual" /></label>}
             <label style={lbl}>Linha de negócio <AjudaCampo chave="ge.bens.form_linha" rota={ROTA} /><select style={inp} value={f.business_line_id} onChange={(e) => setF({ ...f, business_line_id: e.target.value })}><option value="">—</option>{bls.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
             <label style={lbl}>Centro de custo <AjudaCampo chave="ge.bens.form_centro_custo" rota={ROTA} /><input style={inp} value={f.centro_custo} onChange={(e) => setF({ ...f, centro_custo: e.target.value })} placeholder="ex.: COMUM" /></label>
           </div>
