@@ -130,3 +130,8 @@ BEGIN
   RETURN NEW;
 END
 $function$;
+
+-- Guarda de superfície (check:fn-guards): função SECURITY DEFINER só executa pelo gatilho da tabela
+-- obra_subempreiteiro_medicao; não é chamável por cliente anônimo.
+REVOKE ALL ON FUNCTION public.fn_sub_medicao_gerar_pagar() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_sub_medicao_gerar_pagar() TO authenticated, service_role;
