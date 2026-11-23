@@ -223,3 +223,7 @@ BEGIN
   );
 END;
 $function$;
+
+-- check_fn_guards: espelha a ACL viva (postgres, authenticated, service_role; sem anon/PUBLIC)
+REVOKE ALL ON FUNCTION public.fn_fluxo_caixa_diario(uuid, date, date, uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_fluxo_caixa_diario(uuid, date, date, uuid, text) TO authenticated, service_role;
