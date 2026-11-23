@@ -29,6 +29,8 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Servico % nao encontrado', p_servico_id;
   END IF;
+  -- check-fn-guards: SECURITY DEFINER que grava confere o acesso a empresa do servico antes de gravar.
+  PERFORM public.fn__guarda_empresa(v_orig.company_id);
 
   -- Sugestao de codigo/nome se nao fornecido
   v_codigo := COALESCE(p_novo_codigo, v_orig.codigo || '-COPIA');
