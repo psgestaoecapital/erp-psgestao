@@ -7,5 +7,5 @@
 import { AgendaComercialView } from '@/components/agenda/AgendaComercialView'
 
 export default function HubAgendaPage() {
-  return <AgendaComercialView eyebrow="🗓️ Hub de Projetos · Agenda comercial" />
+  return <AgendaComercialView eyebrow="Hub de Projetos · Agenda comercial" />
 }
