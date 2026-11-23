@@ -39,11 +39,63 @@ const enderecoObra = (o: Obra): string => {
   return partes.filter((p) => p && String(p).trim()).join(' · ')
 }
 type Os = { id: string; numero: string | null; descricao: string | null; status: string }
+
+// Livro de Ordem estruturado (blueprint 32e5bdfb): o que operou, o que chegou/foi aplicado e como cada serviço andou no dia.
+type Equip = { nome: string; quantidade: string }
+type Movimento = 'recebido' | 'usado'
+type Material = { nome: string; quantidade: string; movimento: Movimento; fornecedor: string }
+type Situacao = 'iniciado' | 'andamento' | 'concluido'
+type Servico = { descricao: string; situacao: Situacao }
+type Blocos = { equipamentos: Equip[]; materiais: Material[]; servicos: Servico[] }
+const SITUACOES: [Situacao, string][] = [['iniciado', 'Iniciado'], ['andamento', 'Em andamento'], ['concluido', 'Concluído']]
+const rotuloSituacao = (s: string) => SITUACOES.find(([v]) => v === s)?.[1] ?? s
+const MAX_ITENS = 30
+const blocosVazios = (): Blocos => ({ equipamentos: [], materiais: [], servicos: [] })
+// Lê o que veio do banco com tolerância (linha antiga = '{}'); nunca quebra a tela por um item malformado.
+const lerBlocos = (b: unknown): Blocos => {
+  const o = (b && typeof b === 'object' ? b : {}) as Record<string, unknown>
+  const arr = (v: unknown) => (Array.isArray(v) ? v.filter((x) => x && typeof x === 'object') as Record<string, unknown>[] : [])
+  const txt = (v: unknown) => (typeof v === 'string' ? v : v == null ? '' : String(v))
+  return {
+    equipamentos: arr(o.equipamentos).map((e) => ({ nome: txt(e.nome), quantidade: txt(e.quantidade) })),
+    materiais: arr(o.materiais).map((m) => ({ nome: txt(m.nome), quantidade: txt(m.quantidade),
+      movimento: m.movimento === 'usado' ? 'usado' : 'recebido', fornecedor: txt(m.fornecedor) })),
+    servicos: arr(o.servicos).map((s) => ({ descricao: txt(s.descricao),
+      situacao: (['iniciado', 'andamento', 'concluido'] as string[]).includes(txt(s.situacao)) ? txt(s.situacao) as Situacao : 'andamento' })),
+  }
+}
+// Só o que tem nome/descrição vai ao banco (linha em branco do formulário é descartada).
+const limparBlocos = (b: Blocos): Blocos => ({
+  equipamentos: b.equipamentos.filter((e) => e.nome.trim()).map((e) => ({ nome: e.nome.trim(), quantidade: e.quantidade.trim() })),
+  materiais: b.materiais.filter((m) => m.nome.trim()).map((m) => ({ ...m, nome: m.nome.trim(), quantidade: m.quantidade.trim(), fornecedor: m.fornecedor.trim() })),
+  servicos: b.servicos.filter((s) => s.descricao.trim()).map((s) => ({ ...s, descricao: s.descricao.trim() })),
+})
+const totalItens = (b: Blocos) => b.equipamentos.length + b.materiais.length + b.servicos.length
+const textoBlocos = (b: Blocos) => [
+  ...b.equipamentos.map((e) => `${e.nome} ${e.quantidade}`),
+  ...b.materiais.map((m) => `${m.nome} ${m.quantidade} ${m.movimento} ${m.fornecedor}`),
+  ...b.servicos.map((s) => `${s.descricao} ${rotuloSituacao(s.situacao)}`),
+].join(' ')
+const dataHoraBR = (iso: string | null) => {
+  if (!iso) return ''
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
 type Rdo = {
   id: string; os_id: string; data: string; clima: Clima; praticavel: boolean; efetivo: number
   atividades: string | null; ocorrencias: string | null; quantidade_executada: number | null; fotos: string[]; criado_em: string
+  blocos: Blocos; atualizado_em: string | null; atualizado_por_nome: string | null
 }
-const VAZIO = { os_id: '', data: '', clima: 'sol' as Clima, praticavel: true, efetivo: '', quantidade: '', atividades: '', ocorrencias: '', fotos: [] as string[] }
+// atualizado_em nasce = criado_em (DEFAULT now()); só conta como alteração se houve edição de fato
+// (editor registrado pelo fn_obra_rdo_salvar, ou carimbo mais de 1 min depois do lançamento).
+const foiAlterado = (r: Rdo) => {
+  if (r.atualizado_por_nome) return true
+  if (!r.atualizado_em) return false
+  const dif = new Date(r.atualizado_em).getTime() - new Date(r.criado_em).getTime()
+  return Number.isFinite(dif) && dif > 60_000
+}
+const VAZIO = { os_id: '', data: '', clima: 'sol' as Clima, praticavel: true, efetivo: '', quantidade: '', atividades: '', ocorrencias: '', fotos: [] as string[], blocos: blocosVazios() }
 
 export default function RdoObraPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -65,14 +117,24 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
     if (!ehUuid(id)) { setLoading(false); setErro('Obra não encontrada. Abra pela lista de obras.'); return }
     setLoading(true); setErro(null)
     let carregou = false
+    // Diários da obra. Se o banco ainda não tem as colunas novas (preview da PR antes da migration),
+    // cai para as colunas antigas em vez de esvaziar a lista — a tela segue usável, só sem os blocos.
+    const COLS_RDO = 'id,os_id,data,clima,praticavel,efetivo,atividades,ocorrencias,quantidade_executada,fotos,criado_em'
+    const lerRdos = async () => {
+      const q = (cols: string) => supabase.from('projetos_obra_rdo').select(cols)
+        .eq('obra_id', id).is('excluido_em', null).order('data', { ascending: false }).order('criado_em', { ascending: false })
+      const r = await q(`${COLS_RDO},blocos,atualizado_em,atualizado_por_nome`)
+      if (r.error && /42703|column/i.test(`${r.error.code ?? ''} ${r.error.message ?? ''}`)) return q(COLS_RDO)
+      return r
+    }
     try {
       const [o, os, rd] = await comPrazo(async () => await Promise.all([
         supabase.from('projetos_obras').select('company_id,numero,nome,cliente_nome,cidade,endereco,numero_endereco,bairro,uf,cep,responsavel_nome,art,cno').eq('id', id).maybeSingle(),
         supabase.from('projetos_obra_os').select('id,numero,descricao,status').eq('obra_id', id).is('excluido_em', null).order('numero', { ascending: true }),
-        supabase.from('projetos_obra_rdo').select('id,os_id,data,clima,praticavel,efetivo,atividades,ocorrencias,quantidade_executada,fotos,criado_em')
-          .eq('obra_id', id).is('excluido_em', null).order('data', { ascending: false }).order('criado_em', { ascending: false }),
+        lerRdos(),
       ]), { ms: 9000, tentativas: 1, label: 'obra-rdo' })
       if (o.error) { setLoading(false); setErro(erroAmigavel(o.error, 'Não foi possível carregar a obra. Tente de novo.')); return }
+      if (rd.error) { setLoading(false); setErro(erroAmigavel(rd.error, 'Não foi possível carregar os diários desta obra. Tente de novo.')); return }
       if (!o.data) {
         const { data: ex } = await supabase.rpc('fn_obra_existe', { p_obra_id: id })
         const j = ex as { existe?: boolean; tem_acesso?: boolean } | null
@@ -84,7 +146,10 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
       }
       setObra(o.data as Obra)
       setOss(((os.data ?? []) as Os[]))
-      setRdos(((rd.data ?? []) as Rdo[]))
+      type RdoBruto = Omit<Rdo, 'blocos' | 'atualizado_em' | 'atualizado_por_nome'> & { blocos?: unknown; atualizado_em?: string | null; atualizado_por_nome?: string | null }
+      setRdos(((rd.data ?? []) as unknown as RdoBruto[]).map((r) => ({
+        ...r, blocos: lerBlocos(r.blocos), atualizado_em: r.atualizado_em ?? null, atualizado_por_nome: r.atualizado_por_nome ?? null,
+      })))
       carregou = true
       setLoading(false)
     } catch { setLoading(false); if (!carregou) setErro(MSG_CARREGAMENTO_FALHOU) }
@@ -101,7 +166,7 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
       if (buscaData && r.data !== buscaData) return false
       if (termo) {
         const o = osMap.get(r.os_id)
-        const alvo = `${r.atividades ?? ''} ${r.ocorrencias ?? ''} ${rotuloClima(r.clima)} OS ${o?.numero ?? ''} ${o?.descricao ?? ''}`.toLowerCase()
+        const alvo = `${r.atividades ?? ''} ${r.ocorrencias ?? ''} ${textoBlocos(r.blocos)} ${rotuloClima(r.clima)} OS ${o?.numero ?? ''} ${o?.descricao ?? ''}`.toLowerCase()
         if (!alvo.includes(termo)) return false
       }
       return true
@@ -112,17 +177,34 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
 
   const abrirNovo = () => {
     setErro(null); setNovasFotos([])
-    setFr({ ...VAZIO, os_id: osLancaveis[0]?.id ?? '', data: hoje() })
+    setFr({ ...VAZIO, os_id: osLancaveis[0]?.id ?? '', data: hoje(), blocos: blocosVazios() })
     setEditando('novo')
   }
   const abrirEdicao = (r: Rdo) => {
     setErro(null); setNovasFotos([])
     setFr({ os_id: r.os_id, data: r.data, clima: r.clima, praticavel: r.praticavel, efetivo: String(r.efetivo),
       quantidade: r.quantidade_executada == null ? '' : String(r.quantidade_executada).replace('.', ','),
-      atividades: r.atividades ?? '', ocorrencias: r.ocorrencias ?? '', fotos: r.fotos })
+      atividades: r.atividades ?? '', ocorrencias: r.ocorrencias ?? '', fotos: r.fotos,
+      blocos: { equipamentos: r.blocos.equipamentos.map((x) => ({ ...x })), materiais: r.blocos.materiais.map((x) => ({ ...x })),
+        servicos: r.blocos.servicos.map((x) => ({ ...x })) } })
     setEditando(r.id)
   }
-  const fechar = () => { setEditando(null); setFr({ ...VAZIO }); setNovasFotos([]) }
+  const fechar = () => { setEditando(null); setFr({ ...VAZIO, blocos: blocosVazios() }); setNovasFotos([]) }
+
+  // Edição imutável dos blocos estruturados (adicionar / alterar / remover linha).
+  const setBloco = <K extends keyof Blocos>(k: K, itens: Blocos[K]) => setFr((f) => ({ ...f, blocos: { ...f.blocos, [k]: itens } }))
+  const novoItem: { [K in keyof Blocos]: () => Blocos[K][number] } = {
+    equipamentos: () => ({ nome: '', quantidade: '' }),
+    materiais: () => ({ nome: '', quantidade: '', movimento: 'recebido', fornecedor: '' }),
+    servicos: () => ({ descricao: '', situacao: 'andamento' }),
+  }
+  const addItem = <K extends keyof Blocos>(k: K) => {
+    if (fr.blocos[k].length >= MAX_ITENS) { setErro(`No máximo ${MAX_ITENS} itens em cada bloco do diário.`); return }
+    setBloco(k, [...fr.blocos[k], novoItem[k]()] as Blocos[K])
+  }
+  const mudarItem = <K extends keyof Blocos>(k: K, i: number, patch: Partial<Blocos[K][number]>) =>
+    setBloco(k, fr.blocos[k].map((x, j) => (j === i ? { ...x, ...patch } : x)) as Blocos[K])
+  const removerItem = <K extends keyof Blocos>(k: K, i: number) => setBloco(k, fr.blocos[k].filter((_, j) => j !== i) as Blocos[K])
 
   const verFoto = async (path: string) => {
     const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 600)
@@ -134,7 +216,10 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
     e.preventDefault(); setErro(null)
     if (!obra) return
     if (!fr.os_id) { setErro('Escolha a OS do diário.'); return }
-    if (!fr.atividades.trim() && !fr.ocorrencias.trim()) { setErro('Conte o que foi feito ou o que aconteceu no dia.'); return }
+    const blocos = limparBlocos(fr.blocos)
+    if (!fr.atividades.trim() && !fr.ocorrencias.trim() && totalItens(blocos) === 0) {
+      setErro('Conte o que foi feito ou o que aconteceu no dia — no texto ou nos blocos de equipamentos, materiais e serviços.'); return
+    }
     if (fr.data > hoje()) { setErro('O diário é do dia que já aconteceu — a data não pode ser futura.'); return }
     if (fr.fotos.length + novasFotos.length > 10) { setErro('No máximo 10 fotos por dia.'); return }
     const qtd = fr.quantidade.trim() === '' ? null : (parseNumBR(fr.quantidade) ?? NaN)
@@ -150,7 +235,7 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
     }
     const { error } = await supabase.rpc('fn_obra_rdo_salvar', { p_os_id: fr.os_id, p_dados: {
       data: fr.data, clima: fr.clima, praticavel: fr.praticavel, efetivo: fr.efetivo === '' ? 0 : Number(fr.efetivo),
-      quantidade_executada: qtd, atividades: fr.atividades, ocorrencias: fr.ocorrencias, fotos: [...fr.fotos, ...enviadas] } })
+      quantidade_executada: qtd, atividades: fr.atividades, ocorrencias: fr.ocorrencias, fotos: [...fr.fotos, ...enviadas], blocos } })
     setOcupado(false)
     if (error) { setErro(erroAmigavel(error, 'Não foi possível salvar o diário.')); return }
     fechar(); void carregar()
@@ -172,6 +257,11 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
   const rot: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 4 }
   const btn = (fundo: string, cor: string): React.CSSProperties => ({ padding: '9px 14px', minHeight: 40, background: fundo, color: cor, border: fundo === '#fff' ? `1px solid ${LINE}` : 0, borderRadius: 10, fontWeight: 600, fontSize: 14, cursor: 'pointer' })
   const card: React.CSSProperties = { border: `1px solid ${LINE}`, borderRadius: 12, background: '#fff', padding: 14 }
+  const blocoBox: React.CSSProperties = { gridColumn: '1 / -1', display: 'grid', gap: 8, border: `1px solid ${LINE}`, borderRadius: 10, background: BG, padding: 12 }
+  const tituloBloco: React.CSSProperties = { fontSize: 13, color: ESP, fontWeight: 700 }
+  const linhaBloco: React.CSSProperties = { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }
+  const btnRemover: React.CSSProperties = { ...btn('#fff', VERM), padding: '8px 12px', fontSize: 13 }
+  const btnAdd: React.CSSProperties = { ...btn('#fff', ESP), justifySelf: 'start', fontSize: 13 }
 
   return (
     <div style={{ background: BG, minHeight: '100vh', padding: 16, color: ESP }} data-rota={ROTA}>
@@ -285,6 +375,59 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
                   <span style={rot}>Ocorrências <AjudaCampo chave="projetos.os_obra.rdo_ocorrencias" rota={ROTA_OS} /></span>
                   <textarea value={fr.ocorrencias} onChange={(e) => setFr({ ...fr, ocorrencias: e.target.value })} rows={2} placeholder="Ex.: faltou perfil de 3 m; chuva parou o serviço às 14h" style={{ ...inp, resize: 'vertical' }} data-testid="obra-rdo-ocorrencias" />
                 </label>
+
+                {/* Livro de Ordem estruturado (blueprint 32e5bdfb): equipamentos, materiais (+ fornecedor) e serviços do dia. */}
+                <div role="group" aria-label="Equipamentos no dia" style={blocoBox} data-testid="obra-rdo-bloco-equipamentos">
+                  <span style={{ ...rot, ...tituloBloco }}>Equipamentos no dia <AjudaCampo chave="projetos.obra_rdo.equipamentos" rota={ROTA} /></span>
+                  {fr.blocos.equipamentos.map((it, i) => (
+                    <div key={i} data-ajuda="projetos.obra_rdo.equipamentos" style={linhaBloco}>
+                      <input aria-label="Equipamento" value={it.nome} onChange={(e) => mudarItem('equipamentos', i, { nome: e.target.value })}
+                        placeholder="Equipamento (ex.: betoneira 400 L)" maxLength={120} style={{ ...inp, flex: '2 1 170px', minWidth: 0 }} data-testid="obra-rdo-equip-nome" />
+                      <input aria-label="Quantidade ou horas" value={it.quantidade} onChange={(e) => mudarItem('equipamentos', i, { quantidade: e.target.value })}
+                        placeholder="Qtd / horas" maxLength={40} style={{ ...inp, flex: '1 1 90px', minWidth: 0 }} data-testid="obra-rdo-equip-qtd" />
+                      <button type="button" onClick={() => removerItem('equipamentos', i)} style={btnRemover}>Remover</button>
+                    </div>
+                  ))}
+                  <button type="button" onClick={() => addItem('equipamentos')} style={btnAdd} data-testid="obra-rdo-equip-add">+ Equipamento</button>
+                </div>
+
+                <div role="group" aria-label="Materiais do dia" style={blocoBox} data-testid="obra-rdo-bloco-materiais">
+                  <span style={{ ...rot, ...tituloBloco }}>Materiais do dia <AjudaCampo chave="projetos.obra_rdo.materiais" rota={ROTA} /></span>
+                  {fr.blocos.materiais.map((it, i) => (
+                    <div key={i} data-ajuda="projetos.obra_rdo.materiais" style={linhaBloco}>
+                      <input aria-label="Material" value={it.nome} onChange={(e) => mudarItem('materiais', i, { nome: e.target.value })}
+                        placeholder="Material (ex.: cimento CP-II)" maxLength={120} style={{ ...inp, flex: '2 1 170px', minWidth: 0 }} data-testid="obra-rdo-mat-nome" />
+                      <input aria-label="Quantidade" value={it.quantidade} onChange={(e) => mudarItem('materiais', i, { quantidade: e.target.value })}
+                        placeholder="Qtd (ex.: 40 sc)" maxLength={40} style={{ ...inp, flex: '1 1 90px', minWidth: 0 }} data-testid="obra-rdo-mat-qtd" />
+                      <select aria-label="Recebido ou usado" value={it.movimento} onChange={(e) => mudarItem('materiais', i, { movimento: e.target.value as Movimento })}
+                        style={{ ...inp, flex: '1 1 110px', minWidth: 0 }} data-testid="obra-rdo-mat-mov">
+                        <option value="recebido">Recebido</option>
+                        <option value="usado">Usado</option>
+                      </select>
+                      <input aria-label="Fornecedor" value={it.fornecedor} onChange={(e) => mudarItem('materiais', i, { fornecedor: e.target.value })}
+                        placeholder="Fornecedor (opcional)" maxLength={120} style={{ ...inp, flex: '2 1 170px', minWidth: 0 }} data-testid="obra-rdo-mat-forn" />
+                      <button type="button" onClick={() => removerItem('materiais', i)} style={btnRemover}>Remover</button>
+                    </div>
+                  ))}
+                  <button type="button" onClick={() => addItem('materiais')} style={btnAdd} data-testid="obra-rdo-mat-add">+ Material</button>
+                </div>
+
+                <div role="group" aria-label="Serviços do dia" style={blocoBox} data-testid="obra-rdo-bloco-servicos">
+                  <span style={{ ...rot, ...tituloBloco }}>Serviços do dia <AjudaCampo chave="projetos.obra_rdo.servicos" rota={ROTA} /></span>
+                  {fr.blocos.servicos.map((it, i) => (
+                    <div key={i} data-ajuda="projetos.obra_rdo.servicos" style={linhaBloco}>
+                      <input aria-label="Serviço" value={it.descricao} onChange={(e) => mudarItem('servicos', i, { descricao: e.target.value })}
+                        placeholder="Serviço (ex.: alvenaria do 2º pavimento)" maxLength={200} style={{ ...inp, flex: '3 1 200px', minWidth: 0 }} data-testid="obra-rdo-serv-desc" />
+                      <select aria-label="Situação do serviço" value={it.situacao} onChange={(e) => mudarItem('servicos', i, { situacao: e.target.value as Situacao })}
+                        style={{ ...inp, flex: '1 1 140px', minWidth: 0 }} data-testid="obra-rdo-serv-sit">
+                        {SITUACOES.map(([v, r]) => <option key={v} value={v}>{r}</option>)}
+                      </select>
+                      <button type="button" onClick={() => removerItem('servicos', i)} style={btnRemover}>Remover</button>
+                    </div>
+                  ))}
+                  <button type="button" onClick={() => addItem('servicos')} style={btnAdd} data-testid="obra-rdo-serv-add">+ Serviço</button>
+                </div>
+
                 <label style={{ ...lab, gridColumn: '1 / -1' }}>
                   <span style={rot}>Fotos ({fr.fotos.length + novasFotos.length}/10) <AjudaCampo chave="projetos.os_obra.rdo_fotos" rota={ROTA_OS} /></span>
                   <input type="file" accept="image/*" capture="environment" multiple onChange={(e) => setNovasFotos(Array.from(e.target.files ?? []))} style={{ ...inp, padding: 8 }} data-testid="obra-rdo-fotos" />
@@ -325,10 +468,31 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
                         </div>
                         {r.atividades && <p style={{ margin: '4px 0', fontSize: 14 }}><span style={{ color: MUT }}>Feito: </span>{r.atividades}</p>}
                         {r.ocorrencias && <p style={{ margin: '4px 0', fontSize: 14 }}><span style={{ color: MUT }}>Ocorrências: </span>{r.ocorrencias}</p>}
+                        {totalItens(r.blocos) > 0 && (
+                          <div style={{ display: 'grid', gap: 4, margin: '6px 0', fontSize: 14 }} data-testid="obra-rdo-blocos">
+                            {r.blocos.equipamentos.length > 0 && (
+                              <p style={{ margin: 0 }}><span style={{ color: MUT }}>Equipamentos: </span>
+                                {r.blocos.equipamentos.map((e) => (e.quantidade ? `${e.nome} (${e.quantidade})` : e.nome)).join(' · ')}</p>
+                            )}
+                            {r.blocos.materiais.length > 0 && (
+                              <p style={{ margin: 0 }}><span style={{ color: MUT }}>Materiais: </span>
+                                {r.blocos.materiais.map((m) => `${m.nome}${m.quantidade ? ` ${m.quantidade}` : ''} — ${m.movimento === 'usado' ? 'usado' : 'recebido'}${m.fornecedor ? ` (${m.fornecedor})` : ''}`).join(' · ')}</p>
+                            )}
+                            {r.blocos.servicos.length > 0 && (
+                              <p style={{ margin: 0 }}><span style={{ color: MUT }}>Serviços: </span>
+                                {r.blocos.servicos.map((s) => `${s.descricao} — ${rotuloSituacao(s.situacao)}`).join(' · ')}</p>
+                            )}
+                          </div>
+                        )}
                         {r.fotos.length > 0 && (
                           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '6px 0' }}>
                             {r.fotos.map((p) => <button key={p} type="button" onClick={() => verFoto(p)} style={{ ...btn('#fff', ESP), fontSize: 12 }}>Ver foto</button>)}
                           </div>
+                        )}
+                        {foiAlterado(r) && (
+                          <p style={{ margin: '6px 0 0', fontSize: 12, color: MUT }} data-testid="obra-rdo-alterado">
+                            Alterado em {dataHoraBR(r.atualizado_em)}{r.atualizado_por_nome ? ` por ${r.atualizado_por_nome}` : ''} · lançado em {dataHoraBR(r.criado_em)}
+                          </p>
                         )}
                         <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                           {editavel && <span style={rot}><button type="button" onClick={() => abrirEdicao(r)} style={btn('#fff', ESP)} data-testid="obra-rdo-editar">Editar</button><AjudaCampo chave="projetos.obra_rdo.editar" rota={ROTA} /></span>}
