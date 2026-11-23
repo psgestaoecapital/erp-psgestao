@@ -9,6 +9,7 @@ import { parseNumBR } from '@/lib/num'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { useEmpresaSelecionada } from '@/hooks/useEmpresaSelecionada'
 import CapacidadeIdealModal from '@/components/agro/CapacidadeIdealModal'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', ESP60 = 'rgba(61,35,20,0.6)'
 const SEM: Record<string, { cor: string; bg: string }> = {
@@ -100,7 +101,7 @@ export default function ManejoPastoPage() {
       }
       setMsg('UA confirmada com o número da fazenda.'); setEditUA(false)
       await carregar()
-    } catch (e) { setMsg('❌ ' + (e as Error).message) } finally { setBusy(false) }
+    } catch (e) { setMsg('❌ ' + erroAmigavel(e)) } finally { setBusy(false) }
   }
 
   const salvarCfg = async () => {
@@ -115,7 +116,7 @@ export default function ManejoPastoPage() {
       })
       setMsg('Limiares de alerta ajustados para a fazenda.'); setEditCfg(false)
       await carregar()
-    } catch (e) { setMsg('❌ ' + (e as Error).message) } finally { setBusy(false) }
+    } catch (e) { setMsg('❌ ' + erroAmigavel(e)) } finally { setBusy(false) }
   }
 
   const registrarAval = async () => {
@@ -129,7 +130,7 @@ export default function ManejoPastoPage() {
       if ((data as { ok?: boolean })?.ok === false) throw new Error((data as { erro?: string }).erro || 'falha')
       setMsg('Avaliação registrada.'); setAvalNum('')
       await carregar()
-    } catch (e) { setMsg('❌ ' + (e as Error).message) } finally { setBusy(false) }
+    } catch (e) { setMsg('❌ ' + erroAmigavel(e)) } finally { setBusy(false) }
   }
 
   const piquetesOrd = useMemo(() => p?.piquetes ?? [], [p])
@@ -145,7 +146,7 @@ export default function ManejoPastoPage() {
       const { data } = await supabase.rpc('fn_pec_forrageira_salvar', { p_company_id: companyId, p_dados: dados })
       if ((data as { ok?: boolean })?.ok === false) throw new Error((data as { erro?: string }).erro || 'falha')
       setMsg('Forrageira salva.'); setForrEdit(null); await carregar()
-    } catch (e) { setMsg('❌ ' + (e as Error).message) } finally { setBusy(false) }
+    } catch (e) { setMsg('❌ ' + erroAmigavel(e)) } finally { setBusy(false) }
   }
   const addForrSugerida = async (nome: string, ua: number) => {
     if (!companyId) return
@@ -153,7 +154,7 @@ export default function ManejoPastoPage() {
     try {
       await supabase.rpc('fn_pec_forrageira_salvar', { p_company_id: companyId, p_dados: { nome, ua_ha_sugerido: String(ua) } })
       await carregar()
-    } catch (e) { setMsg('❌ ' + (e as Error).message) } finally { setBusy(false) }
+    } catch (e) { setMsg('❌ ' + erroAmigavel(e)) } finally { setBusy(false) }
   }
 
   if (!companyId) return <div style={{ minHeight: '100vh', background: BG, padding: 24, color: ESP60, fontSize: 13 }}>Selecione uma empresa específica no topo para abrir o Manejo de Pasto.</div>
