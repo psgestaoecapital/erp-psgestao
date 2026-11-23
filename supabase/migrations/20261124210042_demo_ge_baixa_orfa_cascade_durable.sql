@@ -1,0 +1,165 @@
+-- fix(ge · DEMO · /dashboard/financeiro/conciliacao, /receber): purga durável das baixas órfãs da DEMO GE
+-- code-desenvolvedor-3 · RD-38 (provado no dado) · RD-69 (DEMO sem poluição de teste) · RD-97 (UPDATE em volume = SENSÍVEL)
+--
+-- PROBLEMA (provado no dado 23/11, read-only): o #5747 purgou (soft-delete) os títulos-lixo de erp_receber da DEMO GE
+-- (b0700000-0000-4000-a000-000000000004), mas as baixas FILHAS desses títulos ficaram VIVAS e órfãs — e o lado PAGAR
+-- nunca teve purga alguma. Estado atual:
+--   erp_receber_baixa vivas com título pai soft-deletado (is_demo): 38.485 (R$ 7.597.142,36)
+--   erp_pagar_baixa   vivas com título pai soft-deletado (is_demo): 20.889 (R$ 6.744.940,05)
+-- Fora da DEMO (empresas REAIS) há órfãs legítimas e MÍNIMAS (receber 3/R$410, pagar 26/R$11.950) de títulos que o
+-- cliente excluiu — NUNCA tocadas aqui (guarda is_demo). A exposição de produção dessas órfãs (fluxo-caixa realizado
+-- fantasma) é corrigida à parte na tarefa-irmã (fn_fluxo_caixa_diario, PR do dia). Esta migration é HIGIENE da DEMO:
+-- sem ela, conciliação/auditoria da DEMO ficam poluídas por ~59k baixas fantasma.
+--
+-- FIX (durável, espelha o padrão #5747): estende fn_demo_ge_receber_purgar_lixo_teste com um passo de "órfãs históricas"
+-- — soft-delete (reversível, com backup) de TODA baixa VIVA cujo título pai já está soft-deletado, para receber E pagar,
+-- SÓ na empresa is_demo. Como a função já é chamada no início de fn_demo_seed_ge_financeiro (a cada fn_demo_reset), a
+-- DEMO se auto-cura e não re-acumula. Idempotente (guarda deleted_at IS NULL): reexecutar não altera nada.
+-- Aditiva/segura: nenhum dado de cliente real é tocado; soft-delete rastreável e REVERSÍVEL (backup + undo abaixo).
+-- Faixa de segundos :42 (code-desenvolvedor-3). PR SENSÍVEL (revisao-eng-chefe).
+
+-- ── Cópia de segurança do lado PAGAR (o lado RECEBER já tem erp_receber_baixa_lixo_teste_bkp_c3 do #5747) ──
+CREATE TABLE IF NOT EXISTS public.erp_pagar_baixa_lixo_teste_bkp_c3 (
+  baixa_id       uuid PRIMARY KEY,
+  pagar_id       uuid,
+  company_id     uuid,
+  valor          numeric,
+  data           date,
+  deleted_at_old timestamptz,
+  capturado_em   timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE public.erp_pagar_baixa_lixo_teste_bkp_c3 ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.erp_pagar_baixa_lixo_teste_bkp_c3 FROM anon;
+
+CREATE OR REPLACE FUNCTION public.fn_demo_ge_receber_purgar_lixo_teste(p_company uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+  v_tit int := 0;
+  v_bx  int := 0;
+  v_orf_rec int := 0;
+  v_orf_pag int := 0;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.companies c WHERE c.id = p_company AND c.is_demo = true) THEN
+    RETURN jsonb_build_object('ok', false, 'erro', 'empresa_ausente_ou_nao_demo');
+  END IF;
+
+  DROP TABLE IF EXISTS _lixo_c3;  -- re-chamável na mesma transação (ON COMMIT DROP só cai no commit)
+  CREATE TEMP TABLE _lixo_c3 ON COMMIT DROP AS
+  SELECT r.id
+    FROM public.erp_receber r
+   WHERE r.company_id = p_company
+     AND r.deleted_at IS NULL
+     AND NOT (
+          COALESCE(r.descricao    ILIKE 'DEMO-GE-FIN%', false)
+       OR COALESCE(r.cliente_nome ILIKE 'Cliente Demo%', false)
+       OR COALESCE(r.numero_documento, '') ~ '^(PED|DEMO)'
+     )
+     AND (
+          COALESCE(r.cliente_nome ILIKE 'Cliente E2E %', false)
+       OR COALESCE(r.cliente_nome ILIKE 'Cliente Antigo', false)
+       OR COALESCE(r.cliente_nome ILIKE 'Cliente Novo', false)
+       OR COALESCE(r.cliente_nome ILIKE 'Cliente Aceita%', false)
+       OR COALESCE(r.cliente_nome ILIKE 'Cliente Achado%', false)
+       OR COALESCE(r.cliente_nome ILIKE 'CIELO ACEITE%', false)
+       OR COALESCE(r.cliente_nome ILIKE 'Unificar duplicado%', false)
+       OR COALESCE(r.cliente_nome ILIKE 'E2E %', false)
+       OR COALESCE(r.descricao    ILIKE '%E2E%', false)
+       OR COALESCE(r.descricao    ILIKE 'Contas500%', false)
+       OR COALESCE(r.descricao    ILIKE 'Aceita%', false)
+     );
+
+  INSERT INTO public.erp_receber_lixo_teste_bkp_c3 (receber_id, company_id, cliente_nome, descricao, valor, status, deleted_at_old)
+  SELECT r.id, r.company_id, r.cliente_nome, r.descricao, r.valor, r.status, r.deleted_at
+    FROM public.erp_receber r JOIN _lixo_c3 l ON l.id = r.id
+  ON CONFLICT (receber_id) DO NOTHING;
+
+  INSERT INTO public.erp_receber_baixa_lixo_teste_bkp_c3 (baixa_id, receber_id, company_id, valor, data, deleted_at_old)
+  SELECT b.id, b.receber_id, b.company_id, b.valor, b.data, b.deleted_at
+    FROM public.erp_receber_baixa b JOIN _lixo_c3 l ON l.id = b.receber_id
+   WHERE b.deleted_at IS NULL
+  ON CONFLICT (baixa_id) DO NOTHING;
+
+  UPDATE public.erp_receber_baixa b
+     SET deleted_at = now()
+    FROM _lixo_c3 l
+   WHERE b.receber_id = l.id
+     AND b.deleted_at IS NULL;
+  GET DIAGNOSTICS v_bx = ROW_COUNT;
+
+  UPDATE public.erp_receber r
+     SET deleted_at = now()
+    FROM _lixo_c3 l
+   WHERE r.id = l.id
+     AND r.deleted_at IS NULL;
+  GET DIAGNOSTICS v_tit = ROW_COUNT;
+
+  -- ── Órfãs históricas (23/11): baixa VIVA cujo título pai já está soft-deletado — leak do cascade (#5747 não
+  --    cobriu as já excluídas) e o lado PAGAR, nunca coberto. Reversível (backup) e idempotente (deleted_at IS NULL).
+  --    Guarda p_company (is_demo, já validada acima) + pai deleted_at IS NOT NULL: nunca toca empresa real nem baixa viva.
+  --    O gatilho de recompute (fn_*_baixa_recompute) é DESLIGADO em volta do UPDATE em volume: o pai JÁ está
+  --    soft-deletado, então recomputar seu valor_pago é inútil — e disparar função por linha em ~59k baixas repetiria
+  --    o padrão do incidente 03/10. SET-BASED, sem função por linha. É reativado logo após (bloco idempotente).
+  INSERT INTO public.erp_receber_baixa_lixo_teste_bkp_c3 (baixa_id, receber_id, company_id, valor, data, deleted_at_old)
+  SELECT b.id, b.receber_id, b.company_id, b.valor, b.data, b.deleted_at
+    FROM public.erp_receber_baixa b
+    JOIN public.erp_receber er ON er.id = b.receber_id
+   WHERE b.company_id = p_company AND b.deleted_at IS NULL AND er.deleted_at IS NOT NULL
+  ON CONFLICT (baixa_id) DO NOTHING;
+
+  ALTER TABLE public.erp_receber_baixa DISABLE TRIGGER trg_receber_baixa_recompute;
+  UPDATE public.erp_receber_baixa b
+     SET deleted_at = now()
+    FROM public.erp_receber er
+   WHERE er.id = b.receber_id
+     AND b.company_id = p_company AND b.deleted_at IS NULL AND er.deleted_at IS NOT NULL;
+  GET DIAGNOSTICS v_orf_rec = ROW_COUNT;
+  ALTER TABLE public.erp_receber_baixa ENABLE TRIGGER trg_receber_baixa_recompute;
+
+  INSERT INTO public.erp_pagar_baixa_lixo_teste_bkp_c3 (baixa_id, pagar_id, company_id, valor, data, deleted_at_old)
+  SELECT b.id, b.pagar_id, b.company_id, b.valor, b.data, b.deleted_at
+    FROM public.erp_pagar_baixa b
+    JOIN public.erp_pagar ep ON ep.id = b.pagar_id
+   WHERE b.company_id = p_company AND b.deleted_at IS NULL AND ep.deleted_at IS NOT NULL
+  ON CONFLICT (baixa_id) DO NOTHING;
+
+  ALTER TABLE public.erp_pagar_baixa DISABLE TRIGGER trg_pagar_baixa_recompute;
+  UPDATE public.erp_pagar_baixa b
+     SET deleted_at = now()
+    FROM public.erp_pagar ep
+   WHERE ep.id = b.pagar_id
+     AND b.company_id = p_company AND b.deleted_at IS NULL AND ep.deleted_at IS NOT NULL;
+  GET DIAGNOSTICS v_orf_pag = ROW_COUNT;
+  ALTER TABLE public.erp_pagar_baixa ENABLE TRIGGER trg_pagar_baixa_recompute;
+
+  RETURN jsonb_build_object('ok', true, 'company', p_company,
+    'titulos_purgados', v_tit, 'baixas_purgadas', v_bx,
+    'orfas_receber_purgadas', v_orf_rec, 'orfas_pagar_purgadas', v_orf_pag);
+END
+$function$;
+
+-- ── Backfill one-shot: aplica a purga (incl. órfãs) em cada empresa is_demo que tenha baixa órfã viva agora ──
+DO $$
+DECLARE r record;
+BEGIN
+  FOR r IN
+    SELECT DISTINCT c.id
+      FROM public.companies c
+     WHERE c.is_demo = true
+       AND (
+         EXISTS (SELECT 1 FROM public.erp_receber_baixa b JOIN public.erp_receber er ON er.id=b.receber_id
+                  WHERE b.company_id=c.id AND b.deleted_at IS NULL AND er.deleted_at IS NOT NULL)
+         OR EXISTS (SELECT 1 FROM public.erp_pagar_baixa b JOIN public.erp_pagar ep ON ep.id=b.pagar_id
+                  WHERE b.company_id=c.id AND b.deleted_at IS NULL AND ep.deleted_at IS NOT NULL)
+       )
+  LOOP
+    PERFORM public.fn_demo_ge_receber_purgar_lixo_teste(r.id);
+  END LOOP;
+END $$;
+
+-- UNDO (reversível, se necessário): reativar as baixas da DEMO a partir dos backups —
+--   UPDATE erp_receber_baixa b SET deleted_at = k.deleted_at_old FROM erp_receber_baixa_lixo_teste_bkp_c3 k WHERE k.baixa_id=b.id;
+--   UPDATE erp_pagar_baixa   b SET deleted_at = k.deleted_at_old FROM erp_pagar_baixa_lixo_teste_bkp_c3   k WHERE k.baixa_id=b.id;
