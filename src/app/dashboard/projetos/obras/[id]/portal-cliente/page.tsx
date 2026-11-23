@@ -23,8 +23,11 @@ function recursoEmLiberacao(e: unknown): boolean {
   const err = (e && typeof e === 'object' ? e : {}) as { code?: unknown; message?: unknown }
   const code = typeof err.code === 'string' ? err.code : ''
   const msg = typeof err.message === 'string' ? err.message.toLowerCase() : ''
-  if (['42P01', '42883', 'PGRST202', 'PGRST205'].includes(code)) return true
-  return /does not exist|not found|schema cache/.test(msg)
+  // 42883 (operator/function does not exist) SAIU da lista: é o código de um erro REAL de SQL
+  // (ex.: "operator does not exist: record ->> unknown") e NÃO de "recurso sendo liberado".
+  if (['42P01', 'PGRST202', 'PGRST205'].includes(code)) return true
+  // Só o schema cache do PostgREST. NUNCA "does not exist"/"not found" genérico.
+  return /schema cache/.test(msg)
 }
 
 const fmtData = (iso: string | null) =>
