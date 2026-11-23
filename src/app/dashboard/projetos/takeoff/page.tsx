@@ -6,6 +6,7 @@ import { UploadCloud, Sparkles, Check, AlertTriangle, Archive, Link2, Info, Penc
 import { supabase } from '@/lib/supabase'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { codigoAmigavel, erroAmigavel } from '@/lib/erroAmigavel'
+import { parseNumBR } from '@/lib/num'
 import { contarAmbientes, etapaAtual, etapasTakeoff, progressoPlanta, situacaoPlanta, type ContagemAmbientes } from '@/lib/hub/takeoff'
 
 const ROTA = '/dashboard/projetos/takeoff'
@@ -537,7 +538,7 @@ export default function TakeoffPage() {
     perimetro_ml: string; pe_direito_m: string
   }) => {
     if (!companyId || !planta) return
-    const num = (v: string) => (v.trim() ? Number(v) : null)
+    const num = (v: string) => parseNumBR(v) // aceita vírgula decimal e ponto de milhar (pt-BR)
     setBusy(true); setErro(null)
     try {
       const { error } = await supabase.rpc('fn_takeoff_ambiente_criar_manual', {
@@ -1031,8 +1032,11 @@ function AmbienteManualModal({
   const [peDireito, setPeDireito] = useState('')
 
   // Se digita L×C, sugere área e perímetro (o backend recalcula igual, isso é só preview)
-  const areaCalc = largura.trim() && comprimento.trim() ? (Number(largura) * Number(comprimento)) : null
-  const perimCalc = largura.trim() && comprimento.trim() ? (2 * (Number(largura) + Number(comprimento))) : null
+  // parseNumBR: aceita vírgula decimal (ex.: "2,80") e ponto de milhar — não muda a regra de cálculo.
+  const larguraN = parseNumBR(largura)
+  const comprimentoN = parseNumBR(comprimento)
+  const areaCalc = larguraN != null && comprimentoN != null ? (larguraN * comprimentoN) : null
+  const perimCalc = larguraN != null && comprimentoN != null ? (2 * (larguraN + comprimentoN)) : null
 
   const inp = 'w-full rounded-xl border border-[#E7DECF] bg-white p-2 text-sm text-[#3D2314]'
   const lbl = 'block text-[11px] font-medium mb-1'

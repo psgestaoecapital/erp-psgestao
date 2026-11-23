@@ -36,8 +36,22 @@ type Jornada = {
   vigencia_inicio: string | null; vigencia_fim: string | null
   fonte: string | null; sincronizado_em: string | null
 }
-const chaveJornada = (cpf?: string | null, mat?: string | null) =>
-  (cpf && cpf.trim()) ? `c:${cpf.trim().toLowerCase()}` : (mat && mat.trim()) ? `m:${mat.trim().toLowerCase()}` : ''
+// A jornada casa com a pessoa por CPF ou por matrícula. O CPF pode vir MASCARADO
+// (123*****45) quando o usuário não tem permissão de custo — nesse caso o "c:" nunca
+// bateria com a jornada (que traz o CPF real), então a matrícula (nunca mascarada) é a
+// chave confiável. Indexamos a jornada por TODAS as chaves e procuramos por matrícula primeiro.
+const chavesJornada = (cpf?: string | null, mat?: string | null): string[] => {
+  const ks: string[] = []
+  const m = (mat && mat.trim()) ? `m:${mat.trim().toLowerCase()}` : ''
+  const c = (cpf && cpf.trim() && !cpf.includes('*')) ? `c:${cpf.trim().toLowerCase()}` : ''
+  if (m) ks.push(m)
+  if (c) ks.push(c)
+  return ks
+}
+const acharJornada = (map: Record<string, Jornada>, cpf?: string | null, mat?: string | null): Jornada | null => {
+  for (const k of chavesJornada(cpf, mat)) if (map[k]) return map[k]
+  return null
+}
 const hhmm = (t: string | null | undefined) => (t ? t.slice(0, 5) : '')
 
 const inp: React.CSSProperties = { padding: '7px 9px', fontSize: 13, border: `1px solid ${LINE}`, borderRadius: 7, background: '#fff', color: ESP, width: '100%', boxSizing: 'border-box' }
@@ -97,7 +111,7 @@ export default function QuadroPessoalPage() {
     const jrr = jr.data as { ok?: boolean; jornadas?: Jornada[] } | null
     const jmap: Record<string, Jornada> = {}
     for (const j of (jrr?.jornadas ?? [])) {
-      const k = chaveJornada(j.cpf, j.matricula); if (k) jmap[k] = j
+      for (const k of chavesJornada(j.cpf, j.matricula)) jmap[k] = j
     }
     setJornadas(jmap)
     setLoading(false)
@@ -237,7 +251,7 @@ export default function QuadroPessoalPage() {
               <tbody>
                 {pessoasFiltradas.map((p) => (
                   <LinhaPessoa key={p.cpf || p.matricula || (p.nome ?? '')} p={p} pode={pode} cargos={cargos} setores={setores} onSalvar={salvarPessoa} onRemover={removerPessoa}
-                    jornada={jornadas[chaveJornada(p.cpf, p.matricula)] ?? null} onEditarJornada={() => setJornadaEdit(p)} />
+                    jornada={acharJornada(jornadas, p.cpf, p.matricula)} onEditarJornada={() => setJornadaEdit(p)} />
                 ))}
                 {pessoasFiltradas.length === 0 && <tr><td style={{ ...td, color: MUT }} colSpan={pode ? 12 : 11}>Nenhuma pessoa nesta competência.</td></tr>}
               </tbody>
@@ -276,7 +290,7 @@ export default function QuadroPessoalPage() {
       )}
 
       {loteAberto && empresa && <LoteModal empresa={empresa} onClose={() => setLoteAberto(false)} onGravou={() => { setLoteAberto(false); flash('Lote gravado.'); void carregar() }} />}
-      {jornadaEdit && <JornadaModal pessoa={jornadaEdit} jornada={jornadas[chaveJornada(jornadaEdit.cpf, jornadaEdit.matricula)] ?? null} onClose={() => setJornadaEdit(null)} onSalvar={salvarJornada} />}
+      {jornadaEdit && <JornadaModal pessoa={jornadaEdit} jornada={acharJornada(jornadas, jornadaEdit.cpf, jornadaEdit.matricula)} onClose={() => setJornadaEdit(null)} onSalvar={salvarJornada} />}
     </Casca>
   )
 }

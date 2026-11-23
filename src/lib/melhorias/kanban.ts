@@ -3,7 +3,10 @@
 //  1. Arquivados NÃO entram no quadro; só aparecem na busca (com a etiqueta ARQUIVADA).
 //  2. "Minha carteira" = responsavel_id do chamado (o que a caixa usa), não erp_carteira_responsavel.
 //  3. Sem dono (sem responsável e sem agente) fica em Pendentes com o selo "Sem dono".
-//  4. "Aguardando usuário" só quando a resposta já foi APROVADA e enviada (resposta_aprovada) e o autor ainda não confirmou.
+//  4. "Aguardando usuário" quando a PS mandou mensagem visível ao autor (aguardando_usuario) OU a resposta já foi
+//     APROVADA e enviada (resposta_aprovada), e o autor ainda não confirmou. São sinais SEPARADOS de propósito
+//     (#7050 opção A): aguardando_usuario move só a coluna; resposta_aprovada significa rascunho aprovado/visível ao
+//     autor — mandar mensagem nunca revela o rascunho interno nem tira o chamado da fila de aprovação.
 //  5. Retorno do usuário (reprova/inclui info) volta para "Em andamento" — o alerta visível é da Fase 3.
 
 export type ColunaKanban = 'pendentes' | 'andamento' | 'aguardando' | 'finalizados'
@@ -18,6 +21,7 @@ export type ChamadoKanban = {
   responsavel_id: string | null
   agente: string | null
   resposta_aprovada: boolean
+  aguardando_usuario: boolean
   confirmado_pelo_autor: boolean
 }
 
@@ -30,7 +34,7 @@ export const semDono = (c: Pick<ChamadoKanban, 'responsavel_id' | 'agente'>): bo
 export function colunaDoChamado(c: ChamadoKanban): ColunaKanban | null {
   if (ehArquivado(c)) return null
   if ((STATUS_FINALIZADO as readonly string[]).includes(c.status)) return 'finalizados'
-  if (c.resposta_aprovada && !c.confirmado_pelo_autor) return 'aguardando'
+  if ((c.aguardando_usuario || c.resposta_aprovada) && !c.confirmado_pelo_autor) return 'aguardando'
   if (c.status === 'nova') return 'pendentes'
   if (c.status === 'em_analise') return semDono(c) ? 'pendentes' : 'andamento'
   // aceita, em_desenvolvimento, aguardando_confirmacao (sem resposta aprovada ainda) = trabalho em curso

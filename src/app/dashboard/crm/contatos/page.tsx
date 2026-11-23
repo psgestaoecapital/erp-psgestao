@@ -56,12 +56,12 @@ function Contatos() {
     try {
       await rpcCrm('fn_crm_contato_salvar', { p_company_id: empresa, p_dados: { ...form, id: form.id || null } })
       setOk(form.id ? 'Contato atualizado.' : 'Contato cadastrado.'); setForm(null); void carregar()
-    } catch (e) { setErro((e as Error).message) }
+    } catch (e) { setErro(erroAmigavel(e)) }
   }
   async function inativar(c: Contato) {
     if (!empresa) return
     try { await rpcCrm('fn_crm_contato_salvar', { p_company_id: empresa, p_dados: { id: c.id, cliente_id: c.entidade_id, nome: c.nome, cargo: c.cargo, telefone: c.telefone, whatsapp: c.whatsapp, email: c.email, ativo: false, observacoes: c.observacoes } }); setOk('Contato removido da lista.'); void carregar() }
-    catch (e) { setErro((e as Error).message) }
+    catch (e) { setErro(erroAmigavel(e)) }
   }
 
   if (carregando) return <Pagina><div style={{ color: C.TEXTM }}>Carregando…</div></Pagina>
