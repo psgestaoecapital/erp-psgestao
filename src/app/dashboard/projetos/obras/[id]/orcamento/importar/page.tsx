@@ -12,6 +12,7 @@ import { supabase } from '@/lib/supabase'
 import { ehUuid, erroAmigavel } from '@/lib/erroAmigavel'
 import { comPrazo } from '@/lib/comPrazo'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CheckSquare, Square } from 'lucide-react'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DED3', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A', VERM = '#B91C1C'
 const CARD: React.CSSProperties = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 14, padding: 18, boxShadow: '0 1px 2px rgba(61,35,20,0.04)' }
@@ -472,7 +473,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
                   onClick={() => setCienteNumerico((v) => !v)}
                   style={{ justifySelf: 'start', display: 'flex', alignItems: 'center', gap: 8, background: cienteNumerico ? ESP : '#fff', color: cienteNumerico ? BG : ESP, border: `1px solid ${cienteNumerico ? ESP : LINE}`, borderRadius: 10, padding: '9px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
                 >
-                  <span aria-hidden="true" style={{ fontSize: 15 }}>{cienteNumerico ? '☑' : '☐'}</span>
+                  {cienteNumerico ? <CheckSquare aria-hidden="true" size={16} /> : <Square aria-hidden="true" size={16} />}
                   Conferi os códigos numéricos e estão corretos
                 </button>
               </div>
