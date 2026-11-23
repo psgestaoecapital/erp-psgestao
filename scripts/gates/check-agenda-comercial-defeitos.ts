@@ -5,7 +5,9 @@ import { readFileSync } from 'node:fs'
 
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
-const f = readFileSync('src/app/dashboard/pm/agenda/page.tsx', 'utf8')
+// #5564 moveu a lógica da Agenda comercial para o componente compartilhado AgendaComercialView (RD-26);
+// a page.tsx do P&M (e a do Hub) só o reusa. Os defeitos do #119 são conferidos onde a lógica vive.
+const f = readFileSync('src/components/agenda/AgendaComercialView.tsx', 'utf8')
 
 ok(/from\('erp_agendamento'\)[\s\S]{0,500}\.is\('excluido_em', null\)/.test(f), 'lista da agenda ignora evento excluído')
 ok(/if \(ag\) \{[\s\S]{0,600}from\('erp_agendamento'\)\.update\(/.test(f) && /\.eq\('id', ag\.id\)\.eq\('company_id', empresa\)/.test(f), 'salvar evento existente atualiza o próprio evento')

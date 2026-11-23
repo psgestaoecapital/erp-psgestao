@@ -36,10 +36,12 @@ async function main() {
   // 6) rota: exclusão é UPDATE de ativo, nunca DELETE na tabela de produtos; fail-closed na contagem; guarda de empresa
   const rota = readFileSync('src/app/api/cadastros/produtos/route.ts', 'utf8')
   ok(!/from\('erp_produtos'\)\s*\.delete\(/.test(rota), 'rota não apaga erp_produtos (soft delete)')
-  ok(/\.update\(\{ ativo: false \}\)/.test(rota), 'exclusão grava ativo = false')
+  // RD-98 p4 (#5396): a exclusão lógica agora também é rastreável (deleted_at/deleted_by), então o update
+  // leva mais campos além de ativo: false. Confere que ativo: false é a baixa lógica, tolerando os campos de trilho.
+  ok(/\.update\(\{\s*ativo:\s*false\b/.test(rota), 'exclusão grava ativo = false')
   ok(/export const DELETE = exigirLogin/.test(rota) && /export const GET = exigirLogin/.test(rota), 'GET e DELETE protegidos por exigirLogin')
   ok((rota.match(/exigirEmpresas\(u, \[/g) ?? []).length >= 4, 'GET e DELETE conferem a empresa do usuário')
-  ok(/if \(error\) throw new Error\(`Não foi possível verificar vínculos/.test(rota), 'erro na contagem propaga (fail-closed)')
+  ok(/if \(error\) throw new Error\(`Não foi possível verificar (os )?vínculos/.test(rota), 'erro na contagem propaga (fail-closed)')
   ok(/status: 409/.test(rota), 'produto com vínculo responde 409 com o motivo')
 
   // 7) tela e modal: lixeira nas duas visões, modal ligado, "?" no modal
