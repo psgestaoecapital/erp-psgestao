@@ -1,7 +1,9 @@
 // src/app/dashboard/ehs/inspecoes/modelos/page.tsx
 // PS EHS · EHS-7 / M10 — Inspeções: Modelos de checklist (fatia 1)
 // O técnico monta uma vez o checklist (perguntas com peso e item crítico); a execução de campo reusa estes modelos.
-// Backend: ehs_inspecao_modelo + ehs_inspecao_item (RLS por empresa via get_user_company_ids). Soft delete (ativo=false).
+// Backend: ehs_inspecao_modelo + ehs_inspecao_item (RLS por empresa via get_user_company_ids). Exclusão rastreável
+// (RD-98 p4): desativar o modelo e reescrever as perguntas passam por RPC (fn_ehs_inspecao_modelo_desativar /
+// fn_ehs_inspecao_item_salvar) com quem/quando + audit_log_global — sem DELETE físico. Soft delete (ativo=false).
 
 'use client'
 
@@ -88,7 +90,8 @@ export default function ModelosInspecaoPage() {
       })) as Modelo[]
       setModelos(linhas)
     } catch (e: any) {
-      setErro(e?.message || 'Falha ao carregar os modelos de inspeção')
+      console.error('carregar modelos de inspeção', e)
+      setErro('Não foi possível carregar os modelos de inspeção. Tente novamente em instantes.')
     } finally {
       setLoading(false)
     }
@@ -106,14 +109,15 @@ export default function ModelosInspecaoPage() {
     if (motivo === null) return
     if (!motivo.trim()) { alert('Informe o motivo para desativar.'); return }
     try {
-      const { error } = await supabase
-        .from('ehs_inspecao_modelo')
-        .update({ ativo: false, descricao: ((m.descricao ? m.descricao + ' ' : '') + `[desativado: ${motivo.trim()}]`).slice(0, 2000), atualizado_em: new Date().toISOString() })
-        .eq('id', m.id)
+      // RD-98 p4: a desativação grava quem/quando/motivo e um registro em audit_log_global via RPC
+      // (soft-delete rastreável), nunca um UPDATE solto pelo cliente.
+      const { data, error } = await supabase.rpc('fn_ehs_inspecao_modelo_desativar', { p_id: m.id, p_motivo: motivo.trim() })
       if (error) throw error
+      if (data && data.ok === false) { alert(data.erro || 'Não foi possível desativar o modelo.'); return }
       carregar()
     } catch (e: any) {
-      alert(e?.message || 'Falha ao desativar')
+      console.error('fn_ehs_inspecao_modelo_desativar', e)
+      alert('Não foi possível desativar o modelo de inspeção. Tente novamente.')
     }
   }
 
@@ -263,9 +267,6 @@ function ModeloFormModal({ companyId, modelo, onClose, onSaved }: { companyId: s
           .update({ nome: nome.trim(), categoria, nr_referencia: nrRef.trim() || null, descricao: descricao.trim() || null, atualizado_em: new Date().toISOString() })
           .eq('id', modeloId)
         if (error) throw error
-        // substitui os itens (modelo pequeno; company-scoped)
-        const { error: delErr } = await supabase.from('ehs_inspecao_item').delete().eq('modelo_id', modeloId)
-        if (delErr) throw delErr
       } else {
         const { data, error } = await supabase.from('ehs_inspecao_modelo')
           .insert({ company_id: companyId, nome: nome.trim(), categoria, nr_referencia: nrRef.trim() || null, descricao: descricao.trim() || null })
@@ -273,12 +274,18 @@ function ModeloFormModal({ companyId, modelo, onClose, onSaved }: { companyId: s
         if (error) throw error
         modeloId = data!.id
       }
-      const payload = perguntas.map((it, i) => ({ company_id: companyId, modelo_id: modeloId, ordem: i + 1, pergunta: it.pergunta, peso: it.peso, critico: it.critico }))
-      const { error: insErr } = await supabase.from('ehs_inspecao_item').insert(payload)
-      if (insErr) throw insErr
+      // RD-98 p4: a coleção de perguntas é reescrita por RPC (soft-delete das antigas + insert das novas,
+      // com rastro em audit_log_global) — nunca por DELETE físico de ehs_inspecao_item.
+      const { data: itData, error: itErr } = await supabase.rpc('fn_ehs_inspecao_item_salvar', {
+        p_modelo_id: modeloId,
+        p_itens: perguntas.map((it) => ({ pergunta: it.pergunta, peso: it.peso, critico: it.critico })),
+      })
+      if (itErr) throw itErr
+      if (itData && itData.ok === false) { setErro(itData.erro || 'Não foi possível salvar as perguntas do checklist.'); setSalvando(false); return }
       onSaved()
     } catch (e: any) {
-      setErro(e?.message || 'Falha ao salvar o modelo')
+      console.error('salvar modelo de inspeção', e)
+      setErro('Não foi possível salvar o modelo. Confira os dados e tente novamente.')
       setSalvando(false)
     }
   }
