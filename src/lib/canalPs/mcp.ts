@@ -74,40 +74,6 @@ export const FERRAMENTAS: Ferramenta[] = [
     rpc: 'fn_agente_pedido_pedir_ok_ceo',
     args: (a) => ({ p_mensagem_id: uuid(a.pedido_id) }),
   },
-  // ── Diagnóstico cross-empresa (CEO 23/11) — SÓ LEITURA, todas as empresas, só para sócios de erp_aprovador_pr.
-  // Cada uma chama uma RPC curada com o porteiro fn__diagnostico_socio_pode (sem SQL livre).
-  {
-    name: 'empresas', title: 'Buscar empresas',
-    description: 'Lista empresas (TODAS, diagnóstico) por nome ou inscrição municipal. Só leitura, só para sócios.',
-    inputSchema: { type: 'object', additionalProperties: false, properties: {
-      busca: { type: 'string', description: 'nome ou inscrição municipal' }, limite: { type: 'integer', minimum: 1, maximum: 200 } } },
-    rpc: 'fn_diag_empresas',
-    args: (a) => ({ p_busca: txt(a.busca), p_limite: int(a.limite) ?? 50 }),
-  },
-  {
-    name: 'nfse', title: 'NFS-e de uma empresa',
-    description: 'Emissões de NFS-e de uma empresa (número, série, status, MOTIVO da rejeição, código do serviço, provedor). Só leitura.',
-    inputSchema: { type: 'object', additionalProperties: false, required: ['empresa_id'], properties: {
-      empresa_id: { type: 'string', description: 'id (uuid) da empresa' }, limite: { type: 'integer', minimum: 1, maximum: 200 } } },
-    rpc: 'fn_diag_nfse',
-    args: (a) => ({ p_company_id: uuid(a.empresa_id), p_limite: int(a.limite) ?? 30 }),
-  },
-  {
-    name: 'financeiro', title: 'Recebidos/Pagos do período',
-    description: 'Recebidos e Pagos BRUTOS (soma das baixas) de um conjunto de empresas num período. Só leitura. Datas AAAA-MM-DD.',
-    inputSchema: { type: 'object', additionalProperties: false, required: ['empresa_ids', 'ini', 'fim'], properties: {
-      empresa_ids: { type: 'array', items: { type: 'string' }, description: 'ids (uuid) das empresas' },
-      ini: { type: 'string', description: 'AAAA-MM-DD' }, fim: { type: 'string', description: 'AAAA-MM-DD' } } },
-    rpc: 'fn_diag_financeiro',
-    args: (a) => ({ p_company_ids: Array.isArray(a.empresa_ids) ? (a.empresa_ids as unknown[]).map((x) => uuid(x)).filter((x): x is string => !!x) : [], p_ini: data(a.ini), p_fim: data(a.fim) }),
-  },
-  {
-    name: 'chamado', title: 'Chamado completo',
-    description: 'Um chamado (qualquer empresa) pelo número: a sugestão, a empresa e a conversa com o cliente. Só leitura.',
-    inputSchema: { type: 'object', additionalProperties: false, required: ['numero'], properties: { numero: { type: 'integer', description: 'número do chamado' } } },
-    rpc: 'fn_diag_chamado',
-    args: (a) => ({ p_numero: int(a.numero) }),
-  },
 ]
 
 const INSTRUCOES = 'Canal PS do ERP PS Gestão. Você age como o sócio logado: só vê os chamados da carteira dele e só manda tarefa '
