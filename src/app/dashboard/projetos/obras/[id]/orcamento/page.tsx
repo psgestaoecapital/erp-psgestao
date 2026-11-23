@@ -14,6 +14,15 @@ import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 const ROTA = '/dashboard/projetos/obras/[id]/orcamento'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DED3', MUT = 'rgba(61,35,20,0.55)', VERM = '#B91C1C'
 const brl = (n: number | null | undefined) => (n ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+// §315 — situação do orçamento (erp_orcamentos.status, compartilhado com o Comércio). Só leitura aqui:
+// a mudança de estado continua no fluxo de orçamento do Comércio; o Hub apenas mostra em que pé está.
+const SITUACAO: Record<string, { rotulo: string; cor: string; bg: string }> = {
+  rascunho: { rotulo: 'Rascunho', cor: MUT, bg: '#F3EEE7' },
+  enviado: { rotulo: 'Enviado', cor: GOLD, bg: '#FBF3E0' },
+  aprovado: { rotulo: 'Aprovado', cor: '#166534', bg: '#E8F3EC' },
+  convertido: { rotulo: 'Convertido', cor: '#166534', bg: '#E8F3EC' },
+  cancelado: { rotulo: 'Cancelado', cor: VERM, bg: '#FBEAEA' },
+}
 const pct = (n: number | null | undefined) => `${(n ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 1 })}%`
 
 // Nó da árvore EAP (modo 'eap')
@@ -56,6 +65,7 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
   const [criandoOrc, setCriandoOrc] = useState(false)
   // Total cheio do orçamento e nº de itens vivos — para avisar quando a EAP é só uma fatia do orçamento.
   const [orcTotal, setOrcTotal] = useState<number | null>(null)
+  const [orcStatus, setOrcStatus] = useState<string | null>(null)
   const [itensVivos, setItensVivos] = useState<number | null>(null)
   // "+ Item" / editar: catálogo de serviços e estado do formulário
   const [servicos, setServicos] = useState<Servico[]>([])
@@ -88,8 +98,9 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
     const { data: li } = await supabase.rpc('fn_projetos_orcamento_item_eap_listar', { p_orcamento_id: info.orcamento_id })
     setItens(((li as { itens?: ItemEap[] } | null)?.itens) ?? [])
     // Total cheio do orçamento e nº de itens vivos — para distinguir a fatia EAP do total do orçamento.
-    const { data: orc } = await supabase.from('erp_orcamentos').select('total').eq('id', info.orcamento_id).maybeSingle()
+    const { data: orc } = await supabase.from('erp_orcamentos').select('total,status').eq('id', info.orcamento_id).maybeSingle()
     setOrcTotal((orc as { total?: number } | null)?.total ?? null)
+    setOrcStatus((orc as { status?: string } | null)?.status ?? null)
     const { count } = await supabase.from('erp_orcamentos_itens').select('id', { count: 'exact', head: true }).eq('orcamento_id', info.orcamento_id).is('excluido_em', null)
     setItensVivos(count ?? null)
   }, [id, porLocal])
@@ -255,7 +266,11 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
 
   const raizes = arvore?.modo === 'eap' ? (filhosPorPai.get(null) ?? []) : []
   const locais = arvore?.modo === 'local' ? (arvore.nos as NoLocal[]) : []
-  const vazio = !!obra && (!obra.orcamento_id || (arvore != null && arvore.nos.length === 0))
+  // Sem nós na EAP: pode ser orçamento REALMENTE vazio (0 itens) OU orçamento COM itens, porém nenhum
+  // estruturado pela EAP ainda. São estados diferentes — não dizer "ainda não tem itens" quando há itens.
+  const semArvoreEap = arvore != null && arvore.nos.length === 0
+  const itensSemEap = !!obra?.orcamento_id && semArvoreEap && (itensVivos ?? 0) > 0
+  const vazio = !!obra && (!obra.orcamento_id || semArvoreEap)
 
   const chip = (ativo: boolean) => ({
     padding: '7px 14px', borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: 'pointer' as const,
@@ -373,11 +388,17 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
 
         {loading ? <div style={{ padding: 40, textAlign: 'center', color: MUT }}>Carregando…</div> : vazio ? (
           <div data-testid="orc-vazio" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 20, textAlign: 'center' }}>
-            <div style={{ fontSize: 15, color: ESP, fontWeight: 600, marginBottom: 6 }}>Orçamento ainda sem itens</div>
+            <div style={{ fontSize: 15, color: ESP, fontWeight: 600, marginBottom: 6 }}>
+              {itensSemEap ? 'Orçamento com itens — ainda sem EAP' : 'Orçamento ainda sem itens'}
+            </div>
             <div style={{ fontSize: 13, color: MUT, lineHeight: 1.5 }}>
-              {obra && !obra.orcamento_id
-                ? 'Esta obra ainda não tem um orçamento vinculado. Crie o orçamento aqui e comece a montar a EAP sem sair da tela.'
-                : 'O orçamento está vinculado, mas ainda não tem itens. Adicione serviços um a um por etapa e local, ou importe a planilha da obra de uma vez pelo importador.'}
+              {obra && !obra.orcamento_id ? (
+                'Esta obra ainda não tem um orçamento vinculado. Crie o orçamento aqui e comece a montar a EAP sem sair da tela.'
+              ) : itensSemEap ? (
+                <>Este orçamento já tem <strong>{itensVivos} {itensVivos === 1 ? 'item' : 'itens'}</strong>{orcTotal != null && orcTotal > 0 ? <> somando <strong>{brl(orcTotal)}</strong></> : null}, mas <strong>nenhum está estruturado pela EAP</strong> ainda. Organize-os por etapa e local com o <em>+ Item</em>, importando a planilha da obra, ou partindo da Biblioteca padrão PS.</>
+              ) : (
+                'O orçamento está vinculado, mas ainda não tem itens. Adicione serviços um a um por etapa e local, ou importe a planilha da obra de uma vez pelo importador.'
+              )}
             </div>
             {obra && !obra.orcamento_id && (
               <div style={{ marginTop: 16, display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
@@ -411,17 +432,28 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
           <div style={{ display: 'grid', gap: 14 }}>
             {/* Totais do orçamento */}
             <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'flex', flexWrap: 'wrap', gap: 20 }}>
+              {/* Situação do orçamento (§315 essencial) — só leitura; o estado muda no fluxo do orçamento. */}
+              {orcStatus != null && (
+                <div data-testid="orc-situacao">
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700 }}>Situação <AjudaCampo chave="projetos.orcamento_eap.situacao" rota={ROTA} /></div>
+                  <div style={{ marginTop: 2 }}>
+                    <span style={{ display: 'inline-block', padding: '3px 12px', borderRadius: 999, fontSize: 13, fontWeight: 700, color: (SITUACAO[orcStatus] ?? { cor: ESP }).cor, background: (SITUACAO[orcStatus] ?? { bg: '#F3EEE7' }).bg }}>
+                      {(SITUACAO[orcStatus]?.rotulo) ?? orcStatus}
+                    </span>
+                  </div>
+                </div>
+              )}
               <div>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700 }}>Total estruturado (EAP) <AjudaCampo chave="projetos.orcamento_eap.total" rota={ROTA} /></div>
                 <div style={{ fontSize: 22, color: ESP, fontWeight: 700 }}>{brl(arvore.total_geral)}</div>
               </div>
               <div>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700 }}>Material <AjudaCampo chave="projetos.orcamento_eap.material" rota={ROTA} /></div>
-                <div style={{ fontSize: 18, color: ESP, fontWeight: 600 }}>{brl(arvore.material_geral)}</div>
+                <div style={{ fontSize: 18, color: ESP, fontWeight: 600 }}>{brl(arvore.material_geral)}{arvore.total_geral > 0 && <span style={{ fontSize: 12, color: MUT, fontWeight: 500 }}> · {pct((arvore.material_geral / arvore.total_geral) * 100)} do total</span>}</div>
               </div>
               <div>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700 }}>Mão de obra <AjudaCampo chave="projetos.orcamento_eap.mao_obra" rota={ROTA} /></div>
-                <div style={{ fontSize: 18, color: ESP, fontWeight: 600 }}>{brl(arvore.mao_obra_geral)}</div>
+                <div style={{ fontSize: 18, color: ESP, fontWeight: 600 }}>{brl(arvore.mao_obra_geral)}{arvore.total_geral > 0 && <span style={{ fontSize: 12, color: MUT, fontWeight: 500 }}> · {pct((arvore.mao_obra_geral / arvore.total_geral) * 100)} do total</span>}</div>
               </div>
               {/* KPI Custo por m² (blueprint §315 essencial): total estruturado ÷ área construída da obra. */}
               {obra?.area_construida_m2 != null && obra.area_construida_m2 > 0 && (
