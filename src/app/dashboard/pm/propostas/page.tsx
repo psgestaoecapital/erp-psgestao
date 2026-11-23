@@ -247,6 +247,8 @@ export default function PropostasPage() {
       .map((it) => ({ ...it, quantidade: num(it.quantidade), valor_unitario: num(it.valor_unitario), valor_total: num(it.valor_total) }))
     // PM-1 · nunca salvar proposta com valor e sem item (o vazamento dos R$ 3.000)
     if (itensLimpos.length === 0) { setBusy(false); setToast('Adicione ao menos um item à proposta.'); return }
+    // §4 · total sempre recalculado dos itens, sem proposta R$ 0: bloqueia item só com descrição (qtd/valor zerados)
+    if (somaItens <= 0) { setBusy(false); setToast('A proposta precisa ter valor maior que zero. Informe quantidade e valor unitário dos itens.'); return }
     if (propCfg?.exigir_item_catalogo && itensLimpos.some((it) => !it.servico_id)) { setBusy(false); setToast('Esta empresa exige itens do catálogo. Vincule ou remova os itens avulsos.'); return }
     if (propCfg?.desconto_max_pct != null && somaItens > 0 && (descNum / somaItens) * 100 > propCfg.desconto_max_pct) { setBusy(false); setToast(`Desconto acima do máximo permitido (${propCfg.desconto_max_pct}%).`); return }
     const { data, error } = await supabase.rpc('fn_agency_proposta_editar', {
@@ -365,6 +367,8 @@ export default function PropostasPage() {
       .map((it) => ({ ...it, quantidade: num(it.quantidade), valor_unitario: num(it.valor_unitario), valor_total: num(it.valor_total) }))
     // PM-1 · nunca criar proposta com valor e sem item (o vazamento dos R$ 3.000)
     if (itensLimpos.length === 0) { setBusy(false); setToast('Adicione ao menos um item à proposta.'); return }
+    // §4 · total sempre recalculado dos itens, sem proposta R$ 0: bloqueia item só com descrição (qtd/valor zerados)
+    if (somaItens <= 0) { setBusy(false); setToast('A proposta precisa ter valor maior que zero. Informe quantidade e valor unitário dos itens.'); return }
     if (propCfg?.exigir_item_catalogo && itensLimpos.some((it) => !it.servico_id)) { setBusy(false); setToast('Esta empresa exige itens do catálogo. Vincule ou remova os itens avulsos.'); return }
     if (propCfg?.desconto_max_pct != null && somaItens > 0 && (descNum / somaItens) * 100 > propCfg.desconto_max_pct) { setBusy(false); setToast(`Desconto acima do máximo permitido (${propCfg.desconto_max_pct}%).`); return }
     const { data, error } = await supabase.rpc('fn_agency_proposta_criar', {
