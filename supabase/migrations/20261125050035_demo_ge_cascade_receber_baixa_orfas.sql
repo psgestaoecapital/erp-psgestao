@@ -19,6 +19,7 @@
 -- O purgador é chamado pela rotina de banco de testes/e2e; com o bloco novo ele passa a se
 -- auto-curar a cada rodada (a lista não volta a acumular baixa fantasma).
 
+-- ci-sem-guarda: fn_demo_ge_receber_purgar_lixo_teste — função de DEMO (RD-69): grava SÓ em empresa is_demo (valida is_demo no topo); nenhum dado de cliente é tocado.
 CREATE OR REPLACE FUNCTION public.fn_demo_ge_receber_purgar_lixo_teste(p_company uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -108,6 +109,10 @@ BEGIN
     'titulos_purgados', v_tit, 'baixas_purgadas', v_bx, 'baixas_orfas_purgadas', v_orf);
 END
 $function$;
+
+-- CREATE OR REPLACE preserva os grants existentes (authenticated, service_role); reafirma a guarda (idempotente) — purgador de DEMO nunca vai a anon.
+REVOKE ALL ON FUNCTION public.fn_demo_ge_receber_purgar_lixo_teste(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_demo_ge_receber_purgar_lixo_teste(uuid) TO authenticated, service_role;
 
 -- One-time: roda a limpeza (com o cascade de órfãs) para a DEMO GE. A função valida is_demo.
 SELECT public.fn_demo_ge_receber_purgar_lixo_teste('b0700000-0000-4000-a000-000000000004'::uuid);
