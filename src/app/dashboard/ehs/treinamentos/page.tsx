@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase'
 import { rpc, authFetch } from '@/lib/authFetch'
 import { CampoDecimal } from '@/components/comum/CampoDecimal'
 import { GraduationCap, Users, ShieldAlert, Plus, Pencil, Trash2, X, Ban, ClipboardCheck, Upload, FileText, Loader2 } from 'lucide-react'
+import { erroAmigavel } from '@/lib/erroAmigavel'
 
 const C = {
   espresso: '#3D2314', offwhite: '#FAF7F2', gold: '#C8941A', beigeLt: '#f5f0e8', borderLt: '#ece3d2',
@@ -96,7 +97,7 @@ function AbaTipos({ companyId }: { companyId: string }) {
         return { ...t, tipo_documento_id: c?.tipo_documento_id ?? null, tipo_documento_nome: c?.tipo_documento_nome ?? null,
                  gera_documento: c?.gera_documento ?? false, alerta: c?.alerta ?? null, certificados_sem_documento: c?.certificados_sem_documento ?? 0 } }))
       setDocTipos((dt as DocTipo[]) || [])
-    } catch (e) { setErro((e as Error).message) } finally { setLoading(false) }
+    } catch (e) { setErro(erroAmigavel(e)) } finally { setLoading(false) }
   }, [companyId])
   useEffect(() => { void carregar() }, [carregar])
 
@@ -121,12 +122,12 @@ function AbaTipos({ companyId }: { companyId: string }) {
       if (sincronizados > 0) {
         setMsg(`${sincronizados} certificado(s) já anexado(s) foram enviados para a ficha dos funcionários (aba Documentos).`)
       }
-    } catch (e) { setErro((e as Error).message) }
+    } catch (e) { setErro(erroAmigavel(e)) }
   }
   const excluir = async (t: Tipo) => {
     if (!confirm(`Excluir "${t.nome}"?${t.turmas > 0 ? ' (há turmas — será desativado, preservando o histórico)' : ''}`)) return
     try { await rpc('fn_nr_tipo_excluir', { p_company_id: companyId, p_id: t.id }); void carregar() }
-    catch (e) { alert((e as Error).message) }
+    catch (e) { alert(erroAmigavel(e)) }
   }
 
   return (
@@ -223,7 +224,7 @@ function AbaTurmas({ companyId }: { companyId: string }) {
         rpc<{ tipos: Tipo[] }>('fn_nr_tipo_listar', { p_company_id: companyId }),
       ])
       setTurmas(rt.turmas || []); setTipos(rtipos.tipos || [])
-    } catch (e) { setErro((e as Error).message) } finally { setLoading(false) }
+    } catch (e) { setErro(erroAmigavel(e)) } finally { setLoading(false) }
   }, [companyId])
   useEffect(() => { void carregar() }, [carregar])
 
@@ -237,11 +238,11 @@ function AbaTurmas({ companyId }: { companyId: string }) {
         status: edit.status ?? 'planejada', observacao: edit.observacao ?? '',
       } })
       setEdit(null); void carregar()
-    } catch (e) { setErro((e as Error).message) }
+    } catch (e) { setErro(erroAmigavel(e)) }
   }
   const cancelar = async (t: Turma) => {
     if (!confirm(`Cancelar a turma de "${t.tipo_nome}"?`)) return
-    try { await rpc('fn_nr_turma_cancelar', { p_company_id: companyId, p_id: t.id }); void carregar() } catch (e) { alert((e as Error).message) }
+    try { await rpc('fn_nr_turma_cancelar', { p_company_id: companyId, p_id: t.id }); void carregar() } catch (e) { alert(erroAmigavel(e)) }
   }
 
   const statusCor = (s: string) => s === 'realizada' ? C.green : s === 'cancelada' ? C.red : C.amber
@@ -342,7 +343,7 @@ function PresencaPanel({ companyId, turma, onClose }: { companyId: string; turma
   const salvarPresenca = async () => {
     setSalvando(true)
     try { await rpc('fn_nr_presenca_registrar', { p_company_id: companyId, p_turma_id: turma.id, p_funcionarios: [...sel] }); await carregar() }
-    catch (e) { alert((e as Error).message) } finally { setSalvando(false) }
+    catch (e) { alert(erroAmigavel(e)) } finally { setSalvando(false) }
   }
   const anexar = async (presencaId: string, file: File) => {
     setUploading(presencaId)
@@ -357,7 +358,7 @@ function PresencaPanel({ companyId, turma, onClose }: { companyId: string; turma
       else if (d?.motivo === 'tipo_documento_nao_vinculado') setMsgAnexo({ tipo: 'aviso', texto: `Certificado anexado. Não gerou documento na ficha: o treinamento ${d.nr_codigo ?? ''} ainda não tem tipo de documento configurado (aba Tipos).` })
       else setMsgAnexo({ tipo: 'ok', texto: 'Certificado anexado.' })
       await carregar()
-    } catch (e) { alert((e as Error).message) } finally { setUploading(null) }
+    } catch (e) { alert(erroAmigavel(e)) } finally { setUploading(null) }
   }
   const verCert = async (presencaId: string) => {
     const res = await authFetch(`/api/compliance/nr-certificado/${presencaId}`)
