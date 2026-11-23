@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { parseNumBR } from '@/lib/num'
 
 const ROTA_AJUDA = '/dashboard/ehs/brigada'
 const ALERTA_DIAS = 30 // "a vencer" = vence dentro de 30 dias
@@ -329,7 +330,7 @@ function BrigadistaFormModal({ companyId, brigadista, onClose, onSaved }: { comp
     setSalvando(true)
     setErro(null)
     try {
-      const carga = cargaHoraria.trim() ? Number(cargaHoraria.replace(',', '.')) : null
+      const carga = cargaHoraria.trim() ? parseNumBR(cargaHoraria) : null
       if (carga !== null && (isNaN(carga) || carga < 0)) { setErro('Carga horária inválida'); setSalvando(false); return }
       const comum = {
         nome: nome.trim(),
