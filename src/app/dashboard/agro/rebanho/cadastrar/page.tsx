@@ -253,7 +253,7 @@ export default function CadastrarRebanho() {
         setMsg({ tipo: 'erro', texto: erros[0] ?? 'Nenhum registro criado.' })
       }
     } catch (e) {
-      setMsg({ tipo: 'erro', texto: (e as Error).message })
+      setMsg({ tipo: 'erro', texto: erroAmigavel(e) })
     } finally {
       setBusy(false)
     }
@@ -287,7 +287,7 @@ export default function CadastrarRebanho() {
       setMsg({ tipo: 'ok', texto: `${r.criados} animais cadastrados${loteCodigo ? ` no lote ${loteCodigo}` : ''}.` })
       setLoteQtd(''); setPesoLote(''); setGridLote([]); setLoteRaca('')
     } catch (e) {
-      setMsg({ tipo: 'erro', texto: (e as Error).message })
+      setMsg({ tipo: 'erro', texto: erroAmigavel(e) })
     } finally {
       setBusy(false)
     }
