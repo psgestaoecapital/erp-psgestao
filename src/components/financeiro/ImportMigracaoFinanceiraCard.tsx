@@ -29,6 +29,9 @@ interface Linha {
   pagamento: string | null
   situacao: string
   valor_pago: number | null
+  conta: string          // CONTA-IMPORT · nome digitado na coluna opcional "Conta" (cru)
+  conta_id: string | null   // conta casada por nome em erp_banco_contas da empresa (null = sem conta)
+  conta_nome: string | null // nome canônico da conta casada
   nivel: Nivel
   exemplo: boolean       // IMP-1 · linha de exemplo do modelo — não é importada por padrão
   jaExiste: boolean      // CEO 29/09 · mesmo tipo+pessoa+valor+vencimento já no sistema — não é importada
@@ -125,6 +128,7 @@ export default function ImportMigracaoFinanceiraCard({ companyId, empresaNome }:
         pagamento: idxOf((h) => h.includes('pagamento') && !h.includes('forma')),
         situacao: idxOf((h) => h.includes('situac') || h.includes('status')),
         valorPago: idxOf((h) => h.includes('valor') && h.includes('pago')),
+        conta: idxOf((h) => h.includes('conta')), // CONTA-IMPORT · coluna opcional "Conta" (nome)
       }
       const get = (row: string[], j: number) => (j >= 0 ? String(row[j] ?? '').trim() : '')
 
@@ -164,10 +168,42 @@ export default function ImportMigracaoFinanceiraCard({ companyId, empresaNome }:
           forma_pagamento: get(row, ci.forma), emissao: parseDataBR(get(row, ci.emissao)),
           pagamento: parseDataBR(get(row, ci.pagamento)), situacao: get(row, ci.situacao),
           valor_pago: parseNumBR(get(row, ci.valorPago)),
+          conta: get(row, ci.conta), conta_id: null, conta_nome: null,
           nivel: erros.length ? 'erro' : avisos.length ? 'aviso' : 'ok', exemplo: ehExemplo, jaExiste: false, msgs: [...erros, ...avisos],
         })
       }
       if (parsed.length === 0) { setParseErro('Nenhuma linha de dados (fora as de instrução).'); return }
+
+      // CONTA-IMPORT · coluna "Conta" (opcional): casa o NOME com as contas financeiras da empresa
+      // (erp_banco_contas, por nome). Conta vazia = título sem conta (comportamento atual). Conta
+      // preenchida e INEXISTENTE = avisa na prévia e NÃO importa a linha (não cria conta silenciosamente).
+      const temContaDigitada = parsed.some((l) => l.conta.trim() !== '')
+      if (temContaDigitada) {
+        const { data: contasData, error: contasErr } = await supabase
+          .from('erp_banco_contas')
+          .select('id, nome')
+          .eq('company_id', companyId)
+          .eq('ativo', true)
+        if (contasErr) {
+          setParseErro('Não foi possível conferir as contas da empresa. Tente de novo antes de importar.')
+          return
+        }
+        const contaPorNome = new Map<string, { id: string; nome: string }>()
+        for (const c of (contasData ?? []) as { id: string; nome: string }[]) contaPorNome.set(norm(c.nome), { id: c.id, nome: c.nome })
+        for (const l of parsed) {
+          if (l.exemplo) continue  // linhas de exemplo do modelo não são importadas — não cobra conta nelas
+          const contaDig = l.conta.trim()
+          if (!contaDig) continue
+          const hit = contaPorNome.get(norm(contaDig))
+          if (hit) {
+            l.conta_id = hit.id; l.conta_nome = hit.nome
+          } else {
+            l.conta_id = null; l.conta_nome = null
+            l.msgs = [`Conta "${contaDig}" não existe nesta empresa — crie a conta ou corrija o nome (linha não será importada)`, ...l.msgs]
+            if (l.nivel !== 'erro') l.nivel = 'erro'  // bloqueia a linha até o usuário acertar a conta
+          }
+        }
+      }
 
       // CEO 29/09 · título que já existe no sistema (mesmo tipo + pessoa + valor + vencimento) não entra de novo.
       // Se a conferência falhar, NÃO libera a importação (melhor parar do que duplicar).
@@ -204,6 +240,7 @@ export default function ImportMigracaoFinanceiraCard({ companyId, empresaNome }:
         data_pagamento: l.pagamento,
         status: l.situacao || null,
         valor_pago: l.valor_pago,
+        conta_bancaria_id: l.conta_id, // CONTA-IMPORT · null quando coluna vazia (sem conta)
       }))
       // #1738 (Troian): 1295 linhas numa chamada só estouravam o statement_timeout. Vai em lotes;
       // a RPC é idempotente (ON CONFLICT DO NOTHING), então repetir o envio não duplica.
@@ -245,6 +282,9 @@ export default function ImportMigracaoFinanceiraCard({ companyId, empresaNome }:
           <div className="text-[13px] mt-1" style={{ color: ESP60 }}>
             Receitas e despesas na mesma planilha (coluna Tipo). Baixe o modelo, preencha e suba.
           </div>
+          <div className="text-[12px] mt-1" style={{ color: ESP60 }}>
+            Coluna <b>Conta</b> (opcional): preencha com o nome da conta financeira (ex.: CARTEIRA, SICREDI) para já vincular o título à conta — útil para deixar o fiado na CARTEIRA, fora do fluxo de caixa. Vazio = título sem conta.
+          </div>
         </div>
         {empresaNome && (
           <div className="text-[12px] rounded-lg px-3 py-1.5" style={{ background: BG, color: ESP, border: `1px solid ${LINE}` }}>
@@ -282,6 +322,7 @@ export default function ImportMigracaoFinanceiraCard({ companyId, empresaNome }:
                   <th className="text-left px-2 py-1.5">tipo</th><th className="text-left px-2 py-1.5">descrição</th>
                   <th className="text-right px-2 py-1.5">valor</th><th className="text-left px-2 py-1.5">vencimento</th>
                   <th className="text-left px-2 py-1.5">pessoa</th><th className="text-left px-2 py-1.5">situação</th>
+                  <th className="text-left px-2 py-1.5">conta</th>
                   <th className="text-left px-2 py-1.5">mensagens</th>
                 </tr>
               </thead>
@@ -301,6 +342,7 @@ export default function ImportMigracaoFinanceiraCard({ companyId, empresaNome }:
                     <td className="px-2 py-1">{l.vencimento || '—'}</td>
                     <td className="px-2 py-1" style={{ color: ESP60 }}>{l.nome_pessoa || '—'}</td>
                     <td className="px-2 py-1" style={{ color: ESP60 }}>{l.situacao || '—'}</td>
+                    <td className="px-2 py-1" style={{ color: l.conta.trim() && !l.conta_id ? RED : ESP60 }}>{l.conta_nome || (l.conta.trim() ? `${l.conta.trim()} ⚠` : '—')}</td>
                     <td className="px-2 py-1" style={{ color: ESP60 }}>{l.msgs.join(' · ')}</td>
                   </tr>
                 ))}
