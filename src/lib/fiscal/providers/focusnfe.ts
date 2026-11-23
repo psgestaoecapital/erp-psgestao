@@ -389,6 +389,12 @@ export class FocusNFeProvider implements FiscalProvider {
         discriminacao: sanitizeTextoFiscal(req.descricaoServico),
         iss_retido: req.retemIss ? 'true' : 'false',
         codigo_cnae: req.cnaeServico,
+        // item_lista_servico (ABRASF): quando o município usa o Ambiente Nacional via Focus (ex.: Guarujá do
+        // Sul/SC · 163), o schema EXIGE o item de 6 dígitos (2 Item + 2 Subitem LC116 + 2 Desdobro Nacional).
+        // Sem ele a nota caía em "Item Lista Serviço com valor inválido" (provado no payload rejeitado da 163,
+        // RD-38). Usa o mesmo codigoServico já resolvido (erp_servicos.codigo_servico_municipio = "140101").
+        // Só envia quando há valor, para não introduzir campo vazio onde ele não existia.
+        ...(req.codigoServico ? { item_lista_servico: req.codigoServico } : {}),
         codigo_tributario_municipio: req.codigoServico,
         valor_servicos: req.valorServicos,
         valor_iss: req.valorIss,
