@@ -35,6 +35,8 @@ export default function RelatoriosOrcamentoPage({ params }: { params: Promise<{ 
   const [obra, setObra] = useState<ObraInfo | null>(null)
   const [arvore, setArvore] = useState<Arvore | null>(null)
   const [itens, setItens] = useState<ItemEap[]>([])
+  const [orcTotal, setOrcTotal] = useState<number | null>(null)
+  const [itensVivos, setItensVivos] = useState<number | null>(null)
   const [formato, setFormato] = useState<Formato>('sintetico')
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
@@ -52,6 +54,11 @@ export default function RelatoriosOrcamentoPage({ params }: { params: Promise<{ 
     setArvore(data as Arvore)
     const { data: li } = await supabase.rpc('fn_projetos_orcamento_item_eap_listar', { p_orcamento_id: info.orcamento_id })
     setItens(((li as { itens?: ItemEap[] } | null)?.itens) ?? [])
+    // Total cheio do orçamento e nº de itens vivos — para distinguir a fatia EAP do total real (caso misto).
+    const { data: orc } = await supabase.from('erp_orcamentos').select('total').eq('id', info.orcamento_id).maybeSingle()
+    setOrcTotal((orc as { total?: number } | null)?.total ?? null)
+    const { count } = await supabase.from('erp_orcamentos_itens').select('id', { count: 'exact', head: true }).eq('orcamento_id', info.orcamento_id).is('excluido_em', null)
+    setItensVivos(count ?? null)
     setLoading(false)
   }, [id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
@@ -71,6 +78,12 @@ export default function RelatoriosOrcamentoPage({ params }: { params: Promise<{ 
 
   const vazio = !!obra && (!obra.orcamento_id || itens.length === 0)
   const formatoAtual = FORMATOS.find((f) => f.codigo === formato)!
+  // Soma dos subtotais dos itens listados — linha de total do relatório analítico (confere com o total da EAP).
+  const somaSubtotais = useMemo(() => itens.reduce((a, it) => a + (it.subtotal ?? 0), 0), [itens])
+  // Orçamento MISTO: há itens no orçamento sem complemento EAP, então a fatia listada (só EAP) NÃO é o total real.
+  // Espelha a tela 315 (orcamento/page.tsx): nunca rotular a fatia EAP como "Total do orçamento" quando falta algo.
+  const faltaSemEap = orcTotal != null ? orcTotal - somaSubtotais : 0
+  const temNaoEap = faltaSemEap > 0.005
 
   // Exporta o formato atual em CSV (;) para abrir no Excel. Planilha cega sai sem preços, com a coluna de
   // cotação em branco para o empreiteiro preencher. Puro cliente (Blob), sem rede nem dado extra.
@@ -87,6 +100,14 @@ export default function RelatoriosOrcamentoPage({ params }: { params: Promise<{ 
     } else if (formato === 'analitico') {
       linhas = [['EAP', 'Serviço', 'Local', 'Quantidade', 'Unidade', 'Material unit.', 'MO unit.', 'Subtotal']]
       for (const it of itens) linhas.push([it.eap_codigo, `${it.servico_codigo ? it.servico_codigo + ' · ' : ''}${it.servico_descricao ?? 'Serviço'}`, it.local_nome ?? '', it.quantidade, it.unidade ?? '', it.custo_material_unit ?? '', it.custo_mao_obra_unit ?? '', it.subtotal])
+      if (temNaoEap) {
+        // Caso misto: nunca exportar "TOTAL" menor que o orçamento sem rótulo claro (PDCA §330).
+        linhas.push(['', `TOTAL ESTRUTURADO PELA EAP (${itens.length} de ${itensVivos ?? itens.length})`, '', '', '', '', '', somaSubtotais])
+        linhas.push(['', 'ITENS SEM EAP (não listados)', '', '', '', '', '', faltaSemEap])
+        linhas.push(['', 'TOTAL DO ORÇAMENTO', '', '', '', '', '', orcTotal])
+      } else {
+        linhas.push(['', 'TOTAL', '', '', '', '', '', somaSubtotais])
+      }
     } else {
       linhas = [['EAP', 'Serviço', 'Local', 'Quantidade', 'Unidade', 'Preço unit. (cotação)']]
       for (const it of itens) linhas.push([it.eap_codigo, `${it.servico_codigo ? it.servico_codigo + ' · ' : ''}${it.servico_descricao ?? 'Serviço'}`, it.local_nome ?? '', it.quantidade, it.unidade ?? '', ''])
@@ -183,17 +204,25 @@ export default function RelatoriosOrcamentoPage({ params }: { params: Promise<{ 
             {formato !== 'cega' && arvore && (
               <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'flex', flexWrap: 'wrap', gap: 20 }}>
                 <div>
-                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700 }}>Total estruturado (EAP)</div>
+                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}>Total estruturado (EAP) <AjudaCampo chave="projetos.orcamento_eap.total" rota={ROTA} /></div>
                   <div style={{ fontSize: 22, color: ESP, fontWeight: 700 }}>{brl(arvore.total_geral)}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700 }}>Material</div>
+                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}>Material <AjudaCampo chave="projetos.orcamento_eap.material" rota={ROTA} /></div>
                   <div style={{ fontSize: 18, color: ESP, fontWeight: 600 }}>{brl(arvore.material_geral)}</div>
                 </div>
                 <div>
-                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700 }}>Mão de obra</div>
+                  <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}>Mão de obra <AjudaCampo chave="projetos.orcamento_eap.mao_obra" rota={ROTA} /></div>
                   <div style={{ fontSize: 18, color: ESP, fontWeight: 600 }}>{brl(arvore.mao_obra_geral)}</div>
                 </div>
+              </div>
+            )}
+
+            {/* Orçamento MISTO: a EAP é só uma fatia — não deixar o relatório parecer o total real (PDCA §330). */}
+            {formato !== 'cega' && temNaoEap && (
+              <div data-testid="orc-rel-aviso-fatia" style={{ background: '#FBF3E0', border: `0.5px solid ${GOLD}`, borderRadius: 10, padding: '10px 14px', fontSize: 13, color: ESP, lineHeight: 1.5 }}>
+                Este relatório mostra só o que está <strong>estruturado pela EAP</strong> ({brl(somaSubtotais)}
+                {itensVivos != null ? ` · ${itens.length} de ${itensVivos} ${itensVivos === 1 ? 'item' : 'itens'}` : ''}). O orçamento tem mais <strong>{brl(faltaSemEap)}</strong> em itens ainda <strong>sem EAP</strong> — total do orçamento <strong>{brl(orcTotal)}</strong>. Estruture-os pela EAP no orçamento para o relatório fechar o total.
               </div>
             )}
 
@@ -225,6 +254,22 @@ export default function RelatoriosOrcamentoPage({ params }: { params: Promise<{ 
                       </tr>
                     ))}
                   </tbody>
+                  <tfoot>
+                    <tr data-testid="orc-rel-analitico-total">
+                      <td style={{ ...td, fontWeight: 700, borderTop: `2px solid ${LINE}`, borderBottom: 'none' }} colSpan={6}>
+                        {temNaoEap
+                          ? `Total estruturado pela EAP (${itens.length} de ${itensVivos ?? itens.length} ${(itensVivos ?? itens.length) === 1 ? 'item' : 'itens'})`
+                          : `Total do orçamento (${itens.length} ${itens.length === 1 ? 'item' : 'itens'})`}
+                      </td>
+                      <td style={{ ...tdR, fontWeight: 800, color: ESP, borderTop: `2px solid ${LINE}`, borderBottom: 'none' }}>{brl(somaSubtotais)}</td>
+                    </tr>
+                    {temNaoEap && (
+                      <tr data-testid="orc-rel-analitico-total-real">
+                        <td style={{ ...td, fontWeight: 700, borderBottom: 'none', color: ESP }} colSpan={6}>Total do orçamento <span style={{ fontWeight: 500, color: MUT }}>(com itens sem EAP)</span></td>
+                        <td style={{ ...tdR, fontWeight: 800, color: ESP, borderBottom: 'none' }}>{brl(orcTotal)}</td>
+                      </tr>
+                    )}
+                  </tfoot>
                 </table>
               </div>
             )}
@@ -234,6 +279,7 @@ export default function RelatoriosOrcamentoPage({ params }: { params: Promise<{ 
               <>
                 <div data-testid="orc-rel-cega-aviso" style={{ background: '#FBF3E0', border: `0.5px solid ${GOLD}`, borderRadius: 10, padding: '10px 14px', fontSize: 13, color: ESP, lineHeight: 1.5 }}>
                   Esta é a <strong>planilha cega</strong>: os itens da obra <strong>sem os seus preços</strong>. Imprima ou gere o PDF e envie ao empreiteiro para ele cotar na coluna em branco.
+                  {temNaoEap && itensVivos != null && <> Lista só os <strong>{itens.length} de {itensVivos}</strong> itens estruturados pela EAP; estruture os demais para incluí-los na cotação.</>}
                 </div>
                 <div data-testid="orc-rel-cega" style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: '4px 8px', overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 560 }}>

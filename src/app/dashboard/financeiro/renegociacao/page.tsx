@@ -17,6 +17,8 @@ import Modal from '@/components/ui/Modal'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import GerarBoletosReceita from '@/components/financeiro/GerarBoletosReceita'
 import { encargosDoTitulo, semTaxaCadastrada, type TaxaAtraso } from '@/lib/financeiro/jurosMultaAtraso'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
+import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DECF', MUT = 'rgba(61,35,20,0.55)', VERDE = '#2E8B57', VERM = '#A32D2D', AMBAR = '#C88A1A'
 const brl = (n: number) => (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -186,7 +188,7 @@ function Criar({ companyId }: { companyId: string }) {
   const totalConsolidado = round2(totalOrigem + totalJuros + totalMulta)
   const motivoAuto = totalJuros + totalMulta > 0 ? `Juros de mora R$ ${fmtNum(totalJuros)} + multa R$ ${fmtNum(totalMulta)} de atraso` : ''
   const motivoEfetivo = motivo.trim() || motivoAuto
-  const totalGerado = useMemo(() => boletos.reduce((s, b) => s + (parseFloat((b.valor || '0').replace(',', '.')) || 0), 0), [boletos])
+  const totalGerado = useMemo(() => boletos.reduce((s, b) => s + (moedaParaNumero(b.valor) ?? 0), 0), [boletos])
   const ajuste = round2(totalGerado - totalOrigem)
   const qtdBoleto = useMemo(() => boletos.filter((b) => b.forma_pagamento === 'boleto').length, [boletos])
   // Datas fora de ordem (espelha a guarda do backend #105 PR1 — feedback local, sem esperar o erro).
@@ -202,7 +204,7 @@ function Criar({ companyId }: { companyId: string }) {
   function gerarParcelas() {
     const n = Math.max(1, Math.min(60, parseInt(qtd) || 1))
     const vals = distribuir(totalConsolidado, n)
-    setBoletos(vals.map((v, i) => ({ valor: v.toFixed(2).replace('.', ','), data_vencimento: maisMeses(i + 1), forma_pagamento: formaPadrao })))
+    setBoletos(vals.map((v, i) => ({ valor: numeroParaMoeda(v), data_vencimento: maisMeses(i + 1), forma_pagamento: formaPadrao })))
   }
   function setBoleto(i: number, patch: Partial<Boleto>) {
     setBoletos((bs) => bs.map((x, j) => (j === i ? { ...x, ...patch } : x)))
@@ -214,7 +216,7 @@ function Criar({ companyId }: { companyId: string }) {
       const { data, error } = await supabase.rpc('fn_renegociacao_criar', {
         p_company: companyId, p_cliente: clienteId || null, p_conta: contaId || null,
         p_origem_ids: [...sel],
-        p_boletos: boletos.map((b) => ({ valor: parseFloat((b.valor || '0').replace(',', '.')) || 0, data_vencimento: b.data_vencimento, forma_pagamento: b.forma_pagamento })),
+        p_boletos: boletos.map((b) => ({ valor: moedaParaNumero(b.valor) ?? 0, data_vencimento: b.data_vencimento, forma_pagamento: b.forma_pagamento })),
         p_observacao: motivoEfetivo || null,
       })
       if (error) throw error
@@ -368,7 +370,7 @@ function Criar({ companyId }: { companyId: string }) {
 
             {boletos.map((b, i) => (
               <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'end' }}>
-                <Campo rotulo="Valor (R$)" ajuda="financeiro.renegociacao.parcela_valor"><input value={b.valor} onChange={(e) => setBoleto(i, { valor: e.target.value })} inputMode="decimal" style={inp} /></Campo>
+                <Campo rotulo="Valor (R$)" ajuda="financeiro.renegociacao.parcela_valor"><CampoMoeda value={b.valor} onChange={(m) => setBoleto(i, { valor: m })} style={inp} /></Campo>
                 <Campo rotulo="Vencimento" ajuda="financeiro.renegociacao.parcela_vencimento"><input type="date" value={b.data_vencimento} onChange={(e) => setBoleto(i, { data_vencimento: e.target.value })} style={inp} /></Campo>
                 <Campo rotulo="Forma" ajuda="financeiro.renegociacao.parcela_forma">
                   <select value={b.forma_pagamento} onChange={(e) => setBoleto(i, { forma_pagamento: e.target.value })} style={inp}>
