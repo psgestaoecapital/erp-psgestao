@@ -76,3 +76,9 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'item_id', p_item_id);
 END;
 $function$;
+
+-- AJUSTES revisor (check_fn_guards · revoke_anon): CREATE OR REPLACE reseta a ACL; re-aplica o fecho
+-- padrão da vertical — REVOKE anon/PUBLIC + GRANT só a authenticated/service_role (ACL viva: authenticated=X,
+-- service_role=X; sem anon). Sem este bloco o CREATE OR REPLACE tiraria o EXECUTE de authenticated e quebraria a tela.
+REVOKE ALL ON FUNCTION public.fn_projetos_orcamento_item_eap_excluir(uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_projetos_orcamento_item_eap_excluir(uuid, uuid) TO authenticated, service_role;
