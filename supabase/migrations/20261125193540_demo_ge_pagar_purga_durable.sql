@@ -133,6 +133,7 @@ GRANT EXECUTE ON FUNCTION public.fn_demo_ge_pagar_purgar_lixo_teste(uuid) TO ser
 
 -- ── Auto-cura: fn_demo_seed_ge_financeiro chama o purge de /pagar logo após o de /receber (superset puro do corpo vivo) ──
 -- Base: a definição da 20261124051740 (receber purga durável) + 1 linha PERFORM do purge de /pagar. Idêntica em tudo o mais.
+-- ci-sem-guarda: fn_demo_seed_ge_financeiro — seed de DEMO: guarda por p_company<>v_bot (só a DEMO GE), só service_role.
 CREATE OR REPLACE FUNCTION public.fn_demo_seed_ge_financeiro(p_company uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
