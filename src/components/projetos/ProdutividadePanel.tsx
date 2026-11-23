@@ -10,6 +10,7 @@ import { Gauge, Loader2, CheckCircle2, AlertTriangle, Plus, Trash2 } from "lucid
 import { supabaseBrowser } from "@/lib/authFetch";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { erroAmigavel } from "@/lib/erroAmigavel";
+import { parseNumBR } from "@/lib/num";
 
 type Linha = { id: string; nome: string };
 type Produto = {
@@ -108,7 +109,7 @@ export default function ProdutividadePanel({ companyId }: { companyId: string })
     const { data, error } = await supabase.rpc("fn_servico_criar", {
       p_company_id: companyId, p_nome: novo.nome.trim(), p_unidade: novo.unidade || "m2",
       p_categoria: novo.categoria || null, p_business_line_id: novo.business_line_id || null,
-      p_produtividade: novo.produtividade ? Number(novo.produtividade.replace(",", ".")) : null,
+      p_produtividade: parseNumBR(novo.produtividade), // parseNumBR: aceita vírgula decimal e ponto de milhar (pt-BR)
       p_equipe: novo.equipe || null,
     });
     setCriando(false);

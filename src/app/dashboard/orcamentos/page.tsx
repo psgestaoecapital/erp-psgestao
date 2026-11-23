@@ -75,7 +75,7 @@ type FlutuacaoItem = {
   variacao_valor:number; variacao_pct:number|null; subiu:boolean;
 };
 
-const CONDS = ['À vista','7 dias','14 dias','21 dias','30 dias','30/60 dias','30/60/90 dias','45 dias','60 dias','90 dias'];
+const CONDS = ['À vista','7 dias','14 dias','21 dias','30 dias','30/60 dias','30/60/90 dias','45 dias','60 dias','90 dias','120 dias','150 dias','180 dias'];
 const FORMAS = ['PIX','Boleto','Transferência','Cartão Crédito','Cartão Débito','Dinheiro','Cheque','Múltiplas'];
 const FRETES = ['CIF (por conta do fornecedor)','FOB (por conta do cliente)','Retira','Incluso no valor','Combinar'];
 

@@ -17,6 +17,7 @@ import { supabase } from '@/lib/supabase'
 import { useCompanyIds } from '@/lib/useCompanyIds'
 import { erroAmigavel } from '@/lib/erroAmigavel'
 import { moedaMascara, moedaParaNumero } from '@/lib/moeda-mascara'
+import { CampoMoeda } from '@/components/comum/CampoMoeda'
 import { CampoPercent } from '@/lib/ui/CampoPercent'
 import ProdutoAutocomplete, { type ProdutoSelecionado } from '@/components/comum/ProdutoAutocomplete'
 import {
@@ -1548,7 +1549,7 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
 
   const totalCalc = useMemo(() => itens.reduce((s, it) => {
     const q = Number(it.quantidade.replace(',', '.')) || 0
-    const p = Number(it.preco.replace(',', '.')) || 0
+    const p = (moedaParaNumero(it.preco) ?? 0)
     return s + q * p
   }, 0), [itens])
 
@@ -1558,7 +1559,7 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
     if (itens.length === 0) { setErroLocal('Adicione pelo menos um item.'); return }
     for (const it of itens) {
       const q = Number(it.quantidade.replace(',', '.')) || 0
-      const p = Number(it.preco.replace(',', '.')) || 0
+      const p = (moedaParaNumero(it.preco) ?? 0)
       if (q <= 0) { setErroLocal(`Quantidade inválida em ${it.nome}.`); return }
       if (p < 0) { setErroLocal(`Preço inválido em ${it.nome}.`); return }
     }
@@ -1577,14 +1578,14 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
         nf_numero: nfNumero.trim() || null,
         nf_chave: nfChave.trim() || null,
         nf_data_emissao: nfData || null,
-        nf_valor: nfValor.trim() ? Number(nfValor.replace(',', '.')) : null,
+        nf_valor: nfValor.trim() ? moedaParaNumero(nfValor) : null,
         observacoes: observacoes.trim() || null,
       }).select('id').single()
       if (e1 || !compraRow) throw new Error(e1?.message ?? 'Falha ao criar compra')
 
       const linhas = itens.map((it, i) => {
         const q = Number(it.quantidade.replace(',', '.')) || 0
-        const p = Number(it.preco.replace(',', '.')) || 0
+        const p = (moedaParaNumero(it.preco) ?? 0)
         return {
           company_id: companyId, compra_id: compraRow.id, ordem: i + 1,
           produto_id: it.produto_id, produto_codigo: it.codigo, produto_nome: it.nome,
@@ -1666,7 +1667,7 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
                 <tbody>
                   {itens.map((it) => {
                     const q = Number(it.quantidade.replace(',', '.')) || 0
-                    const p = Number(it.preco.replace(',', '.')) || 0
+                    const p = (moedaParaNumero(it.preco) ?? 0)
                     return (
                       <tr key={it.tempId} style={{ borderTop: `1px solid ${C.borderL}` }}>
                         <Td>
@@ -1679,8 +1680,9 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
                           <span style={{ fontSize: 10, color: C.espressoM, marginLeft: 4 }}>{it.unidade}</span>
                         </Td>
                         <Td data-ajuda="commerce.compras.compra_item_preco">
-                          <input value={it.preco} onChange={(e) => alterarItem(it.tempId, 'preco', e.target.value)} placeholder="0,00"
-                            style={{ width: 80, padding: 4, border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 11 }} />
+                          <CampoMoeda value={it.preco} onChange={(v) => alterarItem(it.tempId, 'preco', v)} placeholder="R$ 0,00"
+                            testId="commerce-compras-item-preco"
+                            style={{ width: 90, padding: 4, border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 11 }} />
                         </Td>
                         <Td align="right"><strong>{fmtBRL(q * p)}</strong></Td>
                         <Td align="right">
@@ -1735,7 +1737,8 @@ function ModalNovaCompra({ companyId, onClose, onCreated, flash, flashErr }: Nov
                   style={{ width: '100%', marginTop: 4, padding: 8, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, fontFamily: 'monospace' }} />
               </label>
               <label style={{ fontSize: 11, color: C.espressoM }}>Valor NF <AjudaCampo chave="commerce.compras.nf_valor" rota={ROTA_AJUDA} />
-                <input value={nfValor} onChange={(e) => setNfValor(e.target.value)} placeholder="0,00"
+                <CampoMoeda value={nfValor} onChange={setNfValor} placeholder="R$ 0,00"
+                  testId="commerce-compras-nf-valor"
                   style={{ width: '100%', marginTop: 4, padding: 8, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12 }} />
               </label>
             </div>

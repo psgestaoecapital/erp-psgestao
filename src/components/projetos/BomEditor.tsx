@@ -10,6 +10,7 @@ import { supabaseBrowser } from "@/lib/authFetch";
 import { SeletorItemModal, type ItemEscolhido, type TipoItem } from "./SeletorItemModal";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { erroAmigavel } from "@/lib/erroAmigavel";
+import { parseNumBR } from "@/lib/num";
 
 // RD-95: o "?" lê os textos da ficha do serviço (rota dinâmica → rota fixa em erp_ajuda_campo)
 const ROTA_AJUDA_SERVICO = "/dashboard/projetos/catalogo/[id]";
@@ -63,9 +64,8 @@ function fmtBRL(v: number | null) {
 }
 
 function parseNumero(s: string): number | null {
-  if (!s.trim()) return null;
-  const n = parseFloat(s.replace(",", "."));
-  return Number.isFinite(n) ? n : null;
+  // parseNumBR: aceita vírgula decimal e ponto de milhar (pt-BR).
+  return parseNumBR(s);
 }
 
 export function BomEditor({ servicoId, companyId, bom, onChange }: Props) {
