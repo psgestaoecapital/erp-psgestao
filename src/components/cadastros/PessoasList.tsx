@@ -39,7 +39,8 @@ export default function PessoasList({ companyId, tipo }: Props) {
     // Colunas comerciais só existem em erp_clientes (editadas no PessoaForm — RD-98). Fornecedor não as tem.
     (tabela === 'erp_clientes'
       ? ', codigo_ibge_municipio, codigo, limite_credito, condicao_pagamento_padrao, prazo_medio_dias, segmento, regime_tributario, origem, vendedor_nome, observacoes'
-      : '')
+      // Dados bancários para pagamento só existem em erp_fornecedores (editados no PessoaForm — RD-98).
+      : ', banco, agencia, conta, pix')
 
   const [pessoas, setPessoas] = useState<Pessoa[]>([])
   const [total, setTotal] = useState(0)
