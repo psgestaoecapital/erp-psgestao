@@ -595,10 +595,11 @@ export default function PatioKanbanPage() {
                 <div style={{ fontSize: 13, color: C.espresso, background: '#FEF3C7', border: '1px solid #C8941A', borderRadius: 8, padding: '10px 12px', marginBottom: 10 }}>
                   {removerBloqueio}
                 </div>
-                <div style={{ fontSize: 12, color: C.espressoM, marginBottom: 6 }}>Se quiser mesmo tirar do pátio, você pode <b>cancelar a OS</b> (mantém o histórico financeiro). Informe o motivo:</div>
-                <AjudaCampo chave="oficina.patio.remover_motivo" />
-                <textarea value={removerMotivo} onChange={(e) => setRemoverMotivo(e.target.value)} rows={2}
-                  placeholder="Ex.: cliente desistiu do serviço" style={{ width: '100%', border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: C.espresso, boxSizing: 'border-box', fontFamily: 'inherit', resize: 'vertical' }} />
+                <label style={{ display: 'block' }}>
+                  <span style={{ display: 'block', fontSize: 12, color: C.espressoM, marginBottom: 6 }}>Se quiser mesmo tirar do pátio, você pode <b>cancelar a OS</b> (mantém o histórico financeiro). Informe o motivo: <AjudaCampo chave="oficina.patio.remover_motivo" /></span>
+                  <textarea value={removerMotivo} onChange={(e) => setRemoverMotivo(e.target.value)} rows={2}
+                    placeholder="Ex.: cliente desistiu do serviço" style={{ width: '100%', border: `1px solid ${C.border}`, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: C.espresso, boxSizing: 'border-box', fontFamily: 'inherit', resize: 'vertical' }} />
+                </label>
                 <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                   <button onClick={() => { setRemoverOs(null); setRemoverBloqueio(null) }} disabled={removendo}
                     style={{ padding: '10px 14px', borderRadius: 10, border: `1px solid ${C.border}`, background: C.white, color: C.espresso, cursor: 'pointer', fontWeight: 600 }}>Voltar</button>
