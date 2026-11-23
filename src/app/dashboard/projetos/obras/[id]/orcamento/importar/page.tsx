@@ -121,6 +121,10 @@ function mapearColunas(matriz: string[][]): { headerRow: number; col: Record<str
     quantidade: /qtd|quant/i,
     custo_material_unit: /material|mat\.?$|insumo/i,
     custo_mao_obra_unit: /m[aã]o.?de.?obra|m\.?o\.?|\bmo\b|servi[çc]o unit/i,
+    // §334: planilha "simples" (prestadora/pessoa física) traz UM valor por item, sem separar material × mão de obra.
+    // Casamos "Preço/Valor/Custo Unitário", "P. Unit.", "V. Unit", "Vlr Unit", "Unitário". Só é usado quando NÃO há
+    // coluna de material NEM de mão de obra (ver `modoValorUnico`), para não atrapalhar a planilha detalhada.
+    preco_unit: /(pre[çc]o|valor|vlr|custo|p|v)\.?\s*unit|unit[aá]ri/i,
     local_tipo: /local|pavimento|ambiente|zona/i,
   }
   for (let r = 0; r < Math.min(matriz.length, 15); r++) {
@@ -169,6 +173,8 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
   // §334: linhas de ESTRUTURA (agrupador/título) da EAP — têm código, mas sem unidade, sem quantidade e sem custo
   // (ex.: "1 SERVIÇOS PRELIMINARES"). Não são item do orçamento: não entram e NÃO contam como "linha com erro".
   const [agrupadoresEstrutura, setAgrupadoresEstrutura] = useState(0)
+  // §334: planilha trouxe um único valor por item (sem separar material × mão de obra) — usado como custo do item.
+  const [valorUnicoAviso, setValorUnicoAviso] = useState(false)
   // §334: qual aba da planilha foi usada, quando o arquivo tem mais de uma (a EAP pode não estar na 1ª aba).
   const [abaImportada, setAbaImportada] = useState<{ nome: string; total: number } | null>(null)
   // §334 conferência do total: soma importada (Σ qtd × (material + mão de obra)) × total declarado na planilha.
@@ -221,6 +227,10 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
       if (!mapa) { setAviso(''); setErro('Não reconheci as colunas da planilha. Confira se há colunas de código, descrição e quantidade.'); return }
       const { headerRow, col } = mapa
       const pega = (linha: string[], chave: string) => (col[chave] === undefined ? '' : String(linha[col[chave]] ?? '').trim())
+      // §334: planilha "simples" (prestadora/pessoa física) — tem UM valor por item (coluna de preço/valor unitário) e
+      // NÃO separa material × mão de obra. Nesse caso o valor unitário vira o custo do item (entra em "material" para
+      // somar no total e na árvore; a mão de obra fica vazia). Só vale quando NÃO há coluna de material NEM de MO.
+      const modoValorUnico = col.custo_material_unit === undefined && col.custo_mao_obra_unit === undefined && col.preco_unit !== undefined
       // Origem do range da planilha: matriz[r][c] corresponde à célula (range.s.r + r, range.s.c + c).
       const range = XLSX.utils.decode_range(ws['!ref'] ?? 'A1')
       // A célula do código veio como NÚMERO? (tipo 'n' no SheetJS). Guarda índice base 0 da linha em `lin`.
@@ -238,8 +248,10 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
         const unidadeOrig = pega(row, 'unidade')
         const unidadeNorm = normalizarUnidade(unidadeOrig)
         const qtd = numCanonico(pega(row, 'quantidade'))
-        const mat = numCanonico(pega(row, 'custo_material_unit'))
-        const mo = numCanonico(pega(row, 'custo_mao_obra_unit'))
+        let mat = numCanonico(pega(row, 'custo_material_unit'))
+        let mo = numCanonico(pega(row, 'custo_mao_obra_unit'))
+        // §334: planilha de valor único — o preço/valor unitário vira o custo do item (sem separar material × MO).
+        if (modoValorUnico) { mat = numCanonico(pega(row, 'preco_unit')); mo = '' }
         // §334: linha COM unidade = item; linha SEM unidade (e sem quantidade e sem custo) = AGRUPADOR/título da
         // estrutura (ex.: "1 SERVIÇOS PRELIMINARES"). Agrupador não é item do orçamento e não deve contar como
         // "linha com erro" (antes a validação devolvia "unidade vazia"). Conservador: só é agrupador quando tem
@@ -274,6 +286,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
       setLinhasIgnoradas(ignoradas)
       setUnidadesNormalizadas(normalizadas)
       setAgrupadoresEstrutura(agrupadores)
+      setValorUnicoAviso(modoValorUnico)
       setAbaImportada(wb.SheetNames.length > 1 ? { nome: abaUsada, total: wb.SheetNames.length } : null)
       // §334 conferência: soma importada = Σ qtd × (material + mão de obra) de todas as linhas lidas.
       const somaImportada = lin.reduce((acc, l) => acc + numBR(l.quantidade) * (numBR(l.custo_material_unit) + numBR(l.custo_mao_obra_unit)), 0)
@@ -301,7 +314,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
     setPasso('resultado')
   }
 
-  const recomecar = () => { setPasso('upload'); setLinhas([]); setValidadas([]); setResumo(null); setResultado(null); setHash(''); setArquivoNome(''); setErro(null); setAviso(''); setCodigosNumericos(new Set()); setCienteNumerico(false); setCodigosRepetidos([]); setLinhasIgnoradas(0); setUnidadesNormalizadas(0); setAgrupadoresEstrutura(0); setAbaImportada(null); setTotalImportado(0); setTotalPlanilha(null) }
+  const recomecar = () => { setPasso('upload'); setLinhas([]); setValidadas([]); setResumo(null); setResultado(null); setHash(''); setArquivoNome(''); setErro(null); setAviso(''); setCodigosNumericos(new Set()); setCienteNumerico(false); setCodigosRepetidos([]); setLinhasIgnoradas(0); setUnidadesNormalizadas(0); setAgrupadoresEstrutura(0); setValorUnicoAviso(false); setAbaImportada(null); setTotalImportado(0); setTotalPlanilha(null) }
 
   // diferença entre a soma importada e o total declarado na planilha; "confere" quando ≤ 1 centavo.
   const difTotal = totalPlanilha === null ? null : Math.round((totalImportado - totalPlanilha) * 100) / 100
@@ -386,6 +399,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
               {linhasIgnoradas > 0 && <span data-testid="eap-importar-ignoradas" title="Linhas sem código e sem descrição (títulos/agrupadores) — não entram no orçamento" style={{ fontSize: 13, color: MUT, fontWeight: 700 }}>{linhasIgnoradas} linha(s) ignorada(s)</span>}
               {unidadesNormalizadas > 0 && <span data-testid="eap-importar-unidades-normalizadas" title="Unidades padronizadas para a grafia do orçamento (ex.: UND→un, M2→m², peça→pç, hr→h)" style={{ fontSize: 13, color: VERDE, fontWeight: 700 }}>{unidadesNormalizadas} unidade(s) padronizada(s)</span>}
               {agrupadoresEstrutura > 0 && <span data-testid="eap-importar-agrupadores" title="Linhas de estrutura da EAP (têm código mas sem unidade/quantidade/custo, ex.: “1 SERVIÇOS PRELIMINARES”). São título/agrupador, não item — não entram no orçamento nem contam como erro." style={{ fontSize: 13, color: MUT, fontWeight: 700 }}>{agrupadoresEstrutura} linha(s) de estrutura</span>}
+              {valorUnicoAviso && <span data-testid="eap-importar-valor-unico" title="A planilha tem um único valor por item (não separa material e mão de obra). Usamos esse valor como o custo unitário do item — você pode separar material × mão de obra depois, na tela do orçamento." style={{ fontSize: 13, color: GOLD, fontWeight: 700 }}>valor único por item</span>}
               <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
                 <button type="button" data-testid="eap-importar-recomecar" onClick={recomecar} disabled={busy} style={{ background: '#fff', color: ESP, border: `1px solid ${LINE}`, borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Trocar arquivo</button>
                 <button type="button" data-testid="eap-importar-confirmar" onClick={() => void confirmar()} disabled={busy || resumo.validos === 0 || (codigosNumericos.size > 0 && !cienteNumerico)} style={{ background: ESP, color: BG, border: 'none', borderRadius: 10, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: busy || resumo.validos === 0 || (codigosNumericos.size > 0 && !cienteNumerico) ? 'default' : 'pointer', opacity: busy || resumo.validos === 0 || (codigosNumericos.size > 0 && !cienteNumerico) ? 0.5 : 1 }}>Confirmar importação</button>
