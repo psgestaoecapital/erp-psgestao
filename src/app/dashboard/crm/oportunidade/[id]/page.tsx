@@ -12,6 +12,7 @@ import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 import { MessageCircle } from 'lucide-react'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
 import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
+import { parseNumBR } from '@/lib/num'
 import { C, Campo, Titulo, Cabecalho, Pagina, Aviso, Vazio, inp, btnPri, btnSec, chip, cartao, dataBR, horaBR, waHref, rpcCrm, useCrm,
   TIPOS_ATIVIDADE, TIPOS_TAREFA, IconeTipo, type CampoCustom } from '@/components/crm/crmUi'
 
@@ -86,7 +87,7 @@ export default function FichaNegocioPage() {
       await rpcCrm('fn_crm_oportunidade_mover', { p_id: id, p_etapa_id: et.id, p_motivo_perda_id: motivoId ?? null, p_motivo_texto: texto ?? null })
       setOk(et.tipo_etapa === 'ganho' ? `Negócio ganho!${cfg?.tem_ge ? ' A Gestão Empresarial foi avisada.' : ''}` : `Movido para ${et.rotulo}.`)
       setPerda(null); void carregar()
-    } catch (e) { setErro((e as Error).message) }
+    } catch (e) { setErro(erroAmigavel(e)) }
   }
 
   async function salvarDados() {
@@ -103,7 +104,7 @@ export default function FichaNegocioPage() {
       if (gestor) dados.responsavel_id = form.responsavel_id || null
       await rpcCrm('fn_crm_oportunidade_atualizar', { p_id: id, p_dados: dados })
       setOk('Dados salvos.'); void carregar()
-    } catch (e) { setErro((e as Error).message) }
+    } catch (e) { setErro(erroAmigavel(e)) }
   }
 
   async function registrarAtividade() {
@@ -111,7 +112,7 @@ export default function FichaNegocioPage() {
     try {
       await rpcCrm('fn_crm_interacao_registrar', { p_company_id: ficha.oportunidade.company_id, p_oportunidade_id: id, p_lead_id: null, p_tipo: ativTipo, p_descricao: ativTexto })
       setAtivTexto(''); setOk('Atividade registrada.'); void carregar()
-    } catch (e) { setErro((e as Error).message) }
+    } catch (e) { setErro(erroAmigavel(e)) }
   }
 
   async function agendar() {
@@ -120,12 +121,12 @@ export default function FichaNegocioPage() {
       await rpcCrm('fn_crm_tarefa_salvar', { p_company_id: ficha.oportunidade.company_id, p_dados: {
         oportunidade_id: id, tipo: tarTipo, titulo: tarTitulo, vence_em: tarData ? new Date(tarData).toISOString() : null } })
       setTarTitulo(''); setTarData(''); setOk('Próximo passo agendado.'); void carregar()
-    } catch (e) { setErro((e as Error).message) }
+    } catch (e) { setErro(erroAmigavel(e)) }
   }
 
   async function concluir(t: Tarefa) {
     try { await rpcCrm('fn_crm_tarefa_concluir', { p_id: t.id, p_concluida: !t.concluida_em }); void carregar() }
-    catch (e) { setErro((e as Error).message) }
+    catch (e) { setErro(erroAmigavel(e)) }
   }
 
   async function excluirNegocio() {
@@ -134,7 +135,7 @@ export default function FichaNegocioPage() {
     try {
       await rpcCrm('fn_crm_oportunidade_excluir', { p_company_id: ficha.oportunidade.company_id, p_id: id, p_motivo: null })
       router.push('/dashboard/crm/pipeline')
-    } catch (e) { setErro((e as Error).message); setExcluindo(false); setExcluir(false) }
+    } catch (e) { setErro(erroAmigavel(e)); setExcluindo(false); setExcluir(false) }
   }
 
   if (naoAchou) return <Pagina><Cabecalho titulo="Negócio" /><Vazio texto="Negócio não encontrado (ou foi excluído)." acao={<Link href="/dashboard/crm/pipeline" style={chip(C.ESPRESSO)}>Voltar ao funil</Link>} /></Pagina>
@@ -352,7 +353,7 @@ function CampoProprio({ campo, valor, onChange, bloqueado }: { campo: CampoCusto
         </select>
       ) : (
         <input style={inp} type={campo.tipo === 'data' ? 'date' : 'text'} inputMode={campo.tipo === 'numero' ? 'decimal' : undefined} value={v}
-          onChange={(e) => onChange(campo.tipo === 'numero' ? (e.target.value === '' ? null : Number(e.target.value.replace(',', '.')) || e.target.value) : e.target.value)} disabled={bloqueado} />
+          onChange={(e) => onChange(campo.tipo === 'numero' ? (e.target.value === '' ? null : (parseNumBR(e.target.value) ?? e.target.value)) : e.target.value)} disabled={bloqueado} />
       )}
     </Campo>
   )
