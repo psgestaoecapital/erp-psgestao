@@ -48,6 +48,10 @@ BEGIN
   );
 END; $function$;
 
+-- 2b) ACL explícita do leitor (check_fn_guards regra 1): SECURITY DEFINER recriada fecha anon/PUBLIC.
+REVOKE ALL ON FUNCTION public.fn_obra_ficha_ler(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_obra_ficha_ler(uuid) TO authenticated, service_role;
+
 -- 3) Gravador de identidade carrega os 3 campos novos (opcionais, default NULL para
 --    manter compatível as chamadas atuais de 6 argumentos). Substitui a versão de 6 args.
 DROP FUNCTION IF EXISTS public.fn_obra_ficha_identidade_salvar(uuid, text, text, text, numeric, numeric);
