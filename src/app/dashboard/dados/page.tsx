@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const C = { bg: '#0C0C0A', card: '#1A1410', card2: '#201C16', bd: '#2A2822', go: '#C8941A', gol: '#E8C872', tx: '#FAF7F2', txm: '#B0AB9F', txd: '#706C64', g: '#22C55E', r: '#EF4444', y: '#FBBF24', b: '#60A5FA', tl: '#2DD4BF', p: '#A855F7' }
 
@@ -102,7 +103,8 @@ export default function DadosPage() {
           <div style={{ fontSize: 11, color: C.txd }}>Escolha como importar os dados financeiros da empresa</div>
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          <select value={empresaSel} onChange={e => { setEmpresaSel(e.target.value); setLancs([]) }} style={{ background: C.card, border: '1px solid ' + C.bd, color: C.tx, padding: '8px 12px', borderRadius: 6, fontSize: 12 }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+          <select value={empresaSel} onChange={e => { setEmpresaSel(e.target.value); setLancs([]) }} style={{ background: C.card, border: '1px solid ' + C.bd, color: C.tx, padding: '8px 12px', borderRadius: 6, fontSize: 12 }} aria-label="Empresa">
             {grupos.map(g => {
               const emps = empresas.filter(c => c.group_id === g.id)
               if (emps.length === 0) return null
@@ -114,6 +116,8 @@ export default function DadosPage() {
               <option key={e.id} value={e.id}>{e.nome}</option>
             ))}
           </select>
+          <AjudaCampo chave="dados.empresa" />
+          </span>
           <a href="/dashboard" style={{ color: C.go, fontSize: 11, textDecoration: 'none', padding: '5px 10px', border: '1px solid ' + C.bd, borderRadius: 6 }}>Dashboard</a>
         </div>
       </div>
@@ -178,7 +182,10 @@ export default function DadosPage() {
       {tab === 'tabela' && (
         <>
           <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-            <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar por descricao, categoria ou fornecedor..." style={{ flex: 1, background: C.card, border: '1px solid ' + C.bd, color: C.tx, padding: '8px 12px', borderRadius: 6, fontSize: 12, outline: 'none' }} />
+            <span style={{ flex: 1, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar por descricao, categoria ou fornecedor..." style={{ flex: 1, background: C.card, border: '1px solid ' + C.bd, color: C.tx, padding: '8px 12px', borderRadius: 6, fontSize: 12, outline: 'none' }} aria-label="Buscar lançamentos" />
+            <AjudaCampo chave="dados.busca" />
+            </span>
             <button onClick={loadData} style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: C.go, color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: 11 }}>{loading ? '...' : 'Atualizar'}</button>
           </div>
 

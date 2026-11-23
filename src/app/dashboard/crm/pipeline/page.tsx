@@ -58,7 +58,7 @@ export default function PipelinePage() {
       await rpcCrm('fn_crm_oportunidade_mover', { p_id: card.id, p_etapa_id: etapaId, p_motivo_perda_id: motivoId ?? null, p_motivo_texto: texto ?? null })
       setOk(et.tipo_etapa === 'ganho' ? `"${card.titulo}" ganho!${cfg?.tem_ge ? ' A Gestão Empresarial foi avisada.' : ''}` : null)
       setPerda(null)
-    } catch (e) { setErro((e as Error).message) }
+    } catch (e) { setErro(erroAmigavel(e)) }
     void carregar()
   }
 
