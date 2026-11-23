@@ -4,18 +4,23 @@
 --
 -- As colunas de endereço (endereco, bairro, cidade, uf, cep) JÁ EXISTEM em projetos_obras, mas a
 -- ficha da obra não lê nem grava endereço — só identidade predial. Esta migration fecha o gap:
---   1) fn_obra_ficha_ler passa a devolver endereco/bairro/cidade/uf/cep (adição ao JSON; lógica intacta);
+--   1) leitor PRÓPRIO fn_obra_ficha_endereco_ler (endereco/bairro/cidade/uf/cep), guardado por empresa;
 --   2) nova fn_obra_ficha_endereco_salvar (guardada por empresa, audit_log, normaliza UF/CEP);
 --   3) textos de ajuda (RD-95) das 5 entradas + do botão salvar.
+--
+-- COLLISION-FREE (AJUSTES do revisor em #5751, padrão da #5773): NÃO recria fn_obra_ficha_ler.
+-- As fatias #5962 (pavimentos/blocos/unidades) e esta rodam CREATE OR REPLACE na mesma função leitora,
+-- e a ordem de merge não é determinística — o último sobrescreveria os campos do outro. Por isso o
+-- endereço ganha leitor próprio, e a tela lê os dois (identidade via fn_obra_ficha_ler + endereço aqui).
 --
 -- Não toca RLS, grants de tabela, nem dado de cliente (só a obra aberta pelo usuário, na empresa dele).
 -- Prova RD-38 (BEGIN..ROLLBACK, obra DEMO-OB-002, endereco era NULL):
 --   salvar('Av. Getúlio Vargas, 1200','Centro','Chapecó','sc','89.812-000') -> ok
---   ler -> endereco='Av. Getúlio Vargas, 1200', uf='SC', cep='89812000' (normalizados)
+--   endereco_ler -> endereco='Av. Getúlio Vargas, 1200', uf='SC', cep='89812000' (normalizados)
 --   UF inválida ('SCC') -> {ok:false, 'UF deve ter 2 letras'}; CEP != 8 díg -> erro amigável.
 
--- 1) Leitura: devolver os campos de endereço -------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.fn_obra_ficha_ler(p_obra_id uuid)
+-- 1) Leitura PRÓPRIA do endereço (não toca fn_obra_ficha_ler) --------------------------------------
+CREATE OR REPLACE FUNCTION public.fn_obra_ficha_endereco_ler(p_obra_id uuid)
  RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path TO 'public'
 AS $function$
 DECLARE v public.projetos_obras%ROWTYPE;
@@ -27,10 +32,7 @@ BEGIN
     RAISE EXCEPTION 'Sem acesso a esta empresa' USING ERRCODE = '42501';
   END IF;
   RETURN jsonb_build_object(
-    'ok', true, 'obra_id', v.id, 'numero', v.numero, 'nome', v.nome, 'cliente_nome', v.cliente_nome,
-    'tipo_execucao', v.tipo_execucao, 'modelo_contratacao', v.modelo_contratacao,
-    'matricula', v.matricula, 'inscricao_imobiliaria', v.inscricao_imobiliaria, 'tipo_edificacao', v.tipo_edificacao,
-    'area_construida_m2', v.area_construida_m2, 'area_terreno_m2', v.area_terreno_m2,
+    'ok', true, 'obra_id', v.id,
     'endereco', v.endereco, 'bairro', v.bairro, 'cidade', v.cidade, 'uf', v.uf, 'cep', v.cep
   );
 END; $function$;
@@ -109,8 +111,8 @@ VALUES
 ON CONFLICT (chave) DO NOTHING;
 
 -- 4) ACL explícita (check_fn_guards regra 1): fecha anon/PUBLIC em toda função SECURITY DEFINER recriada ----
-REVOKE ALL ON FUNCTION public.fn_obra_ficha_ler(uuid) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.fn_obra_ficha_ler(uuid) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.fn_obra_ficha_endereco_ler(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_obra_ficha_endereco_ler(uuid) TO authenticated, service_role;
 
 REVOKE ALL ON FUNCTION public.fn_obra_ficha_endereco_salvar(uuid, text, text, text, text, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_obra_ficha_endereco_salvar(uuid, text, text, text, text, text) TO authenticated, service_role;

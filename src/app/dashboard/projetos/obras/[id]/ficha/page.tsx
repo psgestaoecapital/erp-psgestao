@@ -82,8 +82,13 @@ export default function FichaObraPage({ params }: { params: Promise<{ id: string
     setMatricula(j.matricula ?? ''); setInscricao(j.inscricao_imobiliaria ?? ''); setTipoEdif(j.tipo_edificacao ?? '')
     setAreaConstruida(j.area_construida_m2 != null ? String(j.area_construida_m2) : '')
     setAreaTerreno(j.area_terreno_m2 != null ? String(j.area_terreno_m2) : '')
-    setEndereco(j.endereco ?? ''); setBairro(j.bairro ?? ''); setCidade(j.cidade ?? '')
-    setUf(j.uf ?? ''); setCep(j.cep ?? '')
+    // Endereço vem de um leitor próprio (collision-free; fn_obra_ficha_ler não é tocado por esta fatia)
+    const { data: endData } = await supabase.rpc('fn_obra_ficha_endereco_ler', { p_obra_id: id })
+    const e = endData as Ficha | null
+    if (e && e.ok) {
+      setEndereco(e.endereco ?? ''); setBairro(e.bairro ?? ''); setCidade(e.cidade ?? '')
+      setUf(e.uf ?? ''); setCep(e.cep ?? '')
+    }
   }, [id])
   useEffect(() => { void carregar() }, [carregar]) // eslint-disable-line react-hooks/set-state-in-effect
 
