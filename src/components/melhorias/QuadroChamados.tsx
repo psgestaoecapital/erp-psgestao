@@ -53,6 +53,10 @@ type Props = {
   // assumir); transição não suportada é tratada com um aviso pela própria página. Arrastar NUNCA envia mensagem ao
   // cliente — a ação é a troca de status/atendente, registrada no histórico.
   onMover?: (card: ItemQuadro, de: ColunaKanban, para: ColunaKanban) => void
+  // #7050 fatia2 (step 4) · ids dos chamados cuja ÚLTIMA mensagem é do AUTOR (ele respondeu e espera retorno).
+  // Na fila do operador, o cartão na coluna "Em andamento" ganha o destaque "✉️ Autor respondeu" — o mesmo sinal
+  // que a Lista já mostra (#6930), agora também no Quadro para o atendente não perder a vez.
+  autorRespondeu?: Set<string>
 }
 
 const COLUNAS: ColunaKanban[] = ['pendentes', 'andamento', 'aguardando', 'finalizados']
@@ -63,7 +67,7 @@ const seloFinalDe = (c: ItemQuadro): string | null =>
 
 // ── Cartão (componente de módulo: tipo estável, não remonta durante o arraste) ───────────────────────────────────
 function Cartao({
-  c, mostrarStatus, selo, avisoAutorizacao, col, arrastavel, emArraste, onAbrir, rotuloStatus, onDragStartCard, onDragEndCard, onAssumir,
+  c, mostrarStatus, selo, avisoAutorizacao, autorRespondeu, col, arrastavel, emArraste, onAbrir, rotuloStatus, onDragStartCard, onDragEndCard, onAssumir,
 }: {
   c: ItemQuadro
   mostrarStatus: boolean
@@ -71,6 +75,8 @@ function Cartao({
   // #7050: chamado entregue com resposta ainda não enviada/autorizada ao autor — aviso ao operador.
   avisoAutorizacao?: boolean
   col?: ColunaKanban
+  // #7050 fatia2 (step 4) · o autor mandou a última mensagem (respondeu) — destaque na coluna "Em andamento".
+  autorRespondeu?: boolean
   arrastavel: boolean
   emArraste: boolean
   onAbrir: (numero: number, arquivada: boolean) => void
@@ -107,8 +113,14 @@ function Cartao({
           </button>
         </div>
       </div>
-      {(mostrarStatus || selo || self || avisoAutorizacao) && (
+      {(mostrarStatus || selo || self || avisoAutorizacao || autorRespondeu) && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {autorRespondeu && (
+            <span data-testid={`kanban-autor-respondeu-${c.numero}`} title="O autor mandou uma mensagem nova — responda na conversa do chamado."
+              style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: '#ECFDF5', color: '#166534', fontWeight: 800 }}>
+              ✉️ Autor respondeu
+            </span>
+          )}
           {avisoAutorizacao && (
             <span data-testid="kanban-aviso-autorizacao" title="O chamado foi entregue, mas a resposta ao usuário ainda não foi enviada. Abra o chamado para revisar e autorizar o envio."
               style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 999, background: C.amberBg, color: C.amber, fontWeight: 700 }}>
@@ -168,7 +180,7 @@ function Coluna({
   )
 }
 
-export default function QuadroChamados({ itens, meuId, busca, onBusca, filtro, onFiltro, rotuloStatus, onAbrir, modo = 'usuario', onMover }: Props) {
+export default function QuadroChamados({ itens, meuId, busca, onBusca, filtro, onFiltro, rotuloStatus, onAbrir, modo = 'usuario', onMover, autorRespondeu }: Props) {
   // Origem do arraste num ref (não dispara render → não remonta o cartão a meio do drag); `sobre` destaca o alvo.
   const origem = useRef<{ id: string; de: ColunaKanban } | null>(null)
   const [arrastandoId, setArrastandoId] = useState<string | null>(null)
@@ -217,6 +229,7 @@ export default function QuadroChamados({ itens, meuId, busca, onBusca, filtro, o
   const card = (c: ItemQuadro, mostrarStatus: boolean, col?: ColunaKanban, selo?: 'sem_dono') => (
     <Cartao key={c.id} c={c} mostrarStatus={mostrarStatus} selo={selo} col={col}
       avisoAutorizacao={modo === 'operador' && col === 'andamento' && aguardaAutorizacao(c)}
+      autorRespondeu={modo === 'operador' && col === 'andamento' && !!autorRespondeu?.has(c.id)}
       arrastavel={podeArrastar && !!col} emArraste={arrastandoId === c.id}
       onAbrir={onAbrir} rotuloStatus={rotuloStatus}
       onDragStartCard={onDragStartCard} onDragEndCard={onDragEndCard}
