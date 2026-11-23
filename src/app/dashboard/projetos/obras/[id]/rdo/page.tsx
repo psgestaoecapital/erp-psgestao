@@ -27,7 +27,17 @@ const dataBR = (d: string | null) => (d ? d.split('-').reverse().join('/') : '')
 const BUCKET = 'projetos-plantas'
 const OS_LANCAVEL = (s: string) => s === 'aberta' || s === 'em_execucao'
 
-type Obra = { company_id: string; numero: string | null; nome: string | null; cliente_nome: string | null; cidade: string | null }
+type Obra = {
+  company_id: string; numero: string | null; nome: string | null; cliente_nome: string | null; cidade: string | null
+  endereco: string | null; numero_endereco: string | null; bairro: string | null; uf: string | null; cep: string | null
+  responsavel_nome: string | null; art: string | null; cno: string | null
+}
+// Cabeçalho legal do Livro de Ordem (CONFEA 1.094/2017): endereço completo da obra + responsável técnico + ART/CNO.
+const enderecoObra = (o: Obra): string => {
+  const linha1 = [o.endereco, o.numero_endereco].filter((p) => p && String(p).trim()).join(', ')
+  const partes = [linha1, o.bairro, [o.cidade, o.uf].filter(Boolean).join('/'), o.cep && `CEP ${o.cep}`]
+  return partes.filter((p) => p && String(p).trim()).join(' · ')
+}
 type Os = { id: string; numero: string | null; descricao: string | null; status: string }
 type Rdo = {
   id: string; os_id: string; data: string; clima: Clima; praticavel: boolean; efetivo: number
@@ -43,6 +53,8 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
   const [loading, setLoading] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [filtroOs, setFiltroOs] = useState('')
+  const [busca, setBusca] = useState('')       // palavra-chave (atividades/ocorrências/clima)
+  const [buscaData, setBuscaData] = useState('') // dia específico
   const [editando, setEditando] = useState<string | null>(null) // id do RDO em edição, 'novo' para incluir, ou null
   const [fr, setFr] = useState({ ...VAZIO })
   const [novasFotos, setNovasFotos] = useState<File[]>([])
@@ -55,7 +67,7 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
     let carregou = false
     try {
       const [o, os, rd] = await comPrazo(async () => await Promise.all([
-        supabase.from('projetos_obras').select('company_id,numero,nome,cliente_nome,cidade').eq('id', id).maybeSingle(),
+        supabase.from('projetos_obras').select('company_id,numero,nome,cliente_nome,cidade,endereco,numero_endereco,bairro,uf,cep,responsavel_nome,art,cno').eq('id', id).maybeSingle(),
         supabase.from('projetos_obra_os').select('id,numero,descricao,status').eq('obra_id', id).is('excluido_em', null).order('numero', { ascending: true }),
         supabase.from('projetos_obra_rdo').select('id,os_id,data,clima,praticavel,efetivo,atividades,ocorrencias,quantidade_executada,fotos,criado_em')
           .eq('obra_id', id).is('excluido_em', null).order('data', { ascending: false }).order('criado_em', { ascending: false }),
@@ -81,8 +93,22 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
 
   const osMap = useMemo(() => new Map(oss.map((o) => [o.id, o])), [oss])
   const osLancaveis = useMemo(() => oss.filter((o) => OS_LANCAVEL(o.status)), [oss])
-  const lista = useMemo(() => filtroOs ? rdos.filter((r) => r.os_id === filtroOs) : rdos, [rdos, filtroOs])
   const rotuloOs = (o: Os | undefined) => o ? `OS ${o.numero ?? '—'}${o.descricao ? ` · ${o.descricao}` : ''}` : 'OS removida'
+  const lista = useMemo(() => {
+    const termo = busca.trim().toLowerCase()
+    return rdos.filter((r) => {
+      if (filtroOs && r.os_id !== filtroOs) return false
+      if (buscaData && r.data !== buscaData) return false
+      if (termo) {
+        const o = osMap.get(r.os_id)
+        const alvo = `${r.atividades ?? ''} ${r.ocorrencias ?? ''} ${rotuloClima(r.clima)} OS ${o?.numero ?? ''} ${o?.descricao ?? ''}`.toLowerCase()
+        if (!alvo.includes(termo)) return false
+      }
+      return true
+    })
+  }, [rdos, filtroOs, busca, buscaData, osMap])
+  const filtrando = Boolean(filtroOs || busca.trim() || buscaData)
+  const limparBusca = () => { setFiltroOs(''); setBusca(''); setBuscaData('') }
 
   const abrirNovo = () => {
     setErro(null); setNovasFotos([])
@@ -162,14 +188,46 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
 
         {!loading && obra && (
           <>
+            {/* Cabeçalho legal do Livro de Ordem (CONFEA 1.094/2017): identificação completa da obra. */}
+            <div style={{ ...card, marginBottom: 14, display: 'grid', gap: 6 }} data-testid="obra-rdo-cabecalho-legal">
+              <div style={{ fontSize: 15, fontWeight: 700 }}>
+                Obra {obra.numero ?? '—'}{obra.nome ? ` · ${obra.nome}` : ''}
+              </div>
+              <div style={{ display: 'grid', gap: 4, fontSize: 13, color: MUT }}>
+                {obra.cliente_nome && <span><b style={{ color: ESP }}>Contratante:</b> {obra.cliente_nome}</span>}
+                {enderecoObra(obra) && <span><b style={{ color: ESP }}>Endereço da obra:</b> {enderecoObra(obra)}</span>}
+                {obra.responsavel_nome && <span><b style={{ color: ESP }}>Responsável técnico:</b> {obra.responsavel_nome}</span>}
+                {(obra.art || obra.cno) && (
+                  <span>
+                    {obra.art && <><b style={{ color: ESP }}>ART/RRT:</b> {obra.art}</>}
+                    {obra.art && obra.cno ? '  ·  ' : ''}
+                    {obra.cno && <><b style={{ color: ESP }}>CNO:</b> {obra.cno}</>}
+                  </span>
+                )}
+                {!obra.cliente_nome && !enderecoObra(obra) && !obra.responsavel_nome && !obra.art && !obra.cno && (
+                  <span>Complete o endereço, o responsável técnico e a ART/CNO na ficha da obra para o cabeçalho legal do diário.</span>
+                )}
+              </div>
+            </div>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'end', marginBottom: 14 }}>
-              <label style={{ ...lab, flex: '1 1 220px' }}>
+              <label style={{ ...lab, flex: '2 1 240px' }}>
+                <span style={rot}>Buscar no diário <AjudaCampo chave="projetos.obra_rdo.busca" rota={ROTA} /></span>
+                <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Serviço, ocorrência, palavra-chave…" style={inp} data-testid="obra-rdo-busca" />
+              </label>
+              <label style={{ ...lab, flex: '1 1 150px' }}>
+                <span style={rot}>Dia <AjudaCampo chave="projetos.obra_rdo.busca_data" rota={ROTA} /></span>
+                <input type="date" value={buscaData} max={hoje()} onChange={(e) => setBuscaData(e.target.value)} style={inp} data-testid="obra-rdo-busca-data" />
+              </label>
+              <label style={{ ...lab, flex: '1 1 180px' }}>
                 <span style={rot}>Filtrar por OS <AjudaCampo chave="projetos.obra_rdo.filtro_os" rota={ROTA} /></span>
                 <select value={filtroOs} onChange={(e) => setFiltroOs(e.target.value)} style={inp} data-testid="obra-rdo-filtro-os">
                   <option value="">Todas as OS</option>
                   {oss.map((o) => <option key={o.id} value={o.id}>{rotuloOs(o)}</option>)}
                 </select>
               </label>
+              {filtrando && (
+                <button type="button" onClick={limparBusca} style={btn('#fff', ESP)} data-testid="obra-rdo-limpar-busca">Limpar</button>
+              )}
               <span style={rot}>
                 <button type="button" onClick={() => (editando === 'novo' ? fechar() : abrirNovo())} disabled={osLancaveis.length === 0}
                   style={btn(ESP, '#fff')} data-testid="obra-rdo-novo">
@@ -248,7 +306,7 @@ export default function RdoObraPage({ params }: { params: Promise<{ id: string }
               Histórico de diários <AjudaCampo chave="projetos.obra_rdo.historico" rota={ROTA} /> <span style={{ color: MUT, fontWeight: 400 }}>({lista.length})</span>
             </h2>
             {lista.length === 0
-              ? <p style={{ color: MUT, fontSize: 14 }}>Nenhum diário lançado{filtroOs ? ' para esta OS' : ''} ainda.</p>
+              ? <p style={{ color: MUT, fontSize: 14 }}>{filtrando ? 'Nenhum diário encontrado para a busca. Ajuste a palavra-chave, o dia ou a OS — ou toque em Limpar.' : 'Nenhum diário lançado ainda.'}</p>
               : <div style={{ display: 'grid', gap: 10 }}>
                   {lista.map((r) => {
                     const o = osMap.get(r.os_id)
