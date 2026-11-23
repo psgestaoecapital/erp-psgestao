@@ -34,6 +34,9 @@ DECLARE
   v_mov_rec uuid; v_mov_pag uuid; v_mov_cnab uuid;
   v_pi date := (date_trunc('month', CURRENT_DATE) - interval '30 days')::date;
   v_pf date := CURRENT_DATE;
+-- ci-sem-guarda: fn_demo_seed_ge_bancos — seed DEMO-only, service_role-only (REVOKE authenticated/anon),
+-- grava exclusivamente na empresa DEMO-GE fixa b0700000-…-004 após early-return abaixo (p_company <> v_bot).
+-- fn__guarda_empresa confere acesso do USUÁRIO corrente e não se aplica a seed de serviço do fn_demo_reset.
 BEGIN
   IF p_company <> v_bot THEN RETURN jsonb_build_object('ok', false, 'erro', 'so_empresa_demo_ge'); END IF;
 
