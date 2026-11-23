@@ -38,7 +38,7 @@ for (const [p, n] of [['src/app/dashboard/pm/pauta/page.tsx', 'Pauta'], ['src/ap
 
 // (4) Meus trabalhos e Painel
 const mt = ler('src/app/dashboard/pm/meus-trabalhos/page.tsx')
-ok(/data-testid="mt-vazio"/.test(mt) && /fn_pauta_contadores/.test(mt) && /ver na Pauta/.test(mt), 'Meus trabalhos: sem job seu, diz quantos a empresa tem e leva à Pauta')
+ok(/data-testid="mt-vazio"/.test(mt) && /fn_pauta_contadores/.test(mt) && /data-testid="mt-ver-pauta"/.test(mt), 'Meus trabalhos: sem job seu, diz quantos a empresa tem e leva à Pauta')
 const pj = ler('src/app/dashboard/pm/painel-jobs/page.tsx')
 ok(/data-testid="painel-sem-jobs"/.test(pj) && /data-testid="painel-filtro-escondendo"/.test(pj) && /data-testid="painel-limpar-filtro"/.test(pj), 'Painel: sem jobs × filtro escondendo todos, com botão')
 
