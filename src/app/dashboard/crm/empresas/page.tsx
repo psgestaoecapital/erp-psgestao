@@ -49,7 +49,7 @@ export default function CrmEmpresasPage() {
     try {
       await rpcCrm('fn_crm_empresa_salvar', { p_company_id: empresa, p_dados: { ...form, id: form.id || null } })
       setOk(form.id ? 'Empresa atualizada.' : 'Empresa cadastrada.'); setForm(null); void carregar()
-    } catch (e) { setErro((e as Error).message) }
+    } catch (e) { setErro(erroAmigavel(e)) }
   }
 
   if (carregando) return <Pagina><div style={{ color: C.TEXTM }}>Carregando…</div></Pagina>

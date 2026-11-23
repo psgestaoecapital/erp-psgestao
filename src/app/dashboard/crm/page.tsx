@@ -35,11 +35,11 @@ export default function CrmHojePage() {
 
   async function concluir(t: Tarefa) {
     try { await rpcCrm('fn_crm_tarefa_concluir', { p_id: t.id, p_concluida: true }); setOk(`Feito: ${t.titulo}`); void carregar() }
-    catch (e) { setErro((e as Error).message) }
+    catch (e) { setErro(erroAmigavel(e)) }
   }
   async function pegar(l: LeadSemDono) {
     try { await rpcCrm('fn_crm_lead_acao', { p_lead_id: l.id, p_acao: 'pegar' }); setOk(`O lead ${l.nome} agora é seu.`); void carregar() }
-    catch (e) { setErro((e as Error).message) }
+    catch (e) { setErro(erroAmigavel(e)) }
   }
 
   if (carregando) return <Pagina><div style={{ color: C.TEXTM }}>Carregando…</div></Pagina>

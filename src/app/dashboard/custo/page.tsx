@@ -6,6 +6,7 @@ import { authFetch } from '@/lib/authFetch'
 import { CampoPercent } from '@/lib/ui/CampoPercent'
 import { CampoMoeda } from '@/components/comum/CampoMoeda'
 import { moedaParaNumero, numeroParaMoeda } from '@/lib/moeda-mascara'
+import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 
 const C = { bg: '#0F0F0F', card: '#1A1410', border: '#2A2822', gold: '#C8941A', text: '#FAF7F2', muted: '#B0AB9F', green: '#4CAF50', red: '#EF5350', yellow: '#FFC107', blue: '#42A5F5', teal: '#009688', espresso: '#3D2314', orange: '#FF9800' }
 
@@ -197,10 +198,16 @@ export default function CustoPage() {
 
       {/* Filtros */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
-        <select value={empresaSel} onChange={e => setEmpresaSel(e.target.value)} style={inputSt}>
-          {empresas.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
-        </select>
-        <input type="month" value={periodo} onChange={e => setPeriodo(e.target.value)} style={inputSt} />
+        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+          <select value={empresaSel} onChange={e => setEmpresaSel(e.target.value)} style={inputSt} aria-label="Empresa">
+            {empresas.map(e => <option key={e.id} value={e.id}>{e.nome}</option>)}
+          </select>
+          <AjudaCampo chave="custo.empresa" />
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+          <input type="month" value={periodo} onChange={e => setPeriodo(e.target.value)} style={inputSt} aria-label="Período" />
+          <AjudaCampo chave="custo.periodo" />
+        </span>
         <button onClick={loadData} style={{ background: C.gold, color: C.espresso, border: 'none', padding: '8px 14px', borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: 12 }}>Atualizar</button>
       </div>
 
