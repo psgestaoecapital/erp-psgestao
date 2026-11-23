@@ -47,6 +47,10 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'erro', 'empresa_ausente_ou_nao_demo');
   END IF;
 
+  -- Guarda de empresa (check_fn_guards): se chamada por usuário logado, só o dono/admin da empresa.
+  -- No reset da DEMO (service_role, auth.uid() NULL) o guarda retorna cedo — no-op seguro.
+  PERFORM public.fn__guarda_empresa(p_company);
+
   DROP TABLE IF EXISTS _lixo_c3;  -- re-chamável na mesma transação (ON COMMIT DROP só cai no commit)
   CREATE TEMP TABLE _lixo_c3 ON COMMIT DROP AS
   SELECT r.id
