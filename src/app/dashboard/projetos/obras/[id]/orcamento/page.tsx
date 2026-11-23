@@ -14,6 +14,15 @@ import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
 const ROTA = '/dashboard/projetos/obras/[id]/orcamento'
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DED3', MUT = 'rgba(61,35,20,0.55)', VERM = '#B91C1C'
 const brl = (n: number | null | undefined) => (n ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+// §315 — situação do orçamento (erp_orcamentos.status, compartilhado com o Comércio). Só leitura aqui:
+// a mudança de estado continua no fluxo de orçamento do Comércio; o Hub apenas mostra em que pé está.
+const SITUACAO: Record<string, { rotulo: string; cor: string; bg: string }> = {
+  rascunho: { rotulo: 'Rascunho', cor: MUT, bg: '#F3EEE7' },
+  enviado: { rotulo: 'Enviado', cor: GOLD, bg: '#FBF3E0' },
+  aprovado: { rotulo: 'Aprovado', cor: '#166534', bg: '#E8F3EC' },
+  convertido: { rotulo: 'Convertido', cor: '#166534', bg: '#E8F3EC' },
+  cancelado: { rotulo: 'Cancelado', cor: VERM, bg: '#FBEAEA' },
+}
 const pct = (n: number | null | undefined) => `${(n ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 1 })}%`
 
 // Nó da árvore EAP (modo 'eap')
@@ -56,6 +65,7 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
   const [criandoOrc, setCriandoOrc] = useState(false)
   // Total cheio do orçamento e nº de itens vivos — para avisar quando a EAP é só uma fatia do orçamento.
   const [orcTotal, setOrcTotal] = useState<number | null>(null)
+  const [orcStatus, setOrcStatus] = useState<string | null>(null)
   const [itensVivos, setItensVivos] = useState<number | null>(null)
   // "+ Item" / editar: catálogo de serviços e estado do formulário
   const [servicos, setServicos] = useState<Servico[]>([])
@@ -88,8 +98,9 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
     const { data: li } = await supabase.rpc('fn_projetos_orcamento_item_eap_listar', { p_orcamento_id: info.orcamento_id })
     setItens(((li as { itens?: ItemEap[] } | null)?.itens) ?? [])
     // Total cheio do orçamento e nº de itens vivos — para distinguir a fatia EAP do total do orçamento.
-    const { data: orc } = await supabase.from('erp_orcamentos').select('total').eq('id', info.orcamento_id).maybeSingle()
+    const { data: orc } = await supabase.from('erp_orcamentos').select('total,status').eq('id', info.orcamento_id).maybeSingle()
     setOrcTotal((orc as { total?: number } | null)?.total ?? null)
+    setOrcStatus((orc as { status?: string } | null)?.status ?? null)
     const { count } = await supabase.from('erp_orcamentos_itens').select('id', { count: 'exact', head: true }).eq('orcamento_id', info.orcamento_id).is('excluido_em', null)
     setItensVivos(count ?? null)
   }, [id, porLocal])
@@ -234,7 +245,15 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                 style={{ border: 'none', background: 'transparent', color: GOLD, fontSize: 12, fontWeight: 700, cursor: 'pointer', width: 16 }}>{aberto ? '▾' : '▸'}</button>
             ) : <span style={{ width: 16, color: MUT, textAlign: 'center' }}>•</span>}
             <span style={{ fontSize: 11, color: MUT, fontFamily: 'ui-monospace, monospace', flex: '0 0 auto' }}>{n.eap_codigo}</span>
-            <span style={{ fontSize: 14, color: ESP, fontWeight: n.nivel <= 1 ? 700 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.nome}</span>
+            <div style={{ minWidth: 0, overflow: 'hidden' }}>
+              <div style={{ fontSize: 14, color: ESP, fontWeight: n.nivel <= 1 ? 700 : 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.nome}</div>
+              {/* §315 C-2: material × mão de obra separados também por nó da EAP (não só no total geral). */}
+              {(n.material > 0 || n.mao_obra > 0) && (
+                <div style={{ fontSize: 11, color: MUT, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  Material {brl(n.material)} · Mão de obra {brl(n.mao_obra)}
+                </div>
+              )}
+            </div>
           </div>
           <span style={{ fontSize: 13, color: ESP, fontWeight: 600, flex: '0 0 auto', textAlign: 'right' }}>{brl(n.total)}</span>
           {barra(n.pct)}
@@ -297,7 +316,12 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                 <option key={s.id} value={s.id}>{s.codigo ? `${s.codigo} · ` : ''}{s.nome}{s.unidade ? ` (${s.unidade})` : ''}</option>
               ))}
             </select>
-            {servicos.length === 0 && <div style={{ fontSize: 12, color: MUT, marginTop: 4 }}>Nenhum serviço no catálogo da empresa. Cadastre serviços para montar o orçamento.</div>}
+            {servicos.length === 0 && (
+              <div style={{ fontSize: 12, color: MUT, marginTop: 4 }}>
+                Nenhum serviço no catálogo da empresa.{' '}
+                <Link href="/dashboard/projetos/catalogo?aba=biblioteca" data-testid="orc-add-sem-servico-biblioteca" style={{ color: GOLD, fontWeight: 600, textDecoration: 'underline' }}>Escolha serviços prontos na Biblioteca padrão PS</Link>{' '}ou cadastre o seu no Catálogo para montar o orçamento.
+              </div>
+            )}
           </label>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
             <label style={{ display: 'block' }}>
@@ -385,6 +409,12 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
                   style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${ESP}`, background: '#fff', color: ESP, fontSize: 13, fontWeight: 700, cursor: 'pointer', textDecoration: 'none' }}>
                   Importar da planilha (.xlsx)
                 </Link>
+                {/* §315 "três jeitos de começar o orçamento" (1): partir da Biblioteca padrão PS (333). */}
+                <Link href="/dashboard/projetos/catalogo?aba=biblioteca" data-testid="orc-vazio-biblioteca"
+                  style={{ padding: '9px 16px', borderRadius: 999, border: `1px solid ${LINE}`, background: '#fff', color: ESP, fontSize: 13, fontWeight: 700, cursor: 'pointer', textDecoration: 'none' }}>
+                  Começar pela Biblioteca padrão PS
+                </Link>
+                <AjudaCampo chave="projetos.orcamento_eap.comecar_biblioteca" rota={ROTA} />
               </div>
             )}
           </div>
@@ -392,17 +422,28 @@ export default function OrcamentoEapPage({ params }: { params: Promise<{ id: str
           <div style={{ display: 'grid', gap: 14 }}>
             {/* Totais do orçamento */}
             <div style={{ background: '#fff', border: `0.5px solid ${LINE}`, borderRadius: 12, padding: 16, display: 'flex', flexWrap: 'wrap', gap: 20 }}>
+              {/* Situação do orçamento (§315 essencial) — só leitura; o estado muda no fluxo do orçamento. */}
+              {orcStatus != null && (
+                <div data-testid="orc-situacao">
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700 }}>Situação <AjudaCampo chave="projetos.orcamento_eap.situacao" rota={ROTA} /></div>
+                  <div style={{ marginTop: 2 }}>
+                    <span style={{ display: 'inline-block', padding: '3px 12px', borderRadius: 999, fontSize: 13, fontWeight: 700, color: (SITUACAO[orcStatus] ?? { cor: ESP }).cor, background: (SITUACAO[orcStatus] ?? { bg: '#F3EEE7' }).bg }}>
+                      {(SITUACAO[orcStatus]?.rotulo) ?? orcStatus}
+                    </span>
+                  </div>
+                </div>
+              )}
               <div>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700 }}>Total estruturado (EAP) <AjudaCampo chave="projetos.orcamento_eap.total" rota={ROTA} /></div>
                 <div style={{ fontSize: 22, color: ESP, fontWeight: 700 }}>{brl(arvore.total_geral)}</div>
               </div>
               <div>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700 }}>Material <AjudaCampo chave="projetos.orcamento_eap.material" rota={ROTA} /></div>
-                <div style={{ fontSize: 18, color: ESP, fontWeight: 600 }}>{brl(arvore.material_geral)}</div>
+                <div style={{ fontSize: 18, color: ESP, fontWeight: 600 }}>{brl(arvore.material_geral)}{arvore.total_geral > 0 && <span style={{ fontSize: 12, color: MUT, fontWeight: 500 }}> · {pct((arvore.material_geral / arvore.total_geral) * 100)} do total</span>}</div>
               </div>
               <div>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.6, color: MUT, fontWeight: 700 }}>Mão de obra <AjudaCampo chave="projetos.orcamento_eap.mao_obra" rota={ROTA} /></div>
-                <div style={{ fontSize: 18, color: ESP, fontWeight: 600 }}>{brl(arvore.mao_obra_geral)}</div>
+                <div style={{ fontSize: 18, color: ESP, fontWeight: 600 }}>{brl(arvore.mao_obra_geral)}{arvore.total_geral > 0 && <span style={{ fontSize: 12, color: MUT, fontWeight: 500 }}> · {pct((arvore.mao_obra_geral / arvore.total_geral) * 100)} do total</span>}</div>
               </div>
               {/* KPI Custo por m² (blueprint §315 essencial): total estruturado ÷ área construída da obra. */}
               {obra?.area_construida_m2 != null && obra.area_construida_m2 > 0 && (
