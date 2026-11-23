@@ -232,9 +232,12 @@ function TitulosInner() {
 
         {/* KPIs */}
         <section className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-3">
-          <KpiCard label="A pagar (aberto + vencido + agendado)" chave="financeiro.titulos.kpi_pagar" valor={kpiPagar} tone="amber" Icon={ArrowUpFromLine} />
-          <KpiCard label="A receber (aberto + vencido + agendado)" chave="financeiro.titulos.kpi_receber" valor={kpiReceber} tone="emerald" Icon={ArrowDownToLine} />
-          <KpiCard label="Total vencido" chave="financeiro.titulos.kpi_vencido" valor={kpiVencido} tone="rose" Icon={CalendarClock} />
+          <KpiCard label="A pagar (aberto + vencido + agendado)" chave="financeiro.titulos.kpi_pagar" valor={kpiPagar} tone="amber" Icon={ArrowUpFromLine}
+            filtroHref={urlComFiltro({ tipo: 'pagar', status: 'todos', page: '1' })} filtroAtivo={tipo === 'pagar' && status === 'todos'} />
+          <KpiCard label="A receber (aberto + vencido + agendado)" chave="financeiro.titulos.kpi_receber" valor={kpiReceber} tone="emerald" Icon={ArrowDownToLine}
+            filtroHref={urlComFiltro({ tipo: 'receber', status: 'todos', page: '1' })} filtroAtivo={tipo === 'receber' && status === 'todos'} />
+          <KpiCard label="Total vencido" chave="financeiro.titulos.kpi_vencido" valor={kpiVencido} tone="rose" Icon={CalendarClock}
+            filtroHref={urlComFiltro({ tipo: 'todos', status: 'vencido', page: '1' })} filtroAtivo={status === 'vencido'} />
         </section>
 
         {/* Filtros */}
@@ -404,19 +407,24 @@ function TitulosInner() {
 /* ─────────── Sub-componentes ─────────── */
 
 function KpiCard({
-  label, chave, valor, tone, Icon,
+  label, chave, valor, tone, Icon, filtroHref, filtroAtivo,
 }: {
   label: string; chave: string; valor: number;
   tone: 'amber' | 'emerald' | 'rose';
   Icon: typeof CalendarClock;
+  // #6712 (Gean Auto): clicar no KPI do cabeçalho filtra a lista pela mesma
+  // informação (tipo/status). Opcional: sem href o card continua só leitura.
+  filtroHref?: string;
+  filtroAtivo?: boolean;
 }) {
   const tones = {
     amber: 'bg-amber-50 text-amber-700',
     emerald: 'bg-emerald-50 text-emerald-700',
     rose: 'bg-rose-50 text-rose-700',
   } as const
-  return (
-    <div className="rounded-2xl border border-[#3D2314]/10 bg-white p-4">
+  const valorFmt = valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  const conteudo = (
+    <>
       <div className="flex items-center gap-2">
         <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${tones[tone]}`}>
           <Icon className="h-4 w-4" />
@@ -426,11 +434,27 @@ function KpiCard({
           <AjudaCampo chave={chave} />
         </p>
       </div>
-      <p className="mt-3 text-2xl font-semibold text-[#3D2314]">
-        {valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-      </p>
-    </div>
+      <p className="mt-3 text-2xl font-semibold text-[#3D2314]">{valorFmt}</p>
+      {filtroHref && (
+        <p className="mt-1 text-[11px] font-medium text-[#C8941A]">
+          {filtroAtivo ? '✓ filtrando por este indicador' : 'clique para filtrar a lista'}
+        </p>
+      )}
+    </>
   )
+  const base = 'block rounded-2xl border bg-white p-4 text-left transition'
+  if (filtroHref) {
+    return (
+      <Link
+        href={filtroHref}
+        aria-pressed={filtroAtivo}
+        className={`${base} ${filtroAtivo ? 'border-[#C8941A] ring-1 ring-[#C8941A]/40' : 'border-[#3D2314]/10 hover:border-[#C8941A]/60 hover:shadow-sm'}`}
+      >
+        {conteudo}
+      </Link>
+    )
+  }
+  return <div className={`${base} border-[#3D2314]/10`}>{conteudo}</div>
 }
 
 function FiltroGrupo({
