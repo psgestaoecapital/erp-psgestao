@@ -40,8 +40,10 @@ async function main() {
   const esperado: Record<string, string> = {
     meus_chamados: 'fn_canal_meus_chamados', ler_chamado: 'fn_canal_ler_chamado', enviar_tarefa_ao_meu_code: 'fn_agente_pedido_enviar',
     respostas_do_meu_code: 'fn_agente_pedidos_meus', minhas_prs: 'fn_canal_minhas_prs', pedir_ok_ceo: 'fn_agente_pedido_pedir_ok_ceo',
+    // Diagnóstico cross-empresa (CEO 23/11) — só leitura, só sócios (porteiro fn__diagnostico_socio_pode), cada uma numa RPC curada.
+    empresas: 'fn_diag_empresas', nfse: 'fn_diag_nfse', financeiro: 'fn_diag_financeiro', chamado: 'fn_diag_chamado',
   }
-  ok(FERRAMENTAS.length === 6 && FERRAMENTAS.every((f) => esperado[f.name] === f.rpc), 'SOMENTE as 6 ferramentas do CEO, cada uma na sua RPC com guarda')
+  ok(FERRAMENTAS.length === 10 && FERRAMENTAS.every((f) => esperado[f.name] === f.rpc), 'as 10 ferramentas (6 do CEO + 4 de diagnóstico cross-empresa), cada uma na sua RPC com guarda')
 
   // ── (3) tratador real × rpc simulado ────────────────────────────────────────────────────────────────────────────
   type Chamada = { fn: string; args: Record<string, unknown> }
