@@ -6,7 +6,7 @@ import { aguardaAutorizacao, casaBusca, colunaDoChamado, passaFiltro, type Chama
 
 let falhas = 0
 const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.error('✗', msg) } else console.log('✓', msg) }
-const base: ChamadoKanban = { status: 'nova', responsavel_id: null, agente: null, resposta_aprovada: false, confirmado_pelo_autor: false }
+const base: ChamadoKanban = { status: 'nova', responsavel_id: null, agente: null, resposta_aprovada: false, aguardando_usuario: false, confirmado_pelo_autor: false }
 const c = (x: Partial<ChamadoKanban>) => ({ ...base, ...x })
 const rot = (s: string) => ({ nova: 'Nova', em_analise: 'Em análise', concluida: 'Concluída', arquivada: 'Arquivada' } as Record<string, string>)[s] ?? s
 
@@ -22,6 +22,9 @@ ok(colunaDoChamado(c({ status: 'aguardando_confirmacao' })) === 'andamento', 'ag
 ok(colunaDoChamado(c({ status: 'em_desenvolvimento', resposta_aprovada: true })) === 'aguardando', 'resposta aprovada e enviada, autor não confirmou → Aguardando usuário')
 ok(colunaDoChamado(c({ status: 'em_desenvolvimento', resposta_aprovada: true, confirmado_pelo_autor: true })) === 'andamento', 'autor já confirmou → sai de Aguardando (volta ao fluxo)')
 ok(colunaDoChamado(c({ status: 'concluida', resposta_aprovada: true })) === 'finalizados', 'finalizado tem prioridade sobre Aguardando')
+// #7050 opção A: sinal dedicado da mensagem visível da PS move a coluna SEM resposta_aprovada (não vaza rascunho)
+ok(colunaDoChamado(c({ status: 'em_desenvolvimento', aguardando_usuario: true })) === 'aguardando', 'mensagem visível da PS (aguardando_usuario) → Aguardando usuário, mesmo com resposta_aprovada=false')
+ok(colunaDoChamado(c({ status: 'em_desenvolvimento', aguardando_usuario: true, confirmado_pelo_autor: true })) === 'andamento', 'autor confirmou → sai de Aguardando')
 
 // #7050 (Jordana 16/11): aviso "Resposta aguardando autorização" — entregue (aguardando_confirmacao) sem resposta enviada.
 ok(aguardaAutorizacao(c({ status: 'aguardando_confirmacao' })) === true, 'aguardando_confirmacao sem resposta aprovada → aviso de autorização (caso #6912)')
