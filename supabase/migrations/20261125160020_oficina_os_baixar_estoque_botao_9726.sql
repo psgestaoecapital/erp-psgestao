@@ -21,6 +21,9 @@ COMMENT ON COLUMN public.erp_os.estoque_baixado IS
 -- ── 2. baixa única e idempotente (núcleo compartilhado — RD-26) ─────────────────────────────────────────────
 -- Esta é EXATAMENTE a baixa que fn_os_faturar (avulsa) e fn_os_vincular_financeiro já faziam inline; agora num só
 -- lugar, protegida pelo marcador. Chamada só internamente (REVOKE abaixo). Devolve quantas peças saíram.
+-- ci-sem-guarda: fn_os_estoque_baixar_interno — helper interno; REVOKE de PUBLIC/anon/authenticated (só service_role).
+-- A guarda de empresa (get_user_company_ids/is_admin) é feita por QUEM chama: fn_os_baixar_estoque, fn_os_faturar e
+-- fn_os_vincular_financeiro. Chamada direta pelo cliente é impossível.
 CREATE OR REPLACE FUNCTION public.fn_os_estoque_baixar_interno(p_os_id uuid)
  RETURNS int LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
 AS $function$
@@ -149,6 +152,9 @@ BEGIN
       'valor', v_os.total, 'receber_id', v_first, 'lancamento_id', v_first, 'itens_estoque_baixados', v_baixados);
   END IF;
 END $function$;
+-- grants preservados (eram authenticated + service_role); REVOKE anon explícito para a régua check-fn-guards.
+REVOKE ALL ON FUNCTION public.fn_os_faturar(uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_os_faturar(uuid, uuid) TO authenticated, service_role;
 
 -- fn_os_vincular_financeiro: idem — a baixa inline vira a baixa única compartilhada.
 CREATE OR REPLACE FUNCTION public.fn_os_vincular_financeiro(p_os_id uuid, p_receber_id uuid)
@@ -184,6 +190,9 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'via', 'receita_form', 'os_numero', v_os.numero,
     'receber_id', p_receber_id, 'lancamento_id', p_receber_id, 'itens_estoque_baixados', v_baixados);
 END $function$;
+-- grants preservados (eram authenticated + service_role); REVOKE anon explícito para a régua check-fn-guards.
+REVOKE ALL ON FUNCTION public.fn_os_vincular_financeiro(uuid, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_os_vincular_financeiro(uuid, uuid) TO authenticated, service_role;
 
 -- ── 5. ajuda do campo (RD-95) ───────────────────────────────────────────────────────────────────────────────
 INSERT INTO public.erp_ajuda_campo (rota, chave, grupo, ordem, rotulo, status, versao, vertical,
