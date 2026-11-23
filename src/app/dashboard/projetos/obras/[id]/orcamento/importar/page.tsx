@@ -12,6 +12,7 @@ import { supabase } from '@/lib/supabase'
 import { ehUuid, erroAmigavel } from '@/lib/erroAmigavel'
 import { comPrazo } from '@/lib/comPrazo'
 import { AjudaCampo } from '@/components/ajuda/AjudaCampo'
+import { CheckSquare, Square } from 'lucide-react'
 
 const ESP = '#3D2314', BG = '#FAF7F2', GOLD = '#C8941A', LINE = '#E7DED3', MUT = 'rgba(61,35,20,0.55)', VERDE = '#16A34A', VERM = '#B91C1C'
 const CARD: React.CSSProperties = { background: '#fff', border: `1px solid ${LINE}`, borderRadius: 14, padding: 18, boxShadow: '0 1px 2px rgba(61,35,20,0.04)' }
@@ -391,15 +392,15 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
           <div style={{ display: 'grid', gap: 12 }}>
             <div style={{ ...CARD, display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center' }}>
               <span style={{ fontSize: 13, color: MUT }}>Arquivo: <strong style={{ color: ESP }}>{arquivoNome}</strong></span>
-              {abaImportada && <span data-testid="eap-importar-aba" title={`A planilha tem ${abaImportada.total} abas; usamos a que tem a EAP. As abas de "Outros Custos"/"Análise" não entram no orçamento.`} style={{ fontSize: 13, color: MUT }}>Aba: <strong style={{ color: ESP }}>{abaImportada.nome}</strong></span>}
+              {abaImportada && <span data-testid="eap-importar-aba" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: MUT }}>Aba: <strong style={{ color: ESP }}>{abaImportada.nome}</strong> <AjudaCampo chave="projetos.orcamento_eap.importar_aba" /></span>}
               <span style={{ fontSize: 13, color: VERDE, fontWeight: 700 }}>{resumo.validos} válidas</span>
               <span style={{ fontSize: 13, color: resumo.com_erro ? VERM : MUT, fontWeight: 700 }}>{resumo.com_erro} com erro</span>
               {codigosNumericos.size > 0 && <span style={{ fontSize: 13, color: GOLD, fontWeight: 700 }}>{codigosNumericos.size} código(s) como número</span>}
               {codigosRepetidos.length > 0 && <span style={{ fontSize: 13, color: GOLD, fontWeight: 700 }}>{codigosRepetidos.length} código(s) repetido(s)</span>}
-              {linhasIgnoradas > 0 && <span data-testid="eap-importar-ignoradas" title="Linhas sem código e sem descrição (títulos/agrupadores) — não entram no orçamento" style={{ fontSize: 13, color: MUT, fontWeight: 700 }}>{linhasIgnoradas} linha(s) ignorada(s)</span>}
-              {unidadesNormalizadas > 0 && <span data-testid="eap-importar-unidades-normalizadas" title="Unidades padronizadas para a grafia do orçamento (ex.: UND→un, M2→m², peça→pç, hr→h)" style={{ fontSize: 13, color: VERDE, fontWeight: 700 }}>{unidadesNormalizadas} unidade(s) padronizada(s)</span>}
-              {agrupadoresEstrutura > 0 && <span data-testid="eap-importar-agrupadores" title="Linhas de estrutura da EAP (têm código mas sem unidade/quantidade/custo, ex.: “1 SERVIÇOS PRELIMINARES”). São título/agrupador, não item — não entram no orçamento nem contam como erro." style={{ fontSize: 13, color: MUT, fontWeight: 700 }}>{agrupadoresEstrutura} linha(s) de estrutura</span>}
-              {valorUnicoAviso && <span data-testid="eap-importar-valor-unico" title="A planilha tem um único valor por item (não separa material e mão de obra). Usamos esse valor como o custo unitário do item — você pode separar material × mão de obra depois, na tela do orçamento." style={{ fontSize: 13, color: GOLD, fontWeight: 700 }}>valor único por item</span>}
+              {linhasIgnoradas > 0 && <span data-testid="eap-importar-ignoradas" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: MUT, fontWeight: 700 }}>{linhasIgnoradas} linha(s) ignorada(s) <AjudaCampo chave="projetos.orcamento_eap.importar_ignoradas" /></span>}
+              {unidadesNormalizadas > 0 && <span data-testid="eap-importar-unidades-normalizadas" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: VERDE, fontWeight: 700 }}>{unidadesNormalizadas} unidade(s) padronizada(s) <AjudaCampo chave="projetos.orcamento_eap.importar_unidades" /></span>}
+              {agrupadoresEstrutura > 0 && <span data-testid="eap-importar-agrupadores" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: MUT, fontWeight: 700 }}>{agrupadoresEstrutura} linha(s) de estrutura <AjudaCampo chave="projetos.orcamento_eap.importar_estrutura" /></span>}
+              {valorUnicoAviso && <span data-testid="eap-importar-valor-unico" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: GOLD, fontWeight: 700 }}>valor único por item <AjudaCampo chave="projetos.orcamento_eap.importar_valor_unico" /></span>}
               <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
                 <button type="button" data-testid="eap-importar-recomecar" onClick={recomecar} disabled={busy} style={{ background: '#fff', color: ESP, border: `1px solid ${LINE}`, borderRadius: 10, padding: '9px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Trocar arquivo</button>
                 <button type="button" data-testid="eap-importar-confirmar" onClick={() => void confirmar()} disabled={busy || resumo.validos === 0 || (codigosNumericos.size > 0 && !cienteNumerico)} style={{ background: ESP, color: BG, border: 'none', borderRadius: 10, padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: busy || resumo.validos === 0 || (codigosNumericos.size > 0 && !cienteNumerico) ? 'default' : 'pointer', opacity: busy || resumo.validos === 0 || (codigosNumericos.size > 0 && !cienteNumerico) ? 0.5 : 1 }}>Confirmar importação</button>
@@ -441,7 +442,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
             )}
             <div data-testid="eap-importar-conferencia-total" style={{ ...CARD, display: 'grid', gap: 8, borderColor: confereTotal ? VERDE : (difTotal !== null ? GOLD : LINE) }}>
               <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'baseline' }}>
-                <span style={{ fontSize: 13, color: MUT }}>Total importado (soma dos itens)</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, color: MUT }}>Total importado (soma dos itens) <AjudaCampo chave="projetos.orcamento_eap.importar_conferencia" /></span>
                 <strong data-testid="eap-importar-total-importado" style={{ fontSize: 18, color: ESP, letterSpacing: -0.3 }}>{brl(totalImportado)}</strong>
                 {totalPlanilha !== null && (
                   <span style={{ fontSize: 13, color: MUT }}>× Total declarado na planilha <strong style={{ color: ESP }}>{brl(totalPlanilha)}</strong></span>
@@ -472,7 +473,7 @@ export default function ImportarOrcamentoEapPage({ params }: { params: Promise<{
                   onClick={() => setCienteNumerico((v) => !v)}
                   style={{ justifySelf: 'start', display: 'flex', alignItems: 'center', gap: 8, background: cienteNumerico ? ESP : '#fff', color: cienteNumerico ? BG : ESP, border: `1px solid ${cienteNumerico ? ESP : LINE}`, borderRadius: 10, padding: '9px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
                 >
-                  <span aria-hidden="true" style={{ fontSize: 15 }}>{cienteNumerico ? '☑' : '☐'}</span>
+                  {cienteNumerico ? <CheckSquare aria-hidden="true" size={16} /> : <Square aria-hidden="true" size={16} />}
                   Conferi os códigos numéricos e estão corretos
                 </button>
               </div>
