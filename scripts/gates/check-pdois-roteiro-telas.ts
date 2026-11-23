@@ -8,7 +8,8 @@ const ok = (cond: boolean, msg: string) => { if (!cond) { falhas++; console.erro
 const leads = readFileSync('src/app/dashboard/pm/leads/page.tsx', 'utf8')
 const tarefas = readFileSync('src/components/pm/TarefasLead.tsx', 'utf8')
 const libTarefas = readFileSync('src/lib/pm/tarefas.ts', 'utf8')
-const agenda = readFileSync('src/app/dashboard/pm/agenda/page.tsx', 'utf8')
+// #5564 moveu a Agenda comercial para o componente compartilhado AgendaComercialView (RD-26).
+const agenda = readFileSync('src/components/agenda/AgendaComercialView.tsx', 'utf8')
 const jobs = readFileSync('src/app/dashboard/producao/page.tsx', 'utf8')
 const menu = readFileSync('src/lib/menu/useSidebarModulos.ts', 'utf8')
 
