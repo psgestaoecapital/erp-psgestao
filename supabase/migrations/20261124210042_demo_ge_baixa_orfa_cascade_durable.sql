@@ -163,3 +163,7 @@ END $$;
 -- UNDO (reversível, se necessário): reativar as baixas da DEMO a partir dos backups —
 --   UPDATE erp_receber_baixa b SET deleted_at = k.deleted_at_old FROM erp_receber_baixa_lixo_teste_bkp_c3 k WHERE k.baixa_id=b.id;
 --   UPDATE erp_pagar_baixa   b SET deleted_at = k.deleted_at_old FROM erp_pagar_baixa_lixo_teste_bkp_c3   k WHERE k.baixa_id=b.id;
+
+-- check_fn_guards: REVOKE/GRANT da função (espelha ACL viva: authenticated, service_role; sem anon/PUBLIC)
+REVOKE ALL ON FUNCTION public.fn_demo_ge_receber_purgar_lixo_teste(uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.fn_demo_ge_receber_purgar_lixo_teste(uuid) TO authenticated, service_role;
