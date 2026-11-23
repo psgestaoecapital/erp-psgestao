@@ -118,6 +118,28 @@ export async function POST(req: NextRequest) {
     proxima = pag + 1
   }
 
+  // Registra o lote em omie_imports (import_type='nfse') — mesmo padrão de /api/omie/sync: uma linha por
+  // tipo/empresa (delete+insert), com a contagem AUTORITATIVA de NFS-e já importadas do Omie, robusta à
+  // retomada paginada. Só escreve em omie_imports (nenhum dado fiscal/cliente é alterado aqui). (#chamado OMIE NFS-e)
+  if (!dry) {
+    const { count: totalNfse } = await supabaseAdmin
+      .from('erp_nfse_emitidas')
+      .select('id', { count: 'exact', head: true })
+      .eq('company_id', companyId!)
+      .eq('provider', 'omie')
+    await supabaseAdmin.from('omie_imports').delete().eq('company_id', companyId!).eq('import_type', 'nfse')
+    await supabaseAdmin.from('omie_imports').insert({
+      company_id: companyId,
+      import_type: 'nfse',
+      record_count: totalNfse ?? r.inseridas + r.atualizadas,
+      import_data: {
+        lote: { paginas: r.paginas, lidas: r.lidas, inseridas: r.inseridas, atualizadas: r.atualizadas, puladas: r.puladas, xml_ok: r.xml_ok, xml_sem: r.xml_sem },
+        proxima_pagina: proxima,
+        total_omie: r.total_omie,
+      },
+    })
+  }
+
   // Em dry_run, diagnostica a 1ª nota (mapeia? quais chaves tem?) sem gravar — pin do nome real dos campos do OMIE.
   const amostra_diag = dry && amostra ? motivoPulo(amostra as NfseOmie) : undefined
   return NextResponse.json({

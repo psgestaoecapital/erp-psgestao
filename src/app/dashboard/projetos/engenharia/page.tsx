@@ -403,9 +403,9 @@ export default function EngenhariaPage() {
                   {ambientes.map((a) => (
                     <tr key={a.id} style={{ borderTop: `1px solid ${LINE}` }}>
                       <td className="p-2"><input className={inp} value={a.nome} onChange={(e) => atualizarAmb(a, { nome: e.target.value })} /></td>
-                      <td className="p-2"><input className={inp + ' text-right'} inputMode="decimal" value={a.area_m2 ?? ''} onChange={(e) => atualizarAmb(a, { area_m2: e.target.value ? Number(e.target.value) : null })} /></td>
-                      <td className="p-2"><input className={inp + ' text-right'} inputMode="decimal" value={a.perimetro_ml ?? ''} onChange={(e) => atualizarAmb(a, { perimetro_ml: e.target.value ? Number(e.target.value) : null })} /></td>
-                      <td className="p-2"><input className={inp + ' text-right'} inputMode="decimal" value={a.pe_direito_m ?? ''} onChange={(e) => atualizarAmb(a, { pe_direito_m: e.target.value ? Number(e.target.value) : null })} /></td>
+                      <td className="p-2"><input className={inp + ' text-right'} inputMode="decimal" value={a.area_m2 ?? ''} onChange={(e) => atualizarAmb(a, { area_m2: e.target.value ? num(e.target.value) : null })} /></td>
+                      <td className="p-2"><input className={inp + ' text-right'} inputMode="decimal" value={a.perimetro_ml ?? ''} onChange={(e) => atualizarAmb(a, { perimetro_ml: e.target.value ? num(e.target.value) : null })} /></td>
+                      <td className="p-2"><input className={inp + ' text-right'} inputMode="decimal" value={a.pe_direito_m ?? ''} onChange={(e) => atualizarAmb(a, { pe_direito_m: e.target.value ? num(e.target.value) : null })} /></td>
                       <td className="p-2">
                         <select className={inp} value={a.servico_id ?? ''} onChange={(e) => atualizarAmb(a, { servico_id: e.target.value || null })}>
                           <option value="">—</option>
@@ -535,8 +535,10 @@ function AmbienteModal({ onFechar, onSalvar, busy }: {
   const [comprimento, setComprimento] = useState('')
   const [perimetro, setPerimetro] = useState('')
   const [peDireito, setPeDireito] = useState('')
-  const areaCalc = largura.trim() && comprimento.trim() ? Number(largura) * Number(comprimento) : null
-  const perimCalc = largura.trim() && comprimento.trim() ? 2 * (Number(largura) + Number(comprimento)) : null
+  // #5660 — aceita vírgula decimal BR na prévia L×C (parseNumBR, igual ao save)
+  const lNum = num(largura); const cNum = num(comprimento)
+  const areaCalc = lNum != null && cNum != null ? lNum * cNum : null
+  const perimCalc = lNum != null && cNum != null ? 2 * (lNum + cNum) : null
   const inp = 'w-full rounded-xl border border-[#E7DECF] bg-white p-2 text-sm text-[#3D2314]'
   const lbl = 'block text-[11px] font-medium mb-1'
   return (

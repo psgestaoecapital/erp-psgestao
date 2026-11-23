@@ -62,6 +62,11 @@ export interface Pessoa {
   origem?: string | null
   vendedor_nome?: string | null
   observacoes?: string | null
+  // Dados bancários para pagamento (só erp_fornecedores; colunas já existentes, antes sem tela) — PDCA 23/11.
+  banco?: string | null
+  agencia?: string | null
+  conta?: string | null
+  pix?: string | null
   ativo: boolean
   tags: string[] | null
 }
@@ -162,6 +167,11 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved, 
   const [origem, setOrigem] = useState(pessoa?.origem ?? '')
   const [vendedorNome, setVendedorNome] = useState(pessoa?.vendedor_nome ?? '')
   const [observacoes, setObservacoes] = useState(pessoa?.observacoes ?? '')
+  // Dados bancários (só fornecedor) — RD-98: a conta de pagamento vive no cadastro, não é redigitada a cada título.
+  const [banco, setBanco] = useState(pessoa?.banco ?? '')
+  const [agencia, setAgencia] = useState(pessoa?.agencia ?? '')
+  const [conta, setConta] = useState(pessoa?.conta ?? '')
+  const [pix, setPix] = useState(pessoa?.pix ?? '')
   const [buscandoCNPJ, setBuscandoCNPJ] = useState(false)
   const [buscandoCEP, setBuscandoCEP] = useState(false)
   const [salvando, setSalvando] = useState(false)
@@ -409,6 +419,12 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved, 
       payload.origem = origem || null
       payload.vendedor_nome = vendedorNome.trim() || null
       payload.observacoes = observacoes.trim() || null
+    } else {
+      // Dados bancários para pagamento (só erp_fornecedores) — opcionais; vazio grava NULL.
+      payload.banco = banco.trim().slice(0, 100) || null
+      payload.agencia = agencia.trim().slice(0, 20) || null
+      payload.conta = conta.trim().slice(0, 30) || null
+      payload.pix = pix.trim().slice(0, 100) || null
     }
 
     const result = pessoa?.id
@@ -691,6 +707,32 @@ export default function PessoaForm({ companyId, tipo, pessoa, onClose, onSaved, 
               <Campo ajuda="cadastros.pessoa.observacoes" label="Observações">
                 <textarea value={observacoes} onChange={(e) => setObservacoes(e.target.value)} rows={2} placeholder="Observações gerais sobre o cliente…" style={{ ...inputStyle, resize: 'vertical' }} />
               </Campo>
+            </div>
+          )}
+
+          {/* Dados bancários para pagamento (só fornecedor) — blueprint 188 "Conta bancária para pagamento (PIX/CC p/ TED)".
+              Colunas já existentes em erp_fornecedores; antes a tela não as mostrava (0 de 11 mil fornecedores com conta). */}
+          {!ehCliente && (
+            <div style={{ marginTop: 8, padding: '12px 14px', background: '#FFFFFF', borderRadius: 8, border: '0.5px solid rgba(61,35,20,0.15)' }} data-testid="fornecedor-dados-bancarios">
+              <div style={{ fontSize: 11, color: 'rgba(61,35,20,0.55)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10, fontWeight: 700 }}>
+                Dados bancários para pagamento
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <Campo ajuda="cadastros.pessoa.banco" label="Banco" hint="Nome ou código (ex.: 756 Sicoob)">
+                  <input value={banco} onChange={(e) => setBanco(e.target.value)} maxLength={100} placeholder="Ex.: 756 Sicoob" style={inputStyle} data-testid="fornecedor-banco" />
+                </Campo>
+                <Campo ajuda="cadastros.pessoa.agencia" label="Agência">
+                  <input value={agencia} onChange={(e) => setAgencia(e.target.value)} maxLength={20} inputMode="numeric" placeholder="Ex.: 3069" style={inputStyle} data-testid="fornecedor-agencia" />
+                </Campo>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <Campo ajuda="cadastros.pessoa.conta" label="Conta (com dígito)">
+                  <input value={conta} onChange={(e) => setConta(e.target.value)} maxLength={30} placeholder="Ex.: 12345-6" style={inputStyle} data-testid="fornecedor-conta" />
+                </Campo>
+                <Campo ajuda="cadastros.pessoa.pix" label="Chave PIX">
+                  <input value={pix} onChange={(e) => setPix(e.target.value)} maxLength={100} placeholder="CNPJ, e-mail, celular ou chave aleatória" style={inputStyle} data-testid="fornecedor-pix" />
+                </Campo>
+              </div>
             </div>
           )}
 

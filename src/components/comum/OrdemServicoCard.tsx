@@ -21,8 +21,18 @@ import { itensPendentesOS, podeAprovarNaOS } from '@/lib/oficina/aprovarNaOS'
 import { edicaoInicialOS, idsRemovidosNaEdicao, itemEditavelNaOS, montarDadosDiagnosticoOS, motivoItensBloqueadosOS, podeEditarItensNaOS, validarEdicaoOS, type EdicaoItemOS } from '@/lib/oficina/itensNaOS'
 import { aprovaPendentesAoAvancar, proximoPassoOS } from '@/lib/oficina/avancoNaOS'   // #135 · Iniciar → Finalizar → Entregar na ficha
 import AjudaCampo from '@/components/ajuda/AjudaCampo'
+import { TIPOS_ITEM_SPED } from '@/lib/produtos/fiscalMassa'   // #5452 item 2 · rótulo do Tipo de item (SPED) na linha da OS
 import FotosOS from '@/components/oficina/FotosOS'   // #135 item 6 · fotos da OS em lote
+import OSCustosAvulsos from '@/components/oficina/OSCustosAvulsos'   // #6714 · custo avulso (sem NF) na OS
 import { Lock, Package, PencilLine, Play, Search, Trash2, Wrench } from 'lucide-react'
+
+// #5452 item 2 · "00 - Mercadoria para revenda" / "99 - Outras" a partir do código SPED do produto.
+// Reusa o catálogo único TIPOS_ITEM_SPED (RD-26); código desconhecido volta como está.
+function rotuloTipoItemSped(cod: string | null | undefined): string | null {
+  if (!cod) return null
+  const o = TIPOS_ITEM_SPED.find((t) => t.codigo === cod)
+  return o ? `${o.codigo} - ${o.rotulo}` : cod
+}
 
 interface OS {
   id: string
@@ -364,6 +374,9 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
   const [msgPlaca, setMsgPlaca] = useState<string | null>(null)
   const [buscaCli, setBuscaCli] = useState('')
   const [cliOpts, setCliOpts] = useState<Array<{ id: string; nome: string; doc: string | null }>>([])
+  // #5452 item 2 · Tipo de item (SPED) por produto dos itens da OS (produto_id → código). Leitura additiva,
+  // guardada por company_id (RLS de erp_produtos); peça texto-livre fica sem rótulo.
+  const [spedPorProduto, setSpedPorProduto] = useState<Record<string, string>>({})
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -396,9 +409,27 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
     if (row?.id && row.company_id) {
       const { data: diag } = await supabase.rpc('fn_oficina_diagnostico_obter', { p_company_id: row.company_id, p_os_id: row.id })
       const dd = diag as { itens?: typeof itensDiag } | null   // o retorno traz {diagnostico,km,itens,resumo} (sem 'ok')
-      setItensDiag(Array.isArray(dd?.itens) ? (dd?.itens ?? []) : [])
+      const itens = Array.isArray(dd?.itens) ? (dd?.itens ?? []) : []
+      setItensDiag(itens)
+      // #5452 item 2 · busca o Tipo de item (SPED) dos produtos ligados aos itens (uma chamada por OS).
+      const prodIds = Array.from(new Set(itens.map((it) => it.produto_id).filter((x): x is string => !!x)))
+      if (prodIds.length > 0) {
+        const { data: prods } = await supabase
+          .from('erp_produtos')
+          .select('id, tipo_item_sped')
+          .eq('company_id', row.company_id)
+          .in('id', prodIds)
+        const mapa: Record<string, string> = {}
+        for (const p of (prods ?? []) as Array<{ id: string; tipo_item_sped: string | null }>) {
+          if (p.tipo_item_sped) mapa[p.id] = p.tipo_item_sped
+        }
+        setSpedPorProduto(mapa)
+      } else {
+        setSpedPorProduto({})
+      }
     } else {
       setItensDiag([])
+      setSpedPorProduto({})
     }
     setLoading(false)
   }, [pedidoId, osId])
@@ -955,6 +986,9 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
         </div>
       </div>
 
+      {/* #6714 · custos avulsos (sem NF) da OS — compõem o custo real do serviço */}
+      <OSCustosAvulsos companyId={os.company_id} osId={os.id} />
+
       {/* RD-41 · a assinatura única "de recebimento da OS" saiu daqui. Agora são 2
           assinaturas operacionais tipadas: "Ciente do checklist" (na Recepção) e
           "Entrega" (no Pátio), gravadas em erp_os_assinatura via AssinaturaModal.
@@ -1057,6 +1091,13 @@ export default function OrdemServicoCard({ pedidoId, osId, onFlash, onExcluida, 
                       ? <span style={{ fontWeight: 700, color: C.espresso, whiteSpace: 'nowrap' }}>{fmtBRL(Number(val))}</span>
                       : <span style={{ fontSize: 10.5, fontWeight: 700, color: C.amber, background: C.amberBg, borderRadius: 6, padding: '2px 6px', whiteSpace: 'nowrap' }}>precificar</span>}
                 </div>
+                {/* #5452 item 2 · Tipo de item (SPED) do produto, em letra menor sob o nome: distingue estoque
+                    quente (00) de frio (99) para a baixa e o faturamento. Só para peça ligada ao estoque. */}
+                {it.produto_id && rotuloTipoItemSped(spedPorProduto[it.produto_id]) && (
+                  <div data-testid={`os-item-tipo-sped-${i}`} style={{ fontSize: 10.5, color: C.espressoL, paddingLeft: 26, marginTop: -3, paddingBottom: 3 }}>
+                    {rotuloTipoItemSped(spedPorProduto[it.produto_id])} <AjudaCampo chave="oficina.os.item_tipo_sped" rota="/dashboard/os" />
+                  </div>
+                )}
                 {substItem === it.id && (
                   <div style={{ padding: '2px 0 8px 26px' }}>
                     <input value={substTermo} onChange={(e) => setSubstTermo(e.target.value)} placeholder="Buscar peça no estoque (nome/código)…" autoFocus
