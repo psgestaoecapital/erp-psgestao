@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { authFetch } from '@/lib/authFetch';
+import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 
 const GO="#C6973F",GOL="#E8C872",BG="#0C0C0A",BG2="#161614",BG3="#1E1E1B",
   G="#34D399",R="#F87171",Y="#FBBF24",B="#60A5FA",P="#A78BFA",
@@ -150,12 +151,18 @@ export default function CusteioPage(){
           <div style={{fontSize:10,color:TXD}}>CPC 16 • Absorção + Variável • Multi-ERP • Reforma Tributária 2026-2033</div>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center"}}>
-          <select value={sel} onChange={e=>setSel(e.target.value)} style={ss}>
-            {companies.map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
-          </select>
-          <select value={mesAno} onChange={e=>setMesAno(e.target.value)} style={ss}>
-            {mOps.map(m=><option key={m} value={m}>{nMes(m)}</option>)}
-          </select>
+          <span style={{display:"inline-flex",alignItems:"center"}}>
+            <select value={sel} onChange={e=>setSel(e.target.value)} style={ss} aria-label="Empresa">
+              {companies.map(c=><option key={c.id} value={c.id}>{c.nome_fantasia||c.razao_social}</option>)}
+            </select>
+            <AjudaCampo chave="custeio.empresa" />
+          </span>
+          <span style={{display:"inline-flex",alignItems:"center"}}>
+            <select value={mesAno} onChange={e=>setMesAno(e.target.value)} style={ss} aria-label="Período">
+              {mOps.map(m=><option key={m} value={m}>{nMes(m)}</option>)}
+            </select>
+            <AjudaCampo chave="custeio.periodo" />
+          </span>
           <button onClick={processar} disabled={processing} style={{padding:"8px 18px",borderRadius:8,background:processing?BD:`linear-gradient(135deg,${GO},${GOL})`,color:BG,fontSize:11,fontWeight:700,border:"none",cursor:processing?"wait":"pointer"}}>
             {processing?"⏳ Processando...":"🔄 Processar Período"}
           </button>
