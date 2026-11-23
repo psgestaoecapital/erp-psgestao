@@ -26,6 +26,7 @@ import { comPrazo } from "@/lib/comPrazo";
 import { BdiSlider } from "@/components/projetos/BdiSlider";
 import PrecificacaoConfigPanel from "@/components/projetos/PrecificacaoConfigPanel";
 import ProdutividadePanel from "@/components/projetos/ProdutividadePanel";
+import HubPerfilCard from "@/components/projetos/HubPerfilCard";
 import {
   BdiPreview,
   type BdiComponentes,
@@ -424,6 +425,9 @@ export default function ConfiguracoesPage() {
           <Gauge size={13} className="mr-1 inline" /> Produtos &amp; Produtividade
         </TabBtn>
       </div>
+
+      {/* Onda M0: tipo de empresa no Hub (modo + ramo) — no topo do módulo Projetos */}
+      {aba === "projetos" && <HubPerfilCard companyId={companyId} />}
 
       {aba === "precificacao" ? (
         <PrecificacaoConfigPanel companyId={companyId} />

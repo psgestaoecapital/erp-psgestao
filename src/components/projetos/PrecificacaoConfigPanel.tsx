@@ -9,6 +9,7 @@ import { DollarSign, Loader2, CheckCircle2, AlertTriangle } from "lucide-react";
 import { supabaseBrowser } from "@/lib/authFetch";
 import { AjudaCampo } from "@/components/ajuda/AjudaCampo";
 import { erroAmigavel, codigoAmigavel } from "@/lib/erroAmigavel";
+import { parseNumBR } from "@/lib/num";
 
 type Linha = { id: string; nome: string };
 type Cfg = Record<string, number | string | null> & { business_line_id: string | null };
@@ -92,7 +93,7 @@ export default function PrecificacaoConfigPanel({ companyId }: { companyId: stri
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), 4000); return () => clearTimeout(t); }, [toast]);
 
   const setCampo = (k: string, v: string) => setForm((p) => ({ ...p, [k]: v.replace(/[^\d.,-]/g, "") }));
-  const numOrNull = (s: string): number | null => { const t = (s ?? "").trim().replace(",", "."); if (t === "") return null; const v = parseFloat(t); return Number.isFinite(v) ? v : null; };
+  const numOrNull = (s: string): number | null => parseNumBR(s); // parseNumBR: aceita vírgula decimal e ponto de milhar (pt-BR)
 
   // Custo fixo por m² EM USO: manual = digitado (custo_fixo_m2) · rateio = mensal ÷ produção (S0.2).
   const origem = (cfgAtual?.custo_fixo_origem as string) ?? "manual";
