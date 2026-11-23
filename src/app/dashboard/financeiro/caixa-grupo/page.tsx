@@ -50,6 +50,10 @@ type Totais = { saldo_inicial: number; entradas: number; saidas: number; transf:
 type Vence = { receber: { hoje: number; atrasado: number; proximos7: number }; pagar: { hoje: number; atrasado: number; proximos7: number } };
 type Resp = { ok: boolean; data: string; empresas: Empresa[]; consolidado: Totais; vence: Vence; atrasados_n: number; resumo: string };
 type Titulo = { id: string; nome: string; descricao: string | null; valor: number; data: string };
+// Recebidos/Pagos BRUTOS do mês (dia 1 → data) — fn_caixa_grupo_mes (#Pdois/Julia). Soma das baixas, sem líquido.
+type MesVals = { recebido_mes_bruto: number; pago_mes_bruto: number; a_receber_aberto: number; a_pagar_aberto: number };
+type MesEmpresa = MesVals & { company_id: string; nome: string };
+type RespMes = { ok: boolean; data: string; mes_inicio: string; por_empresa: MesEmpresa[]; consolidado: MesVals };
 
 export default function CaixaGrupoPage() {
   const { companyIds, selInfo, companies } = useCompanyIds();
@@ -71,6 +75,7 @@ export default function CaixaGrupoPage() {
   const companyIdsKey = useMemo(() => [...effectiveIds].sort().join(","), [effectiveIds]);
   const [data, setData] = useState<string>(hojeISO());
   const [resp, setResp] = useState<Resp | null>(null);
+  const [respMes, setRespMes] = useState<RespMes | null>(null);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [drill, setDrill] = useState<{ titulo: string; bucket: string; companyId: string | null } | null>(null);
@@ -82,9 +87,14 @@ export default function CaixaGrupoPage() {
     if (!companyIdsKey) { setResp(null); setLoading(false); return; }
     setLoading(true); setErro(null);
     const ids = companyIdsKey.split(",");
-    const { data: d, error } = await supabase.rpc("fn_caixa_grupo_dia", { p_company_ids: ids, p_data: data });
-    if (error) { setErro("Não foi possível carregar o caixa do dia. Tente de novo."); setResp(null); setLoading(false); return; }
-    setResp(d as Resp);
+    // dia (fn_caixa_grupo_dia) + mês bruto (fn_caixa_grupo_mes) em paralelo; se o mês falhar, o dia ainda carrega.
+    const [diaRes, mesRes] = await Promise.all([
+      supabase.rpc("fn_caixa_grupo_dia", { p_company_ids: ids, p_data: data }),
+      supabase.rpc("fn_caixa_grupo_mes", { p_company_ids: ids, p_data: data }),
+    ]);
+    if (diaRes.error) { setErro("Não foi possível carregar o caixa do dia. Tente de novo."); setResp(null); setRespMes(null); setLoading(false); return; }
+    setResp(diaRes.data as Resp);
+    setRespMes(mesRes.error ? null : (mesRes.data as RespMes));
     setLoading(false);
   }, [companyIdsKey, data]);
 
@@ -108,6 +118,14 @@ export default function CaixaGrupoPage() {
     if (cons && multi) base.push({ id: "__cons__", nome: "Consolidado", tot: cons, isCons: true });
     return base;
   }, [empresas, cons, multi]);
+
+  // Valores do mês (bruto) por coluna: empresa → company_id; consolidado → "__cons__".
+  const mesPorCol = useMemo<Record<string, MesVals>>(() => {
+    const m: Record<string, MesVals> = {};
+    (respMes?.por_empresa ?? []).forEach((e) => { m[e.company_id] = e; });
+    if (respMes?.consolidado) m["__cons__"] = respMes.consolidado;
+    return m;
+  }, [respMes]);
 
   const linhas: Array<{ chave: keyof Totais; rotulo: string; ajuda: string; cor?: string; clicavel?: "entradas" | "saidas" }> = [
     { chave: "saldo_inicial", rotulo: "Saldo inicial", ajuda: "financeiro.caixa_grupo.saldo_inicial" },
@@ -228,6 +246,24 @@ export default function CaixaGrupoPage() {
                             </button>
                           ) : brl(val)}
                         </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+                {/* Recebidos/Pagos BRUTOS do mês (dia 1 → data) — Pdois/Julia. Soma das baixas, sem líquido. */}
+                {respMes && ([
+                  { k: "recebido_mes_bruto" as const, rotulo: "Recebidos (mês)", ajuda: "financeiro.caixa_grupo.recebido_mes", cor: VERDE },
+                  { k: "pago_mes_bruto" as const, rotulo: "Pagos (mês)", ajuda: "financeiro.caixa_grupo.pago_mes", cor: VERM },
+                ]).map((ln) => (
+                  <tr key={ln.k} style={{ borderBottom: `0.5px solid ${BD}`, background: `${GO}0D` }}>
+                    <td style={{ padding: "10px 12px", fontSize: 12, color: TXM, textAlign: "left" }}>
+                      <span style={{ display: "inline-flex", alignItems: "center" }}>{ln.rotulo}<AjudaCampo chave={ln.ajuda} rota={ROTA} /></span>
+                      <div style={{ fontSize: 10, color: TXD }}>do dia 1 até {data.slice(8, 10)}/{data.slice(5, 7)}</div>
+                    </td>
+                    {colunas.map((c) => {
+                      const mv = mesPorCol[c.id];
+                      return (
+                        <td key={c.id} style={{ ...td, color: ln.cor, fontWeight: 600 }}>{mv ? brl(mv[ln.k]) : "—"}</td>
                       );
                     })}
                   </tr>
