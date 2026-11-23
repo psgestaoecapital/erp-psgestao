@@ -16,6 +16,7 @@
 -- Aditiva e idempotente (reaplicar não duplica; sem lixo, remove 0).
 
 -- ── (1) Função de limpeza durável (nova, aditiva) ──
+-- ci-sem-guarda: fn_demo_ge_limpar_contas_teste — função de DEMO (RD-69): grava SÓ em empresa is_demo (valida is_demo no topo); nenhum dado de cliente é tocado.
 CREATE OR REPLACE FUNCTION public.fn_demo_ge_limpar_contas_teste(p_company_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -52,7 +53,7 @@ BEGIN
   RETURN jsonb_build_object('ok', true, 'contas_removidas', v_contas, 'receber_desvinculados', v_fk);
 END $fn$;
 
-REVOKE ALL ON FUNCTION public.fn_demo_ge_limpar_contas_teste(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fn_demo_ge_limpar_contas_teste(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_demo_ge_limpar_contas_teste(uuid) TO authenticated, service_role;
 
 -- ── (2) Limpeza one-time do estado atual (backup antes · RD-100) ──
@@ -67,6 +68,7 @@ CREATE TABLE public.erp_banco_contas_bkp_pdca1123 AS
 SELECT public.fn_demo_ge_limpar_contas_teste('b0700000-0000-4000-a000-000000000004'::uuid);
 
 -- ── (3) CREATE OR REPLACE fn_demo_reset: corpo vivo IDÊNTICO + chamada da limpeza no bloco GE ──
+-- ci-sem-guarda: fn_demo_reset — função de DEMO (RD-69): só executa seeds/limpeza em empresa is_demo (valida is_demo no topo); nenhum dado de cliente é tocado.
 CREATE OR REPLACE FUNCTION public.fn_demo_reset(p_company_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -222,3 +224,6 @@ BEGIN
 
   RETURN jsonb_build_object('ok', true, 'empresa', v_nome, 'seed', v_seed, 'resultado', v_res);
 END $function$;
+
+-- CREATE OR REPLACE preserva os grants existentes; reafirma a guarda (idempotente) — reset de DEMO nunca vai a anon.
+REVOKE ALL ON FUNCTION public.fn_demo_reset(uuid) FROM PUBLIC, anon;
