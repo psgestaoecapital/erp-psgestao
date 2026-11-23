@@ -114,5 +114,48 @@ $function$;
 REVOKE ALL ON FUNCTION public.fn_demo_ge_receber_purgar_lixo_teste(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.fn_demo_ge_receber_purgar_lixo_teste(uuid) TO authenticated, service_role;
 
--- One-time: roda a limpeza (com o cascade de órfãs) para a DEMO GE. A função valida is_demo.
-SELECT public.fn_demo_ge_receber_purgar_lixo_teste('b0700000-0000-4000-a000-000000000004'::uuid);
+-- CONSERTO-MAIN (code-desenvolvedor-3 · 23/11): a execução one-time anterior
+--   `SELECT fn_demo_ge_receber_purgar_lixo_teste(...)` rodava o soft-delete de ~39k baixas órfãs
+--   da DEMO GE num ÚNICO statement. Com o gatilho de auditoria por linha, isso ultrapassava o
+--   statement_timeout (~120s) do `supabase db push` → a migration falhava, nunca entrava no ledger
+--   e o deploy-migrations repetia e travava TODA a fila de migrations (RD-52).
+-- Correção: mesma limpeza, mas em LOTES de 5000 (cada statement curto, não estoura o timeout),
+--   SÓ-DEMO (guarda is_demo), idempotente (só toca baixa viva de pai soft-deletado; re-rodar é no-op),
+--   com backup por lote antes do soft-delete. Não toca dado de cliente nem título pago.
+DO $$
+DECLARE
+  v_company constant uuid := 'b0700000-0000-4000-a000-000000000004';
+  v_ids uuid[];
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.companies c WHERE c.id = v_company AND c.is_demo = true) THEN
+    RAISE NOTICE 'fn_demo_ge_receber_purgar: DEMO GE ausente ou nao-demo — pulo a limpeza inline';
+    RETURN;
+  END IF;
+
+  LOOP
+    SELECT array_agg(s.id) INTO v_ids
+      FROM (
+        SELECT b.id
+          FROM public.erp_receber_baixa b
+          JOIN public.erp_receber r ON r.id = b.receber_id
+         WHERE b.company_id = v_company
+           AND b.deleted_at IS NULL
+           AND r.deleted_at IS NOT NULL
+         LIMIT 5000
+      ) s;
+
+    EXIT WHEN v_ids IS NULL;
+
+    INSERT INTO public.erp_receber_baixa_lixo_teste_bkp_c3 (baixa_id, receber_id, company_id, valor, data, deleted_at_old)
+    SELECT b.id, b.receber_id, b.company_id, b.valor, b.data, b.deleted_at
+      FROM public.erp_receber_baixa b
+     WHERE b.id = ANY(v_ids)
+    ON CONFLICT (baixa_id) DO NOTHING;
+
+    UPDATE public.erp_receber_baixa b
+       SET deleted_at = now()
+     WHERE b.id = ANY(v_ids)
+       AND b.deleted_at IS NULL;
+  END LOOP;
+END
+$$;
